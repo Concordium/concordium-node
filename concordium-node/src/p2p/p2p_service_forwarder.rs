@@ -364,4 +364,13 @@ impl P2P for P2PServiceForwarder {
     ) {
         forward_to_targets!(self.targets, retransmit_request, ctx, req, sink);
     }
+
+    fn get_skov_stats(
+        &self,
+        ctx: ::grpcio::RpcContext<'_>,
+        req: Empty,
+        sink: ::grpcio::UnarySink<SuccesfulStructResponse>,
+    ) {
+        forward_to_targets!(self.targets, get_skov_stats, ctx, req, sink);
+    }
 }

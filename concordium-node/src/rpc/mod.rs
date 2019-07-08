@@ -16,6 +16,7 @@ use crate::{
     },
     proto::*,
 };
+use concordium_common::stats_export_service::StatsExportService;
 use concordium_consensus::{consensus::ConsensusContainer, ffi::ConsensusFfiResponse};
 use futures::future::Future;
 use grpcio::{self, Environment, ServerBuilder};
@@ -67,6 +68,7 @@ pub struct RpcServerImpl {
     kvs_handle:   Arc<RwLock<Rkv>>,
     consensus:    Option<ConsensusContainer>,
     dptr:         Arc<Mutex<RpcServerImplShared>>,
+    stats:        Option<Arc<RwLock<StatsExportService>>>,
 }
 
 impl RpcServerImpl {
@@ -75,6 +77,7 @@ impl RpcServerImpl {
         kvs_handle: Arc<RwLock<Rkv>>,
         consensus: Option<ConsensusContainer>,
         conf: &configuration::RpcCliConfig,
+        stats: &Option<Arc<RwLock<StatsExportService>>>,
     ) -> Self {
         RpcServerImpl {
             node: Arc::new(Mutex::new(node)),
@@ -84,6 +87,7 @@ impl RpcServerImpl {
             kvs_handle,
             consensus,
             dptr: Arc::new(Mutex::new(RpcServerImplShared::new())),
+            stats: stats.clone(),
         }
     }
 
@@ -1222,6 +1226,41 @@ impl P2P for RpcServerImpl {
         let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
         ctx.spawn(f);
     }
+
+    fn get_skov_stats(
+        &self,
+        ctx: ::grpcio::RpcContext<'_>,
+        req: Empty,
+        sink: ::grpcio::UnarySink<SuccesfulStructResponse>,
+    ) {
+        let f = if let Some(stats) = &self.stats {
+            if let Ok(stats) = safe_read!(stats) {
+                let mut r: SuccesfulStructResponse = SuccesfulStructResponse::new();
+                let mut s = GRPCSkovStats::new();
+                let stat_values = stats.get_skov_stats();
+                s.set_skov_block_receipt(stat_values.0 as u32);
+                s.set_skov_block_entry(stat_values.1 as u32);
+                s.set_skov_block_query(stat_values.2 as u32);
+                s.set_skov_finalization_receipt(stat_values.3 as u32);
+                s.set_skov_finalization_entry(stat_values.4 as u32);
+                s.set_skov_finalization_query(stat_values.5 as u32);
+                r.set_skov_stats(s);
+                sink.success(r)
+            } else {
+                sink.fail(grpcio::RpcStatus::new(
+                    grpcio::RpcStatusCode::ResourceExhausted,
+                    Some("Stats server can't be locked".to_string()),
+                ))
+            }
+        } else {
+            sink.fail(grpcio::RpcStatus::new(
+                grpcio::RpcStatusCode::ResourceExhausted,
+                Some("Stats server can't be locked".to_string()),
+            ))
+        };
+        let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+        ctx.spawn(f);
+    }
 }
 
 #[cfg(test)]
@@ -1275,7 +1314,7 @@ mod tests {
         config.cli.rpc.rpc_server_port = rpc_port;
         config.cli.rpc.rpc_server_addr = "127.0.0.1".to_owned();
         config.cli.rpc.rpc_server_token = "rpcadmin".to_owned();
-        let mut rpc_server = RpcServerImpl::new(node, kvs_handle, None, &config.cli.rpc);
+        let mut rpc_server = RpcServerImpl::new(node, kvs_handle, None, &config.cli.rpc, &None);
         rpc_server.start_server().expect("rpc");
 
         let env = Arc::new(EnvBuilder::new().build());

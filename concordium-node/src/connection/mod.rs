@@ -49,8 +49,8 @@ use crate::{
     },
     dumper::DumpItem,
     network::{Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse},
-    stats_export_service::StatsExportService,
 };
+use concordium_common::stats_export_service::StatsExportService;
 
 use concordium_common::{
     functor::{FuncResult, UnitFunction},

@@ -322,16 +322,27 @@ dependencies = [
 
 [[package]]
 name = "concordium-common"
-version = "0.0.1"
+version = "0.1.35"
 dependencies = [
  "byteorder 1.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "cfg-if 0.1.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "circular-queue 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "gotham 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "gotham_derive 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "hash_hasher 2.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "hyper 0.12.31 (registry+https://github.com/rust-lang/crates.io-index)",
+ "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "mime 0.3.13 (registry+https://github.com/rust-lang/crates.io-index)",
+ "num_cpus 1.10.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "prometheus 0.7.0 (git+https://github.com/pingcap/rust-prometheus.git)",
+ "reqwest 0.9.18 (registry+https://github.com/rust-lang/crates.io-index)",
  "rkv 0.9.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.93 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.93 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde_json 1.0.39 (registry+https://github.com/rust-lang/crates.io-index)",
  "tempfile 3.0.8 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tokio 0.1.21 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -339,7 +350,7 @@ name = "concordium-consensus"
 version = "0.0.1"
 dependencies = [
  "byteorder 1.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "concordium-common 0.0.1",
+ "concordium-common 0.1.35",
  "concordium-global-state 0.0.1",
  "dodis-yampolskiy-prf 0.1.0",
  "ec_vrf_ed25519_sha256 0.0.1",
@@ -375,7 +386,7 @@ dependencies = [
  "byteorder 1.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "chrono 0.4.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "circular-queue 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "concordium-common 0.0.1",
+ "concordium-common 0.1.35",
  "digest 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "ec_vrf_ed25519_sha256 0.0.1",
  "eddsa_ed25519 0.1.0",
@@ -1558,7 +1569,7 @@ dependencies = [
 
 [[package]]
 name = "p2p_client"
-version = "0.1.35"
+version = "0.1.36"
 dependencies = [
  "app_dirs2 2.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "base58 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1569,7 +1580,7 @@ dependencies = [
  "cfg-if 0.1.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "chrono 0.4.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "circular-queue 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "concordium-common 0.0.1",
+ "concordium-common 0.1.35",
  "concordium-consensus 0.0.1",
  "concordium-dns 0.0.1",
  "concordium-global-state 0.0.1",
@@ -1597,10 +1608,8 @@ dependencies = [
  "mime 0.3.13 (registry+https://github.com/rust-lang/crates.io-index)",
  "mio 0.6.19 (registry+https://github.com/rust-lang/crates.io-index)",
  "nom 4.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "num_cpus 1.10.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "pedersen-scheme 0.1.0",
  "preferences 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "prometheus 0.7.0 (git+https://github.com/pingcap/rust-prometheus.git)",
  "protobuf 2.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "protoc-grpcio 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1618,7 +1627,6 @@ dependencies = [
  "static_assertions 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "structopt 0.2.18 (registry+https://github.com/rust-lang/crates.io-index)",
  "tempfile 3.0.8 (registry+https://github.com/rust-lang/crates.io-index)",
- "tokio 0.1.21 (registry+https://github.com/rust-lang/crates.io-index)",
  "walkdir 2.2.8 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 

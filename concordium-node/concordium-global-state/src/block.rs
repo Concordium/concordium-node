@@ -130,6 +130,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BlockData {
                 "finalization parameters",
                 VoterInfo::deserialize(&read_const_sized!(cursor, VOTER_INFO))?
             );
+            let finalization_minimum_skip = NetworkEndian::read_u64(&read_ty!(cursor, BlockHeight));
 
             let data = BlockData::Genesis(GenesisData {
                 timestamp,
@@ -137,6 +138,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BlockData {
                 birk_parameters,
                 baker_accounts,
                 finalization_parameters,
+                finalization_minimum_skip,
             });
 
             Ok(data)
@@ -177,7 +179,8 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BlockData {
                     + size_of::<u64>()
                     + list_len(&baker_accounts)
                     + size_of::<u64>()
-                    + list_len(&finalization_params);
+                    + list_len(&finalization_params)
+                    + size_of::<u64>();
                 let mut cursor = create_serialization_cursor(size);
 
                 let _ = cursor.write_u64::<NetworkEndian>(data.timestamp);
@@ -185,6 +188,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BlockData {
                 let _ = cursor.write_all(&birk_params);
                 write_multiple!(&mut cursor, baker_accounts, Write::write_all);
                 write_multiple!(&mut cursor, finalization_params, Write::write_all);
+                let _ = cursor.write_u64::<NetworkEndian>(data.finalization_minimum_skip);
 
                 cursor.into_inner()
             }
@@ -234,6 +238,7 @@ pub struct GenesisData {
     birk_parameters:             BirkParameters,
     baker_accounts:              Box<[Account]>,
     pub finalization_parameters: Box<[VoterInfo]>,
+    finalization_minimum_skip:   BlockHeight,
 }
 
 pub type BakerId = u64;

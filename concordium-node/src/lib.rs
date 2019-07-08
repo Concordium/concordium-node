@@ -10,16 +10,6 @@ extern crate get_if_addrs;
 extern crate grpciounix as grpcio;
 #[cfg(target_os = "windows")]
 extern crate grpciowin as grpcio;
-cfg_if! {
-    if #[cfg(feature = "instrumentation")] {
-    #[macro_use]
-    extern crate prometheus;
-    #[macro_use]
-    extern crate gotham_derive;
-    extern crate hyper;
-    extern crate mime;
-    }
-}
 
 #[macro_use]
 extern crate lazy_static;
@@ -49,9 +39,6 @@ extern crate serde_derive;
 
 #[cfg(feature = "s11n_serde_cbor")]
 extern crate serde_cbor;
-
-#[cfg(any(feature = "s11n_serde_json", feature = "instrumentation"))]
-extern crate serde_json;
 
 #[cfg(feature = "s11n_capnp")]
 extern crate capnp;
@@ -83,8 +70,6 @@ pub mod crypto;
 #[macro_use]
 pub mod network;
 pub mod p2p;
-
-pub mod stats_export_service;
 
 pub mod dumper;
 pub mod proto;
