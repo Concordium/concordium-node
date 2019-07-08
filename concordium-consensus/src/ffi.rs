@@ -385,7 +385,7 @@ extern "C" {
 #[derive(Clone)]
 pub struct ConsensusBaker {
     pub id:           BakerId,
-    pub genesis_data: Arc<Bytes>,
+    pub genesis_data: Bytes,
     pub runner:       Arc<AtomicPtr<baker_runner>>,
 }
 
@@ -421,7 +421,7 @@ impl ConsensusBaker {
 
         ConsensusBaker {
             id:           baker_id,
-            genesis_data: Arc::new(genesis_data.into_boxed_slice()),
+            genesis_data: genesis_data.into_boxed_slice(),
             runner:       Arc::new(AtomicPtr::new(baker)),
         }
     }

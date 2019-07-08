@@ -204,8 +204,8 @@ fn setup_process_output(
     let data_dir_path = app_prefs.get_user_app_dir();
     let stats_clone = stats.clone();
 
-    let genesis_data = baker.get_genesis_data().unwrap();
     let mut node_clone = node.clone();
+    let baker_clone = baker.clone();
     let global_state_thread = spawn_or_die!("Process global state requests", {
         // Open the Skov-exclusive k-v store environment
         let skov_kvs_handle = Manager::singleton()
@@ -218,7 +218,12 @@ fn setup_process_output(
             .read()
             .expect("Can't unlock the kvs env for Skov!");
 
-        let mut skov = Skov::new(&genesis_data, &skov_kvs_env);
+        let mut skov = baker_clone.baker
+            .read()
+            .map(|optional_baker| optional_baker.as_ref().map(|baker| Skov::new(&baker.genesis_data, &skov_kvs_env)))
+            .expect("Could not instantiate Skov!")
+            .expect("Could not instantiate Skov!");
+
         loop {
             match skov_receiver.recv() {
                 Ok(RelayOrStopEnvelope::Relay(request)) => {

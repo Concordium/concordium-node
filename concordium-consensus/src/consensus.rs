@@ -122,7 +122,7 @@ impl ConsensusOutQueue {
             match msg.variant {
                 PacketType::Block => relay_msg_to_skov(skov_sender, &msg)?,
                 PacketType::FinalizationRecord => relay_msg_to_skov(skov_sender, &msg)?,
-                _ => {} // not used yet,
+                _ => {} // not used in Skov,
             }
         }
 
@@ -192,7 +192,7 @@ lazy_static! {
 
 #[derive(Clone, Default)]
 pub struct ConsensusContainer {
-    baker: Arc<RwLock<Option<ConsensusBaker>>>,
+    pub baker: Arc<RwLock<Option<ConsensusBaker>>>,
 }
 
 impl ConsensusContainer {
@@ -382,12 +382,6 @@ impl ConsensusContainer {
     ) -> Fallible<ConsensusFfiResponse> {
         baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
             .get_finalization_messages(request, peer_id))
-    }
-
-    pub fn get_genesis_data(&self) -> Option<Arc<Bytes>> {
-        safe_read!(self.baker)
-            .as_ref()
-            .map(|baker| Arc::clone(&baker.genesis_data))
     }
 }
 
