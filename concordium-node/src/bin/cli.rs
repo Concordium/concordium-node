@@ -52,66 +52,166 @@ use std::{
     sync::{mpsc, Arc, RwLock},
 };
 
-fn start_baker_thread(
-    node: &P2PNode,
-    conf: &configuration::Config,
-    skov_sender: RelayOrStopSender<SkovReq>,
-) -> std::thread::JoinHandle<()> {
-    let network_id = NetworkId::from(conf.common.network_ids[0].to_owned()); // defaulted so there's always first()
+fn main() -> Fallible<()> {
+    let (conf, mut app_prefs) = get_config_and_logging_setup()?;
+    if conf.common.print_config {
+        // Print out the configuration
+        info!("{:?}", conf);
+    }
+    let data_dir_path = app_prefs.get_user_app_dir();
 
-    let mut node = node.clone();
-    let consensus_message_thread = spawn_or_die!("Process consensus messages", {
-        loop {
-            match consensus::CALLBACK_QUEUE.recv_message(&skov_sender) {
-                Ok(RelayOrStopEnvelope::Relay(msg)) => {
-                    let mut out_bytes =
-                        Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + msg.payload.len());
-                    match out_bytes.write_u16::<NetworkEndian>(msg.variant as u16) {
-                        Ok(_) => {
-                            out_bytes.extend(&*msg.payload);
+    // Retrieving bootstrap nodes
+    let dns_resolvers =
+        utils::get_resolvers(&conf.connection.resolv_conf, &conf.connection.dns_resolver);
+    for resolver in &dns_resolvers {
+        debug!("Using resolver: {}", resolver);
+    }
 
-                            let res = if let Some(peer_id) = msg.producer {
-                                node.send_direct_message(
-                                    Some(P2PNodeId(peer_id)),
-                                    network_id,
-                                    None,
-                                    out_bytes,
-                                )
-                            } else {
-                                node.send_broadcast_message(None, network_id, None, out_bytes)
-                            };
+    let bootstrap_nodes = utils::get_bootstrap_nodes(
+        conf.connection.bootstrap_server.clone(),
+        &dns_resolvers,
+        conf.connection.dnssec_disabled,
+        &conf.connection.bootstrap_node,
+    );
 
-                            let msg_metadata = if let Some(tgt) = msg.producer {
-                                format!("direct message to peer {}", P2PNodeId(tgt))
-                            } else {
-                                "broadcast".to_string()
-                            };
+    // Instantiate stats export engine
+    let stats_export_service =
+        client_utils::instantiate_stats_export_engine(&conf, StatsServiceMode::NodeMode)
+            .unwrap_or_else(|e| {
+                error!(
+                    "I was not able to instantiate an stats export service: {}",
+                    e
+                );
+                None
+            });
 
-                            match res {
-                                Ok(_) => info!(
-                                    "Peer {} sent a {} containing a {:?}",
-                                    node.id(),
-                                    msg_metadata,
-                                    msg
-                                ),
-                                Err(_) => error!(
-                                    "Peer {} couldn't send a {} containing a {:?}!",
-                                    node.id(),
-                                    msg_metadata,
-                                    msg,
-                                ),
-                            }
-                        }
-                        Err(_) => error!("Can't write a consensus message type to a packet"),
-                    }
-                }
-                Ok(RelayOrStopEnvelope::Stop) => break,
-                _ => error!("Error receiving a message from the consensus layer"),
-            }
+    info!("Debugging enabled: {}", conf.common.debug);
+
+    // Thread #1: instantiate the P2PNode
+    let (mut node, pkt_out) = instantiate_node(&conf, &mut app_prefs, &stats_export_service);
+
+    // Create the cli key-value store environment
+    let cli_kvs_handle = Manager::singleton()
+        .write()
+        .unwrap()
+        .get_or_create(data_dir_path.as_path(), Rkv::new)
+        .unwrap();
+
+    // Load and apply existing bans
+    if let Err(e) = load_bans(&mut node, &cli_kvs_handle) {
+        error!("{}", e);
+    };
+
+    #[cfg(feature = "instrumentation")]
+    // Thread #2 (optional): the push gateway to Prometheus
+    client_utils::start_push_gateway(&conf.prometheus, &stats_export_service, node.id())?;
+
+    // Start the P2PNode
+    //
+    // Thread #2 (#3): P2P event loop
+    node.spawn();
+
+    // Connect to nodes (args and bootstrap)
+    if !conf.cli.no_network {
+        info!("Concordium P2P layer, Network disabled");
+        create_connections_from_config(&conf.connection, &dns_resolvers, &mut node);
+        if !conf.connection.no_bootstrap_dns {
+            info!("Attempting to bootstrap");
+            bootstrap(&bootstrap_nodes, &mut node);
         }
-    });
+    }
 
-    consensus_message_thread
+    let is_baker = conf.cli.baker.baker_id.is_some();
+
+    let mut consensus = if is_baker {
+        // Thread #3 (#4): the consensus layer
+        plugins::consensus::start_consensus_layer(&conf.cli.baker, &app_prefs)
+    } else {
+        None // This will not be possible once we have a "do not bake" consensus call
+    };
+
+    // Register a handler for sending out a consensus catch-up request by
+    // finalization point after the handshake.
+    if let Some(ref consensus) = consensus {
+        attain_post_handshake_catch_up(&node, consensus)?;
+    }
+
+    // Start the RPC server
+    let mut rpc_serv = if !conf.cli.rpc.no_rpc_server {
+        let mut serv = RpcServerImpl::new(
+            node.clone(),
+            Arc::clone(&cli_kvs_handle),
+            consensus.clone(),
+            &conf.cli.rpc,
+            &stats_export_service,
+        );
+        serv.start_server()?;
+        Some(serv)
+    } else {
+        None
+    };
+
+    let (skov_sender, skov_receiver) = mpsc::channel::<RelayOrStopEnvelope<SkovReq>>();
+
+    // Connect outgoing messages to be forwarded into the baker and RPC streams.
+    //
+    // Thread #4 (#5): read P2PNode output
+    let higer_process_threads = if let Some(ref mut consensus) = consensus {
+        start_consensus_threads(
+            &node,
+            cli_kvs_handle,
+            (&conf, &app_prefs),
+            consensus,
+            pkt_out,
+            (skov_receiver, skov_sender.clone()),
+            &stats_export_service,
+        )
+    } else {
+        vec![]
+    };
+
+    // Create a listener on baker output to forward to the P2PNode
+    //
+    // Thread #5 (#6): the Baker thread
+    let baker_thread = if is_baker {
+        Some(start_baker_thread(&node, &conf, skov_sender.clone()))
+    } else {
+        None
+    };
+
+    // Wait for the P2PNode to close
+    node.join().expect("The node thread panicked!");
+
+    // Stop the Skov thread
+    skov_sender.send_stop()?;
+
+    // Shut down the consensus layer
+    if let Some(ref mut consensus) = consensus {
+        if conf.cli.baker.baker_id.is_some() {
+            consensus.stop_baker()
+        };
+        ffi::stop_haskell();
+    }
+
+    // Wait for the higher process threads to stop
+    for th in higer_process_threads {
+        th.join().expect("Higher process thread panicked")
+    }
+
+    // Close the baker thread
+    if let Some(th) = baker_thread {
+        th.join().expect("Baker sub-thread panicked")
+    }
+
+    // Close the RPC server if present
+    if let Some(ref mut serv) = rpc_serv {
+        serv.stop_server()?;
+    }
+
+    // Close the stats server if present
+    client_utils::stop_stats_export_engine(&conf, &stats_export_service);
+
+    Ok(())
 }
 
 fn instantiate_node(
@@ -141,7 +241,7 @@ fn instantiate_node(
         None
     };
 
-    // Thread #1: Read P2PEvents from P2PNode
+    // Start the thread reading P2PEvents from P2PNode
     let node = if conf.common.debug {
         let (sender, receiver) = mpsc::channel();
         let _guard = spawn_or_die!("Log loop", move || loop {
@@ -170,13 +270,98 @@ fn instantiate_node(
     (node, pkt_out)
 }
 
-#[cfg(feature = "benchmark")]
-fn tps_setup_process_output(cli: &configuration::CliConfig) -> (bool, u64) {
-    (cli.tps.enable_tps_test, cli.tps.tps_message_count)
+fn create_connections_from_config(
+    conf: &configuration::ConnectionConfig,
+    dns_resolvers: &[String],
+    node: &mut P2PNode,
+) {
+    for connect_to in &conf.connect_to {
+        match utils::parse_host_port(&connect_to, &dns_resolvers, conf.dnssec_disabled) {
+            Ok(addrs) => {
+                for addr in addrs {
+                    info!("Connecting to peer {}", &connect_to);
+                    node.connect(PeerType::Node, addr, None)
+                        .unwrap_or_else(|e| debug!("{}", e));
+                }
+            }
+            Err(err) => error!("Can't parse data for node to connect to {}", err),
+        }
+    }
 }
 
-#[cfg(not(feature = "benchmark"))]
-fn tps_setup_process_output(_: &configuration::CliConfig) -> (bool, u64) { (false, 0) }
+fn bootstrap(bootstrap_nodes: &Result<Vec<SocketAddr>, &'static str>, node: &mut P2PNode) {
+    match bootstrap_nodes {
+        Ok(nodes) => {
+            for &addr in nodes {
+                info!("Found bootstrap node: {}", addr);
+                node.connect(PeerType::Bootstrapper, addr, None)
+                    .unwrap_or_else(|e| error!("{}", e));
+            }
+        }
+        Err(e) => error!("Couldn't retrieve bootstrap node list! {:?}", e),
+    };
+}
+
+fn attain_post_handshake_catch_up(
+    node: &P2PNode,
+    consensus: &consensus::ConsensusContainer,
+) -> Fallible<()> {
+    let cloned_handshake_response_node = Arc::new(RwLock::new(node.clone()));
+    let consensus_clone = consensus.clone();
+    let message_handshake_response_handler = &node.message_processor();
+
+    safe_write!(message_handshake_response_handler)?.add_response_action(make_atomic_callback!(
+        move |msg: &NetworkResponse| {
+            if let NetworkResponse::Handshake(ref remote_peer, ref nets, _) = msg {
+                if remote_peer.peer_type() == PeerType::Node {
+                    if let Some(net) = nets.iter().next() {
+                        let response = consensus_clone.get_finalization_point();
+                        let mut locked_cloned_node = write_or_die!(cloned_handshake_response_node);
+                        if let Ok(bytes) = response {
+                            let mut out_bytes =
+                                Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
+                            match out_bytes.write_u16::<NetworkEndian>(
+                                ffi::PacketType::CatchupFinalizationMessagesByPoint as u16,
+                            ) {
+                                Ok(_) => {
+                                    out_bytes.extend(&bytes);
+                                    match locked_cloned_node.send_direct_message(
+                                        Some(remote_peer.id()),
+                                        *net,
+                                        None,
+                                        out_bytes,
+                                    ) {
+                                        Ok(_) => info!(
+                                            "Peer {} requested finalization messages by point \
+                                             from peer {}",
+                                            locked_cloned_node.id(),
+                                            remote_peer.id()
+                                        ),
+                                        Err(_) => error!(
+                                            "Peer {} couldn't send a catch-up request for \
+                                             finalization messages by point!",
+                                            locked_cloned_node.id(),
+                                        ),
+                                    }
+                                }
+                                Err(_) => error!(
+                                    "Can't write type to packet {}",
+                                    ffi::PacketType::CatchupFinalizationMessagesByPoint
+                                ),
+                            }
+                        }
+                    } else {
+                        error!("Handshake without network, so can't ask for finalization messages");
+                    }
+                }
+            }
+
+            Ok(())
+        }
+    ));
+
+    Ok(())
+}
 
 fn start_consensus_threads(
     node: &P2PNode,
@@ -376,258 +561,75 @@ fn start_consensus_threads(
     vec![global_state_thread, guard_pkt]
 }
 
-fn attain_post_handshake_catch_up(
+fn start_baker_thread(
     node: &P2PNode,
-    consensus: &consensus::ConsensusContainer,
-) -> Fallible<()> {
-    let cloned_handshake_response_node = Arc::new(RwLock::new(node.clone()));
-    let consensus_clone = consensus.clone();
-    let message_handshake_response_handler = &node.message_processor();
+    conf: &configuration::Config,
+    skov_sender: RelayOrStopSender<SkovReq>,
+) -> std::thread::JoinHandle<()> {
+    let network_id = NetworkId::from(conf.common.network_ids[0].to_owned()); // defaulted so there's always first()
 
-    safe_write!(message_handshake_response_handler)?.add_response_action(make_atomic_callback!(
-        move |msg: &NetworkResponse| {
-            if let NetworkResponse::Handshake(ref remote_peer, ref nets, _) = msg {
-                if remote_peer.peer_type() == PeerType::Node {
-                    if let Some(net) = nets.iter().next() {
-                        let response = consensus_clone.get_finalization_point();
-                        let mut locked_cloned_node = write_or_die!(cloned_handshake_response_node);
-                        if let Ok(bytes) = response {
-                            let mut out_bytes =
-                                Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
-                            match out_bytes.write_u16::<NetworkEndian>(
-                                ffi::PacketType::CatchupFinalizationMessagesByPoint as u16,
-                            ) {
-                                Ok(_) => {
-                                    out_bytes.extend(&bytes);
-                                    match locked_cloned_node.send_direct_message(
-                                        Some(remote_peer.id()),
-                                        *net,
-                                        None,
-                                        out_bytes,
-                                    ) {
-                                        Ok(_) => info!(
-                                            "Peer {} requested finalization messages by point \
-                                             from peer {}",
-                                            locked_cloned_node.id(),
-                                            remote_peer.id()
-                                        ),
-                                        Err(_) => error!(
-                                            "Peer {} couldn't send a catch-up request for \
-                                             finalization messages by point!",
-                                            locked_cloned_node.id(),
-                                        ),
-                                    }
-                                }
+    let mut node = node.clone();
+    let consensus_message_thread = spawn_or_die!("Process consensus messages", {
+        loop {
+            match consensus::CALLBACK_QUEUE.recv_message(&skov_sender) {
+                Ok(RelayOrStopEnvelope::Relay(msg)) => {
+                    let mut out_bytes =
+                        Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + msg.payload.len());
+                    match out_bytes.write_u16::<NetworkEndian>(msg.variant as u16) {
+                        Ok(_) => {
+                            out_bytes.extend(&*msg.payload);
+
+                            let res = if let Some(peer_id) = msg.producer {
+                                node.send_direct_message(
+                                    Some(P2PNodeId(peer_id)),
+                                    network_id,
+                                    None,
+                                    out_bytes,
+                                )
+                            } else {
+                                node.send_broadcast_message(None, network_id, None, out_bytes)
+                            };
+
+                            let msg_metadata = if let Some(tgt) = msg.producer {
+                                format!("direct message to peer {}", P2PNodeId(tgt))
+                            } else {
+                                "broadcast".to_string()
+                            };
+
+                            match res {
+                                Ok(_) => info!(
+                                    "Peer {} sent a {} containing a {:?}",
+                                    node.id(),
+                                    msg_metadata,
+                                    msg
+                                ),
                                 Err(_) => error!(
-                                    "Can't write type to packet {}",
-                                    ffi::PacketType::CatchupFinalizationMessagesByPoint
+                                    "Peer {} couldn't send a {} containing a {:?}!",
+                                    node.id(),
+                                    msg_metadata,
+                                    msg,
                                 ),
                             }
                         }
-                    } else {
-                        error!("Handshake without network, so can't ask for finalization messages");
+                        Err(_) => error!("Can't write a consensus message type to a packet"),
                     }
                 }
-            }
-
-            Ok(())
-        }
-    ));
-
-    Ok(())
-}
-
-fn main() -> Fallible<()> {
-    let (conf, mut app_prefs) = get_config_and_logging_setup()?;
-    if conf.common.print_config {
-        // Print out the configuration
-        info!("{:?}", conf);
-    }
-    let data_dir_path = app_prefs.get_user_app_dir();
-
-    // Retrieving bootstrap nodes
-    let dns_resolvers =
-        utils::get_resolvers(&conf.connection.resolv_conf, &conf.connection.dns_resolver);
-    for resolver in &dns_resolvers {
-        debug!("Using resolver: {}", resolver);
-    }
-
-    let bootstrap_nodes = utils::get_bootstrap_nodes(
-        conf.connection.bootstrap_server.clone(),
-        &dns_resolvers,
-        conf.connection.dnssec_disabled,
-        &conf.connection.bootstrap_node,
-    );
-
-    // Instantiate stats export engine
-    let stats_export_service =
-        client_utils::instantiate_stats_export_engine(&conf, StatsServiceMode::NodeMode)
-            .unwrap_or_else(|e| {
-                error!(
-                    "I was not able to instantiate an stats export service: {}",
-                    e
-                );
-                None
-            });
-
-    info!("Debugging enabled: {}", conf.common.debug);
-
-    // Instantiate the p2p node
-    let (mut node, pkt_out) = instantiate_node(&conf, &mut app_prefs, &stats_export_service);
-
-    // Create the cli key-value store environment
-    let cli_kvs_handle = Manager::singleton()
-        .write()
-        .unwrap()
-        .get_or_create(data_dir_path.as_path(), Rkv::new)
-        .unwrap();
-
-    // Load and apply existing bans
-    if let Err(e) = load_bans(&mut node, &cli_kvs_handle) {
-        error!("{}", e);
-    };
-
-    #[cfg(feature = "instrumentation")]
-    // Start push gateway to prometheus
-    client_utils::start_push_gateway(&conf.prometheus, &stats_export_service, node.id())?;
-
-    // Start the P2PNode
-    //
-    // Thread #3: P2P event loop
-    node.spawn();
-
-    // Connect to nodes (args and bootstrap)
-    if !conf.cli.no_network {
-        info!("Concordium P2P layer, Network disabled");
-        create_connections_from_config(&conf.connection, &dns_resolvers, &mut node);
-        if !conf.connection.no_bootstrap_dns {
-            info!("Attempting to bootstrap");
-            bootstrap(&bootstrap_nodes, &mut node);
-        }
-    }
-
-    let is_baker = conf.cli.baker.baker_id.is_some();
-
-    let mut consensus = if is_baker {
-        // Start the consensus layer
-        plugins::consensus::start_consensus_layer(&conf.cli.baker, &app_prefs)
-    } else {
-        None // This will not be possible once we have a "do not bake" consensus call
-    };
-
-    // Register a handler for sending out a consensus catch-up request by
-    // finalization point after the handshake.
-    if let Some(ref consensus) = consensus {
-        attain_post_handshake_catch_up(&node, consensus)?;
-    }
-
-    // Starting rpc server
-    let mut rpc_serv = if !conf.cli.rpc.no_rpc_server {
-        let mut serv = RpcServerImpl::new(
-            node.clone(),
-            Arc::clone(&cli_kvs_handle),
-            consensus.clone(),
-            &conf.cli.rpc,
-            &stats_export_service,
-        );
-        serv.start_server()?;
-        Some(serv)
-    } else {
-        None
-    };
-
-    let (skov_sender, skov_receiver) = mpsc::channel::<RelayOrStopEnvelope<SkovReq>>();
-
-    // Connect outgoing messages to be forwarded into the baker and RPC streams.
-    //
-    // Thread #4: Read P2PNode output
-    let higer_process_threads = if let Some(ref mut consensus) = consensus {
-        start_consensus_threads(
-            &node,
-            cli_kvs_handle,
-            (&conf, &app_prefs),
-            consensus,
-            pkt_out,
-            (skov_receiver, skov_sender.clone()),
-            &stats_export_service,
-        )
-    } else {
-        vec![]
-    };
-
-    // Create a listener on baker output to forward to P2PNode
-    //
-    // Thread #5
-    let baker_thread = if is_baker {
-        Some(start_baker_thread(&node, &conf, skov_sender.clone()))
-    } else {
-        None
-    };
-
-    // Wait for node closing
-    node.join().expect("Node thread panicked!");
-
-    skov_sender.send_stop()?;
-
-    // Shut down the consensus layer
-    if let Some(ref mut consensus) = consensus {
-        if conf.cli.baker.baker_id.is_some() {
-            consensus.stop_baker()
-        };
-        ffi::stop_haskell();
-    }
-
-    // Wait for the threads to stop
-    for th in higer_process_threads {
-        th.join().expect("Higher process thread panicked")
-    }
-
-    if let Some(th) = baker_thread {
-        th.join().expect("Baker sub-thread panicked")
-    }
-
-    // Close rpc server if present
-    if let Some(ref mut serv) = rpc_serv {
-        serv.stop_server()?;
-    }
-
-    // Close stats server export if present
-    client_utils::stop_stats_export_engine(&conf, &stats_export_service);
-
-    Ok(())
-}
-
-fn bootstrap(bootstrap_nodes: &Result<Vec<SocketAddr>, &'static str>, node: &mut P2PNode) {
-    match bootstrap_nodes {
-        Ok(nodes) => {
-            for &addr in nodes {
-                info!("Found bootstrap node: {}", addr);
-                node.connect(PeerType::Bootstrapper, addr, None)
-                    .unwrap_or_else(|e| error!("{}", e));
+                Ok(RelayOrStopEnvelope::Stop) => break,
+                _ => error!("Error receiving a message from the consensus layer"),
             }
         }
-        Err(e) => error!("Couldn't retrieve bootstrap node list! {:?}", e),
-    };
+    });
+
+    consensus_message_thread
 }
 
-fn create_connections_from_config(
-    conf: &configuration::ConnectionConfig,
-    dns_resolvers: &[String],
-    node: &mut P2PNode,
-) {
-    for connect_to in &conf.connect_to {
-        match utils::parse_host_port(&connect_to, &dns_resolvers, conf.dnssec_disabled) {
-            Ok(addrs) => {
-                for addr in addrs {
-                    info!("Connecting to peer {}", &connect_to);
-                    node.connect(PeerType::Node, addr, None)
-                        .unwrap_or_else(|e| debug!("{}", e));
-                }
-            }
-            Err(err) => error!("Can't parse data for node to connect to {}", err),
-        }
-    }
+#[cfg(feature = "benchmark")]
+fn tps_setup_process_output(cli: &configuration::CliConfig) -> (bool, u64) {
+    (cli.tps.enable_tps_test, cli.tps.tps_message_count)
 }
+
+#[cfg(not(feature = "benchmark"))]
+fn tps_setup_process_output(_: &configuration::CliConfig) -> (bool, u64) { (false, 0) }
 
 #[cfg(feature = "instrumentation")]
 fn send_packet_to_testrunner(node: &P2PNode, test_runner_url: &str, pac: &NetworkPacket) {
