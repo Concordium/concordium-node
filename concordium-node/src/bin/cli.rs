@@ -516,12 +516,20 @@ fn start_consensus_threads(
                         }
                     };
 
+                    let is_broadcast =
+                        if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
+                            true
+                        } else {
+                            false
+                        };
+
                     if let Err(e) = handle_pkt_out(
                         &mut baker_clone,
                         pac.peer.id(),
                         pac.message.clone(),
                         &skov_sender,
                         &transactions_cache,
+                        is_broadcast,
                     ) {
                         error!("There's an issue with an outbound packet: {}", e);
                     }

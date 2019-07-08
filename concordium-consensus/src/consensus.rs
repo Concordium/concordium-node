@@ -122,6 +122,9 @@ impl ConsensusOutQueue {
             match msg.variant {
                 PacketType::Block => relay_msg_to_skov(skov_sender, &msg)?,
                 PacketType::FinalizationRecord => relay_msg_to_skov(skov_sender, &msg)?,
+                PacketType::CatchupBlockByHash
+                | PacketType::CatchupFinalizationRecordByHash
+                | PacketType::CatchupFinalizationRecordByIndex => relay_msg_to_skov(skov_sender, &msg)?,
                 _ => {} // not used in Skov,
             }
         }
@@ -153,6 +156,9 @@ fn relay_msg_to_skov(
         PacketType::FinalizationRecord => {
             SkovReqBody::AddFinalizationRecord(FinalizationRecord::deserialize(&message.payload)?)
         }
+        PacketType::CatchupBlockByHash
+        | PacketType::CatchupFinalizationRecordByHash
+        | PacketType::CatchupFinalizationRecordByIndex => SkovReqBody::StartCatchupPhase,
         _ => unreachable!("ConsensusOutQueue::recv_message was extended!"),
     };
 

@@ -21,12 +21,12 @@ use self::PendingQueueType::*;
 /// It contains an optional identifier of the source peer if it is not our own
 /// consensus layer.
 pub struct SkovReq {
-    pub source: Option<u64>, // PeerId
+    pub source: Option<(u64, bool)>, // (PeerId, is_broadcast)
     pub body:   SkovReqBody,
 }
 
 impl SkovReq {
-    pub fn new(source: Option<u64>, body: SkovReqBody) -> Self { Self { source, body } }
+    pub fn new(source: Option<(u64, bool)>, body: SkovReqBody) -> Self { Self { source, body } }
 }
 
 #[derive(Debug)]
@@ -40,9 +40,10 @@ pub enum SkovReqBody {
     GetBlock(HashBytes, Delta),
     GetFinalizationRecordByHash(HashBytes),
     GetFinalizationRecordByIdx(FinalizationIndex),
+    StartCatchupPhase,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 /// Holds a response for a request to Skov.
 ///
 /// Depending on the request, the result can either be just a status or contain
@@ -52,6 +53,7 @@ pub enum SkovResult {
     SuccessfulQuery(Box<[u8]>),
     DuplicateEntry,
     Error(SkovError),
+    Housekeeping,
 }
 
 impl fmt::Display for SkovResult {
@@ -61,13 +63,14 @@ impl fmt::Display for SkovResult {
             SkovResult::SuccessfulQuery(_) => "successful query".to_owned(),
             SkovResult::DuplicateEntry => "duplicate entry".to_owned(),
             SkovResult::Error(e) => e.to_string(),
+            SkovResult::Housekeeping => unreachable!("Skov housekeeping should be silent!"),
         };
 
         write!(f, "Skov: {}", msg)
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 /// Indicates an erroneous result of a request to Skov.
 ///
 /// If there are two components, the first one is the target and the second is
@@ -143,6 +146,13 @@ impl fmt::Display for SkovError {
 pub struct Skov<'a> {
     pub data:  SkovData<'a>,
     pub stats: SkovStats,
+}
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum CatchupState {
+    NotStarted,
+    InProgress,
+    Complete,
 }
 
 /// Returns a result of an operation and its duration.
@@ -264,6 +274,16 @@ impl<'a> Skov<'a> {
     /// Save a Skov error.
     pub fn register_error(&mut self, err: SkovError) { self.stats.errors.push(err) }
 
+    /// Indicate that a catch-up phase has commenced and that it must conclude
+    /// before any new global state input is accepted.
+    pub fn set_catchup_state(&mut self, state: CatchupState) -> SkovResult {
+        self.data.catchup_state = state;
+        info!("The catch-up state was changed to {:?}", state);
+        SkovResult::Housekeeping
+    }
+
+    pub fn catchup_state(&self) -> CatchupState { self.data.catchup_state }
+
     #[doc(hidden)]
     pub fn display_state(&self) {
         fn sorted_block_map(map: &HashedMap<HashBytes, Rc<BlockPtr>>) -> Vec<&Rc<BlockPtr>> {
@@ -331,6 +351,8 @@ pub struct SkovData<'a> {
     inapplicable_finalization_records: HashedMap<BlockHash, FinalizationRecord>,
     /// contains transactions
     transaction_table: TransactionTable,
+    /// the current state of the catch-up process
+    catchup_state: CatchupState,
 }
 
 impl<'a> SkovData<'a> {
@@ -378,6 +400,7 @@ impl<'a> SkovData<'a> {
             awaiting_last_finalized_block: hashed!(HashedMap, SKOV_ERR_PREALLOCATION_SIZE),
             inapplicable_finalization_records: hashed!(HashedMap, SKOV_ERR_PREALLOCATION_SIZE),
             transaction_table: TransactionTable::default(),
+            catchup_state: CatchupState::NotStarted,
         };
 
         // store the genesis block
@@ -658,11 +681,14 @@ impl<'a> SkovData<'a> {
             finalized_parent = parent_hash;
         }
 
-        // afterwards, the candidates with surplus height can be removed
-        let current_height = self.last_finalized.height;
+        // afterwards, as long as a catch-up phase is complete, the candidates with
+        // surplus height can be removed
+        if self.catchup_state == CatchupState::Complete {
+            let current_height = self.last_finalized.height;
 
-        self.tree_candidates
-            .retain(|_, candidate| candidate.height >= current_height)
+            self.tree_candidates
+                .retain(|_, candidate| candidate.height >= current_height)
+        }
     }
 
     fn print_inapplicable_finalizations(&self) -> String {

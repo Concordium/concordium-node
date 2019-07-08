@@ -33,7 +33,7 @@ use concordium_global_state::{
     common::{sha256, HashBytes, SerializeToBytes, SHA256},
     finalization::{FinalizationIndex, FinalizationMessage, FinalizationRecord},
     transaction::Transaction,
-    tree::{Skov, SkovReq, SkovReqBody, SkovResult},
+    tree::{CatchupState, Skov, SkovReq, SkovReqBody, SkovResult},
 };
 
 use crate::{common::P2PNodeId, configuration, network::NetworkId, p2p::*};
@@ -166,10 +166,8 @@ pub fn handle_pkt_out(
     peer_id: P2PNodeId,
     mut msg: UCursor,
     skov_sender: &RelayOrStopSender<SkovReq>,
-    _transactions_cache: &Cache<Transaction>, /* TODO: When Skov has a Transaction Table, the
-                                               * references to the transactions have to be
-                                               * stored
-                                               * into this cache */
+    _transactions_cache: &Cache<Transaction>,
+    is_broadcast: bool,
 ) -> Fallible<()> {
     ensure!(
         msg.len() >= msg.position() + PAYLOAD_TYPE_LENGTH,
@@ -214,7 +212,8 @@ pub fn handle_pkt_out(
     };
 
     if let Some(body) = request_body {
-        let request = RelayOrStopEnvelope::Relay(SkovReq::new(Some(peer_id.0), body));
+        let request =
+            RelayOrStopEnvelope::Relay(SkovReq::new(Some((peer_id.0, is_broadcast)), body));
 
         skov_sender.send(request)?;
     }
@@ -236,16 +235,36 @@ pub fn handle_global_state_request(
 ) -> Fallible<()> {
     if is_baker {
         let packet_type = match request.body {
-            SkovReqBody::AddBlock(..) => PacketType::Block,
-            SkovReqBody::AddFinalizationRecord(..) => PacketType::FinalizationRecord,
-            SkovReqBody::GetBlock(..) => PacketType::CatchupBlockByHash,
+            SkovReqBody::AddBlock(..) => Some(PacketType::Block),
+            SkovReqBody::AddFinalizationRecord(..) => Some(PacketType::FinalizationRecord),
+            SkovReqBody::GetBlock(..) => Some(PacketType::CatchupBlockByHash),
             SkovReqBody::GetFinalizationRecordByHash(..) => {
-                PacketType::CatchupFinalizationRecordByHash
+                Some(PacketType::CatchupFinalizationRecordByHash)
             }
             SkovReqBody::GetFinalizationRecordByIdx(..) => {
-                PacketType::CatchupFinalizationRecordByIndex
+                Some(PacketType::CatchupFinalizationRecordByIndex)
             }
+            SkovReqBody::StartCatchupPhase => None,
         };
+
+        if skov.catchup_state() == CatchupState::InProgress {
+            if packet_type.is_none() {
+                // ignore further outgoing catchup requests
+                return Ok(());
+            }
+
+            if let Some((peer_id, is_broadcast)) = request.source {
+                if is_broadcast {
+                    info!(
+                        "Still catching up; the last received broadcast containing a {} from peer \
+                         {} will not be processed!",
+                        packet_type.unwrap(), // safe here
+                        P2PNodeId(peer_id)
+                    );
+                    return Ok(());
+                }
+            }
+        }
 
         let result = match request.body {
             SkovReqBody::AddBlock(pending_block) => skov.add_block(pending_block),
@@ -255,12 +274,23 @@ pub fn handle_global_state_request(
                 skov.get_finalization_record_by_hash(&hash)
             }
             SkovReqBody::GetFinalizationRecordByIdx(i) => skov.get_finalization_record_by_idx(i),
+            SkovReqBody::StartCatchupPhase => {
+                skov.set_catchup_state(CatchupState::InProgress);
+                return Ok(());
+            }
         };
+
+        if skov.catchup_state() == CatchupState::InProgress && result == SkovResult::SuccessfulEntry
+        {
+            skov.set_catchup_state(CatchupState::Complete);
+        }
 
         let source = request
             .source
-            .map(|peer_id| P2PNodeId(peer_id).to_string())
+            .map(|(peer_id, _)| P2PNodeId(peer_id).to_string())
             .unwrap_or_else(|| "our consensus layer".to_owned());
+
+        let packet_type = packet_type.unwrap(); // safe at this point
 
         match result {
             SkovResult::SuccessfulEntry => {
@@ -284,7 +314,10 @@ pub fn handle_global_state_request(
                     .expect("Can't write to buffer");
                 out_bytes.extend(&*result);
 
-                let source = request.source.map(P2PNodeId).unwrap();
+                let source = request
+                    .source
+                    .map(|(peer_id, _)| P2PNodeId(peer_id))
+                    .unwrap();
 
                 match node.send_direct_message(Some(source), network_id, None, out_bytes) {
                     Ok(_) => info!("Responded to a {} from peer {}", packet_type, source),
@@ -302,6 +335,7 @@ pub fn handle_global_state_request(
 
                 skov.register_error(e);
             }
+            SkovResult::Housekeeping => {}
         }
 
         if let Some(stats) = stats_exporting {
