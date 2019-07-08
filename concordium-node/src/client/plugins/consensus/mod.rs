@@ -30,7 +30,7 @@ use concordium_consensus::{
 
 use concordium_global_state::{
     block::{Block, Delta, PendingBlock},
-    common::{HashBytes, SerializeToBytes, SHA256},
+    common::{sha256, HashBytes, SerializeToBytes, SHA256},
     finalization::{FinalizationIndex, FinalizationMessage, FinalizationRecord},
     transaction::Transaction,
     tree::{Skov, SkovReq, SkovReqBody, SkovResult},
@@ -38,7 +38,7 @@ use concordium_global_state::{
 
 use crate::{common::P2PNodeId, configuration, network::NetworkId, p2p::*};
 
-pub fn start_baker(
+pub fn start_consensus_layer(
     conf: &configuration::BakerConfig,
     app_prefs: &configuration::AppPreferences,
 ) -> Option<consensus::ConsensusContainer> {
@@ -151,6 +151,11 @@ fn get_baker_data(
             Err(e) => bail!("Can't open the private data file ({})!", e),
         }
     };
+
+    debug!(
+        "Obtained genesis data {:?}",
+        sha256(&[&[0u8; 8], given_genesis.as_slice()].concat())
+    );
 
     Ok((given_genesis, given_private_data))
 }
