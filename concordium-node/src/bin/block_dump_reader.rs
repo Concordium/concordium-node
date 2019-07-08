@@ -15,6 +15,7 @@ fn read_block_dump(bytes: &[u8]) {
 
     let genesis_data = BlockData::deserialize((&mut cursor, 0))
         .expect("Can't serialize the provided data as a GenesisData object!");
+    assert_eq!(*BlockData::serialize(&genesis_data), *bytes);
 
     let genesis_block = Block {
         slot: 0,
