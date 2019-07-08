@@ -11,7 +11,7 @@ use std::{
     slice,
     sync::{
         atomic::{AtomicBool, AtomicPtr, Ordering},
-        Arc, Once, ONCE_INIT,
+        Once, ONCE_INIT,
     },
 };
 
@@ -382,11 +382,10 @@ extern "C" {
     pub fn freeCStr(hstring: *const c_char);
 }
 
-#[derive(Clone)]
 pub struct ConsensusBaker {
     pub id:           BakerId,
     pub genesis_data: Bytes,
-    pub runner:       Arc<AtomicPtr<baker_runner>>,
+    pub runner:       AtomicPtr<baker_runner>,
 }
 
 impl ConsensusBaker {
@@ -422,7 +421,7 @@ impl ConsensusBaker {
         ConsensusBaker {
             id:           baker_id,
             genesis_data: genesis_data.into_boxed_slice(),
-            runner:       Arc::new(AtomicPtr::new(baker)),
+            runner:       AtomicPtr::new(baker),
         }
     }
 
