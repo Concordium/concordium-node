@@ -230,13 +230,6 @@ pub fn handle_global_state_request(
     let is_from_consensus = request.source.is_none();
 
     if is_from_consensus {
-        let entry_name = match request.body {
-            Some(SkovReqBody::AddBlock(ref pending_block)) => format!("{:?}", pending_block),
-            Some(SkovReqBody::AddFinalizationRecord(ref record)) => format!("{:?}", record),
-            Some(SkovReqBody::StartCatchupPhase) => "catch-up request".to_owned(),
-            _ => unreachable!("Consensus shouldn't request this from Skov!"),
-        };
-
         let skov_result = match request.body {
             Some(SkovReqBody::AddBlock(pending_block)) => skov.add_block(pending_block),
             Some(SkovReqBody::AddFinalizationRecord(record)) => skov.add_finalization(record),
@@ -251,21 +244,17 @@ pub fn handle_global_state_request(
         };
 
         match skov_result {
-            SkovResult::SuccessfulEntry(_) => {
+            SkovResult::SuccessfulEntry(entry) => {
                 trace!(
                     "Skov: successfully processed a {} from our Consensus layer",
-                    entry_name,
+                    entry,
                 );
             }
-            SkovResult::Error(e) => {
-                warn!("{}", e);
-
-                skov.register_error(e);
-            }
+            SkovResult::Error(e) => skov.register_error(e),
             _ => {}
         }
     } else {
-        let packet_type = request.source.unwrap().2;
+        let packet_type = request.source.unwrap().2; // external requests always contain source info
 
         if skov.catchup_state() == CatchupState::InProgress {
             // ignore broadcasts during catch-ups
@@ -357,11 +346,7 @@ pub fn handle_global_state_request(
                 SkovResult::DuplicateEntry => {
                     warn!("Skov: got a duplicate {} from {}", packet_type, source);
                 }
-                SkovResult::Error(e) => {
-                    warn!("{}", e);
-
-                    skov.register_error(e);
-                }
+                SkovResult::Error(e) => skov.register_error(e),
                 SkovResult::Housekeeping => {}
             }
         } else {

@@ -286,7 +286,10 @@ impl<'a> Skov<'a> {
     }
 
     /// Save a Skov error.
-    pub fn register_error(&mut self, err: SkovError) { self.stats.errors.push(err) }
+    pub fn register_error(&mut self, err: SkovError) {
+        warn!("{}", err);
+        self.stats.errors.push(err)
+    }
 
     /// Indicate that a catch-up round has commenced and that it must conclude
     /// before any new global state input is accepted.
