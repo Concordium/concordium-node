@@ -4,7 +4,6 @@ use failure::{format_err, Fallible};
 use std::{
     convert::TryFrom,
     ffi::{CStr, CString},
-    fmt,
     io::Cursor,
     mem,
     os::raw::{c_char, c_int},
@@ -16,6 +15,7 @@ use std::{
 };
 
 use crate::consensus::*;
+use concordium_common::PacketType;
 use concordium_global_state::{block::*, common, finalization::*};
 
 extern "C" {
@@ -162,64 +162,6 @@ extern "C" fn stop_nopanic() {
     STOP_ONCE.call_once(|| {
         unsafe { hs_exit() }; // does nothing if hs_init_count <= 0
     });
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum PacketType {
-    Block = 0,
-    Transaction,
-    FinalizationRecord,
-    FinalizationMessage,
-    CatchupBlockByHash,
-    CatchupFinalizationRecordByHash,
-    CatchupFinalizationRecordByIndex,
-    CatchupFinalizationMessagesByPoint,
-}
-
-static PACKET_TYPE_FROM_INT: &[PacketType] = &[
-    PacketType::Block,
-    PacketType::Transaction,
-    PacketType::FinalizationRecord,
-    PacketType::FinalizationMessage,
-    PacketType::CatchupBlockByHash,
-    PacketType::CatchupFinalizationRecordByHash,
-    PacketType::CatchupFinalizationRecordByIndex,
-    PacketType::CatchupFinalizationMessagesByPoint,
-];
-
-impl TryFrom<u16> for PacketType {
-    type Error = failure::Error;
-
-    #[inline]
-    fn try_from(value: u16) -> Fallible<PacketType> {
-        PACKET_TYPE_FROM_INT
-            .get(value as usize)
-            .copied()
-            .ok_or_else(|| format_err!("Unsupported packet type ({})", value))
-    }
-}
-
-impl fmt::Display for PacketType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let name = match self {
-            PacketType::Block => "block",
-            PacketType::Transaction => "transaction",
-            PacketType::FinalizationRecord => "finalization record",
-            PacketType::FinalizationMessage => "finalization message",
-            PacketType::CatchupBlockByHash => "\"catch-up block by hash\" request",
-            PacketType::CatchupFinalizationRecordByHash => {
-                "\"catch-up finalization record by hash\" request"
-            }
-            PacketType::CatchupFinalizationRecordByIndex => {
-                "\"catch-up finalization record by index\" request"
-            }
-            PacketType::CatchupFinalizationMessagesByPoint => {
-                "\"catch-up finalization messages by point\" request"
-            }
-        };
-
-        write!(f, "{}", name)
-    }
 }
 
 #[derive(Debug)]
