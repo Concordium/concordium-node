@@ -11,7 +11,6 @@ import Concordium.Types hiding (accountAddress)
 import Concordium.GlobalState.Transactions
 import Concordium.ID.Account
 import Concordium.ID.Types
-import Concordium.ID.Attributes
 import Concordium.Crypto.Ed25519Signature
 
 import Concordium.GlobalState.Parameters
@@ -58,17 +57,18 @@ mkAccount vfKey amnt = (newAccount vfKey Ed25519) {_accountAmount = amnt}
 -- is no anoymity revocation data.
 mkDummyCDI :: AccountVerificationKey -> Int -> CredentialDeploymentInformation
 mkDummyCDI vfKey nregId =
-    CDI {cdi_verifKey = vfKey
-        ,cdi_sigScheme = Ed25519
-        ,cdi_regId = let d = show nregId
-                         l = length d
-                         pad = replicate (48-l) '0'
-                     in RegIdCred (BS.pack (pad ++ d))
-        ,cdi_arData = []
-        ,cdi_ipId = IP_ID "ip_id"
-        ,cdi_policy = AtomicMaxAccount (LessThan 100)
-        ,cdi_auxData = "auxdata"
-        ,cdi_proof = Proof "proof"
+    CredentialDeploymentInformation {
+        cdiValues = CredentialDeploymentValues {
+            cdvVerifyKey = vfKey
+            ,cdvSigScheme = Ed25519
+            ,cdvRegId = let d = show nregId
+                            l = length d
+                            pad = replicate (48-l) '0'
+                        in RegIdCred (BS.pack (pad ++ d))
+            ,cdvIpId = IP_ID "ip_id"
+            ,cdvPolicy = Policy []
+            },
+          cdiProofs = Proofs "proof"
         }
 
 emptyBirkParameters :: BirkParameters

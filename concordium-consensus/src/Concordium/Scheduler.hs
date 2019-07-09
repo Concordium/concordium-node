@@ -105,7 +105,7 @@ dispatch msg = do
       -- then we notify the block state that all the identity issuers on the sender's account should be rewarded
       -- TODO: Alternative design would be to only reward them if the transaction is successful/committed, or
       -- to add additional parameters (such as deposited amount)
-      mapM_ (notifyIdentityProviderCredential . ID.cdi_ipId) (senderAccount ^. accountCredentials)
+      mapM_ (notifyIdentityProviderCredential . ID.cdvIpId . ID.cdiValues) (senderAccount ^. accountCredentials)
 
       let cost = Cost.checkHeader
       let energy = thGasAmount meta - cost  -- the remaining gas (after subtracting cost to process the header)
@@ -504,16 +504,16 @@ handleDeployCredential meta cdi energy = do
      payment <- energyToGtu (Cost.deployCredential + Cost.checkHeader) -- charge for checking header and deploying credential
      chargeExecutionCost (thSender meta) payment
      -- check that a registration id does not yet exist
-     regIdEx <- accountRegIdExists (ID.cdi_regId cdi)
+     regIdEx <- accountRegIdExists (ID.cdvRegId . ID.cdiValues $ cdi)
      if regIdEx then
-       return $! TxValid $ TxReject $ DuplicateAccountRegistrationID (ID.cdi_regId cdi)
+       return $! TxValid $ TxReject $ DuplicateAccountRegistrationID (ID.cdvRegId . ID.cdiValues $ cdi)
      else do
        -- first whether an account with the address exists in the global store
-       let aaddr = AH.accountAddress (ID.cdi_verifKey cdi) (ID.cdi_sigScheme cdi)
+       let aaddr = AH.accountAddress (ID.cdvVerifyKey . ID.cdiValues $ cdi) (ID.cdvSigScheme . ID.cdiValues $ cdi)
        macc <- getAccount aaddr
        case macc of
          Nothing ->  -- account does not yet exist, so create it, but we need to be careful
-           let account = newAccount (ID.cdi_verifKey cdi) (ID.cdi_sigScheme cdi)
+           let account = newAccount (ID.cdvVerifyKey . ID.cdiValues $ cdi) (ID.cdvSigScheme . ID.cdiValues $ cdi)
            in if AH.verifyCredential cdi then do
                 _ <- putNewAccount account -- first create new account, but only if credential was valid.
                                            -- We know the address does not yet exist.
