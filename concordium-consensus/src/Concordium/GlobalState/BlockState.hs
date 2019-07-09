@@ -104,7 +104,7 @@ data AccountUpdate = AccountUpdate {
   -- |Optionally an update to the encrypted amounts.
   ,_auEncrypted :: !EncryptedAmountUpdate
   -- |Optionally a new credential.
-  ,_auCredential :: !(Maybe ID.CredentialDeploymentInformation)
+  ,_auCredential :: !(Maybe ID.CredentialDeploymentValues)
   }
 makeLenses ''AccountUpdate
 

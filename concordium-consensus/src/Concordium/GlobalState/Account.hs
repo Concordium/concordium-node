@@ -38,7 +38,7 @@ putAccount !acct Accounts{..} =
     Just i -> Accounts accountMap (accountTable & ix i .~ acct) accountRegIds'
 
   where addr = acct ^. accountAddress
-        accountRegIds' = List.foldl' (flip Set.insert) accountRegIds (map (ID.cdvRegId . ID.cdiValues) (acct ^. accountCredentials))
+        accountRegIds' = List.foldl' (flip Set.insert) accountRegIds (map ID.cdvRegId (acct ^. accountCredentials))
 
 exists :: AccountAddress -> Accounts -> Bool
 exists addr Accounts{..} = Map.member addr accountMap
