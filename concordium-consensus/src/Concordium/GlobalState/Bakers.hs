@@ -28,12 +28,12 @@ makeLenses ''BakerInfo
 
 data Bakers = Bakers {
     -- |The bakers, indexed by 'BakerId'
-    _bakerMap :: Map BakerId BakerInfo,
+    _bakerMap :: !(Map BakerId BakerInfo),
     -- |The total stake delegated to all bakers
-    _bakerTotalStake :: Amount,
+    _bakerTotalStake :: !Amount,
     -- |The next 'BakerId' to use for a new baker.
     -- 'BakerId's should not be reused when bakers are removed.
-    _nextBakerId :: BakerId
+    _nextBakerId :: !BakerId
 } deriving (Eq, Generic, Show)
 instance Serialize Bakers
 
