@@ -21,24 +21,17 @@ use self::PendingQueueType::*;
 /// It contains an optional identifier of the source peer if it is not our own
 /// consensus layer.
 pub struct SkovReq {
-    pub source:                  Option<(u64, bool, PacketType)>, // (PeerId, is_broadcast)
-    pub raw:                     Box<[u8]>,
-    pub body:                    Option<SkovReqBody>,
-    pub is_consensus_applicable: bool,
+    pub source:  Option<(u64, bool)>, // (PeerId, is_broadcast)
+    pub variant: PacketType,
+    pub payload: Box<[u8]>,
 }
 
 impl SkovReq {
-    pub fn new(
-        source: Option<(u64, bool, PacketType)>,
-        raw: Box<[u8]>,
-        body: Option<SkovReqBody>,
-        is_consensus_applicable: bool,
-    ) -> Self {
+    pub fn new(source: Option<(u64, bool)>, variant: PacketType, payload: Box<[u8]>) -> Self {
         Self {
             source,
-            raw,
-            body,
-            is_consensus_applicable,
+            variant,
+            payload,
         }
     }
 }

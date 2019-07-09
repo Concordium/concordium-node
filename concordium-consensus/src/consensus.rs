@@ -16,12 +16,7 @@ use std::{
 };
 
 use crate::{fails::BakerNotRunning, ffi::*};
-use concordium_global_state::{
-    block::*,
-    common::*,
-    finalization::*,
-    tree::{SkovReq, SkovReqBody},
-};
+use concordium_global_state::{block::*, common::*, finalization::*, tree::SkovReq};
 
 pub type PeerId = u64;
 pub type Bytes = Box<[u8]>;
@@ -124,7 +119,10 @@ impl ConsensusOutQueue {
                 | PacketType::FinalizationRecord
                 | PacketType::CatchupBlockByHash
                 | PacketType::CatchupFinalizationRecordByHash
-                | PacketType::CatchupFinalizationRecordByIndex => relay_msg_to_skov(skov_sender, &msg)?,
+                | PacketType::CatchupFinalizationRecordByIndex => {
+                    let request = RelayOrStopEnvelope::Relay(SkovReq::new(None, msg.variant, msg.payload.clone()));
+                    skov_sender.send(request)?
+                },
                 _ => {} // not used in Skov,
             }
         }
@@ -145,27 +143,6 @@ impl ConsensusOutQueue {
         into_err!(self.sender_request.send_stop())?;
         Ok(())
     }
-}
-
-fn relay_msg_to_skov(
-    skov_sender: &RelayOrStopSender<SkovReq>,
-    message: &ConsensusMessage,
-) -> Fallible<()> {
-    let request_body = match message.variant {
-        PacketType::Block => SkovReqBody::AddBlock(PendingBlock::new(&message.payload)?),
-        PacketType::FinalizationRecord => {
-            SkovReqBody::AddFinalizationRecord(FinalizationRecord::deserialize(&message.payload)?)
-        }
-        PacketType::CatchupBlockByHash
-        | PacketType::CatchupFinalizationRecordByHash
-        | PacketType::CatchupFinalizationRecordByIndex => SkovReqBody::StartCatchupPhase,
-        _ => unreachable!("ConsensusOutQueue::recv_message was extended!"),
-    };
-
-    let request =
-        RelayOrStopEnvelope::Relay(SkovReq::new(None, Box::new([]), Some(request_body), false));
-
-    into_err!(skov_sender.send(request))
 }
 
 #[cfg(test)]
