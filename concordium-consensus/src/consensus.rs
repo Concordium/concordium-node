@@ -19,21 +19,20 @@ use crate::{fails::BakerNotRunning, ffi::*};
 use concordium_global_state::{block::*, common::*, finalization::*, tree::SkovReq};
 
 pub type PeerId = u64;
-pub type Bytes = Box<[u8]>;
 pub type PrivateData = HashMap<i64, Vec<u8>>;
 
 pub struct ConsensusMessage {
     pub variant:  PacketType,
     pub producer: Option<PeerId>,
-    pub payload:  Bytes,
+    pub payload:  Arc<[u8]>,
 }
 
 impl ConsensusMessage {
-    pub fn new(variant: PacketType, producer: Option<PeerId>, payload: Bytes) -> Self {
+    pub fn new(variant: PacketType, producer: Option<PeerId>, payload: Box<[u8]>) -> Self {
         Self {
             variant,
             producer,
-            payload,
+            payload: Arc::from(payload),
         }
     }
 }
@@ -120,8 +119,8 @@ impl ConsensusOutQueue {
                 | PacketType::CatchupBlockByHash
                 | PacketType::CatchupFinalizationRecordByHash
                 | PacketType::CatchupFinalizationRecordByIndex => {
-                    let request = RelayOrStopEnvelope::Relay(SkovReq::new(None, msg.variant, msg.payload.clone()));
-                    skov_sender.send(request)?
+                    let request = SkovReq::new(None, msg.variant, Arc::clone(&msg.payload));
+                    skov_sender.send(RelayOrStopEnvelope::Relay(request))?
                 },
                 _ => {} // not used in Skov,
             }

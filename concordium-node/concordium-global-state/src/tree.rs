@@ -4,7 +4,7 @@ use concordium_common::{indexed_vec::IndexedVec, PacketType};
 use hash_hasher::{HashedMap, HashedSet};
 use rkv::{Rkv, SingleStore, StoreOptions, Value};
 
-use std::{collections::BinaryHeap, fmt, rc::Rc};
+use std::{collections::BinaryHeap, fmt, rc::Rc, sync::Arc};
 
 use crate::{
     block::*,
@@ -23,11 +23,11 @@ use self::PendingQueueType::*;
 pub struct SkovReq {
     pub source:  Option<(u64, bool)>, // (PeerId, is_broadcast)
     pub variant: PacketType,
-    pub payload: Box<[u8]>,
+    pub payload: Arc<[u8]>,
 }
 
 impl SkovReq {
-    pub fn new(source: Option<(u64, bool)>, variant: PacketType, payload: Box<[u8]>) -> Self {
+    pub fn new(source: Option<(u64, bool)>, variant: PacketType, payload: Arc<[u8]>) -> Self {
         Self {
             source,
             variant,

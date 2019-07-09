@@ -175,7 +175,7 @@ pub fn handle_pkt_out(
     let packet_type = PacketType::try_from(consensus_type)?;
 
     let view = msg.read_all_into_view()?;
-    let payload = Box::from(&view.as_slice()[PAYLOAD_TYPE_LENGTH as usize..]);
+    let payload = Arc::from(&view.as_slice()[PAYLOAD_TYPE_LENGTH as usize..]);
 
     let request = RelayOrStopEnvelope::Relay(SkovReq::new(
         Some((peer_id.0, is_broadcast)),
@@ -250,7 +250,7 @@ fn process_internal_skov_entry(request: SkovReq, skov: &mut Skov) -> Fallible<()
         SkovResult::SuccessfulEntry(entry) => {
             trace!(
                 "Skov: successfully processed a {} from our Consensus layer",
-                entry,
+                entry
             );
         }
         SkovResult::Error(e) => skov.register_error(e),
@@ -267,6 +267,21 @@ fn process_external_skov_entry(
     request: SkovReq,
     skov: &mut Skov,
 ) -> Fallible<()> {
+    if skov.catchup_state() == CatchupState::InProgress {
+        // ignore broadcasts during catch-ups
+        if let Some((peer_id, is_broadcast)) = request.source {
+            if is_broadcast {
+                info!(
+                    "Still catching up; the last received broadcast containing a {} from peer {} \
+                     will not be processed!",
+                    request.variant,
+                    P2PNodeId(peer_id)
+                );
+                return Ok(());
+            }
+        }
+    }
+
     let (request_body, consensus_applicable) = match request.variant {
         PacketType::Block => {
             let payload = PendingBlock::new(&request.payload)?;
@@ -299,21 +314,6 @@ fn process_external_skov_entry(
         }
         _ => (None, true), // will be expanded later on
     };
-
-    if skov.catchup_state() == CatchupState::InProgress {
-        // ignore broadcasts during catch-ups
-        if let Some((peer_id, is_broadcast)) = request.source {
-            if is_broadcast {
-                info!(
-                    "Still catching up; the last received broadcast containing a {} from peer {} \
-                     will not be processed!",
-                    request.variant,
-                    P2PNodeId(peer_id)
-                );
-                return Ok(());
-            }
-        }
-    }
 
     if let Some(req_body) = request_body {
         let result = match req_body {

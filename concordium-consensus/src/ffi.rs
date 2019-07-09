@@ -326,7 +326,7 @@ extern "C" {
 
 pub struct ConsensusBaker {
     _id:              BakerId,
-    pub genesis_data: Bytes,
+    pub genesis_data: Box<[u8]>,
     runner:           AtomicPtr<baker_runner>,
 }
 
