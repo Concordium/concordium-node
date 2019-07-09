@@ -104,7 +104,7 @@ main :: IO ()
 main = do
     let n = 10
     now <- truncate <$> getPOSIXTime
-    let (gen, bis) = makeGenesisData now n 1 0.5
+    let (gen, bis) = makeGenesisData now n 1 0.5 9
     let iState = Example.initialState (genesisBirkParameters gen) (genesisBakerAccounts gen) nContracts
     trans <- transactions <$> newStdGen
     chans <- mapM (\(bid, _) -> do

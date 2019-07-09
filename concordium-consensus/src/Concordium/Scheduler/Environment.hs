@@ -223,6 +223,14 @@ increaseAmountCS !cs addr !amnt = cs & (accountUpdates . ix addr . auAmount ) %~
                                      (\case Just a -> Just (a + amnt)
                                             Nothing -> error "increaaseAmountCS precondition violated.")
 
+-- |Modify the amount on the given account in the changeset by a given delta.
+-- It is assumed that the account is already in the changeset and that its balance
+-- is already affected (the auAmount field is set).
+modifyAmountCS :: ChangeSet -> AccountAddress -> AmountDelta -> ChangeSet
+modifyAmountCS !cs addr !amnt = cs & (accountUpdates . ix addr . auAmount ) %~
+                                     (\case Just a -> Just (applyAmountDelta amnt a)
+                                            Nothing -> error "increaaseAmountCS precondition violated.")
+
 -- |Update the amount on the account in the changeset with the given amount.
 -- If the account is not yet in the changeset it is created.
 addAmountToCS :: ChangeSet -> Account -> Amount -> ChangeSet

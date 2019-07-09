@@ -165,6 +165,9 @@ processAwaitingLastFinalized sl = do
                 processAwaitingLastFinalized sl
 
 -- |Process the available finalization records to determine if a block can be finalized.
+-- If finalization is sucessful, then progress finalization.
+-- If not, any remaining finalization records at the current next finalization index
+-- will be valid proofs, but their blocks have not yet arrived.
 processFinalizationPool :: forall w m. (HasCallStack, TreeStateMonad m, SkovMonad m, MonadWriter w m, MissingEvent w) => SkovListeners m -> m ()
 processFinalizationPool sl@SkovListeners{..} = do
         nextFinIx <- getNextFinalizationIndex
@@ -182,6 +185,8 @@ processFinalizationPool sl@SkovListeners{..} = do
                 checkFin finRec lp = getBlockStatus (finalizationBlockPointer finRec) >>= return . \case
                     -- If the block is not present, the finalization record is pending
                     Nothing -> (finRec :) <$> lp
+                    -- If we've received the block, but it is pending, then the finalization record is also pending
+                    Just (BlockPending _) -> (finRec :) <$> lp
                     -- If the block is alive and the finalization proof checks out,
                     -- we can use this for finalization
                     Just (BlockAlive bp) -> if goodFin finRec then Left (finRec, bp) else lp
@@ -237,7 +242,42 @@ processFinalizationPool sl@SkovListeners{..} = do
                     -- handle blocks in skovBlocksAwaitingLastFinalized
                     processAwaitingLastFinalized sl
                     processFinalizationPool sl
-                Right frs' -> putFinalizationPoolAtIndex nextFinIx frs'
+                Right frs' -> do
+                    -- In this case, we have a list of finalization records that are missing
+                    -- their blocks.  We filter these down to only valid records, and only
+                    -- keep one valid record per block.  (If finalization is not corrupted,
+                    -- then there should be at most one block with a valid finalization.)
+                    let
+                        acc fr l = if finalizationBlockPointer fr `notElem` (finalizationBlockPointer <$> l) && goodFin fr then fr : l else l
+                        frs'' = foldr acc [] frs'
+                    putFinalizationPoolAtIndex nextFinIx $! frs''
+
+-- |Given a block that is marked as pending, generate a notify event
+notifyBlocker :: (TreeStateMonad m, SkovMonad m, MonadWriter w m, MissingEvent w) => PendingBlock -> m UpdateResult
+notifyBlocker pb =
+        getBlockStatus parent >>= \case
+            Nothing -> do
+                logEvent Skov LLDebug $ "... pending missing parent (" ++ show parent ++ ")"
+                notifyMissingBlock parent 0
+                return ResultPendingBlock
+            Just (BlockPending pb') -> do
+                logEvent Skov LLDebug $ "... pending pending parent (" ++ show parent ++ ") ..."
+                notifyBlocker pb'
+            Just BlockDead -> do
+                -- This should not be possible;
+                -- if the parent was or became dead, then this
+                -- block should have already arrived dead.
+                logEvent Skov LLError $ "... pending dead block (" ++ show parent ++ ")"
+                blockArriveDead (getHash pb)
+                return ResultStale
+            _ -> do
+                -- The parent is alive; we must be pending a finalization.
+                notifyMissingFinalization (Left $ blockLastFinalized bf)
+                logEvent Skov LLDebug $ "... pending finalization of last finalized block (" ++ show (blockLastFinalized bf) ++ ")"
+                return ResultPendingFinalization
+    where
+        bf = bbFields (pbBlock pb)
+        parent = blockPointer bf
 
 
 -- |Try to add a block to the tree.  There are three possible outcomes:
@@ -258,6 +298,7 @@ addBlock sl@SkovListeners{..} block = do
             case parentStatus of
                 Nothing -> do
                     addPendingBlock block
+                    markPending block
                     notifyMissingBlock parent 0
                     logEvent Skov LLDebug $ "Block " ++ show block ++ " is pending its parent (" ++ show parent ++ ")"
                     -- Check also if the block's last finalized block has been finalized
@@ -265,6 +306,11 @@ addBlock sl@SkovListeners{..} block = do
                         Just (BlockFinalized _ _) -> return ()
                         _ -> notifyMissingFinalization (Left $ blockLastFinalized bf)
                     return ResultPendingBlock
+                Just (BlockPending pb) -> do
+                    addPendingBlock block
+                    markPending block
+                    logEvent Skov LLDebug $ "Block " ++ show block ++ " is pending..."
+                    notifyBlocker pb
                 Just BlockDead -> deadBlock
                 Just (BlockAlive parentP) -> tryAddLiveParent parentP
                 Just (BlockFinalized parentP _) -> do
@@ -347,7 +393,11 @@ addBlock sl@SkovListeners{..} block = do
                                                 children <- takePendingChildren (getHash block)
                                                 forM_ children $ \childpb -> do
                                                     childStatus <- getBlockStatus (getHash childpb)
-                                                    when (isNothing childStatus) $ void $ addBlock sl childpb
+                                                    let
+                                                        isPending Nothing = True
+                                                        isPending (Just (BlockPending _)) = True
+                                                        isPending _ = False
+                                                    when (isPending childStatus) $ void $ addBlock sl childpb
                                                 return ResultSuccess
                     -- If the block's last finalized block is dead, then the block arrives dead.
                     -- If the block's last finalized block is pending then it can't be an ancestor,
@@ -436,14 +486,36 @@ doFinalizeBlock sl = \finRec -> do
                 processFinalizationPool sl
                 newFinIx <- getNextFinalizationIndex
                 if newFinIx == nextFinIx then do
-                    fbs <- getBlockStatus (finalizationBlockPointer finRec)
-                    return $! case fbs of
-                        Nothing -> ResultPendingBlock
-                        _ -> ResultInvalid
+                    -- Finalization did not complete, which suggests
+                    -- that the finalized block has not yet arrived.
+                    frs <- getFinalizationPoolAtIndex nextFinIx
+                    -- All records still in the pool at this index are valid.
+                    -- Under normal circumstances, there should be
+                    -- at most one.
+                    if null frs then
+                        return ResultInvalid
+                    else do
+                        let notifyFinalizationBlocker FinalizationRecord{..} = do
+                                getBlockStatus finalizationBlockPointer >>= \case
+                                    Just (BlockPending bp) -> do
+                                        logEvent Skov LLDebug $ "Finalization at index " ++ show thisFinIx ++ " is pending pending block (" ++ show finalizationBlockPointer ++ ")..."
+                                        notifyBlocker bp
+                                    _ -> do -- This should only apply if the block is absent
+                                        logEvent Skov LLDebug $ "Finalization at index " ++ show thisFinIx ++ " is pending block (" ++ show finalizationBlockPointer ++ ")"
+                                        notifyMissingBlock finalizationBlockPointer 0
+                                        return ResultPendingBlock
+                        mapM_ notifyFinalizationBlocker frs
+                        return ResultPendingBlock
                 else return ResultSuccess
         GT -> do
-                logEvent Skov LLDebug $ "Requesting finalization at index " ++ show (thisFinIx - 1) ++ "."
-                notifyMissingFinalization (Right $ thisFinIx - 1)
+                let finIxBefore z 
+                        | z <= nextFinIx = return nextFinIx
+                        | otherwise = getFinalizationPoolAtIndex z >>= \case
+                                [] -> return z
+                                _ -> finIxBefore (z-1)
+                reqFinIx <- finIxBefore (thisFinIx - 1)
+                logEvent Skov LLDebug $ "Requesting finalization at index " ++ show reqFinIx ++ "."
+                notifyMissingFinalization (Right $ reqFinIx)
                 addFinalizationRecordToPool finRec
                 return ResultPendingFinalization
 
@@ -586,7 +658,7 @@ initialSkovFinalizationState :: FinalizationInstance -> GenesisData -> BlockStat
 initialSkovFinalizationState finInst gen initBS = SkovFinalizationState{..}
     where
         _sfsSkov = Basic.initialSkovData gen initBS
-        _sfsFinalization = initialFinalizationState finInst (bpHash (Basic._skovGenesisBlockPointer _sfsSkov)) (makeFinalizationCommittee (genesisFinalizationParameters gen))
+        _sfsFinalization = initialFinalizationState finInst (bpHash (Basic._skovGenesisBlockPointer _sfsSkov)) (genesisFinalizationParameters gen)
 
 -- |Implementation of the 'SkovMonad' with finalization.
 newtype FSM m a = FinalizationSkovMonad {runFinalizationSkovMonad :: RWST FinalizationInstance (Endo [SkovFinalizationEvent]) SkovFinalizationState m a}
@@ -654,7 +726,7 @@ initialSkovBufferedFinalizationState :: FinalizationInstance -> GenesisData -> B
 initialSkovBufferedFinalizationState finInst gen initBS = SkovBufferedFinalizationState{..}
     where
         _sbfsSkov = Basic.initialSkovData gen initBS
-        _sbfsFinalization = initialFinalizationState finInst (bpHash (Basic._skovGenesisBlockPointer _sbfsSkov)) (makeFinalizationCommittee (genesisFinalizationParameters gen))
+        _sbfsFinalization = initialFinalizationState finInst (bpHash (Basic._skovGenesisBlockPointer _sbfsSkov)) (genesisFinalizationParameters gen)
         _sbfsBuffer = emptyFinalizationBuffer
 
 -- |Implementation of the 'SkovMonad' with buffered finalization.

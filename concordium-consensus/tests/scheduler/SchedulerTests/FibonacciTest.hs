@@ -5,6 +5,7 @@
 module SchedulerTests.FibonacciTest where
 
 import Test.Hspec
+import Test.HUnit
 
 import Data.List as List
 import Data.Int
@@ -22,6 +23,8 @@ import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Account as Acc
 import Concordium.GlobalState.Instances as Ins
 import Concordium.GlobalState.Modules as Mod
+import qualified Concordium.GlobalState.Rewards as Rew
+import Concordium.GlobalState.Basic.Invariants
 
 import qualified Data.Text.IO as TIO
 import Control.Monad.IO.Class
@@ -37,6 +40,7 @@ initialBlockState :: BlockState
 initialBlockState = 
   emptyBlockState emptyBirkParameters &
     (blockAccounts .~ Acc.putAccount (mkAccount alesVK 1000000000) Acc.emptyAccounts) .
+    (blockBank . Rew.totalGTU .~ 1000000000) .
     (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
 
 transactionsInput :: [TransactionJSON]
@@ -78,6 +82,9 @@ testFibonacci = do
     let ((suc, fails), gs) = Types.runSI (Sch.filterTransactions transactions)
                                          Types.dummyChainMeta
                                          initialBlockState
+    case invariantBlockState gs of
+        Left f -> liftIO $ assertFailure f
+        Right _ -> return ()
     return (suc, fails, gs ^.. blockInstances . foldInstances . to (\i -> (iaddress i, i)))
 
 fib :: [Int64]

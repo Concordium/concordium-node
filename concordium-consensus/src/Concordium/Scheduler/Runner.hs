@@ -115,4 +115,4 @@ data TransactionJSON = TJSON { metadata :: Types.TransactionHeader
                              , payload :: PayloadJSON
                              , keypair :: KeyPair
                              }
-  deriving(Generic)
+  deriving(Show,Generic)

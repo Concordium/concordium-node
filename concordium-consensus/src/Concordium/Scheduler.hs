@@ -225,7 +225,8 @@ handleInitContract meta remainingAmount amount modref cname param paramSize ener
         refund <- energyToGtu energy'
         let execCost = thGasAmount meta - energy'
         energyToGtu execCost >>= notifyExecutionCost
-        commitStateAndAccountChanges (increaseAmountCS cs (thSender meta) refund)
+        -- The sender is paid the refund, but charged the initalamount.
+        commitStateAndAccountChanges (modifyAmountCS cs (thSender meta) (amountDiff refund initamount))
         let ins = makeInstance modref cname contract msgty iface viface model initamount (thSender meta)
         addr <- putNewInstance ins
         return (TxValid $ TxSuccess [ContractInitialized modref cname addr])
@@ -403,7 +404,7 @@ handleTransaction origin cref receivefun txsender senderamount transferamount ma
                                           transferamount'
                                           (ValueMessage (I.aJust message'))
                                           model'
-                                          contractamount'
+                                          (Ins.instanceAmount cinstance)
                       -- simple transfer to a contract is the same as a call to update with Nothing
                       TSimpleTransfer (AddressContract cref') transferamount' -> do
                         cinstance <- fromJust <$> getCurrentContractInstance cref' -- the only way to send is to first check existence, so this must succeed
@@ -417,7 +418,7 @@ handleTransaction origin cref receivefun txsender senderamount transferamount ma
                                           transferamount'
                                           (ValueMessage I.aNothing)
                                           model'
-                                          contractamount'
+                                          (Ins.instanceAmount cinstance)
                       TSimpleTransfer (AddressAccount acc) transferamount' -> do -- FIXME: This is temporary until accounts have their own functions
                         handleTransferAccount origin acc (AddressContract cref) senderamount'' transferamount'
                         )
