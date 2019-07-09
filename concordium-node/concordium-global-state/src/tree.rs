@@ -21,9 +21,9 @@ use self::PendingQueueType::*;
 /// It contains an optional identifier of the source peer if it is not our own
 /// consensus layer.
 pub struct SkovReq {
-    pub source: Option<(u64, bool, PacketType)>, // (PeerId, is_broadcast)
-    pub raw:  Box<[u8]>,
-    pub body: Option<SkovReqBody>,
+    pub source:                  Option<(u64, bool, PacketType)>, // (PeerId, is_broadcast)
+    pub raw:                     Box<[u8]>,
+    pub body:                    Option<SkovReqBody>,
     pub is_consensus_applicable: bool,
 }
 
@@ -34,7 +34,12 @@ impl SkovReq {
         body: Option<SkovReqBody>,
         is_consensus_applicable: bool,
     ) -> Self {
-        Self { source, raw, body, is_consensus_applicable }
+        Self {
+            source,
+            raw,
+            body,
+            is_consensus_applicable,
+        }
     }
 }
 
@@ -302,7 +307,7 @@ impl<'a> Skov<'a> {
 
     pub fn is_tree_valid(&self) -> bool {
         self.data.awaiting_parent_block.is_empty()
-        && self.data.inapplicable_finalization_records.is_empty()
+            && self.data.inapplicable_finalization_records.is_empty()
     }
 
     #[doc(hidden)]

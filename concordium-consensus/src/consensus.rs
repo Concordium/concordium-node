@@ -162,7 +162,8 @@ fn relay_msg_to_skov(
         _ => unreachable!("ConsensusOutQueue::recv_message was extended!"),
     };
 
-    let request = RelayOrStopEnvelope::Relay(SkovReq::new(None, Box::new([]), Some(request_body), false));
+    let request =
+        RelayOrStopEnvelope::Relay(SkovReq::new(None, Box::new([]), Some(request_body), false));
 
     into_err!(skov_sender.send(request))
 }

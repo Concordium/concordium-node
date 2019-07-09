@@ -16,14 +16,13 @@ use std::{
 };
 
 use concordium_common::{
-    cache::Cache, PacketType::{self, *}, stats_export_service::StatsExportService, RelayOrStopEnvelope, RelayOrStopSender,
-    UCursor,
+    cache::Cache,
+    stats_export_service::StatsExportService,
+    PacketType::{self, *},
+    RelayOrStopEnvelope, RelayOrStopSender, UCursor,
 };
 
-use concordium_consensus::{
-    consensus,
-    ffi,
-};
+use concordium_consensus::{consensus, ffi};
 
 use concordium_global_state::{
     block::{Block, Delta, PendingBlock},
@@ -208,8 +207,12 @@ pub fn handle_pkt_out(
         _ => (None, true), // will be expanded later on
     };
 
-    let request = RelayOrStopEnvelope::Relay(
-        SkovReq::new(Some((peer_id.0, is_broadcast, packet_type)), content, request_body, consensus_applicable));
+    let request = RelayOrStopEnvelope::Relay(SkovReq::new(
+        Some((peer_id.0, is_broadcast, packet_type)),
+        content,
+        request_body,
+        consensus_applicable,
+    ));
 
     skov_sender.send(request)?;
 
@@ -231,7 +234,7 @@ pub fn handle_global_state_request(
             Some(SkovReqBody::AddBlock(ref pending_block)) => format!("{:?}", pending_block),
             Some(SkovReqBody::AddFinalizationRecord(ref record)) => format!("{:?}", record),
             Some(SkovReqBody::StartCatchupPhase) => "catch-up request".to_owned(),
-            _ => unreachable!("Consensus shouldn't request this from Skov!")
+            _ => unreachable!("Consensus shouldn't request this from Skov!"),
         };
 
         let skov_result = match request.body {
@@ -243,8 +246,8 @@ pub fn handle_global_state_request(
                 } else {
                     return Ok(());
                 }
-            },
-            _ => unreachable!("Consensus shouldn't request this from Skov!")
+            }
+            _ => unreachable!("Consensus shouldn't request this from Skov!"),
         };
 
         match skov_result {
@@ -262,7 +265,7 @@ pub fn handle_global_state_request(
             _ => {}
         }
     } else {
-         let packet_type = request.source.unwrap().2;
+        let packet_type = request.source.unwrap().2;
 
         if skov.catchup_state() == CatchupState::InProgress {
             // ignore broadcasts during catch-ups
@@ -287,8 +290,10 @@ pub fn handle_global_state_request(
                 SkovReqBody::GetFinalizationRecordByHash(hash) => {
                     skov.get_finalization_record_by_hash(&hash)
                 }
-                SkovReqBody::GetFinalizationRecordByIdx(i) => skov.get_finalization_record_by_idx(i),
-                _ => SkovResult::Housekeeping
+                SkovReqBody::GetFinalizationRecordByIdx(i) => {
+                    skov.get_finalization_record_by_idx(i)
+                }
+                _ => SkovResult::Housekeeping,
             };
 
             if let CatchupState::InProgress = skov.catchup_state() {
@@ -320,12 +325,17 @@ pub fn handle_global_state_request(
                 SkovResult::SuccessfulQuery(result) => {
                     let return_type = match packet_type {
                         PacketType::CatchupBlockByHash => PacketType::Block,
-                        PacketType::CatchupFinalizationRecordByHash => PacketType::FinalizationRecord,
-                        PacketType::CatchupFinalizationRecordByIndex => PacketType::FinalizationRecord,
+                        PacketType::CatchupFinalizationRecordByHash => {
+                            PacketType::FinalizationRecord
+                        }
+                        PacketType::CatchupFinalizationRecordByIndex => {
+                            PacketType::FinalizationRecord
+                        }
                         _ => unreachable!("Impossible packet type in a query result!"),
                     };
 
-                    let mut out_bytes = Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + result.len());
+                    let mut out_bytes =
+                        Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + result.len());
                     out_bytes
                         .write_u16::<NetworkEndian>(return_type as u16)
                         .expect("Can't write to buffer");
