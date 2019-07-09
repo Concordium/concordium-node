@@ -220,7 +220,7 @@ addAmountToCS' !cs addr !amnt =
 -- is already affected (the auAmount field is set).
 increaseAmountCS :: ChangeSet -> AccountAddress -> Amount -> ChangeSet
 increaseAmountCS !cs addr !amnt = cs & (accountUpdates . ix addr . auAmount ) %~
-                                     (\case Just a -> Just (a + amnt)
+                                     (\case Just a -> Just $! (a + amnt)
                                             Nothing -> error "increaaseAmountCS precondition violated.")
 
 -- |Modify the amount on the given account in the changeset by a given delta.
