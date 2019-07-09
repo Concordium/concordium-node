@@ -10,6 +10,9 @@ ARGS=""
 if [ -n "$ID" ];
 then
     ARGS="$ARGS --id $ID"
+else
+    ID=$(printf "%016d\n" $(echo $BAKER_ID | cut -d'-' -f2))
+    ARGS="$ARGS --id $ID"
 fi
 
 if [ -n "$LISTEN_PORT" ];
