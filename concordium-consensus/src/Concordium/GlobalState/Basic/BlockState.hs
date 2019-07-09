@@ -11,7 +11,7 @@ import qualified Data.Set as Set
 import Data.Maybe
 
 import qualified Concordium.Crypto.SHA256 as Hash
-import Concordium.ID.Types(cdiValues, cdvRegId)
+import Concordium.ID.Types(cdvRegId)
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Parameters
@@ -234,7 +234,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
              Nothing -> bs & blockAccounts %~ Account.putAccount updatedAccount
              Just cdi ->
                bs & blockAccounts %~ Account.putAccount updatedAccount
-                                   . Account.recordRegId (cdvRegId (cdiValues cdi)))
+                                   . Account.recordRegId (cdvRegId cdi))
         -- If we change the amount, update the delegate
         & maybe id 
             (\amt -> blockBirkParameters . birkBakers
