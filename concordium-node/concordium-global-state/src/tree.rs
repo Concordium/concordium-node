@@ -1,6 +1,6 @@
 use chrono::prelude::{DateTime, Utc};
 use circular_queue::CircularQueue;
-use concordium_common::indexed_vec::IndexedVec;
+use concordium_common::{indexed_vec::IndexedVec, PacketType};
 use hash_hasher::{HashedMap, HashedSet};
 use rkv::{Rkv, SingleStore, StoreOptions, Value};
 
@@ -21,12 +21,21 @@ use self::PendingQueueType::*;
 /// It contains an optional identifier of the source peer if it is not our own
 /// consensus layer.
 pub struct SkovReq {
-    pub source: Option<(u64, bool)>, // (PeerId, is_broadcast)
-    pub body:   SkovReqBody,
+    pub source: Option<(u64, bool, PacketType)>, // (PeerId, is_broadcast)
+    pub raw:  Box<[u8]>,
+    pub body: Option<SkovReqBody>,
+    pub is_consensus_applicable: bool,
 }
 
 impl SkovReq {
-    pub fn new(source: Option<(u64, bool)>, body: SkovReqBody) -> Self { Self { source, body } }
+    pub fn new(
+        source: Option<(u64, bool, PacketType)>,
+        raw: Box<[u8]>,
+        body: Option<SkovReqBody>,
+        is_consensus_applicable: bool,
+    ) -> Self {
+        Self { source, raw, body, is_consensus_applicable }
+    }
 }
 
 #[derive(Debug)]
@@ -49,7 +58,7 @@ pub enum SkovReqBody {
 /// Depending on the request, the result can either be just a status or contain
 /// the requested data.
 pub enum SkovResult {
-    SuccessfulEntry,
+    SuccessfulEntry(PacketType),
     SuccessfulQuery(Box<[u8]>),
     DuplicateEntry,
     Error(SkovError),
@@ -59,7 +68,7 @@ pub enum SkovResult {
 impl fmt::Display for SkovResult {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let msg = match self {
-            SkovResult::SuccessfulEntry => "successful entry".to_owned(),
+            SkovResult::SuccessfulEntry(p) => format!("successful entry ({})", p),
             SkovResult::SuccessfulQuery(_) => "successful query".to_owned(),
             SkovResult::DuplicateEntry => "duplicate entry".to_owned(),
             SkovResult::Error(e) => e.to_string(),
@@ -181,7 +190,7 @@ macro_rules! add_entry {
 
             self.stats.$addition_stat.push(addition_duration as u64);
 
-            if let SkovResult::SuccessfulEntry = result {
+            if let SkovResult::SuccessfulEntry(_) = result {
                 self.stats.$timestamp_stat.push(timestamp_entry);
             };
 
@@ -274,15 +283,27 @@ impl<'a> Skov<'a> {
     /// Save a Skov error.
     pub fn register_error(&mut self, err: SkovError) { self.stats.errors.push(err) }
 
-    /// Indicate that a catch-up phase has commenced and that it must conclude
+    /// Indicate that a catch-up round has commenced and that it must conclude
     /// before any new global state input is accepted.
-    pub fn set_catchup_state(&mut self, state: CatchupState) -> SkovResult {
-        self.data.catchup_state = state;
-        info!("The catch-up state was changed to {:?}", state);
+    pub fn start_catchup_round(&mut self) -> SkovResult {
+        self.data.catchup_state = CatchupState::InProgress;
+        info!("A catch-up round has begun");
+        SkovResult::Housekeeping
+    }
+
+    /// Indicate that a catch-up round has finished.
+    pub fn end_catchup_round(&mut self) -> SkovResult {
+        self.data.catchup_state = CatchupState::Complete;
+        info!("A catch-up round was successfully completed");
         SkovResult::Housekeeping
     }
 
     pub fn catchup_state(&self) -> CatchupState { self.data.catchup_state }
+
+    pub fn is_tree_valid(&self) -> bool {
+        self.data.awaiting_parent_block.is_empty()
+        && self.data.inapplicable_finalization_records.is_empty()
+    }
 
     #[doc(hidden)]
     pub fn display_state(&self) {
@@ -505,7 +526,7 @@ impl<'a> SkovData<'a> {
         self.refresh_pending_queue(AwaitingLastFinalizedBlock, &housekeeping_hash);
 
         if insertion_result.is_none() {
-            SkovResult::SuccessfulEntry
+            SkovResult::SuccessfulEntry(PacketType::Block)
         } else {
             SkovResult::DuplicateEntry
         }
@@ -566,7 +587,7 @@ impl<'a> SkovData<'a> {
 
         if record.block_pointer == self.last_finalized.hash {
             // we always get N-1 duplicate finalization records from the last round
-            return SkovResult::SuccessfulEntry;
+            return SkovResult::SuccessfulEntry(PacketType::FinalizationRecord);
         }
 
         // check if the record's index is in the future; if it is, keep the record
@@ -615,7 +636,7 @@ impl<'a> SkovData<'a> {
         // last finalized block's finalization
         self.refresh_pending_queue(AwaitingLastFinalizedFinalization, &housekeeping_hash);
 
-        SkovResult::SuccessfulEntry
+        SkovResult::SuccessfulEntry(PacketType::FinalizationRecord)
     }
 
     fn pending_queue_ref(&self, queue: PendingQueueType) -> &PendingQueue {

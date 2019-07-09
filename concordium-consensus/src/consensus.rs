@@ -1,8 +1,8 @@
 use byteorder::{ByteOrder, LittleEndian};
 
 use concordium_common::{
-    into_err, RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSender, RelayOrStopSenderHelper,
-    RelayOrStopSyncSender,
+    into_err, PacketType, RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSender,
+    RelayOrStopSenderHelper, RelayOrStopSyncSender,
 };
 use failure::{bail, Fallible};
 
@@ -120,9 +120,9 @@ impl ConsensusOutQueue {
 
         if let Ok(RelayOrStopEnvelope::Relay(ref msg)) = message {
             match msg.variant {
-                PacketType::Block => relay_msg_to_skov(skov_sender, &msg)?,
-                PacketType::FinalizationRecord => relay_msg_to_skov(skov_sender, &msg)?,
-                PacketType::CatchupBlockByHash
+                PacketType::Block
+                | PacketType::FinalizationRecord
+                | PacketType::CatchupBlockByHash
                 | PacketType::CatchupFinalizationRecordByHash
                 | PacketType::CatchupFinalizationRecordByIndex => relay_msg_to_skov(skov_sender, &msg)?,
                 _ => {} // not used in Skov,
@@ -162,7 +162,7 @@ fn relay_msg_to_skov(
         _ => unreachable!("ConsensusOutQueue::recv_message was extended!"),
     };
 
-    let request = RelayOrStopEnvelope::Relay(SkovReq::new(None, request_body));
+    let request = RelayOrStopEnvelope::Relay(SkovReq::new(None, Box::new([]), Some(request_body), false));
 
     into_err!(skov_sender.send(request))
 }

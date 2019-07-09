@@ -18,7 +18,7 @@ use concordium_common::{
     cache::Cache,
     make_atomic_callback, safe_write, spawn_or_die,
     stats_export_service::{StatsExportService, StatsServiceMode},
-    write_or_die, RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSender,
+    write_or_die, PacketType, RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSender,
     RelayOrStopSenderHelper,
 };
 use concordium_consensus::{consensus, ffi};
@@ -321,7 +321,7 @@ fn attain_post_handshake_catch_up(
                             let mut out_bytes =
                                 Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
                             match out_bytes.write_u16::<NetworkEndian>(
-                                ffi::PacketType::CatchupFinalizationMessagesByPoint as u16,
+                                PacketType::CatchupFinalizationMessagesByPoint as u16,
                             ) {
                                 Ok(_) => {
                                     out_bytes.extend(&bytes);
@@ -346,7 +346,7 @@ fn attain_post_handshake_catch_up(
                                 }
                                 Err(_) => error!(
                                     "Can't write type to packet {}",
-                                    ffi::PacketType::CatchupFinalizationMessagesByPoint
+                                    PacketType::CatchupFinalizationMessagesByPoint
                                 ),
                             }
                         }
@@ -385,7 +385,7 @@ fn start_consensus_threads(
     let stats_clone = stats.clone();
 
     let mut node_clone = node.clone();
-    let baker_clone = baker.clone();
+    let mut baker_clone = baker.clone();
     let global_state_thread = spawn_or_die!("Process global state requests", {
         // Open the Skov-exclusive k-v store environment
         let skov_kvs_handle = Manager::singleton()
@@ -415,7 +415,7 @@ fn start_consensus_threads(
                     if let Err(e) = handle_global_state_request(
                         &mut node_clone,
                         _network_id,
-                        true,
+                        &mut baker_clone,
                         request,
                         &mut skov,
                         &stats_clone,
