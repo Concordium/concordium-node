@@ -10,6 +10,9 @@ ARGS=""
 if [ -n "$ID" ];
 then
     ARGS="$ARGS --id $ID"
+else
+    ID=$(printf "%016d\n" $(echo $BAKER_ID | cut -d'-' -f2))
+    ARGS="$ARGS --id $ID"
 fi
 
 if [ -n "$LISTEN_PORT" ];
@@ -158,6 +161,12 @@ then
     ARGS="$ARGS --hash-algorithm $NOISE_CRYPTO_HASH_ALGORITHM"
 fi
 
+if [ -n "$PROFILING_ARGS" ];
+then
+    ARGS="$ARGS $PROFILING_ARGS"
+fi
+
+
 if [ "$MODE" == "tps_receiver" ]; then
     echo "Receiver!"
 
@@ -190,6 +199,14 @@ elif [ "$MODE" == "tps_sender" ]; then
     $ARGS
 elif [ "$MODE" == "basic" ]; then
     /p2p_client-cli $ARGS
+    if [ -n "$DONT_CRASH" ];
+    then
+        while [ 1 ]
+        do
+            echo "I crashed!"
+            sleep 5m
+        done
+    fi
 elif [ "$MODE" == "bootstrapper" ]; then
     /p2p_bootstrapper-cli $ARGS
 elif [ "$MODE" == "testrunner" ]; then

@@ -1,6 +1,6 @@
 use chrono::prelude::{DateTime, Utc};
 use circular_queue::CircularQueue;
-use concordium_common::indexed_vec::IndexedVec;
+use concordium_common::{indexed_vec::IndexedVec, PacketType};
 use hash_hasher::{HashedMap, HashedSet};
 use rkv::{Rkv, SingleStore, StoreOptions, Value};
 
@@ -21,12 +21,26 @@ use self::PendingQueueType::*;
 /// It contains an optional identifier of the source peer if it is not our own
 /// consensus layer.
 pub struct SkovReq {
-    pub source: Option<u64>, // PeerId
-    pub body:   SkovReqBody,
+    pub source:                  Option<(u64, bool, PacketType)>, // (PeerId, is_broadcast)
+    pub raw:                     Box<[u8]>,
+    pub body:                    Option<SkovReqBody>,
+    pub is_consensus_applicable: bool,
 }
 
 impl SkovReq {
-    pub fn new(source: Option<u64>, body: SkovReqBody) -> Self { Self { source, body } }
+    pub fn new(
+        source: Option<(u64, bool, PacketType)>,
+        raw: Box<[u8]>,
+        body: Option<SkovReqBody>,
+        is_consensus_applicable: bool,
+    ) -> Self {
+        Self {
+            source,
+            raw,
+            body,
+            is_consensus_applicable,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -40,34 +54,37 @@ pub enum SkovReqBody {
     GetBlock(HashBytes, Delta),
     GetFinalizationRecordByHash(HashBytes),
     GetFinalizationRecordByIdx(FinalizationIndex),
+    StartCatchupPhase,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 /// Holds a response for a request to Skov.
 ///
 /// Depending on the request, the result can either be just a status or contain
 /// the requested data.
 pub enum SkovResult {
-    SuccessfulEntry,
+    SuccessfulEntry(PacketType),
     SuccessfulQuery(Box<[u8]>),
     DuplicateEntry,
     Error(SkovError),
+    Housekeeping,
 }
 
 impl fmt::Display for SkovResult {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let msg = match self {
-            SkovResult::SuccessfulEntry => "successful entry".to_owned(),
+            SkovResult::SuccessfulEntry(p) => format!("successful entry ({})", p),
             SkovResult::SuccessfulQuery(_) => "successful query".to_owned(),
             SkovResult::DuplicateEntry => "duplicate entry".to_owned(),
             SkovResult::Error(e) => e.to_string(),
+            SkovResult::Housekeeping => unreachable!("Skov housekeeping should be silent!"),
         };
 
         write!(f, "Skov: {}", msg)
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 /// Indicates an erroneous result of a request to Skov.
 ///
 /// If there are two components, the first one is the target and the second is
@@ -145,6 +162,13 @@ pub struct Skov<'a> {
     pub stats: SkovStats,
 }
 
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum CatchupState {
+    NotStarted,
+    InProgress,
+    Complete,
+}
+
 /// Returns a result of an operation and its duration.
 macro_rules! timed {
     ($operation:expr) => {{
@@ -171,7 +195,7 @@ macro_rules! add_entry {
 
             self.stats.$addition_stat.push(addition_duration as u64);
 
-            if let SkovResult::SuccessfulEntry = result {
+            if let SkovResult::SuccessfulEntry(_) = result {
                 self.stats.$timestamp_stat.push(timestamp_entry);
             };
 
@@ -262,7 +286,32 @@ impl<'a> Skov<'a> {
     }
 
     /// Save a Skov error.
-    pub fn register_error(&mut self, err: SkovError) { self.stats.errors.push(err) }
+    pub fn register_error(&mut self, err: SkovError) {
+        warn!("{}", err);
+        self.stats.errors.push(err)
+    }
+
+    /// Indicate that a catch-up round has commenced and that it must conclude
+    /// before any new global state input is accepted.
+    pub fn start_catchup_round(&mut self) -> SkovResult {
+        self.data.catchup_state = CatchupState::InProgress;
+        info!("A catch-up round has begun");
+        SkovResult::Housekeeping
+    }
+
+    /// Indicate that a catch-up round has finished.
+    pub fn end_catchup_round(&mut self) -> SkovResult {
+        self.data.catchup_state = CatchupState::Complete;
+        info!("A catch-up round was successfully completed");
+        SkovResult::Housekeeping
+    }
+
+    pub fn catchup_state(&self) -> CatchupState { self.data.catchup_state }
+
+    pub fn is_tree_valid(&self) -> bool {
+        self.data.awaiting_parent_block.is_empty()
+            && self.data.inapplicable_finalization_records.is_empty()
+    }
 
     #[doc(hidden)]
     pub fn display_state(&self) {
@@ -331,6 +380,8 @@ pub struct SkovData<'a> {
     inapplicable_finalization_records: HashedMap<BlockHash, FinalizationRecord>,
     /// contains transactions
     transaction_table: TransactionTable,
+    /// the current state of the catch-up process
+    catchup_state: CatchupState,
 }
 
 impl<'a> SkovData<'a> {
@@ -347,18 +398,13 @@ impl<'a> SkovData<'a> {
         let finalized_blocks = kvs_env
             .open_single("blocks", StoreOptions::create())
             .unwrap();
-        let serialized_genesis = [&[0u8; 8], genesis_data].concat();
+
         {
+            // don't actually persist blocks yet
             let mut kvs_writer = kvs_env.write().unwrap(); // infallible
-            finalized_blocks.clear(&mut kvs_writer) // don't actually persist yet
-                .expect("Can't clear the block store");
             finalized_blocks
-                .put(
-                    &mut kvs_writer,
-                    genesis_block_ptr.hash.clone(),
-                    &Value::Blob(&serialized_genesis),
-                )
-                .expect("Can't store the genesis block!");
+                .clear(&mut kvs_writer)
+                .expect("Can't clear the block store");
         }
 
         let mut block_tree = hashed!(HashedMap, SKOV_LONG_PREALLOCATION_SIZE);
@@ -368,7 +414,9 @@ impl<'a> SkovData<'a> {
         let last_finalized = Rc::clone(genesis_block_ref);
         let genesis_block_ptr = Rc::clone(genesis_block_ref);
 
-        Self {
+        let genesis_to_store = Rc::clone(genesis_block_ref);
+
+        let mut skov = Self {
             kvs_env,
             finalized_blocks,
             block_tree,
@@ -381,7 +429,25 @@ impl<'a> SkovData<'a> {
             awaiting_last_finalized_block: hashed!(HashedMap, SKOV_ERR_PREALLOCATION_SIZE),
             inapplicable_finalization_records: hashed!(HashedMap, SKOV_ERR_PREALLOCATION_SIZE),
             transaction_table: TransactionTable::default(),
-        }
+            catchup_state: CatchupState::NotStarted,
+        };
+
+        // store the genesis block
+        skov.store_block(&genesis_to_store);
+
+        skov
+    }
+
+    fn store_block(&mut self, block_ptr: &BlockPtr) {
+        let mut kvs_writer = self.kvs_env.write().unwrap(); // infallible
+
+        self.finalized_blocks
+            .put(
+                &mut kvs_writer,
+                block_ptr.hash.clone(),
+                &Value::Blob(&block_ptr.serialize()),
+            )
+            .expect("Can't store a block!");
     }
 
     fn add_block(&mut self, pending_block: PendingBlock) -> SkovResult {
@@ -468,7 +534,7 @@ impl<'a> SkovData<'a> {
         self.refresh_pending_queue(AwaitingLastFinalizedBlock, &housekeeping_hash);
 
         if insertion_result.is_none() {
-            SkovResult::SuccessfulEntry
+            SkovResult::SuccessfulEntry(PacketType::Block)
         } else {
             SkovResult::DuplicateEntry
         }
@@ -527,9 +593,9 @@ impl<'a> SkovData<'a> {
     fn add_finalization(&mut self, record: FinalizationRecord) -> SkovResult {
         let last_finalized_idx = self.get_last_finalized_height(); // safe, always there
 
-        if record.index == last_finalized_idx {
+        if record.block_pointer == self.last_finalized.hash {
             // we always get N-1 duplicate finalization records from the last round
-            return SkovResult::SuccessfulEntry;
+            return SkovResult::SuccessfulEntry(PacketType::FinalizationRecord);
         }
 
         // check if the record's index is in the future; if it is, keep the record
@@ -564,31 +630,21 @@ impl<'a> SkovData<'a> {
         if target_block.height > self.last_finalized.height {
             self.last_finalized = Rc::clone(&target_block);
         }
+
         self.block_tree
             .insert(target_hash.clone(), Rc::clone(&target_block));
-
-        {
-            let mut kvs_writer = self.kvs_env.write().unwrap(); // infallible
-            self.finalized_blocks
-                .put(
-                    &mut kvs_writer,
-                    target_hash.clone(),
-                    &Value::Blob(&target_block.serialize_to_disk_format()),
-                )
-                .expect("Can't store the genesis block!");
-        }
-
+        self.store_block(&target_block);
         self.finalization_list.insert(record.index as usize, record);
 
         // prune the tree candidate queue, as some of the blocks can probably be dropped
         // now
-        self.prune_candidate_list();
+        self.refresh_candidate_list();
 
         // a new finalization record was registered; check for any blocks pending their
         // last finalized block's finalization
         self.refresh_pending_queue(AwaitingLastFinalizedFinalization, &housekeeping_hash);
 
-        SkovResult::SuccessfulEntry
+        SkovResult::SuccessfulEntry(PacketType::FinalizationRecord)
     }
 
     fn pending_queue_ref(&self, queue: PendingQueueType) -> &PendingQueue {
@@ -643,11 +699,25 @@ impl<'a> SkovData<'a> {
         }
     }
 
-    fn prune_candidate_list(&mut self) {
-        let current_height = self.last_finalized.height;
+    fn refresh_candidate_list(&mut self) {
+        // after a finalization round, the blocks that were not directly finalized, but
+        // are a part of the tree, need to be promoted to the tree
+        let mut finalized_parent = self.last_finalized.block.pointer().unwrap().to_owned();
+        while let Some(ptr) = self.tree_candidates.remove(&finalized_parent) {
+            let parent_hash = ptr.block.pointer().unwrap().to_owned(); // safe, always available
+            self.store_block(&ptr);
+            self.block_tree.insert(ptr.hash.clone(), ptr);
+            finalized_parent = parent_hash;
+        }
 
-        self.tree_candidates
-            .retain(|_, candidate| candidate.height >= current_height)
+        // afterwards, as long as a catch-up phase is complete, the candidates with
+        // surplus height can be removed
+        if self.catchup_state == CatchupState::Complete {
+            let current_height = self.last_finalized.height;
+
+            self.tree_candidates
+                .retain(|_, candidate| candidate.height >= current_height)
+        }
     }
 
     fn print_inapplicable_finalizations(&self) -> String {

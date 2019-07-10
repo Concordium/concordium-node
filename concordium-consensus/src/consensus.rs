@@ -1,8 +1,8 @@
 use byteorder::{ByteOrder, LittleEndian};
 
 use concordium_common::{
-    into_err, RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSender, RelayOrStopSenderHelper,
-    RelayOrStopSyncSender,
+    into_err, PacketType, RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSender,
+    RelayOrStopSenderHelper, RelayOrStopSyncSender,
 };
 use failure::{bail, Fallible};
 
@@ -120,9 +120,12 @@ impl ConsensusOutQueue {
 
         if let Ok(RelayOrStopEnvelope::Relay(ref msg)) = message {
             match msg.variant {
-                PacketType::Block => relay_msg_to_skov(skov_sender, &msg)?,
-                PacketType::FinalizationRecord => relay_msg_to_skov(skov_sender, &msg)?,
-                _ => {} // not used yet,
+                PacketType::Block
+                | PacketType::FinalizationRecord
+                | PacketType::CatchupBlockByHash
+                | PacketType::CatchupFinalizationRecordByHash
+                | PacketType::CatchupFinalizationRecordByIndex => relay_msg_to_skov(skov_sender, &msg)?,
+                _ => {} // not used in Skov,
             }
         }
 
@@ -153,10 +156,14 @@ fn relay_msg_to_skov(
         PacketType::FinalizationRecord => {
             SkovReqBody::AddFinalizationRecord(FinalizationRecord::deserialize(&message.payload)?)
         }
+        PacketType::CatchupBlockByHash
+        | PacketType::CatchupFinalizationRecordByHash
+        | PacketType::CatchupFinalizationRecordByIndex => SkovReqBody::StartCatchupPhase,
         _ => unreachable!("ConsensusOutQueue::recv_message was extended!"),
     };
 
-    let request = RelayOrStopEnvelope::Relay(SkovReq::new(None, request_body));
+    let request =
+        RelayOrStopEnvelope::Relay(SkovReq::new(None, Box::new([]), Some(request_body), false));
 
     into_err!(skov_sender.send(request))
 }
@@ -192,7 +199,7 @@ lazy_static! {
 
 #[derive(Clone, Default)]
 pub struct ConsensusContainer {
-    baker: Arc<RwLock<Option<ConsensusBaker>>>,
+    pub baker: Arc<RwLock<Option<ConsensusBaker>>>,
 }
 
 impl ConsensusContainer {
@@ -382,12 +389,6 @@ impl ConsensusContainer {
     ) -> Fallible<ConsensusFfiResponse> {
         baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
             .get_finalization_messages(request, peer_id))
-    }
-
-    pub fn get_genesis_data(&self) -> Option<Arc<Bytes>> {
-        safe_read!(self.baker)
-            .as_ref()
-            .map(|baker| Arc::clone(&baker.genesis_data))
     }
 }
 
