@@ -516,12 +516,7 @@ fn start_consensus_threads(
                         }
                     };
 
-                    let is_broadcast =
-                        if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
-                            true
-                        } else {
-                            false
-                        };
+                    let is_broadcast = pac.packet_type == NetworkPacketType::BroadcastedMessage;
 
                     if let Err(e) = handle_pkt_out(
                         &mut baker_clone,
