@@ -100,6 +100,14 @@ do
 ar x $i
 done
 
+echo "Removing debug symbols because certain distros can't update their stuff to be compliant with the spec"
+strip --strip-debug /target/vanilla/cabal/libHS* \
+		    /target/vanilla/concordium/libHS* \
+	            /target/profiling/cabal/libHS* \
+	            /target/profiling/concordium/libHS* \
+	            /target/vanilla/ghc/lib* \
+	            /target/profiling/ghc/lib*
+
 echo "Removing duplicated symbols"
 for file in $(find . -type f -name "*.o"); do
   nm $file | grep "\(T __rust_alloc\)\|\(T __rdl_alloc\)|\(T __clzsi2\)" >> /dev/null;
