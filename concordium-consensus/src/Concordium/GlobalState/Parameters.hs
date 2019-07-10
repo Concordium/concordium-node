@@ -1,5 +1,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 -- |This module defines types for blockchain parameters, including genesis data,
 -- baker parameters and finalization parameters.
@@ -17,10 +18,17 @@ import Lens.Micro.Platform
 
 import Concordium.Types
 import Concordium.GlobalState.Bakers
+import Concordium.GlobalState.IdentityProviders
 import Data.ByteString(ByteString)
 
+import qualified Data.ByteString.Lazy as BSL
+import qualified Data.ByteString.Base16 as BS16
+import qualified Data.Text.Encoding as Text
+import qualified Data.Aeson as AE
+
 -- |FIXME: These should wrap pointers so that they can be passed to rust with no
--- overhead of checking whether they are really valid elements.
+-- overhead of checking whether they are really valid elements (since we know
+-- they are).
 newtype ElgamalGenerator = ElgamalGenerator ByteString
     deriving(Show, Serialize)
 newtype PedersenKey = PedersenKey ByteString
@@ -79,7 +87,23 @@ data GenesisData = GenesisData {
     genesisBirkParameters :: BirkParameters,
     genesisBakerAccounts :: [Account],
     genesisFinalizationParameters :: FinalizationParameters,
-    genesisCryptographicParameters :: CryptographicParameters
+    genesisCryptographicParameters :: CryptographicParameters,
+    genesisIdentityProviders :: [IdentityProviderData]
 } deriving (Generic, Show)
 
 instance Serialize GenesisData where
+
+instance AE.FromJSON CryptographicParameters where
+  parseJSON = AE.withObject "CryptoGraphicParameters" $ \v ->
+    do elgamalGeneratorText <- v AE..: "dLogBaseChain"
+       commitmentKeyText <- v AE..: "onChainCommitmentKey"
+       return CryptographicParameters{
+         elgamalGenerator = ElgamalGenerator $ fst . BS16.decode . Text.encodeUtf8 $ elgamalGeneratorText,
+         attributeCommitmentKey = PedersenKey $ fst . BS16.decode . Text.encodeUtf8 $ commitmentKeyText
+       }
+
+readIdentityProviders :: BSL.ByteString -> Maybe [IdentityProviderData]
+readIdentityProviders = AE.decode
+
+readCryptographicParameters :: BSL.ByteString -> Maybe CryptographicParameters
+readCryptographicParameters = AE.decode
