@@ -4,12 +4,14 @@ module Concordium.Runner where
 import Control.Concurrent.Chan
 import Control.Concurrent.MVar
 import Control.Concurrent
-import Control.Monad.Trans.State hiding (get)
+import Control.Monad.Trans.State hiding (get, put)
 import Control.Monad
 import Control.Exception
 import Data.Monoid
 import Data.Time.Clock
 import Data.Either
+import Data.ByteString as BS
+import Data.Serialize
 
 import Concordium.Types
 import Concordium.GlobalState.Parameters
@@ -124,15 +126,15 @@ syncReceiveFinalizationRecord syncRunner finRec = runBFSMWithStateLog syncRunner
 
 data InMessage src =
     MsgShutdown
-    | MsgBlockReceived src BakedBlock
-    | MsgTransactionReceived Transaction
-    | MsgFinalizationReceived src FinalizationMessage
-    | MsgFinalizationRecordReceived src FinalizationRecord
+    | MsgBlockReceived src !BS.ByteString
+    | MsgTransactionReceived !BS.ByteString
+    | MsgFinalizationReceived src !BS.ByteString
+    | MsgFinalizationRecordReceived src !BS.ByteString
 
 data OutMessage src = 
-    MsgNewBlock BakedBlock
-    | MsgFinalization FinalizationMessage
-    | MsgFinalizationRecord FinalizationRecord
+    MsgNewBlock !BS.ByteString
+    | MsgFinalization !BS.ByteString
+    | MsgFinalizationRecord !BS.ByteString
     | MsgMissingBlock src BlockHash BlockHeight
     | MsgMissingFinalization src (Either BlockHash FinalizationIndex)
 
@@ -147,29 +149,41 @@ makeAsyncRunner logm bkr gen initBS = do
         let
             msgLoop = readChan inChan >>= \case
                 MsgShutdown -> stopSyncRunner sr
-                MsgBlockReceived src block -> do
-                    (_, evts) <- syncReceiveBlock sr block
-                    forM_ evts $ handleMessage src
+                MsgBlockReceived src blockBS -> do
+                    case runGet get blockBS of
+                        Right (NormalBlock block) -> do
+                            (_, evts) <- syncReceiveBlock sr block
+                            forM_ evts $ handleMessage src
+                        _ -> return ()
                     msgLoop
-                MsgTransactionReceived trans -> do
-                    (_, evts) <- syncReceiveTransaction sr trans
-                    forM_ evts $ handleMessage undefined
+                MsgTransactionReceived transBS -> do
+                    case runGet get transBS of
+                        Right trans -> do
+                            (_, evts) <- syncReceiveTransaction sr trans
+                            forM_ evts $ handleMessage undefined
+                        _ -> return ()
                     msgLoop
                 MsgFinalizationReceived src bs -> do
-                    (_, evts) <- syncReceiveFinalizationMessage sr bs
-                    forM_ evts $ handleMessage src
+                    case runGet get bs of
+                        Right finMsg -> do
+                            (_, evts) <- syncReceiveFinalizationMessage sr finMsg
+                            forM_ evts $ handleMessage src
+                        _ -> return ()
                     msgLoop
-                MsgFinalizationRecordReceived src finRec -> do
-                    (_, evts) <- syncReceiveFinalizationRecord sr finRec
-                    forM_ evts $ handleMessage src
+                MsgFinalizationRecordReceived src finRecBS -> do
+                    case runGet get finRecBS of
+                        Right finRec -> do
+                            (_, evts) <- syncReceiveFinalizationRecord sr finRec
+                            forM_ evts $ handleMessage src
+                        _ -> return ()
                     msgLoop
-            handleMessage _ (SkovFinalization (BroadcastFinalizationMessage fmsg)) = writeChan outChan (MsgFinalization fmsg)
-            handleMessage _ (SkovFinalization (BroadcastFinalizationRecord frec)) = writeChan outChan (MsgFinalizationRecord frec)
+            handleMessage _ (SkovFinalization (BroadcastFinalizationMessage fmsg)) = writeChan outChan (MsgFinalization $ runPut $ put fmsg)
+            handleMessage _ (SkovFinalization (BroadcastFinalizationRecord frec)) = writeChan outChan (MsgFinalizationRecord $ runPut $ put frec)
             handleMessage src (SkovMissingBlock bh delta) = writeChan outChan (MsgMissingBlock src bh delta)
             handleMessage src (SkovMissingFinalization fr) = writeChan outChan (MsgMissingFinalization src fr)
         _ <- forkIO msgLoop
         return (inChan, outChan, syncState sr)
     where
-        simpleToOutMessage (SOMsgNewBlock block) = MsgNewBlock block
-        simpleToOutMessage (SOMsgFinalization finMsg) = MsgFinalization finMsg
-        simpleToOutMessage (SOMsgFinalizationRecord finRec) = MsgFinalizationRecord finRec
+        simpleToOutMessage (SOMsgNewBlock block) = MsgNewBlock $ runPut $ put $ NormalBlock block
+        simpleToOutMessage (SOMsgFinalization finMsg) = MsgFinalization $ runPut $ put finMsg
+        simpleToOutMessage (SOMsgFinalizationRecord finRec) = MsgFinalizationRecord $ runPut $ put finRec

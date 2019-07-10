@@ -8,6 +8,7 @@ import System.Random
 import Data.Time.Clock.POSIX
 import System.IO
 import Lens.Micro.Platform
+import Data.Serialize
 
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Parameters
@@ -43,7 +44,7 @@ transactions gen = trs (0 :: Nonce) (randoms gen :: [Int])
 
 sendTransactions :: Chan (InMessage a) -> [Transaction] -> IO ()
 sendTransactions chan (t : ts) = do
-        writeChan chan (MsgTransactionReceived t)
+        writeChan chan (MsgTransactionReceived $ runPut $ put t)
         -- r <- randomRIO (5000, 15000)
         threadDelay 50000
         sendTransactions chan ts
@@ -55,19 +56,22 @@ relay inp sfsRef monitor outps = loop
         loop = do
             msg <- readChan inp
             case msg of
-                MsgNewBlock block -> do
-                    let bh = getHash block :: BlockHash
-                    sfs <- readMVar sfsRef
-                    bp <- runSilentLogger $ flip evalSSM (sfs ^. skov) (resolveBlock bh)
-                    -- when (isNothing bp) $ error "Block is missing!"
-                    writeChan monitor (Left (bh, block, bpState <$> bp))
+                MsgNewBlock blockBS -> do
+                    case runGet get blockBS of
+                        Right (NormalBlock block) -> do
+                            let bh = getHash block :: BlockHash
+                            sfs <- readMVar sfsRef
+                            bp <- runSilentLogger $ flip evalSSM (sfs ^. skov) (resolveBlock bh)
+                            -- when (isNothing bp) $ error "Block is missing!"
+                            writeChan monitor (Left (bh, block, bpState <$> bp))
+                        _ -> return ()
                     forM_ outps $ \outp -> forkIO $ do
                         --factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
                         let factor = 1 :: Double
                         r <- truncate . (*factor) . fromInteger . (`div` 10) . (^(2::Int)) <$> randomRIO (0, 7800)
                         threadDelay r
                         --putStrLn $ "Delay: " ++ show r
-                        writeChan outp (MsgBlockReceived () block)
+                        writeChan outp (MsgBlockReceived () blockBS)
                 MsgFinalization bs ->
                     forM_ outps $ \outp -> forkIO $ do
                         -- factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
@@ -77,7 +81,9 @@ relay inp sfsRef monitor outps = loop
                         --putStrLn $ "Delay: " ++ show r
                         writeChan outp (MsgFinalizationReceived () bs)
                 MsgFinalizationRecord fr -> do
-                    writeChan monitor (Right fr)
+                    case runGet get fr of
+                        Right fr' -> writeChan monitor (Right fr')
+                        _ -> return ()
                     forM_ outps $ \outp -> forkIO $ do
                         -- factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
                         let factor = 1 :: Double

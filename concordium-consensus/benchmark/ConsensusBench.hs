@@ -22,13 +22,14 @@ import Data.Word
 
 import Concordium.Types
 import Concordium.Types.HashableTo
-import Concordium.GlobalState.TreeState(BlockPointerData(..))
+import Concordium.GlobalState.BlockState(BlockPointerData(..))
 import qualified Concordium.GlobalState.TreeState as TreeState
 import Concordium.GlobalState.Basic.TreeState
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block
+import Concordium.GlobalState.Bakers
 
 import qualified Data.FixedByteString as FBS
 import qualified Concordium.Crypto.SHA256 as Hash
@@ -70,7 +71,7 @@ data Event
     = EBake Slot
     | EBlock BakedBlock
     | ETransaction Transaction
-    | EFinalization BS.ByteString
+    | EFinalization FinalizationMessage
     | EFinalizationRecord FinalizationRecord
 
 instance Show Event where

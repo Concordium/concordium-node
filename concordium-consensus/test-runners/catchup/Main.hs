@@ -10,6 +10,8 @@ import System.IO
 import Data.IORef
 import Lens.Micro.Platform
 import Data.List(intercalate)
+import Data.Serialize
+import qualified Data.ByteString as BS
 
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Parameters
@@ -27,7 +29,6 @@ import Concordium.Types
 import Concordium.Runner
 import Concordium.Logger
 import Concordium.Skov
-import Concordium.Afgjort.Finalize(FinalizationPoint)
 import qualified Concordium.Getters as Get
 
 import Concordium.Startup
@@ -37,7 +38,7 @@ type Peer = MVar SkovBufferedFinalizationState
 
 data InEvent
     = IEMessage (InMessage Peer)
-    | IECatchupFinalization FinalizationPoint Bool (Chan InEvent)
+    | IECatchupFinalization BS.ByteString Bool (Chan InEvent)
 
 nContracts :: Int
 nContracts = 2
@@ -51,7 +52,7 @@ transactions gen = trs (0 :: Nonce) (randoms gen :: [Int])
 
 sendTransactions :: Chan (InEvent) -> [Transaction] -> IO ()
 sendTransactions chan (t : ts) = do
-        writeChan chan (IEMessage $ MsgTransactionReceived t)
+        writeChan chan (IEMessage $ MsgTransactionReceived $ runPut $ put t)
         -- r <- randomRIO (5000, 15000)
         threadDelay 50000
         sendTransactions chan ts
@@ -65,12 +66,15 @@ relayIn msgChan bakerChan sfsRef connectedRef = loop
             connected <- readIORef connectedRef
             when connected $ case msg of
                 IEMessage imsg -> writeChan bakerChan imsg
-                IECatchupFinalization fp reciprocate chan -> do
-                    finMsgs <- Get.getFinalizationMessages sfsRef fp
-                    forM_ finMsgs $ writeChan chan . IEMessage . MsgFinalizationReceived sfsRef
-                    when reciprocate $ do
-                        myFp <- Get.getFinalizationPoint sfsRef
-                        writeChan chan $ IECatchupFinalization myFp False msgChan
+                IECatchupFinalization fpBS reciprocate chan -> do
+                    case runGet get fpBS of
+                        Right fp -> do
+                            finMsgs <- Get.getFinalizationMessages sfsRef fp
+                            forM_ finMsgs $ writeChan chan . IEMessage . MsgFinalizationReceived sfsRef . runPut . put
+                            when reciprocate $ do
+                                myFp <- runPut . put <$> Get.getFinalizationPoint sfsRef
+                                writeChan chan $ IECatchupFinalization myFp False msgChan
+                        Left _ -> return ()
             loop
 
 
@@ -91,44 +95,54 @@ relay inp sfsRef connectedRef monitor loopback outps = loop
             msg <- readChan inp
             connected <- readIORef connectedRef
             if connected then case msg of
-                MsgNewBlock block -> do
-                    let bh = getHash block :: BlockHash
-                    sfs <- readMVar sfsRef
-                    bp <- runSilentLogger $ flip evalSSM (sfs ^. skov) (resolveBlock bh)
-                    -- when (isNothing bp) $ error "Block is missing!"
-                    writeChan monitor (Left (bh, block, bpState <$> bp))
+                MsgNewBlock blockBS -> do
+                    case runGet get blockBS of
+                        Right (NormalBlock block) -> do
+                            let bh = getHash block :: BlockHash
+                            sfs <- readMVar sfsRef
+                            bp <- runSilentLogger $ flip evalSSM (sfs ^. skov) (resolveBlock bh)
+                            -- when (isNothing bp) $ error "Block is missing!"
+                            writeChan monitor (Left (bh, block, bpState <$> bp))
+                        _ -> return ()
                     forM_ outps $ \outp -> usually $ delayed $
-                        writeChan outp (IEMessage $ MsgBlockReceived sfsRef block)
+                        writeChan outp (IEMessage $ MsgBlockReceived sfsRef blockBS)
                 MsgFinalization bs ->
                     forM_ outps $ \outp -> delayed $
                         writeChan outp (IEMessage $ MsgFinalizationReceived sfsRef bs)
                 MsgFinalizationRecord fr -> do
-                    writeChan monitor (Right fr)
+                    case runGet get fr of
+                        Right fr' -> writeChan monitor (Right fr')
+                        _ -> return ()
                     forM_ outps $ \outp -> usually $ delayed $
                         writeChan outp (IEMessage $ MsgFinalizationRecordReceived sfsRef fr)
                 MsgMissingBlock src bh 0 -> do
                     mb <- Get.getBlockData src bh
                     case mb of
-                        Just (NormalBlock bb) -> writeChan loopback (IEMessage $ MsgBlockReceived src bb)
+                        Just bd@(NormalBlock _) -> writeChan loopback (IEMessage $ MsgBlockReceived src $ runPut $ put bd)
                         _ -> return ()
                 MsgMissingBlock src bh delta -> do
                     mb <- Get.getBlockDescendant src bh delta
                     case mb of
-                        Just (NormalBlock bb) -> writeChan loopback (IEMessage $ MsgBlockReceived src bb)
+                        Just bd@(NormalBlock _) -> writeChan loopback (IEMessage $ MsgBlockReceived src $ runPut $ put bd)
                         _ -> return ()
                 MsgMissingFinalization src fin -> do
                     mf <- case fin of
                         Left bh -> Get.getBlockFinalization src bh
                         Right fi -> Get.getIndexedFinalization src fi
-                    forM_ mf $ \fr -> writeChan loopback (IEMessage $ MsgFinalizationRecordReceived src fr)
+                    forM_ mf $ \fr -> writeChan loopback (IEMessage $ MsgFinalizationRecordReceived src $ runPut $ put fr)
             else case msg of
-                MsgNewBlock block -> do
-                    let bh = getHash block :: BlockHash
-                    sfs <- readMVar sfsRef
-                    bp <- runSilentLogger $ flip evalSSM (sfs ^. skov) (resolveBlock bh)
-                    -- when (isNothing bp) $ error "Block is missing!"
-                    writeChan monitor (Left (bh, block, bpState <$> bp))
-                MsgFinalizationRecord fr -> writeChan monitor (Right fr)
+                MsgNewBlock blockBS -> do
+                    case runGet get blockBS of
+                        Right (NormalBlock block) -> do
+                            let bh = getHash block :: BlockHash
+                            sfs <- readMVar sfsRef
+                            bp <- runSilentLogger $ flip evalSSM (sfs ^. skov) (resolveBlock bh)
+                            -- when (isNothing bp) $ error "Block is missing!"
+                            writeChan monitor (Left (bh, block, bpState <$> bp))
+                        _ -> return ()
+                MsgFinalizationRecord fr -> case runGet get fr of
+                        Right fr' -> writeChan monitor (Right fr')
+                        _ -> return ()
                 _ -> return ()
             loop
 
@@ -150,7 +164,7 @@ toggleConnection logM sfsRef connectedRef loopback outps = readIORef connectedRe
                 logM External LLInfo $ "Reconnected"
                 writeIORef connectedRef True
                 fp <- Get.getFinalizationPoint sfsRef
-                forM_ outps $ \outp -> writeChan outp (IECatchupFinalization fp True loopback)
+                forM_ outps $ \outp -> writeChan outp (IECatchupFinalization (runPut $ put fp) True loopback)
                 loop True
 
 
