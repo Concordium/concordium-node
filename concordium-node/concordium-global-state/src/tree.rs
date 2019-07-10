@@ -4,7 +4,7 @@ use concordium_common::{indexed_vec::IndexedVec, PacketType};
 use hash_hasher::{HashedMap, HashedSet};
 use rkv::{Rkv, SingleStore, StoreOptions, Value};
 
-use std::{collections::BinaryHeap, fmt, rc::Rc};
+use std::{collections::BinaryHeap, fmt, mem, rc::Rc, sync::Arc};
 
 use crate::{
     block::*,
@@ -21,24 +21,17 @@ use self::PendingQueueType::*;
 /// It contains an optional identifier of the source peer if it is not our own
 /// consensus layer.
 pub struct SkovReq {
-    pub source:                  Option<(u64, bool, PacketType)>, // (PeerId, is_broadcast)
-    pub raw:                     Box<[u8]>,
-    pub body:                    Option<SkovReqBody>,
-    pub is_consensus_applicable: bool,
+    pub source:  Option<(u64, bool)>, // (PeerId, is_broadcast)
+    pub variant: PacketType,
+    pub payload: Arc<[u8]>,
 }
 
 impl SkovReq {
-    pub fn new(
-        source: Option<(u64, bool, PacketType)>,
-        raw: Box<[u8]>,
-        body: Option<SkovReqBody>,
-        is_consensus_applicable: bool,
-    ) -> Self {
+    pub fn new(source: Option<(u64, bool)>, variant: PacketType, payload: Arc<[u8]>) -> Self {
         Self {
             source,
-            raw,
-            body,
-            is_consensus_applicable,
+            variant,
+            payload,
         }
     }
 }
@@ -309,8 +302,24 @@ impl<'a> Skov<'a> {
     pub fn catchup_state(&self) -> CatchupState { self.data.catchup_state }
 
     pub fn is_tree_valid(&self) -> bool {
-        self.data.awaiting_parent_block.is_empty()
+        self.data.pending_queue_ref(AwaitingParentBlock).is_empty()
+            && self
+                .data
+                .pending_queue_ref(AwaitingLastFinalizedBlock)
+                .is_empty()
+            && self
+                .data
+                .pending_queue_ref(AwaitingLastFinalizedFinalization)
+                .is_empty()
             && self.data.inapplicable_finalization_records.is_empty()
+    }
+
+    pub fn delay_broadcast(&mut self, broadcast: SkovReq) {
+        self.data.delayed_broadcasts.push(broadcast);
+    }
+
+    pub fn get_delayed_broadcasts(&mut self) -> Vec<SkovReq> {
+        mem::replace(&mut self.data.delayed_broadcasts, Vec::new())
     }
 
     #[doc(hidden)]
@@ -382,6 +391,8 @@ pub struct SkovData<'a> {
     transaction_table: TransactionTable,
     /// the current state of the catch-up process
     catchup_state: CatchupState,
+    /// incoming broacasts rejected during a catch-up round
+    delayed_broadcasts: Vec<SkovReq>,
 }
 
 impl<'a> SkovData<'a> {
@@ -430,6 +441,7 @@ impl<'a> SkovData<'a> {
             inapplicable_finalization_records: hashed!(HashedMap, SKOV_ERR_PREALLOCATION_SIZE),
             transaction_table: TransactionTable::default(),
             catchup_state: CatchupState::NotStarted,
+            delayed_broadcasts: Vec::new(),
         };
 
         // store the genesis block
