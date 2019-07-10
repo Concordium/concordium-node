@@ -59,7 +59,8 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
             (
                 NetworkEndian::read_u64(&read_ty!(cursor, BakerId)),
                 BakerInfo::deserialize(&read_const_sized!(cursor, BAKER_INFO))?
-            )
+            ),
+            8
         );
 
         let baker_total_stake = NetworkEndian::read_u64(&read_ty!(cursor, Amount));

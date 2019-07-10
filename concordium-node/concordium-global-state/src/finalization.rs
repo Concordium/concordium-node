@@ -14,7 +14,7 @@ const HEADER: u8 = size_of::<SessionId>() as u8
     + size_of::<FinalizationIndex>() as u8
     + size_of::<BlockHeight>() as u8
     + size_of::<Party>() as u8;
-const SIGNATURE: u8 = 8 + 64; // FIXME: unnecessary 8B prefix
+const SIGNATURE: u8 = 8 + 64;
 const WMVBA_TYPE: u8 = 1;
 const VAL: u8 = size_of::<BlockHash>() as u8;
 const TICKET: u8 = 80;
@@ -508,7 +508,8 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationRecord {
             (
                 NetworkEndian::read_u32(&read_const_sized!(&mut cursor, 4)),
                 Encoded::new(&read_const_sized!(&mut cursor, SIGNATURE))
-            )
+            ),
+            4
         );
 
         let delay = NetworkEndian::read_u64(&read_ty!(&mut cursor, BlockHeight));
@@ -535,7 +536,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationRecord {
         let mut cursor = create_serialization_cursor(
             size_of::<FinalizationIndex>()
                 + self.block_pointer.len()
-                + size_of::<u64>()
+                + size_of::<u32>()
                 + proof_len
                 + size_of::<BlockHeight>(),
         );
@@ -543,7 +544,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationRecord {
         let _ = cursor.write_u64::<NetworkEndian>(self.index);
         let _ = cursor.write_all(&self.block_pointer);
 
-        let _ = cursor.write_u64::<NetworkEndian>(self.proof.len() as u64);
+        let _ = cursor.write_u32::<NetworkEndian>(self.proof.len() as u32);
         for (party, signature) in &*self.proof {
             let _ = cursor.write_u32::<NetworkEndian>(*party);
             let _ = cursor.write_all(signature);
