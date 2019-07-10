@@ -26,6 +26,7 @@ import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Instances
 import Concordium.GlobalState.Modules hiding (getModule)
 import Concordium.GlobalState.Bakers
+import Concordium.GlobalState.IdentityProviders
 
 import Data.Void
 
@@ -234,8 +235,17 @@ class BlockStateQuery m => BlockStateOperations m where
   bsoDecrementCentralBankGTU :: UpdatableBlockState m -> Amount -> m (Amount, UpdatableBlockState m)
 
   -- |Change the given account's stake delegation. Return 'False' if the target
-  -- is an invalid baker (and delegation is unchanged), and 'True' otherwise.
+  --  is an invalid baker (and delegation is unchanged), and 'True' otherwise.
   bsoDelegateStake :: UpdatableBlockState m -> AccountAddress -> Maybe BakerId -> m (Bool, UpdatableBlockState m)
+
+  -- |Get the identity provider data for the given identity provider, or Nothing if
+  -- the identity provider with given ID does not exist.
+  bsoGetIdentityProvider :: UpdatableBlockState m -> ID.IdentityProviderIdentity -> m (Maybe IdentityProviderData)
+
+  -- |Get the current cryptographic parameters. The idea is that these will be
+  -- periodically updated and so they must be part of the block state.
+  bsoGetCryptoParams :: UpdatableBlockState m -> m CryptographicParameters
+
 
 newtype BSMTrans t (m :: * -> *) a = BSMTrans (t m a)
     deriving (Functor, Applicative, Monad, MonadTrans)
@@ -281,6 +291,8 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoMint s = lift . bsoMint s
   bsoDecrementCentralBankGTU s = lift . bsoDecrementCentralBankGTU s
   bsoDelegateStake s acct bid = lift $ bsoDelegateStake s acct bid
+  bsoGetIdentityProvider s ipId = lift $ bsoGetIdentityProvider s ipId
+  bsoGetCryptoParams s = lift $ bsoGetCryptoParams s
   {-# INLINE bsoGetModule #-}
   {-# INLINE bsoGetAccount #-}
   {-# INLINE bsoGetInstance #-}
