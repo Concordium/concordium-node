@@ -100,13 +100,13 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for Block {
 
 impl fmt::Debug for Block {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let parent = if let Some(ref hash) = self.pointer() {
-            format!(" -> {:?}", hash)
+        let hash = if let Some(ref parent) = self.pointer() {
+            format!("block {:?} -> {:?}", sha256(&self.serialize()), parent)
         } else {
-            String::new()
+            format!("genesis {:?}", sha256(&self.serialize()))
         };
 
-        write!(f, "block {:?}{}", sha256(&self.serialize()), parent)
+        write!(f, "{}", hash)
     }
 }
 
@@ -301,7 +301,7 @@ impl BlockPtr {
         };
         // the genesis block byte representation is the genesis data prefixed with a
         // 0u64 slot id
-        let genesis_block_hash = sha256(&[&[0u8; 8], genesis_bytes].concat());
+        let genesis_block_hash = sha256(&genesis_block.serialize());
         let timestamp = Utc::now(); // TODO: be more precise when Kontrol is there
 
         BlockPtr {
