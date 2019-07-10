@@ -30,7 +30,7 @@ data BlockState = BlockState {
     _blockModules :: !Modules.Modules,
     _blockBank :: !Rewards.BankStatus,
     _blockIdentityProviders :: !IPS.IdentityProviders,
-    _blockBirkParameters :: BirkParameters
+    _blockBirkParameters :: !BirkParameters
 } deriving (Show)
 
 makeLenses ''BlockState
@@ -219,7 +219,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
           Nothing -> (False, bs)
           Just mods' -> (True, bs & blockModules .~ mods')
 
-    bsoModifyInstance bs caddr amount model = return $
+    bsoModifyInstance bs caddr amount model = return $!
         bs & blockInstances %~ Instances.updateInstanceAt caddr amount model
         & maybe (error "Instance has invalid owner") 
             (\owner -> blockBirkParameters . birkBakers %~ modifyStake (owner ^. accountStakeDelegate) (amountDiff amount $ Instances.instanceAmount inst))
@@ -228,7 +228,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
             inst = fromMaybe (error "Instance does not exist") $ bs ^? blockInstances . ix caddr
             Instances.InstanceParameters{..} = Instances.instanceParameters inst
 
-    bsoModifyAccount bs accountUpdates = return $
+    bsoModifyAccount bs accountUpdates = return $!
         -- Update the account
         (case accountUpdates ^. BS.auCredential of
              Nothing -> bs & blockAccounts %~ Account.putAccount updatedAccount

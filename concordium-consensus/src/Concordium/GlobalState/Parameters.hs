@@ -43,7 +43,7 @@ instance Serialize CryptographicParameters where
 data BirkParameters = BirkParameters {
     _birkLeadershipElectionNonce :: LeadershipElectionNonce,
     _birkElectionDifficulty :: ElectionDifficulty,
-    _birkBakers :: Bakers
+    _birkBakers :: !Bakers
 } deriving (Eq, Generic, Show)
 instance Serialize BirkParameters where
 
