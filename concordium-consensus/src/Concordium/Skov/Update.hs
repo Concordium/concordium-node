@@ -9,7 +9,6 @@ import qualified Control.Monad.RWS.Strict as SRWS
 import qualified Data.Sequence as Seq
 import Lens.Micro.Platform
 import Data.Foldable
-import Data.Maybe
 
 import GHC.Stack
 
@@ -144,7 +143,11 @@ purgePending = do
                             Nothing -> return ()
                             Just (getHash -> pb) -> do
                                 pbStatus <- getBlockStatus pb
-                                when (isNothing pbStatus) $ blockArriveDead pb
+                                let
+                                    isPending Nothing = True
+                                    isPending (Just BlockPending{}) = True
+                                    isPending _ = False
+                                when (isPending pbStatus) $ blockArriveDead pb
                                 purgeLoop
         purgeLoop
 

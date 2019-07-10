@@ -59,10 +59,13 @@ invariantSkovData SkovData{..} = do
         (finMap, lastFin, _) <- foldM checkFin (HM.empty, _skovGenesisBlockPointer, 0) _skovFinalizationList
         -- Live blocks
         (liveFinMap, _) <- foldM checkLive (finMap, [lastFin]) _skovBranches
-        unless (HM.filter notDead _skovBlockTable == liveFinMap) $ Left "non-dead blocks do not match finalized and branch blocks"
+        unless (HM.filter notDeadOrPending _skovBlockTable == liveFinMap) $ Left "non-dead blocks do not match finalized and branch blocks"
         -- Pending blocks
         queue <- foldM (checkPending (blockSlot $ bpBlock $ lastFin)) (Set.empty) (HM.toList _skovPossiblyPendingTable)
-        checkBinary (Set.isSubsetOf) queue (Set.fromList (MPQ.toListU _skovPossiblyPendingQueue)) "is a subset of" "pending blocks" "pending queue"
+        let pendingSet = Set.fromList (MPQ.toListU _skovPossiblyPendingQueue)
+        checkBinary (Set.isSubsetOf) queue pendingSet "is a subset of" "pending blocks" "pending queue"
+        let allPossiblyPending = Set.fromList ((fst <$> MPQ.elemsU _skovPossiblyPendingQueue) ++ (getHash <$> MPQ.elemsU _skovBlocksAwaitingLastFinalized))
+        checkBinary Set.isSubsetOf (Set.fromList $ HM.keys $ HM.filter onlyPending _skovBlockTable) allPossiblyPending "is a subset of" "blocks marked pending" "pending queues"
         -- Finalization pool
         forM_ (Map.toList _skovFinalizationPool) $ \(fi, frs) -> do
             checkBinary (>=) fi (fromIntegral (Seq.length _skovFinalizationList)) ">=" "pending finalization record index" "length of finalization list"
@@ -98,11 +101,18 @@ invariantSkovData SkovData{..} = do
         checkPending lfSlot queue (parent, children) = do
             when (null children) $ Left $ "Empty list of blocks pending parent"
             let checkChild q child = do
-                    checkBinary (==) (_skovBlockTable ^. at (pbHash child)) Nothing "==" "pending block status" "Nothing"
+                    let pendingBlockStatus = _skovBlockTable ^. at (pbHash child)
+                    case pendingBlockStatus of
+                        Just TreeState.BlockPending{} -> return ()
+                        _ -> Left $ "Pending block status (" ++ show pendingBlockStatus ++ ") should be BlockPending"
                     checkBinary (==) (blockPointer (bbFields (pbBlock child))) parent "==" "pending block's parent" "pending parent"
                     checkBinary (>) (blockSlot (pbBlock child)) lfSlot ">" "pending block's slot" "last finalized slot"
                     return (Set.insert ((blockSlot (pbBlock child)), (pbHash child, parent)) q)
-            checkBinary (==) (_skovBlockTable ^. at parent) Nothing "==" "pending parent status" "Nothing"
+            let parentBlockStatus = _skovBlockTable ^. at parent
+            case parentBlockStatus of
+                Just TreeState.BlockPending{} -> return ()
+                Nothing -> return ()
+                _ -> Left $ "Pending parent status (" ++ show parentBlockStatus ++ ") should be BlockPending or Nothing"
             foldM checkChild queue children
         walkTransactions :: BlockPointer -> BlockPointer -> Trs -> ANFTS -> Either String (Trs, ANFTS)
         walkTransactions src dest trMap anfts
@@ -120,8 +130,11 @@ invariantSkovData SkovData{..} = do
             return (trMap', anfts')
         finSes = FinalizationSessionId (bpHash _skovGenesisBlockPointer) 0
         finCom = makeFinalizationCommittee (genesisFinalizationParameters _skovGenesisData)
-        notDead TreeState.BlockDead = False
-        notDead _ = True
+        notDeadOrPending TreeState.BlockDead = False
+        notDeadOrPending (TreeState.BlockPending {}) = False
+        notDeadOrPending _ = True
+        onlyPending (TreeState.BlockPending {}) = True
+        onlyPending _ = False
 
 invariantSkovFinalization :: SkovFinalizationState -> Either String ()
 invariantSkovFinalization (SkovFinalizationState sd@SkovData{..} FinalizationState{..}) = do
