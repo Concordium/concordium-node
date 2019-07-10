@@ -124,11 +124,12 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BlockData {
             let slot_duration = NetworkEndian::read_u64(&read_ty!(cursor, Duration));
             let birk_parameters = BirkParameters::deserialize(cursor)?;
             let baker_accounts =
-                read_multiple!(cursor, "baker accounts", Account::deserialize(cursor)?);
+                read_multiple!(cursor, "baker accounts", Account::deserialize(cursor)?, 8);
             let finalization_parameters = read_multiple!(
                 cursor,
                 "finalization parameters",
-                VoterInfo::deserialize(&read_const_sized!(cursor, VOTER_INFO))?
+                VoterInfo::deserialize(&read_const_sized!(cursor, VOTER_INFO))?,
+                8
             );
             let finalization_minimum_skip = NetworkEndian::read_u64(&read_ty!(cursor, BlockHeight));
 
@@ -149,7 +150,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BlockData {
             let nonce = Encoded::new(&read_const_sized!(cursor, NONCE));
             let last_finalized = HashBytes::from(read_ty!(cursor, BlockHash));
             let transactions =
-                read_multiple!(cursor, "transactions", Transaction::deserialize(cursor)?);
+                read_multiple!(cursor, "transactions", Transaction::deserialize(cursor)?, 8);
             let signature = Encoded::new(&read_const_sized!(cursor, SIGNATURE));
 
             let data = BlockData::Regular(BakedBlock {
