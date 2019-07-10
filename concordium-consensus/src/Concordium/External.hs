@@ -4,6 +4,7 @@ module Concordium.External where
 import Foreign
 import Foreign.C
 
+import qualified Data.ByteString.Lazy as BSL
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Unsafe as BS
 import Data.Serialize
@@ -86,18 +87,32 @@ callBakerIdentityCallback cb bix bs = BS.useAsCStringLen bs $ \(cdata, clen) -> 
 -- |Generate genesis data given a genesis time (in seconds since the UNIX epoch) and
 -- number of bakers.  This function is deterministic: calling with the same genesis
 -- time and number of bakers should generate the same genesis data and baker identities.
+-- Returns
+-- - -1 if cryptographic parameters could not be loaded,
+-- - -2 if identity providers could not be loaded
+-- - 0 if data was generated.
 makeGenesisData ::
     Timestamp -- ^Genesis time
     -> Word64 -- ^Number of bakers
+    -> CString -- ^File name of the data with cryptographic providers. Null-terminated.
+    -> CString -- ^File name of the data with identity providers. Null-terminated.
     -> FunPtr GenesisDataCallback -- ^Function to process the generated genesis data.
     -> FunPtr BakerIdentityCallback -- ^Function to process each baker identity. Will be called repeatedly with different baker ids.
-    -> IO ()
-makeGenesisData genTime nBakers cbkgen cbkbaker = do
-    callGenesisDataCallback cbkgen (encode genData)
-    mapM_ (\bkr@(BakerIdentity (BakerId bid) _ _ _ _) -> callBakerIdentityCallback cbkbaker bid (encode bkr)) bakersPrivate
-    where
-        (genData, bakers) = S.makeGenesisData genTime (fromIntegral nBakers) 10 0.5 9
-        bakersPrivate = map fst bakers
+    -> IO CInt
+makeGenesisData genTime nBakers cryptoParamsFile idProvidersFile cbkgen cbkbaker = do
+    mCryptoParams <- readCryptographicParameters <$> (BSL.readFile =<< peekCString cryptoParamsFile)
+    mIdProviders <- readIdentityProviders <$> (BSL.readFile =<< peekCString idProvidersFile)
+    case mCryptoParams of
+      Nothing -> return (-1)
+      Just cryptoParams ->
+        case mIdProviders of
+          Nothing -> return (-2)
+          Just idProviders -> do
+            let (genData, bakers) = S.makeGenesisData genTime (fromIntegral nBakers) 10 0.5 9 cryptoParams idProviders
+            let bakersPrivate = map fst bakers
+            callGenesisDataCallback cbkgen (encode genData)
+            mapM_ (\bkr@(BakerIdentity (BakerId bid) _ _ _ _) -> callBakerIdentityCallback cbkbaker bid (encode bkr)) bakersPrivate
+            return 0
 
 -- | External function that logs in Rust a message using standard Rust log output
 --
@@ -729,7 +744,7 @@ getFinalizationPoint bptr = do
         logm External LLDebug $ "Replying with finalization point = " ++ show finPt
         byteStringToCString $ P.runPut $ put finPt
 
-foreign export ccall makeGenesisData :: Timestamp -> Word64 -> FunPtr GenesisDataCallback -> FunPtr BakerIdentityCallback -> IO ()
+foreign export ccall makeGenesisData :: Timestamp -> Word64 -> CString -> CString -> FunPtr GenesisDataCallback -> FunPtr BakerIdentityCallback -> IO CInt
 foreign export ccall startBaker :: CString -> Int64 -> CString -> Int64 -> FunPtr BroadcastCallback -> FunPtr LogCallback -> FunPtr MissingByBlockDeltaCallback -> FunPtr MissingByBlockCallback -> FunPtr MissingByFinalizationIndexCallback -> IO (StablePtr BakerRunner)
 foreign export ccall stopBaker :: StablePtr BakerRunner -> IO ()
 foreign export ccall receiveBlock :: StablePtr BakerRunner -> PeerID -> CString -> Int64 -> IO Int64

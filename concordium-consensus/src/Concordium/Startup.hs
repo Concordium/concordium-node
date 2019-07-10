@@ -11,6 +11,7 @@ import qualified Concordium.Crypto.VRF as VRF
 
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Bakers
+import Concordium.GlobalState.IdentityProviders
 import Concordium.Birk.Bake
 import Concordium.Types
 
@@ -34,23 +35,22 @@ makeBakerAccount bid = acct {_accountAmount = 1000000, _accountStakeDelegate = J
     
 makeGenesisData :: 
     Timestamp -- ^Genesis time
-    -> Word
-    -> Duration
-    -> ElectionDifficulty
+    -> Word  -- ^Initial number of bakers.
+    -> Duration  -- ^Slot duration in seconds.
+    -> ElectionDifficulty  -- ^Initial election difficulty.
     -> BlockHeight -- ^Minimum finalization interval - 1
+    -> CryptographicParameters -- ^Initial cryptographic parameters.
+    -> [IdentityProviderData]   -- ^List of initial identity providers.
     -> (GenesisData, [(BakerIdentity,BakerInfo)])
-makeGenesisData genTime nBakers slotTime elecDiff finMinSkip = (GenesisData genTime
-                                               slotTime -- slot time in seconds
-                                               bps
-                                               bakerAccounts
-                                               fps,
-                                   bakers)
+makeGenesisData genesisTime nBakers genesisSlotDuration elecDiff finMinSkip genesisCryptographicParameters genesisIdentityProviders
+    = (GenesisData{..}, bakers)
     where
-        bps = BirkParameters (BS.pack "LeadershipElectionNonce")
-                             elecDiff -- voting power
-                             (Bakers (Map.fromList $ [(bid, binfo) | (BakerIdentity bid _ _ _ _, binfo) <- bakers])
-                                (sum [_bakerStake binfo | (_, binfo) <- bakers])
-                                (fromIntegral nBakers) -- next available baker id (since baker ids start with 0
-                             )
-        fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, BakerInfo vrfk vvk _ _) <- bakers] finMinSkip
-        (bakers, bakerAccounts) = unzip (makeBakers nBakers)
+        genesisBirkParameters =
+            BirkParameters (BS.pack "LeadershipElectionNonce")
+                           elecDiff -- voting power
+                           (Bakers (Map.fromList $ [(bid, binfo) | (BakerIdentity bid _ _ _ _, binfo) <- bakers])
+                             (sum [_bakerStake binfo | (_, binfo) <- bakers])
+                             (fromIntegral nBakers) -- next available baker id (since baker ids start with 0
+                           )
+        genesisFinalizationParameters = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, BakerInfo vrfk vvk _ _) <- bakers] finMinSkip
+        (bakers, genesisBakerAccounts) = unzip (makeBakers nBakers)

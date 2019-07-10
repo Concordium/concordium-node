@@ -1,4 +1,4 @@
-{-# LANGUAGE TupleSections, LambdaCase #-}
+{-# LANGUAGE TupleSections, LambdaCase, OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
 module Main where
 
@@ -10,6 +10,7 @@ import System.IO
 import Lens.Micro.Platform
 
 import Concordium.Types.HashableTo
+import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Block
@@ -100,11 +101,20 @@ gsToString gs = intercalate "\\l" . map show $ keys
         ca n = ContractAddress (fromIntegral n) 0
         keys = map (\n -> (n, instanceModel <$> getInstance (ca n) (gs ^. blockInstances))) $ enumFromTo 0 (nContracts-1)
 
+dummyCryptographicParameters :: CryptographicParameters
+dummyCryptographicParameters = CryptographicParameters {
+  elgamalGenerator = ElgamalGenerator "",
+  attributeCommitmentKey = PedersenKey ""
+  }
+
+dummyIdentityProviders :: [IdentityProviderData]
+dummyIdentityProviders = []  
+
 main :: IO ()
 main = do
     let n = 10
     now <- truncate <$> getPOSIXTime
-    let (gen, bis) = makeGenesisData now n 1 0.5 9
+    let (gen, bis) = makeGenesisData now n 1 0.5 9 dummyCryptographicParameters dummyIdentityProviders
     let iState = Example.initialState (genesisBirkParameters gen) (genesisBakerAccounts gen) nContracts
     trans <- transactions <$> newStdGen
     chans <- mapM (\(bid, _) -> do
