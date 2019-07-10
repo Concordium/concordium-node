@@ -249,7 +249,7 @@ fn process_internal_skov_entry(request: SkovReq, skov: &mut Skov) -> Fallible<()
     match skov_result {
         SkovResult::SuccessfulEntry(entry) => {
             trace!(
-                "Skov: successfully processed a {} from our Consensus layer",
+                "Skov: successfully processed a {} from our consensus layer",
                 entry
             );
         }
@@ -268,15 +268,16 @@ fn process_external_skov_entry(
     skov: &mut Skov,
 ) -> Fallible<()> {
     if skov.catchup_state() == CatchupState::InProgress {
-        // ignore broadcasts during catch-ups
+        // delay broadcasts during catch-up rounds
         if let Some((peer_id, is_broadcast)) = request.source {
             if is_broadcast {
                 info!(
                     "Still catching up; the last received broadcast containing a {} from peer {} \
-                     will not be processed!",
+                     will be processed after it's finished",
                     request.variant,
                     P2PNodeId(peer_id)
                 );
+                skov.delay_broadcast(request);
                 return Ok(());
             }
         }
@@ -330,6 +331,7 @@ fn process_external_skov_entry(
         if let CatchupState::InProgress = skov.catchup_state() {
             if skov.is_tree_valid() {
                 skov.end_catchup_round();
+                apply_delayed_broadcasts(node, network_id, baker, skov)?;
             }
         }
 
@@ -396,6 +398,29 @@ fn process_external_skov_entry(
 
         // not handled in Skov yet (FinalizationMessages)
     }
+
+    Ok(())
+}
+
+pub fn apply_delayed_broadcasts(
+    node: &mut P2PNode,
+    network_id: NetworkId,
+    baker: &mut consensus::ConsensusContainer,
+    skov: &mut Skov,
+) -> Fallible<()> {
+    let delayed_broadcasts = skov.get_delayed_broadcasts();
+
+    if delayed_broadcasts.is_empty() {
+        return Ok(());
+    }
+
+    info!("Applying {} delayed broadcast(s)", delayed_broadcasts.len());
+
+    for request in delayed_broadcasts {
+        process_external_skov_entry(node, network_id, baker, request, skov)?;
+    }
+
+    info!("Delayed broadcasts applied");
 
     Ok(())
 }

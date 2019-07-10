@@ -4,7 +4,7 @@ use concordium_common::{indexed_vec::IndexedVec, PacketType};
 use hash_hasher::{HashedMap, HashedSet};
 use rkv::{Rkv, SingleStore, StoreOptions, Value};
 
-use std::{collections::BinaryHeap, fmt, rc::Rc, sync::Arc};
+use std::{collections::BinaryHeap, fmt, mem, rc::Rc, sync::Arc};
 
 use crate::{
     block::*,
@@ -306,6 +306,14 @@ impl<'a> Skov<'a> {
             && self.data.inapplicable_finalization_records.is_empty()
     }
 
+    pub fn delay_broadcast(&mut self, broadcast: SkovReq) {
+        self.data.delayed_broadcasts.push(broadcast);
+    }
+
+    pub fn get_delayed_broadcasts(&mut self) -> Vec<SkovReq> {
+        mem::replace(&mut self.data.delayed_broadcasts, Vec::new())
+    }
+
     #[doc(hidden)]
     pub fn display_state(&self) {
         fn sorted_block_map(map: &HashedMap<HashBytes, Rc<BlockPtr>>) -> Vec<&Rc<BlockPtr>> {
@@ -375,6 +383,8 @@ pub struct SkovData<'a> {
     transaction_table: TransactionTable,
     /// the current state of the catch-up process
     catchup_state: CatchupState,
+    /// incoming broacasts rejected during a catch-up round
+    delayed_broadcasts: Vec<SkovReq>,
 }
 
 impl<'a> SkovData<'a> {
@@ -423,6 +433,7 @@ impl<'a> SkovData<'a> {
             inapplicable_finalization_records: hashed!(HashedMap, SKOV_ERR_PREALLOCATION_SIZE),
             transaction_table: TransactionTable::default(),
             catchup_state: CatchupState::NotStarted,
+            delayed_broadcasts: Vec::new(),
         };
 
         // store the genesis block
