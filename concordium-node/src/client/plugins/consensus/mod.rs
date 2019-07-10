@@ -199,10 +199,10 @@ pub fn handle_global_state_request(
     let is_from_consensus = request.source.is_none();
 
     if is_from_consensus {
-        // currently it's the Baker thread that distributes packets produced by
-        // Consensus
+        // Skov-only; the Baker thread distributes packets produced by Consensus
         process_internal_skov_entry(request, skov)?
     } else {
+        // also responds to catch-up requests
         process_external_skov_entry(node, network_id, baker, request, skov)?
     }
 
@@ -222,6 +222,13 @@ pub fn handle_global_state_request(
 }
 
 fn process_internal_skov_entry(request: SkovReq, skov: &mut Skov) -> Fallible<()> {
+    if skov.catchup_state() == CatchupState::InProgress && request.variant == PacketType::Block {
+        // ignore outgoing blocks until the catch-up phase is complete; they would be
+        // dropped by the other nodes anyway
+        warn!("Our consensus layer wanted to bake a block while catching up! Not relaying it.");
+        return Ok(());
+    }
+
     let request_body = match request.variant {
         PacketType::Block => SkovReqBody::AddBlock(PendingBlock::new(&request.payload)?),
         PacketType::FinalizationRecord => {
@@ -277,7 +284,10 @@ fn process_external_skov_entry(
                     request.variant,
                     P2PNodeId(peer_id)
                 );
-                skov.delay_broadcast(request);
+                // TODO: this check might not be needed; check
+                if P2PNodeId(peer_id) != node.id() {
+                    skov.delay_broadcast(request);
+                }
                 return Ok(());
             }
         }
@@ -327,13 +337,6 @@ fn process_external_skov_entry(
             SkovReqBody::GetFinalizationRecordByIdx(i) => skov.get_finalization_record_by_idx(i),
             _ => SkovResult::Housekeeping,
         };
-
-        if let CatchupState::InProgress = skov.catchup_state() {
-            if skov.is_tree_valid() {
-                skov.end_catchup_round();
-                apply_delayed_broadcasts(node, network_id, baker, skov)?;
-            }
-        }
 
         // relay external messages to Consensus if they are relevant to it
         if let Some((peer_id, _)) = request.source {
@@ -388,6 +391,13 @@ fn process_external_skov_entry(
             SkovResult::Error(e) => skov.register_error(e),
             SkovResult::Housekeeping => {}
         }
+
+        if let CatchupState::InProgress = skov.catchup_state() {
+            if skov.is_tree_valid() {
+                skov.end_catchup_round();
+                apply_delayed_broadcasts(node, network_id, baker, skov)?;
+            }
+        }
     } else {
         // relay external messages to Consensus if they are relevant to it
         if let Some((peer_id, _)) = request.source {
@@ -420,7 +430,7 @@ pub fn apply_delayed_broadcasts(
         process_external_skov_entry(node, network_id, baker, request, skov)?;
     }
 
-    info!("Delayed broadcasts applied");
+    info!("Delayed broadcasts were applied");
 
     Ok(())
 }
