@@ -52,6 +52,13 @@ accountVFKeyFrom = verifyKey . fst . randomKeyPair . mkStdGen
 mkAccount ::AccountVerificationKey -> Amount -> Account
 mkAccount vfKey amnt = (newAccount vfKey Ed25519) {_accountAmount = amnt}
 
+
+dummyCryptographicParameters :: CryptographicParameters
+dummyCryptographicParameters = CryptographicParameters {
+  elgamalGenerator = ElgamalGenerator "",
+  attributeCommitmentKey = PedersenKey ""
+  }
+
 -- |Make a dummy credential deployment information from an account registration
 -- id and sequential registration id. All the proofs are dummy values, and there
 -- is no anoymity revocation data.

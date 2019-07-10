@@ -229,7 +229,8 @@ startBaker gdataC gdataLenC bidC bidLenC bcbk lcbk missingBlock missingFinBlock 
         bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
         case (decode gdata, decode bdata) of
             (Right genData, Right bid) -> do
-                bakerSyncRunner <- makeSyncRunner logM bid genData (initialState (genesisBirkParameters genData) (genesisBakerAccounts genData) 2) bakerHandler
+                let iState = initialState (genesisBirkParameters genData) (genesisCryptographicParameters genData) (genesisBakerAccounts genData) 2
+                bakerSyncRunner <- makeSyncRunner logM bid genData iState bakerHandler
                 newStablePtr BakerRunner{..}
             _ -> ioError (userError $ "Error decoding serialized data.")
     where

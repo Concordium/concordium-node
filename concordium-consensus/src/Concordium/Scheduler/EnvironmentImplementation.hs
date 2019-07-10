@@ -164,6 +164,14 @@ instance (MonadReader ChainMetadata m, UpdatableBlockState m ~ state, MonadState
     put s'
     return r
 
+  {-# INLINE getIPInfo #-}
+  getIPInfo ipId = do
+    s <- get
+    lift (bsoGetIdentityProvider s ipId)
+
+  {-# INLINE getCrypoParams #-}
+  getCrypoParams = lift . bsoGetCryptoParams =<< get
+
 newtype SchedulerImplementation a = SchedulerImplementation { _runScheduler :: RWST ChainMetadata () BlockState (PureBlockStateMonad Identity) a }
     deriving (Functor, Applicative, Monad, MonadReader ChainMetadata, MonadState BlockState)
     deriving (StaticEnvironmentMonad Core.UA) via (BSOMonadWrapper ChainMetadata BlockState (RWST ChainMetadata () BlockState (PureBlockStateMonad Identity)))

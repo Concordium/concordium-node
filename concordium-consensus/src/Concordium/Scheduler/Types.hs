@@ -16,6 +16,8 @@ module Concordium.Scheduler.Types (module Concordium.Scheduler.Types,
                                    module Concordium.GlobalState.Instances,
                                    module Concordium.GlobalState.Rewards,
                                    module Concordium.GlobalState.Parameters,
+                                   module Concordium.GlobalState.IdentityProviders,
+                                   IdentityProviderIdentity,
                                    ReceiveContext(..),
                                    InitContext(..),
                                    link) where
@@ -30,6 +32,9 @@ import Concordium.GlobalState.Instances
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.IdentityProviders
+
+import Concordium.ID.Types(IdentityProviderIdentity)
 
 import Acorn.Types(ReceiveContext(..), InitContext(..), link)
 import qualified Acorn.Core as Core

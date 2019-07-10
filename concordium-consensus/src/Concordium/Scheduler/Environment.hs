@@ -135,6 +135,14 @@ class StaticEnvironmentMonad Core.UA m => SchedulerMonad m where
   -- not valid.
   delegateStake :: AccountAddress -> Maybe BakerId -> m Bool
 
+  -- *Other metadata.
+
+  -- |Retrieve the identity provider with given id, if possible.
+  getIPInfo :: IdentityProviderIdentity -> m (Maybe IdentityProviderData)
+
+  -- |Get cryptographic parameters for the current state.
+  getCrypoParams :: m CryptographicParameters
+
 -- |This is a derived notion that is used inside a transaction to keep track of
 -- the state of the world during execution. Local state of contracts and amounts
 -- on contracts might need to be rolled back for various reasons, so we do not

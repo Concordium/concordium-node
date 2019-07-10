@@ -47,7 +47,7 @@ numAccounts = 10
 
 initialBlockState :: BlockState
 initialBlockState =
-    emptyBlockState emptyBirkParameters &
+    emptyBlockState emptyBirkParameters dummyCryptographicParameters &
         (blockAccounts .~ foldr addAcc Acc.emptyAccounts (take numAccounts staticKeys)) .
         (blockBank . Rew.totalGTU .~ fromIntegral numAccounts * initBal) .
         (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))

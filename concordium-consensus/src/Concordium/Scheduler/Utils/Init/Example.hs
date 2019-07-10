@@ -21,7 +21,7 @@ import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Concordium.GlobalState.Basic.BlockState as BlockState
 import qualified Concordium.GlobalState.Account as Acc
 import qualified Concordium.GlobalState.Modules as Mod
-import Concordium.GlobalState.Parameters(BirkParameters)
+import Concordium.GlobalState.Parameters(BirkParameters, CryptographicParameters)
 import qualified Concordium.Scheduler.Runner as Runner
 
 import qualified Acorn.Core as Core
@@ -96,8 +96,8 @@ makeTransaction inc ca n = Runner.signTx mateuszKP hdr payload
 
 
 -- |State with the given number of contract instances of the counter contract specified.
-initialState :: BirkParameters -> [Account] -> Int -> BlockState.BlockState
-initialState birkParams bakerAccounts n = 
+initialState :: BirkParameters -> CryptographicParameters -> [Account] -> Int -> BlockState.BlockState
+initialState birkParams cryptoParams bakerAccounts n = 
     let (_, _, mods) = foldl handleFile
                            baseState
                            $(embedFiles [Left "test/contracts/SimpleAccount.acorn"
@@ -107,7 +107,7 @@ initialState birkParams bakerAccounts n =
         initAccount = foldl (flip Acc.putAccount)
                             (Acc.putAccount (newAccount (Sig.verifyKey mateuszKP) Ed25519 & accountAmount .~ initialAmount) Acc.emptyAccounts)
                             bakerAccounts
-        gs = BlockState.emptyBlockState birkParams &
+        gs = BlockState.emptyBlockState birkParams cryptoParams &
                (BlockState.blockAccounts .~ initAccount) .
                (BlockState.blockModules .~ Mod.fromModuleList (moduleList mods)) .
                (BlockState.blockBank .~ Types.makeGenesisBankStatus initialAmount 10) -- 10 GTU minted per slot.
