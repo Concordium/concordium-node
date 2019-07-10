@@ -302,7 +302,15 @@ impl<'a> Skov<'a> {
     pub fn catchup_state(&self) -> CatchupState { self.data.catchup_state }
 
     pub fn is_tree_valid(&self) -> bool {
-        self.data.awaiting_parent_block.is_empty()
+        self.data.pending_queue_ref(AwaitingParentBlock).is_empty()
+            && self
+                .data
+                .pending_queue_ref(AwaitingLastFinalizedBlock)
+                .is_empty()
+            && self
+                .data
+                .pending_queue_ref(AwaitingLastFinalizedFinalization)
+                .is_empty()
             && self.data.inapplicable_finalization_records.is_empty()
     }
 
