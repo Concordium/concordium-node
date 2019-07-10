@@ -30,15 +30,16 @@ data BlockState = BlockState {
     _blockModules :: !Modules.Modules,
     _blockBank :: !Rewards.BankStatus,
     _blockIdentityProviders :: !IPS.IdentityProviders,
-    _blockBirkParameters :: !BirkParameters
+    _blockBirkParameters :: !BirkParameters,
+    _blockCryptographicParameters :: !CryptographicParameters
 } deriving (Show)
 
 makeLenses ''BlockState
 
 -- |Mostly empty block state, apart from using 'Rewards.genesisBankStatus' which
 -- has hard-coded initial values for amount of gtu in existence.
-emptyBlockState :: BirkParameters -> BlockState
-emptyBlockState _blockBirkParameters = BlockState {
+emptyBlockState :: BirkParameters -> CryptographicParameters -> BlockState
+emptyBlockState _blockBirkParameters _blockCryptographicParameters = BlockState {
   _blockAccounts = Account.emptyAccounts
   , _blockInstances = Instances.emptyInstances
   , _blockModules = Modules.emptyModules
@@ -298,3 +299,9 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
                         Just inst <- Set.toList (acct ^. accountInstances) <&> flip Instances.getInstance (bs ^. blockInstances)]
             bs' = bs & blockBirkParameters . birkBakers %~ removeStake (acct ^. accountStakeDelegate) stake . addStake target stake
                     & blockAccounts . ix aaddr %~ (accountStakeDelegate .~ target)
+
+    bsoGetIdentityProvider bs ipId =
+      return $! bs ^? blockIdentityProviders . to IPS.idProviders . ix ipId
+
+    bsoGetCryptoParams bs =
+      return $! bs ^. blockCryptographicParameters
