@@ -105,7 +105,7 @@ dispatch msg = do
       -- then we notify the block state that all the identity issuers on the sender's account should be rewarded
       -- TODO: Alternative design would be to only reward them if the transaction is successful/committed, or
       -- to add additional parameters (such as deposited amount)
-      mapM_ (notifyIdentityProviderCredential . ID.cdvIpId . ID.cdiValues) (senderAccount ^. accountCredentials)
+      mapM_ (notifyIdentityProviderCredential . ID.cdvIpId) (senderAccount ^. accountCredentials)
 
       let cost = Cost.checkHeader
       let energy = thGasAmount meta - cost  -- the remaining gas (after subtracting cost to process the header)
@@ -190,8 +190,9 @@ handleDeployModule meta remainingAmount psize mod energy = do
         return $ TxValid (TxReject (ModuleHashAlreadyExists mhash))
 
 
+-- |TODO: Figure out whether we need the metadata or not here.
 handleModule :: TransactionMonad m => TransactionHeader -> Int -> Module -> m (Core.ModuleRef, Interface, ValueInterface)
-handleModule meta msize mod = do
+handleModule _meta msize mod = do
   -- Consume the gas amount required for processing.
   -- This is done even if the transaction is rejected in the end.
   -- NB: The next line will reject the transaction in case there are not enough funds.
@@ -455,6 +456,7 @@ handleTransfer meta accountamount amount addr =
     AddressAccount acc ->
       handleTransferAccount (thSender meta) acc (AddressAccount (thSender meta)) accountamount amount
 
+-- |TODO: Figure out whether we need the origin information in here (i.e., whether an account can observe it).
 handleTransferAccount ::
   TransactionMonad m
   => AccountAddress -- the origin account of the top-level transaction
@@ -463,7 +465,7 @@ handleTransferAccount ::
   -> Amount -- amount on the sender's account or contract instance
   -> Amount -- amount that was sent in the transaction
   -> m [Event]
-handleTransferAccount origin acc txsender senderamount amount = do
+handleTransferAccount _origin acc txsender senderamount amount = do
   -- the sender must have the amount available. Otherwise we reject the transaction immediately.
   unless (senderamount >= amount) $! rejectTransaction (AmountTooLarge txsender amount)
 
@@ -489,7 +491,8 @@ runInterpreter f = do
   getEnergy >>= f >>= \case Just (x, energy') -> x <$ putEnergy energy'
                             Nothing -> putEnergy 0 >> rejectTransaction OutOfEnergy
 
-
+-- |TODO: Figure out what context information will the check that
+-- a credential is valid need. Presumably public keys of id providers.
 handleDeployCredential ::
   SchedulerMonad m
     => TransactionHeader -- ^Header of the transaction.
@@ -502,29 +505,30 @@ handleDeployCredential meta cdi energy = do
      chargeExecutionCost (thSender meta) payment
      return $! TxValid (TxReject OutOfEnergy)
    else do
+     let cdv = ID.cdiValues cdi
      payment <- energyToGtu (Cost.deployCredential + Cost.checkHeader) -- charge for checking header and deploying credential
      chargeExecutionCost (thSender meta) payment
      -- check that a registration id does not yet exist
-     regIdEx <- accountRegIdExists (ID.cdvRegId . ID.cdiValues $ cdi)
+     regIdEx <- accountRegIdExists (ID.cdvRegId cdv)
      if regIdEx then
-       return $! TxValid $ TxReject $ DuplicateAccountRegistrationID (ID.cdvRegId . ID.cdiValues $ cdi)
+       return $! TxValid $ TxReject $ DuplicateAccountRegistrationID (ID.cdvRegId cdv)
      else do
-       -- first whether an account with the address exists in the global store
-       let aaddr = AH.accountAddress (ID.cdvVerifyKey . ID.cdiValues $ cdi) (ID.cdvSigScheme . ID.cdiValues $ cdi)
+       -- first check whether an account with the address exists in the global store
+       let aaddr = AH.accountAddress (ID.cdvVerifyKey cdv) (ID.cdvSigScheme cdv)
        macc <- getAccount aaddr
        case macc of
          Nothing ->  -- account does not yet exist, so create it, but we need to be careful
-           let account = newAccount (ID.cdvVerifyKey . ID.cdiValues $ cdi) (ID.cdvSigScheme . ID.cdiValues $ cdi)
+           let account = newAccount (ID.cdvVerifyKey cdv) (ID.cdvSigScheme cdv)
            in if AH.verifyCredential cdi then do
                 _ <- putNewAccount account -- first create new account, but only if credential was valid.
                                            -- We know the address does not yet exist.
-                addAccountCredential aaddr cdi  -- and then add the credentials
+                addAccountCredential aaddr cdv  -- and then add the credentials
                 return $! TxValid (TxSuccess [AccountCreated aaddr, CredentialDeployed cdi])
               else return $! TxValid $ TxReject AccountCredentialInvalid
 
          Just _ -> -- otherwise we just try to add a credential to the account
                    if AH.verifyCredential cdi then do
-                     addAccountCredential aaddr cdi
+                     addAccountCredential aaddr cdv
                      return $! TxValid $ TxSuccess [CredentialDeployed cdi]
                    else
                      return $! TxValid $ TxReject AccountCredentialInvalid
@@ -585,6 +589,8 @@ checkAccountOwnership _ _ _ = True
 -- they wish to gain lotter power they need some stake delegated to them, which
 -- is a separate transaction.
 
+-- |TODO: Figure out whether we need the sender account to verify validity of this transaction.
+-- We might use it in checking validity of the proofs.
 handleAddBaker ::
   SchedulerMonad m
     => TransactionHeader
@@ -595,7 +601,7 @@ handleAddBaker ::
     -> Proof
     -> Energy
     -> m TxResult
-handleAddBaker meta senderAccount abElectionVerifyKey abSignatureVerifyKey abAccount abProof energy = do
+handleAddBaker meta _senderAccount abElectionVerifyKey abSignatureVerifyKey abAccount abProof energy = do
   if Cost.addBaker > energy then do
      payment <- energyToGtu (thGasAmount meta) -- use up all the deposited gas
      chargeExecutionCost (thSender meta) payment
@@ -657,6 +663,8 @@ handleRemoveBaker meta senderAccount rbId rbProof energy =
 --  * The account they wish to set as their reward account exists.
 --  * They own the account (meaning they know the private key corresponding to
 --    the public key of the account)
+-- TODO: Figure out (same as previous transaction) whether we need the sender account here
+-- to validate the transaction.
 handleUpdateBakerAccount ::
   SchedulerMonad m
     => TransactionHeader
@@ -666,7 +674,7 @@ handleUpdateBakerAccount ::
     -> Proof
     -> Energy
     -> m TxResult
-handleUpdateBakerAccount meta senderAccount ubaId ubaAddress ubaProof energy = do
+handleUpdateBakerAccount meta _senderAccount ubaId ubaAddress ubaProof energy = do
   if Cost.updateBakerAccount > energy then do
     payment <- energyToGtu (thGasAmount meta) -- use up all the deposited gas
     chargeExecutionCost (thSender meta) payment
@@ -699,6 +707,7 @@ handleUpdateBakerAccount meta senderAccount ubaId ubaAddress ubaProof energy = d
 --    corresponding to the baker's signature verification key.
 --  * The transaction proves that they own the private key corresponding to the __NEW__
 --    signature verification key.
+-- Same as above, figure out whether we need the sender account.
 handleUpdateBakerSignKey ::
   SchedulerMonad m
     => TransactionHeader
@@ -708,7 +717,7 @@ handleUpdateBakerSignKey ::
     -> Proof
     -> Energy
     -> m TxResult
-handleUpdateBakerSignKey meta senderAccount ubsId ubsKey ubsProof energy = 
+handleUpdateBakerSignKey meta _senderAccount ubsId ubsKey ubsProof energy = 
   if Cost.updateBakerKey > energy then do
     payment <- energyToGtu (thGasAmount meta) -- use up all the deposited gas
     chargeExecutionCost (thSender meta) payment

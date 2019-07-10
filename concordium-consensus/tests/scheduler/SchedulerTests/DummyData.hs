@@ -64,9 +64,9 @@ mkDummyCDI vfKey nregId =
             ,cdvRegId = let d = show nregId
                             l = length d
                             pad = replicate (48-l) '0'
-                        in RegIdCred (BS.pack (pad ++ d))
+                        in RegIdCred (FBS.pack . map (fromIntegral . fromEnum) $ (pad ++ d))
             ,cdvIpId = IP_ID "ip_id"
-            ,cdvPolicy = Policy []
+            ,cdvPolicy = Policy 0 0 []
             },
           cdiProofs = Proofs "proof"
         }
