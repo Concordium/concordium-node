@@ -124,7 +124,8 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
         let encrypted_amounts = read_multiple!(
             cursor,
             "encrypted amounts",
-            read_bytestring(cursor, "encrypted amount's length")?
+            read_bytestring(cursor, "encrypted amount's length")?,
+            8
         );
 
         let encryption_key =
@@ -137,13 +138,19 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
         let credentials = read_multiple!(
             cursor,
             "credentials",
-            read_bytestring(cursor, "encrypted amount's length")?
+            read_bytestring(cursor, "encrypted amount's length")?,
+            8
         );
 
         let stake_delegate =
             read_maybe!(cursor, NetworkEndian::read_u64(&read_ty!(cursor, BakerId)));
 
-        let instances = read_multiple!(cursor, "instances", ContractAddress::deserialize(cursor)?);
+        let instances = read_multiple!(
+            cursor,
+            "instances",
+            ContractAddress::deserialize(cursor)?,
+            8
+        );
 
         let account = Account {
             address,
@@ -323,7 +330,7 @@ pub fn create_serialization_cursor(size: usize) -> Cursor<Box<[u8]>> {
 }
 
 pub fn read_bytestring(input: &mut Cursor<&[u8]>, object_name: &str) -> Fallible<ByteString> {
-    let object_length = safe_get_len!(input, object_name);
+    let object_length = safe_get_len!(input, object_name, 8);
 
     Ok(Encoded(read_sized!(input, object_length)))
 }

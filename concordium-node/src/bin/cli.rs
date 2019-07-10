@@ -623,7 +623,7 @@ fn start_baker_thread(
                     }
                 }
                 Ok(RelayOrStopEnvelope::Stop) => break,
-                _ => error!("Error receiving a message from the consensus layer"),
+                Err(e) => error!("Error receiving a message from the consensus layer: {}", e),
             }
         }
     });
