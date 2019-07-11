@@ -46,15 +46,14 @@ pub type PreHandshakeCW = UnitFunction<SocketAddr>;
 pub type PreHandshake = UnitFunctor<SocketAddr>;
 
 pub struct TlsServerBuilder {
-    server:                  Option<TcpListener>,
-    event_log:               Option<Sender<P2PEvent>>,
-    self_peer:               Option<P2PPeer>,
-    buckets:                 Option<Arc<RwLock<Buckets>>>,
-    stats_export_service:    Option<Arc<RwLock<StatsExportService>>>,
-    blind_trusted_broadcast: Option<bool>,
-    networks:                Option<HashSet<NetworkId>>,
-    max_allowed_peers:       Option<u16>,
-    noise_params:            Option<snow::params::NoiseParams>,
+    server:               Option<TcpListener>,
+    event_log:            Option<Sender<P2PEvent>>,
+    self_peer:            Option<P2PPeer>,
+    buckets:              Option<Arc<RwLock<Buckets>>>,
+    stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
+    networks:             Option<HashSet<NetworkId>>,
+    max_allowed_peers:    Option<u16>,
+    noise_params:         Option<snow::params::NoiseParams>,
 }
 
 impl Default for TlsServerBuilder {
@@ -64,15 +63,14 @@ impl Default for TlsServerBuilder {
 impl TlsServerBuilder {
     pub fn new() -> TlsServerBuilder {
         TlsServerBuilder {
-            server:                  None,
-            event_log:               None,
-            self_peer:               None,
-            buckets:                 None,
-            stats_export_service:    None,
-            blind_trusted_broadcast: None,
-            networks:                None,
-            max_allowed_peers:       None,
-            noise_params:            None,
+            server:               None,
+            event_log:            None,
+            self_peer:            None,
+            buckets:              None,
+            stats_export_service: None,
+            networks:             None,
+            max_allowed_peers:    None,
+            noise_params:         None,
         }
     }
 
@@ -82,7 +80,6 @@ impl TlsServerBuilder {
             Some(server),
             Some(self_peer),
             Some(buckets),
-            Some(blind_trusted_broadcast),
             Some(max_allowed_peers),
             Some(noise_params),
         ) = (
@@ -90,7 +87,6 @@ impl TlsServerBuilder {
             self.server,
             self.self_peer,
             self.buckets,
-            self.blind_trusted_broadcast,
             self.max_allowed_peers,
             self.noise_params,
         ) {
@@ -110,7 +106,6 @@ impl TlsServerBuilder {
                 buckets,
                 message_processor: Arc::new(RwLock::new(MessageProcessor::new())),
                 dptr: mdptr,
-                blind_trusted_broadcast,
                 prehandshake_validations: PreHandshake::new(),
                 log_dumper: None,
                 max_allowed_peers,
@@ -153,11 +148,6 @@ impl TlsServerBuilder {
         self
     }
 
-    pub fn set_blind_trusted_broadcast(mut self, btb: bool) -> TlsServerBuilder {
-        self.blind_trusted_broadcast = Some(btb);
-        self
-    }
-
     pub fn set_networks(mut self, n: HashSet<NetworkId>) -> TlsServerBuilder {
         self.networks = Some(n);
         self
@@ -187,7 +177,6 @@ pub struct TlsServer {
     stats_export_service:     Option<Arc<RwLock<StatsExportService>>>,
     message_processor:        Arc<RwLock<MessageProcessor>>,
     dptr:                     Arc<RwLock<TlsServerPrivate>>,
-    blind_trusted_broadcast:  bool,
     prehandshake_validations: PreHandshake,
     log_dumper:               Option<Sender<DumpItem>>,
     max_allowed_peers:        u16,
@@ -281,7 +270,6 @@ impl TlsServer {
             .set_event_log(self.event_log.clone())
             .set_local_end_networks(networks)
             .set_buckets(Arc::clone(&self.buckets))
-            .set_blind_trusted_broadcast(self.blind_trusted_broadcast)
             .set_log_dumper(self.log_dumper.clone())
             .set_network_request_sender(Some(
                 read_or_die!(self.dptr).network_request_sender.clone(),
@@ -366,7 +354,6 @@ impl TlsServer {
                     .set_event_log(self.event_log.clone())
                     .set_local_end_networks(Arc::clone(&networks))
                     .set_buckets(Arc::clone(&self.buckets))
-                    .set_blind_trusted_broadcast(self.blind_trusted_broadcast)
                     .set_log_dumper(self.log_dumper.clone())
                     .set_network_request_sender(Some(
                         read_or_die!(self.dptr).network_request_sender.clone(),
@@ -443,9 +430,6 @@ impl TlsServer {
 
     #[inline]
     pub fn peer_type(&self) -> PeerType { self.self_peer.peer_type() }
-
-    #[inline]
-    pub fn blind_trusted_broadcast(&self) -> bool { self.blind_trusted_broadcast }
 
     /// It setups default message handler at TLSServer level.
     fn setup_default_message_handler(&mut self) {

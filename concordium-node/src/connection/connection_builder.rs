@@ -26,26 +26,22 @@ use std::{
 
 #[derive(Default)]
 pub struct ConnectionBuilder {
-    key_pair:                Option<Keypair>,
-    token:                   Option<Token>,
-    blind_trusted_broadcast: Option<bool>,
-    log_dumper:              Option<Sender<DumpItem>>,
-    is_initiator:            bool,
-    network_request_sender:  Option<Sender<NetworkRawRequest>>,
-    priv_conn_builder:       ConnectionPrivateBuilder,
-    noise_params:            Option<snow::params::NoiseParams>,
+    key_pair:               Option<Keypair>,
+    token:                  Option<Token>,
+    log_dumper:             Option<Sender<DumpItem>>,
+    is_initiator:           bool,
+    network_request_sender: Option<Sender<NetworkRawRequest>>,
+    priv_conn_builder:      ConnectionPrivateBuilder,
+    noise_params:           Option<snow::params::NoiseParams>,
 }
 
 impl ConnectionBuilder {
     pub fn build(self) -> Fallible<Connection> {
         let curr_stamp = get_current_stamp();
 
-        if let (Some(key_pair), Some(token), Some(blind_trusted_broadcast), Some(noise_params)) = (
-            self.key_pair,
-            self.token,
-            self.blind_trusted_broadcast,
-            self.noise_params,
-        ) {
+        if let (Some(key_pair), Some(token), Some(noise_params)) =
+            (self.key_pair, self.token, self.noise_params)
+        {
             let sender = self.network_request_sender.unwrap_or_else(|| {
                 // Create a dummy sender.
                 let (s, _) = channel();
@@ -70,7 +66,6 @@ impl ConnectionBuilder {
                 pre_handshake_message_processor: MessageProcessor::new(),
                 post_handshake_message_processor: MessageProcessor::new(),
                 common_message_processor: Rc::new(RefCell::new(MessageProcessor::new())),
-                blind_trusted_broadcast,
             };
 
             Ok(lself)
@@ -141,12 +136,6 @@ impl ConnectionBuilder {
 
     pub fn set_event_log(mut self, el: Option<Sender<P2PEvent>>) -> ConnectionBuilder {
         self.priv_conn_builder = self.priv_conn_builder.set_event_log(el);
-        self
-    }
-
-    pub fn set_blind_trusted_broadcast(mut self, btb: bool) -> ConnectionBuilder {
-        self.blind_trusted_broadcast = Some(btb);
-        self.priv_conn_builder = self.priv_conn_builder.set_blind_trusted_broadcast(btb);
         self
     }
 
