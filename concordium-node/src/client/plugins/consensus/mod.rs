@@ -29,7 +29,7 @@ use concordium_global_state::{
     common::{sha256, HashBytes, SerializeToBytes, SHA256},
     finalization::{FinalizationIndex, FinalizationRecord},
     transaction::Transaction,
-    tree::{CatchupState, Skov, ConsensusMessage, SkovReqBody, SkovResult},
+    tree::{CatchupState, Skov, ConsensusMessage, MessageType, SkovReqBody, SkovResult},
 };
 
 use crate::{common::P2PNodeId, configuration, network::NetworkId, p2p::*};
@@ -178,7 +178,7 @@ pub fn handle_pkt_out(
     let payload = Arc::from(&view.as_slice()[PAYLOAD_TYPE_LENGTH as usize..]);
 
     let request = RelayOrStopEnvelope::Relay(ConsensusMessage::new(
-        Some((peer_id.0, is_broadcast)),
+        MessageType::Inbound(peer_id.0, is_broadcast),
         packet_type,
         payload,
     ));
@@ -196,9 +196,7 @@ pub fn handle_global_state_request(
     skov: &mut Skov,
     stats_exporting: &Option<Arc<RwLock<StatsExportService>>>,
 ) -> Fallible<()> {
-    let is_from_consensus = request.source.is_none();
-
-    if is_from_consensus {
+    if let MessageType::Outbound(_) = request.direction {
         process_internal_skov_entry(node, network_id, request, skov)?
     } else {
         process_external_skov_entry(node, network_id, baker, request, skov)?
@@ -271,16 +269,21 @@ fn process_internal_skov_entry(
         _ => {}
     }
 
-    let mut out_bytes =
-        Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + request.payload.len());
+    let target = if let MessageType::Outbound(target) = request.direction {
+        target
+    } else {
+        unreachable!("process_internal_skov_entry was given an Inbound message!");
+    };
+    let is_broadcast = target.is_none();
+    let mut out_bytes = Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + request.payload.len());
 
     match out_bytes.write_u16::<NetworkEndian>(request.variant as u16) {
         Ok(_) => {
             out_bytes.extend(&*request.payload);
 
-            let res = if let Some((peer_id, _)) = request.source {
+            let res = if !is_broadcast {
                 node.send_direct_message(
-                    Some(P2PNodeId(peer_id)),
+                    target.map(|target| P2PNodeId(target)),
                     network_id,
                     None,
                     out_bytes,
@@ -289,8 +292,8 @@ fn process_internal_skov_entry(
                 node.send_broadcast_message(None, network_id, None, out_bytes)
             };
 
-            let msg_metadata = if let Some((tgt, _)) = request.source {
-                format!("direct message to peer {}", P2PNodeId(tgt))
+            let msg_metadata = if let Some(target) = target {
+                format!("direct message to peer {}", P2PNodeId(target))
             } else {
                 "broadcast".to_string()
             };
@@ -325,7 +328,7 @@ fn process_external_skov_entry(
 ) -> Fallible<()> {
     if skov.catchup_state() == CatchupState::InProgress {
         // delay broadcasts during catch-up rounds
-        if let Some((peer_id, is_broadcast)) = request.source {
+        if let MessageType::Inbound(peer_id, is_broadcast) = request.direction {
             if is_broadcast {
                 info!(
                     "Still catching up; the last received broadcast containing a {} \
@@ -340,6 +343,12 @@ fn process_external_skov_entry(
             }
         }
     }
+
+    let source = if let MessageType::Inbound(peer_id, _) = request.direction {
+        P2PNodeId(peer_id)
+    } else {
+        unreachable!("process_external_skov_entry was given an Outbound message!");
+    };
 
     let (request_body, consensus_applicable) = match request.variant {
         PacketType::Block => {
@@ -404,11 +413,6 @@ fn process_external_skov_entry(
                     .expect("Can't write to buffer");
                 out_bytes.extend(&*result);
 
-                let source = request
-                    .source
-                    .map(|(peer_id, ..)| P2PNodeId(peer_id))
-                    .unwrap();
-
                 match node.send_direct_message(Some(source), network_id, None, out_bytes) {
                     Ok(_) => info!("Peer {} responded to a {}", node.id(), request),
                     Err(_) => error!("Peer {} couldn't respond to a {}!", node.id(), request),
@@ -422,10 +426,8 @@ fn process_external_skov_entry(
         }
 
         // relay external messages to Consensus if they are relevant to it
-        if request.source.is_some() {
-            if consensus_applicable {
-                send_msg_to_consensus(node.id(), baker, request)?
-            }
+        if consensus_applicable {
+            send_msg_to_consensus(node.id(), source, baker, request)?
         }
 
         if let CatchupState::InProgress = skov.catchup_state() {
@@ -436,10 +438,8 @@ fn process_external_skov_entry(
         }
     } else {
         // relay external messages to Consensus if they are relevant to it
-        if request.source.is_some() {
-            if consensus_applicable {
-                send_msg_to_consensus(node.id(), baker, request)?
-            }
+        if consensus_applicable {
+            send_msg_to_consensus(node.id(), source, baker, request)?
         }
 
         // not handled in Skov yet (FinalizationMessages)
@@ -472,11 +472,12 @@ pub fn apply_delayed_broadcasts(
 }
 
 fn send_msg_to_consensus(
-    our_node_id: P2PNodeId,
+    our_id: P2PNodeId,
+    source_id: P2PNodeId,
     baker: &mut consensus::ConsensusContainer,
     request: ConsensusMessage,
 ) -> Fallible<()> {
-    let raw_id = request.source.unwrap().0; // safe, always there in external messages
+    let raw_id = source_id.as_raw();
 
     let consensus_response = match request.variant {
         Block => baker.send_block(raw_id, &request.payload),
@@ -492,13 +493,13 @@ fn send_msg_to_consensus(
     if consensus_response.is_acceptable() {
         info!(
             "Peer {} processed a {}",
-            our_node_id,
+            our_id,
             request,
         );
     } else {
         error!(
             "Peer {} couldn't process a {} due to error code {:?}",
-            our_node_id,
+            our_id,
             request,
             consensus_response,
         );

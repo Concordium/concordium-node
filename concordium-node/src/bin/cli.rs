@@ -572,8 +572,7 @@ fn start_baker_thread(skov_sender: RelayOrStopSender<ConsensusMessage>) -> std::
     spawn_or_die!("Process consensus messages", {
         loop {
             match consensus::CALLBACK_QUEUE.recv_message() {
-                Ok(RelayOrStopEnvelope::Relay(mut msg)) => {
-                    msg.source = None;
+                Ok(RelayOrStopEnvelope::Relay(msg)) => {
                     if let Err(e) = skov_sender.send(RelayOrStopEnvelope::Relay(msg)) {
                         error!("Error passing a message from the consensus layer: {}", e)
                     }

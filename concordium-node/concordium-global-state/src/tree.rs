@@ -23,15 +23,15 @@ type PeerId = u64;
 /// It contains an optional identifier of the source peer if it is not our own
 /// consensus layer.
 pub struct ConsensusMessage {
-    pub source:  Option<(PeerId, bool)>,
-    pub variant: PacketType,
-    pub payload: Arc<[u8]>,
+    pub direction: MessageType,
+    pub variant:   PacketType,
+    pub payload:   Arc<[u8]>,
 }
 
 impl ConsensusMessage {
-    pub fn new(source: Option<(PeerId, bool)>, variant: PacketType, payload: Arc<[u8]>) -> Self {
+    pub fn new(direction: MessageType, variant: PacketType, payload: Arc<[u8]>) -> Self {
         Self {
-            source,
+            direction,
             variant,
             payload: Arc::from(payload),
         }
@@ -81,13 +81,25 @@ impl fmt::Display for ConsensusMessage {
             p => p.to_string(),
         };
 
-        let source_name = self
-            .source
-            .map(|(peer_id, ..)| format!("{:016x}", peer_id))
-            .unwrap_or_else(|| "our consensus layer".to_owned());
+        let party_name = match self.direction {
+            MessageType::Inbound(peer_id, _) => format!("from peer {:016x}", peer_id),
+            MessageType::Outbound(Some(peer_id)) => format!("to peer {:016x}", peer_id),
+            _ => "from our consensus layer".to_owned()
+        };
 
-        write!(f, "{} from peer {}", content, source_name)
+        write!(f, "{} {}", content, party_name)
     }
+}
+
+#[derive(PartialEq)]
+/// The type indicating the source/target of a ConsensusMessage.
+pub enum MessageType {
+    /// Inbound messages come from other peers; they contain their PeerId and indicate
+    /// whether is was a direct message or a broadcast.
+    Inbound(PeerId, bool),
+    /// Outbound messages are produced by the consensus layer and either directed at a
+    /// specific PeerId or None in case of broadcasts.
+    Outbound(Option<PeerId>),
 }
 
 #[derive(Debug)]
