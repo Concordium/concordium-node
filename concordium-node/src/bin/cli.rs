@@ -24,7 +24,7 @@ use concordium_common::{
 use concordium_consensus::{consensus, ffi};
 use concordium_global_state::{
     common::SerializeToBytes,
-    tree::{Skov, SkovReq},
+    tree::{Skov, ConsensusMessage},
 };
 use failure::Fallible;
 use p2p_client::{
@@ -151,7 +151,7 @@ fn main() -> Fallible<()> {
         None
     };
 
-    let (skov_sender, skov_receiver) = mpsc::channel::<RelayOrStopEnvelope<SkovReq>>();
+    let (skov_sender, skov_receiver) = mpsc::channel::<RelayOrStopEnvelope<ConsensusMessage>>();
 
     // Connect outgoing messages to be forwarded into the baker and RPC streams.
     //
@@ -369,7 +369,7 @@ fn start_consensus_threads(
     (conf, app_prefs): (&configuration::Config, &configuration::AppPreferences),
     baker: &mut consensus::ConsensusContainer,
     pkt_out: RelayOrStopReceiver<Arc<NetworkMessage>>,
-    (skov_receiver, skov_sender): (RelayOrStopReceiver<SkovReq>, RelayOrStopSender<SkovReq>),
+    (skov_receiver, skov_sender): (RelayOrStopReceiver<ConsensusMessage>, RelayOrStopSender<ConsensusMessage>),
     stats: &Option<Arc<RwLock<StatsExportService>>>,
 ) -> Vec<std::thread::JoinHandle<()>> {
     let _no_trust_bans = conf.common.no_trust_bans;
@@ -568,13 +568,13 @@ fn start_consensus_threads(
     vec![global_state_thread, guard_pkt]
 }
 
-fn start_baker_thread(skov_sender: RelayOrStopSender<SkovReq>) -> std::thread::JoinHandle<()> {
+fn start_baker_thread(skov_sender: RelayOrStopSender<ConsensusMessage>) -> std::thread::JoinHandle<()> {
     spawn_or_die!("Process consensus messages", {
         loop {
             match consensus::CALLBACK_QUEUE.recv_message() {
-                Ok(RelayOrStopEnvelope::Relay(msg)) => {
-                    let request = SkovReq::new(None, msg.variant, Arc::clone(&msg.payload));
-                    if let Err(e) = skov_sender.send(RelayOrStopEnvelope::Relay(request)) {
+                Ok(RelayOrStopEnvelope::Relay(mut msg)) => {
+                    msg.source = None;
+                    if let Err(e) = skov_sender.send(RelayOrStopEnvelope::Relay(msg)) {
                         error!("Error passing a message from the consensus layer: {}", e)
                     }
                 }

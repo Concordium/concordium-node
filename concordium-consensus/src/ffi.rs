@@ -9,6 +9,7 @@ use std::{
     os::raw::{c_char, c_int},
     slice,
     sync::{
+        Arc,
         atomic::{AtomicBool, AtomicPtr, Ordering},
         Once, ONCE_INIT,
     },
@@ -16,7 +17,7 @@ use std::{
 
 use crate::consensus::*;
 use concordium_common::PacketType;
-use concordium_global_state::{block::*, common, finalization::*};
+use concordium_global_state::{block::*, common, finalization::*, tree::ConsensusMessage};
 
 extern "C" {
     pub fn hs_init(argc: *mut c_int, argv: *mut *mut *mut c_char);
@@ -580,7 +581,7 @@ pub extern "C" fn on_consensus_data_out(block_type: i64, block_data: *const u8, 
     debug!("Callback hit - queueing message");
 
     unsafe {
-        let data = Box::from(slice::from_raw_parts(
+        let data = Arc::from(slice::from_raw_parts(
             block_data as *const u8,
             data_length as usize,
         ));
@@ -599,7 +600,7 @@ pub extern "C" fn on_consensus_data_out(block_type: i64, block_data: *const u8, 
             CallbackType::FinalizationRecord => PacketType::FinalizationRecord,
         };
 
-        let message = ConsensusMessage::new(message_variant, None, data);
+        let message = ConsensusMessage::new(None, message_variant, data);
 
         match CALLBACK_QUEUE.send_message(message) {
             Ok(_) => debug!("Queueing a {} of {} bytes", message_variant, data_length),
@@ -612,21 +613,21 @@ pub unsafe extern "C" fn on_catchup_block_by_hash(peer_id: PeerId, hash: *const 
     let mut payload = slice::from_raw_parts(hash, common::SHA256 as usize).to_owned();
     let delta_array = mem::transmute::<Delta, [u8; 8]>(delta);
     payload.extend_from_slice(&delta_array);
-    let payload = payload.into_boxed_slice();
+    let payload = Arc::from(payload);
 
     catchup_enqueue(ConsensusMessage::new(
+        Some((peer_id, false)),
         PacketType::CatchupBlockByHash,
-        Some(peer_id),
         payload,
     ));
 }
 
 pub unsafe extern "C" fn on_catchup_finalization_record_by_hash(peer_id: PeerId, hash: *const u8) {
-    let payload = Box::from(slice::from_raw_parts(hash, common::SHA256 as usize));
+    let payload = Arc::from(slice::from_raw_parts(hash, common::SHA256 as usize));
 
     catchup_enqueue(ConsensusMessage::new(
+        Some((peer_id, false)),
         PacketType::CatchupFinalizationRecordByHash,
-        Some(peer_id),
         payload,
     ));
 }
@@ -635,11 +636,11 @@ pub extern "C" fn on_catchup_finalization_record_by_index(
     peer_id: PeerId,
     index: FinalizationIndex,
 ) {
-    let payload = unsafe { Box::from(mem::transmute::<FinalizationIndex, [u8; 8]>(index)) };
+    let payload = unsafe { Arc::from(mem::transmute::<FinalizationIndex, [u8; 8]>(index)) };
 
     catchup_enqueue(ConsensusMessage::new(
+        Some((peer_id, false)),
         PacketType::CatchupFinalizationRecordByIndex,
-        Some(peer_id),
         payload,
     ));
 }
@@ -647,11 +648,11 @@ pub extern "C" fn on_catchup_finalization_record_by_index(
 pub extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *const u8, len: i64) {
     debug!("Got a catch-up request for finalization messages for point from consensus",);
     unsafe {
-        let payload = Box::from(slice::from_raw_parts(data as *const u8, len as usize));
+        let payload = Arc::from(slice::from_raw_parts(data as *const u8, len as usize));
 
         catchup_enqueue(ConsensusMessage::new(
+            Some((peer_id, false)), // TODO: check if it is a broadcast
             PacketType::FinalizationMessage,
-            Some(peer_id),
             payload,
         ))
     }

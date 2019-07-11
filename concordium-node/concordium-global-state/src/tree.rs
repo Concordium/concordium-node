@@ -1,6 +1,7 @@
+use byteorder::{ByteOrder, LittleEndian};
 use chrono::prelude::{DateTime, Utc};
 use circular_queue::CircularQueue;
-use concordium_common::{indexed_vec::IndexedVec, PacketType};
+use concordium_common::{indexed_vec::IndexedVec, PacketType, SHA256};
 use hash_hasher::{HashedMap, HashedSet};
 use rkv::{Rkv, SingleStore, StoreOptions, Value};
 
@@ -15,24 +16,71 @@ use crate::{
 
 use self::PendingQueueType::*;
 
-#[derive(Debug)]
-/// The type of messages passed in the Skov request channel.
+type PeerId = u64;
+
+/// The type of messages passed between Skov and the consensus layer.
 ///
 /// It contains an optional identifier of the source peer if it is not our own
 /// consensus layer.
-pub struct SkovReq {
-    pub source:  Option<(u64, bool)>, // (PeerId, is_broadcast)
+pub struct ConsensusMessage {
+    pub source:  Option<(PeerId, bool)>,
     pub variant: PacketType,
     pub payload: Arc<[u8]>,
 }
 
-impl SkovReq {
-    pub fn new(source: Option<(u64, bool)>, variant: PacketType, payload: Arc<[u8]>) -> Self {
+impl ConsensusMessage {
+    pub fn new(source: Option<(PeerId, bool)>, variant: PacketType, payload: Arc<[u8]>) -> Self {
         Self {
             source,
             variant,
-            payload,
+            payload: Arc::from(payload),
         }
+    }
+}
+
+impl fmt::Display for ConsensusMessage {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        macro_rules! print_deserialized {
+            ($object:ty) => {{
+                if let Ok(object) = <$object>::deserialize(&self.payload) {
+                    format!("{:?}", object)
+                } else {
+                    format!("corrupted bytes")
+                }
+            }};
+        }
+
+        let content = match self.variant {
+            PacketType::Block => print_deserialized!(Block),
+            PacketType::FinalizationRecord => print_deserialized!(FinalizationRecord),
+            PacketType::FinalizationMessage => print_deserialized!(FinalizationMessage),
+            PacketType::CatchupBlockByHash => {
+                let hash = HashBytes::new(&self.payload[..SHA256 as usize]);
+                let delta = LittleEndian::read_u64(
+                    &self.payload[SHA256 as usize..][..mem::size_of::<Delta>()],
+                );
+                format!("catch-up request for block {:?}, delta {}", hash, delta)
+            }
+            PacketType::CatchupFinalizationRecordByHash => {
+                let hash = HashBytes::new(&self.payload[..SHA256 as usize]);
+                format!(
+                    "catch-up request for the finalization record for block {:?}",
+                    hash
+                )
+            }
+            PacketType::CatchupFinalizationRecordByIndex => {
+                let idx = LittleEndian::read_u64(
+                    &self.payload[..mem::size_of::<FinalizationIndex>() as usize],
+                );
+                format!(
+                    "catch-up request for the finalization record at index {}",
+                    idx
+                )
+            }
+            p => format!("{}", p),
+        };
+
+        write!(f, "{}", content)
     }
 }
 
@@ -301,11 +349,11 @@ impl<'a> Skov<'a> {
             && self.data.inapplicable_finalization_records.is_empty()
     }
 
-    pub fn delay_broadcast(&mut self, broadcast: SkovReq) {
+    pub fn delay_broadcast(&mut self, broadcast: ConsensusMessage) {
         self.data.delayed_broadcasts.push(broadcast);
     }
 
-    pub fn get_delayed_broadcasts(&mut self) -> Vec<SkovReq> {
+    pub fn get_delayed_broadcasts(&mut self) -> Vec<ConsensusMessage> {
         mem::replace(&mut self.data.delayed_broadcasts, Vec::new())
     }
 
@@ -379,7 +427,7 @@ pub struct SkovData<'a> {
     /// the current state of the catch-up process
     catchup_state: CatchupState,
     /// incoming broacasts rejected during a catch-up round
-    delayed_broadcasts: Vec<SkovReq>,
+    delayed_broadcasts: Vec<ConsensusMessage>,
 }
 
 impl<'a> SkovData<'a> {
