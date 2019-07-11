@@ -106,20 +106,6 @@ pub enum MessageType {
     Outbound(Option<PeerId>),
 }
 
-#[derive(Debug)]
-/// Carries a specific Skov request.
-///
-/// Each variant has a corresponding handler function that either introduces a
-/// new object to Skov or queries the global state for it.
-pub enum SkovReqBody {
-    AddBlock(PendingBlock),
-    AddFinalizationRecord(FinalizationRecord),
-    GetBlock(HashBytes, Delta),
-    GetFinalizationRecordByHash(HashBytes),
-    GetFinalizationRecordByIdx(FinalizationIndex),
-    StartCatchupPhase,
-}
-
 #[derive(Debug, PartialEq)]
 /// Holds a response for a request to Skov.
 ///

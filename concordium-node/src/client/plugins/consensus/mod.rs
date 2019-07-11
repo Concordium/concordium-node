@@ -29,7 +29,7 @@ use concordium_global_state::{
     common::{sha256, HashBytes, SerializeToBytes, SHA256},
     finalization::{FinalizationIndex, FinalizationRecord},
     transaction::Transaction,
-    tree::{CatchupState, ConsensusMessage, MessageType, Skov, SkovReqBody, SkovResult},
+    tree::{CatchupState, ConsensusMessage, MessageType, Skov, SkovResult},
 };
 
 use crate::{common::P2PNodeId, configuration, network::NetworkId, p2p::*};
@@ -345,99 +345,79 @@ fn process_external_skov_entry(
         unreachable!("process_external_skov_entry was given an Outbound message!");
     };
 
-    let (request_body, consensus_applicable) = match request.variant {
+    let (skov_result, consensus_applicable) = match request.variant {
         PacketType::Block => {
-            let payload = PendingBlock::new(&request.payload)?;
-            let body = Some(SkovReqBody::AddBlock(payload));
-            (body, true)
+            let block = PendingBlock::new(&request.payload)?;
+            let skov_result = skov.add_block(block);
+            (skov_result, true)
         }
         PacketType::FinalizationRecord => {
-            let payload = FinalizationRecord::deserialize(&request.payload)?;
-            let body = Some(SkovReqBody::AddFinalizationRecord(payload));
-            (body, true)
+            let record = FinalizationRecord::deserialize(&request.payload)?;
+            let skov_result = skov.add_finalization(record);
+            (skov_result, true)
         }
         PacketType::CatchupBlockByHash => {
             let hash = HashBytes::new(&request.payload[..SHA256 as usize]);
             let delta = LittleEndian::read_u64(
                 &request.payload[SHA256 as usize..][..mem::size_of::<Delta>()],
             );
-
-            (Some(SkovReqBody::GetBlock(hash, delta)), false)
+            let skov_result = skov.get_block(&hash, delta);
+            (skov_result, false)
         }
         PacketType::CatchupFinalizationRecordByHash => {
-            let payload = HashBytes::new(&request.payload);
-            let body = Some(SkovReqBody::GetFinalizationRecordByHash(payload));
-            (body, false)
+            let hash = HashBytes::new(&request.payload);
+            let skov_result = skov.get_finalization_record_by_hash(&hash);
+            (skov_result, false)
         }
         PacketType::CatchupFinalizationRecordByIndex => {
             let idx =
                 LittleEndian::read_u64(&request.payload[..mem::size_of::<FinalizationIndex>()]);
-            let body = Some(SkovReqBody::GetFinalizationRecordByIdx(idx));
-            (body, false)
+            let skov_result = skov.get_finalization_record_by_idx(idx);
+            (skov_result, false)
         }
-        _ => (None, true), // will be expanded later on
+        _ => (SkovResult::IgnoredEntry, true), // will be expanded later on
     };
 
-    if let Some(req_body) = request_body {
-        let result = match req_body {
-            SkovReqBody::AddBlock(pending_block) => skov.add_block(pending_block),
-            SkovReqBody::AddFinalizationRecord(record) => skov.add_finalization(record),
-            SkovReqBody::GetBlock(hash, delta) => skov.get_block(&hash, delta),
-            SkovReqBody::GetFinalizationRecordByHash(hash) => {
-                skov.get_finalization_record_by_hash(&hash)
-            }
-            SkovReqBody::GetFinalizationRecordByIdx(i) => skov.get_finalization_record_by_idx(i),
-            _ => SkovResult::Housekeeping,
-        };
-
-        match result {
-            SkovResult::SuccessfulEntry(_) => {
-                trace!("Peer {} successfully processed a {}", node.id(), request);
-            }
-            SkovResult::SuccessfulQuery(result) => {
-                let return_type = match request.variant {
-                    PacketType::CatchupBlockByHash => PacketType::Block,
-                    PacketType::CatchupFinalizationRecordByHash => PacketType::FinalizationRecord,
-                    PacketType::CatchupFinalizationRecordByIndex => PacketType::FinalizationRecord,
-                    _ => unreachable!("Impossible packet type in a query result!"),
-                };
-
-                let mut out_bytes = Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + result.len());
-                out_bytes
-                    .write_u16::<NetworkEndian>(return_type as u16)
-                    .expect("Can't write to buffer");
-                out_bytes.extend(&*result);
-
-                match node.send_direct_message(Some(source), network_id, None, out_bytes) {
-                    Ok(_) => info!("Peer {} responded to a {}", node.id(), request),
-                    Err(_) => error!("Peer {} couldn't respond to a {}!", node.id(), request),
-                }
-            }
-            SkovResult::DuplicateEntry => {
-                warn!("Skov: got a duplicate {}", request);
-            }
-            SkovResult::Error(e) => skov.register_error(e),
-            _ => {}
+    match skov_result {
+        SkovResult::SuccessfulEntry(_) => {
+            trace!("Peer {} successfully processed a {}", node.id(), request);
         }
+        SkovResult::SuccessfulQuery(result) => {
+            let return_type = match request.variant {
+                PacketType::CatchupBlockByHash => PacketType::Block,
+                PacketType::CatchupFinalizationRecordByHash => PacketType::FinalizationRecord,
+                PacketType::CatchupFinalizationRecordByIndex => PacketType::FinalizationRecord,
+                _ => unreachable!("Impossible packet type in a query result!"),
+            };
 
-        // relay external messages to Consensus if they are relevant to it
-        if consensus_applicable {
-            send_msg_to_consensus(node.id(), source, baker, request)?
-        }
+            let mut out_bytes = Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + result.len());
+            out_bytes
+                .write_u16::<NetworkEndian>(return_type as u16)
+                .expect("Can't write to buffer");
+            out_bytes.extend(&*result);
 
-        if let CatchupState::InProgress = skov.catchup_state() {
-            if skov.is_tree_valid() {
-                skov.end_catchup_round();
-                apply_delayed_broadcasts(node, network_id, baker, skov)?;
+            match node.send_direct_message(Some(source), network_id, None, out_bytes) {
+                Ok(_) => info!("Peer {} responded to a {}", node.id(), request),
+                Err(_) => error!("Peer {} couldn't respond to a {}!", node.id(), request),
             }
         }
-    } else {
-        // relay external messages to Consensus if they are relevant to it
-        if consensus_applicable {
-            send_msg_to_consensus(node.id(), source, baker, request)?
+        SkovResult::DuplicateEntry => {
+            warn!("Skov: got a duplicate {}", request);
         }
+        SkovResult::Error(e) => skov.register_error(e),
+        _ => {}
+    }
 
-        // not handled in Skov yet (FinalizationMessages)
+    // relay external messages to Consensus if they are relevant to it
+    if consensus_applicable {
+        send_msg_to_consensus(node.id(), source, baker, request)?
+    }
+
+    if let CatchupState::InProgress = skov.catchup_state() {
+        if skov.is_tree_valid() {
+            skov.end_catchup_round();
+            apply_delayed_broadcasts(node, network_id, baker, skov)?;
+        }
     }
 
     Ok(())
