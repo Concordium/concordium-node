@@ -24,7 +24,7 @@ use concordium_common::{
 use concordium_consensus::{consensus, ffi};
 use concordium_global_state::{
     common::SerializeToBytes,
-    tree::{Skov, SkovReq},
+    tree::{ConsensusMessage, Skov},
 };
 use failure::Fallible;
 use p2p_client::{
@@ -151,7 +151,7 @@ fn main() -> Fallible<()> {
         None
     };
 
-    let (skov_sender, skov_receiver) = mpsc::channel::<RelayOrStopEnvelope<SkovReq>>();
+    let (skov_sender, skov_receiver) = mpsc::channel::<RelayOrStopEnvelope<ConsensusMessage>>();
 
     // Connect outgoing messages to be forwarded into the baker and RPC streams.
     //
@@ -174,7 +174,7 @@ fn main() -> Fallible<()> {
     //
     // Thread #5 (#6): the Baker thread
     let baker_thread = if is_baker {
-        Some(start_baker_thread(&node, &conf, skov_sender.clone()))
+        Some(start_baker_thread(skov_sender.clone()))
     } else {
         None
     };
@@ -369,7 +369,10 @@ fn start_consensus_threads(
     (conf, app_prefs): (&configuration::Config, &configuration::AppPreferences),
     baker: &mut consensus::ConsensusContainer,
     pkt_out: RelayOrStopReceiver<Arc<NetworkMessage>>,
-    (skov_receiver, skov_sender): (RelayOrStopReceiver<SkovReq>, RelayOrStopSender<SkovReq>),
+    (skov_receiver, skov_sender): (
+        RelayOrStopReceiver<ConsensusMessage>,
+        RelayOrStopSender<ConsensusMessage>,
+    ),
     stats: &Option<Arc<RwLock<StatsExportService>>>,
 ) -> Vec<std::thread::JoinHandle<()>> {
     let _no_trust_bans = conf.common.no_trust_bans;
@@ -569,65 +572,21 @@ fn start_consensus_threads(
 }
 
 fn start_baker_thread(
-    node: &P2PNode,
-    conf: &configuration::Config,
-    skov_sender: RelayOrStopSender<SkovReq>,
+    skov_sender: RelayOrStopSender<ConsensusMessage>,
 ) -> std::thread::JoinHandle<()> {
-    let network_id = NetworkId::from(conf.common.network_ids[0].to_owned()); // defaulted so there's always first()
-
-    let mut node = node.clone();
-    let consensus_message_thread = spawn_or_die!("Process consensus messages", {
+    spawn_or_die!("Process consensus messages", {
         loop {
-            match consensus::CALLBACK_QUEUE.recv_message(&skov_sender) {
+            match consensus::CALLBACK_QUEUE.recv_message() {
                 Ok(RelayOrStopEnvelope::Relay(msg)) => {
-                    let mut out_bytes =
-                        Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + msg.payload.len());
-                    match out_bytes.write_u16::<NetworkEndian>(msg.variant as u16) {
-                        Ok(_) => {
-                            out_bytes.extend(&*msg.payload);
-
-                            let res = if let Some(peer_id) = msg.producer {
-                                node.send_direct_message(
-                                    Some(P2PNodeId(peer_id)),
-                                    network_id,
-                                    None,
-                                    out_bytes,
-                                )
-                            } else {
-                                node.send_broadcast_message(None, network_id, None, out_bytes)
-                            };
-
-                            let msg_metadata = if let Some(tgt) = msg.producer {
-                                format!("direct message to peer {}", P2PNodeId(tgt))
-                            } else {
-                                "broadcast".to_string()
-                            };
-
-                            match res {
-                                Ok(_) => info!(
-                                    "Peer {} sent a {} containing a {:?}",
-                                    node.id(),
-                                    msg_metadata,
-                                    msg
-                                ),
-                                Err(_) => error!(
-                                    "Peer {} couldn't send a {} containing a {:?}!",
-                                    node.id(),
-                                    msg_metadata,
-                                    msg,
-                                ),
-                            }
-                        }
-                        Err(_) => error!("Can't write a consensus message type to a packet"),
+                    if let Err(e) = skov_sender.send(RelayOrStopEnvelope::Relay(msg)) {
+                        error!("Error passing a message from the consensus layer: {}", e)
                     }
                 }
                 Ok(RelayOrStopEnvelope::Stop) => break,
                 Err(e) => error!("Error receiving a message from the consensus layer: {}", e),
             }
         }
-    });
-
-    consensus_message_thread
+    })
 }
 
 #[cfg(feature = "benchmark")]

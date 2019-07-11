@@ -1,6 +1,7 @@
+use byteorder::{ByteOrder, LittleEndian};
 use chrono::prelude::{DateTime, Utc};
 use circular_queue::CircularQueue;
-use concordium_common::{indexed_vec::IndexedVec, PacketType};
+use concordium_common::{indexed_vec::IndexedVec, PacketType, SHA256};
 use hash_hasher::{HashedMap, HashedSet};
 use rkv::{Rkv, SingleStore, StoreOptions, Value};
 
@@ -15,25 +16,94 @@ use crate::{
 
 use self::PendingQueueType::*;
 
-#[derive(Debug)]
-/// The type of messages passed in the Skov request channel.
+type PeerId = u64;
+
+/// The type of messages passed between Skov and the consensus layer.
 ///
 /// It contains an optional identifier of the source peer if it is not our own
 /// consensus layer.
-pub struct SkovReq {
-    pub source:  Option<(u64, bool)>, // (PeerId, is_broadcast)
-    pub variant: PacketType,
-    pub payload: Arc<[u8]>,
+pub struct ConsensusMessage {
+    pub direction: MessageType,
+    pub variant:   PacketType,
+    pub payload:   Arc<[u8]>,
 }
 
-impl SkovReq {
-    pub fn new(source: Option<(u64, bool)>, variant: PacketType, payload: Arc<[u8]>) -> Self {
+impl ConsensusMessage {
+    pub fn new(direction: MessageType, variant: PacketType, payload: Arc<[u8]>) -> Self {
         Self {
-            source,
+            direction,
             variant,
             payload,
         }
     }
+}
+
+impl fmt::Display for ConsensusMessage {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        macro_rules! print_deserialized {
+            ($object:ty) => {{
+                if let Ok(object) = <$object>::deserialize(&self.payload) {
+                    format!("{:?}", object)
+                } else {
+                    format!("corrupted bytes")
+                }
+            }};
+        }
+
+        let content = match self.variant {
+            PacketType::Block => print_deserialized!(Block),
+            PacketType::FinalizationRecord => print_deserialized!(FinalizationRecord),
+            PacketType::FinalizationMessage => print_deserialized!(FinalizationMessage),
+            PacketType::CatchupBlockByHash => {
+                let hash = HashBytes::new(&self.payload[..SHA256 as usize]);
+                let delta = LittleEndian::read_u64(
+                    &self.payload[SHA256 as usize..][..mem::size_of::<Delta>()],
+                );
+                let delta = if delta == 0 {
+                    "".to_owned()
+                } else {
+                    format!(", delta {}", delta)
+                };
+                format!("catch-up request for block {:?}{}", hash, delta)
+            }
+            PacketType::CatchupFinalizationRecordByHash => {
+                let hash = HashBytes::new(&self.payload[..SHA256 as usize]);
+                format!(
+                    "catch-up request for the finalization record for block {:?}",
+                    hash
+                )
+            }
+            PacketType::CatchupFinalizationRecordByIndex => {
+                let idx = LittleEndian::read_u64(
+                    &self.payload[..mem::size_of::<FinalizationIndex>() as usize],
+                );
+                format!(
+                    "catch-up request for the finalization record at index {}",
+                    idx
+                )
+            }
+            p => p.to_string(),
+        };
+
+        let party_name = match self.direction {
+            MessageType::Inbound(peer_id, _) => format!("from peer {:016x}", peer_id),
+            MessageType::Outbound(Some(peer_id)) => format!("to peer {:016x}", peer_id),
+            _ => "from our consensus layer".to_owned(),
+        };
+
+        write!(f, "{} {}", content, party_name)
+    }
+}
+
+#[derive(PartialEq)]
+/// The type indicating the source/target of a ConsensusMessage.
+pub enum MessageType {
+    /// Inbound messages come from other peers; they contain their PeerId and
+    /// indicate whether is was a direct message or a broadcast.
+    Inbound(PeerId, bool),
+    /// Outbound messages are produced by the consensus layer and either
+    /// directed at a specific PeerId or None in case of broadcasts.
+    Outbound(Option<PeerId>),
 }
 
 #[derive(Debug)]
@@ -61,20 +131,7 @@ pub enum SkovResult {
     DuplicateEntry,
     Error(SkovError),
     Housekeeping,
-}
-
-impl fmt::Display for SkovResult {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let msg = match self {
-            SkovResult::SuccessfulEntry(p) => format!("successful entry ({})", p),
-            SkovResult::SuccessfulQuery(_) => "successful query".to_owned(),
-            SkovResult::DuplicateEntry => "duplicate entry".to_owned(),
-            SkovResult::Error(e) => e.to_string(),
-            SkovResult::Housekeeping => unreachable!("Skov housekeeping should be silent!"),
-        };
-
-        write!(f, "Skov: {}", msg)
-    }
+    IgnoredEntry,
 }
 
 #[derive(Debug, PartialEq)]
@@ -314,11 +371,11 @@ impl<'a> Skov<'a> {
             && self.data.inapplicable_finalization_records.is_empty()
     }
 
-    pub fn delay_broadcast(&mut self, broadcast: SkovReq) {
+    pub fn delay_broadcast(&mut self, broadcast: ConsensusMessage) {
         self.data.delayed_broadcasts.push(broadcast);
     }
 
-    pub fn get_delayed_broadcasts(&mut self) -> Vec<SkovReq> {
+    pub fn get_delayed_broadcasts(&mut self) -> Vec<ConsensusMessage> {
         mem::replace(&mut self.data.delayed_broadcasts, Vec::new())
     }
 
@@ -392,7 +449,7 @@ pub struct SkovData<'a> {
     /// the current state of the catch-up process
     catchup_state: CatchupState,
     /// incoming broacasts rejected during a catch-up round
-    delayed_broadcasts: Vec<SkovReq>,
+    delayed_broadcasts: Vec<ConsensusMessage>,
 }
 
 impl<'a> SkovData<'a> {
