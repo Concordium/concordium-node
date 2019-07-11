@@ -311,7 +311,6 @@ fn setup_process_output(
     let mut _node_self_clone = node.clone();
 
     let _no_trust_bans = conf.common.no_trust_bans;
-    let _no_trust_broadcasts = conf.connection.no_trust_broadcasts;
     let _desired_nodes_clone = conf.connection.desired_nodes;
     let _guard_pkt = spawn_or_die!("Node output processing", move || loop {
         while let Ok(RelayOrStopEnvelope::Relay(full_msg)) = pkt_out.recv() {
@@ -326,24 +325,22 @@ fn setup_process_output(
                         );
                     }
                     NetworkPacketType::BroadcastedMessage => {
-                        if !_no_trust_broadcasts {
-                            info!(
-                                "BroadcastedMessage/{}/{:?} with size {} received",
+                        info!(
+                            "BroadcastedMessage/{}/{:?} with size {} received",
+                            pac.network_id,
+                            pac.message_id,
+                            pac.message.len()
+                        );
+                        _node_self_clone
+                            .send_message_from_cursor(
+                                None,
                                 pac.network_id,
-                                pac.message_id,
-                                pac.message.len()
-                            );
-                            _node_self_clone
-                                .send_message_from_cursor(
-                                    None,
-                                    pac.network_id,
-                                    Some(pac.message_id.to_owned()),
-                                    pac.message.to_owned(),
-                                    true,
-                                )
-                                .map_err(|e| error!("Error sending message {}", e))
-                                .ok();
-                        }
+                                Some(pac.message_id.to_owned()),
+                                pac.message.to_owned(),
+                                true,
+                            )
+                            .map_err(|e| error!("Error sending message {}", e))
+                            .ok();
                     }
                 },
                 NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer, x), ..) => {
