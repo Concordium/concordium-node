@@ -1,7 +1,7 @@
 use byteorder::{ByteOrder, LittleEndian};
 
 use concordium_common::{
-    into_err, PacketType, RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSender,
+    into_err, PacketType, RelayOrStopEnvelope, RelayOrStopReceiver,
     RelayOrStopSenderHelper, RelayOrStopSyncSender,
 };
 use failure::{bail, Fallible};
@@ -16,7 +16,7 @@ use std::{
 };
 
 use crate::{fails::BakerNotRunning, ffi::*};
-use concordium_global_state::{block::*, common::*, finalization::*, tree::SkovReq};
+use concordium_global_state::{block::*, common::*, finalization::*};
 
 pub type PeerId = u64;
 pub type PrivateData = HashMap<i64, Vec<u8>>;
@@ -106,27 +106,8 @@ impl ConsensusOutQueue {
         into_err!(self.sender_request.send_msg(message))
     }
 
-    pub fn recv_message(
-        &self,
-        skov_sender: &RelayOrStopSender<SkovReq>,
-    ) -> Fallible<RelayOrStopEnvelope<ConsensusMessage>> {
-        let message = into_err!(safe_lock!(self.receiver_request).recv());
-
-        if let Ok(RelayOrStopEnvelope::Relay(ref msg)) = message {
-            match msg.variant {
-                PacketType::Block
-                | PacketType::FinalizationRecord
-                | PacketType::CatchupBlockByHash
-                | PacketType::CatchupFinalizationRecordByHash
-                | PacketType::CatchupFinalizationRecordByIndex => {
-                    let request = SkovReq::new(None, msg.variant, Arc::clone(&msg.payload));
-                    skov_sender.send(RelayOrStopEnvelope::Relay(request))?
-                },
-                _ => {} // not used in Skov,
-            }
-        }
-
-        message
+    pub fn recv_message(&self) -> Fallible<RelayOrStopEnvelope<ConsensusMessage>> {
+        into_err!(safe_lock!(self.receiver_request).recv())
     }
 
     pub fn clear(&self) {

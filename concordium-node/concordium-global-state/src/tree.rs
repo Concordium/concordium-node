@@ -61,20 +61,7 @@ pub enum SkovResult {
     DuplicateEntry,
     Error(SkovError),
     Housekeeping,
-}
-
-impl fmt::Display for SkovResult {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let msg = match self {
-            SkovResult::SuccessfulEntry(p) => format!("successful entry ({})", p),
-            SkovResult::SuccessfulQuery(_) => "successful query".to_owned(),
-            SkovResult::DuplicateEntry => "duplicate entry".to_owned(),
-            SkovResult::Error(e) => e.to_string(),
-            SkovResult::Housekeeping => unreachable!("Skov housekeeping should be silent!"),
-        };
-
-        write!(f, "Skov: {}", msg)
-    }
+    IgnoredEntry,
 }
 
 #[derive(Debug, PartialEq)]

@@ -174,7 +174,7 @@ fn main() -> Fallible<()> {
     //
     // Thread #5 (#6): the Baker thread
     let baker_thread = if is_baker {
-        Some(start_baker_thread(&node, &conf, skov_sender.clone()))
+        Some(start_baker_thread(skov_sender.clone()))
     } else {
         None
     };
@@ -568,66 +568,21 @@ fn start_consensus_threads(
     vec![global_state_thread, guard_pkt]
 }
 
-fn start_baker_thread(
-    node: &P2PNode,
-    conf: &configuration::Config,
-    skov_sender: RelayOrStopSender<SkovReq>,
-) -> std::thread::JoinHandle<()> {
-    let network_id = NetworkId::from(conf.common.network_ids[0].to_owned()); // defaulted so there's always first()
-
-    let mut node = node.clone();
-    let consensus_message_thread = spawn_or_die!("Process consensus messages", {
+fn start_baker_thread(skov_sender: RelayOrStopSender<SkovReq>) -> std::thread::JoinHandle<()> {
+    spawn_or_die!("Process consensus messages", {
         loop {
-            match consensus::CALLBACK_QUEUE.recv_message(&skov_sender) {
+            match consensus::CALLBACK_QUEUE.recv_message() {
                 Ok(RelayOrStopEnvelope::Relay(msg)) => {
-                    let mut out_bytes =
-                        Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + msg.payload.len());
-                    match out_bytes.write_u16::<NetworkEndian>(msg.variant as u16) {
-                        Ok(_) => {
-                            out_bytes.extend(&*msg.payload);
-
-                            let res = if let Some(peer_id) = msg.producer {
-                                node.send_direct_message(
-                                    Some(P2PNodeId(peer_id)),
-                                    network_id,
-                                    None,
-                                    out_bytes,
-                                )
-                            } else {
-                                node.send_broadcast_message(None, network_id, None, out_bytes)
-                            };
-
-                            let msg_metadata = if let Some(tgt) = msg.producer {
-                                format!("direct message to peer {}", P2PNodeId(tgt))
-                            } else {
-                                "broadcast".to_string()
-                            };
-
-                            match res {
-                                Ok(_) => info!(
-                                    "Peer {} sent a {} containing a {:?}",
-                                    node.id(),
-                                    msg_metadata,
-                                    msg
-                                ),
-                                Err(_) => error!(
-                                    "Peer {} couldn't send a {} containing a {:?}!",
-                                    node.id(),
-                                    msg_metadata,
-                                    msg,
-                                ),
-                            }
-                        }
-                        Err(_) => error!("Can't write a consensus message type to a packet"),
+                    let request = SkovReq::new(None, msg.variant, Arc::clone(&msg.payload));
+                    if let Err(e) = skov_sender.send(RelayOrStopEnvelope::Relay(request)) {
+                        error!("Error passing a message from the consensus layer: {}", e)
                     }
                 }
                 Ok(RelayOrStopEnvelope::Stop) => break,
                 Err(e) => error!("Error receiving a message from the consensus layer: {}", e),
             }
         }
-    });
-
-    consensus_message_thread
+    })
 }
 
 #[cfg(feature = "benchmark")]
