@@ -36,6 +36,30 @@ impl ConsensusMessage {
             payload,
         }
     }
+
+    pub fn distribution_mode(&self) -> DistributionMode {
+        match self.direction {
+            MessageType::Inbound(_, distribution_mode) => distribution_mode,
+            MessageType::Outbound(Some(_)) => DistributionMode::Direct,
+            MessageType::Outbound(None) => DistributionMode::Broadcast,
+        }
+    }
+
+    pub fn target_peer(&self) -> Option<PeerId> {
+        if let MessageType::Outbound(target) = self.direction {
+            target
+        } else {
+            panic!("An Inbound ConsensusMessage doesn't have a target peer!");
+        }
+    }
+
+    pub fn source_peer(&self) -> PeerId {
+        if let MessageType::Inbound(source, _) = self.direction {
+            source
+        } else {
+            panic!("An Outbound ConsensusMessage doesn't have a source peer!");
+        }
+    }
 }
 
 impl fmt::Display for ConsensusMessage {
@@ -100,10 +124,16 @@ impl fmt::Display for ConsensusMessage {
 pub enum MessageType {
     /// Inbound messages come from other peers; they contain their PeerId and
     /// indicate whether is was a direct message or a broadcast.
-    Inbound(PeerId, bool),
+    Inbound(PeerId, DistributionMode),
     /// Outbound messages are produced by the consensus layer and either
     /// directed at a specific PeerId or None in case of broadcasts.
     Outbound(Option<PeerId>),
+}
+
+#[derive(PartialEq, Clone, Copy)]
+pub enum DistributionMode {
+    Direct,
+    Broadcast,
 }
 
 #[derive(Debug, PartialEq)]

@@ -29,7 +29,7 @@ use concordium_global_state::{
     common::{sha256, HashBytes, SerializeToBytes, SHA256},
     finalization::{FinalizationIndex, FinalizationRecord},
     transaction::Transaction,
-    tree::{CatchupState, ConsensusMessage, MessageType, Skov, SkovResult},
+    tree::{CatchupState, ConsensusMessage, DistributionMode, MessageType, Skov, SkovResult},
 };
 
 use crate::{common::P2PNodeId, configuration, network::NetworkId, p2p::*};
@@ -176,9 +176,14 @@ pub fn handle_pkt_out(
 
     let view = msg.read_all_into_view()?;
     let payload = Arc::from(&view.as_slice()[PAYLOAD_TYPE_LENGTH as usize..]);
+    let distribution_mode = if is_broadcast {
+        DistributionMode::Broadcast
+    } else {
+        DistributionMode::Direct
+    };
 
     let request = RelayOrStopEnvelope::Relay(ConsensusMessage::new(
-        MessageType::Inbound(peer_id.0, is_broadcast),
+        MessageType::Inbound(peer_id.0, distribution_mode),
         packet_type,
         payload,
     ));
@@ -269,19 +274,14 @@ fn process_internal_skov_entry(
         _ => {}
     }
 
-    let target = if let MessageType::Outbound(target) = request.direction {
-        target
-    } else {
-        unreachable!("process_internal_skov_entry was given an Inbound message!");
-    };
-    let is_broadcast = target.is_none();
+    let target = request.target_peer();
     let mut out_bytes = Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + request.payload.len());
 
     match out_bytes.write_u16::<NetworkEndian>(request.variant as u16) {
         Ok(_) => {
             out_bytes.extend(&*request.payload);
 
-            let res = if !is_broadcast {
+            let res = if request.distribution_mode() == DistributionMode::Direct {
                 node.send_direct_message(target.map(P2PNodeId), network_id, None, out_bytes)
             } else {
                 node.send_broadcast_message(None, network_id, None, out_bytes)
@@ -321,29 +321,23 @@ fn process_external_skov_entry(
     request: ConsensusMessage,
     skov: &mut Skov,
 ) -> Fallible<()> {
+    let source = P2PNodeId(request.source_peer());
+
     if skov.catchup_state() == CatchupState::InProgress {
         // delay broadcasts during catch-up rounds
-        if let MessageType::Inbound(peer_id, is_broadcast) = request.direction {
-            if is_broadcast {
-                info!(
-                    "Still catching up; the last received broadcast containing a {} will be \
-                     processed after it's finished",
-                    request,
-                );
-                // TODO: this check might not be needed; verify
-                if P2PNodeId(peer_id) != node.id() {
-                    skov.delay_broadcast(request);
-                }
-                return Ok(());
+        if request.distribution_mode() == DistributionMode::Broadcast {
+            info!(
+                "Still catching up; the last received broadcast containing a {} will be processed \
+                 after it's finished",
+                request,
+            );
+            // TODO: this check might not be needed; verify
+            if source != node.id() {
+                skov.delay_broadcast(request);
             }
+            return Ok(());
         }
     }
-
-    let source = if let MessageType::Inbound(peer_id, _) = request.direction {
-        P2PNodeId(peer_id)
-    } else {
-        unreachable!("process_external_skov_entry was given an Outbound message!");
-    };
 
     let (skov_result, consensus_applicable) = match request.variant {
         PacketType::Block => {
