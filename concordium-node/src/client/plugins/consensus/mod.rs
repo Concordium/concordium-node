@@ -25,9 +25,9 @@ use concordium_common::{
 use concordium_consensus::{consensus, ffi};
 
 use concordium_global_state::{
-    block::{Block, Delta, PendingBlock},
+    block::{Delta, PendingBlock},
     common::{sha256, HashBytes, SerializeToBytes, SHA256},
-    finalization::{FinalizationIndex, FinalizationMessage, FinalizationRecord},
+    finalization::{FinalizationIndex, FinalizationRecord},
     transaction::Transaction,
     tree::{CatchupState, Skov, SkovReq, SkovReqBody, SkovResult},
 };
@@ -490,135 +490,35 @@ fn send_msg_to_consensus(
     packet_type: PacketType,
     content: &[u8],
 ) -> Fallible<()> {
-    match packet_type {
-        Block => send_block_to_consensus(baker, peer_id, content),
-        Transaction => send_transaction_to_consensus(baker, peer_id, &content),
-        FinalizationMessage => send_finalization_message_to_consensus(baker, peer_id, content),
-        FinalizationRecord => send_finalization_record_to_consensus(baker, peer_id, content),
+    let raw_id = peer_id.as_raw();
+
+    let consensus_response = match packet_type {
+        Block => baker.send_block(raw_id, content),
+        Transaction => baker.send_transaction(content),
+        FinalizationMessage => baker.send_finalization(raw_id, content),
+        FinalizationRecord => baker.send_finalization_record(raw_id, content),
         CatchupFinalizationMessagesByPoint => {
-            send_catchup_finalization_messages_by_point_to_consensus(baker, peer_id, &content)
+            baker.get_finalization_messages(raw_id, content)
         }
         _ => unreachable!("Impossible! A Skov-only request was passed on to consensus"),
-    }
-}
-
-fn send_transaction_to_consensus(
-    baker: &mut consensus::ConsensusContainer,
-    peer_id: P2PNodeId,
-    content: &[u8],
-) -> Fallible<()> {
-    baker.send_transaction(content);
-
-    info!(
-        "Peer {}'s transaction was sent to our consensus layer",
-        peer_id
-    );
-
-    Ok(())
-}
-
-fn send_finalization_record_to_consensus(
-    baker: &mut consensus::ConsensusContainer,
-    peer_id: P2PNodeId,
-    content: &[u8],
-) -> Fallible<()> {
-    let consensus_response = baker.send_finalization_record(peer_id.as_raw(), content);
+    };
 
     if consensus_response.is_acceptable() {
         info!(
-            "Peer {}'s {:?} was sent to our consensus layer",
+            "Peer {}'s {} was sent to our consensus layer",
             peer_id,
-            FinalizationRecord::deserialize(content)?
+            packet_type,
         );
     } else {
         error!(
-            "Peer {}'s finalization record can't be sent to our consensus layer due to error code \
+            "Peer {}'s {} can't be sent to our consensus layer due to error code \
              {:?} (record: {:?})",
+            packet_type,
             peer_id,
             consensus_response,
             FinalizationRecord::deserialize(content)?,
         );
     }
 
-    Ok(())
-}
-
-fn send_finalization_message_to_consensus(
-    baker: &mut consensus::ConsensusContainer,
-    peer_id: P2PNodeId,
-    content: &[u8],
-) -> Fallible<()> {
-    let consensus_response = baker.send_finalization(peer_id.as_raw(), content);
-
-    if consensus_response.is_acceptable() {
-        info!(
-            "Peer {}'s {:?} was sent to our consensus layer",
-            peer_id,
-            FinalizationMessage::deserialize(content)?
-        );
-    } else {
-        error!(
-            "Peer {}'s finalization message can't be sent to our consensus layer due to error \
-             code {:?} (record: {:?})",
-            peer_id,
-            consensus_response,
-            FinalizationMessage::deserialize(content)?,
-        );
-    }
-
-    Ok(())
-}
-
-fn send_block_to_consensus(
-    baker: &mut consensus::ConsensusContainer,
-    peer_id: P2PNodeId,
-    content: &[u8],
-) -> Fallible<()> {
-    let consensus_response = baker.send_block(peer_id.as_raw(), content);
-
-    if consensus_response.is_acceptable() {
-        info!(
-            "Peer {}'s {:?} was sent to our consensus layer",
-            peer_id,
-            Block::deserialize(content)?
-        );
-    } else {
-        error!(
-            "Peer {}'s block can't be sent to our consensus layer due to error code {:?} (block: \
-             {:?})",
-            peer_id,
-            consensus_response,
-            Block::deserialize(content)?,
-        );
-    }
-
-    Ok(())
-}
-
-// Upon handshake completion we ask the consensus layer for a finalization point
-// we want to catchup from. This information is relayed to the peer we just
-// connected to, which will then emit all finalizations past this point.
-fn send_catchup_finalization_messages_by_point_to_consensus(
-    baker: &mut consensus::ConsensusContainer,
-    peer_id: P2PNodeId,
-    content: &[u8],
-) -> Fallible<()> {
-    let consensus_response = baker.get_finalization_messages(content, peer_id.as_raw())?;
-
-    if consensus_response.is_acceptable() {
-        info!(
-            "Peer {} requested finalization messages by point from our consensus layer",
-            peer_id
-        );
-    } else {
-        error!(
-            "Peer {} couldn't obtain finalization messages by point from our consensus layer due \
-             to error code {:?} (bytes: {:?}, length: {})",
-            peer_id,
-            consensus_response,
-            content,
-            content.len(),
-        );
-    }
     Ok(())
 }
