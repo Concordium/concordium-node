@@ -1,6 +1,6 @@
 use concordium_common::{
-    into_err, RelayOrStopEnvelope, RelayOrStopReceiver,
-    RelayOrStopSenderHelper, RelayOrStopSyncSender,
+    into_err, RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSenderHelper,
+    RelayOrStopSyncSender,
 };
 use failure::{bail, Fallible};
 

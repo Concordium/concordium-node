@@ -9,15 +9,19 @@ use std::{
     os::raw::{c_char, c_int},
     slice,
     sync::{
-        Arc,
         atomic::{AtomicBool, AtomicPtr, Ordering},
-        Once, ONCE_INIT,
+        Arc, Once, ONCE_INIT,
     },
 };
 
 use crate::consensus::*;
 use concordium_common::PacketType;
-use concordium_global_state::{block::*, common, finalization::*, tree::{ConsensusMessage, MessageType}};
+use concordium_global_state::{
+    block::*,
+    common,
+    finalization::*,
+    tree::{ConsensusMessage, MessageType},
+};
 
 extern "C" {
     pub fn hs_init(argc: *mut c_int, argv: *mut *mut *mut c_char);

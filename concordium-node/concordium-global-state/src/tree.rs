@@ -33,7 +33,7 @@ impl ConsensusMessage {
         Self {
             direction,
             variant,
-            payload: Arc::from(payload),
+            payload,
         }
     }
 }
@@ -59,7 +59,11 @@ impl fmt::Display for ConsensusMessage {
                 let delta = LittleEndian::read_u64(
                     &self.payload[SHA256 as usize..][..mem::size_of::<Delta>()],
                 );
-                let delta = if delta == 0 { "".to_owned() } else { format!(", delta {}", delta) };
+                let delta = if delta == 0 {
+                    "".to_owned()
+                } else {
+                    format!(", delta {}", delta)
+                };
                 format!("catch-up request for block {:?}{}", hash, delta)
             }
             PacketType::CatchupFinalizationRecordByHash => {
@@ -84,7 +88,7 @@ impl fmt::Display for ConsensusMessage {
         let party_name = match self.direction {
             MessageType::Inbound(peer_id, _) => format!("from peer {:016x}", peer_id),
             MessageType::Outbound(Some(peer_id)) => format!("to peer {:016x}", peer_id),
-            _ => "from our consensus layer".to_owned()
+            _ => "from our consensus layer".to_owned(),
         };
 
         write!(f, "{} {}", content, party_name)
@@ -94,11 +98,11 @@ impl fmt::Display for ConsensusMessage {
 #[derive(PartialEq)]
 /// The type indicating the source/target of a ConsensusMessage.
 pub enum MessageType {
-    /// Inbound messages come from other peers; they contain their PeerId and indicate
-    /// whether is was a direct message or a broadcast.
+    /// Inbound messages come from other peers; they contain their PeerId and
+    /// indicate whether is was a direct message or a broadcast.
     Inbound(PeerId, bool),
-    /// Outbound messages are produced by the consensus layer and either directed at a
-    /// specific PeerId or None in case of broadcasts.
+    /// Outbound messages are produced by the consensus layer and either
+    /// directed at a specific PeerId or None in case of broadcasts.
     Outbound(Option<PeerId>),
 }
 

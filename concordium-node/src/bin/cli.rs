@@ -24,7 +24,7 @@ use concordium_common::{
 use concordium_consensus::{consensus, ffi};
 use concordium_global_state::{
     common::SerializeToBytes,
-    tree::{Skov, ConsensusMessage},
+    tree::{ConsensusMessage, Skov},
 };
 use failure::Fallible;
 use p2p_client::{
@@ -369,7 +369,10 @@ fn start_consensus_threads(
     (conf, app_prefs): (&configuration::Config, &configuration::AppPreferences),
     baker: &mut consensus::ConsensusContainer,
     pkt_out: RelayOrStopReceiver<Arc<NetworkMessage>>,
-    (skov_receiver, skov_sender): (RelayOrStopReceiver<ConsensusMessage>, RelayOrStopSender<ConsensusMessage>),
+    (skov_receiver, skov_sender): (
+        RelayOrStopReceiver<ConsensusMessage>,
+        RelayOrStopSender<ConsensusMessage>,
+    ),
     stats: &Option<Arc<RwLock<StatsExportService>>>,
 ) -> Vec<std::thread::JoinHandle<()>> {
     let _no_trust_bans = conf.common.no_trust_bans;
@@ -568,7 +571,9 @@ fn start_consensus_threads(
     vec![global_state_thread, guard_pkt]
 }
 
-fn start_baker_thread(skov_sender: RelayOrStopSender<ConsensusMessage>) -> std::thread::JoinHandle<()> {
+fn start_baker_thread(
+    skov_sender: RelayOrStopSender<ConsensusMessage>,
+) -> std::thread::JoinHandle<()> {
     spawn_or_die!("Process consensus messages", {
         loop {
             match consensus::CALLBACK_QUEUE.recv_message() {

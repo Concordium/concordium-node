@@ -29,7 +29,7 @@ use concordium_global_state::{
     common::{sha256, HashBytes, SerializeToBytes, SHA256},
     finalization::{FinalizationIndex, FinalizationRecord},
     transaction::Transaction,
-    tree::{CatchupState, Skov, ConsensusMessage, MessageType, SkovReqBody, SkovResult},
+    tree::{CatchupState, ConsensusMessage, MessageType, Skov, SkovReqBody, SkovResult},
 };
 
 use crate::{common::P2PNodeId, configuration, network::NetworkId, p2p::*};
@@ -234,7 +234,7 @@ fn process_internal_skov_entry(
         PacketType::Block => {
             let block = PendingBlock::new(&request.payload)?;
             (format!("{:?}", block.block), skov.add_block(block))
-        },
+        }
         PacketType::FinalizationRecord => {
             let record = FinalizationRecord::deserialize(&request.payload)?;
             (format!("{:?}", record), skov.add_finalization(record))
@@ -248,7 +248,7 @@ fn process_internal_skov_entry(
                 SkovResult::IgnoredEntry
             };
             (request.variant.to_string(), skov_result)
-        },
+        }
         _ => (request.variant.to_string(), SkovResult::IgnoredEntry),
     };
 
@@ -282,12 +282,7 @@ fn process_internal_skov_entry(
             out_bytes.extend(&*request.payload);
 
             let res = if !is_broadcast {
-                node.send_direct_message(
-                    target.map(|target| P2PNodeId(target)),
-                    network_id,
-                    None,
-                    out_bytes,
-                )
+                node.send_direct_message(target.map(P2PNodeId), network_id, None, out_bytes)
             } else {
                 node.send_broadcast_message(None, network_id, None, out_bytes)
             };
@@ -331,8 +326,8 @@ fn process_external_skov_entry(
         if let MessageType::Inbound(peer_id, is_broadcast) = request.direction {
             if is_broadcast {
                 info!(
-                    "Still catching up; the last received broadcast containing a {} \
-                     will be processed after it's finished",
+                    "Still catching up; the last received broadcast containing a {} will be \
+                     processed after it's finished",
                     request,
                 );
                 // TODO: this check might not be needed; verify
@@ -491,17 +486,11 @@ fn send_msg_to_consensus(
     };
 
     if consensus_response.is_acceptable() {
-        info!(
-            "Peer {} processed a {}",
-            our_id,
-            request,
-        );
+        info!("Peer {} processed a {}", our_id, request,);
     } else {
         error!(
             "Peer {} couldn't process a {} due to error code {:?}",
-            our_id,
-            request,
-            consensus_response,
+            our_id, request, consensus_response,
         );
     }
 
