@@ -71,7 +71,6 @@ pub struct P2PNodeConfig {
     dnssec_disabled: bool,
     bootstrap_node: Vec<String>,
     minimum_per_bucket: usize,
-    blind_trusted_broadcast: bool,
     max_allowed_nodes: u16,
     max_resend_attempts: u8,
     relay_broadcast_percentage: f64,
@@ -233,7 +232,6 @@ impl P2PNode {
             dnssec_disabled: conf.connection.dnssec_disabled,
             bootstrap_node: conf.connection.bootstrap_node.clone(),
             minimum_per_bucket: conf.common.min_peers_bucket,
-            blind_trusted_broadcast: !conf.connection.no_trust_broadcasts,
             max_allowed_nodes: if let Some(max) = conf.connection.max_allowed_nodes {
                 u16::from(max)
             } else {
@@ -260,7 +258,6 @@ impl P2PNode {
             .set_max_allowed_peers(config.max_allowed_nodes)
             .set_event_log(event_log)
             .set_stats_export_service(stats_export_service.clone())
-            .set_blind_trusted_broadcast(conf.connection.no_trust_broadcasts)
             .set_self_peer(self_peer)
             .set_networks(networks)
             .set_buckets(Arc::new(RwLock::new(Buckets::new())))
@@ -344,7 +341,6 @@ impl P2PNode {
         let queue_to_super = self.queue_to_super.clone();
         let rpc_queue = Arc::clone(&self.rpc_queue);
         let send_queue = self.send_queue_in.clone();
-        let trusted_broadcast = self.config.blind_trusted_broadcast;
 
         make_atomic_callback!(move |pac: &NetworkMessage| {
             if let NetworkMessage::NetworkPacket(pac, ..) = pac {
@@ -360,7 +356,6 @@ impl P2PNode {
                     &own_networks,
                     &queues,
                     pac,
-                    trusted_broadcast,
                 )
             } else {
                 Ok(())

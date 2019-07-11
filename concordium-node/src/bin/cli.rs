@@ -373,7 +373,6 @@ fn start_consensus_threads(
     stats: &Option<Arc<RwLock<StatsExportService>>>,
 ) -> Vec<std::thread::JoinHandle<()>> {
     let _no_trust_bans = conf.common.no_trust_bans;
-    let _no_trust_broadcasts = conf.connection.no_trust_broadcasts;
     let _desired_nodes_clone = conf.connection.desired_nodes;
     let _test_runner_url = conf.cli.test_runner_url.clone();
     let mut _stats_engine = StatsEngine::new(&conf.cli);
