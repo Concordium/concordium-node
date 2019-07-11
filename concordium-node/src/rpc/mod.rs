@@ -1269,13 +1269,13 @@ mod tests {
     use crate::test_utils::wait_direct_message;
     use crate::{
         common::PeerType,
-        configuration::{self},
+        configuration,
         network::NetworkMessage,
         proto::concordium_p2p_rpc_grpc::P2PClient,
         rpc::RpcServerImpl,
         test_utils::{
-            connect_and_wait_handshake, make_node_and_sync, next_available_port, setup_logger,
-            wait_broadcast_message, get_test_config,
+            connect_and_wait_handshake, get_test_config, make_node_and_sync, next_available_port,
+            setup_logger, wait_broadcast_message,
         },
     };
     use chrono::prelude::Utc;

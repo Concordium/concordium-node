@@ -447,20 +447,18 @@ mod tests {
         setup_logger();
 
         // Create connections
-        let (mut node, w1) =
-            make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
-        let (bootstrapper, _) = make_node_and_sync(
-            next_available_port(),
-            vec![100],
-            PeerType::Bootstrapper,
-        )?;
+        let (mut node, w1) = make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
+        let (bootstrapper, _) =
+            make_node_and_sync(next_available_port(), vec![100], PeerType::Bootstrapper)?;
         connect_and_wait_handshake(&mut node, &bootstrapper, &w1)?;
 
         // Deregister connection on the node side
         let tls_node = Arc::clone(&node.tls_server);
         let priv_tls_node = safe_read!(tls_node)?.get_private_tls();
         let priv_tls_node = safe_read!(priv_tls_node)?;
-        let conn_node = priv_tls_node.find_connection_by_id(bootstrapper.id()).unwrap();
+        let conn_node = priv_tls_node
+            .find_connection_by_id(bootstrapper.id())
+            .unwrap();
         node.deregister_connection(conn_node)?;
         let mut conn_node = write_or_die!(conn_node);
 
@@ -468,7 +466,9 @@ mod tests {
         let tls_bootstrapper = Arc::clone(&bootstrapper.tls_server);
         let priv_tls_bootstrapper = safe_read!(tls_bootstrapper)?.get_private_tls();
         let priv_tls_bootstrapper = safe_read!(priv_tls_bootstrapper)?;
-        let conn_bootstrapper = priv_tls_bootstrapper.find_connection_by_id(node.id()).unwrap();
+        let conn_bootstrapper = priv_tls_bootstrapper
+            .find_connection_by_id(node.id())
+            .unwrap();
         bootstrapper.deregister_connection(conn_bootstrapper)?;
         let mut conn_bootstrapper = write_or_die!(conn_bootstrapper);
 

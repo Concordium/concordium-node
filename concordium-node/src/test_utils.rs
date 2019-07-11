@@ -43,7 +43,7 @@ pub fn next_available_port() -> u16 {
 use chrono::{offset::Utc, DateTime};
 use std::io::Write;
 
-pub fn get_test_config( port: u16, networks: Vec<u16> ) -> Config { 
+pub fn get_test_config(port: u16, networks: Vec<u16>) -> Config {
     let mut config = Config::from_iter(TESTCONFIG.to_vec()).add_options(
         Some("127.0.0.1".to_owned()),
         port,
@@ -110,11 +110,8 @@ pub fn make_nodes_from_port(
     let mut nodes_and_receivers = Vec::with_capacity(count);
 
     for _i in 0..count {
-        let (node, receiver) = make_node_and_sync(
-            next_available_port(),
-            networks.clone(),
-            PeerType::Node,
-        )?;
+        let (node, receiver) =
+            make_node_and_sync(next_available_port(), networks.clone(), PeerType::Node)?;
 
         nodes_and_receivers.push((RefCell::new(node), receiver));
     }
@@ -136,7 +133,14 @@ pub fn make_node_and_sync(
     let export_service = Arc::new(RwLock::new(
         StatsExportService::new(StatsServiceMode::NodeMode).unwrap(),
     ));
-    let mut node = P2PNode::new(None, &get_test_config(port,networks), net_tx, None, node_type, Some(export_service));
+    let mut node = P2PNode::new(
+        None,
+        &get_test_config(port, networks),
+        net_tx,
+        None,
+        node_type,
+        Some(export_service),
+    );
     let node_id = port;
 
     node.add_notification(make_atomic_callback!(move |m: &NetworkMessage| {

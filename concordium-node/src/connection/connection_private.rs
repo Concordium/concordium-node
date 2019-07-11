@@ -227,7 +227,7 @@ pub struct ConnectionPrivateBuilder {
     pub stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
     pub event_log:            Option<Sender<P2PEvent>>,
 
-    pub log_dumper:              Option<Sender<DumpItem>>,
+    pub log_dumper: Option<Sender<DumpItem>>,
 
     pub noise_params: Option<snow::params::NoiseParams>,
 }

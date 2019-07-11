@@ -46,14 +46,14 @@ pub type PreHandshakeCW = UnitFunction<SocketAddr>;
 pub type PreHandshake = UnitFunctor<SocketAddr>;
 
 pub struct TlsServerBuilder {
-    server:                  Option<TcpListener>,
-    event_log:               Option<Sender<P2PEvent>>,
-    self_peer:               Option<P2PPeer>,
-    buckets:                 Option<Arc<RwLock<Buckets>>>,
-    stats_export_service:    Option<Arc<RwLock<StatsExportService>>>,
-    networks:                Option<HashSet<NetworkId>>,
-    max_allowed_peers:       Option<u16>,
-    noise_params:            Option<snow::params::NoiseParams>,
+    server:               Option<TcpListener>,
+    event_log:            Option<Sender<P2PEvent>>,
+    self_peer:            Option<P2PPeer>,
+    buckets:              Option<Arc<RwLock<Buckets>>>,
+    stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
+    networks:             Option<HashSet<NetworkId>>,
+    max_allowed_peers:    Option<u16>,
+    noise_params:         Option<snow::params::NoiseParams>,
 }
 
 impl Default for TlsServerBuilder {
@@ -63,14 +63,14 @@ impl Default for TlsServerBuilder {
 impl TlsServerBuilder {
     pub fn new() -> TlsServerBuilder {
         TlsServerBuilder {
-            server:                  None,
-            event_log:               None,
-            self_peer:               None,
-            buckets:                 None,
-            stats_export_service:    None,
-            networks:                None,
-            max_allowed_peers:       None,
-            noise_params:            None,
+            server:               None,
+            event_log:            None,
+            self_peer:            None,
+            buckets:              None,
+            stats_export_service: None,
+            networks:             None,
+            max_allowed_peers:    None,
+            noise_params:         None,
         }
     }
 

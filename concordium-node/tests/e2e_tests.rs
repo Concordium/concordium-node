@@ -10,9 +10,9 @@ mod tests {
         network::{NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType},
         p2p::{banned_nodes::BannedNode, p2p_node::P2PNode},
         test_utils::{
-            connect_and_wait_handshake, consume_pending_messages, make_node_and_sync,
-            make_nodes_from_port, max_recv_timeout, next_available_port, setup_logger,
-            wait_broadcast_message, wait_direct_message, wait_direct_message_timeout, get_test_config,
+            connect_and_wait_handshake, consume_pending_messages, get_test_config,
+            make_node_and_sync, make_nodes_from_port, max_recv_timeout, next_available_port,
+            setup_logger, wait_broadcast_message, wait_direct_message, wait_direct_message_timeout,
         },
     };
 
@@ -51,11 +51,8 @@ mod tests {
         let msg = b"Hello other brother!".to_vec();
         let networks = vec![100];
 
-        let (mut node_1, msg_waiter_1) = make_node_and_sync(
-            next_available_port(),
-            networks.clone(),
-            PeerType::Node,
-        )?;
+        let (mut node_1, msg_waiter_1) =
+            make_node_and_sync(next_available_port(), networks.clone(), PeerType::Node)?;
         let (mut node_2, _msg_waiter_2) =
             make_node_and_sync(next_available_port(), networks, PeerType::Node)?;
         connect_and_wait_handshake(&mut node_1, &node_2, &msg_waiter_1)?;
@@ -97,16 +94,10 @@ mod tests {
         let msg = b"Hello other brother!".to_vec();
         let networks = vec![100];
 
-        let (mut node_1, _msg_waiter_1) = make_node_and_sync(
-            next_available_port(),
-            networks.clone(),
-            PeerType::Node,
-        )?;
-        let (mut node_2, msg_waiter_2) = make_node_and_sync(
-            next_available_port(),
-            networks.clone(),
-            PeerType::Node,
-        )?;
+        let (mut node_1, _msg_waiter_1) =
+            make_node_and_sync(next_available_port(), networks.clone(), PeerType::Node)?;
+        let (mut node_2, msg_waiter_2) =
+            make_node_and_sync(next_available_port(), networks.clone(), PeerType::Node)?;
         let (mut node_3, msg_waiter_3) =
             make_node_and_sync(next_available_port(), networks, PeerType::Node)?;
 
@@ -129,11 +120,8 @@ mod tests {
 
         let (mut node_1, _msg_waiter_1) =
             make_node_and_sync(next_available_port(), networks_1, PeerType::Node)?;
-        let (mut node_2, msg_waiter_2) = make_node_and_sync(
-            next_available_port(),
-            networks_2.clone(),
-            PeerType::Node,
-        )?;
+        let (mut node_2, msg_waiter_2) =
+            make_node_and_sync(next_available_port(), networks_2.clone(), PeerType::Node)?;
         let (mut node_3, msg_waiter_3) =
             make_node_and_sync(next_available_port(), networks_2, PeerType::Node)?;
 
@@ -244,11 +232,8 @@ mod tests {
             for _island_idx in 0..island_size {
                 let inner_counter = message_counter.clone();
 
-                let (mut node, waiter) = make_node_and_sync(
-                    next_available_port(),
-                    networks.clone(),
-                    PeerType::Node,
-                )?;
+                let (mut node, waiter) =
+                    make_node_and_sync(next_available_port(), networks.clone(), PeerType::Node)?;
                 let port = node.internal_addr.port();
 
                 safe_write!(node.message_processor())?.add_notification(make_atomic_callback!(
@@ -348,8 +333,7 @@ mod tests {
             let tx_i = bcast_tx.clone();
             let port = next_available_port();
 
-            let (node, conn_waiter) =
-                make_node_and_sync(port, vec![network_id], PeerType::Node)?;
+            let (node, conn_waiter) = make_node_and_sync(port, vec![network_id], PeerType::Node)?;
 
             let mh = node.message_processor();
             safe_write!(mh)?.add_packet_action(make_atomic_callback!(
@@ -424,11 +408,8 @@ mod tests {
         let networks = vec![100];
 
         // 1. Create and connect nodes
-        let (mut node_1, msg_waiter_1) = make_node_and_sync(
-            next_available_port(),
-            networks.clone(),
-            PeerType::Node,
-        )?;
+        let (mut node_1, msg_waiter_1) =
+            make_node_and_sync(next_available_port(), networks.clone(), PeerType::Node)?;
         let (mut node_2, msg_waiter_2) =
             make_node_and_sync(next_available_port(), networks, PeerType::Node)?;
         connect_and_wait_handshake(&mut node_1, &node_2, &msg_waiter_1)?;
@@ -492,11 +473,8 @@ mod tests {
         let mut conn_waiters_per_level = Vec::with_capacity(levels);
 
         // 1.1. Root node adds callback for receive last broadcast packet.
-        let (node, conn_waiter) = make_node_and_sync(
-            next_available_port(),
-            vec![network_id],
-            PeerType::Node,
-        )?;
+        let (node, conn_waiter) =
+            make_node_and_sync(next_available_port(), vec![network_id], PeerType::Node)?;
         let (bcast_tx, bcast_rx) = std::sync::mpsc::channel();
         {
             write_or_die!(node.message_processor()).add_packet_action(make_atomic_callback!(
@@ -516,8 +494,7 @@ mod tests {
             // 1.2.1. Make nodes
             let count_nodes: usize = rng.gen_range(min_node_per_level, max_node_per_level);
             debug!("Creating level {} with {} nodes", level, count_nodes);
-            let nodes_and_conn_waiters =
-                make_nodes_from_port(count_nodes, vec![network_id])?;
+            let nodes_and_conn_waiters = make_nodes_from_port(count_nodes, vec![network_id])?;
 
             // Create nodes and add logger for each message
             let (nodes, waiters): (Vec<RefCell<P2PNode>>, _) =
@@ -652,7 +629,14 @@ mod tests {
         setup_logger();
 
         let (net_tx, _) = std::sync::mpsc::channel();
-        let mut node = P2PNode::new(None, &get_test_config(next_available_port(), vec![100]), net_tx, None, PeerType::Node, None);
+        let mut node = P2PNode::new(
+            None,
+            &get_test_config(next_available_port(), vec![100]),
+            net_tx,
+            None,
+            PeerType::Node,
+            None,
+        );
 
         assert_eq!(true, node.close_and_join().is_err());
         assert_eq!(true, node.close_and_join().is_err());
@@ -712,16 +696,10 @@ mod tests {
 
         let networks = vec![100];
 
-        let (mut node_1, msg_waiter_1) = make_node_and_sync(
-            next_available_port(),
-            networks.clone(),
-            PeerType::Node,
-        )?;
-        let (node_2, _msg_waiter_2) = make_node_and_sync(
-            next_available_port(),
-            networks.clone(),
-            PeerType::Node,
-        )?;
+        let (mut node_1, msg_waiter_1) =
+            make_node_and_sync(next_available_port(), networks.clone(), PeerType::Node)?;
+        let (node_2, _msg_waiter_2) =
+            make_node_and_sync(next_available_port(), networks.clone(), PeerType::Node)?;
         connect_and_wait_handshake(&mut node_1, &node_2, &msg_waiter_1)?;
         consume_pending_messages(&msg_waiter_1);
 
@@ -762,7 +740,7 @@ mod tests {
 
         // Create nodes and connect them.
         let (mut node_1, msg_waiter_1) =
-            make_node_and_sync(next_available_port(), vec![100],  PeerType::Node).unwrap();
+            make_node_and_sync(next_available_port(), vec![100], PeerType::Node).unwrap();
         let (node_2, msg_waiter_2) =
             make_node_and_sync(next_available_port(), vec![100], PeerType::Node).unwrap();
         connect_and_wait_handshake(&mut node_1, &node_2, &msg_waiter_1).unwrap();
