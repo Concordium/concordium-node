@@ -59,7 +59,8 @@ impl fmt::Display for ConsensusMessage {
                 let delta = LittleEndian::read_u64(
                     &self.payload[SHA256 as usize..][..mem::size_of::<Delta>()],
                 );
-                format!("catch-up request for block {:?}, delta {}", hash, delta)
+                let delta = if delta == 0 { "".to_owned() } else { format!(", delta {}", delta) };
+                format!("catch-up request for block {:?}{}", hash, delta)
             }
             PacketType::CatchupFinalizationRecordByHash => {
                 let hash = HashBytes::new(&self.payload[..SHA256 as usize]);
@@ -77,10 +78,15 @@ impl fmt::Display for ConsensusMessage {
                     idx
                 )
             }
-            p => format!("{}", p),
+            p => p.to_string(),
         };
 
-        write!(f, "{}", content)
+        let source_name = self
+            .source
+            .map(|(peer_id, ..)| format!("{:016x}", peer_id))
+            .unwrap_or_else(|| "our consensus layer".to_owned());
+
+        write!(f, "{} from peer {}", content, source_name)
     }
 }
 

@@ -328,10 +328,9 @@ fn process_external_skov_entry(
         if let Some((peer_id, is_broadcast)) = request.source {
             if is_broadcast {
                 info!(
-                    "Still catching up; the last received broadcast containing a {} from peer {} \
+                    "Still catching up; the last received broadcast containing a {} \
                      will be processed after it's finished",
-                    request.variant,
-                    P2PNodeId(peer_id)
+                    request,
                 );
                 // TODO: this check might not be needed; verify
                 if P2PNodeId(peer_id) != node.id() {
@@ -387,18 +386,9 @@ fn process_external_skov_entry(
             _ => SkovResult::Housekeeping,
         };
 
-        let source = request
-            .source
-            .map(|(peer_id, ..)| P2PNodeId(peer_id).to_string())
-            .unwrap_or_else(|| "our consensus layer".to_owned());
-
         match result {
             SkovResult::SuccessfulEntry(_) => {
-                trace!(
-                    "Skov: successfully processed a {} from {}",
-                    request.variant,
-                    source
-                );
+                trace!("Peer {} successfully processed a {}", node.id(), request);
             }
             SkovResult::SuccessfulQuery(result) => {
                 let return_type = match request.variant {
@@ -420,15 +410,12 @@ fn process_external_skov_entry(
                     .unwrap();
 
                 match node.send_direct_message(Some(source), network_id, None, out_bytes) {
-                    Ok(_) => info!("Responded to a {} from peer {}", request.variant, source),
-                    Err(_) => error!(
-                        "Couldn't respond to a {} from peer {}!",
-                        request.variant, source
-                    ),
+                    Ok(_) => info!("Peer {} responded to a {}", node.id(), request),
+                    Err(_) => error!("Peer {} couldn't respond to a {}!", node.id(), request),
                 }
             }
             SkovResult::DuplicateEntry => {
-                warn!("Skov: got a duplicate {} from {}", request.variant, source);
+                warn!("Skov: got a duplicate {}", request);
             }
             SkovResult::Error(e) => skov.register_error(e),
             _ => {}
@@ -437,7 +424,7 @@ fn process_external_skov_entry(
         // relay external messages to Consensus if they are relevant to it
         if request.source.is_some() {
             if consensus_applicable {
-                send_msg_to_consensus(baker, request)?
+                send_msg_to_consensus(node.id(), baker, request)?
             }
         }
 
@@ -451,7 +438,7 @@ fn process_external_skov_entry(
         // relay external messages to Consensus if they are relevant to it
         if request.source.is_some() {
             if consensus_applicable {
-                send_msg_to_consensus(baker, request)?
+                send_msg_to_consensus(node.id(), baker, request)?
             }
         }
 
@@ -485,11 +472,11 @@ pub fn apply_delayed_broadcasts(
 }
 
 fn send_msg_to_consensus(
+    our_node_id: P2PNodeId,
     baker: &mut consensus::ConsensusContainer,
     request: ConsensusMessage,
 ) -> Fallible<()> {
-    let raw_id = request.source.unwrap().0;
-    let peer_id = P2PNodeId(raw_id);
+    let raw_id = request.source.unwrap().0; // safe, always there in external messages
 
     let consensus_response = match request.variant {
         Block => baker.send_block(raw_id, &request.payload),
@@ -504,15 +491,14 @@ fn send_msg_to_consensus(
 
     if consensus_response.is_acceptable() {
         info!(
-            "Peer {}'s {} was sent to our consensus layer",
-            peer_id,
+            "Peer {} processed a {}",
+            our_node_id,
             request,
         );
     } else {
         error!(
-            "Peer {}'s {} can't be sent to our consensus layer due to error code \
-             {:?}",
-            peer_id,
+            "Peer {} couldn't process a {} due to error code {:?}",
+            our_node_id,
             request,
             consensus_response,
         );
