@@ -1,8 +1,6 @@
-use byteorder::{ByteOrder, LittleEndian};
-
 use concordium_common::{
-    into_err, PacketType, RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSender,
-    RelayOrStopSenderHelper, RelayOrStopSyncSender,
+    into_err, RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSenderHelper,
+    RelayOrStopSyncSender,
 };
 use failure::{bail, Fallible};
 
@@ -10,78 +8,16 @@ use failure::{bail, Fallible};
 use std::time::Duration;
 use std::{
     collections::HashMap,
-    fmt, mem, str,
+    str,
     sync::{mpsc, Arc, Mutex, RwLock},
     thread, time,
 };
 
 use crate::{fails::BakerNotRunning, ffi::*};
-use concordium_global_state::{block::*, common::*, finalization::*, tree::SkovReq};
+use concordium_global_state::{block::*, tree::ConsensusMessage};
 
 pub type PeerId = u64;
 pub type PrivateData = HashMap<i64, Vec<u8>>;
-
-pub struct ConsensusMessage {
-    pub variant:  PacketType,
-    pub producer: Option<PeerId>,
-    pub payload:  Arc<[u8]>,
-}
-
-impl ConsensusMessage {
-    pub fn new(variant: PacketType, producer: Option<PeerId>, payload: Box<[u8]>) -> Self {
-        Self {
-            variant,
-            producer,
-            payload: Arc::from(payload),
-        }
-    }
-}
-
-impl fmt::Debug for ConsensusMessage {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        macro_rules! print_deserialized {
-            ($object:ty) => {{
-                if let Ok(object) = <$object>::deserialize(&self.payload) {
-                    format!("{:?}", object)
-                } else {
-                    format!("corrupted bytes")
-                }
-            }};
-        }
-
-        let content = match self.variant {
-            PacketType::Block => print_deserialized!(Block),
-            PacketType::FinalizationRecord => print_deserialized!(FinalizationRecord),
-            PacketType::FinalizationMessage => print_deserialized!(FinalizationMessage),
-            PacketType::CatchupBlockByHash => {
-                let hash = HashBytes::new(&self.payload[..SHA256 as usize]);
-                let delta = LittleEndian::read_u64(
-                    &self.payload[SHA256 as usize..][..mem::size_of::<Delta>()],
-                );
-                format!("catch-up request for block {:?}, delta {}", hash, delta)
-            }
-            PacketType::CatchupFinalizationRecordByHash => {
-                let hash = HashBytes::new(&self.payload[..SHA256 as usize]);
-                format!(
-                    "catch-up request for the finalization record for block {:?}",
-                    hash
-                )
-            }
-            PacketType::CatchupFinalizationRecordByIndex => {
-                let idx = LittleEndian::read_u64(
-                    &self.payload[..mem::size_of::<FinalizationIndex>() as usize],
-                );
-                format!(
-                    "catch-up request for the finalization record at index {}",
-                    idx
-                )
-            }
-            p => format!("{}", p),
-        };
-
-        write!(f, "{}", content)
-    }
-}
 
 pub struct ConsensusOutQueue {
     receiver_request: Arc<Mutex<RelayOrStopReceiver<ConsensusMessage>>>,
@@ -106,27 +42,8 @@ impl ConsensusOutQueue {
         into_err!(self.sender_request.send_msg(message))
     }
 
-    pub fn recv_message(
-        &self,
-        skov_sender: &RelayOrStopSender<SkovReq>,
-    ) -> Fallible<RelayOrStopEnvelope<ConsensusMessage>> {
-        let message = into_err!(safe_lock!(self.receiver_request).recv());
-
-        if let Ok(RelayOrStopEnvelope::Relay(ref msg)) = message {
-            match msg.variant {
-                PacketType::Block
-                | PacketType::FinalizationRecord
-                | PacketType::CatchupBlockByHash
-                | PacketType::CatchupFinalizationRecordByHash
-                | PacketType::CatchupFinalizationRecordByIndex => {
-                    let request = SkovReq::new(None, msg.variant, Arc::clone(&msg.payload));
-                    skov_sender.send(RelayOrStopEnvelope::Relay(request))?
-                },
-                _ => {} // not used in Skov,
-            }
-        }
-
-        message
+    pub fn recv_message(&self) -> Fallible<RelayOrStopEnvelope<ConsensusMessage>> {
+        into_err!(safe_lock!(self.receiver_request).recv())
     }
 
     pub fn clear(&self) {
@@ -360,11 +277,14 @@ impl ConsensusContainer {
 
     pub fn get_finalization_messages(
         &self,
-        request: &[u8],
         peer_id: PeerId,
-    ) -> Fallible<ConsensusFfiResponse> {
-        baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
-            .get_finalization_messages(request, peer_id))
+        request: &[u8],
+    ) -> ConsensusFfiResponse {
+        if let Some(baker) = &*safe_read!(self.baker) {
+            baker.get_finalization_messages(request, peer_id)
+        } else {
+            ConsensusFfiResponse::BakerNotFound
+        }
     }
 }
 

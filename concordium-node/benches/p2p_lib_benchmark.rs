@@ -293,9 +293,9 @@ mod network {
 
             // Create nodes and connect them.
             let (mut node_1, msg_waiter_1) =
-                make_node_and_sync(next_available_port(), vec![100], true, PeerType::Node).unwrap();
+                make_node_and_sync(next_available_port(), vec![100], PeerType::Node).unwrap();
             let (node_2, msg_waiter_2) =
-                make_node_and_sync(next_available_port(), vec![100], true, PeerType::Node).unwrap();
+                make_node_and_sync(next_available_port(), vec![100], PeerType::Node).unwrap();
             connect_and_wait_handshake(&mut node_1, &node_2, &msg_waiter_1).unwrap();
 
             // let mut msg = make_direct_message_into_disk().unwrap();

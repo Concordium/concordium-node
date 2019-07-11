@@ -197,8 +197,6 @@ pub struct ConnectionConfig {
         default_value = "bootstrap.p2p.concordium.com"
     )]
     pub bootstrap_server: String,
-    #[structopt(long = "no-trust-broadcasts", help = "Don't blindly relay broadcasts")]
-    pub no_trust_broadcasts: bool,
     #[structopt(
         long = "global-state-catch-up-requests",
         help = "Should global state produce catch-up requests"

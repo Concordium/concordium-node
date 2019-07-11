@@ -22,9 +22,9 @@ RUN \
 
 ### Baker id gen
 RUN \
-    rustup install nightly && \
+    rustup install nightly-2019-07-10 && \
     cd baker_id_gen.git && \
-    cargo +nightly build --release && \
+    cargo +nightly-2019-07-10 build --release && \
     mv target/release/baker_id_gen .. && \
     cd .. && \
     rm -rf baker_id_gen.git

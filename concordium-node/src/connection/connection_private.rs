@@ -55,8 +55,6 @@ pub struct ConnectionPrivate {
     pub sent_ping:             u64,
     pub last_latency_measured: u64,
 
-    pub blind_trusted_broadcast: bool,
-
     pub log_dumper: Option<Sender<DumpItem>>,
 
     pub noise_params: snow::params::NoiseParams,
@@ -94,9 +92,6 @@ impl ConnectionPrivate {
         self.remote_peer = self.remote_peer.promote_to_post_handshake(id, addr)?;
         Ok(())
     }
-
-    #[allow(unused)]
-    pub fn blind_trusted_broadcast(&self) -> bool { self.blind_trusted_broadcast }
 
     /// It registers this connection into `poll`.
     /// This allows us to receive notifications once `socket` is able to read
@@ -232,8 +227,7 @@ pub struct ConnectionPrivateBuilder {
     pub stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
     pub event_log:            Option<Sender<P2PEvent>>,
 
-    pub blind_trusted_broadcast: Option<bool>,
-    pub log_dumper:              Option<Sender<DumpItem>>,
+    pub log_dumper: Option<Sender<DumpItem>>,
 
     pub noise_params: Option<snow::params::NoiseParams>,
 }
@@ -250,7 +244,6 @@ impl ConnectionPrivateBuilder {
             Some(buckets),
             Some(socket),
             Some(key_pair),
-            Some(blind_trusted_broadcast),
             Some(noise_params),
         ) = (
             self.token,
@@ -260,7 +253,6 @@ impl ConnectionPrivateBuilder {
             self.buckets,
             self.socket,
             self.key_pair,
-            self.blind_trusted_broadcast,
             self.noise_params,
         ) {
             let peer_type = local_peer.peer_type();
@@ -288,7 +280,6 @@ impl ConnectionPrivateBuilder {
                 sent_handshake: u64_max_value,
                 sent_ping: u64_max_value,
                 last_latency_measured: u64_max_value,
-                blind_trusted_broadcast,
                 log_dumper: self.log_dumper,
                 noise_params,
             })
@@ -350,11 +341,6 @@ impl ConnectionPrivateBuilder {
 
     pub fn set_event_log(mut self, el: Option<Sender<P2PEvent>>) -> ConnectionPrivateBuilder {
         self.event_log = el;
-        self
-    }
-
-    pub fn set_blind_trusted_broadcast(mut self, btb: bool) -> ConnectionPrivateBuilder {
-        self.blind_trusted_broadcast = Some(btb);
         self
     }
 

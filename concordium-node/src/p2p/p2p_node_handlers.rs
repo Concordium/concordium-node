@@ -86,7 +86,6 @@ pub fn forward_network_packet_message<S: ::std::hash::BuildHasher>(
     own_networks: &Arc<RwLock<HashSet<NetworkId, S>>>,
     outgoing_queues: &OutgoingQueues,
     pac: &NetworkPacket,
-    blind_trust_broadcast: bool,
 ) -> FuncResult<()> {
     trace!("Processing message for relaying");
     if safe_read!(own_networks)?.contains(&pac.network_id) {
@@ -98,19 +97,17 @@ pub fn forward_network_packet_message<S: ::std::hash::BuildHasher>(
         let outer = Arc::new(NetworkMessage::NetworkPacket(pac.to_owned(), None, None));
 
         if seen_messages.append(&pac.message_id) {
-            if blind_trust_broadcast {
-                if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
-                    debug!(
-                        "Peer {} is rebroadcasting a message {:?} from {}",
-                        own_id,
-                        pac.message_id,
-                        pac.peer.id()
-                    );
-                    send_or_die!(outgoing_queues.send_queue, Arc::clone(&outer));
-                    if let Some(ref service) = stats_export_service {
-                        safe_write!(service)?.queue_size_inc();
-                    };
-                }
+            if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
+                debug!(
+                    "Peer {} is rebroadcasting a message {:?} from {}",
+                    own_id,
+                    pac.message_id,
+                    pac.peer.id()
+                );
+                send_or_die!(outgoing_queues.send_queue, Arc::clone(&outer));
+                if let Some(ref service) = stats_export_service {
+                    safe_write!(service)?.queue_size_inc();
+                };
             }
 
             if let Ok(locked) = outgoing_queues.rpc_queue.lock() {
