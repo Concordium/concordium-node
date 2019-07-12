@@ -1,4 +1,4 @@
-{-# LANGUAGE ForeignFunctionInterface, LambdaCase, RecordWildCards, OverloadedStrings #-}
+{-# LANGUAGE ForeignFunctionInterface, LambdaCase, RecordWildCards, ScopedTypeVariables, OverloadedStrings #-}
 module Concordium.External where
 
 import Foreign
@@ -88,8 +88,8 @@ callBakerIdentityCallback cb bix bs = BS.useAsCStringLen bs $ \(cdata, clen) -> 
 -- number of bakers.  This function is deterministic: calling with the same genesis
 -- time and number of bakers should generate the same genesis data and baker identities.
 -- Returns
--- - -1 if cryptographic parameters could not be loaded,
--- - -2 if identity providers could not be loaded
+-- - 9 if cryptographic parameters could not be loaded,
+-- - 10 if identity providers could not be loaded
 -- - 0 if data was generated.
 makeGenesisData ::
     Timestamp -- ^Genesis time
@@ -100,13 +100,15 @@ makeGenesisData ::
     -> FunPtr BakerIdentityCallback -- ^Function to process each baker identity. Will be called repeatedly with different baker ids.
     -> IO CInt
 makeGenesisData genTime nBakers cryptoParamsFile idProvidersFile cbkgen cbkbaker = do
-    mCryptoParams <- readCryptographicParameters <$> (BSL.readFile =<< peekCString cryptoParamsFile)
-    mIdProviders <- readIdentityProviders <$> (BSL.readFile =<< peekCString idProvidersFile)
+    mCryptoParams <- readCryptographicParameters <$>
+      catch (BSL.readFile =<< peekCString cryptoParamsFile) (\(_ :: IOException) -> return BSL.empty)
+    mIdProviders <- readIdentityProviders <$>
+      catch (BSL.readFile =<< peekCString idProvidersFile) (\(_ :: IOException) -> return BSL.empty)
     case mCryptoParams of
-      Nothing -> return (-1)
+      Nothing -> return 9
       Just cryptoParams ->
         case mIdProviders of
-          Nothing -> return (-2)
+          Nothing -> return 10
           Just idProviders -> do
             let (genData, bakers) = S.makeGenesisData genTime (fromIntegral nBakers) 10 0.5 9 cryptoParams idProviders
             let bakersPrivate = map fst bakers
