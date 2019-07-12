@@ -199,8 +199,8 @@ data BakerRunner = BakerRunner {
     bakerMissingFinalizationByIndex :: PeerID -> FinalizationIndex -> IO ()
 }
 
--- |Start up an instance of Skov with a baker thread.
-startBaker ::
+-- |Start up an instance of Skov without starting the baker thread.
+startConsensus ::
            CString -> Int64 -- ^Serialized genesis data (c string + len)
            -> CString -> Int64 -- ^Serialized baker identity (c string + len)
            -> FunPtr BroadcastCallback -- ^Handler for generated messages
@@ -209,7 +209,7 @@ startBaker ::
            -> FunPtr MissingByBlockCallback -- ^Handler for missing finalization records by block hash
            -> FunPtr MissingByFinalizationIndexCallback -- ^Handler for missing finalization records by finalization index
             -> IO (StablePtr BakerRunner)
-startBaker gdataC gdataLenC bidC bidLenC bcbk lcbk missingBlock missingFinBlock missingFinIx = do
+startConsensus gdataC gdataLenC bidC bidLenC bcbk lcbk missingBlock missingFinBlock missingFinIx = do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
         case (decode gdata, decode bdata) of
@@ -236,6 +236,12 @@ startBaker gdataC gdataLenC bidC bidLenC bcbk lcbk missingBlock missingFinBlock 
             logM External LLDebug $ "Sending finalization record [size=" ++ show (BS.length msgbs) ++ "]: " ++ show finRec
             bakerBroadcast BMTFinalizationRecord msgbs
 
+-- |Start the baker thread.  Calling this more than once
+-- should not start additional baker threads.
+startBaker :: StablePtr BakerRunner -> IO ()
+startBaker bptr = mask_ $ do
+    BakerRunner {..} <- deRefStablePtr bptr
+    startSyncRunner bakerSyncRunner
 
 -- |Stop a baker thread.  The pointer is not valid after this is called, so
 -- should not be reused.
@@ -730,7 +736,8 @@ getFinalizationPoint bptr = do
         byteStringToCString $ P.runPut $ put finPt
 
 foreign export ccall makeGenesisData :: Timestamp -> Word64 -> FunPtr GenesisDataCallback -> FunPtr BakerIdentityCallback -> IO ()
-foreign export ccall startBaker :: CString -> Int64 -> CString -> Int64 -> FunPtr BroadcastCallback -> FunPtr LogCallback -> FunPtr MissingByBlockDeltaCallback -> FunPtr MissingByBlockCallback -> FunPtr MissingByFinalizationIndexCallback -> IO (StablePtr BakerRunner)
+foreign export ccall startConsensus :: CString -> Int64 -> CString -> Int64 -> FunPtr BroadcastCallback -> FunPtr LogCallback -> FunPtr MissingByBlockDeltaCallback -> FunPtr MissingByBlockCallback -> FunPtr MissingByFinalizationIndexCallback -> IO (StablePtr BakerRunner)
+foreign export ccall startBaker :: StablePtr BakerRunner -> IO ()
 foreign export ccall stopBaker :: StablePtr BakerRunner -> IO ()
 foreign export ccall receiveBlock :: StablePtr BakerRunner -> PeerID -> CString -> Int64 -> IO Int64
 foreign export ccall receiveFinalization :: StablePtr BakerRunner -> PeerID -> CString -> Int64 -> IO Int64
