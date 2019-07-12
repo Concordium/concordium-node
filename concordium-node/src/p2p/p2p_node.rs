@@ -140,6 +140,131 @@ impl SharedNodeData {
             stats_export_service,
         }
     }
+
+    pub fn send_ban(&mut self, id: BannedNode) {
+        send_or_die!(
+            self.send_queue_in,
+            Arc::new(NetworkMessage::NetworkRequest(
+                NetworkRequest::BanNode(self.self_peer, id),
+                None,
+                None,
+            ))
+        );
+        self.queue_size_inc();
+    }
+
+    pub fn send_unban(&mut self, id: BannedNode) {
+        send_or_die!(
+            self.send_queue_in,
+            Arc::new(NetworkMessage::NetworkRequest(
+                NetworkRequest::UnbanNode(self.self_peer, id),
+                None,
+                None,
+            ))
+        );
+        self.queue_size_inc();
+    }
+
+    pub fn send_joinnetwork(&mut self, network_id: NetworkId) {
+        send_or_die!(
+            self.send_queue_in,
+            Arc::new(NetworkMessage::NetworkRequest(
+                NetworkRequest::JoinNetwork(self.self_peer, network_id),
+                None,
+                None,
+            ))
+        );
+        self.queue_size_inc();
+    }
+
+    pub fn send_leavenetwork(&mut self, network_id: NetworkId) {
+        send_or_die!(
+            self.send_queue_in,
+            Arc::new(NetworkMessage::NetworkRequest(
+                NetworkRequest::LeaveNetwork(self.self_peer, network_id),
+                None,
+                None,
+            ))
+        );
+        self.queue_size_inc();
+    }
+
+    pub fn send_get_peers(&mut self, nids: HashSet<NetworkId>) {
+        send_or_die!(
+            self.send_queue_in,
+            Arc::new(NetworkMessage::NetworkRequest(
+                NetworkRequest::GetPeers(self.self_peer, nids.clone()),
+                None,
+                None,
+            ))
+        );
+        self.queue_size_inc();
+    }
+
+    pub fn send_retransmit(
+        &mut self,
+        requested_type: RequestedElementType,
+        since: u64,
+        nid: NetworkId,
+    ) {
+        send_or_die!(
+            self.send_queue_in,
+            Arc::new(NetworkMessage::NetworkRequest(
+                NetworkRequest::Retransmit(self.self_peer, requested_type, since, nid),
+                None,
+                None,
+            ))
+        );
+        self.queue_size_inc();
+    }
+
+    fn queue_size_inc(&self) {
+        if let Some(ref service) = self.stats_export_service {
+            let _ = safe_write!(service).map(|ref mut lock| {
+                lock.queue_size_inc();
+            });
+        };
+    }
+
+    fn resend_queue_size_inc(&self) {
+        if let Some(ref service) = self.stats_export_service {
+            let _ = safe_write!(service).map(|ref mut lock| {
+                lock.resend_queue_size_inc();
+            });
+        };
+    }
+
+    fn resend_queue_size_dec(&self) {
+        if let Some(ref service) = self.stats_export_service {
+            let _ = safe_write!(service).map(|ref mut lock| {
+                lock.resend_queue_size_dec();
+            });
+        };
+    }
+
+    fn pks_sent_inc(&self) {
+        if let Some(ref service) = self.stats_export_service {
+            let _ = safe_write!(service).map(|ref mut lock| {
+                lock.pkt_sent_inc();
+            });
+        };
+    }
+
+    fn pks_dropped_inc(&self) {
+        if let Some(ref service) = self.stats_export_service {
+            let _ = safe_write!(service).map(|ref mut lock| {
+                lock.pkt_dropped_inc();
+            });
+        };
+    }
+
+    fn pks_resend_inc(&self) {
+        if let Some(ref service) = self.stats_export_service {
+            let _ = safe_write!(service).map(|ref mut lock| {
+                lock.pkt_resend_inc();
+            });
+        };
+    }
 }
 
 unsafe impl Send for P2PNode {}
@@ -454,7 +579,7 @@ impl P2PNode {
                 info!("Sending out GetPeers to any bootstrappers we may still be connected to");
                 let nets = read_or_die!(self.tls_server).networks();
                 if let Ok(nids) = safe_read!(nets).map(|nets| nets.clone()) {
-                    self.send_get_peers(nids);
+                    self.thread_shared.send_get_peers(nids);
                 }
                 if !self.config.no_bootstrap_dns {
                     info!("No nodes at all - retrying bootstrapping");
@@ -484,7 +609,7 @@ impl P2PNode {
                 info!("Not enough nodes, sending GetPeers requests");
                 let nets = read_or_die!(self.tls_server).networks();
                 if let Ok(nids) = safe_read!(nets).map(|nets| nets.clone()) {
-                    self.send_get_peers(nids);
+                    self.thread_shared.send_get_peers(nids);
                 }
             }
         }
@@ -613,7 +738,7 @@ impl P2PNode {
         if let RemotePeer::PostHandshake(remote_peer) = conn.remote_peer() {
             match status {
                 Ok(_) => {
-                    self.pks_sent_inc(); // assuming non-failable
+                    self.thread_shared.pks_sent_inc(); // assuming non-failable
                     TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
                 }
                 Err(e) => {
@@ -979,7 +1104,7 @@ impl P2PNode {
             })
             .filter_map(|possible_failure| possible_failure)
             .for_each(|failed_pkt| {
-                self.pks_resend_inc();
+                self.thread_shared.pks_resend_inc();
                 // attempt to process failed messages again
                 if self.config.max_resend_attempts > 0
                     && self
@@ -988,9 +1113,9 @@ impl P2PNode {
                         .is_ok()
                 {
                     trace!("Successfully queued a failed network packet to be attempted again");
-                    self.resend_queue_size_inc();
+                    self.thread_shared.resend_queue_size_inc();
                 } else {
-                    self.pks_dropped_inc();
+                    self.thread_shared.pks_dropped_inc();
                     error!("Can't put message back in queue for later sending");
                 }
             });
@@ -1002,7 +1127,7 @@ impl P2PNode {
             .try_iter()
             .map(|wrapper| {
                 trace!("Processing messages!");
-                self.resend_queue_size_dec();
+                self.thread_shared.resend_queue_size_dec();
                 trace!("Got a message to reprocess!");
 
                 match *wrapper.message {
@@ -1030,138 +1155,13 @@ impl P2PNode {
                     .is_ok()
                 {
                     trace!("Successfully requeued a failed network packet");
-                    self.resend_queue_size_inc();
+                    self.thread_shared.resend_queue_size_inc();
                 } else {
                     error!("Can't put a packet in the resend queue!");
-                    self.pks_dropped_inc();
+                    self.thread_shared.pks_dropped_inc();
                 }
             }
         })
-    }
-
-    fn queue_size_inc(&self) {
-        if let Some(ref service) = self.stats_export_service() {
-            let _ = safe_write!(service).map(|ref mut lock| {
-                lock.queue_size_inc();
-            });
-        };
-    }
-
-    fn resend_queue_size_inc(&self) {
-        if let Some(ref service) = self.stats_export_service() {
-            let _ = safe_write!(service).map(|ref mut lock| {
-                lock.resend_queue_size_inc();
-            });
-        };
-    }
-
-    fn resend_queue_size_dec(&self) {
-        if let Some(ref service) = self.stats_export_service() {
-            let _ = safe_write!(service).map(|ref mut lock| {
-                lock.resend_queue_size_dec();
-            });
-        };
-    }
-
-    fn pks_sent_inc(&self) {
-        if let Some(ref service) = self.stats_export_service() {
-            let _ = safe_write!(service).map(|ref mut lock| {
-                lock.pkt_sent_inc();
-            });
-        };
-    }
-
-    fn pks_dropped_inc(&self) {
-        if let Some(ref service) = self.stats_export_service() {
-            let _ = safe_write!(service).map(|ref mut lock| {
-                lock.pkt_dropped_inc();
-            });
-        };
-    }
-
-    fn pks_resend_inc(&self) {
-        if let Some(ref service) = self.stats_export_service() {
-            let _ = safe_write!(service).map(|ref mut lock| {
-                lock.pkt_resend_inc();
-            });
-        };
-    }
-
-    pub fn send_ban(&mut self, id: BannedNode) {
-        send_or_die!(
-            self.send_queue_in(),
-            Arc::new(NetworkMessage::NetworkRequest(
-                NetworkRequest::BanNode(self.get_self_peer(), id),
-                None,
-                None,
-            ))
-        );
-        self.queue_size_inc();
-    }
-
-    pub fn send_unban(&mut self, id: BannedNode) {
-        send_or_die!(
-            self.send_queue_in(),
-            Arc::new(NetworkMessage::NetworkRequest(
-                NetworkRequest::UnbanNode(self.get_self_peer(), id),
-                None,
-                None,
-            ))
-        );
-        self.queue_size_inc();
-    }
-
-    pub fn send_joinnetwork(&mut self, network_id: NetworkId) {
-        send_or_die!(
-            self.send_queue_in(),
-            Arc::new(NetworkMessage::NetworkRequest(
-                NetworkRequest::JoinNetwork(self.get_self_peer(), network_id),
-                None,
-                None,
-            ))
-        );
-        self.queue_size_inc();
-    }
-
-    pub fn send_leavenetwork(&mut self, network_id: NetworkId) {
-        send_or_die!(
-            self.send_queue_in(),
-            Arc::new(NetworkMessage::NetworkRequest(
-                NetworkRequest::LeaveNetwork(self.get_self_peer(), network_id),
-                None,
-                None,
-            ))
-        );
-        self.queue_size_inc();
-    }
-
-    pub fn send_get_peers(&mut self, nids: HashSet<NetworkId>) {
-        send_or_die!(
-            self.send_queue_in(),
-            Arc::new(NetworkMessage::NetworkRequest(
-                NetworkRequest::GetPeers(self.get_self_peer(), nids.clone()),
-                None,
-                None,
-            ))
-        );
-        self.queue_size_inc();
-    }
-
-    pub fn send_retransmit(
-        &mut self,
-        requested_type: RequestedElementType,
-        since: u64,
-        nid: NetworkId,
-    ) {
-        send_or_die!(
-            self.send_queue_in(),
-            Arc::new(NetworkMessage::NetworkRequest(
-                NetworkRequest::Retransmit(self.get_self_peer(), requested_type, since, nid),
-                None,
-                None,
-            ))
-        );
-        self.queue_size_inc();
     }
 
     pub fn get_peer_stats(&self, nids: &[NetworkId]) -> Vec<PeerStatistic> {

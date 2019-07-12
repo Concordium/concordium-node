@@ -437,7 +437,7 @@ impl P2P for RpcServerImpl {
                 );
                 let network_id = NetworkId::from(req.get_network_id().get_value() as u16);
                 if let Ok(mut node) = self.node.lock() {
-                    node.send_joinnetwork(network_id);
+                    node.thread_shared.send_joinnetwork(network_id);
                     r.set_value(true);
                     sink.success(r)
                 } else {
@@ -473,7 +473,7 @@ impl P2P for RpcServerImpl {
                 );
                 let network_id = NetworkId::from(req.get_network_id().get_value() as u16);
                 if let Ok(mut node) = self.node.lock() {
-                    node.send_leavenetwork(network_id);
+                    node.thread_shared.send_leavenetwork(network_id);
                     r.set_value(true);
                     sink.success(r)
                 } else {
@@ -734,7 +734,7 @@ impl P2P for RpcServerImpl {
                     match insert_ban(&self.kvs_handle, &store_key) {
                         Ok(_) => {
                             node.ban_node(to_ban);
-                            node.send_ban(to_ban);
+                            node.thread_shared.send_ban(to_ban);
                             r.set_value(true);
                         }
                         Err(e) => {
@@ -790,7 +790,7 @@ impl P2P for RpcServerImpl {
                     match remove_ban(&self.kvs_handle, &store_key) {
                         Ok(_) => {
                             node.unban_node(to_unban);
-                            node.send_unban(to_unban);
+                            node.thread_shared.send_unban(to_unban);
                             r.set_value(true);
                         }
                         Err(e) => {
@@ -1205,7 +1205,7 @@ impl P2P for RpcServerImpl {
         let f = if let Ok(mut node) = self.node.lock() {
             if req.has_since() {
                 let mut r: SuccessResponse = SuccessResponse::new();
-                node.send_retransmit(
+                node.thread_shared.send_retransmit(
                     RequestedElementType::from(req.get_element_type() as u8),
                     req.get_since().get_value(),
                     NetworkId::from(req.get_network_id() as u16),
