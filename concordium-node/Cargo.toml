@@ -1,6 +1,6 @@
 [package]
 name = "p2p_client"
-version = "0.1.40"
+version = "0.1.41"
 description = "Concordium P2P Client"
 authors = ["Concordium AG <info@concordium.com>"]
 exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*","**/**/.gitignore","**/**/.gitlab-ci.yml"]
