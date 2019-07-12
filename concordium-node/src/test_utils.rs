@@ -164,7 +164,7 @@ pub fn connect_and_wait_handshake(
     target: &P2PNode,
     receiver: &Receiver<NetworkMessage>,
 ) -> Fallible<()> {
-    source.connect(PeerType::Node, target.internal_addr, None)?;
+    source.connect(PeerType::Node, target.internal_addr(), None)?;
 
     // Wait for Handshake response on source node
     loop {

@@ -124,25 +124,22 @@ impl RpcServerImpl {
             // TODO avoid double-copy
             let msg = req.get_message().get_value().to_vec();
             let network_id = NetworkId::from(req.get_network_id().get_value() as u16);
-            let (queue, ses, source) = {
-                let node = safe_lock!(self.node)?;
 
-                (node.send_queue_in.clone(), node.stats_export_service.clone(), node.get_self_peer())
-            };
+            let node_shared = safe_lock!(self.node)?.thread_shared.clone();
 
             if req.has_node_id() && !req.get_broadcast().get_value() && req.has_network_id() {
                 let id = P2PNodeId::from_str(&req.get_node_id().get_value().to_string())?;
 
                 trace!("Sending direct message to: {}", id);
                 r.set_value(
-                    send_direct_message(queue, ses, source, Some(id), network_id, None, msg)
+                    send_direct_message(node_shared, Some(id), network_id, None, msg)
                         .map_err(|e| error!("{}", e))
                         .is_ok(),
                 );
             } else if req.get_broadcast().get_value() {
                 trace!("Sending broadcast message");
                 r.set_value(
-                    send_broadcast_message(queue, ses, source, None, network_id, None, msg)
+                    send_broadcast_message(node_shared, None, network_id, None, msg)
                         .map_err(|e| error!("{}", e))
                         .is_ok(),
                 );
