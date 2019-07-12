@@ -72,7 +72,7 @@ pub fn send_handshake_and_ping(priv_conn: &RefCell<ConnectionPrivate>) -> FuncRe
 
     // Send handshake
     let handshake_msg = NetworkMessage::NetworkResponse(
-        NetworkResponse::Handshake(local_peer.clone(), my_nets, vec![]),
+        NetworkResponse::Handshake(local_peer, my_nets, vec![]),
         Some(get_current_stamp()),
         None,
     );

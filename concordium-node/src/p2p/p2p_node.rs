@@ -101,24 +101,24 @@ impl ResendQueueEntry {
 
 #[derive(Clone)]
 pub struct P2PNode {
-    pub tls_server:       Arc<RwLock<TlsServer>>,
-    poll:                 Arc<RwLock<Poll>>,
-    send_queue_out:       Rc<Receiver<Arc<NetworkMessage>>>,
-    resend_queue_in:      Sender<ResendQueueEntry>,
-    resend_queue_out:     Rc<Receiver<ResendQueueEntry>>,
-    queue_to_super:       RelayOrStopSender<Arc<NetworkMessage>>,
-    rpc_queue:            Arc<Mutex<Option<Sender<Arc<NetworkMessage>>>>>,
-    start_time:           DateTime<Utc>,
-    external_addr:        SocketAddr,
-    seen_messages:        SeenMessagesList,
-    thread:               Arc<RwLock<P2PNodeThread>>,
-    quit_tx:              Option<Sender<bool>>,
-    pub max_nodes:        Option<u16>,
-    pub print_peers:      bool,
-    pub config:           P2PNodeConfig,
-    dump_switch:          Sender<(std::path::PathBuf, bool)>,
-    dump_tx:              Sender<crate::dumper::DumpItem>,
-    pub thread_shared:    SharedNodeData,
+    pub tls_server:    Arc<RwLock<TlsServer>>,
+    poll:              Arc<RwLock<Poll>>,
+    send_queue_out:    Rc<Receiver<Arc<NetworkMessage>>>,
+    resend_queue_in:   Sender<ResendQueueEntry>,
+    resend_queue_out:  Rc<Receiver<ResendQueueEntry>>,
+    queue_to_super:    RelayOrStopSender<Arc<NetworkMessage>>,
+    rpc_queue:         Arc<Mutex<Option<Sender<Arc<NetworkMessage>>>>>,
+    start_time:        DateTime<Utc>,
+    external_addr:     SocketAddr,
+    seen_messages:     SeenMessagesList,
+    thread:            Arc<RwLock<P2PNodeThread>>,
+    quit_tx:           Option<Sender<bool>>,
+    pub max_nodes:     Option<u16>,
+    pub print_peers:   bool,
+    pub config:        P2PNodeConfig,
+    dump_switch:       Sender<(std::path::PathBuf, bool)>,
+    dump_tx:           Sender<crate::dumper::DumpItem>,
+    pub thread_shared: SharedNodeData,
 }
 
 #[derive(Clone)]
@@ -130,8 +130,8 @@ pub struct SharedNodeData {
 
 impl SharedNodeData {
     fn new(
-        self_peer:            P2PPeer,
-        send_queue_in:        Sender<Arc<NetworkMessage>>,
+        self_peer: P2PPeer,
+        send_queue_in: Sender<Arc<NetworkMessage>>,
         stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
     ) -> Self {
         Self {
@@ -413,11 +413,8 @@ impl P2PNode {
         let internal_addr = SocketAddr::new(ip, conf.common.listen_port);
         let self_peer = P2PPeer::from(peer_type, id, internal_addr);
 
-        let thread_shared = SharedNodeData::new(
-            self_peer,
-            send_queue_in.clone(),
-            stats_export_service,
-        );
+        let thread_shared =
+            SharedNodeData::new(self_peer, send_queue_in.clone(), stats_export_service);
 
         let mut mself = P2PNode {
             tls_server: Arc::new(RwLock::new(tlsserv)),
@@ -1209,13 +1206,9 @@ impl P2PNode {
         }
     }
 
-    pub fn get_self_peer(&self) -> P2PPeer {
-        self.thread_shared.self_peer
-    }
+    pub fn get_self_peer(&self) -> P2PPeer { self.thread_shared.self_peer }
 
-    pub fn internal_addr(&self) -> SocketAddr {
-        self.thread_shared.self_peer.addr
-    }
+    pub fn internal_addr(&self) -> SocketAddr { self.thread_shared.self_peer.addr }
 
     pub fn ban_node(&mut self, peer: BannedNode) { write_or_die!(self.tls_server).ban_node(peer); }
 

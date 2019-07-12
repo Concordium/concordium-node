@@ -284,7 +284,13 @@ fn process_internal_skov_entry(
             let self_node_id = node_shared.self_peer.id;
 
             let res = if request.distribution_mode() == DistributionMode::Direct {
-                send_direct_message(node_shared, target.map(P2PNodeId), network_id, None, out_bytes)
+                send_direct_message(
+                    node_shared,
+                    target.map(P2PNodeId),
+                    network_id,
+                    None,
+                    out_bytes,
+                )
             } else {
                 send_broadcast_message(node_shared, None, network_id, None, out_bytes)
             };
@@ -298,15 +304,11 @@ fn process_internal_skov_entry(
             match res {
                 Ok(_) => info!(
                     "Peer {} sent a {} containing a {}",
-                    self_node_id,
-                    msg_metadata,
-                    entry_info,
+                    self_node_id, msg_metadata, entry_info,
                 ),
                 Err(_) => error!(
                     "Peer {} couldn't send a {} containing a {}!",
-                    self_node_id,
-                    msg_metadata,
-                    entry_info,
+                    self_node_id, msg_metadata, entry_info,
                 ),
             }
         }
@@ -377,7 +379,11 @@ fn process_external_skov_entry(
 
     match skov_result {
         SkovResult::SuccessfulEntry(_) => {
-            trace!("Peer {} successfully processed a {}", node_shared.self_peer.id, request);
+            trace!(
+                "Peer {} successfully processed a {}",
+                node_shared.self_peer.id,
+                request
+            );
         }
         SkovResult::SuccessfulQuery(result) => {
             let return_type = match request.variant {
@@ -393,7 +399,13 @@ fn process_external_skov_entry(
                 .expect("Can't write to buffer");
             out_bytes.extend(&*result);
 
-            match send_direct_message(node_shared.clone(), Some(source), network_id, None, out_bytes) {
+            match send_direct_message(
+                node_shared.clone(),
+                Some(source),
+                network_id,
+                None,
+                out_bytes,
+            ) {
                 Ok(_) => info!("Peer {} responded to a {}", self_node_id, request),
                 Err(_) => error!("Peer {} couldn't respond to a {}!", self_node_id, request),
             }

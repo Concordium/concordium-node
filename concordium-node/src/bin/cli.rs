@@ -38,8 +38,10 @@ use p2p_client::{
         packet::MessageId, request::RequestedElementType, NetworkId, NetworkMessage, NetworkPacket,
         NetworkPacketType, NetworkRequest, NetworkResponse,
     },
-    p2p::*,
-    p2p::p2p_node::{send_direct_message, SharedNodeData},
+    p2p::{
+        p2p_node::{send_direct_message, SharedNodeData},
+        *,
+    },
     rpc::RpcServerImpl,
     stats_engine::StatsEngine,
     utils::{self, get_config_and_logging_setup, load_bans},

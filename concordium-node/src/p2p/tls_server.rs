@@ -205,7 +205,7 @@ impl TlsServer {
             .cloned()
     }
 
-    pub fn get_self_peer(&self) -> P2PPeer { self.self_peer.clone() }
+    pub fn get_self_peer(&self) -> P2PPeer { self.self_peer }
 
     #[inline]
     pub fn networks(&self) -> Arc<RwLock<HashSet<NetworkId>>> {

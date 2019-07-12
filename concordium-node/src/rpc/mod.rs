@@ -12,8 +12,8 @@ use crate::{
     network::{request::RequestedElementType, NetworkId, NetworkMessage, NetworkPacketType},
     p2p::{
         banned_nodes::{insert_ban, remove_ban, BannedNode},
+        p2p_node::{send_broadcast_message, send_direct_message},
         P2PNode,
-        p2p_node::{send_direct_message, send_broadcast_message},
     },
     proto::*,
 };
@@ -1042,7 +1042,7 @@ impl P2P for RpcServerImpl {
         req: TpsRequest,
         sink: ::grpcio::UnarySink<SuccessResponse>,
     ) {
-        let f = if let Ok(mut locked_node) = self.node.lock() {
+        let f = if let Ok(locked_node) = self.node.lock() {
             let (network_id, id, dir) = (
                 NetworkId::from(req.network_id as u16),
                 req.id.clone(),
@@ -1060,7 +1060,8 @@ impl P2P for RpcServerImpl {
                 let result = !(test_messages.iter().map(|message| {
                     let out_bytes_len = message.len();
                     let to_send = P2PNodeId::from_str(&id).ok();
-                    match locked_node.send_direct_message(
+                    match send_direct_message(
+                        locked_node.thread_shared.clone(),
                         to_send,
                         network_id,
                         None,
@@ -1272,6 +1273,7 @@ mod tests {
         common::PeerType,
         configuration,
         network::NetworkMessage,
+        p2p::p2p_node::send_broadcast_message,
         proto::concordium_p2p_rpc_grpc::P2PClient,
         rpc::RpcServerImpl,
         test_utils::{
@@ -1576,7 +1578,7 @@ mod tests {
         assert_eq!(elem.node_id.unwrap().get_value(), node2.id().to_string());
         assert_eq!(
             elem.ip.unwrap().get_value(),
-            node2.internal_addr.ip().to_string()
+            node2.internal_addr().ip().to_string()
         );
         Ok(())
     }
@@ -1655,7 +1657,8 @@ mod tests {
             connect_and_wait_handshake(&mut node2, &n, &wt2)?;
         }
         client.subscription_start_opt(&crate::proto::Empty::new(), callopts.clone())?;
-        node2.send_broadcast_message(
+        send_broadcast_message(
+            node2.thread_shared.clone(),
             None,
             crate::network::NetworkId::from(100),
             None,
