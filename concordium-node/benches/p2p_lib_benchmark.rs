@@ -268,6 +268,7 @@ mod network {
         use p2p_client::{
             common::PeerType,
             network::NetworkId,
+            p2p::p2p_node::send_message_from_cursor,
             test_utils::{
                 connect_and_wait_handshake, make_node_and_sync, next_available_port, setup_logger,
                 wait_direct_message,
@@ -312,15 +313,15 @@ mod network {
 
                 b.iter(|| {
                     // Send.
-                    node_1
-                        .send_message_from_cursor(
-                            Some(node_2.id()),
-                            net_id,
-                            None,
-                            cursor.clone(),
-                            false,
-                        )
-                        .unwrap();
+                    send_message_from_cursor(
+                        node_1.thread_shared.clone(),
+                        Some(node_2.id()),
+                        net_id,
+                        None,
+                        cursor.clone(),
+                        false,
+                    )
+                    .unwrap();
                     let msg_recv = wait_direct_message(&msg_waiter_2).unwrap();
                     assert_eq!(uc.len(), msg_recv.len());
                 });
