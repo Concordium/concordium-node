@@ -92,7 +92,7 @@ macro_rules! safe_write {
 #[macro_export]
 macro_rules! into_err {
     ($e:expr) => {
-        $e.map_err(|x| failure::Error::from_boxed_compat(Box::new(x)))
+        $e.map_err(|x| failure::Error::from(x))
     };
 }
 
@@ -192,7 +192,7 @@ pub struct FunctorError {
 
 impl FunctorError {
     /// Create a `FunctorError` from a single `Error`
-    pub fn create(e: impl Into<Error>) -> FunctorError {
+    pub fn create(e: impl Into<Error> + Send) -> FunctorError {
         FunctorError {
             errors: vec![e.into()],
         }

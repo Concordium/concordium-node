@@ -127,8 +127,9 @@ pub fn make_node_and_sync(
     networks: Vec<u16>,
     node_type: PeerType,
 ) -> Fallible<(P2PNode, Receiver<NetworkMessage>)> {
-    let (net_tx, _) = std::sync::mpsc::channel();
-    let (msg_wait_tx, msg_wait_rx) = std::sync::mpsc::channel();
+    let (net_tx, _) = std::sync::mpsc::sync_channel(64);
+    let (msg_wait_tx, msg_wait_rx) = std::sync::mpsc::sync_channel(64);
+    let (rpc_tx, _rpc_rx) = std::sync::mpsc::sync_channel(64);
 
     let export_service = Arc::new(RwLock::new(
         StatsExportService::new(StatsServiceMode::NodeMode).unwrap(),
@@ -140,6 +141,7 @@ pub fn make_node_and_sync(
         None,
         node_type,
         Some(export_service),
+        rpc_tx,
     );
     let node_id = port;
 
@@ -156,16 +158,55 @@ pub fn make_node_and_sync(
     Ok((node, msg_wait_rx))
 }
 
-/// It connects `source` and `target` nodes, and it waits until
+pub fn make_node_and_sync_with_rpc(
+    port: u16,
+    networks: Vec<u16>,
+    node_type: PeerType,
+) -> Fallible<(
+    P2PNode,
+    Receiver<NetworkMessage>,
+    Receiver<Arc<NetworkMessage>>,
+)> {
+    let (net_tx, _) = std::sync::mpsc::sync_channel(64);
+    let (msg_wait_tx, msg_wait_rx) = std::sync::mpsc::sync_channel(64);
+    let (rpc_tx, rpc_rx) = std::sync::mpsc::sync_channel(64);
+
+    let export_service = Arc::new(RwLock::new(
+        StatsExportService::new(StatsServiceMode::NodeMode).unwrap(),
+    ));
+    let mut node = P2PNode::new(
+        None,
+        &get_test_config(port, networks),
+        net_tx,
+        None,
+        node_type,
+        Some(export_service),
+        rpc_tx,
+    );
+    let node_id = port;
+
+    node.add_notification(make_atomic_callback!(move |m: &NetworkMessage| {
+        log_any_message_handler(node_id, m)
+    }))
+    .add_notification(make_atomic_callback!(move |m: &NetworkMessage| {
+        // It is safe to ignore error.
+        let _ = msg_wait_tx.send(m.clone());
+        Ok(())
+    }));
+
+    node.spawn();
+    Ok((node, msg_wait_rx, rpc_rx))
+}
+
+/// Connects `source` and `target` nodes
+pub fn connect(source: &mut P2PNode, target: &P2PNode) -> Fallible<()> {
+    source.connect(PeerType::Node, target.internal_addr(), None)
+}
+
+/// Waits until
 /// `receiver` receive a `handshake` response packet.
 /// Other messages are ignored.
-pub fn connect_and_wait_handshake(
-    source: &mut P2PNode,
-    target: &P2PNode,
-    receiver: &Receiver<NetworkMessage>,
-) -> Fallible<()> {
-    source.connect(PeerType::Node, target.internal_addr(), None)?;
-
+pub fn await_handshake(receiver: &Receiver<NetworkMessage>) -> Fallible<()> {
     // Wait for Handshake response on source node
     loop {
         if let NetworkMessage::NetworkResponse(NetworkResponse::Handshake(..), ..) =

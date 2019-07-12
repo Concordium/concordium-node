@@ -5,15 +5,15 @@ use crate::{
     network::{NetworkRequest, NetworkResponse},
 };
 use concordium_common::functor::FuncResult;
-use std::cell::RefCell;
+use std::sync::RwLock;
 
 pub fn handshake_response_handle(
-    priv_conn: &RefCell<ConnectionPrivate>,
+    priv_conn: &RwLock<ConnectionPrivate>,
     req: &NetworkResponse,
 ) -> FuncResult<()> {
     if let NetworkResponse::Handshake(ref remote_peer, ref nets, _) = req {
         {
-            let mut priv_conn_mut = priv_conn.borrow_mut();
+            let mut priv_conn_mut = write_or_die!(priv_conn);
             priv_conn_mut.sent_handshake = get_current_stamp();
             priv_conn_mut.add_remote_end_networks(nets);
             priv_conn_mut.promote_to_post_handshake(remote_peer.id(), remote_peer.addr)?;
@@ -22,14 +22,14 @@ pub fn handshake_response_handle(
         let bucket_sender =
             P2PPeer::from(remote_peer.peer_type(), remote_peer.id(), remote_peer.addr);
         if remote_peer.peer_type() != PeerType::Bootstrapper {
-            safe_write!(priv_conn.borrow().buckets)?
+            safe_write!(read_or_die!(priv_conn).buckets)?
                 .insert_into_bucket(&bucket_sender, nets.clone());
         }
-        if let Some(ref service) = priv_conn.borrow().stats_export_service {
+        if let Some(ref service) = read_or_die!(priv_conn).stats_export_service {
             safe_write!(service)?.peers_inc();
         };
     } else {
-        priv_conn.borrow_mut().status = ConnectionStatus::Closing;
+        safe_write!(priv_conn)?.status = ConnectionStatus::Closing;
         error!(
             "Peer tried to send packets before handshake was completed (still waiting on \
              HandshakeResponse)!"
@@ -39,7 +39,7 @@ pub fn handshake_response_handle(
 }
 
 pub fn handshake_request_handle(
-    priv_conn: &RefCell<ConnectionPrivate>,
+    priv_conn: &RwLock<ConnectionPrivate>,
     req: &NetworkRequest,
 ) -> FuncResult<()> {
     if let NetworkRequest::Handshake(sender, nets, _) = req {
@@ -47,24 +47,24 @@ pub fn handshake_request_handle(
 
         // Setup peer and networks before sending handshake.
         {
-            let mut priv_conn_mut = priv_conn.borrow_mut();
+            let mut priv_conn_mut = write_or_die!(priv_conn);
             priv_conn_mut.add_remote_end_networks(nets);
             priv_conn_mut.promote_to_post_handshake(sender.id(), sender.addr)?;
         }
         send_handshake_and_ping(priv_conn)?;
         {
-            let mut priv_conn_mut = priv_conn.borrow_mut();
+            let mut priv_conn_mut = write_or_die!(priv_conn);
             priv_conn_mut.update_last_seen();
             priv_conn_mut.set_measured_ping_sent();
         }
 
         update_buckets(priv_conn, sender, nets.clone())?;
 
-        if priv_conn.borrow().local_peer.peer_type() == PeerType::Bootstrapper {
+        if read_or_die!(priv_conn).local_peer.peer_type() == PeerType::Bootstrapper {
             send_peer_list(priv_conn, sender, nets)?;
         }
     } else {
-        priv_conn.borrow_mut().status = ConnectionStatus::Closing;
+        safe_write!(priv_conn)?.status = ConnectionStatus::Closing;
         error!(
             "Peer tried to send packets before handshake was completed (still waiting on \
              HandshakeRequest)!"

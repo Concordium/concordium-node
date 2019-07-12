@@ -2,12 +2,10 @@ use failure::{bail, Error, Fallible};
 use mio::{Event, Poll, Token};
 use rand::seq::IteratorRandom;
 use std::{
-    cell::RefCell,
     collections::{HashSet, VecDeque},
     net::{IpAddr, SocketAddr},
-    rc::Rc,
     sync::{
-        mpsc::{channel, Sender},
+        mpsc::{self, SyncSender},
         Arc, RwLock,
     },
 };
@@ -45,11 +43,11 @@ const MAX_PREHANDSHAKE_KEEP_ALIVE: u64 = 120_000;
 /// Connections are stored in RC in two `hashmap`s in order to improve
 /// performance access for specific look-ups.
 pub struct TlsServerPrivate {
-    pub network_request_sender: Sender<NetworkRawRequest>,
+    pub network_request_sender: SyncSender<NetworkRawRequest>,
     connections:                Vec<Arc<RwLock<Connection>>>,
-    pub to_disconnect:          Rc<RefCell<VecDeque<P2PNodeId>>>,
+    pub to_disconnect:          Arc<RwLock<VecDeque<P2PNodeId>>>,
     pub unreachable_nodes:      UnreachableNodes,
-    pub banned_peers:           Rc<RefCell<BannedNodes>>,
+    pub banned_peers:           Arc<RwLock<BannedNodes>>,
     pub networks:               Arc<RwLock<HashSet<NetworkId>>>,
     pub stats_export_service:   Option<Arc<RwLock<StatsExportService>>>,
 }
@@ -59,20 +57,20 @@ impl TlsServerPrivate {
         networks: HashSet<NetworkId>,
         stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
     ) -> Self {
-        let (network_request_sender, _) = channel();
+        let (network_request_sender, _) = mpsc::sync_channel(64);
 
         TlsServerPrivate {
             network_request_sender,
             connections: Vec::new(),
-            to_disconnect: Rc::new(RefCell::new(VecDeque::<P2PNodeId>::new())),
+            to_disconnect: Arc::new(RwLock::new(VecDeque::<P2PNodeId>::new())),
             unreachable_nodes: UnreachableNodes::new(),
-            banned_peers: Rc::new(RefCell::new(BannedNodes::new())),
+            banned_peers: Arc::new(RwLock::new(BannedNodes::new())),
             networks: Arc::new(RwLock::new(networks)),
             stats_export_service,
         }
     }
 
-    pub fn set_network_request_sender(&mut self, sender: Sender<NetworkRawRequest>) {
+    pub fn set_network_request_sender(&mut self, sender: SyncSender<NetworkRawRequest>) {
         for conn in &self.connections {
             write_or_die!(conn).set_network_request_sender(sender.clone());
         }
@@ -99,7 +97,7 @@ impl TlsServerPrivate {
 
     /// Adds a new node to the banned list and marks its connection for closure
     pub fn ban_node(&mut self, peer: BannedNode) -> bool {
-        if self.banned_peers.borrow_mut().insert(peer) {
+        if write_or_die!(self.banned_peers).insert(peer) {
             match peer {
                 BannedNode::ById(id) => {
                     if let Some(c) = self.find_connection_by_id(id) {
@@ -120,26 +118,24 @@ impl TlsServerPrivate {
 
     /// It removes a node from the banned peer list.
     pub fn unban_node(&mut self, peer: BannedNode) -> bool {
-        self.banned_peers.borrow_mut().remove(&peer)
+        write_or_die!(self.banned_peers).remove(&peer)
     }
 
     pub fn id_is_banned(&self, id: P2PNodeId) -> bool {
-        self.banned_peers.borrow().is_id_banned(id)
+        read_or_die!(self.banned_peers).is_id_banned(id)
     }
 
     pub fn addr_is_banned(&self, sockaddr: SocketAddr) -> bool {
-        self.banned_peers.borrow().is_addr_banned(sockaddr.ip())
+        read_or_die!(self.banned_peers).is_addr_banned(sockaddr.ip())
     }
 
     pub fn get_banlist(&self) -> Vec<BannedNode> {
-        self.banned_peers
-            .borrow()
+        read_or_die!(self.banned_peers)
             .by_id
             .iter()
             .map(|id| BannedNode::ById(*id))
             .chain(
-                self.banned_peers
-                    .borrow()
+                read_or_die!(self.banned_peers)
                     .by_addr
                     .iter()
                     .map(|addr| BannedNode::ByAddr(*addr)),
@@ -246,11 +242,11 @@ impl TlsServerPrivate {
         &mut self,
         peer_type: PeerType,
         max_peers_number: u16,
-        poll: &mut Poll,
+        poll: &RwLock<Poll>,
     ) -> Fallible<()> {
         let curr_stamp = get_current_stamp();
 
-        self.to_disconnect.borrow_mut().drain(..).for_each(|x| {
+        write_or_die!(self.to_disconnect).drain(..).for_each(|x| {
             if let Some(conn) = self.find_connection_by_id(x) {
                 trace!(
                     "Disconnecting connection {} already marked as going down",
@@ -336,19 +332,22 @@ impl TlsServerPrivate {
             })
             .map(|rc_conn| {
                 // Deregister connection from the poll and shut down the socket
-                let mut conn = write_or_die!(rc_conn);
-                trace!("Kill connection {} {}:{}", usize::from(conn.token()), conn.remote_addr().ip(), conn.remote_addr().port());
-                wrap_connection_already_gone_as_non_fatal(conn.token(), conn.deregister(poll))?;
-                wrap_connection_already_gone_as_non_fatal(conn.token(), conn.shutdown())?;
+                let conn_token = read_or_die!(rc_conn).token();
+                {
+                    let mut conn = write_or_die!(rc_conn);
+                    trace!("Kill connection {} {}:{}", usize::from(conn_token), conn.remote_addr().ip(), conn.remote_addr().port());
+                    wrap_connection_already_gone_as_non_fatal(conn_token, conn.deregister(poll))?;
+                    wrap_connection_already_gone_as_non_fatal(conn_token, conn.shutdown())?;
+                }
                 // Report number of peers to stats export engine
                 if let Some(ref service) = &self.stats_export_service {
-                    if conn.is_post_handshake() {
+                    if read_or_die!(rc_conn).is_post_handshake() {
                         if let Ok(mut p) = safe_write!(service) {
                             p.peers_dec();
                         }
                     }
                 }
-                Ok(conn.token())
+                Ok(conn_token)
             }).partition(Result::is_ok);
 
         // Remove the connection from the list of connections
@@ -402,15 +401,18 @@ impl TlsServerPrivate {
                     && !conn.is_closed()
             })
             .for_each(|ref rc_conn| {
-                let mut conn = write_or_die!(rc_conn);
-                let local_peer = conn.local_peer();
+                let request_ping = {
+                    let conn = read_or_die!(rc_conn);
+                    let local_peer = conn.local_peer();
 
-                let request_ping = NetworkMessage::NetworkRequest(
-                    NetworkRequest::Ping(local_peer),
-                    Some(get_current_stamp()),
-                    None,
-                );
+                    NetworkMessage::NetworkRequest(
+                        NetworkRequest::Ping(local_peer),
+                        Some(get_current_stamp()),
+                        None,
+                    )
+                };
                 if let Ok(request_ping_data) = serialize_into_memory(&request_ping, 128) {
+                    let mut conn = write_or_die!(rc_conn);
                     if let Err(e) = conn.async_send(
                         UCursor::from(request_ping_data),
                         MessageSendingPriority::High,
@@ -455,18 +457,16 @@ impl TlsServerPrivate {
             .count()
     }
 
-    pub fn dump_all_connections(&mut self, log_dumper: Option<Sender<DumpItem>>) {
+    pub fn dump_all_connections(&mut self, log_dumper: Option<SyncSender<DumpItem>>) {
         self.connections.iter_mut().for_each(|conn| {
-            let mut conn_mut_borrowed = write_or_die!(conn);
-            conn_mut_borrowed.set_log_dumper(log_dumper.clone());
+            write_or_die!(conn).set_log_dumper(log_dumper.clone());
         });
     }
 
     pub fn add_notification(&mut self, func: UnitFunction<NetworkMessage>) {
-        self.connections.iter_mut().for_each(|conn| {
-            let mut conn_mut_borrowed = write_or_die!(conn);
-            conn_mut_borrowed.add_notification(Arc::clone(&func))
-        })
+        self.connections
+            .iter_mut()
+            .for_each(|conn| write_or_die!(conn).add_notification(func.clone()))
     }
 
     pub fn get_all_current_peers(&self, peer_type: Option<PeerType>) -> Box<[P2PNodeId]> {

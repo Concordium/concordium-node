@@ -1,5 +1,7 @@
 use failure::Error;
-use std::{cmp::Ordering, sync::Arc};
+use std::cmp::Ordering;
+
+use crate::functor::AFuncCW;
 
 /// Result of applying a filter
 #[derive(PartialEq, Eq)]
@@ -8,33 +10,33 @@ pub enum FilterResult {
     Abort,
 }
 
-pub type FilterAFunc<T> = Arc<Fn(&T) -> Result<FilterResult, Error>>;
+pub type FilterAFunc<T> = AFuncCW<T, FilterResult>;
 
 /// Filtering function
-pub struct Filter<T> {
+pub struct Filter<T: Send> {
     func:     FilterAFunc<T>,
     priority: u8,
 }
 
-impl<T> Eq for Filter<T> {}
+impl<T: Send> Eq for Filter<T> {}
 
 // Always different functions, no point in comparing
-impl<T> PartialEq for Filter<T> {
+impl<T: Send> PartialEq for Filter<T> {
     fn eq(&self, _: &Filter<T>) -> bool { false }
 }
 
-impl<T> Ord for Filter<T> {
+impl<T: Send> Ord for Filter<T> {
     fn cmp(&self, other: &Self) -> Ordering { self.priority.cmp(&other.priority) }
 }
 
-impl<T> PartialOrd for Filter<T> {
+impl<T: Send> PartialOrd for Filter<T> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> { Some(self.cmp(other)) }
 }
 
-impl<T> Clone for Filter<T> {
+impl<T: Send> Clone for Filter<T> {
     fn clone(&self) -> Self {
         Filter {
-            func:     Arc::clone(&self.func),
+            func:     self.func.clone(),
             priority: self.priority,
         }
     }
@@ -45,11 +47,11 @@ impl<T> Clone for Filter<T> {
 ///
 /// In case any of the filters fails, the whole execution will fail
 #[derive(Default)]
-pub struct Filters<T> {
+pub struct Filters<T: Send> {
     filters: Vec<Filter<T>>,
 }
 
-impl<T> Filters<T> {
+impl<T: Send> Filters<T> {
     pub fn new() -> Self {
         Self {
             filters: Vec::new(),

@@ -2,7 +2,8 @@ use crate::{
     connection::{
         network_handler::{
             message_handler::{
-                NetworkMessageCW, NetworkPacketCW, NetworkRequestCW, NetworkResponseCW,
+                EmptyFunction, NetworkMessageCW, NetworkPacketCW, NetworkRequestCW,
+                NetworkResponseCW,
             },
             MessageHandler,
         },
@@ -12,14 +13,11 @@ use crate::{
 };
 use concordium_common::{
     filters::{Filter, FilterAFunc, FilterResult, Filters},
-    functor::{FuncResult, UnitFunction, UnitFunctor},
+    functor::{UnitFunction, UnitFunctor},
     UCursor,
 };
 use failure::Fallible;
-use std::{
-    rc::Rc,
-    sync::{Arc, RwLock},
-};
+use std::sync::{Arc, RwLock};
 
 /// Models the result of processing a message through the `MessageProcessor`
 #[derive(Debug)]
@@ -65,7 +63,7 @@ pub fn collapse_process_result(
 /// processing of the message finishing.
 pub struct MessageProcessor {
     filters:       Filters<NetworkMessage>,
-    actions:       MessageHandler,
+    actions:       Arc<RwLock<MessageHandler>>,
     notifications: UnitFunctor<NetworkMessage>,
 }
 
@@ -77,7 +75,7 @@ impl MessageProcessor {
     pub fn new() -> Self {
         MessageProcessor {
             filters:       Filters::new(),
-            actions:       MessageHandler::new(),
+            actions:       Arc::new(RwLock::new(MessageHandler::new())),
             notifications: UnitFunctor::new(),
         }
     }
@@ -95,36 +93,36 @@ impl MessageProcessor {
     pub fn filters(&self) -> &[Filter<NetworkMessage>] { self.filters.get_filters() }
 
     pub fn add_request_action(&mut self, callback: NetworkRequestCW) -> &mut Self {
-        self.actions.add_request_callback(callback);
+        write_or_die!(self.actions).add_request_callback(callback);
         self
     }
 
     pub fn add_response_action(&mut self, callback: NetworkResponseCW) -> &mut Self {
-        self.actions.add_response_callback(callback);
+        write_or_die!(self.actions).add_response_callback(callback);
         self
     }
 
     pub fn add_packet_action(&mut self, callback: NetworkPacketCW) -> &mut Self {
-        self.actions.add_packet_callback(callback);
+        write_or_die!(self.actions).add_packet_callback(callback);
         self
     }
 
     pub fn add_action(&mut self, callback: NetworkMessageCW) -> &mut Self {
-        self.actions.add_callback(callback);
+        write_or_die!(self.actions).add_callback(callback);
         self
     }
 
-    pub fn set_invalid_handler(&mut self, func: Rc<(Fn() -> FuncResult<()>)>) -> &mut Self {
-        self.actions.set_invalid_handler(func);
+    pub fn set_invalid_handler(&mut self, func: EmptyFunction) -> &mut Self {
+        write_or_die!(self.actions).set_invalid_handler(func);
         self
     }
 
-    pub fn set_unknown_handler(&mut self, func: Rc<(Fn() -> FuncResult<()>)>) -> &mut Self {
-        self.actions.set_unknown_handler(func);
+    pub fn set_unknown_handler(&mut self, func: EmptyFunction) -> &mut Self {
+        write_or_die!(self.actions).set_unknown_handler(func);
         self
     }
 
-    pub fn actions(&self) -> &MessageHandler { &self.actions }
+    pub fn actions(&self) -> &RwLock<MessageHandler> { &self.actions }
 
     pub fn add_notification(&mut self, func: UnitFunction<NetworkMessage>) -> &mut Self {
         self.notifications.add_callback(func);
@@ -137,7 +135,7 @@ impl MessageProcessor {
 
     pub fn process_message(&mut self, message: &NetworkMessage) -> Fallible<ProcessResult> {
         if FilterResult::Pass == self.filters.run_filters(message)? {
-            self.actions.process_message(message)?;
+            write_or_die!(self.actions).process_message(message)?;
             self.notifications.run_callbacks(message)?;
             Ok(ProcessResult::Done)
         } else {
@@ -145,15 +143,15 @@ impl MessageProcessor {
         }
     }
 
-    pub fn add(&mut self, other: &MessageProcessor) -> &mut Self {
-        for cb in other.filters().iter() {
+    pub fn add(&mut self, other: Arc<RwLock<MessageProcessor>>) -> &mut Self {
+        for cb in read_or_die!(other).filters().iter() {
             self.push_filter(cb.clone());
         }
 
-        self.actions.add(&other.actions);
+        write_or_die!(self.actions).add(Arc::clone(&read_or_die!(other).actions));
 
-        for cb in other.notifications().iter() {
-            self.add_notification(Arc::clone(&cb));
+        for cb in read_or_die!(other).notifications().iter() {
+            self.add_notification(cb.clone());
         }
 
         self

@@ -7,19 +7,22 @@ use crate::{
     },
 };
 use concordium_common::{
-    functor::FuncResult, stats_export_service::StatsExportService, RelayOrStopSender,
-    RelayOrStopSenderHelper,
+    functor::FuncResult, stats_export_service::StatsExportService, RelayOrStopSenderHelper,
+    RelayOrStopSyncSender,
 };
 use std::{
     collections::HashSet,
-    ops::Deref,
-    sync::{mpsc::Sender, Arc, Mutex, RwLock},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc::SyncSender,
+        Arc, RwLock,
+    },
 };
 
 /// It forwards network response message into `queue`.
 pub fn forward_network_response(
     res: &NetworkResponse,
-    queue: &RelayOrStopSender<Arc<NetworkMessage>>,
+    queue: RelayOrStopSyncSender<Arc<NetworkMessage>>,
 ) -> FuncResult<()> {
     let outer = Arc::new(NetworkMessage::NetworkResponse(res.to_owned(), None, None));
 
@@ -33,7 +36,7 @@ pub fn forward_network_response(
 /// It forwards network request message into `packet_queue`
 pub fn forward_network_request(
     req: &NetworkRequest,
-    packet_queue: &RelayOrStopSender<Arc<NetworkMessage>>,
+    packet_queue: &RelayOrStopSyncSender<Arc<NetworkMessage>>,
 ) -> FuncResult<()> {
     let outer = Arc::new(NetworkMessage::NetworkRequest(req.to_owned(), None, None));
 
@@ -47,13 +50,14 @@ pub fn forward_network_request(
     Ok(())
 }
 
-pub struct OutgoingQueues<'a> {
+#[derive(Clone)]
+pub struct OutgoingQueues {
     /// Send_queue to other nodes
-    pub send_queue: &'a Sender<Arc<NetworkMessage>>,
+    pub send_queue: SyncSender<Arc<NetworkMessage>>,
     /// Queue to super process (to bakers or db)
-    pub queue_to_super: &'a RelayOrStopSender<Arc<NetworkMessage>>,
+    pub queue_to_super: RelayOrStopSyncSender<Arc<NetworkMessage>>,
     /// Queue to the RPC subscription
-    pub rpc_queue: &'a Mutex<Option<Sender<Arc<NetworkMessage>>>>,
+    pub rpc_queue: SyncSender<Arc<NetworkMessage>>,
 }
 
 pub fn is_message_already_seen(
@@ -81,11 +85,12 @@ pub fn is_message_already_seen(
 /// Avoid to create a new packet instead of reusing it.
 pub fn forward_network_packet_message<S: ::std::hash::BuildHasher>(
     own_id: P2PNodeId,
-    seen_messages: &SeenMessagesList,
-    stats_export_service: &Option<Arc<RwLock<StatsExportService>>>,
-    own_networks: &Arc<RwLock<HashSet<NetworkId, S>>>,
-    outgoing_queues: &OutgoingQueues,
+    seen_messages: SeenMessagesList,
+    stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
+    own_networks: Arc<RwLock<HashSet<NetworkId, S>>>,
+    outgoing_queues: OutgoingQueues,
     pac: &NetworkPacket,
+    is_rpc_online: Arc<AtomicBool>,
 ) -> FuncResult<()> {
     trace!("Processing message for relaying");
     if safe_read!(own_networks)?.contains(&pac.network_id) {
@@ -110,14 +115,12 @@ pub fn forward_network_packet_message<S: ::std::hash::BuildHasher>(
                 };
             }
 
-            if let Ok(locked) = outgoing_queues.rpc_queue.lock() {
-                if let Some(queue) = locked.deref() {
-                    if let Err(e) = queue.send(outer.clone()) {
-                        warn!(
-                            "Can't relay a message to the RPC outbound queue: {}",
-                            e.to_string()
-                        );
-                    }
+            if is_rpc_online.load(Ordering::Relaxed) {
+                if let Err(e) = outgoing_queues.rpc_queue.send(outer.clone()) {
+                    warn!(
+                        "Can't relay a message to the RPC outbound queue: {}",
+                        e.to_string()
+                    );
                 }
             }
 

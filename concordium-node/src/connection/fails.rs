@@ -77,7 +77,7 @@ macro_rules! map_io_error_to_fail {
                 ErrorKind::ConnectionReset => Error::from(StreamConnectionReset),
                 ErrorKind::NotFound => Error::from(PeerTerminatedConnection),
                 ErrorKind::NotConnected => Error::from(PeerTerminatedConnection),
-                _ => Error::from_boxed_compat(Box::new(io_err)),
+                _ => Error::from(io_err),
             }
         })
     };

@@ -90,8 +90,16 @@ fn main() -> Fallible<()> {
 
     info!("Debugging enabled: {}", conf.common.debug);
 
+    let (subscription_queue_in, subscription_queue_out) =
+        mpsc::sync_channel::<Arc<NetworkMessage>>(64);
+
     // Thread #1: instantiate the P2PNode
-    let (mut node, pkt_out) = instantiate_node(&conf, &mut app_prefs, &stats_export_service);
+    let (mut node, pkt_out) = instantiate_node(
+        &conf,
+        &mut app_prefs,
+        &stats_export_service,
+        subscription_queue_in.clone(),
+    );
 
     // Create the cli key-value store environment
     let cli_kvs_handle = Manager::singleton()
@@ -147,6 +155,7 @@ fn main() -> Fallible<()> {
             consensus.clone(),
             &conf.cli.rpc,
             &stats_export_service,
+            subscription_queue_out,
         );
         serv.start_server()?;
         Some(serv)
@@ -219,11 +228,12 @@ fn instantiate_node(
     conf: &configuration::Config,
     app_prefs: &mut configuration::AppPreferences,
     stats_export_service: &Option<Arc<RwLock<StatsExportService>>>,
+    subscription_queue_in: mpsc::SyncSender<Arc<NetworkMessage>>,
 ) -> (
     P2PNode,
     mpsc::Receiver<RelayOrStopEnvelope<Arc<NetworkMessage>>>,
 ) {
-    let (pkt_in, pkt_out) = mpsc::channel::<RelayOrStopEnvelope<Arc<NetworkMessage>>>();
+    let (pkt_in, pkt_out) = mpsc::sync_channel::<RelayOrStopEnvelope<Arc<NetworkMessage>>>(64);
     let node_id = conf.common.id.clone().map_or(
         app_prefs.get_config(configuration::APP_PREFERENCES_PERSISTED_NODE_ID),
         |id| {
@@ -244,7 +254,7 @@ fn instantiate_node(
 
     // Start the thread reading P2PEvents from P2PNode
     let node = if conf.common.debug {
-        let (sender, receiver) = mpsc::channel();
+        let (sender, receiver) = mpsc::sync_channel(64);
         let _guard = spawn_or_die!("Log loop", move || loop {
             if let Ok(msg) = receiver.recv() {
                 info!("{}", msg);
@@ -257,6 +267,7 @@ fn instantiate_node(
             Some(sender),
             PeerType::Node,
             arc_stats_export_service,
+            subscription_queue_in,
         )
     } else {
         P2PNode::new(
@@ -266,6 +277,7 @@ fn instantiate_node(
             None,
             PeerType::Node,
             arc_stats_export_service,
+            subscription_queue_in,
         )
     };
     (node, pkt_out)

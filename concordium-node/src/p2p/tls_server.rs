@@ -19,10 +19,9 @@ use snow::Keypair;
 use std::{
     collections::HashSet,
     net::SocketAddr,
-    rc::Rc,
     sync::{
         atomic::{AtomicUsize, Ordering},
-        mpsc::Sender,
+        mpsc::SyncSender,
         Arc, RwLock,
     },
 };
@@ -48,7 +47,7 @@ pub type PreHandshake = UnitFunctor<SocketAddr>;
 
 pub struct TlsServerBuilder {
     server:               Option<TcpListener>,
-    event_log:            Option<Sender<P2PEvent>>,
+    event_log:            Option<SyncSender<P2PEvent>>,
     self_peer:            Option<P2PPeer>,
     buckets:              Option<Arc<RwLock<Buckets>>>,
     stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
@@ -131,7 +130,7 @@ impl TlsServerBuilder {
         self
     }
 
-    pub fn set_event_log(mut self, el: Option<Sender<P2PEvent>>) -> TlsServerBuilder {
+    pub fn set_event_log(mut self, el: Option<SyncSender<P2PEvent>>) -> TlsServerBuilder {
         self.event_log = el;
         self
     }
@@ -172,14 +171,14 @@ pub struct TlsServer {
     server:                   TcpListener,
     next_id:                  AtomicUsize,
     key_pair:                 Keypair,
-    event_log:                Option<Sender<P2PEvent>>,
+    event_log:                Option<SyncSender<P2PEvent>>,
     self_peer:                P2PPeer,
     buckets:                  Arc<RwLock<Buckets>>,
     stats_export_service:     Option<Arc<RwLock<StatsExportService>>>,
     message_processor:        Arc<RwLock<MessageProcessor>>,
     dptr:                     Arc<RwLock<TlsServerPrivate>>,
     prehandshake_validations: PreHandshake,
-    log_dumper:               Option<Sender<DumpItem>>,
+    log_dumper:               Option<SyncSender<DumpItem>>,
     max_allowed_peers:        u16,
     noise_params:             snow::params::NoiseParams,
 }
@@ -194,7 +193,7 @@ impl TlsServer {
     }
 
     #[inline]
-    pub fn set_network_request_sender(&mut self, sender: Sender<NetworkRawRequest>) {
+    pub fn set_network_request_sender(&mut self, sender: SyncSender<NetworkRawRequest>) {
         write_or_die!(self.dptr).set_network_request_sender(sender);
     }
 
@@ -242,7 +241,7 @@ impl TlsServer {
 
     pub fn get_banlist(&self) -> Vec<BannedNode> { read_or_die!(self.dptr).get_banlist() }
 
-    pub fn accept(&mut self, poll: &mut Poll, self_peer: P2PPeer) -> Fallible<()> {
+    pub fn accept(&mut self, poll: &RwLock<Poll>, self_peer: P2PPeer) -> Fallible<()> {
         let (socket, addr) = self.server.accept()?;
 
         debug!(
@@ -292,7 +291,7 @@ impl TlsServer {
     pub fn connect(
         &mut self,
         peer_type: PeerType,
-        poll: &mut Poll,
+        poll: &RwLock<Poll>,
         addr: SocketAddr,
         peer_id_opt: Option<P2PNodeId>,
         self_peer: &P2PPeer,
@@ -407,7 +406,7 @@ impl TlsServer {
         write_or_die!(self.dptr).conn_event(event)
     }
 
-    pub fn cleanup_connections(&self, max_peers_number: u16, poll: &mut Poll) -> Fallible<()> {
+    pub fn cleanup_connections(&self, max_peers_number: u16, poll: &RwLock<Poll>) -> Fallible<()> {
         write_or_die!(self.dptr).cleanup_connections(self.peer_type(), max_peers_number, poll)
     }
 
@@ -438,13 +437,13 @@ impl TlsServer {
     /// It setups default message handler at TLSServer level.
     fn setup_default_message_handler(&mut self) {
         let cloned_dptr = Arc::clone(&self.dptr);
-        let banned_nodes = Rc::clone(&read_or_die!(cloned_dptr).banned_peers);
-        let to_disconnect = Rc::clone(&read_or_die!(cloned_dptr).to_disconnect);
+        let banned_nodes = Arc::clone(&read_or_die!(cloned_dptr).banned_peers);
+        let to_disconnect = Arc::clone(&read_or_die!(cloned_dptr).to_disconnect);
         write_or_die!(self.message_processor).add_request_action(make_atomic_callback!(
             move |req: &NetworkRequest| {
                 if let NetworkRequest::Handshake(ref peer, ..) = req {
-                    if banned_nodes.borrow().is_id_banned(peer.id()) {
-                        to_disconnect.borrow_mut().push_back(peer.id());
+                    if read_or_die!(banned_nodes).is_id_banned(peer.id()) {
+                        write_or_die!(to_disconnect).push_back(peer.id());
                     }
                 }
                 Ok(())
@@ -454,10 +453,8 @@ impl TlsServer {
 
     /// It adds all message handler callback to this connection.
     fn register_message_handlers(&self, conn: &mut Connection) {
-        let mh = &read_or_die!(self.message_processor);
-        Rc::clone(&conn.common_message_processor)
-            .borrow_mut()
-            .add(mh);
+        let mh = Arc::clone(&self.message_processor);
+        write_or_die!(conn.common_message_processor).add(mh);
     }
 
     fn add_default_prehandshake_validations(&mut self) {
@@ -476,7 +473,7 @@ impl TlsServer {
         })
     }
 
-    pub fn dump_start(&mut self, log_dumper: Sender<DumpItem>) {
+    pub fn dump_start(&mut self, log_dumper: SyncSender<DumpItem>) {
         self.log_dumper = Some(log_dumper);
         write_or_die!(self.dptr).dump_all_connections(self.log_dumper.clone());
     }
@@ -487,7 +484,7 @@ impl TlsServer {
     }
 
     pub fn add_notification(&self, func: UnitFunction<NetworkMessage>) {
-        write_or_die!(self.message_processor).add_notification(Arc::clone(&func));
+        write_or_die!(self.message_processor).add_notification(func.clone());
         write_or_die!(self.dptr).add_notification(func);
     }
 }

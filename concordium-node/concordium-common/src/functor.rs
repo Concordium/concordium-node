@@ -1,12 +1,12 @@
 use crate::fails::FunctorError;
 use failure::Error;
-use std::sync::Arc;
+use std::{ops::Deref, sync::Arc};
 
 /// Helper macro to create callbacks from raw function pointers or closures.
 #[macro_export]
 macro_rules! make_atomic_callback {
     ($callback:expr) => {
-        Arc::new($callback)
+        concordium_common::functor::AFuncCW(Arc::new($callback))
     };
 }
 
@@ -14,7 +14,18 @@ macro_rules! make_atomic_callback {
 pub type FunctorResult<T> = Result<T, FunctorError>;
 /// Result of the execution of a single Function
 pub type FuncResult<T> = Result<T, Error>;
-type AFuncCW<T, R> = Arc<(Fn(&T) -> FuncResult<R>)>;
+
+pub struct AFuncCW<T: Send, R: Send>(pub Arc<(Fn(&T) -> FuncResult<R> + Send + Sync + 'static)>);
+
+impl<T: Send, R: Send> Clone for AFuncCW<T, R> {
+    fn clone(&self) -> Self { AFuncCW(Arc::clone(&self.0)) }
+}
+
+impl<T: Send, R: Send> Deref for AFuncCW<T, R> {
+    type Target = Arc<(Fn(&T) -> FuncResult<R> + Send + Sync + 'static)>;
+
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
 
 pub type UnitFunction<T> = AFuncCW<T, ()>;
 pub type BoolFunction<T> = AFuncCW<T, bool>;
@@ -31,37 +42,48 @@ pub type BoolFunction<T> = AFuncCW<T, bool>;
 /// # Examples
 /// ```
 /// # extern crate concordium_common;
-/// # use concordium_common::functor::UnitFunctor;
-/// # use std::{
-/// #    cell::RefCell,
-/// #    rc::Rc,
-/// #    sync::{Arc, RwLock},
-/// # };
+/// # use concordium_common::functor::{AFuncCW, UnitFunctor};
+/// # use std::ops::{Deref, DerefMut};
+/// # use std::sync::{Arc, RwLock};
 /// #
-/// let acc = Rc::new(RefCell::new(58));
-/// let acc_1 = Rc::clone(&acc);
-/// let acc_2 = Rc::clone(&acc);
+/// let acc = Arc::new(RwLock::new(58));
+/// let acc_1 = Arc::clone(&acc);
+/// let acc_2 = Arc::clone(&acc);
 ///
 /// let mut ph = UnitFunctor::new();
-/// ph.add_callback(Arc::new(move |x: &i32| {
-///     *acc_1.borrow_mut() += x;
+/// let adder = AFuncCW(Arc::new(
+///     move |x: &i32| {
+///         if let Ok(ref mut val) = acc_1.write() {
+///             *val.deref_mut() += x;
+///         }
 ///     Ok(())
-/// }))
-///     .add_callback(Arc::new(move |x: &i32| {
-///         *acc_2.borrow_mut() *= x;
-///         Ok(())
-///     }));
+///     }
+/// ));
+/// let multiplier = AFuncCW(Arc::new(
+///     move |x: &i32| {
+///         if let Ok(ref mut val) = acc_2.write() {
+///             *val.deref_mut() *= x;
+///         }
+///     Ok(())
+///     }
+/// ));
+///
+/// ph.add_callback(adder)
+///     .add_callback(multiplier);
 ///
 /// let value = 42 as i32;
 /// ph.run_callbacks(&value).unwrap(); // acc = (58 + 42) * 42
-/// assert_eq!(*acc.borrow(), 4200);
+///
+/// if let Ok(value) = acc.clone().read() {
+///     assert_eq!(value.deref(), &4200);
+/// }
 #[derive(Default)]
-pub struct UnitFunctor<T> {
+pub struct UnitFunctor<T: Send> {
     /// Queue of functions to be executed
     callbacks: Vec<UnitFunction<T>>,
 }
 
-impl<T> UnitFunctor<T> {
+impl<T: Send> UnitFunctor<T> {
     pub fn new() -> Self {
         Self {
             callbacks: Vec::new(),
@@ -77,7 +99,7 @@ impl<T> UnitFunctor<T> {
 
     pub fn run_callbacks(&self, message: &T) -> FunctorResult<()> {
         self.callbacks.iter().fold(Ok(()), |acum, cb| {
-            let res = (cb)(message).map_err(Error::from);
+            let res = (cb.0)(message).map_err(Error::from);
 
             match acum {
                 Ok(_) => match res {
@@ -98,8 +120,12 @@ impl<T> UnitFunctor<T> {
 
 #[cfg(test)]
 mod unit_functor_unit_test {
+    use crate as concordium_common;
     use crate::functor::{FuncResult, UnitFunctor};
-    use std::{cell::RefCell, rc::Rc, sync::Arc};
+    use std::{
+        ops::Deref,
+        sync::{Arc, RwLock},
+    };
 
     fn raw_func_1(_v: &i32) -> FuncResult<()> { Ok(()) }
     fn raw_func_2(_v: &i32) -> FuncResult<()> { Ok(()) }
@@ -146,24 +172,32 @@ mod unit_functor_unit_test {
     /// variables from scope.
     #[test]
     pub fn test_parse_hadler_complex_closure() {
-        let shd_counter = Rc::new(RefCell::new(0));
-        let shd_counter_1 = Rc::clone(&shd_counter);
-        let shd_counter_2 = Rc::clone(&shd_counter);
+        let shd_counter = Arc::new(RwLock::new(0));
+        let shd_counter_1 = Arc::clone(&shd_counter);
+        let shd_counter_2 = Arc::clone(&shd_counter);
 
         let mut ph = UnitFunctor::new();
 
         ph.add_callback(make_atomic_callback!(move |_x: &i32| {
-            *shd_counter_1.borrow_mut() += 1;
+            if let Ok(mut val) = shd_counter_1.write() {
+                *val += 1;
+            }
             Ok(())
         }))
         .add_callback(make_atomic_callback!(move |_: &i32| {
-            *shd_counter_2.borrow_mut() += 1;
+            if let Ok(mut val) = shd_counter_2.write() {
+                *val += 1;
+            }
             Ok(())
         }));
 
         let value = 42 as i32;
         ph.run_callbacks(&value).unwrap();
 
-        assert_eq!(*shd_counter.borrow(), 2);
+        if let Ok(ref val) = shd_counter.clone().read() {
+            assert_eq!(val.deref(), &2);
+        } else {
+            panic!();
+        }
     }
 }
