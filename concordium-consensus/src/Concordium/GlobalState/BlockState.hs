@@ -313,6 +313,8 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoMint #-}
   {-# INLINE bsoDecrementCentralBankGTU #-}
   {-# INLINE bsoDelegateStake #-}
+  {-# INLINE bsoGetIdentityProvider #-}
+  {-# INLINE bsoGetCryptoParams #-}
 
 
 type instance BlockPointer (MaybeT m) = BlockPointer m
