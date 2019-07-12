@@ -1,4 +1,7 @@
-use crate::connection::async_adapter::{EncryptSink, HandshakeStreamSink, Readiness};
+use crate::connection::{
+    async_adapter::{EncryptSink, HandshakeStreamSink, Readiness},
+    MessageSendingPriority,
+};
 
 use concordium_common::UCursor;
 
@@ -50,7 +53,12 @@ impl FrameSink {
     ///
     /// # Return
     /// see `FrameSink::flush`
-    pub fn write(&mut self, input: UCursor, output: &mut impl Write) -> Fallible<Readiness<usize>> {
+    pub fn write(
+        &mut self,
+        input: UCursor,
+        output: &mut impl Write,
+        priority: MessageSendingPriority,
+    ) -> Fallible<Readiness<usize>> {
         if let Some(ref mut encryptor) = self.encryptor {
             encryptor.write(input, output)
         } else {
@@ -59,7 +67,10 @@ impl FrameSink {
                 input.len(),
                 self.frame_queue.len()
             );
-            self.frame_queue.push_back(input);
+            match priority {
+                MessageSendingPriority::High => self.frame_queue.push_front(input),
+                MessageSendingPriority::Normal => self.frame_queue.push_back(input),
+            }
             self.flush(output)
         }
     }
