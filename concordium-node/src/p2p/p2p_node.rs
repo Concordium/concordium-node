@@ -104,7 +104,7 @@ pub struct P2PNode {
     pub tls_server:       Arc<RwLock<TlsServer>>,
     poll:                 Arc<RwLock<Poll>>,
     id:                   P2PNodeId,
-    send_queue_in:        Sender<Arc<NetworkMessage>>,
+    pub send_queue_in:    Sender<Arc<NetworkMessage>>,
     send_queue_out:       Rc<Receiver<Arc<NetworkMessage>>>,
     resend_queue_in:      Sender<ResendQueueEntry>,
     resend_queue_out:     Rc<Receiver<ResendQueueEntry>>,
@@ -112,7 +112,7 @@ pub struct P2PNode {
     queue_to_super:       RelayOrStopSender<Arc<NetworkMessage>>,
     rpc_queue:            Arc<Mutex<Option<Sender<Arc<NetworkMessage>>>>>,
     start_time:           DateTime<Utc>,
-    stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
+    pub stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
     peer_type:            PeerType,
     external_addr:        SocketAddr,
     seen_messages:        SeenMessagesList,
@@ -1057,69 +1057,6 @@ impl P2PNode {
         };
     }
 
-    #[inline]
-    pub fn send_direct_message(
-        &mut self,
-        id: Option<P2PNodeId>,
-        network_id: NetworkId,
-        msg_id: Option<MessageId>,
-        msg: Vec<u8>,
-    ) -> Fallible<()> {
-        let cursor = UCursor::from(msg);
-        self.send_message_from_cursor(id, network_id, msg_id, cursor, false)
-    }
-
-    #[inline]
-    pub fn send_broadcast_message(
-        &mut self,
-        id: Option<P2PNodeId>,
-        network_id: NetworkId,
-        msg_id: Option<MessageId>,
-        msg: Vec<u8>,
-    ) -> Fallible<()> {
-        let cursor = UCursor::from(msg);
-        self.send_message_from_cursor(id, network_id, msg_id, cursor, true)
-    }
-
-    pub fn send_message_from_cursor(
-        &mut self,
-        id: Option<P2PNodeId>,
-        network_id: NetworkId,
-        msg_id: Option<MessageId>,
-        msg: UCursor,
-        broadcast: bool,
-    ) -> Fallible<()> {
-        trace!("Queueing message!");
-
-        // Create packet.
-        let packet = if broadcast {
-            NetworkPacketBuilder::default()
-                .peer(self.get_self_peer())
-                .message_id(msg_id.unwrap_or_else(NetworkPacket::generate_message_id))
-                .network_id(network_id)
-                .message(msg)
-                .build_broadcast()?
-        } else {
-            let receiver =
-                id.ok_or_else(|| err_msg("Direct Message requires a valid target id"))?;
-
-            NetworkPacketBuilder::default()
-                .peer(self.get_self_peer())
-                .message_id(msg_id.unwrap_or_else(NetworkPacket::generate_message_id))
-                .network_id(network_id)
-                .message(msg)
-                .build_direct(receiver)?
-        };
-
-        // Push packet into our `send queue`
-        send_or_die!(
-            self.send_queue_in,
-            Arc::new(NetworkMessage::NetworkPacket(packet, None, None))
-        );
-        self.queue_size_inc();
-        Ok(())
-    }
-
     pub fn send_ban(&mut self, id: BannedNode) {
         send_or_die!(
             self.send_queue_in,
@@ -1242,7 +1179,7 @@ impl P2PNode {
         }
     }
 
-    fn get_self_peer(&self) -> P2PPeer {
+    pub fn get_self_peer(&self) -> P2PPeer {
         P2PPeer::from(self.peer_type, self.id(), self.internal_addr)
     }
 
@@ -1414,4 +1351,79 @@ fn get_ip_if_suitable(addr: &IpAddr) -> Option<IpAddr> {
         }
         V6(_) => None,
     }
+}
+
+#[inline]
+pub fn send_direct_message(
+    queue: Sender<Arc<NetworkMessage>>,
+    stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
+    source: P2PPeer,
+    target_id: Option<P2PNodeId>,
+    network_id: NetworkId,
+    msg_id: Option<MessageId>,
+    msg: Vec<u8>,
+) -> Fallible<()> {
+    let cursor = UCursor::from(msg);
+    send_message_from_cursor(queue, stats_export_service, source, target_id, network_id, msg_id, cursor, false)
+}
+
+#[inline]
+pub fn send_broadcast_message(
+    queue: Sender<Arc<NetworkMessage>>,
+    stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
+    source: P2PPeer,
+    target_id: Option<P2PNodeId>,
+    network_id: NetworkId,
+    msg_id: Option<MessageId>,
+    msg: Vec<u8>,
+) -> Fallible<()> {
+    let cursor = UCursor::from(msg);
+    send_message_from_cursor(queue, stats_export_service, source, target_id, network_id, msg_id, cursor, true)
+}
+
+pub fn send_message_from_cursor(
+    queue: Sender<Arc<NetworkMessage>>,
+    stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
+    source: P2PPeer,
+    target_id: Option<P2PNodeId>,
+    network_id: NetworkId,
+    msg_id: Option<MessageId>,
+    msg: UCursor,
+    broadcast: bool,
+) -> Fallible<()> {
+    trace!("Queueing message!");
+
+    // Create packet.
+    let packet = if broadcast {
+        NetworkPacketBuilder::default()
+            .peer(source)
+            .message_id(msg_id.unwrap_or_else(NetworkPacket::generate_message_id))
+            .network_id(network_id)
+            .message(msg)
+            .build_broadcast()?
+    } else {
+        let receiver =
+            target_id.ok_or_else(|| err_msg("Direct Message requires a valid target id"))?;
+
+        NetworkPacketBuilder::default()
+            .peer(source)
+            .message_id(msg_id.unwrap_or_else(NetworkPacket::generate_message_id))
+            .network_id(network_id)
+            .message(msg)
+            .build_direct(receiver)?
+    };
+
+    // Push packet into our `send queue`
+    send_or_die!(
+        queue,
+        Arc::new(NetworkMessage::NetworkPacket(packet, None, None))
+    );
+
+    if let Some(ref service) = &stats_export_service {
+        let _ = safe_write!(service).map(|ref mut lock| {
+            lock.queue_size_inc();
+        });
+    };
+
+    Ok(())
 }

@@ -18,7 +18,7 @@ use concordium_common::{
     cache::Cache,
     make_atomic_callback, safe_write, spawn_or_die,
     stats_export_service::{StatsExportService, StatsServiceMode},
-    write_or_die, PacketType, RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSender,
+    PacketType, RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSender,
     RelayOrStopSenderHelper,
 };
 use concordium_consensus::{consensus, ffi};
@@ -39,6 +39,7 @@ use p2p_client::{
         NetworkPacketType, NetworkRequest, NetworkResponse,
     },
     p2p::*,
+    p2p::p2p_node::send_direct_message,
     rpc::RpcServerImpl,
     stats_engine::StatsEngine,
     utils::{self, get_config_and_logging_setup, load_bans},
@@ -306,9 +307,10 @@ fn attain_post_handshake_catch_up(
     node: &P2PNode,
     consensus: &consensus::ConsensusContainer,
 ) -> Fallible<()> {
-    let cloned_handshake_response_node = Arc::new(RwLock::new(node.clone()));
     let consensus_clone = consensus.clone();
     let message_handshake_response_handler = &node.message_processor();
+
+    let (node_id, queue, ses, source) = (node.id(), node.send_queue_in.clone(), node.stats_export_service.clone(), node.get_self_peer());
 
     safe_write!(message_handshake_response_handler)?.add_response_action(make_atomic_callback!(
         move |msg: &NetworkResponse| {
@@ -316,7 +318,6 @@ fn attain_post_handshake_catch_up(
                 if remote_peer.peer_type() == PeerType::Node {
                     if let Some(net) = nets.iter().next() {
                         let response = consensus_clone.get_finalization_point();
-                        let mut locked_cloned_node = write_or_die!(cloned_handshake_response_node);
                         if let Ok(bytes) = response {
                             let mut out_bytes =
                                 Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
@@ -325,7 +326,10 @@ fn attain_post_handshake_catch_up(
                             ) {
                                 Ok(_) => {
                                     out_bytes.extend(&bytes);
-                                    match locked_cloned_node.send_direct_message(
+                                    match send_direct_message(
+                                        queue.clone(),
+                                        ses.clone(),
+                                        source.clone(),
                                         Some(remote_peer.id()),
                                         *net,
                                         None,
@@ -334,13 +338,13 @@ fn attain_post_handshake_catch_up(
                                         Ok(_) => info!(
                                             "Peer {} requested finalization messages by point \
                                              from peer {}",
-                                            locked_cloned_node.id(),
+                                            node_id,
                                             remote_peer.id()
                                         ),
                                         Err(_) => error!(
                                             "Peer {} couldn't send a catch-up request for \
                                              finalization messages by point!",
-                                            locked_cloned_node.id(),
+                                            node_id,
                                         ),
                                     }
                                 }
@@ -386,7 +390,8 @@ fn start_consensus_threads(
     let data_dir_path = app_prefs.get_user_app_dir();
     let stats_clone = stats.clone();
 
-    let mut node_clone = node.clone();
+    let (queue, ses, source) = (node.send_queue_in.clone(), node.stats_export_service.clone(), node.get_self_peer());
+
     let mut baker_clone = baker.clone();
     let global_state_thread = spawn_or_die!("Process global state requests", {
         // Open the Skov-exclusive k-v store environment
@@ -415,7 +420,9 @@ fn start_consensus_threads(
             match skov_receiver.recv() {
                 Ok(RelayOrStopEnvelope::Relay(request)) => {
                     if let Err(e) = handle_global_state_request(
-                        &mut node_clone,
+                        queue.clone(),
+                        ses.clone(),
+                        source.clone(),
                         _network_id,
                         &mut baker_clone,
                         request,
@@ -430,6 +437,8 @@ fn start_consensus_threads(
             }
         }
     });
+
+    let (queue, ses, source) = (node.send_queue_in.clone(), node.stats_export_service.clone(), node.get_self_peer());
 
     let mut baker_clone = baker.clone();
     let mut node_ref = node.clone();
@@ -537,7 +546,10 @@ fn start_consensus_threads(
                             RequestedElementType::Transaction => {
                                 let transactions = transactions_cache.get_since(*since);
                                 transactions.iter().for_each(|transaction| {
-                                    if let Err(e) = node_ref.send_direct_message(
+                                    if let Err(e) = send_direct_message(
+                                        queue.clone(),
+                                        ses.clone(),
+                                        source.clone(),
                                         Some(requester.id()),
                                         *nid,
                                         None,
@@ -617,7 +629,7 @@ fn send_packet_to_testrunner(node: &P2PNode, test_runner_url: &str, pac: &Networ
 fn send_packet_to_testrunner(_: &P2PNode, _: &str, _: &NetworkPacket) {}
 
 fn _send_retransmit_packet(
-    node: &mut P2PNode,
+    node: &P2PNode,
     receiver: P2PNodeId,
     network_id: NetworkId,
     message_id: &MessageId,
@@ -628,7 +640,10 @@ fn _send_retransmit_packet(
     match out_bytes.write_u16::<NetworkEndian>(payload_type as u16) {
         Ok(_) => {
             out_bytes.extend(data);
-            match node.send_direct_message(
+            match send_direct_message(
+                node.send_queue_in.clone(),
+                node.stats_export_service.clone(),
+                node.get_self_peer(),
                 Some(receiver),
                 network_id,
                 Some(message_id.to_owned()),

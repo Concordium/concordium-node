@@ -12,7 +12,7 @@ use std::{
     net::{IpAddr, SocketAddr},
 };
 
-#[derive(Debug, Clone, Builder)]
+#[derive(Debug, Clone, Copy, Builder)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 #[builder(build_fn(skip))]
 pub struct P2PPeer {
