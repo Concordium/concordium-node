@@ -259,7 +259,7 @@ impl Connection {
 
     pub fn last_seen(&self) -> u64 { self.dptr.borrow().last_seen() }
 
-    pub fn local_peer(&self) -> P2PPeer { self.dptr.borrow().local_peer.clone() }
+    pub fn local_peer(&self) -> P2PPeer { self.dptr.borrow().local_peer }
 
     pub fn remote_peer(&self) -> RemotePeer { self.dptr.borrow().remote_peer().to_owned() }
 

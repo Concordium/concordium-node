@@ -32,7 +32,7 @@ use concordium_global_state::{
     tree::{CatchupState, ConsensusMessage, DistributionMode, MessageType, Skov, SkovResult},
 };
 
-use crate::{common::P2PNodeId, configuration, network::NetworkId, p2p::*};
+use crate::{common::P2PNodeId, configuration, network::NetworkId, p2p::p2p_node::*};
 
 pub fn start_consensus_layer(
     conf: &configuration::BakerConfig,
@@ -194,7 +194,7 @@ pub fn handle_pkt_out(
 }
 
 pub fn handle_global_state_request(
-    node: &mut P2PNode,
+    node_shared: SharedNodeData,
     network_id: NetworkId,
     baker: &mut consensus::ConsensusContainer,
     request: ConsensusMessage,
@@ -202,9 +202,9 @@ pub fn handle_global_state_request(
     stats_exporting: &Option<Arc<RwLock<StatsExportService>>>,
 ) -> Fallible<()> {
     if let MessageType::Outbound(_) = request.direction {
-        process_internal_skov_entry(node, network_id, request, skov)?
+        process_internal_skov_entry(node_shared, network_id, request, skov)?
     } else {
-        process_external_skov_entry(node, network_id, baker, request, skov)?
+        process_external_skov_entry(node_shared, network_id, baker, request, skov)?
     }
 
     if let Some(stats) = stats_exporting {
@@ -223,7 +223,7 @@ pub fn handle_global_state_request(
 }
 
 fn process_internal_skov_entry(
-    node: &mut P2PNode,
+    node_shared: SharedNodeData,
     network_id: NetworkId,
     request: ConsensusMessage,
     skov: &mut Skov,
@@ -281,10 +281,18 @@ fn process_internal_skov_entry(
         Ok(_) => {
             out_bytes.extend(&*request.payload);
 
+            let self_node_id = node_shared.self_peer.id;
+
             let res = if request.distribution_mode() == DistributionMode::Direct {
-                node.send_direct_message(target.map(P2PNodeId), network_id, None, out_bytes)
+                send_direct_message(
+                    node_shared,
+                    target.map(P2PNodeId),
+                    network_id,
+                    None,
+                    out_bytes,
+                )
             } else {
-                node.send_broadcast_message(None, network_id, None, out_bytes)
+                send_broadcast_message(node_shared, None, network_id, None, out_bytes)
             };
 
             let msg_metadata = if let Some(target) = target {
@@ -296,15 +304,11 @@ fn process_internal_skov_entry(
             match res {
                 Ok(_) => info!(
                     "Peer {} sent a {} containing a {}",
-                    node.id(),
-                    msg_metadata,
-                    entry_info,
+                    self_node_id, msg_metadata, entry_info,
                 ),
                 Err(_) => error!(
                     "Peer {} couldn't send a {} containing a {}!",
-                    node.id(),
-                    msg_metadata,
-                    entry_info,
+                    self_node_id, msg_metadata, entry_info,
                 ),
             }
         }
@@ -315,12 +319,13 @@ fn process_internal_skov_entry(
 }
 
 fn process_external_skov_entry(
-    node: &mut P2PNode,
+    node_shared: SharedNodeData,
     network_id: NetworkId,
     baker: &mut consensus::ConsensusContainer,
     request: ConsensusMessage,
     skov: &mut Skov,
 ) -> Fallible<()> {
+    let self_node_id = node_shared.self_peer.id;
     let source = P2PNodeId(request.source_peer());
 
     if skov.catchup_state() == CatchupState::InProgress {
@@ -332,7 +337,7 @@ fn process_external_skov_entry(
                 request,
             );
             // TODO: this check might not be needed; verify
-            if source != node.id() {
+            if source != self_node_id {
                 skov.delay_broadcast(request);
             }
             return Ok(());
@@ -374,7 +379,11 @@ fn process_external_skov_entry(
 
     match skov_result {
         SkovResult::SuccessfulEntry(_) => {
-            trace!("Peer {} successfully processed a {}", node.id(), request);
+            trace!(
+                "Peer {} successfully processed a {}",
+                node_shared.self_peer.id,
+                request
+            );
         }
         SkovResult::SuccessfulQuery(result) => {
             let return_type = match request.variant {
@@ -390,9 +399,15 @@ fn process_external_skov_entry(
                 .expect("Can't write to buffer");
             out_bytes.extend(&*result);
 
-            match node.send_direct_message(Some(source), network_id, None, out_bytes) {
-                Ok(_) => info!("Peer {} responded to a {}", node.id(), request),
-                Err(_) => error!("Peer {} couldn't respond to a {}!", node.id(), request),
+            match send_direct_message(
+                node_shared.clone(),
+                Some(source),
+                network_id,
+                None,
+                out_bytes,
+            ) {
+                Ok(_) => info!("Peer {} responded to a {}", self_node_id, request),
+                Err(_) => error!("Peer {} couldn't respond to a {}!", self_node_id, request),
             }
         }
         SkovResult::DuplicateEntry => {
@@ -404,13 +419,13 @@ fn process_external_skov_entry(
 
     // relay external messages to Consensus if they are relevant to it
     if consensus_applicable {
-        send_msg_to_consensus(node.id(), source, baker, request)?
+        send_msg_to_consensus(self_node_id, source, baker, request)?
     }
 
     if let CatchupState::InProgress = skov.catchup_state() {
         if skov.is_tree_valid() {
             skov.end_catchup_round();
-            apply_delayed_broadcasts(node, network_id, baker, skov)?;
+            apply_delayed_broadcasts(node_shared, network_id, baker, skov)?;
         }
     }
 
@@ -418,7 +433,7 @@ fn process_external_skov_entry(
 }
 
 pub fn apply_delayed_broadcasts(
-    node: &mut P2PNode,
+    node_shared: SharedNodeData,
     network_id: NetworkId,
     baker: &mut consensus::ConsensusContainer,
     skov: &mut Skov,
@@ -432,7 +447,7 @@ pub fn apply_delayed_broadcasts(
     info!("Applying {} delayed broadcast(s)", delayed_broadcasts.len());
 
     for request in delayed_broadcasts {
-        process_external_skov_entry(node, network_id, baker, request, skov)?;
+        process_external_skov_entry(node_shared.clone(), network_id, baker, request, skov)?;
     }
 
     info!("Delayed broadcasts were applied");

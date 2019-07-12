@@ -12,15 +12,15 @@ use std::{
     net::{IpAddr, SocketAddr},
 };
 
-#[derive(Debug, Clone, Builder)]
+#[derive(Debug, Clone, Copy, Builder)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 #[builder(build_fn(skip))]
 pub struct P2PPeer {
-    id: P2PNodeId,
+    pub id: P2PNodeId,
     pub addr: SocketAddr,
     #[builder(setter(skip))]
     last_seen: u64,
-    peer_type: PeerType,
+    pub peer_type: PeerType,
 }
 
 impl P2PPeerBuilder {
