@@ -45,7 +45,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for FinalizationMessage {
         let header =
             FinalizationMessageHeader::deserialize(&read_const_sized!(&mut cursor, HEADER))?;
         let message = WmvbaMessage::deserialize(&mut cursor)?;
-        let signature = ByteString::new(&read_const_sized!(&mut cursor, SIGNATURE));
+        let signature = read_bytestring_short_length(&mut cursor, "finalization signature")?;
 
         let msg = FinalizationMessage {
             header,
@@ -59,9 +59,12 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for FinalizationMessage {
     }
 
     fn serialize(&self) -> Box<[u8]> {
+        let mut buffer = Vec::new();
+        NetworkEndian::write_u16(&mut buffer, self.signature.len() as u16);
         [
             &self.header.serialize(),
             &self.message.serialize(),
+            &buffer.into_boxed_slice(),
             self.signature.as_ref(),
         ]
         .concat()
