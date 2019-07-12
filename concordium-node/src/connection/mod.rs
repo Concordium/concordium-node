@@ -16,6 +16,13 @@ pub enum ConnectionStatus {
     Closed,
 }
 
+// If a message is labelled as having `High` priority it is always pushed to the
+// front of the queue in the sinks when sending, and otherwise to the back
+pub enum MessageSendingPriority {
+    High,
+    Normal,
+}
+
 mod connection_builder;
 pub use connection_builder::ConnectionBuilder;
 
@@ -361,17 +368,22 @@ impl Connection {
 
     /// It queues network request
     #[inline]
-    pub fn async_send(&self, input: UCursor) -> Fallible<()> {
+    pub fn async_send(&self, input: UCursor, priority: MessageSendingPriority) -> Fallible<()> {
         let request = NetworkRawRequest {
             token: self.token(),
-            data:  input,
+            data: input,
+            priority,
         };
         into_err!(self.network_request_sender.send(request))
     }
 
     #[inline]
-    pub fn async_send_from_poll_loop(&mut self, input: UCursor) -> Fallible<Readiness<usize>> {
-        self.dptr.borrow_mut().async_send(input)
+    pub fn async_send_from_poll_loop(
+        &mut self,
+        input: UCursor,
+        priority: MessageSendingPriority,
+    ) -> Fallible<Readiness<usize>> {
+        self.dptr.borrow_mut().async_send(input, priority)
     }
 
     pub fn add_notification(&mut self, func: UnitFunction<NetworkMessage>) {
