@@ -4,7 +4,7 @@ use crate::{
         counter::TOTAL_MESSAGES_SENT_COUNTER, get_current_stamp,
         serialization::serialize_into_memory, P2PPeer,
     },
-    connection::{connection_private::ConnectionPrivate, P2PEvent},
+    connection::{connection_private::ConnectionPrivate, MessageSendingPriority, P2PEvent},
     network::{NetworkId, NetworkMessage, NetworkRequest, NetworkResponse},
 };
 use concordium_common::{fails::FunctorError, functor::FuncResult, UCursor};
@@ -72,7 +72,7 @@ pub fn send_handshake_and_ping(priv_conn: &RefCell<ConnectionPrivate>) -> FuncRe
 
     // Send handshake
     let handshake_msg = NetworkMessage::NetworkResponse(
-        NetworkResponse::Handshake(local_peer.clone(), my_nets, vec![]),
+        NetworkResponse::Handshake(local_peer, my_nets, vec![]),
         Some(get_current_stamp()),
         None,
     );
@@ -81,7 +81,7 @@ pub fn send_handshake_and_ping(priv_conn: &RefCell<ConnectionPrivate>) -> FuncRe
     // Ignore returned value because it is an asynchronous operation.
     let _ = priv_conn
         .borrow_mut()
-        .async_send(UCursor::from(handshake_data))?;
+        .async_send(UCursor::from(handshake_data), MessageSendingPriority::High)?;
 
     // Send ping
     let ping_msg = NetworkMessage::NetworkRequest(
@@ -91,10 +91,11 @@ pub fn send_handshake_and_ping(priv_conn: &RefCell<ConnectionPrivate>) -> FuncRe
     );
     let ping_data = serialize_into_memory(&ping_msg, 64)?;
 
-    // Ignore returned value because it is an asynchronous operation.
+    // Ignore returned value because it is an asynchronous operation, and ship out
+    // as normal priority to ensure proper queueing here.
     let _ = priv_conn
         .borrow_mut()
-        .async_send(UCursor::from(ping_data))?;
+        .async_send(UCursor::from(ping_data), MessageSendingPriority::Normal)?;
 
     TOTAL_MESSAGES_SENT_COUNTER.fetch_add(2, Ordering::Relaxed);
     Ok(())
@@ -129,7 +130,9 @@ pub fn send_peer_list(
     };
 
     // Ignore returned value because it is an asynchronous operation.
-    let _ = priv_conn.borrow_mut().async_send(UCursor::from(data))?;
+    let _ = priv_conn
+        .borrow_mut()
+        .async_send(UCursor::from(data), MessageSendingPriority::Normal)?;
 
     if let Some(ref service) = priv_conn.borrow().stats_export_service {
         let mut writable_service = safe_write!(service)?;

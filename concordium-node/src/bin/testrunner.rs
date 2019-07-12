@@ -33,7 +33,7 @@ use p2p_client::{
     common::{self, PeerType},
     configuration,
     network::{NetworkId, NetworkMessage, NetworkPacketType, NetworkRequest, NetworkResponse},
-    p2p::*,
+    p2p::p2p_node::*,
     utils::{self, get_config_and_logging_setup, load_bans},
 };
 use rand::{distributions::Standard, thread_rng, Rng};
@@ -160,10 +160,16 @@ impl TestRunner {
                 .sample_iter(&Standard)
                 .take(path.test_packet_size.unwrap())
                 .collect();
-            lock_or_die!(state_data.node)
-                .send_broadcast_message(None, state_data.nid, None, random_pkt)
-                .map_err(|e| error!("{}", e))
-                .ok();
+
+            send_broadcast_message(
+                lock_or_die!(state_data.node).thread_shared.clone(),
+                None,
+                state_data.nid,
+                None,
+                random_pkt,
+            )
+            .map_err(|e| error!("{}", e))
+            .ok();
             (
                 state,
                 HTMLStringResponse(format!(
@@ -331,16 +337,17 @@ fn setup_process_output(
                             pac.message_id,
                             pac.message.len()
                         );
-                        _node_self_clone
-                            .send_message_from_cursor(
-                                None,
-                                pac.network_id,
-                                Some(pac.message_id.to_owned()),
-                                pac.message.to_owned(),
-                                true,
-                            )
-                            .map_err(|e| error!("Error sending message {}", e))
-                            .ok();
+
+                        send_message_from_cursor(
+                            _node_self_clone.thread_shared.clone(),
+                            None,
+                            pac.network_id,
+                            Some(pac.message_id.to_owned()),
+                            pac.message.to_owned(),
+                            true,
+                        )
+                        .map_err(|e| error!("Error sending message {}", e))
+                        .ok();
                     }
                 },
                 NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer, x), ..) => {

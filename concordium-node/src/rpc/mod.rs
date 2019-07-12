@@ -12,6 +12,7 @@ use crate::{
     network::{request::RequestedElementType, NetworkId, NetworkMessage, NetworkPacketType},
     p2p::{
         banned_nodes::{insert_ban, remove_ban, BannedNode},
+        p2p_node::{send_broadcast_message, send_direct_message},
         P2PNode,
     },
     proto::*,
@@ -124,21 +125,21 @@ impl RpcServerImpl {
             let msg = req.get_message().get_value().to_vec();
             let network_id = NetworkId::from(req.get_network_id().get_value() as u16);
 
+            let node_shared = safe_lock!(self.node)?.thread_shared.clone();
+
             if req.has_node_id() && !req.get_broadcast().get_value() && req.has_network_id() {
                 let id = P2PNodeId::from_str(&req.get_node_id().get_value().to_string())?;
 
                 trace!("Sending direct message to: {}", id);
                 r.set_value(
-                    safe_lock!(self.node)?
-                        .send_direct_message(Some(id), network_id, None, msg)
+                    send_direct_message(node_shared, Some(id), network_id, None, msg)
                         .map_err(|e| error!("{}", e))
                         .is_ok(),
                 );
             } else if req.get_broadcast().get_value() {
                 trace!("Sending broadcast message");
                 r.set_value(
-                    safe_lock!(self.node)?
-                        .send_broadcast_message(None, network_id, None, msg)
+                    send_broadcast_message(node_shared, None, network_id, None, msg)
                         .map_err(|e| error!("{}", e))
                         .is_ok(),
                 );
@@ -436,7 +437,7 @@ impl P2P for RpcServerImpl {
                 );
                 let network_id = NetworkId::from(req.get_network_id().get_value() as u16);
                 if let Ok(mut node) = self.node.lock() {
-                    node.send_joinnetwork(network_id);
+                    node.thread_shared.send_joinnetwork(network_id);
                     r.set_value(true);
                     sink.success(r)
                 } else {
@@ -472,7 +473,7 @@ impl P2P for RpcServerImpl {
                 );
                 let network_id = NetworkId::from(req.get_network_id().get_value() as u16);
                 if let Ok(mut node) = self.node.lock() {
-                    node.send_leavenetwork(network_id);
+                    node.thread_shared.send_leavenetwork(network_id);
                     r.set_value(true);
                     sink.success(r)
                 } else {
@@ -733,7 +734,7 @@ impl P2P for RpcServerImpl {
                     match insert_ban(&self.kvs_handle, &store_key) {
                         Ok(_) => {
                             node.ban_node(to_ban);
-                            node.send_ban(to_ban);
+                            node.thread_shared.send_ban(to_ban);
                             r.set_value(true);
                         }
                         Err(e) => {
@@ -789,7 +790,7 @@ impl P2P for RpcServerImpl {
                     match remove_ban(&self.kvs_handle, &store_key) {
                         Ok(_) => {
                             node.unban_node(to_unban);
-                            node.send_unban(to_unban);
+                            node.thread_shared.send_unban(to_unban);
                             r.set_value(true);
                         }
                         Err(e) => {
@@ -1041,7 +1042,7 @@ impl P2P for RpcServerImpl {
         req: TpsRequest,
         sink: ::grpcio::UnarySink<SuccessResponse>,
     ) {
-        let f = if let Ok(mut locked_node) = self.node.lock() {
+        let f = if let Ok(locked_node) = self.node.lock() {
             let (network_id, id, dir) = (
                 NetworkId::from(req.network_id as u16),
                 req.id.clone(),
@@ -1059,7 +1060,8 @@ impl P2P for RpcServerImpl {
                 let result = !(test_messages.iter().map(|message| {
                     let out_bytes_len = message.len();
                     let to_send = P2PNodeId::from_str(&id).ok();
-                    match locked_node.send_direct_message(
+                    match send_direct_message(
+                        locked_node.thread_shared.clone(),
                         to_send,
                         network_id,
                         None,
@@ -1204,7 +1206,7 @@ impl P2P for RpcServerImpl {
         let f = if let Ok(mut node) = self.node.lock() {
             if req.has_since() {
                 let mut r: SuccessResponse = SuccessResponse::new();
-                node.send_retransmit(
+                node.thread_shared.send_retransmit(
                     RequestedElementType::from(req.get_element_type() as u8),
                     req.get_since().get_value(),
                     NetworkId::from(req.get_network_id() as u16),
@@ -1271,6 +1273,7 @@ mod tests {
         common::PeerType,
         configuration,
         network::NetworkMessage,
+        p2p::p2p_node::send_broadcast_message,
         proto::concordium_p2p_rpc_grpc::P2PClient,
         rpc::RpcServerImpl,
         test_utils::{
@@ -1575,7 +1578,7 @@ mod tests {
         assert_eq!(elem.node_id.unwrap().get_value(), node2.id().to_string());
         assert_eq!(
             elem.ip.unwrap().get_value(),
-            node2.internal_addr.ip().to_string()
+            node2.internal_addr().ip().to_string()
         );
         Ok(())
     }
@@ -1654,7 +1657,8 @@ mod tests {
             connect_and_wait_handshake(&mut node2, &n, &wt2)?;
         }
         client.subscription_start_opt(&crate::proto::Empty::new(), callopts.clone())?;
-        node2.send_broadcast_message(
+        send_broadcast_message(
+            node2.thread_shared.clone(),
             None,
             crate::network::NetworkId::from(100),
             None,

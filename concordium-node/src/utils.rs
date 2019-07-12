@@ -499,7 +499,7 @@ pub fn ban_node(
     }
 
     if !no_trust_bans {
-        node.send_ban(to_ban);
+        node.thread_shared.send_ban(to_ban);
     }
 }
 
@@ -519,7 +519,7 @@ pub fn unban_node(
     }
 
     if !no_trust_bans {
-        node.send_unban(to_unban);
+        node.thread_shared.send_unban(to_unban);
     }
 }
 

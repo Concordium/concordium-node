@@ -18,7 +18,8 @@ use snow::Keypair;
 use crate::{
     common::{get_current_stamp, P2PNodeId, P2PPeer, PeerType, RemotePeer},
     connection::{
-        fails, ConnectionStatus, FrameSink, FrameStream, HandshakeStreamSink, P2PEvent, Readiness,
+        fails, ConnectionStatus, FrameSink, FrameStream, HandshakeStreamSink,
+        MessageSendingPriority, P2PEvent, Readiness,
     },
     dumper::DumpItem,
     network::{Buckets, NetworkId},
@@ -181,9 +182,13 @@ impl ConnectionPrivate {
     /// for real write. Function `ConnectionPrivate::ready` will make ensure to
     /// write chunks of the message
     #[inline]
-    pub fn async_send(&mut self, input: UCursor) -> Fallible<Readiness<usize>> {
+    pub fn async_send(
+        &mut self,
+        input: UCursor,
+        priority: MessageSendingPriority,
+    ) -> Fallible<Readiness<usize>> {
         self.send_to_dump(&input, false);
-        self.message_sink.write(input, &mut self.socket)
+        self.message_sink.write(input, &mut self.socket, priority)
     }
 
     fn send_to_dump(&self, buf: &UCursor, inbound: bool) {

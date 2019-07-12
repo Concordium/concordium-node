@@ -1,7 +1,7 @@
 use super::{fails, handler_utils::*};
 use crate::{
     common::{get_current_stamp, P2PPeer, PeerType},
-    connection::connection_private::ConnectionPrivate,
+    connection::{connection_private::ConnectionPrivate, ConnectionStatus},
     network::{NetworkRequest, NetworkResponse},
 };
 use concordium_common::functor::FuncResult;
@@ -29,13 +29,14 @@ pub fn handshake_response_handle(
         if let Some(ref service) = priv_conn.borrow().stats_export_service {
             safe_write!(service)?.peers_inc();
         };
-
-        Ok(())
     } else {
-        Err(Error::from(fails::UnwantedMessageError {
-            message: format!("Was expecting handshake, received {:?}", req),
-        }))
+        priv_conn.borrow_mut().status = ConnectionStatus::Closing;
+        error!(
+            "Peer tried to send packets before handshake was completed (still waiting on \
+             HandshakeResponse)!"
+        );
     }
+    Ok(())
 }
 
 pub fn handshake_request_handle(
@@ -63,10 +64,12 @@ pub fn handshake_request_handle(
         if priv_conn.borrow().local_peer.peer_type() == PeerType::Bootstrapper {
             send_peer_list(priv_conn, sender, nets)?;
         }
-        Ok(())
     } else {
-        Err(Error::from(fails::UnwantedMessageError {
-            message: format!("Was expecting handshake, received {:?}", req),
-        }))
+        priv_conn.borrow_mut().status = ConnectionStatus::Closing;
+        error!(
+            "Peer tried to send packets before handshake was completed (still waiting on \
+             HandshakeRequest)!"
+        );
     }
+    Ok(())
 }
