@@ -55,7 +55,7 @@ pub fn main() -> Fallible<()> {
     create_dir_all(output_path)?;
 
     #[cfg(feature = "profiling")]
-    start_haskell("none", false);
+    start_haskell("none", false, false);
     #[cfg(not(feature = "profiling"))]
     start_haskell();
 

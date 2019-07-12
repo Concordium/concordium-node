@@ -131,7 +131,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
         let encryption_key =
             read_maybe!(cursor, read_bytestring(cursor, "encrypted key's length")?);
 
-        let verification_key = read_bytestring(cursor, "verification key's length")?;
+        let verification_key = read_bytestring_short_length(cursor, "verification key's length")?;
 
         let signature_scheme = SchemeId::try_from(read_ty!(cursor, SchemeId)[0])?;
 
@@ -196,7 +196,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
                 + serialized_bs_list_len(&self.encrypted_amounts)
                 + size_of::<u8>()
                 + encryption_key_len
-                + size_of::<u64>()
+                + size_of::<u16>()
                 + self.verification_key.len()
                 + size_of::<SchemeId>()
                 + size_of::<u64>()
@@ -212,7 +212,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
         let _ = cursor.write_u64::<NetworkEndian>(self.amount);
         write_multiple!(&mut cursor, self.encrypted_amounts, write_bytestring);
         write_maybe!(&mut cursor, self.encryption_key, write_bytestring);
-        write_bytestring(&mut cursor, &self.verification_key);
+        write_bytestring_short_length(&mut cursor, &self.verification_key);
         let _ = cursor.write(&[self.signature_scheme as u8]);
         write_multiple!(&mut cursor, self.credentials, write_bytestring);
 
@@ -329,10 +329,24 @@ pub fn create_serialization_cursor(size: usize) -> Cursor<Box<[u8]>> {
     Cursor::new(buf.into_boxed_slice())
 }
 
+pub fn read_bytestring_short_length(
+    input: &mut Cursor<&[u8]>,
+    object_name: &str,
+) -> Fallible<ByteString> {
+    let object_length = safe_get_len!(input, object_name, 2);
+
+    Ok(Encoded(read_sized!(input, object_length)))
+}
+
 pub fn read_bytestring(input: &mut Cursor<&[u8]>, object_name: &str) -> Fallible<ByteString> {
     let object_length = safe_get_len!(input, object_name, 8);
 
     Ok(Encoded(read_sized!(input, object_length)))
+}
+
+pub fn write_bytestring_short_length<T: Write>(target: &mut T, bytes: &[u8]) {
+    let _ = target.write_u16::<NetworkEndian>(bytes.len() as u16);
+    let _ = target.write_all(&bytes);
 }
 
 pub fn write_bytestring<T: Write>(target: &mut T, bytes: &[u8]) {

@@ -93,7 +93,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Transaction {
         let initial_pos = cursor.position() as usize;
         let signature = read_bytestring(cursor, "transaction signature")?;
         let header = TransactionHeader::deserialize(cursor)?;
-
+        debug!("{:#?}", header);
         let payload_len = NetworkEndian::read_u32(&read_const_sized!(cursor, 4));
         ensure!(
             payload_len <= PAYLOAD_MAX_LEN,

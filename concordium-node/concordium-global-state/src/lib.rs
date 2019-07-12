@@ -135,6 +135,8 @@ macro_rules! safe_get_len {
             NetworkEndian::read_u64(&read_const_sized!($source, 8)) as usize
         } else if $len_size == 4 {
             NetworkEndian::read_u32(&read_const_sized!($source, 4)) as usize
+        } else if $len_size == 2 {
+            NetworkEndian::read_u16(&read_const_sized!($source, 2)) as usize
         } else {
             panic!("Unexpected len size in safe_get_len!")
         };

@@ -25,13 +25,13 @@ pub type VoterSignKey = Encoded;
 pub type VoterPower = u64;
 
 pub const BAKER_VRF_KEY: u8 = 32;
-const BAKER_SIGN_KEY: u8 = 8 + 32; // unnecessary 8B prefix
+const BAKER_SIGN_KEY: u8 = 2 + 32;
 const BAKER_INFO: u8 = BAKER_VRF_KEY
     + BAKER_SIGN_KEY
     + size_of::<LotteryPower>() as u8
     + size_of::<AccountAddress>() as u8;
 
-const VOTER_SIGN_KEY: u8 = 8 + 32; // unnecessary 8B prefix
+const VOTER_SIGN_KEY: u8 = 2 + 32;
 const VOTER_VRF_KEY: u8 = 32;
 pub const VOTER_INFO: u8 = VOTER_SIGN_KEY + VOTER_VRF_KEY + size_of::<VoterPower>() as u8;
 
@@ -112,6 +112,48 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
 }
 
 #[derive(Debug)]
+pub struct CryptographicParameters {
+    pub elgamal_generator:        ByteString,
+    pub attribute_commitment_key: ByteString,
+}
+
+impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for CryptographicParameters {
+    type Source = &'a mut Cursor<&'b [u8]>;
+
+    fn deserialize(mut cursor: Self::Source) -> Fallible<Self> {
+        let initial_pos = cursor.position() as usize;
+
+        let elgamal_generator = read_bytestring(&mut cursor, "elgamal generator")?;
+        let attribute_commitment_key = read_bytestring(&mut cursor, "attribute commitment key")?;
+
+        let crypto_params = CryptographicParameters {
+            elgamal_generator,
+            attribute_commitment_key,
+        };
+
+        let final_pos = cursor.position() as usize;
+
+        check_partial_serialization!(crypto_params, &cursor.get_ref()[initial_pos..final_pos]);
+
+        Ok(crypto_params)
+    }
+
+    fn serialize(&self) -> Box<[u8]> {
+        let mut cursor = create_serialization_cursor(
+            size_of::<u64>()
+                + self.elgamal_generator.len()
+                + size_of::<u64>()
+                + self.attribute_commitment_key.len() as usize,
+        );
+
+        write_bytestring(&mut cursor, &self.elgamal_generator);
+        write_bytestring(&mut cursor, &self.attribute_commitment_key);
+
+        cursor.into_inner()
+    }
+}
+
+#[derive(Debug)]
 pub struct BakerInfo {
     election_verify_key:  BakerElectionVerifyKey,
     signature_verify_key: BakerSignVerifyKey,
@@ -126,7 +168,8 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for BakerInfo {
         let mut cursor = Cursor::new(bytes);
 
         let election_verify_key = Encoded::new(&read_const_sized!(&mut cursor, BAKER_VRF_KEY));
-        let signature_verify_key = read_bytestring(&mut cursor, "baker sign verify key")?;
+        let signature_verify_key =
+            read_bytestring_short_length(&mut cursor, "baker sign verify key")?;
         let lottery_power = NetworkEndian::read_f64(&read_ty!(cursor, LotteryPower));
         let account_address = AccountAddress(read_ty!(cursor, AccountAddress));
 
@@ -146,7 +189,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for BakerInfo {
         let mut cursor = create_serialization_cursor(BAKER_INFO as usize);
 
         let _ = cursor.write_all(&self.election_verify_key);
-        write_bytestring(&mut cursor, &self.signature_verify_key);
+        write_bytestring_short_length(&mut cursor, &self.signature_verify_key);
         let _ = cursor.write_f64::<NetworkEndian>(self.lottery_power);
         let _ = cursor.write_all(&self.account_address.0);
 
@@ -167,7 +210,8 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for VoterInfo {
     fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         let mut cursor = Cursor::new(bytes);
 
-        let signature_verify_key = ByteString::new(&read_const_sized!(&mut cursor, VOTER_SIGN_KEY));
+        let signature_verify_key =
+            read_bytestring_short_length(&mut cursor, "signature verify key")?;
         let election_verify_key = Encoded::new(&read_const_sized!(&mut cursor, VOTER_VRF_KEY));
         let voting_power = NetworkEndian::read_u64(&read_ty!(cursor, VoterPower));
 
@@ -185,7 +229,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for VoterInfo {
     fn serialize(&self) -> Box<[u8]> {
         let mut cursor = create_serialization_cursor(VOTER_INFO as usize);
 
-        let _ = cursor.write_all(&self.signature_verify_key);
+        write_bytestring_short_length(&mut cursor, &self.signature_verify_key);
         let _ = cursor.write_all(&self.election_verify_key);
         let _ = cursor.write_u64::<NetworkEndian>(self.voting_power);
 

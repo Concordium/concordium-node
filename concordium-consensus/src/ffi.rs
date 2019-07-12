@@ -34,9 +34,9 @@ static STOPPED: AtomicBool = AtomicBool::new(false);
 /// The runtime will automatically be shutdown at program exit, or you can stop
 /// it earlier with `stop`.
 #[cfg(all(not(windows), feature = "profiling"))]
-pub fn start_haskell(heap: &str, time: bool) {
+pub fn start_haskell(heap: &str, time: bool, exceptions: bool) {
     START_ONCE.call_once(|| {
-        start_haskell_init(heap, time);
+        start_haskell_init(heap, time, exceptions);
         unsafe {
             ::libc::atexit(stop_nopanic);
         }
@@ -54,26 +54,30 @@ pub fn start_haskell() {
 }
 
 #[cfg(all(not(windows), feature = "profiling"))]
-fn start_haskell_init(heap: &str, time: bool) {
+fn start_haskell_init(heap: &str, time: bool, exceptions: bool) {
     let program_name = std::env::args().take(1).next().unwrap();
     let mut args = vec![program_name.as_str()];
 
     match heap {
         "cost" => {
             args.push("+RTS");
+            args.push("-L100");
             args.push("-hc");
         }
         "module" => {
             args.push("+RTS");
             args.push("-hm");
+            args.push("-L100");
         }
         "description" => {
             args.push("+RTS");
             args.push("-hd");
+            args.push("-L100");
         }
         "type" => {
             args.push("+RTS");
             args.push("-hy");
+            args.push("-L100");
         }
         "none" => {}
         _ => {
@@ -86,6 +90,13 @@ fn start_haskell_init(heap: &str, time: bool) {
             args.push("+RTS");
         }
         args.push("-p");
+    }
+
+    if exceptions {
+        if args.len() == 1 {
+            args.push("+RTS");
+        }
+        args.push("-xc");
     }
 
     if args.len() > 1 {
@@ -130,7 +141,7 @@ fn start_haskell_init() {
 }
 
 #[cfg(windows)]
-fn start_haskell_init(_: bool, _: bool) {
+fn start_haskell_init(_: bool, _: bool, _: bool) {
     // GHC on Windows ignores hs_init arguments and uses GetCommandLineW instead
     // See https://hackage.haskell.org/package/base-4.9.0.0/docs/src/GHC.Environment.html
     let mut argv0 = *b"\0";
@@ -176,6 +187,8 @@ pub enum ConsensusFfiResponse {
     DuplicateEntry,
     Stale,
     IncorrectFinalizationSession,
+    CryptographicProvidersNotLoaded,
+    IdentityProvidersNotLoaded,
 }
 
 impl ConsensusFfiResponse {
@@ -183,7 +196,11 @@ impl ConsensusFfiResponse {
         use ConsensusFfiResponse::*;
 
         match self {
-            BakerNotFound | DeserializationError | InvalidResult => false,
+            BakerNotFound
+            | DeserializationError
+            | InvalidResult
+            | CryptographicProvidersNotLoaded
+            | IdentityProvidersNotLoaded => false,
             _ => true,
         }
     }
@@ -207,6 +224,8 @@ impl TryFrom<i64> for ConsensusFfiResponse {
             6 => Ok(DuplicateEntry),
             7 => Ok(Stale),
             8 => Ok(IncorrectFinalizationSession),
+            9 => Ok(CryptographicProvidersNotLoaded),
+            10 => Ok(IdentityProvidersNotLoaded),
             _ => Err(format_err!("Unsupported FFI return code ({})", value)),
         }
     }
@@ -266,9 +285,11 @@ extern "C" {
     pub fn makeGenesisData(
         genesis_time: u64,
         num_bakers: u64,
+        crypto_providers: *const u8,
+        identity_providers: *const u8,
         genesis_callback: GenerateGenesisDataCallback,
         baker_private_data_callback: GenerateKeypairCallback,
-    );
+    ) -> i64;
 
     // Consensus queries
     pub fn getConsensusStatus(baker: *mut baker_runner) -> *const c_char;

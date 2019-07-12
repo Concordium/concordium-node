@@ -1,5 +1,7 @@
 pub const PAYLOAD_TYPE_LENGTH: u64 = 2;
 pub const FILE_NAME_GENESIS_DATA: &str = "genesis.dat";
+pub const FILE_NAME_CRYPTO_PROV_DATA: &str = "crypto_providers.json";
+pub const FILE_NAME_ID_PROV_DATA: &str = "identity_providers.json";
 pub const FILE_NAME_PREFIX_BAKER_PRIVATE: &str = "baker_private_";
 pub const FILE_NAME_SUFFIX_BAKER_PRIVATE: &str = ".dat";
 
@@ -48,7 +50,11 @@ pub fn start_consensus_layer(
 
         info!("Starting up baker thread");
         #[cfg(feature = "profiling")]
-        ffi::start_haskell(&conf.heap_profiling, conf.time_profiling);
+        ffi::start_haskell(
+            &conf.heap_profiling,
+            conf.time_profiling,
+            conf.backtraces_profiling,
+        );
         #[cfg(not(feature = "profiling"))]
         ffi::start_haskell();
 
@@ -85,7 +91,24 @@ fn get_baker_data(
 
     let (generated_genesis, generated_private_data) =
         if !genesis_loc.exists() || !private_loc.exists() {
-            consensus::ConsensusContainer::generate_data(conf.baker_genesis, conf.baker_num_bakers)?
+            let mut default_crypto_providers = app_prefs.get_user_app_dir();
+            default_crypto_providers.push(FILE_NAME_CRYPTO_PROV_DATA);
+            let mut default_id_providers = app_prefs.get_user_app_dir();
+            default_id_providers.push(FILE_NAME_ID_PROV_DATA);
+            let crypto_providers = conf
+                .cryptographic_providers
+                .clone()
+                .unwrap_or(String::from(default_crypto_providers.to_str().unwrap()));
+            let id_providers = conf
+                .identity_providers
+                .clone()
+                .unwrap_or(String::from(default_id_providers.to_str().unwrap()));
+            consensus::ConsensusContainer::generate_data(
+                conf.baker_genesis,
+                conf.baker_num_bakers,
+                &crypto_providers,
+                &id_providers,
+            )?
         } else {
             (vec![], HashMap::new())
         };

@@ -16,7 +16,6 @@ use std::{
 use crate::{common::*, parameters::*, transaction::*};
 
 const NONCE: u8 = size_of::<BlockHash>() as u8 + PROOF_LENGTH as u8; // should soon be shorter
-const SIGNATURE: u8 = 8 + 64; // FIXME: unnecessary 8B prefix
 const CHRONO_DATE_TIME_LEN: u8 = 12;
 
 pub struct Block {
@@ -132,6 +131,10 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BlockData {
                 8
             );
             let finalization_minimum_skip = NetworkEndian::read_u64(&read_ty!(cursor, BlockHeight));
+            let cryptographic_parameters = CryptographicParameters::deserialize(cursor)?;
+            let mut buffer = Vec::new();
+            cursor.read_to_end(&mut buffer)?;
+            let identity_providers = Encoded::new(&buffer);
 
             let data = BlockData::Genesis(GenesisData {
                 timestamp,
@@ -140,6 +143,8 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BlockData {
                 baker_accounts,
                 finalization_parameters,
                 finalization_minimum_skip,
+                cryptographic_parameters,
+                identity_providers,
             });
 
             Ok(data)
@@ -151,7 +156,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BlockData {
             let last_finalized = HashBytes::from(read_ty!(cursor, BlockHash));
             let transactions =
                 read_multiple!(cursor, "transactions", Transaction::deserialize(cursor)?, 8);
-            let signature = Encoded::new(&read_const_sized!(cursor, SIGNATURE));
+            let signature = read_bytestring_short_length(cursor, "block signature")?;
 
             let data = BlockData::Regular(BakedBlock {
                 pointer,
@@ -171,6 +176,8 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BlockData {
         match self {
             BlockData::Genesis(ref data) => {
                 let birk_params = BirkParameters::serialize(&data.birk_parameters);
+                let cryptographic_parameters =
+                    CryptographicParameters::serialize(&data.cryptographic_parameters);
                 let baker_accounts = serialize_list(&data.baker_accounts);
                 let finalization_params = serialize_list(&data.finalization_parameters);
 
@@ -181,7 +188,12 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BlockData {
                     + list_len(&baker_accounts)
                     + size_of::<u64>()
                     + list_len(&finalization_params)
-                    + size_of::<u64>();
+                    + size_of::<u64>()
+                    + size_of::<u64>()
+                    + data.cryptographic_parameters.elgamal_generator.len()
+                    + size_of::<u64>()
+                    + data.cryptographic_parameters.attribute_commitment_key.len()
+                    + data.identity_providers.len();
                 let mut cursor = create_serialization_cursor(size);
 
                 let _ = cursor.write_u64::<NetworkEndian>(data.timestamp);
@@ -190,6 +202,8 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BlockData {
                 write_multiple!(&mut cursor, baker_accounts, Write::write_all);
                 write_multiple!(&mut cursor, finalization_params, Write::write_all);
                 let _ = cursor.write_u64::<NetworkEndian>(data.finalization_minimum_skip);
+                let _ = cursor.write_all(&cryptographic_parameters);
+                let _ = cursor.write_all(&data.identity_providers);
 
                 cursor.into_inner()
             }
@@ -204,7 +218,8 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BlockData {
                         + size_of::<BlockHash>()
                         + size_of::<u64>()
                         + list_len(&transactions)
-                        + SIGNATURE as usize,
+                        + size_of::<u16>()
+                        + data.signature.len() as usize,
                 );
 
                 let _ = cursor.write_all(&data.pointer);
@@ -213,7 +228,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BlockData {
                 let _ = cursor.write_all(&data.nonce);
                 let _ = cursor.write_all(&data.last_finalized);
                 write_multiple!(&mut cursor, transactions, Write::write_all);
-                let _ = cursor.write_all(&data.signature);
+                write_bytestring_short_length(&mut cursor, &data.signature);
 
                 cursor.into_inner()
             }
@@ -240,6 +255,8 @@ pub struct GenesisData {
     baker_accounts:              Box<[Account]>,
     pub finalization_parameters: Box<[VoterInfo]>,
     finalization_minimum_skip:   BlockHeight,
+    cryptographic_parameters:    CryptographicParameters,
+    identity_providers:          Encoded,
 }
 
 pub type BakerId = u64;

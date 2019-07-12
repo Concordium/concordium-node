@@ -10,6 +10,7 @@ use failure::{bail, Fallible};
 use std::time::Duration;
 use std::{
     collections::HashMap,
+    convert::TryFrom,
     fmt, mem, str,
     sync::{mpsc, Arc, Mutex, RwLock},
     thread, time,
@@ -234,7 +235,12 @@ impl ConsensusContainer {
         }
     }
 
-    pub fn generate_data(genesis_time: u64, num_bakers: u64) -> Fallible<(Vec<u8>, PrivateData)> {
+    pub fn generate_data(
+        genesis_time: u64,
+        num_bakers: u64,
+        crypto_providers: &str,
+        id_providers: &str,
+    ) -> Fallible<(Vec<u8>, PrivateData)> {
         if let Ok(ref mut lock) = GENERATED_GENESIS_DATA.write() {
             **lock = None;
         }
@@ -243,13 +249,32 @@ impl ConsensusContainer {
             lock.clear();
         }
 
-        unsafe {
+        let res = unsafe {
             makeGenesisData(
                 genesis_time,
                 num_bakers,
+                std::ffi::CString::new(crypto_providers)
+                    .expect("CString::new failed")
+                    .as_ptr() as *const u8,
+                std::ffi::CString::new(id_providers)
+                    .expect("CString::new failed")
+                    .as_ptr() as *const u8,
                 on_genesis_generated,
                 on_private_data_generated,
-            );
+            )
+        };
+
+        match ConsensusFfiResponse::try_from(res) {
+            Ok(ConsensusFfiResponse::Success) => {}
+            Ok(ConsensusFfiResponse::CryptographicProvidersNotLoaded) => {
+                error!("Baker can't start: Couldn't read cryptographic providers file!");
+                return Err(failure::Error::from(BakerNotRunning));
+            }
+            Ok(ConsensusFfiResponse::IdentityProvidersNotLoaded) => {
+                error!("Baker can't start: Couldn't read identity providers file!");
+                return Err(failure::Error::from(BakerNotRunning));
+            }
+            _ => unreachable!(),
         }
 
         for _ in 0..num_bakers {
