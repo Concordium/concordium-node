@@ -222,9 +222,14 @@ getBranches sfsRef = runStateQuery sfsRef $ do
     where
         up childrenMap = foldr (\b -> at (bpParent b) . non [] %~ (object ["blockHash" .= hsh b, "children" .= Map.findWithDefault [] b childrenMap] :)) Map.empty
 
-getBlockData :: (SkovStateQueryable z m) => z -> BlockHash -> IO (Maybe Block)
+getBlockData :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> BlockHash -> IO (Maybe Block)
 getBlockData sfsRef bh = runStateQuery sfsRef $
-            fmap bpBlock <$> resolveBlock bh
+            TS.getBlockStatus bh <&> \case
+                Just (TS.BlockAlive bp) -> Just (bpBlock bp)
+                Just (TS.BlockFinalized bp _) -> Just (bpBlock bp)
+                Just (TS.BlockPending pb) -> Just $ NormalBlock (pbBlock pb)
+                Just (TS.BlockDead) -> Nothing
+                Nothing -> Nothing
 
 getBlockDescendant :: (SkovStateQueryable z m) => z -> BlockHash -> BlockHeight -> IO (Maybe Block)
 getBlockDescendant sfsRef ancestor distance = runStateQuery sfsRef $
