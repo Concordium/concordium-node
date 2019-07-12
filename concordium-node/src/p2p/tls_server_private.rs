@@ -399,6 +399,7 @@ impl TlsServerPrivate {
                 (conn.last_seen() + 120_000 < curr_stamp
                     || conn.get_last_ping_sent() + 300_000 < curr_stamp)
                     && conn.is_post_handshake()
+                    && !conn.is_closed()
             })
             .for_each(|ref rc_conn| {
                 let mut conn = write_or_die!(rc_conn);
@@ -442,7 +443,10 @@ impl TlsServerPrivate {
     ) -> usize {
         self.connections
             .iter_mut()
-            .filter(|rc_conn| filter_conn(&read_or_die!(rc_conn)))
+            .filter(|rc_conn| {
+                let rc_conn_borrowed = &read_or_die!(rc_conn);
+                !rc_conn_borrowed.is_closed() && filter_conn(rc_conn_borrowed)
+            })
             .map(|rc_conn| {
                 let conn = read_or_die!(rc_conn);
                 let status = conn.async_send(data.clone(), MessageSendingPriority::Normal);
