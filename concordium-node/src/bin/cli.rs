@@ -320,38 +320,14 @@ fn attain_post_handshake_catch_up(
                     if let Some(net) = nets.iter().next() {
                         let response = consensus_clone.get_finalization_point();
                         if let Ok(bytes) = response {
-                            let mut out_bytes =
-                                Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
-                            match out_bytes.write_u16::<NetworkEndian>(
-                                PacketType::CatchupFinalizationMessagesByPoint as u16,
-                            ) {
-                                Ok(_) => {
-                                    out_bytes.extend(&bytes);
-                                    match send_direct_message(
-                                        node_shared.clone(),
-                                        Some(remote_peer.id()),
-                                        *net,
-                                        None,
-                                        out_bytes,
-                                    ) {
-                                        Ok(_) => info!(
-                                            "Peer {} requested finalization messages by point \
-                                             from peer {}",
-                                            node_shared.self_peer.id,
-                                            remote_peer.id()
-                                        ),
-                                        Err(_) => error!(
-                                            "Peer {} couldn't send a catch-up request for \
-                                             finalization messages by point!",
-                                            node_shared.self_peer.id,
-                                        ),
-                                    }
-                                }
-                                Err(_) => error!(
-                                    "Can't write type to packet {}",
-                                    PacketType::CatchupFinalizationMessagesByPoint
-                                ),
-                            }
+                            send_consensus_msg_to_net(
+                                node_shared.clone(),
+                                Some(remote_peer.id()),
+                                *net,
+                                PacketType::CatchupFinalizationMessagesByPoint,
+                                None,
+                                &bytes,
+                            );
                         }
                     } else {
                         error!("Handshake without network, so can't ask for finalization messages");
@@ -542,19 +518,14 @@ fn start_consensus_threads(
                             RequestedElementType::Transaction => {
                                 let transactions = transactions_cache.get_since(*since);
                                 transactions.iter().for_each(|transaction| {
-                                    if let Err(e) = send_direct_message(
+                                    send_consensus_msg_to_net(
                                         node_shared.clone(),
                                         Some(requester.id()),
                                         *nid,
-                                        None,
-                                        transaction.serialize().into_vec(),
-                                    ) {
-                                        error!(
-                                            "Couldn't send transaction in response to a \
-                                             retransmit request: {}",
-                                            e
-                                        )
-                                    }
+                                        PacketType::Transaction,
+                                        Some(format!("{:?}", transaction)),
+                                        &transaction.serialize(),
+                                    );
                                 })
                             }
                             _ => error!(
