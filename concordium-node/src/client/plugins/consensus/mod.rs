@@ -3,7 +3,7 @@ pub const FILE_NAME_GENESIS_DATA: &str = "genesis.dat";
 pub const FILE_NAME_PREFIX_BAKER_PRIVATE: &str = "baker_private_";
 pub const FILE_NAME_SUFFIX_BAKER_PRIVATE: &str = ".dat";
 
-use byteorder::{ByteOrder, LittleEndian, NetworkEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
 use failure::Fallible;
 
 use std::{
@@ -325,7 +325,7 @@ fn process_external_skov_entry(
         }
         PacketType::CatchupBlockByHash => {
             let hash = HashBytes::new(&request.payload[..SHA256 as usize]);
-            let delta = LittleEndian::read_u64(
+            let delta = NetworkEndian::read_u64(
                 &request.payload[SHA256 as usize..][..mem::size_of::<Delta>()],
             );
             let skov_result = skov.get_block(&hash, delta);
@@ -338,7 +338,7 @@ fn process_external_skov_entry(
         }
         PacketType::CatchupFinalizationRecordByIndex => {
             let idx =
-                LittleEndian::read_u64(&request.payload[..mem::size_of::<FinalizationIndex>()]);
+                NetworkEndian::read_u64(&request.payload[..mem::size_of::<FinalizationIndex>()]);
             let skov_result = skov.get_finalization_record_by_idx(idx);
             (skov_result, false)
         }

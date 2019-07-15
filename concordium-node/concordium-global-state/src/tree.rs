@@ -1,4 +1,4 @@
-use byteorder::{ByteOrder, LittleEndian};
+use byteorder::{ByteOrder, NetworkEndian};
 use chrono::prelude::{DateTime, Utc};
 use circular_queue::CircularQueue;
 use concordium_common::{indexed_vec::IndexedVec, PacketType, SHA256};
@@ -80,7 +80,7 @@ impl fmt::Display for ConsensusMessage {
             PacketType::FinalizationMessage => print_deserialized!(FinalizationMessage),
             PacketType::CatchupBlockByHash => {
                 let hash = HashBytes::new(&self.payload[..SHA256 as usize]);
-                let delta = LittleEndian::read_u64(
+                let delta = NetworkEndian::read_u64(
                     &self.payload[SHA256 as usize..][..mem::size_of::<Delta>()],
                 );
                 let delta = if delta == 0 {
@@ -98,7 +98,7 @@ impl fmt::Display for ConsensusMessage {
                 )
             }
             PacketType::CatchupFinalizationRecordByIndex => {
-                let idx = LittleEndian::read_u64(
+                let idx = NetworkEndian::read_u64(
                     &self.payload[..mem::size_of::<FinalizationIndex>() as usize],
                 );
                 format!(

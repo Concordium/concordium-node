@@ -5,7 +5,6 @@ use std::{
     convert::TryFrom,
     ffi::{CStr, CString},
     io::Cursor,
-    mem,
     os::raw::{c_char, c_int},
     slice,
     sync::{
@@ -615,8 +614,7 @@ pub extern "C" fn on_consensus_data_out(block_type: i64, block_data: *const u8, 
 
 pub unsafe extern "C" fn on_catchup_block_by_hash(peer_id: PeerId, hash: *const u8, delta: Delta) {
     let mut payload = slice::from_raw_parts(hash, common::SHA256 as usize).to_owned();
-    let delta_array = mem::transmute::<Delta, [u8; 8]>(delta);
-    payload.extend_from_slice(&delta_array);
+    payload.extend(&delta.to_be_bytes());
     let payload = Arc::from(payload);
 
     catchup_enqueue(ConsensusMessage::new(
@@ -640,12 +638,10 @@ pub extern "C" fn on_catchup_finalization_record_by_index(
     peer_id: PeerId,
     index: FinalizationIndex,
 ) {
-    let payload = unsafe { Arc::from(mem::transmute::<FinalizationIndex, [u8; 8]>(index)) };
-
     catchup_enqueue(ConsensusMessage::new(
         MessageType::Outbound(Some(peer_id)),
         PacketType::CatchupFinalizationRecordByIndex,
-        payload,
+        Arc::from(index.to_be_bytes()),
     ));
 }
 
