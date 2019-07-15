@@ -274,46 +274,14 @@ fn process_internal_skov_entry(
         _ => {}
     }
 
-    let target = request.target_peer();
-    let mut out_bytes = Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + request.payload.len());
-
-    match out_bytes.write_u16::<NetworkEndian>(request.variant as u16) {
-        Ok(_) => {
-            out_bytes.extend(&*request.payload);
-
-            let self_node_id = node_shared.self_peer.id;
-
-            let res = if request.distribution_mode() == DistributionMode::Direct {
-                send_direct_message(
-                    node_shared,
-                    target.map(P2PNodeId),
-                    network_id,
-                    None,
-                    out_bytes,
-                )
-            } else {
-                send_broadcast_message(node_shared, None, network_id, None, out_bytes)
-            };
-
-            let msg_metadata = if let Some(target) = target {
-                format!("direct message to peer {}", P2PNodeId(target))
-            } else {
-                "broadcast".to_string()
-            };
-
-            match res {
-                Ok(_) => info!(
-                    "Peer {} sent a {} containing a {}",
-                    self_node_id, msg_metadata, entry_info,
-                ),
-                Err(_) => error!(
-                    "Peer {} couldn't send a {} containing a {}!",
-                    self_node_id, msg_metadata, entry_info,
-                ),
-            }
-        }
-        Err(_) => error!("Can't write a consensus message type to a packet"),
-    }
+    send_consensus_msg_to_net(
+        node_shared,
+        request.target_peer().map(P2PNodeId),
+        network_id,
+        request.variant,
+        Some(entry_info),
+        &request.payload,
+    );
 
     Ok(())
 }
@@ -393,22 +361,14 @@ fn process_external_skov_entry(
                 _ => unreachable!("Impossible packet type in a query result!"),
             };
 
-            let mut out_bytes = Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + result.len());
-            out_bytes
-                .write_u16::<NetworkEndian>(return_type as u16)
-                .expect("Can't write to buffer");
-            out_bytes.extend(&*result);
-
-            match send_direct_message(
+            send_consensus_msg_to_net(
                 node_shared.clone(),
                 Some(source),
                 network_id,
-                None,
-                out_bytes,
-            ) {
-                Ok(_) => info!("Peer {} responded to a {}", self_node_id, request),
-                Err(_) => error!("Peer {} couldn't respond to a {}!", self_node_id, request),
-            }
+                return_type,
+                Some(format!("response to a {}", request.variant)),
+                &result,
+            );
         }
         SkovResult::DuplicateEntry => {
             warn!("Skov: got a duplicate {}", request);
@@ -484,4 +444,44 @@ fn send_msg_to_consensus(
     }
 
     Ok(())
+}
+
+pub fn send_consensus_msg_to_net(
+    node_shared: SharedNodeData,
+    target_id: Option<P2PNodeId>,
+    network_id: NetworkId,
+    payload_type: PacketType,
+    payload_desc: Option<String>,
+    payload: &[u8],
+) {
+    let self_node_id = node_shared.self_peer.id;
+    let mut packet_buffer = Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + payload.len());
+    packet_buffer
+        .write_u16::<NetworkEndian>(payload_type as u16)
+        .expect("Can't write a packet payload to buffer");
+    packet_buffer.extend(payload);
+
+    let result = if target_id.is_some() {
+        send_direct_message(node_shared, target_id, network_id, None, packet_buffer)
+    } else {
+        send_broadcast_message(node_shared, None, network_id, None, packet_buffer)
+    };
+
+    let target_desc = if let Some(id) = target_id {
+        format!("direct message to peer {}", id)
+    } else {
+        "broadcast".to_string()
+    };
+    let message_desc = payload_desc.unwrap_or_else(|| payload_type.to_string());
+
+    match result {
+        Ok(_) => info!(
+            "Peer {} sent a {} containing a {}",
+            self_node_id, target_desc, message_desc,
+        ),
+        Err(_) => error!(
+            "Peer {} couldn't send a {} containing a {}!",
+            self_node_id, target_desc, message_desc,
+        ),
+    }
 }
