@@ -235,7 +235,7 @@ type GenerateKeypairCallback = extern "C" fn(baker_id: i64, data: *const u8, dat
 type GenerateGenesisDataCallback = extern "C" fn(data: *const u8, data_length: i64);
 
 extern "C" {
-    pub fn startBaker(
+    pub fn startConsensus(
         genesis_data: *const u8,
         genesis_data_len: i64,
         private_data: *const u8,
@@ -246,6 +246,7 @@ extern "C" {
         missing_finalization_records_by_hash_callback: CatchupFinalizationRequestByBlockHashCallback,
         missing_finalization_records_by_index_callback: CatchupFinalizationRequestByFinalizationIndexCallback,
     ) -> *mut baker_runner;
+    pub fn startBaker(baker: *mut baker_runner);
     pub fn printBlock(block_data: *const u8, data_length: i64);
     pub fn receiveBlock(
         baker: *mut baker_runner,
@@ -345,7 +346,7 @@ impl ConsensusBaker {
         let c_string_private_data = unsafe { CString::from_vec_unchecked(private_data) };
 
         let baker = unsafe {
-            startBaker(
+            let consensus_ptr = startConsensus(
                 c_string_genesis.as_ptr() as *const u8,
                 genesis_data_len as i64,
                 c_string_private_data.as_ptr() as *const u8,
@@ -355,7 +356,10 @@ impl ConsensusBaker {
                 on_catchup_block_by_hash,
                 on_catchup_finalization_record_by_hash,
                 on_catchup_finalization_record_by_index,
-            )
+            );
+            startBaker(consensus_ptr);
+
+            consensus_ptr
         };
 
         // private_data appears to (might be too early to deserialize yet) contain:
