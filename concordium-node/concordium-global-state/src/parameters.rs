@@ -76,8 +76,6 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
 
         let final_pos = cursor.position() as usize;
 
-        check_partial_serialization!(params, &cursor.get_ref()[initial_pos..final_pos]);
-
         Ok(params)
     }
 
