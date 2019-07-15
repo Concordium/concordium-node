@@ -25,6 +25,7 @@ macro_rules! check_serialization {
 
 /// A debug test designed to check whether deserialization is perfectly
 /// reversible in variable-length objects.
+#[allow(unused_macros)]
 macro_rules! check_partial_serialization {
     ($target:expr, $source:expr) => {
         debug_assert_eq!(

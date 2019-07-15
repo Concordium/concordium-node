@@ -266,7 +266,8 @@ extern "C" {
         finalization_data: *const u8,
         data_length: i64,
     ) -> i64;
-    pub fn receiveTransaction(baker: *mut consensus_runner, tx: *const u8, data_length: i64) -> i64;
+    pub fn receiveTransaction(baker: *mut consensus_runner, tx: *const u8, data_length: i64)
+        -> i64;
     pub fn stopBaker(baker: *mut consensus_runner);
     pub fn makeGenesisData(
         genesis_time: u64,
@@ -368,7 +369,7 @@ impl ConsensusContainer {
 
     pub fn send_finalization(&self, peer_id: PeerId, msg: &[u8]) -> ConsensusFfiResponse {
         if self.baker.is_some() {
-             wrap_send_data_to_c!(self, peer_id, msg, receiveFinalization)
+            wrap_send_data_to_c!(self, peer_id, msg, receiveFinalization)
         } else {
             ConsensusFfiResponse::BakerNotFound
         }
@@ -376,7 +377,7 @@ impl ConsensusContainer {
 
     pub fn send_finalization_record(&self, peer_id: PeerId, rec: &[u8]) -> ConsensusFfiResponse {
         if self.baker.is_some() {
-             wrap_send_data_to_c!(self, peer_id, rec, receiveFinalizationRecord)
+            wrap_send_data_to_c!(self, peer_id, rec, receiveFinalizationRecord)
         } else {
             ConsensusFfiResponse::BakerNotFound
         }

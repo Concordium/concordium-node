@@ -8,7 +8,10 @@ use failure::{bail, Fallible};
 use std::time::Duration;
 use std::{
     collections::HashMap,
-    sync::{atomic::{AtomicPtr, Ordering}, mpsc, Arc, Mutex, RwLock},
+    sync::{
+        atomic::{AtomicPtr, Ordering},
+        mpsc, Arc, Mutex, RwLock,
+    },
     thread, time,
 };
 
