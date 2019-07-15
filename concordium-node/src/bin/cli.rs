@@ -164,7 +164,7 @@ fn main() -> Fallible<()> {
             &node,
             cli_kvs_handle,
             (&conf, &app_prefs),
-            consensus,
+            consensus.clone(),
             pkt_out,
             (skov_receiver, skov_sender.clone()),
             &stats_export_service,
@@ -190,9 +190,7 @@ fn main() -> Fallible<()> {
 
     // Shut down the consensus layer
     if let Some(ref mut consensus) = consensus {
-        if conf.cli.baker.baker_id.is_some() {
-            consensus.stop_baker()
-        };
+        consensus.stop();
         ffi::stop_haskell();
     }
 
@@ -319,16 +317,15 @@ fn attain_post_handshake_catch_up(
                 if remote_peer.peer_type() == PeerType::Node {
                     if let Some(net) = nets.iter().next() {
                         let response = consensus_clone.get_finalization_point();
-                        if let Ok(bytes) = response {
-                            send_consensus_msg_to_net(
-                                node_shared.clone(),
-                                Some(remote_peer.id()),
-                                *net,
-                                PacketType::CatchupFinalizationMessagesByPoint,
-                                None,
-                                &bytes,
-                            );
-                        }
+
+                        send_consensus_msg_to_net(
+                            node_shared.clone(),
+                            Some(remote_peer.id()),
+                            *net,
+                            PacketType::CatchupFinalizationMessagesByPoint,
+                            None,
+                            &response,
+                        );
                     } else {
                         error!("Handshake without network, so can't ask for finalization messages");
                     }
@@ -346,7 +343,7 @@ fn start_consensus_threads(
     node: &P2PNode,
     kvs_handle: Arc<RwLock<Rkv>>,
     (conf, app_prefs): (&configuration::Config, &configuration::AppPreferences),
-    baker: &mut consensus::ConsensusContainer,
+    baker: consensus::ConsensusContainer,
     pkt_out: RelayOrStopReceiver<Arc<NetworkMessage>>,
     (skov_receiver, skov_sender): (
         RelayOrStopReceiver<ConsensusMessage>,
@@ -379,16 +376,7 @@ fn start_consensus_threads(
             .read()
             .expect("Can't unlock the kvs env for Skov!");
 
-        let mut skov = baker_clone
-            .baker
-            .read()
-            .map(|optional_baker| {
-                optional_baker
-                    .as_ref()
-                    .map(|baker| Skov::new(&baker.genesis_data, &skov_kvs_env))
-            })
-            .expect("Could not instantiate Skov!")
-            .expect("Could not instantiate Skov!");
+        let mut skov = Skov::new(&baker_clone.genesis, &skov_kvs_env);
 
         loop {
             match skov_receiver.recv() {

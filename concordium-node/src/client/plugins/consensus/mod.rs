@@ -46,7 +46,7 @@ pub fn start_consensus_layer(
             return None;
         }
 
-        info!("Starting up baker thread");
+        info!("Starting up the consensus thread");
         #[cfg(feature = "profiling")]
         ffi::start_haskell(&conf.heap_profiling, conf.time_profiling);
         #[cfg(not(feature = "profiling"))]
@@ -54,13 +54,13 @@ pub fn start_consensus_layer(
 
         match get_baker_data(app_prefs, conf) {
             Ok((genesis_data, private_data)) => {
-                let mut consensus_runner = consensus::ConsensusContainer::default();
-                consensus_runner.start_baker(baker_id, genesis_data, private_data);
+                let mut consensus = consensus::ConsensusContainer::new(genesis_data, private_data);
+                consensus.start_baker(baker_id);
 
-                Some(consensus_runner)
+                Some(consensus)
             }
             Err(_) => {
-                error!("Can't read needed data...");
+                error!("Can't start the consensus layer!");
                 None
             }
         }
@@ -429,7 +429,7 @@ fn send_msg_to_consensus(
         FinalizationMessage => baker.send_finalization(raw_id, &request.payload),
         FinalizationRecord => baker.send_finalization_record(raw_id, &request.payload),
         CatchupFinalizationMessagesByPoint => {
-            baker.get_finalization_messages(raw_id, &request.payload)
+            baker.get_finalization_messages(&request.payload, raw_id)
         }
         _ => unreachable!("Impossible! A Skov-only request was passed on to consensus"),
     };

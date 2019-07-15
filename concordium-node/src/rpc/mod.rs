@@ -200,25 +200,13 @@ macro_rules! authenticate {
 macro_rules! successful_json_response {
     ($self:ident, $ctx:ident, $req:ident, $sink:ident, $inner_match:expr) => {
         if let Some(ref consensus) = $self.consensus {
-            match $inner_match(consensus) {
-                Ok(ref res) => {
-                    let mut r: SuccessfulJsonPayloadResponse = SuccessfulJsonPayloadResponse::new();
-                    r.set_json_value(res.to_owned());
-                    let f = $sink
-                        .success(r)
-                        .map_err(move |e| error!("failed to reply {:?}: {:?}", $req, e));
-                    $ctx.spawn(f);
-                }
-                _ => {
-                    let f = $sink
-                        .fail(::grpcio::RpcStatus::new(
-                            ::grpcio::RpcStatusCode::Internal,
-                            None,
-                        ))
-                        .map_err(move |e| error!("failed to reply {:?}: {:?}", $req, e));
-                    $ctx.spawn(f);
-                }
-            }
+            let res = $inner_match(consensus);
+            let mut r: SuccessfulJsonPayloadResponse = SuccessfulJsonPayloadResponse::new();
+            r.set_json_value(res.to_owned());
+            let f = $sink
+                .success(r)
+                .map_err(move |e| error!("failed to reply {:?}: {:?}", $req, e));
+            $ctx.spawn(f);
         }
     };
 }
@@ -226,25 +214,13 @@ macro_rules! successful_json_response {
 macro_rules! successful_byte_response {
     ($self:ident, $ctx:ident, $req:ident, $sink:ident, $inner_match:expr) => {
         if let Some(ref consensus) = $self.consensus {
-            match $inner_match(consensus) {
-                Ok(res) => {
-                    let mut r: SuccessfulBytePayloadResponse = SuccessfulBytePayloadResponse::new();
-                    r.set_payload(res);
-                    let f = $sink
-                        .success(r)
-                        .map_err(move |e| error!("failed to reply {:?}: {:?}", $req, e));
-                    $ctx.spawn(f);
-                }
-                _ => {
-                    let f = $sink
-                        .fail(::grpcio::RpcStatus::new(
-                            ::grpcio::RpcStatusCode::Internal,
-                            None,
-                        ))
-                        .map_err(move |e| error!("failed to reply {:?}: {:?}", $req, e));
-                    $ctx.spawn(f);
-                }
-            }
+            let res = $inner_match(consensus);
+            let mut r: SuccessfulBytePayloadResponse = SuccessfulBytePayloadResponse::new();
+            r.set_payload(res);
+            let f = $sink
+                .success(r)
+                .map_err(move |e| error!("failed to reply {:?}: {:?}", $req, e));
+            $ctx.spawn(f);
         }
     };
 }
