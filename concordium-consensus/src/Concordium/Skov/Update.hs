@@ -740,7 +740,7 @@ newtype BFSM m a = BufferedFinalizationSkovMonad {runBufferedFinalizationSkovMon
     deriving TreeStateMonad via (Basic.SkovTreeState SkovBufferedFinalizationState (RWST FinalizationInstance (Endo [BufferedSkovFinalizationEvent]) SkovBufferedFinalizationState m))
     deriving SkovQueryMonad via (TSSkovWrapper (Basic.SkovTreeState SkovBufferedFinalizationState (RWST FinalizationInstance (Endo [BufferedSkovFinalizationEvent]) SkovBufferedFinalizationState m)))
     deriving SkovMonad via (TSSkovBufferedFinalizationWrapper FinalizationInstance (Endo [BufferedSkovFinalizationEvent]) SkovBufferedFinalizationState (BFSM m))
-    deriving (FinalizationMonad SkovBufferedFinalizationState) via (TSSkovFinalizationWrapper FinalizationInstance (Endo [BufferedSkovFinalizationEvent]) SkovBufferedFinalizationState (BFSM m))
+    deriving (FinalizationMonad SkovBufferedFinalizationState) via (TSSkovBufferedFinalizationWrapper FinalizationInstance (Endo [BufferedSkovFinalizationEvent]) SkovBufferedFinalizationState (BFSM m))
 type instance UpdatableBlockState (BFSM m) = Basic.BlockState
 type instance BlockPointer (BFSM m) = Basic.BlockPointer
 
