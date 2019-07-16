@@ -38,9 +38,9 @@ static STOPPED: AtomicBool = AtomicBool::new(false);
 /// The runtime will automatically be shutdown at program exit, or you can stop
 /// it earlier with `stop`.
 #[cfg(all(not(windows), feature = "profiling"))]
-pub fn start_haskell(heap: &str, time: bool) {
+pub fn start_haskell(heap: &str, time: bool, gc_log: Option<String>) {
     START_ONCE.call_once(|| {
-        start_haskell_init(heap, time);
+        start_haskell_init(heap, time, gc_log);
         unsafe {
             ::libc::atexit(stop_nopanic);
         }
@@ -58,26 +58,26 @@ pub fn start_haskell() {
 }
 
 #[cfg(all(not(windows), feature = "profiling"))]
-fn start_haskell_init(heap: &str, time: bool) {
+fn start_haskell_init(heap: &str, time: bool, gc_log: Option<String>) {
     let program_name = std::env::args().take(1).next().unwrap();
-    let mut args = vec![program_name.as_str()];
+    let mut args = vec![program_name.to_owned()];
+
+    if heap != "none" || time || gc_log.is_some() {
+        args.push("+RTS".to_owned());
+    }
 
     match heap {
         "cost" => {
-            args.push("+RTS");
-            args.push("-hc");
+            args.push("-hc".to_owned());
         }
         "module" => {
-            args.push("+RTS");
-            args.push("-hm");
+            args.push("-hm".to_owned());
         }
         "description" => {
-            args.push("+RTS");
-            args.push("-hd");
+            args.push("-hd".to_owned());
         }
         "type" => {
-            args.push("+RTS");
-            args.push("-hy");
+            args.push("-hy".to_owned());
         }
         "none" => {}
         _ => {
@@ -86,14 +86,15 @@ fn start_haskell_init(heap: &str, time: bool) {
     }
 
     if time {
-        if args.len() == 1 {
-            args.push("+RTS");
-        }
-        args.push("-p");
+        args.push("-p".to_owned());
+    }
+
+    if gc_log.is_some() {
+        args.push(format!("-S{}", gc_log.unwrap()));
     }
 
     if args.len() > 1 {
-        args.push("-RTS");
+        args.push("-RTS".to_owned());
     }
 
     info!(
@@ -102,7 +103,7 @@ fn start_haskell_init(heap: &str, time: bool) {
     );
     let args = args
         .iter()
-        .map(|arg| CString::new(*arg).unwrap())
+        .map(|arg| CString::new(arg.as_bytes()).unwrap())
         .collect::<Vec<CString>>();
     let c_args = args
         .iter()

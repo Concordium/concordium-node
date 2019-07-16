@@ -48,7 +48,11 @@ pub fn start_consensus_layer(
 
         info!("Starting up the consensus thread");
         #[cfg(feature = "profiling")]
-        ffi::start_haskell(&conf.heap_profiling, conf.time_profiling);
+        ffi::start_haskell(
+            &conf.heap_profiling,
+            conf.time_profiling,
+            conf.gc_logging.clone(),
+        );
         #[cfg(not(feature = "profiling"))]
         ffi::start_haskell();
 
