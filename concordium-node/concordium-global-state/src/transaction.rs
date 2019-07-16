@@ -36,7 +36,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionHeader {
 
     fn deserialize(cursor: Self::Source) -> Fallible<Self> {
         let scheme_id = SchemeId::try_from(read_const_sized!(cursor, 1)[0])?;
-        let sender_key = read_bytestring(cursor, "sender key's length")?;
+        let sender_key = read_bytestring_short_length(cursor, "sender key's length")?;
 
         let nonce_raw = NetworkEndian::read_u64(&read_ty!(cursor, Nonce));
         let nonce = Nonce::try_from(nonce_raw)?;
@@ -60,7 +60,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionHeader {
     fn serialize(&self) -> Box<[u8]> {
         let mut cursor = create_serialization_cursor(
             size_of::<SchemeId>()
-                + size_of::<u64>()
+                + size_of::<u16>()
                 + self.sender_key.len()
                 + size_of::<Nonce>()
                 + size_of::<Energy>()
@@ -68,7 +68,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionHeader {
         );
 
         let _ = cursor.write(&[self.scheme_id as u8]);
-        let _ = cursor.write_u64::<NetworkEndian>(self.sender_key.len() as u64);
+        let _ = cursor.write_u16::<NetworkEndian>(self.sender_key.len() as u16);
         let _ = cursor.write_all(&self.sender_key);
         let _ = cursor.write_u64::<NetworkEndian>(self.nonce.0.get());
         let _ = cursor.write_u64::<NetworkEndian>(self.gas_amount);
@@ -91,7 +91,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Transaction {
 
     fn deserialize(cursor: Self::Source) -> Fallible<Self> {
         let initial_pos = cursor.position() as usize;
-        let signature = read_bytestring(cursor, "transaction signature")?;
+        let signature = read_bytestring_short_length(cursor, "transaction signature")?;
         let header = TransactionHeader::deserialize(cursor)?;
         debug!("{:#?}", header);
         let payload_len = NetworkEndian::read_u32(&read_const_sized!(cursor, 4));
@@ -111,8 +111,10 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Transaction {
             payload,
             hash,
         };
-
-        check_serialization!(transaction, cursor);
+        check_partial_serialization!(
+            transaction,
+            &cursor.get_ref()[initial_pos..cursor.position() as usize]
+        );
 
         Ok(transaction)
     }
@@ -122,14 +124,14 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Transaction {
         let payload = self.payload.serialize();
 
         let mut cursor = create_serialization_cursor(
-            size_of::<u64>()
+            size_of::<u16>()
                 + self.signature.len()
                 + header.len()
                 + size_of::<u32>()
                 + payload.len(),
         );
 
-        let _ = cursor.write_u64::<NetworkEndian>(self.signature.len() as u64);
+        let _ = cursor.write_u16::<NetworkEndian>(self.signature.len() as u16);
         let _ = cursor.write_all(&self.signature);
         let _ = cursor.write_all(&header);
         let _ = cursor.write_u32::<NetworkEndian>(payload.len() as u32);
@@ -313,13 +315,14 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
                 Ok(TransactionPayload::DeployCredential(credential))
             }
             TransactionType::DeployEncryptionKey => {
-                let ek = read_bytestring(cursor, "encryption key to deploy")?;
+                let ek = read_bytestring_short_length(cursor, "encryption key to deploy")?;
 
                 Ok(TransactionPayload::DeployEncryptionKey(ek))
             }
             TransactionType::AddBaker => {
                 let election_verify_key = Encoded::new(&read_const_sized!(cursor, BAKER_VRF_KEY));
-                let signature_verify_key = read_bytestring(cursor, "baker sign verify key")?;
+                let signature_verify_key =
+                    read_bytestring_short_length(cursor, "baker sign verify key")?;
                 let account_address = AccountAddress(read_ty!(cursor, AccountAddress));
                 let proof = read_bytestring(cursor, "baker addition proof")?;
 
@@ -349,7 +352,8 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
             }
             TransactionType::UpdateBakerSignKey => {
                 let id = NetworkEndian::read_u64(&read_ty!(cursor, BakerId));
-                let signature_verify_key = read_bytestring(cursor, "baker sign verify key")?;
+                let signature_verify_key =
+                    read_bytestring_short_length(cursor, "baker sign verify key")?;
                 let proof = read_bytestring(cursor, "baker update proof")?;
 
                 Ok(TransactionPayload::UpdateBakerSignKey {
@@ -411,7 +415,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
                 let _ = cursor.write_all(&credential);
             }
             TransactionPayload::DeployEncryptionKey(ek) => {
-                let _ = cursor.write_u64::<NetworkEndian>(ek.len() as u64);
+                let _ = cursor.write_u16::<NetworkEndian>(ek.len() as u16);
                 let _ = cursor.write_all(&ek);
             }
             TransactionPayload::AddBaker {
@@ -421,7 +425,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
                 proof,
             } => {
                 let _ = cursor.write_all(&election_verify_key);
-                write_bytestring(&mut cursor, &signature_verify_key);
+                write_bytestring_short_length(&mut cursor, &signature_verify_key);
                 let _ = cursor.write_all(&account_address.0);
                 write_bytestring(&mut cursor, &proof);
             }
@@ -444,7 +448,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
                 proof,
             } => {
                 let _ = cursor.write_u64::<NetworkEndian>(*id);
-                write_bytestring(&mut cursor, &signature_verify_key);
+                write_bytestring_short_length(&mut cursor, &signature_verify_key);
                 write_bytestring(&mut cursor, &proof);
             }
             TransactionPayload::DelegateStake(id) => {
