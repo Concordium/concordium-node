@@ -209,11 +209,23 @@ emptyPendingTransactionTable = HM.empty
 -- |Insert an additional element in the pending transaction table.
 -- If the account does not yet exist create it.
 -- NB: This only updates the pending table, and does not ensure that invariants elsewhere are maintained.
+-- PRECONDITION: the next nonce should be less than or equal to the transaction nonce.
 extendPendingTransactionTable :: TransactionData t => Nonce -> t -> PendingTransactionTable -> PendingTransactionTable
 extendPendingTransactionTable nextNonce tx pt = assert (nextNonce <= nonce) $
   HM.alter (\case Nothing -> Just (nextNonce, nonce)
                   Just (l, u) -> Just (l, max u nonce)) (transactionSender tx) pt
   where nonce = transactionNonce tx
+
+-- |Insert an additional element in the pending transaction table.
+-- Does nothing if the next nonce is greater than the transaction nonce.
+-- If the account does not yet exist create it.
+-- NB: This only updates the pending table, and does not ensure that invariants elsewhere are maintained.
+checkedExtendPendingTransactionTable :: TransactionData t => Nonce -> t -> PendingTransactionTable -> PendingTransactionTable
+checkedExtendPendingTransactionTable nextNonce tx pt = if nextNonce > nonce then pt else
+  HM.alter (\case Nothing -> Just (nextNonce, nonce)
+                  Just (l, u) -> Just (l, max u nonce)) (transactionSender tx) pt
+  where nonce = transactionNonce tx
+
 
 forwardPTT :: [Transaction] -> PendingTransactionTable -> PendingTransactionTable
 forwardPTT trs ptt0 = foldl forward1 ptt0 trs
