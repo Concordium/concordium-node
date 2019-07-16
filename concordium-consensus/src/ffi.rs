@@ -62,31 +62,27 @@ fn start_haskell_init(heap: &str, time: bool, gc_log: Option<String>) {
     let program_name = std::env::args().take(1).next().unwrap();
     let mut args = vec![program_name.to_owned()];
 
+    if heap != "none" || time || gc_log.is_some() {
+        args.push("+RTS".to_owned());
+    }
+
     match heap {
         "cost" => {
-            args.push("+RTS".to_owned());
             args.push("-hc".to_owned());
         }
         "module" => {
-            args.push("+RTS".to_owned());
             args.push("-hm".to_owned());
         }
         "description" => {
-            args.push("+RTS".to_owned());
             args.push("-hd".to_owned());
         }
         "type" => {
-            args.push("+RTS".to_owned());
             args.push("-hy".to_owned());
         }
         "none" => {}
         _ => {
             error!("Wrong heap profiling option provided: {}", heap);
         }
-    }
-
-    if args.len() == 1 && (time || gc_log.is_some()) {
-        args.push("+RTS".to_owned());
     }
 
     if time {
