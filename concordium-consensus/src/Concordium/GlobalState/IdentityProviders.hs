@@ -106,6 +106,3 @@ instance S.Serialize IdentityProviderData where
     ipVerifyKey <- S.get
     ipArInfo <- S.get
     return IdentityProviderData{..}
-
-test :: FilePath -> IO (Maybe IdentityProviderData)
-test f = decode <$> BSL.readFile f
