@@ -167,7 +167,6 @@ then
     ARGS="$ARGS $PROFILING_ARGS"
 fi
 
-
 if [ "$MODE" == "tps_receiver" ]; then
     echo "Receiver!"
 
