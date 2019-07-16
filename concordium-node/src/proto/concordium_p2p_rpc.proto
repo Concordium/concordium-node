@@ -213,4 +213,6 @@ service P2P {
   rpc DumpStop(Empty) returns (SuccessResponse) {}
   rpc RetransmitRequest(RetransmitRequestMessage) returns (SuccessResponse) {}
   rpc GetSkovStats(Empty) returns (SuccesfulStructResponse) {}
+
+  rpc IsBaker(Empty) returns (SuccessResponse) {}
 }

@@ -373,4 +373,14 @@ impl P2P for P2PServiceForwarder {
     ) {
         forward_to_targets!(self.targets, get_skov_stats, ctx, req, sink);
     }
+
+
+    fn is_baker(
+        &self,
+        ctx: ::grpcio::RpcContext<'_>,
+        req: Empty,
+        sink: ::grpcio::UnarySink<SuccessResponse>,
+    ) {
+        forward_to_targets!(self.targets, is_baker, ctx, req, sink);
+    }
 }

@@ -1239,6 +1239,31 @@ impl P2P for RpcServerImpl {
         let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
         ctx.spawn(f);
     }
+
+    fn is_baker(
+        &self,
+        ctx: ::grpcio::RpcContext<'_>,
+        req: Empty,
+        sink: ::grpcio::UnarySink<SuccessResponse>,
+    ) {
+        /*let f = if let Ok(mut node) = self.node.lock() {
+            let mut r: SuccessResponse = SuccessResponse::new();
+            r.set_value(node.close().is_ok());
+            sink.success(r)
+        } else {
+            sink.fail(grpcio::RpcStatus::new(
+                grpcio::RpcStatusCode::ResourceExhausted,
+                Some("Node can't be locked".to_string()),
+            ))
+        };
+        let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+        ctx.spawn(f);
+        */
+
+        let mut r : SuccessResponse = SuccessResponse::new();
+        r.set_value(self.consensus.is_some());
+        ctx.spawn(sink.success(r).map_err(move |e| error!("failed to reply {:?}: {:?}", req, e)))
+    }
 }
 
 #[cfg(test)]
