@@ -1,9 +1,8 @@
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE RecordWildCards, OverloadedStrings #-}
 module Concordium.Startup where
 
 import System.Random
 import qualified Data.ByteString.Char8 as BS
-import qualified Data.Map as Map
 
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.Crypto.BlockSignature as Sig
@@ -48,9 +47,6 @@ makeGenesisData genesisTime nBakers genesisSlotDuration elecDiff finMinSkip gene
         genesisBirkParameters =
             BirkParameters (BS.pack "LeadershipElectionNonce")
                            elecDiff -- voting power
-                           (Bakers (Map.fromList $ [(bid, binfo) | (BakerIdentity bid _ _ _ _, binfo) <- bakers])
-                             (sum [_bakerStake binfo | (_, binfo) <- bakers])
-                             (fromIntegral nBakers) -- next available baker id (since baker ids start with 0
-                           )
+                           (bakersFromList (snd <$> bakers))
         genesisFinalizationParameters = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, BakerInfo vrfk vvk _ _) <- bakers] finMinSkip
         (bakers, genesisBakerAccounts) = unzip (makeBakers nBakers)

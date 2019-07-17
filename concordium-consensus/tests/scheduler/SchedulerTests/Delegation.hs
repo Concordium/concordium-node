@@ -30,9 +30,6 @@ import Concordium.GlobalState.Bakers
 import Concordium.Scheduler.Types hiding (accountAddress, Payload(..))
 
 import System.Random
-import Debug.Trace
-
-
 import Lens.Micro.Platform
 
 import SchedulerTests.DummyData

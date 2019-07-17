@@ -96,7 +96,7 @@ executables:
                 ghc-options: -static
     dependencies:
     - Concordium
-
+  
   Concordium-catchup:
     main:                Main.hs
     source-dirs:         catchup
@@ -120,6 +120,29 @@ executables:
                 ghc-options: -static
     dependencies:
     - Concordium
+  
+  genesis:
+    main:         Genesis.hs
+    source-dirs:  genesis
+    ghc-options:
+    - -Wall
+    - -Wcompat
+    - -fno-ignore-asserts
+    when:
+      - condition: os(windows)
+        then:
+          ghc-options: -static
+        else:
+          when:
+            - condition: flag(dynamic)
+              then:
+                ghc-options: -dynamic
+              else:
+                ghc-options: -static
+    dependencies:
+    - Concordium
+    - cmdargs >= 0.10
+    - filepath >= 1.4
 
 tests:
   Concordium-test:

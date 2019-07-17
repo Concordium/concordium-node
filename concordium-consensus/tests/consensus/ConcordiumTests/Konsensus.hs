@@ -318,9 +318,7 @@ initialiseStates n = do
         let bns = [0..fromIntegral n - 1]
         bis <- mapM (\i -> (i,) <$> makeBaker i 1) bns
         let bps = BirkParameters "LeadershipElectionNonce" 0.5
-                (Bakers (Map.fromList [(i, b) | (i, (b, _, _)) <- bis])
-                    (fromIntegral n)
-                    (fromIntegral n)) -- next available baker id
+                (bakersFromList $ (^. _2 . _1) <$> bis)
             fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _ _, _, _)) <- bis] 2
             bakerAccounts = map (\(_, (_, _, acc)) -> acc) bis
             gen = GenesisData 0 1 bps bakerAccounts fps dummyCryptographicParameters dummyIdentityProviders
