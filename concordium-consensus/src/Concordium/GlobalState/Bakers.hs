@@ -47,7 +47,7 @@ emptyBakers = Bakers Map.empty Map.empty 0 0
 bakersFromList :: [BakerInfo] -> Bakers
 bakersFromList bkrs = Bakers {
         _bakerMap = Map.fromList $ ibkrs,
-        _bakersByKey = foldr (\(k,v) -> Map.insertWith (++) k v) Map.empty [((_bakerSignatureVerifyKey, _bakerElectionVerifyKey), [id]) | (id, BakerInfo{..}) <- ibkrs],
+        _bakersByKey = foldr (\(k,v) -> Map.insertWith (++) k v) Map.empty [((_bakerSignatureVerifyKey, _bakerElectionVerifyKey), [bid]) | (bid, BakerInfo{..}) <- ibkrs],
         _bakerTotalStake = sum $ _bakerStake <$> bkrs,
         _nextBakerId = fromIntegral $ length bkrs
     }
