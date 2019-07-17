@@ -1249,7 +1249,7 @@ impl P2P for RpcServerImpl {
         let mut r: SuccessResponse = SuccessResponse::new();
         r.set_value(match self.consensus {
             Some(ref x) => x.is_baking(),
-            None => false
+            None => false,
         });
         ctx.spawn(
             sink.success(r)
