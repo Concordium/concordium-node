@@ -567,13 +567,11 @@ impl P2P for RpcServerImpl {
                     .expect("Time went backwards")
                     .as_secs();
                 resp.set_current_localtime(curtime);
-                // TODO: use enums for matching
-                let peer_type = match &format!("{:?}", peer_type)[..] {
-                    "Node" => "Node",
-                    "Bootstrapper" => "Bootstrapper",
-                    _ => panic!(),
-                };
                 resp.set_peer_type(peer_type.to_string());
+                resp.set_is_baker(match self.consensus {
+                    Some(ref x) => x.is_baking(),
+                    None => false,
+                });
                 sink.success(resp)
             } else {
                 sink.fail(grpcio::RpcStatus::new(
@@ -1238,23 +1236,6 @@ impl P2P for RpcServerImpl {
         };
         let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
         ctx.spawn(f);
-    }
-
-    fn is_baker(
-        &self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: Empty,
-        sink: ::grpcio::UnarySink<SuccessResponse>,
-    ) {
-        let mut r: SuccessResponse = SuccessResponse::new();
-        r.set_value(match self.consensus {
-            Some(ref x) => x.is_baking(),
-            None => false,
-        });
-        ctx.spawn(
-            sink.success(r)
-                .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e)),
-        )
     }
 }
 

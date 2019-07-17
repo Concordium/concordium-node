@@ -84,6 +84,7 @@ message NodeInfoResponse {
   google.protobuf.StringValue node_id = 1;
   uint64 current_localtime = 2;
   string peer_type = 3;
+  bool is_baker = 4;
 }
 
 message SuccessfulJsonPayloadResponse {
@@ -213,6 +214,4 @@ service P2P {
   rpc DumpStop(Empty) returns (SuccessResponse) {}
   rpc RetransmitRequest(RetransmitRequestMessage) returns (SuccessResponse) {}
   rpc GetSkovStats(Empty) returns (SuccesfulStructResponse) {}
-
-  rpc IsBaker(Empty) returns (SuccessResponse) {}
 }
