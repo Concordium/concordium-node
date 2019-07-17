@@ -59,7 +59,7 @@ impl RpcServerImplShared {
 
 #[derive(Clone)]
 pub struct RpcServerImpl {
-    node:         Arc<Mutex<P2PNode>>,
+    node:         Arc<RwLock<P2PNode>>,
     listen_port:  u16,
     listen_addr:  String,
     access_token: String,
@@ -81,7 +81,7 @@ impl RpcServerImpl {
         let dptr = RpcServerImplShared::new(subscription_queue_out, node.rpc_queue.clone());
 
         RpcServerImpl {
-            node: Arc::new(Mutex::new(node)),
+            node: Arc::new(RwLock::new(node)),
             listen_addr: conf.rpc_server_addr.clone(),
             listen_port: conf.rpc_server_port,
             access_token: conf.rpc_server_token.clone(),
@@ -125,7 +125,7 @@ impl RpcServerImpl {
             let msg = req.get_message().get_value().to_vec();
             let network_id = NetworkId::from(req.get_network_id().get_value() as u16);
 
-            let node_shared = safe_lock!(self.node)?.thread_shared.clone();
+            let node_shared = safe_read!(self.node)?.thread_shared.clone();
 
             if req.has_node_id() && !req.get_broadcast().get_value() && req.has_network_id() {
                 let id = P2PNodeId::from_str(&req.get_node_id().get_value().to_string())?;
@@ -243,7 +243,7 @@ impl P2P for RpcServerImpl {
                 });
                 let port = req.get_port().get_value() as u16;
                 let addr = SocketAddr::new(ip, port);
-                if let Ok(mut node) = self.node.lock() {
+                if let Ok(mut node) = self.node.write() {
                     r.set_value(node.connect(PeerType::Node, addr, None).is_ok());
                     sink.success(r)
                 } else {
@@ -285,7 +285,7 @@ impl P2P for RpcServerImpl {
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
             let mut r: NumberResponse = NumberResponse::new();
-            let f = if let Ok(node) = self.node.lock() {
+            let f = if let Ok(node) = self.node.read() {
                 let uptime = node.get_uptime() as u64;
                 r.set_value(uptime);
                 sink.success(r)
@@ -412,7 +412,7 @@ impl P2P for RpcServerImpl {
                     req.get_network_id().get_value()
                 );
                 let network_id = NetworkId::from(req.get_network_id().get_value() as u16);
-                if let Ok(mut node) = self.node.lock() {
+                if let Ok(mut node) = self.node.write() {
                     node.thread_shared.send_joinnetwork(network_id);
                     r.set_value(true);
                     sink.success(r)
@@ -448,7 +448,7 @@ impl P2P for RpcServerImpl {
                     req.get_network_id().get_value()
                 );
                 let network_id = NetworkId::from(req.get_network_id().get_value() as u16);
-                if let Ok(mut node) = self.node.lock() {
+                if let Ok(mut node) = self.node.write() {
                     node.thread_shared.send_leavenetwork(network_id);
                     r.set_value(true);
                     sink.success(r)
@@ -474,9 +474,10 @@ impl P2P for RpcServerImpl {
         sink: ::grpcio::UnarySink<PeerStatsResponse>,
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
-            let f = if let Ok(node) = self.node.lock() {
-                let data = node
-                    .get_peer_stats(&[])
+            let peer_stats = self.node.read().map(|node| node.get_peer_stats(&[]));
+
+            let f = if let Ok(peer_stats) = peer_stats {
+                let data = peer_stats
                     .iter()
                     .map(|x| {
                         let mut peer_resp = PeerStatsResponse_PeerStats::new();
@@ -510,9 +511,13 @@ impl P2P for RpcServerImpl {
         sink: ::grpcio::UnarySink<PeerListResponse>,
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
-            let f = if let Ok(node) = self.node.lock() {
-                let data = node
-                    .get_peer_stats(&[])
+            let data = self
+                .node
+                .read()
+                .map(|node| (node.peer_type(), node.get_peer_stats(&[])));
+
+            let f = if let Ok((peer_type, peer_stats)) = data {
+                let data = peer_stats
                     .iter()
                     .map(|x| {
                         let mut peer_resp = PeerElement::new();
@@ -529,7 +534,7 @@ impl P2P for RpcServerImpl {
                     })
                     .collect();
                 let mut resp = PeerListResponse::new();
-                let peer_type = match &format!("{:?}", node.peer_type())[..] {
+                let peer_type = match &format!("{:?}", peer_type)[..] {
                     "Node" => "Node",
                     "Bootstrapper" => "Bootstrapper",
                     _ => panic!(),
@@ -557,7 +562,7 @@ impl P2P for RpcServerImpl {
         authenticate!(ctx, req, sink, self.access_token, {
             let mut resp = NodeInfoResponse::new();
             let mut node_id = ::protobuf::well_known_types::StringValue::new();
-            let f = if let Ok(node) = self.node.lock() {
+            let f = if let Ok(node) = self.node.read() {
                 let (id, peer_type) = (node.id(), node.peer_type());
 
                 node_id.set_value(id.to_string());
@@ -597,7 +602,7 @@ impl P2P for RpcServerImpl {
         sink: ::grpcio::UnarySink<SuccessResponse>,
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
-            let f = if let Ok(mut node) = self.node.lock() {
+            let f = if let Ok(mut node) = self.node.write() {
                 node.rpc_subscription_start();
                 let mut r: SuccessResponse = SuccessResponse::new();
                 r.set_value(true);
@@ -620,7 +625,7 @@ impl P2P for RpcServerImpl {
         sink: ::grpcio::UnarySink<SuccessResponse>,
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
-            let f = if let Ok(mut node) = self.node.lock() {
+            let f = if let Ok(mut node) = self.node.write() {
                 let mut r: SuccessResponse = SuccessResponse::new();
                 r.set_value(node.rpc_subscription_stop());
                 sink.success(r)
@@ -708,7 +713,7 @@ impl P2P for RpcServerImpl {
             };
 
             let f = if let Some(to_ban) = banned_node {
-                if let Ok(mut node) = self.node.lock() {
+                if let Ok(mut node) = self.node.write() {
                     let store_key = to_ban.to_db_repr();
 
                     match insert_ban(&self.kvs_handle, &store_key) {
@@ -764,7 +769,7 @@ impl P2P for RpcServerImpl {
             };
 
             let f = if let Some(to_unban) = banned_node {
-                if let Ok(mut node) = self.node.lock() {
+                if let Ok(mut node) = self.node.write() {
                     let store_key = to_unban.to_db_repr();
 
                     match remove_ban(&self.kvs_handle, &store_key) {
@@ -961,7 +966,7 @@ impl P2P for RpcServerImpl {
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
             let mut r: PeerListResponse = PeerListResponse::new();
-            let f = if let Ok(node) = self.node.lock() {
+            let f = if let Ok(node) = self.node.read() {
                 r.set_peer(::protobuf::RepeatedField::from_vec(
                     node.get_banlist()
                         .iter()
@@ -1001,7 +1006,7 @@ impl P2P for RpcServerImpl {
         req: Empty,
         sink: ::grpcio::UnarySink<SuccessResponse>,
     ) {
-        let f = if let Ok(mut node) = self.node.lock() {
+        let f = if let Ok(mut node) = self.node.write() {
             let mut r: SuccessResponse = SuccessResponse::new();
             r.set_value(node.close().is_ok());
             sink.success(r)
@@ -1022,7 +1027,7 @@ impl P2P for RpcServerImpl {
         req: TpsRequest,
         sink: ::grpcio::UnarySink<SuccessResponse>,
     ) {
-        let f = if let Ok(locked_node) = self.node.lock() {
+        let f = if let Ok(locked_node) = self.node.read() {
             let (network_id, id, dir) = (
                 NetworkId::from(req.network_id as u16),
                 req.id.clone(),
@@ -1183,7 +1188,7 @@ impl P2P for RpcServerImpl {
         req: RetransmitRequestMessage,
         sink: ::grpcio::UnarySink<SuccessResponse>,
     ) {
-        let f = if let Ok(mut node) = self.node.lock() {
+        let f = if let Ok(mut node) = self.node.write() {
             if req.has_since() {
                 let mut r: SuccessResponse = SuccessResponse::new();
                 node.thread_shared.send_retransmit(
