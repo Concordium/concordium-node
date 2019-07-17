@@ -115,26 +115,28 @@ deserializeBase16 t =
     where
         (bs, rest) = BS16.decode (Text.encodeUtf8 t)
 
+-- |Use the serialize instance to convert from base 16 to value, but add
+-- explicit length as 4 bytes big endian in front.
+deserializeBase16WithLength4 :: (Serialize a, MonadFail m) => Text.Text -> m a
+deserializeBase16WithLength4 t =
+        if BS.null rest then
+            case decode (runPut (putWord32be (fromIntegral (BS.length bs))) <> bs) of
+                Left er -> fail er
+                Right r -> return r
+        else
+            fail $ "Could not decode as base-16: " ++ show t
+    where
+        (bs, rest) = BS16.decode (Text.encodeUtf8 t)
+
+
 serializeBase16 :: (Serialize a) => a -> Text.Text
 serializeBase16 = Text.decodeUtf8 . BS16.encode . encode
 
 instance FromJSON CryptographicParameters where
   parseJSON = withObject "CryptoGraphicParameters" $ \v ->
     do elgamalGenerator <- deserializeBase16 =<< v .: "dLogBaseChain"
-       attributeCommitmentKey <- deserializeBase16 =<< v .: "onChainCommitmentKey"
+       attributeCommitmentKey <- deserializeBase16WithLength4 =<< v .: "onChainCommitmentKey"
        return CryptographicParameters{..}
-{-
-instance AE.FromJSON CryptographicParameters where
-  parseJSON = AE.withObject "CryptoGraphicParameters" $ \v ->
-    do elgamalGeneratorbs <- b16 <$> (v AE..: "dLogBaseChain")
-       commitmentKeybs <- b16 <$> (v AE..: "onChainCommitmentKey")
-       case (decode elgamalGeneratorbs, decode (lenbs commitmentKeybs)) of
-         (Right elgamalGenerator, Right attributeCommitmentKey) ->
-             return CryptographicParameters{..}
-         _ -> fail "Could not decode keys."
-    where b16 = fst . BS16.decode . Text.encodeUtf8
-          lenbs bs = runPut (putWord32be (fromIntegral (BS.length bs))) <> bs
--}
 
 readIdentityProviders :: BSL.ByteString -> Maybe [IdentityProviderData]
 readIdentityProviders = AE.decode
@@ -147,10 +149,10 @@ readCryptographicParameters = AE.decode
 dummyCryptographicParameters :: CryptographicParameters
 dummyCryptographicParameters =
   case d of
-    Nothing -> error "Cannot decode dummy cryptographic parameters. Something's changed."
-    Just dummy -> dummy
+    Left err -> error $ "Cannot decode dummy cryptographic parameters. The error is: " ++ err
+    Right dummy -> dummy
 
-  where d = AE.decode "{\"dLogBaseChain\": \"97f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb\",\"onChainCommitmentKey\": \"0000000199e4a085f8d083de689f79e5b296593644037499db92534071d1d5d607fe8594c398442ef20445a8eafae6695c4ed4a3b38a61d0ddd52fae990294114a2c2d20705c868bc979a07ccece02234b5b2f60a16edf7a17b676be108442417aecf34d\"}"
+  where d = AE.eitherDecode "{\"dLogBaseChain\": \"97f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb\",\"onChainCommitmentKey\": \"0000000199e4a085f8d083de689f79e5b296593644037499db92534071d1d5d607fe8594c398442ef20445a8eafae6695c4ed4a3b38a61d0ddd52fae990294114a2c2d20705c868bc979a07ccece02234b5b2f60a16edf7a17b676be108442417aecf34d\"}"
 
 -- 'GenesisBaker' is an abstraction of a baker at genesis.
 -- It includes the minimal information for generating a 
