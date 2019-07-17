@@ -21,7 +21,6 @@ import Concordium.GlobalState.BlockState(BlockPointerData(..))
 import Concordium.GlobalState.Basic.TreeState
 import Concordium.GlobalState.Basic.BlockState
 
-import Concordium.Birk.Bake
 import Concordium.Types
 import Concordium.Runner
 import Concordium.Logger
@@ -117,14 +116,14 @@ main = do
     let (gen, bis) = makeGenesisData now n 1 0.5 9 dummyCryptographicParameters dummyIdentityProviders
     let iState = Example.initialState (genesisBirkParameters gen) (genesisCryptographicParameters gen) (genesisBakerAccounts gen) nContracts
     trans <- transactions <$> newStdGen
-    chans <- mapM (\(bid, _) -> do
-        let logFile = "consensus-" ++ show now ++ "-" ++ show (bakerId bid) ++ ".log"
+    chans <- mapM (\(bakerId, (bid, _)) -> do
+        let logFile = "consensus-" ++ show now ++ "-" ++ show bakerId ++ ".log"
         let logM src lvl msg = do
                                     timestamp <- getCurrentTime
                                     appendFile logFile $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg ++ "\n"
         (cin, cout, out) <- makeAsyncRunner logM bid gen iState
         _ <- forkIO $ sendTransactions cin trans
-        return (cin, cout, out)) bis
+        return (cin, cout, out)) (zip [(0::Int) ..] bis)
     monitorChan <- newChan
     mapM_ (\((_,cout, stateRef), cs) -> forkIO $ relay cout stateRef monitorChan ((\(c, _, _) -> c) <$> cs)) (removeEach chans)
     let loop = do

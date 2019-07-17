@@ -10,6 +10,8 @@ import Data.Serialize
 
 import Concordium.Types
 
+import qualified Concordium.Crypto.BlockSignature as Sig
+import qualified Concordium.Crypto.VRF as VRF
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockState
@@ -29,12 +31,15 @@ import Concordium.TimeMonad
 
 
 data BakerIdentity = BakerIdentity {
-    bakerId :: BakerId,
     bakerSignKey :: BakerSignPrivateKey,
-    bakerSignPublicKey :: BakerSignVerifyKey,
-    bakerElectionKey :: BakerElectionPrivateKey,
-    bakerElectionPublicKey :: BakerElectionVerifyKey
+    bakerElectionKey :: BakerElectionPrivateKey
 } deriving (Eq, Generic)
+
+bakerSignPublicKey :: BakerIdentity -> BakerSignVerifyKey
+bakerSignPublicKey ident = Sig.verifyKey (bakerSignKey ident)
+
+bakerElectionPublicKey :: BakerIdentity -> BakerElectionVerifyKey
+bakerElectionPublicKey ident = VRF.publicKey (bakerElectionKey ident)
 
 instance Serialize BakerIdentity where
 
@@ -50,11 +55,12 @@ processTransactions slot bh finalizedP bid = do
 
 
 bakeForSlot :: (SkovMonad m, TreeStateMonad m, MonadIO m) => BakerIdentity -> Slot -> m (Maybe BakedBlock)
-bakeForSlot BakerIdentity{..} slot = runMaybeT $ do
+bakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     bb <- bestBlockBefore slot
     guard (blockSlot (bpBlock bb) < slot)
     birkParams@BirkParameters{..} <- getBirkParameters (bpState bb)
-    (_, lotteryPower) <- MaybeT . pure $ birkBaker bakerId birkParams
+
+    (bakerId, _, lotteryPower) <- MaybeT . pure $ birkBakerByKeys (bakerSignPublicKey ident) (bakerElectionPublicKey ident) birkParams
     electionProof <- MaybeT . liftIO $
         leaderElection _birkLeadershipElectionNonce _birkElectionDifficulty slot bakerElectionKey lotteryPower
     logEvent Baker LLInfo $ "Won lottery in " ++ show slot

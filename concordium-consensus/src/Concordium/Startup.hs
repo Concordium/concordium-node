@@ -17,7 +17,7 @@ import Concordium.Types
 makeBakers :: Word -> [((BakerIdentity,BakerInfo), Account)]
 makeBakers nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17) 0
     where
-        mbs gen bid = ((BakerIdentity bid sk spk ek epk, BakerInfo epk spk stake accAddress), account):mbs gen'' (bid+1)
+        mbs gen bid = ((BakerIdentity sk ek, BakerInfo epk spk stake accAddress), account):mbs gen'' (bid+1)
             where
                 (ek@(VRF.KeyPair _ epk), gen') = VRF.randomKeyPair gen
                 (sk, gen'') = Sig.randomKeyPair gen'

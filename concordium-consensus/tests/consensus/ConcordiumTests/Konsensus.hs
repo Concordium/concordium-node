@@ -308,7 +308,7 @@ makeBaker bid lot = do
         sk                     <- Sig.genKeyPair
         let spk = Sig.verifyKey sk
         let account = makeBakerAccount bid
-        return (BakerInfo epk spk lot (_accountAddress account), BakerIdentity bid sk spk ek epk, account)
+        return (BakerInfo epk spk lot (_accountAddress account), BakerIdentity sk ek, account)
 
 dummyIdentityProviders :: [IdentityProviderData]
 dummyIdentityProviders = []  

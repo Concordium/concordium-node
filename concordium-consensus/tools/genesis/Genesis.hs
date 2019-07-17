@@ -9,10 +9,7 @@ import qualified Data.Serialize as S
 import Control.Monad
 import System.FilePath
 
-import Concordium.Types
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Bakers
-import Concordium.GlobalState.IdentityProviders
 import Concordium.Birk.Bake
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.Crypto.BlockSignature as Sig
@@ -68,7 +65,7 @@ main = cmdArgsRun mode >>=
                     vrfkp <- VRF.newKeyPair
                     acctkp <- Sig.newKeyPair
                     LBS.writeFile (gdOutput </> "baker-" ++ show n ++ ".dat") $ S.encodeLazy $
-                        BakerIdentity (fromIntegral n) skp (Sig.verifyKey skp) vrfkp (VRF.publicKey vrfkp)
+                        BakerIdentity skp vrfkp
                     encodeFile (gdOutput </> "baker-" ++ show n ++ "-account.json") $
                         object [
                             "address" .= show (ID.accountAddress (Sig.verifyKey acctkp) SigScheme.Ed25519),
