@@ -136,7 +136,7 @@ dispatch msg = do
               handleUpdateContract meta remainingAmount cref amount maybeMsg msgSize energy
            
             DeployCredential cdi ->
-              handleDeployCredential meta (_spayload (transactionPayload msg)) cdi energy
+              handleDeployCredential meta (payloadBodyBytes (transactionPayload msg)) cdi energy
             
             DeployEncryptionKey encKey ->
               handleDeployEncryptionKey meta senderAccount encKey energy

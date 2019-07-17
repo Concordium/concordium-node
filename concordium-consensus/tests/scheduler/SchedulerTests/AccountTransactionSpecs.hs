@@ -7,6 +7,7 @@ module SchedulerTests.AccountTransactionSpecs where
 import Test.Hspec
 import Test.HUnit
 
+import Concordium.ID.Types
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Acorn.Utils.Init as Init
@@ -20,7 +21,6 @@ import Concordium.GlobalState.Account as Acc
 import Concordium.GlobalState.Modules as Mod
 import Concordium.GlobalState.Basic.Invariants
 import qualified Concordium.GlobalState.Rewards as Rew
-
 import Lens.Micro.Platform
 import Control.Monad.IO.Class
 
@@ -41,38 +41,39 @@ initialBlockState =
   emptyBlockState emptyBirkParameters Types.dummyCryptographicParameters &
     (blockAccounts .~ Acc.putAccount (mkAccount alesVK initialAmount) Acc.emptyAccounts) .
     (blockBank . Rew.totalGTU .~ initialAmount) .
-    (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
+    (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs))) .
+    (blockIdentityProviders .~ dummyIdentityProviders)
 
 deployAccountCost :: Types.Energy
 deployAccountCost = Cost.deployCredential + Cost.checkHeader
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =
-  [TJSON { payload = DeployCredential (mkDummyCDI (accountVFKeyFrom 10) 0)
+  [TJSON { payload = DeployCredential cdi1
          , metadata = makeHeader alesKP 1 deployAccountCost
          , keypair = alesKP
          }
-  ,TJSON { payload = DeployCredential (mkDummyCDI (accountVFKeyFrom 11) 1)
+  ,TJSON { payload = DeployCredential cdi2
          , metadata = makeHeader alesKP 2 deployAccountCost
          , keypair = alesKP
          }
-  ,TJSON { payload = DeployCredential (mkDummyCDI (accountVFKeyFrom 12) 2)
+  ,TJSON { payload = DeployCredential cdi3
          , metadata = makeHeader alesKP 3 deployAccountCost
          , keypair = alesKP
          }
-  ,TJSON { payload = DeployCredential (mkDummyCDI (accountVFKeyFrom 13) 2) -- should fail because repeated credential ID
+  ,TJSON { payload = DeployCredential cdi8 -- should fail because repeated credential ID
          , metadata = makeHeader alesKP 4 deployAccountCost
          , keypair = alesKP
          }
-  ,TJSON { payload = DeployCredential (mkDummyCDI (accountVFKeyFrom 14) 4)
+  ,TJSON { payload = DeployCredential cdi6
          , metadata = makeHeader alesKP 5 deployAccountCost
          , keypair = alesKP
          }
-  ,TJSON { payload = DeployCredential (mkDummyCDI (accountVFKeyFrom 14) 5) -- deploy just a new predicate
+  ,TJSON { payload = DeployCredential cdi7 -- deploy just a new predicate
          , metadata = makeHeader alesKP 6 deployAccountCost
          , keypair = alesKP
          }
-  ,TJSON { payload = DeployCredential (mkDummyCDI (accountVFKeyFrom 16) 6)  -- should run out of gas (see initial amount on the sender account)
+  ,TJSON { payload = DeployCredential cdi4  -- should run out of gas (see initial amount on the sender account)
          , metadata = makeHeader alesKP 7 Cost.checkHeader
          , keypair = alesKP
          }
@@ -92,7 +93,7 @@ testAccountCreation = do
                                             Types.dummyChainMeta
                                             initialBlockState
     let accounts = state ^. blockAccounts
-    let accAddrs = map accountAddressFrom [10,11,12,13,14]
+    let accAddrs = map accountAddressFromCred [cdi1,cdi2,cdi3,cdi8,cdi6]
     case invariantBlockState state of
         Left f -> liftIO $ assertFailure $ f ++ "\n" ++ show state
         _ -> return ()
@@ -127,6 +128,6 @@ checkAccountCreationResult (suc, fails, stateAccs, stateAles, bankState) =
 
 tests :: SpecWith ()
 tests = 
-  xdescribe "Account creation" $ do
+  describe "Account creation" $ do
     specify "3 accounts created, fourth rejected, one more created, a credential deployed, and out of gas " $ do
       PR.evalContext Init.initialContextData testAccountCreation `shouldReturnP` checkAccountCreationResult
