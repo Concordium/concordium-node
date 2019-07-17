@@ -9,12 +9,15 @@ use std::time::Duration;
 use std::{
     collections::HashMap,
     convert::TryFrom,
-    fmt, mem, str,
-    sync::{mpsc, Arc, Mutex, RwLock},
+    str,
+    sync::{
+        atomic::{AtomicPtr, Ordering},
+        mpsc, Arc, Mutex, RwLock,
+    },
     thread, time,
 };
 
-use crate::ffi::*;
+use crate::{fails::CantGenerateGenesis, ffi::*};
 use concordium_global_state::{block::*, tree::ConsensusMessage};
 
 pub type PeerId = u64;
@@ -152,11 +155,11 @@ impl ConsensusContainer {
             Ok(ConsensusFfiResponse::Success) => {}
             Ok(ConsensusFfiResponse::CryptographicProvidersNotLoaded) => {
                 error!("Baker can't start: Couldn't read cryptographic providers file!");
-                return Err(failure::Error::from(BakerNotRunning));
+                return Err(failure::Error::from(CantGenerateGenesis));
             }
             Ok(ConsensusFfiResponse::IdentityProvidersNotLoaded) => {
                 error!("Baker can't start: Couldn't read identity providers file!");
-                return Err(failure::Error::from(BakerNotRunning));
+                return Err(failure::Error::from(CantGenerateGenesis));
             }
             _ => unreachable!(),
         }
