@@ -11,18 +11,19 @@ module Concordium.GlobalState.Parameters(
     BakerCreationInfo(..)
 ) where
 
+import Prelude hiding (fail)
 import GHC.Generics
 import Data.Word
 import Data.Ratio
 import Data.Serialize
 import Lens.Micro.Platform
+import Control.Monad.Fail
 
 import Concordium.Types
 import Concordium.Crypto.FFIDataTypes
 import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.IdentityProviders
 import qualified Concordium.ID.Account as ID
-import Data.ByteString(ByteString)
 
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BSL
@@ -30,7 +31,7 @@ import qualified Data.ByteString.Base16 as BS16
 import qualified Data.Text.Encoding as Text
 import qualified Data.Text as Text
 import qualified Data.Aeson as AE
-import Data.Aeson.Types (FromJSON(..), Parser, Value(..), (.:), withText, withObject, typeMismatch)
+import Data.Aeson.Types (FromJSON(..), Value(..), (.:), withText, withObject, typeMismatch)
 
 -- |Cryptographic parameters needed to verify on-chain proofs, e.g.,
 -- group parameters (generators), commitment keys, in the future also
@@ -103,8 +104,7 @@ instance FromJSON Base16ByteString where
                     else
                         typeMismatch "base-16 encoded bytestring" (String t)
 
-
-deserializeBase16 :: (Serialize a) => Text.Text -> Parser a
+deserializeBase16 :: (Serialize a, MonadFail m) => Text.Text -> m a
 deserializeBase16 t =
         if BS.null rest then
             case decode bs of
@@ -141,6 +141,16 @@ readIdentityProviders = AE.decode
 
 readCryptographicParameters :: BSL.ByteString -> Maybe CryptographicParameters
 readCryptographicParameters = AE.decode
+
+
+-- |NB: Only for testing.
+dummyCryptographicParameters :: CryptographicParameters
+dummyCryptographicParameters =
+  case d of
+    Nothing -> error "Cannot decode dummy cryptographic parameters. Something's changed."
+    Just dummy -> dummy
+
+  where d = AE.decode "{\"dLogBaseChain\": \"97f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb\",\"onChainCommitmentKey\": \"0000000199e4a085f8d083de689f79e5b296593644037499db92534071d1d5d607fe8594c398442ef20445a8eafae6695c4ed4a3b38a61d0ddd52fae990294114a2c2d20705c868bc979a07ccece02234b5b2f60a16edf7a17b676be108442417aecf34d\"}"
 
 -- 'GenesisBaker' is an abstraction of a baker at genesis.
 -- It includes the minimal information for generating a 

@@ -12,14 +12,13 @@ import qualified Data.Serialize as S
 import Data.Aeson
 import qualified Data.Text.Encoding as Text
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Lazy as BSL
 import qualified Data.ByteString.Base16 as BS16
 
 data AnonymityRevokerData = AnonymityRevokerData {
   -- |Unique id of the anonymity revoker.
   arIdentity :: !ARName,
   -- |Public key of the anonymity revoker
-  arPublicKey :: !ElgamalPublicKey,
+  arPublicKey :: !AnonymityRevokerPublicKey,
   -- |Generator of the group the anonymity revoker uses
   -- FIXME: This is really part of the public key but currently
   -- this is not the abstraction in crypto.
