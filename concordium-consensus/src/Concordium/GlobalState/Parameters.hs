@@ -60,6 +60,10 @@ birkBaker :: BakerId -> BirkParameters -> Maybe (BakerInfo, LotteryPower)
 birkBaker bid bps = (bps ^. birkBakers . bakerMap . at bid) <&>
                         \bkr -> (bkr, (bkr ^. bakerStake) % (bps ^. birkBakers . bakerTotalStake))
 
+birkBakerByKeys :: BakerSignVerifyKey -> BakerElectionVerifyKey -> BirkParameters -> Maybe (BakerId, BakerInfo, LotteryPower)
+birkBakerByKeys sigKey elKey bps = case bps ^? birkBakers . bakersByKey . ix (sigKey, elKey) of
+        (Just (bid : _)) -> birkBaker bid bps <&> \(binfo, lotPow) -> (bid, binfo, lotPow)
+        _ -> Nothing
 
 data VoterInfo = VoterInfo {
     voterVerificationKey :: VoterVerificationKey,
