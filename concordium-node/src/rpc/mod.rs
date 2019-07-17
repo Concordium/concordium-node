@@ -567,13 +567,11 @@ impl P2P for RpcServerImpl {
                     .expect("Time went backwards")
                     .as_secs();
                 resp.set_current_localtime(curtime);
-                // TODO: use enums for matching
-                let peer_type = match &format!("{:?}", peer_type)[..] {
-                    "Node" => "Node",
-                    "Bootstrapper" => "Bootstrapper",
-                    _ => panic!(),
-                };
                 resp.set_peer_type(peer_type.to_string());
+                resp.set_is_baker(match self.consensus {
+                    Some(ref x) => x.is_baking(),
+                    None => false,
+                });
                 sink.success(resp)
             } else {
                 sink.fail(grpcio::RpcStatus::new(

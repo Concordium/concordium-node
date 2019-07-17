@@ -161,6 +161,11 @@ impl ConsensusContainer {
             bail!("Didn't get private data from Haskell");
         }
     }
+
+    pub fn is_baking(&self) -> bool {
+        // @TODO Replace with real check
+        true
+    }
 }
 
 pub fn catchup_enqueue(request: ConsensusMessage) {
