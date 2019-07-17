@@ -99,8 +99,12 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for Block {
 
 impl fmt::Debug for Block {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let hash = if let Some(ref parent) = self.pointer() {
-            format!("block {:?} -> {:?}", sha256(&self.serialize()), parent)
+        let hash = if self.slot != 0 {
+            format!(
+                "block {:?} by baker {}",
+                sha256(&self.serialize()),
+                self.block_data().baker_id
+            )
         } else {
             format!("genesis {:?}", sha256(&self.serialize()))
         };

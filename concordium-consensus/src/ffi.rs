@@ -5,18 +5,22 @@ use std::{
     convert::TryFrom,
     ffi::{CStr, CString},
     io::Cursor,
-    mem,
     os::raw::{c_char, c_int},
     slice,
     sync::{
-        atomic::{AtomicBool, AtomicPtr, Ordering},
-        Once, ONCE_INIT,
+        atomic::{AtomicBool, Ordering},
+        Arc, Once, ONCE_INIT,
     },
 };
 
 use crate::consensus::*;
 use concordium_common::PacketType;
-use concordium_global_state::{block::*, common, finalization::*};
+use concordium_global_state::{
+    block::*,
+    common,
+    finalization::*,
+    tree::{ConsensusMessage, MessageType},
+};
 
 extern "C" {
     pub fn hs_init(argc: *mut c_int, argv: *mut *mut *mut c_char);
@@ -34,9 +38,9 @@ static STOPPED: AtomicBool = AtomicBool::new(false);
 /// The runtime will automatically be shutdown at program exit, or you can stop
 /// it earlier with `stop`.
 #[cfg(all(not(windows), feature = "profiling"))]
-pub fn start_haskell(heap: &str, time: bool, exceptions: bool) {
+pub fn start_haskell(heap: &str, time: bool, exceptions: bool, gc_log: Option<String>) {
     START_ONCE.call_once(|| {
-        start_haskell_init(heap, time, exceptions);
+        start_haskell_init(heap, time, exceptions, gc_log);
         unsafe {
             ::libc::atexit(stop_nopanic);
         }
@@ -54,30 +58,27 @@ pub fn start_haskell() {
 }
 
 #[cfg(all(not(windows), feature = "profiling"))]
-fn start_haskell_init(heap: &str, time: bool, exceptions: bool) {
+fn start_haskell_init(heap: &str, time: bool, exceptions: bool, gc_log: Option<String>) {
     let program_name = std::env::args().take(1).next().unwrap();
-    let mut args = vec![program_name.as_str()];
+    let mut args = vec![program_name.to_owned()];
+
+    if heap != "none" || time || gc_log.is_some() {
+        args.push("+RTS".to_owned());
+        args.push("-L100".to_owned());
+    }
 
     match heap {
         "cost" => {
-            args.push("+RTS");
-            args.push("-L100");
-            args.push("-hc");
+            args.push("-hc".to_owned());
         }
         "module" => {
-            args.push("+RTS");
-            args.push("-hm");
-            args.push("-L100");
+            args.push("-hm".to_owned());
         }
         "description" => {
-            args.push("+RTS");
-            args.push("-hd");
-            args.push("-L100");
+            args.push("-hd".to_owned());
         }
         "type" => {
-            args.push("+RTS");
-            args.push("-hy");
-            args.push("-L100");
+            args.push("-hy".to_owned());
         }
         "none" => {}
         _ => {
@@ -86,10 +87,11 @@ fn start_haskell_init(heap: &str, time: bool, exceptions: bool) {
     }
 
     if time {
-        if args.len() == 1 {
-            args.push("+RTS");
-        }
-        args.push("-p");
+        args.push("-p".to_owned());
+    }
+
+    if gc_log.is_some() {
+        args.push(format!("-S{}", gc_log.unwrap()));
     }
 
     if exceptions {
@@ -100,7 +102,7 @@ fn start_haskell_init(heap: &str, time: bool, exceptions: bool) {
     }
 
     if args.len() > 1 {
-        args.push("-RTS");
+        args.push("-RTS".to_owned());
     }
 
     info!(
@@ -109,7 +111,7 @@ fn start_haskell_init(heap: &str, time: bool, exceptions: bool) {
     );
     let args = args
         .iter()
-        .map(|arg| CString::new(*arg).unwrap())
+        .map(|arg| CString::new(arg.as_bytes()).unwrap())
         .collect::<Vec<CString>>();
     let c_args = args
         .iter()
@@ -232,7 +234,7 @@ impl TryFrom<i64> for ConsensusFfiResponse {
 }
 
 #[repr(C)]
-pub struct baker_runner {
+pub struct consensus_runner {
     private: [u8; 0],
 }
 
@@ -250,7 +252,7 @@ type GenerateKeypairCallback = extern "C" fn(baker_id: i64, data: *const u8, dat
 type GenerateGenesisDataCallback = extern "C" fn(data: *const u8, data_length: i64);
 
 extern "C" {
-    pub fn startBaker(
+    pub fn startConsensus(
         genesis_data: *const u8,
         genesis_data_len: i64,
         private_data: *const u8,
@@ -260,28 +262,30 @@ extern "C" {
         missing_block_callback: CatchupFinalizationRequestByBlockHashDeltaCallback,
         missing_finalization_records_by_hash_callback: CatchupFinalizationRequestByBlockHashCallback,
         missing_finalization_records_by_index_callback: CatchupFinalizationRequestByFinalizationIndexCallback,
-    ) -> *mut baker_runner;
+    ) -> *mut consensus_runner;
+    pub fn startBaker(baker: *mut consensus_runner);
     pub fn printBlock(block_data: *const u8, data_length: i64);
     pub fn receiveBlock(
-        baker: *mut baker_runner,
+        baker: *mut consensus_runner,
         peer_id: PeerId,
         block_data: *const u8,
         data_length: i64,
     ) -> i64;
     pub fn receiveFinalization(
-        baker: *mut baker_runner,
+        baker: *mut consensus_runner,
         peer_id: PeerId,
         finalization_data: *const u8,
         data_length: i64,
     ) -> i64;
     pub fn receiveFinalizationRecord(
-        baker: *mut baker_runner,
+        baker: *mut consensus_runner,
         peer_id: PeerId,
         finalization_data: *const u8,
         data_length: i64,
     ) -> i64;
-    pub fn receiveTransaction(baker: *mut baker_runner, tx: *const u8, data_length: i64) -> i64;
-    pub fn stopBaker(baker: *mut baker_runner);
+    pub fn receiveTransaction(baker: *mut consensus_runner, tx: *const u8, data_length: i64)
+        -> i64;
+    pub fn stopBaker(baker: *mut consensus_runner);
     pub fn makeGenesisData(
         genesis_time: u64,
         num_bakers: u64,
@@ -292,135 +296,130 @@ extern "C" {
     ) -> i64;
 
     // Consensus queries
-    pub fn getConsensusStatus(baker: *mut baker_runner) -> *const c_char;
-    pub fn getBlockInfo(baker: *mut baker_runner, block_hash: *const u8) -> *const c_char;
+    pub fn getConsensusStatus(baker: *mut consensus_runner) -> *const c_char;
+    pub fn getBlockInfo(baker: *mut consensus_runner, block_hash: *const u8) -> *const c_char;
     pub fn getAncestors(
-        baker: *mut baker_runner,
+        baker: *mut consensus_runner,
         block_hash: *const u8,
         amount: u64,
     ) -> *const c_char;
-    pub fn getBranches(baker: *mut baker_runner) -> *const c_char;
+    pub fn getBranches(baker: *mut consensus_runner) -> *const c_char;
 
     // State queries
-    pub fn getAccountList(baker: *mut baker_runner, block_hash: *const u8) -> *const c_char;
-    pub fn getInstances(baker: *mut baker_runner, block_hash: *const u8) -> *const c_char;
+    pub fn getAccountList(baker: *mut consensus_runner, block_hash: *const u8) -> *const c_char;
+    pub fn getInstances(baker: *mut consensus_runner, block_hash: *const u8) -> *const c_char;
     pub fn getAccountInfo(
-        baker: *mut baker_runner,
+        baker: *mut consensus_runner,
         block_hash: *const u8,
         account_address: *const u8,
     ) -> *const c_char;
     pub fn getInstanceInfo(
-        baker: *mut baker_runner,
+        baker: *mut consensus_runner,
         block_hash: *const u8,
         contract_address: *const u8,
     ) -> *const c_char;
-    pub fn getRewardStatus(baker: *mut baker_runner, block_hash: *const u8) -> *const c_char;
-    pub fn getBirkParameters(baker: *mut baker_runner, block_hash: *const u8) -> *const c_char;
-    pub fn getModuleList(baker: *mut baker_runner, block_hash: *const u8) -> *const c_char;
+    pub fn getRewardStatus(baker: *mut consensus_runner, block_hash: *const u8) -> *const c_char;
+    pub fn getBirkParameters(baker: *mut consensus_runner, block_hash: *const u8) -> *const c_char;
+    pub fn getModuleList(baker: *mut consensus_runner, block_hash: *const u8) -> *const c_char;
     pub fn getModuleSource(
-        baker: *mut baker_runner,
+        baker: *mut consensus_runner,
         block_hash: *const u8,
         module_ref: *const u8,
     ) -> *const u8;
-    pub fn getBlock(baker: *mut baker_runner, block_hash: *const u8) -> *const u8;
+    pub fn getBlock(baker: *mut consensus_runner, block_hash: *const u8) -> *const u8;
     pub fn getBlockDelta(
-        baker: *mut baker_runner,
+        baker: *mut consensus_runner,
         block_hash: *const u8,
         delta: Delta,
     ) -> *const u8;
-    pub fn getBlockFinalization(baker: *mut baker_runner, block_hash: *const u8) -> *const u8;
+    pub fn getBlockFinalization(baker: *mut consensus_runner, block_hash: *const u8) -> *const u8;
     pub fn getIndexedFinalization(
-        baker: *mut baker_runner,
+        baker: *mut consensus_runner,
         finalization_index: FinalizationIndex,
     ) -> *const u8;
     pub fn getFinalizationMessages(
-        baker: *mut baker_runner,
+        baker: *mut consensus_runner,
         peer_id: PeerId,
         request: *const u8,
         request_lenght: i64,
         callback: CatchupFinalizationMessagesSenderCallback,
     ) -> i64;
-    pub fn getFinalizationPoint(baker: *mut baker_runner) -> *const u8;
+    pub fn getFinalizationPoint(baker: *mut consensus_runner) -> *const u8;
 
     pub fn freeCStr(hstring: *const c_char);
 }
 
-pub struct ConsensusBaker {
-    _id:              BakerId,
-    pub genesis_data: Box<[u8]>,
-    runner:           AtomicPtr<baker_runner>,
+pub fn get_consensus_ptr(genesis_data: Vec<u8>, private_data: Vec<u8>) -> *mut consensus_runner {
+    let genesis_data_len = genesis_data.len();
+    let private_data_len = private_data.len();
+
+    // private_data appears to (might be too early to deserialize yet) contain:
+    // a u64 BakerId
+    // 3 32B-long ByteStrings (with u64 length prefixes), the latter 2 of which are
+    // 32B of unknown content
+    // 2x identical 32B-long byte sequences
+
+    let c_string_genesis = unsafe { CString::from_vec_unchecked(genesis_data) };
+    let c_string_private_data = unsafe { CString::from_vec_unchecked(private_data) };
+
+    unsafe {
+        startConsensus(
+            c_string_genesis.as_ptr() as *const u8,
+            genesis_data_len as i64,
+            c_string_private_data.as_ptr() as *const u8,
+            private_data_len as i64,
+            on_consensus_data_out,
+            on_log_emited,
+            on_catchup_block_by_hash,
+            on_catchup_finalization_record_by_hash,
+            on_catchup_finalization_record_by_index,
+        )
+    }
 }
 
-impl ConsensusBaker {
-    pub fn new(baker_id: BakerId, genesis_data: Vec<u8>, private_data: Vec<u8>) -> Self {
-        info!("Starting up baker {}", baker_id);
-
-        let genesis_data_len = genesis_data.len();
-        let private_data_len = private_data.len();
-
-        let c_string_genesis = unsafe { CString::from_vec_unchecked(genesis_data.clone()) };
-        let c_string_private_data = unsafe { CString::from_vec_unchecked(private_data) };
-
-        let baker = unsafe {
-            startBaker(
-                c_string_genesis.as_ptr() as *const u8,
-                genesis_data_len as i64,
-                c_string_private_data.as_ptr() as *const u8,
-                private_data_len as i64,
-                on_consensus_data_out,
-                on_log_emited,
-                on_catchup_block_by_hash,
-                on_catchup_finalization_record_by_hash,
-                on_catchup_finalization_record_by_index,
-            )
-        };
-
-        // private_data appears to (might be too early to deserialize yet) contain:
-        // a u64 BakerId
-        // 3 32B-long ByteStrings (with u64 length prefixes), the latter 2 of which are
-        // 32B of unknown content
-        // 2x identical 32B-long byte sequences
-
-        ConsensusBaker {
-            _id:          baker_id,
-            genesis_data: genesis_data.into_boxed_slice(),
-            runner:       AtomicPtr::new(baker),
-        }
-    }
-
-    pub fn stop(&self) {
-        let baker = self.runner.load(Ordering::SeqCst);
-        unsafe {
-            stopBaker(baker);
-        }
-    }
-
+impl ConsensusContainer {
     pub fn send_block(&self, peer_id: PeerId, block: &[u8]) -> ConsensusFfiResponse {
-        wrap_send_data_to_c!(self, peer_id, block, receiveBlock)
+        if self.baker.is_some() {
+            wrap_send_data_to_c!(self, peer_id, block, receiveBlock)
+        } else {
+            ConsensusFfiResponse::BakerNotFound
+        }
     }
 
     pub fn send_finalization(&self, peer_id: PeerId, msg: &[u8]) -> ConsensusFfiResponse {
-        wrap_send_data_to_c!(self, peer_id, msg, receiveFinalization)
+        if self.baker.is_some() {
+            wrap_send_data_to_c!(self, peer_id, msg, receiveFinalization)
+        } else {
+            ConsensusFfiResponse::BakerNotFound
+        }
     }
 
     pub fn send_finalization_record(&self, peer_id: PeerId, rec: &[u8]) -> ConsensusFfiResponse {
-        wrap_send_data_to_c!(self, peer_id, rec, receiveFinalizationRecord)
+        if self.baker.is_some() {
+            wrap_send_data_to_c!(self, peer_id, rec, receiveFinalizationRecord)
+        } else {
+            ConsensusFfiResponse::BakerNotFound
+        }
     }
 
-    pub fn send_transaction(&self, data: Vec<u8>) -> ConsensusFfiResponse {
-        let baker = self.runner.load(Ordering::SeqCst);
-        let len = data.len();
+    pub fn send_transaction(&self, data: &[u8]) -> ConsensusFfiResponse {
+        if self.baker.is_some() {
+            let consensus = self.consensus.load(Ordering::SeqCst);
+            let len = data.len();
 
-        let result = unsafe {
-            receiveTransaction(
-                baker,
-                CString::from_vec_unchecked(data).as_ptr() as *const u8,
-                len as i64,
-            )
-        };
+            let result = unsafe {
+                receiveTransaction(
+                    consensus,
+                    CString::from_vec_unchecked(data.to_vec()).as_ptr() as *const u8,
+                    len as i64,
+                )
+            };
 
-        ConsensusFfiResponse::try_from(result)
-            .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code))
+            ConsensusFfiResponse::try_from(result)
+                .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code))
+        } else {
+            ConsensusFfiResponse::BakerNotFound
+        }
     }
 
     pub fn get_finalization_point(&self) -> Vec<u8> {
@@ -550,13 +549,17 @@ impl ConsensusBaker {
         request: &[u8],
         peer_id: PeerId,
     ) -> ConsensusFfiResponse {
-        wrap_c_call!(self, |baker| getFinalizationMessages(
-            baker,
-            peer_id,
-            request.as_ptr(),
-            request.len() as i64,
-            on_finalization_message_catchup_out
-        ))
+        if self.baker.is_some() {
+            wrap_c_call!(self, |baker| getFinalizationMessages(
+                baker,
+                peer_id,
+                request.as_ptr(),
+                request.len() as i64,
+                on_finalization_message_catchup_out
+            ))
+        } else {
+            ConsensusFfiResponse::BakerNotFound
+        }
     }
 }
 
@@ -601,7 +604,7 @@ pub extern "C" fn on_consensus_data_out(block_type: i64, block_data: *const u8, 
     debug!("Callback hit - queueing message");
 
     unsafe {
-        let data = Box::from(slice::from_raw_parts(
+        let data = Arc::from(slice::from_raw_parts(
             block_data as *const u8,
             data_length as usize,
         ));
@@ -620,7 +623,7 @@ pub extern "C" fn on_consensus_data_out(block_type: i64, block_data: *const u8, 
             CallbackType::FinalizationRecord => PacketType::FinalizationRecord,
         };
 
-        let message = ConsensusMessage::new(message_variant, None, data);
+        let message = ConsensusMessage::new(MessageType::Outbound(None), message_variant, data);
 
         match CALLBACK_QUEUE.send_message(message) {
             Ok(_) => debug!("Queueing a {} of {} bytes", message_variant, data_length),
@@ -631,23 +634,22 @@ pub extern "C" fn on_consensus_data_out(block_type: i64, block_data: *const u8, 
 
 pub unsafe extern "C" fn on_catchup_block_by_hash(peer_id: PeerId, hash: *const u8, delta: Delta) {
     let mut payload = slice::from_raw_parts(hash, common::SHA256 as usize).to_owned();
-    let delta_array = mem::transmute::<Delta, [u8; 8]>(delta);
-    payload.extend_from_slice(&delta_array);
-    let payload = payload.into_boxed_slice();
+    payload.extend(&delta.to_be_bytes());
+    let payload = Arc::from(payload);
 
     catchup_enqueue(ConsensusMessage::new(
+        MessageType::Outbound(Some(peer_id)),
         PacketType::CatchupBlockByHash,
-        Some(peer_id),
         payload,
     ));
 }
 
 pub unsafe extern "C" fn on_catchup_finalization_record_by_hash(peer_id: PeerId, hash: *const u8) {
-    let payload = Box::from(slice::from_raw_parts(hash, common::SHA256 as usize));
+    let payload = Arc::from(slice::from_raw_parts(hash, common::SHA256 as usize));
 
     catchup_enqueue(ConsensusMessage::new(
+        MessageType::Outbound(Some(peer_id)),
         PacketType::CatchupFinalizationRecordByHash,
-        Some(peer_id),
         payload,
     ));
 }
@@ -656,23 +658,20 @@ pub extern "C" fn on_catchup_finalization_record_by_index(
     peer_id: PeerId,
     index: FinalizationIndex,
 ) {
-    let payload = unsafe { Box::from(mem::transmute::<FinalizationIndex, [u8; 8]>(index)) };
-
     catchup_enqueue(ConsensusMessage::new(
+        MessageType::Outbound(Some(peer_id)),
         PacketType::CatchupFinalizationRecordByIndex,
-        Some(peer_id),
-        payload,
+        Arc::from(index.to_be_bytes()),
     ));
 }
 
 pub extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *const u8, len: i64) {
-    debug!("Got a catch-up request for finalization messages for point from consensus",);
     unsafe {
-        let payload = Box::from(slice::from_raw_parts(data as *const u8, len as usize));
+        let payload = Arc::from(slice::from_raw_parts(data as *const u8, len as usize));
 
         catchup_enqueue(ConsensusMessage::new(
+            MessageType::Outbound(Some(peer_id)),
             PacketType::FinalizationMessage,
-            Some(peer_id),
             payload,
         ))
     }

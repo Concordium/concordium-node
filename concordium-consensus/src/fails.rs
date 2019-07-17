@@ -46,7 +46,3 @@ macro_rules! safe_read {
             })
     };
 }
-
-#[derive(Debug, Fail)]
-#[fail(display = "Baker not running")]
-pub struct BakerNotRunning;

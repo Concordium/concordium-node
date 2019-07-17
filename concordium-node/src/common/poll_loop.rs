@@ -1,4 +1,4 @@
-use crate::p2p::tls_server::TlsServer;
+use crate::{connection::MessageSendingPriority, p2p::tls_server::TlsServer};
 
 use concordium_common::UCursor;
 
@@ -9,8 +9,9 @@ use std::sync::{mpsc::Receiver, Arc, RwLock};
 /// Cli, etc.), into a node. Please note that any access to internal `socket`
 /// *must be executed* inside MIO poll-loop thread.
 pub struct NetworkRawRequest {
-    pub token: Token, // It identifies the connection.
-    pub data:  UCursor,
+    pub token:    Token, // It identifies the connection.
+    pub data:     UCursor,
+    pub priority: MessageSendingPriority,
 }
 
 /// It extracts and sends each queued request.
@@ -41,9 +42,10 @@ pub fn process_network_requests(
                 Some(ref rc_conn) => {
                     let mut borrowed_mut_conn = write_or_die!(rc_conn);
                     if !borrowed_mut_conn.is_closed() {
-                        if let Err(err) =
-                            borrowed_mut_conn.async_send_from_poll_loop(network_request.data)
-                        {
+                        if let Err(err) = borrowed_mut_conn.async_send_from_poll_loop(
+                            network_request.data,
+                            network_request.priority,
+                        ) {
                             borrowed_mut_conn.close();
                             error!(
                                 "Network raw request error on connection {}: {}, and the \

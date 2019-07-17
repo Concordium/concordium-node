@@ -7,7 +7,7 @@ use crate::{
         counter::TOTAL_MESSAGES_SENT_COUNTER, get_current_stamp,
         serialization::serialize_into_memory,
     },
-    connection::connection_private::ConnectionPrivate,
+    connection::{connection_private::ConnectionPrivate, MessageSendingPriority},
     network::{NetworkId, NetworkMessage, NetworkRequest, NetworkResponse},
 };
 
@@ -59,7 +59,7 @@ pub fn default_network_request_ping_handle(
     // Ignore the return value because it is an asynchronous operation.
     priv_conn
         .borrow_mut()
-        .async_send(UCursor::from(pong_data))
+        .async_send(UCursor::from(pong_data), MessageSendingPriority::High)
         .map(|_bytes| ())
 }
 
@@ -96,7 +96,7 @@ pub fn default_network_request_find_node_handle(
         // Ignore returned because it is an asynchronous operation.
         priv_conn
             .borrow_mut()
-            .async_send(UCursor::from(response_data))
+            .async_send(UCursor::from(response_data), MessageSendingPriority::Normal)
             .map(|_bytes| ())
     } else {
         Err(Error::from(make_msg_error(
@@ -140,7 +140,10 @@ pub fn default_network_request_get_peers(
         // Ignore returned because it is an asynchronous operation.
         priv_conn
             .borrow_mut()
-            .async_send(UCursor::from(peer_list_packet))
+            .async_send(
+                UCursor::from(peer_list_packet),
+                MessageSendingPriority::Normal,
+            )
             .map(|_bytes| ())
     } else {
         Err(Error::from(make_msg_error(

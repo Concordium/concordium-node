@@ -18,7 +18,9 @@ use crate::{
         get_current_stamp, serialization::serialize_into_memory, NetworkRawRequest, P2PNodeId,
         PeerType, RemotePeer,
     },
-    connection::{network_handler::message_processor::ProcessResult, Connection},
+    connection::{
+        network_handler::message_processor::ProcessResult, Connection, MessageSendingPriority,
+    },
     dumper::DumpItem,
     network::{NetworkId, NetworkMessage, NetworkRequest},
     p2p::{
@@ -394,8 +396,10 @@ impl TlsServerPrivate {
             .iter()
             .filter(|ref rc_conn| {
                 let conn = read_or_die!(rc_conn);
-                conn.last_seen() + 120_000 < curr_stamp
-                    || conn.get_last_ping_sent() + 300_000 < curr_stamp
+                (conn.last_seen() + 120_000 < curr_stamp
+                    || conn.get_last_ping_sent() + 300_000 < curr_stamp)
+                    && conn.is_post_handshake()
+                    && !conn.is_closed()
             })
             .for_each(|ref rc_conn| {
                 let mut conn = write_or_die!(rc_conn);
@@ -407,7 +411,10 @@ impl TlsServerPrivate {
                     None,
                 );
                 if let Ok(request_ping_data) = serialize_into_memory(&request_ping, 128) {
-                    if let Err(e) = conn.async_send(UCursor::from(request_ping_data)) {
+                    if let Err(e) = conn.async_send(
+                        UCursor::from(request_ping_data),
+                        MessageSendingPriority::High,
+                    ) {
                         error!("{}", e);
                     }
                     conn.set_measured_ping_sent();
@@ -436,10 +443,13 @@ impl TlsServerPrivate {
     ) -> usize {
         self.connections
             .iter_mut()
-            .filter(|rc_conn| filter_conn(&read_or_die!(rc_conn)))
+            .filter(|rc_conn| {
+                let rc_conn_borrowed = &read_or_die!(rc_conn);
+                !rc_conn_borrowed.is_closed() && filter_conn(rc_conn_borrowed)
+            })
             .map(|rc_conn| {
                 let conn = read_or_die!(rc_conn);
-                let status = conn.async_send(data.clone());
+                let status = conn.async_send(data.clone(), MessageSendingPriority::Normal);
                 send_status(&conn, status)
             })
             .count()

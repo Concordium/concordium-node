@@ -1,6 +1,7 @@
 use super::fails;
-use crate::connection::network_handler::message_processor::{
-    MessageManager, MessageProcessor, ProcessResult,
+use crate::connection::{
+    network_handler::message_processor::{MessageManager, MessageProcessor, ProcessResult},
+    MessageSendingPriority,
 };
 use concordium_common::{
     functor::{UnitFunction, UnitFunctor},
@@ -204,7 +205,7 @@ impl TlsServer {
             .cloned()
     }
 
-    pub fn get_self_peer(&self) -> P2PPeer { self.self_peer.clone() }
+    pub fn get_self_peer(&self) -> P2PPeer { self.self_peer }
 
     #[inline]
     pub fn networks(&self) -> Arc<RwLock<HashSet<NetworkId>>> {
@@ -380,7 +381,10 @@ impl TlsServer {
                     let handshake_request_data = serialize_into_memory(&handshake_request, 256)?;
 
                     let mut conn = write_or_die!(rc_conn);
-                    conn.async_send(UCursor::from(handshake_request_data))?;
+                    conn.async_send(
+                        UCursor::from(handshake_request_data),
+                        MessageSendingPriority::High,
+                    )?;
                     conn.set_measured_handshake_sent();
                 }
                 Ok(())

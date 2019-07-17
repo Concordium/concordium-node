@@ -7,7 +7,7 @@ extern crate log;
 
 macro_rules! wrap_c_call_string {
     ($self:ident, $baker:ident, $c_call:expr) => {{
-        let $baker = $self.runner.load(Ordering::SeqCst);
+        let $baker = $self.consensus.load(Ordering::SeqCst);
         unsafe {
             let c_string = $c_call($baker);
             let r = CStr::from_ptr(c_string).to_str().unwrap().to_owned();
@@ -19,12 +19,12 @@ macro_rules! wrap_c_call_string {
 
 macro_rules! wrap_send_data_to_c {
     ($self:ident, $peer_id:ident, $data:expr, $c_call:expr) => {{
-        let baker = $self.runner.load(Ordering::SeqCst);
+        let consensus = $self.consensus.load(Ordering::SeqCst);
         let len = $data.len();
 
         let result = unsafe {
             $c_call(
-                baker,
+                consensus,
                 $peer_id,
                 CString::from_vec_unchecked($data.to_vec()).as_ptr() as *const u8,
                 len as i64,
@@ -38,9 +38,10 @@ macro_rules! wrap_send_data_to_c {
 
 macro_rules! wrap_c_call_bytes {
     ($self:ident, $c_call:expr) => {{
-        let baker = $self.runner.load(Ordering::SeqCst);
+        let consensus = $self.consensus.load(Ordering::SeqCst);
+
         unsafe {
-            let res = $c_call(baker) as *const u8;
+            let res = $c_call(consensus) as *const u8;
             let raw_size = slice::from_raw_parts(res, 4);
             let mut raw_len_buf = Cursor::new(&raw_size[0..4]);
             let ret = match raw_len_buf.read_u32::<NetworkEndian>() {
@@ -55,8 +56,8 @@ macro_rules! wrap_c_call_bytes {
 
 macro_rules! wrap_c_call {
     ($self:ident, $c_call:expr) => {{
-        let baker = $self.runner.load(Ordering::SeqCst);
-        let result = unsafe { $c_call(baker) };
+        let consensus = $self.consensus.load(Ordering::SeqCst);
+        let result = unsafe { $c_call(consensus) };
 
         ConsensusFfiResponse::try_from(result)
             .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code))
