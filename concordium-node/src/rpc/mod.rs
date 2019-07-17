@@ -568,10 +568,16 @@ impl P2P for RpcServerImpl {
                     .as_secs();
                 resp.set_current_localtime(curtime);
                 resp.set_peer_type(peer_type.to_string());
-                resp.set_is_baker(match self.consensus {
-                    Some(ref x) => x.is_baking(),
-                    None => false,
-                });
+                match self.consensus {
+                    Some(ref consensus) => {
+                        resp.set_consensus_baker_running(consensus.is_baking());
+                        resp.set_consensus_running(true);
+                    }
+                    None => {
+                        resp.set_consensus_baker_running(false);
+                        resp.set_consensus_running(false);
+                    }
+                }
                 sink.success(resp)
             } else {
                 sink.fail(grpcio::RpcStatus::new(
