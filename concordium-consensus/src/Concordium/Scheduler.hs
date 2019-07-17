@@ -136,7 +136,7 @@ dispatch msg = do
               handleUpdateContract meta remainingAmount cref amount maybeMsg msgSize energy
            
             DeployCredential cdi ->
-              handleDeployCredential meta cdi energy
+              handleDeployCredential meta (_spayload (transactionPayload msg)) cdi energy
             
             DeployEncryptionKey encKey ->
               handleDeployEncryptionKey meta senderAccount encKey energy
@@ -495,11 +495,17 @@ runInterpreter f = do
 -- a credential is valid need. Presumably public keys of id providers.
 handleDeployCredential ::
   SchedulerMonad m
-    => TransactionHeader -- ^Header of the transaction.
-    -> ID.CredentialDeploymentInformation -- ^Credentials to deploy.
-    -> Energy -- ^Amount of energy allowed for execution of this transaction.
+    =>
+    -- |Header of the transaction.
+    TransactionHeader
+    -- |Credentials to deploy in serialized form. We pass these to the verify function.
+    -> AH.CredentialDeploymentInformationBytes
+    -- |Credentials to deploy.
+    -> ID.CredentialDeploymentInformation
+    -- |Amount of energy allowed for execution of this transaction.
+    -> Energy
     -> m TxResult
-handleDeployCredential meta cdi energy = do
+handleDeployCredential meta cdiBytes cdi energy = do
   if Cost.deployCredential > energy then do
      payment <- energyToGtu (thGasAmount meta) -- use up all the deposited gas
      chargeExecutionCost (thSender meta) payment
@@ -512,26 +518,43 @@ handleDeployCredential meta cdi energy = do
      regIdEx <- accountRegIdExists (ID.cdvRegId cdv)
      if regIdEx then
        return $! TxValid $ TxReject $ DuplicateAccountRegistrationID (ID.cdvRegId cdv)
-     else do
-       -- first check whether an account with the address exists in the global store
-       let aaddr = AH.accountAddress (ID.cdvVerifyKey cdv) (ID.cdvSigScheme cdv)
-       macc <- getAccount aaddr
-       case macc of
-         Nothing ->  -- account does not yet exist, so create it, but we need to be careful
-           let account = newAccount (ID.cdvVerifyKey cdv) (ID.cdvSigScheme cdv)
-           in if AH.verifyCredential cdi then do
-                _ <- putNewAccount account -- first create new account, but only if credential was valid.
-                                           -- We know the address does not yet exist.
-                addAccountCredential aaddr cdv  -- and then add the credentials
-                return $! TxValid (TxSuccess [AccountCreated aaddr, CredentialDeployed cdi])
-              else return $! TxValid $ TxReject AccountCredentialInvalid
-
-         Just _ -> -- otherwise we just try to add a credential to the account
-                   if AH.verifyCredential cdi then do
-                     addAccountCredential aaddr cdv
-                     return $! TxValid $ TxSuccess [CredentialDeployed cdi]
-                   else
-                     return $! TxValid $ TxReject AccountCredentialInvalid
+     else
+       -- We now look up the identity provider this credential is derived from.
+       -- Of course if it does not exist we reject the transaction.
+       getIPInfo (ID.cdvIpId cdv) >>= \case
+         Nothing -> return $! TxValid $ TxReject $ NonExistentIdentityProvider (ID.cdvIpId cdv)
+         Just IdentityProviderData{ipArInfo=AnonymityRevokerData{..},..} -> do
+            CryptographicParameters{..} <- getCrypoParams
+            -- first check whether an account with the address exists in the global store
+            let aaddr = AH.accountAddress (ID.cdvVerifyKey cdv) (ID.cdvSigScheme cdv)
+            getAccount aaddr >>= \case
+              Nothing ->  -- account does not yet exist, so create it, but we need to be careful
+                let account = newAccount (ID.cdvVerifyKey cdv) (ID.cdvSigScheme cdv)
+                in if AH.verifyCredential
+                      elgamalGenerator
+                      attributeCommitmentKey
+                      ipVerifyKey
+                      arElgamalGenerator
+                      arPublicKey
+                      cdiBytes then do
+                     _ <- putNewAccount account -- first create new account, but only if credential was valid.
+                                                -- We know the address does not yet exist.
+                     addAccountCredential aaddr cdv  -- and then add the credentials
+                     return $! TxValid (TxSuccess [AccountCreated aaddr, CredentialDeployed cdi])
+                   else return $! TxValid $ TxReject AccountCredentialInvalid
+     
+              Just _ -> -- otherwise we just try to add a credential to the account
+                        if AH.verifyCredential
+                           elgamalGenerator
+                           attributeCommitmentKey
+                           ipVerifyKey
+                           arElgamalGenerator
+                           arPublicKey
+                           cdiBytes then do
+                          addAccountCredential aaddr cdv
+                          return $! TxValid $ TxSuccess [CredentialDeployed cdi]
+                        else
+                          return $! TxValid $ TxReject AccountCredentialInvalid
 
 handleDeployEncryptionKey ::
   SchedulerMonad m

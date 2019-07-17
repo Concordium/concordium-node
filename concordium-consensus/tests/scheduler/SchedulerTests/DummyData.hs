@@ -53,12 +53,6 @@ mkAccount ::AccountVerificationKey -> Amount -> Account
 mkAccount vfKey amnt = (newAccount vfKey Ed25519) {_accountAmount = amnt}
 
 
-dummyCryptographicParameters :: CryptographicParameters
-dummyCryptographicParameters = CryptographicParameters {
-  elgamalGenerator = ElgamalGenerator "",
-  attributeCommitmentKey = PedersenKey ""
-  }
-
 -- |Make a dummy credential deployment information from an account registration
 -- id and sequential registration id. All the proofs are dummy values, and there
 -- is no anoymity revocation data.
@@ -74,6 +68,10 @@ mkDummyCDI vfKey nregId =
                         in RegIdCred (FBS.pack . map (fromIntegral . fromEnum) $ (pad ++ d))
             ,cdvIpId = IP_ID "ip_id"
             ,cdvPolicy = Policy 0 0 []
+            ,cdvArData = AnonymityRevocationData {
+                ardName = ARName "AnonymityRevoker",
+                ardIdCredPubEnc = undefined -- FIXME
+                }
             },
           cdiProofs = Proofs "proof"
         }
