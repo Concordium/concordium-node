@@ -145,7 +145,7 @@ constructBlock slotNumber blockParent lfPointer blockBaker =
                                        if b then return cpt  -- if the transaction was purged don't put it back into the pending table
                                        else do
                                            nonce <- nextNonceFor (transactionSender tx)
-                                           return $! (extendPendingTransactionTable nonce tx cpt))  -- but otherwise do
+                                           return $! (checkedExtendPendingTransactionTable nonce tx cpt))  -- but otherwise do
                    emptyPendingTransactionTable
                    invalid
     -- commit the new pending transactions to the tree state

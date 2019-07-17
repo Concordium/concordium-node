@@ -537,7 +537,11 @@ doReceiveTransaction tr slot = do
             focus <- getFocusBlock
             macct <- getAccount (bpState focus) (transactionSender tr)
             let nextNonce = maybe minNonce _accountNonce macct
-            putPendingTransactions $ extendPendingTransactionTable nextNonce tr ptrs
+            -- If a transaction with this nonce has already been run by
+            -- the focus block, then we do not need to add it to the
+            -- pending transactions.  Otherwise, we do.
+            when (nextNonce <= transactionNonce tr) $
+                putPendingTransactions $ extendPendingTransactionTable nextNonce tr ptrs
             return ResultSuccess
         else
             return ResultDuplicate
@@ -740,7 +744,7 @@ newtype BFSM m a = BufferedFinalizationSkovMonad {runBufferedFinalizationSkovMon
     deriving TreeStateMonad via (Basic.SkovTreeState SkovBufferedFinalizationState (RWST FinalizationInstance (Endo [BufferedSkovFinalizationEvent]) SkovBufferedFinalizationState m))
     deriving SkovQueryMonad via (TSSkovWrapper (Basic.SkovTreeState SkovBufferedFinalizationState (RWST FinalizationInstance (Endo [BufferedSkovFinalizationEvent]) SkovBufferedFinalizationState m)))
     deriving SkovMonad via (TSSkovBufferedFinalizationWrapper FinalizationInstance (Endo [BufferedSkovFinalizationEvent]) SkovBufferedFinalizationState (BFSM m))
-    deriving (FinalizationMonad SkovBufferedFinalizationState) via (TSSkovFinalizationWrapper FinalizationInstance (Endo [BufferedSkovFinalizationEvent]) SkovBufferedFinalizationState (BFSM m))
+    deriving (FinalizationMonad SkovBufferedFinalizationState) via (TSSkovBufferedFinalizationWrapper FinalizationInstance (Endo [BufferedSkovFinalizationEvent]) SkovBufferedFinalizationState (BFSM m))
 type instance UpdatableBlockState (BFSM m) = Basic.BlockState
 type instance BlockPointer (BFSM m) = Basic.BlockPointer
 

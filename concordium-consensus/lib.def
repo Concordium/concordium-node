@@ -2,6 +2,7 @@ EXPORTS
  hs_init
  hs_exit
  makeGenesisData
+ startConsensus
  startBaker
  stopBaker
  receiveBlock

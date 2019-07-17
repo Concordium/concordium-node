@@ -29,12 +29,15 @@ import Concordium.Logger
 import Concordium.Getters
 
 data SyncRunner = SyncRunner {
-    syncFinalizationInstance :: FinalizationInstance,
+    syncBakerIdentity :: BakerIdentity,
     syncState :: MVar SkovBufferedFinalizationState,
     syncBakerThread :: MVar ThreadId,
     syncLogMethod :: LogMethod IO,
-    syncFinalizationMessageCallback :: FinalizationMessage -> IO ()
+    syncCallback :: SimpleOutMessage -> IO ()
 }
+
+bakerFinalizationInstance :: BakerIdentity -> FinalizationInstance
+bakerFinalizationInstance bkr = FinalizationInstance (bakerSignKey bkr) (bakerElectionKey bkr)
 
 instance SkovStateQueryable SyncRunner (SimpleSkovMonad SkovBufferedFinalizationState IO) where
     runStateQuery sr a = readMVar (syncState sr) >>= evalSSM a
@@ -61,29 +64,34 @@ asyncNotify mvState logm cbk ne@(timeout, _) = void $ forkIO $ do
         mmsg <- runWithStateLog mvState logm (runStateT $ notifyBuffer ne)
         forM_ mmsg cbk
 
-
+-- |Make a 'SyncRunner' without starting a baker thread.
 makeSyncRunner :: forall m. LogMethod IO -> BakerIdentity -> GenesisData -> BlockState (BFSM m) -> (SimpleOutMessage -> IO ()) -> IO SyncRunner
-makeSyncRunner syncLogMethod bkr gen initBS bakerCallback = do
+makeSyncRunner syncLogMethod syncBakerIdentity gen initBS syncCallback = do
         let
-            syncFinalizationInstance = FinalizationInstance (bakerSignKey bkr) (bakerElectionKey bkr)
+            syncFinalizationInstance = bakerFinalizationInstance syncBakerIdentity
             sfs0 = initialSkovBufferedFinalizationState syncFinalizationInstance gen initBS
-            syncFinalizationMessageCallback = bakerCallback . SOMsgFinalization
         syncState <- newMVar sfs0
+        syncBakerThread <- newEmptyMVar
+        return $ SyncRunner{..}
+
+-- |Start the baker thread for a 'SyncRunner'.
+startSyncRunner :: SyncRunner -> IO ()
+startSyncRunner SyncRunner{..} = do
         let
             runBaker = bakeLoop 0 `finally` syncLogMethod Runner LLInfo "Exiting baker thread"
             bakeLoop lastSlot = do
                 (mblock, sfs', evs, curSlot) <- runWithStateLog syncState syncLogMethod (\sfs -> do
                         let bake = do
                                 curSlot <- getCurrentSlot
-                                mblock <- if (curSlot > lastSlot) then bakeForSlot bkr curSlot else return Nothing
+                                mblock <- if (curSlot > lastSlot) then bakeForSlot syncBakerIdentity curSlot else return Nothing
                                 return (mblock, curSlot)
-                        ((mblock, curSlot), sfs', evs) <- runBFSM bake syncFinalizationInstance sfs
+                        ((mblock, curSlot), sfs', evs) <- runBFSM bake (bakerFinalizationInstance syncBakerIdentity) sfs
                         return ((mblock, sfs', evs, curSlot), sfs'))
-                forM_ mblock $ bakerCallback . SOMsgNewBlock
+                forM_ mblock $ syncCallback . SOMsgNewBlock
                 let
-                    handleMessage (BufferedEvent (SkovFinalization (BroadcastFinalizationMessage fmsg))) = bakerCallback (SOMsgFinalization fmsg)
-                    handleMessage (BufferedEvent (SkovFinalization (BroadcastFinalizationRecord frec))) = bakerCallback (SOMsgFinalizationRecord frec)
-                    handleMessage (BufferNotification ne) = asyncNotify syncState syncLogMethod syncFinalizationMessageCallback ne
+                    handleMessage (BufferedEvent (SkovFinalization (BroadcastFinalizationMessage fmsg))) = syncCallback (SOMsgFinalization fmsg)
+                    handleMessage (BufferedEvent (SkovFinalization (BroadcastFinalizationRecord frec))) = syncCallback (SOMsgFinalizationRecord frec)
+                    handleMessage (BufferNotification ne) = asyncNotify syncState syncLogMethod (syncCallback . SOMsgFinalization) ne
                     handleMessage _ = return () -- This should not be possible.
                 forM_ (appEndo evs []) handleMessage
                 delay <- evalSSM (do
@@ -92,10 +100,17 @@ makeSyncRunner syncLogMethod bkr gen initBS bakerCallback = do
                     return $! if curSlot == curSlot' then truncate (ttns * 1e6) else 0) sfs'
                 when (delay > 0) $ threadDelay delay
                 bakeLoop curSlot
-        bakerThread <- forkIO $ runBaker
-        syncBakerThread <- newMVar bakerThread
-        return $ SyncRunner{..}
+        _ <- forkIO $ do
+            tid <- myThreadId
+            putRes <- tryPutMVar syncBakerThread tid
+            if putRes then do
+                syncLogMethod Runner LLInfo "Starting baker thread"
+                runBaker
+            else
+                syncLogMethod Runner LLInfo "Starting baker thread aborted: baker is already running"
+        return ()
 
+-- |Stop the baker thread for a 'SyncRunner'.
 stopSyncRunner :: SyncRunner -> IO ()
 stopSyncRunner SyncRunner{..} = mask_ $ tryTakeMVar syncBakerThread >>= \case
         Nothing -> return ()
@@ -103,9 +118,10 @@ stopSyncRunner SyncRunner{..} = mask_ $ tryTakeMVar syncBakerThread >>= \case
 
 runBFSMWithStateLog :: SyncRunner -> BFSM LogIO a -> IO (a, [SkovFinalizationEvent])
 runBFSMWithStateLog SyncRunner{..} a = do
-        (ret, evts) <- runWithStateLog syncState syncLogMethod (\sfs -> (\(ret, sfs', Endo evs) -> ((ret, evs []), sfs')) <$> runBFSM a syncFinalizationInstance sfs)
+        (ret, evts) <- runWithStateLog syncState syncLogMethod (\sfs -> 
+            (\(ret, sfs', Endo evs) -> ((ret, evs []), sfs')) <$> runBFSM a (bakerFinalizationInstance syncBakerIdentity) sfs)
         let (aevts, bevts) = partitionEithers $ evtToEither <$> evts
-        forM_ bevts $ asyncNotify syncState syncLogMethod syncFinalizationMessageCallback
+        forM_ bevts $ asyncNotify syncState syncLogMethod (syncCallback . SOMsgFinalization)
         return (ret, aevts)
     where
         evtToEither (BufferedEvent e) = Left e
@@ -146,6 +162,7 @@ makeAsyncRunner logm bkr gen initBS = do
         outChan <- newChan
         let somHandler = writeChan outChan . simpleToOutMessage
         sr <- makeSyncRunner logm bkr gen initBS somHandler
+        startSyncRunner sr
         let
             msgLoop = readChan inChan >>= \case
                 MsgShutdown -> stopSyncRunner sr

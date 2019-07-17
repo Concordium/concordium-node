@@ -77,7 +77,7 @@ invariantSkovData SkovData{..} = do
         let anft' = foldr (\(tr, _) nft -> nft & at (transactionSender tr) . non emptyANFT . anftMap . at (transactionNonce tr) . non Set.empty %~ Set.insert tr) anftNonces nonFinTrans
         unless (anft' == _ttNonFinalizedTransactions _skovTransactionTable) $ Left "Incorrect non-finalized transactions"
         (pendingTrans, pendingNonces) <- walkTransactions lastFin _skovFocusBlock nonFinTrans anftNonces
-        let ptt = foldr (\(tr, _) -> extendPendingTransactionTable (pendingNonces ^. at (transactionSender tr) . non emptyANFT . anftNextNonce) tr) emptyPendingTransactionTable pendingTrans
+        let ptt = foldr (\(tr, _) -> checkedExtendPendingTransactionTable (pendingNonces ^. at (transactionSender tr) . non emptyANFT . anftNextNonce) tr) emptyPendingTransactionTable pendingTrans
         checkBinary (==) ptt _skovPendingTransactions "==" "expected pending transactions" "recorded pending transactions"
     where
         checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
@@ -356,8 +356,18 @@ withInitialStatesTransactions n trcount r = monadicIO $ do
         gen <- pick $ mkStdGen <$> arbitrary
         liftIO $ r gen s0 (initialEvents s0 <> Seq.fromList [(x, ETransaction tr) | x <- [0..n-1], tr <- trs])
 
+withInitialStatesDoubleTransactions :: Int -> Int -> (StdGen -> States -> EventPool -> IO Property) -> Property
+withInitialStatesDoubleTransactions n trcount r = monadicIO $ do
+        s0 <- pick $ initialiseStates n
+        trs0 <- pick $ genTransactions trcount
+        trs <- (trs0 ++) <$> pick (genTransactions trcount)
+        gen <- pick $ mkStdGen <$> arbitrary
+        liftIO $ r gen s0 (initialEvents s0 <> Seq.fromList [(x, ETransaction tr) | x <- [0..n-1], tr <- trs])
+
+
 tests :: Spec
 tests = parallel $ describe "Concordium.Konsensus" $ do
+    it "2 parties, 100 steps, 20 transactions with duplicates, check at every step" $ withMaxSuccess 1000 $ withInitialStatesDoubleTransactions 2 10 $ runKonsensusTest 100
     it "2 parties, 100 steps, 10 transactions, check at every step" $ withMaxSuccess 10000 $ withInitialStatesTransactions 2 10 $ runKonsensusTest 100
     it "2 parties, 1000 steps, 50 transactions, check at every step" $ withMaxSuccess 1000 $ withInitialStatesTransactions 2 50 $ runKonsensusTest 1000
     it "2 parties, 100 steps, check at every step" $ withMaxSuccess 10000 $ withInitialStates 2 $ runKonsensusTest 100
