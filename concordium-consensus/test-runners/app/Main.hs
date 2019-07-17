@@ -107,12 +107,6 @@ gsToString gs = intercalate "\\l" . map show $ keys
         ca n = ContractAddress (fromIntegral n) 0
         keys = map (\n -> (n, instanceModel <$> getInstance (ca n) (gs ^. blockInstances))) $ enumFromTo 0 (nContracts-1)
 
-dummyCryptographicParameters :: CryptographicParameters
-dummyCryptographicParameters = CryptographicParameters {
-  elgamalGenerator = ElgamalGenerator "",
-  attributeCommitmentKey = PedersenKey ""
-  }
-
 dummyIdentityProviders :: [IdentityProviderData]
 dummyIdentityProviders = []  
 

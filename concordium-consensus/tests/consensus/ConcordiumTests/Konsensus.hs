@@ -310,12 +310,6 @@ makeBaker bid lot = do
         let account = makeBakerAccount bid
         return (BakerInfo epk spk lot (_accountAddress account), BakerIdentity bid sk spk ek epk, account)
 
-dummyCryptographicParameters :: CryptographicParameters
-dummyCryptographicParameters = CryptographicParameters {
-  elgamalGenerator = ElgamalGenerator "",
-  attributeCommitmentKey = PedersenKey ""
-  }
-
 dummyIdentityProviders :: [IdentityProviderData]
 dummyIdentityProviders = []  
 
