@@ -1247,7 +1247,10 @@ impl P2P for RpcServerImpl {
         sink: ::grpcio::UnarySink<SuccessResponse>,
     ) {
         let mut r: SuccessResponse = SuccessResponse::new();
-        r.set_value(self.consensus.is_some());
+        r.set_value(match self.consensus {
+            Some(ref x) => x.is_baking(),
+            None => false
+        });
         ctx.spawn(
             sink.success(r)
                 .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e)),
