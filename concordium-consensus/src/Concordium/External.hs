@@ -34,7 +34,6 @@ import Concordium.GlobalState.Basic.BlockState(BlockState)
 
 import Concordium.Scheduler.Utils.Init.Example (initialState)
 
-import Concordium.Birk.Bake
 import Concordium.Runner
 import Concordium.Show
 import Concordium.Skov (SkovFinalizationState, SimpleSkovMonad, SkovFinalizationEvent(..), UpdateResult(..))
@@ -113,7 +112,7 @@ makeGenesisData genTime nBakers cryptoParamsFile idProvidersFile cbkgen cbkbaker
             let (genData, bakers) = S.makeGenesisData genTime (fromIntegral nBakers) 10 0.5 9 cryptoParams idProviders
             let bakersPrivate = map fst bakers
             callGenesisDataCallback cbkgen (encode genData)
-            mapM_ (\bkr@(BakerIdentity (BakerId bid) _ _ _ _) -> callBakerIdentityCallback cbkbaker bid (encode bkr)) bakersPrivate
+            mapM_ (\(bid, bkr) -> callBakerIdentityCallback cbkbaker bid (encode bkr)) (zip [0..] bakersPrivate)
             return 0
 
 -- | External function that logs in Rust a message using standard Rust log output

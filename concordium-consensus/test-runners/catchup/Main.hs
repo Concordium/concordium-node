@@ -25,7 +25,6 @@ import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.TreeState
 import Concordium.Scheduler.Utils.Init.Example as Example
 
-import Concordium.Birk.Bake
 import Concordium.Types
 import Concordium.Runner
 import Concordium.Logger
@@ -191,8 +190,8 @@ main = do
     let (gen, bis) = makeGenesisData now n 1 0.5 1 dummyCryptographicParameters dummyIdentityProviders
     let iState = Example.initialState (genesisBirkParameters gen) (genesisCryptographicParameters gen) (genesisBakerAccounts gen) nContracts
     trans <- transactions <$> newStdGen
-    chans <- mapM (\(bid, _) -> do
-        let logFile = "consensus-" ++ show now ++ "-" ++ show (bakerId bid) ++ ".log"
+    chans <- mapM (\(bakerId, (bid, _)) -> do
+        let logFile = "consensus-" ++ show now ++ "-" ++ show bakerId ++ ".log"
         logChan <- newChan
         let logLoop = do
                 logMsg <- readChan logChan
@@ -207,7 +206,7 @@ main = do
         connectedRef <- newIORef True
         _ <- forkIO $ relayIn cin' cin out connectedRef
         _ <- forkIO $ sendTransactions cin' trans
-        return (cin', cout, out, connectedRef, logM)) bis
+        return (cin', cout, out, connectedRef, logM)) (zip [0::Int ..] bis)
     monitorChan <- newChan
     forM_ (removeEach chans) $ \((cin, cout, stateRef, connectedRef, logM), cs) -> do
         let cs' = ((\(c, _, _, _, _) -> c) <$> cs)
