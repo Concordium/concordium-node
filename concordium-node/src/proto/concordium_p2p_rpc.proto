@@ -84,7 +84,8 @@ message NodeInfoResponse {
   google.protobuf.StringValue node_id = 1;
   uint64 current_localtime = 2;
   string peer_type = 3;
-  bool is_baker = 4;
+  bool consensus_baker_running = 4;
+  bool consensus_running = 5;
 }
 
 message SuccessfulJsonPayloadResponse {
