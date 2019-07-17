@@ -144,7 +144,6 @@ readIdentityProviders = AE.decode
 readCryptographicParameters :: BSL.ByteString -> Maybe CryptographicParameters
 readCryptographicParameters = AE.decode
 
-
 -- |NB: Only for testing.
 dummyCryptographicParameters :: CryptographicParameters
 dummyCryptographicParameters =
