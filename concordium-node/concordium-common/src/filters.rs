@@ -1,5 +1,8 @@
 use failure::Error;
-use std::cmp::Ordering;
+use std::{
+    cmp::Ordering,
+    sync::{Arc, RwLock},
+};
 
 use crate::functor::AFuncCW;
 
@@ -46,20 +49,20 @@ impl<T: Send> Clone for Filter<T> {
 /// priority
 ///
 /// In case any of the filters fails, the whole execution will fail
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Filters<T: Send> {
-    filters: Vec<Filter<T>>,
+    filters: Arc<RwLock<Vec<Filter<T>>>>,
 }
 
 impl<T: Send> Filters<T> {
     pub fn new() -> Self {
         Self {
-            filters: Vec::new(),
+            filters: Arc::new(RwLock::new(Vec::new())),
         }
     }
 
     pub fn add_filter(&mut self, filter: FilterAFunc<T>, priority: u8) -> &mut Self {
-        self.filters.push(Filter {
+        write_or_die!(self.filters).push(Filter {
             func: filter,
             priority,
         });
@@ -67,15 +70,15 @@ impl<T: Send> Filters<T> {
     }
 
     pub fn push_filter(&mut self, filter: Filter<T>) -> &mut Self {
-        self.filters.push(filter);
+        write_or_die!(self.filters).push(filter);
         self
     }
 
-    pub fn get_filters(&self) -> &[Filter<T>] { &self.filters }
+    pub fn get_filters(&self) -> &RwLock<Vec<Filter<T>>> { &self.filters }
 
     pub fn run_filters(&mut self, message: &T) -> Result<FilterResult, Error> {
-        self.filters.sort();
-        for cb in self.filters.iter().rev() {
+        write_or_die!(self.filters).sort();
+        for cb in read_or_die!(self.filters).iter().rev() {
             let res = (cb.func)(message)?;
 
             if FilterResult::Abort == res {

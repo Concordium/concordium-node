@@ -2,7 +2,7 @@ extern crate p2p_client;
 
 #[cfg(test)]
 mod tests {
-    use concordium_common::{make_atomic_callback, safe_write, write_or_die, UCursor};
+    use concordium_common::{make_atomic_callback, safe_write, UCursor};
     use failure::{bail, Fallible};
     use p2p_client::{
         common::PeerType,
@@ -195,8 +195,8 @@ mod tests {
             let (mut node, waiter) =
                 make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
             let port = node.internal_addr().port();
-            safe_write!(node.message_processor())?.add_notification(make_atomic_callback!(
-                move |m: &NetworkMessage| {
+            node.message_processor()
+                .add_notification(make_atomic_callback!(move |m: &NetworkMessage| {
                     if let NetworkMessage::NetworkPacket(pac, _, _) = m {
                         if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
                             inner_counter.tick(1);
@@ -211,8 +211,7 @@ mod tests {
                         }
                     }
                     Ok(())
-                }
-            ));
+                }));
 
             for (tgt_node, tgt_waiter) in &peers {
                 connect(&mut node, &tgt_node)?;
@@ -275,8 +274,8 @@ mod tests {
                     make_node_and_sync(next_available_port(), networks.clone(), PeerType::Node)?;
                 let port = node.internal_addr().port();
 
-                safe_write!(node.message_processor())?.add_notification(make_atomic_callback!(
-                    move |m: &NetworkMessage| {
+                node.message_processor()
+                    .add_notification(make_atomic_callback!(move |m: &NetworkMessage| {
                         if let NetworkMessage::NetworkPacket(pac, _, _) = m {
                             if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
                                 inner_counter.tick(1);
@@ -292,8 +291,7 @@ mod tests {
                             }
                         }
                         Ok(())
-                    }
-                ));
+                    }));
 
                 // Connect to previous nodes and clean any pending message in waiters
                 for (tgt_node, tgt_waiter) in &peers_islands_and_ports {
@@ -376,14 +374,12 @@ mod tests {
 
             let (node, conn_waiter) = make_node_and_sync(port, vec![network_id], PeerType::Node)?;
 
-            let mh = node.message_processor();
-            safe_write!(mh)?.add_packet_action(make_atomic_callback!(
-                move |pac: &NetworkPacket| {
-                    // It is safe to ignore error.
-                    let _ = tx_i.send(pac.clone());
-                    Ok(())
-                }
-            ));
+            let mut mh = node.message_processor();
+            mh.add_packet_action(make_atomic_callback!(move |pac: &NetworkPacket| {
+                // It is safe to ignore error.
+                let _ = tx_i.send(pac.clone());
+                Ok(())
+            }));
 
             nodes.push(RefCell::new(node));
             waiters.push(conn_waiter);
@@ -518,13 +514,12 @@ mod tests {
             make_node_and_sync(next_available_port(), vec![network_id], PeerType::Node)?;
         let (bcast_tx, bcast_rx) = std::sync::mpsc::sync_channel(64);
         {
-            write_or_die!(node.message_processor()).add_packet_action(make_atomic_callback!(
-                move |pac: &NetworkPacket| {
+            node.message_processor()
+                .add_packet_action(make_atomic_callback!(move |pac: &NetworkPacket| {
                     debug!("Root node is forwarding Packet to channel");
                     // It is safe to ignore error.
                     bcast_tx.send(pac.clone()).map_err(failure::Error::from)
-                }
-            ));
+                }));
         }
 
         nodes_per_level.push(vec![RefCell::new(node)]);
@@ -716,13 +711,13 @@ mod tests {
             make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
 
         let node_2_cloned = RwLock::new(node_2.clone());
-        safe_write!(node_2.message_processor())?.add_packet_action(make_atomic_callback!(
-            move |_pac: &NetworkPacket| {
+        node_2
+            .message_processor()
+            .add_packet_action(make_atomic_callback!(move |_pac: &NetworkPacket| {
                 let join_status = safe_write!(node_2_cloned)?.close_and_join();
                 assert_eq!(join_status.is_err(), true);
                 Ok(())
-            }
-        ));
+            }));
         connect(&mut node_1, &node_2)?;
         await_handshake(&waiter_1)?;
 

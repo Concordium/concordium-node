@@ -16,7 +16,7 @@ use byteorder::{NetworkEndian, WriteBytesExt};
 
 use concordium_common::{
     cache::Cache,
-    make_atomic_callback, safe_write, spawn_or_die,
+    make_atomic_callback, spawn_or_die,
     stats_export_service::{StatsExportService, StatsServiceMode},
     PacketType, RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSender,
     RelayOrStopSenderHelper,
@@ -320,10 +320,10 @@ fn attain_post_handshake_catch_up(
     consensus: &consensus::ConsensusContainer,
 ) -> Fallible<()> {
     let consensus_clone = consensus.clone();
-    let message_handshake_response_handler = &node.message_processor();
+    let mut message_handshake_response_handler = node.message_processor();
 
     let node_shared = node.thread_shared.clone();
-    safe_write!(message_handshake_response_handler)?.add_response_action(make_atomic_callback!(
+    message_handshake_response_handler.add_response_action(make_atomic_callback!(
         move |msg: &NetworkResponse| {
             if let NetworkResponse::Handshake(ref remote_peer, ref nets, _) = msg {
                 if remote_peer.peer_type() == PeerType::Node {

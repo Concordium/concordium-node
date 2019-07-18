@@ -3,7 +3,7 @@ use concordium_common::{
     fails::FunctorError,
     functor::{FuncResult, FunctorResult, UnitFunction, UnitFunctor},
 };
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 pub type NetworkMessageCW = UnitFunction<NetworkMessage>;
 pub type NetworkRequestCW = UnitFunction<NetworkRequest>;
@@ -13,6 +13,7 @@ pub type EmptyCW = UnitFunction<()>;
 pub type EmptyFunction = Arc<(Fn() -> FuncResult<()> + Send + Sync + 'static)>;
 
 /// It is a handler for `NetworkMessage`.
+#[derive(Clone)]
 pub struct MessageHandler {
     request_parser:  UnitFunctor<NetworkRequest>,
     response_parser: UnitFunctor<NetworkResponse>,
@@ -70,20 +71,20 @@ impl MessageHandler {
     }
 
     /// It merges into `this` all parsers from `other` `MessageHandler`.
-    pub fn add(&mut self, other: Arc<RwLock<MessageHandler>>) -> &mut Self {
-        for cb in read_or_die!(other).general_parser.callbacks().iter() {
+    pub fn add(&mut self, other: MessageHandler) -> &mut Self {
+        for cb in read_or_die!(other.general_parser.callbacks()).iter() {
             self.add_callback(cb.clone());
         }
 
-        for cb in read_or_die!(other).packet_parser.callbacks().iter() {
+        for cb in read_or_die!(other.packet_parser.callbacks()).iter() {
             self.add_packet_callback(cb.clone());
         }
 
-        for cb in read_or_die!(other).response_parser.callbacks().iter() {
+        for cb in read_or_die!(other.response_parser.callbacks()).iter() {
             self.add_response_callback(cb.clone());
         }
 
-        for cb in read_or_die!(other).request_parser.callbacks().iter() {
+        for cb in read_or_die!(other.request_parser.callbacks()).iter() {
             self.add_request_callback(cb.clone());
         }
 

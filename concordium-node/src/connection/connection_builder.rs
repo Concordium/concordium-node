@@ -63,7 +63,7 @@ impl ConnectionBuilder {
                 dptr: Arc::new(RwLock::new(priv_conn)),
                 pre_handshake_message_processor: MessageProcessor::new(),
                 post_handshake_message_processor: MessageProcessor::new(),
-                common_message_processor: Arc::new(RwLock::new(MessageProcessor::new())),
+                common_message_processor: MessageProcessor::new(),
             };
 
             Ok(lself)

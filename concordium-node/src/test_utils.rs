@@ -147,8 +147,8 @@ pub fn make_node_and_sync(
 
     node.add_notification(make_atomic_callback!(move |m: &NetworkMessage| {
         log_any_message_handler(node_id, m)
-    }))
-    .add_notification(make_atomic_callback!(move |m: &NetworkMessage| {
+    }));
+    node.add_notification(make_atomic_callback!(move |m: &NetworkMessage| {
         // It is safe to ignore error.
         let _ = msg_wait_tx.send(m.clone());
         Ok(())
@@ -187,8 +187,8 @@ pub fn make_node_and_sync_with_rpc(
 
     node.add_notification(make_atomic_callback!(move |m: &NetworkMessage| {
         log_any_message_handler(node_id, m)
-    }))
-    .add_notification(make_atomic_callback!(move |m: &NetworkMessage| {
+    }));
+    node.add_notification(make_atomic_callback!(move |m: &NetworkMessage| {
         // It is safe to ignore error.
         let _ = msg_wait_tx.send(m.clone());
         Ok(())

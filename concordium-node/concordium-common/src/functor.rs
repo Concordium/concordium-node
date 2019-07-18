@@ -1,6 +1,9 @@
 use crate::fails::FunctorError;
 use failure::Error;
-use std::{ops::Deref, sync::Arc};
+use std::{
+    ops::Deref,
+    sync::{Arc, RwLock},
+};
 
 /// Helper macro to create callbacks from raw function pointers or closures.
 #[macro_export]
@@ -77,44 +80,46 @@ pub type BoolFunction<T> = AFuncCW<T, bool>;
 /// if let Ok(value) = acc.clone().read() {
 ///     assert_eq!(value.deref(), &4200);
 /// }
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct UnitFunctor<T: Send> {
     /// Queue of functions to be executed
-    callbacks: Vec<UnitFunction<T>>,
+    callbacks: Arc<RwLock<Vec<UnitFunction<T>>>>,
 }
 
 impl<T: Send> UnitFunctor<T> {
     pub fn new() -> Self {
         Self {
-            callbacks: Vec::new(),
+            callbacks: Arc::new(RwLock::new(Vec::new())),
         }
     }
 
     pub fn add_callback(&mut self, callback: UnitFunction<T>) -> &mut Self {
-        self.callbacks.push(callback);
+        write_or_die!(self.callbacks).push(callback);
         self
     }
 
-    pub fn callbacks(&self) -> &[UnitFunction<T>] { &self.callbacks }
+    pub fn callbacks(&self) -> &RwLock<Vec<UnitFunction<T>>> { &self.callbacks }
 
     pub fn run_callbacks(&self, message: &T) -> FunctorResult<()> {
-        self.callbacks.iter().fold(Ok(()), |acum, cb| {
-            let res = (cb.0)(message).map_err(Error::from);
+        read_or_die!(self.callbacks)
+            .iter()
+            .fold(Ok(()), |acum, cb| {
+                let res = (cb.0)(message).map_err(Error::from);
 
-            match acum {
-                Ok(_) => match res {
-                    Ok(_) => Ok(()),
-                    Err(e) => Err(FunctorError::create(e)),
-                },
-                Err(mut e) => match res {
-                    Ok(_) => Err(e),
-                    Err(ee) => {
-                        e.errors.push(ee);
-                        Err(e)
-                    }
-                },
-            }
-        })
+                match acum {
+                    Ok(_) => match res {
+                        Ok(_) => Ok(()),
+                        Err(e) => Err(FunctorError::create(e)),
+                    },
+                    Err(mut e) => match res {
+                        Ok(_) => Err(e),
+                        Err(ee) => {
+                            e.errors.push(ee);
+                            Err(e)
+                        }
+                    },
+                }
+            })
     }
 }
 

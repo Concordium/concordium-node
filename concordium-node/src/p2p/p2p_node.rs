@@ -118,12 +118,12 @@ pub struct P2PNode {
     dump_tx:           SyncSender<crate::dumper::DumpItem>,
     pub thread_shared: SharedNodeData,
     pub is_rpc_online: Arc<AtomicBool>,
+    pub tls_server:    TlsServer,
 }
 
 #[derive(Clone)]
 pub struct SharedNodeData {
     pub self_peer:            P2PPeer,
-    pub tls_server:           Arc<RwLock<TlsServer>>,
     pub send_queue_in:        SyncSender<Arc<NetworkMessage>>,
     pub stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
 }
@@ -131,13 +131,11 @@ pub struct SharedNodeData {
 impl SharedNodeData {
     fn new(
         self_peer: P2PPeer,
-        tls_server: Arc<RwLock<TlsServer>>,
         send_queue_in: SyncSender<Arc<NetworkMessage>>,
         stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
     ) -> Self {
         Self {
             self_peer,
-            tls_server,
             send_queue_in,
             stats_export_service,
         }
@@ -411,12 +409,8 @@ impl P2PNode {
         let (send_queue_in, send_queue_out) = sync_channel(64);
         let (resend_queue_in, resend_queue_out) = sync_channel(64);
 
-        let thread_shared = SharedNodeData::new(
-            self_peer,
-            Arc::new(RwLock::new(tlsserv)),
-            send_queue_in.clone(),
-            stats_export_service,
-        );
+        let thread_shared =
+            SharedNodeData::new(self_peer, send_queue_in.clone(), stats_export_service);
 
         let mut mself = P2PNode {
             poll: Arc::new(RwLock::new(poll)),
@@ -437,12 +431,11 @@ impl P2PNode {
             dump_tx,
             thread_shared,
             is_rpc_online: Arc::new(AtomicBool::new(false)),
+            tls_server: tlsserv,
         };
         mself.add_default_message_handlers();
         mself
     }
-
-    pub fn tls_server(&self) -> &Arc<RwLock<TlsServer>> { &self.thread_shared.tls_server }
 
     /// It adds default message handler at .
     fn add_default_message_handlers(&mut self) {
@@ -451,7 +444,7 @@ impl P2PNode {
         let request_handler = self.make_request_handler();
         let packet_notifier = self.make_default_network_packet_message_notifier();
 
-        write_or_die!(self.message_processor())
+        self.message_processor()
             .add_filter(
                 make_atomic_callback!(move |mes: &NetworkMessage| {
                     if let NetworkMessage::NetworkPacket(pac, ..) = mes {
@@ -483,7 +476,7 @@ impl P2PNode {
     /// Default packet handler just forward valid messages.
     fn make_default_network_packet_message_notifier(&self) -> NetworkMessageCW {
         let seen_messages = self.seen_messages.clone();
-        let own_networks = Arc::clone(&read_or_die!(self.tls_server()).networks());
+        let own_networks = Arc::clone(&self.tls_server.networks());
         let own_id = self.id();
         let stats_export_service = self.stats_export_service().clone();
         let queue_to_super = self.queue_to_super.clone();
@@ -582,7 +575,7 @@ impl P2PNode {
             if peer_stat_list.is_empty() {
                 info!("Sending out GetPeers to any bootstrappers we may still be connected to");
                 {
-                    let nets = read_or_die!(self.tls_server()).networks();
+                    let nets = self.tls_server.networks();
                     if let Ok(nids) = safe_read!(nets).map(|nets| nets.clone()) {
                         self.thread_shared.send_get_peers(nids);
                     }
@@ -613,7 +606,7 @@ impl P2PNode {
                 }
             } else {
                 info!("Not enough nodes, sending GetPeers requests");
-                let nets = read_or_die!(self.tls_server()).networks();
+                let nets = self.tls_server.networks();
                 if let Ok(nids) = safe_read!(nets).map(|nets| nets.clone()) {
                     self.thread_shared.send_get_peers(nids);
                 }
@@ -624,7 +617,8 @@ impl P2PNode {
     pub fn spawn(&mut self) {
         // Prepare poll-loop channels.
         let (network_request_sender, mut network_request_receiver) = sync_channel(64);
-        write_or_die!(self.tls_server()).set_network_request_sender(network_request_sender.clone());
+        self.tls_server
+            .set_network_request_sender(network_request_sender.clone());
 
         let mut self_clone = self.clone();
 
@@ -638,7 +632,7 @@ impl P2PNode {
             loop {
                 let _ = self_clone.process(&mut events).map_err(|e| error!("{}", e));
 
-                process_network_requests(&self_clone.tls_server(), &mut network_request_receiver);
+                process_network_requests(&self_clone.tls_server, &mut network_request_receiver);
 
                 // Check termination channel.
                 if rx.try_recv().is_ok() {
@@ -711,13 +705,8 @@ impl P2PNode {
         peer_id: Option<P2PNodeId>,
     ) -> Fallible<()> {
         self.log_event(P2PEvent::InitiatingConnection(addr));
-        write_or_die!(self.tls_server()).connect(
-            peer_type,
-            &self.poll,
-            addr,
-            peer_id,
-            &self.get_self_peer(),
-        )
+        self.tls_server
+            .connect(peer_type, &self.poll, addr, peer_id, &self.get_self_peer())
     }
 
     pub fn id(&self) -> P2PNodeId { self.thread_shared.self_peer.id }
@@ -732,7 +721,7 @@ impl P2PNode {
         &self.thread_shared.stats_export_service
     }
 
-    fn log_event(&self, event: P2PEvent) { read_or_die!(self.tls_server()).log_event(event); }
+    fn log_event(&self, event: P2PEvent) { self.tls_server.log_event(event); }
 
     pub fn get_uptime(&self) -> i64 {
         Utc::now().timestamp_millis() - self.start_time.timestamp_millis()
@@ -769,7 +758,7 @@ impl P2PNode {
             Ok(data) => {
                 let no_filter = |_: &Connection| true;
 
-                write_or_die!(self.tls_server()).send_over_all_connections(
+                self.tls_server.send_over_all_connections(
                     UCursor::from(data),
                     &no_filter,
                     &check_sent_status_fn,
@@ -820,7 +809,7 @@ impl P2PNode {
                         }
                     };
 
-                    write_or_die!(self.tls_server()).send_over_all_connections(
+                    self.tls_server.send_over_all_connections(
                         UCursor::from(data),
                         &retain,
                         &check_sent_status_fn,
@@ -847,13 +836,13 @@ impl P2PNode {
 
         match s11n_data {
             Ok(data) => {
-                write_or_die!(self.tls_server()).send_over_all_connections(
+                self.tls_server.send_over_all_connections(
                     UCursor::from(data),
                     &is_valid_connection_post_handshake,
                     &check_sent_status_fn,
                 );
                 if let NetworkRequest::JoinNetwork(_, network_id) = inner_pkt {
-                    write_or_die!(self.tls_server()).add_network(*network_id);
+                    self.tls_server.add_network(*network_id);
                 }
             }
             Err(e) => {
@@ -875,13 +864,13 @@ impl P2PNode {
 
         match s11n_data {
             Ok(data) => {
-                write_or_die!(self.tls_server()).send_over_all_connections(
+                self.tls_server.send_over_all_connections(
                     UCursor::from(data),
                     &is_valid_connection_post_handshake,
                     &check_sent_status_fn,
                 );
                 if let NetworkRequest::LeaveNetwork(_, network_id) = inner_pkt {
-                    write_or_die!(self.tls_server()).remove_network(*network_id);
+                    self.tls_server.remove_network(*network_id);
                 }
             }
             Err(e) => {
@@ -903,7 +892,7 @@ impl P2PNode {
 
         match s11n_data {
             Ok(data) => {
-                write_or_die!(self.tls_server()).send_over_all_connections(
+                self.tls_server.send_over_all_connections(
                     UCursor::from(data),
                     &is_valid_connection_post_handshake,
                     &check_sent_status_fn,
@@ -931,7 +920,7 @@ impl P2PNode {
 
             match s11n_data {
                 Ok(data) => {
-                    write_or_die!(self.tls_server()).send_over_all_connections(
+                    self.tls_server.send_over_all_connections(
                         UCursor::from(data),
                         &filter,
                         &check_sent_status_fn,
@@ -967,8 +956,7 @@ impl P2PNode {
                 let not_valid_receivers = if self.config.relay_broadcast_percentage < 1.0 {
                     use rand::seq::SliceRandom;
                     let mut rng = rand::thread_rng();
-                    let peers =
-                        read_or_die!(self.tls_server()).get_all_current_peers(Some(PeerType::Node));
+                    let peers = self.tls_server.get_all_current_peers(Some(PeerType::Node));
                     let peers_to_take = f64::floor(
                         f64::from(peers.len() as u32) * self.config.relay_broadcast_percentage,
                     );
@@ -1001,7 +989,7 @@ impl P2PNode {
                     NetworkPacketType::DirectMessage(ref receiver) => {
                         let filter = |conn: &Connection| is_conn_peer_id(conn, *receiver);
 
-                        write_or_die!(self.tls_server()).send_over_all_connections(
+                        self.tls_server.send_over_all_connections(
                             data_cursor,
                             &filter,
                             &check_sent_status_fn,
@@ -1017,7 +1005,7 @@ impl P2PNode {
                             )
                         };
 
-                        write_or_die!(self.tls_server()).send_over_all_connections(
+                        self.tls_server.send_over_all_connections(
                             data_cursor,
                             &filter,
                             &check_sent_status_fn,
@@ -1166,7 +1154,7 @@ impl P2PNode {
     }
 
     pub fn get_peer_stats(&self, nids: &[NetworkId]) -> Vec<PeerStatistic> {
-        read_or_die!(self.tls_server()).get_peer_stats(nids)
+        self.tls_server.get_peer_stats(nids)
     }
 
     #[cfg(not(windows))]
@@ -1214,26 +1202,22 @@ impl P2PNode {
 
     pub fn internal_addr(&self) -> SocketAddr { self.thread_shared.self_peer.addr }
 
-    pub fn ban_node(&mut self, peer: BannedNode) {
-        write_or_die!(self.tls_server()).ban_node(peer);
-    }
+    pub fn ban_node(&mut self, peer: BannedNode) { self.tls_server.ban_node(peer); }
 
-    pub fn unban_node(&mut self, peer: BannedNode) {
-        write_or_die!(self.tls_server()).unban_node(peer);
-    }
+    pub fn unban_node(&mut self, peer: BannedNode) { self.tls_server.unban_node(peer); }
 
     pub fn process(&mut self, events: &mut Events) -> Fallible<()> {
         read_or_die!(self.poll).poll(events, Some(Duration::from_millis(1000)))?;
 
         if self.peer_type() != PeerType::Bootstrapper {
-            read_or_die!(self.tls_server()).liveness_check()?;
+            self.tls_server.liveness_check()?;
         }
 
         for event in events.iter() {
             match event.token() {
                 SERVER => {
                     debug!("Got new connection!");
-                    write_or_die!(self.tls_server())
+                    self.tls_server
                         .accept(&self.poll, self.get_self_peer())
                         .map_err(|e| error!("{}", e))
                         .ok();
@@ -1243,7 +1227,7 @@ impl P2PNode {
                 }
                 _ => {
                     trace!("Got data!");
-                    write_or_die!(self.tls_server())
+                    self.tls_server
                         .conn_event(&event)
                         .map_err(|e| error!("Error occurred while parsing event: {}", e))
                         .ok();
@@ -1254,7 +1238,7 @@ impl P2PNode {
         events.clear();
 
         {
-            write_or_die!(self.tls_server())
+            self.tls_server
                 .cleanup_connections(self.config.max_allowed_nodes, &self.poll)?;
         }
 
@@ -1279,7 +1263,7 @@ impl P2PNode {
         self.join()
     }
 
-    pub fn get_banlist(&self) -> Vec<BannedNode> { read_or_die!(self.tls_server()).get_banlist() }
+    pub fn get_banlist(&self) -> Vec<BannedNode> { self.tls_server.get_banlist() }
 
     pub fn rpc_subscription_start(&mut self) { self.is_rpc_online.store(true, Ordering::Relaxed); }
 
@@ -1292,7 +1276,7 @@ impl P2PNode {
     pub fn activate_dump(&self, path: &str, raw: bool) -> Fallible<()> {
         let path = std::path::PathBuf::from(path);
         self.dump_switch.send((path, raw))?;
-        write_or_die!(self.tls_server).dump_start(self.dump_tx.clone());
+        self.tls_server.dump_start(self.dump_tx.clone());
         Ok(())
     }
 
@@ -1300,20 +1284,20 @@ impl P2PNode {
     pub fn stop_dump(&self) -> Fallible<()> {
         let path = std::path::PathBuf::new();
         self.dump_switch.send((path, false))?;
-        write_or_die!(self.tls_server).dump_stop();
+        self.tls_server.dump_stop();
         Ok(())
     }
 
-    pub fn add_notification(&self, func: UnitFunction<NetworkMessage>) -> &Self {
-        write_or_die!(self.tls_server()).add_notification(func);
+    pub fn add_notification(&mut self, func: UnitFunction<NetworkMessage>) -> &Self {
+        self.tls_server.add_notification(func);
         self
     }
 }
 
 #[cfg(test)]
 impl P2PNode {
-    pub fn deregister_connection(&self, conn: &RwLock<Connection>) -> Fallible<()> {
-        read_or_die!(conn).deregister(&self.poll)
+    pub fn deregister_connection(&self, conn: &Connection) -> Fallible<()> {
+        conn.deregister(&self.poll)
     }
 }
 
@@ -1325,9 +1309,7 @@ impl Drop for P2PNode {
 }
 
 impl MessageManager for P2PNode {
-    fn message_processor(&self) -> Arc<RwLock<MessageProcessor>> {
-        read_or_die!(self.tls_server()).message_processor()
-    }
+    fn message_processor(&self) -> MessageProcessor { self.tls_server.message_processor().clone() }
 }
 
 fn is_conn_peer_id(conn: &Connection, id: P2PNodeId) -> bool {

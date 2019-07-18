@@ -81,6 +81,7 @@ macro_rules! handle_by_private {
     }};
 }
 
+#[derive(Clone)]
 pub struct Connection {
     // Counters
     messages_sent:     u64,
@@ -97,7 +98,7 @@ pub struct Connection {
     // Message handlers
     pub pre_handshake_message_processor:  MessageProcessor,
     pub post_handshake_message_processor: MessageProcessor,
-    pub common_message_processor:         Arc<RwLock<MessageProcessor>>,
+    pub common_message_processor:         MessageProcessor,
 }
 
 impl Connection {
@@ -107,7 +108,7 @@ impl Connection {
 
     // Setup handshake handler
     pub fn setup_pre_handshake(&mut self) {
-        let cloned_message_processor = Arc::clone(&self.common_message_processor);
+        let cloned_message_processor = self.common_message_processor.clone();
         self.pre_handshake_message_processor
             .add(cloned_message_processor)
             .add_request_action(handle_by_private!(
@@ -201,7 +202,7 @@ impl Connection {
         let response_handler = self.make_response_handler();
         let last_seen_response_handler = self.make_update_last_seen_handler();
         let last_seen_packet_handler = self.make_update_last_seen_handler();
-        let cloned_message_processor = Arc::clone(&self.common_message_processor);
+        let cloned_message_processor = self.common_message_processor.clone();
         let dptr_1 = Arc::clone(&self.dptr);
         let dptr_2 = Arc::clone(&self.dptr);
 
@@ -406,7 +407,7 @@ mod tests {
     };
     use failure::Fallible;
     use rand::{distributions::Standard, thread_rng, Rng};
-    use std::{iter, sync::Arc};
+    use std::iter;
 
     const PACKAGE_INITIAL_BUFFER_SZ: usize = 1024;
     const PACKAGE_MAX_BUFFER_SZ: usize = 4096;
@@ -468,58 +469,52 @@ mod tests {
         await_handshake(&w1)?;
 
         // Deregister connection on the node side
-        let tls_node = Arc::clone(&node.tls_server());
-        let priv_tls_node = safe_read!(tls_node)?.get_private_tls();
-        let priv_tls_node = safe_read!(priv_tls_node)?;
-        let conn_node = priv_tls_node
+        let mut conn_node = node
+            .tls_server
             .find_connection_by_id(bootstrapper.id())
             .unwrap();
-        node.deregister_connection(conn_node)?;
+        node.deregister_connection(&conn_node)?;
 
         // Deregister connection on the bootstrapper side
-        let tls_bootstrapper = Arc::clone(&bootstrapper.tls_server());
-        let priv_tls_bootstrapper = safe_read!(tls_bootstrapper)?.get_private_tls();
-        let priv_tls_bootstrapper = safe_read!(priv_tls_bootstrapper)?;
-        let conn_bootstrapper = priv_tls_bootstrapper
+        let mut conn_bootstrapper = bootstrapper
+            .tls_server
             .find_connection_by_id(node.id())
             .unwrap();
-        bootstrapper.deregister_connection(conn_bootstrapper)?;
+        bootstrapper.deregister_connection(&conn_bootstrapper)?;
 
         // Assert that a Node accepts every packet
-        match write_or_die!(conn_node).validate_packet_type_test(&[]) {
+        match conn_node.validate_packet_type_test(&[]) {
             Readiness::Ready(true) => {}
             _ => bail!("Unwanted packet type"),
         }
 
-        match write_or_die!(conn_node)
+        match conn_node
             .validate_packet_type_test(&iter::repeat(0).take(23).chain(Some(2)).collect::<Vec<_>>())
         {
             Readiness::Ready(true) => {}
             _ => bail!("Unwanted packet type"),
         }
 
-        match write_or_die!(conn_node)
+        match conn_node
             .validate_packet_type_test(&iter::repeat(0).take(23).chain(Some(1)).collect::<Vec<_>>())
         {
             Readiness::Ready(true) => {}
             _ => bail!("Unwanted packet type"),
         }
 
-        match write_or_die!(conn_node)
-            .validate_packet_type_test(&iter::repeat(0).take(24).collect::<Vec<_>>())
-        {
+        match conn_node.validate_packet_type_test(&iter::repeat(0).take(24).collect::<Vec<_>>()) {
             Readiness::Ready(true) => {}
             _ => bail!("Unwanted packet type"),
         }
 
         // Assert that a Boostrapper reports as unknown packets that are too small
-        match write_or_die!(conn_bootstrapper).validate_packet_type_test(&[]) {
+        match conn_bootstrapper.validate_packet_type_test(&[]) {
             Readiness::NotReady => {}
             _ => bail!("Unwanted packet type"),
         }
 
         // Assert that a Bootstrapper reports as Invalid messages that are packets
-        match write_or_die!(conn_bootstrapper)
+        match conn_bootstrapper
             .validate_packet_type_test(&iter::repeat(0).take(23).chain(Some(2)).collect::<Vec<_>>())
         {
             Readiness::Ready(false) => {}
@@ -527,14 +522,14 @@ mod tests {
         }
 
         // Assert that a Bootstrapper accepts Request and Response messages
-        match write_or_die!(conn_bootstrapper)
+        match conn_bootstrapper
             .validate_packet_type_test(&iter::repeat(0).take(23).chain(Some(1)).collect::<Vec<_>>())
         {
             Readiness::Ready(true) => {}
             _ => bail!("Unwanted packet type"),
         }
 
-        match write_or_die!(conn_bootstrapper)
+        match conn_bootstrapper
             .validate_packet_type_test(&iter::repeat(0).take(24).collect::<Vec<_>>())
         {
             Readiness::Ready(true) => {}

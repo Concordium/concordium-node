@@ -1415,7 +1415,7 @@ mod tests {
         let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
         let port = next_available_port();
         let (mut node2, wt1) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, safe_lock!(rpc_serv.node)?.deref())?;
+        connect(&mut node2, safe_read!(rpc_serv.node)?.deref())?;
         await_handshake(&wt1)?;
         let emp = crate::proto::Empty::new();
         let rcv = client
@@ -1430,7 +1430,7 @@ mod tests {
         let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
         let port = next_available_port();
         let (mut node2, wt1) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, safe_lock!(rpc_serv.node)?.deref())?;
+        connect(&mut node2, safe_read!(rpc_serv.node)?.deref())?;
         await_handshake(&wt1)?;
         let emp = crate::proto::Empty::new();
         let snt = client
@@ -1447,7 +1447,7 @@ mod tests {
         let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
         let port = next_available_port();
         let (mut node2, wt1) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, safe_lock!(rpc_serv.node)?.deref())?;
+        connect(&mut node2, safe_read!(rpc_serv.node)?.deref())?;
         await_handshake(&wt1)?;
         let mut message = protobuf::well_known_types::BytesValue::new();
         message.set_value(b"Hey".to_vec());
@@ -1484,7 +1484,7 @@ mod tests {
         let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
         let port = next_available_port();
         let (mut node2, wt1) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, safe_lock!(rpc_serv.node)?.deref())?;
+        connect(&mut node2, safe_read!(rpc_serv.node)?.deref())?;
         await_handshake(&wt1)?;
         let mut net = protobuf::well_known_types::Int32Value::new();
         net.set_value(10);
@@ -1499,7 +1499,7 @@ mod tests {
         let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
         let port = next_available_port();
         let (mut node2, wt1) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, safe_lock!(rpc_serv.node)?.deref())?;
+        connect(&mut node2, safe_read!(rpc_serv.node)?.deref())?;
         await_handshake(&wt1)?;
         let mut net = protobuf::well_known_types::Int32Value::new();
         net.set_value(100);
@@ -1520,7 +1520,7 @@ mod tests {
         assert!(rcv.is_empty());
         let port = next_available_port();
         let (mut node2, wt1) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, safe_lock!(rpc_serv.node)?.deref())?;
+        connect(&mut node2, safe_read!(rpc_serv.node)?.deref())?;
         await_handshake(&wt1)?;
         let emp = crate::proto::Empty::new();
         let rcv = client
@@ -1541,7 +1541,7 @@ mod tests {
         assert_eq!(rcv.get_peer_type(), "Node");
         let port = next_available_port();
         let (mut node2, wt1) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, safe_lock!(rpc_serv.node)?.deref())?;
+        connect(&mut node2, safe_read!(rpc_serv.node)?.deref())?;
         await_handshake(&wt1)?;
         let emp = crate::proto::Empty::new();
         let rcv = client
@@ -1590,7 +1590,7 @@ mod tests {
         assert_eq!(reply.peer_type, "Node");
         assert_eq!(
             reply.node_id.unwrap().get_value(),
-            safe_lock!(rpc_serv.node)?.id().to_string()
+            safe_read!(rpc_serv.node)?.id().to_string()
         );
         Ok(())
     }
@@ -1627,7 +1627,7 @@ mod tests {
         let (client, rpc_serv, callopts, wt1) = create_node_rpc_call_option_waiter(PeerType::Node);
         let port = next_available_port();
         let (mut node2, wt2) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, safe_lock!(rpc_serv.node)?.deref())?;
+        connect(&mut node2, safe_read!(rpc_serv.node)?.deref())?;
         await_handshake(&wt2)?;
         client.subscription_start_opt(&crate::proto::Empty::new(), callopts.clone())?;
         send_broadcast_message(
@@ -1687,7 +1687,7 @@ mod tests {
         let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
         let port = next_available_port();
         let (mut node2, wt2) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, safe_lock!(rpc_serv.node)?.deref())?;
+        connect(&mut node2, safe_read!(rpc_serv.node)?.deref())?;
         await_handshake(&wt2)?;
         let mut req = crate::proto::TpsRequest::new();
         req.set_network_id(100);
@@ -1710,7 +1710,7 @@ mod tests {
         let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
         let port = next_available_port();
         let (mut node2, wt2) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, safe_lock!(rpc_serv.node)?.deref())?;
+        connect(&mut node2, safe_read!(rpc_serv.node)?.deref())?;
         await_handshake(&wt2)?;
         let mut req = crate::proto::TpsRequest::new();
         req.set_network_id(100);
