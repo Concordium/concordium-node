@@ -60,7 +60,7 @@ mod tests {
         consume_pending_messages(&msg_waiter_1);
 
         send_direct_message(
-            node_2.thread_shared.clone(),
+            &node_2,
             Some(node_1.id()),
             NetworkId::from(100),
             None,
@@ -88,7 +88,7 @@ mod tests {
         consume_pending_messages(&msg_waiter_1);
         // Send msg
         send_direct_message(
-            node_2.thread_shared.clone(),
+            &node_2,
             Some(node_1.id()),
             NetworkId::from(100),
             None,
@@ -120,13 +120,7 @@ mod tests {
         connect(&mut node_3, &node_2)?;
         await_handshake(&msg_waiter_3)?;
 
-        send_broadcast_message(
-            node_1.thread_shared.clone(),
-            None,
-            NetworkId::from(100),
-            None,
-            msg.clone(),
-        )?;
+        send_broadcast_message(&node_1, None, NetworkId::from(100), None, msg.clone())?;
         let msg_broadcast = wait_broadcast_message(&msg_waiter_3)?.read_all_into_view()?;
         assert_eq!(msg_broadcast.as_slice(), msg.as_slice());
         Ok(())
@@ -155,13 +149,7 @@ mod tests {
 
         consume_pending_messages(&msg_waiter_3);
 
-        send_broadcast_message(
-            node_1.thread_shared.clone(),
-            None,
-            NetworkId::from(100),
-            None,
-            msg,
-        )?;
+        send_broadcast_message(&node_1, None, NetworkId::from(100), None, msg)?;
         if let Ok(msg) = msg_waiter_3.recv_timeout(time::Duration::from_secs(5)) {
             match msg {
                 NetworkMessage::NetworkPacket(ref pac, ..) => {
@@ -224,14 +212,8 @@ mod tests {
         }
 
         // Send broadcast message from 0 node
-        if let Some((ref mut node, _)) = peers.get_mut(0) {
-            send_broadcast_message(
-                node.thread_shared.clone(),
-                None,
-                NetworkId::from(100),
-                None,
-                msg.to_vec(),
-            )?;
+        if let Some((ref node, _)) = peers.get_mut(0) {
+            send_broadcast_message(node, None, NetworkId::from(100), None, msg.to_vec())?;
         }
 
         // Wait for broadcast message from 1..MESH_NODE_COUNT
@@ -308,9 +290,9 @@ mod tests {
         // Send broadcast message in each island.
 
         for island in &mut islands {
-            if let Some((ref mut node_sender_ref, _)) = island.get_mut(0) {
+            if let Some((ref node_sender_ref, _)) = island.get_mut(0) {
                 send_broadcast_message(
-                    node_sender_ref.thread_shared.clone(),
+                    node_sender_ref,
                     None,
                     NetworkId::from(100),
                     None,
@@ -407,7 +389,7 @@ mod tests {
                 );
 
                 send_broadcast_message(
-                    src_node.borrow().thread_shared.clone(),
+                    &src_node.borrow(),
                     src_node_id,
                     NetworkId::from(network_id),
                     None,
@@ -450,7 +432,7 @@ mod tests {
 
         // 2. Send message from n1 to n2.
         send_message_from_cursor(
-            node_1.thread_shared.clone(),
+            &node_1,
             Some(node_2.id()),
             NetworkId::from(100),
             None,
@@ -461,7 +443,7 @@ mod tests {
         assert_eq!(msg_1, msg);
 
         send_message_from_cursor(
-            node_2.thread_shared.clone(),
+            &node_2,
             Some(node_1.id()),
             NetworkId::from(100),
             None,
@@ -472,7 +454,7 @@ mod tests {
         assert_eq!(msg_2, msg);
 
         send_message_from_cursor(
-            node_1.thread_shared.clone(),
+            &node_1,
             Some(node_2.id()),
             NetworkId::from(102),
             None,
@@ -604,7 +586,7 @@ mod tests {
                 );
 
                 send_broadcast_message(
-                    src_node.borrow().thread_shared.clone(),
+                    &src_node.borrow(),
                     src_node_id,
                     NetworkId::from(network_id),
                     None,
@@ -688,7 +670,7 @@ mod tests {
 
         let msg = b"Hello";
         send_direct_message(
-            node_1.thread_shared.clone(),
+            &node_1,
             Some(node_2.id()),
             NetworkId::from(100),
             None,
@@ -723,7 +705,7 @@ mod tests {
 
         let msg = b"Hello";
         send_direct_message(
-            node_1.thread_shared.clone(),
+            &node_1,
             Some(node_2.id()),
             NetworkId::from(100),
             None,
@@ -801,15 +783,8 @@ mod tests {
         let net_id = NetworkId::from(100);
 
         // Send.
-        send_message_from_cursor(
-            node_1.thread_shared.clone(),
-            Some(node_2.id()),
-            net_id,
-            None,
-            uc.clone(),
-            false,
-        )
-        .unwrap();
+        send_message_from_cursor(&node_1, Some(node_2.id()), net_id, None, uc.clone(), false)
+            .unwrap();
         let mut msg_recv = wait_direct_message(&msg_waiter_2).unwrap();
         assert_eq!(uc.len(), msg_recv.len());
 

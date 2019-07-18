@@ -125,21 +125,21 @@ impl RpcServerImpl {
             let msg = req.get_message().get_value().to_vec();
             let network_id = NetworkId::from(req.get_network_id().get_value() as u16);
 
-            let node_shared = safe_read!(self.node)?.thread_shared.clone();
+            let node_shared = safe_read!(self.node)?;
 
             if req.has_node_id() && !req.get_broadcast().get_value() && req.has_network_id() {
                 let id = P2PNodeId::from_str(&req.get_node_id().get_value().to_string())?;
 
                 trace!("Sending direct message to: {}", id);
                 r.set_value(
-                    send_direct_message(node_shared, Some(id), network_id, None, msg)
+                    send_direct_message(&node_shared, Some(id), network_id, None, msg)
                         .map_err(|e| error!("{}", e))
                         .is_ok(),
                 );
             } else if req.get_broadcast().get_value() {
                 trace!("Sending broadcast message");
                 r.set_value(
-                    send_broadcast_message(node_shared, None, network_id, None, msg)
+                    send_broadcast_message(&node_shared, None, network_id, None, msg)
                         .map_err(|e| error!("{}", e))
                         .is_ok(),
                 );
@@ -413,7 +413,7 @@ impl P2P for RpcServerImpl {
                 );
                 let network_id = NetworkId::from(req.get_network_id().get_value() as u16);
                 if let Ok(mut node) = self.node.write() {
-                    node.thread_shared.send_joinnetwork(network_id);
+                    node.send_joinnetwork(network_id);
                     r.set_value(true);
                     sink.success(r)
                 } else {
@@ -449,7 +449,7 @@ impl P2P for RpcServerImpl {
                 );
                 let network_id = NetworkId::from(req.get_network_id().get_value() as u16);
                 if let Ok(mut node) = self.node.write() {
-                    node.thread_shared.send_leavenetwork(network_id);
+                    node.send_leavenetwork(network_id);
                     r.set_value(true);
                     sink.success(r)
                 } else {
@@ -719,7 +719,7 @@ impl P2P for RpcServerImpl {
                     match insert_ban(&self.kvs_handle, &store_key) {
                         Ok(_) => {
                             node.ban_node(to_ban);
-                            node.thread_shared.send_ban(to_ban);
+                            node.send_ban(to_ban);
                             r.set_value(true);
                         }
                         Err(e) => {
@@ -775,7 +775,7 @@ impl P2P for RpcServerImpl {
                     match remove_ban(&self.kvs_handle, &store_key) {
                         Ok(_) => {
                             node.unban_node(to_unban);
-                            node.thread_shared.send_unban(to_unban);
+                            node.send_unban(to_unban);
                             r.set_value(true);
                         }
                         Err(e) => {
@@ -1046,7 +1046,7 @@ impl P2P for RpcServerImpl {
                     let out_bytes_len = message.len();
                     let to_send = P2PNodeId::from_str(&id).ok();
                     match send_direct_message(
-                        locked_node.thread_shared.clone(),
+                        locked_node.clone(),
                         to_send,
                         network_id,
                         None,
@@ -1191,7 +1191,7 @@ impl P2P for RpcServerImpl {
         let f = if let Ok(mut node) = self.node.write() {
             if req.has_since() {
                 let mut r: SuccessResponse = SuccessResponse::new();
-                node.thread_shared.send_retransmit(
+                node.send_retransmit(
                     RequestedElementType::from(req.get_element_type() as u8),
                     req.get_since().get_value(),
                     NetworkId::from(req.get_network_id() as u16),
@@ -1631,7 +1631,7 @@ mod tests {
         await_handshake(&wt2)?;
         client.subscription_start_opt(&crate::proto::Empty::new(), callopts.clone())?;
         send_broadcast_message(
-            node2.thread_shared.clone(),
+            &node2,
             None,
             crate::network::NetworkId::from(100),
             None,

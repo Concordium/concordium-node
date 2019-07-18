@@ -162,7 +162,7 @@ impl TestRunner {
                 .collect();
 
             send_broadcast_message(
-                lock_or_die!(state_data.node).thread_shared.clone(),
+                lock_or_die!(state_data.node).clone(),
                 None,
                 state_data.nid,
                 None,
@@ -341,7 +341,7 @@ fn setup_process_output(
                         );
 
                         send_message_from_cursor(
-                            _node_self_clone.thread_shared.clone(),
+                            _node_self_clone.clone(),
                             None,
                             pac.network_id,
                             Some(pac.message_id.to_owned()),

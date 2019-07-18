@@ -149,8 +149,7 @@ macro_rules! lock_or_die {
 #[macro_export]
 macro_rules! send_or_die {
     ($s:expr, $v:expr) => {
-        $s.clone()
-            .send($v)
+        $s.send($v)
             .map_err(|e| {
                 panic!(
                     "Corresponding channel receiver has been deallocated too early. Error: {}",
