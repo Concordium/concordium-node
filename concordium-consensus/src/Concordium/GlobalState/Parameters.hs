@@ -119,27 +119,13 @@ deserializeBase16 t =
     where
         (bs, rest) = BS16.decode (Text.encodeUtf8 t)
 
--- |Use the serialize instance to convert from base 16 to value, but add
--- explicit length as 4 bytes big endian in front.
-deserializeBase16WithLength4 :: (Serialize a, MonadFail m) => Text.Text -> m a
-deserializeBase16WithLength4 t =
-        if BS.null rest then
-            case decode (runPut (putWord32be (fromIntegral (BS.length bs))) <> bs) of
-                Left er -> fail er
-                Right r -> return r
-        else
-            fail $ "Could not decode as base-16: " ++ show t
-    where
-        (bs, rest) = BS16.decode (Text.encodeUtf8 t)
-
-
 serializeBase16 :: (Serialize a) => a -> Text.Text
 serializeBase16 = Text.decodeUtf8 . BS16.encode . encode
 
 instance FromJSON CryptographicParameters where
   parseJSON = withObject "CryptoGraphicParameters" $ \v ->
-    do elgamalGenerator <- deserializeBase16 =<< v .: "dLogBaseChain"
-       attributeCommitmentKey <- deserializeBase16WithLength4 =<< v .: "onChainCommitmentKey"
+    do elgamalGenerator <- v .: "dLogBaseChain"
+       attributeCommitmentKey <- v .: "onChainCommitmentKey"
        return CryptographicParameters{..}
 
 readIdentityProviders :: BSL.ByteString -> Maybe [IdentityProviderData]
