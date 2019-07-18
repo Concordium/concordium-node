@@ -322,7 +322,7 @@ initialiseStates n = do
             fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _ _, _, _)) <- bis] 2
             bakerAccounts = map (\(_, (_, _, acc)) -> acc) bis
             gen = GenesisData 0 1 bps bakerAccounts fps dummyCryptographicParameters dummyIdentityProviders
-        return $ Vec.fromList [(bid, fininst, initialSkovFinalizationState fininst gen (Example.initialState bps dummyCryptographicParameters bakerAccounts nAccounts))
+        return $ Vec.fromList [(bid, fininst, initialSkovFinalizationState fininst gen (Example.initialState bps dummyCryptographicParameters bakerAccounts [] nAccounts))
                               | (_, (_, bid, _)) <- bis, let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid)]
 
 instance Show BakerIdentity where
