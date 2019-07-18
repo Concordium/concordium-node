@@ -113,6 +113,7 @@ impl fmt::Debug for Block {
     }
 }
 
+#[derive(Debug)]
 pub enum BlockData {
     Genesis(GenesisData),
     Regular(BakedBlock),
@@ -150,6 +151,8 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BlockData {
                 cryptographic_parameters,
                 identity_providers,
             });
+
+            check_partial_serialization!(data, *cursor.get_ref());
 
             Ok(data)
         } else {
@@ -193,9 +196,8 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BlockData {
                     + size_of::<u64>()
                     + list_len(&finalization_params)
                     + size_of::<u64>()
-                    + size_of::<u64>()
+                    + size_of::<u32>()
                     + data.cryptographic_parameters.elgamal_generator.len()
-                    + size_of::<u64>()
                     + data.cryptographic_parameters.attribute_commitment_key.len()
                     + data.identity_providers.len();
                 let mut cursor = create_serialization_cursor(size);

@@ -92,6 +92,21 @@ macro_rules! read_multiple {
     }};
 }
 
+/// Reads multiple objects from into a boxed slice, checking if the target
+/// length is not suspiciously long in the process.
+macro_rules! read_hashmap {
+    ($source:expr, $list_name:expr, $elem:expr, $len_size:expr) => {{
+        let count = safe_get_len!($source, $list_name, $len_size);
+        let mut list = HashMap::with_capacity(count as usize);
+        for _ in 0..count {
+            let elem = $elem;
+            list.insert(elem.0, elem.1);
+        }
+
+        list
+    }};
+}
+
 /// Sequentially writes a collection of objects to the specified target using
 /// the given write function.
 macro_rules! write_multiple {

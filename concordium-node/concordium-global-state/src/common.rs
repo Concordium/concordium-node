@@ -338,6 +338,15 @@ pub fn read_bytestring_short_length(
     Ok(Encoded(read_sized!(input, object_length)))
 }
 
+pub fn read_bytestring_medium(
+    input: &mut Cursor<&[u8]>,
+    object_name: &str,
+) -> Fallible<ByteString> {
+    let object_length = safe_get_len!(input, object_name, 4);
+
+    Ok(Encoded(read_sized!(input, object_length)))
+}
+
 pub fn read_bytestring(input: &mut Cursor<&[u8]>, object_name: &str) -> Fallible<ByteString> {
     let object_length = safe_get_len!(input, object_name, 8);
 
