@@ -210,9 +210,9 @@ impl P2PNode {
 
         let seen_messages = SeenMessagesList::new(conf.connection.gossip_seen_message_ids_size);
 
-        let (dump_tx, _dump_rx) = std::sync::mpsc::sync_channel(64);
+        let (dump_tx, _dump_rx) = std::sync::mpsc::sync_channel(10000);
 
-        let (act_tx, _act_rx) = std::sync::mpsc::sync_channel(64);
+        let (act_tx, _act_rx) = std::sync::mpsc::sync_channel(10000);
 
         #[cfg(feature = "network_dump")]
         create_dump_thread(own_peer_ip, id, _dump_rx, _act_rx, &conf.common.data_dir);
@@ -262,8 +262,8 @@ impl P2PNode {
             .build()
             .expect("P2P Node creation couldn't create a Tls Server");
 
-        let (send_queue_in, send_queue_out) = sync_channel(64);
-        let (resend_queue_in, resend_queue_out) = sync_channel(64);
+        let (send_queue_in, send_queue_out) = sync_channel(10000);
+        let (resend_queue_in, resend_queue_out) = sync_channel(10000);
 
         let mut mself = P2PNode {
             poll: Arc::new(RwLock::new(poll)),
@@ -471,13 +471,13 @@ impl P2PNode {
 
     pub fn spawn(&mut self) {
         // Prepare poll-loop channels.
-        let (network_request_sender, mut network_request_receiver) = sync_channel(64);
+        let (network_request_sender, mut network_request_receiver) = sync_channel(10000);
         self.tls_server
             .set_network_request_sender(network_request_sender.clone());
 
         let mut self_clone = self.clone();
 
-        let (tx, rx) = sync_channel(64);
+        let (tx, rx) = sync_channel(10000);
         self.quit_tx = Some(tx);
 
         let join_handle = spawn_or_die!("P2PNode spawned thread", move || {
@@ -1060,7 +1060,7 @@ impl P2PNode {
     pub fn unban_node(&mut self, peer: BannedNode) { self.tls_server.unban_node(peer); }
 
     pub fn process(&mut self, events: &mut Events) -> Fallible<()> {
-        read_or_die!(self.poll).poll(events, Some(Duration::from_millis(1000)))?;
+        read_or_die!(self.poll).poll(events, Some(Duration::from_millis(10000)))?;
 
         if self.peer_type() != PeerType::Bootstrapper {
             self.tls_server.liveness_check()?;

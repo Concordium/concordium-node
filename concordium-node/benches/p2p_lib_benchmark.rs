@@ -316,7 +316,7 @@ mod network {
                 b.iter(|| {
                     // Send.
                     send_message_from_cursor(
-                        node_1.clone(),
+                        &node_1,
                         Some(node_2.id()),
                         net_id,
                         None,

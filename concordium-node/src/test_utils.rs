@@ -300,8 +300,6 @@ pub fn consume_pending_messages(waiter: &Receiver<NetworkMessage>) {
 /// let id = node.id();
 ///
 /// node.message_processor()
-///     .write()
-///     .unwrap()
 ///     .add_notification(make_atomic_callback!(move |m: &NetworkMessage| {
 ///         log_any_message_handler(id, m);
 ///         Ok(())

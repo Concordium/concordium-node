@@ -99,7 +99,7 @@ impl TlsServerBuilder {
             self.noise_params,
         ) {
             let key_pair = snow::Builder::new(noise_params.clone()).generate_keypair()?;
-            let (network_request_sender, _) = mpsc::sync_channel(64);
+            let (network_request_sender, _) = mpsc::sync_channel(10000);
 
             let mut mself = TlsServer {
                 server: Arc::new(server),

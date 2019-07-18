@@ -42,7 +42,7 @@ impl ConnectionBuilder {
         {
             let sender = self.network_request_sender.unwrap_or_else(|| {
                 // Create a dummy sender.
-                let (s, _) = sync_channel(64);
+                let (s, _) = sync_channel(10000);
                 s
             });
 

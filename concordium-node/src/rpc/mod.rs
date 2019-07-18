@@ -1046,7 +1046,7 @@ impl P2P for RpcServerImpl {
                     let out_bytes_len = message.len();
                     let to_send = P2PNodeId::from_str(&id).ok();
                     match send_direct_message(
-                        locked_node.clone(),
+                        &locked_node,
                         to_send,
                         network_id,
                         None,
