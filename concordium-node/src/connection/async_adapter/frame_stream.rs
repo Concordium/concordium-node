@@ -13,10 +13,9 @@ use concordium_common::UCursor;
 use failure::{Error, Fallible};
 
 use std::{
-    cell::RefCell,
     convert::{From, TryFrom},
     io::{ErrorKind, Read},
-    rc::Rc,
+    sync::{Arc, RwLock},
 };
 
 const DEFAULT_MESSAGE_SIZE: usize = 65_536;
@@ -65,7 +64,7 @@ const DEFAULT_MESSAGE_SIZE: usize = 65_536;
 /// instead of using an intermediate buffer
 
 pub struct FrameStream {
-    handshaker: Option<Rc<RefCell<HandshakeStreamSink>>>,
+    handshaker: Option<Arc<RwLock<HandshakeStreamSink>>>,
     decryptor:  Option<DecryptStream>,
     peer_type:  PeerType,
 
@@ -77,7 +76,7 @@ pub struct FrameStream {
 impl FrameStream {
     /// It uses `peer_type` to emit an early-invalidation upon unexpected
     /// packages.
-    pub fn new(peer_type: PeerType, handshaker: Rc<RefCell<HandshakeStreamSink>>) -> Self {
+    pub fn new(peer_type: PeerType, handshaker: Arc<RwLock<HandshakeStreamSink>>) -> Self {
         FrameStream {
             handshaker: Some(handshaker),
             decryptor: None,
@@ -243,7 +242,7 @@ impl FrameStream {
             return Ok(Readiness::Ready(decryptor.read(input)?));
         } else if let Some(handshaker) = self.handshaker.take() {
             // 1. Still in handshake phase.
-            let session_rediness = handshaker.borrow_mut().read(input)?;
+            let session_rediness = write_or_die!(handshaker).read(input)?;
             match session_rediness {
                 // 1.1. Create decryptor using session.
                 Readiness::Ready(session) => self.decryptor = Some(DecryptStream::new(session)),

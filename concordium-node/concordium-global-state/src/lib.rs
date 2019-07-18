@@ -6,25 +6,26 @@ extern crate log;
 /// process.
 macro_rules! check_serialization {
     ($target:expr, $cursor:expr) => {
-        debug_assert_eq!(
-            $cursor.position(),
-            $cursor.get_ref().len() as u64,
-            "\n\nInvalid deserialization of {:#?}\n\nbytes: {:?}",
-            $target,
-            $cursor.get_ref()
-        );
+        if $cursor.position() != $cursor.get_ref().len() as u64 {
+            return Err(failure::format_err!(
+                "\n\nInvalid deserialization of {:#?}\n\nbytes: {:?}",
+                $target,
+                $cursor.get_ref()
+            ));
+        }
 
-        debug_assert_eq!(
-            &&*$target.serialize(),
-            $cursor.get_ref(),
-            "\n\nInvalid serialization of {:#?}",
-            $target
-        );
+        if &&*$target.serialize() != $cursor.get_ref() {
+            return Err(failure::format_err!(
+                "\n\nInvalid serialization of {:#?}",
+                $target
+            ));
+        }
     };
 }
 
 /// A debug test designed to check whether deserialization is perfectly
 /// reversible in variable-length objects.
+#[allow(unused_macros)]
 macro_rules! check_partial_serialization {
     ($target:expr, $source:expr) => {
         debug_assert_eq!(

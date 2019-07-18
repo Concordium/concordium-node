@@ -9,7 +9,12 @@ use failure::Fallible;
 use rand::Rng;
 use snow::Session;
 
-use std::{cell::RefCell, collections::VecDeque, convert::From, io::Write, rc::Rc};
+use std::{
+    collections::VecDeque,
+    convert::From,
+    io::Write,
+    sync::{Arc, RwLock},
+};
 
 pub const MAX_ENCRYPTED_FRAME_IN_MEMORY: usize = 4_194_304; // 4MB
 
@@ -50,13 +55,13 @@ pub const MAX_ENCRYPTED_FRAME_IN_MEMORY: usize = 4_194_304; // 4MB
 ///
 /// Network packages should be prioritized.
 pub struct EncryptSink {
-    session:       Rc<RefCell<Session>>,
+    session:       Arc<RwLock<Session>>,
     messages:      VecDeque<UCursor>,
     written_bytes: usize,
 }
 
 impl EncryptSink {
-    pub fn new(session: Rc<RefCell<Session>>) -> Self {
+    pub fn new(session: Arc<RwLock<Session>>) -> Self {
         EncryptSink {
             session,
             messages: VecDeque::new(),
@@ -87,7 +92,7 @@ impl EncryptSink {
                 (input.len() - input.position()) as usize,
             );
             let view = input.read_into_view(view_size)?;
-            let len = self.session.borrow_mut().write_message_with_nonce(
+            let len = write_or_die!(self.session).write_message_with_nonce(
                 nonce,
                 view.as_slice(),
                 &mut encrypted_output,

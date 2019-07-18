@@ -2,7 +2,7 @@ extern crate p2p_client;
 
 #[cfg(test)]
 mod tests {
-    use concordium_common::{make_atomic_callback, safe_write, write_or_die, UCursor};
+    use concordium_common::{make_atomic_callback, safe_write, UCursor};
     use failure::{bail, Fallible};
     use p2p_client::{
         common::PeerType,
@@ -10,7 +10,7 @@ mod tests {
         network::{NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType},
         p2p::{banned_nodes::BannedNode, p2p_node::*},
         test_utils::{
-            connect_and_wait_handshake, consume_pending_messages, get_test_config,
+            await_handshake, connect, consume_pending_messages, get_test_config,
             make_node_and_sync, make_nodes_from_port, max_recv_timeout, next_available_port,
             setup_logger, wait_broadcast_message, wait_direct_message, wait_direct_message_timeout,
         },
@@ -24,7 +24,7 @@ mod tests {
         hash::Hasher,
         sync::{
             atomic::{AtomicUsize, Ordering},
-            Arc,
+            Arc, RwLock,
         },
         time,
     };
@@ -55,11 +55,12 @@ mod tests {
             make_node_and_sync(next_available_port(), networks.clone(), PeerType::Node)?;
         let (node_2, _msg_waiter_2) =
             make_node_and_sync(next_available_port(), networks, PeerType::Node)?;
-        connect_and_wait_handshake(&mut node_1, &node_2, &msg_waiter_1)?;
+        connect(&mut node_1, &node_2)?;
+        await_handshake(&msg_waiter_1)?;
         consume_pending_messages(&msg_waiter_1);
 
         send_direct_message(
-            node_2.thread_shared.clone(),
+            &node_2,
             Some(node_1.id()),
             NetworkId::from(100),
             None,
@@ -82,11 +83,12 @@ mod tests {
         let (mut node_1, msg_waiter_1) =
             make_node_and_sync(next_available_port(), networks_1, PeerType::Node)?;
         let (node_2, _) = make_node_and_sync(next_available_port(), networks_2, PeerType::Node)?;
-        connect_and_wait_handshake(&mut node_1, &node_2, &msg_waiter_1)?;
+        connect(&mut node_1, &node_2)?;
+        await_handshake(&msg_waiter_1)?;
         consume_pending_messages(&msg_waiter_1);
         // Send msg
         send_direct_message(
-            node_2.thread_shared.clone(),
+            &node_2,
             Some(node_1.id()),
             NetworkId::from(100),
             None,
@@ -112,16 +114,13 @@ mod tests {
         let (mut node_3, msg_waiter_3) =
             make_node_and_sync(next_available_port(), networks, PeerType::Node)?;
 
-        connect_and_wait_handshake(&mut node_2, &node_1, &msg_waiter_2)?;
-        connect_and_wait_handshake(&mut node_3, &node_2, &msg_waiter_3)?;
+        connect(&mut node_2, &node_1)?;
+        await_handshake(&msg_waiter_2)?;
 
-        send_broadcast_message(
-            node_1.thread_shared.clone(),
-            None,
-            NetworkId::from(100),
-            None,
-            msg.clone(),
-        )?;
+        connect(&mut node_3, &node_2)?;
+        await_handshake(&msg_waiter_3)?;
+
+        send_broadcast_message(&node_1, None, NetworkId::from(100), None, msg.clone())?;
         let msg_broadcast = wait_broadcast_message(&msg_waiter_3)?.read_all_into_view()?;
         assert_eq!(msg_broadcast.as_slice(), msg.as_slice());
         Ok(())
@@ -142,17 +141,15 @@ mod tests {
         let (mut node_3, msg_waiter_3) =
             make_node_and_sync(next_available_port(), networks_2, PeerType::Node)?;
 
-        connect_and_wait_handshake(&mut node_2, &node_1, &msg_waiter_2)?;
-        connect_and_wait_handshake(&mut node_3, &node_2, &msg_waiter_3)?;
+        connect(&mut node_2, &node_1)?;
+        await_handshake(&msg_waiter_2)?;
+
+        connect(&mut node_3, &node_2)?;
+        await_handshake(&msg_waiter_3)?;
+
         consume_pending_messages(&msg_waiter_3);
 
-        send_broadcast_message(
-            node_1.thread_shared.clone(),
-            None,
-            NetworkId::from(100),
-            None,
-            msg,
-        )?;
+        send_broadcast_message(&node_1, None, NetworkId::from(100), None, msg)?;
         if let Ok(msg) = msg_waiter_3.recv_timeout(time::Duration::from_secs(5)) {
             match msg {
                 NetworkMessage::NetworkPacket(ref pac, ..) => {
@@ -186,8 +183,8 @@ mod tests {
             let (mut node, waiter) =
                 make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
             let port = node.internal_addr().port();
-            safe_write!(node.message_processor())?.add_notification(make_atomic_callback!(
-                move |m: &NetworkMessage| {
+            node.message_processor()
+                .add_notification(make_atomic_callback!(move |m: &NetworkMessage| {
                     if let NetworkMessage::NetworkPacket(pac, _, _) = m {
                         if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
                             inner_counter.tick(1);
@@ -202,11 +199,11 @@ mod tests {
                         }
                     }
                     Ok(())
-                }
-            ));
+                }));
 
             for (tgt_node, tgt_waiter) in &peers {
-                connect_and_wait_handshake(&mut node, tgt_node, &waiter)?;
+                connect(&mut node, &tgt_node)?;
+                await_handshake(&waiter)?;
                 consume_pending_messages(&waiter);
                 consume_pending_messages(&tgt_waiter);
             }
@@ -215,14 +212,8 @@ mod tests {
         }
 
         // Send broadcast message from 0 node
-        if let Some((ref mut node, _)) = peers.get_mut(0) {
-            send_broadcast_message(
-                node.thread_shared.clone(),
-                None,
-                NetworkId::from(100),
-                None,
-                msg.to_vec(),
-            )?;
+        if let Some((ref node, _)) = peers.get_mut(0) {
+            send_broadcast_message(node, None, NetworkId::from(100), None, msg.to_vec())?;
         }
 
         // Wait for broadcast message from 1..MESH_NODE_COUNT
@@ -265,8 +256,8 @@ mod tests {
                     make_node_and_sync(next_available_port(), networks.clone(), PeerType::Node)?;
                 let port = node.internal_addr().port();
 
-                safe_write!(node.message_processor())?.add_notification(make_atomic_callback!(
-                    move |m: &NetworkMessage| {
+                node.message_processor()
+                    .add_notification(make_atomic_callback!(move |m: &NetworkMessage| {
                         if let NetworkMessage::NetworkPacket(pac, _, _) = m {
                             if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
                                 inner_counter.tick(1);
@@ -282,12 +273,12 @@ mod tests {
                             }
                         }
                         Ok(())
-                    }
-                ));
+                    }));
 
                 // Connect to previous nodes and clean any pending message in waiters
                 for (tgt_node, tgt_waiter) in &peers_islands_and_ports {
-                    connect_and_wait_handshake(&mut node, tgt_node, &waiter)?;
+                    connect(&mut node, &tgt_node)?;
+                    await_handshake(&waiter)?;
                     consume_pending_messages(&waiter);
                     consume_pending_messages(&tgt_waiter);
                 }
@@ -299,9 +290,9 @@ mod tests {
         // Send broadcast message in each island.
 
         for island in &mut islands {
-            if let Some((ref mut node_sender_ref, _)) = island.get_mut(0) {
+            if let Some((ref node_sender_ref, _)) = island.get_mut(0) {
                 send_broadcast_message(
-                    node_sender_ref.thread_shared.clone(),
+                    node_sender_ref,
                     None,
                     NetworkId::from(100),
                     None,
@@ -358,21 +349,19 @@ mod tests {
         // 1.1. Root node adds callback for receive last broadcast packet.
         let mut nodes = vec![];
         let mut waiters = vec![];
-        let (bcast_tx, bcast_rx) = std::sync::mpsc::channel();
+        let (bcast_tx, bcast_rx) = std::sync::mpsc::sync_channel(64);
         for i in 0..num_nodes {
             let tx_i = bcast_tx.clone();
             let port = next_available_port();
 
             let (node, conn_waiter) = make_node_and_sync(port, vec![network_id], PeerType::Node)?;
 
-            let mh = node.message_processor();
-            safe_write!(mh)?.add_packet_action(make_atomic_callback!(
-                move |pac: &NetworkPacket| {
-                    // It is safe to ignore error.
-                    let _ = tx_i.send(pac.clone());
-                    Ok(())
-                }
-            ));
+            let mut mh = node.message_processor();
+            mh.add_packet_action(make_atomic_callback!(move |pac: &NetworkPacket| {
+                // It is safe to ignore error.
+                let _ = tx_i.send(pac.clone());
+                Ok(())
+            }));
 
             nodes.push(RefCell::new(node));
             waiters.push(conn_waiter);
@@ -381,11 +370,8 @@ mod tests {
                 let src_node = &nodes[i];
                 let src_waiter = &waiters[i];
                 let tgt_node = &nodes[0];
-                connect_and_wait_handshake(
-                    &mut *src_node.borrow_mut(),
-                    &*tgt_node.borrow(),
-                    src_waiter,
-                )?;
+                connect(&mut *src_node.borrow_mut(), &*tgt_node.borrow())?;
+                await_handshake(src_waiter)?;
             }
         }
 
@@ -403,7 +389,7 @@ mod tests {
                 );
 
                 send_broadcast_message(
-                    src_node.borrow().thread_shared.clone(),
+                    &src_node.borrow(),
                     src_node_id,
                     NetworkId::from(network_id),
                     None,
@@ -441,11 +427,12 @@ mod tests {
             make_node_and_sync(next_available_port(), networks.clone(), PeerType::Node)?;
         let (node_2, msg_waiter_2) =
             make_node_and_sync(next_available_port(), networks, PeerType::Node)?;
-        connect_and_wait_handshake(&mut node_1, &node_2, &msg_waiter_1)?;
+        connect(&mut node_1, &node_2)?;
+        await_handshake(&msg_waiter_1)?;
 
         // 2. Send message from n1 to n2.
         send_message_from_cursor(
-            node_1.thread_shared.clone(),
+            &node_1,
             Some(node_2.id()),
             NetworkId::from(100),
             None,
@@ -456,7 +443,7 @@ mod tests {
         assert_eq!(msg_1, msg);
 
         send_message_from_cursor(
-            node_2.thread_shared.clone(),
+            &node_2,
             Some(node_1.id()),
             NetworkId::from(100),
             None,
@@ -467,7 +454,7 @@ mod tests {
         assert_eq!(msg_2, msg);
 
         send_message_from_cursor(
-            node_1.thread_shared.clone(),
+            &node_1,
             Some(node_2.id()),
             NetworkId::from(102),
             None,
@@ -507,15 +494,14 @@ mod tests {
         // 1.1. Root node adds callback for receive last broadcast packet.
         let (node, conn_waiter) =
             make_node_and_sync(next_available_port(), vec![network_id], PeerType::Node)?;
-        let (bcast_tx, bcast_rx) = std::sync::mpsc::channel();
+        let (bcast_tx, bcast_rx) = std::sync::mpsc::sync_channel(64);
         {
-            write_or_die!(node.message_processor()).add_packet_action(make_atomic_callback!(
-                move |pac: &NetworkPacket| {
+            node.message_processor()
+                .add_packet_action(make_atomic_callback!(move |pac: &NetworkPacket| {
                     debug!("Root node is forwarding Packet to channel");
                     // It is safe to ignore error.
                     bcast_tx.send(pac.clone()).map_err(failure::Error::from)
-                }
-            ));
+                }));
         }
 
         nodes_per_level.push(vec![RefCell::new(node)]);
@@ -543,11 +529,8 @@ mod tests {
             {
                 let src_node = &nodes_per_level[level][root_curr_level_idx];
                 let src_waiter = &conn_waiters_per_level[level][root_curr_level_idx];
-                connect_and_wait_handshake(
-                    &mut *src_node.borrow_mut(),
-                    &*target_node.borrow(),
-                    src_waiter,
-                )?;
+                connect(&mut *src_node.borrow_mut(), &*target_node.borrow())?;
+                await_handshake(src_waiter)?;
             }
             debug!(
                 "Connected to previous level: Node[{}][{}] to Node[{}][{}]",
@@ -563,11 +546,8 @@ mod tests {
                     let src_node = &nodes_per_level[level][i];
                     let src_waiter = &conn_waiters_per_level[level][i];
                     let tgt_node = &nodes_per_level[level][root_curr_level_idx];
-                    connect_and_wait_handshake(
-                        &mut *src_node.borrow_mut(),
-                        &*tgt_node.borrow(),
-                        src_waiter,
-                    )?;
+                    connect(&mut *src_node.borrow_mut(), &*tgt_node.borrow())?;
+                    await_handshake(src_waiter)?;
                 }
             }
         }
@@ -606,7 +586,7 @@ mod tests {
                 );
 
                 send_broadcast_message(
-                    src_node.borrow().thread_shared.clone(),
+                    &src_node.borrow(),
                     src_node_id,
                     NetworkId::from(network_id),
                     None,
@@ -659,7 +639,8 @@ mod tests {
     pub fn e2e_006_01_close_and_join_on_not_spawned_node() -> Fallible<()> {
         setup_logger();
 
-        let (net_tx, _) = std::sync::mpsc::channel();
+        let (net_tx, _) = std::sync::mpsc::sync_channel(64);
+        let (rpc_tx, _) = std::sync::mpsc::sync_channel(64);
         let mut node = P2PNode::new(
             None,
             &get_test_config(next_available_port(), vec![100]),
@@ -667,6 +648,7 @@ mod tests {
             None,
             PeerType::Node,
             None,
+            rpc_tx,
         );
 
         assert_eq!(true, node.close_and_join().is_err());
@@ -683,11 +665,12 @@ mod tests {
             make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
         let (node_2, waiter_2) =
             make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
-        connect_and_wait_handshake(&mut node_1, &node_2, &waiter_1)?;
+        connect(&mut node_1, &node_2)?;
+        await_handshake(&waiter_1)?;
 
         let msg = b"Hello";
         send_direct_message(
-            node_1.thread_shared.clone(),
+            &node_1,
             Some(node_2.id()),
             NetworkId::from(100),
             None,
@@ -709,19 +692,20 @@ mod tests {
         let (node_2, waiter_2) =
             make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
 
-        let node_2_cloned = RefCell::new(node_2.clone());
-        safe_write!(node_2.message_processor())?.add_packet_action(make_atomic_callback!(
-            move |_pac: &NetworkPacket| {
-                let join_status = node_2_cloned.borrow_mut().close_and_join();
+        let node_2_cloned = RwLock::new(node_2.clone());
+        node_2
+            .message_processor()
+            .add_packet_action(make_atomic_callback!(move |_pac: &NetworkPacket| {
+                let join_status = safe_write!(node_2_cloned)?.close_and_join();
                 assert_eq!(join_status.is_err(), true);
                 Ok(())
-            }
-        ));
-        connect_and_wait_handshake(&mut node_1, &node_2, &waiter_1)?;
+            }));
+        connect(&mut node_1, &node_2)?;
+        await_handshake(&waiter_1)?;
 
         let msg = b"Hello";
         send_direct_message(
-            node_1.thread_shared.clone(),
+            &node_1,
             Some(node_2.id()),
             NetworkId::from(100),
             None,
@@ -743,7 +727,8 @@ mod tests {
             make_node_and_sync(next_available_port(), networks.clone(), PeerType::Node)?;
         let (node_2, _msg_waiter_2) =
             make_node_and_sync(next_available_port(), networks.clone(), PeerType::Node)?;
-        connect_and_wait_handshake(&mut node_1, &node_2, &msg_waiter_1)?;
+        connect(&mut node_1, &node_2)?;
+        await_handshake(&msg_waiter_1)?;
         consume_pending_messages(&msg_waiter_1);
 
         let to_ban = BannedNode::ById(node_2.id());
@@ -786,7 +771,8 @@ mod tests {
             make_node_and_sync(next_available_port(), vec![100], PeerType::Node).unwrap();
         let (node_2, msg_waiter_2) =
             make_node_and_sync(next_available_port(), vec![100], PeerType::Node).unwrap();
-        connect_and_wait_handshake(&mut node_1, &node_2, &msg_waiter_1).unwrap();
+        connect(&mut node_1, &node_2).unwrap();
+        await_handshake(&msg_waiter_1).unwrap();
 
         // let mut msg = make_direct_message_into_disk().unwrap();
         let msg = thread_rng()
@@ -797,15 +783,8 @@ mod tests {
         let net_id = NetworkId::from(100);
 
         // Send.
-        send_message_from_cursor(
-            node_1.thread_shared.clone(),
-            Some(node_2.id()),
-            net_id,
-            None,
-            uc.clone(),
-            false,
-        )
-        .unwrap();
+        send_message_from_cursor(&node_1, Some(node_2.id()), net_id, None, uc.clone(), false)
+            .unwrap();
         let mut msg_recv = wait_direct_message(&msg_waiter_2).unwrap();
         assert_eq!(uc.len(), msg_recv.len());
 

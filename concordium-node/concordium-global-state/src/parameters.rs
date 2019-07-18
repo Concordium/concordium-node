@@ -48,8 +48,6 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
     type Source = &'a mut Cursor<&'b [u8]>;
 
     fn deserialize(cursor: Self::Source) -> Fallible<Self> {
-        let initial_pos = cursor.position() as usize;
-
         let election_nonce = read_bytestring(cursor, "election nonce")?;
         let election_difficulty = NetworkEndian::read_f64(&read_ty!(cursor, ElectionDifficulty));
 
@@ -73,10 +71,6 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
             baker_total_stake,
             next_baker_id,
         };
-
-        let final_pos = cursor.position() as usize;
-
-        check_partial_serialization!(params, &cursor.get_ref()[initial_pos..final_pos]);
 
         Ok(params)
     }

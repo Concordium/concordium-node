@@ -10,7 +10,8 @@ ARGS=""
 if [ -n "$ID" ];
 then
     ARGS="$ARGS --id $ID"
-else
+elif [ -n "$PERSISTENT_ID_BASED_ON_BAKER_ID" ];
+then
     ID=$(printf "%016d\n" $(echo $BAKER_ID | cut -d'-' -f2))
     ARGS="$ARGS --id $ID"
 fi
@@ -165,7 +166,6 @@ if [ -n "$PROFILING_ARGS" ];
 then
     ARGS="$ARGS $PROFILING_ARGS"
 fi
-
 
 if [ "$MODE" == "tps_receiver" ]; then
     echo "Receiver!"

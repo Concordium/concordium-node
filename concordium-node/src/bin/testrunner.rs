@@ -162,7 +162,7 @@ impl TestRunner {
                 .collect();
 
             send_broadcast_message(
-                lock_or_die!(state_data.node).thread_shared.clone(),
+                &lock_or_die!(state_data.node),
                 None,
                 state_data.nid,
                 None,
@@ -270,7 +270,8 @@ fn instantiate_node(
     app_prefs: &mut configuration::AppPreferences,
     stats_export_service: &Option<Arc<RwLock<StatsExportService>>>,
 ) -> (P2PNode, RelayOrStopReceiver<Arc<NetworkMessage>>) {
-    let (pkt_in, pkt_out) = mpsc::channel::<RelayOrStopEnvelope<Arc<NetworkMessage>>>();
+    let (pkt_in, pkt_out) = mpsc::sync_channel::<RelayOrStopEnvelope<Arc<NetworkMessage>>>(64);
+    let (rpc_in, _) = mpsc::sync_channel::<Arc<NetworkMessage>>(64);
 
     let node_id = if conf.common.id.is_some() {
         conf.common.id.clone()
@@ -285,7 +286,7 @@ fn instantiate_node(
     };
 
     let node_sender = if conf.common.debug {
-        let (sender, receiver) = mpsc::channel();
+        let (sender, receiver) = mpsc::sync_channel(64);
         let _guard = spawn_or_die!("Log loop", move || loop {
             if let Ok(msg) = receiver.recv() {
                 info!("{}", msg);
@@ -303,6 +304,7 @@ fn instantiate_node(
         node_sender,
         PeerType::Node,
         arc_stats_export_service,
+        rpc_in,
     );
 
     (node, pkt_out)
@@ -339,7 +341,7 @@ fn setup_process_output(
                         );
 
                         send_message_from_cursor(
-                            _node_self_clone.thread_shared.clone(),
+                            &_node_self_clone,
                             None,
                             pac.network_id,
                             Some(pac.message_id.to_owned()),

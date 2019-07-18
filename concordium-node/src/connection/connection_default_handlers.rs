@@ -1,6 +1,9 @@
 use concordium_common::{functor::FuncResult, UCursor};
 
-use std::{cell::RefCell, collections::HashSet, sync::atomic::Ordering};
+use std::{
+    collections::HashSet,
+    sync::{atomic::Ordering, RwLock},
+};
 
 use crate::{
     common::{
@@ -29,14 +32,14 @@ macro_rules! reject_handshake {
 /// Default `NetworkRequest::Ping` handler.
 /// It responds with a pong packet.
 pub fn default_network_request_ping_handle(
-    priv_conn: &RefCell<ConnectionPrivate>,
+    priv_conn: &RwLock<ConnectionPrivate>,
     _req: &NetworkRequest,
 ) -> FuncResult<()> {
-    priv_conn.borrow_mut().update_last_seen();
+    write_or_die!(priv_conn).update_last_seen();
     TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
 
     let pong_data = {
-        let priv_conn_borrow = priv_conn.borrow();
+        let priv_conn_borrow = read_or_die!(priv_conn);
         if let Some(ref service) = priv_conn_borrow.stats_export_service {
             safe_write!(service)?.pkt_sent_inc();
         }
@@ -57,23 +60,22 @@ pub fn default_network_request_ping_handle(
     };
 
     // Ignore the return value because it is an asynchronous operation.
-    priv_conn
-        .borrow_mut()
+    write_or_die!(priv_conn)
         .async_send(UCursor::from(pong_data), MessageSendingPriority::High)
         .map(|_bytes| ())
 }
 
 /// It sends the list of nodes.
 pub fn default_network_request_find_node_handle(
-    priv_conn: &RefCell<ConnectionPrivate>,
+    priv_conn: &RwLock<ConnectionPrivate>,
     req: &NetworkRequest,
 ) -> FuncResult<()> {
     if let NetworkRequest::FindNode(..) = req {
-        priv_conn.borrow_mut().update_last_seen();
+        write_or_die!(priv_conn).update_last_seen();
 
         // Return list of nodes
         let response_data = {
-            let priv_conn_borrow = priv_conn.borrow();
+            let priv_conn_borrow = read_or_die!(priv_conn);
             let remote_peer = priv_conn_borrow
                 .remote_peer()
                 .post_handshake_peer_or_else(|| {
@@ -94,8 +96,7 @@ pub fn default_network_request_find_node_handle(
         };
 
         // Ignore returned because it is an asynchronous operation.
-        priv_conn
-            .borrow_mut()
+        write_or_die!(priv_conn)
             .async_send(UCursor::from(response_data), MessageSendingPriority::Normal)
             .map(|_bytes| ())
     } else {
@@ -106,17 +107,17 @@ pub fn default_network_request_find_node_handle(
 }
 
 pub fn default_network_request_get_peers(
-    priv_conn: &RefCell<ConnectionPrivate>,
+    priv_conn: &RwLock<ConnectionPrivate>,
     req: &NetworkRequest,
 ) -> FuncResult<()> {
     if let NetworkRequest::GetPeers(ref sender, ref networks) = req {
         debug!("Got request for GetPeers");
 
-        priv_conn.borrow_mut().update_last_seen();
+        write_or_die!(priv_conn).update_last_seen();
         TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
 
         let peer_list_packet = {
-            let priv_conn_borrow = priv_conn.borrow();
+            let priv_conn_borrow = read_or_die!(priv_conn);
             let nodes =
                 safe_read!(priv_conn_borrow.buckets)?.get_all_nodes(Some(&sender), networks);
 
@@ -138,8 +139,7 @@ pub fn default_network_request_get_peers(
         };
 
         // Ignore returned because it is an asynchronous operation.
-        priv_conn
-            .borrow_mut()
+        write_or_die!(priv_conn)
             .async_send(
                 UCursor::from(peer_list_packet),
                 MessageSendingPriority::Normal,
@@ -153,13 +153,13 @@ pub fn default_network_request_get_peers(
 }
 
 pub fn default_network_response_find_node(
-    priv_conn: &RefCell<ConnectionPrivate>,
+    priv_conn: &RwLock<ConnectionPrivate>,
     res: &NetworkResponse,
 ) -> FuncResult<()> {
     if let NetworkResponse::FindNode(_, ref peers) = res {
         debug!("Got response to FindNode");
 
-        let priv_conn_borrow = priv_conn.borrow();
+        let priv_conn_borrow = read_or_die!(priv_conn);
         // Process the received node list
         let mut ref_buckets = safe_write!(priv_conn_borrow.buckets)?;
         for peer in peers.iter() {
@@ -176,14 +176,14 @@ pub fn default_network_response_find_node(
 
 /// It measures network latency.
 pub fn default_network_response_pong(
-    priv_conn: &RefCell<ConnectionPrivate>,
+    priv_conn: &RwLock<ConnectionPrivate>,
     _res: &NetworkResponse,
 ) -> FuncResult<()> {
-    let ping: u64 = priv_conn.borrow().sent_ping;
+    let ping: u64 = read_or_die!(priv_conn).sent_ping;
     let curr: u64 = get_current_stamp();
 
     if curr >= ping {
-        priv_conn.borrow_mut().last_latency_measured = curr - ping;
+        write_or_die!(priv_conn).last_latency_measured = curr - ping;
     }
 
     Ok(())
@@ -191,11 +191,11 @@ pub fn default_network_response_pong(
 
 /// It inserts new peers into buckets.
 pub fn default_network_response_peer_list(
-    priv_conn: &RefCell<ConnectionPrivate>,
+    priv_conn: &RwLock<ConnectionPrivate>,
     res: &NetworkResponse,
 ) -> FuncResult<()> {
     if let NetworkResponse::PeerList(_, ref peers) = res {
-        let priv_conn_borrow = priv_conn.borrow();
+        let priv_conn_borrow = read_or_die!(priv_conn);
         let mut locked_buckets = safe_write!(priv_conn_borrow.buckets)?;
         for peer in peers.iter() {
             locked_buckets.insert_into_bucket(peer, HashSet::new());
@@ -215,13 +215,13 @@ pub fn default_network_response_handshake(res: &NetworkResponse) -> FuncResult<(
 
 /// It adds new network and update its buckets.
 pub fn default_network_request_join_network(
-    priv_conn: &RefCell<ConnectionPrivate>,
+    priv_conn: &RwLock<ConnectionPrivate>,
     res: &NetworkRequest,
 ) -> FuncResult<()> {
     if let NetworkRequest::JoinNetwork(_, network) = res {
-        priv_conn.borrow_mut().add_remote_end_network(*network);
+        write_or_die!(priv_conn).add_remote_end_network(*network);
 
-        let priv_conn_borrow = priv_conn.borrow();
+        let priv_conn_borrow = read_or_die!(priv_conn);
         let remote_peer = priv_conn_borrow
             .remote_peer()
             .post_handshake_peer_or_else(|| {
@@ -240,12 +240,12 @@ pub fn default_network_request_join_network(
 
 /// It removes that network from its owns and update buckets.
 pub fn default_network_request_leave_network(
-    priv_conn: &RefCell<ConnectionPrivate>,
+    priv_conn: &RwLock<ConnectionPrivate>,
     req: &NetworkRequest,
 ) -> FuncResult<()> {
     if let NetworkRequest::LeaveNetwork(sender, network) = req {
-        priv_conn.borrow_mut().remove_remote_end_network(*network);
-        let priv_conn_borrow = priv_conn.borrow();
+        write_or_die!(priv_conn).remove_remote_end_network(*network);
+        let priv_conn_borrow = read_or_die!(priv_conn);
         let remote_peer = priv_conn_borrow
             .remote_peer()
             .post_handshake_peer_or_else(|| {
@@ -270,11 +270,11 @@ pub fn default_network_request_handshake(req: &NetworkRequest) -> FuncResult<()>
 }
 
 /// Unknown messages only updates statistic information.
-pub fn default_unknown_message(priv_conn: &RefCell<ConnectionPrivate>) -> FuncResult<()> {
+pub fn default_unknown_message(priv_conn: &RwLock<ConnectionPrivate>) -> FuncResult<()> {
     debug!("Unknown message received!");
 
     {
-        let mut priv_conn_mut = priv_conn.borrow_mut();
+        let mut priv_conn_mut = write_or_die!(priv_conn);
 
         priv_conn_mut.failed_pkts += 1;
         priv_conn_mut.update_last_seen();
@@ -284,16 +284,16 @@ pub fn default_unknown_message(priv_conn: &RefCell<ConnectionPrivate>) -> FuncRe
     // trace!("Contents were: {:?}",
     //        String::from_utf8(buf.to_vec()).unwrap());
 
-    if let Some(ref service) = priv_conn.borrow().stats_export_service {
+    if let Some(ref service) = read_or_die!(priv_conn).stats_export_service {
         safe_write!(service)?.unknown_pkts_received_inc();
     }
     Ok(())
 }
 
 /// Invalid messages only updates statistic information.
-pub fn default_invalid_message(priv_conn: &RefCell<ConnectionPrivate>) -> FuncResult<()> {
+pub fn default_invalid_message(priv_conn: &RwLock<ConnectionPrivate>) -> FuncResult<()> {
     {
-        let mut priv_conn_mut = priv_conn.borrow_mut();
+        let mut priv_conn_mut = write_or_die!(priv_conn);
 
         priv_conn_mut.failed_pkts += 1;
         priv_conn_mut.update_last_seen();
@@ -302,7 +302,7 @@ pub fn default_invalid_message(priv_conn: &RefCell<ConnectionPrivate>) -> FuncRe
     // trace!("Contents were: {:?}",
     //        String::from_utf8(buf.to_vec()).unwrap());
 
-    if let Some(ref service) = priv_conn.borrow().stats_export_service {
+    if let Some(ref service) = read_or_die!(priv_conn).stats_export_service {
         safe_write!(service)?.invalid_pkts_received_inc();
     }
 

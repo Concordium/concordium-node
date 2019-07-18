@@ -8,7 +8,12 @@ use byteorder::{NetworkEndian, WriteBytesExt};
 use failure::Fallible;
 use snow::{Keypair, Session};
 
-use std::{cell::RefCell, collections::VecDeque, convert::From, io::Write, rc::Rc};
+use std::{
+    collections::VecDeque,
+    convert::From,
+    io::Write,
+    sync::{Arc, RwLock},
+};
 
 const MAX_BUFFER_SIZE: usize = 4_096;
 
@@ -25,7 +30,7 @@ enum HandshakeStreamSinkState {
     ResponderAwaiting_E_ES_S_SS,
     InitiatorAwaiting_E_EE_SE_PSK,
 }
-type TransportSession = Rc<RefCell<Session>>;
+type TransportSession = Arc<RwLock<Session>>;
 type AsyncResultSession = Fallible<Readiness<TransportSession>>;
 
 /// It implements a Handshake stream/sink for Noise *IKpks2*.
@@ -94,12 +99,12 @@ impl HandshakeStreamSink {
 
     /// It returns the transport session if the handshake was done successfully.
     pub fn transport_session(&self) -> Option<TransportSession> {
-        self.transport_session.as_ref().map(Rc::clone)
+        self.transport_session.as_ref().map(Arc::clone)
     }
 
     /// It transforms handshake session into a transport session and stores it.
     fn set_transport_mode(&mut self, transport_session: TransportSession) -> AsyncResultSession {
-        self.transport_session = Some(Rc::clone(&transport_session));
+        self.transport_session = Some(Arc::clone(&transport_session));
         Ok(Readiness::Ready(transport_session))
     }
 
@@ -137,7 +142,7 @@ impl HandshakeStreamSink {
             trace!("Responder sends ({} bytes):B -> e,ee,se,psk", buf_len);
 
             // Transport session is ready
-            self.set_transport_mode(Rc::new(RefCell::new(
+            self.set_transport_mode(Arc::new(RwLock::new(
                 session.into_stateless_transport_mode()?,
             )))
         } else {
@@ -185,7 +190,7 @@ impl HandshakeStreamSink {
             session.read_message(e_ee_se_psk.as_slice(), &mut buf)?;
 
             // Transport session is ready.
-            self.set_transport_mode(Rc::new(RefCell::new(
+            self.set_transport_mode(Arc::new(RwLock::new(
                 session.into_stateless_transport_mode()?,
             )))
         } else {

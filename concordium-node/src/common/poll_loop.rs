@@ -3,7 +3,7 @@ use crate::{connection::MessageSendingPriority, p2p::tls_server::TlsServer};
 use concordium_common::UCursor;
 
 use mio::Token;
-use std::sync::{mpsc::Receiver, Arc, RwLock};
+use std::sync::mpsc::Receiver;
 
 /// This data type is used to queue a request from any thread (like tests, RPC,
 /// Cli, etc.), into a node. Please note that any access to internal `socket`
@@ -24,7 +24,7 @@ pub struct NetworkRawRequest {
 /// poll-loop thread, and any write is queued to be processed later in that
 /// poll-loop.
 pub fn process_network_requests(
-    tls_server: &Arc<RwLock<TlsServer>>,
+    tls_server: &TlsServer,
     network_request_receiver: &mut Receiver<NetworkRawRequest>,
 ) {
     network_request_receiver
@@ -36,17 +36,15 @@ pub fn process_network_requests(
                 usize::from(network_request.token)
             );
 
-            let tls_server_locked = read_or_die!(tls_server);
-            let rc_conn_opt = tls_server_locked.find_connection_by_token(network_request.token);
-            match rc_conn_opt {
-                Some(ref rc_conn) => {
-                    let mut borrowed_mut_conn = write_or_die!(rc_conn);
-                    if !borrowed_mut_conn.is_closed() {
-                        if let Err(err) = borrowed_mut_conn.async_send_from_poll_loop(
+            let mut conn_opt = tls_server.find_connection_by_token(network_request.token);
+            match conn_opt {
+                Some(ref mut conn) => {
+                    if !conn.is_closed() {
+                        if let Err(err) = conn.async_send_from_poll_loop(
                             network_request.data,
                             network_request.priority,
                         ) {
-                            borrowed_mut_conn.close();
+                            conn.close();
                             error!(
                                 "Network raw request error on connection {}: {}, and the \
                                  connection will be closed.",
