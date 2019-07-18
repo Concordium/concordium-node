@@ -3,21 +3,23 @@ use concordium_common::{
     fails::FunctorError,
     functor::{FuncResult, FunctorResult, UnitFunction, UnitFunctor},
 };
-use std::{rc::Rc, sync::Arc};
+use std::sync::Arc;
 
 pub type NetworkMessageCW = UnitFunction<NetworkMessage>;
 pub type NetworkRequestCW = UnitFunction<NetworkRequest>;
 pub type NetworkResponseCW = UnitFunction<NetworkResponse>;
 pub type NetworkPacketCW = UnitFunction<NetworkPacket>;
 pub type EmptyCW = UnitFunction<()>;
+pub type EmptyFunction = Arc<(Fn() -> FuncResult<()> + Send + Sync + 'static)>;
 
 /// It is a handler for `NetworkMessage`.
+#[derive(Clone)]
 pub struct MessageHandler {
     request_parser:  UnitFunctor<NetworkRequest>,
     response_parser: UnitFunctor<NetworkResponse>,
     packet_parser:   UnitFunctor<NetworkPacket>,
-    invalid_handler: Rc<(Fn() -> FuncResult<()>)>,
-    unknown_handler: Rc<(Fn() -> FuncResult<()>)>,
+    invalid_handler: EmptyFunction,
+    unknown_handler: EmptyFunction,
 
     general_parser: UnitFunctor<NetworkMessage>,
 }
@@ -33,8 +35,8 @@ impl MessageHandler {
             response_parser: UnitFunctor::<NetworkResponse>::new(),
             packet_parser:   UnitFunctor::<NetworkPacket>::new(),
             general_parser:  UnitFunctor::<NetworkMessage>::new(),
-            invalid_handler: Rc::new(|| Ok(())),
-            unknown_handler: Rc::new(|| Ok(())),
+            invalid_handler: Arc::new(|| Ok(())),
+            unknown_handler: Arc::new(|| Ok(())),
         }
     }
 
@@ -58,32 +60,32 @@ impl MessageHandler {
         self
     }
 
-    pub fn set_invalid_handler(&mut self, func: Rc<(Fn() -> FuncResult<()>)>) -> &mut Self {
+    pub fn set_invalid_handler(&mut self, func: EmptyFunction) -> &mut Self {
         self.invalid_handler = func;
         self
     }
 
-    pub fn set_unknown_handler(&mut self, func: Rc<(Fn() -> FuncResult<()>)>) -> &mut Self {
+    pub fn set_unknown_handler(&mut self, func: EmptyFunction) -> &mut Self {
         self.unknown_handler = func;
         self
     }
 
     /// It merges into `this` all parsers from `other` `MessageHandler`.
-    pub fn add(&mut self, other: &MessageHandler) -> &mut Self {
-        for cb in other.general_parser.callbacks().iter() {
-            self.add_callback(Arc::clone(&cb));
+    pub fn add(&mut self, other: MessageHandler) -> &mut Self {
+        for cb in read_or_die!(other.general_parser.callbacks()).iter() {
+            self.add_callback(cb.clone());
         }
 
-        for cb in other.packet_parser.callbacks().iter() {
-            self.add_packet_callback(Arc::clone(&cb));
+        for cb in read_or_die!(other.packet_parser.callbacks()).iter() {
+            self.add_packet_callback(cb.clone());
         }
 
-        for cb in other.response_parser.callbacks().iter() {
-            self.add_response_callback(Arc::clone(&cb));
+        for cb in read_or_die!(other.response_parser.callbacks()).iter() {
+            self.add_response_callback(cb.clone());
         }
 
-        for cb in other.request_parser.callbacks().iter() {
-            self.add_request_callback(Arc::clone(&cb));
+        for cb in read_or_die!(other.request_parser.callbacks()).iter() {
+            self.add_request_callback(cb.clone());
         }
 
         self

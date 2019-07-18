@@ -7,7 +7,10 @@ use failure::Fallible;
 use snow::Session;
 
 use byteorder::{NetworkEndian, ReadBytesExt};
-use std::{cell::RefCell, convert::From, rc::Rc};
+use std::{
+    convert::From,
+    sync::{Arc, RwLock},
+};
 
 /// It is a `stream` that decrypts data using `snow` session.
 ///
@@ -21,12 +24,12 @@ use std::{cell::RefCell, convert::From, rc::Rc};
 ///     - List of the size of each chunk: as `unsigned of 32 bit` in
 ///       `NetworkEndian`. It is omitted if there is only one chunk.
 pub struct DecryptStream {
-    session: Rc<RefCell<Session>>,
+    session: Arc<RwLock<Session>>,
 }
 
 impl DecryptStream {
     /// Session HAS to be shared by `decrypt` stream and `encrypt` sink.
-    pub fn new(session: Rc<RefCell<Session>>) -> Self { DecryptStream { session } }
+    pub fn new(session: Arc<RwLock<Session>>) -> Self { DecryptStream { session } }
 
     fn decrypt_chunk(
         &self,
@@ -43,7 +46,7 @@ impl DecryptStream {
         let input_slice = encrypted_chunk_view.as_slice();
         let mut output_slice = &mut clear_chunk_buffer[..(chunk_size - SNOW_TAGLEN)];
 
-        match self.session.borrow_mut().read_message_with_nonce(
+        match write_or_die!(self.session).read_message_with_nonce(
             nonce,
             input_slice,
             &mut output_slice,

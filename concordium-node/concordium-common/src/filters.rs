@@ -1,5 +1,10 @@
 use failure::Error;
-use std::{cmp::Ordering, sync::Arc};
+use std::{
+    cmp::Ordering,
+    sync::{Arc, RwLock},
+};
+
+use crate::functor::AFuncCW;
 
 /// Result of applying a filter
 #[derive(PartialEq, Eq)]
@@ -8,33 +13,33 @@ pub enum FilterResult {
     Abort,
 }
 
-pub type FilterAFunc<T> = Arc<Fn(&T) -> Result<FilterResult, Error>>;
+pub type FilterAFunc<T> = AFuncCW<T, FilterResult>;
 
 /// Filtering function
-pub struct Filter<T> {
+pub struct Filter<T: Send> {
     func:     FilterAFunc<T>,
     priority: u8,
 }
 
-impl<T> Eq for Filter<T> {}
+impl<T: Send> Eq for Filter<T> {}
 
 // Always different functions, no point in comparing
-impl<T> PartialEq for Filter<T> {
+impl<T: Send> PartialEq for Filter<T> {
     fn eq(&self, _: &Filter<T>) -> bool { false }
 }
 
-impl<T> Ord for Filter<T> {
+impl<T: Send> Ord for Filter<T> {
     fn cmp(&self, other: &Self) -> Ordering { self.priority.cmp(&other.priority) }
 }
 
-impl<T> PartialOrd for Filter<T> {
+impl<T: Send> PartialOrd for Filter<T> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> { Some(self.cmp(other)) }
 }
 
-impl<T> Clone for Filter<T> {
+impl<T: Send> Clone for Filter<T> {
     fn clone(&self) -> Self {
         Filter {
-            func:     Arc::clone(&self.func),
+            func:     self.func.clone(),
             priority: self.priority,
         }
     }
@@ -44,20 +49,20 @@ impl<T> Clone for Filter<T> {
 /// priority
 ///
 /// In case any of the filters fails, the whole execution will fail
-#[derive(Default)]
-pub struct Filters<T> {
-    filters: Vec<Filter<T>>,
+#[derive(Default, Clone)]
+pub struct Filters<T: Send> {
+    filters: Arc<RwLock<Vec<Filter<T>>>>,
 }
 
-impl<T> Filters<T> {
+impl<T: Send> Filters<T> {
     pub fn new() -> Self {
         Self {
-            filters: Vec::new(),
+            filters: Arc::new(RwLock::new(Vec::new())),
         }
     }
 
     pub fn add_filter(&mut self, filter: FilterAFunc<T>, priority: u8) -> &mut Self {
-        self.filters.push(Filter {
+        write_or_die!(self.filters).push(Filter {
             func: filter,
             priority,
         });
@@ -65,15 +70,15 @@ impl<T> Filters<T> {
     }
 
     pub fn push_filter(&mut self, filter: Filter<T>) -> &mut Self {
-        self.filters.push(filter);
+        write_or_die!(self.filters).push(filter);
         self
     }
 
-    pub fn get_filters(&self) -> &[Filter<T>] { &self.filters }
+    pub fn get_filters(&self) -> &RwLock<Vec<Filter<T>>> { &self.filters }
 
     pub fn run_filters(&mut self, message: &T) -> Result<FilterResult, Error> {
-        self.filters.sort();
-        for cb in self.filters.iter().rev() {
+        write_or_die!(self.filters).sort();
+        for cb in read_or_die!(self.filters).iter().rev() {
             let res = (cb.func)(message)?;
 
             if FilterResult::Abort == res {

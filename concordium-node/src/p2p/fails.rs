@@ -40,7 +40,7 @@ impl Display for DuplicatePeerError {
     }
 }
 
-#[derive(Debug, Fail)]
+#[derive(Debug, Fail, Clone, Copy)]
 #[fail(display = "Connection requested by banned node")]
 pub struct BannedNodeRequestedConnectionError;
 

@@ -67,51 +67,50 @@ use concordium_common::{
 use failure::{Error, Fallible};
 use mio::{Event, Poll, Token};
 use std::{
-    cell::RefCell,
     collections::HashSet,
     net::SocketAddr,
-    rc::Rc,
-    sync::{atomic::Ordering, mpsc::Sender, Arc, RwLock},
+    sync::{atomic::Ordering, mpsc::SyncSender, Arc, RwLock},
 };
 
 /// This macro clones `dptr` and moves it into callback closure.
 /// That closure is just a call to `fn` Fn.
 macro_rules! handle_by_private {
     ($dptr:expr, $message_type:ty, $fn:ident) => {{
-        let dptr_cloned = Rc::clone(&$dptr);
+        let dptr_cloned = Arc::clone(&$dptr);
         make_atomic_callback!(move |m: $message_type| { $fn(&dptr_cloned, m) })
     }};
 }
 
+#[derive(Clone)]
 pub struct Connection {
     // Counters
     messages_sent:     u64,
     messages_received: u64,
     last_ping_sent:    u64,
 
-    network_request_sender: Sender<NetworkRawRequest>,
+    network_request_sender: SyncSender<NetworkRawRequest>,
 
     /// It stores internal info used in handles. In this way,
     /// handler's function will only need two arguments: this shared object, and
     /// the message which is going to be processed.
-    dptr: Rc<RefCell<ConnectionPrivate>>,
+    dptr: Arc<RwLock<ConnectionPrivate>>,
 
     // Message handlers
     pub pre_handshake_message_processor:  MessageProcessor,
     pub post_handshake_message_processor: MessageProcessor,
-    pub common_message_processor:         Rc<RefCell<MessageProcessor>>,
+    pub common_message_processor:         MessageProcessor,
 }
 
 impl Connection {
-    pub fn set_network_request_sender(&mut self, sender: Sender<NetworkRawRequest>) {
+    pub fn set_network_request_sender(&mut self, sender: SyncSender<NetworkRawRequest>) {
         self.network_request_sender = sender;
     }
 
     // Setup handshake handler
     pub fn setup_pre_handshake(&mut self) {
-        let cloned_message_processor = Rc::clone(&self.common_message_processor);
+        let cloned_message_processor = self.common_message_processor.clone();
         self.pre_handshake_message_processor
-            .add(&cloned_message_processor.borrow())
+            .add(cloned_message_processor)
             .add_request_action(handle_by_private!(
                 self.dptr,
                 &NetworkRequest,
@@ -124,11 +123,11 @@ impl Connection {
             ));
     }
 
-    fn make_update_last_seen_handler<T>(&self) -> UnitFunction<T> {
-        let priv_conn = Rc::clone(&self.dptr);
+    fn make_update_last_seen_handler<T: Send>(&self) -> UnitFunction<T> {
+        let priv_conn = Arc::clone(&self.dptr);
 
         make_atomic_callback!(move |_: &T| -> FuncResult<()> {
-            priv_conn.borrow_mut().update_last_seen();
+            safe_write!(priv_conn)?.update_last_seen();
             Ok(())
         })
     }
@@ -165,10 +164,10 @@ impl Connection {
         .add_handshake_callback(make_atomic_callback!(move |m: &NetworkRequest| {
             default_network_request_handshake(m)
         }))
-        .add_ban_node_callback(Arc::clone(&update_last_seen_handler))
-        .add_unban_node_callback(Arc::clone(&update_last_seen_handler))
-        .add_join_network_callback(Arc::clone(&update_last_seen_handler))
-        .add_leave_network_callback(Arc::clone(&update_last_seen_handler));
+        .add_ban_node_callback(update_last_seen_handler.clone())
+        .add_unban_node_callback(update_last_seen_handler.clone())
+        .add_join_network_callback(update_last_seen_handler.clone())
+        .add_leave_network_callback(update_last_seen_handler.clone());
 
         rh
     }
@@ -203,12 +202,12 @@ impl Connection {
         let response_handler = self.make_response_handler();
         let last_seen_response_handler = self.make_update_last_seen_handler();
         let last_seen_packet_handler = self.make_update_last_seen_handler();
-        let cloned_message_processor = Rc::clone(&self.common_message_processor);
-        let dptr_1 = Rc::clone(&self.dptr);
-        let dptr_2 = Rc::clone(&self.dptr);
+        let cloned_message_processor = self.common_message_processor.clone();
+        let dptr_1 = Arc::clone(&self.dptr);
+        let dptr_2 = Arc::clone(&self.dptr);
 
         self.post_handshake_message_processor
-            .add(&cloned_message_processor.borrow())
+            .add(cloned_message_processor)
             .add_request_action(make_atomic_callback!(move |req: &NetworkRequest| {
                 request_handler.process_message(req).map_err(Error::from)
             }))
@@ -217,14 +216,14 @@ impl Connection {
             }))
             .add_response_action(last_seen_response_handler)
             .add_packet_action(last_seen_packet_handler)
-            .set_unknown_handler(Rc::new(move || default_unknown_message(&dptr_1)))
-            .set_invalid_handler(Rc::new(move || default_invalid_message(&dptr_2)));
+            .set_unknown_handler(Arc::new(move || default_unknown_message(&dptr_1)))
+            .set_invalid_handler(Arc::new(move || default_invalid_message(&dptr_2)));
     }
 
     // =============================
 
     pub fn get_last_latency_measured(&self) -> Option<u64> {
-        let latency: u64 = self.dptr.borrow().last_latency_measured;
+        let latency: u64 = read_or_die!(self.dptr).last_latency_measured;
         if latency != u64::max_value() {
             Some(latency)
         } else {
@@ -233,72 +232,76 @@ impl Connection {
     }
 
     pub fn set_measured_handshake_sent(&mut self) {
-        self.dptr.borrow_mut().sent_handshake = get_current_stamp()
+        write_or_die!(self.dptr).sent_handshake = get_current_stamp()
     }
 
-    pub fn set_measured_ping_sent(&mut self) { self.dptr.borrow_mut().set_measured_ping_sent(); }
+    pub fn set_measured_ping_sent(&mut self) { write_or_die!(self.dptr).set_measured_ping_sent(); }
 
     pub fn get_last_ping_sent(&self) -> u64 { self.last_ping_sent }
 
     pub fn set_last_ping_sent(&mut self) { self.last_ping_sent = get_current_stamp(); }
 
-    pub fn local_id(&self) -> P2PNodeId { self.dptr.borrow().local_peer.id() }
+    pub fn local_id(&self) -> P2PNodeId { read_or_die!(self.dptr).local_peer.id() }
 
     pub fn remote_id(&self) -> Option<P2PNodeId> {
-        match self.dptr.borrow().remote_peer() {
+        match read_or_die!(self.dptr).remote_peer() {
             RemotePeer::PostHandshake(ref remote_peer) => Some(remote_peer.id()),
             _ => None,
         }
     }
 
-    pub fn is_post_handshake(&self) -> bool { self.dptr.borrow().remote_peer.is_post_handshake() }
+    pub fn is_post_handshake(&self) -> bool {
+        read_or_die!(self.dptr).remote_peer.is_post_handshake()
+    }
 
-    pub fn local_addr(&self) -> SocketAddr { self.dptr.borrow().local_peer.addr }
+    pub fn local_addr(&self) -> SocketAddr { read_or_die!(self.dptr).local_peer.addr }
 
-    pub fn remote_addr(&self) -> SocketAddr { self.dptr.borrow().remote_peer().addr() }
+    pub fn remote_addr(&self) -> SocketAddr { read_or_die!(self.dptr).remote_peer().addr() }
 
-    pub fn last_seen(&self) -> u64 { self.dptr.borrow().last_seen() }
+    pub fn last_seen(&self) -> u64 { read_or_die!(self.dptr).last_seen() }
 
-    pub fn local_peer(&self) -> P2PPeer { self.dptr.borrow().local_peer }
+    pub fn local_peer(&self) -> P2PPeer { read_or_die!(self.dptr).local_peer }
 
-    pub fn remote_peer(&self) -> RemotePeer { self.dptr.borrow().remote_peer().to_owned() }
+    pub fn remote_peer(&self) -> RemotePeer { read_or_die!(self.dptr).remote_peer().to_owned() }
 
     pub fn get_messages_received(&self) -> u64 { self.messages_received }
 
     pub fn get_messages_sent(&self) -> u64 { self.messages_sent }
 
-    pub fn failed_pkts(&self) -> u32 { self.dptr.borrow().failed_pkts }
+    pub fn failed_pkts(&self) -> u32 { read_or_die!(self.dptr).failed_pkts }
 
     /// It registers the connection socket, for read and write ops using *edge*
     /// notifications.
     #[inline]
-    pub fn register(&self, poll: &mut Poll) -> Fallible<()> { self.dptr.borrow().register(poll) }
+    pub fn register(&self, poll: &RwLock<Poll>) -> Fallible<()> {
+        read_or_die!(self.dptr).register(poll)
+    }
 
     #[inline]
-    pub fn deregister(&self, poll: &mut Poll) -> Fallible<()> {
-        self.dptr.borrow().deregister(poll)
+    pub fn deregister(&self, poll: &RwLock<Poll>) -> Fallible<()> {
+        read_or_die!(self.dptr).deregister(poll)
     }
 
     #[inline]
     pub fn is_closed(&self) -> bool {
-        let status = self.dptr.borrow().status;
+        let status = read_or_die!(self.dptr).status;
         status == ConnectionStatus::Closed || status == ConnectionStatus::Closing
     }
 
     #[inline]
-    pub fn close(&mut self) { self.dptr.borrow_mut().status = ConnectionStatus::Closing; }
+    pub fn close(&mut self) { write_or_die!(self.dptr).status = ConnectionStatus::Closing; }
 
     #[inline]
-    pub fn status(&self) -> ConnectionStatus { self.dptr.borrow().status }
+    pub fn status(&self) -> ConnectionStatus { read_or_die!(self.dptr).status }
 
     #[inline]
-    pub fn shutdown(&mut self) -> Fallible<()> { self.dptr.borrow_mut().shutdown() }
+    pub fn shutdown(&mut self) -> Fallible<()> { write_or_die!(self.dptr).shutdown() }
 
     pub fn ready(
         &mut self,
         ev: &Event,
     ) -> Result<ProcessResult, Vec<Result<ProcessResult, failure::Error>>> {
-        let messages_result = self.dptr.borrow_mut().ready(ev);
+        let messages_result = write_or_die!(self.dptr).ready(ev);
         match messages_result {
             Ok(messages) => collapse_process_result(self, messages),
             Err(error) => Err(vec![Err(error)]),
@@ -306,8 +309,8 @@ impl Connection {
     }
 
     #[inline]
-    pub fn set_log_dumper(&mut self, log_dumper: Option<Sender<DumpItem>>) {
-        self.dptr.borrow_mut().set_log_dumper(log_dumper);
+    pub fn set_log_dumper(&mut self, log_dumper: Option<SyncSender<DumpItem>>) {
+        write_or_die!(self.dptr).set_log_dumper(log_dumper);
     }
 
     /// It decodes message from `buf` and processes it using its message
@@ -327,7 +330,7 @@ impl Connection {
         };
 
         // Process message by message handler.
-        if self.dptr.borrow().status == ConnectionStatus::PostHandshake {
+        if read_or_die!(self.dptr).status == ConnectionStatus::PostHandshake {
             self.post_handshake_message_processor
                 .process_message(&outer)
         } else {
@@ -337,34 +340,34 @@ impl Connection {
 
     #[cfg(test)]
     pub fn validate_packet_type_test(&mut self, msg: &[u8]) -> Readiness<bool> {
-        self.dptr.borrow_mut().validate_packet_type(msg)
+        write_or_die!(self.dptr).validate_packet_type(msg)
     }
 
     pub fn stats_export_service(&self) -> Option<Arc<RwLock<StatsExportService>>> {
-        self.dptr.borrow().stats_export_service.clone()
+        read_or_die!(self.dptr).stats_export_service.clone()
     }
 
-    pub fn local_peer_type(&self) -> PeerType { self.dptr.borrow().local_peer.peer_type() }
+    pub fn local_peer_type(&self) -> PeerType { read_or_die!(self.dptr).local_peer.peer_type() }
 
-    pub fn remote_peer_type(&self) -> PeerType { self.dptr.borrow().remote_peer.peer_type() }
+    pub fn remote_peer_type(&self) -> PeerType { read_or_die!(self.dptr).remote_peer.peer_type() }
 
-    pub fn buckets(&self) -> Arc<RwLock<Buckets>> { Arc::clone(&self.dptr.borrow().buckets) }
+    pub fn buckets(&self) -> Arc<RwLock<Buckets>> { Arc::clone(&read_or_die!(self.dptr).buckets) }
 
     #[inline]
     pub fn promote_to_post_handshake(&mut self, id: P2PNodeId, addr: SocketAddr) -> Fallible<()> {
-        self.dptr.borrow_mut().promote_to_post_handshake(id, addr)
+        write_or_die!(self.dptr).promote_to_post_handshake(id, addr)
     }
 
     pub fn remote_end_networks(&self) -> HashSet<NetworkId> {
-        self.dptr.borrow().remote_end_networks.clone()
+        read_or_die!(self.dptr).remote_end_networks.clone()
     }
 
     pub fn local_end_networks(&self) -> Arc<RwLock<HashSet<NetworkId>>> {
-        Arc::clone(&self.dptr.borrow().local_end_networks)
+        Arc::clone(&read_or_die!(self.dptr).local_end_networks)
     }
 
     #[inline]
-    pub fn token(&self) -> Token { self.dptr.borrow().token }
+    pub fn token(&self) -> Token { read_or_die!(self.dptr).token }
 
     /// It queues network request
     #[inline]
@@ -383,12 +386,12 @@ impl Connection {
         input: UCursor,
         priority: MessageSendingPriority,
     ) -> Fallible<Readiness<usize>> {
-        self.dptr.borrow_mut().async_send(input, priority)
+        write_or_die!(self.dptr).async_send(input, priority)
     }
 
     pub fn add_notification(&mut self, func: UnitFunction<NetworkMessage>) {
         self.pre_handshake_message_processor
-            .add_notification(Arc::clone(&func));
+            .add_notification(func.clone());
         self.post_handshake_message_processor.add_notification(func);
     }
 }
@@ -399,12 +402,12 @@ mod tests {
         common::PeerType,
         connection::Readiness,
         test_utils::{
-            connect_and_wait_handshake, make_node_and_sync, next_available_port, setup_logger,
+            await_handshake, connect, make_node_and_sync, next_available_port, setup_logger,
         },
     };
     use failure::Fallible;
     use rand::{distributions::Standard, thread_rng, Rng};
-    use std::{iter, sync::Arc};
+    use std::iter;
 
     const PACKAGE_INITIAL_BUFFER_SZ: usize = 1024;
     const PACKAGE_MAX_BUFFER_SZ: usize = 4096;
@@ -462,27 +465,22 @@ mod tests {
         let (mut node, w1) = make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
         let (bootstrapper, _) =
             make_node_and_sync(next_available_port(), vec![100], PeerType::Bootstrapper)?;
-        connect_and_wait_handshake(&mut node, &bootstrapper, &w1)?;
+        connect(&mut node, &bootstrapper)?;
+        await_handshake(&w1)?;
 
         // Deregister connection on the node side
-        let tls_node = Arc::clone(&node.tls_server);
-        let priv_tls_node = safe_read!(tls_node)?.get_private_tls();
-        let priv_tls_node = safe_read!(priv_tls_node)?;
-        let conn_node = priv_tls_node
+        let mut conn_node = node
+            .tls_server
             .find_connection_by_id(bootstrapper.id())
             .unwrap();
-        node.deregister_connection(conn_node)?;
-        let mut conn_node = write_or_die!(conn_node);
+        node.deregister_connection(&conn_node)?;
 
         // Deregister connection on the bootstrapper side
-        let tls_bootstrapper = Arc::clone(&bootstrapper.tls_server);
-        let priv_tls_bootstrapper = safe_read!(tls_bootstrapper)?.get_private_tls();
-        let priv_tls_bootstrapper = safe_read!(priv_tls_bootstrapper)?;
-        let conn_bootstrapper = priv_tls_bootstrapper
+        let mut conn_bootstrapper = bootstrapper
+            .tls_server
             .find_connection_by_id(node.id())
             .unwrap();
-        bootstrapper.deregister_connection(conn_bootstrapper)?;
-        let mut conn_bootstrapper = write_or_die!(conn_bootstrapper);
+        bootstrapper.deregister_connection(&conn_bootstrapper)?;
 
         // Assert that a Node accepts every packet
         match conn_node.validate_packet_type_test(&[]) {

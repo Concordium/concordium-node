@@ -16,7 +16,7 @@ use byteorder::{NetworkEndian, WriteBytesExt};
 
 use concordium_common::{
     cache::Cache,
-    make_atomic_callback, safe_write, spawn_or_die,
+    make_atomic_callback, spawn_or_die,
     stats_export_service::{StatsExportService, StatsServiceMode},
     PacketType, RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSender,
     RelayOrStopSenderHelper,
@@ -38,10 +38,7 @@ use p2p_client::{
         packet::MessageId, request::RequestedElementType, NetworkId, NetworkMessage, NetworkPacket,
         NetworkPacketType, NetworkRequest, NetworkResponse,
     },
-    p2p::{
-        p2p_node::{send_direct_message, SharedNodeData},
-        *,
-    },
+    p2p::{p2p_node::send_direct_message, *},
     rpc::RpcServerImpl,
     stats_engine::StatsEngine,
     utils::{self, get_config_and_logging_setup, load_bans},
@@ -90,8 +87,16 @@ fn main() -> Fallible<()> {
 
     info!("Debugging enabled: {}", conf.common.debug);
 
+    let (subscription_queue_in, subscription_queue_out) =
+        mpsc::sync_channel::<Arc<NetworkMessage>>(10000);
+
     // Thread #1: instantiate the P2PNode
-    let (mut node, pkt_out) = instantiate_node(&conf, &mut app_prefs, &stats_export_service);
+    let (mut node, pkt_out) = instantiate_node(
+        &conf,
+        &mut app_prefs,
+        &stats_export_service,
+        subscription_queue_in.clone(),
+    );
 
     // Create the cli key-value store environment
     let cli_kvs_handle = Manager::singleton()
@@ -147,6 +152,7 @@ fn main() -> Fallible<()> {
             consensus.clone(),
             &conf.cli.rpc,
             &stats_export_service,
+            subscription_queue_out,
         );
         serv.start_server()?;
         Some(serv)
@@ -219,11 +225,12 @@ fn instantiate_node(
     conf: &configuration::Config,
     app_prefs: &mut configuration::AppPreferences,
     stats_export_service: &Option<Arc<RwLock<StatsExportService>>>,
+    subscription_queue_in: mpsc::SyncSender<Arc<NetworkMessage>>,
 ) -> (
     P2PNode,
     mpsc::Receiver<RelayOrStopEnvelope<Arc<NetworkMessage>>>,
 ) {
-    let (pkt_in, pkt_out) = mpsc::channel::<RelayOrStopEnvelope<Arc<NetworkMessage>>>();
+    let (pkt_in, pkt_out) = mpsc::sync_channel::<RelayOrStopEnvelope<Arc<NetworkMessage>>>(10000);
     let node_id = conf.common.id.clone().map_or(
         app_prefs.get_config(configuration::APP_PREFERENCES_PERSISTED_NODE_ID),
         |id| {
@@ -244,7 +251,7 @@ fn instantiate_node(
 
     // Start the thread reading P2PEvents from P2PNode
     let node = if conf.common.debug {
-        let (sender, receiver) = mpsc::channel();
+        let (sender, receiver) = mpsc::sync_channel(10000);
         let _guard = spawn_or_die!("Log loop", move || loop {
             if let Ok(msg) = receiver.recv() {
                 info!("{}", msg);
@@ -257,6 +264,7 @@ fn instantiate_node(
             Some(sender),
             PeerType::Node,
             arc_stats_export_service,
+            subscription_queue_in,
         )
     } else {
         P2PNode::new(
@@ -266,6 +274,7 @@ fn instantiate_node(
             None,
             PeerType::Node,
             arc_stats_export_service,
+            subscription_queue_in,
         )
     };
     (node, pkt_out)
@@ -308,10 +317,10 @@ fn attain_post_handshake_catch_up(
     consensus: &consensus::ConsensusContainer,
 ) -> Fallible<()> {
     let consensus_clone = consensus.clone();
-    let message_handshake_response_handler = &node.message_processor();
+    let mut message_handshake_response_handler = node.message_processor();
 
-    let node_shared = node.thread_shared.clone();
-    safe_write!(message_handshake_response_handler)?.add_response_action(make_atomic_callback!(
+    let node_shared = node.clone();
+    message_handshake_response_handler.add_response_action(make_atomic_callback!(
         move |msg: &NetworkResponse| {
             if let NetworkResponse::Handshake(ref remote_peer, ref nets, _) = msg {
                 if remote_peer.peer_type() == PeerType::Node {
@@ -319,7 +328,7 @@ fn attain_post_handshake_catch_up(
                         let response = consensus_clone.get_finalization_point();
 
                         send_consensus_msg_to_net(
-                            node_shared.clone(),
+                            &node_shared,
                             Some(remote_peer.id()),
                             *net,
                             PacketType::CatchupFinalizationMessagesByPoint,
@@ -362,7 +371,7 @@ fn start_consensus_threads(
     let data_dir_path = app_prefs.get_user_app_dir();
     let stats_clone = stats.clone();
 
-    let node_shared = node.thread_shared.clone();
+    let node_shared = node.clone();
     let mut baker_clone = baker.clone();
     let global_state_thread = spawn_or_die!("Process global state requests", {
         // Open the Skov-exclusive k-v store environment
@@ -382,7 +391,7 @@ fn start_consensus_threads(
             match skov_receiver.recv() {
                 Ok(RelayOrStopEnvelope::Relay(request)) => {
                     if let Err(e) = handle_global_state_request(
-                        node_shared.clone(),
+                        &node_shared,
                         _network_id,
                         &mut baker_clone,
                         request,
@@ -398,7 +407,7 @@ fn start_consensus_threads(
         }
     });
 
-    let node_shared = node.thread_shared.clone();
+    let node_shared = node.clone();
 
     let mut baker_clone = baker.clone();
     let mut node_ref = node.clone();
@@ -507,7 +516,7 @@ fn start_consensus_threads(
                                 let transactions = transactions_cache.get_since(*since);
                                 transactions.iter().for_each(|transaction| {
                                     send_consensus_msg_to_net(
-                                        node_shared.clone(),
+                                        &node_shared,
                                         Some(requester.id()),
                                         *nid,
                                         PacketType::Transaction,
@@ -582,7 +591,7 @@ fn send_packet_to_testrunner(node: &P2PNode, test_runner_url: &str, pac: &Networ
 fn send_packet_to_testrunner(_: &P2PNode, _: &str, _: &NetworkPacket) {}
 
 fn _send_retransmit_packet(
-    node_shared: SharedNodeData,
+    node: &P2PNode,
     receiver: P2PNodeId,
     network_id: NetworkId,
     message_id: &MessageId,
@@ -594,7 +603,7 @@ fn _send_retransmit_packet(
         Ok(_) => {
             out_bytes.extend(data);
             match send_direct_message(
-                node_shared,
+                node,
                 Some(receiver),
                 network_id,
                 Some(message_id.to_owned()),
