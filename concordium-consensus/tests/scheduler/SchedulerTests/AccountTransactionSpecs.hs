@@ -7,7 +7,6 @@ module SchedulerTests.AccountTransactionSpecs where
 import Test.Hspec
 import Test.HUnit
 
-import Concordium.ID.Types
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Acorn.Utils.Init as Init
@@ -127,7 +126,7 @@ checkAccountCreationResult (suc, fails, stateAccs, stateAles, bankState) =
         stateInvariant = stateAles ^. Types.accountAmount + bankState ^. Types.executionCost == initialAmount
 
 tests :: SpecWith ()
-tests = 
+tests =
   describe "Account creation" $ do
     specify "3 accounts created, fourth rejected, one more created, a credential deployed, and out of gas " $ do
       PR.evalContext Init.initialContextData testAccountCreation `shouldReturnP` checkAccountCreationResult
