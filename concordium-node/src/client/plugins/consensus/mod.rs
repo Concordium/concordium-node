@@ -99,11 +99,11 @@ fn get_baker_data(
             let crypto_providers = conf
                 .cryptographic_providers
                 .clone()
-                .unwrap_or(String::from(default_crypto_providers.to_str().unwrap()));
+                .unwrap_or_else(|| String::from(default_crypto_providers.to_str().unwrap()));
             let id_providers = conf
                 .identity_providers
                 .clone()
-                .unwrap_or(String::from(default_id_providers.to_str().unwrap()));
+                .unwrap_or_else(|| String::from(default_id_providers.to_str().unwrap()));
             consensus::ConsensusContainer::generate_data(
                 conf.baker_genesis,
                 conf.baker_num_bakers,

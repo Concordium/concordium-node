@@ -32,6 +32,13 @@ struct ConfigCli {
     pub baker_genesis: u64,
     #[structopt(long = "print-config", help = "Print out config struct")]
     pub print_config: bool,
+    #[structopt(
+        long = "cryptographic-providers",
+        help = "Cryptographic providers file"
+    )]
+    pub cryptographic_providers: String,
+    #[structopt(long = "identity-providers", help = "Identity providers file")]
+    pub identity_providers: String,
 }
 
 pub fn main() -> Fallible<()> {
@@ -59,8 +66,12 @@ pub fn main() -> Fallible<()> {
     #[cfg(not(feature = "profiling"))]
     start_haskell();
 
-    let consensus_baked_data =
-        ConsensusContainer::generate_data(conf.baker_genesis, conf.baker_num_bakers);
+    let consensus_baked_data = ConsensusContainer::generate_data(
+        conf.baker_genesis,
+        conf.baker_num_bakers,
+        &conf.cryptographic_providers,
+        &conf.identity_providers,
+    );
 
     stop_haskell();
 
