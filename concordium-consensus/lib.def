@@ -3,6 +3,8 @@ EXPORTS
  hs_exit
  makeGenesisData
  startConsensus
+ startConsensusPassive
+ stopConsensus
  startBaker
  stopBaker
  receiveBlock

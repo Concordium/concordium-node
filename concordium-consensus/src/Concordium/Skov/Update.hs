@@ -4,6 +4,7 @@ module Concordium.Skov.Update where
 
 import Control.Monad
 import Control.Monad.State.Class
+import Control.Monad.State
 import Control.Monad.RWS
 import qualified Control.Monad.RWS.Strict as SRWS
 import qualified Data.Sequence as Seq
@@ -54,19 +55,27 @@ class MissingEvent w where
 class FinalizationEvent w => BufferedFinalizationEvent w where
     embedNotifyEvent :: NotifyEvent -> w
 
+data SkovMissingEvent
+    = SkovMissingBlock BlockHash BlockHeight
+    | SkovMissingFinalization (Either BlockHash FinalizationIndex)
+
+instance MissingEvent (Endo [SkovMissingEvent]) where
+    missingBlockEvent bh delta = Endo (SkovMissingBlock bh delta :)
+    missingFinalizationEvent = Endo . (:) . SkovMissingFinalization
+
+
 -- |The output events that may arise from consensus and finalization.
 -- These are finalization events and missing block/record events.
 data SkovFinalizationEvent
     = SkovFinalization FinalizationOutputEvent
-    | SkovMissingBlock BlockHash BlockHeight
-    | SkovMissingFinalization (Either BlockHash FinalizationIndex)
+    | SkovMissing SkovMissingEvent
 
 instance FinalizationEvent (Endo [SkovFinalizationEvent]) where
     embedFinalizationEvent = Endo . (:) . SkovFinalization
 
 instance MissingEvent (Endo [SkovFinalizationEvent]) where
-    missingBlockEvent bh delta = Endo (SkovMissingBlock bh delta :)
-    missingFinalizationEvent = Endo . (:) . SkovMissingFinalization
+    missingBlockEvent bh delta = Endo (SkovMissing (SkovMissingBlock bh delta) :)
+    missingFinalizationEvent = Endo . (:) . SkovMissing . SkovMissingFinalization
 
 data BufferedSkovFinalizationEvent
     = BufferedEvent SkovFinalizationEvent
@@ -76,8 +85,8 @@ instance FinalizationEvent (Endo [BufferedSkovFinalizationEvent]) where
     embedFinalizationEvent = Endo . (:) . BufferedEvent . SkovFinalization
 
 instance MissingEvent (Endo [BufferedSkovFinalizationEvent]) where
-    missingBlockEvent bh delta = Endo (BufferedEvent (SkovMissingBlock bh delta) :)
-    missingFinalizationEvent = Endo . (:) . BufferedEvent . SkovMissingFinalization
+    missingBlockEvent bh delta = Endo (BufferedEvent (SkovMissing $ SkovMissingBlock bh delta) :)
+    missingFinalizationEvent = Endo . (:) . BufferedEvent . SkovMissing . SkovMissingFinalization
 
 instance BufferedFinalizationEvent (Endo [BufferedSkovFinalizationEvent]) where
     embedNotifyEvent = Endo . (:) . BufferNotification
@@ -660,6 +669,8 @@ instance Basic.SkovLenses SkovFinalizationState where
 instance FinalizationStateLenses SkovFinalizationState where
     finState = sfsFinalization
 
+deriving via (FinalizationStateQuery SkovFinalizationState) instance FinalizationQuery SkovFinalizationState
+
 -- |The initial finalization state.
 initialSkovFinalizationState :: FinalizationInstance -> GenesisData -> BlockState (FSM m) -> SkovFinalizationState
 initialSkovFinalizationState finInst gen initBS = SkovFinalizationState{..}
@@ -728,6 +739,8 @@ instance FinalizationStateLenses SkovBufferedFinalizationState where
 instance FinalizationBufferLenses SkovBufferedFinalizationState where
     finBuffer = sbfsBuffer
 
+deriving via (FinalizationStateQuery SkovBufferedFinalizationState) instance FinalizationQuery SkovBufferedFinalizationState
+
 -- |The initial finalization state.
 initialSkovBufferedFinalizationState :: FinalizationInstance -> GenesisData -> BlockState (FSM m) -> SkovBufferedFinalizationState
 initialSkovBufferedFinalizationState finInst gen initBS = SkovBufferedFinalizationState{..}
@@ -756,3 +769,64 @@ execBFSM (BufferedFinalizationSkovMonad a) fi gd bs0 = fst <$> evalRWST a fi (in
 -- any output events.
 runBFSM :: BFSM m a -> FinalizationInstance -> SkovBufferedFinalizationState -> m (a, SkovBufferedFinalizationState, Endo [BufferedSkovFinalizationEvent])
 runBFSM (BufferedFinalizationSkovMonad a) fi fs = runRWST a fi fs
+
+-- * State monad without finalization
+
+-- |State record combining skov state and finalization state.
+data SkovSimpleState = SkovSimpleState {
+    _sssSkov :: Basic.SkovData,
+    _sssFinalization :: PassiveFinalizationState
+}
+makeLenses ''SkovSimpleState
+
+instance Basic.SkovLenses SkovSimpleState where
+    skov = sssSkov
+
+instance PassiveFinalizationStateLenses SkovSimpleState where
+    pfinState = sssFinalization
+
+instance FinalizationQuery SkovSimpleState where
+    getPendingFinalizationMessages = getPendingFinalizationMessages . _sssFinalization
+    getCurrentFinalizationPoint = getCurrentFinalizationPoint . _sssFinalization
+
+-- |The initial finalization state.
+initialSkovSimpleState :: GenesisData -> BlockState (SSM m) -> SkovSimpleState
+initialSkovSimpleState gen initBS = SkovSimpleState{..}
+    where
+        _sssSkov = Basic.initialSkovData gen initBS
+        _sssFinalization = initialPassiveFinalizationState (bpHash (Basic._skovGenesisBlockPointer _sssSkov))
+
+-- |Implementation of the 'SkovMonad' without finalization.
+-- This maintains a cache of finalization messages purely for catch-up purposes.
+newtype SSM m a = SkovSimpleMonad {runSkovSimpleMonad :: RWST () (Endo [SkovMissingEvent]) SkovSimpleState m a}
+    deriving (Functor, Applicative, Monad, TimeMonad, LoggerMonad, MonadState SkovSimpleState, MonadWriter (Endo [SkovMissingEvent]), MonadIO)
+    deriving BlockStateQuery via (Basic.SkovTreeState SkovSimpleState (RWST () (Endo [SkovMissingEvent]) SkovSimpleState m))
+    deriving BlockStateOperations via (Basic.SkovTreeState SkovSimpleState (RWST () (Endo [SkovMissingEvent]) SkovSimpleState m))
+    deriving TreeStateMonad via (Basic.SkovTreeState SkovSimpleState (RWST () (Endo [SkovMissingEvent]) SkovSimpleState m))
+    deriving SkovQueryMonad via (TSSkovWrapper (Basic.SkovTreeState SkovSimpleState (RWST () (Endo [SkovMissingEvent]) SkovSimpleState m)))
+type instance UpdatableBlockState (SSM m) = Basic.BlockState
+type instance BlockPointer (SSM m) = Basic.BlockPointer
+
+instance (TimeMonad m, LoggerMonad m, MonadIO m) 
+            => SkovMonad (SSM m) where
+    storeBlock = doStoreBlock passiveFinalizationListeners
+    storeBakedBlock = doStoreBakedBlock passiveFinalizationListeners
+    receiveTransaction tr = doReceiveTransaction tr 0
+    finalizeBlock = doFinalizeBlock passiveFinalizationListeners
+
+-- |Listeners that do nothing on arrival or finalization of a block.
+passiveFinalizationListeners :: (Monad m) => SkovListeners (SSM m)
+passiveFinalizationListeners = SkovListeners {
+    onBlock = \_ -> return (),
+    onFinalize = \fr _ -> sssFinalization %= execState (passiveNotifyBlockFinalized fr)
+}
+
+
+-- |Run an action in the 'SSM' monad from the initial state defined by the supplied parameters.
+execSSM :: (Monad m) => SSM m a -> GenesisData -> BlockState (SSM m) -> m a
+execSSM (SkovSimpleMonad a) gd bs0 = fst <$> evalRWST a () (initialSkovSimpleState gd bs0)
+
+-- |Run an action in the 'SSM' monad from the given state, returning the updated state and
+-- any output events.
+runSSM :: SSM m a -> SkovSimpleState -> m (a, SkovSimpleState, Endo [SkovMissingEvent])
+runSSM (SkovSimpleMonad a) fs = runRWST a () fs

@@ -9,7 +9,7 @@ import Lens.Micro.Platform hiding ((.=))
 
 import Concordium.Kontrol.BestBlock
 import Concordium.Skov
-import Concordium.Skov.Update (isAncestorOf)
+import Concordium.Skov.Update (isAncestorOf, SkovSimpleState)
 
 import qualified Concordium.Scheduler.Types as AT
 import Concordium.GlobalState.BlockState(BlockPointerData(..))
@@ -49,6 +49,9 @@ instance SkovStateQueryable (IORef SkovFinalizationState) (SimpleSkovMonad SkovF
     runStateQuery sfsRef a = readIORef sfsRef >>= evalSSM a
 
 instance SkovStateQueryable (MVar SkovBufferedFinalizationState) (SimpleSkovMonad SkovBufferedFinalizationState IO) where
+    runStateQuery sfsRef a = readMVar sfsRef >>= evalSSM a
+
+instance SkovStateQueryable (MVar SkovSimpleState) (SimpleSkovMonad SkovSimpleState IO) where
     runStateQuery sfsRef a = readMVar sfsRef >>= evalSSM a
 
 hsh :: (HashableTo BlockHash a) => a -> String
@@ -249,8 +252,8 @@ getBlockFinalization sfsRef bh = runStateQuery sfsRef $ do
 getIndexedFinalization :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> FinalizationIndex -> IO (Maybe FinalizationRecord)
 getIndexedFinalization sfsRef finInd = runStateQuery sfsRef $ TS.getFinalizationAtIndex finInd
 
-getFinalizationMessages :: (SkovStateQueryable z m, MonadState s m, FinalizationStateLenses s) => z -> FinalizationPoint -> IO [FinalizationMessage]
+getFinalizationMessages :: (SkovStateQueryable z m, MonadState s m, FinalizationQuery s) => z -> FinalizationPoint -> IO [FinalizationMessage]
 getFinalizationMessages sfsRef finPt = runStateQuery sfsRef $ get <&> \sfs -> getPendingFinalizationMessages sfs finPt
 
-getFinalizationPoint :: (SkovStateQueryable z m, MonadState s m, FinalizationStateLenses s) => z -> IO FinalizationPoint
+getFinalizationPoint :: (SkovStateQueryable z m, MonadState s m, FinalizationQuery s) => z -> IO FinalizationPoint
 getFinalizationPoint sfsRef = runStateQuery sfsRef $ get <&> getCurrentFinalizationPoint

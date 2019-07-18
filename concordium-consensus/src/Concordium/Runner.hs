@@ -139,6 +139,34 @@ syncReceiveFinalizationMessage syncRunner finMsg = runBFSMWithStateLog syncRunne
 syncReceiveFinalizationRecord :: SyncRunner -> FinalizationRecord -> IO (UpdateResult, [SkovFinalizationEvent])
 syncReceiveFinalizationRecord syncRunner finRec = runBFSMWithStateLog syncRunner (finalizeBlock finRec)
 
+data SyncPassiveRunner = SyncPassiveRunner {
+    syncPState :: MVar SkovSimpleState,
+    syncPLogMethod :: LogMethod IO
+}
+
+-- |Make a 'SyncPassiveRunner', which does not support a baker thread.
+makeSyncPassiveRunner :: forall m. LogMethod IO -> GenesisData -> BlockState (SSM m) -> IO SyncPassiveRunner
+makeSyncPassiveRunner syncPLogMethod gen initBS = do
+        syncPState <- newMVar $ initialSkovSimpleState gen initBS
+        return $ SyncPassiveRunner{..}
+
+runSSMWithStateLog :: SyncPassiveRunner -> SSM LogIO a -> IO (a, [SkovMissingEvent])
+runSSMWithStateLog SyncPassiveRunner{..} a =
+        runWithStateLog syncPState syncPLogMethod (\sss ->
+            (\(ret, sss', Endo evs) -> ((ret, evs []), sss')) <$> runSSM a sss)
+
+syncPassiveReceiveBlock :: SyncPassiveRunner -> BakedBlock -> IO (UpdateResult, [SkovMissingEvent])
+syncPassiveReceiveBlock spr block = runSSMWithStateLog spr (storeBlock block)
+
+syncPassiveReceiveTransaction :: SyncPassiveRunner -> Transaction -> IO (UpdateResult, [SkovMissingEvent])
+syncPassiveReceiveTransaction spr trans = runSSMWithStateLog spr (receiveTransaction trans)
+
+syncPassiveReceiveFinalizationMessage :: SyncPassiveRunner -> FinalizationMessage -> IO (UpdateResult, [SkovMissingEvent])
+syncPassiveReceiveFinalizationMessage spr finMsg = runSSMWithStateLog spr (passiveReceiveFinalizationMessage finMsg)
+
+syncPassiveReceiveFinalizationRecord :: SyncPassiveRunner -> FinalizationRecord -> IO (UpdateResult, [SkovMissingEvent])
+syncPassiveReceiveFinalizationRecord spr finRec = runSSMWithStateLog spr (finalizeBlock finRec)
+
 
 data InMessage src =
     MsgShutdown
@@ -196,8 +224,8 @@ makeAsyncRunner logm bkr gen initBS = do
                     msgLoop
             handleMessage _ (SkovFinalization (BroadcastFinalizationMessage fmsg)) = writeChan outChan (MsgFinalization $ runPut $ put fmsg)
             handleMessage _ (SkovFinalization (BroadcastFinalizationRecord frec)) = writeChan outChan (MsgFinalizationRecord $ runPut $ put frec)
-            handleMessage src (SkovMissingBlock bh delta) = writeChan outChan (MsgMissingBlock src bh delta)
-            handleMessage src (SkovMissingFinalization fr) = writeChan outChan (MsgMissingFinalization src fr)
+            handleMessage src (SkovMissing (SkovMissingBlock bh delta)) = writeChan outChan (MsgMissingBlock src bh delta)
+            handleMessage src (SkovMissing (SkovMissingFinalization fr)) = writeChan outChan (MsgMissingFinalization src fr)
         _ <- forkIO msgLoop
         return (inChan, outChan, syncState sr)
     where

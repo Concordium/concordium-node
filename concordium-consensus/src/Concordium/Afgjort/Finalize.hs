@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards, ScopedTypeVariables, TemplateHaskell, LambdaCase, FlexibleContexts, MultiParamTypeClasses, RankNTypes #-}
+{-# LANGUAGE RecordWildCards, ScopedTypeVariables, TemplateHaskell, LambdaCase, FlexibleContexts, MultiParamTypeClasses, RankNTypes, DerivingStrategies, DerivingVia, StandaloneDeriving #-}
 module Concordium.Afgjort.Finalize (
     FinalizationMonad(..),
     FinalizationStateLenses(..),
@@ -9,14 +9,20 @@ module Concordium.Afgjort.Finalize (
     FinalizationPoint,
     FinalizationMessage(..),
     FinalizationMessageHeader,
+    FinalizationQuery(..),
+    FinalizationStateQuery(..),
     initialFinalizationState,
     verifyFinalProof,
     makeFinalizationCommittee,
     notifyBlockArrival,
     notifyBlockFinalized,
     receiveFinalizationMessage,
-    getPendingFinalizationMessages,
-    getCurrentFinalizationPoint,
+    -- * Passive mode
+    PassiveFinalizationState(..),
+    PassiveFinalizationStateLenses(..),
+    initialPassiveFinalizationState,
+    passiveNotifyBlockFinalized,
+    passiveReceiveFinalizationMessage,
     -- * For testing
     FinalizationRound(..)
 ) where
@@ -34,8 +40,7 @@ import Data.Serialize.Get
 import Data.Maybe
 import Lens.Micro.Platform
 import Control.Monad.State.Class
-import Control.Monad
-import Control.Monad.IO.Class
+import Control.Monad.State
 
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
@@ -175,13 +180,15 @@ ancestorAtHeight h bp
     | h < bpHeight bp = ancestorAtHeight h (bpParent bp)
     | otherwise = error "ancestorAtHeight: block is below required height"
 
+type PendingMessageMap = Map FinalizationIndex (Map BlockHeight (Set (Party, WMVBAMessage, Sig.Signature)))
+
 data FinalizationState = FinalizationState {
     _finsSessionId :: FinalizationSessionId,
     _finsIndex :: FinalizationIndex,
     _finsHeight :: BlockHeight,
     _finsCommittee :: FinalizationCommittee,
     _finsMinSkip :: BlockHeight,
-    _finsPendingMessages :: Map FinalizationIndex (Map BlockHeight (Set (Party, WMVBAMessage, Sig.Signature))),
+    _finsPendingMessages :: PendingMessageMap,
     _finsCurrentRound :: Maybe FinalizationRound
 }
 makeLenses ''FinalizationState
@@ -204,7 +211,7 @@ class FinalizationStateLenses s where
     finMinSkip = finState . finsMinSkip
     -- |All received finalization messages for the current and future finalization indexes.
     -- (Previously, this was just future messages, but now we store all of them for catch-up purposes.)
-    finPendingMessages :: Lens' s (Map FinalizationIndex (Map BlockHeight (Set (Party, WMVBAMessage, Sig.Signature))))
+    finPendingMessages :: Lens' s PendingMessageMap
     finPendingMessages = finState . finsPendingMessages
     finCurrentRound :: Lens' s (Maybe FinalizationRound)
     finCurrentRound = finState . finsCurrentRound
@@ -482,11 +489,18 @@ instance S.Serialize FinalizationPoint where
         S.put delta
     get = FinalizationPoint <$> S.get <*> S.get <*> S.get
 
--- |Get all of the finalization messages received for indexes beyond the last finalized index
--- and no sooner than the given finalization point.
-getPendingFinalizationMessages :: (FinalizationStateLenses s) => s -> FinalizationPoint -> [FinalizationMessage]
-getPendingFinalizationMessages fs (FinalizationPoint sess lowIndex lowIndexDelta)
-        | sess == fs ^. finSessionId = Map.foldrWithKey eachIndex [] (at lowIndex . non Map.empty %~ Map.dropWhileAntitone (<lowIndexDelta) $ Map.dropWhileAntitone (< lowIndex) $ fs ^. finPendingMessages)
+class FinalizationQuery s where
+    -- |Get all of the finalization messages received for indexes beyond the last finalized index
+    -- and no sooner than the given finalization point.
+    getPendingFinalizationMessages :: s -> FinalizationPoint -> [FinalizationMessage]
+    -- |Get the current point in the finalization protocol.
+    getCurrentFinalizationPoint :: s -> FinalizationPoint
+
+newtype FinalizationStateQuery s = FinalizationStateQuery s
+
+doGetPendingFinalizationMessages :: FinalizationSessionId -> PendingMessageMap -> FinalizationPoint -> [FinalizationMessage]
+doGetPendingFinalizationMessages mySessionId myPendingMessages (FinalizationPoint sess lowIndex lowIndexDelta)
+        | sess == mySessionId = Map.foldrWithKey eachIndex [] (at lowIndex . non Map.empty %~ Map.dropWhileAntitone (<lowIndexDelta) $ Map.dropWhileAntitone (< lowIndex) myPendingMessages)
         | otherwise = []
     where
         eachIndex ind m l = Map.foldrWithKey (eachDelta ind) l m
@@ -494,16 +508,77 @@ getPendingFinalizationMessages fs (FinalizationPoint sess lowIndex lowIndexDelta
         eachMsg ind delta (senderIndex, msgBody, msgSignature) = FinalizationMessage{..}
             where
                 msgHeader = FinalizationMessageHeader {
-                    msgSessionId = fs ^. finSessionId,
+                    msgSessionId = mySessionId,
                     msgFinalizationIndex = ind,
                     msgDelta = delta,
                     msgSenderIndex = senderIndex
                 }
 
--- |Get the current point in the finalization protocol.
-getCurrentFinalizationPoint :: (FinalizationStateLenses s) => s -> FinalizationPoint
-getCurrentFinalizationPoint fs = FinalizationPoint (fs ^. finSessionId) (fs ^. finIndex) delta
-    where
-        delta = case fs ^. finCurrentRound of
-                    Nothing -> 0
-                    Just r -> roundDelta r
+instance (FinalizationStateLenses s) => FinalizationQuery (FinalizationStateQuery s) where
+    getPendingFinalizationMessages (FinalizationStateQuery fs) fp = doGetPendingFinalizationMessages (fs ^. finSessionId) (fs ^. finPendingMessages) fp
+    getCurrentFinalizationPoint (FinalizationStateQuery fs) = FinalizationPoint (fs ^. finSessionId) (fs ^. finIndex) delta
+        where
+            delta = case fs ^. finCurrentRound of
+                        Nothing -> 0
+                        Just r -> roundDelta r
+
+deriving via (FinalizationStateQuery FinalizationState) instance FinalizationQuery FinalizationState
+
+data PassiveFinalizationState = PassiveFinalizationState {
+    _pfinsSessionId :: FinalizationSessionId,
+    _pfinsIndex :: FinalizationIndex,
+    _pfinsPendingMessages :: Map FinalizationIndex (Map BlockHeight (Set (Party, WMVBAMessage, Sig.Signature)))
+}
+makeLenses ''PassiveFinalizationState
+
+class PassiveFinalizationStateLenses s where
+    pfinState :: Lens' s PassiveFinalizationState
+    pfinSessionId :: Lens' s FinalizationSessionId
+    pfinSessionId = pfinState . pfinsSessionId
+    pfinIndex :: Lens' s FinalizationIndex
+    pfinIndex = pfinState . pfinsIndex
+    -- |All received finalization messages for the current and future finalization indexes, for catch-up.
+    pfinPendingMessages :: Lens' s PendingMessageMap
+    pfinPendingMessages = pfinState . pfinsPendingMessages
+
+instance PassiveFinalizationStateLenses PassiveFinalizationState where
+    pfinState = id
+
+-- |Generate an initial 'PassiveFinalizationState' from the genesis 'BlockHash'.
+initialPassiveFinalizationState :: BlockHash -> PassiveFinalizationState
+initialPassiveFinalizationState genHash = PassiveFinalizationState {
+    _pfinsSessionId = FinalizationSessionId genHash 0,
+    _pfinsIndex = 1,
+    _pfinsPendingMessages = Map.empty
+    }
+
+instance FinalizationQuery PassiveFinalizationState where
+    getPendingFinalizationMessages pfs fp = doGetPendingFinalizationMessages (pfs ^. pfinsSessionId) (pfs ^. pfinsPendingMessages) fp
+    getCurrentFinalizationPoint pfs = FinalizationPoint (pfs ^. pfinsSessionId) (pfs ^. pfinsIndex) 0
+
+-- |Called when a finalization message is received.
+passiveReceiveFinalizationMessage :: (MonadState s m, PassiveFinalizationStateLenses s) => FinalizationMessage -> m UpdateResult
+passiveReceiveFinalizationMessage FinalizationMessage{msgHeader=FinalizationMessageHeader{..},..} = do
+        PassiveFinalizationState{..} <- use pfinState
+        -- Check this is the right session
+        if (_pfinsSessionId == msgSessionId) then 
+            -- Check the finalization index is not out of date
+            if msgFinalizationIndex < _pfinsIndex then
+                return ResultStale
+            else do
+                -- Save the message
+                isDuplicate <- pfinPendingMessages . at msgFinalizationIndex . non Map.empty . at msgDelta . non Set.empty . members (msgSenderIndex, msgBody, msgSignature) <<.= True
+                if isDuplicate then
+                    return ResultDuplicate
+                else
+                    return ResultSuccess
+            else
+                return ResultIncorrectFinalizationSession
+
+-- |Called when a new block is finalized.
+-- (NB: this should never be called with the genesis block.)
+passiveNotifyBlockFinalized :: (MonadState s m, PassiveFinalizationStateLenses s) => FinalizationRecord -> m ()
+passiveNotifyBlockFinalized FinalizationRecord{..} = do
+        pfinIndex .= finalizationIndex + 1
+        -- Discard finalization messages from old round
+        pfinPendingMessages . at finalizationIndex .= Nothing
