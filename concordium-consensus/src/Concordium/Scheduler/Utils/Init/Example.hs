@@ -21,7 +21,7 @@ import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Concordium.GlobalState.Basic.BlockState as BlockState
 import qualified Concordium.GlobalState.Account as Acc
 import qualified Concordium.GlobalState.Modules as Mod
-import Concordium.GlobalState.Parameters(BirkParameters)
+import Concordium.GlobalState.Parameters(BirkParameters, CryptographicParameters)
 import qualified Concordium.Scheduler.Runner as Runner
 
 import qualified Acorn.Core as Core
@@ -94,10 +94,9 @@ makeTransaction inc ca n = Runner.signTx mateuszKP hdr payload
         hdr = makeHeader mateuszKP n 100000
         payload = Types.encodePayload (Types.Update 0 ca (Core.App (if inc then (inCtxTm "Inc") else (inCtxTm "Dec")) (Core.Literal (Core.Int64 10))) (-1))
 
-
 -- |State with the given number of contract instances of the counter contract specified.
-initialState :: BirkParameters -> [Account] -> Int -> BlockState.BlockState
-initialState birkParams bakerAccounts n = 
+initialState :: BirkParameters -> CryptographicParameters -> [Account] -> [Types.IdentityProviderData] -> Int -> BlockState.BlockState
+initialState birkParams cryptoParams bakerAccounts ips n = 
     let (_, _, mods) = foldl handleFile
                            baseState
                            $(embedFiles [Left "test/contracts/SimpleAccount.acorn"
@@ -107,11 +106,11 @@ initialState birkParams bakerAccounts n =
         initAccount = foldl (flip Acc.putAccount)
                             (Acc.putAccount (newAccount (Sig.verifyKey mateuszKP) Ed25519 & accountAmount .~ initialAmount) Acc.emptyAccounts)
                             bakerAccounts
-        gs = BlockState.emptyBlockState birkParams &
+        gs = BlockState.emptyBlockState birkParams cryptoParams &
+               (BlockState.blockIdentityProviders .~ Types.IdentityProviders (Map.fromList (map (\r -> (Types.ipIdentity r, r)) ips))) .
                (BlockState.blockAccounts .~ initAccount) .
                (BlockState.blockModules .~ Mod.fromModuleList (moduleList mods)) .
                (BlockState.blockBank .~ Types.makeGenesisBankStatus initialAmount 10) -- 10 GTU minted per slot.
         gs' = Types.execSI (execTransactions (initialTrans n)) Types.dummyChainMeta gs
     in gs' & (BlockState.blockAccounts .~ initAccount) .
              (BlockState.blockBank .~ Types.makeGenesisBankStatus initialAmount 10) -- also reset the bank after execution to maintain invariants.
-

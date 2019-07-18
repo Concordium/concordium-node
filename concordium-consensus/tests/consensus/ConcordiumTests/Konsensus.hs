@@ -26,6 +26,7 @@ import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Bakers
 
@@ -304,23 +305,25 @@ initialEvents states = Seq.fromList [(x, EBake 1) | x <- [0..length states -1]]
 makeBaker :: BakerId -> Amount -> Gen (BakerInfo, BakerIdentity, Account)
 makeBaker bid lot = do
         ek@(VRF.KeyPair _ epk) <- arbitrary
-        sk                     <- arbitrary
+        sk                     <- Sig.genKeyPair
         let spk = Sig.verifyKey sk
         let account = makeBakerAccount bid
-        return (BakerInfo epk spk lot (_accountAddress account), BakerIdentity bid sk spk ek epk, account)
+        return (BakerInfo epk spk lot (_accountAddress account), BakerIdentity sk ek, account)
+
+dummyIdentityProviders :: [IdentityProviderData]
+dummyIdentityProviders = []  
 
 initialiseStates :: Int -> Gen States
 initialiseStates n = do
         let bns = [0..fromIntegral n - 1]
         bis <- mapM (\i -> (i,) <$> makeBaker i 1) bns
         let bps = BirkParameters "LeadershipElectionNonce" 0.5
-                (Bakers (Map.fromList [(i, b) | (i, (b, _, _)) <- bis])
-                    (fromIntegral n)
-                    (fromIntegral n)) -- next available baker id
+                (bakersFromList $ (^. _2 . _1) <$> bis)
             fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _ _, _, _)) <- bis] 2
             bakerAccounts = map (\(_, (_, _, acc)) -> acc) bis
-            gen = GenesisData 0 1 bps bakerAccounts fps
-        return $ Vec.fromList [(bid, fininst, initialSkovFinalizationState fininst gen (Example.initialState bps bakerAccounts nAccounts)) | (_, (_, bid, _)) <- bis, let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid)] 
+            gen = GenesisData 0 1 bps bakerAccounts fps dummyCryptographicParameters dummyIdentityProviders
+        return $ Vec.fromList [(bid, fininst, initialSkovFinalizationState fininst gen (Example.initialState bps dummyCryptographicParameters bakerAccounts [] nAccounts))
+                              | (_, (_, bid, _)) <- bis, let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid)]
 
 instance Show BakerIdentity where
     show _ = "[Baker Identity]"

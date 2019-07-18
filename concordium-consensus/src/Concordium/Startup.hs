@@ -1,9 +1,8 @@
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE RecordWildCards, OverloadedStrings #-}
 module Concordium.Startup where
 
 import System.Random
 import qualified Data.ByteString.Char8 as BS
-import qualified Data.Map as Map
 
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.Crypto.BlockSignature as Sig
@@ -11,13 +10,14 @@ import qualified Concordium.Crypto.VRF as VRF
 
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Bakers
+import Concordium.GlobalState.IdentityProviders
 import Concordium.Birk.Bake
 import Concordium.Types
 
 makeBakers :: Word -> [((BakerIdentity,BakerInfo), Account)]
 makeBakers nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17) 0
     where
-        mbs gen bid = ((BakerIdentity bid sk spk ek epk, BakerInfo epk spk stake accAddress), account):mbs gen'' (bid+1)
+        mbs gen bid = ((BakerIdentity sk ek, BakerInfo epk spk stake accAddress), account):mbs gen'' (bid+1)
             where
                 (ek@(VRF.KeyPair _ epk), gen') = VRF.randomKeyPair gen
                 (sk, gen'') = Sig.randomKeyPair gen'
@@ -34,23 +34,19 @@ makeBakerAccount bid = acct {_accountAmount = 1000000, _accountStakeDelegate = J
     
 makeGenesisData :: 
     Timestamp -- ^Genesis time
-    -> Word
-    -> Duration
-    -> ElectionDifficulty
+    -> Word  -- ^Initial number of bakers.
+    -> Duration  -- ^Slot duration in seconds.
+    -> ElectionDifficulty  -- ^Initial election difficulty.
     -> BlockHeight -- ^Minimum finalization interval - 1
+    -> CryptographicParameters -- ^Initial cryptographic parameters.
+    -> [IdentityProviderData]   -- ^List of initial identity providers.
     -> (GenesisData, [(BakerIdentity,BakerInfo)])
-makeGenesisData genTime nBakers slotTime elecDiff finMinSkip = (GenesisData genTime
-                                               slotTime -- slot time in seconds
-                                               bps
-                                               bakerAccounts
-                                               fps,
-                                   bakers)
+makeGenesisData genesisTime nBakers genesisSlotDuration elecDiff finMinSkip genesisCryptographicParameters genesisIdentityProviders
+    = (GenesisData{..}, bakers)
     where
-        bps = BirkParameters (BS.pack "LeadershipElectionNonce")
-                             elecDiff -- voting power
-                             (Bakers (Map.fromList $ [(bid, binfo) | (BakerIdentity bid _ _ _ _, binfo) <- bakers])
-                                (sum [_bakerStake binfo | (_, binfo) <- bakers])
-                                (fromIntegral nBakers) -- next available baker id (since baker ids start with 0
-                             )
-        fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, BakerInfo vrfk vvk _ _) <- bakers] finMinSkip
-        (bakers, bakerAccounts) = unzip (makeBakers nBakers)
+        genesisBirkParameters =
+            BirkParameters (BS.pack "LeadershipElectionNonce")
+                           elecDiff -- voting power
+                           (bakersFromList (snd <$> bakers))
+        genesisFinalizationParameters = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, BakerInfo vrfk vvk _ _) <- bakers] finMinSkip
+        (bakers, genesisBakerAccounts) = unzip (makeBakers nBakers)

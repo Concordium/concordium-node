@@ -1,4 +1,4 @@
-{-# LANGUAGE TupleSections, LambdaCase #-}
+{-# LANGUAGE TupleSections, LambdaCase, OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
 module Main where
 
@@ -14,6 +14,7 @@ import Data.Serialize
 import qualified Data.ByteString as BS
 
 import Concordium.Types.HashableTo
+import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Block
@@ -24,7 +25,6 @@ import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.TreeState
 import Concordium.Scheduler.Utils.Init.Example as Example
 
-import Concordium.Birk.Bake
 import Concordium.Types
 import Concordium.Runner
 import Concordium.Logger
@@ -180,15 +180,18 @@ gsToString gs = intercalate "\\l" . map show $ keys
         ca n = ContractAddress (fromIntegral n) 0
         keys = map (\n -> (n, instanceModel <$> getInstance (ca n) (gs ^. blockInstances))) $ enumFromTo 0 (nContracts-1)
 
+dummyIdentityProviders :: [IdentityProviderData]
+dummyIdentityProviders = []
+
 main :: IO ()
 main = do
     let n = 20
     now <- truncate <$> getPOSIXTime
-    let (gen, bis) = makeGenesisData now n 1 0.5 1
-    let iState = Example.initialState (genesisBirkParameters gen) (genesisBakerAccounts gen) nContracts
+    let (gen, bis) = makeGenesisData now n 1 0.5 1 dummyCryptographicParameters dummyIdentityProviders
+    let iState = Example.initialState (genesisBirkParameters gen) (genesisCryptographicParameters gen) (genesisBakerAccounts gen) [] nContracts
     trans <- transactions <$> newStdGen
-    chans <- mapM (\(bid, _) -> do
-        let logFile = "consensus-" ++ show now ++ "-" ++ show (bakerId bid) ++ ".log"
+    chans <- mapM (\(bakerId, (bid, _)) -> do
+        let logFile = "consensus-" ++ show now ++ "-" ++ show bakerId ++ ".log"
         logChan <- newChan
         let logLoop = do
                 logMsg <- readChan logChan
@@ -203,7 +206,7 @@ main = do
         connectedRef <- newIORef True
         _ <- forkIO $ relayIn cin' cin out connectedRef
         _ <- forkIO $ sendTransactions cin' trans
-        return (cin', cout, out, connectedRef, logM)) bis
+        return (cin', cout, out, connectedRef, logM)) (zip [0::Int ..] bis)
     monitorChan <- newChan
     forM_ (removeEach chans) $ \((cin, cout, stateRef, connectedRef, logM), cs) -> do
         let cs' = ((\(c, _, _, _, _) -> c) <$> cs)

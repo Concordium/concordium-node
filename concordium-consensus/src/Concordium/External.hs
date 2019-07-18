@@ -1,9 +1,10 @@
-{-# LANGUAGE ForeignFunctionInterface, LambdaCase, RecordWildCards, OverloadedStrings, RankNTypes #-}
+{-# LANGUAGE ForeignFunctionInterface, LambdaCase, RecordWildCards, ScopedTypeVariables, OverloadedStrings, RankNTypes #-}
 module Concordium.External where
 
 import Foreign
 import Foreign.C
 
+import qualified Data.ByteString.Lazy as BSL
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Unsafe as BS
 import Data.Serialize
@@ -33,7 +34,6 @@ import qualified Concordium.GlobalState.TreeState as TS
 
 import Concordium.Scheduler.Utils.Init.Example (initialState)
 
-import Concordium.Birk.Bake
 import Concordium.Runner
 import Concordium.Show
 import Concordium.Skov (SkovFinalizationState, SimpleSkovMonad, SkovFinalizationEvent(..), SkovMissingEvent(..), UpdateResult(..))
@@ -86,18 +86,34 @@ callBakerIdentityCallback cb bix bs = BS.useAsCStringLen bs $ \(cdata, clen) -> 
 -- |Generate genesis data given a genesis time (in seconds since the UNIX epoch) and
 -- number of bakers.  This function is deterministic: calling with the same genesis
 -- time and number of bakers should generate the same genesis data and baker identities.
+-- Returns
+-- - 9 if cryptographic parameters could not be loaded,
+-- - 10 if identity providers could not be loaded
+-- - 0 if data was generated.
 makeGenesisData ::
     Timestamp -- ^Genesis time
     -> Word64 -- ^Number of bakers
+    -> CString -- ^File name of the data with cryptographic providers. Null-terminated.
+    -> CString -- ^File name of the data with identity providers. Null-terminated.
     -> FunPtr GenesisDataCallback -- ^Function to process the generated genesis data.
     -> FunPtr BakerIdentityCallback -- ^Function to process each baker identity. Will be called repeatedly with different baker ids.
-    -> IO ()
-makeGenesisData genTime nBakers cbkgen cbkbaker = do
-    callGenesisDataCallback cbkgen (encode genData)
-    mapM_ (\bkr@(BakerIdentity (BakerId bid) _ _ _ _) -> callBakerIdentityCallback cbkbaker bid (encode bkr)) bakersPrivate
-    where
-        (genData, bakers) = S.makeGenesisData genTime (fromIntegral nBakers) 10 0.5 9
-        bakersPrivate = map fst bakers
+    -> IO CInt
+makeGenesisData genTime nBakers cryptoParamsFile idProvidersFile cbkgen cbkbaker = do
+    mCryptoParams <- readCryptographicParameters <$>
+      catch (BSL.readFile =<< peekCString cryptoParamsFile) (\(_ :: IOException) -> return BSL.empty)
+    mIdProviders <- readIdentityProviders <$>
+      catch (BSL.readFile =<< peekCString idProvidersFile) (\(_ :: IOException) -> return BSL.empty)
+    case mCryptoParams of
+      Nothing -> return 9
+      Just cryptoParams ->
+        case mIdProviders of
+          Nothing -> return 10
+          Just idProviders -> do
+            let (genData, bakers) = S.makeGenesisData genTime (fromIntegral nBakers) 10 0.5 9 cryptoParams idProviders
+            let bakersPrivate = map fst bakers
+            callGenesisDataCallback cbkgen (encode genData)
+            mapM_ (\(bid, bkr) -> callBakerIdentityCallback cbkbaker bid (encode bkr)) (zip [0..] bakersPrivate)
+            return 0
 
 -- | External function that logs in Rust a message using standard Rust log output
 --
@@ -235,7 +251,7 @@ consensusLogMethod BakerRunner{bakerSyncRunner=SyncRunner{syncLogMethod=logM}} =
 consensusLogMethod PassiveRunner{passiveSyncRunner=SyncPassiveRunner{syncPLogMethod=logM}} = logM
 
 genesisState :: GenesisData -> BlockState
-genesisState genData = initialState (genesisBirkParameters genData) (genesisBakerAccounts genData) 2
+genesisState genData = initialState (genesisBirkParameters genData) (genesisCryptographicParameters genData) (genesisBakerAccounts genData) (genesisIdentityProviders genData) 2
 
 -- |Start up an instance of Skov without starting the baker thread.
 startConsensus ::
@@ -801,7 +817,7 @@ getFinalizationPoint cptr = do
         logm External LLDebug $ "Replying with finalization point = " ++ show finPt
         byteStringToCString $ P.runPut $ put finPt
 
-foreign export ccall makeGenesisData :: Timestamp -> Word64 -> FunPtr GenesisDataCallback -> FunPtr BakerIdentityCallback -> IO ()
+foreign export ccall makeGenesisData :: Timestamp -> Word64 -> CString -> CString -> FunPtr GenesisDataCallback -> FunPtr BakerIdentityCallback -> IO CInt
 foreign export ccall startConsensus :: CString -> Int64 -> CString -> Int64 -> FunPtr BroadcastCallback -> FunPtr LogCallback -> FunPtr MissingByBlockDeltaCallback -> FunPtr MissingByBlockCallback -> FunPtr MissingByFinalizationIndexCallback -> IO (StablePtr ConsensusRunner)
 foreign export ccall startConsensusPassive :: CString -> Int64 -> FunPtr LogCallback -> FunPtr MissingByBlockDeltaCallback -> FunPtr MissingByBlockCallback -> FunPtr MissingByFinalizationIndexCallback -> IO (StablePtr ConsensusRunner)
 foreign export ccall stopConsensus :: StablePtr ConsensusRunner -> IO ()

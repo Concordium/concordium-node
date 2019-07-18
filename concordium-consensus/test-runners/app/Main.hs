@@ -1,4 +1,4 @@
-{-# LANGUAGE TupleSections, LambdaCase #-}
+{-# LANGUAGE TupleSections, LambdaCase, OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
 module Main where
 
@@ -11,6 +11,7 @@ import Lens.Micro.Platform
 import Data.Serialize
 
 import Concordium.Types.HashableTo
+import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Block
@@ -20,7 +21,6 @@ import Concordium.GlobalState.BlockState(BlockPointerData(..))
 import Concordium.GlobalState.Basic.TreeState
 import Concordium.GlobalState.Basic.BlockState
 
-import Concordium.Birk.Bake
 import Concordium.Types
 import Concordium.Runner
 import Concordium.Logger
@@ -106,21 +106,24 @@ gsToString gs = intercalate "\\l" . map show $ keys
         ca n = ContractAddress (fromIntegral n) 0
         keys = map (\n -> (n, instanceModel <$> getInstance (ca n) (gs ^. blockInstances))) $ enumFromTo 0 (nContracts-1)
 
+dummyIdentityProviders :: [IdentityProviderData]
+dummyIdentityProviders = []  
+
 main :: IO ()
 main = do
     let n = 10
     now <- truncate <$> getPOSIXTime
-    let (gen, bis) = makeGenesisData now n 1 0.5 9
-    let iState = Example.initialState (genesisBirkParameters gen) (genesisBakerAccounts gen) nContracts
+    let (gen, bis) = makeGenesisData now n 1 0.5 9 dummyCryptographicParameters dummyIdentityProviders
+    let iState = Example.initialState (genesisBirkParameters gen) (genesisCryptographicParameters gen) (genesisBakerAccounts gen) [] nContracts
     trans <- transactions <$> newStdGen
-    chans <- mapM (\(bid, _) -> do
-        let logFile = "consensus-" ++ show now ++ "-" ++ show (bakerId bid) ++ ".log"
+    chans <- mapM (\(bakerId, (bid, _)) -> do
+        let logFile = "consensus-" ++ show now ++ "-" ++ show bakerId ++ ".log"
         let logM src lvl msg = do
                                     timestamp <- getCurrentTime
                                     appendFile logFile $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg ++ "\n"
         (cin, cout, out) <- makeAsyncRunner logM bid gen iState
         _ <- forkIO $ sendTransactions cin trans
-        return (cin, cout, out)) bis
+        return (cin, cout, out)) (zip [(0::Int) ..] bis)
     monitorChan <- newChan
     mapM_ (\((_,cout, stateRef), cs) -> forkIO $ relay cout stateRef monitorChan ((\(c, _, _) -> c) <$> cs)) (removeEach chans)
     let loop = do

@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module SchedulerTests.DummyData where
 
-import qualified Data.ByteString.Char8 as BS
+import qualified Data.ByteString.Lazy as BSL
 import qualified Data.FixedByteString as FBS
 import Concordium.Crypto.SHA256(Hash(..))
 import Concordium.Crypto.SignatureScheme as Sig
@@ -11,12 +11,16 @@ import Concordium.Types hiding (accountAddress)
 import Concordium.GlobalState.Transactions
 import Concordium.ID.Account
 import Concordium.ID.Types
-import Concordium.ID.Attributes
 import Concordium.Crypto.Ed25519Signature
 
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.Bakers
+import qualified Data.Aeson as AE
 
+import qualified Data.HashMap.Strict as HM
+
+import System.IO.Unsafe
 import System.Random
 
 blockPointer :: BlockHash
@@ -53,22 +57,28 @@ accountVFKeyFrom = verifyKey . fst . randomKeyPair . mkStdGen
 mkAccount ::AccountVerificationKey -> Amount -> Account
 mkAccount vfKey amnt = (newAccount vfKey Ed25519) {_accountAmount = amnt}
 
+
 -- |Make a dummy credential deployment information from an account registration
 -- id and sequential registration id. All the proofs are dummy values, and there
 -- is no anoymity revocation data.
 mkDummyCDI :: AccountVerificationKey -> Int -> CredentialDeploymentInformation
 mkDummyCDI vfKey nregId =
-    CDI {cdi_verifKey = vfKey
-        ,cdi_sigScheme = Ed25519
-        ,cdi_regId = let d = show nregId
-                         l = length d
-                         pad = replicate (48-l) '0'
-                     in RegIdCred (BS.pack (pad ++ d))
-        ,cdi_arData = []
-        ,cdi_ipId = IP_ID "ip_id"
-        ,cdi_policy = AtomicMaxAccount (LessThan 100)
-        ,cdi_auxData = "auxdata"
-        ,cdi_proof = Proof "proof"
+    CredentialDeploymentInformation {
+        cdiValues = CredentialDeploymentValues {
+            cdvVerifyKey = vfKey
+            ,cdvSigScheme = Ed25519
+            ,cdvRegId = let d = show nregId
+                            l = length d
+                            pad = replicate (48-l) '0'
+                        in RegIdCred (FBS.pack . map (fromIntegral . fromEnum) $ (pad ++ d))
+            ,cdvIpId = IP_ID "ip_id"
+            ,cdvPolicy = Policy 0 0 []
+            ,cdvArData = AnonymityRevocationData {
+                ardName = ARName "AnonymityRevoker",
+                ardIdCredPubEnc = undefined -- FIXME
+                }
+            },
+          cdiProofs = Proofs "proof"
         }
 
 emptyBirkParameters :: BirkParameters
@@ -95,3 +105,49 @@ mkBaker seed acc = BakerInfo {
   _bakerStake = 0,
   _bakerAccount = acc
   }
+
+readCredential :: FilePath -> IO CredentialDeploymentInformation
+readCredential fp = do
+  bs <- BSL.readFile fp
+  case AE.eitherDecode bs of
+    Left err -> fail $ "Cannot read credential from file " ++ fp ++ " because " ++ err
+    Right d -> return d
+
+{-# NOINLINE cdi1 #-}
+{-# NOINLINE cdi2 #-}
+{-# NOINLINE cdi3 #-}
+{-# NOINLINE cdi4 #-}
+{-# NOINLINE cdi5 #-}
+{-# NOINLINE cdi6 #-}
+{-# NOINLINE cdi7 #-}
+{-# NOINLINE cdi8 #-}
+cdi1 :: CredentialDeploymentInformation
+cdi1 = unsafePerformIO (readCredential "testdata/credential-1.json")
+cdi2 :: CredentialDeploymentInformation
+cdi2 = unsafePerformIO (readCredential "testdata/credential-2.json")
+cdi3 :: CredentialDeploymentInformation
+cdi3 = unsafePerformIO (readCredential "testdata/credential-3.json")
+cdi4 :: CredentialDeploymentInformation
+cdi4 = unsafePerformIO (readCredential "testdata/credential-4.json")
+cdi5 :: CredentialDeploymentInformation
+cdi5 = unsafePerformIO (readCredential "testdata/credential-5.json")
+-- Credentials 6 and 7 should have the same account
+cdi6 :: CredentialDeploymentInformation
+cdi6 = unsafePerformIO (readCredential "testdata/credential-6.json")
+cdi7 :: CredentialDeploymentInformation
+cdi7 = unsafePerformIO (readCredential "testdata/credential-7.json")
+-- Credentials 3 and 8 should have the same regId, but different accounts
+-- account of credential 8 should be fresh (different from all others)
+cdi8 :: CredentialDeploymentInformation
+cdi8 = unsafePerformIO (readCredential "testdata/credential-8.json")
+
+accountAddressFromCred :: CredentialDeploymentInformation -> AccountAddress
+accountAddressFromCred cdi = accountAddress (cdvVerifyKey (cdiValues cdi)) (cdvSigScheme (cdiValues cdi))
+
+{-# NOINLINE dummyIdentityProviders #-}
+dummyIdentityProviders :: IdentityProviders
+dummyIdentityProviders =
+  case unsafePerformIO (readIdentityProviders <$> BSL.readFile "testdata/identity-providers.json") of
+    Nothing -> error "Could not load identity provider test data."
+    Just ips -> IdentityProviders (HM.fromList (map (\r -> (ipIdentity r, r)) ips))
+

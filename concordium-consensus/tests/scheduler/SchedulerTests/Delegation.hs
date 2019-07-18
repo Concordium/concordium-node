@@ -30,9 +30,6 @@ import Concordium.GlobalState.Bakers
 import Concordium.Scheduler.Types hiding (accountAddress, Payload(..))
 
 import System.Random
-import Debug.Trace
-
-
 import Lens.Micro.Platform
 
 import SchedulerTests.DummyData
@@ -47,7 +44,7 @@ numAccounts = 10
 
 initialBlockState :: BlockState
 initialBlockState =
-    emptyBlockState emptyBirkParameters &
+    emptyBlockState emptyBirkParameters dummyCryptographicParameters &
         (blockAccounts .~ foldr addAcc Acc.emptyAccounts (take numAccounts staticKeys)) .
         (blockBank . Rew.totalGTU .~ fromIntegral numAccounts * initBal) .
         (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))

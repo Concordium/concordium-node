@@ -65,7 +65,7 @@ class StaticEnvironmentMonad Core.UA m => SchedulerMonad m where
   increaseAccountNonce :: AccountAddress -> m ()
 
   -- |Add account credential to an account address. The account with this address is assumed to exist.
-  addAccountCredential :: AccountAddress -> ID.CredentialDeploymentInformation -> m ()
+  addAccountCredential :: AccountAddress -> ID.CredentialDeploymentValues -> m ()
 
   -- |Add account encryption key to account address. The account with this address is assumed to exist.
   addAccountEncryptionKey :: AccountAddress -> ID.AccountEncryptionKey -> m ()
@@ -134,6 +134,14 @@ class StaticEnvironmentMonad Core.UA m => SchedulerMonad m where
   -- if the delegation was successful, and 'False' if the baker is
   -- not valid.
   delegateStake :: AccountAddress -> Maybe BakerId -> m Bool
+
+  -- *Other metadata.
+
+  -- |Retrieve the identity provider with given id, if possible.
+  getIPInfo :: IdentityProviderIdentity -> m (Maybe IdentityProviderData)
+
+  -- |Get cryptographic parameters for the current state.
+  getCrypoParams :: m CryptographicParameters
 
 -- |This is a derived notion that is used inside a transaction to keep track of
 -- the state of the world during execution. Local state of contracts and amounts
