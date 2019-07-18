@@ -38,7 +38,7 @@ impl Ord for Block {
 }
 
 impl Block {
-    pub fn genesis_data(&self) -> &GenesisData {
+    pub fn genesis_data(&self) -> &Encoded {
         match self.data {
             BlockData::Genesis(ref data) => data,
             BlockData::Regular(_) => unreachable!(), // the genesis block is unmistakeable
@@ -115,7 +115,7 @@ impl fmt::Debug for Block {
 
 #[derive(Debug)]
 pub enum BlockData {
-    Genesis(GenesisData),
+    Genesis(Encoded),
     Regular(BakedBlock),
 }
 
@@ -124,37 +124,41 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BlockData {
 
     fn deserialize((cursor, slot): Self::Source) -> Fallible<Self> {
         if slot == 0 {
-            let timestamp = NetworkEndian::read_u64(&read_ty!(cursor, Timestamp));
-            let slot_duration = NetworkEndian::read_u64(&read_ty!(cursor, Duration));
-            let birk_parameters = BirkParameters::deserialize(cursor)?;
-            let baker_accounts =
-                read_multiple!(cursor, "baker accounts", Account::deserialize(cursor)?, 8);
-            let finalization_parameters = read_multiple!(
-                cursor,
-                "finalization parameters",
-                VoterInfo::deserialize(&read_const_sized!(cursor, VOTER_INFO))?,
-                8
-            );
-            let finalization_minimum_skip = NetworkEndian::read_u64(&read_ty!(cursor, BlockHeight));
-            let cryptographic_parameters = CryptographicParameters::deserialize(cursor)?;
             let mut buffer = Vec::new();
-            cursor.read_to_end(&mut buffer)?;
-            let identity_providers = Encoded::new(&buffer);
+            let _ = cursor.read_to_end(&mut buffer);
+            Ok(BlockData::Genesis(Encoded::new(&buffer.into_boxed_slice())))
 
-            let data = BlockData::Genesis(GenesisData {
-                timestamp,
-                slot_duration,
-                birk_parameters,
-                baker_accounts,
-                finalization_parameters,
-                finalization_minimum_skip,
-                cryptographic_parameters,
-                identity_providers,
-            });
+        // let timestamp = NetworkEndian::read_u64(&read_ty!(cursor, Timestamp));
+        // let slot_duration = NetworkEndian::read_u64(&read_ty!(cursor, Duration));
+        // let birk_parameters = BirkParameters::deserialize(cursor)?;
+        // let baker_accounts =
+        //     read_multiple!(cursor, "baker accounts", Account::deserialize(cursor)?,
+        // 8); let finalization_parameters = read_multiple!(
+        //     cursor,
+        //     "finalization parameters",
+        //     VoterInfo::deserialize(&read_const_sized!(cursor, VOTER_INFO))?,
+        //     8
+        // );
+        // let finalization_minimum_skip = NetworkEndian::read_u64(&read_ty!(cursor,
+        // BlockHeight)); let cryptographic_parameters =
+        // CryptographicParameters::deserialize(cursor)?; let mut buffer =
+        // Vec::new(); cursor.read_to_end(&mut buffer)?;
+        // let identity_providers = Encoded::new(&buffer);
 
-            check_partial_serialization!(data, *cursor.get_ref());
+        // let data = BlockData::Genesis(GenesisData {
+        //     timestamp,
+        //     slot_duration,
+        //     birk_parameters,
+        //     baker_accounts,
+        //     finalization_parameters,
+        //     finalization_minimum_skip,
+        //     cryptographic_parameters,
+        //     identity_providers,
+        // });
 
-            Ok(data)
+        // check_partial_serialization!(data, *cursor.get_ref());
+
+        // Ok(data)
         } else {
             let pointer = HashBytes::from(read_ty!(cursor, BlockHash));
             let baker_id = NetworkEndian::read_u64(&read_ty!(cursor, BakerId));
@@ -182,34 +186,36 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BlockData {
     fn serialize(&self) -> Box<[u8]> {
         match self {
             BlockData::Genesis(ref data) => {
-                let birk_params = BirkParameters::serialize(&data.birk_parameters);
-                let cryptographic_parameters =
-                    CryptographicParameters::serialize(&data.cryptographic_parameters);
-                let baker_accounts = serialize_list(&data.baker_accounts);
-                let finalization_params = serialize_list(&data.finalization_parameters);
+                let mut cursor = create_serialization_cursor(data.len());
+                let _ = cursor.write_all(data);
+                // let birk_params = BirkParameters::serialize(&data.birk_parameters);
+                // let cryptographic_parameters =
+                //     CryptographicParameters::serialize(&data.cryptographic_parameters);
+                // let baker_accounts = serialize_list(&data.baker_accounts);
+                // let finalization_params = serialize_list(&data.finalization_parameters);
 
-                let size = size_of::<Timestamp>()
-                    + size_of::<Duration>()
-                    + birk_params.len()
-                    + size_of::<u64>()
-                    + list_len(&baker_accounts)
-                    + size_of::<u64>()
-                    + list_len(&finalization_params)
-                    + size_of::<u64>()
-                    + size_of::<u32>()
-                    + data.cryptographic_parameters.elgamal_generator.len()
-                    + data.cryptographic_parameters.attribute_commitment_key.len()
-                    + data.identity_providers.len();
-                let mut cursor = create_serialization_cursor(size);
+                // let size = size_of::<Timestamp>()
+                //     + size_of::<Duration>()
+                //     + birk_params.len()
+                //     + size_of::<u64>()
+                //     + list_len(&baker_accounts)
+                //     + size_of::<u64>()
+                //     + list_len(&finalization_params)
+                //     + size_of::<u64>()
+                //     + size_of::<u32>()
+                //     + data.cryptographic_parameters.elgamal_generator.len()
+                //     + data.cryptographic_parameters.attribute_commitment_key.len()
+                //     + data.identity_providers.len();
+                // let mut cursor = create_serialization_cursor(size);
 
-                let _ = cursor.write_u64::<NetworkEndian>(data.timestamp);
-                let _ = cursor.write_u64::<NetworkEndian>(data.slot_duration);
-                let _ = cursor.write_all(&birk_params);
-                write_multiple!(&mut cursor, baker_accounts, Write::write_all);
-                write_multiple!(&mut cursor, finalization_params, Write::write_all);
-                let _ = cursor.write_u64::<NetworkEndian>(data.finalization_minimum_skip);
-                let _ = cursor.write_all(&cryptographic_parameters);
-                let _ = cursor.write_all(&data.identity_providers);
+                // let _ = cursor.write_u64::<NetworkEndian>(data.timestamp);
+                // let _ = cursor.write_u64::<NetworkEndian>(data.slot_duration);
+                // let _ = cursor.write_all(&birk_params);
+                // write_multiple!(&mut cursor, baker_accounts, Write::write_all);
+                // write_multiple!(&mut cursor, finalization_params, Write::write_all);
+                // let _ = cursor.write_u64::<NetworkEndian>(data.finalization_minimum_skip);
+                // let _ = cursor.write_all(&cryptographic_parameters);
+                // let _ = cursor.write_all(&data.identity_providers);
 
                 cursor.into_inner()
             }
