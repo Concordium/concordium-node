@@ -15,11 +15,9 @@ use mio::{net::TcpStream, Token};
 use snow::Keypair;
 
 use std::{
-    cell::RefCell,
     collections::HashSet,
-    rc::Rc,
     sync::{
-        mpsc::{channel, Sender},
+        mpsc::{sync_channel, SyncSender},
         Arc, RwLock,
     },
 };
@@ -28,9 +26,9 @@ use std::{
 pub struct ConnectionBuilder {
     key_pair:               Option<Keypair>,
     token:                  Option<Token>,
-    log_dumper:             Option<Sender<DumpItem>>,
+    log_dumper:             Option<SyncSender<DumpItem>>,
     is_initiator:           bool,
-    network_request_sender: Option<Sender<NetworkRawRequest>>,
+    network_request_sender: Option<SyncSender<NetworkRawRequest>>,
     priv_conn_builder:      ConnectionPrivateBuilder,
     noise_params:           Option<snow::params::NoiseParams>,
 }
@@ -44,7 +42,7 @@ impl ConnectionBuilder {
         {
             let sender = self.network_request_sender.unwrap_or_else(|| {
                 // Create a dummy sender.
-                let (s, _) = channel();
+                let (s, _) = sync_channel(10000);
                 s
             });
 
@@ -62,10 +60,10 @@ impl ConnectionBuilder {
                 messages_sent: 0,
                 last_ping_sent: curr_stamp,
                 network_request_sender: sender,
-                dptr: Rc::new(RefCell::new(priv_conn)),
+                dptr: Arc::new(RwLock::new(priv_conn)),
                 pre_handshake_message_processor: MessageProcessor::new(),
                 post_handshake_message_processor: MessageProcessor::new(),
-                common_message_processor: Rc::new(RefCell::new(MessageProcessor::new())),
+                common_message_processor: MessageProcessor::new(),
             };
 
             Ok(lself)
@@ -74,7 +72,10 @@ impl ConnectionBuilder {
         }
     }
 
-    pub fn set_network_request_sender(mut self, sender: Option<Sender<NetworkRawRequest>>) -> Self {
+    pub fn set_network_request_sender(
+        mut self,
+        sender: Option<SyncSender<NetworkRawRequest>>,
+    ) -> Self {
         self.network_request_sender = sender;
         self
     }
@@ -134,12 +135,12 @@ impl ConnectionBuilder {
         self
     }
 
-    pub fn set_event_log(mut self, el: Option<Sender<P2PEvent>>) -> ConnectionBuilder {
+    pub fn set_event_log(mut self, el: Option<SyncSender<P2PEvent>>) -> ConnectionBuilder {
         self.priv_conn_builder = self.priv_conn_builder.set_event_log(el);
         self
     }
 
-    pub fn set_log_dumper(mut self, log_dumper: Option<Sender<DumpItem>>) -> ConnectionBuilder {
+    pub fn set_log_dumper(mut self, log_dumper: Option<SyncSender<DumpItem>>) -> ConnectionBuilder {
         self.log_dumper = log_dumper;
         self
     }

@@ -1,11 +1,9 @@
 use std::{
-    cell::RefCell,
     collections::HashSet,
     net::{Shutdown, SocketAddr},
-    rc::Rc,
     sync::{
         atomic::{AtomicU64, Ordering},
-        mpsc::Sender,
+        mpsc::SyncSender,
         Arc, RwLock,
     },
 };
@@ -49,14 +47,14 @@ pub struct ConnectionPrivate {
     pub last_seen:            AtomicU64,
     pub failed_pkts:          u32,
     pub stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
-    pub event_log:            Option<Sender<P2PEvent>>,
+    pub event_log:            Option<SyncSender<P2PEvent>>,
 
     // Time
     pub sent_handshake:        u64,
     pub sent_ping:             u64,
     pub last_latency_measured: u64,
 
-    pub log_dumper: Option<Sender<DumpItem>>,
+    pub log_dumper: Option<SyncSender<DumpItem>>,
 
     pub noise_params: snow::params::NoiseParams,
 }
@@ -98,8 +96,8 @@ impl ConnectionPrivate {
     /// This allows us to receive notifications once `socket` is able to read
     /// or/and write.
     #[inline]
-    pub fn register(&self, poll: &mut Poll) -> Fallible<()> {
-        into_err!(poll.register(
+    pub fn register(&self, poll: &RwLock<Poll>) -> Fallible<()> {
+        into_err!(write_or_die!(poll).register(
             &self.socket,
             self.token,
             Ready::readable() | Ready::writable(),
@@ -108,8 +106,8 @@ impl ConnectionPrivate {
     }
 
     #[inline]
-    pub fn deregister(&self, poll: &mut Poll) -> Fallible<()> {
-        map_io_error_to_fail!(poll.deregister(&self.socket))
+    pub fn deregister(&self, poll: &RwLock<Poll>) -> Fallible<()> {
+        map_io_error_to_fail!(safe_write!(poll)?.deregister(&self.socket))
     }
 
     /// It shuts `socket` down.
@@ -205,7 +203,7 @@ impl ConnectionPrivate {
     }
 
     #[inline]
-    pub fn set_log_dumper(&mut self, log_dumper: Option<Sender<DumpItem>>) {
+    pub fn set_log_dumper(&mut self, log_dumper: Option<SyncSender<DumpItem>>) {
         self.log_dumper = log_dumper;
     }
 
@@ -230,9 +228,9 @@ pub struct ConnectionPrivateBuilder {
 
     // Stats
     pub stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
-    pub event_log:            Option<Sender<P2PEvent>>,
+    pub event_log:            Option<SyncSender<P2PEvent>>,
 
-    pub log_dumper: Option<Sender<DumpItem>>,
+    pub log_dumper: Option<SyncSender<DumpItem>>,
 
     pub noise_params: Option<snow::params::NoiseParams>,
 }
@@ -261,7 +259,7 @@ impl ConnectionPrivateBuilder {
             self.noise_params,
         ) {
             let peer_type = local_peer.peer_type();
-            let handshaker = Rc::new(RefCell::new(HandshakeStreamSink::new(
+            let handshaker = Arc::new(RwLock::new(HandshakeStreamSink::new(
                 noise_params.clone(),
                 key_pair,
                 self.is_initiator,
@@ -275,7 +273,7 @@ impl ConnectionPrivateBuilder {
                 local_end_networks,
                 buckets,
                 socket,
-                message_sink: FrameSink::new(Rc::clone(&handshaker)),
+                message_sink: FrameSink::new(Arc::clone(&handshaker)),
                 message_stream: FrameStream::new(peer_type, handshaker),
                 status: ConnectionStatus::PreHandshake,
                 last_seen: AtomicU64::new(get_current_stamp()),
@@ -344,14 +342,14 @@ impl ConnectionPrivateBuilder {
         self
     }
 
-    pub fn set_event_log(mut self, el: Option<Sender<P2PEvent>>) -> ConnectionPrivateBuilder {
+    pub fn set_event_log(mut self, el: Option<SyncSender<P2PEvent>>) -> ConnectionPrivateBuilder {
         self.event_log = el;
         self
     }
 
     pub fn set_log_dumper(
         mut self,
-        log_dumper: Option<Sender<DumpItem>>,
+        log_dumper: Option<SyncSender<DumpItem>>,
     ) -> ConnectionPrivateBuilder {
         self.log_dumper = log_dumper;
         self

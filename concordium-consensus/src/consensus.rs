@@ -8,12 +8,14 @@ use failure::{bail, Fallible};
 use std::time::Duration;
 use std::{
     collections::HashMap,
-    str,
-    sync::{mpsc, Arc, Mutex, RwLock},
+    sync::{
+        atomic::{AtomicPtr, Ordering},
+        mpsc, Arc, Mutex, RwLock,
+    },
     thread, time,
 };
 
-use crate::{fails::BakerNotRunning, ffi::*};
+use crate::ffi::*;
 use concordium_global_state::{block::*, tree::ConsensusMessage};
 
 pub type PeerId = u64;
@@ -75,80 +77,47 @@ impl ConsensusOutQueue {
     }
 }
 
-macro_rules! baker_running_wrapper {
-    ($self:ident, $call:expr) => {{
-        safe_read!($self.baker)
-            .as_ref()
-            .map(|baker| $call(baker))
-            .ok_or_else(|| failure::Error::from(BakerNotRunning))
-    }};
-}
-
 lazy_static! {
     pub static ref CALLBACK_QUEUE: ConsensusOutQueue = { ConsensusOutQueue::default() };
     pub static ref GENERATED_PRIVATE_DATA: RwLock<PrivateData> = { RwLock::new(HashMap::new()) };
     pub static ref GENERATED_GENESIS_DATA: RwLock<Option<Vec<u8>>> = { RwLock::new(None) };
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct ConsensusContainer {
-    pub baker: Arc<RwLock<Option<ConsensusBaker>>>,
+    pub baker:     Option<BakerId>,
+    pub consensus: Arc<AtomicPtr<consensus_runner>>,
+    pub genesis:   Arc<[u8]>,
 }
 
 impl ConsensusContainer {
-    pub fn start_baker(&mut self, baker_id: u64, genesis_data: Vec<u8>, private_data: Vec<u8>) {
-        safe_write!(self.baker).replace(ConsensusBaker::new(baker_id, genesis_data, private_data));
-    }
+    pub fn new(genesis_data: Vec<u8>, private_data: Vec<u8>) -> Self {
+        info!("Starting up the consensus layer");
 
-    pub fn stop_baker(&mut self) {
-        if let Ok(mut baker) = self.baker.write() {
-            if CALLBACK_QUEUE.stop().is_err() {
-                error!("Some queues couldn't send a stop signal");
-            };
+        let consensus_ptr = get_consensus_ptr(genesis_data.clone(), private_data);
 
-            if let Some(baker) = baker.as_ref() {
-                baker.stop()
-            }
-            baker.take();
-
-            if baker.is_none() {
-                CALLBACK_QUEUE.clear();
-            }
-        } else {
-            error!("The baker can't be stopped!");
+        Self {
+            baker:     None,
+            consensus: Arc::new(AtomicPtr::new(consensus_ptr)),
+            genesis:   Arc::from(genesis_data),
         }
     }
 
-    pub fn send_block(&self, peer_id: PeerId, block: &[u8]) -> ConsensusFfiResponse {
-        if let Some(baker) = &*safe_read!(self.baker) {
-            baker.send_block(peer_id, block)
-        } else {
-            ConsensusFfiResponse::BakerNotFound
+    pub fn start_baker(&mut self, baker_id: u64) {
+        self.baker = Some(baker_id);
+        let consensus = self.consensus.load(Ordering::SeqCst);
+
+        unsafe {
+            startBaker(consensus);
         }
     }
 
-    pub fn send_finalization(&self, peer_id: PeerId, msg: &[u8]) -> ConsensusFfiResponse {
-        if let Some(baker) = &*safe_read!(self.baker) {
-            baker.send_finalization(peer_id, msg)
-        } else {
-            ConsensusFfiResponse::BakerNotFound
+    pub fn stop(&self) {
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        unsafe {
+            stopBaker(consensus);
         }
-    }
-
-    pub fn send_finalization_record(&self, peer_id: PeerId, rec: &[u8]) -> ConsensusFfiResponse {
-        if let Some(baker) = &*safe_read!(self.baker) {
-            baker.send_finalization_record(peer_id, rec)
-        } else {
-            ConsensusFfiResponse::BakerNotFound
-        }
-    }
-
-    pub fn send_transaction(&self, tx: &[u8]) -> ConsensusFfiResponse {
-        if let Some(baker) = &*safe_read!(self.baker) {
-            baker.send_transaction(tx.to_vec())
-        } else {
-            ConsensusFfiResponse::BakerNotFound
-        }
+        CALLBACK_QUEUE.clear();
     }
 
     pub fn generate_data(genesis_time: u64, num_bakers: u64) -> Fallible<(Vec<u8>, PrivateData)> {
@@ -193,98 +162,9 @@ impl ConsensusContainer {
         }
     }
 
-    pub fn get_consensus_status(&self) -> Fallible<String> {
-        baker_running_wrapper!(self, |baker: &ConsensusBaker| baker.get_consensus_status())
-    }
-
-    pub fn get_block_info(&self, block_hash: &str) -> Fallible<String> {
-        baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
-            .get_block_info(block_hash))
-    }
-
-    pub fn get_ancestors(&self, block_hash: &str, amount: u64) -> Fallible<String> {
-        baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
-            .get_ancestors(block_hash, amount))
-    }
-
-    pub fn get_branches(&self) -> Fallible<String> {
-        baker_running_wrapper!(self, |baker: &ConsensusBaker| baker.get_branches())
-    }
-
-    pub fn get_account_list(&self, block_hash: &str) -> Fallible<String> {
-        baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
-            .get_account_list(block_hash))
-    }
-
-    pub fn get_instances(&self, block_hash: &str) -> Fallible<String> {
-        baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
-            .get_instances(block_hash))
-    }
-
-    pub fn get_account_info(&self, block_hash: &str, account_address: &str) -> Fallible<String> {
-        baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
-            .get_account_info(block_hash, account_address))
-    }
-
-    pub fn get_instance_info(&self, block_hash: &str, contract_address: &str) -> Fallible<String> {
-        baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
-            .get_instance_info(block_hash, contract_address))
-    }
-
-    pub fn get_reward_status(&self, block_hash: &str) -> Fallible<String> {
-        baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
-            .get_reward_status(block_hash))
-    }
-
-    pub fn get_birk_parameters(&self, block_hash: &str) -> Fallible<String> {
-        baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
-            .get_birk_parameters(block_hash))
-    }
-
-    pub fn get_module_list(&self, block_hash: &str) -> Fallible<String> {
-        baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
-            .get_module_list(block_hash))
-    }
-
-    pub fn get_module_source(&self, block_hash: &str, module_ref: &str) -> Fallible<Vec<u8>> {
-        baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
-            .get_module_source(block_hash, module_ref))
-    }
-
-    pub fn get_block(&self, block_hash: &[u8]) -> Fallible<Vec<u8>> {
-        baker_running_wrapper!(self, |baker: &ConsensusBaker| baker.get_block(block_hash))
-    }
-
-    pub fn get_block_by_delta(&self, block_hash: &[u8], delta: Delta) -> Fallible<Vec<u8>> {
-        baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
-            .get_block_by_delta(block_hash, delta))
-    }
-
-    pub fn get_block_finalization(&self, block_hash: &[u8]) -> Fallible<Vec<u8>> {
-        baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
-            .get_block_finalization(block_hash))
-    }
-
-    pub fn get_indexed_finalization(&self, index: u64) -> Fallible<Vec<u8>> {
-        baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
-            .get_indexed_finalization(index))
-    }
-
-    pub fn get_finalization_point(&self) -> Fallible<Vec<u8>> {
-        baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
-            .get_finalization_point())
-    }
-
-    pub fn get_finalization_messages(
-        &self,
-        peer_id: PeerId,
-        request: &[u8],
-    ) -> ConsensusFfiResponse {
-        if let Some(baker) = &*safe_read!(self.baker) {
-            baker.get_finalization_messages(request, peer_id)
-        } else {
-            ConsensusFfiResponse::BakerNotFound
-        }
+    pub fn is_baking(&self) -> bool {
+        // @TODO Replace with real check
+        true
     }
 }
 

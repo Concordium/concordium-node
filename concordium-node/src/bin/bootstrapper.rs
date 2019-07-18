@@ -98,10 +98,11 @@ fn main() -> Result<(), Error> {
         _ => format!("{}", P2PNodeId::default()),
     };
 
-    let (pkt_in, pkt_out) = mpsc::channel::<RelayOrStopEnvelope<Arc<NetworkMessage>>>();
+    let (pkt_in, pkt_out) = mpsc::sync_channel::<RelayOrStopEnvelope<Arc<NetworkMessage>>>(64);
+    let (rpc_tx, _) = std::sync::mpsc::sync_channel(64);
 
     let mut node = if conf.common.debug {
-        let (sender, receiver) = mpsc::channel();
+        let (sender, receiver) = mpsc::sync_channel(64);
         let _guard = spawn_or_die!("Log loop", move || loop {
             if let Ok(msg) = receiver.recv() {
                 info!("{}", msg);
@@ -114,6 +115,7 @@ fn main() -> Result<(), Error> {
             Some(sender),
             PeerType::Bootstrapper,
             arc_stats_export_service,
+            rpc_tx,
         )
     } else {
         P2PNode::new(
@@ -123,6 +125,7 @@ fn main() -> Result<(), Error> {
             None,
             PeerType::Bootstrapper,
             arc_stats_export_service,
+            rpc_tx,
         )
     };
 

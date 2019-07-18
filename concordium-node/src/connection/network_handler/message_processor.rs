@@ -2,7 +2,8 @@ use crate::{
     connection::{
         network_handler::{
             message_handler::{
-                NetworkMessageCW, NetworkPacketCW, NetworkRequestCW, NetworkResponseCW,
+                EmptyFunction, NetworkMessageCW, NetworkPacketCW, NetworkRequestCW,
+                NetworkResponseCW,
             },
             MessageHandler,
         },
@@ -12,14 +13,11 @@ use crate::{
 };
 use concordium_common::{
     filters::{Filter, FilterAFunc, FilterResult, Filters},
-    functor::{FuncResult, UnitFunction, UnitFunctor},
+    functor::{UnitFunction, UnitFunctor},
     UCursor,
 };
 use failure::Fallible;
-use std::{
-    rc::Rc,
-    sync::{Arc, RwLock},
-};
+use std::sync::RwLock;
 
 /// Models the result of processing a message through the `MessageProcessor`
 #[derive(Debug)]
@@ -63,6 +61,7 @@ pub fn collapse_process_result(
 /// functors depending on the variant of the `NetworkMessage`) and in the end
 /// the `notifications` receive the message in case they want to react to the
 /// processing of the message finishing.
+#[derive(Clone)]
 pub struct MessageProcessor {
     filters:       Filters<NetworkMessage>,
     actions:       MessageHandler,
@@ -92,7 +91,7 @@ impl MessageProcessor {
         self
     }
 
-    pub fn filters(&self) -> &[Filter<NetworkMessage>] { self.filters.get_filters() }
+    pub fn filters(&self) -> &RwLock<Vec<Filter<NetworkMessage>>> { self.filters.get_filters() }
 
     pub fn add_request_action(&mut self, callback: NetworkRequestCW) -> &mut Self {
         self.actions.add_request_callback(callback);
@@ -114,12 +113,12 @@ impl MessageProcessor {
         self
     }
 
-    pub fn set_invalid_handler(&mut self, func: Rc<(Fn() -> FuncResult<()>)>) -> &mut Self {
+    pub fn set_invalid_handler(&mut self, func: EmptyFunction) -> &mut Self {
         self.actions.set_invalid_handler(func);
         self
     }
 
-    pub fn set_unknown_handler(&mut self, func: Rc<(Fn() -> FuncResult<()>)>) -> &mut Self {
+    pub fn set_unknown_handler(&mut self, func: EmptyFunction) -> &mut Self {
         self.actions.set_unknown_handler(func);
         self
     }
@@ -131,8 +130,8 @@ impl MessageProcessor {
         self
     }
 
-    pub fn notifications(&self) -> &[UnitFunction<NetworkMessage>] {
-        self.notifications.callbacks()
+    pub fn notifications(&self) -> &RwLock<Vec<UnitFunction<NetworkMessage>>> {
+        &self.notifications.callbacks()
     }
 
     pub fn process_message(&mut self, message: &NetworkMessage) -> Fallible<ProcessResult> {
@@ -145,15 +144,15 @@ impl MessageProcessor {
         }
     }
 
-    pub fn add(&mut self, other: &MessageProcessor) -> &mut Self {
-        for cb in other.filters().iter() {
+    pub fn add(&mut self, other: MessageProcessor) -> &mut Self {
+        for cb in read_or_die!(other.filters()).iter() {
             self.push_filter(cb.clone());
         }
 
-        self.actions.add(&other.actions);
+        self.actions.add(other.actions.clone());
 
-        for cb in other.notifications().iter() {
-            self.add_notification(Arc::clone(&cb));
+        for cb in read_or_die!(other.notifications()).iter() {
+            self.add_notification(cb.clone());
         }
 
         self
@@ -161,5 +160,5 @@ impl MessageProcessor {
 }
 
 pub trait MessageManager {
-    fn message_processor(&self) -> Arc<RwLock<MessageProcessor>>;
+    fn message_processor(&self) -> MessageProcessor;
 }

@@ -12,9 +12,8 @@ use concordium_common::{fails::FunctorError, functor::FuncResult, UCursor};
 use failure::{Backtrace, Error};
 
 use std::{
-    cell::RefCell,
     collections::HashSet,
-    sync::{atomic::Ordering, mpsc::Sender},
+    sync::{atomic::Ordering, mpsc::SyncSender, RwLock},
 };
 
 const BOOTSTRAP_PEER_COUNT: usize = 100;
@@ -35,7 +34,7 @@ pub fn make_log_error(e: &'static str) -> FunctorError {
 
 /// Log when it has been joined to a network.
 pub fn log_as_joined_network(
-    event_log: &Option<Sender<P2PEvent>>,
+    event_log: &Option<SyncSender<P2PEvent>>,
     peer: &P2PPeer,
     networks: &HashSet<NetworkId>,
 ) -> FuncResult<()> {
@@ -50,7 +49,7 @@ pub fn log_as_joined_network(
 
 /// Log when it has been removed from a network.
 pub fn log_as_leave_network(
-    event_log: &Option<Sender<P2PEvent>>,
+    event_log: &Option<SyncSender<P2PEvent>>,
     sender: &P2PPeer,
     network: NetworkId,
 ) -> FuncResult<()> {
@@ -62,9 +61,9 @@ pub fn log_as_leave_network(
 }
 
 /// It sends handshake message and a ping message.
-pub fn send_handshake_and_ping(priv_conn: &RefCell<ConnectionPrivate>) -> FuncResult<()> {
+pub fn send_handshake_and_ping(priv_conn: &RwLock<ConnectionPrivate>) -> FuncResult<()> {
     let (my_nets, local_peer) = {
-        let priv_conn_borrow = priv_conn.borrow();
+        let priv_conn_borrow = read_or_die!(priv_conn);
         let remote_end_networks = priv_conn_borrow.remote_end_networks.clone();
         let local_peer = priv_conn_borrow.local_peer.to_owned();
         (remote_end_networks, local_peer)
@@ -79,8 +78,7 @@ pub fn send_handshake_and_ping(priv_conn: &RefCell<ConnectionPrivate>) -> FuncRe
     let handshake_data = serialize_into_memory(&handshake_msg, 128)?;
 
     // Ignore returned value because it is an asynchronous operation.
-    let _ = priv_conn
-        .borrow_mut()
+    let _ = write_or_die!(priv_conn)
         .async_send(UCursor::from(handshake_data), MessageSendingPriority::High)?;
 
     // Send ping
@@ -93,8 +91,7 @@ pub fn send_handshake_and_ping(priv_conn: &RefCell<ConnectionPrivate>) -> FuncRe
 
     // Ignore returned value because it is an asynchronous operation, and ship out
     // as normal priority to ensure proper queueing here.
-    let _ = priv_conn
-        .borrow_mut()
+    let _ = write_or_die!(priv_conn)
         .async_send(UCursor::from(ping_data), MessageSendingPriority::Normal)?;
 
     TOTAL_MESSAGES_SENT_COUNTER.fetch_add(2, Ordering::Relaxed);
@@ -103,7 +100,7 @@ pub fn send_handshake_and_ping(priv_conn: &RefCell<ConnectionPrivate>) -> FuncRe
 
 /// It sends its peer list.
 pub fn send_peer_list(
-    priv_conn: &RefCell<ConnectionPrivate>,
+    priv_conn: &RwLock<ConnectionPrivate>,
     sender: &P2PPeer,
     nets: &HashSet<NetworkId>,
 ) -> FuncResult<()> {
@@ -113,7 +110,7 @@ pub fn send_peer_list(
     );
 
     let data = {
-        let priv_conn_borrow = priv_conn.borrow();
+        let priv_conn_borrow = read_or_die!(priv_conn);
         let random_nodes = safe_read!(priv_conn_borrow.buckets)?.get_random_nodes(
             &sender,
             BOOTSTRAP_PEER_COUNT,
@@ -130,11 +127,10 @@ pub fn send_peer_list(
     };
 
     // Ignore returned value because it is an asynchronous operation.
-    let _ = priv_conn
-        .borrow_mut()
-        .async_send(UCursor::from(data), MessageSendingPriority::Normal)?;
+    let _ =
+        write_or_die!(priv_conn).async_send(UCursor::from(data), MessageSendingPriority::Normal)?;
 
-    if let Some(ref service) = priv_conn.borrow().stats_export_service {
+    if let Some(ref service) = read_or_die!(priv_conn).stats_export_service {
         let mut writable_service = safe_write!(service)?;
         writable_service.pkt_sent_inc();
     };
@@ -145,11 +141,11 @@ pub fn send_peer_list(
 }
 
 pub fn update_buckets(
-    priv_conn: &RefCell<ConnectionPrivate>,
+    priv_conn: &RwLock<ConnectionPrivate>,
     sender: &P2PPeer,
     nets: HashSet<NetworkId>,
 ) -> FuncResult<()> {
-    let priv_conn_borrow = priv_conn.borrow();
+    let priv_conn_borrow = read_or_die!(priv_conn);
     let buckets = &priv_conn_borrow.buckets;
 
     safe_write!(buckets)?.insert_into_bucket(sender, nets);

@@ -270,7 +270,7 @@ mod network {
             network::NetworkId,
             p2p::p2p_node::send_message_from_cursor,
             test_utils::{
-                connect_and_wait_handshake, make_node_and_sync, next_available_port, setup_logger,
+                await_handshake, connect, make_node_and_sync, next_available_port, setup_logger,
                 wait_direct_message,
             },
         };
@@ -297,7 +297,9 @@ mod network {
                 make_node_and_sync(next_available_port(), vec![100], PeerType::Node).unwrap();
             let (node_2, msg_waiter_2) =
                 make_node_and_sync(next_available_port(), vec![100], PeerType::Node).unwrap();
-            connect_and_wait_handshake(&mut node_1, &node_2, &msg_waiter_1).unwrap();
+
+            connect(&mut node_1, &node_2).unwrap();
+            await_handshake(&msg_waiter_1).unwrap();
 
             // let mut msg = make_direct_message_into_disk().unwrap();
             let msg = thread_rng()
@@ -314,7 +316,7 @@ mod network {
                 b.iter(|| {
                     // Send.
                     send_message_from_cursor(
-                        node_1.thread_shared.clone(),
+                        &node_1,
                         Some(node_2.id()),
                         net_id,
                         None,

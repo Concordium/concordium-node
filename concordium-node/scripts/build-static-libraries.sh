@@ -16,6 +16,7 @@ cp /manifests/cabal.project.local     /build
 rustup default 1.36.0
 
 mkdir -p /target/{profiling,vanilla}/{ghc,cabal,concordium}
+mkdir -p /binaries/{lib,bin}
 for lib in $(find /usr/local/lib/ghc-$GHC_VERSION -type f -name "*_p.a"); do
     cp $lib /target/profiling/ghc/
 done
@@ -52,8 +53,6 @@ cabal new-update
 (cd
 cabal new-install hpack)
 
-sed -i '/executable/,$d' /build/Concordium/package.yaml
-
 (cd /build/acorn
  hpack
  cd /build/Concordium
@@ -72,6 +71,11 @@ rm -rf ~/.cabal/store/ghc-$GHC_VERSION
 cd /build
 
 LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release cabal new-build all --flags="-dynamic"
+
+
+echo "Let's copy the binaries and their dependent libraries"
+cp dist-newstyle/build/x86_64-linux/ghc-8.6.5/Concordium-0.1.0.0/x/genesis/build/genesis/genesis /binaries/bin/
+cp $(pwd)/crypto/rust-src/target/release/*.so /binaries/lib/
 
 echo "Let's copy the needed concordium libraries"
 for lib in $(find . -type f -name "*inplace.a"); do
@@ -108,6 +112,9 @@ strip --strip-debug /target/vanilla/cabal/libHS* \
 	            /target/vanilla/ghc/lib* \
 	            /target/profiling/ghc/lib*
 
+strip --strip-debug /binaries/bin/* \
+		    /binaries/lib/*
+
 echo "Removing duplicated symbols"
 for file in $(find . -type f -name "*.o"); do
   nm $file | grep "\(T __rust_alloc\)\|\(T __rdl_alloc\)|\(T __clzsi2\)" >> /dev/null;
@@ -128,4 +135,7 @@ cd /build
 echo "Done!"
 
 tar czf static-consensus-$GHC_VERSION.tar.gz /target
+tar czf static-consensus-binaries-$GHC_VERSION.tar.gz /binaries
 mv static-consensus-$GHC_VERSION.tar.gz /out 
+mv static-consensus-binaries-$GHC_VERSION.tar.gz /out 
+

@@ -129,6 +129,12 @@ pub struct BakerConfig {
         help = "Profile the time in the Haskell subsystem"
     )]
     pub time_profiling: bool,
+    #[cfg(feature = "profiling")]
+    #[structopt(
+        long = "haskell-gc-logging",
+        help = "Enable Haskell garbage collection logging"
+    )]
+    pub gc_logging: Option<String>,
 }
 
 #[derive(StructOpt, Debug)]
