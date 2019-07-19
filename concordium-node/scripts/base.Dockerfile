@@ -5,7 +5,7 @@ COPY deps/internal/consensus/stack.yaml /stack.yaml
 RUN pacman -Sy && \
     pacman -Syyu --noconfirm && \
     pacman -S protobuf cmake clang git libtool rustup make m4 pkgconf autoconf automake \
-        file which boost patch libunwind libdwarf elfutils unbound llvm capnproto numactl --noconfirm && \
+        file which boost patch libunwind libdwarf elfutils unbound llvm capnproto numactl wget --noconfirm && \
     pacman -Scc --noconfirm && \
     rustup default 1.36.0 && \
     git clone https://github.com/libffi/libffi.git && \

@@ -13,6 +13,7 @@ stages:
   stage: test
   script:
     - rustc --version && cargo --version
+    - pacman -S wget --noconfirm
     - scripts/download-static-libs.sh
     - ( cd concordium-dns && cargo test --all --color=always)
     - ( cd concordium-global-state && cargo test --all --color=always)
@@ -54,6 +55,7 @@ stages:
   stage: lint
   script:
     - rustc --version && cargo --version
+    - pacman -S wget --noconfirm
     - scripts/download-static-libs.sh
     - ( cd deps/internal/crypto/rust-src && cargo clean )
     - rustup component add clippy
