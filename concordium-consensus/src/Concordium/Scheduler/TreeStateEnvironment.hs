@@ -118,16 +118,17 @@ constructBlock slotNumber blockParent lfPointer blockBaker =
                finalizedHeight = bpHeight lfPointer
            in ChainMetadata{..}
   in do
-    bshandle <- thawBlockState (bpState blockParent)
+    bshandle0 <- thawBlockState (bpState blockParent)
     pt <- getPendingTransactions
     -- now the set is ordered by accounts
     txSet <- mapM (\(acc, (l, _)) -> fmap snd <$> getAccountNonFinalized acc l) (HM.toList pt)
     -- FIXME: This is inefficient and should be changed. Doing it only to get the integration working.
     let txs = concatMap (concatMap Set.toList) txSet
-    ((valid, invalid), bshandle') <- runBSM (Sch.filterTransactions txs) cm bshandle
+    ((valid, invalid), bshandle1) <- runBSM (Sch.filterTransactions txs) cm bshandle0
     -- FIXME: At some point we should log things here using the same logging infrastructure as in consensus.
 
-    bshandle'' <- mintAndReward bshandle' blockParent lfPointer slotNumber blockBaker
+    bshandle2 <- bsoSetTransactionOutcomes bshandle1 ((\(tr,res) -> (transactionHash tr, res)) <$> valid)
+    bshandle3 <- mintAndReward bshandle2 blockParent lfPointer slotNumber blockBaker
 
     -- We first commit all valid transactions to the current block slot to prevent them being purged.
     -- At the same time we construct the return blockTransactions to avoid an additional traversal
@@ -137,7 +138,7 @@ constructBlock slotNumber blockParent lfPointer blockBaker =
     -- Moreover all transactions successfully added will be removed from the pending table.
     -- Or equivalently, only a subset of invalid transactions will remain in the pending table.
     let nextNonceFor addr = do
-          macc <- bsoGetAccount bshandle'' addr
+          macc <- bsoGetAccount bshandle3 addr
           case macc of
             Nothing -> return minNonce
             Just acc -> return $ acc ^. accountNonce
@@ -150,5 +151,5 @@ constructBlock slotNumber blockParent lfPointer blockBaker =
                    invalid
     -- commit the new pending transactions to the tree state
     putPendingTransactions newpt
-    bshandleFinal <- freezeBlockState bshandle''
+    bshandleFinal <- freezeBlockState bshandle3
     return (ret, bshandleFinal)
