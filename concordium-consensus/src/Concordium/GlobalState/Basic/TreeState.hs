@@ -220,6 +220,12 @@ instance (SkovLenses s, Monad m, MonadState s m) => TS.TreeStateMonad (SkovTreeS
                     transactionTable . ttNonFinalizedTransactions . at sender . non emptyANFT . anftMap . at nonce . non Set.empty %= Set.delete tr
                     return True
                 else return False
+    lookupTransaction th =
+        use (transactionTable . ttHashMap . at th) >>= \case
+            Nothing -> return Nothing
+            Just (tr, _) -> do
+                nn <- use (transactionTable . ttNonFinalizedTransactions . at (transactionSender tr) . non emptyANFT . anftNextNonce)
+                return $ Just (tr, transactionNonce tr < nn)
 
     {-# INLINE thawBlockState #-}
     thawBlockState bs = return $ bs & (blockBank . Rewards.executionCost .~ 0) .

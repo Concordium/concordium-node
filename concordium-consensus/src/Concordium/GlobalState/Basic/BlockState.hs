@@ -23,6 +23,7 @@ import qualified Concordium.GlobalState.Account as Account
 import qualified Concordium.GlobalState.Instances as Instances
 import qualified Concordium.GlobalState.Rewards as Rewards
 import qualified Concordium.GlobalState.IdentityProviders as IPS
+import qualified Concordium.GlobalState.Transactions as Transactions
 
 data BlockState = BlockState {
     _blockAccounts :: !Account.Accounts,
@@ -31,7 +32,8 @@ data BlockState = BlockState {
     _blockBank :: !Rewards.BankStatus,
     _blockIdentityProviders :: !IPS.IdentityProviders,
     _blockBirkParameters :: !BirkParameters,
-    _blockCryptographicParameters :: !CryptographicParameters
+    _blockCryptographicParameters :: !CryptographicParameters,
+    _blockTransactionOutcomes :: !Transactions.TransactionOutcomes
 } deriving (Show)
 
 makeLenses ''BlockState
@@ -45,6 +47,7 @@ emptyBlockState _blockBirkParameters _blockCryptographicParameters = BlockState 
   , _blockModules = Modules.emptyModules
   , _blockBank = Rewards.emptyBankStatus
   , _blockIdentityProviders = IPS.emptyIdentityProviders
+  , _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes
   ,..
   }
 
@@ -176,6 +179,10 @@ instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
     {-# INLINE getRewardStatus #-}
     getRewardStatus = return . _blockBank
 
+    {-# INLINE getTransactionOutcome #-}
+    getTransactionOutcome bs trh =
+        return $ Transactions.outcomeMap (_blockTransactionOutcomes bs) ^? ix trh
+
 instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
 
     {-# INLINE bsoGetModule #-}
@@ -305,3 +312,6 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
 
     bsoGetCryptoParams bs =
       return $! bs ^. blockCryptographicParameters
+
+    bsoSetTransactionOutcomes bs l =
+      return $! bs & blockTransactionOutcomes .~ Transactions.transactionOutcomesFromList l
