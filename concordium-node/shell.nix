@@ -18,5 +18,6 @@ stdenv.mkDerivation {
   shellHook = ''
     export OPENSSL_DIR="${openssl.dev}"
     export OPENSSL_LIB_DIR="${openssl.out}/lib"
+    scripts/download-static-libs.sh
   '';
 }

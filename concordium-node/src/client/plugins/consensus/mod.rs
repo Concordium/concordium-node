@@ -40,38 +40,65 @@ pub fn start_consensus_layer(
     conf: &configuration::BakerConfig,
     app_prefs: &configuration::AppPreferences,
 ) -> Option<consensus::ConsensusContainer> {
-    conf.baker_id.and_then(|baker_id| {
-        // Check for invalid configuration
-        if baker_id > conf.baker_num_bakers {
-            // Baker ID is higher than amount of bakers in the network. Bail!
-            error!("Baker ID is higher than the number of bakers in the network! Disabling baking");
-            return None;
-        }
-
-        info!("Starting up the consensus thread");
-        #[cfg(feature = "profiling")]
-        ffi::start_haskell(
-            &conf.heap_profiling,
-            conf.time_profiling,
-            conf.backtraces_profiling,
-            conf.gc_logging.clone(),
-        );
-        #[cfg(not(feature = "profiling"))]
-        ffi::start_haskell();
-
-        match get_baker_data(app_prefs, conf) {
-            Ok((genesis_data, private_data)) => {
-                let mut consensus = consensus::ConsensusContainer::new(genesis_data, private_data);
-                consensus.start_baker(baker_id);
-
-                Some(consensus)
+    match conf.baker_id {
+        Some(baker_id) => {
+            // Check for invalid configuration
+            if baker_id > conf.baker_num_bakers {
+                // Baker ID is higher than amount of bakers in the network. Bail!
+                error!(
+                    "Baker ID is higher than the number of bakers in the network! Disabling baking"
+                );
+                return None;
             }
-            Err(_) => {
-                error!("Can't start the consensus layer!");
-                None
+
+            info!("Starting up the consensus thread");
+            #[cfg(feature = "profiling")]
+            ffi::start_haskell(
+                &conf.heap_profiling,
+                conf.time_profiling,
+                conf.backtraces_profiling,
+                conf.gc_logging.clone(),
+            );
+            #[cfg(not(feature = "profiling"))]
+            ffi::start_haskell();
+
+            match get_baker_data(app_prefs, conf) {
+                Ok((genesis_data, private_data)) => {
+                    let mut consensus =
+                        consensus::ConsensusContainer::new(genesis_data, Some(private_data));
+                    consensus.start_baker(baker_id);
+                    Some(consensus)
+                }
+                Err(_) => {
+                    error!("Can't start the consensus layer!");
+                    None
+                }
             }
         }
-    })
+        None => {
+            info!("Starting up the consensus thread");
+            #[cfg(feature = "profiling")]
+            ffi::start_haskell(
+                &conf.heap_profiling,
+                conf.time_profiling,
+                conf.backtraces_profiling,
+                conf.gc_logging.clone(),
+            );
+            #[cfg(not(feature = "profiling"))]
+            ffi::start_haskell();
+
+            match get_baker_data(app_prefs, conf) {
+                Ok((genesis_data, _)) => {
+                    let consensus = consensus::ConsensusContainer::new(genesis_data, None);
+                    Some(consensus)
+                }
+                Err(_) => {
+                    error!("Can't start the consensus layer!");
+                    None
+                }
+            }
+        }
+    }
 }
 
 fn get_baker_data(
