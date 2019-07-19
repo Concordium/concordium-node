@@ -85,7 +85,7 @@ lazy_static! {
     pub static ref GENERATED_GENESIS_DATA: RwLock<Option<Vec<u8>>> = { RwLock::new(None) };
 }
 
-/// If a consensus instance is 
+/// If a consensus instance is
 /// - `Active` it either a baker or a member of the finalization committee
 /// - `Passive` it is neither a baker nor a member of the finalization committee
 #[derive(Clone, PartialEq)]
