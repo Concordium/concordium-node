@@ -2,7 +2,7 @@ pub const PAYLOAD_TYPE_LENGTH: u64 = 2;
 pub const FILE_NAME_GENESIS_DATA: &str = "genesis.dat";
 pub const FILE_NAME_CRYPTO_PROV_DATA: &str = "crypto_providers.json";
 pub const FILE_NAME_ID_PROV_DATA: &str = "identity_providers.json";
-pub const FILE_NAME_PREFIX_BAKER_PRIVATE: &str = "baker_private_";
+pub const FILE_NAME_PREFIX_BAKER_PRIVATE: &str = "baker-";
 pub const FILE_NAME_SUFFIX_BAKER_PRIVATE: &str = ".dat";
 
 use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
