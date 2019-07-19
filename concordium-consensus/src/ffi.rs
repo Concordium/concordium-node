@@ -263,6 +263,14 @@ extern "C" {
         missing_finalization_records_by_hash_callback: CatchupFinalizationRequestByBlockHashCallback,
         missing_finalization_records_by_index_callback: CatchupFinalizationRequestByFinalizationIndexCallback,
     ) -> *mut consensus_runner;
+    pub fn startConsensusPassive(
+        genesis_data: *const u8,
+        genesis_data_len: i64,
+        log_callback: LogCallback,
+        missing_block_callback: CatchupFinalizationRequestByBlockHashDeltaCallback,
+        missing_finalization_records_by_hash_callback: CatchupFinalizationRequestByBlockHashCallback,
+        missing_finalization_records_by_index_callback: CatchupFinalizationRequestByFinalizationIndexCallback,
+    ) -> *mut consensus_runner;
     pub fn startBaker(baker: *mut consensus_runner);
     pub fn printBlock(block_data: *const u8, data_length: i64);
     pub fn receiveBlock(
@@ -349,9 +357,11 @@ extern "C" {
     pub fn freeCStr(hstring: *const c_char);
 }
 
-pub fn get_consensus_ptr(genesis_data: Vec<u8>, private_data: Vec<u8>) -> *mut consensus_runner {
+pub fn get_consensus_ptr(
+    genesis_data: Vec<u8>,
+    private_data: Option<Vec<u8>>,
+) -> *mut consensus_runner {
     let genesis_data_len = genesis_data.len();
-    let private_data_len = private_data.len();
 
     // private_data appears to (might be too early to deserialize yet) contain:
     // a u64 BakerId
@@ -360,20 +370,36 @@ pub fn get_consensus_ptr(genesis_data: Vec<u8>, private_data: Vec<u8>) -> *mut c
     // 2x identical 32B-long byte sequences
 
     let c_string_genesis = unsafe { CString::from_vec_unchecked(genesis_data) };
-    let c_string_private_data = unsafe { CString::from_vec_unchecked(private_data) };
 
-    unsafe {
-        startConsensus(
-            c_string_genesis.as_ptr() as *const u8,
-            genesis_data_len as i64,
-            c_string_private_data.as_ptr() as *const u8,
-            private_data_len as i64,
-            on_consensus_data_out,
-            on_log_emited,
-            on_catchup_block_by_hash,
-            on_catchup_finalization_record_by_hash,
-            on_catchup_finalization_record_by_index,
-        )
+    match private_data {
+        Some(ref private_data_bytes) => {
+            let private_data_len = private_data_bytes.len();
+            unsafe {
+                let c_string_private_data =
+                    CString::from_vec_unchecked(private_data_bytes.to_owned());
+                startConsensus(
+                    c_string_genesis.as_ptr() as *const u8,
+                    genesis_data_len as i64,
+                    c_string_private_data.as_ptr() as *const u8,
+                    private_data_len as i64,
+                    on_consensus_data_out,
+                    on_log_emited,
+                    on_catchup_block_by_hash,
+                    on_catchup_finalization_record_by_hash,
+                    on_catchup_finalization_record_by_index,
+                )
+            }
+        }
+        None => unsafe {
+            startConsensusPassive(
+                c_string_genesis.as_ptr() as *const u8,
+                genesis_data_len as i64,
+                on_log_emited,
+                on_catchup_block_by_hash,
+                on_catchup_finalization_record_by_hash,
+                on_catchup_finalization_record_by_index,
+            )
+        },
     }
 }
 

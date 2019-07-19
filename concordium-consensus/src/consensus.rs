@@ -85,41 +85,63 @@ lazy_static! {
     pub static ref GENERATED_GENESIS_DATA: RwLock<Option<Vec<u8>>> = { RwLock::new(None) };
 }
 
+#[derive(Clone, PartialEq)]
+pub enum ConsensusType {
+    Active,
+    Passive,
+}
+
 #[derive(Clone)]
 pub struct ConsensusContainer {
-    pub baker:     Option<BakerId>,
-    pub consensus: Arc<AtomicPtr<consensus_runner>>,
-    pub genesis:   Arc<[u8]>,
+    pub baker:          Option<BakerId>,
+    pub consensus:      Arc<AtomicPtr<consensus_runner>>,
+    pub genesis:        Arc<[u8]>,
+    pub consensus_type: ConsensusType,
 }
 
 impl ConsensusContainer {
-    pub fn new(genesis_data: Vec<u8>, private_data: Vec<u8>) -> Self {
+    pub fn new(genesis_data: Vec<u8>, private_data: Option<Vec<u8>>) -> Self {
         info!("Starting up the consensus layer");
+
+        let consensus_type = if private_data.is_some() {
+            ConsensusType::Active
+        } else {
+            ConsensusType::Passive
+        };
 
         let consensus_ptr = get_consensus_ptr(genesis_data.clone(), private_data);
 
         Self {
-            baker:     None,
+            baker: None,
             consensus: Arc::new(AtomicPtr::new(consensus_ptr)),
-            genesis:   Arc::from(genesis_data),
+            genesis: Arc::from(genesis_data),
+            consensus_type,
         }
     }
 
-    pub fn start_baker(&mut self, baker_id: u64) {
+    pub fn start_baker(&mut self, baker_id: u64) -> bool {
+        if self.consensus_type == ConsensusType::Passive {
+            return false;
+        }
         self.baker = Some(baker_id);
         let consensus = self.consensus.load(Ordering::SeqCst);
 
         unsafe {
             startBaker(consensus);
         }
+        true
     }
 
-    pub fn stop(&self) {
+    pub fn stop(&self) -> bool {
+        if self.consensus_type == ConsensusType::Passive {
+            return false;
+        }
         let consensus = self.consensus.load(Ordering::SeqCst);
         unsafe {
             stopBaker(consensus);
         }
         CALLBACK_QUEUE.clear();
+        true
     }
 
     pub fn generate_data(
