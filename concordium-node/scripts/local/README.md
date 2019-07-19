@@ -57,8 +57,8 @@ $> docker-compose build --no-cache
 
 ## Run with N baker nodes 
 
-Use `--scale` argument and (`NUM_BAKERS` environment variable  to increase 
-number of bakers for a specific service. As example, to run it using 4 baker nodes:
+Use `--scale` argument and `NUM_BAKERS` environment variable  to increase 
+number of bakers for a specific service. As example, to run it using 5 baker nodes:
 
 ```bash
 $> NUM_BAKERS=5 DESIRED_PEERS=5 docker-compose up --scale baker=5
