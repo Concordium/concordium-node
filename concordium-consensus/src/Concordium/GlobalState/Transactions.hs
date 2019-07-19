@@ -20,6 +20,7 @@ import qualified Concordium.ID.Account as AH
 
 import Concordium.Types
 import Concordium.Types.HashableTo
+import Concordium.Types.Execution
 
 newtype TransactionSignature = TransactionSignature { tsSignature :: Signature }
   deriving (Eq, Show)
@@ -248,3 +249,16 @@ reversePTT trs ptt0 = foldr reverse1 ptt0 trs
                 upd (Just (low, high)) =
                         assert (low == transactionNonce tr + 1) $
                         Just (low-1,high)
+
+data TransactionOutcomes = TransactionOutcomes {
+    outcomeMap :: HM.HashMap TransactionHash ValidResult
+}
+
+instance Show TransactionOutcomes where
+    show (TransactionOutcomes m) = show (HM.toList m)
+
+emptyTransactionOutcomes :: TransactionOutcomes
+emptyTransactionOutcomes = TransactionOutcomes HM.empty
+
+transactionOutcomesFromList :: [(TransactionHash, ValidResult)] -> TransactionOutcomes
+transactionOutcomesFromList l = TransactionOutcomes (HM.fromList l)

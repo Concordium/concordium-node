@@ -203,6 +203,9 @@ class (Eq (BlockPointer m),
     -- (A transaction that has been committed to a finalized block should not be purged.)
     -- Returns @True@ if the transaction is purged.
     purgeTransaction :: Transaction -> m Bool
+    -- |Lookup a transaction by its hash.  As well as the transaction, returns
+    -- a @Bool@ indicating whether the transaction is already finalized.
+    lookupTransaction :: TransactionHash -> m (Maybe (Transaction, Bool))
 
     -- * Operations on block state
 
@@ -265,6 +268,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (BSMTra
     commitTransaction slot tr = lift $ commitTransaction slot tr
     addCommitTransaction tr slot = lift $ addCommitTransaction tr slot
     purgeTransaction = lift . purgeTransaction
+    lookupTransaction = lift . lookupTransaction
     thawBlockState = lift . thawBlockState
     freezeBlockState = lift . freezeBlockState
     purgeBlockState = lift . purgeBlockState
@@ -304,6 +308,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (BSMTra
     {-# INLINE commitTransaction #-}
     {-# INLINE addCommitTransaction #-}
     {-# INLINE purgeTransaction #-}
+    {-# INLINE lookupTransaction #-}
     {-# INLINE thawBlockState #-}
     {-# INLINE freezeBlockState #-}
     {-# INLINE purgeBlockState #-}

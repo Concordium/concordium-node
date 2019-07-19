@@ -17,6 +17,7 @@ import Control.Monad.Trans.RWS.Strict
 import Control.Monad
 
 import Concordium.Types
+import Concordium.Types.Execution (ValidResult)
 import Concordium.GlobalState.Block
 import Concordium.Types.Acorn.Core(ModuleRef)
 import qualified Concordium.Types.Acorn.Core as Core
@@ -27,6 +28,7 @@ import Concordium.GlobalState.Instances
 import Concordium.GlobalState.Modules hiding (getModule)
 import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.IdentityProviders
+import Concordium.GlobalState.Transactions (TransactionHash)
 
 import Data.Void
 
@@ -85,6 +87,8 @@ class Monad m => BlockStateQuery m where
     -- |Get reward summary for this block.
     getRewardStatus :: BlockState m -> m BankStatus
 
+    -- |Get the outcome of a transaction in the latest block.
+    getTransactionOutcome :: BlockState m -> TransactionHash -> m (Maybe ValidResult)
 
 type family UpdatableBlockState (m :: * -> *) :: *
 
@@ -246,6 +250,9 @@ class BlockStateQuery m => BlockStateOperations m where
   -- periodically updated and so they must be part of the block state.
   bsoGetCryptoParams :: UpdatableBlockState m -> m CryptographicParameters
 
+  -- |Set the list of transaction outcomes for the block.
+  bsoSetTransactionOutcomes :: UpdatableBlockState m -> [(TransactionHash, ValidResult)] -> m (UpdatableBlockState m)
+
 
 newtype BSMTrans t (m :: * -> *) a = BSMTrans (t m a)
     deriving (Functor, Applicative, Monad, MonadTrans)
@@ -261,6 +268,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (BSMT
   getContractInstanceList = lift . getContractInstanceList
   getBirkParameters = lift . getBirkParameters
   getRewardStatus = lift . getRewardStatus
+  getTransactionOutcome s = lift . getTransactionOutcome s
   {-# INLINE getModule #-}
   {-# INLINE getAccount #-}
   {-# INLINE getContractInstance #-}
@@ -269,6 +277,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (BSMT
   {-# INLINE getContractInstanceList #-}
   {-# INLINE getBirkParameters #-}
   {-# INLINE getRewardStatus #-}
+  {-# INLINE getTransactionOutcome #-}
 
 instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperations (BSMTrans t m) where
   bsoGetModule s = lift . bsoGetModule s
@@ -293,6 +302,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoDelegateStake s acct bid = lift $ bsoDelegateStake s acct bid
   bsoGetIdentityProvider s ipId = lift $ bsoGetIdentityProvider s ipId
   bsoGetCryptoParams s = lift $ bsoGetCryptoParams s
+  bsoSetTransactionOutcomes s = lift . bsoSetTransactionOutcomes s
   {-# INLINE bsoGetModule #-}
   {-# INLINE bsoGetAccount #-}
   {-# INLINE bsoGetInstance #-}
@@ -315,6 +325,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoDelegateStake #-}
   {-# INLINE bsoGetIdentityProvider #-}
   {-# INLINE bsoGetCryptoParams #-}
+  {-# INLINE bsoSetTransactionOutcomes #-}
 
 
 type instance BlockPointer (MaybeT m) = BlockPointer m
