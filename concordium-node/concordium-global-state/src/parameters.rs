@@ -5,6 +5,7 @@ use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
 use failure::Fallible;
 
 use std::{
+    collections::HashMap,
     io::{Cursor, Read, Write},
     mem::size_of,
 };
@@ -25,38 +26,52 @@ pub type VoterSignKey = Encoded;
 pub type VoterPower = u64;
 
 pub const BAKER_VRF_KEY: u8 = 32;
-const BAKER_SIGN_KEY: u8 = 8 + 32; // unnecessary 8B prefix
+const BAKER_SIGN_KEY: u8 = 2 + 32;
 const BAKER_INFO: u8 = BAKER_VRF_KEY
     + BAKER_SIGN_KEY
     + size_of::<LotteryPower>() as u8
     + size_of::<AccountAddress>() as u8;
 
-const VOTER_SIGN_KEY: u8 = 8 + 32; // unnecessary 8B prefix
+const VOTER_SIGN_KEY: u8 = 2 + 32;
 const VOTER_VRF_KEY: u8 = 32;
 pub const VOTER_INFO: u8 = VOTER_SIGN_KEY + VOTER_VRF_KEY + size_of::<VoterPower>() as u8;
+const ELGAMAL_GENERATOR: u8 = 48;
 
 #[derive(Debug)]
-pub struct BirkParameters {
-    election_nonce:      ByteString,
-    election_difficulty: ElectionDifficulty,
-    pub bakers:          Box<[(BakerId, BakerInfo)]>,
-    baker_total_stake:   Amount,
-    next_baker_id:       BakerId,
+pub struct Bakers {
+    baker_map:         HashMap<BakerId, BakerInfo>,
+    bakers_by_key:     HashMap<(BakerSignVerifyKey, BakerElectionVerifyKey), Box<[BakerId]>>,
+    baker_total_stake: Amount,
+    next_baker_id:     BakerId,
 }
 
-impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
+impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Bakers {
     type Source = &'a mut Cursor<&'b [u8]>;
 
     fn deserialize(cursor: Self::Source) -> Fallible<Self> {
-        let election_nonce = read_bytestring(cursor, "election nonce")?;
-        let election_difficulty = NetworkEndian::read_f64(&read_ty!(cursor, ElectionDifficulty));
-
-        let bakers = read_multiple!(
+        let baker_map = read_hashmap!(
             cursor,
-            "bakers",
+            "baker map",
             (
                 NetworkEndian::read_u64(&read_ty!(cursor, BakerId)),
                 BakerInfo::deserialize(&read_const_sized!(cursor, BAKER_INFO))?
+            ),
+            8
+        );
+        let bakers_by_key = read_hashmap!(
+            cursor,
+            "bakers by key",
+            (
+                (
+                    read_bytestring_short_length(cursor, "baker signature verify")?,
+                    Encoded::new(&read_const_sized!(cursor, BAKER_VRF_KEY))
+                ),
+                read_multiple!(
+                    cursor,
+                    "baker ids",
+                    NetworkEndian::read_u64(&read_ty!(cursor, BakerId)),
+                    8
+                )
             ),
             8
         );
@@ -64,10 +79,9 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
         let baker_total_stake = NetworkEndian::read_u64(&read_ty!(cursor, Amount));
         let next_baker_id = NetworkEndian::read_u64(&read_ty!(cursor, BakerId));
 
-        let params = BirkParameters {
-            election_nonce,
-            election_difficulty,
-            bakers,
+        let params = Bakers {
+            baker_map,
+            bakers_by_key,
             baker_total_stake,
             next_baker_id,
         };
@@ -76,30 +90,133 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
     }
 
     fn serialize(&self) -> Box<[u8]> {
-        let baker_info_size = 8 + self.bakers.len() * (size_of::<BakerId>() + BAKER_INFO as usize);
-        let mut baker_cursor = create_serialization_cursor(baker_info_size);
+        let baker_info_size1 =
+            8 + self.baker_map.len() * (size_of::<BakerId>() + BAKER_INFO as usize);
+        let mut baker_cursor = create_serialization_cursor(baker_info_size1);
 
-        let _ = baker_cursor.write_u64::<NetworkEndian>(self.bakers.len() as u64);
-        for (id, info) in self.bakers.iter() {
+        let _ = baker_cursor.write_u64::<NetworkEndian>(self.baker_map.len() as u64);
+        for (id, info) in self.baker_map.iter() {
             let _ = baker_cursor.write_u64::<NetworkEndian>(*id);
             let _ = baker_cursor.write_all(&info.serialize());
         }
 
         debug_assert_eq!(baker_cursor.position(), baker_cursor.get_ref().len() as u64);
 
+        let baker_info_size2 =
+            8 + self.bakers_by_key.len() * ((BAKER_SIGN_KEY + BAKER_VRF_KEY) as usize) + {
+                let mut sz = 0;
+                for (_, v) in self.bakers_by_key.iter() {
+                    sz = sz + size_of::<u64>() + (v.len() * size_of::<BakerId>());
+                }
+                sz
+            };
+
+        let mut baker_by_key_cursor = create_serialization_cursor(baker_info_size2);
+
+        let _ = baker_by_key_cursor.write_u64::<NetworkEndian>(self.bakers_by_key.len() as u64);
+        for ((bsk, bvk), bakerids) in self.bakers_by_key.iter() {
+            write_bytestring_short_length(&mut baker_by_key_cursor, bsk);
+            let _ = baker_by_key_cursor.write_all(bvk);
+            let _ = baker_by_key_cursor.write_u64::<NetworkEndian>(bakerids.len() as u64);
+            for id in bakerids.iter() {
+                let _ = baker_by_key_cursor.write_u64::<NetworkEndian>(*id);
+            }
+        }
+
+        debug_assert_eq!(
+            baker_by_key_cursor.position(),
+            baker_by_key_cursor.get_ref().len() as u64
+        );
+
+        let size = baker_info_size1 + baker_info_size2 + size_of::<u64>() + size_of::<u64>();
+        let mut cursor = create_serialization_cursor(size);
+
+        let _ = cursor.write_all(baker_cursor.get_ref());
+        let _ = cursor.write_all(baker_by_key_cursor.get_ref());
+        let _ = cursor.write_u64::<NetworkEndian>(self.baker_total_stake);
+        let _ = cursor.write_u64::<NetworkEndian>(self.next_baker_id);
+
+        cursor.into_inner()
+    }
+}
+
+#[derive(Debug)]
+pub struct BirkParameters {
+    election_nonce:      ByteString,
+    election_difficulty: ElectionDifficulty,
+    pub bakers:          Bakers,
+}
+
+impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
+    type Source = &'a mut Cursor<&'b [u8]>;
+
+    fn deserialize(cursor: Self::Source) -> Fallible<Self> {
+        let election_nonce = read_bytestring(cursor, "election nonce")?;
+        let election_difficulty = NetworkEndian::read_f64(&read_ty!(cursor, ElectionDifficulty));
+        let bakers = Bakers::deserialize(cursor)?;
+
+        let params = BirkParameters {
+            election_nonce,
+            election_difficulty,
+            bakers,
+        };
+
+        Ok(params)
+    }
+
+    fn serialize(&self) -> Box<[u8]> {
+        let bakers = self.bakers.serialize();
+
         let size = size_of::<u64>()
             + self.election_nonce.len()
             + size_of::<ElectionDifficulty>()
-            + baker_cursor.get_ref().len()
-            + size_of::<Amount>()
-            + size_of::<BakerId>();
+            + bakers.len();
         let mut cursor = create_serialization_cursor(size);
 
         write_bytestring(&mut cursor, &self.election_nonce);
         let _ = cursor.write_f64::<NetworkEndian>(self.election_difficulty);
-        let _ = cursor.write_all(baker_cursor.get_ref());
-        let _ = cursor.write_u64::<NetworkEndian>(self.baker_total_stake);
-        let _ = cursor.write_u64::<NetworkEndian>(self.next_baker_id);
+        let _ = cursor.write_all(&bakers);
+
+        cursor.into_inner()
+    }
+}
+
+#[derive(Debug)]
+pub struct CryptographicParameters {
+    pub elgamal_generator:        ByteString,
+    pub attribute_commitment_key: ByteString,
+}
+
+impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for CryptographicParameters {
+    type Source = &'a mut Cursor<&'b [u8]>;
+
+    fn deserialize(mut cursor: Self::Source) -> Fallible<Self> {
+        let initial_pos = cursor.position() as usize;
+
+        let elgamal_generator = Encoded::new(&read_const_sized!(&mut cursor, ELGAMAL_GENERATOR));
+        let attribute_commitment_key =
+            read_bytestring_medium(&mut cursor, "attribute commitment key")?;
+
+        let crypto_params = CryptographicParameters {
+            elgamal_generator,
+            attribute_commitment_key,
+        };
+
+        let final_pos = cursor.position() as usize;
+
+        check_partial_serialization!(crypto_params, &cursor.get_ref()[initial_pos..final_pos]);
+
+        Ok(crypto_params)
+    }
+
+    fn serialize(&self) -> Box<[u8]> {
+        let mut cursor = create_serialization_cursor(
+            (ELGAMAL_GENERATOR as usize) + size_of::<u32>() + self.attribute_commitment_key.len(),
+        );
+
+        let _ = cursor.write_all(&self.elgamal_generator);
+        let _ = cursor.write_u32::<NetworkEndian>(self.attribute_commitment_key.len() as u32);
+        let _ = cursor.write_all(&self.attribute_commitment_key);
 
         cursor.into_inner()
     }
@@ -120,7 +237,8 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for BakerInfo {
         let mut cursor = Cursor::new(bytes);
 
         let election_verify_key = Encoded::new(&read_const_sized!(&mut cursor, BAKER_VRF_KEY));
-        let signature_verify_key = read_bytestring(&mut cursor, "baker sign verify key")?;
+        let signature_verify_key =
+            read_bytestring_short_length(&mut cursor, "baker sign verify key")?;
         let lottery_power = NetworkEndian::read_f64(&read_ty!(cursor, LotteryPower));
         let account_address = AccountAddress(read_ty!(cursor, AccountAddress));
 
@@ -140,7 +258,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for BakerInfo {
         let mut cursor = create_serialization_cursor(BAKER_INFO as usize);
 
         let _ = cursor.write_all(&self.election_verify_key);
-        write_bytestring(&mut cursor, &self.signature_verify_key);
+        write_bytestring_short_length(&mut cursor, &self.signature_verify_key);
         let _ = cursor.write_f64::<NetworkEndian>(self.lottery_power);
         let _ = cursor.write_all(&self.account_address.0);
 
@@ -161,7 +279,8 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for VoterInfo {
     fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         let mut cursor = Cursor::new(bytes);
 
-        let signature_verify_key = ByteString::new(&read_const_sized!(&mut cursor, VOTER_SIGN_KEY));
+        let signature_verify_key =
+            read_bytestring_short_length(&mut cursor, "signature verify key")?;
         let election_verify_key = Encoded::new(&read_const_sized!(&mut cursor, VOTER_VRF_KEY));
         let voting_power = NetworkEndian::read_u64(&read_ty!(cursor, VoterPower));
 
@@ -179,7 +298,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for VoterInfo {
     fn serialize(&self) -> Box<[u8]> {
         let mut cursor = create_serialization_cursor(VOTER_INFO as usize);
 
-        let _ = cursor.write_all(&self.signature_verify_key);
+        write_bytestring_short_length(&mut cursor, &self.signature_verify_key);
         let _ = cursor.write_all(&self.election_verify_key);
         let _ = cursor.write_u64::<NetworkEndian>(self.voting_power);
 
