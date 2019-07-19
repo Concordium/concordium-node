@@ -86,7 +86,7 @@ lazy_static! {
 }
 
 /// If a consensus instance is 
-/// - `Active` it either a baker or a member of the finalization committee
+/// - `Active` it is either a baker or a member of the finalization committee
 /// - `Passive` it is neither a baker nor a member of the finalization committee
 #[derive(Clone, PartialEq)]
 pub enum ConsensusType {
