@@ -8,6 +8,8 @@ use failure::{bail, Fallible};
 use std::time::Duration;
 use std::{
     collections::HashMap,
+    convert::TryFrom,
+    str,
     sync::{
         atomic::{AtomicPtr, Ordering},
         mpsc, Arc, Mutex, RwLock,
@@ -15,7 +17,7 @@ use std::{
     thread, time,
 };
 
-use crate::ffi::*;
+use crate::{fails::CantGenerateGenesis, ffi::*};
 use concordium_global_state::{block::*, tree::ConsensusMessage};
 
 pub type PeerId = u64;
@@ -83,44 +85,83 @@ lazy_static! {
     pub static ref GENERATED_GENESIS_DATA: RwLock<Option<Vec<u8>>> = { RwLock::new(None) };
 }
 
+/// If a consensus instance is
+/// - `Active` it is either a baker or a member of the finalization committee
+/// - `Passive` it is neither a baker nor a member of the finalization committee
+#[derive(Clone, PartialEq)]
+pub enum ConsensusType {
+    Active,
+    Passive,
+}
+
+impl std::fmt::Display for ConsensusType {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            ConsensusType::Active => write!(f, "Active"),
+            ConsensusType::Passive => write!(f, "Passive"),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct ConsensusContainer {
-    pub baker:     Option<BakerId>,
-    pub consensus: Arc<AtomicPtr<consensus_runner>>,
-    pub genesis:   Arc<[u8]>,
+    pub baker:          Option<BakerId>,
+    pub consensus:      Arc<AtomicPtr<consensus_runner>>,
+    pub genesis:        Arc<[u8]>,
+    pub consensus_type: ConsensusType,
 }
 
 impl ConsensusContainer {
-    pub fn new(genesis_data: Vec<u8>, private_data: Vec<u8>) -> Self {
+    pub fn new(genesis_data: Vec<u8>, private_data: Option<Vec<u8>>) -> Self {
         info!("Starting up the consensus layer");
+
+        let consensus_type = if private_data.is_some() {
+            ConsensusType::Active
+        } else {
+            ConsensusType::Passive
+        };
 
         let consensus_ptr = get_consensus_ptr(genesis_data.clone(), private_data);
 
         Self {
-            baker:     None,
+            baker: None,
             consensus: Arc::new(AtomicPtr::new(consensus_ptr)),
-            genesis:   Arc::from(genesis_data),
+            genesis: Arc::from(genesis_data),
+            consensus_type,
         }
     }
 
-    pub fn start_baker(&mut self, baker_id: u64) {
+    pub fn start_baker(&mut self, baker_id: u64) -> bool {
+        if self.consensus_type == ConsensusType::Passive {
+            return false;
+        }
         self.baker = Some(baker_id);
         let consensus = self.consensus.load(Ordering::SeqCst);
 
         unsafe {
             startBaker(consensus);
         }
+        true
     }
 
-    pub fn stop(&self) {
+    pub fn stop(&self) -> bool {
+        if self.consensus_type == ConsensusType::Passive {
+            return false;
+        }
         let consensus = self.consensus.load(Ordering::SeqCst);
         unsafe {
             stopBaker(consensus);
         }
         CALLBACK_QUEUE.clear();
+        true
     }
 
-    pub fn generate_data(genesis_time: u64, num_bakers: u64) -> Fallible<(Vec<u8>, PrivateData)> {
+    pub fn generate_data(
+        genesis_time: u64,
+        num_bakers: u64,
+        crypto_providers: &str,
+        id_providers: &str,
+    ) -> Fallible<(Vec<u8>, PrivateData)> {
         if let Ok(ref mut lock) = GENERATED_GENESIS_DATA.write() {
             **lock = None;
         }
@@ -129,13 +170,32 @@ impl ConsensusContainer {
             lock.clear();
         }
 
-        unsafe {
+        let res = unsafe {
             makeGenesisData(
                 genesis_time,
                 num_bakers,
+                std::ffi::CString::new(crypto_providers)
+                    .expect("CString::new failed")
+                    .as_ptr() as *const u8,
+                std::ffi::CString::new(id_providers)
+                    .expect("CString::new failed")
+                    .as_ptr() as *const u8,
                 on_genesis_generated,
                 on_private_data_generated,
-            );
+            )
+        };
+
+        match ConsensusFfiResponse::try_from(res) {
+            Ok(ConsensusFfiResponse::Success) => {}
+            Ok(ConsensusFfiResponse::CryptographicProvidersNotLoaded) => {
+                error!("Baker can't start: Couldn't read cryptographic providers file!");
+                return Err(failure::Error::from(CantGenerateGenesis));
+            }
+            Ok(ConsensusFfiResponse::IdentityProvidersNotLoaded) => {
+                error!("Baker can't start: Couldn't read identity providers file!");
+                return Err(failure::Error::from(CantGenerateGenesis));
+            }
+            _ => unreachable!(),
         }
 
         for _ in 0..num_bakers {

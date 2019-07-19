@@ -1,6 +1,8 @@
 pub const PAYLOAD_TYPE_LENGTH: u64 = 2;
 pub const FILE_NAME_GENESIS_DATA: &str = "genesis.dat";
-pub const FILE_NAME_PREFIX_BAKER_PRIVATE: &str = "baker_private_";
+pub const FILE_NAME_CRYPTO_PROV_DATA: &str = "crypto_providers.json";
+pub const FILE_NAME_ID_PROV_DATA: &str = "identity_providers.json";
+pub const FILE_NAME_PREFIX_BAKER_PRIVATE: &str = "baker-";
 pub const FILE_NAME_SUFFIX_BAKER_PRIVATE: &str = ".dat";
 
 use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
@@ -38,37 +40,65 @@ pub fn start_consensus_layer(
     conf: &configuration::BakerConfig,
     app_prefs: &configuration::AppPreferences,
 ) -> Option<consensus::ConsensusContainer> {
-    conf.baker_id.and_then(|baker_id| {
-        // Check for invalid configuration
-        if baker_id > conf.baker_num_bakers {
-            // Baker ID is higher than amount of bakers in the network. Bail!
-            error!("Baker ID is higher than the number of bakers in the network! Disabling baking");
-            return None;
-        }
-
-        info!("Starting up the consensus thread");
-        #[cfg(feature = "profiling")]
-        ffi::start_haskell(
-            &conf.heap_profiling,
-            conf.time_profiling,
-            conf.gc_logging.clone(),
-        );
-        #[cfg(not(feature = "profiling"))]
-        ffi::start_haskell();
-
-        match get_baker_data(app_prefs, conf) {
-            Ok((genesis_data, private_data)) => {
-                let mut consensus = consensus::ConsensusContainer::new(genesis_data, private_data);
-                consensus.start_baker(baker_id);
-
-                Some(consensus)
+    match conf.baker_id {
+        Some(baker_id) => {
+            // Check for invalid configuration
+            if baker_id > conf.baker_num_bakers {
+                // Baker ID is higher than amount of bakers in the network. Bail!
+                error!(
+                    "Baker ID is higher than the number of bakers in the network! Disabling baking"
+                );
+                return None;
             }
-            Err(_) => {
-                error!("Can't start the consensus layer!");
-                None
+
+            info!("Starting up the consensus thread");
+            #[cfg(feature = "profiling")]
+            ffi::start_haskell(
+                &conf.heap_profiling,
+                conf.time_profiling,
+                conf.backtraces_profiling,
+                conf.gc_logging.clone(),
+            );
+            #[cfg(not(feature = "profiling"))]
+            ffi::start_haskell();
+
+            match get_baker_data(app_prefs, conf) {
+                Ok((genesis_data, private_data)) => {
+                    let mut consensus =
+                        consensus::ConsensusContainer::new(genesis_data, Some(private_data));
+                    consensus.start_baker(baker_id);
+                    Some(consensus)
+                }
+                Err(_) => {
+                    error!("Can't start the consensus layer!");
+                    None
+                }
             }
         }
-    })
+        None => {
+            info!("Starting up the consensus thread");
+            #[cfg(feature = "profiling")]
+            ffi::start_haskell(
+                &conf.heap_profiling,
+                conf.time_profiling,
+                conf.backtraces_profiling,
+                conf.gc_logging.clone(),
+            );
+            #[cfg(not(feature = "profiling"))]
+            ffi::start_haskell();
+
+            match get_baker_data(app_prefs, conf) {
+                Ok((genesis_data, _)) => {
+                    let consensus = consensus::ConsensusContainer::new(genesis_data, None);
+                    Some(consensus)
+                }
+                Err(_) => {
+                    error!("Can't start the consensus layer!");
+                    None
+                }
+            }
+        }
+    }
 }
 
 fn get_baker_data(
@@ -89,7 +119,24 @@ fn get_baker_data(
 
     let (generated_genesis, generated_private_data) =
         if !genesis_loc.exists() || !private_loc.exists() {
-            consensus::ConsensusContainer::generate_data(conf.baker_genesis, conf.baker_num_bakers)?
+            let mut default_crypto_providers = app_prefs.get_user_app_dir();
+            default_crypto_providers.push(FILE_NAME_CRYPTO_PROV_DATA);
+            let mut default_id_providers = app_prefs.get_user_app_dir();
+            default_id_providers.push(FILE_NAME_ID_PROV_DATA);
+            let crypto_providers = conf
+                .cryptographic_providers
+                .clone()
+                .unwrap_or_else(|| String::from(default_crypto_providers.to_str().unwrap()));
+            let id_providers = conf
+                .identity_providers
+                .clone()
+                .unwrap_or_else(|| String::from(default_id_providers.to_str().unwrap()));
+            consensus::ConsensusContainer::generate_data(
+                conf.baker_genesis,
+                conf.baker_num_bakers,
+                &crypto_providers,
+                &id_providers,
+            )?
         } else {
             (vec![], HashMap::new())
         };

@@ -1,0 +1,8 @@
+{
+  "genesisTime" : 0,
+  "slotDuration" : 10,
+  "leadershipElectionNonce" : "4c656164657273686970456c656374696f6e4e6f6e6365",
+  "electionDifficulty" : 0.5,
+  "finalizationMinimumSkip" : 9
+}
+

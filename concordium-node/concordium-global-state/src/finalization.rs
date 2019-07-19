@@ -14,7 +14,6 @@ const HEADER: u8 = size_of::<SessionId>() as u8
     + size_of::<FinalizationIndex>() as u8
     + size_of::<BlockHeight>() as u8
     + size_of::<Party>() as u8;
-const SIGNATURE: u8 = 8 + 64;
 const WMVBA_TYPE: u8 = 1;
 const VAL: u8 = size_of::<BlockHash>() as u8;
 const TICKET: u8 = 80;
@@ -45,7 +44,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for FinalizationMessage {
         let header =
             FinalizationMessageHeader::deserialize(&read_const_sized!(&mut cursor, HEADER))?;
         let message = WmvbaMessage::deserialize(&mut cursor)?;
-        let signature = ByteString::new(&read_const_sized!(&mut cursor, SIGNATURE));
+        let signature = read_bytestring_short_length(&mut cursor, "finalization signature")?;
 
         let msg = FinalizationMessage {
             header,
@@ -59,9 +58,12 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for FinalizationMessage {
     }
 
     fn serialize(&self) -> Box<[u8]> {
+        let mut buffer = [0; 2];
+        NetworkEndian::write_u16(&mut buffer, self.signature.len() as u16);
         [
             &self.header.serialize(),
             &self.message.serialize(),
+            &buffer[..],
             self.signature.as_ref(),
         ]
         .concat()
@@ -474,15 +476,16 @@ impl fmt::Debug for FinalizationRecord {
 impl FinalizationRecord {
     pub fn genesis(genesis_block_ptr: &BlockPtr) -> Self {
         // TODO: verify it's the desired content
-        let proof = genesis_block_ptr
-            .block
-            .genesis_data()
-            .finalization_parameters
-            .iter()
-            .enumerate()
-            .map(|(n, info)| (n as u32, info.signature_verify_key.clone()))
-            .collect::<Vec<_>>()
-            .into_boxed_slice();
+        // let proof = genesis_block_ptr
+        //     .block
+        //     .genesis_data()
+        //     .finalization_parameters
+        //     .iter()
+        //     .enumerate()
+        //     .map(|(n, info)| (n as u32, info.signature_verify_key.clone()))
+        //     .collect::<Vec<_>>()
+        //     .into_boxed_slice();
+        let proof: Box<[(u32, Encoded)]> = Vec::new().into_boxed_slice();
 
         Self {
             index: 0,
@@ -507,7 +510,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationRecord {
             "finalization proof",
             (
                 NetworkEndian::read_u32(&read_const_sized!(&mut cursor, 4)),
-                Encoded::new(&read_const_sized!(&mut cursor, SIGNATURE))
+                read_bytestring_short_length(&mut cursor, "finalization proof signature")?
             ),
             4
         );
@@ -530,7 +533,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationRecord {
         let proof_len = self
             .proof
             .iter()
-            .map(|(_, sig)| size_of::<Party>() + sig.len())
+            .map(|(_, sig)| size_of::<Party>() + size_of::<u16>() + sig.len())
             .sum::<usize>();
 
         let mut cursor = create_serialization_cursor(
@@ -547,6 +550,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationRecord {
         let _ = cursor.write_u32::<NetworkEndian>(self.proof.len() as u32);
         for (party, signature) in &*self.proof {
             let _ = cursor.write_u32::<NetworkEndian>(*party);
+            let _ = cursor.write_u16::<NetworkEndian>(signature.len() as u16);
             let _ = cursor.write_all(signature);
         }
 
