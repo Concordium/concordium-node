@@ -85,10 +85,22 @@ lazy_static! {
     pub static ref GENERATED_GENESIS_DATA: RwLock<Option<Vec<u8>>> = { RwLock::new(None) };
 }
 
+/// If a consensus instance is 
+/// - `Active` it is either a baker or a member of the finalization committee
+/// - `Passive` it is neither a baker nor a member of the finalization committee
 #[derive(Clone, PartialEq)]
 pub enum ConsensusType {
     Active,
     Passive,
+}
+
+impl std::fmt::Display for ConsensusType {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            ConsensusType::Active => write!(f, "Active"),
+            ConsensusType::Passive => write!(f, "Passive"),
+        }
+    }
 }
 
 #[derive(Clone)]
