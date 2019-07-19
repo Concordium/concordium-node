@@ -4,23 +4,17 @@ cwd=$(dirname $0)
 . $cwd/config.sh
 final_state=0
 
+wget https://s3-eu-west-1.amazonaws.com/static-libraries.concordium.com/static-consensus-binaries-8.6.5.tar.gz
+tar -xf static-consensus-binaries-8.6.5.tar.gz
+
 for baker_size in "${baker_sizes[@]}" 
 do
     echo "Generating genesis data with $baker_size baker(s)" &&
-    cargo run --features=static --bin=make-bakers-data -- \
-        --num-bakers=$baker_size --output-dir=$cwd/genesis_data &&
-    (
-        cd $cwd &&
-        tar czf $baker_size-bakers.tar.gz genesis_data &&
-        rm -r genesis_data
-    )
-    if [[ $? != 0 ]]; then
-        echo "- failed"
-        final_state=-1
-    fi
+    mkdir genesis_data &&
+    LD_LIBRARY_PATH=$(pwd)/binaries/lib binaries/bin/genesis make-bakers $baker_size genesis_data &&
+    LD_LIBRARY_PATH=$(pwd)/binaries/lib binaries/bin/genesis make-genesis --identity-providers=identity-providers.json --crypto-params=global.json --bakers=genesis_data/bakers.json genesis.json genesis_data/genesis.dat &&
+    tar czf $baker_size-bakers.tar.gz genesis_data &&
+    rm -r genesis_data
 done
 
-if [[ $final_state != 0 ]]; then
-    exit $final_state
-fi
-
+rm -r static-consensus-binaries-8.6.5.tar.gz binaries
