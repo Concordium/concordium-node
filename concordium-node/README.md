@@ -49,5 +49,6 @@ Currently this project only sports support for Nix on Linux platforms.
 All `zsh` wrapper functions wraps around `nix-shell`, and if dropping into a `nix-shell` directly remember to use the cargo flag `--features=static` to build against the static libraries in LFS.
 ### Install binaries as a package
 ```
+$> scripts/download-static-libs.sh
 $> nix-env -f . -i
 ```
