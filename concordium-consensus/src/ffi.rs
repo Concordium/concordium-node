@@ -38,9 +38,9 @@ static STOPPED: AtomicBool = AtomicBool::new(false);
 /// The runtime will automatically be shutdown at program exit, or you can stop
 /// it earlier with `stop`.
 #[cfg(all(not(windows), feature = "profiling"))]
-pub fn start_haskell(heap: &str, time: bool, gc_log: Option<String>) {
+pub fn start_haskell(heap: &str, time: bool, exceptions: bool, gc_log: Option<String>) {
     START_ONCE.call_once(|| {
-        start_haskell_init(heap, time, gc_log);
+        start_haskell_init(heap, time, exceptions, gc_log);
         unsafe {
             ::libc::atexit(stop_nopanic);
         }
@@ -58,12 +58,13 @@ pub fn start_haskell() {
 }
 
 #[cfg(all(not(windows), feature = "profiling"))]
-fn start_haskell_init(heap: &str, time: bool, gc_log: Option<String>) {
+fn start_haskell_init(heap: &str, time: bool, exceptions: bool, gc_log: Option<String>) {
     let program_name = std::env::args().take(1).next().unwrap();
     let mut args = vec![program_name.to_owned()];
 
     if heap != "none" || time || gc_log.is_some() {
         args.push("+RTS".to_owned());
+        args.push("-L100".to_owned());
     }
 
     match heap {
@@ -91,6 +92,13 @@ fn start_haskell_init(heap: &str, time: bool, gc_log: Option<String>) {
 
     if gc_log.is_some() {
         args.push(format!("-S{}", gc_log.unwrap()));
+    }
+
+    if exceptions {
+        if args.len() == 1 {
+            args.push("+RTS".to_owned());
+        }
+        args.push("-xc".to_owned());
     }
 
     if args.len() > 1 {
@@ -135,7 +143,7 @@ fn start_haskell_init() {
 }
 
 #[cfg(windows)]
-fn start_haskell_init(_: bool, _: bool) {
+fn start_haskell_init(_: bool, _: bool, _: bool) {
     // GHC on Windows ignores hs_init arguments and uses GetCommandLineW instead
     // See https://hackage.haskell.org/package/base-4.9.0.0/docs/src/GHC.Environment.html
     let mut argv0 = *b"\0";
@@ -181,6 +189,8 @@ pub enum ConsensusFfiResponse {
     DuplicateEntry,
     Stale,
     IncorrectFinalizationSession,
+    CryptographicProvidersNotLoaded,
+    IdentityProvidersNotLoaded,
 }
 
 impl ConsensusFfiResponse {
@@ -188,7 +198,11 @@ impl ConsensusFfiResponse {
         use ConsensusFfiResponse::*;
 
         match self {
-            BakerNotFound | DeserializationError | InvalidResult => false,
+            BakerNotFound
+            | DeserializationError
+            | InvalidResult
+            | CryptographicProvidersNotLoaded
+            | IdentityProvidersNotLoaded => false,
             _ => true,
         }
     }
@@ -212,6 +226,8 @@ impl TryFrom<i64> for ConsensusFfiResponse {
             6 => Ok(DuplicateEntry),
             7 => Ok(Stale),
             8 => Ok(IncorrectFinalizationSession),
+            9 => Ok(CryptographicProvidersNotLoaded),
+            10 => Ok(IdentityProvidersNotLoaded),
             _ => Err(format_err!("Unsupported FFI return code ({})", value)),
         }
     }
@@ -247,6 +263,14 @@ extern "C" {
         missing_finalization_records_by_hash_callback: CatchupFinalizationRequestByBlockHashCallback,
         missing_finalization_records_by_index_callback: CatchupFinalizationRequestByFinalizationIndexCallback,
     ) -> *mut consensus_runner;
+    pub fn startConsensusPassive(
+        genesis_data: *const u8,
+        genesis_data_len: i64,
+        log_callback: LogCallback,
+        missing_block_callback: CatchupFinalizationRequestByBlockHashDeltaCallback,
+        missing_finalization_records_by_hash_callback: CatchupFinalizationRequestByBlockHashCallback,
+        missing_finalization_records_by_index_callback: CatchupFinalizationRequestByFinalizationIndexCallback,
+    ) -> *mut consensus_runner;
     pub fn startBaker(baker: *mut consensus_runner);
     pub fn printBlock(block_data: *const u8, data_length: i64);
     pub fn receiveBlock(
@@ -273,9 +297,11 @@ extern "C" {
     pub fn makeGenesisData(
         genesis_time: u64,
         num_bakers: u64,
+        crypto_providers: *const u8,
+        identity_providers: *const u8,
         genesis_callback: GenerateGenesisDataCallback,
         baker_private_data_callback: GenerateKeypairCallback,
-    );
+    ) -> i64;
 
     // Consensus queries
     pub fn getConsensusStatus(baker: *mut consensus_runner) -> *const c_char;
@@ -331,9 +357,11 @@ extern "C" {
     pub fn freeCStr(hstring: *const c_char);
 }
 
-pub fn get_consensus_ptr(genesis_data: Vec<u8>, private_data: Vec<u8>) -> *mut consensus_runner {
+pub fn get_consensus_ptr(
+    genesis_data: Vec<u8>,
+    private_data: Option<Vec<u8>>,
+) -> *mut consensus_runner {
     let genesis_data_len = genesis_data.len();
-    let private_data_len = private_data.len();
 
     // private_data appears to (might be too early to deserialize yet) contain:
     // a u64 BakerId
@@ -342,20 +370,36 @@ pub fn get_consensus_ptr(genesis_data: Vec<u8>, private_data: Vec<u8>) -> *mut c
     // 2x identical 32B-long byte sequences
 
     let c_string_genesis = unsafe { CString::from_vec_unchecked(genesis_data) };
-    let c_string_private_data = unsafe { CString::from_vec_unchecked(private_data) };
 
-    unsafe {
-        startConsensus(
-            c_string_genesis.as_ptr() as *const u8,
-            genesis_data_len as i64,
-            c_string_private_data.as_ptr() as *const u8,
-            private_data_len as i64,
-            on_consensus_data_out,
-            on_log_emited,
-            on_catchup_block_by_hash,
-            on_catchup_finalization_record_by_hash,
-            on_catchup_finalization_record_by_index,
-        )
+    match private_data {
+        Some(ref private_data_bytes) => {
+            let private_data_len = private_data_bytes.len();
+            unsafe {
+                let c_string_private_data =
+                    CString::from_vec_unchecked(private_data_bytes.to_owned());
+                startConsensus(
+                    c_string_genesis.as_ptr() as *const u8,
+                    genesis_data_len as i64,
+                    c_string_private_data.as_ptr() as *const u8,
+                    private_data_len as i64,
+                    on_consensus_data_out,
+                    on_log_emited,
+                    on_catchup_block_by_hash,
+                    on_catchup_finalization_record_by_hash,
+                    on_catchup_finalization_record_by_index,
+                )
+            }
+        }
+        None => unsafe {
+            startConsensusPassive(
+                c_string_genesis.as_ptr() as *const u8,
+                genesis_data_len as i64,
+                on_log_emited,
+                on_catchup_block_by_hash,
+                on_catchup_finalization_record_by_hash,
+                on_catchup_finalization_record_by_index,
+            )
+        },
     }
 }
 

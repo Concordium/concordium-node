@@ -577,10 +577,12 @@ impl P2P for RpcServerImpl {
                     Some(ref consensus) => {
                         resp.set_consensus_baker_running(consensus.is_baking());
                         resp.set_consensus_running(true);
+                        resp.set_consensus_type(consensus.consensus_type.to_string());
                     }
                     None => {
                         resp.set_consensus_baker_running(false);
                         resp.set_consensus_running(false);
+                        resp.set_consensus_type("Inactive".to_owned());
                     }
                 }
                 sink.success(resp)
