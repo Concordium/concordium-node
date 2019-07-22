@@ -221,7 +221,7 @@ impl TlsServer {
         self.unreachable_nodes.insert(addr)
     }
 
-    pub fn accept(&mut self, poll: &RwLock<Poll>, self_peer: P2PPeer) -> Fallible<()> {
+    pub fn accept(&mut self, poll: &Poll, self_peer: P2PPeer) -> Fallible<()> {
         let (socket, addr) = self.server.accept()?;
 
         debug!(
@@ -269,7 +269,7 @@ impl TlsServer {
     pub fn connect(
         &mut self,
         peer_type: PeerType,
-        poll: &RwLock<Poll>,
+        poll: &Poll,
         addr: SocketAddr,
         peer_id_opt: Option<P2PNodeId>,
         self_peer: &P2PPeer,
@@ -592,11 +592,7 @@ impl TlsServer {
         }
     }
 
-    pub fn cleanup_connections(
-        &mut self,
-        max_peers_number: u16,
-        poll: &RwLock<Poll>,
-    ) -> Fallible<()> {
+    pub fn cleanup_connections(&mut self, max_peers_number: u16, poll: &Poll) -> Fallible<()> {
         let curr_stamp = get_current_stamp();
         let peer_type = self.peer_type();
 
