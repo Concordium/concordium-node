@@ -59,7 +59,7 @@ impl RpcServerImplShared {
 
 #[derive(Clone)]
 pub struct RpcServerImpl {
-    node:         Arc<RwLock<P2PNode>>,
+    node:         Arc<P2PNode>,
     listen_port:  u16,
     listen_addr:  String,
     access_token: String,
@@ -81,7 +81,7 @@ impl RpcServerImpl {
         let dptr = RpcServerImplShared::new(subscription_queue_out, node.rpc_queue.clone());
 
         RpcServerImpl {
-            node: Arc::new(RwLock::new(node)),
+            node: Arc::new(node),
             listen_addr: conf.rpc_server_addr.clone(),
             listen_port: conf.rpc_server_port,
             access_token: conf.rpc_server_token.clone(),
@@ -125,21 +125,19 @@ impl RpcServerImpl {
             let msg = req.get_message().get_value().to_vec();
             let network_id = NetworkId::from(req.get_network_id().get_value() as u16);
 
-            let node_shared = safe_read!(self.node)?;
-
             if req.has_node_id() && !req.get_broadcast().get_value() && req.has_network_id() {
                 let id = P2PNodeId::from_str(&req.get_node_id().get_value().to_string())?;
 
                 trace!("Sending direct message to: {}", id);
                 r.set_value(
-                    send_direct_message(&node_shared, Some(id), network_id, None, msg)
+                    send_direct_message(&self.node, Some(id), network_id, None, msg)
                         .map_err(|e| error!("{}", e))
                         .is_ok(),
                 );
             } else if req.get_broadcast().get_value() {
                 trace!("Sending broadcast message");
                 r.set_value(
-                    send_broadcast_message(&node_shared, None, network_id, None, msg)
+                    send_broadcast_message(&self.node, None, network_id, None, msg)
                         .map_err(|e| error!("{}", e))
                         .is_ok(),
                 );
@@ -243,15 +241,8 @@ impl P2P for RpcServerImpl {
                 });
                 let port = req.get_port().get_value() as u16;
                 let addr = SocketAddr::new(ip, port);
-                if let Ok(mut node) = self.node.write() {
-                    r.set_value(node.connect(PeerType::Node, addr, None).is_ok());
-                    sink.success(r)
-                } else {
-                    sink.fail(grpcio::RpcStatus::new(
-                        grpcio::RpcStatusCode::ResourceExhausted,
-                        Some("Node can't be locked".to_string()),
-                    ))
-                }
+                r.set_value(self.node.connect(PeerType::Node, addr, None).is_ok());
+                sink.success(r)
             } else {
                 r.set_value(false);
                 sink.success(r)
@@ -285,15 +276,10 @@ impl P2P for RpcServerImpl {
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
             let mut r: NumberResponse = NumberResponse::new();
-            let f = if let Ok(node) = self.node.read() {
-                let uptime = node.get_uptime() as u64;
+            let f = {
+                let uptime = self.node.get_uptime() as u64;
                 r.set_value(uptime);
                 sink.success(r)
-            } else {
-                sink.fail(grpcio::RpcStatus::new(
-                    grpcio::RpcStatusCode::ResourceExhausted,
-                    Some("Node can't be locked".to_string()),
-                ))
             };
             let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);
@@ -412,16 +398,9 @@ impl P2P for RpcServerImpl {
                     req.get_network_id().get_value()
                 );
                 let network_id = NetworkId::from(req.get_network_id().get_value() as u16);
-                if let Ok(mut node) = self.node.write() {
-                    node.send_joinnetwork(network_id);
-                    r.set_value(true);
-                    sink.success(r)
-                } else {
-                    sink.fail(grpcio::RpcStatus::new(
-                        grpcio::RpcStatusCode::ResourceExhausted,
-                        Some("Node can't be locked".to_string()),
-                    ))
-                }
+                self.node.send_joinnetwork(network_id);
+                r.set_value(true);
+                sink.success(r)
             } else {
                 r.set_value(false);
                 sink.success(r)
@@ -448,16 +427,9 @@ impl P2P for RpcServerImpl {
                     req.get_network_id().get_value()
                 );
                 let network_id = NetworkId::from(req.get_network_id().get_value() as u16);
-                if let Ok(mut node) = self.node.write() {
-                    node.send_leavenetwork(network_id);
-                    r.set_value(true);
-                    sink.success(r)
-                } else {
-                    sink.fail(grpcio::RpcStatus::new(
-                        grpcio::RpcStatusCode::ResourceExhausted,
-                        Some("Node can't be locked".to_string()),
-                    ))
-                }
+                self.node.send_leavenetwork(network_id);
+                r.set_value(true);
+                sink.success(r)
             } else {
                 r.set_value(false);
                 sink.success(r)
@@ -474,9 +446,9 @@ impl P2P for RpcServerImpl {
         sink: ::grpcio::UnarySink<PeerStatsResponse>,
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
-            let peer_stats = self.node.read().map(|node| node.get_peer_stats(&[]));
+            let peer_stats = self.node.get_peer_stats(&[]);
 
-            let f = if let Ok(peer_stats) = peer_stats {
+            let f = {
                 let data = peer_stats
                     .iter()
                     .map(|x| {
@@ -493,11 +465,6 @@ impl P2P for RpcServerImpl {
                 let mut resp = PeerStatsResponse::new();
                 resp.set_peerstats(::protobuf::RepeatedField::from_vec(data));
                 sink.success(resp)
-            } else {
-                sink.fail(grpcio::RpcStatus::new(
-                    grpcio::RpcStatusCode::ResourceExhausted,
-                    Some("Node can't be locked".to_string()),
-                ))
             };
             let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);
@@ -511,13 +478,11 @@ impl P2P for RpcServerImpl {
         sink: ::grpcio::UnarySink<PeerListResponse>,
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
-            let data = self
-                .node
-                .read()
-                .map(|node| (node.peer_type(), node.get_peer_stats(&[])));
-
-            let f = if let Ok((peer_type, peer_stats)) = data {
-                let data = peer_stats
+            let f = {
+                let peer_type = self.node.peer_type();
+                let data = self
+                    .node
+                    .get_peer_stats(&[])
                     .iter()
                     .map(|x| {
                         let mut peer_resp = PeerElement::new();
@@ -542,11 +507,6 @@ impl P2P for RpcServerImpl {
                 resp.set_peer_type(peer_type.to_string());
                 resp.set_peer(::protobuf::RepeatedField::from_vec(data));
                 sink.success(resp)
-            } else {
-                sink.fail(grpcio::RpcStatus::new(
-                    grpcio::RpcStatusCode::ResourceExhausted,
-                    Some("Node can't be locked".to_string()),
-                ))
             };
             let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);
@@ -562,8 +522,8 @@ impl P2P for RpcServerImpl {
         authenticate!(ctx, req, sink, self.access_token, {
             let mut resp = NodeInfoResponse::new();
             let mut node_id = ::protobuf::well_known_types::StringValue::new();
-            let f = if let Ok(node) = self.node.read() {
-                let (id, peer_type) = (node.id(), node.peer_type());
+            let f = {
+                let (id, peer_type) = (self.node.id(), self.node.peer_type());
 
                 node_id.set_value(id.to_string());
                 resp.set_node_id(node_id);
@@ -586,11 +546,6 @@ impl P2P for RpcServerImpl {
                     }
                 }
                 sink.success(resp)
-            } else {
-                sink.fail(grpcio::RpcStatus::new(
-                    grpcio::RpcStatusCode::ResourceExhausted,
-                    Some("Node can't be locked".to_string()),
-                ))
             };
             let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);
@@ -604,16 +559,11 @@ impl P2P for RpcServerImpl {
         sink: ::grpcio::UnarySink<SuccessResponse>,
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
-            let f = if let Ok(mut node) = self.node.write() {
-                node.rpc_subscription_start();
+            let f = {
+                self.node.rpc_subscription_start();
                 let mut r: SuccessResponse = SuccessResponse::new();
                 r.set_value(true);
                 sink.success(r)
-            } else {
-                sink.fail(grpcio::RpcStatus::new(
-                    grpcio::RpcStatusCode::ResourceExhausted,
-                    Some("Node can't be locked".to_string()),
-                ))
             };
             let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);
@@ -627,15 +577,10 @@ impl P2P for RpcServerImpl {
         sink: ::grpcio::UnarySink<SuccessResponse>,
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
-            let f = if let Ok(mut node) = self.node.write() {
+            let f = {
                 let mut r: SuccessResponse = SuccessResponse::new();
-                r.set_value(node.rpc_subscription_stop());
+                r.set_value(self.node.rpc_subscription_stop());
                 sink.success(r)
-            } else {
-                sink.fail(grpcio::RpcStatus::new(
-                    grpcio::RpcStatusCode::ResourceExhausted,
-                    Some("Node can't be locked".to_string()),
-                ))
             };
             let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);
@@ -715,28 +660,21 @@ impl P2P for RpcServerImpl {
             };
 
             let f = if let Some(to_ban) = banned_node {
-                if let Ok(mut node) = self.node.write() {
-                    let store_key = to_ban.to_db_repr();
+                let store_key = to_ban.to_db_repr();
 
-                    match insert_ban(&self.kvs_handle, &store_key) {
-                        Ok(_) => {
-                            node.ban_node(to_ban);
-                            node.send_ban(to_ban);
-                            r.set_value(true);
-                        }
-                        Err(e) => {
-                            error!("{}", e);
-                            r.set_value(false);
-                        }
+                match insert_ban(&self.kvs_handle, &store_key) {
+                    Ok(_) => {
+                        self.node.ban_node(to_ban);
+                        self.node.send_ban(to_ban);
+                        r.set_value(true);
                     }
-
-                    sink.success(r)
-                } else {
-                    sink.fail(grpcio::RpcStatus::new(
-                        grpcio::RpcStatusCode::ResourceExhausted,
-                        Some("Node can't be locked".to_string()),
-                    ))
+                    Err(e) => {
+                        error!("{}", e);
+                        r.set_value(false);
+                    }
                 }
+
+                sink.success(r)
             } else {
                 sink.fail(grpcio::RpcStatus::new(
                     grpcio::RpcStatusCode::InvalidArgument,
@@ -771,28 +709,21 @@ impl P2P for RpcServerImpl {
             };
 
             let f = if let Some(to_unban) = banned_node {
-                if let Ok(mut node) = self.node.write() {
-                    let store_key = to_unban.to_db_repr();
+                let store_key = to_unban.to_db_repr();
 
-                    match remove_ban(&self.kvs_handle, &store_key) {
-                        Ok(_) => {
-                            node.unban_node(to_unban);
-                            node.send_unban(to_unban);
-                            r.set_value(true);
-                        }
-                        Err(e) => {
-                            error!("{}", e);
-                            r.set_value(false);
-                        }
+                match remove_ban(&self.kvs_handle, &store_key) {
+                    Ok(_) => {
+                        self.node.unban_node(to_unban);
+                        self.node.send_unban(to_unban);
+                        r.set_value(true);
                     }
-
-                    sink.success(r)
-                } else {
-                    sink.fail(grpcio::RpcStatus::new(
-                        grpcio::RpcStatusCode::ResourceExhausted,
-                        Some("Node can't be locked".to_string()),
-                    ))
+                    Err(e) => {
+                        error!("{}", e);
+                        r.set_value(false);
+                    }
                 }
+
+                sink.success(r)
             } else {
                 sink.fail(grpcio::RpcStatus::new(
                     grpcio::RpcStatusCode::InvalidArgument,
@@ -968,9 +899,10 @@ impl P2P for RpcServerImpl {
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
             let mut r: PeerListResponse = PeerListResponse::new();
-            let f = if let Ok(node) = self.node.read() {
+            let f = {
                 r.set_peer(::protobuf::RepeatedField::from_vec(
-                    node.get_banlist()
+                    self.node
+                        .get_banlist()
                         .iter()
                         .map(|banned_node| {
                             let mut pe = PeerElement::new();
@@ -991,11 +923,6 @@ impl P2P for RpcServerImpl {
                         .collect::<Vec<PeerElement>>(),
                 ));
                 sink.success(r)
-            } else {
-                sink.fail(grpcio::RpcStatus::new(
-                    grpcio::RpcStatusCode::ResourceExhausted,
-                    Some("Node can't be locked".to_string()),
-                ))
             };
             let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);
@@ -1008,15 +935,10 @@ impl P2P for RpcServerImpl {
         req: Empty,
         sink: ::grpcio::UnarySink<SuccessResponse>,
     ) {
-        let f = if let Ok(mut node) = self.node.write() {
+        let f = {
             let mut r: SuccessResponse = SuccessResponse::new();
-            r.set_value(node.close().is_ok());
+            r.set_value(self.node.close().is_ok());
             sink.success(r)
-        } else {
-            sink.fail(grpcio::RpcStatus::new(
-                grpcio::RpcStatusCode::ResourceExhausted,
-                Some("Node can't be locked".to_string()),
-            ))
         };
         let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
         ctx.spawn(f);
@@ -1029,13 +951,13 @@ impl P2P for RpcServerImpl {
         req: TpsRequest,
         sink: ::grpcio::UnarySink<SuccessResponse>,
     ) {
-        let f = if let Ok(locked_node) = self.node.read() {
+        let f = {
             let (network_id, id, dir) = (
                 NetworkId::from(req.network_id as u16),
                 req.id.clone(),
                 req.directory.clone(),
             );
-            let _node_list = locked_node.get_peer_stats(&[network_id]);
+            let _node_list = self.node.get_peer_stats(&[network_id]);
             if !_node_list.into_iter().any(|s| s.id == id) {
                 sink.fail(grpcio::RpcStatus::new(
                     grpcio::RpcStatusCode::FailedPrecondition,
@@ -1048,7 +970,7 @@ impl P2P for RpcServerImpl {
                     let out_bytes_len = message.len();
                     let to_send = P2PNodeId::from_str(&id).ok();
                     match send_direct_message(
-                        &locked_node,
+                        &self.node,
                         to_send,
                         network_id,
                         None,
@@ -1068,11 +990,6 @@ impl P2P for RpcServerImpl {
                 r.set_value(result);
                 sink.success(r)
             }
-        } else {
-            sink.fail(grpcio::RpcStatus::new(
-                grpcio::RpcStatusCode::ResourceExhausted,
-                Some("Node can't be locked".to_string()),
-            ))
         };
         let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
         ctx.spawn(f);
@@ -1190,10 +1107,10 @@ impl P2P for RpcServerImpl {
         req: RetransmitRequestMessage,
         sink: ::grpcio::UnarySink<SuccessResponse>,
     ) {
-        let f = if let Ok(mut node) = self.node.write() {
+        let f = {
             if req.has_since() {
                 let mut r: SuccessResponse = SuccessResponse::new();
-                node.send_retransmit(
+                self.node.send_retransmit(
                     RequestedElementType::from(req.get_element_type() as u8),
                     req.get_since().get_value(),
                     NetworkId::from(req.get_network_id() as u16),
@@ -1206,11 +1123,6 @@ impl P2P for RpcServerImpl {
                     Some("`Since` argument can not be ommited".to_string()),
                 ))
             }
-        } else {
-            sink.fail(grpcio::RpcStatus::new(
-                grpcio::RpcStatusCode::ResourceExhausted,
-                Some("Node can't be locked".to_string()),
-            ))
         };
         let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
         ctx.spawn(f);
@@ -1265,7 +1177,7 @@ mod tests {
     use failure::Fallible;
     use grpcio::{ChannelBuilder, EnvBuilder};
     use rkv::{Manager, Rkv};
-    use std::{ops::Deref, sync::Arc};
+    use std::sync::Arc;
 
     // Same as create_node_rpc_call_option but also outputs the Message receiver
     fn create_node_rpc_call_option_waiter(
@@ -1410,7 +1322,7 @@ mod tests {
         let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
         let port = next_available_port();
         let (mut node2, wt1) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, safe_read!(rpc_serv.node)?.deref())?;
+        connect(&mut node2, &rpc_serv.node)?;
         await_handshake(&wt1)?;
         let emp = crate::proto::Empty::new();
         let rcv = client
@@ -1425,7 +1337,7 @@ mod tests {
         let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
         let port = next_available_port();
         let (mut node2, wt1) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, safe_read!(rpc_serv.node)?.deref())?;
+        connect(&mut node2, &rpc_serv.node)?;
         await_handshake(&wt1)?;
         let emp = crate::proto::Empty::new();
         let snt = client
@@ -1442,7 +1354,7 @@ mod tests {
         let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
         let port = next_available_port();
         let (mut node2, wt1) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, safe_read!(rpc_serv.node)?.deref())?;
+        connect(&mut node2, &rpc_serv.node)?;
         await_handshake(&wt1)?;
         let mut message = protobuf::well_known_types::BytesValue::new();
         message.set_value(b"Hey".to_vec());
@@ -1479,7 +1391,7 @@ mod tests {
         let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
         let port = next_available_port();
         let (mut node2, wt1) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, safe_read!(rpc_serv.node)?.deref())?;
+        connect(&mut node2, &rpc_serv.node)?;
         await_handshake(&wt1)?;
         let mut net = protobuf::well_known_types::Int32Value::new();
         net.set_value(10);
@@ -1494,7 +1406,7 @@ mod tests {
         let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
         let port = next_available_port();
         let (mut node2, wt1) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, safe_read!(rpc_serv.node)?.deref())?;
+        connect(&mut node2, &rpc_serv.node)?;
         await_handshake(&wt1)?;
         let mut net = protobuf::well_known_types::Int32Value::new();
         net.set_value(100);
@@ -1515,7 +1427,7 @@ mod tests {
         assert!(rcv.is_empty());
         let port = next_available_port();
         let (mut node2, wt1) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, safe_read!(rpc_serv.node)?.deref())?;
+        connect(&mut node2, &rpc_serv.node)?;
         await_handshake(&wt1)?;
         let emp = crate::proto::Empty::new();
         let rcv = client
@@ -1536,7 +1448,7 @@ mod tests {
         assert_eq!(rcv.get_peer_type(), "Node");
         let port = next_available_port();
         let (mut node2, wt1) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, safe_read!(rpc_serv.node)?.deref())?;
+        connect(&mut node2, &rpc_serv.node)?;
         await_handshake(&wt1)?;
         let emp = crate::proto::Empty::new();
         let rcv = client
@@ -1585,7 +1497,7 @@ mod tests {
         assert_eq!(reply.peer_type, "Node");
         assert_eq!(
             reply.node_id.unwrap().get_value(),
-            safe_read!(rpc_serv.node)?.id().to_string()
+            rpc_serv.node.id().to_string()
         );
         Ok(())
     }
@@ -1622,7 +1534,7 @@ mod tests {
         let (client, rpc_serv, callopts, wt1) = create_node_rpc_call_option_waiter(PeerType::Node);
         let port = next_available_port();
         let (mut node2, wt2) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, safe_read!(rpc_serv.node)?.deref())?;
+        connect(&mut node2, &rpc_serv.node)?;
         await_handshake(&wt2)?;
         client.subscription_start_opt(&crate::proto::Empty::new(), callopts.clone())?;
         send_broadcast_message(
@@ -1682,7 +1594,7 @@ mod tests {
         let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
         let port = next_available_port();
         let (mut node2, wt2) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, safe_read!(rpc_serv.node)?.deref())?;
+        connect(&mut node2, &rpc_serv.node)?;
         await_handshake(&wt2)?;
         let mut req = crate::proto::TpsRequest::new();
         req.set_network_id(100);
@@ -1705,7 +1617,7 @@ mod tests {
         let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
         let port = next_available_port();
         let (mut node2, wt2) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, safe_read!(rpc_serv.node)?.deref())?;
+        connect(&mut node2, &rpc_serv.node)?;
         await_handshake(&wt2)?;
         let mut req = crate::proto::TpsRequest::new();
         req.set_network_id(100);

@@ -554,7 +554,7 @@ impl P2PNode {
     pub fn get_version(&self) -> String { crate::VERSION.to_string() }
 
     pub fn connect(
-        &mut self,
+        &self,
         peer_type: PeerType,
         addr: SocketAddr,
         peer_id: Option<P2PNodeId>,
@@ -879,7 +879,7 @@ impl P2PNode {
         }
     }
 
-    pub fn process_messages(&mut self) {
+    pub fn process_messages(&self) {
         lock_or_die!(self.send_queue_out)
             .try_iter()
             .map(|outer_pkt| {
@@ -962,7 +962,7 @@ impl P2PNode {
             });
     }
 
-    fn process_resend_queue(&mut self) {
+    fn process_resend_queue(&self) {
         let resend_failures = lock_or_die!(self.resend_queue_out)
             .try_iter()
             .map(|wrapper| {
@@ -1053,11 +1053,11 @@ impl P2PNode {
 
     pub fn internal_addr(&self) -> SocketAddr { self.self_peer.addr }
 
-    pub fn ban_node(&mut self, peer: BannedNode) { self.tls_server.ban_node(peer); }
+    pub fn ban_node(&self, peer: BannedNode) { self.tls_server.ban_node(peer); }
 
-    pub fn unban_node(&mut self, peer: BannedNode) { self.tls_server.unban_node(peer); }
+    pub fn unban_node(&self, peer: BannedNode) { self.tls_server.unban_node(peer); }
 
-    pub fn process(&mut self, events: &mut Events) -> Fallible<()> {
+    pub fn process(&self, events: &mut Events) -> Fallible<()> {
         self.poll.poll(events, Some(Duration::from_millis(10000)))?;
 
         if self.peer_type() != PeerType::Bootstrapper {
@@ -1101,7 +1101,7 @@ impl P2PNode {
         Ok(())
     }
 
-    pub fn close(&mut self) -> Fallible<()> {
+    pub fn close(&self) -> Fallible<()> {
         if let Some(ref q) = self.quit_tx {
             q.send(true)?;
             info!("P2PNode shutting down.");
@@ -1116,9 +1116,9 @@ impl P2PNode {
 
     pub fn get_banlist(&self) -> Vec<BannedNode> { self.tls_server.get_banlist() }
 
-    pub fn rpc_subscription_start(&mut self) { self.is_rpc_online.store(true, Ordering::Relaxed); }
+    pub fn rpc_subscription_start(&self) { self.is_rpc_online.store(true, Ordering::Relaxed); }
 
-    pub fn rpc_subscription_stop(&mut self) -> bool {
+    pub fn rpc_subscription_stop(&self) -> bool {
         self.is_rpc_online.store(false, Ordering::Relaxed);
         true
     }
@@ -1139,12 +1139,12 @@ impl P2PNode {
         Ok(())
     }
 
-    pub fn add_notification(&mut self, func: UnitFunction<NetworkMessage>) -> &Self {
+    pub fn add_notification(&self, func: UnitFunction<NetworkMessage>) -> &Self {
         self.tls_server.add_notification(func);
         self
     }
 
-    pub fn send_ban(&mut self, id: BannedNode) {
+    pub fn send_ban(&self, id: BannedNode) {
         send_or_die!(
             self.send_queue_in,
             Arc::new(NetworkMessage::NetworkRequest(
@@ -1156,7 +1156,7 @@ impl P2PNode {
         self.queue_size_inc();
     }
 
-    pub fn send_unban(&mut self, id: BannedNode) {
+    pub fn send_unban(&self, id: BannedNode) {
         send_or_die!(
             self.send_queue_in,
             Arc::new(NetworkMessage::NetworkRequest(
@@ -1168,7 +1168,7 @@ impl P2PNode {
         self.queue_size_inc();
     }
 
-    pub fn send_joinnetwork(&mut self, network_id: NetworkId) {
+    pub fn send_joinnetwork(&self, network_id: NetworkId) {
         send_or_die!(
             self.send_queue_in,
             Arc::new(NetworkMessage::NetworkRequest(
@@ -1180,7 +1180,7 @@ impl P2PNode {
         self.queue_size_inc();
     }
 
-    pub fn send_leavenetwork(&mut self, network_id: NetworkId) {
+    pub fn send_leavenetwork(&self, network_id: NetworkId) {
         send_or_die!(
             self.send_queue_in,
             Arc::new(NetworkMessage::NetworkRequest(
@@ -1192,7 +1192,7 @@ impl P2PNode {
         self.queue_size_inc();
     }
 
-    pub fn send_get_peers(&mut self, nids: HashSet<NetworkId>) {
+    pub fn send_get_peers(&self, nids: HashSet<NetworkId>) {
         send_or_die!(
             self.send_queue_in,
             Arc::new(NetworkMessage::NetworkRequest(
@@ -1205,7 +1205,7 @@ impl P2PNode {
     }
 
     pub fn send_retransmit(
-        &mut self,
+        &self,
         requested_type: RequestedElementType,
         since: u64,
         nid: NetworkId,
