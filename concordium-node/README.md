@@ -26,9 +26,12 @@ This repository uses git lfs for storing binary dependencies, and relies on git 
 * profiling - build against haskell libraries in GIT LFS with profiling support enabled (Linux only)
 
 ## Setting up basic local build environment
-Install the needed dependencies from the list above (Windows build is special, for that see cross-compilation build environment setup script in scripts/init.win.build.env.sh for further details), and run the script (requires that the user executing is has sudo privileges) `scripts/local-setup-unix-deps.sh` and pay special attention to setting the right version of GHC (see [build scripts](/scripts/init.build.env.sh#L16) for details).
+Install the needed dependencies from the list above (Windows build is special, for that see cross-compilation build environment setup script in [scripts/init.win.build.env.sh](/scripts/init.win.build.env.sh) for further details), and run the script (requires that the user executing is has sudo privileges) `scripts/local-setup-unix-deps.sh` and pay special attention to setting the right version of GHC (see [build scripts](/scripts/local-setup-unix-deps.sh#L25) for details).
 
-Alternatively use `--features=static` to build statically against the haskell dependencies (only available on Linux, and requries that you download them using `scripts/download-static-libs.sh` before first compilation, and whenever the pointer to any internal dependencies are updated).
+Alternatively use `--features=static` to build statically against the haskell dependencies (only available on Linux, and requries that you download them using [scripts/download-static-libs.sh](/scripts/download-static-libs.sh) before first compilation, and whenever the pointer to any internal dependencies are updated).
+
+## Installing genesis data
+Unpack the relevant set of genesis data and private baker data from [scripts/genesis-data/](/scripts/genesis-data) to the correct OS folder (e.g. on Linux this would be `$HOME/.local/share/ConcordiumP2P`). This determines how many bakers you need to run for the network to be able to work properly.
 
 ## Running the library as a binary (usable via gRPC)
 ```bash
