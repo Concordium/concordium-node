@@ -273,12 +273,10 @@ impl Connection {
     /// It registers the connection socket, for read and write ops using *edge*
     /// notifications.
     #[inline]
-    pub fn register(&self, poll: &RwLock<Poll>) -> Fallible<()> {
-        read_or_die!(self.dptr).register(poll)
-    }
+    pub fn register(&self, poll: &Poll) -> Fallible<()> { read_or_die!(self.dptr).register(poll) }
 
     #[inline]
-    pub fn deregister(&self, poll: &RwLock<Poll>) -> Fallible<()> {
+    pub fn deregister(&self, poll: &Poll) -> Fallible<()> {
         read_or_die!(self.dptr).deregister(poll)
     }
 

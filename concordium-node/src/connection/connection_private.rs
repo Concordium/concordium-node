@@ -96,8 +96,8 @@ impl ConnectionPrivate {
     /// This allows us to receive notifications once `socket` is able to read
     /// or/and write.
     #[inline]
-    pub fn register(&self, poll: &RwLock<Poll>) -> Fallible<()> {
-        into_err!(write_or_die!(poll).register(
+    pub fn register(&self, poll: &Poll) -> Fallible<()> {
+        into_err!(poll.register(
             &self.socket,
             self.token,
             Ready::readable() | Ready::writable(),
@@ -106,8 +106,8 @@ impl ConnectionPrivate {
     }
 
     #[inline]
-    pub fn deregister(&self, poll: &RwLock<Poll>) -> Fallible<()> {
-        map_io_error_to_fail!(safe_write!(poll)?.deregister(&self.socket))
+    pub fn deregister(&self, poll: &Poll) -> Fallible<()> {
+        map_io_error_to_fail!(poll.deregister(&self.socket))
     }
 
     /// It shuts `socket` down.

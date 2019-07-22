@@ -25,7 +25,7 @@ pub struct NetworkRawRequest {
 /// poll-loop.
 pub fn process_network_requests(
     tls_server: &TlsServer,
-    network_request_receiver: &mut Receiver<NetworkRawRequest>,
+    network_request_receiver: &Receiver<NetworkRawRequest>,
 ) {
     network_request_receiver
         .try_iter()

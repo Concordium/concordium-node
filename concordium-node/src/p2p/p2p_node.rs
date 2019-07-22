@@ -100,7 +100,7 @@ impl ResendQueueEntry {
 
 #[derive(Clone)]
 pub struct P2PNode {
-    poll:                     Arc<RwLock<Poll>>,
+    poll:                     Arc<Poll>,
     send_queue_out:           Arc<Mutex<Receiver<Arc<NetworkMessage>>>>,
     resend_queue_in:          SyncSender<ResendQueueEntry>,
     resend_queue_out:         Arc<Mutex<Receiver<ResendQueueEntry>>>,
@@ -266,7 +266,7 @@ impl P2PNode {
         let (resend_queue_in, resend_queue_out) = sync_channel(10000);
 
         let mut mself = P2PNode {
-            poll: Arc::new(RwLock::new(poll)),
+            poll: Arc::new(poll),
             send_queue_out: Arc::new(Mutex::new(send_queue_out)),
             resend_queue_in: resend_queue_in.clone(),
             resend_queue_out: Arc::new(Mutex::new(resend_queue_out)),
@@ -487,7 +487,7 @@ impl P2PNode {
             loop {
                 let _ = self_clone.process(&mut events).map_err(|e| error!("{}", e));
 
-                process_network_requests(&self_clone.tls_server, &mut network_request_receiver);
+                process_network_requests(&self_clone.tls_server, &network_request_receiver);
 
                 // Check termination channel.
                 if rx.try_recv().is_ok() {
@@ -1060,7 +1060,7 @@ impl P2PNode {
     pub fn unban_node(&mut self, peer: BannedNode) { self.tls_server.unban_node(peer); }
 
     pub fn process(&mut self, events: &mut Events) -> Fallible<()> {
-        read_or_die!(self.poll).poll(events, Some(Duration::from_millis(10000)))?;
+        self.poll.poll(events, Some(Duration::from_millis(10000)))?;
 
         if self.peer_type() != PeerType::Bootstrapper {
             self.tls_server.liveness_check()?;
