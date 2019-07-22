@@ -289,11 +289,14 @@ fn process_internal_skov_entry(
     let (entry_info, skov_result) = match request.variant {
         PacketType::Block => {
             let block = PendingBlock::new(&request.payload)?;
-            (format!("{:?}", block.block), skov.add_block(block))
+            (format!("{:?}", block.block), skov.add_block(block, false))
         }
         PacketType::FinalizationRecord => {
             let record = FinalizationRecord::deserialize(&request.payload)?;
-            (format!("{:?}", record), skov.add_finalization(record))
+            (
+                format!("{:?}", record),
+                skov.add_finalization(record, false),
+            )
         }
         PacketType::CatchupBlockByHash
         | PacketType::CatchupFinalizationRecordByHash
@@ -366,12 +369,12 @@ fn process_external_skov_entry(
     let (skov_result, consensus_applicable) = match request.variant {
         PacketType::Block => {
             let block = PendingBlock::new(&request.payload)?;
-            let skov_result = skov.add_block(block);
+            let skov_result = skov.add_block(block, false);
             (skov_result, true)
         }
         PacketType::FinalizationRecord => {
             let record = FinalizationRecord::deserialize(&request.payload)?;
-            let skov_result = skov.add_finalization(record);
+            let skov_result = skov.add_finalization(record, false);
             (skov_result, true)
         }
         PacketType::CatchupBlockByHash => {
