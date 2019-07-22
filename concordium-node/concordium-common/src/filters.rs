@@ -61,7 +61,7 @@ impl<T: Send> Filters<T> {
         }
     }
 
-    pub fn add_filter(&mut self, filter: FilterAFunc<T>, priority: u8) -> &mut Self {
+    pub fn add_filter(&self, filter: FilterAFunc<T>, priority: u8) -> &Self {
         write_or_die!(self.filters).push(Filter {
             func: filter,
             priority,
@@ -69,14 +69,14 @@ impl<T: Send> Filters<T> {
         self
     }
 
-    pub fn push_filter(&mut self, filter: Filter<T>) -> &mut Self {
+    pub fn push_filter(&self, filter: Filter<T>) -> &Self {
         write_or_die!(self.filters).push(filter);
         self
     }
 
     pub fn get_filters(&self) -> &RwLock<Vec<Filter<T>>> { &self.filters }
 
-    pub fn run_filters(&mut self, message: &T) -> Result<FilterResult, Error> {
+    pub fn run_filters(&self, message: &T) -> Result<FilterResult, Error> {
         write_or_die!(self.filters).sort();
         for cb in read_or_die!(self.filters).iter().rev() {
             let res = (cb.func)(message)?;

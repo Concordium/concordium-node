@@ -27,7 +27,7 @@ pub enum ProcessResult {
 }
 
 pub fn collapse_process_result(
-    conn: &mut Connection,
+    conn: &Connection,
     data: Vec<UCursor>,
 ) -> Result<ProcessResult, Vec<Result<ProcessResult, failure::Error>>> {
     let mut found_drop = false;
@@ -81,51 +81,51 @@ impl MessageProcessor {
         }
     }
 
-    pub fn add_filter(&mut self, func: FilterAFunc<NetworkMessage>, priority: u8) -> &mut Self {
+    pub fn add_filter(&self, func: FilterAFunc<NetworkMessage>, priority: u8) -> &Self {
         self.filters.add_filter(func, priority);
         self
     }
 
-    pub fn push_filter(&mut self, filter: Filter<NetworkMessage>) -> &mut Self {
+    pub fn push_filter(&self, filter: Filter<NetworkMessage>) -> &Self {
         self.filters.push_filter(filter);
         self
     }
 
     pub fn filters(&self) -> &RwLock<Vec<Filter<NetworkMessage>>> { self.filters.get_filters() }
 
-    pub fn add_request_action(&mut self, callback: NetworkRequestCW) -> &mut Self {
+    pub fn add_request_action(&self, callback: NetworkRequestCW) -> &Self {
         self.actions.add_request_callback(callback);
         self
     }
 
-    pub fn add_response_action(&mut self, callback: NetworkResponseCW) -> &mut Self {
+    pub fn add_response_action(&self, callback: NetworkResponseCW) -> &Self {
         self.actions.add_response_callback(callback);
         self
     }
 
-    pub fn add_packet_action(&mut self, callback: NetworkPacketCW) -> &mut Self {
+    pub fn add_packet_action(&self, callback: NetworkPacketCW) -> &Self {
         self.actions.add_packet_callback(callback);
         self
     }
 
-    pub fn add_action(&mut self, callback: NetworkMessageCW) -> &mut Self {
+    pub fn add_action(&self, callback: NetworkMessageCW) -> &Self {
         self.actions.add_callback(callback);
         self
     }
 
-    pub fn set_invalid_handler(&mut self, func: EmptyFunction) -> &mut Self {
+    pub fn set_invalid_handler(&self, func: EmptyFunction) -> &Self {
         self.actions.set_invalid_handler(func);
         self
     }
 
-    pub fn set_unknown_handler(&mut self, func: EmptyFunction) -> &mut Self {
+    pub fn set_unknown_handler(&self, func: EmptyFunction) -> &Self {
         self.actions.set_unknown_handler(func);
         self
     }
 
     pub fn actions(&self) -> &MessageHandler { &self.actions }
 
-    pub fn add_notification(&mut self, func: UnitFunction<NetworkMessage>) -> &mut Self {
+    pub fn add_notification(&self, func: UnitFunction<NetworkMessage>) -> &Self {
         self.notifications.add_callback(func);
         self
     }
@@ -134,7 +134,7 @@ impl MessageProcessor {
         &self.notifications.callbacks()
     }
 
-    pub fn process_message(&mut self, message: &NetworkMessage) -> Fallible<ProcessResult> {
+    pub fn process_message(&self, message: &NetworkMessage) -> Fallible<ProcessResult> {
         if FilterResult::Pass == self.filters.run_filters(message)? {
             self.actions.process_message(message)?;
             self.notifications.run_callbacks(message)?;
@@ -144,7 +144,7 @@ impl MessageProcessor {
         }
     }
 
-    pub fn add(&mut self, other: MessageProcessor) -> &mut Self {
+    pub fn add(&self, other: MessageProcessor) -> &Self {
         for cb in read_or_die!(other.filters()).iter() {
             self.push_filter(cb.clone());
         }

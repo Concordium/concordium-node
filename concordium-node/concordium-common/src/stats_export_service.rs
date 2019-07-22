@@ -245,42 +245,42 @@ impl StatsExportService {
         })
     }
 
-    pub fn peers_inc(&mut self) {
+    pub fn peers_inc(&self) {
         #[cfg(feature = "instrumentation")]
         self.peers_gauge.inc();
         #[cfg(not(feature = "instrumentation"))]
         self.peers_gauge.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub fn peers_dec(&mut self) {
+    pub fn peers_dec(&self) {
         #[cfg(feature = "instrumentation")]
         self.peers_gauge.dec();
         #[cfg(not(feature = "instrumentation"))]
         self.peers_gauge.fetch_sub(1, Ordering::Relaxed);
     }
 
-    pub fn pkt_received_inc(&mut self) {
+    pub fn pkt_received_inc(&self) {
         #[cfg(feature = "instrumentation")]
         self.pkts_received_counter.inc();
         #[cfg(not(feature = "instrumentation"))]
         self.pkts_received_counter.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub fn pkt_sent_inc(&mut self) {
+    pub fn pkt_sent_inc(&self) {
         #[cfg(feature = "instrumentation")]
         self.pkts_sent_counter.inc();
         #[cfg(not(feature = "instrumentation"))]
         self.pkts_sent_counter.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub fn pkt_dropped_inc(&mut self) {
+    pub fn pkt_dropped_inc(&self) {
         #[cfg(feature = "instrumentation")]
         self.pkts_dropped_counter.inc();
         #[cfg(not(feature = "instrumentation"))]
         self.pkts_dropped_counter.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub fn pkt_sent_inc_by(&mut self, to_add: i64) {
+    pub fn pkt_sent_inc_by(&self, to_add: i64) {
         #[cfg(feature = "instrumentation")]
         self.pkts_sent_counter.inc_by(to_add);
         #[cfg(not(feature = "instrumentation"))]
@@ -288,14 +288,14 @@ impl StatsExportService {
             .fetch_add(to_add as usize, Ordering::Relaxed);
     }
 
-    pub fn conn_received_inc(&mut self) {
+    pub fn conn_received_inc(&self) {
         #[cfg(feature = "instrumentation")]
         self.connections_received.inc();
         #[cfg(not(feature = "instrumentation"))]
         self.connections_received.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub fn invalid_pkts_received_inc(&mut self) {
+    pub fn invalid_pkts_received_inc(&self) {
         #[cfg(feature = "instrumentation")]
         self.invalid_packets_received.inc();
         #[cfg(not(feature = "instrumentation"))]
@@ -303,7 +303,7 @@ impl StatsExportService {
             .fetch_add(1, Ordering::Relaxed);
     }
 
-    pub fn invalid_network_pkts_received_inc(&mut self) {
+    pub fn invalid_network_pkts_received_inc(&self) {
         #[cfg(feature = "instrumentation")]
         self.invalid_network_packets_received.inc();
         #[cfg(not(feature = "instrumentation"))]
@@ -311,7 +311,7 @@ impl StatsExportService {
             .fetch_add(1, Ordering::Relaxed);
     }
 
-    pub fn unknown_pkts_received_inc(&mut self) {
+    pub fn unknown_pkts_received_inc(&self) {
         #[cfg(feature = "instrumentation")]
         self.unknown_packets_received.inc();
         #[cfg(not(feature = "instrumentation"))]
@@ -319,35 +319,35 @@ impl StatsExportService {
             .fetch_add(1, Ordering::Relaxed);
     }
 
-    pub fn queue_size_inc(&mut self) {
+    pub fn queue_size_inc(&self) {
         #[cfg(feature = "instrumentation")]
         self.queue_size.inc();
         #[cfg(not(feature = "instrumentation"))]
         self.queue_size.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub fn queue_size_dec(&mut self) {
+    pub fn queue_size_dec(&self) {
         #[cfg(feature = "instrumentation")]
         self.queue_size.dec();
         #[cfg(not(feature = "instrumentation"))]
         self.queue_size.fetch_sub(1, Ordering::Relaxed);
     }
 
-    pub fn resend_queue_size_inc(&mut self) {
+    pub fn resend_queue_size_inc(&self) {
         #[cfg(feature = "instrumentation")]
         self.resend_queue_size.inc();
         #[cfg(not(feature = "instrumentation"))]
         self.resend_queue_size.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub fn resend_queue_size_dec(&mut self) {
+    pub fn resend_queue_size_dec(&self) {
         #[cfg(feature = "instrumentation")]
         self.resend_queue_size.dec();
         #[cfg(not(feature = "instrumentation"))]
         self.resend_queue_size.fetch_sub(1, Ordering::Relaxed);
     }
 
-    pub fn queue_size_inc_by(&mut self, to_add: i64) {
+    pub fn queue_size_inc_by(&self, to_add: i64) {
         #[cfg(feature = "instrumentation")]
         self.queue_size.add(to_add);
         #[cfg(not(feature = "instrumentation"))]
@@ -355,7 +355,7 @@ impl StatsExportService {
             .fetch_add(to_add as usize, Ordering::Relaxed);
     }
 
-    pub fn pkt_resend_inc(&mut self) {
+    pub fn pkt_resend_inc(&self) {
         #[cfg(feature = "instrumentation")]
         self.pkts_resend_counter.inc();
         #[cfg(not(feature = "instrumentation"))]
@@ -369,7 +369,7 @@ impl StatsExportService {
         return self.queue_size.load(Ordering::Relaxed) as i64;
     }
 
-    pub fn set_skov_block_receipt(&mut self, value: i64) {
+    pub fn set_skov_block_receipt(&self, value: i64) {
         #[cfg(feature = "instrumentation")]
         return self.skov_block_receipt.set(value);
         #[cfg(not(feature = "instrumentation"))]
@@ -377,7 +377,7 @@ impl StatsExportService {
             .store(value as usize, Ordering::Relaxed);
     }
 
-    pub fn set_skov_block_entry(&mut self, value: i64) {
+    pub fn set_skov_block_entry(&self, value: i64) {
         #[cfg(feature = "instrumentation")]
         return self.skov_block_entry.set(value);
         #[cfg(not(feature = "instrumentation"))]
@@ -385,7 +385,7 @@ impl StatsExportService {
             .store(value as usize, Ordering::Relaxed);
     }
 
-    pub fn set_skov_block_query(&mut self, value: i64) {
+    pub fn set_skov_block_query(&self, value: i64) {
         #[cfg(feature = "instrumentation")]
         return self.skov_block_query.set(value);
         #[cfg(not(feature = "instrumentation"))]
@@ -393,7 +393,7 @@ impl StatsExportService {
             .store(value as usize, Ordering::Relaxed);
     }
 
-    pub fn set_skov_finalization_receipt(&mut self, value: i64) {
+    pub fn set_skov_finalization_receipt(&self, value: i64) {
         #[cfg(feature = "instrumentation")]
         return self.skov_finalization_receipt.set(value);
         #[cfg(not(feature = "instrumentation"))]
@@ -401,7 +401,7 @@ impl StatsExportService {
             .store(value as usize, Ordering::Relaxed);
     }
 
-    pub fn set_skov_finalization_entry(&mut self, value: i64) {
+    pub fn set_skov_finalization_entry(&self, value: i64) {
         #[cfg(feature = "instrumentation")]
         return self.skov_finalization_entry.set(value);
         #[cfg(not(feature = "instrumentation"))]
@@ -409,7 +409,7 @@ impl StatsExportService {
             .store(value as usize, Ordering::Relaxed);
     }
 
-    pub fn set_skov_finalization_query(&mut self, value: i64) {
+    pub fn set_skov_finalization_query(&self, value: i64) {
         #[cfg(feature = "instrumentation")]
         return self.skov_finalization_query.set(value);
         #[cfg(not(feature = "instrumentation"))]
@@ -453,7 +453,7 @@ impl StatsExportService {
     }
 
     #[cfg(feature = "instrumentation")]
-    pub fn start_server(&mut self, listen_addr: SocketAddr) {
+    pub fn start_server(&self, listen_addr: SocketAddr) {
         let self_clone = self.clone();
         let runtime = runtime::Builder::new()
             .core_threads(num_cpus::get())
@@ -467,7 +467,7 @@ impl StatsExportService {
     }
 
     #[cfg(feature = "instrumentation")]
-    pub fn stop_server(&mut self) {
+    pub fn stop_server(&self) {
         if let Ok(mut locked_tokio) = self.tokio_runtime.lock() {
             if (&*locked_tokio).is_some() {
                 let old_v = std::mem::replace(&mut *locked_tokio, None);

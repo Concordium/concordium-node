@@ -61,7 +61,6 @@ fi
 
 if [ -n "$NUM_BAKERS" ];
 then
-    ARGS="$ARGS --num-bakers $NUM_BAKERS"
     if [ -n "$DATA_DIR" ];
     then
         cd /genesis-data
@@ -193,7 +192,6 @@ elif [ "$MODE" == "tps_sender" ]; then
 
     /p2p_client-cli \
     --tps-test-data-dir $DATA_DIR/tps_test \
-    --baker-id 1 \
     --connect-to 10.96.0.15:8888 \
     --external-ip 10.96.0.16 \
     $ARGS
@@ -224,7 +222,6 @@ elif [ "$MODE" == "local_basic" ]; then
         --external-port $EXTERNAL_PORT \
         --bootstrap-node $BOOTSTRAP_NODE \
         --baker-id $BAKER_ID \
-        --num-bakers $NUM_BAKERS \
         --rpc-server-addr 0.0.0.0 \
         $EXTRA_ARGS
 

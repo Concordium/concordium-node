@@ -103,25 +103,6 @@ pub struct TpsConfig {
 pub struct BakerConfig {
     #[structopt(long = "baker-id", help = "Baker ID")]
     pub baker_id: Option<u64>,
-    #[structopt(
-        long = "num-bakers",
-        help = "Number of bakers in the network",
-        default_value = "60"
-    )]
-    pub baker_num_bakers: u64,
-    #[structopt(
-        long = "baker-genesis",
-        help = "Genesis time to build with",
-        default_value = "0"
-    )]
-    pub baker_genesis: u64,
-    #[structopt(
-        long = "cryptographic-providers",
-        help = "Cryptographic providers file"
-    )]
-    pub cryptographic_providers: Option<String>,
-    #[structopt(long = "identity-providers", help = "Identity providers file")]
-    pub identity_providers: Option<String>,
     #[cfg(feature = "profiling")]
     #[structopt(
         long = "heap-profiling",

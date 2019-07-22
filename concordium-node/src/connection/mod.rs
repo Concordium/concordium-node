@@ -69,7 +69,11 @@ use mio::{Event, Poll, Token};
 use std::{
     collections::HashSet,
     net::SocketAddr,
-    sync::{atomic::Ordering, mpsc::SyncSender, Arc, RwLock},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        mpsc::SyncSender,
+        Arc, RwLock,
+    },
 };
 
 /// This macro clones `dptr` and moves it into callback closure.
@@ -85,8 +89,8 @@ macro_rules! handle_by_private {
 pub struct Connection {
     // Counters
     messages_sent:     u64,
-    messages_received: u64,
-    last_ping_sent:    u64,
+    messages_received: Arc<AtomicU64>,
+    last_ping_sent:    Arc<AtomicU64>,
 
     network_request_sender: SyncSender<NetworkRawRequest>,
 
@@ -107,7 +111,7 @@ impl Connection {
     }
 
     // Setup handshake handler
-    pub fn setup_pre_handshake(&mut self) {
+    pub fn setup_pre_handshake(&self) {
         let cloned_message_processor = self.common_message_processor.clone();
         self.pre_handshake_message_processor
             .add(cloned_message_processor)
@@ -127,12 +131,12 @@ impl Connection {
         let priv_conn = Arc::clone(&self.dptr);
 
         make_atomic_callback!(move |_: &T| -> FuncResult<()> {
-            safe_write!(priv_conn)?.update_last_seen();
+            safe_read!(priv_conn)?.update_last_seen();
             Ok(())
         })
     }
 
-    fn make_request_handler(&mut self) -> RequestHandler {
+    fn make_request_handler(&self) -> RequestHandler {
         let update_last_seen_handler = self.make_update_last_seen_handler();
 
         let mut rh = RequestHandler::new();
@@ -172,8 +176,8 @@ impl Connection {
         rh
     }
 
-    fn make_response_handler(&mut self) -> ResponseHandler {
-        let mut rh = ResponseHandler::new();
+    fn make_response_handler(&self) -> ResponseHandler {
+        let rh = ResponseHandler::new();
 
         rh.add_find_node_callback(handle_by_private!(
             self.dptr,
@@ -232,14 +236,19 @@ impl Connection {
     }
 
     pub fn set_measured_handshake_sent(&mut self) {
-        write_or_die!(self.dptr).sent_handshake = get_current_stamp()
+        read_or_die!(self.dptr)
+            .sent_handshake
+            .store(get_current_stamp(), Ordering::SeqCst)
     }
 
-    pub fn set_measured_ping_sent(&mut self) { write_or_die!(self.dptr).set_measured_ping_sent(); }
+    pub fn set_measured_ping_sent(&self) { read_or_die!(self.dptr).set_measured_ping_sent(); }
 
-    pub fn get_last_ping_sent(&self) -> u64 { self.last_ping_sent }
+    pub fn get_last_ping_sent(&self) -> u64 { self.last_ping_sent.load(Ordering::SeqCst) }
 
-    pub fn set_last_ping_sent(&mut self) { self.last_ping_sent = get_current_stamp(); }
+    pub fn set_last_ping_sent(&self) {
+        self.last_ping_sent
+            .store(get_current_stamp(), Ordering::SeqCst);
+    }
 
     pub fn local_id(&self) -> P2PNodeId { read_or_die!(self.dptr).local_peer.id() }
 
@@ -264,7 +273,7 @@ impl Connection {
 
     pub fn remote_peer(&self) -> RemotePeer { read_or_die!(self.dptr).remote_peer().to_owned() }
 
-    pub fn get_messages_received(&self) -> u64 { self.messages_received }
+    pub fn get_messages_received(&self) -> u64 { self.messages_received.load(Ordering::SeqCst) }
 
     pub fn get_messages_sent(&self) -> u64 { self.messages_sent }
 
@@ -273,12 +282,10 @@ impl Connection {
     /// It registers the connection socket, for read and write ops using *edge*
     /// notifications.
     #[inline]
-    pub fn register(&self, poll: &RwLock<Poll>) -> Fallible<()> {
-        read_or_die!(self.dptr).register(poll)
-    }
+    pub fn register(&self, poll: &Poll) -> Fallible<()> { read_or_die!(self.dptr).register(poll) }
 
     #[inline]
-    pub fn deregister(&self, poll: &RwLock<Poll>) -> Fallible<()> {
+    pub fn deregister(&self, poll: &Poll) -> Fallible<()> {
         read_or_die!(self.dptr).deregister(poll)
     }
 
@@ -289,16 +296,16 @@ impl Connection {
     }
 
     #[inline]
-    pub fn close(&mut self) { write_or_die!(self.dptr).status = ConnectionStatus::Closing; }
+    pub fn close(&self) { write_or_die!(self.dptr).status = ConnectionStatus::Closing; }
 
     #[inline]
     pub fn status(&self) -> ConnectionStatus { read_or_die!(self.dptr).status }
 
     #[inline]
-    pub fn shutdown(&mut self) -> Fallible<()> { write_or_die!(self.dptr).shutdown() }
+    pub fn shutdown(&self) -> Fallible<()> { write_or_die!(self.dptr).shutdown() }
 
     pub fn ready(
-        &mut self,
+        &self,
         ev: &Event,
     ) -> Result<ProcessResult, Vec<Result<ProcessResult, failure::Error>>> {
         let messages_result = write_or_die!(self.dptr).ready(ev);
@@ -315,18 +322,16 @@ impl Connection {
 
     /// It decodes message from `buf` and processes it using its message
     /// handlers.
-    fn process_message(&mut self, message: UCursor) -> Fallible<ProcessResult> {
+    fn process_message(&self, message: UCursor) -> Fallible<ProcessResult> {
         let mut archive =
             ReadArchiveAdapter::new(message, self.remote_peer().clone(), self.remote_addr().ip());
         let message = NetworkMessage::deserialize(&mut archive)?;
         let outer = Arc::new(message);
 
-        self.messages_received += 1;
+        self.messages_received.fetch_add(1, Ordering::Relaxed);
         TOTAL_MESSAGES_RECEIVED_COUNTER.fetch_add(1, Ordering::Relaxed);
         if let Some(ref service) = &self.stats_export_service() {
-            if let Ok(mut slock) = safe_write!(service) {
-                slock.pkt_received_inc();
-            }
+            service.pkt_received_inc();
         };
 
         // Process message by message handler.
@@ -343,7 +348,7 @@ impl Connection {
         write_or_die!(self.dptr).validate_packet_type(msg)
     }
 
-    pub fn stats_export_service(&self) -> Option<Arc<RwLock<StatsExportService>>> {
+    pub fn stats_export_service(&self) -> Option<StatsExportService> {
         read_or_die!(self.dptr).stats_export_service.clone()
     }
 
@@ -389,7 +394,7 @@ impl Connection {
         write_or_die!(self.dptr).async_send(input, priority)
     }
 
-    pub fn add_notification(&mut self, func: UnitFunction<NetworkMessage>) {
+    pub fn add_notification(&self, func: UnitFunction<NetworkMessage>) {
         self.pre_handshake_message_processor
             .add_notification(func.clone());
         self.post_handshake_message_processor.add_notification(func);
@@ -470,14 +475,14 @@ mod tests {
 
         // Deregister connection on the node side
         let mut conn_node = node
-            .tls_server
+            .noise_protocol_handler
             .find_connection_by_id(bootstrapper.id())
             .unwrap();
         node.deregister_connection(&conn_node)?;
 
         // Deregister connection on the bootstrapper side
         let mut conn_bootstrapper = bootstrapper
-            .tls_server
+            .noise_protocol_handler
             .find_connection_by_id(node.id())
             .unwrap();
         bootstrapper.deregister_connection(&conn_bootstrapper)?;

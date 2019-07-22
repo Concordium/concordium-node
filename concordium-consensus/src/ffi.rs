@@ -248,8 +248,6 @@ type CatchupFinalizationRequestByFinalizationIndexCallback =
     extern "C" fn(peer_id: PeerId, finalization_index: u64);
 type CatchupFinalizationMessagesSenderCallback =
     extern "C" fn(peer_id: PeerId, payload: *const u8, payload_length: i64);
-type GenerateKeypairCallback = extern "C" fn(baker_id: i64, data: *const u8, data_length: i64);
-type GenerateGenesisDataCallback = extern "C" fn(data: *const u8, data_length: i64);
 
 extern "C" {
     pub fn startConsensus(
@@ -294,14 +292,6 @@ extern "C" {
     pub fn receiveTransaction(baker: *mut consensus_runner, tx: *const u8, data_length: i64)
         -> i64;
     pub fn stopBaker(baker: *mut consensus_runner);
-    pub fn makeGenesisData(
-        genesis_time: u64,
-        num_bakers: u64,
-        crypto_providers: *const u8,
-        identity_providers: *const u8,
-        genesis_callback: GenerateGenesisDataCallback,
-        baker_private_data_callback: GenerateKeypairCallback,
-    ) -> i64;
 
     // Consensus queries
     pub fn getConsensusStatus(baker: *mut consensus_runner) -> *const c_char;
@@ -605,24 +595,6 @@ impl TryFrom<u8> for CallbackType {
             2 => Ok(CallbackType::FinalizationRecord),
             _ => Err(format_err!("Received invalid callback type: {}", byte)),
         }
-    }
-}
-
-pub extern "C" fn on_genesis_generated(genesis_data: *const u8, data_length: i64) {
-    unsafe {
-        let s = slice::from_raw_parts(genesis_data as *const u8, data_length as usize);
-        *safe_write!(GENERATED_GENESIS_DATA) = Some(s.to_owned());
-    }
-}
-
-pub extern "C" fn on_private_data_generated(
-    baker_id: i64,
-    private_data: *const u8,
-    data_length: i64,
-) {
-    unsafe {
-        let s = slice::from_raw_parts(private_data as *const u8, data_length as usize);
-        safe_write!(GENERATED_PRIVATE_DATA).insert(baker_id, s.to_owned());
     }
 }
 

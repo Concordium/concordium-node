@@ -28,7 +28,7 @@ impl UnreachableNodes {
         true
     }
 
-    pub fn insert(&mut self, addr: SocketAddr) -> bool {
+    pub fn insert(&self, addr: SocketAddr) -> bool {
         if let Ok(ref mut nodes) = safe_write!(self.nodes) {
             nodes.push((common::get_current_stamp(), addr));
             true
@@ -37,7 +37,7 @@ impl UnreachableNodes {
         }
     }
 
-    pub fn cleanup(&mut self, since: u64) -> bool {
+    pub fn cleanup(&self, since: u64) -> bool {
         if let Ok(ref mut nodes) = safe_write!(self.nodes) {
             nodes.retain(|&x| {
                 let (time, ..) = x;

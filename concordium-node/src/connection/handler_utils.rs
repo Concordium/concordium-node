@@ -131,8 +131,7 @@ pub fn send_peer_list(
         write_or_die!(priv_conn).async_send(UCursor::from(data), MessageSendingPriority::Normal)?;
 
     if let Some(ref service) = read_or_die!(priv_conn).stats_export_service {
-        let mut writable_service = safe_write!(service)?;
-        writable_service.pkt_sent_inc();
+        service.pkt_sent_inc();
     };
 
     TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -152,9 +151,8 @@ pub fn update_buckets(
 
     let stats_export_service = &priv_conn_borrow.stats_export_service;
     if let Some(ref service) = stats_export_service {
-        let mut writable_service = safe_write!(service)?;
-        writable_service.peers_inc();
-        writable_service.pkt_sent_inc_by(2);
+        service.peers_inc();
+        service.pkt_sent_inc_by(2);
     };
 
     Ok(())

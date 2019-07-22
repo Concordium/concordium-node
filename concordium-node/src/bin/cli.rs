@@ -7,7 +7,6 @@ extern crate grpciowin as grpcio;
 extern crate log;
 
 // Explicitly defining allocator to avoid future reintroduction of jemalloc
-use p2p_client::connection::network_handler::message_processor::MessageManager;
 use std::alloc::System;
 #[global_allocator]
 static A: System = System;
@@ -16,7 +15,7 @@ use byteorder::{NetworkEndian, WriteBytesExt};
 
 use concordium_common::{
     cache::Cache,
-    make_atomic_callback, spawn_or_die,
+    spawn_or_die,
     stats_export_service::{StatsExportService, StatsServiceMode},
     PacketType, RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSender,
     RelayOrStopSenderHelper,
@@ -32,7 +31,7 @@ use p2p_client::{
         plugins::{self, consensus::*},
         utils as client_utils,
     },
-    common::{P2PNodeId, PeerType},
+    common::{P2PNodeId, P2PPeer, PeerType},
     configuration,
     network::{
         packet::MessageId, request::RequestedElementType, NetworkId, NetworkMessage, NetworkPacket,
@@ -47,6 +46,7 @@ use p2p_client::{
 use rkv::{Manager, Rkv};
 
 use std::{
+    collections::HashSet,
     net::SocketAddr,
     str,
     sync::{mpsc, Arc, RwLock},
@@ -94,7 +94,7 @@ fn main() -> Fallible<()> {
     let (mut node, pkt_out) = instantiate_node(
         &conf,
         &mut app_prefs,
-        &stats_export_service,
+        stats_export_service.clone(),
         subscription_queue_in.clone(),
     );
 
@@ -137,12 +137,6 @@ fn main() -> Fallible<()> {
     } else {
         None // This will not be possible once we have a "do not bake" consensus call
     };
-
-    // Register a handler for sending out a consensus catch-up request by
-    // finalization point after the handshake.
-    if let Some(ref consensus) = consensus {
-        attain_post_handshake_catch_up(&node, consensus)?;
-    }
 
     // Start the RPC server
     let mut rpc_serv = if !conf.cli.rpc.no_rpc_server {
@@ -224,7 +218,7 @@ fn main() -> Fallible<()> {
 fn instantiate_node(
     conf: &configuration::Config,
     app_prefs: &mut configuration::AppPreferences,
-    stats_export_service: &Option<Arc<RwLock<StatsExportService>>>,
+    stats_export_service: Option<StatsExportService>,
     subscription_queue_in: mpsc::SyncSender<Arc<NetworkMessage>>,
 ) -> (
     P2PNode,
@@ -243,11 +237,6 @@ fn instantiate_node(
             Some(id)
         },
     );
-    let arc_stats_export_service = if let Some(ref service) = stats_export_service {
-        Some(Arc::clone(service))
-    } else {
-        None
-    };
 
     // Start the thread reading P2PEvents from P2PNode
     let node = if conf.common.debug {
@@ -263,7 +252,7 @@ fn instantiate_node(
             pkt_in,
             Some(sender),
             PeerType::Node,
-            arc_stats_export_service,
+            stats_export_service,
             subscription_queue_in,
         )
     } else {
@@ -273,7 +262,7 @@ fn instantiate_node(
             pkt_in,
             None,
             PeerType::Node,
-            arc_stats_export_service,
+            stats_export_service,
             subscription_queue_in,
         )
     };
@@ -312,42 +301,6 @@ fn bootstrap(bootstrap_nodes: &Result<Vec<SocketAddr>, &'static str>, node: &mut
     };
 }
 
-fn attain_post_handshake_catch_up(
-    node: &P2PNode,
-    consensus: &consensus::ConsensusContainer,
-) -> Fallible<()> {
-    let consensus_clone = consensus.clone();
-    let mut message_handshake_response_handler = node.message_processor();
-
-    let node_shared = node.clone();
-    message_handshake_response_handler.add_response_action(make_atomic_callback!(
-        move |msg: &NetworkResponse| {
-            if let NetworkResponse::Handshake(ref remote_peer, ref nets, _) = msg {
-                if remote_peer.peer_type() == PeerType::Node {
-                    if let Some(net) = nets.iter().next() {
-                        let response = consensus_clone.get_finalization_point();
-
-                        send_consensus_msg_to_net(
-                            &node_shared,
-                            Some(remote_peer.id()),
-                            *net,
-                            PacketType::CatchupFinalizationMessagesByPoint,
-                            None,
-                            &response,
-                        );
-                    } else {
-                        error!("Handshake without network, so can't ask for finalization messages");
-                    }
-                }
-            }
-
-            Ok(())
-        }
-    ));
-
-    Ok(())
-}
-
 fn start_consensus_threads(
     node: &P2PNode,
     kvs_handle: Arc<RwLock<Rkv>>,
@@ -358,7 +311,7 @@ fn start_consensus_threads(
         RelayOrStopReceiver<ConsensusMessage>,
         RelayOrStopSender<ConsensusMessage>,
     ),
-    stats: &Option<Arc<RwLock<StatsExportService>>>,
+    stats: &Option<StatsExportService>,
 ) -> Vec<std::thread::JoinHandle<()>> {
     let _no_trust_bans = conf.common.no_trust_bans;
     let _desired_nodes_clone = conf.connection.desired_nodes;
@@ -409,7 +362,7 @@ fn start_consensus_threads(
 
     let node_shared = node.clone();
 
-    let mut baker_clone = baker.clone();
+    let baker_clone = baker.clone();
     let mut node_ref = node.clone();
     let guard_pkt = spawn_or_die!("Higher queue processing", {
         while let Ok(RelayOrStopEnvelope::Relay(full_msg)) = pkt_out.recv() {
@@ -499,7 +452,6 @@ fn start_consensus_threads(
                     let is_broadcast = pac.packet_type == NetworkPacketType::BroadcastedMessage;
 
                     if let Err(e) = handle_pkt_out(
-                        &mut baker_clone,
                         pac.peer.id(),
                         pac.message.clone(),
                         &skov_sender,
@@ -531,7 +483,12 @@ fn start_consensus_threads(
                         }
                     }
                 }
-
+                NetworkMessage::NetworkRequest(
+                    NetworkRequest::Handshake(remote_peer, ref nets, _),
+                    ..
+                ) => {
+                    send_finalization_point(&node_ref, &baker_clone, remote_peer, nets);
+                }
                 _ => {}
             }
         }
@@ -543,6 +500,30 @@ fn start_consensus_threads(
     );
 
     vec![global_state_thread, guard_pkt]
+}
+
+fn send_finalization_point(
+    node: &P2PNode,
+    consensus: &consensus::ConsensusContainer,
+    target: P2PPeer,
+    networks: &HashSet<NetworkId>,
+) {
+    if target.peer_type() == PeerType::Node {
+        if let Some(net) = networks.iter().next() {
+            let response = consensus.get_finalization_point();
+
+            send_consensus_msg_to_net(
+                node,
+                Some(target.id()),
+                *net,
+                PacketType::CatchupFinalizationMessagesByPoint,
+                None,
+                &response,
+            );
+        } else {
+            error!("Handshake without network, so can't ask for finalization messages");
+        }
+    }
 }
 
 fn start_baker_thread(
