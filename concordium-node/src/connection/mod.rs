@@ -475,14 +475,14 @@ mod tests {
 
         // Deregister connection on the node side
         let mut conn_node = node
-            .tls_server
+            .noise_protocol_handler
             .find_connection_by_id(bootstrapper.id())
             .unwrap();
         node.deregister_connection(&conn_node)?;
 
         // Deregister connection on the bootstrapper side
         let mut conn_bootstrapper = bootstrapper
-            .tls_server
+            .noise_protocol_handler
             .find_connection_by_id(node.id())
             .unwrap();
         bootstrapper.deregister_connection(&conn_bootstrapper)?;

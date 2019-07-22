@@ -1,4 +1,6 @@
-use crate::{connection::MessageSendingPriority, p2p::tls_server::TlsServer};
+use crate::{
+    connection::MessageSendingPriority, p2p::noise_protocol_handler::NoiseProtocolHandler,
+};
 
 use concordium_common::UCursor;
 
@@ -24,7 +26,7 @@ pub struct NetworkRawRequest {
 /// poll-loop thread, and any write is queued to be processed later in that
 /// poll-loop.
 pub fn process_network_requests(
-    tls_server: &TlsServer,
+    noise_protocol_handler: &NoiseProtocolHandler,
     network_request_receiver: &Receiver<NetworkRawRequest>,
 ) {
     network_request_receiver
@@ -36,7 +38,8 @@ pub fn process_network_requests(
                 usize::from(network_request.token)
             );
 
-            let mut conn_opt = tls_server.find_connection_by_token(network_request.token);
+            let mut conn_opt =
+                noise_protocol_handler.find_connection_by_token(network_request.token);
             match conn_opt {
                 Some(ref mut conn) => {
                     if !conn.is_closed() {
