@@ -33,6 +33,9 @@ data TransactionHooks = TransactionHooks {
 
 makeLenses ''TransactionHooks
 
+emptyHooks :: TransactionHooks
+emptyHooks = TransactionHooks PSQ.empty
+
 class TransactionHookLenses s where
     hooks :: Lens' s TransactionHooks
 
@@ -50,7 +53,7 @@ hookOnBlock bp = do
             addBk (Just (p, h)) = ((), Just (p, h {hookBlocks = getHash bp : hookBlocks h}))
         forM_ (blockTransactions bp) $ \tr -> hooks . hooksPSQ %= snd . PSQ.alter addBk (transactionHash tr)
 
-hookOnFinalize :: (SkovQueryMonad m, MonadState s m, TransactionHookLenses s, TimeMonad m, TreeStateMonad m) => FinalizationRecord -> BlockPointer m -> m ()
+hookOnFinalize :: (MonadState s m, TransactionHookLenses s, TimeMonad m) => FinalizationRecord -> BlockPointer m -> m ()
 hookOnFinalize _ _ = purgeExpiredHooks
 
 data TransactionStatus = TSAbsent | TSPending | TSCommitted | TSFinalized deriving (Eq, Ord)

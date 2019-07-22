@@ -22,7 +22,8 @@ import Concordium.GlobalState.Finalization
 import Concordium.Birk.Bake
 import Concordium.Kontrol
 import Concordium.Skov
-import Concordium.Skov.Update
+-- import Concordium.Skov.Update
+import Concordium.Skov.Hooks
 import Concordium.Afgjort.Finalize
 import Concordium.Afgjort.Buffer
 import Concordium.Logger
@@ -30,7 +31,7 @@ import Concordium.Getters
 
 data SyncRunner = SyncRunner {
     syncBakerIdentity :: BakerIdentity,
-    syncState :: MVar SkovBufferedFinalizationState,
+    syncState :: MVar SkovBufferedHookedState,
     syncBakerThread :: MVar ThreadId,
     syncLogMethod :: LogMethod IO,
     syncCallback :: SimpleOutMessage -> IO ()
@@ -39,8 +40,8 @@ data SyncRunner = SyncRunner {
 bakerFinalizationInstance :: BakerIdentity -> FinalizationInstance
 bakerFinalizationInstance bkr = FinalizationInstance (bakerSignKey bkr) (bakerElectionKey bkr)
 
-instance SkovStateQueryable SyncRunner (SimpleSkovMonad SkovBufferedFinalizationState IO) where
-    runStateQuery sr a = readMVar (syncState sr) >>= evalSSM a
+instance SkovStateQueryable SyncRunner (SkovQueryM SkovBufferedHookedState IO) where
+    runStateQuery sr a = readMVar (syncState sr) >>= evalSkovQueryM a
 
 data SimpleOutMessage
     = SOMsgNewBlock BakedBlock
@@ -56,7 +57,7 @@ runWithStateLog mvState logm a = bracketOnError (takeMVar mvState) (tryPutMVar m
         putMVar mvState state'
         return ret
 
-asyncNotify :: MVar SkovBufferedFinalizationState -> LogMethod IO -> (FinalizationMessage -> IO ()) -> NotifyEvent -> IO ()
+asyncNotify :: MVar SkovBufferedHookedState -> LogMethod IO -> (FinalizationMessage -> IO ()) -> NotifyEvent -> IO ()
 asyncNotify mvState logm cbk ne@(timeout, _) = void $ forkIO $ do
         now <- getCurrentTime
         let delay = diffUTCTime timeout now
@@ -65,11 +66,11 @@ asyncNotify mvState logm cbk ne@(timeout, _) = void $ forkIO $ do
         forM_ mmsg cbk
 
 -- |Make a 'SyncRunner' without starting a baker thread.
-makeSyncRunner :: forall m. LogMethod IO -> BakerIdentity -> GenesisData -> BlockState (BFSM m) -> (SimpleOutMessage -> IO ()) -> IO SyncRunner
+makeSyncRunner :: forall m. LogMethod IO -> BakerIdentity -> GenesisData -> BlockState (SkovBufferedM m) -> (SimpleOutMessage -> IO ()) -> IO SyncRunner
 makeSyncRunner syncLogMethod syncBakerIdentity gen initBS syncCallback = do
         let
             syncFinalizationInstance = bakerFinalizationInstance syncBakerIdentity
-            sfs0 = initialSkovBufferedFinalizationState syncFinalizationInstance gen initBS
+            sfs0 = initialSkovBufferedHookedState syncFinalizationInstance gen initBS
         syncState <- newMVar sfs0
         syncBakerThread <- newEmptyMVar
         return $ SyncRunner{..}
@@ -85,7 +86,7 @@ startSyncRunner SyncRunner{..} = do
                                 curSlot <- getCurrentSlot
                                 mblock <- if (curSlot > lastSlot) then bakeForSlot syncBakerIdentity curSlot else return Nothing
                                 return (mblock, curSlot)
-                        ((mblock, curSlot), sfs', evs) <- runBFSM bake (bakerFinalizationInstance syncBakerIdentity) sfs
+                        ((mblock, curSlot), sfs', evs) <- runSkovBufferedHookedM bake (bakerFinalizationInstance syncBakerIdentity) sfs
                         return ((mblock, sfs', evs, curSlot), sfs'))
                 forM_ mblock $ syncCallback . SOMsgNewBlock
                 let
@@ -94,7 +95,7 @@ startSyncRunner SyncRunner{..} = do
                     handleMessage (BufferNotification ne) = asyncNotify syncState syncLogMethod (syncCallback . SOMsgFinalization) ne
                     handleMessage _ = return () -- This should not be possible.
                 forM_ (appEndo evs []) handleMessage
-                delay <- evalSSM (do
+                delay <- evalSkovQueryM (do
                     ttns <- timeUntilNextSlot
                     curSlot' <- getCurrentSlot
                     return $! if curSlot == curSlot' then truncate (ttns * 1e6) else 0) sfs'
@@ -116,10 +117,10 @@ stopSyncRunner SyncRunner{..} = mask_ $ tryTakeMVar syncBakerThread >>= \case
         Nothing -> return ()
         Just thrd -> killThread thrd
 
-runBFSMWithStateLog :: SyncRunner -> BFSM LogIO a -> IO (a, [SkovFinalizationEvent])
-runBFSMWithStateLog SyncRunner{..} a = do
+runSkovBufferedMWithStateLog :: SyncRunner -> SkovBufferedHookedM LogIO a -> IO (a, [SkovFinalizationEvent])
+runSkovBufferedMWithStateLog SyncRunner{..} a = do
         (ret, evts) <- runWithStateLog syncState syncLogMethod (\sfs -> 
-            (\(ret, sfs', Endo evs) -> ((ret, evs []), sfs')) <$> runBFSM a (bakerFinalizationInstance syncBakerIdentity) sfs)
+            (\(ret, sfs', Endo evs) -> ((ret, evs []), sfs')) <$> runSkovBufferedHookedM a (bakerFinalizationInstance syncBakerIdentity) sfs)
         let (aevts, bevts) = partitionEithers $ evtToEither <$> evts
         forM_ bevts $ asyncNotify syncState syncLogMethod (syncCallback . SOMsgFinalization)
         return (ret, aevts)
@@ -128,44 +129,52 @@ runBFSMWithStateLog SyncRunner{..} a = do
         evtToEither (BufferNotification n) = Right n
 
 syncReceiveBlock :: SyncRunner -> BakedBlock -> IO (UpdateResult, [SkovFinalizationEvent])
-syncReceiveBlock syncRunner block = runBFSMWithStateLog syncRunner (storeBlock block)
+syncReceiveBlock syncRunner block = runSkovBufferedMWithStateLog syncRunner (storeBlock block)
 
 syncReceiveTransaction :: SyncRunner -> Transaction -> IO (UpdateResult, [SkovFinalizationEvent])
-syncReceiveTransaction syncRunner trans = runBFSMWithStateLog syncRunner (receiveTransaction trans)
+syncReceiveTransaction syncRunner trans = runSkovBufferedMWithStateLog syncRunner (receiveTransaction trans)
 
 syncReceiveFinalizationMessage :: SyncRunner -> FinalizationMessage -> IO (UpdateResult, [SkovFinalizationEvent])
-syncReceiveFinalizationMessage syncRunner finMsg = runBFSMWithStateLog syncRunner (receiveFinalizationMessage finMsg)
+syncReceiveFinalizationMessage syncRunner finMsg = runSkovBufferedMWithStateLog syncRunner (receiveFinalizationMessage finMsg)
 
 syncReceiveFinalizationRecord :: SyncRunner -> FinalizationRecord -> IO (UpdateResult, [SkovFinalizationEvent])
-syncReceiveFinalizationRecord syncRunner finRec = runBFSMWithStateLog syncRunner (finalizeBlock finRec)
+syncReceiveFinalizationRecord syncRunner finRec = runSkovBufferedMWithStateLog syncRunner (finalizeBlock finRec)
+
+syncHookTransaction :: SyncRunner -> TransactionHash -> IO HookResult
+-- hookQueryTransaction does not generate any events, so it is safe to drop them.
+syncHookTransaction syncRunner th = fst <$> runSkovBufferedMWithStateLog syncRunner (hookQueryTransaction th)
 
 data SyncPassiveRunner = SyncPassiveRunner {
-    syncPState :: MVar SkovSimpleState,
+    syncPState :: MVar SkovPassiveHookedState,
     syncPLogMethod :: LogMethod IO
 }
 
 -- |Make a 'SyncPassiveRunner', which does not support a baker thread.
-makeSyncPassiveRunner :: forall m. LogMethod IO -> GenesisData -> BlockState (SSM m) -> IO SyncPassiveRunner
+makeSyncPassiveRunner :: forall m. LogMethod IO -> GenesisData -> BlockState (SkovPassiveHookedM m) -> IO SyncPassiveRunner
 makeSyncPassiveRunner syncPLogMethod gen initBS = do
-        syncPState <- newMVar $ initialSkovSimpleState gen initBS
+        syncPState <- newMVar $ initialSkovPassiveHookedState gen initBS
         return $ SyncPassiveRunner{..}
 
-runSSMWithStateLog :: SyncPassiveRunner -> SSM LogIO a -> IO (a, [SkovMissingEvent])
-runSSMWithStateLog SyncPassiveRunner{..} a =
+runSkovPassiveMWithStateLog :: SyncPassiveRunner -> SkovPassiveHookedM LogIO a -> IO (a, [SkovMissingEvent])
+runSkovPassiveMWithStateLog SyncPassiveRunner{..} a =
         runWithStateLog syncPState syncPLogMethod (\sss ->
-            (\(ret, sss', Endo evs) -> ((ret, evs []), sss')) <$> runSSM a sss)
+            (\(ret, sss', Endo evs) -> ((ret, evs []), sss')) <$> runSkovPassiveHookedM a sss)
 
 syncPassiveReceiveBlock :: SyncPassiveRunner -> BakedBlock -> IO (UpdateResult, [SkovMissingEvent])
-syncPassiveReceiveBlock spr block = runSSMWithStateLog spr (storeBlock block)
+syncPassiveReceiveBlock spr block = runSkovPassiveMWithStateLog spr (storeBlock block)
 
 syncPassiveReceiveTransaction :: SyncPassiveRunner -> Transaction -> IO (UpdateResult, [SkovMissingEvent])
-syncPassiveReceiveTransaction spr trans = runSSMWithStateLog spr (receiveTransaction trans)
+syncPassiveReceiveTransaction spr trans = runSkovPassiveMWithStateLog spr (receiveTransaction trans)
 
 syncPassiveReceiveFinalizationMessage :: SyncPassiveRunner -> FinalizationMessage -> IO (UpdateResult, [SkovMissingEvent])
-syncPassiveReceiveFinalizationMessage spr finMsg = runSSMWithStateLog spr (passiveReceiveFinalizationMessage finMsg)
+syncPassiveReceiveFinalizationMessage spr finMsg = runSkovPassiveMWithStateLog spr (passiveReceiveFinalizationMessage finMsg)
 
 syncPassiveReceiveFinalizationRecord :: SyncPassiveRunner -> FinalizationRecord -> IO (UpdateResult, [SkovMissingEvent])
-syncPassiveReceiveFinalizationRecord spr finRec = runSSMWithStateLog spr (finalizeBlock finRec)
+syncPassiveReceiveFinalizationRecord spr finRec = runSkovPassiveMWithStateLog spr (finalizeBlock finRec)
+
+syncPassiveHookTransaction :: SyncPassiveRunner -> TransactionHash -> IO HookResult
+-- hookQueryTransaction does not generate any events, so it is safe to drop them.
+syncPassiveHookTransaction syncRunner th = fst <$> runSkovPassiveMWithStateLog syncRunner (hookQueryTransaction th)
 
 
 data InMessage src =
@@ -183,7 +192,7 @@ data OutMessage src =
     | MsgMissingFinalization src (Either BlockHash FinalizationIndex)
 
 -- |This is provided as a compatibility wrapper for the test runners.
-makeAsyncRunner :: forall m source. LogMethod IO -> BakerIdentity -> GenesisData -> BlockState (BFSM m) -> IO (Chan (InMessage source), Chan (OutMessage source), MVar SkovBufferedFinalizationState)
+makeAsyncRunner :: forall m source. LogMethod IO -> BakerIdentity -> GenesisData -> BlockState (SkovBufferedM m) -> IO (Chan (InMessage source), Chan (OutMessage source), MVar SkovBufferedHookedState)
 makeAsyncRunner logm bkr gen initBS = do
         logm Runner LLInfo "Starting baker"
         inChan <- newChan

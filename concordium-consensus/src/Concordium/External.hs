@@ -36,16 +36,12 @@ import Concordium.Scheduler.Utils.Init.Example (initialState)
 
 import Concordium.Runner
 import Concordium.Show
-import Concordium.Skov (SkovFinalizationState, SimpleSkovMonad, SkovFinalizationEvent(..), SkovMissingEvent(..), UpdateResult(..))
+import Concordium.Skov hiding (receiveTransaction)
 import Concordium.Afgjort.Finalize (FinalizationOutputEvent(..), FinalizationQuery)
 import Concordium.Logger
 
 import qualified Concordium.Getters as Get
 import qualified Concordium.Startup as S
-
--- |Block state computations to get either the best block state or the last
--- finalized block state.
-type BlockStateM = SimpleSkovMonad SkovFinalizationState IO BlockState
 
 -- |A 'PeerID' identifies peer at the p2p layer.
 type PeerID = Word64
@@ -601,7 +597,7 @@ getRewardStatus cptr blockcstr = do
     logm External LLInfo "Received request for bank status."
     withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
       reward <- runConsensusQuery c (Get.getRewardStatus hash)
-      logm External LLDebug $ "Replying with" ++ show reward
+      logm External LLDebug $ "Replying with: " ++ show reward
       jsonValueToCString reward
 
 
@@ -653,7 +649,7 @@ getInstanceInfo cptr blockcstr cstr = do
         logm External LLDebug $ "Decoded address to: " ++ show ii
         withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
           iinfo <- runConsensusQuery c (Get.getContractInfo hash) ii
-          logm External LLDebug $ "Replying with: " ++ show ii
+          logm External LLDebug $ "Replying with: " ++ show iinfo
           jsonValueToCString iinfo
 
 
@@ -685,6 +681,24 @@ getModuleSource cptr blockcstr cstr = do
               in do
                 logm External LLDebug $ "Replying with data size = " ++ show (BS.length reply)
                 byteStringToCString reply
+
+-- |Query consensus about a specific transaction, installing a hook to
+-- observe when the transaction is added to a block.
+-- The transaction hash is passed as a null-terminated base-16 encoded string.
+-- The return value is a null-terminated JSON object representing the state
+-- of the transaction, which should be freed with 'freeCStr'.
+hookTransaction :: StablePtr ConsensusRunner -> CString -> IO CString
+hookTransaction cptr trcstr = do
+    c <- deRefStablePtr cptr
+    let logm = consensusLogMethod c
+    logm External LLInfo "Received transaction hook request."
+    withBlockHash trcstr (logm External LLDebug) $ \hash -> do
+        hookRes <- case c of
+            BakerRunner{..} -> syncHookTransaction bakerSyncRunner hash
+            PassiveRunner{..} -> syncPassiveHookTransaction passiveSyncRunner hash
+        let v = AE.toJSON hookRes
+        logm External LLDebug $ "Replying with: " ++ show v
+        jsonValueToCString v
 
 freeCStr :: CString -> IO ()
 freeCStr = free
@@ -852,3 +866,4 @@ foreign export ccall getRewardStatus :: StablePtr ConsensusRunner -> CString -> 
 foreign export ccall getBirkParameters :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getModuleList :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getModuleSource :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
+foreign export ccall hookTransaction :: StablePtr ConsensusRunner -> CString -> IO CString

@@ -34,7 +34,6 @@ import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Scheduler.Utils.Init.Example as Example
 import Concordium.Skov
-import Concordium.Skov.Update (SkovFinalizationState(..))
 import Concordium.Afgjort.Freeze
 import Concordium.Afgjort.WMVBA
 import Concordium.Afgjort.Finalize
@@ -137,8 +136,8 @@ invariantSkovData SkovData{..} = do
         onlyPending (TreeState.BlockPending {}) = True
         onlyPending _ = False
 
-invariantSkovFinalization :: SkovFinalizationState -> Either String ()
-invariantSkovFinalization (SkovFinalizationState sd@SkovData{..} FinalizationState{..}) = do
+invariantSkovFinalization :: SkovActiveState -> Either String ()
+invariantSkovFinalization (SkovActiveState sd@SkovData{..} FinalizationState{..}) = do
         invariantSkovData sd
         let (_ Seq.:|> (lfr, lfb)) = _skovFinalizationList
         checkBinary (==) _finsIndex (succ $ finalizationIndex lfr) "==" "current finalization index" "successor of last finalized index"
@@ -209,10 +208,10 @@ selectFromSeq g s =
     let (n , g') = randomR (0, length s - 1) g in
     (Seq.index s n, Seq.deleteAt n s, g')
 
-type States = Vec.Vector (BakerIdentity, FinalizationInstance, SkovFinalizationState)
+type States = Vec.Vector (BakerIdentity, FinalizationInstance, SkovActiveState)
 
-myRunFSM :: (MonadIO m) => FSM LogIO a -> FinalizationInstance -> SkovFinalizationState -> m (a, SkovFinalizationState, Endo [SkovFinalizationEvent])
-myRunFSM a fi sfs = liftIO $ runLoggerT (runFSM a fi sfs) doLog
+myRunSkovActiveM :: (MonadIO m) => SkovActiveM LogIO a -> FinalizationInstance -> SkovActiveState -> m (a, SkovActiveState, Endo [SkovFinalizationEvent])
+myRunSkovActiveM a fi sfs = liftIO $ runLoggerT (runSkovActiveM a fi sfs) doLog
     where
         doLog src LLError msg = error $ show src ++ ": " ++ msg
         doLog _ _ _ = return ()
@@ -228,7 +227,7 @@ runKonsensusTest steps g states events
             let btargets = [x | x <- [0..length states - 1], x /= rcpt]
             (fs', events'') <- {- trace (show rcpt ++ ": " ++ show ev) $ -} case ev of
                 EBake sl -> do
-                    (mb, fs', Endo evs) <- myRunFSM (bakeForSlot bkr sl) fi fs
+                    (mb, fs', Endo evs) <- myRunSkovActiveM (bakeForSlot bkr sl) fi fs
                     let blockEvents = case mb of
                                         Nothing -> Seq.empty
                                         Just b -> Seq.fromList [(r, EBlock b) | r <- btargets]
@@ -250,7 +249,7 @@ runKonsensusTest steps g states events
         handleMessages targets (SkovFinalization (BroadcastFinalizationRecord frec) : r) = Seq.fromList [(rcpt, EFinalizationRecord frec) | rcpt <- targets] <> handleMessages targets r
         handleMessages targets (_ : r) = handleMessages targets r
         runAndHandle a fi fs btargets = do
-            (_, fs', Endo evs) <- myRunFSM a fi fs
+            (_, fs', Endo evs) <- myRunSkovActiveM a fi fs
             return (fs', handleMessages btargets (evs []))
 
 runKonsensusTestSimple :: RandomGen g => Int -> g -> States -> EventPool -> IO Property
@@ -265,7 +264,7 @@ runKonsensusTestSimple steps g states events
             let btargets = [x | x <- [0..length states - 1], x /= rcpt]
             (fs', events'') <- case ev of
                 EBake sl -> do
-                    (mb, fs', Endo evs) <- myRunFSM (bakeForSlot bkr sl) fi fs
+                    (mb, fs', Endo evs) <- myRunSkovActiveM (bakeForSlot bkr sl) fi fs
                     let blockEvents = case mb of
                                         Nothing -> Seq.empty
                                         Just b -> Seq.fromList [(r, EBlock b) | r <- btargets]
@@ -284,7 +283,7 @@ runKonsensusTestSimple steps g states events
         handleMessages targets (SkovFinalization (BroadcastFinalizationRecord frec) : r) = Seq.fromList [(rcpt, EFinalizationRecord frec) | rcpt <- targets] <> handleMessages targets r
         handleMessages targets (_ : r) = handleMessages targets r
         runAndHandle a fi fs btargets = do
-            (_, fs', Endo evs) <- myRunFSM a fi fs
+            (_, fs', Endo evs) <- myRunSkovActiveM a fi fs
             return (fs', handleMessages btargets (evs []))
 
 nAccounts :: Int
@@ -322,7 +321,7 @@ initialiseStates n = do
             fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _ _, _, _)) <- bis] 2
             bakerAccounts = map (\(_, (_, _, acc)) -> acc) bis
             gen = GenesisData 0 1 bps bakerAccounts fps dummyCryptographicParameters dummyIdentityProviders
-        return $ Vec.fromList [(bid, fininst, initialSkovFinalizationState fininst gen (Example.initialState bps dummyCryptographicParameters bakerAccounts [] nAccounts))
+        return $ Vec.fromList [(bid, fininst, initialSkovActiveState fininst gen (Example.initialState bps dummyCryptographicParameters bakerAccounts [] nAccounts))
                               | (_, (_, bid, _)) <- bis, let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid)]
 
 instance Show BakerIdentity where
@@ -331,7 +330,7 @@ instance Show BakerIdentity where
 instance Show FinalizationInstance where
     show _ = "[Finalization Instance]"
 
-instance Show SkovFinalizationState where
+instance Show SkovActiveState where
     show sfs = show (sfs ^. skov)
 
 

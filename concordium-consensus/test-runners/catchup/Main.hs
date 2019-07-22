@@ -34,7 +34,7 @@ import qualified Concordium.Getters as Get
 import Concordium.Startup
 
 
-type Peer = MVar SkovBufferedFinalizationState
+type Peer = MVar SkovBufferedHookedState
 
 data InEvent
     = IEMessage (InMessage Peer)
@@ -58,7 +58,7 @@ sendTransactions chan (t : ts) = do
         sendTransactions chan ts
 sendTransactions _ _ = return ()
 
-relayIn :: Chan InEvent -> Chan (InMessage Peer) -> MVar SkovBufferedFinalizationState -> IORef Bool -> IO ()
+relayIn :: Chan InEvent -> Chan (InMessage Peer) -> MVar SkovBufferedHookedState -> IORef Bool -> IO ()
 relayIn msgChan bakerChan sfsRef connectedRef = loop
     where
         loop = do
@@ -78,7 +78,7 @@ relayIn msgChan bakerChan sfsRef connectedRef = loop
             loop
 
 
-relay :: Chan (OutMessage Peer) -> MVar SkovBufferedFinalizationState -> IORef Bool -> Chan (Either (BlockHash, BakedBlock, Maybe BlockState) FinalizationRecord) -> Chan InEvent -> [Chan InEvent] -> IO ()
+relay :: Chan (OutMessage Peer) -> MVar SkovBufferedHookedState -> IORef Bool -> Chan (Either (BlockHash, BakedBlock, Maybe BlockState) FinalizationRecord) -> Chan InEvent -> [Chan InEvent] -> IO ()
 relay inp sfsRef connectedRef monitor loopback outps = loop
     where
         chooseDelay = do
@@ -100,7 +100,7 @@ relay inp sfsRef connectedRef monitor loopback outps = loop
                         Right (NormalBlock block) -> do
                             let bh = getHash block :: BlockHash
                             sfs <- readMVar sfsRef
-                            bp <- runSilentLogger $ flip evalSSM (sfs ^. skov) (resolveBlock bh)
+                            bp <- runSilentLogger $ flip evalSkovQueryM (sfs ^. skov) (resolveBlock bh)
                             -- when (isNothing bp) $ error "Block is missing!"
                             writeChan monitor (Left (bh, block, bpState <$> bp))
                         _ -> return ()
@@ -136,7 +136,7 @@ relay inp sfsRef connectedRef monitor loopback outps = loop
                         Right (NormalBlock block) -> do
                             let bh = getHash block :: BlockHash
                             sfs <- readMVar sfsRef
-                            bp <- runSilentLogger $ flip evalSSM (sfs ^. skov) (resolveBlock bh)
+                            bp <- runSilentLogger $ flip evalSkovQueryM (sfs ^. skov) (resolveBlock bh)
                             -- when (isNothing bp) $ error "Block is missing!"
                             writeChan monitor (Left (bh, block, bpState <$> bp))
                         _ -> return ()
@@ -146,7 +146,7 @@ relay inp sfsRef connectedRef monitor loopback outps = loop
                 _ -> return ()
             loop
 
-toggleConnection :: LogMethod IO -> MVar SkovBufferedFinalizationState -> IORef Bool -> Chan InEvent -> [Chan InEvent] -> IO ()
+toggleConnection :: LogMethod IO -> MVar SkovBufferedHookedState -> IORef Bool -> Chan InEvent -> [Chan InEvent] -> IO ()
 toggleConnection logM sfsRef connectedRef loopback outps = readIORef connectedRef >>= loop
     where
         loop connected = do

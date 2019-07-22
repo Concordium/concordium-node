@@ -50,7 +50,7 @@ sendTransactions chan (t : ts) = do
         sendTransactions chan ts
 sendTransactions _ _ = return ()
 
-relay :: Chan (OutMessage src) -> MVar SkovBufferedFinalizationState -> Chan (Either (BlockHash, BakedBlock, Maybe BlockState) FinalizationRecord) -> [Chan (InMessage ())] -> IO ()
+relay :: Chan (OutMessage src) -> MVar SkovBufferedHookedState -> Chan (Either (BlockHash, BakedBlock, Maybe BlockState) FinalizationRecord) -> [Chan (InMessage ())] -> IO ()
 relay inp sfsRef monitor outps = loop
     where
         loop = do
@@ -61,7 +61,7 @@ relay inp sfsRef monitor outps = loop
                         Right (NormalBlock block) -> do
                             let bh = getHash block :: BlockHash
                             sfs <- readMVar sfsRef
-                            bp <- runSilentLogger $ flip evalSSM (sfs ^. skov) (resolveBlock bh)
+                            bp <- runSilentLogger $ flip evalSkovQueryM (sfs ^. skov) (resolveBlock bh)
                             -- when (isNothing bp) $ error "Block is missing!"
                             writeChan monitor (Left (bh, block, bpState <$> bp))
                         _ -> return ()

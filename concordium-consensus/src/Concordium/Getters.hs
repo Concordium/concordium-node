@@ -9,7 +9,7 @@ import Lens.Micro.Platform hiding ((.=))
 
 import Concordium.Kontrol.BestBlock
 import Concordium.Skov
-import Concordium.Skov.Update (isAncestorOf, SkovSimpleState)
+import Concordium.Skov.Update (isAncestorOf)
 
 import qualified Concordium.Scheduler.Types as AT
 import Concordium.GlobalState.BlockState(BlockPointerData(..))
@@ -45,14 +45,20 @@ import Data.Vector (fromList)
 class SkovQueryMonad m => SkovStateQueryable z m | z -> m where
     runStateQuery :: z -> m a -> IO a
 
-instance SkovStateQueryable (IORef SkovFinalizationState) (SimpleSkovMonad SkovFinalizationState IO) where
-    runStateQuery sfsRef a = readIORef sfsRef >>= evalSSM a
+instance SkovStateQueryable (IORef SkovActiveState) (SkovQueryM SkovActiveState IO) where
+    runStateQuery sfsRef a = readIORef sfsRef >>= evalSkovQueryM a
 
-instance SkovStateQueryable (MVar SkovBufferedFinalizationState) (SimpleSkovMonad SkovBufferedFinalizationState IO) where
-    runStateQuery sfsRef a = readMVar sfsRef >>= evalSSM a
+instance SkovStateQueryable (MVar SkovBufferedState) (SkovQueryM SkovBufferedState IO) where
+    runStateQuery sfsRef a = readMVar sfsRef >>= evalSkovQueryM a
 
-instance SkovStateQueryable (MVar SkovSimpleState) (SimpleSkovMonad SkovSimpleState IO) where
-    runStateQuery sfsRef a = readMVar sfsRef >>= evalSSM a
+instance SkovStateQueryable (MVar SkovBufferedHookedState) (SkovQueryM SkovBufferedHookedState IO) where
+    runStateQuery sfsRef a = readMVar sfsRef >>= evalSkovQueryM a
+
+instance SkovStateQueryable (MVar SkovPassiveState) (SkovQueryM SkovPassiveState IO) where
+    runStateQuery sfsRef a = readMVar sfsRef >>= evalSkovQueryM a
+
+instance SkovStateQueryable (MVar SkovPassiveHookedState) (SkovQueryM SkovPassiveHookedState IO) where
+    runStateQuery sfsRef a = readMVar sfsRef >>= evalSkovQueryM a
 
 hsh :: (HashableTo BlockHash a) => a -> String
 hsh x = show (getHash x :: BlockHash)

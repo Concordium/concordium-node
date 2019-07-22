@@ -19,14 +19,23 @@ import Concordium.TimeMonad
 
 data UpdateResult
     = ResultSuccess
+    -- ^Message received, validated and processed
     | ResultSerializationFail
+    -- ^Message deserialization failed
     | ResultInvalid
+    -- ^The message was determined to be invalid
     | ResultPendingBlock
+    -- ^The message was received, but is awaiting a block to complete processing
     | ResultPendingFinalization
+    -- ^The message was received, but is awaiting a finalization record to complete processing
     | ResultAsync
+    -- ^The message was received, but is being processed asynchronously
     | ResultDuplicate
+    -- ^The message duplicates a previously received message
     | ResultStale
+    -- ^The message may have been valid in the past, but is no longer relevant
     | ResultIncorrectFinalizationSession
+    -- ^The message refers to a different/unknown finalization session
 
 class (Monad m, Eq (BlockPointer m), BlockPointerData (BlockPointer m), BlockStateQuery m) => SkovQueryMonad m where
     -- |Look up a block in the table given its hash
