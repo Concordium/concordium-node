@@ -39,22 +39,22 @@ impl ResponseHandler {
         }
     }
 
-    pub fn add_pong_callback(&mut self, callback: UnitFunction<NetworkResponse>) -> &mut Self {
+    pub fn add_pong_callback(&self, callback: UnitFunction<NetworkResponse>) -> &Self {
         self.pong_handler.add_callback(callback);
         self
     }
 
-    pub fn add_find_node_callback(&mut self, callback: UnitFunction<NetworkResponse>) -> &mut Self {
+    pub fn add_find_node_callback(&self, callback: UnitFunction<NetworkResponse>) -> &Self {
         self.find_node_handler.add_callback(callback);
         self
     }
 
-    pub fn add_peer_list_callback(&mut self, callback: UnitFunction<NetworkResponse>) -> &mut Self {
+    pub fn add_peer_list_callback(&self, callback: UnitFunction<NetworkResponse>) -> &Self {
         self.peer_list_handler.add_callback(callback);
         self
     }
 
-    pub fn add_handshake_callback(&mut self, callback: UnitFunction<NetworkResponse>) -> &mut Self {
+    pub fn add_handshake_callback(&self, callback: UnitFunction<NetworkResponse>) -> &Self {
         self.handshake_handler.add_callback(callback);
         self
     }

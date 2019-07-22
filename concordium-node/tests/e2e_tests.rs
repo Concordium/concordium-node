@@ -356,7 +356,7 @@ mod tests {
 
             let (node, conn_waiter) = make_node_and_sync(port, vec![network_id], PeerType::Node)?;
 
-            let mut mh = node.message_processor();
+            let mh = node.message_processor();
             mh.add_packet_action(make_atomic_callback!(move |pac: &NetworkPacket| {
                 // It is safe to ignore error.
                 let _ = tx_i.send(pac.clone());

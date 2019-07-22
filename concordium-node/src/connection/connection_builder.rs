@@ -57,7 +57,7 @@ impl ConnectionBuilder {
                 .build()?;
 
             let lself = Connection {
-                messages_received: 0,
+                messages_received: Arc::new(AtomicU64::new(0)),
                 messages_sent: 0,
                 last_ping_sent: Arc::new(AtomicU64::new(curr_stamp)),
                 network_request_sender: sender,

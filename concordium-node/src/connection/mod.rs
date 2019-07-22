@@ -89,7 +89,7 @@ macro_rules! handle_by_private {
 pub struct Connection {
     // Counters
     messages_sent:     u64,
-    messages_received: u64,
+    messages_received: Arc<AtomicU64>,
     last_ping_sent:    Arc<AtomicU64>,
 
     network_request_sender: SyncSender<NetworkRawRequest>,
@@ -111,7 +111,7 @@ impl Connection {
     }
 
     // Setup handshake handler
-    pub fn setup_pre_handshake(&mut self) {
+    pub fn setup_pre_handshake(&self) {
         let cloned_message_processor = self.common_message_processor.clone();
         self.pre_handshake_message_processor
             .add(cloned_message_processor)
@@ -131,12 +131,12 @@ impl Connection {
         let priv_conn = Arc::clone(&self.dptr);
 
         make_atomic_callback!(move |_: &T| -> FuncResult<()> {
-            safe_write!(priv_conn)?.update_last_seen();
+            safe_read!(priv_conn)?.update_last_seen();
             Ok(())
         })
     }
 
-    fn make_request_handler(&mut self) -> RequestHandler {
+    fn make_request_handler(&self) -> RequestHandler {
         let update_last_seen_handler = self.make_update_last_seen_handler();
 
         let mut rh = RequestHandler::new();
@@ -176,8 +176,8 @@ impl Connection {
         rh
     }
 
-    fn make_response_handler(&mut self) -> ResponseHandler {
-        let mut rh = ResponseHandler::new();
+    fn make_response_handler(&self) -> ResponseHandler {
+        let rh = ResponseHandler::new();
 
         rh.add_find_node_callback(handle_by_private!(
             self.dptr,
@@ -236,10 +236,12 @@ impl Connection {
     }
 
     pub fn set_measured_handshake_sent(&mut self) {
-        write_or_die!(self.dptr).sent_handshake = get_current_stamp()
+        read_or_die!(self.dptr)
+            .sent_handshake
+            .store(get_current_stamp(), Ordering::SeqCst)
     }
 
-    pub fn set_measured_ping_sent(&self) { write_or_die!(self.dptr).set_measured_ping_sent(); }
+    pub fn set_measured_ping_sent(&self) { read_or_die!(self.dptr).set_measured_ping_sent(); }
 
     pub fn get_last_ping_sent(&self) -> u64 { self.last_ping_sent.load(Ordering::SeqCst) }
 
@@ -271,7 +273,7 @@ impl Connection {
 
     pub fn remote_peer(&self) -> RemotePeer { read_or_die!(self.dptr).remote_peer().to_owned() }
 
-    pub fn get_messages_received(&self) -> u64 { self.messages_received }
+    pub fn get_messages_received(&self) -> u64 { self.messages_received.load(Ordering::SeqCst) }
 
     pub fn get_messages_sent(&self) -> u64 { self.messages_sent }
 
@@ -303,7 +305,7 @@ impl Connection {
     pub fn shutdown(&self) -> Fallible<()> { write_or_die!(self.dptr).shutdown() }
 
     pub fn ready(
-        &mut self,
+        &self,
         ev: &Event,
     ) -> Result<ProcessResult, Vec<Result<ProcessResult, failure::Error>>> {
         let messages_result = write_or_die!(self.dptr).ready(ev);
@@ -320,13 +322,13 @@ impl Connection {
 
     /// It decodes message from `buf` and processes it using its message
     /// handlers.
-    fn process_message(&mut self, message: UCursor) -> Fallible<ProcessResult> {
+    fn process_message(&self, message: UCursor) -> Fallible<ProcessResult> {
         let mut archive =
             ReadArchiveAdapter::new(message, self.remote_peer().clone(), self.remote_addr().ip());
         let message = NetworkMessage::deserialize(&mut archive)?;
         let outer = Arc::new(message);
 
-        self.messages_received += 1;
+        self.messages_received.fetch_add(1, Ordering::Relaxed);
         TOTAL_MESSAGES_RECEIVED_COUNTER.fetch_add(1, Ordering::Relaxed);
         if let Some(ref service) = &self.stats_export_service() {
             service.pkt_received_inc();

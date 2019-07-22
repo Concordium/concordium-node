@@ -27,7 +27,7 @@ pub enum ProcessResult {
 }
 
 pub fn collapse_process_result(
-    conn: &mut Connection,
+    conn: &Connection,
     data: Vec<UCursor>,
 ) -> Result<ProcessResult, Vec<Result<ProcessResult, failure::Error>>> {
     let mut found_drop = false;
