@@ -22,7 +22,7 @@ use std::{
     net::{IpAddr, SocketAddr},
     sync::{
         atomic::{AtomicUsize, Ordering},
-        mpsc::{self, SyncSender},
+        mpsc::SyncSender,
         Arc, RwLock,
     },
 };
@@ -53,24 +53,24 @@ const MAX_PREHANDSHAKE_KEEP_ALIVE: u64 = 120_000;
 pub type PreHandshakeCW = UnitFunction<SocketAddr>;
 pub type PreHandshake = UnitFunctor<SocketAddr>;
 
-pub struct TlsServerBuilder {
+pub struct NoiseProtocolHandlerBuilder {
     server:               Option<TcpListener>,
     event_log:            Option<SyncSender<P2PEvent>>,
     self_peer:            Option<P2PPeer>,
     buckets:              Option<Arc<RwLock<Buckets>>>,
-    stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
+    stats_export_service: Option<StatsExportService>,
     networks:             Option<HashSet<NetworkId>>,
     max_allowed_peers:    Option<u16>,
     noise_params:         Option<snow::params::NoiseParams>,
 }
 
-impl Default for TlsServerBuilder {
-    fn default() -> Self { TlsServerBuilder::new() }
+impl Default for NoiseProtocolHandlerBuilder {
+    fn default() -> Self { NoiseProtocolHandlerBuilder::new() }
 }
 
-impl TlsServerBuilder {
-    pub fn new() -> TlsServerBuilder {
-        TlsServerBuilder {
+impl NoiseProtocolHandlerBuilder {
+    pub fn new() -> NoiseProtocolHandlerBuilder {
+        NoiseProtocolHandlerBuilder {
             server:               None,
             event_log:            None,
             self_peer:            None,
@@ -82,7 +82,7 @@ impl TlsServerBuilder {
         }
     }
 
-    pub fn build(self) -> Fallible<TlsServer> {
+    pub fn build(self) -> Fallible<NoiseProtocolHandler> {
         if let (
             Some(networks),
             Some(server),
@@ -99,9 +99,8 @@ impl TlsServerBuilder {
             self.noise_params,
         ) {
             let key_pair = snow::Builder::new(noise_params.clone()).generate_keypair()?;
-            let (network_request_sender, _) = mpsc::sync_channel(10000);
 
-            let mut mself = TlsServer {
+            let mself = NoiseProtocolHandler {
                 server: Arc::new(server),
                 next_id: Arc::new(AtomicUsize::new(2)),
                 key_pair: Arc::new(key_pair),
@@ -114,7 +113,7 @@ impl TlsServerBuilder {
                 log_dumper: None,
                 max_allowed_peers,
                 noise_params,
-                network_request_sender,
+                network_request_sender: None,
                 connections: Arc::new(RwLock::new(Vec::new())),
                 to_disconnect: Arc::new(RwLock::new(VecDeque::<P2PNodeId>::new())),
                 unreachable_nodes: UnreachableNodes::new(),
@@ -126,44 +125,49 @@ impl TlsServerBuilder {
             mself.setup_default_message_handler();
             Ok(mself)
         } else {
-            Err(Error::from(fails::MissingFieldsOnTlsServerBuilder))
+            Err(Error::from(
+                fails::MissingFieldsOnNoiseProtocolHandlerBuilder,
+            ))
         }
     }
 
-    pub fn set_server(mut self, s: TcpListener) -> TlsServerBuilder {
+    pub fn set_server(mut self, s: TcpListener) -> NoiseProtocolHandlerBuilder {
         self.server = Some(s);
         self
     }
 
-    pub fn set_self_peer(mut self, sp: P2PPeer) -> TlsServerBuilder {
+    pub fn set_self_peer(mut self, sp: P2PPeer) -> NoiseProtocolHandlerBuilder {
         self.self_peer = Some(sp);
         self
     }
 
-    pub fn set_event_log(mut self, el: Option<SyncSender<P2PEvent>>) -> TlsServerBuilder {
+    pub fn set_event_log(
+        mut self,
+        el: Option<SyncSender<P2PEvent>>,
+    ) -> NoiseProtocolHandlerBuilder {
         self.event_log = el;
         self
     }
 
-    pub fn set_buckets(mut self, b: Arc<RwLock<Buckets>>) -> TlsServerBuilder {
+    pub fn set_buckets(mut self, b: Arc<RwLock<Buckets>>) -> NoiseProtocolHandlerBuilder {
         self.buckets = Some(b);
         self
     }
 
     pub fn set_stats_export_service(
         mut self,
-        ses: Option<Arc<RwLock<StatsExportService>>>,
-    ) -> TlsServerBuilder {
+        ses: Option<StatsExportService>,
+    ) -> NoiseProtocolHandlerBuilder {
         self.stats_export_service = ses;
         self
     }
 
-    pub fn set_networks(mut self, n: HashSet<NetworkId>) -> TlsServerBuilder {
+    pub fn set_networks(mut self, n: HashSet<NetworkId>) -> NoiseProtocolHandlerBuilder {
         self.networks = Some(n);
         self
     }
 
-    pub fn set_max_allowed_peers(mut self, max_allowed_peers: u16) -> TlsServerBuilder {
+    pub fn set_max_allowed_peers(mut self, max_allowed_peers: u16) -> NoiseProtocolHandlerBuilder {
         self.max_allowed_peers = Some(max_allowed_peers);
         self
     }
@@ -171,27 +175,27 @@ impl TlsServerBuilder {
     pub fn set_noise_params(
         mut self,
         config: &crate::configuration::CryptoConfig,
-    ) -> TlsServerBuilder {
+    ) -> NoiseProtocolHandlerBuilder {
         self.noise_params = Some(generate_snow_config(config));
         self
     }
 }
 
 #[derive(Clone)]
-pub struct TlsServer {
+pub struct NoiseProtocolHandler {
     server:                     Arc<TcpListener>,
     next_id:                    Arc<AtomicUsize>,
     key_pair:                   Arc<Keypair>,
     event_log:                  Option<SyncSender<P2PEvent>>,
     self_peer:                  P2PPeer,
     buckets:                    Arc<RwLock<Buckets>>,
-    stats_export_service:       Option<Arc<RwLock<StatsExportService>>>,
+    stats_export_service:       Option<StatsExportService>,
     message_processor:          MessageProcessor,
     prehandshake_validations:   PreHandshake,
     log_dumper:                 Option<SyncSender<DumpItem>>,
     max_allowed_peers:          u16,
     noise_params:               snow::params::NoiseParams,
-    pub network_request_sender: SyncSender<NetworkRawRequest>,
+    pub network_request_sender: Option<SyncSender<NetworkRawRequest>>,
     connections:                Arc<RwLock<Vec<Connection>>>,
     pub to_disconnect:          Arc<RwLock<VecDeque<P2PNodeId>>>,
     pub unreachable_nodes:      UnreachableNodes,
@@ -199,7 +203,7 @@ pub struct TlsServer {
     pub networks:               Arc<RwLock<HashSet<NetworkId>>>,
 }
 
-impl TlsServer {
+impl NoiseProtocolHandler {
     pub fn log_event(&self, event: P2PEvent) {
         if let Some(ref log) = self.event_log {
             if let Err(e) = log.send(event) {
@@ -217,11 +221,9 @@ impl TlsServer {
     pub fn is_unreachable(&self, addr: SocketAddr) -> bool { self.unreachable_nodes.contains(addr) }
 
     /// Adds the `addr` to the `unreachable_nodes` list.
-    pub fn add_unreachable(&mut self, addr: SocketAddr) -> bool {
-        self.unreachable_nodes.insert(addr)
-    }
+    pub fn add_unreachable(&self, addr: SocketAddr) -> bool { self.unreachable_nodes.insert(addr) }
 
-    pub fn accept(&mut self, poll: &RwLock<Poll>, self_peer: P2PPeer) -> Fallible<()> {
+    pub fn accept(&self, poll: &Poll, self_peer: P2PPeer) -> Fallible<()> {
         let (socket, addr) = self.server.accept()?;
 
         debug!(
@@ -251,7 +253,7 @@ impl TlsServer {
             .set_local_end_networks(networks)
             .set_buckets(Arc::clone(&self.buckets))
             .set_log_dumper(self.log_dumper.clone())
-            .set_network_request_sender(Some(self.network_request_sender.clone()))
+            .set_network_request_sender(self.network_request_sender.clone())
             .set_noise_params(self.noise_params.clone())
             .build()?;
 
@@ -267,9 +269,9 @@ impl TlsServer {
     }
 
     pub fn connect(
-        &mut self,
+        &self,
         peer_type: PeerType,
-        poll: &RwLock<Poll>,
+        poll: &Poll,
         addr: SocketAddr,
         peer_id_opt: Option<P2PNodeId>,
         self_peer: &P2PPeer,
@@ -310,7 +312,7 @@ impl TlsServer {
         match TcpStream::connect(&addr) {
             Ok(socket) => {
                 if let Some(ref service) = &self.stats_export_service {
-                    safe_write!(service)?.conn_received_inc();
+                    service.conn_received_inc();
                 };
                 let token = Token(self.next_id.fetch_add(1, Ordering::SeqCst));
                 let networks = self.networks();
@@ -327,7 +329,7 @@ impl TlsServer {
                     .set_local_end_networks(Arc::clone(&networks))
                     .set_buckets(Arc::clone(&self.buckets))
                     .set_log_dumper(self.log_dumper.clone())
-                    .set_network_request_sender(Some(self.network_request_sender.clone()))
+                    .set_network_request_sender(self.network_request_sender.clone())
                     .set_noise_params(self.noise_params.clone())
                     .build()?;
 
@@ -369,8 +371,8 @@ impl TlsServer {
     #[inline]
     pub fn peer_type(&self) -> PeerType { self.self_peer.peer_type() }
 
-    /// It setups default message handler at TLSServer level.
-    fn setup_default_message_handler(&mut self) {
+    /// It setups default message handler at noise protocol handler level.
+    fn setup_default_message_handler(&self) {
         let banned_nodes = Arc::clone(&self.banned_peers);
         let to_disconnect = Arc::clone(&self.to_disconnect);
         self.message_processor
@@ -390,7 +392,7 @@ impl TlsServer {
         conn.common_message_processor.add(mh);
     }
 
-    fn add_default_prehandshake_validations(&mut self) {
+    fn add_default_prehandshake_validations(&self) {
         self.prehandshake_validations
             .add_callback(self.make_check_banned());
     }
@@ -416,10 +418,10 @@ impl TlsServer {
         self.dump_all_connections(None);
     }
 
-    pub fn add_notification(&mut self, func: UnitFunction<NetworkMessage>) {
+    pub fn add_notification(&self, func: UnitFunction<NetworkMessage>) {
         self.message_processor.add_notification(func.clone());
-        write_or_die!(self.connections)
-            .iter_mut()
+        read_or_die!(self.connections)
+            .iter()
             .for_each(|conn| conn.add_notification(func.clone()))
     }
 
@@ -427,7 +429,7 @@ impl TlsServer {
         for conn in write_or_die!(self.connections).iter_mut() {
             conn.set_network_request_sender(sender.clone());
         }
-        self.network_request_sender = sender;
+        self.network_request_sender = Some(sender);
     }
 
     pub fn connections_posthandshake_count(&self, exclude_type: Option<PeerType>) -> u16 {
@@ -448,7 +450,7 @@ impl TlsServer {
     }
 
     /// Adds a new node to the banned list and marks its connection for closure
-    pub fn ban_node(&mut self, peer: BannedNode) -> bool {
+    pub fn ban_node(&self, peer: BannedNode) -> bool {
         if write_or_die!(self.banned_peers).insert(peer) {
             match peer {
                 BannedNode::ById(id) => {
@@ -457,7 +459,7 @@ impl TlsServer {
                     }
                 }
                 BannedNode::ByAddr(addr) => {
-                    for mut conn in self.find_connections_by_ip(addr) {
+                    for conn in self.find_connections_by_ip(addr) {
                         conn.close();
                     }
                 }
@@ -469,7 +471,7 @@ impl TlsServer {
     }
 
     /// It removes a node from the banned peer list.
-    pub fn unban_node(&mut self, peer: BannedNode) -> bool {
+    pub fn unban_node(&self, peer: BannedNode) -> bool {
         write_or_die!(self.banned_peers).remove(&peer)
     }
 
@@ -535,8 +537,8 @@ impl TlsServer {
     }
 
     pub fn find_connection_by_id(&self, id: P2PNodeId) -> Option<Connection> {
-        write_or_die!(self.connections)
-            .iter_mut()
+        read_or_die!(self.connections)
+            .iter()
             .find(|conn| conn.remote_id() == Some(id))
             .cloned()
     }
@@ -550,8 +552,8 @@ impl TlsServer {
     }
 
     pub fn find_connection_by_token(&self, token: Token) -> Option<Connection> {
-        write_or_die!(self.connections)
-            .iter_mut()
+        read_or_die!(self.connections)
+            .iter()
             .find(|conn| conn.token() == token)
             .cloned()
     }
@@ -571,18 +573,16 @@ impl TlsServer {
             .collect()
     }
 
-    fn remove_connection(&mut self, to_remove: Token) {
+    fn remove_connection(&self, to_remove: Token) {
         write_or_die!(self.connections).retain(|conn| conn.token() != to_remove);
     }
 
-    pub fn add_connection(&mut self, conn: Connection) {
-        write_or_die!(self.connections).push(conn);
-    }
+    pub fn add_connection(&self, conn: Connection) { write_or_die!(self.connections).push(conn); }
 
-    pub fn conn_event(&mut self, event: &Event) -> Fallible<ProcessResult> {
+    pub fn conn_event(&self, event: &Event) -> Fallible<ProcessResult> {
         let token = event.token();
 
-        if let Some(ref mut conn) = self.find_connection_by_token(token) {
+        if let Some(conn) = self.find_connection_by_token(token) {
             conn.ready(event).map_err(|x| {
                 let x: Vec<failure::Error> = x.into_iter().map(Result::unwrap_err).collect();
                 failure::Error::from(concordium_common::fails::FunctorError::from(x))
@@ -592,11 +592,7 @@ impl TlsServer {
         }
     }
 
-    pub fn cleanup_connections(
-        &mut self,
-        max_peers_number: u16,
-        poll: &RwLock<Poll>,
-    ) -> Fallible<()> {
+    pub fn cleanup_connections(&self, max_peers_number: u16, poll: &Poll) -> Fallible<()> {
         let curr_stamp = get_current_stamp();
         let peer_type = self.peer_type();
 
@@ -621,7 +617,7 @@ impl TlsServer {
                 .collect();
             connection_map.sort_by_key(|p| std::cmp::Reverse((p.0, p.2)));
             connection_map.dedup_by_key(|p| p.0);
-            write_or_die!(self.connections).iter_mut().for_each(|conn| {
+            read_or_die!(self.connections).iter().for_each(|conn| {
                 if conn.remote_id().is_some()
                     && !connection_map
                         .iter()
@@ -667,8 +663,8 @@ impl TlsServer {
 
         // Kill nodes which are no longer seen and also closing connections
         let (closing_conns, err_conns): (Vec<Fallible<Token>>, Vec<Fallible<Token>>) =
-            write_or_die!(self.connections)
-            .iter_mut()
+            read_or_die!(self.connections)
+            .iter()
             // Get only connections that have been inactive for more time than allowed or closing connections
             .filter(|conn| {
                 conn.is_closed() ||
@@ -687,9 +683,7 @@ impl TlsServer {
                 // Report number of peers to stats export engine
                 if let Some(ref service) = &self.stats_export_service {
                     if conn.is_post_handshake() {
-                        if let Ok(mut p) = safe_write!(service) {
-                            p.peers_dec();
-                        }
+                        service.peers_dec();
                     }
                 }
                 Ok(conn_token)
@@ -698,7 +692,10 @@ impl TlsServer {
         // Remove the connection from the list of connections
         for conn in closing_conns.into_iter().map(Result::unwrap) {
             // safe unwrapping since we are iterating over the list that only contains `Ok`s
-            trace!("Remove connection {} from TLS Server", usize::from(conn));
+            trace!(
+                "Remove connection {} from Noise Protocol Handler",
+                usize::from(conn)
+            );
             self.remove_connection(conn);
         }
 
@@ -720,10 +717,10 @@ impl TlsServer {
             let peer_count = self.connections_posthandshake_count(Some(PeerType::Bootstrapper));
             if peer_count > max_peers_number {
                 let mut rng = rand::thread_rng();
-                write_or_die!(self.connections)
-                    .iter_mut()
+                read_or_die!(self.connections)
+                    .iter()
                     .choose_multiple(&mut rng, (peer_count - max_peers_number) as usize)
-                    .iter_mut()
+                    .iter()
                     .for_each(|conn| conn.close());
             }
         }
@@ -734,8 +731,8 @@ impl TlsServer {
     pub fn liveness_check(&self) -> Fallible<()> {
         let curr_stamp = get_current_stamp();
 
-        write_or_die!(self.connections)
-            .iter_mut()
+        read_or_die!(self.connections)
+            .iter()
             .filter(|conn| {
                 (conn.last_seen() + 120_000 < curr_stamp
                     || conn.get_last_ping_sent() + 300_000 < curr_stamp)
@@ -783,8 +780,8 @@ impl TlsServer {
         filter_conn: &dyn Fn(&Connection) -> bool,
         send_status: &dyn Fn(&Connection, Fallible<()>),
     ) -> usize {
-        write_or_die!(self.connections)
-            .iter_mut()
+        read_or_die!(self.connections)
+            .iter()
             .filter(|conn| !conn.is_closed() && filter_conn(conn))
             .map(|conn| {
                 let status = conn.async_send(data.clone(), MessageSendingPriority::Normal);
@@ -793,7 +790,7 @@ impl TlsServer {
             .count()
     }
 
-    pub fn dump_all_connections(&mut self, log_dumper: Option<SyncSender<DumpItem>>) {
+    pub fn dump_all_connections(&self, log_dumper: Option<SyncSender<DumpItem>>) {
         write_or_die!(self.connections).iter_mut().for_each(|conn| {
             conn.set_log_dumper(log_dumper.clone());
         });
@@ -814,6 +811,6 @@ impl TlsServer {
     }
 }
 
-impl MessageManager for TlsServer {
+impl MessageManager for NoiseProtocolHandler {
     fn message_processor(&self) -> MessageProcessor { self.message_processor.clone() }
 }

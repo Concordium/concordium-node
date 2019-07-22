@@ -8,14 +8,7 @@ pub const FILE_NAME_SUFFIX_BAKER_PRIVATE: &str = ".dat";
 use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
 use failure::Fallible;
 
-use std::{
-    collections::HashMap,
-    convert::TryFrom,
-    fs::OpenOptions,
-    io::{Read, Write},
-    mem,
-    sync::{Arc, RwLock},
-};
+use std::{convert::TryFrom, fs::OpenOptions, io::Read, mem, sync::Arc};
 
 use concordium_common::{
     cache::Cache,
@@ -42,16 +35,8 @@ pub fn start_consensus_layer(
 ) -> Option<consensus::ConsensusContainer> {
     match conf.baker_id {
         Some(baker_id) => {
-            // Check for invalid configuration
-            if baker_id > conf.baker_num_bakers {
-                // Baker ID is higher than amount of bakers in the network. Bail!
-                error!(
-                    "Baker ID is higher than the number of bakers in the network! Disabling baking"
-                );
-                return None;
-            }
-
             info!("Starting up the consensus thread");
+
             #[cfg(feature = "profiling")]
             ffi::start_haskell(
                 &conf.heap_profiling,
@@ -62,7 +47,7 @@ pub fn start_consensus_layer(
             #[cfg(not(feature = "profiling"))]
             ffi::start_haskell();
 
-            match get_baker_data(app_prefs, conf) {
+            match get_baker_data(app_prefs, conf, true) {
                 Ok((genesis_data, private_data)) => {
                     let mut consensus =
                         consensus::ConsensusContainer::new(genesis_data, Some(private_data));
@@ -87,7 +72,7 @@ pub fn start_consensus_layer(
             #[cfg(not(feature = "profiling"))]
             ffi::start_haskell();
 
-            match get_baker_data(app_prefs, conf) {
+            match get_baker_data(app_prefs, conf, false) {
                 Ok((genesis_data, _)) => {
                     let consensus = consensus::ConsensusContainer::new(genesis_data, None);
                     Some(consensus)
@@ -104,6 +89,7 @@ pub fn start_consensus_layer(
 fn get_baker_data(
     app_prefs: &configuration::AppPreferences,
     conf: &configuration::BakerConfig,
+    needs_private: bool,
 ) -> Fallible<(Vec<u8>, Vec<u8>)> {
     let mut genesis_loc = app_prefs.get_user_app_dir();
     genesis_loc.push(FILE_NAME_GENESIS_DATA);
@@ -117,76 +103,18 @@ fn get_baker_data(
         ))
     };
 
-    let (generated_genesis, generated_private_data) =
-        if !genesis_loc.exists() || !private_loc.exists() {
-            let mut default_crypto_providers = app_prefs.get_user_app_dir();
-            default_crypto_providers.push(FILE_NAME_CRYPTO_PROV_DATA);
-            let mut default_id_providers = app_prefs.get_user_app_dir();
-            default_id_providers.push(FILE_NAME_ID_PROV_DATA);
-            let crypto_providers = conf
-                .cryptographic_providers
-                .clone()
-                .unwrap_or_else(|| String::from(default_crypto_providers.to_str().unwrap()));
-            let id_providers = conf
-                .identity_providers
-                .clone()
-                .unwrap_or_else(|| String::from(default_id_providers.to_str().unwrap()));
-            consensus::ConsensusContainer::generate_data(
-                conf.baker_genesis,
-                conf.baker_num_bakers,
-                &crypto_providers,
-                &id_providers,
-            )?
-        } else {
-            (vec![], HashMap::new())
-        };
-
-    let given_genesis = if !genesis_loc.exists() {
-        match OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .open(&genesis_loc)
-        {
-            Ok(mut file) => match file.write_all(&generated_genesis) {
-                Ok(_) => generated_genesis,
-                Err(_) => bail!("Couldn't write out genesis data"),
-            },
-            Err(_) => bail!("Couldn't open up genesis file for writing"),
-        }
-    } else {
-        match OpenOptions::new().read(true).open(&genesis_loc) {
-            Ok(mut file) => {
-                let mut read_data = vec![];
-                match file.read_to_end(&mut read_data) {
-                    Ok(_) => read_data,
-                    Err(_) => bail!("Couldn't read genesis file properly"),
-                }
+    let genesis_data = match OpenOptions::new().read(true).open(&genesis_loc) {
+        Ok(mut file) => {
+            let mut read_data = vec![];
+            match file.read_to_end(&mut read_data) {
+                Ok(_) => read_data,
+                Err(_) => bail!("Couldn't read genesis file properly"),
             }
-            Err(e) => bail!("Can't open the genesis file ({})!", e),
         }
+        Err(e) => bail!("Can't open the genesis file ({})!", e),
     };
 
-    let given_private_data = if !private_loc.exists() {
-        match OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .open(&private_loc)
-        {
-            Ok(mut file) => {
-                if let Some(baker_id) = conf.baker_id {
-                    match file.write_all(&generated_private_data[&(baker_id as i64)]) {
-                        Ok(_) => generated_private_data[&(baker_id as i64)].to_owned(),
-                        Err(_) => bail!("Couldn't write out private baker data"),
-                    }
-                } else {
-                    bail!("Couldn't write out private baker data");
-                }
-            }
-            Err(_) => bail!("Couldn't open up private baker file for writing"),
-        }
-    } else {
+    let private_data = if needs_private {
         match OpenOptions::new().read(true).open(&private_loc) {
             Ok(mut file) => {
                 let mut read_data = vec![];
@@ -197,19 +125,19 @@ fn get_baker_data(
             }
             Err(e) => bail!("Can't open the private data file ({})!", e),
         }
+    } else {
+        vec![]
     };
 
     debug!(
         "Obtained genesis data {:?}",
-        sha256(&[&[0u8; 8], given_genesis.as_slice()].concat())
+        sha256(&[&[0u8; 8], genesis_data.as_slice()].concat())
     );
-
-    Ok((given_genesis, given_private_data))
+    Ok((genesis_data, private_data))
 }
 
 /// Handles packets coming from other peers
 pub fn handle_pkt_out(
-    _baker: &mut consensus::ConsensusContainer,
     peer_id: P2PNodeId,
     mut msg: UCursor,
     skov_sender: &RelayOrStopSender<ConsensusMessage>,
@@ -250,7 +178,7 @@ pub fn handle_global_state_request(
     baker: &mut consensus::ConsensusContainer,
     request: ConsensusMessage,
     skov: &mut Skov,
-    stats_exporting: &Option<Arc<RwLock<StatsExportService>>>,
+    stats_exporting: &Option<StatsExportService>,
 ) -> Fallible<()> {
     if let MessageType::Outbound(_) = request.direction {
         process_internal_skov_entry(node, network_id, request, skov)?
@@ -259,15 +187,13 @@ pub fn handle_global_state_request(
     }
 
     if let Some(stats) = stats_exporting {
-        if let Ok(mut stats) = safe_write!(stats) {
-            let stats_values = skov.stats.query_stats();
-            stats.set_skov_block_receipt(stats_values.0 as i64);
-            stats.set_skov_block_entry(stats_values.1 as i64);
-            stats.set_skov_block_query(stats_values.2 as i64);
-            stats.set_skov_finalization_receipt(stats_values.3 as i64);
-            stats.set_skov_finalization_entry(stats_values.4 as i64);
-            stats.set_skov_finalization_query(stats_values.5 as i64);
-        }
+        let stats_values = skov.stats.query_stats();
+        stats.set_skov_block_receipt(stats_values.0 as i64);
+        stats.set_skov_block_entry(stats_values.1 as i64);
+        stats.set_skov_block_query(stats_values.2 as i64);
+        stats.set_skov_finalization_receipt(stats_values.3 as i64);
+        stats.set_skov_finalization_entry(stats_values.4 as i64);
+        stats.set_skov_finalization_query(stats_values.5 as i64);
     }
 
     Ok(())
@@ -289,11 +215,14 @@ fn process_internal_skov_entry(
     let (entry_info, skov_result) = match request.variant {
         PacketType::Block => {
             let block = PendingBlock::new(&request.payload)?;
-            (format!("{:?}", block.block), skov.add_block(block))
+            (format!("{:?}", block.block), skov.add_block(block, false))
         }
         PacketType::FinalizationRecord => {
             let record = FinalizationRecord::deserialize(&request.payload)?;
-            (format!("{:?}", record), skov.add_finalization(record))
+            (
+                format!("{:?}", record),
+                skov.add_finalization(record, false),
+            )
         }
         PacketType::CatchupBlockByHash
         | PacketType::CatchupFinalizationRecordByHash
@@ -366,12 +295,12 @@ fn process_external_skov_entry(
     let (skov_result, consensus_applicable) = match request.variant {
         PacketType::Block => {
             let block = PendingBlock::new(&request.payload)?;
-            let skov_result = skov.add_block(block);
+            let skov_result = skov.add_block(block, false);
             (skov_result, true)
         }
         PacketType::FinalizationRecord => {
             let record = FinalizationRecord::deserialize(&request.payload)?;
-            let skov_result = skov.add_finalization(record);
+            let skov_result = skov.add_finalization(record, false);
             (skov_result, true)
         }
         PacketType::CatchupBlockByHash => {

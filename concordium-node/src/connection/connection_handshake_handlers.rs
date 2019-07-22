@@ -5,7 +5,7 @@ use crate::{
     network::{NetworkRequest, NetworkResponse},
 };
 use concordium_common::functor::FuncResult;
-use std::sync::RwLock;
+use std::sync::{atomic::Ordering, RwLock};
 
 pub fn handshake_response_handle(
     priv_conn: &RwLock<ConnectionPrivate>,
@@ -14,7 +14,9 @@ pub fn handshake_response_handle(
     if let NetworkResponse::Handshake(ref remote_peer, ref nets, _) = req {
         {
             let mut priv_conn_mut = write_or_die!(priv_conn);
-            priv_conn_mut.sent_handshake = get_current_stamp();
+            priv_conn_mut
+                .sent_handshake
+                .store(get_current_stamp(), Ordering::SeqCst);
             priv_conn_mut.add_remote_end_networks(nets);
             priv_conn_mut.promote_to_post_handshake(remote_peer.id(), remote_peer.addr)?;
         }
@@ -26,7 +28,7 @@ pub fn handshake_response_handle(
                 .insert_into_bucket(&bucket_sender, nets.clone());
         }
         if let Some(ref service) = read_or_die!(priv_conn).stats_export_service {
-            safe_write!(service)?.peers_inc();
+            service.peers_inc();
         };
     } else {
         safe_write!(priv_conn)?.status = ConnectionStatus::Closing;
@@ -53,7 +55,7 @@ pub fn handshake_request_handle(
         }
         send_handshake_and_ping(priv_conn)?;
         {
-            let mut priv_conn_mut = write_or_die!(priv_conn);
+            let priv_conn_mut = read_or_die!(priv_conn);
             priv_conn_mut.update_last_seen();
             priv_conn_mut.set_measured_ping_sent();
         }

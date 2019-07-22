@@ -85,12 +85,6 @@ fn main() -> Result<(), Error> {
                 None
             });
 
-    let arc_stats_export_service = if let Some(ref service) = stats_export_service {
-        Some(Arc::clone(service))
-    } else {
-        None
-    };
-
     info!("Debugging enabled: {}", conf.common.debug);
 
     let id = match conf.common.id {
@@ -114,7 +108,7 @@ fn main() -> Result<(), Error> {
             pkt_in,
             Some(sender),
             PeerType::Bootstrapper,
-            arc_stats_export_service,
+            stats_export_service.clone(),
             rpc_tx,
         )
     } else {
@@ -124,7 +118,7 @@ fn main() -> Result<(), Error> {
             pkt_in,
             None,
             PeerType::Bootstrapper,
-            arc_stats_export_service,
+            stats_export_service.clone(),
             rpc_tx,
         )
     };

@@ -2,22 +2,19 @@ use concordium_common::{
     into_err, RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSenderHelper,
     RelayOrStopSyncSender,
 };
-use failure::{bail, Fallible};
+use failure::Fallible;
 
 #[cfg(test)]
 use std::time::Duration;
 use std::{
     collections::HashMap,
-    convert::TryFrom,
-    str,
     sync::{
         atomic::{AtomicPtr, Ordering},
-        mpsc, Arc, Mutex, RwLock,
+        mpsc, Arc, Mutex,
     },
-    thread, time,
 };
 
-use crate::{fails::CantGenerateGenesis, ffi::*};
+use crate::ffi::*;
 use concordium_global_state::{block::*, tree::ConsensusMessage};
 
 pub type PeerId = u64;
@@ -65,24 +62,8 @@ impl ConsensusOutQueue {
     }
 }
 
-#[cfg(test)]
-impl ConsensusOutQueue {
-    pub fn try_recv_message(self) -> Fallible<RelayOrStopEnvelope<ConsensusMessage>> {
-        into_err!(safe_lock!(self.receiver_request).try_recv())
-    }
-
-    pub fn recv_timeout_message(
-        self,
-        timeout: Duration,
-    ) -> Fallible<RelayOrStopEnvelope<ConsensusMessage>> {
-        into_err!(safe_lock!(self.receiver_request).recv_timeout(timeout))
-    }
-}
-
 lazy_static! {
     pub static ref CALLBACK_QUEUE: ConsensusOutQueue = { ConsensusOutQueue::default() };
-    pub static ref GENERATED_PRIVATE_DATA: RwLock<PrivateData> = { RwLock::new(HashMap::new()) };
-    pub static ref GENERATED_GENESIS_DATA: RwLock<Option<Vec<u8>>> = { RwLock::new(None) };
 }
 
 /// If a consensus instance is
@@ -154,72 +135,6 @@ impl ConsensusContainer {
         }
         CALLBACK_QUEUE.clear();
         true
-    }
-
-    pub fn generate_data(
-        genesis_time: u64,
-        num_bakers: u64,
-        crypto_providers: &str,
-        id_providers: &str,
-    ) -> Fallible<(Vec<u8>, PrivateData)> {
-        if let Ok(ref mut lock) = GENERATED_GENESIS_DATA.write() {
-            **lock = None;
-        }
-
-        if let Ok(ref mut lock) = GENERATED_PRIVATE_DATA.write() {
-            lock.clear();
-        }
-
-        let res = unsafe {
-            makeGenesisData(
-                genesis_time,
-                num_bakers,
-                std::ffi::CString::new(crypto_providers)
-                    .expect("CString::new failed")
-                    .as_ptr() as *const u8,
-                std::ffi::CString::new(id_providers)
-                    .expect("CString::new failed")
-                    .as_ptr() as *const u8,
-                on_genesis_generated,
-                on_private_data_generated,
-            )
-        };
-
-        match ConsensusFfiResponse::try_from(res) {
-            Ok(ConsensusFfiResponse::Success) => {}
-            Ok(ConsensusFfiResponse::CryptographicProvidersNotLoaded) => {
-                error!("Baker can't start: Couldn't read cryptographic providers file!");
-                return Err(failure::Error::from(CantGenerateGenesis));
-            }
-            Ok(ConsensusFfiResponse::IdentityProvidersNotLoaded) => {
-                error!("Baker can't start: Couldn't read identity providers file!");
-                return Err(failure::Error::from(CantGenerateGenesis));
-            }
-            _ => unreachable!(),
-        }
-
-        for _ in 0..num_bakers {
-            if !safe_read!(GENERATED_GENESIS_DATA).is_some()
-                || safe_read!(GENERATED_PRIVATE_DATA).len() < num_bakers as usize
-            {
-                thread::sleep(time::Duration::from_millis(200));
-            }
-        }
-
-        let genesis_data = match GENERATED_GENESIS_DATA.write() {
-            Ok(ref mut genesis) if genesis.is_some() => genesis.take().unwrap(),
-            _ => bail!("Didn't get genesis data from Haskell"),
-        };
-
-        if let Ok(priv_data) = GENERATED_PRIVATE_DATA.read() {
-            if priv_data.len() < num_bakers as usize {
-                bail!("Didn't get private data from Haskell");
-            } else {
-                return Ok((genesis_data, priv_data.clone()));
-            }
-        } else {
-            bail!("Didn't get private data from Haskell");
-        }
     }
 
     pub fn is_baking(&self) -> bool {

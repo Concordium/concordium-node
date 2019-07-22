@@ -17,6 +17,7 @@ use snow::Keypair;
 use std::{
     collections::HashSet,
     sync::{
+        atomic::AtomicU64,
         mpsc::{sync_channel, SyncSender},
         Arc, RwLock,
     },
@@ -56,9 +57,9 @@ impl ConnectionBuilder {
                 .build()?;
 
             let lself = Connection {
-                messages_received: 0,
+                messages_received: Arc::new(AtomicU64::new(0)),
                 messages_sent: 0,
-                last_ping_sent: curr_stamp,
+                last_ping_sent: Arc::new(AtomicU64::new(curr_stamp)),
                 network_request_sender: sender,
                 dptr: Arc::new(RwLock::new(priv_conn)),
                 pre_handshake_message_processor: MessageProcessor::new(),
@@ -127,7 +128,7 @@ impl ConnectionBuilder {
 
     pub fn set_stats_export_service(
         mut self,
-        stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
+        stats_export_service: Option<StatsExportService>,
     ) -> ConnectionBuilder {
         self.priv_conn_builder = self
             .priv_conn_builder

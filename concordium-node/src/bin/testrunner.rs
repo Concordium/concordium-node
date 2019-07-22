@@ -268,7 +268,7 @@ impl TestRunner {
 fn instantiate_node(
     conf: &configuration::Config,
     app_prefs: &mut configuration::AppPreferences,
-    stats_export_service: &Option<Arc<RwLock<StatsExportService>>>,
+    stats_export_service: Option<StatsExportService>,
 ) -> (P2PNode, RelayOrStopReceiver<Arc<NetworkMessage>>) {
     let (pkt_in, pkt_out) = mpsc::sync_channel::<RelayOrStopEnvelope<Arc<NetworkMessage>>>(64);
     let (rpc_in, _) = mpsc::sync_channel::<Arc<NetworkMessage>>(64);
@@ -277,12 +277,6 @@ fn instantiate_node(
         conf.common.id.clone()
     } else {
         app_prefs.get_config(configuration::APP_PREFERENCES_PERSISTED_NODE_ID)
-    };
-
-    let arc_stats_export_service = if let Some(ref service) = stats_export_service {
-        Some(Arc::clone(service))
-    } else {
-        None
     };
 
     let node_sender = if conf.common.debug {
@@ -303,7 +297,7 @@ fn instantiate_node(
         pkt_in,
         node_sender,
         PeerType::Node,
-        arc_stats_export_service,
+        stats_export_service,
         rpc_in,
     );
 
@@ -411,7 +405,7 @@ fn main() -> Fallible<()> {
         &conf.connection.bootstrap_node,
     );
 
-    let (mut node, pkt_out) = instantiate_node(&conf, &mut app_prefs, &None);
+    let (mut node, pkt_out) = instantiate_node(&conf, &mut app_prefs, None);
 
     // Create the key-value store environment
     let kvs_handle = Manager::singleton()

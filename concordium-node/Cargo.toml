@@ -1,6 +1,6 @@
 [package]
 name = "p2p_client"
-version = "0.1.42"
+version = "0.1.43"
 description = "Concordium P2P Client"
 authors = ["Concordium AG <info@concordium.com>"]
 exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*","**/**/.gitignore","**/**/.gitlab-ci.yml"]
@@ -142,10 +142,6 @@ required-features = ["instrumentation"]
 [[bin]]
 path = "src/bin/generate-new-keypair.rs"
 name = "generate-new-keypair"
-
-[[bin]]
-path = "src/bin/make_bakers_data.rs"
-name = "make-bakers-data"
 
 [[bench]]
 name = "p2p_lib_benchmark"

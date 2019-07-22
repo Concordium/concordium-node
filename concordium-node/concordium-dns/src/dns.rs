@@ -149,6 +149,7 @@ fn data_to_ipv6(data: &[u8]) -> Ipv6Addr {
     ip
 }
 
+#[cfg(feature = "non-existing-while-domain-is-moved")]
 #[cfg(test)]
 mod tests {
     use crate::dns::*;

@@ -1,11 +1,11 @@
 pub mod banned_nodes;
 pub mod fails;
 pub mod no_certificate_verification;
+pub mod noise_protocol_handler;
 pub mod p2p_node;
 pub mod p2p_node_handlers;
 pub mod p2p_service_forwarder;
 pub mod peer_statistics;
-pub mod tls_server;
 pub mod unreachable_nodes;
 
 pub use self::p2p_service_forwarder::*;
@@ -25,7 +25,7 @@ mod tests {
     #[test]
     pub fn test_banned_functionalities() -> Fallible<()> {
         let port = next_available_port();
-        let (mut node, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
+        let (node, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
         // Empty on init
         let reply = node.get_banlist();
         assert!(reply.is_empty());

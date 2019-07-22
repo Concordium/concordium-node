@@ -356,7 +356,7 @@ mod tests {
 
             let (node, conn_waiter) = make_node_and_sync(port, vec![network_id], PeerType::Node)?;
 
-            let mut mh = node.message_processor();
+            let mh = node.message_processor();
             mh.add_packet_action(make_atomic_callback!(move |pac: &NetworkPacket| {
                 // It is safe to ignore error.
                 let _ = tx_i.send(pac.clone());
@@ -417,7 +417,7 @@ mod tests {
 
     /// This test has been used in
     #[test]
-    fn e2e_006_rustls_ready_writeable() -> Fallible<()> {
+    fn e2e_006_noise_ready_writeable() -> Fallible<()> {
         setup_logger();
         let msg = UCursor::from(b"Direct message between nodes".to_vec());
         let networks = vec![100];
