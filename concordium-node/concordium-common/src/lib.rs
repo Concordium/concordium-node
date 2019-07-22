@@ -167,6 +167,8 @@ pub enum PacketType {
     CatchupFinalizationRecordByHash,
     CatchupFinalizationRecordByIndex,
     CatchupFinalizationMessagesByPoint,
+    GlobalStateMetadata,
+    GlobalStateMetadataRequest,
 }
 
 static PACKET_TYPE_FROM_INT: &[PacketType] = &[
@@ -178,6 +180,8 @@ static PACKET_TYPE_FROM_INT: &[PacketType] = &[
     PacketType::CatchupFinalizationRecordByHash,
     PacketType::CatchupFinalizationRecordByIndex,
     PacketType::CatchupFinalizationMessagesByPoint,
+    PacketType::GlobalStateMetadata,
+    PacketType::GlobalStateMetadataRequest,
 ];
 
 impl TryFrom<u16> for PacketType {
@@ -209,6 +213,8 @@ impl fmt::Display for PacketType {
             PacketType::CatchupFinalizationMessagesByPoint => {
                 "catch-up finalization messages by point request"
             }
+            PacketType::GlobalStateMetadata => "global state metadata",
+            PacketType::GlobalStateMetadataRequest => "request for global state metadata",
         };
 
         write!(f, "{}", name)

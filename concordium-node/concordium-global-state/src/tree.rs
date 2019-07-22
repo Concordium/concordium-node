@@ -1,15 +1,26 @@
-use byteorder::{ByteOrder, NetworkEndian};
+use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
 use chrono::prelude::{DateTime, Utc};
 use circular_queue::CircularQueue;
 use concordium_common::{indexed_vec::IndexedVec, PacketType, SHA256};
+use failure::{format_err, Fallible};
 use hash_hasher::{HashedMap, HashedSet};
+use nohash_hasher::IntMap;
 use rkv::{Rkv, SingleStore, StoreOptions, Value};
 
-use std::{collections::BinaryHeap, fmt, mem, rc::Rc, sync::Arc};
+use std::{
+    cmp::Ordering,
+    collections::BinaryHeap,
+    convert::TryFrom,
+    fmt,
+    io::{Cursor, Read},
+    mem::{self, size_of},
+    rc::Rc,
+    sync::Arc,
+};
 
 use crate::{
     block::*,
-    common::{HashBytes, SerializeToBytes, Slot},
+    common::{create_serialization_cursor, HashBytes, SerializeToBytes, Slot},
     finalization::*,
     transaction::*,
 };
@@ -148,6 +159,7 @@ pub enum SkovResult {
     Error(SkovError),
     Housekeeping,
     IgnoredEntry,
+    BestPeer(Option<PeerId>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -224,15 +236,30 @@ impl fmt::Display for SkovError {
 
 /// Holds the global state and related statistics.
 pub struct Skov<'a> {
-    pub data:  SkovData<'a>,
-    pub stats: SkovStats,
+    pub data:          SkovData<'a>,
+    pub stats:         SkovStats,
+    pub peer_metadata: IntMap<PeerId, SkovMetadata>,
+    pub state:         SkovState,
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub enum CatchupState {
-    NotStarted,
-    InProgress,
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum SkovState {
+    JustStarted = 0,
+    CatchingUp,
     Complete,
+}
+
+impl TryFrom<u8> for SkovState {
+    type Error = failure::Error;
+
+    fn try_from(value: u8) -> Fallible<Self> {
+        match value {
+            0 => Ok(SkovState::JustStarted),
+            1 => Ok(SkovState::CatchingUp),
+            2 => Ok(SkovState::Complete),
+            _ => Err(format_err!("Unsupported Skov state value: {}!", value)),
+        }
+    }
 }
 
 /// Returns a result of an operation and its duration.
@@ -346,8 +373,10 @@ impl<'a> Skov<'a> {
         const MOVING_AVERAGE_QUEUE_LEN: usize = 16;
 
         Self {
-            data:  SkovData::new(genesis_data, &kvs_env),
-            stats: SkovStats::new(MOVING_AVERAGE_QUEUE_LEN),
+            data:          SkovData::new(genesis_data, &kvs_env),
+            stats:         SkovStats::new(MOVING_AVERAGE_QUEUE_LEN),
+            peer_metadata: Default::default(),
+            state:         SkovState::JustStarted,
         }
     }
 
@@ -360,19 +389,17 @@ impl<'a> Skov<'a> {
     /// Indicate that a catch-up round has commenced and that it must conclude
     /// before any new global state input is accepted.
     pub fn start_catchup_round(&mut self) -> SkovResult {
-        self.data.catchup_state = CatchupState::InProgress;
+        self.state = SkovState::CatchingUp;
         info!("A catch-up round has begun");
         SkovResult::Housekeeping
     }
 
     /// Indicate that a catch-up round has finished.
     pub fn end_catchup_round(&mut self) -> SkovResult {
-        self.data.catchup_state = CatchupState::Complete;
+        self.state = SkovState::Complete;
         info!("A catch-up round was successfully completed");
         SkovResult::Housekeeping
     }
-
-    pub fn catchup_state(&self) -> CatchupState { self.data.catchup_state }
 
     pub fn is_tree_valid(&self) -> bool {
         self.data.pending_queue_ref(AwaitingParentBlock).is_empty()
@@ -395,6 +422,34 @@ impl<'a> Skov<'a> {
         mem::replace(&mut self.data.delayed_broadcasts, Vec::new())
     }
 
+    pub fn get_metadata(&self) -> SkovResult {
+        let metadata = SkovMetadata {
+            finalized_height: self.data.get_last_finalized_height(),
+            state:            self.state,
+        };
+
+        SkovResult::SuccessfulQuery(metadata.serialize())
+    }
+
+    pub fn register_peer_metadata(&mut self, peer: u64, meta: SkovMetadata) -> SkovResult {
+        self.peer_metadata.insert(peer, meta);
+        SkovResult::SuccessfulEntry(PacketType::GlobalStateMetadata)
+    }
+
+    pub fn best_peer(&self) -> SkovResult {
+        if let Some(peer_id) = self
+            .peer_metadata
+            .iter()
+            .filter(|(_, meta)| meta.finalized_height > 0)
+            .max_by_key(|(_, meta)| *meta)
+            .map(|(peer, _)| peer)
+        {
+            SkovResult::BestPeer(Some(*peer_id))
+        } else {
+            SkovResult::BestPeer(None)
+        }
+    }
+
     #[doc(hidden)]
     pub fn display_state(&self) {
         fn sorted_block_map(map: &HashedMap<HashBytes, Rc<BlockPtr>>) -> Vec<&Rc<BlockPtr>> {
@@ -403,7 +458,7 @@ impl<'a> Skov<'a> {
 
         info!(
             "Skov data:\nblock tree: {:?}\nlast finalized: {:?}\nfinalization list: {:?}\ntree \
-             candidates: {:?}{}{}{}{}",
+             candidates: {:?}{}{}{}{}\npeer metadata: {:?}",
             sorted_block_map(&self.data.block_tree),
             self.data.last_finalized.hash,
             self.data
@@ -418,6 +473,7 @@ impl<'a> Skov<'a> {
             self.data.print_pending_queue(AwaitingLastFinalizedBlock),
             self.data
                 .print_pending_queue(AwaitingLastFinalizedFinalization),
+            self.peer_metadata,
         );
     }
 
@@ -462,8 +518,6 @@ pub struct SkovData<'a> {
     inapplicable_finalization_records: HashedMap<BlockHash, FinalizationRecord>,
     /// contains transactions
     transaction_table: TransactionTable,
-    /// the current state of the catch-up process
-    catchup_state: CatchupState,
     /// incoming broacasts rejected during a catch-up round
     delayed_broadcasts: Vec<ConsensusMessage>,
 }
@@ -513,7 +567,6 @@ impl<'a> SkovData<'a> {
             awaiting_last_finalized_block: hashed!(HashedMap, SKOV_ERR_PREALLOCATION_SIZE),
             inapplicable_finalization_records: hashed!(HashedMap, SKOV_ERR_PREALLOCATION_SIZE),
             transaction_table: TransactionTable::default(),
-            catchup_state: CatchupState::NotStarted,
             delayed_broadcasts: Vec::new(),
         };
 
@@ -796,15 +849,14 @@ impl<'a> SkovData<'a> {
             self.block_tree.insert(ptr.hash.clone(), ptr);
             finalized_parent = parent_hash;
         }
-
         // afterwards, as long as a catch-up phase is complete, the candidates with
         // surplus height can be removed
-        if self.catchup_state == CatchupState::Complete {
-            let current_height = self.last_finalized.height;
-
-            self.tree_candidates
-                .retain(|_, candidate| candidate.height >= current_height)
-        }
+        // if self.state == SkovState::Complete {
+        // let current_height = self.last_finalized.height;
+        //
+        // self.tree_candidates
+        // .retain(|_, candidate| candidate.height >= current_height)
+        // }
     }
 
     fn print_inapplicable_finalizations(&self) -> String {
@@ -968,5 +1020,48 @@ impl fmt::Display for SkovStats {
                 "".to_owned()
             },
         )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SkovMetadata {
+    pub finalized_height: BlockHeight,
+    pub state:            SkovState,
+}
+
+impl PartialOrd for SkovMetadata {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.finalized_height.cmp(&other.finalized_height))
+    }
+}
+
+impl Ord for SkovMetadata {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.partial_cmp(other).unwrap() // infallible
+    }
+}
+
+impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for SkovMetadata {
+    type Source = &'a [u8];
+
+    fn deserialize(bytes: Self::Source) -> Fallible<Self> {
+        let mut cursor = Cursor::new(bytes);
+
+        let finalized_height = NetworkEndian::read_u64(&read_ty!(&mut cursor, BlockHeight));
+        let state = SkovState::try_from(read_const_sized!(&mut cursor, 1)[0])?;
+
+        Ok(SkovMetadata {
+            finalized_height,
+            state,
+        })
+    }
+
+    fn serialize(&self) -> Box<[u8]> {
+        let mut cursor = create_serialization_cursor(size_of::<BlockHeight>() + size_of::<bool>());
+
+        let _ = cursor.write_u64::<NetworkEndian>(self.finalized_height);
+        let _ = cursor.write_u8(self.state as u8);
+
+        cursor.into_inner()
     }
 }
