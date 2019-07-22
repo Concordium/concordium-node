@@ -22,7 +22,7 @@ use std::{
     net::{IpAddr, SocketAddr},
     sync::{
         atomic::{AtomicUsize, Ordering},
-        mpsc::{self, SyncSender},
+        mpsc::SyncSender,
         Arc, RwLock,
     },
 };
@@ -99,9 +99,8 @@ impl TlsServerBuilder {
             self.noise_params,
         ) {
             let key_pair = snow::Builder::new(noise_params.clone()).generate_keypair()?;
-            let (network_request_sender, _) = mpsc::sync_channel(10000);
 
-            let mut mself = TlsServer {
+            let mself = TlsServer {
                 server: Arc::new(server),
                 next_id: Arc::new(AtomicUsize::new(2)),
                 key_pair: Arc::new(key_pair),
@@ -114,7 +113,7 @@ impl TlsServerBuilder {
                 log_dumper: None,
                 max_allowed_peers,
                 noise_params,
-                network_request_sender,
+                network_request_sender: None,
                 connections: Arc::new(RwLock::new(Vec::new())),
                 to_disconnect: Arc::new(RwLock::new(VecDeque::<P2PNodeId>::new())),
                 unreachable_nodes: UnreachableNodes::new(),
@@ -191,7 +190,7 @@ pub struct TlsServer {
     log_dumper:                 Option<SyncSender<DumpItem>>,
     max_allowed_peers:          u16,
     noise_params:               snow::params::NoiseParams,
-    pub network_request_sender: SyncSender<NetworkRawRequest>,
+    pub network_request_sender: Option<SyncSender<NetworkRawRequest>>,
     connections:                Arc<RwLock<Vec<Connection>>>,
     pub to_disconnect:          Arc<RwLock<VecDeque<P2PNodeId>>>,
     pub unreachable_nodes:      UnreachableNodes,
@@ -251,7 +250,7 @@ impl TlsServer {
             .set_local_end_networks(networks)
             .set_buckets(Arc::clone(&self.buckets))
             .set_log_dumper(self.log_dumper.clone())
-            .set_network_request_sender(Some(self.network_request_sender.clone()))
+            .set_network_request_sender(self.network_request_sender.clone())
             .set_noise_params(self.noise_params.clone())
             .build()?;
 
@@ -327,7 +326,7 @@ impl TlsServer {
                     .set_local_end_networks(Arc::clone(&networks))
                     .set_buckets(Arc::clone(&self.buckets))
                     .set_log_dumper(self.log_dumper.clone())
-                    .set_network_request_sender(Some(self.network_request_sender.clone()))
+                    .set_network_request_sender(self.network_request_sender.clone())
                     .set_noise_params(self.noise_params.clone())
                     .build()?;
 
@@ -370,7 +369,7 @@ impl TlsServer {
     pub fn peer_type(&self) -> PeerType { self.self_peer.peer_type() }
 
     /// It setups default message handler at TLSServer level.
-    fn setup_default_message_handler(&mut self) {
+    fn setup_default_message_handler(&self) {
         let banned_nodes = Arc::clone(&self.banned_peers);
         let to_disconnect = Arc::clone(&self.to_disconnect);
         self.message_processor
@@ -390,7 +389,7 @@ impl TlsServer {
         conn.common_message_processor.add(mh);
     }
 
-    fn add_default_prehandshake_validations(&mut self) {
+    fn add_default_prehandshake_validations(&self) {
         self.prehandshake_validations
             .add_callback(self.make_check_banned());
     }
@@ -416,10 +415,10 @@ impl TlsServer {
         self.dump_all_connections(None);
     }
 
-    pub fn add_notification(&mut self, func: UnitFunction<NetworkMessage>) {
+    pub fn add_notification(&self, func: UnitFunction<NetworkMessage>) {
         self.message_processor.add_notification(func.clone());
-        write_or_die!(self.connections)
-            .iter_mut()
+        read_or_die!(self.connections)
+            .iter()
             .for_each(|conn| conn.add_notification(func.clone()))
     }
 
@@ -427,7 +426,7 @@ impl TlsServer {
         for conn in write_or_die!(self.connections).iter_mut() {
             conn.set_network_request_sender(sender.clone());
         }
-        self.network_request_sender = sender;
+        self.network_request_sender = Some(sender);
     }
 
     pub fn connections_posthandshake_count(&self, exclude_type: Option<PeerType>) -> u16 {
@@ -448,7 +447,7 @@ impl TlsServer {
     }
 
     /// Adds a new node to the banned list and marks its connection for closure
-    pub fn ban_node(&mut self, peer: BannedNode) -> bool {
+    pub fn ban_node(&self, peer: BannedNode) -> bool {
         if write_or_die!(self.banned_peers).insert(peer) {
             match peer {
                 BannedNode::ById(id) => {
@@ -457,7 +456,7 @@ impl TlsServer {
                     }
                 }
                 BannedNode::ByAddr(addr) => {
-                    for mut conn in self.find_connections_by_ip(addr) {
+                    for conn in self.find_connections_by_ip(addr) {
                         conn.close();
                     }
                 }
@@ -469,7 +468,7 @@ impl TlsServer {
     }
 
     /// It removes a node from the banned peer list.
-    pub fn unban_node(&mut self, peer: BannedNode) -> bool {
+    pub fn unban_node(&self, peer: BannedNode) -> bool {
         write_or_die!(self.banned_peers).remove(&peer)
     }
 
@@ -535,8 +534,8 @@ impl TlsServer {
     }
 
     pub fn find_connection_by_id(&self, id: P2PNodeId) -> Option<Connection> {
-        write_or_die!(self.connections)
-            .iter_mut()
+        read_or_die!(self.connections)
+            .iter()
             .find(|conn| conn.remote_id() == Some(id))
             .cloned()
     }
@@ -550,8 +549,8 @@ impl TlsServer {
     }
 
     pub fn find_connection_by_token(&self, token: Token) -> Option<Connection> {
-        write_or_die!(self.connections)
-            .iter_mut()
+        read_or_die!(self.connections)
+            .iter()
             .find(|conn| conn.token() == token)
             .cloned()
     }
@@ -571,15 +570,13 @@ impl TlsServer {
             .collect()
     }
 
-    fn remove_connection(&mut self, to_remove: Token) {
+    fn remove_connection(&self, to_remove: Token) {
         write_or_die!(self.connections).retain(|conn| conn.token() != to_remove);
     }
 
-    pub fn add_connection(&mut self, conn: Connection) {
-        write_or_die!(self.connections).push(conn);
-    }
+    pub fn add_connection(&self, conn: Connection) { write_or_die!(self.connections).push(conn); }
 
-    pub fn conn_event(&mut self, event: &Event) -> Fallible<ProcessResult> {
+    pub fn conn_event(&self, event: &Event) -> Fallible<ProcessResult> {
         let token = event.token();
 
         if let Some(ref mut conn) = self.find_connection_by_token(token) {
@@ -621,7 +618,7 @@ impl TlsServer {
                 .collect();
             connection_map.sort_by_key(|p| std::cmp::Reverse((p.0, p.2)));
             connection_map.dedup_by_key(|p| p.0);
-            write_or_die!(self.connections).iter_mut().for_each(|conn| {
+            read_or_die!(self.connections).iter().for_each(|conn| {
                 if conn.remote_id().is_some()
                     && !connection_map
                         .iter()
@@ -667,8 +664,8 @@ impl TlsServer {
 
         // Kill nodes which are no longer seen and also closing connections
         let (closing_conns, err_conns): (Vec<Fallible<Token>>, Vec<Fallible<Token>>) =
-            write_or_die!(self.connections)
-            .iter_mut()
+            read_or_die!(self.connections)
+            .iter()
             // Get only connections that have been inactive for more time than allowed or closing connections
             .filter(|conn| {
                 conn.is_closed() ||
@@ -720,10 +717,10 @@ impl TlsServer {
             let peer_count = self.connections_posthandshake_count(Some(PeerType::Bootstrapper));
             if peer_count > max_peers_number {
                 let mut rng = rand::thread_rng();
-                write_or_die!(self.connections)
-                    .iter_mut()
+                read_or_die!(self.connections)
+                    .iter()
                     .choose_multiple(&mut rng, (peer_count - max_peers_number) as usize)
-                    .iter_mut()
+                    .iter()
                     .for_each(|conn| conn.close());
             }
         }
@@ -734,8 +731,8 @@ impl TlsServer {
     pub fn liveness_check(&self) -> Fallible<()> {
         let curr_stamp = get_current_stamp();
 
-        write_or_die!(self.connections)
-            .iter_mut()
+        read_or_die!(self.connections)
+            .iter()
             .filter(|conn| {
                 (conn.last_seen() + 120_000 < curr_stamp
                     || conn.get_last_ping_sent() + 300_000 < curr_stamp)
@@ -783,8 +780,8 @@ impl TlsServer {
         filter_conn: &dyn Fn(&Connection) -> bool,
         send_status: &dyn Fn(&Connection, Fallible<()>),
     ) -> usize {
-        write_or_die!(self.connections)
-            .iter_mut()
+        read_or_die!(self.connections)
+            .iter()
             .filter(|conn| !conn.is_closed() && filter_conn(conn))
             .map(|conn| {
                 let status = conn.async_send(data.clone(), MessageSendingPriority::Normal);
@@ -793,7 +790,7 @@ impl TlsServer {
             .count()
     }
 
-    pub fn dump_all_connections(&mut self, log_dumper: Option<SyncSender<DumpItem>>) {
+    pub fn dump_all_connections(&self, log_dumper: Option<SyncSender<DumpItem>>) {
         write_or_die!(self.connections).iter_mut().for_each(|conn| {
             conn.set_log_dumper(log_dumper.clone());
         });

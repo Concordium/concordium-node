@@ -317,7 +317,7 @@ fn attain_post_handshake_catch_up(
     consensus: &consensus::ConsensusContainer,
 ) -> Fallible<()> {
     let consensus_clone = consensus.clone();
-    let mut message_handshake_response_handler = node.message_processor();
+    let message_handshake_response_handler = node.message_processor();
 
     let node_shared = node.clone();
     message_handshake_response_handler.add_response_action(make_atomic_callback!(

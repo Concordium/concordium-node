@@ -69,7 +69,11 @@ use mio::{Event, Poll, Token};
 use std::{
     collections::HashSet,
     net::SocketAddr,
-    sync::{atomic::Ordering, mpsc::SyncSender, Arc, RwLock},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        mpsc::SyncSender,
+        Arc, RwLock,
+    },
 };
 
 /// This macro clones `dptr` and moves it into callback closure.
@@ -86,7 +90,7 @@ pub struct Connection {
     // Counters
     messages_sent:     u64,
     messages_received: u64,
-    last_ping_sent:    u64,
+    last_ping_sent:    Arc<AtomicU64>,
 
     network_request_sender: SyncSender<NetworkRawRequest>,
 
@@ -235,11 +239,14 @@ impl Connection {
         write_or_die!(self.dptr).sent_handshake = get_current_stamp()
     }
 
-    pub fn set_measured_ping_sent(&mut self) { write_or_die!(self.dptr).set_measured_ping_sent(); }
+    pub fn set_measured_ping_sent(&self) { write_or_die!(self.dptr).set_measured_ping_sent(); }
 
-    pub fn get_last_ping_sent(&self) -> u64 { self.last_ping_sent }
+    pub fn get_last_ping_sent(&self) -> u64 { self.last_ping_sent.load(Ordering::SeqCst) }
 
-    pub fn set_last_ping_sent(&mut self) { self.last_ping_sent = get_current_stamp(); }
+    pub fn set_last_ping_sent(&self) {
+        self.last_ping_sent
+            .store(get_current_stamp(), Ordering::SeqCst);
+    }
 
     pub fn local_id(&self) -> P2PNodeId { read_or_die!(self.dptr).local_peer.id() }
 
@@ -289,13 +296,13 @@ impl Connection {
     }
 
     #[inline]
-    pub fn close(&mut self) { write_or_die!(self.dptr).status = ConnectionStatus::Closing; }
+    pub fn close(&self) { write_or_die!(self.dptr).status = ConnectionStatus::Closing; }
 
     #[inline]
     pub fn status(&self) -> ConnectionStatus { read_or_die!(self.dptr).status }
 
     #[inline]
-    pub fn shutdown(&mut self) -> Fallible<()> { write_or_die!(self.dptr).shutdown() }
+    pub fn shutdown(&self) -> Fallible<()> { write_or_die!(self.dptr).shutdown() }
 
     pub fn ready(
         &mut self,
@@ -389,7 +396,7 @@ impl Connection {
         write_or_die!(self.dptr).async_send(input, priority)
     }
 
-    pub fn add_notification(&mut self, func: UnitFunction<NetworkMessage>) {
+    pub fn add_notification(&self, func: UnitFunction<NetworkMessage>) {
         self.pre_handshake_message_processor
             .add_notification(func.clone());
         self.post_handshake_message_processor.add_notification(func);
