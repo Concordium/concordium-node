@@ -136,7 +136,7 @@ fn get_baker_data(
     };
 
     debug!(
-    "Obtained genesis data {:?}",
+        "Obtained genesis data {:?}",
         sha256(&[&[0u8; 8], genesis_data.as_slice()].concat())
     );
     Ok((genesis_data, private_data))
