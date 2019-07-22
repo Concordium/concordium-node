@@ -13,7 +13,7 @@ use std::{
     fs::OpenOptions,
     io::Read,
     mem,
-    sync::{Arc, RwLock},
+    sync::Arc,
 };
 
 use concordium_common::{
@@ -185,7 +185,7 @@ pub fn handle_global_state_request(
     baker: &mut consensus::ConsensusContainer,
     request: ConsensusMessage,
     skov: &mut Skov,
-    stats_exporting: &Option<Arc<RwLock<StatsExportService>>>,
+    stats_exporting: &Option<StatsExportService>,
 ) -> Fallible<()> {
     if let MessageType::Outbound(_) = request.direction {
         process_internal_skov_entry(node, network_id, request, skov)?
@@ -194,15 +194,13 @@ pub fn handle_global_state_request(
     }
 
     if let Some(stats) = stats_exporting {
-        if let Ok(mut stats) = safe_write!(stats) {
-            let stats_values = skov.stats.query_stats();
-            stats.set_skov_block_receipt(stats_values.0 as i64);
-            stats.set_skov_block_entry(stats_values.1 as i64);
-            stats.set_skov_block_query(stats_values.2 as i64);
-            stats.set_skov_finalization_receipt(stats_values.3 as i64);
-            stats.set_skov_finalization_entry(stats_values.4 as i64);
-            stats.set_skov_finalization_query(stats_values.5 as i64);
-        }
+        let stats_values = skov.stats.query_stats();
+        stats.set_skov_block_receipt(stats_values.0 as i64);
+        stats.set_skov_block_entry(stats_values.1 as i64);
+        stats.set_skov_block_query(stats_values.2 as i64);
+        stats.set_skov_finalization_receipt(stats_values.3 as i64);
+        stats.set_skov_finalization_entry(stats_values.4 as i64);
+        stats.set_skov_finalization_query(stats_values.5 as i64);
     }
 
     Ok(())

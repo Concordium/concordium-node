@@ -46,7 +46,7 @@ pub struct ConnectionPrivate {
     // Stats
     pub last_seen:            AtomicU64,
     pub failed_pkts:          u32,
-    pub stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
+    pub stats_export_service: Option<StatsExportService>,
     pub event_log:            Option<SyncSender<P2PEvent>>,
 
     // Time
@@ -227,7 +227,7 @@ pub struct ConnectionPrivateBuilder {
     pub is_initiator: bool,
 
     // Stats
-    pub stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
+    pub stats_export_service: Option<StatsExportService>,
     pub event_log:            Option<SyncSender<P2PEvent>>,
 
     pub log_dumper: Option<SyncSender<DumpItem>>,
@@ -336,7 +336,7 @@ impl ConnectionPrivateBuilder {
 
     pub fn set_stats_export_service(
         mut self,
-        se: Option<Arc<RwLock<StatsExportService>>>,
+        se: Option<StatsExportService>,
     ) -> ConnectionPrivateBuilder {
         self.stats_export_service = se;
         self

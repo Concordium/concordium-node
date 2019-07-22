@@ -94,7 +94,7 @@ fn main() -> Fallible<()> {
     let (mut node, pkt_out) = instantiate_node(
         &conf,
         &mut app_prefs,
-        &stats_export_service,
+        stats_export_service.clone(),
         subscription_queue_in.clone(),
     );
 
@@ -224,7 +224,7 @@ fn main() -> Fallible<()> {
 fn instantiate_node(
     conf: &configuration::Config,
     app_prefs: &mut configuration::AppPreferences,
-    stats_export_service: &Option<Arc<RwLock<StatsExportService>>>,
+    stats_export_service: Option<StatsExportService>,
     subscription_queue_in: mpsc::SyncSender<Arc<NetworkMessage>>,
 ) -> (
     P2PNode,
@@ -243,11 +243,6 @@ fn instantiate_node(
             Some(id)
         },
     );
-    let arc_stats_export_service = if let Some(ref service) = stats_export_service {
-        Some(Arc::clone(service))
-    } else {
-        None
-    };
 
     // Start the thread reading P2PEvents from P2PNode
     let node = if conf.common.debug {
@@ -263,7 +258,7 @@ fn instantiate_node(
             pkt_in,
             Some(sender),
             PeerType::Node,
-            arc_stats_export_service,
+            stats_export_service,
             subscription_queue_in,
         )
     } else {
@@ -273,7 +268,7 @@ fn instantiate_node(
             pkt_in,
             None,
             PeerType::Node,
-            arc_stats_export_service,
+            stats_export_service,
             subscription_queue_in,
         )
     };
@@ -358,7 +353,7 @@ fn start_consensus_threads(
         RelayOrStopReceiver<ConsensusMessage>,
         RelayOrStopSender<ConsensusMessage>,
     ),
-    stats: &Option<Arc<RwLock<StatsExportService>>>,
+    stats: &Option<StatsExportService>,
 ) -> Vec<std::thread::JoinHandle<()>> {
     let _no_trust_bans = conf.common.no_trust_bans;
     let _desired_nodes_clone = conf.connection.desired_nodes;

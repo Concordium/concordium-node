@@ -41,7 +41,7 @@ pub fn default_network_request_ping_handle(
     let pong_data = {
         let priv_conn_borrow = read_or_die!(priv_conn);
         if let Some(ref service) = priv_conn_borrow.stats_export_service {
-            safe_write!(service)?.pkt_sent_inc();
+            service.pkt_sent_inc();
         }
 
         // Make `Pong` response and send
@@ -122,7 +122,7 @@ pub fn default_network_request_get_peers(
                 safe_read!(priv_conn_borrow.buckets)?.get_all_nodes(Some(&sender), networks);
 
             if let Some(ref service) = priv_conn_borrow.stats_export_service {
-                safe_write!(service)?.pkt_sent_inc();
+                service.pkt_sent_inc();
             };
 
             let remote_peer = priv_conn_borrow
@@ -285,7 +285,7 @@ pub fn default_unknown_message(priv_conn: &RwLock<ConnectionPrivate>) -> FuncRes
     //        String::from_utf8(buf.to_vec()).unwrap());
 
     if let Some(ref service) = read_or_die!(priv_conn).stats_export_service {
-        safe_write!(service)?.unknown_pkts_received_inc();
+        service.unknown_pkts_received_inc();
     }
     Ok(())
 }
@@ -303,7 +303,7 @@ pub fn default_invalid_message(priv_conn: &RwLock<ConnectionPrivate>) -> FuncRes
     //        String::from_utf8(buf.to_vec()).unwrap());
 
     if let Some(ref service) = read_or_die!(priv_conn).stats_export_service {
-        safe_write!(service)?.invalid_pkts_received_inc();
+        service.invalid_pkts_received_inc();
     }
 
     Ok(())

@@ -58,7 +58,7 @@ pub struct TlsServerBuilder {
     event_log:            Option<SyncSender<P2PEvent>>,
     self_peer:            Option<P2PPeer>,
     buckets:              Option<Arc<RwLock<Buckets>>>,
-    stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
+    stats_export_service: Option<StatsExportService>,
     networks:             Option<HashSet<NetworkId>>,
     max_allowed_peers:    Option<u16>,
     noise_params:         Option<snow::params::NoiseParams>,
@@ -150,10 +150,7 @@ impl TlsServerBuilder {
         self
     }
 
-    pub fn set_stats_export_service(
-        mut self,
-        ses: Option<Arc<RwLock<StatsExportService>>>,
-    ) -> TlsServerBuilder {
+    pub fn set_stats_export_service(mut self, ses: Option<StatsExportService>) -> TlsServerBuilder {
         self.stats_export_service = ses;
         self
     }
@@ -185,7 +182,7 @@ pub struct TlsServer {
     event_log:                  Option<SyncSender<P2PEvent>>,
     self_peer:                  P2PPeer,
     buckets:                    Arc<RwLock<Buckets>>,
-    stats_export_service:       Option<Arc<RwLock<StatsExportService>>>,
+    stats_export_service:       Option<StatsExportService>,
     message_processor:          MessageProcessor,
     prehandshake_validations:   PreHandshake,
     log_dumper:                 Option<SyncSender<DumpItem>>,
@@ -310,7 +307,7 @@ impl TlsServer {
         match TcpStream::connect(&addr) {
             Ok(socket) => {
                 if let Some(ref service) = &self.stats_export_service {
-                    safe_write!(service)?.conn_received_inc();
+                    service.conn_received_inc();
                 };
                 let token = Token(self.next_id.fetch_add(1, Ordering::SeqCst));
                 let networks = self.networks();
@@ -683,9 +680,7 @@ impl TlsServer {
                 // Report number of peers to stats export engine
                 if let Some(ref service) = &self.stats_export_service {
                     if conn.is_post_handshake() {
-                        if let Ok(mut p) = safe_write!(service) {
-                            p.peers_dec();
-                        }
+                        service.peers_dec();
                     }
                 }
                 Ok(conn_token)

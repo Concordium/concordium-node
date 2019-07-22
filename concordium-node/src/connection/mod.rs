@@ -322,9 +322,7 @@ impl Connection {
         self.messages_received += 1;
         TOTAL_MESSAGES_RECEIVED_COUNTER.fetch_add(1, Ordering::Relaxed);
         if let Some(ref service) = &self.stats_export_service() {
-            if let Ok(mut slock) = safe_write!(service) {
-                slock.pkt_received_inc();
-            }
+            service.pkt_received_inc();
         };
 
         // Process message by message handler.
@@ -341,7 +339,7 @@ impl Connection {
         write_or_die!(self.dptr).validate_packet_type(msg)
     }
 
-    pub fn stats_export_service(&self) -> Option<Arc<RwLock<StatsExportService>>> {
+    pub fn stats_export_service(&self) -> Option<StatsExportService> {
         read_or_die!(self.dptr).stats_export_service.clone()
     }
 

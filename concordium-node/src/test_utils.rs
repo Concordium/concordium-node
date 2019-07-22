@@ -15,7 +15,7 @@ use std::{
     sync::{
         atomic::{AtomicUsize, Ordering},
         mpsc::Receiver,
-        Arc, Once, RwLock, ONCE_INIT,
+        Arc, Once, ONCE_INIT,
     },
     time,
 };
@@ -131,9 +131,7 @@ pub fn make_node_and_sync(
     let (msg_wait_tx, msg_wait_rx) = std::sync::mpsc::sync_channel(64);
     let (rpc_tx, _rpc_rx) = std::sync::mpsc::sync_channel(64);
 
-    let export_service = Arc::new(RwLock::new(
-        StatsExportService::new(StatsServiceMode::NodeMode).unwrap(),
-    ));
+    let export_service = StatsExportService::new(StatsServiceMode::NodeMode).unwrap();
     let mut node = P2PNode::new(
         None,
         &get_test_config(port, networks),
@@ -171,9 +169,7 @@ pub fn make_node_and_sync_with_rpc(
     let (msg_wait_tx, msg_wait_rx) = std::sync::mpsc::sync_channel(64);
     let (rpc_tx, rpc_rx) = std::sync::mpsc::sync_channel(64);
 
-    let export_service = Arc::new(RwLock::new(
-        StatsExportService::new(StatsServiceMode::NodeMode).unwrap(),
-    ));
+    let export_service = StatsExportService::new(StatsServiceMode::NodeMode).unwrap();
     let mut node = P2PNode::new(
         None,
         &get_test_config(port, networks),

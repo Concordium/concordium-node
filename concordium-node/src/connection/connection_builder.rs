@@ -127,7 +127,7 @@ impl ConnectionBuilder {
 
     pub fn set_stats_export_service(
         mut self,
-        stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
+        stats_export_service: Option<StatsExportService>,
     ) -> ConnectionBuilder {
         self.priv_conn_builder = self
             .priv_conn_builder
