@@ -179,7 +179,7 @@ pub fn default_network_response_pong(
     priv_conn: &RwLock<ConnectionPrivate>,
     _res: &NetworkResponse,
 ) -> FuncResult<()> {
-    let ping: u64 = read_or_die!(priv_conn).sent_ping;
+    let ping: u64 = read_or_die!(priv_conn).sent_ping.load(Ordering::SeqCst);
     let curr: u64 = get_current_stamp();
 
     if curr >= ping {

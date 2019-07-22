@@ -51,7 +51,7 @@ pub struct ConnectionPrivate {
 
     // Time
     pub sent_handshake:        u64,
-    pub sent_ping:             u64,
+    pub sent_ping:             Arc<AtomicU64>,
     pub last_latency_measured: u64,
 
     pub log_dumper: Option<SyncSender<DumpItem>>,
@@ -82,7 +82,9 @@ impl ConnectionPrivate {
         self.remote_end_networks.remove(&network);
     }
 
-    pub fn set_measured_ping_sent(&mut self) { self.sent_ping = get_current_stamp() }
+    pub fn set_measured_ping_sent(&mut self) {
+        self.sent_ping = Arc::new(AtomicU64::new(get_current_stamp()))
+    }
 
     pub fn remote_peer(&self) -> RemotePeer { self.remote_peer.clone() }
 
@@ -281,7 +283,7 @@ impl ConnectionPrivateBuilder {
                 stats_export_service: self.stats_export_service,
                 event_log: self.event_log,
                 sent_handshake: u64_max_value,
-                sent_ping: u64_max_value,
+                sent_ping: Arc::new(AtomicU64::new(u64_max_value)),
                 last_latency_measured: u64_max_value,
                 log_dumper: self.log_dumper,
                 noise_params,

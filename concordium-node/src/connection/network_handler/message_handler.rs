@@ -3,7 +3,7 @@ use concordium_common::{
     fails::FunctorError,
     functor::{FuncResult, FunctorResult, UnitFunction, UnitFunctor},
 };
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 pub type NetworkMessageCW = UnitFunction<NetworkMessage>;
 pub type NetworkRequestCW = UnitFunction<NetworkRequest>;
@@ -18,8 +18,8 @@ pub struct MessageHandler {
     request_parser:  UnitFunctor<NetworkRequest>,
     response_parser: UnitFunctor<NetworkResponse>,
     packet_parser:   UnitFunctor<NetworkPacket>,
-    invalid_handler: EmptyFunction,
-    unknown_handler: EmptyFunction,
+    invalid_handler: Arc<RwLock<EmptyFunction>>,
+    unknown_handler: Arc<RwLock<EmptyFunction>>,
 
     general_parser: UnitFunctor<NetworkMessage>,
 }
@@ -35,43 +35,43 @@ impl MessageHandler {
             response_parser: UnitFunctor::<NetworkResponse>::new(),
             packet_parser:   UnitFunctor::<NetworkPacket>::new(),
             general_parser:  UnitFunctor::<NetworkMessage>::new(),
-            invalid_handler: Arc::new(|| Ok(())),
-            unknown_handler: Arc::new(|| Ok(())),
+            invalid_handler: Arc::new(RwLock::new(Arc::new(|| Ok(())))),
+            unknown_handler: Arc::new(RwLock::new(Arc::new(|| Ok(())))),
         }
     }
 
-    pub fn add_request_callback(&mut self, callback: NetworkRequestCW) -> &mut Self {
+    pub fn add_request_callback(&self, callback: NetworkRequestCW) -> &Self {
         self.request_parser.add_callback(callback);
         self
     }
 
-    pub fn add_response_callback(&mut self, callback: NetworkResponseCW) -> &mut Self {
+    pub fn add_response_callback(&self, callback: NetworkResponseCW) -> &Self {
         self.response_parser.add_callback(callback);
         self
     }
 
-    pub fn add_packet_callback(&mut self, callback: NetworkPacketCW) -> &mut Self {
+    pub fn add_packet_callback(&self, callback: NetworkPacketCW) -> &Self {
         self.packet_parser.add_callback(callback);
         self
     }
 
-    pub fn add_callback(&mut self, callback: NetworkMessageCW) -> &mut Self {
+    pub fn add_callback(&self, callback: NetworkMessageCW) -> &Self {
         self.general_parser.add_callback(callback);
         self
     }
 
-    pub fn set_invalid_handler(&mut self, func: EmptyFunction) -> &mut Self {
-        self.invalid_handler = func;
+    pub fn set_invalid_handler(&self, func: EmptyFunction) -> &Self {
+        *write_or_die!(self.invalid_handler) = func;
         self
     }
 
-    pub fn set_unknown_handler(&mut self, func: EmptyFunction) -> &mut Self {
-        self.unknown_handler = func;
+    pub fn set_unknown_handler(&self, func: EmptyFunction) -> &Self {
+        *write_or_die!(self.unknown_handler) = func;
         self
     }
 
     /// It merges into `this` all parsers from `other` `MessageHandler`.
-    pub fn add(&mut self, other: MessageHandler) -> &mut Self {
+    pub fn add(&self, other: MessageHandler) -> &Self {
         for cb in read_or_die!(other.general_parser.callbacks()).iter() {
             self.add_callback(cb.clone());
         }
@@ -101,10 +101,10 @@ impl MessageHandler {
             NetworkMessage::NetworkResponse(ref nr, _, _) => self.response_parser.run_callbacks(nr),
             NetworkMessage::NetworkPacket(ref np, _, _) => self.packet_parser.run_callbacks(np),
             NetworkMessage::UnknownMessage => {
-                (self.unknown_handler)().map_err(|x| FunctorError::from(vec![x]))
+                (read_or_die!(self.unknown_handler))().map_err(|x| FunctorError::from(vec![x]))
             }
             NetworkMessage::InvalidMessage => {
-                (self.invalid_handler)().map_err(|x| FunctorError::from(vec![x]))
+                (read_or_die!(self.invalid_handler))().map_err(|x| FunctorError::from(vec![x]))
             }
         };
 

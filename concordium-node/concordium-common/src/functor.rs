@@ -93,7 +93,7 @@ impl<T: Send> UnitFunctor<T> {
         }
     }
 
-    pub fn add_callback(&mut self, callback: UnitFunction<T>) -> &mut Self {
+    pub fn add_callback(&self, callback: UnitFunction<T>) -> &Self {
         write_or_die!(self.callbacks).push(callback);
         self
     }
