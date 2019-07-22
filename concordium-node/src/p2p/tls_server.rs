@@ -576,7 +576,7 @@ impl TlsServer {
     pub fn conn_event(&self, event: &Event) -> Fallible<ProcessResult> {
         let token = event.token();
 
-        if let Some(ref mut conn) = self.find_connection_by_token(token) {
+        if let Some(conn) = self.find_connection_by_token(token) {
             conn.ready(event).map_err(|x| {
                 let x: Vec<failure::Error> = x.into_iter().map(Result::unwrap_err).collect();
                 failure::Error::from(concordium_common::fails::FunctorError::from(x))

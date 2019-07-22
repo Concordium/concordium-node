@@ -132,7 +132,7 @@ mod message_handler_unit_test {
 
     #[test]
     pub fn test_message_handler_mix() {
-        let mut mh = MessageHandler::new();
+        let mh = MessageHandler::new();
 
         mh.add_request_callback(make_atomic_callback!(request_handler_func_1))
             .add_request_callback(make_atomic_callback!(request_handler_func_2))
@@ -253,7 +253,7 @@ mod integration_test {
                 Ok(())
             }));
 
-        let mut msg_handler = MessageHandler::new();
+        let msg_handler = MessageHandler::new();
 
         msg_handler
             .add_request_callback(make_atomic_callback!(network_request_handler_1))

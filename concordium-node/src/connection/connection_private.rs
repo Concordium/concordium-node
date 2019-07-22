@@ -50,7 +50,7 @@ pub struct ConnectionPrivate {
     pub event_log:            Option<SyncSender<P2PEvent>>,
 
     // Time
-    pub sent_handshake:        u64,
+    pub sent_handshake:        Arc<AtomicU64>,
     pub sent_ping:             Arc<AtomicU64>,
     pub last_latency_measured: u64,
 
@@ -60,7 +60,7 @@ pub struct ConnectionPrivate {
 }
 
 impl ConnectionPrivate {
-    pub fn update_last_seen(&mut self) {
+    pub fn update_last_seen(&self) {
         if self.local_peer.peer_type() != PeerType::Bootstrapper {
             self.last_seen.store(get_current_stamp(), Ordering::SeqCst);
         }
@@ -82,8 +82,8 @@ impl ConnectionPrivate {
         self.remote_end_networks.remove(&network);
     }
 
-    pub fn set_measured_ping_sent(&mut self) {
-        self.sent_ping = Arc::new(AtomicU64::new(get_current_stamp()))
+    pub fn set_measured_ping_sent(&self) {
+        self.sent_ping.store(get_current_stamp(), Ordering::SeqCst)
     }
 
     pub fn remote_peer(&self) -> RemotePeer { self.remote_peer.clone() }
@@ -282,7 +282,7 @@ impl ConnectionPrivateBuilder {
                 failed_pkts: 0,
                 stats_export_service: self.stats_export_service,
                 event_log: self.event_log,
-                sent_handshake: u64_max_value,
+                sent_handshake: Arc::new(AtomicU64::new(u64_max_value)),
                 sent_ping: Arc::new(AtomicU64::new(u64_max_value)),
                 last_latency_measured: u64_max_value,
                 log_dumper: self.log_dumper,

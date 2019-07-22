@@ -8,13 +8,7 @@ pub const FILE_NAME_SUFFIX_BAKER_PRIVATE: &str = ".dat";
 use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
 use failure::Fallible;
 
-use std::{
-    convert::TryFrom,
-    fs::OpenOptions,
-    io::Read,
-    mem,
-    sync::Arc,
-};
+use std::{convert::TryFrom, fs::OpenOptions, io::Read, mem, sync::Arc};
 
 use concordium_common::{
     cache::Cache,

@@ -371,7 +371,7 @@ impl P2PNode {
 
     fn make_response_handler(&self) -> ResponseHandler {
         let output_handler = self.make_response_output_handler();
-        let mut handler = ResponseHandler::new();
+        let handler = ResponseHandler::new();
         handler.add_peer_list_callback(output_handler);
         handler
     }
@@ -471,7 +471,7 @@ impl P2PNode {
 
     pub fn spawn(&mut self) {
         // Prepare poll-loop channels.
-        let (network_request_sender, mut network_request_receiver) = sync_channel(10000);
+        let (network_request_sender, network_request_receiver) = sync_channel(10000);
         self.tls_server
             .set_network_request_sender(network_request_sender.clone());
 
