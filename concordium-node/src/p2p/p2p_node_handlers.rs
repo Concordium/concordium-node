@@ -86,7 +86,7 @@ pub fn is_message_already_seen(
 pub fn forward_network_packet_message<S: ::std::hash::BuildHasher>(
     own_id: P2PNodeId,
     seen_messages: SeenMessagesList,
-    stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
+    stats_export_service: Option<StatsExportService>,
     own_networks: Arc<RwLock<HashSet<NetworkId, S>>>,
     outgoing_queues: OutgoingQueues,
     pac: &NetworkPacket,
@@ -111,7 +111,7 @@ pub fn forward_network_packet_message<S: ::std::hash::BuildHasher>(
                 );
                 send_or_die!(outgoing_queues.send_queue, Arc::clone(&outer));
                 if let Some(ref service) = stats_export_service {
-                    safe_write!(service)?.queue_size_inc();
+                    service.queue_size_inc();
                 };
             }
 
@@ -132,7 +132,7 @@ pub fn forward_network_packet_message<S: ::std::hash::BuildHasher>(
             }
         }
     } else if let Some(ref service) = stats_export_service {
-        safe_write!(service)?.invalid_network_pkts_received_inc();
+        service.invalid_network_pkts_received_inc();
     }
     Ok(())
 }

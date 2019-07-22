@@ -26,7 +26,7 @@ pub fn handshake_response_handle(
                 .insert_into_bucket(&bucket_sender, nets.clone());
         }
         if let Some(ref service) = read_or_die!(priv_conn).stats_export_service {
-            safe_write!(service)?.peers_inc();
+            service.peers_inc();
         };
     } else {
         safe_write!(priv_conn)?.status = ConnectionStatus::Closing;

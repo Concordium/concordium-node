@@ -120,7 +120,7 @@ pub struct P2PNode {
     pub tls_server:           TlsServer,
     pub self_peer:            P2PPeer,
     pub send_queue_in:        SyncSender<Arc<NetworkMessage>>,
-    pub stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
+    pub stats_export_service: Option<StatsExportService>,
 }
 
 impl P2PNode {
@@ -130,7 +130,7 @@ impl P2PNode {
         pkt_queue: RelayOrStopSyncSender<Arc<NetworkMessage>>,
         event_log: Option<SyncSender<P2PEvent>>,
         peer_type: PeerType,
-        stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
+        stats_export_service: Option<StatsExportService>,
         subscription_queue_in: SyncSender<Arc<NetworkMessage>>,
     ) -> Self {
         let addr = if let Some(ref addy) = conf.common.listen_address {
@@ -570,9 +570,7 @@ impl P2PNode {
 
     pub fn send_queue_in(&self) -> &SyncSender<Arc<NetworkMessage>> { &self.send_queue_in }
 
-    pub fn stats_export_service(&self) -> &Option<Arc<RwLock<StatsExportService>>> {
-        &self.stats_export_service
-    }
+    pub fn stats_export_service(&self) -> &Option<StatsExportService> { &self.stats_export_service }
 
     fn log_event(&self, event: P2PEvent) { self.tls_server.log_event(event); }
 
@@ -888,7 +886,7 @@ impl P2PNode {
                 trace!("Processing messages!");
 
                 if let Some(ref service) = self.stats_export_service() {
-                    let _ = safe_write!(service).map(|mut lock| lock.queue_size_dec());
+                    service.queue_size_dec();
                 };
                 trace!("Got message to process!");
 
@@ -1075,7 +1073,7 @@ impl P2PNode {
                         .map_err(|e| error!("{}", e))
                         .ok();
                     if let Some(ref service) = &self.stats_export_service() {
-                        let _ = safe_write!(service).map(|mut s| s.conn_received_inc());
+                        service.conn_received_inc();
                     };
                 }
                 _ => {
@@ -1225,49 +1223,37 @@ impl P2PNode {
 
     fn queue_size_inc(&self) {
         if let Some(ref service) = self.stats_export_service {
-            let _ = safe_write!(service).map(|ref mut lock| {
-                lock.queue_size_inc();
-            });
+            service.queue_size_inc();
         };
     }
 
     fn resend_queue_size_inc(&self) {
         if let Some(ref service) = self.stats_export_service {
-            let _ = safe_write!(service).map(|ref mut lock| {
-                lock.resend_queue_size_inc();
-            });
+            service.resend_queue_size_inc();
         };
     }
 
     fn resend_queue_size_dec(&self) {
         if let Some(ref service) = self.stats_export_service {
-            let _ = safe_write!(service).map(|ref mut lock| {
-                lock.resend_queue_size_dec();
-            });
+            service.resend_queue_size_dec();
         };
     }
 
     fn pks_sent_inc(&self) {
         if let Some(ref service) = self.stats_export_service {
-            let _ = safe_write!(service).map(|ref mut lock| {
-                lock.pkt_sent_inc();
-            });
+            service.pkt_sent_inc();
         };
     }
 
     fn pks_dropped_inc(&self) {
         if let Some(ref service) = self.stats_export_service {
-            let _ = safe_write!(service).map(|ref mut lock| {
-                lock.pkt_dropped_inc();
-            });
+            service.pkt_dropped_inc();
         };
     }
 
     fn pks_resend_inc(&self) {
         if let Some(ref service) = self.stats_export_service {
-            let _ = safe_write!(service).map(|ref mut lock| {
-                lock.pkt_resend_inc();
-            });
+            service.pkt_resend_inc();
         };
     }
 }
@@ -1396,9 +1382,7 @@ pub fn send_message_from_cursor(
     );
 
     if let Some(ref service) = node.stats_export_service {
-        let _ = safe_write!(service).map(|ref mut lock| {
-            lock.queue_size_inc();
-        });
+        service.queue_size_inc();
     };
 
     Ok(())
