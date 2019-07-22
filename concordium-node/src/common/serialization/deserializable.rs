@@ -198,9 +198,9 @@ impl Deserializable for UCursor {
     fn deserialize<A>(archive: &mut A) -> Fallible<UCursor>
     where
         A: ReadArchive, {
-        let len = u64::deserialize(archive)?;
+        let len = u32::deserialize(archive)?;
         archive
-            .payload(len)
+            .payload(len as u64)
             .ok_or_else(|| err_msg("No payload on this archive"))
     }
 }

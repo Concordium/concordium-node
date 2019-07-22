@@ -60,8 +60,7 @@ impl Deserializable for NetworkPacketType {
 
 pub type MessageId = HashBytes;
 
-/// # BUG
-/// It is not *thread-safe* but I've forced it temporary
+/// This is not *thread-safe* but this ensures it temporarily
 #[derive(Clone, Builder, Debug, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 #[builder(build_fn(skip))]
@@ -71,7 +70,6 @@ pub struct NetworkPacket {
     pub peer: P2PPeer,
     pub message_id: MessageId,
     pub network_id: NetworkId,
-
     pub message: UCursor,
 }
 
