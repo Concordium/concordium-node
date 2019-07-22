@@ -25,7 +25,7 @@ mod tests {
     #[test]
     pub fn test_banned_functionalities() -> Fallible<()> {
         let port = next_available_port();
-        let (mut node, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
+        let (node, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
         // Empty on init
         let reply = node.get_banlist();
         assert!(reply.is_empty());
