@@ -153,13 +153,14 @@ function testnet_node() {
 }
 
 #####
-# Start up a testnet using docker-compose with 4 bakers.
+# Start up a testnet using docker-compose with 5 bakers.
+# (baker count must be 5, 20, 30, 50, 75, 100, 150, or 200)
 #
-# testnet_docker_compose 4
+# testnet_docker_compose 5
 #
 # or for a debug edition
 #
-# testnet_docker_compose 4 --debug
+# testnet_docker_compose 5 --debug
 #
 #####
 function testnet_docker_compose() {

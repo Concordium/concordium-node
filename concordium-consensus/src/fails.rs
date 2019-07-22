@@ -46,7 +46,3 @@ macro_rules! safe_read {
             })
     };
 }
-
-#[derive(Debug, Fail)]
-#[fail(display = "Incorrect files for generating genesis")]
-pub struct CantGenerateGenesis;

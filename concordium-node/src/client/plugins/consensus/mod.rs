@@ -9,10 +9,9 @@ use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
 use failure::Fallible;
 
 use std::{
-    collections::HashMap,
     convert::TryFrom,
     fs::OpenOptions,
-    io::{Read, Write},
+    io::Read,
     mem,
     sync::{Arc, RwLock},
 };
@@ -42,16 +41,8 @@ pub fn start_consensus_layer(
 ) -> Option<consensus::ConsensusContainer> {
     match conf.baker_id {
         Some(baker_id) => {
-            // Check for invalid configuration
-            if baker_id > conf.baker_num_bakers {
-                // Baker ID is higher than amount of bakers in the network. Bail!
-                error!(
-                    "Baker ID is higher than the number of bakers in the network! Disabling baking"
-                );
-                return None;
-            }
-
             info!("Starting up the consensus thread");
+
             #[cfg(feature = "profiling")]
             ffi::start_haskell(
                 &conf.heap_profiling,
@@ -62,7 +53,7 @@ pub fn start_consensus_layer(
             #[cfg(not(feature = "profiling"))]
             ffi::start_haskell();
 
-            match get_baker_data(app_prefs, conf) {
+            match get_baker_data(app_prefs, conf, true) {
                 Ok((genesis_data, private_data)) => {
                     let mut consensus =
                         consensus::ConsensusContainer::new(genesis_data, Some(private_data));
@@ -87,7 +78,7 @@ pub fn start_consensus_layer(
             #[cfg(not(feature = "profiling"))]
             ffi::start_haskell();
 
-            match get_baker_data(app_prefs, conf) {
+            match get_baker_data(app_prefs, conf, false) {
                 Ok((genesis_data, _)) => {
                     let consensus = consensus::ConsensusContainer::new(genesis_data, None);
                     Some(consensus)
@@ -104,6 +95,7 @@ pub fn start_consensus_layer(
 fn get_baker_data(
     app_prefs: &configuration::AppPreferences,
     conf: &configuration::BakerConfig,
+    needs_private: bool,
 ) -> Fallible<(Vec<u8>, Vec<u8>)> {
     let mut genesis_loc = app_prefs.get_user_app_dir();
     genesis_loc.push(FILE_NAME_GENESIS_DATA);
@@ -117,76 +109,18 @@ fn get_baker_data(
         ))
     };
 
-    let (generated_genesis, generated_private_data) =
-        if !genesis_loc.exists() || !private_loc.exists() {
-            let mut default_crypto_providers = app_prefs.get_user_app_dir();
-            default_crypto_providers.push(FILE_NAME_CRYPTO_PROV_DATA);
-            let mut default_id_providers = app_prefs.get_user_app_dir();
-            default_id_providers.push(FILE_NAME_ID_PROV_DATA);
-            let crypto_providers = conf
-                .cryptographic_providers
-                .clone()
-                .unwrap_or_else(|| String::from(default_crypto_providers.to_str().unwrap()));
-            let id_providers = conf
-                .identity_providers
-                .clone()
-                .unwrap_or_else(|| String::from(default_id_providers.to_str().unwrap()));
-            consensus::ConsensusContainer::generate_data(
-                conf.baker_genesis,
-                conf.baker_num_bakers,
-                &crypto_providers,
-                &id_providers,
-            )?
-        } else {
-            (vec![], HashMap::new())
-        };
-
-    let given_genesis = if !genesis_loc.exists() {
-        match OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .open(&genesis_loc)
-        {
-            Ok(mut file) => match file.write_all(&generated_genesis) {
-                Ok(_) => generated_genesis,
-                Err(_) => bail!("Couldn't write out genesis data"),
-            },
-            Err(_) => bail!("Couldn't open up genesis file for writing"),
-        }
-    } else {
-        match OpenOptions::new().read(true).open(&genesis_loc) {
-            Ok(mut file) => {
-                let mut read_data = vec![];
-                match file.read_to_end(&mut read_data) {
-                    Ok(_) => read_data,
-                    Err(_) => bail!("Couldn't read genesis file properly"),
-                }
+    let genesis_data = match OpenOptions::new().read(true).open(&genesis_loc) {
+        Ok(mut file) => {
+            let mut read_data = vec![];
+            match file.read_to_end(&mut read_data) {
+                Ok(_) => read_data,
+                Err(_) => bail!("Couldn't read genesis file properly"),
             }
-            Err(e) => bail!("Can't open the genesis file ({})!", e),
         }
+        Err(e) => bail!("Can't open the genesis file ({})!", e),
     };
 
-    let given_private_data = if !private_loc.exists() {
-        match OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .open(&private_loc)
-        {
-            Ok(mut file) => {
-                if let Some(baker_id) = conf.baker_id {
-                    match file.write_all(&generated_private_data[&(baker_id as i64)]) {
-                        Ok(_) => generated_private_data[&(baker_id as i64)].to_owned(),
-                        Err(_) => bail!("Couldn't write out private baker data"),
-                    }
-                } else {
-                    bail!("Couldn't write out private baker data");
-                }
-            }
-            Err(_) => bail!("Couldn't open up private baker file for writing"),
-        }
-    } else {
+    let private_data = if needs_private {
         match OpenOptions::new().read(true).open(&private_loc) {
             Ok(mut file) => {
                 let mut read_data = vec![];
@@ -197,14 +131,15 @@ fn get_baker_data(
             }
             Err(e) => bail!("Can't open the private data file ({})!", e),
         }
+    } else {
+        vec![]
     };
 
     debug!(
-        "Obtained genesis data {:?}",
-        sha256(&[&[0u8; 8], given_genesis.as_slice()].concat())
+    "Obtained genesis data {:?}",
+        sha256(&[&[0u8; 8], genesis_data.as_slice()].concat())
     );
-
-    Ok((given_genesis, given_private_data))
+    Ok((genesis_data, private_data))
 }
 
 /// Handles packets coming from other peers
