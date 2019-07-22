@@ -177,6 +177,8 @@ where
 // Concordium-common
 // ==============================================================================================
 
+/// As `UCursor` maintains compatability with a broad range of `std::io`, we
+/// simply enforce a max size of u32 only during serialization-phases.
 impl Serializable for UCursor {
     /// It makes a `deep-copy` of the `UCursor` into `Archive`.
     fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
