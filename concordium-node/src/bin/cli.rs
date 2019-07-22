@@ -362,7 +362,7 @@ fn start_consensus_threads(
 
     let node_shared = node.clone();
 
-    let mut baker_clone = baker.clone();
+    let baker_clone = baker.clone();
     let mut node_ref = node.clone();
     let guard_pkt = spawn_or_die!("Higher queue processing", {
         while let Ok(RelayOrStopEnvelope::Relay(full_msg)) = pkt_out.recv() {
@@ -452,7 +452,6 @@ fn start_consensus_threads(
                     let is_broadcast = pac.packet_type == NetworkPacketType::BroadcastedMessage;
 
                     if let Err(e) = handle_pkt_out(
-                        &mut baker_clone,
                         pac.peer.id(),
                         pac.message.clone(),
                         &skov_sender,

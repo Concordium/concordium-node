@@ -138,7 +138,6 @@ fn get_baker_data(
 
 /// Handles packets coming from other peers
 pub fn handle_pkt_out(
-    _baker: &mut consensus::ConsensusContainer,
     peer_id: P2PNodeId,
     mut msg: UCursor,
     skov_sender: &RelayOrStopSender<ConsensusMessage>,
