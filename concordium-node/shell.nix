@@ -13,8 +13,19 @@ in with nixpkgs;
 stdenv.mkDerivation {
   name = "concordium_shell";
   hardeningDisable = [ "all" ];
-  buildInputs =
-  [ rustStableChannel openssl protobuf pkgconfig unbound numactl gmp cmake curl gnutar ];
+  buildInputs = [
+    rustStableChannel
+    openssl
+    protobuf
+    pkgconfig
+    unbound
+    numactl
+    gmp
+    cmake
+    curl
+    gnutar
+    capnproto
+  ];
   shellHook = ''
     export OPENSSL_DIR="${openssl.dev}"
     export OPENSSL_LIB_DIR="${openssl.out}/lib"
