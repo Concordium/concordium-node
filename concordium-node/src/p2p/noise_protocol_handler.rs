@@ -53,7 +53,7 @@ const MAX_PREHANDSHAKE_KEEP_ALIVE: u64 = 120_000;
 pub type PreHandshakeCW = UnitFunction<SocketAddr>;
 pub type PreHandshake = UnitFunctor<SocketAddr>;
 
-pub struct TlsServerBuilder {
+pub struct NoiseProtocolHandlerBuilder {
     server:               Option<TcpListener>,
     event_log:            Option<SyncSender<P2PEvent>>,
     self_peer:            Option<P2PPeer>,
@@ -64,13 +64,13 @@ pub struct TlsServerBuilder {
     noise_params:         Option<snow::params::NoiseParams>,
 }
 
-impl Default for TlsServerBuilder {
-    fn default() -> Self { TlsServerBuilder::new() }
+impl Default for NoiseProtocolHandlerBuilder {
+    fn default() -> Self { NoiseProtocolHandlerBuilder::new() }
 }
 
-impl TlsServerBuilder {
-    pub fn new() -> TlsServerBuilder {
-        TlsServerBuilder {
+impl NoiseProtocolHandlerBuilder {
+    pub fn new() -> NoiseProtocolHandlerBuilder {
+        NoiseProtocolHandlerBuilder {
             server:               None,
             event_log:            None,
             self_peer:            None,
@@ -82,7 +82,7 @@ impl TlsServerBuilder {
         }
     }
 
-    pub fn build(self) -> Fallible<TlsServer> {
+    pub fn build(self) -> Fallible<NoiseProtocolHandler> {
         if let (
             Some(networks),
             Some(server),
@@ -100,7 +100,7 @@ impl TlsServerBuilder {
         ) {
             let key_pair = snow::Builder::new(noise_params.clone()).generate_keypair()?;
 
-            let mself = TlsServer {
+            let mself = NoiseProtocolHandler {
                 server: Arc::new(server),
                 next_id: Arc::new(AtomicUsize::new(2)),
                 key_pair: Arc::new(key_pair),
@@ -125,41 +125,49 @@ impl TlsServerBuilder {
             mself.setup_default_message_handler();
             Ok(mself)
         } else {
-            Err(Error::from(fails::MissingFieldsOnTlsServerBuilder))
+            Err(Error::from(
+                fails::MissingFieldsOnNoiseProtocolHandlerBuilder,
+            ))
         }
     }
 
-    pub fn set_server(mut self, s: TcpListener) -> TlsServerBuilder {
+    pub fn set_server(mut self, s: TcpListener) -> NoiseProtocolHandlerBuilder {
         self.server = Some(s);
         self
     }
 
-    pub fn set_self_peer(mut self, sp: P2PPeer) -> TlsServerBuilder {
+    pub fn set_self_peer(mut self, sp: P2PPeer) -> NoiseProtocolHandlerBuilder {
         self.self_peer = Some(sp);
         self
     }
 
-    pub fn set_event_log(mut self, el: Option<SyncSender<P2PEvent>>) -> TlsServerBuilder {
+    pub fn set_event_log(
+        mut self,
+        el: Option<SyncSender<P2PEvent>>,
+    ) -> NoiseProtocolHandlerBuilder {
         self.event_log = el;
         self
     }
 
-    pub fn set_buckets(mut self, b: Arc<RwLock<Buckets>>) -> TlsServerBuilder {
+    pub fn set_buckets(mut self, b: Arc<RwLock<Buckets>>) -> NoiseProtocolHandlerBuilder {
         self.buckets = Some(b);
         self
     }
 
-    pub fn set_stats_export_service(mut self, ses: Option<StatsExportService>) -> TlsServerBuilder {
+    pub fn set_stats_export_service(
+        mut self,
+        ses: Option<StatsExportService>,
+    ) -> NoiseProtocolHandlerBuilder {
         self.stats_export_service = ses;
         self
     }
 
-    pub fn set_networks(mut self, n: HashSet<NetworkId>) -> TlsServerBuilder {
+    pub fn set_networks(mut self, n: HashSet<NetworkId>) -> NoiseProtocolHandlerBuilder {
         self.networks = Some(n);
         self
     }
 
-    pub fn set_max_allowed_peers(mut self, max_allowed_peers: u16) -> TlsServerBuilder {
+    pub fn set_max_allowed_peers(mut self, max_allowed_peers: u16) -> NoiseProtocolHandlerBuilder {
         self.max_allowed_peers = Some(max_allowed_peers);
         self
     }
@@ -167,14 +175,14 @@ impl TlsServerBuilder {
     pub fn set_noise_params(
         mut self,
         config: &crate::configuration::CryptoConfig,
-    ) -> TlsServerBuilder {
+    ) -> NoiseProtocolHandlerBuilder {
         self.noise_params = Some(generate_snow_config(config));
         self
     }
 }
 
 #[derive(Clone)]
-pub struct TlsServer {
+pub struct NoiseProtocolHandler {
     server:                     Arc<TcpListener>,
     next_id:                    Arc<AtomicUsize>,
     key_pair:                   Arc<Keypair>,
@@ -195,7 +203,7 @@ pub struct TlsServer {
     pub networks:               Arc<RwLock<HashSet<NetworkId>>>,
 }
 
-impl TlsServer {
+impl NoiseProtocolHandler {
     pub fn log_event(&self, event: P2PEvent) {
         if let Some(ref log) = self.event_log {
             if let Err(e) = log.send(event) {
@@ -365,7 +373,7 @@ impl TlsServer {
     #[inline]
     pub fn peer_type(&self) -> PeerType { self.self_peer.peer_type() }
 
-    /// It setups default message handler at TLSServer level.
+    /// It setups default message handler at noise protocol handler level.
     fn setup_default_message_handler(&self) {
         let banned_nodes = Arc::clone(&self.banned_peers);
         let to_disconnect = Arc::clone(&self.to_disconnect);
@@ -686,7 +694,10 @@ impl TlsServer {
         // Remove the connection from the list of connections
         for conn in closing_conns.into_iter().map(Result::unwrap) {
             // safe unwrapping since we are iterating over the list that only contains `Ok`s
-            trace!("Remove connection {} from TLS Server", usize::from(conn));
+            trace!(
+                "Remove connection {} from Noise Protocol Handler",
+                usize::from(conn)
+            );
             self.remove_connection(conn);
         }
 
@@ -802,6 +813,6 @@ impl TlsServer {
     }
 }
 
-impl MessageManager for TlsServer {
+impl MessageManager for NoiseProtocolHandler {
     fn message_processor(&self) -> MessageProcessor { self.message_processor.clone() }
 }
