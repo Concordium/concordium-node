@@ -202,7 +202,7 @@ impl Deserializable for UCursor {
         A: ReadArchive, {
         let len = u32::deserialize(archive)?;
         archive
-            .payload(len as u64)
+            .payload(u64::from(len))
             .ok_or_else(|| err_msg("No payload on this archive"))
     }
 }
