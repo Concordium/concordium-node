@@ -160,8 +160,6 @@ pub fn handle_global_state_request(
         process_external_skov_entry(node, network_id, baker, request, skov)?
     }
 
-    skov.display_state();
-
     if let Some(stats) = stats_exporting {
         let stats_values = skov.stats.query_stats();
         stats.set_skov_block_receipt(stats_values.0 as i64);
@@ -181,13 +179,6 @@ fn process_internal_skov_entry(
     request: ConsensusMessage,
     skov: &mut Skov,
 ) -> Fallible<()> {
-    if skov.state == SkovState::CatchingUp && request.variant == PacketType::Block {
-        // ignore outgoing blocks until the catch-up phase is complete; they would be
-        // dropped by the other nodes anyway
-        warn!("Our consensus layer wanted to bake a block while catching up! Not relaying it.");
-        return Ok(());
-    }
-
     let (entry_info, skov_result) = match request.variant {
         PacketType::Block => {
             let block = PendingBlock::new(&request.payload)?;
@@ -203,7 +194,7 @@ fn process_internal_skov_entry(
         PacketType::CatchupBlockByHash
         | PacketType::CatchupFinalizationRecordByHash
         | PacketType::CatchupFinalizationRecordByIndex => {
-            let skov_result = if skov.state != SkovState::CatchingUp {
+            let skov_result = if !skov.is_catching_up() {
                 skov.start_catchup_round()
             } else {
                 SkovResult::IgnoredEntry
@@ -252,7 +243,7 @@ fn process_external_skov_entry(
     let self_node_id = node.self_peer.id;
     let source = P2PNodeId(request.source_peer());
 
-    if skov.state == SkovState::CatchingUp {
+    if skov.is_catching_up() {
         // delay broadcasts during catch-up rounds
         if request.distribution_mode() == DistributionMode::Broadcast {
             info!(
@@ -299,50 +290,74 @@ fn process_external_skov_entry(
             (skov_result, false)
         }
         PacketType::GlobalStateMetadata => {
-            let metadata = SkovMetadata::deserialize(&request.payload)?;
-            let skov_result = skov.register_peer_metadata(request.source_peer(), metadata);
+            let skov_result = if skov.peer_metadata.get(&source.0).is_none() {
+                let metadata = SkovMetadata::deserialize(&request.payload)?;
+                skov.register_peer_metadata(request.source_peer(), metadata)
+            } else {
+                SkovResult::IgnoredEntry
+            };
             (skov_result, false)
         }
         PacketType::GlobalStateMetadataRequest => (skov.get_metadata(), false),
+        PacketType::FullCatchupRequest => {
+            send_full_catch_up_response(node, &skov, source, network_id);
+
+            (
+                SkovResult::SuccessfulEntry(PacketType::FullCatchupRequest),
+                false,
+            )
+        }
+        PacketType::FullCatchupComplete => {
+            (
+                SkovResult::SuccessfulEntry(PacketType::FullCatchupComplete),
+                false,
+            )
+        }
         _ => (SkovResult::IgnoredEntry, true), // will be expanded later on
     };
 
     match skov_result {
         SkovResult::SuccessfulEntry(entry_type) => {
-            // reply to peer metadata with own metadata and begin catching up and/or baking
-            if entry_type == PacketType::GlobalStateMetadata {
-                let response_metadata =
-                    if let SkovResult::SuccessfulQuery(metadata) = skov.get_metadata() {
-                        metadata
-                    } else {
-                        unreachable!(); // impossible
-                    };
-
-                send_consensus_msg_to_net(
-                    &node,
-                    Some(source),
-                    network_id,
-                    PacketType::GlobalStateMetadata,
-                    Some(format!("response to a {}", request.variant)),
-                    &response_metadata,
-                );
-
-                if skov.state == SkovState::JustStarted {
-                    if let SkovResult::BestPeer(Some(_best_peer)) = skov.best_peer() {
-                        // TODO: request a full catch_up
-                        consensus.start_baking();
-                    } else {
-                        skov.state = SkovState::Complete;
-                        consensus.start_baking();
-                    }
-                }
-            }
-
             trace!(
                 "Peer {} successfully processed a {}",
                 node.self_peer.id,
                 request
             );
+
+            // reply to peer metadata with own metadata and begin catching up and/or baking
+            match entry_type {
+                PacketType::GlobalStateMetadata => {
+                    let response_metadata =
+                        if let SkovResult::SuccessfulQuery(metadata) = skov.get_metadata() {
+                            metadata
+                        } else {
+                            unreachable!(); // impossible
+                        };
+
+                    send_consensus_msg_to_net(
+                        &node,
+                        Some(source),
+                        network_id,
+                        PacketType::GlobalStateMetadata,
+                        Some(format!("response to a {}", request.variant)),
+                        &response_metadata,
+                    );
+
+                    if skov.state() == SkovState::JustStarted {
+                        if let SkovResult::BestPeer((best_peer, best_meta)) = skov.best_metadata() {
+                            if !best_meta.is_empty() {
+                                send_catch_up_request(node, P2PNodeId(best_peer), network_id);
+                                skov.start_catchup_round();
+                            }
+                        };
+                    }
+                }
+                PacketType::FullCatchupComplete => {
+                    skov.end_catchup_round();
+                    apply_delayed_broadcasts(node, network_id, consensus, skov)?;
+                }
+                _ => {}
+            }
         }
         SkovResult::SuccessfulQuery(result) => {
             let return_type = match request.variant {
@@ -369,16 +384,18 @@ fn process_external_skov_entry(
         _ => {}
     }
 
+    if skov.state() == SkovState::JustStarted {
+        consensus.start_baker();
+    }
+
     // relay external messages to Consensus if they are relevant to it
     if consensus_applicable {
         send_msg_to_consensus(self_node_id, source, consensus, request)?
     }
 
-    if let SkovState::CatchingUp = skov.state {
-        if skov.is_tree_valid() {
-            skov.end_catchup_round();
-            apply_delayed_broadcasts(node, network_id, consensus, skov)?;
-        }
+    if skov.state() == SkovState::PartiallyCatchingUp && skov.is_tree_valid() {
+        skov.end_catchup_round();
+        apply_delayed_broadcasts(node, network_id, consensus, skov)?;
     }
 
     Ok(())
@@ -478,20 +495,71 @@ pub fn send_consensus_msg_to_net(
     }
 }
 
-fn _send_finalization_point(
-    node: &P2PNode,
-    consensus: &consensus::ConsensusContainer,
-    target: P2PNodeId,
-    network: NetworkId,
-) {
-    let response = consensus.get_finalization_point();
+fn send_catch_up_request(node: &P2PNode, target: P2PNodeId, network: NetworkId) {
+    let packet_type = PacketType::FullCatchupRequest;
+    let mut buffer = Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize);
+    buffer
+        .write_u16::<NetworkEndian>(packet_type as u16)
+        .expect("Can't write a packet payload to buffer");
+
+    let result = send_direct_message(node, Some(target), network, None, buffer);
+
+    match result {
+        Ok(_) => info!(
+            "Peer {} sent a direct {} to peer {}",
+            node.self_peer.id, packet_type, target,
+        ),
+        Err(_) => error!(
+            "Peer {} couldn't send a direct {} to peer {}!",
+            node.self_peer.id, packet_type, target,
+        ),
+    }
+}
+
+fn send_full_catch_up_response(node: &P2PNode, skov: &Skov, target: P2PNodeId, network: NetworkId) {
+    for (blob, packet_type) in skov
+        .data
+        .block_tree
+        .values()
+        .skip(1) // skip the genesis
+        .map(|ptr| (SerializeToBytes::serialize(&**ptr), PacketType::Block))
+        .chain(
+            skov.data
+                .finalization_list
+                .into_iter()
+                .skip(1) // skip the genesis
+                .filter_map(|rec| rec.as_ref())
+                .map(|rec| (SerializeToBytes::serialize(rec), PacketType::FinalizationRecord)),
+        )
+        .chain(
+            skov.data
+                .tree_candidates
+                .values()
+                .map(|ptr| (SerializeToBytes::serialize(&**ptr), PacketType::Block)),
+        )
+    {
+        send_consensus_msg_to_net(
+            &node,
+            Some(target),
+            network,
+            packet_type,
+            None,
+            &blob,
+        );
+    }
+
+    let mut blob = Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize);
+    let packet_type = PacketType::FullCatchupComplete;
+    blob
+        .write_u16::<NetworkEndian>(packet_type as u16)
+        .expect("Can't write a packet payload to buffer");
 
     send_consensus_msg_to_net(
-        node,
+        &node,
         Some(target),
         network,
-        PacketType::CatchupFinalizationMessagesByPoint,
+        packet_type,
         None,
-        &response,
+        &blob,
     );
 }
