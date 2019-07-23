@@ -31,3 +31,4 @@ EXPORTS
  getBirkParameters
  getModuleList
  getModuleSource
+ hookTransaction
