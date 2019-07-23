@@ -292,6 +292,7 @@ extern "C" {
     pub fn receiveTransaction(baker: *mut consensus_runner, tx: *const u8, data_length: i64)
         -> i64;
     pub fn stopBaker(baker: *mut consensus_runner);
+    pub fn stopConsensus(baker: *mut consensus_runner);
 
     // Consensus queries
     pub fn getConsensusStatus(baker: *mut consensus_runner) -> *const c_char;

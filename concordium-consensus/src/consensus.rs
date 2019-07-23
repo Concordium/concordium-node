@@ -9,7 +9,7 @@ use std::time::Duration;
 use std::{
     collections::HashMap,
     sync::{
-        atomic::{AtomicPtr, Ordering},
+        atomic::{AtomicBool, AtomicPtr, Ordering},
         mpsc, Arc, Mutex,
     },
 };
@@ -90,10 +90,15 @@ pub struct ConsensusContainer {
     pub consensus:      Arc<AtomicPtr<consensus_runner>>,
     pub genesis:        Arc<[u8]>,
     pub consensus_type: ConsensusType,
+    pub baker_running:  Arc<AtomicBool>,
 }
 
 impl ConsensusContainer {
-    pub fn new(genesis_data: Vec<u8>, private_data: Option<Vec<u8>>) -> Self {
+    pub fn new(
+        genesis_data: Vec<u8>,
+        private_data: Option<Vec<u8>>,
+        baker_id: Option<BakerId>,
+    ) -> Self {
         info!("Starting up the consensus layer");
 
         let consensus_type = if private_data.is_some() {
@@ -105,28 +110,47 @@ impl ConsensusContainer {
         let consensus_ptr = get_consensus_ptr(genesis_data.clone(), private_data);
 
         Self {
-            baker: None,
+            baker: baker_id,
             consensus: Arc::new(AtomicPtr::new(consensus_ptr)),
             genesis: Arc::from(genesis_data),
             consensus_type,
+            baker_running: Arc::new(AtomicBool::new(false)),
         }
     }
 
-    pub fn start_baker(&mut self, baker_id: u64) -> bool {
+    pub fn stop(&self) {
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        unsafe {
+            stopBaker(consensus);
+            stopConsensus(consensus);
+        }
+        self.baker_running.store(true, Ordering::SeqCst);
+    }
+
+    pub fn start_baker(&self) -> bool {
         if self.consensus_type == ConsensusType::Passive {
             return false;
         }
-        self.baker = Some(baker_id);
-        let consensus = self.consensus.load(Ordering::SeqCst);
+        if self.baker_running.load(Ordering::SeqCst) {
+            return false;
+        }
 
+        if self.baker.is_none() {
+            return false;
+        }
+        let consensus = self.consensus.load(Ordering::SeqCst);
         unsafe {
             startBaker(consensus);
         }
+        self.baker_running.store(true, Ordering::SeqCst);
         true
     }
 
-    pub fn stop(&self) -> bool {
+    pub fn stop_baker(&self) -> bool {
         if self.consensus_type == ConsensusType::Passive {
+            return false;
+        }
+        if !self.baker_running.load(Ordering::SeqCst) {
             return false;
         }
         let consensus = self.consensus.load(Ordering::SeqCst);
@@ -137,10 +161,7 @@ impl ConsensusContainer {
         true
     }
 
-    pub fn is_baking(&self) -> bool {
-        // @TODO Replace with real check
-        true
-    }
+    pub fn is_baking(&self) -> bool { self.baker_running.load(Ordering::SeqCst) }
 }
 
 pub fn catchup_enqueue(request: ConsensusMessage) {

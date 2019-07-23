@@ -49,9 +49,12 @@ pub fn start_consensus_layer(
 
             match get_baker_data(app_prefs, conf, true) {
                 Ok((genesis_data, private_data)) => {
-                    let mut consensus =
-                        consensus::ConsensusContainer::new(genesis_data, Some(private_data));
-                    consensus.start_baker(baker_id);
+                    let consensus = consensus::ConsensusContainer::new(
+                        genesis_data,
+                        Some(private_data),
+                        Some(baker_id),
+                    );
+                    consensus.start_baker();
                     Some(consensus)
                 }
                 Err(_) => {
@@ -74,7 +77,7 @@ pub fn start_consensus_layer(
 
             match get_baker_data(app_prefs, conf, false) {
                 Ok((genesis_data, _)) => {
-                    let consensus = consensus::ConsensusContainer::new(genesis_data, None);
+                    let consensus = consensus::ConsensusContainer::new(genesis_data, None, None);
                     Some(consensus)
                 }
                 Err(_) => {

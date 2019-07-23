@@ -209,6 +209,20 @@ macro_rules! successful_json_response {
     };
 }
 
+macro_rules! successful_bool_response {
+    ($self:ident, $ctx:ident, $req:ident, $sink:ident, $inner_match:expr) => {
+        if let Some(ref consensus) = $self.consensus {
+            let res = $inner_match(consensus);
+            let mut r: SuccessResponse = SuccessResponse::new();
+            r.set_value(res.to_owned());
+            let f = $sink
+                .success(r)
+                .map_err(move |e| error!("failed to reply {:?}: {:?}", $req, e));
+            $ctx.spawn(f);
+        }
+    };
+}
+
 macro_rules! successful_byte_response {
     ($self:ident, $ctx:ident, $req:ident, $sink:ident, $inner_match:expr) => {
         if let Some(ref consensus) = $self.consensus {
@@ -748,6 +762,32 @@ impl P2P for RpcServerImpl {
         });
     }
 
+    fn start_baker(
+        &self,
+        ctx: ::grpcio::RpcContext<'_>,
+        req: Empty,
+        sink: ::grpcio::UnarySink<SuccessResponse>,
+    ) {
+        authenticate!(ctx, req, sink, self.access_token, {
+            successful_bool_response!(self, ctx, req, sink, |consensus: &ConsensusContainer| {
+                consensus.start_baker()
+            });
+        });
+    }
+
+    fn stop_baker(
+        &self,
+        ctx: ::grpcio::RpcContext<'_>,
+        req: Empty,
+        sink: ::grpcio::UnarySink<SuccessResponse>,
+    ) {
+        authenticate!(ctx, req, sink, self.access_token, {
+            successful_bool_response!(self, ctx, req, sink, |consensus: &ConsensusContainer| {
+                consensus.stop_baker()
+            });
+        });
+    }
+
     fn get_branches(
         &self,
         ctx: ::grpcio::RpcContext<'_>,
@@ -935,13 +975,15 @@ impl P2P for RpcServerImpl {
         req: Empty,
         sink: ::grpcio::UnarySink<SuccessResponse>,
     ) {
-        let f = {
-            let mut r: SuccessResponse = SuccessResponse::new();
-            r.set_value(self.node.close().is_ok());
-            sink.success(r)
-        };
-        let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-        ctx.spawn(f);
+        authenticate!(ctx, req, sink, self.access_token, {
+            let f = {
+                let mut r: SuccessResponse = SuccessResponse::new();
+                r.set_value(self.node.close().is_ok());
+                sink.success(r)
+            };
+            let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+            ctx.spawn(f);
+        });
     }
 
     #[cfg(feature = "benchmark")]
@@ -951,48 +993,50 @@ impl P2P for RpcServerImpl {
         req: TpsRequest,
         sink: ::grpcio::UnarySink<SuccessResponse>,
     ) {
-        let f = {
-            let (network_id, id, dir) = (
-                NetworkId::from(req.network_id as u16),
-                req.id.clone(),
-                req.directory.clone(),
-            );
-            let _node_list = self.node.get_peer_stats(&[network_id]);
-            if !_node_list.into_iter().any(|s| s.id == id) {
-                sink.fail(grpcio::RpcStatus::new(
-                    grpcio::RpcStatusCode::FailedPrecondition,
-                    Some("I don't have the required peers!".to_string()),
-                ))
-            } else {
-                let test_messages = utils::get_tps_test_messages(Some(dir));
-                let mut r: SuccessResponse = SuccessResponse::new();
-                let result = !(test_messages.iter().map(|message| {
-                    let out_bytes_len = message.len();
-                    let to_send = P2PNodeId::from_str(&id).ok();
-                    match send_direct_message(
-                        &self.node,
-                        to_send,
-                        network_id,
-                        None,
-                        message.to_vec(),
-                    ) {
-                        Ok(_) => {
-                            info!("Sent TPS test bytes of len {}", out_bytes_len);
-                            Ok(())
+        authenticate!(ctx, req, sink, self.access_token, {
+            let f = {
+                let (network_id, id, dir) = (
+                    NetworkId::from(req.network_id as u16),
+                    req.id.clone(),
+                    req.directory.clone(),
+                );
+                let _node_list = self.node.get_peer_stats(&[network_id]);
+                if !_node_list.into_iter().any(|s| s.id == id) {
+                    sink.fail(grpcio::RpcStatus::new(
+                        grpcio::RpcStatusCode::FailedPrecondition,
+                        Some("I don't have the required peers!".to_string()),
+                    ))
+                } else {
+                    let test_messages = utils::get_tps_test_messages(Some(dir));
+                    let mut r: SuccessResponse = SuccessResponse::new();
+                    let result = !(test_messages.iter().map(|message| {
+                        let out_bytes_len = message.len();
+                        let to_send = P2PNodeId::from_str(&id).ok();
+                        match send_direct_message(
+                            &self.node,
+                            to_send,
+                            network_id,
+                            None,
+                            message.to_vec(),
+                        ) {
+                            Ok(_) => {
+                                info!("Sent TPS test bytes of len {}", out_bytes_len);
+                                Ok(())
+                            }
+                            Err(_) => {
+                                error!("Couldn't send TPS test message!");
+                                Err(())
+                            }
                         }
-                        Err(_) => {
-                            error!("Couldn't send TPS test message!");
-                            Err(())
-                        }
-                    }
-                }))
-                .any(|res| res.is_err());
-                r.set_value(result);
-                sink.success(r)
-            }
-        };
-        let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-        ctx.spawn(f);
+                    }))
+                    .any(|res| res.is_err());
+                    r.set_value(result);
+                    sink.success(r)
+                }
+            };
+            let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+            ctx.spawn(f);
+        });
     }
 
     #[cfg(not(feature = "benchmark"))]
@@ -1034,33 +1078,35 @@ impl P2P for RpcServerImpl {
         req: DumpRequest,
         sink: ::grpcio::UnarySink<SuccessResponse>,
     ) {
-        let f = if let Ok(locked_node) = self.node.lock() {
-            let mut r = SuccessResponse::new();
-            let file_path = req.get_file().to_owned();
-            if locked_node
-                .activate_dump(
-                    if file_path.is_empty() {
-                        "dump"
-                    } else {
-                        &file_path
-                    },
-                    req.get_raw(),
-                )
-                .is_ok()
-            {
-                r.set_value(true);
+        authenticate!(ctx, req, sink, self.access_token, {
+            let f = if let Ok(locked_node) = self.node.lock() {
+                let mut r = SuccessResponse::new();
+                let file_path = req.get_file().to_owned();
+                if locked_node
+                    .activate_dump(
+                        if file_path.is_empty() {
+                            "dump"
+                        } else {
+                            &file_path
+                        },
+                        req.get_raw(),
+                    )
+                    .is_ok()
+                {
+                    r.set_value(true);
+                } else {
+                    r.set_value(false);
+                }
+                sink.success(r)
             } else {
-                r.set_value(false);
-            }
-            sink.success(r)
-        } else {
-            sink.fail(grpcio::RpcStatus::new(
-                grpcio::RpcStatusCode::ResourceExhausted,
-                Some("Node can't be locked".to_string()),
-            ))
-        };
-        let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-        ctx.spawn(f);
+                sink.fail(grpcio::RpcStatus::new(
+                    grpcio::RpcStatusCode::ResourceExhausted,
+                    Some("Node can't be locked".to_string()),
+                ))
+            };
+            let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+            ctx.spawn(f);
+        });
     }
 
     #[cfg(not(feature = "network_dump"))]
@@ -1086,19 +1132,21 @@ impl P2P for RpcServerImpl {
         req: Empty,
         sink: ::grpcio::UnarySink<SuccessResponse>,
     ) {
-        let f = if let Ok(locked_node) = self.node.lock() {
-            let mut r = SuccessResponse::new();
-            r.set_value(locked_node.stop_dump().is_ok());
+        authenticate!(ctx, req, sink, self.access_token, {
+            let f = if let Ok(locked_node) = self.node.lock() {
+                let mut r = SuccessResponse::new();
+                r.set_value(locked_node.stop_dump().is_ok());
 
-            sink.success(r)
-        } else {
-            sink.fail(grpcio::RpcStatus::new(
-                grpcio::RpcStatusCode::ResourceExhausted,
-                Some("Node can't be locked".to_string()),
-            ))
-        };
-        let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-        ctx.spawn(f);
+                sink.success(r)
+            } else {
+                sink.fail(grpcio::RpcStatus::new(
+                    grpcio::RpcStatusCode::ResourceExhausted,
+                    Some("Node can't be locked".to_string()),
+                ))
+            };
+            let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+            ctx.spawn(f);
+        });
     }
 
     fn retransmit_request(
@@ -1107,25 +1155,27 @@ impl P2P for RpcServerImpl {
         req: RetransmitRequestMessage,
         sink: ::grpcio::UnarySink<SuccessResponse>,
     ) {
-        let f = {
-            if req.has_since() {
-                let mut r: SuccessResponse = SuccessResponse::new();
-                self.node.send_retransmit(
-                    RequestedElementType::from(req.get_element_type() as u8),
-                    req.get_since().get_value(),
-                    NetworkId::from(req.get_network_id() as u16),
-                );
-                r.set_value(true);
-                sink.success(r)
-            } else {
-                sink.fail(grpcio::RpcStatus::new(
-                    grpcio::RpcStatusCode::InvalidArgument,
-                    Some("`Since` argument can not be ommited".to_string()),
-                ))
-            }
-        };
-        let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-        ctx.spawn(f);
+        authenticate!(ctx, req, sink, self.access_token, {
+            let f = {
+                if req.has_since() {
+                    let mut r: SuccessResponse = SuccessResponse::new();
+                    self.node.send_retransmit(
+                        RequestedElementType::from(req.get_element_type() as u8),
+                        req.get_since().get_value(),
+                        NetworkId::from(req.get_network_id() as u16),
+                    );
+                    r.set_value(true);
+                    sink.success(r)
+                } else {
+                    sink.fail(grpcio::RpcStatus::new(
+                        grpcio::RpcStatusCode::InvalidArgument,
+                        Some("`Since` argument can not be ommited".to_string()),
+                    ))
+                }
+            };
+            let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+            ctx.spawn(f);
+        });
     }
 
     fn get_skov_stats(
@@ -1134,26 +1184,28 @@ impl P2P for RpcServerImpl {
         req: Empty,
         sink: ::grpcio::UnarySink<SuccesfulStructResponse>,
     ) {
-        let f = if let Some(stats) = &self.stats {
-            let mut r: SuccesfulStructResponse = SuccesfulStructResponse::new();
-            let mut s = GRPCSkovStats::new();
-            let stat_values = stats.get_skov_stats();
-            s.set_skov_block_receipt(stat_values.0 as u32);
-            s.set_skov_block_entry(stat_values.1 as u32);
-            s.set_skov_block_query(stat_values.2 as u32);
-            s.set_skov_finalization_receipt(stat_values.3 as u32);
-            s.set_skov_finalization_entry(stat_values.4 as u32);
-            s.set_skov_finalization_query(stat_values.5 as u32);
-            r.set_skov_stats(s);
-            sink.success(r)
-        } else {
-            sink.fail(grpcio::RpcStatus::new(
-                grpcio::RpcStatusCode::ResourceExhausted,
-                Some("Stats server can't be locked".to_string()),
-            ))
-        };
-        let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-        ctx.spawn(f);
+        authenticate!(ctx, req, sink, self.access_token, {
+            let f = if let Some(stats) = &self.stats {
+                let mut r: SuccesfulStructResponse = SuccesfulStructResponse::new();
+                let mut s = GRPCSkovStats::new();
+                let stat_values = stats.get_skov_stats();
+                s.set_skov_block_receipt(stat_values.0 as u32);
+                s.set_skov_block_entry(stat_values.1 as u32);
+                s.set_skov_block_query(stat_values.2 as u32);
+                s.set_skov_finalization_receipt(stat_values.3 as u32);
+                s.set_skov_finalization_entry(stat_values.4 as u32);
+                s.set_skov_finalization_query(stat_values.5 as u32);
+                r.set_skov_stats(s);
+                sink.success(r)
+            } else {
+                sink.fail(grpcio::RpcStatus::new(
+                    grpcio::RpcStatusCode::ResourceExhausted,
+                    Some("Stats server can't be locked".to_string()),
+                ))
+            };
+            let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+            ctx.spawn(f);
+        });
     }
 
     fn hook_transaction(
