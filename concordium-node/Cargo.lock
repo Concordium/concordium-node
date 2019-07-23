@@ -352,7 +352,7 @@ dependencies = [
  "byteorder 1.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "concordium-common 0.1.44",
  "concordium-global-state 0.0.1",
- "dodis-yampolskiy-prf 0.1.0",
+ "dodis_yampolskiy_prf 0.1.0",
  "ec_vrf_ed25519_sha256 0.0.1",
  "eddsa_ed25519 0.1.0",
  "elgamal 0.1.0",
@@ -360,7 +360,7 @@ dependencies = [
  "lazy_static 1.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.58 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "pedersen-scheme 0.1.0",
+ "pedersen_scheme 0.1.0",
  "ps_sig 0.1.0",
  "sha_2 0.1.0",
  "walkdir 2.2.8 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -583,6 +583,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "curve_arithmetic"
+version = "0.1.0"
+dependencies = [
+ "byteorder 1.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ffi_helpers 0.1.0",
+ "libc 0.2.58 (registry+https://github.com/rust-lang/crates.io-index)",
+ "pairing 0.14.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rand 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "darling"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -646,14 +658,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "dodis-yampolskiy-prf"
+name = "dodis_yampolskiy_prf"
 version = "0.1.0"
 dependencies = [
  "clear_on_drop 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "curve_arithmetic 0.1.0",
  "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "pairing 0.14.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "rand_core 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rand_core 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.93 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -692,9 +705,12 @@ dependencies = [
 name = "eddsa_ed25519"
 version = "0.1.0"
 dependencies = [
+ "curve25519-dalek 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "ed25519-dalek 1.0.0-pre.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "rand 0.5.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.93 (registry+https://github.com/rust-lang/crates.io-index)",
+ "sha2 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -708,13 +724,13 @@ version = "0.1.0"
 dependencies = [
  "bitvec 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "clear_on_drop 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "curve_arithmetic 0.1.0",
  "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.58 (registry+https://github.com/rust-lang/crates.io-index)",
  "pairing 0.14.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand_core 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rayon 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde 1.0.93 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -778,6 +794,13 @@ dependencies = [
 name = "fake-simd"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "ffi_helpers"
+version = "0.1.0"
+dependencies = [
+ "libc 0.2.58 (registry+https://github.com/rust-lang/crates.io-index)",
+]
 
 [[package]]
 name = "flate2"
@@ -1586,7 +1609,7 @@ dependencies = [
  "concordium-global-state 0.0.1",
  "criterion 0.2.11 (registry+https://github.com/rust-lang/crates.io-index)",
  "derive_builder 0.7.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "dodis-yampolskiy-prf 0.1.0",
+ "dodis_yampolskiy_prf 0.1.0",
  "ec_vrf_ed25519_sha256 0.0.1",
  "eddsa_ed25519 0.1.0",
  "elgamal 0.1.0",
@@ -1608,7 +1631,7 @@ dependencies = [
  "mime 0.3.13 (registry+https://github.com/rust-lang/crates.io-index)",
  "mio 0.6.19 (registry+https://github.com/rust-lang/crates.io-index)",
  "nom 4.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "pedersen-scheme 0.1.0",
+ "pedersen_scheme 0.1.0",
  "preferences 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "protobuf 2.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "protoc-grpcio 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1661,14 +1684,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "pedersen-scheme"
+name = "pedersen_scheme"
 version = "0.1.0"
 dependencies = [
+ "byteorder 1.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "clear_on_drop 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "curve_arithmetic 0.1.0",
  "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "pairing 0.14.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "rand_core 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rand_core 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.93 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -1802,10 +1827,13 @@ name = "ps_sig"
 version = "0.1.0"
 dependencies = [
  "bitvec 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "byteorder 1.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "clear_on_drop 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "curve_arithmetic 0.1.0",
  "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.58 (registry+https://github.com/rust-lang/crates.io-index)",
  "pairing 0.14.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "pedersen_scheme 0.1.0",
  "rand 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand_core 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rayon 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)",

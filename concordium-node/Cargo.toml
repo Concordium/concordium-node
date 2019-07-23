@@ -32,8 +32,8 @@ concordium_crypto_ec_vrf_ed25519_sha256 = { package = "ec_vrf_ed25519_sha256", p
 concordium_crypto_eddsa_ed25519 = { package = "eddsa_ed25519", path = "deps/internal/crypto/rust-src/eddsa_ed25519" }
 concordium_crypto_sha2 = { package = "sha_2", path = "deps/internal/crypto/rust-src/sha_2" }
 concordium_crypto_elgamal = { package = "elgamal", path = "deps/internal/crypto/rust-src/elgamal" }
-concordium_crypto_pedersen_scheme = { package = "pedersen-scheme", path = "deps/internal/crypto/rust-src/pedersen_scheme" }
-concordium_dodis_yampolskiy_prf = { package = "dodis-yampolskiy-prf", path = "deps/internal/crypto/rust-src/dodis_yampolskiy_prf" }
+concordium_crypto_pedersen_scheme = { package = "pedersen_scheme", path = "deps/internal/crypto/rust-src/pedersen_scheme" }
+concordium_dodis_yampolskiy_prf = { package = "dodis_yampolskiy_prf", path = "deps/internal/crypto/rust-src/dodis_yampolskiy_prf" }
 # concordium_curve_arithmetic = { package = "curve_arithmetic", path = "deps/internal/crypto/rust-src/curve_arithmetic" }
 concordium-common = { path = "concordium-common" }
 # External dependencies
