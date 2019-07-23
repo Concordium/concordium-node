@@ -373,4 +373,13 @@ impl P2P for P2PServiceForwarder {
     ) {
         forward_to_targets!(self.targets, get_skov_stats, ctx, req, sink);
     }
+
+    fn hook_transaction(
+        &self,
+        ctx: ::grpcio::RpcContext<'_>,
+        req: TransactionHash,
+        sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
+    ) {
+        forward_to_targets!(self.targets, hook_transaction, ctx, req, sink);
+    }
 }

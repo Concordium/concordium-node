@@ -1155,6 +1155,19 @@ impl P2P for RpcServerImpl {
         let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
         ctx.spawn(f);
     }
+
+    fn hook_transaction(
+        &self,
+        ctx: ::grpcio::RpcContext<'_>,
+        req: TransactionHash,
+        sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
+    ) {
+        authenticate!(ctx, req, sink, self.access_token, {
+            successful_json_response!(self, ctx, req, sink, |consensus: &ConsensusContainer| {
+                consensus.hook_transaction(&req.get_transaction_hash())
+            });
+        });
+    }
 }
 
 #[cfg(test)]
