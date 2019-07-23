@@ -382,4 +382,22 @@ impl P2P for P2PServiceForwarder {
     ) {
         forward_to_targets!(self.targets, hook_transaction, ctx, req, sink);
     }
+
+    fn start_baker(
+        &self,
+        ctx: ::grpcio::RpcContext<'_>,
+        req: Empty,
+        sink: ::grpcio::UnarySink<SuccessResponse>,
+    ) {
+        forward_to_targets!(self.targets, start_baker, ctx, req, sink);
+    }
+
+    fn stop_baker(
+        &self,
+        ctx: ::grpcio::RpcContext<'_>,
+        req: Empty,
+        sink: ::grpcio::UnarySink<SuccessResponse>,
+    ) {
+        forward_to_targets!(self.targets, stop_baker, ctx, req, sink);
+    }
 }

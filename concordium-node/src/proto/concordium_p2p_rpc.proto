@@ -204,6 +204,11 @@ service P2P {
   // Submit a local transaction
   rpc SendTransaction(SendTransactionRequest) returns (SuccessResponse) {}
 
+  // Start the baker in the consensus module
+  rpc StartBaker(Empty) returns (SuccessResponse) {}
+  // Stop the baker in the consensus module
+  rpc StopBaker(Empty) returns (SuccessResponse) {}
+
   rpc GetAccountList(BlockHash) returns (SuccessfulJsonPayloadResponse) {}
   rpc GetInstances(BlockHash) returns (SuccessfulJsonPayloadResponse) {}
   rpc GetAccountInfo(GetAddressInfoRequest) returns (SuccessfulJsonPayloadResponse) {}
