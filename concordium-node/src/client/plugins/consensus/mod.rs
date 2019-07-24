@@ -356,8 +356,8 @@ fn process_external_skov_entry(
                     }
                 }
                 PacketType::FullCatchupComplete => {
-                    apply_delayed_broadcasts(node, network_id, consensus, skov)?;
                     skov.end_catchup_round();
+                    apply_delayed_broadcasts(node, network_id, consensus, skov)?;
                     if !consensus.is_baking() {
                         consensus.start_baker();
                     }
