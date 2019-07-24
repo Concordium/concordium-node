@@ -1,4 +1,3 @@
-use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
 use chrono::prelude::{DateTime, Utc};
 use circular_queue::CircularQueue;
 use concordium_common::{indexed_vec::IndexedVec, PacketType};
@@ -8,27 +7,15 @@ use linked_hash_map::LinkedHashMap;
 use nohash_hasher::IntMap;
 use rkv::{Rkv, SingleStore, StoreOptions};
 
-use std::{
-    cmp::Ordering,
-    convert::TryFrom,
-    fmt,
-    io::{Cursor, Read},
-    mem::{self, size_of},
-    rc::Rc,
-};
+use std::{convert::TryFrom, fmt, mem, rc::Rc};
 
-use crate::{
-    block::*,
-    common::{create_serialization_cursor, SerializeToBytes},
-    finalization::*,
-    transaction::*,
-};
+use crate::{block::*, common::SerializeToBytes, finalization::*, transaction::*};
 
 pub type PeerId = u64;
 
 pub mod messaging;
 
-use messaging::{ConsensusMessage, SkovError, SkovResult};
+use messaging::{ConsensusMessage, SkovError, SkovMetadata, SkovResult};
 
 use self::PendingQueueType::*;
 
@@ -494,66 +481,6 @@ impl fmt::Display for SkovStats {
                 "".to_owned()
             },
         )
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SkovMetadata {
-    pub finalized_height: BlockHeight,
-    pub n_pending_blocks: u64,
-    pub state:            SkovState,
-}
-
-impl SkovMetadata {
-    pub fn is_usable(&self) -> bool {
-        self.state == SkovState::Complete
-            && !(self.finalized_height == 0 && self.n_pending_blocks == 0)
-    }
-}
-
-impl PartialOrd for SkovMetadata {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        let result = if self.finalized_height != other.finalized_height {
-            self.finalized_height.cmp(&other.finalized_height)
-        } else {
-            self.n_pending_blocks.cmp(&other.n_pending_blocks)
-        };
-
-        Some(result)
-    }
-}
-
-impl Ord for SkovMetadata {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.partial_cmp(other).unwrap() // infallible
-    }
-}
-
-impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for SkovMetadata {
-    type Source = &'a [u8];
-
-    fn deserialize(bytes: Self::Source) -> Fallible<Self> {
-        let mut cursor = Cursor::new(bytes);
-
-        let finalized_height = NetworkEndian::read_u64(&read_ty!(&mut cursor, BlockHeight));
-        let n_pending_blocks = NetworkEndian::read_u64(&read_ty!(&mut cursor, u64));
-        let state = SkovState::try_from(read_const_sized!(&mut cursor, 1)[0])?;
-
-        Ok(SkovMetadata {
-            finalized_height,
-            n_pending_blocks,
-            state,
-        })
-    }
-
-    fn serialize(&self) -> Box<[u8]> {
-        let mut cursor = create_serialization_cursor(size_of::<BlockHeight>() + 8 + 1);
-
-        let _ = cursor.write_u64::<NetworkEndian>(self.finalized_height);
-        let _ = cursor.write_u64::<NetworkEndian>(self.n_pending_blocks);
-        let _ = cursor.write_u8(self.state as u8);
-
-        cursor.into_inner()
     }
 }
 

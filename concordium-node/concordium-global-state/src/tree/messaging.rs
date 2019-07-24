@@ -1,15 +1,23 @@
-use byteorder::{ByteOrder, NetworkEndian};
+use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
 use concordium_common::{PacketType, SHA256};
+use failure::Fallible;
 
-use std::{fmt, mem, sync::Arc};
+use std::{
+    cmp::Ordering,
+    convert::TryFrom,
+    fmt,
+    io::{Cursor, Read},
+    mem::{self, size_of},
+    sync::Arc,
+};
 
 use crate::{
     block::*,
-    common::{HashBytes, SerializeToBytes},
+    common::{create_serialization_cursor, HashBytes, SerializeToBytes},
     finalization::*,
 };
 
-use super::{PeerId, SkovMetadata};
+use super::{PeerId, SkovState};
 
 /// The type of messages passed between Skov and the consensus layer.
 ///
@@ -213,5 +221,65 @@ impl fmt::Display for SkovError {
         };
 
         write!(f, "error: {}", msg)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SkovMetadata {
+    pub finalized_height: BlockHeight,
+    pub n_pending_blocks: u64,
+    pub state:            SkovState,
+}
+
+impl SkovMetadata {
+    pub fn is_usable(&self) -> bool {
+        self.state == SkovState::Complete
+            && !(self.finalized_height == 0 && self.n_pending_blocks == 0)
+    }
+}
+
+impl PartialOrd for SkovMetadata {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        let result = if self.finalized_height != other.finalized_height {
+            self.finalized_height.cmp(&other.finalized_height)
+        } else {
+            self.n_pending_blocks.cmp(&other.n_pending_blocks)
+        };
+
+        Some(result)
+    }
+}
+
+impl Ord for SkovMetadata {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.partial_cmp(other).unwrap() // infallible
+    }
+}
+
+impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for SkovMetadata {
+    type Source = &'a [u8];
+
+    fn deserialize(bytes: Self::Source) -> Fallible<Self> {
+        let mut cursor = Cursor::new(bytes);
+
+        let finalized_height = NetworkEndian::read_u64(&read_ty!(&mut cursor, BlockHeight));
+        let n_pending_blocks = NetworkEndian::read_u64(&read_ty!(&mut cursor, u64));
+        let state = SkovState::try_from(read_const_sized!(&mut cursor, 1)[0])?;
+
+        Ok(SkovMetadata {
+            finalized_height,
+            n_pending_blocks,
+            state,
+        })
+    }
+
+    fn serialize(&self) -> Box<[u8]> {
+        let mut cursor = create_serialization_cursor(size_of::<BlockHeight>() + 8 + 1);
+
+        let _ = cursor.write_u64::<NetworkEndian>(self.finalized_height);
+        let _ = cursor.write_u64::<NetworkEndian>(self.n_pending_blocks);
+        let _ = cursor.write_u8(self.state as u8);
+
+        cursor.into_inner()
     }
 }

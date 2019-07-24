@@ -25,8 +25,8 @@ use concordium_global_state::{
     finalization::{FinalizationIndex, FinalizationRecord},
     transaction::Transaction,
     tree::{
-        messaging::{ConsensusMessage, DistributionMode, MessageType, SkovResult},
-        Skov, SkovMetadata, SkovState,
+        messaging::{ConsensusMessage, DistributionMode, MessageType, SkovMetadata, SkovResult},
+        Skov, SkovState,
     },
 };
 
