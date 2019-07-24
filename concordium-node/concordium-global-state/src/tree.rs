@@ -407,8 +407,8 @@ impl<'a> Skov<'a> {
     }
 
     pub fn is_tree_valid(&self) -> bool {
-        self.data.block_tree.len() + self.data.tree_candidates.len() > 1 &&
-        self.data.pending_queue_ref(AwaitingParentBlock).is_empty()
+        self.data.block_tree.len() + self.data.tree_candidates.len() > 1
+            && self.data.pending_queue_ref(AwaitingParentBlock).is_empty()
             && self
                 .data
                 .pending_queue_ref(AwaitingLastFinalizedBlock)
@@ -420,9 +420,7 @@ impl<'a> Skov<'a> {
             && self.data.inapplicable_finalization_records.is_empty()
     }
 
-    pub fn state(&self) -> SkovState {
-        self.data.state
-    }
+    pub fn state(&self) -> SkovState { self.data.state }
 
     pub fn delay_broadcast(&mut self, broadcast: ConsensusMessage) {
         self.data.delayed_broadcasts.push(broadcast);
@@ -858,8 +856,8 @@ impl<'a> SkovData<'a> {
         // after a finalization round, the blocks that were not directly finalized, but
         // are a part of the tree, need to be promoted to the tree
         let mut finalized_parent = self.last_finalized.block.pointer().unwrap().to_owned();
-        // FIXME: when we fully deserialize the genesis data again, use its finalization span value
-        // instead of a hardcoded value
+        // FIXME: when we fully deserialize the genesis data again, use its finalization
+        // span value instead of a hardcoded value
         let mut indirectly_finalized_blocks = Vec::with_capacity(10);
         while let Some(ptr) = self.tree_candidates.remove(&finalized_parent) {
             let parent_hash = ptr.block.pointer().unwrap().to_owned(); // safe, always available
@@ -1054,9 +1052,7 @@ pub struct SkovMetadata {
 }
 
 impl SkovMetadata {
-    pub fn is_empty(&self) -> bool {
-        self.finalized_height == 0 && self.n_pending_blocks == 0
-    }
+    pub fn is_empty(&self) -> bool { self.finalized_height == 0 && self.n_pending_blocks == 0 }
 }
 
 impl PartialOrd for SkovMetadata {

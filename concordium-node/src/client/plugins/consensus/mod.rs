@@ -307,12 +307,10 @@ fn process_external_skov_entry(
                 false,
             )
         }
-        PacketType::FullCatchupComplete => {
-            (
-                SkovResult::SuccessfulEntry(PacketType::FullCatchupComplete),
-                false,
-            )
-        }
+        PacketType::FullCatchupComplete => (
+            SkovResult::SuccessfulEntry(PacketType::FullCatchupComplete),
+            false,
+        ),
         _ => (SkovResult::IgnoredEntry, true), // will be expanded later on
     };
 
@@ -538,28 +536,13 @@ fn send_full_catch_up_response(node: &P2PNode, skov: &Skov, target: P2PNodeId, n
                 .map(|ptr| (SerializeToBytes::serialize(&**ptr), PacketType::Block)),
         )
     {
-        send_consensus_msg_to_net(
-            &node,
-            Some(target),
-            network,
-            packet_type,
-            None,
-            &blob,
-        );
+        send_consensus_msg_to_net(&node, Some(target), network, packet_type, None, &blob);
     }
 
     let mut blob = Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize);
     let packet_type = PacketType::FullCatchupComplete;
-    blob
-        .write_u16::<NetworkEndian>(packet_type as u16)
+    blob.write_u16::<NetworkEndian>(packet_type as u16)
         .expect("Can't write a packet payload to buffer");
 
-    send_consensus_msg_to_net(
-        &node,
-        Some(target),
-        network,
-        packet_type,
-        None,
-        &blob,
-    );
+    send_consensus_msg_to_net(&node, Some(target), network, packet_type, None, &blob);
 }

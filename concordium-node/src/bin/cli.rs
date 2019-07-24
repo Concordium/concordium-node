@@ -508,22 +508,20 @@ fn provide_global_state_metadata(
     peer: P2PPeer,
     skov_sender: &RelayOrStopSender<ConsensusMessage>,
 ) {
-    if peer.peer_type() == PeerType::Node {
-        if networks.iter().next().is_some() {
-            let packet_type = PacketType::GlobalStateMetadataRequest;
-            let mut payload = vec![0u8; PAYLOAD_TYPE_LENGTH as usize];
-            payload
-                .write_u16::<NetworkEndian>(packet_type as u16)
-                .expect("Can't write a packet payload to buffer");
+    if peer.peer_type() == PeerType::Node && networks.iter().next().is_some() {
+        let packet_type = PacketType::GlobalStateMetadataRequest;
+        let mut payload = vec![0u8; PAYLOAD_TYPE_LENGTH as usize];
+        payload
+            .write_u16::<NetworkEndian>(packet_type as u16)
+            .expect("Can't write a packet payload to buffer");
 
-            let request = RelayOrStopEnvelope::Relay(ConsensusMessage::new(
-                MessageType::Inbound(peer.id().0, DistributionMode::Direct),
-                packet_type,
-                Arc::from(payload),
-            ));
+        let request = RelayOrStopEnvelope::Relay(ConsensusMessage::new(
+            MessageType::Inbound(peer.id().0, DistributionMode::Direct),
+            packet_type,
+            Arc::from(payload),
+        ));
 
-            send_or_die!(skov_sender, request);
-        }
+        send_or_die!(skov_sender, request);
     }
 }
 

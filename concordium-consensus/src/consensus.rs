@@ -110,11 +110,11 @@ impl ConsensusContainer {
         let consensus_ptr = get_consensus_ptr(genesis_data.clone(), private_data);
 
         Self {
-            baker_id:       baker_id,
-            is_baking:      Arc::new(AtomicBool::new(false)),
-            consensus:      Arc::new(AtomicPtr::new(consensus_ptr)),
-            genesis:        Arc::from(genesis_data),
-            consensus_type: consensus_type,
+            baker_id,
+            is_baking: Arc::new(AtomicBool::new(false)),
+            consensus: Arc::new(AtomicPtr::new(consensus_ptr)),
+            genesis: Arc::from(genesis_data),
+            consensus_type,
         }
     }
 
