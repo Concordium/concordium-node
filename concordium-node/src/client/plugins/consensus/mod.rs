@@ -176,7 +176,7 @@ pub fn handle_global_state_request(
 fn process_internal_skov_entry(
     node: &P2PNode,
     network_id: NetworkId,
-    consensus: &mut consensus::ConsensusContainer,
+    _consensus: &mut consensus::ConsensusContainer,
     request: ConsensusMessage,
     skov: &mut Skov,
 ) -> Fallible<()> {
@@ -192,13 +192,14 @@ fn process_internal_skov_entry(
         PacketType::CatchupBlockByHash
         | PacketType::CatchupFinalizationRecordByHash
         | PacketType::CatchupFinalizationRecordByIndex => {
-            let skov_result = if !skov.is_catching_up() {
-                consensus.stop_baker();
-                skov.start_catchup_round(SkovState::PartiallyCatchingUp)
-            } else {
-                SkovResult::IgnoredEntry
-            };
-            (request.variant.to_string(), skov_result)
+            // let skov_result = if !skov.is_catching_up() {
+            // consensus.stop_baker();
+            // skov.start_catchup_round(SkovState::PartiallyCatchingUp)
+            // } else {
+            // SkovResult::IgnoredEntry
+            // };
+            // (request.variant.to_string(), skov_result)
+            return Ok(());
         }
         _ => (request.variant.to_string(), SkovResult::IgnoredEntry),
     };
