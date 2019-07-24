@@ -300,7 +300,9 @@ fn process_external_skov_entry(
         }
         PacketType::GlobalStateMetadataRequest => (skov.get_metadata(), false),
         PacketType::FullCatchupRequest => {
-            send_full_catch_up_response(node, &skov, source, network_id);
+            // FIXME: when we fully deserialize the genesis data again, use its finalization
+            // span value instead of a hardcoded value
+            send_full_catch_up_response(node, &skov, source, network_id, 10);
 
             (
                 SkovResult::SuccessfulEntry(PacketType::FullCatchupRequest),
@@ -517,21 +519,27 @@ fn send_catch_up_request(node: &P2PNode, target: P2PNodeId, network: NetworkId) 
     }
 }
 
-fn send_full_catch_up_response(node: &P2PNode, skov: &Skov, target: P2PNodeId, network: NetworkId) {
+fn send_full_catch_up_response(
+    node: &P2PNode,
+    skov: &Skov,
+    target: P2PNodeId,
+    network: NetworkId,
+    finalization_span: u8,
+) {
+    let mut i = 0;
+
+    let mut finalization_records = skov.data
+        .finalization_list
+        .into_iter()
+        .skip(1) // skip the genesis finalization record
+        .filter_map(|rec| rec.as_ref());
+
     for (blob, packet_type) in skov
         .data
         .block_tree
         .values()
-        .skip(1) // skip the genesis
+        .skip(1) // skip the genesis block
         .map(|ptr| (SerializeToBytes::serialize(&**ptr), PacketType::Block))
-        .chain(
-            skov.data
-                .finalization_list
-                .into_iter()
-                .skip(1) // skip the genesis
-                .filter_map(|rec| rec.as_ref())
-                .map(|rec| (SerializeToBytes::serialize(rec), PacketType::FinalizationRecord)),
-        )
         .chain(
             skov.data
                 .tree_candidates
@@ -539,7 +547,21 @@ fn send_full_catch_up_response(node: &P2PNode, skov: &Skov, target: P2PNodeId, n
                 .map(|ptr| (SerializeToBytes::serialize(&**ptr), PacketType::Block)),
         )
     {
+        if i == finalization_span {
+            if let Some(rec) = finalization_records.next() {
+                send_consensus_msg_to_net(
+                    &node,
+                    Some(target),
+                    network,
+                    PacketType::FinalizationRecord,
+                    None,
+                    &SerializeToBytes::serialize(rec),
+                );
+            }
+            i = 0;
+        }
         send_consensus_msg_to_net(&node, Some(target), network, packet_type, None, &blob);
+        i += 1;
     }
 
     let mut blob = Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize);
