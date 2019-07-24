@@ -180,9 +180,9 @@ benchmarks:
     main:                ConsensusBench.hs
     source-dirs:         benchmark
     ghc-options:
-    #- -threaded
+    - -threaded
     - -rtsopts
-    #- -with-rtsopts=-N
+    - -with-rtsopts=-N
     - -Wall
     - -Wcompat
     - -fno-ignore-asserts
