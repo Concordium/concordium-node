@@ -11,6 +11,7 @@ import Concordium.Types
 
 import qualified Data.FixedByteString as FBS
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Short as BSS
 
 schemes :: [SchemeId]
 schemes = [CL,Ed25519]
@@ -27,7 +28,7 @@ genAccountAddress = do
 genTransactionHeader :: Gen TransactionHeader
 genTransactionHeader = do
   thScheme <- genSchemeId
-  thSenderKey <- VerifyKey . BS.pack <$> (vector 32)
+  thSenderKey <- VerifyKey . BSS.pack <$> (vector 32)
   thNonce <- Nonce <$> arbitrary
   thGasAmount <- Energy <$> arbitrary
   thFinalizedPointer <- Hash . FBS.pack <$> vector 32
@@ -38,7 +39,7 @@ genTransaction = do
   trHeader <- genTransactionHeader
   n <- getSize
   l <- choose (1, n)
-  trPayload <- EncodedPayload . BS.pack <$>  (vector l)
+  trPayload <- EncodedPayload . BSS.pack <$>  (vector l)
   s <- choose (1, 500)
-  trSignature <- TransactionSignature . Signature . BS.pack <$> vector s
+  trSignature <- TransactionSignature . Signature . BSS.pack <$> vector s
   return $! makeTransaction trSignature trHeader trPayload

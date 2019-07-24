@@ -15,6 +15,7 @@ import Concordium.Crypto.SHA256(Hash(..))
 import Concordium.Crypto.SignatureScheme(Signature(..))
 import Data.FixedByteString as FBS
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Short as BSS
 
 import Concordium.Types
 import Concordium.GlobalState.Finalization
@@ -37,7 +38,7 @@ genFinalizationRecord = do
     replicateM l $ do
       party <- arbitrary
       sl <- choose(40,80) -- signature really is 64 bytes, but serialization should work with any size (at the moment)
-      bs <- BS.pack <$> vector sl
+      bs <- BSS.pack <$> vector sl
       return (party, Signature bs)
   finalizationDelay <- BlockHeight <$> arbitrary
   return FinalizationRecord{..}
