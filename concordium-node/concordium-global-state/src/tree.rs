@@ -283,9 +283,9 @@ macro_rules! timed {
 macro_rules! add_entry {
     ($(#[$doc:meta])*$entry_foo:ident, $entry_type:ty, $addition_stat:ident, $timestamp_stat:ident) => {
         $(#[$doc])*
-        pub fn $entry_foo(&mut self, entry: $entry_type, refreshing: bool) -> SkovResult {
+        pub fn $entry_foo(&mut self, entry: $entry_type) -> SkovResult {
             let timestamp_entry = Utc::now();
-            let (result, addition_duration) = timed!(self.data.$entry_foo(entry, refreshing));
+            let (result, addition_duration) = timed!(self.data.$entry_foo(entry));
 
             self.stats.$addition_stat.push(addition_duration as u64);
 
@@ -388,8 +388,8 @@ impl<'a> Skov<'a> {
 
     /// Indicate that a catch-up round has commenced and that it must conclude
     /// before any new global state input is accepted.
-    pub fn start_catchup_round(&mut self) -> SkovResult {
-        self.data.state = SkovState::PartiallyCatchingUp;
+    pub fn start_catchup_round(&mut self, kind: SkovState) -> SkovResult {
+        self.data.state = kind;
         info!("A catch-up round has begun");
         SkovResult::Housekeeping
     }
@@ -524,7 +524,7 @@ pub struct SkovData<'a> {
     /// incoming broacasts rejected during a catch-up round
     delayed_broadcasts: Vec<ConsensusMessage>,
     /// the current processing state (catching up etc.)
-    state: SkovState,
+    pub state: SkovState,
 }
 
 impl<'a> SkovData<'a> {
@@ -600,7 +600,7 @@ impl<'a> SkovData<'a> {
             .expect("Can't store a block!");
     }
 
-    fn add_block(&mut self, pending_block: PendingBlock, refreshing: bool) -> SkovResult {
+    fn add_block(&mut self, pending_block: PendingBlock) -> SkovResult {
         // verify that the pending block's parent block is among tree candidates
         // or already in the tree
         let parent_hash = pending_block.block.pointer().unwrap(); // safe
@@ -679,9 +679,7 @@ impl<'a> SkovData<'a> {
 
         // the block is now in the tree candidate queue; run housekeeping that
         // can possibly promote some other queued pending blocks
-        if !refreshing {
-            self.refresh_finalization_record_queue(&housekeeping_hash);
-        }
+        self.refresh_finalization_record_queue(&housekeeping_hash);
         self.refresh_pending_queue(AwaitingParentBlock, &housekeeping_hash);
         self.refresh_pending_queue(AwaitingLastFinalizedBlock, &housekeeping_hash);
 
@@ -742,7 +740,7 @@ impl<'a> SkovData<'a> {
         self.get_last_finalized_height() + 1
     }
 
-    fn add_finalization(&mut self, record: FinalizationRecord, _refreshing: bool) -> SkovResult {
+    fn add_finalization(&mut self, record: FinalizationRecord) -> SkovResult {
         let last_finalized_idx = self.get_last_finalized_height(); // safe, always there
 
         if record.block_pointer == self.last_finalized.hash {
@@ -835,7 +833,7 @@ impl<'a> SkovData<'a> {
             for pending_block in affected_blocks {
                 debug!("Reattempted to add block {:?} to the tree", target_hash);
                 // silence errors here, as it is a housekeeping operation
-                let _ = self.add_block(pending_block, true);
+                let _ = self.add_block(pending_block);
             }
         }
     }
@@ -848,7 +846,7 @@ impl<'a> SkovData<'a> {
                 target_hash
             );
             // silence errors here, as it is a housekeeping operation
-            let _ = self.add_finalization(applicable_record, true);
+            let _ = self.add_finalization(applicable_record);
         }
     }
 
