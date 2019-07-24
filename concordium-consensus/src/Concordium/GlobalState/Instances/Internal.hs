@@ -87,7 +87,7 @@ data InstanceTable
     deriving (Show)
 
 computeBranchHash :: IT -> IT -> H.Hash
-computeBranchHash t1 t2 = H.hash $ runPut $ put (getHash t1 :: H.Hash) <> put (getHash t2 :: H.Hash)
+computeBranchHash t1 t2 = H.hashShort $! (H.hashToShortByteString (getHash t1 :: H.Hash) <> H.hashToShortByteString (getHash t2 :: H.Hash))
 
 -- |Internal tree nodes of an 'InstanceTable'.
 -- Branches satisfy the following invariant properties:
