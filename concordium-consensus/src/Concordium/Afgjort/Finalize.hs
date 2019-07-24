@@ -29,8 +29,8 @@ module Concordium.Afgjort.Finalize (
 
 import qualified Data.Vector as Vec
 import Data.Vector(Vector)
-import qualified Data.Map as Map
-import Data.Map(Map)
+import qualified Data.Map.Strict as Map
+import Data.Map.Strict(Map)
 import qualified Data.Set as Set
 import Data.Set(Set)
 import Data.Word
@@ -62,24 +62,24 @@ members e = lens (Set.member e) upd
         upd s False = Set.delete e s
 
 data FinalizationInstance = FinalizationInstance {
-    finMySignKey :: Sig.KeyPair,
-    finMyVRFKey :: VRF.KeyPair
+    finMySignKey :: !Sig.KeyPair,
+    finMyVRFKey :: !VRF.KeyPair
 }
 
 data PartyInfo = PartyInfo {
-    partyIndex :: Party,
-    partyWeight :: Int,
-    partySignKey :: Sig.VerifyKey,
-    partyVRFKey :: VRF.PublicKey
+    partyIndex :: !Party,
+    partyWeight :: !Int,
+    partySignKey :: !Sig.VerifyKey,
+    partyVRFKey :: !VRF.PublicKey
 } deriving (Eq, Ord)
 
 instance Show PartyInfo where
     show = show . partyIndex
 
 data FinalizationCommittee = FinalizationCommittee {
-    parties :: Vector PartyInfo,
-    totalWeight :: Int,
-    corruptWeight :: Int
+    parties :: !(Vector PartyInfo),
+    totalWeight :: !Int,
+    corruptWeight :: !Int
 }
 
 makeFinalizationCommittee :: FinalizationParameters -> FinalizationCommittee
@@ -91,18 +91,18 @@ makeFinalizationCommittee (FinalizationParameters {..}) = FinalizationCommittee 
         corruptWeight = (totalWeight - 1) `div` 3
 
 data FinalizationRound = FinalizationRound {
-    roundInput :: Maybe BlockHash,
-    roundDelta :: BlockHeight,
-    roundMe :: Party,
-    roundWMVBA :: WMVBAState Sig.Signature
+    roundInput :: !(Maybe BlockHash),
+    roundDelta :: !BlockHeight,
+    roundMe :: !Party,
+    roundWMVBA :: !(WMVBAState Sig.Signature)
 }
 
 instance Show FinalizationRound where
     show FinalizationRound{..} = "roundInput: " ++ take 11 (show roundInput) ++ " roundDelta: " ++ show roundDelta
 
 data FinalizationSessionId = FinalizationSessionId {
-    fsidGenesis :: BlockHash,
-    fsidIncarnation :: Word64
+    fsidGenesis :: !BlockHash,
+    fsidIncarnation :: !Word64
 } deriving (Eq, Ord, Show)
 
 instance S.Serialize FinalizationSessionId where
@@ -113,10 +113,10 @@ instance S.Serialize FinalizationSessionId where
         return FinalizationSessionId{..}
 
 data FinalizationMessageHeader = FinalizationMessageHeader {
-    msgSessionId :: FinalizationSessionId,
-    msgFinalizationIndex :: FinalizationIndex,
-    msgDelta :: BlockHeight,
-    msgSenderIndex :: Party
+    msgSessionId :: !FinalizationSessionId,
+    msgFinalizationIndex :: !FinalizationIndex,
+    msgDelta :: !BlockHeight,
+    msgSenderIndex :: !Party
 } deriving (Eq, Ord)
 
 instance S.Serialize FinalizationMessageHeader where
@@ -133,9 +133,9 @@ instance S.Serialize FinalizationMessageHeader where
         return FinalizationMessageHeader{..}
 
 data FinalizationMessage = FinalizationMessage {
-    msgHeader :: FinalizationMessageHeader,
-    msgBody :: WMVBAMessage,
-    msgSignature :: Sig.Signature
+    msgHeader :: !FinalizationMessageHeader,
+    msgBody :: !WMVBAMessage,
+    msgSignature :: !Sig.Signature
 }
 
 instance Show FinalizationMessage where
@@ -180,16 +180,19 @@ ancestorAtHeight h bp
     | h < bpHeight bp = ancestorAtHeight h (bpParent bp)
     | otherwise = error "ancestorAtHeight: block is below required height"
 
-type PendingMessageMap = Map FinalizationIndex (Map BlockHeight (Set (Party, WMVBAMessage, Sig.Signature)))
+data PendingMessage = PendingMessage !Party !WMVBAMessage !Sig.Signature
+    deriving (Eq, Ord)
+
+type PendingMessageMap = Map FinalizationIndex (Map BlockHeight (Set PendingMessage))
 
 data FinalizationState = FinalizationState {
-    _finsSessionId :: FinalizationSessionId,
-    _finsIndex :: FinalizationIndex,
-    _finsHeight :: BlockHeight,
-    _finsCommittee :: FinalizationCommittee,
-    _finsMinSkip :: BlockHeight,
-    _finsPendingMessages :: PendingMessageMap,
-    _finsCurrentRound :: Maybe FinalizationRound
+    _finsSessionId :: !FinalizationSessionId,
+    _finsIndex :: !FinalizationIndex,
+    _finsHeight :: !BlockHeight,
+    _finsCommittee :: !FinalizationCommittee,
+    _finsMinSkip :: !BlockHeight,
+    _finsPendingMessages :: !PendingMessageMap,
+    _finsCurrentRound :: !(Maybe FinalizationRound)
 }
 makeLenses ''FinalizationState
 
@@ -240,8 +243,8 @@ initialFinalizationState FinalizationInstance{..} genHash finParams = Finalizati
         com = makeFinalizationCommittee finParams
 
 data FinalizationOutputEvent
-    = BroadcastFinalizationMessage FinalizationMessage
-    | BroadcastFinalizationRecord FinalizationRecord
+    = BroadcastFinalizationMessage !FinalizationMessage
+    | BroadcastFinalizationRecord !FinalizationRecord
 
 class (SkovMonad m, MonadState s m, FinalizationStateLenses s, MonadIO m) => FinalizationMonad s m where
     broadcastFinalizationMessage :: FinalizationMessage -> m ()
@@ -295,7 +298,7 @@ newRound newDelta me = do
                 msgDelta = newDelta,
                 msgSenderIndex = src
             }
-            toFinMsg (src, msg, sig) = FinalizationMessage (msgHdr src) msg sig
+            toFinMsg (PendingMessage src msg sig) = FinalizationMessage (msgHdr src) msg sig
         -- Filter the messages that have valid signatures and reference legitimate parties
         pmsgs <- finPendingMessages . at finIx . non Map.empty . at newDelta . non Set.empty <%= Set.filter (checkMessage committee . toFinMsg)
         -- Justify the blocks
@@ -303,7 +306,7 @@ newRound newDelta me = do
             logEvent Afgjort LLTrace $ "Justified input at " ++ show finIx ++ ": " ++ show i
             liftWMVBA $ justifyWMVBAInput $ bpHash i
         -- Receive the pending messages
-        forM_ pmsgs $ \smsg@(src, msg, sig) -> do
+        forM_ pmsgs $ \smsg@(PendingMessage src msg sig) -> do
             logEvent Afgjort LLDebug $ "Handling message: " ++ show (toFinMsg smsg)
             liftWMVBA $ receiveWMVBAMessage src sig msg
         tryNominateBlock
@@ -389,7 +392,7 @@ receiveFinalizationMessage msg@FinalizationMessage{msgHeader=FinalizationMessage
                 LT -> return ResultStale -- message is out of date
                 GT -> do
                     -- Save the message for a later finalization index
-                    isDuplicate <- finPendingMessages . at msgFinalizationIndex . non Map.empty . at msgDelta . non Set.empty . members (msgSenderIndex, msgBody, msgSignature) <<.= True
+                    isDuplicate <- finPendingMessages . at msgFinalizationIndex . non Map.empty . at msgDelta . non Set.empty . members (PendingMessage msgSenderIndex msgBody msgSignature) <<.= True
                     if isDuplicate then
                         return ResultDuplicate
                     else do
@@ -402,7 +405,7 @@ receiveFinalizationMessage msg@FinalizationMessage{msgHeader=FinalizationMessage
                 EQ -> -- handle the message now, since it's the current round
                     if checkMessage _finsCommittee msg then do
                         -- Save the message
-                        isDuplicate <- finPendingMessages . at msgFinalizationIndex . non Map.empty . at msgDelta . non Set.empty . members (msgSenderIndex, msgBody, msgSignature) <<.= True
+                        isDuplicate <- finPendingMessages . at msgFinalizationIndex . non Map.empty . at msgDelta . non Set.empty . members (PendingMessage msgSenderIndex msgBody msgSignature) <<.= True
                         if isDuplicate then
                             return ResultDuplicate
                         else do
@@ -479,7 +482,7 @@ verifyFinalProof sid com@FinalizationCommittee{..} FinalizationRecord{..} = sum 
             then getPartyWeight com pid
             else 0
 
-data FinalizationPoint = FinalizationPoint FinalizationSessionId FinalizationIndex BlockHeight
+data FinalizationPoint = FinalizationPoint !FinalizationSessionId !FinalizationIndex !BlockHeight
   deriving(Show)
 
 instance S.Serialize FinalizationPoint where
@@ -505,7 +508,7 @@ doGetPendingFinalizationMessages mySessionId myPendingMessages (FinalizationPoin
     where
         eachIndex ind m l = Map.foldrWithKey (eachDelta ind) l m
         eachDelta ind delta msgs l = map (eachMsg ind delta) (Set.toList msgs) ++ l
-        eachMsg ind delta (senderIndex, msgBody, msgSignature) = FinalizationMessage{..}
+        eachMsg ind delta (PendingMessage senderIndex msgBody msgSignature) = FinalizationMessage{..}
             where
                 msgHeader = FinalizationMessageHeader {
                     msgSessionId = mySessionId,
@@ -525,9 +528,9 @@ instance (FinalizationStateLenses s) => FinalizationQuery (FinalizationStateQuer
 deriving via (FinalizationStateQuery FinalizationState) instance FinalizationQuery FinalizationState
 
 data PassiveFinalizationState = PassiveFinalizationState {
-    _pfinsSessionId :: FinalizationSessionId,
-    _pfinsIndex :: FinalizationIndex,
-    _pfinsPendingMessages :: Map FinalizationIndex (Map BlockHeight (Set (Party, WMVBAMessage, Sig.Signature)))
+    _pfinsSessionId :: !FinalizationSessionId,
+    _pfinsIndex :: !FinalizationIndex,
+    _pfinsPendingMessages :: !PendingMessageMap
 }
 makeLenses ''PassiveFinalizationState
 
@@ -567,7 +570,7 @@ passiveReceiveFinalizationMessage FinalizationMessage{msgHeader=FinalizationMess
                 return ResultStale
             else do
                 -- Save the message
-                isDuplicate <- pfinPendingMessages . at msgFinalizationIndex . non Map.empty . at msgDelta . non Set.empty . members (msgSenderIndex, msgBody, msgSignature) <<.= True
+                isDuplicate <- pfinPendingMessages . at msgFinalizationIndex . non Map.empty . at msgDelta . non Set.empty . members (PendingMessage msgSenderIndex msgBody msgSignature) <<.= True
                 if isDuplicate then
                     return ResultDuplicate
                 else

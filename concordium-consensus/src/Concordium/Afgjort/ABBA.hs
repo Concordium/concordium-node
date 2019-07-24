@@ -224,8 +224,8 @@ handleCoreSet phase cs = do
             error $ "handleCoreSet on phase " ++ show phase ++ " but current phase is " ++ show cp ++ "\n" ++ show st
         else do
             let
-                csTop = fromMaybe Set.empty (coreTop cs)
-                csBot = fromMaybe Set.empty (coreBot cs)
+                csTop = nomTop cs
+                csBot = nomBot cs
                 csRes p = if p `Set.member` csTop then Just True else
                             if p `Set.member` csBot then Just False else Nothing
                 topWeight = sum $ partyWeight <$> Set.toList csTop

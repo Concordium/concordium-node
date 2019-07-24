@@ -20,7 +20,7 @@ module Concordium.Afgjort.WMVBA (
 
 import Lens.Micro.Platform
 import Control.Monad.State.Class
-import Control.Monad.RWS
+import Control.Monad.RWS.Strict
 import qualified Data.Map as Map
 import Data.Map (Map)
 import qualified Data.ByteString as BS
@@ -36,9 +36,9 @@ import Concordium.Afgjort.ABBA
 import Concordium.Afgjort.CSS.NominationSet
 
 data WMVBAMessage
-    = WMVBAFreezeMessage FreezeMessage
-    | WMVBAABBAMessage ABBAMessage
-    | WMVBAWitnessCreatorMessage Val
+    = WMVBAFreezeMessage !FreezeMessage
+    | WMVBAABBAMessage !ABBAMessage
+    | WMVBAWitnessCreatorMessage !Val
     deriving (Eq, Ord)
 
 messageValues :: WMVBAMessage -> [Val]

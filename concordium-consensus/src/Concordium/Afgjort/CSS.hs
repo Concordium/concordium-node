@@ -2,7 +2,7 @@
 -- |Core Set Selection algorithm
 module Concordium.Afgjort.CSS(
     CSSMessage(..),
-    CoreSet(..),
+    CoreSet,
     CSSState(..),
     initialCSSState,
     CSSMonad(..),
@@ -46,26 +46,23 @@ import Concordium.Afgjort.Types
 import Concordium.Afgjort.CSS.NominationSet
 
 data CSSMessage
-    = Input Choice
-    | Seen NominationSet
-    | DoneReporting NominationSet
+    = Input !Choice
+    | Seen !NominationSet
+    | DoneReporting !NominationSet
     deriving (Eq, Ord, Show)
 
 data CSSInstance = CSSInstance {
     -- |The total weight of all parties
-    totalWeight :: Int,
+    totalWeight :: !Int,
     -- |The (maximum) weight of all corrupt parties (should be less than @totalWeight/3@).
-    corruptWeight :: Int,
+    corruptWeight :: !Int,
     -- |The weight of each party
     partyWeight :: Party -> Int,
     -- |The maximal party
-    maxParty :: Party
+    maxParty :: !Party
 }
 
-data CoreSet = CoreSet {
-    coreTop :: Maybe (Set Party),
-    coreBot :: Maybe (Set Party)
-} deriving (Show)
+type CoreSet = NominationSet
 
 -- | Invariant:
 --
@@ -284,9 +281,10 @@ handleDoneReporting party [] = do
         when (newJDRW >= totalWeight - corruptWeight) $ do
             css@CSSState{..} <- get
             when (isNothing _core) $ do
-                let theCore = CoreSet {
-                    coreTop = if _topJustified then Just _inputTop else Nothing,
-                    coreBot = if _botJustified then Just _inputBot else Nothing
+                let theCore = NominationSet {
+                    nomMax = maxParty,
+                    nomTop = if _topJustified then _inputTop else Set.empty,
+                    nomBot = if _botJustified then _inputBot else Set.empty
                 }
                 put (css{_core = Just theCore})
                 selectCoreSet theCore

@@ -24,7 +24,7 @@ invariantCSSState :: Int -> Int -> (Party -> Int) -> CSSState -> Either String (
 invariantCSSState totalWeight corruptWeight partyWeight s = do
         checkBinary (==) computedManySawWeight (s ^. manySawWeight) "==" "computed manySaw weight" "given manySaw weight"
         when (s ^. report) $ do
-            let iSawSet = (fromMaybe Set.empty $ nomTop $ s ^. iSaw) `Set.union` (fromMaybe Set.empty $ nomBot $ s ^. iSaw)
+            let iSawSet = (nomTop $ s ^. iSaw) `Set.union` (nomBot $ s ^. iSaw)
             when (s ^. topJustified) $ checkBinary Set.isSubsetOf (s ^. inputTop) iSawSet "subsumed by" "[justified] top inputs" "iSaw"
             when (s ^. botJustified) $ checkBinary Set.isSubsetOf (s ^. inputBot) iSawSet "subsumed by" "[justified] bottom inputs" "iSaw"
         forM_ (Map.toList $ s ^. sawTop) $ \(src, (tot, m)) -> checkBinary (==) (sumPartyWeights m) tot "==" ("computed weight of parties seeing (" ++ show src ++ ", top)") "given weight"
@@ -80,7 +80,7 @@ selectFromSeq s = select <$> choose (0, length s - 1)
         select n = (Seq.index s n, Seq.deleteAt n s)
 
 coreIntersection :: CoreSet -> CoreSet -> CoreSet
-coreIntersection c1 c2 = CoreSet (liftM2 Set.intersection (coreTop c1) (coreTop c2)) (liftM2 Set.intersection (coreBot c1) (coreBot c2))
+coreIntersection c1 c2 = NominationSet (min (nomMax c1) (nomMax c2)) (Set.intersection (nomTop c1) (nomTop c2)) (Set.intersection (nomBot c1) (nomBot c2))
 
 coreIntersections :: [CoreSet] -> CoreSet
 coreIntersections [c] = c
@@ -88,10 +88,7 @@ coreIntersections (c:cs) = coreIntersection c (coreIntersections cs)
 coreIntersections [] = undefined
 
 coreSize :: (Party -> Int) -> CoreSet -> Int
-coreSize _ (CoreSet Nothing Nothing) = 0
-coreSize partyWeight (CoreSet (Just c) Nothing) = sum (partyWeight <$> Set.toList c)
-coreSize partyWeight (CoreSet Nothing (Just c)) = sum (partyWeight <$> Set.toList c)
-coreSize partyWeight (CoreSet (Just c1) (Just c2)) = sum (partyWeight <$> Set.toList (Set.union c1 c2))
+coreSize partyWeight (NominationSet _ c1 c2) = sum (partyWeight <$> Set.toList (Set.union c1 c2))
 
 coresCheck :: Int -> Int -> Vec.Vector (First CoreSet) -> Property
 coresCheck allparties corruptWeight cores = (counterexample "Not all core sets found" $ all (isJust . getFirst) cores)
@@ -167,8 +164,8 @@ multiCSSTestWithSilentCorrupt allparties = do
         iCores = Vec.replicate nparties (First Nothing)
 
 singletonNominationSet :: Party -> Choice -> NominationSet
-singletonNominationSet p True = NominationSet p (Just $ Set.singleton p) Nothing
-singletonNominationSet p False = NominationSet p Nothing (Just $ Set.singleton p)
+singletonNominationSet p True = NominationSet p (Set.singleton p) Set.empty
+singletonNominationSet p False = NominationSet p Set.empty (Set.singleton p)
 
 multiCSSTestWithActiveCorrupt :: Int -> Gen Property
 multiCSSTestWithActiveCorrupt allparties = do

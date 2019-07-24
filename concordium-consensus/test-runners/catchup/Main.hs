@@ -205,7 +205,7 @@ main = do
         cin' <- newChan
         connectedRef <- newIORef True
         _ <- forkIO $ relayIn cin' cin out connectedRef
-        _ <- forkIO $ sendTransactions cin' trans
+        -- _ <- forkIO $ sendTransactions cin' trans
         return (cin', cout, out, connectedRef, logM)) (zip [0::Int ..] bis)
     monitorChan <- newChan
     forM_ (removeEach chans) $ \((cin, cout, stateRef, connectedRef, logM), cs) -> do

@@ -14,12 +14,12 @@ module Concordium.Afgjort.Freeze(
     receiveFreezeMessage
 ) where
 
-import qualified Data.Map as Map
-import Data.Map(Map)
+import qualified Data.Map.Strict as Map
+import Data.Map.Strict(Map)
 import qualified Data.Set as Set
 import Data.Set(Set)
 import Control.Monad.State.Class
-import Control.Monad.RWS
+import Control.Monad.RWS.Strict
 import Lens.Micro.Platform
 
 import Concordium.Afgjort.Types

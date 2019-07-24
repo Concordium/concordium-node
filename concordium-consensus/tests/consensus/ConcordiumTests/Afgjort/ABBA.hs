@@ -206,8 +206,8 @@ multiWithCorrupt active corrupt = property $ do
         return $ multiWithCorruptKeys keys active corrupt
 
 singletonNominationSet :: Party -> Choice -> NominationSet
-singletonNominationSet p True = NominationSet p (Just $ Set.singleton p) Nothing
-singletonNominationSet p False = NominationSet p Nothing (Just $ Set.singleton p)
+singletonNominationSet p True = NominationSet p (Set.singleton p) Set.empty
+singletonNominationSet p False = NominationSet p Set.empty (Set.singleton p)
 
 multiWithCorruptKeys :: Vec.Vector VRF.KeyPair -> Int -> Int -> Property
 multiWithCorruptKeys keys active corrupt = monadicIO $ do

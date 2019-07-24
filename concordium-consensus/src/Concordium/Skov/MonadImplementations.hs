@@ -4,10 +4,10 @@
 module Concordium.Skov.MonadImplementations where
 
 import Control.Monad
-import Control.Monad.Trans.State hiding (gets)
+import Control.Monad.Trans.State.Strict hiding (gets)
 import Control.Monad.State.Class
-import Control.Monad.State
-import Control.Monad.RWS
+import Control.Monad.State.Strict
+import Control.Monad.RWS.Strict
 import Lens.Micro.Platform
 
 import Concordium.GlobalState.BlockState
@@ -99,8 +99,8 @@ evalSkovQueryM (SkovQueryM a) st = evalStateT a st
 -- |Skov state with passive finalizion.
 -- This keeps finalization messages, but does not process them.
 data SkovPassiveState = SkovPassiveState {
-    _spsSkov :: Basic.SkovData,
-    _spsFinalization :: PassiveFinalizationState
+    _spsSkov :: !Basic.SkovData,
+    _spsFinalization :: !PassiveFinalizationState
 }
 makeLenses ''SkovPassiveState
 
@@ -140,8 +140,8 @@ runSkovPassiveM (SkovPassiveM a) s = runRWST a () s
 
 -- |Skov state with active finalization.
 data SkovActiveState = SkovActiveState {
-    _sasSkov :: Basic.SkovData,
-    _sasFinalization :: FinalizationState
+    _sasSkov :: !Basic.SkovData,
+    _sasFinalization :: !FinalizationState
 }
 makeLenses ''SkovActiveState
 
@@ -182,9 +182,9 @@ runSkovActiveM (SkovActiveM a) fi fs = runRWST a fi fs
 
 -- |Skov state with buffered finalization.
 data SkovBufferedState = SkovBufferedState {
-    _sbsSkov :: Basic.SkovData,
-    _sbsFinalization :: FinalizationState,
-    _sbsBuffer :: FinalizationBuffer
+    _sbsSkov :: !Basic.SkovData,
+    _sbsFinalization :: !FinalizationState,
+    _sbsBuffer :: !FinalizationBuffer
 }
 makeLenses ''SkovBufferedState
 
@@ -234,9 +234,9 @@ runSkovBufferedM (SkovBufferedM a) fi fs = runRWST a fi fs
 -- |Skov state with passive finalizion and transaction hooks.
 -- This keeps finalization messages, but does not process them.
 data SkovPassiveHookedState = SkovPassiveHookedState {
-    _sphsSkov :: Basic.SkovData,
-    _sphsFinalization :: PassiveFinalizationState,
-    _sphsHooks :: TransactionHooks
+    _sphsSkov :: !Basic.SkovData,
+    _sphsFinalization :: !PassiveFinalizationState,
+    _sphsHooks :: !TransactionHooks
 }
 makeLenses ''SkovPassiveHookedState
 
@@ -280,10 +280,10 @@ runSkovPassiveHookedM (SkovPassiveHookedM a) s = runRWST a () s
 
 -- |Skov state with buffered finalization and transaction hooks.
 data SkovBufferedHookedState = SkovBufferedHookedState {
-    _sbhsSkov :: Basic.SkovData,
-    _sbhsFinalization :: FinalizationState,
-    _sbhsBuffer :: FinalizationBuffer,
-    _sbhsHooks :: TransactionHooks
+    _sbhsSkov :: !Basic.SkovData,
+    _sbhsFinalization :: !FinalizationState,
+    _sbhsBuffer :: !FinalizationBuffer,
+    _sbhsHooks :: !TransactionHooks
 }
 makeLenses ''SkovBufferedHookedState
 
