@@ -305,7 +305,7 @@ fn process_external_skov_entry(
         }
         PacketType::GlobalStateMetadataRequest => (skov.get_metadata(), false),
         PacketType::FullCatchupRequest => {
-            send_full_catch_up_response(node, &skov, source, network_id, skov.finalization_span());
+            send_full_catch_up_response(node, &skov, source, network_id);
 
             (
                 SkovResult::SuccessfulEntry(PacketType::FullCatchupRequest),
@@ -516,49 +516,26 @@ fn send_catch_up_request(node: &P2PNode, target: P2PNodeId, network: NetworkId) 
     }
 }
 
-fn send_full_catch_up_response(
-    node: &P2PNode,
-    skov: &Skov,
-    target: P2PNodeId,
-    network: NetworkId,
-    finalization_span: u64,
-) {
-    let mut i = 0;
-
-    let mut finalization_records = skov.data
-        .finalization_list
-        .into_iter()
-        .skip(1) // skip the genesis finalization record
-        .filter_map(|rec| rec.as_ref());
-
-    for (blob, packet_type) in skov
-        .data
-        .block_tree
-        .values()
-        .skip(1) // skip the genesis block
-        .map(|ptr| (SerializeToBytes::serialize(&**ptr), PacketType::Block))
-        .chain(
-            skov.data
-                .tree_candidates
-                .values()
-                .map(|ptr| (SerializeToBytes::serialize(&**ptr), PacketType::Block)),
-        )
-    {
-        if i == finalization_span {
-            if let Some(rec) = finalization_records.next() {
-                send_consensus_msg_to_net(
-                    &node,
-                    Some(target),
-                    network,
-                    PacketType::FinalizationRecord,
-                    None,
-                    &SerializeToBytes::serialize(rec),
-                );
-            }
-            i = 0;
+fn send_full_catch_up_response(node: &P2PNode, skov: &Skov, target: P2PNodeId, network: NetworkId) {
+    for (block, fin_rec) in skov.iter_tree_since(0) {
+        send_consensus_msg_to_net(
+            &node,
+            Some(target),
+            network,
+            PacketType::Block,
+            None,
+            &block.serialize(),
+        );
+        if let Some(rec) = fin_rec {
+            send_consensus_msg_to_net(
+                &node,
+                Some(target),
+                network,
+                PacketType::FinalizationRecord,
+                None,
+                &rec.serialize(),
+            );
         }
-        send_consensus_msg_to_net(&node, Some(target), network, packet_type, None, &blob);
-        i += 1;
     }
 
     let mut blob = Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize);
