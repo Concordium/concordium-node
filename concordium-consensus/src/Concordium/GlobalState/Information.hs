@@ -68,7 +68,6 @@ jsonLiteral l = case l of
 -- raising an exception. 
 jsonStorable :: Value Void -> JSON.Value
 jsonStorable (VLiteral l) = jsonLiteral l
-jsonStorable (VAmount (Amount a)) = JSON.toJSON (fromIntegral a :: Integer)
 jsonStorable (VConstructor n vals) =
   JSON.object $ ["name" .= (fromIntegral n :: Word32)] ++ zipWith (\i v -> ("child-" <> fromString (show i)) .= jsonStorable v) [(0::Int)..] vals
 jsonStorable _ = error "FATAL: Trying to serialize a non-storable value. This should not happen."
