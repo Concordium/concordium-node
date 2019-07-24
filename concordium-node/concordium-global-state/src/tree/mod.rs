@@ -136,8 +136,22 @@ impl<'a> Skov<'a> {
         self.data.delayed_broadcasts.push(broadcast);
     }
 
+    pub fn finalization_span(&self) -> u64 {
+        self.data.finalization_span()
+    }
+
     pub fn get_delayed_broadcasts(&mut self) -> Vec<ConsensusMessage> {
         mem::replace(&mut self.data.delayed_broadcasts, Vec::new())
+    }
+
+    pub fn delayed_broadcast_count(&self) -> usize {
+        // don't count finalization messages, as they can be numerous and
+        // their number is not representative of the duration of the delay
+        self.data
+            .delayed_broadcasts
+            .iter()
+            .filter(|msg| msg.variant == PacketType::Block)
+            .count()
     }
 
     pub fn get_metadata(&self) -> SkovResult {

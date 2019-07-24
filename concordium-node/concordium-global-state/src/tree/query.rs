@@ -101,6 +101,12 @@ impl<'a> SkovData<'a> {
         self.finalization_list.get(idx as usize)
     }
 
+    pub fn finalization_span(&self) -> u64 {
+        // FIXME: when we fully deserialize the genesis data again, use its finalization
+        // span value instead of a hardcoded value
+        10
+    }
+
     pub fn get_last_finalized_slot(&self) -> Slot { self.last_finalized.block.slot() }
 
     pub fn get_last_finalized_height(&self) -> BlockHeight { self.last_finalized.height }
