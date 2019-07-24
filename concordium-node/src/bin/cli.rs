@@ -23,7 +23,10 @@ use concordium_common::{
 use concordium_consensus::{consensus, ffi};
 use concordium_global_state::{
     common::SerializeToBytes,
-    tree::{ConsensusMessage, DistributionMode, MessageType, Skov},
+    tree::{
+        messaging::{ConsensusMessage, DistributionMode, MessageType},
+        Skov,
+    },
 };
 use failure::Fallible;
 use p2p_client::{

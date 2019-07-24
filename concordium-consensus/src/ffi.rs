@@ -19,7 +19,7 @@ use concordium_global_state::{
     block::*,
     common,
     finalization::*,
-    tree::{ConsensusMessage, MessageType},
+    tree::messaging::{ConsensusMessage, MessageType},
 };
 
 extern "C" {

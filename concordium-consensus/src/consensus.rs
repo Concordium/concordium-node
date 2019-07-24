@@ -15,7 +15,7 @@ use std::{
 };
 
 use crate::ffi::*;
-use concordium_global_state::{block::BakerId, tree::ConsensusMessage};
+use concordium_global_state::{block::BakerId, tree::messaging::ConsensusMessage};
 
 pub type PeerId = u64;
 pub type PrivateData = HashMap<i64, Vec<u8>>;
