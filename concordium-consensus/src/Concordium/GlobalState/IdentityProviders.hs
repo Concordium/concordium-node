@@ -69,10 +69,10 @@ emptyIdentityProviders = IdentityProviders HM.empty
 
 instance FromJSON IdentityProviderData where
   parseJSON = withObject "IdentityProviderData" $ \v ->
-    do ipIdbs <- Text.encodeUtf8 <$> (v .: "ipIdentity")
+    do ipIdbs <- v .: "ipIdentity"
        ipVerifyKeybs <- b16 <$> (v .: "ipVerifyKey")
        arPublicKeybs <- b16 <$> (v .: "arPublicKey")
-       arName <- Text.encodeUtf8 <$> (v .: "arName")
+       arName <- v .: "arName"
        arElgamalGeneratorbs <- b16 <$> (v .: "arElgamalGenerator")
        -- we need to add length information to the deserializer for this field.
        -- This is an unfortunate hack, but ...
@@ -82,10 +82,10 @@ instance FromJSON IdentityProviderData where
        case (ipVerifyKey, arPublicKey', arElgamalGenerator') of
          (Right iver, Right arPublicKey, Right arElgamalGenerator) -> 
            return IdentityProviderData{
-           ipIdentity = IP_ID ipIdbs,
+           ipIdentity = ipIdbs,
            ipVerifyKey = IP_PK iver,
            ipArInfo = AnonymityRevokerData{
-               arIdentity = ARName arName,
+               arIdentity = arName,
                ..
                }
            }

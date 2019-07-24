@@ -40,7 +40,7 @@ mkLeaf acct = Leaf (getHash acct) acct
 {-# INLINE mkLeaf #-}
 
 mkBranch :: Word8 -> Bool -> AT -> AT -> AT
-mkBranch lvl f l r = Branch lvl f (H.hash $ H.hashToByteString (getHash l) <> H.hashToByteString (getHash r)) l r
+mkBranch lvl f l r = Branch lvl f (H.hashShort $ H.hashToShortByteString (getHash l) <> H.hashToShortByteString (getHash r)) l r
 {-# INLINE mkBranch #-}
 
 empty :: AccountTable
@@ -62,7 +62,7 @@ append acct Empty = (0, Tree (Leaf (getHash acct) acct))
 append acct (Tree t) = (append' t) & _2 %~ Tree
     where
         append' :: AT -> (AccountIndex, AT)
-        append' l@(Leaf h _) = (1, Branch 0 True (H.hash $ H.hashToByteString h <> H.hashToByteString newHash) l newLeaf)
+        append' l@(Leaf h _) = (1, Branch 0 True (H.hashShort $ H.hashToShortByteString h <> H.hashToShortByteString newHash) l newLeaf)
         append' b@(Branch lvl True _ _ _) = (bit (fromIntegral lvl + 1), mkBranch (lvl + 1) False b newLeaf)
         append' (Branch lvl False _ l r) = let (i', r') = append' r in
                                                 (setBit i' (fromIntegral lvl),
