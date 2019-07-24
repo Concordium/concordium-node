@@ -129,7 +129,7 @@ impl<'a> Skov<'a> {
         mem::replace(&mut self.data.delayed_broadcasts, Vec::new())
     }
 
-    pub fn delayed_broadcast_count(&self) -> usize {
+    pub fn is_broadcast_delay_acceptable(&self) -> bool {
         // don't count finalization messages, as they can be numerous and
         // their number is not representative of the duration of the delay
         self.data
@@ -137,6 +137,7 @@ impl<'a> Skov<'a> {
             .iter()
             .filter(|msg| msg.variant == PacketType::Block)
             .count()
+            <= 5
     }
 
     pub fn get_metadata(&self) -> SkovResult {

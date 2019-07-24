@@ -244,7 +244,7 @@ fn process_external_skov_entry(
     let source = P2PNodeId(request.source_peer());
 
     if skov.is_catching_up() {
-        if skov.delayed_broadcast_count() <= 5 {
+        if skov.is_broadcast_delay_acceptable() {
             // delay broadcasts during catch-up rounds
             if request.distribution_mode() == DistributionMode::Broadcast {
                 info!(
