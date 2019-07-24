@@ -505,7 +505,10 @@ pub struct SkovMetadata {
 }
 
 impl SkovMetadata {
-    pub fn is_empty(&self) -> bool { self.finalized_height == 0 && self.n_pending_blocks == 0 }
+    pub fn is_usable(&self) -> bool {
+        self.state == SkovState::Complete
+            && !(self.finalized_height == 0 && self.n_pending_blocks == 0)
+    }
 }
 
 impl PartialOrd for SkovMetadata {

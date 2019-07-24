@@ -348,7 +348,7 @@ fn process_external_skov_entry(
 
                     if skov.state() == SkovState::JustStarted {
                         if let SkovResult::BestPeer((best_peer, best_meta)) = skov.best_metadata() {
-                            if !best_meta.is_empty() {
+                            if best_meta.is_usable() {
                                 send_catch_up_request(node, P2PNodeId(best_peer), network_id);
                                 skov.start_catchup_round(SkovState::FullyCatchingUp);
                             } else {
