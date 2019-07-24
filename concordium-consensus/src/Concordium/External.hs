@@ -55,7 +55,8 @@ jsonValueToCString = newCString . LT.unpack . AET.encodeToLazyText
 -- |Use a 'BlockHash' as a 'BlockReference'.  The 'BlockReference' may not
 -- be valid after the function has returned.
 withBlockReference :: BlockHash -> (BlockReference -> IO a) -> IO a
-withBlockReference (Hash.Hash fbs) = FBS.withPtr fbs
+-- withBlockReference (Hash.Hash fbs) = FBS.withPtr fbs
+withBlockReference (Hash.Hash fbs) = FBS.withPtrReadOnly fbs
 
 -- |Create a 'BlockHash' from a 'BlockReference'.  This creates a copy
 -- of the block hash.
