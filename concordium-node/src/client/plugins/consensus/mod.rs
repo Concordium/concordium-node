@@ -24,7 +24,9 @@ use concordium_global_state::{
     common::{sha256, HashBytes, SerializeToBytes, SHA256},
     finalization::{FinalizationIndex, FinalizationRecord},
     transaction::Transaction,
-    tree::{CatchupState, ConsensusMessage, DistributionMode, MessageType, Skov, SkovResult},
+    tree::{
+        ConsensusMessage, DistributionMode, MessageType, Skov, SkovMetadata, SkovResult, SkovState,
+    },
 };
 
 use crate::{common::P2PNodeId, configuration, network::NetworkId, p2p::p2p_node::*};
@@ -33,58 +35,27 @@ pub fn start_consensus_layer(
     conf: &configuration::BakerConfig,
     app_prefs: &configuration::AppPreferences,
 ) -> Option<consensus::ConsensusContainer> {
-    match conf.baker_id {
-        Some(baker_id) => {
-            info!("Starting up the consensus thread");
+    info!("Starting up the consensus thread");
 
-            #[cfg(feature = "profiling")]
-            ffi::start_haskell(
-                &conf.heap_profiling,
-                conf.time_profiling,
-                conf.backtraces_profiling,
-                conf.gc_logging.clone(),
-            );
-            #[cfg(not(feature = "profiling"))]
-            ffi::start_haskell();
+    #[cfg(feature = "profiling")]
+    ffi::start_haskell(
+        &conf.heap_profiling,
+        conf.time_profiling,
+        conf.backtraces_profiling,
+        conf.gc_logging.clone(),
+    );
+    #[cfg(not(feature = "profiling"))]
+    ffi::start_haskell();
 
-            match get_baker_data(app_prefs, conf, true) {
-                Ok((genesis_data, private_data)) => {
-                    let consensus = consensus::ConsensusContainer::new(
-                        genesis_data,
-                        Some(private_data),
-                        Some(baker_id),
-                    );
-                    consensus.start_baker();
-                    Some(consensus)
-                }
-                Err(_) => {
-                    error!("Can't start the consensus layer!");
-                    None
-                }
-            }
+    match get_baker_data(app_prefs, conf, true) {
+        Ok((genesis_data, private_data)) => {
+            let consensus =
+                consensus::ConsensusContainer::new(genesis_data, Some(private_data), conf.baker_id);
+            Some(consensus)
         }
-        None => {
-            info!("Starting up the consensus thread");
-            #[cfg(feature = "profiling")]
-            ffi::start_haskell(
-                &conf.heap_profiling,
-                conf.time_profiling,
-                conf.backtraces_profiling,
-                conf.gc_logging.clone(),
-            );
-            #[cfg(not(feature = "profiling"))]
-            ffi::start_haskell();
-
-            match get_baker_data(app_prefs, conf, false) {
-                Ok((genesis_data, _)) => {
-                    let consensus = consensus::ConsensusContainer::new(genesis_data, None, None);
-                    Some(consensus)
-                }
-                Err(_) => {
-                    error!("Can't start the consensus layer!");
-                    None
-                }
-            }
+        Err(_) => {
+            error!("Can't start the consensus layer!");
+            None
         }
     }
 }
@@ -178,15 +149,15 @@ pub fn handle_pkt_out(
 pub fn handle_global_state_request(
     node: &P2PNode,
     network_id: NetworkId,
-    baker: &mut consensus::ConsensusContainer,
+    consensus: &mut consensus::ConsensusContainer,
     request: ConsensusMessage,
     skov: &mut Skov,
     stats_exporting: &Option<StatsExportService>,
 ) -> Fallible<()> {
     if let MessageType::Outbound(_) = request.direction {
-        process_internal_skov_entry(node, network_id, request, skov)?
+        process_internal_skov_entry(node, network_id, consensus, request, skov)?
     } else {
-        process_external_skov_entry(node, network_id, baker, request, skov)?
+        process_external_skov_entry(node, network_id, consensus, request, skov)?
     }
 
     if let Some(stats) = stats_exporting {
@@ -205,37 +176,30 @@ pub fn handle_global_state_request(
 fn process_internal_skov_entry(
     node: &P2PNode,
     network_id: NetworkId,
+    _consensus: &mut consensus::ConsensusContainer,
     request: ConsensusMessage,
     skov: &mut Skov,
 ) -> Fallible<()> {
-    if skov.catchup_state() == CatchupState::InProgress && request.variant == PacketType::Block {
-        // ignore outgoing blocks until the catch-up phase is complete; they would be
-        // dropped by the other nodes anyway
-        warn!("Our consensus layer wanted to bake a block while catching up! Not relaying it.");
-        return Ok(());
-    }
-
     let (entry_info, skov_result) = match request.variant {
         PacketType::Block => {
             let block = PendingBlock::new(&request.payload)?;
-            (format!("{:?}", block.block), skov.add_block(block, false))
+            (format!("{:?}", block.block), skov.add_block(block))
         }
         PacketType::FinalizationRecord => {
             let record = FinalizationRecord::deserialize(&request.payload)?;
-            (
-                format!("{:?}", record),
-                skov.add_finalization(record, false),
-            )
+            (format!("{:?}", record), skov.add_finalization(record))
         }
         PacketType::CatchupBlockByHash
         | PacketType::CatchupFinalizationRecordByHash
         | PacketType::CatchupFinalizationRecordByIndex => {
-            let skov_result = if skov.catchup_state() != CatchupState::InProgress {
-                skov.start_catchup_round()
-            } else {
-                SkovResult::IgnoredEntry
-            };
-            (request.variant.to_string(), skov_result)
+            // let skov_result = if !skov.is_catching_up() {
+            // consensus.stop_baker();
+            // skov.start_catchup_round(SkovState::PartiallyCatchingUp)
+            // } else {
+            // SkovResult::IgnoredEntry
+            // };
+            // (request.variant.to_string(), skov_result)
+            return Ok(());
         }
         _ => (request.variant.to_string(), SkovResult::IgnoredEntry),
     };
@@ -272,14 +236,14 @@ fn process_internal_skov_entry(
 fn process_external_skov_entry(
     node: &P2PNode,
     network_id: NetworkId,
-    baker: &mut consensus::ConsensusContainer,
+    consensus: &mut consensus::ConsensusContainer,
     request: ConsensusMessage,
     skov: &mut Skov,
 ) -> Fallible<()> {
     let self_node_id = node.self_peer.id;
     let source = P2PNodeId(request.source_peer());
 
-    if skov.catchup_state() == CatchupState::InProgress {
+    if skov.is_catching_up() {
         // delay broadcasts during catch-up rounds
         if request.distribution_mode() == DistributionMode::Broadcast {
             info!(
@@ -298,12 +262,12 @@ fn process_external_skov_entry(
     let (skov_result, consensus_applicable) = match request.variant {
         PacketType::Block => {
             let block = PendingBlock::new(&request.payload)?;
-            let skov_result = skov.add_block(block, false);
+            let skov_result = skov.add_block(block);
             (skov_result, true)
         }
         PacketType::FinalizationRecord => {
             let record = FinalizationRecord::deserialize(&request.payload)?;
-            let skov_result = skov.add_finalization(record, false);
+            let skov_result = skov.add_finalization(record);
             (skov_result, true)
         }
         PacketType::CatchupBlockByHash => {
@@ -325,22 +289,88 @@ fn process_external_skov_entry(
             let skov_result = skov.get_finalization_record_by_idx(idx);
             (skov_result, false)
         }
+        PacketType::GlobalStateMetadata => {
+            let skov_result = if skov.peer_metadata.get(&source.0).is_none() {
+                let metadata = SkovMetadata::deserialize(&request.payload)?;
+                skov.register_peer_metadata(request.source_peer(), metadata)
+            } else {
+                SkovResult::IgnoredEntry
+            };
+            (skov_result, false)
+        }
+        PacketType::GlobalStateMetadataRequest => (skov.get_metadata(), false),
+        PacketType::FullCatchupRequest => {
+            // FIXME: when we fully deserialize the genesis data again, use its finalization
+            // span value instead of a hardcoded value
+            send_full_catch_up_response(node, &skov, source, network_id, 10);
+
+            (
+                SkovResult::SuccessfulEntry(PacketType::FullCatchupRequest),
+                false,
+            )
+        }
+        PacketType::FullCatchupComplete => (
+            SkovResult::SuccessfulEntry(PacketType::FullCatchupComplete),
+            false,
+        ),
         _ => (SkovResult::IgnoredEntry, true), // will be expanded later on
     };
 
     match skov_result {
-        SkovResult::SuccessfulEntry(_) => {
+        SkovResult::SuccessfulEntry(entry_type) => {
             trace!(
                 "Peer {} successfully processed a {}",
                 node.self_peer.id,
                 request
             );
+
+            // reply to peer metadata with own metadata and begin catching up and/or baking
+            match entry_type {
+                PacketType::GlobalStateMetadata => {
+                    let response_metadata =
+                        if let SkovResult::SuccessfulQuery(metadata) = skov.get_metadata() {
+                            metadata
+                        } else {
+                            unreachable!(); // impossible
+                        };
+
+                    send_consensus_msg_to_net(
+                        &node,
+                        Some(source),
+                        network_id,
+                        PacketType::GlobalStateMetadata,
+                        Some(format!("response to a {}", request.variant)),
+                        &response_metadata,
+                    );
+
+                    if skov.state() == SkovState::JustStarted {
+                        if let SkovResult::BestPeer((best_peer, best_meta)) = skov.best_metadata() {
+                            if !best_meta.is_empty() {
+                                send_catch_up_request(node, P2PNodeId(best_peer), network_id);
+                                skov.start_catchup_round(SkovState::FullyCatchingUp);
+                            } else {
+                                consensus.start_baker();
+                                skov.data.state = SkovState::Complete;
+                            }
+                        };
+                    }
+                }
+                PacketType::FullCatchupComplete => {
+                    skov.end_catchup_round();
+                    apply_delayed_broadcasts(node, network_id, consensus, skov)?;
+                    if !consensus.is_baking() {
+                        consensus.start_baker();
+                    }
+                }
+                _ => {}
+            }
         }
         SkovResult::SuccessfulQuery(result) => {
             let return_type = match request.variant {
                 PacketType::CatchupBlockByHash => PacketType::Block,
                 PacketType::CatchupFinalizationRecordByHash => PacketType::FinalizationRecord,
                 PacketType::CatchupFinalizationRecordByIndex => PacketType::FinalizationRecord,
+                PacketType::GlobalStateMetadataRequest => PacketType::GlobalStateMetadata,
                 _ => unreachable!("Impossible packet type in a query result!"),
             };
 
@@ -362,14 +392,13 @@ fn process_external_skov_entry(
 
     // relay external messages to Consensus if they are relevant to it
     if consensus_applicable {
-        send_msg_to_consensus(self_node_id, source, baker, request)?
+        send_msg_to_consensus(self_node_id, source, consensus, request)?
     }
 
-    if let CatchupState::InProgress = skov.catchup_state() {
-        if skov.is_tree_valid() {
-            skov.end_catchup_round();
-            apply_delayed_broadcasts(node, network_id, baker, skov)?;
-        }
+    if skov.state() == SkovState::PartiallyCatchingUp && skov.is_tree_valid() {
+        skov.end_catchup_round();
+        consensus.start_baker();
+        apply_delayed_broadcasts(node, network_id, consensus, skov)?;
     }
 
     Ok(())
@@ -467,4 +496,78 @@ pub fn send_consensus_msg_to_net(
             self_node_id, target_desc, message_desc,
         ),
     }
+}
+
+fn send_catch_up_request(node: &P2PNode, target: P2PNodeId, network: NetworkId) {
+    let packet_type = PacketType::FullCatchupRequest;
+    let mut buffer = Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize);
+    buffer
+        .write_u16::<NetworkEndian>(packet_type as u16)
+        .expect("Can't write a packet payload to buffer");
+
+    let result = send_direct_message(node, Some(target), network, None, buffer);
+
+    match result {
+        Ok(_) => info!(
+            "Peer {} sent a direct {} to peer {}",
+            node.self_peer.id, packet_type, target,
+        ),
+        Err(_) => error!(
+            "Peer {} couldn't send a direct {} to peer {}!",
+            node.self_peer.id, packet_type, target,
+        ),
+    }
+}
+
+fn send_full_catch_up_response(
+    node: &P2PNode,
+    skov: &Skov,
+    target: P2PNodeId,
+    network: NetworkId,
+    finalization_span: u8,
+) {
+    let mut i = 0;
+
+    let mut finalization_records = skov.data
+        .finalization_list
+        .into_iter()
+        .skip(1) // skip the genesis finalization record
+        .filter_map(|rec| rec.as_ref());
+
+    for (blob, packet_type) in skov
+        .data
+        .block_tree
+        .values()
+        .skip(1) // skip the genesis block
+        .map(|ptr| (SerializeToBytes::serialize(&**ptr), PacketType::Block))
+        .chain(
+            skov.data
+                .tree_candidates
+                .values()
+                .map(|ptr| (SerializeToBytes::serialize(&**ptr), PacketType::Block)),
+        )
+    {
+        if i == finalization_span {
+            if let Some(rec) = finalization_records.next() {
+                send_consensus_msg_to_net(
+                    &node,
+                    Some(target),
+                    network,
+                    PacketType::FinalizationRecord,
+                    None,
+                    &SerializeToBytes::serialize(rec),
+                );
+            }
+            i = 0;
+        }
+        send_consensus_msg_to_net(&node, Some(target), network, packet_type, None, &blob);
+        i += 1;
+    }
+
+    let mut blob = Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize);
+    let packet_type = PacketType::FullCatchupComplete;
+    blob.write_u16::<NetworkEndian>(packet_type as u16)
+        .expect("Can't write a packet payload to buffer");
+
+    send_consensus_msg_to_net(&node, Some(target), network, packet_type, None, &blob);
 }

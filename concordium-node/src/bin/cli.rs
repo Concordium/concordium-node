@@ -15,7 +15,7 @@ use byteorder::{NetworkEndian, WriteBytesExt};
 
 use concordium_common::{
     cache::Cache,
-    spawn_or_die,
+    send_or_die, spawn_or_die,
     stats_export_service::{StatsExportService, StatsServiceMode},
     PacketType, RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSender,
     RelayOrStopSenderHelper,
@@ -23,7 +23,7 @@ use concordium_common::{
 use concordium_consensus::{consensus, ffi};
 use concordium_global_state::{
     common::SerializeToBytes,
-    tree::{ConsensusMessage, Skov},
+    tree::{ConsensusMessage, DistributionMode, MessageType, Skov},
 };
 use failure::Fallible;
 use p2p_client::{
@@ -305,7 +305,7 @@ fn start_consensus_threads(
     node: &P2PNode,
     kvs_handle: Arc<RwLock<Rkv>>,
     (conf, app_prefs): (&configuration::Config, &configuration::AppPreferences),
-    baker: consensus::ConsensusContainer,
+    consensus: consensus::ConsensusContainer,
     pkt_out: RelayOrStopReceiver<Arc<NetworkMessage>>,
     (skov_receiver, skov_sender): (
         RelayOrStopReceiver<ConsensusMessage>,
@@ -325,7 +325,7 @@ fn start_consensus_threads(
     let stats_clone = stats.clone();
 
     let node_shared = node.clone();
-    let mut baker_clone = baker.clone();
+    let mut consensus_clone = consensus.clone();
     let global_state_thread = spawn_or_die!("Process global state requests", {
         // Open the Skov-exclusive k-v store environment
         let skov_kvs_handle = Manager::singleton()
@@ -338,7 +338,7 @@ fn start_consensus_threads(
             .read()
             .expect("Can't unlock the kvs env for Skov!");
 
-        let mut skov = Skov::new(&baker_clone.genesis, &skov_kvs_env);
+        let mut skov = Skov::new(&consensus_clone.genesis, &skov_kvs_env);
 
         loop {
             match skov_receiver.recv() {
@@ -346,7 +346,7 @@ fn start_consensus_threads(
                     if let Err(e) = handle_global_state_request(
                         &node_shared,
                         _network_id,
-                        &mut baker_clone,
+                        &mut consensus_clone,
                         request,
                         &mut skov,
                         &stats_clone,
@@ -362,7 +362,6 @@ fn start_consensus_threads(
 
     let node_shared = node.clone();
 
-    let baker_clone = baker.clone();
     let mut node_ref = node.clone();
     let guard_pkt = spawn_or_die!("Higher queue processing", {
         while let Ok(RelayOrStopEnvelope::Relay(full_msg)) = pkt_out.recv() {
@@ -483,12 +482,11 @@ fn start_consensus_threads(
                         }
                     }
                 }
+                // FIXME: should possibly be triggered by the Handshake reply instead
                 NetworkMessage::NetworkRequest(
                     NetworkRequest::Handshake(remote_peer, ref nets, _),
                     ..
-                ) => {
-                    send_finalization_point(&node_ref, &baker_clone, remote_peer, nets);
-                }
+                ) => provide_global_state_metadata(nets, remote_peer, &skov_sender),
                 _ => {}
             }
         }
@@ -502,27 +500,28 @@ fn start_consensus_threads(
     vec![global_state_thread, guard_pkt]
 }
 
-fn send_finalization_point(
-    node: &P2PNode,
-    consensus: &consensus::ConsensusContainer,
-    target: P2PPeer,
+// This function indirectly provides the metadata by simulating an incoming
+// request from the other peer upon a network handshake, which triggers its
+// distribution
+fn provide_global_state_metadata(
     networks: &HashSet<NetworkId>,
+    peer: P2PPeer,
+    skov_sender: &RelayOrStopSender<ConsensusMessage>,
 ) {
-    if target.peer_type() == PeerType::Node {
-        if let Some(net) = networks.iter().next() {
-            let response = consensus.get_finalization_point();
+    if peer.peer_type() == PeerType::Node && networks.iter().next().is_some() {
+        let packet_type = PacketType::GlobalStateMetadataRequest;
+        let mut payload = vec![0u8; PAYLOAD_TYPE_LENGTH as usize];
+        payload
+            .write_u16::<NetworkEndian>(packet_type as u16)
+            .expect("Can't write a packet payload to buffer");
 
-            send_consensus_msg_to_net(
-                node,
-                Some(target.id()),
-                *net,
-                PacketType::CatchupFinalizationMessagesByPoint,
-                None,
-                &response,
-            );
-        } else {
-            error!("Handshake without network, so can't ask for finalization messages");
-        }
+        let request = RelayOrStopEnvelope::Relay(ConsensusMessage::new(
+            MessageType::Inbound(peer.id().0, DistributionMode::Direct),
+            packet_type,
+            Arc::from(payload),
+        ));
+
+        send_or_die!(skov_sender, request);
     }
 }
 

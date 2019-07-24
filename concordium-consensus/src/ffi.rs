@@ -399,7 +399,7 @@ pub fn get_consensus_ptr(
 
 impl ConsensusContainer {
     pub fn send_block(&self, peer_id: PeerId, block: &[u8]) -> ConsensusFfiResponse {
-        if self.baker.is_some() {
+        if self.is_active() {
             wrap_send_data_to_c!(self, peer_id, block, receiveBlock)
         } else {
             ConsensusFfiResponse::BakerNotFound
@@ -407,7 +407,7 @@ impl ConsensusContainer {
     }
 
     pub fn send_finalization(&self, peer_id: PeerId, msg: &[u8]) -> ConsensusFfiResponse {
-        if self.baker.is_some() {
+        if self.is_active() {
             wrap_send_data_to_c!(self, peer_id, msg, receiveFinalization)
         } else {
             ConsensusFfiResponse::BakerNotFound
@@ -415,7 +415,7 @@ impl ConsensusContainer {
     }
 
     pub fn send_finalization_record(&self, peer_id: PeerId, rec: &[u8]) -> ConsensusFfiResponse {
-        if self.baker.is_some() {
+        if self.is_active() {
             wrap_send_data_to_c!(self, peer_id, rec, receiveFinalizationRecord)
         } else {
             ConsensusFfiResponse::BakerNotFound
@@ -423,7 +423,7 @@ impl ConsensusContainer {
     }
 
     pub fn send_transaction(&self, data: &[u8]) -> ConsensusFfiResponse {
-        if self.baker.is_some() {
+        if self.is_active() {
             let consensus = self.consensus.load(Ordering::SeqCst);
             let len = data.len();
 
@@ -577,7 +577,7 @@ impl ConsensusContainer {
         request: &[u8],
         peer_id: PeerId,
     ) -> ConsensusFfiResponse {
-        if self.baker.is_some() {
+        if self.is_active() {
             wrap_c_call!(self, |baker| getFinalizationMessages(
                 baker,
                 peer_id,
