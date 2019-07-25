@@ -101,11 +101,48 @@ impl<'a> SkovData<'a> {
         self.finalization_list.get(idx as usize)
     }
 
+    pub fn finalization_span(&self) -> u64 {
+        // FIXME: when we fully deserialize the genesis data again, use its finalization
+        // span value instead of a hardcoded value
+        10
+    }
+
     pub fn get_last_finalized_slot(&self) -> Slot { self.last_finalized.block.slot() }
 
     pub fn get_last_finalized_height(&self) -> BlockHeight { self.last_finalized.height }
 
     pub fn get_next_finalization_index(&self) -> FinalizationIndex {
         self.get_last_finalized_height() + 1
+    }
+
+    pub(super) fn iter_tree_since(
+        &self,
+        since: BlockHeight,
+    ) -> impl Iterator<Item = (&Block, Option<&FinalizationRecord>)> {
+        let fs = self.finalization_span();
+
+        let finalized_blocks = self
+            .block_tree
+            .values()
+            .skip(since as usize + 1)
+            .map(|ptr| (ptr.height, &ptr.block));
+
+        let mut finalization_records = self
+            .finalization_list
+            .into_iter()
+            .skip((since / fs) as usize + 1)
+            .filter_map(|rec| rec.as_ref());
+
+        let pending_blocks = self.tree_candidates.values().map(|ptr| &ptr.block);
+
+        finalized_blocks
+            .map(move |(height, block)| {
+                if height % fs == 0 {
+                    (block, finalization_records.next())
+                } else {
+                    (block, None)
+                }
+            })
+            .chain(pending_blocks.map(|pb| (pb, None)))
     }
 }

@@ -251,9 +251,7 @@ impl<'a> SkovData<'a> {
         // after a finalization round, the blocks that were not directly finalized, but
         // are a part of the tree, need to be promoted to the tree
         let mut finalized_parent = self.last_finalized.block.pointer().unwrap().to_owned();
-        // FIXME: when we fully deserialize the genesis data again, use its finalization
-        // span value instead of a hardcoded value
-        let mut indirectly_finalized_blocks = Vec::with_capacity(10);
+        let mut indirectly_finalized_blocks = Vec::with_capacity(self.finalization_span() as usize);
         while let Some(ptr) = self.tree_candidates.remove(&finalized_parent) {
             let parent_hash = ptr.block.pointer().unwrap().to_owned(); // safe, always available
             indirectly_finalized_blocks.push(ptr);
