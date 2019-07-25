@@ -356,6 +356,8 @@ fn process_external_skov_entry(
                                 skov.data.state = SkovState::Complete;
                             }
                         };
+                    } else if skov.state() == SkovState::Complete {
+                        send_finalization_point(node, consensus, source, network_id);
                     }
                 }
                 PacketType::FullCatchupComplete => {
@@ -493,6 +495,24 @@ pub fn send_consensus_msg_to_net(
             self_node_id, target_desc, message_desc,
         ),
     }
+}
+
+fn send_finalization_point(
+    node: &P2PNode,
+    consensus: &consensus::ConsensusContainer,
+    target: P2PNodeId,
+    network: NetworkId,
+) {
+    let response = consensus.get_finalization_point();
+
+    send_consensus_msg_to_net(
+        node,
+        Some(target),
+        network,
+        PacketType::CatchupFinalizationMessagesByPoint,
+        None,
+        &response,
+    );
 }
 
 fn send_catch_up_request(node: &P2PNode, target: P2PNodeId, network: NetworkId) {
