@@ -356,8 +356,6 @@ fn process_external_skov_entry(
                                 skov.data.state = SkovState::Complete;
                             }
                         };
-                    } else if skov.state() == SkovState::Complete {
-                        send_finalization_point(node, consensus, source, network_id);
                     }
                 }
                 PacketType::FullCatchupComplete => {
@@ -383,6 +381,10 @@ fn process_external_skov_entry(
                 Some(format!("response to a {}", request.variant)),
                 &result,
             );
+
+            if return_type == PacketType::GlobalStateMetadata {
+                send_finalization_point(node, consensus, source, network_id);
+            }
         }
         SkovResult::DuplicateEntry => {
             warn!("Skov: got a duplicate {}", request);
