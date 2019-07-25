@@ -319,7 +319,7 @@ fn process_external_skov_entry(
                         Some(source),
                         network_id,
                         PacketType::GlobalStateMetadata,
-                        Some(format!("response to a {}", request.variant)),
+                        Some(request.variant.to_string()),
                         &response_metadata,
                     );
 
@@ -332,9 +332,9 @@ fn process_external_skov_entry(
                                 consensus.start_baker();
                                 skov.data.state = SkovState::Complete;
                             }
-                        };
-                    } else if skov.state() == SkovState::Complete {
-                        send_finalization_point(node, consensus, source, network_id);
+                        }
+
+                        request_finalization_messages(node, consensus, source, network_id);
                     }
                 }
                 PacketType::FullCatchupComplete => {
@@ -352,12 +352,20 @@ fn process_external_skov_entry(
                 _ => unreachable!("Impossible packet type in a query result!"),
             };
 
+            let msg_desc = if skov.state() == SkovState::JustStarted
+                && request.variant == PacketType::GlobalStateMetadataRequest
+            {
+                return_type.to_string()
+            } else {
+                format!("response to a {}", request.variant)
+            };
+
             send_consensus_msg_to_net(
                 &node,
                 Some(source),
                 network_id,
                 return_type,
-                Some(format!("response to a {}", request.variant)),
+                Some(msg_desc),
                 &result,
             );
         }
@@ -487,7 +495,7 @@ pub fn send_consensus_msg_to_net(
     }
 }
 
-fn send_finalization_point(
+fn request_finalization_messages(
     node: &P2PNode,
     consensus: &consensus::ConsensusContainer,
     target: P2PNodeId,
