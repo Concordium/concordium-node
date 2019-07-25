@@ -359,7 +359,12 @@ fn process_external_skov_entry(
                 &result,
             );
 
+<<<<<<< HEAD
             if return_type == PacketType::GlobalStateMetadata {
+=======
+            if return_type == PacketType::GlobalStateMetadata && skov.state() == SkovState::Complete
+            {
+>>>>>>> 63e8ba0e... move the catch-up finalization msgs by point trigger spot
                 send_finalization_point(node, consensus, source, network_id);
             }
         }
