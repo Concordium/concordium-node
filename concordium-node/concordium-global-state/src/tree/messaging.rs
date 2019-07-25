@@ -1,5 +1,5 @@
 use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
-use concordium_common::{PacketType, SHA256};
+use concordium_common::PacketType;
 use failure::Fallible;
 
 use std::{
@@ -79,33 +79,11 @@ impl fmt::Display for ConsensusMessage {
             PacketType::Block => print_deserialized!(Block),
             PacketType::FinalizationRecord => print_deserialized!(FinalizationRecord),
             PacketType::FinalizationMessage => print_deserialized!(FinalizationMessage),
-            PacketType::CatchupBlockByHash => {
-                let hash = HashBytes::new(&self.payload[..SHA256 as usize]);
-                let delta = NetworkEndian::read_u64(
-                    &self.payload[SHA256 as usize..][..mem::size_of::<Delta>()],
+            PacketType::FullCatchupRequest => {
+                let since = NetworkEndian::read_u64(
+                    &self.payload[..mem::size_of::<BlockHeight>() as usize],
                 );
-                let delta = if delta == 0 {
-                    "".to_owned()
-                } else {
-                    format!(", delta {}", delta)
-                };
-                format!("catch-up request for block {:?}{}", hash, delta)
-            }
-            PacketType::CatchupFinalizationRecordByHash => {
-                let hash = HashBytes::new(&self.payload[..SHA256 as usize]);
-                format!(
-                    "catch-up request for the finalization record for block {:?}",
-                    hash
-                )
-            }
-            PacketType::CatchupFinalizationRecordByIndex => {
-                let idx = NetworkEndian::read_u64(
-                    &self.payload[..mem::size_of::<FinalizationIndex>() as usize],
-                );
-                format!(
-                    "catch-up request for the finalization record at index {}",
-                    idx
-                )
+                format!("catch-up request since height {}", since)
             }
             p => p.to_string(),
         };
@@ -168,12 +146,6 @@ pub enum SkovError {
     InvalidLastFinalized(HashBytes, HashBytes),
     // the block pointed to by the finalization record is not in the tree
     MissingBlockToFinalize(HashBytes),
-    // the requested block is not available
-    MissingBlock(HashBytes, Delta),
-    // the requested finalization record for the given block hash is not available
-    MissingFinalizationRecordByHash(HashBytes),
-    // the requested finalization record with the given finalization index is not available
-    MissingFinalizationRecordByIdx(FinalizationIndex),
     // the finalization record's index is in the future
     FutureFinalizationRecord(FinalizationIndex, FinalizationIndex),
 }
@@ -201,18 +173,6 @@ impl fmt::Display for SkovError {
             SkovError::MissingBlockToFinalize(ref target) => format!(
                 "finalization record for block {:?} references a block that is not in the tree",
                 target
-            ),
-            SkovError::MissingBlock(ref hash, delta) => format!(
-                "requested block {:?} delta {} is not available",
-                hash, delta
-            ),
-            SkovError::MissingFinalizationRecordByHash(ref hash) => format!(
-                "requested finalization record for block {:?} is not available",
-                hash
-            ),
-            SkovError::MissingFinalizationRecordByIdx(index) => format!(
-                "requested finalization record for index {} is not available",
-                index
             ),
             SkovError::FutureFinalizationRecord(future_idx, curr_idx) => format!(
                 "the finalization record's index ({}) is in the future (current index: {})",

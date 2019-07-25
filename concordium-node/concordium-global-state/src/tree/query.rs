@@ -1,62 +1,12 @@
-use chrono::prelude::Utc;
-
 use std::rc::Rc;
 
 use crate::{
     block::*,
-    common::{HashBytes, SerializeToBytes, Slot},
+    common::{HashBytes, Slot},
     finalization::*,
 };
 
-use super::{
-    messaging::{SkovError, SkovResult},
-    Skov, SkovData,
-};
-
-/// Creates a function to obtain an object from Skov.
-macro_rules! get_object {
-    ($(#[$doc:meta])*$query_foo:ident($($query_arg:ident: $query_arg_ty:ty),+), $err_kind:ident, $query_stat:ident) => {
-        $(#[$doc])*
-        pub fn $query_foo(&mut self, $($query_arg: $query_arg_ty),+) -> SkovResult {
-            let (result, query_duration) = timed!(self.data.$query_foo($($query_arg),+));
-
-            self.stats.$query_stat.push(query_duration as u64);
-
-            if let Some(result) = result {
-                SkovResult::SuccessfulQuery(result.serialize())
-            } else {
-                SkovResult::Error(SkovError::$err_kind($($query_arg.to_owned()),+))
-            }
-        }
-    }
-}
-
-impl<'a> Skov<'a> {
-    get_object!(
-        /// Queries Skov for a block with the given hash or, if the given
-        /// `Delta` is greater than zero, for its descendant that is `delta`
-        /// generations below it.
-        get_block(hash: &HashBytes, delta: Delta),
-        MissingBlock,
-        query_block_timings
-    );
-
-    get_object!(
-        /// Queries Skov for the finalization record of a block with the given
-        /// hash.
-        get_finalization_record_by_hash(hash: &HashBytes),
-        MissingFinalizationRecordByHash,
-        query_finalization_timings
-    );
-
-    get_object!(
-        /// Queries Skov for the finalization record of the given finalization
-        /// round index.
-        get_finalization_record_by_idx(idx: FinalizationIndex),
-        MissingFinalizationRecordByIdx,
-        query_finalization_timings
-    );
-}
+use super::SkovData;
 
 impl<'a> SkovData<'a> {
     pub fn get_block(&self, hash: &HashBytes, delta: Delta) -> Option<&Rc<BlockPtr>> {
@@ -86,7 +36,7 @@ impl<'a> SkovData<'a> {
             )
     }
 
-    fn get_finalization_record_by_hash(&self, hash: &HashBytes) -> Option<&FinalizationRecord> {
+    fn _get_finalization_record_by_hash(&self, hash: &HashBytes) -> Option<&FinalizationRecord> {
         self.finalization_list
             .iter()
             .rev()
@@ -94,7 +44,7 @@ impl<'a> SkovData<'a> {
             .find(|&rec| rec.block_pointer == *hash)
     }
 
-    fn get_finalization_record_by_idx(
+    fn _get_finalization_record_by_idx(
         &self,
         idx: FinalizationIndex,
     ) -> Option<&FinalizationRecord> {
