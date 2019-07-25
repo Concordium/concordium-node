@@ -25,8 +25,8 @@ use concordium_global_state::{
     finalization::{FinalizationIndex, FinalizationRecord},
     transaction::Transaction,
     tree::{
-        messaging::{ConsensusMessage, DistributionMode, MessageType, SkovResult},
-        Skov, SkovMetadata, SkovState,
+        messaging::{ConsensusMessage, DistributionMode, MessageType, SkovMetadata, SkovResult},
+        Skov, SkovState,
     },
 };
 
@@ -244,7 +244,7 @@ fn process_external_skov_entry(
     let source = P2PNodeId(request.source_peer());
 
     if skov.is_catching_up() {
-        if skov.delayed_broadcast_count() <= 5 {
+        if skov.is_broadcast_delay_acceptable() {
             // delay broadcasts during catch-up rounds
             if request.distribution_mode() == DistributionMode::Broadcast {
                 info!(
@@ -348,7 +348,7 @@ fn process_external_skov_entry(
 
                     if skov.state() == SkovState::JustStarted {
                         if let SkovResult::BestPeer((best_peer, best_meta)) = skov.best_metadata() {
-                            if !best_meta.is_empty() {
+                            if best_meta.is_usable() {
                                 send_catch_up_request(node, P2PNodeId(best_peer), network_id);
                                 skov.start_catchup_round(SkovState::FullyCatchingUp);
                             } else {
