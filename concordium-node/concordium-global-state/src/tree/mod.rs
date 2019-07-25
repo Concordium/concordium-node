@@ -137,7 +137,7 @@ impl<'a> Skov<'a> {
             .iter()
             .filter(|msg| msg.variant == PacketType::Block)
             .count()
-            <= 5
+            <= self.finalization_span() as usize
     }
 
     pub fn get_metadata(&self) -> SkovResult {
