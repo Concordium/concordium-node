@@ -136,6 +136,8 @@ pub enum GlobalStateResult {
 /// If there are two components, the first one is the target and the second is
 /// the source
 pub enum GlobalStateError {
+    // a non-existent Block
+    MissingBlock(HashBytes),
     // the parent block is not in the tree
     MissingParentBlock(HashBytes, HashBytes),
     // the target last finalized block is not in the tree
@@ -153,6 +155,9 @@ pub enum GlobalStateError {
 impl fmt::Display for GlobalStateError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let msg = match self {
+            GlobalStateError::MissingBlock(ref hash) => {
+                format!("block {:?} does not exist in the store!", hash)
+            }
             GlobalStateError::MissingParentBlock(ref parent, ref pending) => format!(
                 "block {:?} is pointing to a parent ({:?}) that is not in the tree",
                 pending, parent
