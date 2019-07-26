@@ -40,7 +40,8 @@ import Data.Serialize.Get
 import Data.Maybe
 import Lens.Micro.Platform
 import Control.Monad.State.Class
-import Control.Monad.State
+import Control.Monad.IO.Class
+import Control.Monad
 
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
@@ -54,6 +55,13 @@ import Concordium.Afgjort.WMVBA
 import Concordium.Afgjort.Freeze (FreezeMessage(..))
 import Concordium.Kontrol.BestBlock
 import Concordium.Logger
+
+atStrict :: (Ord k) => k -> Lens' (Map k v) (Maybe v)
+atStrict k f m = f mv <&> \r -> case r of
+        Nothing -> maybe m (const (Map.delete k m)) mv
+        Just v' -> Map.insert k v' m
+    where mv = Map.lookup k m
+{-# INLINE atStrict #-}
 
 members :: (Ord a) => a -> Lens' (Set a) Bool
 members e = lens (Set.member e) upd
@@ -181,7 +189,7 @@ ancestorAtHeight h bp
     | otherwise = error "ancestorAtHeight: block is below required height"
 
 data PendingMessage = PendingMessage !Party !WMVBAMessage !Sig.Signature
-    deriving (Eq, Ord)
+    deriving (Eq, Ord, Show)
 
 type PendingMessageMap = Map FinalizationIndex (Map BlockHeight (Set PendingMessage))
 
@@ -300,7 +308,7 @@ newRound newDelta me = do
             }
             toFinMsg (PendingMessage src msg sig) = FinalizationMessage (msgHdr src) msg sig
         -- Filter the messages that have valid signatures and reference legitimate parties
-        pmsgs <- finPendingMessages . at finIx . non Map.empty . at newDelta . non Set.empty <%= Set.filter (checkMessage committee . toFinMsg)
+        pmsgs <- finPendingMessages . atStrict finIx . non Map.empty . atStrict newDelta . non Set.empty <%= Set.filter (checkMessage committee . toFinMsg)
         -- Justify the blocks
         forM_ justifiedInputs $ \i -> do
             logEvent Afgjort LLTrace $ "Justified input at " ++ show finIx ++ ": " ++ show i
@@ -392,7 +400,7 @@ receiveFinalizationMessage msg@FinalizationMessage{msgHeader=FinalizationMessage
                 LT -> return ResultStale -- message is out of date
                 GT -> do
                     -- Save the message for a later finalization index
-                    isDuplicate <- finPendingMessages . at msgFinalizationIndex . non Map.empty . at msgDelta . non Set.empty . members (PendingMessage msgSenderIndex msgBody msgSignature) <<.= True
+                    isDuplicate <- finPendingMessages . atStrict msgFinalizationIndex . non Map.empty . atStrict msgDelta . non Set.empty . members (PendingMessage msgSenderIndex msgBody msgSignature) <<.= True
                     if isDuplicate then
                         return ResultDuplicate
                     else do
@@ -405,7 +413,7 @@ receiveFinalizationMessage msg@FinalizationMessage{msgHeader=FinalizationMessage
                 EQ -> -- handle the message now, since it's the current round
                     if checkMessage _finsCommittee msg then do
                         -- Save the message
-                        isDuplicate <- finPendingMessages . at msgFinalizationIndex . non Map.empty . at msgDelta . non Set.empty . members (PendingMessage msgSenderIndex msgBody msgSignature) <<.= True
+                        isDuplicate <- finPendingMessages . atStrict msgFinalizationIndex . non Map.empty . atStrict msgDelta . non Set.empty . members (PendingMessage msgSenderIndex msgBody msgSignature) <<.= True
                         if isDuplicate then
                             return ResultDuplicate
                         else do
@@ -453,7 +461,9 @@ notifyBlockFinalized :: (FinalizationMonad s m, BlockPointerData bp) => Finaliza
 notifyBlockFinalized FinalizationRecord{..} bp = do
         finIndex .= finalizationIndex + 1
         -- Discard finalization messages from old round
-        finPendingMessages . at finalizationIndex .= Nothing
+        finPendingMessages . atStrict finalizationIndex .= Nothing
+        pms <- use finPendingMessages
+        logEvent Afgjort LLTrace $ "Finalization complete. Pending messages: " ++ show pms
         let newFinDelay = if finalizationDelay > 2 then finalizationDelay `div` 2 else 1
         fs <- use finMinSkip
         finHeight .= bpHeight bp + max (1 + fs) ((bpHeight bp - bpHeight (bpLastFinalized bp)) `div` 2)
@@ -570,7 +580,7 @@ passiveReceiveFinalizationMessage FinalizationMessage{msgHeader=FinalizationMess
                 return ResultStale
             else do
                 -- Save the message
-                isDuplicate <- pfinPendingMessages . at msgFinalizationIndex . non Map.empty . at msgDelta . non Set.empty . members (PendingMessage msgSenderIndex msgBody msgSignature) <<.= True
+                isDuplicate <- pfinPendingMessages . atStrict msgFinalizationIndex . non Map.empty . atStrict msgDelta . non Set.empty . members (PendingMessage msgSenderIndex msgBody msgSignature) <<.= True
                 if isDuplicate then
                     return ResultDuplicate
                 else
@@ -584,4 +594,4 @@ passiveNotifyBlockFinalized :: (MonadState s m, PassiveFinalizationStateLenses s
 passiveNotifyBlockFinalized FinalizationRecord{..} = do
         pfinIndex .= finalizationIndex + 1
         -- Discard finalization messages from old round
-        pfinPendingMessages . at finalizationIndex .= Nothing
+        pfinPendingMessages . atStrict finalizationIndex .= Nothing

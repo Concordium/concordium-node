@@ -15,6 +15,7 @@ import Data.List
 import Concordium.Afgjort.Types
 import Concordium.Afgjort.CSS
 import Concordium.Afgjort.CSS.NominationSet
+import qualified Concordium.Afgjort.CSS.BitSet as BitSet
 
 
 import Test.QuickCheck
@@ -27,8 +28,8 @@ invariantCSSState totalWeight corruptWeight partyWeight s = do
             let iSawSet = (nomTop $ s ^. iSaw) `Set.union` (nomBot $ s ^. iSaw)
             when (s ^. topJustified) $ checkBinary Set.isSubsetOf (s ^. inputTop) iSawSet "subsumed by" "[justified] top inputs" "iSaw"
             when (s ^. botJustified) $ checkBinary Set.isSubsetOf (s ^. inputBot) iSawSet "subsumed by" "[justified] bottom inputs" "iSaw"
-        forM_ (Map.toList $ s ^. sawTop) $ \(src, (tot, m)) -> checkBinary (==) (sumPartyWeights m) tot "==" ("computed weight of parties seeing (" ++ show src ++ ", top)") "given weight"
-        forM_ (Map.toList $ s ^. sawBot) $ \(src, (tot, m)) -> checkBinary (==) (sumPartyWeights m) tot "==" ("computed weight of parties seeing (" ++ show src ++ ", bottom)") "given weight"
+        forM_ (Map.toList $ s ^. sawTop) $ \(src, (PartySet tot m)) -> checkBinary (==) (sumPartyWeights m) tot "==" ("computed weight of parties seeing (" ++ show src ++ ", top)") "given weight"
+        forM_ (Map.toList $ s ^. sawBot) $ \(src, (PartySet tot m)) -> checkBinary (==) (sumPartyWeights m) tot "==" ("computed weight of parties seeing (" ++ show src ++ ", bottom)") "given weight"
         forM_ (nominationSetToList (s ^. iSaw)) $ \(p,c) -> do
             unless (s ^. justified c) $ Left $ "iSaw contains " ++ show (p,c) ++ " but the choice is not justified"
             unless (p `Set.member` (s ^. input c)) $ Left $ "iSaw contains " ++ show (p,c) ++ ", which is not in the input"
@@ -39,10 +40,11 @@ invariantCSSState totalWeight corruptWeight partyWeight s = do
                 when (s ^. sawJustified seer c seen) $ Left $ "unjustifiedDoneReporting " ++ show seer ++ " waiting on " ++ show (seen,c) ++ " which is seen and justified"
         checkBinary (==) (isJust $ s ^. core) (s ^. justifiedDoneReportingWeight >= totalWeight - corruptWeight) "<->" "core determined" "justifiedDoneReporting >= totalWeight - corruptWeight"
     where
-        sumPartyWeights = Set.foldl (\w k -> w + partyWeight k) 0
-        computedManySawWeight = sumPartyWeights (Map.keysSet $ s ^. manySaw)
+        sumPartyWeights = BitSet.foldl (\w k -> w + partyWeight k) 0
+        sumPartyWeights' = foldl (\w k -> w + partyWeight k) 0
+        computedManySawWeight = sumPartyWeights' (Map.keysSet $ s ^. manySaw)
         checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
-        computedManySaw' c = if s ^. justified c then (const (Just c)) <$> Map.filter (\(w,_) -> w >= totalWeight - corruptWeight) ((s ^. saw c) `Map.intersection` (Map.fromSet (const c) $ s ^. input c)) else Map.empty
+        computedManySaw' c = if s ^. justified c then (const (Just c)) <$> Map.filter (\(PartySet w _) -> w >= totalWeight - corruptWeight) ((s ^. saw c) `Map.intersection` (Map.fromSet (const c) $ s ^. input c)) else Map.empty
         computedManySaw = Map.unionWith (const $ const Nothing) (computedManySaw' True) (computedManySaw' False)
         computedJustifiedDoneReportingWeight = sum $ partyWeight <$> Set.toList (s ^. justifiedDoneReporting)
 

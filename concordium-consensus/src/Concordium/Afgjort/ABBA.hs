@@ -36,6 +36,13 @@ import Concordium.Afgjort.Lottery
 import Concordium.Afgjort.CSS
 import Concordium.Afgjort.CSS.NominationSet
 
+atStrict :: (Ord k) => k -> Lens' (Map k v) (Maybe v)
+atStrict k f m = f mv <&> \r -> case r of
+        Nothing -> maybe m (const (Map.delete k m)) mv
+        Just v' -> Map.insert k v' m
+    where mv = Map.lookup k m
+{-# INLINE atStrict #-}
+
 -- |A phase in the ABBA protocol
 type Phase = Word32
 
@@ -122,7 +129,7 @@ makeLenses ''ABBAState
 -- |The state of a particular phase
 phaseState :: Phase -> Lens' ABBAState PhaseState
 phaseState p = lens (\s -> fromMaybe initialPhaseState (_phaseStates s ^. at p))
-    (\s t -> s & phaseStates . at p ?~ t)
+    (\s t -> s & phaseStates . atStrict p ?~ t)
 
 -- |The set of parties claiming we are done with a given choice
 weAreDone :: Choice -> Lens' ABBAState (Set Party)
@@ -298,7 +305,7 @@ receiveABBAMessage src (Justified phase c ticketProof) = unlessCompleted $ do
     ABBAInstance{..} <- ask
     liftCSSReceiveMessage phase src (Input c)
     let ticket = proofToTicket ticketProof (partyWeight src) totalWeight
-    phaseState phase . lotteryTickets . at (ticketValue ticket, src) ?= ticket
+    phaseState phase . lotteryTickets . atStrict (ticketValue ticket, src) ?= ticket
     inputw <- use $ phaseState phase . inputWeight c
     forM_ inputw $ \(w, ps) -> unless (src `Set.member` ps) $
         if w + partyWeight src > corruptWeight then do

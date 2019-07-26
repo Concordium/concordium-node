@@ -74,7 +74,7 @@ getUntaggedNominationSet tag = do
                     Set.fromAscList <$> getParties minParty
                 else
                     return Set.empty
-        return (NominationSet{..})
+        return $! (NominationSet{..})
 
 emptyNominationSet :: NominationSet
 emptyNominationSet = NominationSet minParty Set.empty Set.empty
