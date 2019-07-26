@@ -368,11 +368,6 @@ fn process_external_skov_entry(
                 Some(msg_desc),
                 &result,
             );
-
-            if return_type == PacketType::GlobalStateMetadata && skov.state() == SkovState::Complete
-            {
-                send_finalization_point(node, consensus, source, network_id);
-            }
         }
         SkovResult::DuplicateEntry => {
             warn!("Skov: got a duplicate {}", request);
