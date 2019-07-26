@@ -72,10 +72,10 @@ definition checkAmount (addr :: {address}) (dict :: Map.Map {address} Int64) (x 
 
 contract Counter where
 
-  init (ia :: Prod.Pair Int64 <address>) (c :: Blockchain.InitContext) (addr :: {address}) (amount :: Prim.Amount) =
+  init (ia :: Prod.Pair Int64 <address>) (c :: Blockchain.InitContext) (addr :: {address}) (amount :: Amount) =
     ModelCnt (Prod.fst [Int64] [<address>] ia) (Prod.snd [Int64] [<address>] ia)
 
-  receive (c :: Blockchain.ReceiveContext) (model :: ModelCnt) (callerOr :: Blockchain.Caller) (amount :: Prim.Amount) (msg :: Maybe.Maybe MsgCnt) =
+  receive (c :: Blockchain.ReceiveContext) (model :: ModelCnt) (callerOr :: Blockchain.Caller) (amount :: Amount) (msg :: Maybe.Maybe MsgCnt) =
     case msg of
       Maybe.Nothing -> mkReturnCounter model Prim.TxNone
       Maybe.Just msg' ->
@@ -99,10 +99,10 @@ contract Counter where
 
 contract Recorder where
 
-  init (params :: Unit.Unit) (c :: Blockchain.InitContext) (addr :: {address}) (amount :: Prim.Amount) =
+  init (params :: Unit.Unit) (c :: Blockchain.InitContext) (addr :: {address}) (amount :: Amount) =
       ModelRec (AccountAddressMap.empty [Int64])
 
-  receive (c :: Blockchain.ReceiveContext) (model :: ModelRec) (caller :: Blockchain.Caller) (amount :: Prim.Amount) (msg :: Maybe.Maybe MsgRec) =
+  receive (c :: Blockchain.ReceiveContext) (model :: ModelRec) (caller :: Blockchain.Caller) (amount :: Amount) (msg :: Maybe.Maybe MsgRec) =
       case msg of
         Maybe.Nothing -> mkReturnRecorder model Prim.TxReject
         Maybe.Just msg ->

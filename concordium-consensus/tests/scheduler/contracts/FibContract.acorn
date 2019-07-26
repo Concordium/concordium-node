@@ -21,10 +21,10 @@ definition lookup = IntMap.lookup [Int64]
 
 contract Fibonacci where
 
-  init (ia :: Unit.Unit) (c :: Blockchain.InitContext) (addr :: {address}) (amount :: Prim.Amount) =
+  init (ia :: Unit.Unit) (c :: Blockchain.InitContext) (addr :: {address}) (amount :: Amount) =
     baseValues
 
-  receive (c :: Blockchain.ReceiveContext) (model :: Map.Map Int64 Int64) (caller :: Blockchain.Caller) (amount :: Prim.Amount) (msg :: Maybe.Maybe MsgFib) =
+  receive (c :: Blockchain.ReceiveContext) (model :: Map.Map Int64 Int64) (caller :: Blockchain.Caller) (amount :: Amount) (msg :: Maybe.Maybe MsgFib) =
     case msg of
       Maybe.Nothing -> mkReturn model Prim.TxNone
       Maybe.Just msg' -> 
