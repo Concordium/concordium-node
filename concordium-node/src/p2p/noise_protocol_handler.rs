@@ -242,7 +242,7 @@ impl NoiseProtocolHandler {
         let networks = self.networks();
         let key_pair = clone_snow_keypair(&self.key_pair);
 
-        let mut conn = ConnectionBuilder::default()
+        let conn = ConnectionBuilder::default()
             .set_socket(socket)
             .set_token(token)
             .set_key_pair(key_pair)
@@ -257,7 +257,7 @@ impl NoiseProtocolHandler {
             .set_noise_params(self.noise_params.clone())
             .build()?;
 
-        self.register_message_handlers(&mut conn);
+        self.register_message_handlers(&conn);
 
         conn.setup_pre_handshake();
         conn.setup_post_handshake();
@@ -317,7 +317,7 @@ impl NoiseProtocolHandler {
                 let token = Token(self.next_id.fetch_add(1, Ordering::SeqCst));
                 let networks = self.networks();
                 let keypair = clone_snow_keypair(&self.key_pair);
-                let mut conn = ConnectionBuilder::default()
+                let conn = ConnectionBuilder::default()
                     .set_socket(socket)
                     .set_token(token)
                     .set_key_pair(keypair)
@@ -333,7 +333,7 @@ impl NoiseProtocolHandler {
                     .set_noise_params(self.noise_params.clone())
                     .build()?;
 
-                self.register_message_handlers(&mut conn);
+                self.register_message_handlers(&conn);
                 conn.setup_pre_handshake();
                 conn.setup_post_handshake();
                 conn.register(poll)?;
@@ -387,7 +387,7 @@ impl NoiseProtocolHandler {
     }
 
     /// It adds all message handler callback to this connection.
-    fn register_message_handlers(&self, conn: &mut Connection) {
+    fn register_message_handlers(&self, conn: &Connection) {
         let mh = self.message_processor.clone();
         conn.common_message_processor.add(mh);
     }

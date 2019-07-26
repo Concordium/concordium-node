@@ -86,7 +86,7 @@ impl ConnectionPrivate {
         self.sent_ping.store(get_current_stamp(), Ordering::SeqCst)
     }
 
-    pub fn remote_peer(&self) -> RemotePeer { self.remote_peer.clone() }
+    pub fn remote_peer(&self) -> RemotePeer { self.remote_peer }
 
     pub fn promote_to_post_handshake(&mut self, id: P2PNodeId, addr: SocketAddr) -> Fallible<()> {
         self.status = ConnectionStatus::PostHandshake;

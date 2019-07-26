@@ -89,7 +89,7 @@ impl Deserializable for PeerType {
 // completed, the type is upgraded to `PostHandshake` and at this point
 // will contain the full `P2PPeer` struct, which also contains the
 // `PeerType` carried over from the previous state.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum RemotePeer {
     PreHandshake(PeerType, SocketAddr),
     PostHandshake(P2PPeer),
