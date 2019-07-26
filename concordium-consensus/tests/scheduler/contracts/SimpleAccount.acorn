@@ -8,10 +8,10 @@ import Blockchain
 
 contract Account where
 
-  init (ia :: Unit.Unit) (c :: Blockchain.InitContext) (addr :: {address}) (amount :: Prim.Amount) =
+  init (ia :: Unit.Unit) (c :: Blockchain.InitContext) (addr :: {address}) (amount :: Amount) =
     ia
 
-  receive (c :: Blockchain.ReceiveContext) (model :: Unit.Unit) (caller :: Blockchain.Caller) (amount :: Prim.Amount) (msg :: Maybe.Maybe Unit.Unit) =
+  receive (c :: Blockchain.ReceiveContext) (model :: Unit.Unit) (caller :: Blockchain.Caller) (amount :: Amount) (msg :: Maybe.Maybe Unit.Unit) =
     case msg of
       Maybe.Nothing -> Prod.Pair [Unit.Unit] [Prim.Transaction] model Prim.TxNone
       Maybe.Just msg' -> Prod.Pair [Unit.Unit] [Prim.Transaction] model Prim.TxReject
