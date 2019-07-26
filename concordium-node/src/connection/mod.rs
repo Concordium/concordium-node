@@ -201,7 +201,7 @@ impl Connection {
         rh
     }
 
-    pub fn setup_post_handshake(&mut self) {
+    pub fn setup_post_handshake(&self) {
         let request_handler = self.make_request_handler();
         let response_handler = self.make_response_handler();
         let last_seen_response_handler = self.make_update_last_seen_handler();
@@ -235,7 +235,7 @@ impl Connection {
         }
     }
 
-    pub fn set_measured_handshake_sent(&mut self) {
+    pub fn set_measured_handshake_sent(&self) {
         read_or_die!(self.dptr)
             .sent_handshake
             .store(get_current_stamp(), Ordering::SeqCst)
@@ -316,7 +316,7 @@ impl Connection {
     }
 
     #[inline]
-    pub fn set_log_dumper(&mut self, log_dumper: Option<SyncSender<DumpItem>>) {
+    pub fn set_log_dumper(&self, log_dumper: Option<SyncSender<DumpItem>>) {
         write_or_die!(self.dptr).set_log_dumper(log_dumper);
     }
 
@@ -324,7 +324,7 @@ impl Connection {
     /// handlers.
     fn process_message(&self, message: UCursor) -> Fallible<ProcessResult> {
         let mut archive =
-            ReadArchiveAdapter::new(message, self.remote_peer().clone(), self.remote_addr().ip());
+            ReadArchiveAdapter::new(message, self.remote_peer(), self.remote_addr().ip());
         let message = NetworkMessage::deserialize(&mut archive)?;
         let outer = Arc::new(message);
 
@@ -344,7 +344,7 @@ impl Connection {
     }
 
     #[cfg(test)]
-    pub fn validate_packet_type_test(&mut self, msg: &[u8]) -> Readiness<bool> {
+    pub fn validate_packet_type_test(&self, msg: &[u8]) -> Readiness<bool> {
         write_or_die!(self.dptr).validate_packet_type(msg)
     }
 
@@ -359,7 +359,7 @@ impl Connection {
     pub fn buckets(&self) -> Arc<RwLock<Buckets>> { Arc::clone(&read_or_die!(self.dptr).buckets) }
 
     #[inline]
-    pub fn promote_to_post_handshake(&mut self, id: P2PNodeId, addr: SocketAddr) -> Fallible<()> {
+    pub fn promote_to_post_handshake(&self, id: P2PNodeId, addr: SocketAddr) -> Fallible<()> {
         write_or_die!(self.dptr).promote_to_post_handshake(id, addr)
     }
 
@@ -387,7 +387,7 @@ impl Connection {
 
     #[inline]
     pub fn async_send_from_poll_loop(
-        &mut self,
+        &self,
         input: UCursor,
         priority: MessageSendingPriority,
     ) -> Fallible<Readiness<usize>> {
@@ -474,14 +474,14 @@ mod tests {
         await_handshake(&w1)?;
 
         // Deregister connection on the node side
-        let mut conn_node = node
+        let conn_node = node
             .noise_protocol_handler
             .find_connection_by_id(bootstrapper.id())
             .unwrap();
         node.deregister_connection(&conn_node)?;
 
         // Deregister connection on the bootstrapper side
-        let mut conn_bootstrapper = bootstrapper
+        let conn_bootstrapper = bootstrapper
             .noise_protocol_handler
             .find_connection_by_id(node.id())
             .unwrap();
