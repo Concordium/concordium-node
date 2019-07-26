@@ -76,6 +76,9 @@ mateuszAccount = AH.accountAddress (Sig.verifyKey mateuszKP) Ed25519
 mateuszKP :: KeyPair
 mateuszKP = fst (randomKeyPair (mkStdGen 0))
 
+mateuszKP' :: KeyPair
+mateuszKP' = fst (randomKeyPair (mkStdGen 1))
+
 blockPointer :: BlockHash
 blockPointer = Hash (FBS.pack (replicate 32 (fromIntegral (0 :: Word))))
 
@@ -103,9 +106,11 @@ initialState birkParams cryptoParams bakerAccounts ips n =
                                         ,Left "test/contracts/SimpleCounter.acorn"]
                             )
         initialAmount = 2 ^ (62 :: Int)
+        customAccounts = [newAccount (Sig.verifyKey mateuszKP) Ed25519 & accountAmount .~ initialAmount,
+                          newAccount (Sig.verifyKey mateuszKP') Ed25519 & accountAmount .~ initialAmount]
         initAccount = foldl (flip Acc.putAccount)
-                            (Acc.putAccount (newAccount (Sig.verifyKey mateuszKP) Ed25519 & accountAmount .~ initialAmount) Acc.emptyAccounts)
-                            bakerAccounts
+                            Acc.emptyAccounts
+                            (customAccounts ++ bakerAccounts)
         gs = BlockState.emptyBlockState birkParams cryptoParams &
                (BlockState.blockIdentityProviders .~ Types.IdentityProviders (Map.fromList (map (\r -> (Types.ipIdentity r, r)) ips))) .
                (BlockState.blockAccounts .~ initAccount) .
