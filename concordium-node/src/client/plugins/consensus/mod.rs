@@ -26,9 +26,10 @@ use concordium_global_state::{
     transaction::Transaction,
     tree::{
         messaging::{
-            ConsensusMessage, DistributionMode, MessageType, SkovError, SkovMetadata, SkovResult,
+            ConsensusMessage, DistributionMode, GlobalMetadata, GlobalStateError,
+            GlobalStateResult, MessageType,
         },
-        Skov, SkovState,
+        GlobalState, ProcessingState,
     },
 };
 
@@ -154,7 +155,7 @@ pub fn handle_global_state_request(
     network_id: NetworkId,
     consensus: &mut consensus::ConsensusContainer,
     request: ConsensusMessage,
-    skov: &mut Skov,
+    skov: &mut GlobalState,
     stats_exporting: &Option<StatsExportService>,
 ) -> Fallible<()> {
     if let MessageType::Outbound(_) = request.direction {
@@ -180,7 +181,7 @@ fn process_internal_skov_entry(
     node: &P2PNode,
     network_id: NetworkId,
     request: ConsensusMessage,
-    skov: &mut Skov,
+    skov: &mut GlobalState,
 ) -> Fallible<()> {
     let (entry_info, skov_result) = match request.variant {
         PacketType::Block => {
@@ -197,23 +198,23 @@ fn process_internal_skov_entry(
             error!("Consensus should not be missing any data!");
             return Ok(());
         }
-        _ => (request.variant.to_string(), SkovResult::IgnoredEntry),
+        _ => (request.variant.to_string(), GlobalStateResult::IgnoredEntry),
     };
 
     match skov_result {
-        SkovResult::SuccessfulEntry(entry) => {
+        GlobalStateResult::SuccessfulEntry(entry) => {
             trace!(
-                "Skov: successfully processed a {} from our consensus layer",
+                "GlobalState: successfully processed a {} from our consensus layer",
                 entry
             );
         }
-        SkovResult::IgnoredEntry => {
+        GlobalStateResult::IgnoredEntry => {
             trace!(
-                "Skov: ignoring a {} from our consensus layer",
+                "GlobalState: ignoring a {} from our consensus layer",
                 request.variant
             );
         }
-        SkovResult::Error(e) => skov.register_error(e),
+        GlobalStateResult::Error(e) => skov.register_error(e),
         _ => {}
     }
 
@@ -234,7 +235,7 @@ fn process_external_skov_entry(
     network_id: NetworkId,
     consensus: &mut consensus::ConsensusContainer,
     request: ConsensusMessage,
-    skov: &mut Skov,
+    skov: &mut GlobalState,
 ) -> Fallible<()> {
     let self_node_id = node.self_peer.id;
     let source = P2PNodeId(request.source_peer());
@@ -273,31 +274,31 @@ fn process_external_skov_entry(
         }
         PacketType::GlobalStateMetadata => {
             let skov_result = if skov.peer_metadata.get(&source.0).is_none() {
-                let metadata = SkovMetadata::deserialize(&request.payload)?;
+                let metadata = GlobalMetadata::deserialize(&request.payload)?;
                 skov.register_peer_metadata(request.source_peer(), metadata)
             } else {
-                SkovResult::IgnoredEntry
+                GlobalStateResult::IgnoredEntry
             };
             (skov_result, false)
         }
-        PacketType::GlobalStateMetadataRequest => (skov.get_metadata(), false),
+        PacketType::GlobalStateMetadataRequest => (skov.get_serialized_metadata(), false),
         PacketType::FullCatchupRequest => {
             let since = NetworkEndian::read_u64(&request.payload[..8]);
             send_catch_up_response(node, &skov, source, network_id, since);
             (
-                SkovResult::SuccessfulEntry(PacketType::FullCatchupRequest),
+                GlobalStateResult::SuccessfulEntry(PacketType::FullCatchupRequest),
                 false,
             )
         }
         PacketType::FullCatchupComplete => (
-            SkovResult::SuccessfulEntry(PacketType::FullCatchupComplete),
+            GlobalStateResult::SuccessfulEntry(PacketType::FullCatchupComplete),
             false,
         ),
-        _ => (SkovResult::IgnoredEntry, true), // will be expanded later on
+        _ => (GlobalStateResult::IgnoredEntry, true), // will be expanded later on
     };
 
     match skov_result {
-        SkovResult::SuccessfulEntry(entry_type) => {
+        GlobalStateResult::SuccessfulEntry(entry_type) => {
             trace!(
                 "Peer {} successfully processed a {}",
                 node.self_peer.id,
@@ -307,12 +308,7 @@ fn process_external_skov_entry(
             // reply to peer metadata with own metadata and begin catching up and/or baking
             match entry_type {
                 PacketType::GlobalStateMetadata => {
-                    let response_metadata =
-                        if let SkovResult::SuccessfulQuery(metadata) = skov.get_metadata() {
-                            metadata
-                        } else {
-                            unreachable!(); // impossible
-                        };
+                    let response_metadata = skov.get_metadata().serialize();
 
                     send_consensus_msg_to_net(
                         &node,
@@ -323,14 +319,16 @@ fn process_external_skov_entry(
                         &response_metadata,
                     );
 
-                    if skov.state() == SkovState::JustStarted {
-                        if let SkovResult::BestPeer((best_peer, best_meta)) = skov.best_metadata() {
+                    if skov.state() == ProcessingState::JustStarted {
+                        if let GlobalStateResult::BestPeer((best_peer, best_meta)) =
+                            skov.best_metadata()
+                        {
                             if best_meta.is_usable() {
                                 send_catch_up_request(node, P2PNodeId(best_peer), network_id, 0);
-                                skov.start_catchup_round(SkovState::FullyCatchingUp);
+                                skov.start_catchup_round(ProcessingState::FullyCatchingUp);
                             } else {
                                 consensus.start_baker();
-                                skov.data.state = SkovState::Complete;
+                                skov.data.state = ProcessingState::Complete;
                             }
                         }
 
@@ -343,16 +341,13 @@ fn process_external_skov_entry(
                 _ => {}
             }
         }
-        SkovResult::SuccessfulQuery(result) => {
+        GlobalStateResult::SuccessfulQuery(result) => {
             let return_type = match request.variant {
-                PacketType::CatchupBlockByHash => PacketType::Block,
-                PacketType::CatchupFinalizationRecordByHash => PacketType::FinalizationRecord,
-                PacketType::CatchupFinalizationRecordByIndex => PacketType::FinalizationRecord,
                 PacketType::GlobalStateMetadataRequest => PacketType::GlobalStateMetadata,
                 _ => unreachable!("Impossible packet type in a query result!"),
             };
 
-            let msg_desc = if skov.state() == SkovState::JustStarted
+            let msg_desc = if skov.state() == ProcessingState::JustStarted
                 && request.variant == PacketType::GlobalStateMetadataRequest
             {
                 return_type.to_string()
@@ -369,18 +364,18 @@ fn process_external_skov_entry(
                 &result,
             );
         }
-        SkovResult::DuplicateEntry => {
-            warn!("Skov: got a duplicate {}", request);
+        GlobalStateResult::DuplicateEntry => {
+            warn!("GlobalState: got a duplicate {}", request);
         }
-        SkovResult::Error(err) => {
+        GlobalStateResult::Error(err) => {
             match err {
-                SkovError::MissingParentBlock(..)
-                | SkovError::MissingLastFinalizedBlock(..)
-                | SkovError::LastFinalizedNotFinalized(..)
-                | SkovError::MissingBlockToFinalize(..) => {
+                GlobalStateError::MissingParentBlock(..)
+                | GlobalStateError::MissingLastFinalizedBlock(..)
+                | GlobalStateError::LastFinalizedNotFinalized(..)
+                | GlobalStateError::MissingBlockToFinalize(..) => {
                     let curr_height = skov.data.get_last_finalized_height();
                     send_catch_up_request(node, source, network_id, curr_height);
-                    skov.start_catchup_round(SkovState::FullyCatchingUp);
+                    skov.start_catchup_round(ProcessingState::FullyCatchingUp);
                 }
                 _ => {}
             }
@@ -394,7 +389,7 @@ fn process_external_skov_entry(
         send_msg_to_consensus(self_node_id, source, consensus, request)?
     }
 
-    if skov.state() == SkovState::PartiallyCatchingUp && skov.is_tree_valid() {
+    if skov.state() == ProcessingState::PartiallyCatchingUp && skov.is_tree_valid() {
         conclude_catch_up_round(node, network_id, consensus, skov)?;
     }
 
@@ -405,7 +400,7 @@ pub fn apply_delayed_broadcasts(
     node: &P2PNode,
     network_id: NetworkId,
     baker: &mut consensus::ConsensusContainer,
-    skov: &mut Skov,
+    skov: &mut GlobalState,
 ) -> Fallible<()> {
     let delayed_broadcasts = skov.get_delayed_broadcasts();
 
@@ -440,7 +435,7 @@ fn send_msg_to_consensus(
         CatchupFinalizationMessagesByPoint => {
             consensus.get_finalization_messages(&request.payload, raw_id)
         }
-        _ => unreachable!("Impossible! A Skov-only request was passed on to consensus"),
+        _ => unreachable!("Impossible! A GlobalState-only request was passed on to consensus"),
     };
 
     if consensus_response.is_acceptable() {
@@ -542,7 +537,7 @@ fn send_catch_up_request(
 
 fn send_catch_up_response(
     node: &P2PNode,
-    skov: &Skov,
+    skov: &GlobalState,
     target: P2PNodeId,
     network: NetworkId,
     since: BlockHeight,
@@ -580,7 +575,7 @@ fn conclude_catch_up_round(
     node: &P2PNode,
     network_id: NetworkId,
     consensus: &mut consensus::ConsensusContainer,
-    skov: &mut Skov,
+    skov: &mut GlobalState,
 ) -> Fallible<()> {
     skov.end_catchup_round();
     apply_delayed_broadcasts(node, network_id, consensus, skov)?;

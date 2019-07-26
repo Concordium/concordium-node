@@ -9,41 +9,44 @@ use rkv::{Rkv, SingleStore, StoreOptions};
 
 use std::{convert::TryFrom, fmt, mem, rc::Rc};
 
-use crate::{block::*, common::SerializeToBytes, finalization::*, transaction::*};
+use crate::{block::*, finalization::*, transaction::*};
 
 pub type PeerId = u64;
 
 pub mod messaging;
 
-use messaging::{ConsensusMessage, SkovError, SkovMetadata, SkovResult};
+use messaging::{ConsensusMessage, GlobalMetadata, GlobalStateError, GlobalStateResult};
 
 use self::PendingQueueType::*;
 
 /// Holds the global state and related statistics.
-pub struct Skov<'a> {
-    pub data:          SkovData<'a>,
-    pub stats:         SkovStats,
-    pub peer_metadata: IntMap<PeerId, SkovMetadata>,
+pub struct GlobalState<'a> {
+    pub data:          GlobalData<'a>,
+    pub stats:         GlobalStats,
+    pub peer_metadata: IntMap<PeerId, GlobalMetadata>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum SkovState {
+pub enum ProcessingState {
     JustStarted = 0,
     FullyCatchingUp,
     PartiallyCatchingUp,
     Complete,
 }
 
-impl TryFrom<u8> for SkovState {
+impl TryFrom<u8> for ProcessingState {
     type Error = failure::Error;
 
     fn try_from(value: u8) -> Fallible<Self> {
         match value {
-            0 => Ok(SkovState::JustStarted),
-            1 => Ok(SkovState::FullyCatchingUp),
-            2 => Ok(SkovState::PartiallyCatchingUp),
-            3 => Ok(SkovState::Complete),
-            _ => Err(format_err!("Unsupported Skov state value: {}!", value)),
+            0 => Ok(ProcessingState::JustStarted),
+            1 => Ok(ProcessingState::FullyCatchingUp),
+            2 => Ok(ProcessingState::PartiallyCatchingUp),
+            3 => Ok(ProcessingState::Complete),
+            _ => Err(format_err!(
+                "Unsupported GlobalState state value: {}!",
+                value
+            )),
         }
     }
 }
@@ -65,46 +68,47 @@ macro_rules! timed {
     }};
 }
 
-impl<'a> Skov<'a> {
+impl<'a> GlobalState<'a> {
     #[doc(hidden)]
     pub fn new(genesis_data: &[u8], kvs_env: &'a Rkv) -> Self {
         const MOVING_AVERAGE_QUEUE_LEN: usize = 16;
 
         Self {
-            data:          SkovData::new(genesis_data, &kvs_env),
-            stats:         SkovStats::new(MOVING_AVERAGE_QUEUE_LEN),
+            data:          GlobalData::new(genesis_data, &kvs_env),
+            stats:         GlobalStats::new(MOVING_AVERAGE_QUEUE_LEN),
             peer_metadata: Default::default(),
         }
     }
 
-    /// Save a Skov error.
-    pub fn register_error(&mut self, err: SkovError) {
+    /// Save a GlobalState error.
+    pub fn register_error(&mut self, err: GlobalStateError) {
         warn!("{}", err);
         self.stats.errors.push(err)
     }
 
     /// Indicate that a catch-up round has commenced and that it must conclude
     /// before any new global state input is accepted.
-    pub fn start_catchup_round(&mut self, kind: SkovState) -> SkovResult {
+    pub fn start_catchup_round(&mut self, kind: ProcessingState) -> GlobalStateResult {
         self.data.state = kind;
         info!("A catch-up round has begun");
-        SkovResult::Housekeeping
+        GlobalStateResult::Housekeeping
     }
 
     /// Indicate that a catch-up round has finished.
-    pub fn end_catchup_round(&mut self) -> SkovResult {
-        self.data.state = SkovState::Complete;
+    pub fn end_catchup_round(&mut self) -> GlobalStateResult {
+        self.data.state = ProcessingState::Complete;
         self.peer_metadata.clear();
         info!("A catch-up round was successfully completed");
-        SkovResult::Housekeeping
+        GlobalStateResult::Housekeeping
     }
 
     pub fn is_catching_up(&self) -> bool {
-        self.state() == SkovState::FullyCatchingUp || self.state() == SkovState::PartiallyCatchingUp
+        self.state() == ProcessingState::FullyCatchingUp
+            || self.state() == ProcessingState::PartiallyCatchingUp
     }
 
     pub fn is_tree_valid(&self) -> bool {
-        self.data.block_tree.len() + self.data.tree_candidates.len() > 1
+        self.data.finalized_blocks.len() + self.data.live_blocks.len() > 1
             && self.data.pending_queue_ref(AwaitingParentBlock).is_empty()
             && self
                 .data
@@ -117,7 +121,7 @@ impl<'a> Skov<'a> {
             && self.data.inapplicable_finalization_records.is_empty()
     }
 
-    pub fn state(&self) -> SkovState { self.data.state }
+    pub fn state(&self) -> ProcessingState { self.data.state }
 
     pub fn delay_broadcast(&mut self, broadcast: ConsensusMessage) {
         self.data.delayed_broadcasts.push(broadcast);
@@ -140,22 +144,12 @@ impl<'a> Skov<'a> {
             <= self.finalization_span() as usize
     }
 
-    pub fn get_metadata(&self) -> SkovResult {
-        let metadata = SkovMetadata {
-            finalized_height: self.data.get_last_finalized_height(),
-            n_pending_blocks: self.data.tree_candidates.len() as u64,
-            state:            self.data.state,
-        };
-
-        SkovResult::SuccessfulQuery(metadata.serialize())
-    }
-
-    pub fn register_peer_metadata(&mut self, peer: u64, meta: SkovMetadata) -> SkovResult {
+    pub fn register_peer_metadata(&mut self, peer: u64, meta: GlobalMetadata) -> GlobalStateResult {
         self.peer_metadata.insert(peer, meta);
-        SkovResult::SuccessfulEntry(PacketType::GlobalStateMetadata)
+        GlobalStateResult::SuccessfulEntry(PacketType::GlobalStateMetadata)
     }
 
-    pub fn best_metadata(&self) -> SkovResult {
+    pub fn best_metadata(&self) -> GlobalStateResult {
         let best_metadata = self
             .peer_metadata
             .iter()
@@ -163,7 +157,7 @@ impl<'a> Skov<'a> {
             .map(|(id, meta)| (id.to_owned(), meta.to_owned()))
             .unwrap(); // infallible
 
-        SkovResult::BestPeer(best_metadata)
+        GlobalStateResult::BestPeer(best_metadata)
     }
 
     pub fn iter_tree_since(
@@ -176,17 +170,17 @@ impl<'a> Skov<'a> {
     #[doc(hidden)]
     pub fn display_state(&self) {
         info!(
-            "Skov data:\nblock tree: {:?}\nlast finalized: {:?}\nfinalization list: {:?}\ntree \
-             candidates: {:?}{}{}{}{}\npeer metadata: {:?}\nstatus: {:?}",
-            self.data.block_tree.keys().collect::<Vec<_>>(),
+            "GlobalState data:\nblock tree: {:?}\nlast finalized: {:?}\nfinalization list: \
+             {:?}\ntree candidates: {:?}{}{}{}{}\npeer metadata: {:?}\nstatus: {:?}",
+            self.data.finalized_blocks.keys().collect::<Vec<_>>(),
             self.data.last_finalized.hash,
             self.data
-                .finalization_list
+                .finalization_records
                 .iter()
                 .filter_map(|e| e.as_ref())
                 .map(|rec| &rec.block_pointer)
                 .collect::<Vec<_>>(),
-            self.data.tree_candidates.keys().collect::<Vec<_>>(),
+            self.data.live_blocks.keys().collect::<Vec<_>>(),
             self.data.print_inapplicable_finalizations(),
             self.data.print_pending_queue(AwaitingParentBlock),
             self.data.print_pending_queue(AwaitingLastFinalizedBlock),
@@ -199,7 +193,7 @@ impl<'a> Skov<'a> {
 
     #[doc(hidden)]
     pub fn display_stats(&self) {
-        info!("Skov stats: {}", self.stats);
+        info!("GlobalState stats: {}", self.stats);
     }
 }
 
@@ -212,22 +206,22 @@ type PendingQueue = HashedMap<BlockHash, HashedSet<PendingBlock>>;
 
 /// Holds the global state objects.
 #[allow(dead_code)]
-pub struct SkovData<'a> {
+pub struct GlobalData<'a> {
     /// the kvs handle
     kvs_env: &'a Rkv,
     /// finalized blocks AKA the blockchain
-    pub block_tree: LinkedHashMap<BlockHash, Rc<BlockPtr>, HashBuildHasher>,
+    pub finalized_blocks: LinkedHashMap<BlockHash, Rc<BlockPtr>, HashBuildHasher>,
     /// persistent storage for finalized blocks
-    finalized_blocks: SingleStore,
+    finalized_block_store: SingleStore,
     /// finalization records; the blocks they point to are in the tree
-    pub finalization_list: IndexedVec<FinalizationRecord>,
+    pub finalization_records: IndexedVec<FinalizationRecord>,
     /// the genesis block
     genesis_block_ptr: Rc<BlockPtr>,
     /// the last finalized block
     last_finalized: Rc<BlockPtr>,
-    /// valid blocks (parent and last finalized blocks are already in Skov)
-    /// pending finalization
-    pub tree_candidates: LinkedHashMap<BlockHash, Rc<BlockPtr>, HashBuildHasher>,
+    /// valid blocks (parent and last finalized blocks are already in
+    /// GlobalState) pending finalization
+    pub live_blocks: LinkedHashMap<BlockHash, Rc<BlockPtr>, HashBuildHasher>,
     /// blocks waiting for their parent to be added to the tree
     awaiting_parent_block: PendingQueue,
     /// blocks waiting for their last finalized block to actually be finalized
@@ -241,39 +235,39 @@ pub struct SkovData<'a> {
     /// incoming broacasts rejected during a catch-up round
     delayed_broadcasts: Vec<ConsensusMessage>,
     /// the current processing state (catching up etc.)
-    pub state: SkovState,
+    pub state: ProcessingState,
 }
 
-impl<'a> SkovData<'a> {
+impl<'a> GlobalData<'a> {
     fn new(genesis_data: &[u8], kvs_env: &'a Rkv) -> Self {
-        const SKOV_LONG_PREALLOCATION_SIZE: usize = 128;
-        const SKOV_SHORT_PREALLOCATION_SIZE: usize = 16;
-        const SKOV_ERR_PREALLOCATION_SIZE: usize = 16;
+        const GS_LONG_PREALLOCATION_SIZE: usize = 128;
+        const GS_SHORT_PREALLOCATION_SIZE: usize = 16;
+        const GS_ERR_PREALLOCATION_SIZE: usize = 16;
 
         let genesis_block_ptr = Rc::new(BlockPtr::genesis(genesis_data));
 
-        let mut finalization_list = IndexedVec::with_capacity(SKOV_LONG_PREALLOCATION_SIZE);
-        finalization_list.insert(0, FinalizationRecord::genesis(&genesis_block_ptr));
+        let mut finalization_records = IndexedVec::with_capacity(GS_LONG_PREALLOCATION_SIZE);
+        finalization_records.insert(0, FinalizationRecord::genesis(&genesis_block_ptr));
 
-        let finalized_blocks = kvs_env
+        let finalized_block_store = kvs_env
             .open_single("blocks", StoreOptions::create())
             .unwrap();
 
         {
             // don't actually persist blocks yet
             let mut kvs_writer = kvs_env.write().unwrap(); // infallible
-            finalized_blocks
+            finalized_block_store
                 .clear(&mut kvs_writer)
                 .expect("Can't clear the block store");
         }
 
-        let mut block_tree = LinkedHashMap::with_capacity_and_hasher(
-            SKOV_LONG_PREALLOCATION_SIZE,
+        let mut finalized_blocks = LinkedHashMap::with_capacity_and_hasher(
+            GS_LONG_PREALLOCATION_SIZE,
             HashBuildHasher::default(),
         );
-        block_tree.insert(genesis_block_ptr.hash.clone(), genesis_block_ptr);
+        finalized_blocks.insert(genesis_block_ptr.hash.clone(), genesis_block_ptr);
 
-        let genesis_block_ref = block_tree.values().next().unwrap(); // safe; we just put it there
+        let genesis_block_ref = finalized_blocks.values().next().unwrap(); // safe; we just put it there
         let last_finalized = Rc::clone(genesis_block_ref);
         let genesis_block_ptr = Rc::clone(genesis_block_ref);
 
@@ -281,22 +275,22 @@ impl<'a> SkovData<'a> {
 
         let mut skov = Self {
             kvs_env,
+            finalized_block_store,
             finalized_blocks,
-            block_tree,
-            finalization_list,
+            finalization_records,
             genesis_block_ptr,
             last_finalized,
-            tree_candidates: LinkedHashMap::with_capacity_and_hasher(
-                SKOV_SHORT_PREALLOCATION_SIZE,
+            live_blocks: LinkedHashMap::with_capacity_and_hasher(
+                GS_SHORT_PREALLOCATION_SIZE,
                 HashBuildHasher::default(),
             ),
-            awaiting_parent_block: hashed!(HashedMap, SKOV_ERR_PREALLOCATION_SIZE),
-            awaiting_last_finalized_finalization: hashed!(HashedMap, SKOV_ERR_PREALLOCATION_SIZE),
-            awaiting_last_finalized_block: hashed!(HashedMap, SKOV_ERR_PREALLOCATION_SIZE),
-            inapplicable_finalization_records: hashed!(HashedMap, SKOV_ERR_PREALLOCATION_SIZE),
+            awaiting_parent_block: hashed!(HashedMap, GS_ERR_PREALLOCATION_SIZE),
+            awaiting_last_finalized_finalization: hashed!(HashedMap, GS_ERR_PREALLOCATION_SIZE),
+            awaiting_last_finalized_block: hashed!(HashedMap, GS_ERR_PREALLOCATION_SIZE),
+            inapplicable_finalization_records: hashed!(HashedMap, GS_ERR_PREALLOCATION_SIZE),
             transaction_table: TransactionTable::default(),
             delayed_broadcasts: Vec::new(),
-            state: SkovState::JustStarted,
+            state: ProcessingState::JustStarted,
         };
 
         // store the genesis block
@@ -377,19 +371,19 @@ impl fmt::Display for PendingQueueType {
 }
 
 #[derive(Debug)]
-pub struct SkovStats {
+pub struct GlobalStats {
     block_arrival_times:        CircularQueue<DateTime<Utc>>,
     finalization_times:         CircularQueue<DateTime<Utc>>,
     add_block_timings:          CircularQueue<u64>,
     add_finalization_timings:   CircularQueue<u64>,
     query_block_timings:        CircularQueue<u64>,
     query_finalization_timings: CircularQueue<u64>,
-    errors:                     Vec<SkovError>,
+    errors:                     Vec<GlobalStateError>,
 }
 
 type StatsSnapshot = (u64, u64, u64, u64, u64, u64);
 
-impl SkovStats {
+impl GlobalStats {
     fn new(timing_queue_len: usize) -> Self {
         Self {
             block_arrival_times:        CircularQueue::with_capacity(timing_queue_len),
@@ -452,7 +446,7 @@ fn get_avg_duration(times: &CircularQueue<DateTime<Utc>>) -> u64 {
     wma(diffs, times.len() as u64) / 1000 // milliseconds to seconds
 }
 
-impl fmt::Display for SkovStats {
+impl fmt::Display for GlobalStats {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,

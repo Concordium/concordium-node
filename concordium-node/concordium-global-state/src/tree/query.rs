@@ -2,18 +2,41 @@ use std::rc::Rc;
 
 use crate::{
     block::*,
-    common::{HashBytes, Slot},
+    common::{HashBytes, SerializeToBytes, Slot},
     finalization::*,
 };
 
-use super::SkovData;
+use super::{
+    messaging::{GlobalMetadata, GlobalStateResult},
+    GlobalData, GlobalState,
+};
 
-impl<'a> SkovData<'a> {
+impl<'a> GlobalState<'a> {
+    pub fn get_serialized_metadata(&self) -> GlobalStateResult {
+        GlobalStateResult::SuccessfulQuery(self.get_metadata().serialize())
+    }
+
+    pub fn get_metadata(&self) -> GlobalMetadata {
+        GlobalMetadata {
+            finalized_height: self.data.get_last_finalized_height(),
+            n_pending_blocks: self.data.live_blocks.len() as u64,
+            state:            self.data.state,
+        }
+    }
+
+    pub fn is_peer_metadata_better(&self, peer_metadata: GlobalMetadata) -> bool {
+        let our_metadata = self.get_metadata();
+
+        peer_metadata > our_metadata
+    }
+}
+
+impl<'a> GlobalData<'a> {
     pub fn get_block(&self, hash: &HashBytes, delta: Delta) -> Option<&Rc<BlockPtr>> {
         let target_block = self
-            .tree_candidates
+            .live_blocks
             .get(hash)
-            .or_else(|| self.block_tree.get(hash));
+            .or_else(|| self.finalized_blocks.get(hash));
 
         if delta == 0 {
             target_block
@@ -26,18 +49,18 @@ impl<'a> SkovData<'a> {
     }
 
     fn get_blocks_at_height(&self, height: BlockHeight) -> impl Iterator<Item = &Rc<BlockPtr>> {
-        self.tree_candidates
+        self.live_blocks
             .values()
             .filter(move |ptr| ptr.height == height)
             .chain(
-                self.block_tree
+                self.finalized_blocks
                     .values()
                     .filter(move |ptr| ptr.height == height),
             )
     }
 
     fn _get_finalization_record_by_hash(&self, hash: &HashBytes) -> Option<&FinalizationRecord> {
-        self.finalization_list
+        self.finalization_records
             .iter()
             .rev()
             .filter_map(|e| e.as_ref())
@@ -48,7 +71,7 @@ impl<'a> SkovData<'a> {
         &self,
         idx: FinalizationIndex,
     ) -> Option<&FinalizationRecord> {
-        self.finalization_list.get(idx as usize)
+        self.finalization_records.get(idx as usize)
     }
 
     pub fn finalization_span(&self) -> u64 {
@@ -72,18 +95,18 @@ impl<'a> SkovData<'a> {
         let fs = self.finalization_span();
 
         let finalized_blocks = self
-            .block_tree
+            .finalized_blocks
             .values()
             .skip(since as usize + 1)
             .map(|ptr| (ptr.height, &ptr.block));
 
         let mut finalization_records = self
-            .finalization_list
+            .finalization_records
             .into_iter()
             .skip((since / fs) as usize + 1)
             .filter_map(|rec| rec.as_ref());
 
-        let pending_blocks = self.tree_candidates.values().map(|ptr| &ptr.block);
+        let pending_blocks = self.live_blocks.values().map(|ptr| &ptr.block);
 
         finalized_blocks
             .map(move |(height, block)| {

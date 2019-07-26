@@ -17,9 +17,9 @@ use crate::{
     finalization::*,
 };
 
-use super::{PeerId, SkovState};
+use super::{PeerId, ProcessingState};
 
-/// The type of messages passed between Skov and the consensus layer.
+/// The type of messages passed between GlobalState and the consensus layer.
 ///
 /// It contains an optional identifier of the source peer if it is not our own
 /// consensus layer.
@@ -116,26 +116,26 @@ pub enum DistributionMode {
 }
 
 #[derive(Debug, PartialEq)]
-/// Holds a response for a request to Skov.
+/// Holds a response for a request to GlobalState.
 ///
 /// Depending on the request, the result can either be just a status or contain
 /// the requested data.
-pub enum SkovResult {
+pub enum GlobalStateResult {
     SuccessfulEntry(PacketType),
     SuccessfulQuery(Box<[u8]>),
     DuplicateEntry,
-    Error(SkovError),
+    Error(GlobalStateError),
     Housekeeping,
     IgnoredEntry,
-    BestPeer((PeerId, SkovMetadata)),
+    BestPeer((PeerId, GlobalMetadata)),
 }
 
 #[derive(Debug, PartialEq)]
-/// Indicates an erroneous result of a request to Skov.
+/// Indicates an erroneous result of a request to GlobalState.
 ///
 /// If there are two components, the first one is the target and the second is
 /// the source
-pub enum SkovError {
+pub enum GlobalStateError {
     // the parent block is not in the tree
     MissingParentBlock(HashBytes, HashBytes),
     // the target last finalized block is not in the tree
@@ -150,31 +150,36 @@ pub enum SkovError {
     FutureFinalizationRecord(FinalizationIndex, FinalizationIndex),
 }
 
-impl fmt::Display for SkovError {
+impl fmt::Display for GlobalStateError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let msg = match self {
-            SkovError::MissingParentBlock(ref parent, ref pending) => format!(
+            GlobalStateError::MissingParentBlock(ref parent, ref pending) => format!(
                 "block {:?} is pointing to a parent ({:?}) that is not in the tree",
                 pending, parent
             ),
-            SkovError::MissingLastFinalizedBlock(ref last_finalized, ref pending) => format!(
-                "block {:?} is pointing to a last finalized block ({:?}) that is not in the tree",
-                pending, last_finalized
-            ),
-            SkovError::LastFinalizedNotFinalized(ref last_finalized, ref pending) => format!(
-                "block {:?} is pointing to a last finalized block ({:?}) that has not been \
-                 finalized yet",
-                pending, last_finalized
-            ),
-            SkovError::InvalidLastFinalized(ref last_finalized, ref pending) => format!(
+            GlobalStateError::MissingLastFinalizedBlock(ref last_finalized, ref pending) => {
+                format!(
+                    "block {:?} is pointing to a last finalized block ({:?}) that is not in the \
+                     tree",
+                    pending, last_finalized
+                )
+            }
+            GlobalStateError::LastFinalizedNotFinalized(ref last_finalized, ref pending) => {
+                format!(
+                    "block {:?} is pointing to a last finalized block ({:?}) that has not been \
+                     finalized yet",
+                    pending, last_finalized
+                )
+            }
+            GlobalStateError::InvalidLastFinalized(ref last_finalized, ref pending) => format!(
                 "block {:?} wrongly states that {:?} is the last finalized block",
                 pending, last_finalized
             ),
-            SkovError::MissingBlockToFinalize(ref target) => format!(
+            GlobalStateError::MissingBlockToFinalize(ref target) => format!(
                 "finalization record for block {:?} references a block that is not in the tree",
                 target
             ),
-            SkovError::FutureFinalizationRecord(future_idx, curr_idx) => format!(
+            GlobalStateError::FutureFinalizationRecord(future_idx, curr_idx) => format!(
                 "the finalization record's index ({}) is in the future (current index: {})",
                 future_idx, curr_idx
             ),
@@ -185,20 +190,20 @@ impl fmt::Display for SkovError {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SkovMetadata {
+pub struct GlobalMetadata {
     pub finalized_height: BlockHeight,
     pub n_pending_blocks: u64,
-    pub state:            SkovState,
+    pub state:            ProcessingState,
 }
 
-impl SkovMetadata {
+impl GlobalMetadata {
     pub fn is_usable(&self) -> bool {
-        self.state == SkovState::Complete
+        self.state == ProcessingState::Complete
             && !(self.finalized_height == 0 && self.n_pending_blocks == 0)
     }
 }
 
-impl PartialOrd for SkovMetadata {
+impl PartialOrd for GlobalMetadata {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         let result = if self.finalized_height != other.finalized_height {
             self.finalized_height.cmp(&other.finalized_height)
@@ -210,13 +215,13 @@ impl PartialOrd for SkovMetadata {
     }
 }
 
-impl Ord for SkovMetadata {
+impl Ord for GlobalMetadata {
     fn cmp(&self, other: &Self) -> Ordering {
         self.partial_cmp(other).unwrap() // infallible
     }
 }
 
-impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for SkovMetadata {
+impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for GlobalMetadata {
     type Source = &'a [u8];
 
     fn deserialize(bytes: Self::Source) -> Fallible<Self> {
@@ -224,9 +229,9 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for SkovMetadata {
 
         let finalized_height = NetworkEndian::read_u64(&read_ty!(&mut cursor, BlockHeight));
         let n_pending_blocks = NetworkEndian::read_u64(&read_ty!(&mut cursor, u64));
-        let state = SkovState::try_from(read_const_sized!(&mut cursor, 1)[0])?;
+        let state = ProcessingState::try_from(read_const_sized!(&mut cursor, 1)[0])?;
 
-        Ok(SkovMetadata {
+        Ok(GlobalMetadata {
             finalized_height,
             n_pending_blocks,
             state,
