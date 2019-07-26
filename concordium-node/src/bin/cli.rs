@@ -25,7 +25,7 @@ use concordium_global_state::{
     common::SerializeToBytes,
     tree::{
         messaging::{ConsensusMessage, DistributionMode, MessageType},
-        Skov,
+        GlobalState,
     },
 };
 use failure::Fallible;
@@ -188,7 +188,7 @@ fn main() -> Fallible<()> {
     // Wait for the P2PNode to close
     node.join().expect("The node thread panicked!");
 
-    // Stop the Skov thread
+    // Stop the GlobalState thread
     skov_sender.send_stop()?;
 
     // Shut down the consensus layer
@@ -330,18 +330,18 @@ fn start_consensus_threads(
     let node_shared = node.clone();
     let mut consensus_clone = consensus.clone();
     let global_state_thread = spawn_or_die!("Process global state requests", {
-        // Open the Skov-exclusive k-v store environment
+        // Open the GlobalState-exclusive k-v store environment
         let skov_kvs_handle = Manager::singleton()
             .write()
-            .expect("Can't write to the kvs manager for Skov purposes!")
+            .expect("Can't write to the kvs manager for GlobalState purposes!")
             .get_or_create(data_dir_path.as_ref(), Rkv::new)
-            .expect("Can't load the Skov kvs environment!");
+            .expect("Can't load the GlobalState kvs environment!");
 
         let skov_kvs_env = skov_kvs_handle
             .read()
-            .expect("Can't unlock the kvs env for Skov!");
+            .expect("Can't unlock the kvs env for GlobalState!");
 
-        let mut skov = Skov::new(&consensus_clone.genesis, &skov_kvs_env);
+        let mut skov = GlobalState::new(&consensus_clone.genesis, &skov_kvs_env);
 
         loop {
             match skov_receiver.recv() {

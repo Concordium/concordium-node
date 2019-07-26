@@ -11,22 +11,22 @@ use crate::{
 };
 
 use super::{
-    messaging::{SkovError, SkovResult},
+    messaging::{GlobalStateError, GlobalStateResult},
+    GlobalData, GlobalState,
     PendingQueueType::{self, *},
-    Skov, SkovData,
 };
 
-/// Creates a function to add a new object to Skov.
+/// Creates a function to add a new object to GlobalState.
 macro_rules! add_entry {
     ($(#[$doc:meta])*$entry_foo:ident, $entry_type:ty, $addition_stat:ident, $timestamp_stat:ident) => {
         $(#[$doc])*
-        pub fn $entry_foo(&mut self, entry: $entry_type) -> SkovResult {
+        pub fn $entry_foo(&mut self, entry: $entry_type) -> GlobalStateResult {
             let timestamp_entry = Utc::now();
             let (result, addition_duration) = timed!(self.data.$entry_foo(entry));
 
             self.stats.$addition_stat.push(addition_duration as u64);
 
-            if let SkovResult::SuccessfulEntry(_) = result {
+            if let GlobalStateResult::SuccessfulEntry(_) = result {
                 self.stats.$timestamp_stat.push(timestamp_entry);
             };
 
@@ -35,7 +35,7 @@ macro_rules! add_entry {
     };
 }
 
-impl<'a> Skov<'a> {
+impl<'a> GlobalState<'a> {
     add_entry!(
         /// Attempts to include a `PendingBlock` in the block tree candidate
         /// queue.
@@ -64,11 +64,11 @@ impl<'a> Skov<'a> {
     );
 }
 
-impl<'a> SkovData<'a> {
+impl<'a> GlobalData<'a> {
     pub(crate) fn store_block(&mut self, block_ptr: &BlockPtr) {
         let mut kvs_writer = self.kvs_env.write().unwrap(); // infallible
 
-        self.finalized_blocks
+        self.finalized_block_store
             .put(
                 &mut kvs_writer,
                 block_ptr.hash.clone(),
@@ -77,7 +77,7 @@ impl<'a> SkovData<'a> {
             .expect("Can't store a block!");
     }
 
-    fn add_block(&mut self, pending_block: PendingBlock) -> SkovResult {
+    fn add_block(&mut self, pending_block: PendingBlock) -> GlobalStateResult {
         // verify that the pending block's parent block is among tree candidates
         // or already in the tree
         let parent_hash = pending_block.block.pointer().unwrap(); // safe
@@ -85,12 +85,14 @@ impl<'a> SkovData<'a> {
         let parent_block = if let Some(parent_ptr) = self.get_block(&parent_hash, 0) {
             parent_ptr
         } else {
-            let error =
-                SkovError::MissingParentBlock(parent_hash.clone(), pending_block.hash.clone());
+            let error = GlobalStateError::MissingParentBlock(
+                parent_hash.clone(),
+                pending_block.hash.clone(),
+            );
 
             self.queue_pending_block(AwaitingParentBlock, parent_hash.to_owned(), pending_block);
 
-            return SkovResult::Error(error);
+            return GlobalStateResult::Error(error);
         };
 
         let last_finalized = pending_block.block.last_finalized().unwrap(); // safe
@@ -98,10 +100,10 @@ impl<'a> SkovData<'a> {
         // verify that the pending block's last finalized block is in the block tree
         // (which entails that it had been finalized); if not, check the tree candidate
         // queue
-        if self.block_tree.get(&last_finalized).is_some() {
+        if self.finalized_blocks.get(&last_finalized).is_some() {
             // nothing to do here
-        } else if self.tree_candidates.get(&last_finalized).is_some() {
-            let error = SkovError::LastFinalizedNotFinalized(
+        } else if self.live_blocks.get(&last_finalized).is_some() {
+            let error = GlobalStateError::LastFinalizedNotFinalized(
                 last_finalized.clone(),
                 pending_block.hash.clone(),
             );
@@ -112,9 +114,9 @@ impl<'a> SkovData<'a> {
                 pending_block,
             );
 
-            return SkovResult::Error(error);
+            return GlobalStateResult::Error(error);
         } else {
-            let error = SkovError::MissingLastFinalizedBlock(
+            let error = GlobalStateError::MissingLastFinalizedBlock(
                 last_finalized.clone(),
                 pending_block.hash.clone(),
             );
@@ -125,14 +127,16 @@ impl<'a> SkovData<'a> {
                 pending_block,
             );
 
-            return SkovResult::Error(error);
+            return GlobalStateResult::Error(error);
         }
 
         // verify if the pending block's last finalized block is actually the last
         // finalized one
         if *last_finalized != self.last_finalized.hash {
-            let error =
-                SkovError::InvalidLastFinalized(last_finalized.clone(), pending_block.hash.clone());
+            let error = GlobalStateError::InvalidLastFinalized(
+                last_finalized.clone(),
+                pending_block.hash.clone(),
+            );
 
             // for now, don't break on unaligned last finalized block
             warn!("{:?}", error);
@@ -151,7 +155,7 @@ impl<'a> SkovData<'a> {
         // put the new block pointer in the tree candidate queue where it will await a
         // finalization record
         let insertion_result = self
-            .tree_candidates
+            .live_blocks
             .insert(block_ptr.hash.clone(), Rc::new(block_ptr));
 
         // the block is now in the tree candidate queue; run housekeeping that
@@ -161,42 +165,43 @@ impl<'a> SkovData<'a> {
         self.refresh_pending_queue(AwaitingLastFinalizedBlock, &housekeeping_hash);
 
         if insertion_result.is_none() {
-            SkovResult::SuccessfulEntry(PacketType::Block)
+            GlobalStateResult::SuccessfulEntry(PacketType::Block)
         } else {
-            SkovResult::DuplicateEntry
+            GlobalStateResult::DuplicateEntry
         }
     }
 
-    fn add_finalization(&mut self, record: FinalizationRecord) -> SkovResult {
+    fn add_finalization(&mut self, record: FinalizationRecord) -> GlobalStateResult {
         let last_finalized_idx = self.get_last_finalized_height(); // safe, always there
 
         if record.block_pointer == self.last_finalized.hash {
             // we always get N-1 duplicate finalization records from the last round
-            return SkovResult::SuccessfulEntry(PacketType::FinalizationRecord);
+            return GlobalStateResult::SuccessfulEntry(PacketType::FinalizationRecord);
         }
 
         // check if the record's index is in the future; if it is, keep the record
         // for later and await further blocks
         if record.index > last_finalized_idx + 1 {
-            let error = SkovError::FutureFinalizationRecord(record.index, last_finalized_idx);
+            let error =
+                GlobalStateError::FutureFinalizationRecord(record.index, last_finalized_idx);
             self.inapplicable_finalization_records
                 .insert(record.block_pointer.clone(), record);
-            return SkovResult::Error(error);
+            return GlobalStateResult::Error(error);
         }
 
         let housekeeping_hash = record.block_pointer.clone();
 
-        let target_block = self.tree_candidates.remove(&record.block_pointer);
+        let target_block = self.live_blocks.remove(&record.block_pointer);
 
         let (target_hash, target_block) = if target_block.is_some() {
             (record.block_pointer.clone(), target_block.unwrap())
         } else {
-            let error = SkovError::MissingBlockToFinalize(record.block_pointer.clone());
+            let error = GlobalStateError::MissingBlockToFinalize(record.block_pointer.clone());
 
             self.inapplicable_finalization_records
                 .insert(record.block_pointer.clone(), record);
 
-            return SkovResult::Error(error);
+            return GlobalStateResult::Error(error);
         };
 
         // drop the now-redundant old pending finalization records
@@ -207,14 +212,15 @@ impl<'a> SkovData<'a> {
         if target_block.height > self.last_finalized.height {
             self.last_finalized = Rc::clone(&target_block);
         }
-        self.finalization_list.insert(record.index as usize, record);
+        self.finalization_records
+            .insert(record.index as usize, record);
 
         // prune the tree candidate queue, as some of the blocks can probably be dropped
         // now
         self.refresh_candidate_list();
 
         // store the directly finalized block after the indirectly finalized ones
-        self.block_tree
+        self.finalized_blocks
             .insert(target_hash.clone(), Rc::clone(&target_block));
         self.store_block(&target_block);
 
@@ -222,7 +228,7 @@ impl<'a> SkovData<'a> {
         // last finalized block's finalization
         self.refresh_pending_queue(AwaitingLastFinalizedFinalization, &housekeeping_hash);
 
-        SkovResult::SuccessfulEntry(PacketType::FinalizationRecord)
+        GlobalStateResult::SuccessfulEntry(PacketType::FinalizationRecord)
     }
 
     fn refresh_pending_queue(&mut self, queue: PendingQueueType, target_hash: &HashBytes) {
@@ -252,7 +258,7 @@ impl<'a> SkovData<'a> {
         // are a part of the tree, need to be promoted to the tree
         let mut finalized_parent = self.last_finalized.block.pointer().unwrap().to_owned();
         let mut indirectly_finalized_blocks = Vec::with_capacity(self.finalization_span() as usize);
-        while let Some(ptr) = self.tree_candidates.remove(&finalized_parent) {
+        while let Some(ptr) = self.live_blocks.remove(&finalized_parent) {
             let parent_hash = ptr.block.pointer().unwrap().to_owned(); // safe, always available
             indirectly_finalized_blocks.push(ptr);
             finalized_parent = parent_hash;
@@ -261,14 +267,14 @@ impl<'a> SkovData<'a> {
         // store the blocks in the correct order
         for ptr in indirectly_finalized_blocks.into_iter().rev() {
             self.store_block(&ptr);
-            self.block_tree.insert(ptr.hash.clone(), ptr);
+            self.finalized_blocks.insert(ptr.hash.clone(), ptr);
         }
         // afterwards, as long as a catch-up phase is complete, the candidates with
         // surplus height can be removed
-        // if self.state == SkovState::Complete {
+        // if self.state == ProcessingState::Complete {
         // let current_height = self.last_finalized.height;
         //
-        // self.tree_candidates
+        // self.live_blocks
         // .retain(|_, candidate| candidate.height >= current_height)
         // }
     }
