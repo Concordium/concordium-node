@@ -65,7 +65,6 @@ fn start_haskell_init(heap: &str, time: bool, exceptions: bool, gc_log: Option<S
     if heap != "none" || time || gc_log.is_some() {
         args.push("+RTS".to_owned());
         args.push("-L100".to_owned());
-        args.push("-C".to_owned());
     }
 
     match heap {
