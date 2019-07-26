@@ -31,19 +31,19 @@ import Concordium.GlobalState.Basic.BlockState
 
 data SkovData = SkovData {
     -- |Map of all received blocks by hash.
-    _skovBlockTable :: HM.HashMap BlockHash (TS.BlockStatus BlockPointer),
-    _skovPossiblyPendingTable :: HM.HashMap BlockHash [PendingBlock],
-    _skovPossiblyPendingQueue :: MPQ.MinPQueue Slot (BlockHash, BlockHash),
-    _skovBlocksAwaitingLastFinalized :: MPQ.MinPQueue BlockHeight PendingBlock,
-    _skovFinalizationList :: Seq.Seq (FinalizationRecord, BlockPointer),
-    _skovFinalizationPool :: Map.Map FinalizationIndex [FinalizationRecord],
-    _skovBranches :: Seq.Seq [BlockPointer],
-    _skovGenesisData :: GenesisData,
-    _skovGenesisBlockPointer :: BlockPointer,
-    _skovFocusBlock :: BlockPointer,
-    _skovPendingTransactions :: PendingTransactionTable,
-    _skovTransactionTable :: TransactionTable,
-    _skovStatistics :: ConsensusStatistics
+    _skovBlockTable :: !(HM.HashMap BlockHash (TS.BlockStatus BlockPointer)),
+    _skovPossiblyPendingTable :: !(HM.HashMap BlockHash [PendingBlock]),
+    _skovPossiblyPendingQueue :: !(MPQ.MinPQueue Slot (BlockHash, BlockHash)),
+    _skovBlocksAwaitingLastFinalized :: !(MPQ.MinPQueue BlockHeight PendingBlock),
+    _skovFinalizationList :: !(Seq.Seq (FinalizationRecord, BlockPointer)),
+    _skovFinalizationPool :: !(Map.Map FinalizationIndex [FinalizationRecord]),
+    _skovBranches :: !(Seq.Seq [BlockPointer]),
+    _skovGenesisData :: !GenesisData,
+    _skovGenesisBlockPointer :: !BlockPointer,
+    _skovFocusBlock :: !BlockPointer,
+    _skovPendingTransactions :: !PendingTransactionTable,
+    _skovTransactionTable :: !TransactionTable,
+    _skovStatistics :: !ConsensusStatistics
 }
 makeLenses ''SkovData
 
