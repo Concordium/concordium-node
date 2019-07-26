@@ -280,7 +280,7 @@ fn process_external_skov_entry(
             };
             (skov_result, false)
         }
-        PacketType::GlobalStateMetadataRequest => (skov.get_metadata(), false),
+        PacketType::GlobalStateMetadataRequest => (skov.get_serialized_metadata(), false),
         PacketType::FullCatchupRequest => {
             let since = NetworkEndian::read_u64(&request.payload[..8]);
             send_catch_up_response(node, &skov, source, network_id, since);
@@ -307,12 +307,7 @@ fn process_external_skov_entry(
             // reply to peer metadata with own metadata and begin catching up and/or baking
             match entry_type {
                 PacketType::GlobalStateMetadata => {
-                    let response_metadata =
-                        if let SkovResult::SuccessfulQuery(metadata) = skov.get_metadata() {
-                            metadata
-                        } else {
-                            unreachable!(); // impossible
-                        };
+                    let response_metadata = skov.get_metadata().serialize();
 
                     send_consensus_msg_to_net(
                         &node,
@@ -345,9 +340,6 @@ fn process_external_skov_entry(
         }
         SkovResult::SuccessfulQuery(result) => {
             let return_type = match request.variant {
-                PacketType::CatchupBlockByHash => PacketType::Block,
-                PacketType::CatchupFinalizationRecordByHash => PacketType::FinalizationRecord,
-                PacketType::CatchupFinalizationRecordByIndex => PacketType::FinalizationRecord,
                 PacketType::GlobalStateMetadataRequest => PacketType::GlobalStateMetadata,
                 _ => unreachable!("Impossible packet type in a query result!"),
             };

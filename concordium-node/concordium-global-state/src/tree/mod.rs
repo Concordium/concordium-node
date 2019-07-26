@@ -9,7 +9,7 @@ use rkv::{Rkv, SingleStore, StoreOptions};
 
 use std::{convert::TryFrom, fmt, mem, rc::Rc};
 
-use crate::{block::*, common::SerializeToBytes, finalization::*, transaction::*};
+use crate::{block::*, finalization::*, transaction::*};
 
 pub type PeerId = u64;
 
@@ -138,16 +138,6 @@ impl<'a> Skov<'a> {
             .filter(|msg| msg.variant == PacketType::Block)
             .count()
             <= self.finalization_span() as usize
-    }
-
-    pub fn get_metadata(&self) -> SkovResult {
-        let metadata = SkovMetadata {
-            finalized_height: self.data.get_last_finalized_height(),
-            n_pending_blocks: self.data.tree_candidates.len() as u64,
-            state:            self.data.state,
-        };
-
-        SkovResult::SuccessfulQuery(metadata.serialize())
     }
 
     pub fn register_peer_metadata(&mut self, peer: u64, meta: SkovMetadata) -> SkovResult {
