@@ -101,8 +101,7 @@ invariantSkovData SkovData{..} = do
             return (liveMap', l)
         checkLastNonEmpty branches = do
             case branches of
-                Seq.Empty -> True
-                    -- unless False $ Left $ "livemap was empty."
+                Seq.Empty -> True --Potentially allowed, fx at very first case where no branches exist yet?
                 _ Seq.:|> x -> (x /= [])
         checkPending lfSlot queue (parent, children) = do
             when (null children) $ Left $ "Empty list of blocks pending parent"
