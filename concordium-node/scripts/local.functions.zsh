@@ -49,7 +49,7 @@ else
   export LD_LIBRARY_PATH=/usr/local/lib:~/.stack/programs/x86_64-$CONCORDIUM_GHC_PLATFORM/ghc-tinfo6-$CONCORDIUM_GHC_VERSION/lib/ghc-$CONCORDIUM_GHC_VERSION/rts
 fi
 
-NIGHTLY_FMT_VERSION="nightly-2019-03-22"
+NIGHTLY_FMT_VERSION="nightly-2019-07-25"
 
 #####
 # testnet_bootstrap and testnet_node can be run with
@@ -194,6 +194,7 @@ lint_fmt() {
   ( cd $CONCORDIUM_P2P_DIR/concordium-common && cargo +$NIGHTLY_FMT_VERSION fmt)
   ( cd $CONCORDIUM_P2P_DIR/concordium-consensus && cargo +$NIGHTLY_FMT_VERSION fmt)
   ( cd $CONCORDIUM_P2P_DIR/concordium-global-state && cargo +$NIGHTLY_FMT_VERSION fmt)
+  ( cd $CONCORDIUM_P2P_DIR/concordium-global-state-sys && cargo +$NIGHTLY_FMT_VERSION fmt)
   ( cd $CONCORDIUM_P2P_DIR/concordium-dns && cargo +$NIGHTLY_FMT_VERSION fmt)
 }
 
