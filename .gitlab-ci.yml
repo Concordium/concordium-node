@@ -15,6 +15,7 @@ stages:
     - rustc --version && cargo --version
     - scripts/download-static-libs.sh
     - ( cd concordium-dns && cargo test --all --color=always)
+    - ( cd concordium-global-state-sys && cargo test --all --color=always)
     - ( cd concordium-global-state && cargo test --all --color=always)
     - ( cd concordium-consensus && cargo test --all --color=always --features=static)
     - ( cd concordium-common && cargo test --all --color=always)
@@ -43,6 +44,7 @@ stages:
     - touch src/proto/concordium_p2p_rpc_grpc.rs
     - cargo fmt -- --color=always
     - ( cd concordium-global-state && cargo fmt -- --color=always)
+    - ( cd concordium-global-state-sys && cargo fmt -- --color=always)
     - ( cd concordium-consensus && cargo fmt -- --color=always)
     - ( cd concordium-common && cargo fmt -- --color=always)
     - ( cd concordium-dns && cargo fmt -- --color=always)
@@ -55,6 +57,8 @@ stages:
     - rustc --version && cargo --version
     - scripts/download-static-libs.sh
     - ( cd deps/internal/crypto/rust-src && cargo clean )
+    - ( cd concordium-global-state-sys && cargo clippy )
+    - cargo clean
     - rustup component add clippy
     - echo "Running clippy with without extra features"
     - cargo clippy --color=always --all --features=static -- -Dclippy::all
