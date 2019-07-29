@@ -247,7 +247,16 @@ processFinalizationPool = do
                                 [] brs
                             rest' <- pruneBranches survivors rest
                             return (survivors Seq.<| rest')
-                    newBranches <- pruneBranches [newFinBlock] (Seq.drop pruneHeight oldBranches)
+                    unTrimmedBranches <- pruneBranches [newFinBlock] (Seq.drop pruneHeight oldBranches)
+                    -- This removes empty lists at the end of branches which can result in finalizing on a
+                    -- block not in the current best local branch
+                    let 
+                        trimBranches Seq.Empty = return Seq.Empty
+                        trimBranches prunedbrs@(xs Seq.:|> x) = do
+                            case x of
+                                [] -> trimBranches xs
+                                _ -> return prunedbrs
+                    newBranches <- trimBranches unTrimmedBranches
                     putBranches newBranches
                     -- purge pending blocks with slot numbers predating the last finalized slot
                     purgePending
