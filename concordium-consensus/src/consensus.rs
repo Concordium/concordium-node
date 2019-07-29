@@ -15,7 +15,10 @@ use std::{
 };
 
 use crate::ffi::*;
-use concordium_global_state::{block::BakerId, tree::messaging::ConsensusMessage};
+use concordium_global_state::{
+    block::BakerId,
+    tree::{messaging::ConsensusMessage, GlobalState},
+};
 
 pub type PeerId = u64;
 pub type PrivateData = HashMap<i64, Vec<u8>>;
@@ -162,6 +165,14 @@ impl ConsensusContainer {
     pub fn is_baking(&self) -> bool { self.is_baking.load(Ordering::SeqCst) }
 
     pub fn is_active(&self) -> bool { self.consensus_type == ConsensusType::Active }
+
+    pub fn send_global_state_ptr(&self, global_state: &GlobalState) {
+        let gs_ptr = global_state as *const GlobalState as *const u8;
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        unsafe {
+            sendGlobalStatePtr(consensus, gs_ptr);
+        }
+    }
 }
 
 pub fn catchup_enqueue(request: ConsensusMessage) {
