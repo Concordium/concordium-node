@@ -7,13 +7,14 @@ use crate::{
 };
 
 use super::{
-    messaging::{GlobalMetadata, GlobalStateResult},
+    messaging::{GlobalMetadata, GlobalStateError, GlobalStateResult},
     GlobalData, GlobalState,
 };
 
 impl<'a> GlobalState<'a> {
     pub fn get_serialized_metadata(&self) -> GlobalStateResult {
-        GlobalStateResult::SuccessfulQuery(self.get_metadata().serialize())
+        let metadata = self.get_metadata().serialize();
+        GlobalStateResult::SuccessfulQuery(metadata)
     }
 
     pub fn get_metadata(&self) -> GlobalMetadata {
@@ -28,6 +29,22 @@ impl<'a> GlobalState<'a> {
         let our_metadata = self.get_metadata();
 
         peer_metadata > our_metadata
+    }
+
+    pub fn get_stored_block(&'a self, hash: &BlockHash) -> GlobalStateResult {
+        let reader = self.data.kvs_env.read().unwrap(); // infallible
+        let block = self
+            .data
+            .block_store
+            .get(&reader, hash)
+            .expect("Can't obtain a block from the store!")
+            .map(|blob| blob.to_bytes().unwrap().into_boxed_slice()); // infallible
+
+        if let Some(block) = block {
+            GlobalStateResult::SuccessfulQuery(block)
+        } else {
+            GlobalStateResult::Error(GlobalStateError::MissingBlock(hash.to_owned()))
+        }
     }
 }
 
