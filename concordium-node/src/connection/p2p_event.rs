@@ -20,22 +20,18 @@ pub enum P2PEvent {
 
 impl fmt::Display for P2PEvent {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                ConnectEvent(addr) => format!("Received a connection from {}", addr),
-                DisconnectEvent(msg) => format!("Received a disconnect for {}", msg),
-                ReceivedMessageEvent(node_id) => format!("Received a message from {:?}", node_id),
-                SentMessageEvent(node_id) => format!("Sent a message to {:?}", node_id),
-                InitiatingConnection(addr) => format!("Initiating a connection to {}", addr),
-                JoinedNetwork(peer, network_id) => {
-                    format!("Peer {} joined the network {}", peer.id(), network_id)
-                }
-                LeftNetwork(peer, network_id) => {
-                    format!("Peer {} left the network {}", peer.id(), network_id)
-                }
+        write!(f, "{}", match self {
+            ConnectEvent(addr) => format!("Received a connection from {}", addr),
+            DisconnectEvent(msg) => format!("Received a disconnect for {}", msg),
+            ReceivedMessageEvent(node_id) => format!("Received a message from {:?}", node_id),
+            SentMessageEvent(node_id) => format!("Sent a message to {:?}", node_id),
+            InitiatingConnection(addr) => format!("Initiating a connection to {}", addr),
+            JoinedNetwork(peer, network_id) => {
+                format!("Peer {} joined the network {}", peer.id(), network_id)
             }
-        )
+            LeftNetwork(peer, network_id) => {
+                format!("Peer {} left the network {}", peer.id(), network_id)
+            }
+        })
     }
 }
