@@ -32,8 +32,14 @@ RUN \
 ### P2P client
 RUN \
     cd p2p-client && \
-    rm -rf deps/static-libs/vanilla && \
     cargo build --features=profiling
+
+### Extract and copy genesis data
+RUN \
+    cd /build-project/p2p-client/scripts/genesis-data && \
+    tar -xf 5-bakers.tar.gz && \
+    mkdir -p $HOME/.local/share/ConcordiumP2P && \
+    cp genesis_data/* $HOME/.local/share/ConcordiumP2P
 
 RUN chmod +x /build-project/start.sh
 
