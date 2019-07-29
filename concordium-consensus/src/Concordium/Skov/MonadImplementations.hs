@@ -264,7 +264,7 @@ newtype SkovPassiveHookedM m a = SkovPassiveHookedM {unSkovPassiveHookedM :: RWS
 type instance UpdatableBlockState (SkovPassiveHookedM m) = Basic.BlockState
 type instance BlockPointer (SkovPassiveHookedM m) = Basic.BlockPointer
 
-instance (TimeMonad m) => OnSkov (SkovPassiveHookedM m) where
+instance (TimeMonad m, LoggerMonad m) => OnSkov (SkovPassiveHookedM m) where
     {-# INLINE onBlock #-}
     onBlock bp = hookOnBlock bp
     {-# INLINE onFinalize #-}
