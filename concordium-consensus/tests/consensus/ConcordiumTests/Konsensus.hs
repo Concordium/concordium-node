@@ -99,10 +99,8 @@ invariantSkovData SkovData{..} = do
                 checkBinary (==) (bpHeight b) (bpHeight (bpParent b) + 1) "==" "block height" "1 + parent height"
             let liveMap' = foldr (\b -> HM.insert (bpHash b) (TreeState.BlockAlive b)) liveMap l
             return (liveMap', l)
-        checkLastNonEmpty branches = do
-            case branches of
-                Seq.Empty -> True --Potentially allowed, fx at very first case where no branches exist yet?
-                _ Seq.:|> x -> (x /= [])
+        checkLastNonEmpty Seq.Empty = True -- catches cases where branches is empty
+        checkLastNonEmpty (_ Seq.:|> x) = (x /= [])
         checkPending lfSlot queue (parent, children) = do
             when (null children) $ Left $ "Empty list of blocks pending parent"
             let checkChild q child = do
