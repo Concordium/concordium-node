@@ -36,7 +36,7 @@ stages:
   stage: lint
   image: rustlang/rust:nightly
   before_script:
-    - rustup default nightly-2019-03-22
+    - rustup default nightly-2019-07-25
     - rustup component add rustfmt
   script:
     - rustc --version && cargo --version
