@@ -56,10 +56,10 @@ stages:
   script:
     - rustc --version && cargo --version
     - scripts/download-static-libs.sh
+    - rustup component add clippy
     - ( cd deps/internal/crypto/rust-src && cargo clean )
     - ( cd concordium-global-state-sys && cargo clippy )
     - cargo clean
-    - rustup component add clippy
     - echo "Running clippy with without extra features"
     - cargo clippy --color=always --all --features=static -- -Dclippy::all
     - echo "Running clippy with instrumentation feature enabled"
