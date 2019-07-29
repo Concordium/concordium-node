@@ -105,7 +105,9 @@ hookQueryTransaction th = do
                                 logEvent Skov LLDebug $ "Filtering out non-live block " ++ show b ++ " for hooked transaction " ++ show th
                                 return acc
                             Just bp -> getTransactionOutcome (bpState bp) th >>= \case
-                                Nothing -> return acc
+                                Nothing -> do
+                                    logEvent Skov LLDebug $ "Filtering out block (missing transaction) " ++ show b ++ " for hooked transaction " ++ show th
+                                    return acc
                                 Just oc -> return ((bpHash bp, oc) : acc)
                 foldM filterBlocks [] blocks
         let hookTransactionStatus = case (tstat, bps) of
