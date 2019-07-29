@@ -376,7 +376,10 @@ impl P2P for RpcServerImpl {
                         let f = sink
                             .fail(::grpcio::RpcStatus::new(
                                 ::grpcio::RpcStatusCode::Internal,
-                                Some(String::from(format!("Got non-success response from FFI interface {:?}", e))),
+                                Some(format!(
+                                    "Got non-success response from FFI interface {:?}",
+                                    e
+                                )),
                             ))
                             .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
                         ctx.spawn(f);
