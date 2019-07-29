@@ -14,6 +14,7 @@ COPY assets/repos/p2p-client/scripts/start.sh /build-project/
 WORKDIR /build-project
 ADD assets/repos/ /build-project/
 ADD assets/repos/p2p-client/scripts/init.build.env.sh /build-project/p2p-client/init.build.env.sh
+COPY assets/repos/p2p-client/scripts/genesis-data ./genesis-data
 
 # Build Environment: Hacl, ffi, Haskell (inherited from k8 build)
 RUN \ 
@@ -33,13 +34,6 @@ RUN \
 RUN \
     cd p2p-client && \
     cargo build --features=profiling
-
-### Extract and copy genesis data
-RUN \
-    cd /build-project/p2p-client/scripts/genesis-data && \
-    tar -xf 5-bakers.tar.gz && \
-    mkdir -p $HOME/.local/share/ConcordiumP2P && \
-    cp genesis_data/* $HOME/.local/share/ConcordiumP2P
 
 RUN chmod +x /build-project/start.sh
 
