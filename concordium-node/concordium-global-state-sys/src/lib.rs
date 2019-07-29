@@ -32,4 +32,3 @@ pub unsafe extern fn get_block(
 
     Box::into_raw(blob)
 }
-

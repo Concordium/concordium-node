@@ -341,7 +341,9 @@ fn start_consensus_threads(
             .read()
             .expect("Can't unlock the kvs env for GlobalState!");
 
-        let mut skov = GlobalState::new(&consensus_clone.genesis, &skov_kvs_env);
+        let mut global_state = GlobalState::new(&consensus_clone.genesis, &skov_kvs_env);
+
+        // consensus_clone.send_global_state_ptr(&global_state);
 
         loop {
             match skov_receiver.recv() {
@@ -351,7 +353,7 @@ fn start_consensus_threads(
                         _network_id,
                         &mut consensus_clone,
                         request,
-                        &mut skov,
+                        &mut global_state,
                         &stats_clone,
                     ) {
                         error!("There's an issue with a global state request: {}", e);
