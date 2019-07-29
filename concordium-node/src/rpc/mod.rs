@@ -372,11 +372,14 @@ impl P2P for RpcServerImpl {
                             .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
                         ctx.spawn(f);
                     }
-                    _ => {
+                    e => {
                         let f = sink
                             .fail(::grpcio::RpcStatus::new(
                                 ::grpcio::RpcStatusCode::Internal,
-                                None,
+                                Some(format!(
+                                    "Got non-success response from FFI interface {:?}",
+                                    e
+                                )),
                             ))
                             .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
                         ctx.spawn(f);
@@ -386,7 +389,7 @@ impl P2P for RpcServerImpl {
                     let f = sink
                         .fail(::grpcio::RpcStatus::new(
                             ::grpcio::RpcStatusCode::Internal,
-                            None,
+                            Some(String::from("Consensus container is not initialized!")),
                         ))
                         .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
                     ctx.spawn(f);
