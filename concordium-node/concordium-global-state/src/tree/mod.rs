@@ -70,11 +70,11 @@ macro_rules! timed {
 
 impl<'a> GlobalState<'a> {
     #[doc(hidden)]
-    pub fn new(genesis_data: &[u8], kvs_env: &'a Rkv) -> Self {
+    pub fn new(genesis_data: &[u8], kvs_env: &'a Rkv, persistent: bool) -> Self {
         const MOVING_AVERAGE_QUEUE_LEN: usize = 16;
 
         Self {
-            data:          GlobalData::new(genesis_data, &kvs_env),
+            data:          GlobalData::new(genesis_data, &kvs_env, persistent),
             stats:         GlobalStats::new(MOVING_AVERAGE_QUEUE_LEN),
             peer_metadata: Default::default(),
         }
@@ -239,7 +239,7 @@ pub struct GlobalData<'a> {
 }
 
 impl<'a> GlobalData<'a> {
-    fn new(genesis_data: &[u8], kvs_env: &'a Rkv) -> Self {
+    fn new(genesis_data: &[u8], kvs_env: &'a Rkv, persistent: bool) -> Self {
         const GS_LONG_PREALLOCATION_SIZE: usize = 128;
         const GS_SHORT_PREALLOCATION_SIZE: usize = 16;
         const GS_ERR_PREALLOCATION_SIZE: usize = 16;
@@ -253,8 +253,7 @@ impl<'a> GlobalData<'a> {
             .open_single("blocks", StoreOptions::create())
             .unwrap();
 
-        {
-            // don't actually persist blocks yet
+        if !persistent {
             let mut kvs_writer = kvs_env.write().unwrap(); // infallible
             block_store
                 .clear(&mut kvs_writer)
