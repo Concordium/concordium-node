@@ -35,7 +35,7 @@ impl<'a> GlobalState<'a> {
         let reader = self.data.kvs_env.read().unwrap(); // infallible
         let block = self
             .data
-            .block_store
+            .finalized_block_store
             .get(&reader, hash)
             .expect("Can't obtain a block from the store!")
             .map(|blob| blob.to_bytes().unwrap().into_boxed_slice()); // infallible
