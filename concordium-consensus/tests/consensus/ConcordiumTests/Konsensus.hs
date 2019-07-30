@@ -60,6 +60,7 @@ invariantSkovData SkovData{..} = do
         -- Live blocks
         (liveFinMap, _) <- foldM checkLive (finMap, [lastFin]) _skovBranches
         unless (HM.filter notDeadOrPending _skovBlockTable == liveFinMap) $ Left "non-dead blocks do not match finalized and branch blocks"
+        unless (checkLastNonEmpty _skovBranches) $ Left $ "Last element of branches was empty. branches: " ++ show _skovBranches
         -- Pending blocks
         queue <- foldM (checkPending (blockSlot $ bpBlock $ lastFin)) (Set.empty) (HM.toList _skovPossiblyPendingTable)
         let pendingSet = Set.fromList (MPQ.toListU _skovPossiblyPendingQueue)
@@ -98,6 +99,8 @@ invariantSkovData SkovData{..} = do
                 checkBinary (==) (bpHeight b) (bpHeight (bpParent b) + 1) "==" "block height" "1 + parent height"
             let liveMap' = foldr (\b -> HM.insert (bpHash b) (TreeState.BlockAlive b)) liveMap l
             return (liveMap', l)
+        checkLastNonEmpty Seq.Empty = True -- catches cases where branches is empty
+        checkLastNonEmpty (_ Seq.:|> x) = (x /= [])
         checkPending lfSlot queue (parent, children) = do
             when (null children) $ Left $ "Empty list of blocks pending parent"
             let checkChild q child = do
