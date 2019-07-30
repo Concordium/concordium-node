@@ -4,8 +4,6 @@ use concordium_common::{
 };
 use failure::Fallible;
 
-#[cfg(test)]
-use std::time::Duration;
 use std::{
     collections::HashMap,
     sync::{
