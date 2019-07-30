@@ -20,7 +20,6 @@ import Concordium.Afgjort.Types
 import Concordium.Afgjort.ABBA
 import Concordium.Afgjort.Lottery
 import Concordium.Afgjort.CSS.NominationSet
-import qualified Concordium.Afgjort.CSS.BitSet as BitSet
 
 import Test.QuickCheck
 import Test.QuickCheck.Monadic

@@ -146,7 +146,7 @@ main = cmdArgsRun mode >>=
                         "account" .= object [
                             "signatureScheme" .= fromEnum SigScheme.Ed25519,
                             "signatureKey" .= serializeBase16 (Sig.signKey acctkp),
-                            "balance" .= (1000000 :: Integer)
+                            "balance" .= (1000000000000 :: Integer)
                             ]
                         ]
                 encodeFile (gdOutput </> "bakers.json") bakers

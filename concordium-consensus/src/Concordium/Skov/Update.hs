@@ -430,7 +430,7 @@ blockArrive block parentP lfBlockP gs = do
         let height = bpHeight parentP + 1
         curTime <- currentTime
         blockP <- makeLiveBlock block parentP lfBlockP gs curTime
-        logEvent Skov LLInfo $ "Block " ++ show (getHash block :: BlockHash) ++ " arrived"
+        logEvent Skov LLInfo $ "Block " ++ show block ++ " arrived"
         -- Update the statistics
         updateArriveStatistics blockP
         -- Add to the branches
@@ -465,7 +465,7 @@ doStoreBlock = \block0 -> do
     case oldBlock of
         Nothing -> do
             -- The block is new, so we have some work to do.
-            logEvent Skov LLDebug $ "Received block " ++ show cbp
+            logEvent Skov LLDebug $ "Received block " ++ show pb
             updateReceiveStatistics pb
             forM_ (blockTransactions pb) $ \tr -> doReceiveTransaction tr (blockSlot pb)
             addBlock pb
