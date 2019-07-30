@@ -35,6 +35,7 @@ import Concordium.Afgjort.Types
 import Concordium.Afgjort.Lottery
 import Concordium.Afgjort.CSS
 import Concordium.Afgjort.CSS.NominationSet
+import qualified Concordium.Afgjort.CSS.BitSet as BitSet
 
 atStrict :: (Ord k) => k -> Lens' (Map k v) (Maybe v)
 atStrict k f m = f mv <&> \r -> case r of
@@ -233,16 +234,16 @@ handleCoreSet phase cs = do
             let
                 csTop = nomTop cs
                 csBot = nomBot cs
-                csRes p = if p `Set.member` csTop then Just True else
-                            if p `Set.member` csBot then Just False else Nothing
-                topWeight = sum $ partyWeight <$> Set.toList csTop
-                botWeight = sum $ partyWeight <$> Set.toList csBot
+                csRes p = if p `BitSet.member` csTop then Just True else
+                            if p `BitSet.member` csBot then Just False else Nothing
+                topWeight = sum $ partyWeight <$> BitSet.toList csTop
+                botWeight = sum $ partyWeight <$> BitSet.toList csBot
             lid <- view $ lotteryId phase
             tkts <- filter (\((_,party),tkt) -> checkTicket lid (pubKeys party) tkt) . Map.toDescList <$> use (phaseState phase . lotteryTickets)
             let (nextBit, newGrade) =
-                    if Set.null csBot then
+                    if BitSet.null csBot then
                         (True, 2)
-                    else if Set.null csTop then
+                    else if BitSet.null csTop then
                         (False, 2)
                     else if topWeight >= totalWeight - corruptWeight then
                         (True, 1)

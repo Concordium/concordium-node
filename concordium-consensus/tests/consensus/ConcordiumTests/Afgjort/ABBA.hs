@@ -20,6 +20,7 @@ import Concordium.Afgjort.Types
 import Concordium.Afgjort.ABBA
 import Concordium.Afgjort.Lottery
 import Concordium.Afgjort.CSS.NominationSet
+import qualified Concordium.Afgjort.CSS.BitSet as BitSet
 
 import Test.QuickCheck
 import Test.QuickCheck.Monadic
@@ -204,10 +205,6 @@ multiWithCorrupt :: Int -> Int -> Property
 multiWithCorrupt active corrupt = property $ do
         keys <- makeKeys (active + corrupt)
         return $ multiWithCorruptKeys keys active corrupt
-
-singletonNominationSet :: Party -> Choice -> NominationSet
-singletonNominationSet p True = NominationSet p (Set.singleton p) Set.empty
-singletonNominationSet p False = NominationSet p Set.empty (Set.singleton p)
 
 multiWithCorruptKeys :: Vec.Vector VRF.KeyPair -> Int -> Int -> Property
 multiWithCorruptKeys keys active corrupt = monadicIO $ do

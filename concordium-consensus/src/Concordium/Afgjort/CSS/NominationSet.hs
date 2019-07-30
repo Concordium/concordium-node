@@ -1,8 +1,12 @@
 {-# LANGUAGE RecordWildCards, TupleSections #-}
 module Concordium.Afgjort.CSS.NominationSet where
 
+{-
 import qualified Data.Set as Set
 import Data.Set (Set)
+-}
+import qualified Concordium.Afgjort.CSS.BitSet as Set
+import Concordium.Afgjort.CSS.BitSet (BitSet)
 import Data.Serialize.Put
 import Data.Serialize.Get
 import Data.Bits
@@ -19,14 +23,14 @@ import Concordium.Afgjort.Types
 -- be.
 data NominationSet = NominationSet {
     nomMax :: !Party,
-    nomTop :: !(Set Party),
-    nomBot :: !(Set Party)
+    nomTop :: !BitSet,
+    nomBot :: !BitSet
 } deriving (Eq, Ord)
 
 instance Show NominationSet where
     show NominationSet{..} = "{top: " ++ sh nomTop ++ ", bot: " ++ sh nomBot ++ "}"
         where
-            sh = show . Set.toList
+            sh s = show (Set.toList s :: [Party])
 
 data NominationSetTag
     = NSEmpty
@@ -102,3 +106,7 @@ nominations p s = case (p `Set.member` nomTop s, p `Set.member` nomBot s) of
     (True, False) -> Just $ Just True
     (False, True) -> Just $ Just False
     (False, False) -> Nothing
+
+singletonNominationSet :: Party -> Choice -> NominationSet
+singletonNominationSet p True = NominationSet p (Set.singleton p) Set.empty
+singletonNominationSet p False = NominationSet p Set.empty (Set.singleton p)

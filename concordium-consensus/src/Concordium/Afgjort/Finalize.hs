@@ -205,7 +205,8 @@ data FinalizationState = FinalizationState {
 makeLenses ''FinalizationState
 
 instance Show FinalizationState where
-    show FinalizationState{..} = "finIndex: " ++ show _finsIndex ++ " finHeight: " ++ show _finsHeight ++ " " ++ show _finsCurrentRound
+    show FinalizationState{..} = "finIndex: " ++ show (theFinalizationIndex _finsIndex) ++ " finHeight: " ++ show (theBlockHeight _finsHeight) ++ " currentRound:" ++ show _finsCurrentRound
+        ++ "\n pendingMessages:" ++ show (Map.toList $ fmap (Map.toList . fmap Set.size)  _finsPendingMessages)
 
 class FinalizationStateLenses s where
     finState :: Lens' s FinalizationState
@@ -388,6 +389,30 @@ requestAbsentBlocks msg = forM_ (messageValues msg) $ \block -> do
                 logEvent Afgjort LLDebug $ "Requesting missing descendant of " ++ show block ++ " at height delta " ++ show (theBlockHeight roundDelta)
                 requestMissingBlockDescendant block roundDelta
 
+savePendingMessage :: (FinalizationMonad s m) => FinalizationIndex -> BlockHeight -> PendingMessage -> m Bool
+savePendingMessage finIx finDelta pmsg = do
+    pmsgs <- use finPendingMessages
+    case Map.lookup finIx pmsgs of
+        Nothing -> do
+            finPendingMessages .= Map.insert finIx (Map.singleton finDelta $ Set.singleton pmsg) pmsgs
+            return False
+        Just ipmsgs -> case Map.lookup finDelta ipmsgs of
+            Nothing -> do
+                finPendingMessages .= Map.insert finIx (Map.insert finDelta (Set.singleton pmsg) ipmsgs) pmsgs
+                return False
+            Just s -> if pmsg `Set.member` s then
+                    return True
+                else do
+                    finPendingMessages .= Map.insert finIx (Map.insert finDelta (Set.insert pmsg s) ipmsgs) pmsgs
+                    return False
+{-
+    msgs <- use $ finPendingMessages . at finIx . non Map.empty . at finDelta . non Set.empty
+    if pmsg `Set.member` msgs then
+        return True
+    else do
+        finPendingMessages . atStrict finIx . non Map.empty . atStrict finDelta ?= Set.insert pmsg msgs
+        return False
+-}
 
 -- |Called when a finalization message is received.
 receiveFinalizationMessage :: (FinalizationMonad s m) => FinalizationMessage -> m UpdateResult
@@ -400,7 +425,8 @@ receiveFinalizationMessage msg@FinalizationMessage{msgHeader=FinalizationMessage
                 LT -> return ResultStale -- message is out of date
                 GT -> do
                     -- Save the message for a later finalization index
-                    isDuplicate <- finPendingMessages . atStrict msgFinalizationIndex . non Map.empty . atStrict msgDelta . non Set.empty . members (PendingMessage msgSenderIndex msgBody msgSignature) <<.= True
+                    -- isDuplicate <- finPendingMessages . atStrict msgFinalizationIndex . non Map.empty . atStrict msgDelta . non Set.empty . members (PendingMessage msgSenderIndex msgBody msgSignature) <<.= True
+                    isDuplicate <- savePendingMessage msgFinalizationIndex msgDelta (PendingMessage msgSenderIndex msgBody msgSignature)
                     if isDuplicate then
                         return ResultDuplicate
                     else do
@@ -413,7 +439,8 @@ receiveFinalizationMessage msg@FinalizationMessage{msgHeader=FinalizationMessage
                 EQ -> -- handle the message now, since it's the current round
                     if checkMessage _finsCommittee msg then do
                         -- Save the message
-                        isDuplicate <- finPendingMessages . atStrict msgFinalizationIndex . non Map.empty . atStrict msgDelta . non Set.empty . members (PendingMessage msgSenderIndex msgBody msgSignature) <<.= True
+                        -- isDuplicate <- finPendingMessages . atStrict msgFinalizationIndex . non Map.empty . atStrict msgDelta . non Set.empty . members (PendingMessage msgSenderIndex msgBody msgSignature) <<.= True
+                        isDuplicate <- savePendingMessage msgFinalizationIndex msgDelta (PendingMessage msgSenderIndex msgBody msgSignature)
                         if isDuplicate then
                             return ResultDuplicate
                         else do

@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards, GeneralizedNewtypeDeriving, TupleSections, OverloadedStrings, InstanceSigs #-}
+{-# LANGUAGE RecordWildCards, GeneralizedNewtypeDeriving, TupleSections, OverloadedStrings, InstanceSigs, BangPatterns #-}
 module Main where
 
 import qualified Data.Sequence as Seq
@@ -37,13 +37,13 @@ import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Scheduler.Utils.Init.Example as Example
 import Concordium.Skov
-import Concordium.Skov.Update (SkovFinalizationState(..), runFSM')
 import Concordium.Afgjort.Freeze
 import Concordium.Afgjort.WMVBA
 import Concordium.Afgjort.Finalize
 import Concordium.Logger
 import Concordium.Birk.Bake
 import Concordium.TimeMonad
+import Concordium.Startup
 
 import Debug.Trace
 
@@ -68,11 +68,11 @@ instance LoggerMonad DummyM where
     logEvent _ _ _ = return () -- trace (show src ++ ": " ++ msg) $ return ()
 
 data Event
-    = EBake Slot
-    | EBlock BakedBlock
-    | ETransaction Transaction
-    | EFinalization FinalizationMessage
-    | EFinalizationRecord FinalizationRecord
+    = EBake !Slot
+    | EBlock !BakedBlock
+    | ETransaction !Transaction
+    | EFinalization !FinalizationMessage
+    | EFinalizationRecord !FinalizationRecord
 
 instance Show Event where
     show (EBake sl) = "bake for " ++ show sl
@@ -92,24 +92,26 @@ selectFromSeq s = select <$> choose (0, length s - 1)
         select n = (Seq.index s n, Seq.deleteAt n s)
 -}
 
-type States = Vec.Vector (BakerIdentity, FinalizationInstance, SkovFinalizationState)
+data BakerState = BakerState !BakerIdentity !FinalizationInstance !SkovActiveState
+
+type States = Vec.Vector BakerState
 
 runKonsensusTest :: Int -> States -> EventPool -> IO States
-runKonsensusTest steps states events
+runKonsensusTest !steps !states !events
         | steps <= 0 = return states
         | null events = return states
         | otherwise = do
             let
                 (rcpt, ev) Seq.:<| events' = events
-                (bkr, fi, fs) = states Vec.! rcpt
+                (BakerState bkr fi fs) = states Vec.! rcpt
                 btargets = [x | x <- [0..length states - 1], x /= rcpt]
             (fs', events'') <- case ev of
                     EBake sl -> do
-                        (mb, fs', Endo evs) <- runLoggerT (runFSM (bakeForSlot bkr sl) fi fs) (\_ _ _ -> return ())
+                        (mb, fs', Endo evs) <- runLoggerT (runSkovActiveM (bakeForSlot bkr sl) fi fs) (\_ _ _ -> return ())
                         let
                             blockEvents = case mb of
                                             Nothing -> Seq.empty
-                                            Just b -> trace (show b) $ Seq.fromList [(r, EBlock b) | r <- btargets]
+                                            Just b -> Seq.fromList [(r, EBlock b) | r <- btargets]
                             events'' = blockEvents <> handleMessages btargets (evs []) Seq.|> (rcpt, EBake (sl + 1))
                         return (fs', events'')
                     EBlock block -> runAndHandle (storeBlock block) fi fs btargets
@@ -117,7 +119,7 @@ runKonsensusTest steps states events
                     EFinalization fmsg -> runAndHandle (receiveFinalizationMessage fmsg) fi fs btargets
                     EFinalizationRecord frec -> runAndHandle (finalizeBlock frec) fi fs btargets
             let
-                states' = states & ix rcpt . _3 .~ fs'
+                states' = states & ix rcpt .~ BakerState bkr fi fs'
             runKonsensusTest (steps - 1) states' (events' <> events'')
     where
         handleMessages :: [Int] -> [SkovFinalizationEvent] -> EventPool
@@ -126,7 +128,7 @@ runKonsensusTest steps states events
         handleMessages targets (SkovFinalization (BroadcastFinalizationRecord frec) : r) = Seq.fromList [(rcpt, EFinalizationRecord frec) | rcpt <- targets] <> handleMessages targets r
         handleMessages targets (_ : r) = handleMessages targets r
         runAndHandle a fi fs btargets = do
-            (_, fs', Endo evs) <- runLoggerT (runFSM a fi fs) (\_ _ _ -> return ())
+            (_, fs', Endo evs) <- runLoggerT (runSkovActiveM a fi fs) (\_ _ _ -> return ())
             return (fs', handleMessages btargets (evs []))
 
 {-
@@ -183,6 +185,7 @@ transactions n = [Example.makeTransaction True (ContractAddress (fromIntegral $ 
 initialEvents :: States -> EventPool
 initialEvents states = Seq.fromList [(x, EBake 1) | x <- [0..length states -1]]
 
+{-
 -- |Make a baker in a deterministic way.
 makeBaker :: BakerId -> LotteryPower -> (BakerInfo, BakerIdentity)
 makeBaker bid lot = (BakerInfo epk spk lot, BakerIdentity bid sk spk ek epk)
@@ -192,20 +195,21 @@ makeBaker bid lot = (BakerInfo epk spk lot, BakerIdentity bid sk spk ek epk)
         (sk, _) = Sig.randomKeyPair gen1
         epk = VRF.publicKey ek
         spk = Sig.verifyKey sk
+-}
 
 initialiseStates :: Int -> States
-initialiseStates n = Vec.fromList [(bid, fininst, initialSkovFinalizationState fininst gen (Example.initialState nAccounts)) | (_, (_, bid)) <- bis, let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid)] 
+initialiseStates n = Vec.fromList [BakerState bid fininst (initialSkovActiveState fininst gen genState) | (bid, _) <- bis, let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid)] 
     where
-        bns = [1..fromIntegral n]
-        bakeShare = 1.0 / fromIntegral n
-        bis = [(i, makeBaker i bakeShare) | i <- bns]
-        bps = BirkParameters "LeadershipElectionNonce" 0.5
-                (Map.fromList [(i, b) | (i, (b, _)) <- bis])
-        fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _, _)) <- bis]
-        gen = GenesisData 0 1 bps fps
+        (gen, bis) = makeGenesisData 0 (fromIntegral n) 1 0.5 0 dummyCryptographicParameters []
+        genState = Example.initialState
+                (genesisBirkParameters gen)
+                (genesisCryptographicParameters gen)
+                (genesisBakerAccounts gen)
+                (genesisIdentityProviders gen)
+                2
 
 summariseStates :: States -> String
-summariseStates s = show ((^. _3 . skov) <$> Vec.toList s) -- ++ show ((s Vec.! 1 ) ^. _3 . 
+summariseStates s = show ((\(BakerState _ _ z) -> (z ^. skov, z ^. finState)) <$> Vec.toList s)-- ++ show ((s Vec.! 1 ) ^. _3 . 
 
 {-
 testBlock :: Block

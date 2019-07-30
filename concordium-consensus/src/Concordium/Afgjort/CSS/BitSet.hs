@@ -49,3 +49,12 @@ toList = toAscList
 
 fromList :: (Enum a) => [a] -> BitSet
 fromList = foldr (\b s ->  setBit s (fromEnum b)) 0
+
+fromAscList :: (Enum a) => [a] -> BitSet
+fromAscList = fromList
+
+isSubsetOf :: BitSet -> BitSet -> Bool
+isSubsetOf s1 s2 = s1 .&. s2 == s1
+
+filter :: (Enum a) => (a -> Bool) -> BitSet -> BitSet
+filter f = fromList . Prelude.filter f . toList

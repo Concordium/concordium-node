@@ -3,7 +3,7 @@
 module ConcordiumTests.Afgjort.CSS.NominationSet where
 
 import Data.Serialize
-import qualified Data.Set as Set
+import qualified Concordium.Afgjort.CSS.BitSet as Set
 
 import Concordium.Afgjort.Types
 import Concordium.Afgjort.CSS.NominationSet
@@ -24,8 +24,8 @@ instance Arbitrary NominationSet where
             ]
         return NominationSet{..}
     shrink (NominationSet mx ts bs) =
-        [NominationSet mx Set.empty bs | not (null ts)]
-        ++ [NominationSet mx ts Set.empty | not (null bs)]
+        [NominationSet mx Set.empty bs | not (Set.null ts)]
+        ++ [NominationSet mx ts Set.empty | not (Set.null bs)]
         ++ [NominationSet (mx - 1) (Set.filter (< mx) ts) (Set.filter (< mx) bs) | mx > 0]
 
 serializeTest :: Property
