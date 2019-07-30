@@ -4,7 +4,6 @@ use concordium_common::{
 };
 use failure::Fallible;
 
-#[cfg(test)]
 use std::{
     collections::HashMap,
     sync::{
