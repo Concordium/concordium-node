@@ -138,7 +138,7 @@ mod unit_functor_unit_test {
     /// It tests if raw functions can be added as callback.
     #[test]
     pub fn test_parse_handler_raw_functions() {
-        let mut ph = UnitFunctor::new();
+        let ph = UnitFunctor::new();
         ph.add_callback(make_atomic_callback!(raw_func_1))
             .add_callback(make_atomic_callback!(raw_func_2))
             .add_callback(make_atomic_callback!(raw_func_1));
@@ -150,7 +150,7 @@ mod unit_functor_unit_test {
     /// It tests if closures can be added as callback.
     #[test]
     pub fn test_parse_handler_closure() {
-        let mut ph = UnitFunctor::new();
+        let ph = UnitFunctor::new();
 
         ph.add_callback(make_atomic_callback!(|_x: &i32| { Ok(()) }))
             .add_callback(make_atomic_callback!(|_x: &i32| { Ok(()) }));
@@ -162,7 +162,7 @@ mod unit_functor_unit_test {
     /// It tests if we can mix closures and functions.
     #[test]
     pub fn test_parse_handler_mix() {
-        let mut ph = UnitFunctor::new();
+        let ph = UnitFunctor::new();
 
         ph.add_callback(make_atomic_callback!(raw_func_1))
             .add_callback(make_atomic_callback!(raw_func_2))
@@ -181,7 +181,7 @@ mod unit_functor_unit_test {
         let shd_counter_1 = Arc::clone(&shd_counter);
         let shd_counter_2 = Arc::clone(&shd_counter);
 
-        let mut ph = UnitFunctor::new();
+        let ph = UnitFunctor::new();
 
         ph.add_callback(make_atomic_callback!(move |_x: &i32| {
             if let Ok(mut val) = shd_counter_1.write() {
