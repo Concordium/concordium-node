@@ -1,6 +1,6 @@
 use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
 use concordium_common::PacketType;
-use failure::Fallible;
+use failure::{Fail, Fallible};
 
 use std::{
     cmp::Ordering,
@@ -130,68 +130,34 @@ pub enum GlobalStateResult {
     BestPeer((PeerId, GlobalMetadata)),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Fail)]
+#[rustfmt::skip]
 /// Indicates an erroneous result of a request to GlobalState.
 ///
 /// If there are two components, the first one is the target and the second is
 /// the source
 pub enum GlobalStateError {
     // a non-existent Block
+    #[fail(display = "block {:?} does not exist in the store!", _0)]
     MissingBlock(HashBytes),
     // the parent block is not in the tree
+    #[fail(display = "block {:?}'s parent ({:?}) is not in the tree!", _1, _0)]
     MissingParentBlock(HashBytes, HashBytes),
     // the target last finalized block is not in the tree
+    #[fail(display = "block {:?}'s last finalized block ({:?}) is not in the tree!", _1, _0)]
     MissingLastFinalizedBlock(HashBytes, HashBytes),
     // the target last finalized block has not been finalized yet
+    #[fail(display = "block {:?}'s last finalized block ({:?}) has not been finalized!", _1, _0)]
     LastFinalizedNotFinalized(HashBytes, HashBytes),
     // the target last finalized block is not the last finalized block in the tree
+    #[fail(display = "block {:?}'s last finalized block ({:?}) is not the last one!", _1, _0)]
     InvalidLastFinalized(HashBytes, HashBytes),
     // the block pointed to by the finalization record is not in the tree
+    #[fail(display = "finalization record references a non-existent block ({:?})!", _0)]
     MissingBlockToFinalize(HashBytes),
     // the finalization record's index is in the future
+    #[fail(display = "finalization record's index ({}) is in the future (current: {})!", _0, _1)]
     FutureFinalizationRecord(FinalizationIndex, FinalizationIndex),
-}
-
-impl fmt::Display for GlobalStateError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let msg = match self {
-            GlobalStateError::MissingBlock(ref hash) => {
-                format!("block {:?} does not exist in the store!", hash)
-            }
-            GlobalStateError::MissingParentBlock(ref parent, ref pending) => format!(
-                "block {:?} is pointing to a parent ({:?}) that is not in the tree",
-                pending, parent
-            ),
-            GlobalStateError::MissingLastFinalizedBlock(ref last_finalized, ref pending) => {
-                format!(
-                    "block {:?} is pointing to a last finalized block ({:?}) that is not in the \
-                     tree",
-                    pending, last_finalized
-                )
-            }
-            GlobalStateError::LastFinalizedNotFinalized(ref last_finalized, ref pending) => {
-                format!(
-                    "block {:?} is pointing to a last finalized block ({:?}) that has not been \
-                     finalized yet",
-                    pending, last_finalized
-                )
-            }
-            GlobalStateError::InvalidLastFinalized(ref last_finalized, ref pending) => format!(
-                "block {:?} wrongly states that {:?} is the last finalized block",
-                pending, last_finalized
-            ),
-            GlobalStateError::MissingBlockToFinalize(ref target) => format!(
-                "finalization record for block {:?} references a block that is not in the tree",
-                target
-            ),
-            GlobalStateError::FutureFinalizationRecord(future_idx, curr_idx) => format!(
-                "the finalization record's index ({}) is in the future (current index: {})",
-                future_idx, curr_idx
-            ),
-        };
-
-        write!(f, "error: {}", msg)
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
