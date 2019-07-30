@@ -11,8 +11,6 @@ pub use self::{
     p2p_peer::{P2PPeer, P2PPeerBuilder},
 };
 
-use concordium_common::UCursor;
-
 pub mod fails;
 
 use chrono::prelude::*;
@@ -20,21 +18,12 @@ use failure::{bail, Error, Fallible};
 use std::{
     fmt,
     net::{IpAddr, SocketAddr},
-    str::{self, FromStr},
 };
 
-use crate::{
-    common::serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
-    network::PROTOCOL_PORT_LENGTH,
-};
-
-const PROTOCOL_IP4_LENGTH: usize = 12;
-const PROTOCOL_IP6_LENGTH: usize = 32;
-pub const PROTOCOL_IP_TYPE_LENGTH: usize = 3;
+use crate::common::serialization::{Deserializable, ReadArchive, Serializable, WriteArchive};
 
 const PEER_TYPE_NODE: u8 = 0;
 const PEER_TYPE_BOOTSTRAPPER: u8 = 1;
-pub const TESTCONFIG: &[&str] = &["no-bootstrap"];
 
 #[derive(Clone, Copy, Debug, PartialEq, Hash)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
@@ -173,96 +162,7 @@ pub fn serialize_addr(addr: SocketAddr) -> String {
     format!("{}{:05}", serialize_ip(addr.ip()), addr.port())
 }
 
-pub fn deserialize_ip4(pkt: &mut UCursor) -> Fallible<IpAddr> {
-    let min_packet_size = PROTOCOL_IP4_LENGTH;
-    ensure!(
-        pkt.len() >= pkt.position() + min_packet_size as u64,
-        "IPv4 package needs {} bytes",
-        min_packet_size
-    );
-
-    let pkt_view = pkt.read_into_view(min_packet_size)?;
-    let buf = str::from_utf8(pkt_view.as_slice())?;
-
-    // Decode IP v4
-    let ip_addr = IpAddr::from_str(&format!(
-        "{}.{}.{}.{}",
-        &buf[..3],
-        &buf[3..6],
-        &buf[6..9],
-        &buf[9..12]
-    ))?;
-    Ok(ip_addr)
-}
-
-pub fn deserialize_ip6(pkt: &mut UCursor) -> Fallible<IpAddr> {
-    let min_packet_size = PROTOCOL_IP6_LENGTH;
-    ensure!(
-        pkt.len() >= pkt.position() + min_packet_size as u64,
-        "IPv6 package needs {} bytes",
-        min_packet_size
-    );
-
-    let pkt_view = pkt.read_into_view(min_packet_size)?;
-    let pkt_view_slice = pkt_view.as_slice();
-    let buf = str::from_utf8(pkt_view_slice)?;
-
-    // Decode IP v6
-    let ip_addr = IpAddr::from_str(&format!(
-        "{}:{}:{}:{}:{}:{}:{}:{}",
-        &buf[..4],
-        &buf[4..8],
-        &buf[8..12],
-        &buf[12..16],
-        &buf[16..20],
-        &buf[20..24],
-        &buf[24..28],
-        &buf[28..32]
-    ))?;
-    Ok(ip_addr)
-}
-
-pub fn deserialize_ip(pkt: &mut UCursor) -> Fallible<IpAddr> {
-    let min_packet_size = PROTOCOL_IP_TYPE_LENGTH;
-
-    ensure!(
-        pkt.len() >= pkt.position() + min_packet_size as u64,
-        "P2PPeer package needs {} bytes",
-        min_packet_size
-    );
-
-    let view = pkt.read_into_view(min_packet_size)?;
-    let buf = view.as_slice();
-    let ip_type = &buf[..PROTOCOL_IP_TYPE_LENGTH];
-
-    match ip_type {
-        b"IP4" => deserialize_ip4(pkt),
-        b"IP6" => deserialize_ip6(pkt),
-        _ => Err(Error::from(fails::InvalidIpType::new(
-            str::from_utf8(ip_type)?.to_owned(),
-        ))),
-    }
-}
-
-pub fn deserialize_ip_port(pkt: &mut UCursor) -> Fallible<(IpAddr, u16)> {
-    let ip_addr = deserialize_ip(pkt)?;
-
-    let view = pkt.read_into_view(PROTOCOL_PORT_LENGTH)?;
-    let buf = view.as_slice();
-    // Decode Port
-    let port = str::from_utf8(&buf[..PROTOCOL_PORT_LENGTH])?.parse::<u16>()?;
-    Ok((ip_addr, port))
-}
-
 pub fn get_current_stamp() -> u64 { Utc::now().timestamp_millis() as u64 }
-
-pub fn get_current_stamp_b64() -> String { base64::encode(&get_current_stamp().to_le_bytes()[..]) }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PacketDirection {
-    Inbound,
-    Outbound,
-}
 
 #[cfg(test)]
 mod tests {
@@ -276,7 +176,7 @@ mod tests {
         p2p::banned_nodes::tests::dummy_ban_node,
     };
     use concordium_common::{ContainerView, UCursor};
-    use std::collections::HashSet;
+    use std::{collections::HashSet, str::FromStr};
 
     fn dummy_peer(ip: IpAddr, port: u16) -> RemotePeer {
         RemotePeer::PostHandshake(
