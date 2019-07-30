@@ -808,13 +808,13 @@ filterTransactions = go [] []
 -- |Execute transactions in sequence. Return 'Nothing' if one of the transactions
 -- fails, and otherwise return a list of transactions with their outcomes.
 runTransactions :: (TransactionData msg, SchedulerMonad m)
-                   => [msg] -> m (Maybe [(msg, ValidResult)])
+                   => [msg] -> m (Either FailureKind [(msg, ValidResult)])
 runTransactions = go []
   where go valid (t:ts) =
           dispatch t >>= \case
             TxValid reason -> go ((t, reason):valid) ts
-            TxInvalid _ -> return Nothing
-        go valid [] = return (Just (reverse valid))
+            TxInvalid reason -> return (Left reason)
+        go valid [] = return (Right (reverse valid))
 
 -- |Execute transactions in sequence only for sideffects on global state.
 -- Returns 'Right' '()' if block executed successfully, and 'Left' 'FailureKind' at

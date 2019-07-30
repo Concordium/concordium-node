@@ -87,17 +87,19 @@ executeFrom slotNumber blockParent lfPointer blockBaker txs =
                finalizedHeight = bpHeight lfPointer
            in ChainMetadata{..}
   in do
-    bshandle <- thawBlockState (bpState blockParent)
-    (res, bshandle') <- runBSM (Sch.execTransactions txs) cm bshandle
-
-    -- the main execution is now done. At this point we must mint new currencty
-    -- and reward the baker and other parties.
-    bshandle'' <- mintAndReward bshandle' blockParent lfPointer slotNumber blockBaker
-
-    finalbsHandle <- freezeBlockState bshandle''
+    bshandle0 <- thawBlockState (bpState blockParent)
+    (res, bshandle1) <- runBSM (Sch.runTransactions txs) cm bshandle0
     case res of
-      Left fk -> Left fk <$ purgeBlockState finalbsHandle
-      Right () -> return (Right finalbsHandle)
+        Left fk -> Left fk <$ (purgeBlockState =<< freezeBlockState bshandle1)
+        Right outcomes -> do
+            -- Record the transaction outcomes
+            bshandle2 <- bsoSetTransactionOutcomes bshandle1 ((\(tr, o) -> (transactionHash tr, o)) <$> outcomes)
+            -- the main execution is now done. At this point we must mint new currencty
+            -- and reward the baker and other parties.
+            bshandle3 <- mintAndReward bshandle2 blockParent lfPointer slotNumber blockBaker
+
+            finalbsHandle <- freezeBlockState bshandle3
+            return (Right finalbsHandle)
 
 -- |PRECONDITION: Focus block is the parent block of the block we wish to make,
 -- hence the pending transaction table is correct for the new block.
