@@ -132,7 +132,7 @@ mod request_handler_test {
     static BAN_NODE_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
     fn make_request_handler() -> RequestHandler {
-        let mut handler = RequestHandler::new();
+        let handler = RequestHandler::new();
 
         handler
             .add_ping_callback(make_atomic_callback!(|_: &NRequest| {

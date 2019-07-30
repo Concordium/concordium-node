@@ -34,8 +34,8 @@ mod handler_utils;
 pub use crate::connection::connection_private::ConnectionPrivate;
 
 pub use network_handler::{
-    MessageHandler, NetworkPacketCW, NetworkRequestCW, NetworkResponseCW,
-    RequestHandler, ResponseHandler,
+    MessageHandler, NetworkPacketCW, NetworkRequestCW, NetworkResponseCW, RequestHandler,
+    ResponseHandler,
 };
 pub use p2p_event::P2PEvent;
 pub use seen_messages_list::SeenMessagesList;
@@ -340,7 +340,8 @@ impl Connection {
             self.post_handshake_message_processor
                 .process_message(&message)
         } else {
-            self.pre_handshake_message_processor.process_message(&message)
+            self.pre_handshake_message_processor
+                .process_message(&message)
         }
     }
 

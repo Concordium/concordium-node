@@ -161,8 +161,8 @@ mod integration_test {
         common::{P2PNodeId, P2PPeerBuilder, PeerType},
         connection::MessageHandler,
         network::{
-            packet::MessageId, NetworkId, NetworkMessage,
-            NetworkPacketBuilder, NetworkRequest, NetworkResponse,
+            packet::MessageId, NetworkId, NetworkMessage, NetworkPacketBuilder, NetworkRequest,
+            NetworkResponse,
         },
     };
     use concordium_common::{functor::FuncResult, UCursor};

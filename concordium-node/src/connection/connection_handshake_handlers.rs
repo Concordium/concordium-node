@@ -31,8 +31,8 @@ pub fn handshake_response_handle(
             }
 
             if let Some(ref service) = priv_conn_ref.stats_export_service {
-            service.peers_inc();
-        };
+                service.peers_inc();
+            };
         }
     } else {
         safe_write!(priv_conn)?.status = ConnectionStatus::Closing;
