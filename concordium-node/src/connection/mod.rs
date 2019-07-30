@@ -34,7 +34,7 @@ mod handler_utils;
 pub use crate::connection::connection_private::ConnectionPrivate;
 
 pub use network_handler::{
-    MessageHandler, NetworkPacketCW, NetworkRequestCW, NetworkResponseCW, PacketHandler,
+    MessageHandler, NetworkPacketCW, NetworkRequestCW, NetworkResponseCW,
     RequestHandler, ResponseHandler,
 };
 pub use p2p_event::P2PEvent;
@@ -328,7 +328,6 @@ impl Connection {
         let mut archive =
             ReadArchiveAdapter::new(message, self.remote_peer(), self.remote_addr().ip());
         let message = NetworkMessage::deserialize(&mut archive)?;
-        let outer = Arc::new(message);
 
         self.messages_received.fetch_add(1, Ordering::Relaxed);
         TOTAL_MESSAGES_RECEIVED_COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -339,9 +338,9 @@ impl Connection {
         // Process message by message handler.
         if read_or_die!(self.dptr).status == ConnectionStatus::PostHandshake {
             self.post_handshake_message_processor
-                .process_message(&outer)
+                .process_message(&message)
         } else {
-            self.pre_handshake_message_processor.process_message(&outer)
+            self.pre_handshake_message_processor.process_message(&message)
         }
     }
 
