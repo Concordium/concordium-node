@@ -149,7 +149,7 @@ instance BlockData PendingBlock where
     verifyBlockSignature key = verifyBlockSignature key . pbBlock
 
 instance Show PendingBlock where
-    show = show . pbHash
+    show pb = show (pbHash pb) ++ " (" ++ show (blockBaker $ bbFields $ pbBlock pb) ++ ")"
 
 makePendingBlock :: BakedBlock -> UTCTime -> PendingBlock
 makePendingBlock pbBlock pbReceiveTime = PendingBlock{pbHash = getHash pbBlock,..}
