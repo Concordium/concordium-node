@@ -159,10 +159,10 @@ mod message_handler_unit_test {
 mod integration_test {
     use crate::{
         common::{P2PNodeId, P2PPeerBuilder, PeerType},
-        connection::{MessageHandler, PacketHandler},
+        connection::MessageHandler,
         network::{
-            packet::MessageId, NetworkId, NetworkMessage, NetworkPacket as NetworkPacketEnum,
-            NetworkPacketBuilder, NetworkRequest, NetworkResponse,
+            packet::MessageId, NetworkId, NetworkMessage, NetworkPacketBuilder, NetworkRequest,
+            NetworkResponse,
         },
     };
     use concordium_common::{functor::FuncResult, UCursor};
@@ -175,13 +175,8 @@ mod integration_test {
         },
     };
 
-    use failure::Error;
-
     static NETWORK_REQUEST_COUNTER: AtomicUsize = AtomicUsize::new(0);
     static NETWORK_RESPONSE_COUNTER: AtomicUsize = AtomicUsize::new(0);
-    static NETWORK_PACKET_COUNTER: AtomicUsize = AtomicUsize::new(0);
-    static NETWORK_PACKET_DIRECT_COUNTER: AtomicUsize = AtomicUsize::new(0);
-    static NETWORK_PACKET_BROADCAST_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
     // Test data for `on_network_request_handler`.
     pub fn network_request_handler_data() -> Vec<NetworkMessage> {
@@ -241,18 +236,6 @@ mod integration_test {
 
     /// Creates message handler for testing.
     fn make_message_handler() -> MessageHandler {
-        let mut pkg_handler = PacketHandler::new();
-
-        pkg_handler
-            .add_direct_callback(make_atomic_callback!(|_pd: &NetworkPacketEnum| {
-                NETWORK_PACKET_DIRECT_COUNTER.fetch_add(1, Ordering::SeqCst);
-                Ok(())
-            }))
-            .add_broadcast_callback(make_atomic_callback!(|_pb: &NetworkPacketEnum| {
-                NETWORK_PACKET_BROADCAST_COUNTER.fetch_add(1, Ordering::SeqCst);
-                Ok(())
-            }));
-
         let msg_handler = MessageHandler::new();
 
         msg_handler
@@ -268,10 +251,6 @@ mod integration_test {
             .add_response_callback(make_atomic_callback!(|_x: &NetworkResponse| {
                 NETWORK_RESPONSE_COUNTER.fetch_add(1, Ordering::SeqCst);
                 Ok(())
-            }))
-            .add_packet_callback(make_atomic_callback!(move |p: &NetworkPacketEnum| {
-                NETWORK_PACKET_COUNTER.fetch_add(1, Ordering::SeqCst);
-                pkg_handler.process_message(p).map_err(Error::from)
             }));
 
         msg_handler
@@ -287,18 +266,11 @@ mod integration_test {
 
         assert_eq!(NETWORK_REQUEST_COUNTER.load(Ordering::Relaxed), 2);
         assert_eq!(NETWORK_RESPONSE_COUNTER.load(Ordering::Relaxed), 1);
-        assert_eq!(NETWORK_PACKET_COUNTER.load(Ordering::Relaxed), 2);
-        assert_eq!(NETWORK_PACKET_BROADCAST_COUNTER.load(Ordering::Relaxed), 1);
-        assert_eq!(NETWORK_PACKET_DIRECT_COUNTER.load(Ordering::Relaxed), 1);
-
         for message in network_request_handler_data() {
             let _status = mh.process_message(&message);
         }
 
         assert_eq!(NETWORK_REQUEST_COUNTER.load(Ordering::Relaxed), 4);
         assert_eq!(NETWORK_RESPONSE_COUNTER.load(Ordering::Relaxed), 2);
-        assert_eq!(NETWORK_PACKET_COUNTER.load(Ordering::Relaxed), 4);
-        assert_eq!(NETWORK_PACKET_BROADCAST_COUNTER.load(Ordering::Relaxed), 2);
-        assert_eq!(NETWORK_PACKET_DIRECT_COUNTER.load(Ordering::Relaxed), 2);
     }
 }

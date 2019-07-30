@@ -34,8 +34,8 @@ mod handler_utils;
 pub use crate::connection::connection_private::ConnectionPrivate;
 
 pub use network_handler::{
-    MessageHandler, NetworkPacketCW, NetworkRequestCW, NetworkResponseCW, PacketHandler,
-    RequestHandler, ResponseHandler,
+    MessageHandler, NetworkPacketCW, NetworkRequestCW, NetworkResponseCW, RequestHandler,
+    ResponseHandler,
 };
 pub use p2p_event::P2PEvent;
 pub use seen_messages_list::SeenMessagesList;
@@ -92,6 +92,8 @@ pub struct Connection {
     messages_received: Arc<AtomicU64>,
     last_ping_sent:    Arc<AtomicU64>,
 
+    token: Token,
+
     network_request_sender: SyncSender<NetworkRawRequest>,
 
     /// It stores internal info used in handles. In this way,
@@ -139,7 +141,7 @@ impl Connection {
     fn make_request_handler(&self) -> RequestHandler {
         let update_last_seen_handler = self.make_update_last_seen_handler();
 
-        let mut rh = RequestHandler::new();
+        let rh = RequestHandler::new();
         rh.add_ping_callback(handle_by_private!(
             self.dptr,
             &NetworkRequest,
@@ -326,7 +328,6 @@ impl Connection {
         let mut archive =
             ReadArchiveAdapter::new(message, self.remote_peer(), self.remote_addr().ip());
         let message = NetworkMessage::deserialize(&mut archive)?;
-        let outer = Arc::new(message);
 
         self.messages_received.fetch_add(1, Ordering::Relaxed);
         TOTAL_MESSAGES_RECEIVED_COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -337,9 +338,10 @@ impl Connection {
         // Process message by message handler.
         if read_or_die!(self.dptr).status == ConnectionStatus::PostHandshake {
             self.post_handshake_message_processor
-                .process_message(&outer)
+                .process_message(&message)
         } else {
-            self.pre_handshake_message_processor.process_message(&outer)
+            self.pre_handshake_message_processor
+                .process_message(&message)
         }
     }
 
@@ -372,7 +374,7 @@ impl Connection {
     }
 
     #[inline]
-    pub fn token(&self) -> Token { read_or_die!(self.dptr).token }
+    pub fn token(&self) -> Token { self.token }
 
     /// It queues network request
     #[inline]
