@@ -72,7 +72,7 @@ impl<'a> GlobalData<'a> {
     pub(crate) fn store_block(&mut self, block_ptr: &BlockPtr) {
         let mut kvs_writer = self.kvs_env.write().unwrap(); // infallible
 
-        self.block_store
+        self.finalized_block_store
             .put(
                 &mut kvs_writer,
                 block_ptr.hash.clone(),
@@ -84,7 +84,7 @@ impl<'a> GlobalData<'a> {
     fn store_serialized_block(&mut self, serialized_block: &[u8]) {
         let mut kvs_writer = self.kvs_env.write().unwrap(); // infallible
 
-        self.block_store
+        self.finalized_block_store
             .put(
                 &mut kvs_writer,
                 sha256(serialized_block),

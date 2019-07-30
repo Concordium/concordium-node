@@ -211,14 +211,14 @@ pub struct GlobalData<'a> {
     kvs_env: &'a Rkv,
     /// finalized blocks AKA the blockchain
     pub finalized_blocks: LinkedHashMap<BlockHash, Rc<BlockPtr>, HashBuildHasher>,
-    /// persistent storage for blocks
-    block_store: SingleStore,
+    /// persistent storage for finalized blocks
+    finalized_block_store: SingleStore,
     /// finalization records; the blocks they point to are in the tree
     pub finalization_records: IndexedVec<FinalizationRecord>,
     /// the genesis block
-    genesis_block_ptr: Rc<BlockPtr>,
+    pub genesis_block_ptr: Rc<BlockPtr>,
     /// the last finalized block
-    last_finalized: Rc<BlockPtr>,
+    pub last_finalized: Rc<BlockPtr>,
     /// valid blocks (parent and last finalized blocks are already in
     /// GlobalState) pending finalization
     pub live_blocks: LinkedHashMap<BlockHash, Rc<BlockPtr>, HashBuildHasher>,
@@ -249,14 +249,14 @@ impl<'a> GlobalData<'a> {
         let mut finalization_records = IndexedVec::with_capacity(GS_LONG_PREALLOCATION_SIZE);
         finalization_records.insert(0, FinalizationRecord::genesis(&genesis_block_ptr));
 
-        let block_store = kvs_env
+        let finalized_block_store = kvs_env
             .open_single("blocks", StoreOptions::create())
             .unwrap();
 
         {
             // don't actually persist blocks yet
             let mut kvs_writer = kvs_env.write().unwrap(); // infallible
-            block_store
+            finalized_block_store
                 .clear(&mut kvs_writer)
                 .expect("Can't clear the block store");
         }
@@ -275,7 +275,7 @@ impl<'a> GlobalData<'a> {
 
         let mut skov = Self {
             kvs_env,
-            block_store,
+            finalized_block_store,
             finalized_blocks,
             finalization_records,
             genesis_block_ptr,
