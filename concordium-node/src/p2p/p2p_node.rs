@@ -385,7 +385,7 @@ impl P2PNode {
 
     fn make_request_handler(&self) -> RequestHandler {
         let requeue_handler = self.make_requeue_handler();
-        let mut handler = RequestHandler::new();
+        let handler = RequestHandler::new();
 
         handler
             .add_ban_node_callback(requeue_handler.clone())

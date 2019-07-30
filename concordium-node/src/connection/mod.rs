@@ -141,7 +141,7 @@ impl Connection {
     fn make_request_handler(&self) -> RequestHandler {
         let update_last_seen_handler = self.make_update_last_seen_handler();
 
-        let mut rh = RequestHandler::new();
+        let rh = RequestHandler::new();
         rh.add_ping_callback(handle_by_private!(
             self.dptr,
             &NetworkRequest,

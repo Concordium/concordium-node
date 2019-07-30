@@ -32,47 +32,47 @@ impl RequestHandler {
         }
     }
 
-    pub fn add_ping_callback(&mut self, callback: UnitFunction<NRequest>) -> &mut Self {
+    pub fn add_ping_callback(&self, callback: UnitFunction<NRequest>) -> &Self {
         self.ping_handler.add_callback(callback);
         self
     }
 
-    pub fn add_find_node_callback(&mut self, callback: UnitFunction<NRequest>) -> &mut Self {
+    pub fn add_find_node_callback(&self, callback: UnitFunction<NRequest>) -> &Self {
         self.find_node_handler.add_callback(callback);
         self
     }
 
-    pub fn add_ban_node_callback(&mut self, callback: UnitFunction<NRequest>) -> &mut Self {
+    pub fn add_ban_node_callback(&self, callback: UnitFunction<NRequest>) -> &Self {
         self.ban_node_handler.add_callback(callback);
         self
     }
 
-    pub fn add_unban_node_callback(&mut self, callback: UnitFunction<NRequest>) -> &mut Self {
+    pub fn add_unban_node_callback(&self, callback: UnitFunction<NRequest>) -> &Self {
         self.unban_node_handler.add_callback(callback);
         self
     }
 
-    pub fn add_handshake_callback(&mut self, callback: UnitFunction<NRequest>) -> &mut Self {
+    pub fn add_handshake_callback(&self, callback: UnitFunction<NRequest>) -> &Self {
         self.handshake_handler.add_callback(callback);
         self
     }
 
-    pub fn add_get_peers_callback(&mut self, callback: UnitFunction<NRequest>) -> &mut Self {
+    pub fn add_get_peers_callback(&self, callback: UnitFunction<NRequest>) -> &Self {
         self.get_peers_handler.add_callback(callback);
         self
     }
 
-    pub fn add_join_network_callback(&mut self, callback: UnitFunction<NRequest>) -> &mut Self {
+    pub fn add_join_network_callback(&self, callback: UnitFunction<NRequest>) -> &Self {
         self.join_network_handler.add_callback(callback);
         self
     }
 
-    pub fn add_leave_network_callback(&mut self, callback: UnitFunction<NRequest>) -> &mut Self {
+    pub fn add_leave_network_callback(&self, callback: UnitFunction<NRequest>) -> &Self {
         self.leave_network_handler.add_callback(callback);
         self
     }
 
-    pub fn add_retransmit_callback(&mut self, callback: UnitFunction<NRequest>) -> &mut Self {
+    pub fn add_retransmit_callback(&self, callback: UnitFunction<NRequest>) -> &Self {
         self.retransmit_handler.add_callback(callback);
         self
     }
