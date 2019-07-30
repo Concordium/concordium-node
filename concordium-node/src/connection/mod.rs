@@ -92,6 +92,8 @@ pub struct Connection {
     messages_received: Arc<AtomicU64>,
     last_ping_sent:    Arc<AtomicU64>,
 
+    token: Token,
+
     network_request_sender: SyncSender<NetworkRawRequest>,
 
     /// It stores internal info used in handles. In this way,
@@ -372,7 +374,7 @@ impl Connection {
     }
 
     #[inline]
-    pub fn token(&self) -> Token { read_or_die!(self.dptr).token }
+    pub fn token(&self) -> Token { self.token }
 
     /// It queues network request
     #[inline]
