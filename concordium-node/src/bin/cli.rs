@@ -326,6 +326,7 @@ fn start_consensus_threads(
     let _network_id = NetworkId::from(conf.common.network_ids[0]); // defaulted so there's always first()
     let data_dir_path = app_prefs.get_user_app_dir();
     let stats_clone = stats.clone();
+    let is_global_state_persistent = conf.cli.baker.persist_global_state;
 
     let node_shared = node.clone();
     let mut consensus_clone = consensus.clone();
@@ -341,7 +342,11 @@ fn start_consensus_threads(
             .read()
             .expect("Can't unlock the kvs env for GlobalState!");
 
-        let mut global_state = GlobalState::new(&consensus_clone.genesis, &skov_kvs_env);
+        let mut global_state = GlobalState::new(
+            &consensus_clone.genesis,
+            &skov_kvs_env,
+            is_global_state_persistent,
+        );
 
         // consensus_clone.send_global_state_ptr(&global_state);
 
