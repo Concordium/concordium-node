@@ -131,6 +131,7 @@ instance (SkovLenses s, Monad m, MonadState s m) => TS.TreeStateMonad (SkovTreeS
     getNextFinalizationIndex = FinalizationIndex . fromIntegral . Seq.length <$> use finalizationList
     addFinalization newFinBlock finRec = finalizationList %= (Seq.:|> (finRec, newFinBlock))
     getFinalizationAtIndex finIndex = fmap fst . Seq.lookup (fromIntegral finIndex) <$> use finalizationList
+    getFinalizationFromIndex finIndex = toList . fmap fst . Seq.drop (fromIntegral finIndex) <$> use finalizationList
     getBranches = use branches
     putBranches brs = branches .= brs
     takePendingChildren bh = possiblyPendingTable . at bh . non [] <<.= []

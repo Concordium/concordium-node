@@ -103,6 +103,11 @@ class (Eq (BlockPointer m),
     addFinalization :: BlockPointer m -> FinalizationRecord -> m ()
     -- |Get the finalization record for a particular finalization index (if available).
     getFinalizationAtIndex :: FinalizationIndex -> m (Maybe FinalizationRecord)
+    -- |Get a list of all (validated) finalization records from the given index
+    getFinalizationFromIndex :: FinalizationIndex -> m [FinalizationRecord]
+    getFinalizationFromIndex i = getFinalizationAtIndex i >>= \case
+            Nothing -> return []
+            Just f -> (f :) <$> getFinalizationFromIndex (i+1)
     -- * Operations on branches
     -- |Get the branches.
     getBranches :: m (Branches m)
@@ -248,6 +253,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (BSMTra
     getNextFinalizationIndex = lift getNextFinalizationIndex
     addFinalization bp fr = lift $ addFinalization bp fr
     getFinalizationAtIndex fi = lift $ getFinalizationAtIndex fi
+    getFinalizationFromIndex fi = lift $ getFinalizationFromIndex fi
     getBranches = lift getBranches
     putBranches = lift . putBranches
     takePendingChildren = lift . takePendingChildren
@@ -288,6 +294,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (BSMTra
     {-# INLINE getNextFinalizationIndex #-}
     {-# INLINE addFinalization #-}
     {-# INLINE getFinalizationAtIndex #-}
+    {-# INLINE getFinalizationFromIndex #-}
     {-# INLINE getBranches #-}
     {-# INLINE putBranches #-}
     {-# INLINE takePendingChildren #-}
