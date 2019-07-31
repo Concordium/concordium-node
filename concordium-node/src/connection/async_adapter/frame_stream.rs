@@ -14,7 +14,7 @@ use failure::{Error, Fallible};
 
 use std::{
     convert::{From, TryFrom},
-    io::{ErrorKind, Read},
+    io::{BufRead, ErrorKind},
     sync::{Arc, RwLock},
 };
 
@@ -101,7 +101,7 @@ impl FrameStream {
     ///
     /// This operation could not be completed in just one shot due to limits of
     /// `output` buffers.
-    fn read_expected_size(&mut self, input: &mut impl Read) -> Fallible<Readiness<UCursor>> {
+    fn read_expected_size(&mut self, input: &mut impl BufRead) -> Fallible<Readiness<UCursor>> {
         let mut expected_size_buffer: [u8; std::mem::size_of::<PayloadSize>()] =
             unsafe { std::mem::uninitialized() };
 
@@ -145,7 +145,7 @@ impl FrameStream {
     }
 
     /// Once we know the message expected size, we can start to receive data.
-    fn read_payload(&mut self, input: &mut impl Read) -> Fallible<Readiness<UCursor>> {
+    fn read_payload(&mut self, input: &mut impl BufRead) -> Fallible<Readiness<UCursor>> {
         // Read no more than expected, directly into our buffer
         while self.read_with_intermediate_copies(input)? >= DEFAULT_MESSAGE_SIZE {
             // Validation only on encrypted channels.
@@ -208,7 +208,7 @@ impl FrameStream {
     }
 
     /// It loads from `input` using an intermediate buffer.
-    fn read_with_intermediate_copies(&mut self, input: &mut impl Read) -> Fallible<usize> {
+    fn read_with_intermediate_copies(&mut self, input: &mut impl BufRead) -> Fallible<usize> {
         let mut buffer: [u8; DEFAULT_MESSAGE_SIZE] = unsafe { std::mem::uninitialized() };
 
         let pending_bytes = self.expected_size - self.message.len() as u32;
@@ -256,7 +256,7 @@ impl FrameStream {
 
     /// It tries to fully read a message from `input`. If it is not possible,
     /// you have to call this function several times.
-    pub fn read(&mut self, input: &mut impl Read) -> Fallible<Readiness<UCursor>> {
+    pub fn read(&mut self, input: &mut impl BufRead) -> Fallible<Readiness<UCursor>> {
         let payload_readiness = if self.expected_size == 0 {
             self.read_expected_size(input)
         } else {

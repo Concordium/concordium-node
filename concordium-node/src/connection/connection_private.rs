@@ -1,5 +1,6 @@
 use std::{
     collections::HashSet,
+    io::BufReader,
     net::{Shutdown, SocketAddr},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -38,7 +39,7 @@ pub struct ConnectionPrivate {
     pub buckets:             Arc<RwLock<Buckets>>,
 
     // Socket and Sink/Stream
-    socket:         TcpStream,
+    socket:         Option<TcpStream>, // optional to enable swapping for buffering purposes
     message_sink:   FrameSink,
     message_stream: FrameStream,
     pub status:     ConnectionStatus,
@@ -99,23 +100,35 @@ impl ConnectionPrivate {
     /// or/and write.
     #[inline]
     pub fn register(&self, poll: &Poll) -> Fallible<()> {
-        into_err!(poll.register(
-            &self.socket,
-            self.token,
-            Ready::readable() | Ready::writable(),
-            PollOpt::edge()
-        ))
+        if let Some(ref socket) = self.socket {
+            into_err!(poll.register(
+                socket,
+                self.token,
+                Ready::readable() | Ready::writable(),
+                PollOpt::edge()
+            ))
+        } else {
+            panic!("The socket was not put back in place after buffered use!");
+        }
     }
 
     #[inline]
     pub fn deregister(&self, poll: &Poll) -> Fallible<()> {
-        map_io_error_to_fail!(poll.deregister(&self.socket))
+        if let Some(ref socket) = self.socket {
+            map_io_error_to_fail!(poll.deregister(socket))
+        } else {
+            panic!("The socket was not put back in place after buffered use!");
+        }
     }
 
     /// It shuts `socket` down.
     #[inline]
     pub fn shutdown(&mut self) -> Fallible<()> {
-        map_io_error_to_fail!(self.socket.shutdown(Shutdown::Both))
+        if let Some(ref socket) = self.socket {
+            map_io_error_to_fail!(socket.shutdown(Shutdown::Both))
+        } else {
+            panic!("The socket was not put back in place after buffered use!");
+        }
     }
 
     /// This function is called when `poll` indicates that `socket` is ready to
@@ -130,8 +143,9 @@ impl ConnectionPrivate {
 
         // 1. Try to read messages from `socket`.
         if ev_readiness.is_readable() {
+            let mut socket_reader = BufReader::new(self.socket.take().unwrap());
             loop {
-                let read_result = self.message_stream.read(&mut self.socket);
+                let read_result = self.message_stream.read(&mut socket_reader);
                 match read_result {
                     Ok(readiness) => match readiness {
                         Readiness::Ready(message) => {
@@ -161,11 +175,16 @@ impl ConnectionPrivate {
                     }
                 }
             }
+            self.socket = Some(socket_reader.into_inner());
         }
 
         // 2. Write pending data into `socket`.
         if self.status != ConnectionStatus::Closing {
-            self.message_sink.flush(&mut self.socket)?;
+            if let Some(ref mut socket) = self.socket {
+                self.message_sink.flush(socket)?;
+            } else {
+                panic!("The socket was not put back in place after buffered use!");
+            }
         }
 
         // 3. Check closing...
@@ -188,7 +207,11 @@ impl ConnectionPrivate {
         priority: MessageSendingPriority,
     ) -> Fallible<Readiness<usize>> {
         self.send_to_dump(&input, false);
-        self.message_sink.write(input, &mut self.socket, priority)
+        if let Some(ref mut socket) = self.socket {
+            self.message_sink.write(input, socket, priority)
+        } else {
+            panic!("The socket was not put back in place after buffered use!");
+        }
     }
 
     fn send_to_dump(&self, buf: &UCursor, inbound: bool) {
@@ -274,7 +297,7 @@ impl ConnectionPrivateBuilder {
                 remote_end_networks: HashSet::new(),
                 local_end_networks,
                 buckets,
-                socket,
+                socket: Some(socket),
                 message_sink: FrameSink::new(Arc::clone(&handshaker)),
                 message_stream: FrameStream::new(peer_type, handshaker),
                 status: ConnectionStatus::PreHandshake,
