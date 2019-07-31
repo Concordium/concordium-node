@@ -20,7 +20,7 @@ module Concordium.Afgjort.WMVBA (
 
 import Lens.Micro.Platform
 import Control.Monad.State.Class
-import Control.Monad.RWS
+import Control.Monad.RWS.Strict
 import qualified Data.Map as Map
 import Data.Map (Map)
 import qualified Data.ByteString as BS
@@ -36,9 +36,9 @@ import Concordium.Afgjort.ABBA
 import Concordium.Afgjort.CSS.NominationSet
 
 data WMVBAMessage
-    = WMVBAFreezeMessage FreezeMessage
-    | WMVBAABBAMessage ABBAMessage
-    | WMVBAWitnessCreatorMessage Val
+    = WMVBAFreezeMessage !FreezeMessage
+    | WMVBAABBAMessage !ABBAMessage
+    | WMVBAWitnessCreatorMessage !Val
     deriving (Eq, Ord)
 
 messageValues :: WMVBAMessage -> [Val]
@@ -95,35 +95,35 @@ instance S.Serialize WMVBAMessage where
         3 -> do
             phase <- getWord32be
             ticket <- S.get
-            return $ WMVBAABBAMessage (Justified phase False ticket)
+            return $! WMVBAABBAMessage (Justified phase False ticket)
         4 -> do
             phase <- getWord32be
             ticket <- S.get
-            return $ WMVBAABBAMessage (Justified phase True ticket)
+            return $! WMVBAABBAMessage (Justified phase True ticket)
         5 -> do
             phase <- getWord32be
             ns <- getUntaggedNominationSet NSTop
-            return $ WMVBAABBAMessage (CSSSeen phase ns)
+            return $! WMVBAABBAMessage (CSSSeen phase ns)
         6 -> do
             phase <- getWord32be
             ns <- getUntaggedNominationSet NSBot
-            return $ WMVBAABBAMessage (CSSSeen phase ns)
+            return $! WMVBAABBAMessage (CSSSeen phase ns)
         7 -> do
             phase <- getWord32be
             ns <- getUntaggedNominationSet NSBoth
-            return $ WMVBAABBAMessage (CSSSeen phase ns)
+            return $! WMVBAABBAMessage (CSSSeen phase ns)
         8 -> do
             phase <- getWord32be
             choices <- getUntaggedNominationSet NSTop
-            return $ WMVBAABBAMessage $ CSSDoneReporting phase choices
+            return $! WMVBAABBAMessage $ CSSDoneReporting phase choices
         9 -> do
             phase <- getWord32be
             choices <- getUntaggedNominationSet NSBot
-            return $ WMVBAABBAMessage $ CSSDoneReporting phase choices
+            return $! WMVBAABBAMessage $ CSSDoneReporting phase choices
         10 -> do
             phase <- getWord32be
             choices <- getUntaggedNominationSet NSBoth
-            return $ WMVBAABBAMessage $ CSSDoneReporting phase choices
+            return $! WMVBAABBAMessage $ CSSDoneReporting phase choices
         11 -> return (WMVBAABBAMessage (WeAreDone False))
         12 -> return (WMVBAABBAMessage (WeAreDone True))
         13 -> WMVBAWitnessCreatorMessage <$> getVal

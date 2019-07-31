@@ -35,6 +35,14 @@ import Concordium.Afgjort.Types
 import Concordium.Afgjort.Lottery
 import Concordium.Afgjort.CSS
 import Concordium.Afgjort.CSS.NominationSet
+import qualified Concordium.Afgjort.CSS.BitSet as BitSet
+
+atStrict :: (Ord k) => k -> Lens' (Map k v) (Maybe v)
+atStrict k f m = f mv <&> \r -> case r of
+        Nothing -> maybe m (const (Map.delete k m)) mv
+        Just v' -> Map.insert k v' m
+    where mv = Map.lookup k m
+{-# INLINE atStrict #-}
 
 -- |A phase in the ABBA protocol
 type Phase = Word32
@@ -122,7 +130,7 @@ makeLenses ''ABBAState
 -- |The state of a particular phase
 phaseState :: Phase -> Lens' ABBAState PhaseState
 phaseState p = lens (\s -> fromMaybe initialPhaseState (_phaseStates s ^. at p))
-    (\s t -> s & phaseStates . at p ?~ t)
+    (\s t -> s & phaseStates . atStrict p ?~ t)
 
 -- |The set of parties claiming we are done with a given choice
 weAreDone :: Choice -> Lens' ABBAState (Set Party)
@@ -224,18 +232,18 @@ handleCoreSet phase cs = do
             error $ "handleCoreSet on phase " ++ show phase ++ " but current phase is " ++ show cp ++ "\n" ++ show st
         else do
             let
-                csTop = fromMaybe Set.empty (coreTop cs)
-                csBot = fromMaybe Set.empty (coreBot cs)
-                csRes p = if p `Set.member` csTop then Just True else
-                            if p `Set.member` csBot then Just False else Nothing
-                topWeight = sum $ partyWeight <$> Set.toList csTop
-                botWeight = sum $ partyWeight <$> Set.toList csBot
+                csTop = nomTop cs
+                csBot = nomBot cs
+                csRes p = if p `BitSet.member` csTop then Just True else
+                            if p `BitSet.member` csBot then Just False else Nothing
+                topWeight = sum $ partyWeight <$> BitSet.toList csTop
+                botWeight = sum $ partyWeight <$> BitSet.toList csBot
             lid <- view $ lotteryId phase
             tkts <- filter (\((_,party),tkt) -> checkTicket lid (pubKeys party) tkt) . Map.toDescList <$> use (phaseState phase . lotteryTickets)
             let (nextBit, newGrade) =
-                    if Set.null csBot then
+                    if BitSet.null csBot then
                         (True, 2)
-                    else if Set.null csTop then
+                    else if BitSet.null csTop then
                         (False, 2)
                     else if topWeight >= totalWeight - corruptWeight then
                         (True, 1)
@@ -298,7 +306,7 @@ receiveABBAMessage src (Justified phase c ticketProof) = unlessCompleted $ do
     ABBAInstance{..} <- ask
     liftCSSReceiveMessage phase src (Input c)
     let ticket = proofToTicket ticketProof (partyWeight src) totalWeight
-    phaseState phase . lotteryTickets . at (ticketValue ticket, src) ?= ticket
+    phaseState phase . lotteryTickets . atStrict (ticketValue ticket, src) ?= ticket
     inputw <- use $ phaseState phase . inputWeight c
     forM_ inputw $ \(w, ps) -> unless (src `Set.member` ps) $
         if w + partyWeight src > corruptWeight then do

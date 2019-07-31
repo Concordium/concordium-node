@@ -205,10 +205,6 @@ multiWithCorrupt active corrupt = property $ do
         keys <- makeKeys (active + corrupt)
         return $ multiWithCorruptKeys keys active corrupt
 
-singletonNominationSet :: Party -> Choice -> NominationSet
-singletonNominationSet p True = NominationSet p (Just $ Set.singleton p) Nothing
-singletonNominationSet p False = NominationSet p Nothing (Just $ Set.singleton p)
-
 multiWithCorruptKeys :: Vec.Vector VRF.KeyPair -> Int -> Int -> Property
 multiWithCorruptKeys keys active corrupt = monadicIO $ do
     begins <- pick $ makeBegins active

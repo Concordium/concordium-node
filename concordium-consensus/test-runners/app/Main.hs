@@ -67,7 +67,7 @@ relay inp sfsRef monitor outps = loop
                         _ -> return ()
                     forM_ outps $ \outp -> forkIO $ do
                         --factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
-                        let factor = 1 :: Double
+                        let factor = 0.1 :: Double
                         r <- truncate . (*factor) . fromInteger . (`div` 10) . (^(2::Int)) <$> randomRIO (0, 7800)
                         threadDelay r
                         --putStrLn $ "Delay: " ++ show r
@@ -75,7 +75,7 @@ relay inp sfsRef monitor outps = loop
                 MsgFinalization bs ->
                     forM_ outps $ \outp -> forkIO $ do
                         -- factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
-                        let factor = 1 :: Double
+                        let factor = 0.1 :: Double
                         r <- truncate . (*factor) . fromInteger . (`div` 10) . (^(2::Int)) <$> randomRIO (0, 7800)
                         threadDelay r
                         --putStrLn $ "Delay: " ++ show r
@@ -86,7 +86,7 @@ relay inp sfsRef monitor outps = loop
                         _ -> return ()
                     forM_ outps $ \outp -> forkIO $ do
                         -- factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
-                        let factor = 1 :: Double
+                        let factor = 0.1 :: Double
                         r <- truncate . (*factor) . fromInteger . (`div` 10) . (^(2::Int)) <$> randomRIO (0, 7800)
                         threadDelay r
                         --putStrLn $ "Delay: " ++ show r
@@ -111,9 +111,9 @@ dummyIdentityProviders = []
 
 main :: IO ()
 main = do
-    let n = 10
+    let n = 20
     now <- truncate <$> getPOSIXTime
-    let (gen, bis) = makeGenesisData now n 1 0.5 9 dummyCryptographicParameters dummyIdentityProviders
+    let (gen, bis) = makeGenesisData now n 1 0.5 0 dummyCryptographicParameters dummyIdentityProviders
     let iState = Example.initialState (genesisBirkParameters gen) (genesisCryptographicParameters gen) (genesisBakerAccounts gen) [] nContracts
     trans <- transactions <$> newStdGen
     chans <- mapM (\(bakerId, (bid, _)) -> do
@@ -122,7 +122,7 @@ main = do
                                     timestamp <- getCurrentTime
                                     appendFile logFile $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg ++ "\n"
         (cin, cout, out) <- makeAsyncRunner logM bid gen iState
-        _ <- forkIO $ sendTransactions cin trans
+        -- _ <- forkIO $ sendTransactions cin trans
         return (cin, cout, out)) (zip [(0::Int) ..] bis)
     monitorChan <- newChan
     mapM_ (\((_,cout, stateRef), cs) -> forkIO $ relay cout stateRef monitorChan ((\(c, _, _) -> c) <$> cs)) (removeEach chans)
