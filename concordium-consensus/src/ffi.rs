@@ -19,7 +19,7 @@ use concordium_global_state::{
     block::*,
     common,
     finalization::*,
-    tree::{ConsensusMessage, MessageType},
+    tree::messaging::{ConsensusMessage, MessageType},
 };
 
 extern "C" {
@@ -106,7 +106,7 @@ fn start_haskell_init(heap: &str, time: bool, exceptions: bool, gc_log: Option<S
     }
 
     info!(
-        "Starting baker with the following profiling arguments {:?}",
+        "Starting consensus with the following profiling arguments {:?}",
         args
     );
     let args = args
@@ -269,81 +269,99 @@ extern "C" {
         missing_finalization_records_by_hash_callback: CatchupFinalizationRequestByBlockHashCallback,
         missing_finalization_records_by_index_callback: CatchupFinalizationRequestByFinalizationIndexCallback,
     ) -> *mut consensus_runner;
-    pub fn startBaker(baker: *mut consensus_runner);
+    pub fn startBaker(consensus: *mut consensus_runner);
     pub fn printBlock(block_data: *const u8, data_length: i64);
     pub fn receiveBlock(
-        baker: *mut consensus_runner,
+        consensus: *mut consensus_runner,
         peer_id: PeerId,
         block_data: *const u8,
         data_length: i64,
     ) -> i64;
     pub fn receiveFinalization(
-        baker: *mut consensus_runner,
+        consensus: *mut consensus_runner,
         peer_id: PeerId,
         finalization_data: *const u8,
         data_length: i64,
     ) -> i64;
     pub fn receiveFinalizationRecord(
-        baker: *mut consensus_runner,
+        consensus: *mut consensus_runner,
         peer_id: PeerId,
         finalization_data: *const u8,
         data_length: i64,
     ) -> i64;
-    pub fn receiveTransaction(baker: *mut consensus_runner, tx: *const u8, data_length: i64)
-        -> i64;
-    pub fn stopBaker(baker: *mut consensus_runner);
+    pub fn receiveTransaction(
+        consensus: *mut consensus_runner,
+        tx: *const u8,
+        data_length: i64,
+    ) -> i64;
+    pub fn stopBaker(consensus: *mut consensus_runner);
+    pub fn stopConsensus(consensus: *mut consensus_runner);
+    pub fn sendGlobalStatePtr(consensus: *mut consensus_runner, gs_ptr: *const u8);
 
     // Consensus queries
-    pub fn getConsensusStatus(baker: *mut consensus_runner) -> *const c_char;
-    pub fn getBlockInfo(baker: *mut consensus_runner, block_hash: *const u8) -> *const c_char;
+    pub fn getConsensusStatus(consensus: *mut consensus_runner) -> *const c_char;
+    pub fn getBlockInfo(consensus: *mut consensus_runner, block_hash: *const u8) -> *const c_char;
     pub fn getAncestors(
-        baker: *mut consensus_runner,
+        consensus: *mut consensus_runner,
         block_hash: *const u8,
         amount: u64,
     ) -> *const c_char;
-    pub fn getBranches(baker: *mut consensus_runner) -> *const c_char;
+    pub fn getBranches(consensus: *mut consensus_runner) -> *const c_char;
 
     // State queries
-    pub fn getAccountList(baker: *mut consensus_runner, block_hash: *const u8) -> *const c_char;
-    pub fn getInstances(baker: *mut consensus_runner, block_hash: *const u8) -> *const c_char;
+    pub fn getAccountList(consensus: *mut consensus_runner, block_hash: *const u8)
+        -> *const c_char;
+    pub fn getInstances(consensus: *mut consensus_runner, block_hash: *const u8) -> *const c_char;
     pub fn getAccountInfo(
-        baker: *mut consensus_runner,
+        consensus: *mut consensus_runner,
         block_hash: *const u8,
         account_address: *const u8,
     ) -> *const c_char;
     pub fn getInstanceInfo(
-        baker: *mut consensus_runner,
+        consensus: *mut consensus_runner,
         block_hash: *const u8,
         contract_address: *const u8,
     ) -> *const c_char;
-    pub fn getRewardStatus(baker: *mut consensus_runner, block_hash: *const u8) -> *const c_char;
-    pub fn getBirkParameters(baker: *mut consensus_runner, block_hash: *const u8) -> *const c_char;
-    pub fn getModuleList(baker: *mut consensus_runner, block_hash: *const u8) -> *const c_char;
+    pub fn getRewardStatus(
+        consensus: *mut consensus_runner,
+        block_hash: *const u8,
+    ) -> *const c_char;
+    pub fn getBirkParameters(
+        consensus: *mut consensus_runner,
+        block_hash: *const u8,
+    ) -> *const c_char;
+    pub fn getModuleList(consensus: *mut consensus_runner, block_hash: *const u8) -> *const c_char;
     pub fn getModuleSource(
-        baker: *mut consensus_runner,
+        consensus: *mut consensus_runner,
         block_hash: *const u8,
         module_ref: *const u8,
     ) -> *const u8;
-    pub fn getBlock(baker: *mut consensus_runner, block_hash: *const u8) -> *const u8;
+    pub fn getBlock(consensus: *mut consensus_runner, block_hash: *const u8) -> *const u8;
     pub fn getBlockDelta(
-        baker: *mut consensus_runner,
+        consensus: *mut consensus_runner,
         block_hash: *const u8,
         delta: Delta,
     ) -> *const u8;
-    pub fn getBlockFinalization(baker: *mut consensus_runner, block_hash: *const u8) -> *const u8;
+    pub fn getBlockFinalization(
+        consensus: *mut consensus_runner,
+        block_hash: *const u8,
+    ) -> *const u8;
     pub fn getIndexedFinalization(
-        baker: *mut consensus_runner,
+        consensus: *mut consensus_runner,
         finalization_index: FinalizationIndex,
     ) -> *const u8;
     pub fn getFinalizationMessages(
-        baker: *mut consensus_runner,
+        consensus: *mut consensus_runner,
         peer_id: PeerId,
         request: *const u8,
         request_lenght: i64,
         callback: CatchupFinalizationMessagesSenderCallback,
     ) -> i64;
-    pub fn getFinalizationPoint(baker: *mut consensus_runner) -> *const u8;
-
+    pub fn getFinalizationPoint(consensus: *mut consensus_runner) -> *const u8;
+    pub fn hookTransaction(
+        consensus: *mut consensus_runner,
+        transaction_hash: *const u8,
+    ) -> *const c_char;
     pub fn freeCStr(hstring: *const c_char);
 }
 
@@ -395,7 +413,7 @@ pub fn get_consensus_ptr(
 
 impl ConsensusContainer {
     pub fn send_block(&self, peer_id: PeerId, block: &[u8]) -> ConsensusFfiResponse {
-        if self.baker.is_some() {
+        if self.is_active() {
             wrap_send_data_to_c!(self, peer_id, block, receiveBlock)
         } else {
             ConsensusFfiResponse::BakerNotFound
@@ -403,7 +421,7 @@ impl ConsensusContainer {
     }
 
     pub fn send_finalization(&self, peer_id: PeerId, msg: &[u8]) -> ConsensusFfiResponse {
-        if self.baker.is_some() {
+        if self.is_active() {
             wrap_send_data_to_c!(self, peer_id, msg, receiveFinalization)
         } else {
             ConsensusFfiResponse::BakerNotFound
@@ -411,7 +429,7 @@ impl ConsensusContainer {
     }
 
     pub fn send_finalization_record(&self, peer_id: PeerId, rec: &[u8]) -> ConsensusFfiResponse {
-        if self.baker.is_some() {
+        if self.is_active() {
             wrap_send_data_to_c!(self, peer_id, rec, receiveFinalizationRecord)
         } else {
             ConsensusFfiResponse::BakerNotFound
@@ -419,7 +437,7 @@ impl ConsensusContainer {
     }
 
     pub fn send_transaction(&self, data: &[u8]) -> ConsensusFfiResponse {
-        if self.baker.is_some() {
+        if self.is_active() {
             let consensus = self.consensus.load(Ordering::SeqCst);
             let len = data.len();
 
@@ -439,46 +457,54 @@ impl ConsensusContainer {
     }
 
     pub fn get_finalization_point(&self) -> Vec<u8> {
-        wrap_c_call_bytes!(self, |baker| getFinalizationPoint(baker))
+        wrap_c_call_bytes!(self, |consensus| getFinalizationPoint(consensus))
     }
 
     pub fn get_consensus_status(&self) -> String {
-        wrap_c_call_string!(self, baker, |baker| getConsensusStatus(baker))
+        wrap_c_call_string!(self, consensus, |consensus| getConsensusStatus(consensus))
+    }
+
+    pub fn hook_transaction(&self, transaction_hash: &str) -> String {
+        let c_str = CString::new(transaction_hash).unwrap();
+        wrap_c_call_string!(self, consensus, |consensus| hookTransaction(
+            consensus,
+            c_str.as_ptr() as *const u8
+        ))
     }
 
     pub fn get_block_info(&self, block_hash: &str) -> String {
         let c_str = CString::new(block_hash).unwrap();
-        wrap_c_call_string!(self, baker, |baker| getBlockInfo(
-            baker,
+        wrap_c_call_string!(self, consensus, |consensus| getBlockInfo(
+            consensus,
             c_str.as_ptr() as *const u8
         ))
     }
 
     pub fn get_ancestors(&self, block_hash: &str, amount: u64) -> String {
         let c_str = CString::new(block_hash).unwrap();
-        wrap_c_call_string!(self, baker, |baker| getAncestors(
-            baker,
+        wrap_c_call_string!(self, consensus, |consensus| getAncestors(
+            consensus,
             c_str.as_ptr() as *const u8,
             amount
         ))
     }
 
     pub fn get_branches(&self) -> String {
-        wrap_c_call_string!(self, baker, |baker| getBranches(baker))
+        wrap_c_call_string!(self, consensus, |consensus| getBranches(consensus))
     }
 
     pub fn get_account_list(&self, block_hash: &str) -> String {
         let block_hash = CString::new(block_hash).unwrap();
-        wrap_c_call_string!(self, baker, |baker| getAccountList(
-            baker,
+        wrap_c_call_string!(self, consensus, |consensus| getAccountList(
+            consensus,
             block_hash.as_ptr() as *const u8
         ))
     }
 
     pub fn get_instances(&self, block_hash: &str) -> String {
         let block_hash = CString::new(block_hash).unwrap();
-        wrap_c_call_string!(self, baker, |baker| getInstances(
-            baker,
+        wrap_c_call_string!(self, consensus, |consensus| getInstances(
+            consensus,
             block_hash.as_ptr() as *const u8
         ))
     }
@@ -486,8 +512,8 @@ impl ConsensusContainer {
     pub fn get_account_info(&self, block_hash: &str, account_address: &str) -> String {
         let block_hash = CString::new(block_hash).unwrap();
         let account_address = CString::new(account_address).unwrap();
-        wrap_c_call_string!(self, baker, |baker| getAccountInfo(
-            baker,
+        wrap_c_call_string!(self, consensus, |consensus| getAccountInfo(
+            consensus,
             block_hash.as_ptr() as *const u8,
             account_address.as_ptr() as *const u8
         ))
@@ -496,8 +522,8 @@ impl ConsensusContainer {
     pub fn get_instance_info(&self, block_hash: &str, contract_address: &str) -> String {
         let block_hash = CString::new(block_hash).unwrap();
         let contract_address = CString::new(contract_address).unwrap();
-        wrap_c_call_string!(self, baker, |baker| getInstanceInfo(
-            baker,
+        wrap_c_call_string!(self, consensus, |consensus| getInstanceInfo(
+            consensus,
             block_hash.as_ptr() as *const u8,
             contract_address.as_ptr() as *const u8
         ))
@@ -505,24 +531,24 @@ impl ConsensusContainer {
 
     pub fn get_reward_status(&self, block_hash: &str) -> String {
         let block_hash = CString::new(block_hash).unwrap();
-        wrap_c_call_string!(self, baker, |baker| getRewardStatus(
-            baker,
+        wrap_c_call_string!(self, consensus, |consensus| getRewardStatus(
+            consensus,
             block_hash.as_ptr() as *const u8,
         ))
     }
 
     pub fn get_birk_parameters(&self, block_hash: &str) -> String {
         let block_hash = CString::new(block_hash).unwrap();
-        wrap_c_call_string!(self, baker, |baker| getBirkParameters(
-            baker,
+        wrap_c_call_string!(self, consensus, |consensus| getBirkParameters(
+            consensus,
             block_hash.as_ptr() as *const u8,
         ))
     }
 
     pub fn get_module_list(&self, block_hash: &str) -> String {
         let block_hash = CString::new(block_hash).unwrap();
-        wrap_c_call_string!(self, baker, |baker| getModuleList(
-            baker,
+        wrap_c_call_string!(self, consensus, |consensus| getModuleList(
+            consensus,
             block_hash.as_ptr() as *const u8,
         ))
     }
@@ -530,34 +556,34 @@ impl ConsensusContainer {
     pub fn get_module_source(&self, block_hash: &str, module_ref: &str) -> Vec<u8> {
         let block_hash = CString::new(block_hash).unwrap();
         let module_ref = CString::new(module_ref).unwrap();
-        wrap_c_call_bytes!(self, |baker| getModuleSource(
-            baker,
+        wrap_c_call_bytes!(self, |consensus| getModuleSource(
+            consensus,
             block_hash.as_ptr() as *const u8,
             module_ref.as_ptr() as *const u8
         ))
     }
 
     pub fn get_block(&self, _block_hash: &[u8]) -> Vec<u8> {
-        wrap_c_call_bytes!(self, |baker| getBlock(baker, _block_hash.as_ptr()))
+        wrap_c_call_bytes!(self, |consensus| getBlock(consensus, _block_hash.as_ptr()))
     }
 
     pub fn get_block_by_delta(&self, _block_hash: &[u8], delta: Delta) -> Vec<u8> {
-        wrap_c_call_bytes!(self, |baker| getBlockDelta(
-            baker,
+        wrap_c_call_bytes!(self, |consensus| getBlockDelta(
+            consensus,
             _block_hash.as_ptr(),
             delta
         ))
     }
 
     pub fn get_block_finalization(&self, _block_hash: &[u8]) -> Vec<u8> {
-        wrap_c_call_bytes!(self, |baker| getBlockFinalization(
-            baker,
+        wrap_c_call_bytes!(self, |consensus| getBlockFinalization(
+            consensus,
             _block_hash.as_ptr()
         ))
     }
 
     pub fn get_indexed_finalization(&self, index: FinalizationIndex) -> Vec<u8> {
-        wrap_c_call_bytes!(self, |baker| getIndexedFinalization(baker, index))
+        wrap_c_call_bytes!(self, |consensus| getIndexedFinalization(consensus, index))
     }
 
     pub fn get_finalization_messages(
@@ -565,9 +591,9 @@ impl ConsensusContainer {
         request: &[u8],
         peer_id: PeerId,
     ) -> ConsensusFfiResponse {
-        if self.baker.is_some() {
-            wrap_c_call!(self, |baker| getFinalizationMessages(
-                baker,
+        if self.is_active() {
+            wrap_c_call!(self, |consensus| getFinalizationMessages(
+                consensus,
                 peer_id,
                 request.as_ptr(),
                 request.len() as i64,

@@ -61,7 +61,7 @@ pub fn partial_copy(input: &mut UCursor, output: &mut impl Write) -> Fallible<us
                 input.seek(SeekFrom::Start(offset))?;
                 is_would_block = io_err.kind() == std::io::ErrorKind::WouldBlock;
                 if !is_would_block {
-                    return Err(failure::Error::from_boxed_compat(Box::new(io_err)));
+                    return Err(failure::Error::from(io_err));
                 }
             }
         }

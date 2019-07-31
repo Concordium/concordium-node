@@ -38,10 +38,9 @@ pub fn process_network_requests(
                 usize::from(network_request.token)
             );
 
-            let mut conn_opt =
-                noise_protocol_handler.find_connection_by_token(network_request.token);
+            let conn_opt = noise_protocol_handler.find_connection_by_token(network_request.token);
             match conn_opt {
-                Some(ref mut conn) => {
+                Some(ref conn) => {
                     if !conn.is_closed() {
                         if let Err(err) = conn.async_send_from_poll_loop(
                             network_request.data,

@@ -63,9 +63,9 @@ pub fn log_as_leave_network(
 /// It sends handshake message and a ping message.
 pub fn send_handshake_and_ping(priv_conn: &RwLock<ConnectionPrivate>) -> FuncResult<()> {
     let (my_nets, local_peer) = {
-        let priv_conn_borrow = read_or_die!(priv_conn);
-        let remote_end_networks = priv_conn_borrow.remote_end_networks.clone();
-        let local_peer = priv_conn_borrow.local_peer.to_owned();
+        let priv_conn_reader = read_or_die!(priv_conn);
+        let remote_end_networks = priv_conn_reader.remote_end_networks.clone();
+        let local_peer = priv_conn_reader.local_peer;
         (remote_end_networks, local_peer)
     };
 
@@ -77,10 +77,6 @@ pub fn send_handshake_and_ping(priv_conn: &RwLock<ConnectionPrivate>) -> FuncRes
     );
     let handshake_data = serialize_into_memory(&handshake_msg, 128)?;
 
-    // Ignore returned value because it is an asynchronous operation.
-    let _ = write_or_die!(priv_conn)
-        .async_send(UCursor::from(handshake_data), MessageSendingPriority::High)?;
-
     // Send ping
     let ping_msg = NetworkMessage::NetworkRequest(
         NetworkRequest::Ping(local_peer),
@@ -89,10 +85,18 @@ pub fn send_handshake_and_ping(priv_conn: &RwLock<ConnectionPrivate>) -> FuncRes
     );
     let ping_data = serialize_into_memory(&ping_msg, 64)?;
 
-    // Ignore returned value because it is an asynchronous operation, and ship out
-    // as normal priority to ensure proper queueing here.
-    let _ = write_or_die!(priv_conn)
-        .async_send(UCursor::from(ping_data), MessageSendingPriority::Normal)?;
+    {
+        let mut priv_conn_writer = write_or_die!(priv_conn);
+
+        // Ignore returned value because it is an asynchronous operation.
+        let _ = priv_conn_writer
+            .async_send(UCursor::from(handshake_data), MessageSendingPriority::High)?;
+
+        // Ignore returned value because it is an asynchronous operation, and ship out
+        // as normal priority to ensure proper queueing here.
+        let _ = priv_conn_writer
+            .async_send(UCursor::from(ping_data), MessageSendingPriority::Normal)?;
+    }
 
     TOTAL_MESSAGES_SENT_COUNTER.fetch_add(2, Ordering::Relaxed);
     Ok(())
@@ -109,30 +113,30 @@ pub fn send_peer_list(
         BOOTSTRAP_PEER_COUNT
     );
 
-    let data = {
-        let priv_conn_borrow = read_or_die!(priv_conn);
-        let random_nodes = safe_read!(priv_conn_borrow.buckets)?.get_random_nodes(
+    let peer_list_msg = {
+        let priv_conn_reader = read_or_die!(priv_conn);
+        let random_nodes = safe_read!(priv_conn_reader.buckets)?.get_random_nodes(
             &sender,
             BOOTSTRAP_PEER_COUNT,
             nets,
         );
+        let local_peer = priv_conn_reader.local_peer;
 
-        let local_peer = &priv_conn_borrow.local_peer;
-        let peer_list_msg = NetworkMessage::NetworkResponse(
-            NetworkResponse::PeerList(local_peer.to_owned(), random_nodes),
+        if let Some(ref service) = priv_conn_reader.stats_export_service {
+            service.pkt_sent_inc();
+        };
+
+        NetworkMessage::NetworkResponse(
+            NetworkResponse::PeerList(local_peer, random_nodes),
             Some(get_current_stamp()),
             None,
-        );
-        serialize_into_memory(&peer_list_msg, 256)?
+        )
     };
+    let data = serialize_into_memory(&peer_list_msg, 256)?;
 
     // Ignore returned value because it is an asynchronous operation.
     let _ =
         write_or_die!(priv_conn).async_send(UCursor::from(data), MessageSendingPriority::Normal)?;
-
-    if let Some(ref service) = read_or_die!(priv_conn).stats_export_service {
-        service.pkt_sent_inc();
-    };
 
     TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
 
@@ -145,9 +149,8 @@ pub fn update_buckets(
     nets: HashSet<NetworkId>,
 ) -> FuncResult<()> {
     let priv_conn_borrow = read_or_die!(priv_conn);
-    let buckets = &priv_conn_borrow.buckets;
 
-    safe_write!(buckets)?.insert_into_bucket(sender, nets);
+    safe_write!(priv_conn_borrow.buckets)?.insert_into_bucket(sender, nets);
 
     let stats_export_service = &priv_conn_borrow.stats_export_service;
     if let Some(ref service) = stats_export_service {

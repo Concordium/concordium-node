@@ -97,6 +97,10 @@ message BlockHash {
   string block_hash = 1;
 }
 
+message TransactionHash {
+  string transaction_hash = 1;
+}
+
 message BlockHashAndAmount {
   string block_hash = 1;
   uint64 amount = 2;
@@ -200,6 +204,11 @@ service P2P {
   // Submit a local transaction
   rpc SendTransaction(SendTransactionRequest) returns (SuccessResponse) {}
 
+  // Start the baker in the consensus module
+  rpc StartBaker(Empty) returns (SuccessResponse) {}
+  // Stop the baker in the consensus module
+  rpc StopBaker(Empty) returns (SuccessResponse) {}
+
   rpc GetAccountList(BlockHash) returns (SuccessfulJsonPayloadResponse) {}
   rpc GetInstances(BlockHash) returns (SuccessfulJsonPayloadResponse) {}
   rpc GetAccountInfo(GetAddressInfoRequest) returns (SuccessfulJsonPayloadResponse) {}
@@ -216,4 +225,5 @@ service P2P {
   rpc DumpStop(Empty) returns (SuccessResponse) {}
   rpc RetransmitRequest(RetransmitRequestMessage) returns (SuccessResponse) {}
   rpc GetSkovStats(Empty) returns (SuccesfulStructResponse) {}
+  rpc HookTransaction(TransactionHash) returns (SuccessfulJsonPayloadResponse) {}
 }

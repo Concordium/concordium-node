@@ -4,11 +4,8 @@ pub mod no_certificate_verification;
 pub mod noise_protocol_handler;
 pub mod p2p_node;
 pub mod p2p_node_handlers;
-pub mod p2p_service_forwarder;
 pub mod peer_statistics;
 pub mod unreachable_nodes;
-
-pub use self::p2p_service_forwarder::*;
 
 pub use self::p2p_node::P2PNode;
 

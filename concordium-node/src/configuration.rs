@@ -128,6 +128,11 @@ pub struct BakerConfig {
         help = "Enable Haskell garbage collection logging"
     )]
     pub gc_logging: Option<String>,
+    #[structopt(
+        long = "persist-global-state",
+        help = "Persist the the global state store"
+    )]
+    pub persist_global_state: bool,
 }
 
 #[derive(StructOpt, Debug)]

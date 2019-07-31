@@ -191,7 +191,6 @@ elif [ "$MODE" == "tps_sender" ]; then
     # Echo to cron file
 
     /p2p_client-cli \
-    --tps-test-data-dir $DATA_DIR/tps_test \
     --connect-to 10.96.0.15:8888 \
     --external-ip 10.96.0.16 \
     $ARGS

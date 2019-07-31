@@ -310,7 +310,6 @@ mod network {
             let bench_id = format!("Benchmark P2P network using messages of {} bytes", size);
 
             c.bench_function(&bench_id, move |b| {
-                let cursor = uc.clone();
                 let net_id = NetworkId::from(100);
 
                 b.iter(|| {
@@ -320,7 +319,7 @@ mod network {
                         Some(node_2.id()),
                         net_id,
                         None,
-                        cursor.clone(),
+                        uc.clone(),
                         false,
                     )
                     .unwrap();
@@ -735,9 +734,9 @@ criterion_group!(
 );
 
 criterion_main!(
-    p2p_net_big_benches,
     p2p_net_small_benches,
     s11n_get_peers,
+    p2p_net_big_benches,
     s11n_custom_benches,
     s11n_cbor_benches,
     s11n_json_benches,
