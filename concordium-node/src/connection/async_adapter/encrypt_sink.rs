@@ -58,6 +58,7 @@ pub struct EncryptSink {
     session:       Arc<RwLock<Session>>,
     messages:      VecDeque<UCursor>,
     written_bytes: usize,
+    buffer:        [u8; SNOW_MAXMSGLEN],
 }
 
 impl EncryptSink {
@@ -66,6 +67,7 @@ impl EncryptSink {
             session,
             messages: VecDeque::new(),
             written_bytes: 0,
+            buffer: [0u8; SNOW_MAXMSGLEN],
         }
     }
 
@@ -80,11 +82,9 @@ impl EncryptSink {
     }
 
     /// It splits `input` into chunks (64kb max) and encrypts each of them.
-    fn encrypt_chunks(&self, nonce: u64, input: &mut UCursor) -> Fallible<Vec<Vec<u8>>> {
+    fn encrypt_chunks(&mut self, nonce: u64, input: &mut UCursor) -> Fallible<Vec<Vec<u8>>> {
         let expected_num_chunks = 1 + (input.len() / MAX_NOISE_PROTOCOL_MESSAGE_LEN as u64);
         let mut encrypted_chunks = Vec::with_capacity(expected_num_chunks as usize);
-
-        let mut encrypted_output: [u8; SNOW_MAXMSGLEN] = unsafe { std::mem::uninitialized() };
 
         while !input.is_eof() {
             let view_size = std::cmp::min(
@@ -95,9 +95,9 @@ impl EncryptSink {
             let len = write_or_die!(self.session).write_message_with_nonce(
                 nonce,
                 view.as_slice(),
-                &mut encrypted_output,
+                &mut self.buffer,
             )?;
-            encrypted_chunks.push(encrypted_output[..len].to_vec());
+            encrypted_chunks.push(self.buffer[..len].to_vec());
         }
 
         Ok(encrypted_chunks)
