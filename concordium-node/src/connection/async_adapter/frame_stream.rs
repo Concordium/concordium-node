@@ -67,6 +67,7 @@ pub struct FrameStream {
     handshaker: Option<Arc<RwLock<HandshakeStreamSink>>>,
     decryptor:  Option<DecryptStream>,
     peer_type:  PeerType,
+    buffer:     [u8; DEFAULT_MESSAGE_SIZE],
 
     message:       Vec<u8>,
     expected_size: PayloadSize,
@@ -81,6 +82,7 @@ impl FrameStream {
             handshaker: Some(handshaker),
             decryptor: None,
             peer_type,
+            buffer: [0u8; DEFAULT_MESSAGE_SIZE],
             message: Vec::with_capacity(std::mem::size_of::<PayloadSize>()),
             expected_size: 0,
             is_validated: false,
@@ -102,15 +104,11 @@ impl FrameStream {
     /// This operation could not be completed in just one shot due to limits of
     /// `output` buffers.
     fn read_expected_size(&mut self, input: &mut impl BufRead) -> Fallible<Readiness<UCursor>> {
-        let mut expected_size_buffer: [u8; std::mem::size_of::<PayloadSize>()] =
-            unsafe { std::mem::uninitialized() };
-
         // Extract only the bytes needed to know the size.
         let min_bytes = self.pending_bytes_to_know_expected_size();
-        let read_bytes = map_io_error_to_fail!(input.read(&mut expected_size_buffer[..min_bytes]))?;
+        let read_bytes = map_io_error_to_fail!(input.read(&mut self.buffer[..min_bytes]))?;
 
-        self.message
-            .extend_from_slice(&expected_size_buffer[..read_bytes]);
+        self.message.extend_from_slice(&self.buffer[..read_bytes]);
 
         // Load expected size
         if self.message.len() >= std::mem::size_of::<PayloadSize>() {
@@ -147,7 +145,7 @@ impl FrameStream {
     /// Once we know the message expected size, we can start to receive data.
     fn read_payload(&mut self, input: &mut impl BufRead) -> Fallible<Readiness<UCursor>> {
         // Read no more than expected, directly into our buffer
-        while self.read_with_intermediate_copies(input)? >= DEFAULT_MESSAGE_SIZE {
+        while self.read_intermediate(input)? >= DEFAULT_MESSAGE_SIZE {
             // Validation only on encrypted channels.
             if self.decryptor.is_some() && !self.is_validated {
                 match self.validate() {
@@ -207,14 +205,11 @@ impl FrameStream {
         }
     }
 
-    /// It loads from `input` using an intermediate buffer.
-    fn read_with_intermediate_copies(&mut self, input: &mut impl BufRead) -> Fallible<usize> {
-        let mut buffer: [u8; DEFAULT_MESSAGE_SIZE] = unsafe { std::mem::uninitialized() };
-
+    fn read_intermediate(&mut self, input: &mut impl BufRead) -> Fallible<usize> {
         let pending_bytes = self.expected_size - self.message.len() as u32;
         let max_buff = std::cmp::min(pending_bytes as usize, DEFAULT_MESSAGE_SIZE);
 
-        match input.read(&mut buffer[..max_buff]) {
+        match input.read(&mut self.buffer[..max_buff]) {
             Ok(read_bytes) => {
                 trace!(
                     "Appended {} bytes to current message of {} bytes, and an expected size of {} \
@@ -223,7 +218,7 @@ impl FrameStream {
                     self.message.len(),
                     self.expected_size
                 );
-                self.message.extend_from_slice(&buffer[..read_bytes]);
+                self.message.extend_from_slice(&self.buffer[..read_bytes]);
 
                 Ok(read_bytes)
             }
@@ -238,7 +233,7 @@ impl FrameStream {
     ///     a) `Handshaker` stream, if handshake is not yet completed.
     ///     b) `Decryptor` stream, to decrypt payload.
     fn forward(&mut self, input: UCursor) -> Fallible<Readiness<UCursor>> {
-        if let Some(ref decryptor) = self.decryptor {
+        if let Some(ref mut decryptor) = self.decryptor {
             return Ok(Readiness::Ready(decryptor.read(input)?));
         } else if let Some(handshaker) = self.handshaker.take() {
             // 1. Still in handshake phase.
