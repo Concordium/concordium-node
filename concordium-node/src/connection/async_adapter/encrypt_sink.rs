@@ -59,7 +59,8 @@ pub struct EncryptSink {
     session:       Arc<RwLock<Session>>,
     messages:      VecDeque<UCursor>,
     written_bytes: usize,
-    buffer:        [u8; SNOW_MAXMSGLEN],
+    full_buffer:   Vec<u8>,
+    chunk_buffer:  [u8; SNOW_MAXMSGLEN],
 }
 
 impl EncryptSink {
@@ -68,7 +69,8 @@ impl EncryptSink {
             session,
             messages: VecDeque::new(),
             written_bytes: 0,
-            buffer: [0u8; SNOW_MAXMSGLEN],
+            full_buffer: Vec::with_capacity(MAX_ENCRYPTED_FRAME_IN_MEMORY),
+            chunk_buffer: [0u8; SNOW_MAXMSGLEN],
         }
     }
 
@@ -83,9 +85,8 @@ impl EncryptSink {
     }
 
     /// It splits `input` into chunks (64kb max) and encrypts each of them.
-    fn encrypt_chunks(&mut self, nonce: u64, input: &mut UCursor) -> Fallible<Vec<Box<[u8]>>> {
-        let expected_num_chunks = 1 + (input.len() / MAX_NOISE_PROTOCOL_MESSAGE_LEN as u64);
-        let mut encrypted_chunks = Vec::with_capacity(expected_num_chunks as usize);
+    fn encrypt_chunks(&mut self, nonce: u64, input: &mut UCursor) -> Fallible<()> {
+        self.full_buffer.clear();
 
         while !input.is_eof() {
             let view_size = std::cmp::min(
@@ -93,23 +94,26 @@ impl EncryptSink {
                 (input.len() - input.position()) as usize,
             );
             let view = input.read_into_view(view_size)?;
+            let view = view.as_slice();
+
             let len = write_or_die!(self.session).write_message_with_nonce(
                 nonce,
-                view.as_slice(),
-                &mut self.buffer,
+                view,
+                &mut self.chunk_buffer,
             )?;
-            encrypted_chunks.push(Box::from(&self.buffer[..len]));
+            self.full_buffer
+                .extend_from_slice(&self.chunk_buffer[..len]);
         }
 
-        Ok(encrypted_chunks)
+        Ok(())
     }
 
     /// Frame length is:
     ///     - Size of NONCE: u64.
     ///     - Sum of each encrypted chunks.
     ///     - Size of chunk table: Number of full chunks + latest chunk size.
-    fn calculate_frame_len(&self, chunks: &[Box<[u8]>]) -> PayloadSize {
-        let total_chunks_len: usize = chunks.iter().map(|chunk| chunk.len()).sum();
+    fn calculate_frame_len(&self) -> PayloadSize {
+        let total_chunks_len = self.full_buffer.len();
         let chunk_table_len = 2 * mem::size_of::<PayloadSize>();
         (mem::size_of::<u64>() + total_chunks_len + chunk_table_len) as PayloadSize
     }
@@ -118,10 +122,10 @@ impl EncryptSink {
     /// table* as prefix.
     fn encrypt(&mut self, mut input: UCursor) -> Fallible<UCursor> {
         let nonce = rand::thread_rng().gen::<u64>();
-        let encrypted_chunks = self.encrypt_chunks(nonce, &mut input)?;
+        self.encrypt_chunks(nonce, &mut input)?;
 
         // 1. Frame: Size of Payload + Chunk table.
-        let frame_len = self.calculate_frame_len(&encrypted_chunks);
+        let frame_len = self.calculate_frame_len();
         let total_len = frame_len as usize + mem::size_of::<PayloadSize>();
         let mut encrypted_frame = Vec::with_capacity(total_len);
 
@@ -133,12 +137,13 @@ impl EncryptSink {
 
         // 2. Write Chunk index table: num of full chunks (64K) + size of latest
         // 2.1. Number of full chunks.
-        let num_full_chunks = std::cmp::max(encrypted_chunks.len(), 1) - 1;
+        let num_full_chunks = self.full_buffer.len() / SNOW_MAXMSGLEN;
         encrypted_frame.write_u32::<NetworkEndian>(num_full_chunks as PayloadSize)?;
 
-        // 2.2. Size of latest chunk.
-        let last_chunk_size = encrypted_chunks.last().map_or(0, |chunk| chunk.len()) as PayloadSize;
-        encrypted_frame.write_u32::<NetworkEndian>(last_chunk_size)?;
+        // 2.2. Size of the last chunk.
+        let last_chunk_size = self.full_buffer.len() - (num_full_chunks * SNOW_MAXMSGLEN);
+        debug_assert!(last_chunk_size <= PayloadSize::max_value() as usize);
+        encrypted_frame.write_u32::<NetworkEndian>(last_chunk_size as PayloadSize)?;
 
         trace!(
             "Encrypted a frame of {} bytes with chunk index: full chunks {}, latest size {}",
@@ -147,10 +152,8 @@ impl EncryptSink {
             last_chunk_size
         );
 
-        // 3. Write each encrypted chunk.
-        for chunk in encrypted_chunks.into_iter() {
-            encrypted_frame.extend_from_slice(&chunk);
-        }
+        // 3. Write encrypted chunks.
+        encrypted_frame.extend_from_slice(&self.full_buffer);
         debug_assert_eq!(encrypted_frame.len(), total_len);
 
         // 4. Move to disk if it is expensive in memory.
