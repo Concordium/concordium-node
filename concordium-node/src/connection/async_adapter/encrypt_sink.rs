@@ -13,6 +13,7 @@ use std::{
     collections::VecDeque,
     convert::From,
     io::Write,
+    mem,
     sync::{Arc, RwLock},
 };
 
@@ -82,7 +83,7 @@ impl EncryptSink {
     }
 
     /// It splits `input` into chunks (64kb max) and encrypts each of them.
-    fn encrypt_chunks(&mut self, nonce: u64, input: &mut UCursor) -> Fallible<Vec<Vec<u8>>> {
+    fn encrypt_chunks(&mut self, nonce: u64, input: &mut UCursor) -> Fallible<Vec<Box<[u8]>>> {
         let expected_num_chunks = 1 + (input.len() / MAX_NOISE_PROTOCOL_MESSAGE_LEN as u64);
         let mut encrypted_chunks = Vec::with_capacity(expected_num_chunks as usize);
 
@@ -97,7 +98,7 @@ impl EncryptSink {
                 view.as_slice(),
                 &mut self.buffer,
             )?;
-            encrypted_chunks.push(self.buffer[..len].to_vec());
+            encrypted_chunks.push(Box::from(&self.buffer[..len]));
         }
 
         Ok(encrypted_chunks)
@@ -107,10 +108,10 @@ impl EncryptSink {
     ///     - Size of NONCE: u64.
     ///     - Sum of each encrypted chunks.
     ///     - Size of chunk table: Number of full chunks + latest chunk size.
-    fn calculate_frame_len(&self, chunks: &[Vec<u8>]) -> PayloadSize {
-        let total_chunks_len: usize = chunks.iter().map(Vec::len).sum();
-        let chunk_table_len = 2 * std::mem::size_of::<PayloadSize>();
-        (std::mem::size_of::<u64>() + total_chunks_len + chunk_table_len) as PayloadSize
+    fn calculate_frame_len(&self, chunks: &[Box<[u8]>]) -> PayloadSize {
+        let total_chunks_len: usize = chunks.iter().map(|chunk| chunk.len()).sum();
+        let chunk_table_len = 2 * mem::size_of::<PayloadSize>();
+        (mem::size_of::<u64>() + total_chunks_len + chunk_table_len) as PayloadSize
     }
 
     /// It encrypts `input`, and returns an encrypted data with its *chunk
@@ -120,8 +121,8 @@ impl EncryptSink {
         let encrypted_chunks = self.encrypt_chunks(nonce, &mut input)?;
 
         // 1. Frame: Size of Payload + Chunk table.
-        let frame_len = self.calculate_frame_len(&encrypted_chunks[..]);
-        let total_len = frame_len as usize + std::mem::size_of::<PayloadSize>();
+        let frame_len = self.calculate_frame_len(&encrypted_chunks);
+        let total_len = frame_len as usize + mem::size_of::<PayloadSize>();
         let mut encrypted_frame = Vec::with_capacity(total_len);
 
         // 1.1. Add frame size.
@@ -136,7 +137,7 @@ impl EncryptSink {
         encrypted_frame.write_u32::<NetworkEndian>(num_full_chunks as PayloadSize)?;
 
         // 2.2. Size of latest chunk.
-        let last_chunk_size = encrypted_chunks.last().map_or(0, Vec::len) as PayloadSize;
+        let last_chunk_size = encrypted_chunks.last().map_or(0, |chunk| chunk.len()) as PayloadSize;
         encrypted_frame.write_u32::<NetworkEndian>(last_chunk_size)?;
 
         trace!(
