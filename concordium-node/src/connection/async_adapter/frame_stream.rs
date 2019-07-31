@@ -229,7 +229,7 @@ impl FrameStream {
             }
             Err(err) => match err.kind() {
                 ErrorKind::WouldBlock => Ok(0),
-                _ => Err(Error::from_boxed_compat(Box::new(err))),
+                _ => Err(Error::from(err)),
             },
         }
     }
