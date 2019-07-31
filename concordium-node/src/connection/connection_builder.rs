@@ -61,6 +61,7 @@ impl ConnectionBuilder {
                 messages_sent: 0,
                 last_ping_sent: Arc::new(AtomicU64::new(curr_stamp)),
                 network_request_sender: sender,
+                token,
                 dptr: Arc::new(RwLock::new(priv_conn)),
                 pre_handshake_message_processor: MessageProcessor::new(),
                 post_handshake_message_processor: MessageProcessor::new(),

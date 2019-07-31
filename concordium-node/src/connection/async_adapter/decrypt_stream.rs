@@ -25,26 +25,31 @@ use std::{
 ///       `NetworkEndian`. It is omitted if there is only one chunk.
 pub struct DecryptStream {
     session: Arc<RwLock<Session>>,
+    buffer:  [u8; SNOW_MAXMSGLEN],
 }
 
 impl DecryptStream {
     /// Session HAS to be shared by `decrypt` stream and `encrypt` sink.
-    pub fn new(session: Arc<RwLock<Session>>) -> Self { DecryptStream { session } }
+    pub fn new(session: Arc<RwLock<Session>>) -> Self {
+        Self {
+            session,
+            buffer: [0u8; SNOW_MAXMSGLEN],
+        }
+    }
 
     fn decrypt_chunk(
-        &self,
+        &mut self,
         chunk_idx: usize,
         chunk_size: usize,
         nonce: u64,
         input: &mut UCursor,
         clear_message: &mut Vec<u8>,
     ) -> Fallible<()> {
-        let mut clear_chunk_buffer: [u8; SNOW_MAXMSGLEN] = unsafe { std::mem::uninitialized() };
         debug_assert!(chunk_size <= SNOW_MAXMSGLEN);
 
         let encrypted_chunk_view = input.read_into_view(chunk_size)?;
         let input_slice = encrypted_chunk_view.as_slice();
-        let mut output_slice = &mut clear_chunk_buffer[..(chunk_size - SNOW_TAGLEN)];
+        let mut output_slice = &mut self.buffer[..(chunk_size - SNOW_TAGLEN)];
 
         match write_or_die!(self.session).read_message_with_nonce(
             nonce,
@@ -61,7 +66,7 @@ impl DecryptStream {
                 );
                 debug_assert!(bytes <= MAX_NOISE_PROTOCOL_MESSAGE_LEN);
 
-                clear_message.extend_from_slice(&clear_chunk_buffer[..bytes]);
+                clear_message.extend_from_slice(&self.buffer[..bytes]);
                 Ok(())
             }
             Err(err) => {
@@ -75,7 +80,7 @@ impl DecryptStream {
     ///
     /// # Return
     /// The decrypted message.
-    fn decrypt(&self, mut input: UCursor) -> Fallible<UCursor> {
+    fn decrypt(&mut self, mut input: UCursor) -> Fallible<UCursor> {
         // 0. Read NONCE.
         let nonce = input.read_u64::<NetworkEndian>()?;
 
@@ -105,5 +110,5 @@ impl DecryptStream {
 
     /// It is just a helper function to keep a coherent interface.
     #[inline]
-    pub fn read(&self, input: UCursor) -> Fallible<UCursor> { self.decrypt(input) }
+    pub fn read(&mut self, input: UCursor) -> Fallible<UCursor> { self.decrypt(input) }
 }

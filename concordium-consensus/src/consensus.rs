@@ -4,18 +4,19 @@ use concordium_common::{
 };
 use failure::Fallible;
 
-#[cfg(test)]
-use std::time::Duration;
 use std::{
     collections::HashMap,
     sync::{
-        atomic::{AtomicPtr, Ordering},
+        atomic::{AtomicBool, AtomicPtr, Ordering},
         mpsc, Arc, Mutex,
     },
 };
 
 use crate::ffi::*;
-use concordium_global_state::{block::*, tree::ConsensusMessage};
+use concordium_global_state::{
+    block::BakerId,
+    tree::{messaging::ConsensusMessage, GlobalState},
+};
 
 pub type PeerId = u64;
 pub type PrivateData = HashMap<i64, Vec<u8>>;
@@ -86,14 +87,19 @@ impl std::fmt::Display for ConsensusType {
 
 #[derive(Clone)]
 pub struct ConsensusContainer {
-    pub baker:          Option<BakerId>,
+    pub baker_id:       Option<BakerId>,
+    pub is_baking:      Arc<AtomicBool>,
     pub consensus:      Arc<AtomicPtr<consensus_runner>>,
     pub genesis:        Arc<[u8]>,
     pub consensus_type: ConsensusType,
 }
 
 impl ConsensusContainer {
-    pub fn new(genesis_data: Vec<u8>, private_data: Option<Vec<u8>>) -> Self {
+    pub fn new(
+        genesis_data: Vec<u8>,
+        private_data: Option<Vec<u8>>,
+        baker_id: Option<BakerId>,
+    ) -> Self {
         info!("Starting up the consensus layer");
 
         let consensus_type = if private_data.is_some() {
@@ -105,41 +111,65 @@ impl ConsensusContainer {
         let consensus_ptr = get_consensus_ptr(genesis_data.clone(), private_data);
 
         Self {
-            baker: None,
+            baker_id,
+            is_baking: Arc::new(AtomicBool::new(false)),
             consensus: Arc::new(AtomicPtr::new(consensus_ptr)),
             genesis: Arc::from(genesis_data),
             consensus_type,
         }
     }
 
-    pub fn start_baker(&mut self, baker_id: u64) -> bool {
-        if self.consensus_type == ConsensusType::Passive {
+    pub fn stop(&self) {
+        self.stop_baker();
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        unsafe {
+            stopConsensus(consensus);
+        }
+        CALLBACK_QUEUE.clear();
+    }
+
+    pub fn start_baker(&self) -> bool {
+        info!("Commencing baking");
+
+        if !self.is_active() || self.is_baking() {
             return false;
         }
-        self.baker = Some(baker_id);
-        let consensus = self.consensus.load(Ordering::SeqCst);
 
+        let consensus = self.consensus.load(Ordering::SeqCst);
         unsafe {
             startBaker(consensus);
         }
+        self.is_baking.store(true, Ordering::SeqCst);
+
         true
     }
 
-    pub fn stop(&self) -> bool {
-        if self.consensus_type == ConsensusType::Passive {
+    pub fn stop_baker(&self) -> bool {
+        info!("Stopping baking");
+
+        if !self.is_active() || !self.is_baking() {
             return false;
         }
+
         let consensus = self.consensus.load(Ordering::SeqCst);
         unsafe {
             stopBaker(consensus);
         }
-        CALLBACK_QUEUE.clear();
+        self.is_baking.store(false, Ordering::SeqCst);
+
         true
     }
 
-    pub fn is_baking(&self) -> bool {
-        // @TODO Replace with real check
-        true
+    pub fn is_baking(&self) -> bool { self.is_baking.load(Ordering::SeqCst) }
+
+    pub fn is_active(&self) -> bool { self.consensus_type == ConsensusType::Active }
+
+    pub fn send_global_state_ptr(&self, global_state: &GlobalState) {
+        let gs_ptr = global_state as *const GlobalState as *const u8;
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        unsafe {
+            sendGlobalStatePtr(consensus, gs_ptr);
+        }
     }
 }
 

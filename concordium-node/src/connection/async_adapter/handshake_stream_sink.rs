@@ -42,6 +42,7 @@ pub struct HandshakeStreamSink {
     noise_session:     Option<Session>,
     transport_session: Option<TransportSession>,
     noise_params:      snow::params::NoiseParams,
+    buffer:            [u8; MAX_BUFFER_SIZE],
 
     // Sink
     send_queue:         VecDeque<UCursor>,
@@ -92,6 +93,7 @@ impl HandshakeStreamSink {
             noise_session,
             transport_session: None,
             noise_params,
+            buffer: [0u8; MAX_BUFFER_SIZE],
             send_queue,
             last_written_bytes: 0,
         }
@@ -126,10 +128,8 @@ impl HandshakeStreamSink {
     fn on_responder_get_e_ee_s_ss(&mut self, mut input: UCursor) -> AsyncResultSession {
         // Received: A -> e,es,s,ss
         if let Some(mut session) = self.noise_session.take() {
-            // SAFETY NOTE: It is safe because `buf` is only used by `noise` proto.
-            let mut buf: [u8; MAX_BUFFER_SIZE] = unsafe { std::mem::uninitialized() };
             let e_es_s_ss = input.read_all_into_view()?;
-            session.read_message(e_es_s_ss.as_slice(), &mut buf)?;
+            session.read_message(e_es_s_ss.as_slice(), &mut self.buffer)?;
 
             trace!(
                 "Responder has received ({} bytes): A -> e,es,s,ss",
@@ -137,8 +137,9 @@ impl HandshakeStreamSink {
             );
 
             // Send: B -> e,ee,se,psk
-            let buf_len = session.write_message(&[], &mut buf)?;
-            self.send_queue.push_back(create_frame(&buf[..buf_len])?);
+            let buf_len = session.write_message(&[], &mut self.buffer)?;
+            self.send_queue
+                .push_back(create_frame(&self.buffer[..buf_len])?);
             trace!("Responder sends ({} bytes):B -> e,ee,se,psk", buf_len);
 
             // Transport session is ready
@@ -166,9 +167,9 @@ impl HandshakeStreamSink {
             .build_initiator()?;
 
         // Send: A -> e,es,s,ss
-        let mut buf: [u8; MAX_BUFFER_SIZE] = unsafe { std::mem::uninitialized() };
-        let buf_len = session.write_message(&[], &mut buf)?;
-        self.send_queue.push_back(create_frame(&buf[..buf_len])?);
+        let buf_len = session.write_message(&[], &mut self.buffer)?;
+        self.send_queue
+            .push_back(create_frame(&self.buffer[..buf_len])?);
         trace!("Initiator sends ({} bytes): A -> e,es,s,ss", buf_len);
 
         self.state = HandshakeStreamSinkState::InitiatorAwaiting_E_EE_SE_PSK;
@@ -185,9 +186,7 @@ impl HandshakeStreamSink {
                 e_ee_se_psk.len()
             );
 
-            // SAFETY NOTE: It is safe because `buf` is only used by `noise` proto.
-            let mut buf: [u8; MAX_BUFFER_SIZE] = unsafe { std::mem::uninitialized() };
-            session.read_message(e_ee_se_psk.as_slice(), &mut buf)?;
+            session.read_message(e_ee_se_psk.as_slice(), &mut self.buffer)?;
 
             // Transport session is ready.
             self.set_transport_mode(Arc::new(RwLock::new(

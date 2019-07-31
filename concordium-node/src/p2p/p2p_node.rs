@@ -385,7 +385,7 @@ impl P2PNode {
 
     fn make_request_handler(&self) -> RequestHandler {
         let requeue_handler = self.make_requeue_handler();
-        let mut handler = RequestHandler::new();
+        let handler = RequestHandler::new();
 
         handler
             .add_ban_node_callback(requeue_handler.clone())
@@ -417,7 +417,7 @@ impl P2PNode {
         }
     }
 
-    fn check_peers(&mut self, peer_stat_list: &[PeerStatistic]) {
+    fn check_peers(&self, peer_stat_list: &[PeerStatistic]) {
         trace!("Checking for needed peers");
         if self.peer_type() != PeerType::Bootstrapper
             && !self.config.no_net
@@ -475,7 +475,7 @@ impl P2PNode {
         self.noise_protocol_handler
             .set_network_request_sender(network_request_sender.clone());
 
-        let mut self_clone = self.clone();
+        let self_clone = self.clone();
 
         let (tx, rx) = sync_channel(10000);
         self.quit_tx = Some(tx);
