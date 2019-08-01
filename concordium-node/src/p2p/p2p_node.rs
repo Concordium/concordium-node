@@ -506,6 +506,16 @@ impl P2PNode {
                         let peer_stat_list = self_clone.get_peer_stats(&[]);
                         self_clone.print_stats(&peer_stat_list);
                         self_clone.check_peers(&peer_stat_list);
+
+                        if self_clone.peer_type() != PeerType::Bootstrapper {
+                            self_clone.noise_protocol_handler.liveness_check();
+                        }
+                        if let Err(e) = self_clone.noise_protocol_handler.cleanup_connections(
+                            self_clone.config.max_allowed_nodes,
+                            &self_clone.poll,
+                        ) {
+                            error!("Issue with connection cleanups: {:?}", e);
+                        }
                         log_time = now;
                     }
                 }
@@ -1075,14 +1085,10 @@ impl P2PNode {
             Some(Duration::from_millis(self.config.poll_interval)),
         )?;
 
-        if self.peer_type() != PeerType::Bootstrapper {
-            self.noise_protocol_handler.liveness_check()?;
-        }
-
         for event in events.iter() {
             match event.token() {
                 SERVER => {
-                    debug!("Got new connection!");
+                    debug!("Got a new connection!");
                     self.noise_protocol_handler
                         .accept(&self.poll, self.get_self_peer())
                         .map_err(|e| error!("{}", e))
@@ -1102,9 +1108,6 @@ impl P2PNode {
         }
 
         events.clear();
-
-        self.noise_protocol_handler
-            .cleanup_connections(self.config.max_allowed_nodes, &self.poll)?;
 
         trace!("Processing new outbound messages");
         self.process_messages();
