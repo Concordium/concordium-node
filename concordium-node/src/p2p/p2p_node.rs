@@ -74,6 +74,7 @@ pub struct P2PNodeConfig {
     max_resend_attempts: u8,
     relay_broadcast_percentage: f64,
     pub global_state_catch_up_requests: bool,
+    poll_interval: u64,
 }
 
 #[derive(Default)]
@@ -240,6 +241,7 @@ impl P2PNode {
             max_resend_attempts: conf.connection.max_resend_attempts,
             relay_broadcast_percentage: conf.connection.relay_broadcast_percentage,
             global_state_catch_up_requests: conf.connection.global_state_catch_up_requests,
+            poll_interval: conf.cli.poll_interval,
         };
 
         let networks: HashSet<NetworkId> = conf
@@ -1068,7 +1070,10 @@ impl P2PNode {
     pub fn unban_node(&self, peer: BannedNode) { self.noise_protocol_handler.unban_node(peer); }
 
     pub fn process(&self, events: &mut Events) -> Fallible<()> {
-        self.poll.poll(events, Some(Duration::from_millis(10000)))?;
+        self.poll.poll(
+            events,
+            Some(Duration::from_millis(self.config.poll_interval)),
+        )?;
 
         if self.peer_type() != PeerType::Bootstrapper {
             self.noise_protocol_handler.liveness_check()?;
@@ -1098,10 +1103,8 @@ impl P2PNode {
 
         events.clear();
 
-        {
-            self.noise_protocol_handler
-                .cleanup_connections(self.config.max_allowed_nodes, &self.poll)?;
-        }
+        self.noise_protocol_handler
+            .cleanup_connections(self.config.max_allowed_nodes, &self.poll)?;
 
         trace!("Processing new outbound messages");
         self.process_messages();
