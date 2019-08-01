@@ -88,6 +88,7 @@ impl EncryptSink {
     fn encrypt_chunks(&mut self, nonce: u64, input: &mut UCursor) -> Fallible<()> {
         self.full_buffer.clear();
 
+        let session_reader = read_or_die!(self.session);
         while !input.is_eof() {
             let view_size = std::cmp::min(
                 MAX_NOISE_PROTOCOL_MESSAGE_LEN,
@@ -96,11 +97,8 @@ impl EncryptSink {
             let view = input.read_into_view(view_size)?;
             let view = view.as_slice();
 
-            let len = write_or_die!(self.session).write_message_with_nonce(
-                nonce,
-                view,
-                &mut self.chunk_buffer,
-            )?;
+            let len =
+                session_reader.write_message_with_nonce(nonce, view, &mut self.chunk_buffer)?;
             self.full_buffer
                 .extend_from_slice(&self.chunk_buffer[..len]);
         }

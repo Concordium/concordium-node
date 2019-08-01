@@ -327,6 +327,12 @@ pub struct CliConfig {
     #[structopt(long = "no-network", help = "Disable network")]
     pub no_network: bool,
     #[structopt(
+        long = "poll-interval",
+        help = "The polling interval",
+        default_value = "200"
+    )]
+    pub poll_interval: u64,
+    #[structopt(
         long = "testrunner-url",
         help = "URL for the test runner to submit data to"
     )]
