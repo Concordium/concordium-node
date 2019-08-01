@@ -44,7 +44,7 @@ use chrono::{offset::Utc, DateTime};
 use std::io::Write;
 
 pub fn get_test_config(port: u16, networks: Vec<u16>) -> Config {
-    let mut config = Config::from_iter(TESTCONFIG.to_vec()).add_options(
+    let mut config = Config::from_iter(TESTCONFIG.iter()).add_options(
         Some("127.0.0.1".to_owned()),
         port,
         networks,
@@ -58,8 +58,6 @@ pub fn get_test_config(port: u16, networks: Vec<u16>) -> Config {
 
 /// It initializes the global logger with a `env_logger`, but just once.
 pub fn setup_logger() {
-    // INIT.call_once(|| env_logger::init());
-
     // @note It adds thread ID to each message.
     INIT.call_once(|| {
         let mut builder = env_logger::Builder::from_default_env();
@@ -109,7 +107,7 @@ pub fn make_nodes_from_port(
 ) -> Fallible<Vec<(RefCell<P2PNode>, Receiver<NetworkMessage>)>> {
     let mut nodes_and_receivers = Vec::with_capacity(count);
 
-    for _i in 0..count {
+    for _ in 0..count {
         let (node, receiver) =
             make_node_and_sync(next_available_port(), networks.clone(), PeerType::Node)?;
 
@@ -216,51 +214,40 @@ pub fn await_handshake(receiver: &Receiver<NetworkMessage>) -> Fallible<()> {
 }
 
 pub fn wait_broadcast_message(waiter: &Receiver<NetworkMessage>) -> Fallible<UCursor> {
-    let payload;
     loop {
         let msg = waiter.recv()?;
-        if let NetworkMessage::NetworkPacket(ref pac, ..) = msg {
+        if let NetworkMessage::NetworkPacket(pac, ..) = msg {
             if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
-                payload = pac.message.clone();
-                break;
+                return Ok(pac.message);
             }
         }
     }
-
-    Ok(payload)
 }
 
 pub fn wait_direct_message(waiter: &Receiver<NetworkMessage>) -> Fallible<UCursor> {
-    let payload;
     loop {
         let msg = waiter.recv()?;
-        if let NetworkMessage::NetworkPacket(ref pac, ..) = msg {
+        if let NetworkMessage::NetworkPacket(pac, ..) = msg {
             if let NetworkPacketType::DirectMessage(..) = pac.packet_type {
-                payload = pac.message.clone();
-                break;
+                return Ok(pac.message);
             }
         }
     }
-
-    Ok(payload)
 }
 
 pub fn wait_direct_message_timeout(
     waiter: &Receiver<NetworkMessage>,
     timeout: std::time::Duration,
 ) -> Option<UCursor> {
-    let mut payload = None;
-
     while let Ok(msg) = waiter.recv_timeout(timeout) {
-        if let NetworkMessage::NetworkPacket(ref pac, ..) = msg {
+        if let NetworkMessage::NetworkPacket(pac, ..) = msg {
             if let NetworkPacketType::DirectMessage(..) = pac.packet_type {
-                payload = Some(pac.message.clone());
-                break;
+                return Some(pac.message);
             }
         }
     }
 
-    payload
+    None
 }
 
 pub fn consume_pending_messages(waiter: &Receiver<NetworkMessage>) {
