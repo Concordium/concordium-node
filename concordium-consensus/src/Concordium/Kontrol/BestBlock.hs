@@ -12,7 +12,7 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.Parameters
 import Concordium.Skov.Monad
 import Concordium.Birk.LeaderElection
-import Concordium.GlobalState.BlockState(BlockPointer, BlockPointerData(..), getBirkParameters, bpParent)
+import Concordium.GlobalState.BlockState(BlockPointer, BlockPointerData(..), getBlockBirkParameters, bpParent)
 
 blockLuck :: (SkovQueryMonad m) => BlockPointer m -> m Double
 blockLuck block = case blockFields block of
@@ -21,7 +21,7 @@ blockLuck block = case blockFields block of
             -- get Birk parameters of the __parent__ block. These are the
             -- parameters which determine valid bakers, election difficulty,
             -- that determine the lock of the block itself.
-            params <- getBirkParameters (bpState (bpParent block))
+            params <- getBlockBirkParameters (bpState (bpParent block))
             case birkBaker (blockBaker bf) params of
                 Nothing -> return 0 -- This should not happen, since it would mean the block was baked by an invalid baker
                 Just (_, lotteryPower) ->

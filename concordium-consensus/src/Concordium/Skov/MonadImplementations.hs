@@ -46,6 +46,8 @@ instance (TreeStateMonad m) => SkovQueryMonad (TSSkovWrapper m) where
     isFinalized = doIsFinalized
     {-# INLINE lastFinalizedBlock #-}
     lastFinalizedBlock = getLastFinalized
+    {-# INLINE getBirkParameters #-}
+    getBirkParameters = doGetBirkParameters
     {-# INLINE getGenesisData #-}
     getGenesisData = Concordium.GlobalState.TreeState.getGenesisData
     {-# INLINE genesisBlock #-}
