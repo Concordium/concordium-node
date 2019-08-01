@@ -158,7 +158,7 @@ impl UCursor {
                 let mut view_content = Vec::with_capacity(size);
                 unsafe { view_content.set_len(size) };
 
-                uc_file.file.read_exact(view_content.as_mut_slice())?;
+                uc_file.file.read_exact(&mut view_content)?;
                 let view = ContainerView::from(view_content);
                 debug_assert_eq!(view.len(), size);
 

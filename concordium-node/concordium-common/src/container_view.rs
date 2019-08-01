@@ -3,13 +3,12 @@ use std::{
     convert::From,
     ops::{Deref, Index},
     sync::Arc,
-    vec::Vec,
 };
 
 /// It is a shared view over
 #[derive(Debug, Clone)]
 pub struct ContainerView {
-    data:   Arc<Vec<u8>>,
+    data:   Arc<[u8]>,
     offset: usize,
     len:    usize,
 }
@@ -63,12 +62,13 @@ impl Index<usize> for ContainerView {
     fn index(&self, index: usize) -> &Self::Output { &self.as_slice()[index] }
 }
 
-impl From<Vec<u8>> for ContainerView {
+impl<T: Into<Arc<[u8]>>> From<T> for ContainerView {
     #[inline]
-    fn from(source: Vec<u8>) -> Self {
-        let len = source.len();
+    fn from(source: T) -> Self {
+        let data = source.into();
+        let len = data.len();
         ContainerView {
-            data: Arc::new(source),
+            data,
             offset: 0,
             len,
         }
