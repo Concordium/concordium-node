@@ -757,6 +757,7 @@ mod tests {
     pub fn e2e_009_network_direct_32m() { p2p_net(32 * 1024 * 1024); }
 
     #[test]
+    #[ignore]
     pub fn e2e_009_network_direct_128m() { p2p_net(128 * 1024 * 1024); }
 
     #[test]
