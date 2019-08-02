@@ -1,18 +1,21 @@
 use chrono::{DateTime, Utc};
+use hash_hasher::{HashBuildHasher, HashedSet};
 
 use crate::network::packet::MessageId;
 
 use std::{
     cmp::Ordering,
-    collections::HashSet,
     hash::{Hash, Hasher},
-    sync::{Arc, RwLock},
+    sync::{
+        atomic::{AtomicI64, Ordering as AtomicOrdering},
+        Arc, RwLock,
+    },
 };
 
 #[derive(Debug, Clone)]
 pub struct SeenMessage {
-    id:        MessageId,
-    timestamp: DateTime<Utc>,
+    pub id:        MessageId,
+    pub timestamp: DateTime<Utc>,
 }
 
 impl SeenMessage {
@@ -48,17 +51,20 @@ impl Ord for SeenMessage {
 
 #[derive(Default, Debug, Clone)]
 pub struct SeenMessagesList {
-    seen_msgs:            Arc<RwLock<HashSet<SeenMessage>>>,
+    seen_msgs:            Arc<RwLock<HashedSet<SeenMessage>>>,
     message_ids_retained: usize,
+    oldest_element:       Arc<AtomicI64>,
 }
 
 impl SeenMessagesList {
     pub fn new(message_ids_retained: usize) -> Self {
         SeenMessagesList {
-            seen_msgs: Arc::new(RwLock::new(HashSet::with_capacity(
-                message_ids_retained / 2,
+            seen_msgs: Arc::new(RwLock::new(HashedSet::with_capacity_and_hasher(
+                message_ids_retained,
+                HashBuildHasher::default(),
             ))),
             message_ids_retained,
+            oldest_element: Arc::new(AtomicI64::new(0)),
         }
     }
 
@@ -72,12 +78,24 @@ impl SeenMessagesList {
     pub fn append(&self, msgid: &MessageId) -> bool {
         if let Ok(mut list) = safe_write!(self.seen_msgs) {
             let msg = SeenMessage::new(msgid.to_owned());
+            let current_stamp = msg.timestamp.clone();
 
-            if list.replace(msg).is_none() && list.len() == self.message_ids_retained {
-                let oldest = list.iter().min().cloned().unwrap(); // safe (non-empty)
-                list.remove(&oldest);
+            if list.len() >= self.message_ids_retained - 1 {
+                let remove_older_than =
+                    current_stamp.timestamp() - self.oldest_element.load(AtomicOrdering::SeqCst);
+                list.retain(|element| element.timestamp.timestamp() > remove_older_than);
+                self.oldest_element
+                    .store(remove_older_than, AtomicOrdering::SeqCst);
             }
-            true
+
+            let replace_op = list.replace(msg);
+
+            if replace_op.is_none() && self.oldest_element.load(AtomicOrdering::SeqCst) == 0 {
+                self.oldest_element
+                    .store(current_stamp.timestamp(), AtomicOrdering::SeqCst);
+            }
+
+            replace_op.is_none()
         } else {
             false
         }

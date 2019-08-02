@@ -234,7 +234,7 @@ pub struct ConnectionConfig {
     #[structopt(
         long = "gossip-seen-message-ids-size",
         help = "Size of kept history of seen message ids when gossiping",
-        default_value = "1000"
+        default_value = "5000"
     )]
     pub gossip_seen_message_ids_size: usize,
 }
