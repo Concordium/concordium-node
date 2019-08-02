@@ -9,8 +9,11 @@ import qualified Control.Monad.State.Strict as Strict
 import Control.Monad.Trans.RWS (RWST)
 import qualified Control.Monad.RWS.Strict as Strict
 import Control.Monad.Trans.Maybe (MaybeT)
+import Control.Monad.Trans.Except (ExceptT)
 import Control.Monad.IO.Class (MonadIO)
 import Data.Word
+
+import Concordium.GlobalState.BlockState (BSMTrans)
 
 -- |The source module for a log event.
 data LogSource
@@ -104,6 +107,12 @@ instance LoggerMonad m => LoggerMonad (Strict.StateT s m) where
     logEvent src lvl msg = lift (logEvent src lvl msg)
 
 instance LoggerMonad m => LoggerMonad (MaybeT m) where
+    logEvent src lvl msg = lift (logEvent src lvl msg)
+
+instance LoggerMonad m => LoggerMonad (ExceptT e m) where
+    logEvent src lvl msg = lift (logEvent src lvl msg)
+
+instance (Monad (t m), MonadTrans t, LoggerMonad m) => LoggerMonad (BSMTrans t m) where
     logEvent src lvl msg = lift (logEvent src lvl msg)
 
 type LogIO = LoggerT IO

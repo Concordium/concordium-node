@@ -1,8 +1,9 @@
 {-# LANGUAGE RecordWildCards, LambdaCase #-}
 module Concordium.Skov.CatchUp where
 
-import Control.Monad.Trans.Maybe
+import Control.Monad.Trans.Except
 import Control.Monad
+import Control.Monad.Trans.Class
 import Data.Maybe
 import Data.Serialize
 
@@ -10,6 +11,7 @@ import Concordium.Types
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.TreeState
+import Concordium.GlobalState.Block
 import Concordium.Logger
 
 import Concordium.Skov.Monad
@@ -44,14 +46,14 @@ getCatchUpStatus cusIsRequest = do
         bb <- bestBlock
         return $ makeCatchUpStatus cusIsRequest lfb bb
 
-handleCatchUp :: (TreeStateMonad m, SkovQueryMonad m, LoggerMonad m) => CatchUpStatus -> m (Maybe (Maybe ([FinalizationRecord], [BlockPointer m], CatchUpStatus), Bool))
-handleCatchUp peerCUS = runMaybeT $ do
-        lfb <- lastFinalizedBlock
+handleCatchUp :: (TreeStateMonad m, SkovQueryMonad m) => CatchUpStatus -> m (Either String (Maybe ([Either FinalizationRecord Block], CatchUpStatus), Bool))
+handleCatchUp peerCUS = runExceptT $ do
+        lfb <- lift $ lastFinalizedBlock
         if cusLastFinalizedHeight peerCUS > bpHeight lfb then do
             response <-
                 if cusIsRequest peerCUS then do
-                    myCUS <- getCatchUpStatus False
-                    return $ Just ([], [], myCUS)
+                    myCUS <- lift $ getCatchUpStatus False
+                    return $ Just ([], myCUS)
                 else
                     return Nothing
             -- We are behind, so we mark the peer as pending.
@@ -61,9 +63,8 @@ handleCatchUp peerCUS = runMaybeT $ do
                 Just (BlockFinalized peerlfb peerFinRec) -> do
                     return (peerlfb, peerFinRec)
                 _ -> do
-                    logEvent Skov LLWarning $ "Invalid catch up status: last finalized block not finalized." 
-                    mzero
-            peerbb <- resolveBlock (cusBestBlock peerCUS)
+                    throwE $ "Invalid catch up status: last finalized block not finalized." 
+            peerbb <- lift $ resolveBlock (cusBestBlock peerCUS)
             -- We should mark the peer as pending if we don't recognise its best block
             let catchUpWithPeer = isNothing peerbb
             if cusIsRequest peerCUS then do
@@ -83,7 +84,12 @@ handleCatchUp peerCUS = runMaybeT $ do
                         | otherwise = makeChain' (bpParent c) (bpParent b) (b : l)
                     chain = makeChain (fromMaybe peerlfb peerbb) bb []
                     myCUS = makeCatchUpStatus False lfb bb
-                return (Just (frs, chain, myCUS), catchUpWithPeer)
+                    merge [] bs = Right . bpBlock <$> bs
+                    merge fs [] = Left <$> fs
+                    merge fs0@(f : fs1) (b : bs)
+                        | finalizationBlockPointer f == bpHash b = (Right (bpBlock b)) : Left f : merge fs1 bs
+                        | otherwise = Right (bpBlock b) : merge fs0 bs
+                return (Just (merge frs chain, myCUS), catchUpWithPeer)
             else
                 -- No response required
                 return (Nothing, catchUpWithPeer)

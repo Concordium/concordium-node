@@ -24,14 +24,6 @@ import Concordium.TimeMonad
 import Concordium.Afgjort.Finalize
 import Concordium.Afgjort.Buffer
 
--- SkovQueryM: SkovQueryMonad
--- * evalSSM
-
--- Finalization options: none, passive, active, buffered
--- Transaction hooking/not
-
-
-
 -- |This wrapper endows a monad that implements 'TreeStateMonad' with
 -- an instance of 'SkovQueryMonad'.
 newtype TSSkovWrapper m a = TSSkovWrapper {runTSSkovWrapper :: m a}
