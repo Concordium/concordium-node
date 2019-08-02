@@ -105,7 +105,7 @@ pub struct P2PNode {
     send_queue_out: Arc<Mutex<Receiver<Arc<NetworkMessage>>>>,
     resend_queue_in: SyncSender<ResendQueueEntry>,
     resend_queue_out: Arc<Mutex<Receiver<ResendQueueEntry>>>,
-    queue_to_super: RelayOrStopSyncSender<Arc<NetworkMessage>>,
+    pub queue_to_super: RelayOrStopSyncSender<Arc<NetworkMessage>>,
     pub rpc_queue: SyncSender<Arc<NetworkMessage>>,
     start_time: DateTime<Utc>,
     external_addr: SocketAddr,

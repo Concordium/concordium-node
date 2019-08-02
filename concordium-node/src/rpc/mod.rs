@@ -17,8 +17,13 @@ use crate::{
     },
     proto::*,
 };
-use concordium_common::stats_export_service::StatsExportService;
-use concordium_consensus::{consensus::ConsensusContainer, ffi::ConsensusFfiResponse};
+
+use concordium_common::{stats_export_service::StatsExportService, PacketType};
+use concordium_consensus::{
+    consensus::{ConsensusContainer, CALLBACK_QUEUE},
+    ffi::ConsensusFfiResponse,
+};
+use concordium_global_state::tree::messaging::{ConsensusMessage, DistributionMode, MessageType};
 use futures::future::Future;
 use grpcio::{self, Environment, ServerBuilder};
 use rkv::Rkv;
@@ -363,28 +368,40 @@ impl P2P for RpcServerImpl {
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
             match self.consensus {
-                Some(ref res) => match res.send_transaction(req.get_payload()) {
-                    ConsensusFfiResponse::Success => {
-                        let mut r: SuccessResponse = SuccessResponse::new();
-                        r.set_value(true);
-                        let f = sink
-                            .success(r)
-                            .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-                        ctx.spawn(f);
+                Some(ref consensus) => {
+                    let payload = req.get_payload();
+
+                    let request = ConsensusMessage::new(
+                        MessageType::Inbound(self.node.id().0, DistributionMode::Direct),
+                        PacketType::Transaction,
+                        Arc::from(payload),
+                    );
+                    let gs_result = CALLBACK_QUEUE.send_message(request);
+                    let consensus_result = consensus.send_transaction(payload);
+
+                    match (gs_result, consensus_result) {
+                        (Ok(_), ConsensusFfiResponse::Success) => {
+                            let mut r: SuccessResponse = SuccessResponse::new();
+                            r.set_value(true);
+                            let f = sink
+                                .success(r)
+                                .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+                            ctx.spawn(f);
+                        }
+                        (_, e) => {
+                            let f = sink
+                                .fail(::grpcio::RpcStatus::new(
+                                    ::grpcio::RpcStatusCode::Internal,
+                                    Some(format!(
+                                        "Got non-success response from FFI interface {:?}",
+                                        e
+                                    )),
+                                ))
+                                .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+                            ctx.spawn(f);
+                        }
                     }
-                    e => {
-                        let f = sink
-                            .fail(::grpcio::RpcStatus::new(
-                                ::grpcio::RpcStatusCode::Internal,
-                                Some(format!(
-                                    "Got non-success response from FFI interface {:?}",
-                                    e
-                                )),
-                            ))
-                            .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-                        ctx.spawn(f);
-                    }
-                },
+                }
                 _ => {
                     let f = sink
                         .fail(::grpcio::RpcStatus::new(
