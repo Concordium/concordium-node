@@ -173,8 +173,8 @@ instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
     getAccountList bs =
       return $ Map.keys (Account.accountMap (bs ^. blockAccounts))
   
-    {-# INLINE getBirkParameters #-}
-    getBirkParameters = return . _blockBirkParameters
+    {-# INLINE getBlockBirkParameters #-}
+    getBlockBirkParameters = return . _blockBirkParameters
 
     {-# INLINE getRewardStatus #-}
     getRewardStatus = return . _blockBank
@@ -264,8 +264,8 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
     bsoGetExecutionCost bs =
       return $ bs ^. blockBank . Rewards.executionCost 
 
-    {-# INLINE bsoGetBirkParameters #-}
-    bsoGetBirkParameters = return . _blockBirkParameters
+    {-# INLINE bsoGetBlockBirkParameters #-}
+    bsoGetBlockBirkParameters = return . _blockBirkParameters
 
     bsoAddBaker bs binfo = return $ 
         let
