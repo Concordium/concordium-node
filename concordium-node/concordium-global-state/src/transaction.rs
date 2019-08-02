@@ -5,11 +5,12 @@ use failure::{ensure, format_err, Fallible};
 use hash_hasher::HashedMap;
 
 use std::{
-    collections::HashMap,
     convert::TryFrom,
     io::{Cursor, Read, Write},
     mem::size_of,
 };
+
+use concordium_common::indexed_vec::IndexedVec;
 
 use crate::{
     block::*,
@@ -23,12 +24,12 @@ pub type TransactionHash = HashBytes;
 
 #[derive(Debug)]
 pub struct TransactionHeader {
-    scheme_id:      SchemeId,
-    sender_key:     ByteString,
-    nonce:          Nonce,
-    gas_amount:     Energy,
-    finalized_ptr:  BlockHash,
-    sender_account: AccountAddress,
+    scheme_id:          SchemeId,
+    sender_key:         ByteString,
+    pub nonce:          Nonce,
+    gas_amount:         Energy,
+    finalized_ptr:      BlockHash,
+    pub sender_account: AccountAddress,
 }
 
 impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionHeader {
@@ -70,7 +71,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionHeader {
         let _ = cursor.write(&[self.scheme_id as u8]);
         let _ = cursor.write_u16::<NetworkEndian>(self.sender_key.len() as u16);
         let _ = cursor.write_all(&self.sender_key);
-        let _ = cursor.write_u64::<NetworkEndian>(self.nonce.0.get());
+        let _ = cursor.write_u64::<NetworkEndian>(self.nonce.0);
         let _ = cursor.write_u64::<NetworkEndian>(self.gas_amount);
         let _ = cursor.write_all(&self.finalized_ptr);
 
@@ -80,10 +81,10 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionHeader {
 
 #[derive(Debug)]
 pub struct Transaction {
-    signature: ByteString,
-    header:    TransactionHeader,
-    payload:   TransactionPayload,
-    hash:      TransactionHash,
+    signature:   ByteString,
+    pub header:  TransactionHeader,
+    pub payload: TransactionPayload,
+    pub hash:    TransactionHash,
 }
 
 impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Transaction {
@@ -463,16 +464,48 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
     }
 }
 
-#[derive(Debug)]
 pub struct AccountNonFinalizedTransactions {
-    map:        Vec<Vec<Transaction>>, // indexed by Nonce
+    map:        IndexedVec<Vec<Transaction>>, // indexed by Nonce
     next_nonce: Nonce,
 }
 
-#[derive(Debug, Default)]
-pub struct TransactionTable {
-    map: HashedMap<TransactionHash, (Transaction, Slot)>,
-    non_finalized_transactions: HashMap<AccountAddress, AccountNonFinalizedTransactions>,
+impl Default for AccountNonFinalizedTransactions {
+    fn default() -> Self {
+        Self {
+            map:        Default::default(),
+            next_nonce: Nonce::try_from(1).unwrap(), // safe
+        }
+    }
 }
 
-pub type PendingTransactionTable = HashMap<AccountAddress, (Nonce, Nonce)>;
+#[derive(Default)]
+pub struct TransactionTable {
+    #[allow(dead_code)]
+    map: HashedMap<TransactionHash, (Transaction, Slot)>,
+    pub(super) non_finalized_transactions:
+        HashedMap<AccountAddress, AccountNonFinalizedTransactions>,
+}
+
+impl TransactionTable {
+    pub fn insert(&mut self, transaction: Transaction, finalized: bool) {
+        if !finalized {
+            let account_transactions = self
+                .non_finalized_transactions
+                .entry(transaction.header.sender_account.clone())
+                .or_default();
+            // WARNING: the map is indexed by Nonce - 1, since a nonce is non-zero
+            let index = transaction.header.nonce.0 as usize - 1;
+
+            if let Some(ref mut transactions) = account_transactions.map.get_mut(index) {
+                transactions.push(transaction);
+            } else {
+                account_transactions.map.insert(index, vec![transaction])
+            }
+            account_transactions.next_nonce.0 += 1;
+        } else {
+            unimplemented!()
+        }
+    }
+}
+
+pub type PendingTransactionTable = HashedMap<AccountAddress, (Nonce, Nonce)>;

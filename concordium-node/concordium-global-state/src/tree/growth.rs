@@ -8,6 +8,7 @@ use crate::{
     block::*,
     common::{sha256, HashBytes, SerializeToBytes},
     finalization::*,
+    transaction::Transaction,
 };
 
 use super::{
@@ -65,6 +66,18 @@ impl<'a> GlobalState<'a> {
 
     pub fn store_serialized_block(&mut self, serialized_block: &[u8]) {
         self.data.store_serialized_block(serialized_block);
+    }
+
+    pub fn add_transaction(
+        &mut self,
+        transaction: Transaction,
+        finalized: bool,
+    ) -> GlobalStateResult {
+        if !finalized {
+            self.data.add_non_finalized_transaction(transaction)
+        } else {
+            self.data.finalize_transaction(transaction)
+        }
     }
 }
 
@@ -245,6 +258,18 @@ impl<'a> GlobalData<'a> {
         self.refresh_pending_queue(AwaitingLastFinalizedFinalization, &housekeeping_hash);
 
         GlobalStateResult::SuccessfulEntry(PacketType::FinalizationRecord)
+    }
+
+    fn add_non_finalized_transaction(&mut self, transaction: Transaction) -> GlobalStateResult {
+        self.transaction_table.insert(transaction, false);
+
+        GlobalStateResult::SuccessfulEntry(PacketType::Transaction)
+    }
+
+    fn finalize_transaction(&mut self, transaction: Transaction) -> GlobalStateResult {
+        self.transaction_table.insert(transaction, true);
+
+        GlobalStateResult::SuccessfulEntry(PacketType::Transaction)
     }
 
     fn refresh_pending_queue(&mut self, queue: PendingQueueType, target_hash: &HashBytes) {

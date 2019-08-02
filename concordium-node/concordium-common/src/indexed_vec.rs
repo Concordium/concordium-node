@@ -5,6 +5,7 @@ use std::{
 
 /// A vector-like collection designed to hold contiguous elements with
 /// specific indices.
+#[derive(Default)]
 pub struct IndexedVec<T> {
     inner: Vec<Option<T>>,
 }
@@ -25,7 +26,15 @@ impl<T> IndexedVec<T> {
         }
     }
 
-    pub fn get(&self, index: usize) -> Option<&T> { self.inner[index].as_ref() }
+    // safe: if the index is there, the element is also available
+    pub fn get(&self, index: usize) -> Option<&T> {
+        self.inner.get(index).and_then(|elem| elem.as_ref())
+    }
+
+    // ditto
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
+        self.inner.get_mut(index).and_then(|elem| elem.as_mut())
+    }
 }
 
 impl<T> Index<usize> for IndexedVec<T> {

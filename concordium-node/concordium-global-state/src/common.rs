@@ -9,7 +9,6 @@ use std::{
     fmt,
     io::{Cursor, Read, Write},
     mem::size_of,
-    num::NonZeroU64,
     ops::Deref,
 };
 
@@ -71,7 +70,7 @@ impl TryFrom<u8> for SchemeId {
     }
 }
 
-#[derive(PartialEq, Eq, Hash)]
+#[derive(PartialEq, Eq, Hash, Clone)]
 pub struct AccountAddress(pub [u8; 21]);
 
 impl From<(&[u8], SchemeId)> for AccountAddress {
@@ -208,7 +207,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
         );
 
         let _ = cursor.write_all(&self.address.0);
-        let _ = cursor.write_u64::<NetworkEndian>(self.nonce.0.get());
+        let _ = cursor.write_u64::<NetworkEndian>(self.nonce.0);
         let _ = cursor.write_u64::<NetworkEndian>(self.amount);
         write_multiple!(&mut cursor, self.encrypted_amounts, write_bytestring);
         write_maybe!(&mut cursor, self.encryption_key, write_bytestring);
@@ -235,15 +234,17 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
 pub type Amount = u64;
 
 #[derive(PartialEq, Eq, Hash, Clone)]
-pub struct Nonce(pub NonZeroU64);
+pub struct Nonce(pub u64);
 
 impl TryFrom<u64> for Nonce {
     type Error = failure::Error;
 
     fn try_from(raw: u64) -> Fallible<Self> {
-        Ok(Nonce(NonZeroU64::new(raw).ok_or_else(|| {
-            return format_err!("A zero nonce was received!");
-        })?))
+        if raw != 0 {
+            Ok(Nonce(raw))
+        } else {
+            Err(format_err!("A zero nonce was received!"))
+        }
     }
 }
 

@@ -8,7 +8,13 @@ pub const FILE_NAME_SUFFIX_BAKER_PRIVATE: &str = ".dat";
 use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
 use failure::Fallible;
 
-use std::{convert::TryFrom, fs::OpenOptions, io::Read, sync::Arc};
+use std::{
+    convert::TryFrom,
+    fs::OpenOptions,
+    io::{Cursor, Read},
+    mem,
+    sync::Arc,
+};
 
 use concordium_common::{
     cache::Cache,
@@ -23,7 +29,7 @@ use concordium_global_state::{
     block::{BlockHeight, PendingBlock},
     common::{sha256, SerializeToBytes},
     finalization::FinalizationRecord,
-    transaction::Transaction,
+    transaction::{Transaction, TransactionHash},
     tree::{
         messaging::{
             ConsensusMessage, DistributionMode, GlobalMetadata, GlobalStateError,
@@ -119,7 +125,7 @@ pub fn handle_pkt_out(
     peer_id: P2PNodeId,
     mut msg: UCursor,
     skov_sender: &RelayOrStopSender<ConsensusMessage>,
-    _transactions_cache: &Cache<Transaction>,
+    transactions_cache: &mut Cache<Arc<[u8]>>,
     is_broadcast: bool,
 ) -> Fallible<()> {
     ensure!(
@@ -132,12 +138,18 @@ pub fn handle_pkt_out(
     let packet_type = PacketType::try_from(consensus_type)?;
 
     let view = msg.read_all_into_view()?;
-    let payload = Arc::from(&view.as_slice()[PAYLOAD_TYPE_LENGTH as usize..]);
+    let payload: Arc<[u8]> = Arc::from(&view.as_slice()[PAYLOAD_TYPE_LENGTH as usize..]);
     let distribution_mode = if is_broadcast {
         DistributionMode::Broadcast
     } else {
         DistributionMode::Direct
     };
+
+    if packet_type == PacketType::Transaction {
+        let hash_offset = payload.len() - mem::size_of::<TransactionHash>();
+        let hash = TransactionHash::new(&payload[hash_offset..]);
+        transactions_cache.insert(hash, payload.clone());
+    }
 
     let request = RelayOrStopEnvelope::Relay(ConsensusMessage::new(
         MessageType::Inbound(peer_id.0, distribution_mode),
@@ -191,6 +203,13 @@ fn process_internal_skov_entry(
         PacketType::FinalizationRecord => {
             let record = FinalizationRecord::deserialize(&request.payload)?;
             (format!("{:?}", record), skov.add_finalization(record))
+        }
+        PacketType::Transaction => {
+            let transaction = Transaction::deserialize(&mut Cursor::new(&request.payload))?;
+            (
+                format!("{:?}", transaction.payload.transaction_type()),
+                skov.add_transaction(transaction, false),
+            )
         }
         PacketType::CatchupBlockByHash
         | PacketType::CatchupFinalizationRecordByHash
@@ -270,6 +289,11 @@ fn process_external_skov_entry(
         PacketType::FinalizationRecord => {
             let record = FinalizationRecord::deserialize(&request.payload)?;
             let skov_result = skov.add_finalization(record);
+            (skov_result, true)
+        }
+        PacketType::Transaction => {
+            let transaction = Transaction::deserialize(&mut Cursor::new(&request.payload))?;
+            let skov_result = skov.add_transaction(transaction, false);
             (skov_result, true)
         }
         PacketType::GlobalStateMetadata => {
