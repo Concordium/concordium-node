@@ -4,7 +4,7 @@ module Concordium.Skov.CatchUp where
 import Control.Monad.Trans.Maybe
 import Control.Monad
 import Data.Maybe
-import Data.Functor
+import Data.Serialize
 
 import Concordium.Types
 import Concordium.GlobalState.Finalization
@@ -16,61 +16,74 @@ import Concordium.Skov.Monad
 import Concordium.Kontrol.BestBlock
 
 data CatchUpStatus = CatchUpStatus {
-    -- |If this flag is set, the recipient is required to respond with its own
-    -- 'CatchUpStatus'.
+    -- |If this flag is set, the recipient is expected to send any
+    -- blocks and finalization records the sender may be missing,
+    -- followed by a CatchUpStatus message.
     cusIsRequest :: Bool,
+    -- |Hash of the sender's last finalized block
     cusLastFinalizedBlock :: BlockHash,
+    -- |Height of the sender's last finalized block
     cusLastFinalizedHeight :: BlockHeight,
-    cusBestBlock :: BlockHash,
-    cusBestHeight :: BlockHeight
+    -- |Hash of the sender's best block
+    cusBestBlock :: BlockHash
 } deriving (Show)
+instance Serialize CatchUpStatus where
+    put CatchUpStatus{..} = put cusIsRequest <> put cusLastFinalizedBlock <> put cusLastFinalizedHeight <> put cusBestBlock
+    get = CatchUpStatus <$> get <*> get <*> get <*> get
+
+makeCatchUpStatus :: (BlockPointerData b) => Bool -> b -> b -> CatchUpStatus
+makeCatchUpStatus cusIsRequest lfb bb = CatchUpStatus{..}
+    where
+        cusLastFinalizedBlock = bpHash lfb
+        cusLastFinalizedHeight = bpHeight lfb
+        cusBestBlock = bpHash bb
 
 getCatchUpStatus :: SkovQueryMonad m => Bool -> m CatchUpStatus
 getCatchUpStatus cusIsRequest = do
         lfb <- lastFinalizedBlock
-        let 
-            cusLastFinalizedBlock = bpHash lfb
-            cusLastFinalizedHeight = bpHeight lfb
         bb <- bestBlock
-        let
-            cusBestBlock = bpHash bb
-            cusBestHeight = bpHeight bb
-        return CatchUpStatus{..}
+        return $ makeCatchUpStatus cusIsRequest lfb bb
 
-handleCatchUp :: (TreeStateMonad m, SkovQueryMonad m, LoggerMonad m) => CatchUpStatus -> m (Maybe ([FinalizationRecord], [BlockPointer m], Maybe CatchUpStatus))
+handleCatchUp :: (TreeStateMonad m, SkovQueryMonad m, LoggerMonad m) => CatchUpStatus -> m (Maybe (Maybe ([FinalizationRecord], [BlockPointer m], CatchUpStatus), Bool))
 handleCatchUp peerCUS = runMaybeT $ do
         lfb <- lastFinalizedBlock
         if cusLastFinalizedHeight peerCUS > bpHeight lfb then do
-            myCUS <- getCatchUpStatus True
-            return ([], [], Just myCUS)
+            response <-
+                if cusIsRequest peerCUS then do
+                    myCUS <- getCatchUpStatus False
+                    return $ Just ([], [], myCUS)
+                else
+                    return Nothing
+            -- We are behind, so we mark the peer as pending.
+            return (response, True)
         else do
-            (peerlfb, frs) <- getBlockStatus (cusLastFinalizedBlock peerCUS) >>= \case
+            (peerlfb, peerFinRec) <- getBlockStatus (cusLastFinalizedBlock peerCUS) >>= \case
                 Just (BlockFinalized peerlfb peerFinRec) -> do
-                    frs <- getFinalizationFromIndex (finalizationIndex peerFinRec + 1)
-                    return (peerlfb, frs)
+                    return (peerlfb, peerFinRec)
                 _ -> do
                     logEvent Skov LLWarning $ "Invalid catch up status: last finalized block not finalized." 
                     mzero
-            bb <- bestBlock
-            -- We want our best chain up to the latest known common ancestor of the
-            -- peer's best block.  If we know that block, start there; otherwise, 
-            -- start with the peer's last finalized block.
             peerbb <- resolveBlock (cusBestBlock peerCUS)
-            let
-                makeChain c b l = case compare (bpHeight c) (bpHeight b) of
-                    LT -> makeChain c (bpParent b) (b : l)
-                    EQ -> makeChain' c b l
-                    GT -> makeChain (bpParent c) b l
-                makeChain' c b l
-                    | c == b = l
-                    | otherwise = makeChain' (bpParent c) (bpParent b) (b : l)
-                chain = makeChain (fromMaybe peerlfb peerbb) bb []
-                myCUS = CatchUpStatus {
-                        cusIsRequest = isNothing peerbb,
-                        cusLastFinalizedBlock = bpHash lfb,
-                        cusLastFinalizedHeight = bpHeight lfb,
-                        cusBestBlock = bpHash bb,
-                        cusBestHeight = bpHeight bb
-                    }
-                mmyCUS = myCUS <$ guard (cusIsRequest peerCUS || not (null frs) || not (null chain))
-            return (frs, chain, mmyCUS)
+            -- We should mark the peer as pending if we don't recognise its best block
+            let catchUpWithPeer = isNothing peerbb
+            if cusIsRequest peerCUS then do
+                -- Response required so determine finalization records and chain to send
+                frs <- getFinalizationFromIndex (finalizationIndex peerFinRec + 1)
+                bb <- bestBlock
+                -- We want our best chain up to the latest known common ancestor of the
+                -- peer's best block.  If we know that block, start there; otherwise, 
+                -- start with the peer's last finalized block.
+                let
+                    makeChain c b l = case compare (bpHeight c) (bpHeight b) of
+                        LT -> makeChain c (bpParent b) (b : l)
+                        EQ -> makeChain' c b l
+                        GT -> makeChain (bpParent c) b l
+                    makeChain' c b l -- Invariant: bpHeight c == bpHeight b
+                        | c == b = l
+                        | otherwise = makeChain' (bpParent c) (bpParent b) (b : l)
+                    chain = makeChain (fromMaybe peerlfb peerbb) bb []
+                    myCUS = makeCatchUpStatus False lfb bb
+                return (Just (frs, chain, myCUS), catchUpWithPeer)
+            else
+                -- No response required
+                return (Nothing, catchUpWithPeer)
