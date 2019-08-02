@@ -1375,9 +1375,17 @@ pub fn send_message_from_cursor(
 
     // Create packet.
     let packet = if broadcast {
+        let message_id = match msg_id {
+            Some(msg_id) => msg_id,
+            None => {
+                let generated_msg_id = NetworkPacket::generate_message_id();
+                node.seen_messages.append(&generated_msg_id);
+                generated_msg_id
+            }
+        };
         NetworkPacketBuilder::default()
             .peer(node.self_peer)
-            .message_id(msg_id.unwrap_or_else(NetworkPacket::generate_message_id))
+            .message_id(message_id)
             .network_id(network_id)
             .message(msg)
             .build_broadcast()?
