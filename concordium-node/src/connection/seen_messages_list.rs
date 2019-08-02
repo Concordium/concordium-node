@@ -53,7 +53,7 @@ impl Ord for SeenMessage {
 pub struct SeenMessagesList {
     seen_msgs:            Arc<RwLock<HashedSet<SeenMessage>>>,
     message_ids_retained: usize,
-    oldest_element:       Arc<AtomicI64>,
+    oldest_timestamp:     Arc<AtomicI64>,
 }
 
 impl SeenMessagesList {
@@ -64,7 +64,7 @@ impl SeenMessagesList {
                 HashBuildHasher::default(),
             ))),
             message_ids_retained,
-            oldest_element: Arc::new(AtomicI64::new(0)),
+            oldest_timestamp: Arc::new(AtomicI64::new(0)),
         }
     }
 
@@ -78,21 +78,21 @@ impl SeenMessagesList {
     pub fn append(&self, msgid: &MessageId) -> bool {
         if let Ok(mut list) = safe_write!(self.seen_msgs) {
             let msg = SeenMessage::new(msgid.to_owned());
-            let current_stamp = msg.timestamp.clone();
+            let current_stamp = msg.timestamp.timestamp();
 
             if list.len() >= self.message_ids_retained - 1 {
-                let remove_older_than =
-                    current_stamp.timestamp() - self.oldest_element.load(AtomicOrdering::SeqCst);
+                let remove_older_than = current_stamp
+                    - (current_stamp - self.oldest_timestamp.load(AtomicOrdering::SeqCst)) / 2;
                 list.retain(|element| element.timestamp.timestamp() > remove_older_than);
-                self.oldest_element
+                self.oldest_timestamp
                     .store(remove_older_than, AtomicOrdering::SeqCst);
             }
 
             let replace_op = list.replace(msg);
 
-            if replace_op.is_none() && self.oldest_element.load(AtomicOrdering::SeqCst) == 0 {
-                self.oldest_element
-                    .store(current_stamp.timestamp(), AtomicOrdering::SeqCst);
+            if replace_op.is_none() && self.oldest_timestamp.load(AtomicOrdering::SeqCst) == 0 {
+                self.oldest_timestamp
+                    .store(current_stamp, AtomicOrdering::SeqCst);
             }
 
             replace_op.is_none()
