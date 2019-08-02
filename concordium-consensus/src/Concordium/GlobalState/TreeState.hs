@@ -14,6 +14,7 @@ import Data.Time
 import qualified Data.Set as Set
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Maybe
+import Control.Monad.Trans.Except
 import Control.Monad.Trans.RWS.Strict
 
 import Concordium.Types
@@ -323,4 +324,5 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (BSMTra
     {-# INLINE putConsensusStatistics #-}
 
 deriving via (BSMTrans MaybeT m) instance TreeStateMonad m => TreeStateMonad (MaybeT m)
+deriving via (BSMTrans (ExceptT e) m) instance TreeStateMonad m => TreeStateMonad (ExceptT e m)
 deriving via (BSMTrans (RWST r w s) m) instance (TreeStateMonad m, Monoid w) => TreeStateMonad (RWST r w s m)
