@@ -234,7 +234,7 @@ pub struct ConnectionConfig {
     #[structopt(
         long = "gossip-seen-message-ids-size",
         help = "Size of kept history of seen message ids when gossiping",
-        default_value = "1000"
+        default_value = "5000"
     )]
     pub gossip_seen_message_ids_size: usize,
 }
@@ -326,6 +326,12 @@ pub struct CommonConfig {
 pub struct CliConfig {
     #[structopt(long = "no-network", help = "Disable network")]
     pub no_network: bool,
+    #[structopt(
+        long = "poll-interval",
+        help = "The polling interval",
+        default_value = "200"
+    )]
+    pub poll_interval: u64,
     #[structopt(
         long = "testrunner-url",
         help = "URL for the test runner to submit data to"

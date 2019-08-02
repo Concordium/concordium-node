@@ -74,6 +74,7 @@ pub struct P2PNodeConfig {
     max_resend_attempts: u8,
     relay_broadcast_percentage: f64,
     pub global_state_catch_up_requests: bool,
+    pub poll_interval: u64,
 }
 
 #[derive(Default)]
@@ -240,6 +241,7 @@ impl P2PNode {
             max_resend_attempts: conf.connection.max_resend_attempts,
             relay_broadcast_percentage: conf.connection.relay_broadcast_percentage,
             global_state_catch_up_requests: conf.connection.global_state_catch_up_requests,
+            poll_interval: conf.cli.poll_interval,
         };
 
         let networks: HashSet<NetworkId> = conf
@@ -504,6 +506,16 @@ impl P2PNode {
                         let peer_stat_list = self_clone.get_peer_stats(&[]);
                         self_clone.print_stats(&peer_stat_list);
                         self_clone.check_peers(&peer_stat_list);
+
+                        if self_clone.peer_type() != PeerType::Bootstrapper {
+                            self_clone.noise_protocol_handler.liveness_check();
+                        }
+                        if let Err(e) = self_clone.noise_protocol_handler.cleanup_connections(
+                            self_clone.config.max_allowed_nodes,
+                            &self_clone.poll,
+                        ) {
+                            error!("Issue with connection cleanups: {:?}", e);
+                        }
                         log_time = now;
                     }
                 }
@@ -1068,16 +1080,15 @@ impl P2PNode {
     pub fn unban_node(&self, peer: BannedNode) { self.noise_protocol_handler.unban_node(peer); }
 
     pub fn process(&self, events: &mut Events) -> Fallible<()> {
-        self.poll.poll(events, Some(Duration::from_millis(10000)))?;
-
-        if self.peer_type() != PeerType::Bootstrapper {
-            self.noise_protocol_handler.liveness_check()?;
-        }
+        self.poll.poll(
+            events,
+            Some(Duration::from_millis(self.config.poll_interval)),
+        )?;
 
         for event in events.iter() {
             match event.token() {
                 SERVER => {
-                    debug!("Got new connection!");
+                    debug!("Got a new connection!");
                     self.noise_protocol_handler
                         .accept(&self.poll, self.get_self_peer())
                         .map_err(|e| error!("{}", e))
@@ -1097,11 +1108,6 @@ impl P2PNode {
         }
 
         events.clear();
-
-        {
-            self.noise_protocol_handler
-                .cleanup_connections(self.config.max_allowed_nodes, &self.poll)?;
-        }
 
         trace!("Processing new outbound messages");
         self.process_messages();
@@ -1369,9 +1375,17 @@ pub fn send_message_from_cursor(
 
     // Create packet.
     let packet = if broadcast {
+        let message_id = match msg_id {
+            Some(msg_id) => msg_id,
+            None => {
+                let generated_msg_id = NetworkPacket::generate_message_id();
+                node.seen_messages.append(&generated_msg_id);
+                generated_msg_id
+            }
+        };
         NetworkPacketBuilder::default()
             .peer(node.self_peer)
-            .message_id(msg_id.unwrap_or_else(NetworkPacket::generate_message_id))
+            .message_id(message_id)
             .network_id(network_id)
             .message(msg)
             .build_broadcast()?
