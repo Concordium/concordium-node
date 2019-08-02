@@ -1375,13 +1375,6 @@ pub fn send_message_from_cursor(
 
     // Create packet.
     let packet = if broadcast {
-        NetworkPacketBuilder::default()
-            .peer(node.self_peer)
-            .message_id(msg_id.unwrap_or_else(NetworkPacket::generate_message_id))
-            .network_id(network_id)
-            .message(msg)
-            .build_broadcast()?
-    } else {
         let message_id = match msg_id {
             Some(msg_id) => msg_id,
             None => {
@@ -1390,12 +1383,19 @@ pub fn send_message_from_cursor(
                 generated_msg_id
             }
         };
+        NetworkPacketBuilder::default()
+            .peer(node.self_peer)
+            .message_id(message_id)
+            .network_id(network_id)
+            .message(msg)
+            .build_broadcast()?
+    } else {
         let receiver =
             target_id.ok_or_else(|| err_msg("Direct Message requires a valid target id"))?;
 
         NetworkPacketBuilder::default()
             .peer(node.self_peer)
-            .message_id(message_id)
+            .message_id(msg_id.unwrap_or_else(NetworkPacket::generate_message_id))
             .network_id(network_id)
             .message(msg)
             .build_direct(receiver)?
