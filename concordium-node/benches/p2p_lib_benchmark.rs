@@ -150,7 +150,7 @@ mod network {
                 .build()
                 .unwrap();
             let bench_id = format!(
-                "Benchmark deserialization of Direct Message with {} bytes on payload",
+                "Deserialization of DirectMessages with a {}B payload",
                 content_size
             );
 
@@ -203,8 +203,7 @@ mod network {
                 .build()
                 .unwrap();
             let bench_id = format!(
-                "Benchmark deserialization of Direct Message with {} bytes on payload using \
-                 temporal files",
+                "Deserialization of DirectMessages with a {}B payload using temporary files",
                 content_size
             );
 
@@ -239,10 +238,7 @@ mod network {
                 None,
             );
 
-            let bench_id = format!(
-                "Benchmark deserialization of PeerList Response with {} peers ",
-                size
-            );
+            let bench_id = format!("Deserialization of PeerList responses with {} peers ", size);
 
             c.bench_function(&bench_id, move |b| {
                 let mut archive = WriteArchiveAdapter::from(vec![]);
@@ -307,7 +303,7 @@ mod network {
                 .take(size)
                 .collect::<Vec<u8>>();
             let uc = UCursor::from(msg);
-            let bench_id = format!("Benchmark P2P network using messages of {} bytes", size);
+            let bench_id = format!("P2P network using {}B messages", size);
 
             c.bench_function(&bench_id, move |b| {
                 let net_id = NetworkId::from(100);
@@ -370,7 +366,7 @@ mod serialization {
 
             let data: Vec<u8> = ser::to_vec(&dm).unwrap();
 
-            let bench_id = format!("Benchmark Serde CBOR using {} bytes", content_size);
+            let bench_id = format!("Serde CBOR serialization with {}B messages", content_size);
             c.bench_function(&bench_id, move |b| {
                 let local_data = data.as_slice();
                 b.iter(move || s11n_network_message(local_data))
@@ -445,7 +441,7 @@ mod serialization {
 
             let data: String = serde_json::to_string(&dm).unwrap();
 
-            let bench_id = format!("Benchmark Serde JSON using {} bytes", content_size);
+            let bench_id = format!("Serde serialization JSON with {}B messages", content_size);
             c.bench_function(&bench_id, move |b| {
                 let data_raw: &str = data.as_str();
                 b.iter(move || s11n_network_message(data_raw))
@@ -514,7 +510,7 @@ mod serialization {
 
             let pkt: String = [header, content].concat();
 
-            let bench_id = format!("Benchmark NOM using {} bytes", content_size);
+            let bench_id = format!("NOM serialization with {}B messages", content_size);
             c.bench_function(&bench_id, move |b| {
                 let data = pkt.as_bytes();
                 b.iter(move || s11n_network_message(data));
@@ -599,7 +595,7 @@ mod serialization {
 
             let data: Vec<u8> = save_network_message(&mut dm);
 
-            let bench_id = format!("Benchmark CAPnP using {} bytes", content_size);
+            let bench_id = format!("CAPnP serialization with {}B messages", content_size);
             c.bench_function(&bench_id, move |b| {
                 let data_raw: &[u8] = data.as_slice();
                 b.iter(|| deserialize(&local_peer, &local_ip, data_raw))
@@ -727,7 +723,7 @@ criterion_group!(
 
 criterion_group!(
     name = p2p_net_big_benches;
-    config = network::connection::bench_config(2);
+    config = network::connection::bench_config(10);
     targets = network::connection::p2p_net_8m,
     network::connection::p2p_net_32m,
     network::connection::p2p_net_128m
@@ -735,8 +731,8 @@ criterion_group!(
 
 criterion_main!(
     p2p_net_small_benches,
-    s11n_get_peers,
     p2p_net_big_benches,
+    s11n_get_peers,
     s11n_custom_benches,
     s11n_cbor_benches,
     s11n_json_benches,

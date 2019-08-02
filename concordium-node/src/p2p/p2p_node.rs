@@ -74,7 +74,7 @@ pub struct P2PNodeConfig {
     max_resend_attempts: u8,
     relay_broadcast_percentage: f64,
     pub global_state_catch_up_requests: bool,
-    poll_interval: u64,
+    pub poll_interval: u64,
 }
 
 #[derive(Default)]
