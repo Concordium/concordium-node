@@ -780,9 +780,9 @@ getIndexedFinalization cptr finInd = do
                 logm External LLInfo $ "Finalization record found"
                 byteStringToCString $ P.runPut $ put finRec
 
-type FinalizationBroadcastCallback = PeerID -> CString -> Int64 -> IO ()
+type FinalizationMessageCallback = PeerID -> CString -> Int64 -> IO ()
 
-foreign import ccall "dynamic" callFinalizationBroadcastCallback :: FunPtr FinalizationBroadcastCallback -> FinalizationBroadcastCallback
+foreign import ccall "dynamic" callFinalizationMessageCallback :: FunPtr FinalizationMessageCallback -> FinalizationMessageCallback
 
 -- |Get pending finalization messages beyond a given point.
 -- The finalization messages are returned by calling the provided
@@ -795,7 +795,7 @@ foreign import ccall "dynamic" callFinalizationBroadcastCallback :: FunPtr Final
 getFinalizationMessages :: StablePtr ConsensusRunner 
     -> PeerID -- ^Peer id (used in callback)
     -> CString -> Int64 -- ^Data, length of finalization point
-    -> FunPtr FinalizationBroadcastCallback -> IO Int64
+    -> FunPtr FinalizationMessageCallback -> IO Int64
 getFinalizationMessages cptr peer finPtStr finPtLen callback = do
         c <- deRefStablePtr cptr
         let logm = consensusLogMethod c
@@ -809,7 +809,7 @@ getFinalizationMessages cptr peer finPtStr finPtLen callback = do
                 finMsgs <- runConsensusQuery c Get.getFinalizationMessages fpt
                 forM_ finMsgs $ \finMsg -> do
                     logm External LLDebug $ "Sending finalization catchup, data = " ++ show finMsg
-                    BS.useAsCStringLen (runPut $ put finMsg) $ \(cstr, l) -> callFinalizationBroadcastCallback callback peer cstr (fromIntegral l)
+                    BS.useAsCStringLen (runPut $ put finMsg) $ \(cstr, l) -> callFinalizationMessageCallback callback peer cstr (fromIntegral l)
                 return 0
 
 -- |Get the current point in the finalization protocol.
@@ -913,7 +913,7 @@ foreign export ccall getBlock :: StablePtr ConsensusRunner -> BlockReference -> 
 foreign export ccall getBlockDelta :: StablePtr ConsensusRunner -> BlockReference -> Word64 -> IO CString
 foreign export ccall getBlockFinalization :: StablePtr ConsensusRunner -> BlockReference -> IO CString
 foreign export ccall getIndexedFinalization :: StablePtr ConsensusRunner -> Word64 -> IO CString
-foreign export ccall getFinalizationMessages :: StablePtr ConsensusRunner -> PeerID -> CString -> Int64 -> FunPtr FinalizationBroadcastCallback -> IO Int64
+foreign export ccall getFinalizationMessages :: StablePtr ConsensusRunner -> PeerID -> CString -> Int64 -> FunPtr FinalizationMessageCallback -> IO Int64
 foreign export ccall getFinalizationPoint :: StablePtr ConsensusRunner -> IO CString
 
 foreign export ccall getCatchUpStatus :: StablePtr ConsensusRunner -> IO CString
