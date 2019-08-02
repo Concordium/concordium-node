@@ -756,9 +756,6 @@ mod tests {
     #[test]
     pub fn e2e_009_network_direct_32m() { p2p_net(32 * 1024 * 1024); }
 
-    #[test]
-    pub fn e2e_009_network_direct_128m() { p2p_net(128 * 1024 * 1024); }
-
     fn p2p_net(size: usize) {
         setup_logger();
 
