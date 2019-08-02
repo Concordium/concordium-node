@@ -101,7 +101,7 @@ mod tests {
     }
 
     #[test]
-    pub fn x_e2e_001_trust_broadcast() -> Fallible<()> {
+    pub fn e2e_001_trust_broadcast() -> Fallible<()> {
         setup_logger();
 
         let msg = b"Hello other brother!".to_vec();
@@ -755,13 +755,6 @@ mod tests {
 
     #[test]
     pub fn e2e_009_network_direct_32m() { p2p_net(32 * 1024 * 1024); }
-
-    #[test]
-    pub fn e2e_009_network_direct_128m() { p2p_net(128 * 1024 * 1024); }
-
-    #[test]
-    #[ignore]
-    pub fn e2e_009_network_direct_256m() { p2p_net(256 * 1024 * 1024); }
 
     fn p2p_net(size: usize) {
         setup_logger();

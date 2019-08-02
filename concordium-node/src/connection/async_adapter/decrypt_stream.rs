@@ -37,45 +37,6 @@ impl DecryptStream {
         }
     }
 
-    fn decrypt_chunk(
-        &mut self,
-        chunk_idx: usize,
-        chunk_size: usize,
-        nonce: u64,
-        input: &mut UCursor,
-        clear_message: &mut Vec<u8>,
-    ) -> Fallible<()> {
-        debug_assert!(chunk_size <= SNOW_MAXMSGLEN);
-
-        let encrypted_chunk_view = input.read_into_view(chunk_size)?;
-        let input_slice = encrypted_chunk_view.as_slice();
-        let mut output_slice = &mut self.buffer[..(chunk_size - SNOW_TAGLEN)];
-
-        match write_or_die!(self.session).read_message_with_nonce(
-            nonce,
-            input_slice,
-            &mut output_slice,
-        ) {
-            Ok(bytes) => {
-                debug_assert!(
-                    bytes <= chunk_size,
-                    "Chunk {} bytes {} <= size {} fails",
-                    chunk_idx,
-                    bytes,
-                    chunk_size
-                );
-                debug_assert!(bytes <= MAX_NOISE_PROTOCOL_MESSAGE_LEN);
-
-                clear_message.extend_from_slice(&self.buffer[..bytes]);
-                Ok(())
-            }
-            Err(err) => {
-                error!("Decrypt error at chunk {} fails: {}", chunk_idx, err);
-                Err(failure::Error::from(err))
-            }
-        }
-    }
-
     /// It reads the chunk table and decodes each of them.
     ///
     /// # Return
@@ -90,18 +51,29 @@ impl DecryptStream {
 
         // 2. Load and decrypt each chunk.
         let mut clear_message = Vec::with_capacity(input.len() as usize);
+        let session_reader = read_or_die!(self.session);
 
         for idx in 0..num_full_chunks {
-            self.decrypt_chunk(idx, SNOW_MAXMSGLEN, nonce, &mut input, &mut clear_message)?;
+            decrypt_chunk(
+                &mut self.buffer,
+                idx,
+                SNOW_MAXMSGLEN,
+                nonce,
+                &mut input,
+                &mut clear_message,
+                &session_reader,
+            )?;
         }
 
         if last_chunk_size > 0 {
-            self.decrypt_chunk(
+            decrypt_chunk(
+                &mut self.buffer,
                 num_full_chunks,
                 last_chunk_size,
                 nonce,
                 &mut input,
                 &mut clear_message,
+                &session_reader,
             )?;
         }
 
@@ -111,4 +83,40 @@ impl DecryptStream {
     /// It is just a helper function to keep a coherent interface.
     #[inline]
     pub fn read(&mut self, input: UCursor) -> Fallible<UCursor> { self.decrypt(input) }
+}
+
+fn decrypt_chunk(
+    chunk_buffer: &mut [u8],
+    chunk_idx: usize,
+    chunk_size: usize,
+    nonce: u64,
+    input: &mut UCursor,
+    clear_message: &mut Vec<u8>,
+    session: &Session,
+) -> Fallible<()> {
+    debug_assert!(chunk_size <= SNOW_MAXMSGLEN);
+
+    let encrypted_chunk_view = input.read_into_view(chunk_size)?;
+    let input_slice = encrypted_chunk_view.as_slice();
+    let mut output_slice = &mut chunk_buffer[..(chunk_size - SNOW_TAGLEN)];
+
+    match session.read_message_with_nonce(nonce, input_slice, &mut output_slice) {
+        Ok(bytes) => {
+            debug_assert!(
+                bytes <= chunk_size,
+                "Chunk {} bytes {} <= size {} fails",
+                chunk_idx,
+                bytes,
+                chunk_size
+            );
+            debug_assert!(bytes <= MAX_NOISE_PROTOCOL_MESSAGE_LEN);
+
+            clear_message.extend_from_slice(&chunk_buffer[..bytes]);
+            Ok(())
+        }
+        Err(err) => {
+            error!("Decrypt error at chunk {} fails: {}", chunk_idx, err);
+            Err(failure::Error::from(err))
+        }
+    }
 }

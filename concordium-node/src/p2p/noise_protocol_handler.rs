@@ -617,15 +617,17 @@ impl NoiseProtocolHandler {
                 .collect();
             connection_map.sort_by_key(|p| std::cmp::Reverse((p.0, p.2)));
             connection_map.dedup_by_key(|p| p.0);
-            read_or_die!(self.connections).iter().for_each(|conn| {
-                if conn.remote_id().is_some()
-                    && !connection_map
+            read_or_die!(self.connections)
+                .iter()
+                .filter(|conn| conn.remote_id().is_some())
+                .for_each(|conn| {
+                    if !connection_map
                         .iter()
                         .any(|(_, token, _)| token == &conn.token())
-                {
-                    conn.close();
-                }
-            });
+                    {
+                        conn.close();
+                    }
+                });
         }
 
         let wrap_connection_already_gone_as_non_fatal =
@@ -728,7 +730,7 @@ impl NoiseProtocolHandler {
         Ok(())
     }
 
-    pub fn liveness_check(&self) -> Fallible<()> {
+    pub fn liveness_check(&self) {
         let curr_stamp = get_current_stamp();
 
         read_or_die!(self.connections)
@@ -760,8 +762,6 @@ impl NoiseProtocolHandler {
                     conn.set_last_ping_sent();
                 }
             });
-
-        Ok(())
     }
 
     /// It sends `data` message over all filtered connections.
