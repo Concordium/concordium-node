@@ -82,7 +82,7 @@ class Monad m => BlockStateQuery m where
     -- |Get Birk parameters from the point of view of this block state. Although
     -- these will not change as often as the rest of the block state, they are
     -- still block dependent.
-    getBirkParameters :: BlockState m -> m BirkParameters
+    getBlockBirkParameters :: BlockState m -> m BirkParameters
 
     -- |Get reward summary for this block.
     getRewardStatus :: BlockState m -> m BankStatus
@@ -199,12 +199,12 @@ class BlockStateQuery m => BlockStateOperations m where
   -- particular the reward accounts for the bakers and others will need to be
   -- determined at the end of the block, and they might have changed as a result
   -- of block execution.
-  bsoGetBirkParameters :: UpdatableBlockState m -> m BirkParameters
+  bsoGetBlockBirkParameters :: UpdatableBlockState m -> m BirkParameters
 
   -- |Get the 'BakerInfo' for a given baker.
   bsoGetBakerInfo :: UpdatableBlockState m -> BakerId -> m (Maybe BakerInfo)
   bsoGetBakerInfo s bid = do
-    bps <- bsoGetBirkParameters s
+    bps <- bsoGetBlockBirkParameters s
     return $! fst <$> birkBaker bid bps
 
   -- |Get the account of the given baker.
@@ -266,7 +266,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (BSMT
   getModuleList = lift . getModuleList
   getAccountList = lift . getAccountList
   getContractInstanceList = lift . getContractInstanceList
-  getBirkParameters = lift . getBirkParameters
+  getBlockBirkParameters = lift . getBlockBirkParameters
   getRewardStatus = lift . getRewardStatus
   getTransactionOutcome s = lift . getTransactionOutcome s
   {-# INLINE getModule #-}
@@ -275,7 +275,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (BSMT
   {-# INLINE getModuleList #-}
   {-# INLINE getAccountList #-}
   {-# INLINE getContractInstanceList #-}
-  {-# INLINE getBirkParameters #-}
+  {-# INLINE getBlockBirkParameters #-}
   {-# INLINE getRewardStatus #-}
   {-# INLINE getTransactionOutcome #-}
 
@@ -292,7 +292,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoNotifyExecutionCost s = lift . bsoNotifyExecutionCost s
   bsoNotifyIdentityIssuerCredential s = lift . bsoNotifyIdentityIssuerCredential s
   bsoGetExecutionCost = lift . bsoGetExecutionCost
-  bsoGetBirkParameters = lift . bsoGetBirkParameters
+  bsoGetBlockBirkParameters = lift . bsoGetBlockBirkParameters
   bsoAddBaker s = lift . bsoAddBaker s
   bsoUpdateBaker s = lift . bsoUpdateBaker s
   bsoRemoveBaker s = lift . bsoRemoveBaker s
@@ -315,7 +315,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoNotifyExecutionCost #-}
   {-# INLINE bsoNotifyIdentityIssuerCredential #-}
   {-# INLINE bsoGetExecutionCost #-}
-  {-# INLINE bsoGetBirkParameters #-}
+  {-# INLINE bsoGetBlockBirkParameters #-}
   {-# INLINE bsoAddBaker #-}
   {-# INLINE bsoUpdateBaker #-}
   {-# INLINE bsoRemoveBaker #-}
