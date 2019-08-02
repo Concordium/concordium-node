@@ -21,12 +21,9 @@ use concordium_common::{
     RelayOrStopSenderHelper,
 };
 use concordium_consensus::{consensus, ffi};
-use concordium_global_state::{
-    common::SerializeToBytes,
-    tree::{
-        messaging::{ConsensusMessage, DistributionMode, MessageType},
-        GlobalState,
-    },
+use concordium_global_state::tree::{
+    messaging::{ConsensusMessage, DistributionMode, MessageType},
+    GlobalState,
 };
 use failure::Fallible;
 use p2p_client::{
@@ -322,7 +319,7 @@ fn start_consensus_threads(
     let mut _stats_engine = StatsEngine::new(&conf.cli);
     let mut _msg_count = 0;
     let (_tps_test_enabled, _tps_message_count) = tps_setup_process_output(&conf.cli);
-    let transactions_cache = Cache::default();
+    let mut transactions_cache = Cache::default();
     let _network_id = NetworkId::from(conf.common.network_ids[0]); // defaulted so there's always first()
     let data_dir_path = app_prefs.get_user_app_dir();
     let stats_clone = stats.clone();
@@ -464,7 +461,7 @@ fn start_consensus_threads(
                         pac.peer.id(),
                         pac.message.clone(),
                         &skov_sender,
-                        &transactions_cache,
+                        &mut transactions_cache,
                         is_broadcast,
                     ) {
                         error!("There's an issue with an outbound packet: {}", e);
@@ -482,7 +479,7 @@ fn start_consensus_threads(
                                         *nid,
                                         PacketType::Transaction,
                                         Some(format!("{:?}", transaction)),
-                                        &transaction.serialize(),
+                                        &transaction,
                                     );
                                 })
                             }
