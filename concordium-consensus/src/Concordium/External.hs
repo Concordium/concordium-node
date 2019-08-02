@@ -36,7 +36,7 @@ import Concordium.Scheduler.Utils.Init.Example (initialState)
 
 import Concordium.Runner
 import Concordium.Show
-import Concordium.Skov hiding (receiveTransaction)
+import Concordium.Skov hiding (receiveTransaction, getBirkParameters)
 import Concordium.Afgjort.Finalize (FinalizationOutputEvent(..), FinalizationQuery)
 import Concordium.Logger
 
@@ -626,7 +626,7 @@ getBirkParameters cptr blockcstr = do
     let logm = consensusLogMethod c
     logm External LLInfo "Received request Birk parameters."
     withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
-      bps <- runConsensusQuery c (Get.getBirkParameters hash)
+      bps <- runConsensusQuery c (Get.getBlockBirkParameters hash)
       logm External LLDebug $ "Replying with" ++ show bps
       jsonValueToCString bps
 

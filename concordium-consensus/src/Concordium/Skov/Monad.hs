@@ -44,6 +44,9 @@ class (Monad m, Eq (BlockPointer m), BlockPointerData (BlockPointer m), BlockSta
     isFinalized :: BlockHash -> m Bool
     -- |Determine the last finalized block.
     lastFinalizedBlock :: m (BlockPointer m)
+    -- |Retrieves the birk parameters for a slot, given a branch (in the form of a block pointer.)
+    --  Retrieves AdvanceTime and StableTime directly from genesis block
+    getBirkParameters :: Slot -> BlockPointer m -> m BirkParameters
     -- |Get the genesis data.
     getGenesisData :: m GenesisData
     -- |Get the genesis block pointer.
@@ -81,6 +84,7 @@ instance SkovQueryMonad m => SkovQueryMonad (MaybeT m) where
     resolveBlock = lift . resolveBlock
     isFinalized = lift . isFinalized
     lastFinalizedBlock = lift lastFinalizedBlock
+    getBirkParameters slot bp = lift $ getBirkParameters slot bp
     getGenesisData = lift getGenesisData
     genesisBlock = lift genesisBlock
     getCurrentHeight = lift getCurrentHeight

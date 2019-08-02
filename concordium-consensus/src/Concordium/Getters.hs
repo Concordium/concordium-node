@@ -118,10 +118,10 @@ getRewardStatus hash sfsRef = runStateQuery sfsRef $
     "mintedAmountPerSlot" .= (fromIntegral (reward ^. AT.mintedGTUPerSlot) :: Integer)
     ]
 
-getBirkParameters :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
-getBirkParameters hash sfsRef = runStateQuery sfsRef $
+getBlockBirkParameters :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
+getBlockBirkParameters hash sfsRef = runStateQuery sfsRef $
   withBlockStateJSON hash $ \st -> do
-  BirkParameters{..} <- BS.getBirkParameters st
+  BirkParameters{..} <- BS.getBlockBirkParameters st
   return $ object [
     "electionDifficulty" .= _birkElectionDifficulty,
     "electionNonce" .= String (TL.toStrict . EL.decodeUtf8 . toLazyByteString . byteStringHex $ _birkLeadershipElectionNonce),

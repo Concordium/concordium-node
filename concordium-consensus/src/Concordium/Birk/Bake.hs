@@ -58,7 +58,7 @@ bakeForSlot :: (SkovMonad m, TreeStateMonad m, MonadIO m) => BakerIdentity -> Sl
 bakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     bb <- bestBlockBefore slot
     guard (blockSlot (bpBlock bb) < slot)
-    birkParams@BirkParameters{..} <- getBirkParameters (bpState bb)
+    birkParams@BirkParameters{..} <- getBirkParameters slot bb
 
     (bakerId, _, lotteryPower) <- MaybeT . pure $ birkBakerByKeys (bakerSignPublicKey ident) (bakerElectionPublicKey ident) birkParams
     electionProof <- MaybeT . liftIO $
