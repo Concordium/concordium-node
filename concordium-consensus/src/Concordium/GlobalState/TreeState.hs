@@ -184,7 +184,7 @@ class (Eq (BlockPointer m),
     -- present).  A return value of @False@ indicates that the transaction was not added,
     -- either because it was already present or the nonce has already been finalized.
     addTransaction :: Transaction -> m Bool
-    addTransaction tr = addCommitTransaction tr 0
+    addTransaction tr = maybe False snd <$> addCommitTransaction tr 0
     -- |Finalize a list of transactions.  Per account, the transactions must be in
     -- continuous sequence by nonce, starting from the next available non-finalized
     -- nonce.
@@ -193,11 +193,14 @@ class (Eq (BlockPointer m),
     -- This will prevent it from being purged while the slot number exceeds
     -- that of the last finalized block.
     commitTransaction :: Slot -> Transaction -> m ()
-    -- |Add a transaction and mark it committed for the given slot number.
-    -- Returns @True@ if the transaction is newly added.  The transaction
-    -- will not be added if its nonce is not later than the last finalized
-    -- transaction for the sender.
-    addCommitTransaction :: Transaction -> Slot -> m Bool
+    -- |@addCommitTransaction tr slot@ adds a transaction and marks it committed
+    -- for the given slot number.
+    -- Returns
+    --   * @(Just tx, False)@ if @tr@ is a duplicate of the transaction @tx@
+    --   * @(Just tr, True)@ if the transaction is newly added.
+    --   * @Nothing@ if its nonce is not later than the last finalized transaction for the sender.
+    --     In this case the transaction is not added to the table.
+    addCommitTransaction :: Transaction -> Slot -> m (Maybe (Transaction, Bool))
     -- |Purge a transaction from the transaction table if its last committed slot
     -- number does not exceed the slot number of the last finalized block.
     -- (A transaction that has been committed to a finalized block should not be purged.)

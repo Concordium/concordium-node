@@ -181,15 +181,16 @@ instance (SkovLenses s, Monad m, MonadState s m) => TS.TreeStateMonad (SkovTreeS
                         Just s -> (nnce, s) : Map.toAscList beyond
     addCommitTransaction tr slot = do 
             tt <- use transactionTable
-            case tt ^. ttHashMap . at (getHash tr) of
+            let trHash = getHash tr
+            case tt ^. ttHashMap . at trHash of
                 Nothing -> if (tt ^. ttNonFinalizedTransactions . at sender . non emptyANFT . anftNextNonce) <= nonce then do
                                 transactionTable .= (tt & (ttNonFinalizedTransactions . at sender . non emptyANFT . anftMap . at nonce . non Set.empty %~ Set.insert tr)
                                                         & (ttHashMap . at (getHash tr) ?~ (tr, slot)))
-                                return True
-                            else return False
-                Just (_, slot') -> do
-                                when (slot > slot') $ transactionTable .= (tt & ttHashMap . at (getHash tr) ?~ (tr, slot))
-                                return False
+                                return $ Just (tr, True)
+                            else return Nothing
+                Just (tr', slot') -> do
+                                when (slot > slot') $ transactionTable .= (tt & ttHashMap . at trHash ?~ (tr', slot))
+                                return $ Just (tr', False)
         where
             sender = transactionSender tr
             nonce = transactionNonce tr
