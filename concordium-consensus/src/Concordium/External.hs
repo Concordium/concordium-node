@@ -457,7 +457,7 @@ printBlock cstr l = do
         Right block -> putStrLn $ showsBlock block ""
 
 -- |Handle receipt of a transaction.
--- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, and @ResultDuplicate@.
+-- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultDuplicate@, and @ResultStale@
 receiveTransaction :: StablePtr ConsensusRunner -> CString -> Int64 -> IO ReceiveResult
 receiveTransaction bptr tdata len = do
     c <- deRefStablePtr bptr

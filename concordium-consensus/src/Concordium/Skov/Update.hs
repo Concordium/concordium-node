@@ -475,9 +475,15 @@ doStoreBlock = \block0 -> do
         Nothing -> do
             -- The block is new, so we have some work to do.
             logEvent Skov LLDebug $ "Received block " ++ show pb
-            updateReceiveStatistics pb
-            forM_ (blockTransactions pb) $ \tr -> doReceiveTransaction tr (blockSlot pb)
-            addBlock pb
+            txList <- sequence <$> (forM (blockTransactions pb) $ \tr -> doReceiveTransactionInternal tr (blockSlot pb))
+            case txList of
+              Nothing -> do
+                blockArriveDead cbp
+                return ResultInvalid
+              Just newTransactions -> do
+                let newPb = pb { pbBlock = block0 { bbTransactions = BlockTransactions newTransactions } }
+                updateReceiveStatistics newPb
+                addBlock newPb
         Just _ -> return ResultDuplicate
 
 -- |Store a block that is baked by this node in the tree.  The block
@@ -549,17 +555,38 @@ doFinalizeBlock = \finRec -> do
 -- and nonce has already been finalized.
 doReceiveTransaction :: (TreeStateMonad m) => Transaction -> Slot -> m UpdateResult
 doReceiveTransaction tr slot = do
-        added <- addCommitTransaction tr slot
-        if added then do
-            ptrs <- getPendingTransactions
-            focus <- getFocusBlock
-            macct <- getAccount (bpState focus) (transactionSender tr)
-            let nextNonce = maybe minNonce _accountNonce macct
-            -- If a transaction with this nonce has already been run by
-            -- the focus block, then we do not need to add it to the
-            -- pending transactions.  Otherwise, we do.
-            when (nextNonce <= transactionNonce tr) $
-                putPendingTransactions $ extendPendingTransactionTable nextNonce tr ptrs
-            return ResultSuccess
-        else
-            return ResultDuplicate
+        addCommitTransaction tr slot >>= \case
+          Just (_, added) -> 
+            if added then do
+              ptrs <- getPendingTransactions
+              focus <- getFocusBlock
+              macct <- getAccount (bpState focus) (transactionSender tr)
+              let nextNonce = maybe minNonce _accountNonce macct
+              -- If a transaction with this nonce has already been run by
+              -- the focus block, then we do not need to add it to the
+              -- pending transactions.  Otherwise, we do.
+              when (nextNonce <= transactionNonce tr) $
+                  putPendingTransactions $ extendPendingTransactionTable nextNonce tr ptrs
+              return ResultSuccess
+            else
+              return ResultDuplicate
+          Nothing -> return ResultStale
+
+doReceiveTransactionInternal :: (TreeStateMonad m) => Transaction -> Slot -> m (Maybe Transaction)
+doReceiveTransactionInternal tr slot = do
+        addCommitTransaction tr slot >>= \case
+          Nothing -> return Nothing
+          Just (tx, added) -> 
+            if added then do
+              ptrs <- getPendingTransactions
+              focus <- getFocusBlock
+              macct <- getAccount (bpState focus) $! (transactionSender tr)
+              let nextNonce = maybe minNonce _accountNonce macct
+              -- If a transaction with this nonce has already been run by
+              -- the focus block, then we do not need to add it to the
+              -- pending transactions.  Otherwise, we do.
+              when (nextNonce <= transactionNonce tr) $
+                  putPendingTransactions $! extendPendingTransactionTable nextNonce tx ptrs
+              return $ Just tx
+            else
+              return $ Just tx
