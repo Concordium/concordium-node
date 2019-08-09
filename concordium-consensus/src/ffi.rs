@@ -270,7 +270,6 @@ extern "C" {
         missing_finalization_records_by_index_callback: CatchupFinalizationRequestByFinalizationIndexCallback,
     ) -> *mut consensus_runner;
     pub fn startBaker(consensus: *mut consensus_runner);
-    pub fn printBlock(block_data: *const u8, data_length: i64);
     pub fn receiveBlock(
         consensus: *mut consensus_runner,
         peer_id: PeerId,
