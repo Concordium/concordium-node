@@ -142,7 +142,7 @@ impl RpcServerImpl {
             } else if req.get_broadcast().get_value() {
                 trace!("Sending broadcast message");
                 r.set_value(
-                    send_broadcast_message(&self.node, None, network_id, None, msg)
+                    send_broadcast_message(&self.node, vec![], network_id, None, msg)
                         .map_err(|e| error!("{}", e))
                         .is_ok(),
                 );
@@ -643,7 +643,7 @@ impl P2P for RpcServerImpl {
                                     i_msg.set_data(msg);
                                     r.set_message_direct(i_msg);
                                 }
-                                NetworkPacketType::BroadcastedMessage => {
+                                NetworkPacketType::BroadcastedMessage(..) => {
                                     let mut i_msg = MessageBroadcast::new();
                                     i_msg.set_data(msg);
                                     r.set_message_broadcast(i_msg);
@@ -1624,7 +1624,7 @@ mod tests {
         client.subscription_start_opt(&crate::proto::Empty::new(), callopts.clone())?;
         send_broadcast_message(
             &node2,
-            None,
+            vec![],
             crate::network::NetworkId::from(100),
             None,
             b"Hey".to_vec(),

@@ -492,7 +492,9 @@ pub fn send_consensus_msg_to_net(
     let result = if target_id.is_some() {
         send_direct_message(node, target_id, network_id, None, packet_buffer)
     } else {
-        send_broadcast_message(node, None, network_id, None, packet_buffer)
+        // TODO @lj : Handle the list of peers to send to to not include the one we got
+        // it from
+        send_broadcast_message(node, vec![], network_id, None, packet_buffer)
     };
 
     let target_desc = if let Some(id) = target_id {

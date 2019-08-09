@@ -34,7 +34,7 @@ use p2p_client::{
     common::{P2PNodeId, P2PPeer, PeerType},
     configuration,
     network::{
-        packet::MessageId, request::RequestedElementType, NetworkId, NetworkMessage, NetworkPacket,
+        packet::MessageId, request::RequestedElementType, NetworkId, NetworkMessage,
         NetworkPacketType, NetworkRequest, NetworkResponse,
     },
     p2p::{p2p_node::send_direct_message, *},
@@ -310,7 +310,6 @@ fn start_consensus_threads(
 ) -> Vec<std::thread::JoinHandle<()>> {
     let _no_trust_bans = conf.common.no_trust_bans;
     let _desired_nodes_clone = conf.connection.desired_nodes;
-    let _test_runner_url = conf.cli.test_runner_url.clone();
     let mut _stats_engine = StatsEngine::new(&conf.cli);
     let mut _msg_count = 0;
     let (_tps_test_enabled, _tps_message_count) = tps_setup_process_output(&conf.cli);
@@ -443,14 +442,13 @@ fn start_consensus_threads(
                                 }
                             };
                         }
-                        NetworkPacketType::BroadcastedMessage => {
-                            if let Some(ref testrunner_url) = _test_runner_url {
-                                send_packet_to_testrunner(&node_ref, testrunner_url, &pac);
-                            };
-                        }
+                        _ => {}
                     };
 
-                    let is_broadcast = pac.packet_type == NetworkPacketType::BroadcastedMessage;
+                    let is_broadcast = match pac.packet_type {
+                        NetworkPacketType::BroadcastedMessage(..) => true,
+                        _ => false,
+                    };
 
                     if let Err(e) = handle_pkt_out(
                         pac.peer.id(),
@@ -552,25 +550,6 @@ fn tps_setup_process_output(cli: &configuration::CliConfig) -> (bool, u64) {
 
 #[cfg(not(feature = "benchmark"))]
 fn tps_setup_process_output(_: &configuration::CliConfig) -> (bool, u64) { (false, 0) }
-
-#[cfg(feature = "instrumentation")]
-fn send_packet_to_testrunner(node: &P2PNode, test_runner_url: &str, pac: &NetworkPacket) {
-    debug!("Sending information to test runner");
-    match reqwest::get(&format!(
-        "{}/register/{}/{:?}",
-        test_runner_url,
-        node.id(),
-        pac.message_id
-    )) {
-        Ok(ref mut res) if res.status().is_success() => {
-            info!("Registered packet received with test runner")
-        }
-        _ => error!("Couldn't register packet received with test runner"),
-    }
-}
-
-#[cfg(not(feature = "instrumentation"))]
-fn send_packet_to_testrunner(_: &P2PNode, _: &str, _: &NetworkPacket) {}
 
 fn _send_retransmit_packet(
     node: &P2PNode,
