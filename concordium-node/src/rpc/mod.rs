@@ -18,11 +18,10 @@ use crate::{
     proto::*,
 };
 
-use concordium_common::{stats_export_service::StatsExportService, PacketType};
-use concordium_consensus::{
-    consensus::{ConsensusContainer, CALLBACK_QUEUE},
-    ffi::ConsensusFfiResponse,
+use concordium_common::{
+    stats_export_service::StatsExportService, ConsensusFfiResponse, PacketType,
 };
+use concordium_consensus::consensus::{ConsensusContainer, CALLBACK_QUEUE};
 use concordium_global_state::tree::messaging::{ConsensusMessage, DistributionMode, MessageType};
 use futures::future::Future;
 use grpcio::{self, Environment, ServerBuilder};
@@ -375,6 +374,7 @@ impl P2P for RpcServerImpl {
                         MessageType::Inbound(self.node.id().0, DistributionMode::Direct),
                         PacketType::Transaction,
                         Arc::from(payload),
+                        vec![],
                     );
                     let gs_result = CALLBACK_QUEUE.send_message(request);
                     let consensus_result = consensus.send_transaction(payload);

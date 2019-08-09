@@ -793,13 +793,14 @@ impl P2PNode {
                     256,
                 ),
             ),
-            NetworkPacketType::BroadcastedMessage(..) => {
+            NetworkPacketType::BroadcastedMessage(ref dont_send_to) => {
                 let not_valid_receivers = if self.config.relay_broadcast_percentage < 1.0 {
                     use rand::seq::SliceRandom;
                     let mut rng = rand::thread_rng();
-                    let peers = self
+                    let mut peers = self
                         .noise_protocol_handler
                         .get_all_current_peers(Some(PeerType::Node));
+                    peers.retain(|peer| !dont_send_to.contains(peer));
                     let peers_to_take = f64::floor(
                         f64::from(peers.len() as u32) * self.config.relay_broadcast_percentage,
                     );

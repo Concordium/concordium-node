@@ -447,7 +447,17 @@ fn start_consensus_threads(
                         _ => false,
                     };
 
+                    let dont_relay_to =
+                        if let NetworkPacketType::BroadcastedMessage(ref peers) = pac.packet_type {
+                            let mut list = peers.clone().to_owned();
+                            list.push(pac.peer.id());
+                            list
+                        } else {
+                            vec![]
+                        };
+
                     if let Err(e) = handle_pkt_out(
+                        dont_relay_to,
                         pac.peer.id(),
                         pac.message.clone(),
                         &skov_sender,
@@ -465,6 +475,7 @@ fn start_consensus_threads(
                                 transactions.iter().for_each(|transaction| {
                                     send_consensus_msg_to_net(
                                         &node_shared,
+                                        vec![],
                                         Some(requester.id()),
                                         *nid,
                                         PacketType::Transaction,
@@ -516,6 +527,7 @@ fn provide_global_state_metadata(
             MessageType::Inbound(peer.id().0, DistributionMode::Direct),
             packet_type,
             Arc::from(payload),
+            vec![],
         ));
 
         send_or_die!(skov_sender, request);

@@ -14,7 +14,7 @@ use std::{
 };
 
 use crate::consensus::*;
-use concordium_common::PacketType;
+use concordium_common::{ConsensusFfiResponse, PacketType};
 use concordium_global_state::{
     block::*,
     common,
@@ -175,62 +175,6 @@ extern "C" fn stop_nopanic() {
     STOP_ONCE.call_once(|| {
         unsafe { hs_exit() }; // does nothing if hs_init_count <= 0
     });
-}
-
-#[derive(Debug)]
-pub enum ConsensusFfiResponse {
-    BakerNotFound = -1,
-    Success,
-    DeserializationError,
-    InvalidResult,
-    PendingBlock,
-    PendingFinalization,
-    Asynchronous,
-    DuplicateEntry,
-    Stale,
-    IncorrectFinalizationSession,
-    CryptographicProvidersNotLoaded,
-    IdentityProvidersNotLoaded,
-}
-
-impl ConsensusFfiResponse {
-    pub fn is_acceptable(&self) -> bool {
-        use ConsensusFfiResponse::*;
-
-        match self {
-            BakerNotFound
-            | DeserializationError
-            | InvalidResult
-            | CryptographicProvidersNotLoaded
-            | IdentityProvidersNotLoaded => false,
-            _ => true,
-        }
-    }
-}
-
-impl TryFrom<i64> for ConsensusFfiResponse {
-    type Error = failure::Error;
-
-    #[inline]
-    fn try_from(value: i64) -> Fallible<ConsensusFfiResponse> {
-        use ConsensusFfiResponse::*;
-
-        match value {
-            -1 => Ok(BakerNotFound),
-            0 => Ok(Success),
-            1 => Ok(DeserializationError),
-            2 => Ok(InvalidResult),
-            3 => Ok(PendingBlock),
-            4 => Ok(PendingFinalization),
-            5 => Ok(Asynchronous),
-            6 => Ok(DuplicateEntry),
-            7 => Ok(Stale),
-            8 => Ok(IncorrectFinalizationSession),
-            9 => Ok(CryptographicProvidersNotLoaded),
-            10 => Ok(IdentityProvidersNotLoaded),
-            _ => Err(format_err!("Unsupported FFI return code ({})", value)),
-        }
-    }
 }
 
 #[repr(C)]
@@ -626,7 +570,8 @@ pub extern "C" fn on_consensus_data_out(block_type: i64, block_data: *const u8, 
             CallbackType::FinalizationRecord => PacketType::FinalizationRecord,
         };
 
-        let message = ConsensusMessage::new(MessageType::Outbound(None), message_variant, data);
+        let message =
+            ConsensusMessage::new(MessageType::Outbound(None), message_variant, data, vec![]);
 
         match CALLBACK_QUEUE.send_message(message) {
             Ok(_) => debug!("Queueing a {} of {} bytes", message_variant, data_length),
@@ -644,6 +589,7 @@ pub unsafe extern "C" fn on_catchup_block_by_hash(peer_id: PeerId, hash: *const 
         MessageType::Outbound(Some(peer_id)),
         PacketType::CatchupBlockByHash,
         payload,
+        vec![],
     ));
 }
 
@@ -654,6 +600,7 @@ pub unsafe extern "C" fn on_catchup_finalization_record_by_hash(peer_id: PeerId,
         MessageType::Outbound(Some(peer_id)),
         PacketType::CatchupFinalizationRecordByHash,
         payload,
+        vec![],
     ));
 }
 
@@ -665,6 +612,7 @@ pub extern "C" fn on_catchup_finalization_record_by_index(
         MessageType::Outbound(Some(peer_id)),
         PacketType::CatchupFinalizationRecordByIndex,
         Arc::from(index.to_be_bytes()),
+        vec![],
     ));
 }
 
@@ -676,6 +624,7 @@ pub extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *co
             MessageType::Outbound(Some(peer_id)),
             PacketType::FinalizationMessage,
             payload,
+            vec![],
         ))
     }
 }

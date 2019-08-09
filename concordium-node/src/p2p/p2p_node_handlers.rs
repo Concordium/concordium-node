@@ -74,7 +74,7 @@ pub fn forward_network_packet_message<S: ::std::hash::BuildHasher>(
         let outer = Arc::new(NetworkMessage::NetworkPacket(pac.to_owned(), None, None));
 
         if is_rpc_online.load(Ordering::Relaxed) {
-            if let Err(e) = outgoing_queues.rpc_queue.send(outer.clone()) {
+            if let Err(e) = outgoing_queues.rpc_queue.send(Arc::clone(&outer)) {
                 warn!(
                     "Can't relay a message to the RPC outbound queue: {}",
                     e.to_string()
@@ -82,7 +82,7 @@ pub fn forward_network_packet_message<S: ::std::hash::BuildHasher>(
             }
         }
 
-        if let Err(e) = outgoing_queues.queue_to_super.send_msg(outer.clone()) {
+        if let Err(e) = outgoing_queues.queue_to_super.send_msg(Arc::clone(&outer)) {
             warn!(
                 "Can't relay a message on to the outer super queue: {}",
                 e.to_string()

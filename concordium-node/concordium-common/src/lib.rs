@@ -225,3 +225,59 @@ impl fmt::Display for PacketType {
         write!(f, "{}", name)
     }
 }
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum ConsensusFfiResponse {
+    BakerNotFound = -1,
+    Success,
+    DeserializationError,
+    InvalidResult,
+    PendingBlock,
+    PendingFinalization,
+    Asynchronous,
+    DuplicateEntry,
+    Stale,
+    IncorrectFinalizationSession,
+    CryptographicProvidersNotLoaded,
+    IdentityProvidersNotLoaded,
+}
+
+impl ConsensusFfiResponse {
+    pub fn is_acceptable(&self) -> bool {
+        use ConsensusFfiResponse::*;
+
+        match self {
+            BakerNotFound
+            | DeserializationError
+            | InvalidResult
+            | CryptographicProvidersNotLoaded
+            | IdentityProvidersNotLoaded => false,
+            _ => true,
+        }
+    }
+}
+
+impl TryFrom<i64> for ConsensusFfiResponse {
+    type Error = failure::Error;
+
+    #[inline]
+    fn try_from(value: i64) -> Fallible<ConsensusFfiResponse> {
+        use ConsensusFfiResponse::*;
+
+        match value {
+            -1 => Ok(BakerNotFound),
+            0 => Ok(Success),
+            1 => Ok(DeserializationError),
+            2 => Ok(InvalidResult),
+            3 => Ok(PendingBlock),
+            4 => Ok(PendingFinalization),
+            5 => Ok(Asynchronous),
+            6 => Ok(DuplicateEntry),
+            7 => Ok(Stale),
+            8 => Ok(IncorrectFinalizationSession),
+            9 => Ok(CryptographicProvidersNotLoaded),
+            10 => Ok(IdentityProvidersNotLoaded),
+            _ => Err(format_err!("Unsupported FFI return code ({})", value)),
+        }
+    }
+}
