@@ -12,7 +12,6 @@ use crate::{
     network::message::NetworkMessage,
 };
 use concordium_common::{
-    filters::{Filter, FilterAFunc, FilterResult, Filters},
     functor::{UnitFunction, UnitFunctor},
     UCursor,
 };
@@ -63,7 +62,6 @@ pub fn collapse_process_result(
 /// processing of the message finishing.
 #[derive(Clone)]
 pub struct MessageProcessor {
-    filters:       Filters<NetworkMessage>,
     actions:       MessageHandler,
     notifications: UnitFunctor<NetworkMessage>,
 }
@@ -75,23 +73,10 @@ impl Default for MessageProcessor {
 impl MessageProcessor {
     pub fn new() -> Self {
         MessageProcessor {
-            filters:       Filters::new(),
             actions:       MessageHandler::new(),
             notifications: UnitFunctor::new(),
         }
     }
-
-    pub fn add_filter(&self, func: FilterAFunc<NetworkMessage>, priority: u8) -> &Self {
-        self.filters.add_filter(func, priority);
-        self
-    }
-
-    pub fn push_filter(&self, filter: Filter<NetworkMessage>) -> &Self {
-        self.filters.push_filter(filter);
-        self
-    }
-
-    pub fn filters(&self) -> &RwLock<Vec<Filter<NetworkMessage>>> { self.filters.get_filters() }
 
     pub fn add_request_action(&self, callback: NetworkRequestCW) -> &Self {
         self.actions.add_request_callback(callback);
@@ -135,20 +120,12 @@ impl MessageProcessor {
     }
 
     pub fn process_message(&self, message: &NetworkMessage) -> Fallible<ProcessResult> {
-        if FilterResult::Pass == self.filters.run_filters(message)? {
-            self.actions.process_message(message)?;
-            self.notifications.run_callbacks(message)?;
-            Ok(ProcessResult::Done)
-        } else {
-            Ok(ProcessResult::Drop)
-        }
+        self.actions.process_message(message)?;
+        self.notifications.run_callbacks(message)?;
+        Ok(ProcessResult::Done)
     }
 
     pub fn add(&self, other: MessageProcessor) -> &Self {
-        for cb in read_or_die!(other.filters()).iter() {
-            self.push_filter(cb.clone());
-        }
-
         self.actions.add(other.actions.clone());
 
         for cb in read_or_die!(other.notifications()).iter() {
