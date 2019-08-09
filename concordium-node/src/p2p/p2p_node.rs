@@ -828,7 +828,7 @@ impl P2PNode {
         match s11n_data {
             Ok(data) => {
                 let data_cursor = UCursor::from(data);
-                let ret = match inner_pkt.packet_type {
+                match inner_pkt.packet_type {
                     NetworkPacketType::DirectMessage(ref receiver) => {
                         let filter = |conn: &Connection| is_conn_peer_id(conn, *receiver);
 
@@ -856,8 +856,7 @@ impl P2PNode {
                         );
                         true
                     }
-                };
-                ret
+                }
             }
             Err(e) => {
                 error!(
