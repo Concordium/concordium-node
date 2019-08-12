@@ -8,8 +8,8 @@ COPY ./scripts/genesis-data ./genesis-data
 ENV LD_LIBRARY_PATH=/usr/local/lib
 RUN ./init.build.env.sh && \
     # Regular build
-    cargo build --features=instrumentation,benchmark,profiling --release && \
-    cp /build-project/target/release/p2p_client-cli /build-project/target/release/p2p_bootstrapper-cli /build-project/target/release/testrunner /build-project/ && \
+    cargo build --features=instrumentation,benchmark,profiling && \
+    cp /build-project/target/debug/p2p_client-cli /build-project/target/debug/p2p_bootstrapper-cli /build-project/ && \
     cargo clean && \
     # Sanitizer build
     #rustup install nightly-2019-03-22 && \
