@@ -368,15 +368,15 @@ withInitialStatesDoubleTransactions n trcount r = monadicIO $ do
         liftIO $ r gen s0 (initialEvents s0 <> Seq.fromList [(x, ETransaction tr) | x <- [0..n-1], tr <- trs])
 
 
-tests :: Spec
-tests = parallel $ describe "Concordium.Konsensus" $ do
-    it "2 parties, 100 steps, 20 transactions with duplicates, check at every step" $ withMaxSuccess 1000 $ withInitialStatesDoubleTransactions 2 10 $ runKonsensusTest 100
-    it "2 parties, 100 steps, 10 transactions, check at every step" $ withMaxSuccess 10000 $ withInitialStatesTransactions 2 10 $ runKonsensusTest 100
-    it "2 parties, 1000 steps, 50 transactions, check at every step" $ withMaxSuccess 1000 $ withInitialStatesTransactions 2 50 $ runKonsensusTest 1000
-    it "2 parties, 100 steps, check at every step" $ withMaxSuccess 10000 $ withInitialStates 2 $ runKonsensusTest 100
+tests :: Word -> Spec
+tests lvl = parallel $ describe "Concordium.Konsensus" $ do
+    it "2 parties, 100 steps, 20 transactions with duplicates, check at every step" $ withMaxSuccess (10^lvl) $ withInitialStatesDoubleTransactions 2 10 $ runKonsensusTest 100
+    it "2 parties, 100 steps, 10 transactions, check at every step" $ withMaxSuccess (10*10^lvl) $ withInitialStatesTransactions 2 10 $ runKonsensusTest 100
+    it "2 parties, 1000 steps, 50 transactions, check at every step" $ withMaxSuccess (10^lvl) $ withInitialStatesTransactions 2 50 $ runKonsensusTest 1000
+    it "2 parties, 100 steps, check at every step" $ withMaxSuccess (10*10^lvl) $ withInitialStates 2 $ runKonsensusTest 100
     --it "2 parties, 100 steps, check at end" $ withMaxSuccess 50000 $ withInitialStates 2 $ runKonsensusTestSimple 100
     --it "2 parties, 1000 steps, check at end" $ withMaxSuccess 100 $ withInitialStates 2 $ runKonsensusTestSimple 1000
-    it "2 parties, 1000 steps, check at every step" $ withMaxSuccess 1000 $ withInitialStates 2 $ runKonsensusTest 1000
+    it "2 parties, 1000 steps, check at every step" $ withMaxSuccess (10^lvl) $ withInitialStates 2 $ runKonsensusTest 1000
     --it "2 parties, 10000 steps, check at end" $ withMaxSuccess 100 $ withInitialStates 2 $ runKonsensusTestSimple 10000
-    it "4 parties, 10000 steps, check every step" $ withMaxSuccess 50 $ withInitialStates 4 $ runKonsensusTest 10000
+    it "4 parties, 10000 steps, check every step" $ withMaxSuccess (10^lvl `div` 20) $ withInitialStates 4 $ runKonsensusTest 10000
     
