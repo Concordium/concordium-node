@@ -32,8 +32,7 @@ import Concordium.GlobalState.Basic.Block
 import Concordium.GlobalState.Finalization(FinalizationIndex(..),FinalizationRecord)
 import Concordium.GlobalState.Basic.BlockState(BlockState, BlockPointer, _bpBlock)
 import qualified Concordium.GlobalState.TreeState as TS
-import qualified Concordium.GlobalState.BlockState as TS
-
+import Concordium.GlobalState.Rust.TreeState
 
 import Concordium.Scheduler.Utils.Init.Example (initialState)
 
@@ -176,7 +175,7 @@ toLogMethod logCallbackPtr = le
 -- The third argument is the length of the data in bytes.
 type BroadcastCallback = Int64 -> CString -> Int64 -> IO ()
 foreign import ccall "dynamic" invokeBroadcastCallback :: FunPtr BroadcastCallback -> BroadcastCallback
-data MessageType 
+data MessageType
     = MTBlock
     | MTFinalization
     | MTFinalizationRecord
@@ -224,7 +223,7 @@ missingCallback logm missingBlock missingFinBlock missingFinIx = handleME
             logm External LLDebug $ "Requesting missing finalization record at index " ++ show (theFinalizationIndex fi) ++ " from peer " ++ show peer
             callMissingByFinalizationIndexCallback missingFinIx peer fi
 
--} 
+-}
 
 broadcastCallback :: LogMethod IO -> FunPtr BroadcastCallback -> SimpleOutMessage -> IO ()
 broadcastCallback logM bcbk = handleB
@@ -262,15 +261,16 @@ genesisState genData = initialState (genesisBirkParameters genData) (genesisCryp
 startConsensus ::
            CString -> Int64 -- ^Serialized genesis data (c string + len)
            -> CString -> Int64 -- ^Serialized baker identity (c string + len)
+           -> GlobalStatePtr
            -> FunPtr BroadcastCallback -- ^Handler for generated messages
            -> FunPtr LogCallback -- ^Handler for log events
             -> IO (StablePtr ConsensusRunner)
-startConsensus gdataC gdataLenC bidC bidLenC bcbk lcbk = do
+startConsensus gdataC gdataLenC bidC bidLenC gsptr bcbk lcbk = do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
         case (decode gdata, decode bdata) of
             (Right genData, Right bid) -> do
-                bakerSyncRunner <- makeSyncRunner logM bid genData (genesisState genData) bakerBroadcast
+                bakerSyncRunner <- makeSyncRunner logM bid genData (genesisState genData) gsptr bakerBroadcast
                 newStablePtr BakerRunner{..}
             _ -> ioError (userError $ "Error decoding serialized data.")
     where
@@ -278,15 +278,16 @@ startConsensus gdataC gdataLenC bidC bidLenC bcbk lcbk = do
         bakerBroadcast = broadcastCallback logM bcbk
 
 -- |Start consensus without a baker identity.
-startConsensusPassive :: 
+startConsensusPassive ::
            CString -> Int64 -- ^Serialized genesis data (c string + len)
+           -> GlobalStatePtr
            -> FunPtr LogCallback -- ^Handler for log events
             -> IO (StablePtr ConsensusRunner)
-startConsensusPassive gdataC gdataLenC lcbk = do
+startConsensusPassive gdataC gdataLenC gsptr lcbk = do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         case (decode gdata) of
             (Right genData) -> do
-                passiveSyncRunner <- makeSyncPassiveRunner logM genData (genesisState genData)
+                passiveSyncRunner <- makeSyncPassiveRunner logM genData (genesisState genData) gsptr
                 newStablePtr PassiveRunner{..}
             _ -> ioError (userError $ "Error decoding serialized data.")
     where
@@ -519,7 +520,7 @@ byteStringToCString bs = do
                                                     return dest
 
 withBlockHash :: CString -> (String -> IO ()) -> (BlockHash -> IO CString) -> IO CString
-withBlockHash blockcstr logm f = 
+withBlockHash blockcstr logm f =
   readMaybe <$> (peekCString blockcstr) >>=
     \case Nothing -> do
             logm "Block hash invalid. Returning error value."
@@ -790,7 +791,7 @@ foreign import ccall "dynamic" callFinalizationMessageCallback :: FunPtr Finaliz
 -- that the finalization point could not be deserialized.
 -- Note: this function is thread safe; it will not block, but the data can in
 -- principle be out of date.
-getFinalizationMessages :: StablePtr ConsensusRunner 
+getFinalizationMessages :: StablePtr ConsensusRunner
     -> PeerID -- ^Peer id (used in callback)
     -> CString -> Int64 -- ^Data, length of finalization point
     -> FunPtr FinalizationMessageCallback -> IO Int64
@@ -815,7 +816,7 @@ getFinalizationMessages cptr peer finPtStr finPtLen callback = do
 -- the length (encoded big-endian), followed by the data itself.
 -- The string should be freed by calling 'freeCStr'.
 getFinalizationPoint :: StablePtr ConsensusRunner -> IO CString
-getFinalizationPoint cptr = do 
+getFinalizationPoint cptr = do
         c <- deRefStablePtr cptr
         let logm = consensusLogMethod c
         logm External LLInfo $ "Received request for finalization point"
@@ -888,12 +889,12 @@ receiveCatchUpStatus cptr src cstr l cbk = do
                         logm Skov LLDebug $ "Catch up response status message: " ++ show rcus
                         sendMsg MTCatchUpStatus $ encode rcus
                     return $! if flag then ResultPendingBlock else ResultSuccess
-                        
+
 
 
 foreign export ccall makeGenesisData :: Timestamp -> Word64 -> CString -> CString -> FunPtr GenesisDataCallback -> FunPtr BakerIdentityCallback -> IO CInt
-foreign export ccall startConsensus :: CString -> Int64 -> CString -> Int64 -> FunPtr BroadcastCallback -> FunPtr LogCallback -> IO (StablePtr ConsensusRunner)
-foreign export ccall startConsensusPassive :: CString -> Int64 -> FunPtr LogCallback -> IO (StablePtr ConsensusRunner)
+foreign export ccall startConsensus :: CString -> Int64 -> CString -> Int64 -> GlobalStatePtr -> FunPtr BroadcastCallback -> FunPtr LogCallback -> IO (StablePtr ConsensusRunner)
+foreign export ccall startConsensusPassive :: CString -> Int64 -> GlobalStatePtr -> FunPtr LogCallback -> IO (StablePtr ConsensusRunner)
 foreign export ccall stopConsensus :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall startBaker :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall stopBaker :: StablePtr ConsensusRunner -> IO ()

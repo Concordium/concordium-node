@@ -17,6 +17,7 @@ import Concordium.Types
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockState(BlockState)
+import Concordium.GlobalState.Rust.TreeState
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Basic.Block
@@ -69,11 +70,11 @@ asyncNotify mvState logm cbk ne@(timeout, _) = void $ forkIO $ do
         forM_ mmsg cbk
 
 -- |Make a 'SyncRunner' without starting a baker thread.
-makeSyncRunner :: forall m. LogMethod IO -> BakerIdentity -> GenesisData -> BlockState (SkovBufferedM m) -> (SimpleOutMessage -> IO ()) -> IO SyncRunner
-makeSyncRunner syncLogMethod syncBakerIdentity gen initBS syncCallback = do
+makeSyncRunner :: forall m. LogMethod IO -> BakerIdentity -> GenesisData -> BlockState (SkovBufferedM m) -> GlobalStatePtr -> (SimpleOutMessage -> IO ()) -> IO SyncRunner
+makeSyncRunner syncLogMethod syncBakerIdentity gen initBS gsptr syncCallback = do
         let
             syncFinalizationInstance = bakerFinalizationInstance syncBakerIdentity
-            sfs0 = initialSkovBufferedHookedState syncFinalizationInstance gen initBS
+            sfs0 = initialSkovBufferedHookedState syncFinalizationInstance gen initBS gsptr
         syncState <- newMVar sfs0
         syncBakerThread <- newEmptyMVar
         return $ SyncRunner{..}
@@ -153,9 +154,9 @@ data SyncPassiveRunner = SyncPassiveRunner {
 }
 
 -- |Make a 'SyncPassiveRunner', which does not support a baker thread.
-makeSyncPassiveRunner :: forall m. LogMethod IO -> GenesisData -> BlockState (SkovPassiveHookedM m) -> IO SyncPassiveRunner
-makeSyncPassiveRunner syncPLogMethod gen initBS = do
-        syncPState <- newMVar $ initialSkovPassiveHookedState gen initBS
+makeSyncPassiveRunner :: forall m. LogMethod IO -> GenesisData -> BlockState (SkovPassiveHookedM m) -> GlobalStatePtr -> IO SyncPassiveRunner
+makeSyncPassiveRunner syncPLogMethod gen initBS gsptr = do
+        syncPState <- newMVar $ initialSkovPassiveHookedState gen initBS gsptr
         return $ SyncPassiveRunner{..}
 
 runSkovPassiveMWithStateLog :: SyncPassiveRunner -> SkovPassiveHookedM LogIO a -> IO (a, [SkovMissingEvent])
@@ -195,13 +196,13 @@ data OutMessage src =
     | MsgMissingFinalization src (Either BlockHash FinalizationIndex)
 
 -- |This is provided as a compatibility wrapper for the test runners.
-makeAsyncRunner :: forall m source. LogMethod IO -> BakerIdentity -> GenesisData -> BlockState (SkovBufferedM m) -> IO (Chan (InMessage source), Chan (OutMessage source), MVar SkovBufferedHookedState)
-makeAsyncRunner logm bkr gen initBS = do
+makeAsyncRunner :: forall m source. LogMethod IO -> BakerIdentity -> GenesisData -> BlockState (SkovBufferedM m) -> GlobalStatePtr -> IO (Chan (InMessage source), Chan (OutMessage source), MVar SkovBufferedHookedState)
+makeAsyncRunner logm bkr gen initBS gsptr = do
         logm Runner LLInfo "Starting baker"
         inChan <- newChan
         outChan <- newChan
         let somHandler = writeChan outChan . simpleToOutMessage
-        sr <- makeSyncRunner logm bkr gen initBS somHandler
+        sr <- makeSyncRunner logm bkr gen initBS gsptr somHandler
         startSyncRunner sr
         let
             msgLoop = readChan inChan >>= \case

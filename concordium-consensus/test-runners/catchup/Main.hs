@@ -40,7 +40,7 @@ type Peer = MVar SkovBufferedHookedState
 data InEvent
     = IEMessage (InMessage Peer)
     | IECatchupFinalization BS.ByteString Bool (Chan InEvent)
-
+{-
 nContracts :: Int
 nContracts = 2
 
@@ -230,3 +230,6 @@ main = do
                     loop
     loop
 
+-}
+
+main = return ()

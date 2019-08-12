@@ -32,7 +32,7 @@ import Data.List(intercalate)
 import Concordium.Scheduler.Utils.Init.Example as Example
 
 import Concordium.Startup
-
+{-
 nContracts :: Int
 nContracts = 2
 
@@ -108,10 +108,10 @@ gsToString gs = intercalate "\\l" . map show $ keys
         keys = map (\n -> (n, instanceModel <$> getInstance (ca n) (gs ^. blockInstances))) $ enumFromTo 0 (nContracts-1)
 
 dummyIdentityProviders :: [IdentityProviderData]
-dummyIdentityProviders = []  
+dummyIdentityProviders = []  -}
 
 main :: IO ()
-main = do
+main = return () {-do
     let n = 20
     now <- truncate <$> getPOSIXTime
     let (gen, bis) = makeGenesisData now n 1 0.5 0 dummyCryptographicParameters dummyIdentityProviders
@@ -144,3 +144,4 @@ main = do
                     putStrLn $ " n" ++ show (finalizationBlockPointer fr) ++ " [color=green];"
                     loop
     loop
+-}
