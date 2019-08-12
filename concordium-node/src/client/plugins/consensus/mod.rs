@@ -384,7 +384,7 @@ fn process_external_skov_entry(
                 }
                 _ => {
                     if let Some(consensus_result) = consensus_result {
-                        if consensus_result != ConsensusFfiResponse::DuplicateEntry {
+                        if consensus_result.is_rebroadcastable() {
                             send_consensus_msg_to_net(
                                 &node,
                                 request.dont_relay_to(),

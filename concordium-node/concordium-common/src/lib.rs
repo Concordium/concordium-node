@@ -255,6 +255,21 @@ impl ConsensusFfiResponse {
             _ => true,
         }
     }
+
+    pub fn is_rebroadcastable(&self) -> bool {
+        use ConsensusFfiResponse::*;
+
+        match self {
+            DeserializationError
+            | InvalidResult
+            | CryptographicProvidersNotLoaded
+            | IdentityProvidersNotLoaded
+            | DuplicateEntry
+            | Stale
+            | IncorrectFinalizationSession => false,
+            _ => true,
+        }
+    }
 }
 
 impl TryFrom<i64> for ConsensusFfiResponse {
