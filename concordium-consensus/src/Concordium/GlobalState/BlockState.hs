@@ -39,8 +39,6 @@ class (Eq bp, Show bp, BlockData bp) => BlockPointerData bp where
     type BlockState' bp :: *
     -- |Hash of the block
     bpHash :: bp -> BlockHash
-    -- |The block itself
-    bpBlock :: bp -> Block
     -- |Pointer to the parent (circular reference for genesis block)
     bpParent :: bp -> bp
     -- |Pointer to the last finalized block (circular for genesis)
