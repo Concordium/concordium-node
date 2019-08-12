@@ -22,7 +22,7 @@ blockLuck block = case blockFields block of
             -- get Birk parameters of the __parent__ block, at the slot of the new block. 
             -- These are the parameters which determine valid bakers, election difficulty,
             -- that determine the luck of the block itself.
-            params <- getBirkParameters (blockSlot (bpBlock block)) (bpParent block)
+            params <- getBirkParameters (blockSlot block) (bpParent block)
             case birkBaker (blockBaker bf) params of
                 Nothing -> assert False $ return zeroLuck -- This should not happen, since it would mean the block was baked by an invalid baker
                 Just (_, lotteryPower) ->
@@ -30,7 +30,7 @@ blockLuck block = case blockFields block of
 
 compareBlocks :: (SkovQueryMonad m) => BlockPointer m -> (BlockPointer m, Maybe BlockLuck) -> m (BlockPointer m, Maybe BlockLuck)
 compareBlocks contender best@(bestb, mbestLuck) =
-    case compare (blockSlot (bpBlock bestb)) (blockSlot (bpBlock contender)) of
+    case compare (blockSlot bestb) (blockSlot contender) of
         LT -> return (contender, Nothing)
         GT -> return best
         EQ -> do
@@ -58,4 +58,4 @@ bestBlock = bestBlockBranches =<< branchesFromTop
 -- |Get the best non-finalized block in the tree with a slot time strictly below the given bound.
 -- If there is no such block, the last finalized block is returned.
 bestBlockBefore :: forall m. (SkovQueryMonad m) => Slot -> m (BlockPointer m)
-bestBlockBefore slotBound = bestBlockBranches . fmap (filter (\b -> blockSlot (bpBlock b) < slotBound)) =<< branchesFromTop
+bestBlockBefore slotBound = bestBlockBranches . fmap (filter (\b -> blockSlot b < slotBound)) =<< branchesFromTop

@@ -23,6 +23,7 @@ import Concordium.GlobalState.Instances
 import Concordium.GlobalState.BlockState(BlockPointerData(..))
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.TreeState
+import Concordium.GlobalState.Basic.Block
 import Concordium.Scheduler.Utils.Init.Example as Example
 
 import Concordium.Types

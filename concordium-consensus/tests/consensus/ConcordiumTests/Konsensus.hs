@@ -14,6 +14,7 @@ import Lens.Micro.Platform
 import Data.Bits
 import Data.Monoid
 import Data.Time.Clock.POSIX
+import Data.Time.Clock
 import qualified Data.PQueue.Prio.Min as MPQ
 import System.Random
 
@@ -23,6 +24,7 @@ import Concordium.GlobalState.BlockState(BlockPointerData(..))
 import qualified Concordium.GlobalState.TreeState as TreeState
 import Concordium.GlobalState.Basic.TreeState
 import Concordium.GlobalState.Basic.BlockState
+import Concordium.GlobalState.Basic.Block
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
@@ -49,6 +51,9 @@ import Test.Hspec
 
 -- import Debug.Trace
 
+dummyTime :: UTCTime
+dummyTime = posixSecondsToUTCTime 0
+
 type Trs = HM.HashMap TransactionHash (Transaction, Slot)
 type ANFTS = HM.HashMap AccountAddress AccountNonFinalizedTransactions
 
@@ -62,7 +67,7 @@ invariantSkovData SkovData{..} = do
         unless (HM.filter notDeadOrPending _skovBlockTable == liveFinMap) $ Left "non-dead blocks do not match finalized and branch blocks"
         unless (checkLastNonEmpty _skovBranches) $ Left $ "Last element of branches was empty. branches: " ++ show _skovBranches
         -- Pending blocks
-        queue <- foldM (checkPending (blockSlot $ bpBlock $ lastFin)) (Set.empty) (HM.toList _skovPossiblyPendingTable)
+        queue <- foldM (checkPending (blockSlot lastFin)) (Set.empty) (HM.toList _skovPossiblyPendingTable)
         let pendingSet = Set.fromList (MPQ.toListU _skovPossiblyPendingQueue)
         checkBinary (Set.isSubsetOf) queue pendingSet "is a subset of" "pending blocks" "pending queue"
         let allPossiblyPending = Set.fromList ((fst <$> MPQ.elemsU _skovPossiblyPendingQueue) ++ (getHash <$> MPQ.elemsU _skovBlocksAwaitingLastFinalized))
@@ -233,10 +238,12 @@ runKonsensusTest steps g states events
                     (mb, fs', Endo evs) <- myRunSkovActiveM (bakeForSlot bkr sl) fi fs
                     let blockEvents = case mb of
                                         Nothing -> Seq.empty
-                                        Just b -> Seq.fromList [(r, EBlock b) | r <- btargets]
+                                        Just (BlockPointer {_bpBlock = NormalBlock b}) ->
+                                            Seq.fromList [(r, EBlock b) | r <- btargets]
+                                        _ -> error "Baked genesis block"
                     let events'' = blockEvents <> handleMessages btargets (evs []) Seq.|> (rcpt, EBake (sl + 1))
                     return (fs', events'')
-                EBlock block -> runAndHandle (storeBlock block) fi fs btargets
+                EBlock block -> runAndHandle (storeBlock (makePendingBlock block dummyTime)) fi fs btargets
                 ETransaction tr -> runAndHandle (receiveTransaction tr) fi fs btargets
                 EFinalization fmsg -> runAndHandle (receiveFinalizationMessage fmsg) fi fs btargets
                 EFinalizationRecord frec -> runAndHandle (finalizeBlock frec) fi fs btargets
@@ -270,10 +277,12 @@ runKonsensusTestSimple steps g states events
                     (mb, fs', Endo evs) <- myRunSkovActiveM (bakeForSlot bkr sl) fi fs
                     let blockEvents = case mb of
                                         Nothing -> Seq.empty
-                                        Just b -> Seq.fromList [(r, EBlock b) | r <- btargets]
+                                        Just (BlockPointer {_bpBlock = NormalBlock b}) ->
+                                            Seq.fromList [(r, EBlock b) | r <- btargets]
+                                        _ -> error "Baked genesis block"
                     let events'' = blockEvents <> handleMessages btargets (evs []) Seq.|> (rcpt, EBake (sl + 1))
                     return (fs', events'')
-                EBlock block -> runAndHandle (storeBlock block) fi fs btargets
+                EBlock block -> runAndHandle (storeBlock (makePendingBlock block dummyTime)) fi fs btargets
                 ETransaction tr -> runAndHandle (receiveTransaction tr) fi fs btargets
                 EFinalization fmsg -> runAndHandle (receiveFinalizationMessage fmsg) fi fs btargets
                 EFinalizationRecord frec -> runAndHandle (finalizeBlock frec) fi fs btargets

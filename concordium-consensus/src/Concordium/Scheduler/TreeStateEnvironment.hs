@@ -56,7 +56,7 @@ mintAndReward bshandle blockParent lfPointer slotNumber bid = do
   -- current block), and compute how much to mint based on elapsed time.
   rewardStatus <- getRewardStatus (bpState blockParent)
   let inflationRate = rewardStatus ^. mintedGTUPerSlot
-  let mintedAmount = fromIntegral (slotNumber - blockSlot (bpBlock blockParent)) * inflationRate
+  let mintedAmount = fromIntegral (slotNumber - blockSlot blockParent) * inflationRate
   (cbamount, bshandleMinted) <- bsoMint bshandle mintedAmount
 
   -- and now we can reward everybody
