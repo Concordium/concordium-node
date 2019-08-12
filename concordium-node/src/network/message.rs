@@ -19,6 +19,7 @@ use crate::network::serialization::nom::s11n_network_message;
 
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
+#[allow(clippy::large_enum_variant)]
 pub enum NetworkMessage {
     NetworkRequest(NetworkRequest, Option<u64>, Option<u64>),
     NetworkResponse(NetworkResponse, Option<u64>, Option<u64>),
