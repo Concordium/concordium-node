@@ -2,13 +2,21 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RecordWildCards, MultiParamTypeClasses, FlexibleInstances, GeneralizedNewtypeDeriving, LambdaCase #-}
 {-# LANGUAGE DerivingStrategies, DerivingVia #-}
-module Concordium.GlobalState.Basic.TreeState where
+
+module Concordium.GlobalState.Rust.TreeState (
+  GlobalStatePtr
+  , SkovData(..)
+  , initialSkovData
+  , SkovLenses(..)
+  , SkovTreeState(..)
+  )where
 
 import Lens.Micro.Platform
 import Data.List as List
 import Data.Foldable
 import Control.Monad.State
 import Control.Exception
+import Data.Serialize
 
 import qualified Data.Map.Strict as Map
 import qualified Data.HashMap.Strict as HM
@@ -27,12 +35,13 @@ import Concordium.GlobalState.Statistics (ConsensusStatistics, initialConsensusS
 import Concordium.GlobalState.Transactions
 import qualified Concordium.GlobalState.Rewards as Rewards
 
-import Concordium.GlobalState.Basic.Block
 import Concordium.GlobalState.Basic.BlockState
+import Concordium.GlobalState.Rust.FFI
 
 data SkovData = SkovData {
     -- |Map of all received blocks by hash.
-    _skovBlockTable :: !(HM.HashMap BlockHash (TS.BlockStatus BlockPointer PendingBlock)),
+    _skovGlobalStatePtr :: GlobalStatePtr,
+    _skovBlockTable :: !(HM.HashMap BlockHash (TS.BlockStatus BlockPointer)),
     _skovPossiblyPendingTable :: !(HM.HashMap BlockHash [PendingBlock]),
     _skovPossiblyPendingQueue :: !(MPQ.MinPQueue Slot (BlockHash, BlockHash)),
     _skovBlocksAwaitingLastFinalized :: !(MPQ.MinPQueue BlockHeight PendingBlock),
@@ -49,12 +58,15 @@ data SkovData = SkovData {
 makeLenses ''SkovData
 
 instance Show SkovData where
-    show SkovData{..} = "Finalized: " ++ intercalate "," (take 6 . show . _bpHash . snd <$> toList _skovFinalizationList) ++ "\n" ++
-        "Branches: " ++ intercalate "," ( (('[':) . (++"]") . intercalate "," . map (take 6 . show . _bpHash)) <$> toList _skovBranches)
+    show SkovData{..} =
+      "Finalized: " ++ intercalate "," (take 6 . show . _bpHash . snd <$> toList _skovFinalizationList) ++ "\n" ++
+      "Branches: " ++ intercalate "," ( (('[':) . (++"]") . intercalate "," . map (take 6 . show . _bpHash)) <$> toList _skovBranches)
 
-class BasicSkovLenses s where
+class SkovLenses s where
     skov :: Lens' s SkovData
-    blockTable :: Lens' s (HM.HashMap BlockHash (TS.BlockStatus BlockPointer PendingBlock))
+    globalStatePtr :: Lens' s GlobalStatePtr
+    globalStatePtr = skov . skovGlobalStatePtr
+    blockTable :: Lens' s (HM.HashMap BlockHash (TS.BlockStatus BlockPointer))
     blockTable = skov . skovBlockTable
     possiblyPendingTable :: Lens' s (HM.HashMap BlockHash [PendingBlock])
     possiblyPendingTable = skov . skovPossiblyPendingTable
@@ -81,11 +93,12 @@ class BasicSkovLenses s where
     statistics :: Lens' s ConsensusStatistics
     statistics = skov . skovStatistics
 
-instance BasicSkovLenses SkovData where
+instance SkovLenses SkovData where
     skov = id
 
-initialSkovData :: GenesisData -> BlockState -> SkovData
-initialSkovData gd genState = SkovData {
+initialSkovData :: GenesisData -> BlockState -> GlobalStatePtr -> SkovData
+initialSkovData gd genState gsptr = SkovData {
+            _skovGlobalStatePtr = gsptr,
             _skovBlockTable = HM.singleton gbh (TS.BlockFinalized gb gbfin),
             _skovPossiblyPendingTable = HM.empty,
             _skovPossiblyPendingQueue = MPQ.empty,
@@ -106,16 +119,14 @@ initialSkovData gd genState = SkovData {
         gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
 
 newtype SkovTreeState s m a = SkovTreeState {runSkovTreeState :: m a}
-    deriving (Functor, Monad, Applicative, MonadState s)
+    deriving (Functor, Monad, MonadIO, Applicative, MonadState s)
     deriving (BS.BlockStateQuery) via (PureBlockStateMonad m)
     deriving (BS.BlockStateOperations) via (PureBlockStateMonad m)
-
-type instance TS.PendingBlock (SkovTreeState s m) = PendingBlock
+    
 type instance BS.BlockPointer (SkovTreeState s m) = BlockPointer
 type instance BS.UpdatableBlockState (SkovTreeState s m) = BlockState
 
-instance (BasicSkovLenses s, Monad m, MonadState s m) => TS.TreeStateMonad (SkovTreeState s m) where
-    makePendingBlock key slot parent bid pf n lastFin trs time = return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
+instance (SkovLenses s, Monad m, MonadState s m, MonadIO m) => TS.TreeStateMonad (SkovTreeState s m) where
     getBlockStatus bh = use (blockTable . at bh)
     makeLiveBlock block parent lastFin st arrTime = do
             let blockP = makeBlockPointer block parent lastFin st arrTime
@@ -123,18 +134,29 @@ instance (BasicSkovLenses s, Monad m, MonadState s m) => TS.TreeStateMonad (Skov
             return blockP
     markDead bh = blockTable . at bh ?= TS.BlockDead
     markFinalized bh fr = use (blockTable . at bh) >>= \case
-            Just (TS.BlockAlive bp) -> blockTable . at bh ?= TS.BlockFinalized bp fr
+            Just (TS.BlockAlive bp) -> do
+              gsptr <- use globalStatePtr
+              liftIO $ storeFinalizedBlockR gsptr (_bpBlock bp) -- Store also in Rust GS
+              liftIO $ do
+                gs <- printGlobalStateR gsptr
+                print gs
+              blockTable . at bh ?= TS.BlockFinalized bp fr
             _ -> return ()
     markPending pb = blockTable . at (getHash pb) ?= TS.BlockPending pb
     getGenesisBlockPointer = use genesisBlockPointer
-    getGenesisData = use genesisData
+    getGenesisData = do
+      hgdata <- use genesisData
+      gsptr <- use globalStatePtr
+      rgdata <- liftIO $ getGenesisDataR gsptr
+      if encode rgdata == encode hgdata
+        then return rgdata
+        else fail "Mismatched GenesisData"
     getLastFinalized = use finalizationList >>= \case
-            _ Seq.:|> (finRec,lf) -> return (lf, finRec)
+            _ Seq.:|> (_,lf) -> return lf
             _ -> error "empty finalization list"
     getNextFinalizationIndex = FinalizationIndex . fromIntegral . Seq.length <$> use finalizationList
     addFinalization newFinBlock finRec = finalizationList %= (Seq.:|> (finRec, newFinBlock))
     getFinalizationAtIndex finIndex = fmap fst . Seq.lookup (fromIntegral finIndex) <$> use finalizationList
-    getFinalizationFromIndex finIndex = toList . fmap fst . Seq.drop (fromIntegral finIndex) <$> use finalizationList
     getBranches = use branches
     putBranches brs = branches .= brs
     takePendingChildren bh = possiblyPendingTable . at bh . non [] <<.= []
@@ -217,7 +239,7 @@ instance (BasicSkovLenses s, Monad m, MonadState s m) => TS.TreeStateMonad (Skov
         use (transactionTable . ttHashMap . at (getHash tr)) >>= \case
             Nothing -> return True
             Just (_, slot) -> do
-                lastFinSlot <- blockSlot . _bpBlock . fst <$> TS.getLastFinalized
+                lastFinSlot <- blockSlot . _bpBlock <$> TS.getLastFinalized
                 if (lastFinSlot >= slot) then do
                     let nonce = transactionNonce tr
                         sender = transactionSender tr
@@ -231,7 +253,6 @@ instance (BasicSkovLenses s, Monad m, MonadState s m) => TS.TreeStateMonad (Skov
             Just (tr, _) -> do
                 nn <- use (transactionTable . ttNonFinalizedTransactions . at (transactionSender tr) . non emptyANFT . anftNextNonce)
                 return $ Just (tr, transactionNonce tr < nn)
-    updateBlockTransactions trs pb = return $ pb {pbBlock = (pbBlock pb) {bbTransactions = BlockTransactions trs}}
 
     {-# INLINE thawBlockState #-}
     thawBlockState bs = return $ bs & (blockBank . Rewards.executionCost .~ 0) .
