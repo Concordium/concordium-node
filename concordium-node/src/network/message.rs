@@ -8,7 +8,7 @@ use crate::{
     network::{AsProtocolMessageType, ProtocolMessageType, PROTOCOL_NAME, PROTOCOL_VERSION},
 };
 
-use std::convert::TryFrom;
+use std::{convert::TryFrom, sync::Arc};
 
 pub const NETWORK_MESSAGE_PROTOCOL_TYPE_IDX: usize = 13 +    // PROTOCOL_NAME.len()
     2 +     // PROTOCOL_VERSION
@@ -19,11 +19,10 @@ use crate::network::serialization::nom::s11n_network_message;
 
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
-#[allow(clippy::large_enum_variant)]
 pub enum NetworkMessage {
     NetworkRequest(NetworkRequest, Option<u64>, Option<u64>),
     NetworkResponse(NetworkResponse, Option<u64>, Option<u64>),
-    NetworkPacket(NetworkPacket, Option<u64>, Option<u64>),
+    NetworkPacket(Arc<NetworkPacket>, Option<u64>, Option<u64>),
     UnknownMessage,
     InvalidMessage,
 }
@@ -131,7 +130,7 @@ impl Deserializable for NetworkMessage {
                 )
             }
             ProtocolMessageType::Packet => {
-                let packet = NetworkPacket::deserialize(archive)?;
+                let packet = Arc::new(NetworkPacket::deserialize(archive)?);
                 NetworkMessage::NetworkPacket(packet, Some(timestamp), Some(get_current_stamp()))
             }
         };

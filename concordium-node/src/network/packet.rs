@@ -12,7 +12,7 @@ use crate::{
     utils,
 };
 use rand::RngCore;
-use std::convert::TryFrom;
+use std::{convert::TryFrom, sync::Arc};
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
@@ -75,17 +75,20 @@ pub struct NetworkPacket {
 
 impl NetworkPacketBuilder {
     #[inline]
-    pub fn build_broadcast(&mut self, dont_relay_to: Vec<P2PNodeId>) -> Fallible<NetworkPacket> {
+    pub fn build_broadcast(
+        &mut self,
+        dont_relay_to: Vec<P2PNodeId>,
+    ) -> Fallible<Arc<NetworkPacket>> {
         self.build(NetworkPacketType::BroadcastedMessage(dont_relay_to))
     }
 
     #[inline]
-    pub fn build_direct(&mut self, receiver: P2PNodeId) -> Fallible<NetworkPacket> {
+    pub fn build_direct(&mut self, receiver: P2PNodeId) -> Fallible<Arc<NetworkPacket>> {
         self.build(NetworkPacketType::DirectMessage(receiver))
     }
 
-    pub fn build(&mut self, packet_type: NetworkPacketType) -> Fallible<NetworkPacket> {
-        Ok(NetworkPacket {
+    pub fn build(&mut self, packet_type: NetworkPacketType) -> Fallible<Arc<NetworkPacket>> {
+        Ok(Arc::new(NetworkPacket {
             packet_type,
             peer: self
                 .peer
@@ -102,7 +105,7 @@ impl NetworkPacketBuilder {
                 .message
                 .take()
                 .ok_or_else(|| err_msg("Message payload is a mandatory field"))?,
-        })
+        }))
     }
 }
 

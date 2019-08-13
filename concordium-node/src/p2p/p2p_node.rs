@@ -325,7 +325,7 @@ impl P2PNode {
                     stats_export_service.clone(),
                     own_networks.clone(),
                     queues,
-                    pac,
+                    pac.clone(),
                     Arc::clone(&is_rpc_online),
                 )
             } else {
@@ -777,7 +777,7 @@ impl P2PNode {
         }
     }
 
-    fn process_network_packet(&self, inner_pkt: &NetworkPacket) -> bool {
+    fn process_network_packet(&self, inner_pkt: Arc<NetworkPacket>) -> bool {
         let check_sent_status_fn =
             |conn: &Connection, status: Fallible<()>| self.check_sent_status(&conn, status);
 
@@ -882,7 +882,7 @@ impl P2PNode {
 
                 match *outer_pkt {
                     NetworkMessage::NetworkPacket(ref inner_pkt, ..) => {
-                        if !self.process_network_packet(inner_pkt) {
+                        if !self.process_network_packet(Arc::clone(&inner_pkt)) {
                             Some(outer_pkt)
                         } else {
                             None
@@ -962,7 +962,7 @@ impl P2PNode {
 
                 match *wrapper.message {
                     NetworkMessage::NetworkPacket(ref inner_pkt, ..) => {
-                        if !self.process_network_packet(inner_pkt) {
+                        if !self.process_network_packet(Arc::clone(&inner_pkt)) {
                             Some(wrapper)
                         } else {
                             None
