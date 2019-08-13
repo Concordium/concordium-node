@@ -4,7 +4,8 @@
 {-# LANGUAGE DerivingStrategies, DerivingVia #-}
 
 module Concordium.GlobalState.Rust.TreeState (
-  GlobalStatePtr
+  GlobalStateR
+  , GlobalStatePtr
   , SkovData(..)
   , initialSkovData
   , SkovLenses(..)
@@ -137,20 +138,11 @@ instance (SkovLenses s, Monad m, MonadState s m, MonadIO m) => TS.TreeStateMonad
             Just (TS.BlockAlive bp) -> do
               gsptr <- use globalStatePtr
               liftIO $ storeFinalizedBlockR gsptr (_bpBlock bp) -- Store also in Rust GS
-              liftIO $ do
-                gs <- printGlobalStateR gsptr
-                print gs
               blockTable . at bh ?= TS.BlockFinalized bp fr
             _ -> return ()
     markPending pb = blockTable . at (getHash pb) ?= TS.BlockPending pb
     getGenesisBlockPointer = use genesisBlockPointer
-    getGenesisData = do
-      hgdata <- use genesisData
-      gsptr <- use globalStatePtr
-      rgdata <- liftIO $ getGenesisDataR gsptr
-      if encode rgdata == encode hgdata
-        then return rgdata
-        else fail "Mismatched GenesisData"
+    getGenesisData = use genesisData
     getLastFinalized = use finalizationList >>= \case
             _ Seq.:|> (_,lf) -> return lf
             _ -> error "empty finalization list"
