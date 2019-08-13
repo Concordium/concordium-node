@@ -49,10 +49,10 @@ sudo ldconfig
   sudo cp .stack-work/install/x86_64-$PLATFORM-tinfo6/$(cat stack.yaml | grep ^resolver: | awk '{ print $NF }')/$(stack ghc -- --version --short | awk '{ print $NF }')/lib/x86_64-$PLATFORM-ghc-$(stack ghc -- --version --short | awk '{ print $NF }')/libHS*.$LIBEXTENSION /usr/local/lib &&
   sudo find /usr/local/lib -name libHSConcordium\*.$LIBEXTENSION -exec ln -s {} /usr/local/lib/libHSConcordium-0.1.0.0.$LIBEXTENSION \; &&
   sudo find /usr/local/lib -name libHSacorn\*.$LIBEXTENSION -exec ln -s {} /usr/local/lib/libHSacorn-0.1.0.0.$LIBEXTENSION \; &&
-  sudo find /usr/local/lib -name libHSglobalstate-0.1*.$LIBEXTENSION -exec ln -s {} /usr/local/lib/libHSglobalstate-0.1.$LIBEXTENSION \; &&
+  sudo find /usr/local/lib -name libHSglobalstate-0.1\*.$LIBEXTENSION -exec ln -s {} /usr/local/lib/libHSglobalstate-0.1.$LIBEXTENSION \; &&
   sudo find /usr/local/lib -name libHSglobalstate-types-\*.$LIBEXTENSION -exec ln -s {} /usr/local/lib/libHSglobalstate-types-0.1.0.0.$LIBEXTENSION \; &&
   sudo find /usr/local/lib -name libHSscheduler-\*.$LIBEXTENSION -exec ln -s {} /usr/local/lib/libHSscheduler-0.1.0.0.$LIBEXTENSION \; &&
-  sudo ln -s /usr/local/lib/libHSconcordium-crypto-0.1*.$LIBEXTENSION /usr/local/lib/libHSconcordium-crypto-0.1.$LIBEXTENSION &&
+  sudo find /usr/local/lib -name libHSconcordium-crypto-\*.$LIBEXTENSION -exec ln -s {} /usr/local/lib/libHSconcordium-crypto-0.1.$LIBEXTENSION
   rm -rf .stack-work
   ) 
 
