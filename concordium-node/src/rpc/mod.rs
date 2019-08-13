@@ -18,11 +18,10 @@ use crate::{
     proto::*,
 };
 
-use concordium_common::{stats_export_service::StatsExportService, PacketType};
-use concordium_consensus::{
-    consensus::{ConsensusContainer, CALLBACK_QUEUE},
-    ffi::ConsensusFfiResponse,
+use concordium_common::{
+    stats_export_service::StatsExportService, ConsensusFfiResponse, PacketType,
 };
+use concordium_consensus::consensus::{ConsensusContainer, CALLBACK_QUEUE};
 use concordium_global_state::tree::messaging::{ConsensusMessage, DistributionMode, MessageType};
 use futures::future::Future;
 use grpcio::{self, Environment, ServerBuilder};
@@ -142,7 +141,7 @@ impl RpcServerImpl {
             } else if req.get_broadcast().get_value() {
                 trace!("Sending broadcast message");
                 r.set_value(
-                    send_broadcast_message(&self.node, None, network_id, None, msg)
+                    send_broadcast_message(&self.node, vec![], network_id, None, msg)
                         .map_err(|e| error!("{}", e))
                         .is_ok(),
                 );
@@ -375,6 +374,7 @@ impl P2P for RpcServerImpl {
                         MessageType::Inbound(self.node.id().0, DistributionMode::Direct),
                         PacketType::Transaction,
                         Arc::from(payload),
+                        vec![],
                     );
                     let gs_result = CALLBACK_QUEUE.send_message(request);
                     let consensus_result = consensus.send_transaction(payload);
@@ -643,7 +643,7 @@ impl P2P for RpcServerImpl {
                                     i_msg.set_data(msg);
                                     r.set_message_direct(i_msg);
                                 }
-                                NetworkPacketType::BroadcastedMessage => {
+                                NetworkPacketType::BroadcastedMessage(..) => {
                                     let mut i_msg = MessageBroadcast::new();
                                     i_msg.set_data(msg);
                                     r.set_message_broadcast(i_msg);
@@ -1624,7 +1624,7 @@ mod tests {
         client.subscription_start_opt(&crate::proto::Empty::new(), callopts.clone())?;
         send_broadcast_message(
             &node2,
-            None,
+            vec![],
             crate::network::NetworkId::from(100),
             None,
             b"Hey".to_vec(),

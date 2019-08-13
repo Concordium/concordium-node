@@ -1,11 +1,4 @@
-use crate::{
-    common::P2PNodeId,
-    connection::SeenMessagesList,
-    network::{
-        NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType, NetworkRequest,
-        NetworkResponse,
-    },
-};
+use crate::network::{NetworkId, NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse};
 use concordium_common::{
     functor::FuncResult, stats_export_service::StatsExportService, RelayOrStopSenderHelper,
     RelayOrStopSyncSender,
@@ -60,32 +53,11 @@ pub struct OutgoingQueues {
     pub rpc_queue: SyncSender<Arc<NetworkMessage>>,
 }
 
-pub fn is_message_already_seen(
-    seen_messages: &SeenMessagesList,
-    pac: &NetworkPacket,
-    drop_message: &str,
-) -> bool {
-    if seen_messages.contains(&pac.message_id) {
-        trace!(
-            "{} {}/{}/{:?}",
-            drop_message,
-            pac.peer.id().to_string(),
-            pac.network_id,
-            pac.message_id
-        );
-        true
-    } else {
-        false
-    }
-}
-
 /// It forwards network packet message into `packet_queue` if message id has not
 /// been already seen and its `network id` belong to `own_networks`.
 /// # TODO
 /// Avoid to create a new packet instead of reusing it.
 pub fn forward_network_packet_message<S: ::std::hash::BuildHasher>(
-    own_id: P2PNodeId,
-    seen_messages: SeenMessagesList,
     stats_export_service: Option<StatsExportService>,
     own_networks: Arc<RwLock<HashSet<NetworkId, S>>>,
     outgoing_queues: OutgoingQueues,
@@ -101,35 +73,20 @@ pub fn forward_network_packet_message<S: ::std::hash::BuildHasher>(
         );
         let outer = Arc::new(NetworkMessage::NetworkPacket(pac.to_owned(), None, None));
 
-        if seen_messages.append(&pac.message_id) {
-            if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
-                debug!(
-                    "Peer {} is rebroadcasting a message {:?} from {}",
-                    own_id,
-                    pac.message_id,
-                    pac.peer.id()
-                );
-                send_or_die!(outgoing_queues.send_queue, Arc::clone(&outer));
-                if let Some(ref service) = stats_export_service {
-                    service.queue_size_inc();
-                };
-            }
-
-            if is_rpc_online.load(Ordering::Relaxed) {
-                if let Err(e) = outgoing_queues.rpc_queue.send(outer.clone()) {
-                    warn!(
-                        "Can't relay a message to the RPC outbound queue: {}",
-                        e.to_string()
-                    );
-                }
-            }
-
-            if let Err(e) = outgoing_queues.queue_to_super.send_msg(outer.clone()) {
+        if is_rpc_online.load(Ordering::Relaxed) {
+            if let Err(e) = outgoing_queues.rpc_queue.send(Arc::clone(&outer)) {
                 warn!(
-                    "Can't relay a message on to the outer super queue: {}",
+                    "Can't relay a message to the RPC outbound queue: {}",
                     e.to_string()
                 );
             }
+        }
+
+        if let Err(e) = outgoing_queues.queue_to_super.send_msg(Arc::clone(&outer)) {
+            warn!(
+                "Can't relay a message on to the outer super queue: {}",
+                e.to_string()
+            );
         }
     } else if let Some(ref service) = stats_export_service {
         service.invalid_network_pkts_received_inc();

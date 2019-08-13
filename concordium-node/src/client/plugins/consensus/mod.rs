@@ -19,6 +19,7 @@ use std::{
 use concordium_common::{
     cache::Cache,
     stats_export_service::StatsExportService,
+    ConsensusFfiResponse,
     PacketType::{self, *},
     RelayOrStopEnvelope, RelayOrStopSender, UCursor,
 };
@@ -122,6 +123,7 @@ fn get_baker_data(
 
 /// Handles packets coming from other peers
 pub fn handle_pkt_out(
+    dont_relay_to: Vec<P2PNodeId>,
     peer_id: P2PNodeId,
     mut msg: UCursor,
     skov_sender: &RelayOrStopSender<ConsensusMessage>,
@@ -155,6 +157,7 @@ pub fn handle_pkt_out(
         MessageType::Inbound(peer_id.0, distribution_mode),
         packet_type,
         payload,
+        dont_relay_to.into_iter().map(P2PNodeId::as_raw).collect(),
     ));
 
     skov_sender.send(request)?;
@@ -192,7 +195,7 @@ pub fn handle_global_state_request(
 fn process_internal_skov_entry(
     node: &P2PNode,
     network_id: NetworkId,
-    request: ConsensusMessage,
+    mut request: ConsensusMessage,
     skov: &mut GlobalState,
 ) -> Fallible<()> {
     let (entry_info, skov_result) = match request.variant {
@@ -214,7 +217,10 @@ fn process_internal_skov_entry(
         PacketType::CatchupBlockByHash
         | PacketType::CatchupFinalizationRecordByHash
         | PacketType::CatchupFinalizationRecordByIndex => {
-            error!("Consensus should not be missing any data!");
+            error!(
+                "Consensus should not be missing any data, yet it wants a {:?}!",
+                request.variant
+            );
             return Ok(());
         }
         _ => (request.variant.to_string(), GlobalStateResult::IgnoredEntry),
@@ -239,6 +245,7 @@ fn process_internal_skov_entry(
 
     send_consensus_msg_to_net(
         node,
+        request.dont_relay_to(),
         request.target_peer().map(P2PNodeId),
         network_id,
         request.variant,
@@ -321,6 +328,18 @@ fn process_external_skov_entry(
         _ => (GlobalStateResult::IgnoredEntry, true), // will be expanded later on
     };
 
+    // relay external messages to Consensus if they are relevant to it
+    let consensus_result = if consensus_applicable {
+        Some(send_msg_to_consensus(
+            self_node_id,
+            source,
+            consensus,
+            &request,
+        )?)
+    } else {
+        None
+    };
+
     match skov_result {
         GlobalStateResult::SuccessfulEntry(entry_type) => {
             trace!(
@@ -336,6 +355,7 @@ fn process_external_skov_entry(
 
                     send_consensus_msg_to_net(
                         &node,
+                        vec![],
                         Some(source),
                         network_id,
                         PacketType::GlobalStateMetadata,
@@ -362,7 +382,9 @@ fn process_external_skov_entry(
                 PacketType::FullCatchupComplete => {
                     conclude_catch_up_round(node, network_id, consensus, skov)?;
                 }
-                _ => {}
+                _ => {
+                    consensus_driven_rebroadcast(node, network_id, consensus_result, request, skov)
+                }
             }
         }
         GlobalStateResult::SuccessfulQuery(result) => {
@@ -381,6 +403,7 @@ fn process_external_skov_entry(
 
             send_consensus_msg_to_net(
                 &node,
+                vec![],
                 Some(source),
                 network_id,
                 return_type,
@@ -390,6 +413,7 @@ fn process_external_skov_entry(
         }
         GlobalStateResult::DuplicateEntry => {
             warn!("GlobalState: got a duplicate {}", request);
+            return Ok(());
         }
         GlobalStateResult::Error(err) => {
             match err {
@@ -405,12 +429,10 @@ fn process_external_skov_entry(
             }
             skov.register_error(err);
         }
+        GlobalStateResult::IgnoredEntry if request.variant == PacketType::FinalizationMessage => {
+            consensus_driven_rebroadcast(node, network_id, consensus_result, request, skov)
+        }
         _ => {}
-    }
-
-    // relay external messages to Consensus if they are relevant to it
-    if consensus_applicable {
-        send_msg_to_consensus(self_node_id, source, consensus, request)?
     }
 
     if skov.state() == ProcessingState::PartiallyCatchingUp && skov.is_tree_valid() {
@@ -418,6 +440,28 @@ fn process_external_skov_entry(
     }
 
     Ok(())
+}
+
+fn consensus_driven_rebroadcast(
+    node: &P2PNode,
+    network_id: NetworkId,
+    consensus_result: Option<ConsensusFfiResponse>,
+    mut request: ConsensusMessage,
+    skov: &mut GlobalState,
+) {
+    if let Some(consensus_result) = consensus_result {
+        if !skov.is_catching_up() && consensus_result.is_rebroadcastable() {
+            send_consensus_msg_to_net(
+                &node,
+                request.dont_relay_to(),
+                None,
+                network_id,
+                request.variant,
+                None,
+                &request.payload,
+            );
+        }
+    }
 }
 
 pub fn apply_delayed_broadcasts(
@@ -447,8 +491,8 @@ fn send_msg_to_consensus(
     our_id: P2PNodeId,
     source_id: P2PNodeId,
     consensus: &mut consensus::ConsensusContainer,
-    request: ConsensusMessage,
-) -> Fallible<()> {
+    request: &ConsensusMessage,
+) -> Fallible<ConsensusFfiResponse> {
     let raw_id = source_id.as_raw();
 
     let consensus_response = match request.variant {
@@ -471,11 +515,12 @@ fn send_msg_to_consensus(
         );
     }
 
-    Ok(())
+    Ok(consensus_response)
 }
 
 pub fn send_consensus_msg_to_net(
     node: &P2PNode,
+    dont_relay_to: Vec<u64>,
     target_id: Option<P2PNodeId>,
     network_id: NetworkId,
     payload_type: PacketType,
@@ -492,7 +537,13 @@ pub fn send_consensus_msg_to_net(
     let result = if target_id.is_some() {
         send_direct_message(node, target_id, network_id, None, packet_buffer)
     } else {
-        send_broadcast_message(node, None, network_id, None, packet_buffer)
+        send_broadcast_message(
+            node,
+            dont_relay_to.into_iter().map(P2PNodeId).collect(),
+            network_id,
+            None,
+            packet_buffer,
+        )
     };
 
     let target_desc = if let Some(id) = target_id {
@@ -524,6 +575,7 @@ fn request_finalization_messages(
 
     send_consensus_msg_to_net(
         node,
+        vec![],
         Some(target),
         network,
         PacketType::CatchupFinalizationMessagesByPoint,
@@ -569,6 +621,7 @@ fn send_catch_up_response(
     for (block, fin_rec) in skov.iter_tree_since(since) {
         send_consensus_msg_to_net(
             &node,
+            vec![],
             Some(target),
             network,
             PacketType::Block,
@@ -578,6 +631,7 @@ fn send_catch_up_response(
         if let Some(rec) = fin_rec {
             send_consensus_msg_to_net(
                 &node,
+                vec![],
                 Some(target),
                 network,
                 PacketType::FinalizationRecord,
@@ -592,7 +646,15 @@ fn send_catch_up_response(
     blob.write_u16::<NetworkEndian>(packet_type as u16)
         .expect("Can't write a packet payload to buffer");
 
-    send_consensus_msg_to_net(&node, Some(target), network, packet_type, None, &blob);
+    send_consensus_msg_to_net(
+        &node,
+        vec![],
+        Some(target),
+        network,
+        packet_type,
+        None,
+        &blob,
+    );
 }
 
 fn conclude_catch_up_round(

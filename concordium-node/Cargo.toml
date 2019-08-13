@@ -131,16 +131,6 @@ path = "src/bin/genkey.rs"
 name = "dns_key_generator"
 
 [[bin]]
-path = "src/bin/testrunner.rs"
-name = "testrunner"
-required-features = ["instrumentation"]
-
-[[bin]]
-path = "src/bin/testrunner_parser.rs"
-name = "testrunner_parser"
-required-features = ["instrumentation"]
-
-[[bin]]
 path = "src/bin/generate-new-keypair.rs"
 name = "generate-new-keypair"
 

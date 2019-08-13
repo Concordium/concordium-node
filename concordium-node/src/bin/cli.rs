@@ -34,7 +34,7 @@ use p2p_client::{
     common::{P2PNodeId, P2PPeer, PeerType},
     configuration,
     network::{
-        packet::MessageId, request::RequestedElementType, NetworkId, NetworkMessage, NetworkPacket,
+        packet::MessageId, request::RequestedElementType, NetworkId, NetworkMessage,
         NetworkPacketType, NetworkRequest, NetworkResponse,
     },
     p2p::{p2p_node::send_direct_message, *},
@@ -310,7 +310,6 @@ fn start_consensus_threads(
 ) -> Vec<std::thread::JoinHandle<()>> {
     let _no_trust_bans = conf.common.no_trust_bans;
     let _desired_nodes_clone = conf.connection.desired_nodes;
-    let _test_runner_url = conf.cli.test_runner_url.clone();
     let mut _stats_engine = StatsEngine::new(&conf.cli);
     let mut _msg_count = 0;
     let (_tps_test_enabled, _tps_message_count) = tps_setup_process_output(&conf.cli);
@@ -426,33 +425,39 @@ fn start_consensus_threads(
                     }
                 }
                 NetworkMessage::NetworkPacket(ref pac, ..) => {
-                    match pac.packet_type {
-                        NetworkPacketType::DirectMessage(..) => {
-                            if _tps_test_enabled {
-                                _stats_engine.add_stat(pac.message.len() as u64);
-                                _msg_count += 1;
+                    if let NetworkPacketType::DirectMessage(..) = pac.packet_type {
+                        if _tps_test_enabled {
+                            _stats_engine.add_stat(pac.message.len() as u64);
+                            _msg_count += 1;
 
-                                if _msg_count == _tps_message_count {
-                                    info!(
-                                        "TPS over {} messages is {}",
-                                        _tps_message_count,
-                                        _stats_engine.calculate_total_tps_average()
-                                    );
-                                    _msg_count = 0;
-                                    _stats_engine.clear();
-                                }
-                            };
+                            if _msg_count == _tps_message_count {
+                                info!(
+                                    "TPS over {} messages is {}",
+                                    _tps_message_count,
+                                    _stats_engine.calculate_total_tps_average()
+                                );
+                                _msg_count = 0;
+                                _stats_engine.clear();
+                            }
                         }
-                        NetworkPacketType::BroadcastedMessage => {
-                            if let Some(ref testrunner_url) = _test_runner_url {
-                                send_packet_to_testrunner(&node_ref, testrunner_url, &pac);
-                            };
-                        }
+                    }
+
+                    let is_broadcast = match pac.packet_type {
+                        NetworkPacketType::BroadcastedMessage(..) => true,
+                        _ => false,
                     };
 
-                    let is_broadcast = pac.packet_type == NetworkPacketType::BroadcastedMessage;
+                    let dont_relay_to =
+                        if let NetworkPacketType::BroadcastedMessage(ref peers) = pac.packet_type {
+                            let mut list = peers.clone().to_owned();
+                            list.push(pac.peer.id());
+                            list
+                        } else {
+                            vec![]
+                        };
 
                     if let Err(e) = handle_pkt_out(
+                        dont_relay_to,
                         pac.peer.id(),
                         pac.message.clone(),
                         &skov_sender,
@@ -470,6 +475,7 @@ fn start_consensus_threads(
                                 transactions.iter().for_each(|transaction| {
                                     send_consensus_msg_to_net(
                                         &node_shared,
+                                        vec![],
                                         Some(requester.id()),
                                         *nid,
                                         PacketType::Transaction,
@@ -521,6 +527,7 @@ fn provide_global_state_metadata(
             MessageType::Inbound(peer.id().0, DistributionMode::Direct),
             packet_type,
             Arc::from(payload),
+            vec![],
         ));
 
         send_or_die!(skov_sender, request);
@@ -552,25 +559,6 @@ fn tps_setup_process_output(cli: &configuration::CliConfig) -> (bool, u64) {
 
 #[cfg(not(feature = "benchmark"))]
 fn tps_setup_process_output(_: &configuration::CliConfig) -> (bool, u64) { (false, 0) }
-
-#[cfg(feature = "instrumentation")]
-fn send_packet_to_testrunner(node: &P2PNode, test_runner_url: &str, pac: &NetworkPacket) {
-    debug!("Sending information to test runner");
-    match reqwest::get(&format!(
-        "{}/register/{}/{:?}",
-        test_runner_url,
-        node.id(),
-        pac.message_id
-    )) {
-        Ok(ref mut res) if res.status().is_success() => {
-            info!("Registered packet received with test runner")
-        }
-        _ => error!("Couldn't register packet received with test runner"),
-    }
-}
-
-#[cfg(not(feature = "instrumentation"))]
-fn send_packet_to_testrunner(_: &P2PNode, _: &str, _: &NetworkPacket) {}
 
 fn _send_retransmit_packet(
     node: &P2PNode,

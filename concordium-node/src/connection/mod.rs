@@ -6,7 +6,6 @@ mod async_adapter;
 pub use async_adapter::{FrameSink, FrameStream, HandshakeStreamSink, Readiness};
 
 mod p2p_event;
-mod seen_messages_list;
 
 #[derive(PartialEq, Clone, Copy)]
 pub enum ConnectionStatus {
@@ -38,7 +37,6 @@ pub use network_handler::{
     ResponseHandler,
 };
 pub use p2p_event::P2PEvent;
-pub use seen_messages_list::SeenMessagesList;
 
 use crate::{
     common::{
