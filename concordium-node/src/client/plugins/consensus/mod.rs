@@ -260,7 +260,7 @@ fn process_external_skov_entry(
     node: &P2PNode,
     network_id: NetworkId,
     consensus: &mut consensus::ConsensusContainer,
-    mut request: ConsensusMessage,
+    request: ConsensusMessage,
     skov: &mut GlobalState,
 ) -> Fallible<()> {
     let self_node_id = node.self_peer.id;
@@ -383,19 +383,7 @@ fn process_external_skov_entry(
                     conclude_catch_up_round(node, network_id, consensus, skov)?;
                 }
                 _ => {
-                    if let Some(consensus_result) = consensus_result {
-                        if !skov.is_catching_up() && consensus_result.is_rebroadcastable() {
-                            send_consensus_msg_to_net(
-                                &node,
-                                request.dont_relay_to(),
-                                None,
-                                network_id,
-                                request.variant,
-                                None,
-                                &request.payload,
-                            );
-                        }
-                    }
+                    consensus_driven_rebroadcast(node, network_id, consensus_result, request, skov)
                 }
             }
         }
@@ -441,6 +429,9 @@ fn process_external_skov_entry(
             }
             skov.register_error(err);
         }
+        GlobalStateResult::IgnoredEntry if request.variant == PacketType::FinalizationMessage => {
+            consensus_driven_rebroadcast(node, network_id, consensus_result, request, skov)
+        }
         _ => {}
     }
 
@@ -449,6 +440,28 @@ fn process_external_skov_entry(
     }
 
     Ok(())
+}
+
+fn consensus_driven_rebroadcast(
+    node: &P2PNode,
+    network_id: NetworkId,
+    consensus_result: Option<ConsensusFfiResponse>,
+    mut request: ConsensusMessage,
+    skov: &mut GlobalState,
+) {
+    if let Some(consensus_result) = consensus_result {
+        if !skov.is_catching_up() && consensus_result.is_rebroadcastable() {
+            send_consensus_msg_to_net(
+                &node,
+                request.dont_relay_to(),
+                None,
+                network_id,
+                request.variant,
+                None,
+                &request.payload,
+            );
+        }
+    }
 }
 
 pub fn apply_delayed_broadcasts(
