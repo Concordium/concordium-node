@@ -92,7 +92,7 @@ function testnet_bootstrap() {
     if [ $# > 0 ] ; then
         cmd="$cmd $@"
     fi
-    if (( $NIXOS == 1 )); then 
+    if (( $NIXOS == 1 ))  && [[ "$IN_NIX_SHELL" == "" ]]  ; then 
       cmd="nix-shell --run '$cmd'"
     fi
     cd $CONCORDIUM_P2P_DIR && eval "$cmd"
@@ -145,7 +145,7 @@ function testnet_node() {
         cmd="$cmd $@"
     fi
     
-    if (( $NIXOS == 1 )); then 
+    if (( $NIXOS == 1 ))  && [[ "$IN_NIX_SHELL" == "" ]]  ; then 
       cmd="nix-shell --run '$cmd'"
     fi
     ( cd $CONCORDIUM_P2P_DIR && eval "$cmd"  )
@@ -171,9 +171,7 @@ function testnet_docker_compose() {
   fi
   baker_count=$1; shift
   (
-    cd $CONCORDIUM_P2P_DIR/scripts/local && \
-    ./pre_build.sh && \
-    docker-compose build && \
+    cd $CONCORDIUM_P2P_DIR &&
     NUM_BAKERS=$baker_count DESIRED_PEERS=$(($baker_count)) EXTRA_ARGS="$@" docker-compose up --scale baker=$baker_count
   )
 }
@@ -203,13 +201,15 @@ lint_fmt() {
 #
 #####
 concordium_p2p_nix_shell() {
-   if [[ -f /etc/NIXOS ]]; then
-       (
-        cd $CONCORDIUM_P2P_DIR &&
-            printf "Entering nix-shell environment for p2p-client\n"
-            nix-shell $@
-       )
-    else
-       printf "Not a NixOS environment!\n"
-   fi
+  if [[ "$IN_NIX_SHELL" != "" ]]  ; then
+    echo "Already dropped into a nix-shell"
+  elif (( $NIXOS == 1 )) ; then 
+    (
+      cd $CONCORDIUM_P2P_DIR &&
+      printf "Entering nix-shell environment for p2p-client\n"
+      nix-shell $@
+    )
+  else
+    printf "Not a NixOS environment!\n"
+  fi
 }
