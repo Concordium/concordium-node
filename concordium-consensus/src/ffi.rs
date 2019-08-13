@@ -413,47 +413,31 @@ pub fn get_consensus_ptr(
 
 impl ConsensusContainer {
     pub fn send_block(&self, peer_id: PeerId, block: &[u8]) -> ConsensusFfiResponse {
-        if self.is_active() {
-            wrap_send_data_to_c!(self, peer_id, block, receiveBlock)
-        } else {
-            ConsensusFfiResponse::BakerNotFound
-        }
+        wrap_send_data_to_c!(self, peer_id, block, receiveBlock)
     }
 
     pub fn send_finalization(&self, peer_id: PeerId, msg: &[u8]) -> ConsensusFfiResponse {
-        if self.is_active() {
-            wrap_send_data_to_c!(self, peer_id, msg, receiveFinalization)
-        } else {
-            ConsensusFfiResponse::BakerNotFound
-        }
+        wrap_send_data_to_c!(self, peer_id, msg, receiveFinalization)
     }
 
     pub fn send_finalization_record(&self, peer_id: PeerId, rec: &[u8]) -> ConsensusFfiResponse {
-        if self.is_active() {
-            wrap_send_data_to_c!(self, peer_id, rec, receiveFinalizationRecord)
-        } else {
-            ConsensusFfiResponse::BakerNotFound
-        }
+        wrap_send_data_to_c!(self, peer_id, rec, receiveFinalizationRecord)
     }
 
     pub fn send_transaction(&self, data: &[u8]) -> ConsensusFfiResponse {
-        if self.is_active() {
-            let consensus = self.consensus.load(Ordering::SeqCst);
-            let len = data.len();
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let len = data.len();
 
-            let result = unsafe {
-                receiveTransaction(
-                    consensus,
-                    CString::from_vec_unchecked(data.to_vec()).as_ptr() as *const u8,
-                    len as i64,
-                )
-            };
+        let result = unsafe {
+            receiveTransaction(
+                consensus,
+                CString::from_vec_unchecked(data.to_vec()).as_ptr() as *const u8,
+                len as i64,
+            )
+        };
 
-            ConsensusFfiResponse::try_from(result)
-                .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code))
-        } else {
-            ConsensusFfiResponse::BakerNotFound
-        }
+        ConsensusFfiResponse::try_from(result)
+            .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code))
     }
 
     pub fn get_finalization_point(&self) -> Vec<u8> {
@@ -591,17 +575,13 @@ impl ConsensusContainer {
         request: &[u8],
         peer_id: PeerId,
     ) -> ConsensusFfiResponse {
-        if self.is_active() {
-            wrap_c_call!(self, |consensus| getFinalizationMessages(
-                consensus,
-                peer_id,
-                request.as_ptr(),
-                request.len() as i64,
-                on_finalization_message_catchup_out
-            ))
-        } else {
-            ConsensusFfiResponse::BakerNotFound
-        }
+        wrap_c_call!(self, |consensus| getFinalizationMessages(
+            consensus,
+            peer_id,
+            request.as_ptr(),
+            request.len() as i64,
+            on_finalization_message_catchup_out
+        ))
     }
 }
 

@@ -131,12 +131,7 @@ fn main() -> Fallible<()> {
 
     let is_baker = conf.cli.baker.baker_id.is_some();
 
-    let mut consensus = if is_baker {
-        // Thread #3 (#4): the consensus layer
-        plugins::consensus::start_consensus_layer(&conf.cli.baker, &app_prefs)
-    } else {
-        None // This will not be possible once we have a "do not bake" consensus call
-    };
+    let mut consensus = plugins::consensus::start_consensus_layer(&conf.cli.baker, &app_prefs);
 
     // Start the RPC server
     let mut rpc_serv = if !conf.cli.rpc.no_rpc_server {

@@ -27,3 +27,4 @@ scripts/static-libs/static-libs-docker/output_dir/
 result
 **/**/Cargo.lock
 0
+scripts/genesis-data/genesis_data/**
