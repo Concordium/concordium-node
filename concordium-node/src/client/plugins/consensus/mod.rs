@@ -57,10 +57,10 @@ pub fn start_consensus_layer(
     #[cfg(not(feature = "profiling"))]
     ffi::start_haskell();
 
-    match get_baker_data(app_prefs, conf, true) {
+    match get_baker_data(app_prefs, conf, conf.baker_id.is_some()) {
         Ok((genesis_data, private_data)) => {
             let consensus =
-                consensus::ConsensusContainer::new(genesis_data, Some(private_data), conf.baker_id);
+                consensus::ConsensusContainer::new(genesis_data, private_data, conf.baker_id);
             Some(consensus)
         }
         Err(_) => {
@@ -74,7 +74,7 @@ fn get_baker_data(
     app_prefs: &configuration::AppPreferences,
     conf: &configuration::BakerConfig,
     needs_private: bool,
-) -> Fallible<(Vec<u8>, Vec<u8>)> {
+) -> Fallible<(Vec<u8>, Option<Vec<u8>>)> {
     let mut genesis_loc = app_prefs.get_user_app_dir();
     genesis_loc.push(FILE_NAME_GENESIS_DATA);
 
@@ -103,14 +103,14 @@ fn get_baker_data(
             Ok(mut file) => {
                 let mut read_data = vec![];
                 match file.read_to_end(&mut read_data) {
-                    Ok(_) => read_data,
+                    Ok(_) => Some(read_data),
                     Err(_) => bail!("Couldn't open up private baker file for reading"),
                 }
             }
             Err(e) => bail!("Can't open the private data file ({})!", e),
         }
     } else {
-        vec![]
+        None
     };
 
     debug!(

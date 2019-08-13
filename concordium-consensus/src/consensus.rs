@@ -129,11 +129,11 @@ impl ConsensusContainer {
     }
 
     pub fn start_baker(&self) -> bool {
-        info!("Commencing baking");
-
         if !self.is_active() || self.is_baking() {
             return false;
         }
+
+        info!("Commencing baking");
 
         let consensus = self.consensus.load(Ordering::SeqCst);
         unsafe {
@@ -145,11 +145,11 @@ impl ConsensusContainer {
     }
 
     pub fn stop_baker(&self) -> bool {
-        info!("Stopping baking");
-
         if !self.is_active() || !self.is_baking() {
             return false;
         }
+
+        info!("Stopping baking");
 
         let consensus = self.consensus.load(Ordering::SeqCst);
         unsafe {
