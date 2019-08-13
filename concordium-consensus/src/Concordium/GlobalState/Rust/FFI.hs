@@ -1,12 +1,12 @@
 {-# LANGUAGE ForeignFunctionInterface #-}
 
 module Concordium.GlobalState.Rust.FFI (
-  GlobalStatePtr
+  GlobalStateR
+  , GlobalStatePtr
   , getGenesisBlockPointerR
   , getGenesisDataR
   , storeFinalizedBlockR
   , getFinalizedBlockR
-  , printGlobalStateR
   ) where
 
 import Foreign.Ptr
@@ -20,7 +20,7 @@ import Concordium.Crypto.SHA256
 import Concordium.GlobalState.Block
 
 data GlobalStateR
-newtype GlobalStatePtr = GlobalStatePtr (Ptr GlobalStateR)
+type GlobalStatePtr = Ptr GlobalStateR
 
 data BlockPointerR
 newtype BlockPointerPtr = BlockPointerPtr (Ptr BlockPointerR)
@@ -37,8 +37,6 @@ foreign import ccall unsafe "store_finalized_block"
    storeFinalizedBlockF :: GlobalStatePtr -> CString -> Int -> IO ()
 foreign import ccall unsafe "get_finalized_block"
    getFinalizedBlockF :: GlobalStatePtr -> CString -> Ptr RustSlice
-foreign import ccall unsafe "format_global_state"
-   formatGlobalStateF :: GlobalStatePtr -> Ptr RustSlice
 
 getGenesisBlockPointerR :: GlobalStatePtr -> BlockPointerPtr
 getGenesisBlockPointerR = getGenesisBlockPointerF
@@ -54,8 +52,7 @@ getGenesisDataR gsptr = do
 storeFinalizedBlockR :: GlobalStatePtr -> Block -> IO ()
 storeFinalizedBlockR gsptr block = do
   let eb = encode block
-  bh <- newCStringLen . unpack $ eb
-  uncurry (storeFinalizedBlockF gsptr) bh 
+  useAsCStringLen eb $ uncurry (storeFinalizedBlockF gsptr)
 
 getFinalizedBlockR :: GlobalStatePtr -> BlockHash -> IO Block
 getFinalizedBlockR gsptr bhash = do
@@ -64,11 +61,4 @@ getFinalizedBlockR gsptr bhash = do
   bs <- packCStringLen (getPtr bdata, getLength bdata)
   case decode bs of
     Left e -> fail $ "couldn't get finalized block for hash " ++ show bhash ++ " because of " ++ e
-    Right v -> return v
-
-
-printGlobalStateR :: GlobalStatePtr -> IO String
-printGlobalStateR gsptr = do
-  let gs = formatGlobalStateF gsptr
-  peekCStringLen (getPtr gs, getLength gs)
-  
+    Right v -> return v  
