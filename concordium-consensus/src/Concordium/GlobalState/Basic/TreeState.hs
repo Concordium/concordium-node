@@ -126,7 +126,7 @@ instance (SkovLenses s, Monad m, MonadState s m) => TS.TreeStateMonad (SkovTreeS
     getGenesisBlockPointer = use genesisBlockPointer
     getGenesisData = use genesisData
     getLastFinalized = use finalizationList >>= \case
-            _ Seq.:|> (_,lf) -> return lf
+            _ Seq.:|> (finRec,lf) -> return (lf, finRec)
             _ -> error "empty finalization list"
     getNextFinalizationIndex = FinalizationIndex . fromIntegral . Seq.length <$> use finalizationList
     addFinalization newFinBlock finRec = finalizationList %= (Seq.:|> (finRec, newFinBlock))
@@ -213,7 +213,7 @@ instance (SkovLenses s, Monad m, MonadState s m) => TS.TreeStateMonad (SkovTreeS
         use (transactionTable . ttHashMap . at (getHash tr)) >>= \case
             Nothing -> return True
             Just (_, slot) -> do
-                lastFinSlot <- blockSlot . _bpBlock <$> TS.getLastFinalized
+                lastFinSlot <- blockSlot . _bpBlock . fst <$> TS.getLastFinalized
                 if (lastFinSlot >= slot) then do
                     let nonce = transactionNonce tr
                         sender = transactionSender tr

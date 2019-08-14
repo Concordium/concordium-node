@@ -89,15 +89,16 @@ class (Eq (BlockPointer m),
     getGenesisData :: m GenesisData
     -- * Operations on the finalization list
     -- |Get the last finalized block.
-    getLastFinalized :: m (BlockPointer m)
+    getLastFinalized :: m (BlockPointer m, FinalizationRecord)
     -- |Get the slot number of the last finalized block
     getLastFinalizedSlot :: m Slot
-    getLastFinalizedSlot = blockSlot <$> getLastFinalized
+    getLastFinalizedSlot = blockSlot . fst <$> getLastFinalized
     -- |Get the height of the last finalized block
     getLastFinalizedHeight :: m BlockHeight
-    getLastFinalizedHeight = bpHeight <$> getLastFinalized
+    getLastFinalizedHeight = bpHeight . fst <$> getLastFinalized
     -- |Get the next finalization index.
     getNextFinalizationIndex :: m FinalizationIndex
+    getNextFinalizationIndex = (+1) . finalizationIndex . snd <$> getLastFinalized
     -- |Add a block and finalization record to the finalization list.
     -- The block must be the one finalized by the record, and the finalization
     -- index must be the next finalization index.  These are not checked.
