@@ -313,6 +313,7 @@ mod network {
                     send_message_from_cursor(
                         &node_1,
                         Some(node_2.id()),
+                        vec![],
                         net_id,
                         None,
                         uc.clone(),

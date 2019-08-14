@@ -17,7 +17,6 @@ dist
 cabal.sandbox.config
 workdir
 win_build
-scripts/local/assets/repos
 deps/internal/crypto/build
 src/proto/concordium_p2p_rpc*.rs
 *.hp
@@ -28,3 +27,4 @@ scripts/static-libs/static-libs-docker/output_dir/
 result
 **/**/Cargo.lock
 0
+scripts/genesis-data/genesis_data/**

@@ -796,7 +796,7 @@ impl NoiseProtocolHandler {
         });
     }
 
-    pub fn get_all_current_peers(&self, peer_type: Option<PeerType>) -> Box<[P2PNodeId]> {
+    pub fn get_all_current_peers(&self, peer_type: Option<PeerType>) -> Vec<P2PNodeId> {
         read_or_die!(self.connections)
         .iter()
         .filter(|conn| {
@@ -806,8 +806,7 @@ impl NoiseProtocolHandler {
         // we can safely unwrap here, because we've filetered away any
         // non-post-handshake peers already
         .map(|conn| conn.remote_peer().peer().unwrap().id() )
-        .collect::<Vec<_>>()
-        .into_boxed_slice()
+        .collect()
     }
 }
 

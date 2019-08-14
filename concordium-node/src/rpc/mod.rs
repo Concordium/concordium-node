@@ -17,8 +17,12 @@ use crate::{
     },
     proto::*,
 };
-use concordium_common::stats_export_service::StatsExportService;
-use concordium_consensus::{consensus::ConsensusContainer, ffi::ConsensusFfiResponse};
+
+use concordium_common::{
+    stats_export_service::StatsExportService, ConsensusFfiResponse, PacketType,
+};
+use concordium_consensus::consensus::{ConsensusContainer, CALLBACK_QUEUE};
+use concordium_global_state::tree::messaging::{ConsensusMessage, DistributionMode, MessageType};
 use futures::future::Future;
 use grpcio::{self, Environment, ServerBuilder};
 use rkv::Rkv;
@@ -31,14 +35,14 @@ use std::{
 
 pub struct RpcServerImplShared {
     pub server:                 Option<grpcio::Server>,
-    pub subscription_queue_out: mpsc::Receiver<Arc<NetworkMessage>>,
-    pub subscription_queue_in:  mpsc::SyncSender<Arc<NetworkMessage>>,
+    pub subscription_queue_out: mpsc::Receiver<NetworkMessage>,
+    pub subscription_queue_in:  mpsc::SyncSender<NetworkMessage>,
 }
 
 impl RpcServerImplShared {
     pub fn new(
-        subscription_queue_out: mpsc::Receiver<Arc<NetworkMessage>>,
-        subscription_queue_in: mpsc::SyncSender<Arc<NetworkMessage>>,
+        subscription_queue_out: mpsc::Receiver<NetworkMessage>,
+        subscription_queue_in: mpsc::SyncSender<NetworkMessage>,
     ) -> Self {
         RpcServerImplShared {
             server: None,
@@ -76,7 +80,7 @@ impl RpcServerImpl {
         consensus: Option<ConsensusContainer>,
         conf: &configuration::RpcCliConfig,
         stats: &Option<StatsExportService>,
-        subscription_queue_out: mpsc::Receiver<Arc<NetworkMessage>>,
+        subscription_queue_out: mpsc::Receiver<NetworkMessage>,
     ) -> Self {
         let dptr = RpcServerImplShared::new(subscription_queue_out, node.rpc_queue.clone());
 
@@ -137,7 +141,7 @@ impl RpcServerImpl {
             } else if req.get_broadcast().get_value() {
                 trace!("Sending broadcast message");
                 r.set_value(
-                    send_broadcast_message(&self.node, None, network_id, None, msg)
+                    send_broadcast_message(&self.node, vec![], network_id, None, msg)
                         .map_err(|e| error!("{}", e))
                         .is_ok(),
                 );
@@ -363,28 +367,41 @@ impl P2P for RpcServerImpl {
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
             match self.consensus {
-                Some(ref res) => match res.send_transaction(req.get_payload()) {
-                    ConsensusFfiResponse::Success => {
-                        let mut r: SuccessResponse = SuccessResponse::new();
-                        r.set_value(true);
-                        let f = sink
-                            .success(r)
-                            .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-                        ctx.spawn(f);
+                Some(ref consensus) => {
+                    let payload = req.get_payload();
+
+                    let request = ConsensusMessage::new(
+                        MessageType::Inbound(self.node.id().0, DistributionMode::Direct),
+                        PacketType::Transaction,
+                        Arc::from(payload),
+                        vec![],
+                    );
+                    let gs_result = CALLBACK_QUEUE.send_message(request);
+                    let consensus_result = consensus.send_transaction(payload);
+
+                    match (gs_result, consensus_result) {
+                        (Ok(_), ConsensusFfiResponse::Success) => {
+                            let mut r: SuccessResponse = SuccessResponse::new();
+                            r.set_value(true);
+                            let f = sink
+                                .success(r)
+                                .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+                            ctx.spawn(f);
+                        }
+                        (_, e) => {
+                            let f = sink
+                                .fail(::grpcio::RpcStatus::new(
+                                    ::grpcio::RpcStatusCode::Internal,
+                                    Some(format!(
+                                        "Got non-success response from FFI interface {:?}",
+                                        e
+                                    )),
+                                ))
+                                .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+                            ctx.spawn(f);
+                        }
                     }
-                    e => {
-                        let f = sink
-                            .fail(::grpcio::RpcStatus::new(
-                                ::grpcio::RpcStatusCode::Internal,
-                                Some(format!(
-                                    "Got non-success response from FFI interface {:?}",
-                                    e
-                                )),
-                            ))
-                            .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-                        ctx.spawn(f);
-                    }
-                },
+                }
                 _ => {
                     let f = sink
                         .fail(::grpcio::RpcStatus::new(
@@ -615,7 +632,7 @@ impl P2P for RpcServerImpl {
 
             let f = if let Ok(read_lock_dptr) = self.dptr.lock() {
                 if let Ok(msg) = read_lock_dptr.subscription_queue_out.try_recv() {
-                    if let NetworkMessage::NetworkPacket(ref packet, ..) = *msg {
+                    if let NetworkMessage::NetworkPacket(ref packet, ..) = msg {
                         let mut inner_msg = packet.message.to_owned();
                         if let Ok(view_inner_msg) = inner_msg.read_all_into_view() {
                             let msg = view_inner_msg.as_slice().to_vec();
@@ -626,7 +643,7 @@ impl P2P for RpcServerImpl {
                                     i_msg.set_data(msg);
                                     r.set_message_direct(i_msg);
                                 }
-                                NetworkPacketType::BroadcastedMessage => {
+                                NetworkPacketType::BroadcastedMessage(..) => {
                                     let mut i_msg = MessageBroadcast::new();
                                     i_msg.set_data(msg);
                                     r.set_message_broadcast(i_msg);
@@ -1607,7 +1624,7 @@ mod tests {
         client.subscription_start_opt(&crate::proto::Empty::new(), callopts.clone())?;
         send_broadcast_message(
             &node2,
-            None,
+            vec![],
             crate::network::NetworkId::from(100),
             None,
             b"Hey".to_vec(),

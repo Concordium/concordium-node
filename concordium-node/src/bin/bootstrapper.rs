@@ -92,7 +92,7 @@ fn main() -> Result<(), Error> {
         _ => format!("{}", P2PNodeId::default()),
     };
 
-    let (pkt_in, pkt_out) = mpsc::sync_channel::<RelayOrStopEnvelope<Arc<NetworkMessage>>>(64);
+    let (pkt_in, pkt_out) = mpsc::sync_channel(64);
     let (rpc_tx, _) = std::sync::mpsc::sync_channel(64);
 
     let mut node = if conf.common.debug {
@@ -162,13 +162,13 @@ fn setup_process_output(
     node: &P2PNode,
     kvs_handle: Arc<RwLock<Rkv>>,
     conf: &configuration::Config,
-    pkt_out: RelayOrStopReceiver<Arc<NetworkMessage>>,
+    pkt_out: RelayOrStopReceiver<NetworkMessage>,
 ) {
     let mut _node_self_clone = node.clone();
     let _no_trust_bans = conf.common.no_trust_bans;
     let _guard_pkt = spawn_or_die!("Higher queue processing", move || {
         while let Ok(RelayOrStopEnvelope::Relay(full_msg)) = pkt_out.recv() {
-            match *full_msg {
+            match full_msg {
                 NetworkMessage::NetworkRequest(
                     NetworkRequest::BanNode(ref peer, peer_to_ban),
                     ..

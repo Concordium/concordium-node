@@ -14,7 +14,7 @@ This repository uses git lfs for storing binary dependencies, and relies on git 
 * capnp (for running `s11n_capnp` enabled benches only)
 
 ## Supported features
-* instrumentation - switches the default internal counter implementation out with prometheus, and enables e.g. testrunner binary
+* instrumentation - switches the default internal counter implementation out with prometheus
 * s11n_nom - enables serialization using [nom](https://crates.io/crates/nom) (only used in benches)
 * s11n_serde_cbor - enables serialization using [serde_cbor](https://crates.io/crates/serde_cbor) (only used in benches)
 * s11n_serde_json - enables serialization using [serde_json](https://crates.io/crates/serde_json) (only used in benches)
@@ -43,8 +43,16 @@ $> cargo run --bin p2p_client-cli -- --debug
 $> cargo test --all
 ```
 
-## Running a complete network locally
-Use docker-compose and follow instructions in [scripts/local/README.md](/scripts/local)
+## Docker-Compose
+For a local docker compose setup, a docker-compose.yml file has been provided in the root of this repository. It uses a image hosted in Docker hub built automatically upon push to the develop branch.
+
+For the most simple and common setup, simply run
+```
+NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose up --scale baker=5
+```
+in the repository root
+
+For more complicated setups the EXTRA_ARGS environment variable can be set.
 
 ## Nix
 Currently this project only sports support for Nix on Linux platforms.

@@ -166,6 +166,21 @@ then
     ARGS="$ARGS $PROFILING_ARGS"
 fi
 
+if [ -n "$EXTERNAL_IP" ];
+then
+    ARGS="$ARGS --external-ip $EXTERNAL_IP"
+fi
+
+if [ -n "$EXTERNAL_PORT" ];
+then
+    ARGS="$ARGS --external-port $EXTERNAL_PORT"
+fi
+
+if [ -n "$NOISE_CRYPTO_HASH_ALGORITHM" ];
+then
+    ARGS="$ARGS --hash-algorithm $NOISE_CRYPTO_HASH_ALGORITHM"
+fi
+
 if [ "$MODE" == "tps_receiver" ]; then
     echo "Receiver!"
 
@@ -206,37 +221,18 @@ elif [ "$MODE" == "basic" ]; then
     fi
 elif [ "$MODE" == "bootstrapper" ]; then
     /p2p_bootstrapper-cli $ARGS
-elif [ "$MODE" == "testrunner" ]; then
-    /testrunner $ARGS
 
 elif [ "$MODE" == "local_basic" ]; then
     export BAKER_ID=`curl http://baker_id_gen:8000/next_id`
     echo "Using BAKER_ID $BAKER_ID"
 
-
-    /build-project/p2p-client/target/debug/p2p_client-cli \
-        --no-dnssec \
-        --testrunner-url http://testrunner:8950 \
-        --desired-nodes $DESIRED_PEERS \
-        --external-port $EXTERNAL_PORT \
-        --bootstrap-node $BOOTSTRAP_NODE \
-        --baker-id $BAKER_ID \
-        --rpc-server-addr 0.0.0.0 \
-        $EXTRA_ARGS
+    /p2p_client-cli --baker-id $BAKER_ID --no-dnssec $ARGS
 
 elif [ "$MODE" == "local_bootstrapper" ]; then
     export NODE_ID=`awk 'END{ print $1}' /etc/hosts | sha256sum | awk '{ print $1 }' | cut -c1-16`
-    /build-project/p2p-client/target/debug/p2p_bootstrapper-cli \
+    /p2p_bootstrapper-cli \
         --id $NODE_ID \
         --listen-port 8888 \
-        $EXTRA_ARGS
-
-elif [ "$MODE" == "local_testrunner" ]; then
-    /build-project/p2p-client/target/debug/testrunner \
-        --no-dnssec \
-        --desired-nodes $DESIRED_PEERS \
-        --external-port $EXTERNAL_PORT \
-        --bootstrap-node $BOOTSTRAP_NODE \
         $EXTRA_ARGS
 else
     echo "No matching MODE was found. Please check!"
