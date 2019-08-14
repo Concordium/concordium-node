@@ -61,7 +61,7 @@ pub fn forward_network_packet_message<S: ::std::hash::BuildHasher>(
     stats_export_service: Option<StatsExportService>,
     own_networks: Arc<RwLock<HashSet<NetworkId, S>>>,
     outgoing_queues: OutgoingQueues,
-    pac: &NetworkPacket,
+    pac: Arc<NetworkPacket>,
     is_rpc_online: Arc<AtomicBool>,
 ) -> FuncResult<()> {
     trace!("Processing message for relaying");
@@ -71,7 +71,7 @@ pub fn forward_network_packet_message<S: ::std::hash::BuildHasher>(
             pac.message.len(),
             pac.peer.id()
         );
-        let outer = Arc::new(NetworkMessage::NetworkPacket(pac.to_owned(), None, None));
+        let outer = Arc::new(NetworkMessage::NetworkPacket(pac, None, None));
 
         if is_rpc_online.load(Ordering::Relaxed) {
             if let Err(e) = outgoing_queues.rpc_queue.send(Arc::clone(&outer)) {

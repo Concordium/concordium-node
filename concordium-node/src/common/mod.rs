@@ -404,7 +404,7 @@ mod tests {
             .message(UCursor::build_from_view(text_msg.clone()))
             .build_direct(P2PNodeId::default())?;
 
-        let msg_serialized = serialize_into_memory(&msg, 256)?;
+        let msg_serialized = serialize_into_memory(&*msg, 256)?;
         let mut packet =
             deserialize_from_memory::<NetworkPacket>(msg_serialized, self_peer.clone(), ipaddr)?;
 
@@ -430,7 +430,7 @@ mod tests {
             .message(UCursor::build_from_view(text_msg.clone()))
             .build_broadcast(vec![])?;
 
-        let serialized = serialize_into_memory(&msg, 256)?;
+        let serialized = serialize_into_memory(&*msg, 256)?;
         let mut packet =
             deserialize_from_memory::<NetworkPacket>(serialized, self_peer.clone(), ipaddr)?;
 

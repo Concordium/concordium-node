@@ -224,7 +224,7 @@ pub fn wait_broadcast_message(waiter: &Receiver<NetworkMessage>) -> Fallible<UCu
         let msg = waiter.recv()?;
         if let NetworkMessage::NetworkPacket(pac, ..) = msg {
             if let NetworkPacketType::BroadcastedMessage(..) = pac.packet_type {
-                return Ok(pac.message);
+                return Ok(pac.message.to_owned());
             }
         }
     }
@@ -235,7 +235,7 @@ pub fn wait_direct_message(waiter: &Receiver<NetworkMessage>) -> Fallible<UCurso
         let msg = waiter.recv()?;
         if let NetworkMessage::NetworkPacket(pac, ..) = msg {
             if let NetworkPacketType::DirectMessage(..) = pac.packet_type {
-                return Ok(pac.message);
+                return Ok(pac.message.to_owned());
             }
         }
     }
@@ -248,7 +248,7 @@ pub fn wait_direct_message_timeout(
     while let Ok(msg) = waiter.recv_timeout(timeout) {
         if let NetworkMessage::NetworkPacket(pac, ..) = msg {
             if let NetworkPacketType::DirectMessage(..) = pac.packet_type {
-                return Some(pac.message);
+                return Some(pac.message.to_owned());
             }
         }
     }
