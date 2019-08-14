@@ -406,14 +406,17 @@ mod tests {
         let to_ban = BannedNode::ById(node_2.id());
 
         node_1.ban_node(to_ban);
-        let mut reply = node_1.get_peer_stats(&vec![]);
+        let mut reply = node_1.get_peer_stats(&[]);
 
         let t1 = time::Instant::now();
         while reply.len() == 1 {
-            reply = node_1.get_peer_stats(&vec![]);
-            if time::Instant::now().duration_since(t1).as_secs() > 30 {
+            if time::Instant::now().duration_since(t1).as_secs()
+                > 2 * node_1.config.housekeeping_interval
+            {
                 bail!("timeout");
             }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            reply = node_1.get_peer_stats(&[]);
         }
 
         Ok(())

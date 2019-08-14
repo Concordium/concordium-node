@@ -73,6 +73,7 @@ pub struct P2PNodeConfig {
     relay_broadcast_percentage: f64,
     pub global_state_catch_up_requests: bool,
     pub poll_interval: u64,
+    pub housekeeping_interval: u64,
 }
 
 #[derive(Default)]
@@ -237,6 +238,7 @@ impl P2PNode {
             relay_broadcast_percentage: conf.connection.relay_broadcast_percentage,
             global_state_catch_up_requests: conf.connection.global_state_catch_up_requests,
             poll_interval: conf.cli.poll_interval,
+            housekeeping_interval: conf.cli.housekeeping_interval,
         };
 
         let networks: HashSet<NetworkId> = conf
@@ -469,10 +471,10 @@ impl P2PNode {
                     break;
                 }
 
-                // Run periodic tasks (every 30 seconds).
+                // Run periodic tasks
                 let now = SystemTime::now();
                 if let Ok(difference) = now.duration_since(log_time) {
-                    if difference > Duration::from_secs(60) {
+                    if difference > Duration::from_secs(self_clone.config.housekeeping_interval) {
                         let peer_stat_list = self_clone.get_peer_stats(&[]);
                         self_clone.print_stats(&peer_stat_list);
                         self_clone.check_peers(&peer_stat_list);
