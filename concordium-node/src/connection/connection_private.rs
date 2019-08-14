@@ -131,7 +131,11 @@ impl ConnectionPrivate {
         // 1. Try to read messages from `socket`.
         if ev_readiness.is_readable() {
             loop {
-                let read_result = self.message_stream.read(&mut self.socket);
+                let read_result = self.message_stream.read(
+                    self.status == ConnectionStatus::Closed
+                        || self.status == ConnectionStatus::Closing,
+                    &mut self.socket,
+                );
                 match read_result {
                     Ok(readiness) => match readiness {
                         Readiness::Ready(message) => {
