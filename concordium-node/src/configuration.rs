@@ -322,10 +322,16 @@ pub struct CliConfig {
     pub no_network: bool,
     #[structopt(
         long = "poll-interval",
-        help = "The polling interval",
-        default_value = "200"
+        help = "The polling interval in milliseconds",
+        default_value = "100"
     )]
     pub poll_interval: u64,
+    #[structopt(
+        long = "housekeeping-interval",
+        help = "The connection housekeeping interval in seconds",
+        default_value = "60"
+    )]
+    pub housekeeping_interval: u64,
     #[structopt(flatten)]
     pub baker: BakerConfig,
     #[cfg(feature = "benchmark")]

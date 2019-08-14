@@ -87,8 +87,7 @@ fn main() -> Fallible<()> {
 
     info!("Debugging enabled: {}", conf.common.debug);
 
-    let (subscription_queue_in, subscription_queue_out) =
-        mpsc::sync_channel::<Arc<NetworkMessage>>(10000);
+    let (subscription_queue_in, subscription_queue_out) = mpsc::sync_channel(10000);
 
     // Thread #1: instantiate the P2PNode
     let (mut node, pkt_out) = instantiate_node(
@@ -214,12 +213,9 @@ fn instantiate_node(
     conf: &configuration::Config,
     app_prefs: &mut configuration::AppPreferences,
     stats_export_service: Option<StatsExportService>,
-    subscription_queue_in: mpsc::SyncSender<Arc<NetworkMessage>>,
-) -> (
-    P2PNode,
-    mpsc::Receiver<RelayOrStopEnvelope<Arc<NetworkMessage>>>,
-) {
-    let (pkt_in, pkt_out) = mpsc::sync_channel::<RelayOrStopEnvelope<Arc<NetworkMessage>>>(10000);
+    subscription_queue_in: mpsc::SyncSender<NetworkMessage>,
+) -> (P2PNode, mpsc::Receiver<RelayOrStopEnvelope<NetworkMessage>>) {
+    let (pkt_in, pkt_out) = mpsc::sync_channel(10000);
     let node_id = conf.common.id.clone().map_or(
         app_prefs.get_config(configuration::APP_PREFERENCES_PERSISTED_NODE_ID),
         |id| {
@@ -301,7 +297,7 @@ fn start_consensus_threads(
     kvs_handle: Arc<RwLock<Rkv>>,
     (conf, app_prefs): (&configuration::Config, &configuration::AppPreferences),
     consensus: consensus::ConsensusContainer,
-    pkt_out: RelayOrStopReceiver<Arc<NetworkMessage>>,
+    pkt_out: RelayOrStopReceiver<NetworkMessage>,
     (skov_receiver, skov_sender): (
         RelayOrStopReceiver<ConsensusMessage>,
         RelayOrStopSender<ConsensusMessage>,
@@ -366,7 +362,7 @@ fn start_consensus_threads(
     let mut node_ref = node.clone();
     let guard_pkt = spawn_or_die!("Higher queue processing", {
         while let Ok(RelayOrStopEnvelope::Relay(full_msg)) = pkt_out.recv() {
-            match *full_msg {
+            match full_msg {
                 NetworkMessage::NetworkRequest(
                     NetworkRequest::BanNode(ref peer, peer_to_ban),
                     ..

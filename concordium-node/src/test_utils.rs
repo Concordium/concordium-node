@@ -143,6 +143,7 @@ pub fn make_node_and_sync(
 
     // locally-run tests and benches can be polled with a much greater frequency
     node.config.poll_interval = 1;
+    node.config.housekeeping_interval = 1;
 
     node.add_notification(make_atomic_callback!(move |m: &NetworkMessage| {
         log_any_message_handler(node_id, m)
@@ -161,11 +162,7 @@ pub fn make_node_and_sync_with_rpc(
     port: u16,
     networks: Vec<u16>,
     node_type: PeerType,
-) -> Fallible<(
-    P2PNode,
-    Receiver<NetworkMessage>,
-    Receiver<Arc<NetworkMessage>>,
-)> {
+) -> Fallible<(P2PNode, Receiver<NetworkMessage>, Receiver<NetworkMessage>)> {
     let (net_tx, _) = std::sync::mpsc::sync_channel(64);
     let (msg_wait_tx, msg_wait_rx) = std::sync::mpsc::sync_channel(64);
     let (rpc_tx, rpc_rx) = std::sync::mpsc::sync_channel(64);
@@ -184,6 +181,7 @@ pub fn make_node_and_sync_with_rpc(
 
     // locally-run tests and benches can be polled with a much greater frequency
     node.config.poll_interval = 1;
+    node.config.housekeeping_interval = 1;
 
     node.add_notification(make_atomic_callback!(move |m: &NetworkMessage| {
         log_any_message_handler(node_id, m)

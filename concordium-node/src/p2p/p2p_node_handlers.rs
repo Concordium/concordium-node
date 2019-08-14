@@ -15,9 +15,9 @@ use std::{
 /// It forwards network response message into `queue`.
 pub fn forward_network_response(
     res: &NetworkResponse,
-    queue: RelayOrStopSyncSender<Arc<NetworkMessage>>,
+    queue: RelayOrStopSyncSender<NetworkMessage>,
 ) -> FuncResult<()> {
-    let outer = Arc::new(NetworkMessage::NetworkResponse(res.to_owned(), None, None));
+    let outer = NetworkMessage::NetworkResponse(res.to_owned(), None, None);
 
     if let Err(queue_error) = queue.send_msg(outer) {
         warn!("Message cannot be forwarded: {:?}", queue_error);
@@ -29,9 +29,9 @@ pub fn forward_network_response(
 /// It forwards network request message into `packet_queue`
 pub fn forward_network_request(
     req: &NetworkRequest,
-    packet_queue: &RelayOrStopSyncSender<Arc<NetworkMessage>>,
+    packet_queue: &RelayOrStopSyncSender<NetworkMessage>,
 ) -> FuncResult<()> {
-    let outer = Arc::new(NetworkMessage::NetworkRequest(req.to_owned(), None, None));
+    let outer = NetworkMessage::NetworkRequest(req.to_owned(), None, None);
 
     if let Err(e) = packet_queue.send_msg(outer) {
         warn!(
@@ -46,11 +46,11 @@ pub fn forward_network_request(
 #[derive(Clone)]
 pub struct OutgoingQueues {
     /// Send_queue to other nodes
-    pub send_queue: SyncSender<Arc<NetworkMessage>>,
+    pub send_queue: SyncSender<NetworkMessage>,
     /// Queue to super process (to bakers or db)
-    pub queue_to_super: RelayOrStopSyncSender<Arc<NetworkMessage>>,
+    pub queue_to_super: RelayOrStopSyncSender<NetworkMessage>,
     /// Queue to the RPC subscription
-    pub rpc_queue: SyncSender<Arc<NetworkMessage>>,
+    pub rpc_queue: SyncSender<NetworkMessage>,
 }
 
 /// It forwards network packet message into `packet_queue` if message id has not
@@ -71,10 +71,10 @@ pub fn forward_network_packet_message<S: ::std::hash::BuildHasher>(
             pac.message.len(),
             pac.peer.id()
         );
-        let outer = Arc::new(NetworkMessage::NetworkPacket(pac, None, None));
+        let outer = NetworkMessage::NetworkPacket(pac, None, None);
 
         if is_rpc_online.load(Ordering::Relaxed) {
-            if let Err(e) = outgoing_queues.rpc_queue.send(Arc::clone(&outer)) {
+            if let Err(e) = outgoing_queues.rpc_queue.send(outer.clone()) {
                 warn!(
                     "Can't relay a message to the RPC outbound queue: {}",
                     e.to_string()
@@ -82,7 +82,7 @@ pub fn forward_network_packet_message<S: ::std::hash::BuildHasher>(
             }
         }
 
-        if let Err(e) = outgoing_queues.queue_to_super.send_msg(Arc::clone(&outer)) {
+        if let Err(e) = outgoing_queues.queue_to_super.send_msg(outer.clone()) {
             warn!(
                 "Can't relay a message on to the outer super queue: {}",
                 e.to_string()

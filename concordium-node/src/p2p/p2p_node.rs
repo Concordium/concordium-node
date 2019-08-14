@@ -73,6 +73,7 @@ pub struct P2PNodeConfig {
     relay_broadcast_percentage: f64,
     pub global_state_catch_up_requests: bool,
     pub poll_interval: u64,
+    pub housekeeping_interval: u64,
 }
 
 #[derive(Default)]
@@ -82,13 +83,13 @@ pub struct P2PNodeThread {
 }
 
 pub struct ResendQueueEntry {
-    pub message:      Arc<NetworkMessage>,
+    pub message:      NetworkMessage,
     pub last_attempt: u64,
     pub attempts:     u8,
 }
 
 impl ResendQueueEntry {
-    pub fn new(message: Arc<NetworkMessage>, last_attempt: u64, attempts: u8) -> Self {
+    pub fn new(message: NetworkMessage, last_attempt: u64, attempts: u8) -> Self {
         Self {
             message,
             last_attempt,
@@ -100,11 +101,11 @@ impl ResendQueueEntry {
 #[derive(Clone)]
 pub struct P2PNode {
     poll: Arc<Poll>,
-    send_queue_out: Arc<Mutex<Receiver<Arc<NetworkMessage>>>>,
+    send_queue_out: Arc<Mutex<Receiver<NetworkMessage>>>,
     resend_queue_in: SyncSender<ResendQueueEntry>,
     resend_queue_out: Arc<Mutex<Receiver<ResendQueueEntry>>>,
-    pub queue_to_super: RelayOrStopSyncSender<Arc<NetworkMessage>>,
-    pub rpc_queue: SyncSender<Arc<NetworkMessage>>,
+    pub queue_to_super: RelayOrStopSyncSender<NetworkMessage>,
+    pub rpc_queue: SyncSender<NetworkMessage>,
     start_time: DateTime<Utc>,
     external_addr: SocketAddr,
     thread: Arc<RwLock<P2PNodeThread>>,
@@ -117,7 +118,7 @@ pub struct P2PNode {
     pub is_rpc_online: Arc<AtomicBool>,
     pub noise_protocol_handler: NoiseProtocolHandler,
     pub self_peer: P2PPeer,
-    pub send_queue_in: SyncSender<Arc<NetworkMessage>>,
+    pub send_queue_in: SyncSender<NetworkMessage>,
     pub stats_export_service: Option<StatsExportService>,
 }
 
@@ -125,11 +126,11 @@ impl P2PNode {
     pub fn new(
         supplied_id: Option<String>,
         conf: &configuration::Config,
-        pkt_queue: RelayOrStopSyncSender<Arc<NetworkMessage>>,
+        pkt_queue: RelayOrStopSyncSender<NetworkMessage>,
         event_log: Option<SyncSender<P2PEvent>>,
         peer_type: PeerType,
         stats_export_service: Option<StatsExportService>,
-        subscription_queue_in: SyncSender<Arc<NetworkMessage>>,
+        subscription_queue_in: SyncSender<NetworkMessage>,
     ) -> Self {
         let addr = if let Some(ref addy) = conf.common.listen_address {
             format!("{}:{}", addy, conf.common.listen_port)
@@ -237,6 +238,7 @@ impl P2PNode {
             relay_broadcast_percentage: conf.connection.relay_broadcast_percentage,
             global_state_catch_up_requests: conf.connection.global_state_catch_up_requests,
             poll_interval: conf.cli.poll_interval,
+            housekeeping_interval: conf.cli.housekeeping_interval,
         };
 
         let networks: HashSet<NetworkId> = conf
@@ -453,7 +455,7 @@ impl P2PNode {
         self.quit_tx = Some(tx);
 
         let join_handle = spawn_or_die!("P2PNode spawned thread", move || {
-            let mut events = Events::with_capacity(1024);
+            let mut events = Events::with_capacity(10);
             let mut log_time = SystemTime::now();
 
             loop {
@@ -469,10 +471,10 @@ impl P2PNode {
                     break;
                 }
 
-                // Run periodic tasks (every 30 seconds).
+                // Run periodic tasks
                 let now = SystemTime::now();
                 if let Ok(difference) = now.duration_since(log_time) {
-                    if difference > Duration::from_secs(30) {
+                    if difference > Duration::from_secs(self_clone.config.housekeeping_interval) {
                         let peer_stat_list = self_clone.get_peer_stats(&[]);
                         self_clone.print_stats(&peer_stat_list);
                         self_clone.check_peers(&peer_stat_list);
@@ -558,7 +560,7 @@ impl P2PNode {
 
     pub fn peer_type(&self) -> PeerType { self.self_peer.peer_type }
 
-    pub fn send_queue_in(&self) -> &SyncSender<Arc<NetworkMessage>> { &self.send_queue_in }
+    pub fn send_queue_in(&self) -> &SyncSender<NetworkMessage> { &self.send_queue_in }
 
     pub fn stats_export_service(&self) -> &Option<StatsExportService> { &self.stats_export_service }
 
@@ -781,18 +783,13 @@ impl P2PNode {
         let check_sent_status_fn =
             |conn: &Connection, status: Fallible<()>| self.check_sent_status(&conn, status);
 
+        let serialized_packet = serialize_into_memory(
+            &NetworkMessage::NetworkPacket(Arc::clone(&inner_pkt), Some(get_current_stamp()), None),
+            256,
+        );
+
         let (peers_to_skip, s11n_data) = match inner_pkt.packet_type {
-            NetworkPacketType::DirectMessage(..) => (
-                vec![].into_boxed_slice(),
-                serialize_into_memory(
-                    &NetworkMessage::NetworkPacket(
-                        inner_pkt.clone(),
-                        Some(get_current_stamp()),
-                        None,
-                    ),
-                    256,
-                ),
-            ),
+            NetworkPacketType::DirectMessage(..) => (vec![].into_boxed_slice(), serialized_packet),
             NetworkPacketType::BroadcastedMessage(ref dont_send_to) => {
                 let not_valid_receivers = if self.config.relay_broadcast_percentage < 1.0 {
                     use rand::seq::SliceRandom;
@@ -806,23 +803,14 @@ impl P2PNode {
                     );
                     peers
                         .choose_multiple(&mut rng, peers_to_take as usize)
-                        .cloned()
+                        .copied()
                         .collect::<Vec<_>>()
                         .into_boxed_slice()
                 } else {
-                    vec![].into_boxed_slice()
+                    Box::from([])
                 };
-                (
-                    not_valid_receivers,
-                    serialize_into_memory(
-                        &NetworkMessage::NetworkPacket(
-                            inner_pkt.clone(),
-                            Some(get_current_stamp()),
-                            None,
-                        ),
-                        256,
-                    ),
-                )
+
+                (not_valid_receivers, serialized_packet)
             }
         };
 
@@ -880,7 +868,7 @@ impl P2PNode {
                 };
                 trace!("Got message to process!");
 
-                match *outer_pkt {
+                match outer_pkt {
                     NetworkMessage::NetworkPacket(ref inner_pkt, ..) => {
                         if !self.process_network_packet(Arc::clone(&inner_pkt)) {
                             Some(outer_pkt)
@@ -960,7 +948,7 @@ impl P2PNode {
                 self.resend_queue_size_dec();
                 trace!("Got a message to reprocess!");
 
-                match *wrapper.message {
+                match wrapper.message {
                     NetworkMessage::NetworkPacket(ref inner_pkt, ..) => {
                         if !self.process_network_packet(Arc::clone(&inner_pkt)) {
                             Some(wrapper)
@@ -978,7 +966,7 @@ impl P2PNode {
                 if self
                     .resend_queue_in
                     .send(ResendQueueEntry::new(
-                        Arc::clone(&failed_resend_pkt.message),
+                        failed_resend_pkt.message.clone(),
                         failed_resend_pkt.last_attempt,
                         failed_resend_pkt.attempts + 1,
                     ))
@@ -1131,11 +1119,7 @@ impl P2PNode {
     pub fn send_ban(&self, id: BannedNode) {
         send_or_die!(
             self.send_queue_in,
-            Arc::new(NetworkMessage::NetworkRequest(
-                NetworkRequest::BanNode(self.self_peer, id),
-                None,
-                None,
-            ))
+            NetworkMessage::NetworkRequest(NetworkRequest::BanNode(self.self_peer, id), None, None,)
         );
         self.queue_size_inc();
     }
@@ -1143,11 +1127,11 @@ impl P2PNode {
     pub fn send_unban(&self, id: BannedNode) {
         send_or_die!(
             self.send_queue_in,
-            Arc::new(NetworkMessage::NetworkRequest(
+            NetworkMessage::NetworkRequest(
                 NetworkRequest::UnbanNode(self.self_peer, id),
                 None,
                 None,
-            ))
+            )
         );
         self.queue_size_inc();
     }
@@ -1155,11 +1139,11 @@ impl P2PNode {
     pub fn send_joinnetwork(&self, network_id: NetworkId) {
         send_or_die!(
             self.send_queue_in,
-            Arc::new(NetworkMessage::NetworkRequest(
+            NetworkMessage::NetworkRequest(
                 NetworkRequest::JoinNetwork(self.self_peer, network_id),
                 None,
                 None,
-            ))
+            )
         );
         self.queue_size_inc();
     }
@@ -1167,11 +1151,11 @@ impl P2PNode {
     pub fn send_leavenetwork(&self, network_id: NetworkId) {
         send_or_die!(
             self.send_queue_in,
-            Arc::new(NetworkMessage::NetworkRequest(
+            NetworkMessage::NetworkRequest(
                 NetworkRequest::LeaveNetwork(self.self_peer, network_id),
                 None,
                 None,
-            ))
+            )
         );
         self.queue_size_inc();
     }
@@ -1179,11 +1163,11 @@ impl P2PNode {
     pub fn send_get_peers(&self, nids: HashSet<NetworkId>) {
         send_or_die!(
             self.send_queue_in,
-            Arc::new(NetworkMessage::NetworkRequest(
+            NetworkMessage::NetworkRequest(
                 NetworkRequest::GetPeers(self.self_peer, nids.clone()),
                 None,
                 None,
-            ))
+            )
         );
         self.queue_size_inc();
     }
@@ -1196,11 +1180,11 @@ impl P2PNode {
     ) {
         send_or_die!(
             self.send_queue_in,
-            Arc::new(NetworkMessage::NetworkRequest(
+            NetworkMessage::NetworkRequest(
                 NetworkRequest::Retransmit(self.self_peer, requested_type, since, nid),
                 None,
                 None,
-            ))
+            )
         );
         self.queue_size_inc();
     }
@@ -1367,7 +1351,7 @@ pub fn send_message_from_cursor(
     // Push packet into our `send queue`
     send_or_die!(
         node.send_queue_in,
-        Arc::new(NetworkMessage::NetworkPacket(packet, None, None))
+        NetworkMessage::NetworkPacket(packet, None, None)
     );
 
     if let Some(ref service) = node.stats_export_service {
