@@ -103,8 +103,8 @@ pub struct P2PNode {
     send_queue_out: Arc<Mutex<Receiver<NetworkMessage>>>,
     resend_queue_in: SyncSender<ResendQueueEntry>,
     resend_queue_out: Arc<Mutex<Receiver<ResendQueueEntry>>>,
-    pub queue_to_super: RelayOrStopSyncSender<Arc<NetworkMessage>>,
-    pub rpc_queue: SyncSender<Arc<NetworkMessage>>,
+    pub queue_to_super: RelayOrStopSyncSender<NetworkMessage>,
+    pub rpc_queue: SyncSender<NetworkMessage>,
     start_time: DateTime<Utc>,
     external_addr: SocketAddr,
     thread: Arc<RwLock<P2PNodeThread>>,
@@ -125,11 +125,11 @@ impl P2PNode {
     pub fn new(
         supplied_id: Option<String>,
         conf: &configuration::Config,
-        pkt_queue: RelayOrStopSyncSender<Arc<NetworkMessage>>,
+        pkt_queue: RelayOrStopSyncSender<NetworkMessage>,
         event_log: Option<SyncSender<P2PEvent>>,
         peer_type: PeerType,
         stats_export_service: Option<StatsExportService>,
-        subscription_queue_in: SyncSender<Arc<NetworkMessage>>,
+        subscription_queue_in: SyncSender<NetworkMessage>,
     ) -> Self {
         let addr = if let Some(ref addy) = conf.common.listen_address {
             format!("{}:{}", addy, conf.common.listen_port)

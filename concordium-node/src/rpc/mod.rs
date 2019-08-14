@@ -35,14 +35,14 @@ use std::{
 
 pub struct RpcServerImplShared {
     pub server:                 Option<grpcio::Server>,
-    pub subscription_queue_out: mpsc::Receiver<Arc<NetworkMessage>>,
-    pub subscription_queue_in:  mpsc::SyncSender<Arc<NetworkMessage>>,
+    pub subscription_queue_out: mpsc::Receiver<NetworkMessage>,
+    pub subscription_queue_in:  mpsc::SyncSender<NetworkMessage>,
 }
 
 impl RpcServerImplShared {
     pub fn new(
-        subscription_queue_out: mpsc::Receiver<Arc<NetworkMessage>>,
-        subscription_queue_in: mpsc::SyncSender<Arc<NetworkMessage>>,
+        subscription_queue_out: mpsc::Receiver<NetworkMessage>,
+        subscription_queue_in: mpsc::SyncSender<NetworkMessage>,
     ) -> Self {
         RpcServerImplShared {
             server: None,
@@ -80,7 +80,7 @@ impl RpcServerImpl {
         consensus: Option<ConsensusContainer>,
         conf: &configuration::RpcCliConfig,
         stats: &Option<StatsExportService>,
-        subscription_queue_out: mpsc::Receiver<Arc<NetworkMessage>>,
+        subscription_queue_out: mpsc::Receiver<NetworkMessage>,
     ) -> Self {
         let dptr = RpcServerImplShared::new(subscription_queue_out, node.rpc_queue.clone());
 
@@ -632,7 +632,7 @@ impl P2P for RpcServerImpl {
 
             let f = if let Ok(read_lock_dptr) = self.dptr.lock() {
                 if let Ok(msg) = read_lock_dptr.subscription_queue_out.try_recv() {
-                    if let NetworkMessage::NetworkPacket(ref packet, ..) = *msg {
+                    if let NetworkMessage::NetworkPacket(ref packet, ..) = msg {
                         let mut inner_msg = packet.message.to_owned();
                         if let Ok(view_inner_msg) = inner_msg.read_all_into_view() {
                             let msg = view_inner_msg.as_slice().to_vec();

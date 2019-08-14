@@ -161,11 +161,7 @@ pub fn make_node_and_sync_with_rpc(
     port: u16,
     networks: Vec<u16>,
     node_type: PeerType,
-) -> Fallible<(
-    P2PNode,
-    Receiver<NetworkMessage>,
-    Receiver<Arc<NetworkMessage>>,
-)> {
+) -> Fallible<(P2PNode, Receiver<NetworkMessage>, Receiver<NetworkMessage>)> {
     let (net_tx, _) = std::sync::mpsc::sync_channel(64);
     let (msg_wait_tx, msg_wait_rx) = std::sync::mpsc::sync_channel(64);
     let (rpc_tx, rpc_rx) = std::sync::mpsc::sync_channel(64);
