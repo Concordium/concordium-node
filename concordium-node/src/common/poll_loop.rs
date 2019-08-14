@@ -47,9 +47,9 @@ pub fn process_network_requests(
                             network_request.priority,
                         ) {
                             conn.close();
-                            error!(
-                                "Network raw request error on connection {}: {}, and the \
-                                 connection will be closed.",
+                            debug!(
+                                "Network raw request error in connection {}: {}; the connection \
+                                 will be closed.",
                                 usize::from(network_request.token),
                                 err
                             );
@@ -58,7 +58,7 @@ pub fn process_network_requests(
                         trace!("Attempted to write to an already closed connection");
                     }
                 }
-                None => error!(
+                None => debug!(
                     "Network raw request cannot be sent due to a missing connection {}",
                     usize::from(network_request.token)
                 ),

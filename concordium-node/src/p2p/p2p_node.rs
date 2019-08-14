@@ -781,18 +781,13 @@ impl P2PNode {
         let check_sent_status_fn =
             |conn: &Connection, status: Fallible<()>| self.check_sent_status(&conn, status);
 
+        let serialized_packet = serialize_into_memory(
+            &NetworkMessage::NetworkPacket(Arc::clone(&inner_pkt), Some(get_current_stamp()), None),
+            256,
+        );
+
         let (peers_to_skip, s11n_data) = match inner_pkt.packet_type {
-            NetworkPacketType::DirectMessage(..) => (
-                vec![].into_boxed_slice(),
-                serialize_into_memory(
-                    &NetworkMessage::NetworkPacket(
-                        inner_pkt.clone(),
-                        Some(get_current_stamp()),
-                        None,
-                    ),
-                    256,
-                ),
-            ),
+            NetworkPacketType::DirectMessage(..) => (vec![].into_boxed_slice(), serialized_packet),
             NetworkPacketType::BroadcastedMessage(ref dont_send_to) => {
                 let not_valid_receivers = if self.config.relay_broadcast_percentage < 1.0 {
                     use rand::seq::SliceRandom;
@@ -806,23 +801,14 @@ impl P2PNode {
                     );
                     peers
                         .choose_multiple(&mut rng, peers_to_take as usize)
-                        .cloned()
+                        .copied()
                         .collect::<Vec<_>>()
                         .into_boxed_slice()
                 } else {
-                    vec![].into_boxed_slice()
+                    Box::from([])
                 };
-                (
-                    not_valid_receivers,
-                    serialize_into_memory(
-                        &NetworkMessage::NetworkPacket(
-                            inner_pkt.clone(),
-                            Some(get_current_stamp()),
-                            None,
-                        ),
-                        256,
-                    ),
-                )
+
+                (not_valid_receivers, serialized_packet)
             }
         };
 
