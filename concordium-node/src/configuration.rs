@@ -323,7 +323,7 @@ pub struct CliConfig {
     #[structopt(
         long = "poll-interval",
         help = "The polling interval",
-        default_value = "200"
+        default_value = "100"
     )]
     pub poll_interval: u64,
     #[structopt(flatten)]

@@ -453,7 +453,7 @@ impl P2PNode {
         self.quit_tx = Some(tx);
 
         let join_handle = spawn_or_die!("P2PNode spawned thread", move || {
-            let mut events = Events::with_capacity(1024);
+            let mut events = Events::with_capacity(10);
             let mut log_time = SystemTime::now();
 
             loop {
@@ -472,7 +472,7 @@ impl P2PNode {
                 // Run periodic tasks (every 30 seconds).
                 let now = SystemTime::now();
                 if let Ok(difference) = now.duration_since(log_time) {
-                    if difference > Duration::from_secs(30) {
+                    if difference > Duration::from_secs(60) {
                         let peer_stat_list = self_clone.get_peer_stats(&[]);
                         self_clone.print_stats(&peer_stat_list);
                         self_clone.check_peers(&peer_stat_list);
