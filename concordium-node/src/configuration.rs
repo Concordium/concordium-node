@@ -231,12 +231,6 @@ pub struct ConnectionConfig {
         default_value = "/etc/resolv.conf"
     )]
     pub resolv_conf: String,
-    #[structopt(
-        long = "gossip-seen-message-ids-size",
-        help = "Size of kept history of seen message ids when gossiping",
-        default_value = "5000"
-    )]
-    pub gossip_seen_message_ids_size: usize,
 }
 
 #[derive(StructOpt, Debug)]
@@ -328,15 +322,16 @@ pub struct CliConfig {
     pub no_network: bool,
     #[structopt(
         long = "poll-interval",
-        help = "The polling interval",
-        default_value = "200"
+        help = "The polling interval in milliseconds",
+        default_value = "100"
     )]
     pub poll_interval: u64,
     #[structopt(
-        long = "testrunner-url",
-        help = "URL for the test runner to submit data to"
+        long = "housekeeping-interval",
+        help = "The connection housekeeping interval in seconds",
+        default_value = "60"
     )]
-    pub test_runner_url: Option<String>,
+    pub housekeeping_interval: u64,
     #[structopt(flatten)]
     pub baker: BakerConfig,
     #[cfg(feature = "benchmark")]
@@ -358,23 +353,6 @@ pub struct BootstrapperConfig {
 }
 
 #[derive(StructOpt, Debug)]
-#[structopt(name = "Test Runner Service")]
-pub struct TestRunnerConfig {
-    #[structopt(
-        long = "listen-http-port",
-        help = "Port to listen for http on",
-        default_value = "8950"
-    )]
-    pub listen_http_port: u16,
-    #[structopt(
-        long = "listen-http-address",
-        help = "Address to listen for http on",
-        default_value = "0.0.0.0"
-    )]
-    pub listen_http_address: String,
-}
-
-#[derive(StructOpt, Debug)]
 pub struct Config {
     #[structopt(flatten)]
     pub common: CommonConfig,
@@ -387,8 +365,6 @@ pub struct Config {
     pub cli: CliConfig,
     #[structopt(flatten)]
     pub bootstrapper: BootstrapperConfig,
-    #[structopt(flatten)]
-    pub testrunner: TestRunnerConfig,
     #[structopt(flatten)]
     pub crypto: CryptoConfig,
 }

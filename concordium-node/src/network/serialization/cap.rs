@@ -293,13 +293,14 @@ mod s11n {
     #[inline(always)]
     fn write_network_packet(
         builder: &mut p2p_capnp::network_packet::Builder,
-        np: &mut NetworkPacket,
+        np: &NetworkPacket,
         timestamp: u64,
     ) {
         match np.packet_type {
             NetworkPacketType::DirectMessage(receiver) => {
                 let view = np
                     .message
+                    .clone()
                     .read_all_into_view()
                     .expect("Not enought memory to serialize using CAPNP");
 

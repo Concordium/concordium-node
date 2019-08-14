@@ -143,6 +143,7 @@ pub fn make_node_and_sync(
 
     // locally-run tests and benches can be polled with a much greater frequency
     node.config.poll_interval = 1;
+    node.config.housekeeping_interval = 1;
 
     node.add_notification(make_atomic_callback!(move |m: &NetworkMessage| {
         log_any_message_handler(node_id, m)
@@ -161,11 +162,7 @@ pub fn make_node_and_sync_with_rpc(
     port: u16,
     networks: Vec<u16>,
     node_type: PeerType,
-) -> Fallible<(
-    P2PNode,
-    Receiver<NetworkMessage>,
-    Receiver<Arc<NetworkMessage>>,
-)> {
+) -> Fallible<(P2PNode, Receiver<NetworkMessage>, Receiver<NetworkMessage>)> {
     let (net_tx, _) = std::sync::mpsc::sync_channel(64);
     let (msg_wait_tx, msg_wait_rx) = std::sync::mpsc::sync_channel(64);
     let (rpc_tx, rpc_rx) = std::sync::mpsc::sync_channel(64);
@@ -184,6 +181,7 @@ pub fn make_node_and_sync_with_rpc(
 
     // locally-run tests and benches can be polled with a much greater frequency
     node.config.poll_interval = 1;
+    node.config.housekeeping_interval = 1;
 
     node.add_notification(make_atomic_callback!(move |m: &NetworkMessage| {
         log_any_message_handler(node_id, m)
@@ -223,8 +221,8 @@ pub fn wait_broadcast_message(waiter: &Receiver<NetworkMessage>) -> Fallible<UCu
     loop {
         let msg = waiter.recv()?;
         if let NetworkMessage::NetworkPacket(pac, ..) = msg {
-            if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
-                return Ok(pac.message);
+            if let NetworkPacketType::BroadcastedMessage(..) = pac.packet_type {
+                return Ok(pac.message.to_owned());
             }
         }
     }
@@ -235,7 +233,7 @@ pub fn wait_direct_message(waiter: &Receiver<NetworkMessage>) -> Fallible<UCurso
         let msg = waiter.recv()?;
         if let NetworkMessage::NetworkPacket(pac, ..) = msg {
             if let NetworkPacketType::DirectMessage(..) = pac.packet_type {
-                return Ok(pac.message);
+                return Ok(pac.message.to_owned());
             }
         }
     }
@@ -248,7 +246,7 @@ pub fn wait_direct_message_timeout(
     while let Ok(msg) = waiter.recv_timeout(timeout) {
         if let NetworkMessage::NetworkPacket(pac, ..) = msg {
             if let NetworkPacketType::DirectMessage(..) = pac.packet_type {
-                return Some(pac.message);
+                return Some(pac.message.to_owned());
             }
         }
     }
@@ -322,7 +320,7 @@ where
             NetworkResponse::Handshake(..) => "Response::Handshake".to_owned(),
         },
         NetworkMessage::NetworkPacket(ref packet, ..) => match packet.packet_type {
-            NetworkPacketType::BroadcastedMessage => {
+            NetworkPacketType::BroadcastedMessage(..) => {
                 format!("Packet::Broadcast(size={})", packet.message.len())
             }
             NetworkPacketType::DirectMessage(src_node_id, ..) => format!(

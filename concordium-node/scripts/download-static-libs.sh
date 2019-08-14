@@ -4,23 +4,37 @@ set -e
 git submodule update --init --recursive
 BASEDIR="$( cd "$(dirname "$0")" ; pwd -P )"
 ( 
-  TMPDIR="$BASEDIR/../deps/internal/consensus/tmp"
-  if [ -d $TMPDIR ]; then
-    rm -r $TMPDIR
-  fi
   cd $BASEDIR/../deps/internal/consensus
   VERSION_TAG=$(git rev-parse --verify HEAD)
-  mkdir $TMPDIR
+  ARCHIVES_DIR=$BASEDIR/../deps/static-libs/linux/archives
+  if [ ! -d $ARCHIVES_DIR ]; then
+    mkdir -p $ARCHIVES_DIR
+  fi
+  cd $ARCHIVES_DIR
   (
-    cd $TMPDIR
-    printf "Downloading static consensus version $VERSION_TAG\n"
-    curl -s https://s3-eu-west-1.amazonaws.com/static-libraries.concordium.com/static-consensus-$VERSION_TAG.tar.gz > static-consensus-$VERSION_TAG.tar.gz
-    printf "Expanding downloaded archive\n"
-    tar -xf static-consensus-$VERSION_TAG.tar.gz
-    cd target/
-    printf "Replacing local version with upstream\n"
-    rm -rf $BASEDIR/../deps/static-libs/linux/*
-    cp -r * $BASEDIR/../deps/static-libs/linux/
+    DISK_VERSION_FILE="$ARCHIVES_DIR/VERSIONTAG"
+    if [ -f "$DISK_VERSION_FILE" ]; then
+      DISK_VERSION_TAG=$(<"$DISK_VERSION_FILE")
+    else
+      DISK_VERSION_TAG="UNKNOWN"
+    fi
+    if [ "$DISK_VERSION_TAG" != "$VERSION_TAG" ]; then
+      ARCHIVE="static-consensus-$VERSION_TAG.tar.gz"
+      if [ ! -f "$ARCHIVE" ]; then
+        printf "Downloading static consensus version $VERSION_TAG\n"
+        curl -s https://s3-eu-west-1.amazonaws.com/static-libraries.concordium.com/static-consensus-$VERSION_TAG.tar.gz > $ARCHIVE
+      fi
+      printf "Expanding downloaded archive\n"
+      rm -rf target
+      tar -xf $ARCHIVE
+      ( 
+        cd target/
+        printf "Replacing local version with upstream\n"
+        rm -rf $BASEDIR/../deps/static-libs/linux/{profiling,rust,vanilla}
+        cp -r * $BASEDIR/../deps/static-libs/linux/
+      )
+      rm -rf target/
+      echo $VERSION_TAG > $ARCHIVES_DIR/VERSIONTAG
+    fi
   )
-  rm -r $TMPDIR
 )

@@ -2,6 +2,7 @@ use std::{
     convert::{From, TryFrom},
     net::{IpAddr, Ipv4Addr, SocketAddr},
     str::{self, FromStr},
+    sync::Arc,
 };
 
 use concordium_common::UCursor;
@@ -81,7 +82,7 @@ named!(
 );
 
 named!(
-    s11n_network_packet_direct<&[u8], NetworkPacket>,
+    s11n_network_packet_direct<&[u8], Arc<NetworkPacket>>,
     do_parse!(
         receiver_id: s11n_p2p_node_id >>
         msg_id: s11n_msg_id >>

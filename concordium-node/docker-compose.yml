@@ -1,0 +1,35 @@
+version: '3'
+services:
+    bootstrapper:
+        image: concordium/dev-client:latest
+        environment:
+            - RUST_BACKTRACE=1
+            - RUST_LOG=trace
+            - MODE=local_bootstrapper
+            - EXTRA_ARGS=${EXTRA_ARGS}
+        entrypoint:
+            - /start.sh
+    baker_id_gen:
+        image: concordium/dev-client:latest
+        entrypoint:
+            - /baker_id_generator
+       
+    baker:
+        image: concordium/dev-client:latest
+        depends_on:
+            - baker_id_gen
+        entrypoint:
+            - /start.sh
+        environment:
+            - RUST_BACKTRACE=1
+            - RUST_LOG=debug
+            - DESIRED_PEERS=${DESIRED_PEERS}
+            - BOOTSTRAP_FIRST_NODE=bootstrapper:8888
+            - EXTERNAL_PORT=8888
+            - NUM_BAKERS=${NUM_BAKERS}
+            - MODE=local_basic
+            - DATA_DIR=/var/lib/concordium/data
+            - RPC_SERVER_ADDR=0.0.0.0
+            - EXTRA_ARGS=${EXTRA_ARGS}
+        ports:
+            - "11100-11500:10000"

@@ -24,17 +24,24 @@ use super::{PeerId, ProcessingState};
 /// It contains an optional identifier of the source peer if it is not our own
 /// consensus layer.
 pub struct ConsensusMessage {
-    pub direction: MessageType,
-    pub variant:   PacketType,
-    pub payload:   Arc<[u8]>,
+    pub direction:     MessageType,
+    pub variant:       PacketType,
+    pub payload:       Arc<[u8]>,
+    pub dont_relay_to: Vec<PeerId>,
 }
 
 impl ConsensusMessage {
-    pub fn new(direction: MessageType, variant: PacketType, payload: Arc<[u8]>) -> Self {
+    pub fn new(
+        direction: MessageType,
+        variant: PacketType,
+        payload: Arc<[u8]>,
+        dont_relay_to: Vec<PeerId>,
+    ) -> Self {
         Self {
             direction,
             variant,
             payload,
+            dont_relay_to,
         }
     }
 
@@ -60,6 +67,10 @@ impl ConsensusMessage {
         } else {
             panic!("An Outbound ConsensusMessage doesn't have a source peer!");
         }
+    }
+
+    pub fn dont_relay_to(&mut self) -> Vec<PeerId> {
+        mem::replace(&mut self.dont_relay_to, Vec::new()) // should be called only once
     }
 }
 
