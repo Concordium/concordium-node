@@ -62,6 +62,7 @@ class (Eq (BlockPointer m),
        Monad m)
       => TreeStateMonad m where
 
+    -- |Create and sign a 'PendingBlock`.
     makePendingBlock ::
         BakerSignPrivateKey -- ^Key for signing the new block
         -> Slot             -- ^Block slot (must be non-zero)

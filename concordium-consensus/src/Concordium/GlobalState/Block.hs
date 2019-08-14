@@ -30,6 +30,8 @@ class BlockMetadata d where
 -- @BlockFieldType b@ is an instance of 'BlockMetadata'.
 type family BlockFieldType (b :: *) :: *
 
+-- |The 'BlockData' class provides an interface for the data associated
+-- with a block.
 class BlockMetadata (BlockFieldType b) => BlockData b where
     -- |The slot number of the block (0 for genesis block)
     blockSlot :: b -> Slot
