@@ -336,7 +336,7 @@ addBlock block = do
                 Just BlockDead -> deadBlock
                 Just (BlockAlive parentP) -> tryAddLiveParent parentP
                 Just (BlockFinalized parentP _) -> do
-                    lfb <- getLastFinalized
+                    (lfb, _) <- getLastFinalized
                     -- If the parent is finalized, it had better be the last finalized, or else the block is already dead
                     if parentP /= lfb then deadBlock else tryAddLiveParent parentP
     where

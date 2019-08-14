@@ -266,7 +266,7 @@ getFinalizationMessages sfsRef finPt = runStateQuery sfsRef $ get <&> \sfs -> ge
 getFinalizationPoint :: (SkovStateQueryable z m, MonadState s m, FinalizationQuery s) => z -> IO FinalizationPoint
 getFinalizationPoint sfsRef = runStateQuery sfsRef $ get <&> getCurrentFinalizationPoint
 
-getCatchUpStatus :: (SkovStateQueryable z m) => z -> IO CU.CatchUpStatus
+getCatchUpStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> IO CU.CatchUpStatus
 getCatchUpStatus sRef = runStateQuery sRef $ CU.getCatchUpStatus True
 
 handleCatchUpStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> CU.CatchUpStatus -> IO (Either String (Maybe ([Either FinalizationRecord Block], CU.CatchUpStatus), Bool))

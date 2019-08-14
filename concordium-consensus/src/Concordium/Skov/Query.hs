@@ -40,7 +40,7 @@ doBranchesFromTop = revSeqToList <$> getBranches
 doGetBlocksAtHeight :: TreeStateMonad m => BlockHeight -> m [BlockPointer m]
 {-# INLINE doGetBlocksAtHeight #-}
 doGetBlocksAtHeight h = do
-        lastFin <- getLastFinalized
+        lastFin <- fst <$> getLastFinalized
         case compare h (bpHeight lastFin) of
             EQ -> return [lastFin]
             GT -> do

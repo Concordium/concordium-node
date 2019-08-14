@@ -17,6 +17,7 @@ module Concordium.Afgjort.Finalize (
     notifyBlockArrival,
     notifyBlockFinalized,
     receiveFinalizationMessage,
+    nextFinalizationJustifierHeight,
     -- * Passive mode
     PassiveFinalizationState(..),
     PassiveFinalizationStateLenses(..),
@@ -485,20 +486,40 @@ getMyParty = do
 -- |Called to notify the finalization routine when a new block is finalized.
 -- (NB: this should never be called with the genesis block.)
 notifyBlockFinalized :: (FinalizationMonad s m, BlockPointerData bp) => FinalizationRecord -> bp -> m ()
-notifyBlockFinalized FinalizationRecord{..} bp = do
+notifyBlockFinalized fr@FinalizationRecord{..} bp = do
         finIndex .= finalizationIndex + 1
         -- Discard finalization messages from old round
         finPendingMessages . atStrict finalizationIndex .= Nothing
         pms <- use finPendingMessages
         logEvent Afgjort LLTrace $ "Finalization complete. Pending messages: " ++ show pms
-        let newFinDelay = if finalizationDelay > 2 then finalizationDelay `div` 2 else 1
+        let newFinDelay = nextFinalizationDelay fr
         fs <- use finMinSkip
-        finHeight .= bpHeight bp + max (1 + fs) ((bpHeight bp - bpHeight (bpLastFinalized bp)) `div` 2)
+        finHeight .= nextFinalizationHeight fs bp
         -- Determine if we're in the committee
         mMyParty <- getMyParty
         forM_ mMyParty $ \myParty -> do
             newRound newFinDelay myParty
-            
+
+nextFinalizationDelay :: FinalizationRecord -> BlockHeight
+nextFinalizationDelay FinalizationRecord{..} = if finalizationDelay > 2 then finalizationDelay `div` 2 else 1
+
+-- |Given the finalization minimum skip and an explicitly finalized block, compute
+-- the height of the next finalized block.
+nextFinalizationHeight :: (BlockPointerData bp) 
+    => BlockHeight -- ^Finalization minimum skip
+    -> bp -- ^Last finalized block
+    -> BlockHeight
+nextFinalizationHeight fs bp = bpHeight bp + max (1 + fs) ((bpHeight bp - bpHeight (bpLastFinalized bp)) `div` 2)
+
+-- |The height that a chain must be for a block to be eligible for finalization.
+-- This is the next finalization height + the next finalization delay.
+nextFinalizationJustifierHeight :: (BlockPointerData bp)
+    => FinalizationParameters
+    -> FinalizationRecord -- ^Last finalization record
+    -> bp -- ^Last finalized block
+    -> BlockHeight
+nextFinalizationJustifierHeight fp fr bp = nextFinalizationHeight (finalizationMinimumSkip fp) bp + nextFinalizationDelay fr
+
 getPartyWeight :: FinalizationCommittee -> Party -> Int
 getPartyWeight com pid = case parties com ^? ix (fromIntegral pid) of
         Nothing -> 0
