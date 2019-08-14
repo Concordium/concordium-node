@@ -46,7 +46,7 @@ pub fn forward_network_request(
 #[derive(Clone)]
 pub struct OutgoingQueues {
     /// Send_queue to other nodes
-    pub send_queue: SyncSender<Arc<NetworkMessage>>,
+    pub send_queue: SyncSender<NetworkMessage>,
     /// Queue to super process (to bakers or db)
     pub queue_to_super: RelayOrStopSyncSender<Arc<NetworkMessage>>,
     /// Queue to the RPC subscription
