@@ -251,7 +251,19 @@ impl FrameStream {
 
     /// It tries to fully read a message from `input`. If it is not possible,
     /// you have to call this function several times.
-    pub fn read(&mut self, input: &mut impl Read) -> Fallible<Readiness<UCursor>> {
+    pub fn read(
+        &mut self,
+        socket_closing: bool,
+        input: &mut impl Read,
+    ) -> Fallible<Readiness<UCursor>> {
+        // Drain the socket and do an early return if it's already scheduled for
+        // closing, to avoid processing inbound bytes further.
+        if socket_closing {
+            // We don't care if this fails, as we already know the socket is closing
+            let _ = input.bytes().count();
+            return Ok(Readiness::NotReady);
+        }
+
         let payload_readiness = if self.expected_size == 0 {
             self.read_expected_size(input)
         } else {
