@@ -4,7 +4,6 @@ use std::{
     sync::Arc,
 };
 
-use failure::Fallible;
 use tempfile::NamedTempFile;
 
 use crate::ContainerView;
@@ -19,7 +18,7 @@ pub struct UCursorFile {
 }
 
 impl UCursorFile {
-    pub fn build() -> Result<Self> {
+    fn build() -> Result<Self> {
         let tmp_file = NamedTempFile::new()?;
         let file = tmp_file.reopen()?;
 
@@ -30,13 +29,6 @@ impl UCursorFile {
             pos:           0,
             offset:        0,
         })
-    }
-
-    pub fn read_all_into(&mut self, out: &mut Vec<u8>) -> Fallible<()> {
-        self.file.seek(SeekFrom::Start(self.offset))?;
-        self.file.read_to_end(out)?;
-        self.file.seek(SeekFrom::Start(self.pos))?;
-        Ok(())
     }
 
     fn try_clone(&self) -> Result<Self> {
@@ -114,7 +106,7 @@ impl UCursor {
     }
 
     #[inline]
-    pub fn set_position(&mut self, pos: u64) -> u64 {
+    fn set_position(&mut self, pos: u64) -> u64 {
         let prev_position = self.position();
         match self {
             UCursor::Memory(ref mut cursor) => cursor.set_position(pos),
@@ -179,19 +171,6 @@ impl UCursor {
         Ok(view)
     }
 
-    pub fn clear(&mut self) {
-        match self {
-            UCursor::Memory(ref mut cursor) => {
-                cursor.set_position(0);
-            }
-            UCursor::File(..) => {
-                let mut other =
-                    UCursor::build_from_view(ContainerView::from(Vec::with_capacity(4 * 1024)));
-                std::mem::swap(self, &mut other);
-            }
-        }
-    }
-
     pub fn swap_to_file(&mut self) -> Result<()> {
         if let UCursor::Memory(ref mut cursor) = self {
             cursor.set_position(0);
@@ -204,28 +183,6 @@ impl UCursor {
             std::mem::swap(self, &mut other);
             self.set_position(0);
         }
-        Ok(())
-    }
-
-    pub fn swap_to_memory(&mut self) -> Result<()> {
-        let mut data_opt = None;
-
-        if let UCursor::File(ref mut uc_file) = self {
-            // Sync
-            uc_file.file.get_mut().sync_all()?;
-            uc_file.file.seek(SeekFrom::Start(uc_file.offset))?;
-
-            // Copy into mem
-            let mut data = Vec::with_capacity(uc_file.len as usize);
-            std::io::copy(&mut uc_file.file, &mut data)?;
-
-            data_opt = Some(data);
-        };
-
-        if let Some(data_opt) = data_opt {
-            let mut other = UCursor::build_from_view(ContainerView::from(data_opt));
-            std::mem::swap(self, &mut other);
-        };
         Ok(())
     }
 }
@@ -324,11 +281,6 @@ impl std::io::Seek for UCursor {
 impl From<Vec<u8>> for UCursor {
     #[inline]
     fn from(data: Vec<u8>) -> Self { UCursor::build_from_view(ContainerView::from(data)) }
-}
-
-impl From<ContainerView> for UCursor {
-    #[inline]
-    fn from(view: ContainerView) -> Self { UCursor::build_from_view(view) }
 }
 
 #[cfg(feature = "s11n_serde")]
@@ -519,5 +471,4 @@ mod unit_test {
         cur.swap_to_file().map_err(|e| failure::Error::from(e))?;
         Ok(())
     }
-
 }
