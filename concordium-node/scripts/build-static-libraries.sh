@@ -13,7 +13,7 @@ rm -r bootstrapped_out
 cp /manifests/cabal.project           /build
 cp /manifests/cabal.project.local     /build
 
-rustup default 1.36.0
+rustup default 1.37.0
 
 mkdir -p /target/{profiling,vanilla}/{ghc,cabal,concordium}
 mkdir -p /binaries/{lib,bin}
