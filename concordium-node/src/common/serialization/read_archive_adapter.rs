@@ -4,20 +4,16 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use concordium_common::{ContainerView, UCursor};
 use failure::Fallible;
 
-use std::net::IpAddr;
-
 pub struct ReadArchiveAdapter {
     io_reader:   UCursor,
     remote_peer: RemotePeer,
-    ip:          IpAddr,
 }
 
 impl ReadArchiveAdapter {
-    pub fn new(io_reader: UCursor, remote_peer: RemotePeer, ip: IpAddr) -> Self {
+    pub fn new(io_reader: UCursor, remote_peer: RemotePeer) -> Self {
         ReadArchiveAdapter {
             io_reader,
             remote_peer,
-            ip,
         }
     }
 
@@ -31,9 +27,6 @@ impl ReadArchiveAdapter {
 impl ReadArchive for ReadArchiveAdapter {
     #[inline]
     fn remote_peer(&self) -> &RemotePeer { &self.remote_peer }
-
-    #[inline]
-    fn ip(&self) -> IpAddr { self.ip }
 
     #[inline]
     fn read_u8(&mut self) -> Fallible<u8> { into_err!(self.io_reader.read_u8()) }

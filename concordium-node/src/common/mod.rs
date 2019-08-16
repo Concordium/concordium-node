@@ -240,12 +240,9 @@ mod tests {
             );
             let test_msg_data = serialize_into_memory(&test_msg, 256).unwrap();
 
-            let deserialized = deserialize_from_memory::<NetworkMessage>(
-                test_msg_data,
-                self_peer.clone(),
-                self_peer.peer().unwrap().ip(),
-            )
-            .unwrap();
+            let deserialized =
+                deserialize_from_memory::<NetworkMessage>(test_msg_data, self_peer.clone())
+                    .unwrap();
             net_assertion!($msg, $msg_type, deserialized)
         }};
         ($msg:ident, $msg_type:ident, $nets:expr) => {{
@@ -258,12 +255,9 @@ mod tests {
             );
             let test_msg_data = serialize_into_memory(&test_msg, 256).unwrap();
 
-            let deserialized = deserialize_from_memory::<NetworkMessage>(
-                test_msg_data,
-                self_peer.clone(),
-                self_peer.peer().unwrap().ip(),
-            )
-            .unwrap();
+            let deserialized =
+                deserialize_from_memory::<NetworkMessage>(test_msg_data, self_peer.clone())
+                    .unwrap();
 
             net_assertion!($msg, $msg_type, deserialized, nets)
         }};
@@ -281,12 +275,9 @@ mod tests {
             );
             let test_msg_data = serialize_into_memory(&test_msg, 256).unwrap();
 
-            let deserialized = deserialize_from_memory::<NetworkMessage>(
-                test_msg_data,
-                self_peer.clone(),
-                self_peer.peer().unwrap().ip(),
-            )
-            .unwrap();
+            let deserialized =
+                deserialize_from_memory::<NetworkMessage>(test_msg_data, self_peer.clone())
+                    .unwrap();
 
             net_assertion!($msg, $msg_type, deserialized, zk, nets)
         }};
@@ -394,7 +385,6 @@ mod tests {
 
     #[test]
     pub fn direct_message_test() -> Fallible<()> {
-        let ipaddr = IpAddr::from_str("10.10.10.10")?;
         let self_peer = self_peer();
         let text_msg = ContainerView::from(b"Hello world!".to_vec());
         let msg = NetworkPacketBuilder::default()
@@ -406,7 +396,7 @@ mod tests {
 
         let msg_serialized = serialize_into_memory(&*msg, 256)?;
         let mut packet =
-            deserialize_from_memory::<NetworkPacket>(msg_serialized, self_peer.clone(), ipaddr)?;
+            deserialize_from_memory::<NetworkPacket>(msg_serialized, self_peer.clone())?;
 
         if let NetworkPacketType::DirectMessage(..) = packet.packet_type {
             assert_eq!(packet.network_id, NetworkId::from(100));
@@ -420,7 +410,6 @@ mod tests {
 
     #[test]
     pub fn broadcasted_message_test() -> Fallible<()> {
-        let ipaddr = IpAddr::from_str("10.10.10.10")?;
         let self_peer = self_peer();
         let text_msg = ContainerView::from(b"Hello  broadcasted world!".to_vec());
         let msg = NetworkPacketBuilder::default()
@@ -431,8 +420,7 @@ mod tests {
             .build_broadcast(vec![])?;
 
         let serialized = serialize_into_memory(&*msg, 256)?;
-        let mut packet =
-            deserialize_from_memory::<NetworkPacket>(serialized, self_peer.clone(), ipaddr)?;
+        let mut packet = deserialize_from_memory::<NetworkPacket>(serialized, self_peer.clone())?;
 
         if let NetworkPacketType::BroadcastedMessage(..) = packet.packet_type {
             assert_eq!(packet.network_id, NetworkId::from(100));
@@ -487,11 +475,7 @@ mod tests {
         //  + 1 byte due to endianess (Version is stored as u16)
         ping_data[13 + 1] = (PROTOCOL_VERSION + 1) as u8;
 
-        let deserialized = deserialize_from_memory::<NetworkMessage>(
-            ping_data,
-            self_peer(),
-            IpAddr::from([127, 0, 0, 1]),
-        );
+        let deserialized = deserialize_from_memory::<NetworkMessage>(ping_data, self_peer());
 
         assert!(deserialized.is_err());
     }
@@ -508,11 +492,7 @@ mod tests {
         // Force and error in protocol name:
         ping_data[1] = b'X';
 
-        let deserialized = deserialize_from_memory::<NetworkMessage>(
-            ping_data,
-            self_peer(),
-            IpAddr::from([127, 0, 0, 1]),
-        );
+        let deserialized = deserialize_from_memory::<NetworkMessage>(ping_data, self_peer());
 
         assert!(deserialized.is_err())
     }

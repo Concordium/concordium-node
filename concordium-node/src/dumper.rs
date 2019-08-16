@@ -44,8 +44,7 @@ impl DumpItem {
     }
 
     pub fn into_pretty_dump(mut self) -> String {
-        let mut archive =
-            ReadArchiveAdapter::new(self.msg.clone(), self.remote_peer, self.remote_addr);
+        let mut archive = ReadArchiveAdapter::new(self.msg.clone(), self.remote_peer);
 
         format!(
             "{} - {} - {} - {:?} - {:?}",

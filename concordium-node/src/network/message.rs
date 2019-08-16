@@ -110,8 +110,15 @@ impl Deserializable for NetworkMessage {
     fn deserialize<A>(archive: &mut A) -> Fallible<NetworkMessage>
     where
         A: ReadArchive, {
-        archive.tag_slice(PROTOCOL_NAME.as_bytes())?;
-        archive.tag(PROTOCOL_VERSION)?;
+        // verify the protocol name and version
+        let protocol_name = archive.read_n_bytes(PROTOCOL_NAME.len() as u32)?;
+        if protocol_name.as_slice() != PROTOCOL_NAME.as_bytes() {
+            bail!("Unknown protocol name (`{:?}`)! ", protocol_name.as_slice())
+        }
+        let protocol_version = u16::deserialize(archive)?;
+        if protocol_version != PROTOCOL_VERSION {
+            bail!("Unknown protocol version (`{:?}`)", protocol_version)
+        }
 
         let timestamp = u64::deserialize(archive)?;
         let protocol_type: ProtocolMessageType =
@@ -232,7 +239,6 @@ mod unit_test {
         let mut archive = ReadArchiveAdapter::new(
             cursor_on_disk,
             RemotePeer::PostHandshake(local_peer.clone()),
-            local_ip,
         );
         let message = NetworkMessage::deserialize(&mut archive)?;
 
