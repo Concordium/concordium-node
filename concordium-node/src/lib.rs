@@ -1,4 +1,5 @@
 #![recursion_limit = "1024"]
+#![allow(bare_trait_objects)] // until grpc updates to Rust 2018
 
 #[macro_use]
 extern crate log;

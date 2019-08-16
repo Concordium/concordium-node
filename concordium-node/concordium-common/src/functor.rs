@@ -18,14 +18,16 @@ pub type FunctorResult<T> = Result<T, FunctorError>;
 /// Result of the execution of a single Function
 pub type FuncResult<T> = Result<T, Error>;
 
-pub struct AFuncCW<T: Send, R: Send>(pub Arc<(Fn(&T) -> FuncResult<R> + Send + Sync + 'static)>);
+pub struct AFuncCW<T: Send, R: Send>(
+    pub Arc<(dyn Fn(&T) -> FuncResult<R> + Send + Sync + 'static)>,
+);
 
 impl<T: Send, R: Send> Clone for AFuncCW<T, R> {
     fn clone(&self) -> Self { AFuncCW(Arc::clone(&self.0)) }
 }
 
 impl<T: Send, R: Send> Deref for AFuncCW<T, R> {
-    type Target = Arc<(Fn(&T) -> FuncResult<R> + Send + Sync + 'static)>;
+    type Target = Arc<(dyn Fn(&T) -> FuncResult<R> + Send + Sync + 'static)>;
 
     fn deref(&self) -> &Self::Target { &self.0 }
 }
