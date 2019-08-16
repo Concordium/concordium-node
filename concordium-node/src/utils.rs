@@ -132,7 +132,7 @@ pub fn parse_host_port(
             if let Ok(port) = port.parse::<u16>() {
                 Ok(vec![SocketAddr::new(ip, port)])
             } else {
-                return Err(Error::from(HostPortParseError::new(input.to_owned())));
+                Err(Error::from(HostPortParseError::new(input.to_owned())))
             }
         } else {
             match port.parse::<u16>() {
