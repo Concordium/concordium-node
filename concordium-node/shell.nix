@@ -5,7 +5,7 @@ let
   "https://github.com/mozilla/nixpkgs-mozilla/archive/master.tar.gz");
   nixpkgs = import <nixpkgs> { overlays = [ moz_overlay ]; };
   rustStableChannel =
-  (nixpkgs.rustChannelOf { channel = "1.36.0"; }).rust.override {
+  (nixpkgs.rustChannelOf { channel = "1.37.0"; }).rust.override {
     extensions =
     [ "rust-src" "rls-preview" "clippy-preview" "rustfmt-preview" ];
   };
