@@ -69,7 +69,7 @@ runABBATestRG g0 baid nparties allparties vrfkeys = go g0 iStates iResults
         iStates = Vec.replicate nparties (initialABBAState)
         checkSucceed = (allparties - nparties) * 3 < allparties
         corruptWeight = (allparties - 1) `div` 3
-        inst i = ABBAInstance baid allparties corruptWeight (const 1) (fromIntegral nparties) (VRF.publicKey . (vrfkeys Vec.!) . fromIntegral) i (vrfkeys Vec.! fromIntegral i)
+        inst i = ABBAInstance baid (fromIntegral allparties) (fromIntegral corruptWeight) (const 1) (fromIntegral nparties) (VRF.publicKey . (vrfkeys Vec.!) . fromIntegral) i (vrfkeys Vec.! fromIntegral i)
         go g sts ress msgs
             | null msgs = return $ counterexample ("Outcome: " ++ show ress) $ not checkSucceed || all (checkRes (ress Vec.! 0)) ress
             | otherwise = do
@@ -126,7 +126,7 @@ runABBATest2 g0 baid nparties allparties vrfkeys = go g0 iStates iResults
         iStates = Vec.replicate nparties (initialABBAState)
         checkSucceed = (allparties - nparties) * 3 < allparties
         corruptWeight = (allparties - 1) `div` 3
-        inst i = ABBAInstance baid allparties corruptWeight (const 1) (fromIntegral nparties) (VRF.publicKey . (vrfkeys Vec.!) . fromIntegral) i (vrfkeys Vec.! fromIntegral i)
+        inst i = ABBAInstance baid (fromIntegral allparties) (fromIntegral corruptWeight) (const 1) (fromIntegral nparties) (VRF.publicKey . (vrfkeys Vec.!) . fromIntegral) i (vrfkeys Vec.! fromIntegral i)
         go g sts ress msgs lowmsgs
             | null msgs = if null lowmsgs then
                             return $ counterexample ("Outcome: " ++ show ress) $ not checkSucceed || all (checkRes (ress Vec.! 0)) ress
@@ -165,7 +165,7 @@ superCorruptKeys good bad ugly = loop
             | phase < 0 = True
             | otherwise = maximum [valAtPhase phase (keys Vec.! k) | k <- [0..good-1]] < maximum [valAtPhase phase (keys Vec.! k) | k <- [good..good+bad-1]] 
                         && areSuperCorrupt (phase - 1) keys
-        valAtPhase phase k = ticketValue (proofToTicket (unsafePerformIO $ makeTicketProof (lotteryId phase) k) 1 (good + bad))
+        valAtPhase phase k = ticketValue (proofToTicket (unsafePerformIO $ makeTicketProof (lotteryId phase) k) 1 (fromIntegral $ good + bad))
         baid = "test" :: BS.ByteString
         lotteryId phase = Ser.runPut $ Ser.put baid >> Ser.put phase
         loop seed =

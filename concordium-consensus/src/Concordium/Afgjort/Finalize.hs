@@ -56,6 +56,7 @@ import Concordium.Afgjort.WMVBA
 import Concordium.Afgjort.Freeze (FreezeMessage(..))
 import Concordium.Kontrol.BestBlock
 import Concordium.Logger
+import Concordium.Afgjort.Finalize.Types
 
 atStrict :: (Ord k) => k -> Lens' (Map k v) (Maybe v)
 atStrict k f m = f mv <&> \r -> case r of
@@ -70,34 +71,6 @@ members e = lens (Set.member e) upd
         upd s True = Set.insert e s
         upd s False = Set.delete e s
 
-data FinalizationInstance = FinalizationInstance {
-    finMySignKey :: !Sig.KeyPair,
-    finMyVRFKey :: !VRF.KeyPair
-}
-
-data PartyInfo = PartyInfo {
-    partyIndex :: !Party,
-    partyWeight :: !Int,
-    partySignKey :: !Sig.VerifyKey,
-    partyVRFKey :: !VRF.PublicKey
-} deriving (Eq, Ord)
-
-instance Show PartyInfo where
-    show = show . partyIndex
-
-data FinalizationCommittee = FinalizationCommittee {
-    parties :: !(Vector PartyInfo),
-    totalWeight :: !Int,
-    corruptWeight :: !Int
-}
-
-makeFinalizationCommittee :: FinalizationParameters -> FinalizationCommittee
-makeFinalizationCommittee (FinalizationParameters {..}) = FinalizationCommittee {..}
-    where
-        parties = Vec.fromList $ zipWith makeParty [0..] finalizationCommittee
-        makeParty pix (VoterInfo psk pvk pow) = PartyInfo pix pow psk pvk
-        totalWeight = sum (partyWeight <$> parties)
-        corruptWeight = (totalWeight - 1) `div` 3
 
 data FinalizationRound = FinalizationRound {
     roundInput :: !(Maybe BlockHash),
@@ -109,78 +82,6 @@ data FinalizationRound = FinalizationRound {
 instance Show FinalizationRound where
     show FinalizationRound{..} = "roundInput: " ++ take 11 (show roundInput) ++ " roundDelta: " ++ show roundDelta
 
-data FinalizationSessionId = FinalizationSessionId {
-    fsidGenesis :: !BlockHash,
-    fsidIncarnation :: !Word64
-} deriving (Eq, Ord, Show)
-
-instance S.Serialize FinalizationSessionId where
-    put FinalizationSessionId{..} = S.put fsidGenesis >> putWord64be fsidIncarnation
-    get = do
-        fsidGenesis <- S.get
-        fsidIncarnation <- getWord64be
-        return FinalizationSessionId{..}
-
-data FinalizationMessageHeader = FinalizationMessageHeader {
-    msgSessionId :: !FinalizationSessionId,
-    msgFinalizationIndex :: !FinalizationIndex,
-    msgDelta :: !BlockHeight,
-    msgSenderIndex :: !Party
-} deriving (Eq, Ord)
-
-instance S.Serialize FinalizationMessageHeader where
-    put FinalizationMessageHeader{..} = do
-        S.put msgSessionId
-        S.put msgFinalizationIndex
-        S.put msgDelta
-        S.put msgSenderIndex
-    get = do
-        msgSessionId <- S.get
-        msgFinalizationIndex <- S.get
-        msgDelta <- S.get
-        msgSenderIndex <- getWord32be
-        return FinalizationMessageHeader{..}
-
-data FinalizationMessage = FinalizationMessage {
-    msgHeader :: !FinalizationMessageHeader,
-    msgBody :: !WMVBAMessage,
-    msgSignature :: !Sig.Signature
-}
-
-instance Show FinalizationMessage where
-    show FinalizationMessage{msgHeader=FinalizationMessageHeader{..},..} = "[" ++ show msgFinalizationIndex ++ ":" ++ show msgDelta ++ "] " ++ show msgSenderIndex ++ "-> " ++ show msgBody
-
-instance S.Serialize FinalizationMessage where
-    put FinalizationMessage{..} = do
-        S.put msgHeader
-        S.put msgBody
-        S.put msgSignature
-    get = do
-        msgHeader <- S.get
-        msgBody <- S.get
-        msgSignature <- S.get
-        return FinalizationMessage{..}
-
-signFinalizationMessage :: Sig.KeyPair -> FinalizationMessageHeader -> WMVBAMessage -> FinalizationMessage
-signFinalizationMessage key msgHeader msgBody = FinalizationMessage {..}
-    where
-        msgSignature = Sig.sign key encMsg
-        encMsg = runPut $ S.put msgHeader >> S.put msgBody
-
-toPartyInfo :: FinalizationCommittee -> Word32 -> Maybe PartyInfo
-toPartyInfo com p = parties com Vec.!? fromIntegral p
-
-checkMessageSignature :: FinalizationCommittee -> FinalizationMessage -> Bool
-checkMessageSignature com FinalizationMessage{..} = isJust $ do
-        p <- toPartyInfo com (msgSenderIndex msgHeader)
-        let encMsg = runPut $ S.put msgHeader >> S.put msgBody
-        guard $ Sig.verify (partySignKey p) encMsg msgSignature
-
-checkMessage :: FinalizationCommittee -> FinalizationMessage -> Bool
-checkMessage com msg = all validParty (messageParties $ msgBody msg) && checkMessageSignature com msg
-    where
-        validParty = (< numParties)
-        numParties = fromIntegral $ Vec.length $ parties com
 
 
 ancestorAtHeight :: BlockPointerData bp => BlockHeight -> bp -> bp
@@ -520,7 +421,7 @@ nextFinalizationJustifierHeight :: (BlockPointerData bp)
     -> BlockHeight
 nextFinalizationJustifierHeight fp fr bp = nextFinalizationHeight (finalizationMinimumSkip fp) bp + nextFinalizationDelay fr
 
-getPartyWeight :: FinalizationCommittee -> Party -> Int
+getPartyWeight :: FinalizationCommittee -> Party -> VoterPower
 getPartyWeight com pid = case parties com ^? ix (fromIntegral pid) of
         Nothing -> 0
         Just p -> partyWeight p

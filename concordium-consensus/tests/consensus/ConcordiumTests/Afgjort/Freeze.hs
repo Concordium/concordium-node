@@ -11,6 +11,8 @@ import Data.List
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Afgjort.Types
 import Concordium.Afgjort.Freeze
+import qualified Concordium.Afgjort.PartySet as PS
+import qualified Concordium.Afgjort.PartyMap as PM
 
 import Test.QuickCheck
 import Test.Hspec
@@ -31,36 +33,38 @@ blocks :: [Val]
 blocks = [blockA, blockB, blockC, blockD]
 
 -- |An invariant predicate over 'FreezeState's.
-invariantFreezeState :: Int -> Int -> (Party -> Int) -> FreezeState -> Bool
+invariantFreezeState :: VoterPower -> VoterPower -> (Party -> VoterPower) -> FreezeState -> Bool
 invariantFreezeState tw cw pw fs = isRight (invariantFreezeState' tw cw pw fs)
 
-invariantFreezeState' :: Int -> Int -> (Party -> Int) -> FreezeState -> Either String ()
+invariantFreezeState' :: VoterPower -> VoterPower -> (Party -> VoterPower) -> FreezeState -> Either String ()
 invariantFreezeState' totalWeight corruptWeight partyWeight fs = do
-    checkBinary (<=) allProps totalWeight "<=" "total proposal weight" "total party weight"
-    checkBinary (==) justProps (_totalProposals fs) "==" "computeted justified proposal weight" "given proposal weight"
-    checkBinary (==) pers (_proposers fs) "==" "computed set of proposers" "given set"
-    propOK
+    checkBinary (==) pers (_justifiedProposers fs) "==" "computed set of justified proposers" "given set"
     checkBinary (==) distJProps (_distinctJustifiedProposals fs) "==" "computed distinct justified proposals" "given distinct justified proposals"
-    checkBinary (<=) allVotes totalWeight "<=" "total vote weight" "total party weight"
-    checkBinary (==) justVotes (_totalVotes fs) "==" "computed justified vote weight" "given vote weight"
-    checkBinary (==) vers (_voters fs) "==" "computed set of voters" "given set"
+    checkBinary (<=) (PS.weight (_justifiedProposers fs)) totalWeight "<=" "weight of justified proposers" "total weight"
+    propOK
+    checkBinary (==) justVoters (_justifiedVoters fs) "==" "computed set of justified voters" "given set"
+    checkBinary (==) justDecs (_justifiedDecisions fs) "==" "computed set of justified decisions" "given set"
+    checkBinary (<=) (PS.weight justVoters) totalWeight "<=" "total justified vote weight" "total party weight"
+    checkBinary (==) (PS.weight justVoters >= totalWeight - corruptWeight && not (Set.null justDecs)) (_completed fs)
+        "<->" "justified voter weight >= n - t && some decision is justified" "freeze is complete"
     voteOK
     where
-        propAcc (aps, jps, prs, djps, po) v (vd, wt, pts) = (aps + wt, if vd then jps + wt else jps, prs `Set.union` pts, if vd && wt > 0 then djps + 1 else djps,
-                                                        po >> checkBinary (==) wt (sum (partyWeight <$> Set.toList pts)) "==" ("given proposal weight for " ++ show v) "calculated proposal weight"
-                                                        >> checkBinary (\s1 s2 -> Set.null (Set.intersection s1 s2)) prs pts "disjoint from" "already proposed parties" ("parties proposing " ++ show v)
+        propAcc (prs, djps, po) v (vd, pts) = (if vd then PS.union partyWeight prs (PM.keysSet pts) else prs, if vd && PM.weight pts > 0 then djps + 1 else djps,
+                                                        po >> checkPartyMap (show v ++ " proposal") pts
                                                         )
-        (allProps, justProps, pers, distJProps, propOK) = Map.foldlWithKey propAcc (0, 0, Set.empty, 0, pure ()) (_proposals fs)
-        voteAcc (avs, jvs, vrs, vo) v (vd, wt, pts) = (avs + wt, if vd then jvs + wt else jvs, vrs `Set.union` pts,
-                                                        vo >> checkBinary (==) wt (sum (partyWeight <$> Set.toList pts)) "==" ("given vote weight for " ++ show v) "calculated vote weight"
-                                                        >> checkBinary (\s1 s2 -> Set.null (Set.intersection s1 s2)) vrs pts "disjoint from" "already voted parties" ("parties voting for " ++ show v)
+        (pers, distJProps, propOK) = Map.foldlWithKey propAcc (PS.empty, 0, pure ()) (_proposals fs)
+        voteAcc (jvs, jds, vo) v (vd, pts) = (if vd then PS.union partyWeight jvs (PM.keysSet pts) else jvs,
+                                                if vd && PM.weight pts > corruptWeight then Set.insert v jds else jds,
+                                                        vo >> checkPartyMap (show v ++ " vote") pts
                                                         >> checkBinary (==) vd (voteJustified v) "<->" ("vote for " ++ show v ++ " recorded as justified") ("vote is justified"))
-        voteJustified Nothing = distJProps >= 2
+        voteJustified Nothing = distJProps >= 2 && PS.size pers >= 2
         voteJustified (Just v) = case Map.lookup v (_proposals fs) of
             Nothing -> False
-            (Just (j, wt, _)) -> j && wt >= totalWeight - 2 * corruptWeight
-        (allVotes, justVotes, vers, voteOK) = Map.foldlWithKey voteAcc (0, 0, Set.empty, pure ()) (_votes fs)
+            (Just (j, pts)) -> j && PM.weight pts >= totalWeight - 2 * corruptWeight
+        (justVoters, justDecs, voteOK) = Map.foldlWithKey voteAcc (PS.empty, Set.empty, pure ()) (_votes fs)
         checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
+        checkPartyMap s pm = checkPartySet s (PM.keysSet pm)
+        checkPartySet s ps = checkBinary (==) (PS.weight ps) (sum $ partyWeight <$> PS.toList ps) "==" (s ++ " weight") "computed value"
 
 data FreezeInput
     = FICandidate Val
@@ -125,7 +129,7 @@ runFreezeSequence fi ins = go initialFreezeState ins
         
 
 equalParties :: Int -> Int -> Party -> FreezeInstance
-equalParties n c me = FreezeInstance n c wt me
+equalParties n c me = FreezeInstance (fromIntegral n) (fromIntegral c) wt me
         where
             wt x
                 | x >= 0 && x < fromIntegral n   = 1
@@ -140,7 +144,11 @@ ex1 = (equalParties 2 0 0, [FICandidate blockA, FICandidate blockB, FIProposal 1
 ex2 :: FreezeExample
 ex2 = (equalParties 2 0 0, [FIProposal 1 blockA, FIRequestProposal blockB, FICandidate blockA, FICandidate blockB, FIVote 1 Nothing],
     [FOMessage (Vote (Nothing)), FOMessage (Proposal blockB), FOJustifiedDecision Nothing, FOComplete Nothing])
-    
+
+ex3 :: FreezeExample
+ex3 = (equalParties 4 1 0, [FICandidate blockA, FIProposal 1 blockA, FIRequestProposal blockA, FIProposal 2 blockA, FIProposal 3 blockA, FIProposal 3 blockB, FIVote 1 Nothing, FIVote 2 Nothing, FICandidate blockB],
+    [FOMessage (Proposal blockA), FOMessage (Vote $ Just blockA), FOComplete Nothing, FOJustifiedDecision Nothing])
+
 testFreezeExampleAllPerms :: FreezeExample -> Spec
 testFreezeExampleAllPerms (ctx, inp, outp) = sequence_ [it ("permutation " ++ show n) $ testFreezeExample (ctx, inp', outp) | inp' <- permutations inp | n <- [(0::Int)..]]
 
@@ -153,10 +161,14 @@ genInputs :: [Party] -> [Val] -> Gen [FreezeInput]
 genInputs ps vs = listOf1 $ oneof [FICandidate <$> elements vs, FIRequestProposal <$> elements vs, FIProposal <$> elements ps <*> elements vs, FIVote <$> elements ps <*> elements (Nothing : (Just <$> vs))]
 
 qcInvariant :: Property
-qcInvariant = withMaxSuccess 100000 $ forAll (genInputs [1..5] blocks) $ \inp -> let out = outp inp in classify (length out == 3) "completed protocol" (testInv $ rights $ out)    where
+qcInvariant = withMaxSuccess 100000 $ forAll (genInputs [1..5] blocks) $ \inp -> let out = outp inp in classify (completed out) "completed protocol" (testInv $ rights $ out)
+    where
         outp = rights . runFreezeSequence ctx
         ctx@(FreezeInstance tw cw pw _) = equalParties 6 1 0
         testInv l = conjoin [ counterexample (show st) $ invariantFreezeState' tw cw pw st === Right () | st <- l]
+        completed [] = False
+        completed (Left (FOComplete _) : _) = True
+        completed (_ : r) = completed r
 
 -- This example was a failing case generated by QuickCheck
 testStream1 :: (Int, Int, [FreezeInput])
@@ -188,6 +200,7 @@ tests = parallel $ describe "Concordium.Afgjort.Freeze" $ do
     testInitialInvariant
     describe "ex1" $ testFreezeExampleAllPerms ex1
     describe "ex2" $ testFreezeExampleAllPerms ex2
+    it "ex3" $ testFreezeExample ex3
     describe "testStream1" $ testQCInvariantExample testStream1
     describe "testStream2" $ testQCInvariantExample testStream2
     describe "testStream3" $ testQCInvariantExample testStream3

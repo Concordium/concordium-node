@@ -1,9 +1,15 @@
-module Concordium.Afgjort.Types where
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+module Concordium.Afgjort.Types(
+    module Concordium.Afgjort.Types,
+    VoterPower(..),
+    Signature
+) where
 
 import Data.Word
 import Data.Serialize
 
 import Concordium.Types
+import Concordium.Crypto.BlockSignature(Signature)
 
 type Party = Word32
 type Val = BlockHash

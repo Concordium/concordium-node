@@ -68,11 +68,11 @@ data ABBAInstance = ABBAInstance {
     -- |The instance identifier for this instantiation of the protocol
     baid :: BS.ByteString,
     -- |The total weight of all parties
-    totalWeight :: Int,
+    totalWeight :: VoterPower,
     -- |The maximum weight of corrupt parties (must be less than @totalWeight/3@).
-    corruptWeight :: Int,
+    corruptWeight :: VoterPower,
     -- |The weight of each party
-    partyWeight :: Party -> Int,
+    partyWeight :: Party -> VoterPower,
     -- |The maximal party
     maxParty :: Party,
     -- |The public key of each party
@@ -91,13 +91,13 @@ data ABBAInstance = ABBAInstance {
 data PhaseState = PhaseState {
     _lotteryTickets :: Map (Double, Party) Ticket,
     _phaseCSSState :: Either (Maybe Choices, Seq (Party, CSSMessage)) CSSState,
-    _topInputWeight :: Maybe (Int, Set Party),
-    _botInputWeight :: Maybe (Int, Set Party)
+    _topInputWeight :: Maybe (VoterPower, Set Party),
+    _botInputWeight :: Maybe (VoterPower, Set Party)
 } deriving (Show)
 makeLenses ''PhaseState
 
 -- |The total weight and set of parties nominating a particular choice.
-inputWeight :: Choice -> Lens' PhaseState (Maybe (Int, Set Party))
+inputWeight :: Choice -> Lens' PhaseState (Maybe (VoterPower, Set Party))
 inputWeight True = topInputWeight
 inputWeight False = botInputWeight
 
@@ -120,9 +120,9 @@ data ABBAState = ABBAState {
     _phaseStates :: Map Phase PhaseState,
     _currentGrade :: Word8,
     _topWeAreDone :: Set Party,
-    _topWeAreDoneWeight :: Int,
+    _topWeAreDoneWeight :: VoterPower,
     _botWeAreDone :: Set Party,
-    _botWeAreDoneWeight :: Int,
+    _botWeAreDoneWeight :: VoterPower,
     _completed :: Bool
 } deriving (Show)
 makeLenses ''ABBAState
@@ -138,7 +138,7 @@ weAreDone True = topWeAreDone
 weAreDone False = botWeAreDone
 
 -- |The weight of parties claiming we are done with a given choice
-weAreDoneWeight :: Choice -> Lens' ABBAState Int
+weAreDoneWeight :: Choice -> Lens' ABBAState VoterPower
 weAreDoneWeight True = topWeAreDoneWeight
 weAreDoneWeight False = botWeAreDoneWeight
 

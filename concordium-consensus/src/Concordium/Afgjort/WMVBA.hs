@@ -135,7 +135,7 @@ data WMVBAState sig = WMVBAState {
     _freezeState :: FreezeState,
     _abbaState :: ABBAState,
     _justifiedDecision :: OutcomeState,
-    _justifications :: Map Val (Int, Map Party sig)
+    _justifications :: Map Val (VoterPower, Map Party sig)
 } deriving (Show)
 makeLenses ''WMVBAState
 
@@ -149,9 +149,9 @@ initialWMVBAState = WMVBAState {
 
 data WMVBAInstance sig = WMVBAInstance {
     baid :: BS.ByteString,
-    totalWeight :: Int,
-    corruptWeight :: Int,
-    partyWeight :: Party -> Int,
+    totalWeight :: VoterPower,
+    corruptWeight :: VoterPower,
+    partyWeight :: Party -> VoterPower,
     maxParty :: Party,
     publicKeys :: Party -> VRF.PublicKey,
     me :: Party,

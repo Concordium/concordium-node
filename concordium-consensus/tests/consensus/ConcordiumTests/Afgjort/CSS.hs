@@ -16,16 +16,18 @@ import Concordium.Afgjort.Types
 import Concordium.Afgjort.CSS
 import Concordium.Afgjort.CSS.NominationSet
 import qualified Concordium.Afgjort.CSS.BitSet as BitSet
+import qualified Concordium.Afgjort.PartySet as PS
 
 
 import Test.QuickCheck
 import Test.Hspec
 
-invariantCSSState :: Int -> Int -> (Party -> Int) -> CSSState -> Either String ()
+invariantCSSState :: VoterPower -> VoterPower -> (Party -> VoterPower) -> CSSState -> Either String ()
 invariantCSSState totalWeight corruptWeight partyWeight s = do
-        checkBinary (==) computedManySawWeight (setWeight $ s ^. manySaw) "==" "computed manySaw weight" "given manySaw weight"
+        checkBinary (==) computedManySawWeight (PS.weight $ s ^. manySaw) "==" "computed manySaw weight" "given manySaw weight"
         when (s ^. report) $ do
             let iSawSet = (nomTop $ s ^. iSaw) `BitSet.union` (nomBot $ s ^. iSaw)
+            -- Every party that has sent a justified input should be in iSaw, so long as we are reporting.
             when (s ^. topJustified) $ checkBinary BitSet.isSubsetOf (s ^. inputTop) iSawSet "subsumed by" "[justified] top inputs" "iSaw"
             when (s ^. botJustified) $ checkBinary BitSet.isSubsetOf (s ^. inputBot) iSawSet "subsumed by" "[justified] bottom inputs" "iSaw"
         forM_ (Map.toList $ s ^. sawTop) $ \(src, (PartySet tot m)) -> checkBinary (==) (sumPartyWeights m) tot "==" ("computed weight of parties seeing (" ++ show src ++ ", top)") "given weight"
@@ -33,6 +35,8 @@ invariantCSSState totalWeight corruptWeight partyWeight s = do
         forM_ (nominationSetToList (s ^. iSaw)) $ \(p,c) -> do
             unless (s ^. justified c) $ Left $ "iSaw contains " ++ show (p,c) ++ " but the choice is not justified"
             unless (p `BitSet.member` (s ^. input c)) $ Left $ "iSaw contains " ++ show (p,c) ++ ", which is not in the input"
+        unless (BitSet.null $ BitSet.intersection (nomTop $ s ^. iSaw) (nomBot $ s ^. iSaw)) $
+            Left $ "iSaw contains mutiple choices for one party"
         checkBinary (==) computedManySaw (parties $ s ^. manySaw) "==" "computed manySaw" "given manySaw"
         checkBinary (==) computedJustifiedDoneReportingWeight (s ^. justifiedDoneReportingWeight) "==" "computed justifiedDoneReporting weight" "given value"
         forM_ (Map.toList (s ^. unjustifiedDoneReporting)) $ \((seen,c),m) ->
@@ -126,7 +130,7 @@ runCSSTest' ccheck allparties nparties corruptWeight = go initialHistory
                             ReceiveCSSMessage p msg -> receiveCSSMessage p msg
                 let (_, s', out) = runCSS a cssInst (sts Vec.! fromIntegral rcpt)
                 {-return $ counterexample (show rcpt ++ ": " ++ show inp) $ -}
-                case invariantCSSState allparties corruptWeight (const 1) s' of
+                case invariantCSSState (fromIntegral allparties) (fromIntegral corruptWeight) (const 1) s' of
                     Left err -> return $ counterexample ("Invariant failed: " ++ err ++ "\n" ++ show s') False
                     Right _ -> case checkUpdateHistory s' inp out hist of
                         Left err -> return $ counterexample ("History invariant failed: " ++ err ++ "\n" ++ show s') False
@@ -136,7 +140,7 @@ runCSSTest' ccheck allparties nparties corruptWeight = go initialHistory
                             go hist' (msgs'' <> filterCSSMessages rcpt out msgs') sts' (cores & atParty rcpt %~ (<> core'))
         fromOut src (SendCSSMessage msg) = (Seq.fromList [(i,ReceiveCSSMessage src msg)|i <- parties], mempty)
         fromOut _ (SelectCoreSet theCore) = (mempty, First (Just theCore))
-        cssInst = CSSInstance allparties corruptWeight (const 1) (fromIntegral nparties)
+        cssInst = CSSInstance (fromIntegral allparties) (fromIntegral corruptWeight) (const 1) (fromIntegral nparties)
         parties = [0..fromIntegral nparties-1]
 
 multiCSSTest :: Int -> Gen Property

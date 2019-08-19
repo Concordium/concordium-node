@@ -45,7 +45,8 @@ import Lens.Micro.Platform
 import Concordium.Afgjort.Types
 import Concordium.Afgjort.CSS.NominationSet
 import qualified Concordium.Afgjort.CSS.BitSet as BitSet
-
+import Concordium.Afgjort.PartySet(PartySet)
+import qualified Concordium.Afgjort.PartySet as PS
 
 atStrict :: (Ord k) => k -> Lens' (Map k v) (Maybe v)
 atStrict k f m = f mv <&> \r -> case r of
@@ -62,44 +63,31 @@ data CSSMessage
 
 data CSSInstance = CSSInstance {
     -- |The total weight of all parties
-    totalWeight :: !Int,
+    totalWeight :: !VoterPower,
     -- |The (maximum) weight of all corrupt parties (should be less than @totalWeight/3@).
-    corruptWeight :: !Int,
+    corruptWeight :: !VoterPower,
     -- |The weight of each party
-    partyWeight :: Party -> Int,
+    partyWeight :: Party -> VoterPower,
     -- |The maximal party
     maxParty :: !Party
 }
 
 type CoreSet = NominationSet
 
-data PartySet = PartySet {
-    setWeight :: !Int,
-    parties :: !BitSet.BitSet
-} deriving (Show)
-
-addToPartySet ::
-    Party -- ^Party to add
-    -> Int -- ^Weight of party to add
-    -> PartySet -- ^Set to add to
-    -> PartySet
-addToPartySet party pWeight pset
-    | party `BitSet.member` parties pset = pset
-    | otherwise = PartySet {
-            setWeight = setWeight pset + pWeight,
-            parties = BitSet.insert party (parties pset)
-        }
 
 -- | Invariant:
 --
---   * '_manySawWeight' should be the sum of the party weights that have entries in '_manySaw'
---
---   * '_inputTop' and '_inputBot' should have disjoint domains if both '_botJustified' and '_topJustified' hold
---
---   * if '_inputTop' at @p@ holds value @s@, then @s@ must be a valid signature by @p@ of the message @Input True@
---
---   * if '_inputBot' at @p@ holds value @s@, then @s@ must be a valid signature by @p@ of the message @Input False@
-
+--  * If '_report' (we are in the reporting phase):
+--      * if '_botJustified' then every party in '_inputBot' must have an entry in '_iSaw';
+--      * if '_topJustified' then every party in '_inputTop' must have an entry in '_iSaw'.
+--  * For every entry in the '_iSaw' nomination set:
+--      * the nominated value is justified;
+--      * the party nominated that value.
+--  * '_iSaw' contains at most one nomination per party.
+--  * @p@ is in '_manySaw' exactly when, for some @s@ with @PS.weight s >= totalWeight - corruptWeight@, either:
+--      * '_topJustified' and @(p, s)@ is in '_sawTop'; or
+--      * '_botJustified' and @(p, s)@ is in '_sawBot'.
+--  * All keys of '_unjustifiedDoneReporting' should not have corresponding justified inputs.
 data CSSState = CSSState {
     -- |Whether we are in the report stage (initially @True@)
     _report :: !Bool,
@@ -111,14 +99,14 @@ data CSSState = CSSState {
     _inputTop :: !BitSet.BitSet,
     -- |The parties that have nominated *bottom*
     _inputBot :: !BitSet.BitSet,
-    -- |For each party, the total weight and set of parties that report having seen a nomination of *top* by that party.
+    -- |For each party, the total set of parties that report having seen a nomination of *top* by that party.
     _sawTop :: !(Map Party PartySet),
     -- |As above, for *bottom*
     _sawBot :: !(Map Party PartySet),
     -- |The set of nominations we saw.  That is, the first justified nomination we received from each party.
     _iSaw :: !NominationSet,
     -- |The total weight of parties in '_iSaw'.
-    _iSawWeight :: !Int,
+    _iSawWeight :: !VoterPower,
     -- |The set of parties for which (n-t) parties have sent justified Seen messages for the same choice.
     _manySaw :: !PartySet,
     -- |For each pair @(seen,c)@ for which we have not received a justified input, this records
@@ -128,7 +116,7 @@ data CSSState = CSSState {
     -- |The set of parties for which we have received fully justified DoneReporting messages.
     _justifiedDoneReporting :: !(Set Party),
     -- |The total weight of parties for which we have received fully justified DoneReporting messages.
-    _justifiedDoneReportingWeight :: !Int,
+    _justifiedDoneReportingWeight :: !VoterPower,
     -- |If '_justifiedDoneReportingWeight' is at least (n-t), then the core set determined at that time.  Otherwise @Nothing@.
     _core :: Maybe CoreSet
 } deriving (Show)
@@ -145,7 +133,7 @@ initialCSSState = CSSState {
     _sawBot = Map.empty,
     _iSaw = emptyNominationSet,
     _iSawWeight = 0,
-    _manySaw = PartySet 0 BitSet.empty,
+    _manySaw = PS.empty,
     _unjustifiedDoneReporting = Map.empty,
     _justifiedDoneReporting = Set.empty,
     _justifiedDoneReportingWeight = 0,
@@ -176,7 +164,7 @@ sawJustified seer c seen = to $ \s ->
     (s ^. justified c) && (seen `BitSet.member` (s ^. input c)) &&
         case s ^. saw c . at seen of
             Nothing -> False
-            Just (PartySet _ m) -> seer `BitSet.member` m
+            Just m -> seer `PS.member` m
 
 class (MonadState CSSState m, MonadReader CSSInstance m) => CSSMonad m where
     -- |Sign and broadcast a CSS message to all parties, __including__ our own 'CSSInstance'.
@@ -235,8 +223,8 @@ receiveCSSMessage src (Seen ns) = do
     CSSInstance{..} <- ask
     forM_ (nominationSetToList ns) $ \(sp, c) -> do
         -- Update the set of parties that claim to have seen @sp@ make choice @c@
-        let updateSaw Nothing = let w = partyWeight src in (w, Just (PartySet w (BitSet.singleton src)))
-            updateSaw (Just ps) = let ps' = addToPartySet src (partyWeight src) ps in (setWeight ps', Just ps')
+        let updateSaw Nothing = let w = partyWeight src in (w, Just (PS.singleton src w))
+            updateSaw (Just ps) = let ps' = PS.insert src (partyWeight src) ps in (PS.weight ps', Just ps')
         weight <- state ((saw c . atStrict sp) updateSaw)
         -- Check if this seen message is justified
         whenM (use (justified c)) $ whenM (BitSet.member sp <$> use (input c)) $ do
@@ -265,15 +253,15 @@ justifyNomination src c = do
             when (newiSawWeight >= totalWeight - corruptWeight) $
                 sendCSSMessage $ Seen newiSaw
     -- Update manySaw if the now-justified choice has been Seen sufficiently
-    use (saw c . at src) >>= mapM_ (\(PartySet w _) ->
-        when (w >= totalWeight - corruptWeight) $ addManySaw src)
+    use (saw c . at src) >>= mapM_ (\parties ->
+        when (PS.weight parties >= totalWeight - corruptWeight) $ addManySaw src)
     -- Consider any DoneReporting messages waiting on justified @Seen src c@ messages
     use (unjustifiedDoneReporting . at (src, c)) >>= mapM_ (\m ->
         -- Consider the @Seen@ messages (which now become justified)
-        use (saw c . at src) >>= mapM_ (\(PartySet _ jsaw) -> do
+        use (saw c . at src) >>= mapM_ (\jsaw -> do
             -- Divide the DoneReporting messages on whether we have got the
             -- corresponding (now justified) @Seen@ message
-            let (js, ujs) = Map.partitionWithKey (\k _ -> k `BitSet.member` jsaw) m
+            let (js, ujs) = Map.partitionWithKey (\k _ -> k `PS.member` jsaw) m
             -- Put those messages back where we don't
             unjustifiedDoneReporting . atStrict (src, c) .= if Map.null ujs then Nothing else Just ujs
             -- And handle those where we do.
@@ -283,7 +271,7 @@ justifyNomination src c = do
 addManySaw :: (CSSMonad m) => Party -> m ()
 addManySaw party = do
     CSSInstance{..} <- ask
-    msw <- setWeight <$> (manySaw <%= addToPartySet party (partyWeight party))
+    msw <- PS.weight <$> (manySaw <%= PS.insert party (partyWeight party))
     when (msw >= totalWeight - corruptWeight) $ do
         oldRep <- report <<.= False
         when oldRep $
