@@ -1,4 +1,4 @@
-{-# LANGUAGE ForeignFunctionInterface, TypeFamilies #-}
+{-# LANGUAGE ForeignFunctionInterface, TypeFamilies, TypeSynonymInstances, MultiParamTypeClasses #-}
 
 module Concordium.GlobalState.Rust.FFI (
   GlobalStatePtr
@@ -36,18 +36,30 @@ import Foreign.Ptr
 import Concordium.GlobalState.Parameters
 import Data.Serialize
 import Foreign.C
-import Data.ByteString hiding (unpack)
+import Data.ByteString hiding (unpack, intercalate)
 import Data.ByteString.Char8 (unpack)
 import Concordium.Types
 import Concordium.Crypto.SHA256
-
-import Concordium.GlobalState.Rust.FFI.Types
 
 import System.IO.Unsafe
 import Data.FixedByteString hiding (unpack, pack)
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Crypto.BlockSignature
 import Concordium.GlobalState.Transactions
+
+import Concordium.GlobalState.BlockState hiding (BlockPointer)
+import Concordium.GlobalState.Parameters
+
+import Data.Time.Clock.POSIX
+import Data.Time.Clock
+
+import Concordium.GlobalState.BlockState hiding (BlockState, BlockPointer)
+import Concordium.GlobalState.Basic.BlockState as BBS hiding (BlockPointer)
+import Concordium.GlobalState.Block 
+import Concordium.Types
+import Concordium.Types.HashableTo
+import Data.Serialize
+import Data.List
 
 foreign import ccall unsafe "get_ptr" getPtr :: Ptr RustSlice -> CString
 foreign import ccall unsafe "get_length" getLength :: Ptr RustSlice -> Int
@@ -262,3 +274,126 @@ bpGetHeightR = BlockHeight . fromIntegral . bpGetHeightF . theBPPointer
 
 bpGetTransactionCountR :: BlockPointer -> Int
 bpGetTransactionCountR = bpGetTransactionCounF . theBPPointer
+
+---------------------------
+-- * FFI Types
+---------------------------
+
+-- |Datatype representing the GlobalState in Rust
+data GlobalStateR
+-- |Pointer to the GlobalState in Rust
+type GlobalStatePtr = Ptr GlobalStateR
+
+-- |Helper datatype to transfer `CStringLen`s through FFI
+data RustSlice
+
+-- |Datatype representing a BlockPointer in the Rust side
+data BlockPointerR
+-- |Pointer to a BlockPointer in the Rust side, check
+-- https://gitlab.com/Concordium/notes-wiki/wikis/Global-state#blockpointer-type
+data BlockPointer = BlockPointer {
+  theBPPointer :: Ptr BlockPointerR,
+  theParent :: BlockPointer,
+  theLastFinalized :: BlockPointer,
+  theState :: BlockState' BlockPointer,
+  theReceiveTime :: UTCTime,
+  theArriveTime :: UTCTime
+  }
+
+-- makeGenesisBlockPointer :: GenesisData -> Ptr BlockPointerR -> BlockState' BlockPointer -> BlockPointer
+-- makeGenesisBlockPointer genData theBPPointer theState = theBlockPointer
+--   where
+--     theBlockPointer = BlockPointer {..}
+--     theParent = theBlockPointer
+--     theLastFinalized = theBlockPointer
+--     theReceiveTime = posixSecondsToUTCTime (fromIntegral (genesisTime genData))
+--     theArriveTime = theReceiveTime
+
+-- |Datatype representing a BlockFields in the Rust side
+data BlockFieldsR
+-- |Pointer to a BlockFields in the Rust side, check
+-- https://gitlab.com/Concordium/notes-wiki/wikis/Global-state#blockmetadata-class
+newtype BlockFields = BlockFields (Ptr BlockFieldsR)
+
+-- |Datatype representing a PendingBlock in the Rust side
+data PendingBlockR
+-- |Pointer to a PendingBlock in the Rust side, check
+-- https://gitlab.com/Concordium/notes-wiki/wikis/Global-state#pendingblock-type
+data PendingBlock = PendingBlock {
+  thePBPointer :: Ptr PendingBlockR,
+  theTime:: UTCTime
+  }
+
+-- BlockFields is required to implement BlockMetadata
+instance BlockMetadata BlockFields where
+    blockPointer = bfBlockPointerR
+    blockBaker = bfBlockBakerR
+    blockProof = bfBlockProofR
+    blockNonce = bfBlockNonceR
+    blockLastFinalized = bfBlockLastFinalizedR
+
+-- PendingBlock is required to implement BlockMetadata, BlockData, HashableTo
+-- BlockHash, Show and BlockPendingData
+instance BlockMetadata PendingBlock where
+    blockPointer = bfBlockPointerR . pbBlockFieldsR
+    blockBaker = bfBlockBakerR . pbBlockFieldsR
+    blockProof = bfBlockProofR . pbBlockFieldsR
+    blockNonce = bfBlockNonceR . pbBlockFieldsR
+    blockLastFinalized = bfBlockLastFinalizedR . pbBlockFieldsR
+
+type instance BlockFieldType PendingBlock = BlockFields
+
+instance BlockData PendingBlock where
+  blockSlot = pbBlockSlotR
+  blockFields = Just . pbBlockFieldsR
+  blockTransactions = pbBlockTransactionsR
+  verifyBlockSignature = pbVerifyBlockSignatureR
+  putBlock = putByteString . pbSerializeBlockR
+
+instance HashableTo BlockHash PendingBlock where
+  getHash = pbGetHashR
+
+instance Show PendingBlock where
+  show = pbShowR
+
+instance BlockPendingData PendingBlock where
+  blockReceiveTime = theTime
+
+-- BlockPointer is required to implement Eq and Ord, HashableTo BlockHash, BlockData
+-- and BlockPointerData (requires Show)
+instance Eq BlockPointer where
+  a == b = (getHash a :: BlockHash) == (getHash b :: BlockHash)
+
+instance Ord BlockPointer where
+  a <= b = (getHash a :: BlockHash) <= (getHash b :: BlockHash)
+
+instance HashableTo BlockHash BlockPointer where
+  getHash = bpGetHashR
+
+type instance BlockFieldType BlockPointer = BlockFields
+
+instance BlockData BlockPointer where
+  blockSlot = bpBlockSlotR
+  blockFields = Just . bpBlockFieldsR
+  blockTransactions = bpBlockTransactionsR
+  verifyBlockSignature = bpVerifyBlockSignatureR
+  putBlock = putByteString . bpSerializeBlockR --Wrong
+
+instance Show BlockPointer where
+  show bp = intercalate ", " $ bpShowR bp :
+    [show . theParent $ bp
+    , show . theLastFinalized $ bp
+    , show . theState $ bp
+    , show . theReceiveTime $ bp
+    , show . theArriveTime $ bp]
+
+instance BlockPointerData BlockPointer where
+    type BlockState' BlockPointer = BBS.BlockState
+    bpHash = bpGetHashR
+    bpParent = theParent
+    bpLastFinalized = theLastFinalized
+    bpHeight = bpGetHeightR
+    bpState = theState
+    bpReceiveTime = theReceiveTime
+    bpArriveTime = theArriveTime
+    bpTransactionCount = bpGetTransactionCountR
