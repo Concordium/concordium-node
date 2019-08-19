@@ -323,8 +323,7 @@ impl Connection {
     /// It decodes message from `buf` and processes it using its message
     /// handlers.
     fn process_message(&self, message: UCursor) -> Fallible<ProcessResult> {
-        let mut archive =
-            ReadArchiveAdapter::new(message, self.remote_peer(), self.remote_addr().ip());
+        let mut archive = ReadArchiveAdapter::new(message, self.remote_peer());
         let message = NetworkMessage::deserialize(&mut archive)?;
 
         self.messages_received.fetch_add(1, Ordering::Relaxed);

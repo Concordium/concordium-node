@@ -217,10 +217,10 @@ mod unit_test {
         NetworkResponse, ProtocolMessageType, ProtocolPacketType, ProtocolRequestType,
         ProtocolResponseType, PROTOCOL_NAME,
     };
-    use concordium_common::{ContainerView, UCursor, SHA256};
+    use concordium_common::{UCursor, SHA256};
 
     fn ut_s11n_nom_001_data() -> Vec<(String, IResult<&'static [u8], NetworkMessage>)> {
-        let direct_message_content = ContainerView::from(b"Hello world!".to_vec());
+        let direct_message_content = b"Hello world!".to_vec();
         let direct_message_message_id = MessageId::new(&[0u8; SHA256 as usize]);
 
         vec![

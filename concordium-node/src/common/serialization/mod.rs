@@ -16,7 +16,6 @@ use crate::common::RemotePeer;
 use concordium_common::{ContainerView, UCursor};
 
 use failure::Fallible;
-use std::net::IpAddr;
 
 /// Helper function to serialize `src` into memory.
 /// It uses `capacity` as initial capacity for target vector.
@@ -29,10 +28,10 @@ where
 }
 
 /// Helper function to deserialize `src` from memory.
-pub fn deserialize_from_memory<T>(src: Vec<u8>, peer: RemotePeer, ip: IpAddr) -> Fallible<T>
+pub fn deserialize_from_memory<T>(src: Vec<u8>, peer: RemotePeer) -> Fallible<T>
 where
     T: Deserializable, {
     let cursor = UCursor::build_from_view(ContainerView::from(src));
-    let mut archive = ReadArchiveAdapter::new(cursor, peer, ip);
+    let mut archive = ReadArchiveAdapter::new(cursor, peer);
     T::deserialize(&mut archive)
 }

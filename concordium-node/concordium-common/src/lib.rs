@@ -35,6 +35,7 @@ pub mod fails;
 pub mod cache;
 pub mod container_view;
 pub mod functor;
+pub mod hybrid_buf;
 pub mod indexed_vec;
 pub mod stats_export_service;
 pub mod ucursor;
