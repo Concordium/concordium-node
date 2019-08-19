@@ -36,7 +36,9 @@ import Concordium.GlobalState.Statistics (ConsensusStatistics, initialConsensusS
 import Concordium.GlobalState.Transactions
 import qualified Concordium.GlobalState.Rewards as Rewards
 
-import Concordium.GlobalState.Basic.BlockState hiding (BlockPointer)
+import Concordium.GlobalState.Basic.BlockState (BlockState, blockBank)
+import Concordium.GlobalState.Rust.BlockState
+import Concordium.GlobalState.Rust.Block
 import Concordium.GlobalState.Rust.FFI
 
 data SkovData = SkovData {
@@ -60,8 +62,8 @@ makeLenses ''SkovData
 
 instance Show SkovData where
     show SkovData{..} =
-      "Finalized: " ++ intercalate "," (take 6 . show . _bpHash . snd <$> toList _skovFinalizationList) ++ "\n" ++
-      "Branches: " ++ intercalate "," ( (('[':) . (++"]") . intercalate "," . map (take 6 . show . _bpHash)) <$> toList _skovBranches)
+      "Finalized: " ++ intercalate "," (take 6 . show . BS.bpHash . snd <$> toList _skovFinalizationList) ++ "\n" ++
+      "Branches: " ++ intercalate "," ( (('[':) . (++"]") . intercalate "," . map (take 6 . show . BS.bpHash)) <$> toList _skovBranches)
 
 class SkovLenses s where
     skov :: Lens' s SkovData
@@ -116,7 +118,7 @@ initialSkovData gd genState gsptr = SkovData {
         }
     where
         gb = makeGenesisBlockPointer gd genState
-        gbh = _bpHash gb
+        gbh = BS.bpHash gb
         gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
 
 newtype SkovTreeState s m a = SkovTreeState {runSkovTreeState :: m a}
@@ -124,6 +126,7 @@ newtype SkovTreeState s m a = SkovTreeState {runSkovTreeState :: m a}
     deriving (BS.BlockStateQuery) via (PureBlockStateMonad m)
     deriving (BS.BlockStateOperations) via (PureBlockStateMonad m)
     
+type instance TS.PendingBlock (SkovTreeState s m) = PendingBlock
 type instance BS.BlockPointer (SkovTreeState s m) = BlockPointer
 type instance BS.UpdatableBlockState (SkovTreeState s m) = BlockState
 
@@ -136,8 +139,8 @@ instance (SkovLenses s, Monad m, MonadState s m, MonadIO m) => TS.TreeStateMonad
     markDead bh = blockTable . at bh ?= TS.BlockDead
     markFinalized bh fr = use (blockTable . at bh) >>= \case
             Just (TS.BlockAlive bp) -> do
-              gsptr <- use globalStatePtr
-              liftIO $ storeFinalizedBlockR gsptr (_bpBlock bp) -- Store also in Rust GS
+              --gsptr <- use globalStatePtr
+              --liftIO $ storeFinalizedBlockR gsptr (_bpBlock bp) -- Store also in Rust GS
               blockTable . at bh ?= TS.BlockFinalized bp fr
             _ -> return ()
     markPending pb = blockTable . at (getHash pb) ?= TS.BlockPending pb
