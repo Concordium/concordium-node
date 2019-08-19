@@ -73,7 +73,6 @@ mod network {
             },
             network::{NetworkMessage, NetworkResponse},
         };
-        use std::net::{IpAddr, Ipv4Addr};
 
         use criterion::Criterion;
 
@@ -128,7 +127,6 @@ mod network {
         fn bench_s11n_001_direct_message(c: &mut Criterion, content_size: usize) {
             let cursor = UCursor::from(generate_random_data(content_size));
 
-            let local_ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
             let local_peer = localhost_peer();
             let bench_id = format!(
                 "Deserialization of DirectMessages with a {}B payload",
@@ -138,10 +136,9 @@ mod network {
             c.bench_function(&bench_id, move |b| {
                 let cloned_cursor = cursor.clone();
                 let peer = RemotePeer::PostHandshake(local_peer);
-                let ip = local_ip;
 
                 b.iter(move || {
-                    let mut archive = ReadArchiveAdapter::new(cloned_cursor.clone(), peer, ip);
+                    let mut archive = ReadArchiveAdapter::new(cloned_cursor.clone(), peer);
                     NetworkMessage::deserialize(&mut archive)
                 })
             });
@@ -158,7 +155,6 @@ mod network {
             let mut peers = vec![];
             peers.resize_with(size, || localhost_peer());
 
-            let local_ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
             let peer_list_msg = NetworkMessage::NetworkResponse(
                 NetworkResponse::PeerList(me, peers),
                 Some(get_current_stamp()),
@@ -176,8 +172,7 @@ mod network {
 
                 b.iter(move || {
                     let remote_peer = RemotePeer::PostHandshake(me);
-                    let mut archive =
-                        ReadArchiveAdapter::new(cursor.clone(), remote_peer, local_ip);
+                    let mut archive = ReadArchiveAdapter::new(cursor.clone(), remote_peer);
                     NetworkMessage::deserialize(&mut archive).unwrap()
                 })
             });
