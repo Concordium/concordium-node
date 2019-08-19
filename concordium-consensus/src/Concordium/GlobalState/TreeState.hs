@@ -26,8 +26,6 @@ import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Statistics
 import Concordium.GlobalState.BlockState
 
-
-
 data BlockStatus bp pb =
     BlockAlive !bp
     | BlockDead

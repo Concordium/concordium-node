@@ -5,7 +5,6 @@ import Data.Serialize.Put
 import Data.Serialize
 import Data.Time.Clock
 
-
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.SHA256 as Hash
 

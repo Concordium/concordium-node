@@ -36,13 +36,13 @@ import Concordium.GlobalState.Statistics (ConsensusStatistics, initialConsensusS
 import Concordium.GlobalState.Transactions
 import qualified Concordium.GlobalState.Rewards as Rewards
 
-import Concordium.GlobalState.Basic.BlockState
+import Concordium.GlobalState.Basic.BlockState hiding (BlockPointer)
 import Concordium.GlobalState.Rust.FFI
 
 data SkovData = SkovData {
     -- |Map of all received blocks by hash.
     _skovGlobalStatePtr :: GlobalStatePtr,
-    _skovBlockTable :: !(HM.HashMap BlockHash (TS.BlockStatus BlockPointer)),
+    _skovBlockTable :: !(HM.HashMap BlockHash (TS.BlockStatus BlockPointer PendingBlock)),
     _skovPossiblyPendingTable :: !(HM.HashMap BlockHash [PendingBlock]),
     _skovPossiblyPendingQueue :: !(MPQ.MinPQueue Slot (BlockHash, BlockHash)),
     _skovBlocksAwaitingLastFinalized :: !(MPQ.MinPQueue BlockHeight PendingBlock),
@@ -67,7 +67,7 @@ class SkovLenses s where
     skov :: Lens' s SkovData
     globalStatePtr :: Lens' s GlobalStatePtr
     globalStatePtr = skov . skovGlobalStatePtr
-    blockTable :: Lens' s (HM.HashMap BlockHash (TS.BlockStatus BlockPointer))
+    blockTable :: Lens' s (HM.HashMap BlockHash (TS.BlockStatus BlockPointer PendingBlock))
     blockTable = skov . skovBlockTable
     possiblyPendingTable :: Lens' s (HM.HashMap BlockHash [PendingBlock])
     possiblyPendingTable = skov . skovPossiblyPendingTable
