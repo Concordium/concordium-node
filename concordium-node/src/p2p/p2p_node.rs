@@ -15,7 +15,7 @@ use crate::{
     },
     network::{
         packet::MessageId, request::RequestedElementType, Buckets, NetworkId, NetworkMessage,
-        NetworkPacket, NetworkPacketBuilder, NetworkPacketType, NetworkRequest, NetworkResponse,
+        NetworkPacket, NetworkPacketType, NetworkRequest, NetworkResponse,
     },
     p2p::{
         banned_nodes::BannedNode,
@@ -1323,35 +1323,33 @@ pub fn send_message_from_cursor(
     dont_relay_to: Vec<P2PNodeId>,
     network_id: NetworkId,
     msg_id: Option<MessageId>,
-    msg: UCursor,
+    message: UCursor,
     broadcast: bool,
 ) -> Fallible<()> {
     trace!("Queueing message!");
 
-    // Create packet.
-    let packet = if broadcast {
-        NetworkPacketBuilder::default()
-            .peer(node.self_peer)
-            .message_id(msg_id.unwrap_or_else(NetworkPacket::generate_message_id))
-            .network_id(network_id)
-            .message(msg)
-            .build_broadcast(dont_relay_to)?
+    let packet_type = if broadcast {
+        NetworkPacketType::BroadcastedMessage(dont_relay_to)
     } else {
         let receiver =
             target_id.ok_or_else(|| err_msg("Direct Message requires a valid target id"))?;
 
-        NetworkPacketBuilder::default()
-            .peer(node.self_peer)
-            .message_id(msg_id.unwrap_or_else(NetworkPacket::generate_message_id))
-            .network_id(network_id)
-            .message(msg)
-            .build_direct(receiver)?
+        NetworkPacketType::DirectMessage(receiver)
+    };
+
+    // Create packet.
+    let packet = NetworkPacket {
+        packet_type,
+        peer: node.self_peer,
+        message_id: msg_id.unwrap_or_else(NetworkPacket::generate_message_id),
+        network_id,
+        message,
     };
 
     // Push packet into our `send queue`
     send_or_die!(
         node.send_queue_in,
-        NetworkMessage::NetworkPacket(packet, None, None)
+        NetworkMessage::NetworkPacket(Arc::new(packet), None, None)
     );
 
     if let Some(ref service) = node.stats_export_service {

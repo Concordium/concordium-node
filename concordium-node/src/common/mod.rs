@@ -170,8 +170,8 @@ mod tests {
     use crate::{
         common::serialization::{deserialize_from_memory, serialize_into_memory},
         network::{
-            NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder, NetworkPacketType,
-            NetworkRequest, NetworkResponse, PROTOCOL_VERSION,
+            NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType, NetworkRequest,
+            NetworkResponse, PROTOCOL_VERSION,
         },
         p2p::banned_nodes::tests::dummy_ban_node,
     };
@@ -387,16 +387,16 @@ mod tests {
     pub fn direct_message_test() -> Fallible<()> {
         let self_peer = self_peer();
         let text_msg = UCursor::from(b"Hello world!".to_vec());
-        let msg = NetworkPacketBuilder::default()
-            .peer(self_peer.clone().peer().unwrap())
-            .message_id(NetworkPacket::generate_message_id())
-            .network_id(NetworkId::from(100))
-            .message(text_msg.clone())
-            .build_direct(P2PNodeId::default())?;
+        let msg = NetworkPacket {
+            packet_type: NetworkPacketType::DirectMessage(P2PNodeId::default()),
+            peer:        self_peer.clone().peer().unwrap(),
+            message_id:  NetworkPacket::generate_message_id(),
+            network_id:  NetworkId::from(100),
+            message:     text_msg.clone(),
+        };
 
-        let msg_serialized = serialize_into_memory(&*msg, 256)?;
-        let packet =
-            deserialize_from_memory::<NetworkPacket>(msg_serialized, self_peer.clone())?;
+        let msg_serialized = serialize_into_memory(&msg, 256)?;
+        let packet = deserialize_from_memory::<NetworkPacket>(msg_serialized, self_peer.clone())?;
 
         if let NetworkPacketType::DirectMessage(..) = packet.packet_type {
             assert_eq!(packet.network_id, NetworkId::from(100));
@@ -412,14 +412,15 @@ mod tests {
     pub fn broadcasted_message_test() -> Fallible<()> {
         let self_peer = self_peer();
         let text_msg = UCursor::from(b"Hello  broadcasted world!".to_vec());
-        let msg = NetworkPacketBuilder::default()
-            .peer(self_peer.clone().peer().unwrap())
-            .message_id(NetworkPacket::generate_message_id())
-            .network_id(NetworkId::from(100))
-            .message(text_msg.clone())
-            .build_broadcast(vec![])?;
+        let msg = NetworkPacket {
+            packet_type: NetworkPacketType::BroadcastedMessage(vec![]),
+            peer:        self_peer.clone().peer().unwrap(),
+            message_id:  NetworkPacket::generate_message_id(),
+            network_id:  NetworkId::from(100),
+            message:     text_msg.clone(),
+        };
 
-        let serialized = serialize_into_memory(&*msg, 256)?;
+        let serialized = serialize_into_memory(&msg, 256)?;
         let packet = deserialize_from_memory::<NetworkPacket>(serialized, self_peer.clone())?;
 
         if let NetworkPacketType::BroadcastedMessage(..) = packet.packet_type {

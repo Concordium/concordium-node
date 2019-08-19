@@ -162,7 +162,7 @@ mod unit_test {
             serialization::{Deserializable, ReadArchiveAdapter, WriteArchiveAdapter},
             P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType, RemotePeer,
         },
-        network::{NetworkId, NetworkPacket, NetworkPacketBuilder, NetworkPacketType},
+        network::{NetworkId, NetworkPacket, NetworkPacketType},
     };
     use concordium_common::UCursor;
 
@@ -203,17 +203,19 @@ mod unit_test {
 
         // 2. Generate packet.
         let p2p_node_id = P2PNodeId::from_str("000000002dd2b6ed")?;
-        let pkt = NetworkPacketBuilder::default()
-            .peer(P2PPeer::from(
-                PeerType::Node,
-                p2p_node_id.clone(),
-                SocketAddr::new(IpAddr::from_str("127.0.0.1")?, 8888),
-            ))
-            .message_id(NetworkPacket::generate_message_id())
-            .network_id(NetworkId::from(111))
-            .message(payload)
-            .build_direct(p2p_node_id)?;
-        let message = NetworkMessage::NetworkPacket(pkt, Some(get_current_stamp()), None);
+        let peer = P2PPeer::from(
+            PeerType::Node,
+            p2p_node_id.clone(),
+            SocketAddr::new(IpAddr::from_str("127.0.0.1")?, 8888),
+        );
+        let pkt = NetworkPacket {
+            packet_type: NetworkPacketType::DirectMessage(p2p_node_id),
+            peer,
+            message_id: NetworkPacket::generate_message_id(),
+            network_id: NetworkId::from(111),
+            message: payload,
+        };
+        let message = NetworkMessage::NetworkPacket(Arc::new(pkt), Some(get_current_stamp()), None);
 
         // 3. Serialize package into archive (on disk)
         let archive_cursor = UCursor::build_from_temp_file()?;
