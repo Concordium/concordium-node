@@ -44,10 +44,6 @@ rand = "^0.6"
 path = "src/lib.rs"
 name = "concordium_common"
 
-[[bench]]
-name = "lib_benchmark"
-harness = false
-
 [dependencies.prometheus]
 git = "https://github.com/pingcap/rust-prometheus.git"
 default-features = false

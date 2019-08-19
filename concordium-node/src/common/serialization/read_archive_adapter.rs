@@ -16,12 +16,6 @@ impl ReadArchiveAdapter {
             remote_peer,
         }
     }
-
-    #[inline]
-    pub fn into_inner(self) -> UCursor { self.io_reader }
-
-    #[inline]
-    pub fn inner(&self) -> &UCursor { &self.io_reader }
 }
 
 impl ReadArchive for ReadArchiveAdapter {

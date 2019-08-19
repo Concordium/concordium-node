@@ -374,7 +374,7 @@ impl<'de> serde::de::Deserialize<'de> for UCursor {
                 let content =
                     data_content.ok_or_else(|| serde::de::Error::missing_field("content"))?;
 
-                Ok(UCursor::build_from_view(ContainerView::from(content)))
+                Ok(UCursor::from(content))
             }
         }
 
@@ -465,9 +465,8 @@ mod unit_test {
 
     fn from_memory_to_file(content_size: usize) -> Fallible<()> {
         let content = make_content_with_size(content_size);
-        let view = ContainerView::from(content);
 
-        let mut cur = UCursor::build_from_view(view);
+        let mut cur = UCursor::from(content);
         cur.swap_to_file().map_err(|e| failure::Error::from(e))?;
         Ok(())
     }

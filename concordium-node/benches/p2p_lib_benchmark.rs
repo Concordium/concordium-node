@@ -62,7 +62,7 @@ mod common {
 mod network {
     pub mod message {
         use crate::*;
-        use concordium_common::{ContainerView, UCursor};
+        use concordium_common::UCursor;
         use p2p_client::{
             common::{
                 get_current_stamp,
@@ -166,9 +166,7 @@ mod network {
             c.bench_function(&bench_id, move |b| {
                 let mut archive = WriteArchiveAdapter::from(vec![]);
                 let _ = peer_list_msg.serialize(&mut archive).unwrap();
-                let peer_list_msg_data = ContainerView::from(archive.into_inner());
-
-                let cursor = UCursor::build_from_view(peer_list_msg_data);
+                let cursor = UCursor::from(archive.into_inner());
 
                 b.iter(move || {
                     let remote_peer = RemotePeer::PostHandshake(me);
