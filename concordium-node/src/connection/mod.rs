@@ -59,6 +59,7 @@ use concordium_common::stats_export_service::StatsExportService;
 
 use concordium_common::{
     functor::{FuncResult, UnitFunction},
+    hybrid_buf::HybridBuf,
     UCursor,
 };
 
@@ -322,8 +323,9 @@ impl Connection {
 
     /// It decodes message from `buf` and processes it using its message
     /// handlers.
-    fn process_message(&self, message: UCursor) -> Fallible<ProcessResult> {
-        let mut archive = ReadArchiveAdapter::new(message, self.remote_peer());
+    fn process_message(&self, mut message: UCursor) -> Fallible<ProcessResult> {
+        let hb = HybridBuf::from(message.read_all_into_view()?.to_vec());
+        let mut archive = ReadArchiveAdapter::new(hb, self.remote_peer());
         let message = NetworkMessage::deserialize(&mut archive)?;
 
         self.messages_received.fetch_add(1, Ordering::Relaxed);

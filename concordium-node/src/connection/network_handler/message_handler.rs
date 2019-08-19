@@ -165,7 +165,7 @@ mod integration_test {
             NetworkRequest, NetworkResponse,
         },
     };
-    use concordium_common::{functor::FuncResult, UCursor};
+    use concordium_common::{functor::FuncResult, hybrid_buf::HybridBuf};
 
     use std::{
         net::{IpAddr, Ipv4Addr, SocketAddr},
@@ -186,7 +186,7 @@ mod integration_test {
             .addr(SocketAddr::new(ip, 8080))
             .build()
             .unwrap();
-        let inner_msg = UCursor::from(b"Message XXX".to_vec());
+        let inner_msg = HybridBuf::from(b"Message XXX".to_vec());
         let node_id = P2PNodeId::default();
 
         let data = vec![

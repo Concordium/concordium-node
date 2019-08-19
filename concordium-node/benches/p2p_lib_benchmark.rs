@@ -1,11 +1,11 @@
 #[macro_use]
 extern crate criterion;
 
-use concordium_common::UCursor;
+use concordium_common::hybrid_buf::HybridBuf;
 
 use p2p_client::{
     common::{P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType},
-    network::{packet::MessageId, NetworkId, NetworkMessage, NetworkPacketBuilder},
+    network::{packet::MessageId, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType},
 };
 
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
@@ -13,6 +13,7 @@ use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     str::FromStr,
+    sync::Arc,
 };
 
 pub fn localhost_peer() -> P2PPeer {
@@ -36,13 +37,13 @@ pub fn generate_random_data(size: usize) -> Vec<u8> {
 
 pub fn create_random_packet(size: usize) -> NetworkMessage {
     NetworkMessage::NetworkPacket(
-        NetworkPacketBuilder::default()
-            .peer(localhost_peer())
-            .message_id(MessageId::new(&[0u8; 32]))
-            .network_id(NetworkId::from(100u16))
-            .message(UCursor::from(generate_random_data(size)))
-            .build_direct(P2PNodeId::from_str(&"2A").unwrap())
-            .unwrap(),
+        Arc::new(NetworkPacket {
+            packet_type: NetworkPacketType::DirectMessage(P2PNodeId::from_str(&"2A").unwrap()),
+            peer:        localhost_peer(),
+            message_id:  MessageId::new(&[0u8; 32]),
+            network_id:  NetworkId::from(100u16),
+            message:     HybridBuf::from(generate_random_data(size)),
+        }),
         Some(10),
         None,
     )
@@ -62,7 +63,6 @@ mod common {
 mod network {
     pub mod message {
         use crate::*;
-        use concordium_common::UCursor;
         use p2p_client::{
             common::{
                 get_current_stamp,
@@ -125,7 +125,7 @@ mod network {
         }
 
         fn bench_s11n_001_direct_message(c: &mut Criterion, content_size: usize) {
-            let cursor = UCursor::from(generate_random_data(content_size));
+            let cursor = HybridBuf::from(generate_random_data(content_size));
 
             let local_peer = localhost_peer();
             let bench_id = format!(
@@ -166,7 +166,7 @@ mod network {
             c.bench_function(&bench_id, move |b| {
                 let mut archive = WriteArchiveAdapter::from(vec![]);
                 let _ = peer_list_msg.serialize(&mut archive).unwrap();
-                let cursor = UCursor::from(archive.into_inner());
+                let cursor = HybridBuf::from(archive.into_inner());
 
                 b.iter(move || {
                     let remote_peer = RemotePeer::PostHandshake(me);
@@ -179,7 +179,6 @@ mod network {
 
     pub mod connection {
         use crate::*;
-        use concordium_common::UCursor;
         use criterion::Criterion;
         use p2p_client::{
             common::PeerType,
@@ -216,8 +215,7 @@ mod network {
             connect(&mut node_1, &node_2).unwrap();
             await_handshake(&msg_waiter_1).unwrap();
 
-            let msg = generate_random_data(size);
-            let uc = UCursor::from(msg);
+            let msg = HybridBuf::from(generate_random_data(size));
             let bench_id = format!("P2P network using {}B messages", size);
 
             c.bench_function(&bench_id, move |b| {
@@ -231,12 +229,12 @@ mod network {
                         vec![],
                         net_id,
                         None,
-                        uc.clone(),
+                        msg.clone(),
                         false,
                     )
                     .unwrap();
-                    let msg_recv = wait_direct_message(&msg_waiter_2).unwrap();
-                    assert_eq!(uc.len(), msg_recv.len());
+                    let mut msg_recv = wait_direct_message(&msg_waiter_2).unwrap();
+                    assert_eq!(msg.len().unwrap(), msg_recv.remaining_len().unwrap());
                 });
             });
         }

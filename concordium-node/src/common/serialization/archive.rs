@@ -1,6 +1,6 @@
 use crate::common::{P2PPeer, RemotePeer};
 
-use concordium_common::{ContainerView, UCursor};
+use concordium_common::hybrid_buf::HybridBuf;
 use failure::{err_msg, Fallible};
 
 use std::str;
@@ -67,10 +67,9 @@ pub trait ReadArchive: Sized + std::io::Read {
     fn read_u32(&mut self) -> Fallible<u32>;
     fn read_u64(&mut self) -> Fallible<u64>;
 
-    fn read_n_bytes(&mut self, len: u32) -> Fallible<ContainerView>;
+    fn read_n_bytes(&mut self, len: u32) -> Fallible<Box<[u8]>>;
 
-    /// It gets a shadow-copy of pending streamed data.
-    fn payload(&mut self, len: u64) -> Option<UCursor>;
+    fn payload(&mut self) -> HybridBuf;
 
     // Utilities for parsing.
     // ===========================
@@ -78,5 +77,5 @@ pub trait ReadArchive: Sized + std::io::Read {
     /// It returns the number of bytes left to reach end-of-file.
     /// This function should be used to ensure if you are able to load
     /// a specific amount of bytes.
-    fn remaining_bytes_count(&self) -> u64;
+    fn remaining_bytes_count(&mut self) -> std::io::Result<u64>;
 }

@@ -1,6 +1,6 @@
 use crate::common::serialization::WriteArchive;
 
-use concordium_common::{HashBytes, UCursor};
+use concordium_common::{hybrid_buf::HybridBuf, HashBytes, UCursor};
 use failure::Fallible;
 
 use std::{
@@ -189,6 +189,20 @@ impl Serializable for UCursor {
 
         (self_from_len as u32).serialize(archive)?;
         std::io::copy(&mut self_from, archive)?;
+
+        Ok(())
+    }
+}
+
+impl Serializable for HybridBuf {
+    fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
+    where
+        A: WriteArchive, {
+        let mut self_clone = self.to_owned(); // FIXME!
+        let len = self_clone.len()? - self_clone.position()?;
+
+        (len as u32).serialize(archive)?;
+        std::io::copy(&mut self_clone, archive)?;
 
         Ok(())
     }

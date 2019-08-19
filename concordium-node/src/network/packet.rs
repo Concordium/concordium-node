@@ -5,7 +5,7 @@ use crate::{
     },
     network::{AsProtocolPacketType, NetworkId, ProtocolPacketType},
 };
-use concordium_common::{HashBytes, UCursor};
+use concordium_common::{hybrid_buf::HybridBuf, HashBytes};
 
 use crate::{failure::Fallible, utils};
 use rand::RngCore;
@@ -58,14 +58,14 @@ impl Deserializable for NetworkPacketType {
 pub type MessageId = HashBytes;
 
 /// This is not *thread-safe* but this ensures it temporarily
-#[derive(Clone, Builder, Debug, PartialEq)]
+#[derive(Clone, Builder, Debug)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub struct NetworkPacket {
     pub packet_type: NetworkPacketType,
     pub peer:        P2PPeer,
     pub message_id:  MessageId,
     pub network_id:  NetworkId,
-    pub message:     UCursor,
+    pub message:     HybridBuf,
 }
 
 impl NetworkPacket {
@@ -99,7 +99,7 @@ impl Deserializable for NetworkPacket {
             peer:        archive.post_handshake_peer()?,
             message_id:  MessageId::deserialize(archive)?,
             network_id:  NetworkId::deserialize(archive)?,
-            message:     UCursor::deserialize(archive)?,
+            message:     HybridBuf::deserialize(archive)?,
         };
         Ok(packet)
     }

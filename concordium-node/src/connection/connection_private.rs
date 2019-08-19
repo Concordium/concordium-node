@@ -22,7 +22,7 @@ use crate::{
     dumper::DumpItem,
     network::{Buckets, NetworkId},
 };
-use concordium_common::{stats_export_service::StatsExportService, UCursor};
+use concordium_common::{hybrid_buf::HybridBuf, stats_export_service::StatsExportService, UCursor};
 
 /// It is just a helper struct to facilitate sharing information with
 /// message handlers, which are set up from _inside_ `Connection`.
@@ -139,7 +139,7 @@ impl ConnectionPrivate {
                 match read_result {
                     Ok(readiness) => match readiness {
                         Readiness::Ready(message) => {
-                            self.send_to_dump(&message, true);
+                            // self.send_to_dump(&message, true);
                             messages.push(message)
                         }
                         Readiness::NotReady => break,
@@ -191,11 +191,11 @@ impl ConnectionPrivate {
         input: UCursor,
         priority: MessageSendingPriority,
     ) -> Fallible<Readiness<usize>> {
-        self.send_to_dump(&input, false);
+        // self.send_to_dump(&input, false);
         self.message_sink.write(input, &mut self.socket, priority)
     }
 
-    fn send_to_dump(&self, buf: &UCursor, inbound: bool) {
+    fn send_to_dump(&self, buf: &HybridBuf, inbound: bool) {
         if let Some(ref sender) = self.log_dumper {
             let di = DumpItem::new(
                 Utc::now(),

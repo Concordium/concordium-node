@@ -165,43 +165,6 @@ impl From<Vec<u8>> for HybridBuf {
     fn from(vec: Vec<u8>) -> Self { HybridBuf::Mem(Cursor::new(vec)) }
 }
 
-// TODO: decide if the check for equality should not also compare the cursor
-// position
-impl PartialEq for HybridBuf {
-    fn eq(&self, other: &Self) -> bool {
-        macro_rules! metadata_or_false {
-            ($file:expr) => {
-                if let Ok(meta) = $file.metadata() {
-                    if let Ok(modified) = meta.modified() {
-                        (meta.len(), modified)
-                    } else {
-                        return false;
-                    }
-                } else {
-                    return false;
-                }
-            };
-        }
-
-        match self {
-            Self::Mem(cursor1) => {
-                if let Self::Mem(cursor2) = other {
-                    cursor1.get_ref() == cursor2.get_ref()
-                } else {
-                    false
-                }
-            }
-            Self::File(file1) => {
-                if let Self::File(file2) = other {
-                    metadata_or_false!(file1) == metadata_or_false!(file2)
-                } else {
-                    false
-                }
-            }
-        }
-    }
-}
-
 impl Seek for HybridBuf {
     fn seek(&mut self, tgt: SeekFrom) -> Result<u64> {
         match self {

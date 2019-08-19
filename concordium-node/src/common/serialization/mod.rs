@@ -13,7 +13,7 @@ pub use self::{
 };
 
 use crate::common::RemotePeer;
-use concordium_common::UCursor;
+use concordium_common::hybrid_buf::HybridBuf;
 
 use failure::Fallible;
 
@@ -31,7 +31,7 @@ where
 pub fn deserialize_from_memory<T>(src: Vec<u8>, peer: RemotePeer) -> Fallible<T>
 where
     T: Deserializable, {
-    let cursor = UCursor::from(src);
+    let cursor = HybridBuf::from(src);
     let mut archive = ReadArchiveAdapter::new(cursor, peer);
     T::deserialize(&mut archive)
 }

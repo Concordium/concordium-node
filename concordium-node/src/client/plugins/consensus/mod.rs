@@ -11,17 +11,18 @@ use failure::Fallible;
 use std::{
     convert::TryFrom,
     fs::OpenOptions,
-    io::{Cursor, Read},
+    io::{self, Cursor, Read},
     mem,
     sync::Arc,
 };
 
 use concordium_common::{
     cache::Cache,
+    hybrid_buf::HybridBuf,
     stats_export_service::StatsExportService,
     ConsensusFfiResponse,
     PacketType::{self, *},
-    RelayOrStopEnvelope, RelayOrStopSender, UCursor,
+    RelayOrStopEnvelope, RelayOrStopSender,
 };
 
 use concordium_consensus::{consensus, ffi};
@@ -125,13 +126,13 @@ fn get_baker_data(
 pub fn handle_pkt_out(
     dont_relay_to: Vec<P2PNodeId>,
     peer_id: P2PNodeId,
-    mut msg: UCursor,
+    mut msg: HybridBuf,
     skov_sender: &RelayOrStopSender<ConsensusMessage>,
     transactions_cache: &mut Cache<Arc<[u8]>>,
     is_broadcast: bool,
 ) -> Fallible<()> {
     ensure!(
-        msg.len() >= msg.position() + PAYLOAD_TYPE_LENGTH,
+        msg.len()? >= msg.position()? + PAYLOAD_TYPE_LENGTH,
         "Message needs at least {} bytes",
         PAYLOAD_TYPE_LENGTH
     );
@@ -139,8 +140,9 @@ pub fn handle_pkt_out(
     let consensus_type = msg.read_u16::<NetworkEndian>()?;
     let packet_type = PacketType::try_from(consensus_type)?;
 
-    let view = msg.read_all_into_view()?;
-    let payload: Arc<[u8]> = Arc::from(&view.as_slice()[PAYLOAD_TYPE_LENGTH as usize..]);
+    let mut payload = Vec::with_capacity(msg.remaining_len()? as usize);
+    io::copy(&mut msg, &mut payload)?;
+    let payload: Arc<[u8]> = Arc::from(payload);
     let distribution_mode = if is_broadcast {
         DistributionMode::Broadcast
     } else {

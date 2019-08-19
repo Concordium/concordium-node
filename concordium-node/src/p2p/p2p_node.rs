@@ -30,8 +30,8 @@ use crate::{
 };
 use chrono::prelude::*;
 use concordium_common::{
-    functor::UnitFunction, stats_export_service::StatsExportService, RelayOrStopSenderHelper,
-    RelayOrStopSyncSender, UCursor,
+    functor::UnitFunction, hybrid_buf::HybridBuf, stats_export_service::StatsExportService,
+    RelayOrStopSenderHelper, RelayOrStopSyncSender, UCursor,
 };
 use failure::{err_msg, Error, Fallible};
 #[cfg(not(target_os = "windows"))]
@@ -1301,7 +1301,7 @@ pub fn send_direct_message(
     msg_id: Option<MessageId>,
     msg: Vec<u8>,
 ) -> Fallible<()> {
-    let cursor = UCursor::from(msg);
+    let cursor = HybridBuf::from(msg);
     send_message_from_cursor(node, target_id, vec![], network_id, msg_id, cursor, false)
 }
 
@@ -1313,7 +1313,7 @@ pub fn send_broadcast_message(
     msg_id: Option<MessageId>,
     msg: Vec<u8>,
 ) -> Fallible<()> {
-    let cursor = UCursor::from(msg);
+    let cursor = HybridBuf::from(msg);
     send_message_from_cursor(node, None, dont_relay_to, network_id, msg_id, cursor, true)
 }
 
@@ -1323,7 +1323,7 @@ pub fn send_message_from_cursor(
     dont_relay_to: Vec<P2PNodeId>,
     network_id: NetworkId,
     msg_id: Option<MessageId>,
-    message: UCursor,
+    message: HybridBuf,
     broadcast: bool,
 ) -> Fallible<()> {
     trace!("Queueing message!");

@@ -175,7 +175,7 @@ mod tests {
         },
         p2p::banned_nodes::tests::dummy_ban_node,
     };
-    use concordium_common::UCursor;
+    use concordium_common::hybrid_buf::HybridBuf;
     use std::{collections::HashSet, str::FromStr};
 
     fn dummy_peer(ip: IpAddr, port: u16) -> RemotePeer {
@@ -386,21 +386,23 @@ mod tests {
     #[test]
     pub fn direct_message_test() -> Fallible<()> {
         let self_peer = self_peer();
-        let text_msg = UCursor::from(b"Hello world!".to_vec());
+        let text_msg = b"Hello world!";
+        let buf = HybridBuf::from(text_msg.to_vec());
         let msg = NetworkPacket {
             packet_type: NetworkPacketType::DirectMessage(P2PNodeId::default()),
             peer:        self_peer.clone().peer().unwrap(),
             message_id:  NetworkPacket::generate_message_id(),
             network_id:  NetworkId::from(100),
-            message:     text_msg.clone(),
+            message:     buf,
         };
 
         let msg_serialized = serialize_into_memory(&msg, 256)?;
-        let packet = deserialize_from_memory::<NetworkPacket>(msg_serialized, self_peer.clone())?;
+        let mut packet =
+            deserialize_from_memory::<NetworkPacket>(msg_serialized, self_peer.clone())?;
 
         if let NetworkPacketType::DirectMessage(..) = packet.packet_type {
             assert_eq!(packet.network_id, NetworkId::from(100));
-            assert_eq!(packet.message, text_msg);
+            assert_eq!(&packet.message.remaining_bytes()?[..], text_msg);
         } else {
             bail!("It should be a direct message");
         }
@@ -411,21 +413,22 @@ mod tests {
     #[test]
     pub fn broadcasted_message_test() -> Fallible<()> {
         let self_peer = self_peer();
-        let text_msg = UCursor::from(b"Hello  broadcasted world!".to_vec());
+        let text_msg = b"Hello  broadcasted world!";
+        let buf = HybridBuf::from(text_msg.to_vec());
         let msg = NetworkPacket {
             packet_type: NetworkPacketType::BroadcastedMessage(vec![]),
             peer:        self_peer.clone().peer().unwrap(),
             message_id:  NetworkPacket::generate_message_id(),
             network_id:  NetworkId::from(100),
-            message:     text_msg.clone(),
+            message:     buf,
         };
 
         let serialized = serialize_into_memory(&msg, 256)?;
-        let packet = deserialize_from_memory::<NetworkPacket>(serialized, self_peer.clone())?;
+        let mut packet = deserialize_from_memory::<NetworkPacket>(serialized, self_peer.clone())?;
 
         if let NetworkPacketType::BroadcastedMessage(..) = packet.packet_type {
             assert_eq!(packet.network_id, NetworkId::from(100));
-            assert_eq!(packet.message, text_msg);
+            assert_eq!(&packet.message.remaining_bytes()?[..], &text_msg[..]);
         } else {
             bail!("Expected broadcast message");
         }
