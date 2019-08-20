@@ -43,8 +43,7 @@ impl ReadArchive for ReadArchiveAdapter {
             "Insufficent bytes in this archive"
         );
         let len = len as usize;
-        let mut target = Vec::with_capacity(len);
-        target.resize(len, 0);
+        let mut target = vec![0u8; len];
         self.read_exact(&mut target)?;
         Ok(target.into_boxed_slice())
     }

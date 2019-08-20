@@ -31,7 +31,7 @@ use crate::{
 use chrono::prelude::*;
 use concordium_common::{
     functor::UnitFunction, hybrid_buf::HybridBuf, stats_export_service::StatsExportService,
-    RelayOrStopSenderHelper, RelayOrStopSyncSender, UCursor,
+    RelayOrStopSenderHelper, RelayOrStopSyncSender,
 };
 use failure::{err_msg, Error, Fallible};
 #[cfg(not(target_os = "windows"))]
@@ -602,7 +602,7 @@ impl P2PNode {
                 let no_filter = |_: &Connection| true;
 
                 self.noise_protocol_handler.send_over_all_connections(
-                    UCursor::from(data),
+                    HybridBuf::from(data),
                     &no_filter,
                     &check_sent_status_fn,
                 );
@@ -653,7 +653,7 @@ impl P2PNode {
                     };
 
                     self.noise_protocol_handler.send_over_all_connections(
-                        UCursor::from(data),
+                        HybridBuf::from(data),
                         &retain,
                         &check_sent_status_fn,
                     );
@@ -680,7 +680,7 @@ impl P2PNode {
         match s11n_data {
             Ok(data) => {
                 self.noise_protocol_handler.send_over_all_connections(
-                    UCursor::from(data),
+                    HybridBuf::from(data),
                     &is_valid_connection_post_handshake,
                     &check_sent_status_fn,
                 );
@@ -708,7 +708,7 @@ impl P2PNode {
         match s11n_data {
             Ok(data) => {
                 self.noise_protocol_handler.send_over_all_connections(
-                    UCursor::from(data),
+                    HybridBuf::from(data),
                     &is_valid_connection_post_handshake,
                     &check_sent_status_fn,
                 );
@@ -736,7 +736,7 @@ impl P2PNode {
         match s11n_data {
             Ok(data) => {
                 self.noise_protocol_handler.send_over_all_connections(
-                    UCursor::from(data),
+                    HybridBuf::from(data),
                     &is_valid_connection_post_handshake,
                     &check_sent_status_fn,
                 );
@@ -764,7 +764,7 @@ impl P2PNode {
             match s11n_data {
                 Ok(data) => {
                     self.noise_protocol_handler.send_over_all_connections(
-                        UCursor::from(data),
+                        HybridBuf::from(data),
                         &filter,
                         &check_sent_status_fn,
                     );
@@ -816,7 +816,7 @@ impl P2PNode {
 
         match s11n_data {
             Ok(data) => {
-                let data_cursor = UCursor::from(data);
+                let data_cursor = HybridBuf::from(data);
                 match inner_pkt.packet_type {
                     NetworkPacketType::DirectMessage(ref receiver) => {
                         let filter = |conn: &Connection| is_conn_peer_id(conn, *receiver);

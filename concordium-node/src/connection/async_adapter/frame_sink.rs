@@ -3,7 +3,7 @@ use crate::connection::{
     MessageSendingPriority,
 };
 
-use concordium_common::UCursor;
+use concordium_common::hybrid_buf::HybridBuf;
 
 use failure::Fallible;
 
@@ -37,7 +37,7 @@ use std::{
 /// It establishes a `Noise IKpsk2` handshake to encrypt data before start
 /// sending any data.
 pub struct FrameSink {
-    frame_queue: VecDeque<UCursor>,
+    frame_queue: VecDeque<HybridBuf>,
     handshaker:  Option<Arc<RwLock<HandshakeStreamSink>>>,
     encryptor:   Option<EncryptSink>,
 }
@@ -59,7 +59,7 @@ impl FrameSink {
     /// see `FrameSink::flush`
     pub fn write(
         &mut self,
-        input: UCursor,
+        input: HybridBuf,
         output: &mut impl Write,
         priority: MessageSendingPriority,
     ) -> Fallible<Readiness<usize>> {
@@ -68,7 +68,7 @@ impl FrameSink {
         } else {
             trace!(
                 "New frame ({} bytes) was put into a {} frame queue",
-                input.len(),
+                input.len().unwrap_or(0),
                 self.frame_queue.len()
             );
             match priority {
@@ -94,7 +94,7 @@ impl FrameSink {
             match session_opt {
                 Some(session) => {
                     // Create an encryptor and enqueue pending messages.
-                    let mut encryptor = EncryptSink::new(session);
+                    let mut encryptor = EncryptSink::new(session)?;
 
                     let clear_frames = std::mem::replace(&mut self.frame_queue, VecDeque::new());
                     for frame in clear_frames.into_iter() {

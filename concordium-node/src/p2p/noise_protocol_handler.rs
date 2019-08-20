@@ -5,8 +5,8 @@ use crate::connection::{
 };
 use concordium_common::{
     functor::{UnitFunction, UnitFunctor},
+    hybrid_buf::HybridBuf,
     stats_export_service::StatsExportService,
-    UCursor,
 };
 
 use failure::{Error, Fallible};
@@ -352,7 +352,7 @@ impl NoiseProtocolHandler {
                     let handshake_request_data = serialize_into_memory(&handshake_request, 256)?;
 
                     conn.async_send(
-                        UCursor::from(handshake_request_data),
+                        HybridBuf::from(handshake_request_data),
                         MessageSendingPriority::High,
                     )?;
                     conn.set_measured_handshake_sent();
@@ -753,7 +753,7 @@ impl NoiseProtocolHandler {
                 };
                 if let Ok(request_ping_data) = serialize_into_memory(&request_ping, 128) {
                     if let Err(e) = conn.async_send(
-                        UCursor::from(request_ping_data),
+                        HybridBuf::from(request_ping_data),
                         MessageSendingPriority::High,
                     ) {
                         error!("{}", e);
@@ -776,7 +776,7 @@ impl NoiseProtocolHandler {
     /// * amount of packets written to connections
     pub fn send_over_all_connections(
         &self,
-        data: UCursor,
+        data: HybridBuf,
         filter_conn: &dyn Fn(&Connection) -> bool,
         send_status: &dyn Fn(&Connection, Fallible<()>),
     ) -> usize {

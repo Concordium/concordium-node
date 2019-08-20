@@ -116,6 +116,13 @@ impl Read for HybridBuf {
             Self::File(file) => file.read(buf),
         }
     }
+
+    fn read_exact(&mut self, buf: &mut [u8]) -> Result<()> {
+        match self {
+            Self::Mem(cursor) => cursor.read_exact(buf),
+            Self::File(file) => file.read_exact(buf),
+        }
+    }
 }
 
 impl Write for HybridBuf {

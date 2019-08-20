@@ -1,7 +1,7 @@
-use concordium_common::UCursor;
+use concordium_common::hybrid_buf::HybridBuf;
 
 use failure::Fallible;
-use std::io::{Seek, SeekFrom, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 
 /// It allows to know the status of asynchronous operations.
 ///
@@ -40,16 +40,18 @@ pub const MAX_NOISE_PROTOCOL_MESSAGE_LEN: usize = SNOW_MAXMSGLEN - SNOW_TAGLEN;
 /// It tries to copy as much as possible from `input` to `output`, using chunks
 /// of maximum `CHUNK_SIZE`. It is used with `socket` that blocks them when
 /// their output buffers are full. Written bytes are consumed from `input`.
-pub fn partial_copy(input: &mut UCursor, output: &mut impl Write) -> Fallible<usize> {
+pub fn partial_copy(input: &mut HybridBuf, output: &mut impl Write) -> Fallible<usize> {
     let mut total_written_bytes = 0;
     let mut is_would_block = false;
+    let mut chunk = [0u8; CHUNK_SIZE];
 
-    while !is_would_block && !input.is_eof() {
-        let chunk_size = std::cmp::min(CHUNK_SIZE, (input.len() - input.position()) as usize);
-
+    while !is_would_block && !input.is_eof()? {
         let offset = input.seek(SeekFrom::Current(0))?;
-        let chunk = input.read_into_view(chunk_size)?;
-        match output.write(chunk.as_slice()) {
+
+        let chunk_size = std::cmp::min(CHUNK_SIZE, (input.len()? - input.position()?) as usize);
+        input.read_exact(&mut chunk[..chunk_size])?;
+
+        match output.write(&chunk[..chunk_size]) {
             Ok(written_bytes) => {
                 total_written_bytes += written_bytes;
                 if written_bytes != chunk_size {
