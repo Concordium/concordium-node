@@ -30,9 +30,10 @@ import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Basic.Block
 import Concordium.GlobalState.Finalization(FinalizationIndex(..),FinalizationRecord)
-import Concordium.GlobalState.Basic.BlockState(BlockState, BlockPointer, _bpBlock)
+import Concordium.GlobalState.Basic.BlockState as BBS (BlockState, BlockPointer(..))
 import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState.Rust.TreeState
+
 
 import Concordium.Scheduler.Utils.Init.Example (initialState)
 
@@ -471,7 +472,7 @@ receiveTransaction bptr tdata len = do
                     (res, _) <- syncPassiveReceiveTransaction passiveSyncRunner tr
                     return res
 
-runConsensusQuery :: ConsensusRunner -> (forall z m s. (Get.SkovStateQueryable z m, TS.TreeStateMonad m, MonadState s m, FinalizationQuery s, TS.PendingBlock m ~ PendingBlock, TS.BlockPointer m ~ BlockPointer) => z -> a) -> a
+runConsensusQuery :: ConsensusRunner -> (forall z m s. (Get.SkovStateQueryable z m, TS.TreeStateMonad m, MonadState s m, FinalizationQuery s, TS.PendingBlock m ~ PendingBlock, BBS.BlockPointer m ~ BlockPointer) => z -> a) -> a
 runConsensusQuery BakerRunner{..} f = f (syncState bakerSyncRunner)
 runConsensusQuery PassiveRunner{..} f = f (syncPState passiveSyncRunner)
 

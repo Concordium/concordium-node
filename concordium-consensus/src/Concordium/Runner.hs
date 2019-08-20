@@ -18,10 +18,10 @@ import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockState(BlockState)
 import Concordium.GlobalState.Rust.TreeState
+import Concordium.GlobalState.Rust.FFI
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Finalization
-import Concordium.GlobalState.Basic.Block
-import Concordium.GlobalState.Basic.BlockState(BlockPointer)
+import Concordium.GlobalState.Basic.Block(Block(NormalBlock))
 import Concordium.TimeMonad
 import Concordium.Birk.Bake
 import Concordium.Kontrol
@@ -211,7 +211,7 @@ makeAsyncRunner logm bkr gen initBS gsptr = do
                     case runGet get blockBS of
                         Right (NormalBlock block) -> do
                             now <- currentTime
-                            (_, evts) <- syncReceiveBlock sr $ makePendingBlock block now
+                            (_, evts) <- syncReceiveBlock sr $ makePendingBlock gsptr block now
                             forM_ evts $ handleMessage src
                         _ -> return ()
                     msgLoop

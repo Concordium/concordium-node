@@ -15,8 +15,9 @@ import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.Parameters
 --import qualified Concordium.GlobalState.Basic.TreeState as Basic
 import qualified Concordium.GlobalState.Rust.TreeState as Rust
+import qualified Concordium.GlobalState.Rust.Block as Rust
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
-import qualified Concordium.GlobalState.Basic.Block as Basic
+--import qualified Concordium.GlobalState.Basic.Block as Basic
 import Concordium.Skov.Monad
 import Concordium.Skov.Query
 import Concordium.Skov.Update
@@ -124,8 +125,8 @@ newtype SkovPassiveM m a = SkovPassiveM {unSkovPassiveM :: RWST () (Endo [SkovMi
     deriving (BlockStateQuery, BlockStateOperations, TreeStateMonad) via (Rust.SkovTreeState SkovPassiveState (SkovPassiveM m))
     deriving (SkovQueryMonad, SkovMonad) via (TSSkovUpdateWrapper () (Endo [SkovMissingEvent]) SkovPassiveState (SkovPassiveM m))
 type instance UpdatableBlockState (SkovPassiveM m) = Basic.BlockState
-type instance BlockPointer (SkovPassiveM m) = Basic.BlockPointer
-type instance PendingBlock (SkovPassiveM m) = Basic.PendingBlock
+type instance BlockPointer (SkovPassiveM m) = Rust.BlockPointer
+type instance PendingBlock (SkovPassiveM m) = Rust.PendingBlock
 
 instance Monad m => OnSkov (SkovPassiveM m) where
     {-# INLINE onBlock #-}
@@ -164,8 +165,8 @@ newtype SkovActiveM m a = SkovActiveM {unSkovActiveM :: RWST FinalizationInstanc
     deriving (BlockStateQuery, BlockStateOperations, TreeStateMonad) via (Rust.SkovTreeState SkovActiveState (SkovActiveM m))
     deriving (SkovQueryMonad, SkovMonad) via (TSSkovUpdateWrapper FinalizationInstance (Endo [SkovFinalizationEvent]) SkovActiveState (SkovActiveM m) )
 type instance UpdatableBlockState (SkovActiveM m) = Basic.BlockState
-type instance BlockPointer (SkovActiveM m) = Basic.BlockPointer
-type instance PendingBlock (SkovActiveM m) = Basic.PendingBlock
+type instance BlockPointer (SkovActiveM m) = Rust.BlockPointer
+type instance PendingBlock (SkovActiveM m) = Rust.PendingBlock
 instance (TimeMonad m, LoggerMonad m, MonadIO m) => OnSkov (SkovActiveM m) where
     {-# INLINE onBlock #-}
     onBlock = notifyBlockArrival
@@ -211,8 +212,8 @@ newtype SkovBufferedM m a = SkovBufferedM {unSkovBufferedM :: RWST FinalizationI
     deriving (BlockStateQuery, BlockStateOperations, TreeStateMonad) via (Rust.SkovTreeState SkovBufferedState (SkovBufferedM m))
     deriving (SkovQueryMonad, SkovMonad) via (TSSkovUpdateWrapper FinalizationInstance (Endo [BufferedSkovFinalizationEvent]) SkovBufferedState (SkovBufferedM m) )
 type instance UpdatableBlockState (SkovBufferedM m) = Basic.BlockState
-type instance BlockPointer (SkovBufferedM m) = Basic.BlockPointer
-type instance PendingBlock (SkovBufferedM m) = Basic.PendingBlock
+type instance BlockPointer (SkovBufferedM m) = Rust.BlockPointer
+type instance PendingBlock (SkovBufferedM m) = Rust.PendingBlock
 instance (TimeMonad m, LoggerMonad m, MonadIO m) => OnSkov (SkovBufferedM m) where
     {-# INLINE onBlock #-}
     onBlock = notifyBlockArrival
@@ -266,8 +267,8 @@ newtype SkovPassiveHookedM m a = SkovPassiveHookedM {unSkovPassiveHookedM :: RWS
     deriving (BlockStateQuery, BlockStateOperations, TreeStateMonad) via (Rust.SkovTreeState SkovPassiveHookedState (SkovPassiveHookedM m))
     deriving (SkovQueryMonad, SkovMonad) via (TSSkovUpdateWrapper () (Endo [SkovMissingEvent]) SkovPassiveHookedState (SkovPassiveHookedM m))
 type instance UpdatableBlockState (SkovPassiveHookedM m) = Basic.BlockState
-type instance BlockPointer (SkovPassiveHookedM m) = Basic.BlockPointer
-type instance PendingBlock (SkovPassiveHookedM m) = Basic.PendingBlock
+type instance BlockPointer (SkovPassiveHookedM m) = Rust.BlockPointer
+type instance PendingBlock (SkovPassiveHookedM m) = Rust.PendingBlock
 
 instance (TimeMonad m, MonadIO m, LoggerMonad m) => OnSkov (SkovPassiveHookedM m) where
     {-# INLINE onBlock #-}
@@ -315,8 +316,8 @@ newtype SkovBufferedHookedM m a = SkovBufferedHookedM {unSkovBufferedHookedM :: 
     deriving (BlockStateQuery, BlockStateOperations, TreeStateMonad) via (Rust.SkovTreeState SkovBufferedHookedState (SkovBufferedHookedM m))
     deriving (SkovQueryMonad, SkovMonad) via (TSSkovUpdateWrapper FinalizationInstance (Endo [BufferedSkovFinalizationEvent]) SkovBufferedHookedState (SkovBufferedHookedM m) )
 type instance UpdatableBlockState (SkovBufferedHookedM m) = Basic.BlockState
-type instance BlockPointer (SkovBufferedHookedM m) = Basic.BlockPointer
-type instance PendingBlock (SkovBufferedHookedM m) = Basic.PendingBlock
+type instance BlockPointer (SkovBufferedHookedM m) = Rust.BlockPointer
+type instance PendingBlock (SkovBufferedHookedM m) = Rust.PendingBlock
 instance (TimeMonad m, LoggerMonad m, MonadIO m) => OnSkov (SkovBufferedHookedM m) where
     {-# INLINE onBlock #-}
     onBlock bp = do
