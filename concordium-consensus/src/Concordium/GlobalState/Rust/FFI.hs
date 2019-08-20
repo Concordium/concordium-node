@@ -1,36 +1,26 @@
 {-# LANGUAGE ForeignFunctionInterface, TypeFamilies, TypeSynonymInstances, MultiParamTypeClasses, RecordWildCards #-}
 
 module Concordium.GlobalState.Rust.FFI (
+  -- * GlobalState
   GlobalStatePtr
   , getGenesisBlockPointerR
   , getGenesisDataR
-  , makeGenesisBlockPointer
+
+  -- * Finalized blocks functions
   , storeFinalizedBlockR
   , getFinalizedBlockR
+
+  -- * BlockFields functions
   , BlockFields
-  , bfBlockPointerR
-  , bfBlockBakerR
-  , bfBlockProofR
-  , bfBlockNonceR
-  , bfBlockLastFinalizedR
+
+  -- * PendingBlock functions
   , PendingBlock(..)
-  , pbBlockSlotR 
-  , pbBlockFieldsR
-  , pbBlockTransactionsR
-  , pbVerifyBlockSignatureR
-  , pbSerializeBlockR
-  , pbGetHashR
-  , pbShowR
+
+  -- * BlockPointer functions
   , BlockPointer(..)
-  , bpGetHashR
-  , bpBlockSlotR
-  , bpBlockFieldsR
-  , bpBlockTransactionsR
-  , bpVerifyBlockSignatureR
-  , bpSerializeBlockR
-  , bpShowR
-  , bpGetHeightR
-  , bpGetTransactionCountR
+  -- ** Constructor
+  , makeGenesisBlockPointer
+  , makeBlockPointer
   ) where
 
 import Foreign.Ptr
@@ -52,7 +42,7 @@ import Data.Time.Clock
 import Data.Time.Clock.POSIX
 
 import Concordium.GlobalState.Basic.BlockState as BBS
-       hiding (makeGenesisBlockPointer, BlockPointer)
+       hiding (makeGenesisBlockPointer, makeBlockPointer, BlockPointer)
 import Concordium.GlobalState.Block 
 import Concordium.Types.HashableTo
 import Data.List
@@ -179,6 +169,8 @@ foreign import ccall unsafe "pending_block_get_hash"
     pbGetHashF :: Ptr PendingBlockR -> Ptr RustSlice
 foreign import ccall unsafe "pending_block_display"
     pbShowF :: Ptr PendingBlockR -> Ptr RustSlice
+foreign import ccall unsafe "pending_block_update_transactions"
+  pbUpdateTransactionsF :: Ptr PendingBlockR -> CString -> Int -> IO ()
 
 pbBlockSlotR :: PendingBlock -> Slot
 pbBlockSlotR = Slot . fromIntegral . pbBlockSlotF . thePBPointer
@@ -213,6 +205,11 @@ pbShowR :: PendingBlock -> String
 pbShowR b =
   let bh = pbShowF . thePBPointer $ b in 
     unsafePerformIO $  curry peekCStringLen (getPtr bh) (getLength bh)
+
+pbUpdateTransactionsR :: [Transaction] -> PendingBlock -> IO ()
+pbUpdateTransactionsR txs pb = do
+  useAsCStringLen (encode txs) $ uncurry (pbUpdateTransactionsF (thePBPointer pb))
+  return ()
 
 ---------------------------
 -- * BlockPointer FFI calls
@@ -290,18 +287,19 @@ type GlobalStatePtr = Ptr GlobalStateR
 data RustSlice
 
 -- |Datatype representing a BlockFields in the Rust side
---
--- BlockFields holds information for:
--- + BlockParent hash
--- + BlockBaker
--- + BlockProof
--- + BlockNonce
--- + BlockLastFinalized hash
---
--- BlockFields is required to implement BlockMetadata
 data BlockFieldsR
 -- |Pointer to a BlockFields in the Rust side, check
 -- https://gitlab.com/Concordium/notes-wiki/wikis/Global-state#blockmetadata-class
+--
+-- BlockFields holds information for:
+--
+--    * BlockParent hash
+--    * BlockBaker
+--    * BlockProof
+--    * BlockNonce
+--    * BlockLastFinalized hash
+--
+-- BlockFields is required to implement BlockMetadata
 newtype BlockFields = BlockFields (Ptr BlockFieldsR)
 
 instance BlockMetadata BlockFields where
@@ -312,17 +310,18 @@ instance BlockMetadata BlockFields where
     blockLastFinalized = bfBlockLastFinalizedR
 
 -- |Datatype representing a PendingBlock in the Rust side
---
--- A PendingBlock in the Rust side must have:
--- + BlockFields
--- + BlockSlot
--- + BlockTransactions
---
--- PendingBlock is required to implement Eq, BlockMetadata, BlockData, HashableTo
--- BlockHash, Show and BlockPendingData
 data PendingBlockR
 -- |Datatype holding the pointer to a PendingBlock in the Rust side, check
 -- https://gitlab.com/Concordium/notes-wiki/wikis/Global-state#pendingblock-type
+--
+-- A PendingBlock in the Rust side must have:
+--
+--    * BlockFields
+--    * BlockSlot
+--    * BlockTransactions
+--
+-- PendingBlock is required to implement Eq, BlockMetadata, BlockData, HashableTo
+-- BlockHash, Show and BlockPendingData
 data PendingBlock = PendingBlock {
   thePBPointer :: Ptr PendingBlockR,
   theTime:: UTCTime
@@ -357,18 +356,19 @@ instance BlockPendingData PendingBlock where
   blockReceiveTime = theTime
 
 -- |Datatype representing a BlockPointer in the Rust side
---
--- A BlockPointer in the Rust side must contain:
--- + Block (AKA GenesisData/BakedBlock
--- + BlockHeight
--- + TransactionCount
--- + BlockHash
---
--- Some other fields cannot be moved into the Rust side because they either
--- represent another BlockPointers, represent the BlockState or are Time values
 data BlockPointerR
 -- |Pointer to a BlockPointer in the Rust side, check
 -- https://gitlab.com/Concordium/notes-wiki/wikis/Global-state#blockpointer-type
+--
+-- A BlockPointer in the Rust side must contain:
+--
+--    * Block (AKA GenesisData/BakedBlock)
+--    * BlockHeight
+--    * TransactionCount
+--    * BlockHash
+--
+-- Some other fields cannot be moved into the Rust side because they either
+-- represent another BlockPointers, represent the BlockState or are Time values
 data BlockPointer = BlockPointer {
   theBPPointer :: Ptr BlockPointerR,
   theParent :: BlockPointer,
@@ -419,7 +419,7 @@ instance BlockPointerData BlockPointer where
 
 -- |Create the BlockPointer for the GenesisBlock
 --
--- This function must initialize the BlockPointerR from the Rust side
+-- This function must initialize the BlockPointerR of the Rust side
 makeGenesisBlockPointer :: GlobalStatePtr -> GenesisData ->  BlockState' BlockPointer -> BlockPointer
 makeGenesisBlockPointer gsptr genData theState = theBlockPointer
   where
@@ -428,8 +428,28 @@ makeGenesisBlockPointer gsptr genData theState = theBlockPointer
     theLastFinalized = theBlockPointer
     theReceiveTime = posixSecondsToUTCTime (fromIntegral (genesisTime genData))
     theArriveTime = theReceiveTime
-    theBPPointer = makeBPPointerR gsptr genData
+    theBPPointer = makeBPGenesisPointerR gsptr genData
 
 -- |Initialize the BlockPointerR in the Rust side
-makeBPPointerR :: GlobalStatePtr -> GenesisData -> Ptr BlockPointerR
+makeBPGenesisPointerR :: GlobalStatePtr -> GenesisData -> Ptr BlockPointerR
+makeBPGenesisPointerR = undefined
+
+-- |Creates the BlockPointer for a BakedBlock
+--
+-- This function must initialize the BlockPointerR of the Rust side
+makeBlockPointer :: GlobalStatePtr ->
+                    PendingBlock ->
+                    BlockPointer ->
+                    BlockPointer ->
+                    BlockState'
+                    BlockPointer ->
+                    UTCTime ->
+                    BlockPointer
+makeBlockPointer gsptr b theParent theLastFinalized theState theArriveTime = theBlockPointer
+  where
+    theBlockPointer = BlockPointer {..}
+    theReceiveTime = theTime b
+    theBPPointer = makeBPPointerR gsptr b
+
+makeBPPointerR :: GlobalStatePtr -> PendingBlock -> Ptr BlockPointerR
 makeBPPointerR = undefined
