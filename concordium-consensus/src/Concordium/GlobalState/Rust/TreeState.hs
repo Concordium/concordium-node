@@ -156,15 +156,15 @@ instance (SkovLenses s, Monad m, MonadState s m, MonadIO m) => TS.TreeStateMonad
     putBranches brs = branches .= brs
     takePendingChildren bh = possiblyPendingTable . at bh . non [] <<.= []
     addPendingBlock pb = do
-        let parent = blockPointer (bbFields (pbBlock pb))
+        let parent = blockPointer pb
         possiblyPendingTable . at parent . non [] %= (pb:)
-        possiblyPendingQueue %= MPQ.insert (blockSlot (pbBlock pb)) (getHash pb, parent)
+        possiblyPendingQueue %= MPQ.insert (blockSlot pb) (getHash pb, parent)
     takeNextPendingUntil slot = tnpu =<< use possiblyPendingQueue
         where
             tnpu ppq = case MPQ.minViewWithKey ppq of
                 Just ((sl, (pbh, parenth)), ppq') ->
                     if sl <= slot then do
-                        (myPB, otherPBs) <- partition ((== pbh) . pbHash) <$> use (possiblyPendingTable . at parenth . non [])
+                        (myPB, otherPBs) <- partition ((== pbh) . getHash) <$> use (possiblyPendingTable . at parenth . non [])
                         case myPB of
                             [] -> tnpu ppq'
                             (realPB : _) -> do
@@ -234,7 +234,7 @@ instance (SkovLenses s, Monad m, MonadState s m, MonadIO m) => TS.TreeStateMonad
         use (transactionTable . ttHashMap . at (getHash tr)) >>= \case
             Nothing -> return True
             Just (_, slot) -> do
-                lastFinSlot <- blockSlot . _bpBlock <$> TS.getLastFinalized
+                lastFinSlot <- blockSlot <$> TS.getLastFinalized
                 if (lastFinSlot >= slot) then do
                     let nonce = transactionNonce tr
                         sender = transactionSender tr
