@@ -1,9 +1,10 @@
-{-# LANGUAGE ForeignFunctionInterface, TypeFamilies, TypeSynonymInstances, MultiParamTypeClasses #-}
+{-# LANGUAGE ForeignFunctionInterface, TypeFamilies, TypeSynonymInstances, MultiParamTypeClasses, RecordWildCards #-}
 
 module Concordium.GlobalState.Rust.FFI (
   GlobalStatePtr
   , getGenesisBlockPointerR
   , getGenesisDataR
+  , makeGenesisBlockPointer
   , storeFinalizedBlockR
   , getFinalizedBlockR
   , BlockFields
@@ -37,36 +38,38 @@ import Concordium.GlobalState.Parameters
 import Data.Serialize
 import Foreign.C
 import Data.ByteString hiding (unpack, intercalate)
-import Data.ByteString.Char8 (unpack)
 import Concordium.Types
 import Concordium.Crypto.SHA256
 
 import System.IO.Unsafe
 import Data.FixedByteString hiding (unpack, pack)
 import qualified Concordium.Crypto.VRF as VRF
-import Concordium.Crypto.BlockSignature
 import Concordium.GlobalState.Transactions
 
 import Concordium.GlobalState.BlockState hiding (BlockPointer)
-import Concordium.GlobalState.Parameters
 
-import Data.Time.Clock.POSIX
 import Data.Time.Clock
+import Data.Time.Clock.POSIX
 
-import Concordium.GlobalState.BlockState hiding (BlockState, BlockPointer)
-import Concordium.GlobalState.Basic.BlockState as BBS hiding (BlockPointer)
+import Concordium.GlobalState.Basic.BlockState as BBS
+       hiding (makeGenesisBlockPointer, BlockPointer)
 import Concordium.GlobalState.Block 
-import Concordium.Types
 import Concordium.Types.HashableTo
-import Data.Serialize
 import Data.List
 
+---------------------------
+-- * RustSlice operations
+---------------------------
+
+-- |Used for casting a Slice as if it was a C *char
 foreign import ccall unsafe "get_ptr" getPtr :: Ptr RustSlice -> CString
+-- |Used for casting a Slice as if it was a C *char
 foreign import ccall unsafe "get_length" getLength :: Ptr RustSlice -> Int
 
 ---------------------------
 -- * GenesisBlock FFI calls
 ---------------------------
+
 foreign import ccall unsafe "store_genesis_block"
    storeGenesisBlockPointerF :: GlobalStatePtr -> CString -> Int -> IO ()
 foreign import ccall unsafe "get_genesis_block_pointer"
@@ -149,8 +152,7 @@ bfBlockNonceR b =
   let bn = bfBlockNonceF b in 
     unsafePerformIO $ do
       bn_str <- curry packCStringLen (getPtr bn) (getLength bn)
-      --return . fromByteString $ bn_str
-      undefined
+      return . VRF.Proof . fromByteString $ bn_str
     
 bfBlockLastFinalizedR :: BlockFields -> BlockHash
 bfBlockLastFinalizedR b = 
@@ -190,7 +192,7 @@ pbBlockTransactionsR b =
     unsafePerformIO $ do
       bt_str <- curry packCStringLen (getPtr bt) (getLength bt)
       case decode bt_str of
-        Left e -> fail "Couldn't deserialize txs"
+        Left e -> fail $ "Couldn't deserialize txs " ++ show e
         Right v -> return v
 
 pbVerifyBlockSignatureR = undefined
@@ -254,7 +256,7 @@ bpBlockTransactionsR b =
     unsafePerformIO $ do
       bt_str <- curry packCStringLen (getPtr bt) (getLength bt)
       case decode bt_str of
-        Left e -> fail "Couldn't deserialize txs"
+        Left e -> fail $ "Couldn't deserialize txs" ++ show e
         Right v -> return v
         
 bpVerifyBlockSignatureR = undefined
@@ -287,44 +289,21 @@ type GlobalStatePtr = Ptr GlobalStateR
 -- |Helper datatype to transfer `CStringLen`s through FFI
 data RustSlice
 
--- |Datatype representing a BlockPointer in the Rust side
-data BlockPointerR
--- |Pointer to a BlockPointer in the Rust side, check
--- https://gitlab.com/Concordium/notes-wiki/wikis/Global-state#blockpointer-type
-data BlockPointer = BlockPointer {
-  theBPPointer :: Ptr BlockPointerR,
-  theParent :: BlockPointer,
-  theLastFinalized :: BlockPointer,
-  theState :: BlockState' BlockPointer,
-  theReceiveTime :: UTCTime,
-  theArriveTime :: UTCTime
-  }
-
--- makeGenesisBlockPointer :: GenesisData -> Ptr BlockPointerR -> BlockState' BlockPointer -> BlockPointer
--- makeGenesisBlockPointer genData theBPPointer theState = theBlockPointer
---   where
---     theBlockPointer = BlockPointer {..}
---     theParent = theBlockPointer
---     theLastFinalized = theBlockPointer
---     theReceiveTime = posixSecondsToUTCTime (fromIntegral (genesisTime genData))
---     theArriveTime = theReceiveTime
-
 -- |Datatype representing a BlockFields in the Rust side
+--
+-- BlockFields holds information for:
+-- + BlockParent hash
+-- + BlockBaker
+-- + BlockProof
+-- + BlockNonce
+-- + BlockLastFinalized hash
+--
+-- BlockFields is required to implement BlockMetadata
 data BlockFieldsR
 -- |Pointer to a BlockFields in the Rust side, check
 -- https://gitlab.com/Concordium/notes-wiki/wikis/Global-state#blockmetadata-class
 newtype BlockFields = BlockFields (Ptr BlockFieldsR)
 
--- |Datatype representing a PendingBlock in the Rust side
-data PendingBlockR
--- |Pointer to a PendingBlock in the Rust side, check
--- https://gitlab.com/Concordium/notes-wiki/wikis/Global-state#pendingblock-type
-data PendingBlock = PendingBlock {
-  thePBPointer :: Ptr PendingBlockR,
-  theTime:: UTCTime
-  }
-
--- BlockFields is required to implement BlockMetadata
 instance BlockMetadata BlockFields where
     blockPointer = bfBlockPointerR
     blockBaker = bfBlockBakerR
@@ -332,8 +311,26 @@ instance BlockMetadata BlockFields where
     blockNonce = bfBlockNonceR
     blockLastFinalized = bfBlockLastFinalizedR
 
--- PendingBlock is required to implement BlockMetadata, BlockData, HashableTo
+-- |Datatype representing a PendingBlock in the Rust side
+--
+-- A PendingBlock in the Rust side must have:
+-- + BlockFields
+-- + BlockSlot
+-- + BlockTransactions
+--
+-- PendingBlock is required to implement Eq, BlockMetadata, BlockData, HashableTo
 -- BlockHash, Show and BlockPendingData
+data PendingBlockR
+-- |Datatype holding the pointer to a PendingBlock in the Rust side, check
+-- https://gitlab.com/Concordium/notes-wiki/wikis/Global-state#pendingblock-type
+data PendingBlock = PendingBlock {
+  thePBPointer :: Ptr PendingBlockR,
+  theTime:: UTCTime
+  }
+
+instance Eq PendingBlock where
+  a == b = (getHash a :: BlockHash) == (getHash b :: BlockHash)
+  
 instance BlockMetadata PendingBlock where
     blockPointer = bfBlockPointerR . pbBlockFieldsR
     blockBaker = bfBlockBakerR . pbBlockFieldsR
@@ -358,6 +355,28 @@ instance Show PendingBlock where
 
 instance BlockPendingData PendingBlock where
   blockReceiveTime = theTime
+
+-- |Datatype representing a BlockPointer in the Rust side
+--
+-- A BlockPointer in the Rust side must contain:
+-- + Block (AKA GenesisData/BakedBlock
+-- + BlockHeight
+-- + TransactionCount
+-- + BlockHash
+--
+-- Some other fields cannot be moved into the Rust side because they either
+-- represent another BlockPointers, represent the BlockState or are Time values
+data BlockPointerR
+-- |Pointer to a BlockPointer in the Rust side, check
+-- https://gitlab.com/Concordium/notes-wiki/wikis/Global-state#blockpointer-type
+data BlockPointer = BlockPointer {
+  theBPPointer :: Ptr BlockPointerR,
+  theParent :: BlockPointer,
+  theLastFinalized :: BlockPointer,
+  theState :: BlockState' BlockPointer,
+  theReceiveTime :: UTCTime,
+  theArriveTime :: UTCTime
+  }
 
 -- BlockPointer is required to implement Eq and Ord, HashableTo BlockHash, BlockData
 -- and BlockPointerData (requires Show)
@@ -397,3 +416,20 @@ instance BlockPointerData BlockPointer where
     bpReceiveTime = theReceiveTime
     bpArriveTime = theArriveTime
     bpTransactionCount = bpGetTransactionCountR
+
+-- |Create the BlockPointer for the GenesisBlock
+--
+-- This function must initialize the BlockPointerR from the Rust side
+makeGenesisBlockPointer :: GlobalStatePtr -> GenesisData ->  BlockState' BlockPointer -> BlockPointer
+makeGenesisBlockPointer gsptr genData theState = theBlockPointer
+  where
+    theBlockPointer = BlockPointer {..}
+    theParent = theBlockPointer
+    theLastFinalized = theBlockPointer
+    theReceiveTime = posixSecondsToUTCTime (fromIntegral (genesisTime genData))
+    theArriveTime = theReceiveTime
+    theBPPointer = makeBPPointerR gsptr genData
+
+-- |Initialize the BlockPointerR in the Rust side
+makeBPPointerR :: GlobalStatePtr -> GenesisData -> Ptr BlockPointerR
+makeBPPointerR = undefined
