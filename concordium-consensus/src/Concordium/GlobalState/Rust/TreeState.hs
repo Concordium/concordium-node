@@ -16,7 +16,6 @@ import Data.List as List
 import Data.Foldable
 import Control.Monad.State
 import Control.Exception
-import Data.Serialize
 
 import qualified Data.Map.Strict as Map
 import qualified Data.HashMap.Strict as HM
@@ -36,6 +35,7 @@ import Concordium.GlobalState.Transactions
 import qualified Concordium.GlobalState.Rewards as Rewards
 
 import Concordium.GlobalState.Basic.BlockState (BlockState, blockBank)
+import Concordium.GlobalState.Basic.Block (signBlock)
 import Concordium.GlobalState.Rust.BlockState
 import Concordium.GlobalState.Rust.Block
 import Concordium.GlobalState.Rust.FFI
@@ -130,7 +130,9 @@ type instance BS.BlockPointer (SkovTreeState s m) = BlockPointer
 type instance BS.UpdatableBlockState (SkovTreeState s m) = BlockState
 
 instance (SkovLenses s, Monad m, MonadState s m, MonadIO m) => TS.TreeStateMonad (SkovTreeState s m) where
-    makePendingBlock key slot parent bid pf n lastFin trs time = return $ undefined --makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
+    makePendingBlock key slot parent bid pf n lastFin trs time = do
+      gsptr <- use globalStatePtr
+      return $ makePendingBlock gsptr (signBlock key slot parent bid pf n lastFin trs) time
     getBlockStatus bh = use (blockTable . at bh)
     makeLiveBlock block parent lastFin st arrTime = do
             gsptr <- use globalStatePtr
@@ -249,7 +251,9 @@ instance (SkovLenses s, Monad m, MonadState s m, MonadIO m) => TS.TreeStateMonad
             Just (tr, _) -> do
                 nn <- use (transactionTable . ttNonFinalizedTransactions . at (transactionSender tr) . non emptyANFT . anftNextNonce)
                 return $ Just (tr, transactionNonce tr < nn)
-    updateBlockTransactions trs pb = undefined --return $ pb {pbBlock = (pbBlock pb) {bbTransactions = BlockTransactions trs}}
+    updateBlockTransactions trs pb = do
+         liftIO $ pbUpdateTransactionsR trs pb
+         return pb
 
     {-# INLINE thawBlockState #-}
     thawBlockState bs = return $ bs & (blockBank . Rewards.executionCost .~ 0) .

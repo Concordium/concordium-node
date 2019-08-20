@@ -15,6 +15,8 @@ module Concordium.GlobalState.Rust.FFI (
 
   -- * PendingBlock functions
   , PendingBlock(..)
+  , makePendingBlock
+  , pbUpdateTransactionsR
 
   -- * BlockPointer functions
   , BlockPointer(..)
@@ -43,7 +45,8 @@ import Data.Time.Clock.POSIX
 
 import Concordium.GlobalState.Basic.BlockState as BBS
        hiding (makeGenesisBlockPointer, makeBlockPointer, BlockPointer)
-import Concordium.GlobalState.Block 
+import Concordium.GlobalState.Basic.Block (BakedBlock)
+import Concordium.GlobalState.Block
 import Concordium.Types.HashableTo
 import Data.List
 
@@ -170,7 +173,7 @@ foreign import ccall unsafe "pending_block_get_hash"
 foreign import ccall unsafe "pending_block_display"
     pbShowF :: Ptr PendingBlockR -> Ptr RustSlice
 foreign import ccall unsafe "pending_block_update_transactions"
-  pbUpdateTransactionsF :: Ptr PendingBlockR -> CString -> Int -> IO ()
+    pbUpdateTransactionsF :: Ptr PendingBlockR -> CString -> Int -> IO ()
 
 pbBlockSlotR :: PendingBlock -> Slot
 pbBlockSlotR = Slot . fromIntegral . pbBlockSlotF . thePBPointer
@@ -206,10 +209,21 @@ pbShowR b =
   let bh = pbShowF . thePBPointer $ b in 
     unsafePerformIO $  curry peekCStringLen (getPtr bh) (getLength bh)
 
+-- |Create a PendingBlock
+-- This function must initialize the PendingBlockR of the Rust side
+makePendingBlock :: GlobalStatePtr -> BakedBlock -> UTCTime -> PendingBlock
+makePendingBlock gsptr bb theTime = thePendingBlock
+  where
+    thePendingBlock = PendingBlock {..}
+    thePBPointer = makePBPointerR gsptr bb
+
+makePBPointerR :: GlobalStatePtr -> BakedBlock -> Ptr PendingBlockR
+makePBPointerR = undefined
+
+-- |Update the list of transactions held in the Rust side
 pbUpdateTransactionsR :: [Transaction] -> PendingBlock -> IO ()
-pbUpdateTransactionsR txs pb = do
+pbUpdateTransactionsR txs pb =
   useAsCStringLen (encode txs) $ uncurry (pbUpdateTransactionsF (thePBPointer pb))
-  return ()
 
 ---------------------------
 -- * BlockPointer FFI calls
@@ -418,7 +432,6 @@ instance BlockPointerData BlockPointer where
     bpTransactionCount = bpGetTransactionCountR
 
 -- |Create the BlockPointer for the GenesisBlock
---
 -- This function must initialize the BlockPointerR of the Rust side
 makeGenesisBlockPointer :: GlobalStatePtr -> GenesisData ->  BlockState' BlockPointer -> BlockPointer
 makeGenesisBlockPointer gsptr genData theState = theBlockPointer
@@ -435,7 +448,6 @@ makeBPGenesisPointerR :: GlobalStatePtr -> GenesisData -> Ptr BlockPointerR
 makeBPGenesisPointerR = undefined
 
 -- |Creates the BlockPointer for a BakedBlock
---
 -- This function must initialize the BlockPointerR of the Rust side
 makeBlockPointer :: GlobalStatePtr ->
                     PendingBlock ->
