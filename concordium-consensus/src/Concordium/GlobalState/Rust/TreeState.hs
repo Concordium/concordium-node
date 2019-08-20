@@ -4,8 +4,7 @@
 {-# LANGUAGE DerivingStrategies, DerivingVia #-}
 
 module Concordium.GlobalState.Rust.TreeState (
-  GlobalStateR
-  , GlobalStatePtr
+  GlobalStatePtr
   , SkovData(..)
   , initialSkovData
   , SkovLenses(..)
@@ -117,7 +116,7 @@ initialSkovData gd genState gsptr = SkovData {
             _skovStatistics = initialConsensusStatistics
         }
     where
-        gb = makeGenesisBlockPointer gd genState
+        gb = makeGenesisBlockPointer gsptr gd genState
         gbh = BS.bpHash gb
         gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
 
@@ -131,9 +130,11 @@ type instance BS.BlockPointer (SkovTreeState s m) = BlockPointer
 type instance BS.UpdatableBlockState (SkovTreeState s m) = BlockState
 
 instance (SkovLenses s, Monad m, MonadState s m, MonadIO m) => TS.TreeStateMonad (SkovTreeState s m) where
+    makePendingBlock key slot parent bid pf n lastFin trs time = return $ undefined --makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
     getBlockStatus bh = use (blockTable . at bh)
     makeLiveBlock block parent lastFin st arrTime = do
-            let blockP = makeBlockPointer block parent lastFin st arrTime
+            gsptr <- use globalStatePtr
+            let blockP = makeBlockPointer gsptr block parent lastFin st arrTime
             blockTable . at (getHash block) ?= TS.BlockAlive blockP
             return blockP
     markDead bh = blockTable . at bh ?= TS.BlockDead
@@ -248,6 +249,7 @@ instance (SkovLenses s, Monad m, MonadState s m, MonadIO m) => TS.TreeStateMonad
             Just (tr, _) -> do
                 nn <- use (transactionTable . ttNonFinalizedTransactions . at (transactionSender tr) . non emptyANFT . anftNextNonce)
                 return $ Just (tr, transactionNonce tr < nn)
+    updateBlockTransactions trs pb = undefined --return $ pb {pbBlock = (pbBlock pb) {bbTransactions = BlockTransactions trs}}
 
     {-# INLINE thawBlockState #-}
     thawBlockState bs = return $ bs & (blockBank . Rewards.executionCost .~ 0) .
