@@ -28,9 +28,12 @@ import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Block
-import Concordium.GlobalState.Basic.Block
+import Concordium.GlobalState.Basic.Block as BSB hiding (makePendingBlock)
+import Concordium.GlobalState.Basic.BlockState as BSBS
+import Concordium.GlobalState.Rust.Block as RSB
+import Concordium.GlobalState.Rust.FFI
 import Concordium.GlobalState.Finalization(FinalizationIndex(..),FinalizationRecord)
-import Concordium.GlobalState.Basic.BlockState as BBS (BlockState, BlockPointer(..))
+import Concordium.GlobalState.BlockState as GSBS (BlockState, BlockPointer(..))
 import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState.Rust.TreeState
 
@@ -46,6 +49,9 @@ import Concordium.Skov.CatchUp (CatchUpStatus)
 
 import qualified Concordium.Getters as Get
 import qualified Concordium.Startup as S
+
+import Control.Concurrent.MVar
+import Control.Monad.IO.Class
 
 -- |A 'PeerID' identifies peer at the p2p layer.
 type PeerID = Word64
@@ -255,7 +261,7 @@ consensusLogMethod :: ConsensusRunner -> LogMethod IO
 consensusLogMethod BakerRunner{bakerSyncRunner=SyncRunner{syncLogMethod=logM}} = logM
 consensusLogMethod PassiveRunner{passiveSyncRunner=SyncPassiveRunner{syncPLogMethod=logM}} = logM
 
-genesisState :: GenesisData -> BlockState
+genesisState :: GenesisData -> BSBS.BlockState
 genesisState genData = initialState (genesisBirkParameters genData) (genesisCryptographicParameters genData) (genesisBakerAccounts genData) (genesisIdentityProviders genData) 2
 
 -- |Start up an instance of Skov without starting the baker thread.
@@ -308,7 +314,10 @@ stopConsensus cptr = mask_ $ do
 startBaker :: StablePtr ConsensusRunner -> IO ()
 startBaker cptr = mask_ $
     deRefStablePtr cptr >>= \case
-        BakerRunner{..} -> startSyncRunner bakerSyncRunner
+        c@BakerRunner{..} -> do
+          sk <- readMVar . syncState $ bakerSyncRunner
+          consensusLogMethod c External LLError (show $! _skovGlobalStatePtr . _sbhsSkov $ sk)
+          startSyncRunner bakerSyncRunner
         c -> consensusLogMethod c External LLError "Attempted to start baker thread, but consensus was started without baker credentials"
 
 -- |Stop a baker thread.
@@ -385,7 +394,14 @@ receiveBlock bptr cstr l = do
         Right (NormalBlock block0) -> do
                         logm External LLInfo $ "Block deserialized. Sending to consensus."
                         now <- currentTime
-                        let block = makePendingBlock block0 now
+                        gsptr <- case c of
+                          BakerRunner{..} -> liftIO $ do
+                            st <- readMVar . syncState $ bakerSyncRunner
+                            return . _skovGlobalStatePtr . _sbhsSkov $ st
+                          PassiveRunner{..} -> do
+                            st <- readMVar . syncPState $ passiveSyncRunner
+                            return . _skovGlobalStatePtr . _sphsSkov $ st
+                        let block = makePendingBlock gsptr block0 now
                         case c of
                             BakerRunner{..} -> do
                                 (res, evts) <- syncReceiveBlock bakerSyncRunner block
@@ -472,7 +488,7 @@ receiveTransaction bptr tdata len = do
                     (res, _) <- syncPassiveReceiveTransaction passiveSyncRunner tr
                     return res
 
-runConsensusQuery :: ConsensusRunner -> (forall z m s. (Get.SkovStateQueryable z m, TS.TreeStateMonad m, MonadState s m, FinalizationQuery s, TS.PendingBlock m ~ PendingBlock, BBS.BlockPointer m ~ BlockPointer) => z -> a) -> a
+runConsensusQuery :: ConsensusRunner -> (forall z m s. (Get.SkovStateQueryable z m, TS.TreeStateMonad m, MonadState s m, FinalizationQuery s, TS.PendingBlock m ~ RSB.PendingBlock, GSBS.BlockPointer m ~ RSB.BlockPointer) => z -> a) -> a
 runConsensusQuery BakerRunner{..} f = f (syncState bakerSyncRunner)
 runConsensusQuery PassiveRunner{..} f = f (syncPState passiveSyncRunner)
 
@@ -703,20 +719,20 @@ freeCStr = free
 -- the length (encoded big-endian), followed by the data itself.
 -- The string should be freed by calling 'freeCStr'.
 -- The string may be empty (length 0) if the finalization record is not found.
-getBlock :: StablePtr ConsensusRunner -> BlockReference -> IO CString
-getBlock cptr blockRef = do
-        c <- deRefStablePtr cptr
-        let logm = consensusLogMethod c
-        bh <- blockReferenceToBlockHash blockRef
-        logm External LLInfo $ "Received request for block: " ++ show bh
-        b <- runConsensusQuery c Get.getBlockData bh
-        case b :: Maybe Block of
-            Nothing -> do
-                logm External LLInfo $ "Block not available"
-                byteStringToCString BS.empty
-            Just block -> do
-                logm External LLInfo $ "Block found"
-                byteStringToCString $ P.runPut $ put block
+-- getBlock :: StablePtr ConsensusRunner -> BlockReference -> IO CString
+-- getBlock cptr blockRef = do
+--         c <- deRefStablePtr cptr
+--         let logm = consensusLogMethod c
+--         bh <- blockReferenceToBlockHash blockRef
+--         logm External LLInfo $ "Received request for block: " ++ show bh
+--         b <- runConsensusQuery c Get.getBlockData bh
+--         case b :: Maybe Block of
+--             Nothing -> do
+--                 logm External LLInfo $ "Block not available"
+--                 byteStringToCString BS.empty
+--             Just block -> do
+--                 logm External LLInfo $ "Block found"
+--                 byteStringToCString $ P.runPut $ put block
 
 -- |Get a block that is descended from the given block hash by the given number of generations.
 -- The block hash is passed as a pointer to a fixed length (32 byte) string.
@@ -724,21 +740,21 @@ getBlock cptr blockRef = do
 -- the length (encoded big-endian), followed by the data itself.
 -- The string should be freed by calling 'freeCStr'.
 -- The string may be empty (length 0) if the finalization record is not found.
-getBlockDelta :: StablePtr ConsensusRunner -> BlockReference -> Word64 -> IO CString
-getBlockDelta bptr blockRef 0 = getBlock bptr blockRef
-getBlockDelta cptr blockRef delta = do
-        c <- deRefStablePtr cptr
-        let logm = consensusLogMethod c
-        bh <- blockReferenceToBlockHash blockRef
-        logm External LLInfo $ "Received request for descendent of block " ++ show bh ++ " with delta " ++ show delta
-        b <- runConsensusQuery c Get.getBlockDescendant bh (BlockHeight delta)
-        case b :: Maybe Block of
-            Nothing -> do
-                logm External LLInfo $ "Block not available"
-                byteStringToCString BS.empty
-            Just block -> do
-                logm External LLInfo $ "Block found"
-                byteStringToCString $ P.runPut $ put block
+-- getBlockDelta :: StablePtr ConsensusRunner -> BlockReference -> Word64 -> IO CString
+-- getBlockDelta bptr blockRef 0 = getBlock bptr blockRef
+-- getBlockDelta cptr blockRef delta = do
+--         c <- deRefStablePtr cptr
+--         let logm = consensusLogMethod c
+--         bh <- blockReferenceToBlockHash blockRef
+--         logm External LLInfo $ "Received request for descendent of block " ++ show bh ++ " with delta " ++ show delta
+--         b <- runConsensusQuery c Get.getBlockDescendant bh (BlockHeight delta)
+--         case b :: Maybe Block of
+--             Nothing -> do
+--                 logm External LLInfo $ "Block not available"
+--                 byteStringToCString BS.empty
+--             Just block -> do
+--                 logm External LLInfo $ "Block found"
+--                 byteStringToCString $ P.runPut $ put block
 
 -- |Get a finalization record for the given block.
 -- The block hash is passed as a pointer to a fixed length (32 byte) string.
@@ -910,8 +926,8 @@ foreign export ccall getAncestors :: StablePtr ConsensusRunner -> CString -> Wor
 foreign export ccall getBranches :: StablePtr ConsensusRunner -> IO CString
 foreign export ccall freeCStr :: CString -> IO ()
 
-foreign export ccall getBlock :: StablePtr ConsensusRunner -> BlockReference -> IO CString
-foreign export ccall getBlockDelta :: StablePtr ConsensusRunner -> BlockReference -> Word64 -> IO CString
+--foreign export ccall getBlock :: StablePtr ConsensusRunner -> BlockReference -> IO CString
+--foreign export ccall getBlockDelta :: StablePtr ConsensusRunner -> BlockReference -> Word64 -> IO CString
 foreign export ccall getBlockFinalization :: StablePtr ConsensusRunner -> BlockReference -> IO CString
 foreign export ccall getIndexedFinalization :: StablePtr ConsensusRunner -> Word64 -> IO CString
 foreign export ccall getFinalizationMessages :: StablePtr ConsensusRunner -> PeerID -> CString -> Int64 -> FunPtr FinalizationMessageCallback -> IO Int64
