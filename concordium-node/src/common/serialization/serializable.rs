@@ -1,6 +1,6 @@
 use crate::common::serialization::WriteArchive;
 
-use concordium_common::{hybrid_buf::HybridBuf, HashBytes, UCursor};
+use concordium_common::{hybrid_buf::HybridBuf, HashBytes};
 use failure::Fallible;
 
 use std::{
@@ -176,23 +176,6 @@ where
 
 // Concordium-common
 // ==============================================================================================
-
-/// As `UCursor` maintains compatability with a broad range of `std::io`, we
-/// simply enforce a max size of u32 only during serialization-phases.
-impl Serializable for UCursor {
-    /// It makes a `deep-copy` of the `UCursor` into `Archive`.
-    fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
-    where
-        A: WriteArchive, {
-        let mut self_from = self.sub(self.position())?;
-        let self_from_len = self_from.len();
-
-        (self_from_len as u32).serialize(archive)?;
-        std::io::copy(&mut self_from, archive)?;
-
-        Ok(())
-    }
-}
 
 impl Serializable for HybridBuf {
     fn serialize<A>(&self, archive: &mut A) -> Fallible<()>

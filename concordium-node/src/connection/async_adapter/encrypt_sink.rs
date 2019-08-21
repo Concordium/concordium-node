@@ -35,8 +35,7 @@ pub const MAX_ENCRYPTED_FRAME_IN_MEMORY: usize = 4_194_304; // 4MB
 /// going to take a lot of time (in term of CPU time) until the full packet is
 /// delivered. In order to *reduce* the memory footprint during the send
 /// process, each packet larger than `MAX_ENCRYPTED_FRAME_IN_MEMORY`
-/// will be transformed to a file cursor. `UCursor` uses a small buffer to
-/// improve IO performance when data is stored on disk.
+/// will be transformed to a file cursor.
 ///
 /// This memory improvement could be huge when a node is sending large packets
 /// over a lot of connections.
