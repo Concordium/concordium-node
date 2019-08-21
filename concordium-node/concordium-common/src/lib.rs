@@ -159,7 +159,8 @@ pub enum PacketType {
     Transaction,
     FinalizationRecord,
     FinalizationMessage,
-    CatchupFinalizationMessagesByPoint,
+    CatchUpFinalizationMessagesByPoint,
+    CatchUpStatus,
 }
 
 static PACKET_TYPE_FROM_INT: &[PacketType] = &[
@@ -167,7 +168,8 @@ static PACKET_TYPE_FROM_INT: &[PacketType] = &[
     PacketType::Transaction,
     PacketType::FinalizationRecord,
     PacketType::FinalizationMessage,
-    PacketType::CatchupFinalizationMessagesByPoint,
+    PacketType::CatchUpFinalizationMessagesByPoint,
+    PacketType::CatchUpStatus,
 ];
 
 impl TryFrom<u16> for PacketType {
@@ -189,9 +191,10 @@ impl fmt::Display for PacketType {
             PacketType::Transaction => "transaction",
             PacketType::FinalizationRecord => "finalization record",
             PacketType::FinalizationMessage => "finalization message",
-            PacketType::CatchupFinalizationMessagesByPoint => {
+            PacketType::CatchUpFinalizationMessagesByPoint => {
                 "catch-up finalization messages by point request"
             }
+            PacketType::CatchUpStatus => "catch-up status message",
         };
 
         write!(f, "{}", name)

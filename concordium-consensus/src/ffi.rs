@@ -181,10 +181,12 @@ pub struct consensus_runner {
     private: [u8; 0],
 }
 
-type ConsensusDataOutCallback = extern "C" fn(i64, *const u8, i64);
+type BroadcastCallback = extern "C" fn(i64, *const u8, i64);
 type LogCallback = extern "C" fn(c_char, c_char, *const u8);
-type CatchupFinalizationMessagesSenderCallback =
+type CatchUpFinalizationMessagesSenderCallback =
     extern "C" fn(peer_id: PeerId, payload: *const u8, payload_length: i64);
+type DirectMessageCallback =
+    extern "C" fn(peer_id: PeerId, message_type: i64, msg: *const c_char, msg_len: i64);
 
 extern "C" {
     pub fn startConsensus(
@@ -192,7 +194,7 @@ extern "C" {
         genesis_data_len: i64,
         private_data: *const u8,
         private_data_len: i64,
-        bake_callback: ConsensusDataOutCallback,
+        broadcast_callback: BroadcastCallback,
         log_callback: LogCallback,
     ) -> *mut consensus_runner;
     pub fn startConsensusPassive(
@@ -282,7 +284,7 @@ extern "C" {
         peer_id: PeerId,
         request: *const u8,
         request_lenght: i64,
-        callback: CatchupFinalizationMessagesSenderCallback,
+        callback: CatchUpFinalizationMessagesSenderCallback,
     ) -> i64;
     pub fn getFinalizationPoint(consensus: *mut consensus_runner) -> *const u8;
     pub fn hookTransaction(
@@ -290,6 +292,14 @@ extern "C" {
         transaction_hash: *const u8,
     ) -> *const c_char;
     pub fn freeCStr(hstring: *const c_char);
+    pub fn getCatchUpStatus(consensus: *mut consensus_runner) -> *const u8;
+    pub fn receiveCatchUpStatus(
+        consensus: *mut consensus_runner,
+        peer_id: PeerId,
+        msg: *const u8,
+        msg_len: i64,
+        callback: DirectMessageCallback,
+    ) -> i64;
 }
 
 pub fn get_consensus_ptr(
@@ -317,7 +327,7 @@ pub fn get_consensus_ptr(
                     genesis_data_len as i64,
                     c_string_private_data.as_ptr() as *const u8,
                     private_data_len as i64,
-                    on_consensus_data_out,
+                    broadcast_callback,
                     on_log_emited,
                 )
             }
@@ -504,12 +514,27 @@ impl ConsensusContainer {
             on_finalization_message_catchup_out
         ))
     }
+
+    pub fn get_catch_up_status(&self) -> Vec<u8> {
+        wrap_c_call_bytes!(self, |consensus| getCatchUpStatus(consensus))
+    }
+
+    pub fn receive_catch_up_status(&self, request: &[u8], peer_id: PeerId) -> ConsensusFfiResponse {
+        wrap_c_call!(self, |consensus| receiveCatchUpStatus(
+            consensus,
+            peer_id,
+            request.as_ptr(),
+            request.len() as i64,
+            direct_callback
+        ))
+    }
 }
 
 pub enum CallbackType {
     Block = 0,
     FinalizationMessage,
     FinalizationRecord,
+    CatchUpStatus,
 }
 
 impl TryFrom<u8> for CallbackType {
@@ -520,41 +545,9 @@ impl TryFrom<u8> for CallbackType {
             0 => Ok(CallbackType::Block),
             1 => Ok(CallbackType::FinalizationMessage),
             2 => Ok(CallbackType::FinalizationRecord),
+            3 => Ok(CallbackType::CatchUpStatus),
             _ => Err(format_err!("Received invalid callback type: {}", byte)),
         }
-    }
-}
-
-pub extern "C" fn on_consensus_data_out(block_type: i64, block_data: *const u8, data_length: i64) {
-    debug!("Callback hit - queueing message");
-
-    unsafe {
-        let data = Arc::from(slice::from_raw_parts(
-            block_data as *const u8,
-            data_length as usize,
-        ));
-
-        let callback_type = match CallbackType::try_from(block_type as u8) {
-            Ok(ct) => ct,
-            Err(e) => {
-                error!("{}", e);
-                return;
-            }
-        };
-
-        let message_variant = match callback_type {
-            CallbackType::Block => PacketType::Block,
-            CallbackType::FinalizationMessage => PacketType::FinalizationMessage,
-            CallbackType::FinalizationRecord => PacketType::FinalizationRecord,
-        };
-
-        let message =
-            ConsensusMessage::new(MessageType::Outbound(None), message_variant, data, vec![]);
-
-        match CALLBACK_QUEUE.send_message(message) {
-            Ok(_) => debug!("Queueing a {} of {} bytes", message_variant, data_length),
-            _ => error!("Couldn't queue a {} properly", message_variant),
-        };
     }
 }
 
@@ -568,6 +561,77 @@ pub extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *co
             payload,
             vec![],
         ))
+    }
+}
+
+pub extern "C" fn broadcast_callback(msg_type: i64, msg: *const u8, msg_length: i64) {
+    debug!("Broadcast callback hit - queueing message");
+
+    unsafe {
+        let callback_type = match CallbackType::try_from(msg_type as u8) {
+            Ok(ct) => ct,
+            Err(e) => {
+                error!("{}", e);
+                return;
+            }
+        };
+
+        let msg_variant = match callback_type {
+            CallbackType::Block => PacketType::Block,
+            CallbackType::FinalizationMessage => PacketType::FinalizationMessage,
+            CallbackType::FinalizationRecord => PacketType::FinalizationRecord,
+            CallbackType::CatchUpStatus => PacketType::CatchUpStatus,
+        };
+
+        let payload = Arc::from(slice::from_raw_parts(msg as *const u8, msg_length as usize));
+        let target = None;
+
+        let msg =
+            ConsensusMessage::new(MessageType::Outbound(target), msg_variant, payload, vec![]);
+
+        match CALLBACK_QUEUE.send_message(msg) {
+            Ok(_) => debug!("Queueing a {} of {} bytes", msg_variant, msg_length),
+            _ => error!("Couldn't queue a {} properly", msg_variant),
+        };
+    }
+}
+
+// This is almost the same function as on_consensus_data_out, just for direct
+// messages TODO: macroize or merge on Haskell side
+pub extern "C" fn direct_callback(
+    peer_id: PeerId,
+    message_type: i64,
+    msg: *const c_char,
+    msg_len: i64,
+) {
+    debug!("Direct callback hit - queueing message");
+
+    unsafe {
+        let callback_type = match CallbackType::try_from(message_type as u8) {
+            Ok(ct) => ct,
+            Err(e) => {
+                error!("{}", e);
+                return;
+            }
+        };
+
+        let msg_variant = match callback_type {
+            CallbackType::Block => PacketType::Block,
+            CallbackType::FinalizationMessage => PacketType::FinalizationMessage,
+            CallbackType::FinalizationRecord => PacketType::FinalizationRecord,
+            CallbackType::CatchUpStatus => PacketType::CatchUpStatus,
+        };
+
+        let payload = Arc::from(slice::from_raw_parts(msg as *const u8, msg_len as usize));
+        let target = Some(peer_id);
+
+        let msg =
+            ConsensusMessage::new(MessageType::Outbound(target), msg_variant, payload, vec![]);
+
+        match CALLBACK_QUEUE.send_message(msg) {
+            Ok(_) => debug!("Queueing a {} of {} bytes", msg_variant, msg_len),
+            _ => error!("Couldn't queue a {} properly", msg_variant),
+        };
     }
 }
 

@@ -410,9 +410,10 @@ fn send_msg_to_consensus(
         Transaction => consensus.send_transaction(&request.payload),
         FinalizationMessage => consensus.send_finalization(&request.payload),
         FinalizationRecord => consensus.send_finalization_record(&request.payload),
-        CatchupFinalizationMessagesByPoint => {
+        CatchUpFinalizationMessagesByPoint => {
             consensus.get_finalization_messages(&request.payload, raw_id)
         }
+        CatchUpStatus => unimplemented!(),
     };
 
     if consensus_response.is_acceptable() {
@@ -487,7 +488,7 @@ fn request_finalization_messages(
         vec![],
         Some(target),
         network,
-        PacketType::CatchupFinalizationMessagesByPoint,
+        PacketType::CatchUpFinalizationMessagesByPoint,
         None,
         &response,
     );

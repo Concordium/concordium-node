@@ -178,6 +178,7 @@ macro_rules! hashed {
 }
 
 pub mod block;
+pub mod catch_up;
 pub mod common;
 pub mod finalization;
 pub mod parameters;
