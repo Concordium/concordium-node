@@ -15,7 +15,9 @@ module Concordium.GlobalState.Rust.FFI (
 
   -- * PendingBlock functions
   , PendingBlock(..)
+  -- ** Constructor
   , makePendingBlock
+  -- ** Updater
   , pbUpdateTransactionsR
 
   -- * BlockPointer functions
@@ -54,6 +56,9 @@ import Data.List
 -- * RustSlice operations
 ---------------------------
 
+-- |Helper datatype to transfer `CStringLen`s through FFI
+data RustSlice
+
 -- |Used for casting a Slice as if it was a C *char
 foreign import ccall unsafe "get_ptr" getPtr :: Ptr RustSlice -> CString
 -- |Used for casting a Slice as if it was a C *char
@@ -63,6 +68,8 @@ foreign import ccall unsafe "get_length" getLength :: Ptr RustSlice -> Int
 -- * GenesisBlock FFI calls
 ---------------------------
 
+foreign import ccall unsafe "make_genesis_data"
+    makeGenesisDataF :: GlobalStatePtr -> CString -> Int -> IO (Ptr BlockPointerR)
 foreign import ccall unsafe "store_genesis_block"
    storeGenesisBlockPointerF :: GlobalStatePtr -> CString -> Int -> IO ()
 foreign import ccall unsafe "get_genesis_block_pointer"
@@ -174,6 +181,9 @@ foreign import ccall unsafe "pending_block_display"
     pbShowF :: Ptr PendingBlockR -> Ptr RustSlice
 foreign import ccall unsafe "pending_block_update_transactions"
     pbUpdateTransactionsF :: Ptr PendingBlockR -> CString -> Int -> IO ()
+
+foreign import ccall unsafe "make_block_pointer"
+    makeBlockPointerF :: GlobalStatePtr -> Ptr PendingBlockR -> Ptr BlockPointerR
 
 pbBlockSlotR :: PendingBlock -> Slot
 pbBlockSlotR = Slot . fromIntegral . pbBlockSlotF . thePBPointer
@@ -296,9 +306,6 @@ bpGetTransactionCountR = bpGetTransactionCounF . theBPPointer
 data GlobalStateR
 -- |Pointer to the GlobalState in Rust
 type GlobalStatePtr = Ptr GlobalStateR
-
--- |Helper datatype to transfer `CStringLen`s through FFI
-data RustSlice
 
 -- |Datatype representing a BlockFields in the Rust side
 data BlockFieldsR
@@ -445,7 +452,8 @@ makeGenesisBlockPointer gsptr genData theState = theBlockPointer
 
 -- |Initialize the BlockPointerR in the Rust side
 makeBPGenesisPointerR :: GlobalStatePtr -> GenesisData -> Ptr BlockPointerR
-makeBPGenesisPointerR = undefined
+makeBPGenesisPointerR gsptr gdata =
+  unsafePerformIO $ useAsCStringLen (encode gdata) . uncurry $ makeGenesisDataF gsptr
 
 -- |Creates the BlockPointer for a BakedBlock
 -- This function must initialize the BlockPointerR of the Rust side
@@ -464,4 +472,4 @@ makeBlockPointer gsptr b theParent theLastFinalized theState theArriveTime = the
     theBPPointer = makeBPPointerR gsptr b
 
 makeBPPointerR :: GlobalStatePtr -> PendingBlock -> Ptr BlockPointerR
-makeBPPointerR = undefined
+makeBPPointerR gsptr pblock =  makeBlockPointerF gsptr (thePBPointer pblock)
