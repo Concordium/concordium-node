@@ -22,7 +22,7 @@ use crate::{
     dumper::DumpItem,
     network::{Buckets, NetworkId},
 };
-use concordium_common::{stats_export_service::StatsExportService, UCursor};
+use concordium_common::{hybrid_buf::HybridBuf, stats_export_service::StatsExportService};
 
 /// It is just a helper struct to facilitate sharing information with
 /// message handlers, which are set up from _inside_ `Connection`.
@@ -124,18 +124,14 @@ impl ConnectionPrivate {
     /// # Return
     /// A vector of read messages. If message cannot be completed in one read,
     /// an empty vector will be returned.
-    pub fn ready(&mut self, ev: &Event) -> Fallible<Vec<UCursor>> {
+    pub fn ready(&mut self, ev: &Event) -> Fallible<Vec<HybridBuf>> {
         let mut messages = vec![];
         let ev_readiness = ev.readiness();
 
         // 1. Try to read messages from `socket`.
         if ev_readiness.is_readable() {
             loop {
-                let read_result = self.message_stream.read(
-                    self.status == ConnectionStatus::Closed
-                        || self.status == ConnectionStatus::Closing,
-                    &mut self.socket,
-                );
+                let read_result = self.message_stream.read(&mut self.socket);
                 match read_result {
                     Ok(readiness) => match readiness {
                         Readiness::Ready(message) => {
@@ -188,14 +184,14 @@ impl ConnectionPrivate {
     #[inline]
     pub fn async_send(
         &mut self,
-        input: UCursor,
+        input: HybridBuf,
         priority: MessageSendingPriority,
     ) -> Fallible<Readiness<usize>> {
         self.send_to_dump(&input, false);
         self.message_sink.write(input, &mut self.socket, priority)
     }
 
-    fn send_to_dump(&self, buf: &UCursor, inbound: bool) {
+    fn send_to_dump(&self, buf: &HybridBuf, inbound: bool) {
         if let Some(ref sender) = self.log_dumper {
             let di = DumpItem::new(
                 Utc::now(),

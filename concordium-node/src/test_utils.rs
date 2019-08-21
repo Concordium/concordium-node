@@ -5,8 +5,8 @@ use crate::{
     p2p::p2p_node::P2PNode,
 };
 use concordium_common::{
+    hybrid_buf::HybridBuf,
     stats_export_service::{StatsExportService, StatsServiceMode},
-    UCursor,
 };
 use failure::Fallible;
 use std::{
@@ -217,7 +217,7 @@ pub fn await_handshake(receiver: &Receiver<NetworkMessage>) -> Fallible<()> {
     Ok(())
 }
 
-pub fn wait_broadcast_message(waiter: &Receiver<NetworkMessage>) -> Fallible<UCursor> {
+pub fn wait_broadcast_message(waiter: &Receiver<NetworkMessage>) -> Fallible<HybridBuf> {
     loop {
         let msg = waiter.recv()?;
         if let NetworkMessage::NetworkPacket(pac, ..) = msg {
@@ -228,7 +228,7 @@ pub fn wait_broadcast_message(waiter: &Receiver<NetworkMessage>) -> Fallible<UCu
     }
 }
 
-pub fn wait_direct_message(waiter: &Receiver<NetworkMessage>) -> Fallible<UCursor> {
+pub fn wait_direct_message(waiter: &Receiver<NetworkMessage>) -> Fallible<HybridBuf> {
     loop {
         let msg = waiter.recv()?;
         if let NetworkMessage::NetworkPacket(pac, ..) = msg {
@@ -242,7 +242,7 @@ pub fn wait_direct_message(waiter: &Receiver<NetworkMessage>) -> Fallible<UCurso
 pub fn wait_direct_message_timeout(
     waiter: &Receiver<NetworkMessage>,
     timeout: std::time::Duration,
-) -> Option<UCursor> {
+) -> Option<HybridBuf> {
     while let Ok(msg) = waiter.recv_timeout(timeout) {
         if let NetworkMessage::NetworkPacket(pac, ..) = msg {
             if let NetworkPacketType::DirectMessage(..) = pac.packet_type {
@@ -321,12 +321,12 @@ where
         },
         NetworkMessage::NetworkPacket(ref packet, ..) => match packet.packet_type {
             NetworkPacketType::BroadcastedMessage(..) => {
-                format!("Packet::Broadcast(size={})", packet.message.len())
+                format!("Packet::Broadcast(size={})", packet.message.len()?)
             }
             NetworkPacketType::DirectMessage(src_node_id, ..) => format!(
                 "Packet::Direct(from={},size={})",
                 src_node_id,
-                packet.message.len()
+                packet.message.len()?
             ),
         },
         NetworkMessage::UnknownMessage => "Unknown".to_owned(),

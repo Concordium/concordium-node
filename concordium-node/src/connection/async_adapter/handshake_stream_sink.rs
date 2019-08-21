@@ -2,7 +2,7 @@ use crate::connection::async_adapter::{
     partial_copy, PayloadSize, Readiness, PRE_SHARED_KEY, PROLOGUE,
 };
 
-use concordium_common::UCursor;
+use concordium_common::hybrid_buf::HybridBuf;
 
 use byteorder::{NetworkEndian, WriteBytesExt};
 use failure::Fallible;
@@ -45,17 +45,17 @@ pub struct HandshakeStreamSink {
     buffer:            [u8; MAX_BUFFER_SIZE],
 
     // Sink
-    send_queue:         VecDeque<UCursor>,
+    send_queue:         VecDeque<HybridBuf>,
     last_written_bytes: usize,
 }
 
 /// It prefixes `data` with its length, encoded as `u32` in `NetworkEndian`.
-fn create_frame(data: &[u8]) -> Fallible<UCursor> {
+fn create_frame(data: &[u8]) -> Fallible<HybridBuf> {
     let mut frame = Vec::with_capacity(data.len() + std::mem::size_of::<PayloadSize>());
     frame.write_u32::<NetworkEndian>(data.len() as u32)?;
     frame.extend_from_slice(data);
 
-    Ok(UCursor::from(frame))
+    Ok(HybridBuf::from(frame))
 }
 
 impl HandshakeStreamSink {
@@ -125,10 +125,10 @@ impl HandshakeStreamSink {
         Ok(Readiness::NotReady)
     }
 
-    fn on_responder_get_e_ee_s_ss(&mut self, mut input: UCursor) -> AsyncResultSession {
+    fn on_responder_get_e_ee_s_ss(&mut self, mut input: HybridBuf) -> AsyncResultSession {
         // Received: A -> e,es,s,ss
         if let Some(mut session) = self.noise_session.take() {
-            let e_es_s_ss = input.read_all_into_view()?;
+            let e_es_s_ss = input.remaining_bytes()?;
             session.read_message(e_es_s_ss.as_slice(), &mut self.buffer)?;
 
             trace!(
@@ -151,9 +151,9 @@ impl HandshakeStreamSink {
         }
     }
 
-    fn on_initiator_get_s(&mut self, mut input: UCursor) -> AsyncResultSession {
+    fn on_initiator_get_s(&mut self, mut input: HybridBuf) -> AsyncResultSession {
         // Received: <- s
-        let remote_public_key_vw = input.read_all_into_view()?;
+        let remote_public_key_vw = input.remaining_bytes()?;
         trace!(
             "Initiator has received ({} bytes): <- s",
             remote_public_key_vw.len()
@@ -177,10 +177,10 @@ impl HandshakeStreamSink {
         Ok(Readiness::NotReady)
     }
 
-    fn on_initiator_get_e_ee_se_psk(&mut self, mut input: UCursor) -> AsyncResultSession {
+    fn on_initiator_get_e_ee_se_psk(&mut self, mut input: HybridBuf) -> AsyncResultSession {
         // B -> e,ee,se,psk
         if let Some(mut session) = self.noise_session.take() {
-            let e_ee_se_psk = input.read_all_into_view()?;
+            let e_ee_se_psk = input.remaining_bytes()?;
             trace!(
                 "Initiator has received ({} bytes): B -> e,ee,se,psk",
                 e_ee_se_psk.len()
@@ -206,7 +206,7 @@ impl HandshakeStreamSink {
     /// `Readiness::Ready(session)`, which contains a transport session,
     /// ready to encrypt/decrypt. Otherwise, it returns
     /// `Readiness::NotReady`.
-    pub fn read(&mut self, input: UCursor) -> AsyncResultSession {
+    pub fn read(&mut self, input: HybridBuf) -> AsyncResultSession {
         match self.state {
             HandshakeStreamSinkState::ResponderAwaitingRequest_S => {
                 self.on_responder_get_request_s()
@@ -221,7 +221,11 @@ impl HandshakeStreamSink {
         }
     }
 
-    pub fn write(&mut self, input: UCursor, output: &mut impl Write) -> Fallible<Readiness<usize>> {
+    pub fn write(
+        &mut self,
+        input: HybridBuf,
+        output: &mut impl Write,
+    ) -> Fallible<Readiness<usize>> {
         self.send_queue.push_back(input);
         self.flush(output)
     }
@@ -231,7 +235,7 @@ impl HandshakeStreamSink {
             let written_bytes = self.last_written_bytes + partial_copy(&mut data, output)?;
 
             // Requeue data if it is not eof.
-            if !data.is_eof() {
+            if !data.is_eof()? {
                 self.last_written_bytes = written_bytes;
                 self.send_queue.push_front(data);
                 Ok(Readiness::NotReady)

@@ -161,11 +161,11 @@ mod integration_test {
         common::{P2PNodeId, P2PPeerBuilder, PeerType},
         connection::MessageHandler,
         network::{
-            packet::MessageId, NetworkId, NetworkMessage, NetworkPacketBuilder, NetworkRequest,
-            NetworkResponse,
+            packet::MessageId, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType,
+            NetworkRequest, NetworkResponse,
         },
     };
-    use concordium_common::{functor::FuncResult, UCursor};
+    use concordium_common::{functor::FuncResult, hybrid_buf::HybridBuf};
 
     use std::{
         net::{IpAddr, Ipv4Addr, SocketAddr},
@@ -186,7 +186,7 @@ mod integration_test {
             .addr(SocketAddr::new(ip, 8080))
             .build()
             .unwrap();
-        let inner_msg = UCursor::from(b"Message XXX".to_vec());
+        let inner_msg = HybridBuf::from(b"Message XXX".to_vec());
         let node_id = P2PNodeId::default();
 
         let data = vec![
@@ -198,24 +198,24 @@ mod integration_test {
             NetworkMessage::NetworkRequest(NetworkRequest::Ping(p2p_peer.clone()), None, None),
             NetworkMessage::NetworkResponse(NetworkResponse::Pong(p2p_peer.clone()), None, None),
             NetworkMessage::NetworkPacket(
-                NetworkPacketBuilder::default()
-                    .peer(p2p_peer.clone())
-                    .message_id(MessageId::new(&[1u8; 32]))
-                    .network_id(NetworkId::from(100))
-                    .message(inner_msg.clone())
-                    .build_broadcast(vec![])
-                    .unwrap(),
+                Arc::new(NetworkPacket {
+                    packet_type: NetworkPacketType::BroadcastedMessage(vec![]),
+                    peer:        p2p_peer,
+                    message_id:  MessageId::new(&[1u8; 32]),
+                    network_id:  NetworkId::from(100),
+                    message:     inner_msg.clone(),
+                }),
                 None,
                 None,
             ),
             NetworkMessage::NetworkPacket(
-                NetworkPacketBuilder::default()
-                    .peer(p2p_peer)
-                    .message_id(MessageId::new(&[2u8; 32]))
-                    .network_id(NetworkId::from(100))
-                    .message(inner_msg)
-                    .build_direct(node_id)
-                    .unwrap(),
+                Arc::new(NetworkPacket {
+                    packet_type: NetworkPacketType::DirectMessage(node_id),
+                    peer:        p2p_peer,
+                    message_id:  MessageId::new(&[2u8; 32]),
+                    network_id:  NetworkId::from(100),
+                    message:     inner_msg.clone(),
+                }),
                 None,
                 None,
             ),

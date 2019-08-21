@@ -15,7 +15,7 @@ use crate::{
     },
     network::{
         packet::MessageId, request::RequestedElementType, Buckets, NetworkId, NetworkMessage,
-        NetworkPacket, NetworkPacketBuilder, NetworkPacketType, NetworkRequest, NetworkResponse,
+        NetworkPacket, NetworkPacketType, NetworkRequest, NetworkResponse,
     },
     p2p::{
         banned_nodes::BannedNode,
@@ -30,8 +30,8 @@ use crate::{
 };
 use chrono::prelude::*;
 use concordium_common::{
-    functor::UnitFunction, stats_export_service::StatsExportService, RelayOrStopSenderHelper,
-    RelayOrStopSyncSender, UCursor,
+    functor::UnitFunction, hybrid_buf::HybridBuf, stats_export_service::StatsExportService,
+    RelayOrStopSenderHelper, RelayOrStopSyncSender,
 };
 use failure::{err_msg, Error, Fallible};
 #[cfg(not(target_os = "windows"))]
@@ -602,7 +602,7 @@ impl P2PNode {
                 let no_filter = |_: &Connection| true;
 
                 self.noise_protocol_handler.send_over_all_connections(
-                    UCursor::from(data),
+                    HybridBuf::from(data),
                     &no_filter,
                     &check_sent_status_fn,
                 );
@@ -653,7 +653,7 @@ impl P2PNode {
                     };
 
                     self.noise_protocol_handler.send_over_all_connections(
-                        UCursor::from(data),
+                        HybridBuf::from(data),
                         &retain,
                         &check_sent_status_fn,
                     );
@@ -680,7 +680,7 @@ impl P2PNode {
         match s11n_data {
             Ok(data) => {
                 self.noise_protocol_handler.send_over_all_connections(
-                    UCursor::from(data),
+                    HybridBuf::from(data),
                     &is_valid_connection_post_handshake,
                     &check_sent_status_fn,
                 );
@@ -708,7 +708,7 @@ impl P2PNode {
         match s11n_data {
             Ok(data) => {
                 self.noise_protocol_handler.send_over_all_connections(
-                    UCursor::from(data),
+                    HybridBuf::from(data),
                     &is_valid_connection_post_handshake,
                     &check_sent_status_fn,
                 );
@@ -736,7 +736,7 @@ impl P2PNode {
         match s11n_data {
             Ok(data) => {
                 self.noise_protocol_handler.send_over_all_connections(
-                    UCursor::from(data),
+                    HybridBuf::from(data),
                     &is_valid_connection_post_handshake,
                     &check_sent_status_fn,
                 );
@@ -764,7 +764,7 @@ impl P2PNode {
             match s11n_data {
                 Ok(data) => {
                     self.noise_protocol_handler.send_over_all_connections(
-                        UCursor::from(data),
+                        HybridBuf::from(data),
                         &filter,
                         &check_sent_status_fn,
                     );
@@ -816,7 +816,7 @@ impl P2PNode {
 
         match s11n_data {
             Ok(data) => {
-                let data_cursor = UCursor::from(data);
+                let data_cursor = HybridBuf::from(data);
                 match inner_pkt.packet_type {
                     NetworkPacketType::DirectMessage(ref receiver) => {
                         let filter = |conn: &Connection| is_conn_peer_id(conn, *receiver);
@@ -1301,7 +1301,7 @@ pub fn send_direct_message(
     msg_id: Option<MessageId>,
     msg: Vec<u8>,
 ) -> Fallible<()> {
-    let cursor = UCursor::from(msg);
+    let cursor = HybridBuf::from(msg);
     send_message_from_cursor(node, target_id, vec![], network_id, msg_id, cursor, false)
 }
 
@@ -1313,7 +1313,7 @@ pub fn send_broadcast_message(
     msg_id: Option<MessageId>,
     msg: Vec<u8>,
 ) -> Fallible<()> {
-    let cursor = UCursor::from(msg);
+    let cursor = HybridBuf::from(msg);
     send_message_from_cursor(node, None, dont_relay_to, network_id, msg_id, cursor, true)
 }
 
@@ -1323,35 +1323,33 @@ pub fn send_message_from_cursor(
     dont_relay_to: Vec<P2PNodeId>,
     network_id: NetworkId,
     msg_id: Option<MessageId>,
-    msg: UCursor,
+    message: HybridBuf,
     broadcast: bool,
 ) -> Fallible<()> {
     trace!("Queueing message!");
 
-    // Create packet.
-    let packet = if broadcast {
-        NetworkPacketBuilder::default()
-            .peer(node.self_peer)
-            .message_id(msg_id.unwrap_or_else(NetworkPacket::generate_message_id))
-            .network_id(network_id)
-            .message(msg)
-            .build_broadcast(dont_relay_to)?
+    let packet_type = if broadcast {
+        NetworkPacketType::BroadcastedMessage(dont_relay_to)
     } else {
         let receiver =
             target_id.ok_or_else(|| err_msg("Direct Message requires a valid target id"))?;
 
-        NetworkPacketBuilder::default()
-            .peer(node.self_peer)
-            .message_id(msg_id.unwrap_or_else(NetworkPacket::generate_message_id))
-            .network_id(network_id)
-            .message(msg)
-            .build_direct(receiver)?
+        NetworkPacketType::DirectMessage(receiver)
+    };
+
+    // Create packet.
+    let packet = NetworkPacket {
+        packet_type,
+        peer: node.self_peer,
+        message_id: msg_id.unwrap_or_else(NetworkPacket::generate_message_id),
+        network_id,
+        message,
     };
 
     // Push packet into our `send queue`
     send_or_die!(
         node.send_queue_in,
-        NetworkMessage::NetworkPacket(packet, None, None)
+        NetworkMessage::NetworkPacket(Arc::new(packet), None, None)
     );
 
     if let Some(ref service) = node.stats_export_service {

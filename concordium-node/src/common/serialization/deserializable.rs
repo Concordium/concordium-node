@@ -1,7 +1,7 @@
 use crate::common::{fails::InvalidIpType, serialization::ReadArchive};
 
-use concordium_common::{HashBytes, UCursor, SHA256};
-use failure::{err_msg, Error, Fallible};
+use concordium_common::{hybrid_buf::HybridBuf, HashBytes, SHA256};
+use failure::{Error, Fallible};
 
 use std::{
     cmp::Eq,
@@ -135,8 +135,8 @@ impl Deserializable for HashBytes {
     fn deserialize<A>(archive: &mut A) -> Fallible<Self>
     where
         A: ReadArchive, {
-        let vw = archive.read_n_bytes(u32::from(SHA256))?;
-        Ok(HashBytes::new(vw.as_slice()))
+        let bytes = archive.read_n_bytes(u32::from(SHA256))?;
+        Ok(HashBytes::new(&bytes))
     }
 }
 
@@ -193,16 +193,11 @@ where
 // Concordium-common
 // ==============================================================================================
 
-/// As `UCursor` maintains compatability with a broad range of `std::io`, we
-/// simply enforce a max size of u32 only during serialization-phases.
-impl Deserializable for UCursor {
-    /// It returns a `Shadow-copy` of the payload.
-    fn deserialize<A>(archive: &mut A) -> Fallible<UCursor>
+impl Deserializable for HybridBuf {
+    fn deserialize<A>(archive: &mut A) -> Fallible<HybridBuf>
     where
         A: ReadArchive, {
-        let len = u32::deserialize(archive)?;
-        archive
-            .payload(u64::from(len))
-            .ok_or_else(|| err_msg("No payload on this archive"))
+        let _len = u32::deserialize(archive)?; // advance the cursor
+        Ok(archive.payload())
     }
 }

@@ -5,13 +5,13 @@ use std::{
     sync::Arc,
 };
 
-use concordium_common::UCursor;
+use concordium_common::hybrid_buf::HybridBuf;
 use nom::{verbose_errors::Context, IResult};
 
 use crate::{
     common::{get_current_stamp, P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType},
     network::{
-        packet::MessageId, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder,
+        packet::MessageId, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType,
         NetworkRequest, NetworkResponse, ProtocolMessageType, ProtocolPacketType,
         ProtocolRequestType, ProtocolResponseType, PROTOCOL_NAME,
     },
@@ -73,8 +73,8 @@ named!(
         sid_slice: take!(PROTOCOL_NODE_ID_LENGTH) >>
         (
             str::from_utf8(&sid_slice)
-                .map( |id| P2PNodeId::from_str( id)
-                      .unwrap_or_else( |_| P2PNodeId::default()))
+                .map(|id| P2PNodeId::from_str(id)
+                      .unwrap_or_else(|_| P2PNodeId::default()))
                 .unwrap()
 
         )
@@ -90,13 +90,13 @@ named!(
         content_size: s11n_content_size >>
         content: take!(content_size) >>
         (
-            NetworkPacketBuilder::default()
-                .peer( localhost_peer())
-                .message_id(MessageId::new(msg_id))
-                .network_id( NetworkId::from(network_id))
-                .message(UCursor::from( content.to_vec()))
-                .build_direct( receiver_id )
-                .unwrap()
+            Arc::new(NetworkPacket {
+                packet_type: NetworkPacketType::DirectMessage(receiver_id),
+                peer: localhost_peer(),
+                message_id: MessageId::new(msg_id),
+                network_id: NetworkId::from(network_id),
+                message: HybridBuf::from(content.to_vec()),
+            })
         )
     )
 );
@@ -175,7 +175,7 @@ fn s11n_message_id(input: &[u8], timestamp: u64) -> IResult<&[u8], NetworkMessag
 named!(
     s11n_timestamp<&[u8], u64>,
     map_res!(
-        // complete!( apply!( s11n_take_n_hex_digits, 16)),
+        // complete!(apply!(s11n_take_n_hex_digits, 16)),
         take!(PROTOCOL_SENT_TIMESTAMP_LENGTH),
         s11n_to_timestamp
     )
@@ -192,12 +192,12 @@ named!(s11n_network_response_pong, eof!());
 // * Timestamp: 16bytes: In hexadecimal format
 // * Message Id: 4bytes: Decimal string format
 // * Variable content based on previous `Message Id`.
-named!( s11n_network_message_parse<&[u8], NetworkMessage>,
+named!(s11n_network_message_parse<&[u8], NetworkMessage>,
     do_parse!(
-        tag!( PROTOCOL_NAME)        >>
-        tag!( PROTOCOL_VERSION_STR) >>
+        tag!(PROTOCOL_NAME)        >>
+        tag!(PROTOCOL_VERSION_STR) >>
         timestamp: s11n_timestamp   >>
-        msg: apply!( s11n_message_id, timestamp) >>
+        msg: apply!(s11n_message_id, timestamp) >>
         (msg)
     )
 );
@@ -211,16 +211,18 @@ pub fn s11n_network_message(input: &[u8]) -> IResult<&[u8], NetworkMessage> {
 mod unit_test {
     use nom::{verbose_errors::Context, IResult};
 
-    use super::{localhost_peer, s11n_network_message, PROTOCOL_VERSION_STR};
+    use super::*;
     use crate::network::{
-        packet::MessageId, NetworkId, NetworkMessage, NetworkPacketBuilder, NetworkRequest,
-        NetworkResponse, ProtocolMessageType, ProtocolPacketType, ProtocolRequestType,
-        ProtocolResponseType, PROTOCOL_NAME,
+        packet::MessageId, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse,
+        ProtocolMessageType, ProtocolPacketType, ProtocolRequestType, ProtocolResponseType,
+        PROTOCOL_NAME,
     };
-    use concordium_common::{ContainerView, UCursor, SHA256};
+    use concordium_common::SHA256;
 
-    fn ut_s11n_nom_001_data() -> Vec<(String, IResult<&'static [u8], NetworkMessage>)> {
-        let direct_message_content = ContainerView::from(b"Hello world!".to_vec());
+    fn ut_s11n_nom_001_data() -> Vec<(Vec<u8>, IResult<&'static [u8], NetworkMessage>)> {
+        let raw_msg = b"Hello world!";
+        let mut direct_message_content = HybridBuf::from(raw_msg.to_vec());
+        direct_message_content.rewind().unwrap();
         let direct_message_message_id = MessageId::new(&[0u8; SHA256 as usize]);
 
         vec![
@@ -232,7 +234,8 @@ mod unit_test {
                     base64::encode(&0u64.to_le_bytes()[..]),
                     ProtocolMessageType::Request,
                     ProtocolRequestType::Ping,
-                ),
+                )
+                .into_bytes(),
                 Ok((
                     &b""[..],
                     NetworkMessage::NetworkRequest(
@@ -250,7 +253,8 @@ mod unit_test {
                     base64::encode(&11529215046068469760u64.to_le_bytes()[..]),
                     ProtocolMessageType::Request,
                     ProtocolRequestType::Ping
-                ),
+                )
+                .into_bytes(),
                 Ok((
                     &b""[..],
                     NetworkMessage::NetworkRequest(
@@ -262,12 +266,12 @@ mod unit_test {
             ),
             (
                 // Fail: Empty message
-                format!(""),
+                format!("").into_bytes(),
                 Err(nom::Err::Incomplete(nom::Needed::Size(PROTOCOL_NAME.len()))),
             ),
             (
                 // Fail: Wrong protocol name
-                format!("CONCORDIUMP3P"),
+                format!("CONCORDIUMP3P").into_bytes(),
                 Err(nom::Err::Error(Context::Code(
                     &b"CONCORDIUMP3P"[..],
                     nom::ErrorKind::Tag,
@@ -275,7 +279,7 @@ mod unit_test {
             ),
             (
                 // Fail: Wrong protocol version: Invalid digit
-                format!("{}{}", PROTOCOL_NAME, "0X1"),
+                format!("{}{}", PROTOCOL_NAME, "0X1").into_bytes(),
                 Err(nom::Err::Error(Context::Code(
                     &b"0X1"[..],
                     nom::ErrorKind::Tag,
@@ -290,7 +294,8 @@ mod unit_test {
                     base64::encode(&u64::max_value().to_le_bytes()[..]),
                     ProtocolMessageType::Response,
                     ProtocolResponseType::Pong
-                ),
+                )
+                .into_bytes(),
                 Ok((
                     &b""[..],
                     NetworkMessage::NetworkResponse(
@@ -311,19 +316,20 @@ mod unit_test {
                     localhost_peer().id(),
                     std::str::from_utf8(&direct_message_message_id).unwrap(),
                     NetworkId::from(111u16),
-                    direct_message_content.len(),
-                    std::str::from_utf8(direct_message_content.as_slice()).unwrap()
-                ),
+                    raw_msg.len(),
+                    std::str::from_utf8(raw_msg).unwrap()
+                )
+                .into_bytes(),
                 Ok((
                     &b""[..],
                     NetworkMessage::NetworkPacket(
-                        NetworkPacketBuilder::default()
-                            .peer(localhost_peer())
-                            .message_id(direct_message_message_id)
-                            .network_id(NetworkId::from(111u16))
-                            .message(UCursor::from(direct_message_content))
-                            .build_direct(localhost_peer().id())
-                            .unwrap(),
+                        Arc::new(NetworkPacket {
+                            packet_type: NetworkPacketType::DirectMessage(localhost_peer().id()),
+                            peer:        localhost_peer(),
+                            message_id:  direct_message_message_id,
+                            network_id:  NetworkId::from(111u16),
+                            message:     direct_message_content,
+                        }),
                         Some(10),
                         None,
                     ),
@@ -335,9 +341,12 @@ mod unit_test {
     #[test]
     fn ut_s11n_nom_001() {
         let data = ut_s11n_nom_001_data();
-        for (input, expected) in &data {
-            let output = s11n_network_message(input.as_bytes());
-            assert_eq!(output, *expected);
+        for (input, expected) in data {
+            let output = s11n_network_message(&input);
+            assert_eq!(
+                format!("{:?}", output.unwrap()),
+                format!("{:?}", expected.unwrap())
+            );
         }
     }
 }

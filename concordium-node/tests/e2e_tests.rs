@@ -2,7 +2,7 @@ extern crate p2p_client;
 
 #[cfg(test)]
 mod tests {
-    use concordium_common::{make_atomic_callback, safe_write, UCursor};
+    use concordium_common::{make_atomic_callback, safe_write};
     use failure::{bail, Fallible};
     use p2p_client::{
         common::PeerType,
@@ -47,7 +47,7 @@ mod tests {
     pub fn e2e_000_two_nodes() -> Fallible<()> {
         setup_logger();
 
-        let msg = b"Hello other brother!".to_vec();
+        let msg = b"Hello other brother!";
         let networks = vec![100];
 
         let (mut node_1, msg_waiter_1) =
@@ -63,10 +63,10 @@ mod tests {
             Some(node_1.id()),
             NetworkId::from(100),
             None,
-            msg.clone(),
+            msg.to_vec(),
         )?;
         let mut msg_recv = wait_direct_message(&msg_waiter_1)?;
-        assert_eq!(msg.as_slice(), msg_recv.read_all_into_view()?.as_slice());
+        assert_eq!(&msg[..], &msg_recv.remaining_bytes()?[..]);
 
         Ok(())
     }
@@ -77,7 +77,7 @@ mod tests {
 
         let networks_1 = vec![100];
         let networks_2 = vec![200];
-        let msg = b"Hello other brother!".to_vec();
+        let msg = b"Hello other brother!";
 
         let (mut node_1, msg_waiter_1) =
             make_node_and_sync(next_available_port(), networks_1, PeerType::Node)?;
@@ -91,10 +91,13 @@ mod tests {
             Some(node_1.id()),
             NetworkId::from(100),
             None,
-            msg.clone(),
+            msg.to_vec(),
         )?;
         let received_msg = wait_direct_message_timeout(&msg_waiter_1, max_recv_timeout());
-        assert_eq!(received_msg, Some(UCursor::from(msg)));
+        assert_eq!(
+            received_msg.map(|mut hb| hb.remaining_bytes().unwrap()),
+            Some(msg.to_vec())
+        );
 
         Ok(())
     }
@@ -124,7 +127,7 @@ mod tests {
                                 pac.network_id,
                                 pac.message_id,
                                 port,
-                                pac.message.len(),
+                                pac.message.len()?,
                                 inner_counter.get()
                             );
                         }
@@ -150,8 +153,8 @@ mod tests {
         // Wait for broadcast message from 1..MESH_NODE_COUNT
         // and close and join to all nodes (included first node).
         for (node, waiter) in peers.iter_mut().skip(1) {
-            let msg_recv = wait_broadcast_message(&waiter)?.read_all_into_view()?;
-            assert_eq!(msg_recv.as_slice(), msg);
+            let mut msg_recv = wait_broadcast_message(&waiter)?;
+            assert_eq!(&msg_recv.remaining_bytes()?[..], msg);
             assert_eq!(true, node.close_and_join().is_ok());
         }
         if let Some((ref mut node, _)) = peers.get_mut(0) {
@@ -198,7 +201,7 @@ mod tests {
                                     pac.network_id,
                                     pac.message_id,
                                     port,
-                                    pac.message.len(),
+                                    pac.message.len()?,
                                     inner_counter.get()
                                 );
                             }
@@ -235,8 +238,8 @@ mod tests {
         // Wait reception of that broadcast message.
         for island in islands.iter_mut() {
             for (node, waiter) in island.iter_mut().skip(1) {
-                let msg_recv = wait_broadcast_message(&waiter)?.read_all_into_view()?;
-                assert_eq!(msg_recv.as_slice(), msg);
+                let mut msg_recv = wait_broadcast_message(&waiter)?;
+                assert_eq!(&msg_recv.remaining_bytes()?[..], msg);
                 assert_eq!(true, node.close_and_join().is_ok());
             }
         }
@@ -256,7 +259,7 @@ mod tests {
     #[test]
     fn e2e_004_noise_ready_writeable() -> Fallible<()> {
         setup_logger();
-        let msg = UCursor::from(b"Direct message between nodes".to_vec());
+        let msg = b"Direct message between nodes";
         let networks = vec![100];
 
         // 1. Create and connect nodes
@@ -268,41 +271,35 @@ mod tests {
         await_handshake(&msg_waiter_1)?;
 
         // 2. Send message from n1 to n2.
-        send_message_from_cursor(
+        send_direct_message(
             &node_1,
             Some(node_2.id()),
-            vec![],
             NetworkId::from(100),
             None,
-            msg.clone(),
-            false,
+            msg.to_vec(),
         )?;
-        let msg_1 = wait_direct_message(&msg_waiter_2)?;
-        assert_eq!(msg_1, msg);
+        let mut msg_1 = wait_direct_message(&msg_waiter_2)?;
+        assert_eq!(&msg_1.remaining_bytes()?[..], msg);
 
-        send_message_from_cursor(
+        send_direct_message(
             &node_2,
             Some(node_1.id()),
-            vec![],
             NetworkId::from(100),
             None,
-            msg.clone(),
-            false,
+            msg.to_vec(),
         )?;
-        let msg_2 = wait_direct_message(&msg_waiter_1)?;
-        assert_eq!(msg_2, msg);
+        let mut msg_2 = wait_direct_message(&msg_waiter_1)?;
+        assert_eq!(&msg_2.remaining_bytes()?[..], msg);
 
-        send_message_from_cursor(
+        send_direct_message(
             &node_1,
             Some(node_2.id()),
-            vec![],
             NetworkId::from(102),
             None,
-            msg.clone(),
-            false,
+            msg.to_vec(),
         )?;
-        let msg_3 = wait_direct_message(&msg_waiter_2)?;
-        assert_eq!(msg_3, msg);
+        let mut msg_3 = wait_direct_message(&msg_waiter_2)?;
+        assert_eq!(&msg_3.remaining_bytes()?[..], msg);
 
         Ok(())
     }
@@ -350,8 +347,8 @@ mod tests {
         )?;
         node_1.close_and_join()?;
 
-        let node_2_msg = wait_direct_message(&waiter_2)?.read_all_into_view()?;
-        assert_eq!(node_2_msg.as_slice(), msg);
+        let mut node_2_msg = wait_direct_message(&waiter_2)?;
+        assert_eq!(&node_2_msg.remaining_bytes()?[..], msg);
         Ok(())
     }
 
@@ -384,8 +381,8 @@ mod tests {
             msg.to_vec(),
         )?;
 
-        let node_2_msg = wait_direct_message(&waiter_2)?.read_all_into_view()?;
-        assert_eq!(node_2_msg.as_slice(), msg);
+        let mut node_2_msg = wait_direct_message(&waiter_2)?;
+        assert_eq!(&node_2_msg.remaining_bytes()?[..], msg);
         Ok(())
     }
 
@@ -447,35 +444,22 @@ mod tests {
             .sample_iter(&Standard)
             .take(size)
             .collect::<Vec<u8>>();
-        let mut uc = UCursor::from(msg);
         let net_id = NetworkId::from(100);
 
         // Send.
-        send_message_from_cursor(
-            &node_1,
-            Some(node_2.id()),
-            vec![],
-            net_id,
-            None,
-            uc.clone(),
-            false,
-        )
-        .unwrap();
+        send_direct_message(&node_1, Some(node_2.id()), net_id, None, msg.clone()).unwrap();
         let mut msg_recv = wait_direct_message(&msg_waiter_2).unwrap();
-        assert_eq!(uc.len(), msg_recv.len());
+        assert_eq!(msg.len() as u64, msg_recv.remaining_len().unwrap());
 
         // Get content hash.
-        let content_hash_list = [
-            uc.read_all_into_view().unwrap(),
-            msg_recv.read_all_into_view().unwrap(),
-        ]
-        .into_iter()
-        .map(|view| {
-            let mut hasher = DefaultHasher::new();
-            hasher.write(view.as_slice());
-            hasher.finish()
-        })
-        .collect::<Vec<u64>>();
+        let content_hash_list = [msg, msg_recv.remaining_bytes().unwrap()]
+            .into_iter()
+            .map(|view| {
+                let mut hasher = DefaultHasher::new();
+                hasher.write(view.as_slice());
+                hasher.finish()
+            })
+            .collect::<Vec<u64>>();
 
         assert_eq!(content_hash_list[0], content_hash_list[1]);
     }

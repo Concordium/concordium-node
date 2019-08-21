@@ -2,7 +2,7 @@ use crate::{
     connection::MessageSendingPriority, p2p::noise_protocol_handler::NoiseProtocolHandler,
 };
 
-use concordium_common::UCursor;
+use concordium_common::hybrid_buf::HybridBuf;
 
 use mio::Token;
 use std::sync::mpsc::Receiver;
@@ -12,7 +12,7 @@ use std::sync::mpsc::Receiver;
 /// *must be executed* inside MIO poll-loop thread.
 pub struct NetworkRawRequest {
     pub token:    Token, // It identifies the connection.
-    pub data:     UCursor,
+    pub data:     HybridBuf,
     pub priority: MessageSendingPriority,
 }
 
@@ -34,7 +34,7 @@ pub fn process_network_requests(
         .for_each(|network_request| {
             trace!(
                 "Processing network raw request ({} bytes) in connection {}",
-                network_request.data.len(),
+                network_request.data.len().unwrap_or(0),
                 usize::from(network_request.token)
             );
 

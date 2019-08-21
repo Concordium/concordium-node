@@ -59,7 +59,7 @@ use concordium_common::stats_export_service::StatsExportService;
 
 use concordium_common::{
     functor::{FuncResult, UnitFunction},
-    UCursor,
+    hybrid_buf::HybridBuf,
 };
 
 use failure::{Error, Fallible};
@@ -322,9 +322,8 @@ impl Connection {
 
     /// It decodes message from `buf` and processes it using its message
     /// handlers.
-    fn process_message(&self, message: UCursor) -> Fallible<ProcessResult> {
-        let mut archive =
-            ReadArchiveAdapter::new(message, self.remote_peer(), self.remote_addr().ip());
+    fn process_message(&self, message: HybridBuf) -> Fallible<ProcessResult> {
+        let mut archive = ReadArchiveAdapter::new(message, self.remote_peer());
         let message = NetworkMessage::deserialize(&mut archive)?;
 
         self.messages_received.fetch_add(1, Ordering::Relaxed);
@@ -376,7 +375,7 @@ impl Connection {
 
     /// It queues network request
     #[inline]
-    pub fn async_send(&self, input: UCursor, priority: MessageSendingPriority) -> Fallible<()> {
+    pub fn async_send(&self, input: HybridBuf, priority: MessageSendingPriority) -> Fallible<()> {
         let request = NetworkRawRequest {
             token: self.token(),
             data: input,
@@ -388,7 +387,7 @@ impl Connection {
     #[inline]
     pub fn async_send_from_poll_loop(
         &self,
-        input: UCursor,
+        input: HybridBuf,
         priority: MessageSendingPriority,
     ) -> Fallible<Readiness<usize>> {
         write_or_die!(self.dptr).async_send(input, priority)

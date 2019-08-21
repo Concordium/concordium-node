@@ -1,9 +1,9 @@
-use crate::common::{serialization::Deserializable, P2PPeer, RemotePeer};
+use crate::common::{P2PPeer, RemotePeer};
 
-use concordium_common::{ContainerView, UCursor};
+use concordium_common::hybrid_buf::HybridBuf;
 use failure::{err_msg, Fallible};
 
-use std::{fmt::Display, net::IpAddr, str};
+use std::str;
 
 /// It is the archive trait for serialization.
 ///
@@ -60,7 +60,6 @@ pub trait ReadArchive: Sized + std::io::Read {
     }
 
     fn remote_peer(&self) -> &RemotePeer;
-    fn ip(&self) -> IpAddr;
 
     // Read
     fn read_u8(&mut self) -> Fallible<u8>;
@@ -68,10 +67,9 @@ pub trait ReadArchive: Sized + std::io::Read {
     fn read_u32(&mut self) -> Fallible<u32>;
     fn read_u64(&mut self) -> Fallible<u64>;
 
-    fn read_n_bytes(&mut self, len: u32) -> Fallible<ContainerView>;
+    fn read_n_bytes(&mut self, len: u32) -> Fallible<Box<[u8]>>;
 
-    /// It gets a shadow-copy of pending streamed data.
-    fn payload(&mut self, len: u64) -> Option<UCursor>;
+    fn payload(&mut self) -> HybridBuf;
 
     // Utilities for parsing.
     // ===========================
@@ -79,28 +77,5 @@ pub trait ReadArchive: Sized + std::io::Read {
     /// It returns the number of bytes left to reach end-of-file.
     /// This function should be used to ensure if you are able to load
     /// a specific amount of bytes.
-    fn remaining_bytes_count(&self) -> u64;
-
-    /// It checks that streamed data is deserialized into `T` object and that is
-    /// equal to `tag`.
-    fn tag<T>(&mut self, tag: T) -> Fallible<()>
-    where
-        T: Deserializable + PartialEq + Display, {
-        let other: T = T::deserialize(self)?;
-        if tag == other {
-            Ok(())
-        } else {
-            bail!("Expected tag `{}` but found `{}`", tag, other)
-        }
-    }
-
-    /// It checks that streamed data is equal to `tag`.
-    fn tag_slice(&mut self, tag: &[u8]) -> Fallible<()> {
-        let vw = self.read_n_bytes(tag.len() as u32)?;
-        if tag == vw.as_slice() {
-            Ok(())
-        } else {
-            bail!("Expected tag `{:?}` but found `{:?}`", tag, vw.as_slice())
-        }
-    }
+    fn remaining_bytes_count(&mut self) -> std::io::Result<u64>;
 }
