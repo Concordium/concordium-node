@@ -72,7 +72,7 @@ foreign import ccall unsafe "get_length" getLength :: Ptr RustSlice -> Int
 
 foreign import ccall unsafe "get_genesis_block_pointer"
    getGenesisBlockPointerF :: GlobalStatePtr -> Ptr BlockPointerR
-foreign import ccall unsafe "make_block_pointer"
+foreign import ccall unsafe "make_pending_block"
     makePendingBlockF :: GlobalStatePtr -> CString -> Int -> IO (Ptr PendingBlockR)
 foreign import ccall unsafe "make_block_pointer"
     makeBlockPointerF :: GlobalStatePtr -> Ptr PendingBlockR -> Ptr BlockPointerR
@@ -260,7 +260,7 @@ data PendingBlock = PendingBlock {
   pendingBlockReceiveTime:: UTCTime
   }
 
-foreign import ccall unsafe "pending_block_get_slot"
+foreign import ccall unsafe "pending_block_get_contents"
     pendingBlockContentsF :: Ptr PendingBlockR -> Ptr BlockContentsR
 foreign import ccall unsafe "pending_block_serialize"
     pendingBlockSerializeF :: Ptr PendingBlockR -> Ptr RustSlice
