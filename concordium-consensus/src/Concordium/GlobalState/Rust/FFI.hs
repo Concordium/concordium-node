@@ -3,28 +3,26 @@
 module Concordium.GlobalState.Rust.FFI (
   -- * GlobalState
   GlobalStatePtr
-  , getGenesisBlockPointerR
-  , getGenesisDataR
-
-  -- * Finalized blocks functions
-  , storeFinalizedBlockR
-  , getFinalizedBlockR
+  , getGenesisBlockPointer
 
   -- * BlockFields functions
   , BlockFields
 
+  , BlockContents
+  , blockContentsSignature
+
   -- * PendingBlock functions
   , PendingBlock(..)
-  -- ** Constructor
   , makePendingBlock
-  -- ** Updater
-  , pbUpdateTransactionsR
+  , pendingBlockSerialize
+  , pendingBlockUpdateTransactions
 
   -- * BlockPointer functions
   , BlockPointer(..)
-  -- ** Constructor
   , makeGenesisBlockPointer
   , makeBlockPointer
+  , blockPointerSerializeBlock
+  , blockPointerExtractBlockFields
   ) where
 
 import Foreign.Ptr
@@ -47,10 +45,14 @@ import Data.Time.Clock.POSIX
 
 import Concordium.GlobalState.Basic.BlockState as BBS
        hiding (makeGenesisBlockPointer, makeBlockPointer, BlockPointer)
-import Concordium.GlobalState.Basic.Block (BakedBlock)
+import Concordium.GlobalState.Basic.Block (BakedBlock, Block(NormalBlock))
 import Concordium.GlobalState.Block
 import Concordium.Types.HashableTo
 import Data.List
+import Data.Maybe
+
+import qualified Concordium.Crypto.SignatureScheme as Sig
+import Data.ByteString.Short (toShort)
 
 ---------------------------
 -- * RustSlice operations
@@ -65,247 +67,27 @@ foreign import ccall unsafe "get_ptr" getPtr :: Ptr RustSlice -> CString
 foreign import ccall unsafe "get_length" getLength :: Ptr RustSlice -> Int
 
 ---------------------------
--- * GenesisBlock FFI calls
+-- * GlobalState FFI calls
 ---------------------------
 
-foreign import ccall unsafe "make_genesis_data"
-    makeGenesisDataF :: GlobalStatePtr -> CString -> Int -> IO (Ptr BlockPointerR)
-foreign import ccall unsafe "store_genesis_block"
-   storeGenesisBlockPointerF :: GlobalStatePtr -> CString -> Int -> IO ()
 foreign import ccall unsafe "get_genesis_block_pointer"
    getGenesisBlockPointerF :: GlobalStatePtr -> Ptr BlockPointerR
-foreign import ccall unsafe "get_genesis_data"
-   getGenesisDataF :: GlobalStatePtr -> Ptr RustSlice
+foreign import ccall unsafe "make_block_pointer"
+    makePendingBlockF :: GlobalStatePtr -> CString -> Int -> IO (Ptr PendingBlockR)
+foreign import ccall unsafe "make_block_pointer"
+    makeBlockPointerF :: GlobalStatePtr -> Ptr PendingBlockR -> Ptr BlockPointerR
+foreign import ccall unsafe "make_genesis_data"
+    makeGenesisDataF :: GlobalStatePtr -> CString -> Int -> IO (Ptr BlockPointerR)
 
-storeGenesisBlockPointerR :: GlobalStatePtr -> BlockPointer -> IO ()
-storeGenesisBlockPointerR gsptr bp = undefined
-
-getGenesisBlockPointerR :: GlobalStatePtr -> Ptr BlockPointerR
-getGenesisBlockPointerR = getGenesisBlockPointerF
-
-getGenesisDataR :: GlobalStatePtr -> GenesisData
-getGenesisDataR gsptr = undefined --do
---  let gdata = getGenesisDataF gsptr
-  --bs <- peekCStringLen (getPtr gdata, getLength gdata)
-  --case decode bs of
-    --Left e -> fail $ "Couldn't get genesis data" ++ show e
-    --Right v -> return v
-
----------------------------
--- * Finalized Blocks FFI calls
----------------------------
-
-foreign import ccall unsafe "store_finalized_block"
-   storeFinalizedBlockF :: GlobalStatePtr -> CString -> Int -> IO ()
-foreign import ccall unsafe "get_finalized_block"
-  getFinalizedBlockF :: GlobalStatePtr -> CString -> Ptr RustSlice
-    
-storeFinalizedBlockR :: GlobalStatePtr -> PendingBlock -> IO ()
-storeFinalizedBlockR gsptr block = do
-  let eb = undefined --encode block
-  useAsCStringLen eb $ uncurry (storeFinalizedBlockF gsptr)
-
-getFinalizedBlockR :: GlobalStatePtr -> BlockHash -> BlockPointer
-getFinalizedBlockR gsptr bhash = unsafePerformIO $ do
-  useAsCString (hashToByteString $ bhash) $ \bh -> do
-    let bdata = getFinalizedBlockF gsptr bh 
-    bs <- packCStringLen (getPtr bdata, getLength bdata)
-    case undefined of --decode bs of
-      Left e -> fail $ "couldn't get finalized block for hash " ++ show bhash ++ " because of " ++ e
-      Right v -> return v
+-- This function should actually return a proper BlockPointer and for that we need somewhere to
+-- get the State of the genesis from (or establish a state for the Genesis). The rest of the fields can
+-- be retrieved without issues
+getGenesisBlockPointer :: GlobalStatePtr -> Ptr BlockPointerR
+getGenesisBlockPointer = getGenesisBlockPointerF
 
 ---------------------------
 -- * BlockFields FFI calls
 ---------------------------
-
-foreign import ccall unsafe "block_fields_get_pointer"
-    bfBlockPointerF :: BlockFields -> Ptr RustSlice
-foreign import ccall unsafe "block_fields_get_baker"
-    bfBlockBakerF :: BlockFields -> Int
-foreign import ccall unsafe "block_fields_get_proof"
-    bfBlockProofF :: BlockFields -> Ptr RustSlice
-foreign import ccall unsafe "block_fields_get_nonce"
-    bfBlockNonceF :: BlockFields -> Ptr RustSlice
-foreign import ccall unsafe "block_fields_get_last_finalized"
-    bfBlockLastFinalizedF :: BlockFields -> Ptr RustSlice
-
-bfBlockPointerR :: BlockFields -> BlockHash
-bfBlockPointerR b =
-  let bh = bfBlockPointerF b in 
-    unsafePerformIO $ do
-      bh_str <- curry packCStringLen (getPtr bh) (getLength bh)
-      return . hash $ bh_str
-
-bfBlockBakerR :: BlockFields -> BakerId
-bfBlockBakerR b =
-  BakerId . fromIntegral . bfBlockBakerF $ b
-  
-bfBlockProofR :: BlockFields -> BlockProof
-bfBlockProofR b = 
-  let bp = bfBlockProofF b in 
-    unsafePerformIO $ do
-      bp_str <- curry packCStringLen (getPtr bp) (getLength bp)
-      return . VRF.Proof . fromByteString $ bp_str
-
-bfBlockNonceR :: BlockFields -> BlockNonce
-bfBlockNonceR b = 
-  let bn = bfBlockNonceF b in 
-    unsafePerformIO $ do
-      bn_str <- curry packCStringLen (getPtr bn) (getLength bn)
-      return . VRF.Proof . fromByteString $ bn_str
-    
-bfBlockLastFinalizedR :: BlockFields -> BlockHash
-bfBlockLastFinalizedR b = 
-  let bn = bfBlockLastFinalizedF b in 
-    unsafePerformIO $ do
-      bn_str <- curry packCStringLen (getPtr bn) (getLength bn)
-      return . hash $ bn_str
-
----------------------------
--- * PendingBlock FFI calls
----------------------------
-
-foreign import ccall unsafe "pending_block_get_slot"
-    pbBlockSlotF :: Ptr PendingBlockR -> Int
-foreign import ccall unsafe "pending_block_get_fields"
-    pbBlockFieldsF :: Ptr PendingBlockR -> BlockFields
-foreign import ccall unsafe "pending_block_get_transactions"
-    pbBlockTransactionsF :: Ptr PendingBlockR -> Ptr RustSlice
---foreign import ccall unsafe "pending_block_verify_block_signature"
---pbVerifyBlockSignatureF :: VerifyKey -> PendingBlock -> Bool
-foreign import ccall unsafe "pending_block_serialize_block"
-    pbSerializeBlockF :: Ptr PendingBlockR -> Ptr RustSlice
-foreign import ccall unsafe "pending_block_get_hash"
-    pbGetHashF :: Ptr PendingBlockR -> Ptr RustSlice
-foreign import ccall unsafe "pending_block_display"
-    pbShowF :: Ptr PendingBlockR -> Ptr RustSlice
-foreign import ccall unsafe "pending_block_update_transactions"
-    pbUpdateTransactionsF :: Ptr PendingBlockR -> CString -> Int -> IO ()
-
-foreign import ccall unsafe "make_block_pointer"
-    makeBlockPointerF :: GlobalStatePtr -> Ptr PendingBlockR -> Ptr BlockPointerR
-
-pbBlockSlotR :: PendingBlock -> Slot
-pbBlockSlotR = Slot . fromIntegral . pbBlockSlotF . thePBPointer
-
-pbBlockFieldsR :: PendingBlock -> BlockFields
-pbBlockFieldsR = pbBlockFieldsF . thePBPointer
-
-pbBlockTransactionsR :: PendingBlock -> [Transaction]
-pbBlockTransactionsR b =
-  let bt = pbBlockTransactionsF . thePBPointer $ b in
-    unsafePerformIO $ do
-      bt_str <- curry packCStringLen (getPtr bt) (getLength bt)
-      case decode bt_str of
-        Left e -> fail $ "Couldn't deserialize txs " ++ show e
-        Right v -> return v
-
-pbVerifyBlockSignatureR = undefined
-
-pbSerializeBlockR :: PendingBlock -> ByteString
-pbSerializeBlockR b =
-   let bt = pbSerializeBlockF . thePBPointer $ b in
-    unsafePerformIO $ curry packCStringLen (getPtr bt) (getLength bt)
-
-pbGetHashR :: PendingBlock -> BlockHash
-pbGetHashR b =  
-  let bh = pbGetHashF . thePBPointer $ b in 
-    unsafePerformIO $ do
-      bh_str <- curry packCStringLen (getPtr bh) (getLength bh)
-      return . hash $ bh_str
-
-pbShowR :: PendingBlock -> String
-pbShowR b =
-  let bh = pbShowF . thePBPointer $ b in 
-    unsafePerformIO $  curry peekCStringLen (getPtr bh) (getLength bh)
-
--- |Create a PendingBlock
--- This function must initialize the PendingBlockR of the Rust side
-makePendingBlock :: GlobalStatePtr -> BakedBlock -> UTCTime -> PendingBlock
-makePendingBlock gsptr bb theTime = thePendingBlock
-  where
-    thePendingBlock = PendingBlock {..}
-    thePBPointer = makePBPointerR gsptr bb
-
-makePBPointerR :: GlobalStatePtr -> BakedBlock -> Ptr PendingBlockR
-makePBPointerR = undefined
-
--- |Update the list of transactions held in the Rust side
-pbUpdateTransactionsR :: [Transaction] -> PendingBlock -> IO ()
-pbUpdateTransactionsR txs pb =
-  useAsCStringLen (encode txs) $ uncurry (pbUpdateTransactionsF (thePBPointer pb))
-
----------------------------
--- * BlockPointer FFI calls
----------------------------
-
-foreign import ccall unsafe "block_pointer_get_hash"
-    bpGetHashF :: Ptr BlockPointerR -> Ptr RustSlice
-foreign import ccall unsafe "block_pointer_get_slot"
-    bpBlockSlotF :: Ptr BlockPointerR -> Int
-foreign import ccall unsafe "block_pointer_get_fields"
-    bpBlockFieldsF :: Ptr BlockPointerR -> BlockFields
-foreign import ccall unsafe "block_pointer_get_transactions"
-    bpBlockTransactionsF :: Ptr BlockPointerR -> Ptr RustSlice
--- foreign import ccall unsafe "block_pointer_verify_signature"
---     bpVerifyBlockSignatureF :: Ptr BlockPointerR ->
-foreign import ccall unsafe "block_pointer_serialize"
-    bpSerializeBlockF :: Ptr BlockPointerR -> Ptr RustSlice
-foreign import ccall unsafe "block_pointer_display"
-    bpShowF :: Ptr BlockPointerR -> Ptr RustSlice
-foreign import ccall unsafe "block_pointer_get_height"
-    bpGetHeightF :: Ptr BlockPointerR -> Int
-foreign import ccall unsafe "block_pointer_get_transaction_count"
-    bpGetTransactionCounF :: Ptr BlockPointerR -> Int
-
-bpGetHashR :: BlockPointer -> BlockHash
-bpGetHashR b =
-  let bh = bpGetHashF . theBPPointer $ b in 
-    unsafePerformIO $ do
-      bh_str <- curry packCStringLen (getPtr bh) (getLength bh)
-      return . hash $ bh_str
-
-bpBlockSlotR :: BlockPointer -> Slot
-bpBlockSlotR = Slot . fromIntegral . bpBlockSlotF . theBPPointer
-
-bpBlockFieldsR :: BlockPointer -> BlockFields
-bpBlockFieldsR = bpBlockFieldsF . theBPPointer
-
-bpBlockTransactionsR :: BlockPointer -> [Transaction]
-bpBlockTransactionsR b =
-  let bt = bpBlockTransactionsF . theBPPointer $ b in
-    unsafePerformIO $ do
-      bt_str <- curry packCStringLen (getPtr bt) (getLength bt)
-      case decode bt_str of
-        Left e -> fail $ "Couldn't deserialize txs" ++ show e
-        Right v -> return v
-        
-bpVerifyBlockSignatureR = undefined
-
-bpSerializeBlockR :: BlockPointer -> ByteString
-bpSerializeBlockR b =
-   let bt = bpSerializeBlockF . theBPPointer $ b in
-    unsafePerformIO $ curry packCStringLen (getPtr bt) (getLength bt)
-    
-bpShowR :: BlockPointer -> String
-bpShowR b =
-  let bh = bpShowF . theBPPointer $ b in 
-    unsafePerformIO $  curry peekCStringLen (getPtr bh) (getLength bh)
-
-bpGetHeightR :: BlockPointer -> BlockHeight
-bpGetHeightR = BlockHeight . fromIntegral . bpGetHeightF . theBPPointer
-
-bpGetTransactionCountR :: BlockPointer -> Int
-bpGetTransactionCountR = bpGetTransactionCounF . theBPPointer
-
----------------------------
--- * FFI Types
----------------------------
-
--- |Datatype representing the GlobalState in Rust
-data GlobalStateR
--- |Pointer to the GlobalState in Rust
-type GlobalStatePtr = Ptr GlobalStateR
 
 -- |Datatype representing a BlockFields in the Rust side
 data BlockFieldsR
@@ -314,21 +96,152 @@ data BlockFieldsR
 --
 -- BlockFields holds information for:
 --
---    * BlockParent hash
---    * BlockBaker
---    * BlockProof
---    * BlockNonce
---    * BlockLastFinalized hash
+--    * Parent: hash of the parent block
+--    * Baker: id of the baker
+--    * Proof: proof for the block creation
+--    * Nonce: nonce of the block
+--    * LastFinalized: hash of the las finalized block
 --
--- BlockFields is required to implement BlockMetadata
+-- BlockFields is required to implement BlockMetadata.
 newtype BlockFields = BlockFields (Ptr BlockFieldsR)
 
+foreign import ccall unsafe "block_fields_get_pointer"
+    blockFieldsBlockPointerF :: BlockFields -> Ptr RustSlice
+foreign import ccall unsafe "block_fields_get_baker"
+    blockFieldsBlockBakerF :: BlockFields -> Int
+foreign import ccall unsafe "block_fields_get_proof"
+    blockFieldsBlockProofF :: BlockFields -> Ptr RustSlice
+foreign import ccall unsafe "block_fields_get_nonce"
+    blockFieldsBlockNonceF :: BlockFields -> Ptr RustSlice
+foreign import ccall unsafe "block_fields_get_last_finalized"
+    blockFieldsBlockLastFinalizedF :: BlockFields -> Ptr RustSlice
+
+blockFieldsBlockPointer :: BlockFields -> BlockHash
+blockFieldsBlockPointer b =
+  let bh = blockFieldsBlockPointerF b in
+    unsafePerformIO $ do
+      bh_str <- curry packCStringLen (getPtr bh) (getLength bh)
+      return . hash $ bh_str
+
+blockFieldsBlockBaker :: BlockFields -> BakerId
+blockFieldsBlockBaker = BakerId . fromIntegral . blockFieldsBlockBakerF
+
+blockFieldsBlockProof :: BlockFields -> BlockProof
+blockFieldsBlockProof b =
+  let bp = blockFieldsBlockProofF b in
+    unsafePerformIO $ do
+      bp_str <- curry packCStringLen (getPtr bp) (getLength bp)
+      return . VRF.Proof . fromByteString $ bp_str
+
+blockFieldsBlockNonce :: BlockFields -> BlockNonce
+blockFieldsBlockNonce b =
+  let bn = blockFieldsBlockNonceF b in
+    unsafePerformIO $ do
+      bn_str <- curry packCStringLen (getPtr bn) (getLength bn)
+      return . VRF.Proof . fromByteString $ bn_str
+
+blockFieldsBlockLastFinalized :: BlockFields -> BlockHash
+blockFieldsBlockLastFinalized b =
+  let bn = blockFieldsBlockLastFinalizedF b in
+    unsafePerformIO $ do
+      bn_str <- curry packCStringLen (getPtr bn) (getLength bn)
+      return . hash $ bn_str
+
 instance BlockMetadata BlockFields where
-    blockPointer = bfBlockPointerR
-    blockBaker = bfBlockBakerR
-    blockProof = bfBlockProofR
-    blockNonce = bfBlockNonceR
-    blockLastFinalized = bfBlockLastFinalizedR
+    blockPointer = blockFieldsBlockPointer
+    blockBaker = blockFieldsBlockBaker
+    blockProof = blockFieldsBlockProof
+    blockNonce = blockFieldsBlockNonce
+    blockLastFinalized = blockFieldsBlockLastFinalized
+
+---------------------------
+-- * BlockContents FFI calls
+---------------------------
+
+data BlockContentsR
+-- |`BlockContents` holds the inner data of a block. It is the counterpart of `Block` in Rust
+-- and can be retrieved from either a `PendingBlock` or a `BlockPointer`. It can be made from the
+-- `GenesisData` or from `BakedBlock` content.
+--
+-- A `BlockContents` can be either a `GenesisData` mirror (with the corresponding associated fields)
+-- or a `BakedBlock`. If it is a `BakedBlock` it can return a pointer to the `BlockFields` it holds.
+--
+-- Therefore the structure is as follows:
+--
+-- 1. GenesisData
+--   * Time
+--   * SlotDuration
+--   * BirkParameters
+--   * BakerAccounts
+--   * FinalizationParameters
+--   * CryptographicParameters
+--   * IdentityProviders
+-- 2. BakedBlock
+--   * Slot
+--   * BlockFields (pointer to Rust struct)
+--   * Transactions
+--   * Signature
+--
+-- BlockContents can not be an instance of `BlockMetadata` as it might be the `GenesisData` that doesn't
+-- have such data, but it can be an instance of `BlockData`. For mimicking the behavior of `BlockMetadata`
+-- we provide a function for `Maybe` retrieving the `BlockFields` if present.
+newtype BlockContents = BlockContents (Ptr BlockContentsR)
+
+foreign import ccall unsafe "block_contents_hash"
+    blockContentsHashF :: BlockContents -> Ptr RustSlice
+foreign import ccall unsafe "block_contents_fields"
+    blockContentsFieldsF :: BlockContents -> Ptr BlockFieldsR
+foreign import ccall unsafe "block_contents_slot"
+    blockContentsSlotF :: BlockContents -> Int
+foreign import ccall unsafe "block_contents_transactions"
+    blockContentsTransactionsF :: BlockContents -> Ptr RustSlice
+foreign import ccall unsafe "block_contents_signature"
+    blockContentsSignatureF :: BlockContents -> Ptr RustSlice
+
+blockContentsHash :: BlockContents -> BlockHash
+blockContentsHash bc = Hash . fromByteString . unsafePerformIO $
+  curry packCStringLen (getPtr hashSlice) (getLength hashSlice)
+  where
+    hashSlice = blockContentsHashF bc
+
+blockContentsFields :: BlockContents -> Maybe BlockFields
+blockContentsFields bc = if p == nullPtr then Nothing else Just $ BlockFields p
+  where
+    p = blockContentsFieldsF bc
+
+blockContentsSlot :: BlockContents -> Slot
+blockContentsSlot = Slot . fromIntegral . blockContentsSlotF
+
+blockContentsBlockTransactions :: BlockContents -> [Transaction]
+blockContentsBlockTransactions b =
+  let transactions = blockContentsTransactionsF b in
+    unsafePerformIO $ do
+      bt_str <- curry packCStringLen (getPtr transactions) (getLength transactions)
+      case decode bt_str of
+        Left e -> fail $ "Couldn't deserialize txs " ++ show e
+        Right v -> return v
+
+blockContentsSignature :: BlockContents -> BlockSignature
+blockContentsSignature bc = Sig.Signature . toShort . unsafePerformIO $
+  curry packCStringLen (getPtr sigSlice) (getLength sigSlice)
+  where
+    sigSlice = blockContentsSignatureF bc
+
+instance Eq BlockContents where
+  a == b = (blockContentsHash a) == (blockContentsHash b)
+
+type instance BlockFieldType BlockContents = BlockFields
+
+instance BlockData BlockContents where
+  blockSlot = blockContentsSlot
+  blockFields = blockContentsFields
+  blockTransactions = blockContentsBlockTransactions
+  verifyBlockSignature = undefined
+  putBlock = undefined
+
+---------------------------
+-- * PendingBlock FFI calls
+---------------------------
 
 -- |Datatype representing a PendingBlock in the Rust side
 data PendingBlockR
@@ -337,44 +250,94 @@ data PendingBlockR
 --
 -- A PendingBlock in the Rust side must have:
 --
---    * BlockFields
---    * BlockSlot
---    * BlockTransactions
+--    * Contents (pointer to Rust struct)
+--    * Hash
 --
 -- PendingBlock is required to implement Eq, BlockMetadata, BlockData, HashableTo
 -- BlockHash, Show and BlockPendingData
 data PendingBlock = PendingBlock {
-  thePBPointer :: Ptr PendingBlockR,
-  theTime:: UTCTime
+  pendingBlockPointer :: Ptr PendingBlockR,
+  pendingBlockReceiveTime:: UTCTime
   }
+
+foreign import ccall unsafe "pending_block_get_slot"
+    pendingBlockContentsF :: Ptr PendingBlockR -> Ptr BlockContentsR
+foreign import ccall unsafe "pending_block_serialize"
+    pendingBlockSerializeF :: Ptr PendingBlockR -> Ptr RustSlice
+foreign import ccall unsafe "pending_block_get_hash"
+    pendingBlockHashF :: Ptr PendingBlockR -> Ptr RustSlice
+foreign import ccall unsafe "pending_block_display"
+    pendingBlockShowF :: Ptr PendingBlockR -> Ptr RustSlice
+foreign import ccall unsafe "pending_block_update_transactions"
+    pendingBlockUpdateTransactionsF :: Ptr PendingBlockR -> CString -> Int -> IO ()
+
+pendingBlockSerialize :: PendingBlock -> ByteString
+pendingBlockSerialize b =
+   let bt = pendingBlockSerializeF . pendingBlockPointer $ b in
+    unsafePerformIO $ curry packCStringLen (getPtr bt) (getLength bt)
+
+pendingBlockHash :: PendingBlock -> BlockHash
+pendingBlockHash b =
+  let bh = pendingBlockHashF . pendingBlockPointer $ b in
+    unsafePerformIO $ do
+      bh_str <- curry packCStringLen (getPtr bh) (getLength bh)
+      return . hash $ bh_str
+
+pendingBlockShow :: PendingBlock -> String
+pendingBlockShow b =
+  let bh = pendingBlockShowF . pendingBlockPointer $ b in
+    unsafePerformIO $  curry peekCStringLen (getPtr bh) (getLength bh)
+
+pendingBlockExtractBlockFields :: PendingBlock -> BlockFields
+pendingBlockExtractBlockFields = fromJust . blockContentsFields . pendingBlockExtractBlockContents
+
+pendingBlockExtractBlockContents :: PendingBlock -> BlockContents
+pendingBlockExtractBlockContents = BlockContents . pendingBlockContentsF . pendingBlockPointer
+
+-- |Update the list of transactions held in the Rust side
+pendingBlockUpdateTransactions :: [Transaction] -> PendingBlock -> IO ()
+pendingBlockUpdateTransactions txs pb =
+  useAsCStringLen (encode txs) $ uncurry (pendingBlockUpdateTransactionsF (pendingBlockPointer pb))
 
 instance Eq PendingBlock where
   a == b = (getHash a :: BlockHash) == (getHash b :: BlockHash)
-  
+
 instance BlockMetadata PendingBlock where
-    blockPointer = bfBlockPointerR . pbBlockFieldsR
-    blockBaker = bfBlockBakerR . pbBlockFieldsR
-    blockProof = bfBlockProofR . pbBlockFieldsR
-    blockNonce = bfBlockNonceR . pbBlockFieldsR
-    blockLastFinalized = bfBlockLastFinalizedR . pbBlockFieldsR
+    blockPointer = blockPointer . pendingBlockExtractBlockFields
+    blockBaker = blockBaker . pendingBlockExtractBlockFields
+    blockProof = blockProof . pendingBlockExtractBlockFields
+    blockNonce = blockNonce . pendingBlockExtractBlockFields
+    blockLastFinalized = blockLastFinalized . pendingBlockExtractBlockFields
 
 type instance BlockFieldType PendingBlock = BlockFields
 
 instance BlockData PendingBlock where
-  blockSlot = pbBlockSlotR
-  blockFields = Just . pbBlockFieldsR
-  blockTransactions = pbBlockTransactionsR
-  verifyBlockSignature = pbVerifyBlockSignatureR
-  putBlock = putByteString . pbSerializeBlockR
+  blockSlot = blockSlot . pendingBlockExtractBlockContents
+  blockFields = blockFields . pendingBlockExtractBlockContents
+  blockTransactions = blockTransactions . pendingBlockExtractBlockContents
+  verifyBlockSignature v = verifyBlockSignature v . pendingBlockExtractBlockContents
+  putBlock = putBlock . pendingBlockExtractBlockContents
 
 instance HashableTo BlockHash PendingBlock where
-  getHash = pbGetHashR
+  getHash = pendingBlockHash
 
 instance Show PendingBlock where
-  show = pbShowR
+  show = pendingBlockShow
 
 instance BlockPendingData PendingBlock where
-  blockReceiveTime = theTime
+  blockReceiveTime = pendingBlockReceiveTime
+
+-- |Create a PendingBlock
+-- This function must initialize the PendingBlockR of the Rust side
+makePendingBlock :: GlobalStatePtr -> BakedBlock -> UTCTime -> PendingBlock
+makePendingBlock gsptr bb pendingBlockReceiveTime = thePendingBlock
+  where
+    thePendingBlock = PendingBlock {..}
+    pendingBlockPointer = unsafePerformIO $ useAsCStringLen (encode . NormalBlock $ bb) $ uncurry (makePendingBlockF gsptr)
+
+---------------------------
+-- * BlockPointer FFI calls
+---------------------------
 
 -- |Datatype representing a BlockPointer in the Rust side
 data BlockPointerR
@@ -383,21 +346,63 @@ data BlockPointerR
 --
 -- A BlockPointer in the Rust side must contain:
 --
---    * Block (AKA GenesisData/BakedBlock)
---    * BlockHeight
+--    * Contents (pointer to Rust struct)
+--    * Height
 --    * TransactionCount
---    * BlockHash
+--    * Hash
 --
 -- Some other fields cannot be moved into the Rust side because they either
 -- represent another BlockPointers, represent the BlockState or are Time values
 data BlockPointer = BlockPointer {
-  theBPPointer :: Ptr BlockPointerR,
-  theParent :: BlockPointer,
-  theLastFinalized :: BlockPointer,
-  theState :: BlockState' BlockPointer,
-  theReceiveTime :: UTCTime,
-  theArriveTime :: UTCTime
+  blockPointerPointer :: Ptr BlockPointerR,
+  blockPointerParent :: BlockPointer,
+  blockPointerLastFinalized :: BlockPointer,
+  blockPointerState :: BlockState' BlockPointer,
+  blockPointerReceiveTime :: UTCTime,
+  blockPointerArriveTime :: UTCTime
   }
+
+foreign import ccall unsafe "block_pointer_get_hash"
+    blockPointerHashF :: Ptr BlockPointerR -> Ptr RustSlice
+foreign import ccall unsafe "block_pointer_get_height"
+    blockPointerHeightF :: Ptr BlockPointerR -> Int
+foreign import ccall unsafe "block_pointer_get_transaction_count"
+    blockPointerTransactionCountF :: Ptr BlockPointerR -> Int
+foreign import ccall unsafe "block_pointer_get_contents"
+    blockPointerContentsF :: Ptr BlockPointerR -> Ptr BlockContentsR
+foreign import ccall unsafe "block_pointer_serialize"
+    blockPointerSerializeF :: Ptr BlockPointerR -> Ptr RustSlice
+foreign import ccall unsafe "block_pointer_display"
+    blockPointerShowF :: Ptr BlockPointerR -> Ptr RustSlice
+
+blockPointerHash :: BlockPointer -> BlockHash
+blockPointerHash b =
+  let bh = blockPointerHashF . blockPointerPointer $ b in
+    unsafePerformIO $ do
+      bh_str <- curry packCStringLen (getPtr bh) (getLength bh)
+      return . hash $ bh_str
+
+blockPointerHeight :: BlockPointer -> BlockHeight
+blockPointerHeight = BlockHeight . fromIntegral . blockPointerHeightF . blockPointerPointer
+
+blockPointerTransactionCount :: BlockPointer -> Int
+blockPointerTransactionCount = blockPointerTransactionCountF . blockPointerPointer
+
+blockPointerSerializeBlock :: BlockPointer -> ByteString
+blockPointerSerializeBlock b =
+   let bt = blockPointerSerializeF . blockPointerPointer $ b in
+    unsafePerformIO $ curry packCStringLen (getPtr bt) (getLength bt)
+
+blockPointerShow :: BlockPointer -> String
+blockPointerShow b =
+  let bh = blockPointerShowF . blockPointerPointer $ b in
+    unsafePerformIO $  curry peekCStringLen (getPtr bh) (getLength bh)
+
+blockPointerExtractBlockFields :: BlockPointer -> Maybe BlockFields
+blockPointerExtractBlockFields = blockContentsFields . blockPointerExtractBlockContents
+
+blockPointerExtractBlockContents :: BlockPointer -> BlockContents
+blockPointerExtractBlockContents = BlockContents . blockPointerContentsF . blockPointerPointer
 
 -- BlockPointer is required to implement Eq and Ord, HashableTo BlockHash, BlockData
 -- and BlockPointerData (requires Show)
@@ -408,52 +413,48 @@ instance Ord BlockPointer where
   a <= b = (getHash a :: BlockHash) <= (getHash b :: BlockHash)
 
 instance HashableTo BlockHash BlockPointer where
-  getHash = bpGetHashR
+  getHash = blockPointerHash
 
 type instance BlockFieldType BlockPointer = BlockFields
 
 instance BlockData BlockPointer where
-  blockSlot = bpBlockSlotR
-  blockFields = Just . bpBlockFieldsR
-  blockTransactions = bpBlockTransactionsR
-  verifyBlockSignature = bpVerifyBlockSignatureR
-  putBlock = putByteString . bpSerializeBlockR --Wrong
+  blockSlot = blockSlot . blockPointerExtractBlockContents
+  blockFields = blockFields . blockPointerExtractBlockContents
+  blockTransactions = blockTransactions . blockPointerExtractBlockContents
+  verifyBlockSignature v = verifyBlockSignature v . blockPointerExtractBlockContents
+  putBlock = putBlock . blockPointerExtractBlockContents
 
 instance Show BlockPointer where
-  show bp = intercalate ", " $ bpShowR bp :
-    [show . theParent $ bp
-    , show . theLastFinalized $ bp
-    , show . theState $ bp
-    , show . theReceiveTime $ bp
-    , show . theArriveTime $ bp]
+  show bp = intercalate ", " $ blockPointerShow bp :
+    [show . blockPointerParent $ bp
+    , show . blockPointerLastFinalized $ bp
+    , show . blockPointerState $ bp
+    , show . blockPointerReceiveTime $ bp
+    , show . blockPointerArriveTime $ bp]
 
 instance BlockPointerData BlockPointer where
     type BlockState' BlockPointer = BBS.BlockState
-    bpHash = bpGetHashR
-    bpParent = theParent
-    bpLastFinalized = theLastFinalized
-    bpHeight = bpGetHeightR
-    bpState = theState
-    bpReceiveTime = theReceiveTime
-    bpArriveTime = theArriveTime
-    bpTransactionCount = bpGetTransactionCountR
+    bpHash = blockPointerHash
+    bpParent = blockPointerParent
+    bpLastFinalized = blockPointerLastFinalized
+    bpHeight = blockPointerHeight
+    bpState = blockPointerState
+    bpReceiveTime = blockPointerReceiveTime
+    bpArriveTime = blockPointerArriveTime
+    bpTransactionCount = blockPointerTransactionCount
 
 -- |Create the BlockPointer for the GenesisBlock
 -- This function must initialize the BlockPointerR of the Rust side
 makeGenesisBlockPointer :: GlobalStatePtr -> GenesisData ->  BlockState' BlockPointer -> BlockPointer
-makeGenesisBlockPointer gsptr genData theState = theBlockPointer
+makeGenesisBlockPointer gsptr genData blockPointerState = theBlockPointer
   where
     theBlockPointer = BlockPointer {..}
-    theParent = theBlockPointer
-    theLastFinalized = theBlockPointer
-    theReceiveTime = posixSecondsToUTCTime (fromIntegral (genesisTime genData))
-    theArriveTime = theReceiveTime
-    theBPPointer = makeBPGenesisPointerR gsptr genData
+    blockPointerParent = theBlockPointer
+    blockPointerLastFinalized = theBlockPointer
+    blockPointerReceiveTime = posixSecondsToUTCTime (fromIntegral (genesisTime genData))
+    blockPointerArriveTime = blockPointerReceiveTime
+    blockPointerPointer = unsafePerformIO $ useAsCStringLen (encode genData) . uncurry $ makeGenesisDataF gsptr
 
--- |Initialize the BlockPointerR in the Rust side
-makeBPGenesisPointerR :: GlobalStatePtr -> GenesisData -> Ptr BlockPointerR
-makeBPGenesisPointerR gsptr gdata =
-  unsafePerformIO $ useAsCStringLen (encode gdata) . uncurry $ makeGenesisDataF gsptr
 
 -- |Creates the BlockPointer for a BakedBlock
 -- This function must initialize the BlockPointerR of the Rust side
@@ -465,11 +466,18 @@ makeBlockPointer :: GlobalStatePtr ->
                     BlockPointer ->
                     UTCTime ->
                     BlockPointer
-makeBlockPointer gsptr b theParent theLastFinalized theState theArriveTime = theBlockPointer
+makeBlockPointer gsptr b blockPointerParent blockPointerLastFinalized blockPointerState blockPointerArriveTime =
+  theBlockPointer
   where
     theBlockPointer = BlockPointer {..}
-    theReceiveTime = theTime b
-    theBPPointer = makeBPPointerR gsptr b
+    blockPointerReceiveTime = pendingBlockReceiveTime b
+    blockPointerPointer = makeBlockPointerF gsptr (pendingBlockPointer b)
 
-makeBPPointerR :: GlobalStatePtr -> PendingBlock -> Ptr BlockPointerR
-makeBPPointerR gsptr pblock =  makeBlockPointerF gsptr (thePBPointer pblock)
+---------------------------
+-- * FFI Types
+---------------------------
+
+-- |Datatype representing the GlobalState in Rust
+data GlobalStateR
+-- |Pointer to the GlobalState in Rust
+type GlobalStatePtr = Ptr GlobalStateR
