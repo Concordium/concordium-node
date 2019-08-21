@@ -498,10 +498,10 @@ fn send_msg_to_consensus(
     let raw_id = source_id.as_raw();
 
     let consensus_response = match request.variant {
-        Block => consensus.send_block(raw_id, &request.payload),
+        Block => consensus.send_block(&request.payload),
         Transaction => consensus.send_transaction(&request.payload),
-        FinalizationMessage => consensus.send_finalization(raw_id, &request.payload),
-        FinalizationRecord => consensus.send_finalization_record(raw_id, &request.payload),
+        FinalizationMessage => consensus.send_finalization(&request.payload),
+        FinalizationRecord => consensus.send_finalization_record(&request.payload),
         CatchupFinalizationMessagesByPoint => {
             consensus.get_finalization_messages(&request.payload, raw_id)
         }

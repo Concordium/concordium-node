@@ -18,14 +18,13 @@ macro_rules! wrap_c_call_string {
 }
 
 macro_rules! wrap_send_data_to_c {
-    ($self:ident, $peer_id:ident, $data:expr, $c_call:expr) => {{
+    ($self:ident, $data:expr, $c_call:expr) => {{
         let consensus = $self.consensus.load(Ordering::SeqCst);
         let len = $data.len();
 
         let result = unsafe {
             $c_call(
                 consensus,
-                $peer_id,
                 CString::from_vec_unchecked($data.to_vec()).as_ptr() as *const u8,
                 len as i64,
             )
