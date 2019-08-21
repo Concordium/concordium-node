@@ -1,6 +1,9 @@
+{-# LANGUAGE TypeFamilies #-}
 module Concordium.Afgjort.PartyMap where
 
-import qualified Data.Map as Map
+import qualified Data.Map.Strict as Map
+import Lens.Micro.Platform
+import Lens.Micro.Internal(Index,IxValue,Ixed)
 
 import Concordium.Afgjort.Types
 import qualified Concordium.Afgjort.PartySet as PS
@@ -13,6 +16,12 @@ data PartyMap a = PartyMap {
 
 instance Functor PartyMap where
     fmap f pm = pm {partyMap = fmap f (partyMap pm)}
+
+instance Ixed (PartyMap a) where
+    ix i = lens partyMap (\z m -> z {partyMap = m}) . ix i
+
+type instance Index (PartyMap a) = Party
+type instance IxValue (PartyMap a) = a
 
 member :: Party -> PartyMap a -> Bool
 {-# INLINE member #-}
@@ -35,3 +44,6 @@ singleton p vp v = PartyMap vp (Map.singleton p v)
 
 keysSet :: PartyMap a -> PS.PartySet
 keysSet pm = PS.PartySet (weight pm) (BitSet.fromList $ Map.keys (partyMap pm))
+
+keys :: PartyMap a -> [Party]
+keys = Map.keys . partyMap

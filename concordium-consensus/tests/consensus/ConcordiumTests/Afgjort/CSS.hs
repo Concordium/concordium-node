@@ -1,11 +1,10 @@
-{-# LANGUAGE RecordWildCards, TemplateHaskell, RankNTypes, TupleSections #-}
+{-# LANGUAGE RecordWildCards, TemplateHaskell, RankNTypes, TupleSections, TypeFamilies #-}
 module ConcordiumTests.Afgjort.CSS where
 
 import Data.Monoid
 import Data.Maybe
 import Control.Monad
 import qualified Data.Map as Map
-import qualified Data.Set as Set
 import Lens.Micro.Platform
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
@@ -17,39 +16,53 @@ import Concordium.Afgjort.CSS
 import Concordium.Afgjort.CSS.NominationSet
 import qualified Concordium.Afgjort.CSS.BitSet as BitSet
 import qualified Concordium.Afgjort.PartySet as PS
+import qualified Concordium.Afgjort.PartyMap as PM
 
 
 import Test.QuickCheck
 import Test.Hspec
 
-invariantCSSState :: VoterPower -> VoterPower -> (Party -> VoterPower) -> CSSState -> Either String ()
+invariantCSSState :: VoterPower -> VoterPower -> (Party -> VoterPower) -> CSSState sig -> Either String ()
 invariantCSSState totalWeight corruptWeight partyWeight s = do
         checkBinary (==) computedManySawWeight (PS.weight $ s ^. manySaw) "==" "computed manySaw weight" "given manySaw weight"
         when (s ^. report) $ do
             let iSawSet = (nomTop $ s ^. iSaw) `BitSet.union` (nomBot $ s ^. iSaw)
             -- Every party that has sent a justified input should be in iSaw, so long as we are reporting.
-            when (s ^. topJustified) $ checkBinary BitSet.isSubsetOf (s ^. inputTop) iSawSet "subsumed by" "[justified] top inputs" "iSaw"
-            when (s ^. botJustified) $ checkBinary BitSet.isSubsetOf (s ^. inputBot) iSawSet "subsumed by" "[justified] bottom inputs" "iSaw"
-        forM_ (Map.toList $ s ^. sawTop) $ \(src, (PartySet tot m)) -> checkBinary (==) (sumPartyWeights m) tot "==" ("computed weight of parties seeing (" ++ show src ++ ", top)") "given weight"
-        forM_ (Map.toList $ s ^. sawBot) $ \(src, (PartySet tot m)) -> checkBinary (==) (sumPartyWeights m) tot "==" ("computed weight of parties seeing (" ++ show src ++ ", bottom)") "given weight"
+            when (s ^. topJustified) $ checkBinary BitSet.isSubsetOf (BitSet.fromList . Map.keys $ s ^. inputTop) iSawSet "subsumed by" "[justified] top inputs" "iSaw"
+            when (s ^. botJustified) $ checkBinary BitSet.isSubsetOf (BitSet.fromList . Map.keys $ s ^. inputBot) iSawSet "subsumed by" "[justified] bottom inputs" "iSaw"
+        forM_ (Map.toList $ s ^. sawTop) $ \(src, ps) -> checkPartySet ("parties seeing (" ++ show src ++ ", top)") ps
+        forM_ (Map.toList $ s ^. sawBot) $ \(src, ps) -> checkPartySet ("parties seeing (" ++ show src ++ ", bottom)") ps
         forM_ (nominationSetToList (s ^. iSaw)) $ \(p,c) -> do
             unless (s ^. justified c) $ Left $ "iSaw contains " ++ show (p,c) ++ " but the choice is not justified"
-            unless (p `BitSet.member` (s ^. input c)) $ Left $ "iSaw contains " ++ show (p,c) ++ ", which is not in the input"
+            unless (p `Map.member` (s ^. input c)) $ Left $ "iSaw contains " ++ show (p,c) ++ ", which is not in the input"
         unless (BitSet.null $ BitSet.intersection (nomTop $ s ^. iSaw) (nomBot $ s ^. iSaw)) $
             Left $ "iSaw contains mutiple choices for one party"
         checkBinary (==) computedManySaw (parties $ s ^. manySaw) "==" "computed manySaw" "given manySaw"
-        checkBinary (==) computedJustifiedDoneReportingWeight (s ^. justifiedDoneReportingWeight) "==" "computed justifiedDoneReporting weight" "given value"
+        checkPartyMap "justified done reporting" (s ^. justifiedDoneReporting)
+        -- checkBinary (==) computedJustifiedDoneReportingWeight (s ^. justifiedDoneReportingWeight) "==" "computed justifiedDoneReporting weight" "given value"
         forM_ (Map.toList (s ^. unjustifiedDoneReporting)) $ \((seen,c),m) ->
             forM_ (Map.toList m) $ \(seer,_) ->
                 when (s ^. sawJustified seer c seen) $ Left $ "unjustifiedDoneReporting " ++ show seer ++ " waiting on " ++ show (seen,c) ++ " which is seen and justified"
-        checkBinary (==) (isJust $ s ^. core) (s ^. justifiedDoneReportingWeight >= totalWeight - corruptWeight) "<->" "core determined" "justifiedDoneReporting >= totalWeight - corruptWeight"
+        checkBinary (==) (isJust $ s ^. core) (PM.weight (s ^. justifiedDoneReporting) >= totalWeight - corruptWeight) "<->" "core determined" "justifiedDoneReporting >= totalWeight - corruptWeight"
+        checkBinary (==) partySaw partySawMsgs "==" "recorded seen values" "held seen message values"
     where
         sumPartyWeights = BitSet.foldl (\w k -> w + partyWeight k) 0
         computedManySawWeight = sumPartyWeights (parties $ s ^. manySaw)
         checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
-        computedManySaw' c = if s ^. justified c then (const (Just c)) <$> Map.filter (\(PartySet w _) -> w >= totalWeight - corruptWeight) ((s ^. saw c) `Map.intersection` (Map.fromAscList $ (,c) <$> (BitSet.toAscList $ s ^. input c))) else Map.empty
+        computedManySaw' c = if s ^. justified c then (const (Just c)) <$> Map.filter (\m -> PS.weight m >= totalWeight - corruptWeight) ((s ^. saw c) `Map.intersection` (const c <$> s ^. input c)) else Map.empty
         computedManySaw = BitSet.fromList $ Map.keys $ Map.unionWith (const $ const Nothing) (computedManySaw' True) (computedManySaw' False)
-        computedJustifiedDoneReportingWeight = sum $ partyWeight <$> Set.toList (s ^. justifiedDoneReporting)
+        checkPartyMap desc pm = checkPartySet desc (PM.keysSet pm)
+        checkPartySet desc ps = checkBinary (==) (PS.weight ps) (sum $ partyWeight <$> PS.toList ps) "==" (desc ++ " weight") "computed value"
+        partySaw :: Map.Map (Party, Bool) BitSet.BitSet
+        partySaw = foldr doPartySaw Map.empty [(s ^. sawTop, True), (s ^. sawBot, False)]
+        doPartySaw :: (Map.Map Party PartySet, Bool) -> Map.Map (Party, Bool) BitSet.BitSet -> Map.Map (Party, Bool) BitSet.BitSet
+        doPartySaw (sawb, b) m = Map.foldrWithKey (doPartySawX b) m sawb
+        doPartySawX :: Bool -> Party -> PartySet -> Map.Map (Party, Bool) BitSet.BitSet -> Map.Map (Party, Bool) BitSet.BitSet
+        doPartySawX b k ps m = foldl (doPartyYSawX b k) m (PS.toList ps)
+        doPartyYSawX b k m y = m & at (y, b) . non BitSet.empty %~ BitSet.insert k
+        partySawMsgs = Map.foldrWithKey (\k v -> let (t, b) = collapseSawMsgs v in (at (k, True) . non BitSet.empty .~ t) . (at (k, False) . non BitSet.empty .~ b)) Map.empty (s ^. sawMessages)
+        collapseSawMsgs [] = (BitSet.empty, BitSet.empty)
+        collapseSawMsgs ((ns, _) : r) = let (sTop, sBot) = collapseSawMsgs r in (sTop `BitSet.union` nomTop ns, sBot `BitSet.union` nomBot ns)
 
 data History = History {
     _receivedDoneReporting :: Map.Map Party [[(Party, Choice)]]
@@ -59,11 +72,11 @@ makeLenses ''History
 initialHistory :: History
 initialHistory = History Map.empty
 
-checkUpdateHistory :: CSSState -> CSSInput -> [CSSOutputEvent] -> History -> Either String History
+checkUpdateHistory :: CSSState () -> CSSInput -> [CSSOutputEvent] -> History -> Either String History
 checkUpdateHistory s inp _outp hist0 = do
-        let ujdrs = [(p, reverse $ (q, c) : l) | ((q, c), m) <- Map.toList $ s ^. unjustifiedDoneReporting, (p, l) <- Map.toList m]
+        let ujdrs = [(p, (reverse $ (q, c) : l)) | ((q, c), m) <- Map.toList $ s ^. unjustifiedDoneReporting, (p, (l, _)) <- Map.toList m]
         forM_ ujdrs $ \(p, l) -> unless (any (justifiedAfterPrefix p l) (hist ^. receivedDoneReporting . at p . non [])) $ Left $ "unjustifiedDoneReporting invalid for party " ++ show p
-        forM_ (Set.toList $ s ^. justifiedDoneReporting) $ \p -> unless (any (sawAllJustified p) (hist ^. receivedDoneReporting . at p . non [])) $ Left $ "justifiedDoneReporting invalid for party " ++ show p
+        forM_ (PM.keys $ s ^. justifiedDoneReporting) $ \p -> unless (any (sawAllJustified p) (hist ^. receivedDoneReporting . at p . non [])) $ Left $ "justifiedDoneReporting invalid for party " ++ show p
         return hist
     where
         hist = case inp of
@@ -106,7 +119,7 @@ noCoresCheck _ _ _ = property True
 atParty :: Party -> Traversal' (Vec.Vector a) a
 atParty = ix . fromIntegral
 
-runCSSTest :: Int -> Int -> Int -> Seq.Seq (Party, CSSInput) -> Vec.Vector CSSState -> Vec.Vector (First CoreSet) -> Gen Property
+runCSSTest :: Int -> Int -> Int -> Seq.Seq (Party, CSSInput) -> Vec.Vector (CSSState ()) -> Vec.Vector (First CoreSet) -> Gen Property
 runCSSTest = runCSSTest' coresCheck
 
 filterCSSMessages :: Party -> [CSSOutputEvent] -> Seq.Seq (Party, CSSInput) -> Seq.Seq (Party, CSSInput)
@@ -117,17 +130,17 @@ filterCSSMessages src oes msgs = if any isSendSeen oes then Seq.filter f msgs el
         f (_, ReceiveCSSMessage src' (Seen _)) = src /= src'
         f _ = True
 
-runCSSTest' :: (Int -> Int -> Vec.Vector (First CoreSet) -> Property) -> Int -> Int -> Int -> Seq.Seq (Party, CSSInput) -> Vec.Vector CSSState -> Vec.Vector (First CoreSet) -> Gen Property
+runCSSTest' :: (Int -> Int -> Vec.Vector (First CoreSet) -> Property) -> Int -> Int -> Int -> Seq.Seq (Party, CSSInput) -> Vec.Vector (CSSState ()) -> Vec.Vector (First CoreSet) -> Gen Property
 runCSSTest' ccheck allparties nparties corruptWeight = go initialHistory
     where
-        go :: History -> Seq.Seq (Party, CSSInput) -> Vec.Vector CSSState -> Vec.Vector (First CoreSet) -> Gen Property
+        go :: History -> Seq.Seq (Party, CSSInput) -> Vec.Vector (CSSState ()) -> Vec.Vector (First CoreSet) -> Gen Property
         go hist msgs sts cores
             | null msgs = return $ ccheck allparties corruptWeight cores
             | otherwise = do
                 ((rcpt, inp), msgs') <- selectFromSeq msgs
                 let a = case inp of
                             JustifyChoice c -> justifyChoice c
-                            ReceiveCSSMessage p msg -> receiveCSSMessage p msg
+                            ReceiveCSSMessage p msg -> receiveCSSMessage p msg ()
                 let (_, s', out) = runCSS a cssInst (sts Vec.! fromIntegral rcpt)
                 {-return $ counterexample (show rcpt ++ ": " ++ show inp) $ -}
                 case invariantCSSState (fromIntegral allparties) (fromIntegral corruptWeight) (const 1) s' of

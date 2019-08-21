@@ -4,18 +4,11 @@ module Concordium.Afgjort.Finalize.Types where
 
 import qualified Data.Vector as Vec
 import Data.Vector(Vector)
-import qualified Data.Map.Strict as Map
-import Data.Map.Strict(Map)
-import qualified Data.Set as Set
-import Data.Set(Set)
 import Data.Word
 import qualified Data.Serialize as S
 import Data.Serialize.Put
 import Data.Serialize.Get
 import Data.Maybe
-import Lens.Micro.Platform
-import Control.Monad.State.Class
-import Control.Monad.IO.Class
 import Control.Monad
 
 import qualified Concordium.Crypto.BlockSignature as Sig
@@ -23,13 +16,8 @@ import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Types
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Finalization
-import Concordium.GlobalState.BlockState(BlockPointerData(..))
-import Concordium.Kontrol
 import Concordium.Afgjort.Types
 import Concordium.Afgjort.WMVBA
-import Concordium.Afgjort.Freeze (FreezeMessage(..))
-import Concordium.Kontrol.BestBlock
-import Concordium.Logger
 
 data FinalizationInstance = FinalizationInstance {
     finMySignKey :: !Sig.KeyPair,

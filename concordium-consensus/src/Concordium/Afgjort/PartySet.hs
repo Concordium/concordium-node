@@ -6,7 +6,10 @@ import Concordium.Afgjort.Types
 data PartySet = PartySet {
     weight :: !VoterPower,
     parties :: !BitSet.BitSet
-} deriving (Eq,Ord,Show)
+} deriving (Eq,Ord)
+
+instance Show PartySet where
+    show ps = "{" ++ show (BitSet.toList (parties ps) :: [Party]) ++ "}"
 
 empty :: PartySet
 empty = PartySet 0 BitSet.empty
@@ -22,6 +25,20 @@ insert party pWeight pset
             weight = weight pset + pWeight,
             parties = BitSet.insert party (parties pset)
         }
+
+-- |Add a party to the set, and return a boolean that indicates
+-- if it was already there.
+insertLookup ::
+    Party -- ^Party to add
+    -> VoterPower -- ^Weight of party to add
+    -> PartySet -- ^Set to add to
+    -> (Bool, PartySet)
+insertLookup party pWeight pset
+    | party `BitSet.member` parties pset = (True, pset)
+    | otherwise = (False, PartySet {
+            weight = weight pset + pWeight,
+            parties = BitSet.insert party (parties pset)
+        })
 
 union ::
     -- ^Party weight function

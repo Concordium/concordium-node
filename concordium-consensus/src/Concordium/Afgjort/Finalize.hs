@@ -29,15 +29,12 @@ module Concordium.Afgjort.Finalize (
 ) where
 
 import qualified Data.Vector as Vec
-import Data.Vector(Vector)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict(Map)
 import qualified Data.Set as Set
 import Data.Set(Set)
-import Data.Word
 import qualified Data.Serialize as S
 import Data.Serialize.Put
-import Data.Serialize.Get
 import Data.Maybe
 import Lens.Micro.Platform
 import Control.Monad.State.Class

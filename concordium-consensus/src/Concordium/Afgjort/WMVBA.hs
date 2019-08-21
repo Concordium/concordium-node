@@ -132,8 +132,8 @@ instance S.Serialize WMVBAMessage where
 data OutcomeState = OSAwaiting | OSFrozen Val | OSABBASuccess | OSDone deriving (Show)
 
 data WMVBAState sig = WMVBAState {
-    _freezeState :: FreezeState,
-    _abbaState :: ABBAState,
+    _freezeState :: FreezeState sig,
+    _abbaState :: ABBAState sig,
     _justifiedDecision :: OutcomeState,
     _justifications :: Map Val (VoterPower, Map Party sig)
 } deriving (Show)
@@ -193,7 +193,7 @@ instance WMVBAMonad sig (WMVBA sig) where
     sendWMVBAMessage = WMVBA . tell . Endo . (:) . SendWMVBAMessage
     wmvbaComplete = WMVBA . tell . Endo . (:) . WMVBAComplete
 
-liftFreeze :: (WMVBAMonad sig m) => Freeze a -> m a
+liftFreeze :: (WMVBAMonad sig m) => Freeze sig a -> m a
 liftFreeze a = do
         freezestate <- use freezeState
         freezecontext <- toFreezeInstance <$> ask
@@ -220,7 +220,7 @@ liftFreeze a = do
                     _ -> return ()
             handleEvents r
 
-liftABBA :: (WMVBAMonad sig m) => ABBA a -> m a
+liftABBA :: (WMVBAMonad sig m) => ABBA sig a -> m a
 liftABBA a = do
         aBBAInstance <- asks toABBAInstance
         aBBAState <- use abbaState
@@ -255,9 +255,9 @@ isJustifiedWMVBAInput val = liftFreeze $ isProposalJustified val
 
 -- |Handle an incoming 'WMVBAMessage'.
 receiveWMVBAMessage :: (WMVBAMonad sig m, Eq sig) => Party -> sig -> WMVBAMessage -> m ()
-receiveWMVBAMessage src _ (WMVBAFreezeMessage msg) = liftFreeze $ receiveFreezeMessage src msg
-receiveWMVBAMessage src _ (WMVBAABBAMessage msg) = do
-        liftABBA $ receiveABBAMessage src msg
+receiveWMVBAMessage src sig (WMVBAFreezeMessage msg) = liftFreeze $ receiveFreezeMessage src msg sig
+receiveWMVBAMessage src sig (WMVBAABBAMessage msg) = do
+        liftABBA $ receiveABBAMessage src msg sig
 receiveWMVBAMessage src sig (WMVBAWitnessCreatorMessage v) = do
         WMVBAInstance{..} <- ask
         (wt, m) <- use (justifications . at v . non (0, Map.empty))

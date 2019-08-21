@@ -25,7 +25,7 @@ import Test.QuickCheck
 import Test.QuickCheck.Monadic
 import Test.Hspec
 
-invariantABBAState :: ABBAInstance -> ABBAState -> Either String ()
+invariantABBAState :: ABBAInstance -> ABBAState sig -> Either String ()
 invariantABBAState (ABBAInstance _ tw cw pw _ _ _ _) ABBAState{..} = do
         unless (_currentGrade <= 2) $ Left $ "Invalid grade" ++ show _currentGrade
         checkBinary (==) _topWeAreDoneWeight (sum $ fmap pw $ Set.toList $ _topWeAreDone) "==" "weight of WeAreDone for Top" "calculated value"
@@ -42,9 +42,9 @@ data ABBAInput
     | BeginABBA Choice
     deriving (Eq,Show)
 
-makeInput :: ABBAInput -> ABBA ()
+makeInput :: ABBAInput -> ABBA () ()
 makeInput (JustifyABBAChoice c) = justifyABBAChoice c
-makeInput (ReceiveABBAMessage p m) = receiveABBAMessage p m
+makeInput (ReceiveABBAMessage p m) = receiveABBAMessage p m ()
 makeInput (BeginABBA c) = beginABBA c
 
 -- |Pick an element from a sequence, returning the element

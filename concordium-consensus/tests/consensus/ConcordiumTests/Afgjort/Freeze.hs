@@ -1,4 +1,4 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving, MultiParamTypeClasses, FlexibleInstances, ScopedTypeVariables, ParallelListComp, OverloadedStrings #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving, MultiParamTypeClasses, FlexibleInstances, ScopedTypeVariables, ParallelListComp, OverloadedStrings, RecordWildCards #-}
 module ConcordiumTests.Afgjort.Freeze where
 
 import qualified Data.Map as Map
@@ -33,10 +33,10 @@ blocks :: [Val]
 blocks = [blockA, blockB, blockC, blockD]
 
 -- |An invariant predicate over 'FreezeState's.
-invariantFreezeState :: VoterPower -> VoterPower -> (Party -> VoterPower) -> FreezeState -> Bool
+invariantFreezeState :: VoterPower -> VoterPower -> (Party -> VoterPower) -> FreezeState () -> Bool
 invariantFreezeState tw cw pw fs = isRight (invariantFreezeState' tw cw pw fs)
 
-invariantFreezeState' :: VoterPower -> VoterPower -> (Party -> VoterPower) -> FreezeState -> Either String ()
+invariantFreezeState' :: VoterPower -> VoterPower -> (Party -> VoterPower) -> FreezeState () -> Either String ()
 invariantFreezeState' totalWeight corruptWeight partyWeight fs = do
     checkBinary (==) pers (_justifiedProposers fs) "==" "computed set of justified proposers" "given set"
     checkBinary (==) distJProps (_distinctJustifiedProposals fs) "==" "computed distinct justified proposals" "given distinct justified proposals"
@@ -80,7 +80,7 @@ data FreezeOutput
     deriving (Eq, Ord, Show)
 
 newtype FreezeT m a = FreezeT {
-    runFreezeT :: RWST (FreezeInstance) [Either (FreezeOutput) (FreezeState)] (FreezeState) m a
+    runFreezeT :: RWST (FreezeInstance) [Either (FreezeOutput) (FreezeState ())] (FreezeState ()) m a
 } deriving (Functor, Applicative, Monad)
 
 instance (Monad m) => MonadReader (FreezeInstance) (FreezeT m) where
@@ -89,7 +89,7 @@ instance (Monad m) => MonadReader (FreezeInstance) (FreezeT m) where
     local f = FreezeT . local f . runFreezeT
 
 
-instance (Monad m) => (MonadState (FreezeState) (FreezeT m)) where
+instance (Monad m) => (MonadState (FreezeState ()) (FreezeT m)) where
     get = FreezeT get
     put = FreezeT . put
     state = FreezeT . state
@@ -107,25 +107,27 @@ tellState = FreezeT $ do
     st <- get
     tell [Right st]
 
-instance (Monad m) => FreezeMonad (FreezeT m) where
-    sendFreezeMessage m = FreezeT (tell [Left $ FOMessage m])
+instance (Monad m) => FreezeMonad () (FreezeT m) where
+    sendFreezeMessage m = do
+            (FreezeInstance _ _ _ p) <- FreezeT (tell [Left $ FOMessage m] >> ask)
+            receiveFreezeMessage p m ()
     frozen v = FreezeT (tell [Left $ FOComplete v])
     decisionJustified v = FreezeT (tell [Left $ FOJustifiedDecision v])
 
-doFreezeT :: (Monad m) => FreezeInstance -> FreezeState -> FreezeT m a -> m (a, FreezeState, [Either (FreezeOutput) (FreezeState)])
+doFreezeT :: (Monad m) => FreezeInstance -> FreezeState () -> FreezeT m a -> m (a, FreezeState (), [Either (FreezeOutput) (FreezeState ())])
 doFreezeT ctxt st a = runRWST (runFreezeT (a >>= \r -> tellState >> return r)) ctxt st
  
-runFreezeSequence :: FreezeInstance -> [FreezeInput] -> [Either (FreezeInput) (Either (FreezeOutput) (FreezeState))]
+runFreezeSequence :: FreezeInstance -> [FreezeInput] -> [Either (FreezeInput) (Either (FreezeOutput) (FreezeState ()))]
 runFreezeSequence fi ins = go initialFreezeState ins
     where
-        go :: FreezeState -> [FreezeInput] -> [Either (FreezeInput) (Either (FreezeOutput) (FreezeState))]
+        go :: FreezeState () -> [FreezeInput] -> [Either (FreezeInput) (Either (FreezeOutput) (FreezeState ()))]
         go _ [] = []
         go st (e : es) = let (_, st', out) = runIdentity (doFreezeT fi st (exec e)) in (Left e) : (Right <$> out) ++ go st' es
         exec :: FreezeInput -> FreezeT Identity ()
         exec (FICandidate v) = justifyCandidate v
         exec (FIRequestProposal v) = propose v
-        exec (FIProposal p v) = receiveFreezeMessage p (Proposal v)
-        exec (FIVote p v) = receiveFreezeMessage p (Vote v)
+        exec (FIProposal p v) = receiveFreezeMessage p (Proposal v) ()
+        exec (FIVote p v) = receiveFreezeMessage p (Vote v) ()
         
 
 equalParties :: Int -> Int -> Party -> FreezeInstance
@@ -152,7 +154,7 @@ ex3 = (equalParties 4 1 0, [FICandidate blockA, FIProposal 1 blockA, FIRequestPr
 testFreezeExampleAllPerms :: FreezeExample -> Spec
 testFreezeExampleAllPerms (ctx, inp, outp) = sequence_ [it ("permutation " ++ show n) $ testFreezeExample (ctx, inp', outp) | inp' <- permutations inp | n <- [(0::Int)..]]
 
-checkInvariant :: (HasCallStack) => FreezeInstance -> FreezeState -> Expectation
+checkInvariant :: (HasCallStack) => FreezeInstance -> FreezeState () -> Expectation
 checkInvariant (FreezeInstance tw cw pw _) st = case invariantFreezeState' tw cw pw st of
         Left e -> expectationFailure $ show st ++ ": " ++ e
         Right () -> return ()
@@ -193,7 +195,7 @@ testFreezeExample (ctx, inp, outp) = do
         res = runFreezeSequence ctx inp
 
 testInitialInvariant :: Spec    
-testInitialInvariant = it "Invariant holds for intitial freeze state" (invariantFreezeState 0 0 (\_ -> undefined) (initialFreezeState :: FreezeState))
+testInitialInvariant = it "Invariant holds for intitial freeze state" (invariantFreezeState 0 0 (\_ -> undefined) (initialFreezeState :: FreezeState ()))
 
 tests :: Spec
 tests = parallel $ describe "Concordium.Afgjort.Freeze" $ do

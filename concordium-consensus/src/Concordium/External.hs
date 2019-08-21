@@ -28,7 +28,6 @@ import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Block
-import Concordium.GlobalState.Finalization(FinalizationIndex(..))
 import Concordium.GlobalState.Basic.BlockState(BlockState)
 import qualified Concordium.GlobalState.TreeState as TS
 
@@ -355,7 +354,7 @@ handleSkovFinalizationEvents broadcast = mapM_ handleEvt
     where
         handleEvt (SkovFinalization (BroadcastFinalizationMessage finMsg)) = broadcast (SOMsgFinalization finMsg)
         handleEvt (SkovFinalization (BroadcastFinalizationRecord finRec)) = broadcast (SOMsgFinalizationRecord finRec)
-        handleEvt (SkovMissing req) = return ()
+        handleEvt (SkovMissing _req) = return ()
 
 -- |Handle receipt of a block.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
