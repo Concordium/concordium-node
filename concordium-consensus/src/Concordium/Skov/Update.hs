@@ -275,7 +275,7 @@ processFinalizationPool = do
                     putFinalizationPoolAtIndex nextFinIx $! frs''
 
 -- |Given a block that is marked as pending, generate a notify event
-notifyBlocker :: (TreeStateMonad m, SkovMonad m, MonadWriter w m, MissingEvent w) => PendingBlock -> m UpdateResult
+notifyBlocker :: (TreeStateMonad m, SkovMonad m, MonadWriter w m, MissingEvent w) => PendingBlock m -> m UpdateResult
 notifyBlocker pb =
         getBlockStatus parent >>= \case
             Nothing -> do
@@ -294,12 +294,11 @@ notifyBlocker pb =
                 return ResultStale
             _ -> do
                 -- The parent is alive; we must be pending a finalization.
-                notifyMissingFinalization (Left $ blockLastFinalized bf)
-                logEvent Skov LLDebug $ "... pending finalization of last finalized block (" ++ show (blockLastFinalized bf) ++ ")"
+                notifyMissingFinalization (Left $ blockLastFinalized pb)
+                logEvent Skov LLDebug $ "... pending finalization of last finalized block (" ++ show (blockLastFinalized pb) ++ ")"
                 return ResultPendingFinalization
     where
-        bf = bbFields (pbBlock pb)
-        parent = blockPointer bf
+        parent = blockPointer pb
 
 
 -- |Try to add a block to the tree.  There are three possible outcomes:
@@ -311,7 +310,7 @@ notifyBlocker pb =
 --    it is added to the appropriate pending queue.  'addBlock'
 --    should be called again when the pending criterion is fulfilled.
 -- 3. The block is determined to be valid and added to the tree.
-addBlock :: forall w m. (HasCallStack, TreeStateMonad m, SkovMonad m, MonadWriter w m, MissingEvent w, OnSkov m) => PendingBlock -> m UpdateResult
+addBlock :: forall w m. (HasCallStack, TreeStateMonad m, SkovMonad m, MonadWriter w m, MissingEvent w, OnSkov m) => PendingBlock m -> m UpdateResult
 addBlock block = do
         lfs <- getLastFinalizedSlot
         -- The block must be later than the last finalized block
@@ -324,9 +323,9 @@ addBlock block = do
                     notifyMissingBlock parent 0
                     logEvent Skov LLDebug $ "Block " ++ show block ++ " is pending its parent (" ++ show parent ++ ")"
                     -- Check also if the block's last finalized block has been finalized
-                    getBlockStatus (blockLastFinalized bf) >>= \case
+                    getBlockStatus (blockLastFinalized block) >>= \case
                         Just (BlockFinalized _ _) -> return ()
-                        _ -> notifyMissingFinalization (Left $ blockLastFinalized bf)
+                        _ -> notifyMissingFinalization (Left $ blockLastFinalized block)
                     return ResultPendingBlock
                 Just (BlockPending pb) -> do
                     addPendingBlock block
@@ -349,14 +348,13 @@ addBlock block = do
             logEvent Skov LLWarning $ "Block is not valid: " ++ show block
             blockArriveDead $ getHash block
             return ResultInvalid
-        bf = bbFields (pbBlock block)
-        parent = blockPointer bf
+        parent = blockPointer block
         check q a = if q then a else invalidBlock
         tryAddLiveParent :: BlockPointer m -> m UpdateResult
         tryAddLiveParent parentP = do -- The parent block must be Alive or Finalized
-            let lf = blockLastFinalized bf
+            let lf = blockLastFinalized block
             -- Check that the blockSlot is beyond the parent slot
-            check (blockSlot (bpBlock parentP) < blockSlot block) $ do
+            check (blockSlot parentP < blockSlot block) $ do
                 lfStatus <- getBlockStatus lf
                 case lfStatus of
                     -- If the block's last finalized block is live, but not finalized yet,
@@ -379,8 +377,8 @@ addBlock block = do
                         check (blockSlot lfBlockP >= blockSlot (bpLastFinalized parentP)) $ do
                             -- get Birk parameters from the __parent__ block. The baker must have existed in that
                             -- block's state in order that the current block is valid
-                            bps@BirkParameters{..} <- getBirkParameters (bpState parentP)
-                            case birkBaker (blockBaker bf) bps of
+                            bps@BirkParameters{..} <- getBirkParameters (blockSlot block) parentP
+                            case birkBaker (blockBaker block) bps of
                                 Nothing -> invalidBlock
                                 Just (BakerInfo{..}, lotteryPower) ->
                                     -- Check the block proof
@@ -390,17 +388,17 @@ addBlock block = do
                                                 (blockSlot block)
                                                 _bakerElectionVerifyKey
                                                 lotteryPower
-                                                (blockProof bf)) $
+                                                (blockProof block)) $
                                     -- The block nonce
                                     check (verifyBlockNonce
                                                 _birkLeadershipElectionNonce
                                                 (blockSlot block)
                                                 _bakerElectionVerifyKey
-                                                (blockNonce bf)) $
+                                                (blockNonce block)) $
                                     -- And the block signature
                                     check (verifyBlockSignature _bakerSignatureVerifyKey block) $ do
                                         let ts = blockTransactions block
-                                        executeFrom (blockSlot block) parentP lfBlockP (blockBaker . bbFields . pbBlock $ block) ts >>= \case
+                                        executeFrom (blockSlot block) parentP lfBlockP (blockBaker block) ts >>= \case
                                             Left err -> do
                                                 logEvent Skov LLWarning ("Block execution failure: " ++ show err)
                                                 invalidBlock
@@ -430,7 +428,7 @@ addBlock block = do
 -- This is used by 'addBlock' and 'doStoreBakedBlock', and should not
 -- be called directly otherwise.
 blockArrive :: (HasCallStack, TreeStateMonad m, SkovMonad m) 
-        => PendingBlock     -- ^Block to add
+        => PendingBlock m    -- ^Block to add
         -> BlockPointer m     -- ^Parent pointer
         -> BlockPointer m    -- ^Last finalized pointer
         -> BlockState m      -- ^State
@@ -464,26 +462,30 @@ blockArrive block parentP lfBlockP gs = do
 -- |Store a block (as received from the network) in the tree.
 -- This checks for validity of the block, and may add the block
 -- to a pending queue if its prerequisites are not met.
-doStoreBlock :: (TreeStateMonad m, SkovMonad m, MonadWriter w m, MissingEvent w, OnSkov m) => BakedBlock -> m UpdateResult
+doStoreBlock :: (TreeStateMonad m, SkovMonad m, MonadWriter w m, MissingEvent w, OnSkov m) => PendingBlock m -> m UpdateResult
 {-# INLINE doStoreBlock #-}
-doStoreBlock = \block0 -> do
-    curTime <- currentTime
-    let pb = makePendingBlock block0 curTime
+doStoreBlock = \pb -> do
     let cbp = getHash pb
     oldBlock <- getBlockStatus cbp
     case oldBlock of
         Nothing -> do
             -- The block is new, so we have some work to do.
             logEvent Skov LLDebug $ "Received block " ++ show pb
-            updateReceiveStatistics pb
-            forM_ (blockTransactions pb) $ \tr -> doReceiveTransaction tr (blockSlot pb)
-            addBlock pb
+            txList <- sequence <$> (forM (blockTransactions pb) $ \tr -> fst <$> doReceiveTransactionInternal tr (blockSlot pb))
+            case txList of
+              Nothing -> do
+                blockArriveDead cbp
+                return ResultInvalid
+              Just newTransactions -> do
+                newPb <- updateBlockTransactions newTransactions pb
+                updateReceiveStatistics newPb
+                addBlock newPb
         Just _ -> return ResultDuplicate
 
 -- |Store a block that is baked by this node in the tree.  The block
 -- is presumed to be valid.
 doStoreBakedBlock :: (TreeStateMonad m, SkovMonad m, OnSkov m)
-        => PendingBlock     -- ^Block to add
+        => PendingBlock m     -- ^Block to add
         -> BlockPointer m    -- ^Parent pointer
         -> BlockPointer m     -- ^Last finalized pointer
         -> BlockState m      -- ^State
@@ -543,23 +545,35 @@ doFinalizeBlock = \finRec -> do
 -- |Add a transaction to the transaction table.  The 'Slot' should be
 -- the slot number of the block that the transaction was received with,
 -- and 0 if the transaction was received separately from a block.
--- This returns 'ResultSuccess' if the transaction is freshly added.
--- Otherwise, it returns 'ResultDuplicate', which indicates that either
--- the transaction is a duplicate, or a transaction with the same sender
--- and nonce has already been finalized.
+-- This returns
+--
+--   * 'ResultSuccess' if the transaction is freshly added.
+--   * 'ResultDuplicate', which indicates that either the transaction is a duplicate
+--   * 'ResultStale' which indicates that a transaction with the same sender
+--     and nonce has already been finalized. In this case the transaction is not added to the table.
 doReceiveTransaction :: (TreeStateMonad m) => Transaction -> Slot -> m UpdateResult
-doReceiveTransaction tr slot = do
-        added <- addCommitTransaction tr slot
-        if added then do
-            ptrs <- getPendingTransactions
-            focus <- getFocusBlock
-            macct <- getAccount (bpState focus) (transactionSender tr)
-            let nextNonce = maybe minNonce _accountNonce macct
-            -- If a transaction with this nonce has already been run by
-            -- the focus block, then we do not need to add it to the
-            -- pending transactions.  Otherwise, we do.
-            when (nextNonce <= transactionNonce tr) $
-                putPendingTransactions $ extendPendingTransactionTable nextNonce tr ptrs
-            return ResultSuccess
-        else
-            return ResultDuplicate
+doReceiveTransaction tr slot = snd <$> doReceiveTransactionInternal tr slot
+
+-- |Add a transaction to the transaction table.  The 'Slot' should be
+-- the slot number of the block that the transaction was received with.
+-- This function should only be called when a transaction is received as part of a block.
+-- The difference from the above function is that this function returns an already existing
+-- transaction in case of a duplicate, ensuring more sharing of transaction data.
+doReceiveTransactionInternal :: (TreeStateMonad m) => Transaction -> Slot -> m (Maybe Transaction, UpdateResult)
+doReceiveTransactionInternal tr slot = do
+        addCommitTransaction tr slot >>= \case
+          Nothing -> return (Nothing, ResultStale)
+          Just (tx, added) -> 
+            if added then do
+              ptrs <- getPendingTransactions
+              focus <- getFocusBlock
+              macct <- getAccount (bpState focus) $! (transactionSender tr)
+              let nextNonce = maybe minNonce _accountNonce macct
+              -- If a transaction with this nonce has already been run by
+              -- the focus block, then we do not need to add it to the
+              -- pending transactions.  Otherwise, we do.
+              when (nextNonce <= transactionNonce tr) $
+                  putPendingTransactions $! extendPendingTransactionTable nextNonce tx ptrs
+              return $ (Just tx, ResultSuccess)
+            else
+              return $ (Just tx, ResultDuplicate)

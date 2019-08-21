@@ -497,14 +497,14 @@ handleDeployCredential ::
   SchedulerMonad m
     =>
     -- |Header of the transaction.
-    TransactionHeader
+    TransactionHeader ->
     -- |Credentials to deploy in serialized form. We pass these to the verify function.
-    -> AH.CredentialDeploymentInformationBytes
+    AH.CredentialDeploymentInformationBytes ->
     -- |Credentials to deploy.
-    -> ID.CredentialDeploymentInformation
+    ID.CredentialDeploymentInformation ->
     -- |Amount of energy allowed for execution of this transaction.
-    -> Energy
-    -> m TxResult
+    Energy ->
+    m TxResult
 handleDeployCredential meta cdiBytes cdi energy = do
   if Cost.deployCredential > energy then do
      payment <- energyToGtu (thGasAmount meta) -- use up all the deposited gas

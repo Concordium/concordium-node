@@ -1,4 +1,4 @@
-{-# LANGUAGE ForeignFunctionInterface, LambdaCase, RecordWildCards, ScopedTypeVariables, OverloadedStrings, RankNTypes #-}
+{-# LANGUAGE ForeignFunctionInterface, LambdaCase, RecordWildCards, ScopedTypeVariables, OverloadedStrings, RankNTypes, TypeFamilies #-}
 module Concordium.External where
 
 import Foreign
@@ -28,16 +28,21 @@ import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Block
-import Concordium.GlobalState.Basic.BlockState(BlockState)
+import Concordium.GlobalState.Basic.Block
+import Concordium.GlobalState.Finalization(FinalizationIndex(..),FinalizationRecord)
+import Concordium.GlobalState.Basic.BlockState(BlockState, BlockPointer, _bpBlock)
 import qualified Concordium.GlobalState.TreeState as TS
+import qualified Concordium.GlobalState.BlockState as TS
+
 
 import Concordium.Scheduler.Utils.Init.Example (initialState)
 
 import Concordium.Runner
-import Concordium.Show
-import Concordium.Skov hiding (receiveTransaction)
-import Concordium.Afgjort.Finalize (FinalizationOutputEvent(..), FinalizationQuery)
+import Concordium.Skov hiding (receiveTransaction, getBirkParameters)
+import Concordium.Afgjort.Finalize (FinalizationOutputEvent(..), FinalizationQuery, FinalizationPoint, FinalizationMessage)
 import Concordium.Logger
+import Concordium.TimeMonad
+import Concordium.Skov.CatchUp (CatchUpStatus)
 
 import qualified Concordium.Getters as Get
 import qualified Concordium.Startup as S
@@ -225,7 +230,7 @@ broadcastCallback :: LogMethod IO -> FunPtr BroadcastCallback -> SimpleOutMessag
 broadcastCallback logM bcbk = handleB
     where
         handleB (SOMsgNewBlock block) = do
-            let blockbs = encode (NormalBlock block)
+            let blockbs = runPut (putBlock block)
             logM External LLDebug $ "Broadcasting block [size=" ++ show (BS.length blockbs) ++ "]"
             callBroadcastCallback bcbk MTBlock blockbs
         handleB (SOMsgFinalization finMsg) = do
@@ -375,8 +380,10 @@ receiveBlock bptr cstr l = do
         Right (GenesisBlock _) -> do
             logm External LLDebug $ "Genesis block deserialized. Ignoring the block."
             return ResultSerializationFail
-        Right (NormalBlock block) -> do
+        Right (NormalBlock block0) -> do
                         logm External LLInfo $ "Block deserialized. Sending to consensus."
+                        now <- currentTime
+                        let block = makePendingBlock block0 now
                         case c of
                             BakerRunner{..} -> do
                                 (res, evts) <- syncReceiveBlock bakerSyncRunner block
@@ -440,16 +447,8 @@ receiveFinalizationRecord bptr cstr l = do
                     (res, _) <- syncPassiveReceiveFinalizationRecord passiveSyncRunner finRec
                     return res
 
--- |Print a representation of a block to the standard output.
-printBlock :: CString -> Int64 -> IO ()
-printBlock cstr l = do
-    blockBS <- BS.packCStringLen (cstr, fromIntegral l)
-    case runGet get blockBS of
-        Left _ -> putStrLn "<Bad Block>"
-        Right block -> putStrLn $ showsBlock block ""
-
 -- |Handle receipt of a transaction.
--- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, and @ResultDuplicate@.
+-- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultDuplicate@, and @ResultStale@
 receiveTransaction :: StablePtr ConsensusRunner -> CString -> Int64 -> IO ReceiveResult
 receiveTransaction bptr tdata len = do
     c <- deRefStablePtr bptr
@@ -471,7 +470,7 @@ receiveTransaction bptr tdata len = do
                     (res, _) <- syncPassiveReceiveTransaction passiveSyncRunner tr
                     return res
 
-runConsensusQuery :: ConsensusRunner -> (forall z m s. (Get.SkovStateQueryable z m, TS.TreeStateMonad m, MonadState s m, FinalizationQuery s) => z -> a) -> a
+runConsensusQuery :: ConsensusRunner -> (forall z m s. (Get.SkovStateQueryable z m, TS.TreeStateMonad m, MonadState s m, FinalizationQuery s, TS.PendingBlock m ~ PendingBlock, TS.BlockPointer m ~ BlockPointer) => z -> a) -> a
 runConsensusQuery BakerRunner{..} f = f (syncState bakerSyncRunner)
 runConsensusQuery PassiveRunner{..} f = f (syncPState passiveSyncRunner)
 
@@ -499,7 +498,7 @@ getAncestors :: StablePtr ConsensusRunner -> CString -> Word64 -> IO CString
 getAncestors cptr blockcstr depth = do
     c <- deRefStablePtr cptr
     block <- peekCString blockcstr
-    ancestors <- runConsensusQuery c Get.getAncestors block (fromIntegral depth)
+    ancestors <- runConsensusQuery c Get.getAncestors block (fromIntegral depth :: BlockHeight)
     jsonValueToCString ancestors
 
 -- |Returns a null-terminated string with a JSON representation of the current branches from the
@@ -618,7 +617,7 @@ getBirkParameters cptr blockcstr = do
     let logm = consensusLogMethod c
     logm External LLInfo "Received request Birk parameters."
     withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
-      bps <- runConsensusQuery c (Get.getBirkParameters hash)
+      bps <- runConsensusQuery c (Get.getBlockBirkParameters hash)
       logm External LLDebug $ "Replying with" ++ show bps
       jsonValueToCString bps
 
@@ -634,7 +633,7 @@ getInstanceInfo cptr blockcstr cstr = do
     let logm = consensusLogMethod c
     logm External LLInfo "Received account info request."
     bs <- BS.packCString cstr
-    case AE.decodeStrict bs of
+    case AE.decodeStrict bs :: Maybe ContractAddress of
       Nothing -> do
         logm External LLDebug "Could not decode address."
         jsonValueToCString Null
@@ -665,7 +664,7 @@ getModuleSource cptr blockcstr cstr = do
         logm External LLInfo $ "Decoded module hash to : " ++ show mref -- base 16
         withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
           mmodul <- runConsensusQuery c (Get.getModuleSource hash) mref
-          case mmodul of
+          case mmodul :: Maybe (Core.Module Core.UA) of
             Nothing -> do
               logm External LLDebug "Module not available."
               byteStringToCString BS.empty
@@ -709,7 +708,7 @@ getBlock cptr blockRef = do
         bh <- blockReferenceToBlockHash blockRef
         logm External LLInfo $ "Received request for block: " ++ show bh
         b <- runConsensusQuery c Get.getBlockData bh
-        case b of
+        case b :: Maybe Block of
             Nothing -> do
                 logm External LLInfo $ "Block not available"
                 byteStringToCString BS.empty
@@ -731,7 +730,7 @@ getBlockDelta cptr blockRef delta = do
         bh <- blockReferenceToBlockHash blockRef
         logm External LLInfo $ "Received request for descendent of block " ++ show bh ++ " with delta " ++ show delta
         b <- runConsensusQuery c Get.getBlockDescendant bh (BlockHeight delta)
-        case b of
+        case b :: Maybe Block of
             Nothing -> do
                 logm External LLInfo $ "Block not available"
                 byteStringToCString BS.empty
@@ -752,7 +751,7 @@ getBlockFinalization cptr blockRef = do
         bh <- blockReferenceToBlockHash blockRef
         logm External LLInfo $ "Received request for finalization record for block: " ++ show bh
         f <- runConsensusQuery c Get.getBlockFinalization bh
-        case f of
+        case f :: Maybe FinalizationRecord of
             Nothing -> do
                 logm External LLInfo $ "Finalization record not available"
                 byteStringToCString BS.empty
@@ -770,8 +769,8 @@ getIndexedFinalization cptr finInd = do
         c <- deRefStablePtr cptr
         let logm = consensusLogMethod c
         logm External LLInfo $ "Received request for finalization record at index " ++ show finInd
-        f <- runConsensusQuery c Get.getIndexedFinalization (fromIntegral finInd)
-        case f of
+        f <- runConsensusQuery c Get.getIndexedFinalization (fromIntegral finInd :: FinalizationIndex)
+        case f :: Maybe FinalizationRecord of
             Nothing -> do
                 logm External LLInfo $ "Finalization record not available"
                 byteStringToCString BS.empty
@@ -800,13 +799,13 @@ getFinalizationMessages cptr peer finPtStr finPtLen callback = do
         let logm = consensusLogMethod c
         logm External LLInfo $ "Received request for finalization messages"
         finPtBS <- BS.packCStringLen (finPtStr, fromIntegral finPtLen)
-        case runGet get finPtBS of
+        case runGet get finPtBS :: Either String FinalizationPoint of
             Left _ -> do
                 logm External LLDebug "Finalization point deserialization failed"
                 return 1
             Right fpt -> do
                 finMsgs <- runConsensusQuery c Get.getFinalizationMessages fpt
-                forM_ finMsgs $ \finMsg -> do
+                forM_ (finMsgs :: [FinalizationMessage]) $ \finMsg -> do
                     logm External LLDebug $ "Sending finalization catchup, data = " ++ show finMsg
                     BS.useAsCStringLen (runPut $ put finMsg) $ \(cstr, l) -> callFinalizationMessageCallback callback peer cstr (fromIntegral l)
                 return 0
@@ -822,7 +821,7 @@ getFinalizationPoint cptr = do
         logm External LLInfo $ "Received request for finalization point"
         finPt <- runConsensusQuery c Get.getFinalizationPoint
         logm External LLDebug $ "Replying with finalization point = " ++ show finPt
-        byteStringToCString $ P.runPut $ put finPt
+        byteStringToCString $ encode (finPt :: FinalizationPoint)
 
 -- |Get a catch-up status message for requesting catch-up with peers.
 -- The return value is a length encoded string: the first 4 bytes are
@@ -835,7 +834,7 @@ getCatchUpStatus cptr = do
         logm External LLInfo $ "Received request for catch-up status"
         cus <- runConsensusQuery c Get.getCatchUpStatus
         logm External LLDebug $ "Replying with catch-up status = " ++ show cus
-        byteStringToCString $ encode cus
+        byteStringToCString $ encode (cus :: CatchUpStatus)
 
 -- |Callback for sending a message to a peer.
 -- The first argument is the peer to send to.
@@ -866,19 +865,19 @@ receiveCatchUpStatus cptr src cstr l cbk = do
     c <- deRefStablePtr cptr
     let logm = consensusLogMethod c
     bs <- BS.packCStringLen (cstr, fromIntegral l)
-    toReceiveResult <$> case decode bs of
+    toReceiveResult <$> case decode bs :: Either String CatchUpStatus of
         Left _ -> do
             logm External LLDebug "Deserialization of catch-up status message failed."
             return ResultSerializationFail
         Right cus -> do
             logm External LLDebug "Catch-up status message deserialized."
             res <- runConsensusQuery c Get.handleCatchUpStatus cus
-            case res of
+            case res :: (Either String (Maybe ([Either FinalizationRecord (BlockPointer)], CatchUpStatus), Bool)) of
                 Left emsg -> logm Skov LLWarning emsg >> return ResultInvalid
                 Right (d, flag) -> do
                     let
                         sendMsg = callDirectMessageCallback cbk src
-                        sendBlock = sendMsg MTBlock . encode
+                        sendBlock = sendMsg MTBlock . encode . _bpBlock
                         sendFinRec = sendMsg MTFinalizationRecord . encode
                         send [] = return ()
                         send (Left fr:r) = sendFinRec fr >> send r
@@ -899,7 +898,6 @@ foreign export ccall stopBaker :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall receiveBlock :: StablePtr ConsensusRunner -> CString -> Int64 -> IO Int64
 foreign export ccall receiveFinalization :: StablePtr ConsensusRunner -> CString -> Int64 -> IO Int64
 foreign export ccall receiveFinalizationRecord :: StablePtr ConsensusRunner -> CString -> Int64 -> IO Int64
-foreign export ccall printBlock :: CString -> Int64 -> IO ()
 foreign export ccall receiveTransaction :: StablePtr ConsensusRunner -> CString -> Int64 -> IO Int64
 
 foreign export ccall getConsensusStatus :: StablePtr ConsensusRunner -> IO CString

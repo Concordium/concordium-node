@@ -2,7 +2,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE MultiParamTypeClasses, FlexibleInstances, FunctionalDependencies, FlexibleContexts #-}
+{-# LANGUAGE MultiParamTypeClasses, FlexibleInstances, FunctionalDependencies, FlexibleContexts, TypeFamilies #-}
 module Concordium.Getters where
 
 import Lens.Micro.Platform hiding ((.=))
@@ -21,6 +21,8 @@ import Concordium.GlobalState.Information(jsonStorable)
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.Block
+import Concordium.GlobalState.Basic.Block
+import Concordium.GlobalState.Basic.BlockState
 import Concordium.Types.HashableTo
 import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.GlobalState.Instances
@@ -119,10 +121,10 @@ getRewardStatus hash sfsRef = runStateQuery sfsRef $
     "mintedAmountPerSlot" .= (fromIntegral (reward ^. AT.mintedGTUPerSlot) :: Integer)
     ]
 
-getBirkParameters :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
-getBirkParameters hash sfsRef = runStateQuery sfsRef $
+getBlockBirkParameters :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
+getBlockBirkParameters hash sfsRef = runStateQuery sfsRef $
   withBlockStateJSON hash $ \st -> do
-  BirkParameters{..} <- BS.getBirkParameters st
+  BirkParameters{..} <- BS.getBlockBirkParameters st
   return $ object [
     "electionDifficulty" .= _birkElectionDifficulty,
     "electionNonce" .= String (TL.toStrict . EL.decodeUtf8 . toLazyByteString . byteStringHex $ _birkLeadershipElectionNonce),
@@ -188,7 +190,7 @@ getBlockInfo sfsRef blockHash = case readMaybe blockHash of
                 resolveBlock bh >>= \case
                     Nothing -> return Null
                     Just bp -> do
-                        let slot = blockSlot (bpBlock bp)
+                        let slot = blockSlot bp
                         reward <- BS.getRewardStatus (bpState bp)
                         slotTime <- getSlotTime slot
                         bfin <- isFinalized bh
@@ -233,22 +235,23 @@ getBranches sfsRef = runStateQuery sfsRef $ do
     where
         up childrenMap = foldr (\b -> at (bpParent b) . non [] %~ (object ["blockHash" .= hsh b, "children" .= Map.findWithDefault [] b childrenMap] :)) Map.empty
 
-getBlockData :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> BlockHash -> IO (Maybe Block)
+getBlockData :: (SkovStateQueryable z m, TS.TreeStateMonad m, BS.BlockPointer m ~ BlockPointer, TS.PendingBlock m ~ PendingBlock)
+    => z -> BlockHash -> IO (Maybe Block)
 getBlockData sfsRef bh = runStateQuery sfsRef $
             TS.getBlockStatus bh <&> \case
-                Just (TS.BlockAlive bp) -> Just (bpBlock bp)
-                Just (TS.BlockFinalized bp _) -> Just (bpBlock bp)
+                Just (TS.BlockAlive bp) -> Just (_bpBlock bp)
+                Just (TS.BlockFinalized bp _) -> Just (_bpBlock bp)
                 Just (TS.BlockPending pb) -> Just $ NormalBlock (pbBlock pb)
                 Just (TS.BlockDead) -> Nothing
                 Nothing -> Nothing
 
-getBlockDescendant :: (SkovStateQueryable z m) => z -> BlockHash -> BlockHeight -> IO (Maybe Block)
+getBlockDescendant :: (SkovStateQueryable z m, BS.BlockPointer m ~ BlockPointer) => z -> BlockHash -> BlockHeight -> IO (Maybe Block)
 getBlockDescendant sfsRef ancestor distance = runStateQuery sfsRef $
             resolveBlock ancestor >>= \case
                 Nothing -> return Nothing
                 Just bp -> do
                     candidates <- getBlocksAtHeight (bpHeight bp + distance)
-                    return $ bpBlock <$> candidates ^? each . filtered (bp `isAncestorOf`)
+                    return $ _bpBlock <$> candidates ^? each . filtered (bp `isAncestorOf`)
 
 getBlockFinalization :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> BlockHash -> IO (Maybe FinalizationRecord)
 getBlockFinalization sfsRef bh = runStateQuery sfsRef $ do
@@ -269,5 +272,5 @@ getFinalizationPoint sfsRef = runStateQuery sfsRef $ get <&> getCurrentFinalizat
 getCatchUpStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> IO CU.CatchUpStatus
 getCatchUpStatus sRef = runStateQuery sRef $ CU.getCatchUpStatus True
 
-handleCatchUpStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> CU.CatchUpStatus -> IO (Either String (Maybe ([Either FinalizationRecord Block], CU.CatchUpStatus), Bool))
+handleCatchUpStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> CU.CatchUpStatus -> IO (Either String (Maybe ([Either FinalizationRecord (BS.BlockPointer m)], CU.CatchUpStatus), Bool))
 handleCatchUpStatus sRef cus = runStateQuery sRef $ CU.handleCatchUp cus

@@ -19,6 +19,9 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockState(BlockState)
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Finalization
+import Concordium.GlobalState.Basic.Block
+import Concordium.GlobalState.Basic.BlockState(BlockPointer)
+import Concordium.TimeMonad
 import Concordium.Birk.Bake
 import Concordium.Kontrol
 import Concordium.Skov
@@ -44,7 +47,7 @@ instance SkovStateQueryable SyncRunner (SkovQueryM SkovBufferedHookedState IO) w
     runStateQuery sr a = readMVar (syncState sr) >>= evalSkovQueryM a
 
 data SimpleOutMessage
-    = SOMsgNewBlock BakedBlock
+    = SOMsgNewBlock BlockPointer
     | SOMsgFinalization FinalizationMessage
     | SOMsgFinalizationRecord FinalizationRecord
 
@@ -128,7 +131,7 @@ runSkovBufferedMWithStateLog SyncRunner{..} a = do
         evtToEither (BufferedEvent e) = Left e
         evtToEither (BufferNotification n) = Right n
 
-syncReceiveBlock :: SyncRunner -> BakedBlock -> IO (UpdateResult, [SkovFinalizationEvent])
+syncReceiveBlock :: SyncRunner -> PendingBlock -> IO (UpdateResult, [SkovFinalizationEvent])
 syncReceiveBlock syncRunner block = runSkovBufferedMWithStateLog syncRunner (storeBlock block)
 
 syncReceiveTransaction :: SyncRunner -> Transaction -> IO (UpdateResult, [SkovFinalizationEvent])
@@ -160,7 +163,7 @@ runSkovPassiveMWithStateLog SyncPassiveRunner{..} a =
         runWithStateLog syncPState syncPLogMethod (\sss ->
             (\(ret, sss', Endo evs) -> ((ret, evs []), sss')) <$> runSkovPassiveHookedM a sss)
 
-syncPassiveReceiveBlock :: SyncPassiveRunner -> BakedBlock -> IO (UpdateResult, [SkovMissingEvent])
+syncPassiveReceiveBlock :: SyncPassiveRunner -> PendingBlock -> IO (UpdateResult, [SkovMissingEvent])
 syncPassiveReceiveBlock spr block = runSkovPassiveMWithStateLog spr (storeBlock block)
 
 syncPassiveReceiveTransaction :: SyncPassiveRunner -> Transaction -> IO (UpdateResult, [SkovMissingEvent])
@@ -206,7 +209,8 @@ makeAsyncRunner logm bkr gen initBS = do
                 MsgBlockReceived src blockBS -> do
                     case runGet get blockBS of
                         Right (NormalBlock block) -> do
-                            (_, evts) <- syncReceiveBlock sr block
+                            now <- currentTime
+                            (_, evts) <- syncReceiveBlock sr $ makePendingBlock block now
                             forM_ evts $ handleMessage src
                         _ -> return ()
                     msgLoop
@@ -238,6 +242,6 @@ makeAsyncRunner logm bkr gen initBS = do
         _ <- forkIO msgLoop
         return (inChan, outChan, syncState sr)
     where
-        simpleToOutMessage (SOMsgNewBlock block) = MsgNewBlock $ runPut $ put $ NormalBlock block
+        simpleToOutMessage (SOMsgNewBlock block) = MsgNewBlock $ runPut $ putBlock block
         simpleToOutMessage (SOMsgFinalization finMsg) = MsgFinalization $ runPut $ put finMsg
         simpleToOutMessage (SOMsgFinalizationRecord finRec) = MsgFinalizationRecord $ runPut $ put finRec

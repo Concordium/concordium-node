@@ -54,11 +54,11 @@ processTransactions slot bh finalizedP bid = do
   -- This is done in the method below once a block pointer is constructed.
 
 
-bakeForSlot :: (SkovMonad m, TreeStateMonad m, MonadIO m) => BakerIdentity -> Slot -> m (Maybe BakedBlock)
+bakeForSlot :: (SkovMonad m, TreeStateMonad m, MonadIO m) => BakerIdentity -> Slot -> m (Maybe (BlockPointer m))
 bakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     bb <- bestBlockBefore slot
-    guard (blockSlot (bpBlock bb) < slot)
-    birkParams@BirkParameters{..} <- getBirkParameters (bpState bb)
+    guard (blockSlot bb < slot)
+    birkParams@BirkParameters{..} <- getBirkParameters slot bb
 
     (bakerId, _, lotteryPower) <- MaybeT . pure $ birkBakerByKeys (bakerSignPublicKey ident) (bakerElectionPublicKey ident) birkParams
     electionProof <- MaybeT . liftIO $
@@ -67,14 +67,14 @@ bakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     nonce <- liftIO $ computeBlockNonce _birkLeadershipElectionNonce slot bakerElectionKey
     lastFinal <- lastFinalizedBlock
     (transactions, newState) <- processTransactions slot bb lastFinal bakerId
-    let block = signBlock bakerSignKey slot (bpHash bb) bakerId electionProof nonce (bpHash lastFinal) transactions
     logEvent Baker LLInfo $ "Baked block"
     receiveTime <- currentTime
-    newbp <- storeBakedBlock (makePendingBlock block receiveTime)
+    pb <- makePendingBlock bakerSignKey slot (bpHash bb) bakerId electionProof nonce (bpHash lastFinal) transactions receiveTime
+    newbp <- storeBakedBlock pb
                          bb
                          lastFinal
                          newState
     -- update the current focus block to the newly created block to maintain invariants.
     putFocusBlock newbp
     logEvent Baker LLInfo $ "Finished bake block " ++ show newbp
-    return block
+    return newbp

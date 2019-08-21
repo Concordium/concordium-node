@@ -162,8 +162,8 @@ checkInvariant (FreezeInstance tw cw pw _) st = case invariantFreezeState' tw cw
 genInputs :: [Party] -> [Val] -> Gen [FreezeInput]
 genInputs ps vs = listOf1 $ oneof [FICandidate <$> elements vs, FIRequestProposal <$> elements vs, FIProposal <$> elements ps <*> elements vs, FIVote <$> elements ps <*> elements (Nothing : (Just <$> vs))]
 
-qcInvariant :: Property
-qcInvariant = withMaxSuccess 100000 $ forAll (genInputs [1..5] blocks) $ \inp -> let out = outp inp in classify (completed out) "completed protocol" (testInv $ rights $ out)
+qcInvariant :: Word -> Property
+qcInvariant lvl = withMaxSuccess (100 * 10^lvl) $ forAll (genInputs [1..5] blocks) $ \inp -> let out = outp inp in classify (completed out) "completed protocol" (testInv $ rights $ out)
     where
         outp = rights . runFreezeSequence ctx
         ctx@(FreezeInstance tw cw pw _) = equalParties 6 1 0
@@ -197,8 +197,8 @@ testFreezeExample (ctx, inp, outp) = do
 testInitialInvariant :: Spec    
 testInitialInvariant = it "Invariant holds for intitial freeze state" (invariantFreezeState 0 0 (\_ -> undefined) (initialFreezeState :: FreezeState ()))
 
-tests :: Spec
-tests = parallel $ describe "Concordium.Afgjort.Freeze" $ do
+tests :: Word -> Spec
+tests lvl = parallel $ describe "Concordium.Afgjort.Freeze" $ do
     testInitialInvariant
     describe "ex1" $ testFreezeExampleAllPerms ex1
     describe "ex2" $ testFreezeExampleAllPerms ex2
@@ -206,4 +206,4 @@ tests = parallel $ describe "Concordium.Afgjort.Freeze" $ do
     describe "testStream1" $ testQCInvariantExample testStream1
     describe "testStream2" $ testQCInvariantExample testStream2
     describe "testStream3" $ testQCInvariantExample testStream3
-    it "invariant on random trace" $ qcInvariant
+    it "invariant on random trace" $ qcInvariant lvl

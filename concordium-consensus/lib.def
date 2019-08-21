@@ -10,7 +10,6 @@ EXPORTS
  receiveBlock
  receiveFinalization
  receiveFinalizationRecord
- printBlock
  receiveTransaction
  getConsensusStatus
  getBlockInfo

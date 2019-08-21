@@ -216,13 +216,13 @@ singleCSSWithBadEnv allparties = do
         iCores = Vec.singleton (First Nothing)
 
 
-tests :: Spec
-tests = parallel $ describe "Concordium.Afgjort.CSS" $ do
-    it "5 parties" $ withMaxSuccess 1000 $ multiCSSTest 5
-    it "10 parties" $ withMaxSuccess 100 $ multiCSSTest 10
-    it "15 parties" $ withMaxSuccess 100 $ multiCSSTest 15
-    it "30 parties" $ withMaxSuccess 10 $ multiCSSTest 30
-    it "7 parties (2 silent)" $ withMaxSuccess 10000 $ multiCSSTestWithSilentCorrupt 7
-    it "15 parties (4 silent)" $ withMaxSuccess 1000 $ multiCSSTestWithSilentCorrupt 15
-    it "4 parties (1 active corrupt)" $ withMaxSuccess 50000 $ multiCSSTestWithActiveCorrupt 4
-    it "1 party + 4 corrupt" $ withMaxSuccess 10000 $ singleCSSWithBadEnv 5
+tests :: Word -> Spec
+tests lvl = parallel $ describe "Concordium.Afgjort.CSS" $ do
+    it "5 parties" $ withMaxSuccess (10^lvl) $ multiCSSTest 5
+    it "10 parties" $ withMaxSuccess (10^lvl `div` 10) $ multiCSSTest 10
+    it "15 parties" $ withMaxSuccess (10^lvl `div` 10) $ multiCSSTest 15
+    it "30 parties" $ withMaxSuccess (10^lvl `div` 10) $ multiCSSTest 30
+    it "7 parties (2 silent)" $ withMaxSuccess (10^lvl * 10) $ multiCSSTestWithSilentCorrupt 7
+    it "15 parties (4 silent)" $ withMaxSuccess (10^lvl) $ multiCSSTestWithSilentCorrupt 15
+    it "4 parties (1 active corrupt)" $ withMaxSuccess (10^lvl * 50) $ multiCSSTestWithActiveCorrupt 4
+    it "1 party + 4 corrupt" $ withMaxSuccess (10^lvl * 10) $ singleCSSWithBadEnv 5

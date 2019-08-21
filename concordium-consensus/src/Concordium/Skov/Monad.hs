@@ -16,6 +16,7 @@ import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.BlockState(BlockPointer, BlockPointerData, BlockState, BlockStateQuery, BSMTrans(..))
+import Concordium.GlobalState.TreeState(PendingBlock)
 import Concordium.Logger
 import Concordium.TimeMonad
 
@@ -46,6 +47,9 @@ class (Monad m, Eq (BlockPointer m), BlockPointerData (BlockPointer m), BlockSta
     isFinalized :: BlockHash -> m Bool
     -- |Determine the last finalized block.
     lastFinalizedBlock :: m (BlockPointer m)
+    -- |Retrieves the birk parameters for a slot, given a branch (in the form of a block pointer.)
+    --  Retrieves AdvanceTime and StableTime directly from genesis block
+    getBirkParameters :: Slot -> BlockPointer m -> m BirkParameters
     -- |Get the genesis data.
     getGenesisData :: m GenesisData
     -- |Get the genesis block pointer.
@@ -63,12 +67,12 @@ class (Monad m, Eq (BlockPointer m), BlockPointerData (BlockPointer m), BlockSta
 class (SkovQueryMonad m, TimeMonad m, LoggerMonad m) => SkovMonad m where
     -- |Store a block in the block table and add it to the tree
     -- if possible.
-    storeBlock :: BakedBlock -> m UpdateResult
+    storeBlock :: PendingBlock m -> m UpdateResult
     -- |Store a block in the block table that has just been baked.
     -- This assumes the block is valid and that there can be nothing
     -- pending for it (children or finalization).
-    storeBakedBlock ::
-        PendingBlock        -- ^The block to add
+    storeBakedBlock :: 
+        PendingBlock m        -- ^The block to add
         -> BlockPointer m     -- ^Parent pointer
         -> BlockPointer m     -- ^Last finalized pointer
         -> BlockState m       -- ^State
@@ -83,6 +87,7 @@ instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (BSMTra
     resolveBlock = lift . resolveBlock
     isFinalized = lift . isFinalized
     lastFinalizedBlock = lift lastFinalizedBlock
+    getBirkParameters slot bp = lift $ getBirkParameters slot bp
     getGenesisData = lift getGenesisData
     genesisBlock = lift genesisBlock
     getCurrentHeight = lift getCurrentHeight

@@ -240,20 +240,20 @@ multiWithCorruptKeysEvil keys active corrupt = monadicIO $ do
 
 
 
-tests :: Spec
-tests = parallel $ describe "Concordium.Afgjort.ABBA" $ do
-    it "3 parties + 1 super inactive" $ withMaxSuccess 1000 $ multiWithInactiveKeys (superCorruptKeys 3 1 6 22636) 3 1
-    it "3 parties + 1 super corrupt" $ withMaxSuccess 5000 $ multiWithCorruptKeys (superCorruptKeys 3 1 6 22636) 3 1
-    it "3 parties + 1 super corrupt evil" $ withMaxSuccess 5000 $ multiWithCorruptKeysEvil (superCorruptKeys 3 1 6 22636) 3 1
-    it "5 parties + 2 super corrupt" $ withMaxSuccess 5000 $ multiWithCorruptKeys (superCorruptKeys 5 2 6 4602) 5 2
-    it "5 parties + 2 super corrupt evil" $ withMaxSuccess 5000 $ multiWithCorruptKeysEvil (superCorruptKeys 5 2 6 4602) 5 2
-    it "3 parties + 1 corrupt" $ withMaxSuccess 500 $ multiWithCorrupt 3 1
-    it "5 parties + 2 corrupt" $ withMaxSuccess 500 $ multiWithCorrupt 5 2
-    it "Two parties" $ withMaxSuccess 10000 $ allHonest 2
-    it "Three parties" $ withMaxSuccess 10000 $ allHonest 3
-    it "5 parties" $ withMaxSuccess 1000 $ allHonest 5
-    it "25 parties" $ withMaxSuccess 100 $ allHonest 25
-    it "3 parties + 1 inactive" $ withMaxSuccess 1000 $ multiWithInactive 3 1
-    it "5 parties + 2 inactive" $ withMaxSuccess 300 $ multiWithInactive 5 2
-    it "7 parties + 2 inactive" $ withMaxSuccess 100 $ multiWithInactive 7 2
-    it "17 parties + 8 inactive" $ withMaxSuccess 100 $ multiWithInactive 17 8
+tests :: Word -> Spec
+tests lvl = parallel $ describe "Concordium.Afgjort.ABBA" $ do
+    it "3 parties + 1 super inactive" $ withMaxSuccess (10^lvl) $ multiWithInactiveKeys (superCorruptKeys 3 1 6 28177) 3 1
+    it "3 parties + 1 super corrupt" $ withMaxSuccess (5*10^lvl) $ multiWithCorruptKeys (superCorruptKeys 3 1 6 28177) 3 1
+    it "3 parties + 1 super corrupt evil" $ withMaxSuccess (5*10^lvl) $ multiWithCorruptKeysEvil (superCorruptKeys 3 1 6 28177) 3 1
+    it "5 parties + 2 super corrupt" $ withMaxSuccess (5*10^lvl) $ multiWithCorruptKeys (superCorruptKeys 5 2 6 6440) 5 2
+    it "5 parties + 2 super corrupt evil" $ withMaxSuccess (5*10^lvl) $ multiWithCorruptKeysEvil (superCorruptKeys 5 2 6 6440) 5 2
+    it "3 parties + 1 corrupt" $ withMaxSuccess (10^lvl `div` 2) $ multiWithCorrupt 3 1
+    it "5 parties + 2 corrupt" $ withMaxSuccess (10^lvl `div` 2) $ multiWithCorrupt 5 2
+    it "Two parties" $ withMaxSuccess (10*10^lvl) $ allHonest 2
+    it "Three parties" $ withMaxSuccess (10*10^lvl) $ allHonest 3
+    it "5 parties" $ withMaxSuccess (10^lvl) $ allHonest 5
+    it "25 parties" $ withMaxSuccess (10^lvl `div` 10) $ allHonest 25
+    it "3 parties + 1 inactive" $ withMaxSuccess (10^lvl) $ multiWithInactive 3 1
+    it "5 parties + 2 inactive" $ withMaxSuccess (3*10^lvl `div` 10) $ multiWithInactive 5 2
+    it "7 parties + 2 inactive" $ withMaxSuccess (10^lvl `div` 10) $ multiWithInactive 7 2
+    it "17 parties + 8 inactive" $ withMaxSuccess (10^lvl `div` 10) $ multiWithInactive 17 8

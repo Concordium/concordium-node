@@ -47,6 +47,8 @@ packages:
 # extra-deps: []
 extra-deps: []
 
+extra-include-dirs: ["./crypto/rust-src/target/release"]
+
 # Override default flag values for local packages and extra-deps
 # flags: {}
 

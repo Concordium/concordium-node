@@ -7,8 +7,10 @@ import Data.Functor
 import qualified Data.Sequence as Seq
 
 import Concordium.GlobalState.BlockState
+import qualified Concordium.GlobalState.Basic.BlockState as BS
 import Concordium.GlobalState.TreeState
 import Concordium.Types
+import qualified Concordium.GlobalState.Parameters as Param
 
 doResolveBlock :: TreeStateMonad m => BlockHash -> m (Maybe (BlockPointer m))
 {-# INLINE doResolveBlock #-}
@@ -23,6 +25,10 @@ doIsFinalized = getBlockStatus >=> \case
         Just (BlockFinalized _ _) -> return True
         _ -> return False
 
+doGetBirkParameters :: TreeStateMonad m => Slot -> BlockPointer m -> m Param.BirkParameters
+{-# INLINE doGetBirkParameters #-}
+doGetBirkParameters slot bp = getBlockBirkParameters (bpState bp)
+
 doGetCurrentHeight :: TreeStateMonad m => m BlockHeight
 {-# INLINE doGetCurrentHeight #-}
 doGetCurrentHeight = do
@@ -36,6 +42,7 @@ doBranchesFromTop = revSeqToList <$> getBranches
     where
         revSeqToList Seq.Empty = []
         revSeqToList (r Seq.:|> t) = t : revSeqToList r
+
 
 doGetBlocksAtHeight :: TreeStateMonad m => BlockHeight -> m [BlockPointer m]
 {-# INLINE doGetBlocksAtHeight #-}

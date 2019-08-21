@@ -94,7 +94,7 @@ checkKnownBlock b kb = (b `Set.member` (m ^. at (bpHeight b) . non Set.empty), k
         kb'' = KnownBlocks (m & at (bpHeight b) . non Set.empty %~ Set.insert b) (max h (bpHeight b))
 
 
-handleCatchUp :: (TreeStateMonad m, SkovQueryMonad m) => CatchUpStatus -> m (Either String (Maybe ([Either FinalizationRecord Block], CatchUpStatus), Bool))
+handleCatchUp :: (TreeStateMonad m, SkovQueryMonad m) => CatchUpStatus -> m (Either String (Maybe ([Either FinalizationRecord (BlockPointer m)], CatchUpStatus), Bool))
 handleCatchUp peerCUS = runExceptT $ do
         (lfb, lastFinRec) <- lift $ getLastFinalized
         if cusLastFinalizedHeight peerCUS > bpHeight lfb then do
@@ -138,11 +138,11 @@ handleCatchUp peerCUS = runExceptT $ do
                     makeChain kb b = makeChain' kb b []
                     (_, chain) = foldl (\(kbs, ch0) b -> let (kbs', ch1) = makeChain kbs b in (kbs', ch0 ++ ch1)) (knownBlocks, []) (bb : justifiers)
                     myCUS = makeCatchUpStatus False lfb bb justifiers
-                    merge [] bs = Right . bpBlock <$> bs
+                    merge [] bs = Right <$> bs
                     merge fs [] = Left <$> fs
                     merge fs0@(f : fs1) (b : bs)
-                        | finalizationBlockPointer f == bpHash b = (Right (bpBlock b)) : Left f : merge fs1 bs
-                        | otherwise = Right (bpBlock b) : merge fs0 bs
+                        | finalizationBlockPointer f == bpHash b = (Right b) : Left f : merge fs1 bs
+                        | otherwise = Right b : merge fs0 bs
                 return (Just (merge frs chain, myCUS), catchUpWithPeer)
             else
                 -- No response required

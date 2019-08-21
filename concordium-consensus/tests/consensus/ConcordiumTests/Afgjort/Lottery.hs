@@ -58,8 +58,8 @@ doubleWeightTrial samples = pval samples (trials samples 0) p
         trial r = let lid = BS.pack $ show r in
                     if ticketValue (proofToTicket (unsafePerformIO $ makeTicketProof lid keyp1) w1 tw) > ticketValue (proofToTicket (unsafePerformIO $ makeTicketProof lid keyp2) w2 tw) then 1 else 0
 
-tests :: Spec
-tests = parallel $ describe "ConcordiumTests.Afgjort.Lottery" $ do
-    it "Generated ticket passes check" $ withMaxSuccess 1000 $ ticketCheck
-    it "Generated ticket does not pass for other keypair" $ withMaxSuccess 1000 $ ticketNoCheckOther
+tests :: Word -> Spec
+tests lvl = parallel $ describe "ConcordiumTests.Afgjort.Lottery" $ do
+    it "Generated ticket passes check" $ withMaxSuccess (10^lvl) $ ticketCheck
+    it "Generated ticket does not pass for other keypair" $ withMaxSuccess (10^lvl) $ ticketNoCheckOther
     let p = doubleWeightTrial 100000 in it ("double weight trial p-value>0.05 (n=100000): p = " ++ show p) $ p > 0.05

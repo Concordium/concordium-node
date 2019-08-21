@@ -8,6 +8,16 @@ import Data.Ratio
 import qualified Concordium.Crypto.VRF    as VRF
 import           Concordium.Types
 
+newtype BlockLuck = BlockLuck Double deriving (Eq, Ord)
+
+-- |Luck of the genesis block
+genesisLuck :: BlockLuck
+genesisLuck = BlockLuck 1
+
+-- |Zero luck
+zeroLuck :: BlockLuck
+zeroLuck = BlockLuck 0
+
 electionProbability :: LotteryPower -> ElectionDifficulty -> Double
 electionProbability alpha diff = 1 - (1 - diff) ** (fromIntegral (numerator alpha) / fromIntegral (denominator alpha) )
 
@@ -48,9 +58,9 @@ verifyProof nonce diff slot verifKey lotPow proof =
     && VRF.hashToDouble (VRF.proofToHash proof)
     <  electionProbability lotPow diff
 
-electionLuck :: ElectionDifficulty -> LotteryPower -> BlockProof -> Double
+electionLuck :: ElectionDifficulty -> LotteryPower -> BlockProof -> BlockLuck
 electionLuck diff lotPow proof =
-  1 - VRF.hashToDouble (VRF.proofToHash proof) / electionProbability lotPow diff
+  BlockLuck $ 1 - VRF.hashToDouble (VRF.proofToHash proof) / electionProbability lotPow diff
 
 
 blockNonceMessage :: LeadershipElectionNonce -> Slot -> ByteString
@@ -65,8 +75,7 @@ computeBlockNonce
   :: LeadershipElectionNonce -> Slot -> BakerElectionPrivateKey -> IO BlockNonce
 computeBlockNonce nonce slot key = do
         let msg = blockNonceMessage nonce slot
-        proof <- VRF.prove key msg
-        return (VRF.proofToHash proof, proof)
+        VRF.prove key msg
 
 verifyBlockNonce
   :: LeadershipElectionNonce
@@ -74,6 +83,6 @@ verifyBlockNonce
   -> BakerElectionVerifyKey
   -> BlockNonce
   -> Bool
-verifyBlockNonce nonce slot verifKey (_hsh, prf) =
+verifyBlockNonce nonce slot verifKey prf =
   VRF.verifyKey verifKey
     && VRF.verify verifKey (blockNonceMessage nonce slot) prf
