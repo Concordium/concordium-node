@@ -33,16 +33,13 @@ cfg_if! {
 pub mod fails;
 
 pub mod cache;
-pub mod container_view;
 pub mod functor;
+pub mod hybrid_buf;
 pub mod indexed_vec;
 pub mod stats_export_service;
-pub mod ucursor;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const APPNAME: &str = env!("CARGO_PKG_NAME");
-
-pub use self::{container_view::ContainerView, ucursor::UCursor};
 
 /// Represents a Message to be sent through a channel or a Stop signal
 ///

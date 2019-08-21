@@ -3,7 +3,7 @@
 This repository uses git lfs for storing binary dependencies, and relies on git submodules for internal component dependencies. Therefore the git lfs extension needs to be installed, and to update the code remember to pull submodules too recursively.
 
 ## Dependencies to build the project
-* Rust (stable 1.35+, and stable 1.36.0 (a53f9df32 2019-07-03) for using static libraries)
+* Rust (stable 1.35+, and stable 1.37.0 (eae3437df 2019-08-13) for using static libraries)
 * openssl >= 1.0.1
 * cmake
 * go >=1.10
@@ -17,7 +17,6 @@ This repository uses git lfs for storing binary dependencies, and relies on git 
 * instrumentation - switches the default internal counter implementation out with prometheus
 * s11n_nom - enables serialization using [nom](https://crates.io/crates/nom) (only used in benches)
 * s11n_serde_cbor - enables serialization using [serde_cbor](https://crates.io/crates/serde_cbor) (only used in benches)
-* s11n_serde_json - enables serialization using [serde_json](https://crates.io/crates/serde_json) (only used in benches)
 * s11n_capnp - enables serialization using [capnp](https://crates.io/crates/capnp) (only used in benches)
 * instrumentation - enables stats data exporting to [prometheus](https://crates.io/crates/prometheus)
 * benchmark - enables the TPS testing

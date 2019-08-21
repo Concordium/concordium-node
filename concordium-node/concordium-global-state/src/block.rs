@@ -15,7 +15,7 @@ use std::{
 
 use crate::{common::*, parameters::*, transaction::*};
 
-const NONCE: u8 = size_of::<BlockHash>() as u8 + PROOF_LENGTH as u8; // should soon be shorter
+const NONCE: u8 = PROOF_LENGTH as u8;
 const CHRONO_DATE_TIME_LEN: u8 = 12;
 
 pub struct Block {

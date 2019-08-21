@@ -423,17 +423,19 @@ fn start_consensus_threads(
                 NetworkMessage::NetworkPacket(ref pac, ..) => {
                     if let NetworkPacketType::DirectMessage(..) = pac.packet_type {
                         if _tps_test_enabled {
-                            _stats_engine.add_stat(pac.message.len() as u64);
-                            _msg_count += 1;
+                            if let Ok(len) = pac.message.len() {
+                                _stats_engine.add_stat(len);
+                                _msg_count += 1;
 
-                            if _msg_count == _tps_message_count {
-                                info!(
-                                    "TPS over {} messages is {}",
-                                    _tps_message_count,
-                                    _stats_engine.calculate_total_tps_average()
-                                );
-                                _msg_count = 0;
-                                _stats_engine.clear();
+                                if _msg_count == _tps_message_count {
+                                    info!(
+                                        "TPS over {} messages is {}",
+                                        _tps_message_count,
+                                        _stats_engine.calculate_total_tps_average()
+                                    );
+                                    _msg_count = 0;
+                                    _stats_engine.clear();
+                                }
                             }
                         }
                     }

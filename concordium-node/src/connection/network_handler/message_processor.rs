@@ -13,7 +13,7 @@ use crate::{
 };
 use concordium_common::{
     functor::{UnitFunction, UnitFunctor},
-    UCursor,
+    hybrid_buf::HybridBuf,
 };
 use failure::Fallible;
 use std::sync::RwLock;
@@ -27,7 +27,7 @@ pub enum ProcessResult {
 
 pub fn collapse_process_result(
     conn: &Connection,
-    data: Vec<UCursor>,
+    data: Vec<HybridBuf>,
 ) -> Result<ProcessResult, Vec<Result<ProcessResult, failure::Error>>> {
     let mut found_drop = false;
     let mut errors = vec![];

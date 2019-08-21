@@ -170,12 +170,12 @@ mod tests {
     use crate::{
         common::serialization::{deserialize_from_memory, serialize_into_memory},
         network::{
-            NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder, NetworkPacketType,
-            NetworkRequest, NetworkResponse, PROTOCOL_VERSION,
+            NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType, NetworkRequest,
+            NetworkResponse, PROTOCOL_VERSION,
         },
         p2p::banned_nodes::tests::dummy_ban_node,
     };
-    use concordium_common::{ContainerView, UCursor};
+    use concordium_common::hybrid_buf::HybridBuf;
     use std::{collections::HashSet, str::FromStr};
 
     fn dummy_peer(ip: IpAddr, port: u16) -> RemotePeer {
@@ -240,12 +240,9 @@ mod tests {
             );
             let test_msg_data = serialize_into_memory(&test_msg, 256).unwrap();
 
-            let deserialized = deserialize_from_memory::<NetworkMessage>(
-                test_msg_data,
-                self_peer.clone(),
-                self_peer.peer().unwrap().ip(),
-            )
-            .unwrap();
+            let deserialized =
+                deserialize_from_memory::<NetworkMessage>(test_msg_data, self_peer.clone())
+                    .unwrap();
             net_assertion!($msg, $msg_type, deserialized)
         }};
         ($msg:ident, $msg_type:ident, $nets:expr) => {{
@@ -258,12 +255,9 @@ mod tests {
             );
             let test_msg_data = serialize_into_memory(&test_msg, 256).unwrap();
 
-            let deserialized = deserialize_from_memory::<NetworkMessage>(
-                test_msg_data,
-                self_peer.clone(),
-                self_peer.peer().unwrap().ip(),
-            )
-            .unwrap();
+            let deserialized =
+                deserialize_from_memory::<NetworkMessage>(test_msg_data, self_peer.clone())
+                    .unwrap();
 
             net_assertion!($msg, $msg_type, deserialized, nets)
         }};
@@ -281,12 +275,9 @@ mod tests {
             );
             let test_msg_data = serialize_into_memory(&test_msg, 256).unwrap();
 
-            let deserialized = deserialize_from_memory::<NetworkMessage>(
-                test_msg_data,
-                self_peer.clone(),
-                self_peer.peer().unwrap().ip(),
-            )
-            .unwrap();
+            let deserialized =
+                deserialize_from_memory::<NetworkMessage>(test_msg_data, self_peer.clone())
+                    .unwrap();
 
             net_assertion!($msg, $msg_type, deserialized, zk, nets)
         }};
@@ -394,23 +385,24 @@ mod tests {
 
     #[test]
     pub fn direct_message_test() -> Fallible<()> {
-        let ipaddr = IpAddr::from_str("10.10.10.10")?;
         let self_peer = self_peer();
-        let text_msg = ContainerView::from(b"Hello world!".to_vec());
-        let msg = NetworkPacketBuilder::default()
-            .peer(self_peer.clone().peer().unwrap())
-            .message_id(NetworkPacket::generate_message_id())
-            .network_id(NetworkId::from(100))
-            .message(UCursor::build_from_view(text_msg.clone()))
-            .build_direct(P2PNodeId::default())?;
+        let text_msg = b"Hello world!";
+        let buf = HybridBuf::from(text_msg.to_vec());
+        let msg = NetworkPacket {
+            packet_type: NetworkPacketType::DirectMessage(P2PNodeId::default()),
+            peer:        self_peer.clone().peer().unwrap(),
+            message_id:  NetworkPacket::generate_message_id(),
+            network_id:  NetworkId::from(100),
+            message:     buf,
+        };
 
-        let msg_serialized = serialize_into_memory(&*msg, 256)?;
+        let msg_serialized = serialize_into_memory(&msg, 256)?;
         let mut packet =
-            deserialize_from_memory::<NetworkPacket>(msg_serialized, self_peer.clone(), ipaddr)?;
+            deserialize_from_memory::<NetworkPacket>(msg_serialized, self_peer.clone())?;
 
         if let NetworkPacketType::DirectMessage(..) = packet.packet_type {
             assert_eq!(packet.network_id, NetworkId::from(100));
-            assert_eq!(packet.message.read_all_into_view()?, text_msg);
+            assert_eq!(&packet.message.remaining_bytes()?[..], text_msg);
         } else {
             bail!("It should be a direct message");
         }
@@ -420,23 +412,23 @@ mod tests {
 
     #[test]
     pub fn broadcasted_message_test() -> Fallible<()> {
-        let ipaddr = IpAddr::from_str("10.10.10.10")?;
         let self_peer = self_peer();
-        let text_msg = ContainerView::from(b"Hello  broadcasted world!".to_vec());
-        let msg = NetworkPacketBuilder::default()
-            .peer(self_peer.clone().peer().unwrap())
-            .message_id(NetworkPacket::generate_message_id())
-            .network_id(NetworkId::from(100))
-            .message(UCursor::build_from_view(text_msg.clone()))
-            .build_broadcast(vec![])?;
+        let text_msg = b"Hello  broadcasted world!";
+        let buf = HybridBuf::from(text_msg.to_vec());
+        let msg = NetworkPacket {
+            packet_type: NetworkPacketType::BroadcastedMessage(vec![]),
+            peer:        self_peer.clone().peer().unwrap(),
+            message_id:  NetworkPacket::generate_message_id(),
+            network_id:  NetworkId::from(100),
+            message:     buf,
+        };
 
-        let serialized = serialize_into_memory(&*msg, 256)?;
-        let mut packet =
-            deserialize_from_memory::<NetworkPacket>(serialized, self_peer.clone(), ipaddr)?;
+        let serialized = serialize_into_memory(&msg, 256)?;
+        let mut packet = deserialize_from_memory::<NetworkPacket>(serialized, self_peer.clone())?;
 
         if let NetworkPacketType::BroadcastedMessage(..) = packet.packet_type {
             assert_eq!(packet.network_id, NetworkId::from(100));
-            assert_eq!(packet.message.read_all_into_view()?, text_msg);
+            assert_eq!(&packet.message.remaining_bytes()?[..], &text_msg[..]);
         } else {
             bail!("Expected broadcast message");
         }
@@ -487,11 +479,7 @@ mod tests {
         //  + 1 byte due to endianess (Version is stored as u16)
         ping_data[13 + 1] = (PROTOCOL_VERSION + 1) as u8;
 
-        let deserialized = deserialize_from_memory::<NetworkMessage>(
-            ping_data,
-            self_peer(),
-            IpAddr::from([127, 0, 0, 1]),
-        );
+        let deserialized = deserialize_from_memory::<NetworkMessage>(ping_data, self_peer());
 
         assert!(deserialized.is_err());
     }
@@ -508,11 +496,7 @@ mod tests {
         // Force and error in protocol name:
         ping_data[1] = b'X';
 
-        let deserialized = deserialize_from_memory::<NetworkMessage>(
-            ping_data,
-            self_peer(),
-            IpAddr::from([127, 0, 0, 1]),
-        );
+        let deserialized = deserialize_from_memory::<NetworkMessage>(ping_data, self_peer());
 
         assert!(deserialized.is_err())
     }
