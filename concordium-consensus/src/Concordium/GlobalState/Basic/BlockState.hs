@@ -24,6 +24,7 @@ import qualified Concordium.GlobalState.Instances as Instances
 import qualified Concordium.GlobalState.Rewards as Rewards
 import qualified Concordium.GlobalState.IdentityProviders as IPS
 import qualified Concordium.GlobalState.Transactions as Transactions
+import Concordium.GlobalState.Basic.Block
 
 data BlockState = BlockState {
     _blockAccounts :: !Account.Accounts,
@@ -89,11 +90,20 @@ instance Show BlockPointer where
 instance HashableTo Hash.Hash BlockPointer where
     getHash = _bpHash
 
+type instance BlockFieldType BlockPointer = BlockFields
+
 instance BlockData BlockPointer where
     blockSlot = blockSlot . _bpBlock
     blockFields = blockFields . _bpBlock
     blockTransactions = blockTransactions . _bpBlock
     verifyBlockSignature key = verifyBlockSignature key . _bpBlock
+    putBlock = putBlock . _bpBlock
+    {-# INLINE blockSlot #-}
+    {-# INLINE blockFields #-}
+    {-# INLINE blockTransactions #-}
+    {-# INLINE verifyBlockSignature #-}
+    {-# INLINE putBlock #-}
+
 
 -- |Make a 'BlockPointer' from a 'PendingBlock'.
 -- The parent and last finalized block pointers must match the block data.
@@ -136,7 +146,6 @@ instance BS.BlockPointerData BlockPointer where
     type BlockState' BlockPointer = BlockState
 
     bpHash = _bpHash
-    bpBlock = _bpBlock
     bpParent = _bpParent
     bpLastFinalized = _bpLastFinalized
     bpHeight = _bpHeight
@@ -173,8 +182,8 @@ instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
     getAccountList bs =
       return $ Map.keys (Account.accountMap (bs ^. blockAccounts))
   
-    {-# INLINE getBirkParameters #-}
-    getBirkParameters = return . _blockBirkParameters
+    {-# INLINE getBlockBirkParameters #-}
+    getBlockBirkParameters = return . _blockBirkParameters
 
     {-# INLINE getRewardStatus #-}
     getRewardStatus = return . _blockBank
@@ -264,8 +273,8 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
     bsoGetExecutionCost bs =
       return $ bs ^. blockBank . Rewards.executionCost 
 
-    {-# INLINE bsoGetBirkParameters #-}
-    bsoGetBirkParameters = return . _blockBirkParameters
+    {-# INLINE bsoGetBlockBirkParameters #-}
+    bsoGetBlockBirkParameters = return . _blockBirkParameters
 
     bsoAddBaker bs binfo = return $ 
         let
