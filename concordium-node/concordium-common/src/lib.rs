@@ -159,14 +159,7 @@ pub enum PacketType {
     Transaction,
     FinalizationRecord,
     FinalizationMessage,
-    CatchupBlockByHash,
-    CatchupFinalizationRecordByHash,
-    CatchupFinalizationRecordByIndex,
     CatchupFinalizationMessagesByPoint,
-    GlobalStateMetadata,
-    GlobalStateMetadataRequest,
-    FullCatchupRequest,
-    FullCatchupComplete,
 }
 
 static PACKET_TYPE_FROM_INT: &[PacketType] = &[
@@ -174,14 +167,7 @@ static PACKET_TYPE_FROM_INT: &[PacketType] = &[
     PacketType::Transaction,
     PacketType::FinalizationRecord,
     PacketType::FinalizationMessage,
-    PacketType::CatchupBlockByHash,
-    PacketType::CatchupFinalizationRecordByHash,
-    PacketType::CatchupFinalizationRecordByIndex,
     PacketType::CatchupFinalizationMessagesByPoint,
-    PacketType::GlobalStateMetadata,
-    PacketType::GlobalStateMetadataRequest,
-    PacketType::FullCatchupRequest,
-    PacketType::FullCatchupComplete,
 ];
 
 impl TryFrom<u16> for PacketType {
@@ -203,20 +189,9 @@ impl fmt::Display for PacketType {
             PacketType::Transaction => "transaction",
             PacketType::FinalizationRecord => "finalization record",
             PacketType::FinalizationMessage => "finalization message",
-            PacketType::CatchupBlockByHash => "catch-up block by hash request",
-            PacketType::CatchupFinalizationRecordByHash => {
-                "catch-up finalization record by hash request"
-            }
-            PacketType::CatchupFinalizationRecordByIndex => {
-                "catch-up finalization record by index request"
-            }
             PacketType::CatchupFinalizationMessagesByPoint => {
                 "catch-up finalization messages by point request"
             }
-            PacketType::GlobalStateMetadata => "global state metadata package",
-            PacketType::GlobalStateMetadataRequest => "request for global state metadata",
-            PacketType::FullCatchupRequest => "request for a full catch-up",
-            PacketType::FullCatchupComplete => "full catch-up completion notice",
         };
 
         write!(f, "{}", name)

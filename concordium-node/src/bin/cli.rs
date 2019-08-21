@@ -15,23 +15,20 @@ use byteorder::{NetworkEndian, WriteBytesExt};
 
 use concordium_common::{
     cache::Cache,
-    send_or_die, spawn_or_die,
+    spawn_or_die,
     stats_export_service::{StatsExportService, StatsServiceMode},
     PacketType, RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSender,
     RelayOrStopSenderHelper,
 };
 use concordium_consensus::{consensus, ffi};
-use concordium_global_state::tree::{
-    messaging::{ConsensusMessage, DistributionMode, MessageType},
-    GlobalState,
-};
+use concordium_global_state::tree::{messaging::ConsensusMessage, GlobalState};
 use failure::Fallible;
 use p2p_client::{
     client::{
         plugins::{self, consensus::*},
         utils as client_utils,
     },
-    common::{P2PNodeId, P2PPeer, PeerType},
+    common::{P2PNodeId, PeerType},
     configuration,
     network::{
         packet::MessageId, request::RequestedElementType, NetworkId, NetworkMessage,
@@ -46,7 +43,6 @@ use p2p_client::{
 use rkv::{Manager, Rkv};
 
 use std::{
-    collections::HashSet,
     net::SocketAddr,
     str,
     sync::{mpsc, Arc, RwLock},
@@ -490,9 +486,9 @@ fn start_consensus_threads(
                 }
                 // FIXME: should possibly be triggered by the Handshake reply instead
                 NetworkMessage::NetworkRequest(
-                    NetworkRequest::Handshake(remote_peer, ref nets, _),
+                    NetworkRequest::Handshake(_remote_peer, _nets, _),
                     ..
-                ) => provide_global_state_metadata(nets, remote_peer, &skov_sender),
+                ) => {}
                 _ => {}
             }
         }
@@ -504,32 +500,6 @@ fn start_consensus_threads(
     );
 
     vec![global_state_thread, guard_pkt]
-}
-
-// This function indirectly provides the metadata by simulating an incoming
-// request from the other peer upon a network handshake, which triggers its
-// distribution
-fn provide_global_state_metadata(
-    networks: &HashSet<NetworkId>,
-    peer: P2PPeer,
-    skov_sender: &RelayOrStopSender<ConsensusMessage>,
-) {
-    if peer.peer_type() == PeerType::Node && networks.iter().next().is_some() {
-        let packet_type = PacketType::GlobalStateMetadataRequest;
-        let mut payload = vec![0u8; PAYLOAD_TYPE_LENGTH as usize];
-        payload
-            .write_u16::<NetworkEndian>(packet_type as u16)
-            .expect("Can't write a packet payload to buffer");
-
-        let request = RelayOrStopEnvelope::Relay(ConsensusMessage::new(
-            MessageType::Inbound(peer.id().0, DistributionMode::Direct),
-            packet_type,
-            Arc::from(payload),
-            vec![],
-        ));
-
-        send_or_die!(skov_sender, request);
-    }
 }
 
 fn start_baker_thread(

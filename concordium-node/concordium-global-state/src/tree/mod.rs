@@ -1,13 +1,11 @@
 use chrono::prelude::{DateTime, Utc};
 use circular_queue::CircularQueue;
 use concordium_common::{indexed_vec::IndexedVec, PacketType};
-use failure::{format_err, Fallible};
 use hash_hasher::{HashBuildHasher, HashedMap, HashedSet};
 use linked_hash_map::LinkedHashMap;
-use nohash_hasher::IntMap;
 use rkv::{Rkv, SingleStore, StoreOptions};
 
-use std::{convert::TryFrom, fmt, mem, rc::Rc};
+use std::{fmt, mem, rc::Rc};
 
 use crate::{block::*, finalization::*, transaction::*};
 
@@ -15,40 +13,21 @@ pub type PeerId = u64;
 
 pub mod messaging;
 
-use messaging::{ConsensusMessage, GlobalMetadata, GlobalStateError, GlobalStateResult};
+use messaging::{ConsensusMessage, GlobalStateError, GlobalStateResult};
 
 use self::PendingQueueType::*;
 
 /// Holds the global state and related statistics.
 pub struct GlobalState<'a> {
-    pub data:          GlobalData<'a>,
-    pub stats:         GlobalStats,
-    pub peer_metadata: IntMap<PeerId, GlobalMetadata>,
+    pub data:  GlobalData<'a>,
+    pub stats: GlobalStats,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ProcessingState {
-    JustStarted = 0,
-    FullyCatchingUp,
-    PartiallyCatchingUp,
+    JustStarted,
+    CatchingUp,
     Complete,
-}
-
-impl TryFrom<u8> for ProcessingState {
-    type Error = failure::Error;
-
-    fn try_from(value: u8) -> Fallible<Self> {
-        match value {
-            0 => Ok(ProcessingState::JustStarted),
-            1 => Ok(ProcessingState::FullyCatchingUp),
-            2 => Ok(ProcessingState::PartiallyCatchingUp),
-            3 => Ok(ProcessingState::Complete),
-            _ => Err(format_err!(
-                "Unsupported GlobalState state value: {}!",
-                value
-            )),
-        }
-    }
 }
 
 /// Returns a result of an operation and its duration.
@@ -74,9 +53,8 @@ impl<'a> GlobalState<'a> {
         const MOVING_AVERAGE_QUEUE_LEN: usize = 16;
 
         Self {
-            data:          GlobalData::new(genesis_data, &kvs_env, persistent),
-            stats:         GlobalStats::new(MOVING_AVERAGE_QUEUE_LEN),
-            peer_metadata: Default::default(),
+            data:  GlobalData::new(genesis_data, &kvs_env, persistent),
+            stats: GlobalStats::new(MOVING_AVERAGE_QUEUE_LEN),
         }
     }
 
@@ -97,15 +75,11 @@ impl<'a> GlobalState<'a> {
     /// Indicate that a catch-up round has finished.
     pub fn end_catchup_round(&mut self) -> GlobalStateResult {
         self.data.state = ProcessingState::Complete;
-        self.peer_metadata.clear();
         info!("A catch-up round was successfully completed");
         GlobalStateResult::Housekeeping
     }
 
-    pub fn is_catching_up(&self) -> bool {
-        self.state() == ProcessingState::FullyCatchingUp
-            || self.state() == ProcessingState::PartiallyCatchingUp
-    }
+    pub fn is_catching_up(&self) -> bool { self.state() == ProcessingState::CatchingUp }
 
     pub fn is_tree_valid(&self) -> bool {
         self.data.finalized_blocks.len() + self.data.live_blocks.len() > 1
@@ -144,22 +118,6 @@ impl<'a> GlobalState<'a> {
             <= self.finalization_span() as usize
     }
 
-    pub fn register_peer_metadata(&mut self, peer: u64, meta: GlobalMetadata) -> GlobalStateResult {
-        self.peer_metadata.insert(peer, meta);
-        GlobalStateResult::SuccessfulEntry(PacketType::GlobalStateMetadata)
-    }
-
-    pub fn best_metadata(&self) -> GlobalStateResult {
-        let best_metadata = self
-            .peer_metadata
-            .iter()
-            .max_by_key(|(_, meta)| *meta)
-            .map(|(id, meta)| (id.to_owned(), meta.to_owned()))
-            .unwrap(); // infallible
-
-        GlobalStateResult::BestPeer(best_metadata)
-    }
-
     pub fn iter_tree_since(
         &self,
         since: BlockHeight,
@@ -171,7 +129,7 @@ impl<'a> GlobalState<'a> {
     pub fn display_state(&self) {
         info!(
             "GlobalState data:\nblock tree: {:?}\nlast finalized: {:?}\nfinalization list: \
-             {:?}\ntree candidates: {:?}{}{}{}{}\npeer metadata: {:?}\nstatus: {:?}",
+             {:?}\ntree candidates: {:?}{}{}{}{}\n\nstatus: {:?}",
             self.data.finalized_blocks.keys().collect::<Vec<_>>(),
             self.data.last_finalized.hash,
             self.data
@@ -186,7 +144,6 @@ impl<'a> GlobalState<'a> {
             self.data.print_pending_queue(AwaitingLastFinalizedBlock),
             self.data
                 .print_pending_queue(AwaitingLastFinalizedFinalization),
-            self.peer_metadata,
             self.data.state,
         );
     }
