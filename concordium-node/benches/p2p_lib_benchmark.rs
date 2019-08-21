@@ -111,16 +111,8 @@ mod network {
             bench_s11n_001_direct_message(b, 4 * 1024 * 1024)
         }
 
-        pub fn bench_s11n_001_direct_message_32m(b: &mut Criterion) {
-            bench_s11n_001_direct_message(b, 32 * 1024 * 1024)
-        }
-
-        pub fn bench_s11n_001_direct_message_128m(b: &mut Criterion) {
-            bench_s11n_001_direct_message(b, 128 * 1024 * 1024)
-        }
-
-        pub fn bench_s11n_001_direct_message_256m(b: &mut Criterion) {
-            bench_s11n_001_direct_message(b, 256 * 1024 * 1024)
+        pub fn bench_s11n_001_direct_message_16m(b: &mut Criterion) {
+            bench_s11n_001_direct_message(b, 16 * 1024 * 1024)
         }
 
         fn bench_s11n_001_direct_message(c: &mut Criterion, content_size: usize) {
@@ -198,9 +190,10 @@ mod network {
         pub fn p2p_net_64b(c: &mut Criterion) { p2p_net(c, 64); }
         pub fn p2p_net_4k(c: &mut Criterion) { p2p_net(c, 4 * 1024); }
         pub fn p2p_net_64k(c: &mut Criterion) { p2p_net(c, 64 * 1024); }
+        pub fn p2p_net_1m(c: &mut Criterion) { p2p_net(c, 1 * 1024 * 1024); }
+        pub fn p2p_net_4m(c: &mut Criterion) { p2p_net(c, 4 * 1024 * 1024); }
         pub fn p2p_net_8m(c: &mut Criterion) { p2p_net(c, 8 * 1024 * 1024); }
-        pub fn p2p_net_32m(c: &mut Criterion) { p2p_net(c, 32 * 1024 * 1024); }
-        pub fn p2p_net_128m(c: &mut Criterion) { p2p_net(c, 128 * 1024 * 1024); }
+        pub fn p2p_net_16m(c: &mut Criterion) { p2p_net(c, 16 * 1024 * 1024); }
 
         fn p2p_net(c: &mut Criterion, size: usize) {
             setup_logger();
@@ -423,9 +416,7 @@ criterion_group!(
     network::message::bench_s11n_001_direct_message_256k,
     network::message::bench_s11n_001_direct_message_1m,
     network::message::bench_s11n_001_direct_message_4m,
-    network::message::bench_s11n_001_direct_message_32m,
-    network::message::bench_s11n_001_direct_message_128m,
-    network::message::bench_s11n_001_direct_message_256m,
+    network::message::bench_s11n_001_direct_message_16m,
 );
 
 criterion_group!(
@@ -478,22 +469,18 @@ criterion_group!(
 criterion_group!(s11n_capnp_benches, common::nop_bench);
 
 criterion_group!(
-    name = p2p_net_small_benches;
+    name = p2p_net;
     config = network::connection::bench_config(10);
     targets = network::connection::p2p_net_64b, network::connection::p2p_net_4k,
-    network::connection::p2p_net_64k );
-
-criterion_group!(
-    name = p2p_net_big_benches;
-    config = network::connection::bench_config(10);
-    targets = network::connection::p2p_net_8m,
-    network::connection::p2p_net_32m,
-    network::connection::p2p_net_128m
+    network::connection::p2p_net_64k,
+    network::connection::p2p_net_1m,
+    network::connection::p2p_net_4m,
+    network::connection::p2p_net_8m,
+    network::connection::p2p_net_16m,
 );
 
 criterion_main!(
-    p2p_net_small_benches,
-    p2p_net_big_benches,
+    p2p_net,
     s11n_get_peers,
     s11n_custom_benches,
     s11n_cbor_benches,
