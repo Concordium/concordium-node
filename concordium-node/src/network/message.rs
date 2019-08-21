@@ -8,7 +8,7 @@ use crate::{
     network::{AsProtocolMessageType, ProtocolMessageType, PROTOCOL_NAME, PROTOCOL_VERSION},
 };
 
-use std::{convert::TryFrom, sync::Arc};
+use std::{convert::TryFrom, ops::Deref, sync::Arc};
 
 pub const NETWORK_MESSAGE_PROTOCOL_TYPE_IDX: usize = 13 +    // PROTOCOL_NAME.len()
     2 +     // PROTOCOL_VERSION
@@ -36,29 +36,6 @@ impl NetworkMessage {
                 warn!("Network deserialization has failed {}", e);
                 NetworkMessage::InvalidMessage
             }
-        }
-    }
-}
-
-/// This implementation ignores the reception time stamp.
-impl PartialEq for NetworkMessage {
-    fn eq(&self, other: &NetworkMessage) -> bool {
-        match (self, other) {
-            (
-                NetworkMessage::NetworkRequest(ref self_nr, self_tm, _),
-                NetworkMessage::NetworkRequest(ref other_nr, other_tm, _),
-            ) => self_nr == other_nr && self_tm == other_tm,
-            (
-                NetworkMessage::NetworkResponse(ref self_nr, self_tm, _),
-                NetworkMessage::NetworkResponse(ref other_nr, other_tm, _),
-            ) => self_nr == other_nr && self_tm == other_tm,
-            (
-                NetworkMessage::NetworkPacket(ref self_np, self_tm, _),
-                NetworkMessage::NetworkPacket(ref other_np, other_tm, _),
-            ) => self_np == other_np && self_tm == other_tm,
-            (NetworkMessage::UnknownMessage, NetworkMessage::UnknownMessage)
-            | (NetworkMessage::InvalidMessage, NetworkMessage::InvalidMessage) => true,
-            _ => false,
         }
     }
 }
@@ -112,8 +89,8 @@ impl Deserializable for NetworkMessage {
         A: ReadArchive, {
         // verify the protocol name and version
         let protocol_name = archive.read_n_bytes(PROTOCOL_NAME.len() as u32)?;
-        if protocol_name.as_slice() != PROTOCOL_NAME.as_bytes() {
-            bail!("Unknown protocol name (`{:?}`)! ", protocol_name.as_slice())
+        if protocol_name.deref() != PROTOCOL_NAME.as_bytes() {
+            bail!("Unknown protocol name (`{:?}`)! ", protocol_name.deref())
         }
         let protocol_version = u16::deserialize(archive)?;
         if protocol_version != PROTOCOL_VERSION {
@@ -162,9 +139,9 @@ mod unit_test {
             serialization::{Deserializable, ReadArchiveAdapter, WriteArchiveAdapter},
             P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType, RemotePeer,
         },
-        network::{NetworkId, NetworkPacket, NetworkPacketBuilder, NetworkPacketType},
+        network::{NetworkId, NetworkPacket, NetworkPacketType},
     };
-    use concordium_common::UCursor;
+    use concordium_common::hybrid_buf::HybridBuf;
 
     #[test]
     fn ut_s11n_001_direct_message_from_disk_16m() -> Fallible<()> {
@@ -183,9 +160,9 @@ mod unit_test {
         ut_s11n_001_direct_message_from_disk(512 * 1024 * 1024)
     }
 
-    fn make_direct_message_into_disk(content_size: usize) -> Fallible<UCursor> {
+    fn make_direct_message_into_disk(content_size: usize) -> Fallible<HybridBuf> {
         // 1. Generate payload on disk
-        let mut payload = UCursor::build_from_temp_file()?;
+        let mut payload = HybridBuf::new_on_disk()?;
         let mut pending_content_size = content_size;
         while pending_content_size != 0 {
             let chunk: String = thread_rng()
@@ -198,25 +175,27 @@ mod unit_test {
         }
 
         payload.seek(SeekFrom::Start(0))?;
-        assert_eq!(payload.len(), content_size as u64);
-        assert_eq!(payload.position(), 0);
+        assert_eq!(payload.len()?, content_size as u64);
+        assert_eq!(payload.position()?, 0);
 
         // 2. Generate packet.
         let p2p_node_id = P2PNodeId::from_str("000000002dd2b6ed")?;
-        let pkt = NetworkPacketBuilder::default()
-            .peer(P2PPeer::from(
-                PeerType::Node,
-                p2p_node_id.clone(),
-                SocketAddr::new(IpAddr::from_str("127.0.0.1")?, 8888),
-            ))
-            .message_id(NetworkPacket::generate_message_id())
-            .network_id(NetworkId::from(111))
-            .message(payload)
-            .build_direct(p2p_node_id)?;
-        let message = NetworkMessage::NetworkPacket(pkt, Some(get_current_stamp()), None);
+        let peer = P2PPeer::from(
+            PeerType::Node,
+            p2p_node_id.clone(),
+            SocketAddr::new(IpAddr::from_str("127.0.0.1")?, 8888),
+        );
+        let pkt = NetworkPacket {
+            packet_type: NetworkPacketType::DirectMessage(p2p_node_id),
+            peer,
+            message_id: NetworkPacket::generate_message_id(),
+            network_id: NetworkId::from(111),
+            message: payload,
+        };
+        let message = NetworkMessage::NetworkPacket(Arc::new(pkt), Some(get_current_stamp()), None);
 
         // 3. Serialize package into archive (on disk)
-        let archive_cursor = UCursor::build_from_temp_file()?;
+        let archive_cursor = HybridBuf::new_on_disk()?;
         let mut archive = WriteArchiveAdapter::from(archive_cursor);
         message.serialize(&mut archive)?;
 
@@ -240,16 +219,15 @@ mod unit_test {
             cursor_on_disk,
             RemotePeer::PostHandshake(local_peer.clone()),
         );
-        let message = NetworkMessage::deserialize(&mut archive)?;
+        let mut message = NetworkMessage::deserialize(&mut archive)?;
 
-        if let NetworkMessage::NetworkPacket(ref packet, ..) = message {
-            if let NetworkPacketType::DirectMessage(..) = packet.packet_type {
-                assert_eq!(packet.peer, local_peer);
-                assert_eq!(packet.network_id, NetworkId::from(111));
-                assert_eq!(packet.message.len(), content_size as u64);
-            } else {
+        if let NetworkMessage::NetworkPacket(ref mut packet, ..) = message {
+            if let NetworkPacketType::BroadcastedMessage(..) = packet.packet_type {
                 bail!("Unexpected Packet type");
             }
+            assert_eq!(packet.peer, local_peer);
+            assert_eq!(packet.network_id, NetworkId::from(111));
+            assert_eq!(packet.message.clone().remaining_len()?, content_size as u64);
         } else {
             bail!("Unexpected network message");
         }

@@ -9,7 +9,7 @@ use crate::{
 };
 
 use byteorder::{ByteOrder, NetworkEndian};
-use concordium_common::UCursor;
+use concordium_common::hybrid_buf::HybridBuf;
 use failure::{Error, Fallible};
 
 use std::{
@@ -103,7 +103,7 @@ impl FrameStream {
     ///
     /// This operation could not be completed in just one shot due to limits of
     /// `output` buffers.
-    fn read_expected_size(&mut self, input: &mut impl Read) -> Fallible<Readiness<UCursor>> {
+    fn read_expected_size(&mut self, input: &mut impl Read) -> Fallible<Readiness<HybridBuf>> {
         // Extract only the bytes needed to know the size.
         let min_bytes = self.pending_bytes_to_know_expected_size();
         let read_bytes = map_io_error_to_fail!(input.read(&mut self.buffer[..min_bytes]))?;
@@ -143,7 +143,7 @@ impl FrameStream {
     }
 
     /// Once we know the message expected size, we can start to receive data.
-    fn read_payload(&mut self, input: &mut impl Read) -> Fallible<Readiness<UCursor>> {
+    fn read_payload(&mut self, input: &mut impl Read) -> Fallible<Readiness<HybridBuf>> {
         // Read no more than expected, directly into our buffer
         while self.read_intermediate(input)? >= DEFAULT_MESSAGE_SIZE {
             // Validation only on encrypted channels.
@@ -169,7 +169,7 @@ impl FrameStream {
             );
             self.clear();
 
-            Ok(Readiness::Ready(UCursor::from(new_data)))
+            Ok(Readiness::Ready(HybridBuf::from(new_data)))
         } else {
             Ok(Readiness::NotReady)
         }
@@ -232,7 +232,7 @@ impl FrameStream {
     /// It forwards the payload based on the current state, into:
     ///     a) `Handshaker` stream, if handshake is not yet completed.
     ///     b) `Decryptor` stream, to decrypt payload.
-    fn forward(&mut self, input: UCursor) -> Fallible<Readiness<UCursor>> {
+    fn forward(&mut self, input: HybridBuf) -> Fallible<Readiness<HybridBuf>> {
         if let Some(ref mut decryptor) = self.decryptor {
             return Ok(Readiness::Ready(decryptor.read(input)?));
         } else if let Some(handshaker) = self.handshaker.take() {
@@ -255,7 +255,7 @@ impl FrameStream {
         &mut self,
         socket_closing: bool,
         input: &mut impl Read,
-    ) -> Fallible<Readiness<UCursor>> {
+    ) -> Fallible<Readiness<HybridBuf>> {
         // Drain the socket and do an early return if it's already scheduled for
         // closing, to avoid processing inbound bytes further.
         if socket_closing {

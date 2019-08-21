@@ -5,14 +5,11 @@ use crate::{
     },
     network::{AsProtocolPacketType, NetworkId, ProtocolPacketType},
 };
-use concordium_common::{HashBytes, UCursor};
+use concordium_common::{hybrid_buf::HybridBuf, HashBytes};
 
-use crate::{
-    failure::{err_msg, Fallible},
-    utils,
-};
+use crate::{failure::Fallible, utils};
 use rand::RngCore;
-use std::{convert::TryFrom, sync::Arc};
+use std::convert::TryFrom;
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
@@ -61,52 +58,14 @@ impl Deserializable for NetworkPacketType {
 pub type MessageId = HashBytes;
 
 /// This is not *thread-safe* but this ensures it temporarily
-#[derive(Clone, Builder, Debug, PartialEq)]
+#[derive(Clone, Builder, Debug)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
-#[builder(build_fn(skip))]
 pub struct NetworkPacket {
-    #[builder(setter(skip))]
     pub packet_type: NetworkPacketType,
-    pub peer: P2PPeer,
-    pub message_id: MessageId,
-    pub network_id: NetworkId,
-    pub message: UCursor,
-}
-
-impl NetworkPacketBuilder {
-    #[inline]
-    pub fn build_broadcast(
-        &mut self,
-        dont_relay_to: Vec<P2PNodeId>,
-    ) -> Fallible<Arc<NetworkPacket>> {
-        self.build(NetworkPacketType::BroadcastedMessage(dont_relay_to))
-    }
-
-    #[inline]
-    pub fn build_direct(&mut self, receiver: P2PNodeId) -> Fallible<Arc<NetworkPacket>> {
-        self.build(NetworkPacketType::DirectMessage(receiver))
-    }
-
-    pub fn build(&mut self, packet_type: NetworkPacketType) -> Fallible<Arc<NetworkPacket>> {
-        Ok(Arc::new(NetworkPacket {
-            packet_type,
-            peer: self
-                .peer
-                .take()
-                .ok_or_else(|| err_msg("Peer is a mandatory field"))?,
-            message_id: self
-                .message_id
-                .take()
-                .ok_or_else(|| err_msg("Message Id is a mandatory field"))?,
-            network_id: self
-                .network_id
-                .ok_or_else(|| err_msg("Network Id is a mandatory field"))?,
-            message: self
-                .message
-                .take()
-                .ok_or_else(|| err_msg("Message payload is a mandatory field"))?,
-        }))
-    }
+    pub peer:        P2PPeer,
+    pub message_id:  MessageId,
+    pub network_id:  NetworkId,
+    pub message:     HybridBuf,
 }
 
 impl NetworkPacket {
@@ -140,7 +99,7 @@ impl Deserializable for NetworkPacket {
             peer:        archive.post_handshake_peer()?,
             message_id:  MessageId::deserialize(archive)?,
             network_id:  NetworkId::deserialize(archive)?,
-            message:     UCursor::deserialize(archive)?,
+            message:     HybridBuf::deserialize(archive)?,
         };
         Ok(packet)
     }

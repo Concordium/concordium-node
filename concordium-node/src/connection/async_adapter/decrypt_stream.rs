@@ -1,7 +1,7 @@
 use crate::connection::async_adapter::{
     MAX_NOISE_PROTOCOL_MESSAGE_LEN, SNOW_MAXMSGLEN, SNOW_TAGLEN,
 };
-use concordium_common::UCursor;
+use concordium_common::hybrid_buf::HybridBuf;
 
 use failure::Fallible;
 use snow::Session;
@@ -9,6 +9,7 @@ use snow::Session;
 use byteorder::{NetworkEndian, ReadBytesExt};
 use std::{
     convert::From,
+    io::Read,
     sync::{Arc, RwLock},
 };
 
@@ -25,7 +26,7 @@ use std::{
 ///       `NetworkEndian`. It is omitted if there is only one chunk.
 pub struct DecryptStream {
     session: Arc<RwLock<Session>>,
-    buffer:  [u8; SNOW_MAXMSGLEN],
+    buffer:  Vec<u8>,
 }
 
 impl DecryptStream {
@@ -33,7 +34,7 @@ impl DecryptStream {
     pub fn new(session: Arc<RwLock<Session>>) -> Self {
         Self {
             session,
-            buffer: [0u8; SNOW_MAXMSGLEN],
+            buffer: vec![0u8; SNOW_MAXMSGLEN],
         }
     }
 
@@ -41,7 +42,7 @@ impl DecryptStream {
     ///
     /// # Return
     /// The decrypted message.
-    fn decrypt(&mut self, mut input: UCursor) -> Fallible<UCursor> {
+    fn decrypt(&mut self, mut input: HybridBuf) -> Fallible<HybridBuf> {
         // 0. Read NONCE.
         let nonce = input.read_u64::<NetworkEndian>()?;
 
@@ -50,7 +51,7 @@ impl DecryptStream {
         let last_chunk_size = input.read_u32::<NetworkEndian>()? as usize;
 
         // 2. Load and decrypt each chunk.
-        let mut clear_message = Vec::with_capacity(input.len() as usize);
+        let mut clear_message = Vec::with_capacity(input.len()? as usize);
         let session_reader = read_or_die!(self.session);
 
         for idx in 0..num_full_chunks {
@@ -77,12 +78,12 @@ impl DecryptStream {
             )?;
         }
 
-        Ok(UCursor::from(clear_message))
+        Ok(HybridBuf::from(clear_message))
     }
 
     /// It is just a helper function to keep a coherent interface.
     #[inline]
-    pub fn read(&mut self, input: UCursor) -> Fallible<UCursor> { self.decrypt(input) }
+    pub fn read(&mut self, input: HybridBuf) -> Fallible<HybridBuf> { self.decrypt(input) }
 }
 
 fn decrypt_chunk(
@@ -90,17 +91,17 @@ fn decrypt_chunk(
     chunk_idx: usize,
     chunk_size: usize,
     nonce: u64,
-    input: &mut UCursor,
+    input: &mut HybridBuf,
     clear_message: &mut Vec<u8>,
     session: &Session,
 ) -> Fallible<()> {
     debug_assert!(chunk_size <= SNOW_MAXMSGLEN);
 
-    let encrypted_chunk_view = input.read_into_view(chunk_size)?;
-    let input_slice = encrypted_chunk_view.as_slice();
+    let mut input_slice = [0u8; SNOW_MAXMSGLEN];
+    input.read_exact(&mut input_slice[..chunk_size])?;
     let mut output_slice = &mut chunk_buffer[..(chunk_size - SNOW_TAGLEN)];
 
-    match session.read_message_with_nonce(nonce, input_slice, &mut output_slice) {
+    match session.read_message_with_nonce(nonce, &input_slice[..chunk_size], &mut output_slice) {
         Ok(bytes) => {
             debug_assert!(
                 bytes <= chunk_size,

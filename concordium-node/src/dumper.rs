@@ -9,7 +9,7 @@ use crate::configuration::APP_INFO;
 #[cfg(feature = "network_dump")]
 use app_dirs2::{get_app_root, AppDataType};
 use chrono::prelude::{DateTime, Utc};
-use concordium_common::ucursor::UCursor;
+use concordium_common::hybrid_buf::HybridBuf;
 #[cfg(feature = "network_dump")]
 use failure::Fallible;
 #[cfg(feature = "network_dump")]
@@ -23,7 +23,7 @@ pub struct DumpItem {
     inbound:     bool,
     remote_peer: RemotePeer,
     remote_addr: IpAddr,
-    msg:         UCursor,
+    msg:         HybridBuf,
 }
 
 impl DumpItem {
@@ -32,7 +32,7 @@ impl DumpItem {
         inbound: bool,
         remote_peer: RemotePeer,
         remote_addr: IpAddr,
-        msg: UCursor,
+        msg: HybridBuf,
     ) -> Self {
         DumpItem {
             timestamp,
@@ -43,7 +43,7 @@ impl DumpItem {
         }
     }
 
-    pub fn into_pretty_dump(mut self) -> String {
+    pub fn into_pretty_dump(self) -> String {
         let mut archive = ReadArchiveAdapter::new(self.msg.clone(), self.remote_peer);
 
         format!(
@@ -51,8 +51,8 @@ impl DumpItem {
             self.timestamp,
             if self.inbound { "IN" } else { "OUT" },
             self.remote_addr,
-            if let Ok(cv) = self.msg.read_all_into_view() {
-                cv.as_slice().to_vec()
+            if let Ok(cv) = self.msg.into_vec() {
+                cv
             } else {
                 vec![]
             },

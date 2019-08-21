@@ -68,7 +68,7 @@ pub fn forward_network_packet_message<S: ::std::hash::BuildHasher>(
     if safe_read!(own_networks)?.contains(&pac.network_id) {
         trace!(
             "Received message of size {} from {}",
-            pac.message.len(),
+            pac.message.len()?,
             pac.peer.id()
         );
         let outer = NetworkMessage::NetworkPacket(pac, None, None);
