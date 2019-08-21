@@ -5,6 +5,6 @@ module Concordium.GlobalState.Rust.Block (
   BlockFields
   , PendingBlock(..)
   , BlockPointer(..)
-  )where
+  ) where
 
 import Concordium.GlobalState.Rust.FFI
