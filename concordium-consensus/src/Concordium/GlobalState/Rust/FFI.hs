@@ -8,7 +8,9 @@ module Concordium.GlobalState.Rust.FFI (
   -- * BlockFields functions
   , BlockFields
 
+  -- * BlockContents functions
   , BlockContents
+  , blockContentsFields
   , blockContentsSignature
 
   -- * PendingBlock functions
@@ -21,7 +23,7 @@ module Concordium.GlobalState.Rust.FFI (
   , BlockPointer(..)
   , makeGenesisBlockPointer
   , makeBlockPointer
-  , blockPointerSerializeBlock
+  , blockPointerSerialize
   , blockPointerExtractBlockFields
   ) where
 
@@ -221,9 +223,10 @@ blockContentsBlockTransactions b =
         Left e -> fail $ "Couldn't deserialize txs " ++ show e
         Right v -> return v
 
-blockContentsSignature :: BlockContents -> BlockSignature
-blockContentsSignature bc = Sig.Signature . toShort . unsafePerformIO $
-  curry packCStringLen (getPtr sigSlice) (getLength sigSlice)
+blockContentsSignature :: BlockContents -> Maybe BlockSignature
+blockContentsSignature bc = if sigSlice == nullPtr then Nothing
+  else Just . Sig.Signature . toShort . unsafePerformIO $
+       curry packCStringLen (getPtr sigSlice) (getLength sigSlice)
   where
     sigSlice = blockContentsSignatureF bc
 
@@ -388,8 +391,8 @@ blockPointerHeight = BlockHeight . fromIntegral . blockPointerHeightF . blockPoi
 blockPointerTransactionCount :: BlockPointer -> Int
 blockPointerTransactionCount = blockPointerTransactionCountF . blockPointerPointer
 
-blockPointerSerializeBlock :: BlockPointer -> ByteString
-blockPointerSerializeBlock b =
+blockPointerSerialize :: BlockPointer -> ByteString
+blockPointerSerialize b =
    let bt = blockPointerSerializeF . blockPointerPointer $ b in
     unsafePerformIO $ curry packCStringLen (getPtr bt) (getLength bt)
 
