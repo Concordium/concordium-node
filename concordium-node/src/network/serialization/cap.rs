@@ -2,18 +2,19 @@ mod s11n {
     use crate::{
         common::{P2PNodeId, P2PPeer, PeerType},
         network::{
-            packet::MessageId, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder,
-            NetworkPacketType, NetworkRequest, NetworkResponse,
+            packet::MessageId, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType,
+            NetworkRequest, NetworkResponse,
         },
         p2p_capnp,
     };
 
-    use concordium_common::UCursor;
+    use concordium_common::hybrid_buf::HybridBuf;
 
     use ::capnp::serialize;
     use std::{
         io::Cursor,
         net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
+        sync::Arc,
     };
 
     #[inline(always)]
@@ -79,15 +80,19 @@ mod s11n {
         let receiver_id = load_p2p_node_id(&direct.get_receiver()?)?;
         let msg = direct.get_msg()?;
 
-        let packet = NetworkPacketBuilder::default()
-            .peer(peer.to_owned())
-            .message_id(MessageId::new(msg_id))
-            .network_id(NetworkId::from(network_id))
-            .message(UCursor::from(msg.to_vec()))
-            .build_direct(receiver_id)
-            .map_err(|err| ::capnp::Error::failed(err.to_string()))?;
+        let packet = NetworkPacket {
+            packet_type: NetworkPacketType::DirectMessage(receiver_id),
+            peer:        peer.to_owned(),
+            message_id:  MessageId::new(msg_id),
+            network_id:  NetworkId::from(network_id),
+            message:     HybridBuf::from(msg.to_vec()),
+        };
 
-        Ok(NetworkMessage::NetworkPacket(packet, Some(timestamp), None))
+        Ok(NetworkMessage::NetworkPacket(
+            Arc::new(packet),
+            Some(timestamp),
+            None,
+        ))
     }
 
     #[inline(always)]
@@ -301,7 +306,7 @@ mod s11n {
                 let view = np
                     .message
                     .clone()
-                    .read_all_into_view()
+                    .into_vec()
                     .expect("Not enought memory to serialize using CAPNP");
 
                 let mut direct_builder = builder.reborrow().init_direct();
@@ -418,14 +423,14 @@ mod unit_test {
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
     use super::{deserialize, save_network_message};
-    use concordium_common::{UCursor, SHA256};
-    use std::str::FromStr;
+    use concordium_common::{hybrid_buf::HybridBuf, SHA256};
+    use std::{str::FromStr, sync::Arc};
 
     use crate::{
         common::{P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType},
         network::{
-            packet::MessageId, NetworkId, NetworkMessage, NetworkPacketBuilder, NetworkRequest,
-            NetworkResponse,
+            packet::MessageId, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType,
+            NetworkRequest, NetworkResponse,
         },
     };
 
@@ -442,7 +447,8 @@ mod unit_test {
     }
 
     fn ut_s11n_001_data() -> Vec<(Vec<u8>, NetworkMessage)> {
-        let direct_message_content = b"Hello world!".to_vec();
+        let mut direct_message_content = HybridBuf::from(b"Hello world!".to_vec());
+        direct_message_content.rewind().unwrap();
         let mut messages = vec![
             NetworkMessage::NetworkRequest(
                 NetworkRequest::Ping(localhost_peer()),
@@ -460,19 +466,21 @@ mod unit_test {
                 None,
             ),
             NetworkMessage::NetworkPacket(
-                NetworkPacketBuilder::default()
-                    .peer(localhost_peer())
-                    .message_id(MessageId::new(&[0u8; SHA256 as usize]))
-                    .network_id(NetworkId::from(111u16))
-                    .message(UCursor::from(direct_message_content))
-                    .build_direct(P2PNodeId::from_str(&"2A").unwrap())
-                    .unwrap(),
+                Arc::new(NetworkPacket {
+                    packet_type: NetworkPacketType::DirectMessage(
+                        P2PNodeId::from_str(&"2A").unwrap(),
+                    ),
+                    peer:        localhost_peer(),
+                    message_id:  MessageId::new(&[0u8; SHA256 as usize]),
+                    network_id:  NetworkId::from(111u16),
+                    message:     direct_message_content,
+                }),
                 Some(10),
                 None,
             ),
         ];
 
-        let mut messages_data: Vec<(Vec<u8>, NetworkMessage)> = vec![];
+        let mut messages_data: Vec<(Vec<u8>, NetworkMessage)> = Vec::with_capacity(messages.len());
         for mut message in &mut messages {
             let data: Vec<u8> = save_network_message(&mut message);
             messages_data.push((data, message.clone()));
@@ -487,9 +495,9 @@ mod unit_test {
         let local_peer = localhost_peer();
 
         let test_params = ut_s11n_001_data();
-        for (data, expected) in &test_params {
+        for (data, expected) in test_params {
             let output = deserialize(&local_peer, &local_ip, data.as_slice());
-            assert_eq!(output, *expected)
+            assert_eq!(format!("{:?}", output), format!("{:?}", expected));
         }
     }
 }

@@ -18,16 +18,17 @@ mod unit_test {
     use std::{
         net::{IpAddr, Ipv4Addr, SocketAddr},
         str::FromStr,
+        sync::Arc,
     };
 
     use super::s11n_network_message;
-    use concordium_common::{UCursor, SHA256};
+    use concordium_common::{hybrid_buf::HybridBuf, SHA256};
 
     use crate::{
         common::{P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType},
         network::{
-            packet::MessageId, NetworkId, NetworkMessage, NetworkPacketBuilder, NetworkRequest,
-            NetworkResponse,
+            packet::MessageId, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType,
+            NetworkRequest, NetworkResponse,
         },
     };
 
@@ -43,7 +44,8 @@ mod unit_test {
     }
 
     fn ut_s11n_001_data() -> Vec<(Vec<u8>, NetworkMessage)> {
-        let direct_message_content = b"Hello world!";
+        let mut direct_message_content = HybridBuf::from(b"Hello world!".to_vec());
+        direct_message_content.rewind().unwrap();
         let messages = vec![
             NetworkMessage::NetworkRequest(
                 NetworkRequest::Ping(localhost_peer()),
@@ -61,19 +63,21 @@ mod unit_test {
                 None,
             ),
             NetworkMessage::NetworkPacket(
-                NetworkPacketBuilder::default()
-                    .peer(localhost_peer())
-                    .message_id(MessageId::new(&[0u8; SHA256 as usize]))
-                    .network_id(NetworkId::from(100u16))
-                    .message(UCursor::from(direct_message_content.to_vec()))
-                    .build_direct(P2PNodeId::from_str(&"2A").unwrap())
-                    .unwrap(),
+                Arc::new(NetworkPacket {
+                    packet_type: NetworkPacketType::DirectMessage(
+                        P2PNodeId::from_str(&"2A").unwrap(),
+                    ),
+                    peer:        localhost_peer(),
+                    message_id:  MessageId::new(&[0u8; SHA256 as usize]),
+                    network_id:  NetworkId::from(100u16),
+                    message:     direct_message_content,
+                }),
                 Some(10),
                 None,
             ),
         ];
 
-        let mut messages_data: Vec<(Vec<u8>, NetworkMessage)> = vec![];
+        let mut messages_data: Vec<(Vec<u8>, NetworkMessage)> = Vec::with_capacity(messages.len());
         for message in messages {
             let data: Vec<u8> = ser::to_vec(&message).unwrap();
             messages_data.push((data, message));
@@ -85,9 +89,9 @@ mod unit_test {
     #[test]
     fn ut_s11n_001() {
         let data = ut_s11n_001_data();
-        for (cbor, expected) in &data {
-            let output = s11n_network_message(cbor);
-            assert_eq!(output, *expected);
+        for (cbor, expected) in data {
+            let output = s11n_network_message(&cbor);
+            assert_eq!(format!("{:?}", output), format!("{:?}", expected));
         }
     }
 }

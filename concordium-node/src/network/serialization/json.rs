@@ -16,17 +16,17 @@ mod unit_test {
     use std::{
         net::{IpAddr, Ipv4Addr, SocketAddr},
         str::FromStr,
+        sync::Arc,
     };
 
     use super::s11n_network_message;
-
-    use concordium_common::{UCursor, SHA256};
+    use concordium_common::{hybrid_buf::HybridBuf, SHA256};
 
     use crate::{
         common::{P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType},
         network::{
-            packet::MessageId, NetworkId, NetworkMessage, NetworkPacketBuilder, NetworkRequest,
-            NetworkResponse,
+            packet::MessageId, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType,
+            NetworkRequest, NetworkResponse,
         },
     };
 
@@ -42,7 +42,8 @@ mod unit_test {
     }
 
     fn ut_s11n_001_data() -> Vec<(String, NetworkMessage)> {
-        let direct_message_content = UCursor::from(b"Hello world!".to_vec());
+        let mut direct_message_content = HybridBuf::from(b"Hello world!".to_vec());
+        direct_message_content.rewind().unwrap();
         let messages = vec![
             NetworkMessage::NetworkRequest(
                 NetworkRequest::Ping(localhost_peer()),
@@ -60,13 +61,13 @@ mod unit_test {
                 None,
             ),
             NetworkMessage::NetworkPacket(
-                NetworkPacketBuilder::default()
-                    .peer(localhost_peer())
-                    .message_id(MessageId::new(&[0u8; SHA256 as usize]))
-                    .network_id(NetworkId::from(100u16))
-                    .message(direct_message_content)
-                    .build_direct(P2PNodeId::from_str(&"2A").unwrap())
-                    .unwrap(),
+                Arc::new(NetworkPacket {
+                    packet_type: NetworkPacketType::DirectMessage(P2PNodeId::from_str(&"2A").unwrap()),
+                    peer: localhost_peer(),
+                    message_id: MessageId::new(&[0u8; SHA256 as usize]),
+                    network_id: NetworkId::from(100u16),
+                    message: direct_message_content,
+                }),
                 Some(10),
                 None,
             ),
@@ -84,9 +85,9 @@ mod unit_test {
     #[test]
     fn ut_s11n_001() {
         let data = ut_s11n_001_data();
-        for (json, expected) in &data {
-            let output = s11n_network_message(json);
-            assert_eq!(output, *expected)
+        for (json, expected) in data {
+            let output = s11n_network_message(&json);
+            assert_eq!(format!("{:?}", output), format!("{:?}", expected));
         }
     }
 }
