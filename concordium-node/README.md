@@ -17,7 +17,6 @@ This repository uses git lfs for storing binary dependencies, and relies on git 
 * instrumentation - switches the default internal counter implementation out with prometheus
 * s11n_nom - enables serialization using [nom](https://crates.io/crates/nom) (only used in benches)
 * s11n_serde_cbor - enables serialization using [serde_cbor](https://crates.io/crates/serde_cbor) (only used in benches)
-* s11n_serde_json - enables serialization using [serde_json](https://crates.io/crates/serde_json) (only used in benches)
 * s11n_capnp - enables serialization using [capnp](https://crates.io/crates/capnp) (only used in benches)
 * instrumentation - enables stats data exporting to [prometheus](https://crates.io/crates/prometheus)
 * benchmark - enables the TPS testing

@@ -53,7 +53,6 @@ pub fn create_random_packet(size: usize) -> NetworkMessage {
     not(feature = "s11n_nom"),
     not(feature = "s11n_capnp"),
     not(feature = "s11n_serde_cbor"),
-    not(feature = "s11n_serde_json")
 ))]
 mod common {
     use criterion::Criterion;
@@ -287,51 +286,6 @@ mod serialization {
         }
     }
 
-    #[cfg(feature = "s11n_serde_json")]
-    pub mod serde_json {
-        use crate::*;
-
-        use p2p_client::network::serialization::json::s11n_network_message;
-
-        use criterion::Criterion;
-
-        fn bench_s11n_001_direct_message(c: &mut Criterion, content_size: usize) {
-            let dm = create_random_packet(content_size);
-            let data: String = serde_json::to_string(&dm).unwrap();
-            let bench_id = format!("Serde serialization JSON with {}B messages", content_size);
-
-            c.bench_function(&bench_id, move |b| b.iter(|| s11n_network_message(&data)));
-        }
-
-        pub fn bench_s11n_001_direct_message_256(b: &mut Criterion) {
-            bench_s11n_001_direct_message(b, 256)
-        }
-
-        pub fn bench_s11n_001_direct_message_512(b: &mut Criterion) {
-            bench_s11n_001_direct_message(b, 512)
-        }
-
-        pub fn bench_s11n_001_direct_message_1k(b: &mut Criterion) {
-            bench_s11n_001_direct_message(b, 1024)
-        }
-
-        pub fn bench_s11n_001_direct_message_4k(b: &mut Criterion) {
-            bench_s11n_001_direct_message(b, 4096)
-        }
-
-        pub fn bench_s11n_001_direct_message_32k(b: &mut Criterion) {
-            bench_s11n_001_direct_message(b, 32 * 1024)
-        }
-
-        pub fn bench_s11n_001_direct_message_64k(b: &mut Criterion) {
-            bench_s11n_001_direct_message(b, 64 * 1024)
-        }
-
-        pub fn bench_s11n_001_direct_message_256k(b: &mut Criterion) {
-            bench_s11n_001_direct_message(b, 256 * 1024)
-        }
-    }
-
     #[cfg(feature = "s11n_nom")]
     pub mod nom {
         use crate::*;
@@ -495,20 +449,6 @@ criterion_group!(
 #[cfg(not(feature = "s11n_serde_cbor"))]
 criterion_group!(s11n_cbor_benches, common::nop_bench);
 
-#[cfg(feature = "s11n_serde_json")]
-criterion_group!(
-    s11n_json_benches,
-    serialization::serde_json::bench_s11n_001_direct_message_256,
-    serialization::serde_json::bench_s11n_001_direct_message_512,
-    serialization::serde_json::bench_s11n_001_direct_message_1k,
-    serialization::serde_json::bench_s11n_001_direct_message_4k,
-    serialization::serde_json::bench_s11n_001_direct_message_32k,
-    serialization::serde_json::bench_s11n_001_direct_message_64k,
-    serialization::serde_json::bench_s11n_001_direct_message_256k,
-);
-#[cfg(not(feature = "s11n_serde_json"))]
-criterion_group!(s11n_json_benches, common::nop_bench);
-
 #[cfg(feature = "s11n_nom")]
 criterion_group!(
     s11n_nom_benches,
@@ -557,7 +497,6 @@ criterion_main!(
     s11n_get_peers,
     s11n_custom_benches,
     s11n_cbor_benches,
-    s11n_json_benches,
     s11n_nom_benches,
     s11n_capnp_benches
 );
