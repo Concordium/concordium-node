@@ -27,11 +27,12 @@ import Concordium.GlobalState.Statistics (ConsensusStatistics, initialConsensusS
 import Concordium.GlobalState.Transactions
 import qualified Concordium.GlobalState.Rewards as Rewards
 
+import Concordium.GlobalState.Basic.Block
 import Concordium.GlobalState.Basic.BlockState
 
 data SkovData = SkovData {
     -- |Map of all received blocks by hash.
-    _skovBlockTable :: !(HM.HashMap BlockHash (TS.BlockStatus BlockPointer)),
+    _skovBlockTable :: !(HM.HashMap BlockHash (TS.BlockStatus BlockPointer PendingBlock)),
     _skovPossiblyPendingTable :: !(HM.HashMap BlockHash [PendingBlock]),
     _skovPossiblyPendingQueue :: !(MPQ.MinPQueue Slot (BlockHash, BlockHash)),
     _skovBlocksAwaitingLastFinalized :: !(MPQ.MinPQueue BlockHeight PendingBlock),
@@ -53,7 +54,7 @@ instance Show SkovData where
 
 class SkovLenses s where
     skov :: Lens' s SkovData
-    blockTable :: Lens' s (HM.HashMap BlockHash (TS.BlockStatus BlockPointer))
+    blockTable :: Lens' s (HM.HashMap BlockHash (TS.BlockStatus BlockPointer PendingBlock))
     blockTable = skov . skovBlockTable
     possiblyPendingTable :: Lens' s (HM.HashMap BlockHash [PendingBlock])
     possiblyPendingTable = skov . skovPossiblyPendingTable
@@ -109,10 +110,12 @@ newtype SkovTreeState s m a = SkovTreeState {runSkovTreeState :: m a}
     deriving (BS.BlockStateQuery) via (PureBlockStateMonad m)
     deriving (BS.BlockStateOperations) via (PureBlockStateMonad m)
 
+type instance TS.PendingBlock (SkovTreeState s m) = PendingBlock
 type instance BS.BlockPointer (SkovTreeState s m) = BlockPointer
 type instance BS.UpdatableBlockState (SkovTreeState s m) = BlockState
 
 instance (SkovLenses s, Monad m, MonadState s m) => TS.TreeStateMonad (SkovTreeState s m) where
+    makePendingBlock key slot parent bid pf n lastFin trs time = return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
     getBlockStatus bh = use (blockTable . at bh)
     makeLiveBlock block parent lastFin st arrTime = do
             let blockP = makeBlockPointer block parent lastFin st arrTime
@@ -182,15 +185,16 @@ instance (SkovLenses s, Monad m, MonadState s m) => TS.TreeStateMonad (SkovTreeS
                         Just s -> (nnce, s) : Map.toAscList beyond
     addCommitTransaction tr slot = do 
             tt <- use transactionTable
-            case tt ^. ttHashMap . at (getHash tr) of
+            let trHash = getHash tr
+            case tt ^. ttHashMap . at trHash of
                 Nothing -> if (tt ^. ttNonFinalizedTransactions . at sender . non emptyANFT . anftNextNonce) <= nonce then do
                                 transactionTable .= (tt & (ttNonFinalizedTransactions . at sender . non emptyANFT . anftMap . at nonce . non Set.empty %~ Set.insert tr)
                                                         & (ttHashMap . at (getHash tr) ?~ (tr, slot)))
-                                return True
-                            else return False
-                Just (_, slot') -> do
-                                when (slot > slot') $ transactionTable .= (tt & ttHashMap . at (getHash tr) ?~ (tr, slot))
-                                return False
+                                return $ Just (tr, True)
+                            else return Nothing
+                Just (tr', slot') -> do
+                                when (slot > slot') $ transactionTable .= (tt & ttHashMap . at trHash ?~ (tr', slot))
+                                return $ Just (tr', False)
         where
             sender = transactionSender tr
             nonce = transactionNonce tr
@@ -227,6 +231,7 @@ instance (SkovLenses s, Monad m, MonadState s m) => TS.TreeStateMonad (SkovTreeS
             Just (tr, _) -> do
                 nn <- use (transactionTable . ttNonFinalizedTransactions . at (transactionSender tr) . non emptyANFT . anftNextNonce)
                 return $ Just (tr, transactionNonce tr < nn)
+    updateBlockTransactions trs pb = return $ pb {pbBlock = (pbBlock pb) {bbTransactions = BlockTransactions trs}}
 
     {-# INLINE thawBlockState #-}
     thawBlockState bs = return $ bs & (blockBank . Rewards.executionCost .~ 0) .
