@@ -124,7 +124,7 @@ newtype SkovTreeState s m a = SkovTreeState {runSkovTreeState :: m a}
     deriving (Functor, Monad, MonadIO, Applicative, MonadState s)
     deriving (BS.BlockStateQuery) via (PureBlockStateMonad m)
     deriving (BS.BlockStateOperations) via (PureBlockStateMonad m)
-    
+
 type instance TS.PendingBlock (SkovTreeState s m) = PendingBlock
 type instance BS.BlockPointer (SkovTreeState s m) = BlockPointer
 type instance BS.UpdatableBlockState (SkovTreeState s m) = BlockState
@@ -203,7 +203,7 @@ instance (SkovLenses s, Monad m, MonadState s m, MonadIO m) => TS.TreeStateMonad
                     in return $ case atnnce of
                         Nothing -> Map.toAscList beyond
                         Just s -> (nnce, s) : Map.toAscList beyond
-    addCommitTransaction tr slot = do 
+    addCommitTransaction tr slot = do
             tt <- use transactionTable
             let trHash = getHash tr
             case tt ^. ttHashMap . at trHash of
@@ -252,7 +252,7 @@ instance (SkovLenses s, Monad m, MonadState s m, MonadIO m) => TS.TreeStateMonad
                 nn <- use (transactionTable . ttNonFinalizedTransactions . at (transactionSender tr) . non emptyANFT . anftNextNonce)
                 return $ Just (tr, transactionNonce tr < nn)
     updateBlockTransactions trs pb = do
-         liftIO $ pbUpdateTransactionsR trs pb
+         liftIO $ pendingBlockUpdateTransactions trs pb
          return pb
 
     {-# INLINE thawBlockState #-}
