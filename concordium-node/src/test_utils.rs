@@ -27,7 +27,7 @@ static PORT_START_NODE: u16 = 8888;
 
 const TESTCONFIG: &[&str] = &[];
 
-/// It returns next available port
+/// It returns the next available port
 pub fn next_available_port() -> u16 {
     let mut available_port = None;
 
@@ -56,7 +56,7 @@ pub fn get_test_config(port: u16, networks: Vec<u16>) -> Config {
     config
 }
 
-/// It initializes the global logger with a `env_logger`, but just once.
+/// It initializes the global logger with an `env_logger`, but just once.
 pub fn setup_logger() {
     // @note It adds thread ID to each message.
     INIT.call_once(|| {
@@ -202,7 +202,7 @@ pub fn connect(source: &mut P2PNode, target: &P2PNode) -> Fallible<()> {
 }
 
 /// Waits until
-/// `receiver` receive a `handshake` response packet.
+/// `receiver` receives a `handshake` response packet.
 /// Other messages are ignored.
 pub fn await_handshake(receiver: &Receiver<NetworkMessage>) -> Fallible<()> {
     // Wait for Handshake response on source node
@@ -217,7 +217,53 @@ pub fn await_handshake(receiver: &Receiver<NetworkMessage>) -> Fallible<()> {
     Ok(())
 }
 
-pub fn wait_broadcast_message(waiter: &Receiver<NetworkMessage>) -> Fallible<HybridBuf> {
+/// Waits until
+/// `receiver` receives a `handshake` response packet before the timeout is
+/// reached.
+pub fn await_handshake_with_timeout(
+    receiver: &Receiver<NetworkMessage>,
+    timeout: std::time::Duration,
+) -> Fallible<()> {
+    // Wait for Handshake response
+    if let Ok(NetworkMessage::NetworkResponse(NetworkResponse::Handshake(..), ..)) =
+        receiver.recv_timeout(timeout)
+    {
+        return Ok(());
+    }
+    bail!("Didn't receive handshake message within the timeout period")
+}
+
+/// Waits until
+/// `receiver` receive a `peerlist` response packet before timeout is reached.
+pub fn await_peerlist_with_timeout(
+    receiver: &Receiver<NetworkMessage>,
+    timeout: std::time::Duration,
+) -> Fallible<()> {
+    // Wait for Peerlist response
+    if let Ok(NetworkMessage::NetworkResponse(NetworkResponse::PeerList(..), ..)) =
+        receiver.recv_timeout(timeout)
+    {
+        return Ok(());
+    }
+    bail!("Didn't receive peerlist response message within the timeout period")
+}
+
+/// Waits until
+/// `receiver` receives a `ping` request packet before the timeout is reached.
+pub fn await_ping_with_timeout(
+    receiver: &Receiver<NetworkMessage>,
+    timeout: std::time::Duration,
+) -> Fallible<()> {
+    // Wait for Ping request
+    if let Ok(NetworkMessage::NetworkRequest(NetworkRequest::Ping(..), ..)) =
+        receiver.recv_timeout(timeout)
+    {
+        return Ok(());
+    }
+    bail!("Didn't receive ping request message within the timeout period")
+}
+
+pub fn await_broadcast_message(waiter: &Receiver<NetworkMessage>) -> Fallible<HybridBuf> {
     loop {
         let msg = waiter.recv()?;
         if let NetworkMessage::NetworkPacket(pac, ..) = msg {
@@ -228,7 +274,7 @@ pub fn wait_broadcast_message(waiter: &Receiver<NetworkMessage>) -> Fallible<Hyb
     }
 }
 
-pub fn wait_direct_message(waiter: &Receiver<NetworkMessage>) -> Fallible<HybridBuf> {
+pub fn await_direct_message(waiter: &Receiver<NetworkMessage>) -> Fallible<HybridBuf> {
     loop {
         let msg = waiter.recv()?;
         if let NetworkMessage::NetworkPacket(pac, ..) = msg {
@@ -239,7 +285,7 @@ pub fn wait_direct_message(waiter: &Receiver<NetworkMessage>) -> Fallible<Hybrid
     }
 }
 
-pub fn wait_direct_message_timeout(
+pub fn await_direct_message_with_timeout(
     waiter: &Receiver<NetworkMessage>,
     timeout: std::time::Duration,
 ) -> Option<HybridBuf> {
@@ -263,7 +309,7 @@ pub fn consume_pending_messages(waiter: &Receiver<NetworkMessage>) {
     }
 }
 
-/// Helper handler to log as `info` the secuence of packets received by
+/// Helper handler to log as `info` the sequence of packets received by
 /// node.
 ///
 /// It requires two steps in order to print messages when tests are running:

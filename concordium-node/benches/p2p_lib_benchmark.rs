@@ -176,8 +176,8 @@ mod network {
             network::NetworkId,
             p2p::p2p_node::send_message_from_cursor,
             test_utils::{
-                await_handshake, connect, make_node_and_sync, next_available_port, setup_logger,
-                wait_direct_message,
+                await_direct_message, await_handshake, connect, make_node_and_sync,
+                next_available_port, setup_logger,
             },
         };
 
@@ -225,7 +225,7 @@ mod network {
                         false,
                     )
                     .unwrap();
-                    let mut msg_recv = wait_direct_message(&msg_waiter_2).unwrap();
+                    let mut msg_recv = await_direct_message(&msg_waiter_2).unwrap();
                     assert_eq!(msg.len().unwrap(), msg_recv.remaining_len().unwrap());
                 });
             });
