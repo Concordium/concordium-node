@@ -27,7 +27,7 @@ static PORT_START_NODE: u16 = 8888;
 
 const TESTCONFIG: &[&str] = &[];
 
-/// It returns next available port
+/// It returns the next available port
 pub fn next_available_port() -> u16 {
     let mut available_port = None;
 
@@ -56,7 +56,7 @@ pub fn get_test_config(port: u16, networks: Vec<u16>) -> Config {
     config
 }
 
-/// It initializes the global logger with a `env_logger`, but just once.
+/// It initializes the global logger with an `env_logger`, but just once.
 pub fn setup_logger() {
     // @note It adds thread ID to each message.
     INIT.call_once(|| {
@@ -219,7 +219,6 @@ pub fn await_handshake(receiver: &Receiver<NetworkMessage>) -> Fallible<()> {
 
 /// Waits until
 /// `receiver` receives a `handshake` response packet before the timeout is
-/// reached. Other messages are ignored.
 pub fn await_handshake_with_timeout(
     receiver: &Receiver<NetworkMessage>,
     timeout: std::time::Duration,
@@ -235,7 +234,6 @@ pub fn await_handshake_with_timeout(
 
 /// Waits until
 /// `receiver` receive a `peerlist` response packet before timeout is reached.
-/// Other messages are ignored.
 pub fn await_peerlist_with_timeout(
     receiver: &Receiver<NetworkMessage>,
     timeout: std::time::Duration,
@@ -251,7 +249,6 @@ pub fn await_peerlist_with_timeout(
 
 /// Waits until
 /// `receiver` receives a `ping` request packet before the timeout is reached.
-/// Other messages are ignored.
 pub fn await_ping_with_timeout(
     receiver: &Receiver<NetworkMessage>,
     timeout: std::time::Duration,
@@ -311,7 +308,7 @@ pub fn consume_pending_messages(waiter: &Receiver<NetworkMessage>) {
     }
 }
 
-/// Helper handler to log as `info` the secuence of packets received by
+/// Helper handler to log as `info` the sequence of packets received by
 /// node.
 ///
 /// It requires two steps in order to print messages when tests are running:
