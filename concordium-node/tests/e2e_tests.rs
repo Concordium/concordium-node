@@ -179,7 +179,7 @@ mod tests {
         let networks = vec![100];
 
         let msg = b"Hello other mother's brother";
-        // Create island of nodes. Each node (in each island) is connected to all
+        // Create an island of nodes. Each node (in each island) is connected to all
         // previous created nodes.
         for _island in 0..islands_count {
             let mut peers_islands_and_ports: Vec<(P2PNode, _)> = Vec::with_capacity(island_size);
@@ -256,7 +256,6 @@ mod tests {
     #[test]
     pub fn e2e_003_big_mesh_three_islands_net() -> Fallible<()> { islands_mesh_test(5, 3) }
 
-    /// This test has been used in
     #[test]
     fn e2e_004_noise_ready_writeable() -> Fallible<()> {
         setup_logger();
@@ -440,7 +439,6 @@ mod tests {
         connect(&mut node_1, &node_2).unwrap();
         await_handshake(&msg_waiter_1).unwrap();
 
-        // let mut msg = make_direct_message_into_disk().unwrap();
         let msg = thread_rng()
             .sample_iter(&Standard)
             .take(size)
