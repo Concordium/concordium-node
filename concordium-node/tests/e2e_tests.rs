@@ -10,9 +10,10 @@ mod tests {
         network::{NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType},
         p2p::{banned_nodes::BannedNode, p2p_node::*},
         test_utils::{
-            await_handshake, connect, consume_pending_messages, get_test_config,
+            await_handshake, await_handshake_with_timeout, await_peerlist_with_timeout,
+            await_ping_with_timeout, connect, consume_pending_messages, get_test_config,
             make_node_and_sync, max_recv_timeout, next_available_port, setup_logger,
-            wait_broadcast_message, wait_direct_message, wait_direct_message_timeout,
+            wait_broadcast_message, wait_direct_message, wait_direct_message_with_timeout,
         },
     };
 
@@ -93,7 +94,7 @@ mod tests {
             None,
             msg.to_vec(),
         )?;
-        let received_msg = wait_direct_message_timeout(&msg_waiter_1, max_recv_timeout());
+        let received_msg = wait_direct_message_with_timeout(&msg_waiter_1, max_recv_timeout());
         assert_eq!(
             received_msg.map(|mut hb| hb.remaining_bytes().unwrap()),
             Some(msg.to_vec())
@@ -462,5 +463,59 @@ mod tests {
             .collect::<Vec<u64>>();
 
         assert_eq!(content_hash_list[0], content_hash_list[1]);
+    }
+
+    #[test]
+    pub fn e2e_006_bootstrapper_load_test() -> Fallible<()> {
+        use std::{net::SocketAddr, thread, time::Duration};
+
+        const BOOTSTRAPPER_CONN_COUNJT: usize = 400;
+        const ARTIFICIAL_DELAY_BETWEEN_PEERS: u64 = 10;
+        const WAIT_TIME: std::time::Duration = Duration::from_millis(10000);
+        setup_logger();
+        let bootstrapped_counter = Arc::new(AtomicUsize::new(0));
+
+        let (mut bootstrapper_node, _) =
+            make_node_and_sync(next_available_port(), vec![100], PeerType::Bootstrapper)?;
+
+        let node_runner = |node_idx: usize,
+                           bootstrapper: SocketAddr,
+                           counter: Arc<AtomicUsize>|
+         -> Fallible<()> {
+            debug!("Attempting node# {}", node_idx);
+            let (mut node, waiter) =
+                make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
+            node.connect(PeerType::Bootstrapper, bootstrapper, None)?;
+            await_handshake_with_timeout(&waiter, WAIT_TIME)?;
+            await_ping_with_timeout(&waiter, WAIT_TIME)?;
+            await_peerlist_with_timeout(&waiter, WAIT_TIME)?;
+            let _ = node.close_and_join()?;
+            let _ = counter.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        };
+
+        // Create nodes
+        let mut threads = vec![];
+        for node_idx in 0..BOOTSTRAPPER_CONN_COUNJT {
+            let bootstrapper_addry = bootstrapper_node.internal_addr();
+            let counter_clone = Arc::clone(&bootstrapped_counter);
+            threads.push(thread::spawn(move || {
+                node_runner(node_idx, bootstrapper_addry, counter_clone)
+            }));
+            thread::sleep(Duration::from_millis(ARTIFICIAL_DELAY_BETWEEN_PEERS));
+        }
+
+        for thread in threads {
+            if thread.join().is_err() {
+                bail!("Thread failed!");
+            }
+        }
+
+        // Check counter.
+        let bootstrapped_counter_count = bootstrapped_counter.load(Ordering::SeqCst);
+        debug!("Check successful counter: {}", bootstrapped_counter_count);
+        assert_eq!(BOOTSTRAPPER_CONN_COUNJT, bootstrapped_counter_count);
+        bootstrapper_node.close_and_join()?;
+        Ok(())
     }
 }

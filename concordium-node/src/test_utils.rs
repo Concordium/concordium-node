@@ -217,6 +217,54 @@ pub fn await_handshake(receiver: &Receiver<NetworkMessage>) -> Fallible<()> {
     Ok(())
 }
 
+/// Waits until
+/// `receiver` receive a `handshake` response packet before timeout is reached.
+/// Other messages are ignored.
+pub fn await_handshake_with_timeout(
+    receiver: &Receiver<NetworkMessage>,
+    timeout: std::time::Duration,
+) -> Fallible<()> {
+    // Wait for Handshake response on source node
+    if let Ok(NetworkMessage::NetworkResponse(NetworkResponse::Handshake(..), ..)) =
+        receiver.recv_timeout(timeout)
+    {
+        return Ok(());
+    }
+    bail!("Didn't receive messhandshake message within timeout period")
+}
+
+/// Waits until
+/// `receiver` receive a `peerlist` response packet before timeout is reached.
+/// Other messages are ignored.
+pub fn await_peerlist_with_timeout(
+    receiver: &Receiver<NetworkMessage>,
+    timeout: std::time::Duration,
+) -> Fallible<()> {
+    // Wait for Handshake response on source node
+    if let Ok(NetworkMessage::NetworkResponse(NetworkResponse::PeerList(..), ..)) =
+        receiver.recv_timeout(timeout)
+    {
+        return Ok(());
+    }
+    bail!("Didn't receive peerlist response message within timeout period")
+}
+
+/// Waits until
+/// `receiver` receive a `ping` request packet before timeout is reached.
+/// Other messages are ignored.
+pub fn await_ping_with_timeout(
+    receiver: &Receiver<NetworkMessage>,
+    timeout: std::time::Duration,
+) -> Fallible<()> {
+    // Wait for Handshake response on source node
+    if let Ok(NetworkMessage::NetworkRequest(NetworkRequest::Ping(..), ..)) =
+        receiver.recv_timeout(timeout)
+    {
+        return Ok(());
+    }
+    bail!("Didn't receive ping request message within timeout period")
+}
+
 pub fn wait_broadcast_message(waiter: &Receiver<NetworkMessage>) -> Fallible<HybridBuf> {
     loop {
         let msg = waiter.recv()?;
@@ -239,7 +287,7 @@ pub fn wait_direct_message(waiter: &Receiver<NetworkMessage>) -> Fallible<Hybrid
     }
 }
 
-pub fn wait_direct_message_timeout(
+pub fn wait_direct_message_with_timeout(
     waiter: &Receiver<NetworkMessage>,
     timeout: std::time::Duration,
 ) -> Option<HybridBuf> {
