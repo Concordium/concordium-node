@@ -185,8 +185,6 @@ data BlockContentsR
 -- we provide a function for `Maybe` retrieving the `BlockFields` if present.
 newtype BlockContents = BlockContents (Ptr BlockContentsR)
 
-foreign import ccall unsafe "block_contents_hash"
-    blockContentsHashF :: BlockContents -> CString
 foreign import ccall unsafe "block_contents_fields"
     blockContentsFieldsF :: BlockContents -> Ptr BlockFieldsR
 foreign import ccall unsafe "block_contents_slot"
@@ -199,12 +197,8 @@ foreign import ccall unsafe "block_contents_signature"
     blockContentsSignatureF :: BlockContents -> CString
 foreign import ccall unsafe "block_contents_signature_length"
     blockContentsSignatureLengthF :: BlockContents -> Word64
-
-blockContentsHash :: BlockContents -> BlockHash
-blockContentsHash bc = Hash . fromByteString . unsafePerformIO $
-  curry packCStringLen p 32
-  where
-    p = blockContentsHashF bc
+foreign import ccall unsafe "block_contents_compare"
+    blockContentsCompareF :: BlockContents -> BlockContents -> Bool
 
 blockContentsFields :: BlockContents -> Maybe BlockFields
 blockContentsFields bc = if p == nullPtr then Nothing else Just $ BlockFields p
@@ -235,7 +229,7 @@ blockContentsSignature bc = if p == nullPtr then Nothing
     l = blockContentsSignatureLengthF bc
 
 instance Eq BlockContents where
-  a == b = (blockContentsHash a) == (blockContentsHash b)
+  a == b = blockContentsCompareF a b
 
 type instance BlockFieldType BlockContents = BlockFields
 
