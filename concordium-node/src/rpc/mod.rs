@@ -1245,7 +1245,7 @@ impl P2P for RpcServerImpl {
 #[cfg(test)]
 mod tests {
     #[cfg(feature = "benchmark")]
-    use crate::test_utils::wait_direct_message;
+    use crate::test_utils::await_direct_message;
     use crate::{
         common::PeerType,
         configuration,
@@ -1254,8 +1254,8 @@ mod tests {
         proto::concordium_p2p_rpc_grpc::P2PClient,
         rpc::RpcServerImpl,
         test_utils::{
-            await_handshake, connect, get_test_config, make_node_and_sync,
-            make_node_and_sync_with_rpc, next_available_port, setup_logger, wait_broadcast_message,
+            await_broadcast_message, await_handshake, connect, get_test_config, make_node_and_sync,
+            make_node_and_sync_with_rpc, next_available_port, setup_logger,
         },
     };
     use chrono::prelude::Utc;
@@ -1456,7 +1456,7 @@ mod tests {
         smr.set_broadcast(broadcast);
         client.send_message_opt(&smr, callopts)?;
         assert_eq!(
-            wait_broadcast_message(&wt1)
+            await_broadcast_message(&wt1)
                 .unwrap()
                 .remaining_bytes()?
                 .as_slice(),
@@ -1630,7 +1630,7 @@ mod tests {
             None,
             b"Hey".to_vec(),
         )?;
-        wait_broadcast_message(&wt1).expect("Message sender disconnected");
+        await_broadcast_message(&wt1).expect("Message sender disconnected");
         let ans = client.subscription_poll_opt(&crate::proto::Empty::new(), callopts.clone())?;
         if let crate::proto::P2PNetworkMessage_oneof_payload::message_broadcast(b) =
             ans.payload.expect(
