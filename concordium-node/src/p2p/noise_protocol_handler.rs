@@ -1,12 +1,8 @@
 use super::fails;
-use crate::connection::{
-    network_handler::message_processor::{MessageManager, MessageProcessor, ProcessResult},
-    MessageSendingPriority,
-};
+
 use concordium_common::{
     functor::{UnitFunction, UnitFunctor},
     hybrid_buf::HybridBuf,
-    stats_export_service::StatsExportService,
 };
 
 use failure::{Error, Fallible};
@@ -20,6 +16,7 @@ use snow::Keypair;
 use std::{
     collections::{HashSet, VecDeque},
     net::{IpAddr, SocketAddr},
+    pin::Pin,
     sync::{
         atomic::{AtomicUsize, Ordering},
         mpsc::SyncSender,
@@ -32,7 +29,10 @@ use crate::{
         get_current_stamp, serialization::serialize_into_memory, NetworkRawRequest, P2PNodeId,
         P2PPeer, PeerType, RemotePeer,
     },
-    connection::{Connection, ConnectionBuilder, P2PEvent},
+    connection::{
+        network_handler::message_processor::{MessageManager, MessageProcessor, ProcessResult},
+        Connection, ConnectionBuilder, MessageSendingPriority, P2PEvent,
+    },
     crypto::generate_snow_config,
     dumper::DumpItem,
     network::{Buckets, NetworkId, NetworkMessage, NetworkRequest},
@@ -40,6 +40,7 @@ use crate::{
         banned_nodes::{BannedNode, BannedNodes},
         peer_statistics::PeerStatistic,
         unreachable_nodes::UnreachableNodes,
+        P2PNode,
     },
     utils::clone_snow_keypair,
 };
@@ -54,31 +55,23 @@ pub type PreHandshakeCW = UnitFunction<SocketAddr>;
 pub type PreHandshake = UnitFunctor<SocketAddr>;
 
 pub struct NoiseProtocolHandlerBuilder {
-    server:               Option<TcpListener>,
-    event_log:            Option<SyncSender<P2PEvent>>,
-    self_peer:            Option<P2PPeer>,
-    buckets:              Option<Arc<RwLock<Buckets>>>,
-    stats_export_service: Option<StatsExportService>,
-    networks:             Option<HashSet<NetworkId>>,
-    max_allowed_peers:    Option<u16>,
-    noise_params:         Option<snow::params::NoiseParams>,
-}
-
-impl Default for NoiseProtocolHandlerBuilder {
-    fn default() -> Self { NoiseProtocolHandlerBuilder::new() }
+    server:            Option<TcpListener>,
+    event_log:         Option<SyncSender<P2PEvent>>,
+    buckets:           Option<Arc<RwLock<Buckets>>>,
+    networks:          Option<HashSet<NetworkId>>,
+    max_allowed_peers: Option<u16>,
+    noise_params:      Option<snow::params::NoiseParams>,
 }
 
 impl NoiseProtocolHandlerBuilder {
     pub fn new() -> NoiseProtocolHandlerBuilder {
         NoiseProtocolHandlerBuilder {
-            server:               None,
-            event_log:            None,
-            self_peer:            None,
-            buckets:              None,
-            stats_export_service: None,
-            networks:             None,
-            max_allowed_peers:    None,
-            noise_params:         None,
+            server:            None,
+            event_log:         None,
+            buckets:           None,
+            networks:          None,
+            max_allowed_peers: None,
+            noise_params:      None,
         }
     }
 
@@ -86,14 +79,12 @@ impl NoiseProtocolHandlerBuilder {
         if let (
             Some(networks),
             Some(server),
-            Some(self_peer),
             Some(buckets),
             Some(max_allowed_peers),
             Some(noise_params),
         ) = (
             self.networks,
             self.server,
-            self.self_peer,
             self.buckets,
             self.max_allowed_peers,
             self.noise_params,
@@ -101,12 +92,11 @@ impl NoiseProtocolHandlerBuilder {
             let key_pair = snow::Builder::new(noise_params.clone()).generate_keypair()?;
 
             let mself = NoiseProtocolHandler {
+                node_ref: None,
                 server: Arc::new(server),
                 next_id: Arc::new(AtomicUsize::new(2)),
                 key_pair: Arc::new(key_pair),
                 event_log: self.event_log,
-                self_peer,
-                stats_export_service: self.stats_export_service,
                 buckets,
                 message_processor: MessageProcessor::new(),
                 prehandshake_validations: PreHandshake::new(),
@@ -136,11 +126,6 @@ impl NoiseProtocolHandlerBuilder {
         self
     }
 
-    pub fn set_self_peer(mut self, sp: P2PPeer) -> NoiseProtocolHandlerBuilder {
-        self.self_peer = Some(sp);
-        self
-    }
-
     pub fn set_event_log(
         mut self,
         el: Option<SyncSender<P2PEvent>>,
@@ -151,14 +136,6 @@ impl NoiseProtocolHandlerBuilder {
 
     pub fn set_buckets(mut self, b: Arc<RwLock<Buckets>>) -> NoiseProtocolHandlerBuilder {
         self.buckets = Some(b);
-        self
-    }
-
-    pub fn set_stats_export_service(
-        mut self,
-        ses: Option<StatsExportService>,
-    ) -> NoiseProtocolHandlerBuilder {
-        self.stats_export_service = ses;
         self
     }
 
@@ -183,16 +160,15 @@ impl NoiseProtocolHandlerBuilder {
 
 #[derive(Clone)]
 pub struct NoiseProtocolHandler {
+    pub node_ref:               Option<Pin<Arc<P2PNode>>>,
     server:                     Arc<TcpListener>,
     next_id:                    Arc<AtomicUsize>,
     key_pair:                   Arc<Keypair>,
-    event_log:                  Option<SyncSender<P2PEvent>>,
-    self_peer:                  P2PPeer,
-    buckets:                    Arc<RwLock<Buckets>>,
-    stats_export_service:       Option<StatsExportService>,
+    pub event_log:              Option<SyncSender<P2PEvent>>,
+    pub buckets:                Arc<RwLock<Buckets>>,
     message_processor:          MessageProcessor,
     prehandshake_validations:   PreHandshake,
-    log_dumper:                 Option<SyncSender<DumpItem>>,
+    pub log_dumper:             Option<SyncSender<DumpItem>>,
     max_allowed_peers:          u16,
     noise_params:               snow::params::NoiseParams,
     pub network_request_sender: Option<SyncSender<NetworkRawRequest>>,
@@ -204,6 +180,10 @@ pub struct NoiseProtocolHandler {
 }
 
 impl NoiseProtocolHandler {
+    pub fn node(&self) -> &Pin<Arc<P2PNode>> {
+        self.node_ref.as_ref().unwrap() // safe; always available
+    }
+
     pub fn log_event(&self, event: P2PEvent) {
         if let Some(ref log) = self.event_log {
             if let Err(e) = log.send(event) {
@@ -212,7 +192,7 @@ impl NoiseProtocolHandler {
         }
     }
 
-    pub fn get_self_peer(&self) -> P2PPeer { self.self_peer }
+    pub fn get_self_peer(&self) -> P2PPeer { self.node().self_peer }
 
     #[inline]
     pub fn networks(&self) -> Arc<RwLock<HashSet<NetworkId>>> { Arc::clone(&self.networks) }
@@ -243,17 +223,13 @@ impl NoiseProtocolHandler {
         let key_pair = clone_snow_keypair(&self.key_pair);
 
         let conn = ConnectionBuilder::default()
+            .set_handler_ref(Arc::pin(self.clone()))
             .set_socket(socket)
             .set_token(token)
             .set_key_pair(key_pair)
             .set_local_peer(self_peer)
             .set_remote_peer(RemotePeer::PreHandshake(PeerType::Node, addr))
-            .set_stats_export_service(self.stats_export_service.clone())
-            .set_event_log(self.event_log.clone())
             .set_local_end_networks(networks)
-            .set_buckets(Arc::clone(&self.buckets))
-            .set_log_dumper(self.log_dumper.clone())
-            .set_network_request_sender(self.network_request_sender.clone())
             .set_noise_params(self.noise_params.clone())
             .build()?;
 
@@ -311,25 +287,21 @@ impl NoiseProtocolHandler {
 
         match TcpStream::connect(&addr) {
             Ok(socket) => {
-                if let Some(ref service) = &self.stats_export_service {
+                if let Some(ref service) = self.node().stats_export_service() {
                     service.conn_received_inc();
                 };
                 let token = Token(self.next_id.fetch_add(1, Ordering::SeqCst));
                 let networks = self.networks();
                 let keypair = clone_snow_keypair(&self.key_pair);
                 let conn = ConnectionBuilder::default()
+                    .set_handler_ref(Arc::pin(self.clone()))
                     .set_socket(socket)
                     .set_token(token)
                     .set_key_pair(keypair)
                     .set_as_initiator(true)
                     .set_local_peer(self_peer.clone())
                     .set_remote_peer(RemotePeer::PreHandshake(peer_type, addr))
-                    .set_stats_export_service(self.stats_export_service.clone())
-                    .set_event_log(self.event_log.clone())
                     .set_local_end_networks(Arc::clone(&networks))
-                    .set_buckets(Arc::clone(&self.buckets))
-                    .set_log_dumper(self.log_dumper.clone())
-                    .set_network_request_sender(self.network_request_sender.clone())
                     .set_noise_params(self.noise_params.clone())
                     .build()?;
 
@@ -369,7 +341,7 @@ impl NoiseProtocolHandler {
     }
 
     #[inline]
-    pub fn peer_type(&self) -> PeerType { self.self_peer.peer_type() }
+    pub fn peer_type(&self) -> PeerType { self.node().self_peer.peer_type() }
 
     /// It setups default message handler at noise protocol handler level.
     fn setup_default_message_handler(&self) {
@@ -410,13 +382,9 @@ impl NoiseProtocolHandler {
 
     pub fn dump_start(&mut self, log_dumper: SyncSender<DumpItem>) {
         self.log_dumper = Some(log_dumper);
-        self.dump_all_connections(self.log_dumper.clone());
     }
 
-    pub fn dump_stop(&mut self) {
-        self.log_dumper = None;
-        self.dump_all_connections(None);
-    }
+    pub fn dump_stop(&mut self) { self.log_dumper = None; }
 
     pub fn add_notification(&self, func: UnitFunction<NetworkMessage>) {
         self.message_processor.add_notification(func.clone());
@@ -426,9 +394,6 @@ impl NoiseProtocolHandler {
     }
 
     pub fn set_network_request_sender(&mut self, sender: SyncSender<NetworkRawRequest>) {
-        for conn in write_or_die!(self.connections).iter_mut() {
-            conn.set_network_request_sender(sender.clone());
-        }
         self.network_request_sender = Some(sender);
     }
 
@@ -683,7 +648,7 @@ impl NoiseProtocolHandler {
                     wrap_connection_already_gone_as_non_fatal(conn_token, conn.shutdown())?;
                 }
                 // Report number of peers to stats export engine
-                if let Some(ref service) = &self.stats_export_service {
+                if let Some(ref service) = &self.node().stats_export_service() {
                     if conn.is_post_handshake() {
                         service.peers_dec();
                     }
@@ -788,12 +753,6 @@ impl NoiseProtocolHandler {
                 send_status(&conn, status)
             })
             .count()
-    }
-
-    pub fn dump_all_connections(&self, log_dumper: Option<SyncSender<DumpItem>>) {
-        write_or_die!(self.connections).iter_mut().for_each(|conn| {
-            conn.set_log_dumper(log_dumper.clone());
-        });
     }
 
     pub fn get_all_current_peers(&self, peer_type: Option<PeerType>) -> Vec<P2PNodeId> {

@@ -1,14 +1,12 @@
 use crate::{
-    common::{get_current_stamp, NetworkRawRequest, P2PPeer, RemotePeer},
+    common::{get_current_stamp, P2PPeer, RemotePeer},
     connection::{
         connection_private::ConnectionPrivateBuilder, fails::MissingFieldsConnectionBuilder,
-        network_handler::message_processor::MessageProcessor, p2p_event::P2PEvent, Connection,
+        network_handler::message_processor::MessageProcessor, Connection,
     },
-    dumper::DumpItem,
-    network::{Buckets, NetworkId},
+    network::NetworkId,
+    p2p::noise_protocol_handler::NoiseProtocolHandler,
 };
-
-use concordium_common::stats_export_service::StatsExportService;
 
 use failure::Fallible;
 use mio::{net::TcpStream, Token};
@@ -16,51 +14,42 @@ use snow::Keypair;
 
 use std::{
     collections::HashSet,
-    sync::{
-        atomic::AtomicU64,
-        mpsc::{sync_channel, SyncSender},
-        Arc, RwLock,
-    },
+    pin::Pin,
+    sync::{atomic::AtomicU64, Arc, RwLock},
 };
 
 #[derive(Default)]
 pub struct ConnectionBuilder {
-    key_pair:               Option<Keypair>,
-    token:                  Option<Token>,
-    log_dumper:             Option<SyncSender<DumpItem>>,
-    is_initiator:           bool,
-    network_request_sender: Option<SyncSender<NetworkRawRequest>>,
-    priv_conn_builder:      ConnectionPrivateBuilder,
-    noise_params:           Option<snow::params::NoiseParams>,
+    handler_ref:       Option<Pin<Arc<NoiseProtocolHandler>>>,
+    key_pair:          Option<Keypair>,
+    token:             Option<Token>,
+    is_initiator:      bool,
+    priv_conn_builder: ConnectionPrivateBuilder,
+    noise_params:      Option<snow::params::NoiseParams>,
 }
 
 impl ConnectionBuilder {
     pub fn build(self) -> Fallible<Connection> {
         let curr_stamp = get_current_stamp();
 
-        if let (Some(key_pair), Some(token), Some(noise_params)) =
-            (self.key_pair, self.token, self.noise_params)
-        {
-            let sender = self.network_request_sender.unwrap_or_else(|| {
-                // Create a dummy sender.
-                let (s, _) = sync_channel(10000);
-                s
-            });
-
+        if let (Some(handler_ref), Some(key_pair), Some(token), Some(noise_params)) = (
+            self.handler_ref,
+            self.key_pair,
+            self.token,
+            self.noise_params,
+        ) {
             let priv_conn = self
                 .priv_conn_builder
-                .set_token(token)
                 .set_as_initiator(self.is_initiator)
                 .set_key_pair(key_pair)
-                .set_log_dumper(self.log_dumper)
                 .set_noise_params(noise_params.clone())
                 .build()?;
 
-            let lself = Connection {
+            let conn = Connection {
+                handler_ref,
                 messages_received: Arc::new(AtomicU64::new(0)),
                 messages_sent: 0,
                 last_ping_sent: Arc::new(AtomicU64::new(curr_stamp)),
-                network_request_sender: sender,
                 token,
                 dptr: Arc::new(RwLock::new(priv_conn)),
                 pre_handshake_message_processor: MessageProcessor::new(),
@@ -68,17 +57,19 @@ impl ConnectionBuilder {
                 common_message_processor: MessageProcessor::new(),
             };
 
-            Ok(lself)
+            write_or_die!(conn.dptr).conn_ref = Some(Arc::pin(conn.clone()));
+
+            Ok(conn)
         } else {
             Err(failure::Error::from(MissingFieldsConnectionBuilder))
         }
     }
 
-    pub fn set_network_request_sender(
+    pub fn set_handler_ref(
         mut self,
-        sender: Option<SyncSender<NetworkRawRequest>>,
-    ) -> Self {
-        self.network_request_sender = sender;
+        handler_ref: Pin<Arc<NoiseProtocolHandler>>,
+    ) -> ConnectionBuilder {
+        self.handler_ref = Some(handler_ref);
         self
     }
 
@@ -117,33 +108,8 @@ impl ConnectionBuilder {
         self
     }
 
-    pub fn set_buckets(mut self, buckets: Arc<RwLock<Buckets>>) -> ConnectionBuilder {
-        self.priv_conn_builder = self.priv_conn_builder.set_buckets(buckets);
-        self
-    }
-
     pub fn set_socket(mut self, s: TcpStream) -> ConnectionBuilder {
         self.priv_conn_builder = self.priv_conn_builder.set_socket(s);
-        self
-    }
-
-    pub fn set_stats_export_service(
-        mut self,
-        stats_export_service: Option<StatsExportService>,
-    ) -> ConnectionBuilder {
-        self.priv_conn_builder = self
-            .priv_conn_builder
-            .set_stats_export_service(stats_export_service);
-        self
-    }
-
-    pub fn set_event_log(mut self, el: Option<SyncSender<P2PEvent>>) -> ConnectionBuilder {
-        self.priv_conn_builder = self.priv_conn_builder.set_event_log(el);
-        self
-    }
-
-    pub fn set_log_dumper(mut self, log_dumper: Option<SyncSender<DumpItem>>) -> ConnectionBuilder {
-        self.log_dumper = log_dumper;
         self
     }
 

@@ -253,8 +253,6 @@ impl P2PNode {
             .set_max_allowed_peers(config.max_allowed_nodes)
             .set_max_allowed_peers(config.max_allowed_nodes)
             .set_event_log(event_log)
-            .set_stats_export_service(stats_export_service.clone())
-            .set_self_peer(self_peer)
             .set_networks(networks)
             .set_buckets(Arc::new(RwLock::new(Buckets::new())))
             .set_noise_params(&conf.crypto)
@@ -264,7 +262,7 @@ impl P2PNode {
         let (send_queue_in, send_queue_out) = sync_channel(10000);
         let (resend_queue_in, resend_queue_out) = sync_channel(10000);
 
-        let mut mself = P2PNode {
+        let mut node = P2PNode {
             poll: Arc::new(poll),
             send_queue_out: Arc::new(Mutex::new(send_queue_out)),
             resend_queue_in: resend_queue_in.clone(),
@@ -286,8 +284,11 @@ impl P2PNode {
             send_queue_in,
             stats_export_service,
         };
-        mself.add_default_message_handlers();
-        mself
+        node.add_default_message_handlers();
+
+        node.noise_protocol_handler.node_ref = Some(Arc::pin(node.clone()));
+
+        node
     }
 
     /// It adds default message handler at .
@@ -447,7 +448,7 @@ impl P2PNode {
         // Prepare poll-loop channels.
         let (network_request_sender, network_request_receiver) = sync_channel(10000);
         self.noise_protocol_handler
-            .set_network_request_sender(network_request_sender.clone());
+            .set_network_request_sender(network_request_sender);
 
         let self_clone = self.clone();
 
