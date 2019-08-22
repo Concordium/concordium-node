@@ -1688,7 +1688,7 @@ mod tests {
         req.set_id(node2.id().to_string());
         req.set_directory("/tmp/blobs".to_string());
         client.tps_test_opt(&req, callopts)?;
-        assert_eq!(wait_direct_message(&wt2)?.into_vec()?.as_slice(), b"Hey");
+        assert_eq!(await_direct_message(&wt2)?.into_vec()?.as_slice(), b"Hey");
         Ok(())
     }
 
