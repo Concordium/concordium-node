@@ -119,7 +119,7 @@ pub fn default_network_request_get_peers(
     req: &NetworkRequest,
 ) -> FuncResult<()> {
     if let NetworkRequest::GetPeers(ref sender, ref networks) = req {
-        debug!("Got request for GetPeers");
+        trace!("Got a GetPeers request");
         TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
 
         let peer_list_msg = {
@@ -170,7 +170,7 @@ pub fn default_network_response_find_node(
     res: &NetworkResponse,
 ) -> FuncResult<()> {
     if let NetworkResponse::FindNode(_, ref peers) = res {
-        debug!("Got response to FindNode");
+        debug!("Got a response to FindNode");
 
         let priv_conn_reader = read_or_die!(priv_conn);
         // Process the received node list

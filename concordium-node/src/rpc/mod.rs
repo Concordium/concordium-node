@@ -1214,14 +1214,14 @@ impl P2P for RpcServerImpl {
             let f = if let Some(stats) = &self.stats {
                 let mut r: SuccesfulStructResponse = SuccesfulStructResponse::new();
                 let mut s = GRPCSkovStats::new();
-                let stat_values = stats.get_skov_stats();
-                s.set_skov_block_receipt(stat_values.0 as u32);
-                s.set_skov_block_entry(stat_values.1 as u32);
-                s.set_skov_block_query(stat_values.2 as u32);
-                s.set_skov_finalization_receipt(stat_values.3 as u32);
-                s.set_skov_finalization_entry(stat_values.4 as u32);
-                s.set_skov_finalization_query(stat_values.5 as u32);
-                r.set_skov_stats(s);
+                let stat_values = stats.get_gs_stats();
+                s.set_gs_block_receipt(stat_values.0 as u32);
+                s.set_gs_block_entry(stat_values.1 as u32);
+                s.set_gs_block_query(stat_values.2 as u32);
+                s.set_gs_finalization_receipt(stat_values.3 as u32);
+                s.set_gs_finalization_entry(stat_values.4 as u32);
+                s.set_gs_finalization_query(stat_values.5 as u32);
+                r.set_gs_stats(s);
                 sink.success(r)
             } else {
                 sink.fail(grpcio::RpcStatus::new(

@@ -298,7 +298,7 @@ extern "C" {
         peer_id: PeerId,
         msg: *const u8,
         msg_len: i64,
-        callback: DirectMessageCallback,
+        direct_callback: DirectMessageCallback,
     ) -> i64;
 }
 
@@ -553,19 +553,25 @@ impl TryFrom<u8> for CallbackType {
 
 pub extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *const u8, len: i64) {
     unsafe {
+        let msg_variant = PacketType::FinalizationMessage;
         let payload = Arc::from(slice::from_raw_parts(data as *const u8, len as usize));
 
-        catchup_enqueue(ConsensusMessage::new(
+        let msg = ConsensusMessage::new(
             MessageType::Outbound(Some(peer_id)),
             PacketType::FinalizationMessage,
             payload,
             vec![],
-        ))
+        );
+
+        match CALLBACK_QUEUE.send_message(msg) {
+            Ok(_) => trace!("Queueing a {} of {} bytes", msg_variant, len),
+            _ => error!("Couldn't queue a {} properly", msg_variant),
+        };
     }
 }
 
 pub extern "C" fn broadcast_callback(msg_type: i64, msg: *const u8, msg_length: i64) {
-    debug!("Broadcast callback hit - queueing message");
+    trace!("Broadcast callback hit - queueing message");
 
     unsafe {
         let callback_type = match CallbackType::try_from(msg_type as u8) {
@@ -590,7 +596,7 @@ pub extern "C" fn broadcast_callback(msg_type: i64, msg: *const u8, msg_length: 
             ConsensusMessage::new(MessageType::Outbound(target), msg_variant, payload, vec![]);
 
         match CALLBACK_QUEUE.send_message(msg) {
-            Ok(_) => debug!("Queueing a {} of {} bytes", msg_variant, msg_length),
+            Ok(_) => trace!("Queueing a {} of {} bytes", msg_variant, msg_length),
             _ => error!("Couldn't queue a {} properly", msg_variant),
         };
     }
@@ -604,7 +610,7 @@ pub extern "C" fn direct_callback(
     msg: *const c_char,
     msg_len: i64,
 ) {
-    debug!("Direct callback hit - queueing message");
+    trace!("Direct callback hit - queueing message");
 
     unsafe {
         let callback_type = match CallbackType::try_from(message_type as u8) {
@@ -629,7 +635,7 @@ pub extern "C" fn direct_callback(
             ConsensusMessage::new(MessageType::Outbound(target), msg_variant, payload, vec![]);
 
         match CALLBACK_QUEUE.send_message(msg) {
-            Ok(_) => debug!("Queueing a {} of {} bytes", msg_variant, msg_len),
+            Ok(_) => trace!("Queueing a {} of {} bytes", msg_variant, msg_len),
             _ => error!("Couldn't queue a {} properly", msg_variant),
         };
     }
@@ -659,7 +665,7 @@ pub extern "C" fn on_log_emited(identifier: c_char, log_level: c_char, log_messa
     match log_level as u8 {
         1 => error!("{}: {}", id, msg),
         2 => warn!("{}: {}", id, msg),
-        3 | 4 => debug!("{}: {}", id, msg),
+        3 | 4 | 5 | 6 | 7 => debug!("{}: {}", id, msg),
         _ => trace!("{}: {}", id, msg),
     };
 }

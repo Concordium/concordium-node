@@ -201,7 +201,7 @@ impl fmt::Display for PacketType {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ConsensusFfiResponse {
     BakerNotFound = -1,
     Success,
@@ -218,7 +218,16 @@ pub enum ConsensusFfiResponse {
 }
 
 impl ConsensusFfiResponse {
-    pub fn is_acceptable(&self) -> bool {
+    pub fn is_successful(self) -> bool {
+        use ConsensusFfiResponse::*;
+
+        match self {
+            Success | PendingBlock | PendingFinalization | Asynchronous => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_acceptable(self) -> bool {
         use ConsensusFfiResponse::*;
 
         match self {
@@ -231,7 +240,7 @@ impl ConsensusFfiResponse {
         }
     }
 
-    pub fn is_rebroadcastable(&self) -> bool {
+    pub fn is_rebroadcastable(self) -> bool {
         use ConsensusFfiResponse::*;
 
         match self {

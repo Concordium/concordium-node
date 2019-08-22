@@ -11,6 +11,11 @@ use crate::{
 
 use super::PeerId;
 
+pub enum GlobalStateMessage {
+    ConsensusMessage(ConsensusMessage),
+    PeerListUpdate(Vec<PeerId>),
+}
+
 /// The type of messages passed between GlobalState and the consensus layer.
 ///
 /// It contains an optional identifier of the source peer if it is not our own

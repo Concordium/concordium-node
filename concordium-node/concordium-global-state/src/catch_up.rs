@@ -12,7 +12,7 @@ use crate::{
 };
 
 #[derive(Debug)]
-struct CatchUpStatus {
+pub struct CatchUpStatus {
     is_request:              bool,
     last_finalized_block:    BlockHash,
     last_finalized_height:   BlockHeight,
