@@ -26,7 +26,8 @@ module Concordium.GlobalState.Rust.FFI (
   ) where
 
 import Concordium.Crypto.SHA256
-import qualified Concordium.Crypto.SignatureScheme as Sig
+import qualified Concordium.Crypto.BlockSignature as Sig
+import qualified Concordium.Crypto.SignatureScheme as SSCH
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.GlobalState.Basic.Block (BakedBlock, Block (NormalBlock))
 import qualified Concordium.GlobalState.Basic.BlockState as BBS hiding (BlockPointer, makeBlockPointer, makeGenesisBlockPointer)
@@ -222,7 +223,7 @@ blockContentsBlockTransactions b =
 
 blockContentsSignature :: BlockContents -> Maybe BlockSignature
 blockContentsSignature bc = if p == nullPtr then Nothing
-  else Just . Sig.Signature . toShort . unsafePerformIO $
+  else Just . SSCH.Signature . toShort . unsafePerformIO $
        curry packCStringLen p (fromIntegral l)
   where
     p = blockContentsSignatureF bc
@@ -237,8 +238,18 @@ instance BlockData BlockContents where
   blockSlot = blockContentsSlot
   blockFields = blockContentsFields
   blockTransactions = blockContentsBlockTransactions
-  verifyBlockSignature = undefined
-  putBlock = undefined
+  verifyBlockSignature key b = Sig.verify key (runPut $ blockBodySerialize b) (fromJust . blockContentsSignature $ b)
+  putBlock = blockBodySerialize
+
+blockBodySerialize :: BlockContents -> Put
+blockBodySerialize b = do
+        put (blockSlot b)
+        put (blockPointer . fromJust . blockContentsFields $ b)
+        put (blockBaker . fromJust . blockContentsFields $ b)
+        put (blockProof . fromJust . blockContentsFields $ b)
+        put (blockNonce . fromJust . blockContentsFields $ b)
+        put (blockLastFinalized . fromJust . blockContentsFields $ b)
+        put (blockTransactions b)
 
 ---------------------------
 -- * PendingBlock FFI calls
