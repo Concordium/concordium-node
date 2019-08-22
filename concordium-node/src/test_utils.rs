@@ -218,7 +218,7 @@ pub fn await_handshake(receiver: &Receiver<NetworkMessage>) -> Fallible<()> {
 }
 
 /// Waits until
-/// `receiver` receives a `handshake` response packet before the timeout is
+/// `receiver` receives a `handshake` response packet before the timeout is reached.
 pub fn await_handshake_with_timeout(
     receiver: &Receiver<NetworkMessage>,
     timeout: std::time::Duration,
