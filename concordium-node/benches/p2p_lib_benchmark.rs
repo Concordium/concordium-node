@@ -176,8 +176,8 @@ mod network {
             network::NetworkId,
             p2p::p2p_node::send_message_from_cursor,
             test_utils::{
-                await_handshake, connect, make_node_and_sync, next_available_port, setup_logger,
-                await_direct_message,
+                await_direct_message, await_handshake, connect, make_node_and_sync,
+                next_available_port, setup_logger,
             },
         };
 
