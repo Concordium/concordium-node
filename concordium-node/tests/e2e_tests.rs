@@ -466,6 +466,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     pub fn e2e_006_bootstrapper_load_test() -> Fallible<()> {
         use std::{net::SocketAddr, thread, time::Duration};
 
