@@ -480,19 +480,22 @@ impl P2P for RpcServerImpl {
         sink: ::grpcio::UnarySink<PeerStatsResponse>,
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
-            let peer_stats = self.node.get_peer_stats(&[]);
+            let peer_stats = self.node.get_peer_stats();
 
             let f = {
                 let data = peer_stats
                     .iter()
                     .map(|x| {
                         let mut peer_resp = PeerStatsResponse_PeerStats::new();
-                        peer_resp.set_node_id(x.id.to_owned());
-                        peer_resp.set_packets_sent(x.sent);
-                        peer_resp.set_packets_received(x.received);
-                        if let Some(val) = x.measured_latency {
-                            peer_resp.set_measured_latency(val)
-                        };
+                        peer_resp.set_node_id(P2PNodeId(x.id).to_string());
+                        peer_resp.set_packets_sent(x.sent.load(Ordering::Relaxed));
+                        peer_resp.set_packets_received(x.received.load(Ordering::Relaxed));
+
+                        let latency = x.measured_latency.load(Ordering::Relaxed);
+                        if latency > 0 {
+                            peer_resp.set_measured_latency(latency);
+                        }
+
                         peer_resp
                     })
                     .collect();
@@ -516,7 +519,7 @@ impl P2P for RpcServerImpl {
                 let peer_type = self.node.peer_type();
                 let data = self
                     .node
-                    .get_peer_stats(&[])
+                    .get_peer_stats()
                     .iter()
                     .map(|x| {
                         let mut peer_resp = PeerElement::new();
@@ -1020,8 +1023,11 @@ impl P2P for RpcServerImpl {
                     req.id.clone(),
                     req.directory.clone(),
                 );
-                let _node_list = self.node.get_peer_stats(&[network_id]);
-                if !_node_list.into_iter().any(|s| s.id == id) {
+                let _node_list = self.node.get_peer_stats();
+                if !_node_list
+                    .into_iter()
+                    .any(|s| P2PNodeId(s.id).to_string() == id)
+                {
                     sink.fail(grpcio::RpcStatus::new(
                         grpcio::RpcStatusCode::FailedPrecondition,
                         Some("I don't have the required peers!".to_string()),
@@ -1245,17 +1251,17 @@ impl P2P for RpcServerImpl {
 #[cfg(test)]
 mod tests {
     #[cfg(feature = "benchmark")]
-    use crate::test_utils::wait_direct_message;
+    use crate::test_utils::await_direct_message;
     use crate::{
-        common::PeerType,
+        common::{P2PNodeId, PeerType},
         configuration,
         network::NetworkMessage,
         p2p::p2p_node::send_broadcast_message,
         proto::concordium_p2p_rpc_grpc::P2PClient,
         rpc::RpcServerImpl,
         test_utils::{
-            await_handshake, connect, get_test_config, make_node_and_sync,
-            make_node_and_sync_with_rpc, next_available_port, setup_logger, wait_broadcast_message,
+            await_broadcast_message, await_handshake, connect, get_test_config, make_node_and_sync,
+            make_node_and_sync_with_rpc, next_available_port, setup_logger,
         },
     };
     use chrono::prelude::Utc;
@@ -1456,7 +1462,7 @@ mod tests {
         smr.set_broadcast(broadcast);
         client.send_message_opt(&smr, callopts)?;
         assert_eq!(
-            wait_broadcast_message(&wt1)
+            await_broadcast_message(&wt1)
                 .unwrap()
                 .remaining_bytes()?
                 .as_slice(),
@@ -1542,7 +1548,10 @@ mod tests {
             .to_vec();
         assert!(rcv.len() == 1);
         let elem = rcv[0].clone();
-        assert_eq!(elem.node_id.unwrap().get_value(), node2.id().to_string());
+        assert_eq!(
+            P2PNodeId(str::parse::<u64>(elem.node_id.unwrap().get_value()).unwrap()).to_string(),
+            node2.id().to_string()
+        );
         assert_eq!(
             elem.ip.unwrap().get_value(),
             node2.internal_addr().ip().to_string()
@@ -1630,7 +1639,7 @@ mod tests {
             None,
             b"Hey".to_vec(),
         )?;
-        wait_broadcast_message(&wt1).expect("Message sender disconnected");
+        await_broadcast_message(&wt1).expect("Message sender disconnected");
         let ans = client.subscription_poll_opt(&crate::proto::Empty::new(), callopts.clone())?;
         if let crate::proto::P2PNetworkMessage_oneof_payload::message_broadcast(b) =
             ans.payload.expect(
@@ -1688,7 +1697,7 @@ mod tests {
         req.set_id(node2.id().to_string());
         req.set_directory("/tmp/blobs".to_string());
         client.tps_test_opt(&req, callopts)?;
-        assert_eq!(wait_direct_message(&wt2)?.into_vec()?.as_slice(), b"Hey");
+        assert_eq!(await_direct_message(&wt2)?.into_vec()?.as_slice(), b"Hey");
         Ok(())
     }
 

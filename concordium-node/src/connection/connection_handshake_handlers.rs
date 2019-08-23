@@ -26,11 +26,12 @@ pub fn handshake_response_handle(
             let bucket_sender =
                 P2PPeer::from(remote_peer.peer_type(), remote_peer.id(), remote_peer.addr);
             if remote_peer.peer_type() != PeerType::Bootstrapper {
-                safe_write!(read_or_die!(priv_conn).buckets)?
+                safe_write!(read_or_die!(priv_conn).conn().handler().buckets)?
                     .insert_into_bucket(&bucket_sender, nets.clone());
             }
 
-            if let Some(ref service) = priv_conn_ref.stats_export_service {
+            if let Some(ref service) = priv_conn_ref.conn().handler().node().stats_export_service()
+            {
                 service.peers_inc();
             };
         }
@@ -66,7 +67,7 @@ pub fn handshake_request_handle(
 
         update_buckets(priv_conn, sender, nets.clone())?;
 
-        if read_or_die!(priv_conn).local_peer.peer_type() == PeerType::Bootstrapper {
+        if read_or_die!(priv_conn).conn().local_peer().peer_type() == PeerType::Bootstrapper {
             send_peer_list(priv_conn, sender, nets)?;
         }
     } else {
