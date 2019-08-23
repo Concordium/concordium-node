@@ -636,9 +636,9 @@ impl P2P for RpcServerImpl {
             let f = if let Ok(read_lock_dptr) = self.dptr.lock() {
                 if let Ok(msg) = read_lock_dptr.subscription_queue_out.try_recv() {
                     if let NetworkMessage::NetworkPacket(ref packet, ..) = msg {
-                        let inner_msg = packet.message.to_owned();
-                        if let Ok(view_inner_msg) = inner_msg.into_vec() {
-                            let msg = view_inner_msg.as_slice().to_vec();
+                        let mut inner_msg = packet.message.to_owned();
+                        if let Ok(view_inner_msg) = inner_msg.remaining_bytes() {
+                            let msg = view_inner_msg.into_owned();
 
                             match packet.packet_type {
                                 NetworkPacketType::DirectMessage(..) => {
@@ -1462,10 +1462,7 @@ mod tests {
         smr.set_broadcast(broadcast);
         client.send_message_opt(&smr, callopts)?;
         assert_eq!(
-            await_broadcast_message(&wt1)
-                .unwrap()
-                .remaining_bytes()?
-                .as_slice(),
+            &*await_broadcast_message(&wt1).unwrap().remaining_bytes()?,
             b"Hey"
         );
         Ok(())
@@ -1697,7 +1694,7 @@ mod tests {
         req.set_id(node2.id().to_string());
         req.set_directory("/tmp/blobs".to_string());
         client.tps_test_opt(&req, callopts)?;
-        assert_eq!(await_direct_message(&wt2)?.into_vec()?.as_slice(), b"Hey");
+        assert_eq!(&await_direct_message(&wt2)?.remaining_bytes()?[..], b"Hey");
         Ok(())
     }
 
