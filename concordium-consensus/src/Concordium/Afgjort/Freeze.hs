@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell, MultiParamTypeClasses, RecordWildCards, LambdaCase, FlexibleContexts, RankNTypes, ScopedTypeVariables, GeneralizedNewtypeDeriving, FlexibleInstances #-}
+{-# LANGUAGE TemplateHaskell, MultiParamTypeClasses, RecordWildCards, LambdaCase, FlexibleContexts, RankNTypes, ScopedTypeVariables, GeneralizedNewtypeDeriving, FlexibleInstances, ViewPatterns #-}
 module Concordium.Afgjort.Freeze(
     FreezeMessage(..),
     FreezeState(..),
@@ -13,7 +13,8 @@ module Concordium.Afgjort.Freeze(
     isProposalJustified,
     receiveFreezeMessage,
     FreezeSummary,
-    freezeSummary
+    freezeSummary,
+    processFreezeSummary
 ) where
 
 import qualified Data.Map.Strict as Map
@@ -245,8 +246,8 @@ receiveFreezeMessage party (Proposal val) sig = addProposal party val sig
 receiveFreezeMessage party (Vote vote) sig = addVote party vote sig
 
 data FreezeSummary sig = FreezeSummary {
-    summaryProposalsVotes :: Map Val (PartyMap sig, PartyMap sig),
-    summaryBotVotes :: PartyMap sig
+    summaryProposalsVotes :: Map Val (Map Party sig, Map Party sig),
+    summaryBotVotes :: Map Party sig
 }
 
 -- |Generate a summary of the justified freeze messages.
@@ -257,11 +258,60 @@ freezeSummary = to fs
             where
                 summaryProposalsVotes = Map.mapMaybeWithKey makePV _proposals
                 makePV _ (False, _) = Nothing
-                makePV k (True, ps) = Just (ps, vs)
-                    where
-                        vs = case Map.lookup (Just k) _votes of
-                            Just (True, pm) -> pm
-                            _ -> PM.empty
-                summaryBotVotes = case Map.lookup Nothing _votes of
-                            Just (True, pm) -> pm
-                            _ -> PM.empty
+                makePV k (True, ps) = Just (PM.partyMap ps, vs (Just k))
+                summaryBotVotes = vs Nothing
+                vs v = case Map.lookup v _votes of
+                    Just (True, pm) -> PM.partyMap pm
+                    _ -> Map.empty
+
+-- |Process a freeze summary, handling the new messages, and determining when we have more to offer.
+processFreezeSummary :: (FreezeMonad sig m, Eq sig) => FreezeSummary sig -> (Party -> FreezeMessage -> sig -> Bool) -> m CatchUpResult
+processFreezeSummary FreezeSummary{..} checkSig = do
+        r1 <- mconcat <$> (forM (Map.toList summaryProposalsVotes) $ \(val, (props, vts)) -> do
+            let checkProposalSig party sig = checkSig party (Proposal val) sig
+            r1props <- if null props then
+                    return mempty
+                else
+                    use (proposals . at val) >>= \case
+                        Just (b, PM.partyMap -> myProps) -> do
+                            -- Take the proposals we haven't already seen and that have valid signatures
+                            let newProposals = Map.filterWithKey checkProposalSig $ Map.difference props myProps
+                            -- Add these
+                            forM_ (Map.toList newProposals) $ \(party, sig) -> addProposal party val sig
+                            return $ CatchUpResult {
+                                    -- It's ahead if it has some new valid signatures
+                                    curAhead = not (null newProposals),
+                                    -- It's behind if it is already justified we have some valid signatures that it is missing
+                                    curBehind = b && not (null (Map.differenceWithKey (\party x y -> if x == y || checkProposalSig party y then Nothing else Just x) myProps props)),
+                                    -- We need to catch up if the choice is not already justified for us
+                                    curSkovCatchUp = not b
+                                    }
+                        Nothing -> do
+                            -- Filter to those proposals with valid signatures
+                            let newProposals = Map.filterWithKey checkProposalSig props
+                            -- Add these
+                            forM_ (Map.toList newProposals) $ \(party, sig) -> addProposal party val sig
+                            return $ let b = not (null newProposals) in mempty {curAhead = b, curSkovCatchUp = b}
+            r1votes <- doVotes (Just val) vts
+            return (r1props <> r1votes))
+        r2 <- doVotes Nothing summaryBotVotes
+        return (r1 <> r2)
+    where
+        doVotes jval vts = if null vts then return mempty else
+            use (votes . at jval) >>= \case
+                Just (b, PM.partyMap -> myVotes) -> do
+                    let newVotes = Map.filterWithKey checkVoteSig $ Map.difference vts myVotes
+                    forM_ (Map.toList newVotes) addVoteSig
+                    return $ CatchUpResult {
+                        curAhead = not (null newVotes),
+                        curBehind = b && not (null (Map.differenceWithKey (\party x y -> if x == y || checkVoteSig party y then Nothing else Just x) myVotes vts)),
+                        curSkovCatchUp = not b
+                    }
+                Nothing -> do
+                    let newVotes = Map.filterWithKey checkVoteSig vts
+                    forM_ (Map.toList newVotes) addVoteSig
+                    return $ let b = not (null newVotes) in mempty {curAhead = b, curSkovCatchUp = b}
+            where
+                checkVoteSig party sig = checkSig party (Vote jval) sig
+                addVoteSig (party, sig) = addVote party jval sig
+                

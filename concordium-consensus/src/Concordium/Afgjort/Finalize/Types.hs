@@ -10,6 +10,7 @@ import Data.Serialize.Put
 import Data.Serialize.Get
 import Data.Maybe
 import Control.Monad
+import Data.ByteString(ByteString)
 
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
@@ -100,11 +101,13 @@ instance S.Serialize FinalizationMessage where
         msgSignature <- S.get
         return FinalizationMessage{..}
 
+encodeForSign :: FinalizationMessageHeader -> WMVBAMessage -> ByteString
+encodeForSign msgHeader msgBody = runPut $ S.put msgHeader >> putWMVBAMessageBody msgBody
+
 signFinalizationMessage :: Sig.KeyPair -> FinalizationMessageHeader -> WMVBAMessage -> FinalizationMessage
 signFinalizationMessage key msgHeader msgBody = FinalizationMessage {..}
     where
-        msgSignature = Sig.sign key encMsg
-        encMsg = runPut $ S.put msgHeader >> S.put msgBody
+        msgSignature = Sig.sign key (encodeForSign msgHeader msgBody)
 
 toPartyInfo :: FinalizationCommittee -> Word32 -> Maybe PartyInfo
 toPartyInfo com p = parties com Vec.!? fromIntegral p
@@ -112,8 +115,7 @@ toPartyInfo com p = parties com Vec.!? fromIntegral p
 checkMessageSignature :: FinalizationCommittee -> FinalizationMessage -> Bool
 checkMessageSignature com FinalizationMessage{..} = isJust $ do
         p <- toPartyInfo com (msgSenderIndex msgHeader)
-        let encMsg = runPut $ S.put msgHeader >> S.put msgBody
-        guard $ Sig.verify (partySignKey p) encMsg msgSignature
+        guard $ Sig.verify (partySignKey p) (encodeForSign msgHeader msgBody) msgSignature
 
 checkMessage :: FinalizationCommittee -> FinalizationMessage -> Bool
 checkMessage com msg = all validParty (messageParties $ msgBody msg) && checkMessageSignature com msg

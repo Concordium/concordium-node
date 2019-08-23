@@ -14,6 +14,7 @@ module Concordium.Afgjort.WMVBA (
     isJustifiedWMVBAInput,
     receiveWMVBAMessage,
     startWMVBA,
+    putWMVBAMessageBody,
     -- * For testing
     _freezeState
 ) where
@@ -64,29 +65,35 @@ instance Show WMVBAMessage where
     show (WMVBAABBAMessage (WeAreDone b)) = "WeAreDone: " ++ show b
     show (WMVBAWitnessCreatorMessage v) = "Witness: " ++ show v
 
+-- |Serialize the part of a 'WMVBAMessage' that should be signed.
+-- (This is everything except the ticket in a 'Justified' message.)
+putWMVBAMessageBody :: WMVBAMessage -> Put
+putWMVBAMessageBody (WMVBAFreezeMessage (Proposal val)) = putWord8 0 >> putVal val
+putWMVBAMessageBody (WMVBAFreezeMessage (Vote Nothing)) = putWord8 1
+putWMVBAMessageBody (WMVBAFreezeMessage (Vote (Just val))) = putWord8 2 >> putVal val
+putWMVBAMessageBody (WMVBAABBAMessage (Justified phase False _)) = putWord8 3 >> putWord32be phase
+putWMVBAMessageBody (WMVBAABBAMessage (Justified phase True _)) = putWord8 4 >> putWord32be phase
+putWMVBAMessageBody (WMVBAABBAMessage (CSSSeen phase ns)) = putWord8 tag >> putWord32be phase >> putUntaggedNominationSet ns
+    where
+        tag = case nomTag ns of
+            NSEmpty -> error "Empty set for Seen message"      -- Should not be possible
+            NSTop -> 5
+            NSBot -> 6
+            NSBoth -> 7
+putWMVBAMessageBody (WMVBAABBAMessage (CSSDoneReporting phase choices)) = putWord8 tag >> putWord32be phase >> putUntaggedNominationSet choices
+    where
+        tag = case nomTag choices of
+            NSEmpty -> error "Empty set for DoneReporting message"      -- Should not be possible
+            NSTop -> 8
+            NSBot -> 9
+            NSBoth -> 10
+putWMVBAMessageBody (WMVBAABBAMessage (WeAreDone False)) = putWord8 11
+putWMVBAMessageBody (WMVBAABBAMessage (WeAreDone True)) = putWord8 12
+putWMVBAMessageBody (WMVBAWitnessCreatorMessage val) = putWord8 13 >> putVal val
+
 instance S.Serialize WMVBAMessage where
-    put (WMVBAFreezeMessage (Proposal val)) = putWord8 0 >> putVal val
-    put (WMVBAFreezeMessage (Vote Nothing)) = putWord8 1
-    put (WMVBAFreezeMessage (Vote (Just val))) = putWord8 2 >> putVal val
-    put (WMVBAABBAMessage (Justified phase False ticket)) = putWord8 3 >> putWord32be phase >> S.put ticket
-    put (WMVBAABBAMessage (Justified phase True ticket)) = putWord8 4 >> putWord32be phase >> S.put ticket
-    put (WMVBAABBAMessage (CSSSeen phase ns)) = putWord8 tag >> putWord32be phase >> putUntaggedNominationSet ns
-        where
-            tag = case nomTag ns of
-                NSEmpty -> error "Empty set for Seen message"      -- Should not be possible
-                NSTop -> 5
-                NSBot -> 6
-                NSBoth -> 7
-    put (WMVBAABBAMessage (CSSDoneReporting phase choices)) = putWord8 tag >> putWord32be phase >> putUntaggedNominationSet choices
-        where
-            tag = case nomTag choices of
-                NSEmpty -> error "Empty set for DoneReporting message"      -- Should not be possible
-                NSTop -> 8
-                NSBot -> 9
-                NSBoth -> 10
-    put (WMVBAABBAMessage (WeAreDone False)) = putWord8 11
-    put (WMVBAABBAMessage (WeAreDone True)) = putWord8 12
-    put (WMVBAWitnessCreatorMessage val) = putWord8 13 >> putVal val
+    put m@(WMVBAABBAMessage (Justified _ _ ticket)) = putWMVBAMessageBody m >> S.put ticket
+    put m = putWMVBAMessageBody m
 
     get = getWord8 >>= \case
         0 -> WMVBAFreezeMessage . Proposal <$> getVal

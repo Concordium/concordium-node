@@ -1,4 +1,14 @@
-{-# LANGUAGE TemplateHaskell, MultiParamTypeClasses, FlexibleContexts, FlexibleInstances, RecordWildCards, ScopedTypeVariables, GeneralizedNewtypeDeriving, RankNTypes, OverloadedStrings, LambdaCase #-}
+{-# LANGUAGE TemplateHaskell, 
+    MultiParamTypeClasses, 
+    FlexibleContexts,
+    FlexibleInstances,
+    RecordWildCards,
+    ScopedTypeVariables,
+    GeneralizedNewtypeDeriving,
+    RankNTypes,
+    OverloadedStrings,
+    LambdaCase,
+    TupleSections #-}
 {- |Asynchronous Binary Byzantine Agreement algorithm -}
 module Concordium.Afgjort.ABBA(
     Phase,
@@ -18,8 +28,6 @@ module Concordium.Afgjort.ABBA(
 
 import qualified Data.Map as Map
 import Data.Map (Map)
-import qualified Data.Set as Set
-import Data.Set (Set)
 import qualified Data.Sequence as Seq
 import Data.Sequence (Seq(..), (|>))
 import Data.Maybe
@@ -29,6 +37,7 @@ import Control.Monad.RWS.Strict
 import Lens.Micro.Platform
 import qualified Data.ByteString as BS
 import qualified Data.Serialize as Ser
+import Control.Arrow
 
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Afgjort.Types
@@ -36,6 +45,10 @@ import Concordium.Afgjort.Lottery
 import Concordium.Afgjort.CSS
 import Concordium.Afgjort.CSS.NominationSet
 import qualified Concordium.Afgjort.CSS.BitSet as BitSet
+import Concordium.Afgjort.PartySet (PartySet)
+import qualified Concordium.Afgjort.PartySet as PS
+import Concordium.Afgjort.PartyMap (PartyMap)
+import qualified Concordium.Afgjort.PartyMap as PM
 
 atStrict :: (Ord k) => k -> Lens' (Map k v) (Maybe v)
 atStrict k f m = f mv <&> \r -> case r of
@@ -87,17 +100,19 @@ data ABBAInstance = ABBAInstance {
 --
 -- This includes the lottery tickets submitted by parties, the CSS state for the current phase,
 -- and the total weight and set of parties that have nominated each input.  Once the weight
--- exceeds the threshold, we record it as @Nothing@, forgetting the exact weigth and parties.
+-- exceeds the threshold, we record it as @Nothing@, forgetting the exact weight and parties.
+--
+-- INVARIANT: Each CSS 'Input' has a corresponding valid 'Ticket' and vice-versa.
 data PhaseState sig = PhaseState {
     _lotteryTickets :: Map (Double, Party) Ticket,
     _phaseCSSState :: Either (Maybe Choices, Seq (Party, CSSMessage, sig)) (CSSState sig),
-    _topInputWeight :: Maybe (VoterPower, Set Party),
-    _botInputWeight :: Maybe (VoterPower, Set Party)
+    _topInputWeight :: Maybe PartySet,
+    _botInputWeight :: Maybe PartySet
 } deriving (Show)
 makeLenses ''PhaseState
 
 -- |The total weight and set of parties nominating a particular choice.
-inputWeight :: Choice -> Lens' (PhaseState sig) (Maybe (VoterPower, Set Party))
+inputWeight :: Choice -> Lens' (PhaseState sig) (Maybe PartySet)
 inputWeight True = topInputWeight
 inputWeight False = botInputWeight
 
@@ -106,8 +121,8 @@ initialPhaseState :: PhaseState sig
 initialPhaseState = PhaseState {
     _lotteryTickets = Map.empty,
     _phaseCSSState = Left (Nothing, Seq.empty),
-    _topInputWeight = Just (0, Set.empty),
-    _botInputWeight = Just (0, Set.empty)
+    _topInputWeight = Just PS.empty,
+    _botInputWeight = Just PS.empty
 }
 
 -- |The state of the ABBA protocol.
@@ -119,10 +134,8 @@ data ABBAState sig = ABBAState {
     _currentPhase :: Phase,
     _phaseStates :: Map Phase (PhaseState sig),
     _currentGrade :: Word8,
-    _topWeAreDone :: Set Party,
-    _topWeAreDoneWeight :: VoterPower,
-    _botWeAreDone :: Set Party,
-    _botWeAreDoneWeight :: VoterPower,
+    _topWeAreDone :: PartyMap sig,
+    _botWeAreDone :: PartyMap sig,
     _completed :: Bool
 } deriving (Show)
 makeLenses ''ABBAState
@@ -133,14 +146,9 @@ phaseState p = lens (\s -> fromMaybe initialPhaseState (_phaseStates s ^. at p))
     (\s t -> s & phaseStates . atStrict p ?~ t)
 
 -- |The set of parties claiming we are done with a given choice
-weAreDone :: Choice -> Lens' (ABBAState sig) (Set Party)
+weAreDone :: Choice -> Lens' (ABBAState sig) (PartyMap sig)
 weAreDone True = topWeAreDone
 weAreDone False = botWeAreDone
-
--- |The weight of parties claiming we are done with a given choice
-weAreDoneWeight :: Choice -> Lens' (ABBAState sig) VoterPower
-weAreDoneWeight True = topWeAreDoneWeight
-weAreDoneWeight False = botWeAreDoneWeight
 
 -- |The initial state of the ABBA protocol.
 initialABBAState :: ABBAState sig
@@ -148,10 +156,8 @@ initialABBAState = ABBAState {
     _currentPhase = 0,
     _phaseStates = Map.singleton 0 (initialPhaseState {_phaseCSSState = Right initialCSSState}),
     _currentGrade = 0,
-    _topWeAreDone = Set.empty,
-    _topWeAreDoneWeight = 0,
-    _botWeAreDone = Set.empty,
-    _botWeAreDoneWeight = 0,
+    _topWeAreDone = PM.empty,
+    _botWeAreDone = PM.empty,
     _completed = False
 }
 
@@ -237,8 +243,7 @@ handleCoreSet phase cs = do
                             if p `BitSet.member` csBot then Just False else Nothing
                 topWeight = sum $ partyWeight <$> BitSet.toList csTop
                 botWeight = sum $ partyWeight <$> BitSet.toList csBot
-            lid <- view $ lotteryId phase
-            tkts <- filter (\((_,party),tkt) -> checkTicket lid (pubKeys party) tkt) . Map.toDescList <$> use (phaseState phase . lotteryTickets)
+            tkts <- Map.toDescList <$> use (phaseState phase . lotteryTickets)
             let (nextBit, newGrade) =
                     if BitSet.null csBot then
                         (True, 2)
@@ -298,31 +303,41 @@ unlessCompleted a = do
 justifyABBAChoice :: (ABBAMonad sig m) => Choice -> m ()
 justifyABBAChoice c = unlessCompleted $ liftCSSJustifyChoice 0 c
 
+handleJustified :: (ABBAMonad sig m) => Party -> Phase -> Ticket -> Choice -> sig -> m ()
+{-# INLINE handleJustified #-}
+handleJustified src phase ticket c sig = do
+        ABBAInstance{..} <- ask
+        liftCSSReceiveMessage phase src (Input c) sig
+        phaseState phase . lotteryTickets . atStrict (ticketValue ticket, src) ?= ticket
+        inputw <- use $ phaseState phase . inputWeight c
+        forM_ inputw $ \ps -> let (b, ps') = PS.insertLookup src (partyWeight src) ps in
+            unless b $
+                if PS.weight ps' > corruptWeight then do
+                    phaseState phase . inputWeight c .= Nothing
+                    liftCSSJustifyChoice (phase + 1) c
+                else
+                    phaseState phase . inputWeight c .= Just ps'
+
 -- |Called when an 'ABBAMessage' is received.
 {-# SPECIALIZE receiveABBAMessage :: Party -> ABBAMessage -> sig -> ABBA sig () #-}
-receiveABBAMessage :: (ABBAMonad sig  m) => Party -> ABBAMessage -> sig -> m ()
+receiveABBAMessage :: (ABBAMonad sig m) => Party -> ABBAMessage -> sig -> m ()
 receiveABBAMessage src (Justified phase c ticketProof) sig = unlessCompleted $ do
     ABBAInstance{..} <- ask
-    liftCSSReceiveMessage phase src (Input c) sig
-    let ticket = proofToTicket ticketProof (partyWeight src) totalWeight
-    phaseState phase . lotteryTickets . atStrict (ticketValue ticket, src) ?= ticket
-    inputw <- use $ phaseState phase . inputWeight c
-    forM_ inputw $ \(w, ps) -> unless (src `Set.member` ps) $
-        if w + partyWeight src > corruptWeight then do
-            phaseState phase . inputWeight c .= Nothing
-            liftCSSJustifyChoice (phase + 1) c
-        else
-            phaseState phase . inputWeight c .= Just (w + partyWeight src, Set.insert src ps)
+    lid <- view $ lotteryId phase
+    -- Make sure the ticket checks out before we proceed.
+    case checkTicketProof lid (pubKeys src) ticketProof (partyWeight src) totalWeight of
+        Nothing -> return ()
+        Just ticket -> handleJustified src phase ticket c sig
 receiveABBAMessage src (CSSSeen phase ns) sig =
     unlessCompleted $ liftCSSReceiveMessage phase src (Seen ns) sig
 receiveABBAMessage src (CSSDoneReporting phase m) sig =
     unlessCompleted $ liftCSSReceiveMessage phase src (DoneReporting m) sig
 receiveABBAMessage src (WeAreDone c) sig = unlessCompleted $ do
     ABBAInstance{..} <- ask
-    alreadyDone <- weAreDone c <<%= Set.insert src
-    unless (src `Set.member` alreadyDone) $ do
-        owadw <- weAreDoneWeight c <<%= (+ partyWeight src)
-        when (owadw + partyWeight src >= totalWeight - corruptWeight && owadw < totalWeight - corruptWeight) $ do
+    oldWAD <- use $ weAreDone c
+    unless (PM.member src oldWAD) $ do
+        newWAD <- weAreDone c <%= PM.insert src (partyWeight src) sig
+        when (PM.weight newWAD >= totalWeight - corruptWeight && PM.weight oldWAD < totalWeight - corruptWeight) $ do
             completed .= True
             aBBAComplete c
 
@@ -335,3 +350,138 @@ beginABBA c = unlessCompleted $ do
         tkt <- makeTicket 0
         sendABBAMessage (Justified 0 c tkt)
 
+data PhaseSummary sig = PhaseSummary {
+    summaryJustifiedTop :: Map Party (TicketProof, sig),
+    summaryJustifiedBot :: Map Party (TicketProof, sig),
+    summaryCSSSeen :: Map Party [(NominationSet, sig)],
+    summaryCSSDoneReporting :: Map Party (DoneReportingDetails sig)
+}
+
+phaseSummary :: SimpleGetter (PhaseState sig) (Maybe (PhaseSummary sig))
+phaseSummary = to phs
+    where
+        phs PhaseState{_phaseCSSState = Right css, ..} = Just PhaseSummary{..}
+            where
+                ticketProofs = Map.fromList $ (snd *** ticketProof) <$> Map.toList _lotteryTickets
+                CSSSummary{..} = css ^. cssSummary
+                summaryJustifiedTop = Map.intersectionWith (,) ticketProofs summaryInputsTop
+                summaryJustifiedBot = Map.intersectionWith (,) ticketProofs summaryInputsBot
+                summaryCSSSeen = summarySeen
+                summaryCSSDoneReporting = summaryDoneReporting
+        phs _ = Nothing
+
+
+data ABBASummary sig = ABBASummary {
+    summaryPhases :: [PhaseSummary sig],
+    summaryWeAreDoneTop :: Map Party sig,
+    summaryWeAreDoneBot :: Map Party sig
+}
+
+abbaSummary :: SimpleGetter (ABBAState sig) (ABBASummary sig)
+abbaSummary = to abbas
+    where
+        abbas ABBAState{_completed = True, ..} = ABBASummary {
+                summaryPhases = [],
+                summaryWeAreDoneTop = if PM.weight _topWeAreDone >= PM.weight _botWeAreDone then PM.partyMap _topWeAreDone else Map.empty,
+                summaryWeAreDoneBot = if PM.weight _topWeAreDone >= PM.weight _botWeAreDone then Map.empty else PM.partyMap _botWeAreDone
+            }
+        abbas ABBAState{..} = ABBASummary{..}
+            where
+                summaryWeAreDoneTop = PM.partyMap _topWeAreDone
+                summaryWeAreDoneBot = PM.partyMap _botWeAreDone
+                summaryPhases = processPhaseStates 0 (Map.toAscList _phaseStates)
+                processPhaseStates _ [] = []
+                processPhaseStates expPhase ((phase,pst) : ps)
+                    | expPhase == phase = case pst ^. phaseSummary of
+                        Nothing -> []
+                        Just p -> p : processPhaseStates (expPhase+1) ps
+                    | otherwise = []
+processABBASummary :: (ABBAMonad sig m, Eq sig) => ABBASummary sig -> (Party -> ABBAMessage -> sig -> Bool) -> m Bool
+processABBASummary ABBASummary{..} checkSig = do
+    ABBAInstance{..} <- ask
+    st <- get
+    let checkWAD b = \(party, sig) -> st ^? (if b then topWeAreDone else botWeAreDone) . ix party == Just sig || checkSig party (WeAreDone b) sig
+        sWADTop = filter (checkWAD True) (Map.toList summaryWeAreDoneTop)
+        sWADBot = filter (checkWAD False) (Map.toList summaryWeAreDoneBot)
+        wadWeight m = sum (partyWeight . fst <$> m)
+        checkWADWeight m = wadWeight m >= totalWeight - corruptWeight
+        -- The summary is complete if it includes enough signed WeAreDone messages
+        summaryComplete = checkWADWeight sWADTop || checkWADWeight sWADBot
+    if st ^. completed then do
+        -- We have completed, so they are behind unless they have at least totalWeight - corruptWeight reporting done
+        -- with a consistent outcome.
+        return $ not summaryComplete
+    else do
+        -- First process the WeAreDone messages: if we have enough, there's no need to go further
+        forM_ sWADTop $ \(party, sig) -> receiveABBAMessage party (WeAreDone True) sig
+        forM_ sWADBot $ \(party, sig) -> receiveABBAMessage party (WeAreDone False) sig
+        if summaryComplete then
+            -- If the summary is complete, then we should be complete too now.
+            return False
+        else do
+            st' <- get
+            let sWADBehind = wadWeight sWADTop < st' ^. topWeAreDone . to PM.weight ||
+                            wadWeight sWADBot < st' ^. botWeAreDone . to PM.weight
+            cssBehind <- or <$> (forM (zip [0..] summaryPhases) $ \(phaseInd, PhaseSummary{..}) -> do
+                ps <- fromMaybe initialPhaseState <$> use (phaseStates . at phaseInd)
+                lid <- view $ lotteryId phaseInd
+                let
+                    myTickets :: Map Party Ticket
+                    myTickets = ps ^. lotteryTickets . to (Map.fromList . fmap (snd *** id) . Map.toList)
+                    myCheckTicketProof party (tp, _) = (ticketProof <$> myTickets ^? ix party) == Just tp || isJust (checkTicketProof lid (pubKeys party) tp (partyWeight party) totalWeight)
+                    cssState = case ps ^. phaseCSSState of
+                        -- This case shouldn't occur, but if it does, it doesn't matter
+                        -- because the state is only used to avoid redundant signature checks
+                        Left _ -> initialCSSState
+                        Right s -> s
+                    checkCSSSig' party (Input c) sig = checkSig party (Justified phaseInd c undefined) sig
+                    checkCSSSig' party (Seen ns) sig = checkSig party (CSSSeen phaseInd ns) sig
+                    checkCSSSig' party (DoneReporting ns) sig = checkSig party (CSSDoneReporting phaseInd ns) sig
+                    checkCSSSig party msg sig = cssCheckExistingSig cssState party msg sig || checkCSSSig' party msg sig
+                -- If we have completed this phase (CSS is complete), we just check if the summary is complete for this phase
+                if st' ^. currentPhase > phaseInd then do
+                    let
+                        csss = CSSSummary {
+                            summaryInputsTop = snd <$> Map.filterWithKey myCheckTicketProof summaryJustifiedTop,
+                            summaryInputsBot = snd <$> Map.filterWithKey myCheckTicketProof summaryJustifiedBot,
+                            summarySeen = summaryCSSSeen,
+                            summaryDoneReporting = summaryCSSDoneReporting
+                        }
+                        cssInst = CSSInstance totalWeight corruptWeight partyWeight maxParty
+                        cssComplete = cssSummaryCheckComplete csss cssInst checkCSSSig
+                    return $ not cssComplete
+                else do
+                    -- If we havent' completed the phase
+                    -- Check the signatures & tickets
+                    let
+                        checkTicketAndSig b party (tp, sig) = do
+                            guard $ checkCSSSig party (Input b) sig
+                            (, sig) <$> case myTickets ^? ix party of
+                                Nothing -> checkTicketProof lid (pubKeys party) tp (partyWeight party) totalWeight
+                                Just t -> if ticketProof t == tp then Just t else
+                                        checkTicketProof lid (pubKeys party) tp (partyWeight party) totalWeight
+                        sJTop = Map.mapMaybeWithKey (checkTicketAndSig True) summaryJustifiedTop
+                        sJBot = Map.mapMaybeWithKey (checkTicketAndSig False) summaryJustifiedBot
+                        sCS = Map.mapWithKey (\party -> filter (\(ns, sig) -> checkCSSSig party (Seen ns) sig)) summaryCSSSeen
+                        sCDR = Map.filterWithKey (\party (DoneReportingDetails ns sig) -> checkCSSSig party (DoneReporting ns) sig) summaryCSSDoneReporting
+                    -- Handle the messages
+                    forM_ (Map.toList sJTop) $ \(party, (ticket, sig)) -> handleJustified party phaseInd ticket True sig
+                    forM_ (Map.toList sJBot) $ \(party, (ticket, sig)) -> handleJustified party phaseInd ticket False sig
+                    forM_ (Map.toList sCS) $ \(party, l) -> forM_ l $ \(ns,sig) -> liftCSSReceiveMessage phaseInd party (Seen ns) sig
+                    forM_ (Map.toList sCDR) $ \(party, (DoneReportingDetails ns sig)) -> liftCSSReceiveMessage phaseInd party (DoneReporting ns) sig
+                    -- Check if we have any messages that 
+                    undefined)
+            return $ sWADBehind || cssBehind
+
+{-}
+        rcss <- mconcat <$> forM (zip [0..] summaryPhases) $ \(phaseInd, PhaseSummary{..}) -> do
+            myTickets <- use $ phaseStates . at phaseInd . non initialABBAState . lotteryTickets . to (fmap (Map.fromList . (snd *** id)) . Map.toList)
+            -- Validate each received ticket proof
+            newTickets <- 
+
+
+    where
+        checkCSSSig phase party (Input c) sig = checkSig party (Justified phase c undefined) sig
+        checkCSSSig phase party (Seen ns) sig = checkSig party (CSSSeen phase ns) sig
+        checkCSSSig phase party (DoneReporting ns) sig = checkSig party (CSSDoneReporting phase ns) sig
+-}

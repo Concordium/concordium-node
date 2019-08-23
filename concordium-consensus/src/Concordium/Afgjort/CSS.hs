@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards, TemplateHaskell, TupleSections, MultiParamTypeClasses, FlexibleContexts, RankNTypes, ScopedTypeVariables, LambdaCase, GeneralizedNewtypeDeriving, FlexibleInstances #-}
+{-# LANGUAGE RecordWildCards, TemplateHaskell, TupleSections, MultiParamTypeClasses, FlexibleContexts, RankNTypes, ScopedTypeVariables, LambdaCase, GeneralizedNewtypeDeriving, FlexibleInstances, BangPatterns #-}
 -- |Core Set Selection algorithm
 module Concordium.Afgjort.CSS(
     CSSMessage(..),
@@ -12,6 +12,12 @@ module Concordium.Afgjort.CSS(
     CSSInstance(CSSInstance), -- Don't export projections or constructor
     justifyChoice,
     receiveCSSMessage,
+    CSSSummary(..),
+    cssSummary,
+    processCSSSummary,
+    DoneReportingDetails(..),
+    cssSummaryCheckComplete,
+    cssCheckExistingSig,
     -- * For internal use
     report,
     topJustified,
@@ -30,7 +36,6 @@ module Concordium.Afgjort.CSS(
     saw,
     core,
     justifiedDoneReporting,
-    --justifiedDoneReportingWeight,
     PartySet(..)
 ) where
 
@@ -328,6 +333,8 @@ handleDoneReporting party ((s, c) : remainder, drd) = do
             Just l -> Just (Map.insert party (remainder, drd) l)
 
 data CSSSummary sig = CSSSummary {
+    summaryInputsTop :: Map Party sig,
+    summaryInputsBot :: Map Party sig,
     summarySeen :: Map Party [(NominationSet, sig)],
     summaryDoneReporting :: Map Party (DoneReportingDetails sig)
 }
@@ -337,6 +344,8 @@ cssSummary = to csss
     where
         csss CSSState{..} = CSSSummary{..}
             where
+                summaryInputsTop = _inputTop
+                summaryInputsBot = _inputBot
                 summarySeen = _sawMessages
                 summaryDoneReporting = PM.partyMap _justifiedDoneReporting
 
@@ -345,4 +354,166 @@ cssSummary = to csss
 -- result, and @behind@ is true if the summary does not contain sufficient
 -- information to complete CSS (given our justified inputs) and out state
 -- has messages that contain new information.
--- processCSSSummary :: (CSSMonad sig m, Eq sig) => CSSSummary sig -> (CSSMessage -> sig -> Bool) -> m (Bool, Bool)
+processCSSSummary :: forall m sig. (CSSMonad sig m, Eq sig) => CSSSummary sig -> (Party -> CSSMessage -> sig -> Bool) -> m CatchUpResult
+processCSSSummary CSSSummary{..} checkSig = do
+        st <- get
+        let
+            myCheckSig party m@(Input c) sig = (st ^? input c . ix party) == Just sig || checkSig party m sig
+            myCheckSig party m@(Seen ns) sig = (ns, sig) `elem` (st ^. sawMessages . at party . non []) || checkSig party m sig
+            myCheckSig party m@(DoneReporting ns) sig = (st ^? justifiedDoneReporting . ix party) == Just (DoneReportingDetails ns sig) || checkSig party m sig
+        done <- isJust <$> use core
+        if done then checkComplete myCheckSig else do
+            rInpTop <- checkInputs summaryInputsTop True
+            rInpBot <- checkInputs summaryInputsBot False
+            rSeen <- checkSeen myCheckSig
+            rDR <- checkDR myCheckSig
+            return (rInpTop <> rInpBot <> rSeen <> rDR)
+    where
+        checkComplete myCheckSig = do
+            CSSInstance{..} <- ask
+            -- For each done reporting:
+            --   1. check the signature
+            --   2. check that all reported nominations have justified inputs, with valid signatures
+            --   3. check that all reported nominations have a corresponding seen message, with a valid signature
+            -- If the total weight of done reporting messages that pass these tests is at least @totalWeight - corruptWeight@
+            -- then the summary is complete.  (i.e. any honest party that receives this summary has sufficient input to
+            -- complete the CSS round.)
+            let
+                checkDoneReps :: BitSet.BitSet -> BitSet.BitSet -> VoterPower -> [(Party, DoneReportingDetails sig)] -> m VoterPower
+                checkDoneReps _ _ !drWeight [] = return drWeight
+                checkDoneReps preCheckTop preCheckBot !drWeight ((party, DoneReportingDetails ns sig) : rest) =
+                    if myCheckSig party (DoneReporting ns) sig then do
+                        let
+                            checkInps toCheck preCheck inps b = checkParties preCheck (BitSet.toList newCheck)
+                                where
+                                    newCheck = toCheck `BitSet.difference` preCheck
+                                    checkParties newPreCheck [] = (newPreCheck, True)
+                                    checkParties newPreCheck (p : ps) = case Map.lookup p inps of
+                                        Nothing -> (newPreCheck, False)
+                                        Just isig -> if myCheckSig party (Input b) isig then
+                                                        checkParties (BitSet.insert party newPreCheck) ps
+                                                    else
+                                                        (newPreCheck, False)
+                            (preCheckTop1, topChecked) = checkInps (nomTop ns) preCheckTop summaryInputsTop True
+                            (preCheckBot1, botChecked) = checkInps (nomBot ns) preCheckBot summaryInputsBot False
+                        if topChecked then
+                            if botChecked then do
+                                let partySeen = foldr unionNominationSet emptyNominationSet $
+                                        fst <$> filter (\(sns, ssig) -> myCheckSig party (Seen sns) ssig) (summarySeen ^. at party . non [])
+                                if ns `subsumedBy` partySeen then
+                                    checkDoneReps preCheckTop1 preCheckBot1 (partyWeight party + drWeight) rest
+                                else
+                                    checkDoneReps preCheckTop1 preCheckBot1 drWeight rest
+                            else
+                                checkDoneReps preCheckTop1 preCheckBot1 drWeight rest
+                        else
+                            checkDoneReps preCheckTop1 preCheckBot drWeight rest
+                    else
+                        checkDoneReps preCheckTop preCheckBot drWeight rest
+            drWeight <- checkDoneReps BitSet.empty BitSet.empty 0 (Map.toList summaryDoneReporting)
+            if drWeight >= totalWeight - corruptWeight then
+                return mempty
+            else
+                return $ mempty {curBehind = True}
+        checkInputs summaryInputs c = do
+            myInputs <- use (input c)
+            let
+                checkInSig party sig = checkSig party (Input c) sig
+                -- Filter to only signed inputs that we don't already have
+                newInputs = Map.filterWithKey checkInSig $ Map.difference summaryInputs myInputs
+            forM_ (Map.toList newInputs) $ \(party, sig) -> receiveCSSMessage party (Input c) sig
+            let isMissing (party, sig) = case Map.lookup party summaryInputs of
+                    Nothing -> True
+                    Just sig' -> sig /= sig' && not (checkInSig party sig')
+            return $ mempty {
+                    curAhead = not (null newInputs),
+                    curBehind = any isMissing (Map.toList myInputs)
+            }
+        checkSeen myCheckSig = do
+            let
+                checkSeenParty (party, seens) = do
+                    mySeens <- use (sawMessages . at party . nonEmpty)
+                    let
+                        mySeenNS = foldr unionNominationSet emptyNominationSet $ fst <$> mySeens
+                        signedSeens = filter (\(ns, sig) -> myCheckSig party (Seen ns) sig) seens
+                        theirSeenNS = foldr unionNominationSet emptyNominationSet $ fst <$> signedSeens
+                        newSignedSeens = filter (\(ns, _) -> not (ns `subsumedBy` mySeenNS)) signedSeens
+                    forM_ newSignedSeens $ \(ns, sig) -> receiveCSSMessage party (Seen ns) sig
+                    tj <- use topJustified
+                    bj <- use botJustified
+                    return $ mempty {
+                        curAhead = (tj && not (BitSet.null $ nomTop theirSeenNS `BitSet.difference` nomTop mySeenNS))
+                                    || (bj && not (BitSet.null $ nomBot theirSeenNS `BitSet.difference` nomBot mySeenNS)),
+                        curBehind = (tj && not (BitSet.null $ nomTop mySeenNS `BitSet.difference` nomTop theirSeenNS))
+                                    || (bj && not (BitSet.null $ nomBot mySeenNS `BitSet.difference` nomBot theirSeenNS))
+                    }
+            mconcat <$> mapM checkSeenParty (Map.toList summarySeen)
+        checkDR myCheckSig = do
+            oldJustifiedDoneReporting <- use justifiedDoneReporting
+            let filteredDR = Map.filterWithKey (\src (DoneReportingDetails ns sig) -> myCheckSig src (DoneReporting ns) sig) summaryDoneReporting
+            forM_ (Map.toList filteredDR) $ \(src, DoneReportingDetails ns sig) -> receiveCSSMessage src (DoneReporting ns) sig
+            newJustifiedDoneReporting <- use justifiedDoneReporting
+            return $ mempty {
+                curAhead = PM.weight newJustifiedDoneReporting > PM.weight oldJustifiedDoneReporting,
+                curBehind = not $ null $ PM.partyMap oldJustifiedDoneReporting `Map.difference` filteredDR
+            }
+
+{-# INLINE cssCheckExistingSig #-}
+cssCheckExistingSig :: (Eq sig) => CSSState sig -> Party -> CSSMessage -> sig -> Bool
+cssCheckExistingSig st = chk
+    where
+        chk party (Input c) sig = (st ^? input c . ix party) == Just sig
+        chk party (Seen ns) sig = (ns, sig) `elem` (st ^. sawMessages . at party . nonEmpty)
+        chk party (DoneReporting ns) sig = (st ^? justifiedDoneReporting . ix party) == Just (DoneReportingDetails ns sig)
+
+
+cssSummaryCheckComplete :: forall sig. (Eq sig) => CSSSummary sig -> CSSInstance -> (Party -> CSSMessage -> sig -> Bool) -> Bool
+cssSummaryCheckComplete CSSSummary{..} CSSInstance{..} checkSig = doneRepWeight >= totalWeight - corruptWeight
+    where
+        doneRepWeight = checkDoneReps BitSet.empty BitSet.empty 0 (Map.toList summaryDoneReporting)
+        -- For each done reporting:
+        --   1. check the signature
+        --   2. check that all reported nominations have justified inputs, with valid signatures
+        --   3. check that all reported nominations have a corresponding seen message, with a valid signature
+        -- If the total weight of done reporting messages that pass these tests is at least @totalWeight - corruptWeight@
+        -- then the summary is complete.  (i.e. any honest party that receives this summary has sufficient input to
+        -- complete the CSS round.)
+        checkDoneReps :: BitSet.BitSet -> BitSet.BitSet -> VoterPower -> [(Party, DoneReportingDetails sig)] -> VoterPower
+        checkDoneReps _ _ !drWeight [] = drWeight
+        checkDoneReps preCheckTop preCheckBot !drWeight ((party, DoneReportingDetails ns sig) : rest) =
+            if checkSig party (DoneReporting ns) sig then
+                let
+                    checkInps toCheck preCheck inps b = checkParties preCheck (BitSet.toList newCheck)
+                        where
+                            newCheck = toCheck `BitSet.difference` preCheck
+                            checkParties newPreCheck [] = (newPreCheck, True)
+                            checkParties newPreCheck (p : ps) = case Map.lookup p inps of
+                                Nothing -> (newPreCheck, False)
+                                Just isig -> if checkSig party (Input b) isig then
+                                                checkParties (BitSet.insert party newPreCheck) ps
+                                            else
+                                                (newPreCheck, False)
+                    (preCheckTop1, topChecked) = checkInps (nomTop ns) preCheckTop summaryInputsTop True
+                    (preCheckBot1, botChecked) = checkInps (nomBot ns) preCheckBot summaryInputsBot False
+                in if topChecked then
+                    if botChecked then
+                        let partySeen = foldr unionNominationSet emptyNominationSet $
+                                fst <$> filter (\(sns, ssig) -> checkSig party (Seen sns) ssig) (summarySeen ^. at party . non [])
+                        in if ns `subsumedBy` partySeen then
+                            checkDoneReps preCheckTop1 preCheckBot1 (partyWeight party + drWeight) rest
+                        else
+                            checkDoneReps preCheckTop1 preCheckBot1 drWeight rest
+                    else
+                        checkDoneReps preCheckTop1 preCheckBot1 drWeight rest
+                else
+                    checkDoneReps preCheckTop1 preCheckBot drWeight rest
+            else
+                checkDoneReps preCheckTop preCheckBot drWeight rest
+
+cssSummaryIsBehind :: CSSState sig -> CSSSummary sig -> Bool
+cssSummaryIsBehind st CSSSummary{..} = inTopBehind || inBotBehind || seenBehind || drBehind
+    where
+        inTopBehind = any (`Map.notMember` summaryInputsTop) (Map.keys $ st ^. input True)
+        inBotBehind = any (`Map.notMember` summaryInputsBot) (Map.keys $ st ^. input False)
+        seenBehind = undefined
+        drBehind = undefined

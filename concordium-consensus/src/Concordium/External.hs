@@ -870,7 +870,7 @@ receiveCatchUpStatus cptr src cstr l cbk = do
             logm External LLDebug "Deserialization of catch-up status message failed."
             return ResultSerializationFail
         Right cus -> do
-            logm External LLDebug "Catch-up status message deserialized."
+            logm External LLDebug $ "Catch-up status message deserialized: " ++ show cus
             res <- runConsensusQuery c Get.handleCatchUpStatus cus
             case res :: (Either String (Maybe ([Either FinalizationRecord (BlockPointer)], CatchUpStatus), Bool)) of
                 Left emsg -> logm Skov LLWarning emsg >> return ResultInvalid
@@ -883,7 +883,9 @@ receiveCatchUpStatus cptr src cstr l cbk = do
                         send (Left fr:r) = sendFinRec fr >> send r
                         send (Right b:r) = sendBlock b >> send r
                     forM_ d $ \(frbs, rcus) -> do
+                        logm Skov LLDebug $ "Catch up response data: " ++ show frbs
                         send frbs
+                        logm Skov LLDebug $ "Catch up response status message: " ++ show rcus
                         sendMsg MTCatchUpStatus $ encode rcus
                     return $! if flag then ResultPendingBlock else ResultSuccess
                         

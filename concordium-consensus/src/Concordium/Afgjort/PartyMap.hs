@@ -17,6 +17,18 @@ data PartyMap a = PartyMap {
 instance Functor PartyMap where
     fmap f pm = pm {partyMap = fmap f (partyMap pm)}
 
+instance Foldable PartyMap where
+    foldMap f = foldMap f . partyMap
+    foldr f x = foldr f x . partyMap
+    foldl f x = foldl f x . partyMap
+    foldr1 f = foldr1 f . partyMap
+    foldl1 f = foldl1 f . partyMap
+    elem m = elem m . partyMap
+    maximum = maximum . partyMap
+    minimum = minimum . partyMap
+    sum = sum . partyMap
+    product = product . partyMap
+
 instance Ixed (PartyMap a) where
     ix i = lens partyMap (\z m -> z {partyMap = m}) . ix i
 

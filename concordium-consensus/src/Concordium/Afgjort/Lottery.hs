@@ -1,23 +1,25 @@
 {-# LANGUAGE RecordWildCards, OverloadedStrings, GeneralizedNewtypeDeriving #-}
 module Concordium.Afgjort.Lottery(
     TicketProof,
-    Ticket(ticketValue),
+    Ticket(ticketValue, ticketProof),
     proofToTicket,
     makeTicketProof,
-    checkTicket
+    checkTicket,
+    checkTicketProof
 ) where
 
 import qualified Data.Serialize as Ser
 import qualified Data.ByteString as BS
+import Control.Monad
 
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Afgjort.Types (VoterPower)
 
-newtype TicketProof = TicketProof VRF.Proof deriving (Ser.Serialize,Eq,Ord,Show)
+newtype TicketProof = TicketProof {theProof :: VRF.Proof} deriving (Ser.Serialize,Eq,Ord,Show)
 
 data Ticket = Ticket {
     ticketValue :: Double,
-    ticketProof :: VRF.Proof
+    ticketProof :: TicketProof
 } deriving (Eq, Ord, Show)
 
 calculateTicketValue :: VRF.Proof -> VoterPower -> VoterPower -> Double
@@ -27,7 +29,7 @@ proofToTicket :: TicketProof    -- ^Ticket proof
         -> VoterPower                  -- ^Party weight
         -> VoterPower                  -- ^Total party weight
         -> Ticket
-proofToTicket (TicketProof pf) weight totalWeight = Ticket (calculateTicketValue pf weight totalWeight) pf
+proofToTicket tp@(TicketProof pf) weight totalWeight = Ticket (calculateTicketValue pf weight totalWeight) tp
 
 -- |Generate a ticket for a lottery
 makeTicketProof :: BS.ByteString -- ^Lottery identifier
@@ -44,4 +46,15 @@ checkTicket :: BS.ByteString    -- ^Lottery identifier
         -> Bool
 checkTicket lotteryid key Ticket{..} =
         VRF.verifyKey key && -- TODO: possibly this is not necessary
-        VRF.verify key ("AL" <> lotteryid) ticketProof
+        VRF.verify key ("AL" <> lotteryid) (theProof ticketProof)
+
+-- |Check a 'TicketProof' and generate a 'Ticket'.
+checkTicketProof :: BS.ByteString    -- ^Lottery identifier
+        -> VRF.PublicKey        -- ^Party's public VRF key
+        -> TicketProof               -- ^Ticket proof to check
+        -> VoterPower                  -- ^Party weight
+        -> VoterPower                  -- ^Total party weight
+        -> Maybe Ticket
+checkTicketProof lotteryid key tp@TicketProof{..} weight totalWeight = do
+        guard (VRF.verifyKey key && VRF.verify key ("AL" <> lotteryid) theProof)
+        return (proofToTicket tp weight totalWeight)

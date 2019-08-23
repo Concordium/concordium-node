@@ -110,3 +110,10 @@ nominations p s = case (p `Set.member` nomTop s, p `Set.member` nomBot s) of
 singletonNominationSet :: Party -> Choice -> NominationSet
 singletonNominationSet p True = NominationSet p (Set.singleton p) Set.empty
 singletonNominationSet p False = NominationSet p Set.empty (Set.singleton p)
+
+unionNominationSet :: NominationSet -> NominationSet -> NominationSet
+unionNominationSet ns1 ns2 = NominationSet {
+        nomMax = max (nomMax ns1) (nomMax ns2),
+        nomTop = Set.union (nomTop ns1) (nomTop ns2),
+        nomBot = Set.union (nomBot ns1) (nomBot ns2)
+    }
