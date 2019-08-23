@@ -65,7 +65,7 @@ pub fn send_handshake_and_ping(priv_conn: &RwLock<ConnectionPrivate>) -> FuncRes
     let (my_nets, local_peer) = {
         let priv_conn_reader = read_or_die!(priv_conn);
         let remote_end_networks = priv_conn_reader.remote_end_networks.clone();
-        let local_peer = priv_conn_reader.local_peer;
+        let local_peer = priv_conn_reader.conn().local_peer();
         (remote_end_networks, local_peer)
     };
 
@@ -115,25 +115,28 @@ pub fn send_peer_list(
         BOOTSTRAP_PEER_COUNT
     );
 
-    let peer_list_msg = {
-        let priv_conn_reader = read_or_die!(priv_conn);
-        let random_nodes = safe_read!(priv_conn_reader.buckets)?.get_random_nodes(
-            &sender,
-            BOOTSTRAP_PEER_COUNT,
-            nets,
-        );
-        let local_peer = priv_conn_reader.local_peer;
+    let peer_list_msg =
+        {
+            let priv_conn_reader = read_or_die!(priv_conn);
+            let random_nodes = safe_read!(priv_conn_reader.conn().handler().buckets)?
+                .get_random_nodes(&sender, BOOTSTRAP_PEER_COUNT, nets);
+            let local_peer = priv_conn_reader.conn().local_peer();
 
-        if let Some(ref service) = priv_conn_reader.stats_export_service {
-            service.pkt_sent_inc();
+            if let Some(ref service) = priv_conn_reader
+                .conn()
+                .handler()
+                .node()
+                .stats_export_service()
+            {
+                service.pkt_sent_inc();
+            };
+
+            NetworkMessage::NetworkResponse(
+                NetworkResponse::PeerList(local_peer, random_nodes),
+                Some(get_current_stamp()),
+                None,
+            )
         };
-
-        NetworkMessage::NetworkResponse(
-            NetworkResponse::PeerList(local_peer, random_nodes),
-            Some(get_current_stamp()),
-            None,
-        )
-    };
     let data = serialize_into_memory(&peer_list_msg, 256)?;
 
     // Ignore returned value because it is an asynchronous operation.
@@ -152,10 +155,14 @@ pub fn update_buckets(
 ) -> FuncResult<()> {
     let priv_conn_borrow = read_or_die!(priv_conn);
 
-    safe_write!(priv_conn_borrow.buckets)?.insert_into_bucket(sender, nets);
+    safe_write!(priv_conn_borrow.conn().handler().buckets)?.insert_into_bucket(sender, nets);
 
-    let stats_export_service = &priv_conn_borrow.stats_export_service;
-    if let Some(ref service) = stats_export_service {
+    if let Some(ref service) = priv_conn_borrow
+        .conn()
+        .handler()
+        .node()
+        .stats_export_service()
+    {
         service.peers_inc();
         service.pkt_sent_inc_by(2);
     };

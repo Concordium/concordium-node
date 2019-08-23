@@ -1,12 +1,8 @@
 use super::fails;
-use crate::connection::{
-    network_handler::message_processor::{MessageManager, MessageProcessor, ProcessResult},
-    MessageSendingPriority,
-};
+
 use concordium_common::{
     functor::{UnitFunction, UnitFunctor},
     hybrid_buf::HybridBuf,
-    stats_export_service::StatsExportService,
 };
 
 use failure::{Error, Fallible};
@@ -20,6 +16,7 @@ use snow::Keypair;
 use std::{
     collections::{HashSet, VecDeque},
     net::{IpAddr, SocketAddr},
+    pin::Pin,
     sync::{
         atomic::{AtomicUsize, Ordering},
         mpsc::SyncSender,
@@ -32,14 +29,17 @@ use crate::{
         get_current_stamp, serialization::serialize_into_memory, NetworkRawRequest, P2PNodeId,
         P2PPeer, PeerType, RemotePeer,
     },
-    connection::{Connection, ConnectionBuilder, P2PEvent},
+    connection::{
+        network_handler::message_processor::{MessageManager, MessageProcessor, ProcessResult},
+        Connection, ConnectionBuilder, MessageSendingPriority, P2PEvent,
+    },
     crypto::generate_snow_config,
     dumper::DumpItem,
     network::{Buckets, NetworkId, NetworkMessage, NetworkRequest},
     p2p::{
         banned_nodes::{BannedNode, BannedNodes},
-        peer_statistics::PeerStatistic,
         unreachable_nodes::UnreachableNodes,
+        P2PNode,
     },
     utils::clone_snow_keypair,
 };
@@ -53,47 +53,27 @@ const MAX_PREHANDSHAKE_KEEP_ALIVE: u64 = 120_000;
 pub type PreHandshakeCW = UnitFunction<SocketAddr>;
 pub type PreHandshake = UnitFunctor<SocketAddr>;
 
+#[derive(Default)]
 pub struct NoiseProtocolHandlerBuilder {
-    server:               Option<TcpListener>,
-    event_log:            Option<SyncSender<P2PEvent>>,
-    self_peer:            Option<P2PPeer>,
-    buckets:              Option<Arc<RwLock<Buckets>>>,
-    stats_export_service: Option<StatsExportService>,
-    networks:             Option<HashSet<NetworkId>>,
-    max_allowed_peers:    Option<u16>,
-    noise_params:         Option<snow::params::NoiseParams>,
-}
-
-impl Default for NoiseProtocolHandlerBuilder {
-    fn default() -> Self { NoiseProtocolHandlerBuilder::new() }
+    server:            Option<TcpListener>,
+    event_log:         Option<SyncSender<P2PEvent>>,
+    buckets:           Option<Arc<RwLock<Buckets>>>,
+    networks:          Option<HashSet<NetworkId>>,
+    max_allowed_peers: Option<u16>,
+    noise_params:      Option<snow::params::NoiseParams>,
 }
 
 impl NoiseProtocolHandlerBuilder {
-    pub fn new() -> NoiseProtocolHandlerBuilder {
-        NoiseProtocolHandlerBuilder {
-            server:               None,
-            event_log:            None,
-            self_peer:            None,
-            buckets:              None,
-            stats_export_service: None,
-            networks:             None,
-            max_allowed_peers:    None,
-            noise_params:         None,
-        }
-    }
-
     pub fn build(self) -> Fallible<NoiseProtocolHandler> {
         if let (
             Some(networks),
             Some(server),
-            Some(self_peer),
             Some(buckets),
             Some(max_allowed_peers),
             Some(noise_params),
         ) = (
             self.networks,
             self.server,
-            self.self_peer,
             self.buckets,
             self.max_allowed_peers,
             self.noise_params,
@@ -101,12 +81,11 @@ impl NoiseProtocolHandlerBuilder {
             let key_pair = snow::Builder::new(noise_params.clone()).generate_keypair()?;
 
             let mself = NoiseProtocolHandler {
+                node_ref: None,
                 server: Arc::new(server),
                 next_id: Arc::new(AtomicUsize::new(2)),
                 key_pair: Arc::new(key_pair),
                 event_log: self.event_log,
-                self_peer,
-                stats_export_service: self.stats_export_service,
                 buckets,
                 message_processor: MessageProcessor::new(),
                 prehandshake_validations: PreHandshake::new(),
@@ -114,8 +93,8 @@ impl NoiseProtocolHandlerBuilder {
                 max_allowed_peers,
                 noise_params,
                 network_request_sender: None,
-                connections: Arc::new(RwLock::new(Vec::new())),
-                to_disconnect: Arc::new(RwLock::new(VecDeque::<P2PNodeId>::new())),
+                connections: Default::default(),
+                to_disconnect: Default::default(),
                 unreachable_nodes: UnreachableNodes::new(),
                 banned_peers: Arc::new(RwLock::new(BannedNodes::new())),
                 networks: Arc::new(RwLock::new(networks)),
@@ -136,11 +115,6 @@ impl NoiseProtocolHandlerBuilder {
         self
     }
 
-    pub fn set_self_peer(mut self, sp: P2PPeer) -> NoiseProtocolHandlerBuilder {
-        self.self_peer = Some(sp);
-        self
-    }
-
     pub fn set_event_log(
         mut self,
         el: Option<SyncSender<P2PEvent>>,
@@ -151,14 +125,6 @@ impl NoiseProtocolHandlerBuilder {
 
     pub fn set_buckets(mut self, b: Arc<RwLock<Buckets>>) -> NoiseProtocolHandlerBuilder {
         self.buckets = Some(b);
-        self
-    }
-
-    pub fn set_stats_export_service(
-        mut self,
-        ses: Option<StatsExportService>,
-    ) -> NoiseProtocolHandlerBuilder {
-        self.stats_export_service = ses;
         self
     }
 
@@ -183,16 +149,15 @@ impl NoiseProtocolHandlerBuilder {
 
 #[derive(Clone)]
 pub struct NoiseProtocolHandler {
+    pub node_ref:               Option<Pin<Arc<P2PNode>>>,
     server:                     Arc<TcpListener>,
     next_id:                    Arc<AtomicUsize>,
     key_pair:                   Arc<Keypair>,
-    event_log:                  Option<SyncSender<P2PEvent>>,
-    self_peer:                  P2PPeer,
-    buckets:                    Arc<RwLock<Buckets>>,
-    stats_export_service:       Option<StatsExportService>,
+    pub event_log:              Option<SyncSender<P2PEvent>>,
+    pub buckets:                Arc<RwLock<Buckets>>,
     message_processor:          MessageProcessor,
     prehandshake_validations:   PreHandshake,
-    log_dumper:                 Option<SyncSender<DumpItem>>,
+    pub log_dumper:             Option<SyncSender<DumpItem>>,
     max_allowed_peers:          u16,
     noise_params:               snow::params::NoiseParams,
     pub network_request_sender: Option<SyncSender<NetworkRawRequest>>,
@@ -204,6 +169,10 @@ pub struct NoiseProtocolHandler {
 }
 
 impl NoiseProtocolHandler {
+    pub fn node(&self) -> &Pin<Arc<P2PNode>> {
+        self.node_ref.as_ref().unwrap() // safe; always available
+    }
+
     pub fn log_event(&self, event: P2PEvent) {
         if let Some(ref log) = self.event_log {
             if let Err(e) = log.send(event) {
@@ -212,7 +181,7 @@ impl NoiseProtocolHandler {
         }
     }
 
-    pub fn get_self_peer(&self) -> P2PPeer { self.self_peer }
+    pub fn get_self_peer(&self) -> P2PPeer { self.node().self_peer }
 
     #[inline]
     pub fn networks(&self) -> Arc<RwLock<HashSet<NetworkId>>> { Arc::clone(&self.networks) }
@@ -243,17 +212,13 @@ impl NoiseProtocolHandler {
         let key_pair = clone_snow_keypair(&self.key_pair);
 
         let conn = ConnectionBuilder::default()
+            .set_handler_ref(Arc::pin(self.clone()))
             .set_socket(socket)
             .set_token(token)
             .set_key_pair(key_pair)
             .set_local_peer(self_peer)
             .set_remote_peer(RemotePeer::PreHandshake(PeerType::Node, addr))
-            .set_stats_export_service(self.stats_export_service.clone())
-            .set_event_log(self.event_log.clone())
             .set_local_end_networks(networks)
-            .set_buckets(Arc::clone(&self.buckets))
-            .set_log_dumper(self.log_dumper.clone())
-            .set_network_request_sender(self.network_request_sender.clone())
             .set_noise_params(self.noise_params.clone())
             .build()?;
 
@@ -311,25 +276,21 @@ impl NoiseProtocolHandler {
 
         match TcpStream::connect(&addr) {
             Ok(socket) => {
-                if let Some(ref service) = &self.stats_export_service {
+                if let Some(ref service) = self.node().stats_export_service() {
                     service.conn_received_inc();
                 };
                 let token = Token(self.next_id.fetch_add(1, Ordering::SeqCst));
                 let networks = self.networks();
                 let keypair = clone_snow_keypair(&self.key_pair);
                 let conn = ConnectionBuilder::default()
+                    .set_handler_ref(Arc::pin(self.clone()))
                     .set_socket(socket)
                     .set_token(token)
                     .set_key_pair(keypair)
                     .set_as_initiator(true)
                     .set_local_peer(self_peer.clone())
                     .set_remote_peer(RemotePeer::PreHandshake(peer_type, addr))
-                    .set_stats_export_service(self.stats_export_service.clone())
-                    .set_event_log(self.event_log.clone())
                     .set_local_end_networks(Arc::clone(&networks))
-                    .set_buckets(Arc::clone(&self.buckets))
-                    .set_log_dumper(self.log_dumper.clone())
-                    .set_network_request_sender(self.network_request_sender.clone())
                     .set_noise_params(self.noise_params.clone())
                     .build()?;
 
@@ -369,7 +330,7 @@ impl NoiseProtocolHandler {
     }
 
     #[inline]
-    pub fn peer_type(&self) -> PeerType { self.self_peer.peer_type() }
+    pub fn peer_type(&self) -> PeerType { self.node().self_peer.peer_type() }
 
     /// It setups default message handler at noise protocol handler level.
     fn setup_default_message_handler(&self) {
@@ -410,13 +371,9 @@ impl NoiseProtocolHandler {
 
     pub fn dump_start(&mut self, log_dumper: SyncSender<DumpItem>) {
         self.log_dumper = Some(log_dumper);
-        self.dump_all_connections(self.log_dumper.clone());
     }
 
-    pub fn dump_stop(&mut self) {
-        self.log_dumper = None;
-        self.dump_all_connections(None);
-    }
+    pub fn dump_stop(&mut self) { self.log_dumper = None; }
 
     pub fn add_notification(&self, func: UnitFunction<NetworkMessage>) {
         self.message_processor.add_notification(func.clone());
@@ -426,9 +383,6 @@ impl NoiseProtocolHandler {
     }
 
     pub fn set_network_request_sender(&mut self, sender: SyncSender<NetworkRawRequest>) {
-        for conn in write_or_die!(self.connections).iter_mut() {
-            conn.set_network_request_sender(sender.clone());
-        }
         self.network_request_sender = Some(sender);
     }
 
@@ -509,33 +463,6 @@ impl NoiseProtocolHandler {
         write_or_die!(self.networks).insert(network_id);
     }
 
-    /// It generates a peer statistic list for each connected peer which belongs
-    /// to any of networks in `nids`.
-    pub fn get_peer_stats(&self, nids: &[NetworkId]) -> Vec<PeerStatistic> {
-        let mut ret = vec![];
-        for conn in read_or_die!(self.connections).iter() {
-            if let RemotePeer::PostHandshake(remote_peer) = conn.remote_peer() {
-                if nids.is_empty()
-                    || conn
-                        .remote_end_networks()
-                        .iter()
-                        .any(|nid| nids.contains(nid))
-                {
-                    ret.push(PeerStatistic::new(
-                        remote_peer.id().to_string(),
-                        remote_peer.addr,
-                        remote_peer.peer_type(),
-                        conn.get_messages_sent(),
-                        conn.get_messages_received(),
-                        conn.get_last_latency_measured(),
-                    ));
-                }
-            }
-        }
-
-        ret
-    }
-
     pub fn find_connection_by_id(&self, id: P2PNodeId) -> Option<Connection> {
         read_or_die!(self.connections)
             .iter()
@@ -573,8 +500,8 @@ impl NoiseProtocolHandler {
             .collect()
     }
 
-    fn remove_connection(&self, to_remove: Token) {
-        write_or_die!(self.connections).retain(|conn| conn.token() != to_remove);
+    fn remove_connections(&self, to_remove: &[Token]) {
+        write_or_die!(self.connections).retain(|conn| !to_remove.contains(&conn.token()));
     }
 
     pub fn add_connection(&self, conn: Connection) { write_or_die!(self.connections).push(conn); }
@@ -597,7 +524,7 @@ impl NoiseProtocolHandler {
         let peer_type = self.peer_type();
 
         write_or_die!(self.to_disconnect).drain(..).for_each(|x| {
-            if let Some(ref mut conn) = self.find_connection_by_id(x) {
+            if let Some(ref conn) = self.find_connection_by_id(x) {
                 trace!(
                     "Disconnecting connection {} already marked as going down",
                     usize::from(conn.token())
@@ -606,9 +533,12 @@ impl NoiseProtocolHandler {
             }
         });
 
+        // clone the initial collection of connections to reduce locking
+        let uncleaned_connections: Vec<_> = read_or_die!(self.connections).clone();
+
         // Clean duplicates only if it's a regular node we're running
         if peer_type != PeerType::Bootstrapper {
-            let mut connection_map: Vec<_> = read_or_die!(self.connections)
+            let mut connection_map: Vec<_> = uncleaned_connections
                 .iter()
                 .filter_map(|conn| {
                     conn.remote_id()
@@ -617,7 +547,7 @@ impl NoiseProtocolHandler {
                 .collect();
             connection_map.sort_by_key(|p| std::cmp::Reverse((p.0, p.2)));
             connection_map.dedup_by_key(|p| p.0);
-            read_or_die!(self.connections)
+            uncleaned_connections
                 .iter()
                 .filter(|conn| conn.remote_id().is_some())
                 .for_each(|conn| {
@@ -665,7 +595,7 @@ impl NoiseProtocolHandler {
 
         // Kill nodes which are no longer seen and also closing connections
         let (closing_conns, err_conns): (Vec<Fallible<Token>>, Vec<Fallible<Token>>) =
-            read_or_die!(self.connections)
+            uncleaned_connections
             .iter()
             // Get only connections that have been inactive for more time than allowed or closing connections
             .filter(|conn| {
@@ -683,7 +613,7 @@ impl NoiseProtocolHandler {
                     wrap_connection_already_gone_as_non_fatal(conn_token, conn.shutdown())?;
                 }
                 // Report number of peers to stats export engine
-                if let Some(ref service) = &self.stats_export_service {
+                if let Some(ref service) = &self.node().stats_export_service() {
                     if conn.is_post_handshake() {
                         service.peers_dec();
                     }
@@ -691,14 +621,31 @@ impl NoiseProtocolHandler {
                 Ok(conn_token)
             }).partition(Result::is_ok);
 
-        // Remove the connection from the list of connections
-        for conn in closing_conns.into_iter().map(Result::unwrap) {
-            // safe unwrapping since we are iterating over the list that only contains `Ok`s
-            trace!(
-                "Remove connection {} from Noise Protocol Handler",
-                usize::from(conn)
-            );
-            self.remove_connection(conn);
+        // safe unwrapping since we are iterating over the list that only contains `Ok`s
+        let closing_conns: Vec<_> = closing_conns.into_iter().map(Result::unwrap).collect();
+
+        self.remove_connections(&closing_conns);
+
+        {
+            let mut locked_active_peers = write_or_die!(self.node().active_peer_stats);
+
+            for closed_connection in uncleaned_connections
+                .into_iter()
+                .filter(|conn| closing_conns.contains(&conn.token()))
+            {
+                trace!(
+                    "Removed connection {} from the Noise Protocol Handler",
+                    usize::from(closed_connection.token())
+                );
+
+                if let Some(obsolete_peer_id) = closed_connection
+                    .remote_peer()
+                    .peer()
+                    .map(|peer| peer.id().as_raw())
+                {
+                    locked_active_peers.remove(&obsolete_peer_id);
+                }
+            }
         }
 
         if peer_type != PeerType::Bootstrapper {
@@ -713,8 +660,8 @@ impl NoiseProtocolHandler {
             ));
         }
 
-        // Toss out a random selection, for now, of connections that's post-handshake,
-        // to lower the node count to an appropriate level.
+        // If the number of peers exceeds the desired value, close a random selection of
+        // post-handshake connections to lower it
         if peer_type == PeerType::Node {
             let peer_count = self.connections_posthandshake_count(Some(PeerType::Bootstrapper));
             if peer_count > max_peers_number {
@@ -788,12 +735,6 @@ impl NoiseProtocolHandler {
                 send_status(&conn, status)
             })
             .count()
-    }
-
-    pub fn dump_all_connections(&self, log_dumper: Option<SyncSender<DumpItem>>) {
-        write_or_die!(self.connections).iter_mut().for_each(|conn| {
-            conn.set_log_dumper(log_dumper.clone());
-        });
     }
 
     pub fn get_all_current_peers(&self, peer_type: Option<PeerType>) -> Vec<P2PNodeId> {

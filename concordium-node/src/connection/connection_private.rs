@@ -1,28 +1,28 @@
 use std::{
     collections::HashSet,
     net::{Shutdown, SocketAddr},
+    pin::Pin,
     sync::{
         atomic::{AtomicU64, Ordering},
-        mpsc::SyncSender,
         Arc, RwLock,
     },
 };
 
 use chrono::prelude::*;
 use failure::Fallible;
-use mio::{net::TcpStream, Event, Poll, PollOpt, Ready, Token};
+use mio::{net::TcpStream, Event, Poll, PollOpt, Ready};
 use snow::Keypair;
 
 use crate::{
-    common::{get_current_stamp, P2PNodeId, P2PPeer, PeerType, RemotePeer},
+    common::{get_current_stamp, P2PNodeId, P2PPeer, PeerStats, PeerType, RemotePeer},
     connection::{
-        fails, ConnectionStatus, FrameSink, FrameStream, HandshakeStreamSink,
-        MessageSendingPriority, P2PEvent, Readiness,
+        fails, Connection, ConnectionStatus, FrameSink, FrameStream, HandshakeStreamSink,
+        MessageSendingPriority, Readiness,
     },
     dumper::DumpItem,
-    network::{Buckets, NetworkId},
+    network::NetworkId,
 };
-use concordium_common::{hybrid_buf::HybridBuf, stats_export_service::StatsExportService};
+use concordium_common::hybrid_buf::HybridBuf;
 
 /// It is just a helper struct to facilitate sharing information with
 /// message handlers, which are set up from _inside_ `Connection`.
@@ -30,12 +30,10 @@ use concordium_common::{hybrid_buf::HybridBuf, stats_export_service::StatsExport
 ///     - This structure as a shared object, like `Rc< RefCell<...>>`
 ///     - The input message.
 pub struct ConnectionPrivate {
-    pub token:               Token,
-    pub local_peer:          P2PPeer,
+    pub conn_ref:            Option<Pin<Arc<Connection>>>,
     pub remote_peer:         RemotePeer,
     pub remote_end_networks: HashSet<NetworkId>,
     pub local_end_networks:  Arc<RwLock<HashSet<NetworkId>>>,
-    pub buckets:             Arc<RwLock<Buckets>>,
 
     // Socket and Sink/Stream
     socket:         TcpStream,
@@ -44,24 +42,22 @@ pub struct ConnectionPrivate {
     pub status:     ConnectionStatus,
 
     // Stats
-    pub last_seen:            AtomicU64,
-    pub failed_pkts:          u32,
-    pub stats_export_service: Option<StatsExportService>,
-    pub event_log:            Option<SyncSender<P2PEvent>>,
+    pub last_seen:   AtomicU64,
+    pub failed_pkts: u32,
 
     // Time
     pub sent_handshake:        Arc<AtomicU64>,
     pub sent_ping:             Arc<AtomicU64>,
-    pub last_latency_measured: u64,
-
-    pub log_dumper: Option<SyncSender<DumpItem>>,
-
-    pub noise_params: snow::params::NoiseParams,
+    pub last_latency_measured: Arc<AtomicU64>,
 }
 
 impl ConnectionPrivate {
+    pub fn conn(&self) -> &Pin<Arc<Connection>> {
+        self.conn_ref.as_ref().unwrap() // safe; always available
+    }
+
     pub fn update_last_seen(&self) {
-        if self.local_peer.peer_type() != PeerType::Bootstrapper {
+        if self.conn().local_peer().peer_type() != PeerType::Bootstrapper {
             self.last_seen.store(get_current_stamp(), Ordering::SeqCst);
         }
     }
@@ -91,6 +87,19 @@ impl ConnectionPrivate {
     pub fn promote_to_post_handshake(&mut self, id: P2PNodeId, addr: SocketAddr) -> Fallible<()> {
         self.status = ConnectionStatus::PostHandshake;
         self.remote_peer = self.remote_peer.promote_to_post_handshake(id, addr)?;
+
+        // register peer's stats in the P2PNode
+        let remote_peer_stats = PeerStats::new(
+            id.as_raw(),
+            addr,
+            self.remote_peer.peer_type(),
+            Arc::clone(&self.conn().messages_sent),
+            Arc::clone(&self.conn().messages_received),
+            Arc::clone(&self.last_latency_measured),
+        );
+        write_or_die!(self.conn().handler().node().active_peer_stats)
+            .insert(id.as_raw(), remote_peer_stats);
+
         Ok(())
     }
 
@@ -101,7 +110,7 @@ impl ConnectionPrivate {
     pub fn register(&self, poll: &Poll) -> Fallible<()> {
         into_err!(poll.register(
             &self.socket,
-            self.token,
+            self.conn().token,
             Ready::readable() | Ready::writable(),
             PollOpt::edge()
         ))
@@ -141,7 +150,7 @@ impl ConnectionPrivate {
                         Readiness::NotReady => break,
                     },
                     Err(err) => {
-                        let token_id = usize::from(self.token);
+                        let token_id = usize::from(self.conn().token);
 
                         if err.downcast_ref::<fails::UnwantedMessageError>().is_none()
                             && err.downcast_ref::<fails::MessageTooBigError>().is_none()
@@ -192,7 +201,7 @@ impl ConnectionPrivate {
     }
 
     fn send_to_dump(&self, buf: &HybridBuf, inbound: bool) {
-        if let Some(ref sender) = self.log_dumper {
+        if let Some(ref sender) = self.conn().handler().log_dumper {
             let di = DumpItem::new(
                 Utc::now(),
                 inbound,
@@ -204,11 +213,6 @@ impl ConnectionPrivate {
         }
     }
 
-    #[inline]
-    pub fn set_log_dumper(&mut self, log_dumper: Option<SyncSender<DumpItem>>) {
-        self.log_dumper = log_dumper;
-    }
-
     #[cfg(test)]
     pub fn validate_packet_type(&mut self, msg: &[u8]) -> Readiness<bool> {
         self.message_stream.validate_packet_type(msg)
@@ -217,45 +221,31 @@ impl ConnectionPrivate {
 
 #[derive(Default)]
 pub struct ConnectionPrivateBuilder {
-    pub token:              Option<Token>,
     pub local_peer:         Option<P2PPeer>,
     pub remote_peer:        Option<RemotePeer>,
     pub local_end_networks: Option<Arc<RwLock<HashSet<NetworkId>>>>,
-    pub buckets:            Option<Arc<RwLock<Buckets>>>,
 
     // Sessions
     pub socket:       Option<TcpStream>,
     pub key_pair:     Option<Keypair>,
     pub is_initiator: bool,
 
-    // Stats
-    pub stats_export_service: Option<StatsExportService>,
-    pub event_log:            Option<SyncSender<P2PEvent>>,
-
-    pub log_dumper: Option<SyncSender<DumpItem>>,
-
     pub noise_params: Option<snow::params::NoiseParams>,
 }
 
 impl ConnectionPrivateBuilder {
     pub fn build(self) -> Fallible<ConnectionPrivate> {
-        let u64_max_value: u64 = u64::max_value();
-
         if let (
-            Some(token),
             Some(local_peer),
             Some(remote_peer),
             Some(local_end_networks),
-            Some(buckets),
             Some(socket),
             Some(key_pair),
             Some(noise_params),
         ) = (
-            self.token,
             self.local_peer,
             self.remote_peer,
             self.local_end_networks,
-            self.buckets,
             self.socket,
             self.key_pair,
             self.noise_params,
@@ -268,34 +258,23 @@ impl ConnectionPrivateBuilder {
             )));
 
             Ok(ConnectionPrivate {
-                token,
-                local_peer,
+                conn_ref: None,
                 remote_peer,
                 remote_end_networks: HashSet::new(),
                 local_end_networks,
-                buckets,
                 socket,
                 message_sink: FrameSink::new(Arc::clone(&handshaker)),
                 message_stream: FrameStream::new(peer_type, handshaker),
                 status: ConnectionStatus::PreHandshake,
                 last_seen: AtomicU64::new(get_current_stamp()),
-                failed_pkts: 0,
-                stats_export_service: self.stats_export_service,
-                event_log: self.event_log,
-                sent_handshake: Arc::new(AtomicU64::new(u64_max_value)),
-                sent_ping: Arc::new(AtomicU64::new(u64_max_value)),
-                last_latency_measured: u64_max_value,
-                log_dumper: self.log_dumper,
-                noise_params,
+                failed_pkts: Default::default(),
+                sent_handshake: Default::default(),
+                sent_ping: Default::default(),
+                last_latency_measured: Default::default(),
             })
         } else {
             Err(failure::Error::from(fails::MissingFieldsConnectionBuilder))
         }
-    }
-
-    pub fn set_token(mut self, token: Token) -> Self {
-        self.token = Some(token);
-        self
     }
 
     pub fn set_as_initiator(mut self, value: bool) -> Self {
@@ -326,34 +305,8 @@ impl ConnectionPrivateBuilder {
         self
     }
 
-    pub fn set_buckets(mut self, buckets: Arc<RwLock<Buckets>>) -> ConnectionPrivateBuilder {
-        self.buckets = Some(buckets);
-        self
-    }
-
     pub fn set_key_pair(mut self, kp: Keypair) -> ConnectionPrivateBuilder {
         self.key_pair = Some(kp);
-        self
-    }
-
-    pub fn set_stats_export_service(
-        mut self,
-        se: Option<StatsExportService>,
-    ) -> ConnectionPrivateBuilder {
-        self.stats_export_service = se;
-        self
-    }
-
-    pub fn set_event_log(mut self, el: Option<SyncSender<P2PEvent>>) -> ConnectionPrivateBuilder {
-        self.event_log = el;
-        self
-    }
-
-    pub fn set_log_dumper(
-        mut self,
-        log_dumper: Option<SyncSender<DumpItem>>,
-    ) -> ConnectionPrivateBuilder {
-        self.log_dumper = log_dumper;
         self
     }
 
