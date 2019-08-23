@@ -249,7 +249,7 @@ impl FrameStream {
         Ok(Readiness::NotReady)
     }
 
-    /// It tries to fully read a message from `input`. 
+    /// It tries to fully read a message from `input`.
     pub fn read(&mut self, input: &mut impl Read) -> Fallible<Readiness<HybridBuf>> {
         let payload_readiness = if self.expected_size == 0 {
             self.read_expected_size(input)
