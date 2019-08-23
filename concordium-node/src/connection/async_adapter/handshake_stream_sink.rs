@@ -129,7 +129,7 @@ impl HandshakeStreamSink {
         // Received: A -> e,es,s,ss
         if let Some(mut session) = self.noise_session.take() {
             let e_es_s_ss = input.remaining_bytes()?;
-            session.read_message(e_es_s_ss.as_slice(), &mut self.buffer)?;
+            session.read_message(&e_es_s_ss, &mut self.buffer)?;
 
             trace!(
                 "Responder has received ({} bytes): A -> e,es,s,ss",
@@ -163,7 +163,7 @@ impl HandshakeStreamSink {
             .prologue(PROLOGUE)
             .psk(2, PRE_SHARED_KEY)
             .local_private_key(&self.keypair.private)
-            .remote_public_key(remote_public_key_vw.as_slice())
+            .remote_public_key(&remote_public_key_vw)
             .build_initiator()?;
 
         // Send: A -> e,es,s,ss
@@ -186,7 +186,7 @@ impl HandshakeStreamSink {
                 e_ee_se_psk.len()
             );
 
-            session.read_message(e_ee_se_psk.as_slice(), &mut self.buffer)?;
+            session.read_message(&e_ee_se_psk, &mut self.buffer)?;
 
             // Transport session is ready.
             self.set_transport_mode(Arc::new(RwLock::new(
