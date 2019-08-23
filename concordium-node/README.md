@@ -34,7 +34,7 @@ Unpack the relevant set of genesis data and private baker data from [scripts/gen
 
 ## Running the library as a binary (usable via gRPC)
 ```bash
-$> cargo run --bin p2p_client-cli -- --debug
+$> cargo run -- --debug
 ```
 
 ## Running all tests
