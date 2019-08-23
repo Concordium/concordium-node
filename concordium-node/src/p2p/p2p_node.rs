@@ -248,7 +248,7 @@ impl P2PNode {
             .cloned()
             .map(NetworkId::from)
             .collect();
-        let noise_protocol_handler = NoiseProtocolHandlerBuilder::new()
+        let noise_protocol_handler = NoiseProtocolHandlerBuilder::default()
             .set_server(server)
             .set_max_allowed_peers(config.max_allowed_nodes)
             .set_max_allowed_peers(config.max_allowed_nodes)

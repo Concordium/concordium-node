@@ -53,6 +53,7 @@ const MAX_PREHANDSHAKE_KEEP_ALIVE: u64 = 120_000;
 pub type PreHandshakeCW = UnitFunction<SocketAddr>;
 pub type PreHandshake = UnitFunctor<SocketAddr>;
 
+#[derive(Default)]
 pub struct NoiseProtocolHandlerBuilder {
     server:            Option<TcpListener>,
     event_log:         Option<SyncSender<P2PEvent>>,
@@ -63,17 +64,6 @@ pub struct NoiseProtocolHandlerBuilder {
 }
 
 impl NoiseProtocolHandlerBuilder {
-    pub fn new() -> NoiseProtocolHandlerBuilder {
-        NoiseProtocolHandlerBuilder {
-            server:            None,
-            event_log:         None,
-            buckets:           None,
-            networks:          None,
-            max_allowed_peers: None,
-            noise_params:      None,
-        }
-    }
-
     pub fn build(self) -> Fallible<NoiseProtocolHandler> {
         if let (
             Some(networks),
@@ -103,8 +93,8 @@ impl NoiseProtocolHandlerBuilder {
                 max_allowed_peers,
                 noise_params,
                 network_request_sender: None,
-                connections: Arc::new(RwLock::new(Vec::new())),
-                to_disconnect: Arc::new(RwLock::new(VecDeque::<P2PNodeId>::new())),
+                connections: Default::default(),
+                to_disconnect: Default::default(),
                 unreachable_nodes: UnreachableNodes::new(),
                 banned_peers: Arc::new(RwLock::new(BannedNodes::new())),
                 networks: Arc::new(RwLock::new(networks)),
@@ -648,14 +638,13 @@ impl NoiseProtocolHandler {
                     usize::from(closed_connection.token())
                 );
 
-                // these are only peers after the handshake, so it's safe to unwrap below
-                let obsolete_peer_id = closed_connection
+                if let Some(obsolete_peer_id) = closed_connection
                     .remote_peer()
                     .peer()
-                    .unwrap()
-                    .id()
-                    .as_raw();
-                locked_active_peers.remove(&obsolete_peer_id);
+                    .map(|peer| peer.id().as_raw())
+                {
+                    locked_active_peers.remove(&obsolete_peer_id);
+                }
             }
         }
 

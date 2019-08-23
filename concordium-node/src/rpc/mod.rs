@@ -488,9 +488,13 @@ impl P2P for RpcServerImpl {
                     .map(|x| {
                         let mut peer_resp = PeerStatsResponse_PeerStats::new();
                         peer_resp.set_node_id(P2PNodeId(x.id).to_string());
-                        peer_resp.set_packets_sent(x.sent.load(Ordering::SeqCst));
-                        peer_resp.set_packets_received(x.received.load(Ordering::SeqCst));
-                        peer_resp.set_measured_latency(x.measured_latency.load(Ordering::SeqCst));
+                        peer_resp.set_packets_sent(x.sent.load(Ordering::Relaxed));
+                        peer_resp.set_packets_received(x.received.load(Ordering::Relaxed));
+
+                        let latency = x.measured_latency.load(Ordering::Relaxed);
+                        if latency > 0 {
+                            peer_resp.set_measured_latency(latency);
+                        }
 
                         peer_resp
                     })
@@ -1019,8 +1023,11 @@ impl P2P for RpcServerImpl {
                     req.id.clone(),
                     req.directory.clone(),
                 );
-                let _node_list = self.node.get_peer_stats(&[network_id]);
-                if !_node_list.into_iter().any(|s| s.id == id) {
+                let _node_list = self.node.get_peer_stats();
+                if !_node_list
+                    .into_iter()
+                    .any(|s| P2PNodeId(s.id).to_string() == id)
+                {
                     sink.fail(grpcio::RpcStatus::new(
                         grpcio::RpcStatusCode::FailedPrecondition,
                         Some("I don't have the required peers!".to_string()),

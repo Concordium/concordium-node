@@ -235,8 +235,6 @@ pub struct ConnectionPrivateBuilder {
 
 impl ConnectionPrivateBuilder {
     pub fn build(self) -> Fallible<ConnectionPrivate> {
-        let u64_max_value: u64 = u64::max_value();
-
         if let (
             Some(local_peer),
             Some(remote_peer),
@@ -269,10 +267,10 @@ impl ConnectionPrivateBuilder {
                 message_stream: FrameStream::new(peer_type, handshaker),
                 status: ConnectionStatus::PreHandshake,
                 last_seen: AtomicU64::new(get_current_stamp()),
-                failed_pkts: 0,
-                sent_handshake: Arc::new(AtomicU64::new(u64_max_value)),
-                sent_ping: Arc::new(AtomicU64::new(u64_max_value)),
-                last_latency_measured: Arc::new(AtomicU64::new(u64_max_value)),
+                failed_pkts: Default::default(),
+                sent_handshake: Default::default(),
+                sent_ping: Default::default(),
+                last_latency_measured: Default::default(),
             })
         } else {
             Err(failure::Error::from(fails::MissingFieldsConnectionBuilder))
