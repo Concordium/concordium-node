@@ -8,6 +8,7 @@ publish = false
 build = "build.rs"
 autobins = false
 edition = "2018"
+default-run = "p2p_client-cli"
 
 [features]
 default = []
