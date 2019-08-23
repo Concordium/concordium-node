@@ -178,13 +178,13 @@ impl P2PNode {
 
         info!("My Node ID is {}", id);
 
-        let poll = Poll::new().unwrap_or_else(|_| panic!("Couldn't create poll"));
+        let poll = Poll::new().unwrap_or_else(|err| panic!("Couldn't create poll {:?}", err));
 
         let server =
             TcpListener::bind(&addr).unwrap_or_else(|_| panic!("Couldn't listen on port!"));
 
         if poll
-            .register(&server, SERVER, Ready::readable(), PollOpt::edge())
+            .register(&server, SERVER, Ready::readable(), PollOpt::level())
             .is_err()
         {
             panic!("Couldn't register server with poll!")
