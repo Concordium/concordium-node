@@ -330,7 +330,7 @@ dependencies = [
 
 [[package]]
 name = "concordium-common"
-version = "0.1.50"
+version = "0.1.51"
 dependencies = [
  "byteorder 1.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "cfg-if 0.1.9 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -357,7 +357,7 @@ name = "concordium-consensus"
 version = "0.0.1"
 dependencies = [
  "byteorder 1.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "concordium-common 0.1.50",
+ "concordium-common 0.1.51",
  "concordium-global-state 0.0.1",
  "dodis_yampolskiy_prf 0.1.0",
  "ec_vrf_ed25519_sha256 0.0.1",
@@ -393,7 +393,7 @@ dependencies = [
  "byteorder 1.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "chrono 0.4.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "circular-queue 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "concordium-common 0.1.50",
+ "concordium-common 0.1.51",
  "digest 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "ec_vrf_ed25519_sha256 0.0.1",
  "eddsa_ed25519 0.1.0",
@@ -1604,7 +1604,7 @@ dependencies = [
 
 [[package]]
 name = "p2p_client"
-version = "0.1.50"
+version = "0.1.51"
 dependencies = [
  "app_dirs2 2.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "base58 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1615,7 +1615,7 @@ dependencies = [
  "cfg-if 0.1.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "chrono 0.4.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "circular-queue 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "concordium-common 0.1.50",
+ "concordium-common 0.1.51",
  "concordium-consensus 0.0.1",
  "concordium-dns 0.0.1",
  "concordium-global-state 0.0.1",
