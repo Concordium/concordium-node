@@ -394,7 +394,7 @@ fn start_consensus_threads(
                     debug!("Received PeerList response, attempting to satisfy desired peers");
                     let mut new_peers = 0;
                     let peer_count = node_ref
-                        .get_peer_stats(&[])
+                        .get_peer_stats()
                         .iter()
                         .filter(|x| x.peer_type == PeerType::Node)
                         .count();

@@ -52,8 +52,8 @@ use crate::{
             collapse_process_result, MessageProcessor, ProcessResult,
         },
     },
-    dumper::DumpItem,
     network::{Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse},
+    p2p::noise_protocol_handler::NoiseProtocolHandler,
 };
 use concordium_common::stats_export_service::StatsExportService;
 
@@ -67,9 +67,9 @@ use mio::{Event, Poll, Token};
 use std::{
     collections::HashSet,
     net::SocketAddr,
+    pin::Pin,
     sync::{
         atomic::{AtomicU64, Ordering},
-        mpsc::SyncSender,
         Arc, RwLock,
     },
 };
@@ -85,14 +85,14 @@ macro_rules! handle_by_private {
 
 #[derive(Clone)]
 pub struct Connection {
+    handler_ref: Pin<Arc<NoiseProtocolHandler>>,
+
     // Counters
-    messages_sent:     u64,
-    messages_received: Arc<AtomicU64>,
-    last_ping_sent:    Arc<AtomicU64>,
+    pub messages_sent:     Arc<AtomicU64>,
+    pub messages_received: Arc<AtomicU64>,
+    last_ping_sent:        Arc<AtomicU64>,
 
     token: Token,
-
-    network_request_sender: SyncSender<NetworkRawRequest>,
 
     /// It stores internal info used in handles. In this way,
     /// handler's function will only need two arguments: this shared object, and
@@ -106,9 +106,7 @@ pub struct Connection {
 }
 
 impl Connection {
-    pub fn set_network_request_sender(&mut self, sender: SyncSender<NetworkRawRequest>) {
-        self.network_request_sender = sender;
-    }
+    pub fn handler(&self) -> &Pin<Arc<NoiseProtocolHandler>> { &self.handler_ref }
 
     // Setup handshake handler
     pub fn setup_pre_handshake(&self) {
@@ -226,13 +224,10 @@ impl Connection {
 
     // =============================
 
-    pub fn get_last_latency_measured(&self) -> Option<u64> {
-        let latency: u64 = read_or_die!(self.dptr).last_latency_measured;
-        if latency != u64::max_value() {
-            Some(latency)
-        } else {
-            None
-        }
+    pub fn get_last_latency_measured(&self) -> u64 {
+        read_or_die!(self.dptr)
+            .last_latency_measured
+            .load(Ordering::SeqCst)
     }
 
     pub fn set_measured_handshake_sent(&self) {
@@ -250,7 +245,11 @@ impl Connection {
             .store(get_current_stamp(), Ordering::SeqCst);
     }
 
-    pub fn local_id(&self) -> P2PNodeId { read_or_die!(self.dptr).local_peer.id() }
+    pub fn local_peer(&self) -> P2PPeer { self.handler().node().self_peer }
+
+    pub fn remote_peer(&self) -> RemotePeer { read_or_die!(self.dptr).remote_peer() }
+
+    pub fn local_id(&self) -> P2PNodeId { self.local_peer().id() }
 
     pub fn remote_id(&self) -> Option<P2PNodeId> {
         match read_or_die!(self.dptr).remote_peer() {
@@ -259,23 +258,23 @@ impl Connection {
         }
     }
 
+    pub fn local_peer_type(&self) -> PeerType { self.local_peer().peer_type() }
+
+    pub fn remote_peer_type(&self) -> PeerType { read_or_die!(self.dptr).remote_peer.peer_type() }
+
+    pub fn local_addr(&self) -> SocketAddr { self.local_peer().addr }
+
+    pub fn remote_addr(&self) -> SocketAddr { read_or_die!(self.dptr).remote_peer().addr() }
+
     pub fn is_post_handshake(&self) -> bool {
         read_or_die!(self.dptr).remote_peer.is_post_handshake()
     }
 
-    pub fn local_addr(&self) -> SocketAddr { read_or_die!(self.dptr).local_peer.addr }
-
-    pub fn remote_addr(&self) -> SocketAddr { read_or_die!(self.dptr).remote_peer().addr() }
-
     pub fn last_seen(&self) -> u64 { read_or_die!(self.dptr).last_seen() }
-
-    pub fn local_peer(&self) -> P2PPeer { read_or_die!(self.dptr).local_peer }
-
-    pub fn remote_peer(&self) -> RemotePeer { read_or_die!(self.dptr).remote_peer().to_owned() }
 
     pub fn get_messages_received(&self) -> u64 { self.messages_received.load(Ordering::SeqCst) }
 
-    pub fn get_messages_sent(&self) -> u64 { self.messages_sent }
+    pub fn get_messages_sent(&self) -> u64 { self.messages_sent.load(Ordering::SeqCst) }
 
     pub fn failed_pkts(&self) -> u32 { read_or_die!(self.dptr).failed_pkts }
 
@@ -315,11 +314,6 @@ impl Connection {
         }
     }
 
-    #[inline]
-    pub fn set_log_dumper(&self, log_dumper: Option<SyncSender<DumpItem>>) {
-        write_or_die!(self.dptr).set_log_dumper(log_dumper);
-    }
-
     /// It decodes message from `buf` and processes it using its message
     /// handlers.
     fn process_message(&self, message: HybridBuf) -> Fallible<ProcessResult> {
@@ -348,14 +342,10 @@ impl Connection {
     }
 
     pub fn stats_export_service(&self) -> Option<StatsExportService> {
-        read_or_die!(self.dptr).stats_export_service.clone()
+        self.handler().node().stats_export_service().clone()
     }
 
-    pub fn local_peer_type(&self) -> PeerType { read_or_die!(self.dptr).local_peer.peer_type() }
-
-    pub fn remote_peer_type(&self) -> PeerType { read_or_die!(self.dptr).remote_peer.peer_type() }
-
-    pub fn buckets(&self) -> Arc<RwLock<Buckets>> { Arc::clone(&read_or_die!(self.dptr).buckets) }
+    pub fn buckets(&self) -> Arc<RwLock<Buckets>> { Arc::clone(&self.handler().buckets) }
 
     #[inline]
     pub fn promote_to_post_handshake(&self, id: P2PNodeId, addr: SocketAddr) -> Fallible<()> {
@@ -381,7 +371,12 @@ impl Connection {
             data: input,
             priority,
         };
-        into_err!(self.network_request_sender.send(request))
+        into_err!(self
+            .handler()
+            .network_request_sender
+            .as_ref()
+            .expect("The network request sender is not available!")
+            .send(request))
     }
 
     #[inline]

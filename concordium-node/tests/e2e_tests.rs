@@ -10,9 +10,10 @@ mod tests {
         network::{NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType},
         p2p::{banned_nodes::BannedNode, p2p_node::*},
         test_utils::{
-            await_handshake, connect, consume_pending_messages, get_test_config,
+            await_broadcast_message, await_direct_message, await_direct_message_with_timeout,
+            await_handshake, await_handshake_with_timeout, await_peerlist_with_timeout,
+            await_ping_with_timeout, connect, consume_pending_messages, get_test_config,
             make_node_and_sync, max_recv_timeout, next_available_port, setup_logger,
-            wait_broadcast_message, wait_direct_message, wait_direct_message_timeout,
         },
     };
 
@@ -65,7 +66,7 @@ mod tests {
             None,
             msg.to_vec(),
         )?;
-        let mut msg_recv = wait_direct_message(&msg_waiter_1)?;
+        let mut msg_recv = await_direct_message(&msg_waiter_1)?;
         assert_eq!(&msg[..], &msg_recv.remaining_bytes()?[..]);
 
         Ok(())
@@ -93,7 +94,7 @@ mod tests {
             None,
             msg.to_vec(),
         )?;
-        let received_msg = wait_direct_message_timeout(&msg_waiter_1, max_recv_timeout());
+        let received_msg = await_direct_message_with_timeout(&msg_waiter_1, max_recv_timeout());
         assert_eq!(
             received_msg.map(|mut hb| hb.remaining_bytes().unwrap()),
             Some(msg.to_vec())
@@ -153,7 +154,7 @@ mod tests {
         // Wait for broadcast message from 1..MESH_NODE_COUNT
         // and close and join to all nodes (included first node).
         for (node, waiter) in peers.iter_mut().skip(1) {
-            let mut msg_recv = wait_broadcast_message(&waiter)?;
+            let mut msg_recv = await_broadcast_message(&waiter)?;
             assert_eq!(&msg_recv.remaining_bytes()?[..], msg);
             assert_eq!(true, node.close_and_join().is_ok());
         }
@@ -178,7 +179,7 @@ mod tests {
         let networks = vec![100];
 
         let msg = b"Hello other mother's brother";
-        // Create island of nodes. Each node (in each island) is connected to all
+        // Create an island of nodes. Each node (in each island) is connected to all
         // previous created nodes.
         for _island in 0..islands_count {
             let mut peers_islands_and_ports: Vec<(P2PNode, _)> = Vec::with_capacity(island_size);
@@ -238,7 +239,7 @@ mod tests {
         // Wait reception of that broadcast message.
         for island in islands.iter_mut() {
             for (node, waiter) in island.iter_mut().skip(1) {
-                let mut msg_recv = wait_broadcast_message(&waiter)?;
+                let mut msg_recv = await_broadcast_message(&waiter)?;
                 assert_eq!(&msg_recv.remaining_bytes()?[..], msg);
                 assert_eq!(true, node.close_and_join().is_ok());
             }
@@ -255,7 +256,6 @@ mod tests {
     #[test]
     pub fn e2e_003_big_mesh_three_islands_net() -> Fallible<()> { islands_mesh_test(5, 3) }
 
-    /// This test has been used in
     #[test]
     fn e2e_004_noise_ready_writeable() -> Fallible<()> {
         setup_logger();
@@ -278,7 +278,7 @@ mod tests {
             None,
             msg.to_vec(),
         )?;
-        let mut msg_1 = wait_direct_message(&msg_waiter_2)?;
+        let mut msg_1 = await_direct_message(&msg_waiter_2)?;
         assert_eq!(&msg_1.remaining_bytes()?[..], msg);
 
         send_direct_message(
@@ -288,7 +288,7 @@ mod tests {
             None,
             msg.to_vec(),
         )?;
-        let mut msg_2 = wait_direct_message(&msg_waiter_1)?;
+        let mut msg_2 = await_direct_message(&msg_waiter_1)?;
         assert_eq!(&msg_2.remaining_bytes()?[..], msg);
 
         send_direct_message(
@@ -298,7 +298,7 @@ mod tests {
             None,
             msg.to_vec(),
         )?;
-        let mut msg_3 = wait_direct_message(&msg_waiter_2)?;
+        let mut msg_3 = await_direct_message(&msg_waiter_2)?;
         assert_eq!(&msg_3.remaining_bytes()?[..], msg);
 
         Ok(())
@@ -347,7 +347,7 @@ mod tests {
         )?;
         node_1.close_and_join()?;
 
-        let mut node_2_msg = wait_direct_message(&waiter_2)?;
+        let mut node_2_msg = await_direct_message(&waiter_2)?;
         assert_eq!(&node_2_msg.remaining_bytes()?[..], msg);
         Ok(())
     }
@@ -381,7 +381,7 @@ mod tests {
             msg.to_vec(),
         )?;
 
-        let mut node_2_msg = wait_direct_message(&waiter_2)?;
+        let mut node_2_msg = await_direct_message(&waiter_2)?;
         assert_eq!(&node_2_msg.remaining_bytes()?[..], msg);
         Ok(())
     }
@@ -403,7 +403,7 @@ mod tests {
         let to_ban = BannedNode::ById(node_2.id());
 
         node_1.ban_node(to_ban);
-        let mut reply = node_1.get_peer_stats(&[]);
+        let mut reply = node_1.get_peer_stats();
 
         let t1 = time::Instant::now();
         while reply.len() == 1 {
@@ -413,7 +413,7 @@ mod tests {
                 bail!("timeout");
             }
             std::thread::sleep(std::time::Duration::from_millis(50));
-            reply = node_1.get_peer_stats(&[]);
+            reply = node_1.get_peer_stats();
         }
 
         Ok(())
@@ -439,7 +439,6 @@ mod tests {
         connect(&mut node_1, &node_2).unwrap();
         await_handshake(&msg_waiter_1).unwrap();
 
-        // let mut msg = make_direct_message_into_disk().unwrap();
         let msg = thread_rng()
             .sample_iter(&Standard)
             .take(size)
@@ -448,7 +447,7 @@ mod tests {
 
         // Send.
         send_direct_message(&node_1, Some(node_2.id()), net_id, None, msg.clone()).unwrap();
-        let mut msg_recv = wait_direct_message(&msg_waiter_2).unwrap();
+        let mut msg_recv = await_direct_message(&msg_waiter_2).unwrap();
         assert_eq!(msg.len() as u64, msg_recv.remaining_len().unwrap());
 
         // Get content hash.
@@ -462,5 +461,59 @@ mod tests {
             .collect::<Vec<u64>>();
 
         assert_eq!(content_hash_list[0], content_hash_list[1]);
+    }
+
+    #[test]
+    #[ignore]
+    pub fn e2e_006_bootstrapper_load_test() -> Fallible<()> {
+        use std::{net::SocketAddr, thread, time::Duration};
+
+        const BOOTSTRAPPER_CONN_COUNT: usize = 400;
+        const ARTIFICIAL_DELAY_BETWEEN_PEERS: u64 = 10;
+        const WAIT_TIME: std::time::Duration = Duration::from_millis(10000);
+        setup_logger();
+        let bootstrapped_counter = Arc::new(AtomicUsize::new(0));
+
+        let (mut bootstrapper_node, _) =
+            make_node_and_sync(next_available_port(), vec![100], PeerType::Bootstrapper)?;
+
+        let node_runner = |node_idx: usize,
+                           bootstrapper: SocketAddr,
+                           counter: Arc<AtomicUsize>|
+         -> Fallible<()> {
+            debug!("Attempting node #{}", node_idx);
+            let (mut node, waiter) =
+                make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
+            node.connect(PeerType::Bootstrapper, bootstrapper, None)?;
+            await_handshake_with_timeout(&waiter, WAIT_TIME)?;
+            await_ping_with_timeout(&waiter, WAIT_TIME)?;
+            await_peerlist_with_timeout(&waiter, WAIT_TIME)?;
+            let _ = node.close_and_join()?;
+            let _ = counter.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        };
+
+        // Create nodes
+        let mut threads = vec![];
+        for node_idx in 0..BOOTSTRAPPER_CONN_COUNT {
+            let bootstrapper_addr = bootstrapper_node.internal_addr();
+            let counter_clone = Arc::clone(&bootstrapped_counter);
+            threads.push(thread::spawn(move || {
+                node_runner(node_idx, bootstrapper_addr, counter_clone)
+            }));
+            thread::sleep(Duration::from_millis(ARTIFICIAL_DELAY_BETWEEN_PEERS));
+        }
+
+        for thread in threads {
+            if thread.join().is_err() {
+                bail!("Thread failed!");
+            }
+        }
+
+        // Check counter.
+        let bootstrapped_counter_count = bootstrapped_counter.load(Ordering::SeqCst);
+        assert_eq!(BOOTSTRAPPER_CONN_COUNT, bootstrapped_counter_count);
+        bootstrapper_node.close_and_join()?;
+        Ok(())
     }
 }

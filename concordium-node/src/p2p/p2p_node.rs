@@ -3,7 +3,7 @@ use crate::dumper::create_dump_thread;
 use crate::{
     common::{
         counter::TOTAL_MESSAGES_SENT_COUNTER, get_current_stamp, process_network_requests,
-        serialization::serialize_into_memory, P2PNodeId, P2PPeer, PeerType, RemotePeer,
+        serialization::serialize_into_memory, P2PNodeId, P2PPeer, PeerStats, PeerType, RemotePeer,
     },
     configuration,
     connection::{
@@ -24,7 +24,6 @@ use crate::{
         p2p_node_handlers::{
             forward_network_packet_message, forward_network_request, forward_network_response,
         },
-        peer_statistics::PeerStatistic,
     },
     utils,
 };
@@ -41,7 +40,7 @@ use ipconfig;
 use mio::{net::TcpListener, Events, Poll, PollOpt, Ready, Token};
 
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     net::{
         IpAddr::{self, V4, V6},
         SocketAddr,
@@ -118,6 +117,7 @@ pub struct P2PNode {
     pub is_rpc_online: Arc<AtomicBool>,
     pub noise_protocol_handler: NoiseProtocolHandler,
     pub self_peer: P2PPeer,
+    pub active_peer_stats: Arc<RwLock<HashMap<u64, PeerStats>>>,
     pub send_queue_in: SyncSender<NetworkMessage>,
     pub stats_export_service: Option<StatsExportService>,
 }
@@ -248,13 +248,11 @@ impl P2PNode {
             .cloned()
             .map(NetworkId::from)
             .collect();
-        let noise_protocol_handler = NoiseProtocolHandlerBuilder::new()
+        let noise_protocol_handler = NoiseProtocolHandlerBuilder::default()
             .set_server(server)
             .set_max_allowed_peers(config.max_allowed_nodes)
             .set_max_allowed_peers(config.max_allowed_nodes)
             .set_event_log(event_log)
-            .set_stats_export_service(stats_export_service.clone())
-            .set_self_peer(self_peer)
             .set_networks(networks)
             .set_buckets(Arc::new(RwLock::new(Buckets::new())))
             .set_noise_params(&conf.crypto)
@@ -264,7 +262,7 @@ impl P2PNode {
         let (send_queue_in, send_queue_out) = sync_channel(10000);
         let (resend_queue_in, resend_queue_out) = sync_channel(10000);
 
-        let mut mself = P2PNode {
+        let mut node = P2PNode {
             poll: Arc::new(poll),
             send_queue_out: Arc::new(Mutex::new(send_queue_out)),
             resend_queue_in: resend_queue_in.clone(),
@@ -283,11 +281,15 @@ impl P2PNode {
             is_rpc_online: Arc::new(AtomicBool::new(false)),
             noise_protocol_handler,
             self_peer,
+            active_peer_stats: Default::default(),
             send_queue_in,
             stats_export_service,
         };
-        mself.add_default_message_handlers();
-        mself
+        node.add_default_message_handlers();
+
+        node.noise_protocol_handler.node_ref = Some(Arc::pin(node.clone()));
+
+        node
     }
 
     /// It adds default message handler at .
@@ -371,7 +373,7 @@ impl P2PNode {
 
     /// This function is called periodically to print information about current
     /// nodes.
-    fn print_stats(&self, peer_stat_list: &[PeerStatistic]) {
+    fn print_stats(&self, peer_stat_list: &[PeerStats]) {
         trace!("Printing out stats");
         if let Some(max_nodes) = self.max_nodes {
             debug!(
@@ -391,7 +393,7 @@ impl P2PNode {
         }
     }
 
-    fn check_peers(&self, peer_stat_list: &[PeerStatistic]) {
+    fn check_peers(&self, peer_stat_list: &[PeerStats]) {
         trace!("Checking for needed peers");
         if self.peer_type() != PeerType::Bootstrapper
             && !self.config.no_net
@@ -447,7 +449,7 @@ impl P2PNode {
         // Prepare poll-loop channels.
         let (network_request_sender, network_request_receiver) = sync_channel(10000);
         self.noise_protocol_handler
-            .set_network_request_sender(network_request_sender.clone());
+            .set_network_request_sender(network_request_sender);
 
         let self_clone = self.clone();
 
@@ -475,7 +477,7 @@ impl P2PNode {
                 let now = SystemTime::now();
                 if let Ok(difference) = now.duration_since(log_time) {
                     if difference > Duration::from_secs(self_clone.config.housekeeping_interval) {
-                        let peer_stat_list = self_clone.get_peer_stats(&[]);
+                        let peer_stat_list = self_clone.get_peer_stats();
                         self_clone.print_stats(&peer_stat_list);
                         self_clone.check_peers(&peer_stat_list);
 
@@ -982,8 +984,11 @@ impl P2PNode {
         })
     }
 
-    pub fn get_peer_stats(&self, nids: &[NetworkId]) -> Vec<PeerStatistic> {
-        self.noise_protocol_handler.get_peer_stats(nids)
+    pub fn get_peer_stats(&self) -> Vec<PeerStats> {
+        read_or_die!(self.active_peer_stats)
+            .values()
+            .cloned()
+            .collect()
     }
 
     #[cfg(not(windows))]
