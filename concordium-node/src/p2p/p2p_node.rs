@@ -118,6 +118,7 @@ pub struct P2PNode {
     pub is_rpc_online: Arc<AtomicBool>,
     pub noise_protocol_handler: NoiseProtocolHandler,
     pub self_peer: P2PPeer,
+    pub active_peers: Arc<RwLock<HashSet<RemotePeer>>>,
     pub send_queue_in: SyncSender<NetworkMessage>,
     pub stats_export_service: Option<StatsExportService>,
 }
@@ -281,6 +282,7 @@ impl P2PNode {
             is_rpc_online: Arc::new(AtomicBool::new(false)),
             noise_protocol_handler,
             self_peer,
+            active_peers: Default::default(),
             send_queue_in,
             stats_export_service,
         };

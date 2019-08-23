@@ -538,8 +538,8 @@ impl NoiseProtocolHandler {
             .collect()
     }
 
-    fn remove_connection(&self, to_remove: Token) {
-        write_or_die!(self.connections).retain(|conn| conn.token() != to_remove);
+    fn remove_connections(&self, to_remove: &[Token]) {
+        write_or_die!(self.connections).retain(|conn| !to_remove.contains(&conn.token()));
     }
 
     pub fn add_connection(&self, conn: Connection) { write_or_die!(self.connections).push(conn); }
@@ -562,7 +562,7 @@ impl NoiseProtocolHandler {
         let peer_type = self.peer_type();
 
         write_or_die!(self.to_disconnect).drain(..).for_each(|x| {
-            if let Some(ref mut conn) = self.find_connection_by_id(x) {
+            if let Some(ref conn) = self.find_connection_by_id(x) {
                 trace!(
                     "Disconnecting connection {} already marked as going down",
                     usize::from(conn.token())
@@ -571,9 +571,12 @@ impl NoiseProtocolHandler {
             }
         });
 
+        // clone the initial collection of connections to reduce locking
+        let uncleaned_connections: Vec<_> = read_or_die!(self.connections).clone();
+
         // Clean duplicates only if it's a regular node we're running
         if peer_type != PeerType::Bootstrapper {
-            let mut connection_map: Vec<_> = read_or_die!(self.connections)
+            let mut connection_map: Vec<_> = uncleaned_connections
                 .iter()
                 .filter_map(|conn| {
                     conn.remote_id()
@@ -582,7 +585,7 @@ impl NoiseProtocolHandler {
                 .collect();
             connection_map.sort_by_key(|p| std::cmp::Reverse((p.0, p.2)));
             connection_map.dedup_by_key(|p| p.0);
-            read_or_die!(self.connections)
+            uncleaned_connections
                 .iter()
                 .filter(|conn| conn.remote_id().is_some())
                 .for_each(|conn| {
@@ -630,7 +633,7 @@ impl NoiseProtocolHandler {
 
         // Kill nodes which are no longer seen and also closing connections
         let (closing_conns, err_conns): (Vec<Fallible<Token>>, Vec<Fallible<Token>>) =
-            read_or_die!(self.connections)
+            uncleaned_connections
             .iter()
             // Get only connections that have been inactive for more time than allowed or closing connections
             .filter(|conn| {
@@ -656,14 +659,25 @@ impl NoiseProtocolHandler {
                 Ok(conn_token)
             }).partition(Result::is_ok);
 
-        // Remove the connection from the list of connections
-        for conn in closing_conns.into_iter().map(Result::unwrap) {
-            // safe unwrapping since we are iterating over the list that only contains `Ok`s
-            trace!(
-                "Remove connection {} from Noise Protocol Handler",
-                usize::from(conn)
-            );
-            self.remove_connection(conn);
+        // safe unwrapping since we are iterating over the list that only contains `Ok`s
+        let closing_conns: Vec<_> = closing_conns.into_iter().map(Result::unwrap).collect();
+
+        self.remove_connections(&closing_conns);
+
+        {
+            let mut locked_active_peers = write_or_die!(self.node().active_peers);
+
+            for closed_connection in uncleaned_connections
+                .into_iter()
+                .filter(|conn| closing_conns.contains(&conn.token()))
+            {
+                trace!(
+                    "Removed connection {} from the Noise Protocol Handler",
+                    usize::from(closed_connection.token())
+                );
+
+                locked_active_peers.remove(&closed_connection.remote_peer());
+            }
         }
 
         if peer_type != PeerType::Bootstrapper {
@@ -678,8 +692,8 @@ impl NoiseProtocolHandler {
             ));
         }
 
-        // Toss out a random selection, for now, of connections that's post-handshake,
-        // to lower the node count to an appropriate level.
+        // If the number of peers exceeds the desired value, close a random selection of
+        // post-handshake connections to lower it
         if peer_type == PeerType::Node {
             let peer_count = self.connections_posthandshake_count(Some(PeerType::Bootstrapper));
             if peer_count > max_peers_number {

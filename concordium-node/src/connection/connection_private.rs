@@ -87,6 +87,7 @@ impl ConnectionPrivate {
     pub fn promote_to_post_handshake(&mut self, id: P2PNodeId, addr: SocketAddr) -> Fallible<()> {
         self.status = ConnectionStatus::PostHandshake;
         self.remote_peer = self.remote_peer.promote_to_post_handshake(id, addr)?;
+        write_or_die!(self.conn().handler().node().active_peers).insert(self.remote_peer);
         Ok(())
     }
 

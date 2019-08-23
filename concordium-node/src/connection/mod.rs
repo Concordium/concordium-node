@@ -250,7 +250,7 @@ impl Connection {
 
     pub fn local_peer(&self) -> P2PPeer { self.handler().node().self_peer }
 
-    pub fn remote_peer(&self) -> RemotePeer { read_or_die!(self.dptr).remote_peer().to_owned() }
+    pub fn remote_peer(&self) -> RemotePeer { read_or_die!(self.dptr).remote_peer() }
 
     pub fn local_id(&self) -> P2PNodeId { self.local_peer().id() }
 

@@ -25,7 +25,7 @@ use crate::common::serialization::{Deserializable, ReadArchive, Serializable, Wr
 const PEER_TYPE_NODE: u8 = 0;
 const PEER_TYPE_BOOTSTRAPPER: u8 = 1;
 
-#[derive(Clone, Copy, Debug, PartialEq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum PeerType {
     Node,
@@ -74,7 +74,7 @@ impl Deserializable for PeerType {
 // completed, the type is upgraded to `PostHandshake` and at this point
 // will contain the full `P2PPeer` struct, which also contains the
 // `PeerType` carried over from the previous state.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RemotePeer {
     PreHandshake(PeerType, SocketAddr),
     PostHandshake(P2PPeer),
