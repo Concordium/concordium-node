@@ -27,7 +27,7 @@ use std::{
 use crate::{
     common::{
         get_current_stamp, serialization::serialize_into_memory, NetworkRawRequest, P2PNodeId,
-        P2PPeer, PeerStats, PeerType, RemotePeer,
+        P2PPeer, PeerType, RemotePeer,
     },
     connection::{
         network_handler::message_processor::{MessageManager, MessageProcessor, ProcessResult},
@@ -473,33 +473,6 @@ impl NoiseProtocolHandler {
         write_or_die!(self.networks).insert(network_id);
     }
 
-    /// It generates a peer statistic list for each connected peer which belongs
-    /// to any of networks in `nids`.
-    pub fn get_peer_stats(&self, nids: &[NetworkId]) -> Vec<PeerStats> {
-        let mut ret = vec![];
-        for conn in read_or_die!(self.connections).iter() {
-            if let RemotePeer::PostHandshake(remote_peer) = conn.remote_peer() {
-                if nids.is_empty()
-                    || conn
-                        .remote_end_networks()
-                        .iter()
-                        .any(|nid| nids.contains(nid))
-                {
-                    ret.push(PeerStats::new(
-                        remote_peer.id().as_raw(),
-                        remote_peer.addr,
-                        remote_peer.peer_type(),
-                        Arc::clone(&conn.messages_sent),
-                        Arc::clone(&conn.messages_received),
-                        Arc::clone(&read_or_die!(conn.dptr).last_latency_measured),
-                    ));
-                }
-            }
-        }
-
-        ret
-    }
-
     pub fn find_connection_by_id(&self, id: P2PNodeId) -> Option<Connection> {
         read_or_die!(self.connections)
             .iter()
@@ -664,7 +637,7 @@ impl NoiseProtocolHandler {
         self.remove_connections(&closing_conns);
 
         {
-            let mut locked_active_peers = write_or_die!(self.node().active_peers);
+            let mut locked_active_peers = write_or_die!(self.node().active_peer_stats);
 
             for closed_connection in uncleaned_connections
                 .into_iter()
@@ -675,7 +648,14 @@ impl NoiseProtocolHandler {
                     usize::from(closed_connection.token())
                 );
 
-                locked_active_peers.remove(&closed_connection.remote_peer());
+                // these are only peers after the handshake, so it's safe to unwrap below
+                let obsolete_peer_id = closed_connection
+                    .remote_peer()
+                    .peer()
+                    .unwrap()
+                    .id()
+                    .as_raw();
+                locked_active_peers.remove(&obsolete_peer_id);
             }
         }
 

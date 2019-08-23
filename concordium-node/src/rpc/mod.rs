@@ -480,7 +480,7 @@ impl P2P for RpcServerImpl {
         sink: ::grpcio::UnarySink<PeerStatsResponse>,
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
-            let peer_stats = self.node.get_peer_stats(&[]);
+            let peer_stats = self.node.get_peer_stats();
 
             let f = {
                 let data = peer_stats
@@ -515,7 +515,7 @@ impl P2P for RpcServerImpl {
                 let peer_type = self.node.peer_type();
                 let data = self
                     .node
-                    .get_peer_stats(&[])
+                    .get_peer_stats()
                     .iter()
                     .map(|x| {
                         let mut peer_resp = PeerElement::new();

@@ -14,7 +14,7 @@ use mio::{net::TcpStream, Event, Poll, PollOpt, Ready};
 use snow::Keypair;
 
 use crate::{
-    common::{get_current_stamp, P2PNodeId, P2PPeer, PeerType, RemotePeer},
+    common::{get_current_stamp, P2PNodeId, P2PPeer, PeerStats, PeerType, RemotePeer},
     connection::{
         fails, Connection, ConnectionStatus, FrameSink, FrameStream, HandshakeStreamSink,
         MessageSendingPriority, Readiness,
@@ -87,7 +87,19 @@ impl ConnectionPrivate {
     pub fn promote_to_post_handshake(&mut self, id: P2PNodeId, addr: SocketAddr) -> Fallible<()> {
         self.status = ConnectionStatus::PostHandshake;
         self.remote_peer = self.remote_peer.promote_to_post_handshake(id, addr)?;
-        write_or_die!(self.conn().handler().node().active_peers).insert(self.remote_peer);
+
+        // register peer's stats in the P2PNode
+        let remote_peer_stats = PeerStats::new(
+            id.as_raw(),
+            addr,
+            self.remote_peer.peer_type(),
+            Arc::clone(&self.conn().messages_sent),
+            Arc::clone(&self.conn().messages_received),
+            Arc::clone(&self.last_latency_measured),
+        );
+        write_or_die!(self.conn().handler().node().active_peer_stats)
+            .insert(id.as_raw(), remote_peer_stats);
+
         Ok(())
     }
 

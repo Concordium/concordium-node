@@ -97,7 +97,7 @@ pub struct Connection {
     /// It stores internal info used in handles. In this way,
     /// handler's function will only need two arguments: this shared object, and
     /// the message which is going to be processed.
-    pub dptr: Arc<RwLock<ConnectionPrivate>>,
+    dptr: Arc<RwLock<ConnectionPrivate>>,
 
     // Message handlers
     pub pre_handshake_message_processor:  MessageProcessor,

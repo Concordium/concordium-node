@@ -403,7 +403,7 @@ mod tests {
         let to_ban = BannedNode::ById(node_2.id());
 
         node_1.ban_node(to_ban);
-        let mut reply = node_1.get_peer_stats(&[]);
+        let mut reply = node_1.get_peer_stats();
 
         let t1 = time::Instant::now();
         while reply.len() == 1 {
@@ -413,7 +413,7 @@ mod tests {
                 bail!("timeout");
             }
             std::thread::sleep(std::time::Duration::from_millis(50));
-            reply = node_1.get_peer_stats(&[]);
+            reply = node_1.get_peer_stats();
         }
 
         Ok(())

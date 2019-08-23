@@ -120,7 +120,7 @@ impl Display for P2PPeer {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PeerStats {
     pub id:               u64,
     pub addr:             SocketAddr,

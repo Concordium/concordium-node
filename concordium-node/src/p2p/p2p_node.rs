@@ -40,7 +40,7 @@ use ipconfig;
 use mio::{net::TcpListener, Events, Poll, PollOpt, Ready, Token};
 
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     net::{
         IpAddr::{self, V4, V6},
         SocketAddr,
@@ -117,7 +117,7 @@ pub struct P2PNode {
     pub is_rpc_online: Arc<AtomicBool>,
     pub noise_protocol_handler: NoiseProtocolHandler,
     pub self_peer: P2PPeer,
-    pub active_peers: Arc<RwLock<HashSet<RemotePeer>>>,
+    pub active_peer_stats: Arc<RwLock<HashMap<u64, PeerStats>>>,
     pub send_queue_in: SyncSender<NetworkMessage>,
     pub stats_export_service: Option<StatsExportService>,
 }
@@ -281,7 +281,7 @@ impl P2PNode {
             is_rpc_online: Arc::new(AtomicBool::new(false)),
             noise_protocol_handler,
             self_peer,
-            active_peers: Default::default(),
+            active_peer_stats: Default::default(),
             send_queue_in,
             stats_export_service,
         };
@@ -477,7 +477,7 @@ impl P2PNode {
                 let now = SystemTime::now();
                 if let Ok(difference) = now.duration_since(log_time) {
                     if difference > Duration::from_secs(self_clone.config.housekeeping_interval) {
-                        let peer_stat_list = self_clone.get_peer_stats(&[]);
+                        let peer_stat_list = self_clone.get_peer_stats();
                         self_clone.print_stats(&peer_stat_list);
                         self_clone.check_peers(&peer_stat_list);
 
@@ -984,8 +984,11 @@ impl P2PNode {
         })
     }
 
-    pub fn get_peer_stats(&self, nids: &[NetworkId]) -> Vec<PeerStats> {
-        self.noise_protocol_handler.get_peer_stats(nids)
+    pub fn get_peer_stats(&self) -> Vec<PeerStats> {
+        read_or_die!(self.active_peer_stats)
+            .values()
+            .cloned()
+            .collect()
     }
 
     #[cfg(not(windows))]
