@@ -196,7 +196,9 @@ pub fn default_network_response_pong(
     let curr: u64 = get_current_stamp();
 
     if curr >= ping {
-        write_or_die!(priv_conn).last_latency_measured = curr - ping;
+        write_or_die!(priv_conn)
+            .last_latency_measured
+            .store(curr - ping, Ordering::SeqCst);
     }
 
     Ok(())

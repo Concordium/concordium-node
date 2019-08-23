@@ -10,6 +10,7 @@ use std::{
     fmt::{self, Display},
     hash::{Hash, Hasher},
     net::{IpAddr, SocketAddr},
+    sync::{atomic::AtomicU64, Arc},
 };
 
 #[derive(Debug, Clone, Copy, Builder)]
@@ -116,5 +117,35 @@ impl Deserializable for P2PPeer {
 impl Display for P2PPeer {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}/{}:{}", self.id(), self.addr.ip(), self.addr.port())
+    }
+}
+
+#[derive(Debug)]
+pub struct PeerStats {
+    pub id:               u64,
+    pub addr:             SocketAddr,
+    pub peer_type:        PeerType,
+    pub sent:             Arc<AtomicU64>,
+    pub received:         Arc<AtomicU64>,
+    pub measured_latency: Arc<AtomicU64>,
+}
+
+impl PeerStats {
+    pub fn new(
+        id: u64,
+        addr: SocketAddr,
+        peer_type: PeerType,
+        sent: Arc<AtomicU64>,
+        received: Arc<AtomicU64>,
+        measured_latency: Arc<AtomicU64>,
+    ) -> PeerStats {
+        PeerStats {
+            id,
+            addr,
+            peer_type,
+            sent,
+            received,
+            measured_latency,
+        }
     }
 }

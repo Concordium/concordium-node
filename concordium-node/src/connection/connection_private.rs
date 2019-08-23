@@ -48,7 +48,7 @@ pub struct ConnectionPrivate {
     // Time
     pub sent_handshake:        Arc<AtomicU64>,
     pub sent_ping:             Arc<AtomicU64>,
-    pub last_latency_measured: u64,
+    pub last_latency_measured: Arc<AtomicU64>,
 }
 
 impl ConnectionPrivate {
@@ -260,7 +260,7 @@ impl ConnectionPrivateBuilder {
                 failed_pkts: 0,
                 sent_handshake: Arc::new(AtomicU64::new(u64_max_value)),
                 sent_ping: Arc::new(AtomicU64::new(u64_max_value)),
-                last_latency_measured: u64_max_value,
+                last_latency_measured: Arc::new(AtomicU64::new(u64_max_value)),
             })
         } else {
             Err(failure::Error::from(fails::MissingFieldsConnectionBuilder))

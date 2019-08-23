@@ -88,16 +88,16 @@ pub struct Connection {
     handler_ref: Pin<Arc<NoiseProtocolHandler>>,
 
     // Counters
-    messages_sent:     u64,
-    messages_received: Arc<AtomicU64>,
-    last_ping_sent:    Arc<AtomicU64>,
+    pub messages_sent:     Arc<AtomicU64>,
+    pub messages_received: Arc<AtomicU64>,
+    last_ping_sent:        Arc<AtomicU64>,
 
     token: Token,
 
     /// It stores internal info used in handles. In this way,
     /// handler's function will only need two arguments: this shared object, and
     /// the message which is going to be processed.
-    dptr: Arc<RwLock<ConnectionPrivate>>,
+    pub dptr: Arc<RwLock<ConnectionPrivate>>,
 
     // Message handlers
     pub pre_handshake_message_processor:  MessageProcessor,
@@ -224,13 +224,10 @@ impl Connection {
 
     // =============================
 
-    pub fn get_last_latency_measured(&self) -> Option<u64> {
-        let latency: u64 = read_or_die!(self.dptr).last_latency_measured;
-        if latency != u64::max_value() {
-            Some(latency)
-        } else {
-            None
-        }
+    pub fn get_last_latency_measured(&self) -> u64 {
+        read_or_die!(self.dptr)
+            .last_latency_measured
+            .load(Ordering::SeqCst)
     }
 
     pub fn set_measured_handshake_sent(&self) {
@@ -277,7 +274,7 @@ impl Connection {
 
     pub fn get_messages_received(&self) -> u64 { self.messages_received.load(Ordering::SeqCst) }
 
-    pub fn get_messages_sent(&self) -> u64 { self.messages_sent }
+    pub fn get_messages_sent(&self) -> u64 { self.messages_sent.load(Ordering::SeqCst) }
 
     pub fn failed_pkts(&self) -> u32 { read_or_die!(self.dptr).failed_pkts }
 

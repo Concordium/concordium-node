@@ -27,7 +27,7 @@ use std::{
 use crate::{
     common::{
         get_current_stamp, serialization::serialize_into_memory, NetworkRawRequest, P2PNodeId,
-        P2PPeer, PeerType, RemotePeer,
+        P2PPeer, PeerStats, PeerType, RemotePeer,
     },
     connection::{
         network_handler::message_processor::{MessageManager, MessageProcessor, ProcessResult},
@@ -38,7 +38,6 @@ use crate::{
     network::{Buckets, NetworkId, NetworkMessage, NetworkRequest},
     p2p::{
         banned_nodes::{BannedNode, BannedNodes},
-        peer_statistics::PeerStatistic,
         unreachable_nodes::UnreachableNodes,
         P2PNode,
     },
@@ -476,7 +475,7 @@ impl NoiseProtocolHandler {
 
     /// It generates a peer statistic list for each connected peer which belongs
     /// to any of networks in `nids`.
-    pub fn get_peer_stats(&self, nids: &[NetworkId]) -> Vec<PeerStatistic> {
+    pub fn get_peer_stats(&self, nids: &[NetworkId]) -> Vec<PeerStats> {
         let mut ret = vec![];
         for conn in read_or_die!(self.connections).iter() {
             if let RemotePeer::PostHandshake(remote_peer) = conn.remote_peer() {
@@ -486,13 +485,13 @@ impl NoiseProtocolHandler {
                         .iter()
                         .any(|nid| nids.contains(nid))
                 {
-                    ret.push(PeerStatistic::new(
-                        remote_peer.id().to_string(),
+                    ret.push(PeerStats::new(
+                        remote_peer.id().as_raw(),
                         remote_peer.addr,
                         remote_peer.peer_type(),
-                        conn.get_messages_sent(),
-                        conn.get_messages_received(),
-                        conn.get_last_latency_measured(),
+                        Arc::clone(&conn.messages_sent),
+                        Arc::clone(&conn.messages_received),
+                        Arc::clone(&read_or_die!(conn.dptr).last_latency_measured),
                     ));
                 }
             }

@@ -8,7 +8,7 @@ pub mod serialization;
 
 pub use self::{
     p2p_node_id::P2PNodeId,
-    p2p_peer::{P2PPeer, P2PPeerBuilder},
+    p2p_peer::{P2PPeer, P2PPeerBuilder, PeerStats},
 };
 
 pub mod fails;

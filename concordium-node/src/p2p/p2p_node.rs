@@ -3,7 +3,7 @@ use crate::dumper::create_dump_thread;
 use crate::{
     common::{
         counter::TOTAL_MESSAGES_SENT_COUNTER, get_current_stamp, process_network_requests,
-        serialization::serialize_into_memory, P2PNodeId, P2PPeer, PeerType, RemotePeer,
+        serialization::serialize_into_memory, P2PNodeId, P2PPeer, PeerStats, PeerType, RemotePeer,
     },
     configuration,
     connection::{
@@ -24,7 +24,6 @@ use crate::{
         p2p_node_handlers::{
             forward_network_packet_message, forward_network_request, forward_network_response,
         },
-        peer_statistics::PeerStatistic,
     },
     utils,
 };
@@ -374,7 +373,7 @@ impl P2PNode {
 
     /// This function is called periodically to print information about current
     /// nodes.
-    fn print_stats(&self, peer_stat_list: &[PeerStatistic]) {
+    fn print_stats(&self, peer_stat_list: &[PeerStats]) {
         trace!("Printing out stats");
         if let Some(max_nodes) = self.max_nodes {
             debug!(
@@ -394,7 +393,7 @@ impl P2PNode {
         }
     }
 
-    fn check_peers(&self, peer_stat_list: &[PeerStatistic]) {
+    fn check_peers(&self, peer_stat_list: &[PeerStats]) {
         trace!("Checking for needed peers");
         if self.peer_type() != PeerType::Bootstrapper
             && !self.config.no_net
@@ -985,7 +984,7 @@ impl P2PNode {
         })
     }
 
-    pub fn get_peer_stats(&self, nids: &[NetworkId]) -> Vec<PeerStatistic> {
+    pub fn get_peer_stats(&self, nids: &[NetworkId]) -> Vec<PeerStats> {
         self.noise_protocol_handler.get_peer_stats(nids)
     }
 

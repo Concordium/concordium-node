@@ -487,12 +487,11 @@ impl P2P for RpcServerImpl {
                     .iter()
                     .map(|x| {
                         let mut peer_resp = PeerStatsResponse_PeerStats::new();
-                        peer_resp.set_node_id(x.id.to_owned());
-                        peer_resp.set_packets_sent(x.sent);
-                        peer_resp.set_packets_received(x.received);
-                        if let Some(val) = x.measured_latency {
-                            peer_resp.set_measured_latency(val)
-                        };
+                        peer_resp.set_node_id(P2PNodeId(x.id).to_string());
+                        peer_resp.set_packets_sent(x.sent.load(Ordering::SeqCst));
+                        peer_resp.set_packets_received(x.received.load(Ordering::SeqCst));
+                        peer_resp.set_measured_latency(x.measured_latency.load(Ordering::SeqCst));
+
                         peer_resp
                     })
                     .collect();
@@ -1247,7 +1246,7 @@ mod tests {
     #[cfg(feature = "benchmark")]
     use crate::test_utils::await_direct_message;
     use crate::{
-        common::PeerType,
+        common::{P2PNodeId, PeerType},
         configuration,
         network::NetworkMessage,
         p2p::p2p_node::send_broadcast_message,
@@ -1542,7 +1541,10 @@ mod tests {
             .to_vec();
         assert!(rcv.len() == 1);
         let elem = rcv[0].clone();
-        assert_eq!(elem.node_id.unwrap().get_value(), node2.id().to_string());
+        assert_eq!(
+            P2PNodeId(str::parse::<u64>(elem.node_id.unwrap().get_value()).unwrap()).to_string(),
+            node2.id().to_string()
+        );
         assert_eq!(
             elem.ip.unwrap().get_value(),
             node2.internal_addr().ip().to_string()

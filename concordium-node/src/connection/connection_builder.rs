@@ -48,7 +48,7 @@ impl ConnectionBuilder {
             let conn = Connection {
                 handler_ref,
                 messages_received: Arc::new(AtomicU64::new(0)),
-                messages_sent: 0,
+                messages_sent: Arc::new(AtomicU64::new(0)),
                 last_ping_sent: Arc::new(AtomicU64::new(curr_stamp)),
                 token,
                 dptr: Arc::new(RwLock::new(priv_conn)),
