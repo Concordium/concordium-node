@@ -166,7 +166,7 @@ class BlockStateQuery m => BlockStateOperations m where
   bsoPutNewModule :: UpdatableBlockState m
                   -> ModuleRef
                   -> Interface Core.UA
-                  -> ValueInterface Void
+                  -> UnlinkedValueInterface Void
                   -> Core.Module Core.UA
                   -> m (Bool, UpdatableBlockState m)
 
