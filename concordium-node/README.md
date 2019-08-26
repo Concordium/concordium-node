@@ -9,7 +9,7 @@ This repository uses git lfs for storing binary dependencies, and relies on git 
 * cmake >= 3.8.0
 * protobuf >= 3.7.1
 * LLVM and Clang >= 3.9
-* [Unbound] >= 1.9.2 (https://www.nlnetlabs.nl/projects/unbound/about/)
+* [Unbound](https://www.nlnetlabs.nl/projects/unbound/about/) >= 1.9.2 
 
 ### Optional dependencies
 * Stack (and GHC-8.6.5, if not building using static libraries)
