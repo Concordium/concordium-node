@@ -59,7 +59,7 @@ foreign import ccall unsafe "get_genesis_block_pointer"
 foreign import ccall unsafe "make_pending_block"
     makePendingBlockF :: GlobalStatePtr -> CString -> Int -> IO (Ptr PendingBlockR)
 foreign import ccall unsafe "make_block_pointer"
-    makeBlockPointerF :: GlobalStatePtr -> Ptr PendingBlockR -> Ptr BlockPointerR
+    makeBlockPointerF :: GlobalStatePtr -> Ptr PendingBlockR -> Word64 -> Ptr BlockPointerR
 foreign import ccall unsafe "make_genesis_data"
     makeGenesisDataF :: GlobalStatePtr -> CString -> Int -> IO (Ptr BlockPointerR)
 
@@ -457,7 +457,7 @@ makeBlockPointer gsptr b blockPointerParent blockPointerLastFinalized blockPoint
   where
     theBlockPointer = BlockPointer {..}
     blockPointerReceiveTime = pendingBlockReceiveTime b
-    blockPointerPointer = makeBlockPointerF gsptr (pendingBlockPointer b)
+    blockPointerPointer = makeBlockPointerF gsptr (pendingBlockPointer b) (theBlockHeight $ bpHeight blockPointerParent)
 
 ---------------------------
 -- * FFI Types
