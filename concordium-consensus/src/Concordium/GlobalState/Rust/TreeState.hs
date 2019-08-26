@@ -40,6 +40,8 @@ import Concordium.GlobalState.Rust.BlockState
 import Concordium.GlobalState.Rust.Block
 import Concordium.GlobalState.Rust.FFI
 
+import System.IO
+
 data SkovData = SkovData {
     -- |Map of all received blocks by hash.
     _skovGlobalStatePtr :: GlobalStatePtr,
@@ -150,7 +152,7 @@ instance (SkovLenses s, Monad m, MonadState s m, MonadIO m) => TS.TreeStateMonad
     getGenesisBlockPointer = use genesisBlockPointer
     getGenesisData = use genesisData
     getLastFinalized = use finalizationList >>= \case
-            _ Seq.:|> (_,lf) -> return lf
+            _ Seq.:|> (finRec,lf) -> return (lf, finRec)
             _ -> error "empty finalization list"
     getNextFinalizationIndex = FinalizationIndex . fromIntegral . Seq.length <$> use finalizationList
     addFinalization newFinBlock finRec = finalizationList %= (Seq.:|> (finRec, newFinBlock))
@@ -237,7 +239,7 @@ instance (SkovLenses s, Monad m, MonadState s m, MonadIO m) => TS.TreeStateMonad
         use (transactionTable . ttHashMap . at (getHash tr)) >>= \case
             Nothing -> return True
             Just (_, slot) -> do
-                lastFinSlot <- blockSlot <$> TS.getLastFinalized
+                lastFinSlot <- blockSlot . fst <$> TS.getLastFinalized
                 if (lastFinSlot >= slot) then do
                     let nonce = transactionNonce tr
                         sender = transactionSender tr
