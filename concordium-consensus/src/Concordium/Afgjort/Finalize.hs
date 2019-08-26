@@ -85,7 +85,7 @@ ancestorAtHeight :: BlockPointerData bp => BlockHeight -> bp -> bp
 ancestorAtHeight h bp
     | h == bpHeight bp = bp
     | h < bpHeight bp = ancestorAtHeight h (bpParent bp)
-    | otherwise = error "ancestorAtHeight: block is below required height"
+    | otherwise = error $ "ancestorAtHeight: block is below required height required GEQ " ++ show h ++ " and is " ++ (show $ bpHeight bp)
 
 data PendingMessage = PendingMessage !Party !WMVBAMessage !Sig.Signature
     deriving (Eq, Ord, Show)
@@ -172,7 +172,7 @@ class (SkovMonad m, MonadState s m, FinalizationStateLenses s, MonadIO m) => Fin
 tryNominateBlock :: (FinalizationMonad s m) => m ()
 tryNominateBlock = do
     currRound <- use finCurrentRound
-    forM_ currRound $ \r@FinalizationRound{..} -> 
+    forM_ currRound $ \r@FinalizationRound{..} ->
         when (isNothing roundInput) $ do
             h <- use finHeight
             bBlock <- bestBlock
@@ -328,7 +328,7 @@ receiveFinalizationMessage :: (FinalizationMonad s m) => FinalizationMessage -> 
 receiveFinalizationMessage msg@FinalizationMessage{msgHeader=FinalizationMessageHeader{..},..} = do
         FinalizationState{..} <- use finState
         -- Check this is the right session
-        if (_finsSessionId == msgSessionId) then 
+        if (_finsSessionId == msgSessionId) then
             -- Check the finalization index is not out of date
             case compare msgFinalizationIndex _finsIndex of
                 LT -> return ResultStale -- message is out of date
@@ -413,7 +413,7 @@ nextFinalizationDelay FinalizationRecord{..} = if finalizationDelay > 2 then fin
 
 -- |Given the finalization minimum skip and an explicitly finalized block, compute
 -- the height of the next finalized block.
-nextFinalizationHeight :: (BlockPointerData bp) 
+nextFinalizationHeight :: (BlockPointerData bp)
     => BlockHeight -- ^Finalization minimum skip
     -> bp -- ^Last finalized block
     -> BlockHeight
@@ -540,7 +540,7 @@ passiveReceiveFinalizationMessage :: (MonadState s m, PassiveFinalizationStateLe
 passiveReceiveFinalizationMessage FinalizationMessage{msgHeader=FinalizationMessageHeader{..},..} = do
         PassiveFinalizationState{..} <- use pfinState
         -- Check this is the right session
-        if (_pfinsSessionId == msgSessionId) then 
+        if (_pfinsSessionId == msgSessionId) then
             -- Check the finalization index is not out of date
             if msgFinalizationIndex < _pfinsIndex then
                 return ResultStale
