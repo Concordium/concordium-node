@@ -183,7 +183,7 @@ instance (BasicSkovLenses s, Monad m, MonadState s m) => TS.TreeStateMonad (Skov
                     in return $ case atnnce of
                         Nothing -> Map.toAscList beyond
                         Just s -> (nnce, s) : Map.toAscList beyond
-    addCommitTransaction tr slot = do 
+    addCommitTransaction tr slot = do
             tt <- use transactionTable
             let trHash = getHash tr
             case tt ^. ttHashMap . at trHash of

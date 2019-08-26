@@ -31,6 +31,8 @@ import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.Transactions (TransactionHash)
 
+import Control.Monad.Trans.Except
+
 import Data.Void
 
 import qualified Concordium.ID.Types as ID
@@ -58,7 +60,6 @@ class (Eq bp, Show bp, BlockData bp) => BlockPointerData bp where
 type family BlockPointer (m :: * -> *) :: *
 
 type BlockState (m :: * -> *) = BlockState' (BlockPointer m)
-
 
 -- |The block query methods can query block state. They are needed by
 -- consensus itself to compute stake, get a list of and information about
@@ -135,7 +136,7 @@ updateAccount !upd !acc =
             Add ea -> ea:(acc ^. accountEncryptedAmount)
             Replace ea -> [ea]
     }
-  
+
   where setMaybe (Just x) _ = x
         setMaybe Nothing y = y
 
@@ -234,12 +235,12 @@ class BlockStateQuery m => BlockStateOperations m where
     join <$> mapM (bsoGetAccount s . _bakerAccount) binfo
 
 
-  -- |Add a new baker to the baker pool. Assign a fresh baker identity to the 
+  -- |Add a new baker to the baker pool. Assign a fresh baker identity to the
   -- new baker and return the assigned identity.
   -- This method should also update the next available baker id in the system.
   bsoAddBaker :: UpdatableBlockState m -> BakerCreationInfo -> m (BakerId, UpdatableBlockState m)
-  
-  -- |Update an existing baker's information. The method may assume that the baker with 
+
+  -- |Update an existing baker's information. The method may assume that the baker with
   -- the given Id exists.
   bsoUpdateBaker :: UpdatableBlockState m -> BakerUpdate -> m (UpdatableBlockState m)
 
