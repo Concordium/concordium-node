@@ -4,7 +4,6 @@ This repository uses git lfs for storing binary dependencies, and relies on git 
 
 ## Dependencies to build the project
 * Rust (stable 1.37+, and stable 1.37.0 (eae3437df 2019-08-13) for using static libraries)
-* openssl >= 1.0.1
 * binutils >= 2.22
 * cmake >= 3.8.0
 * protobuf >= 3.7.1
