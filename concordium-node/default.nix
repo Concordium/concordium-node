@@ -26,7 +26,6 @@ in rustPlatform.buildRustPackage rec {
   cargoBuildFlags = [ "--features=static" ];
   buildInputs = with pkgs; [
     pkgconfig
-    openssl
     cmake
     protobuf
     gmp

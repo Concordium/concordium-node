@@ -381,7 +381,6 @@ dependencies = [
  "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.60 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
- "openssl 0.10.24 (registry+https://github.com/rust-lang/crates.io-index)",
  "tempdir 0.3.7 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
