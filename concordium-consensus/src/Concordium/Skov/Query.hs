@@ -60,4 +60,3 @@ doGetBlocksAtHeight h = do
         findFrom bp
             | bpHeight bp == h = bp
             | otherwise = findFrom (bpParent bp)
-

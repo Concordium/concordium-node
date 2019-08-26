@@ -31,7 +31,7 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.Basic.Block as BSB hiding (makePendingBlock)
 import Concordium.GlobalState.Basic.BlockState as BSBS
 import Concordium.GlobalState.Rust.Block as RSB
-import Concordium.GlobalState.Rust.FFI
+import Concordium.GlobalState.Rust.FFI as RSBS
 import Concordium.GlobalState.Finalization(FinalizationIndex(..),FinalizationRecord)
 import Concordium.GlobalState.BlockState as GSBS (BlockState, BlockPointer(..))
 import qualified Concordium.GlobalState.TreeState as TS
@@ -890,12 +890,12 @@ receiveCatchUpStatus cptr src cstr l cbk = do
         Right cus -> do
             logm External LLDebug $ "Catch-up status message deserialized: " ++ show cus
             res <- runConsensusQuery c Get.handleCatchUpStatus cus
-            case res :: (Either String (Maybe ([Either FinalizationRecord (BlockPointer)], CatchUpStatus), Bool)) of
+            case res :: (Either String (Maybe ([Either FinalizationRecord RSBS.BlockPointer], CatchUpStatus), Bool)) of
                 Left emsg -> logm Skov LLWarning emsg >> return ResultInvalid
                 Right (d, flag) -> do
                     let
                         sendMsg = callDirectMessageCallback cbk src
-                        sendBlock = sendMsg MTBlock . encode . _bpBlock
+                        sendBlock = sendMsg MTBlock . runPut . putBlock
                         sendFinRec = sendMsg MTFinalizationRecord . encode
                         send [] = return ()
                         send (Left fr:r) = sendFinRec fr >> send r
