@@ -25,6 +25,7 @@ import Concordium.GlobalState.Rewards as Rew
 import Lens.Micro.Platform
 
 import qualified Data.Text.IO as TIO
+import qualified Data.Sequence as Seq
 
 import Control.Monad.IO.Class
 
@@ -94,9 +95,9 @@ checkChainMetaResult (suc, fails, instances) =
                         suc
     checkLocalState inst = do
       case Types.instanceModel inst of
-        Types.VConstructor _ [Types.VLiteral (Core.Word64 8)  -- NB: These should match those in chainMeta
-                             ,Types.VLiteral (Core.Word64 13)
-                             ,Types.VLiteral (Core.Word64 10)] -> True
+        Types.VConstructor _ (Types.VLiteral (Core.Word64 8) Seq.:<|  -- NB: These should match those in chainMeta
+                              Types.VLiteral (Core.Word64 13) Seq.:<|
+                              Types.VLiteral (Core.Word64 10) Seq.:<| Seq.Empty) -> True
         _ -> False                                                          
 
 tests :: SpecWith ()

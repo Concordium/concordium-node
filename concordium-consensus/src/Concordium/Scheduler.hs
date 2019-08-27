@@ -12,6 +12,7 @@ module Concordium.Scheduler
 import qualified Acorn.TypeCheck as TC
 import qualified Acorn.Interpreter as I
 import qualified Acorn.Core as Core
+import Acorn.Types(compile)
 import Concordium.Scheduler.Types
 import Concordium.Scheduler.Environment
 
@@ -25,7 +26,6 @@ import qualified Concordium.Scheduler.Cost as Cost
 
 import Control.Applicative
 import Control.Monad.Except
-import Control.Monad.Trans.Maybe
 import qualified Data.HashMap.Strict as Map
 import Data.Maybe(fromJust)
 import qualified Data.Set as Set
@@ -178,7 +178,7 @@ handleDeployModule meta remainingAmount psize mod energy = do
       refund <- energyToGtu energy'
       let execCost = thGasAmount meta - energy'
       energyToGtu execCost >>= notifyExecutionCost
-      commitStateAndAccountChanges (increaseAmountCS cs (thSender meta) refund)
+      commitChanges (increaseAmountCS cs (thSender meta) refund)
       b <- commitModule mhash iface viface mod
       if b then do
         return $ (TxValid $ TxSuccess [ModuleDeployed mhash])
@@ -200,7 +200,7 @@ handleModule _meta msize mod = do
   imod <- pure (runExcept (Core.makeInternal mod)) `rejectingWith'` MissingImports
   iface <- runExceptT (TC.typeModule imod) `rejectingWith'` ModuleNotWF
   let mhash = Core.imRef imod
-  viface <- runMaybeT (I.evalModule imod) `rejectingWith` EvaluationError
+  let viface = I.evalModule imod
   return (mhash, iface, viface)
 
 -- |Handle the top-level initialize contract.
@@ -227,13 +227,14 @@ handleInitContract meta remainingAmount amount modref cname param paramSize ener
         let execCost = thGasAmount meta - energy'
         energyToGtu execCost >>= notifyExecutionCost
         -- The sender is paid the refund, but charged the initalamount.
-        commitStateAndAccountChanges (modifyAmountCS cs (thSender meta) (amountDiff refund initamount))
+        commitChanges (modifyAmountCS cs (thSender meta) (amountDiff refund initamount))
         let ins = makeInstance modref cname contract msgty iface viface model initamount (thSender meta)
         addr <- putNewInstance ins
         return (TxValid $ TxSuccess [ContractInitialized modref cname addr])
 
 handleInit
-  :: (TransactionMonad m, InterpreterMonad NoAnnot m)
+  :: (TransactionMonad m,
+      InterpreterMonad NoAnnot m)
      => TransactionHeader
      -> Amount
      -> Amount
@@ -257,13 +258,14 @@ handleInit meta senderAmount amount modref cname param paramsize = do
   -- first typecheck the parameters, whether they have the expected type
   -- the cost of type-checking is dependent on the size of the term
   tickEnergy (Cost.initParamsTypecheck paramsize)
-  qparamExp <- runExceptT (TC.checkTyInCtx iface param (paramTy ciface)) `rejectingWith'` ParamsTypeError
-  let contract = (exportedDefsConts viface) Map.! cname -- NB: The unsafe Map.! is safe here because we do know the contract exists by the invariant on viface and iface
-      initFun = initMethod contract
-  params' <- fromJust <$> runMaybeT (link (exportedDefsVals viface) qparamExp) -- linking must succeed because type-checking succeeded
+  qparamExp <- runExceptT (TC.checkTyInCtx' iface param (paramTy ciface)) `rejectingWith'` ParamsTypeError
+  -- NB: The unsafe Map.! is safe here because we do know the contract exists by the invariant on viface and iface
+  linkedContract <- linkContract (uniqueName iface) cname (viContracts viface Map.! cname)
+  let initFun = cvInitMethod linkedContract
+  params' <- linkExpr (uniqueName iface) (compile qparamExp) -- linking must succeed because type-checking succeeded
   cm <- getChainMetadata
   res <- runInterpreter (I.applyInitFun cm (InitContext (thSender meta)) initFun params' (thSender meta) amount)
-  return (contract, iface, viface, (msgTy ciface), res, amount)
+  return (linkedContract, iface, viface, (msgTy ciface), res, amount)
 
 handleSimpleTransfer ::
   SchedulerMonad m
@@ -280,7 +282,7 @@ handleSimpleTransfer meta remainingAmount toaddr amount energy = do
       refund <- energyToGtu energy'
       let execCost = thGasAmount meta - energy'
       energyToGtu execCost >>= notifyExecutionCost
-      commitStateAndAccountChanges (increaseAmountCS changeSet (thSender meta) refund)
+      commitChanges (increaseAmountCS changeSet (thSender meta) refund)
       return $ TxValid $ TxSuccess events
     Left reason -> do
       payment <- computeRejectedCharge meta energy'
@@ -304,13 +306,13 @@ handleUpdateContract meta remainingAmount cref amount maybeMsg msgSize energy = 
        refund <- energyToGtu energy'
        let execCost = thGasAmount meta - energy'
        energyToGtu execCost >>= notifyExecutionCost
-       commitStateAndAccountChanges (increaseAmountCS changeSet (thSender meta) refund)
+       commitChanges (increaseAmountCS changeSet (thSender meta) refund)
        return $ TxValid $ TxSuccess events
     Left reason -> do
         payment <- computeRejectedCharge meta energy'
         chargeExecutionCost (thSender meta) payment
         return $ TxValid (TxReject reason)
- 
+
 handleUpdate
   :: (TransactionMonad m, InterpreterMonad NoAnnot m)
      => TransactionHeader
@@ -327,13 +329,13 @@ handleUpdate meta accountamount amount cref msg msgSize = do
   i <- getCurrentContractInstance cref `rejectingWith` InvalidContractAddress cref
   let rf = Ins.ireceiveFun i
       msgType = Ins.imsgTy i
-      (iface, viface) = Ins.iModuleIface i
+      (iface, _) = Ins.iModuleIface i
       model = Ins.instanceModel i
       contractamount = Ins.instanceAmount i
       -- we assume that gasAmount was available on the account due to the previous check (checkHeader)
   do tickEnergy (Cost.updateMessageTypecheck msgSize)
-     qmsgExp <- runExceptT (TC.checkTyInCtx iface msg msgType) `rejectingWith'` MessageTypeError
-     qmsgExpLinked <- fromJust <$> runMaybeT (link (exportedDefsVals viface) qmsgExp)
+     qmsgExp <- runExceptT (TC.checkTyInCtx' iface msg msgType) `rejectingWith'` MessageTypeError
+     qmsgExpLinked <- linkExpr (uniqueName iface) (compile qmsgExp)
      handleTransaction (thSender meta)
                        cref
                        rf
@@ -349,7 +351,7 @@ handleTransaction ::
   (TransactionMonad m, InterpreterMonad NoAnnot m)
   => AccountAddress -- ^the origin account of the top-level transaction
   -> ContractAddress -- ^the target contract of the transaction
-  -> Expr NoAnnot -- ^the receive function of the contract
+  -> LinkedReceiveMethod NoAnnot -- ^the receive function of the contract
   -> Address -- ^the invoker of this particular transaction, in general different from the origin
   -> Amount -- ^amount of funds on the sender's account before the execution
   -> Amount -- ^amount that was sent to the contract in the transaction
@@ -491,8 +493,6 @@ runInterpreter f = do
   getEnergy >>= f >>= \case Just (x, energy') -> x <$ putEnergy energy'
                             Nothing -> putEnergy 0 >> rejectTransaction OutOfEnergy
 
--- |TODO: Figure out what context information will the check that
--- a credential is valid need. Presumably public keys of id providers.
 handleDeployCredential ::
   SchedulerMonad m
     =>

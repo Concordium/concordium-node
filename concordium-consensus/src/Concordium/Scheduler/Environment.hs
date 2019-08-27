@@ -19,12 +19,14 @@ import Control.Monad.RWS.Strict
 import Control.Monad.State.Strict
 import Control.Monad.Cont hiding (cont)
 
+import Data.Void
 import Data.Maybe(fromJust)
 import Lens.Micro.Platform
 
 import qualified Acorn.Core as Core
 import Concordium.Scheduler.Types
 import Concordium.GlobalState.BlockState(AccountUpdate(..), auAmount, emptyAccountUpdate)
+import qualified Concordium.Types.Acorn.Interfaces as Interfaces
 
 import Control.Exception(assert)
 import Data.Maybe(isJust)
@@ -49,12 +51,20 @@ class StaticEnvironmentMonad Core.UA m => SchedulerMonad m where
   -- accumulated through the execution. This method is also in charge of
   -- recording which accounts were affected by the transaction for reward and
   -- other purposes.
-  commitStateAndAccountChanges :: ChangeSet -> m ()
+  commitChanges :: ChangeSet -> m ()
 
   -- |Commit a module interface and module value to global state. Returns @True@
   -- if this was successful, and @False@ if a module with the given Hash already
   -- existed. Also store the code of the module for archival purposes.
   commitModule :: Core.ModuleRef -> Interface -> ValueInterface -> Module -> m Bool
+
+  smTryGetLinkedExpr :: Core.ModuleRef -> Core.Name -> m (Maybe (LinkedExpr Void))
+
+  smPutLinkedExpr :: Core.ModuleRef -> Core.Name -> LinkedExpr Void -> m ()
+
+  smTryGetLinkedContract :: Core.ModuleRef -> Core.TyName -> m (Maybe (LinkedContractValue Void))
+
+  smPutLinkedContract :: Core.ModuleRef -> Core.TyName -> LinkedContractValue Void -> m ()
 
   -- |Create new instance in the global state.
   -- The instance is parametrised by the address, and the return value is the
@@ -89,7 +99,7 @@ class StaticEnvironmentMonad Core.UA m => SchedulerMonad m where
       case macc of
         Nothing -> error "chargeExecutionCost precondition violated."
         Just acc -> let balance = acc ^. accountAmount
-                    in do assert (balance >= amnt) $ commitStateAndAccountChanges (csWithAccountBalance addr (balance - amnt))
+                    in do assert (balance >= amnt) $ commitChanges (csWithAccountBalance addr (balance - amnt))
                           notifyExecutionCost amnt
 
   -- |Notify the global state that the amount was charged for execution. This
@@ -169,6 +179,13 @@ class StaticEnvironmentMonad Core.UA m => TransactionMonad m where
 
   getCurrentContractInstance :: ContractAddress -> m (Maybe Instance)
 
+  -- |Link an expression into an expression ready to run.
+  -- The expression is part of the given module
+  linkExpr :: Core.ModuleRef -> UnlinkedExpr Void -> m (LinkedExpr Void)
+
+  -- |Link a contract's init, receive methods and implemented constraints.
+  linkContract :: Core.ModuleRef -> Core.TyName -> UnlinkedContractValue Void -> m (LinkedContractValue Void)
+
   -- |Get the current amount on the given account address. This value changes
   -- throughout the execution of the transaction.
   getCurrentAmount :: AccountAddress -> m (Maybe Amount)
@@ -206,13 +223,15 @@ class StaticEnvironmentMonad Core.UA m => TransactionMonad m where
 data ChangeSet = ChangeSet
     {_accountUpdates :: !(Map.HashMap AccountAddress AccountUpdate) -- ^Accounts whose states changed.
     ,_instanceUpdates :: !(Map.HashMap ContractAddress (Amount, Value)) -- ^Contracts whose states changed.
+    ,_linkedExprs :: !(Map.HashMap (Core.ModuleRef, Core.Name) (LinkedExpr NoAnnot)) -- ^Newly linked expressions.
+    ,_linkedContracts :: !(Map.HashMap (Core.ModuleRef, Core.TyName) (LinkedContractValue NoAnnot))
     }
 
 emptyCS :: ChangeSet
-emptyCS = ChangeSet Map.empty Map.empty
+emptyCS = ChangeSet Map.empty Map.empty Map.empty Map.empty
 
 csWithAccountBalance :: AccountAddress -> Amount -> ChangeSet
-csWithAccountBalance addr !amnt = ChangeSet (Map.singleton addr (emptyAccountUpdate addr & auAmount ?~ amnt)) Map.empty
+csWithAccountBalance addr !amnt = ChangeSet (Map.singleton addr (emptyAccountUpdate addr & auAmount ?~ amnt)) Map.empty Map.empty Map.empty
 
 makeLenses ''ChangeSet
 
@@ -290,13 +309,25 @@ execLocalT (LocalT st) energy = execStateT (runContT st (return . Right)) (energ
 {-# INLINE liftLocal #-}
 liftLocal :: Monad m => m a -> LocalT r m a
 liftLocal m = LocalT (ContT (\k -> StateT (\s -> m >>= flip runStateT s . k)))
-                                                    
+
 instance StaticEnvironmentMonad Core.UA m => StaticEnvironmentMonad Core.UA (LocalT r m) where
   {-# INLINE getChainMetadata #-}
   getChainMetadata = liftLocal getChainMetadata
 
   {-# INLINE getModuleInterfaces #-}
   getModuleInterfaces = liftLocal . getModuleInterfaces
+
+instance SchedulerMonad m => LinkerMonad Void (LocalT r m) where
+  {-# INLINE getExprInModule #-}
+  getExprInModule mref n = liftLocal $ do
+    getModuleInterfaces mref >>= \case
+      Nothing -> return Nothing
+      Just (_, viface) -> return $ Map.lookup n (viDefs viface)
+
+  tryGetLinkedExpr mref n = liftLocal (smTryGetLinkedExpr mref n)
+    
+  putLinkedExpr mref n linked = liftLocal (smPutLinkedExpr mref n linked)
+
 
 instance SchedulerMonad m => TransactionMonad (LocalT r m) where
   {-# INLINE withInstance #-}
@@ -330,6 +361,27 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
     case macc of
       Just upd | Just a <- upd ^. auAmount -> return (Just a)
       _ -> liftLocal $! ((^. accountAmount) <$>) <$> getAccount acc
+
+  linkExpr mref unlinked = link mref unlinked
+
+  linkContract mref cname unlinked = do
+    lCache <- use (_2 . linkedContracts)
+    case Map.lookup (mref, cname) lCache of
+      Nothing -> do
+        liftLocal (smTryGetLinkedContract mref cname) >>= \case
+          Nothing -> do
+            cvInitMethod <- link mref (Interfaces.cvInitMethod unlinked)
+            cvReceiveMethod <- link mref (Interfaces.cvReceiveMethod unlinked)
+            cvImplements <- mapM (\iv -> do
+                                     ivSenders <- mapM (link mref) (Interfaces.ivSenders iv)
+                                     ivGetters <- mapM (link mref) (Interfaces.ivGetters iv)
+                                     return Interfaces.ImplementsValue{..}
+                                 ) (Interfaces.cvImplements unlinked)
+            let linked = Interfaces.ContractValue{..}
+            _2 . linkedContracts %= (Map.insert (mref, cname) linked)
+            return linked
+          Just cv -> return cv
+      Just cv -> return cv
       
   {-# INLINE getEnergy #-}
   getEnergy = use _1
@@ -345,6 +397,7 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
 
   {-# INLINE rejectTransaction #-}
   rejectTransaction reason = LocalT (ContT (\_ -> return (Left reason)))
+
 
 instance SchedulerMonad m => InterpreterMonad NoAnnot (LocalT r m) where
   getCurrentContractState caddr = do
