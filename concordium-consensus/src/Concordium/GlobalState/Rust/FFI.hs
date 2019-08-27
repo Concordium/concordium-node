@@ -25,7 +25,7 @@ module Concordium.GlobalState.Rust.FFI (
   , blockPointerExtractBlockFields
   ) where
 
-import Concordium.Crypto.SHA256
+import qualified Concordium.Crypto.SHA256 as SHA256
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.SignatureScheme as SSCH
 import qualified Concordium.Crypto.VRF as VRF
@@ -112,7 +112,7 @@ blockFieldsBlockPointer b =
   in
     unsafePerformIO $ do
       bh_str <- curry packCStringLen p 32
-      return . hash $ bh_str
+      return . SHA256.Hash . fromByteString $ bh_str
 
 blockFieldsBlockBaker :: BlockFields -> BakerId
 blockFieldsBlockBaker = BakerId . fromIntegral . blockFieldsBlockBakerF
@@ -144,7 +144,7 @@ blockFieldsBlockLastFinalized b =
   in
     unsafePerformIO $ do
       bn_str <- curry packCStringLen p 32
-      return . hash $ bn_str
+      return . SHA256.Hash . fromByteString $ bn_str
 
 instance BlockMetadata BlockFields where
     blockPointer = blockFieldsBlockPointer
@@ -241,15 +241,17 @@ instance BlockData BlockContents where
   verifyBlockSignature key b = Sig.verify key (runPut $ blockBodySerialize b) (fromJust . blockContentsSignature $ b)
   putBlock = blockBodySerialize
 
+-- Improve for serializing also de genesis data
 blockBodySerialize :: BlockContents -> Put
 blockBodySerialize b = do
-        put (blockSlot b)
-        put (blockPointer . fromJust . blockContentsFields $ b)
-        put (blockBaker . fromJust . blockContentsFields $ b)
-        put (blockProof . fromJust . blockContentsFields $ b)
-        put (blockNonce . fromJust . blockContentsFields $ b)
-        put (blockLastFinalized . fromJust . blockContentsFields $ b)
-        put (blockTransactions b)
+        put . blockSlot $ b
+        put . blockPointer . fromJust . blockContentsFields $ b
+        put . blockBaker . fromJust . blockContentsFields $ b
+        put . blockProof . fromJust . blockContentsFields $ b
+        put . blockNonce . fromJust . blockContentsFields $ b
+        put . blockLastFinalized . fromJust . blockContentsFields $ b
+        put . blockTransactions $ b
+        putByteString . encode . fromJust . blockContentsSignature $ b
 
 ---------------------------
 -- * PendingBlock FFI calls
@@ -284,7 +286,7 @@ pendingBlockHash b =
   let p = pendingBlockHashF . pendingBlockPointer $ b in
     unsafePerformIO $ do
       bh_str <- curry packCStringLen p 32
-      return . hash $ bh_str
+      return . SHA256.Hash . fromByteString $ bh_str
 
 pendingBlockExtractBlockFields :: PendingBlock -> BlockFields
 pendingBlockExtractBlockFields = fromJust . blockContentsFields . pendingBlockExtractBlockContents
@@ -376,7 +378,7 @@ blockPointerHash b =
   in
     unsafePerformIO $ do
       bh_str <- curry packCStringLen p 32
-      return . hash $ bh_str
+      return . SHA256.Hash . fromByteString $ bh_str
 
 blockPointerHeight :: BlockPointer -> BlockHeight
 blockPointerHeight = BlockHeight . fromIntegral . blockPointerHeightF . blockPointerPointer
@@ -411,12 +413,7 @@ instance BlockData BlockPointer where
   putBlock = putBlock . blockPointerExtractBlockContents
 
 instance Show BlockPointer where
-  show bp = intercalate ", " $ (show $ blockPointerHash bp) :
-    [show . blockPointerParent $ bp
-    , show . blockPointerLastFinalized $ bp
-    , show . blockPointerState $ bp
-    , show . blockPointerReceiveTime $ bp
-    , show . blockPointerArriveTime $ bp]
+  show = show . blockPointerHash
 
 instance BlockPointerData BlockPointer where
     type BlockState' BlockPointer = BBS.BlockState
