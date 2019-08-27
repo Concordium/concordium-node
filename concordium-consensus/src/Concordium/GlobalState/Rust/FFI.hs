@@ -239,7 +239,7 @@ instance BlockData BlockContents where
   blockFields = blockContentsFields
   blockTransactions = blockContentsBlockTransactions
   verifyBlockSignature key b = Sig.verify key (runPut $ blockBodySerialize b) (fromJust . blockContentsSignature $ b)
-  putBlock = blockBodySerialize
+  putBlock b = blockBodySerialize b  >> (putByteString . encode . fromJust . blockContentsSignature $ b)
 
 -- Improve for serializing also de genesis data
 blockBodySerialize :: BlockContents -> Put
@@ -251,7 +251,7 @@ blockBodySerialize b = do
         put . blockNonce . fromJust . blockContentsFields $ b
         put . blockLastFinalized . fromJust . blockContentsFields $ b
         put . blockTransactions $ b
-        putByteString . encode . fromJust . blockContentsSignature $ b
+
 
 ---------------------------
 -- * PendingBlock FFI calls
