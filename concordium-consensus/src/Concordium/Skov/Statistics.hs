@@ -66,7 +66,7 @@ updateArriveStatistics bp = do
                   & (transactionsPerBlockEMVar %~ \oldEMVar -> (1 - emaWeight) * (oldEMVar + emaWeight * delta * delta))
 
 -- | Called when a block is received to update the statistics.
-updateReceiveStatistics :: forall m. (TreeStateMonad m, LoggerMonad m, SkovQueryMonad m) => PendingBlock -> m ()
+updateReceiveStatistics :: forall m. (TreeStateMonad m, LoggerMonad m, SkovQueryMonad m) => PendingBlock m -> m ()
 updateReceiveStatistics pb = do
         s0 <- getConsensusStatistics
         let s1 = s0 & blocksReceivedCount +~ 1
@@ -85,21 +85,21 @@ updateReceiveStatistics pb = do
             slotTime <- getSlotTime (blockSlot pb)
             let
                 oldEMA = s ^. blockReceiveLatencyEMA
-                delta = realToFrac (diffUTCTime (pbReceiveTime pb) slotTime) - oldEMA
+                delta = realToFrac (diffUTCTime (blockReceiveTime pb) slotTime) - oldEMA
             return $
                 s & (blockReceiveLatencyEMA .~ oldEMA + emaWeight * delta)
                   & (blockReceiveLatencyEMVar %~ \oldEMVar -> (1 - emaWeight) * (oldEMVar + emaWeight * delta * delta))
         updatePeriod s = 
             case s ^. blockLastReceived of
-                Nothing -> s & blockLastReceived ?~ pbReceiveTime pb
+                Nothing -> s & blockLastReceived ?~ blockReceiveTime pb
                 Just lastBTime ->
                     let
-                        blockTime = realToFrac (diffUTCTime (pbReceiveTime pb) lastBTime)
+                        blockTime = realToFrac (diffUTCTime (blockReceiveTime pb) lastBTime)
                         oldEMA = fromMaybe blockTime (s ^. blockReceivePeriodEMA)
                         delta = blockTime - oldEMA
                         oldEMVar = fromMaybe 0 (s ^. blockReceivePeriodEMVar)
                     in
-                        s & (blockLastReceived ?~ pbReceiveTime pb)
+                        s & (blockLastReceived ?~ blockReceiveTime pb)
                           & (blockReceivePeriodEMA ?~ oldEMA + emaWeight * delta)
                           & (blockReceivePeriodEMVar ?~ (1 - emaWeight) * (oldEMVar + emaWeight * delta * delta))
 

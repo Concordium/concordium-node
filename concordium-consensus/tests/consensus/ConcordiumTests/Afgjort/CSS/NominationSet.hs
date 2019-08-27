@@ -31,6 +31,6 @@ instance Arbitrary NominationSet where
 serializeTest :: Property
 serializeTest = property $ \ns -> Right ns === runGet (getUntaggedNominationSet (nomTag ns)) (runPut $ putUntaggedNominationSet ns)
 
-tests :: Spec
-tests = describe "Concordium.Afgjort.CSS.NominationSet" $ do
-    it "serialization of nomination set" $ withMaxSuccess 10000 $ serializeTest
+tests :: Word -> Spec
+tests lvl = describe "Concordium.Afgjort.CSS.NominationSet" $ do
+    it "serialization of nomination set" $ withMaxSuccess (10 * 10^lvl) $ serializeTest

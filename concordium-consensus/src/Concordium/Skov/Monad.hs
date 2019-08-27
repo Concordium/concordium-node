@@ -14,6 +14,7 @@ import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.BlockState(BlockPointer, BlockPointerData, BlockState, BlockStateQuery)
+import Concordium.GlobalState.TreeState(PendingBlock)
 import Concordium.Logger
 import Concordium.TimeMonad
 
@@ -64,12 +65,12 @@ class (Monad m, Eq (BlockPointer m), BlockPointerData (BlockPointer m), BlockSta
 class (SkovQueryMonad m, TimeMonad m, LoggerMonad m) => SkovMonad m where
     -- |Store a block in the block table and add it to the tree
     -- if possible.
-    storeBlock :: BakedBlock -> m UpdateResult
+    storeBlock :: PendingBlock m -> m UpdateResult
     -- |Store a block in the block table that has just been baked.
     -- This assumes the block is valid and that there can be nothing
     -- pending for it (children or finalization).
-    storeBakedBlock ::
-        PendingBlock        -- ^The block to add
+    storeBakedBlock :: 
+        PendingBlock m        -- ^The block to add
         -> BlockPointer m     -- ^Parent pointer
         -> BlockPointer m     -- ^Last finalized pointer
         -> BlockState m       -- ^State

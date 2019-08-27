@@ -75,8 +75,7 @@ computeBlockNonce
   :: LeadershipElectionNonce -> Slot -> BakerElectionPrivateKey -> IO BlockNonce
 computeBlockNonce nonce slot key = do
         let msg = blockNonceMessage nonce slot
-        proof <- VRF.prove key msg
-        return (VRF.proofToHash proof, proof)
+        VRF.prove key msg
 
 verifyBlockNonce
   :: LeadershipElectionNonce
@@ -84,6 +83,6 @@ verifyBlockNonce
   -> BakerElectionVerifyKey
   -> BlockNonce
   -> Bool
-verifyBlockNonce nonce slot verifKey (_hsh, prf) =
+verifyBlockNonce nonce slot verifKey prf =
   VRF.verifyKey verifKey
     && VRF.verify verifKey (blockNonceMessage nonce slot) prf
