@@ -27,14 +27,14 @@ import Concordium.GlobalState.BlockState
 
 
 
-data BlockStatus bp =
+data BlockStatus bp pb =
     BlockAlive !bp
     | BlockDead
     | BlockFinalized !bp !FinalizationRecord
-    | BlockPending !PendingBlock
+    | BlockPending !pb
   deriving(Eq)
 
-instance Show (BlockStatus m) where
+instance Show (BlockStatus bp pb) where
     show (BlockAlive _) = "Alive"
     show (BlockDead) = "Dead"
     show (BlockFinalized _ _) = "Finalized"
@@ -47,6 +47,7 @@ instance Show (BlockStatus m) where
 -- in the branches at the level below.
 type Branches m = Seq.Seq [BlockPointer m]
 
+type family PendingBlock (m :: * -> *) :: *
 
 -- |Monad that provides operations for working with the low-level tree state.
 -- These operations are abstracted where possible to allow for a range of implementation
@@ -56,17 +57,31 @@ class (Eq (BlockPointer m),
        HashableTo BlockHash (BlockPointer m),
        BlockData (BlockPointer m),
        BlockPointerData (BlockPointer m),
+       BlockPendingData (PendingBlock m),
        BlockStateOperations m,
        Monad m)
       => TreeStateMonad m where
 
+    -- |Create and sign a 'PendingBlock`.
+    makePendingBlock ::
+        BakerSignPrivateKey -- ^Key for signing the new block
+        -> Slot             -- ^Block slot (must be non-zero)
+        -> BlockHash        -- ^Hash of parent block
+        -> BakerId          -- ^Identifier of block baker
+        -> BlockProof       -- ^Block proof
+        -> BlockNonce       -- ^Block nonce
+        -> BlockHash        -- ^Hash of last finalized block
+        -> [Transaction]    -- ^List of transactions
+        -> UTCTime          -- ^Block receive time
+        -> m (PendingBlock m)
+
     -- * Operations on the block table
     -- |Get the current status of a block.
-    getBlockStatus :: BlockHash -> m (Maybe (BlockStatus (BlockPointer m)))
+    getBlockStatus :: BlockHash -> m (Maybe (BlockStatus (BlockPointer m) (PendingBlock m)))
     -- |Make a live 'BlockPointer' from a 'PendingBlock'.
     -- The parent and last finalized pointers must be correct.
     makeLiveBlock ::
-        PendingBlock                         -- ^Block to make live
+        PendingBlock m                       -- ^Block to make live
         -> BlockPointer m                    -- ^Parent block pointer
         -> BlockPointer m                    -- ^Last finalized block pointer
         -> BlockState m                      -- ^Block state
@@ -80,7 +95,7 @@ class (Eq (BlockPointer m),
     markFinalized :: BlockHash -> FinalizationRecord -> m ()
     -- |Mark a block as pending (i.e. awaiting parent or finalization of
     --  last finalized block)
-    markPending :: PendingBlock -> m ()
+    markPending :: PendingBlock m -> m ()
     -- * Queries on genesis block
     -- |Get the genesis 'BlockPointer'.
     getGenesisBlockPointer :: m (BlockPointer m)
@@ -122,13 +137,13 @@ class (Eq (BlockPointer m),
     -- 
     -- |Return a list of the blocks that are pending the given parent block,
     -- removing them from the pending table.
-    takePendingChildren :: BlockHash -> m [PendingBlock]
+    takePendingChildren :: BlockHash -> m [PendingBlock m]
     -- |Add a pending block, that is pending on the arrival of its parent.
-    addPendingBlock :: PendingBlock -> m ()
+    addPendingBlock :: PendingBlock m -> m ()
     -- |Return the next block that is pending its parent with slot number
     -- less than or equal to the given value, removing it from the pending
     -- table.  Returns 'Nothing' if there is no such pending block.
-    takeNextPendingUntil :: Slot -> m (Maybe PendingBlock)
+    takeNextPendingUntil :: Slot -> m (Maybe (PendingBlock m))
     -- * Operations on blocks that are pending the finalization of their
     -- last finalized block
     --
@@ -141,12 +156,12 @@ class (Eq (BlockPointer m),
     --
     -- |Add a block that is awaiting finalization of its last finalized block.
     addAwaitingLastFinalized :: BlockHeight         -- ^Height of block's last finalized block
-                                -> PendingBlock     -- ^Block that is pending
+                                -> PendingBlock m   -- ^Block that is pending
                                 -> m ()
     -- |Take the next awaiting-last-finalized block where the height of the
     -- block that is awaiting finalization is less than or equal to the given
     -- value.
-    takeAwaitingLastFinalizedUntil :: BlockHeight -> m (Maybe PendingBlock)
+    takeAwaitingLastFinalizedUntil :: BlockHeight -> m (Maybe (PendingBlock m))
     -- * Operations on the finalization pool
     -- |Get the finalization pool at the given finalization index.
     getFinalizationPoolAtIndex :: FinalizationIndex -> m [FinalizationRecord]
@@ -209,6 +224,11 @@ class (Eq (BlockPointer m),
     -- |Lookup a transaction by its hash.  As well as the transaction, returns
     -- a @Bool@ indicating whether the transaction is already finalized.
     lookupTransaction :: TransactionHash -> m (Maybe (Transaction, Bool))
+    -- |Replace the transactions in a pending block with an identical set of
+    -- transactions.  (If the transactions are not identical, the hash will
+    -- not be correct.)  This is intended for de-duplicating transactions.
+    -- Ideally, this should be handled better.
+    updateBlockTransactions :: [Transaction] -> PendingBlock m -> m (PendingBlock m)
 
     -- * Operations on block state
 
@@ -237,7 +257,10 @@ class (Eq (BlockPointer m),
     -- |Set the consensus statistics.
     putConsensusStatistics :: ConsensusStatistics -> m ()
 
+type instance PendingBlock (BSMTrans t m) = PendingBlock m
+
 instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (BSMTrans t m) where
+    makePendingBlock key slot parent bid pf n lastFin trs time = lift $ makePendingBlock key slot parent bid pf n lastFin trs time
     getBlockStatus = lift . getBlockStatus
     makeLiveBlock b parent lastFin st time = lift $ makeLiveBlock b parent lastFin st time
     markDead = lift . markDead
@@ -272,12 +295,14 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (BSMTra
     addCommitTransaction tr slot = lift $ addCommitTransaction tr slot
     purgeTransaction = lift . purgeTransaction
     lookupTransaction = lift . lookupTransaction
+    updateBlockTransactions trs b = lift $ updateBlockTransactions trs b
     thawBlockState = lift . thawBlockState
     freezeBlockState = lift . freezeBlockState
     purgeBlockState = lift . purgeBlockState
     getConsensusStatistics = lift getConsensusStatistics
     putConsensusStatistics = lift . putConsensusStatistics
 
+    {-# INLINE makePendingBlock #-}
     {-# INLINE getBlockStatus #-}
     {-# INLINE makeLiveBlock #-}
     {-# INLINE markDead #-}
@@ -312,11 +337,14 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (BSMTra
     {-# INLINE addCommitTransaction #-}
     {-# INLINE purgeTransaction #-}
     {-# INLINE lookupTransaction #-}
+    {-# INLINE updateBlockTransactions #-}
     {-# INLINE thawBlockState #-}
     {-# INLINE freezeBlockState #-}
     {-# INLINE purgeBlockState #-}
     {-# INLINE getConsensusStatistics #-}
     {-# INLINE putConsensusStatistics #-}
 
+type instance PendingBlock (MaybeT m) = PendingBlock m
 deriving via (BSMTrans MaybeT m) instance TreeStateMonad m => TreeStateMonad (MaybeT m)
+type instance PendingBlock (RWST r w s m) = PendingBlock m
 deriving via (BSMTrans (RWST r w s) m) instance (TreeStateMonad m, Monoid w) => TreeStateMonad (RWST r w s m)
