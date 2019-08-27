@@ -3,42 +3,21 @@ use circular_queue::CircularQueue;
 use concordium_common::indexed_vec::IndexedVec;
 use hash_hasher::{HashBuildHasher, HashedMap, HashedSet};
 use linked_hash_map::LinkedHashMap;
+use nohash_hasher::BuildNoHashHasher;
+use priority_queue::PriorityQueue;
 use rkv::{Rkv, SingleStore, StoreOptions};
 
-use std::{collections::VecDeque, fmt, mem, rc::Rc};
+use std::{fmt, mem, rc::Rc};
 
 use crate::{block::*, finalization::*, transaction::*};
 
 type PeerId = u64;
 
-pub struct Peer {
-    pub id:    PeerId,
-    pub state: PeerState,
-}
-
-impl Peer {
-    pub fn new(id: PeerId, state: PeerState) -> Self { Self { id, state } }
-
-    pub fn is_catching_up(&self) -> bool {
-        if let PeerState::CatchingUp = self.state {
-            true
-        } else {
-            false
-        }
-    }
-}
-
-impl fmt::Debug for Peer {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:016x}: {:?}", self.id, self.state)
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
 pub enum PeerState {
-    Pending,
-    CatchingUp,
-    UpToDate,
+    Pending    = 2,
+    CatchingUp = 1, // TODO: consider a timestamp for these
+    UpToDate   = 0,
 }
 
 pub mod messaging;
@@ -51,7 +30,7 @@ use self::PendingQueueType::*;
 pub struct GlobalState<'a> {
     pub data:           GlobalData<'a>,
     pub catch_up_state: PeerState,
-    pub peers:          VecDeque<Peer>,
+    pub peers:          PriorityQueue<PeerId, PeerState, BuildNoHashHasher<PeerId>>,
     pub stats:          GlobalStats,
 }
 

@@ -27,7 +27,7 @@ use concordium_common::{
 use concordium_consensus::{consensus, ffi};
 
 use concordium_global_state::{
-    block::{BlockHeight, PendingBlock},
+    block::PendingBlock,
     common::{sha256, SerializeToBytes},
     finalization::FinalizationRecord,
     transaction::{Transaction, TransactionHash},
@@ -35,7 +35,7 @@ use concordium_global_state::{
         messaging::{
             ConsensusMessage, DistributionMode, GlobalStateMessage, GlobalStateResult, MessageType,
         },
-        GlobalState, Peer, PeerState,
+        GlobalState, PeerState,
     },
 };
 
@@ -180,21 +180,28 @@ pub fn handle_global_state_request(
         GlobalStateMessage::PeerListUpdate(peer_ids) => {
             update_peer_list(global_state, peer_ids);
 
-            if global_state
-                .peers
-                .iter()
-                .all(|peer| peer.state == PeerState::UpToDate)
-            {
-                trace!("Global state: all my peers are up to date");
-                if global_state.peers.len() <= node.max_nodes.unwrap_or(u16::max_value()) as usize {
-                    consensus.start_baker();
+            let (mut some_catching_up, mut some_pending) = (false, false);
+
+            for (_id, state) in global_state.peers.iter() {
+                match state {
+                    PeerState::CatchingUp => some_catching_up = true,
+                    PeerState::Pending => some_pending = true,
+                    _ => {}
                 }
-            } else if !global_state
-                .peers
-                .iter()
-                .any(|peer| peer.state == PeerState::CatchingUp)
-            {
-                // only send a catch-up status if none of the peers are currently catching up
+                if some_catching_up && some_pending {
+                    break;
+                }
+            }
+
+            // when the peer count is valid and all catch-up messages have been exchanged,
+            // baking may commence (does nothing if already baking)
+            if !some_catching_up && !some_pending {
+                trace!("Global state: all my peers are up to date");
+                consensus.start_baker();
+            // send up a catch-up message to the first pending peer when there are Pending
+            // peers and none are currently catching up
+            } else if !some_catching_up && some_pending {
+                trace!("Global state: some of my peers need catching up");
                 send_catch_up_status(node, network_id, consensus, global_state);
             }
 
@@ -230,20 +237,24 @@ pub fn handle_consensus_message(
 }
 
 fn update_peer_list(global_state: &mut GlobalState, peer_ids: Vec<u64>) {
-    global_state
-        .peers
-        .retain(|peer| peer_ids.contains(&peer.id));
+    // remove global state peers whose connections were dropped
+    if global_state.peers.len() > peer_ids.len() {
+        let gs_peers = mem::replace(&mut global_state.peers, Default::default());
 
-    for id in peer_ids {
-        if global_state
-            .peers
-            .iter()
-            .find(|peer| peer.id == id)
-            .is_none()
+        global_state.peers.reserve(peer_ids.len());
+        for (live_peer, state) in gs_peers
+            .into_iter()
+            .filter(|(id, _)| peer_ids.contains(&id))
         {
-            global_state
-                .peers
-                .push_back(Peer::new(id, PeerState::Pending));
+            global_state.peers.push(live_peer, state);
+        }
+    }
+
+    // include newly added peers
+    global_state.peers.reserve(peer_ids.len());
+    for id in peer_ids {
+        if global_state.peers.get(&id).is_none() {
+            global_state.peers.push(id, PeerState::Pending);
         }
     }
 }
@@ -384,29 +395,6 @@ fn consensus_driven_rebroadcast(
     }
 }
 
-pub fn apply_delayed_broadcasts(
-    node: &P2PNode,
-    network_id: NetworkId,
-    baker: &mut consensus::ConsensusContainer,
-    global_state: &mut GlobalState,
-) -> Fallible<()> {
-    let delayed_broadcasts = global_state.get_delayed_broadcasts();
-
-    if delayed_broadcasts.is_empty() {
-        return Ok(());
-    }
-
-    info!("Applying {} delayed broadcast(s)", delayed_broadcasts.len());
-
-    for request in delayed_broadcasts {
-        process_external_gs_entry(node, network_id, baker, request, global_state)?;
-    }
-
-    info!("Delayed broadcasts were applied");
-
-    Ok(())
-}
-
 fn send_msg_to_consensus(
     our_id: P2PNodeId,
     source_id: P2PNodeId,
@@ -485,59 +473,23 @@ pub fn send_consensus_msg_to_net(
     }
 }
 
-// GS-powered catch-up
-fn _send_catch_up_response(
-    node: &P2PNode,
-    global_state: &GlobalState,
-    target: P2PNodeId,
-    network: NetworkId,
-    since: BlockHeight,
-) {
-    for (block, fin_rec) in global_state.iter_tree_since(since) {
-        send_consensus_msg_to_net(
-            &node,
-            vec![],
-            Some(target),
-            network,
-            PacketType::Block,
-            None,
-            &block.serialize(),
-        );
-        if let Some(rec) = fin_rec {
-            send_consensus_msg_to_net(
-                &node,
-                vec![],
-                Some(target),
-                network,
-                PacketType::FinalizationRecord,
-                None,
-                &rec.serialize(),
-            );
-        }
-    }
-
-    // send a catch-up finish notification if need be
-}
-
 fn send_catch_up_status(
     node: &P2PNode,
     network_id: NetworkId,
     consensus: &mut consensus::ConsensusContainer,
     global_state: &mut GlobalState,
 ) {
-    if let Some(peer) = global_state
-        .peers
-        .iter_mut()
-        .find(|peer| peer.state == PeerState::Pending)
-    {
-        debug!("Global state: peer {:016x} needs to catch up", peer.id);
+    if let Some((&id, _)) = global_state.peers.peek() {
+        debug!("Global state: catching up with peer {:016x}", id);
 
-        peer.state = PeerState::CatchingUp; // TODO: consider a timestamp
+        global_state
+            .peers
+            .change_priority(&id, PeerState::CatchingUp);
 
         send_consensus_msg_to_net(
             node,
             vec![],
-            Some(P2PNodeId(peer.id)),
+            Some(P2PNodeId(id)),
             network_id,
             PacketType::CatchUpStatus,
             Some("catch-up status message".to_owned()),
@@ -551,59 +503,32 @@ fn manage_peer_states(
     request: &ConsensusMessage,
     consensus_result: ConsensusFfiResponse,
 ) {
-    use ConsensusFfiResponse::*;
+    let source_peer = request.source_peer();
 
     if request.variant == CatchUpStatus {
         if consensus_result.is_successful() {
-            if let Some(ref mut peer) = global_state
-                .peers
-                .iter_mut()
-                .find(|peer| peer.id == request.source_peer())
-            {
-                peer.state = PeerState::UpToDate;
-            } else {
-                global_state
-                    .peers
-                    .push_back(Peer::new(request.source_peer(), PeerState::UpToDate));
-            }
-        } else if [PendingBlock, PendingFinalization].contains(&consensus_result) {
-            if let Some(ref mut peer) = global_state
-                .peers
-                .iter_mut()
-                .find(|peer| peer.id == request.source_peer())
-            {
-                peer.state = PeerState::Pending;
-            } else {
-                global_state
-                    .peers
-                    .push_front(Peer::new(request.source_peer(), PeerState::Pending));
-            }
+            global_state.peers.push(source_peer, PeerState::UpToDate);
+        } else if consensus_result.is_pending() {
+            global_state.peers.push(source_peer, PeerState::Pending);
         }
     } else if [Block, FinalizationRecord].contains(&request.variant) {
         match request.distribution_mode() {
             DistributionMode::Direct if consensus_result.is_successful() => {
-                for peer in global_state
+                let up_to_date_peers = global_state
                     .peers
-                    .iter_mut()
-                    .filter(|peer| peer.state == PeerState::UpToDate)
-                {
-                    peer.state = PeerState::Pending;
-                }
-            }
-            DistributionMode::Broadcast
-                if [PendingBlock, PendingFinalization].contains(&consensus_result) =>
-            {
-                if let Some(ref mut peer) = global_state
-                    .peers
-                    .iter_mut()
-                    .find(|peer| peer.id == request.source_peer())
-                {
-                    peer.state = PeerState::Pending;
-                } else {
+                    .iter()
+                    .filter(|(_, &state)| state == PeerState::UpToDate)
+                    .map(|(&id, _)| id)
+                    .collect::<Vec<_>>();
+
+                for up_to_date_peer in up_to_date_peers {
                     global_state
                         .peers
-                        .push_front(Peer::new(request.source_peer(), PeerState::Pending));
+                        .change_priority(&up_to_date_peer, PeerState::Pending);
                 }
+            }
+            DistributionMode::Broadcast if consensus_result.is_pending() => {
+                global_state.peers.push(source_peer, PeerState::Pending);
             }
             _ => {}
         }
