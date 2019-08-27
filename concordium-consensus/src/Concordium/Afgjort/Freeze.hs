@@ -14,7 +14,8 @@ module Concordium.Afgjort.Freeze(
     receiveFreezeMessage,
     FreezeSummary,
     freezeSummary,
-    processFreezeSummary
+    processFreezeSummary,
+    freezeCompleted
 ) where
 
 import qualified Data.Map.Strict as Map
@@ -67,6 +68,10 @@ makeLenses ''FreezeState
 -- |The initial state of the Freeze protocol.
 initialFreezeState :: FreezeState sig
 initialFreezeState = FreezeState Map.empty PS.empty 0 Map.empty PS.empty Set.empty False
+
+-- |Whether the Freeze protocol has produced a justified decision.
+freezeCompleted :: SimpleGetter (FreezeState sig) Bool
+freezeCompleted = to _completed
 
 -- |The context for running the Freeze protocol, which includes
 --

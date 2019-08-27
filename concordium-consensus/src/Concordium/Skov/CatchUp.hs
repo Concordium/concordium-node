@@ -87,10 +87,9 @@ updateKnownBlocksToHeight h kb@(KnownBlocks m hkb)
         m' = m & at (hkb - 1) . non Set.empty %~ Set.union genhkb'
 
 checkKnownBlock :: (BlockPointerData b, Ord b) => b -> KnownBlocks b -> (Bool, KnownBlocks b)
-checkKnownBlock b kb = (b `Set.member` (m ^. at (bpHeight b) . non Set.empty), kb'')
+checkKnownBlock b kb = (b `Set.member` (m ^. at (bpHeight b) . non Set.empty), kb')
     where
-        (KnownBlocks m h) = updateKnownBlocksToHeight (bpHeight b) kb
-        kb'' = KnownBlocks (m & at (bpHeight b) . non Set.empty %~ Set.insert b) (max h (bpHeight b))
+        kb'@(KnownBlocks m h) = updateKnownBlocksToHeight (bpHeight b) kb
 
 
 handleCatchUp :: (TreeStateMonad m, SkovQueryMonad m) => CatchUpStatus -> m (Either String (Maybe ([Either FinalizationRecord (BlockPointer m)], CatchUpStatus), Bool))
@@ -135,7 +134,7 @@ handleCatchUp peerCUS = runExceptT $ do
                         (True, _) -> (kb, l)
                         (False, kb') -> makeChain' kb' (bpParent b) (b : l)
                     makeChain kb b = makeChain' kb b []
-                    (_, chain) = foldl (\(kbs, ch0) b -> let (kbs', ch1) = makeChain kbs b in (kbs', ch0 ++ ch1)) (knownBlocks, []) (bb : justifiers)
+                    (_, chain) = foldl (\(kbs, ch0) b -> let (kbs', ch1) = makeChain kbs b in (addKnownBlock b kbs', ch0 ++ ch1)) (knownBlocks, []) (bb : justifiers)
                     myCUS = makeCatchUpStatus False lfb bb justifiers
                     merge [] bs = Right <$> bs
                     merge fs [] = Left <$> fs

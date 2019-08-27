@@ -59,3 +59,6 @@ keysSet pm = PS.PartySet (weight pm) (BitSet.fromList $ Map.keys (partyMap pm))
 
 keys :: PartyMap a -> [Party]
 keys = Map.keys . partyMap
+
+toList :: PartyMap a -> [(Party, a)]
+toList = Map.toList . partyMap

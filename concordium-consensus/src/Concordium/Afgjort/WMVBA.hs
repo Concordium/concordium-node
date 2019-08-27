@@ -15,6 +15,8 @@ module Concordium.Afgjort.WMVBA (
     receiveWMVBAMessage,
     startWMVBA,
     putWMVBAMessageBody,
+    WMVBASummary,
+    wmvbaSummary,
     -- * For testing
     _freezeState
 ) where
@@ -35,6 +37,8 @@ import Concordium.Afgjort.Types
 import Concordium.Afgjort.Freeze
 import Concordium.Afgjort.ABBA
 import Concordium.Afgjort.CSS.NominationSet
+import Concordium.Afgjort.PartyMap (PartyMap)
+import qualified Concordium.Afgjort.PartyMap as PM
 
 data WMVBAMessage
     = WMVBAFreezeMessage !FreezeMessage
@@ -142,7 +146,7 @@ data WMVBAState sig = WMVBAState {
     _freezeState :: FreezeState sig,
     _abbaState :: ABBAState sig,
     _justifiedDecision :: OutcomeState,
-    _justifications :: Map Val (VoterPower, Map Party sig)
+    _justifications :: Map Val (PartyMap sig)
 } deriving (Show)
 makeLenses ''WMVBAState
 
@@ -267,16 +271,27 @@ receiveWMVBAMessage src sig (WMVBAABBAMessage msg) = do
         liftABBA $ receiveABBAMessage src msg sig
 receiveWMVBAMessage src sig (WMVBAWitnessCreatorMessage v) = do
         WMVBAInstance{..} <- ask
-        (wt, m) <- use (justifications . at v . non (0, Map.empty))
-        when (isNothing $ Map.lookup src m) $ do
-            let
-                newWeight = wt + partyWeight src
-                newMap = Map.insert src sig m
-            justifications . at v .= Just (newWeight, newMap)
-            when (newWeight > corruptWeight) $
-                wmvbaComplete (Just (v, Map.toList newMap))
+        newJV <- justifications . at v . non PM.empty <%= PM.insert src (partyWeight src) sig
+        when (PM.weight newJV > corruptWeight) $
+            wmvbaComplete (Just (v, PM.toList newJV))
 
 -- |Start the WMVBA for us with a given input.  This should only be called once
 -- per instance, and the input should already be justified.
 startWMVBA :: (WMVBAMonad sig m) => Val -> m ()
 startWMVBA val = sendWMVBAMessage (WMVBAFreezeMessage (Proposal val))
+
+data WMVBASummary sig = WMVBASummary {
+    summaryFreeze :: Maybe (FreezeSummary sig),
+    summaryABBA :: Maybe (ABBASummary sig),
+    summaryWitnessCreation :: Map Val (Map Party sig)
+}
+
+wmvbaSummary :: SimpleGetter (WMVBAState sig) (WMVBASummary sig)
+wmvbaSummary = to ws
+    where
+        ws WMVBAState{..} = WMVBASummary{..}
+            where
+                summaryFreeze = if _abbaState ^. abbaOutcome == Just False then Nothing else Just (_freezeState ^. freezeSummary)
+                summaryABBA = if _freezeState ^. freezeCompleted then Just (_abbaState ^. abbaSummary) else Nothing
+                summaryWitnessCreation = PM.partyMap <$> _justifications
+

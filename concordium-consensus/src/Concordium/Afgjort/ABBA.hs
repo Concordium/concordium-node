@@ -23,7 +23,12 @@ module Concordium.Afgjort.ABBA(
     beginABBA,
     justifyABBAChoice,
     receiveABBAMessage,
-    Choice
+    Choice,
+    PhaseSummary(..),
+    ABBASummary(..),
+    abbaSummary,
+    processABBASummary,
+    abbaOutcome
 ) where
 
 import qualified Data.Map as Map
@@ -350,6 +355,14 @@ beginABBA c = unlessCompleted $ do
         tkt <- makeTicket 0
         sendABBAMessage (Justified 0 c tkt)
 
+-- |Get the decision from an ABBAState.  Returns @Nothing@ if the protocol is not  yet completed.
+{-# INLINE abbaOutcome #-}
+abbaOutcome :: SimpleGetter (ABBAState sig) (Maybe Choice)
+abbaOutcome = to aoc
+    where
+        aoc ABBAState{..} = if _completed then Just (PM.weight _topWeAreDone >= PM.weight _botWeAreDone) else Nothing
+
+-- |Summary of a particular phase of the ABBA protocol.
 data PhaseSummary sig = PhaseSummary {
     summaryJustifiedTop :: Map Party (TicketProof, sig),
     summaryJustifiedBot :: Map Party (TicketProof, sig),
@@ -357,6 +370,8 @@ data PhaseSummary sig = PhaseSummary {
     summaryCSSDoneReporting :: Map Party (DoneReportingDetails sig)
 }
 
+-- |Get a summary of a phase state.  If the phase has not begun,
+-- this returns @Nothing@.
 phaseSummary :: SimpleGetter (PhaseState sig) (Maybe (PhaseSummary sig))
 phaseSummary = to phs
     where
@@ -370,13 +385,20 @@ phaseSummary = to phs
                 summaryCSSDoneReporting = summaryDoneReporting
         phs _ = Nothing
 
-
+-- |Summary of the ABBA protocol.  If there are sufficient WeAreDone messages
+-- then it is not necessary to include the phases.
 data ABBASummary sig = ABBASummary {
+    -- |Summary of the phases.
     summaryPhases :: [PhaseSummary sig],
+    -- |WeAreDone (Top) messages.
     summaryWeAreDoneTop :: Map Party sig,
+    -- |WeAreDone (Bottom) messages.
     summaryWeAreDoneBot :: Map Party sig
 }
 
+-- |Derive an 'ABBASummary' from the given 'ABBAState'.
+-- If the protocol is complete, then the WeAreDone weight for one of the outcomes
+-- should be at least (totalWeight - corruptWeight).
 abbaSummary :: SimpleGetter (ABBAState sig) (ABBASummary sig)
 abbaSummary = to abbas
     where
@@ -396,6 +418,10 @@ abbaSummary = to abbas
                         Nothing -> []
                         Just p -> p : processPhaseStates (expPhase+1) ps
                     | otherwise = []
+
+-- |Process the messages contained in an 'ABBASummary'.  The returned value indicates if the summary
+-- is *behind* the current state: that is, if we produced a summary, then it would contain (useful)
+-- messages that are not included in the given summary.
 processABBASummary :: (ABBAMonad sig m, Eq sig) => ABBASummary sig -> (Party -> ABBAMessage -> sig -> Bool) -> m Bool
 processABBASummary ABBASummary{..} checkSig = do
     ABBAInstance{..} <- ask
@@ -410,7 +436,7 @@ processABBASummary ABBASummary{..} checkSig = do
     if st ^. completed then do
         -- We have completed, so they are behind unless they have at least totalWeight - corruptWeight reporting done
         -- with a consistent outcome.
-        return $ not summaryComplete
+        return $! not summaryComplete
     else do
         -- First process the WeAreDone messages: if we have enough, there's no need to go further
         forM_ sWADTop $ \(party, sig) -> receiveABBAMessage party (WeAreDone True) sig
@@ -449,9 +475,9 @@ processABBASummary ABBASummary{..} checkSig = do
                         }
                         cssInst = CSSInstance totalWeight corruptWeight partyWeight maxParty
                         cssComplete = cssSummaryCheckComplete csss cssInst checkCSSSig
-                    return $ not cssComplete
+                    return $! not cssComplete
                 else do
-                    -- If we havent' completed the phase
+                    -- If we haven't completed the phase
                     -- Check the signatures & tickets
                     let
                         checkTicketAndSig b party (tp, sig) = do
@@ -469,19 +495,6 @@ processABBASummary ABBASummary{..} checkSig = do
                     forM_ (Map.toList sJBot) $ \(party, (ticket, sig)) -> handleJustified party phaseInd ticket False sig
                     forM_ (Map.toList sCS) $ \(party, l) -> forM_ l $ \(ns,sig) -> liftCSSReceiveMessage phaseInd party (Seen ns) sig
                     forM_ (Map.toList sCDR) $ \(party, (DoneReportingDetails ns sig)) -> liftCSSReceiveMessage phaseInd party (DoneReporting ns) sig
-                    -- Check if we have any messages that 
-                    undefined)
-            return $ sWADBehind || cssBehind
-
-{-}
-        rcss <- mconcat <$> forM (zip [0..] summaryPhases) $ \(phaseInd, PhaseSummary{..}) -> do
-            myTickets <- use $ phaseStates . at phaseInd . non initialABBAState . lotteryTickets . to (fmap (Map.fromList . (snd *** id)) . Map.toList)
-            -- Validate each received ticket proof
-            newTickets <- 
-
-
-    where
-        checkCSSSig phase party (Input c) sig = checkSig party (Justified phase c undefined) sig
-        checkCSSSig phase party (Seen ns) sig = checkSig party (CSSSeen phase ns) sig
-        checkCSSSig phase party (DoneReporting ns) sig = checkSig party (CSSDoneReporting phase ns) sig
--}
+                    -- Check if we have (or had) any messages that were not in the catch-up
+                    return $! cssSummaryIsBehind cssState (CSSSummary (snd <$> sJTop) (snd <$> sJBot) sCS sCDR))
+            return $! sWADBehind || cssBehind

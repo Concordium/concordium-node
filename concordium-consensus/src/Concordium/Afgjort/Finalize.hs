@@ -99,7 +99,8 @@ data FinalizationState = FinalizationState {
     _finsCommittee :: !FinalizationCommittee,
     _finsMinSkip :: !BlockHeight,
     _finsPendingMessages :: !PendingMessageMap,
-    _finsCurrentRound :: !(Maybe FinalizationRound)
+    _finsCurrentRound :: !(Maybe FinalizationRound),
+    _finsFailedRounds :: [Map Party Sig.Signature]
 }
 makeLenses ''FinalizationState
 
@@ -126,6 +127,10 @@ class FinalizationStateLenses s where
     finPendingMessages = finState . finsPendingMessages
     finCurrentRound :: Lens' s (Maybe FinalizationRound)
     finCurrentRound = finState . finsCurrentRound
+    -- |For each failed round (from most recent to oldest), signatures
+    -- on @WeAreDone False@ proving failure.
+    finFailedRounds :: Lens' s [Map Party Sig.Signature]
+    finFailedRounds = finState . finsFailedRounds
 
 instance FinalizationStateLenses FinalizationState where
     finState = id
@@ -145,7 +150,8 @@ initialFinalizationState FinalizationInstance{..} genHash finParams = Finalizati
             roundDelta = 1,
             roundMe = partyIndex p,
             roundWMVBA = initialWMVBAState
-        }
+        },
+    _finsFailedRounds = []
     }
     where
         com = makeFinalizationCommittee finParams
@@ -232,7 +238,8 @@ handleWMVBAOutputEvents evs = do
                 msgSenderIndex = roundMe
             }
             let
-                handleEv (SendWMVBAMessage msg0) = do
+                handleEvs _ [] = return ()
+                handleEvs b (SendWMVBAMessage msg0 : evs') = do
                     case msg0 of
                         WMVBAFreezeMessage (Proposal v) -> logEvent Afgjort LLDebug $ "Nominating block " ++ show v
                         _ -> return ()
@@ -240,11 +247,12 @@ handleWMVBAOutputEvents evs = do
                     broadcastFinalizationMessage msg
                     -- We manually loop back messages here
                     _ <- receiveFinalizationMessage msg
-                    return ()
-                handleEv (WMVBAComplete Nothing) =
+                    handleEvs b evs'
+                handleEvs False (WMVBAComplete Nothing : evs') = do
                     -- Round failed, so start a new one
                     nextRound _finsIndex roundDelta
-                handleEv (WMVBAComplete (Just (finBlock, sigs))) = do
+                    handleEvs True evs'
+                handleEvs False (WMVBAComplete (Just (finBlock, sigs)) : evs') = do
                     let finRec = FinalizationRecord {
                         finalizationIndex = _finsIndex,
                         finalizationBlockPointer = finBlock,
@@ -253,7 +261,9 @@ handleWMVBAOutputEvents evs = do
                     }
                     _ <- finalizeBlock finRec
                     broadcastFinalizationRecord finRec
-            mapM_ handleEv evs
+                    handleEvs True evs'
+                handleEvs True (WMVBAComplete _ : evs') = handleEvs True evs'
+            handleEvs False evs
 
 liftWMVBA :: (FinalizationMonad s m) => WMVBA Sig.Signature a -> m a
 liftWMVBA a = do
@@ -482,6 +492,16 @@ instance (FinalizationStateLenses s) => FinalizationQuery (FinalizationStateQuer
                         Just r -> roundDelta r
 
 deriving via (FinalizationStateQuery FinalizationState) instance FinalizationQuery FinalizationState
+
+data FinalizationSummary = FinalizationSummary {
+    -- |For each failed round (in order of increasing delta),
+    -- a collection of signatures on 'WeAreDone False'.
+    summaryFailedRounds :: [Map Party Sig.Signature],
+    -- |Summary for the current round.
+    summaryCurrentRound :: WMVBASummary Sig.Signature
+}
+
+-- * Passive finalization [deprecated]
 
 data PassiveFinalizationState = PassiveFinalizationState {
     _pfinsSessionId :: !FinalizationSessionId,
