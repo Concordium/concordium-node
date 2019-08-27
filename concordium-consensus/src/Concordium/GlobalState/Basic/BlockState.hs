@@ -222,10 +222,23 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
                     (\owner -> blockBirkParameters . birkBakers %~ addStake (owner ^. accountStakeDelegate) (Instances.instanceAmount inst))
                     (bs ^? blockAccounts . ix instanceOwner)
 
-    bsoPutNewModule bs mref iface viface source = return $
+    bsoPutNewModule bs mref iface viface source = return $!
         case Modules.putInterfaces mref iface viface source (bs ^. blockModules) of
           Nothing -> (False, bs)
           Just mods' -> (True, bs & blockModules .~ mods')
+
+    bsoTryGetLinkedExpr bs mref n = return $!
+        Modules.getLinkedExpr mref n (bs ^. blockModules)
+
+    bsoPutLinkedExpr bs mref n linked = return $!
+        bs & blockModules %~ (Modules.putLinkedExpr mref n linked)
+
+
+    bsoTryGetLinkedContract bs mref n = return $!
+        Modules.getLinkedContract mref n (bs ^. blockModules)
+
+    bsoPutLinkedContract bs mref n linked = return $!
+        bs & blockModules %~ (Modules.putLinkedContract mref n linked)
 
     bsoModifyInstance bs caddr amount model = return $!
         bs & blockInstances %~ Instances.updateInstanceAt caddr amount model

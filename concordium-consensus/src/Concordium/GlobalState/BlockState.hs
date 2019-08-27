@@ -170,6 +170,27 @@ class BlockStateQuery m => BlockStateOperations m where
                   -> Core.Module Core.UA
                   -> m (Bool, UpdatableBlockState m)
 
+  -- |Consult the linked expression cache for whether this definitionn is already linked.
+  bsoTryGetLinkedExpr :: UpdatableBlockState m -> Core.ModuleRef -> Core.Name -> m (Maybe (LinkedExpr Void))
+
+  -- |Put a new linked expression to the cache.
+  -- This method may assume that the module with given reference is already in the state (i.e., putNewModule was called before).
+  bsoPutLinkedExpr :: UpdatableBlockState m -> Core.ModuleRef -> Core.Name -> LinkedExpr Void -> m (UpdatableBlockState m)
+
+  -- |Try to get linked contract code from the cache.
+  bsoTryGetLinkedContract :: UpdatableBlockState m
+                          -> Core.ModuleRef
+                          -> Core.TyName
+                          -> m (Maybe (LinkedContractValue Void))
+
+  -- |Store the linked contract code in the linked code cache.
+  -- This method may assume that the module with given reference is already in the state (i.e., putNewModule was called before).
+  bsoPutLinkedContract :: UpdatableBlockState m
+                       -> Core.ModuleRef
+                       -> Core.TyName
+                       -> LinkedContractValue Void
+                       -> m (UpdatableBlockState m)
+
   -- |Modify an existing account with given data (which includes the address of the account).
   -- This method is only called when an account exists and can thus assume this.
   -- NB: In case we are adding a credential to an account this method __must__ also
@@ -287,6 +308,10 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoPutNewAccount s = lift . bsoPutNewAccount s
   bsoPutNewInstance s = lift . bsoPutNewInstance s
   bsoPutNewModule s mref iface viface source = lift (bsoPutNewModule s mref iface viface source)
+  bsoTryGetLinkedExpr s mref n = lift (bsoTryGetLinkedExpr s mref n)
+  bsoPutLinkedExpr s mref n linked = lift (bsoPutLinkedExpr s mref n linked)
+  bsoTryGetLinkedContract s mref n = lift (bsoTryGetLinkedContract s mref n)
+  bsoPutLinkedContract s mref n linked = lift (bsoPutLinkedContract s mref n linked)
   bsoModifyAccount s = lift . bsoModifyAccount s
   bsoModifyInstance s caddr amount model = lift $ bsoModifyInstance s caddr amount model
   bsoNotifyExecutionCost s = lift . bsoNotifyExecutionCost s
@@ -310,6 +335,10 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoPutNewAccount #-}
   {-# INLINE bsoPutNewInstance #-}
   {-# INLINE bsoPutNewModule #-}
+  {-# INLINE bsoTryGetLinkedExpr #-}
+  {-# INLINE bsoPutLinkedExpr #-}
+  {-# INLINE bsoTryGetLinkedContract #-}
+  {-# INLINE bsoPutLinkedContract #-}
   {-# INLINE bsoModifyAccount #-}
   {-# INLINE bsoModifyInstance #-}
   {-# INLINE bsoNotifyExecutionCost #-}
