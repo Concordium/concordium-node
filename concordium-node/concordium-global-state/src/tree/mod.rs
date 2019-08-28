@@ -3,42 +3,50 @@ use circular_queue::CircularQueue;
 use concordium_common::indexed_vec::IndexedVec;
 use hash_hasher::{HashBuildHasher, HashedMap, HashedSet};
 use linked_hash_map::LinkedHashMap;
+use nohash_hasher::BuildNoHashHasher;
+use priority_queue::PriorityQueue;
 use rkv::{Rkv, SingleStore, StoreOptions};
 
-use std::{collections::VecDeque, fmt, mem, rc::Rc};
+use std::{cmp::Ordering, fmt, mem, rc::Rc, time::Instant};
 
 use crate::{block::*, finalization::*, transaction::*};
 
 type PeerId = u64;
 
-pub struct Peer {
-    pub id:    PeerId,
-    pub state: PeerState,
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct PeerState {
+    pub status: PeerStatus,
+    timestamp:  Instant,
 }
 
-impl Peer {
-    pub fn new(id: PeerId, state: PeerState) -> Self { Self { id, state } }
-
-    pub fn is_catching_up(&self) -> bool {
-        if let PeerState::CatchingUp = self.state {
-            true
-        } else {
-            false
+impl PeerState {
+    pub fn new(status: PeerStatus) -> Self {
+        Self {
+            status,
+            timestamp: Instant::now(),
         }
     }
 }
 
-impl fmt::Debug for Peer {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:016x}: {:?}", self.id, self.state)
+#[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
+pub enum PeerStatus {
+    Pending    = 2,
+    CatchingUp = 1,
+    UpToDate   = 0,
+}
+
+impl Ord for PeerState {
+    fn cmp(&self, other: &Self) -> Ordering {
+        if self.status != other.status {
+            self.status.cmp(&other.status)
+        } else {
+            other.timestamp.cmp(&self.timestamp)
+        }
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum PeerState {
-    Pending,
-    CatchingUp,
-    UpToDate,
+impl PartialOrd for PeerState {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { Some(self.cmp(other)) }
 }
 
 pub mod messaging;
@@ -50,8 +58,8 @@ use self::PendingQueueType::*;
 /// Holds the global state and related statistics.
 pub struct GlobalState<'a> {
     pub data:           GlobalData<'a>,
-    pub catch_up_state: PeerState,
-    pub peers:          VecDeque<Peer>,
+    pub catch_up_state: PeerStatus,
+    pub peers:          PriorityQueue<PeerId, PeerState, BuildNoHashHasher<PeerId>>,
     pub stats:          GlobalStats,
 }
 
@@ -79,7 +87,7 @@ impl<'a> GlobalState<'a> {
 
         Self {
             data:           GlobalData::new(genesis_data, &kvs_env, persistent),
-            catch_up_state: PeerState::Pending,
+            catch_up_state: PeerStatus::Pending,
             peers:          Default::default(),
             stats:          GlobalStats::new(MOVING_AVERAGE_QUEUE_LEN),
         }
@@ -430,3 +438,25 @@ impl fmt::Display for GlobalStats {
 
 pub mod growth;
 pub mod query;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn peer_queue_logic() {
+        let mut peers = PriorityQueue::new();
+
+        peers.push(0, PeerState::new(PeerStatus::UpToDate));
+        peers.push(1, PeerState::new(PeerStatus::Pending));
+        peers.push(2, PeerState::new(PeerStatus::CatchingUp));
+        peers.push(3, PeerState::new(PeerStatus::Pending));
+
+        let sorted_ids = peers
+            .into_sorted_iter()
+            .map(|(id, _)| id)
+            .collect::<Vec<_>>();
+
+        assert_eq!(sorted_ids, vec![1, 3, 2, 0]);
+    }
+}

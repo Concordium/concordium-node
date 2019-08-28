@@ -227,6 +227,15 @@ impl ConsensusFfiResponse {
         }
     }
 
+    pub fn is_pending(self) -> bool {
+        use ConsensusFfiResponse::*;
+
+        match self {
+            PendingBlock | PendingFinalization => true,
+            _ => false,
+        }
+    }
+
     pub fn is_acceptable(self) -> bool {
         use ConsensusFfiResponse::*;
 
