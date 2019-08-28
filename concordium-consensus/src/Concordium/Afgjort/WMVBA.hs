@@ -15,7 +15,7 @@ module Concordium.Afgjort.WMVBA (
     receiveWMVBAMessage,
     startWMVBA,
     putWMVBAMessageBody,
-    WMVBASummary,
+    WMVBASummary(..),
     wmvbaSummary,
     -- * For testing
     _freezeState
@@ -140,7 +140,7 @@ instance S.Serialize WMVBAMessage where
         13 -> WMVBAWitnessCreatorMessage <$> getVal
         _ -> fail "Incorrect message type"
 
-data OutcomeState = OSAwaiting | OSFrozen Val | OSABBASuccess | OSDone deriving (Show)
+data OutcomeState = OSAwaiting | OSFrozen Val | OSABBASuccess | OSDone Val deriving (Show)
 
 data WMVBAState sig = WMVBAState {
     _freezeState :: FreezeState sig,
@@ -226,7 +226,7 @@ liftFreeze a = do
                 use justifiedDecision >>= \case
                     OSAwaiting -> justifiedDecision .= OSFrozen v
                     OSABBASuccess -> do
-                        justifiedDecision .= OSDone
+                        justifiedDecision .= OSDone v
                         sendWMVBAMessage (WMVBAWitnessCreatorMessage v)
                     _ -> return ()
             handleEvents r
@@ -249,7 +249,7 @@ liftABBA a = do
                 use justifiedDecision >>= \case
                     OSAwaiting -> justifiedDecision .= OSABBASuccess
                     OSFrozen v -> do
-                        justifiedDecision .= OSDone
+                        justifiedDecision .= OSDone v
                         sendWMVBAMessage (WMVBAWitnessCreatorMessage v)
                     _ -> return ()
             else
@@ -283,7 +283,9 @@ startWMVBA val = sendWMVBAMessage (WMVBAFreezeMessage (Proposal val))
 data WMVBASummary sig = WMVBASummary {
     summaryFreeze :: Maybe (FreezeSummary sig),
     summaryABBA :: Maybe (ABBASummary sig),
-    summaryWitnessCreation :: Map Val (Map Party sig)
+    -- |If freeze has completed and we have witness creation signatures,
+    -- then this records them.
+    summaryWitnessCreation :: Maybe (Val, Map Party sig)
 }
 
 wmvbaSummary :: SimpleGetter (WMVBAState sig) (WMVBASummary sig)
@@ -293,5 +295,37 @@ wmvbaSummary = to ws
             where
                 summaryFreeze = if _abbaState ^. abbaOutcome == Just False then Nothing else Just (_freezeState ^. freezeSummary)
                 summaryABBA = if _freezeState ^. freezeCompleted then Just (_abbaState ^. abbaSummary) else Nothing
-                summaryWitnessCreation = PM.partyMap <$> _justifications
+                summaryWitnessCreation = case _justifiedDecision of
+                    OSFrozen v -> wc v
+                    OSDone v -> wc v
+                    _ -> Nothing
+                wc v = (v,) . PM.partyMap <$> (_justifications ^? ix v)
 
+processWMVBASummary :: (WMVBAMonad sig m, Eq sig) => WMVBASummary sig -> (Party -> WMVBAMessage -> sig -> Bool) -> m CatchUpResult
+processWMVBASummary WMVBASummary{..} checkSig = do
+        -- Process the Freeze summary
+        freezeCUR <- fromMaybe mempty <$> (forM summaryFreeze $ \fs -> liftFreeze (processFreezeSummary fs checkFreezeSig))
+        -- Process the ABBA summary
+        abbaBehind <- fromMaybe False <$> (forM summaryABBA $ \asum -> liftABBA (processABBASummary asum checkABBASig))
+        -- Process the Witness Creation messages
+        WMVBASummary{summaryWitnessCreation=myWC} <- use wmvbaSummary
+        wcBehind <- case (summaryWitnessCreation, myWC) of
+            (Just (v, m), Nothing) -> do
+                forM_ (Map.toList . Map.filterWithKey (checkWCSig v) $ m) $ \(p, s) -> receiveWMVBAMessage p s (WMVBAWitnessCreatorMessage v)
+                return False
+            (Just (v, m), Just (v', m')) ->
+                if v == v' then do
+                    forM_ (Map.toList . Map.filterWithKey (checkWCSig v) . (`Map.difference` m') $ m) $
+                        \(p, s) -> receiveWMVBAMessage p s (WMVBAWitnessCreatorMessage v)
+                    -- If we have some signatures they don't, then they're behind
+                    return $ not $ null $ Map.differenceWithKey (\party x y -> if x == y || checkWCSig v party y then Nothing else Just x) m' m
+                else do
+                    forM_ (Map.toList . Map.filterWithKey (checkWCSig v) $ m) $ \(p, s) -> receiveWMVBAMessage p s (WMVBAWitnessCreatorMessage v)
+                    return True
+            (Nothing, Just _) -> return True
+            _ -> return False
+        return $! freezeCUR <> mempty{curBehind = abbaBehind || wcBehind}
+    where
+        checkFreezeSig p fm sig = checkSig p (WMVBAFreezeMessage fm) sig
+        checkABBASig p am sig = checkSig p (WMVBAABBAMessage am) sig
+        checkWCSig v p sig = checkSig p (WMVBAWitnessCreatorMessage v) sig

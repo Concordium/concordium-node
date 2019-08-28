@@ -42,6 +42,7 @@ import Concordium.Afgjort.Finalize
 import Concordium.Logger
 import Concordium.Birk.Bake
 import Concordium.TimeMonad
+import Concordium.Skov.CatchUp
 
 import Concordium.Startup(makeBakerAccount)
 
@@ -264,10 +265,22 @@ runKonsensusTest steps g states events
 
 runKonsensusTestSimple :: RandomGen g => Int -> g -> States -> EventPool -> IO Property
 runKonsensusTestSimple steps g states events
-        | steps <= 0 || null events = return
-            (case forM_ states $ \(_, _, s) -> invariantSkovFinalization s of
-                Left err -> counterexample ("Invariant failed: " ++ err) False
-                Right _ -> property True)
+        | steps <= 0 || null events = do
+            let (_, fi, st) = states Vec.! 0
+            let (_, fi', st') = states Vec.! 1
+            print st
+            print st'
+            (cus, _, _) <- myRunSkovActiveM (getCatchUpStatus True) fi' st'
+            let a = do
+                    -- lfb <- lastFinalizedBlock
+                    -- let cus = makeCatchUpStatus True lfb lfb []
+                    handleCatchUp cus
+            (r, _, _) <- myRunSkovActiveM a fi st
+            print r
+            return
+                (case forM_ states $ \(_, _, s) -> invariantSkovFinalization s of
+                    Left err -> counterexample ("Invariant failed: " ++ err) False
+                    Right _ -> property True)
         | otherwise = do
             let ((rcpt, ev), events', g') = selectFromSeq g events
             let (bkr, fi, fs) = states Vec.! rcpt
@@ -370,6 +383,8 @@ withInitialStatesDoubleTransactions n trcount r = monadicIO $ do
 
 tests :: Word -> Spec
 tests lvl = parallel $ describe "Concordium.Konsensus" $ do
+    it "catch up at end" $ withMaxSuccess 5 $ withInitialStates 2 $ runKonsensusTestSimple 100
+    {-
     it "2 parties, 100 steps, 20 transactions with duplicates, check at every step" $ withMaxSuccess (10^lvl) $ withInitialStatesDoubleTransactions 2 10 $ runKonsensusTest 100
     it "2 parties, 100 steps, 10 transactions, check at every step" $ withMaxSuccess (10*10^lvl) $ withInitialStatesTransactions 2 10 $ runKonsensusTest 100
     it "2 parties, 1000 steps, 50 transactions, check at every step" $ withMaxSuccess (10^lvl) $ withInitialStatesTransactions 2 50 $ runKonsensusTest 1000
@@ -379,4 +394,4 @@ tests lvl = parallel $ describe "Concordium.Konsensus" $ do
     it "2 parties, 1000 steps, check at every step" $ withMaxSuccess (10^lvl) $ withInitialStates 2 $ runKonsensusTest 1000
     --it "2 parties, 10000 steps, check at end" $ withMaxSuccess 100 $ withInitialStates 2 $ runKonsensusTestSimple 10000
     it "4 parties, 10000 steps, check every step" $ withMaxSuccess (10^lvl `div` 20) $ withInitialStates 4 $ runKonsensusTest 10000
-    
+    -}

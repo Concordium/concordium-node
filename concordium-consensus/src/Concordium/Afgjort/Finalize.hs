@@ -501,6 +501,23 @@ data FinalizationSummary = FinalizationSummary {
     summaryCurrentRound :: WMVBASummary Sig.Signature
 }
 
+finalizationSummary :: (FinalizationStateLenses s) => SimpleGetter s FinalizationSummary
+finalizationSummary = to fs
+    where
+        fs s = FinalizationSummary{..}
+            where
+                summaryFailedRounds = reverse $ s ^. finFailedRounds
+                summaryCurrentRound = case s ^. finCurrentRound of
+                    Nothing -> WMVBASummary Nothing Nothing Nothing
+                    Just FinalizationRound{..} -> roundWMVBA ^. wmvbaSummary
+
+putFinalizationSummary :: Party -> FinalizationSummary -> Put
+putFinalizationSummary maxParty FinalizationSummary{..} = do
+        putWord16be $ fromIntegral $ length summaryFailedRounds
+        forM_ summaryFailedRounds (putPartyMap maxParty)
+        -- TODO: putWMVBASummary
+
+
 -- * Passive finalization [deprecated]
 
 data PassiveFinalizationState = PassiveFinalizationState {

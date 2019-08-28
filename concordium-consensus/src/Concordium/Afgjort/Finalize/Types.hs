@@ -11,6 +11,9 @@ import Data.Serialize.Get
 import Data.Maybe
 import Control.Monad
 import Data.ByteString(ByteString)
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
+import Data.Bits
 
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
