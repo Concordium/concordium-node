@@ -377,18 +377,18 @@ impl P2PNode {
         trace!("Printing out stats");
         if let Some(max_nodes) = self.max_nodes {
             debug!(
-                "I currently have {}/{} nodes!",
+                "I currently have {}/{} peers",
                 peer_stat_list.len(),
                 max_nodes
             )
         } else {
-            debug!("I currently have {} nodes!", peer_stat_list.len())
+            debug!("I currently have {} peers", peer_stat_list.len())
         }
 
         // Print nodes
         if self.print_peers {
             for (i, peer) in peer_stat_list.iter().enumerate() {
-                debug!("Peer {}: {}/{}/{}", i, peer.id, peer.addr, peer.peer_type);
+                trace!("Peer {}: {}/{}/{}", i, peer.id, peer.addr, peer.peer_type);
             }
         }
     }
@@ -412,7 +412,7 @@ impl P2PNode {
                     }
                 }
                 if !self.config.no_bootstrap_dns {
-                    info!("No nodes at all - retrying bootstrapping");
+                    info!("No peers at all - retrying bootstrapping");
                     match utils::get_bootstrap_nodes(
                         self.config.bootstrappers_conf.clone(),
                         &self.config.dns_resolvers,
@@ -436,7 +436,7 @@ impl P2PNode {
                     );
                 }
             } else {
-                info!("Not enough nodes, sending GetPeers requests");
+                info!("Not enough peers, sending GetPeers requests");
                 let nets = self.noise_protocol_handler.networks();
                 if let Ok(nids) = safe_read!(nets).map(|nets| nets.clone()) {
                     self.send_get_peers(nids);
@@ -984,6 +984,15 @@ impl P2PNode {
         })
     }
 
+    pub fn get_node_peer_ids(&self) -> Vec<u64> {
+        read_or_die!(self.active_peer_stats)
+            .iter()
+            .filter(|(_, stats)| stats.peer_type == PeerType::Node)
+            .map(|(id, _)| id)
+            .copied()
+            .collect()
+    }
+
     pub fn get_peer_stats(&self) -> Vec<PeerStats> {
         read_or_die!(self.active_peer_stats)
             .values()
@@ -1070,10 +1079,8 @@ impl P2PNode {
 
         events.clear();
 
-        trace!("Processing new outbound messages");
         self.process_messages();
 
-        trace!("Processing the resend queue");
         self.process_resend_queue();
         Ok(())
     }

@@ -1,23 +1,20 @@
-use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
 use concordium_common::PacketType;
-use failure::{Fail, Fallible};
+use failure::Fail;
 
-use std::{
-    cmp::Ordering,
-    convert::TryFrom,
-    fmt,
-    io::{Cursor, Read},
-    mem::{self, size_of},
-    sync::Arc,
-};
+use std::{fmt, mem, sync::Arc};
 
 use crate::{
     block::*,
-    common::{create_serialization_cursor, HashBytes, SerializeToBytes},
+    common::{HashBytes, SerializeToBytes},
     finalization::*,
 };
 
-use super::{PeerId, ProcessingState};
+use super::PeerId;
+
+pub enum GlobalStateMessage {
+    ConsensusMessage(ConsensusMessage),
+    PeerListUpdate(Vec<PeerId>),
+}
 
 /// The type of messages passed between GlobalState and the consensus layer.
 ///
@@ -90,12 +87,6 @@ impl fmt::Display for ConsensusMessage {
             PacketType::Block => print_deserialized!(Block),
             PacketType::FinalizationRecord => print_deserialized!(FinalizationRecord),
             PacketType::FinalizationMessage => print_deserialized!(FinalizationMessage),
-            PacketType::FullCatchupRequest => {
-                let since = NetworkEndian::read_u64(
-                    &self.payload[..mem::size_of::<BlockHeight>() as usize],
-                );
-                format!("catch-up request since height {}", since)
-            }
             p => p.to_string(),
         };
 
@@ -138,7 +129,6 @@ pub enum GlobalStateResult {
     Error(GlobalStateError),
     Housekeeping,
     IgnoredEntry,
-    BestPeer((PeerId, GlobalMetadata)),
 }
 
 #[derive(Debug, PartialEq, Fail)]
@@ -169,64 +159,4 @@ pub enum GlobalStateError {
     // the finalization record's index is in the future
     #[fail(display = "finalization record's index ({}) is in the future (current: {})!", _0, _1)]
     FutureFinalizationRecord(FinalizationIndex, FinalizationIndex),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct GlobalMetadata {
-    pub finalized_height: BlockHeight,
-    pub n_pending_blocks: u64,
-    pub state:            ProcessingState,
-}
-
-impl GlobalMetadata {
-    pub fn is_usable(&self) -> bool {
-        self.state == ProcessingState::Complete
-            && !(self.finalized_height == 0 && self.n_pending_blocks == 0)
-    }
-}
-
-impl PartialOrd for GlobalMetadata {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        let result = if self.finalized_height != other.finalized_height {
-            self.finalized_height.cmp(&other.finalized_height)
-        } else {
-            self.n_pending_blocks.cmp(&other.n_pending_blocks)
-        };
-
-        Some(result)
-    }
-}
-
-impl Ord for GlobalMetadata {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.partial_cmp(other).unwrap() // infallible
-    }
-}
-
-impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for GlobalMetadata {
-    type Source = &'a [u8];
-
-    fn deserialize(bytes: Self::Source) -> Fallible<Self> {
-        let mut cursor = Cursor::new(bytes);
-
-        let finalized_height = NetworkEndian::read_u64(&read_ty!(&mut cursor, BlockHeight));
-        let n_pending_blocks = NetworkEndian::read_u64(&read_ty!(&mut cursor, u64));
-        let state = ProcessingState::try_from(read_const_sized!(&mut cursor, 1)[0])?;
-
-        Ok(GlobalMetadata {
-            finalized_height,
-            n_pending_blocks,
-            state,
-        })
-    }
-
-    fn serialize(&self) -> Box<[u8]> {
-        let mut cursor = create_serialization_cursor(size_of::<BlockHeight>() + 8 + 1);
-
-        let _ = cursor.write_u64::<NetworkEndian>(self.finalized_height);
-        let _ = cursor.write_u64::<NetworkEndian>(self.n_pending_blocks);
-        let _ = cursor.write_u8(self.state as u8);
-
-        cursor.into_inner()
-    }
 }
