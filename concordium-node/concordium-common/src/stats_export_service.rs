@@ -1,7 +1,7 @@
 cfg_if! {
     if #[cfg(feature = "instrumentation")] {
         use prometheus::{self, Encoder, IntCounter, IntGauge, Opts, Registry, TextEncoder};
-        use std::{net::SocketAddr, thread, time, sync::Mutex};
+        use std::{net::SocketAddr, thread, time, sync::RwLock};
         use gotham::{
             handler::IntoResponse,
             helpers::http::response::create_response,
@@ -46,13 +46,13 @@ cfg_if! {
 
         #[derive(Clone, StateData)]
         struct PrometheusStateData {
-            registry: Arc<Mutex<Registry>>,
+            registry: Arc<RwLock<Registry>>,
         }
 
         impl PrometheusStateData {
             fn new(registry: Registry) -> Self {
                 Self {
-                    registry: Arc::new(Mutex::new(registry)),
+                    registry: Arc::new(RwLock::new(registry)),
                 }
             }
         }
@@ -72,7 +72,7 @@ cfg_if! {
             invalid_network_packets_received: IntCounter,
             queue_size: IntGauge,
             resend_queue_size: IntGauge,
-            tokio_runtime: Arc<Mutex<Option<Runtime>>>,
+            tokio_runtime: Arc<RwLock<Option<Runtime>>>,
             gs_block_receipt: IntGauge,
             gs_block_entry: IntGauge,
             gs_block_query: IntGauge,
@@ -214,7 +214,7 @@ impl StatsExportService {
             invalid_network_packets_received: inpr,
             queue_size: qs,
             resend_queue_size: rqs,
-            tokio_runtime: Arc::new(Mutex::new(None)),
+            tokio_runtime: Arc::new(RwLock::new(None)),
             gs_block_receipt: sbr,
             gs_block_entry: sbe,
             gs_block_query: sbq,
@@ -422,9 +422,9 @@ impl StatsExportService {
     fn metrics(state: State) -> (State, String) {
         let state_data = PrometheusStateData::borrow_from(&state);
         let encoder = TextEncoder::new();
-        let metric_familys = lock_or_die!(state_data.registry).gather();
+        let metric_families = read_or_die!(state_data.registry).gather();
         let mut buffer = vec![];
-        assert!(encoder.encode(&metric_familys, &mut buffer).is_ok());
+        assert!(encoder.encode(&metric_families, &mut buffer).is_ok());
         match String::from_utf8(buffer) {
             Ok(buf) => (state, buf),
             Err(_) => (state, "".to_string()),
@@ -462,14 +462,14 @@ impl StatsExportService {
             .build()
             .unwrap();
         gotham::start_on_executor(listen_addr, self_clone.router(), runtime.executor());
-        if let Ok(mut locked_tokio) = self.tokio_runtime.lock() {
+        if let Ok(mut locked_tokio) = self.tokio_runtime.write() {
             *locked_tokio = Some(runtime);
         }
     }
 
     #[cfg(feature = "instrumentation")]
     pub fn stop_server(&self) {
-        if let Ok(mut locked_tokio) = self.tokio_runtime.lock() {
+        if let Ok(mut locked_tokio) = self.tokio_runtime.write() {
             if (&*locked_tokio).is_some() {
                 let old_v = std::mem::replace(&mut *locked_tokio, None);
                 old_v.map(tokio::runtime::Runtime::shutdown_now);
