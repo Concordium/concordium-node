@@ -30,6 +30,7 @@ dependencies:
 - time >=1.8
 - transformers >=0.5
 - microlens-platform >=0.3
+- microlens >=0.3
 - mtl >=2.2
 - pqueue >= 1.4.1
 - psqueues >= 0.2.7

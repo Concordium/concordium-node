@@ -58,3 +58,9 @@ isSubsetOf s1 s2 = s1 .&. s2 == s1
 
 filter :: (Enum a) => (a -> Bool) -> BitSet -> BitSet
 filter f = fromList . Prelude.filter f . toList
+
+size :: BitSet -> Int
+size = popCount
+
+difference :: BitSet -> BitSet -> BitSet
+difference s1 s2 = s1 .&. complement s2

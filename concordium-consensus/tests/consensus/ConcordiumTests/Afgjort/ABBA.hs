@@ -2,7 +2,6 @@
 module ConcordiumTests.Afgjort.ABBA where
 
 import System.IO.Unsafe
-import qualified Data.Set as Set
 import qualified Data.Sequence as Seq
 import Data.Sequence (Seq)
 import qualified Data.ByteString as BS
@@ -20,21 +19,25 @@ import Concordium.Afgjort.Types
 import Concordium.Afgjort.ABBA
 import Concordium.Afgjort.Lottery
 import Concordium.Afgjort.CSS.NominationSet
+import qualified Concordium.Afgjort.PartyMap as PM
 
 import Test.QuickCheck
 import Test.QuickCheck.Monadic
 import Test.Hspec
 
-invariantABBAState :: ABBAInstance -> ABBAState -> Either String ()
+import Debug.Trace
+
+invariantABBAState :: ABBAInstance -> ABBAState sig -> Either String ()
 invariantABBAState (ABBAInstance _ tw cw pw _ _ _ _) ABBAState{..} = do
         unless (_currentGrade <= 2) $ Left $ "Invalid grade" ++ show _currentGrade
-        checkBinary (==) _topWeAreDoneWeight (sum $ fmap pw $ Set.toList $ _topWeAreDone) "==" "weight of WeAreDone for Top" "calculated value"
-        checkBinary (<=) _topWeAreDoneWeight tw "<=" "weight of WeAreDone for Top" "total weight"
-        checkBinary (==) _botWeAreDoneWeight (sum $ fmap pw $ Set.toList $ _botWeAreDone) "==" "weight of WeAreDone for Bottom" "calculated value"
-        checkBinary (<=) _botWeAreDoneWeight tw "<=" "weight of WeAreDone for Bottom" "total weight"
-        checkBinary (==) _completed (_topWeAreDoneWeight >= tw - cw || _botWeAreDoneWeight >= tw - cw) "iff" "completed" "top/bottom WeAreDone exceeds (n - t)"
+        checkPartyMap "WeAreDone for Top" _topWeAreDone
+        checkBinary (<=) (PM.weight _topWeAreDone) tw "<=" "weight of WeAreDone for Top" "total weight"
+        checkPartyMap "WeAreDone for Bottom" _botWeAreDone
+        checkBinary (<=) (PM.weight _botWeAreDone) tw "<=" "weight of WeAreDone for Bottom" "total weight"
+        checkBinary (==) _completed (PM.weight _topWeAreDone >= tw - cw || PM.weight _botWeAreDone >= tw - cw) "iff" "completed" "top/bottom WeAreDone exceeds (n - t)"
     where
         checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
+        checkPartyMap s pm = checkBinary (==) (PM.weight pm) (sum $ fmap pw $ PM.keys pm) "==" ("weight of " ++ s) "calculated value"
 
 data ABBAInput
     = JustifyABBAChoice Choice
@@ -42,9 +45,9 @@ data ABBAInput
     | BeginABBA Choice
     deriving (Eq,Show)
 
-makeInput :: ABBAInput -> ABBA ()
+makeInput :: ABBAInput -> ABBA () ()
 makeInput (JustifyABBAChoice c) = justifyABBAChoice c
-makeInput (ReceiveABBAMessage p m) = receiveABBAMessage p m
+makeInput (ReceiveABBAMessage p m) = receiveABBAMessage p m ()
 makeInput (BeginABBA c) = beginABBA c
 
 -- |Pick an element from a sequence, returning the element
@@ -69,7 +72,7 @@ runABBATestRG g0 baid nparties allparties vrfkeys = go g0 iStates iResults
         iStates = Vec.replicate nparties (initialABBAState)
         checkSucceed = (allparties - nparties) * 3 < allparties
         corruptWeight = (allparties - 1) `div` 3
-        inst i = ABBAInstance baid allparties corruptWeight (const 1) (fromIntegral nparties) (VRF.publicKey . (vrfkeys Vec.!) . fromIntegral) i (vrfkeys Vec.! fromIntegral i)
+        inst i = ABBAInstance baid (fromIntegral allparties) (fromIntegral corruptWeight) (const 1) (fromIntegral nparties) (VRF.publicKey . (vrfkeys Vec.!) . fromIntegral) i (vrfkeys Vec.! fromIntegral i)
         go g sts ress msgs
             | null msgs = return $ counterexample ("Outcome: " ++ show ress) $ not checkSucceed || all (checkRes (ress Vec.! 0)) ress
             | otherwise = do
@@ -126,7 +129,7 @@ runABBATest2 g0 baid nparties allparties vrfkeys = go g0 iStates iResults
         iStates = Vec.replicate nparties (initialABBAState)
         checkSucceed = (allparties - nparties) * 3 < allparties
         corruptWeight = (allparties - 1) `div` 3
-        inst i = ABBAInstance baid allparties corruptWeight (const 1) (fromIntegral nparties) (VRF.publicKey . (vrfkeys Vec.!) . fromIntegral) i (vrfkeys Vec.! fromIntegral i)
+        inst i = ABBAInstance baid (fromIntegral allparties) (fromIntegral corruptWeight) (const 1) (fromIntegral nparties) (VRF.publicKey . (vrfkeys Vec.!) . fromIntegral) i (vrfkeys Vec.! fromIntegral i)
         go g sts ress msgs lowmsgs
             | null msgs = if null lowmsgs then
                             return $ counterexample ("Outcome: " ++ show ress) $ not checkSucceed || all (checkRes (ress Vec.! 0)) ress
@@ -165,12 +168,12 @@ superCorruptKeys good bad ugly = loop
             | phase < 0 = True
             | otherwise = maximum [valAtPhase phase (keys Vec.! k) | k <- [0..good-1]] < maximum [valAtPhase phase (keys Vec.! k) | k <- [good..good+bad-1]] 
                         && areSuperCorrupt (phase - 1) keys
-        valAtPhase phase k = ticketValue (proofToTicket (unsafePerformIO $ makeTicketProof (lotteryId phase) k) 1 (good + bad))
+        valAtPhase phase k = ticketValue (proofToTicket (unsafePerformIO $ makeTicketProof (lotteryId phase) k) 1 (fromIntegral $ good + bad))
         baid = "test" :: BS.ByteString
         lotteryId phase = Ser.runPut $ Ser.put baid >> Ser.put phase
         loop seed =
             let keys = Vec.fromList $ take (good + bad) $ unfoldr (Just . VRF.randomKeyPair) (mkStdGen seed) in
-                        if areSuperCorrupt ugly keys then keys else loop (seed + 1)
+                        if areSuperCorrupt ugly keys then trace ("Generated keys for " ++ show good ++ ":" ++ show bad ++ ":" ++ show ugly ++ " at seed " ++ show seed) keys else loop (seed + 1)
 makeBegins :: Int -> Gen (Seq.Seq (Party, ABBAInput))
 makeBegins = fmap toBegins . vector
     where
@@ -242,11 +245,11 @@ multiWithCorruptKeysEvil keys active corrupt = monadicIO $ do
 
 tests :: Word -> Spec
 tests lvl = parallel $ describe "Concordium.Afgjort.ABBA" $ do
-    it "3 parties + 1 super inactive" $ withMaxSuccess (10^lvl) $ multiWithInactiveKeys (superCorruptKeys 3 1 6 28177) 3 1
-    it "3 parties + 1 super corrupt" $ withMaxSuccess (5*10^lvl) $ multiWithCorruptKeys (superCorruptKeys 3 1 6 28177) 3 1
-    it "3 parties + 1 super corrupt evil" $ withMaxSuccess (5*10^lvl) $ multiWithCorruptKeysEvil (superCorruptKeys 3 1 6 28177) 3 1
-    it "5 parties + 2 super corrupt" $ withMaxSuccess (5*10^lvl) $ multiWithCorruptKeys (superCorruptKeys 5 2 6 6440) 5 2
-    it "5 parties + 2 super corrupt evil" $ withMaxSuccess (5*10^lvl) $ multiWithCorruptKeysEvil (superCorruptKeys 5 2 6 6440) 5 2
+    it "3 parties + 1 super inactive" $ withMaxSuccess (10^lvl) $ multiWithInactiveKeys (superCorruptKeys 3 1 6 90799) 3 1
+    it "3 parties + 1 super corrupt" $ withMaxSuccess (5*10^lvl) $ multiWithCorruptKeys (superCorruptKeys 3 1 6 90799) 3 1
+    it "3 parties + 1 super corrupt evil" $ withMaxSuccess (5*10^lvl) $ multiWithCorruptKeysEvil (superCorruptKeys 3 1 6 90799) 3 1
+    it "5 parties + 2 super corrupt" $ withMaxSuccess (5*10^lvl) $ multiWithCorruptKeys (superCorruptKeys 5 2 6 10203) 5 2
+    it "5 parties + 2 super corrupt evil" $ withMaxSuccess (5*10^lvl) $ multiWithCorruptKeysEvil (superCorruptKeys 5 2 6 10203) 5 2
     it "3 parties + 1 corrupt" $ withMaxSuccess (10^lvl `div` 2) $ multiWithCorrupt 3 1
     it "5 parties + 2 corrupt" $ withMaxSuccess (10^lvl `div` 2) $ multiWithCorrupt 5 2
     it "Two parties" $ withMaxSuccess (10*10^lvl) $ allHonest 2

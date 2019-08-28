@@ -28,6 +28,7 @@ import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.GlobalState.Instances
 import Concordium.GlobalState.Modules(moduleSource)
 import Concordium.GlobalState.Finalization
+import qualified Concordium.Skov.CatchUp as CU
 
 import Concordium.Afgjort.Finalize
 
@@ -267,3 +268,9 @@ getFinalizationMessages sfsRef finPt = runStateQuery sfsRef $ get <&> \sfs -> ge
 
 getFinalizationPoint :: (SkovStateQueryable z m, MonadState s m, FinalizationQuery s) => z -> IO FinalizationPoint
 getFinalizationPoint sfsRef = runStateQuery sfsRef $ get <&> getCurrentFinalizationPoint
+
+getCatchUpStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> IO CU.CatchUpStatus
+getCatchUpStatus sRef = runStateQuery sRef $ CU.getCatchUpStatus True
+
+handleCatchUpStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> CU.CatchUpStatus -> IO (Either String (Maybe ([Either FinalizationRecord (BS.BlockPointer m)], CU.CatchUpStatus), Bool))
+handleCatchUpStatus sRef cus = runStateQuery sRef $ CU.handleCatchUp cus

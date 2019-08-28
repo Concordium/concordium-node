@@ -22,6 +22,8 @@ EXPORTS
  getIndexedFinalization
  getFinalizationMessages
  getFinalizationPoint
+ getCatchUpStatus
+ receiveCatchUpStatus
  getAccountList
  getInstances
  getAccountInfo

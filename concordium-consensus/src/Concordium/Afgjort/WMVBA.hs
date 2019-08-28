@@ -14,6 +14,9 @@ module Concordium.Afgjort.WMVBA (
     isJustifiedWMVBAInput,
     receiveWMVBAMessage,
     startWMVBA,
+    putWMVBAMessageBody,
+    WMVBASummary,
+    wmvbaSummary,
     -- * For testing
     _freezeState
 ) where
@@ -34,6 +37,8 @@ import Concordium.Afgjort.Types
 import Concordium.Afgjort.Freeze
 import Concordium.Afgjort.ABBA
 import Concordium.Afgjort.CSS.NominationSet
+import Concordium.Afgjort.PartyMap (PartyMap)
+import qualified Concordium.Afgjort.PartyMap as PM
 
 data WMVBAMessage
     = WMVBAFreezeMessage !FreezeMessage
@@ -64,29 +69,35 @@ instance Show WMVBAMessage where
     show (WMVBAABBAMessage (WeAreDone b)) = "WeAreDone: " ++ show b
     show (WMVBAWitnessCreatorMessage v) = "Witness: " ++ show v
 
+-- |Serialize the part of a 'WMVBAMessage' that should be signed.
+-- (This is everything except the ticket in a 'Justified' message.)
+putWMVBAMessageBody :: WMVBAMessage -> Put
+putWMVBAMessageBody (WMVBAFreezeMessage (Proposal val)) = putWord8 0 >> putVal val
+putWMVBAMessageBody (WMVBAFreezeMessage (Vote Nothing)) = putWord8 1
+putWMVBAMessageBody (WMVBAFreezeMessage (Vote (Just val))) = putWord8 2 >> putVal val
+putWMVBAMessageBody (WMVBAABBAMessage (Justified phase False _)) = putWord8 3 >> putWord32be phase
+putWMVBAMessageBody (WMVBAABBAMessage (Justified phase True _)) = putWord8 4 >> putWord32be phase
+putWMVBAMessageBody (WMVBAABBAMessage (CSSSeen phase ns)) = putWord8 tag >> putWord32be phase >> putUntaggedNominationSet ns
+    where
+        tag = case nomTag ns of
+            NSEmpty -> error "Empty set for Seen message"      -- Should not be possible
+            NSTop -> 5
+            NSBot -> 6
+            NSBoth -> 7
+putWMVBAMessageBody (WMVBAABBAMessage (CSSDoneReporting phase choices)) = putWord8 tag >> putWord32be phase >> putUntaggedNominationSet choices
+    where
+        tag = case nomTag choices of
+            NSEmpty -> error "Empty set for DoneReporting message"      -- Should not be possible
+            NSTop -> 8
+            NSBot -> 9
+            NSBoth -> 10
+putWMVBAMessageBody (WMVBAABBAMessage (WeAreDone False)) = putWord8 11
+putWMVBAMessageBody (WMVBAABBAMessage (WeAreDone True)) = putWord8 12
+putWMVBAMessageBody (WMVBAWitnessCreatorMessage val) = putWord8 13 >> putVal val
+
 instance S.Serialize WMVBAMessage where
-    put (WMVBAFreezeMessage (Proposal val)) = putWord8 0 >> putVal val
-    put (WMVBAFreezeMessage (Vote Nothing)) = putWord8 1
-    put (WMVBAFreezeMessage (Vote (Just val))) = putWord8 2 >> putVal val
-    put (WMVBAABBAMessage (Justified phase False ticket)) = putWord8 3 >> putWord32be phase >> S.put ticket
-    put (WMVBAABBAMessage (Justified phase True ticket)) = putWord8 4 >> putWord32be phase >> S.put ticket
-    put (WMVBAABBAMessage (CSSSeen phase ns)) = putWord8 tag >> putWord32be phase >> putUntaggedNominationSet ns
-        where
-            tag = case nomTag ns of
-                NSEmpty -> error "Empty set for Seen message"      -- Should not be possible
-                NSTop -> 5
-                NSBot -> 6
-                NSBoth -> 7
-    put (WMVBAABBAMessage (CSSDoneReporting phase choices)) = putWord8 tag >> putWord32be phase >> putUntaggedNominationSet choices
-        where
-            tag = case nomTag choices of
-                NSEmpty -> error "Empty set for DoneReporting message"      -- Should not be possible
-                NSTop -> 8
-                NSBot -> 9
-                NSBoth -> 10
-    put (WMVBAABBAMessage (WeAreDone False)) = putWord8 11
-    put (WMVBAABBAMessage (WeAreDone True)) = putWord8 12
-    put (WMVBAWitnessCreatorMessage val) = putWord8 13 >> putVal val
+    put m@(WMVBAABBAMessage (Justified _ _ ticket)) = putWMVBAMessageBody m >> S.put ticket
+    put m = putWMVBAMessageBody m
 
     get = getWord8 >>= \case
         0 -> WMVBAFreezeMessage . Proposal <$> getVal
@@ -132,10 +143,10 @@ instance S.Serialize WMVBAMessage where
 data OutcomeState = OSAwaiting | OSFrozen Val | OSABBASuccess | OSDone deriving (Show)
 
 data WMVBAState sig = WMVBAState {
-    _freezeState :: FreezeState,
-    _abbaState :: ABBAState,
+    _freezeState :: FreezeState sig,
+    _abbaState :: ABBAState sig,
     _justifiedDecision :: OutcomeState,
-    _justifications :: Map Val (Int, Map Party sig)
+    _justifications :: Map Val (PartyMap sig)
 } deriving (Show)
 makeLenses ''WMVBAState
 
@@ -149,9 +160,9 @@ initialWMVBAState = WMVBAState {
 
 data WMVBAInstance sig = WMVBAInstance {
     baid :: BS.ByteString,
-    totalWeight :: Int,
-    corruptWeight :: Int,
-    partyWeight :: Party -> Int,
+    totalWeight :: VoterPower,
+    corruptWeight :: VoterPower,
+    partyWeight :: Party -> VoterPower,
     maxParty :: Party,
     publicKeys :: Party -> VRF.PublicKey,
     me :: Party,
@@ -193,7 +204,7 @@ instance WMVBAMonad sig (WMVBA sig) where
     sendWMVBAMessage = WMVBA . tell . Endo . (:) . SendWMVBAMessage
     wmvbaComplete = WMVBA . tell . Endo . (:) . WMVBAComplete
 
-liftFreeze :: (WMVBAMonad sig m) => Freeze a -> m a
+liftFreeze :: (WMVBAMonad sig m) => Freeze sig a -> m a
 liftFreeze a = do
         freezestate <- use freezeState
         freezecontext <- toFreezeInstance <$> ask
@@ -220,7 +231,7 @@ liftFreeze a = do
                     _ -> return ()
             handleEvents r
 
-liftABBA :: (WMVBAMonad sig m) => ABBA a -> m a
+liftABBA :: (WMVBAMonad sig m) => ABBA sig a -> m a
 liftABBA a = do
         aBBAInstance <- asks toABBAInstance
         aBBAState <- use abbaState
@@ -255,21 +266,32 @@ isJustifiedWMVBAInput val = liftFreeze $ isProposalJustified val
 
 -- |Handle an incoming 'WMVBAMessage'.
 receiveWMVBAMessage :: (WMVBAMonad sig m, Eq sig) => Party -> sig -> WMVBAMessage -> m ()
-receiveWMVBAMessage src _ (WMVBAFreezeMessage msg) = liftFreeze $ receiveFreezeMessage src msg
-receiveWMVBAMessage src _ (WMVBAABBAMessage msg) = do
-        liftABBA $ receiveABBAMessage src msg
+receiveWMVBAMessage src sig (WMVBAFreezeMessage msg) = liftFreeze $ receiveFreezeMessage src msg sig
+receiveWMVBAMessage src sig (WMVBAABBAMessage msg) = do
+        liftABBA $ receiveABBAMessage src msg sig
 receiveWMVBAMessage src sig (WMVBAWitnessCreatorMessage v) = do
         WMVBAInstance{..} <- ask
-        (wt, m) <- use (justifications . at v . non (0, Map.empty))
-        when (isNothing $ Map.lookup src m) $ do
-            let
-                newWeight = wt + partyWeight src
-                newMap = Map.insert src sig m
-            justifications . at v .= Just (newWeight, newMap)
-            when (newWeight > corruptWeight) $
-                wmvbaComplete (Just (v, Map.toList newMap))
+        newJV <- justifications . at v . non PM.empty <%= PM.insert src (partyWeight src) sig
+        when (PM.weight newJV > corruptWeight) $
+            wmvbaComplete (Just (v, PM.toList newJV))
 
 -- |Start the WMVBA for us with a given input.  This should only be called once
 -- per instance, and the input should already be justified.
 startWMVBA :: (WMVBAMonad sig m) => Val -> m ()
 startWMVBA val = sendWMVBAMessage (WMVBAFreezeMessage (Proposal val))
+
+data WMVBASummary sig = WMVBASummary {
+    summaryFreeze :: Maybe (FreezeSummary sig),
+    summaryABBA :: Maybe (ABBASummary sig),
+    summaryWitnessCreation :: Map Val (Map Party sig)
+}
+
+wmvbaSummary :: SimpleGetter (WMVBAState sig) (WMVBASummary sig)
+wmvbaSummary = to ws
+    where
+        ws WMVBAState{..} = WMVBASummary{..}
+            where
+                summaryFreeze = if _abbaState ^. abbaOutcome == Just False then Nothing else Just (_freezeState ^. freezeSummary)
+                summaryABBA = if _freezeState ^. freezeCompleted then Just (_abbaState ^. abbaSummary) else Nothing
+                summaryWitnessCreation = PM.partyMap <$> _justifications
+

@@ -164,7 +164,7 @@ invariantSkovFinalization (SkovActiveState sd@SkovData{..} FinalizationState{..}
                 nthAncestor 0 b = b
                 nthAncestor n b = nthAncestor (n-1) (bpParent b)
             let eligibleBlocks = Set.fromList $ bpHash . nthAncestor roundDelta <$> descendants
-            let justifiedProposals = Map.keysSet $ Map.filter (\(b,_,_) -> b) $ _proposals $ _freezeState $ roundWMVBA
+            let justifiedProposals = Map.keysSet $ Map.filter (\(b,_) -> b) $ _proposals $ _freezeState $ roundWMVBA
             checkBinary (==) justifiedProposals eligibleBlocks "==" "nominally justified finalization blocks" "actually justified finalization blocks"
             case roundInput of
                 Nothing -> unless (null eligibleBlocks) $ Left "There are eligible finalization blocks, but none has been nominated"

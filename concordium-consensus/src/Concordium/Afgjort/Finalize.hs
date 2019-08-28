@@ -17,6 +17,7 @@ module Concordium.Afgjort.Finalize (
     notifyBlockArrival,
     notifyBlockFinalized,
     receiveFinalizationMessage,
+    nextFinalizationJustifierHeight,
     -- * Passive mode
     PassiveFinalizationState(..),
     PassiveFinalizationStateLenses(..),
@@ -28,15 +29,12 @@ module Concordium.Afgjort.Finalize (
 ) where
 
 import qualified Data.Vector as Vec
-import Data.Vector(Vector)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict(Map)
 import qualified Data.Set as Set
 import Data.Set(Set)
-import Data.Word
 import qualified Data.Serialize as S
 import Data.Serialize.Put
-import Data.Serialize.Get
 import Data.Maybe
 import Lens.Micro.Platform
 import Control.Monad.State.Class
@@ -55,6 +53,7 @@ import Concordium.Afgjort.WMVBA
 import Concordium.Afgjort.Freeze (FreezeMessage(..))
 import Concordium.Kontrol.BestBlock
 import Concordium.Logger
+import Concordium.Afgjort.Finalize.Types
 
 atStrict :: (Ord k) => k -> Lens' (Map k v) (Maybe v)
 atStrict k f m = f mv <&> \r -> case r of
@@ -69,34 +68,6 @@ members e = lens (Set.member e) upd
         upd s True = Set.insert e s
         upd s False = Set.delete e s
 
-data FinalizationInstance = FinalizationInstance {
-    finMySignKey :: !Sig.KeyPair,
-    finMyVRFKey :: !VRF.KeyPair
-}
-
-data PartyInfo = PartyInfo {
-    partyIndex :: !Party,
-    partyWeight :: !Int,
-    partySignKey :: !Sig.VerifyKey,
-    partyVRFKey :: !VRF.PublicKey
-} deriving (Eq, Ord)
-
-instance Show PartyInfo where
-    show = show . partyIndex
-
-data FinalizationCommittee = FinalizationCommittee {
-    parties :: !(Vector PartyInfo),
-    totalWeight :: !Int,
-    corruptWeight :: !Int
-}
-
-makeFinalizationCommittee :: FinalizationParameters -> FinalizationCommittee
-makeFinalizationCommittee (FinalizationParameters {..}) = FinalizationCommittee {..}
-    where
-        parties = Vec.fromList $ zipWith makeParty [0..] finalizationCommittee
-        makeParty pix (VoterInfo psk pvk pow) = PartyInfo pix pow psk pvk
-        totalWeight = sum (partyWeight <$> parties)
-        corruptWeight = (totalWeight - 1) `div` 3
 
 data FinalizationRound = FinalizationRound {
     roundInput :: !(Maybe BlockHash),
@@ -108,78 +79,6 @@ data FinalizationRound = FinalizationRound {
 instance Show FinalizationRound where
     show FinalizationRound{..} = "roundInput: " ++ take 11 (show roundInput) ++ " roundDelta: " ++ show roundDelta
 
-data FinalizationSessionId = FinalizationSessionId {
-    fsidGenesis :: !BlockHash,
-    fsidIncarnation :: !Word64
-} deriving (Eq, Ord, Show)
-
-instance S.Serialize FinalizationSessionId where
-    put FinalizationSessionId{..} = S.put fsidGenesis >> putWord64be fsidIncarnation
-    get = do
-        fsidGenesis <- S.get
-        fsidIncarnation <- getWord64be
-        return FinalizationSessionId{..}
-
-data FinalizationMessageHeader = FinalizationMessageHeader {
-    msgSessionId :: !FinalizationSessionId,
-    msgFinalizationIndex :: !FinalizationIndex,
-    msgDelta :: !BlockHeight,
-    msgSenderIndex :: !Party
-} deriving (Eq, Ord)
-
-instance S.Serialize FinalizationMessageHeader where
-    put FinalizationMessageHeader{..} = do
-        S.put msgSessionId
-        S.put msgFinalizationIndex
-        S.put msgDelta
-        S.put msgSenderIndex
-    get = do
-        msgSessionId <- S.get
-        msgFinalizationIndex <- S.get
-        msgDelta <- S.get
-        msgSenderIndex <- getWord32be
-        return FinalizationMessageHeader{..}
-
-data FinalizationMessage = FinalizationMessage {
-    msgHeader :: !FinalizationMessageHeader,
-    msgBody :: !WMVBAMessage,
-    msgSignature :: !Sig.Signature
-}
-
-instance Show FinalizationMessage where
-    show FinalizationMessage{msgHeader=FinalizationMessageHeader{..},..} = "[" ++ show msgFinalizationIndex ++ ":" ++ show msgDelta ++ "] " ++ show msgSenderIndex ++ "-> " ++ show msgBody
-
-instance S.Serialize FinalizationMessage where
-    put FinalizationMessage{..} = do
-        S.put msgHeader
-        S.put msgBody
-        S.put msgSignature
-    get = do
-        msgHeader <- S.get
-        msgBody <- S.get
-        msgSignature <- S.get
-        return FinalizationMessage{..}
-
-signFinalizationMessage :: Sig.KeyPair -> FinalizationMessageHeader -> WMVBAMessage -> FinalizationMessage
-signFinalizationMessage key msgHeader msgBody = FinalizationMessage {..}
-    where
-        msgSignature = Sig.sign key encMsg
-        encMsg = runPut $ S.put msgHeader >> S.put msgBody
-
-toPartyInfo :: FinalizationCommittee -> Word32 -> Maybe PartyInfo
-toPartyInfo com p = parties com Vec.!? fromIntegral p
-
-checkMessageSignature :: FinalizationCommittee -> FinalizationMessage -> Bool
-checkMessageSignature com FinalizationMessage{..} = isJust $ do
-        p <- toPartyInfo com (msgSenderIndex msgHeader)
-        let encMsg = runPut $ S.put msgHeader >> S.put msgBody
-        guard $ Sig.verify (partySignKey p) encMsg msgSignature
-
-checkMessage :: FinalizationCommittee -> FinalizationMessage -> Bool
-checkMessage com msg = all validParty (messageParties $ msgBody msg) && checkMessageSignature com msg
-    where
-        validParty = (< numParties)
-        numParties = fromIntegral $ Vec.length $ parties com
 
 
 ancestorAtHeight :: BlockPointerData bp => BlockHeight -> bp -> bp
@@ -200,7 +99,8 @@ data FinalizationState = FinalizationState {
     _finsCommittee :: !FinalizationCommittee,
     _finsMinSkip :: !BlockHeight,
     _finsPendingMessages :: !PendingMessageMap,
-    _finsCurrentRound :: !(Maybe FinalizationRound)
+    _finsCurrentRound :: !(Maybe FinalizationRound),
+    _finsFailedRounds :: [Map Party Sig.Signature]
 }
 makeLenses ''FinalizationState
 
@@ -227,6 +127,10 @@ class FinalizationStateLenses s where
     finPendingMessages = finState . finsPendingMessages
     finCurrentRound :: Lens' s (Maybe FinalizationRound)
     finCurrentRound = finState . finsCurrentRound
+    -- |For each failed round (from most recent to oldest), signatures
+    -- on @WeAreDone False@ proving failure.
+    finFailedRounds :: Lens' s [Map Party Sig.Signature]
+    finFailedRounds = finState . finsFailedRounds
 
 instance FinalizationStateLenses FinalizationState where
     finState = id
@@ -246,7 +150,8 @@ initialFinalizationState FinalizationInstance{..} genHash finParams = Finalizati
             roundDelta = 1,
             roundMe = partyIndex p,
             roundWMVBA = initialWMVBAState
-        }
+        },
+    _finsFailedRounds = []
     }
     where
         com = makeFinalizationCommittee finParams
@@ -333,7 +238,8 @@ handleWMVBAOutputEvents evs = do
                 msgSenderIndex = roundMe
             }
             let
-                handleEv (SendWMVBAMessage msg0) = do
+                handleEvs _ [] = return ()
+                handleEvs b (SendWMVBAMessage msg0 : evs') = do
                     case msg0 of
                         WMVBAFreezeMessage (Proposal v) -> logEvent Afgjort LLDebug $ "Nominating block " ++ show v
                         _ -> return ()
@@ -341,11 +247,12 @@ handleWMVBAOutputEvents evs = do
                     broadcastFinalizationMessage msg
                     -- We manually loop back messages here
                     _ <- receiveFinalizationMessage msg
-                    return ()
-                handleEv (WMVBAComplete Nothing) =
+                    handleEvs b evs'
+                handleEvs False (WMVBAComplete Nothing : evs') = do
                     -- Round failed, so start a new one
                     nextRound _finsIndex roundDelta
-                handleEv (WMVBAComplete (Just (finBlock, sigs))) = do
+                    handleEvs True evs'
+                handleEvs False (WMVBAComplete (Just (finBlock, sigs)) : evs') = do
                     let finRec = FinalizationRecord {
                         finalizationIndex = _finsIndex,
                         finalizationBlockPointer = finBlock,
@@ -354,7 +261,9 @@ handleWMVBAOutputEvents evs = do
                     }
                     _ <- finalizeBlock finRec
                     broadcastFinalizationRecord finRec
-            mapM_ handleEv evs
+                    handleEvs True evs'
+                handleEvs True (WMVBAComplete _ : evs') = handleEvs True evs'
+            handleEvs False evs
 
 liftWMVBA :: (FinalizationMonad s m) => WMVBA Sig.Signature a -> m a
 liftWMVBA a = do
@@ -485,21 +394,41 @@ getMyParty = do
 -- |Called to notify the finalization routine when a new block is finalized.
 -- (NB: this should never be called with the genesis block.)
 notifyBlockFinalized :: (FinalizationMonad s m, BlockPointerData bp) => FinalizationRecord -> bp -> m ()
-notifyBlockFinalized FinalizationRecord{..} bp = do
+notifyBlockFinalized fr@FinalizationRecord{..} bp = do
         finIndex .= finalizationIndex + 1
         -- Discard finalization messages from old round
         finPendingMessages . atStrict finalizationIndex .= Nothing
         pms <- use finPendingMessages
         logEvent Afgjort LLTrace $ "Finalization complete. Pending messages: " ++ show pms
-        let newFinDelay = if finalizationDelay > 2 then finalizationDelay `div` 2 else 1
+        let newFinDelay = nextFinalizationDelay fr
         fs <- use finMinSkip
-        finHeight .= bpHeight bp + max (1 + fs) ((bpHeight bp - bpHeight (bpLastFinalized bp)) `div` 2)
+        finHeight .= nextFinalizationHeight fs bp
         -- Determine if we're in the committee
         mMyParty <- getMyParty
         forM_ mMyParty $ \myParty -> do
             newRound newFinDelay myParty
-            
-getPartyWeight :: FinalizationCommittee -> Party -> Int
+
+nextFinalizationDelay :: FinalizationRecord -> BlockHeight
+nextFinalizationDelay FinalizationRecord{..} = if finalizationDelay > 2 then finalizationDelay `div` 2 else 1
+
+-- |Given the finalization minimum skip and an explicitly finalized block, compute
+-- the height of the next finalized block.
+nextFinalizationHeight :: (BlockPointerData bp) 
+    => BlockHeight -- ^Finalization minimum skip
+    -> bp -- ^Last finalized block
+    -> BlockHeight
+nextFinalizationHeight fs bp = bpHeight bp + max (1 + fs) ((bpHeight bp - bpHeight (bpLastFinalized bp)) `div` 2)
+
+-- |The height that a chain must be for a block to be eligible for finalization.
+-- This is the next finalization height + the next finalization delay.
+nextFinalizationJustifierHeight :: (BlockPointerData bp)
+    => FinalizationParameters
+    -> FinalizationRecord -- ^Last finalization record
+    -> bp -- ^Last finalized block
+    -> BlockHeight
+nextFinalizationJustifierHeight fp fr bp = nextFinalizationHeight (finalizationMinimumSkip fp) bp + nextFinalizationDelay fr
+
+getPartyWeight :: FinalizationCommittee -> Party -> VoterPower
 getPartyWeight com pid = case parties com ^? ix (fromIntegral pid) of
         Nothing -> 0
         Just p -> partyWeight p
@@ -563,6 +492,16 @@ instance (FinalizationStateLenses s) => FinalizationQuery (FinalizationStateQuer
                         Just r -> roundDelta r
 
 deriving via (FinalizationStateQuery FinalizationState) instance FinalizationQuery FinalizationState
+
+data FinalizationSummary = FinalizationSummary {
+    -- |For each failed round (in order of increasing delta),
+    -- a collection of signatures on 'WeAreDone False'.
+    summaryFailedRounds :: [Map Party Sig.Signature],
+    -- |Summary for the current round.
+    summaryCurrentRound :: WMVBASummary Sig.Signature
+}
+
+-- * Passive finalization [deprecated]
 
 data PassiveFinalizationState = PassiveFinalizationState {
     _pfinsSessionId :: !FinalizationSessionId,

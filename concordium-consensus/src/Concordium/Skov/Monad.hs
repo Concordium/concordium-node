@@ -1,9 +1,11 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE KindSignatures, TypeFamilies, GeneralizedNewtypeDeriving, DerivingStrategies, DerivingVia, StandaloneDeriving #-}
 module Concordium.Skov.Monad where
 
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Maybe
+import Control.Monad.Trans.Except
 import Data.Time
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 
@@ -13,7 +15,7 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Transactions
-import Concordium.GlobalState.BlockState(BlockPointer, BlockPointerData, BlockState, BlockStateQuery)
+import Concordium.GlobalState.BlockState(BlockPointer, BlockPointerData, BlockState, BlockStateQuery, BSMTrans(..))
 import Concordium.GlobalState.TreeState(PendingBlock)
 import Concordium.Logger
 import Concordium.TimeMonad
@@ -81,7 +83,7 @@ class (SkovQueryMonad m, TimeMonad m, LoggerMonad m) => SkovMonad m where
     -- in a block being finalized.
     finalizeBlock :: FinalizationRecord -> m UpdateResult
 
-instance SkovQueryMonad m => SkovQueryMonad (MaybeT m) where
+instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (BSMTrans t m) where
     resolveBlock = lift . resolveBlock
     isFinalized = lift . isFinalized
     lastFinalizedBlock = lift lastFinalizedBlock
@@ -92,11 +94,17 @@ instance SkovQueryMonad m => SkovQueryMonad (MaybeT m) where
     branchesFromTop = lift branchesFromTop
     getBlocksAtHeight = lift . getBlocksAtHeight
 
-instance SkovMonad m => SkovMonad (MaybeT m) where
+instance (Monad (t m), MonadTrans t, SkovMonad m) => SkovMonad (BSMTrans t m) where
     storeBlock b = lift $ storeBlock b
     storeBakedBlock pb parent lastFin state = lift $ storeBakedBlock pb parent lastFin state
     receiveTransaction = lift . receiveTransaction
     finalizeBlock fr = lift $ finalizeBlock fr
+
+deriving via (BSMTrans MaybeT m) instance SkovQueryMonad m => SkovQueryMonad (MaybeT m)
+deriving via (BSMTrans MaybeT m) instance SkovMonad m => SkovMonad (MaybeT m)
+
+deriving via (BSMTrans (ExceptT e) m) instance SkovQueryMonad m => SkovQueryMonad (ExceptT e m)
+deriving via (BSMTrans (ExceptT e) m) instance SkovMonad m => SkovMonad (ExceptT e m)
 
 getGenesisTime :: (SkovQueryMonad m) => m Timestamp
 getGenesisTime = genesisTime <$> getGenesisData
