@@ -40,8 +40,6 @@ import Concordium.GlobalState.Rust.BlockState
 import Concordium.GlobalState.Rust.Block
 import Concordium.GlobalState.Rust.FFI
 
-import System.IO
-
 data SkovData = SkovData {
     -- |Map of all received blocks by hash.
     _skovGlobalStatePtr :: GlobalStatePtr,
