@@ -40,7 +40,6 @@ import Concordium.Types.HashableTo
 import Data.ByteString hiding (intercalate, unpack)
 import Data.ByteString.Short (toShort)
 import Data.FixedByteString hiding (pack, unpack)
-import Data.List
 import Data.Maybe
 import Data.Serialize
 import Data.Time.Clock
