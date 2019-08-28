@@ -35,7 +35,7 @@ use concordium_global_state::{
         messaging::{
             ConsensusMessage, DistributionMode, GlobalStateMessage, GlobalStateResult, MessageType,
         },
-        GlobalState, PeerState,
+        GlobalState, PeerState, PeerStatus,
     },
 };
 
@@ -183,9 +183,9 @@ pub fn handle_global_state_request(
             let (mut some_catching_up, mut some_pending) = (false, false);
 
             for (_id, state) in global_state.peers.iter() {
-                match state {
-                    PeerState::CatchingUp => some_catching_up = true,
-                    PeerState::Pending => some_pending = true,
+                match state.status {
+                    PeerStatus::CatchingUp => some_catching_up = true,
+                    PeerStatus::Pending => some_pending = true,
                     _ => {}
                 }
                 if some_catching_up && some_pending {
@@ -254,7 +254,9 @@ fn update_peer_list(global_state: &mut GlobalState, peer_ids: Vec<u64>) {
     global_state.peers.reserve(peer_ids.len());
     for id in peer_ids {
         if global_state.peers.get(&id).is_none() {
-            global_state.peers.push(id, PeerState::Pending);
+            global_state
+                .peers
+                .push(id, PeerState::new(PeerStatus::Pending));
         }
     }
 }
@@ -484,7 +486,7 @@ fn send_catch_up_status(
 
         global_state
             .peers
-            .change_priority(&id, PeerState::CatchingUp);
+            .change_priority(&id, PeerState::new(PeerStatus::CatchingUp));
 
         send_consensus_msg_to_net(
             node,
@@ -503,13 +505,19 @@ fn manage_peer_states(
     request: &ConsensusMessage,
     consensus_result: ConsensusFfiResponse,
 ) {
+    use PeerStatus::*;
+
     let source_peer = request.source_peer();
 
     if request.variant == CatchUpStatus {
         if consensus_result.is_successful() {
-            global_state.peers.push(source_peer, PeerState::UpToDate);
+            global_state
+                .peers
+                .push(source_peer, PeerState::new(UpToDate));
         } else if consensus_result.is_pending() {
-            global_state.peers.push(source_peer, PeerState::Pending);
+            global_state
+                .peers
+                .push(source_peer, PeerState::new(Pending));
         }
     } else if [Block, FinalizationRecord].contains(&request.variant) {
         match request.distribution_mode() {
@@ -517,18 +525,20 @@ fn manage_peer_states(
                 let up_to_date_peers = global_state
                     .peers
                     .iter()
-                    .filter(|(_, &state)| state == PeerState::UpToDate)
+                    .filter(|(_, &state)| state.status == UpToDate)
                     .map(|(&id, _)| id)
                     .collect::<Vec<_>>();
 
                 for up_to_date_peer in up_to_date_peers {
                     global_state
                         .peers
-                        .change_priority(&up_to_date_peer, PeerState::Pending);
+                        .change_priority(&up_to_date_peer, PeerState::new(Pending));
                 }
             }
             DistributionMode::Broadcast if consensus_result.is_pending() => {
-                global_state.peers.push(source_peer, PeerState::Pending);
+                global_state
+                    .peers
+                    .push(source_peer, PeerState::new(Pending));
             }
             _ => {}
         }
