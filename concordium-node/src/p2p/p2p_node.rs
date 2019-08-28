@@ -436,7 +436,7 @@ impl P2PNode {
                     );
                 }
             } else {
-                trace!("Not enough peers, sending GetPeers requests");
+                info!("Not enough peers, sending GetPeers requests");
                 let nets = self.noise_protocol_handler.networks();
                 if let Ok(nids) = safe_read!(nets).map(|nets| nets.clone()) {
                     self.send_get_peers(nids);

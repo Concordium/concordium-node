@@ -170,7 +170,7 @@ pub fn default_network_response_find_node(
     res: &NetworkResponse,
 ) -> FuncResult<()> {
     if let NetworkResponse::FindNode(_, ref peers) = res {
-        debug!("Got a response to FindNode");
+        trace!("Got a response to FindNode");
 
         let priv_conn_reader = read_or_die!(priv_conn);
         // Process the received node list
