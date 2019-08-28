@@ -92,11 +92,11 @@ fn main() -> Result<(), Error> {
         _ => format!("{}", P2PNodeId::default()),
     };
 
-    let (pkt_in, pkt_out) = mpsc::sync_channel(64);
-    let (rpc_tx, _) = std::sync::mpsc::sync_channel(64);
+    let (pkt_in, pkt_out) = mpsc::sync_channel(10000);
+    let (rpc_tx, _) = std::sync::mpsc::sync_channel(10000);
 
     let mut node = if conf.common.debug {
-        let (sender, receiver) = mpsc::sync_channel(64);
+        let (sender, receiver) = mpsc::sync_channel(10000);
         let _guard = spawn_or_die!("Log loop", move || loop {
             if let Ok(msg) = receiver.recv() {
                 info!("{}", msg);
