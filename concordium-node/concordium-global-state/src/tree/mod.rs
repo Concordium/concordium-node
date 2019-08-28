@@ -1,54 +1,66 @@
 use chrono::prelude::{DateTime, Utc};
 use circular_queue::CircularQueue;
-use concordium_common::{indexed_vec::IndexedVec, PacketType};
-use failure::{format_err, Fallible};
+use concordium_common::indexed_vec::IndexedVec;
 use hash_hasher::{HashBuildHasher, HashedMap, HashedSet};
 use linked_hash_map::LinkedHashMap;
-use nohash_hasher::IntMap;
+use nohash_hasher::BuildNoHashHasher;
+use priority_queue::PriorityQueue;
 use rkv::{Rkv, SingleStore, StoreOptions};
 
-use std::{convert::TryFrom, fmt, mem, rc::Rc};
+use std::{cmp::Ordering, fmt, mem, rc::Rc, time::Instant};
 
 use crate::{block::*, finalization::*, transaction::*};
 
 pub type PeerId = u64;
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct PeerState {
+    pub status: PeerStatus,
+    timestamp:  Instant,
+}
+
+impl PeerState {
+    pub fn new(status: PeerStatus) -> Self {
+        Self {
+            status,
+            timestamp: Instant::now(),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
+pub enum PeerStatus {
+    CatchingUp = 2,
+    Pending    = 1,
+    UpToDate   = 0,
+}
+
+impl Ord for PeerState {
+    fn cmp(&self, other: &Self) -> Ordering {
+        if self.status != other.status {
+            self.status.cmp(&other.status)
+        } else {
+            other.timestamp.cmp(&self.timestamp)
+        }
+    }
+}
+
+impl PartialOrd for PeerState {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { Some(self.cmp(other)) }
+}
+
 pub mod messaging;
 
-use messaging::{ConsensusMessage, GlobalMetadata, GlobalStateError, GlobalStateResult};
+use messaging::{ConsensusMessage, GlobalStateError};
 
 use self::PendingQueueType::*;
 
 /// Holds the global state and related statistics.
 pub struct GlobalState<'a> {
-    pub data:          GlobalData<'a>,
-    pub stats:         GlobalStats,
-    pub peer_metadata: IntMap<PeerId, GlobalMetadata>,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum ProcessingState {
-    JustStarted = 0,
-    FullyCatchingUp,
-    PartiallyCatchingUp,
-    Complete,
-}
-
-impl TryFrom<u8> for ProcessingState {
-    type Error = failure::Error;
-
-    fn try_from(value: u8) -> Fallible<Self> {
-        match value {
-            0 => Ok(ProcessingState::JustStarted),
-            1 => Ok(ProcessingState::FullyCatchingUp),
-            2 => Ok(ProcessingState::PartiallyCatchingUp),
-            3 => Ok(ProcessingState::Complete),
-            _ => Err(format_err!(
-                "Unsupported GlobalState state value: {}!",
-                value
-            )),
-        }
-    }
+    pub data:           GlobalData<'a>,
+    pub catch_up_state: PeerStatus,
+    pub peers:          PriorityQueue<PeerId, PeerState, BuildNoHashHasher<PeerId>>,
+    pub stats:          GlobalStats,
 }
 
 /// Returns a result of an operation and its duration.
@@ -74,9 +86,10 @@ impl<'a> GlobalState<'a> {
         const MOVING_AVERAGE_QUEUE_LEN: usize = 16;
 
         Self {
-            data:          GlobalData::new(genesis_data, &kvs_env, persistent),
-            stats:         GlobalStats::new(MOVING_AVERAGE_QUEUE_LEN),
-            peer_metadata: Default::default(),
+            data:           GlobalData::new(genesis_data, &kvs_env, persistent),
+            catch_up_state: PeerStatus::Pending,
+            peers:          Default::default(),
+            stats:          GlobalStats::new(MOVING_AVERAGE_QUEUE_LEN),
         }
     }
 
@@ -84,27 +97,6 @@ impl<'a> GlobalState<'a> {
     pub fn register_error(&mut self, err: GlobalStateError) {
         warn!("{}", err);
         self.stats.errors.push(err)
-    }
-
-    /// Indicate that a catch-up round has commenced and that it must conclude
-    /// before any new global state input is accepted.
-    pub fn start_catchup_round(&mut self, kind: ProcessingState) -> GlobalStateResult {
-        self.data.state = kind;
-        info!("A catch-up round has begun");
-        GlobalStateResult::Housekeeping
-    }
-
-    /// Indicate that a catch-up round has finished.
-    pub fn end_catchup_round(&mut self) -> GlobalStateResult {
-        self.data.state = ProcessingState::Complete;
-        self.peer_metadata.clear();
-        info!("A catch-up round was successfully completed");
-        GlobalStateResult::Housekeeping
-    }
-
-    pub fn is_catching_up(&self) -> bool {
-        self.state() == ProcessingState::FullyCatchingUp
-            || self.state() == ProcessingState::PartiallyCatchingUp
     }
 
     pub fn is_tree_valid(&self) -> bool {
@@ -121,8 +113,6 @@ impl<'a> GlobalState<'a> {
             && self.data.inapplicable_finalization_records.is_empty()
     }
 
-    pub fn state(&self) -> ProcessingState { self.data.state }
-
     pub fn delay_broadcast(&mut self, broadcast: ConsensusMessage) {
         self.data.delayed_broadcasts.push(broadcast);
     }
@@ -131,33 +121,6 @@ impl<'a> GlobalState<'a> {
 
     pub fn get_delayed_broadcasts(&mut self) -> Vec<ConsensusMessage> {
         mem::replace(&mut self.data.delayed_broadcasts, Vec::new())
-    }
-
-    pub fn is_broadcast_delay_acceptable(&self) -> bool {
-        // don't count finalization messages, as they can be numerous and
-        // their number is not representative of the duration of the delay
-        self.data
-            .delayed_broadcasts
-            .iter()
-            .filter(|msg| msg.variant == PacketType::Block)
-            .count()
-            <= self.finalization_span() as usize
-    }
-
-    pub fn register_peer_metadata(&mut self, peer: u64, meta: GlobalMetadata) -> GlobalStateResult {
-        self.peer_metadata.insert(peer, meta);
-        GlobalStateResult::SuccessfulEntry(PacketType::GlobalStateMetadata)
-    }
-
-    pub fn best_metadata(&self) -> GlobalStateResult {
-        let best_metadata = self
-            .peer_metadata
-            .iter()
-            .max_by_key(|(_, meta)| *meta)
-            .map(|(id, meta)| (id.to_owned(), meta.to_owned()))
-            .unwrap(); // infallible
-
-        GlobalStateResult::BestPeer(best_metadata)
     }
 
     pub fn iter_tree_since(
@@ -171,7 +134,7 @@ impl<'a> GlobalState<'a> {
     pub fn display_state(&self) {
         info!(
             "GlobalState data:\nblock tree: {:?}\nlast finalized: {:?}\nfinalization list: \
-             {:?}\ntree candidates: {:?}{}{}{}{}\npeer metadata: {:?}\nstatus: {:?}",
+             {:?}\ntree candidates: {:?}{}{}{}{}\n",
             self.data.finalized_blocks.keys().collect::<Vec<_>>(),
             self.data.last_finalized.hash,
             self.data
@@ -186,8 +149,6 @@ impl<'a> GlobalState<'a> {
             self.data.print_pending_queue(AwaitingLastFinalizedBlock),
             self.data
                 .print_pending_queue(AwaitingLastFinalizedFinalization),
-            self.peer_metadata,
-            self.data.state,
         );
     }
 
@@ -234,8 +195,6 @@ pub struct GlobalData<'a> {
     transaction_table: TransactionTable,
     /// incoming broacasts rejected during a catch-up round
     delayed_broadcasts: Vec<ConsensusMessage>,
-    /// the current processing state (catching up etc.)
-    pub state: ProcessingState,
 }
 
 impl<'a> GlobalData<'a> {
@@ -272,7 +231,7 @@ impl<'a> GlobalData<'a> {
 
         let genesis_to_store = Rc::clone(genesis_block_ref);
 
-        let mut skov = Self {
+        let mut global_state = Self {
             kvs_env,
             finalized_block_store,
             finalized_blocks,
@@ -289,13 +248,12 @@ impl<'a> GlobalData<'a> {
             inapplicable_finalization_records: hashed!(HashedMap, GS_ERR_PREALLOCATION_SIZE),
             transaction_table: TransactionTable::default(),
             delayed_broadcasts: Vec::new(),
-            state: ProcessingState::JustStarted,
         };
 
         // store the genesis block
-        skov.store_block(&genesis_to_store);
+        global_state.store_block(&genesis_to_store);
 
-        skov
+        global_state
     }
 
     fn pending_queue_ref(&self, queue: PendingQueueType) -> &PendingQueue {
@@ -480,3 +438,25 @@ impl fmt::Display for GlobalStats {
 
 pub mod growth;
 pub mod query;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn peer_queue_logic() {
+        let mut peers = PriorityQueue::new();
+
+        peers.push(0, PeerState::new(PeerStatus::UpToDate));
+        peers.push(1, PeerState::new(PeerStatus::Pending));
+        peers.push(2, PeerState::new(PeerStatus::CatchingUp));
+        peers.push(3, PeerState::new(PeerStatus::Pending));
+
+        let sorted_ids = peers
+            .into_sorted_iter()
+            .map(|(id, _)| id)
+            .collect::<Vec<_>>();
+
+        assert_eq!(sorted_ids, vec![2, 1, 3, 0]);
+    }
+}

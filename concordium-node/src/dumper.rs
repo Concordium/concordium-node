@@ -43,7 +43,7 @@ impl DumpItem {
         }
     }
 
-    pub fn into_pretty_dump(self) -> String {
+    pub fn into_pretty_dump(mut self) -> String {
         let mut archive = ReadArchiveAdapter::new(self.msg.clone(), self.remote_peer);
 
         format!(
@@ -51,10 +51,10 @@ impl DumpItem {
             self.timestamp,
             if self.inbound { "IN" } else { "OUT" },
             self.remote_addr,
-            if let Ok(cv) = self.msg.into_vec() {
+            if let Ok(cv) = self.msg.remaining_bytes() {
                 cv
             } else {
-                vec![]
+                (&[][..]).into()
             },
             crate::network::NetworkMessage::deserialize(&mut archive)
         )

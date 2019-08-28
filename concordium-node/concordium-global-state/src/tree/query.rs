@@ -2,35 +2,16 @@ use std::rc::Rc;
 
 use crate::{
     block::*,
-    common::{HashBytes, SerializeToBytes, Slot},
+    common::{HashBytes, Slot},
     finalization::*,
 };
 
 use super::{
-    messaging::{GlobalMetadata, GlobalStateError, GlobalStateResult},
+    messaging::{GlobalStateError, GlobalStateResult},
     GlobalData, GlobalState,
 };
 
 impl<'a> GlobalState<'a> {
-    pub fn get_serialized_metadata(&self) -> GlobalStateResult {
-        let metadata = self.get_metadata().serialize();
-        GlobalStateResult::SuccessfulQuery(metadata)
-    }
-
-    pub fn get_metadata(&self) -> GlobalMetadata {
-        GlobalMetadata {
-            finalized_height: self.data.get_last_finalized_height(),
-            n_pending_blocks: self.data.live_blocks.len() as u64,
-            state:            self.data.state,
-        }
-    }
-
-    pub fn is_peer_metadata_better(&self, peer_metadata: GlobalMetadata) -> bool {
-        let our_metadata = self.get_metadata();
-
-        peer_metadata > our_metadata
-    }
-
     pub fn get_stored_block(&'a self, hash: &BlockHash) -> GlobalStateResult {
         let reader = self.data.kvs_env.read().unwrap(); // infallible
         let block = self

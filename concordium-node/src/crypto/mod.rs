@@ -1,4 +1,4 @@
-use base58::ToBase58;
+use base58check::ToBase58Check;
 use concordium_crypto_eddsa_ed25519;
 use sha2::{Digest, Sha224};
 use snow::params::{CipherChoice, DHChoice, HashChoice, NoiseParams};
@@ -32,7 +32,7 @@ impl KeyPair {
         let hasher: Sha224 = Sha224::default();
         let pk_hash = hasher.chain(&self.public_key).result();
 
-        format!("{}{}", ADDRESS_SCHEME, pk_hash[..20].to_base58())
+        format!("{}{}", ADDRESS_SCHEME, pk_hash[..20].to_base58check(0))
     }
 }
 

@@ -73,12 +73,12 @@ cfg_if! {
             queue_size: IntGauge,
             resend_queue_size: IntGauge,
             tokio_runtime: Arc<Mutex<Option<Runtime>>>,
-            skov_block_receipt: IntGauge,
-            skov_block_entry: IntGauge,
-            skov_block_query: IntGauge,
-            skov_finalization_receipt: IntGauge,
-            skov_finalization_entry: IntGauge,
-            skov_finalization_query: IntGauge,
+            gs_block_receipt: IntGauge,
+            gs_block_entry: IntGauge,
+            gs_block_query: IntGauge,
+            gs_finalization_receipt: IntGauge,
+            gs_finalization_entry: IntGauge,
+            gs_finalization_query: IntGauge,
         }
     }
 }
@@ -98,12 +98,12 @@ pub struct StatsExportService {
     invalid_network_packets_received: Arc<AtomicUsize>,
     queue_size: Arc<AtomicUsize>,
     resend_queue_size: Arc<AtomicUsize>,
-    skov_block_receipt: Arc<AtomicUsize>,
-    skov_block_entry: Arc<AtomicUsize>,
-    skov_block_query: Arc<AtomicUsize>,
-    skov_finalization_receipt: Arc<AtomicUsize>,
-    skov_finalization_entry: Arc<AtomicUsize>,
-    skov_finalization_query: Arc<AtomicUsize>,
+    gs_block_receipt: Arc<AtomicUsize>,
+    gs_block_entry: Arc<AtomicUsize>,
+    gs_block_query: Arc<AtomicUsize>,
+    gs_finalization_receipt: Arc<AtomicUsize>,
+    gs_finalization_entry: Arc<AtomicUsize>,
+    gs_finalization_query: Arc<AtomicUsize>,
 }
 
 impl StatsExportService {
@@ -173,27 +173,30 @@ impl StatsExportService {
             registry.register(Box::new(rs.clone()))?;
         }
 
-        let sbr_opts = Opts::new("skov_block_receipt", "skov block receipt");
+        let sbr_opts = Opts::new("gs_block_receipt", "global state block receipt");
         let sbr = IntGauge::with_opts(sbr_opts)?;
         registry.register(Box::new(sbr.clone()))?;
 
-        let sbe_opts = Opts::new("skov_block_entry", "skov block entry");
+        let sbe_opts = Opts::new("gs_block_entry", "global state block entry");
         let sbe = IntGauge::with_opts(sbe_opts)?;
         registry.register(Box::new(sbe.clone()))?;
 
-        let sbq_opts = Opts::new("skov_block_query", "skov block query");
+        let sbq_opts = Opts::new("gs_block_query", "global state block query");
         let sbq = IntGauge::with_opts(sbq_opts)?;
         registry.register(Box::new(sbq.clone()))?;
 
-        let sfr_opts = Opts::new("skov_finalization_receipt", "skov finalization receipt");
+        let sfr_opts = Opts::new(
+            "gs_finalization_receipt",
+            "global state finalization receipt",
+        );
         let sfr = IntGauge::with_opts(sfr_opts)?;
         registry.register(Box::new(sfr.clone()))?;
 
-        let sfe_opts = Opts::new("skov_finalization_entry", "skov finalization receipt");
+        let sfe_opts = Opts::new("gs_finalization_entry", "global state finalization receipt");
         let sfe = IntGauge::with_opts(sfe_opts)?;
         registry.register(Box::new(sfe.clone()))?;
 
-        let sfq_opts = Opts::new("skov_finalization_query", "skov finalization receipt");
+        let sfq_opts = Opts::new("gs_finalization_query", "global state finalization receipt");
         let sfq = IntGauge::with_opts(sfq_opts)?;
         registry.register(Box::new(sfq.clone()))?;
 
@@ -212,12 +215,12 @@ impl StatsExportService {
             queue_size: qs,
             resend_queue_size: rqs,
             tokio_runtime: Arc::new(Mutex::new(None)),
-            skov_block_receipt: sbr,
-            skov_block_entry: sbe,
-            skov_block_query: sbq,
-            skov_finalization_receipt: sfr,
-            skov_finalization_entry: sfe,
-            skov_finalization_query: sfq,
+            gs_block_receipt: sbr,
+            gs_block_entry: sbe,
+            gs_block_query: sbq,
+            gs_finalization_receipt: sfr,
+            gs_finalization_entry: sfe,
+            gs_finalization_query: sfq,
         })
     }
 
@@ -236,12 +239,12 @@ impl StatsExportService {
             invalid_network_packets_received: Arc::new(AtomicUsize::new(0)),
             queue_size: Arc::new(AtomicUsize::new(0)),
             resend_queue_size: Arc::new(AtomicUsize::new(0)),
-            skov_block_receipt: Arc::new(AtomicUsize::new(0)),
-            skov_block_entry: Arc::new(AtomicUsize::new(0)),
-            skov_block_query: Arc::new(AtomicUsize::new(0)),
-            skov_finalization_receipt: Arc::new(AtomicUsize::new(0)),
-            skov_finalization_entry: Arc::new(AtomicUsize::new(0)),
-            skov_finalization_query: Arc::new(AtomicUsize::new(0)),
+            gs_block_receipt: Arc::new(AtomicUsize::new(0)),
+            gs_block_entry: Arc::new(AtomicUsize::new(0)),
+            gs_block_query: Arc::new(AtomicUsize::new(0)),
+            gs_finalization_receipt: Arc::new(AtomicUsize::new(0)),
+            gs_finalization_entry: Arc::new(AtomicUsize::new(0)),
+            gs_finalization_query: Arc::new(AtomicUsize::new(0)),
         })
     }
 
@@ -369,51 +372,49 @@ impl StatsExportService {
         return self.queue_size.load(Ordering::Relaxed) as i64;
     }
 
-    pub fn set_skov_block_receipt(&self, value: i64) {
+    pub fn set_gs_block_receipt(&self, value: i64) {
         #[cfg(feature = "instrumentation")]
-        return self.skov_block_receipt.set(value);
+        return self.gs_block_receipt.set(value);
         #[cfg(not(feature = "instrumentation"))]
-        self.skov_block_receipt
+        self.gs_block_receipt
             .store(value as usize, Ordering::Relaxed);
     }
 
-    pub fn set_skov_block_entry(&self, value: i64) {
+    pub fn set_gs_block_entry(&self, value: i64) {
         #[cfg(feature = "instrumentation")]
-        return self.skov_block_entry.set(value);
+        return self.gs_block_entry.set(value);
         #[cfg(not(feature = "instrumentation"))]
-        self.skov_block_entry
+        self.gs_block_entry.store(value as usize, Ordering::Relaxed);
+    }
+
+    pub fn set_gs_block_query(&self, value: i64) {
+        #[cfg(feature = "instrumentation")]
+        return self.gs_block_query.set(value);
+        #[cfg(not(feature = "instrumentation"))]
+        self.gs_block_query.store(value as usize, Ordering::Relaxed);
+    }
+
+    pub fn set_gs_finalization_receipt(&self, value: i64) {
+        #[cfg(feature = "instrumentation")]
+        return self.gs_finalization_receipt.set(value);
+        #[cfg(not(feature = "instrumentation"))]
+        self.gs_finalization_receipt
             .store(value as usize, Ordering::Relaxed);
     }
 
-    pub fn set_skov_block_query(&self, value: i64) {
+    pub fn set_gs_finalization_entry(&self, value: i64) {
         #[cfg(feature = "instrumentation")]
-        return self.skov_block_query.set(value);
+        return self.gs_finalization_entry.set(value);
         #[cfg(not(feature = "instrumentation"))]
-        self.skov_block_query
+        self.gs_finalization_entry
             .store(value as usize, Ordering::Relaxed);
     }
 
-    pub fn set_skov_finalization_receipt(&self, value: i64) {
+    pub fn set_gs_finalization_query(&self, value: i64) {
         #[cfg(feature = "instrumentation")]
-        return self.skov_finalization_receipt.set(value);
+        return self.gs_finalization_query.set(value);
         #[cfg(not(feature = "instrumentation"))]
-        self.skov_finalization_receipt
-            .store(value as usize, Ordering::Relaxed);
-    }
-
-    pub fn set_skov_finalization_entry(&self, value: i64) {
-        #[cfg(feature = "instrumentation")]
-        return self.skov_finalization_entry.set(value);
-        #[cfg(not(feature = "instrumentation"))]
-        self.skov_finalization_entry
-            .store(value as usize, Ordering::Relaxed);
-    }
-
-    pub fn set_skov_finalization_query(&self, value: i64) {
-        #[cfg(feature = "instrumentation")]
-        return self.skov_finalization_query.set(value);
-        #[cfg(not(feature = "instrumentation"))]
-        self.skov_finalization_query
+        self.gs_finalization_query
             .store(value as usize, Ordering::Relaxed);
     }
 
@@ -524,26 +525,26 @@ impl StatsExportService {
     }
 
     #[cfg(feature = "instrumentation")]
-    pub fn get_skov_stats(&self) -> (u32, u32, u32, u32, u32, u32) {
+    pub fn get_gs_stats(&self) -> (u32, u32, u32, u32, u32, u32) {
         (
-            self.skov_block_receipt.get() as u32,
-            self.skov_block_query.get() as u32,
-            self.skov_block_entry.get() as u32,
-            self.skov_finalization_receipt.get() as u32,
-            self.skov_finalization_query.get() as u32,
-            self.skov_finalization_entry.get() as u32,
+            self.gs_block_receipt.get() as u32,
+            self.gs_block_query.get() as u32,
+            self.gs_block_entry.get() as u32,
+            self.gs_finalization_receipt.get() as u32,
+            self.gs_finalization_query.get() as u32,
+            self.gs_finalization_entry.get() as u32,
         )
     }
 
     #[cfg(not(feature = "instrumentation"))]
-    pub fn get_skov_stats(&self) -> (u32, u32, u32, u32, u32, u32) {
+    pub fn get_gs_stats(&self) -> (u32, u32, u32, u32, u32, u32) {
         (
-            self.skov_block_receipt.load(Ordering::Relaxed) as u32,
-            self.skov_block_query.load(Ordering::Relaxed) as u32,
-            self.skov_block_entry.load(Ordering::Relaxed) as u32,
-            self.skov_finalization_receipt.load(Ordering::Relaxed) as u32,
-            self.skov_finalization_query.load(Ordering::Relaxed) as u32,
-            self.skov_finalization_entry.load(Ordering::Relaxed) as u32,
+            self.gs_block_receipt.load(Ordering::Relaxed) as u32,
+            self.gs_block_query.load(Ordering::Relaxed) as u32,
+            self.gs_block_entry.load(Ordering::Relaxed) as u32,
+            self.gs_finalization_receipt.load(Ordering::Relaxed) as u32,
+            self.gs_finalization_query.load(Ordering::Relaxed) as u32,
+            self.gs_finalization_entry.load(Ordering::Relaxed) as u32,
         )
     }
 }

@@ -15,23 +15,20 @@ use byteorder::{NetworkEndian, WriteBytesExt};
 
 use concordium_common::{
     cache::Cache,
-    send_or_die, spawn_or_die,
+    spawn_or_die,
     stats_export_service::{StatsExportService, StatsServiceMode},
     PacketType, RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSender,
     RelayOrStopSenderHelper,
 };
 use concordium_consensus::{consensus, ffi};
-use concordium_global_state::tree::{
-    messaging::{ConsensusMessage, DistributionMode, MessageType},
-    GlobalState,
-};
+use concordium_global_state::tree::{messaging::GlobalStateMessage, GlobalState};
 use failure::Fallible;
 use p2p_client::{
     client::{
         plugins::{self, consensus::*},
         utils as client_utils,
     },
-    common::{P2PNodeId, P2PPeer, PeerType},
+    common::{P2PNodeId, PeerType},
     configuration,
     network::{
         packet::MessageId, request::RequestedElementType, NetworkId, NetworkMessage,
@@ -46,10 +43,11 @@ use p2p_client::{
 use rkv::{Manager, Rkv};
 
 use std::{
-    collections::HashSet,
     net::SocketAddr,
     str,
     sync::{mpsc, Arc, RwLock},
+    thread,
+    time::Duration,
 };
 
 fn main() -> Fallible<()> {
@@ -118,16 +116,6 @@ fn main() -> Fallible<()> {
     // Thread #2 (#3): P2P event loop
     node.spawn();
 
-    // Connect to nodes (args and bootstrap)
-    if !conf.cli.no_network {
-        info!("Concordium P2P layer, Network disabled");
-        create_connections_from_config(&conf.connection, &dns_resolvers, &mut node);
-        if !conf.connection.no_bootstrap_dns {
-            info!("Attempting to bootstrap");
-            bootstrap(&bootstrap_nodes, &mut node);
-        }
-    }
-
     let is_baker = conf.cli.baker.baker_id.is_some();
 
     let mut consensus = plugins::consensus::start_consensus_layer(&conf.cli.baker, &app_prefs);
@@ -139,7 +127,6 @@ fn main() -> Fallible<()> {
             Arc::clone(&cli_kvs_handle),
             consensus.clone(),
             &conf.cli.rpc,
-            &stats_export_service,
             subscription_queue_out,
         );
         serv.start_server()?;
@@ -148,11 +135,11 @@ fn main() -> Fallible<()> {
         None
     };
 
-    let (skov_sender, skov_receiver) = mpsc::channel::<RelayOrStopEnvelope<ConsensusMessage>>();
+    let (gs_sender, gs_receiver) = mpsc::channel::<RelayOrStopEnvelope<GlobalStateMessage>>();
 
     // Connect outgoing messages to be forwarded into the baker and RPC streams.
     //
-    // Thread #4 (#5): read P2PNode output
+    // Thread #3 (#4): read P2PNode output
     let higer_process_threads = if let Some(ref mut consensus) = consensus {
         start_consensus_threads(
             &node,
@@ -160,8 +147,7 @@ fn main() -> Fallible<()> {
             (&conf, &app_prefs),
             consensus.clone(),
             pkt_out,
-            (skov_receiver, skov_sender.clone()),
-            &stats_export_service,
+            (gs_receiver, gs_sender.clone()),
         )
     } else {
         vec![]
@@ -169,18 +155,28 @@ fn main() -> Fallible<()> {
 
     // Create a listener on baker output to forward to the P2PNode
     //
-    // Thread #5 (#6): the Baker thread
+    // Thread #4 (#5): the Baker thread
     let baker_thread = if is_baker {
-        Some(start_baker_thread(skov_sender.clone()))
+        Some(start_baker_thread(gs_sender.clone()))
     } else {
         None
     };
+
+    // Connect to nodes (args and bootstrap)
+    if !conf.cli.no_network {
+        info!("Starting the P2P layer");
+        create_connections_from_config(&conf.connection, &dns_resolvers, &mut node);
+        if !conf.connection.no_bootstrap_dns {
+            info!("Attempting to bootstrap");
+            bootstrap(&bootstrap_nodes, &mut node);
+        }
+    }
 
     // Wait for the P2PNode to close
     node.join().expect("The node thread panicked!");
 
     // Stop the GlobalState thread
-    skov_sender.send_stop()?;
+    gs_sender.send_stop()?;
 
     // Shut down the consensus layer
     if let Some(ref mut consensus) = consensus {
@@ -298,11 +294,10 @@ fn start_consensus_threads(
     (conf, app_prefs): (&configuration::Config, &configuration::AppPreferences),
     consensus: consensus::ConsensusContainer,
     pkt_out: RelayOrStopReceiver<NetworkMessage>,
-    (skov_receiver, skov_sender): (
-        RelayOrStopReceiver<ConsensusMessage>,
-        RelayOrStopSender<ConsensusMessage>,
+    (gs_receiver, gs_sender): (
+        RelayOrStopReceiver<GlobalStateMessage>,
+        RelayOrStopSender<GlobalStateMessage>,
     ),
-    stats: &Option<StatsExportService>,
 ) -> Vec<std::thread::JoinHandle<()>> {
     let _no_trust_bans = conf.common.no_trust_bans;
     let _desired_nodes_clone = conf.connection.desired_nodes;
@@ -312,41 +307,39 @@ fn start_consensus_threads(
     let mut transactions_cache = Cache::default();
     let _network_id = NetworkId::from(conf.common.network_ids[0]); // defaulted so there's always first()
     let data_dir_path = app_prefs.get_user_app_dir();
-    let stats_clone = stats.clone();
     let is_global_state_persistent = conf.cli.baker.persist_global_state;
 
-    let node_shared = node.clone();
+    let node_ref = node.clone();
     let mut consensus_clone = consensus.clone();
     let global_state_thread = spawn_or_die!("Process global state requests", {
         // Open the GlobalState-exclusive k-v store environment
-        let skov_kvs_handle = Manager::singleton()
+        let gs_kvs_handle = Manager::singleton()
             .write()
             .expect("Can't write to the kvs manager for GlobalState purposes!")
             .get_or_create(data_dir_path.as_ref(), Rkv::new)
             .expect("Can't load the GlobalState kvs environment!");
 
-        let skov_kvs_env = skov_kvs_handle
+        let gs_kvs_env = gs_kvs_handle
             .read()
             .expect("Can't unlock the kvs env for GlobalState!");
 
         let mut global_state = GlobalState::new(
             &consensus_clone.genesis,
-            &skov_kvs_env,
+            &gs_kvs_env,
             is_global_state_persistent,
         );
 
         // consensus_clone.send_global_state_ptr(&global_state);
 
         loop {
-            match skov_receiver.recv() {
+            match gs_receiver.recv() {
                 Ok(RelayOrStopEnvelope::Relay(request)) => {
                     if let Err(e) = handle_global_state_request(
-                        &node_shared,
+                        &node_ref,
                         _network_id,
                         &mut consensus_clone,
                         request,
                         &mut global_state,
-                        &stats_clone,
                     ) {
                         error!("There's an issue with a global state request: {}", e);
                     }
@@ -357,9 +350,8 @@ fn start_consensus_threads(
         }
     });
 
-    let node_shared = node.clone();
-
     let mut node_ref = node.clone();
+    let gs_sender_ref = gs_sender.clone();
     let guard_pkt = spawn_or_die!("Higher queue processing", {
         while let Ok(RelayOrStopEnvelope::Relay(full_msg)) = pkt_out.recv() {
             match full_msg {
@@ -391,7 +383,7 @@ fn start_consensus_threads(
                     NetworkResponse::PeerList(ref peer, ref peers),
                     ..
                 ) => {
-                    debug!("Received PeerList response, attempting to satisfy desired peers");
+                    trace!("Received PeerList response, attempting to satisfy desired peers");
                     let mut new_peers = 0;
                     let peer_count = node_ref
                         .get_peer_stats()
@@ -399,7 +391,7 @@ fn start_consensus_threads(
                         .filter(|x| x.peer_type == PeerType::Node)
                         .count();
                     for peer_node in peers {
-                        debug!(
+                        trace!(
                             "Peer {}/{}/{} sent us peer info for {}/{}/{}",
                             peer.id(),
                             peer.ip(),
@@ -410,7 +402,7 @@ fn start_consensus_threads(
                         );
                         if node_ref
                             .connect(PeerType::Node, peer_node.addr, Some(peer_node.id()))
-                            .map_err(|e| debug!("{}", e))
+                            .map_err(|e| trace!("{}", e))
                             .is_ok()
                         {
                             new_peers += 1;
@@ -458,7 +450,7 @@ fn start_consensus_threads(
                         dont_relay_to,
                         pac.peer.id(),
                         pac.message.clone(),
-                        &skov_sender,
+                        &gs_sender_ref,
                         &mut transactions_cache,
                         is_broadcast,
                     ) {
@@ -472,7 +464,7 @@ fn start_consensus_threads(
                                 let transactions = transactions_cache.get_since(*since);
                                 transactions.iter().for_each(|transaction| {
                                     send_consensus_msg_to_net(
-                                        &node_shared,
+                                        &node_ref,
                                         vec![],
                                         Some(requester.id()),
                                         *nid,
@@ -490,10 +482,56 @@ fn start_consensus_threads(
                 }
                 // FIXME: should possibly be triggered by the Handshake reply instead
                 NetworkMessage::NetworkRequest(
-                    NetworkRequest::Handshake(remote_peer, ref nets, _),
+                    NetworkRequest::Handshake(remote_peer, nets, _),
                     ..
-                ) => provide_global_state_metadata(nets, remote_peer, &skov_sender),
+                ) => {
+                    if let Some(network_id) = nets.iter().next() {
+                        // catch up to the finalization point
+                        send_consensus_msg_to_net(
+                            &node_ref,
+                            vec![],
+                            Some(remote_peer.id()),
+                            *network_id,
+                            PacketType::CatchUpFinalizationMessagesByPoint,
+                            None,
+                            &consensus.get_finalization_point(),
+                        );
+
+                        // send a catch-up status
+                        send_consensus_msg_to_net(
+                            &node_ref,
+                            vec![],
+                            Some(remote_peer.id()),
+                            *network_id,
+                            PacketType::CatchUpStatus,
+                            None,
+                            &consensus.get_catch_up_status(),
+                        );
+                    } else {
+                        error!("A handshaking peer doesn't seem to have any networks!");
+                    }
+                }
                 _ => {}
+            }
+        }
+    });
+
+    let node_ref = node.clone();
+    let gs_sender_ref = gs_sender.clone();
+    #[allow(unreachable_code)] // the loop never breaks on its own
+    let ticker_thread = spawn_or_die!("Ticker", {
+        loop {
+            thread::sleep(Duration::from_secs(1));
+
+            let current_peers = node_ref.get_node_peer_ids();
+
+            // don't provide the global state with the peer information until their
+            // number is within the desired range
+            if current_peers.len() <= node_ref.max_nodes.unwrap_or(u16::max_value()) as usize {
+                let msg = GlobalStateMessage::PeerListUpdate(current_peers);
+                if let Err(e) = gs_sender_ref.send(RelayOrStopEnvelope::Relay(msg)) {
+                    error!("Error updating the global state peer list: {}", e)
+                }
             }
         }
     });
@@ -503,43 +541,18 @@ fn start_consensus_threads(
         conf.cli.no_network
     );
 
-    vec![global_state_thread, guard_pkt]
-}
-
-// This function indirectly provides the metadata by simulating an incoming
-// request from the other peer upon a network handshake, which triggers its
-// distribution
-fn provide_global_state_metadata(
-    networks: &HashSet<NetworkId>,
-    peer: P2PPeer,
-    skov_sender: &RelayOrStopSender<ConsensusMessage>,
-) {
-    if peer.peer_type() == PeerType::Node && networks.iter().next().is_some() {
-        let packet_type = PacketType::GlobalStateMetadataRequest;
-        let mut payload = vec![0u8; PAYLOAD_TYPE_LENGTH as usize];
-        payload
-            .write_u16::<NetworkEndian>(packet_type as u16)
-            .expect("Can't write a packet payload to buffer");
-
-        let request = RelayOrStopEnvelope::Relay(ConsensusMessage::new(
-            MessageType::Inbound(peer.id().0, DistributionMode::Direct),
-            packet_type,
-            Arc::from(payload),
-            vec![],
-        ));
-
-        send_or_die!(skov_sender, request);
-    }
+    vec![global_state_thread, guard_pkt, ticker_thread]
 }
 
 fn start_baker_thread(
-    skov_sender: RelayOrStopSender<ConsensusMessage>,
+    gs_sender: RelayOrStopSender<GlobalStateMessage>,
 ) -> std::thread::JoinHandle<()> {
     spawn_or_die!("Process consensus messages", {
         loop {
             match consensus::CALLBACK_QUEUE.recv_message() {
                 Ok(RelayOrStopEnvelope::Relay(msg)) => {
-                    if let Err(e) = skov_sender.send(RelayOrStopEnvelope::Relay(msg)) {
+                    let msg = GlobalStateMessage::ConsensusMessage(msg);
+                    if let Err(e) = gs_sender.send(RelayOrStopEnvelope::Relay(msg)) {
                         error!("Error passing a message from the consensus layer: {}", e)
                     }
                 }

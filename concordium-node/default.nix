@@ -19,14 +19,13 @@ let
 
 in rustPlatform.buildRustPackage rec {
   name = "concordium-p2p-client-${version}";
-  version = "0.1.50.0";
+  version = "0.1.51.0";
   src = ./.;
   RUST_BACKTRACE = 1;
   hardeningDisable = [ "all" ];
   cargoBuildFlags = [ "--features=static" ];
   buildInputs = with pkgs; [
     pkgconfig
-    openssl
     cmake
     protobuf
     gmp

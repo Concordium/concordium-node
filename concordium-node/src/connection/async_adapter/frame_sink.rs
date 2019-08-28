@@ -94,7 +94,7 @@ impl FrameSink {
             match session_opt {
                 Some(session) => {
                     // Create an encryptor and enqueue pending messages.
-                    let mut encryptor = EncryptSink::new(session)?;
+                    let mut encryptor = EncryptSink::new(session);
 
                     let clear_frames = std::mem::replace(&mut self.frame_queue, VecDeque::new());
                     for frame in clear_frames.into_iter() {

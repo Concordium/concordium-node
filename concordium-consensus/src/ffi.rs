@@ -17,7 +17,6 @@ use crate::consensus::*;
 use concordium_common::{ConsensusFfiResponse, PacketType};
 use concordium_global_state::{
     block::*,
-    common,
     finalization::*,
     tree::messaging::{ConsensusMessage, MessageType},
 };
@@ -182,16 +181,12 @@ pub struct consensus_runner {
     private: [u8; 0],
 }
 
-type ConsensusDataOutCallback = extern "C" fn(i64, *const u8, i64);
+type BroadcastCallback = extern "C" fn(i64, *const u8, i64);
 type LogCallback = extern "C" fn(c_char, c_char, *const u8);
-type CatchupFinalizationRequestByBlockHashDeltaCallback =
-    unsafe extern "C" fn(peer_id: PeerId, hash: *const u8, delta: Delta);
-type CatchupFinalizationRequestByBlockHashCallback =
-    unsafe extern "C" fn(peer_id: PeerId, hash: *const u8);
-type CatchupFinalizationRequestByFinalizationIndexCallback =
-    extern "C" fn(peer_id: PeerId, finalization_index: u64);
-type CatchupFinalizationMessagesSenderCallback =
+type CatchUpFinalizationMessagesSenderCallback =
     extern "C" fn(peer_id: PeerId, payload: *const u8, payload_length: i64);
+type DirectMessageCallback =
+    extern "C" fn(peer_id: PeerId, message_type: i64, msg: *const c_char, msg_len: i64);
 
 extern "C" {
     pub fn startConsensus(
@@ -199,36 +194,27 @@ extern "C" {
         genesis_data_len: i64,
         private_data: *const u8,
         private_data_len: i64,
-        bake_callback: ConsensusDataOutCallback,
+        broadcast_callback: BroadcastCallback,
         log_callback: LogCallback,
-        missing_block_callback: CatchupFinalizationRequestByBlockHashDeltaCallback,
-        missing_finalization_records_by_hash_callback: CatchupFinalizationRequestByBlockHashCallback,
-        missing_finalization_records_by_index_callback: CatchupFinalizationRequestByFinalizationIndexCallback,
     ) -> *mut consensus_runner;
     pub fn startConsensusPassive(
         genesis_data: *const u8,
         genesis_data_len: i64,
         log_callback: LogCallback,
-        missing_block_callback: CatchupFinalizationRequestByBlockHashDeltaCallback,
-        missing_finalization_records_by_hash_callback: CatchupFinalizationRequestByBlockHashCallback,
-        missing_finalization_records_by_index_callback: CatchupFinalizationRequestByFinalizationIndexCallback,
     ) -> *mut consensus_runner;
     pub fn startBaker(consensus: *mut consensus_runner);
     pub fn receiveBlock(
         consensus: *mut consensus_runner,
-        peer_id: PeerId,
         block_data: *const u8,
         data_length: i64,
     ) -> i64;
     pub fn receiveFinalization(
         consensus: *mut consensus_runner,
-        peer_id: PeerId,
         finalization_data: *const u8,
         data_length: i64,
     ) -> i64;
     pub fn receiveFinalizationRecord(
         consensus: *mut consensus_runner,
-        peer_id: PeerId,
         finalization_data: *const u8,
         data_length: i64,
     ) -> i64;
@@ -298,7 +284,7 @@ extern "C" {
         peer_id: PeerId,
         request: *const u8,
         request_lenght: i64,
-        callback: CatchupFinalizationMessagesSenderCallback,
+        callback: CatchUpFinalizationMessagesSenderCallback,
     ) -> i64;
     pub fn getFinalizationPoint(consensus: *mut consensus_runner) -> *const u8;
     pub fn hookTransaction(
@@ -306,6 +292,14 @@ extern "C" {
         transaction_hash: *const u8,
     ) -> *const c_char;
     pub fn freeCStr(hstring: *const c_char);
+    pub fn getCatchUpStatus(consensus: *mut consensus_runner) -> *const u8;
+    pub fn receiveCatchUpStatus(
+        consensus: *mut consensus_runner,
+        peer_id: PeerId,
+        msg: *const u8,
+        msg_len: i64,
+        direct_callback: DirectMessageCallback,
+    ) -> i64;
 }
 
 pub fn get_consensus_ptr(
@@ -333,11 +327,8 @@ pub fn get_consensus_ptr(
                     genesis_data_len as i64,
                     c_string_private_data.as_ptr() as *const u8,
                     private_data_len as i64,
-                    on_consensus_data_out,
+                    broadcast_callback,
                     on_log_emited,
-                    on_catchup_block_by_hash,
-                    on_catchup_finalization_record_by_hash,
-                    on_catchup_finalization_record_by_index,
                 )
             }
         }
@@ -346,25 +337,22 @@ pub fn get_consensus_ptr(
                 c_string_genesis.as_ptr() as *const u8,
                 genesis_data_len as i64,
                 on_log_emited,
-                on_catchup_block_by_hash,
-                on_catchup_finalization_record_by_hash,
-                on_catchup_finalization_record_by_index,
             )
         },
     }
 }
 
 impl ConsensusContainer {
-    pub fn send_block(&self, peer_id: PeerId, block: &[u8]) -> ConsensusFfiResponse {
-        wrap_send_data_to_c!(self, peer_id, block, receiveBlock)
+    pub fn send_block(&self, block: &[u8]) -> ConsensusFfiResponse {
+        wrap_send_data_to_c!(self, block, receiveBlock)
     }
 
-    pub fn send_finalization(&self, peer_id: PeerId, msg: &[u8]) -> ConsensusFfiResponse {
-        wrap_send_data_to_c!(self, peer_id, msg, receiveFinalization)
+    pub fn send_finalization(&self, msg: &[u8]) -> ConsensusFfiResponse {
+        wrap_send_data_to_c!(self, msg, receiveFinalization)
     }
 
-    pub fn send_finalization_record(&self, peer_id: PeerId, rec: &[u8]) -> ConsensusFfiResponse {
-        wrap_send_data_to_c!(self, peer_id, rec, receiveFinalizationRecord)
+    pub fn send_finalization_record(&self, rec: &[u8]) -> ConsensusFfiResponse {
+        wrap_send_data_to_c!(self, rec, receiveFinalizationRecord)
     }
 
     pub fn send_transaction(&self, data: &[u8]) -> ConsensusFfiResponse {
@@ -526,12 +514,27 @@ impl ConsensusContainer {
             on_finalization_message_catchup_out
         ))
     }
+
+    pub fn get_catch_up_status(&self) -> Vec<u8> {
+        wrap_c_call_bytes!(self, |consensus| getCatchUpStatus(consensus))
+    }
+
+    pub fn receive_catch_up_status(&self, request: &[u8], peer_id: PeerId) -> ConsensusFfiResponse {
+        wrap_c_call!(self, |consensus| receiveCatchUpStatus(
+            consensus,
+            peer_id,
+            request.as_ptr(),
+            request.len() as i64,
+            direct_callback
+        ))
+    }
 }
 
 pub enum CallbackType {
     Block = 0,
     FinalizationMessage,
     FinalizationRecord,
+    CatchUpStatus,
 }
 
 impl TryFrom<u8> for CallbackType {
@@ -542,21 +545,36 @@ impl TryFrom<u8> for CallbackType {
             0 => Ok(CallbackType::Block),
             1 => Ok(CallbackType::FinalizationMessage),
             2 => Ok(CallbackType::FinalizationRecord),
+            3 => Ok(CallbackType::CatchUpStatus),
             _ => Err(format_err!("Received invalid callback type: {}", byte)),
         }
     }
 }
 
-pub extern "C" fn on_consensus_data_out(block_type: i64, block_data: *const u8, data_length: i64) {
-    debug!("Callback hit - queueing message");
+pub extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *const u8, len: i64) {
+    unsafe {
+        let msg_variant = PacketType::FinalizationMessage;
+        let payload = Arc::from(slice::from_raw_parts(data as *const u8, len as usize));
+
+        let msg = ConsensusMessage::new(
+            MessageType::Outbound(Some(peer_id)),
+            PacketType::FinalizationMessage,
+            payload,
+            vec![],
+        );
+
+        match CALLBACK_QUEUE.send_message(msg) {
+            Ok(_) => trace!("Queueing a {} of {} bytes", msg_variant, len),
+            _ => error!("Couldn't queue a {} properly", msg_variant),
+        };
+    }
+}
+
+pub extern "C" fn broadcast_callback(msg_type: i64, msg: *const u8, msg_length: i64) {
+    trace!("Broadcast callback hit - queueing message");
 
     unsafe {
-        let data = Arc::from(slice::from_raw_parts(
-            block_data as *const u8,
-            data_length as usize,
-        ));
-
-        let callback_type = match CallbackType::try_from(block_type as u8) {
+        let callback_type = match CallbackType::try_from(msg_type as u8) {
             Ok(ct) => ct,
             Err(e) => {
                 error!("{}", e);
@@ -564,68 +582,62 @@ pub extern "C" fn on_consensus_data_out(block_type: i64, block_data: *const u8, 
             }
         };
 
-        let message_variant = match callback_type {
+        let msg_variant = match callback_type {
             CallbackType::Block => PacketType::Block,
             CallbackType::FinalizationMessage => PacketType::FinalizationMessage,
             CallbackType::FinalizationRecord => PacketType::FinalizationRecord,
+            CallbackType::CatchUpStatus => PacketType::CatchUpStatus,
         };
 
-        let message =
-            ConsensusMessage::new(MessageType::Outbound(None), message_variant, data, vec![]);
+        let payload = Arc::from(slice::from_raw_parts(msg as *const u8, msg_length as usize));
+        let target = None;
 
-        match CALLBACK_QUEUE.send_message(message) {
-            Ok(_) => debug!("Queueing a {} of {} bytes", message_variant, data_length),
-            _ => error!("Couldn't queue a {} properly", message_variant),
+        let msg =
+            ConsensusMessage::new(MessageType::Outbound(target), msg_variant, payload, vec![]);
+
+        match CALLBACK_QUEUE.send_message(msg) {
+            Ok(_) => trace!("Queueing a {} of {} bytes", msg_variant, msg_length),
+            _ => error!("Couldn't queue a {} properly", msg_variant),
         };
     }
 }
 
-pub unsafe extern "C" fn on_catchup_block_by_hash(peer_id: PeerId, hash: *const u8, delta: Delta) {
-    let mut payload = slice::from_raw_parts(hash, common::SHA256 as usize).to_owned();
-    payload.extend(&delta.to_be_bytes());
-    let payload = Arc::from(payload);
-
-    catchup_enqueue(ConsensusMessage::new(
-        MessageType::Outbound(Some(peer_id)),
-        PacketType::CatchupBlockByHash,
-        payload,
-        vec![],
-    ));
-}
-
-pub unsafe extern "C" fn on_catchup_finalization_record_by_hash(peer_id: PeerId, hash: *const u8) {
-    let payload = Arc::from(slice::from_raw_parts(hash, common::SHA256 as usize));
-
-    catchup_enqueue(ConsensusMessage::new(
-        MessageType::Outbound(Some(peer_id)),
-        PacketType::CatchupFinalizationRecordByHash,
-        payload,
-        vec![],
-    ));
-}
-
-pub extern "C" fn on_catchup_finalization_record_by_index(
+// This is almost the same function as on_consensus_data_out, just for direct
+// messages TODO: macroize or merge on Haskell side
+pub extern "C" fn direct_callback(
     peer_id: PeerId,
-    index: FinalizationIndex,
+    message_type: i64,
+    msg: *const c_char,
+    msg_len: i64,
 ) {
-    catchup_enqueue(ConsensusMessage::new(
-        MessageType::Outbound(Some(peer_id)),
-        PacketType::CatchupFinalizationRecordByIndex,
-        Arc::from(index.to_be_bytes()),
-        vec![],
-    ));
-}
+    trace!("Direct callback hit - queueing message");
 
-pub extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *const u8, len: i64) {
     unsafe {
-        let payload = Arc::from(slice::from_raw_parts(data as *const u8, len as usize));
+        let callback_type = match CallbackType::try_from(message_type as u8) {
+            Ok(ct) => ct,
+            Err(e) => {
+                error!("{}", e);
+                return;
+            }
+        };
 
-        catchup_enqueue(ConsensusMessage::new(
-            MessageType::Outbound(Some(peer_id)),
-            PacketType::FinalizationMessage,
-            payload,
-            vec![],
-        ))
+        let msg_variant = match callback_type {
+            CallbackType::Block => PacketType::Block,
+            CallbackType::FinalizationMessage => PacketType::FinalizationMessage,
+            CallbackType::FinalizationRecord => PacketType::FinalizationRecord,
+            CallbackType::CatchUpStatus => PacketType::CatchUpStatus,
+        };
+
+        let payload = Arc::from(slice::from_raw_parts(msg as *const u8, msg_len as usize));
+        let target = Some(peer_id);
+
+        let msg =
+            ConsensusMessage::new(MessageType::Outbound(target), msg_variant, payload, vec![]);
+
+        match CALLBACK_QUEUE.send_message(msg) {
+            Ok(_) => trace!("Queueing a {} of {} bytes", msg_variant, msg_len),
+            _ => error!("Couldn't queue a {} properly", msg_variant),
+        };
     }
 }
 
@@ -653,7 +665,7 @@ pub extern "C" fn on_log_emited(identifier: c_char, log_level: c_char, log_messa
     match log_level as u8 {
         1 => error!("{}: {}", id, msg),
         2 => warn!("{}: {}", id, msg),
-        3 | 4 => debug!("{}: {}", id, msg),
+        3 | 4 | 5 | 6 | 7 => debug!("{}: {}", id, msg),
         _ => trace!("{}: {}", id, msg),
     };
 }

@@ -6,9 +6,10 @@ use serde::{
 use tempfile::tempfile;
 
 use std::{
+    borrow::Cow,
     cmp,
     fs::File,
-    io::{self, Cursor, Read, Result, Seek, SeekFrom, Write},
+    io::{Cursor, Read, Result, Seek, SeekFrom, Write},
     mem,
 };
 
@@ -64,24 +65,20 @@ impl HybridBuf {
         Ok(())
     }
 
-    pub fn into_vec(mut self) -> Result<Vec<u8>> {
-        if let Self::Mem(cursor) = self {
-            Ok(cursor.into_inner())
-        } else {
-            let size = cmp::max(self.len().unwrap_or(0) as usize, MAX_MEM_SIZE);
-            let mut ret = Vec::with_capacity(size);
-            self.read_to_end(&mut ret)?;
-            Ok(ret)
-        }
-    }
-
     pub fn remaining_len(&mut self) -> Result<u64> { Ok(self.len()? - self.position()?) }
 
-    pub fn remaining_bytes(&mut self) -> Result<Vec<u8>> {
-        let mut ret = Vec::with_capacity(self.remaining_len()? as usize);
-        io::copy(self, &mut ret)?;
-
-        Ok(ret)
+    pub fn remaining_bytes(&mut self) -> Result<Cow<'_, [u8]>> {
+        if let Self::Mem(ref mut cursor) = self {
+            let pos = cursor.position() as usize;
+            cursor.seek(SeekFrom::End(0))?; // exhaust the cursor
+            let bytes = (&cursor.get_ref()[pos..]).into();
+            Ok(bytes)
+        } else {
+            let size = cmp::max(self.len().unwrap_or(0) as usize, MAX_MEM_SIZE);
+            let mut bytes = Vec::with_capacity(size);
+            self.read_to_end(&mut bytes)?;
+            Ok(bytes.into())
+        }
     }
 
     pub fn rewind(&mut self) -> Result<()> {
