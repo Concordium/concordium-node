@@ -18,9 +18,10 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Instances
 import Concordium.GlobalState.BlockState(BlockPointerData(..))
-import Concordium.GlobalState.Basic.TreeState
+import Concordium.GlobalState.Rust.TreeState
 import Concordium.GlobalState.Basic.BlockState
-import Concordium.GlobalState.Basic.Block
+import Concordium.GlobalState.Rust.FFI
+import Concordium.GlobalState.Basic.Block (BakedBlock, Block(NormalBlock))
 
 import Concordium.Types
 import Concordium.Runner
@@ -32,7 +33,7 @@ import Data.List(intercalate)
 import Concordium.Scheduler.Utils.Init.Example as Example
 
 import Concordium.Startup
-{-
+
 nContracts :: Int
 nContracts = 2
 
@@ -108,10 +109,10 @@ gsToString gs = intercalate "\\l" . map show $ keys
         keys = map (\n -> (n, instanceModel <$> getInstance (ca n) (gs ^. blockInstances))) $ enumFromTo 0 (nContracts-1)
 
 dummyIdentityProviders :: [IdentityProviderData]
-dummyIdentityProviders = []  -}
+dummyIdentityProviders = []
 
 main :: IO ()
-main = return () {-do
+main = do
     let n = 20
     now <- truncate <$> getPOSIXTime
     let (gen, bis) = makeGenesisData now n 1 0.5 0 dummyCryptographicParameters dummyIdentityProviders
@@ -122,7 +123,8 @@ main = return () {-do
         let logM src lvl msg = do
                                     timestamp <- getCurrentTime
                                     appendFile logFile $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg ++ "\n"
-        (cin, cout, out) <- makeAsyncRunner logM bid gen iState
+        let gsptr = makeEmptyGlobalState
+        (cin, cout, out) <- makeAsyncRunner logM bid gen iState gsptr
         -- _ <- forkIO $ sendTransactions cin trans
         return (cin, cout, out)) (zip [(0::Int) ..] bis)
     monitorChan <- newChan
@@ -135,13 +137,12 @@ main = return () {-do
                                     Nothing -> ""
                                     Just gs -> gsToString gs
 
-                    putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker $ bbFields block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]\\l" ++ stateStr ++ "\\l\"];"
-                    putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockPointer $ bbFields block) ++ ";"
-                    putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockLastFinalized $ bbFields block) ++ " [style=dotted];"
+                    putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]\\l" ++ stateStr ++ "\\l\"];"
+                    putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockPointer block) ++ ";"
+                    putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockLastFinalized block) ++ " [style=dotted];"
                     hFlush stdout
                     loop
                 Right fr -> do
                     putStrLn $ " n" ++ show (finalizationBlockPointer fr) ++ " [color=green];"
                     loop
     loop
--}
