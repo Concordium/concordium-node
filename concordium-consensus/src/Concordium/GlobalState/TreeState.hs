@@ -14,6 +14,7 @@ import Data.Time
 import qualified Data.Set as Set
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Maybe
+import Control.Monad.Trans.Except
 import Control.Monad.Trans.RWS.Strict
 
 import Concordium.Types
@@ -103,21 +104,27 @@ class (Eq (BlockPointer m),
     getGenesisData :: m GenesisData
     -- * Operations on the finalization list
     -- |Get the last finalized block.
-    getLastFinalized :: m (BlockPointer m)
+    getLastFinalized :: m (BlockPointer m, FinalizationRecord)
     -- |Get the slot number of the last finalized block
     getLastFinalizedSlot :: m Slot
-    getLastFinalizedSlot = blockSlot <$> getLastFinalized
+    getLastFinalizedSlot = blockSlot . fst <$> getLastFinalized
     -- |Get the height of the last finalized block
     getLastFinalizedHeight :: m BlockHeight
-    getLastFinalizedHeight = bpHeight <$> getLastFinalized
+    getLastFinalizedHeight = bpHeight . fst <$> getLastFinalized
     -- |Get the next finalization index.
     getNextFinalizationIndex :: m FinalizationIndex
+    getNextFinalizationIndex = (+1) . finalizationIndex . snd <$> getLastFinalized
     -- |Add a block and finalization record to the finalization list.
     -- The block must be the one finalized by the record, and the finalization
     -- index must be the next finalization index.  These are not checked.
     addFinalization :: BlockPointer m -> FinalizationRecord -> m ()
     -- |Get the finalization record for a particular finalization index (if available).
     getFinalizationAtIndex :: FinalizationIndex -> m (Maybe FinalizationRecord)
+    -- |Get a list of all (validated) finalization records from the given index
+    getFinalizationFromIndex :: FinalizationIndex -> m [FinalizationRecord]
+    getFinalizationFromIndex i = getFinalizationAtIndex i >>= \case
+            Nothing -> return []
+            Just f -> (f :) <$> getFinalizationFromIndex (i+1)
     -- * Operations on branches
     -- |Get the branches.
     getBranches :: m (Branches m)
@@ -274,6 +281,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (BSMTra
     getNextFinalizationIndex = lift getNextFinalizationIndex
     addFinalization bp fr = lift $ addFinalization bp fr
     getFinalizationAtIndex fi = lift $ getFinalizationAtIndex fi
+    getFinalizationFromIndex fi = lift $ getFinalizationFromIndex fi
     getBranches = lift getBranches
     putBranches = lift . putBranches
     takePendingChildren = lift . takePendingChildren
@@ -316,6 +324,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (BSMTra
     {-# INLINE getNextFinalizationIndex #-}
     {-# INLINE addFinalization #-}
     {-# INLINE getFinalizationAtIndex #-}
+    {-# INLINE getFinalizationFromIndex #-}
     {-# INLINE getBranches #-}
     {-# INLINE putBranches #-}
     {-# INLINE takePendingChildren #-}
@@ -348,3 +357,5 @@ type instance PendingBlock (MaybeT m) = PendingBlock m
 deriving via (BSMTrans MaybeT m) instance TreeStateMonad m => TreeStateMonad (MaybeT m)
 type instance PendingBlock (RWST r w s m) = PendingBlock m
 deriving via (BSMTrans (RWST r w s) m) instance (TreeStateMonad m, Monoid w) => TreeStateMonad (RWST r w s m)
+type instance PendingBlock (ExceptT e m) = PendingBlock m
+deriving via (BSMTrans (ExceptT e) m) instance TreeStateMonad m => TreeStateMonad (ExceptT e m)

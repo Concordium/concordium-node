@@ -12,6 +12,7 @@ module Concordium.GlobalState.BlockState where
 import Data.Time
 import Lens.Micro.Platform
 import Control.Monad.Trans.Maybe
+import Control.Monad.Trans.Except
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.RWS.Strict
 import Control.Monad
@@ -359,6 +360,11 @@ type instance BlockPointer (MaybeT m) = BlockPointer m
 type instance UpdatableBlockState (MaybeT m) = UpdatableBlockState m
 deriving via (BSMTrans MaybeT m) instance BlockStateQuery m => BlockStateQuery (MaybeT m)
 deriving via (BSMTrans MaybeT m) instance BlockStateOperations m => BlockStateOperations (MaybeT m)
+
+type instance BlockPointer (ExceptT e m) = BlockPointer m
+type instance UpdatableBlockState (ExceptT e m) = UpdatableBlockState m
+deriving via (BSMTrans (ExceptT e) m) instance BlockStateQuery m => BlockStateQuery (ExceptT e m)
+deriving via (BSMTrans (ExceptT e) m) instance BlockStateOperations m => BlockStateOperations (ExceptT e m)
 
 type instance BlockPointer (RWST r w s m) = BlockPointer m
 type instance UpdatableBlockState (RWST r w s m) = UpdatableBlockState m
