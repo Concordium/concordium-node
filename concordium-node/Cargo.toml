@@ -56,7 +56,7 @@ derive_builder = "0.7.1"
 tempfile = "^3.0.7"
 base64 = "^0.10.1"
 sha2 = "0"
-base58 = "^0.1"
+base58check = "^0.1"
 rkv = "^0.9"
 circular-queue = "^0.2"
 # Snow : Noise implementation.
