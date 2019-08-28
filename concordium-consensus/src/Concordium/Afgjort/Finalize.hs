@@ -85,7 +85,7 @@ ancestorAtHeight :: BlockPointerData bp => BlockHeight -> bp -> bp
 ancestorAtHeight h bp
     | h == bpHeight bp = bp
     | h < bpHeight bp = ancestorAtHeight h (bpParent bp)
-    | otherwise = error $ "ancestorAtHeight: block is below required height required GEQ " ++ show h ++ " and is " ++ (show $ bpHeight bp)
+    | otherwise = error $ "ancestorAtHeight: block is below required height"
 
 data PendingMessage = PendingMessage !Party !WMVBAMessage !Sig.Signature
     deriving (Eq, Ord, Show)

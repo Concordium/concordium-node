@@ -33,7 +33,7 @@ import Concordium.GlobalState.Basic.BlockState as BSBS
 import Concordium.GlobalState.Rust.Block as RSB
 import Concordium.GlobalState.Rust.FFI as RSBS
 import Concordium.GlobalState.Finalization(FinalizationIndex(..),FinalizationRecord)
-import Concordium.GlobalState.BlockState as GSBS (BlockState, BlockPointer(..))
+import Concordium.GlobalState.BlockState as GSBS (BlockPointer)
 import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState.Rust.TreeState
 
@@ -314,10 +314,7 @@ stopConsensus cptr = mask_ $ do
 startBaker :: StablePtr ConsensusRunner -> IO ()
 startBaker cptr = mask_ $
     deRefStablePtr cptr >>= \case
-        c@BakerRunner{..} -> do
-          sk <- readMVar . syncState $ bakerSyncRunner
-          consensusLogMethod c External LLError (show $! _skovGlobalStatePtr . _sbhsSkov $ sk)
-          startSyncRunner bakerSyncRunner
+        BakerRunner{..} -> startSyncRunner bakerSyncRunner
         c -> consensusLogMethod c External LLError "Attempted to start baker thread, but consensus was started without baker credentials"
 
 -- |Stop a baker thread.
@@ -713,49 +710,6 @@ hookTransaction cptr trcstr = do
 freeCStr :: CString -> IO ()
 freeCStr = free
 
--- |Get a block for the given block hash.
--- The block hash is passed as a pointer to a fixed length (32 byte) string.
--- The return value is a length encoded string: the first 4 bytes are
--- the length (encoded big-endian), followed by the data itself.
--- The string should be freed by calling 'freeCStr'.
--- The string may be empty (length 0) if the finalization record is not found.
--- getBlock :: StablePtr ConsensusRunner -> BlockReference -> IO CString
--- getBlock cptr blockRef = do
---         c <- deRefStablePtr cptr
---         let logm = consensusLogMethod c
---         bh <- blockReferenceToBlockHash blockRef
---         logm External LLInfo $ "Received request for block: " ++ show bh
---         b <- runConsensusQuery c Get.getBlockData bh
---         case b :: Maybe Block of
---             Nothing -> do
---                 logm External LLInfo $ "Block not available"
---                 byteStringToCString BS.empty
---             Just block -> do
---                 logm External LLInfo $ "Block found"
---                 byteStringToCString $ P.runPut $ put block
-
--- |Get a block that is descended from the given block hash by the given number of generations.
--- The block hash is passed as a pointer to a fixed length (32 byte) string.
--- The return value is a length encoded string: the first 4 bytes are
--- the length (encoded big-endian), followed by the data itself.
--- The string should be freed by calling 'freeCStr'.
--- The string may be empty (length 0) if the finalization record is not found.
--- getBlockDelta :: StablePtr ConsensusRunner -> BlockReference -> Word64 -> IO CString
--- getBlockDelta bptr blockRef 0 = getBlock bptr blockRef
--- getBlockDelta cptr blockRef delta = do
---         c <- deRefStablePtr cptr
---         let logm = consensusLogMethod c
---         bh <- blockReferenceToBlockHash blockRef
---         logm External LLInfo $ "Received request for descendent of block " ++ show bh ++ " with delta " ++ show delta
---         b <- runConsensusQuery c Get.getBlockDescendant bh (BlockHeight delta)
---         case b :: Maybe Block of
---             Nothing -> do
---                 logm External LLInfo $ "Block not available"
---                 byteStringToCString BS.empty
---             Just block -> do
---                 logm External LLInfo $ "Block found"
---                 byteStringToCString $ P.runPut $ put block
-
 -- |Get a finalization record for the given block.
 -- The block hash is passed as a pointer to a fixed length (32 byte) string.
 -- The return value is a length encoded string: the first 4 bytes are
@@ -926,8 +880,6 @@ foreign export ccall getAncestors :: StablePtr ConsensusRunner -> CString -> Wor
 foreign export ccall getBranches :: StablePtr ConsensusRunner -> IO CString
 foreign export ccall freeCStr :: CString -> IO ()
 
---foreign export ccall getBlock :: StablePtr ConsensusRunner -> BlockReference -> IO CString
---foreign export ccall getBlockDelta :: StablePtr ConsensusRunner -> BlockReference -> Word64 -> IO CString
 foreign export ccall getBlockFinalization :: StablePtr ConsensusRunner -> BlockReference -> IO CString
 foreign export ccall getIndexedFinalization :: StablePtr ConsensusRunner -> Word64 -> IO CString
 foreign export ccall getFinalizationMessages :: StablePtr ConsensusRunner -> PeerID -> CString -> Int64 -> FunPtr FinalizationMessageCallback -> IO Int64

@@ -1,7 +1,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Concordium.Afgjort.Types(
     module Concordium.Afgjort.Types,
-    VoterPower(..),
+    VoterPower,
     Signature
 ) where
 

@@ -13,11 +13,9 @@ import Lens.Micro.Platform
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.Parameters
---import qualified Concordium.GlobalState.Basic.TreeState as Basic
 import qualified Concordium.GlobalState.Rust.TreeState as Rust
 import qualified Concordium.GlobalState.Rust.Block as Rust
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
---import qualified Concordium.GlobalState.Basic.Block as Basic
 import Concordium.Skov.Monad
 import Concordium.Skov.Query
 import Concordium.Skov.Update
@@ -65,15 +63,12 @@ type instance UpdatableBlockState (TSSkovUpdateWrapper r w s m) = UpdatableBlock
 type instance PendingBlock (TSSkovUpdateWrapper r w s m) = PendingBlock m
 
 instance (TimeMonad m, LoggerMonad m, TreeStateMonad m, MonadReader r m, MonadIO m,
-        MonadState s m, MonadWriter w m, MissingEvent w, OnSkov m) 
+        MonadState s m, MonadWriter w m, MissingEvent w, OnSkov m)
             => SkovMonad (TSSkovUpdateWrapper r w s m) where
     storeBlock = doStoreBlock
     storeBakedBlock = doStoreBakedBlock
     receiveTransaction tr = doReceiveTransaction tr 0
     finalizeBlock = doFinalizeBlock
-
-
-
 
 -- |The 'SkovQueryM' wraps 'StateT' to provide an instance of 'SkovQueryMonad'
 -- when the state implements 'SkovLenses'.
@@ -172,7 +167,7 @@ instance (TimeMonad m, LoggerMonad m, MonadIO m) => OnSkov (SkovActiveM m) where
     onBlock = notifyBlockArrival
     {-# INLINE onFinalize #-}
     onFinalize = notifyBlockFinalized
-instance (TimeMonad m, LoggerMonad m, MonadIO m) 
+instance (TimeMonad m, LoggerMonad m, MonadIO m)
             => FinalizationMonad SkovActiveState (SkovActiveM m) where
     broadcastFinalizationMessage = tell . embedFinalizationEvent . BroadcastFinalizationMessage
     broadcastFinalizationRecord = tell . embedFinalizationEvent . BroadcastFinalizationRecord
@@ -219,7 +214,7 @@ instance (TimeMonad m, LoggerMonad m, MonadIO m) => OnSkov (SkovBufferedM m) whe
     onBlock = notifyBlockArrival
     {-# INLINE onFinalize #-}
     onFinalize = notifyBlockFinalized
-instance (TimeMonad m, LoggerMonad m, MonadIO m) 
+instance (TimeMonad m, LoggerMonad m, MonadIO m)
             => FinalizationMonad SkovBufferedState (SkovBufferedM m) where
     broadcastFinalizationMessage msg = bufferFinalizationMessage msg >>= \case
             Left n -> tell $ embedNotifyEvent n
@@ -327,7 +322,7 @@ instance (TimeMonad m, LoggerMonad m, MonadIO m) => OnSkov (SkovBufferedHookedM 
     onFinalize bp fr = do
         notifyBlockFinalized bp fr
         hookOnFinalize bp fr
-instance (TimeMonad m, LoggerMonad m, MonadIO m) 
+instance (TimeMonad m, LoggerMonad m, MonadIO m)
             => FinalizationMonad SkovBufferedHookedState (SkovBufferedHookedM m) where
     broadcastFinalizationMessage msg = bufferFinalizationMessage msg >>= \case
             Left n -> tell $ embedNotifyEvent n
