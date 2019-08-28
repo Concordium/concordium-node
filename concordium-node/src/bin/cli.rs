@@ -127,7 +127,6 @@ fn main() -> Fallible<()> {
             Arc::clone(&cli_kvs_handle),
             consensus.clone(),
             &conf.cli.rpc,
-            &stats_export_service,
             subscription_queue_out,
         );
         serv.start_server()?;
