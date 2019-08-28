@@ -454,7 +454,7 @@ makeBlockPointer gsptr b blockPointerParent blockPointerLastFinalized blockPoint
   where
     theBlockPointer = BlockPointer {..}
     blockPointerReceiveTime = pendingBlockReceiveTime b
-    blockPointerPointer = makeBlockPointerF gsptr (pendingBlockPointer b) (theBlockHeight $ bpHeight blockPointerParent)
+    blockPointerPointer = makeBlockPointerF gsptr (pendingBlockPointer b) ((+1) . theBlockHeight . bpHeight $ blockPointerParent)
 
 ---------------------------
 -- * FFI Types
