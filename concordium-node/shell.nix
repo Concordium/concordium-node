@@ -15,7 +15,6 @@ stdenv.mkDerivation {
   hardeningDisable = [ "all" ];
   buildInputs = [
     rustStableChannel
-    openssl
     protobuf
     pkgconfig
     unbound
@@ -27,8 +26,6 @@ stdenv.mkDerivation {
     capnproto
   ];
   shellHook = ''
-    export OPENSSL_DIR="${openssl.dev}"
-    export OPENSSL_LIB_DIR="${openssl.out}/lib"
     scripts/download-static-libs.sh
   '';
 }

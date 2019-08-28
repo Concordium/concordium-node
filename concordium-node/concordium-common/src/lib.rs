@@ -159,14 +159,8 @@ pub enum PacketType {
     Transaction,
     FinalizationRecord,
     FinalizationMessage,
-    CatchupBlockByHash,
-    CatchupFinalizationRecordByHash,
-    CatchupFinalizationRecordByIndex,
-    CatchupFinalizationMessagesByPoint,
-    GlobalStateMetadata,
-    GlobalStateMetadataRequest,
-    FullCatchupRequest,
-    FullCatchupComplete,
+    CatchUpFinalizationMessagesByPoint,
+    CatchUpStatus,
 }
 
 static PACKET_TYPE_FROM_INT: &[PacketType] = &[
@@ -174,14 +168,8 @@ static PACKET_TYPE_FROM_INT: &[PacketType] = &[
     PacketType::Transaction,
     PacketType::FinalizationRecord,
     PacketType::FinalizationMessage,
-    PacketType::CatchupBlockByHash,
-    PacketType::CatchupFinalizationRecordByHash,
-    PacketType::CatchupFinalizationRecordByIndex,
-    PacketType::CatchupFinalizationMessagesByPoint,
-    PacketType::GlobalStateMetadata,
-    PacketType::GlobalStateMetadataRequest,
-    PacketType::FullCatchupRequest,
-    PacketType::FullCatchupComplete,
+    PacketType::CatchUpFinalizationMessagesByPoint,
+    PacketType::CatchUpStatus,
 ];
 
 impl TryFrom<u16> for PacketType {
@@ -203,27 +191,17 @@ impl fmt::Display for PacketType {
             PacketType::Transaction => "transaction",
             PacketType::FinalizationRecord => "finalization record",
             PacketType::FinalizationMessage => "finalization message",
-            PacketType::CatchupBlockByHash => "catch-up block by hash request",
-            PacketType::CatchupFinalizationRecordByHash => {
-                "catch-up finalization record by hash request"
-            }
-            PacketType::CatchupFinalizationRecordByIndex => {
-                "catch-up finalization record by index request"
-            }
-            PacketType::CatchupFinalizationMessagesByPoint => {
+            PacketType::CatchUpFinalizationMessagesByPoint => {
                 "catch-up finalization messages by point request"
             }
-            PacketType::GlobalStateMetadata => "global state metadata package",
-            PacketType::GlobalStateMetadataRequest => "request for global state metadata",
-            PacketType::FullCatchupRequest => "request for a full catch-up",
-            PacketType::FullCatchupComplete => "full catch-up completion notice",
+            PacketType::CatchUpStatus => "catch-up status message",
         };
 
         write!(f, "{}", name)
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ConsensusFfiResponse {
     BakerNotFound = -1,
     Success,
@@ -240,7 +218,25 @@ pub enum ConsensusFfiResponse {
 }
 
 impl ConsensusFfiResponse {
-    pub fn is_acceptable(&self) -> bool {
+    pub fn is_successful(self) -> bool {
+        use ConsensusFfiResponse::*;
+
+        match self {
+            Success | PendingBlock | PendingFinalization | Asynchronous => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_pending(self) -> bool {
+        use ConsensusFfiResponse::*;
+
+        match self {
+            PendingBlock | PendingFinalization => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_acceptable(self) -> bool {
         use ConsensusFfiResponse::*;
 
         match self {
@@ -253,7 +249,7 @@ impl ConsensusFfiResponse {
         }
     }
 
-    pub fn is_rebroadcastable(&self) -> bool {
+    pub fn is_rebroadcastable(self) -> bool {
         use ConsensusFfiResponse::*;
 
         match self {

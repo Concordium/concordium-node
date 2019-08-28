@@ -149,7 +149,6 @@ fn data_to_ipv6(data: &[u8]) -> Ipv6Addr {
     ip
 }
 
-#[cfg(feature = "non-existing-while-domain-is-moved")]
 #[cfg(test)]
 mod tests {
     use crate::dns::*;
@@ -163,7 +162,7 @@ mod tests {
             false,
         );
         match res {
-            Ok(ref resps) => assert_eq!(resps.len(), 4),
+            Ok(ref resps) => assert_eq!(resps.len(), 5),
             Err(e) => panic!("{}", e),
         }
     }
@@ -202,7 +201,7 @@ mod tests {
             false,
         );
         match res {
-            Ok(ref resps) => assert_eq!(resps.len(), 4),
+            Ok(ref resps) => assert_eq!(resps.len(), 5),
             Err(e) => panic!("{}", e),
         }
     }
@@ -254,7 +253,7 @@ mod tests {
             false,
         );
         match res {
-            Ok(ref resps) => assert_eq!(resps.len(), 4),
+            Ok(ref resps) => assert_eq!(resps.len(), 5),
             Err(e) => panic!("{}", e),
         }
     }
@@ -280,7 +279,7 @@ mod tests {
             false,
         );
         match res {
-            Ok(ref resps) => assert_eq!(resps.len(), 4),
+            Ok(ref resps) => assert_eq!(resps.len(), 5),
             Err(e) => panic!("{}", e),
         }
     }
@@ -294,7 +293,7 @@ mod tests {
             false,
         );
         match res {
-            Ok(ref resps) => assert_eq!(resps.len(), 4),
+            Ok(ref resps) => assert_eq!(resps.len(), 5),
             Err(e) => panic!("{}", e),
         }
     }
@@ -343,7 +342,7 @@ mod tests {
             true,
         );
         match res {
-            Ok(ref resps) => assert_eq!(resps.len(), 4),
+            Ok(ref resps) => assert_eq!(resps.len(), 5),
             Err(e) => panic!("{}", e),
         }
     }
@@ -361,19 +360,6 @@ mod tests {
     pub fn test_googledns_resolve_aaaa_record() {
         let res =
             resolve_dns_aaaa_record("google.com", &[IpAddr::from_str("8.8.8.8").unwrap()], true);
-        match res {
-            Ok(ref resps) => assert!(!resps.is_empty()),
-            Err(e) => panic!("{}", e),
-        }
-    }
-
-    #[test]
-    pub fn test_txt_record() {
-        let res = resolve_dns_txt_record(
-            "bootstrap.p2p.concordium.com",
-            &[IpAddr::from_str("8.8.8.8").unwrap()],
-            true,
-        );
         match res {
             Ok(ref resps) => assert!(!resps.is_empty()),
             Err(e) => panic!("{}", e),

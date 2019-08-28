@@ -1,9 +1,5 @@
 #![allow(non_camel_case_types)]
 
-use openssl;
-
-pub fn init() { openssl::init(); }
-
 pub enum ub_ctx {}
 #[repr(C)]
 #[derive(Debug)]

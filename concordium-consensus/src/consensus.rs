@@ -172,12 +172,3 @@ impl ConsensusContainer {
         }
     }
 }
-
-pub fn catchup_enqueue(request: ConsensusMessage) {
-    let request_info = format!("{:?}", request.payload);
-
-    match CALLBACK_QUEUE.send_message(request) {
-        Ok(_) => debug!("Queueing a catch-up request: {}", request_info),
-        _ => error!("Couldn't queue a catch-up request ({})", request_info),
-    }
-}

@@ -77,7 +77,6 @@ pub struct Context {
 impl Context {
     /// Create a new `Context`.
     pub fn new() -> std::result::Result<Context, ()> {
-        sys::init();
         let ctx = unsafe { sys::ub_ctx_create() };
         if ctx.is_null() {
             Err(())

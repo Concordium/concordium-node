@@ -9,7 +9,8 @@ use snow::Session;
 use byteorder::{NetworkEndian, ReadBytesExt};
 use std::{
     convert::From,
-    io::Read,
+    io::{BufWriter, Read, Seek, SeekFrom, Write},
+    mem,
     sync::{Arc, RwLock},
 };
 
@@ -25,8 +26,10 @@ use std::{
 ///     - List of the size of each chunk: as `unsigned of 32 bit` in
 ///       `NetworkEndian`. It is omitted if there is only one chunk.
 pub struct DecryptStream {
-    session: Arc<RwLock<Session>>,
-    buffer:  Vec<u8>,
+    session:                Arc<RwLock<Session>>,
+    full_output_buffer:     BufWriter<HybridBuf>,
+    encrypted_chunk_buffer: Vec<u8>,
+    plaintext_chunk_buffer: Vec<u8>,
 }
 
 impl DecryptStream {
@@ -34,7 +37,9 @@ impl DecryptStream {
     pub fn new(session: Arc<RwLock<Session>>) -> Self {
         Self {
             session,
-            buffer: vec![0u8; SNOW_MAXMSGLEN],
+            full_output_buffer: BufWriter::new(Default::default()),
+            encrypted_chunk_buffer: vec![0; SNOW_MAXMSGLEN],
+            plaintext_chunk_buffer: vec![0; MAX_NOISE_PROTOCOL_MESSAGE_LEN],
         }
     }
 
@@ -50,74 +55,61 @@ impl DecryptStream {
         let num_full_chunks = input.read_u32::<NetworkEndian>()? as usize;
         let last_chunk_size = input.read_u32::<NetworkEndian>()? as usize;
 
-        // 2. Load and decrypt each chunk.
-        let mut clear_message = Vec::with_capacity(input.len()? as usize);
-        let session_reader = read_or_die!(self.session);
-
         for idx in 0..num_full_chunks {
-            decrypt_chunk(
-                &mut self.buffer,
-                idx,
-                SNOW_MAXMSGLEN,
-                nonce,
-                &mut input,
-                &mut clear_message,
-                &session_reader,
-            )?;
+            self.decrypt_chunk(idx, SNOW_MAXMSGLEN, nonce, &mut input)?;
         }
 
         if last_chunk_size > 0 {
-            decrypt_chunk(
-                &mut self.buffer,
-                num_full_chunks,
-                last_chunk_size,
-                nonce,
-                &mut input,
-                &mut clear_message,
-                &session_reader,
-            )?;
+            self.decrypt_chunk(num_full_chunks, last_chunk_size, nonce, &mut input)?;
         }
 
-        Ok(HybridBuf::from(clear_message))
+        // rewind the buffer
+        self.full_output_buffer.seek(SeekFrom::Start(0))?;
+
+        Ok(mem::replace(
+            &mut self.full_output_buffer.get_mut(),
+            Default::default(),
+        ))
+    }
+
+    fn decrypt_chunk(
+        &mut self,
+        chunk_idx: usize,
+        chunk_size: usize,
+        nonce: u64,
+        input: &mut HybridBuf,
+    ) -> Fallible<()> {
+        debug_assert!(chunk_size <= SNOW_MAXMSGLEN);
+
+        input.read_exact(&mut self.encrypted_chunk_buffer[..chunk_size])?;
+
+        match read_or_die!(self.session).read_message_with_nonce(
+            nonce,
+            &self.encrypted_chunk_buffer[..chunk_size],
+            &mut self.plaintext_chunk_buffer[..(chunk_size - SNOW_TAGLEN)],
+        ) {
+            Ok(len) => {
+                debug_assert!(
+                    len <= chunk_size,
+                    "Chunk {} bytes {} <= size {} fails",
+                    chunk_idx,
+                    len,
+                    chunk_size
+                );
+                debug_assert!(len <= MAX_NOISE_PROTOCOL_MESSAGE_LEN);
+
+                self.full_output_buffer
+                    .write_all(&self.plaintext_chunk_buffer[..len])?;
+                Ok(())
+            }
+            Err(err) => {
+                error!("Decryption error at chunk {}; fails: {}", chunk_idx, err);
+                Err(failure::Error::from(err))
+            }
+        }
     }
 
     /// It is just a helper function to keep a coherent interface.
     #[inline]
     pub fn read(&mut self, input: HybridBuf) -> Fallible<HybridBuf> { self.decrypt(input) }
-}
-
-fn decrypt_chunk(
-    chunk_buffer: &mut [u8],
-    chunk_idx: usize,
-    chunk_size: usize,
-    nonce: u64,
-    input: &mut HybridBuf,
-    clear_message: &mut Vec<u8>,
-    session: &Session,
-) -> Fallible<()> {
-    debug_assert!(chunk_size <= SNOW_MAXMSGLEN);
-
-    let mut input_slice = [0u8; SNOW_MAXMSGLEN];
-    input.read_exact(&mut input_slice[..chunk_size])?;
-    let mut output_slice = &mut chunk_buffer[..(chunk_size - SNOW_TAGLEN)];
-
-    match session.read_message_with_nonce(nonce, &input_slice[..chunk_size], &mut output_slice) {
-        Ok(bytes) => {
-            debug_assert!(
-                bytes <= chunk_size,
-                "Chunk {} bytes {} <= size {} fails",
-                chunk_idx,
-                bytes,
-                chunk_size
-            );
-            debug_assert!(bytes <= MAX_NOISE_PROTOCOL_MESSAGE_LEN);
-
-            clear_message.extend_from_slice(&chunk_buffer[..bytes]);
-            Ok(())
-        }
-        Err(err) => {
-            error!("Decrypt error at chunk {} fails: {}", chunk_idx, err);
-            Err(failure::Error::from(err))
-        }
-    }
 }

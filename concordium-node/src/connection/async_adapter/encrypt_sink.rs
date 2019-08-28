@@ -17,8 +17,6 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-pub const MAX_ENCRYPTED_FRAME_IN_MEMORY: usize = 4_194_304; // 4MB
-
 /// It is a `sink` that encrypts data using a `snow` session.
 ///
 /// # Message queue
@@ -64,17 +62,15 @@ pub struct EncryptSink {
 }
 
 impl EncryptSink {
-    pub fn new(session: Arc<RwLock<Session>>) -> Fallible<Self> {
-        Ok(EncryptSink {
+    pub fn new(session: Arc<RwLock<Session>>) -> Self {
+        EncryptSink {
             session,
             messages: VecDeque::new(),
             written_bytes: 0,
-            full_output_buffer: BufWriter::new(HybridBuf::with_capacity(
-                MAX_ENCRYPTED_FRAME_IN_MEMORY,
-            )?),
+            full_output_buffer: BufWriter::new(Default::default()),
             plaintext_chunk_buffer: vec![0u8; MAX_NOISE_PROTOCOL_MESSAGE_LEN],
             encrypted_chunk_buffer: vec![0u8; SNOW_MAXMSGLEN],
-        })
+        }
     }
 
     /// It encrypts and enqueues new messages but it does not call flush.
@@ -165,7 +161,7 @@ impl EncryptSink {
             last_chunk_size
         );
 
-        // move to the end of the buffer
+        // rewind the buffer
         self.full_output_buffer.seek(SeekFrom::Start(0))?;
 
         let ret = mem::replace(self.full_output_buffer.get_mut(), Default::default());

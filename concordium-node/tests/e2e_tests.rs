@@ -96,7 +96,7 @@ mod tests {
         )?;
         let received_msg = await_direct_message_with_timeout(&msg_waiter_1, max_recv_timeout());
         assert_eq!(
-            received_msg.map(|mut hb| hb.remaining_bytes().unwrap()),
+            received_msg.map(|mut hb| hb.remaining_bytes().unwrap().into_owned()),
             Some(msg.to_vec())
         );
 
@@ -451,7 +451,7 @@ mod tests {
         assert_eq!(msg.len() as u64, msg_recv.remaining_len().unwrap());
 
         // Get content hash.
-        let content_hash_list = [msg, msg_recv.remaining_bytes().unwrap()]
+        let content_hash_list = [msg, msg_recv.remaining_bytes().unwrap().into_owned()]
             .into_iter()
             .map(|view| {
                 let mut hasher = DefaultHasher::new();
