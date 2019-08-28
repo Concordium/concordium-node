@@ -520,6 +520,9 @@ fn start_consensus_threads(
     let gs_sender_ref = gs_sender.clone();
     #[allow(unreachable_code)] // the loop never breaks on its own
     let ticker_thread = spawn_or_die!("Ticker", {
+        // an initial delay before we begin catching up and baking
+        thread::sleep(Duration::from_secs(10));
+
         loop {
             thread::sleep(Duration::from_secs(1));
 
