@@ -35,7 +35,7 @@ use concordium_global_state::{
         messaging::{
             ConsensusMessage, DistributionMode, GlobalStateMessage, GlobalStateResult, MessageType,
         },
-        GlobalState, PeerState, PeerStatus,
+        GlobalState, PeerId, PeerState, PeerStatus,
     },
 };
 
@@ -178,31 +178,29 @@ pub fn handle_global_state_request(
             handle_consensus_message(node, network_id, consensus, req, global_state)
         }
         GlobalStateMessage::PeerListUpdate(peer_ids) => {
+            // check if there are any new peers or any of the current ones have died
             update_peer_list(global_state, peer_ids);
 
-            let (mut some_catching_up, mut some_pending) = (false, false);
-
-            for (_id, state) in global_state.peers.iter() {
+            // take advantage of the priority queue ordering
+            if let Some((&id, state)) = global_state.peers.peek() {
                 match state.status {
-                    PeerStatus::CatchingUp => some_catching_up = true,
-                    PeerStatus::Pending => some_pending = true,
-                    _ => {}
+                    PeerStatus::UpToDate => {
+                        // when all catch-up messages have been exchanged,
+                        // baking may commence (does nothing if already baking)
+                        trace!("Global state: all my peers are up to date");
+                        consensus.start_baker();
+                    }
+                    PeerStatus::CatchingUp => {
+                        // don't send any catch-up statuses while
+                        // there are peers that are catching up
+                        trace!("Global state: I'm still catching up with peer {:016x}", id);
+                    }
+                    PeerStatus::Pending => {
+                        // send a catch-up message to the first Pending peer
+                        trace!("Global state: I need to catch up with peer {:016x}", id);
+                        send_catch_up_status(node, network_id, consensus, global_state, id);
+                    }
                 }
-                if some_catching_up && some_pending {
-                    break;
-                }
-            }
-
-            // when the peer count is valid and all catch-up messages have been exchanged,
-            // baking may commence (does nothing if already baking)
-            if !some_catching_up && !some_pending {
-                trace!("Global state: all my peers are up to date");
-                consensus.start_baker();
-            // send up a catch-up message to the first pending peer when there are Pending
-            // peers and none are currently catching up
-            } else if !some_catching_up && some_pending {
-                trace!("Global state: some of my peers need catching up");
-                send_catch_up_status(node, network_id, consensus, global_state);
             }
 
             Ok(())
@@ -480,24 +478,21 @@ fn send_catch_up_status(
     network_id: NetworkId,
     consensus: &mut consensus::ConsensusContainer,
     global_state: &mut GlobalState,
+    target: PeerId,
 ) {
-    if let Some((&id, _)) = global_state.peers.peek() {
-        debug!("Global state: catching up with peer {:016x}", id);
+    global_state
+        .peers
+        .change_priority(&target, PeerState::new(PeerStatus::CatchingUp));
 
-        global_state
-            .peers
-            .change_priority(&id, PeerState::new(PeerStatus::CatchingUp));
-
-        send_consensus_msg_to_net(
-            node,
-            vec![],
-            Some(P2PNodeId(id)),
-            network_id,
-            PacketType::CatchUpStatus,
-            Some("catch-up status message".to_owned()),
-            &consensus.get_catch_up_status(),
-        );
-    }
+    send_consensus_msg_to_net(
+        node,
+        vec![],
+        Some(P2PNodeId(target)),
+        network_id,
+        PacketType::CatchUpStatus,
+        Some("catch-up status message".to_owned()),
+        &consensus.get_catch_up_status(),
+    );
 }
 
 fn manage_peer_states(

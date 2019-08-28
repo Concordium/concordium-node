@@ -11,7 +11,7 @@ use std::{cmp::Ordering, fmt, mem, rc::Rc, time::Instant};
 
 use crate::{block::*, finalization::*, transaction::*};
 
-type PeerId = u64;
+pub type PeerId = u64;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct PeerState {
@@ -30,8 +30,8 @@ impl PeerState {
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
 pub enum PeerStatus {
-    Pending    = 2,
-    CatchingUp = 1,
+    CatchingUp = 2,
+    Pending    = 1,
     UpToDate   = 0,
 }
 
@@ -457,6 +457,6 @@ mod tests {
             .map(|(id, _)| id)
             .collect::<Vec<_>>();
 
-        assert_eq!(sorted_ids, vec![1, 3, 2, 0]);
+        assert_eq!(sorted_ids, vec![2, 1, 3, 0]);
     }
 }
