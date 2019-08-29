@@ -67,12 +67,13 @@ pub struct P2PNodeConfig {
     dnssec_disabled: bool,
     bootstrap_node: Vec<String>,
     minimum_per_bucket: usize,
-    max_allowed_nodes: u16,
+    pub max_allowed_nodes: u16,
     max_resend_attempts: u8,
     relay_broadcast_percentage: f64,
     pub global_state_catch_up_requests: bool,
     pub poll_interval: u64,
     pub housekeeping_interval: u64,
+    pub print_peers: bool,
 }
 
 #[derive(Default)]
@@ -109,8 +110,6 @@ pub struct P2PNode {
     external_addr: SocketAddr,
     thread: Arc<RwLock<P2PNodeThread>>,
     quit_tx: Option<SyncSender<bool>>,
-    pub max_nodes: Option<u16>,
-    pub print_peers: bool,
     pub config: P2PNodeConfig,
     dump_switch: SyncSender<(std::path::PathBuf, bool)>,
     dump_tx: SyncSender<crate::dumper::DumpItem>,
@@ -239,6 +238,7 @@ impl P2PNode {
             global_state_catch_up_requests: conf.connection.global_state_catch_up_requests,
             poll_interval: conf.cli.poll_interval,
             housekeeping_interval: conf.cli.housekeeping_interval,
+            print_peers: true,
         };
 
         let networks: HashSet<NetworkId> = conf
@@ -250,8 +250,6 @@ impl P2PNode {
             .collect();
         let noise_protocol_handler = NoiseProtocolHandlerBuilder::default()
             .set_server(server)
-            .set_max_allowed_peers(config.max_allowed_nodes)
-            .set_max_allowed_peers(config.max_allowed_nodes)
             .set_event_log(event_log)
             .set_networks(networks)
             .set_buckets(Arc::new(RwLock::new(Buckets::new())))
@@ -273,8 +271,6 @@ impl P2PNode {
             external_addr: SocketAddr::new(own_peer_ip, own_peer_port),
             thread: Arc::new(RwLock::new(P2PNodeThread::default())),
             quit_tx: None,
-            max_nodes: None,
-            print_peers: true,
             config,
             dump_switch: act_tx,
             dump_tx,
@@ -375,18 +371,14 @@ impl P2PNode {
     /// nodes.
     fn print_stats(&self, peer_stat_list: &[PeerStats]) {
         trace!("Printing out stats");
-        if let Some(max_nodes) = self.max_nodes {
-            debug!(
-                "I currently have {}/{} peers",
-                peer_stat_list.len(),
-                max_nodes
-            )
-        } else {
-            debug!("I currently have {} peers", peer_stat_list.len())
-        }
+        debug!(
+            "I currently have {}/{} peers",
+            peer_stat_list.len(),
+            self.config.max_allowed_nodes
+        );
 
         // Print nodes
-        if self.print_peers {
+        if self.config.print_peers {
             for (i, peer) in peer_stat_list.iter().enumerate() {
                 trace!("Peer {}: {}/{}/{}", i, peer.id, peer.addr, peer.peer_type);
             }
