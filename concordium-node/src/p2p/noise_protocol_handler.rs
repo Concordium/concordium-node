@@ -226,9 +226,9 @@ impl NoiseProtocolHandler {
         if peer_type == PeerType::Node {
             let current_peer_count =
                 self.connections_posthandshake_count(Some(PeerType::Bootstrapper));
-            if current_peer_count > self.node().max_nodes {
+            if current_peer_count > self.node().config.max_allowed_nodes {
                 return Err(Error::from(fails::MaxmimumAmountOfPeers {
-                    max_allowed_peers: self.node().max_nodes,
+                    max_allowed_peers: self.node().config.max_allowed_nodes,
                     number_of_peers:   current_peer_count,
                 }));
             }

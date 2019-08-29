@@ -530,7 +530,7 @@ fn start_consensus_threads(
 
             // don't provide the global state with the peer information until their
             // number is within the desired range
-            if current_peers.len() <= node_ref.max_nodes as usize {
+            if current_peers.len() <= node_ref.config.max_allowed_nodes as usize {
                 let msg = GlobalStateMessage::PeerListUpdate(current_peers);
                 if let Err(e) = gs_sender_ref.send(RelayOrStopEnvelope::Relay(msg)) {
                     error!("Error updating the global state peer list: {}", e)
