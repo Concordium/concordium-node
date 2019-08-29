@@ -53,6 +53,8 @@ import qualified Concordium.Startup as S
 import Control.Concurrent.MVar
 import Control.Monad.IO.Class
 
+import Foreign.ForeignPtr
+
 -- |A 'PeerID' identifies peer at the p2p layer.
 type PeerID = Word64
 
@@ -268,7 +270,7 @@ genesisState genData = initialState (genesisBirkParameters genData) (genesisCryp
 startConsensus ::
            CString -> Int64 -- ^Serialized genesis data (c string + len)
            -> CString -> Int64 -- ^Serialized baker identity (c string + len)
-           -> GlobalStatePtr
+           -> Ptr GlobalStateR
            -> FunPtr BroadcastCallback -- ^Handler for generated messages
            -> FunPtr LogCallback -- ^Handler for log events
             -> IO (StablePtr ConsensusRunner)
@@ -277,7 +279,8 @@ startConsensus gdataC gdataLenC bidC bidLenC gsptr bcbk lcbk = do
         bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
         case (decode gdata, decode bdata) of
             (Right genData, Right bid) -> do
-                bakerSyncRunner <- makeSyncRunner logM bid genData (genesisState genData) gsptr bakerBroadcast
+                foreignGsPtr <- newForeignPtr_ gsptr
+                bakerSyncRunner <- makeSyncRunner logM bid genData (genesisState genData) foreignGsPtr bakerBroadcast
                 newStablePtr BakerRunner{..}
             _ -> ioError (userError $ "Error decoding serialized data.")
     where
@@ -287,14 +290,15 @@ startConsensus gdataC gdataLenC bidC bidLenC gsptr bcbk lcbk = do
 -- |Start consensus without a baker identity.
 startConsensusPassive ::
            CString -> Int64 -- ^Serialized genesis data (c string + len)
-           -> GlobalStatePtr
+           -> Ptr GlobalStateR
            -> FunPtr LogCallback -- ^Handler for log events
             -> IO (StablePtr ConsensusRunner)
 startConsensusPassive gdataC gdataLenC gsptr lcbk = do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         case (decode gdata) of
             (Right genData) -> do
-                passiveSyncRunner <- makeSyncPassiveRunner logM genData (genesisState genData) gsptr
+                foreignGsPtr <- newForeignPtr_ gsptr
+                passiveSyncRunner <- makeSyncPassiveRunner logM genData (genesisState genData) foreignGsPtr
                 newStablePtr PassiveRunner{..}
             _ -> ioError (userError $ "Error decoding serialized data.")
     where
@@ -398,7 +402,7 @@ receiveBlock bptr cstr l = do
                           PassiveRunner{..} -> do
                             st <- readMVar . syncPState $ passiveSyncRunner
                             return . _skovGlobalStatePtr . _sphsSkov $ st
-                        let block = makePendingBlock gsptr block0 now
+                        block <- makePendingBlock gsptr block0 now
                         case c of
                             BakerRunner{..} -> do
                                 (res, evts) <- syncReceiveBlock bakerSyncRunner block
@@ -864,8 +868,8 @@ receiveCatchUpStatus cptr src cstr l cbk = do
 
 
 foreign export ccall makeGenesisData :: Timestamp -> Word64 -> CString -> CString -> FunPtr GenesisDataCallback -> FunPtr BakerIdentityCallback -> IO CInt
-foreign export ccall startConsensus :: CString -> Int64 -> CString -> Int64 -> GlobalStatePtr -> FunPtr BroadcastCallback -> FunPtr LogCallback -> IO (StablePtr ConsensusRunner)
-foreign export ccall startConsensusPassive :: CString -> Int64 -> GlobalStatePtr -> FunPtr LogCallback -> IO (StablePtr ConsensusRunner)
+foreign export ccall startConsensus :: CString -> Int64 -> CString -> Int64 -> Ptr GlobalStateR -> FunPtr BroadcastCallback -> FunPtr LogCallback -> IO (StablePtr ConsensusRunner)
+foreign export ccall startConsensusPassive :: CString -> Int64 -> Ptr GlobalStateR -> FunPtr LogCallback -> IO (StablePtr ConsensusRunner)
 foreign export ccall stopConsensus :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall startBaker :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall stopBaker :: StablePtr ConsensusRunner -> IO ()

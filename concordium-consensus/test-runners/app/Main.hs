@@ -34,6 +34,8 @@ import Concordium.Scheduler.Utils.Init.Example as Example
 
 import Concordium.Startup
 
+import Foreign.ForeignPtr
+
 nContracts :: Int
 nContracts = 2
 
@@ -123,7 +125,7 @@ main = do
         let logM src lvl msg = do
                                     timestamp <- getCurrentTime
                                     appendFile logFile $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg ++ "\n"
-        let gsptr = makeEmptyGlobalState
+        gsptr <- makeEmptyGlobalState gen
         (cin, cout, out) <- makeAsyncRunner logM bid gen iState gsptr
         -- _ <- forkIO $ sendTransactions cin trans
         return (cin, cout, out)) (zip [(0::Int) ..] bis)

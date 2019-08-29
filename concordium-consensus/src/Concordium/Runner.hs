@@ -74,7 +74,7 @@ makeSyncRunner :: forall m. LogMethod IO -> BakerIdentity -> GenesisData -> Bloc
 makeSyncRunner syncLogMethod syncBakerIdentity gen initBS gsptr syncCallback = do
         let
             syncFinalizationInstance = bakerFinalizationInstance syncBakerIdentity
-            sfs0 = initialSkovBufferedHookedState syncFinalizationInstance gen initBS gsptr
+        sfs0 <- initialSkovBufferedHookedState syncFinalizationInstance gen initBS gsptr
         syncState <- newMVar sfs0
         syncBakerThread <- newEmptyMVar
         return $ SyncRunner{..}
@@ -123,7 +123,7 @@ stopSyncRunner SyncRunner{..} = mask_ $ tryTakeMVar syncBakerThread >>= \case
 
 runSkovBufferedMWithStateLog :: SyncRunner -> SkovBufferedHookedM LogIO a -> IO (a, [SkovFinalizationEvent])
 runSkovBufferedMWithStateLog SyncRunner{..} a = do
-        (ret, evts) <- runWithStateLog syncState syncLogMethod (\sfs -> 
+        (ret, evts) <- runWithStateLog syncState syncLogMethod (\sfs ->
             (\(ret, sfs', Endo evs) -> ((ret, evs []), sfs')) <$> runSkovBufferedHookedM a (bakerFinalizationInstance syncBakerIdentity) sfs)
         let (aevts, bevts) = partitionEithers $ evtToEither <$> evts
         forM_ bevts $ asyncNotify syncState syncLogMethod (syncCallback . SOMsgFinalization)
@@ -156,8 +156,9 @@ data SyncPassiveRunner = SyncPassiveRunner {
 -- |Make a 'SyncPassiveRunner', which does not support a baker thread.
 makeSyncPassiveRunner :: forall m. LogMethod IO -> GenesisData -> BlockState (SkovPassiveHookedM m) -> GlobalStatePtr -> IO SyncPassiveRunner
 makeSyncPassiveRunner syncPLogMethod gen initBS gsptr = do
-        syncPState <- newMVar $ initialSkovPassiveHookedState gen initBS gsptr
-        return $ SyncPassiveRunner{..}
+  initialState <- initialSkovPassiveHookedState gen initBS gsptr
+  syncPState <- newMVar $ initialState
+  return $ SyncPassiveRunner{..}
 
 runSkovPassiveMWithStateLog :: SyncPassiveRunner -> SkovPassiveHookedM LogIO a -> IO (a, [SkovMissingEvent])
 runSkovPassiveMWithStateLog SyncPassiveRunner{..} a =
@@ -188,7 +189,7 @@ data InMessage src =
     | MsgFinalizationReceived src !BS.ByteString
     | MsgFinalizationRecordReceived src !BS.ByteString
 
-data OutMessage src = 
+data OutMessage src =
     MsgNewBlock !BS.ByteString
     | MsgFinalization !BS.ByteString
     | MsgFinalizationRecord !BS.ByteString
@@ -211,7 +212,8 @@ makeAsyncRunner logm bkr gen initBS gsptr = do
                     case runGet get blockBS of
                         Right (NormalBlock block) -> do
                             now <- currentTime
-                            (_, evts) <- syncReceiveBlock sr $ makePendingBlock gsptr block now
+                            pblock <- makePendingBlock gsptr block now
+                            (_, evts) <- syncReceiveBlock sr pblock
                             forM_ evts $ handleMessage src
                         _ -> return ()
                     msgLoop
