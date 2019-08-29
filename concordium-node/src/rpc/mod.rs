@@ -18,13 +18,16 @@ use crate::{
     proto::*,
 };
 
-use concordium_common::{fails::PoisonError, ConsensusFfiResponse, PacketType};
+use concordium_common::{
+    fails::PoisonError, hybrid_buf::HybridBuf, ConsensusFfiResponse, PacketType,
+};
 use concordium_consensus::consensus::{ConsensusContainer, CALLBACK_QUEUE};
 use concordium_global_state::tree::messaging::{ConsensusMessage, DistributionMode, MessageType};
 use futures::future::Future;
 use grpcio::{self, Environment, ServerBuilder};
 use rkv::Rkv;
 use std::{
+    convert::TryFrom,
     net::{IpAddr, SocketAddr},
     str::FromStr,
     sync::{atomic::Ordering, mpsc, Arc, Mutex, RwLock},
@@ -123,7 +126,7 @@ impl RpcServerImpl {
 
         if req.has_message() && req.has_broadcast() {
             // TODO avoid double-copy
-            let msg = req.get_message().get_value().to_vec();
+            let msg = HybridBuf::try_from(req.get_message().get_value())?;
             let network_id = NetworkId::from(req.get_network_id().get_value() as u16);
 
             if req.has_node_id() && !req.get_broadcast().get_value() && req.has_network_id() {
@@ -1047,7 +1050,7 @@ impl P2P for RpcServerImpl {
                 } else {
                     let test_messages = utils::get_tps_test_messages(Some(dir));
                     let mut r: SuccessResponse = SuccessResponse::new();
-                    let result = !(test_messages.iter().map(|message| {
+                    let result = !(test_messages.into_iter().map(|message| {
                         let out_bytes_len = message.len();
                         let to_send = P2PNodeId::from_str(&id).ok();
                         match send_direct_message(
@@ -1055,7 +1058,7 @@ impl P2P for RpcServerImpl {
                             to_send,
                             network_id,
                             None,
-                            message.to_vec(),
+                            HybridBuf::try_from(message).unwrap(),
                         ) {
                             Ok(_) => {
                                 info!("Sent TPS test bytes of len {}", out_bytes_len);
@@ -1277,10 +1280,11 @@ mod tests {
         },
     };
     use chrono::prelude::Utc;
+    use concordium_common::hybrid_buf::HybridBuf;
     use failure::Fallible;
     use grpcio::{ChannelBuilder, EnvBuilder};
     use rkv::{Manager, Rkv};
-    use std::sync::Arc;
+    use std::{convert::TryFrom, sync::Arc};
 
     // Same as create_node_rpc_call_option but also outputs the Message receiver
     fn create_node_rpc_call_option_waiter(
@@ -1645,7 +1649,7 @@ mod tests {
             vec![],
             crate::network::NetworkId::from(100),
             None,
-            b"Hey".to_vec(),
+            HybridBuf::try_from(&b"Hey"[..])?,
         )?;
         await_broadcast_message(&wt1).expect("Message sender disconnected");
         let ans = client.subscription_poll_opt(&crate::proto::Empty::new(), callopts.clone())?;

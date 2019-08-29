@@ -2,6 +2,7 @@ use concordium_common::{functor::FuncResult, hybrid_buf::HybridBuf};
 
 use std::{
     collections::HashSet,
+    convert::TryFrom,
     sync::{atomic::Ordering, RwLock},
 };
 
@@ -66,7 +67,10 @@ pub fn default_network_request_ping_handle(
 
     // Ignore the return value because it is an asynchronous operation.
     write_or_die!(priv_conn)
-        .async_send(HybridBuf::from(pong_data), MessageSendingPriority::High)
+        .async_send(
+            HybridBuf::try_from(pong_data)?,
+            MessageSendingPriority::High,
+        )
         .map(|_bytes| ())
 }
 
@@ -103,7 +107,7 @@ pub fn default_network_request_find_node_handle(
         // Ignore returned because it is an asynchronous operation.
         write_or_die!(priv_conn)
             .async_send(
-                HybridBuf::from(response_data),
+                HybridBuf::try_from(response_data)?,
                 MessageSendingPriority::Normal,
             )
             .map(|_bytes| ())
@@ -154,7 +158,7 @@ pub fn default_network_request_get_peers(
         // Ignore returned because it is an asynchronous operation.
         write_or_die!(priv_conn)
             .async_send(
-                HybridBuf::from(peer_list_packet),
+                HybridBuf::try_from(peer_list_packet)?,
                 MessageSendingPriority::Normal,
             )
             .map(|_bytes| ())

@@ -596,7 +596,7 @@ impl P2PNode {
                 let no_filter = |_: &Connection| true;
 
                 self.noise_protocol_handler.send_over_all_connections(
-                    HybridBuf::from(data),
+                    data,
                     &no_filter,
                     &check_sent_status_fn,
                 );
@@ -647,7 +647,7 @@ impl P2PNode {
                     };
 
                     self.noise_protocol_handler.send_over_all_connections(
-                        HybridBuf::from(data),
+                        data,
                         &retain,
                         &check_sent_status_fn,
                     );
@@ -674,7 +674,7 @@ impl P2PNode {
         match s11n_data {
             Ok(data) => {
                 self.noise_protocol_handler.send_over_all_connections(
-                    HybridBuf::from(data),
+                    data,
                     &is_valid_connection_post_handshake,
                     &check_sent_status_fn,
                 );
@@ -702,7 +702,7 @@ impl P2PNode {
         match s11n_data {
             Ok(data) => {
                 self.noise_protocol_handler.send_over_all_connections(
-                    HybridBuf::from(data),
+                    data,
                     &is_valid_connection_post_handshake,
                     &check_sent_status_fn,
                 );
@@ -730,7 +730,7 @@ impl P2PNode {
         match s11n_data {
             Ok(data) => {
                 self.noise_protocol_handler.send_over_all_connections(
-                    HybridBuf::from(data),
+                    data,
                     &is_valid_connection_post_handshake,
                     &check_sent_status_fn,
                 );
@@ -758,7 +758,7 @@ impl P2PNode {
             match s11n_data {
                 Ok(data) => {
                     self.noise_protocol_handler.send_over_all_connections(
-                        HybridBuf::from(data),
+                        data,
                         &filter,
                         &check_sent_status_fn,
                     );
@@ -809,38 +809,35 @@ impl P2PNode {
         };
 
         match s11n_data {
-            Ok(data) => {
-                let data_cursor = HybridBuf::from(data);
-                match inner_pkt.packet_type {
-                    NetworkPacketType::DirectMessage(ref receiver) => {
-                        let filter = |conn: &Connection| is_conn_peer_id(conn, *receiver);
+            Ok(data) => match inner_pkt.packet_type {
+                NetworkPacketType::DirectMessage(ref receiver) => {
+                    let filter = |conn: &Connection| is_conn_peer_id(conn, *receiver);
 
-                        self.noise_protocol_handler.send_over_all_connections(
-                            data_cursor,
-                            &filter,
-                            &check_sent_status_fn,
-                        ) >= 1
-                    }
-                    NetworkPacketType::BroadcastedMessage(ref dont_relay_to) => {
-                        let filter = |conn: &Connection| {
-                            is_valid_connection_in_broadcast(
-                                conn,
-                                &inner_pkt.peer,
-                                &peers_to_skip,
-                                &dont_relay_to,
-                                inner_pkt.network_id,
-                            )
-                        };
-
-                        self.noise_protocol_handler.send_over_all_connections(
-                            data_cursor,
-                            &filter,
-                            &check_sent_status_fn,
-                        );
-                        true
-                    }
+                    self.noise_protocol_handler.send_over_all_connections(
+                        data,
+                        &filter,
+                        &check_sent_status_fn,
+                    ) >= 1
                 }
-            }
+                NetworkPacketType::BroadcastedMessage(ref dont_relay_to) => {
+                    let filter = |conn: &Connection| {
+                        is_valid_connection_in_broadcast(
+                            conn,
+                            &inner_pkt.peer,
+                            &peers_to_skip,
+                            &dont_relay_to,
+                            inner_pkt.network_id,
+                        )
+                    };
+
+                    self.noise_protocol_handler.send_over_all_connections(
+                        data,
+                        &filter,
+                        &check_sent_status_fn,
+                    );
+                    true
+                }
+            },
             Err(e) => {
                 error!(
                     "Packet message cannot be sent due to a serialization issue: {}",
@@ -1303,10 +1300,9 @@ pub fn send_direct_message(
     target_id: Option<P2PNodeId>,
     network_id: NetworkId,
     msg_id: Option<MessageId>,
-    msg: Vec<u8>,
+    msg: HybridBuf,
 ) -> Fallible<()> {
-    let cursor = HybridBuf::from(msg);
-    send_message_from_cursor(node, target_id, vec![], network_id, msg_id, cursor, false)
+    send_message_from_cursor(node, target_id, vec![], network_id, msg_id, msg, false)
 }
 
 #[inline]
@@ -1315,10 +1311,9 @@ pub fn send_broadcast_message(
     dont_relay_to: Vec<P2PNodeId>,
     network_id: NetworkId,
     msg_id: Option<MessageId>,
-    msg: Vec<u8>,
+    msg: HybridBuf,
 ) -> Fallible<()> {
-    let cursor = HybridBuf::from(msg);
-    send_message_from_cursor(node, None, dont_relay_to, network_id, msg_id, cursor, true)
+    send_message_from_cursor(node, None, dont_relay_to, network_id, msg_id, msg, true)
 }
 
 pub fn send_message_from_cursor(

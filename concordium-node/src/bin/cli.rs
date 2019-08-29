@@ -11,8 +11,6 @@ use std::alloc::System;
 #[global_allocator]
 static A: System = System;
 
-use byteorder::{NetworkEndian, WriteBytesExt};
-
 use concordium_common::{
     cache::Cache,
     spawn_or_die,
@@ -28,13 +26,13 @@ use p2p_client::{
         plugins::{self, consensus::*},
         utils as client_utils,
     },
-    common::{P2PNodeId, PeerType},
+    common::PeerType,
     configuration,
     network::{
-        packet::MessageId, request::RequestedElementType, NetworkId, NetworkMessage,
-        NetworkPacketType, NetworkRequest, NetworkResponse,
+        request::RequestedElementType, NetworkId, NetworkMessage, NetworkPacketType,
+        NetworkRequest, NetworkResponse,
     },
-    p2p::{p2p_node::send_direct_message, *},
+    p2p::*,
     rpc::RpcServerImpl,
     stats_engine::StatsEngine,
     utils::{self, get_config_and_logging_setup, load_bans},
@@ -463,7 +461,7 @@ fn start_consensus_threads(
                             RequestedElementType::Transaction => {
                                 let transactions = transactions_cache.get_since(*since);
                                 transactions.iter().for_each(|transaction| {
-                                    send_consensus_msg_to_net(
+                                    if let Err(e) = send_consensus_msg_to_net(
                                         &node_ref,
                                         vec![],
                                         Some(requester.id()),
@@ -471,7 +469,9 @@ fn start_consensus_threads(
                                         PacketType::Transaction,
                                         Some(format!("{:?}", transaction)),
                                         &transaction,
-                                    );
+                                    ) {
+                                        error!("Couldn't retransmit a trancation! ({:?})", e);
+                                    }
                                 })
                             }
                             _ => error!(
@@ -487,7 +487,7 @@ fn start_consensus_threads(
                 ) => {
                     if let Some(network_id) = nets.iter().next() {
                         // catch up to the finalization point
-                        send_consensus_msg_to_net(
+                        if let Err(e) = send_consensus_msg_to_net(
                             &node_ref,
                             vec![],
                             Some(remote_peer.id()),
@@ -495,10 +495,15 @@ fn start_consensus_threads(
                             PacketType::CatchUpFinalizationMessagesByPoint,
                             None,
                             &consensus.get_finalization_point(),
-                        );
+                        ) {
+                            error!(
+                                "Can't send the finalization point catch-up request!, {:?}",
+                                e
+                            );
+                        }
 
                         // send a catch-up status
-                        send_consensus_msg_to_net(
+                        if let Err(e) = send_consensus_msg_to_net(
                             &node_ref,
                             vec![],
                             Some(remote_peer.id()),
@@ -506,7 +511,9 @@ fn start_consensus_threads(
                             PacketType::CatchUpStatus,
                             None,
                             &consensus.get_catch_up_status(),
-                        );
+                        ) {
+                            error!("Can't send the initial catch-up status! {:?}", e);
+                        }
                     } else {
                         error!("A handshaking peer doesn't seem to have any networks!");
                     }
@@ -573,30 +580,3 @@ fn tps_setup_process_output(cli: &configuration::CliConfig) -> (bool, u64) {
 
 #[cfg(not(feature = "benchmark"))]
 fn tps_setup_process_output(_: &configuration::CliConfig) -> (bool, u64) { (false, 0) }
-
-fn _send_retransmit_packet(
-    node: &P2PNode,
-    receiver: P2PNodeId,
-    network_id: NetworkId,
-    message_id: &MessageId,
-    payload_type: u16,
-    data: &[u8],
-) {
-    let mut out_bytes = Vec::with_capacity(2 + data.len());
-    match out_bytes.write_u16::<NetworkEndian>(payload_type as u16) {
-        Ok(_) => {
-            out_bytes.extend(data);
-            match send_direct_message(
-                node,
-                Some(receiver),
-                network_id,
-                Some(message_id.to_owned()),
-                out_bytes,
-            ) {
-                Ok(_) => debug!("Retransmitted packet of type {}", payload_type),
-                Err(_) => error!("Couldn't retransmit packet of type {}!", payload_type),
-            }
-        }
-        Err(_) => error!("Can't write payload type, so failing retransmit of packet"),
-    }
-}
