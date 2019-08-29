@@ -262,7 +262,7 @@ fn update_peer_list(global_state: &mut GlobalState, peer_ids: Vec<u64>) {
 fn process_internal_gs_entry(
     node: &P2PNode,
     network_id: NetworkId,
-    mut request: ConsensusMessage,
+    request: ConsensusMessage,
     global_state: &mut GlobalState,
 ) -> Fallible<()> {
     let (entry_info, gs_result) = match request.variant {
@@ -368,21 +368,10 @@ fn process_external_gs_entry(
         _ => {}
     }
 
-    // rebroadcast incoming broadcasts
-    if request.distribution_mode() == DistributionMode::Broadcast {
-        consensus_driven_rebroadcast(node, network_id, consensus_result, request);
-    }
-
-    Ok(())
-}
-
-fn consensus_driven_rebroadcast(
-    node: &P2PNode,
-    network_id: NetworkId,
-    consensus_result: ConsensusFfiResponse,
-    mut request: ConsensusMessage,
-) {
-    if consensus_result.is_rebroadcastable() {
+    // rebroadcast incoming broadcasts if applicable
+    if request.distribution_mode() == DistributionMode::Broadcast
+        && consensus_result.is_rebroadcastable()
+    {
         send_consensus_msg_to_net(
             &node,
             request.dont_relay_to(),
@@ -393,6 +382,8 @@ fn consensus_driven_rebroadcast(
             &request.payload,
         );
     }
+
+    Ok(())
 }
 
 fn send_msg_to_consensus(

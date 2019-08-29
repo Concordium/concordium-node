@@ -1,7 +1,7 @@
 use concordium_common::PacketType;
 use failure::Fail;
 
-use std::{fmt, mem, sync::Arc};
+use std::{fmt, sync::Arc};
 
 use crate::{
     block::*,
@@ -66,9 +66,7 @@ impl ConsensusMessage {
         }
     }
 
-    pub fn dont_relay_to(&mut self) -> Vec<PeerId> {
-        mem::replace(&mut self.dont_relay_to, Vec::new()) // should be called only once
-    }
+    pub fn dont_relay_to(&self) -> Vec<PeerId> { self.dont_relay_to.clone() }
 }
 
 impl fmt::Display for ConsensusMessage {
