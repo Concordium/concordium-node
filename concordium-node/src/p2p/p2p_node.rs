@@ -401,7 +401,8 @@ impl P2PNode {
             Ok(nodes) => {
                 for addr in nodes {
                     info!("Found a bootstrap node: {}", addr);
-                    let _ = self.connect(PeerType::Bootstrapper, addr, None)
+                    let _ = self
+                        .connect(PeerType::Bootstrapper, addr, None)
                         .map_err(|e| error!("{}", e));
                 }
             }
