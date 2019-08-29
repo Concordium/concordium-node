@@ -2,8 +2,10 @@
 
 module Concordium.GlobalState.Rust.FFI (
   -- * GlobalState
-  GlobalStatePtr
+  GlobalStateR
+  , GlobalStatePtr
   , getGenesisBlockPointer
+  , makeEmptyGlobalState
 
   -- * BlockFields functions
   , BlockFields
@@ -47,6 +49,7 @@ import Data.Time.Clock.POSIX
 import Data.Word
 import Foreign.C
 import Foreign.Ptr
+import Foreign.ForeignPtr
 import System.IO.Unsafe
 
 ---------------------------
@@ -54,18 +57,16 @@ import System.IO.Unsafe
 ---------------------------
 
 foreign import ccall unsafe "get_genesis_block_pointer"
-   getGenesisBlockPointerF :: GlobalStatePtr -> Ptr BlockPointerR
+   getGenesisBlockPointerF :: Ptr GlobalStateR -> IO (Ptr BlockPointerR)
 foreign import ccall unsafe "make_pending_block"
-    makePendingBlockF :: GlobalStatePtr -> CString -> Int -> IO (Ptr PendingBlockR)
+    makePendingBlockF :: Ptr GlobalStateR -> CString -> Int -> IO (Ptr PendingBlockR)
 foreign import ccall unsafe "make_block_pointer"
-    makeBlockPointerF :: GlobalStatePtr -> Ptr PendingBlockR -> Word64 -> Ptr BlockPointerR
-foreign import ccall unsafe "make_genesis_data"
-    makeGenesisDataF :: GlobalStatePtr -> CString -> Int -> IO (Ptr BlockPointerR)
+    makeBlockPointerF :: Ptr GlobalStateR -> Ptr PendingBlockR -> Word64 -> IO (Ptr BlockPointerR)
 
 -- This function should actually return a proper BlockPointer and for that we need somewhere to
 -- get the State of the genesis from (or establish a state for the Genesis). The rest of the fields can
 -- be retrieved without issues
-getGenesisBlockPointer :: GlobalStatePtr -> Ptr BlockPointerR
+getGenesisBlockPointer :: Ptr GlobalStateR -> IO (Ptr BlockPointerR)
 getGenesisBlockPointer = getGenesisBlockPointerF
 
 ---------------------------
@@ -124,7 +125,7 @@ blockFieldsBlockProof b =
   in
     unsafePerformIO $ do
       bp_str <- curry packCStringLen p (fromIntegral l)
-      return . VRF.Proof . fromByteString $ bp_str
+      return . VRF.byteStringIntoProof $ bp_str
 
 blockFieldsBlockNonce :: BlockFields -> BlockNonce
 blockFieldsBlockNonce b =
@@ -134,7 +135,7 @@ blockFieldsBlockNonce b =
   in
     unsafePerformIO $ do
       bn_str <- curry packCStringLen p (fromIntegral l)
-      return . VRF.Proof . fromByteString $ bn_str
+      return . VRF.byteStringIntoProof $ bn_str
 
 blockFieldsBlockLastFinalized :: BlockFields -> BlockHash
 blockFieldsBlockLastFinalized b =
@@ -328,11 +329,12 @@ instance BlockPendingData PendingBlock where
 
 -- |Create a PendingBlock
 -- This function must initialize the PendingBlockR of the Rust side
-makePendingBlock :: GlobalStatePtr -> BakedBlock -> UTCTime -> PendingBlock
-makePendingBlock gsptr bb pendingBlockReceiveTime = thePendingBlock
-  where
-    thePendingBlock = PendingBlock {..}
-    pendingBlockPointer = unsafePerformIO $ useAsCStringLen (encode . NormalBlock $ bb) $ uncurry (makePendingBlockF gsptr)
+makePendingBlock :: GlobalStatePtr -> BakedBlock -> UTCTime -> IO PendingBlock
+makePendingBlock gsptr bb pendingBlockReceiveTime = do
+  pendingBlockPointer <- withForeignPtr gsptr $ useAsCStringLen (encode . NormalBlock $ bb) . uncurry . makePendingBlockF
+  return PendingBlock{..}
+
+
 
 ---------------------------
 -- * BlockPointer FFI calls
@@ -427,16 +429,13 @@ instance BlockPointerData BlockPointer where
 
 -- |Create the BlockPointer for the GenesisBlock
 -- This function must initialize the BlockPointerR of the Rust side
-makeGenesisBlockPointer :: GlobalStatePtr -> GenesisData ->  BlockState' BlockPointer -> BlockPointer
-makeGenesisBlockPointer gsptr genData blockPointerState = theBlockPointer
-  where
-    theBlockPointer = BlockPointer {..}
-    blockPointerParent = theBlockPointer
-    blockPointerLastFinalized = theBlockPointer
-    blockPointerReceiveTime = posixSecondsToUTCTime (fromIntegral (genesisTime genData))
-    blockPointerArriveTime = blockPointerReceiveTime
-    blockPointerPointer = unsafePerformIO $ useAsCStringLen (encode genData) . uncurry $ makeGenesisDataF gsptr
-
+makeGenesisBlockPointer :: GlobalStatePtr -> GenesisData ->  BlockState' BlockPointer -> IO BlockPointer
+makeGenesisBlockPointer gsptr genData blockPointerState = do
+  let blockPointerReceiveTime = posixSecondsToUTCTime (fromIntegral (genesisTime genData))
+      blockPointerArriveTime = blockPointerReceiveTime
+  blockPointerPointer <- withForeignPtr gsptr $ getGenesisBlockPointer
+  let blockPtr = BlockPointer {blockPointerParent = blockPtr, blockPointerLastFinalized = blockPtr, ..}
+  return blockPtr
 
 -- |Creates the BlockPointer for a BakedBlock
 -- This function must initialize the BlockPointerR of the Rust side
@@ -447,13 +446,12 @@ makeBlockPointer :: GlobalStatePtr ->
                     BlockState'
                     BlockPointer ->
                     UTCTime ->
-                    BlockPointer
+                    IO BlockPointer
 makeBlockPointer gsptr b blockPointerParent blockPointerLastFinalized blockPointerState blockPointerArriveTime =
-  theBlockPointer
-  where
-    theBlockPointer = BlockPointer {..}
-    blockPointerReceiveTime = pendingBlockReceiveTime b
-    blockPointerPointer = makeBlockPointerF gsptr (pendingBlockPointer b) ((+1) . theBlockHeight . bpHeight $ blockPointerParent)
+  do
+    blockPointerPointer <- withForeignPtr gsptr $ \x -> makeBlockPointerF x (pendingBlockPointer b) ((+1) . theBlockHeight . bpHeight $ blockPointerParent)
+    let blockPointerReceiveTime = pendingBlockReceiveTime b
+    return $ BlockPointer {..}
 
 ---------------------------
 -- * FFI Types
@@ -462,4 +460,14 @@ makeBlockPointer gsptr b blockPointerParent blockPointerLastFinalized blockPoint
 -- |Datatype representing the GlobalState in Rust
 data GlobalStateR
 -- |Pointer to the GlobalState in Rust
-type GlobalStatePtr = Ptr GlobalStateR
+type GlobalStatePtr = ForeignPtr GlobalStateR
+
+foreign import ccall unsafe "global_state_new"
+    makeEmptyGlobalStateF :: CString -> Int -> IO (Ptr GlobalStateR)
+foreign import ccall unsafe "&global_state_free"
+    freeGlobalStateF :: FunPtr (Ptr GlobalStateR -> IO ())
+
+makeEmptyGlobalState :: GenesisData -> IO GlobalStatePtr
+makeEmptyGlobalState gendata = do
+  gsptr <- useAsCStringLen (encode gendata) (\(x,y) -> makeEmptyGlobalStateF x y)
+  newForeignPtr freeGlobalStateF gsptr
