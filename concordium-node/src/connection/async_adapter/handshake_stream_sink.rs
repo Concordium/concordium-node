@@ -10,7 +10,7 @@ use snow::{Keypair, Session};
 
 use std::{
     collections::VecDeque,
-    convert::From,
+    convert::TryFrom,
     io::Write,
     sync::{Arc, RwLock},
 };
@@ -55,7 +55,7 @@ fn create_frame(data: &[u8]) -> Fallible<HybridBuf> {
     frame.write_u32::<NetworkEndian>(data.len() as u32)?;
     frame.extend_from_slice(data);
 
-    Ok(HybridBuf::from(frame))
+    into_err!(HybridBuf::try_from(frame))
 }
 
 impl HandshakeStreamSink {

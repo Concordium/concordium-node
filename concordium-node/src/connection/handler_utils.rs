@@ -13,6 +13,7 @@ use failure::{Backtrace, Error};
 
 use std::{
     collections::HashSet,
+    convert::TryFrom,
     sync::{atomic::Ordering, mpsc::SyncSender, RwLock},
 };
 
@@ -90,14 +91,16 @@ pub fn send_handshake_and_ping(priv_conn: &RwLock<ConnectionPrivate>) -> FuncRes
 
         // Ignore returned value because it is an asynchronous operation.
         let _ = priv_conn_writer.async_send(
-            HybridBuf::from(handshake_data),
+            HybridBuf::try_from(handshake_data)?,
             MessageSendingPriority::High,
         )?;
 
         // Ignore returned value because it is an asynchronous operation, and ship out
         // as normal priority to ensure proper queueing here.
-        let _ = priv_conn_writer
-            .async_send(HybridBuf::from(ping_data), MessageSendingPriority::Normal)?;
+        let _ = priv_conn_writer.async_send(
+            HybridBuf::try_from(ping_data)?,
+            MessageSendingPriority::Normal,
+        )?;
     }
 
     TOTAL_MESSAGES_SENT_COUNTER.fetch_add(2, Ordering::Relaxed);
@@ -141,7 +144,7 @@ pub fn send_peer_list(
 
     // Ignore returned value because it is an asynchronous operation.
     let _ = write_or_die!(priv_conn)
-        .async_send(HybridBuf::from(data), MessageSendingPriority::Normal)?;
+        .async_send(HybridBuf::try_from(data)?, MessageSendingPriority::Normal)?;
 
     TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
 

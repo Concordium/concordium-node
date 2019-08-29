@@ -2,7 +2,7 @@ extern crate p2p_client;
 
 #[cfg(test)]
 mod tests {
-    use concordium_common::{make_atomic_callback, safe_write};
+    use concordium_common::{hybrid_buf::HybridBuf, make_atomic_callback, safe_write};
     use failure::{bail, Fallible};
     use p2p_client::{
         common::PeerType,
@@ -21,6 +21,7 @@ mod tests {
     use rand::{distributions::Standard, thread_rng, Rng};
     use std::{
         collections::hash_map::DefaultHasher,
+        convert::TryFrom,
         hash::Hasher,
         sync::{
             atomic::{AtomicUsize, Ordering},
@@ -64,7 +65,7 @@ mod tests {
             Some(node_1.id()),
             NetworkId::from(100),
             None,
-            msg.to_vec(),
+            HybridBuf::try_from(&msg[..])?,
         )?;
         let mut msg_recv = await_direct_message(&msg_waiter_1)?;
         assert_eq!(&msg[..], &msg_recv.remaining_bytes()?[..]);
@@ -92,7 +93,7 @@ mod tests {
             Some(node_1.id()),
             NetworkId::from(100),
             None,
-            msg.to_vec(),
+            HybridBuf::try_from(&msg[..])?,
         )?;
         let received_msg = await_direct_message_with_timeout(&msg_waiter_1, max_recv_timeout());
         assert_eq!(
@@ -148,7 +149,13 @@ mod tests {
 
         // Send broadcast message from 0 node
         if let Some((ref node, _)) = peers.get_mut(0) {
-            send_broadcast_message(node, vec![], NetworkId::from(100), None, msg.to_vec())?;
+            send_broadcast_message(
+                node,
+                vec![],
+                NetworkId::from(100),
+                None,
+                HybridBuf::try_from(&msg[..])?,
+            )?;
         }
 
         // Wait for broadcast message from 1..MESH_NODE_COUNT
@@ -231,7 +238,7 @@ mod tests {
                     vec![],
                     NetworkId::from(100),
                     None,
-                    msg.to_vec(),
+                    HybridBuf::try_from(&msg[..])?,
                 )?;
             };
         }
@@ -276,7 +283,7 @@ mod tests {
             Some(node_2.id()),
             NetworkId::from(100),
             None,
-            msg.to_vec(),
+            HybridBuf::try_from(&msg[..])?,
         )?;
         let mut msg_1 = await_direct_message(&msg_waiter_2)?;
         assert_eq!(&msg_1.remaining_bytes()?[..], msg);
@@ -286,7 +293,7 @@ mod tests {
             Some(node_1.id()),
             NetworkId::from(100),
             None,
-            msg.to_vec(),
+            HybridBuf::try_from(&msg[..])?,
         )?;
         let mut msg_2 = await_direct_message(&msg_waiter_1)?;
         assert_eq!(&msg_2.remaining_bytes()?[..], msg);
@@ -296,7 +303,7 @@ mod tests {
             Some(node_2.id()),
             NetworkId::from(102),
             None,
-            msg.to_vec(),
+            HybridBuf::try_from(&msg[..])?,
         )?;
         let mut msg_3 = await_direct_message(&msg_waiter_2)?;
         assert_eq!(&msg_3.remaining_bytes()?[..], msg);
@@ -343,7 +350,7 @@ mod tests {
             Some(node_2.id()),
             NetworkId::from(100),
             None,
-            msg.to_vec(),
+            HybridBuf::try_from(&msg[..])?,
         )?;
         node_1.close_and_join()?;
 
@@ -378,7 +385,7 @@ mod tests {
             Some(node_2.id()),
             NetworkId::from(100),
             None,
-            msg.to_vec(),
+            HybridBuf::try_from(&msg[..])?,
         )?;
 
         let mut node_2_msg = await_direct_message(&waiter_2)?;
@@ -446,7 +453,14 @@ mod tests {
         let net_id = NetworkId::from(100);
 
         // Send.
-        send_direct_message(&node_1, Some(node_2.id()), net_id, None, msg.clone()).unwrap();
+        send_direct_message(
+            &node_1,
+            Some(node_2.id()),
+            net_id,
+            None,
+            HybridBuf::try_from(msg.clone()).unwrap(),
+        )
+        .unwrap();
         let mut msg_recv = await_direct_message(&msg_waiter_2).unwrap();
         assert_eq!(msg.len() as u64, msg_recv.remaining_len().unwrap());
 

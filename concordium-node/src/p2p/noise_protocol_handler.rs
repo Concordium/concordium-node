@@ -15,6 +15,7 @@ use snow::Keypair;
 
 use std::{
     collections::{HashSet, VecDeque},
+    convert::TryFrom,
     net::{IpAddr, SocketAddr},
     pin::Pin,
     sync::{
@@ -313,7 +314,7 @@ impl NoiseProtocolHandler {
                     let handshake_request_data = serialize_into_memory(&handshake_request, 256)?;
 
                     conn.async_send(
-                        HybridBuf::from(handshake_request_data),
+                        HybridBuf::try_from(handshake_request_data)?,
                         MessageSendingPriority::High,
                     )?;
                     conn.set_measured_handshake_sent();
@@ -699,10 +700,8 @@ impl NoiseProtocolHandler {
                     )
                 };
                 if let Ok(request_ping_data) = serialize_into_memory(&request_ping, 128) {
-                    if let Err(e) = conn.async_send(
-                        HybridBuf::from(request_ping_data),
-                        MessageSendingPriority::High,
-                    ) {
+                    if let Err(e) = conn.async_send(request_ping_data, MessageSendingPriority::High)
+                    {
                         error!("{}", e);
                     }
                     conn.set_measured_ping_sent();
