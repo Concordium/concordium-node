@@ -98,8 +98,13 @@ class SkovLenses s where
 instance SkovLenses SkovData where
     skov = id
 
-initialSkovData :: GenesisData -> BlockState -> GlobalStatePtr -> SkovData
-initialSkovData gd genState gsptr = SkovData {
+initialSkovData :: GenesisData -> BlockState -> GlobalStatePtr -> IO SkovData
+initialSkovData gd genState gsptr =
+  do
+    gb <- makeGenesisBlockPointer gsptr gd genState
+    let gbh = BS.bpHash gb
+        gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
+    return SkovData {
             _skovGlobalStatePtr = gsptr,
             _skovBlockTable = HM.singleton gbh (TS.BlockFinalized gb gbfin),
             _skovPossiblyPendingTable = HM.empty,
@@ -115,10 +120,6 @@ initialSkovData gd genState gsptr = SkovData {
             _skovTransactionTable = emptyTransactionTable,
             _skovStatistics = initialConsensusStatistics
         }
-    where
-        gb = makeGenesisBlockPointer gsptr gd genState
-        gbh = BS.bpHash gb
-        gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
 
 newtype SkovTreeState s m a = SkovTreeState {runSkovTreeState :: m a}
     deriving (Functor, Monad, MonadIO, Applicative, MonadState s)
@@ -132,11 +133,11 @@ type instance BS.UpdatableBlockState (SkovTreeState s m) = BlockState
 instance (SkovLenses s, Monad m, MonadState s m, MonadIO m) => TS.TreeStateMonad (SkovTreeState s m) where
     makePendingBlock key slot parent bid pf n lastFin trs time = do
       gsptr <- use globalStatePtr
-      return $ makePendingBlock gsptr (signBlock key slot parent bid pf n lastFin trs) time
+      liftIO $ makePendingBlock gsptr (signBlock key slot parent bid pf n lastFin trs) time
     getBlockStatus bh = use (blockTable . at bh)
     makeLiveBlock block parent lastFin st arrTime = do
             gsptr <- use globalStatePtr
-            let blockP = makeBlockPointer gsptr block parent lastFin st arrTime
+            blockP <- liftIO $ makeBlockPointer gsptr block parent lastFin st arrTime
             blockTable . at (getHash block) ?= TS.BlockAlive blockP
             return blockP
     markDead bh = blockTable . at bh ?= TS.BlockDead
