@@ -55,29 +55,18 @@ pub type PreHandshake = UnitFunctor<SocketAddr>;
 
 #[derive(Default)]
 pub struct NoiseProtocolHandlerBuilder {
-    server:            Option<TcpListener>,
-    event_log:         Option<SyncSender<P2PEvent>>,
-    buckets:           Option<Arc<RwLock<Buckets>>>,
-    networks:          Option<HashSet<NetworkId>>,
-    max_allowed_peers: Option<u16>,
-    noise_params:      Option<snow::params::NoiseParams>,
+    server:       Option<TcpListener>,
+    event_log:    Option<SyncSender<P2PEvent>>,
+    buckets:      Option<Arc<RwLock<Buckets>>>,
+    networks:     Option<HashSet<NetworkId>>,
+    noise_params: Option<snow::params::NoiseParams>,
 }
 
 impl NoiseProtocolHandlerBuilder {
     pub fn build(self) -> Fallible<NoiseProtocolHandler> {
-        if let (
-            Some(networks),
-            Some(server),
-            Some(buckets),
-            Some(max_allowed_peers),
-            Some(noise_params),
-        ) = (
-            self.networks,
-            self.server,
-            self.buckets,
-            self.max_allowed_peers,
-            self.noise_params,
-        ) {
+        if let (Some(networks), Some(server), Some(buckets), Some(noise_params)) =
+            (self.networks, self.server, self.buckets, self.noise_params)
+        {
             let key_pair = snow::Builder::new(noise_params.clone()).generate_keypair()?;
 
             let mself = NoiseProtocolHandler {
@@ -90,7 +79,6 @@ impl NoiseProtocolHandlerBuilder {
                 message_processor: MessageProcessor::new(),
                 prehandshake_validations: PreHandshake::new(),
                 log_dumper: None,
-                max_allowed_peers,
                 noise_params,
                 network_request_sender: None,
                 connections: Default::default(),
@@ -133,11 +121,6 @@ impl NoiseProtocolHandlerBuilder {
         self
     }
 
-    pub fn set_max_allowed_peers(mut self, max_allowed_peers: u16) -> NoiseProtocolHandlerBuilder {
-        self.max_allowed_peers = Some(max_allowed_peers);
-        self
-    }
-
     pub fn set_noise_params(
         mut self,
         config: &crate::configuration::CryptoConfig,
@@ -158,7 +141,6 @@ pub struct NoiseProtocolHandler {
     message_processor:          MessageProcessor,
     prehandshake_validations:   PreHandshake,
     pub log_dumper:             Option<SyncSender<DumpItem>>,
-    max_allowed_peers:          u16,
     noise_params:               snow::params::NoiseParams,
     pub network_request_sender: Option<SyncSender<NetworkRawRequest>>,
     connections:                Arc<RwLock<Vec<Connection>>>,
@@ -244,9 +226,9 @@ impl NoiseProtocolHandler {
         if peer_type == PeerType::Node {
             let current_peer_count =
                 self.connections_posthandshake_count(Some(PeerType::Bootstrapper));
-            if current_peer_count > self.max_allowed_peers {
+            if current_peer_count > self.node().max_nodes {
                 return Err(Error::from(fails::MaxmimumAmountOfPeers {
-                    max_allowed_peers: self.max_allowed_peers,
+                    max_allowed_peers: self.node().max_nodes,
                     number_of_peers:   current_peer_count,
                 }));
             }

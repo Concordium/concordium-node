@@ -145,7 +145,7 @@ fn main() -> Result<(), Error> {
     setup_process_output(&node, kvs_handle, &conf, pkt_out);
 
     {
-        node.max_nodes = Some(conf.bootstrapper.max_nodes);
+        node.max_nodes = conf.bootstrapper.max_nodes;
         node.print_peers = true;
         node.spawn();
     }

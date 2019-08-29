@@ -109,7 +109,7 @@ pub struct P2PNode {
     external_addr: SocketAddr,
     thread: Arc<RwLock<P2PNodeThread>>,
     quit_tx: Option<SyncSender<bool>>,
-    pub max_nodes: Option<u16>,
+    pub max_nodes: u16,
     pub print_peers: bool,
     pub config: P2PNodeConfig,
     dump_switch: SyncSender<(std::path::PathBuf, bool)>,
@@ -250,8 +250,6 @@ impl P2PNode {
             .collect();
         let noise_protocol_handler = NoiseProtocolHandlerBuilder::default()
             .set_server(server)
-            .set_max_allowed_peers(config.max_allowed_nodes)
-            .set_max_allowed_peers(config.max_allowed_nodes)
             .set_event_log(event_log)
             .set_networks(networks)
             .set_buckets(Arc::new(RwLock::new(Buckets::new())))
@@ -273,7 +271,7 @@ impl P2PNode {
             external_addr: SocketAddr::new(own_peer_ip, own_peer_port),
             thread: Arc::new(RwLock::new(P2PNodeThread::default())),
             quit_tx: None,
-            max_nodes: None,
+            max_nodes: config.max_allowed_nodes,
             print_peers: true,
             config,
             dump_switch: act_tx,
@@ -375,15 +373,11 @@ impl P2PNode {
     /// nodes.
     fn print_stats(&self, peer_stat_list: &[PeerStats]) {
         trace!("Printing out stats");
-        if let Some(max_nodes) = self.max_nodes {
-            debug!(
-                "I currently have {}/{} peers",
-                peer_stat_list.len(),
-                max_nodes
-            )
-        } else {
-            debug!("I currently have {} peers", peer_stat_list.len())
-        }
+        debug!(
+            "I currently have {}/{} peers",
+            peer_stat_list.len(),
+            self.max_nodes
+        );
 
         // Print nodes
         if self.print_peers {
