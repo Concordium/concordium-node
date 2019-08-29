@@ -8,7 +8,7 @@ use concordium_common::{
 use failure::{Error, Fallible};
 use mio::{
     net::{TcpListener, TcpStream},
-    Event, Poll, Token,
+    Event, Token,
 };
 use rand::seq::IteratorRandom;
 use snow::Keypair;
@@ -19,7 +19,7 @@ use std::{
     net::{IpAddr, SocketAddr},
     pin::Pin,
     sync::{
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicU64, AtomicUsize, Ordering},
         mpsc::SyncSender,
         Arc, RwLock,
     },
@@ -28,7 +28,7 @@ use std::{
 use crate::{
     common::{
         get_current_stamp, serialization::serialize_into_memory, NetworkRawRequest, P2PNodeId,
-        P2PPeer, PeerType, RemotePeer,
+        PeerType, RemotePeer,
     },
     connection::{
         network_handler::message_processor::{MessageManager, MessageProcessor, ProcessResult},
@@ -87,6 +87,7 @@ impl NoiseProtocolHandlerBuilder {
                 unreachable_nodes: UnreachableNodes::new(),
                 banned_peers: Arc::new(RwLock::new(BannedNodes::new())),
                 networks: Arc::new(RwLock::new(networks)),
+                last_bootstrap: Default::default(),
             };
 
             mself.add_default_prehandshake_validations();
@@ -149,6 +150,7 @@ pub struct NoiseProtocolHandler {
     pub unreachable_nodes:      UnreachableNodes,
     pub banned_peers:           Arc<RwLock<BannedNodes>>,
     pub networks:               Arc<RwLock<HashSet<NetworkId>>>,
+    pub last_bootstrap:         Arc<AtomicU64>,
 }
 
 impl NoiseProtocolHandler {
@@ -164,8 +166,6 @@ impl NoiseProtocolHandler {
         }
     }
 
-    pub fn get_self_peer(&self) -> P2PPeer { self.node().self_peer }
-
     #[inline]
     pub fn networks(&self) -> Arc<RwLock<HashSet<NetworkId>>> { Arc::clone(&self.networks) }
 
@@ -175,7 +175,8 @@ impl NoiseProtocolHandler {
     /// Adds the `addr` to the `unreachable_nodes` list.
     pub fn add_unreachable(&self, addr: SocketAddr) -> bool { self.unreachable_nodes.insert(addr) }
 
-    pub fn accept(&self, poll: &Poll, self_peer: P2PPeer) -> Fallible<()> {
+    pub fn accept(&self) -> Fallible<()> {
+        let self_peer = self.node().self_peer;
         let (socket, addr) = self.server.accept()?;
 
         debug!(
@@ -210,7 +211,7 @@ impl NoiseProtocolHandler {
         conn.setup_pre_handshake();
         conn.setup_post_handshake();
 
-        let register_status = conn.register(poll);
+        let register_status = conn.register(&self.node().poll);
         self.add_connection(conn);
 
         register_status
@@ -219,11 +220,10 @@ impl NoiseProtocolHandler {
     pub fn connect(
         &self,
         peer_type: PeerType,
-        poll: &Poll,
         addr: SocketAddr,
         peer_id_opt: Option<P2PNodeId>,
-        self_peer: &P2PPeer,
     ) -> Fallible<()> {
+        let self_peer = self.node().self_peer;
         if peer_type == PeerType::Node {
             let current_peer_count =
                 self.connections_posthandshake_count(Some(PeerType::Bootstrapper));
@@ -271,7 +271,7 @@ impl NoiseProtocolHandler {
                     .set_token(token)
                     .set_key_pair(keypair)
                     .set_as_initiator(true)
-                    .set_local_peer(self_peer.clone())
+                    .set_local_peer(self_peer)
                     .set_remote_peer(RemotePeer::PreHandshake(peer_type, addr))
                     .set_local_end_networks(Arc::clone(&networks))
                     .set_noise_params(self.noise_params.clone())
@@ -280,12 +280,11 @@ impl NoiseProtocolHandler {
                 self.register_message_handlers(&conn);
                 conn.setup_pre_handshake();
                 conn.setup_post_handshake();
-                conn.register(poll)?;
+                conn.register(&self.node().poll)?;
 
                 self.add_connection(conn);
                 self.log_event(P2PEvent::ConnectEvent(addr));
                 debug!("Requesting handshake from new peer {}", addr,);
-                let self_peer = self.get_self_peer();
 
                 if let Some(ref mut conn) = self.find_connection_by_token(token) {
                     let handshake_request = NetworkMessage::NetworkRequest(
@@ -301,6 +300,11 @@ impl NoiseProtocolHandler {
                     )?;
                     conn.set_measured_handshake_sent();
                 }
+
+                if peer_type == PeerType::Bootstrapper {
+                    self.update_last_bootstrap();
+                }
+
                 Ok(())
             }
             Err(e) => {
@@ -502,7 +506,7 @@ impl NoiseProtocolHandler {
         }
     }
 
-    pub fn cleanup_connections(&self, max_peers_number: u16, poll: &Poll) -> Fallible<()> {
+    pub fn connection_housekeeping(&self) -> Fallible<()> {
         let curr_stamp = get_current_stamp();
         let peer_type = self.peer_type();
 
@@ -592,7 +596,7 @@ impl NoiseProtocolHandler {
                 let conn_token = conn.token();
                 {
                     trace!("Kill connection {} {}:{}", usize::from(conn_token), conn.remote_addr().ip(), conn.remote_addr().port());
-                    wrap_connection_already_gone_as_non_fatal(conn_token, conn.deregister(poll))?;
+                    wrap_connection_already_gone_as_non_fatal(conn_token, conn.deregister(&self.node().poll))?;
                     wrap_connection_already_gone_as_non_fatal(conn_token, conn.shutdown())?;
                 }
                 // Report number of peers to stats export engine
@@ -646,15 +650,24 @@ impl NoiseProtocolHandler {
         // If the number of peers exceeds the desired value, close a random selection of
         // post-handshake connections to lower it
         if peer_type == PeerType::Node {
+            let max_allowed_nodes = self.node().config.max_allowed_nodes;
             let peer_count = self.connections_posthandshake_count(Some(PeerType::Bootstrapper));
-            if peer_count > max_peers_number {
+            if peer_count > max_allowed_nodes {
                 let mut rng = rand::thread_rng();
                 read_or_die!(self.connections)
                     .iter()
-                    .choose_multiple(&mut rng, (peer_count - max_peers_number) as usize)
+                    .choose_multiple(&mut rng, (peer_count - max_allowed_nodes) as usize)
                     .iter()
                     .for_each(|conn| conn.close());
             }
+        }
+
+        // reconnect to bootstrappers after a specified amount of time
+        if peer_type == PeerType::Node
+            && curr_stamp
+                >= self.get_last_bootstrap() + self.node().config.bootstrapping_interval * 1000
+        {
+            self.node().attempt_bootstrap();
         }
 
         Ok(())
@@ -729,6 +742,13 @@ impl NoiseProtocolHandler {
         // non-post-handshake peers already
         .map(|conn| conn.remote_peer().peer().unwrap().id() )
         .collect()
+    }
+
+    pub fn get_last_bootstrap(&self) -> u64 { self.last_bootstrap.load(Ordering::Relaxed) }
+
+    pub fn update_last_bootstrap(&self) {
+        self.last_bootstrap
+            .store(get_current_stamp(), Ordering::SeqCst);
     }
 }
 

@@ -222,15 +222,27 @@ pub struct ConnectionConfig {
     pub dns_resolver: Vec<String>,
     #[structopt(
         long = "bootstrap-node",
-        help = "Bootstrap node to use upon startup host/ip:port (this disables DNS bootstrapping)"
+        help = "Bootstrap nodes to use upon startup host/ip:port (this disables DNS bootstrapping)"
     )]
-    pub bootstrap_node: Vec<String>,
+    pub bootstrap_nodes: Vec<String>,
     #[structopt(
         long = "resolv-conf",
         help = "Location of resolv.conf",
         default_value = "/etc/resolv.conf"
     )]
     pub resolv_conf: String,
+    #[structopt(
+        long = "housekeeping-interval",
+        help = "The connection housekeeping interval in seconds",
+        default_value = "60"
+    )]
+    pub housekeeping_interval: u64,
+    #[structopt(
+        long = "bootstrapping-interval",
+        help = "The bootstrapping interval in seconds",
+        default_value = "7200"
+    )]
+    pub bootstrapping_interval: u64,
 }
 
 #[derive(StructOpt, Debug)]
@@ -326,12 +338,6 @@ pub struct CliConfig {
         default_value = "100"
     )]
     pub poll_interval: u64,
-    #[structopt(
-        long = "housekeeping-interval",
-        help = "The connection housekeeping interval in seconds",
-        default_value = "60"
-    )]
-    pub housekeeping_interval: u64,
     #[structopt(flatten)]
     pub baker: BakerConfig,
     #[cfg(feature = "benchmark")]

@@ -41,8 +41,6 @@ use p2p_client::{
 use rkv::{Manager, Rkv};
 
 use std::{
-    net::SocketAddr,
-    str,
     sync::{mpsc, Arc, RwLock},
     thread,
     time::Duration,
@@ -56,26 +54,12 @@ fn main() -> Fallible<()> {
     }
     let data_dir_path = app_prefs.get_user_app_dir();
 
-    // Retrieving bootstrap nodes
-    let dns_resolvers =
-        utils::get_resolvers(&conf.connection.resolv_conf, &conf.connection.dns_resolver);
-    for resolver in &dns_resolvers {
-        debug!("Using resolver: {}", resolver);
-    }
-
-    let bootstrap_nodes = utils::get_bootstrap_nodes(
-        conf.connection.bootstrap_server.clone(),
-        &dns_resolvers,
-        conf.connection.dnssec_disabled,
-        &conf.connection.bootstrap_node,
-    );
-
     // Instantiate stats export engine
     let stats_export_service =
         client_utils::instantiate_stats_export_engine(&conf, StatsServiceMode::NodeMode)
             .unwrap_or_else(|e| {
                 error!(
-                    "I was not able to instantiate an stats export service: {}",
+                    "I was not able to instantiate the stats export service: {}",
                     e
                 );
                 None
@@ -92,6 +76,10 @@ fn main() -> Fallible<()> {
         stats_export_service.clone(),
         subscription_queue_in.clone(),
     );
+
+    for resolver in &node.config.dns_resolvers {
+        debug!("Using resolver: {}", resolver);
+    }
 
     // Create the cli key-value store environment
     let cli_kvs_handle = Manager::singleton()
@@ -162,12 +150,7 @@ fn main() -> Fallible<()> {
 
     // Connect to nodes (args and bootstrap)
     if !conf.cli.no_network {
-        info!("Starting the P2P layer");
-        create_connections_from_config(&conf.connection, &dns_resolvers, &mut node);
-        if !conf.connection.no_bootstrap_dns {
-            info!("Attempting to bootstrap");
-            bootstrap(&bootstrap_nodes, &mut node);
-        }
+        establish_connections(&conf, &node);
     }
 
     // Wait for the P2PNode to close
@@ -254,13 +237,21 @@ fn instantiate_node(
     (node, pkt_out)
 }
 
-fn create_connections_from_config(
-    conf: &configuration::ConnectionConfig,
-    dns_resolvers: &[String],
-    node: &mut P2PNode,
-) {
+fn establish_connections(conf: &configuration::Config, node: &P2PNode) {
+    info!("Starting the P2P layer");
+    connect_to_config_nodes(&conf.connection, node);
+    if !conf.connection.no_bootstrap_dns {
+        node.attempt_bootstrap();
+    }
+}
+
+fn connect_to_config_nodes(conf: &configuration::ConnectionConfig, node: &P2PNode) {
     for connect_to in &conf.connect_to {
-        match utils::parse_host_port(&connect_to, &dns_resolvers, conf.dnssec_disabled) {
+        match utils::parse_host_port(
+            &connect_to,
+            &node.config.dns_resolvers,
+            conf.dnssec_disabled,
+        ) {
             Ok(addrs) => {
                 for addr in addrs {
                     info!("Connecting to peer {}", &connect_to);
@@ -271,19 +262,6 @@ fn create_connections_from_config(
             Err(err) => error!("Can't parse data for node to connect to {}", err),
         }
     }
-}
-
-fn bootstrap(bootstrap_nodes: &Result<Vec<SocketAddr>, &'static str>, node: &mut P2PNode) {
-    match bootstrap_nodes {
-        Ok(nodes) => {
-            for &addr in nodes {
-                info!("Found bootstrap node: {}", addr);
-                node.connect(PeerType::Bootstrapper, addr, None)
-                    .unwrap_or_else(|e| error!("{}", e));
-            }
-        }
-        Err(e) => error!("Couldn't retrieve bootstrap node list! {:?}", e),
-    };
 }
 
 fn start_consensus_threads(

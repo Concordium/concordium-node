@@ -183,7 +183,7 @@ pub fn parse_host_port(
 }
 
 pub fn get_bootstrap_nodes(
-    bootstrap_name: String,
+    bootstrap_server: &str,
     resolvers: &[String],
     dnssec_fail: bool,
     bootstrap_nodes: &[String],
@@ -194,14 +194,14 @@ pub fn get_bootstrap_nodes(
             .iter()
             .filter_map(|ip_port| {
                 parse_host_port(ip_port, resolvers, dnssec_fail)
-                    .map_err(|err| error!("Invalid bootstrapping node received {}", err))
+                    .map_err(|err| error!("Invalid bootstrapper node received: {}", err))
                     .ok()
             })
             .flatten()
             .collect::<Vec<_>>();
         Ok(bootstrap_nodes)
     } else {
-        debug!("No bootstrap nodes given, so attempting DNS");
+        debug!("No bootstrap nodes given; attempting DNS");
         let resolver_addresses = resolvers
             .iter()
             .map(|x| IpAddr::from_str(x))
@@ -210,7 +210,7 @@ pub fn get_bootstrap_nodes(
         if resolver_addresses.is_empty() {
             return Err("No valid resolvers given");
         }
-        match dns::resolve_dns_txt_record(&bootstrap_name, &resolver_addresses, dnssec_fail) {
+        match dns::resolve_dns_txt_record(bootstrap_server, &resolver_addresses, dnssec_fail) {
             Ok(res) => read_peers_from_dns_entries(res, super::get_dns_public_key()),
             Err(_) => Err("Error looking up bootstrap nodes"),
         }

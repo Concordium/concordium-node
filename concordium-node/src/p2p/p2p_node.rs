@@ -62,10 +62,10 @@ pub struct P2PNodeConfig {
     no_net: bool,
     desired_nodes_count: u8,
     no_bootstrap_dns: bool,
-    bootstrappers_conf: String,
-    dns_resolvers: Vec<String>,
+    bootstrap_server: String,
+    pub dns_resolvers: Vec<String>,
     dnssec_disabled: bool,
-    bootstrap_node: Vec<String>,
+    bootstrap_nodes: Vec<String>,
     minimum_per_bucket: usize,
     pub max_allowed_nodes: u16,
     max_resend_attempts: u8,
@@ -73,6 +73,7 @@ pub struct P2PNodeConfig {
     pub global_state_catch_up_requests: bool,
     pub poll_interval: u64,
     pub housekeeping_interval: u64,
+    pub bootstrapping_interval: u64,
     pub print_peers: bool,
 }
 
@@ -100,25 +101,25 @@ impl ResendQueueEntry {
 
 #[derive(Clone)]
 pub struct P2PNode {
-    poll: Arc<Poll>,
-    send_queue_out: Arc<Mutex<Receiver<NetworkMessage>>>,
-    resend_queue_in: SyncSender<ResendQueueEntry>,
-    resend_queue_out: Arc<Mutex<Receiver<ResendQueueEntry>>>,
-    pub queue_to_super: RelayOrStopSyncSender<NetworkMessage>,
-    pub rpc_queue: SyncSender<NetworkMessage>,
-    start_time: DateTime<Utc>,
-    external_addr: SocketAddr,
-    thread: Arc<RwLock<P2PNodeThread>>,
-    quit_tx: Option<SyncSender<bool>>,
-    pub config: P2PNodeConfig,
-    dump_switch: SyncSender<(std::path::PathBuf, bool)>,
-    dump_tx: SyncSender<crate::dumper::DumpItem>,
-    pub is_rpc_online: Arc<AtomicBool>,
+    pub self_peer:              P2PPeer,
+    external_addr:              SocketAddr,
+    thread:                     Arc<RwLock<P2PNodeThread>>,
+    pub poll:                   Arc<Poll>,
     pub noise_protocol_handler: NoiseProtocolHandler,
-    pub self_peer: P2PPeer,
-    pub active_peer_stats: Arc<RwLock<HashMap<u64, PeerStats>>>,
-    pub send_queue_in: SyncSender<NetworkMessage>,
-    pub stats_export_service: Option<StatsExportService>,
+    pub send_queue_in:          SyncSender<NetworkMessage>,
+    send_queue_out:             Arc<Mutex<Receiver<NetworkMessage>>>,
+    resend_queue_in:            SyncSender<ResendQueueEntry>,
+    resend_queue_out:           Arc<Mutex<Receiver<ResendQueueEntry>>>,
+    pub queue_to_super:         RelayOrStopSyncSender<NetworkMessage>,
+    pub rpc_queue:              SyncSender<NetworkMessage>,
+    quit_tx:                    Option<SyncSender<bool>>,
+    dump_switch:                SyncSender<(std::path::PathBuf, bool)>,
+    dump_tx:                    SyncSender<crate::dumper::DumpItem>,
+    pub active_peer_stats:      Arc<RwLock<HashMap<u64, PeerStats>>>,
+    pub stats_export_service:   Option<StatsExportService>,
+    pub config:                 P2PNodeConfig,
+    start_time:                 DateTime<Utc>,
+    pub is_rpc_online:          Arc<AtomicBool>,
 }
 
 impl P2PNode {
@@ -217,13 +218,13 @@ impl P2PNode {
             no_net: conf.cli.no_network,
             desired_nodes_count: conf.connection.desired_nodes,
             no_bootstrap_dns: conf.connection.no_bootstrap_dns,
-            bootstrappers_conf: conf.connection.bootstrap_server.clone(),
+            bootstrap_server: conf.connection.bootstrap_server.clone(),
             dns_resolvers: utils::get_resolvers(
                 &conf.connection.resolv_conf,
                 &conf.connection.dns_resolver,
             ),
             dnssec_disabled: conf.connection.dnssec_disabled,
-            bootstrap_node: conf.connection.bootstrap_node.clone(),
+            bootstrap_nodes: conf.connection.bootstrap_nodes.clone(),
             minimum_per_bucket: conf.common.min_peers_bucket,
             max_allowed_nodes: if let Some(max) = conf.connection.max_allowed_nodes {
                 u16::from(max)
@@ -237,7 +238,8 @@ impl P2PNode {
             relay_broadcast_percentage: conf.connection.relay_broadcast_percentage,
             global_state_catch_up_requests: conf.connection.global_state_catch_up_requests,
             poll_interval: conf.cli.poll_interval,
-            housekeeping_interval: conf.cli.housekeeping_interval,
+            housekeeping_interval: conf.connection.housekeeping_interval,
+            bootstrapping_interval: conf.connection.bootstrapping_interval,
             print_peers: true,
         };
 
@@ -385,6 +387,28 @@ impl P2PNode {
         }
     }
 
+    pub fn attempt_bootstrap(&self) {
+        info!("Attempting to bootstrap");
+
+        let bootstrap_nodes = utils::get_bootstrap_nodes(
+            &self.config.bootstrap_server,
+            &self.config.dns_resolvers,
+            self.config.dnssec_disabled,
+            &self.config.bootstrap_nodes,
+        );
+
+        match bootstrap_nodes {
+            Ok(nodes) => {
+                for addr in nodes {
+                    info!("Found a bootstrap node: {}", addr);
+                    let _ = self.connect(PeerType::Bootstrapper, addr, None)
+                        .map_err(|e| error!("{}", e));
+                }
+            }
+            Err(e) => error!("Can't bootstrap: {:?}", e),
+        }
+    }
+
     fn check_peers(&self, peer_stat_list: &[PeerStats]) {
         trace!("Checking for needed peers");
         if self.peer_type() != PeerType::Bootstrapper
@@ -405,22 +429,7 @@ impl P2PNode {
                 }
                 if !self.config.no_bootstrap_dns {
                     info!("No peers at all - retrying bootstrapping");
-                    match utils::get_bootstrap_nodes(
-                        self.config.bootstrappers_conf.clone(),
-                        &self.config.dns_resolvers,
-                        self.config.dnssec_disabled,
-                        &self.config.bootstrap_node,
-                    ) {
-                        Ok(nodes) => {
-                            for addr in nodes {
-                                info!("Found bootstrap node addr {}", addr);
-                                self.connect(PeerType::Bootstrapper, addr, None)
-                                    .map_err(|e| info!("{}", e))
-                                    .ok();
-                            }
-                        }
-                        _ => error!("Can't find any bootstrap nodes - check DNS!"),
-                    }
+                    self.attempt_bootstrap();
                 } else {
                     info!(
                         "No nodes at all - Not retrying bootstrapping using DNS since \
@@ -476,10 +485,8 @@ impl P2PNode {
                         if self_clone.peer_type() != PeerType::Bootstrapper {
                             self_clone.noise_protocol_handler.liveness_check();
                         }
-                        if let Err(e) = self_clone.noise_protocol_handler.cleanup_connections(
-                            self_clone.config.max_allowed_nodes,
-                            &self_clone.poll,
-                        ) {
+                        if let Err(e) = self_clone.noise_protocol_handler.connection_housekeeping()
+                        {
                             error!("Issue with connection cleanups: {:?}", e);
                         }
                         log_time = now;
@@ -541,13 +548,8 @@ impl P2PNode {
         peer_id: Option<P2PNodeId>,
     ) -> Fallible<()> {
         self.log_event(P2PEvent::InitiatingConnection(addr));
-        self.noise_protocol_handler.connect(
-            peer_type,
-            &self.poll,
-            addr,
-            peer_id,
-            &self.get_self_peer(),
-        )
+        self.noise_protocol_handler
+            .connect(peer_type, addr, peer_id)
     }
 
     pub fn id(&self) -> P2PNodeId { self.self_peer.id }
@@ -1049,7 +1051,7 @@ impl P2PNode {
                 SERVER => {
                     debug!("Got a new connection!");
                     self.noise_protocol_handler
-                        .accept(&self.poll, self.get_self_peer())
+                        .accept()
                         .map_err(|e| error!("{}", e))
                         .ok();
                     if let Some(ref service) = &self.stats_export_service() {
