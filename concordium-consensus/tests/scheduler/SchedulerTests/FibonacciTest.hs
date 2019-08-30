@@ -9,6 +9,7 @@ import Test.HUnit
 
 import Data.List as List
 import Data.Int
+import qualified Data.Sequence as Seq
 
 import qualified Acorn.Core as Core
 
@@ -105,10 +106,9 @@ checkFibonacciResult (suc, fails, instances) =
     checkLocalState inst = 
       let results = List.sort . map snd $ (extractMap (Types.instanceModel inst))
       in results == take 31 fib
-    extractMap (Types.VConstructor _ [Types.VLiteral (Core.Int64 k),
-                                      Types.VLiteral (Core.Int64 v),
-                                      l,
-                                      r]) = (k, v) : extractMap l ++ extractMap r
+    extractMap (Types.VConstructor _ (Types.VLiteral (Core.Int64 k) Seq.:<|
+                                      Types.VLiteral (Core.Int64 v) Seq.:<|
+                                      l Seq.:<| r Seq.:<| Seq.Empty)) = (k, v) : extractMap l ++ extractMap r
     extractMap _ = []
 
 tests :: Spec

@@ -4,6 +4,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE DerivingStrategies, DerivingVia, StandaloneDeriving #-}
 module Concordium.Scheduler.EnvironmentImplementation where
@@ -47,7 +48,7 @@ instance (MonadReader ChainMetadata m, UpdatableBlockState m ~ s, MonadState s m
     return $ mmod <&> \m -> (Mod.moduleInterface m, Mod.moduleValueInterface m)
 
 instance (MonadReader ChainMetadata m, UpdatableBlockState m ~ state, MonadState state m, BlockStateOperations m)
-    => SchedulerMonad (BSOMonadWrapper ChainMetadata state m) where
+         => SchedulerMonad (BSOMonadWrapper ChainMetadata state m) where
   {-# INLINE getContractInstance #-}
   getContractInstance addr = lift . flip bsoGetInstance addr =<< get
 
@@ -76,6 +77,28 @@ instance (MonadReader ChainMetadata m, UpdatableBlockState m ~ state, MonadState
     put s'
     return res
 
+  {-# INLINE smTryGetLinkedExpr #-}
+  smTryGetLinkedExpr mref n = do
+    s <- get
+    lift (bsoTryGetLinkedExpr s mref n)
+
+  {-# INLINE smPutLinkedExpr #-}
+  smPutLinkedExpr mref n linked = do
+    s <- get
+    s' <- lift (bsoPutLinkedExpr s mref n linked)
+    put s'
+
+  {-# INLINE smTryGetLinkedContract #-}
+  smTryGetLinkedContract mref n = do
+    s <- get
+    lift (bsoTryGetLinkedContract s mref n)
+
+  {-# INLINE smPutLinkedContract #-}
+  smPutLinkedContract mref n linked = do
+    s <- get
+    s' <- lift (bsoPutLinkedContract s mref n linked)
+    put s'
+
   {-# INLINE increaseAccountNonce #-}
   increaseAccountNonce addr = do
     s <- get
@@ -99,8 +122,8 @@ instance (MonadReader ChainMetadata m, UpdatableBlockState m ~ state, MonadState
     s' <- lift (bsoModifyAccount s (emptyAccountUpdate addr & auEncryptionKey ?~ encKey))
     put s'
 
-  {-# INLINE commitStateAndAccountChanges #-}
-  commitStateAndAccountChanges !cs = do
+  {-# INLINE commitChanges #-}
+  commitChanges !cs = do
     s <- get
     -- INVARIANT: the invariant which should hold at this point is that any
     -- changed instance must exist in the global state moreover all instances
@@ -109,7 +132,12 @@ instance (MonadReader ChainMetadata m, UpdatableBlockState m ~ state, MonadState
                       s
                       (Map.toList (cs ^. instanceUpdates)))
     s'' <- lift (foldM bsoModifyAccount s' (cs ^. accountUpdates))
-    put s''
+    -- store linked expressions into the cache, but only from successful transactions.
+    -- if contract initialization failed, or if the receive function rejected the transaction
+    -- we ignore the linked cache.
+    s''' <- lift (foldM (\curs ((mref, n), linked) -> bsoPutLinkedExpr curs mref n linked) s'' (Map.toList (cs ^. linkedExprs)))
+    s'''' <- lift (foldM (\curs ((mref, n), linked) -> bsoPutLinkedContract curs mref n linked) s''' (Map.toList (cs ^. linkedContracts)))
+    put s''''
 
   -- FIXME: Make this variable base on block state
   {-# INLINE energyToGtu #-}

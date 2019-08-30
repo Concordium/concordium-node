@@ -56,7 +56,7 @@ transactionsInput =
   ,TJSON { payload = InitContract {amount = 100
                                   ,contractName = "Counter"
                                   ,moduleName = "CommCounter"
-                                  ,parameter = "Prod.Pair [Int64] [<address>] 0 <0, 0>"
+                                  ,parameter = "let pair :: Int64 -> <address> -> Prod.Pair Int64 <address> = Prod.Pair [Int64, <address>] in pair 0 <0, 0>"
                                   }
          , metadata = makeHeader alesKP 3 100000
          , keypair = alesKP

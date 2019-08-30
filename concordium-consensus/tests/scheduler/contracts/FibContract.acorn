@@ -13,11 +13,21 @@ import IntMap
 
 data MsgFib = Fib [Int64]
 
-definition mkReturn = Prod.Pair [Map.Map Int64 Int64] [Prim.Transaction]
+def mkReturn :: Map.Map Int64 Int64 -> Prim.Transaction -> Prod.Pair (Map.Map Int64 Int64) Prim.Transaction
+def mkReturn = Prod.Pair [Map.Map Int64 Int64, Prim.Transaction]
 
-definition baseValues = IntMap.insert [Int64] 0 1 (IntMap.insert [Int64] 1 1 (IntMap.empty [Int64]))
+def insert :: Int64 -> Int64 -> Map.Map Int64 Int64 -> Map.Map Int64 Int64
+def insert = IntMap.insert [Int64]
 
-definition lookup = IntMap.lookup [Int64]
+def baseValues :: Map.Map Int64 Int64
+def baseValues =
+   let emptyMap :: Map.Map Int64 Int64 = IntMap.empty [Int64] in
+   let one :: Map.Map Int64 Int64 = insert 1 1 emptyMap in
+   insert 0 1 one
+
+
+def lookup :: Int64 -> Map.Map Int64 Int64 -> Maybe.Maybe Int64
+def lookup = IntMap.lookup [Int64]
 
 contract Fibonacci where
 
@@ -27,29 +37,48 @@ contract Fibonacci where
   receive (c :: Blockchain.ReceiveContext) (model :: Map.Map Int64 Int64) (caller :: Blockchain.Caller) (amount :: Amount) (msg :: Maybe.Maybe MsgFib) =
     case msg of
       Maybe.Nothing -> mkReturn model Prim.TxNone
-      Maybe.Just msg' -> 
+      Maybe.Just (msg' :: MsgFib) -> 
           case msg' of
-              Fib n ->
-                let addr = Blockchain.receiveSelfAddress c in
-                case castFibonacci addr of
+              Fib (n :: Int64) ->
+                let addr :: <address> = Blockchain.receiveSelfAddress c in
+                let casted :: Maybe.Maybe Fibonacci = castFibonacci addr in
+                case casted of
                   Maybe.Nothing -> mkReturn model Prim.TxReject
-                  Maybe.Just i -> 
-                    let amodel = getFibonacci i in
-                    case lookup n amodel of
-                      Maybe.Just _ -> mkReturn amodel Prim.TxNone -- if the value is already in the cache don't do anything
-                      Maybe.Nothing -> 
-                        case Prim.compareInt64 n 2 of
+                  Maybe.Just (i :: Fibonacci) -> 
+                    let amodel :: Map.Map Int64 Int64 = getFibonacci i in
+                    let lkp :: Maybe.Maybe Int64 = lookup n amodel in
+                    case lkp of
+                      Maybe.Just (_ :: Int64) -> mkReturn amodel Prim.TxNone -- if the value is already in the cache don't do anything
+                      Maybe.Nothing ->
+                        let cmp :: Ord.Ordering = Prim.compareInt64 n 2 in
+                        case cmp of
                           Ord.LT -> mkReturn amodel Prim.TxNone
-                          _ -> 
-                             case lookup (Prim.minusInt64 n 1) amodel of
+                          _ ->
+                             let minusone :: Int64 = Prim.minusInt64 n 1 in
+                             let checkminusone :: Maybe.Maybe Int64 = lookup minusone amodel in
+                             case checkminusone of
                                Maybe.Nothing ->
-                                 mkReturn amodel (Prim.TxBatch (sendFibonacci i (Fib (Prim.minusInt64 n 1)) amount)
-                                                               (sendFibonacci i (Fib n) amount))
-                               Maybe.Just v -> -- the value already exists, now check for n-2
-                                 case lookup (Prim.minusInt64 n 2) amodel of
-                                   Maybe.Nothing -> mkReturn amodel (Prim.TxBatch
-                                                                      (sendFibonacci i (Fib (Prim.minusInt64 n 2)) amount)
-                                                                      (Prim.TxBatch (sendFibonacci i (Fib (Prim.minusInt64 n 1)) amount)
-                                                                                    (sendFibonacci i (Fib n) amount)))
-                                   Maybe.Just u -> mkReturn (IntMap.insert [Int64] n (Prim.plusInt64 u v) amodel) Prim.TxNone
-
+                                 let msg1 :: MsgFib = Fib minusone in
+                                 let msg2 :: MsgFib = Fib n in
+                                 let tx1 :: Prim.Transaction = sendFibonacci i msg1 amount in
+                                 let tx2 :: Prim.Transaction = sendFibonacci i msg2 amount in
+                                 let tx :: Prim.Transaction = Prim.TxBatch tx1 tx2 in
+                                 mkReturn amodel tx
+                               Maybe.Just (v :: Int64) -> -- the value already exists, now check for n-2
+                                 let minustwo :: Int64 = Prim.minusInt64 n 2 in
+                                 let checkminustwo :: Maybe.Maybe Int64 = lookup minustwo amodel in
+                                 case checkminustwo of
+                                   Maybe.Nothing ->
+                                     let msg1 :: MsgFib = Fib minusone in
+                                     let msg2 :: MsgFib = Fib minustwo in
+                                     let msg0 :: MsgFib = Fib n in
+                                     let tx1 :: Prim.Transaction = sendFibonacci i msg2 amount in
+                                     let tx2 :: Prim.Transaction = sendFibonacci i msg1 amount in
+                                     let tx3 :: Prim.Transaction = sendFibonacci i msg0 amount in
+                                     let tx4 :: Prim.Transaction = Prim.TxBatch tx2 tx3 in
+                                     let tx :: Prim.Transaction = Prim.TxBatch tx1 tx4 in
+                                     mkReturn amodel tx
+                                   Maybe.Just (u :: Int64) ->
+                                     let plus :: Int64 = Prim.plusInt64 u v in
+                                     let newmodel :: Map.Map Int64 Int64 = insert n plus amodel in
+                                     mkReturn newmodel Prim.TxNone
