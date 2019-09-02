@@ -694,7 +694,8 @@ handleDelegateStake senderAccount meta targetBaker =
           chargeExecutionCost senderAccount energyCost
           res <- delegateStake (thSender meta) targetBaker
           if res then
-            return $! TxSuccess [maybe StakeUndelegated StakeDelegated targetBaker]
+            let addr = senderAccount ^. accountAddress
+            in return $! TxSuccess [maybe (StakeUndelegated addr) (StakeDelegated addr) targetBaker]
           else 
             return $! TxReject (InvalidStakeDelegationTarget $ fromJust targetBaker) energyCost
         delegateCost = Cost.updateStakeDelegate (Set.size $ senderAccount ^. accountInstances)
