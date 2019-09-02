@@ -18,6 +18,7 @@ module Concordium.GlobalState.Rust.FFI (
   -- * PendingBlock functions
   , PendingBlock(..)
   , makePendingBlock
+  , makePendingBlockWithContents
   , pendingBlockUpdateTransactions
 
   -- * BlockPointer functions
@@ -25,13 +26,16 @@ module Concordium.GlobalState.Rust.FFI (
   , makeGenesisBlockPointer
   , makeBlockPointer
   , blockPointerExtractBlockFields
+  , blockPointerExtractSignature
+  , blockPointerExtractBlockContents
   ) where
 
 import qualified Concordium.Crypto.SHA256 as SHA256
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.SignatureScheme as SSCH
 import qualified Concordium.Crypto.VRF as VRF
-import Concordium.GlobalState.Basic.Block (BakedBlock, Block (NormalBlock))
+import Concordium.GlobalState.Basic.Block (BakedBlock(..), Block (NormalBlock), BlockTransactions(..))
+import qualified Concordium.GlobalState.Basic.Block as GSBB (BlockFields(..))
 import qualified Concordium.GlobalState.Basic.BlockState as BBS hiding (BlockPointer, makeBlockPointer, makeGenesisBlockPointer)
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockState hiding (BlockPointer)
@@ -334,7 +338,17 @@ makePendingBlock gsptr bb pendingBlockReceiveTime = do
   pendingBlockPointer <- withForeignPtr gsptr $ useAsCStringLen (encode . NormalBlock $ bb) . uncurry . makePendingBlockF
   return PendingBlock{..}
 
-
+-- |Create a PendingBlock using a BlockContents ptr
+-- This function must initialize the PendingBlockR of the Rust side
+makePendingBlockWithContents :: GlobalStatePtr -> BlockContents -> UTCTime -> IO PendingBlock
+makePendingBlockWithContents gsptr bb pendingBlockReceiveTime = do
+  let bf = fromJust . blockFields $ bb
+      b = BakedBlock (blockSlot bb)
+                     (GSBB.BlockFields (blockPointer bf) (blockBaker bf) (blockProof bf) (blockNonce bf) (blockLastFinalized bf))
+                     (BlockTransactions . blockTransactions $ bb)
+                     (fromJust . blockContentsSignature $ bb)
+  pendingBlockPointer <- withForeignPtr gsptr $ useAsCStringLen (encode . NormalBlock $ b) . uncurry . makePendingBlockF
+  return PendingBlock{..}
 
 ---------------------------
 -- * BlockPointer FFI calls
@@ -392,6 +406,9 @@ blockPointerExtractBlockFields = blockContentsFields . blockPointerExtractBlockC
 
 blockPointerExtractBlockContents :: BlockPointer -> BlockContents
 blockPointerExtractBlockContents = BlockContents . blockPointerContentsF . blockPointerPointer
+
+blockPointerExtractSignature :: BlockPointer -> Maybe BlockSignature
+blockPointerExtractSignature = blockContentsSignature . blockPointerExtractBlockContents
 
 -- BlockPointer is required to implement Eq and Ord, HashableTo BlockHash, BlockData
 -- and BlockPointerData (requires Show)
