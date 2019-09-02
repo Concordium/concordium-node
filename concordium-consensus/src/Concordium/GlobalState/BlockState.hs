@@ -31,8 +31,6 @@ import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.Transactions (TransactionHash)
 
-import Control.Monad.Trans.Except
-
 import Data.Void
 
 import qualified Concordium.ID.Types as ID
