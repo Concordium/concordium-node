@@ -98,7 +98,7 @@ executables:
                 ghc-options: -static
     dependencies:
     - Concordium
-  
+
   Concordium-catchup:
     main:                Main.hs
     source-dirs:         catchup
@@ -122,7 +122,7 @@ executables:
                 ghc-options: -static
     dependencies:
     - Concordium
-  
+
   genesis:
     main:         Genesis.hs
     source-dirs:  genesis
@@ -175,6 +175,7 @@ tests:
     - hspec-expectations >= 0.8
     - vector >= 0.12
     - math-functions >= 0.2
+    - QuickCheck-GenT
 
 benchmarks:
   Consensus-bench:
