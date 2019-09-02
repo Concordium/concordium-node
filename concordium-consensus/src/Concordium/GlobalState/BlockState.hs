@@ -101,8 +101,8 @@ data AccountUpdate = AccountUpdate {
   _auAddress :: !AccountAddress
   -- |Optionally a new account nonce.
   ,_auNonce :: !(Maybe Nonce)
-  -- |Optionally a new account amount.
-  ,_auAmount :: !(Maybe Amount)
+  -- |Optionally an update to the account amount.
+  ,_auAmount :: !(Maybe AmountDelta)
   -- |Optionally an encryption key.
   ,_auEncryptionKey :: !(Maybe ID.AccountEncryptionKey)
   -- |Optionally an update to the encrypted amounts.
@@ -120,7 +120,7 @@ emptyAccountUpdate addr = AccountUpdate addr Nothing Nothing Nothing Empty Nothi
 updateAccount :: AccountUpdate -> Account -> Account
 updateAccount !upd !acc =
   acc {_accountNonce = (acc ^. accountNonce) & setMaybe (upd ^. auNonce),
-       _accountAmount = (acc ^. accountAmount) & setMaybe (upd ^. auAmount),
+       _accountAmount = fst (acc & accountAmount <%~ applyAmountDelta (upd ^. auAmount . non 0)),
        _accountCredentials =
           case upd ^. auCredential of
             Nothing -> acc ^. accountCredentials
@@ -199,7 +199,7 @@ class BlockStateQuery m => BlockStateOperations m where
   -- This method is only called when it is known the instance exists, and can thus assume it.
   bsoModifyInstance :: UpdatableBlockState m
                     -> ContractAddress
-                    -> Amount
+                    -> AmountDelta
                     -> Value Void
                     -> m (UpdatableBlockState m)
 

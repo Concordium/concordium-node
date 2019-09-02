@@ -13,6 +13,7 @@ module Concordium.GlobalState.Instances(
     getInstance,
     updateInstance,
     updateInstanceAt,
+    updateInstanceAt',
     createInstance,
     deleteInstance,
     foldInstances,
@@ -82,17 +83,32 @@ getInstance :: ContractAddress -> Instances -> Maybe Instance
 getInstance addr (Instances iss) = iss ^? ix addr
 
 -- |Update a given smart contract instance.
-updateInstance :: Amount -> Value Void -> Instance -> Instance
-updateInstance amt val i =  i {
+updateInstance :: AmountDelta -> Value Void -> Instance -> Instance
+updateInstance delta val i =  i {
                                 instanceModel = val,
-                                instanceAmount = amt,
-                                instanceHash = makeInstanceHash (instanceParameters i) val amt
+                                instanceAmount = amnt,
+                                instanceHash = makeInstanceHash (instanceParameters i) val amnt
+                            }
+  where amnt = applyAmountDelta delta (instanceAmount i)
+
+-- |Update a given smart contract instance.
+updateInstance' :: Amount -> Value Void -> Instance -> Instance
+updateInstance' amnt val i =  i {
+                                instanceModel = val,
+                                instanceAmount = amnt,
+                                instanceHash = makeInstanceHash (instanceParameters i) val amnt
                             }
 
--- |Update the instance at the specified address with a new amount and value.
+
+-- |Update the instance at the specified address with an amount delta and value.
 -- If there is no instance with the given address, this does nothing.
-updateInstanceAt :: ContractAddress -> Amount -> Value Void -> Instances -> Instances
+updateInstanceAt :: ContractAddress -> AmountDelta -> Value Void -> Instances -> Instances
 updateInstanceAt ca amt val (Instances iss) = Instances (iss & ix ca %~ updateInstance amt val)
+
+-- |Update the instance at the specified address with a __new amount__ and value.
+-- If there is no instance with the given address, this does nothing.
+updateInstanceAt' :: ContractAddress -> Amount -> Value Void -> Instances -> Instances
+updateInstanceAt' ca amt val (Instances iss) = Instances (iss & ix ca %~ updateInstance' amt val)
 
 -- |Create a new smart contract instance.
 createInstance :: (ContractAddress -> Instance) -> Instances -> (Instance, Instances)
