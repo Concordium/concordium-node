@@ -100,27 +100,28 @@ instance (MonadReader ChainMetadata m, UpdatableBlockState m ~ state, MonadState
     put s'
 
   {-# INLINE increaseAccountNonce #-}
-  increaseAccountNonce addr = do
+  increaseAccountNonce acc = do
     s <- get
-    macc <- lift $ bsoGetAccount s addr
-    case macc of
-      Nothing -> error "increaseAccountNonce precondition violated."
-      Just acc ->
-        let nonce = acc ^. accountNonce in do
-        s' <- lift (bsoModifyAccount s (emptyAccountUpdate addr & auNonce ?~ (nonce + 1)))
-        put s'
+    let nonce = acc ^. accountNonce
+    s' <- lift (bsoModifyAccount s (emptyAccountUpdate addr & auNonce ?~ (nonce + 1)))
+    put s'
+
+    where addr = acc ^. accountAddress
 
   {-# INLINE addAccountCredential #-}
-  addAccountCredential !addr !cdi = do
+  addAccountCredential !acc !cdi = do
     s <- get
     s' <- lift (bsoModifyAccount s (emptyAccountUpdate addr & auCredential ?~ cdi))
     put s'
 
+   where addr = acc ^. accountAddress
+
   {-# INLINE addAccountEncryptionKey #-}
-  addAccountEncryptionKey !addr !encKey = do
+  addAccountEncryptionKey !acc !encKey = do
     s <- get
     s' <- lift (bsoModifyAccount s (emptyAccountUpdate addr & auEncryptionKey ?~ encKey))
     put s'
+   where addr = acc ^. accountAddress
 
   {-# INLINE commitChanges #-}
   commitChanges !cs = do

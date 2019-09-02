@@ -69,8 +69,9 @@ mintAndReward bshandle blockParent lfPointer slotNumber bid = do
   macc <- bsoGetBakerAccount bshandle' bid
   case macc of
     Nothing -> error "Precondition violated. Baker account does not exist."
-    Just acc -> let balance = acc ^. accountAmount
-                in bsoModifyAccount bshandle' (emptyAccountUpdate (acc ^. accountAddress) & auAmount ?~ (balance + executionReward + bakingReward))
+    Just acc ->
+      bsoModifyAccount bshandle'
+         (emptyAccountUpdate (acc ^. accountAddress) & auAmount ?~ (amountToDelta (executionReward + bakingReward)))
 
 -- |Execute a block from a given starting state.
 -- Fail if any of the transactions fails, otherwise return the new 'BlockState'.

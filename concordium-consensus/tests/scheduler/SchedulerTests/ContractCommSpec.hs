@@ -119,10 +119,10 @@ checkCommCounterResult (suc, fails) =
   length nonreject == 6  -- and 6 successful ones
   where 
     nonreject = filter (\case (_, Types.TxSuccess _) -> True
-                              (_, Types.TxReject _) -> False)
+                              (_, Types.TxReject _ _) -> False)
                         suc
     reject = filter (\case (_, Types.TxSuccess _) -> False
-                           (_, Types.TxReject _) -> True
+                           (_, Types.TxReject _ _) -> True
                     )
                         suc
 

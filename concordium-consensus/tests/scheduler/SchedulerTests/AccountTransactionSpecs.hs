@@ -115,10 +115,10 @@ checkAccountCreationResult (suc, fails, stateAccs, stateAles, bankState) =
             Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed _] <- a11,
             Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed _] <- a12,
             Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed _] <- a13,
-            Types.TxReject (Types.DuplicateAccountRegistrationID _) <- a14,
+            Types.TxReject (Types.DuplicateAccountRegistrationID _) _ <- a14,
             Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed _] <- a15,
             Types.TxSuccess [Types.CredentialDeployed _] <- a16,
-            Types.TxReject Types.OutOfEnergy <- a17 -> True
+            Types.TxReject Types.OutOfEnergy _ <- a17 -> True
           _ -> False
         txstateAccs = case stateAccs of
                         [Just _, Just _, Just _, Nothing, Just _] -> True -- account 13 was not created because of duplicate registration id

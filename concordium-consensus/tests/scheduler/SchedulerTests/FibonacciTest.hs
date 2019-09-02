@@ -100,7 +100,7 @@ checkFibonacciResult (suc, fails, instances) =
   checkLocalState (snd (head instances)) -- and the local state should match the actual list of fibonacci numbers
   where
     reject = filter (\case (_, Types.TxSuccess _) -> False
-                           (_, Types.TxReject _) -> True
+                           (_, Types.TxReject _ _) -> True
                     )
                         suc
     checkLocalState inst = 
