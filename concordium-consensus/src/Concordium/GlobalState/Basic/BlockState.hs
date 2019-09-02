@@ -249,10 +249,10 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
     bsoPutLinkedContract bs mref n linked = return $!
         bs & blockModules %~ (Modules.putLinkedContract mref n linked)
 
-    bsoModifyInstance bs caddr amount model = return $!
-        bs & blockInstances %~ Instances.updateInstanceAt caddr amount model
+    bsoModifyInstance bs caddr delta model = return $!
+        bs & blockInstances %~ Instances.updateInstanceAt caddr delta model
         & maybe (error "Instance has invalid owner") 
-            (\owner -> blockBirkParameters . birkBakers %~ modifyStake (owner ^. accountStakeDelegate) (amountDiff amount $ Instances.instanceAmount inst))
+            (\owner -> blockBirkParameters . birkBakers %~ modifyStake (owner ^. accountStakeDelegate) delta)
             (bs ^? blockAccounts . ix instanceOwner)
         where
             inst = fromMaybe (error "Instance does not exist") $ bs ^? blockInstances . ix caddr
@@ -266,11 +266,9 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
                bs & blockAccounts %~ Account.putAccount updatedAccount
                                    . Account.recordRegId (cdvRegId cdi))
         -- If we change the amount, update the delegate
-        & maybe id 
-            (\amt -> blockBirkParameters . birkBakers
+        & (blockBirkParameters . birkBakers
                     %~ modifyStake (account ^. accountStakeDelegate)
-                            (amountDiff amt $ account ^. accountAmount))
-            (accountUpdates ^. BS.auAmount)
+                                   (accountUpdates ^. BS.auAmount . non 0))
         where
             account = bs ^. blockAccounts . singular (ix (accountUpdates ^. BS.auAddress))
             updatedAccount = BS.updateAccount accountUpdates account
