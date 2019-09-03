@@ -45,7 +45,8 @@ packages:
 # using the same syntax as the packages field.
 # (e.g., acme-missiles-0.3)
 # extra-deps: []
-extra-deps: []
+extra-deps:
+     - QuickCheck-GenT-0.2.0@sha256:d11b7b4a3f7648895eff66376a00f763821ee955ce42a37fb918213a8eae88d6
 
 extra-lib-dirs: ["./crypto/rust-src/target/release", "./globalstate-mockup/globalstate/p2p-client/concordium-global-state-sys/target/release"]
 
