@@ -47,7 +47,7 @@ packages:
 # extra-deps: []
 extra-deps: []
 
-extra-include-dirs: ["./crypto/rust-src/target/release", "./globalstate-mockup/globalstate/p2p-client/target/release"]
+extra-include-dirs: ["./crypto/rust-src/target/release", "./globalstate-mockup/globalstate/p2p-client/concordium-global-state-sys/target/release"]
 
 # Override default flag values for local packages and extra-deps
 # flags: {}
