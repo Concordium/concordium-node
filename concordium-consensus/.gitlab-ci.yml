@@ -17,5 +17,5 @@ build-and-test:
     - "curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain nightly"
     - "source $HOME/.cargo/env"
     - "cd globalstate-mockup/globalstate/p2p-client && git checkout gs-integration && git submodule update --init deps/internal/crypto && cd ../../../"
-    - "LD_LIBRARY_PATH=$(pwd)/globalstate-mockup/globalstate/p2p-client/target/release:$(pwd)/crypto/rust-src/target/release:$LD_LIBRARY_PATH stack build -v --ghc-options -j4 | ts '[%Y-%m-%d %H:%M:%.S]'"
-    - "LD_LIBRARY_PATH=$(pwd)/globalstate-mockup/globalstate/p2p-client/target/release:$(pwd)/crypto/rust-src/target/release:$LD_LIBRARY_PATH stack test -v | ts '[%Y-%m-%d %H:%M:%.S]'"
+    - "LD_LIBRARY_PATH=$(pwd)/globalstate-mockup/globalstate/p2p-client/concordium-global-state-sys/target/release:$(pwd)/crypto/rust-src/target/release:$LD_LIBRARY_PATH stack build -v --ghc-options -j4 | ts '[%Y-%m-%d %H:%M:%.S]'"
+    - "LD_LIBRARY_PATH=$(pwd)/globalstate-mockup/globalstate/p2p-client/concordium-global-state-sys/target/release:$(pwd)/crypto/rust-src/target/release:$LD_LIBRARY_PATH stack test -v | ts '[%Y-%m-%d %H:%M:%.S]'"
