@@ -12,8 +12,7 @@ cache:
 
 build-and-test:
   script:
-    - "git clone https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/Concordium/p2p-client.git"
-    - "ls"
+    - "git clone https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/Concordium/p2p-client.git globalstate-mockup/globalstate/p2p-client"
     - "apt-get update && apt-get install -y moreutils curl"
     - "curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain nightly"
     - "source $HOME/.cargo/env"
