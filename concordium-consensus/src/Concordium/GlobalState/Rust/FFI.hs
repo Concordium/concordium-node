@@ -33,7 +33,6 @@ module Concordium.GlobalState.Rust.FFI (
 import qualified Concordium.Crypto.SHA256 as SHA256
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.SignatureScheme as SSCH
-import qualified Concordium.Crypto.VRF as VRF
 import Concordium.GlobalState.Basic.Block (BakedBlock(..), Block (NormalBlock), BlockTransactions(..))
 import qualified Concordium.GlobalState.Basic.Block as GSBB (BlockFields(..))
 import qualified Concordium.GlobalState.Basic.BlockState as BBS hiding (BlockPointer, makeBlockPointer, makeGenesisBlockPointer)
@@ -129,7 +128,9 @@ blockFieldsBlockProof b =
   in
     unsafePerformIO $ do
       bp_str <- curry packCStringLen p (fromIntegral l)
-      return . VRF.byteStringIntoProof $ bp_str
+      return $ case decode bp_str of
+                 Right val -> val
+                 Left e -> error e
 
 blockFieldsBlockNonce :: BlockFields -> BlockNonce
 blockFieldsBlockNonce b =
@@ -139,7 +140,9 @@ blockFieldsBlockNonce b =
   in
     unsafePerformIO $ do
       bn_str <- curry packCStringLen p (fromIntegral l)
-      return . VRF.byteStringIntoProof $ bn_str
+      return $ case decode bn_str of
+                 Right val -> val
+                 Left e -> error e
 
 blockFieldsBlockLastFinalized :: BlockFields -> BlockHash
 blockFieldsBlockLastFinalized b =
