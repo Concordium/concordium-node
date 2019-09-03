@@ -1,6 +1,4 @@
-use crate::{
-    connection::MessageSendingPriority, p2p::noise_protocol_handler::NoiseProtocolHandler,
-};
+use crate::{connection::MessageSendingPriority, p2p::P2PNode};
 
 use concordium_common::hybrid_buf::HybridBuf;
 
@@ -26,7 +24,7 @@ pub struct NetworkRawRequest {
 /// poll-loop thread, and any write is queued to be processed later in that
 /// poll-loop.
 pub fn process_network_requests(
-    noise_protocol_handler: &NoiseProtocolHandler,
+    p2p_node: &P2PNode,
     network_request_receiver: &Receiver<NetworkRawRequest>,
 ) {
     network_request_receiver
@@ -38,7 +36,7 @@ pub fn process_network_requests(
                 usize::from(network_request.token)
             );
 
-            let conn_opt = noise_protocol_handler.find_connection_by_token(network_request.token);
+            let conn_opt = p2p_node.find_connection_by_token(network_request.token);
             match conn_opt {
                 Some(ref conn) => {
                     if !conn.is_closed() {

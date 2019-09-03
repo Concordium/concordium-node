@@ -48,12 +48,7 @@ pub fn default_network_request_ping_handle(
                 make_fn_error_peer("Can't perform this action pre-handshake")
             })?;
 
-        if let Some(ref service) = priv_conn_reader
-            .conn()
-            .handler()
-            .node()
-            .stats_export_service()
-        {
+        if let Some(ref service) = priv_conn_reader.conn().handler().stats_export_service() {
             service.pkt_sent_inc();
         }
 
@@ -90,7 +85,8 @@ pub fn default_network_request_find_node_handle(
                 .post_handshake_peer_or_else(|| {
                     make_fn_error_peer("Can't perform this action pre-handshake")
                 })?;
-            let nodes = safe_read!(priv_conn_reader.conn().handler().buckets)?.buckets[0] // The Buckets object is never empty
+            let nodes = safe_read!(priv_conn_reader.conn().handler().connection_handler.buckets)?
+                .buckets[0] // The Buckets object is never empty
                 .clone()
                 .into_iter()
                 .map(|node| node.peer)
@@ -129,7 +125,7 @@ pub fn default_network_request_get_peers(
         let peer_list_msg = {
             let priv_conn_reader = read_or_die!(priv_conn);
             priv_conn_reader.update_last_seen();
-            let nodes = safe_read!(priv_conn_reader.conn().handler().buckets)?
+            let nodes = safe_read!(priv_conn_reader.conn().handler().connection_handler.buckets)?
                 .get_all_nodes(Some(&sender), networks);
 
             let remote_peer = priv_conn_reader
@@ -138,12 +134,7 @@ pub fn default_network_request_get_peers(
                     make_fn_error_peer("Can't perform this action pre-handshake")
                 })?;
 
-            if let Some(ref service) = priv_conn_reader
-                .conn()
-                .handler()
-                .node()
-                .stats_export_service()
-            {
+            if let Some(ref service) = priv_conn_reader.conn().handler().stats_export_service() {
                 service.pkt_sent_inc();
             };
 
@@ -178,7 +169,8 @@ pub fn default_network_response_find_node(
 
         let priv_conn_reader = read_or_die!(priv_conn);
         // Process the received node list
-        let mut ref_buckets = safe_write!(priv_conn_reader.conn().handler().buckets)?;
+        let mut ref_buckets =
+            safe_write!(priv_conn_reader.conn().handler().connection_handler.buckets)?;
         for peer in peers.iter() {
             ref_buckets.insert_into_bucket(peer, HashSet::new());
         }
@@ -215,7 +207,8 @@ pub fn default_network_response_peer_list(
 ) -> FuncResult<()> {
     if let NetworkResponse::PeerList(_, ref peers) = res {
         let priv_conn_reader = read_or_die!(priv_conn);
-        let mut locked_buckets = safe_write!(priv_conn_reader.conn().handler().buckets)?;
+        let mut locked_buckets =
+            safe_write!(priv_conn_reader.conn().handler().connection_handler.buckets)?;
         for peer in peers.iter() {
             locked_buckets.insert_into_bucket(peer, HashSet::new());
         }
@@ -248,12 +241,17 @@ pub fn default_network_request_join_network(
                     make_fn_error_peer("Can't perform this action pre-handshake")
                 })?;
 
-            safe_write!(priv_conn_reader.conn().handler().buckets)?
+            safe_write!(priv_conn_reader.conn().handler().connection_handler.buckets)?
                 .update_network_ids(&remote_peer, priv_conn_reader.remote_end_networks.clone());
 
             (
                 remote_peer,
-                priv_conn_reader.conn().handler().event_log.clone(),
+                priv_conn_reader
+                    .conn()
+                    .handler()
+                    .connection_handler
+                    .event_log
+                    .clone(),
             )
         };
         let networks: HashSet<NetworkId> = vec![*network].into_iter().collect();
@@ -279,10 +277,15 @@ pub fn default_network_request_leave_network(
                     make_fn_error_peer("Can't perform this action pre-handshake")
                 })?;
 
-            safe_write!(priv_conn_reader.conn().handler().buckets)?
+            safe_write!(priv_conn_reader.conn().handler().connection_handler.buckets)?
                 .update_network_ids(&remote_peer, priv_conn_reader.remote_end_networks.clone());
 
-            priv_conn_reader.conn().handler().event_log.clone()
+            priv_conn_reader
+                .conn()
+                .handler()
+                .connection_handler
+                .event_log
+                .clone()
         };
 
         log_as_leave_network(&event_log, &sender, *network)?;
@@ -313,7 +316,6 @@ pub fn default_unknown_message(priv_conn: &RwLock<ConnectionPrivate>) -> FuncRes
     if let Some(ref service) = read_or_die!(priv_conn)
         .conn()
         .handler()
-        .node()
         .stats_export_service()
     {
         service.unknown_pkts_received_inc();
@@ -335,7 +337,6 @@ pub fn default_invalid_message(priv_conn: &RwLock<ConnectionPrivate>) -> FuncRes
     if let Some(ref service) = read_or_die!(priv_conn)
         .conn()
         .handler()
-        .node()
         .stats_export_service()
     {
         service.invalid_pkts_received_inc();

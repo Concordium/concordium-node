@@ -97,7 +97,7 @@ impl ConnectionPrivate {
             Arc::clone(&self.conn().messages_received),
             Arc::clone(&self.last_latency_measured),
         );
-        write_or_die!(self.conn().handler().node().active_peer_stats)
+        write_or_die!(self.conn().handler().active_peer_stats)
             .insert(id.as_raw(), remote_peer_stats);
 
         Ok(())
@@ -201,7 +201,7 @@ impl ConnectionPrivate {
     }
 
     fn send_to_dump(&self, buf: &HybridBuf, inbound: bool) {
-        if let Some(ref sender) = self.conn().handler().log_dumper {
+        if let Some(ref sender) = self.conn().handler().connection_handler.log_dumper {
             let di = DumpItem::new(
                 Utc::now(),
                 inbound,
