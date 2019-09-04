@@ -120,11 +120,17 @@ pub fn default_network_request_get_peers(
 ) -> FuncResult<()> {
     if let NetworkRequest::GetPeers(ref sender, ref networks) = req {
         trace!("Got a GetPeers request");
-        TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
 
         let peer_list_msg = {
             let priv_conn_reader = read_or_die!(priv_conn);
             priv_conn_reader.update_last_seen();
+
+            let remote_peer = priv_conn_reader
+                .remote_peer()
+                .post_handshake_peer_or_else(|| {
+                    make_fn_error_peer("Can't perform this action pre-handshake")
+                })?;
+
             let nodes =
                 if priv_conn_reader.conn().local_peer().peer_type() == PeerType::Bootstrapper {
                     safe_read!(priv_conn_reader.conn().handler().connection_handler.buckets)?
@@ -142,12 +148,6 @@ pub fn default_network_request_get_peers(
                         .collect()
                 };
 
-            let remote_peer = priv_conn_reader
-                .remote_peer()
-                .post_handshake_peer_or_else(|| {
-                    make_fn_error_peer("Can't perform this action pre-handshake")
-                })?;
-
             if let Some(ref service) = priv_conn_reader.conn().handler().stats_export_service() {
                 service.pkt_sent_inc();
             };
@@ -158,7 +158,9 @@ pub fn default_network_request_get_peers(
                 None,
             )
         };
+
         let peer_list_packet = serialize_into_memory(&peer_list_msg, 256)?;
+        TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
 
         // Ignore returned because it is an asynchronous operation.
         write_or_die!(priv_conn)
@@ -224,7 +226,7 @@ pub fn default_network_response_peer_list(
         let mut locked_buckets =
             safe_write!(priv_conn_reader.conn().handler().connection_handler.buckets)?;
         for peer in peers.iter() {
-            if peer.id().as_raw() >= 1000000 {
+            if peer.id().as_raw() >= 1_000_000 {
                 error!(
                     "I got a bootstrapper in a PeerList from the node {}",
                     sender
