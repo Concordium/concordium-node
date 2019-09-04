@@ -14,6 +14,10 @@ elif [ -n "$PERSISTENT_ID_BASED_ON_BAKER_ID" ];
 then
     ID=$(printf "%016d\n" $(echo $BAKER_ID | cut -d'-' -f2))
     ARGS="$ARGS --id $ID"
+elif [ -n "$PERSISTENT_BOOTSTRAPPER_ID_BASED_ON_NODE_ID" ];
+then
+    ID=$(printf "%016d\n" $(($(echo $(hostname) | cut -d'-' -f2)+1000000)))
+    ARGS="$ARGS --id $ID"
 fi
 
 if [ -n "$LISTEN_PORT" ];

@@ -205,11 +205,14 @@ pub fn default_network_response_peer_list(
     priv_conn: &RwLock<ConnectionPrivate>,
     res: &NetworkResponse,
 ) -> FuncResult<()> {
-    if let NetworkResponse::PeerList(_, ref peers) = res {
+    if let NetworkResponse::PeerList(sender, ref peers) = res {
         let priv_conn_reader = read_or_die!(priv_conn);
         let mut locked_buckets =
             safe_write!(priv_conn_reader.conn().handler().connection_handler.buckets)?;
         for peer in peers.iter() {
+            if peer.id().as_raw() >= 1000000 {
+                error!("I got a bootstrapper in a PeerList from the node {}", sender);
+            }
             locked_buckets.insert_into_bucket(peer, HashSet::new());
         }
     };
