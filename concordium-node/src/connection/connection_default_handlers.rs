@@ -9,7 +9,7 @@ use std::{
 use crate::{
     common::{
         counter::TOTAL_MESSAGES_SENT_COUNTER, get_current_stamp,
-        serialization::serialize_into_memory,
+        serialization::serialize_into_memory, P2PNodeId, P2PPeer, PeerType,
     },
     connection::{connection_private::ConnectionPrivate, MessageSendingPriority},
     network::{NetworkId, NetworkMessage, NetworkRequest, NetworkResponse},
@@ -125,8 +125,22 @@ pub fn default_network_request_get_peers(
         let peer_list_msg = {
             let priv_conn_reader = read_or_die!(priv_conn);
             priv_conn_reader.update_last_seen();
-            let nodes = safe_read!(priv_conn_reader.conn().handler().connection_handler.buckets)?
-                .get_all_nodes(Some(&sender), networks);
+            let nodes =
+                if priv_conn_reader.conn().local_peer().peer_type() == PeerType::Bootstrapper {
+                    safe_read!(priv_conn_reader.conn().handler().connection_handler.buckets)?
+                        .get_all_nodes(Some(&sender), networks)
+                } else {
+                    priv_conn_reader
+                        .conn()
+                        .handler()
+                        .get_peer_stats()
+                        .iter()
+                        .filter(|element| element.peer_type == PeerType::Bootstrapper)
+                        .map(|element| {
+                            P2PPeer::from(element.peer_type, P2PNodeId(element.id), element.addr)
+                        })
+                        .collect()
+                };
 
             let remote_peer = priv_conn_reader
                 .remote_peer()
@@ -211,7 +225,10 @@ pub fn default_network_response_peer_list(
             safe_write!(priv_conn_reader.conn().handler().connection_handler.buckets)?;
         for peer in peers.iter() {
             if peer.id().as_raw() >= 1000000 {
-                error!("I got a bootstrapper in a PeerList from the node {}", sender);
+                error!(
+                    "I got a bootstrapper in a PeerList from the node {}",
+                    sender
+                );
             }
             locked_buckets.insert_into_bucket(peer, HashSet::new());
         }
