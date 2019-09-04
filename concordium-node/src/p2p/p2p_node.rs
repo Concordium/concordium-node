@@ -6,7 +6,7 @@ use crate::{
         serialization::serialize_into_memory, NetworkRawRequest, P2PNodeId, P2PPeer, PeerStats,
         PeerType, RemotePeer,
     },
-    configuration,
+    configuration::Config,
     connection::{
         network_handler::{
             message_handler::NetworkMessageCW,
@@ -120,76 +120,6 @@ impl ResendQueueEntry {
     }
 }
 
-#[derive(Default)]
-pub struct ConnectionHandlerBuilder {
-    server:       Option<TcpListener>,
-    event_log:    Option<SyncSender<P2PEvent>>,
-    buckets:      Option<Arc<RwLock<Buckets>>>,
-    networks:     Option<HashSet<NetworkId>>,
-    noise_params: Option<snow::params::NoiseParams>,
-}
-
-impl ConnectionHandlerBuilder {
-    pub fn build(self) -> Fallible<ConnectionHandler> {
-        if let (Some(networks), Some(server), Some(buckets), Some(noise_params)) =
-            (self.networks, self.server, self.buckets, self.noise_params)
-        {
-            let key_pair = snow::Builder::new(noise_params.clone()).generate_keypair()?;
-
-            let mself = ConnectionHandler {
-                server: Arc::new(server),
-                next_id: Arc::new(AtomicUsize::new(2)),
-                key_pair: Arc::new(key_pair),
-                event_log: self.event_log,
-                buckets,
-                message_processor: MessageProcessor::new(),
-                prehandshake_validations: PreHandshake::new(),
-                log_dumper: None,
-                noise_params,
-                network_request_sender: None,
-                connections: Default::default(),
-                to_disconnect: Default::default(),
-                unreachable_nodes: UnreachableNodes::new(),
-                banned_peers: Arc::new(RwLock::new(BannedNodes::new())),
-                networks: Arc::new(RwLock::new(networks)),
-                last_bootstrap: Default::default(),
-            };
-
-            Ok(mself)
-        } else {
-            Err(Error::from(fails::MissingFieldsOnConnectionHandlerBuilder))
-        }
-    }
-
-    pub fn set_server(mut self, s: TcpListener) -> ConnectionHandlerBuilder {
-        self.server = Some(s);
-        self
-    }
-
-    pub fn set_event_log(mut self, el: Option<SyncSender<P2PEvent>>) -> ConnectionHandlerBuilder {
-        self.event_log = el;
-        self
-    }
-
-    pub fn set_buckets(mut self, b: Arc<RwLock<Buckets>>) -> ConnectionHandlerBuilder {
-        self.buckets = Some(b);
-        self
-    }
-
-    pub fn set_networks(mut self, n: HashSet<NetworkId>) -> ConnectionHandlerBuilder {
-        self.networks = Some(n);
-        self
-    }
-
-    pub fn set_noise_params(
-        mut self,
-        config: &crate::configuration::CryptoConfig,
-    ) -> ConnectionHandlerBuilder {
-        self.noise_params = Some(generate_snow_config(config));
-        self
-    }
-}
-
 #[derive(Clone)]
 pub struct ConnectionHandler {
     server:                     Arc<TcpListener>,
@@ -208,6 +138,41 @@ pub struct ConnectionHandler {
     pub banned_peers:           Arc<RwLock<BannedNodes>>,
     pub networks:               Arc<RwLock<HashSet<NetworkId>>>,
     pub last_bootstrap:         Arc<AtomicU64>,
+}
+
+impl ConnectionHandler {
+    fn new(conf: &Config, server: TcpListener, event_log: Option<SyncSender<P2PEvent>>) -> Self {
+        let networks: HashSet<NetworkId> = conf
+            .common
+            .network_ids
+            .iter()
+            .cloned()
+            .map(NetworkId::from)
+            .collect();
+        let noise_params = generate_snow_config(&conf.crypto);
+        let key_pair = snow::Builder::new(noise_params.clone())
+            .generate_keypair()
+            .expect("Can't create a connection handler!");
+
+        ConnectionHandler {
+            server: Arc::new(server),
+            next_id: Arc::new(AtomicUsize::new(2)),
+            key_pair: Arc::new(key_pair),
+            event_log,
+            buckets: Arc::new(RwLock::new(Buckets::new())),
+            message_processor: MessageProcessor::new(),
+            prehandshake_validations: PreHandshake::new(),
+            log_dumper: None,
+            noise_params,
+            network_request_sender: None,
+            connections: Default::default(),
+            to_disconnect: Default::default(),
+            unreachable_nodes: UnreachableNodes::new(),
+            banned_peers: Arc::new(RwLock::new(BannedNodes::new())),
+            networks: Arc::new(RwLock::new(networks)),
+            last_bootstrap: Default::default(),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -236,7 +201,7 @@ pub struct P2PNode {
 impl P2PNode {
     pub fn new(
         supplied_id: Option<String>,
-        conf: &configuration::Config,
+        conf: &Config,
         pkt_queue: RelayOrStopSyncSender<NetworkMessage>,
         event_log: Option<SyncSender<P2PEvent>>,
         peer_type: PeerType,
@@ -354,24 +319,10 @@ impl P2PNode {
             print_peers: true,
         };
 
-        let networks: HashSet<NetworkId> = conf
-            .common
-            .network_ids
-            .iter()
-            .cloned()
-            .map(NetworkId::from)
-            .collect();
-        let connection_handler = ConnectionHandlerBuilder::default()
-            .set_server(server)
-            .set_event_log(event_log)
-            .set_networks(networks)
-            .set_buckets(Arc::new(RwLock::new(Buckets::new())))
-            .set_noise_params(&conf.crypto)
-            .build()
-            .expect("P2P Node creation couldn't create a Connection Handler");
-
         let (send_queue_in, send_queue_out) = sync_channel(10000);
         let (resend_queue_in, resend_queue_out) = sync_channel(10000);
+
+        let connection_handler = ConnectionHandler::new(conf, server, event_log);
 
         let mut node = P2PNode {
             poll: Arc::new(poll),
