@@ -183,7 +183,6 @@ impl ConnectionHandler {
 pub struct Receivers {
     send_queue_out:       Receiver<NetworkMessage>,
     resend_queue_out:     Receiver<ResendQueueEntry>,
-    quit_receiver:        Receiver<bool>,
     pub network_requests: Receiver<NetworkRawRequest>,
 }
 
@@ -198,7 +197,6 @@ pub struct P2PNode {
     resend_queue_in:          SyncSender<ResendQueueEntry>,
     pub queue_to_super:       RelayOrStopSyncSender<NetworkMessage>,
     pub rpc_queue:            SyncSender<NetworkMessage>,
-    quit_sender:              SyncSender<bool>,
     dump_switch:              SyncSender<(std::path::PathBuf, bool)>,
     dump_tx:                  SyncSender<crate::dumper::DumpItem>,
     pub active_peer_stats:    Arc<RwLock<HashMap<u64, PeerStats>>>,
@@ -206,6 +204,7 @@ pub struct P2PNode {
     pub config:               P2PNodeConfig,
     start_time:               DateTime<Utc>,
     pub is_rpc_online:        Arc<AtomicBool>,
+    pub is_terminated:        Arc<AtomicBool>,
 }
 
 impl P2PNode {
@@ -332,12 +331,10 @@ impl P2PNode {
         let (send_queue_in, send_queue_out) = sync_channel(10000);
         let (resend_queue_in, resend_queue_out) = sync_channel(10000);
         let (network_request_sender, network_request_receiver) = sync_channel(10000);
-        let (quit_sender, quit_receiver) = sync_channel(10);
 
         let receivers = Receivers {
             send_queue_out,
             resend_queue_out,
-            quit_receiver,
             network_requests: network_request_receiver,
         };
 
@@ -352,7 +349,6 @@ impl P2PNode {
             start_time: Utc::now(),
             external_addr: SocketAddr::new(own_peer_ip, own_peer_port),
             thread: Arc::new(RwLock::new(P2PNodeThread::default())),
-            quit_sender,
             config,
             dump_switch: act_tx,
             dump_tx,
@@ -362,6 +358,7 @@ impl P2PNode {
             active_peer_stats: Default::default(),
             send_queue_in,
             stats_export_service,
+            is_terminated: Default::default(),
         };
         node.add_default_prehandshake_validations();
         node.setup_default_message_handler();
@@ -621,8 +618,8 @@ impl P2PNode {
 
                 process_network_requests(&self_clone, &receivers);
 
-                // Check termination channel.
-                if receivers.quit_receiver.try_recv().is_ok() {
+                // Check the termination switch
+                if self_clone.is_terminated.load(Ordering::Relaxed) {
                     break;
                 }
 
@@ -1728,13 +1725,14 @@ impl P2PNode {
         Ok(())
     }
 
-    pub fn close(&self) -> Fallible<()> {
+    pub fn close(&self) -> bool {
         info!("P2PNode shutting down.");
-        into_err!(self.quit_sender.send(true))
+        self.is_terminated.store(true, Ordering::Relaxed);
+        true
     }
 
     pub fn close_and_join(&mut self) -> Fallible<()> {
-        self.close()?;
+        self.close();
         self.join()
     }
 
