@@ -376,8 +376,6 @@ impl Connection {
             .handler()
             .connection_handler
             .network_request_sender
-            .as_ref()
-            .expect("The network request sender is not available!")
             .send(request))
     }
 

@@ -61,7 +61,7 @@ use std::{
     sync::{
         atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
         mpsc::{sync_channel, Receiver, SyncSender},
-        Arc, Mutex, RwLock,
+        Arc, RwLock,
     },
     thread::{JoinHandle, ThreadId},
     time::{Duration, SystemTime},
@@ -131,7 +131,7 @@ pub struct ConnectionHandler {
     prehandshake_validations:   PreHandshake,
     pub log_dumper:             Option<SyncSender<DumpItem>>,
     noise_params:               snow::params::NoiseParams,
-    pub network_request_sender: Option<SyncSender<NetworkRawRequest>>,
+    pub network_request_sender: SyncSender<NetworkRawRequest>,
     connections:                Arc<RwLock<Vec<Connection>>>,
     pub to_disconnect:          Arc<RwLock<VecDeque<P2PNodeId>>>,
     pub unreachable_nodes:      UnreachableNodes,
@@ -141,7 +141,12 @@ pub struct ConnectionHandler {
 }
 
 impl ConnectionHandler {
-    fn new(conf: &Config, server: TcpListener, event_log: Option<SyncSender<P2PEvent>>) -> Self {
+    fn new(
+        conf: &Config,
+        server: TcpListener,
+        network_request_sender: SyncSender<NetworkRawRequest>,
+        event_log: Option<SyncSender<P2PEvent>>,
+    ) -> Self {
         let networks: HashSet<NetworkId> = conf
             .common
             .network_ids
@@ -164,7 +169,7 @@ impl ConnectionHandler {
             prehandshake_validations: PreHandshake::new(),
             log_dumper: None,
             noise_params,
-            network_request_sender: None,
+            network_request_sender,
             connections: Default::default(),
             to_disconnect: Default::default(),
             unreachable_nodes: UnreachableNodes::new(),
@@ -175,6 +180,13 @@ impl ConnectionHandler {
     }
 }
 
+pub struct Receivers {
+    send_queue_out:       Receiver<NetworkMessage>,
+    resend_queue_out:     Receiver<ResendQueueEntry>,
+    quit_receiver:        Receiver<bool>,
+    pub network_requests: Receiver<NetworkRawRequest>,
+}
+
 #[derive(Clone)]
 pub struct P2PNode {
     pub self_peer:            P2PPeer,
@@ -183,12 +195,10 @@ pub struct P2PNode {
     pub poll:                 Arc<Poll>,
     pub connection_handler:   ConnectionHandler,
     pub send_queue_in:        SyncSender<NetworkMessage>,
-    send_queue_out:           Arc<Mutex<Receiver<NetworkMessage>>>,
     resend_queue_in:          SyncSender<ResendQueueEntry>,
-    resend_queue_out:         Arc<Mutex<Receiver<ResendQueueEntry>>>,
     pub queue_to_super:       RelayOrStopSyncSender<NetworkMessage>,
     pub rpc_queue:            SyncSender<NetworkMessage>,
-    quit_tx:                  Option<SyncSender<bool>>,
+    quit_sender:              SyncSender<bool>,
     dump_switch:              SyncSender<(std::path::PathBuf, bool)>,
     dump_tx:                  SyncSender<crate::dumper::DumpItem>,
     pub active_peer_stats:    Arc<RwLock<HashMap<u64, PeerStats>>>,
@@ -207,7 +217,7 @@ impl P2PNode {
         peer_type: PeerType,
         stats_export_service: Option<StatsExportService>,
         subscription_queue_in: SyncSender<NetworkMessage>,
-    ) -> Self {
+    ) -> (Self, Receivers) {
         let addr = if let Some(ref addy) = conf.common.listen_address {
             format!("{}:{}", addy, conf.common.listen_port)
                 .parse()
@@ -321,20 +331,28 @@ impl P2PNode {
 
         let (send_queue_in, send_queue_out) = sync_channel(10000);
         let (resend_queue_in, resend_queue_out) = sync_channel(10000);
+        let (network_request_sender, network_request_receiver) = sync_channel(10000);
+        let (quit_sender, quit_receiver) = sync_channel(10);
 
-        let connection_handler = ConnectionHandler::new(conf, server, event_log);
+        let receivers = Receivers {
+            send_queue_out,
+            resend_queue_out,
+            quit_receiver,
+            network_requests: network_request_receiver,
+        };
+
+        let connection_handler =
+            ConnectionHandler::new(conf, server, network_request_sender, event_log);
 
         let mut node = P2PNode {
             poll: Arc::new(poll),
-            send_queue_out: Arc::new(Mutex::new(send_queue_out)),
             resend_queue_in: resend_queue_in.clone(),
-            resend_queue_out: Arc::new(Mutex::new(resend_queue_out)),
             queue_to_super: pkt_queue,
             rpc_queue: subscription_queue_in,
             start_time: Utc::now(),
             external_addr: SocketAddr::new(own_peer_ip, own_peer_port),
             thread: Arc::new(RwLock::new(P2PNodeThread::default())),
-            quit_tx: None,
+            quit_sender,
             config,
             dump_switch: act_tx,
             dump_tx,
@@ -349,7 +367,7 @@ impl P2PNode {
         node.setup_default_message_handler();
         node.add_default_message_handlers();
 
-        node
+        (node, receivers)
     }
 
     /// It setups default message handler at noise protocol handler level.
@@ -588,27 +606,23 @@ impl P2PNode {
         }
     }
 
-    pub fn spawn(&mut self) {
+    pub fn spawn(&mut self, receivers: Receivers) {
         // Prepare poll-loop channels.
-        let (network_request_sender, network_request_receiver) = sync_channel(10000);
-        self.set_network_request_sender(network_request_sender);
-
         let self_clone = self.clone();
-
-        let (tx, rx) = sync_channel(10000);
-        self.quit_tx = Some(tx);
 
         let join_handle = spawn_or_die!("P2PNode spawned thread", move || {
             let mut events = Events::with_capacity(10);
             let mut log_time = SystemTime::now();
 
             loop {
-                let _ = self_clone.process(&mut events).map_err(|e| error!("{}", e));
+                let _ = self_clone
+                    .process(&receivers, &mut events)
+                    .map_err(|e| error!("{}", e));
 
-                process_network_requests(&self_clone, &network_request_receiver);
+                process_network_requests(&self_clone, &receivers);
 
                 // Check termination channel.
-                if rx.try_recv().is_ok() {
+                if receivers.quit_receiver.try_recv().is_ok() {
                     break;
                 }
 
@@ -1035,10 +1049,6 @@ impl P2PNode {
         read_or_die!(self.connection_handler.connections)
             .iter()
             .for_each(|conn| conn.add_notification(func.clone()))
-    }
-
-    pub fn set_network_request_sender(&mut self, sender: SyncSender<NetworkRawRequest>) {
-        self.connection_handler.network_request_sender = Some(sender);
     }
 
     pub fn connections_posthandshake_count(&self, exclude_type: Option<PeerType>) -> u16 {
@@ -1498,8 +1508,9 @@ impl P2PNode {
         }
     }
 
-    pub fn process_messages(&self) {
-        lock_or_die!(self.send_queue_out)
+    fn process_messages(&self, receivers: &Receivers) {
+        receivers
+            .send_queue_out
             .try_iter()
             .map(|outer_pkt| {
                 trace!("Processing messages!");
@@ -1581,8 +1592,9 @@ impl P2PNode {
             });
     }
 
-    fn process_resend_queue(&self) {
-        let resend_failures = lock_or_die!(self.resend_queue_out)
+    fn process_resend_queue(&self, receivers: &Receivers) {
+        let resend_failures = receivers
+            .resend_queue_out
             .try_iter()
             .map(|wrapper| {
                 trace!("Processing messages!");
@@ -1684,7 +1696,7 @@ impl P2PNode {
 
     pub fn internal_addr(&self) -> SocketAddr { self.self_peer.addr }
 
-    pub fn process(&self, events: &mut Events) -> Fallible<()> {
+    fn process(&self, receivers: &Receivers, events: &mut Events) -> Fallible<()> {
         self.poll.poll(
             events,
             Some(Duration::from_millis(self.config.poll_interval)),
@@ -1710,18 +1722,15 @@ impl P2PNode {
 
         events.clear();
 
-        self.process_messages();
+        self.process_messages(receivers);
 
-        self.process_resend_queue();
+        self.process_resend_queue(receivers);
         Ok(())
     }
 
     pub fn close(&self) -> Fallible<()> {
-        if let Some(ref q) = self.quit_tx {
-            q.send(true)?;
-            info!("P2PNode shutting down.");
-        }
-        Ok(())
+        info!("P2PNode shutting down.");
+        into_err!(self.quit_sender.send(true))
     }
 
     pub fn close_and_join(&mut self) -> Fallible<()> {
