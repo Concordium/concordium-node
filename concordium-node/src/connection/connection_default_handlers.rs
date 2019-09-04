@@ -226,11 +226,16 @@ pub fn default_network_response_peer_list(
         let mut locked_buckets =
             safe_write!(priv_conn_reader.conn().handler().connection_handler.buckets)?;
         for peer in peers.iter() {
-            if peer.id().as_raw() >= 1_000_000 {
-                error!(
-                    "I got a bootstrapper in a PeerList from the node {}",
-                    sender
-                );
+            /// The block below is only used to inspect for leaking P2PNodeIds
+            /// of bootstrappers in debug builds, for the test-net.
+            #[cfg(debug_assertions)]
+            {
+                if peer.id().as_raw() >= 1_000_000 {
+                    error!(
+                        "I got a bootstrapper in a PeerList from the node {}",
+                        sender
+                    );
+                }
             }
             locked_buckets.insert_into_bucket(peer, HashSet::new());
         }
