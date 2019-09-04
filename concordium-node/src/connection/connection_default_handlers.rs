@@ -226,8 +226,8 @@ pub fn default_network_response_peer_list(
         let mut locked_buckets =
             safe_write!(priv_conn_reader.conn().handler().connection_handler.buckets)?;
         for peer in peers.iter() {
-            /// The block below is only used to inspect for leaking P2PNodeIds
-            /// of bootstrappers in debug builds, for the test-net.
+            // The block below is only used to inspect for leaking P2PNodeIds
+            // of bootstrappers in debug builds, for the test-net.
             #[cfg(debug_assertions)]
             {
                 if peer.id().as_raw() >= 1_000_000 {
@@ -237,6 +237,7 @@ pub fn default_network_response_peer_list(
                     );
                 }
             }
+            trace!("Received PeerList response from {}", sender);
             locked_buckets.insert_into_bucket(peer, HashSet::new());
         }
     };
