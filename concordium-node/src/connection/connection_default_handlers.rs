@@ -141,7 +141,7 @@ pub fn default_network_request_get_peers(
                         .handler()
                         .get_peer_stats()
                         .iter()
-                        .filter(|element| element.peer_type == PeerType::Bootstrapper)
+                        .filter(|element| element.peer_type == PeerType::Node)
                         .map(|element| {
                             P2PPeer::from(element.peer_type, P2PNodeId(element.id), element.addr)
                         })
