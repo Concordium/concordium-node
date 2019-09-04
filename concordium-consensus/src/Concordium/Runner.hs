@@ -154,8 +154,8 @@ syncReceiveBlock syncRunner block = runSkovBufferedMWithStateLog syncRunner (sto
 syncReceiveTransaction :: SyncRunner -> Transaction -> IO (UpdateResult, [FinalizationOutputEvent])
 syncReceiveTransaction syncRunner trans = runSkovBufferedMWithStateLog syncRunner (receiveTransaction trans)
 
-syncReceiveFinalizationMessage :: SyncRunner -> FinalizationMessage -> IO (UpdateResult, [FinalizationOutputEvent])
-syncReceiveFinalizationMessage syncRunner finMsg = runSkovBufferedMWithStateLog syncRunner (receiveFinalizationMessage finMsg)
+syncReceiveFinalizationMessage :: SyncRunner -> FinalizationPseudoMessage -> IO (UpdateResult, [FinalizationOutputEvent])
+syncReceiveFinalizationMessage syncRunner finMsg = runSkovBufferedMWithStateLog syncRunner (receiveFinalizationPseudoMessage finMsg)
 
 syncReceiveFinalizationRecord :: SyncRunner -> FinalizationRecord -> IO (UpdateResult, [FinalizationOutputEvent])
 syncReceiveFinalizationRecord syncRunner finRec = runSkovBufferedMWithStateLog syncRunner (finalizeBlock finRec)
@@ -185,7 +185,7 @@ syncPassiveReceiveBlock spr block = runSkovPassiveMWithStateLog spr (storeBlock 
 syncPassiveReceiveTransaction :: SyncPassiveRunner -> Transaction -> IO UpdateResult
 syncPassiveReceiveTransaction spr trans = runSkovPassiveMWithStateLog spr (receiveTransaction trans)
 
-syncPassiveReceiveFinalizationMessage :: SyncPassiveRunner -> FinalizationMessage -> IO UpdateResult
+syncPassiveReceiveFinalizationMessage :: SyncPassiveRunner -> FinalizationPseudoMessage -> IO UpdateResult
 syncPassiveReceiveFinalizationMessage _ _ = return ResultSuccess
 
 syncPassiveReceiveFinalizationRecord :: SyncPassiveRunner -> FinalizationRecord -> IO UpdateResult
