@@ -58,7 +58,7 @@ transactionsInput =
                                     ,moduleName = "ChainMetaTest"
                                     ,parameter = "Unit.Unit"
                                     }
-           , metadata = makeHeader alesKP 2 1000
+           , metadata = makeHeader alesKP 2 10000
            , keypair = alesKP
            }
     ]

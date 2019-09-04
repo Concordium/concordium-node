@@ -19,6 +19,7 @@ import Control.Monad.RWS.Strict
 import Control.Monad.Cont hiding (cont)
 
 import Data.Void
+import Data.Word
 import Lens.Micro.Platform
 
 import qualified Acorn.Core as Core
@@ -59,11 +60,11 @@ class StaticEnvironmentMonad Core.UA m => SchedulerMonad m where
   -- |Check whehter we already cache the expression in a linked format.
   -- It is valid for the implementation to always return 'Nothing', although this
   -- will affect memory use since linked expressions will not be shared.
-  smTryGetLinkedExpr :: Core.ModuleRef -> Core.Name -> m (Maybe (LinkedExpr Void))
+  smTryGetLinkedExpr :: Core.ModuleRef -> Core.Name -> m (Maybe (LinkedExprWithDeps Void))
 
   -- |Store the linked expression in the linked expresssion cache.
   -- It is valid for this to be a no-op.
-  smPutLinkedExpr :: Core.ModuleRef -> Core.Name -> LinkedExpr Void -> m ()
+  smPutLinkedExpr :: Core.ModuleRef -> Core.Name -> LinkedExprWithDeps Void -> m ()
 
   -- |Try to get a linked contract init and receive methods.
   -- It is valid for the implementation to always return 'Nothing', although this
@@ -189,7 +190,7 @@ class StaticEnvironmentMonad Core.UA m => TransactionMonad m where
 
   -- |Link an expression into an expression ready to run.
   -- The expression is part of the given module
-  linkExpr :: Core.ModuleRef -> UnlinkedExpr Void -> m (LinkedExpr Void)
+  linkExpr :: Core.ModuleRef -> (UnlinkedExpr Void, Word64) -> m (LinkedExpr Void, Word64)
 
   -- |Link a contract's init, receive methods and implemented constraints.
   linkContract :: Core.ModuleRef -> Core.TyName -> UnlinkedContractValue Void -> m (LinkedContractValue Void)
@@ -239,7 +240,7 @@ class StaticEnvironmentMonad Core.UA m => TransactionMonad m where
 data ChangeSet = ChangeSet
     {_accountUpdates :: !(Map.HashMap AccountAddress AccountUpdate) -- ^Accounts whose states changed.
     ,_instanceUpdates :: !(Map.HashMap ContractAddress (AmountDelta, Value)) -- ^Contracts whose states changed.
-    ,_linkedExprs :: !(Map.HashMap (Core.ModuleRef, Core.Name) (LinkedExpr NoAnnot)) -- ^Newly linked expressions.
+    ,_linkedExprs :: !(Map.HashMap (Core.ModuleRef, Core.Name) (LinkedExprWithDeps NoAnnot)) -- ^Newly linked expressions.
     ,_linkedContracts :: !(Map.HashMap (Core.ModuleRef, Core.TyName) (LinkedContractValue NoAnnot))
     }
 
@@ -496,7 +497,15 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
       Just (delta, _) -> return $! applyAmountDelta delta amnt
       Nothing -> return amnt
 
-  linkExpr mref unlinked = link mref unlinked
+  -- FIXME: Determine what is best ratio for energy/term size.
+  linkExpr mref unlinked = do
+    energy <- use energyLeft
+    linkWithMaxSize mref unlinked (fromIntegral energy `div` 100) >>= \case
+      Just (le, termSize) -> do
+        tickEnergy (fromIntegral termSize * 100)
+        return (leExpr le, termSize)
+      Nothing -> rejectTransaction OutOfEnergy
+
 
   linkContract mref cname unlinked = do
     lCache <- use (changeSet . linkedContracts)
@@ -504,11 +513,11 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
       Nothing -> do
         liftLocal (smTryGetLinkedContract mref cname) >>= \case
           Nothing -> do
-            cvInitMethod <- link mref (Interfaces.cvInitMethod unlinked)
-            cvReceiveMethod <- link mref (Interfaces.cvReceiveMethod unlinked)
+            cvInitMethod <- linkExpr mref (Interfaces.cvInitMethod unlinked)
+            cvReceiveMethod <- linkExpr mref (Interfaces.cvReceiveMethod unlinked)
             cvImplements <- mapM (\iv -> do
-                                     ivSenders <- mapM (link mref) (Interfaces.ivSenders iv)
-                                     ivGetters <- mapM (link mref) (Interfaces.ivGetters iv)
+                                     ivSenders <- mapM (\s -> linkExpr mref s) (Interfaces.ivSenders iv)
+                                     ivGetters <- mapM (\s -> linkExpr mref s) (Interfaces.ivGetters iv)
                                      return Interfaces.ImplementsValue{..}
                                  ) (Interfaces.cvImplements unlinked)
             let linked = Interfaces.ContractValue{..}

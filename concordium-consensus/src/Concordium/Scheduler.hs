@@ -185,9 +185,9 @@ handleModule _meta msize mod = do
   -- This is done even if the transaction is rejected in the end.
   -- NB: The next line will reject the transaction in case there are not enough funds.
   tickEnergy (Cost.deployModule msize)
-  imod <- pure (runExcept (Core.makeInternal mod)) `rejectingWith'` MissingImports
+  let mhash = Core.moduleHash mod
+  imod <- pure (runExcept (Core.makeInternal mhash (fromIntegral msize) mod)) `rejectingWith'` MissingImports
   iface <- runExceptT (TC.typeModule imod) `rejectingWith'` ModuleNotWF
-  let mhash = Core.imRef imod
   let viface = I.evalModule imod
   return (mhash, iface, viface)
 
@@ -224,8 +224,8 @@ handleInitContract senderAccount meta amount modref cname param paramSize = do
             qparamExp <- runExceptT (TC.checkTyInCtx' iface param (paramTy ciface)) `rejectingWith'` ParamsTypeError
             -- NB: The unsafe Map.! is safe here because we do know the contract exists by the invariant on viface and iface
             linkedContract <- linkContract (uniqueName iface) cname (viContracts viface Map.! cname)
-            let initFun = cvInitMethod linkedContract
-            params' <- linkExpr (uniqueName iface) (compile qparamExp) -- linking must succeed because type-checking succeeded
+            let (initFun, _) = cvInitMethod linkedContract
+            (params', _) <- linkExpr (uniqueName iface) (compile qparamExp) -- linking must succeed because type-checking succeeded
             cm <- getChainMetadata
             res <- runInterpreter (I.applyInitFun cm (InitContext (thSender meta)) initFun params' (thSender meta) amount)
             return (linkedContract, iface, viface, (msgTy ciface), res, amount)
@@ -295,7 +295,7 @@ handleUpdateContract senderAccount meta cref amount maybeMsg msgSize = do
               -- we assume that gasAmount was available on the account due to the previous check (checkHeader)
           tickEnergy (Cost.updateMessageTypecheck msgSize)
           qmsgExp <- runExceptT (TC.checkTyInCtx' iface maybeMsg msgType) `rejectingWith'` MessageTypeError
-          qmsgExpLinked <- linkExpr (uniqueName iface) (compile qmsgExp)
+          (qmsgExpLinked, _) <- linkExpr (uniqueName iface) (compile qmsgExp)
           handleTransaction senderAccount
                             i
                             rf

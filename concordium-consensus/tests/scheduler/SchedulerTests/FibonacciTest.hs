@@ -56,7 +56,7 @@ transactionsInput =
                                   , parameter = "Unit.Unit"
                                   , contractName = "Fibonacci"
                                   }
-        , metadata = makeHeader alesKP 2 10000
+        , metadata = makeHeader alesKP 2 100000
         , keypair = alesKP
         }
   ,TJSON { payload = Update { amount = 0
