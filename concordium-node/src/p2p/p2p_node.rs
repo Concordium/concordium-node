@@ -422,16 +422,11 @@ impl P2PNode {
     }
 
     pub fn get_all_current_peers(&self, peer_type: Option<PeerType>) -> Vec<P2PNodeId> {
-        read_or_die!(self.connection_handler.connections)
-        .iter()
-        .filter(|conn| {
-            conn.is_post_handshake() && (
-                peer_type.is_none() || peer_type == Some(conn.remote_peer_type()) )
-        })
-        // we can safely unwrap here, because we've filetered away any
-        // non-post-handshake peers already
-        .map(|conn| conn.remote_peer().peer().unwrap().id() )
-        .collect()
+        read_or_die!(self.active_peer_stats)
+            .values()
+            .filter(|peer| peer_type.is_none() || peer_type == Some(peer.peer_type))
+            .map(|peer| P2PNodeId(peer.id))
+            .collect()
     }
 
     pub fn get_last_bootstrap(&self) -> u64 {
@@ -1053,14 +1048,11 @@ impl P2PNode {
     pub fn connections_posthandshake_count(&self, exclude_type: Option<PeerType>) -> u16 {
         // We will never have more than 2^16 connections per node, so this conversion is
         // safe.
-        read_or_die!(self.connection_handler.connections)
-            .iter()
-            .filter(|&conn| {
-                if !conn.is_post_handshake() {
-                    return false;
-                }
+        read_or_die!(self.active_peer_stats)
+            .values()
+            .filter(|&peer| {
                 if let Some(exclude_type) = exclude_type {
-                    return conn.remote_peer().peer_type() != exclude_type;
+                    return peer.peer_type != exclude_type;
                 }
                 true
             })
