@@ -50,7 +50,7 @@ makeInstance ::
 makeInstance instanceContractModule instanceContract conVal instanceMessageType instanceModuleInterface instanceModuleValueInterface instanceModel instanceAmount instanceOwner instanceAddress
         = Instance {..}
     where
-        instanceReceiveFun = cvReceiveMethod conVal
+        instanceReceiveFun = fst (cvReceiveMethod conVal)
         instanceImplements = cvImplements conVal
         instanceParameterHash = makeInstanceParameterHash instanceAddress instanceOwner instanceContractModule instanceContract
         instanceParameters = InstanceParameters {..}

@@ -28,7 +28,7 @@ type ModuleIndex = Word64
 data Module = Module {
     moduleInterface :: !(Interface Core.UA),
     moduleValueInterface :: !(UnlinkedValueInterface Void),
-    moduleLinkedDefs :: Map.HashMap Core.Name (LinkedExpr Void),
+    moduleLinkedDefs :: Map.HashMap Core.Name (LinkedExprWithDeps Void),
     moduleLinkedContracts :: Map.HashMap Core.TyName (LinkedContractValue Void),
     moduleIndex :: !ModuleIndex,
     moduleSource :: Core.Module Core.UA
@@ -100,11 +100,11 @@ unsafePutInterfaces mref iface viface source m =
 -- |NB: This method assumes the module with given reference is already in the
 -- database, and also that linked code does not affect the hash of the global
 -- state.
-putLinkedExpr :: Core.ModuleRef -> Core.Name -> LinkedExpr Void -> Modules -> Modules
+putLinkedExpr :: Core.ModuleRef -> Core.Name -> LinkedExprWithDeps Void -> Modules -> Modules
 putLinkedExpr mref n linked mods =
   mods & modules %~ flip Map.adjust mref (\Module{..} -> Module{moduleLinkedDefs=Map.insert n linked moduleLinkedDefs,..})
 
-getLinkedExpr :: Core.ModuleRef -> Core.Name -> Modules -> Maybe (LinkedExpr Void)
+getLinkedExpr :: Core.ModuleRef -> Core.Name -> Modules -> Maybe (LinkedExprWithDeps Void)
 getLinkedExpr mref n mods = do
   Module{..} <- mods ^. modules . at mref
   Map.lookup n moduleLinkedDefs
