@@ -292,9 +292,9 @@ impl P2PNode {
 
         let self_peer = P2PPeer::from(peer_type, id, SocketAddr::new(own_peer_ip, own_peer_port));
 
-        let (dump_tx, _dump_rx) = std::sync::mpsc::sync_channel(10000);
+        let (dump_tx, _dump_rx) = std::sync::mpsc::sync_channel(100);
 
-        let (act_tx, _act_rx) = std::sync::mpsc::sync_channel(10000);
+        let (act_tx, _act_rx) = std::sync::mpsc::sync_channel(100);
 
         #[cfg(feature = "network_dump")]
         create_dump_thread(own_peer_ip, id, _dump_rx, _act_rx, &conf.common.data_dir);
@@ -328,9 +328,9 @@ impl P2PNode {
             print_peers: true,
         };
 
-        let (send_queue_in, send_queue_out) = sync_channel(10000);
+        let (send_queue_in, send_queue_out) = sync_channel(25000);
         let (resend_queue_in, resend_queue_out) = sync_channel(10000);
-        let (network_request_sender, network_request_receiver) = sync_channel(10000);
+        let (network_request_sender, network_request_receiver) = sync_channel(25000);
 
         let receivers = Receivers {
             send_queue_out,

@@ -195,7 +195,7 @@ fn instantiate_node(
     (P2PNode, Receivers),
     mpsc::Receiver<RelayOrStopEnvelope<NetworkMessage>>,
 ) {
-    let (pkt_in, pkt_out) = mpsc::sync_channel(10000);
+    let (pkt_in, pkt_out) = mpsc::sync_channel(25000);
     let node_id = conf.common.id.clone().map_or(
         app_prefs.get_config(configuration::APP_PREFERENCES_PERSISTED_NODE_ID),
         |id| {
@@ -211,7 +211,7 @@ fn instantiate_node(
 
     // Start the thread reading P2PEvents from P2PNode
     let node = if conf.common.debug {
-        let (sender, receiver) = mpsc::sync_channel(10000);
+        let (sender, receiver) = mpsc::sync_channel(100);
         let _guard = spawn_or_die!("Log loop", move || loop {
             if let Ok(msg) = receiver.recv() {
                 info!("{}", msg);
