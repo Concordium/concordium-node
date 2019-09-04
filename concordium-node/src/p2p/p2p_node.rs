@@ -652,22 +652,23 @@ impl P2PNode {
     }
 
     fn liveness_check(&self) {
-        let curr_stamp = get_current_stamp();
+        debug!("Running connection liveness checks");
 
-        read_or_die!(self.connection_handler.connections)
-            .iter()
+        let curr_stamp = get_current_stamp();
+        let connections = read_or_die!(self.connection_handler.connections).clone();
+
+        connections
+            .into_iter()
             .filter(|conn| {
-                (conn.last_seen() + 120_000 < curr_stamp
-                    || conn.get_last_ping_sent() + 300_000 < curr_stamp)
-                    && conn.is_post_handshake()
+                conn.is_post_handshake()
                     && !conn.is_closed()
+                    && (conn.last_seen() + 120_000 < curr_stamp
+                        || conn.get_last_ping_sent() + 300_000 < curr_stamp)
             })
             .for_each(|conn| {
                 let request_ping = {
-                    let local_peer = conn.local_peer();
-
                     NetworkMessage::NetworkRequest(
-                        NetworkRequest::Ping(local_peer),
+                        NetworkRequest::Ping(conn.local_peer()),
                         Some(get_current_stamp()),
                         None,
                     )
@@ -684,6 +685,8 @@ impl P2PNode {
     }
 
     fn connection_housekeeping(&self) -> Fallible<()> {
+        debug!("Running connection housekeeping");
+
         let curr_stamp = get_current_stamp();
         let peer_type = self.peer_type();
 
@@ -700,8 +703,7 @@ impl P2PNode {
             });
 
         // clone the initial collection of connections to reduce locking
-        let uncleaned_connections: Vec<_> =
-            read_or_die!(self.connection_handler.connections).clone();
+        let uncleaned_connections = read_or_die!(self.connection_handler.connections).clone();
 
         // Clean duplicates only if it's a regular node we're running
         if peer_type != PeerType::Bootstrapper {
