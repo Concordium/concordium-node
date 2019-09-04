@@ -7,7 +7,6 @@ import Data.Functor
 import qualified Data.Sequence as Seq
 
 import Concordium.GlobalState.BlockState
-import qualified Concordium.GlobalState.Basic.BlockState as BS
 import Concordium.GlobalState.TreeState
 import Concordium.Types
 import qualified Concordium.GlobalState.Parameters as Param

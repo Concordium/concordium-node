@@ -39,7 +39,7 @@ import Concordium.Scheduler.Utils.Init.Example (initialState)
 
 import Concordium.Runner
 import Concordium.Skov hiding (receiveTransaction, getBirkParameters)
-import Concordium.Afgjort.Finalize (FinalizationOutputEvent(..), FinalizationQuery, FinalizationPoint, FinalizationMessage)
+import Concordium.Afgjort.Finalize (FinalizationPseudoMessage(..))
 import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.Skov.CatchUp (CatchUpStatus)
@@ -190,42 +190,6 @@ callBroadcastCallback cbk mt bs = BS.useAsCStringLen bs $ \(cdata, clen) -> invo
             MTFinalizationRecord -> 2
             MTCatchUpStatus -> 3
 
-{-
-
--- |Callback to signal that a block is missing by a block hash of a (possible) ancestor and
--- the difference in height from this ancestor.
-type MissingByBlockDeltaCallback = PeerID -> BlockReference -> Word64 -> IO ()
-foreign import ccall "dynamic" invokeMissingByBlockDeltaCallback :: FunPtr MissingByBlockDeltaCallback -> MissingByBlockDeltaCallback
-callMissingByBlockDeltaCallback :: FunPtr MissingByBlockDeltaCallback -> PeerID -> BlockHash -> BlockHeight -> IO ()
-callMissingByBlockDeltaCallback cbk peer bh delta = withBlockReference bh $ \bref -> invokeMissingByBlockDeltaCallback cbk peer bref (theBlockHeight delta)
-
--- |Callback to signal that an item is missing for a specific block.
-type MissingByBlockCallback = PeerID -> BlockReference -> IO ()
-foreign import ccall "dynamic" invokeMissingByBlockCallback :: FunPtr MissingByBlockCallback -> MissingByBlockCallback
-callMissingByBlockCallback :: FunPtr MissingByBlockCallback -> PeerID -> BlockHash -> IO ()
-callMissingByBlockCallback cbk peer bh = withBlockReference bh $ invokeMissingByBlockCallback cbk peer
-
--- |Callback to signal that a finalization record is missing at a given finalization index.
-type MissingByFinalizationIndexCallback = PeerID -> Word64 -> IO ()
-foreign import ccall "dynamic" invokeMissingByFinalizationIndexCallback :: FunPtr MissingByFinalizationIndexCallback -> MissingByFinalizationIndexCallback
-callMissingByFinalizationIndexCallback :: FunPtr MissingByFinalizationIndexCallback -> PeerID -> FinalizationIndex -> IO ()
-callMissingByFinalizationIndexCallback cbk peer (FinalizationIndex finIx) = invokeMissingByFinalizationIndexCallback cbk peer finIx
-
-missingCallback :: LogMethod IO -> FunPtr MissingByBlockDeltaCallback -> FunPtr MissingByBlockCallback -> FunPtr MissingByFinalizationIndexCallback -> PeerID -> SkovMissingEvent -> IO ()
-missingCallback logm missingBlock missingFinBlock missingFinIx = handleME
-    where
-        handleME peer (SkovMissingBlock bh delta) = do
-            logm External LLDebug $ "Requesting missing block " ++ show bh ++ "+ delta " ++ show (theBlockHeight delta) ++ " from peer " ++ show peer
-            callMissingByBlockDeltaCallback missingBlock peer bh delta
-        handleME peer (SkovMissingFinalization (Left bh)) = do
-            logm External LLDebug $ "Requesting missing finalization record for block " ++ show bh ++ " from peer " ++ show peer
-            callMissingByBlockCallback missingFinBlock peer bh
-        handleME peer (SkovMissingFinalization (Right fi)) = do
-            logm External LLDebug $ "Requesting missing finalization record at index " ++ show (theFinalizationIndex fi) ++ " from peer " ++ show peer
-            callMissingByFinalizationIndexCallback missingFinIx peer fi
-
--} 
-
 broadcastCallback :: LogMethod IO -> FunPtr BroadcastCallback -> SimpleOutMessage -> IO ()
 broadcastCallback logM bcbk = handleB
     where
@@ -354,12 +318,11 @@ toReceiveResult ResultStale = 7
 toReceiveResult ResultIncorrectFinalizationSession = 8
 
 
-handleSkovFinalizationEvents :: (SimpleOutMessage -> IO ()) -> [SkovFinalizationEvent] -> IO ()
+handleSkovFinalizationEvents :: (SimpleOutMessage -> IO ()) -> [FinalizationOutputEvent] -> IO ()
 handleSkovFinalizationEvents broadcast = mapM_ handleEvt
     where
-        handleEvt (SkovFinalization (BroadcastFinalizationMessage finMsg)) = broadcast (SOMsgFinalization finMsg)
-        handleEvt (SkovFinalization (BroadcastFinalizationRecord finRec)) = broadcast (SOMsgFinalizationRecord finRec)
-        handleEvt (SkovMissing _req) = return ()
+        handleEvt (BroadcastFinalizationMessage finMsg) = broadcast (SOMsgFinalization (FPMMessage finMsg))
+        handleEvt (BroadcastFinalizationRecord finRec) = broadcast (SOMsgFinalizationRecord finRec)
 
 -- |Handle receipt of a block.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
@@ -389,9 +352,7 @@ receiveBlock bptr cstr l = do
                                 (res, evts) <- syncReceiveBlock bakerSyncRunner block
                                 handleSkovFinalizationEvents bakerBroadcast evts
                                 return res
-                            PassiveRunner{..} -> do
-                                (res, _) <- syncPassiveReceiveBlock passiveSyncRunner block
-                                return res
+                            PassiveRunner{..} -> syncPassiveReceiveBlock passiveSyncRunner block
 
 
 -- |Handle receipt of a finalization message.
@@ -416,9 +377,7 @@ receiveFinalization bptr cstr l = do
                     (res, evts) <- syncReceiveFinalizationMessage bakerSyncRunner finMsg
                     handleSkovFinalizationEvents bakerBroadcast evts
                     return res
-                PassiveRunner{..} -> do
-                    (res, _) <- syncPassiveReceiveFinalizationMessage passiveSyncRunner finMsg
-                    return res
+                PassiveRunner{..} -> syncPassiveReceiveFinalizationMessage passiveSyncRunner finMsg
 
 -- |Handle receipt of a finalization record.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
@@ -443,9 +402,7 @@ receiveFinalizationRecord bptr cstr l = do
                     (res, evts) <- syncReceiveFinalizationRecord bakerSyncRunner finRec
                     handleSkovFinalizationEvents bakerBroadcast evts
                     return res
-                PassiveRunner{..} -> do
-                    (res, _) <- syncPassiveReceiveFinalizationRecord passiveSyncRunner finRec
-                    return res
+                PassiveRunner{..} -> syncPassiveReceiveFinalizationRecord passiveSyncRunner finRec
 
 -- |Handle receipt of a transaction.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultDuplicate@, and @ResultStale@
@@ -466,11 +423,9 @@ receiveTransaction bptr tdata len = do
                     (res, _) <- syncReceiveTransaction bakerSyncRunner tr
                     -- Currently, no events can occur as a result of receiving a transaction
                     return res
-                PassiveRunner{..} -> do
-                    (res, _) <- syncPassiveReceiveTransaction passiveSyncRunner tr
-                    return res
+                PassiveRunner{..} -> syncPassiveReceiveTransaction passiveSyncRunner tr
 
-runConsensusQuery :: ConsensusRunner -> (forall z m s. (Get.SkovStateQueryable z m, TS.TreeStateMonad m, MonadState s m, FinalizationQuery s, TS.PendingBlock m ~ PendingBlock, TS.BlockPointer m ~ BlockPointer) => z -> a) -> a
+runConsensusQuery :: ConsensusRunner -> (forall z m s. (Get.SkovStateQueryable z m, TS.TreeStateMonad m, MonadState s m, TS.PendingBlock m ~ PendingBlock, TS.BlockPointer m ~ BlockPointer) => z -> a) -> a
 runConsensusQuery BakerRunner{..} f = f (syncState bakerSyncRunner)
 runConsensusQuery PassiveRunner{..} f = f (syncPState passiveSyncRunner)
 
@@ -778,51 +733,6 @@ getIndexedFinalization cptr finInd = do
                 logm External LLInfo $ "Finalization record found"
                 byteStringToCString $ P.runPut $ put finRec
 
-type FinalizationMessageCallback = PeerID -> CString -> Int64 -> IO ()
-
-foreign import ccall "dynamic" callFinalizationMessageCallback :: FunPtr FinalizationMessageCallback -> FinalizationMessageCallback
-
--- |Get pending finalization messages beyond a given point.
--- The finalization messages are returned by calling the provided
--- callback for each message, which receives the peer id, a string and
--- the length of the string.  The call returns once all messages are handled.
--- A return value of 0 indicates success.  A return value of 1 indicates
--- that the finalization point could not be deserialized.
--- Note: this function is thread safe; it will not block, but the data can in
--- principle be out of date.
-getFinalizationMessages :: StablePtr ConsensusRunner 
-    -> PeerID -- ^Peer id (used in callback)
-    -> CString -> Int64 -- ^Data, length of finalization point
-    -> FunPtr FinalizationMessageCallback -> IO Int64
-getFinalizationMessages cptr peer finPtStr finPtLen callback = do
-        c <- deRefStablePtr cptr
-        let logm = consensusLogMethod c
-        logm External LLInfo $ "Received request for finalization messages"
-        finPtBS <- BS.packCStringLen (finPtStr, fromIntegral finPtLen)
-        case runGet get finPtBS :: Either String FinalizationPoint of
-            Left _ -> do
-                logm External LLDebug "Finalization point deserialization failed"
-                return 1
-            Right fpt -> do
-                finMsgs <- runConsensusQuery c Get.getFinalizationMessages fpt
-                forM_ (finMsgs :: [FinalizationMessage]) $ \finMsg -> do
-                    logm External LLDebug $ "Sending finalization catchup, data = " ++ show finMsg
-                    BS.useAsCStringLen (runPut $ put finMsg) $ \(cstr, l) -> callFinalizationMessageCallback callback peer cstr (fromIntegral l)
-                return 0
-
--- |Get the current point in the finalization protocol.
--- The return value is a length encoded string: the first 4 bytes are
--- the length (encoded big-endian), followed by the data itself.
--- The string should be freed by calling 'freeCStr'.
-getFinalizationPoint :: StablePtr ConsensusRunner -> IO CString
-getFinalizationPoint cptr = do 
-        c <- deRefStablePtr cptr
-        let logm = consensusLogMethod c
-        logm External LLInfo $ "Received request for finalization point"
-        finPt <- runConsensusQuery c Get.getFinalizationPoint
-        logm External LLDebug $ "Replying with finalization point = " ++ show finPt
-        byteStringToCString $ encode (finPt :: FinalizationPoint)
-
 -- |Get a catch-up status message for requesting catch-up with peers.
 -- The return value is a length encoded string: the first 4 bytes are
 -- the length (encoded big-endian), followed by the data itself.
@@ -912,8 +822,6 @@ foreign export ccall getBlock :: StablePtr ConsensusRunner -> BlockReference -> 
 foreign export ccall getBlockDelta :: StablePtr ConsensusRunner -> BlockReference -> Word64 -> IO CString
 foreign export ccall getBlockFinalization :: StablePtr ConsensusRunner -> BlockReference -> IO CString
 foreign export ccall getIndexedFinalization :: StablePtr ConsensusRunner -> Word64 -> IO CString
-foreign export ccall getFinalizationMessages :: StablePtr ConsensusRunner -> PeerID -> CString -> Int64 -> FunPtr FinalizationMessageCallback -> IO Int64
-foreign export ccall getFinalizationPoint :: StablePtr ConsensusRunner -> IO CString
 
 foreign export ccall getCatchUpStatus :: StablePtr ConsensusRunner -> IO CString
 foreign export ccall receiveCatchUpStatus :: StablePtr ConsensusRunner -> PeerID -> CString -> Int64 -> FunPtr DirectMessageCallback -> IO ReceiveResult

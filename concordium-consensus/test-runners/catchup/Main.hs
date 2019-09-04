@@ -2,6 +2,11 @@
 {-# LANGUAGE LambdaCase #-}
 module Main where
 
+main :: IO ()
+main = return ()
+
+{-
+
 import Control.Concurrent
 import Control.Monad
 import System.Random
@@ -230,3 +235,4 @@ main = do
                     loop
     loop
 
+-}

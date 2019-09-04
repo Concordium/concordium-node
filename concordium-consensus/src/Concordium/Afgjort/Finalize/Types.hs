@@ -12,8 +12,6 @@ import Data.Maybe
 import Control.Monad
 import Data.ByteString(ByteString)
 import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as Map
-import Data.Bits
 
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
@@ -43,6 +41,9 @@ data FinalizationCommittee = FinalizationCommittee {
     totalWeight :: !VoterPower,
     corruptWeight :: !VoterPower
 }
+
+committeeMaxParty :: FinalizationCommittee -> Party
+committeeMaxParty FinalizationCommittee{..} = fromIntegral (Vec.length parties)
 
 makeFinalizationCommittee :: FinalizationParameters -> FinalizationCommittee
 makeFinalizationCommittee (FinalizationParameters {..}) = FinalizationCommittee {..}
@@ -125,3 +126,99 @@ checkMessage com msg = all validParty (messageParties $ msgBody msg) && checkMes
     where
         validParty = (< numParties)
         numParties = fromIntegral $ Vec.length $ parties com
+
+data FinalizationSummary = FinalizationSummary {
+    -- |For each failed round (in order of increasing delta),
+    -- a collection of signatures on 'WeAreDone False'.
+    summaryFailedRounds :: [Map Party Sig.Signature],
+    -- |Summary for the current round.
+    summaryCurrentRound :: WMVBASummary Sig.Signature
+}
+
+putFinalizationSummary :: Party -> FinalizationSummary -> Put
+putFinalizationSummary maxParty FinalizationSummary{..} = do
+        putWord16be $ fromIntegral $ length summaryFailedRounds
+        forM_ summaryFailedRounds (putPartyMap maxParty)
+        putWMVBASummary maxParty summaryCurrentRound
+
+getFinalizationSummary :: Party -> S.Get FinalizationSummary
+getFinalizationSummary maxParty = do
+        nFailedRounds <- S.getWord16be
+        summaryFailedRounds <- forM [1..nFailedRounds] $ \_ -> getPartyMap maxParty
+        summaryCurrentRound <- getWMVBASummary maxParty
+        return FinalizationSummary{..}
+
+data CatchUpMessage = CatchUpMessage {
+    cuSessionId :: !FinalizationSessionId,
+    cuFinalizationIndex :: !FinalizationIndex,
+    cuSenderIndex :: !Party,
+    cuMaxParty :: !Party,
+    cuFinalizationSummary :: !FinalizationSummary,
+    cuSignature :: !Sig.Signature
+}
+
+signCatchUpMessage :: Sig.KeyPair -> FinalizationSessionId -> FinalizationIndex -> Party -> Party -> FinalizationSummary -> CatchUpMessage
+signCatchUpMessage keyPair cuSessionId cuFinalizationIndex cuSenderIndex cuMaxParty cuFinalizationSummary = CatchUpMessage{..}
+    where
+        cuSignature = Sig.sign keyPair encoded
+        encoded = runPut $ do
+            S.put FinalizationMessageHeader{
+                msgSessionId = cuSessionId,
+                msgFinalizationIndex = cuFinalizationIndex,
+                msgDelta = 0,
+                msgSenderIndex = cuSenderIndex
+            }
+            S.put cuMaxParty
+            putFinalizationSummary cuMaxParty cuFinalizationSummary
+
+checkCatchUpMessageSignature :: FinalizationCommittee -> CatchUpMessage -> Bool
+checkCatchUpMessageSignature com CatchUpMessage{..} = isJust $ do
+        p <- toPartyInfo com cuSenderIndex
+        guard $ Sig.verify (partySignKey p) encoded cuSignature
+    where
+        encoded = runPut $ do
+            S.put FinalizationMessageHeader{
+                msgSessionId = cuSessionId,
+                msgFinalizationIndex = cuFinalizationIndex,
+                msgDelta = 0,
+                msgSenderIndex = cuSenderIndex
+            }
+            S.put cuMaxParty
+            putFinalizationSummary cuMaxParty cuFinalizationSummary
+
+data FinalizationPseudoMessage
+    = FPMMessage !FinalizationMessage
+    | FPMCatchUp !CatchUpMessage
+
+instance S.Serialize FinalizationPseudoMessage where
+    put (FPMMessage msg) = S.put msg
+    put (FPMCatchUp CatchUpMessage{..}) = do
+        S.put FinalizationMessageHeader{
+            msgSessionId = cuSessionId,
+            msgFinalizationIndex = cuFinalizationIndex,
+            msgDelta = 0,
+            msgSenderIndex = cuSenderIndex
+        }
+        S.put cuMaxParty
+        putFinalizationSummary cuMaxParty cuFinalizationSummary
+        S.put cuSignature
+    get = do
+        msgHeader@FinalizationMessageHeader{..} <- S.get
+        if msgDelta == 0 then do
+            cuMaxParty <- S.get
+            cuFinalizationSummary <- getFinalizationSummary cuMaxParty
+            cuSignature <- S.get
+            return $ FPMCatchUp CatchUpMessage{
+                cuSessionId = msgSessionId,
+                cuFinalizationIndex = msgFinalizationIndex,
+                cuSenderIndex = msgSenderIndex,
+                ..
+            }
+        else do
+            msgBody <- S.get
+            msgSignature <- S.get
+            return $ FPMMessage FinalizationMessage{..}
+
+instance Show FinalizationPseudoMessage where
+    show (FPMMessage msg) = show msg
+    show (FPMCatchUp _) = "[Finalization Catch-Up Message]"
