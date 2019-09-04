@@ -1801,11 +1801,6 @@ impl P2PNode {
         Ok(())
     }
 
-    // pub fn add_notification(&self, func: UnitFunction<NetworkMessage>) -> &Self {
-    // self.add_notification(func);
-    // self
-    // }
-
     pub fn send_ban(&self, id: BannedNode) {
         send_or_die!(
             self.send_queue_in,
