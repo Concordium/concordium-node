@@ -51,12 +51,14 @@ invariantInstanceTable (Tree c0 t) = do
 invariantInstances :: Instances -> Either String ()
 invariantInstances = invariantInstanceTable . _instances
 
+dummyExpr :: (Expr linked annot, Word64)
+dummyExpr = (UnCast, 1)
+
 makeArbitraryInstance :: Gen (ContractAddress -> Instance)
 makeArbitraryInstance = do
         let
             modRef = Core.ModuleRef (H.hash "module")
             tyname = 0
-            dummyExpr = UnCast
             contract = ContractValue dummyExpr dummyExpr HM.empty
             messageType = Core.TBase Core.TInt32
         model <- VLiteral . Core.Int32 <$> arbitrary
@@ -70,7 +72,6 @@ makeDummyInstance (InstanceData model amount) =
     where
         modRef = Core.ModuleRef (H.hash "module")
         tyname = 0
-        dummyExpr = UnCast
         contract = ContractValue dummyExpr dummyExpr HM.empty
         messageType = Core.TBase Core.TInt32
         owner = AccountAddress . FBS.pack . replicate 21 $ 0

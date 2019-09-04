@@ -170,11 +170,11 @@ class BlockStateQuery m => BlockStateOperations m where
                   -> m (Bool, UpdatableBlockState m)
 
   -- |Consult the linked expression cache for whether this definitionn is already linked.
-  bsoTryGetLinkedExpr :: UpdatableBlockState m -> Core.ModuleRef -> Core.Name -> m (Maybe (LinkedExpr Void))
+  bsoTryGetLinkedExpr :: UpdatableBlockState m -> Core.ModuleRef -> Core.Name -> m (Maybe (LinkedExprWithDeps Void))
 
   -- |Put a new linked expression to the cache.
   -- This method may assume that the module with given reference is already in the state (i.e., putNewModule was called before).
-  bsoPutLinkedExpr :: UpdatableBlockState m -> Core.ModuleRef -> Core.Name -> LinkedExpr Void -> m (UpdatableBlockState m)
+  bsoPutLinkedExpr :: UpdatableBlockState m -> Core.ModuleRef -> Core.Name -> LinkedExprWithDeps Void -> m (UpdatableBlockState m)
 
   -- |Try to get linked contract code from the cache.
   bsoTryGetLinkedContract :: UpdatableBlockState m
