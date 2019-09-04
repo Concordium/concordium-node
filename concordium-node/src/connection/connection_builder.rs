@@ -5,7 +5,7 @@ use crate::{
         network_handler::message_processor::MessageProcessor, Connection,
     },
     network::NetworkId,
-    p2p::noise_protocol_handler::NoiseProtocolHandler,
+    p2p::P2PNode,
 };
 
 use failure::Fallible;
@@ -20,7 +20,7 @@ use std::{
 
 #[derive(Default)]
 pub struct ConnectionBuilder {
-    handler_ref:       Option<Pin<Arc<NoiseProtocolHandler>>>,
+    handler_ref:       Option<Pin<Arc<P2PNode>>>,
     key_pair:          Option<Keypair>,
     token:             Option<Token>,
     is_initiator:      bool,
@@ -65,10 +65,7 @@ impl ConnectionBuilder {
         }
     }
 
-    pub fn set_handler_ref(
-        mut self,
-        handler_ref: Pin<Arc<NoiseProtocolHandler>>,
-    ) -> ConnectionBuilder {
+    pub fn set_handler_ref(mut self, handler_ref: Pin<Arc<P2PNode>>) -> ConnectionBuilder {
         self.handler_ref = Some(handler_ref);
         self
     }

@@ -30,7 +30,7 @@ mod connection_handshake_handlers;
 mod connection_private;
 mod handler_utils;
 
-pub use crate::connection::connection_private::ConnectionPrivate;
+pub use crate::{connection::connection_private::ConnectionPrivate, p2p::P2PNode};
 
 pub use network_handler::{
     MessageHandler, NetworkPacketCW, NetworkRequestCW, NetworkResponseCW, RequestHandler,
@@ -53,7 +53,6 @@ use crate::{
         },
     },
     network::{Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse},
-    p2p::noise_protocol_handler::NoiseProtocolHandler,
 };
 use concordium_common::stats_export_service::StatsExportService;
 
@@ -85,7 +84,7 @@ macro_rules! handle_by_private {
 
 #[derive(Clone)]
 pub struct Connection {
-    handler_ref: Pin<Arc<NoiseProtocolHandler>>,
+    handler_ref: Pin<Arc<P2PNode>>,
 
     // Counters
     pub messages_sent:     Arc<AtomicU64>,
@@ -106,7 +105,7 @@ pub struct Connection {
 }
 
 impl Connection {
-    pub fn handler(&self) -> &Pin<Arc<NoiseProtocolHandler>> { &self.handler_ref }
+    pub fn handler(&self) -> &Pin<Arc<P2PNode>> { &self.handler_ref }
 
     // Setup handshake handler
     pub fn setup_pre_handshake(&self) {
@@ -245,7 +244,7 @@ impl Connection {
             .store(get_current_stamp(), Ordering::SeqCst);
     }
 
-    pub fn local_peer(&self) -> P2PPeer { self.handler().node().self_peer }
+    pub fn local_peer(&self) -> P2PPeer { self.handler().self_peer }
 
     pub fn remote_peer(&self) -> RemotePeer { read_or_die!(self.dptr).remote_peer() }
 
@@ -342,10 +341,12 @@ impl Connection {
     }
 
     pub fn stats_export_service(&self) -> Option<StatsExportService> {
-        self.handler().node().stats_export_service().clone()
+        self.handler().stats_export_service().clone()
     }
 
-    pub fn buckets(&self) -> Arc<RwLock<Buckets>> { Arc::clone(&self.handler().buckets) }
+    pub fn buckets(&self) -> Arc<RwLock<Buckets>> {
+        Arc::clone(&self.handler().connection_handler.buckets)
+    }
 
     #[inline]
     pub fn promote_to_post_handshake(&self, id: P2PNodeId, addr: SocketAddr) -> Fallible<()> {
@@ -373,6 +374,7 @@ impl Connection {
         };
         into_err!(self
             .handler()
+            .connection_handler
             .network_request_sender
             .as_ref()
             .expect("The network request sender is not available!")
@@ -468,17 +470,11 @@ mod tests {
         await_handshake(&w1)?;
 
         // Deregister connection on the node side
-        let conn_node = node
-            .noise_protocol_handler
-            .find_connection_by_id(bootstrapper.id())
-            .unwrap();
+        let conn_node = node.find_connection_by_id(bootstrapper.id()).unwrap();
         node.deregister_connection(&conn_node)?;
 
         // Deregister connection on the bootstrapper side
-        let conn_bootstrapper = bootstrapper
-            .noise_protocol_handler
-            .find_connection_by_id(node.id())
-            .unwrap();
+        let conn_bootstrapper = bootstrapper.find_connection_by_id(node.id()).unwrap();
         bootstrapper.deregister_connection(&conn_bootstrapper)?;
 
         // Assert that a Node accepts every packet

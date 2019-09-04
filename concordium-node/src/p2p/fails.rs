@@ -45,8 +45,8 @@ impl Display for DuplicatePeerError {
 pub struct BannedNodeRequestedConnectionError;
 
 #[derive(Debug, Fail)]
-#[fail(display = "Missing fields in attempt to create a Noise Protocol Handler")]
-pub struct MissingFieldsOnNoiseProtocolHandlerBuilder;
+#[fail(display = "Missing fields in attempt to create a Connection Handler")]
+pub struct MissingFieldsOnConnectionHandlerBuilder;
 
 #[derive(Debug, Fail)]
 #[fail(

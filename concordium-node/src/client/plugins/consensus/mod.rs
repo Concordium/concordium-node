@@ -430,6 +430,7 @@ pub fn send_consensus_msg_to_net(
         .write_u16::<NetworkEndian>(payload_type as u16)
         .expect("Can't write a packet payload to buffer");
     packet_buffer.write_all(payload)?;
+    packet_buffer.rewind()?;
 
     let result = if target_id.is_some() {
         send_direct_message(node, target_id, network_id, None, packet_buffer)
