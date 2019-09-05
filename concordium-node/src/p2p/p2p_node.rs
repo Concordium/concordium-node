@@ -6,7 +6,7 @@ use crate::{
         serialization::serialize_into_memory, NetworkRawRequest, P2PNodeId, P2PPeer, PeerStats,
         PeerType, RemotePeer,
     },
-    configuration,
+    configuration::Config,
     connection::{
         network_handler::{
             message_handler::NetworkMessageCW,
@@ -61,7 +61,7 @@ use std::{
     sync::{
         atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
         mpsc::{sync_channel, Receiver, SyncSender},
-        Arc, Mutex, RwLock,
+        Arc, RwLock,
     },
     thread::{JoinHandle, ThreadId},
     time::{Duration, SystemTime},
@@ -120,76 +120,6 @@ impl ResendQueueEntry {
     }
 }
 
-#[derive(Default)]
-pub struct ConnectionHandlerBuilder {
-    server:       Option<TcpListener>,
-    event_log:    Option<SyncSender<P2PEvent>>,
-    buckets:      Option<Arc<RwLock<Buckets>>>,
-    networks:     Option<HashSet<NetworkId>>,
-    noise_params: Option<snow::params::NoiseParams>,
-}
-
-impl ConnectionHandlerBuilder {
-    pub fn build(self) -> Fallible<ConnectionHandler> {
-        if let (Some(networks), Some(server), Some(buckets), Some(noise_params)) =
-            (self.networks, self.server, self.buckets, self.noise_params)
-        {
-            let key_pair = snow::Builder::new(noise_params.clone()).generate_keypair()?;
-
-            let mself = ConnectionHandler {
-                server: Arc::new(server),
-                next_id: Arc::new(AtomicUsize::new(2)),
-                key_pair: Arc::new(key_pair),
-                event_log: self.event_log,
-                buckets,
-                message_processor: MessageProcessor::new(),
-                prehandshake_validations: PreHandshake::new(),
-                log_dumper: None,
-                noise_params,
-                network_request_sender: None,
-                connections: Default::default(),
-                to_disconnect: Default::default(),
-                unreachable_nodes: UnreachableNodes::new(),
-                banned_peers: Arc::new(RwLock::new(BannedNodes::new())),
-                networks: Arc::new(RwLock::new(networks)),
-                last_bootstrap: Default::default(),
-            };
-
-            Ok(mself)
-        } else {
-            Err(Error::from(fails::MissingFieldsOnConnectionHandlerBuilder))
-        }
-    }
-
-    pub fn set_server(mut self, s: TcpListener) -> ConnectionHandlerBuilder {
-        self.server = Some(s);
-        self
-    }
-
-    pub fn set_event_log(mut self, el: Option<SyncSender<P2PEvent>>) -> ConnectionHandlerBuilder {
-        self.event_log = el;
-        self
-    }
-
-    pub fn set_buckets(mut self, b: Arc<RwLock<Buckets>>) -> ConnectionHandlerBuilder {
-        self.buckets = Some(b);
-        self
-    }
-
-    pub fn set_networks(mut self, n: HashSet<NetworkId>) -> ConnectionHandlerBuilder {
-        self.networks = Some(n);
-        self
-    }
-
-    pub fn set_noise_params(
-        mut self,
-        config: &crate::configuration::CryptoConfig,
-    ) -> ConnectionHandlerBuilder {
-        self.noise_params = Some(generate_snow_config(config));
-        self
-    }
-}
-
 #[derive(Clone)]
 pub struct ConnectionHandler {
     server:                     Arc<TcpListener>,
@@ -201,13 +131,59 @@ pub struct ConnectionHandler {
     prehandshake_validations:   PreHandshake,
     pub log_dumper:             Option<SyncSender<DumpItem>>,
     noise_params:               snow::params::NoiseParams,
-    pub network_request_sender: Option<SyncSender<NetworkRawRequest>>,
+    pub network_request_sender: SyncSender<NetworkRawRequest>,
     connections:                Arc<RwLock<Vec<Connection>>>,
     pub to_disconnect:          Arc<RwLock<VecDeque<P2PNodeId>>>,
     pub unreachable_nodes:      UnreachableNodes,
     pub banned_peers:           Arc<RwLock<BannedNodes>>,
     pub networks:               Arc<RwLock<HashSet<NetworkId>>>,
     pub last_bootstrap:         Arc<AtomicU64>,
+}
+
+impl ConnectionHandler {
+    fn new(
+        conf: &Config,
+        server: TcpListener,
+        network_request_sender: SyncSender<NetworkRawRequest>,
+        event_log: Option<SyncSender<P2PEvent>>,
+    ) -> Self {
+        let networks: HashSet<NetworkId> = conf
+            .common
+            .network_ids
+            .iter()
+            .cloned()
+            .map(NetworkId::from)
+            .collect();
+        let noise_params = generate_snow_config(&conf.crypto);
+        let key_pair = snow::Builder::new(noise_params.clone())
+            .generate_keypair()
+            .expect("Can't create a connection handler!");
+
+        ConnectionHandler {
+            server: Arc::new(server),
+            next_id: Arc::new(AtomicUsize::new(2)),
+            key_pair: Arc::new(key_pair),
+            event_log,
+            buckets: Arc::new(RwLock::new(Buckets::new())),
+            message_processor: MessageProcessor::new(),
+            prehandshake_validations: PreHandshake::new(),
+            log_dumper: None,
+            noise_params,
+            network_request_sender,
+            connections: Default::default(),
+            to_disconnect: Default::default(),
+            unreachable_nodes: UnreachableNodes::new(),
+            banned_peers: Arc::new(RwLock::new(BannedNodes::new())),
+            networks: Arc::new(RwLock::new(networks)),
+            last_bootstrap: Default::default(),
+        }
+    }
+}
+
+pub struct Receivers {
+    send_queue_out:       Receiver<NetworkMessage>,
+    resend_queue_out:     Receiver<ResendQueueEntry>,
+    pub network_requests: Receiver<NetworkRawRequest>,
 }
 
 #[derive(Clone)]
@@ -218,12 +194,9 @@ pub struct P2PNode {
     pub poll:                 Arc<Poll>,
     pub connection_handler:   ConnectionHandler,
     pub send_queue_in:        SyncSender<NetworkMessage>,
-    send_queue_out:           Arc<Mutex<Receiver<NetworkMessage>>>,
     resend_queue_in:          SyncSender<ResendQueueEntry>,
-    resend_queue_out:         Arc<Mutex<Receiver<ResendQueueEntry>>>,
     pub queue_to_super:       RelayOrStopSyncSender<NetworkMessage>,
     pub rpc_queue:            SyncSender<NetworkMessage>,
-    quit_tx:                  Option<SyncSender<bool>>,
     dump_switch:              SyncSender<(std::path::PathBuf, bool)>,
     dump_tx:                  SyncSender<crate::dumper::DumpItem>,
     pub active_peer_stats:    Arc<RwLock<HashMap<u64, PeerStats>>>,
@@ -231,18 +204,19 @@ pub struct P2PNode {
     pub config:               P2PNodeConfig,
     start_time:               DateTime<Utc>,
     pub is_rpc_online:        Arc<AtomicBool>,
+    pub is_terminated:        Arc<AtomicBool>,
 }
 
 impl P2PNode {
     pub fn new(
         supplied_id: Option<String>,
-        conf: &configuration::Config,
+        conf: &Config,
         pkt_queue: RelayOrStopSyncSender<NetworkMessage>,
         event_log: Option<SyncSender<P2PEvent>>,
         peer_type: PeerType,
         stats_export_service: Option<StatsExportService>,
         subscription_queue_in: SyncSender<NetworkMessage>,
-    ) -> Self {
+    ) -> (Self, Receivers) {
         let addr = if let Some(ref addy) = conf.common.listen_address {
             format!("{}:{}", addy, conf.common.listen_port)
                 .parse()
@@ -318,9 +292,9 @@ impl P2PNode {
 
         let self_peer = P2PPeer::from(peer_type, id, SocketAddr::new(own_peer_ip, own_peer_port));
 
-        let (dump_tx, _dump_rx) = std::sync::mpsc::sync_channel(10000);
+        let (dump_tx, _dump_rx) = std::sync::mpsc::sync_channel(100);
 
-        let (act_tx, _act_rx) = std::sync::mpsc::sync_channel(10000);
+        let (act_tx, _act_rx) = std::sync::mpsc::sync_channel(100);
 
         #[cfg(feature = "network_dump")]
         create_dump_thread(own_peer_ip, id, _dump_rx, _act_rx, &conf.common.data_dir);
@@ -354,36 +328,27 @@ impl P2PNode {
             print_peers: true,
         };
 
-        let networks: HashSet<NetworkId> = conf
-            .common
-            .network_ids
-            .iter()
-            .cloned()
-            .map(NetworkId::from)
-            .collect();
-        let connection_handler = ConnectionHandlerBuilder::default()
-            .set_server(server)
-            .set_event_log(event_log)
-            .set_networks(networks)
-            .set_buckets(Arc::new(RwLock::new(Buckets::new())))
-            .set_noise_params(&conf.crypto)
-            .build()
-            .expect("P2P Node creation couldn't create a Connection Handler");
-
-        let (send_queue_in, send_queue_out) = sync_channel(10000);
+        let (send_queue_in, send_queue_out) = sync_channel(25000);
         let (resend_queue_in, resend_queue_out) = sync_channel(10000);
+        let (network_request_sender, network_request_receiver) = sync_channel(25000);
+
+        let receivers = Receivers {
+            send_queue_out,
+            resend_queue_out,
+            network_requests: network_request_receiver,
+        };
+
+        let connection_handler =
+            ConnectionHandler::new(conf, server, network_request_sender, event_log);
 
         let mut node = P2PNode {
             poll: Arc::new(poll),
-            send_queue_out: Arc::new(Mutex::new(send_queue_out)),
             resend_queue_in: resend_queue_in.clone(),
-            resend_queue_out: Arc::new(Mutex::new(resend_queue_out)),
             queue_to_super: pkt_queue,
             rpc_queue: subscription_queue_in,
             start_time: Utc::now(),
             external_addr: SocketAddr::new(own_peer_ip, own_peer_port),
             thread: Arc::new(RwLock::new(P2PNodeThread::default())),
-            quit_tx: None,
             config,
             dump_switch: act_tx,
             dump_tx,
@@ -393,12 +358,13 @@ impl P2PNode {
             active_peer_stats: Default::default(),
             send_queue_in,
             stats_export_service,
+            is_terminated: Default::default(),
         };
         node.add_default_prehandshake_validations();
         node.setup_default_message_handler();
         node.add_default_message_handlers();
 
-        node
+        (node, receivers)
     }
 
     /// It setups default message handler at noise protocol handler level.
@@ -456,16 +422,11 @@ impl P2PNode {
     }
 
     pub fn get_all_current_peers(&self, peer_type: Option<PeerType>) -> Vec<P2PNodeId> {
-        read_or_die!(self.connection_handler.connections)
-        .iter()
-        .filter(|conn| {
-            conn.is_post_handshake() && (
-                peer_type.is_none() || peer_type == Some(conn.remote_peer_type()) )
-        })
-        // we can safely unwrap here, because we've filetered away any
-        // non-post-handshake peers already
-        .map(|conn| conn.remote_peer().peer().unwrap().id() )
-        .collect()
+        read_or_die!(self.active_peer_stats)
+            .values()
+            .filter(|peer| peer_type.is_none() || peer_type == Some(peer.peer_type))
+            .map(|peer| P2PNodeId(peer.id))
+            .collect()
     }
 
     pub fn get_last_bootstrap(&self) -> u64 {
@@ -637,27 +598,23 @@ impl P2PNode {
         }
     }
 
-    pub fn spawn(&mut self) {
+    pub fn spawn(&mut self, receivers: Receivers) {
         // Prepare poll-loop channels.
-        let (network_request_sender, network_request_receiver) = sync_channel(10000);
-        self.set_network_request_sender(network_request_sender);
-
         let self_clone = self.clone();
-
-        let (tx, rx) = sync_channel(10000);
-        self.quit_tx = Some(tx);
 
         let join_handle = spawn_or_die!("P2PNode spawned thread", move || {
             let mut events = Events::with_capacity(10);
             let mut log_time = SystemTime::now();
 
             loop {
-                let _ = self_clone.process(&mut events).map_err(|e| error!("{}", e));
+                let _ = self_clone
+                    .process(&receivers, &mut events)
+                    .map_err(|e| error!("{}", e));
 
-                process_network_requests(&self_clone, &network_request_receiver);
+                process_network_requests(&self_clone, &receivers);
 
-                // Check termination channel.
-                if rx.try_recv().is_ok() {
+                // Check the termination switch
+                if self_clone.is_terminated.load(Ordering::Relaxed) {
                     break;
                 }
 
@@ -690,22 +647,23 @@ impl P2PNode {
     }
 
     fn liveness_check(&self) {
-        let curr_stamp = get_current_stamp();
+        debug!("Running connection liveness checks");
 
-        read_or_die!(self.connection_handler.connections)
-            .iter()
+        let curr_stamp = get_current_stamp();
+        let connections = read_or_die!(self.connection_handler.connections).clone();
+
+        connections
+            .into_iter()
             .filter(|conn| {
-                (conn.last_seen() + 120_000 < curr_stamp
-                    || conn.get_last_ping_sent() + 300_000 < curr_stamp)
-                    && conn.is_post_handshake()
+                conn.is_post_handshake()
                     && !conn.is_closed()
+                    && (conn.last_seen() + 120_000 < curr_stamp
+                        || conn.get_last_ping_sent() + 300_000 < curr_stamp)
             })
             .for_each(|conn| {
                 let request_ping = {
-                    let local_peer = conn.local_peer();
-
                     NetworkMessage::NetworkRequest(
-                        NetworkRequest::Ping(local_peer),
+                        NetworkRequest::Ping(conn.local_peer()),
                         Some(get_current_stamp()),
                         None,
                     )
@@ -722,6 +680,8 @@ impl P2PNode {
     }
 
     fn connection_housekeeping(&self) -> Fallible<()> {
+        debug!("Running connection housekeeping");
+
         let curr_stamp = get_current_stamp();
         let peer_type = self.peer_type();
 
@@ -738,8 +698,7 @@ impl P2PNode {
             });
 
         // clone the initial collection of connections to reduce locking
-        let uncleaned_connections: Vec<_> =
-            read_or_die!(self.connection_handler.connections).clone();
+        let uncleaned_connections = read_or_die!(self.connection_handler.connections).clone();
 
         // Clean duplicates only if it's a regular node we're running
         if peer_type != PeerType::Bootstrapper {
@@ -1086,21 +1045,14 @@ impl P2PNode {
             .for_each(|conn| conn.add_notification(func.clone()))
     }
 
-    pub fn set_network_request_sender(&mut self, sender: SyncSender<NetworkRawRequest>) {
-        self.connection_handler.network_request_sender = Some(sender);
-    }
-
     pub fn connections_posthandshake_count(&self, exclude_type: Option<PeerType>) -> u16 {
         // We will never have more than 2^16 connections per node, so this conversion is
         // safe.
-        read_or_die!(self.connection_handler.connections)
-            .iter()
-            .filter(|&conn| {
-                if !conn.is_post_handshake() {
-                    return false;
-                }
+        read_or_die!(self.active_peer_stats)
+            .values()
+            .filter(|&peer| {
                 if let Some(exclude_type) = exclude_type {
-                    return conn.remote_peer().peer_type() != exclude_type;
+                    return peer.peer_type != exclude_type;
                 }
                 true
             })
@@ -1547,8 +1499,9 @@ impl P2PNode {
         }
     }
 
-    pub fn process_messages(&self) {
-        lock_or_die!(self.send_queue_out)
+    fn process_messages(&self, receivers: &Receivers) {
+        receivers
+            .send_queue_out
             .try_iter()
             .map(|outer_pkt| {
                 trace!("Processing messages!");
@@ -1630,8 +1583,9 @@ impl P2PNode {
             });
     }
 
-    fn process_resend_queue(&self) {
-        let resend_failures = lock_or_die!(self.resend_queue_out)
+    fn process_resend_queue(&self, receivers: &Receivers) {
+        let resend_failures = receivers
+            .resend_queue_out
             .try_iter()
             .map(|wrapper| {
                 trace!("Processing messages!");
@@ -1733,7 +1687,7 @@ impl P2PNode {
 
     pub fn internal_addr(&self) -> SocketAddr { self.self_peer.addr }
 
-    pub fn process(&self, events: &mut Events) -> Fallible<()> {
+    fn process(&self, receivers: &Receivers, events: &mut Events) -> Fallible<()> {
         self.poll.poll(
             events,
             Some(Duration::from_millis(self.config.poll_interval)),
@@ -1759,22 +1713,20 @@ impl P2PNode {
 
         events.clear();
 
-        self.process_messages();
+        self.process_messages(receivers);
 
-        self.process_resend_queue();
+        self.process_resend_queue(receivers);
         Ok(())
     }
 
-    pub fn close(&self) -> Fallible<()> {
-        if let Some(ref q) = self.quit_tx {
-            q.send(true)?;
-            info!("P2PNode shutting down.");
-        }
-        Ok(())
+    pub fn close(&self) -> bool {
+        info!("P2PNode shutting down.");
+        self.is_terminated.store(true, Ordering::Relaxed);
+        true
     }
 
     pub fn close_and_join(&mut self) -> Fallible<()> {
-        self.close()?;
+        self.close();
         self.join()
     }
 
@@ -1800,11 +1752,6 @@ impl P2PNode {
         self.dump_stop();
         Ok(())
     }
-
-    // pub fn add_notification(&self, func: UnitFunction<NetworkMessage>) -> &Self {
-    // self.add_notification(func);
-    // self
-    // }
 
     pub fn send_ban(&self, id: BannedNode) {
         send_or_die!(

@@ -95,7 +95,7 @@ fn main() -> Result<(), Error> {
     let (pkt_in, pkt_out) = mpsc::sync_channel(10000);
     let (rpc_tx, _) = std::sync::mpsc::sync_channel(10000);
 
-    let mut node = if conf.common.debug {
+    let (mut node, receivers) = if conf.common.debug {
         let (sender, receiver) = mpsc::sync_channel(10000);
         let _guard = spawn_or_die!("Log loop", move || loop {
             if let Ok(msg) = receiver.recv() {
@@ -147,7 +147,7 @@ fn main() -> Result<(), Error> {
     {
         node.config.max_allowed_nodes = conf.bootstrapper.max_nodes;
         node.config.print_peers = true;
-        node.spawn();
+        node.spawn(receivers);
     }
 
     node.join().expect("Node thread panicked!");

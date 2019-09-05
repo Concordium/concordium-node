@@ -1016,7 +1016,7 @@ impl P2P for RpcServerImpl {
         authenticate!(ctx, req, sink, self.access_token, {
             let f = {
                 let mut r: SuccessResponse = SuccessResponse::new();
-                r.set_value(self.node.close().is_ok());
+                r.set_value(self.node.close());
                 sink.success(r)
             };
             let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));

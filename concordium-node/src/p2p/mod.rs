@@ -1,11 +1,10 @@
 pub mod banned_nodes;
 pub mod fails;
-// pub mod noise_protocol_handler;
 pub mod p2p_node;
 pub mod p2p_node_handlers;
 pub mod unreachable_nodes;
 
-pub use self::p2p_node::P2PNode;
+pub use self::p2p_node::{P2PNode, Receivers};
 
 #[cfg(test)]
 mod tests {

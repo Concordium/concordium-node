@@ -317,7 +317,7 @@ mod tests {
 
         let (net_tx, _) = std::sync::mpsc::sync_channel(64);
         let (rpc_tx, _) = std::sync::mpsc::sync_channel(64);
-        let mut node = P2PNode::new(
+        let (mut node, _receivers) = P2PNode::new(
             None,
             &get_test_config(next_available_port(), vec![100]),
             net_tx,

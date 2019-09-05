@@ -70,7 +70,7 @@ fn main() -> Fallible<()> {
     let (subscription_queue_in, subscription_queue_out) = mpsc::sync_channel(10000);
 
     // Thread #1: instantiate the P2PNode
-    let (mut node, pkt_out) = instantiate_node(
+    let ((mut node, receivers), pkt_out) = instantiate_node(
         &conf,
         &mut app_prefs,
         stats_export_service.clone(),
@@ -100,7 +100,7 @@ fn main() -> Fallible<()> {
     // Start the P2PNode
     //
     // Thread #2 (#3): P2P event loop
-    node.spawn();
+    node.spawn(receivers);
 
     let is_baker = conf.cli.baker.baker_id.is_some();
 
@@ -191,8 +191,11 @@ fn instantiate_node(
     app_prefs: &mut configuration::AppPreferences,
     stats_export_service: Option<StatsExportService>,
     subscription_queue_in: mpsc::SyncSender<NetworkMessage>,
-) -> (P2PNode, mpsc::Receiver<RelayOrStopEnvelope<NetworkMessage>>) {
-    let (pkt_in, pkt_out) = mpsc::sync_channel(10000);
+) -> (
+    (P2PNode, Receivers),
+    mpsc::Receiver<RelayOrStopEnvelope<NetworkMessage>>,
+) {
+    let (pkt_in, pkt_out) = mpsc::sync_channel(25000);
     let node_id = conf.common.id.clone().map_or(
         app_prefs.get_config(configuration::APP_PREFERENCES_PERSISTED_NODE_ID),
         |id| {
@@ -208,7 +211,7 @@ fn instantiate_node(
 
     // Start the thread reading P2PEvents from P2PNode
     let node = if conf.common.debug {
-        let (sender, receiver) = mpsc::sync_channel(10000);
+        let (sender, receiver) = mpsc::sync_channel(100);
         let _guard = spawn_or_die!("Log loop", move || loop {
             if let Ok(msg) = receiver.recv() {
                 info!("{}", msg);
