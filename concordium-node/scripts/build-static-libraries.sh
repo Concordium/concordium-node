@@ -41,7 +41,7 @@ for l in /target/profiling/ghc/libHSrts_p.a \
     rm $l;
 done
 
-wget https://downloads.haskell.org/~cabal/cabal-install-latest/cabal-install-2.4.1.0-x86_64-unknown-linux.tar.xz
+wget https://downloads.haskell.org/~cabal/cabal-install-2.4.1.0/cabal-install-2.4.1.0-x86_64-unknown-linux.tar.xz
 tar -xf cabal-install-2.4.1.0-x86_64-unknown-linux.tar.xz
 mkdir -p $HOME/.cabal/bin
 chmod +x cabal
