@@ -7,6 +7,7 @@ exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*"]
 publish = false
 build = "build.rs"
 edition = "2018"
+license = "MIT"
 
 [features]
 default = []
