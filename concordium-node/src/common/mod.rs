@@ -176,7 +176,7 @@ mod tests {
         p2p::banned_nodes::tests::dummy_ban_node,
     };
     use concordium_common::hybrid_buf::HybridBuf;
-    use std::{collections::HashSet, str::FromStr};
+    use std::{collections::HashSet, convert::TryFrom, str::FromStr};
 
     fn dummy_peer(ip: IpAddr, port: u16) -> RemotePeer {
         RemotePeer::PostHandshake(
@@ -387,7 +387,7 @@ mod tests {
     pub fn direct_message_test() -> Fallible<()> {
         let self_peer = self_peer();
         let text_msg = b"Hello world!";
-        let buf = HybridBuf::from(text_msg.to_vec());
+        let buf = HybridBuf::try_from(&text_msg[..])?;
         let msg = NetworkPacket {
             packet_type: NetworkPacketType::DirectMessage(P2PNodeId::default()),
             peer:        self_peer.clone().peer().unwrap(),
@@ -414,7 +414,7 @@ mod tests {
     pub fn broadcasted_message_test() -> Fallible<()> {
         let self_peer = self_peer();
         let text_msg = b"Hello  broadcasted world!";
-        let buf = HybridBuf::from(text_msg.to_vec());
+        let buf = HybridBuf::try_from(&text_msg[..])?;
         let msg = NetworkPacket {
             packet_type: NetworkPacketType::BroadcastedMessage(vec![]),
             peer:        self_peer.clone().peer().unwrap(),
@@ -472,12 +472,14 @@ mod tests {
             None,
             None,
         );
-        let mut ping_data = serialize_into_memory(&ping, 128).unwrap();
+        let mut ping_data = Vec::try_from(serialize_into_memory(&ping, 128).unwrap()).unwrap();
 
         // Force and error in version protocol:
         //  + 13 bytes (PROTOCOL_NAME)
         //  + 1 byte due to endianess (Version is stored as u16)
         ping_data[13 + 1] = (PROTOCOL_VERSION + 1) as u8;
+
+        let ping_data = HybridBuf::try_from(ping_data).unwrap();
 
         let deserialized = deserialize_from_memory::<NetworkMessage>(ping_data, self_peer());
 
@@ -491,10 +493,12 @@ mod tests {
             None,
             None,
         );
-        let mut ping_data = serialize_into_memory(&ping, 128).unwrap();
+        let mut ping_data = Vec::try_from(serialize_into_memory(&ping, 128).unwrap()).unwrap();
 
         // Force and error in protocol name:
         ping_data[1] = b'X';
+
+        let ping_data = HybridBuf::try_from(ping_data).unwrap();
 
         let deserialized = deserialize_from_memory::<NetworkMessage>(ping_data, self_peer());
 

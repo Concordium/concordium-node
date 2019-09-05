@@ -11,8 +11,6 @@ use std::alloc::System;
 #[global_allocator]
 static A: System = System;
 
-use byteorder::{NetworkEndian, WriteBytesExt};
-
 use concordium_common::{
     cache::Cache,
     spawn_or_die,
@@ -28,13 +26,13 @@ use p2p_client::{
         plugins::{self, consensus::*},
         utils as client_utils,
     },
-    common::{P2PNodeId, PeerType},
+    common::PeerType,
     configuration,
     network::{
-        packet::MessageId, request::RequestedElementType, NetworkId, NetworkMessage,
-        NetworkPacketType, NetworkRequest, NetworkResponse,
+        request::RequestedElementType, NetworkId, NetworkMessage, NetworkPacketType,
+        NetworkRequest, NetworkResponse,
     },
-    p2p::{p2p_node::send_direct_message, *},
+    p2p::*,
     rpc::RpcServerImpl,
     stats_engine::StatsEngine,
     utils::{self, get_config_and_logging_setup, load_bans},
@@ -43,8 +41,6 @@ use p2p_client::{
 use rkv::{Manager, Rkv};
 
 use std::{
-    net::SocketAddr,
-    str,
     sync::{mpsc, Arc, RwLock},
     thread,
     time::Duration,
@@ -58,26 +54,12 @@ fn main() -> Fallible<()> {
     }
     let data_dir_path = app_prefs.get_user_app_dir();
 
-    // Retrieving bootstrap nodes
-    let dns_resolvers =
-        utils::get_resolvers(&conf.connection.resolv_conf, &conf.connection.dns_resolver);
-    for resolver in &dns_resolvers {
-        debug!("Using resolver: {}", resolver);
-    }
-
-    let bootstrap_nodes = utils::get_bootstrap_nodes(
-        conf.connection.bootstrap_server.clone(),
-        &dns_resolvers,
-        conf.connection.dnssec_disabled,
-        &conf.connection.bootstrap_node,
-    );
-
     // Instantiate stats export engine
     let stats_export_service =
         client_utils::instantiate_stats_export_engine(&conf, StatsServiceMode::NodeMode)
             .unwrap_or_else(|e| {
                 error!(
-                    "I was not able to instantiate an stats export service: {}",
+                    "I was not able to instantiate the stats export service: {}",
                     e
                 );
                 None
@@ -88,12 +70,16 @@ fn main() -> Fallible<()> {
     let (subscription_queue_in, subscription_queue_out) = mpsc::sync_channel(10000);
 
     // Thread #1: instantiate the P2PNode
-    let (mut node, pkt_out) = instantiate_node(
+    let ((mut node, receivers), pkt_out) = instantiate_node(
         &conf,
         &mut app_prefs,
         stats_export_service.clone(),
         subscription_queue_in.clone(),
     );
+
+    for resolver in &node.config.dns_resolvers {
+        debug!("Using resolver: {}", resolver);
+    }
 
     // Create the cli key-value store environment
     let cli_kvs_handle = Manager::singleton()
@@ -114,7 +100,7 @@ fn main() -> Fallible<()> {
     // Start the P2PNode
     //
     // Thread #2 (#3): P2P event loop
-    node.spawn();
+    node.spawn(receivers);
 
     let is_baker = conf.cli.baker.baker_id.is_some();
 
@@ -164,12 +150,7 @@ fn main() -> Fallible<()> {
 
     // Connect to nodes (args and bootstrap)
     if !conf.cli.no_network {
-        info!("Starting the P2P layer");
-        create_connections_from_config(&conf.connection, &dns_resolvers, &mut node);
-        if !conf.connection.no_bootstrap_dns {
-            info!("Attempting to bootstrap");
-            bootstrap(&bootstrap_nodes, &mut node);
-        }
+        establish_connections(&conf, &node);
     }
 
     // Wait for the P2PNode to close
@@ -210,8 +191,11 @@ fn instantiate_node(
     app_prefs: &mut configuration::AppPreferences,
     stats_export_service: Option<StatsExportService>,
     subscription_queue_in: mpsc::SyncSender<NetworkMessage>,
-) -> (P2PNode, mpsc::Receiver<RelayOrStopEnvelope<NetworkMessage>>) {
-    let (pkt_in, pkt_out) = mpsc::sync_channel(10000);
+) -> (
+    (P2PNode, Receivers),
+    mpsc::Receiver<RelayOrStopEnvelope<NetworkMessage>>,
+) {
+    let (pkt_in, pkt_out) = mpsc::sync_channel(25000);
     let node_id = conf.common.id.clone().map_or(
         app_prefs.get_config(configuration::APP_PREFERENCES_PERSISTED_NODE_ID),
         |id| {
@@ -227,7 +211,7 @@ fn instantiate_node(
 
     // Start the thread reading P2PEvents from P2PNode
     let node = if conf.common.debug {
-        let (sender, receiver) = mpsc::sync_channel(10000);
+        let (sender, receiver) = mpsc::sync_channel(100);
         let _guard = spawn_or_die!("Log loop", move || loop {
             if let Ok(msg) = receiver.recv() {
                 info!("{}", msg);
@@ -256,13 +240,21 @@ fn instantiate_node(
     (node, pkt_out)
 }
 
-fn create_connections_from_config(
-    conf: &configuration::ConnectionConfig,
-    dns_resolvers: &[String],
-    node: &mut P2PNode,
-) {
+fn establish_connections(conf: &configuration::Config, node: &P2PNode) {
+    info!("Starting the P2P layer");
+    connect_to_config_nodes(&conf.connection, node);
+    if !conf.connection.no_bootstrap_dns {
+        node.attempt_bootstrap();
+    }
+}
+
+fn connect_to_config_nodes(conf: &configuration::ConnectionConfig, node: &P2PNode) {
     for connect_to in &conf.connect_to {
-        match utils::parse_host_port(&connect_to, &dns_resolvers, conf.dnssec_disabled) {
+        match utils::parse_host_port(
+            &connect_to,
+            &node.config.dns_resolvers,
+            conf.dnssec_disabled,
+        ) {
             Ok(addrs) => {
                 for addr in addrs {
                     info!("Connecting to peer {}", &connect_to);
@@ -273,19 +265,6 @@ fn create_connections_from_config(
             Err(err) => error!("Can't parse data for node to connect to {}", err),
         }
     }
-}
-
-fn bootstrap(bootstrap_nodes: &Result<Vec<SocketAddr>, &'static str>, node: &mut P2PNode) {
-    match bootstrap_nodes {
-        Ok(nodes) => {
-            for &addr in nodes {
-                info!("Found bootstrap node: {}", addr);
-                node.connect(PeerType::Bootstrapper, addr, None)
-                    .unwrap_or_else(|e| error!("{}", e));
-            }
-        }
-        Err(e) => error!("Couldn't retrieve bootstrap node list! {:?}", e),
-    };
 }
 
 fn start_consensus_threads(
@@ -463,7 +442,7 @@ fn start_consensus_threads(
                             RequestedElementType::Transaction => {
                                 let transactions = transactions_cache.get_since(*since);
                                 transactions.iter().for_each(|transaction| {
-                                    send_consensus_msg_to_net(
+                                    if let Err(e) = send_consensus_msg_to_net(
                                         &node_ref,
                                         vec![],
                                         Some(requester.id()),
@@ -471,7 +450,9 @@ fn start_consensus_threads(
                                         PacketType::Transaction,
                                         Some(format!("{:?}", transaction)),
                                         &transaction,
-                                    );
+                                    ) {
+                                        error!("Couldn't retransmit a trancation! ({:?})", e);
+                                    }
                                 })
                             }
                             _ => error!(
@@ -487,7 +468,7 @@ fn start_consensus_threads(
                 ) => {
                     if let Some(network_id) = nets.iter().next() {
                         // catch up to the finalization point
-                        send_consensus_msg_to_net(
+                        if let Err(e) = send_consensus_msg_to_net(
                             &node_ref,
                             vec![],
                             Some(remote_peer.id()),
@@ -495,10 +476,15 @@ fn start_consensus_threads(
                             PacketType::CatchUpFinalizationMessagesByPoint,
                             None,
                             &consensus.get_finalization_point(),
-                        );
+                        ) {
+                            error!(
+                                "Can't send the finalization point catch-up request!, {:?}",
+                                e
+                            );
+                        }
 
                         // send a catch-up status
-                        send_consensus_msg_to_net(
+                        if let Err(e) = send_consensus_msg_to_net(
                             &node_ref,
                             vec![],
                             Some(remote_peer.id()),
@@ -506,7 +492,9 @@ fn start_consensus_threads(
                             PacketType::CatchUpStatus,
                             None,
                             &consensus.get_catch_up_status(),
-                        );
+                        ) {
+                            error!("Can't send the initial catch-up status! {:?}", e);
+                        }
                     } else {
                         error!("A handshaking peer doesn't seem to have any networks!");
                     }
@@ -520,6 +508,9 @@ fn start_consensus_threads(
     let gs_sender_ref = gs_sender.clone();
     #[allow(unreachable_code)] // the loop never breaks on its own
     let ticker_thread = spawn_or_die!("Ticker", {
+        // an initial delay before we begin catching up and baking
+        thread::sleep(Duration::from_secs(10));
+
         loop {
             thread::sleep(Duration::from_secs(1));
 
@@ -527,7 +518,7 @@ fn start_consensus_threads(
 
             // don't provide the global state with the peer information until their
             // number is within the desired range
-            if current_peers.len() <= node_ref.max_nodes.unwrap_or(u16::max_value()) as usize {
+            if current_peers.len() <= node_ref.config.max_allowed_nodes as usize {
                 let msg = GlobalStateMessage::PeerListUpdate(current_peers);
                 if let Err(e) = gs_sender_ref.send(RelayOrStopEnvelope::Relay(msg)) {
                     error!("Error updating the global state peer list: {}", e)
@@ -570,30 +561,3 @@ fn tps_setup_process_output(cli: &configuration::CliConfig) -> (bool, u64) {
 
 #[cfg(not(feature = "benchmark"))]
 fn tps_setup_process_output(_: &configuration::CliConfig) -> (bool, u64) { (false, 0) }
-
-fn _send_retransmit_packet(
-    node: &P2PNode,
-    receiver: P2PNodeId,
-    network_id: NetworkId,
-    message_id: &MessageId,
-    payload_type: u16,
-    data: &[u8],
-) {
-    let mut out_bytes = Vec::with_capacity(2 + data.len());
-    match out_bytes.write_u16::<NetworkEndian>(payload_type as u16) {
-        Ok(_) => {
-            out_bytes.extend(data);
-            match send_direct_message(
-                node,
-                Some(receiver),
-                network_id,
-                Some(message_id.to_owned()),
-                out_bytes,
-            ) {
-                Ok(_) => debug!("Retransmitted packet of type {}", payload_type),
-                Err(_) => error!("Couldn't retransmit packet of type {}!", payload_type),
-            }
-        }
-        Err(_) => error!("Can't write payload type, so failing retransmit of packet"),
-    }
-}

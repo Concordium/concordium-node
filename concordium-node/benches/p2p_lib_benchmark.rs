@@ -11,6 +11,7 @@ use p2p_client::{
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 
 use std::{
+    convert::TryFrom,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     str::FromStr,
     sync::Arc,
@@ -42,7 +43,7 @@ pub fn create_random_packet(size: usize) -> NetworkMessage {
             peer:        localhost_peer(),
             message_id:  MessageId::new(&[0u8; 32]),
             network_id:  NetworkId::from(100u16),
-            message:     HybridBuf::from(generate_random_data(size)),
+            message:     HybridBuf::try_from(generate_random_data(size)).unwrap(),
         }),
         Some(10),
         None,
@@ -116,7 +117,7 @@ mod network {
         }
 
         fn bench_s11n_001_direct_message(c: &mut Criterion, content_size: usize) {
-            let cursor = HybridBuf::from(generate_random_data(content_size));
+            let cursor = HybridBuf::try_from(generate_random_data(content_size)).unwrap();
 
             let local_peer = localhost_peer();
             let bench_id = format!(
@@ -157,7 +158,7 @@ mod network {
             c.bench_function(&bench_id, move |b| {
                 let mut archive = WriteArchiveAdapter::from(vec![]);
                 let _ = peer_list_msg.serialize(&mut archive).unwrap();
-                let cursor = HybridBuf::from(archive.into_inner());
+                let cursor = HybridBuf::try_from(archive.into_inner()).unwrap();
 
                 b.iter(move || {
                     let remote_peer = RemotePeer::PostHandshake(me);
@@ -207,14 +208,13 @@ mod network {
             connect(&mut node_1, &node_2).unwrap();
             await_handshake(&msg_waiter_1).unwrap();
 
-            let msg = HybridBuf::from(generate_random_data(size));
+            let mut msg = HybridBuf::try_from(generate_random_data(size)).unwrap();
             let bench_id = format!("P2P network using {}B messages", size);
 
             c.bench_function(&bench_id, move |b| {
                 let net_id = NetworkId::from(100);
 
                 b.iter(|| {
-                    // Send.
                     send_message_from_cursor(
                         &node_1,
                         Some(node_2.id()),
@@ -227,6 +227,7 @@ mod network {
                     .unwrap();
                     let mut msg_recv = await_direct_message(&msg_waiter_2).unwrap();
                     assert_eq!(msg.len().unwrap(), msg_recv.remaining_len().unwrap());
+                    msg.rewind().unwrap();
                 });
             });
         }

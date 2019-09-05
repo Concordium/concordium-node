@@ -11,13 +11,12 @@ use std::{
 use chrono::prelude::*;
 use failure::Fallible;
 use mio::{net::TcpStream, Event, Poll, PollOpt, Ready};
-use snow::Keypair;
 
 use crate::{
-    common::{get_current_stamp, P2PNodeId, P2PPeer, PeerStats, PeerType, RemotePeer},
+    common::{get_current_stamp, P2PNodeId, PeerStats, PeerType, RemotePeer},
     connection::{
-        fails, Connection, ConnectionStatus, FrameSink, FrameStream, HandshakeStreamSink,
-        MessageSendingPriority, Readiness,
+        fails, Connection, ConnectionStatus, FrameSink, FrameStream, MessageSendingPriority,
+        Readiness,
     },
     dumper::DumpItem,
     network::NetworkId,
@@ -36,10 +35,10 @@ pub struct ConnectionPrivate {
     pub local_end_networks:  Arc<RwLock<HashSet<NetworkId>>>,
 
     // Socket and Sink/Stream
-    socket:         TcpStream,
-    message_sink:   FrameSink,
-    message_stream: FrameStream,
-    pub status:     ConnectionStatus,
+    pub socket:         TcpStream,
+    pub message_sink:   FrameSink,
+    pub message_stream: FrameStream,
+    pub status:         ConnectionStatus,
 
     // Stats
     pub last_seen:   AtomicU64,
@@ -97,7 +96,7 @@ impl ConnectionPrivate {
             Arc::clone(&self.conn().messages_received),
             Arc::clone(&self.last_latency_measured),
         );
-        write_or_die!(self.conn().handler().node().active_peer_stats)
+        write_or_die!(self.conn().handler().active_peer_stats)
             .insert(id.as_raw(), remote_peer_stats);
 
         Ok(())
@@ -201,7 +200,7 @@ impl ConnectionPrivate {
     }
 
     fn send_to_dump(&self, buf: &HybridBuf, inbound: bool) {
-        if let Some(ref sender) = self.conn().handler().log_dumper {
+        if let Some(ref sender) = self.conn().handler().connection_handler.log_dumper {
             let di = DumpItem::new(
                 Utc::now(),
                 inbound,
@@ -216,105 +215,5 @@ impl ConnectionPrivate {
     #[cfg(test)]
     pub fn validate_packet_type(&mut self, msg: &[u8]) -> Readiness<bool> {
         self.message_stream.validate_packet_type(msg)
-    }
-}
-
-#[derive(Default)]
-pub struct ConnectionPrivateBuilder {
-    pub local_peer:         Option<P2PPeer>,
-    pub remote_peer:        Option<RemotePeer>,
-    pub local_end_networks: Option<Arc<RwLock<HashSet<NetworkId>>>>,
-
-    // Sessions
-    pub socket:       Option<TcpStream>,
-    pub key_pair:     Option<Keypair>,
-    pub is_initiator: bool,
-
-    pub noise_params: Option<snow::params::NoiseParams>,
-}
-
-impl ConnectionPrivateBuilder {
-    pub fn build(self) -> Fallible<ConnectionPrivate> {
-        if let (
-            Some(local_peer),
-            Some(remote_peer),
-            Some(local_end_networks),
-            Some(socket),
-            Some(key_pair),
-            Some(noise_params),
-        ) = (
-            self.local_peer,
-            self.remote_peer,
-            self.local_end_networks,
-            self.socket,
-            self.key_pair,
-            self.noise_params,
-        ) {
-            let peer_type = local_peer.peer_type();
-            let handshaker = Arc::new(RwLock::new(HandshakeStreamSink::new(
-                noise_params.clone(),
-                key_pair,
-                self.is_initiator,
-            )));
-
-            Ok(ConnectionPrivate {
-                conn_ref: None,
-                remote_peer,
-                remote_end_networks: HashSet::new(),
-                local_end_networks,
-                socket,
-                message_sink: FrameSink::new(Arc::clone(&handshaker)),
-                message_stream: FrameStream::new(peer_type, handshaker),
-                status: ConnectionStatus::PreHandshake,
-                last_seen: AtomicU64::new(get_current_stamp()),
-                failed_pkts: Default::default(),
-                sent_handshake: Default::default(),
-                sent_ping: Default::default(),
-                last_latency_measured: Default::default(),
-            })
-        } else {
-            Err(failure::Error::from(fails::MissingFieldsConnectionBuilder))
-        }
-    }
-
-    pub fn set_as_initiator(mut self, value: bool) -> Self {
-        self.is_initiator = value;
-        self
-    }
-
-    pub fn set_socket(mut self, socket: TcpStream) -> Self {
-        self.socket = Some(socket);
-        self
-    }
-
-    pub fn set_local_peer(mut self, p: P2PPeer) -> ConnectionPrivateBuilder {
-        self.local_peer = Some(p);
-        self
-    }
-
-    pub fn set_remote_peer(mut self, p: RemotePeer) -> ConnectionPrivateBuilder {
-        self.remote_peer = Some(p);
-        self
-    }
-
-    pub fn set_local_end_networks(
-        mut self,
-        local_end_nets: Arc<RwLock<HashSet<NetworkId>>>,
-    ) -> ConnectionPrivateBuilder {
-        self.local_end_networks = Some(local_end_nets);
-        self
-    }
-
-    pub fn set_key_pair(mut self, kp: Keypair) -> ConnectionPrivateBuilder {
-        self.key_pair = Some(kp);
-        self
-    }
-
-    pub fn set_noise_params(
-        mut self,
-        params: snow::params::NoiseParams,
-    ) -> ConnectionPrivateBuilder {
-        self.noise_params = Some(params);
-        self
     }
 }

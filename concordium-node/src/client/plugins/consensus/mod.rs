@@ -11,7 +11,7 @@ use failure::Fallible;
 use std::{
     convert::TryFrom,
     fs::OpenOptions,
-    io::{self, Cursor, Read},
+    io::{self, Cursor, Read, Write},
     mem,
     sync::Arc,
 };
@@ -187,18 +187,18 @@ pub fn handle_global_state_request(
                     PeerStatus::UpToDate => {
                         // when all catch-up messages have been exchanged,
                         // baking may commence (does nothing if already baking)
-                        trace!("Global state: all my peers are up to date");
+                        debug!("Global state: all my peers are up to date");
                         consensus.start_baker();
                     }
                     PeerStatus::CatchingUp => {
                         // don't send any catch-up statuses while
                         // there are peers that are catching up
-                        trace!("Global state: I'm still catching up with peer {:016x}", id);
+                        debug!("Global state: I'm still catching up with peer {:016x}", id);
                     }
                     PeerStatus::Pending => {
                         // send a catch-up message to the first Pending peer
-                        trace!("Global state: I need to catch up with peer {:016x}", id);
-                        send_catch_up_status(node, network_id, consensus, global_state, id);
+                        debug!("Global state: I need to catch up with peer {:016x}", id);
+                        send_catch_up_status(node, network_id, consensus, global_state, id)?;
                     }
                 }
             }
@@ -262,7 +262,7 @@ fn update_peer_list(global_state: &mut GlobalState, peer_ids: Vec<u64>) {
 fn process_internal_gs_entry(
     node: &P2PNode,
     network_id: NetworkId,
-    mut request: ConsensusMessage,
+    request: ConsensusMessage,
     global_state: &mut GlobalState,
 ) -> Fallible<()> {
     let (entry_info, gs_result) = match request.variant {
@@ -312,9 +312,7 @@ fn process_internal_gs_entry(
         request.variant,
         Some(entry_info),
         &request.payload,
-    );
-
-    Ok(())
+    )
 }
 
 fn process_external_gs_entry(
@@ -368,21 +366,10 @@ fn process_external_gs_entry(
         _ => {}
     }
 
-    // rebroadcast incoming broadcasts
-    if request.distribution_mode() == DistributionMode::Broadcast {
-        consensus_driven_rebroadcast(node, network_id, consensus_result, request);
-    }
-
-    Ok(())
-}
-
-fn consensus_driven_rebroadcast(
-    node: &P2PNode,
-    network_id: NetworkId,
-    consensus_result: ConsensusFfiResponse,
-    mut request: ConsensusMessage,
-) {
-    if consensus_result.is_rebroadcastable() {
+    // rebroadcast incoming broadcasts if applicable
+    if request.distribution_mode() == DistributionMode::Broadcast
+        && consensus_result.is_rebroadcastable()
+    {
         send_consensus_msg_to_net(
             &node,
             request.dont_relay_to(),
@@ -391,8 +378,10 @@ fn consensus_driven_rebroadcast(
             request.variant,
             None,
             &request.payload,
-        );
+        )?;
     }
+
+    Ok(())
 }
 
 fn send_msg_to_consensus(
@@ -434,13 +423,14 @@ pub fn send_consensus_msg_to_net(
     payload_type: PacketType,
     payload_desc: Option<String>,
     payload: &[u8],
-) {
+) -> Fallible<()> {
     let self_node_id = node.self_peer.id;
-    let mut packet_buffer = Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + payload.len());
+    let mut packet_buffer = HybridBuf::with_capacity(PAYLOAD_TYPE_LENGTH as usize + payload.len())?;
     packet_buffer
         .write_u16::<NetworkEndian>(payload_type as u16)
         .expect("Can't write a packet payload to buffer");
-    packet_buffer.extend(payload);
+    packet_buffer.write_all(payload)?;
+    packet_buffer.rewind()?;
 
     let result = if target_id.is_some() {
         send_direct_message(node, target_id, network_id, None, packet_buffer)
@@ -471,6 +461,7 @@ pub fn send_consensus_msg_to_net(
             self_node_id, target_desc, message_desc,
         ),
     }
+    Ok(())
 }
 
 fn send_catch_up_status(
@@ -479,7 +470,7 @@ fn send_catch_up_status(
     consensus: &mut consensus::ConsensusContainer,
     global_state: &mut GlobalState,
     target: PeerId,
-) {
+) -> Fallible<()> {
     global_state
         .peers
         .change_priority(&target, PeerState::new(PeerStatus::CatchingUp));
@@ -492,7 +483,7 @@ fn send_catch_up_status(
         PacketType::CatchUpStatus,
         Some("catch-up status message".to_owned()),
         &consensus.get_catch_up_status(),
-    );
+    )
 }
 
 fn manage_peer_states(
