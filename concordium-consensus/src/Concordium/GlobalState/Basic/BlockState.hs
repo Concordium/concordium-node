@@ -162,7 +162,7 @@ type instance BS.UpdatableBlockState (PureBlockStateMonad m) = BlockState
 
 instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
     {-# INLINE getModule #-}
-    getModule bs mref = 
+    getModule bs mref =
         return $ bs ^. blockModules . to (Modules.getModule mref)
 
     {-# INLINE getContractInstance #-}
@@ -181,7 +181,7 @@ instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
     {-# INLINE getAccountList #-}
     getAccountList bs =
       return $ Map.keys (Account.accountMap (bs ^. blockAccounts))
-  
+
     {-# INLINE getBlockBirkParameters #-}
     getBlockBirkParameters = return . _blockBirkParameters
 
@@ -227,7 +227,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
                 & blockInstances .~ instances'
                 -- Update the owner accounts set of instances
                 & blockAccounts . ix instanceOwner . accountInstances %~ Set.insert instanceAddress
-                & maybe (error "Instance has invalid owner") 
+                & maybe (error "Instance has invalid owner")
                     (\owner -> blockBirkParameters . birkBakers %~ addStake (owner ^. accountStakeDelegate) (Instances.instanceAmount inst))
                     (bs ^? blockAccounts . ix instanceOwner)
 
@@ -251,7 +251,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
 
     bsoModifyInstance bs caddr amount model = return $!
         bs & blockInstances %~ Instances.updateInstanceAt caddr amount model
-        & maybe (error "Instance has invalid owner") 
+        & maybe (error "Instance has invalid owner")
             (\owner -> blockBirkParameters . birkBakers %~ modifyStake (owner ^. accountStakeDelegate) (amountDiff amount $ Instances.instanceAmount inst))
             (bs ^? blockAccounts . ix instanceOwner)
         where
@@ -266,7 +266,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
                bs & blockAccounts %~ Account.putAccount updatedAccount
                                    . Account.recordRegId (cdvRegId cdi))
         -- If we change the amount, update the delegate
-        & maybe id 
+        & maybe id
             (\amt -> blockBirkParameters . birkBakers
                     %~ modifyStake (account ^. accountStakeDelegate)
                             (amountDiff amt $ account ^. accountAmount))
@@ -284,12 +284,12 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
 
     {-# INLINE bsoGetExecutionCost #-}
     bsoGetExecutionCost bs =
-      return $ bs ^. blockBank . Rewards.executionCost 
+      return $ bs ^. blockBank . Rewards.executionCost
 
     {-# INLINE bsoGetBlockBirkParameters #-}
     bsoGetBlockBirkParameters = return . _blockBirkParameters
 
-    bsoAddBaker bs binfo = return $ 
+    bsoAddBaker bs binfo = return $
         let
             (bid, newBakers) = createBaker binfo (bs ^. blockBirkParameters . birkBakers)
         in (bid, bs & blockBirkParameters . birkBakers .~ newBakers)
@@ -298,7 +298,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
     bsoUpdateBaker bs bupdate = return $
         bs & blockBirkParameters . birkBakers %~ updateBaker bupdate
 
-    bsoRemoveBaker bs bid = return $ 
+    bsoRemoveBaker bs bid = return $
         let
             (rv, bakers') = removeBaker bid $ bs ^. blockBirkParameters . birkBakers
         in (rv, bs & blockBirkParameters . birkBakers .~ bakers')
@@ -323,7 +323,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
                 Nothing -> True
                 Just bid -> isJust $ bs ^. blockBirkParameters . birkBakers . bakerMap . at bid
             acct = fromMaybe (error "Invalid account address") $ bs ^? blockAccounts . ix aaddr
-            stake = acct ^. accountAmount + 
+            stake = acct ^. accountAmount +
                 sum [Instances.instanceAmount inst |
                         Just inst <- Set.toList (acct ^. accountInstances) <&> flip Instances.getInstance (bs ^. blockInstances)]
             bs' = bs & blockBirkParameters . birkBakers %~ removeStake (acct ^. accountStakeDelegate) stake . addStake target stake

@@ -40,6 +40,8 @@ import Concordium.GlobalState.Rust.BlockState
 import Concordium.GlobalState.Rust.Block
 import Concordium.GlobalState.Rust.FFI
 
+import System.IO
+
 data SkovData = SkovData {
     -- |Map of all received blocks by hash.
     _skovGlobalStatePtr :: GlobalStatePtr,
@@ -61,7 +63,7 @@ makeLenses ''SkovData
 
 instance Show SkovData where
     show SkovData{..} =
-      "Finalized: " ++ intercalate "," (take 6 . show . BS.bpHash . snd <$> toList _skovFinalizationList) ++ "\n" ++
+      "Finalized: " ++ intercalate "," (take 6 . show . snd <$> toList _skovFinalizationList) ++ "\n" ++
       "Branches: " ++ intercalate "," ( (('[':) . (++"]") . intercalate "," . map (take 6 . show . BS.bpHash)) <$> toList _skovBranches)
 
 class SkovLenses s where
