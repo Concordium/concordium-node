@@ -23,7 +23,6 @@ pub enum NetworkMessage {
     NetworkRequest(NetworkRequest, Option<u64>, Option<u64>),
     NetworkResponse(NetworkResponse, Option<u64>, Option<u64>),
     NetworkPacket(Arc<NetworkPacket>, Option<u64>, Option<u64>),
-    UnknownMessage,
     InvalidMessage,
 }
 
@@ -46,9 +45,7 @@ impl AsProtocolMessageType for NetworkMessage {
             NetworkMessage::NetworkRequest(..) => ProtocolMessageType::Request,
             NetworkMessage::NetworkResponse(..) => ProtocolMessageType::Response,
             NetworkMessage::NetworkPacket(..) => ProtocolMessageType::Packet,
-            NetworkMessage::UnknownMessage | NetworkMessage::InvalidMessage => {
-                unreachable!("Invalid or Unknown messages are not serializable")
-            }
+            NetworkMessage::InvalidMessage => unreachable!("Invalid messages are not serializable"),
         }
     }
 }
@@ -76,9 +73,7 @@ impl Serializable for NetworkMessage {
             NetworkMessage::NetworkRequest(ref request, ..) => request.serialize(archive),
             NetworkMessage::NetworkResponse(ref response, ..) => response.serialize(archive),
             NetworkMessage::NetworkPacket(ref packet, ..) => packet.serialize(archive),
-            NetworkMessage::UnknownMessage | NetworkMessage::InvalidMessage => {
-                bail!("Unsupported type of NetworkMessage")
-            }
+            NetworkMessage::InvalidMessage => bail!("Unsupported type of NetworkMessage"),
         }
     }
 }

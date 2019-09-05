@@ -103,11 +103,6 @@ impl MessageProcessor {
         self
     }
 
-    pub fn set_unknown_handler(&self, func: EmptyFunction) -> &Self {
-        self.actions.set_unknown_handler(func);
-        self
-    }
-
     pub fn actions(&self) -> &MessageHandler { &self.actions }
 
     pub fn add_notification(&self, func: UnitFunction<NetworkMessage>) -> &Self {
