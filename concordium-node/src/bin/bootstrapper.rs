@@ -92,11 +92,11 @@ fn main() -> Result<(), Error> {
         _ => format!("{}", P2PNodeId::default()),
     };
 
-    let (pkt_in, pkt_out) = mpsc::sync_channel(64);
-    let (rpc_tx, _) = std::sync::mpsc::sync_channel(64);
+    let (pkt_in, pkt_out) = mpsc::sync_channel(10000);
+    let (rpc_tx, _) = std::sync::mpsc::sync_channel(10000);
 
-    let mut node = if conf.common.debug {
-        let (sender, receiver) = mpsc::sync_channel(64);
+    let (mut node, receivers) = if conf.common.debug {
+        let (sender, receiver) = mpsc::sync_channel(10000);
         let _guard = spawn_or_die!("Log loop", move || loop {
             if let Ok(msg) = receiver.recv() {
                 info!("{}", msg);
@@ -145,9 +145,9 @@ fn main() -> Result<(), Error> {
     setup_process_output(&node, kvs_handle, &conf, pkt_out);
 
     {
-        node.max_nodes = Some(conf.bootstrapper.max_nodes);
-        node.print_peers = true;
-        node.spawn();
+        node.config.max_allowed_nodes = conf.bootstrapper.max_nodes;
+        node.config.print_peers = true;
+        node.spawn(receivers);
     }
 
     node.join().expect("Node thread panicked!");

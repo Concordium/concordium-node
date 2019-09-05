@@ -13,6 +13,7 @@ use failure::{Backtrace, Error};
 
 use std::{
     collections::HashSet,
+    convert::TryFrom,
     sync::{atomic::Ordering, mpsc::SyncSender, RwLock},
 };
 
@@ -90,14 +91,16 @@ pub fn send_handshake_and_ping(priv_conn: &RwLock<ConnectionPrivate>) -> FuncRes
 
         // Ignore returned value because it is an asynchronous operation.
         let _ = priv_conn_writer.async_send(
-            HybridBuf::from(handshake_data),
+            HybridBuf::try_from(handshake_data)?,
             MessageSendingPriority::High,
         )?;
 
         // Ignore returned value because it is an asynchronous operation, and ship out
         // as normal priority to ensure proper queueing here.
-        let _ = priv_conn_writer
-            .async_send(HybridBuf::from(ping_data), MessageSendingPriority::Normal)?;
+        let _ = priv_conn_writer.async_send(
+            HybridBuf::try_from(ping_data)?,
+            MessageSendingPriority::Normal,
+        )?;
     }
 
     TOTAL_MESSAGES_SENT_COUNTER.fetch_add(2, Ordering::Relaxed);
@@ -115,33 +118,28 @@ pub fn send_peer_list(
         BOOTSTRAP_PEER_COUNT
     );
 
-    let peer_list_msg =
-        {
-            let priv_conn_reader = read_or_die!(priv_conn);
-            let random_nodes = safe_read!(priv_conn_reader.conn().handler().buckets)?
+    let peer_list_msg = {
+        let priv_conn_reader = read_or_die!(priv_conn);
+        let random_nodes =
+            safe_read!(priv_conn_reader.conn().handler().connection_handler.buckets)?
                 .get_random_nodes(&sender, BOOTSTRAP_PEER_COUNT, nets);
-            let local_peer = priv_conn_reader.conn().local_peer();
+        let local_peer = priv_conn_reader.conn().local_peer();
 
-            if let Some(ref service) = priv_conn_reader
-                .conn()
-                .handler()
-                .node()
-                .stats_export_service()
-            {
-                service.pkt_sent_inc();
-            };
-
-            NetworkMessage::NetworkResponse(
-                NetworkResponse::PeerList(local_peer, random_nodes),
-                Some(get_current_stamp()),
-                None,
-            )
+        if let Some(ref service) = priv_conn_reader.conn().handler().stats_export_service() {
+            service.pkt_sent_inc();
         };
+
+        NetworkMessage::NetworkResponse(
+            NetworkResponse::PeerList(local_peer, random_nodes),
+            Some(get_current_stamp()),
+            None,
+        )
+    };
     let data = serialize_into_memory(&peer_list_msg, 256)?;
 
     // Ignore returned value because it is an asynchronous operation.
     let _ = write_or_die!(priv_conn)
-        .async_send(HybridBuf::from(data), MessageSendingPriority::Normal)?;
+        .async_send(HybridBuf::try_from(data)?, MessageSendingPriority::Normal)?;
 
     TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
 
@@ -155,14 +153,10 @@ pub fn update_buckets(
 ) -> FuncResult<()> {
     let priv_conn_borrow = read_or_die!(priv_conn);
 
-    safe_write!(priv_conn_borrow.conn().handler().buckets)?.insert_into_bucket(sender, nets);
+    safe_write!(priv_conn_borrow.conn().handler().connection_handler.buckets)?
+        .insert_into_bucket(sender, nets);
 
-    if let Some(ref service) = priv_conn_borrow
-        .conn()
-        .handler()
-        .node()
-        .stats_export_service()
-    {
+    if let Some(ref service) = priv_conn_borrow.conn().handler().stats_export_service() {
         service.peers_inc();
         service.pkt_sent_inc_by(2);
     };

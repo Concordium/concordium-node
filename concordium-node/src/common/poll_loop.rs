@@ -1,11 +1,11 @@
 use crate::{
-    connection::MessageSendingPriority, p2p::noise_protocol_handler::NoiseProtocolHandler,
+    connection::MessageSendingPriority,
+    p2p::{P2PNode, Receivers},
 };
 
 use concordium_common::hybrid_buf::HybridBuf;
 
 use mio::Token;
-use std::sync::mpsc::Receiver;
 
 /// This data type is used to queue a request from any thread (like tests, RPC,
 /// Cli, etc.), into a node. Please note that any access to internal `socket`
@@ -25,11 +25,9 @@ pub struct NetworkRawRequest {
 /// accessed from that single thread. Read process is executed inside MIO
 /// poll-loop thread, and any write is queued to be processed later in that
 /// poll-loop.
-pub fn process_network_requests(
-    noise_protocol_handler: &NoiseProtocolHandler,
-    network_request_receiver: &Receiver<NetworkRawRequest>,
-) {
-    network_request_receiver
+pub fn process_network_requests(p2p_node: &P2PNode, receivers: &Receivers) {
+    receivers
+        .network_requests
         .try_iter()
         .for_each(|network_request| {
             trace!(
@@ -38,7 +36,7 @@ pub fn process_network_requests(
                 usize::from(network_request.token)
             );
 
-            let conn_opt = noise_protocol_handler.find_connection_by_token(network_request.token);
+            let conn_opt = p2p_node.find_connection_by_token(network_request.token);
             match conn_opt {
                 Some(ref conn) => {
                     if !conn.is_closed() {

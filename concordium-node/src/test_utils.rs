@@ -130,7 +130,7 @@ pub fn make_node_and_sync(
     let (rpc_tx, _rpc_rx) = std::sync::mpsc::sync_channel(64);
 
     let export_service = StatsExportService::new(StatsServiceMode::NodeMode).unwrap();
-    let mut node = P2PNode::new(
+    let (mut node, receivers) = P2PNode::new(
         None,
         &get_test_config(port, networks),
         net_tx,
@@ -143,7 +143,7 @@ pub fn make_node_and_sync(
 
     // locally-run tests and benches can be polled with a much greater frequency
     node.config.poll_interval = 1;
-    node.config.housekeeping_interval = 1;
+    node.config.housekeeping_interval = 10;
 
     node.add_notification(make_atomic_callback!(move |m: &NetworkMessage| {
         log_any_message_handler(node_id, m)
@@ -154,7 +154,7 @@ pub fn make_node_and_sync(
         Ok(())
     }));
 
-    node.spawn();
+    node.spawn(receivers);
     Ok((node, msg_wait_rx))
 }
 
@@ -168,7 +168,7 @@ pub fn make_node_and_sync_with_rpc(
     let (rpc_tx, rpc_rx) = std::sync::mpsc::sync_channel(64);
 
     let export_service = StatsExportService::new(StatsServiceMode::NodeMode).unwrap();
-    let mut node = P2PNode::new(
+    let (mut node, receivers) = P2PNode::new(
         None,
         &get_test_config(port, networks),
         net_tx,
@@ -192,7 +192,7 @@ pub fn make_node_and_sync_with_rpc(
         Ok(())
     }));
 
-    node.spawn();
+    node.spawn(receivers);
     Ok((node, msg_wait_rx, rpc_rx))
 }
 

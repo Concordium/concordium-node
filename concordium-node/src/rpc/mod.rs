@@ -18,13 +18,16 @@ use crate::{
     proto::*,
 };
 
-use concordium_common::{fails::PoisonError, ConsensusFfiResponse, PacketType};
+use concordium_common::{
+    fails::PoisonError, hybrid_buf::HybridBuf, ConsensusFfiResponse, PacketType,
+};
 use concordium_consensus::consensus::{ConsensusContainer, CALLBACK_QUEUE};
 use concordium_global_state::tree::messaging::{ConsensusMessage, DistributionMode, MessageType};
 use futures::future::Future;
 use grpcio::{self, Environment, ServerBuilder};
 use rkv::Rkv;
 use std::{
+    convert::TryFrom,
     net::{IpAddr, SocketAddr},
     str::FromStr,
     sync::{atomic::Ordering, mpsc, Arc, Mutex, RwLock},
@@ -123,7 +126,7 @@ impl RpcServerImpl {
 
         if req.has_message() && req.has_broadcast() {
             // TODO avoid double-copy
-            let msg = req.get_message().get_value().to_vec();
+            let msg = HybridBuf::try_from(req.get_message().get_value())?;
             let network_id = NetworkId::from(req.get_network_id().get_value() as u16);
 
             if req.has_node_id() && !req.get_broadcast().get_value() && req.has_network_id() {
@@ -486,7 +489,7 @@ impl P2P for RpcServerImpl {
     fn peer_stats(
         &self,
         ctx: ::grpcio::RpcContext<'_>,
-        req: Empty,
+        req: PeersRequest,
         sink: ::grpcio::UnarySink<PeerStatsResponse>,
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
@@ -495,13 +498,17 @@ impl P2P for RpcServerImpl {
             let f = {
                 let data = peer_stats
                     .iter()
-                    .map(|x| {
+                    .filter(|peer| match peer.peer_type {
+                        PeerType::Node => true,
+                        PeerType::Bootstrapper => req.get_include_bootstrappers(),
+                    })
+                    .map(|peer| {
                         let mut peer_resp = PeerStatsResponse_PeerStats::new();
-                        peer_resp.set_node_id(P2PNodeId(x.id).to_string());
-                        peer_resp.set_packets_sent(x.sent.load(Ordering::Relaxed));
-                        peer_resp.set_packets_received(x.received.load(Ordering::Relaxed));
+                        peer_resp.set_node_id(P2PNodeId(peer.id).to_string());
+                        peer_resp.set_packets_sent(peer.sent.load(Ordering::Relaxed));
+                        peer_resp.set_packets_received(peer.received.load(Ordering::Relaxed));
 
-                        let latency = x.measured_latency.load(Ordering::Relaxed);
+                        let latency = peer.measured_latency.load(Ordering::Relaxed);
                         if latency > 0 {
                             peer_resp.set_measured_latency(latency);
                         }
@@ -521,7 +528,7 @@ impl P2P for RpcServerImpl {
     fn peer_list(
         &self,
         ctx: ::grpcio::RpcContext<'_>,
-        req: Empty,
+        req: PeersRequest,
         sink: ::grpcio::UnarySink<PeerListResponse>,
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
@@ -531,16 +538,20 @@ impl P2P for RpcServerImpl {
                     .node
                     .get_peer_stats()
                     .iter()
-                    .map(|x| {
+                    .filter(|peer| match peer.peer_type {
+                        PeerType::Node => true,
+                        PeerType::Bootstrapper => req.get_include_bootstrappers(),
+                    })
+                    .map(|peer| {
                         let mut peer_resp = PeerElement::new();
                         let mut node_id = ::protobuf::well_known_types::StringValue::new();
-                        node_id.set_value(x.id.to_string());
+                        node_id.set_value(peer.id.to_string());
                         peer_resp.set_node_id(node_id);
                         let mut ip = ::protobuf::well_known_types::StringValue::new();
-                        ip.set_value(x.addr.ip().to_string());
+                        ip.set_value(peer.addr.ip().to_string());
                         peer_resp.set_ip(ip);
                         let mut port = ::protobuf::well_known_types::UInt32Value::new();
-                        port.set_value(x.addr.port().into());
+                        port.set_value(peer.addr.port().into());
                         peer_resp.set_port(port);
                         peer_resp
                     })
@@ -1013,7 +1024,7 @@ impl P2P for RpcServerImpl {
         authenticate!(ctx, req, sink, self.access_token, {
             let f = {
                 let mut r: SuccessResponse = SuccessResponse::new();
-                r.set_value(self.node.close().is_ok());
+                r.set_value(self.node.close());
                 sink.success(r)
             };
             let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
@@ -1047,7 +1058,7 @@ impl P2P for RpcServerImpl {
                 } else {
                     let test_messages = utils::get_tps_test_messages(Some(dir));
                     let mut r: SuccessResponse = SuccessResponse::new();
-                    let result = !(test_messages.iter().map(|message| {
+                    let result = !(test_messages.into_iter().map(|message| {
                         let out_bytes_len = message.len();
                         let to_send = P2PNodeId::from_str(&id).ok();
                         match send_direct_message(
@@ -1055,7 +1066,7 @@ impl P2P for RpcServerImpl {
                             to_send,
                             network_id,
                             None,
-                            message.to_vec(),
+                            HybridBuf::try_from(message).unwrap(),
                         ) {
                             Ok(_) => {
                                 info!("Sent TPS test bytes of len {}", out_bytes_len);
@@ -1277,10 +1288,11 @@ mod tests {
         },
     };
     use chrono::prelude::Utc;
+    use concordium_common::hybrid_buf::HybridBuf;
     use failure::Fallible;
     use grpcio::{ChannelBuilder, EnvBuilder};
     use rkv::{Manager, Rkv};
-    use std::sync::Arc;
+    use std::{convert::TryFrom, sync::Arc};
 
     // Same as create_node_rpc_call_option but also outputs the Message receiver
     fn create_node_rpc_call_option_waiter(
@@ -1518,9 +1530,9 @@ mod tests {
     #[test]
     fn test_peer_stats() -> Fallible<()> {
         let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
-        let emp = crate::proto::Empty::new();
+        let req = crate::proto::PeersRequest::new();
         let rcv = client
-            .peer_stats_opt(&emp.clone(), callopts.clone())?
+            .peer_stats_opt(&req.clone(), callopts.clone())?
             .get_peerstats()
             .to_vec();
         assert!(rcv.is_empty());
@@ -1528,9 +1540,9 @@ mod tests {
         let (mut node2, wt1) = make_node_and_sync(port, vec![100], PeerType::Node)?;
         connect(&mut node2, &rpc_serv.node)?;
         await_handshake(&wt1)?;
-        let emp = crate::proto::Empty::new();
+        let req = crate::proto::PeersRequest::new();
         let rcv = client
-            .peer_stats_opt(&emp.clone(), callopts.clone())?
+            .peer_stats_opt(&req.clone(), callopts.clone())?
             .get_peerstats()
             .to_vec();
         assert!(rcv.len() == 1);
@@ -1541,17 +1553,17 @@ mod tests {
     #[test]
     fn test_peer_list() -> Fallible<()> {
         let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
-        let emp = crate::proto::Empty::new();
-        let rcv = client.peer_list_opt(&emp.clone(), callopts.clone())?;
+        let req = crate::proto::PeersRequest::new();
+        let rcv = client.peer_list_opt(&req.clone(), callopts.clone())?;
         assert!(rcv.get_peer().to_vec().is_empty());
         assert_eq!(rcv.get_peer_type(), "Node");
         let port = next_available_port();
         let (mut node2, wt1) = make_node_and_sync(port, vec![100], PeerType::Node)?;
         connect(&mut node2, &rpc_serv.node)?;
         await_handshake(&wt1)?;
-        let emp = crate::proto::Empty::new();
+        let req = crate::proto::PeersRequest::new();
         let rcv = client
-            .peer_list_opt(&emp.clone(), callopts.clone())?
+            .peer_list_opt(&req.clone(), callopts.clone())?
             .get_peer()
             .to_vec();
         assert!(rcv.len() == 1);
@@ -1581,7 +1593,7 @@ mod tests {
     fn grpc_peer_list_node_type_str(peer_type: PeerType) -> Fallible<()> {
         let (client, _, callopts) = create_node_rpc_call_option(peer_type);
         let reply = client
-            .peer_list_opt(&crate::proto::Empty::new(), callopts)
+            .peer_list_opt(&crate::proto::PeersRequest::new(), callopts)
             .expect("rpc");
         assert_eq!(reply.peer_type, peer_type.to_string());
         Ok(())
@@ -1645,7 +1657,7 @@ mod tests {
             vec![],
             crate::network::NetworkId::from(100),
             None,
-            b"Hey".to_vec(),
+            HybridBuf::try_from(&b"Hey"[..])?,
         )?;
         await_broadcast_message(&wt1).expect("Message sender disconnected");
         let ans = client.subscription_poll_opt(&crate::proto::Empty::new(), callopts.clone())?;

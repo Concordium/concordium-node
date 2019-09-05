@@ -8,8 +8,9 @@ use tempfile::tempfile;
 use std::{
     borrow::Cow,
     cmp,
+    convert::TryFrom,
     fs::File,
-    io::{Cursor, Read, Result, Seek, SeekFrom, Write},
+    io::{self, Cursor, Read, Result, Seek, SeekFrom, Write},
     mem,
 };
 
@@ -163,10 +164,49 @@ impl Write for HybridBuf {
     }
 }
 
-// TODO: ensure it's only used with small in-mem buffers or change
-// the impl to TryFrom and call swap_to_disk before returning
-impl From<Vec<u8>> for HybridBuf {
-    fn from(vec: Vec<u8>) -> Self { HybridBuf::Mem(Cursor::new(vec)) }
+impl TryFrom<Vec<u8>> for HybridBuf {
+    type Error = io::Error;
+
+    fn try_from(vec: Vec<u8>) -> Result<Self> {
+        if vec.len() <= MAX_MEM_SIZE {
+            Ok(HybridBuf::Mem(Cursor::new(vec)))
+        } else {
+            let mut ret = HybridBuf::new_on_disk()?;
+            ret.write_all(&vec)?;
+            ret.rewind()?;
+            Ok(ret)
+        }
+    }
+}
+
+impl<'a> TryFrom<&'a [u8]> for HybridBuf {
+    type Error = io::Error;
+
+    fn try_from(buf: &[u8]) -> Result<Self> {
+        if buf.len() <= MAX_MEM_SIZE {
+            Ok(HybridBuf::Mem(Cursor::new(buf.to_owned())))
+        } else {
+            let mut ret = HybridBuf::new_on_disk()?;
+            ret.write_all(buf)?;
+            ret.rewind()?;
+            Ok(ret)
+        }
+    }
+}
+
+impl TryFrom<HybridBuf> for Vec<u8> {
+    type Error = io::Error;
+
+    fn try_from(mut buf: HybridBuf) -> Result<Self> {
+        match buf {
+            HybridBuf::Mem(cursor) => Ok(cursor.into_inner()),
+            HybridBuf::File(_) => {
+                let mut ret = Vec::with_capacity(buf.len()? as usize);
+                buf.read_to_end(&mut ret)?;
+                Ok(ret)
+            }
+        }
+    }
 }
 
 impl Seek for HybridBuf {

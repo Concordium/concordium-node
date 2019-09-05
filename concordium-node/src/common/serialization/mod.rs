@@ -19,19 +19,20 @@ use failure::Fallible;
 
 /// Helper function to serialize `src` into memory.
 /// It uses `capacity` as initial capacity for target vector.
-pub fn serialize_into_memory<T>(src: &T, capacity: usize) -> Fallible<Vec<u8>>
+pub fn serialize_into_memory<T>(src: &T, capacity: usize) -> Fallible<HybridBuf>
 where
     T: Serializable, {
-    let mut archive = WriteArchiveAdapter::from(Vec::with_capacity(capacity));
+    let mut archive = WriteArchiveAdapter::from(HybridBuf::with_capacity(capacity)?);
     src.serialize(&mut archive)?;
-    Ok(archive.into_inner())
+    let mut ret = archive.into_inner();
+    ret.rewind()?;
+    Ok(ret)
 }
 
 /// Helper function to deserialize `src` from memory.
-pub fn deserialize_from_memory<T>(src: Vec<u8>, peer: RemotePeer) -> Fallible<T>
+pub fn deserialize_from_memory<T>(src: HybridBuf, peer: RemotePeer) -> Fallible<T>
 where
     T: Deserializable, {
-    let cursor = HybridBuf::from(src);
-    let mut archive = ReadArchiveAdapter::new(cursor, peer);
+    let mut archive = ReadArchiveAdapter::new(src, peer);
     T::deserialize(&mut archive)
 }

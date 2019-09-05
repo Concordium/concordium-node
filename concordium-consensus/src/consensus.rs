@@ -22,18 +22,18 @@ pub type PeerId = u64;
 pub type PrivateData = HashMap<i64, Vec<u8>>;
 
 pub struct ConsensusOutQueue {
-    receiver_request: Arc<Mutex<RelayOrStopReceiver<ConsensusMessage>>>,
+    receiver_request: Mutex<RelayOrStopReceiver<ConsensusMessage>>,
     sender_request:   RelayOrStopSyncSender<ConsensusMessage>,
 }
 
-const SYNC_CHANNEL_BOUND: usize = 64;
+const SYNC_CHANNEL_BOUND: usize = 256;
 
 impl Default for ConsensusOutQueue {
     fn default() -> Self {
         let (sender_request, receiver_request) =
             mpsc::sync_channel::<RelayOrStopEnvelope<ConsensusMessage>>(SYNC_CHANNEL_BOUND);
         ConsensusOutQueue {
-            receiver_request: Arc::new(Mutex::new(receiver_request)),
+            receiver_request: Mutex::new(receiver_request),
             sender_request,
         }
     }

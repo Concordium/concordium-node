@@ -169,7 +169,7 @@ impl FrameStream {
             );
             self.clear();
 
-            Ok(Readiness::Ready(HybridBuf::from(new_data)))
+            Ok(Readiness::Ready(HybridBuf::try_from(new_data)?))
         } else {
             Ok(Readiness::NotReady)
         }

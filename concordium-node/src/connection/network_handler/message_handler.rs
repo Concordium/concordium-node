@@ -168,6 +168,7 @@ mod integration_test {
     use concordium_common::{functor::FuncResult, hybrid_buf::HybridBuf};
 
     use std::{
+        convert::TryFrom,
         net::{IpAddr, Ipv4Addr, SocketAddr},
         sync::{
             atomic::{AtomicUsize, Ordering},
@@ -186,7 +187,7 @@ mod integration_test {
             .addr(SocketAddr::new(ip, 8080))
             .build()
             .unwrap();
-        let inner_msg = HybridBuf::from(b"Message XXX".to_vec());
+        let inner_msg = HybridBuf::try_from(&b"Message XXX"[..]).unwrap();
         let node_id = P2PNodeId::default();
 
         let data = vec![

@@ -1,6 +1,6 @@
 [package]
 name = "p2p_client"
-version = "0.1.51"
+version = "0.1.52"
 description = "Concordium P2P Client"
 authors = ["Concordium AG <info@concordium.com>"]
 exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*","**/**/.gitignore","**/**/.gitlab-ci.yml"]
@@ -9,6 +9,7 @@ build = "build.rs"
 autobins = false
 edition = "2018"
 default-run = "p2p_client-cli"
+license = "MIT"
 
 [features]
 default = []
