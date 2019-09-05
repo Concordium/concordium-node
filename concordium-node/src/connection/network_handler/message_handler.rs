@@ -19,8 +19,6 @@ pub struct MessageHandler {
     response_parser: UnitFunctor<NetworkResponse>,
     packet_parser:   UnitFunctor<NetworkPacket>,
     invalid_handler: Arc<RwLock<EmptyFunction>>,
-
-    general_parser: UnitFunctor<NetworkMessage>,
 }
 
 impl Default for MessageHandler {
@@ -33,7 +31,6 @@ impl MessageHandler {
             request_parser:  UnitFunctor::<NetworkRequest>::new(),
             response_parser: UnitFunctor::<NetworkResponse>::new(),
             packet_parser:   UnitFunctor::<NetworkPacket>::new(),
-            general_parser:  UnitFunctor::<NetworkMessage>::new(),
             invalid_handler: Arc::new(RwLock::new(Arc::new(|| Ok(())))),
         }
     }
@@ -53,11 +50,6 @@ impl MessageHandler {
         self
     }
 
-    pub fn add_callback(&self, callback: NetworkMessageCW) -> &Self {
-        self.general_parser.add_callback(callback);
-        self
-    }
-
     pub fn set_invalid_handler(&self, func: EmptyFunction) -> &Self {
         *write_or_die!(self.invalid_handler) = func;
         self
@@ -65,10 +57,6 @@ impl MessageHandler {
 
     /// It merges into `this` all parsers from `other` `MessageHandler`.
     pub fn add(&self, other: MessageHandler) -> &Self {
-        for cb in read_or_die!(other.general_parser.callbacks()).iter() {
-            self.add_callback(cb.clone());
-        }
-
         for cb in read_or_die!(other.packet_parser.callbacks()).iter() {
             self.add_packet_callback(cb.clone());
         }
@@ -85,20 +73,18 @@ impl MessageHandler {
     }
 
     pub fn process_message(&self, msg: &NetworkMessage) -> FunctorResult<()> {
-        // General
-        let general_status = self.general_parser.run_callbacks(msg);
-
-        // Specific
-        let specific_status = match msg {
-            NetworkMessage::NetworkRequest(ref nr, _, _) => self.request_parser.run_callbacks(nr),
-            NetworkMessage::NetworkResponse(ref nr, _, _) => self.response_parser.run_callbacks(nr),
-            NetworkMessage::NetworkPacket(ref np, _, _) => self.packet_parser.run_callbacks(np),
+        match msg {
+            NetworkMessage::NetworkRequest(ref nr, ..) => self.request_parser.run_callbacks(nr)?,
+            NetworkMessage::NetworkResponse(ref nr, ..) => {
+                self.response_parser.run_callbacks(nr)?
+            }
+            NetworkMessage::NetworkPacket(ref np, ..) => self.packet_parser.run_callbacks(np)?,
             NetworkMessage::InvalidMessage => {
-                (read_or_die!(self.invalid_handler))().map_err(|x| FunctorError::from(vec![x]))
+                (read_or_die!(self.invalid_handler))().map_err(|x| FunctorError::from(vec![x]))?
             }
         };
 
-        general_status.and(specific_status)
+        Ok(())
     }
 }
 
