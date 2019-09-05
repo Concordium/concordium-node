@@ -2,8 +2,7 @@ use crate::{
     connection::{
         network_handler::{
             message_handler::{
-                EmptyFunction, NetworkMessageCW, NetworkPacketCW, NetworkRequestCW,
-                NetworkResponseCW,
+                EmptyFunction, NetworkPacketCW, NetworkRequestCW, NetworkResponseCW,
             },
             MessageHandler,
         },
@@ -90,11 +89,6 @@ impl MessageProcessor {
 
     pub fn add_packet_action(&self, callback: NetworkPacketCW) -> &Self {
         self.actions.add_packet_callback(callback);
-        self
-    }
-
-    pub fn add_action(&self, callback: NetworkMessageCW) -> &Self {
-        self.actions.add_callback(callback);
         self
     }
 
