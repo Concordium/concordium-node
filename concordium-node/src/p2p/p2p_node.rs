@@ -724,21 +724,6 @@ impl P2PNode {
                 });
         }
 
-        let wrap_connection_already_gone_as_non_fatal =
-            |token, res: Fallible<()>| -> Fallible<Token> {
-                use crate::connection::fails::PeerTerminatedConnection;
-                match res {
-                    Err(err) => {
-                        if err.downcast_ref::<PeerTerminatedConnection>().is_some() {
-                            Ok(token)
-                        } else {
-                            Err(err)
-                        }
-                    }
-                    _ => Ok(token),
-                }
-            };
-
         let filter_predicate_bootstrapper_no_activity_allowed_period = |conn: &Connection| -> bool {
             peer_type == PeerType::Bootstrapper
                 && conn.is_post_handshake()
@@ -758,8 +743,7 @@ impl P2PNode {
         };
 
         // Kill nodes which are no longer seen and also closing connections
-        let (closing_conns, err_conns): (Vec<Fallible<Token>>, Vec<Fallible<Token>>) =
-            uncleaned_connections
+        let closing_conns = uncleaned_connections
             .iter()
             // Get only connections that have been inactive for more time than allowed or closing connections
             .filter(|conn| {
@@ -768,25 +752,8 @@ impl P2PNode {
                     filter_predicate_bootstrapper_no_activity_allowed_period(&conn) ||
                     filter_predicate_node_no_activity_allowed_period(&conn)
             })
-            .map(|conn| {
-                // Deregister connection from the poll and shut down the socket
-                let conn_token = conn.token();
-                {
-                    trace!("Kill connection {} {}:{}", usize::from(conn_token), conn.remote_addr().ip(), conn.remote_addr().port());
-                    wrap_connection_already_gone_as_non_fatal(conn_token, conn.deregister(&self.poll))?;
-                    wrap_connection_already_gone_as_non_fatal(conn_token, conn.shutdown())?;
-                }
-                // Report number of peers to stats export engine
-                if let Some(ref service) = &self.stats_export_service() {
-                    if conn.is_post_handshake() {
-                        service.peers_dec();
-                    }
-                }
-                Ok(conn_token)
-            }).partition(Result::is_ok);
-
-        // safe unwrapping since we are iterating over the list that only contains `Ok`s
-        let closing_conns: Vec<_> = closing_conns.into_iter().map(Result::unwrap).collect();
+            .map(|conn| conn.token())
+            .collect::<Vec<Token>>();
 
         self.remove_connections(&closing_conns);
 
@@ -816,13 +783,6 @@ impl P2PNode {
             self.connection_handler
                 .unreachable_nodes
                 .cleanup(curr_stamp - MAX_UNREACHABLE_MARK_TIME);
-        }
-
-        if !err_conns.is_empty() {
-            bail!(format!(
-                "Some connections couldn't be cleaned: {:?}",
-                err_conns
-            ));
         }
 
         // If the number of peers exceeds the desired value, close a random selection of
