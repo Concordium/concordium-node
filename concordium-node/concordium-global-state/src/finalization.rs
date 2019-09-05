@@ -20,17 +20,18 @@ const TICKET: u8 = 80;
 
 #[derive(PartialEq, Eq, Hash)]
 pub struct FinalizationMessage {
-    header:    FinalizationMessageHeader,
-    message:   WmvbaMessage,
-    signature: ByteString,
+    header: FinalizationMessageHeader,
+    // message: WmvbaMessage,
+    message: Encoded,
+    // signature: ByteString,
 }
 
 impl fmt::Debug for FinalizationMessage {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "finalization message (sess {}, idx {}, party {}, {})",
-            self.header.session_id, self.header.index, self.header.sender, self.message
+            "finalization message (sess {}, idx {}, party {}",
+            self.header.session_id, self.header.index, self.header.sender /* , self.message */
         )
     }
 }
@@ -43,13 +44,15 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for FinalizationMessage {
 
         let header =
             FinalizationMessageHeader::deserialize(&read_const_sized!(&mut cursor, HEADER))?;
-        let message = WmvbaMessage::deserialize(&mut cursor)?;
-        let signature = read_bytestring_short_length(&mut cursor, "finalization signature")?;
+        // let message = WmvbaMessage::deserialize(&mut cursor)?;
+        let message = Encoded::from(read_sized!(&mut cursor, bytes.len() - HEADER as usize));
+        // let signature = read_bytestring_short_length(&mut cursor, "finalization
+        // signature")?;
 
         let msg = FinalizationMessage {
             header,
             message,
-            signature,
+            // signature,
         };
 
         check_serialization!(msg, cursor);
@@ -58,13 +61,13 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for FinalizationMessage {
     }
 
     fn serialize(&self) -> Box<[u8]> {
-        let mut buffer = [0; 2];
-        NetworkEndian::write_u16(&mut buffer, self.signature.len() as u16);
+        // let mut buffer = [0; 2];
+        // NetworkEndian::write_u16(&mut buffer, self.signature.len() as u16);
         [
             &self.header.serialize(),
-            &self.message.serialize(),
-            &buffer[..],
-            self.signature.as_ref(),
+            &*self.message,
+            /* &buffer[..],
+             * self.signature.as_ref(), */
         ]
         .concat()
         .into_boxed_slice()
