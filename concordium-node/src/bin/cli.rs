@@ -5,7 +5,6 @@ extern crate grpciounix as grpcio;
 extern crate grpciowin as grpcio;
 #[macro_use]
 extern crate log;
-extern crate concordium_common;
 
 // Explicitly defining allocator to avoid future reintroduction of jemalloc
 use std::alloc::System;
@@ -379,11 +378,8 @@ fn start_consensus_threads(
                     } else {
                         error!("A handshaking peer doesn't seem to have any networks!")
                     }
-                    // handle_incoming_message(&mut node_ref, msg);
                 }
-                _ => {
-                    // handle_incoming_message(&mut node_ref, msg);
-                }
+                _ => {}
             }
         }
     });

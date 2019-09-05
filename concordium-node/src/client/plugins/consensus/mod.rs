@@ -397,9 +397,6 @@ fn send_msg_to_consensus(
         Transaction => consensus.send_transaction(&request.payload),
         FinalizationMessage => consensus.send_finalization(&request.payload),
         FinalizationRecord => consensus.send_finalization_record(&request.payload),
-        CatchUpFinalizationMessagesByPoint => {
-            consensus.get_finalization_messages(&request.payload, raw_id)
-        }
         CatchUpStatus => consensus.receive_catch_up_status(&request.payload, raw_id),
     };
 
