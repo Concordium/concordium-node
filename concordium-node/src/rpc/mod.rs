@@ -489,7 +489,7 @@ impl P2P for RpcServerImpl {
     fn peer_stats(
         &self,
         ctx: ::grpcio::RpcContext<'_>,
-        req: Empty,
+        req: PeersRequest,
         sink: ::grpcio::UnarySink<PeerStatsResponse>,
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
@@ -498,13 +498,17 @@ impl P2P for RpcServerImpl {
             let f = {
                 let data = peer_stats
                     .iter()
-                    .map(|x| {
+                    .filter(|peer| match peer.peer_type {
+                        PeerType::Node => true,
+                        PeerType::Bootstrapper => req.get_include_bootstrappers(),
+                    })
+                    .map(|peer| {
                         let mut peer_resp = PeerStatsResponse_PeerStats::new();
-                        peer_resp.set_node_id(P2PNodeId(x.id).to_string());
-                        peer_resp.set_packets_sent(x.sent.load(Ordering::Relaxed));
-                        peer_resp.set_packets_received(x.received.load(Ordering::Relaxed));
+                        peer_resp.set_node_id(P2PNodeId(peer.id).to_string());
+                        peer_resp.set_packets_sent(peer.sent.load(Ordering::Relaxed));
+                        peer_resp.set_packets_received(peer.received.load(Ordering::Relaxed));
 
-                        let latency = x.measured_latency.load(Ordering::Relaxed);
+                        let latency = peer.measured_latency.load(Ordering::Relaxed);
                         if latency > 0 {
                             peer_resp.set_measured_latency(latency);
                         }
@@ -524,7 +528,7 @@ impl P2P for RpcServerImpl {
     fn peer_list(
         &self,
         ctx: ::grpcio::RpcContext<'_>,
-        req: Empty,
+        req: PeersRequest,
         sink: ::grpcio::UnarySink<PeerListResponse>,
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
@@ -534,16 +538,20 @@ impl P2P for RpcServerImpl {
                     .node
                     .get_peer_stats()
                     .iter()
-                    .map(|x| {
+                    .filter(|peer| match peer.peer_type {
+                        PeerType::Node => true,
+                        PeerType::Bootstrapper => req.get_include_bootstrappers(),
+                    })
+                    .map(|peer| {
                         let mut peer_resp = PeerElement::new();
                         let mut node_id = ::protobuf::well_known_types::StringValue::new();
-                        node_id.set_value(x.id.to_string());
+                        node_id.set_value(peer.id.to_string());
                         peer_resp.set_node_id(node_id);
                         let mut ip = ::protobuf::well_known_types::StringValue::new();
-                        ip.set_value(x.addr.ip().to_string());
+                        ip.set_value(peer.addr.ip().to_string());
                         peer_resp.set_ip(ip);
                         let mut port = ::protobuf::well_known_types::UInt32Value::new();
-                        port.set_value(x.addr.port().into());
+                        port.set_value(peer.addr.port().into());
                         peer_resp.set_port(port);
                         peer_resp
                     })
@@ -1522,9 +1530,9 @@ mod tests {
     #[test]
     fn test_peer_stats() -> Fallible<()> {
         let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
-        let emp = crate::proto::Empty::new();
+        let req = crate::proto::PeersRequest::new();
         let rcv = client
-            .peer_stats_opt(&emp.clone(), callopts.clone())?
+            .peer_stats_opt(&req.clone(), callopts.clone())?
             .get_peerstats()
             .to_vec();
         assert!(rcv.is_empty());
@@ -1532,9 +1540,9 @@ mod tests {
         let (mut node2, wt1) = make_node_and_sync(port, vec![100], PeerType::Node)?;
         connect(&mut node2, &rpc_serv.node)?;
         await_handshake(&wt1)?;
-        let emp = crate::proto::Empty::new();
+        let req = crate::proto::PeersRequest::new();
         let rcv = client
-            .peer_stats_opt(&emp.clone(), callopts.clone())?
+            .peer_stats_opt(&req.clone(), callopts.clone())?
             .get_peerstats()
             .to_vec();
         assert!(rcv.len() == 1);
@@ -1545,17 +1553,17 @@ mod tests {
     #[test]
     fn test_peer_list() -> Fallible<()> {
         let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
-        let emp = crate::proto::Empty::new();
-        let rcv = client.peer_list_opt(&emp.clone(), callopts.clone())?;
+        let req = crate::proto::PeersRequest::new();
+        let rcv = client.peer_list_opt(&req.clone(), callopts.clone())?;
         assert!(rcv.get_peer().to_vec().is_empty());
         assert_eq!(rcv.get_peer_type(), "Node");
         let port = next_available_port();
         let (mut node2, wt1) = make_node_and_sync(port, vec![100], PeerType::Node)?;
         connect(&mut node2, &rpc_serv.node)?;
         await_handshake(&wt1)?;
-        let emp = crate::proto::Empty::new();
+        let req = crate::proto::PeersRequest::new();
         let rcv = client
-            .peer_list_opt(&emp.clone(), callopts.clone())?
+            .peer_list_opt(&req.clone(), callopts.clone())?
             .get_peer()
             .to_vec();
         assert!(rcv.len() == 1);
@@ -1585,7 +1593,7 @@ mod tests {
     fn grpc_peer_list_node_type_str(peer_type: PeerType) -> Fallible<()> {
         let (client, _, callopts) = create_node_rpc_call_option(peer_type);
         let reply = client
-            .peer_list_opt(&crate::proto::Empty::new(), callopts)
+            .peer_list_opt(&crate::proto::PeersRequest::new(), callopts)
             .expect("rpc");
         assert_eq!(reply.peer_type, peer_type.to_string());
         Ok(())

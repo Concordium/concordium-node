@@ -144,6 +144,10 @@ message DumpRequest {
   bool raw = 2;
 }
 
+message PeersRequest {
+  bool include_bootstrappers = 1;
+}
+
 message Empty {}
 
 message RetransmitRequestMessage {
@@ -181,9 +185,9 @@ service P2P {
   rpc PeerVersion(Empty) returns (StringResponse) {}
   rpc SendMessage(SendMessageRequest) returns (SuccessResponse) {}
   // Stats for connected peers
-  rpc PeerStats(Empty) returns (PeerStatsResponse) {}
+  rpc PeerStats(PeersRequest) returns (PeerStatsResponse) {}
   // List of connected peers
-  rpc PeerList(Empty) returns (PeerListResponse) {}
+  rpc PeerList(PeersRequest) returns (PeerListResponse) {}
   rpc SubscriptionStart(Empty) returns (SuccessResponse) {}
   rpc SubscriptionStop(Empty) returns (SuccessResponse) {}
   rpc SubscriptionPoll(Empty) returns (P2PNetworkMessage) {}
