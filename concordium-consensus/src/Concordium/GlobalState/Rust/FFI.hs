@@ -54,7 +54,6 @@ import Foreign.C
 import Foreign.Ptr
 import Foreign.ForeignPtr
 import System.IO.Unsafe
-import Control.DeepSeq
 
 ---------------------------
 -- * GlobalState FFI calls
@@ -151,11 +150,11 @@ blockFieldsBlockLastFinalized b = unsafePerformIO $ do
   return . SHA256.Hash . fromByteString $ bn_str
 
 instance BlockMetadata BlockFields where
-    blockPointer b = b `deepseq` blockFieldsBlockPointer b
-    blockBaker b = b `deepseq` blockFieldsBlockBaker b
-    blockProof b = b `deepseq` blockFieldsBlockProof b
-    blockNonce b = b `deepseq` blockFieldsBlockNonce b
-    blockLastFinalized b = b `deepseq` blockFieldsBlockLastFinalized b
+    blockPointer b = blockFieldsBlockPointer b
+    blockBaker b = blockFieldsBlockBaker b
+    blockProof b = blockFieldsBlockProof b
+    blockNonce b = blockFieldsBlockNonce b
+    blockLastFinalized b = blockFieldsBlockLastFinalized b
 
 ---------------------------
 -- * BlockContents FFI calls
@@ -240,7 +239,7 @@ type instance BlockFieldType BlockContents = BlockFields
 instance BlockData BlockContents where
   blockSlot = blockContentsSlot
   blockFields = blockContentsFields
-  blockTransactions b = b `deepseq` blockContentsBlockTransactions b
+  blockTransactions b = blockContentsBlockTransactions b
   verifyBlockSignature key b = Sig.verify key (runPut $ blockBodySerialize b) (fromJust . blockContentsSignature $ b)
   putBlock b = blockBodySerialize b  >> (putByteString . encode . fromJust . blockContentsSignature $ b)
 
@@ -385,13 +384,13 @@ foreign import ccall unsafe "block_pointer_get_contents"
     blockPointerContentsF :: Ptr BlockPointerR -> Ptr BlockContentsR
 
 blockPointerHash :: BlockPointer -> BlockHash
-blockPointerHash b = b `deepseq` unsafePerformIO $ do
+blockPointerHash b = unsafePerformIO $ do
       p <- withForeignPtr (blockPointerPointer b) (return . blockPointerHashF)
       bh_str <- curry packCStringLen p 32
       return . SHA256.Hash . fromByteString $ bh_str
 
 blockPointerHeight :: BlockPointer -> BlockHeight
-blockPointerHeight b = b `deepseq` unsafePerformIO $ do
+blockPointerHeight b = unsafePerformIO $ do
       withForeignPtr (blockPointerPointer b) (return . BlockHeight . fromIntegral . blockPointerHeightF)
 
 blockPointerTransactionCount :: BlockPointer -> Int
