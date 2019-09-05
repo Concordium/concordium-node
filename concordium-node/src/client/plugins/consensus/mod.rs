@@ -187,7 +187,7 @@ pub fn handle_global_state_request(
                     PeerStatus::UpToDate => {
                         // when all catch-up messages have been exchanged,
                         // baking may commence (does nothing if already baking)
-                        debug!("Global state: all my peers are up to date");
+                        trace!("Global state: all my peers are up to date");
                         consensus.start_baker();
                     }
                     PeerStatus::CatchingUp => {
