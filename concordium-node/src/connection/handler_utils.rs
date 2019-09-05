@@ -9,7 +9,7 @@ use crate::{
 };
 use concordium_common::{fails::FunctorError, functor::FuncResult, hybrid_buf::HybridBuf};
 
-use failure::{Backtrace, Error};
+use failure::Error;
 
 use std::{
     collections::HashSet,
@@ -19,12 +19,6 @@ use std::{
 
 const BOOTSTRAP_PEER_COUNT: usize = 100;
 
-pub fn make_msg_error(e: &'static str) -> FunctorError {
-    FunctorError::from(vec![Error::from(fails::MessageProcessError {
-        message:   e,
-        backtrace: Backtrace::new(),
-    })])
-}
 pub fn make_fn_error_peer(e: &'static str) -> FunctorError {
     FunctorError::from(vec![Error::from(fails::PeerError { message: e })])
 }

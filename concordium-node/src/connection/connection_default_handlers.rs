@@ -1,8 +1,7 @@
-use concordium_common::{functor::FuncResult, hybrid_buf::HybridBuf};
+use concordium_common::functor::FuncResult;
 
 use std::{
     collections::HashSet,
-    convert::TryFrom,
     sync::{atomic::Ordering, RwLock},
 };
 
@@ -15,124 +14,122 @@ use crate::{
     network::{NetworkId, NetworkMessage, NetworkRequest, NetworkResponse},
 };
 
-use super::{fails, handler_utils::*};
-use failure::Error;
+use super::handler_utils::*;
 
-macro_rules! reject_handshake {
-    ($direction:ident, $message:ident) => {{
-        if let $direction::Handshake(..) = $message {
-            Err(failure::Error::from(fails::UnwantedMessageError {
-                message: "Unwanted handshake message".to_owned(),
-            }))
-        } else {
+pub fn network_message_handle(
+    priv_conn: &RwLock<ConnectionPrivate>,
+    msg: &NetworkMessage,
+) -> FuncResult<()> {
+    match msg {
+        NetworkMessage::NetworkRequest(NetworkRequest::Ping(..), ..) => {
+            read_or_die!(priv_conn).update_last_seen();
+            TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
+
+            let pong_msg = {
+                let priv_conn_reader = read_or_die!(priv_conn);
+                // Make `Pong` response and send
+                let remote_peer =
+                    priv_conn_reader
+                        .remote_peer()
+                        .post_handshake_peer_or_else(|| {
+                            make_fn_error_peer("Can't perform this action pre-handshake")
+                        })?;
+
+                if let Some(ref service) = priv_conn_reader.conn().handler().stats_export_service()
+                {
+                    service.pkt_sent_inc();
+                }
+
+                NetworkMessage::NetworkResponse(
+                    NetworkResponse::Pong(remote_peer),
+                    Some(get_current_stamp()),
+                    None,
+                )
+            };
+
+            // Ignore the return value because it is an asynchronous operation.
+            write_or_die!(priv_conn)
+                .async_send(
+                    serialize_into_memory(&pong_msg, 64)?,
+                    MessageSendingPriority::High,
+                )
+                .map(|_bytes| ())
+        }
+        NetworkMessage::NetworkResponse(NetworkResponse::Pong(..), ..) => {
+            let ping: u64 = read_or_die!(priv_conn).sent_ping.load(Ordering::SeqCst);
+            let curr: u64 = get_current_stamp();
+
+            if curr >= ping {
+                write_or_die!(priv_conn)
+                    .last_latency_measured
+                    .store(curr - ping, Ordering::SeqCst);
+            }
+
             Ok(())
         }
-    }};
-}
+        NetworkMessage::NetworkRequest(NetworkRequest::FindNode(..), ..) => {
+            trace!("Got a FindNode request");
+            let find_node_msg = {
+                let priv_conn_reader = read_or_die!(priv_conn);
+                priv_conn_reader.update_last_seen();
 
-/// Default `NetworkRequest::Ping` handler.
-/// It responds with a pong packet.
-pub fn default_network_request_ping_handle(
-    priv_conn: &RwLock<ConnectionPrivate>,
-    _req: &NetworkRequest,
-) -> FuncResult<()> {
-    read_or_die!(priv_conn).update_last_seen();
-    TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
+                let remote_peer =
+                    priv_conn_reader
+                        .remote_peer()
+                        .post_handshake_peer_or_else(|| {
+                            make_fn_error_peer("Can't perform this action pre-handshake")
+                        })?;
+                let nodes =
+                    safe_read!(priv_conn_reader.conn().handler().connection_handler.buckets)?
+                        .buckets[0] // The Buckets object is never empty
+                        .clone()
+                        .into_iter()
+                        .map(|node| node.peer)
+                        .collect::<Vec<_>>();
 
-    let pong_msg = {
-        let priv_conn_reader = read_or_die!(priv_conn);
-        // Make `Pong` response and send
-        let remote_peer = priv_conn_reader
-            .remote_peer()
-            .post_handshake_peer_or_else(|| {
-                make_fn_error_peer("Can't perform this action pre-handshake")
-            })?;
+                NetworkMessage::NetworkResponse(
+                    NetworkResponse::FindNode(remote_peer, nodes),
+                    Some(get_current_stamp()),
+                    None,
+                )
+            };
 
-        if let Some(ref service) = priv_conn_reader.conn().handler().stats_export_service() {
-            service.pkt_sent_inc();
+            // Ignore returned because it is an asynchronous operation.
+            write_or_die!(priv_conn)
+                .async_send(
+                    serialize_into_memory(&find_node_msg, 256)?,
+                    MessageSendingPriority::Normal,
+                )
+                .map(|_bytes| ())
         }
-
-        NetworkMessage::NetworkResponse(
-            NetworkResponse::Pong(remote_peer),
-            Some(get_current_stamp()),
-            None,
-        )
-    };
-    let pong_data = serialize_into_memory(&pong_msg, 64)?;
-
-    // Ignore the return value because it is an asynchronous operation.
-    write_or_die!(priv_conn)
-        .async_send(
-            HybridBuf::try_from(pong_data)?,
-            MessageSendingPriority::High,
-        )
-        .map(|_bytes| ())
-}
-
-/// It sends the list of nodes.
-pub fn default_network_request_find_node_handle(
-    priv_conn: &RwLock<ConnectionPrivate>,
-    req: &NetworkRequest,
-) -> FuncResult<()> {
-    if let NetworkRequest::FindNode(..) = req {
-        // Return list of nodes
-        let find_node_msg = {
+        NetworkMessage::NetworkResponse(NetworkResponse::FindNode(_, ref peers), ..) => {
+            trace!("Got a FindNode reponse");
             let priv_conn_reader = read_or_die!(priv_conn);
-            priv_conn_reader.update_last_seen();
+            // Process the received node list
+            let mut ref_buckets =
+                safe_write!(priv_conn_reader.conn().handler().connection_handler.buckets)?;
+            for peer in peers.iter() {
+                ref_buckets.insert_into_bucket(peer, HashSet::new());
+            }
 
-            let remote_peer = priv_conn_reader
-                .remote_peer()
-                .post_handshake_peer_or_else(|| {
-                    make_fn_error_peer("Can't perform this action pre-handshake")
-                })?;
-            let nodes = safe_read!(priv_conn_reader.conn().handler().connection_handler.buckets)?
-                .buckets[0] // The Buckets object is never empty
-                .clone()
-                .into_iter()
-                .map(|node| node.peer)
-                .collect::<Vec<_>>();
+            Ok(())
+        }
+        NetworkMessage::NetworkRequest(NetworkRequest::GetPeers(ref sender, ref networks), ..) => {
+            trace!("Got a GetPeers request");
+            let peer_list_msg = {
+                let priv_conn_reader = read_or_die!(priv_conn);
+                priv_conn_reader.update_last_seen();
 
-            NetworkMessage::NetworkResponse(
-                NetworkResponse::FindNode(remote_peer, nodes),
-                Some(get_current_stamp()),
-                None,
-            )
-        };
-        let response_data = serialize_into_memory(&find_node_msg, 256)?;
+                let remote_peer =
+                    priv_conn_reader
+                        .remote_peer()
+                        .post_handshake_peer_or_else(|| {
+                            make_fn_error_peer("Can't perform this action pre-handshake")
+                        })?;
 
-        // Ignore returned because it is an asynchronous operation.
-        write_or_die!(priv_conn)
-            .async_send(
-                HybridBuf::try_from(response_data)?,
-                MessageSendingPriority::Normal,
-            )
-            .map(|_bytes| ())
-    } else {
-        Err(Error::from(make_msg_error(
-            "Find node handler cannot handle this packet",
-        )))
-    }
-}
-
-pub fn default_network_request_get_peers(
-    priv_conn: &RwLock<ConnectionPrivate>,
-    req: &NetworkRequest,
-) -> FuncResult<()> {
-    if let NetworkRequest::GetPeers(ref sender, ref networks) = req {
-        trace!("Got a GetPeers request");
-
-        let peer_list_msg = {
-            let priv_conn_reader = read_or_die!(priv_conn);
-            priv_conn_reader.update_last_seen();
-
-            let remote_peer = priv_conn_reader
-                .remote_peer()
-                .post_handshake_peer_or_else(|| {
-                    make_fn_error_peer("Can't perform this action pre-handshake")
-                })?;
-
-            let nodes =
-                if priv_conn_reader.conn().local_peer().peer_type() == PeerType::Bootstrapper {
+                let nodes = if priv_conn_reader.conn().local_peer().peer_type()
+                    == PeerType::Bootstrapper
+                {
                     safe_read!(priv_conn_reader.conn().handler().connection_handler.buckets)?
                         .get_all_nodes(Some(&sender), networks)
                 } else {
@@ -148,206 +145,125 @@ pub fn default_network_request_get_peers(
                         .collect()
                 };
 
-            if let Some(ref service) = priv_conn_reader.conn().handler().stats_export_service() {
-                service.pkt_sent_inc();
+                if let Some(ref service) = priv_conn_reader.conn().handler().stats_export_service()
+                {
+                    service.pkt_sent_inc();
+                };
+
+                NetworkMessage::NetworkResponse(
+                    NetworkResponse::PeerList(remote_peer, nodes),
+                    Some(get_current_stamp()),
+                    None,
+                )
             };
 
-            NetworkMessage::NetworkResponse(
-                NetworkResponse::PeerList(remote_peer, nodes),
-                Some(get_current_stamp()),
-                None,
-            )
-        };
+            TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
 
-        let peer_list_packet = serialize_into_memory(&peer_list_msg, 256)?;
-        TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
-
-        // Ignore returned because it is an asynchronous operation.
-        write_or_die!(priv_conn)
-            .async_send(
-                HybridBuf::try_from(peer_list_packet)?,
-                MessageSendingPriority::Normal,
-            )
-            .map(|_bytes| ())
-    } else {
-        Err(Error::from(make_msg_error(
-            "Get peers handler cannot handler this packet",
-        )))
-    }
-}
-
-pub fn default_network_response_find_node(
-    priv_conn: &RwLock<ConnectionPrivate>,
-    res: &NetworkResponse,
-) -> FuncResult<()> {
-    if let NetworkResponse::FindNode(_, ref peers) = res {
-        trace!("Got a response to FindNode");
-
-        let priv_conn_reader = read_or_die!(priv_conn);
-        // Process the received node list
-        let mut ref_buckets =
-            safe_write!(priv_conn_reader.conn().handler().connection_handler.buckets)?;
-        for peer in peers.iter() {
-            ref_buckets.insert_into_bucket(peer, HashSet::new());
+            // Ignore returned because it is an asynchronous operation.
+            write_or_die!(priv_conn)
+                .async_send(
+                    serialize_into_memory(&peer_list_msg, 256)?,
+                    MessageSendingPriority::Normal,
+                )
+                .map(|_bytes| ())
         }
-
-        Ok(())
-    } else {
-        Err(Error::from(make_msg_error(
-            "Response find node handler cannot handler this packet",
-        )))
-    }
-}
-
-/// It measures network latency.
-pub fn default_network_response_pong(
-    priv_conn: &RwLock<ConnectionPrivate>,
-    _res: &NetworkResponse,
-) -> FuncResult<()> {
-    let ping: u64 = read_or_die!(priv_conn).sent_ping.load(Ordering::SeqCst);
-    let curr: u64 = get_current_stamp();
-
-    if curr >= ping {
-        write_or_die!(priv_conn)
-            .last_latency_measured
-            .store(curr - ping, Ordering::SeqCst);
-    }
-
-    Ok(())
-}
-
-/// It inserts new peers into buckets.
-pub fn default_network_response_peer_list(
-    priv_conn: &RwLock<ConnectionPrivate>,
-    res: &NetworkResponse,
-) -> FuncResult<()> {
-    if let NetworkResponse::PeerList(sender, ref peers) = res {
-        let priv_conn_reader = read_or_die!(priv_conn);
-        let mut locked_buckets =
-            safe_write!(priv_conn_reader.conn().handler().connection_handler.buckets)?;
-        for peer in peers.iter() {
-            // The block below is only used to inspect for leaking P2PNodeIds
-            // of bootstrappers in debug builds, for the test-net.
-            #[cfg(debug_assertions)]
-            {
-                if peer.id().as_raw() >= 1_000_000 {
-                    error!(
-                        "I got a bootstrapper in a PeerList from the node {}",
-                        sender
-                    );
-                }
-            }
-            trace!("Received PeerList response from {}", sender);
-            locked_buckets.insert_into_bucket(peer, HashSet::new());
-        }
-    };
-    Ok(())
-}
-
-/// In handshake:
-///     - Add network
-///     - Store target peer info and allocates buckets for this connection.
-///     - Statistics: Export to Stats Exporter Service
-///     - Log: Join to network
-pub fn default_network_response_handshake(res: &NetworkResponse) -> FuncResult<()> {
-    reject_handshake!(NetworkResponse, res)
-}
-
-/// It adds new network and update its buckets.
-pub fn default_network_request_join_network(
-    priv_conn: &RwLock<ConnectionPrivate>,
-    res: &NetworkRequest,
-) -> FuncResult<()> {
-    if let NetworkRequest::JoinNetwork(_, network) = res {
-        write_or_die!(priv_conn).add_remote_end_network(*network);
-
-        let (remote_peer, event_log) = {
+        NetworkMessage::NetworkResponse(NetworkResponse::PeerList(sender, ref peers), ..) => {
             let priv_conn_reader = read_or_die!(priv_conn);
-            let remote_peer = priv_conn_reader
-                .remote_peer()
-                .post_handshake_peer_or_else(|| {
-                    make_fn_error_peer("Can't perform this action pre-handshake")
-                })?;
+            let mut locked_buckets =
+                safe_write!(priv_conn_reader.conn().handler().connection_handler.buckets)?;
+            for peer in peers.iter() {
+                // The block below is only used to inspect for leaking P2PNodeIds
+                // of bootstrappers in debug builds, for the test-net.
+                #[cfg(debug_assertions)]
+                {
+                    if peer.id().as_raw() >= 1_000_000 {
+                        error!(
+                            "I got a bootstrapper in a PeerList from the node {}",
+                            sender
+                        );
+                    }
+                }
+                trace!("Received PeerList response from {}", sender);
+                locked_buckets.insert_into_bucket(peer, HashSet::new());
+            }
+            Ok(())
+        }
+        NetworkMessage::NetworkRequest(NetworkRequest::JoinNetwork(_, network), ..) => {
+            write_or_die!(priv_conn).add_remote_end_network(*network);
 
-            safe_write!(priv_conn_reader.conn().handler().connection_handler.buckets)?
-                .update_network_ids(&remote_peer, priv_conn_reader.remote_end_networks.clone());
+            let (remote_peer, event_log) = {
+                let priv_conn_reader = read_or_die!(priv_conn);
+                let remote_peer =
+                    priv_conn_reader
+                        .remote_peer()
+                        .post_handshake_peer_or_else(|| {
+                            make_fn_error_peer("Can't perform this action pre-handshake")
+                        })?;
 
-            (
-                remote_peer,
+                safe_write!(priv_conn_reader.conn().handler().connection_handler.buckets)?
+                    .update_network_ids(&remote_peer, priv_conn_reader.remote_end_networks.clone());
+
+                (
+                    remote_peer,
+                    priv_conn_reader
+                        .conn()
+                        .handler()
+                        .connection_handler
+                        .event_log
+                        .clone(),
+                )
+            };
+            let networks: HashSet<NetworkId> = vec![*network].into_iter().collect();
+            log_as_joined_network(&event_log, &remote_peer, &networks)?;
+
+            Ok(())
+        }
+        NetworkMessage::NetworkRequest(NetworkRequest::LeaveNetwork(sender, network), ..) => {
+            write_or_die!(priv_conn).remove_remote_end_network(*network);
+
+            let event_log = {
+                let priv_conn_reader = read_or_die!(priv_conn);
+                let remote_peer =
+                    priv_conn_reader
+                        .remote_peer()
+                        .post_handshake_peer_or_else(|| {
+                            make_fn_error_peer("Can't perform this action pre-handshake")
+                        })?;
+
+                safe_write!(priv_conn_reader.conn().handler().connection_handler.buckets)?
+                    .update_network_ids(&remote_peer, priv_conn_reader.remote_end_networks.clone());
+
                 priv_conn_reader
                     .conn()
                     .handler()
                     .connection_handler
                     .event_log
-                    .clone(),
-            )
-        };
-        let networks: HashSet<NetworkId> = vec![*network].into_iter().collect();
-        log_as_joined_network(&event_log, &remote_peer, &networks)?;
-    }
+                    .clone()
+            };
+            log_as_leave_network(&event_log, &sender, *network)?;
 
-    Ok(())
-}
+            Ok(())
+        }
+        NetworkMessage::InvalidMessage => {
+            debug!("Invalid message received!");
 
-/// It removes that network from its owns and update buckets.
-pub fn default_network_request_leave_network(
-    priv_conn: &RwLock<ConnectionPrivate>,
-    req: &NetworkRequest,
-) -> FuncResult<()> {
-    if let NetworkRequest::LeaveNetwork(sender, network) = req {
-        write_or_die!(priv_conn).remove_remote_end_network(*network);
+            {
+                let mut priv_conn_mut = write_or_die!(priv_conn);
 
-        let event_log = {
-            let priv_conn_reader = read_or_die!(priv_conn);
-            let remote_peer = priv_conn_reader
-                .remote_peer()
-                .post_handshake_peer_or_else(|| {
-                    make_fn_error_peer("Can't perform this action pre-handshake")
-                })?;
+                priv_conn_mut.failed_pkts += 1;
+                priv_conn_mut.update_last_seen();
+            }
 
-            safe_write!(priv_conn_reader.conn().handler().connection_handler.buckets)?
-                .update_network_ids(&remote_peer, priv_conn_reader.remote_end_networks.clone());
-
-            priv_conn_reader
+            if let Some(ref service) = read_or_die!(priv_conn)
                 .conn()
                 .handler()
-                .connection_handler
-                .event_log
-                .clone()
-        };
+                .stats_export_service()
+            {
+                service.invalid_pkts_received_inc();
+            }
 
-        log_as_leave_network(&event_log, &sender, *network)?;
+            Ok(())
+        }
+        _ => Ok(()),
     }
-
-    Ok(())
-}
-
-/// On a handshake request:
-///     - It replies with a handshake response and a ping.
-///     - It adds the new network, and updates its buckets.
-///     - Finally, it sends its peer list.
-pub fn default_network_request_handshake(req: &NetworkRequest) -> FuncResult<()> {
-    reject_handshake!(NetworkRequest, req)
-}
-
-/// Invalid messages only updates statistic information.
-pub fn default_invalid_message(priv_conn: &RwLock<ConnectionPrivate>) -> FuncResult<()> {
-    debug!("Invalid message received!");
-
-    {
-        let mut priv_conn_mut = write_or_die!(priv_conn);
-
-        priv_conn_mut.failed_pkts += 1;
-        priv_conn_mut.update_last_seen();
-    }
-
-    if let Some(ref service) = read_or_die!(priv_conn)
-        .conn()
-        .handler()
-        .stats_export_service()
-    {
-        service.invalid_pkts_received_inc();
-    }
-
-    Ok(())
 }
