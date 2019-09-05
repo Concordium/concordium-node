@@ -375,7 +375,6 @@ where
                 packet.message.len()?
             ),
         },
-        NetworkMessage::UnknownMessage => "Unknown".to_owned(),
         NetworkMessage::InvalidMessage => "Invalid".to_owned(),
     };
     info!("Message at {}: {}", id, msg_type);

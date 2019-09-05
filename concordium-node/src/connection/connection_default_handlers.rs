@@ -330,27 +330,6 @@ pub fn default_network_request_handshake(req: &NetworkRequest) -> FuncResult<()>
     reject_handshake!(NetworkRequest, req)
 }
 
-/// Unknown messages only updates statistic information.
-pub fn default_unknown_message(priv_conn: &RwLock<ConnectionPrivate>) -> FuncResult<()> {
-    debug!("Unknown message received!");
-
-    {
-        let mut priv_conn_mut = write_or_die!(priv_conn);
-
-        priv_conn_mut.failed_pkts += 1;
-        priv_conn_mut.update_last_seen();
-    }
-
-    if let Some(ref service) = read_or_die!(priv_conn)
-        .conn()
-        .handler()
-        .stats_export_service()
-    {
-        service.unknown_pkts_received_inc();
-    }
-    Ok(())
-}
-
 /// Invalid messages only updates statistic information.
 pub fn default_invalid_message(priv_conn: &RwLock<ConnectionPrivate>) -> FuncResult<()> {
     debug!("Invalid message received!");

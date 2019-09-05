@@ -205,7 +205,6 @@ impl Connection {
         let last_seen_packet_handler = self.make_update_last_seen_handler();
         let cloned_message_processor = self.common_message_processor.clone();
         let dptr_1 = Arc::clone(&self.dptr);
-        let dptr_2 = Arc::clone(&self.dptr);
 
         self.post_handshake_message_processor
             .add(cloned_message_processor)
@@ -217,8 +216,7 @@ impl Connection {
             }))
             .add_response_action(last_seen_response_handler)
             .add_packet_action(last_seen_packet_handler)
-            .set_unknown_handler(Arc::new(move || default_unknown_message(&dptr_1)))
-            .set_invalid_handler(Arc::new(move || default_invalid_message(&dptr_2)));
+            .set_invalid_handler(Arc::new(move || default_invalid_message(&dptr_1)));
     }
 
     // =============================
