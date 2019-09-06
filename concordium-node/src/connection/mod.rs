@@ -464,46 +464,38 @@ mod tests {
             make_node_and_sync(next_available_port(), vec![100], PeerType::Bootstrapper)?;
         connect(&mut node, &bootstrapper)?;
         await_handshake(&w1)?;
-
         // Deregister connection on the node side
         let conn_node = node.find_connection_by_id(bootstrapper.id()).unwrap();
         node.deregister_connection(&conn_node)?;
-
         // Deregister connection on the bootstrapper side
         let conn_bootstrapper = bootstrapper.find_connection_by_id(node.id()).unwrap();
         bootstrapper.deregister_connection(&conn_bootstrapper)?;
-
         // Assert that a Node accepts every packet
         match conn_node.validate_packet_type_test(&[]) {
             Readiness::Ready(true) => {}
             _ => bail!("Unwanted packet type"),
         }
-
         match conn_node
             .validate_packet_type_test(&iter::repeat(0).take(23).chain(Some(2)).collect::<Vec<_>>())
         {
             Readiness::Ready(true) => {}
             _ => bail!("Unwanted packet type"),
         }
-
         match conn_node
             .validate_packet_type_test(&iter::repeat(0).take(23).chain(Some(1)).collect::<Vec<_>>())
         {
             Readiness::Ready(true) => {}
             _ => bail!("Unwanted packet type"),
         }
-
         match conn_node.validate_packet_type_test(&iter::repeat(0).take(24).collect::<Vec<_>>()) {
             Readiness::Ready(true) => {}
             _ => bail!("Unwanted packet type"),
         }
-
         // Assert that a Boostrapper reports as unknown packets that are too small
         match conn_bootstrapper.validate_packet_type_test(&[]) {
             Readiness::NotReady => {}
             _ => bail!("Unwanted packet type"),
         }
-
         // Assert that a Bootstrapper reports as Invalid messages that are packets
         match conn_bootstrapper
             .validate_packet_type_test(&iter::repeat(0).take(23).chain(Some(2)).collect::<Vec<_>>())
@@ -511,7 +503,6 @@ mod tests {
             Readiness::Ready(false) => {}
             _ => bail!("Unwanted packet type"),
         }
-
         // Assert that a Bootstrapper accepts Request and Response messages
         match conn_bootstrapper
             .validate_packet_type_test(&iter::repeat(0).take(23).chain(Some(1)).collect::<Vec<_>>())
@@ -519,14 +510,12 @@ mod tests {
             Readiness::Ready(true) => {}
             _ => bail!("Unwanted packet type"),
         }
-
         match conn_bootstrapper
             .validate_packet_type_test(&iter::repeat(0).take(24).collect::<Vec<_>>())
         {
             Readiness::Ready(true) => {}
             _ => bail!("Unwanted packet type"),
         }
-
         Ok(())
     }
 

@@ -80,7 +80,7 @@ pub type PreHandshake = UnitFunctor<SocketAddr>;
 
 #[derive(Clone)]
 pub struct P2PNodeConfig {
-    no_net: bool,
+    pub no_net: bool,
     desired_nodes_count: u8,
     no_bootstrap_dns: bool,
     bootstrap_server: String,
@@ -96,6 +96,7 @@ pub struct P2PNodeConfig {
     pub housekeeping_interval: u64,
     pub bootstrapping_interval: u64,
     pub print_peers: bool,
+    pub bootstrapper_wait_minimum_peers: u16,
 }
 
 #[derive(Default)]
@@ -326,6 +327,10 @@ impl P2PNode {
             housekeeping_interval: conf.connection.housekeeping_interval,
             bootstrapping_interval: conf.connection.bootstrapping_interval,
             print_peers: true,
+            bootstrapper_wait_minimum_peers: match peer_type {
+                PeerType::Bootstrapper => conf.bootstrapper.wait_until_minimum_nodes,
+                PeerType::Node => 0,
+            },
         };
 
         let (send_queue_in, send_queue_out) = sync_channel(25000);
@@ -539,25 +544,27 @@ impl P2PNode {
     }
 
     pub fn attempt_bootstrap(&self) {
-        info!("Attempting to bootstrap");
+        if !self.config.no_net {
+            info!("Attempting to bootstrap");
 
-        let bootstrap_nodes = utils::get_bootstrap_nodes(
-            &self.config.bootstrap_server,
-            &self.config.dns_resolvers,
-            self.config.dnssec_disabled,
-            &self.config.bootstrap_nodes,
-        );
+            let bootstrap_nodes = utils::get_bootstrap_nodes(
+                &self.config.bootstrap_server,
+                &self.config.dns_resolvers,
+                self.config.dnssec_disabled,
+                &self.config.bootstrap_nodes,
+            );
 
-        match bootstrap_nodes {
-            Ok(nodes) => {
-                for addr in nodes {
-                    info!("Found a bootstrap node: {}", addr);
-                    let _ = self
-                        .connect(PeerType::Bootstrapper, addr, None)
-                        .map_err(|e| error!("{}", e));
+            match bootstrap_nodes {
+                Ok(nodes) => {
+                    for addr in nodes {
+                        info!("Found a bootstrap node: {}", addr);
+                        let _ = self
+                            .connect(PeerType::Bootstrapper, addr, None)
+                            .map_err(|e| error!("{}", e));
+                    }
                 }
+                Err(e) => error!("Can't bootstrap: {:?}", e),
             }
-            Err(e) => error!("Can't bootstrap: {:?}", e),
         }
     }
 
