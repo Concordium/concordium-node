@@ -1,6 +1,6 @@
 use std::{
     collections::HashSet,
-    sync::{atomic::Ordering, mpsc::SyncSender, RwLock},
+    sync::{atomic::Ordering, RwLock},
 };
 
 use crate::{
@@ -22,32 +22,6 @@ fn make_fn_error_peer(e: &'static str) -> FunctorError {
 
 fn make_log_error(e: &'static str) -> FunctorError {
     FunctorError::from(vec![Error::from(fails::LogError { message: e })])
-}
-
-pub fn log_as_joined_network(
-    event_log: &Option<SyncSender<P2PEvent>>,
-    peer: &P2PPeer,
-    networks: &HashSet<NetworkId>,
-) -> FuncResult<()> {
-    if let Some(ref log) = event_log {
-        for net_id in networks.iter() {
-            log.send(P2PEvent::JoinedNetwork(peer.to_owned(), *net_id))
-                .map_err(|_| make_log_error("Join Network Event cannot be sent to log"))?;
-        }
-    }
-    Ok(())
-}
-
-pub fn log_as_leave_network(
-    event_log: &Option<SyncSender<P2PEvent>>,
-    sender: &P2PPeer,
-    network: NetworkId,
-) -> FuncResult<()> {
-    if let Some(ref log) = event_log {
-        log.send(P2PEvent::LeftNetwork(sender.to_owned(), network))
-            .map_err(|_| make_log_error("Left Network Event cannot be sent to log"))?;
-    };
-    Ok(())
 }
 
 pub fn network_message_handle(
@@ -248,7 +222,13 @@ pub fn network_message_handle(
                 )
             };
             let networks: HashSet<NetworkId> = vec![*network].into_iter().collect();
-            log_as_joined_network(&event_log, &remote_peer, &networks)?;
+
+            if let Some(ref log) = event_log {
+                for net_id in networks.iter() {
+                    log.send(P2PEvent::JoinedNetwork(remote_peer, *net_id))
+                        .map_err(|_| make_log_error("Join Network Event cannot be sent to log"))?;
+                }
+            }
 
             Ok(())
         }
@@ -274,7 +254,11 @@ pub fn network_message_handle(
                     .event_log
                     .clone()
             };
-            log_as_leave_network(&event_log, &sender, *network)?;
+
+            if let Some(ref log) = event_log {
+                log.send(P2PEvent::LeftNetwork(*sender, *network))
+                    .map_err(|_| make_log_error("Left Network Event cannot be sent to log"))?;
+            };
 
             Ok(())
         }

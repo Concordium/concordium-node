@@ -38,14 +38,8 @@ pub fn handshake_handle(
                 let bucket_sender =
                     P2PPeer::from(remote_peer.peer_type(), remote_peer.id(), remote_peer.addr);
                 if remote_peer.peer_type() != PeerType::Bootstrapper {
-                    safe_write!(
-                        priv_conn_ref
-                            .conn()
-                            .handler()
-                            .connection_handler
-                            .buckets
-                    )?
-                    .insert_into_bucket(&bucket_sender, nets.clone());
+                    safe_write!(priv_conn_ref.conn().handler().connection_handler.buckets)?
+                        .insert_into_bucket(&bucket_sender, nets.clone());
                 }
 
                 if let Some(ref service) = priv_conn_ref.conn().handler().stats_export_service() {
@@ -65,7 +59,8 @@ pub fn handshake_handle(
             priv_conn_mut.update_last_seen();
             priv_conn_mut.set_measured_ping_sent();
 
-            update_buckets(&priv_conn_mut, sender, nets.clone())?;
+            safe_write!(priv_conn_mut.conn().handler().connection_handler.buckets)?
+                .insert_into_bucket(sender, nets.to_owned());
 
             if priv_conn_mut.conn().local_peer().peer_type() == PeerType::Bootstrapper {
                 send_peer_list(&mut priv_conn_mut, sender, nets)?;
@@ -153,21 +148,5 @@ fn send_peer_list(
         )?;
         TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
     }
-    Ok(())
-}
-
-fn update_buckets(
-    priv_conn: &ConnectionPrivate,
-    sender: &P2PPeer,
-    nets: HashSet<NetworkId>,
-) -> FuncResult<()> {
-    safe_write!(priv_conn.conn().handler().connection_handler.buckets)?
-        .insert_into_bucket(sender, nets);
-
-    if let Some(ref service) = priv_conn.conn().handler().stats_export_service() {
-        service.peers_inc();
-        service.pkt_sent_inc_by(2);
-    };
-
     Ok(())
 }
