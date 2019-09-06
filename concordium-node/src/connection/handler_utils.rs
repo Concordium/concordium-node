@@ -142,8 +142,7 @@ pub fn send_peer_list(
         };
         let data = serialize_into_memory(&peer_list_msg, 256)?;
         // Ignore returned value because it is an asynchronous operation.
-        let _ = write_or_die!(priv_conn)
-            .async_send(HybridBuf::try_from(data)?, MessageSendingPriority::Normal)?;
+        let _ = write_or_die!(priv_conn).async_send(data, MessageSendingPriority::Normal)?;
         TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
     }
     Ok(())
