@@ -1,27 +1,18 @@
-use crate::network::{NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse};
+use crate::network::NetworkMessage;
 use concordium_common::{
     fails::FunctorError,
     functor::{FuncResult, FunctorResult, UnitFunction, UnitFunctor},
 };
 use std::sync::{Arc, RwLock};
 
-pub type NetworkMessageCW = UnitFunction<NetworkMessage>;
-pub type NetworkRequestCW = UnitFunction<NetworkRequest>;
-pub type NetworkResponseCW = UnitFunction<NetworkResponse>;
-pub type NetworkPacketCW = UnitFunction<NetworkPacket>;
 pub type EmptyCW = UnitFunction<()>;
 pub type EmptyFunction = Arc<(Fn() -> FuncResult<()> + Send + Sync + 'static)>;
 
 /// It is a handler for `NetworkMessage`.
 #[derive(Clone)]
 pub struct MessageHandler {
-    request_parser:  UnitFunctor<NetworkRequest>,
-    response_parser: UnitFunctor<NetworkResponse>,
-    packet_parser:   UnitFunctor<NetworkPacket>,
+    valid_handler:   UnitFunctor<NetworkMessage>,
     invalid_handler: Arc<RwLock<EmptyFunction>>,
-    unknown_handler: Arc<RwLock<EmptyFunction>>,
-
-    general_parser: UnitFunctor<NetworkMessage>,
 }
 
 impl Default for MessageHandler {
@@ -31,32 +22,13 @@ impl Default for MessageHandler {
 impl MessageHandler {
     pub fn new() -> Self {
         MessageHandler {
-            request_parser:  UnitFunctor::<NetworkRequest>::new(),
-            response_parser: UnitFunctor::<NetworkResponse>::new(),
-            packet_parser:   UnitFunctor::<NetworkPacket>::new(),
-            general_parser:  UnitFunctor::<NetworkMessage>::new(),
+            valid_handler:   UnitFunctor::<NetworkMessage>::new(),
             invalid_handler: Arc::new(RwLock::new(Arc::new(|| Ok(())))),
-            unknown_handler: Arc::new(RwLock::new(Arc::new(|| Ok(())))),
         }
     }
 
-    pub fn add_request_callback(&self, callback: NetworkRequestCW) -> &Self {
-        self.request_parser.add_callback(callback);
-        self
-    }
-
-    pub fn add_response_callback(&self, callback: NetworkResponseCW) -> &Self {
-        self.response_parser.add_callback(callback);
-        self
-    }
-
-    pub fn add_packet_callback(&self, callback: NetworkPacketCW) -> &Self {
-        self.packet_parser.add_callback(callback);
-        self
-    }
-
-    pub fn add_callback(&self, callback: NetworkMessageCW) -> &Self {
-        self.general_parser.add_callback(callback);
+    pub fn add_callback(&self, callback: UnitFunction<NetworkMessage>) -> &Self {
+        self.valid_handler.add_callback(callback);
         self
     }
 
@@ -65,50 +37,26 @@ impl MessageHandler {
         self
     }
 
-    pub fn set_unknown_handler(&self, func: EmptyFunction) -> &Self {
-        *write_or_die!(self.unknown_handler) = func;
-        self
-    }
-
     /// It merges into `this` all parsers from `other` `MessageHandler`.
-    pub fn add(&self, other: MessageHandler) -> &Self {
-        for cb in read_or_die!(other.general_parser.callbacks()).iter() {
+    pub fn add(&self, other: &MessageHandler) -> &Self {
+        for cb in read_or_die!(other.valid_handler.callbacks()).iter() {
             self.add_callback(cb.clone());
-        }
-
-        for cb in read_or_die!(other.packet_parser.callbacks()).iter() {
-            self.add_packet_callback(cb.clone());
-        }
-
-        for cb in read_or_die!(other.response_parser.callbacks()).iter() {
-            self.add_response_callback(cb.clone());
-        }
-
-        for cb in read_or_die!(other.request_parser.callbacks()).iter() {
-            self.add_request_callback(cb.clone());
         }
 
         self
     }
 
     pub fn process_message(&self, msg: &NetworkMessage) -> FunctorResult<()> {
-        // General
-        let general_status = self.general_parser.run_callbacks(msg);
-
-        // Specific
-        let specific_status = match msg {
-            NetworkMessage::NetworkRequest(ref nr, _, _) => self.request_parser.run_callbacks(nr),
-            NetworkMessage::NetworkResponse(ref nr, _, _) => self.response_parser.run_callbacks(nr),
-            NetworkMessage::NetworkPacket(ref np, _, _) => self.packet_parser.run_callbacks(np),
-            NetworkMessage::UnknownMessage => {
-                (read_or_die!(self.unknown_handler))().map_err(|x| FunctorError::from(vec![x]))
-            }
+        match msg {
+            NetworkMessage::NetworkRequest(..)
+            | NetworkMessage::NetworkResponse(..)
+            | NetworkMessage::NetworkPacket(..) => self.valid_handler.run_callbacks(msg)?,
             NetworkMessage::InvalidMessage => {
-                (read_or_die!(self.invalid_handler))().map_err(|x| FunctorError::from(vec![x]))
+                (read_or_die!(self.invalid_handler))().map_err(|x| FunctorError::from(vec![x]))?
             }
         };
 
-        general_status.and(specific_status)
+        Ok(())
     }
 }
 
@@ -117,7 +65,7 @@ mod message_handler_unit_test {
     use crate::{
         common::{P2PPeerBuilder, PeerType},
         connection::MessageHandler,
-        network::{NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse},
+        network::{NetworkMessage, NetworkRequest},
     };
     use concordium_common::functor::FuncResult;
     use std::{
@@ -125,22 +73,22 @@ mod message_handler_unit_test {
         sync::Arc,
     };
 
-    fn request_handler_func_1(_nr: &NetworkRequest) -> FuncResult<()> { Ok(()) }
-    fn request_handler_func_2(_nr: &NetworkRequest) -> FuncResult<()> { Ok(()) }
-    fn response_handler_func_1(_nr: &NetworkResponse) -> FuncResult<()> { Ok(()) }
-    fn packet_handler_func_1(_np: &NetworkPacket) -> FuncResult<()> { Ok(()) }
+    fn request_handler_func_1(_nr: &NetworkMessage) -> FuncResult<()> { Ok(()) }
+    fn request_handler_func_2(_nr: &NetworkMessage) -> FuncResult<()> { Ok(()) }
+    fn response_handler_func_1(_nr: &NetworkMessage) -> FuncResult<()> { Ok(()) }
+    fn packet_handler_func_1(_np: &NetworkMessage) -> FuncResult<()> { Ok(()) }
 
     #[test]
     pub fn test_message_handler_mix() {
         let mh = MessageHandler::new();
 
-        mh.add_request_callback(make_atomic_callback!(request_handler_func_1))
-            .add_request_callback(make_atomic_callback!(request_handler_func_2))
-            .add_request_callback(make_atomic_callback!(|_| { Ok(()) }))
-            .add_response_callback(make_atomic_callback!(response_handler_func_1))
-            .add_response_callback(make_atomic_callback!(response_handler_func_1))
-            .add_packet_callback(make_atomic_callback!(|_| { Ok(()) }))
-            .add_packet_callback(make_atomic_callback!(packet_handler_func_1));
+        mh.add_callback(make_atomic_callback!(request_handler_func_1))
+            .add_callback(make_atomic_callback!(request_handler_func_2))
+            .add_callback(make_atomic_callback!(|_| { Ok(()) }))
+            .add_callback(make_atomic_callback!(response_handler_func_1))
+            .add_callback(make_atomic_callback!(response_handler_func_1))
+            .add_callback(make_atomic_callback!(|_| { Ok(()) }))
+            .add_callback(make_atomic_callback!(packet_handler_func_1));
         let mh_arc = Arc::new(mh);
 
         let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
@@ -165,7 +113,7 @@ mod integration_test {
             NetworkRequest, NetworkResponse,
         },
     };
-    use concordium_common::{functor::FuncResult, hybrid_buf::HybridBuf};
+    use concordium_common::hybrid_buf::HybridBuf;
 
     use std::{
         convert::TryFrom,
@@ -176,8 +124,7 @@ mod integration_test {
         },
     };
 
-    static NETWORK_REQUEST_COUNTER: AtomicUsize = AtomicUsize::new(0);
-    static NETWORK_RESPONSE_COUNTER: AtomicUsize = AtomicUsize::new(0);
+    static NETWORK_MESSAGE_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
     // Test data for `on_network_request_handler`.
     pub fn network_request_handler_data() -> Vec<NetworkMessage> {
@@ -225,32 +172,20 @@ mod integration_test {
         data
     }
 
-    /// Handler function for `NetworkRequest` elements that does nothing.
-    fn network_request_handler_1(_nr: &NetworkRequest) -> FuncResult<()> { Ok(()) }
-
-    /// Handler function for `NetworkRequest` elements. It only increases its
-    /// counter.
-    fn network_request_handler_2(_nr: &NetworkRequest) -> FuncResult<()> {
-        NETWORK_REQUEST_COUNTER.fetch_add(1, Ordering::SeqCst);
-        Ok(())
-    }
-
     /// Creates message handler for testing.
     fn make_message_handler() -> MessageHandler {
         let msg_handler = MessageHandler::new();
 
         msg_handler
-            .add_request_callback(make_atomic_callback!(network_request_handler_1))
-            .add_request_callback(make_atomic_callback!(network_request_handler_2))
-            .add_request_callback(make_atomic_callback!(|_x: &NetworkRequest| {
+            .add_callback(make_atomic_callback!(|_x: &NetworkMessage| {
                 println!(
                     "Network Request {}",
-                    NETWORK_REQUEST_COUNTER.load(Ordering::Relaxed)
+                    NETWORK_MESSAGE_COUNTER.load(Ordering::Relaxed)
                 );
                 Ok(())
             }))
-            .add_response_callback(make_atomic_callback!(|_x: &NetworkResponse| {
-                NETWORK_RESPONSE_COUNTER.fetch_add(1, Ordering::SeqCst);
+            .add_callback(make_atomic_callback!(|_x: &NetworkMessage| {
+                NETWORK_MESSAGE_COUNTER.fetch_add(1, Ordering::SeqCst);
                 Ok(())
             }));
 
@@ -265,13 +200,12 @@ mod integration_test {
             let _status = mh.process_message(&message);
         }
 
-        assert_eq!(NETWORK_REQUEST_COUNTER.load(Ordering::Relaxed), 2);
-        assert_eq!(NETWORK_RESPONSE_COUNTER.load(Ordering::Relaxed), 1);
+        assert_eq!(NETWORK_MESSAGE_COUNTER.load(Ordering::Relaxed), 5);
+
         for message in network_request_handler_data() {
             let _status = mh.process_message(&message);
         }
 
-        assert_eq!(NETWORK_REQUEST_COUNTER.load(Ordering::Relaxed), 4);
-        assert_eq!(NETWORK_RESPONSE_COUNTER.load(Ordering::Relaxed), 2);
+        assert_eq!(NETWORK_MESSAGE_COUNTER.load(Ordering::Relaxed), 10);
     }
 }

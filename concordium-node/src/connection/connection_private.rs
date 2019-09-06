@@ -217,3 +217,50 @@ impl ConnectionPrivate {
         self.message_stream.validate_packet_type(msg)
     }
 }
+
+impl Drop for ConnectionPrivate {
+    fn drop(&mut self) {
+        debug!(
+            "Closing connection {} ({}:{})",
+            usize::from(self.conn().token),
+            self.conn().remote_addr().ip(),
+            self.conn().remote_addr().port()
+        );
+
+        let attempt_shutdown = |shutdown_call: Fallible<()>| -> Fallible<()> {
+            use crate::connection::fails::PeerTerminatedConnection;
+            match shutdown_call {
+                Err(err) => {
+                    if err.downcast_ref::<PeerTerminatedConnection>().is_some() {
+                        Ok(())
+                    } else {
+                        Err(err)
+                    }
+                }
+                _ => Ok(()),
+            }
+        };
+
+        let result = {
+            // Deregister connection from the poll and shut down the socket
+            attempt_shutdown(self.conn().deregister(&self.conn().handler().poll))
+                .and_then(|_| attempt_shutdown(self.conn().shutdown()))
+        };
+
+        if let Err(e) = result {
+            error!(
+                "Connection {} couldn't be closed: {:?}",
+                usize::from(self.conn().token),
+                e
+            );
+            return;
+        }
+
+        // Report number of peers to stats export engine
+        if let Some(ref service) = self.conn().handler().stats_export_service {
+            if self.conn().is_post_handshake() {
+                service.peers_dec();
+            }
+        }
+    }
+}

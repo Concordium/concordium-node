@@ -185,6 +185,11 @@ then
     ARGS="$ARGS --hash-algorithm $NOISE_CRYPTO_HASH_ALGORITHM"
 fi
 
+if [ -n "$BOOTSTRAPPER_WAIT_UNTIL_MINIMUM_NODES" ];
+then
+    ARGS="$ARGS --wait-until-minimum-nodes $BOOTSTRAPPER_WAIT_UNTIL_MINIMUM_NODES"
+fi
+
 if [ "$MODE" == "tps_receiver" ]; then
     echo "Receiver!"
 

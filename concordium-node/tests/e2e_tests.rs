@@ -2,12 +2,12 @@ extern crate p2p_client;
 
 #[cfg(test)]
 mod tests {
-    use concordium_common::{hybrid_buf::HybridBuf, make_atomic_callback, safe_write};
+    use concordium_common::{hybrid_buf::HybridBuf, make_atomic_callback};
     use failure::{bail, Fallible};
     use p2p_client::{
         common::PeerType,
         connection::network_handler::message_processor::MessageManager,
-        network::{NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType},
+        network::{NetworkId, NetworkMessage, NetworkPacketType},
         p2p::{banned_nodes::BannedNode, p2p_node::*},
         test_utils::{
             await_broadcast_message, await_direct_message, await_direct_message_with_timeout,
@@ -25,7 +25,7 @@ mod tests {
         hash::Hasher,
         sync::{
             atomic::{AtomicUsize, Ordering},
-            Arc, RwLock,
+            Arc,
         },
         time,
     };
@@ -353,40 +353,6 @@ mod tests {
             HybridBuf::try_from(&msg[..])?,
         )?;
         node_1.close_and_join()?;
-
-        let mut node_2_msg = await_direct_message(&waiter_2)?;
-        assert_eq!(&node_2_msg.remaining_bytes()?[..], msg);
-        Ok(())
-    }
-
-    #[test]
-    pub fn e2e_004_03_close_from_inside_spawned_node() -> Fallible<()> {
-        setup_logger();
-
-        let (mut node_1, waiter_1) =
-            make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
-        let (node_2, waiter_2) =
-            make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
-
-        let node_2_cloned = RwLock::new(node_2.clone());
-        node_2
-            .message_processor()
-            .add_packet_action(make_atomic_callback!(move |_pac: &NetworkPacket| {
-                let join_status = safe_write!(node_2_cloned)?.close_and_join();
-                assert_eq!(join_status.is_err(), true);
-                Ok(())
-            }));
-        connect(&mut node_1, &node_2)?;
-        await_handshake(&waiter_1)?;
-
-        let msg = b"Hello";
-        send_direct_message(
-            &node_1,
-            Some(node_2.id()),
-            NetworkId::from(100),
-            None,
-            HybridBuf::try_from(&msg[..])?,
-        )?;
 
         let mut node_2_msg = await_direct_message(&waiter_2)?;
         assert_eq!(&node_2_msg.remaining_bytes()?[..], msg);
