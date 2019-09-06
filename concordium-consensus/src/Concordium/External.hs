@@ -303,6 +303,8 @@ stopBaker cptr = mask_ $ do
 +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
 |     8 | ResultIncorrectFinalizationSession | The message refers to a different/unknown finalization session                         | No(?)    |
 +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
+|     9 | ResultUnverifiable                 | The message could not be verified in the current state (initiate catch-up with peer)   | No       |
++-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
 -}
 type ReceiveResult = Int64
 
@@ -316,6 +318,7 @@ toReceiveResult ResultAsync = 5
 toReceiveResult ResultDuplicate = 6
 toReceiveResult ResultStale = 7
 toReceiveResult ResultIncorrectFinalizationSession = 8
+toReceiveResult ResultUnverifiable = 9
 
 
 handleSkovFinalizationEvents :: (SimpleOutMessage -> IO ()) -> [FinalizationOutputEvent] -> IO ()
@@ -377,7 +380,7 @@ receiveFinalization bptr cstr l = do
                     (res, evts) <- syncReceiveFinalizationMessage bakerSyncRunner finMsg
                     handleSkovFinalizationEvents bakerBroadcast evts
                     return res
-                PassiveRunner{..} -> syncPassiveReceiveFinalizationMessage passiveSyncRunner finMsg
+                PassiveRunner{..} -> syncPassiveReceiveFinalizationMessage passiveSyncRunner finMsg bs
 
 -- |Handle receipt of a finalization record.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,

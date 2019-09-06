@@ -37,6 +37,8 @@ data UpdateResult
     -- ^The message may have been valid in the past, but is no longer relevant
     | ResultIncorrectFinalizationSession
     -- ^The message refers to a different/unknown finalization session
+    | ResultUnverifiable
+    -- ^The message could not be validated with the current state
 
 class (Monad m, Eq (BlockPointer m), BlockPointerData (BlockPointer m), BlockStateQuery m) => SkovQueryMonad m where
     -- |Look up a block in the table given its hash

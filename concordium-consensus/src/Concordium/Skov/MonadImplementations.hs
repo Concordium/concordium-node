@@ -138,17 +138,21 @@ evalSkovQueryM (SkovQueryM a) st = evalStateT a st
 
 -- |Skov state without finalizion.
 data SkovPassiveState = SkovPassiveState {
-    _spsSkov :: !Basic.SkovData
+    _spsSkov :: !Basic.SkovData,
+    _spsFinalization :: !PassiveFinalizationState
 }
 makeLenses ''SkovPassiveState
 
 instance Basic.SkovLenses SkovPassiveState where
     skov = spsSkov
+instance PassiveFinalizationStateLenses SkovPassiveState where
+    pfinState = spsFinalization
 
 initialSkovPassiveState :: GenesisData -> Basic.BlockState -> SkovPassiveState
 initialSkovPassiveState gen initBS = SkovPassiveState{..}
     where
         _spsSkov = Basic.initialSkovData gen initBS
+        _spsFinalization = initialPassiveFinalizationState (bpHash (Basic._skovGenesisBlockPointer _spsSkov))
 
 newtype SkovPassiveM m a = SkovPassiveM {unSkovPassiveM :: StateT SkovPassiveState m a}
     deriving (Functor, Applicative, Monad, TimeMonad, LoggerMonad, MonadState SkovPassiveState, MonadIO)
@@ -162,7 +166,7 @@ instance Monad m => OnSkov (SkovPassiveM m) where
     {-# INLINE onBlock #-}
     onBlock _ = return ()
     {-# INLINE onFinalize #-}
-    onFinalize _ _ = return ()
+    onFinalize fr _ = spsFinalization %= execState (passiveNotifyBlockFinalized fr)
 
 evalSkovPassiveM :: (Monad m) => SkovPassiveM m a -> GenesisData -> Basic.BlockState -> m a
 evalSkovPassiveM (SkovPassiveM a) gd bs0 = evalStateT a (initialSkovPassiveState gd bs0)
@@ -264,12 +268,15 @@ runSkovBufferedM (SkovBufferedM a) fi fs = runRWST a fi fs
 -- This keeps finalization messages, but does not process them.
 data SkovPassiveHookedState = SkovPassiveHookedState {
     _sphsSkov :: !Basic.SkovData,
+    _sphsFinalization :: !PassiveFinalizationState,
     _sphsHooks :: !TransactionHooks
 }
 makeLenses ''SkovPassiveHookedState
 
 instance Basic.SkovLenses SkovPassiveHookedState where
     skov = sphsSkov
+instance PassiveFinalizationStateLenses SkovPassiveHookedState where
+    pfinState = sphsFinalization
 instance TransactionHookLenses SkovPassiveHookedState where
     hooks = sphsHooks
 
@@ -277,6 +284,7 @@ initialSkovPassiveHookedState :: GenesisData -> Basic.BlockState -> SkovPassiveH
 initialSkovPassiveHookedState gen initBS = SkovPassiveHookedState{..}
     where
         _sphsSkov = Basic.initialSkovData gen initBS
+        _sphsFinalization = initialPassiveFinalizationState (bpHash (Basic._skovGenesisBlockPointer _sphsSkov))
         _sphsHooks = emptyHooks
 
 newtype SkovPassiveHookedM m a = SkovPassiveHookedM {unSkovPassiveHookedM :: StateT SkovPassiveHookedState m a}
@@ -291,7 +299,9 @@ instance (TimeMonad m, LoggerMonad m) => OnSkov (SkovPassiveHookedM m) where
     {-# INLINE onBlock #-}
     onBlock bp = hookOnBlock bp
     {-# INLINE onFinalize #-}
-    onFinalize fr bp = hookOnFinalize fr bp
+    onFinalize fr bp = do
+        sphsFinalization %= execState (passiveNotifyBlockFinalized fr)
+        hookOnFinalize fr bp
 
 evalSkovPassiveHookedM :: (Monad m) => SkovPassiveHookedM m a -> GenesisData -> Basic.BlockState -> m a
 evalSkovPassiveHookedM (SkovPassiveHookedM a) gd bs0 = evalStateT a (initialSkovPassiveHookedState gd bs0)

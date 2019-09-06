@@ -222,3 +222,12 @@ instance S.Serialize FinalizationPseudoMessage where
 instance Show FinalizationPseudoMessage where
     show (FPMMessage msg) = show msg
     show (FPMCatchUp _) = "[Finalization Catch-Up Message]"
+
+fpmHeader :: FinalizationPseudoMessage -> FinalizationMessageHeader
+fpmHeader (FPMMessage m) = msgHeader m
+fpmHeader (FPMCatchUp CatchUpMessage{..}) = FinalizationMessageHeader {
+            msgSessionId = cuSessionId,
+            msgFinalizationIndex = cuFinalizationIndex,
+            msgDelta = 0,
+            msgSenderIndex = cuSenderIndex
+        }

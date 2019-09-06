@@ -19,7 +19,7 @@ import Concordium.GlobalState.BlockState(BlockState)
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Basic.Block
-import Concordium.GlobalState.Basic.BlockState(BlockPointer)
+import Concordium.GlobalState.Basic.BlockState(BlockPointer, _bpBlock)
 import Concordium.TimeMonad
 import Concordium.Birk.Bake
 import Concordium.Kontrol
@@ -30,6 +30,7 @@ import Concordium.Afgjort.Finalize
 import Concordium.Afgjort.Buffer
 import Concordium.Logger
 import Concordium.Getters
+import Concordium.Skov.CatchUp (CatchUpStatus)
 
 data SyncRunner = SyncRunner {
     syncBakerIdentity :: BakerIdentity,
@@ -81,7 +82,9 @@ asyncTriggerFinalizationCatchUp SyncRunner{..} (Just delay) = when (delay > 0) $
                 when continue $ do
                     st <- readMVar syncState
                     let mFinMsg = finalizationCatchUpMessage (bakerFinalizationInstance syncBakerIdentity) st
-                    forM_ mFinMsg $ syncCallback . SOMsgFinalization
+                    forM_ mFinMsg $ \msg -> do
+                        syncLogMethod Skov LLDebug "Sending finalization catch-up message"
+                        syncCallback (SOMsgFinalization msg)
                     loop (n + 1)
         void $ forkIO $ loop 1
 
@@ -185,8 +188,8 @@ syncPassiveReceiveBlock spr block = runSkovPassiveMWithStateLog spr (storeBlock 
 syncPassiveReceiveTransaction :: SyncPassiveRunner -> Transaction -> IO UpdateResult
 syncPassiveReceiveTransaction spr trans = runSkovPassiveMWithStateLog spr (receiveTransaction trans)
 
-syncPassiveReceiveFinalizationMessage :: SyncPassiveRunner -> FinalizationPseudoMessage -> IO UpdateResult
-syncPassiveReceiveFinalizationMessage _ _ = return ResultSuccess
+syncPassiveReceiveFinalizationMessage :: SyncPassiveRunner -> FinalizationPseudoMessage -> BS.ByteString -> IO UpdateResult
+syncPassiveReceiveFinalizationMessage spr pmsg pmsgBS = runSkovPassiveMWithStateLog spr (passiveReceiveFinalizationPseudoMessage pmsg pmsgBS)
 
 syncPassiveReceiveFinalizationRecord :: SyncPassiveRunner -> FinalizationRecord -> IO UpdateResult
 syncPassiveReceiveFinalizationRecord spr finRec = runSkovPassiveMWithStateLog spr (finalizeBlock finRec)
@@ -202,13 +205,16 @@ data InMessage src =
     | MsgTransactionReceived !BS.ByteString
     | MsgFinalizationReceived src !BS.ByteString
     | MsgFinalizationRecordReceived src !BS.ByteString
+    | MsgCatchUpStatusReceived src !BS.ByteString
 
-data OutMessage src = 
+data OutMessage peer = 
     MsgNewBlock !BS.ByteString
     | MsgFinalization !BS.ByteString
     | MsgFinalizationRecord !BS.ByteString
-    | MsgMissingBlock src BlockHash BlockHeight
-    | MsgMissingFinalization src (Either BlockHash FinalizationIndex)
+    | MsgCatchUpRequired peer
+    | MsgDirectedBlock peer !BS.ByteString
+    | MsgDirectedFinalizationRecord peer !BS.ByteString
+    | MsgDirectedCatchUpStatus peer !BS.ByteString
 
 -- |This is provided as a compatibility wrapper for the test runners.
 makeAsyncRunner :: forall m source. LogMethod IO -> BakerIdentity -> GenesisData -> BlockState (SkovBufferedM m) -> IO (Chan (InMessage source), Chan (OutMessage source), MVar SkovBufferedHookedState)
@@ -222,12 +228,13 @@ makeAsyncRunner logm bkr gen initBS = do
         let
             msgLoop = readChan inChan >>= \case
                 MsgShutdown -> stopSyncRunner sr
-                MsgBlockReceived _src blockBS -> do
+                MsgBlockReceived src blockBS -> do
                     case runGet get blockBS of
                         Right (NormalBlock block) -> do
                             now <- currentTime
-                            (_, evts) <- syncReceiveBlock sr $ makePendingBlock block now
+                            (res, evts) <- syncReceiveBlock sr $ makePendingBlock block now
                             forM_ evts $ handleMessage
+                            handleResult src res
                         _ -> return ()
                     msgLoop
                 MsgTransactionReceived transBS -> do
@@ -237,22 +244,43 @@ makeAsyncRunner logm bkr gen initBS = do
                             forM_ evts $ handleMessage
                         _ -> return ()
                     msgLoop
-                MsgFinalizationReceived _src bs -> do
+                MsgFinalizationReceived src bs -> do
                     case runGet get bs of
                         Right finMsg -> do
-                            (_, evts) <- syncReceiveFinalizationMessage sr finMsg
+                            (res, evts) <- syncReceiveFinalizationMessage sr finMsg
                             forM_ evts $ handleMessage
+                            handleResult src res
                         _ -> return ()
                     msgLoop
-                MsgFinalizationRecordReceived _src finRecBS -> do
+                MsgFinalizationRecordReceived src finRecBS -> do
                     case runGet get finRecBS of
                         Right finRec -> do
-                            (_, evts) <- syncReceiveFinalizationRecord sr finRec
+                            (res, evts) <- syncReceiveFinalizationRecord sr finRec
                             forM_ evts $ handleMessage
+                            handleResult src res
+                        _ -> return ()
+                    msgLoop
+                MsgCatchUpStatusReceived src cuBS -> do
+                    case runGet get cuBS of
+                        Right cu -> do
+                            res <- handleCatchUpStatus (syncState sr) cu
+                            case res of
+                                Right (d, flag) -> do
+                                    let
+                                        send (Left fr) = writeChan outChan (MsgDirectedFinalizationRecord src (encode fr))
+                                        send (Right b) = writeChan outChan (MsgDirectedBlock src (encode (_bpBlock b)))
+                                    forM_ d $ \(frbs, rcus) -> do
+                                        mapM_ send frbs
+                                        writeChan outChan (MsgDirectedCatchUpStatus src (encode rcus))
+                                    when flag $ writeChan outChan (MsgCatchUpRequired src)
+                                _ -> return ()
                         _ -> return ()
                     msgLoop
             handleMessage (BroadcastFinalizationMessage fmsg) = writeChan outChan (MsgFinalization $ runPut $ put fmsg)
             handleMessage (BroadcastFinalizationRecord frec) = writeChan outChan (MsgFinalizationRecord $ runPut $ put frec)
+            handleResult src ResultPendingBlock = writeChan outChan (MsgCatchUpRequired src)
+            handleResult src ResultPendingFinalization = writeChan outChan (MsgCatchUpRequired src)
+            handleResult _ _ = return ()
         _ <- forkIO msgLoop
         return (inChan, outChan, syncState sr)
     where
