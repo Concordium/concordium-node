@@ -28,7 +28,6 @@ pub use connection_builder::ConnectionBuilder;
 mod connection_default_handlers;
 mod connection_handshake_handlers;
 mod connection_private;
-mod handler_utils;
 
 pub use crate::{connection::connection_private::ConnectionPrivate, p2p::P2PNode};
 

@@ -1,8 +1,6 @@
-use concordium_common::functor::FuncResult;
-
 use std::{
     collections::HashSet,
-    sync::{atomic::Ordering, RwLock},
+    sync::{atomic::Ordering, mpsc::SyncSender, RwLock},
 };
 
 use crate::{
@@ -10,11 +8,47 @@ use crate::{
         counter::TOTAL_MESSAGES_SENT_COUNTER, get_current_stamp,
         serialization::serialize_into_memory, P2PNodeId, P2PPeer, PeerType,
     },
-    connection::{connection_private::ConnectionPrivate, MessageSendingPriority},
+    connection::{connection_private::ConnectionPrivate, MessageSendingPriority, P2PEvent},
     network::{NetworkId, NetworkMessage, NetworkRequest, NetworkResponse},
 };
 
-use super::handler_utils::*;
+use super::fails;
+use concordium_common::{fails::FunctorError, functor::FuncResult};
+use failure::Error;
+
+fn make_fn_error_peer(e: &'static str) -> FunctorError {
+    FunctorError::from(vec![Error::from(fails::PeerError { message: e })])
+}
+
+fn make_log_error(e: &'static str) -> FunctorError {
+    FunctorError::from(vec![Error::from(fails::LogError { message: e })])
+}
+
+pub fn log_as_joined_network(
+    event_log: &Option<SyncSender<P2PEvent>>,
+    peer: &P2PPeer,
+    networks: &HashSet<NetworkId>,
+) -> FuncResult<()> {
+    if let Some(ref log) = event_log {
+        for net_id in networks.iter() {
+            log.send(P2PEvent::JoinedNetwork(peer.to_owned(), *net_id))
+                .map_err(|_| make_log_error("Join Network Event cannot be sent to log"))?;
+        }
+    }
+    Ok(())
+}
+
+pub fn log_as_leave_network(
+    event_log: &Option<SyncSender<P2PEvent>>,
+    sender: &P2PPeer,
+    network: NetworkId,
+) -> FuncResult<()> {
+    if let Some(ref log) = event_log {
+        log.send(P2PEvent::LeftNetwork(sender.to_owned(), network))
+            .map_err(|_| make_log_error("Left Network Event cannot be sent to log"))?;
+    };
+    Ok(())
+}
 
 pub fn network_message_handle(
     priv_conn: &RwLock<ConnectionPrivate>,
