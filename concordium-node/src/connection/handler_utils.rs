@@ -9,7 +9,7 @@ use crate::{
 };
 use concordium_common::{fails::FunctorError, functor::FuncResult, hybrid_buf::HybridBuf};
 
-use failure::{Backtrace, Error};
+use failure::Error;
 
 use std::{
     collections::HashSet,
@@ -19,12 +19,6 @@ use std::{
 
 const BOOTSTRAP_PEER_COUNT: usize = 100;
 
-pub fn make_msg_error(e: &'static str) -> FunctorError {
-    FunctorError::from(vec![Error::from(fails::MessageProcessError {
-        message:   e,
-        backtrace: Backtrace::new(),
-    })])
-}
 pub fn make_fn_error_peer(e: &'static str) -> FunctorError {
     FunctorError::from(vec![Error::from(fails::PeerError { message: e })])
 }
@@ -113,36 +107,39 @@ pub fn send_peer_list(
     sender: &P2PPeer,
     nets: &HashSet<NetworkId>,
 ) -> FuncResult<()> {
-    debug!(
-        "Running in bootstrapper mode, so instantly sending peers {} random peers",
-        BOOTSTRAP_PEER_COUNT
-    );
-
-    let peer_list_msg = {
-        let priv_conn_reader = read_or_die!(priv_conn);
-        let random_nodes =
-            safe_read!(priv_conn_reader.conn().handler().connection_handler.buckets)?
-                .get_random_nodes(&sender, BOOTSTRAP_PEER_COUNT, nets);
-        let local_peer = priv_conn_reader.conn().local_peer();
-
-        if let Some(ref service) = priv_conn_reader.conn().handler().stats_export_service() {
-            service.pkt_sent_inc();
-        };
-
-        NetworkMessage::NetworkResponse(
-            NetworkResponse::PeerList(local_peer, random_nodes),
-            Some(get_current_stamp()),
-            None,
+    let mut priv_conn_writer = write_or_die!(priv_conn);
+    let random_nodes = safe_read!(priv_conn_writer.conn().handler().connection_handler.buckets)?
+        .get_random_nodes(&sender, BOOTSTRAP_PEER_COUNT, nets);
+    if random_nodes.len()
+        >= usize::from(
+            priv_conn_writer
+                .conn()
+                .handler()
+                .config
+                .bootstrapper_wait_minimum_peers,
         )
-    };
-    let data = serialize_into_memory(&peer_list_msg, 256)?;
-
-    // Ignore returned value because it is an asynchronous operation.
-    let _ = write_or_die!(priv_conn)
-        .async_send(HybridBuf::try_from(data)?, MessageSendingPriority::Normal)?;
-
-    TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
-
+    {
+        debug!(
+            "Running in bootstrapper mode, so instantly sending {} random peers to a peer",
+            BOOTSTRAP_PEER_COUNT
+        );
+        let peer_list_msg = {
+            if let Some(ref service) = priv_conn_writer.conn().handler().stats_export_service() {
+                service.pkt_sent_inc();
+            };
+            NetworkMessage::NetworkResponse(
+                NetworkResponse::PeerList(priv_conn_writer.conn().local_peer(), random_nodes),
+                Some(get_current_stamp()),
+                None,
+            )
+        };
+        // Ignore returned value because it is an asynchronous operation.
+        let _ = priv_conn_writer.async_send(
+            serialize_into_memory(&peer_list_msg, 256)?,
+            MessageSendingPriority::Normal,
+        )?;
+        TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
+    }
     Ok(())
 }
 

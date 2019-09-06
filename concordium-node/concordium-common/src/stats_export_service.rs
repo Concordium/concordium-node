@@ -68,7 +68,6 @@ cfg_if! {
             peers_gauge: IntGauge,
             connections_received: IntCounter,
             invalid_packets_received: IntCounter,
-            unknown_packets_received: IntCounter,
             invalid_network_packets_received: IntCounter,
             queue_size: IntGauge,
             resend_queue_size: IntGauge,
@@ -94,7 +93,6 @@ pub struct StatsExportService {
     peers_gauge: Arc<AtomicUsize>,
     connections_received: Arc<AtomicUsize>,
     invalid_packets_received: Arc<AtomicUsize>,
-    unknown_packets_received: Arc<AtomicUsize>,
     invalid_network_packets_received: Arc<AtomicUsize>,
     queue_size: Arc<AtomicUsize>,
     resend_queue_size: Arc<AtomicUsize>,
@@ -210,7 +208,6 @@ impl StatsExportService {
             peers_gauge: pg,
             connections_received: cr,
             invalid_packets_received: ipr,
-            unknown_packets_received: upr,
             invalid_network_packets_received: inpr,
             queue_size: qs,
             resend_queue_size: rqs,
@@ -235,7 +232,6 @@ impl StatsExportService {
             peers_gauge: Arc::new(AtomicUsize::new(0)),
             connections_received: Arc::new(AtomicUsize::new(0)),
             invalid_packets_received: Arc::new(AtomicUsize::new(0)),
-            unknown_packets_received: Arc::new(AtomicUsize::new(0)),
             invalid_network_packets_received: Arc::new(AtomicUsize::new(0)),
             queue_size: Arc::new(AtomicUsize::new(0)),
             resend_queue_size: Arc::new(AtomicUsize::new(0)),
@@ -311,14 +307,6 @@ impl StatsExportService {
         self.invalid_network_packets_received.inc();
         #[cfg(not(feature = "instrumentation"))]
         self.invalid_network_packets_received
-            .fetch_add(1, Ordering::Relaxed);
-    }
-
-    pub fn unknown_pkts_received_inc(&self) {
-        #[cfg(feature = "instrumentation")]
-        self.unknown_packets_received.inc();
-        #[cfg(not(feature = "instrumentation"))]
-        self.unknown_packets_received
             .fetch_add(1, Ordering::Relaxed);
     }
 

@@ -1,12 +1,6 @@
 use crate::{
     connection::{
-        network_handler::{
-            message_handler::{
-                EmptyFunction, NetworkMessageCW, NetworkPacketCW, NetworkRequestCW,
-                NetworkResponseCW,
-            },
-            MessageHandler,
-        },
+        network_handler::{message_handler::EmptyFunction, MessageHandler},
         Connection,
     },
     network::message::NetworkMessage,
@@ -78,33 +72,13 @@ impl MessageProcessor {
         }
     }
 
-    pub fn add_request_action(&self, callback: NetworkRequestCW) -> &Self {
-        self.actions.add_request_callback(callback);
-        self
-    }
-
-    pub fn add_response_action(&self, callback: NetworkResponseCW) -> &Self {
-        self.actions.add_response_callback(callback);
-        self
-    }
-
-    pub fn add_packet_action(&self, callback: NetworkPacketCW) -> &Self {
-        self.actions.add_packet_callback(callback);
-        self
-    }
-
-    pub fn add_action(&self, callback: NetworkMessageCW) -> &Self {
+    pub fn add_action(&self, callback: UnitFunction<NetworkMessage>) -> &Self {
         self.actions.add_callback(callback);
         self
     }
 
     pub fn set_invalid_handler(&self, func: EmptyFunction) -> &Self {
         self.actions.set_invalid_handler(func);
-        self
-    }
-
-    pub fn set_unknown_handler(&self, func: EmptyFunction) -> &Self {
-        self.actions.set_unknown_handler(func);
         self
     }
 
@@ -125,8 +99,8 @@ impl MessageProcessor {
         Ok(ProcessResult::Done)
     }
 
-    pub fn add(&self, other: MessageProcessor) -> &Self {
-        self.actions.add(other.actions.clone());
+    pub fn add(&self, other: &MessageProcessor) -> &Self {
+        self.actions.add(&other.actions);
 
         for cb in read_or_die!(other.notifications()).iter() {
             self.add_notification(cb.clone());

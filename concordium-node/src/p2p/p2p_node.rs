@@ -8,25 +8,19 @@ use crate::{
     },
     configuration::Config,
     connection::{
-        network_handler::{
-            message_handler::NetworkMessageCW,
-            message_processor::{MessageManager, MessageProcessor, ProcessResult},
-        },
-        Connection, ConnectionBuilder, MessageSendingPriority, NetworkRequestCW, NetworkResponseCW,
-        P2PEvent, RequestHandler, ResponseHandler,
+        network_handler::message_processor::{MessageManager, MessageProcessor, ProcessResult},
+        Connection, ConnectionBuilder, MessageSendingPriority, P2PEvent,
     },
     crypto::generate_snow_config,
     dumper::DumpItem,
     network::{
         packet::MessageId, request::RequestedElementType, Buckets, NetworkId, NetworkMessage,
-        NetworkPacket, NetworkPacketType, NetworkRequest, NetworkResponse,
+        NetworkPacket, NetworkPacketType, NetworkRequest,
     },
     p2p::{
         banned_nodes::{BannedNode, BannedNodes},
         fails,
-        p2p_node_handlers::{
-            forward_network_packet_message, forward_network_request, forward_network_response,
-        },
+        p2p_node_handlers::forward_network_message,
         unreachable_nodes::UnreachableNodes,
     },
     utils,
@@ -80,7 +74,7 @@ pub type PreHandshake = UnitFunctor<SocketAddr>;
 
 #[derive(Clone)]
 pub struct P2PNodeConfig {
-    no_net: bool,
+    pub no_net: bool,
     desired_nodes_count: u8,
     no_bootstrap_dns: bool,
     bootstrap_server: String,
@@ -96,6 +90,7 @@ pub struct P2PNodeConfig {
     pub housekeeping_interval: u64,
     pub bootstrapping_interval: u64,
     pub print_peers: bool,
+    pub bootstrapper_wait_minimum_peers: u16,
 }
 
 #[derive(Default)]
@@ -326,6 +321,10 @@ impl P2PNode {
             housekeeping_interval: conf.connection.housekeeping_interval,
             bootstrapping_interval: conf.connection.bootstrapping_interval,
             print_peers: true,
+            bootstrapper_wait_minimum_peers: match peer_type {
+                PeerType::Bootstrapper => conf.bootstrapper.wait_until_minimum_nodes,
+                PeerType::Node => 0,
+            },
         };
 
         let (send_queue_in, send_queue_out) = sync_channel(25000);
@@ -373,8 +372,10 @@ impl P2PNode {
         let to_disconnect = Arc::clone(&self.connection_handler.to_disconnect);
         self.connection_handler
             .message_processor
-            .add_request_action(make_atomic_callback!(move |req: &NetworkRequest| {
-                if let NetworkRequest::Handshake(ref peer, ..) = req {
+            .add_action(make_atomic_callback!(move |req: &NetworkMessage| {
+                if let NetworkMessage::NetworkRequest(NetworkRequest::Handshake(ref peer, ..), ..) =
+                    req
+                {
                     if read_or_die!(banned_nodes).is_id_banned(peer.id()) {
                         write_or_die!(to_disconnect).push_back(peer.id());
                     }
@@ -385,8 +386,8 @@ impl P2PNode {
 
     /// It adds all message handler callback to this connection.
     fn register_message_handlers(&self, conn: &Connection) {
-        let mh = self.connection_handler.message_processor.clone();
-        conn.common_message_processor.add(mh);
+        conn.common_message_processor
+            .add(&self.connection_handler.message_processor);
     }
 
     fn add_default_prehandshake_validations(&self) {
@@ -443,81 +444,35 @@ impl P2PNode {
 
     /// It adds default message handler at .
     fn add_default_message_handlers(&mut self) {
-        let response_handler = self.make_response_handler();
-        let request_handler = self.make_request_handler();
         let packet_notifier = self.make_default_network_packet_message_notifier();
 
-        self.message_processor()
-            .add_response_action(make_atomic_callback!(move |res: &NetworkResponse| {
-                response_handler.process_message(res).map_err(Error::from)
-            }))
-            .add_request_action(make_atomic_callback!(move |req: &NetworkRequest| {
-                request_handler.process_message(req).map_err(Error::from)
-            }))
-            .add_notification(packet_notifier);
+        self.message_processor().add_notification(packet_notifier);
     }
 
     /// Default packet handler just forward valid messages.
-    fn make_default_network_packet_message_notifier(&self) -> NetworkMessageCW {
+    fn make_default_network_packet_message_notifier(&self) -> UnitFunction<NetworkMessage> {
         let own_networks = Arc::clone(&self.networks());
         let stats_export_service = self.stats_export_service().clone();
         let queue_to_super = self.queue_to_super.clone();
         let rpc_queue = self.rpc_queue.clone();
-        let send_queue = self.send_queue_in().clone();
+        let packet_queue = self.queue_to_super.clone();
         let is_rpc_online = Arc::clone(&self.is_rpc_online);
 
-        make_atomic_callback!(move |pac: &NetworkMessage| {
-            if let NetworkMessage::NetworkPacket(pac, ..) = pac {
-                let queues = crate::p2p::p2p_node_handlers::OutgoingQueues {
-                    send_queue:     send_queue.clone(),
-                    queue_to_super: queue_to_super.clone(),
-                    rpc_queue:      rpc_queue.clone(),
-                };
+        make_atomic_callback!(move |msg: &NetworkMessage| {
+            let queues = crate::p2p::p2p_node_handlers::OutgoingQueues {
+                packet_queue:   packet_queue.clone(),
+                queue_to_super: queue_to_super.clone(),
+                rpc_queue:      rpc_queue.clone(),
+            };
 
-                forward_network_packet_message(
-                    stats_export_service.clone(),
-                    own_networks.clone(),
-                    queues,
-                    pac.clone(),
-                    Arc::clone(&is_rpc_online),
-                )
-            } else {
-                Ok(())
-            }
+            forward_network_message(
+                msg,
+                stats_export_service.clone(),
+                own_networks.clone(),
+                queues,
+                Arc::clone(&is_rpc_online),
+            )
         })
-    }
-
-    fn make_response_output_handler(&self) -> NetworkResponseCW {
-        let packet_queue = self.queue_to_super.clone();
-        make_atomic_callback!(move |req: &NetworkResponse| {
-            forward_network_response(req, packet_queue.clone())
-        })
-    }
-
-    fn make_response_handler(&self) -> ResponseHandler {
-        let output_handler = self.make_response_output_handler();
-        let handler = ResponseHandler::new();
-        handler.add_peer_list_callback(output_handler);
-        handler
-    }
-
-    fn make_requeue_handler(&self) -> NetworkRequestCW {
-        let packet_queue = self.queue_to_super.clone();
-        make_atomic_callback!(move |req: &NetworkRequest| {
-            forward_network_request(req, &packet_queue)
-        })
-    }
-
-    fn make_request_handler(&self) -> RequestHandler {
-        let requeue_handler = self.make_requeue_handler();
-        let handler = RequestHandler::new();
-
-        handler
-            .add_ban_node_callback(requeue_handler.clone())
-            .add_unban_node_callback(requeue_handler.clone())
-            .add_handshake_callback(requeue_handler.clone())
-            .add_retransmit_callback(requeue_handler.clone());
-        handler
     }
 
     /// This function is called periodically to print information about current
@@ -539,25 +494,27 @@ impl P2PNode {
     }
 
     pub fn attempt_bootstrap(&self) {
-        info!("Attempting to bootstrap");
+        if !self.config.no_net {
+            info!("Attempting to bootstrap");
 
-        let bootstrap_nodes = utils::get_bootstrap_nodes(
-            &self.config.bootstrap_server,
-            &self.config.dns_resolvers,
-            self.config.dnssec_disabled,
-            &self.config.bootstrap_nodes,
-        );
+            let bootstrap_nodes = utils::get_bootstrap_nodes(
+                &self.config.bootstrap_server,
+                &self.config.dns_resolvers,
+                self.config.dnssec_disabled,
+                &self.config.bootstrap_nodes,
+            );
 
-        match bootstrap_nodes {
-            Ok(nodes) => {
-                for addr in nodes {
-                    info!("Found a bootstrap node: {}", addr);
-                    let _ = self
-                        .connect(PeerType::Bootstrapper, addr, None)
-                        .map_err(|e| error!("{}", e));
+            match bootstrap_nodes {
+                Ok(nodes) => {
+                    for addr in nodes {
+                        info!("Found a bootstrap node: {}", addr);
+                        let _ = self
+                            .connect(PeerType::Bootstrapper, addr, None)
+                            .map_err(|e| error!("{}", e));
+                    }
                 }
+                Err(e) => error!("Can't bootstrap: {:?}", e),
             }
-            Err(e) => error!("Can't bootstrap: {:?}", e),
         }
     }
 
@@ -724,21 +681,6 @@ impl P2PNode {
                 });
         }
 
-        let wrap_connection_already_gone_as_non_fatal =
-            |token, res: Fallible<()>| -> Fallible<Token> {
-                use crate::connection::fails::PeerTerminatedConnection;
-                match res {
-                    Err(err) => {
-                        if err.downcast_ref::<PeerTerminatedConnection>().is_some() {
-                            Ok(token)
-                        } else {
-                            Err(err)
-                        }
-                    }
-                    _ => Ok(token),
-                }
-            };
-
         let filter_predicate_bootstrapper_no_activity_allowed_period = |conn: &Connection| -> bool {
             peer_type == PeerType::Bootstrapper
                 && conn.is_post_handshake()
@@ -758,8 +700,7 @@ impl P2PNode {
         };
 
         // Kill nodes which are no longer seen and also closing connections
-        let (closing_conns, err_conns): (Vec<Fallible<Token>>, Vec<Fallible<Token>>) =
-            uncleaned_connections
+        let closing_conns = uncleaned_connections
             .iter()
             // Get only connections that have been inactive for more time than allowed or closing connections
             .filter(|conn| {
@@ -768,25 +709,8 @@ impl P2PNode {
                     filter_predicate_bootstrapper_no_activity_allowed_period(&conn) ||
                     filter_predicate_node_no_activity_allowed_period(&conn)
             })
-            .map(|conn| {
-                // Deregister connection from the poll and shut down the socket
-                let conn_token = conn.token();
-                {
-                    trace!("Kill connection {} {}:{}", usize::from(conn_token), conn.remote_addr().ip(), conn.remote_addr().port());
-                    wrap_connection_already_gone_as_non_fatal(conn_token, conn.deregister(&self.poll))?;
-                    wrap_connection_already_gone_as_non_fatal(conn_token, conn.shutdown())?;
-                }
-                // Report number of peers to stats export engine
-                if let Some(ref service) = &self.stats_export_service() {
-                    if conn.is_post_handshake() {
-                        service.peers_dec();
-                    }
-                }
-                Ok(conn_token)
-            }).partition(Result::is_ok);
-
-        // safe unwrapping since we are iterating over the list that only contains `Ok`s
-        let closing_conns: Vec<_> = closing_conns.into_iter().map(Result::unwrap).collect();
+            .map(|conn| conn.token())
+            .collect::<Vec<Token>>();
 
         self.remove_connections(&closing_conns);
 
@@ -816,13 +740,6 @@ impl P2PNode {
             self.connection_handler
                 .unreachable_nodes
                 .cleanup(curr_stamp - MAX_UNREACHABLE_MARK_TIME);
-        }
-
-        if !err_conns.is_empty() {
-            bail!(format!(
-                "Some connections couldn't be cleaned: {:?}",
-                err_conns
-            ));
         }
 
         // If the number of peers exceeds the desired value, close a random selection of
