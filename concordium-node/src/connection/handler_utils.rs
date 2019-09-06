@@ -130,19 +130,20 @@ pub fn send_peer_list(
             BOOTSTRAP_PEER_COUNT
         );
         let peer_list_msg = {
-            let local_peer = priv_conn_reader.conn().local_peer();
             if let Some(ref service) = priv_conn_reader.conn().handler().stats_export_service() {
                 service.pkt_sent_inc();
             };
             NetworkMessage::NetworkResponse(
-                NetworkResponse::PeerList(local_peer, random_nodes),
+                NetworkResponse::PeerList(priv_conn_reader.conn().local_peer(), random_nodes),
                 Some(get_current_stamp()),
                 None,
             )
         };
-        let data = serialize_into_memory(&peer_list_msg, 256)?;
         // Ignore returned value because it is an asynchronous operation.
-        let _ = write_or_die!(priv_conn).async_send(data, MessageSendingPriority::Normal)?;
+        let _ = write_or_die!(priv_conn).async_send(
+            serialize_into_memory(&peer_list_msg, 256)?,
+            MessageSendingPriority::Normal,
+        )?;
         TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
     }
     Ok(())
