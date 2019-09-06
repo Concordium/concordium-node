@@ -39,7 +39,7 @@ pub fn handshake_handle(
                     P2PPeer::from(remote_peer.peer_type(), remote_peer.id(), remote_peer.addr);
                 if remote_peer.peer_type() != PeerType::Bootstrapper {
                     safe_write!(
-                        read_or_die!(priv_conn)
+                        priv_conn_ref
                             .conn()
                             .handler()
                             .connection_handler
@@ -55,22 +55,20 @@ pub fn handshake_handle(
         }
         NetworkMessage::NetworkRequest(NetworkRequest::Handshake(sender, nets, _), ..) => {
             debug!("Got a Handshake request");
-            {
-                let mut priv_conn_mut = write_or_die!(priv_conn);
-                priv_conn_mut.add_remote_end_networks(nets);
-                priv_conn_mut.promote_to_post_handshake(sender.id(), sender.addr)?;
-            }
-            send_handshake_and_ping(priv_conn)?;
-            {
-                let priv_conn_ref = read_or_die!(priv_conn);
-                priv_conn_ref.update_last_seen();
-                priv_conn_ref.set_measured_ping_sent();
-            }
+            let mut priv_conn_mut = write_or_die!(priv_conn);
 
-            update_buckets(priv_conn, sender, nets.clone())?;
+            priv_conn_mut.add_remote_end_networks(nets);
+            priv_conn_mut.promote_to_post_handshake(sender.id(), sender.addr)?;
 
-            if read_or_die!(priv_conn).conn().local_peer().peer_type() == PeerType::Bootstrapper {
-                send_peer_list(priv_conn, sender, nets)?;
+            send_handshake_and_ping(&mut priv_conn_mut)?;
+
+            priv_conn_mut.update_last_seen();
+            priv_conn_mut.set_measured_ping_sent();
+
+            update_buckets(&priv_conn_mut, sender, nets.clone())?;
+
+            if priv_conn_mut.conn().local_peer().peer_type() == PeerType::Bootstrapper {
+                send_peer_list(&mut priv_conn_mut, sender, nets)?;
             }
         }
         _ => {
@@ -82,60 +80,52 @@ pub fn handshake_handle(
     Ok(())
 }
 
-fn send_handshake_and_ping(priv_conn: &RwLock<ConnectionPrivate>) -> FuncResult<()> {
+fn send_handshake_and_ping(priv_conn: &mut ConnectionPrivate) -> FuncResult<()> {
     let (my_nets, local_peer) = {
-        let priv_conn_reader = read_or_die!(priv_conn);
-        let remote_end_networks = priv_conn_reader.remote_end_networks.clone();
-        let local_peer = priv_conn_reader.conn().local_peer();
+        let remote_end_networks = priv_conn.remote_end_networks.clone();
+        let local_peer = priv_conn.conn().local_peer();
         (remote_end_networks, local_peer)
     };
 
-    // Send handshake
     let handshake_msg = NetworkMessage::NetworkResponse(
         NetworkResponse::Handshake(local_peer, my_nets, vec![]),
         Some(get_current_stamp()),
         None,
     );
 
-    // Send ping
+    // Ignore returned value because it is an asynchronous operation.
+    let _ = priv_conn.async_send(
+        serialize_into_memory(&handshake_msg, 128)?,
+        MessageSendingPriority::High,
+    )?;
+
     let ping_msg = NetworkMessage::NetworkRequest(
         NetworkRequest::Ping(local_peer),
         Some(get_current_stamp()),
         None,
     );
 
-    {
-        let mut priv_conn_writer = write_or_die!(priv_conn);
-
-        // Ignore returned value because it is an asynchronous operation.
-        let _ = priv_conn_writer.async_send(
-            serialize_into_memory(&handshake_msg, 128)?,
-            MessageSendingPriority::High,
-        )?;
-
-        // Ignore returned value because it is an asynchronous operation, and ship out
-        // as normal priority to ensure proper queueing here.
-        let _ = priv_conn_writer.async_send(
-            serialize_into_memory(&ping_msg, 64)?,
-            MessageSendingPriority::Normal,
-        )?;
-    }
+    // Ignore returned value because it is an asynchronous operation, and ship out
+    // as normal priority to ensure proper queueing here.
+    let _ = priv_conn.async_send(
+        serialize_into_memory(&ping_msg, 64)?,
+        MessageSendingPriority::Normal,
+    )?;
 
     TOTAL_MESSAGES_SENT_COUNTER.fetch_add(2, Ordering::Relaxed);
     Ok(())
 }
 
 fn send_peer_list(
-    priv_conn: &RwLock<ConnectionPrivate>,
+    priv_conn: &mut ConnectionPrivate,
     sender: &P2PPeer,
     nets: &HashSet<NetworkId>,
 ) -> FuncResult<()> {
-    let mut priv_conn_writer = write_or_die!(priv_conn);
-    let random_nodes = safe_read!(priv_conn_writer.conn().handler().connection_handler.buckets)?
+    let random_nodes = safe_read!(priv_conn.conn().handler().connection_handler.buckets)?
         .get_random_nodes(&sender, BOOTSTRAP_PEER_COUNT, nets);
     if random_nodes.len()
         >= usize::from(
-            priv_conn_writer
+            priv_conn
                 .conn()
                 .handler()
                 .config
@@ -147,17 +137,17 @@ fn send_peer_list(
             BOOTSTRAP_PEER_COUNT
         );
         let peer_list_msg = {
-            if let Some(ref service) = priv_conn_writer.conn().handler().stats_export_service() {
+            if let Some(ref service) = priv_conn.conn().handler().stats_export_service() {
                 service.pkt_sent_inc();
             };
             NetworkMessage::NetworkResponse(
-                NetworkResponse::PeerList(priv_conn_writer.conn().local_peer(), random_nodes),
+                NetworkResponse::PeerList(priv_conn.conn().local_peer(), random_nodes),
                 Some(get_current_stamp()),
                 None,
             )
         };
         // Ignore returned value because it is an asynchronous operation.
-        let _ = priv_conn_writer.async_send(
+        let _ = priv_conn.async_send(
             serialize_into_memory(&peer_list_msg, 256)?,
             MessageSendingPriority::Normal,
         )?;
@@ -167,16 +157,14 @@ fn send_peer_list(
 }
 
 fn update_buckets(
-    priv_conn: &RwLock<ConnectionPrivate>,
+    priv_conn: &ConnectionPrivate,
     sender: &P2PPeer,
     nets: HashSet<NetworkId>,
 ) -> FuncResult<()> {
-    let priv_conn_borrow = read_or_die!(priv_conn);
-
-    safe_write!(priv_conn_borrow.conn().handler().connection_handler.buckets)?
+    safe_write!(priv_conn.conn().handler().connection_handler.buckets)?
         .insert_into_bucket(sender, nets);
 
-    if let Some(ref service) = priv_conn_borrow.conn().handler().stats_export_service() {
+    if let Some(ref service) = priv_conn.conn().handler().stats_export_service() {
         service.peers_inc();
         service.pkt_sent_inc_by(2);
     };
