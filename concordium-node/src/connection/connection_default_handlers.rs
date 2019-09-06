@@ -1,5 +1,3 @@
-use concordium_common::functor::FuncResult;
-
 use std::{
     collections::HashSet,
     sync::{atomic::Ordering, RwLock},
@@ -7,14 +5,23 @@ use std::{
 
 use crate::{
     common::{
-        counter::TOTAL_MESSAGES_SENT_COUNTER, get_current_stamp,
-        serialization::serialize_into_memory, P2PNodeId, P2PPeer, PeerType,
+        get_current_stamp, serialization::serialize_into_memory, P2PNodeId, P2PPeer, PeerType,
     },
-    connection::{connection_private::ConnectionPrivate, MessageSendingPriority},
+    connection::{connection_private::ConnectionPrivate, MessageSendingPriority, P2PEvent},
     network::{NetworkId, NetworkMessage, NetworkRequest, NetworkResponse},
 };
 
-use super::handler_utils::*;
+use super::fails;
+use concordium_common::{fails::FunctorError, functor::FuncResult};
+use failure::Error;
+
+fn make_fn_error_peer(e: &'static str) -> FunctorError {
+    FunctorError::from(vec![Error::from(fails::PeerError { message: e })])
+}
+
+fn make_log_error(e: &'static str) -> FunctorError {
+    FunctorError::from(vec![Error::from(fails::LogError { message: e })])
+}
 
 pub fn network_message_handle(
     priv_conn: &RwLock<ConnectionPrivate>,
@@ -22,23 +29,16 @@ pub fn network_message_handle(
 ) -> FuncResult<()> {
     match msg {
         NetworkMessage::NetworkRequest(NetworkRequest::Ping(..), ..) => {
-            read_or_die!(priv_conn).update_last_seen();
-            TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
-
             let pong_msg = {
                 let priv_conn_reader = read_or_die!(priv_conn);
-                // Make `Pong` response and send
+                priv_conn_reader.update_last_seen();
+                // Make `Pong` response and send it
                 let remote_peer =
                     priv_conn_reader
                         .remote_peer()
                         .post_handshake_peer_or_else(|| {
                             make_fn_error_peer("Can't perform this action pre-handshake")
                         })?;
-
-                if let Some(ref service) = priv_conn_reader.conn().handler().stats_export_service()
-                {
-                    service.pkt_sent_inc();
-                }
 
                 NetworkMessage::NetworkResponse(
                     NetworkResponse::Pong(remote_peer),
@@ -145,19 +145,12 @@ pub fn network_message_handle(
                         .collect()
                 };
 
-                if let Some(ref service) = priv_conn_reader.conn().handler().stats_export_service()
-                {
-                    service.pkt_sent_inc();
-                };
-
                 NetworkMessage::NetworkResponse(
                     NetworkResponse::PeerList(remote_peer, nodes),
                     Some(get_current_stamp()),
                     None,
                 )
             };
-
-            TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
 
             // Ignore returned because it is an asynchronous operation.
             write_or_die!(priv_conn)
@@ -214,7 +207,13 @@ pub fn network_message_handle(
                 )
             };
             let networks: HashSet<NetworkId> = vec![*network].into_iter().collect();
-            log_as_joined_network(&event_log, &remote_peer, &networks)?;
+
+            if let Some(ref log) = event_log {
+                for net_id in networks.iter() {
+                    log.send(P2PEvent::JoinedNetwork(remote_peer, *net_id))
+                        .map_err(|_| make_log_error("Join Network Event cannot be sent to log"))?;
+                }
+            }
 
             Ok(())
         }
@@ -240,7 +239,11 @@ pub fn network_message_handle(
                     .event_log
                     .clone()
             };
-            log_as_leave_network(&event_log, &sender, *network)?;
+
+            if let Some(ref log) = event_log {
+                log.send(P2PEvent::LeftNetwork(*sender, *network))
+                    .map_err(|_| make_log_error("Left Network Event cannot be sent to log"))?;
+            };
 
             Ok(())
         }

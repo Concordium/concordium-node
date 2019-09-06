@@ -28,7 +28,6 @@ pub use connection_builder::ConnectionBuilder;
 mod connection_default_handlers;
 mod connection_handshake_handlers;
 mod connection_private;
-mod handler_utils;
 
 pub use crate::{connection::connection_private::ConnectionPrivate, p2p::P2PNode};
 
@@ -270,7 +269,7 @@ impl Connection {
     #[inline]
     pub fn token(&self) -> Token { self.token }
 
-    /// It queues network request
+    /// It queues a network request
     #[inline]
     pub fn async_send(&self, input: HybridBuf, priority: MessageSendingPriority) -> Fallible<()> {
         let request = NetworkRawRequest {
