@@ -5,8 +5,7 @@ use std::{
 
 use crate::{
     common::{
-        counter::TOTAL_MESSAGES_SENT_COUNTER, get_current_stamp,
-        serialization::serialize_into_memory, P2PNodeId, P2PPeer, PeerType,
+        get_current_stamp, serialization::serialize_into_memory, P2PNodeId, P2PPeer, PeerType,
     },
     connection::{connection_private::ConnectionPrivate, MessageSendingPriority, P2PEvent},
     network::{NetworkId, NetworkMessage, NetworkRequest, NetworkResponse},
@@ -30,12 +29,10 @@ pub fn network_message_handle(
 ) -> FuncResult<()> {
     match msg {
         NetworkMessage::NetworkRequest(NetworkRequest::Ping(..), ..) => {
-            read_or_die!(priv_conn).update_last_seen();
-            TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
-
             let pong_msg = {
                 let priv_conn_reader = read_or_die!(priv_conn);
-                // Make `Pong` response and send
+                priv_conn_reader.update_last_seen();
+                // Make `Pong` response and send it
                 let remote_peer =
                     priv_conn_reader
                         .remote_peer()
@@ -164,8 +161,6 @@ pub fn network_message_handle(
                     None,
                 )
             };
-
-            TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
 
             // Ignore returned because it is an asynchronous operation.
             write_or_die!(priv_conn)

@@ -2,9 +2,8 @@
 use crate::dumper::create_dump_thread;
 use crate::{
     common::{
-        counter::TOTAL_MESSAGES_SENT_COUNTER, get_current_stamp, process_network_requests,
-        serialization::serialize_into_memory, NetworkRawRequest, P2PNodeId, P2PPeer, PeerStats,
-        PeerType, RemotePeer,
+        get_current_stamp, process_network_requests, serialization::serialize_into_memory,
+        NetworkRawRequest, P2PNodeId, P2PPeer, PeerStats, PeerType, RemotePeer,
     },
     configuration::Config,
     connection::{
@@ -1159,7 +1158,6 @@ impl P2PNode {
             match status {
                 Ok(_) => {
                     self.pks_sent_inc(); // assuming non-failable
-                    TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
                 }
                 Err(e) => {
                     error!(

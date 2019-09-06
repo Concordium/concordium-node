@@ -1,8 +1,5 @@
 use crate::{
-    common::{
-        counter::TOTAL_MESSAGES_SENT_COUNTER, get_current_stamp,
-        serialization::serialize_into_memory, P2PPeer, PeerType,
-    },
+    common::{get_current_stamp, serialization::serialize_into_memory, P2PPeer, PeerType},
     connection::{connection_private::ConnectionPrivate, ConnectionStatus, MessageSendingPriority},
     network::{NetworkId, NetworkMessage, NetworkRequest, NetworkResponse},
 };
@@ -107,7 +104,6 @@ fn send_handshake_and_ping(priv_conn: &mut ConnectionPrivate) -> FuncResult<()> 
         MessageSendingPriority::Normal,
     )?;
 
-    TOTAL_MESSAGES_SENT_COUNTER.fetch_add(2, Ordering::Relaxed);
     Ok(())
 }
 
@@ -146,7 +142,6 @@ fn send_peer_list(
             serialize_into_memory(&peer_list_msg, 256)?,
             MessageSendingPriority::Normal,
         )?;
-        TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
     }
     Ok(())
 }

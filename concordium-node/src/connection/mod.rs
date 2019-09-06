@@ -269,7 +269,7 @@ impl Connection {
     #[inline]
     pub fn token(&self) -> Token { self.token }
 
-    /// It queues network request
+    /// It queues a network request
     #[inline]
     pub fn async_send(&self, input: HybridBuf, priority: MessageSendingPriority) -> Fallible<()> {
         let request = NetworkRawRequest {
