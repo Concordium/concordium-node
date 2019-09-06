@@ -24,8 +24,6 @@ import Concordium.GlobalState.BlockState(BlockPointerData(..))
 import qualified Concordium.GlobalState.TreeState as TreeState
 import qualified Concordium.GlobalState.Rust.TreeState as RTS
 import qualified Concordium.GlobalState.Rust.FFI as RF
-import Concordium.GlobalState.Basic.TreeState
-import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.Block as GSBB
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Finalization
@@ -54,7 +52,6 @@ import Test.Hspec
 import Data.Maybe
 
 import QuickCheck.GenT
-import Test.QuickCheck.Gen
 
 -- import Debug.Trace
 

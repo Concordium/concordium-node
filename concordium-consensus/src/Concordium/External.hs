@@ -53,8 +53,6 @@ import qualified Concordium.Startup as S
 import Control.Concurrent.MVar
 import Control.Monad.IO.Class
 
-import Foreign.ForeignPtr
-
 -- |A 'PeerID' identifies peer at the p2p layer.
 type PeerID = Word64
 
