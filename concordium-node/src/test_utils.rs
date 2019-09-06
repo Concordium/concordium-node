@@ -144,6 +144,7 @@ pub fn make_node_and_sync(
     // locally-run tests and benches can be polled with a much greater frequency
     node.config.poll_interval = 1;
     node.config.housekeeping_interval = 10;
+    node.config.no_net = true;
 
     node.add_notification(make_atomic_callback!(move |m: &NetworkMessage| {
         log_any_message_handler(node_id, m)
@@ -182,6 +183,7 @@ pub fn make_node_and_sync_with_rpc(
     // locally-run tests and benches can be polled with a much greater frequency
     node.config.poll_interval = 1;
     node.config.housekeeping_interval = 1;
+    node.config.no_net = true;
 
     node.add_notification(make_atomic_callback!(move |m: &NetworkMessage| {
         log_any_message_handler(node_id, m)
@@ -198,7 +200,7 @@ pub fn make_node_and_sync_with_rpc(
 
 /// Connects `source` and `target` nodes
 pub fn connect(source: &mut P2PNode, target: &P2PNode) -> Fallible<()> {
-    source.connect(PeerType::Node, target.internal_addr(), None)
+    source.connect(target.self_peer.peer_type, target.internal_addr(), None)
 }
 
 /// Waits until
