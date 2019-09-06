@@ -360,7 +360,8 @@ receiveBlock bptr cstr l = do
 
 -- |Handle receipt of a finalization message.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
--- @ResultPendingFinalization@, @ResultDuplicate@, @ResultStale@ and @ResultIncorrectFinalizationSession@.
+-- @ResultPendingFinalization@, @ResultDuplicate@, @ResultStale@, @ResultIncorrectFinalizationSession@ and
+-- @ResultUnverifiable@.
 -- 'receiveFinalization' may invoke the callbacks for new finalization messages and finalization records,
 -- and missing blocks and finalization records.
 receiveFinalization :: StablePtr ConsensusRunner -> CString -> Int64 -> IO ReceiveResult
