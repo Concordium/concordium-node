@@ -199,6 +199,10 @@ impl ConnectionPrivate {
         priority: MessageSendingPriority,
     ) -> Fallible<Readiness<usize>> {
         TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
+        if let Some(ref stats) = self.conn().handler().stats_export_service() {
+            stats.pkt_sent_inc();
+        }
+
         self.send_to_dump(&input, false);
         self.message_sink.write(input, &mut self.socket, priority)
     }

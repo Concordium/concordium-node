@@ -40,11 +40,6 @@ pub fn network_message_handle(
                             make_fn_error_peer("Can't perform this action pre-handshake")
                         })?;
 
-                if let Some(ref service) = priv_conn_reader.conn().handler().stats_export_service()
-                {
-                    service.pkt_sent_inc();
-                }
-
                 NetworkMessage::NetworkResponse(
                     NetworkResponse::Pong(remote_peer),
                     Some(get_current_stamp()),
@@ -148,11 +143,6 @@ pub fn network_message_handle(
                             P2PPeer::from(element.peer_type, P2PNodeId(element.id), element.addr)
                         })
                         .collect()
-                };
-
-                if let Some(ref service) = priv_conn_reader.conn().handler().stats_export_service()
-                {
-                    service.pkt_sent_inc();
                 };
 
                 NetworkMessage::NetworkResponse(

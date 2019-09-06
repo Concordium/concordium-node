@@ -127,16 +127,11 @@ fn send_peer_list(
             "Running in bootstrapper mode, so instantly sending {} random peers to a peer",
             BOOTSTRAP_PEER_COUNT
         );
-        let peer_list_msg = {
-            if let Some(ref service) = priv_conn.conn().handler().stats_export_service() {
-                service.pkt_sent_inc();
-            };
-            NetworkMessage::NetworkResponse(
-                NetworkResponse::PeerList(priv_conn.conn().local_peer(), random_nodes),
-                Some(get_current_stamp()),
-                None,
-            )
-        };
+        let peer_list_msg = NetworkMessage::NetworkResponse(
+            NetworkResponse::PeerList(priv_conn.conn().local_peer(), random_nodes),
+            Some(get_current_stamp()),
+            None,
+        );
         // Ignore returned value because it is an asynchronous operation.
         let _ = priv_conn.async_send(
             serialize_into_memory(&peer_list_msg, 256)?,
