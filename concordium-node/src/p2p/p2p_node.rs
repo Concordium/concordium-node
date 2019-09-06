@@ -536,7 +536,7 @@ impl P2PNode {
                         self.send_get_peers(nids);
                     }
                 }
-                if !self.config.no_bootstrap_dns && !cfg!(test) {
+                if !self.config.no_bootstrap_dns {
                     info!("No peers at all - retrying bootstrapping");
                     self.attempt_bootstrap();
                 } else {
@@ -759,7 +759,6 @@ impl P2PNode {
 
         // reconnect to bootstrappers after a specified amount of time
         if peer_type == PeerType::Node
-            && !cfg!(test)
             && curr_stamp >= self.get_last_bootstrap() + self.config.bootstrapping_interval * 1000
         {
             self.attempt_bootstrap();

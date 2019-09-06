@@ -121,14 +121,12 @@ impl Connection {
     }
 
     pub fn setup_post_handshake(&self) {
-        let last_seen_response_handler = self.make_update_last_seen_handler();
-        let last_seen_packet_handler = self.make_update_last_seen_handler();
+        let last_seen_handler = self.make_update_last_seen_handler();
 
         self.post_handshake_message_processor
             .add(&self.common_message_processor)
             .add_action(handle_by_private!(self.dptr, network_message_handle))
-            .add_action(last_seen_response_handler)
-            .add_action(last_seen_packet_handler);
+            .add_action(last_seen_handler);
     }
 
     pub fn get_last_latency_measured(&self) -> u64 {
