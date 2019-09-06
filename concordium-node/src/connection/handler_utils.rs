@@ -126,7 +126,7 @@ pub fn send_peer_list(
         )
     {
         debug!(
-            "Running in bootstrapper mode, so instantly sending peers {} random peers",
+            "Running in bootstrapper mode, so instantly sending {} random peers to a peer",
             BOOTSTRAP_PEER_COUNT
         );
         let peer_list_msg = {
