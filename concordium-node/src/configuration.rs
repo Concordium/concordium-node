@@ -356,6 +356,13 @@ pub struct BootstrapperConfig {
         default_value = "10000"
     )]
     pub max_nodes: u16,
+    #[structopt(
+        long = "wait-until-minimum-nodes",
+        help = "Wait until a minumum amount of nodes have been obtained before sending out peer \
+                lists to clients",
+        default_value = "0"
+    )]
+    pub wait_until_minimum_nodes: u16,
 }
 
 #[derive(StructOpt, Debug)]

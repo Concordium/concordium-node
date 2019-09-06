@@ -113,36 +113,39 @@ pub fn send_peer_list(
     sender: &P2PPeer,
     nets: &HashSet<NetworkId>,
 ) -> FuncResult<()> {
-    debug!(
-        "Running in bootstrapper mode, so instantly sending peers {} random peers",
-        BOOTSTRAP_PEER_COUNT
-    );
-
-    let peer_list_msg = {
-        let priv_conn_reader = read_or_die!(priv_conn);
-        let random_nodes =
-            safe_read!(priv_conn_reader.conn().handler().connection_handler.buckets)?
-                .get_random_nodes(&sender, BOOTSTRAP_PEER_COUNT, nets);
-        let local_peer = priv_conn_reader.conn().local_peer();
-
-        if let Some(ref service) = priv_conn_reader.conn().handler().stats_export_service() {
-            service.pkt_sent_inc();
-        };
-
-        NetworkMessage::NetworkResponse(
-            NetworkResponse::PeerList(local_peer, random_nodes),
-            Some(get_current_stamp()),
-            None,
+    let priv_conn_reader = read_or_die!(priv_conn);
+    let random_nodes = safe_read!(priv_conn_reader.conn().handler().connection_handler.buckets)?
+        .get_random_nodes(&sender, BOOTSTRAP_PEER_COUNT, nets);
+    if random_nodes.len()
+        >= usize::from(
+            priv_conn_reader
+                .conn()
+                .handler()
+                .config
+                .bootstrapper_wait_minimum_peers,
         )
-    };
-    let data = serialize_into_memory(&peer_list_msg, 256)?;
-
-    // Ignore returned value because it is an asynchronous operation.
-    let _ = write_or_die!(priv_conn)
-        .async_send(HybridBuf::try_from(data)?, MessageSendingPriority::Normal)?;
-
-    TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
-
+    {
+        debug!(
+            "Running in bootstrapper mode, so instantly sending peers {} random peers",
+            BOOTSTRAP_PEER_COUNT
+        );
+        let peer_list_msg = {
+            let local_peer = priv_conn_reader.conn().local_peer();
+            if let Some(ref service) = priv_conn_reader.conn().handler().stats_export_service() {
+                service.pkt_sent_inc();
+            };
+            NetworkMessage::NetworkResponse(
+                NetworkResponse::PeerList(local_peer, random_nodes),
+                Some(get_current_stamp()),
+                None,
+            )
+        };
+        let data = serialize_into_memory(&peer_list_msg, 256)?;
+        // Ignore returned value because it is an asynchronous operation.
+        let _ = write_or_die!(priv_conn)
+            .async_send(HybridBuf::try_from(data)?, MessageSendingPriority::Normal)?;
+        TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
+    }
     Ok(())
 }
 

@@ -96,6 +96,7 @@ pub struct P2PNodeConfig {
     pub housekeeping_interval: u64,
     pub bootstrapping_interval: u64,
     pub print_peers: bool,
+    pub bootstrapper_wait_minimum_peers: u16,
 }
 
 #[derive(Default)]
@@ -326,6 +327,10 @@ impl P2PNode {
             housekeeping_interval: conf.connection.housekeeping_interval,
             bootstrapping_interval: conf.connection.bootstrapping_interval,
             print_peers: true,
+            bootstrapper_wait_minimum_peers: match peer_type {
+                PeerType::Bootstrapper => conf.bootstrapper.wait_until_minimum_nodes,
+                PeerType::Node => 0,
+            },
         };
 
         let (send_queue_in, send_queue_out) = sync_channel(25000);
