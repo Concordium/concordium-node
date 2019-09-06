@@ -32,10 +32,7 @@ mod handler_utils;
 
 pub use crate::{connection::connection_private::ConnectionPrivate, p2p::P2PNode};
 
-pub use network_handler::{
-    MessageHandler, NetworkPacketCW, NetworkRequestCW, NetworkResponseCW, RequestHandler,
-    ResponseHandler,
-};
+pub use network_handler::MessageHandler;
 pub use p2p_event::P2PEvent;
 
 use crate::{
@@ -46,13 +43,13 @@ use crate::{
         NetworkRawRequest, P2PNodeId, P2PPeer, PeerType, RemotePeer,
     },
     connection::{
-        connection_default_handlers::*,
-        connection_handshake_handlers::*,
+        connection_default_handlers::network_message_handle,
+        connection_handshake_handlers::handshake_handle,
         network_handler::message_processor::{
             collapse_process_result, MessageProcessor, ProcessResult,
         },
     },
-    network::{Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse},
+    network::{Buckets, NetworkId, NetworkMessage},
 };
 use concordium_common::stats_export_service::StatsExportService;
 
@@ -61,7 +58,7 @@ use concordium_common::{
     hybrid_buf::HybridBuf,
 };
 
-use failure::{Error, Fallible};
+use failure::Fallible;
 use mio::{Event, Poll, Token};
 use std::{
     collections::HashSet,
@@ -76,9 +73,9 @@ use std::{
 /// This macro clones `dptr` and moves it into callback closure.
 /// That closure is just a call to `fn` Fn.
 macro_rules! handle_by_private {
-    ($dptr:expr, $message_type:ty, $fn:ident) => {{
+    ($dptr:expr, $fn:ident) => {{
         let dptr_cloned = Arc::clone(&$dptr);
-        make_atomic_callback!(move |m: $message_type| { $fn(&dptr_cloned, m) })
+        make_atomic_callback!(move |m: &NetworkMessage| { $fn(&dptr_cloned, m) })
     }};
 }
 
@@ -109,19 +106,9 @@ impl Connection {
 
     // Setup handshake handler
     pub fn setup_pre_handshake(&self) {
-        let cloned_message_processor = self.common_message_processor.clone();
         self.pre_handshake_message_processor
-            .add(cloned_message_processor)
-            .add_request_action(handle_by_private!(
-                self.dptr,
-                &NetworkRequest,
-                handshake_request_handle
-            ))
-            .add_response_action(handle_by_private!(
-                self.dptr,
-                &NetworkResponse,
-                handshake_response_handle
-            ));
+            .add(&self.common_message_processor)
+            .add_action(handle_by_private!(self.dptr, handshake_handle));
     }
 
     fn make_update_last_seen_handler<T: Send>(&self) -> UnitFunction<T> {
@@ -133,93 +120,14 @@ impl Connection {
         })
     }
 
-    fn make_request_handler(&self) -> RequestHandler {
-        let update_last_seen_handler = self.make_update_last_seen_handler();
-
-        let rh = RequestHandler::new();
-        rh.add_ping_callback(handle_by_private!(
-            self.dptr,
-            &NetworkRequest,
-            default_network_request_ping_handle
-        ))
-        .add_find_node_callback(handle_by_private!(
-            self.dptr,
-            &NetworkRequest,
-            default_network_request_find_node_handle
-        ))
-        .add_get_peers_callback(handle_by_private!(
-            self.dptr,
-            &NetworkRequest,
-            default_network_request_get_peers
-        ))
-        .add_join_network_callback(handle_by_private!(
-            self.dptr,
-            &NetworkRequest,
-            default_network_request_join_network
-        ))
-        .add_leave_network_callback(handle_by_private!(
-            self.dptr,
-            &NetworkRequest,
-            default_network_request_leave_network
-        ))
-        .add_handshake_callback(make_atomic_callback!(move |m: &NetworkRequest| {
-            default_network_request_handshake(m)
-        }))
-        .add_ban_node_callback(update_last_seen_handler.clone())
-        .add_unban_node_callback(update_last_seen_handler.clone())
-        .add_join_network_callback(update_last_seen_handler.clone())
-        .add_leave_network_callback(update_last_seen_handler.clone());
-
-        rh
-    }
-
-    fn make_response_handler(&self) -> ResponseHandler {
-        let rh = ResponseHandler::new();
-
-        rh.add_find_node_callback(handle_by_private!(
-            self.dptr,
-            &NetworkResponse,
-            default_network_response_find_node
-        ))
-        .add_pong_callback(handle_by_private!(
-            self.dptr,
-            &NetworkResponse,
-            default_network_response_pong
-        ))
-        .add_handshake_callback(make_atomic_callback!(move |m: &NetworkResponse| {
-            default_network_response_handshake(m)
-        }))
-        .add_peer_list_callback(handle_by_private!(
-            self.dptr,
-            &NetworkResponse,
-            default_network_response_peer_list
-        ));
-
-        rh
-    }
-
     pub fn setup_post_handshake(&self) {
-        let request_handler = self.make_request_handler();
-        let response_handler = self.make_response_handler();
-        let last_seen_response_handler = self.make_update_last_seen_handler();
-        let last_seen_packet_handler = self.make_update_last_seen_handler();
-        let cloned_message_processor = self.common_message_processor.clone();
-        let dptr_1 = Arc::clone(&self.dptr);
+        let last_seen_handler = self.make_update_last_seen_handler();
 
         self.post_handshake_message_processor
-            .add(cloned_message_processor)
-            .add_request_action(make_atomic_callback!(move |req: &NetworkRequest| {
-                request_handler.process_message(req).map_err(Error::from)
-            }))
-            .add_response_action(make_atomic_callback!(move |res: &NetworkResponse| {
-                response_handler.process_message(res).map_err(Error::from)
-            }))
-            .add_response_action(last_seen_response_handler)
-            .add_packet_action(last_seen_packet_handler)
-            .set_invalid_handler(Arc::new(move || default_invalid_message(&dptr_1)));
+            .add(&self.common_message_processor)
+            .add_action(handle_by_private!(self.dptr, network_message_handle))
+            .add_action(last_seen_handler);
     }
-
-    // =============================
 
     pub fn get_last_latency_measured(&self) -> u64 {
         read_or_die!(self.dptr)

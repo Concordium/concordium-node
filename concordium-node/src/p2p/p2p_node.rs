@@ -8,25 +8,19 @@ use crate::{
     },
     configuration::Config,
     connection::{
-        network_handler::{
-            message_handler::NetworkMessageCW,
-            message_processor::{MessageManager, MessageProcessor, ProcessResult},
-        },
-        Connection, ConnectionBuilder, MessageSendingPriority, NetworkRequestCW, NetworkResponseCW,
-        P2PEvent, RequestHandler, ResponseHandler,
+        network_handler::message_processor::{MessageManager, MessageProcessor, ProcessResult},
+        Connection, ConnectionBuilder, MessageSendingPriority, P2PEvent,
     },
     crypto::generate_snow_config,
     dumper::DumpItem,
     network::{
         packet::MessageId, request::RequestedElementType, Buckets, NetworkId, NetworkMessage,
-        NetworkPacket, NetworkPacketType, NetworkRequest, NetworkResponse,
+        NetworkPacket, NetworkPacketType, NetworkRequest,
     },
     p2p::{
         banned_nodes::{BannedNode, BannedNodes},
         fails,
-        p2p_node_handlers::{
-            forward_network_packet_message, forward_network_request, forward_network_response,
-        },
+        p2p_node_handlers::forward_network_message,
         unreachable_nodes::UnreachableNodes,
     },
     utils,
@@ -378,8 +372,10 @@ impl P2PNode {
         let to_disconnect = Arc::clone(&self.connection_handler.to_disconnect);
         self.connection_handler
             .message_processor
-            .add_request_action(make_atomic_callback!(move |req: &NetworkRequest| {
-                if let NetworkRequest::Handshake(ref peer, ..) = req {
+            .add_action(make_atomic_callback!(move |req: &NetworkMessage| {
+                if let NetworkMessage::NetworkRequest(NetworkRequest::Handshake(ref peer, ..), ..) =
+                    req
+                {
                     if read_or_die!(banned_nodes).is_id_banned(peer.id()) {
                         write_or_die!(to_disconnect).push_back(peer.id());
                     }
@@ -390,8 +386,8 @@ impl P2PNode {
 
     /// It adds all message handler callback to this connection.
     fn register_message_handlers(&self, conn: &Connection) {
-        let mh = self.connection_handler.message_processor.clone();
-        conn.common_message_processor.add(mh);
+        conn.common_message_processor
+            .add(&self.connection_handler.message_processor);
     }
 
     fn add_default_prehandshake_validations(&self) {
@@ -448,81 +444,35 @@ impl P2PNode {
 
     /// It adds default message handler at .
     fn add_default_message_handlers(&mut self) {
-        let response_handler = self.make_response_handler();
-        let request_handler = self.make_request_handler();
         let packet_notifier = self.make_default_network_packet_message_notifier();
 
-        self.message_processor()
-            .add_response_action(make_atomic_callback!(move |res: &NetworkResponse| {
-                response_handler.process_message(res).map_err(Error::from)
-            }))
-            .add_request_action(make_atomic_callback!(move |req: &NetworkRequest| {
-                request_handler.process_message(req).map_err(Error::from)
-            }))
-            .add_notification(packet_notifier);
+        self.message_processor().add_notification(packet_notifier);
     }
 
     /// Default packet handler just forward valid messages.
-    fn make_default_network_packet_message_notifier(&self) -> NetworkMessageCW {
+    fn make_default_network_packet_message_notifier(&self) -> UnitFunction<NetworkMessage> {
         let own_networks = Arc::clone(&self.networks());
         let stats_export_service = self.stats_export_service().clone();
         let queue_to_super = self.queue_to_super.clone();
         let rpc_queue = self.rpc_queue.clone();
-        let send_queue = self.send_queue_in().clone();
+        let packet_queue = self.queue_to_super.clone();
         let is_rpc_online = Arc::clone(&self.is_rpc_online);
 
-        make_atomic_callback!(move |pac: &NetworkMessage| {
-            if let NetworkMessage::NetworkPacket(pac, ..) = pac {
-                let queues = crate::p2p::p2p_node_handlers::OutgoingQueues {
-                    send_queue:     send_queue.clone(),
-                    queue_to_super: queue_to_super.clone(),
-                    rpc_queue:      rpc_queue.clone(),
-                };
+        make_atomic_callback!(move |msg: &NetworkMessage| {
+            let queues = crate::p2p::p2p_node_handlers::OutgoingQueues {
+                packet_queue:   packet_queue.clone(),
+                queue_to_super: queue_to_super.clone(),
+                rpc_queue:      rpc_queue.clone(),
+            };
 
-                forward_network_packet_message(
-                    stats_export_service.clone(),
-                    own_networks.clone(),
-                    queues,
-                    pac.clone(),
-                    Arc::clone(&is_rpc_online),
-                )
-            } else {
-                Ok(())
-            }
+            forward_network_message(
+                msg,
+                stats_export_service.clone(),
+                own_networks.clone(),
+                queues,
+                Arc::clone(&is_rpc_online),
+            )
         })
-    }
-
-    fn make_response_output_handler(&self) -> NetworkResponseCW {
-        let packet_queue = self.queue_to_super.clone();
-        make_atomic_callback!(move |req: &NetworkResponse| {
-            forward_network_response(req, packet_queue.clone())
-        })
-    }
-
-    fn make_response_handler(&self) -> ResponseHandler {
-        let output_handler = self.make_response_output_handler();
-        let handler = ResponseHandler::new();
-        handler.add_peer_list_callback(output_handler);
-        handler
-    }
-
-    fn make_requeue_handler(&self) -> NetworkRequestCW {
-        let packet_queue = self.queue_to_super.clone();
-        make_atomic_callback!(move |req: &NetworkRequest| {
-            forward_network_request(req, &packet_queue)
-        })
-    }
-
-    fn make_request_handler(&self) -> RequestHandler {
-        let requeue_handler = self.make_requeue_handler();
-        let handler = RequestHandler::new();
-
-        handler
-            .add_ban_node_callback(requeue_handler.clone())
-            .add_unban_node_callback(requeue_handler.clone())
-            .add_handshake_callback(requeue_handler.clone())
-            .add_retransmit_callback(requeue_handler.clone());
-        handler
     }
 
     /// This function is called periodically to print information about current
