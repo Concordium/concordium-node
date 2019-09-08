@@ -39,7 +39,7 @@ shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState
 initialBlockState = 
-  emptyBlockState emptyBirkParameters Types.dummyCryptographicParameters &
+  emptyBlockState emptyBirkParameters dummyCryptographicParameters &
     (blockAccounts .~ Acc.putAccount (mkAccount alesVK 1000000000) Acc.emptyAccounts) .
     (blockBank . Rew.totalGTU .~ 1000000000) .
     (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
@@ -56,7 +56,7 @@ transactionsInput =
                                   , parameter = "Unit.Unit"
                                   , contractName = "Fibonacci"
                                   }
-        , metadata = makeHeader alesKP 2 10000
+        , metadata = makeHeader alesKP 2 100000
         , keypair = alesKP
         }
   ,TJSON { payload = Update { amount = 0
@@ -100,7 +100,7 @@ checkFibonacciResult (suc, fails, instances) =
   checkLocalState (snd (head instances)) -- and the local state should match the actual list of fibonacci numbers
   where
     reject = filter (\case (_, Types.TxSuccess _) -> False
-                           (_, Types.TxReject _) -> True
+                           (_, Types.TxReject _ _) -> True
                     )
                         suc
     checkLocalState inst = 

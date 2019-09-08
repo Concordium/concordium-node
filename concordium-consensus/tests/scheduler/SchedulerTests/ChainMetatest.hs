@@ -36,7 +36,7 @@ shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState
 initialBlockState = 
-  emptyBlockState emptyBirkParameters Types.dummyCryptographicParameters &
+  emptyBlockState emptyBirkParameters dummyCryptographicParameters &
     (blockAccounts .~ Acc.putAccount (mkAccount alesVK 100000) Acc.emptyAccounts) . 
     (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs))) .
     (blockBank . Rew.totalGTU .~ 100000)
@@ -58,7 +58,7 @@ transactionsInput =
                                     ,moduleName = "ChainMetaTest"
                                     ,parameter = "Unit.Unit"
                                     }
-           , metadata = makeHeader alesKP 2 1000
+           , metadata = makeHeader alesKP 2 10000
            , keypair = alesKP
            }
     ]
@@ -90,7 +90,7 @@ checkChainMetaResult (suc, fails, instances) =
   checkLocalState (snd (head instances)) -- and the local state should match the 
   where 
     reject = filter (\case (_, Types.TxSuccess _) -> False
-                           (_, Types.TxReject _) -> True
+                           (_, Types.TxReject _ _) -> True
                     )
                         suc
     checkLocalState inst = do
