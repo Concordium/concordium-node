@@ -225,7 +225,9 @@ handleInitContract senderAccount meta amount modref cname param paramSize = do
             -- NB: The unsafe Map.! is safe here because we do know the contract exists by the invariant on viface and iface
             linkedContract <- linkContract (uniqueName iface) cname (viContracts viface Map.! cname)
             let (initFun, _) = cvInitMethod linkedContract
-            (params', _) <- linkExpr (uniqueName iface) (compile qparamExp) -- linking must succeed because type-checking succeeded
+            -- link the parameters, and account for the size of the linked parameters, failing if running out of energy
+            -- in the process.
+            (params', _) <- linkExpr (uniqueName iface) (compile qparamExp)
             cm <- getChainMetadata
             res <- runInterpreter (I.applyInitFun cm (InitContext (thSender meta)) initFun params' (thSender meta) amount)
             return (linkedContract, iface, viface, (msgTy ciface), res, amount)
