@@ -43,8 +43,7 @@ for l in /target/profiling/ghc/libHSrts_p.a \
     rm $l;
 done
 
-wget
-https://downloads.haskell.org/~cabal/cabal-install-$CABAL_BUILDER_VERSION/cabal-install-$CABAL_BUILDER_VERSION-x86_64-unknown-linux.tar.xz
+wget https://downloads.haskell.org/~cabal/cabal-install-$CABAL_BUILDER_VERSION/cabal-install-$CABAL_BUILDER_VERSION-x86_64-unknown-linux.tar.xz
 tar -xf cabal-install-$CABAL_BUILDER_VERSION-x86_64-unknown-linux.tar.xz
 mkdir -p $HOME/.cabal/bin
 chmod +x cabal
@@ -141,4 +140,3 @@ tar czf static-consensus-$GHC_VERSION.tar.gz /target
 tar czf static-consensus-binaries-$GHC_VERSION.tar.gz /binaries
 mv static-consensus-$GHC_VERSION.tar.gz /out 
 mv static-consensus-binaries-$GHC_VERSION.tar.gz /out 
-
