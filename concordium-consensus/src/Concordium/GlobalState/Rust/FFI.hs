@@ -184,52 +184,56 @@ data BlockContentsR
 -- BlockContents can not be an instance of `BlockMetadata` as it might be the `GenesisData` that doesn't
 -- have such data, but it can be an instance of `BlockData`. For mimicking the behavior of `BlockMetadata`
 -- we provide a function for `Maybe` retrieving the `BlockFields` if present.
-newtype BlockContents = BlockContents (Ptr BlockContentsR)
+newtype BlockContents = BlockContents (ForeignPtr BlockContentsR)
 
 foreign import ccall unsafe "get_fields_from_block_contents"
-    blockContentsFieldsF :: BlockContents -> Ptr BlockFieldsR
+    blockContentsFieldsF :: Ptr BlockContentsR -> IO (Ptr BlockFieldsR)
 foreign import ccall unsafe "get_slot_from_block_contents"
-    blockContentsSlotF :: BlockContents -> Int
+    blockContentsSlotF :: Ptr BlockContentsR -> IO Int
 foreign import ccall unsafe "get_transactions_from_block_contents"
-    blockContentsTransactionsF :: BlockContents -> CString
+    blockContentsTransactionsF :: Ptr BlockContentsR -> IO CString
 foreign import ccall unsafe "get_transactions_length_from_block_contents"
-    blockContentsTransactionsLengthF :: BlockContents -> Word64
+    blockContentsTransactionsLengthF :: Ptr BlockContentsR -> IO Word64
 foreign import ccall unsafe "get_signature_from_block_contents"
-    blockContentsSignatureF :: BlockContents -> CString
+    blockContentsSignatureF :: Ptr BlockContentsR -> IO CString
 foreign import ccall unsafe "get_signature_length_from_block_contents"
-    blockContentsSignatureLengthF :: BlockContents -> Word64
+    blockContentsSignatureLengthF :: Ptr BlockContentsR -> IO Word64
 foreign import ccall unsafe "block_contents_compare"
-    blockContentsCompareF :: BlockContents -> BlockContents -> Bool
+    blockContentsCompareF :: Ptr BlockContentsR -> Ptr BlockContentsR -> IO Bool
+foreign import ccall unsafe "&block_contents_free"
+    blockContentsFreeF :: FunPtr (Ptr BlockContentsR -> IO ())
 
 blockContentsFields :: BlockContents -> Maybe BlockFields
-blockContentsFields bc = if p == nullPtr then Nothing else Just $ BlockFields p
+blockContentsFields (BlockContents bc) = if p == nullPtr then Nothing else Just $ BlockFields p
   where
-    p = blockContentsFieldsF bc
+    p = unsafePerformIO $ withForeignPtr bc blockContentsFieldsF
 
 blockContentsSlot :: BlockContents -> Slot
-blockContentsSlot = Slot . fromIntegral . blockContentsSlotF
+blockContentsSlot (BlockContents bc) = Slot . fromIntegral . unsafePerformIO . withForeignPtr bc $ blockContentsSlotF
 
 blockContentsBlockTransactions :: BlockContents -> [Transaction]
-blockContentsBlockTransactions b = unsafePerformIO $ do
-  let
-    p = blockContentsTransactionsF b
-    l = blockContentsTransactionsLengthF b
+blockContentsBlockTransactions (BlockContents b) = unsafePerformIO $ do
+  p <- withForeignPtr b blockContentsTransactionsF
+  l <- withForeignPtr b blockContentsTransactionsLengthF
   bt_str <- curry packCStringLen p (fromIntegral l)
   case decode bt_str :: Either String [Transaction] of
         Left e  -> fail $ "Couldn't deserialize txs " ++ show e ++ "input: " ++ show bt_str ++ "tried to take " ++ show l ++ " bytes from " ++ show p
         Right v -> return v
 
 blockContentsSignature :: BlockContents -> Maybe BlockSignature
-blockContentsSignature bc = if p == nullPtr then Nothing
-  else unsafePerformIO $ do
-  bc_hs <- curry packCStringLen p $ fromIntegral l
-  return . Just . SSCH.Signature . toShort $ bc_hs
-  where
-    p = blockContentsSignatureF bc
-    l = blockContentsSignatureLengthF bc
+blockContentsSignature (BlockContents bc) = unsafePerformIO $ do
+  p <- withForeignPtr bc blockContentsSignatureF
+  l <- withForeignPtr bc blockContentsSignatureLengthF
+  if p == nullPtr then do
+    return Nothing
+  else do
+    bc_hs <- curry packCStringLen p $ fromIntegral l
+    return . Just . SSCH.Signature . toShort $ bc_hs
 
 instance Eq BlockContents where
-  a == b = blockContentsCompareF a b
+  BlockContents a == BlockContents b = unsafePerformIO $
+    withForeignPtr a $ (\x ->
+    withForeignPtr b $ (\y -> blockContentsCompareF x y))
 
 type instance BlockFieldType BlockContents = BlockFields
 
@@ -287,9 +291,9 @@ pendingBlockExtractBlockFields :: PendingBlock -> BlockFields
 pendingBlockExtractBlockFields pb = fromJust . blockContentsFields . pendingBlockExtractBlockContents $ pb
 
 pendingBlockExtractBlockContents :: PendingBlock -> BlockContents
-pendingBlockExtractBlockContents b = unsafePerformIO $ do
+pendingBlockExtractBlockContents b = BlockContents . unsafePerformIO $ do
       p <- withForeignPtr (pendingBlockPointer b) (return . pendingBlockContentsF)
-      return $ BlockContents p
+      newForeignPtr blockContentsFreeF p
 
 -- |Update the list of transactions held in the Rust side
 pendingBlockUpdateTransactions :: [Transaction] -> PendingBlock -> IO ()
@@ -398,8 +402,9 @@ blockPointerExtractBlockFields :: BlockPointer -> Maybe BlockFields
 blockPointerExtractBlockFields = blockContentsFields . blockPointerExtractBlockContents
 
 blockPointerExtractBlockContents :: BlockPointer -> BlockContents
-blockPointerExtractBlockContents b = unsafePerformIO $ do
-      withForeignPtr (blockPointerPointer b) (return . BlockContents . blockPointerContentsF)
+blockPointerExtractBlockContents b = BlockContents . unsafePerformIO $ do
+      p <- withForeignPtr (blockPointerPointer b) (return . blockPointerContentsF)
+      newForeignPtr blockContentsFreeF p
 
 blockPointerExtractSignature :: BlockPointer -> Maybe BlockSignature
 blockPointerExtractSignature = blockContentsSignature . blockPointerExtractBlockContents
