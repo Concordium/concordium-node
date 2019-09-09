@@ -27,7 +27,7 @@ makeBakers nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17) 0
                 account = makeBakerAccount bid
 
 makeBakerAccount :: BakerId -> Account
-makeBakerAccount bid = acct {_accountAmount = if bid == 0 then 1000000 else 0, _accountStakeDelegate = Just bid}
+makeBakerAccount bid = acct {_accountAmount = 1000000000000, _accountStakeDelegate = Just bid}
   where
     acct = newAccount (Sig.verifyKey kp) SigScheme.Ed25519
     kp = fst (Sig.randomKeyPair (mkStdGen (- (fromIntegral bid) - 1))) -- NB the negation makes it not conflict with other fake accounts we create elsewhere.

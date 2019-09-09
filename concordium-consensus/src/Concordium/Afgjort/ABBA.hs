@@ -28,7 +28,9 @@ module Concordium.Afgjort.ABBA(
     ABBASummary(..),
     abbaSummary,
     processABBASummary,
-    abbaOutcome
+    abbaOutcome,
+    getABBASummary,
+    putABBASummary
 ) where
 
 import qualified Data.Map as Map
@@ -370,6 +372,21 @@ data PhaseSummary sig = PhaseSummary {
     summaryCSSDoneReporting :: Map Party (DoneReportingDetails sig)
 }
 
+putPhase :: (Ser.Serialize sig) => Party -> PhaseSummary sig -> Ser.Put
+putPhase maxParty PhaseSummary{..} = do
+        putPartyMap maxParty summaryJustifiedTop
+        putPartyMap maxParty summaryJustifiedBot
+        putPartyMap maxParty summaryCSSSeen
+        putPartyMap maxParty ((\(DoneReportingDetails ns sig) -> (ns, sig)) <$> summaryCSSDoneReporting)
+
+getPhase :: (Ser.Serialize sig) => Party -> Ser.Get (PhaseSummary sig)
+getPhase maxParty = do
+        summaryJustifiedTop <- getPartyMap maxParty
+        summaryJustifiedBot <- getPartyMap maxParty
+        summaryCSSSeen <- getPartyMap maxParty
+        summaryCSSDoneReporting <- fmap (uncurry DoneReportingDetails) <$> getPartyMap maxParty
+        return PhaseSummary{..}
+
 -- |Get a summary of a phase state.  If the phase has not begun,
 -- this returns @Nothing@.
 phaseSummary :: SimpleGetter (PhaseState sig) (Maybe (PhaseSummary sig))
@@ -395,6 +412,21 @@ data ABBASummary sig = ABBASummary {
     -- |WeAreDone (Bottom) messages.
     summaryWeAreDoneBot :: Map Party sig
 }
+
+putABBASummary :: (Ser.Serialize sig) => Party -> ABBASummary sig -> Ser.Put
+putABBASummary maxParty ABBASummary{..} = do
+        Ser.putWord32be (fromIntegral $ length summaryPhases)
+        forM_ summaryPhases (putPhase maxParty)
+        putPartyMap maxParty summaryWeAreDoneTop
+        putPartyMap maxParty summaryWeAreDoneBot
+
+getABBASummary :: (Ser.Serialize sig) => Party -> Ser.Get (ABBASummary sig)
+getABBASummary maxParty = do
+        nPhases <- Ser.getWord32be
+        summaryPhases <- forM [1..nPhases] (\_ -> getPhase maxParty)
+        summaryWeAreDoneTop <- getPartyMap maxParty
+        summaryWeAreDoneBot <- getPartyMap maxParty
+        return ABBASummary{..}
 
 -- |Derive an 'ABBASummary' from the given 'ABBAState'.
 -- If the protocol is complete, then the WeAreDone weight for one of the outcomes

@@ -20,8 +20,6 @@ EXPORTS
  getBlockDelta
  getBlockFinalization
  getIndexedFinalization
- getFinalizationMessages
- getFinalizationPoint
  getCatchUpStatus
  receiveCatchUpStatus
  getAccountList

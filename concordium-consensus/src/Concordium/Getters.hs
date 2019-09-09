@@ -27,8 +27,6 @@ import Concordium.GlobalState.Modules(moduleSource)
 import Concordium.GlobalState.Finalization
 import qualified Concordium.Skov.CatchUp as CU
 
-import Concordium.Afgjort.Finalize
-
 import Control.Concurrent.MVar
 import Data.IORef
 import Text.Read hiding (get, String)
@@ -37,7 +35,6 @@ import Data.Aeson
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as EL
-import Control.Monad.State.Class
 import Data.Word
 import Data.ByteString.Builder(toLazyByteString, byteStringHex)
 import Data.Vector (fromList)
@@ -242,12 +239,6 @@ getBlockFinalization sfsRef bh = runStateQuery sfsRef $ do
 
 getIndexedFinalization :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> FinalizationIndex -> IO (Maybe FinalizationRecord)
 getIndexedFinalization sfsRef finInd = runStateQuery sfsRef $ TS.getFinalizationAtIndex finInd
-
-getFinalizationMessages :: (SkovStateQueryable z m, MonadState s m, FinalizationQuery s) => z -> FinalizationPoint -> IO [FinalizationMessage]
-getFinalizationMessages sfsRef finPt = runStateQuery sfsRef $ get <&> \sfs -> getPendingFinalizationMessages sfs finPt
-
-getFinalizationPoint :: (SkovStateQueryable z m, MonadState s m, FinalizationQuery s) => z -> IO FinalizationPoint
-getFinalizationPoint sfsRef = runStateQuery sfsRef $ get <&> getCurrentFinalizationPoint
 
 getCatchUpStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> IO CU.CatchUpStatus
 getCatchUpStatus sRef = runStateQuery sRef $ CU.getCatchUpStatus True

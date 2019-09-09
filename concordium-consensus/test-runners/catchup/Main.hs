@@ -26,21 +26,27 @@ import Concordium.GlobalState.Basic.TreeState
 import Concordium.GlobalState.Basic.Block
 import Concordium.Scheduler.Utils.Init.Example as Example
 
+import Concordium.Afgjort.Finalize.Types
 import Concordium.Types
 import Concordium.Runner
 import Concordium.Logger
 import Concordium.Skov
+import Concordium.Skov.CatchUp
 import qualified Concordium.Getters as Get
 
 import Concordium.Startup
 
 
-type Peer = MVar SkovBufferedHookedState
+data Peer = Peer {
+    peerState :: MVar SkovBufferedHookedState,
+    peerChan :: Chan InEvent
+}
 
 data InEvent
     = IEMessage (InMessage Peer)
-    | IECatchupFinalization BS.ByteString Bool (Chan InEvent)
-{-
+    | IECatchUpRequired Peer
+    -- | IECatchupFinalization BS.ByteString Bool (Chan InEvent)
+
 nContracts :: Int
 nContracts = 2
 
@@ -67,7 +73,8 @@ relayIn msgChan bakerChan sfsRef connectedRef = loop
             connected <- readIORef connectedRef
             when connected $ case msg of
                 IEMessage imsg -> writeChan bakerChan imsg
-                IECatchupFinalization fpBS reciprocate chan -> do
+                IECatchUpRequired peer -> undefined
+{-}                IECatchupFinalization fpBS reciprocate chan -> do
                     case runGet get fpBS of
                         Right fp -> do
                             finMsgs <- Get.getFinalizationMessages sfsRef fp
@@ -75,12 +82,12 @@ relayIn msgChan bakerChan sfsRef connectedRef = loop
                             when reciprocate $ do
                                 myFp <- runPut . put <$> Get.getFinalizationPoint sfsRef
                                 writeChan chan $ IECatchupFinalization myFp False msgChan
-                        Left _ -> return ()
+                        Left _ -> return () -}
             loop
 
 
-relay :: Chan (OutMessage Peer) -> MVar SkovBufferedHookedState -> IORef Bool -> Chan (Either (BlockHash, BakedBlock, Maybe BlockState) FinalizationRecord) -> Chan InEvent -> [Chan InEvent] -> IO ()
-relay inp sfsRef connectedRef monitor loopback outps = loop
+relay :: Peer -> Chan (OutMessage Peer) -> MVar SkovBufferedHookedState -> IORef Bool -> Chan (Either (BlockHash, BakedBlock, Maybe BlockState) FinalizationRecord) -> Chan InEvent -> [Chan InEvent] -> IO ()
+relay myPeer inp sfsRef connectedRef monitor loopback outps = loop
     where
         chooseDelay = do
             factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
@@ -106,31 +113,26 @@ relay inp sfsRef connectedRef monitor loopback outps = loop
                             writeChan monitor (Left (bh, block, bpState <$> bp))
                         _ -> return ()
                     forM_ outps $ \outp -> usually $ delayed $
-                        writeChan outp (IEMessage $ MsgBlockReceived sfsRef blockBS)
+                        writeChan outp (IEMessage $ MsgBlockReceived myPeer blockBS)
                 MsgFinalization bs ->
-                    forM_ outps $ \outp -> delayed $
-                        writeChan outp (IEMessage $ MsgFinalizationReceived sfsRef bs)
+                    case decode bs of
+                        Right (FPMCatchUp _) ->
+                            forM_ outps $ \outp -> delayed $
+                                writeChan outp (IEMessage $ MsgFinalizationReceived myPeer bs)
+                        _ -> return ()
                 MsgFinalizationRecord fr -> do
                     case runGet get fr of
                         Right fr' -> writeChan monitor (Right fr')
                         _ -> return ()
                     forM_ outps $ \outp -> usually $ delayed $
-                        writeChan outp (IEMessage $ MsgFinalizationRecordReceived sfsRef fr)
-                MsgMissingBlock src bh 0 -> do
-                    mb <- Get.getBlockData src bh
-                    case mb of
-                        Just bd@(NormalBlock _) -> writeChan loopback (IEMessage $ MsgBlockReceived src $ runPut $ put bd)
-                        _ -> return ()
-                MsgMissingBlock src bh delta -> do
-                    mb <- Get.getBlockDescendant src bh delta
-                    case mb of
-                        Just bd@(NormalBlock _) -> writeChan loopback (IEMessage $ MsgBlockReceived src $ runPut $ put bd)
-                        _ -> return ()
-                MsgMissingFinalization src fin -> do
-                    mf <- case fin of
-                        Left bh -> Get.getBlockFinalization src bh
-                        Right fi -> Get.getIndexedFinalization src fi
-                    forM_ mf $ \fr -> writeChan loopback (IEMessage $ MsgFinalizationRecordReceived src $ runPut $ put fr)
+                        writeChan outp (IEMessage $ MsgFinalizationRecordReceived myPeer fr)
+                MsgCatchUpRequired target -> do
+                    sfs <- readMVar sfsRef
+                    cur <- runSilentLogger $ flip evalSkovQueryM (sfs ^. skov) (getCatchUpStatus True)
+                    delayed $ writeChan (peerChan target) (IEMessage $ MsgCatchUpStatusReceived myPeer (encode cur))
+                MsgDirectedBlock target b -> usually $ delayed $ writeChan (peerChan target) (IEMessage $ MsgBlockReceived myPeer b)
+                MsgDirectedFinalizationRecord target fr -> usually $ delayed $ writeChan (peerChan target) (IEMessage $ MsgFinalizationReceived myPeer fr)
+                MsgDirectedCatchUpStatus target cu -> usually $ delayed $ writeChan (peerChan target) (IEMessage $ MsgCatchUpStatusReceived myPeer cu)
             else case msg of
                 MsgNewBlock blockBS -> do
                     case runGet get blockBS of
@@ -164,8 +166,11 @@ toggleConnection logM sfsRef connectedRef loopback outps = readIORef connectedRe
                 putStrLn $ "// " ++ show tid ++ ": toggle on"
                 logM External LLInfo $ "Reconnected"
                 writeIORef connectedRef True
+                {-
                 fp <- Get.getFinalizationPoint sfsRef
                 forM_ outps $ \outp -> writeChan outp (IECatchupFinalization (runPut $ put fp) True loopback)
+                -}
+                -- FIXME: here
                 loop True
 
 
@@ -186,7 +191,7 @@ dummyIdentityProviders = []
 
 main :: IO ()
 main = do
-    let n = 20
+    let n = 3
     now <- truncate <$> getPOSIXTime
     let (gen, bis) = makeGenesisData now n 1 0.5 1 dummyCryptographicParameters dummyIdentityProviders
     let iState = Example.initialState (genesisBirkParameters gen) (genesisCryptographicParameters gen) (genesisBakerAccounts gen) [] nContracts
@@ -211,8 +216,10 @@ main = do
     monitorChan <- newChan
     forM_ (removeEach chans) $ \((cin, cout, stateRef, connectedRef, logM), cs) -> do
         let cs' = ((\(c, _, _, _, _) -> c) <$> cs)
-        _ <- forkIO $ toggleConnection logM stateRef connectedRef cin cs'
-        forkIO $ relay cout stateRef connectedRef monitorChan cin cs'
+        when False $ do
+            _ <- forkIO $ toggleConnection logM stateRef connectedRef cin cs'
+            return ()
+        forkIO $ relay (Peer stateRef cin) cout stateRef connectedRef monitorChan cin cs'
     let loop = do
             readChan monitorChan >>= \case
                 Left (bh, block, gs') -> do
@@ -229,7 +236,3 @@ main = do
                     putStrLn $ " n" ++ show (finalizationBlockPointer fr) ++ " [color=green];"
                     loop
     loop
-
--}
-
-main = return ()
