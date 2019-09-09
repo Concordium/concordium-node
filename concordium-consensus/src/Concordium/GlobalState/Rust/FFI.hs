@@ -101,19 +101,19 @@ data BlockFieldsR
 newtype BlockFields = BlockFields (Ptr BlockFieldsR)
 
 -- Will always be 32b
-foreign import ccall unsafe "block_fields_get_pointer"
+foreign import ccall unsafe "get_pointer_from_block_fields"
     blockFieldsBlockPointerF :: BlockFields -> CString
-foreign import ccall unsafe "block_fields_get_baker"
+foreign import ccall unsafe "get_baker_from_block_fields"
     blockFieldsBlockBakerF :: BlockFields -> Int
-foreign import ccall unsafe "block_fields_get_proof"
+foreign import ccall unsafe "get_proof_from_block_fields"
     blockFieldsBlockProofF :: BlockFields -> CString
-foreign import ccall unsafe "block_fields_get_proof_length"
+foreign import ccall unsafe "get_proof_length_from_block_fields"
     blockFieldsBlockProofLengthF :: BlockFields -> Word64
-foreign import ccall unsafe "block_fields_get_nonce"
+foreign import ccall unsafe "get_nonce_from_block_fields"
     blockFieldsBlockNonceF :: BlockFields -> CString
-foreign import ccall unsafe "block_fields_get_nonce_length"
+foreign import ccall unsafe "get_nonce_length_from_block_fields"
     blockFieldsBlockNonceLengthF :: BlockFields -> Word64
-foreign import ccall unsafe "block_fields_get_last_finalized"
+foreign import ccall unsafe "get_last_finalized_from_block_fields"
     blockFieldsBlockLastFinalizedF :: BlockFields -> CString
 
 blockFieldsBlockPointer :: BlockFields -> BlockHash
@@ -189,17 +189,17 @@ data BlockContentsR
 -- we provide a function for `Maybe` retrieving the `BlockFields` if present.
 newtype BlockContents = BlockContents (Ptr BlockContentsR)
 
-foreign import ccall unsafe "block_contents_fields"
+foreign import ccall unsafe "get_fields_from_block_contents"
     blockContentsFieldsF :: BlockContents -> Ptr BlockFieldsR
-foreign import ccall unsafe "block_contents_slot"
+foreign import ccall unsafe "get_slot_from_block_contents"
     blockContentsSlotF :: BlockContents -> Int
-foreign import ccall unsafe "block_contents_transactions"
+foreign import ccall unsafe "get_transactions_from_block_contents"
     blockContentsTransactionsF :: BlockContents -> CString
-foreign import ccall unsafe "block_contents_transactions_length"
+foreign import ccall unsafe "get_transactions_length_from_block_contents"
     blockContentsTransactionsLengthF :: BlockContents -> Word64
-foreign import ccall unsafe "block_contents_signature"
+foreign import ccall unsafe "get_signature_from_block_contents"
     blockContentsSignatureF :: BlockContents -> CString
-foreign import ccall unsafe "block_contents_signature_length"
+foreign import ccall unsafe "get_signature_length_from_block_contents"
     blockContentsSignatureLengthF :: BlockContents -> Word64
 foreign import ccall unsafe "block_contents_compare"
     blockContentsCompareF :: BlockContents -> BlockContents -> Bool
@@ -275,9 +275,9 @@ data PendingBlock = PendingBlock {
   pendingBlockReceiveTime:: UTCTime
   }
 
-foreign import ccall unsafe "pending_block_get_contents"
+foreign import ccall unsafe "get_contents_from_pending_block"
     pendingBlockContentsF :: Ptr PendingBlockR -> Ptr BlockContentsR
-foreign import ccall unsafe "pending_block_get_hash"
+foreign import ccall unsafe "get_hash_from_pending_block"
     pendingBlockHashF :: Ptr PendingBlockR -> CString
 
 pendingBlockHash :: PendingBlock -> BlockHash
@@ -374,13 +374,13 @@ data BlockPointer = BlockPointer {
   blockPointerArriveTime    :: UTCTime
   }
 
-foreign import ccall unsafe "block_pointer_get_hash"
+foreign import ccall unsafe "get_hash_from_block_pointer"
     blockPointerHashF :: Ptr BlockPointerR -> CString
-foreign import ccall unsafe "block_pointer_get_height"
+foreign import ccall unsafe "get_height_from_block_pointer"
     blockPointerHeightF :: Ptr BlockPointerR -> Int
-foreign import ccall unsafe "block_pointer_get_transaction_count"
+foreign import ccall unsafe "get_transaction_count_from_block_pointer"
     blockPointerTransactionCountF :: Ptr BlockPointerR -> Int
-foreign import ccall unsafe "block_pointer_get_contents"
+foreign import ccall unsafe "get_contents_from_block_pointer"
     blockPointerContentsF :: Ptr BlockPointerR -> Ptr BlockContentsR
 
 blockPointerHash :: BlockPointer -> BlockHash
