@@ -39,7 +39,7 @@ pub fn handshake_handle(
                         .insert_into_bucket(&bucket_sender, nets.clone());
                 }
 
-                if let Some(ref service) = priv_conn_ref.conn().handler().stats_export_service() {
+                if let Some(ref service) = priv_conn_ref.conn().handler().stats_export_service {
                     service.peers_inc();
                 };
             }
@@ -59,7 +59,7 @@ pub fn handshake_handle(
             safe_write!(priv_conn_mut.conn().handler().connection_handler.buckets)?
                 .insert_into_bucket(sender, nets.to_owned());
 
-            if priv_conn_mut.conn().local_peer().peer_type() == PeerType::Bootstrapper {
+            if priv_conn_mut.conn().handler().peer_type() == PeerType::Bootstrapper {
                 send_peer_list(&mut priv_conn_mut, sender, nets)?;
             }
         }
@@ -75,7 +75,7 @@ pub fn handshake_handle(
 fn send_handshake_and_ping(priv_conn: &mut ConnectionPrivate) -> FuncResult<()> {
     let (my_nets, local_peer) = {
         let remote_end_networks = priv_conn.remote_end_networks.clone();
-        let local_peer = priv_conn.conn().local_peer();
+        let local_peer = priv_conn.conn().handler().self_peer;
         (remote_end_networks, local_peer)
     };
 
@@ -128,7 +128,7 @@ fn send_peer_list(
             BOOTSTRAP_PEER_COUNT
         );
         let peer_list_msg = NetworkMessage::NetworkResponse(
-            NetworkResponse::PeerList(priv_conn.conn().local_peer(), random_nodes),
+            NetworkResponse::PeerList(priv_conn.conn().handler().self_peer, random_nodes),
             Some(get_current_stamp()),
             None,
         );

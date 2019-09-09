@@ -39,7 +39,7 @@ use crate::{
         counter::TOTAL_MESSAGES_RECEIVED_COUNTER,
         get_current_stamp,
         serialization::{Deserializable, ReadArchiveAdapter},
-        NetworkRawRequest, P2PNodeId, P2PPeer, PeerType, RemotePeer,
+        NetworkRawRequest, P2PNodeId, PeerType, RemotePeer,
     },
     connection::{
         connection_default_handlers::network_message_handle,
@@ -50,7 +50,6 @@ use crate::{
     },
     network::{Buckets, NetworkId, NetworkMessage},
 };
-use concordium_common::stats_export_service::StatsExportService;
 
 use concordium_common::{
     functor::{FuncResult, UnitFunction},
@@ -87,7 +86,7 @@ pub struct Connection {
     pub messages_received: Arc<AtomicU64>,
     last_ping_sent:        Arc<AtomicU64>,
 
-    token: Token,
+    pub token: Token,
 
     /// It stores internal info used in handles. In this way,
     /// handler's function will only need two arguments: this shared object, and
@@ -149,11 +148,7 @@ impl Connection {
             .store(get_current_stamp(), Ordering::SeqCst);
     }
 
-    pub fn local_peer(&self) -> P2PPeer { self.handler().self_peer }
-
     pub fn remote_peer(&self) -> RemotePeer { read_or_die!(self.dptr).remote_peer() }
-
-    pub fn local_id(&self) -> P2PNodeId { self.local_peer().id() }
 
     pub fn remote_id(&self) -> Option<P2PNodeId> {
         match read_or_die!(self.dptr).remote_peer() {
@@ -162,11 +157,7 @@ impl Connection {
         }
     }
 
-    pub fn local_peer_type(&self) -> PeerType { self.local_peer().peer_type() }
-
     pub fn remote_peer_type(&self) -> PeerType { read_or_die!(self.dptr).remote_peer.peer_type() }
-
-    pub fn local_addr(&self) -> SocketAddr { self.local_peer().addr }
 
     pub fn remote_addr(&self) -> SocketAddr { read_or_die!(self.dptr).remote_peer().addr() }
 
@@ -226,7 +217,7 @@ impl Connection {
 
         self.messages_received.fetch_add(1, Ordering::Relaxed);
         TOTAL_MESSAGES_RECEIVED_COUNTER.fetch_add(1, Ordering::Relaxed);
-        if let Some(ref service) = &self.stats_export_service() {
+        if let Some(ref service) = self.handler().stats_export_service {
             service.pkt_received_inc();
         };
 
@@ -243,10 +234,6 @@ impl Connection {
     #[cfg(test)]
     pub fn validate_packet_type_test(&self, msg: &[u8]) -> Readiness<bool> {
         write_or_die!(self.dptr).validate_packet_type(msg)
-    }
-
-    pub fn stats_export_service(&self) -> Option<StatsExportService> {
-        self.handler().stats_export_service().clone()
     }
 
     pub fn buckets(&self) -> Arc<RwLock<Buckets>> {
@@ -266,14 +253,11 @@ impl Connection {
         Arc::clone(&read_or_die!(self.dptr).local_end_networks)
     }
 
-    #[inline]
-    pub fn token(&self) -> Token { self.token }
-
     /// It queues a network request
     #[inline]
     pub fn async_send(&self, input: HybridBuf, priority: MessageSendingPriority) -> Fallible<()> {
         let request = NetworkRawRequest {
-            token: self.token(),
+            token: self.token,
             data: input,
             priority,
         };

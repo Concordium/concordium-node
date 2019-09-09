@@ -127,7 +127,7 @@ pub fn network_message_handle(
                             make_fn_error_peer("Can't perform this action pre-handshake")
                         })?;
 
-                let nodes = if priv_conn_reader.conn().local_peer().peer_type()
+                let nodes = if priv_conn_reader.conn().handler().peer_type()
                     == PeerType::Bootstrapper
                 {
                     safe_read!(priv_conn_reader.conn().handler().connection_handler.buckets)?
@@ -260,7 +260,7 @@ pub fn network_message_handle(
             if let Some(ref service) = read_or_die!(priv_conn)
                 .conn()
                 .handler()
-                .stats_export_service()
+                .stats_export_service
             {
                 service.invalid_pkts_received_inc();
             }

@@ -451,7 +451,7 @@ impl P2PNode {
     /// Default packet handler just forward valid messages.
     fn make_default_network_packet_message_notifier(&self) -> UnitFunction<NetworkMessage> {
         let own_networks = Arc::clone(&self.networks());
-        let stats_export_service = self.stats_export_service().clone();
+        let stats_export_service = self.stats_export_service.clone();
         let queue_to_super = self.queue_to_super.clone();
         let rpc_queue = self.rpc_queue.clone();
         let packet_queue = self.queue_to_super.clone();
@@ -619,7 +619,7 @@ impl P2PNode {
             .for_each(|conn| {
                 let request_ping = {
                     NetworkMessage::NetworkRequest(
-                        NetworkRequest::Ping(conn.local_peer()),
+                        NetworkRequest::Ping(conn.handler().self_peer),
                         Some(get_current_stamp()),
                         None,
                     )
@@ -647,7 +647,7 @@ impl P2PNode {
                 if let Some(ref conn) = self.find_connection_by_id(x) {
                     trace!(
                         "Disconnecting connection {} already marked as going down",
-                        usize::from(conn.token())
+                        usize::from(conn.token)
                     );
                     conn.close();
                 }
@@ -662,7 +662,7 @@ impl P2PNode {
                 .iter()
                 .filter_map(|conn| {
                     conn.remote_id()
-                        .and_then(|remote_id| Some((remote_id, conn.token(), conn.last_seen())))
+                        .and_then(|remote_id| Some((remote_id, conn.token, conn.last_seen())))
                 })
                 .collect();
             connection_map.sort_by_key(|p| std::cmp::Reverse((p.0, p.2)));
@@ -673,7 +673,7 @@ impl P2PNode {
                 .for_each(|conn| {
                     if !connection_map
                         .iter()
-                        .any(|(_, token, _)| token == &conn.token())
+                        .any(|(_, token, _)| token == &conn.token)
                     {
                         conn.close();
                     }
@@ -708,7 +708,7 @@ impl P2PNode {
                     filter_predicate_bootstrapper_no_activity_allowed_period(&conn) ||
                     filter_predicate_node_no_activity_allowed_period(&conn)
             })
-            .map(|conn| conn.token())
+            .map(|conn| conn.token)
             .collect::<Vec<Token>>();
 
         self.remove_connections(&closing_conns);
@@ -718,11 +718,11 @@ impl P2PNode {
 
             for closed_connection in uncleaned_connections
                 .into_iter()
-                .filter(|conn| closing_conns.contains(&conn.token()))
+                .filter(|conn| closing_conns.contains(&conn.token))
             {
                 trace!(
                     "Removed connection {} from the Connection Handler",
-                    usize::from(closed_connection.token())
+                    usize::from(closed_connection.token)
                 );
 
                 if let Some(obsolete_peer_id) = closed_connection
@@ -874,7 +874,7 @@ impl P2PNode {
 
         match TcpStream::connect(&addr) {
             Ok(socket) => {
-                if let Some(ref service) = self.stats_export_service() {
+                if let Some(ref service) = self.stats_export_service {
                     service.conn_received_inc();
                 };
                 let token = Token(
@@ -1053,7 +1053,7 @@ impl P2PNode {
     pub fn find_connection_by_token(&self, token: Token) -> Option<Connection> {
         read_or_die!(self.connection_handler.connections)
             .iter()
-            .find(|conn| conn.token() == token)
+            .find(|conn| conn.token == token)
             .cloned()
     }
 
@@ -1074,7 +1074,7 @@ impl P2PNode {
 
     fn remove_connections(&self, to_remove: &[Token]) {
         write_or_die!(self.connection_handler.connections)
-            .retain(|conn| !to_remove.contains(&conn.token()));
+            .retain(|conn| !to_remove.contains(&conn.token));
     }
 
     pub fn add_connection(&self, conn: Connection) {
@@ -1136,10 +1136,6 @@ impl P2PNode {
 
     #[inline]
     pub fn peer_type(&self) -> PeerType { self.self_peer.peer_type }
-
-    pub fn send_queue_in(&self) -> &SyncSender<NetworkMessage> { &self.send_queue_in }
-
-    pub fn stats_export_service(&self) -> &Option<StatsExportService> { &self.stats_export_service }
 
     fn log_event(&self, event: P2PEvent) {
         if let Some(ref log) = self.connection_handler.event_log {
@@ -1416,7 +1412,7 @@ impl P2PNode {
             .map(|outer_pkt| {
                 trace!("Processing messages!");
 
-                if let Some(ref service) = self.stats_export_service() {
+                if let Some(ref service) = self.stats_export_service {
                     service.queue_size_dec();
                 };
                 trace!("Got message to process!");
@@ -1608,7 +1604,7 @@ impl P2PNode {
                 SERVER => {
                     debug!("Got a new connection!");
                     self.accept().map_err(|e| error!("{}", e)).ok();
-                    if let Some(ref service) = &self.stats_export_service() {
+                    if let Some(ref service) = &self.stats_export_service {
                         service.conn_received_inc();
                     };
                 }
