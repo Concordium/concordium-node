@@ -26,7 +26,7 @@ pub struct ConsensusOutQueue {
     sender_request:   RelayOrStopSyncSender<ConsensusMessage>,
 }
 
-const SYNC_CHANNEL_BOUND: usize = 256;
+const SYNC_CHANNEL_BOUND: usize = 4096;
 
 impl Default for ConsensusOutQueue {
     fn default() -> Self {
