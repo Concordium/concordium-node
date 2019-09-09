@@ -1,9 +1,8 @@
 use crate::{
     common::{get_current_stamp, P2PPeer, RemotePeer},
     connection::{
-        connection_private::ConnectionPrivate, fails::MissingFieldsConnectionBuilder,
-        network_handler::message_processor::MessageProcessor, Connection, ConnectionStatus,
-        FrameSink, FrameStream, HandshakeStreamSink,
+        connection_private::ConnectionPrivate, fails::MissingFieldsConnectionBuilder, Connection,
+        ConnectionStatus, FrameSink, FrameStream, HandshakeStreamSink,
     },
     network::NetworkId,
     p2p::P2PNode,
@@ -53,9 +52,6 @@ impl ConnectionBuilder {
                 last_ping_sent: Arc::new(AtomicU64::new(curr_stamp)),
                 token,
                 dptr: Arc::new(RwLock::new(priv_conn)),
-                pre_handshake_message_processor: MessageProcessor::new(),
-                post_handshake_message_processor: MessageProcessor::new(),
-                common_message_processor: MessageProcessor::new(),
             };
 
             write_or_die!(conn.dptr).conn_ref = Some(Arc::pin(conn.clone()));

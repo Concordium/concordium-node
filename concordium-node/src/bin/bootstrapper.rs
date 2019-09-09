@@ -27,8 +27,7 @@ use p2p_client::{
     p2p::*,
     utils::{self, load_bans},
 };
-use rkv::{Manager, Rkv};
-use std::sync::{mpsc, Arc, RwLock};
+use std::sync::mpsc;
 
 fn main() -> Result<(), Error> {
     let conf = configuration::parse_config()?;
@@ -110,6 +109,7 @@ fn main() -> Result<(), Error> {
             PeerType::Bootstrapper,
             stats_export_service.clone(),
             rpc_tx,
+            Some(data_dir_path),
         )
     } else {
         P2PNode::new(
@@ -120,6 +120,7 @@ fn main() -> Result<(), Error> {
             PeerType::Bootstrapper,
             stats_export_service.clone(),
             rpc_tx,
+            Some(data_dir_path),
         )
     };
 
@@ -127,22 +128,15 @@ fn main() -> Result<(), Error> {
     // Start push gateway to prometheus
     client_utils::start_push_gateway(&conf.prometheus, &stats_export_service, node.id())?;
 
-    // Create the key-value store environment
-    let kvs_handle = Manager::singleton()
-        .write()
-        .unwrap()
-        .get_or_create(data_dir_path.as_path(), Rkv::new)
-        .unwrap();
-
     // Load and apply existing bans
-    if let Err(e) = load_bans(&mut node, &kvs_handle) {
+    if let Err(e) = load_bans(&mut node) {
         error!("{}", e);
     };
 
     // Connect outgoing messages to be forwarded into the baker and RPC streams.
     //
     // Thread #4: Read P2PNode output
-    setup_process_output(&node, kvs_handle, &conf, pkt_out);
+    setup_process_output(&node, &conf, pkt_out);
 
     {
         node.config.max_allowed_nodes = conf.bootstrapper.max_nodes;
@@ -160,7 +154,6 @@ fn main() -> Result<(), Error> {
 
 fn setup_process_output(
     node: &P2PNode,
-    kvs_handle: Arc<RwLock<Rkv>>,
     conf: &configuration::Config,
     pkt_out: RelayOrStopReceiver<NetworkMessage>,
 ) {
@@ -173,25 +166,13 @@ fn setup_process_output(
                     NetworkRequest::BanNode(ref peer, peer_to_ban),
                     ..
                 ) => {
-                    utils::ban_node(
-                        &mut _node_self_clone,
-                        peer,
-                        peer_to_ban,
-                        &kvs_handle,
-                        _no_trust_bans,
-                    );
+                    utils::ban_node(&_node_self_clone, peer, peer_to_ban);
                 }
                 NetworkMessage::NetworkRequest(
                     NetworkRequest::UnbanNode(ref peer, peer_to_ban),
                     ..
                 ) => {
-                    utils::unban_node(
-                        &mut _node_self_clone,
-                        peer,
-                        peer_to_ban,
-                        &kvs_handle,
-                        _no_trust_bans,
-                    );
+                    utils::unban_node(&_node_self_clone, peer, peer_to_ban);
                 }
                 _ => {}
             }

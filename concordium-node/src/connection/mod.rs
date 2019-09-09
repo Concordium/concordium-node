@@ -1,6 +1,6 @@
 #[macro_use]
 pub mod fails;
-pub mod network_handler;
+pub mod message_handlers;
 
 mod async_adapter;
 pub use async_adapter::{FrameSink, FrameStream, HandshakeStreamSink, Readiness};
@@ -25,13 +25,10 @@ pub enum MessageSendingPriority {
 mod connection_builder;
 pub use connection_builder::ConnectionBuilder;
 
-mod connection_default_handlers;
-mod connection_handshake_handlers;
 mod connection_private;
 
 pub use crate::{connection::connection_private::ConnectionPrivate, p2p::P2PNode};
 
-pub use network_handler::MessageHandler;
 pub use p2p_event::P2PEvent;
 
 use crate::{
@@ -41,20 +38,11 @@ use crate::{
         serialization::{Deserializable, ReadArchiveAdapter},
         NetworkRawRequest, P2PNodeId, PeerType, RemotePeer,
     },
-    connection::{
-        connection_default_handlers::network_message_handle,
-        connection_handshake_handlers::handshake_handle,
-        network_handler::message_processor::{
-            collapse_process_result, MessageProcessor, ProcessResult,
-        },
-    },
+    connection::message_handlers::handle_incoming_message,
     network::{Buckets, NetworkId, NetworkMessage},
 };
 
-use concordium_common::{
-    functor::{FuncResult, UnitFunction},
-    hybrid_buf::HybridBuf,
-};
+use concordium_common::hybrid_buf::HybridBuf;
 
 use failure::Fallible;
 use mio::{Event, Poll, Token};
@@ -67,15 +55,6 @@ use std::{
         Arc, RwLock,
     },
 };
-
-/// This macro clones `dptr` and moves it into callback closure.
-/// That closure is just a call to `fn` Fn.
-macro_rules! handle_by_private {
-    ($dptr:expr, $fn:ident) => {{
-        let dptr_cloned = Arc::clone(&$dptr);
-        make_atomic_callback!(move |m: &NetworkMessage| { $fn(&dptr_cloned, m) })
-    }};
-}
 
 #[derive(Clone)]
 pub struct Connection {
@@ -91,41 +70,11 @@ pub struct Connection {
     /// It stores internal info used in handles. In this way,
     /// handler's function will only need two arguments: this shared object, and
     /// the message which is going to be processed.
-    dptr: Arc<RwLock<ConnectionPrivate>>,
-
-    // Message handlers
-    pub pre_handshake_message_processor:  MessageProcessor,
-    pub post_handshake_message_processor: MessageProcessor,
-    pub common_message_processor:         MessageProcessor,
+    pub dptr: Arc<RwLock<ConnectionPrivate>>,
 }
 
 impl Connection {
     pub fn handler(&self) -> &Pin<Arc<P2PNode>> { &self.handler_ref }
-
-    // Setup handshake handler
-    pub fn setup_pre_handshake(&self) {
-        self.pre_handshake_message_processor
-            .add(&self.common_message_processor)
-            .add_action(handle_by_private!(self.dptr, handshake_handle));
-    }
-
-    fn make_update_last_seen_handler<T: Send>(&self) -> UnitFunction<T> {
-        let priv_conn = Arc::clone(&self.dptr);
-
-        make_atomic_callback!(move |_: &T| -> FuncResult<()> {
-            safe_read!(priv_conn)?.update_last_seen();
-            Ok(())
-        })
-    }
-
-    pub fn setup_post_handshake(&self) {
-        let last_seen_handler = self.make_update_last_seen_handler();
-
-        self.post_handshake_message_processor
-            .add(&self.common_message_processor)
-            .add_action(handle_by_private!(self.dptr, network_message_handle))
-            .add_action(last_seen_handler);
-    }
 
     pub fn get_last_latency_measured(&self) -> u64 {
         read_or_die!(self.dptr)
@@ -215,20 +164,17 @@ impl Connection {
         let mut archive = ReadArchiveAdapter::new(message, self.remote_peer());
         let message = NetworkMessage::deserialize(&mut archive)?;
 
+        safe_read!(self.dptr)?.update_last_seen();
         self.messages_received.fetch_add(1, Ordering::Relaxed);
         TOTAL_MESSAGES_RECEIVED_COUNTER.fetch_add(1, Ordering::Relaxed);
         if let Some(ref service) = self.handler().stats_export_service {
             service.pkt_received_inc();
         };
 
-        // Process message by message handler.
-        if read_or_die!(self.dptr).status == ConnectionStatus::PostHandshake {
-            self.post_handshake_message_processor
-                .process_message(&message)
-        } else {
-            self.pre_handshake_message_processor
-                .process_message(&message)
-        }
+        handle_incoming_message(self.handler(), self, &message);
+        self.handler().forward_network_message(&message)?;
+
+        Ok(ProcessResult::Done)
     }
 
     #[cfg(test)]
@@ -276,11 +222,38 @@ impl Connection {
     ) -> Fallible<Readiness<usize>> {
         write_or_die!(self.dptr).async_send(input, priority)
     }
+}
 
-    pub fn add_notification(&self, func: UnitFunction<NetworkMessage>) {
-        self.pre_handshake_message_processor
-            .add_notification(func.clone());
-        self.post_handshake_message_processor.add_notification(func);
+#[derive(Debug)]
+pub enum ProcessResult {
+    Drop,
+    Done,
+}
+
+pub fn collapse_process_result(
+    conn: &Connection,
+    data: Vec<HybridBuf>,
+) -> Result<ProcessResult, Vec<Result<ProcessResult, failure::Error>>> {
+    let mut found_drop = false;
+    let mut errors = vec![];
+
+    for elem in data {
+        let res = conn.process_message(elem);
+        if res.is_err() {
+            errors.push(res);
+        } else if let Ok(ProcessResult::Drop) = res {
+            found_drop = true;
+        }
+    }
+
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+
+    if found_drop {
+        Ok(ProcessResult::Drop)
+    } else {
+        Ok(ProcessResult::Done)
     }
 }
 
@@ -350,11 +323,11 @@ mod tests {
         setup_logger();
 
         // Create connections
-        let (mut node, w1) = make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
+        let (mut node, _) = make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
         let (bootstrapper, _) =
             make_node_and_sync(next_available_port(), vec![100], PeerType::Bootstrapper)?;
         connect(&mut node, &bootstrapper)?;
-        await_handshake(&w1)?;
+        await_handshake(&node)?;
         // Deregister connection on the node side
         let conn_node = node.find_connection_by_id(bootstrapper.id()).unwrap();
         node.deregister_connection(&conn_node)?;

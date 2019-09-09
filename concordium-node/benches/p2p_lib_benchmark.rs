@@ -200,13 +200,13 @@ mod network {
             setup_logger();
 
             // Create nodes and connect them.
-            let (mut node_1, msg_waiter_1) =
+            let (mut node_1, _) =
                 make_node_and_sync(next_available_port(), vec![100], PeerType::Node).unwrap();
             let (node_2, msg_waiter_2) =
                 make_node_and_sync(next_available_port(), vec![100], PeerType::Node).unwrap();
 
             connect(&mut node_1, &node_2).unwrap();
-            await_handshake(&msg_waiter_1).unwrap();
+            await_handshake(&node_1).unwrap();
 
             let mut msg = HybridBuf::try_from(generate_random_data(size)).unwrap();
             let bench_id = format!("P2P network using {}B messages", size);
