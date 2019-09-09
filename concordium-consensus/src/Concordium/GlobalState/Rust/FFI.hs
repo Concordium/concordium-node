@@ -6,6 +6,7 @@ module Concordium.GlobalState.Rust.FFI (
   , GlobalStatePtr
   , getGenesisBlockPointer
   , makeEmptyGlobalState
+  , storeBlockPointer
 
   -- * BlockFields functions
   , BlockFields
@@ -73,9 +74,17 @@ foreign import ccall unsafe "make_block_pointer"
    makeBlockPointerF :: Ptr GlobalStateR -> Ptr PendingBlockR -> Word64 -> IO (Ptr BlockPointerR)
 foreign import ccall unsafe "&block_pointer_free"
    freeBlockPointerF :: FunPtr (Ptr BlockPointerR -> IO ())
+foreign import ccall unsafe "block_pointer_to_store"
+   storeBlockPointerF :: Ptr GlobalStateR -> Ptr BlockPointerR -> IO ()
 
 getGenesisBlockPointer :: Ptr GlobalStateR -> IO (Ptr BlockPointerR)
 getGenesisBlockPointer = getGenesisBlockPointerF
+
+storeBlockPointer :: GlobalStatePtr -> BlockPointer -> IO ()
+storeBlockPointer gsptr bp = do
+  withForeignPtr gsptr $ \gs ->
+    withForeignPtr (blockPointerPointer bp) $ \bpp ->
+    storeBlockPointerF gs bpp
 
 ---------------------------
 -- * BlockFields FFI calls

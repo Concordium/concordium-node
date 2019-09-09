@@ -143,7 +143,8 @@ instance (SkovLenses s, Monad m, MonadState s m, MonadIO m) => TS.TreeStateMonad
     markDead bh = blockTable . at bh ?= TS.BlockDead
     markFinalized bh fr = use (blockTable . at bh) >>= \case
             Just (TS.BlockAlive bp) -> do
-              -- TODO: Store also in Rust GS
+              gsptr <- use globalStatePtr
+              liftIO $ storeBlockPointer gsptr bp
               blockTable . at bh ?= TS.BlockFinalized bp fr
             _ -> return ()
     markPending pb = blockTable . at (getHash pb) ?= TS.BlockPending pb
