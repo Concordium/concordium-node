@@ -74,9 +74,6 @@ foreign import ccall unsafe "make_block_pointer"
 foreign import ccall unsafe "&block_pointer_free"
    freeBlockPointerF :: FunPtr (Ptr BlockPointerR -> IO ())
 
--- This function should actually return a proper BlockPointer and for that we need somewhere to
--- get the State of the genesis from (or establish a state for the Genesis). The rest of the fields can
--- be retrieved without issues
 getGenesisBlockPointer :: Ptr GlobalStateR -> IO (Ptr BlockPointerR)
 getGenesisBlockPointer = getGenesisBlockPointerF
 

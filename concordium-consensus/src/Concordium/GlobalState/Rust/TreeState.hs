@@ -41,8 +41,8 @@ import Concordium.GlobalState.Rust.Block
 import Concordium.GlobalState.Rust.FFI
 
 data SkovData = SkovData {
-    -- |Map of all received blocks by hash.
     _skovGlobalStatePtr :: GlobalStatePtr,
+    -- |Map of all received blocks by hash.
     _skovBlockTable :: !(HM.HashMap BlockHash (TS.BlockStatus BlockPointer PendingBlock)),
     _skovPossiblyPendingTable :: !(HM.HashMap BlockHash [PendingBlock]),
     _skovPossiblyPendingQueue :: !(MPQ.MinPQueue Slot (BlockHash, BlockHash)),
@@ -143,8 +143,7 @@ instance (SkovLenses s, Monad m, MonadState s m, MonadIO m) => TS.TreeStateMonad
     markDead bh = blockTable . at bh ?= TS.BlockDead
     markFinalized bh fr = use (blockTable . at bh) >>= \case
             Just (TS.BlockAlive bp) -> do
-              --gsptr <- use globalStatePtr
-              --liftIO $ storeFinalizedBlockR gsptr (_bpBlock bp) -- Store also in Rust GS
+              -- TODO: Store also in Rust GS
               blockTable . at bh ?= TS.BlockFinalized bp fr
             _ -> return ()
     markPending pb = blockTable . at (getHash pb) ?= TS.BlockPending pb
