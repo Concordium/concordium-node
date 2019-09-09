@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-GHC_BUILDER_VERSION=".6.5"
+GHC_BUILDER_VERSION="8.6.5"
 CABAL_BUILDER_VERSION="2.4.1.0"
 pacman -Sy
 pacman -Syyu --noconfirm
