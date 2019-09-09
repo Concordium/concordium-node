@@ -12,7 +12,6 @@ import Data.ByteString as BS
 import Data.Serialize
 import Data.IORef
 
-import Concordium.Types
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockState(BlockState)
@@ -31,7 +30,6 @@ import Concordium.Afgjort.Finalize
 import Concordium.Afgjort.Buffer
 import Concordium.Logger
 import Concordium.Getters
-import Concordium.Skov.CatchUp (CatchUpStatus)
 
 data SyncRunner = SyncRunner {
     syncBakerIdentity :: BakerIdentity,
@@ -271,7 +269,7 @@ makeAsyncRunner logm bkr gen initBS gsptr = do
                                 Right (d, flag) -> do
                                     let
                                         send (Left fr) = writeChan outChan (MsgDirectedFinalizationRecord src (encode fr))
-                                        send (Right b) = writeChan outChan (MsgDirectedBlock src (encode (_bpBlock b)))
+                                        send (Right b) = writeChan outChan (MsgDirectedBlock src (runPut $ putBlock b))
                                     forM_ d $ \(frbs, rcus) -> do
                                         mapM_ send frbs
                                         writeChan outChan (MsgDirectedCatchUpStatus src (encode rcus))

@@ -167,7 +167,7 @@ instance Monad m => OnSkov (SkovPassiveM m) where
     {-# INLINE onFinalize #-}
     onFinalize fr _ = spsFinalization %= execState (passiveNotifyBlockFinalized fr)
 
-evalSkovPassiveM :: (Monad m, MonadIO m) => SkovPassiveM m a -> GenesisData -> Basic.BlockState -> Rust.GlobalStatePtr -> m a
+evalSkovPassiveM :: (MonadIO m) => SkovPassiveM m a -> GenesisData -> Basic.BlockState -> Rust.GlobalStatePtr -> m a
 evalSkovPassiveM (SkovPassiveM a) gd bs0 gsptr = do
   initialState <- liftIO $ initialSkovPassiveState gd bs0 gsptr
   evalStateT a initialState
@@ -306,7 +306,7 @@ instance (TimeMonad m, MonadIO m, LoggerMonad m) => OnSkov (SkovPassiveHookedM m
         sphsFinalization %= execState (passiveNotifyBlockFinalized fr)
         hookOnFinalize fr bp
 
-evalSkovPassiveHookedM :: (Monad m, MonadIO m) => SkovPassiveHookedM m a -> GenesisData -> Basic.BlockState -> Rust.GlobalStatePtr -> m a
+evalSkovPassiveHookedM :: (MonadIO m) => SkovPassiveHookedM m a -> GenesisData -> Basic.BlockState -> Rust.GlobalStatePtr -> m a
 evalSkovPassiveHookedM (SkovPassiveHookedM a) gd bs0 gsptr = do
   initialState <- liftIO $ initialSkovPassiveHookedState gd bs0 gsptr
   evalStateT a initialState

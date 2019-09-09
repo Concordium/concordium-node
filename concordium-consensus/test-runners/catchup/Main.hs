@@ -22,7 +22,7 @@ import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Instances
 import Concordium.GlobalState.BlockState(BlockPointerData(..))
 import Concordium.GlobalState.Basic.BlockState
-import Concordium.GlobalState.Basic.TreeState
+import Concordium.GlobalState.Rust.TreeState
 import Concordium.GlobalState.Basic.Block
 import Concordium.Scheduler.Utils.Init.Example as Example
 
@@ -35,6 +35,8 @@ import Concordium.Skov.CatchUp
 import qualified Concordium.Getters as Get
 
 import Concordium.Startup
+
+import Concordium.GlobalState.Rust.FFI
 
 
 data Peer = Peer {
@@ -207,7 +209,8 @@ main = do
         let logM src lvl msg = do
                                     timestamp <- getCurrentTime
                                     writeChan logChan $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg ++ "\n"
-        (cin, cout, out) <- makeAsyncRunner logM bid gen iState
+        gsptr <- makeEmptyGlobalState gen
+        (cin, cout, out) <- makeAsyncRunner logM bid gen iState gsptr
         cin' <- newChan
         connectedRef <- newIORef True
         _ <- forkIO $ relayIn cin' cin out connectedRef

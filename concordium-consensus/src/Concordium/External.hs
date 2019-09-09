@@ -445,7 +445,7 @@ receiveTransaction bptr tdata len = do
                     return res
                 PassiveRunner{..} -> syncPassiveReceiveTransaction passiveSyncRunner tr
 
-runConsensusQuery :: ConsensusRunner -> (forall z m s. (Get.SkovStateQueryable z m, TS.TreeStateMonad m, MonadState s m, FinalizationQuery s, TS.PendingBlock m ~ RSB.PendingBlock, GSBS.BlockPointer m ~ RSB.BlockPointer) => z -> a) -> a
+runConsensusQuery :: ConsensusRunner -> (forall z m s. (Get.SkovStateQueryable z m, TS.TreeStateMonad m, MonadState s m, TS.PendingBlock m ~ RSB.PendingBlock, GSBS.BlockPointer m ~ RSB.BlockPointer) => z -> a) -> a
 runConsensusQuery BakerRunner{..} f = f (syncState bakerSyncRunner)
 runConsensusQuery PassiveRunner{..} f = f (syncPState passiveSyncRunner)
 
