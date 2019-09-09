@@ -1155,17 +1155,12 @@ impl P2PNode {
 
     fn check_sent_status(&self, conn: &Connection, status: Fallible<()>) {
         if let RemotePeer::PostHandshake(remote_peer) = conn.remote_peer() {
-            match status {
-                Ok(_) => {
-                    self.pks_sent_inc(); // assuming non-failable
-                }
-                Err(e) => {
-                    error!(
-                        "Could not send to peer {} due to {}",
-                        remote_peer.id().to_string(),
-                        e
-                    );
-                }
+            if let Err(e) = status {
+                error!(
+                    "Could not send to peer {} due to {}",
+                    remote_peer.id().to_string(),
+                    e
+                );
             }
         }
     }
@@ -1756,12 +1751,6 @@ impl P2PNode {
     fn resend_queue_size_dec(&self) {
         if let Some(ref service) = self.stats_export_service {
             service.resend_queue_size_dec();
-        };
-    }
-
-    fn pks_sent_inc(&self) {
-        if let Some(ref service) = self.stats_export_service {
-            service.pkt_sent_inc();
         };
     }
 
