@@ -1,8 +1,9 @@
-{-# LANGUAGE RecordWildCards, OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards, OverloadedStrings, TemplateHaskell #-}
 module Concordium.Startup where
 
 import System.Random
 import qualified Data.ByteString.Char8 as BS
+import qualified Data.ByteString.Lazy.Char8 as BSL
 
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.Crypto.BlockSignature as Sig
@@ -13,6 +14,8 @@ import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.IdentityProviders
 import Concordium.Birk.Bake
 import Concordium.Types
+
+import TH.RelativePaths
 
 makeBakers :: Word -> [((BakerIdentity,BakerInfo), Account)]
 makeBakers nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17) 0
@@ -50,3 +53,16 @@ makeGenesisData genesisTime nBakers genesisSlotDuration elecDiff finMinSkip gene
                            (bakersFromList (snd <$> bakers))
         genesisFinalizationParameters = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, BakerInfo vrfk vvk _ _) <- bakers] finMinSkip
         (bakers, genesisBakerAccounts) = unzip (makeBakers nBakers)
+
+-- Need to return string because Bytestring does not implement Lift
+dummyCryptographicParametersFile :: String
+dummyCryptographicParametersFile = $(do
+  fileContents <- qReadFileString "../scheduler/testdata/global.json"
+  [| fileContents |])
+
+dummyCryptographicParameters :: CryptographicParameters
+dummyCryptographicParameters =
+  case readCryptographicParameters (BSL.pack dummyCryptographicParametersFile) of
+    Nothing -> error "Could not read crypto params."
+    Just x -> x
+  

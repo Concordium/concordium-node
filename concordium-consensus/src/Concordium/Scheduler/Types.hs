@@ -20,7 +20,7 @@ module Concordium.Scheduler.Types (module Concordium.Scheduler.Types,
                                    IdentityProviderIdentity,
                                    ReceiveContext(..),
                                    InitContext(..),
-                                   link) where
+                                   linkWithMaxSize) where
 
 import Prelude hiding(fail)
 
@@ -36,12 +36,12 @@ import Concordium.GlobalState.IdentityProviders
 
 import Concordium.ID.Types(IdentityProviderIdentity)
 
-import Acorn.Types(ReceiveContext(..), InitContext(..), link)
+import Acorn.Types(ReceiveContext(..), InitContext(..), linkWithMaxSize)
 import qualified Acorn.Core as Core
 
 type Value = Interfaces.Value NoAnnot
-type ContractValue = Interfaces.ContractValue NoAnnot
-type ValueInterface = Interfaces.ValueInterface NoAnnot
+type ContractValue = Interfaces.LinkedContractValue NoAnnot
+type ValueInterface = Interfaces.UnlinkedValueInterface NoAnnot
 type Interface = Interfaces.Interface Core.UA
 
 type Module = Core.Module Core.UA

@@ -34,7 +34,7 @@ shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState
 initialBlockState = 
-  emptyBlockState emptyBirkParameters Types.dummyCryptographicParameters &
+  emptyBlockState emptyBirkParameters dummyCryptographicParameters &
     (blockAccounts .~ Acc.putAccount (mkAccount alesVK 1000000) Acc.emptyAccounts) .
     (blockBank . Rew.totalGTU .~ 1000000) .
     (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
@@ -56,7 +56,7 @@ transactionsInput =
   ,TJSON { payload = InitContract {amount = 100
                                   ,contractName = "Counter"
                                   ,moduleName = "CommCounter"
-                                  ,parameter = "Prod.Pair [Int64] [<address>] 0 <0, 0>"
+                                  ,parameter = "let pair :: Int64 -> <address> -> Prod.Pair Int64 <address> = Prod.Pair [Int64, <address>] in pair 0 <0, 0>"
                                   }
          , metadata = makeHeader alesKP 3 100000
          , keypair = alesKP
@@ -119,10 +119,10 @@ checkCommCounterResult (suc, fails) =
   length nonreject == 6  -- and 6 successful ones
   where 
     nonreject = filter (\case (_, Types.TxSuccess _) -> True
-                              (_, Types.TxReject _) -> False)
+                              (_, Types.TxReject _ _) -> False)
                         suc
     reject = filter (\case (_, Types.TxSuccess _) -> False
-                           (_, Types.TxReject _) -> True
+                           (_, Types.TxReject _ _) -> True
                     )
                         suc
 

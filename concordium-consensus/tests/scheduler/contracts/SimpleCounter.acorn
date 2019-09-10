@@ -3,12 +3,14 @@ module SimpleCounter where
 import Prod
 import Maybe
 import Prim
+import ListBase
 import List
 import Blockchain
 
 data MsgCnt = Inc [Int64] | Dec [Int64]
 
-definition mkReturn = Prod.Pair [Int64] [Prim.Transaction]
+def mkReturn :: Int64 -> Prim.Transaction -> Prod.Pair Int64 Prim.Transaction
+def mkReturn = Prod.Pair [Int64, Prim.Transaction]
 
 contract Counter where
 
@@ -18,7 +20,15 @@ contract Counter where
   receive (c :: Blockchain.ReceiveContext) (model :: Int64) (caller :: Blockchain.Caller) (amount :: Amount) (msg :: Maybe.Maybe MsgCnt) =
     case msg of
       Maybe.Nothing -> mkReturn model Prim.TxNone
-      Maybe.Just msg' ->
-          case msg' of
-              Inc n -> mkReturn (Prim.plusInt64 model (List.sumList (List.enumFromTo n))) Prim.TxNone
-              Dec n -> mkReturn (Prim.minusInt64 model (List.sumList (List.enumFromTo n))) Prim.TxNone
+      Maybe.Just (msg' :: MsgCnt) ->
+        case msg' of
+          Inc (n :: Int64) ->
+            let initSeg :: ListBase.List Int64 = List.enumFromTo n in
+            let sumList :: Int64 = List.sumList initSeg in
+            let plus :: Int64 = Prim.plusInt64 model sumList in
+            mkReturn plus Prim.TxNone
+          Dec (n :: Int64) ->
+            let initSeg :: ListBase.List Int64 = List.enumFromTo n in
+            let sumList :: Int64 = List.sumList initSeg in
+            let minus :: Int64 = Prim.minusInt64 model sumList in
+            mkReturn minus Prim.TxNone

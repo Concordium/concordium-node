@@ -25,6 +25,7 @@ import Concordium.GlobalState.Rewards as Rew
 import Lens.Micro.Platform
 
 import qualified Data.Text.IO as TIO
+import qualified Data.Sequence as Seq
 
 import Control.Monad.IO.Class
 
@@ -35,7 +36,7 @@ shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState
 initialBlockState = 
-  emptyBlockState emptyBirkParameters Types.dummyCryptographicParameters &
+  emptyBlockState emptyBirkParameters dummyCryptographicParameters &
     (blockAccounts .~ Acc.putAccount (mkAccount alesVK 100000) Acc.emptyAccounts) . 
     (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs))) .
     (blockBank . Rew.totalGTU .~ 100000)
@@ -57,7 +58,7 @@ transactionsInput =
                                     ,moduleName = "ChainMetaTest"
                                     ,parameter = "Unit.Unit"
                                     }
-           , metadata = makeHeader alesKP 2 1000
+           , metadata = makeHeader alesKP 2 10000
            , keypair = alesKP
            }
     ]
@@ -89,14 +90,14 @@ checkChainMetaResult (suc, fails, instances) =
   checkLocalState (snd (head instances)) -- and the local state should match the 
   where 
     reject = filter (\case (_, Types.TxSuccess _) -> False
-                           (_, Types.TxReject _) -> True
+                           (_, Types.TxReject _ _) -> True
                     )
                         suc
     checkLocalState inst = do
       case Types.instanceModel inst of
-        Types.VConstructor _ [Types.VLiteral (Core.Word64 8)  -- NB: These should match those in chainMeta
-                             ,Types.VLiteral (Core.Word64 13)
-                             ,Types.VLiteral (Core.Word64 10)] -> True
+        Types.VConstructor _ (Types.VLiteral (Core.Word64 8) Seq.:<|  -- NB: These should match those in chainMeta
+                              Types.VLiteral (Core.Word64 13) Seq.:<|
+                              Types.VLiteral (Core.Word64 10) Seq.:<| Seq.Empty) -> True
         _ -> False                                                          
 
 tests :: SpecWith ()
