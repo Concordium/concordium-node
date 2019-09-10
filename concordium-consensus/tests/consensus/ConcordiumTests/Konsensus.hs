@@ -251,7 +251,7 @@ runKonsensusTest steps g states events
                                         Just (blockPtr) ->
                                             Seq.fromList [(r, EBlock (RF.blockPointerExtractBlockContents blockPtr))
                                                          | r <- btargets]
-                    let events'' = blockEvents <> handleMessages btargets (evs []) Seq.|> (rcpt, EBake (sl + 1))
+                    let events'' = blockEvents <> handleMessages btargets (extractFinalizationOutputEvents evs) Seq.|> (rcpt, EBake (sl + 1))
                     return (fs', events'')
                 EBlock block -> do
                    pb <- RF.makePendingBlockWithContents gs block dummyTime
@@ -291,7 +291,7 @@ runKonsensusTestSimple steps g states events
                                         Just (blockPtr) ->
                                             Seq.fromList [(r, EBlock (RF.blockPointerExtractBlockContents blockPtr))
                                                          | r <- btargets]
-                    let events'' = blockEvents <> handleMessages btargets (evs []) Seq.|> (rcpt, EBake (sl + 1))
+                    let events'' = blockEvents <> handleMessages btargets (extractFinalizationOutputEvents evs) Seq.|> (rcpt, EBake (sl + 1))
                     return (fs', events'')
                 EBlock block -> do
                   pb <- RF.makePendingBlockWithContents gs block dummyTime
