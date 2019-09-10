@@ -34,13 +34,13 @@ import Data.Void
 instanceInfo :: Instance -> InstanceInfo
 instanceInfo Instance{..} = InstanceInfo (instanceMessageType instanceParameters) instanceModel instanceAmount
 
-makeInstance :: 
+makeInstance ::
     Core.ModuleRef     -- ^Module of the contract
     -> Core.TyName     -- ^Contract name
-    -> LinkedContractValue Void  -- ^The contract value
+    -> ContractValue Void  -- ^The contract value
     -> Core.Type Core.UA Core.ModuleRef     -- ^Message type
     -> Interface Core.UA          -- ^Module interface
-    -> UnlinkedValueInterface Void  -- ^Module value interface
+    -> ValueInterface Void          -- ^Module value interface
     -> Value Void                   -- ^Initial state
     -> Amount                       -- ^Initial balance
     -> AccountAddress               -- ^Owner/creator of the instance.
@@ -49,8 +49,8 @@ makeInstance ::
 makeInstance instanceContractModule instanceContract conVal instanceMessageType instanceModuleInterface instanceModuleValueInterface instanceModel instanceAmount instanceOwner instanceAddress
         = Instance {..}
     where
-        instanceReceiveFun = cvReceiveMethod conVal
-        instanceImplements = cvImplements conVal
+        instanceReceiveFun = updateMethod conVal
+        instanceImplements = implements conVal
         instanceParameterHash = makeInstanceParameterHash instanceAddress instanceOwner instanceContractModule instanceContract
         instanceParameters = InstanceParameters {..}
         instanceHash = makeInstanceHash instanceParameters instanceModel instanceAmount
@@ -60,7 +60,7 @@ iaddress :: Instance -> ContractAddress
 iaddress = instanceAddress . instanceParameters
 
 -- |The receive method of a smart contract instance.
-ireceiveFun :: Instance -> LinkedExpr Void
+ireceiveFun :: Instance -> Expr Void
 ireceiveFun = instanceReceiveFun . instanceParameters
 
 -- |The message type of a smart contract instance.
@@ -68,7 +68,7 @@ imsgTy :: Instance -> Core.Type Core.UA Core.ModuleRef
 imsgTy = instanceMessageType . instanceParameters
 
 -- |The module interfaces of a smart contract instance.
-iModuleIface :: Instance -> (Interface Core.UA, UnlinkedValueInterface Void)
+iModuleIface :: Instance -> (Interface Core.UA, ValueInterface Void)
 iModuleIface i = (instanceModuleInterface, instanceModuleValueInterface)
     where
         InstanceParameters{..} = instanceParameters i

@@ -21,7 +21,6 @@ import Data.Word
 import Data.ByteString.Builder(toLazyByteString, byteStringHex)
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as EL
-import Data.Foldable(toList)
 
 import Data.Void
 
@@ -41,7 +40,7 @@ instance S.Serialize InstanceInfo where
 data AccountInfo = AccountInfo
     {accountNonce :: !Nonce
     ,accountAmount :: !Amount
-    } 
+    }
     deriving(Show, Generic)
 
 instance S.Serialize AccountInfo
@@ -66,12 +65,11 @@ jsonLiteral l = case l of
 
 -- |The serialization instances for values are only for storable values. If you
 -- try to serialize with a value which is not storable the methods will fail
--- raising an exception. 
+-- raising an exception.
 jsonStorable :: Value Void -> JSON.Value
 jsonStorable (VLiteral l) = jsonLiteral l
 jsonStorable (VConstructor n vals) =
-  JSON.object $ ["name" .= (fromIntegral n :: Word32)] ++
-                  zipWith (\i v -> ("child-" <> fromString (show i)) .= jsonStorable v) [(0::Int)..] (toList vals)
+  JSON.object $ ["name" .= (fromIntegral n :: Word32)] ++ zipWith (\i v -> ("child-" <> fromString (show i)) .= jsonStorable v) [(0::Int)..] vals
 jsonStorable _ = error "FATAL: Trying to serialize a non-storable value. This should not happen."
 
 valueToJSONString :: Value Void -> String
