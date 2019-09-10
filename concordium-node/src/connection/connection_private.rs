@@ -59,7 +59,7 @@ impl ConnectionPrivate {
     }
 
     pub fn update_last_seen(&self) {
-        if self.conn().local_peer().peer_type() != PeerType::Bootstrapper {
+        if self.conn().handler().peer_type() != PeerType::Bootstrapper {
             self.last_seen.store(get_current_stamp(), Ordering::SeqCst);
         }
     }
@@ -199,7 +199,7 @@ impl ConnectionPrivate {
         priority: MessageSendingPriority,
     ) -> Fallible<Readiness<usize>> {
         TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
-        if let Some(ref stats) = self.conn().handler().stats_export_service() {
+        if let Some(ref stats) = self.conn().handler().stats_export_service {
             stats.pkt_sent_inc();
         }
 

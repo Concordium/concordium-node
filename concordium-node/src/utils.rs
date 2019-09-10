@@ -18,7 +18,7 @@ use hacl_star::{
     sha2,
 };
 use rand::rngs::OsRng;
-use rkv::{Rkv, StoreOptions};
+use rkv::StoreOptions;
 use snow::Keypair;
 #[cfg(feature = "benchmark")]
 use std::fs;
@@ -29,7 +29,6 @@ use std::{
     io::Cursor,
     net::{IpAddr, SocketAddr},
     str::{self, FromStr},
-    sync::RwLock,
 };
 
 pub fn sha256(input: &str) -> [u8; 32] { sha256_bytes(input.as_bytes()) }
@@ -464,8 +463,8 @@ pub fn get_tps_test_messages(path: Option<String>) -> Vec<Vec<u8>> {
     ret
 }
 
-pub fn load_bans(node: &mut P2PNode, kvs_env: &RwLock<Rkv>) -> Fallible<()> {
-    let ban_kvs_env = safe_read!(kvs_env)?;
+pub fn load_bans(node: &mut P2PNode) -> Fallible<()> {
+    let ban_kvs_env = safe_read!(node.kvs)?;
     let ban_store = ban_kvs_env.open_single("bans", StoreOptions::create())?;
 
     {
@@ -483,42 +482,30 @@ pub fn load_bans(node: &mut P2PNode, kvs_env: &RwLock<Rkv>) -> Fallible<()> {
     Ok(())
 }
 
-pub fn ban_node(
-    node: &mut P2PNode,
-    peer: &P2PPeer,
-    to_ban: BannedNode,
-    kvs_handle: &RwLock<Rkv>,
-    no_trust_bans: bool,
-) {
+pub fn ban_node(node: &P2PNode, peer: &P2PPeer, to_ban: BannedNode) {
     info!("Ban node request for {:?} from {:?}", to_ban, peer);
     node.ban_node(to_ban);
 
     let store_key = to_ban.to_db_repr();
-    if let Err(e) = insert_ban(&kvs_handle, &store_key) {
+    if let Err(e) = insert_ban(&node.kvs, &store_key) {
         error!("{}", e);
     }
 
-    if !no_trust_bans {
+    if !node.config.no_trust_bans {
         node.send_ban(to_ban);
     }
 }
 
-pub fn unban_node(
-    node: &mut P2PNode,
-    peer: &P2PPeer,
-    to_unban: BannedNode,
-    kvs_handle: &RwLock<Rkv>,
-    no_trust_bans: bool,
-) {
+pub fn unban_node(node: &P2PNode, peer: &P2PPeer, to_unban: BannedNode) {
     info!("Unban node request for {:?} from {:?}", to_unban, peer);
     node.unban_node(to_unban);
 
     let store_key = to_unban.to_db_repr();
-    if let Err(e) = remove_ban(&kvs_handle, &store_key) {
+    if let Err(e) = remove_ban(&node.kvs, &store_key) {
         error!("{}", e);
     }
 
-    if !no_trust_bans {
+    if !node.config.no_trust_bans {
         node.send_unban(to_unban);
     }
 }
