@@ -61,6 +61,53 @@ mod common {
 }
 
 mod network {
+    pub mod deduplication {
+        use crate::*;
+
+        use circular_queue::CircularQueue;
+        use criterion::Criterion;
+        use digest::Digest;
+        use twox_hash::XxHash64;
+
+        pub fn bench_dedup_1k(bencher: &mut Criterion) { bench_deduplication(bencher, 250, 1024) }
+
+        pub fn bench_dedup_4k(bencher: &mut Criterion) { bench_deduplication(bencher, 250, 4096) }
+
+        pub fn bench_dedup_16k(bencher: &mut Criterion) {
+            bench_deduplication(bencher, 250, 1024 * 16)
+        }
+
+        pub fn bench_dedup_32k(bencher: &mut Criterion) {
+            bench_deduplication(bencher, 250, 1024 * 32)
+        }
+
+        pub fn bench_deduplication(bencher: &mut Criterion, msg_size: usize, queue_size: usize) {
+            let bench_id = format!(
+                "Deduplication of {}B messages with a {}-elem queue",
+                msg_size, queue_size,
+            );
+
+            bencher.bench_function(&bench_id, move |b| {
+                let mut queue = CircularQueue::with_capacity(queue_size);
+                for _ in 0..queue_size {
+                    let mut msg_hash = [0u8; 8];
+                    msg_hash.copy_from_slice(&XxHash64::digest(&generate_random_data(msg_size)));
+                    queue.push(msg_hash);
+                }
+
+                b.iter(move || {
+                    let new_msg = generate_random_data(msg_size);
+                    let mut new_msg_hash = [0u8; 8];
+                    new_msg_hash.copy_from_slice(&XxHash64::digest(&new_msg));
+
+                    if !queue.iter().any(|h| h == &new_msg_hash) {
+                        queue.push(new_msg_hash);
+                    }
+                })
+            });
+        }
+    }
+
     pub mod message {
         use crate::*;
         use p2p_client::{
@@ -480,7 +527,15 @@ criterion_group!(
     network::connection::p2p_net_16m,
 );
 
+criterion_group!(
+    name = dedup;
+    config = network::connection::bench_config(10);
+    targets = network::deduplication::bench_dedup_1k, network::deduplication::bench_dedup_4k,
+    network::deduplication::bench_dedup_16k, network::deduplication::bench_dedup_32k
+);
+
 criterion_main!(
+    dedup,
     p2p_net,
     s11n_get_peers,
     s11n_custom_benches,
