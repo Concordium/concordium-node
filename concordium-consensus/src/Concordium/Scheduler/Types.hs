@@ -40,8 +40,8 @@ import Acorn.Types(ReceiveContext(..), InitContext(..), link)
 import qualified Acorn.Core as Core
 
 type Value = Interfaces.Value NoAnnot
-type ContractValue = Interfaces.LinkedContractValue NoAnnot
-type ValueInterface = Interfaces.UnlinkedValueInterface NoAnnot
+type ContractValue = Interfaces.ContractValue NoAnnot
+type ValueInterface = Interfaces.ValueInterface NoAnnot
 type Interface = Interfaces.Interface Core.UA
 
 type Module = Core.Module Core.UA

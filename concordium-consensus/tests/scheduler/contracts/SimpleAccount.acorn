@@ -6,9 +6,6 @@ import Prim
 import Unit
 import Blockchain
 
-def pair :: Unit.Unit -> Prim.Transaction -> Prod.Pair Unit.Unit Prim.Transaction
-def pair = Prod.Pair [Unit.Unit, Prim.Transaction]
-
 contract Account where
 
   init (ia :: Unit.Unit) (c :: Blockchain.InitContext) (addr :: {address}) (amount :: Amount) =
@@ -16,5 +13,5 @@ contract Account where
 
   receive (c :: Blockchain.ReceiveContext) (model :: Unit.Unit) (caller :: Blockchain.Caller) (amount :: Amount) (msg :: Maybe.Maybe Unit.Unit) =
     case msg of
-      Maybe.Nothing -> pair model Prim.TxNone
-      Maybe.Just (_ :: Unit.Unit) -> pair model Prim.TxReject
+      Maybe.Nothing -> Prod.Pair [Unit.Unit] [Prim.Transaction] model Prim.TxNone
+      Maybe.Just msg' -> Prod.Pair [Unit.Unit] [Prim.Transaction] model Prim.TxReject

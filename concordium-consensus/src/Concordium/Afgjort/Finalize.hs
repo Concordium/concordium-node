@@ -83,7 +83,7 @@ ancestorAtHeight :: BlockPointerData bp => BlockHeight -> bp -> bp
 ancestorAtHeight h bp
     | h == bpHeight bp = bp
     | h < bpHeight bp = ancestorAtHeight h (bpParent bp)
-    | otherwise = error $ "ancestorAtHeight: block is below required height"
+    | otherwise = error "ancestorAtHeight: block is below required height"
 
 -- TODO: Only store pending messages for at most one round in the future.
 
@@ -666,7 +666,7 @@ passiveReceiveFinalizationPseudoMessage pmsg msgBS = do
                     (isDup, newDeDup) = PSQ.alter alterfun (Hash.hash msgBS) purgedDeDup
                 pfinMessageDeDup .= newDeDup
                 return $!
-                    if isDup then 
+                    if isDup then
                         ResultDuplicate
                     else if msgFinalizationIndex == _pfinsIndex then
                         ResultSuccess

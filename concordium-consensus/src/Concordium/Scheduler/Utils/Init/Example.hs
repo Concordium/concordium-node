@@ -64,12 +64,12 @@ simpleCounterTyCtx = let (_, _, _, tys) = Parser.modNames (first baseStateWithCo
 inCtx :: Text.Text -> Core.Name
 inCtx txt = fromJust (Map.lookup txt simpleCounterCtx)
 
-inCtxTm :: Text.Text -> Core.Atom origin
-inCtxTm = Core.Var . Core.LocalDef . inCtx
+inCtxTm :: Text.Text -> Core.Expr Core.UA origin
+inCtxTm = Core.Atom . Core.LocalDef . inCtx
 
 initialTrans :: Int -> [Types.Transaction]
 initialTrans n = map initSimpleCounter $ enumFromTo 1 n
- 
+
 mateuszAccount :: AccountAddress
 mateuszAccount = AH.accountAddress (Sig.verifyKey mateuszKP) Ed25519
 
@@ -83,31 +83,23 @@ blockPointer :: BlockHash
 blockPointer = Hash (FBS.pack (replicate 32 (fromIntegral (0 :: Word))))
 
 makeHeader :: KeyPair -> Nonce -> Energy -> Types.TransactionHeader
-makeHeader kp nonce amount = Types.makeTransactionHeader Ed25519 (Sig.verifyKey kp) nonce amount blockPointer 
+makeHeader kp nonce amount = Types.makeTransactionHeader Ed25519 (Sig.verifyKey kp) nonce amount blockPointer
 
 initSimpleCounter :: Int -> Types.Transaction
 initSimpleCounter n = Runner.signTx
                              mateuszKP
                              (makeHeader mateuszKP (fromIntegral n) 10000)
-                             (Types.encodePayload (Types.InitContract 0
-                                                   simpleCounterHash
-                                                   (fromJust (Map.lookup "Counter" simpleCounterTyCtx))
-                                                   (Core.Atom (Core.Literal (Core.Int64 0)))
-                                                   (-1))) -- -1 as the size is ignore by encodePayload
+                             (Types.encodePayload (Types.InitContract 0 simpleCounterHash (fromJust (Map.lookup "Counter" simpleCounterTyCtx)) (Core.Literal (Core.Int64 0)) (-1))) -- -1 as the size is ignore by encodePayload
 
 makeTransaction :: Bool -> ContractAddress -> Nonce -> Types.Transaction
 makeTransaction inc ca n = Runner.signTx mateuszKP hdr payload
     where
         hdr = makeHeader mateuszKP n 100000
-        payload = Types.encodePayload (Types.Update 0
-                                                    ca
-                                                    (Core.App (if inc then (inCtxTm "Inc") else (inCtxTm "Dec"))
-                                                              [Core.Literal (Core.Int64 10)])
-                                                    (-1))
+        payload = Types.encodePayload (Types.Update 0 ca (Core.App (if inc then (inCtxTm "Inc") else (inCtxTm "Dec")) (Core.Literal (Core.Int64 10))) (-1))
 
 -- |State with the given number of contract instances of the counter contract specified.
 initialState :: BirkParameters -> CryptographicParameters -> [Account] -> [Types.IdentityProviderData] -> Int -> BlockState.BlockState
-initialState birkParams cryptoParams bakerAccounts ips n = 
+initialState birkParams cryptoParams bakerAccounts ips n =
     let (_, _, mods) = foldl handleFile
                            baseState
                            $(embedFiles [Left "test/contracts/SimpleAccount.acorn"

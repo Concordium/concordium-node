@@ -11,12 +11,9 @@ data Model = Model [Word64, Word64, Word64]
 contract Simple where
 
   init (ia :: Unit.Unit) (c :: Blockchain.InitContext) (addr :: {address}) (amount :: Amount) =
-    let cc :: Blockchain.ChainContext = (Blockchain.initChain c) in
-    let sn :: Word64 = Blockchain.slotNumber cc in
-    let bh :: Word64 = Blockchain.blockHeight cc in
-    let fh :: Word64 = Blockchain.finalizedHeight cc in
-    Model sn bh fh
+    Model (Blockchain.slotNumber (Blockchain.initChain c))
+          (Blockchain.blockHeight (Blockchain.initChain c))
+          (Blockchain.finalizedHeight (Blockchain.initChain c))
 
   receive (c :: Blockchain.ReceiveContext) (model :: Model) (caller :: Blockchain.Caller) (amount :: Amount) (msg :: Maybe.Maybe Unit.Unit) =
-    let pair :: Model -> Prim.Transaction -> Prod.Pair Model Prim.Transaction = Prod.Pair [Model,Prim.Transaction]
-    in pair model Prim.TxNone
+    Prod.Pair [Model] [Prim.Transaction] model Prim.TxNone
