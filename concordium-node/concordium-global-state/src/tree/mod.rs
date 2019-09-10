@@ -250,7 +250,7 @@ impl<'a> GlobalData<'a> {
             inapplicable_finalization_records: hashed!(HashedMap, GS_ERR_PREALLOCATION_SIZE),
             transaction_table: TransactionTable::default(),
             delayed_broadcasts: Vec::new(),
-            last_finalization_msgs: CircularQueue::with_capacity(1024),
+            last_finalization_msgs: CircularQueue::with_capacity(4096),
         };
 
         // store the genesis block
