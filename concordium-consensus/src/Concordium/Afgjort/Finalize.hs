@@ -184,7 +184,7 @@ doResetTimer = do
     curRound <- use finCurrentRound
     case curRound of
         Nothing -> resetCatchUpTimer Nothing
-        Just _ -> resetCatchUpTimer (Just 20)
+        Just (FinalizationRound{..}) -> resetCatchUpTimer (Just (300 + 5 * fromIntegral roundMe))
 
 tryNominateBlock :: (FinalizationMonad s m) => m ()
 tryNominateBlock = do
