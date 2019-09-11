@@ -574,7 +574,7 @@ pub extern "C" fn broadcast_callback(msg_type: i64, msg: *const u8, msg_length: 
     }
 }
 
-// This is almost the same function as on_consensus_data_out, just for direct
+// This is almost the same function as broadcast_callback, just for direct
 // messages TODO: macroize or merge on Haskell side
 pub extern "C" fn direct_callback(
     peer_id: PeerId,

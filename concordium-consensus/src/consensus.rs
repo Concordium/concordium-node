@@ -21,29 +21,28 @@ use concordium_global_state::{
 pub type PeerId = u64;
 pub type PrivateData = HashMap<i64, Vec<u8>>;
 
-pub struct ConsensusOutQueue {
-    pub receiver_request: Mutex<RelayOrStopReceiver<ConsensusMessage>>,
-    pub sender_request:   RelayOrStopSyncSender<ConsensusMessage>,
+pub struct ConsensusQueues {
+    pub receiver: Mutex<RelayOrStopReceiver<ConsensusMessage>>,
+    pub sender:   RelayOrStopSyncSender<ConsensusMessage>,
 }
 
-impl Default for ConsensusOutQueue {
+impl Default for ConsensusQueues {
     fn default() -> Self {
-        let (sender_request, receiver_request) =
-            mpsc::sync_channel::<RelayOrStopEnvelope<ConsensusMessage>>(4096);
-        ConsensusOutQueue {
-            receiver_request: Mutex::new(receiver_request),
-            sender_request,
+        let (sender, receiver) = mpsc::sync_channel::<RelayOrStopEnvelope<ConsensusMessage>>(4096);
+        Self {
+            receiver: Mutex::new(receiver),
+            sender,
         }
     }
 }
 
-impl ConsensusOutQueue {
+impl ConsensusQueues {
     pub fn send_message(&self, message: ConsensusMessage) -> Fallible<()> {
-        into_err!(self.sender_request.send_msg(message))
+        into_err!(self.sender.send_msg(message))
     }
 
     pub fn clear(&self) {
-        if let Ok(ref mut q) = self.receiver_request.try_lock() {
+        if let Ok(ref mut q) = self.receiver.try_lock() {
             debug!(
                 "Drained the Consensus request queue for {} element(s)",
                 q.try_iter().count()
@@ -52,13 +51,13 @@ impl ConsensusOutQueue {
     }
 
     pub fn stop(&self) -> Fallible<()> {
-        into_err!(self.sender_request.send_stop())?;
+        into_err!(self.sender.send_stop())?;
         Ok(())
     }
 }
 
 lazy_static! {
-    pub static ref CALLBACK_QUEUE: ConsensusOutQueue = { ConsensusOutQueue::default() };
+    pub static ref CALLBACK_QUEUE: ConsensusQueues = { ConsensusQueues::default() };
 }
 
 /// If a consensus instance is

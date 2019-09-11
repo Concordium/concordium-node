@@ -10,10 +10,9 @@ use crate::{
     },
     p2p::*,
     stats_engine::StatsEngine,
-    utils,
+    utils::{self, GlobalStateSenders},
 };
-use concordium_common::{cache::Cache, read_or_die, write_or_die, PacketType, RelayOrStopSender};
-use concordium_global_state::tree::messaging::GlobalStateMessage;
+use concordium_common::{cache::Cache, read_or_die, write_or_die, PacketType};
 use failure::Fallible;
 
 use std::{
@@ -544,7 +543,7 @@ pub fn handle_retransmit_req(
 
 pub fn handle_incoming_packet(
     pac: &NetworkPacket,
-    gs_sender_ref: &RelayOrStopSender<GlobalStateMessage>,
+    global_state_senders: &GlobalStateSenders,
     transactions_cache: &mut Cache<Arc<[u8]>>,
     _stats_engine: &mut StatsEngine,
     _msg_count: &mut u64,
@@ -587,7 +586,7 @@ pub fn handle_incoming_packet(
         dont_relay_to,
         pac.peer.id(),
         pac.message.clone(),
-        &gs_sender_ref,
+        &global_state_senders,
         transactions_cache,
         is_broadcast,
     ) {

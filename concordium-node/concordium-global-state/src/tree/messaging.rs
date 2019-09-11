@@ -14,6 +14,7 @@ use super::PeerId;
 pub enum GlobalStateMessage {
     ConsensusMessage(ConsensusMessage),
     PeerListUpdate(Vec<PeerId>),
+    Shutdown,
 }
 
 /// The type of messages passed between GlobalState and the consensus layer.
