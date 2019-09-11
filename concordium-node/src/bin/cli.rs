@@ -349,23 +349,25 @@ fn start_consensus_threads(
                     NetworkResponse::Handshake(src, ref nets, _),
                     ..
                 ) => {
-                    if let Some(network_id) = nets.iter().next() {
-                        // send a catch-up status
-                        if send_consensus_msg_to_net(
-                            &node_ref,
-                            vec![],
-                            Some(src.id()),
-                            *network_id,
-                            PacketType::CatchUpStatus,
-                            None,
-                            &consensus.get_catch_up_status(),
-                        )
-                        .is_err()
-                        {
-                            error!("Can't send the initial catch-up messages!")
+                    if src.peer_type() == PeerType::Node {
+                        if let Some(network_id) = nets.iter().next() {
+                            // send a catch-up status
+                            if send_consensus_msg_to_net(
+                                &node_ref,
+                                vec![],
+                                Some(src.id()),
+                                *network_id,
+                                PacketType::CatchUpStatus,
+                                None,
+                                &consensus.get_catch_up_status(),
+                            )
+                            .is_err()
+                            {
+                                error!("Can't send the initial catch-up messages!")
+                            }
+                        } else {
+                            error!("A handshaking peer doesn't seem to have any networks!")
                         }
-                    } else {
-                        error!("A handshaking peer doesn't seem to have any networks!")
                     }
                 }
                 _ => {}
