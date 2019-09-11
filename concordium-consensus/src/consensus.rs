@@ -1,6 +1,5 @@
 use concordium_common::{
-    into_err, RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSenderHelper,
-    RelayOrStopSyncSender,
+    into_err, RelayOrStopReceiver, RelayOrStopSenderHelper, RelayOrStopSyncSender,
 };
 use failure::Fallible;
 
@@ -21,6 +20,8 @@ use concordium_global_state::{
 pub type PeerId = u64;
 pub type PrivateData = HashMap<i64, Vec<u8>>;
 
+const CONSENSUS_QUEUE_DEPTH: usize = 4096;
+
 pub struct ConsensusQueues {
     pub receiver: Mutex<RelayOrStopReceiver<ConsensusMessage>>,
     pub sender:   RelayOrStopSyncSender<ConsensusMessage>,
@@ -28,7 +29,7 @@ pub struct ConsensusQueues {
 
 impl Default for ConsensusQueues {
     fn default() -> Self {
-        let (sender, receiver) = mpsc::sync_channel::<RelayOrStopEnvelope<ConsensusMessage>>(4096);
+        let (sender, receiver) = mpsc::sync_channel(CONSENSUS_QUEUE_DEPTH);
         Self {
             receiver: Mutex::new(receiver),
             sender,

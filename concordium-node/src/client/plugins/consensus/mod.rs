@@ -164,7 +164,7 @@ pub fn handle_pkt_out(
         dont_relay_to.into_iter().map(P2PNodeId::as_raw).collect(),
     ));
 
-    if packet_type == PacketType::FinalizationMessage || is_broadcast {
+    if is_broadcast {
         gs_senders.send(request)
     } else {
         gs_senders.send_with_priority(request)
