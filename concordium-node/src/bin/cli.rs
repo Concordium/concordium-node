@@ -350,27 +350,16 @@ fn start_consensus_threads(
                     ..
                 ) => {
                     if let Some(network_id) = nets.iter().next() {
-                        // catch up to the finalization point
+                        // send a catch-up status
                         if send_consensus_msg_to_net(
                             &node_ref,
                             vec![],
                             Some(src.id()),
                             *network_id,
-                            PacketType::CatchUpFinalizationMessagesByPoint,
+                            PacketType::CatchUpStatus,
                             None,
-                            &consensus.get_finalization_point(),
+                            &consensus.get_catch_up_status(),
                         )
-                        .and_then(|_|
-                            // send a catch-up status
-                            send_consensus_msg_to_net(
-                                &node_ref,
-                                vec![],
-                                Some(src.id()),
-                                *network_id,
-                                PacketType::CatchUpStatus,
-                                None,
-                                &consensus.get_catch_up_status(),
-                            ))
                         .is_err()
                         {
                             error!("Can't send the initial catch-up messages!")
@@ -419,8 +408,9 @@ fn start_baker_thread(
     gs_sender: RelayOrStopSender<GlobalStateMessage>,
 ) -> std::thread::JoinHandle<()> {
     spawn_or_die!("Process consensus messages", {
+        let consensus_receiver = CALLBACK_QUEUE.receiver_request.lock().unwrap();
         loop {
-            match CALLBACK_QUEUE.recv_message() {
+            match consensus_receiver.recv() {
                 Ok(RelayOrStopEnvelope::Relay(msg)) => {
                     let msg = GlobalStateMessage::ConsensusMessage(msg);
                     if let Err(e) = gs_sender.send(RelayOrStopEnvelope::Relay(msg)) {
