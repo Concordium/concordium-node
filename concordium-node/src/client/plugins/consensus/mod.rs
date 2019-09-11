@@ -23,7 +23,6 @@ use concordium_common::{
     hybrid_buf::HybridBuf,
     ConsensusFfiResponse,
     PacketType::{self, *},
-    RelayOrStopEnvelope, RelayOrStopSender,
 };
 
 use concordium_consensus::{consensus, ffi};
@@ -41,7 +40,10 @@ use concordium_global_state::{
     },
 };
 
-use crate::{common::P2PNodeId, configuration, network::NetworkId, p2p::p2p_node::*};
+use crate::{
+    common::P2PNodeId, configuration, network::NetworkId, p2p::p2p_node::*,
+    utils::GlobalStateSenders,
+};
 
 pub fn start_consensus_layer(
     conf: &configuration::BakerConfig,
@@ -127,7 +129,7 @@ pub fn handle_pkt_out(
     dont_relay_to: Vec<P2PNodeId>,
     peer_id: P2PNodeId,
     mut msg: HybridBuf,
-    gs_sender: &RelayOrStopSender<GlobalStateMessage>,
+    gs_senders: &GlobalStateSenders,
     transactions_cache: &mut Cache<Arc<[u8]>>,
     is_broadcast: bool,
 ) -> Fallible<()> {
@@ -155,17 +157,18 @@ pub fn handle_pkt_out(
         transactions_cache.insert(hash, payload.clone());
     }
 
-    let request =
-        RelayOrStopEnvelope::Relay(GlobalStateMessage::ConsensusMessage(ConsensusMessage::new(
-            MessageType::Inbound(peer_id.0, distribution_mode),
-            packet_type,
-            payload,
-            dont_relay_to.into_iter().map(P2PNodeId::as_raw).collect(),
-        )));
+    let request = GlobalStateMessage::ConsensusMessage(ConsensusMessage::new(
+        MessageType::Inbound(peer_id.0, distribution_mode),
+        packet_type,
+        payload,
+        dont_relay_to.into_iter().map(P2PNodeId::as_raw).collect(),
+    ));
 
-    gs_sender.send(request)?;
-
-    Ok(())
+    if packet_type == PacketType::FinalizationMessage || is_broadcast {
+        gs_senders.send(request)
+    } else {
+        gs_senders.send_with_priority(request)
+    }
 }
 
 pub fn handle_global_state_request(
@@ -207,6 +210,7 @@ pub fn handle_global_state_request(
 
             Ok(())
         }
+        _ => unreachable!("A Shutdown message is handled within the cli module"),
     }
 }
 

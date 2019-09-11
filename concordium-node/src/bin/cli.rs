@@ -15,14 +15,16 @@ use concordium_common::{
     cache::Cache,
     spawn_or_die,
     stats_export_service::{StatsExportService, StatsServiceMode},
-    PacketType, RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSender,
-    RelayOrStopSenderHelper,
+    PacketType, RelayOrStopEnvelope, RelayOrStopReceiver,
 };
 use concordium_consensus::{
     consensus::{ConsensusContainer, CALLBACK_QUEUE},
     ffi,
 };
-use concordium_global_state::tree::{messaging::GlobalStateMessage, GlobalState};
+use concordium_global_state::tree::{
+    messaging::{DistributionMode, GlobalStateMessage},
+    GlobalState,
+};
 use failure::Fallible;
 use p2p_client::{
     client::{
@@ -36,7 +38,9 @@ use p2p_client::{
     p2p::*,
     rpc::RpcServerImpl,
     stats_engine::StatsEngine,
-    utils::{self, get_config_and_logging_setup, load_bans},
+    utils::{
+        self, get_config_and_logging_setup, load_bans, GlobalStateReceivers, GlobalStateSenders,
+    },
 };
 
 use rkv::{Manager, Rkv};
@@ -109,7 +113,7 @@ fn main() -> Fallible<()> {
         None
     };
 
-    let (gs_sender, gs_receiver) = mpsc::channel::<RelayOrStopEnvelope<GlobalStateMessage>>();
+    let (global_state_senders, global_state_receivers) = utils::create_global_state_queues();
 
     // Connect outgoing messages to be forwarded into the baker and RPC streams.
     //
@@ -120,7 +124,8 @@ fn main() -> Fallible<()> {
             (&conf, &app_prefs),
             consensus.clone(),
             pkt_out,
-            (gs_receiver, gs_sender.clone()),
+            global_state_senders.clone(),
+            global_state_receivers,
         )
     } else {
         vec![]
@@ -130,7 +135,7 @@ fn main() -> Fallible<()> {
     //
     // Thread #4 (#5): the Baker thread
     let baker_thread = if is_baker {
-        Some(start_baker_thread(gs_sender.clone()))
+        Some(start_baker_thread(global_state_senders.clone()))
     } else {
         None
     };
@@ -142,9 +147,6 @@ fn main() -> Fallible<()> {
 
     // Wait for the P2PNode to close
     node.join().expect("The node thread panicked!");
-
-    // Stop the GlobalState thread
-    gs_sender.send_stop()?;
 
     // Shut down the consensus layer
     if let Some(ref mut consensus) = consensus {
@@ -262,10 +264,8 @@ fn start_consensus_threads(
     (conf, app_prefs): (&configuration::Config, &configuration::AppPreferences),
     consensus: ConsensusContainer,
     pkt_out: RelayOrStopReceiver<NetworkMessage>,
-    (gs_receiver, gs_sender): (
-        RelayOrStopReceiver<GlobalStateMessage>,
-        RelayOrStopSender<GlobalStateMessage>,
-    ),
+    global_state_senders: GlobalStateSenders,
+    global_state_receivers: GlobalStateReceivers,
 ) -> Vec<std::thread::JoinHandle<()>> {
     let is_global_state_persistent = conf.cli.baker.persist_global_state;
     let data_dir_path = app_prefs.get_user_app_dir();
@@ -293,27 +293,30 @@ fn start_consensus_threads(
 
         // consensus_clone.send_global_state_ptr(&global_state);
 
-        loop {
-            match gs_receiver.recv() {
-                Ok(RelayOrStopEnvelope::Relay(request)) => {
-                    if let Err(e) = handle_global_state_request(
-                        &node_ref,
-                        network_id,
-                        &mut consensus_clone,
-                        request,
-                        &mut global_state,
-                    ) {
-                        error!("There's an issue with a global state request: {}", e);
-                    }
+        'outer_loop: loop {
+            for request in global_state_receivers
+                .high_prio
+                .try_iter()
+                .chain(global_state_receivers.low_prio.try_recv())
+            {
+                if let GlobalStateMessage::Shutdown = request {
+                    warn!("Shutting the global state queues down");
+                    break 'outer_loop;
+                } else if let Err(e) = handle_global_state_request(
+                    &node_ref,
+                    network_id,
+                    &mut consensus_clone,
+                    request,
+                    &mut global_state,
+                ) {
+                    error!("There's an issue with a global state request: {}", e);
                 }
-                Ok(RelayOrStopEnvelope::Stop) => break,
-                _ => panic!("Can't receive global state requests! Another thread must have died."),
             }
         }
     });
 
     let node_ref = node.clone();
-    let gs_sender_ref = gs_sender.clone();
+    let gs_senders = global_state_senders.clone();
     let mut _stats_engine = StatsEngine::new(&conf.cli);
     let (_tps_test_enabled, _tps_message_count) = tps_setup_process_output(&conf.cli);
     let guard_pkt = spawn_or_die!("Higher queue processing", {
@@ -324,7 +327,7 @@ fn start_consensus_threads(
             match msg {
                 NetworkMessage::NetworkPacket(ref pac, ..) => handle_incoming_packet(
                     pac,
-                    &gs_sender_ref,
+                    &gs_senders,
                     &mut transactions_cache,
                     &mut _stats_engine,
                     &mut _msg_count,
@@ -376,7 +379,7 @@ fn start_consensus_threads(
     });
 
     let node_ref = node.clone();
-    let gs_sender_ref = gs_sender.clone();
+    let gs_senders = global_state_senders.clone();
     #[allow(unreachable_code)] // the loop never breaks on its own
     let ticker_thread = spawn_or_die!("Ticker", {
         // an initial delay before we begin catching up and baking
@@ -391,7 +394,7 @@ fn start_consensus_threads(
             // number is within the desired range
             if current_peers.len() <= node_ref.config.max_allowed_nodes as usize {
                 let msg = GlobalStateMessage::PeerListUpdate(current_peers);
-                if let Err(e) = gs_sender_ref.send(RelayOrStopEnvelope::Relay(msg)) {
+                if let Err(e) = gs_senders.send_with_priority(msg) {
                     error!("Error updating the global state peer list: {}", e)
                 }
             }
@@ -406,21 +409,34 @@ fn start_consensus_threads(
     vec![global_state_thread, guard_pkt, ticker_thread]
 }
 
-fn start_baker_thread(
-    gs_sender: RelayOrStopSender<GlobalStateMessage>,
-) -> std::thread::JoinHandle<()> {
+fn start_baker_thread(global_state_senders: GlobalStateSenders) -> std::thread::JoinHandle<()> {
     spawn_or_die!("Process consensus messages", {
-        let consensus_receiver = CALLBACK_QUEUE.receiver_request.lock().unwrap();
+        let receiver = CALLBACK_QUEUE.receiver.lock().unwrap();
         loop {
-            match consensus_receiver.recv() {
-                Ok(RelayOrStopEnvelope::Relay(msg)) => {
-                    let msg = GlobalStateMessage::ConsensusMessage(msg);
-                    if let Err(e) = gs_sender.send(RelayOrStopEnvelope::Relay(msg)) {
-                        error!("Error passing a message from the consensus layer: {}", e)
+            if let Ok(msg) = receiver.recv() {
+                match msg {
+                    RelayOrStopEnvelope::Relay(msg) => {
+                        let msg_type = msg.variant;
+                        let is_direct = msg.distribution_mode() == DistributionMode::Direct;
+                        let msg = GlobalStateMessage::ConsensusMessage(msg);
+                        if match msg_type {
+                            PacketType::FinalizationMessage if !is_direct => {
+                                global_state_senders.send(msg)
+                            }
+                            _ => global_state_senders.send_with_priority(msg),
+                        }
+                        .is_err()
+                        {
+                            error!("Can't pass a consensus message to the global state queue");
+                        }
+                    }
+                    RelayOrStopEnvelope::Stop => {
+                        debug!("Shutting down consensus queues");
+                        break;
                     }
                 }
-                Ok(RelayOrStopEnvelope::Stop) => break,
-                Err(e) => error!("Error receiving a message from the consensus layer: {}", e),
+            } else {
+                error!("Error receiving a message from the consensus layer");
             }
         }
     })

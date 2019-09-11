@@ -1,3 +1,6 @@
+use concordium_dns::dns;
+use concordium_global_state::tree::messaging::GlobalStateMessage;
+
 use crate::{
     self as p2p_client,
     common::{serialize_addr, P2PPeer},
@@ -8,9 +11,9 @@ use crate::{
         P2PNode,
     },
 };
+
 use base64;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
-use concordium_dns::dns;
 use env_logger::{Builder, Env};
 use failure::{Error, Fallible};
 use hacl_star::{
@@ -29,6 +32,7 @@ use std::{
     io::Cursor,
     net::{IpAddr, SocketAddr},
     str::{self, FromStr},
+    sync::mpsc::{self, Receiver, SyncSender},
 };
 
 pub fn sha256(input: &str) -> [u8; 32] { sha256_bytes(input.as_bytes()) }
@@ -559,6 +563,43 @@ pub fn get_config_and_logging_setup(
     );
 
     Ok((conf, app_prefs))
+}
+
+#[derive(Clone)]
+pub struct GlobalStateSenders {
+    high_prio: SyncSender<GlobalStateMessage>,
+    low_prio:  SyncSender<GlobalStateMessage>,
+}
+
+impl GlobalStateSenders {
+    pub fn send_with_priority(&self, msg: GlobalStateMessage) -> Fallible<()> {
+        into_err!(self.high_prio.send(msg))
+    }
+
+    pub fn send(&self, msg: GlobalStateMessage) -> Fallible<()> {
+        into_err!(self.low_prio.send(msg))
+    }
+}
+
+pub struct GlobalStateReceivers {
+    pub high_prio: Receiver<GlobalStateMessage>,
+    pub low_prio:  Receiver<GlobalStateMessage>,
+}
+
+pub fn create_global_state_queues() -> (GlobalStateSenders, GlobalStateReceivers) {
+    let (sender_high_prio, receiver_high_prio) = mpsc::sync_channel(1000);
+    let (sender_low_prio, receiver_low_prio) = mpsc::sync_channel(10000);
+
+    let global_state_senders = GlobalStateSenders {
+        high_prio: sender_high_prio,
+        low_prio:  sender_low_prio,
+    };
+    let global_state_receivers = GlobalStateReceivers {
+        high_prio: receiver_high_prio,
+        low_prio:  receiver_low_prio,
+    };
+
+    (global_state_senders, global_state_receivers)
 }
 
 #[cfg(test)]
