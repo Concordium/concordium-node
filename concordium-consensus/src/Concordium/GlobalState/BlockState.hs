@@ -273,6 +273,9 @@ class BlockStateQuery m => BlockStateOperations m where
   -- |Set the list of transaction outcomes for the block.
   bsoSetTransactionOutcomes :: UpdatableBlockState m -> [(TransactionHash, ValidResult)] -> m (UpdatableBlockState m)
 
+  -- |Update the information used to calculate the leadership elction nonce, and possibly the leadership election nonce
+  bsoUpdateNonce :: UpdatableBlockState m -> Slot -> BlockNonce -> m (UpdatableBlockState m)
+
 
 newtype BSMTrans t (m :: * -> *) a = BSMTrans (t m a)
     deriving (Functor, Applicative, Monad, MonadTrans)
@@ -327,6 +330,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoGetIdentityProvider s ipId = lift $ bsoGetIdentityProvider s ipId
   bsoGetCryptoParams s = lift $ bsoGetCryptoParams s
   bsoSetTransactionOutcomes s = lift . bsoSetTransactionOutcomes s
+  bsoUpdateNonce s slot = lift . bsoUpdateNonce s slot
   {-# INLINE bsoGetModule #-}
   {-# INLINE bsoGetAccount #-}
   {-# INLINE bsoGetInstance #-}
@@ -354,7 +358,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoGetIdentityProvider #-}
   {-# INLINE bsoGetCryptoParams #-}
   {-# INLINE bsoSetTransactionOutcomes #-}
-
+  {-# INLINE bsoUpdateNonce #-}
 
 type instance BlockPointer (MaybeT m) = BlockPointer m
 type instance UpdatableBlockState (MaybeT m) = UpdatableBlockState m

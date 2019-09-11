@@ -17,6 +17,7 @@ import Concordium.Types.HashableTo
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Bakers
+import Concordium.GlobalState.SeedState
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Modules as Modules
 import qualified Concordium.GlobalState.Account as Account
@@ -335,3 +336,9 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
 
     bsoSetTransactionOutcomes bs l =
       return $! bs & blockTransactionOutcomes .~ Transactions.transactionOutcomesFromList l
+
+    bsoUpdateNonce  bs slot bn =
+      return $
+      let ss = bs ^. blockBirkParameters ^. seedState
+          ss' = updateSeed slot bn ss
+      in bs & blockBirkParameters . seedState .~ ss'

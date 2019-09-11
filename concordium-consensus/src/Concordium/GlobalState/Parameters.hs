@@ -22,6 +22,7 @@ import Control.Monad.Fail
 import Concordium.Types
 import Concordium.Crypto.FFIDataTypes
 import Concordium.GlobalState.Bakers
+import Concordium.GlobalState.SeedState
 import Concordium.GlobalState.IdentityProviders
 import qualified Concordium.ID.Account as ID
 
@@ -48,13 +49,16 @@ data CryptographicParameters = CryptographicParameters {
 instance Serialize CryptographicParameters where
 
 data BirkParameters = BirkParameters {
-    _birkLeadershipElectionNonce :: LeadershipElectionNonce,
     _birkElectionDifficulty :: ElectionDifficulty,
-    _birkBakers :: !Bakers
+    _birkBakers :: !Bakers,
+    _seedState :: !SeedState
 } deriving (Eq, Generic, Show)
 instance Serialize BirkParameters where
 
 makeLenses ''BirkParameters
+
+_birkLeadershipElectionNonce :: BirkParameters -> LeadershipElectionNonce
+_birkLeadershipElectionNonce = currentSeed . _seedState
 
 birkBaker :: BakerId -> BirkParameters -> Maybe (BakerInfo, LotteryPower)
 birkBaker bid bps = (bps ^. birkBakers . bakerMap . at bid) <&>
@@ -200,9 +204,9 @@ parametersToGenesisData GenesisParameters{..} = GenesisData{..}
         genesisTime = gpGenesisTime
         genesisSlotDuration = gpSlotDuration
         genesisBirkParameters = BirkParameters {
-            _birkLeadershipElectionNonce = gpLeadershipElectionNonce,
             _birkElectionDifficulty = gpElectionDifficulty,
-            _birkBakers = bakersFromList (mkBaker <$> gpBakers)
+            _birkBakers = bakersFromList (mkBaker <$> gpBakers),
+            _seedState = genesisSeedState gpLeadershipElectionNonce 360
         }
         mkBaker GenesisBaker{..} = BakerInfo 
                 gbElectionVerifyKey
