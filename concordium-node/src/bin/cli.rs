@@ -32,7 +32,7 @@ use p2p_client::{
         utils as client_utils,
     },
     common::PeerType,
-    configuration,
+    configuration as config,
     connection::message_handlers::{handle_incoming_packet, handle_retransmit_req},
     network::{NetworkId, NetworkMessage, NetworkRequest, NetworkResponse},
     p2p::*,
@@ -67,7 +67,8 @@ fn main() -> Fallible<()> {
 
     info!("Debugging enabled: {}", conf.common.debug);
 
-    let (subscription_queue_in, subscription_queue_out) = mpsc::sync_channel(10000);
+    let (subscription_queue_in, subscription_queue_out) =
+        mpsc::sync_channel(config::RPC_QUEUE_DEPTH);
 
     // Thread #1: instantiate the P2PNode
     let ((mut node, receivers), pkt_out) = instantiate_node(
@@ -176,22 +177,19 @@ fn main() -> Fallible<()> {
 }
 
 fn instantiate_node(
-    conf: &configuration::Config,
-    app_prefs: &mut configuration::AppPreferences,
+    conf: &config::Config,
+    app_prefs: &mut config::AppPreferences,
     stats_export_service: Option<StatsExportService>,
     subscription_queue_in: mpsc::SyncSender<NetworkMessage>,
 ) -> (
     (P2PNode, Receivers),
     mpsc::Receiver<RelayOrStopEnvelope<NetworkMessage>>,
 ) {
-    let (pkt_in, pkt_out) = mpsc::sync_channel(25000);
+    let (pkt_in, pkt_out) = mpsc::sync_channel(config::CLI_PACKET_QUEUE_DEPTH);
     let node_id = conf.common.id.clone().map_or(
-        app_prefs.get_config(configuration::APP_PREFERENCES_PERSISTED_NODE_ID),
+        app_prefs.get_config(config::APP_PREFERENCES_PERSISTED_NODE_ID),
         |id| {
-            if !app_prefs.set_config(
-                configuration::APP_PREFERENCES_PERSISTED_NODE_ID,
-                Some(id.clone()),
-            ) {
+            if !app_prefs.set_config(config::APP_PREFERENCES_PERSISTED_NODE_ID, Some(id.clone())) {
                 error!("Failed to persist own node id");
             };
             Some(id)
@@ -201,7 +199,7 @@ fn instantiate_node(
 
     // Start the thread reading P2PEvents from P2PNode
     let node = if conf.common.debug {
-        let (sender, receiver) = mpsc::sync_channel(100);
+        let (sender, receiver) = mpsc::sync_channel(config::EVENT_LOG_QUEUE_DEPTH);
         let _guard = spawn_or_die!("Log loop", move || loop {
             if let Ok(msg) = receiver.recv() {
                 info!("{}", msg);
@@ -232,7 +230,7 @@ fn instantiate_node(
     (node, pkt_out)
 }
 
-fn establish_connections(conf: &configuration::Config, node: &P2PNode) {
+fn establish_connections(conf: &config::Config, node: &P2PNode) {
     info!("Starting the P2P layer");
     connect_to_config_nodes(&conf.connection, node);
     if !conf.connection.no_bootstrap_dns {
@@ -240,7 +238,7 @@ fn establish_connections(conf: &configuration::Config, node: &P2PNode) {
     }
 }
 
-fn connect_to_config_nodes(conf: &configuration::ConnectionConfig, node: &P2PNode) {
+fn connect_to_config_nodes(conf: &config::ConnectionConfig, node: &P2PNode) {
     for connect_to in &conf.connect_to {
         match utils::parse_host_port(
             &connect_to,
@@ -261,7 +259,7 @@ fn connect_to_config_nodes(conf: &configuration::ConnectionConfig, node: &P2PNod
 
 fn start_consensus_threads(
     node: &P2PNode,
-    (conf, app_prefs): (&configuration::Config, &configuration::AppPreferences),
+    (conf, app_prefs): (&config::Config, &config::AppPreferences),
     consensus: ConsensusContainer,
     pkt_out: RelayOrStopReceiver<NetworkMessage>,
     global_state_senders: GlobalStateSenders,
@@ -443,9 +441,9 @@ fn start_baker_thread(global_state_senders: GlobalStateSenders) -> std::thread::
 }
 
 #[cfg(feature = "benchmark")]
-fn tps_setup_process_output(cli: &configuration::CliConfig) -> (bool, u64) {
+fn tps_setup_process_output(cli: &config::CliConfig) -> (bool, u64) {
     (cli.tps.enable_tps_test, cli.tps.tps_message_count)
 }
 
 #[cfg(not(feature = "benchmark"))]
-fn tps_setup_process_output(_: &configuration::CliConfig) -> (bool, u64) { (false, 0) }
+fn tps_setup_process_output(_: &config::CliConfig) -> (bool, u64) { (false, 0) }

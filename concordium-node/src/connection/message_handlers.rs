@@ -211,7 +211,7 @@ fn handle_handshake_req(
         priv_conn_mut.set_measured_ping_sent();
     }
 
-    safe_write!(conn.handler().connection_handler.buckets)?
+    write_or_die!(conn.handler().connection_handler.buckets)
         .insert_into_bucket(&source, networks.to_owned());
 
     if conn.handler().peer_type() == PeerType::Bootstrapper {
@@ -241,7 +241,7 @@ fn handle_handshake_resp(
 
         let bucket_sender = P2PPeer::from(source.peer_type(), source.id(), source.addr);
         if source.peer_type() != PeerType::Bootstrapper {
-            safe_write!(conn.handler().connection_handler.buckets)?
+            write_or_die!(conn.handler().connection_handler.buckets)
                 .insert_into_bucket(&bucket_sender, networks.clone());
         }
 
@@ -533,7 +533,7 @@ pub fn handle_retransmit_req(
                 Some(format!("{:?}", transaction)),
                 &transaction,
             ) {
-                error!("Couldn't retransmit a trancation! ({:?})", e);
+                error!("Couldn't retransmit a transaction! ({:?})", e);
             }
         })
     } else {

@@ -4,7 +4,7 @@ use concordium_global_state::tree::messaging::GlobalStateMessage;
 use crate::{
     self as p2p_client,
     common::{serialize_addr, P2PPeer},
-    configuration,
+    configuration as config,
     fails::{HostPortParseError, NoDNSResolversAvailable},
     p2p::{
         banned_nodes::{insert_ban, remove_ban, BannedNode},
@@ -522,11 +522,10 @@ pub fn clone_snow_keypair(kp: &Keypair) -> Keypair {
     }
 }
 
-pub fn get_config_and_logging_setup(
-) -> Fallible<(configuration::Config, configuration::AppPreferences)> {
+pub fn get_config_and_logging_setup() -> Fallible<(config::Config, config::AppPreferences)> {
     // Get config and app preferences
-    let conf = configuration::parse_config()?;
-    let app_prefs = configuration::AppPreferences::new(
+    let conf = config::parse_config()?;
+    let app_prefs = config::AppPreferences::new(
         conf.common.config_dir.to_owned(),
         conf.common.data_dir.to_owned(),
     );
@@ -587,8 +586,9 @@ pub struct GlobalStateReceivers {
 }
 
 pub fn create_global_state_queues() -> (GlobalStateSenders, GlobalStateReceivers) {
-    let (sender_high_prio, receiver_high_prio) = mpsc::sync_channel(1000);
-    let (sender_low_prio, receiver_low_prio) = mpsc::sync_channel(10000);
+    let (sender_high_prio, receiver_high_prio) =
+        mpsc::sync_channel(config::GS_HIGH_PRIO_QUEUE_DEPTH);
+    let (sender_low_prio, receiver_low_prio) = mpsc::sync_channel(config::GS_LOW_PRIO_QUEUE_DEPTH);
 
     let global_state_senders = GlobalStateSenders {
         high_prio: sender_high_prio,

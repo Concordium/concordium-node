@@ -22,7 +22,7 @@ use failure::Error;
 use p2p_client::{
     client::utils as client_utils,
     common::{P2PNodeId, PeerType},
-    configuration,
+    configuration as config,
     network::{NetworkMessage, NetworkRequest},
     p2p::*,
     utils::{self, load_bans},
@@ -30,9 +30,9 @@ use p2p_client::{
 use std::sync::mpsc;
 
 fn main() -> Result<(), Error> {
-    let conf = configuration::parse_config()?;
+    let conf = config::parse_config()?;
 
-    let app_prefs = configuration::AppPreferences::new(
+    let app_prefs = config::AppPreferences::new(
         conf.common.config_dir.to_owned(),
         conf.common.data_dir.to_owned(),
     );
@@ -91,11 +91,11 @@ fn main() -> Result<(), Error> {
         _ => format!("{}", P2PNodeId::default()),
     };
 
-    let (pkt_in, pkt_out) = mpsc::sync_channel(10000);
-    let (rpc_tx, _) = std::sync::mpsc::sync_channel(10000);
+    let (pkt_in, pkt_out) = mpsc::sync_channel(config::BOOT_PACKET_QUEUE_DEPTH);
+    let (rpc_tx, _) = std::sync::mpsc::sync_channel(config::RPC_QUEUE_DEPTH);
 
     let (mut node, receivers) = if conf.common.debug {
-        let (sender, receiver) = mpsc::sync_channel(10000);
+        let (sender, receiver) = mpsc::sync_channel(config::EVENT_LOG_QUEUE_DEPTH);
         let _guard = spawn_or_die!("Log loop", move || loop {
             if let Ok(msg) = receiver.recv() {
                 info!("{}", msg);
@@ -154,7 +154,7 @@ fn main() -> Result<(), Error> {
 
 fn setup_process_output(
     node: &P2PNode,
-    conf: &configuration::Config,
+    conf: &config::Config,
     pkt_out: RelayOrStopReceiver<NetworkMessage>,
 ) {
     let mut _node_self_clone = node.clone();
