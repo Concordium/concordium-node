@@ -1,8 +1,9 @@
 {
-  "arPrivateKey": "0e7559bac35758b38d8e9df2afae12e2d6be74a11979c9b97cf9ddcb8a807ccb",
+  "arPrivateKey": "0a21c798f75dadcb1d03f7b1afb41a1ca8f574248ac9096b4050b1e3e3226909",
   "publicArInfo": {
+    "arDescription": "anonymity_revoker-7",
     "arElgamalGenerator": "97f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb",
-    "arName": "anonymity_revoker-7",
-    "arPublicKey": "979b9002194fe5df12313ea8f4fa6849ee0bb1480a45acbd9fc8681c0717e445c60519d124f2075fc6362caef3987668"
+    "arIdentity": 7,
+    "arPublicKey": "82c7596f3e788cc3b5f48b72f525e509ad36554c6d1b3932b82b0998c3dfcae29a4ae9aad010750fb0d6181f37e3d383"
   }
 }

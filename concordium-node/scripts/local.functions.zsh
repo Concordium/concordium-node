@@ -88,7 +88,7 @@ function testnet_bootstrap() {
     cmd="${profiling}\
        $binary \
       --listen-port $((10900+$bootstrap_id)) \
-      --id $((9900000000000000+$bootstrap_id))"
+      --id $(printf '%016d\n' $(($bootstrap_id+1000000)))"
     if [ $# > 0 ] ; then
         cmd="$cmd $@"
     fi
@@ -135,7 +135,7 @@ function testnet_node() {
     cmd="$profiling \
        $binary \
       --listen-port $((10800+$instanceid)) \
-      --id $((9800000000000000+$instanceid))\
+      --id $(printf '%016d\n' $(($instanceid))) \
       --rpc-server-port $((10000+$instanceid))"
     for n ({1..$bootstrappercount})
       do

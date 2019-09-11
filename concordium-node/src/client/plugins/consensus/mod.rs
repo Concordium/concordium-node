@@ -6,7 +6,9 @@ pub const FILE_NAME_PREFIX_BAKER_PRIVATE: &str = "baker-";
 pub const FILE_NAME_SUFFIX_BAKER_PRIVATE: &str = ".dat";
 
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
+use digest::Digest;
 use failure::Fallible;
+use twox_hash::XxHash64;
 
 use std::{
     convert::TryFrom,
@@ -21,7 +23,6 @@ use concordium_common::{
     hybrid_buf::HybridBuf,
     ConsensusFfiResponse,
     PacketType::{self, *},
-    RelayOrStopEnvelope, RelayOrStopSender,
 };
 
 use concordium_consensus::{consensus, ffi};
@@ -39,7 +40,10 @@ use concordium_global_state::{
     },
 };
 
-use crate::{common::P2PNodeId, configuration, network::NetworkId, p2p::p2p_node::*};
+use crate::{
+    common::P2PNodeId, configuration, network::NetworkId, p2p::p2p_node::*,
+    utils::GlobalStateSenders,
+};
 
 pub fn start_consensus_layer(
     conf: &configuration::BakerConfig,
@@ -125,7 +129,7 @@ pub fn handle_pkt_out(
     dont_relay_to: Vec<P2PNodeId>,
     peer_id: P2PNodeId,
     mut msg: HybridBuf,
-    gs_sender: &RelayOrStopSender<GlobalStateMessage>,
+    gs_senders: &GlobalStateSenders,
     transactions_cache: &mut Cache<Arc<[u8]>>,
     is_broadcast: bool,
 ) -> Fallible<()> {
@@ -153,17 +157,18 @@ pub fn handle_pkt_out(
         transactions_cache.insert(hash, payload.clone());
     }
 
-    let request =
-        RelayOrStopEnvelope::Relay(GlobalStateMessage::ConsensusMessage(ConsensusMessage::new(
-            MessageType::Inbound(peer_id.0, distribution_mode),
-            packet_type,
-            payload,
-            dont_relay_to.into_iter().map(P2PNodeId::as_raw).collect(),
-        )));
+    let request = GlobalStateMessage::ConsensusMessage(ConsensusMessage::new(
+        MessageType::Inbound(peer_id.0, distribution_mode),
+        packet_type,
+        payload,
+        dont_relay_to.into_iter().map(P2PNodeId::as_raw).collect(),
+    ));
 
-    gs_sender.send(request)?;
-
-    Ok(())
+    if is_broadcast {
+        gs_senders.send(request)
+    } else {
+        gs_senders.send_with_priority(request)
+    }
 }
 
 pub fn handle_global_state_request(
@@ -205,6 +210,7 @@ pub fn handle_global_state_request(
 
             Ok(())
         }
+        _ => unreachable!("A Shutdown message is handled within the cli module"),
     }
 }
 
@@ -330,6 +336,23 @@ fn process_external_gs_entry(
             let block = PendingBlock::new(&request.payload)?;
             global_state.add_block(block)
         }
+        PacketType::FinalizationMessage => {
+            let mut hash = [0u8; 8];
+            hash.copy_from_slice(&XxHash64::digest(&request.payload));
+
+            if global_state
+                .data
+                .last_finalization_msgs
+                .iter()
+                .any(|h| h == &hash)
+            {
+                debug!("GlobalState: got a duplicate {}", request);
+                return Ok(());
+            } else {
+                global_state.data.last_finalization_msgs.push(hash);
+                GlobalStateResult::IgnoredEntry
+            }
+        }
         PacketType::FinalizationRecord => {
             let record = FinalizationRecord::deserialize(&request.payload)?;
             global_state.add_finalization(record)
@@ -397,9 +420,6 @@ fn send_msg_to_consensus(
         Transaction => consensus.send_transaction(&request.payload),
         FinalizationMessage => consensus.send_finalization(&request.payload),
         FinalizationRecord => consensus.send_finalization_record(&request.payload),
-        CatchUpFinalizationMessagesByPoint => {
-            consensus.get_finalization_messages(&request.payload, raw_id)
-        }
         CatchUpStatus => consensus.receive_catch_up_status(&request.payload, raw_id),
     };
 

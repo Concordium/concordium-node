@@ -308,6 +308,10 @@ impl Encoded {
     pub fn new(bytes: &[u8]) -> Self { Encoded(Box::from(bytes)) }
 }
 
+impl From<Box<[u8]>> for Encoded {
+    fn from(bytes: Box<[u8]>) -> Self { Encoded(bytes) }
+}
+
 impl Deref for Encoded {
     type Target = [u8];
 

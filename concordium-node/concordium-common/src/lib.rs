@@ -33,7 +33,6 @@ cfg_if! {
 pub mod fails;
 
 pub mod cache;
-pub mod functor;
 pub mod hybrid_buf;
 pub mod indexed_vec;
 pub mod stats_export_service;
@@ -159,7 +158,6 @@ pub enum PacketType {
     Transaction,
     FinalizationRecord,
     FinalizationMessage,
-    CatchUpFinalizationMessagesByPoint,
     CatchUpStatus,
 }
 
@@ -168,7 +166,6 @@ static PACKET_TYPE_FROM_INT: &[PacketType] = &[
     PacketType::Transaction,
     PacketType::FinalizationRecord,
     PacketType::FinalizationMessage,
-    PacketType::CatchUpFinalizationMessagesByPoint,
     PacketType::CatchUpStatus,
 ];
 
@@ -191,9 +188,6 @@ impl fmt::Display for PacketType {
             PacketType::Transaction => "transaction",
             PacketType::FinalizationRecord => "finalization record",
             PacketType::FinalizationMessage => "finalization message",
-            PacketType::CatchUpFinalizationMessagesByPoint => {
-                "catch-up finalization messages by point request"
-            }
             PacketType::CatchUpStatus => "catch-up status message",
         };
 

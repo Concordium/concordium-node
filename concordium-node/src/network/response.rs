@@ -13,7 +13,8 @@ use std::{collections::HashSet, convert::TryFrom};
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum NetworkResponse {
     Pong(P2PPeer),
-    FindNode(P2PPeer, Vec<P2PPeer>),
+    FindNode(P2PPeer, Vec<P2PPeer>), /* we no longer need this one - we always provide all the
+                                      * nodes */
     PeerList(P2PPeer, Vec<P2PPeer>),
     Handshake(P2PPeer, HashSet<NetworkId>, Vec<u8>),
 }
