@@ -195,6 +195,8 @@ pub struct GlobalData<'a> {
     transaction_table: TransactionTable,
     /// incoming broacasts rejected during a catch-up round
     delayed_broadcasts: Vec<ConsensusMessage>,
+    /// finalization message deduplication
+    pub last_finalization_msgs: CircularQueue<[u8; 8]>,
 }
 
 impl<'a> GlobalData<'a> {
@@ -202,6 +204,7 @@ impl<'a> GlobalData<'a> {
         const GS_LONG_PREALLOCATION_SIZE: usize = 128;
         const GS_SHORT_PREALLOCATION_SIZE: usize = 16;
         const GS_ERR_PREALLOCATION_SIZE: usize = 16;
+        const GS_FIN_MSG_DEDUP_QUEUE_SIZE: usize = 32 * 1024;
 
         let genesis_block_ptr = Rc::new(BlockPtr::genesis(genesis_data));
 
@@ -248,6 +251,7 @@ impl<'a> GlobalData<'a> {
             inapplicable_finalization_records: hashed!(HashedMap, GS_ERR_PREALLOCATION_SIZE),
             transaction_table: TransactionTable::default(),
             delayed_broadcasts: Vec::new(),
+            last_finalization_msgs: CircularQueue::with_capacity(GS_FIN_MSG_DEDUP_QUEUE_SIZE),
         };
 
         // store the genesis block

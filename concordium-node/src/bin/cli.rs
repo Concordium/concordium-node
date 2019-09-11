@@ -15,11 +15,16 @@ use concordium_common::{
     cache::Cache,
     spawn_or_die,
     stats_export_service::{StatsExportService, StatsServiceMode},
-    PacketType, RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSender,
-    RelayOrStopSenderHelper,
+    PacketType, RelayOrStopEnvelope, RelayOrStopReceiver,
 };
-use concordium_consensus::{consensus, ffi};
-use concordium_global_state::tree::{messaging::GlobalStateMessage, GlobalState};
+use concordium_consensus::{
+    consensus::{ConsensusContainer, CALLBACK_QUEUE},
+    ffi,
+};
+use concordium_global_state::tree::{
+    messaging::{DistributionMode, GlobalStateMessage},
+    GlobalState,
+};
 use failure::Fallible;
 use p2p_client::{
     client::{
@@ -27,24 +32,20 @@ use p2p_client::{
         utils as client_utils,
     },
     common::PeerType,
-    configuration,
-    network::{
-        request::RequestedElementType, NetworkId, NetworkMessage, NetworkPacketType,
-        NetworkRequest, NetworkResponse,
-    },
+    configuration as config,
+    connection::message_handlers::{handle_incoming_packet, handle_retransmit_req},
+    network::{NetworkId, NetworkMessage, NetworkRequest, NetworkResponse},
     p2p::*,
     rpc::RpcServerImpl,
     stats_engine::StatsEngine,
-    utils::{self, get_config_and_logging_setup, load_bans},
+    utils::{
+        self, get_config_and_logging_setup, load_bans, GlobalStateReceivers, GlobalStateSenders,
+    },
 };
 
 use rkv::{Manager, Rkv};
 
-use std::{
-    sync::{mpsc, Arc, RwLock},
-    thread,
-    time::Duration,
-};
+use std::{sync::mpsc, thread, time::Duration};
 
 fn main() -> Fallible<()> {
     let (conf, mut app_prefs) = get_config_and_logging_setup()?;
@@ -52,7 +53,6 @@ fn main() -> Fallible<()> {
         // Print out the configuration
         info!("{:?}", conf);
     }
-    let data_dir_path = app_prefs.get_user_app_dir();
 
     // Instantiate stats export engine
     let stats_export_service =
@@ -67,7 +67,8 @@ fn main() -> Fallible<()> {
 
     info!("Debugging enabled: {}", conf.common.debug);
 
-    let (subscription_queue_in, subscription_queue_out) = mpsc::sync_channel(10000);
+    let (subscription_queue_in, subscription_queue_out) =
+        mpsc::sync_channel(config::RPC_QUEUE_DEPTH);
 
     // Thread #1: instantiate the P2PNode
     let ((mut node, receivers), pkt_out) = instantiate_node(
@@ -81,15 +82,8 @@ fn main() -> Fallible<()> {
         debug!("Using resolver: {}", resolver);
     }
 
-    // Create the cli key-value store environment
-    let cli_kvs_handle = Manager::singleton()
-        .write()
-        .unwrap()
-        .get_or_create(data_dir_path.as_path(), Rkv::new)
-        .unwrap();
-
     // Load and apply existing bans
-    if let Err(e) = load_bans(&mut node, &cli_kvs_handle) {
+    if let Err(e) = load_bans(&mut node) {
         error!("{}", e);
     };
 
@@ -110,7 +104,6 @@ fn main() -> Fallible<()> {
     let mut rpc_serv = if !conf.cli.rpc.no_rpc_server {
         let mut serv = RpcServerImpl::new(
             node.clone(),
-            Arc::clone(&cli_kvs_handle),
             consensus.clone(),
             &conf.cli.rpc,
             subscription_queue_out,
@@ -121,7 +114,7 @@ fn main() -> Fallible<()> {
         None
     };
 
-    let (gs_sender, gs_receiver) = mpsc::channel::<RelayOrStopEnvelope<GlobalStateMessage>>();
+    let (global_state_senders, global_state_receivers) = utils::create_global_state_queues();
 
     // Connect outgoing messages to be forwarded into the baker and RPC streams.
     //
@@ -129,11 +122,11 @@ fn main() -> Fallible<()> {
     let higer_process_threads = if let Some(ref mut consensus) = consensus {
         start_consensus_threads(
             &node,
-            cli_kvs_handle,
             (&conf, &app_prefs),
             consensus.clone(),
             pkt_out,
-            (gs_receiver, gs_sender.clone()),
+            global_state_senders.clone(),
+            global_state_receivers,
         )
     } else {
         vec![]
@@ -143,7 +136,7 @@ fn main() -> Fallible<()> {
     //
     // Thread #4 (#5): the Baker thread
     let baker_thread = if is_baker {
-        Some(start_baker_thread(gs_sender.clone()))
+        Some(start_baker_thread(global_state_senders.clone()))
     } else {
         None
     };
@@ -155,9 +148,6 @@ fn main() -> Fallible<()> {
 
     // Wait for the P2PNode to close
     node.join().expect("The node thread panicked!");
-
-    // Stop the GlobalState thread
-    gs_sender.send_stop()?;
 
     // Shut down the consensus layer
     if let Some(ref mut consensus) = consensus {
@@ -187,31 +177,29 @@ fn main() -> Fallible<()> {
 }
 
 fn instantiate_node(
-    conf: &configuration::Config,
-    app_prefs: &mut configuration::AppPreferences,
+    conf: &config::Config,
+    app_prefs: &mut config::AppPreferences,
     stats_export_service: Option<StatsExportService>,
     subscription_queue_in: mpsc::SyncSender<NetworkMessage>,
 ) -> (
     (P2PNode, Receivers),
     mpsc::Receiver<RelayOrStopEnvelope<NetworkMessage>>,
 ) {
-    let (pkt_in, pkt_out) = mpsc::sync_channel(25000);
+    let (pkt_in, pkt_out) = mpsc::sync_channel(config::CLI_PACKET_QUEUE_DEPTH);
     let node_id = conf.common.id.clone().map_or(
-        app_prefs.get_config(configuration::APP_PREFERENCES_PERSISTED_NODE_ID),
+        app_prefs.get_config(config::APP_PREFERENCES_PERSISTED_NODE_ID),
         |id| {
-            if !app_prefs.set_config(
-                configuration::APP_PREFERENCES_PERSISTED_NODE_ID,
-                Some(id.clone()),
-            ) {
+            if !app_prefs.set_config(config::APP_PREFERENCES_PERSISTED_NODE_ID, Some(id.clone())) {
                 error!("Failed to persist own node id");
             };
             Some(id)
         },
     );
+    let data_dir_path = app_prefs.get_user_app_dir();
 
     // Start the thread reading P2PEvents from P2PNode
     let node = if conf.common.debug {
-        let (sender, receiver) = mpsc::sync_channel(100);
+        let (sender, receiver) = mpsc::sync_channel(config::EVENT_LOG_QUEUE_DEPTH);
         let _guard = spawn_or_die!("Log loop", move || loop {
             if let Ok(msg) = receiver.recv() {
                 info!("{}", msg);
@@ -225,6 +213,7 @@ fn instantiate_node(
             PeerType::Node,
             stats_export_service,
             subscription_queue_in,
+            Some(data_dir_path),
         )
     } else {
         P2PNode::new(
@@ -235,12 +224,13 @@ fn instantiate_node(
             PeerType::Node,
             stats_export_service,
             subscription_queue_in,
+            Some(data_dir_path),
         )
     };
     (node, pkt_out)
 }
 
-fn establish_connections(conf: &configuration::Config, node: &P2PNode) {
+fn establish_connections(conf: &config::Config, node: &P2PNode) {
     info!("Starting the P2P layer");
     connect_to_config_nodes(&conf.connection, node);
     if !conf.connection.no_bootstrap_dns {
@@ -248,7 +238,7 @@ fn establish_connections(conf: &configuration::Config, node: &P2PNode) {
     }
 }
 
-fn connect_to_config_nodes(conf: &configuration::ConnectionConfig, node: &P2PNode) {
+fn connect_to_config_nodes(conf: &config::ConnectionConfig, node: &P2PNode) {
     for connect_to in &conf.connect_to {
         match utils::parse_host_port(
             &connect_to,
@@ -269,27 +259,18 @@ fn connect_to_config_nodes(conf: &configuration::ConnectionConfig, node: &P2PNod
 
 fn start_consensus_threads(
     node: &P2PNode,
-    kvs_handle: Arc<RwLock<Rkv>>,
-    (conf, app_prefs): (&configuration::Config, &configuration::AppPreferences),
-    consensus: consensus::ConsensusContainer,
+    (conf, app_prefs): (&config::Config, &config::AppPreferences),
+    consensus: ConsensusContainer,
     pkt_out: RelayOrStopReceiver<NetworkMessage>,
-    (gs_receiver, gs_sender): (
-        RelayOrStopReceiver<GlobalStateMessage>,
-        RelayOrStopSender<GlobalStateMessage>,
-    ),
+    global_state_senders: GlobalStateSenders,
+    global_state_receivers: GlobalStateReceivers,
 ) -> Vec<std::thread::JoinHandle<()>> {
-    let _no_trust_bans = conf.common.no_trust_bans;
-    let _desired_nodes_clone = conf.connection.desired_nodes;
-    let mut _stats_engine = StatsEngine::new(&conf.cli);
-    let mut _msg_count = 0;
-    let (_tps_test_enabled, _tps_message_count) = tps_setup_process_output(&conf.cli);
-    let mut transactions_cache = Cache::default();
-    let _network_id = NetworkId::from(conf.common.network_ids[0]); // defaulted so there's always first()
-    let data_dir_path = app_prefs.get_user_app_dir();
     let is_global_state_persistent = conf.cli.baker.persist_global_state;
+    let data_dir_path = app_prefs.get_user_app_dir();
 
     let node_ref = node.clone();
     let mut consensus_clone = consensus.clone();
+    let network_id = NetworkId::from(conf.common.network_ids[0]); // defaulted so there's always first()
     let global_state_thread = spawn_or_die!("Process global state requests", {
         // Open the GlobalState-exclusive k-v store environment
         let gs_kvs_handle = Manager::singleton()
@@ -310,193 +291,91 @@ fn start_consensus_threads(
 
         // consensus_clone.send_global_state_ptr(&global_state);
 
-        loop {
-            match gs_receiver.recv() {
-                Ok(RelayOrStopEnvelope::Relay(request)) => {
-                    if let Err(e) = handle_global_state_request(
-                        &node_ref,
-                        _network_id,
-                        &mut consensus_clone,
-                        request,
-                        &mut global_state,
-                    ) {
-                        error!("There's an issue with a global state request: {}", e);
-                    }
+        let mut loop_interval: u64;
+        'outer_loop: loop {
+            loop_interval = 200;
+
+            for request in global_state_receivers
+                .high_prio
+                .try_iter()
+                .chain(global_state_receivers.low_prio.try_recv())
+            {
+                if let GlobalStateMessage::Shutdown = request {
+                    warn!("Shutting the global state queues down");
+                    break 'outer_loop;
+                } else if let Err(e) = handle_global_state_request(
+                    &node_ref,
+                    network_id,
+                    &mut consensus_clone,
+                    request,
+                    &mut global_state,
+                ) {
+                    error!("There's an issue with a global state request: {}", e);
                 }
-                Ok(RelayOrStopEnvelope::Stop) => break,
-                _ => panic!("Can't receive global state requests! Another thread must have died."),
+
+                loop_interval = loop_interval.saturating_sub(1);
             }
+
+            thread::sleep(Duration::from_millis(loop_interval));
         }
     });
 
-    let mut node_ref = node.clone();
-    let gs_sender_ref = gs_sender.clone();
+    let node_ref = node.clone();
+    let gs_senders = global_state_senders.clone();
+    let mut _stats_engine = StatsEngine::new(&conf.cli);
+    let (_tps_test_enabled, _tps_message_count) = tps_setup_process_output(&conf.cli);
     let guard_pkt = spawn_or_die!("Higher queue processing", {
-        while let Ok(RelayOrStopEnvelope::Relay(full_msg)) = pkt_out.recv() {
-            match full_msg {
+        let mut _msg_count = 0;
+        let mut transactions_cache = Cache::default();
+
+        while let Ok(RelayOrStopEnvelope::Relay(msg)) = pkt_out.recv() {
+            match msg {
+                NetworkMessage::NetworkPacket(ref pac, ..) => handle_incoming_packet(
+                    pac,
+                    &gs_senders,
+                    &mut transactions_cache,
+                    &mut _stats_engine,
+                    &mut _msg_count,
+                    _tps_test_enabled,
+                    _tps_message_count,
+                ),
                 NetworkMessage::NetworkRequest(
-                    NetworkRequest::BanNode(ref peer, peer_to_ban),
+                    NetworkRequest::Retransmit(requester, element_type, since, nid),
                     ..
                 ) => {
-                    utils::ban_node(
-                        &mut node_ref,
-                        peer,
-                        peer_to_ban,
-                        &kvs_handle,
-                        _no_trust_bans,
-                    );
-                }
-                NetworkMessage::NetworkRequest(
-                    NetworkRequest::UnbanNode(ref peer, peer_to_ban),
-                    ..
-                ) => {
-                    utils::unban_node(
-                        &mut node_ref,
-                        peer,
-                        peer_to_ban,
-                        &kvs_handle,
-                        _no_trust_bans,
-                    );
-                }
-                NetworkMessage::NetworkResponse(
-                    NetworkResponse::PeerList(ref peer, ref peers),
-                    ..
-                ) => {
-                    trace!("Received PeerList response, attempting to satisfy desired peers");
-                    let mut new_peers = 0;
-                    let peer_count = node_ref
-                        .get_peer_stats()
-                        .iter()
-                        .filter(|x| x.peer_type == PeerType::Node)
-                        .count();
-                    for peer_node in peers {
-                        trace!(
-                            "Peer {}/{}/{} sent us peer info for {}/{}/{}",
-                            peer.id(),
-                            peer.ip(),
-                            peer.port(),
-                            peer_node.id(),
-                            peer_node.ip(),
-                            peer_node.port()
-                        );
-                        if node_ref
-                            .connect(PeerType::Node, peer_node.addr, Some(peer_node.id()))
-                            .map_err(|e| trace!("{}", e))
-                            .is_ok()
-                        {
-                            new_peers += 1;
-                        }
-                        if new_peers + peer_count as u8 >= _desired_nodes_clone {
-                            break;
-                        }
-                    }
-                }
-                NetworkMessage::NetworkPacket(ref pac, ..) => {
-                    if let NetworkPacketType::DirectMessage(..) = pac.packet_type {
-                        if _tps_test_enabled {
-                            if let Ok(len) = pac.message.len() {
-                                _stats_engine.add_stat(len);
-                                _msg_count += 1;
-
-                                if _msg_count == _tps_message_count {
-                                    info!(
-                                        "TPS over {} messages is {}",
-                                        _tps_message_count,
-                                        _stats_engine.calculate_total_tps_average()
-                                    );
-                                    _msg_count = 0;
-                                    _stats_engine.clear();
-                                }
-                            }
-                        }
-                    }
-
-                    let is_broadcast = match pac.packet_type {
-                        NetworkPacketType::BroadcastedMessage(..) => true,
-                        _ => false,
-                    };
-
-                    let dont_relay_to =
-                        if let NetworkPacketType::BroadcastedMessage(ref peers) = pac.packet_type {
-                            let mut list = peers.clone().to_owned();
-                            list.push(pac.peer.id());
-                            list
-                        } else {
-                            vec![]
-                        };
-
-                    if let Err(e) = handle_pkt_out(
-                        dont_relay_to,
-                        pac.peer.id(),
-                        pac.message.clone(),
-                        &gs_sender_ref,
+                    handle_retransmit_req(
+                        &node_ref,
+                        requester,
+                        element_type,
+                        since,
+                        nid,
                         &mut transactions_cache,
-                        is_broadcast,
-                    ) {
-                        error!("There's an issue with an outbound packet: {}", e);
-                    }
+                    );
                 }
-                NetworkMessage::NetworkRequest(ref pac @ NetworkRequest::Retransmit(..), ..) => {
-                    if let NetworkRequest::Retransmit(requester, element_type, since, nid) = pac {
-                        match element_type {
-                            RequestedElementType::Transaction => {
-                                let transactions = transactions_cache.get_since(*since);
-                                transactions.iter().for_each(|transaction| {
-                                    if let Err(e) = send_consensus_msg_to_net(
-                                        &node_ref,
-                                        vec![],
-                                        Some(requester.id()),
-                                        *nid,
-                                        PacketType::Transaction,
-                                        Some(format!("{:?}", transaction)),
-                                        &transaction,
-                                    ) {
-                                        error!("Couldn't retransmit a trancation! ({:?})", e);
-                                    }
-                                })
-                            }
-                            _ => error!(
-                                "Received request for unknown element type in a Retransmit request"
-                            ),
-                        }
-                    }
-                }
-                // FIXME: should possibly be triggered by the Handshake reply instead
-                NetworkMessage::NetworkRequest(
-                    NetworkRequest::Handshake(remote_peer, nets, _),
+                // TODO: handle the initial catch-up delivery more elegantly
+                NetworkMessage::NetworkResponse(
+                    NetworkResponse::Handshake(src, ref nets, _),
                     ..
                 ) => {
-                    if let Some(network_id) = nets.iter().next() {
-                        // catch up to the finalization point
-                        if let Err(e) = send_consensus_msg_to_net(
-                            &node_ref,
-                            vec![],
-                            Some(remote_peer.id()),
-                            *network_id,
-                            PacketType::CatchUpFinalizationMessagesByPoint,
-                            None,
-                            &consensus.get_finalization_point(),
-                        ) {
-                            error!(
-                                "Can't send the finalization point catch-up request!, {:?}",
-                                e
-                            );
+                    if src.peer_type() == PeerType::Node {
+                        if let Some(network_id) = nets.iter().next() {
+                            // send a catch-up status
+                            if send_consensus_msg_to_net(
+                                &node_ref,
+                                vec![],
+                                Some(src.id()),
+                                *network_id,
+                                PacketType::CatchUpStatus,
+                                None,
+                                &consensus.get_catch_up_status(),
+                            )
+                            .is_err()
+                            {
+                                error!("Can't send the initial catch-up messages!")
+                            }
+                        } else {
+                            error!("A handshaking peer doesn't seem to have any networks!")
                         }
-
-                        // send a catch-up status
-                        if let Err(e) = send_consensus_msg_to_net(
-                            &node_ref,
-                            vec![],
-                            Some(remote_peer.id()),
-                            *network_id,
-                            PacketType::CatchUpStatus,
-                            None,
-                            &consensus.get_catch_up_status(),
-                        ) {
-                            error!("Can't send the initial catch-up status! {:?}", e);
-                        }
-                    } else {
-                        error!("A handshaking peer doesn't seem to have any networks!");
                     }
                 }
                 _ => {}
@@ -505,7 +384,7 @@ fn start_consensus_threads(
     });
 
     let node_ref = node.clone();
-    let gs_sender_ref = gs_sender.clone();
+    let gs_senders = global_state_senders.clone();
     #[allow(unreachable_code)] // the loop never breaks on its own
     let ticker_thread = spawn_or_die!("Ticker", {
         // an initial delay before we begin catching up and baking
@@ -520,7 +399,7 @@ fn start_consensus_threads(
             // number is within the desired range
             if current_peers.len() <= node_ref.config.max_allowed_nodes as usize {
                 let msg = GlobalStateMessage::PeerListUpdate(current_peers);
-                if let Err(e) = gs_sender_ref.send(RelayOrStopEnvelope::Relay(msg)) {
+                if let Err(e) = gs_senders.send_with_priority(msg) {
                     error!("Error updating the global state peer list: {}", e)
                 }
             }
@@ -535,29 +414,41 @@ fn start_consensus_threads(
     vec![global_state_thread, guard_pkt, ticker_thread]
 }
 
-fn start_baker_thread(
-    gs_sender: RelayOrStopSender<GlobalStateMessage>,
-) -> std::thread::JoinHandle<()> {
+fn start_baker_thread(global_state_senders: GlobalStateSenders) -> std::thread::JoinHandle<()> {
     spawn_or_die!("Process consensus messages", {
+        let receiver = CALLBACK_QUEUE.receiver.lock().unwrap();
         loop {
-            match consensus::CALLBACK_QUEUE.recv_message() {
-                Ok(RelayOrStopEnvelope::Relay(msg)) => {
-                    let msg = GlobalStateMessage::ConsensusMessage(msg);
-                    if let Err(e) = gs_sender.send(RelayOrStopEnvelope::Relay(msg)) {
-                        error!("Error passing a message from the consensus layer: {}", e)
+            if let Ok(msg) = receiver.recv() {
+                match msg {
+                    RelayOrStopEnvelope::Relay(msg) => {
+                        let is_direct = msg.distribution_mode() == DistributionMode::Direct;
+                        let msg = GlobalStateMessage::ConsensusMessage(msg);
+                        if if is_direct {
+                            global_state_senders.send_with_priority(msg)
+                        } else {
+                            global_state_senders.send(msg)
+                        }
+                        .is_err()
+                        {
+                            error!("Can't pass a consensus message to the global state queue");
+                        }
+                    }
+                    RelayOrStopEnvelope::Stop => {
+                        debug!("Shutting down consensus queues");
+                        break;
                     }
                 }
-                Ok(RelayOrStopEnvelope::Stop) => break,
-                Err(e) => error!("Error receiving a message from the consensus layer: {}", e),
+            } else {
+                error!("Error receiving a message from the consensus layer");
             }
         }
     })
 }
 
 #[cfg(feature = "benchmark")]
-fn tps_setup_process_output(cli: &configuration::CliConfig) -> (bool, u64) {
+fn tps_setup_process_output(cli: &config::CliConfig) -> (bool, u64) {
     (cli.tps.enable_tps_test, cli.tps.tps_message_count)
 }
 
 #[cfg(not(feature = "benchmark"))]
-fn tps_setup_process_output(_: &configuration::CliConfig) -> (bool, u64) { (false, 0) }
+fn tps_setup_process_output(_: &config::CliConfig) -> (bool, u64) { (false, 0) }

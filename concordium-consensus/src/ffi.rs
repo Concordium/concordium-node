@@ -181,10 +181,8 @@ pub struct consensus_runner {
     private: [u8; 0],
 }
 
-type BroadcastCallback = extern "C" fn(i64, *const u8, i64);
 type LogCallback = extern "C" fn(c_char, c_char, *const u8);
-type CatchUpFinalizationMessagesSenderCallback =
-    extern "C" fn(peer_id: PeerId, payload: *const u8, payload_length: i64);
+type BroadcastCallback = extern "C" fn(i64, *const u8, i64);
 type DirectMessageCallback =
     extern "C" fn(peer_id: PeerId, message_type: i64, msg: *const c_char, msg_len: i64);
 
@@ -279,14 +277,6 @@ extern "C" {
         consensus: *mut consensus_runner,
         finalization_index: FinalizationIndex,
     ) -> *const u8;
-    pub fn getFinalizationMessages(
-        consensus: *mut consensus_runner,
-        peer_id: PeerId,
-        request: *const u8,
-        request_lenght: i64,
-        callback: CatchUpFinalizationMessagesSenderCallback,
-    ) -> i64;
-    pub fn getFinalizationPoint(consensus: *mut consensus_runner) -> *const u8;
     pub fn hookTransaction(
         consensus: *mut consensus_runner,
         transaction_hash: *const u8,
@@ -369,10 +359,6 @@ impl ConsensusContainer {
 
         ConsensusFfiResponse::try_from(result)
             .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code))
-    }
-
-    pub fn get_finalization_point(&self) -> Vec<u8> {
-        wrap_c_call_bytes!(self, |consensus| getFinalizationPoint(consensus))
     }
 
     pub fn get_consensus_status(&self) -> String {
@@ -501,20 +487,6 @@ impl ConsensusContainer {
         wrap_c_call_bytes!(self, |consensus| getIndexedFinalization(consensus, index))
     }
 
-    pub fn get_finalization_messages(
-        &self,
-        request: &[u8],
-        peer_id: PeerId,
-    ) -> ConsensusFfiResponse {
-        wrap_c_call!(self, |consensus| getFinalizationMessages(
-            consensus,
-            peer_id,
-            request.as_ptr(),
-            request.len() as i64,
-            on_finalization_message_catchup_out
-        ))
-    }
-
     pub fn get_catch_up_status(&self) -> Vec<u8> {
         wrap_c_call_bytes!(self, |consensus| getCatchUpStatus(consensus))
     }
@@ -602,7 +574,7 @@ pub extern "C" fn broadcast_callback(msg_type: i64, msg: *const u8, msg_length: 
     }
 }
 
-// This is almost the same function as on_consensus_data_out, just for direct
+// This is almost the same function as broadcast_callback, just for direct
 // messages TODO: macroize or merge on Haskell side
 pub extern "C" fn direct_callback(
     peer_id: PeerId,

@@ -31,7 +31,7 @@ pub type RequestedSince = u64;
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum NetworkRequest {
     Ping(P2PPeer),
-    FindNode(P2PPeer, P2PNodeId),
+    FindNode(P2PPeer, P2PNodeId), // we no longer need the id - always provide all the nodes
     BanNode(P2PPeer, BannedNode),
     Handshake(P2PPeer, HashSet<NetworkId>, Vec<u8>),
     GetPeers(P2PPeer, HashSet<NetworkId>),

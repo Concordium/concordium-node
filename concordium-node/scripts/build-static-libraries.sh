@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+GHC_BUILDER_VERSION="8.6.5"
+CABAL_BUILDER_VERSION="2.4.1.0"
 pacman -Sy
 pacman -Syyu --noconfirm
 pacman -S wget tar make m4 pkgconf autoconf automake grep python clang libtool ncurses which rustup binutils --noconfirm
@@ -41,8 +43,8 @@ for l in /target/profiling/ghc/libHSrts_p.a \
     rm $l;
 done
 
-wget https://downloads.haskell.org/~cabal/cabal-install-latest/cabal-install-2.4.1.0-x86_64-unknown-linux.tar.xz
-tar -xf cabal-install-2.4.1.0-x86_64-unknown-linux.tar.xz
+wget https://downloads.haskell.org/~cabal/cabal-install-$CABAL_BUILDER_VERSION/cabal-install-$CABAL_BUILDER_VERSION-x86_64-unknown-linux.tar.xz
+tar -xf cabal-install-$CABAL_BUILDER_VERSION-x86_64-unknown-linux.tar.xz
 mkdir -p $HOME/.cabal/bin
 chmod +x cabal
 mv cabal $HOME/.cabal/bin/
@@ -74,7 +76,7 @@ LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release cabal new-build all --flag
 
 
 echo "Let's copy the binaries and their dependent libraries"
-cp dist-newstyle/build/x86_64-linux/ghc-8.6.5/Concordium-0.1.0.0/x/genesis/build/genesis/genesis /binaries/bin/
+cp dist-newstyle/build/x86_64-linux/ghc-$GHC_BUILDER_VERSION/Concordium-0.1.0.0/x/genesis/build/genesis/genesis /binaries/bin/
 cp $(pwd)/crypto/rust-src/target/release/*.so /binaries/lib/
 
 echo "Let's copy the needed concordium libraries"
@@ -138,4 +140,3 @@ tar czf static-consensus-$GHC_VERSION.tar.gz /target
 tar czf static-consensus-binaries-$GHC_VERSION.tar.gz /binaries
 mv static-consensus-$GHC_VERSION.tar.gz /out 
 mv static-consensus-binaries-$GHC_VERSION.tar.gz /out 
-
