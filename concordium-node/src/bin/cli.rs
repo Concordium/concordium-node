@@ -293,7 +293,10 @@ fn start_consensus_threads(
 
         // consensus_clone.send_global_state_ptr(&global_state);
 
+        let mut loop_interval: u64;
         'outer_loop: loop {
+            loop_interval = 200;
+
             for request in global_state_receivers
                 .high_prio
                 .try_iter()
@@ -311,7 +314,11 @@ fn start_consensus_threads(
                 ) {
                     error!("There's an issue with a global state request: {}", e);
                 }
+
+                loop_interval = loop_interval.saturating_sub(1);
             }
+
+            thread::sleep(Duration::from_millis(loop_interval));
         }
     });
 
