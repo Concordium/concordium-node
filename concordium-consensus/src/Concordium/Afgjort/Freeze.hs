@@ -15,7 +15,9 @@ module Concordium.Afgjort.Freeze(
     FreezeSummary,
     freezeSummary,
     processFreezeSummary,
-    freezeCompleted
+    freezeCompleted,
+    putFreezeSummary,
+    getFreezeSummary
 ) where
 
 import qualified Data.Map.Strict as Map
@@ -25,6 +27,9 @@ import Data.Set(Set)
 import Control.Monad.State.Class
 import Control.Monad.RWS.Strict
 import Lens.Micro.Platform
+import qualified Data.Serialize as S
+import Data.Word
+import Control.Exception (assert)
 
 import Concordium.Afgjort.Types
 import Concordium.Afgjort.PartySet(PartySet)
@@ -263,7 +268,7 @@ freezeSummary = to fs
             where
                 summaryProposalsVotes = Map.mapMaybeWithKey makePV _proposals
                 makePV _ (False, _) = Nothing
-                makePV k (True, ps) = Just (PM.partyMap ps, vs (Just k))
+                makePV k (True, ps) = if PM.weight ps == 0 then Nothing else Just (PM.partyMap ps, vs (Just k))
                 summaryBotVotes = vs Nothing
                 vs v = case Map.lookup v _votes of
                     Just (True, pm) -> PM.partyMap pm
@@ -283,10 +288,8 @@ processFreezeSummary FreezeSummary{..} checkSig = do
                             let newProposals = Map.filterWithKey checkProposalSig $ Map.difference props myProps
                             -- Add these
                             forM_ (Map.toList newProposals) $ \(party, sig) -> addProposal party val sig
-                            return $ CatchUpResult {
-                                    -- It's ahead if it has some new valid signatures
-                                    curAhead = not (null newProposals),
-                                    -- It's behind if it is already justified we have some valid signatures that it is missing
+                            return $! CatchUpResult {
+                                    -- It's behind if it is already justified and we have some valid signatures that it is missing
                                     curBehind = b && not (null (Map.differenceWithKey (\party x y -> if x == y || checkProposalSig party y then Nothing else Just x) myProps props)),
                                     -- We need to catch up if the choice is not already justified for us
                                     curSkovCatchUp = not b
@@ -296,7 +299,7 @@ processFreezeSummary FreezeSummary{..} checkSig = do
                             let newProposals = Map.filterWithKey checkProposalSig props
                             -- Add these
                             forM_ (Map.toList newProposals) $ \(party, sig) -> addProposal party val sig
-                            return $ let b = not (null newProposals) in mempty {curAhead = b, curSkovCatchUp = b}
+                            return $! CatchUpResult {curBehind = False, curSkovCatchUp = not (null newProposals)}
             r1votes <- doVotes (Just val) vts
             return (r1props <> r1votes))
         r2 <- doVotes Nothing summaryBotVotes
@@ -307,16 +310,35 @@ processFreezeSummary FreezeSummary{..} checkSig = do
                 Just (b, PM.partyMap -> myVotes) -> do
                     let newVotes = Map.filterWithKey checkVoteSig $ Map.difference vts myVotes
                     forM_ (Map.toList newVotes) addVoteSig
-                    return $ CatchUpResult {
-                        curAhead = not (null newVotes),
+                    return $! CatchUpResult {
                         curBehind = b && not (null (Map.differenceWithKey (\party x y -> if x == y || checkVoteSig party y then Nothing else Just x) myVotes vts)),
                         curSkovCatchUp = not b
                     }
                 Nothing -> do
                     let newVotes = Map.filterWithKey checkVoteSig vts
                     forM_ (Map.toList newVotes) addVoteSig
-                    return $ let b = not (null newVotes) in mempty {curAhead = b, curSkovCatchUp = b}
+                    return $! CatchUpResult {curBehind = False, curSkovCatchUp = not (null newVotes)}
             where
                 checkVoteSig party sig = checkSig party (Vote jval) sig
                 addVoteSig (party, sig) = addVote party jval sig
-                
+
+putFreezeSummary :: (S.Serialize sig) => Party -> FreezeSummary sig -> S.Put
+putFreezeSummary maxParty FreezeSummary{..} = do
+        assert (Map.size summaryProposalsVotes <= fromIntegral (maxBound :: Word16)) $
+            S.putWord16be (fromIntegral $ Map.size summaryProposalsVotes)
+        forM_ (Map.toList summaryProposalsVotes) $ \(v, (props, vts)) -> do
+            S.put v
+            putPartyMap maxParty props
+            putPartyMap maxParty vts
+        putPartyMap maxParty summaryBotVotes
+
+getFreezeSummary :: (S.Serialize sig) => Party -> S.Get (FreezeSummary sig)
+getFreezeSummary maxParty = do
+        pvcount <- S.getWord16be
+        summaryProposalsVotes <- Map.fromList <$> forM [1..pvcount] (\_ -> do
+            v <- S.get
+            props <- getPartyMap maxParty
+            vts <- getPartyMap maxParty
+            return (v, (props, vts)))
+        summaryBotVotes <- getPartyMap maxParty
+        return $! FreezeSummary{..}

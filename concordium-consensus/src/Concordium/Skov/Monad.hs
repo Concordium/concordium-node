@@ -10,8 +10,6 @@ import Data.Time
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 
 import Concordium.Types
-import Concordium.GlobalState.Block
--- import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Transactions
@@ -39,6 +37,8 @@ data UpdateResult
     -- ^The message may have been valid in the past, but is no longer relevant
     | ResultIncorrectFinalizationSession
     -- ^The message refers to a different/unknown finalization session
+    | ResultUnverifiable
+    -- ^The message could not be validated with the current state
 
 class (Monad m, Eq (BlockPointer m), BlockPointerData (BlockPointer m), BlockStateQuery m) => SkovQueryMonad m where
     -- |Look up a block in the table given its hash

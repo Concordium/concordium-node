@@ -12,7 +12,6 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Lens.Micro.Platform
 import Data.Bits
-import Data.Monoid
 import Data.Time.Clock.POSIX
 import Data.Time.Clock
 import qualified Data.PQueue.Prio.Min as MPQ
@@ -42,6 +41,7 @@ import Concordium.Afgjort.Finalize
 import Concordium.Logger
 import Concordium.Birk.Bake
 import Concordium.TimeMonad
+import Concordium.Skov.CatchUp
 
 import Concordium.Startup(makeBakerAccount, dummyCryptographicParameters)
 
@@ -218,7 +218,7 @@ selectFromSeq g s =
 
 type States = Vec.Vector (BakerIdentity, FinalizationInstance, SkovActiveState)
 
-myRunSkovActiveM :: (MonadIO m) => SkovActiveM LogIO a -> FinalizationInstance -> SkovActiveState -> m (a, SkovActiveState, Endo [SkovFinalizationEvent])
+myRunSkovActiveM :: (MonadIO m) => SkovActiveM LogIO a -> FinalizationInstance -> SkovActiveState -> m (a, SkovActiveState, SkovFinalizationEvents)
 myRunSkovActiveM a fi sfs = liftIO $ runLoggerT (runSkovActiveM a fi sfs) doLog
     where
         doLog src LLError msg = error $ show src ++ ": " ++ msg
@@ -235,13 +235,13 @@ runKonsensusTest steps g states events
             let btargets = [x | x <- [0..length states - 1], x /= rcpt]
             (fs', events'') <- {- trace (show rcpt ++ ": " ++ show ev) $ -} case ev of
                 EBake sl -> do
-                    (mb, fs', Endo evs) <- myRunSkovActiveM (bakeForSlot bkr sl) fi fs
+                    (mb, fs', evs) <- myRunSkovActiveM (bakeForSlot bkr sl) fi fs
                     let blockEvents = case mb of
                                         Nothing -> Seq.empty
                                         Just (BlockPointer {_bpBlock = NormalBlock b}) ->
                                             Seq.fromList [(r, EBlock b) | r <- btargets]
                                         _ -> error "Baked genesis block"
-                    let events'' = blockEvents <> handleMessages btargets (evs []) Seq.|> (rcpt, EBake (sl + 1))
+                    let events'' = blockEvents <> handleMessages btargets (extractFinalizationOutputEvents evs) Seq.|> (rcpt, EBake (sl + 1))
                     return (fs', events'')
                 EBlock block -> runAndHandle (storeBlock (makePendingBlock block dummyTime)) fi fs btargets
                 ETransaction tr -> runAndHandle (receiveTransaction tr) fi fs btargets
@@ -253,34 +253,47 @@ runKonsensusTest steps g states events
                     let states' = states & ix rcpt . _3 .~ fs'
                     runKonsensusTest (steps - 1) g' states' (events'' <> events')
     where
-        handleMessages :: [Int] -> [SkovFinalizationEvent] -> EventPool
+        handleMessages :: [Int] -> [FinalizationOutputEvent] -> EventPool
         handleMessages _ [] = Seq.empty
-        handleMessages targets (SkovFinalization (BroadcastFinalizationMessage fmsg) : r) = Seq.fromList [(rcpt, EFinalization fmsg) | rcpt <- targets] <> handleMessages targets r
-        handleMessages targets (SkovFinalization (BroadcastFinalizationRecord frec) : r) = Seq.fromList [(rcpt, EFinalizationRecord frec) | rcpt <- targets] <> handleMessages targets r
-        handleMessages targets (_ : r) = handleMessages targets r
+        handleMessages targets ((BroadcastFinalizationMessage fmsg) : r) = Seq.fromList [(rcpt, EFinalization fmsg) | rcpt <- targets] <> handleMessages targets r
+        handleMessages targets ((BroadcastFinalizationRecord frec) : r) = Seq.fromList [(rcpt, EFinalizationRecord frec) | rcpt <- targets] <> handleMessages targets r
         runAndHandle a fi fs btargets = do
-            (_, fs', Endo evs) <- myRunSkovActiveM a fi fs
-            return (fs', handleMessages btargets (evs []))
+            (_, fs', evs) <- myRunSkovActiveM a fi fs
+            return (fs', handleMessages btargets (extractFinalizationOutputEvents evs))
 
 runKonsensusTestSimple :: RandomGen g => Int -> g -> States -> EventPool -> IO Property
 runKonsensusTestSimple steps g states events
-        | steps <= 0 || null events = return
-            (case forM_ states $ \(_, _, s) -> invariantSkovFinalization s of
-                Left err -> counterexample ("Invariant failed: " ++ err) False
-                Right _ -> property True)
+        | steps <= 0 || null events = do
+            {-
+            let (_, fi, st) = states Vec.! 0
+            let (_, fi', st') = states Vec.! 1
+            print st
+            print st'
+            (cus, _, _) <- myRunSkovActiveM (getCatchUpStatus True) fi' st'
+            let a = do
+                    -- lfb <- lastFinalizedBlock
+                    -- let cus = makeCatchUpStatus True lfb lfb []
+                    handleCatchUp cus
+            (r, _, _) <- myRunSkovActiveM a fi st
+            print r
+            -}
+            return
+                (case forM_ states $ \(_, _, s) -> invariantSkovFinalization s of
+                    Left err -> counterexample ("Invariant failed: " ++ err) False
+                    Right _ -> property True)
         | otherwise = do
             let ((rcpt, ev), events', g') = selectFromSeq g events
             let (bkr, fi, fs) = states Vec.! rcpt
             let btargets = [x | x <- [0..length states - 1], x /= rcpt]
             (fs', events'') <- case ev of
                 EBake sl -> do
-                    (mb, fs', Endo evs) <- myRunSkovActiveM (bakeForSlot bkr sl) fi fs
+                    (mb, fs', evs) <- myRunSkovActiveM (bakeForSlot bkr sl) fi fs
                     let blockEvents = case mb of
                                         Nothing -> Seq.empty
                                         Just (BlockPointer {_bpBlock = NormalBlock b}) ->
                                             Seq.fromList [(r, EBlock b) | r <- btargets]
                                         _ -> error "Baked genesis block"
-                    let events'' = blockEvents <> handleMessages btargets (evs []) Seq.|> (rcpt, EBake (sl + 1))
+                    let events'' = blockEvents <> handleMessages btargets (extractFinalizationOutputEvents evs) Seq.|> (rcpt, EBake (sl + 1))
                     return (fs', events'')
                 EBlock block -> runAndHandle (storeBlock (makePendingBlock block dummyTime)) fi fs btargets
                 ETransaction tr -> runAndHandle (receiveTransaction tr) fi fs btargets
@@ -289,14 +302,13 @@ runKonsensusTestSimple steps g states events
             let states' = states & ix rcpt . _3 .~ fs'
             runKonsensusTestSimple (steps - 1) g' states' (events'' <> events')
     where
-        handleMessages :: [Int] -> [SkovFinalizationEvent] -> EventPool
+        handleMessages :: [Int] -> [FinalizationOutputEvent] -> EventPool
         handleMessages _ [] = Seq.empty
-        handleMessages targets (SkovFinalization (BroadcastFinalizationMessage fmsg) : r) = Seq.fromList [(rcpt, EFinalization fmsg) | rcpt <- targets] <> handleMessages targets r
-        handleMessages targets (SkovFinalization (BroadcastFinalizationRecord frec) : r) = Seq.fromList [(rcpt, EFinalizationRecord frec) | rcpt <- targets] <> handleMessages targets r
-        handleMessages targets (_ : r) = handleMessages targets r
+        handleMessages targets (BroadcastFinalizationMessage fmsg : r) = Seq.fromList [(rcpt, EFinalization fmsg) | rcpt <- targets] <> handleMessages targets r
+        handleMessages targets (BroadcastFinalizationRecord frec : r) = Seq.fromList [(rcpt, EFinalizationRecord frec) | rcpt <- targets] <> handleMessages targets r
         runAndHandle a fi fs btargets = do
-            (_, fs', Endo evs) <- myRunSkovActiveM a fi fs
-            return (fs', handleMessages btargets (evs []))
+            (_, fs', evs) <- myRunSkovActiveM a fi fs
+            return (fs', handleMessages btargets (extractFinalizationOutputEvents evs))
 
 nAccounts :: Int
 nAccounts = 2
@@ -370,6 +382,7 @@ withInitialStatesDoubleTransactions n trcount r = monadicIO $ do
 
 tests :: Word -> Spec
 tests lvl = parallel $ describe "Concordium.Konsensus" $ do
+    -- it "catch up at end" $ withMaxSuccess 5 $ withInitialStates 2 $ runKonsensusTestSimple 100
     it "2 parties, 100 steps, 20 transactions with duplicates, check at every step" $ withMaxSuccess (10^lvl) $ withInitialStatesDoubleTransactions 2 10 $ runKonsensusTest 100
     it "2 parties, 100 steps, 10 transactions, check at every step" $ withMaxSuccess (10*10^lvl) $ withInitialStatesTransactions 2 10 $ runKonsensusTest 100
     it "2 parties, 1000 steps, 50 transactions, check at every step" $ withMaxSuccess (10^lvl) $ withInitialStatesTransactions 2 50 $ runKonsensusTest 1000
@@ -379,4 +392,3 @@ tests lvl = parallel $ describe "Concordium.Konsensus" $ do
     it "2 parties, 1000 steps, check at every step" $ withMaxSuccess (10^lvl) $ withInitialStates 2 $ runKonsensusTest 1000
     --it "2 parties, 10000 steps, check at end" $ withMaxSuccess 100 $ withInitialStates 2 $ runKonsensusTestSimple 10000
     it "4 parties, 10000 steps, check every step" $ withMaxSuccess (10^lvl `div` 20) $ withInitialStates 4 $ runKonsensusTest 10000
-    

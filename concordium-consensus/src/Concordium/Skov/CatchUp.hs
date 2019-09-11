@@ -89,7 +89,7 @@ updateKnownBlocksToHeight h kb@(KnownBlocks m hkb)
 checkKnownBlock :: (BlockPointerData b, Ord b) => b -> KnownBlocks b -> (Bool, KnownBlocks b)
 checkKnownBlock b kb = (b `Set.member` (m ^. at (bpHeight b) . non Set.empty), kb')
     where
-        kb'@(KnownBlocks m h) = updateKnownBlocksToHeight (bpHeight b) kb
+        kb'@(KnownBlocks m _) = updateKnownBlocksToHeight (bpHeight b) kb
 
 
 handleCatchUp :: (TreeStateMonad m, SkovQueryMonad m) => CatchUpStatus -> m (Either String (Maybe ([Either FinalizationRecord (BlockPointer m)], CatchUpStatus), Bool))
