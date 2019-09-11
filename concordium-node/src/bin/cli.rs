@@ -414,14 +414,12 @@ fn start_baker_thread(global_state_senders: GlobalStateSenders) -> std::thread::
             if let Ok(msg) = receiver.recv() {
                 match msg {
                     RelayOrStopEnvelope::Relay(msg) => {
-                        let msg_type = msg.variant;
                         let is_direct = msg.distribution_mode() == DistributionMode::Direct;
                         let msg = GlobalStateMessage::ConsensusMessage(msg);
-                        if match msg_type {
-                            PacketType::FinalizationMessage if !is_direct => {
-                                global_state_senders.send(msg)
-                            }
-                            _ => global_state_senders.send_with_priority(msg),
+                        if if is_direct {
+                            global_state_senders.send_with_priority(msg)
+                        } else {
+                            global_state_senders.send(msg)
                         }
                         .is_err()
                         {
