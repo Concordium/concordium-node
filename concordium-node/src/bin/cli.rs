@@ -298,7 +298,7 @@ fn start_consensus_threads(
             for request in global_state_receivers
                 .high_prio
                 .try_iter()
-                .chain(global_state_receivers.low_prio.try_recv())
+                .chain(global_state_receivers.low_prio.try_iter())
             {
                 if let GlobalStateMessage::Shutdown = request {
                     warn!("Shutting the global state queues down");
