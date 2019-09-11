@@ -6,7 +6,9 @@ pub const FILE_NAME_PREFIX_BAKER_PRIVATE: &str = "baker-";
 pub const FILE_NAME_SUFFIX_BAKER_PRIVATE: &str = ".dat";
 
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
+use digest::Digest;
 use failure::Fallible;
+use twox_hash::XxHash64;
 
 use std::{
     convert::TryFrom,
@@ -330,6 +332,23 @@ fn process_external_gs_entry(
             let block = PendingBlock::new(&request.payload)?;
             global_state.add_block(block)
         }
+        PacketType::FinalizationMessage => {
+            let mut hash = [0u8; 8];
+            hash.copy_from_slice(&XxHash64::digest(&request.payload));
+
+            if global_state
+                .data
+                .last_finalization_msgs
+                .iter()
+                .any(|h| h == &hash)
+            {
+                debug!("GlobalState: got a duplicate {}", request);
+                return Ok(());
+            } else {
+                global_state.data.last_finalization_msgs.push(hash);
+                GlobalStateResult::IgnoredEntry
+            }
+        }
         PacketType::FinalizationRecord => {
             let record = FinalizationRecord::deserialize(&request.payload)?;
             global_state.add_finalization(record)
@@ -397,9 +416,6 @@ fn send_msg_to_consensus(
         Transaction => consensus.send_transaction(&request.payload),
         FinalizationMessage => consensus.send_finalization(&request.payload),
         FinalizationRecord => consensus.send_finalization_record(&request.payload),
-        CatchUpFinalizationMessagesByPoint => {
-            consensus.get_finalization_messages(&request.payload, raw_id)
-        }
         CatchUpStatus => consensus.receive_catch_up_status(&request.payload, raw_id),
     };
 

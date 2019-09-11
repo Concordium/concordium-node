@@ -5,7 +5,6 @@ extern crate grpciounix as grpcio;
 extern crate grpciowin as grpcio;
 #[macro_use]
 extern crate log;
-extern crate concordium_common;
 
 // Explicitly defining allocator to avoid future reintroduction of jemalloc
 use std::alloc::System;
@@ -350,20 +349,10 @@ fn start_consensus_threads(
                     NetworkResponse::Handshake(src, ref nets, _),
                     ..
                 ) => {
-                    if let Some(network_id) = nets.iter().next() {
-                        // catch up to the finalization point
-                        if send_consensus_msg_to_net(
-                            &node_ref,
-                            vec![],
-                            Some(src.id()),
-                            *network_id,
-                            PacketType::CatchUpFinalizationMessagesByPoint,
-                            None,
-                            &consensus.get_finalization_point(),
-                        )
-                        .and_then(|_|
+                    if src.peer_type() == PeerType::Node {
+                        if let Some(network_id) = nets.iter().next() {
                             // send a catch-up status
-                            send_consensus_msg_to_net(
+                            if send_consensus_msg_to_net(
                                 &node_ref,
                                 vec![],
                                 Some(src.id()),
@@ -371,19 +360,17 @@ fn start_consensus_threads(
                                 PacketType::CatchUpStatus,
                                 None,
                                 &consensus.get_catch_up_status(),
-                            ))
-                        .is_err()
-                        {
-                            error!("Can't send the initial catch-up messages!")
+                            )
+                            .is_err()
+                            {
+                                error!("Can't send the initial catch-up messages!")
+                            }
+                        } else {
+                            error!("A handshaking peer doesn't seem to have any networks!")
                         }
-                    } else {
-                        error!("A handshaking peer doesn't seem to have any networks!")
                     }
-                    // handle_incoming_message(&mut node_ref, msg);
                 }
-                _ => {
-                    // handle_incoming_message(&mut node_ref, msg);
-                }
+                _ => {}
             }
         }
     });
@@ -423,8 +410,9 @@ fn start_baker_thread(
     gs_sender: RelayOrStopSender<GlobalStateMessage>,
 ) -> std::thread::JoinHandle<()> {
     spawn_or_die!("Process consensus messages", {
+        let consensus_receiver = CALLBACK_QUEUE.receiver_request.lock().unwrap();
         loop {
-            match CALLBACK_QUEUE.recv_message() {
+            match consensus_receiver.recv() {
                 Ok(RelayOrStopEnvelope::Relay(msg)) => {
                     let msg = GlobalStateMessage::ConsensusMessage(msg);
                     if let Err(e) = gs_sender.send(RelayOrStopEnvelope::Relay(msg)) {

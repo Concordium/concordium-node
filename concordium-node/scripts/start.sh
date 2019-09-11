@@ -192,28 +192,21 @@ fi
 
 if [ "$MODE" == "tps_receiver" ]; then
     echo "Receiver!"
-
     /p2p_client-cli \
     --enable-tps-test-recv \
     --external-ip 10.96.0.15 \
     $ARGS
-
 elif [ "$MODE" == "tps_sender" ]; then
     echo "Sender!\n"
-
     mkdir -p $DATA_DIR/tps_test
-
     echo "Generating data\n"
     cd $DATA_DIR/tps_test
-
     for i in `seq 0 $(($TPS_MESSAGE_COUNT - 1))`;
     do
         echo $i
         dd if=/dev/urandom of=test-$i bs=1 count=1024 > /dev/null 2>&1
     done
-
     # Echo to cron file
-
     /p2p_client-cli \
     --connect-to 10.96.0.15:8888 \
     --external-ip 10.96.0.16 \
@@ -230,15 +223,12 @@ elif [ "$MODE" == "basic" ]; then
     fi
 elif [ "$MODE" == "bootstrapper" ]; then
     /p2p_bootstrapper-cli $ARGS
-
 elif [ "$MODE" == "local_basic" ]; then
     export BAKER_ID=`curl http://baker_id_gen:8000/next_id`
     echo "Using BAKER_ID $BAKER_ID"
-
-    /p2p_client-cli --baker-id $BAKER_ID --no-dnssec $ARGS
-
+    /p2p_client-cli --baker-id $BAKER_ID --no-dnssec $ARGS --id $(printf "%016d\n" $BAKER_ID)
 elif [ "$MODE" == "local_bootstrapper" ]; then
-    export NODE_ID=`awk 'END{ print $1}' /etc/hosts | sha256sum | awk '{ print $1 }' | cut -c1-16`
+    export NODE_ID="0000000001000000"
     /p2p_bootstrapper-cli \
         --id $NODE_ID \
         --listen-port 8888 \

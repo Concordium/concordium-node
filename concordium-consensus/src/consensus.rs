@@ -22,16 +22,14 @@ pub type PeerId = u64;
 pub type PrivateData = HashMap<i64, Vec<u8>>;
 
 pub struct ConsensusOutQueue {
-    receiver_request: Mutex<RelayOrStopReceiver<ConsensusMessage>>,
-    sender_request:   RelayOrStopSyncSender<ConsensusMessage>,
+    pub receiver_request: Mutex<RelayOrStopReceiver<ConsensusMessage>>,
+    pub sender_request:   RelayOrStopSyncSender<ConsensusMessage>,
 }
-
-const SYNC_CHANNEL_BOUND: usize = 256;
 
 impl Default for ConsensusOutQueue {
     fn default() -> Self {
         let (sender_request, receiver_request) =
-            mpsc::sync_channel::<RelayOrStopEnvelope<ConsensusMessage>>(SYNC_CHANNEL_BOUND);
+            mpsc::sync_channel::<RelayOrStopEnvelope<ConsensusMessage>>(4096);
         ConsensusOutQueue {
             receiver_request: Mutex::new(receiver_request),
             sender_request,
@@ -42,10 +40,6 @@ impl Default for ConsensusOutQueue {
 impl ConsensusOutQueue {
     pub fn send_message(&self, message: ConsensusMessage) -> Fallible<()> {
         into_err!(self.sender_request.send_msg(message))
-    }
-
-    pub fn recv_message(&self) -> Fallible<RelayOrStopEnvelope<ConsensusMessage>> {
-        into_err!(safe_lock!(self.receiver_request).recv())
     }
 
     pub fn clear(&self) {
