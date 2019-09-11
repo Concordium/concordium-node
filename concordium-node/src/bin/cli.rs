@@ -293,7 +293,7 @@ fn start_consensus_threads(
 
         let mut loop_interval: u64;
         'outer_loop: loop {
-            loop_interval = 200;
+            loop_interval = 100;
 
             for request in global_state_receivers
                 .high_prio
