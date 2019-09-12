@@ -165,7 +165,7 @@ class BlockStateQuery m => BlockStateOperations m where
   bsoPutNewModule :: UpdatableBlockState m
                   -> ModuleRef
                   -> Interface Core.UA
-                  -> ValueInterface Void
+                  -> UnlinkedValueInterface Void
                   -> Core.Module Core.UA
                   -> m (Bool, UpdatableBlockState m)
 
@@ -307,6 +307,10 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoPutNewAccount s = lift . bsoPutNewAccount s
   bsoPutNewInstance s = lift . bsoPutNewInstance s
   bsoPutNewModule s mref iface viface source = lift (bsoPutNewModule s mref iface viface source)
+  bsoTryGetLinkedExpr s mref n = lift (bsoTryGetLinkedExpr s mref n)
+  bsoPutLinkedExpr s mref n linked = lift (bsoPutLinkedExpr s mref n linked)
+  bsoTryGetLinkedContract s mref n = lift (bsoTryGetLinkedContract s mref n)
+  bsoPutLinkedContract s mref n linked = lift (bsoPutLinkedContract s mref n linked)
   bsoModifyAccount s = lift . bsoModifyAccount s
   bsoModifyInstance s caddr amount model = lift $ bsoModifyInstance s caddr amount model
   bsoNotifyExecutionCost s = lift . bsoNotifyExecutionCost s
@@ -330,6 +334,10 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoPutNewAccount #-}
   {-# INLINE bsoPutNewInstance #-}
   {-# INLINE bsoPutNewModule #-}
+  {-# INLINE bsoTryGetLinkedExpr #-}
+  {-# INLINE bsoPutLinkedExpr #-}
+  {-# INLINE bsoTryGetLinkedContract #-}
+  {-# INLINE bsoPutLinkedContract #-}
   {-# INLINE bsoModifyAccount #-}
   {-# INLINE bsoModifyInstance #-}
   {-# INLINE bsoNotifyExecutionCost #-}

@@ -38,10 +38,10 @@ instanceInfo Instance{..} = InstanceInfo (instanceMessageType instanceParameters
 makeInstance ::
     Core.ModuleRef     -- ^Module of the contract
     -> Core.TyName     -- ^Contract name
-    -> ContractValue Void  -- ^The contract value
+    -> LinkedContractValue Void  -- ^The contract value
     -> Core.Type Core.UA Core.ModuleRef     -- ^Message type
     -> Interface Core.UA          -- ^Module interface
-    -> ValueInterface Void          -- ^Module value interface
+    -> UnlinkedValueInterface Void  -- ^Module value interface
     -> Value Void                   -- ^Initial state
     -> Amount                       -- ^Initial balance
     -> AccountAddress               -- ^Owner/creator of the instance.
@@ -61,7 +61,7 @@ iaddress :: Instance -> ContractAddress
 iaddress = instanceAddress . instanceParameters
 
 -- |The receive method of a smart contract instance.
-ireceiveFun :: Instance -> Expr Void
+ireceiveFun :: Instance -> LinkedExpr Void
 ireceiveFun = instanceReceiveFun . instanceParameters
 
 -- |The message type of a smart contract instance.
@@ -69,7 +69,7 @@ imsgTy :: Instance -> Core.Type Core.UA Core.ModuleRef
 imsgTy = instanceMessageType . instanceParameters
 
 -- |The module interfaces of a smart contract instance.
-iModuleIface :: Instance -> (Interface Core.UA, ValueInterface Void)
+iModuleIface :: Instance -> (Interface Core.UA, UnlinkedValueInterface Void)
 iModuleIface i = (instanceModuleInterface, instanceModuleValueInterface)
     where
         InstanceParameters{..} = instanceParameters i
