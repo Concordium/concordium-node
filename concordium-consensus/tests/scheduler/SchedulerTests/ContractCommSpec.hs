@@ -33,8 +33,8 @@ shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState
-initialBlockState =
-  emptyBlockState emptyBirkParameters Types.dummyCryptographicParameters &
+initialBlockState = 
+  emptyBlockState emptyBirkParameters dummyCryptographicParameters &
     (blockAccounts .~ Acc.putAccount (mkAccount alesVK 1000000) Acc.emptyAccounts) .
     (blockBank . Rew.totalGTU .~ 1000000) .
     (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
@@ -56,7 +56,7 @@ transactionsInput =
   ,TJSON { payload = InitContract {amount = 100
                                   ,contractName = "Counter"
                                   ,moduleName = "CommCounter"
-                                  ,parameter = "Prod.Pair [Int64] [<address>] 0 <0, 0>"
+                                  ,parameter = "let pair :: Int64 -> <address> -> Prod.Pair Int64 <address> = Prod.Pair [Int64, <address>] in pair 0 <0, 0>"
                                   }
          , metadata = makeHeader alesKP 3 100000
          , keypair = alesKP
@@ -117,17 +117,17 @@ checkCommCounterResult (suc, fails) =
   null fails && -- should be no failed transactions
   length reject == 1 &&  -- one rejected (which is also the last one)
   length nonreject == 6  -- and 6 successful ones
-  where
+  where 
     nonreject = filter (\case (_, Types.TxSuccess _) -> True
-                              (_, Types.TxReject _) -> False)
+                              (_, Types.TxReject _ _) -> False)
                         suc
     reject = filter (\case (_, Types.TxSuccess _) -> False
-                           (_, Types.TxReject _) -> True
+                           (_, Types.TxReject _ _) -> True
                     )
                         suc
 
 tests :: SpecWith ()
-tests =
+tests = 
   describe "Communicating counter." $ do
     specify "6 successful and 1 failed transaction" $ do
       PR.evalContext Init.initialContextData testCommCounter `shouldReturnP` checkCommCounterResult

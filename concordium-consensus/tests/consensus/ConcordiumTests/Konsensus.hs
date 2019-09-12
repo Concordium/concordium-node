@@ -43,7 +43,7 @@ import Concordium.Birk.Bake
 import Concordium.TimeMonad
 import Concordium.Skov.CatchUp
 
-import Concordium.Startup(makeBakerAccount)
+import Concordium.Startup(makeBakerAccount, dummyCryptographicParameters)
 
 import Test.QuickCheck
 import Test.QuickCheck.Monadic

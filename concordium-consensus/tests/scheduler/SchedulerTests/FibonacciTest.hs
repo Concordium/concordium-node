@@ -9,6 +9,7 @@ import Test.HUnit
 
 import Data.List as List
 import Data.Int
+import qualified Data.Sequence as Seq
 
 import qualified Acorn.Core as Core
 
@@ -37,8 +38,8 @@ shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState
-initialBlockState =
-  emptyBlockState emptyBirkParameters Types.dummyCryptographicParameters &
+initialBlockState = 
+  emptyBlockState emptyBirkParameters dummyCryptographicParameters &
     (blockAccounts .~ Acc.putAccount (mkAccount alesVK 1000000000) Acc.emptyAccounts) .
     (blockBank . Rew.totalGTU .~ 1000000000) .
     (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
@@ -55,7 +56,7 @@ transactionsInput =
                                   , parameter = "Unit.Unit"
                                   , contractName = "Fibonacci"
                                   }
-        , metadata = makeHeader alesKP 2 10000
+        , metadata = makeHeader alesKP 2 100000
         , keypair = alesKP
         }
   ,TJSON { payload = Update { amount = 0
@@ -99,16 +100,15 @@ checkFibonacciResult (suc, fails, instances) =
   checkLocalState (snd (head instances)) -- and the local state should match the actual list of fibonacci numbers
   where
     reject = filter (\case (_, Types.TxSuccess _) -> False
-                           (_, Types.TxReject _) -> True
+                           (_, Types.TxReject _ _) -> True
                     )
                         suc
-    checkLocalState inst =
+    checkLocalState inst = 
       let results = List.sort . map snd $ (extractMap (Types.instanceModel inst))
       in results == take 31 fib
-    extractMap (Types.VConstructor _ [Types.VLiteral (Core.Int64 k),
-                                      Types.VLiteral (Core.Int64 v),
-                                      l,
-                                      r]) = (k, v) : extractMap l ++ extractMap r
+    extractMap (Types.VConstructor _ (Types.VLiteral (Core.Int64 k) Seq.:<|
+                                      Types.VLiteral (Core.Int64 v) Seq.:<|
+                                      l Seq.:<| r Seq.:<| Seq.Empty)) = (k, v) : extractMap l ++ extractMap r
     extractMap _ = []
 
 tests :: Spec
