@@ -231,7 +231,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
                     (\owner -> blockBirkParameters . birkBakers %~ addStake (owner ^. accountStakeDelegate) (Instances.instanceAmount inst))
                     (bs ^? blockAccounts . ix instanceOwner)
 
-    bsoPutNewModule bs mref iface viface source = return $
+    bsoPutNewModule bs mref iface viface source = return $!
         case Modules.putInterfaces mref iface viface source (bs ^. blockModules) of
           Nothing -> (False, bs)
           Just mods' -> (True, bs & blockModules .~ mods')
