@@ -112,9 +112,7 @@ pub fn handle_incoming_message(node_ref: &P2PNode, conn: &Connection, full_msg: 
         NetworkMessage::NetworkRequest(NetworkRequest::Retransmit(..), ..) => {
             // handled by handle_retransmit_req
         }
-        NetworkMessage::InvalidMessage => {
-            // handle_invalid_network_msg()
-        }
+        NetworkMessage::InvalidMessage => handle_invalid_network_msg(conn),
     }
 }
 
@@ -559,23 +557,12 @@ pub fn handle_incoming_packet(
     }
 }
 
-// TODO: add source peer to the InvalidMessage
-// fn handle_invalid_network_msg(node: &P2PNode, source: P2PPeer) ->
-// Fallible<()> { debug!("Received an invalid network message!");
-//
-// {
-// let mut priv_conn_mut = write_or_die!(priv_conn);
-//
-// priv_conn_mut.failed_pkts += 1;
-// }
-//
-// if let Some(ref service) = read_or_die!(priv_conn)
-// .conn()
-// .handler()
-// .stats_export_service
-// {
-// service.invalid_pkts_received_inc();
-// }
-//
-// Ok(())
-// }
+fn handle_invalid_network_msg(conn: &Connection) {
+    debug!("Received an invalid network message!");
+
+    conn.failed_pkts.fetch_add(1, Ordering::Relaxed);
+
+    if let Some(ref service) = conn.handler().stats_export_service {
+        service.invalid_pkts_received_inc();
+    }
+}
