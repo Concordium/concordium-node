@@ -101,8 +101,8 @@ data AccountUpdate = AccountUpdate {
   _auAddress :: !AccountAddress
   -- |Optionally a new account nonce.
   ,_auNonce :: !(Maybe Nonce)
-  -- |Optionally a new account amount.
-  ,_auAmount :: !(Maybe Amount)
+  -- |Optionally an update to the account amount.
+  ,_auAmount :: !(Maybe AmountDelta)
   -- |Optionally an encryption key.
   ,_auEncryptionKey :: !(Maybe ID.AccountEncryptionKey)
   -- |Optionally an update to the encrypted amounts.
@@ -120,7 +120,7 @@ emptyAccountUpdate addr = AccountUpdate addr Nothing Nothing Nothing Empty Nothi
 updateAccount :: AccountUpdate -> Account -> Account
 updateAccount !upd !acc =
   acc {_accountNonce = (acc ^. accountNonce) & setMaybe (upd ^. auNonce),
-       _accountAmount = (acc ^. accountAmount) & setMaybe (upd ^. auAmount),
+       _accountAmount = fst (acc & accountAmount <%~ applyAmountDelta (upd ^. auAmount . non 0)),
        _accountCredentials =
           case upd ^. auCredential of
             Nothing -> acc ^. accountCredentials
@@ -169,6 +169,27 @@ class BlockStateQuery m => BlockStateOperations m where
                   -> Core.Module Core.UA
                   -> m (Bool, UpdatableBlockState m)
 
+  -- |Consult the linked expression cache for whether this definitionn is already linked.
+  bsoTryGetLinkedExpr :: UpdatableBlockState m -> Core.ModuleRef -> Core.Name -> m (Maybe (LinkedExprWithDeps Void))
+
+  -- |Put a new linked expression to the cache.
+  -- This method may assume that the module with given reference is already in the state (i.e., putNewModule was called before).
+  bsoPutLinkedExpr :: UpdatableBlockState m -> Core.ModuleRef -> Core.Name -> LinkedExprWithDeps Void -> m (UpdatableBlockState m)
+
+  -- |Try to get linked contract code from the cache.
+  bsoTryGetLinkedContract :: UpdatableBlockState m
+                          -> Core.ModuleRef
+                          -> Core.TyName
+                          -> m (Maybe (LinkedContractValue Void))
+
+  -- |Store the linked contract code in the linked code cache.
+  -- This method may assume that the module with given reference is already in the state (i.e., putNewModule was called before).
+  bsoPutLinkedContract :: UpdatableBlockState m
+                       -> Core.ModuleRef
+                       -> Core.TyName
+                       -> LinkedContractValue Void
+                       -> m (UpdatableBlockState m)
+
   -- |Modify an existing account with given data (which includes the address of the account).
   -- This method is only called when an account exists and can thus assume this.
   -- NB: In case we are adding a credential to an account this method __must__ also
@@ -178,7 +199,7 @@ class BlockStateQuery m => BlockStateOperations m where
   -- This method is only called when it is known the instance exists, and can thus assume it.
   bsoModifyInstance :: UpdatableBlockState m
                     -> ContractAddress
-                    -> Amount
+                    -> AmountDelta
                     -> Value Void
                     -> m (UpdatableBlockState m)
 
