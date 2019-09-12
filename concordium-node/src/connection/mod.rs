@@ -12,7 +12,6 @@ pub enum ConnectionStatus {
     PreHandshake,
     PostHandshake,
     Closing,
-    Closed,
 }
 
 // If a message is labelled as having `High` priority it is always pushed to the
@@ -133,10 +132,7 @@ impl Connection {
     }
 
     #[inline]
-    pub fn is_closed(&self) -> bool {
-        let status = read_or_die!(self.dptr).status;
-        status == ConnectionStatus::Closed || status == ConnectionStatus::Closing
-    }
+    pub fn is_closed(&self) -> bool { read_or_die!(self.dptr).status == ConnectionStatus::Closing }
 
     #[inline]
     pub fn close(&self) { write_or_die!(self.dptr).status = ConnectionStatus::Closing; }

@@ -181,7 +181,6 @@ impl ConnectionPrivate {
 
         // 3. Check closing...
         if self.status == ConnectionStatus::Closing {
-            self.status = ConnectionStatus::Closed;
             self.shutdown()?;
         }
 
