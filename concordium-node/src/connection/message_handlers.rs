@@ -8,9 +8,9 @@ use crate::{
         request::RequestedElementType, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType,
         NetworkRequest, NetworkResponse,
     },
-    p2p::*,
+    p2p::{banned_nodes::BannedNode, *},
     stats_engine::StatsEngine,
-    utils::{self, GlobalStateSenders},
+    utils::GlobalStateSenders,
 };
 use concordium_common::{cache::Cache, read_or_die, write_or_die, PacketType};
 
@@ -100,11 +100,21 @@ pub fn handle_incoming_message(node_ref: &P2PNode, conn: &Connection, full_msg: 
                 );
             }
         }
-        NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer, peer_to_ban), ..) => {
-            utils::ban_node(node_ref, peer, *peer_to_ban);
+        NetworkMessage::NetworkRequest(NetworkRequest::BanNode(source, peer_to_ban), ..) => {
+            if let Err(e) = node_ref.ban_node(*peer_to_ban) {
+                error!(
+                    "Couldn't handle a BanNode request from peer {}: {}",
+                    source.id, e
+                );
+            }
         }
-        NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(ref peer, peer_to_ban), ..) => {
-            utils::unban_node(node_ref, peer, *peer_to_ban);
+        NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(source, peer_to_unban), ..) => {
+            if let Err(e) = node_ref.unban_node(*peer_to_unban) {
+                error!(
+                    "Couldn't handle an UnbanNode request from peer {}: {}",
+                    source.id, e
+                );
+            }
         }
         NetworkMessage::NetworkPacket(..) => {
             // handled by handle_incoming_network_packet
@@ -183,7 +193,7 @@ fn handle_handshake_req(
 ) -> Fallible<()> {
     debug!("Got a Handshake request");
 
-    if read_or_die!(conn.handler().connection_handler.banned_peers).is_id_banned(source.id()) {
+    if conn.handler().is_banned(BannedNode::ById(source.id()))? {
         write_or_die!(conn.handler().connection_handler.to_disconnect).push_back(source.id());
     }
 

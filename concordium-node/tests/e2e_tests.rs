@@ -141,7 +141,7 @@ mod tests {
 
         let to_ban = BannedNode::ById(node_2.id());
 
-        node_1.ban_node(to_ban);
+        node_1.ban_node(to_ban).unwrap();
         let mut reply = node_1.get_peer_stats();
 
         let t1 = time::Instant::now();

@@ -25,7 +25,6 @@ use p2p_client::{
     configuration as config,
     network::{NetworkMessage, NetworkRequest},
     p2p::*,
-    utils::{self, load_bans},
 };
 use std::sync::mpsc;
 
@@ -128,11 +127,6 @@ fn main() -> Result<(), Error> {
     // Start push gateway to prometheus
     client_utils::start_push_gateway(&conf.prometheus, &stats_export_service, node.id())?;
 
-    // Load and apply existing bans
-    if let Err(e) = load_bans(&mut node) {
-        error!("{}", e);
-    };
-
     // Connect outgoing messages to be forwarded into the baker and RPC streams.
     //
     // Thread #4: Read P2PNode output
@@ -157,24 +151,22 @@ fn setup_process_output(
     conf: &config::Config,
     pkt_out: RelayOrStopReceiver<NetworkMessage>,
 ) {
-    let mut _node_self_clone = node.clone();
+    let node_clone = node.clone();
     let _no_trust_bans = conf.common.no_trust_bans;
     let _guard_pkt = spawn_or_die!("Higher queue processing", move || {
         while let Ok(RelayOrStopEnvelope::Relay(full_msg)) = pkt_out.recv() {
-            match full_msg {
+            if let Err(e) = match full_msg {
                 NetworkMessage::NetworkRequest(
-                    NetworkRequest::BanNode(ref peer, peer_to_ban),
+                    NetworkRequest::BanNode(_source, peer_to_ban),
                     ..
-                ) => {
-                    utils::ban_node(&_node_self_clone, peer, peer_to_ban);
-                }
+                ) => node_clone.ban_node(peer_to_ban),
                 NetworkMessage::NetworkRequest(
-                    NetworkRequest::UnbanNode(ref peer, peer_to_ban),
+                    NetworkRequest::UnbanNode(_source, peer_to_unban),
                     ..
-                ) => {
-                    utils::unban_node(&_node_self_clone, peer, peer_to_ban);
-                }
-                _ => {}
+                ) => node_clone.unban_node(peer_to_unban),
+                _ => Ok(()),
+            } {
+                error!("Can't process a ban/unban request: {}", e);
             }
         }
     });
