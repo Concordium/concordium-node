@@ -59,7 +59,7 @@ stages:
     - scripts/download-static-libs.sh
     - rustup component add clippy
     - ( cd deps/internal/crypto/rust-src && cargo clean )
-#    - ( cd concordium-global-state-sys && cargo clippy --color=always --all -- -Dclippy::all)
+    - ( cd concordium-global-state-sys && cargo clippy --color=always --all -- -Dclippy::all)
     - cargo clean
     - echo "Running clippy with without extra features"
     - cargo clippy --color=always --all --features=static -- -Dclippy::all
