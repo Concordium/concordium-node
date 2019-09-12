@@ -1,5 +1,5 @@
+# syntax=docker/dockerfile:experimental
 FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.1
-ARG CI_JOB_TOKEN
 COPY . /build-project
 WORKDIR /build-project
 COPY ./scripts/init.build.env.sh ./init.build.env.sh
@@ -7,10 +7,8 @@ COPY ./scripts/gen_data.sh ./gen_data.sh
 COPY ./scripts/start.sh ./start.sh
 COPY ./scripts/genesis-data ./genesis-data
 ENV LD_LIBRARY_PATH=/usr/local/lib
-RUN ./init.build.env.sh && \
-    git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/ && \
-    # Regular build
-    cargo build --features=instrumentation,benchmark,profiling && \
+RUN --mount=type=ssh ./init.build.env.sh 
+RUN --mount=type=ssh cargo build --features=instrumentation,benchmark,profiling && \
     cp /build-project/target/debug/p2p_client-cli /build-project/target/debug/p2p_bootstrapper-cli /build-project/ && \
     cargo clean && \
     # Sanitizer build
