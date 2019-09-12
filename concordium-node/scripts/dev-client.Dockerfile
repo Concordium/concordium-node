@@ -1,7 +1,6 @@
+# syntax=docker/dockerfile:experimental
 FROM archlinux/base as build
 
-ARG CI_JOB_TOKEN
- 
 RUN pacman -Sy && \
     pacman -Syyu --noconfirm && \
     pacman -S protobuf cmake clang git libtool rustup make m4 pkgconf autoconf automake \
@@ -22,8 +21,6 @@ COPY scripts/genesis-data ./genesis-data
 # Build Environment: Hacl, ffi, Haskell (inherited from k8 build)
 RUN ./init.build.env.sh
 
-RUN git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/
-
 ### Baker id gen
 RUN \
     rustup install nightly-2019-07-10 && \
@@ -34,7 +31,7 @@ RUN \
     rm -rf baker_id_gen
 
 ### P2P client
-RUN cargo build --features=profiling
+RUN --mount=type=ssh cargo build --features=profiling
 
 RUN chmod +x /build-project/start.sh
 

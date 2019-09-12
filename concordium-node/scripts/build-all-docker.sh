@@ -13,7 +13,7 @@ echo "Consensus commit ID $CONSENSUS_VERSION"
 
 echo $CONSENSUS_VERSION > CONSENSUS_VERSION
 
-scripts/build-universal-docker.sh $1 $2
+scripts/build-universal-docker.sh $1
 
 scripts/build-bootstrapper-docker.sh $1
 scripts/build-client-docker.sh $1

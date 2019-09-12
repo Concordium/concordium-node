@@ -12,7 +12,7 @@ PATH="$PATH:/usr/local/bin" git lfs pull
 
 VERSION=`cat Cargo.toml | grep "version = \"" | head -n1 | sed 's/version = \"//' | sed 's/\"//'`
 
-./scripts/build-all-docker.sh $VERSION $CI_JOB_TOKEN
+./scripts/build-all-docker.sh $VERSION
 
 if [ -z "$JENKINS_HOME" ]; then
   git checkout $CURRENT_BRANCH
