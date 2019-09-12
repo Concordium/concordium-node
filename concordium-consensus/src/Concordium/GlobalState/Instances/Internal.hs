@@ -27,17 +27,17 @@ data InstanceParameters = InstanceParameters {
     -- |The name of the contract
     instanceContract :: !Core.TyName,
     -- |The contract's receive function
-    instanceReceiveFun :: !(Expr Void),
+    instanceReceiveFun :: !(LinkedExpr Void),
     -- |The interface of 'instanceContractModule'
     instanceModuleInterface :: !(Interface Core.UA),
     -- |The value interface of 'instanceContractModule'
-    instanceModuleValueInterface :: !(ValueInterface Void),
+    instanceModuleValueInterface :: !(UnlinkedValueInterface Void),
     -- |The type of messages the contract receive function supports
     instanceMessageType :: !(Core.Type Core.UA Core.ModuleRef),
     -- |Implementation of the given class sender method. This can also be looked
     -- up through the contract, and we should probably do that, but having it here
     -- simplifies things.
-    instanceImplements :: !(HashMap (Core.ModuleRef, Core.TyName) (ImplementsValue Void)),
+    instanceImplements :: !(HashMap (Core.ModuleRef, Core.TyName) (LinkedImplementsValue Void)),
     -- |Hash of the fixed parameters
     instanceParameterHash :: !H.Hash
 }

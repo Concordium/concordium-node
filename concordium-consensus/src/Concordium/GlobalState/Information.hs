@@ -21,6 +21,7 @@ import Data.Word
 import Data.ByteString.Builder(toLazyByteString, byteStringHex)
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as EL
+import Data.Foldable(toList)
 
 import Data.Void
 
@@ -69,7 +70,8 @@ jsonLiteral l = case l of
 jsonStorable :: Value Void -> JSON.Value
 jsonStorable (VLiteral l) = jsonLiteral l
 jsonStorable (VConstructor n vals) =
-  JSON.object $ ["name" .= (fromIntegral n :: Word32)] ++ zipWith (\i v -> ("child-" <> fromString (show i)) .= jsonStorable v) [(0::Int)..] vals
+  JSON.object $ ["name" .= (fromIntegral n :: Word32)] ++
+                  zipWith (\i v -> ("child-" <> fromString (show i)) .= jsonStorable v) [(0::Int)..] (toList vals)
 jsonStorable _ = error "FATAL: Trying to serialize a non-storable value. This should not happen."
 
 valueToJSONString :: Value Void -> String
