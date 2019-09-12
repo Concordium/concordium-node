@@ -1,5 +1,6 @@
+# syntax=docker/dockerfile:experimental
 FROM archlinux/base as build
- 
+
 RUN pacman -Sy && \
     pacman -Syyu --noconfirm && \
     pacman -S protobuf cmake clang git libtool rustup make m4 pkgconf autoconf automake \
@@ -30,7 +31,7 @@ RUN \
     rm -rf baker_id_gen
 
 ### P2P client
-RUN cargo build --features=profiling
+RUN --mount=type=ssh cargo build --features=profiling
 
 RUN chmod +x /build-project/start.sh
 
