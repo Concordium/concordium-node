@@ -15,7 +15,6 @@ stages:
   script:
     - rustc --version && cargo --version
     - scripts/download-static-libs.sh
-    - ( cd concordium-dns && cargo test --all --color=always)
     - ( cd concordium-global-state && cargo test --all --color=always)
     - ( cd concordium-consensus && cargo test --all --color=always --features=static)
     - ( cd concordium-common && cargo test --all --color=always)
@@ -46,7 +45,6 @@ stages:
     - ( cd concordium-global-state && cargo fmt -- --color=always)
     - ( cd concordium-consensus && cargo fmt -- --color=always)
     - ( cd concordium-common && cargo fmt -- --color=always)
-    - ( cd concordium-dns && cargo fmt -- --color=always)
     - test $(git ls-files --modified | grep -v ".dll$" | grep -v ".a$" | grep -v ".pc$" | grep -v ".def$" | grep -v "tar.gz" | wc -l) -eq 0 || (echo 'You have introduced some unformatted code:'; git ls-files --modified | grep -v ".dll$" | grep -v ".a$" | grep -v ".pc$" | grep -v ".def$" | grep -v "tar.gz" | sed 's/^/* /'; echo 'Please run `cargo fmt` and amend your MR.'; exit 1)
 
 "lint:clippy":
