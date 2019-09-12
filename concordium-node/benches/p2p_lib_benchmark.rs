@@ -174,10 +174,10 @@ mod network {
 
             c.bench_function(&bench_id, move |b| {
                 let cloned_cursor = cursor.clone();
-                let peer = RemotePeer::PostHandshake(local_peer);
+                let peer = RemotePeer::from(local_peer);
 
                 b.iter(move || {
-                    let mut archive = ReadArchiveAdapter::new(cloned_cursor.clone(), peer);
+                    let mut archive = ReadArchiveAdapter::new(cloned_cursor.clone(), peer.clone());
                     NetworkMessage::deserialize(&mut archive)
                 })
             });
@@ -208,7 +208,7 @@ mod network {
                 let cursor = HybridBuf::try_from(archive.into_inner()).unwrap();
 
                 b.iter(move || {
-                    let remote_peer = RemotePeer::PostHandshake(me);
+                    let remote_peer = RemotePeer::from(me);
                     let mut archive = ReadArchiveAdapter::new(cursor.clone(), remote_peer);
                     NetworkMessage::deserialize(&mut archive).unwrap()
                 })

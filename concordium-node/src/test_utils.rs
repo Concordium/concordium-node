@@ -201,7 +201,7 @@ pub fn await_handshake(node: &P2PNode) -> Fallible<()> {
         .unwrap();
 
     loop {
-        if conn.is_post_handshake.load(Ordering::Relaxed) {
+        if conn.is_post_handshake() {
             break;
         }
     }

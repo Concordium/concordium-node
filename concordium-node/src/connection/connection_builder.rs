@@ -20,23 +20,34 @@ use std::{
 
 #[derive(Default)]
 pub struct ConnectionBuilder {
-    handler_ref:       Option<Pin<Arc<P2PNode>>>,
-    key_pair:          Option<Keypair>,
-    token:             Option<Token>,
-    is_initiator:      bool,
-    priv_conn_builder: ConnectionPrivateBuilder,
-    noise_params:      Option<snow::params::NoiseParams>,
+    handler_ref:        Option<Pin<Arc<P2PNode>>>,
+    token:              Option<Token>,
+    remote_peer:        Option<RemotePeer>,
+    key_pair:           Option<Keypair>,
+    local_end_networks: Option<Arc<RwLock<HashSet<NetworkId>>>>,
+    is_initiator:       bool,
+    priv_conn_builder:  ConnectionPrivateBuilder,
+    noise_params:       Option<snow::params::NoiseParams>,
 }
 
 impl ConnectionBuilder {
     pub fn build(self) -> Fallible<Connection> {
         let curr_stamp = get_current_stamp();
 
-        if let (Some(handler_ref), Some(key_pair), Some(token), Some(noise_params)) = (
+        if let (
+            Some(handler_ref),
+            Some(key_pair),
+            Some(token),
+            Some(remote_peer),
+            Some(noise_params),
+            Some(local_end_networks),
+        ) = (
             self.handler_ref,
             self.key_pair,
             self.token,
+            self.remote_peer,
             self.noise_params,
+            self.local_end_networks,
         ) {
             let priv_conn = self
                 .priv_conn_builder
@@ -48,12 +59,20 @@ impl ConnectionBuilder {
             let conn = Connection {
                 handler_ref,
                 token,
+                remote_peer,
                 dptr: Arc::new(RwLock::new(priv_conn)),
+                local_end_networks,
+                remote_end_networks: Default::default(),
                 is_post_handshake: Default::default(),
                 is_closing: Default::default(),
                 messages_received: Default::default(),
                 messages_sent: Default::default(),
                 last_ping_sent: Arc::new(AtomicU64::new(curr_stamp)),
+                sent_handshake: Default::default(),
+                sent_ping: Default::default(),
+                last_latency_measured: Default::default(),
+                last_seen: Arc::new(AtomicU64::new(curr_stamp)),
+                failed_pkts: Default::default(),
             };
 
             write_or_die!(conn.dptr).conn_ref = Some(Arc::pin(conn.clone()));
@@ -89,8 +108,8 @@ impl ConnectionBuilder {
         self
     }
 
-    pub fn set_remote_peer(mut self, p: RemotePeer) -> ConnectionBuilder {
-        self.priv_conn_builder = self.priv_conn_builder.set_remote_peer(p);
+    pub fn set_remote_peer(mut self, peer: RemotePeer) -> ConnectionBuilder {
+        self.remote_peer = Some(peer);
         self
     }
 
@@ -98,9 +117,7 @@ impl ConnectionBuilder {
         mut self,
         local_end_nets: Arc<RwLock<HashSet<NetworkId>>>,
     ) -> ConnectionBuilder {
-        self.priv_conn_builder = self
-            .priv_conn_builder
-            .set_local_end_networks(local_end_nets);
+        self.local_end_networks = Some(local_end_nets);
         self
     }
 
@@ -117,9 +134,7 @@ impl ConnectionBuilder {
 
 #[derive(Default)]
 pub struct ConnectionPrivateBuilder {
-    pub local_peer:         Option<P2PPeer>,
-    pub remote_peer:        Option<RemotePeer>,
-    pub local_end_networks: Option<Arc<RwLock<HashSet<NetworkId>>>>,
+    pub local_peer: Option<P2PPeer>,
 
     // Sessions
     pub socket:       Option<TcpStream>,
@@ -131,17 +146,8 @@ pub struct ConnectionPrivateBuilder {
 
 impl ConnectionPrivateBuilder {
     pub fn build(self) -> Fallible<ConnectionPrivate> {
-        if let (
-            Some(local_peer),
-            Some(remote_peer),
-            Some(local_end_networks),
-            Some(socket),
-            Some(key_pair),
-            Some(noise_params),
-        ) = (
+        if let (Some(local_peer), Some(socket), Some(key_pair), Some(noise_params)) = (
             self.local_peer,
-            self.remote_peer,
-            self.local_end_networks,
             self.socket,
             self.key_pair,
             self.noise_params,
@@ -155,17 +161,9 @@ impl ConnectionPrivateBuilder {
 
             Ok(ConnectionPrivate {
                 conn_ref: None,
-                remote_peer,
-                remote_end_networks: HashSet::new(),
-                local_end_networks,
                 socket,
                 message_sink: FrameSink::new(Arc::clone(&handshaker)),
                 message_stream: FrameStream::new(peer_type, handshaker),
-                last_seen: AtomicU64::new(get_current_stamp()),
-                failed_pkts: Default::default(),
-                sent_handshake: Default::default(),
-                sent_ping: Default::default(),
-                last_latency_measured: Default::default(),
             })
         } else {
             Err(failure::Error::from(MissingFieldsConnectionBuilder))
@@ -184,19 +182,6 @@ impl ConnectionPrivateBuilder {
 
     pub fn set_local_peer(mut self, p: P2PPeer) -> ConnectionPrivateBuilder {
         self.local_peer = Some(p);
-        self
-    }
-
-    pub fn set_remote_peer(mut self, p: RemotePeer) -> ConnectionPrivateBuilder {
-        self.remote_peer = Some(p);
-        self
-    }
-
-    pub fn set_local_end_networks(
-        mut self,
-        local_end_nets: Arc<RwLock<HashSet<NetworkId>>>,
-    ) -> ConnectionPrivateBuilder {
-        self.local_end_networks = Some(local_end_nets);
         self
     }
 
