@@ -26,92 +26,140 @@ constraint RecorderC where
     sendInc :: Prod.Pair {address} Int64 ::
     sendDec :: Prod.Pair {address} Int64 ::
 
-definition mkReturnCounter = Prod.Pair [ModelCnt] [Prim.Transaction]
+def mkReturnCounter :: ModelCnt -> Prim.Transaction -> Prod.Pair ModelCnt Prim.Transaction
+def mkReturnCounter = Prod.Pair [ModelCnt, Prim.Transaction]
 
-definition mkReturnRecorder = Prod.Pair [ModelRec] [Prim.Transaction]
+def mkReturnRecorder :: ModelRec -> Prim.Transaction -> Prod.Pair ModelRec Prim.Transaction
+def mkReturnRecorder = Prod.Pair [ModelRec, Prim.Transaction]
 
-definition recorder (m :: ModelCnt) =
+def recorder :: ModelCnt -> <address>
+def recorder (m :: ModelCnt) =
    case m of
-     ModelCnt _ d -> d
+     ModelCnt (_ :: Int64) (d :: <address>) -> d
 
-definition balance (m :: ModelCnt) =
+def balance :: ModelCnt -> Int64
+def balance (m :: ModelCnt) =
    case m of
-     ModelCnt x _ -> x
+     ModelCnt (x :: Int64) (_ :: <address>) -> x
 
-definition addAmountModel (x :: Int64) (m :: ModelCnt) =
-  ModelCnt (Prim.plusInt64 x (balance m)) (recorder m)
+def addAmountModel :: Int64 -> ModelCnt -> ModelCnt
+def addAmountModel (x :: Int64) (m :: ModelCnt) =
+  let bal :: Int64 = balance m in
+  let plus :: Int64 = Prim.plusInt64 bal x in
+  let rec :: <address> = recorder m in
+  ModelCnt plus rec
 
-definition decAmountModel (x :: Int64) (m :: ModelCnt) =
-  ModelCnt (Prim.minusInt64 (balance m) x) (recorder m)
+def decAmountModel :: Int64 -> ModelCnt -> ModelCnt
+def decAmountModel (x :: Int64) (m :: ModelCnt) =
+  let bal :: Int64 = balance m in
+  let minus :: Int64 = Prim.minusInt64 bal x in
+  let rec :: <address> = recorder m in
+  ModelCnt minus rec
 
-definition lookupAmount (addr :: {address}) (dict :: Map.Map {address} Int64) =
-  case AccountAddressMap.lookup [Int64] addr dict of
-    Maybe.Just x -> Maybe.Just [Int64] x
-    Maybe.Nothing -> Maybe.Nothing [Int64]
+def lookupAmount :: {address} -> Map.Map {address} Int64 -> Maybe.Maybe Int64
+def lookupAmount = AccountAddressMap.lookup [Int64]
 
-definition accounts (m :: ModelRec) =
+def aamInsert :: {address} -> Int64 -> Map.Map {address} Int64 -> Map.Map {address} Int64
+def aamInsert = AccountAddressMap.insert [Int64]
+
+
+def accounts :: ModelRec -> Map.Map {address} Int64
+def accounts (m :: ModelRec) =
   case m of
-    ModelRec x -> x
+    ModelRec (x :: Map.Map {address} Int64) -> x
 
-definition addAmount (addr :: {address}) (dict :: Map.Map {address} Int64) (x :: Int64) =
-  case lookupAmount addr dict of
-     Maybe.Just y -> AccountAddressMap.insert [Int64] addr (Prim.plusInt64 y x) dict
-     Maybe.Nothing -> AccountAddressMap.insert [Int64] addr x dict
+def addAmount :: {address} -> Map.Map {address} Int64 -> Int64 -> Map.Map {address} Int64
+def addAmount (addr :: {address}) (dict :: Map.Map {address} Int64) (x :: Int64) =
+  let lkp :: Maybe.Maybe Int64 = lookupAmount addr dict in
+  case lkp of
+     Maybe.Just (y :: Int64) -> let plus :: Int64 = Prim.plusInt64 y x in aamInsert addr plus dict
+     Maybe.Nothing -> aamInsert addr x dict
 
-definition decAmount (addr :: {address}) (dict :: Map.Map {address} Int64) (x :: Int64) =
-  case lookupAmount addr dict of
-     Maybe.Just y -> AccountAddressMap.insert [Int64] addr (Prim.minusInt64 y x) dict
-     Maybe.Nothing -> AccountAddressMap.insert [Int64] addr (Prim.minusInt64 0 x) dict
+def decAmount :: {address} -> Map.Map {address} Int64 -> Int64 -> Map.Map {address} Int64
+def decAmount (addr :: {address}) (dict :: Map.Map {address} Int64) (x :: Int64) =
+  let lkp :: Maybe.Maybe Int64 = lookupAmount addr dict in
+  case lkp of
+     Maybe.Just (y :: Int64) -> let minus :: Int64 = Prim.minusInt64 y x in aamInsert addr minus dict
+     Maybe.Nothing -> let minus :: Int64 = Prim.minusInt64 0 x in aamInsert addr minus dict
 
-definition checkAmount (addr :: {address}) (dict :: Map.Map {address} Int64) (x :: Int64) =
-  case lookupAmount addr dict of
-    Maybe.Just y -> case Prim.compareInt64 x y of
-                      Ord.GT -> Maybe.Nothing [Int64]
-                      _ -> Maybe.Just [Int64] y
+def checkAmount :: {address} -> Map.Map {address} Int64 -> Int64 -> Maybe.Maybe Int64
+def checkAmount (addr :: {address}) (dict :: Map.Map {address} Int64) (x :: Int64) =
+  let lkp :: Maybe.Maybe Int64 = lookupAmount addr dict in
+  case lkp of
+    Maybe.Just (y :: Int64) ->
+      let cmp :: Ord.Ordering = Prim.compareInt64 x y
+      in case cmp of
+           Ord.GT -> Maybe.Nothing [Int64]
+           _ -> let just :: Int64 -> Maybe.Maybe Int64 = Maybe.Just [Int64] in just y
     Maybe.Nothing -> Maybe.Nothing [Int64]
+
+def pairAddrInt :: {address} -> Int64 -> Prod.Pair {address} Int64
+def pairAddrInt = Prod.Pair [{address}, Int64]
 
 contract Counter where
 
   init (ia :: Prod.Pair Int64 <address>) (c :: Blockchain.InitContext) (addr :: {address}) (amount :: Amount) =
-    ModelCnt (Prod.fst [Int64] [<address>] ia) (Prod.snd [Int64] [<address>] ia)
+    let fst :: Prod.Pair Int64 <address> -> Int64 = Prod.fst [Int64, <address>] in
+    let snd :: Prod.Pair Int64 <address> -> <address> = Prod.snd [Int64, <address>] in
+    let initAmount :: Int64 = fst ia in
+    let recorder :: <address> = snd ia in
+    ModelCnt initAmount recorder
 
   receive (c :: Blockchain.ReceiveContext) (model :: ModelCnt) (callerOr :: Blockchain.Caller) (amount :: Amount) (msg :: Maybe.Maybe MsgCnt) =
     case msg of
       Maybe.Nothing -> mkReturnCounter model Prim.TxNone
-      Maybe.Just msg' ->
+      Maybe.Just (msg' :: MsgCnt) ->
         case callerOr of
-          Blockchain.CallerAccount caller ->
-            case msg' of
-                Inc n -> let inst = recorder model
-                         in case castRecorderC inst of
-                              Maybe.Just i -> mkReturnCounter (addAmountModel n model) (sendInc i (Prod.Pair [{address}] [Int64] caller n) amount )
-                              Maybe.Nothing -> mkReturnCounter model Prim.TxReject
-                Dec n -> let inst = recorder model
-                         in case castRecorderC inst of
-                              Maybe.Just i -> let d = accounts (getAccounts i)
-                                              in case checkAmount caller d n of
-                                                   Maybe.Just y -> mkReturnCounter (decAmountModel n model) (sendDec i (Prod.Pair [{address}] [Int64] caller n) amount)
-                                                   Maybe.Nothing -> mkReturnCounter model Prim.TxReject
-                              Maybe.Nothing -> mkReturnCounter model Prim.TxReject
+          Blockchain.CallerAccount (caller :: {address}) ->
+            let inst :: <address> = recorder model in
+            let minstance :: Maybe.Maybe RecorderC = castRecorderC inst in
+            case minstance of
+              Maybe.Nothing -> mkReturnCounter model Prim.TxReject
+              Maybe.Just (i :: RecorderC) ->
+                case msg' of
+                  Inc (n :: Int64) ->
+                      let newAmount :: ModelCnt = addAmountModel n model in
+                      let pair :: Prod.Pair {address} Int64 = pairAddrInt caller n in
+                      let recordTx :: Prim.Transaction = sendInc i pair amount in
+                      mkReturnCounter newAmount recordTx
+                  Dec (n :: Int64) ->
+                      let ga :: ModelRec = getAccounts i in
+                      let d :: Map.Map {address} Int64 = accounts ga in
+                      let check :: Maybe.Maybe Int64 = checkAmount caller d n in
+                      case check of
+                        Maybe.Just (_ :: Int64) ->
+                          let newAmount :: ModelCnt = decAmountModel n model in
+                          let pair :: Prod.Pair {address} Int64 = pairAddrInt caller n in
+                          let tx :: Prim.Transaction = sendDec i pair amount in
+                          mkReturnCounter newAmount tx
+                        Maybe.Nothing -> mkReturnCounter model Prim.TxReject
 
-          Blockchain.CallerContract _ -> mkReturnCounter model Prim.TxReject
+          Blockchain.CallerContract (_ :: <address>) -> mkReturnCounter model Prim.TxReject
 
 
 contract Recorder where
 
   init (params :: Unit.Unit) (c :: Blockchain.InitContext) (addr :: {address}) (amount :: Amount) =
-      ModelRec (AccountAddressMap.empty [Int64])
+      let empty :: Map.Map {address} Int64 = AccountAddressMap.empty [Int64] in
+      ModelRec empty
 
   receive (c :: Blockchain.ReceiveContext) (model :: ModelRec) (caller :: Blockchain.Caller) (amount :: Amount) (msg :: Maybe.Maybe MsgRec) =
       case msg of
         Maybe.Nothing -> mkReturnRecorder model Prim.TxReject
-        Maybe.Just msg ->
+        Maybe.Just (msg :: MsgRec) ->
           case caller of
-            Blockchain.CallerAccount _ -> mkReturnRecorder model Prim.TxReject
-            Blockchain.CallerContract _ ->
+            Blockchain.CallerAccount (_ :: {address}) -> mkReturnRecorder model Prim.TxReject
+            Blockchain.CallerContract (_ :: <address>) ->
+               let accs :: Map.Map {address} Int64 = accounts model in
                case msg of
-                 Note addr x -> mkReturnRecorder (ModelRec (addAmount addr (accounts model) x)) Prim.TxNone
-                 Withdraw addr x -> mkReturnRecorder (ModelRec (decAmount addr (accounts model) x)) Prim.TxNone
+                 Note (addr :: {address}) (x :: Int64) ->
+                   let newAmounts :: Map.Map {address} Int64 = addAmount addr accs x in
+                   let newModel :: ModelRec = ModelRec newAmounts in
+                   mkReturnRecorder newModel Prim.TxNone
+                 Withdraw (addr :: {address}) (x :: Int64) ->
+                   let newAmounts :: Map.Map {address} Int64 = decAmount addr accs x in
+                   let newModel :: ModelRec = ModelRec newAmounts in
+                   mkReturnRecorder newModel Prim.TxNone
 
   implements RecorderC where
     getters
@@ -120,7 +168,7 @@ contract Recorder where
     senders
       sendInc (r :: Prod.Pair {address} Int64) =
         case r of
-           Prod.Pair a i -> Note a i
+           Prod.Pair (a :: {address}) (i :: Int64) -> Note a i
       sendDec (r :: Prod.Pair {address} Int64) =
         case r of
-           Prod.Pair a i -> Withdraw a i
+           Prod.Pair (a :: {address}) (i :: Int64) -> Withdraw a i

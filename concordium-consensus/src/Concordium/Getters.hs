@@ -9,6 +9,7 @@ import Lens.Micro.Platform hiding ((.=))
 
 import Concordium.Kontrol.BestBlock
 import Concordium.Skov
+import Concordium.Skov.Update (isAncestorOf)
 
 import qualified Concordium.Scheduler.Types as AT
 import Concordium.GlobalState.BlockState(BlockPointerData(..))
@@ -20,6 +21,8 @@ import Concordium.GlobalState.Information(jsonStorable)
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.Block
+import Concordium.GlobalState.Basic.Block
+import Concordium.GlobalState.Basic.BlockState
 import Concordium.Types.HashableTo
 import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.GlobalState.Instances
@@ -92,6 +95,7 @@ getAccountInfo hash sfsRef addr = runStateQuery sfsRef $
             Just acc -> return $ object ["accountNonce" .= let Nonce n = (acc ^. T.accountNonce) in n
                                         ,"accountAmount" .= toInteger (acc ^. T.accountAmount)
                                         ,"accountCredentials" .= (acc ^. accountCredentials)
+                                        ,"accountDelegation" .= (toInteger <$> (acc ^. T.accountStakeDelegate))
                                         ]
 
 getContractInfo :: (SkovStateQueryable z m) => BlockHash -> z -> AT.ContractAddress -> IO Value
@@ -228,6 +232,24 @@ getBranches sfsRef = runStateQuery sfsRef $ do
             return $ object ["blockHash" .= hsh lastFin, "children" .= Map.findWithDefault [] lastFin brt]
     where
         up childrenMap = foldr (\b -> at (bpParent b) . non [] %~ (object ["blockHash" .= hsh b, "children" .= Map.findWithDefault [] b childrenMap] :)) Map.empty
+
+getBlockData :: (SkovStateQueryable z m, TS.TreeStateMonad m, BS.BlockPointer m ~ BlockPointer, TS.PendingBlock m ~ PendingBlock)
+    => z -> BlockHash -> IO (Maybe Block)
+getBlockData sfsRef bh = runStateQuery sfsRef $
+            TS.getBlockStatus bh <&> \case
+                Just (TS.BlockAlive bp) -> Just (_bpBlock bp)
+                Just (TS.BlockFinalized bp _) -> Just (_bpBlock bp)
+                Just (TS.BlockPending pb) -> Just $ NormalBlock (pbBlock pb)
+                Just (TS.BlockDead) -> Nothing
+                Nothing -> Nothing
+
+getBlockDescendant :: (SkovStateQueryable z m, BS.BlockPointer m ~ BlockPointer) => z -> BlockHash -> BlockHeight -> IO (Maybe Block)
+getBlockDescendant sfsRef ancestor distance = runStateQuery sfsRef $
+            resolveBlock ancestor >>= \case
+                Nothing -> return Nothing
+                Just bp -> do
+                    candidates <- getBlocksAtHeight (bpHeight bp + distance)
+                    return $ _bpBlock <$> candidates ^? each . filtered (bp `isAncestorOf`)
 
 getBlockFinalization :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> BlockHash -> IO (Maybe FinalizationRecord)
 getBlockFinalization sfsRef bh = runStateQuery sfsRef $ do
