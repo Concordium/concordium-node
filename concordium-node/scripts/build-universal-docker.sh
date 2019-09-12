@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -e
+
 if [ "$#" -ne 1 ]
 then
   echo "Usage: ./build-universal-docker.sh VERSION-TAG"
