@@ -1,4 +1,4 @@
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/universal:111 AS wrapper
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/universal:192549843005.dkr.ecr.eu-west-1.amazonaws.com AS wrapper
 RUN ls /build-project
 
 FROM ubuntu:19.10
