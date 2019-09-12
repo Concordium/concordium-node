@@ -260,8 +260,7 @@ fn handle_ping(conn: &Connection) -> Fallible<()> {
         priv_conn_reader.update_last_seen();
         let remote_peer = priv_conn_reader
             .remote_peer()
-            .peer()
-            .expect("handle_ping was called before the handshake!");
+            .post_handshake_or("handle_ping was called before the handshake!")?;
 
         NetworkMessage::NetworkResponse(
             NetworkResponse::Pong(remote_peer),
@@ -302,8 +301,7 @@ fn handle_find_node_req(node: &P2PNode, source: P2PPeer, _target_node: P2PNodeId
 
         let remote_peer = priv_conn_reader
             .remote_peer()
-            .peer()
-            .expect("handle_find_node_req was called before the handshake!");
+            .post_handshake_or("handle_find_node_req was called before the handshake!")?;
         let nodes = safe_read!(priv_conn_reader.conn().handler().connection_handler.buckets)?
             .buckets[0] // The Buckets object is never empty
             .clone()
@@ -353,8 +351,7 @@ fn handle_get_peers_req(
 
         let remote_peer = priv_conn_reader
             .remote_peer()
-            .peer()
-            .expect("handle_get_peers_req was called before the handshake!");
+            .post_handshake_or("handle_get_peers_req was called before the handshake!")?;
         let nodes = if priv_conn_reader.conn().handler().peer_type() == PeerType::Bootstrapper {
             safe_read!(priv_conn_reader.conn().handler().connection_handler.buckets)?
                 .get_all_nodes(Some(&source), networks)
@@ -449,8 +446,7 @@ fn handle_join_network_req(node: &P2PNode, source: P2PPeer, network: NetworkId) 
         let priv_conn_reader = read_or_die!(conn.dptr);
         let remote_peer = priv_conn_reader
             .remote_peer()
-            .peer()
-            .expect("handle_join_network_req was called before the handshake!");
+            .post_handshake_or("handle_join_network_req was called before the handshake!")?;
 
         safe_write!(conn.handler().connection_handler.buckets)?
             .update_network_ids(&remote_peer, priv_conn_reader.remote_end_networks.clone());
@@ -486,8 +482,7 @@ fn handle_leave_network_req(node: &P2PNode, source: P2PPeer, network: NetworkId)
         let priv_conn_reader = read_or_die!(conn.dptr);
         let remote_peer = priv_conn_reader
             .remote_peer()
-            .peer()
-            .expect("handle_leave_network_req was called before the handshake!");
+            .post_handshake_or("handle_leave_network_req was called before the handshake!")?;
 
         safe_write!(conn.handler().connection_handler.buckets)?
             .update_network_ids(&remote_peer, priv_conn_reader.remote_end_networks.clone());

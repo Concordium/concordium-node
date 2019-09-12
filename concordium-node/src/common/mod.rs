@@ -14,7 +14,7 @@ pub use self::{
 pub mod fails;
 
 use chrono::prelude::*;
-use failure::{bail, Error, Fallible};
+use failure::{bail, err_msg, Error, Fallible};
 use std::{
     fmt,
     net::{IpAddr, SocketAddr},
@@ -88,10 +88,10 @@ impl RemotePeer {
         }
     }
 
-    pub fn post_handshake_peer_or_else<E, F: FnOnce() -> E>(self, err: F) -> Result<P2PPeer, E> {
+    pub fn post_handshake_or(self, msg: &'static str) -> Fallible<P2PPeer> {
         match self {
             RemotePeer::PostHandshake(v) => Ok(v),
-            _ => Err(err()),
+            _ => Err(err_msg(msg)),
         }
     }
 

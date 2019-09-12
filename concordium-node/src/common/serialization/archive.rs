@@ -1,7 +1,7 @@
 use crate::common::{P2PPeer, RemotePeer};
 
 use concordium_common::hybrid_buf::HybridBuf;
-use failure::{err_msg, Fallible};
+use failure::Fallible;
 
 use std::str;
 
@@ -54,9 +54,9 @@ pub trait WriteArchive: Sized + std::io::Write {
 /// deserialized in a composed data type like: any struct, Vec, etc.
 pub trait ReadArchive: Sized + std::io::Read {
     fn post_handshake_peer(&self) -> Fallible<P2PPeer> {
-        self.remote_peer().clone().post_handshake_peer_or_else(|| {
-            err_msg("Message requires handshake to be completed first")
-        })
+        self.remote_peer()
+            .clone()
+            .post_handshake_or("Message requires handshake to be completed first")
     }
 
     fn remote_peer(&self) -> &RemotePeer;
