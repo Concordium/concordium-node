@@ -24,7 +24,9 @@ type ModuleIndex = Word64
 -- network.
 data Module = Module {
     moduleInterface :: !(Interface Core.UA),
-    moduleValueInterface :: !(ValueInterface Void),
+    moduleValueInterface :: !(UnlinkedValueInterface Void),
+    moduleLinkedDefs :: Map.HashMap Core.Name (LinkedExprWithDeps Void),
+    moduleLinkedContracts :: Map.HashMap Core.TyName (LinkedContractValue Void),
     moduleIndex :: !ModuleIndex,
     moduleSource :: Core.Module Core.UA
 }
@@ -84,7 +86,31 @@ unsafePutInterfaces mref iface viface source m =
              _runningHash = H.hashLazy $ runPutLazy $ put (_runningHash m) <> put mref
             }
 
--- |Get a module.
+-- |NB: This method assumes the module with given reference is already in the
+-- database, and also that linked code does not affect the hash of the global
+-- state.
+putLinkedExpr :: Core.ModuleRef -> Core.Name -> LinkedExprWithDeps Void -> Modules -> Modules
+putLinkedExpr mref n linked mods =
+  mods & modules %~ flip Map.adjust mref (\Module{..} -> Module{moduleLinkedDefs=Map.insert n linked moduleLinkedDefs,..})
+
+getLinkedExpr :: Core.ModuleRef -> Core.Name -> Modules -> Maybe (LinkedExprWithDeps Void)
+getLinkedExpr mref n mods = do
+  Module{..} <- mods ^. modules . at mref
+  Map.lookup n moduleLinkedDefs
+
+-- |NB: This method assumes the module with given reference is already in the
+-- database, and also that linked code does not affect the hash of the global
+-- state.
+putLinkedContract :: Core.ModuleRef -> Core.TyName -> LinkedContractValue Void -> Modules -> Modules
+putLinkedContract mref n linked mods =
+  mods & modules %~ flip Map.adjust mref (\Module{..} -> Module{moduleLinkedContracts=Map.insert n linked moduleLinkedContracts,..})
+
+getLinkedContract :: Core.ModuleRef -> Core.TyName -> Modules -> Maybe (LinkedContractValue Void)
+getLinkedContract mref n mods = do
+  Module{..} <- mods ^. modules . at mref
+  Map.lookup n moduleLinkedContracts
+
+-- |Get a full module by name.
 getModule :: Core.ModuleRef -> Modules -> Maybe Module
 getModule ref mods = Map.lookup ref (_modules mods)
 
