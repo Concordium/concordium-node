@@ -3,7 +3,7 @@ use crate::{
     common::{
         get_current_stamp, serialization::serialize_into_memory, P2PNodeId, P2PPeer, PeerType,
     },
-    connection::{Connection, ConnectionPrivate, MessageSendingPriority, P2PEvent},
+    connection::{Connection, MessageSendingPriority, P2PEvent},
     network::{
         request::RequestedElementType, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType,
         NetworkRequest, NetworkResponse,
@@ -13,6 +13,8 @@ use crate::{
     utils::{self, GlobalStateSenders},
 };
 use concordium_common::{cache::Cache, read_or_die, write_or_die, PacketType};
+
+use circular_queue::CircularQueue;
 use failure::Fallible;
 
 use std::{
@@ -51,7 +53,7 @@ pub fn handle_incoming_message(node_ref: &P2PNode, conn: &Connection, full_msg: 
             }
         }
         NetworkMessage::NetworkRequest(NetworkRequest::FindNode(source, node), ..) => {
-            if let Err(e) = handle_find_node_req(node_ref, *source, *node) {
+            if let Err(e) = handle_find_node_req(conn, *node) {
                 error!(
                     "Couldn't handle a FindNode request from peer {}: {}",
                     source.id, e
@@ -59,7 +61,7 @@ pub fn handle_incoming_message(node_ref: &P2PNode, conn: &Connection, full_msg: 
             }
         }
         NetworkMessage::NetworkResponse(NetworkResponse::FindNode(source, ref peers), ..) => {
-            if let Err(e) = handle_find_node_resp(node_ref, *source, peers) {
+            if let Err(e) = handle_find_node_resp(conn, peers) {
                 error!(
                     "Couldn't handle a FindNode response from peer {}: {}",
                     source.id, e
@@ -67,7 +69,7 @@ pub fn handle_incoming_message(node_ref: &P2PNode, conn: &Connection, full_msg: 
             }
         }
         NetworkMessage::NetworkRequest(NetworkRequest::GetPeers(source, ref networks), ..) => {
-            if let Err(e) = handle_get_peers_req(node_ref, *source, networks) {
+            if let Err(e) = handle_get_peers_req(conn, *source, networks) {
                 error!(
                     "Couldn't handle a GetPeers request from peer {}: {}",
                     source.id, e
@@ -75,7 +77,7 @@ pub fn handle_incoming_message(node_ref: &P2PNode, conn: &Connection, full_msg: 
             }
         }
         NetworkMessage::NetworkResponse(NetworkResponse::PeerList(source, ref peers), ..) => {
-            if let Err(e) = handle_peer_list_resp(node_ref, *source, peers) {
+            if let Err(e) = handle_peer_list_resp(node_ref, conn, *source, peers) {
                 error!(
                     "Couldn't handle a PeerList response from peer {}: {}",
                     source.id, e
@@ -83,7 +85,7 @@ pub fn handle_incoming_message(node_ref: &P2PNode, conn: &Connection, full_msg: 
             }
         }
         NetworkMessage::NetworkRequest(NetworkRequest::JoinNetwork(source, network), ..) => {
-            if let Err(e) = handle_join_network_req(node_ref, *source, *network) {
+            if let Err(e) = handle_join_network_req(conn, *network) {
                 error!(
                     "Couldn't handle a JoinNetwork request from peer {}: {}",
                     source.id, e
@@ -91,7 +93,7 @@ pub fn handle_incoming_message(node_ref: &P2PNode, conn: &Connection, full_msg: 
             }
         }
         NetworkMessage::NetworkRequest(NetworkRequest::LeaveNetwork(source, network), ..) => {
-            if let Err(e) = handle_leave_network_req(node_ref, *source, *network) {
+            if let Err(e) = handle_leave_network_req(conn, *source, *network) {
                 error!(
                     "Couldn't handle a LeaveNetwork request from peer {}: {}",
                     source.id, e
@@ -110,38 +112,25 @@ pub fn handle_incoming_message(node_ref: &P2PNode, conn: &Connection, full_msg: 
         NetworkMessage::NetworkRequest(NetworkRequest::Retransmit(..), ..) => {
             // handled by handle_retransmit_req
         }
-        NetworkMessage::InvalidMessage => {
-            // handle_invalid_network_msg()
-        }
+        NetworkMessage::InvalidMessage => handle_invalid_network_msg(conn),
     }
 }
 
-fn get_peers_connection(node: &P2PNode, peer_id: P2PNodeId) -> Fallible<Connection> {
-    if let Some(conn) = node.find_connection_by_id(peer_id) {
-        Ok(conn)
-    } else {
-        Err(format_err!(
-            "Can't find the connection for peer id {}!",
-            peer_id
-        ))
-    }
-}
-
-fn send_handshake_and_ping(conn: &Connection, priv_conn: &mut ConnectionPrivate) -> Fallible<()> {
-    let (my_nets, local_peer) = {
-        let remote_end_networks = priv_conn.remote_end_networks.clone();
-        let local_peer = conn.handler().self_peer;
-        (remote_end_networks, local_peer)
-    };
+fn send_handshake_and_ping(conn: &Connection) -> Fallible<()> {
+    let local_peer = conn.handler().self_peer;
 
     let handshake_msg = NetworkMessage::NetworkResponse(
-        NetworkResponse::Handshake(local_peer, my_nets, vec![]),
+        NetworkResponse::Handshake(
+            local_peer,
+            read_or_die!(conn.remote_end_networks).to_owned(),
+            vec![],
+        ),
         Some(get_current_stamp()),
         None,
     );
 
     // Ignore returned value because it is an asynchronous operation.
-    let _ = priv_conn.async_send(
+    conn.async_send(
         serialize_into_memory(&handshake_msg, 128)?,
         MessageSendingPriority::High,
     )?;
@@ -154,7 +143,7 @@ fn send_handshake_and_ping(conn: &Connection, priv_conn: &mut ConnectionPrivate)
 
     // Ignore returned value because it is an asynchronous operation, and ship out
     // as normal priority to ensure proper queueing here.
-    let _ = priv_conn.async_send(
+    conn.async_send(
         serialize_into_memory(&ping_msg, 64)?,
         MessageSendingPriority::Normal,
     )?;
@@ -179,8 +168,7 @@ fn send_peer_list(conn: &Connection, sender: P2PPeer, nets: &HashSet<NetworkId>)
             None,
         );
 
-        let mut conn_writer = write_or_die!(conn.dptr);
-        let _ = conn_writer.async_send(
+        conn.async_send(
             serialize_into_memory(&peer_list_msg, 256)?,
             MessageSendingPriority::Normal,
         )?;
@@ -199,17 +187,10 @@ fn handle_handshake_req(
         write_or_die!(conn.handler().connection_handler.to_disconnect).push_back(source.id());
     }
 
-    {
-        let mut priv_conn_mut = write_or_die!(conn.dptr);
-
-        priv_conn_mut.add_remote_end_networks(networks);
-        priv_conn_mut.promote_to_post_handshake(source.id(), source.addr)?;
-
-        send_handshake_and_ping(&conn, &mut priv_conn_mut)?;
-
-        priv_conn_mut.update_last_seen();
-        priv_conn_mut.set_measured_ping_sent();
-    }
+    conn.add_remote_end_networks(networks);
+    conn.promote_to_post_handshake(source.id(), source.addr)?;
+    send_handshake_and_ping(&conn)?;
+    conn.set_measured_ping_sent();
 
     write_or_die!(conn.handler().connection_handler.buckets)
         .insert_into_bucket(&source, networks.to_owned());
@@ -228,38 +209,32 @@ fn handle_handshake_resp(
 ) -> Fallible<()> {
     debug!("Got a Handshake response");
 
-    {
-        let mut priv_conn_mut = write_or_die!(conn.dptr);
-        priv_conn_mut.add_remote_end_networks(networks);
-        priv_conn_mut.promote_to_post_handshake(source.id(), source.addr)?;
-    }
-    {
-        read_or_die!(conn.dptr)
-            .sent_handshake
-            .store(get_current_stamp(), Ordering::SeqCst);
+    conn.add_remote_end_networks(networks);
+    conn.promote_to_post_handshake(source.id(), source.addr)?;
 
-        let bucket_sender = P2PPeer::from(source.peer_type(), source.id(), source.addr);
-        if source.peer_type() != PeerType::Bootstrapper {
-            write_or_die!(conn.handler().connection_handler.buckets)
-                .insert_into_bucket(&bucket_sender, networks.clone());
-        }
+    conn.sent_handshake
+        .store(get_current_stamp(), Ordering::SeqCst);
 
-        if let Some(ref service) = conn.handler().stats_export_service {
-            service.peers_inc();
-        };
+    let bucket_sender = P2PPeer::from(source.peer_type(), source.id(), source.addr);
+    if source.peer_type() != PeerType::Bootstrapper {
+        write_or_die!(conn.handler().connection_handler.buckets)
+            .insert_into_bucket(&bucket_sender, networks.clone());
     }
+
+    if let Some(ref service) = conn.handler().stats_export_service {
+        service.peers_inc();
+    };
 
     Ok(())
 }
 
 fn handle_ping(conn: &Connection) -> Fallible<()> {
+    if !conn.is_post_handshake() {
+        bail!("handle_ping was called before the handshake!")
+    }
+
     let pong_msg = {
-        let priv_conn_reader = read_or_die!(conn.dptr);
-        priv_conn_reader.update_last_seen();
-        let remote_peer = priv_conn_reader
-            .remote_peer()
-            .peer()
-            .expect("handle_ping was called before the handshake!");
+        let remote_peer = conn.remote_peer().peer().unwrap();
 
         NetworkMessage::NetworkResponse(
             NetworkResponse::Pong(remote_peer),
@@ -268,42 +243,35 @@ fn handle_ping(conn: &Connection) -> Fallible<()> {
         )
     };
 
-    let mut conn_writer = write_or_die!(conn.dptr);
-    conn_writer
-        .async_send(
-            serialize_into_memory(&pong_msg, 64)?,
-            MessageSendingPriority::High,
-        )
-        .map(|_bytes| ())
+    conn.async_send(
+        serialize_into_memory(&pong_msg, 64)?,
+        MessageSendingPriority::High,
+    )
+    .map(|_bytes| ())
 }
 
 fn handle_pong(conn: &Connection) -> Fallible<()> {
-    let ping: u64 = read_or_die!(conn.dptr).sent_ping.load(Ordering::SeqCst);
+    let ping: u64 = conn.sent_ping.load(Ordering::SeqCst);
     let curr: u64 = get_current_stamp();
 
     if curr >= ping {
-        write_or_die!(conn.dptr)
-            .last_latency_measured
+        conn.last_latency_measured
             .store(curr - ping, Ordering::SeqCst);
     }
 
     Ok(())
 }
 
-fn handle_find_node_req(node: &P2PNode, source: P2PPeer, _target_node: P2PNodeId) -> Fallible<()> {
+fn handle_find_node_req(conn: &Connection, _target_node: P2PNodeId) -> Fallible<()> {
     trace!("Got a FindNode request");
 
-    let conn = get_peers_connection(node, source.id)?;
-    let find_node_msg = {
-        let priv_conn_reader = read_or_die!(conn.dptr);
-        priv_conn_reader.update_last_seen();
+    if !conn.is_post_handshake() {
+        bail!("handle_find_node_req was called before the handshake!")
+    }
 
-        let remote_peer = priv_conn_reader
-            .remote_peer()
-            .peer()
-            .expect("handle_find_node_req was called before the handshake!");
-        let nodes = safe_read!(priv_conn_reader.conn().handler().connection_handler.buckets)?
-            .buckets[0] // The Buckets object is never empty
+    let find_node_msg = {
+        let remote_peer = conn.remote_peer().peer().unwrap();
+        let nodes = safe_read!(conn.handler().connection_handler.buckets)?.buckets[0] // The Buckets object is never empty
             .clone()
             .into_iter()
             .map(|node| node.peer)
@@ -316,19 +284,16 @@ fn handle_find_node_req(node: &P2PNode, source: P2PPeer, _target_node: P2PNodeId
         )
     };
 
-    let mut conn_writer = write_or_die!(conn.dptr);
-    conn_writer
-        .async_send(
-            serialize_into_memory(&find_node_msg, 256)?,
-            MessageSendingPriority::Normal,
-        )
-        .map(|_bytes| ())
+    conn.async_send(
+        serialize_into_memory(&find_node_msg, 256)?,
+        MessageSendingPriority::Normal,
+    )
+    .map(|_bytes| ())
 }
 
-fn handle_find_node_resp(node: &P2PNode, source: P2PPeer, nodes: &[P2PPeer]) -> Fallible<()> {
+fn handle_find_node_resp(conn: &Connection, nodes: &[P2PPeer]) -> Fallible<()> {
     trace!("Got a FindNode reponse");
 
-    let conn = get_peers_connection(node, source.id)?;
     let mut ref_buckets = safe_write!(conn.handler().connection_handler.buckets)?;
     for peer in nodes.iter() {
         ref_buckets.insert_into_bucket(peer, HashSet::new());
@@ -338,28 +303,23 @@ fn handle_find_node_resp(node: &P2PNode, source: P2PPeer, nodes: &[P2PPeer]) -> 
 }
 
 fn handle_get_peers_req(
-    node: &P2PNode,
+    conn: &Connection,
     source: P2PPeer,
     networks: &HashSet<NetworkId>,
 ) -> Fallible<()> {
     trace!("Got a GetPeers request");
 
-    let conn = get_peers_connection(node, source.id)?;
-    let peer_list_msg = {
-        let priv_conn_reader = read_or_die!(conn.dptr);
-        priv_conn_reader.update_last_seen();
+    if !conn.is_post_handshake() {
+        bail!("handle_get_peers_req was called before the handshake!")
+    }
 
-        let remote_peer = priv_conn_reader
-            .remote_peer()
-            .peer()
-            .expect("handle_get_peers_req was called before the handshake!");
-        let nodes = if priv_conn_reader.conn().handler().peer_type() == PeerType::Bootstrapper {
-            safe_read!(priv_conn_reader.conn().handler().connection_handler.buckets)?
+    let peer_list_msg = {
+        let remote_peer = conn.remote_peer().peer().unwrap();
+        let nodes = if conn.handler().peer_type() == PeerType::Bootstrapper {
+            safe_read!(conn.handler().connection_handler.buckets)?
                 .get_all_nodes(Some(&source), networks)
         } else {
-            priv_conn_reader
-                .conn()
-                .handler()
+            conn.handler()
                 .get_peer_stats()
                 .iter()
                 .filter(|element| element.peer_type == PeerType::Node)
@@ -376,19 +336,21 @@ fn handle_get_peers_req(
         )
     };
 
-    let mut conn_writer = write_or_die!(conn.dptr);
-    conn_writer
-        .async_send(
-            serialize_into_memory(&peer_list_msg, 256)?,
-            MessageSendingPriority::Normal,
-        )
-        .map(|_bytes| ())
+    conn.async_send(
+        serialize_into_memory(&peer_list_msg, 256)?,
+        MessageSendingPriority::Normal,
+    )
+    .map(|_bytes| ())
 }
 
-fn handle_peer_list_resp(node: &P2PNode, source: P2PPeer, peers: &[P2PPeer]) -> Fallible<()> {
+fn handle_peer_list_resp(
+    node: &P2PNode,
+    conn: &Connection,
+    source: P2PPeer,
+    peers: &[P2PPeer],
+) -> Fallible<()> {
     trace!("Received a PeerList response");
 
-    let conn = get_peers_connection(node, source.id)?;
     let mut locked_buckets = safe_write!(conn.handler().connection_handler.buckets)?;
     let mut new_peers = 0;
     let curr_peer_count = node
@@ -437,21 +399,22 @@ fn handle_peer_list_resp(node: &P2PNode, source: P2PPeer, peers: &[P2PPeer]) -> 
     Ok(())
 }
 
-fn handle_join_network_req(node: &P2PNode, source: P2PPeer, network: NetworkId) -> Fallible<()> {
+fn handle_join_network_req(conn: &Connection, network: NetworkId) -> Fallible<()> {
     trace!("Received a JoinNetwork request");
 
-    let conn = get_peers_connection(node, source.id)?;
-    write_or_die!(conn.dptr).add_remote_end_network(network);
+    if !conn.is_post_handshake() {
+        bail!("handle_join_network_req was called before the handshake!")
+    }
+
+    conn.add_remote_end_network(network);
 
     let (remote_peer, event_log) = {
-        let priv_conn_reader = read_or_die!(conn.dptr);
-        let remote_peer = priv_conn_reader
-            .remote_peer()
-            .peer()
-            .expect("handle_join_network_req was called before the handshake!");
+        let remote_peer = conn.remote_peer().peer().unwrap();
 
-        safe_write!(conn.handler().connection_handler.buckets)?
-            .update_network_ids(&remote_peer, priv_conn_reader.remote_end_networks.clone());
+        safe_write!(conn.handler().connection_handler.buckets)?.update_network_ids(
+            &remote_peer,
+            read_or_die!(conn.remote_end_networks).to_owned(),
+        );
 
         (
             remote_peer,
@@ -474,21 +437,26 @@ fn handle_join_network_req(node: &P2PNode, source: P2PPeer, network: NetworkId) 
     Ok(())
 }
 
-fn handle_leave_network_req(node: &P2PNode, source: P2PPeer, network: NetworkId) -> Fallible<()> {
+fn handle_leave_network_req(
+    conn: &Connection,
+    source: P2PPeer,
+    network: NetworkId,
+) -> Fallible<()> {
     trace!("Received a LeaveNetwork request");
 
-    let conn = get_peers_connection(node, source.id)?;
-    write_or_die!(conn.dptr).remove_remote_end_network(network);
+    if !conn.is_post_handshake() {
+        bail!("handle_leave_network_req was called before the handshake!")
+    }
+
+    conn.remove_remote_end_network(network);
 
     let event_log = {
-        let priv_conn_reader = read_or_die!(conn.dptr);
-        let remote_peer = priv_conn_reader
-            .remote_peer()
-            .peer()
-            .expect("handle_leave_network_req was called before the handshake!");
+        let remote_peer = conn.remote_peer().peer().unwrap();
 
-        safe_write!(conn.handler().connection_handler.buckets)?
-            .update_network_ids(&remote_peer, priv_conn_reader.remote_end_networks.clone());
+        safe_write!(conn.handler().connection_handler.buckets)?.update_network_ids(
+            &remote_peer,
+            read_or_die!(conn.remote_end_networks).to_owned(),
+        );
 
         conn.handler().connection_handler.event_log.clone()
     };
@@ -530,10 +498,12 @@ pub fn handle_retransmit_req(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn handle_incoming_packet(
     pac: &NetworkPacket,
     global_state_senders: &GlobalStateSenders,
     transactions_cache: &mut Cache<Arc<[u8]>>,
+    dedup_queue: &mut CircularQueue<[u8; 8]>,
     _stats_engine: &mut StatsEngine,
     _msg_count: &mut u64,
     _tps_test_enabled: bool,
@@ -577,6 +547,7 @@ pub fn handle_incoming_packet(
         pac.message.clone(),
         &global_state_senders,
         transactions_cache,
+        dedup_queue,
         is_broadcast,
     ) {
         error!(
@@ -586,24 +557,12 @@ pub fn handle_incoming_packet(
     }
 }
 
-// TODO: add source peer to the InvalidMessage
-// fn handle_invalid_network_msg(node: &P2PNode, source: P2PPeer) ->
-// Fallible<()> { debug!("Received an invalid network message!");
-//
-// {
-// let mut priv_conn_mut = write_or_die!(priv_conn);
-//
-// priv_conn_mut.failed_pkts += 1;
-// priv_conn_mut.update_last_seen();
-// }
-//
-// if let Some(ref service) = read_or_die!(priv_conn)
-// .conn()
-// .handler()
-// .stats_export_service
-// {
-// service.invalid_pkts_received_inc();
-// }
-//
-// Ok(())
-// }
+fn handle_invalid_network_msg(conn: &Connection) {
+    debug!("Received an invalid network message!");
+
+    conn.failed_pkts.fetch_add(1, Ordering::Relaxed);
+
+    if let Some(ref service) = conn.handler().stats_export_service {
+        service.invalid_pkts_received_inc();
+    }
+}

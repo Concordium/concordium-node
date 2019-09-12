@@ -1,6 +1,6 @@
 [package]
 name = "p2p_client"
-version = "0.1.54"
+version = "0.1.55"
 description = "Concordium P2P Client"
 authors = ["Concordium AG <info@concordium.com>"]
 exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*","**/**/.gitignore","**/**/.gitlab-ci.yml"]
@@ -28,7 +28,7 @@ profiling = ["concordium-consensus/profiling"]
 # Internal dependencies
 concordium-global-state = { path = "concordium-global-state" }
 concordium-consensus = { path = "concordium-consensus" }
-concordium-dns = { path = "concordium-dns" }
+concordium-dns = { git = "ssh://git@gitlab.com:22/Concordium/rust/concordium-dns.git", branch = "master" }
 concordium_crypto_ec_vrf_ed25519_sha256 = { package = "ec_vrf_ed25519_sha256", path = "deps/internal/crypto/rust-src/ec_vrf_ed25519_sha256" }
 concordium_crypto_eddsa_ed25519 = { package = "eddsa_ed25519", path = "deps/internal/crypto/rust-src/eddsa_ed25519" }
 concordium_crypto_sha2 = { package = "sha_2", path = "deps/internal/crypto/rust-src/sha_2" }

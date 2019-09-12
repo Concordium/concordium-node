@@ -13,10 +13,9 @@ stages:
   extends: .generic
   stage: test
   script:
+    - git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/
     - rustc --version && cargo --version
     - scripts/download-static-libs.sh
-    - ( cd concordium-dns && cargo test --all --color=always)
-    - ( cd concordium-global-state-sys && cargo test --all --color=always)
     - ( cd concordium-global-state && cargo test --all --color=always)
     - ( cd concordium-consensus && cargo test --all --color=always --features=static)
     - ( cd concordium-common && cargo test --all --color=always)
@@ -45,21 +44,19 @@ stages:
     - touch src/proto/concordium_p2p_rpc_grpc.rs
     - cargo fmt -- --color=always
     - ( cd concordium-global-state && cargo fmt -- --color=always)
-    - ( cd concordium-global-state-sys && cargo fmt -- --color=always)
     - ( cd concordium-consensus && cargo fmt -- --color=always)
     - ( cd concordium-common && cargo fmt -- --color=always)
-    - ( cd concordium-dns && cargo fmt -- --color=always)
     - test $(git ls-files --modified | grep -v ".dll$" | grep -v ".a$" | grep -v ".pc$" | grep -v ".def$" | grep -v "tar.gz" | wc -l) -eq 0 || (echo 'You have introduced some unformatted code:'; git ls-files --modified | grep -v ".dll$" | grep -v ".a$" | grep -v ".pc$" | grep -v ".def$" | grep -v "tar.gz" | sed 's/^/* /'; echo 'Please run `cargo fmt` and amend your MR.'; exit 1)
 
 "lint:clippy":
   extends: .generic-lint
   stage: lint
   script:
+    - git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/
     - rustc --version && cargo --version
     - scripts/download-static-libs.sh
     - rustup component add clippy
     - ( cd deps/internal/crypto/rust-src && cargo clean )
-    - ( cd concordium-global-state-sys && cargo clippy --color=always --all -- -Dclippy::all)
     - cargo clean
     - echo "Running clippy with without extra features"
     - cargo clippy --color=always --all --features=static -- -Dclippy::all
