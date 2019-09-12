@@ -2,7 +2,7 @@ use crate::{
     common::{get_current_stamp, P2PPeer, RemotePeer},
     connection::{
         connection_private::ConnectionPrivate, fails::MissingFieldsConnectionBuilder, Connection,
-        ConnectionStatus, FrameSink, FrameStream, HandshakeStreamSink,
+        FrameSink, FrameStream, HandshakeStreamSink,
     },
     network::NetworkId,
     p2p::P2PNode,
@@ -47,11 +47,13 @@ impl ConnectionBuilder {
 
             let conn = Connection {
                 handler_ref,
+                token,
+                dptr: Arc::new(RwLock::new(priv_conn)),
+                is_post_handshake: Default::default(),
+                is_closing: Default::default(),
                 messages_received: Default::default(),
                 messages_sent: Default::default(),
                 last_ping_sent: Arc::new(AtomicU64::new(curr_stamp)),
-                token,
-                dptr: Arc::new(RwLock::new(priv_conn)),
             };
 
             write_or_die!(conn.dptr).conn_ref = Some(Arc::pin(conn.clone()));
@@ -159,7 +161,6 @@ impl ConnectionPrivateBuilder {
                 socket,
                 message_sink: FrameSink::new(Arc::clone(&handshaker)),
                 message_stream: FrameStream::new(peer_type, handshaker),
-                status: ConnectionStatus::PreHandshake,
                 last_seen: AtomicU64::new(get_current_stamp()),
                 failed_pkts: Default::default(),
                 sent_handshake: Default::default(),

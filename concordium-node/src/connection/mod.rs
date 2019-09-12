@@ -7,13 +7,6 @@ pub use async_adapter::{FrameSink, FrameStream, HandshakeStreamSink, Readiness};
 
 mod p2p_event;
 
-#[derive(PartialEq, Clone, Copy)]
-pub enum ConnectionStatus {
-    PreHandshake,
-    PostHandshake,
-    Closing,
-}
-
 // If a message is labelled as having `High` priority it is always pushed to the
 // front of the queue in the sinks when sending, and otherwise to the back
 pub enum MessageSendingPriority {
@@ -50,7 +43,7 @@ use std::{
     net::SocketAddr,
     pin::Pin,
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, RwLock,
     },
 };
@@ -59,17 +52,15 @@ use std::{
 pub struct Connection {
     handler_ref: Pin<Arc<P2PNode>>,
 
+    pub token:             Token,
+    pub dptr:              Arc<RwLock<ConnectionPrivate>>,
+    pub is_post_handshake: Arc<AtomicBool>,
+    pub is_closing:        Arc<AtomicBool>,
+
     // Counters
     pub messages_sent:     Arc<AtomicU64>,
     pub messages_received: Arc<AtomicU64>,
     last_ping_sent:        Arc<AtomicU64>,
-
-    pub token: Token,
-
-    /// It stores internal info used in handles. In this way,
-    /// handler's function will only need two arguments: this shared object, and
-    /// the message which is going to be processed.
-    pub dptr: Arc<RwLock<ConnectionPrivate>>,
 }
 
 impl Connection {
@@ -132,13 +123,10 @@ impl Connection {
     }
 
     #[inline]
-    pub fn is_closed(&self) -> bool { read_or_die!(self.dptr).status == ConnectionStatus::Closing }
+    pub fn is_closed(&self) -> bool { self.is_closing.load(Ordering::SeqCst) }
 
     #[inline]
-    pub fn close(&self) { write_or_die!(self.dptr).status = ConnectionStatus::Closing; }
-
-    #[inline]
-    pub fn status(&self) -> ConnectionStatus { read_or_die!(self.dptr).status }
+    pub fn close(&self) { self.is_closing.store(true, Ordering::SeqCst) }
 
     #[inline]
     pub fn shutdown(&self) -> Fallible<()> { write_or_die!(self.dptr).shutdown() }

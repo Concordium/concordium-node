@@ -1,7 +1,6 @@
 use crate::{
     common::PeerType,
     configuration::Config,
-    connection::ConnectionStatus,
     network::{NetworkMessage, NetworkPacketType, NetworkRequest, NetworkResponse},
     p2p::p2p_node::P2PNode,
 };
@@ -202,7 +201,7 @@ pub fn await_handshake(node: &P2PNode) -> Fallible<()> {
         .unwrap();
 
     loop {
-        if read_or_die!(conn.dptr).status == ConnectionStatus::PostHandshake {
+        if conn.is_post_handshake.load(Ordering::Relaxed) {
             break;
         }
     }

@@ -17,10 +17,7 @@ use crate::{
         counter::TOTAL_MESSAGES_SENT_COUNTER, get_current_stamp, P2PNodeId, PeerStats, PeerType,
         RemotePeer,
     },
-    connection::{
-        fails, Connection, ConnectionStatus, FrameSink, FrameStream, MessageSendingPriority,
-        Readiness,
-    },
+    connection::{fails, Connection, FrameSink, FrameStream, MessageSendingPriority, Readiness},
     dumper::DumpItem,
     network::NetworkId,
 };
@@ -41,7 +38,6 @@ pub struct ConnectionPrivate {
     pub socket:         TcpStream,
     pub message_sink:   FrameSink,
     pub message_stream: FrameStream,
-    pub status:         ConnectionStatus,
 
     // Stats
     pub last_seen:   AtomicU64,
@@ -87,7 +83,7 @@ impl ConnectionPrivate {
     pub fn remote_peer(&self) -> RemotePeer { self.remote_peer }
 
     pub fn promote_to_post_handshake(&mut self, id: P2PNodeId, addr: SocketAddr) -> Fallible<()> {
-        self.status = ConnectionStatus::PostHandshake;
+        self.conn().is_post_handshake.store(true, Ordering::SeqCst);
         self.remote_peer = self.remote_peer.promote_to_post_handshake(id, addr)?;
 
         // register peer's stats in the P2PNode
@@ -167,20 +163,17 @@ impl ConnectionPrivate {
 
                         // In this case, we have to drop this connection, so we can avoid to
                         // write any data.
-                        self.status = ConnectionStatus::Closing;
+                        self.conn().close();
                         break;
                     }
                 }
             }
         }
 
-        // 2. Write pending data into `socket`.
-        if self.status != ConnectionStatus::Closing {
+        // 2. Write pending data into `socket` or shut the connection down
+        if !self.conn().is_closing.load(Ordering::SeqCst) {
             self.message_sink.flush(&mut self.socket)?;
-        }
-
-        // 3. Check closing...
-        if self.status == ConnectionStatus::Closing {
+        } else {
             self.shutdown()?;
         }
 
