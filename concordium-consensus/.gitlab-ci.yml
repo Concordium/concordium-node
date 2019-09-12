@@ -2,6 +2,7 @@ image: "haskell"
 
 variables:
     STACK_ROOT: "${CI_PROJECT_DIR}/.stack"
+    LD_LIBRARY_PATH: "${CI_PROJECT_DIR}/crypto/rust-src/target/release:${CI_PROJECT_DIR}/globalstate-mockup/deps/concordium-global-state-sys/target/release:$LD_LIBRARY_PATH"
 
 cache:
   paths:
