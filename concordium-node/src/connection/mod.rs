@@ -42,7 +42,7 @@ use failure::Fallible;
 use mio::{Event, Poll, PollOpt, Ready, Token};
 use std::{
     collections::HashSet,
-    net::{Shutdown, SocketAddr},
+    net::SocketAddr,
     pin::Pin,
     sync::{
         atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
@@ -133,11 +133,6 @@ impl Connection {
 
     #[inline]
     pub fn close(&self) { self.is_closing.store(true, Ordering::SeqCst) }
-
-    #[inline]
-    pub fn shutdown(&self) -> Fallible<()> {
-        map_io_error_to_fail!(write_or_die!(self.dptr).socket.shutdown(Shutdown::Both))
-    }
 
     /// This function is called when `poll` indicates that `socket` is ready to
     /// write or/and read.
