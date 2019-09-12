@@ -10,6 +10,6 @@ PATH="$PATH:/usr/local/bin" git lfs pull
 
 VERSION=`git rev-parse --verify HEAD`
 
-./scripts/build-all-docker.sh $VERSION
+./scripts/build-all-docker.sh $VERSION $CI_JOB_TOKEN
 
 echo "Finished building and pushing develop release with tag $VERSION"
