@@ -8,7 +8,7 @@ COPY ./scripts/start.sh ./start.sh
 COPY ./scripts/genesis-data ./genesis-data
 ENV LD_LIBRARY_PATH=/usr/local/lib
 RUN ./init.build.env.sh && \
-    git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/
+    git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/ && \
     # Regular build
     cargo build --features=instrumentation,benchmark,profiling && \
     cp /build-project/target/debug/p2p_client-cli /build-project/target/debug/p2p_bootstrapper-cli /build-project/ && \
