@@ -9,7 +9,9 @@ if [ ! -z "$JENKINS_HOME" ]; then
 
     echo $CONSENSUS_VERSION > CONSENSUS_VERSION
 
-    docker build -f scripts/dev-client.Dockerfile -t concordium/dev-client:latest .
+    export DOCKER_BUILDKIT=1
+
+    docker build -f scripts/dev-client.Dockerfile -t concordium/dev-client:latest --ssh default .
 
     rm -f CONSENSUS_VERSION
     rm -rf baker_id_gen

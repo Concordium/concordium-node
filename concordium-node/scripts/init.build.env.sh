@@ -1,12 +1,6 @@
 #!/usr/bin/env bash
-( cd deps/internal/crypto/rust-src &&
-  LD_LIBRARY_PATH=/usr/local/lib cargo build --release &&
-  cp target/release/libec_vrf_ed25519.so /usr/local/lib &&
-  cp target/release/libeddsa_ed25519.so /usr/local/lib &&
-  cp target/release/libdodis_yampolskiy_prf.so /usr/local/lib &&
-  cp target/release/libpedersen_scheme.so /usr/local/lib &&
-  cp target/release/libelgamal.so /usr/local/lib &&
-  cp target/release/libsha_2.so /usr/local/lib && cargo clean)
+
+set -e 
 
 if [ -f "CONSENSUS_VERSION" ] ; then
     CONSENSUS_VERSION=$(cat CONSENSUS_VERSION)

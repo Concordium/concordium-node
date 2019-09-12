@@ -1,7 +1,7 @@
 use crate::common::{
-    fails, get_current_stamp,
+    fails,
     serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
-    P2PNodeId, PeerType,
+    P2PNodeId,
 };
 
 use failure::{Error, Fallible};
@@ -10,17 +10,60 @@ use std::{
     fmt::{self, Display},
     hash::{Hash, Hasher},
     net::{IpAddr, SocketAddr},
-    sync::{atomic::AtomicU64, Arc},
+    sync::{atomic::AtomicU64, Arc, RwLock},
 };
+
+const PEER_TYPE_NODE: u8 = 0;
+const PEER_TYPE_BOOTSTRAPPER: u8 = 1;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
+pub enum PeerType {
+    Node,
+    Bootstrapper,
+}
+
+impl fmt::Display for PeerType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", match self {
+            PeerType::Node => "Node",
+            PeerType::Bootstrapper => "Bootstrapper",
+        })
+    }
+}
+
+impl Serializable for PeerType {
+    #[inline]
+    fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
+    where
+        A: WriteArchive, {
+        match self {
+            PeerType::Node => PEER_TYPE_NODE,
+            PeerType::Bootstrapper => PEER_TYPE_BOOTSTRAPPER,
+        }
+        .serialize(archive)
+    }
+}
+
+impl Deserializable for PeerType {
+    #[inline]
+    fn deserialize<A>(archive: &mut A) -> Fallible<PeerType>
+    where
+        A: ReadArchive, {
+        match u8::deserialize(archive)? {
+            PEER_TYPE_NODE => Ok(PeerType::Node),
+            PEER_TYPE_BOOTSTRAPPER => Ok(PeerType::Bootstrapper),
+            _ => bail!("Unsupported PeerType"),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, Builder)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 #[builder(build_fn(skip))]
 pub struct P2PPeer {
-    pub id: P2PNodeId,
-    pub addr: SocketAddr,
-    #[builder(setter(skip))]
-    last_seen: u64,
+    pub id:        P2PNodeId,
+    pub addr:      SocketAddr,
     pub peer_type: PeerType,
 }
 
@@ -39,7 +82,6 @@ impl P2PPeerBuilder {
                 peer_type: *peer_type,
                 addr:      *addr,
                 id:        *id,
-                last_seen: get_current_stamp(),
             })
         } else {
             Err(Error::from(fails::MissingFieldsError::new(
@@ -57,7 +99,6 @@ impl P2PPeer {
             peer_type,
             id,
             addr,
-            last_seen: get_current_stamp(),
         }
     }
 
@@ -66,8 +107,6 @@ impl P2PPeer {
     pub fn ip(&self) -> IpAddr { self.addr.ip() }
 
     pub fn port(&self) -> u16 { self.addr.port() }
-
-    pub fn last_seen(&self) -> u64 { self.last_seen }
 
     pub fn peer_type(&self) -> PeerType { self.peer_type }
 }
@@ -117,6 +156,41 @@ impl Deserializable for P2PPeer {
 impl Display for P2PPeer {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}/{}:{}", self.id(), self.addr.ip(), self.addr.port())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RemotePeer {
+    pub id:        Arc<RwLock<Option<P2PNodeId>>>,
+    pub addr:      SocketAddr,
+    pub peer_type: PeerType,
+}
+
+impl RemotePeer {
+    pub fn peer(self) -> Option<P2PPeer> {
+        if let Some(id) = &*read_or_die!(self.id) {
+            Some(P2PPeer {
+                id:        *id,
+                addr:      self.addr,
+                peer_type: self.peer_type,
+            })
+        } else {
+            None
+        }
+    }
+
+    pub fn addr(&self) -> SocketAddr { self.addr }
+
+    pub fn peer_type(&self) -> PeerType { self.peer_type }
+}
+
+impl From<P2PPeer> for RemotePeer {
+    fn from(peer: P2PPeer) -> Self {
+        Self {
+            id:        Arc::new(RwLock::new(Some(peer.id))),
+            addr:      peer.addr,
+            peer_type: peer.peer_type,
+        }
     }
 }
 
