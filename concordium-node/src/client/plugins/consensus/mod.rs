@@ -6,6 +6,7 @@ pub const FILE_NAME_PREFIX_BAKER_PRIVATE: &str = "baker-";
 pub const FILE_NAME_SUFFIX_BAKER_PRIVATE: &str = ".dat";
 
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
+use circular_queue::CircularQueue;
 use digest::Digest;
 use failure::Fallible;
 use twox_hash::XxHash64;
@@ -13,7 +14,7 @@ use twox_hash::XxHash64;
 use std::{
     convert::TryFrom,
     fs::OpenOptions,
-    io::{self, Cursor, Read, Write},
+    io::{self, Cursor, Read, Seek, SeekFrom, Write},
     mem,
     sync::Arc,
 };
@@ -131,6 +132,7 @@ pub fn handle_pkt_out(
     mut msg: HybridBuf,
     gs_senders: &GlobalStateSenders,
     transactions_cache: &mut Cache<Arc<[u8]>>,
+    dedup_queue: &mut CircularQueue<[u8; 8]>,
     is_broadcast: bool,
 ) -> Fallible<()> {
     ensure!(
@@ -141,6 +143,21 @@ pub fn handle_pkt_out(
 
     let consensus_type = msg.read_u16::<NetworkEndian>()?;
     let packet_type = PacketType::try_from(consensus_type)?;
+
+    // deduplicate finalization messages
+    if packet_type == PacketType::FinalizationMessage {
+        let mut hash = [0u8; 8];
+        let msg_pos = msg.position()?;
+        hash.copy_from_slice(&XxHash64::digest(&msg.remaining_bytes()?));
+        msg.seek(SeekFrom::Start(msg_pos))?;
+
+        if dedup_queue.iter().any(|h| h == &hash) {
+            debug!("Dedup queue: got a duplicate finalization message");
+            return Ok(());
+        } else {
+            dedup_queue.push(hash);
+        }
+    }
 
     let mut payload = Vec::with_capacity(msg.remaining_len()? as usize);
     io::copy(&mut msg, &mut payload)?;
@@ -335,23 +352,6 @@ fn process_external_gs_entry(
         PacketType::Block => {
             let block = PendingBlock::new(&request.payload)?;
             global_state.add_block(block)
-        }
-        PacketType::FinalizationMessage => {
-            let mut hash = [0u8; 8];
-            hash.copy_from_slice(&XxHash64::digest(&request.payload));
-
-            if global_state
-                .data
-                .last_finalization_msgs
-                .iter()
-                .any(|h| h == &hash)
-            {
-                debug!("GlobalState: got a duplicate {}", request);
-                return Ok(());
-            } else {
-                global_state.data.last_finalization_msgs.push(hash);
-                GlobalStateResult::IgnoredEntry
-            }
         }
         PacketType::FinalizationRecord => {
             let record = FinalizationRecord::deserialize(&request.payload)?;
