@@ -7,6 +7,7 @@ use crate::connection::{
 use concordium_common::hybrid_buf::HybridBuf;
 
 use std::{
+    net::Shutdown,
     pin::Pin,
     sync::{atomic::Ordering, Arc},
 };
@@ -21,6 +22,10 @@ pub struct ConnectionPrivate {
 impl ConnectionPrivate {
     pub fn conn(&self) -> &Pin<Arc<Connection>> {
         self.conn_ref.as_ref().unwrap() // safe; always available
+    }
+
+    pub fn shutdown(&mut self) -> Fallible<()> {
+        map_io_error_to_fail!(self.socket.shutdown(Shutdown::Both))
     }
 
     pub fn read_from_stream(&mut self, ev: &Event) -> Fallible<Vec<HybridBuf>> {
@@ -66,7 +71,7 @@ impl ConnectionPrivate {
         if !self.conn().is_closing.load(Ordering::SeqCst) {
             self.message_sink.flush(&mut self.socket)?;
         } else {
-            self.conn().shutdown()?;
+            self.shutdown()?;
         }
 
         Ok(messages)
@@ -107,7 +112,7 @@ impl Drop for ConnectionPrivate {
         let result = {
             // Deregister connection from the poll and shut down the socket
             attempt_shutdown(self.conn().deregister(&self.conn().handler().poll))
-                .and_then(|_| attempt_shutdown(self.conn().shutdown()))
+                .and_then(|_| attempt_shutdown(self.shutdown()))
         };
 
         if let Err(e) = result {
