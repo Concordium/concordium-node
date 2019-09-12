@@ -797,7 +797,11 @@ impl P2PNode {
             .set_token(token)
             .set_key_pair(key_pair)
             .set_local_peer(self_peer)
-            .set_remote_peer(RemotePeer::PreHandshake(PeerType::Node, addr))
+            .set_remote_peer(RemotePeer {
+                id: Default::default(),
+                addr,
+                peer_type: PeerType::Node,
+            })
             .set_local_end_networks(networks)
             .set_noise_params(self.connection_handler.noise_params.clone())
             .build()?;
@@ -868,7 +872,11 @@ impl P2PNode {
                     .set_key_pair(keypair)
                     .set_as_initiator(true)
                     .set_local_peer(self_peer)
-                    .set_remote_peer(RemotePeer::PreHandshake(peer_type, addr))
+                    .set_remote_peer(RemotePeer {
+                        id: Default::default(),
+                        addr,
+                        peer_type,
+                    })
                     .set_local_end_networks(Arc::clone(&networks))
                     .set_noise_params(self.connection_handler.noise_params.clone())
                     .build()?;
@@ -1104,11 +1112,11 @@ impl P2PNode {
     }
 
     fn check_sent_status(&self, conn: &Connection, status: Fallible<()>) {
-        if let RemotePeer::PostHandshake(remote_peer) = conn.remote_peer() {
+        if conn.is_post_handshake() {
             if let Err(e) = status {
                 error!(
                     "Could not send to peer {} due to {}",
-                    remote_peer.id().to_string(),
+                    read_or_die!(conn.remote_peer.id).unwrap().to_string(),
                     e
                 );
             }
@@ -1732,8 +1740,8 @@ impl Drop for P2PNode {
 }
 
 fn is_conn_peer_id(conn: &Connection, id: P2PNodeId) -> bool {
-    if let RemotePeer::PostHandshake(remote_peer) = conn.remote_peer() {
-        remote_peer.id() == id
+    if conn.is_post_handshake() {
+        read_or_die!(conn.remote_peer.id).unwrap() == id
     } else {
         false
     }
@@ -1749,14 +1757,16 @@ pub fn is_valid_connection_in_broadcast(
     dont_relay_to: &[P2PNodeId],
     network_id: NetworkId,
 ) -> bool {
-    if let RemotePeer::PostHandshake(remote_peer) = conn.remote_peer() {
-        if remote_peer.peer_type() != PeerType::Bootstrapper
-            && remote_peer.id() != sender.id()
-            && !peers_to_skip.contains(&remote_peer.id())
-            && !dont_relay_to.contains(&remote_peer.id())
+    if conn.is_post_handshake() {
+        let peer_id = read_or_die!(conn.remote_peer.id).unwrap();
+
+        if conn.remote_peer.peer_type() != PeerType::Bootstrapper
+            && peer_id != sender.id()
+            && !peers_to_skip.contains(&peer_id)
+            && !dont_relay_to.contains(&peer_id)
         {
             let remote_end_networks = conn.remote_end_networks();
-            return remote_end_networks.contains(&network_id);
+            return read_or_die!(remote_end_networks).contains(&network_id);
         }
     }
     false

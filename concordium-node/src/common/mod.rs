@@ -8,123 +8,13 @@ pub mod serialization;
 
 pub use self::{
     p2p_node_id::P2PNodeId,
-    p2p_peer::{P2PPeer, P2PPeerBuilder, PeerStats},
+    p2p_peer::{P2PPeer, P2PPeerBuilder, PeerStats, PeerType, RemotePeer},
 };
 
 pub mod fails;
 
 use chrono::prelude::*;
-use failure::{bail, Error, Fallible};
-use std::{
-    fmt,
-    net::{IpAddr, SocketAddr},
-};
-
-use crate::common::serialization::{Deserializable, ReadArchive, Serializable, WriteArchive};
-
-const PEER_TYPE_NODE: u8 = 0;
-const PEER_TYPE_BOOTSTRAPPER: u8 = 1;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
-pub enum PeerType {
-    Node,
-    Bootstrapper,
-}
-
-impl fmt::Display for PeerType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", match self {
-            PeerType::Node => "Node",
-            PeerType::Bootstrapper => "Bootstrapper",
-        })
-    }
-}
-
-impl Serializable for PeerType {
-    #[inline]
-    fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
-    where
-        A: WriteArchive, {
-        match self {
-            PeerType::Node => PEER_TYPE_NODE,
-            PeerType::Bootstrapper => PEER_TYPE_BOOTSTRAPPER,
-        }
-        .serialize(archive)
-    }
-}
-
-impl Deserializable for PeerType {
-    #[inline]
-    fn deserialize<A>(archive: &mut A) -> Fallible<PeerType>
-    where
-        A: ReadArchive, {
-        match u8::deserialize(archive)? {
-            PEER_TYPE_NODE => Ok(PeerType::Node),
-            PEER_TYPE_BOOTSTRAPPER => Ok(PeerType::Bootstrapper),
-            _ => bail!("Unsupported PeerType"),
-        }
-    }
-}
-
-// A representation of different stages a remote peer goes through.
-// When a new peer is connected to (be it either via `connect()` or
-// `accept()` it starts in `PreHandshake` mode, and at this point all
-// we have is a specified `PeerType`. When the handshake is then
-// completed, the type is upgraded to `PostHandshake` and at this point
-// will contain the full `P2PPeer` struct, which also contains the
-// `PeerType` carried over from the previous state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum RemotePeer {
-    PreHandshake(PeerType, SocketAddr),
-    PostHandshake(P2PPeer),
-}
-
-impl RemotePeer {
-    pub fn is_post_handshake(&self) -> bool {
-        match self {
-            RemotePeer::PostHandshake(_) => true,
-            _ => false,
-        }
-    }
-
-    pub fn post_handshake_peer_or_else<E, F: FnOnce() -> E>(self, err: F) -> Result<P2PPeer, E> {
-        match self {
-            RemotePeer::PostHandshake(v) => Ok(v),
-            _ => Err(err()),
-        }
-    }
-
-    pub fn promote_to_post_handshake(&self, id: P2PNodeId, addr: SocketAddr) -> Fallible<Self> {
-        match *self {
-            RemotePeer::PreHandshake(peer_type, addr) => Ok(RemotePeer::PostHandshake(
-                P2PPeer::from(peer_type, id, addr),
-            )),
-            _ => Err(Error::from(fails::RemotePeerAlreadyPromoted::new(id, addr))),
-        }
-    }
-
-    pub fn peer(self) -> Option<P2PPeer> {
-        match self {
-            RemotePeer::PostHandshake(peer) => Some(peer),
-            _ => None,
-        }
-    }
-
-    pub fn addr(&self) -> SocketAddr {
-        match self {
-            RemotePeer::PreHandshake(_, addr) => *addr,
-            RemotePeer::PostHandshake(peer) => peer.addr,
-        }
-    }
-
-    pub fn peer_type(&self) -> PeerType {
-        match self {
-            RemotePeer::PostHandshake(peer) => peer.peer_type(),
-            RemotePeer::PreHandshake(peer_type, ..) => *peer_type,
-        }
-    }
-}
+use std::net::{IpAddr, SocketAddr};
 
 pub fn serialize_ip(ip: IpAddr) -> String {
     match ip {
@@ -176,16 +66,22 @@ mod tests {
         p2p::banned_nodes::tests::dummy_ban_node,
     };
     use concordium_common::hybrid_buf::HybridBuf;
-    use std::{collections::HashSet, convert::TryFrom, str::FromStr};
+
+    use failure::Fallible;
+
+    use std::{
+        collections::HashSet,
+        convert::TryFrom,
+        str::FromStr,
+        sync::{Arc, RwLock},
+    };
 
     fn dummy_peer(ip: IpAddr, port: u16) -> RemotePeer {
-        RemotePeer::PostHandshake(
-            P2PPeerBuilder::default()
-                .peer_type(PeerType::Node)
-                .addr(SocketAddr::new(ip, port))
-                .build()
-                .unwrap(),
-        )
+        RemotePeer {
+            id:        Arc::new(RwLock::new(Some(P2PNodeId::default()))),
+            addr:      SocketAddr::new(ip, port),
+            peer_type: PeerType::Node,
+        }
     }
 
     fn self_peer() -> RemotePeer { dummy_peer(IpAddr::from([10, 10, 10, 10]), 9999) }

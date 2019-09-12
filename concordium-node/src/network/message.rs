@@ -210,10 +210,8 @@ mod unit_test {
             .addr(SocketAddr::new(local_ip, 8888))
             .build()?;
 
-        let mut archive = ReadArchiveAdapter::new(
-            cursor_on_disk,
-            RemotePeer::PostHandshake(local_peer.clone()),
-        );
+        let mut archive =
+            ReadArchiveAdapter::new(cursor_on_disk, RemotePeer::from(local_peer.clone()));
         let mut message = NetworkMessage::deserialize(&mut archive)?;
 
         if let NetworkMessage::NetworkPacket(ref mut packet, ..) = message {

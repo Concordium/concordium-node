@@ -7,14 +7,6 @@ pub use async_adapter::{FrameSink, FrameStream, HandshakeStreamSink, Readiness};
 
 mod p2p_event;
 
-#[derive(PartialEq, Clone, Copy)]
-pub enum ConnectionStatus {
-    PreHandshake,
-    PostHandshake,
-    Closing,
-    Closed,
-}
-
 // If a message is labelled as having `High` priority it is always pushed to the
 // front of the queue in the sinks when sending, and otherwise to the back
 pub enum MessageSendingPriority {
@@ -33,62 +25,66 @@ pub use p2p_event::P2PEvent;
 
 use crate::{
     common::{
-        counter::TOTAL_MESSAGES_RECEIVED_COUNTER,
+        counter::{TOTAL_MESSAGES_RECEIVED_COUNTER, TOTAL_MESSAGES_SENT_COUNTER},
         get_current_stamp,
         serialization::{Deserializable, ReadArchiveAdapter},
-        NetworkRawRequest, P2PNodeId, PeerType, RemotePeer,
+        NetworkRawRequest, P2PNodeId, PeerStats, PeerType, RemotePeer,
     },
     connection::message_handlers::handle_incoming_message,
+    dumper::DumpItem,
     network::{Buckets, NetworkId, NetworkMessage},
 };
 
 use concordium_common::hybrid_buf::HybridBuf;
 
+use chrono::prelude::Utc;
 use failure::Fallible;
-use mio::{Event, Poll, Token};
+use mio::{Event, Poll, PollOpt, Ready, Token};
 use std::{
     collections::HashSet,
-    net::SocketAddr,
+    net::{Shutdown, SocketAddr},
     pin::Pin,
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         Arc, RwLock,
     },
 };
 
 #[derive(Clone)]
 pub struct Connection {
-    handler_ref: Pin<Arc<P2PNode>>,
-
-    // Counters
-    pub messages_sent:     Arc<AtomicU64>,
-    pub messages_received: Arc<AtomicU64>,
-    last_ping_sent:        Arc<AtomicU64>,
-
-    pub token: Token,
-
-    /// It stores internal info used in handles. In this way,
-    /// handler's function will only need two arguments: this shared object, and
-    /// the message which is going to be processed.
-    pub dptr: Arc<RwLock<ConnectionPrivate>>,
+    handler_ref:               Pin<Arc<P2PNode>>,
+    pub token:                 Token,
+    pub remote_peer:           RemotePeer,
+    pub dptr:                  Arc<RwLock<ConnectionPrivate>>,
+    pub local_end_networks:    Arc<RwLock<HashSet<NetworkId>>>,
+    pub remote_end_networks:   Arc<RwLock<HashSet<NetworkId>>>,
+    pub is_post_handshake:     Arc<AtomicBool>,
+    pub is_closing:            Arc<AtomicBool>,
+    pub messages_sent:         Arc<AtomicU64>,
+    pub messages_received:     Arc<AtomicU64>,
+    pub last_ping_sent:        Arc<AtomicU64>,
+    pub sent_handshake:        Arc<AtomicU64>,
+    pub sent_ping:             Arc<AtomicU64>,
+    pub last_latency_measured: Arc<AtomicU64>,
+    pub last_seen:             Arc<AtomicU64>,
+    pub failed_pkts:           Arc<AtomicU32>,
 }
 
 impl Connection {
     pub fn handler(&self) -> &Pin<Arc<P2PNode>> { &self.handler_ref }
 
     pub fn get_last_latency_measured(&self) -> u64 {
-        read_or_die!(self.dptr)
-            .last_latency_measured
-            .load(Ordering::SeqCst)
+        self.last_latency_measured.load(Ordering::SeqCst)
     }
 
     pub fn set_measured_handshake_sent(&self) {
-        read_or_die!(self.dptr)
-            .sent_handshake
+        self.sent_handshake
             .store(get_current_stamp(), Ordering::SeqCst)
     }
 
-    pub fn set_measured_ping_sent(&self) { read_or_die!(self.dptr).set_measured_ping_sent(); }
+    pub fn set_measured_ping_sent(&self) {
+        self.sent_ping.store(get_current_stamp(), Ordering::SeqCst)
+    }
 
     pub fn get_last_ping_sent(&self) -> u64 { self.last_ping_sent.load(Ordering::SeqCst) }
 
@@ -97,62 +93,59 @@ impl Connection {
             .store(get_current_stamp(), Ordering::SeqCst);
     }
 
-    pub fn remote_peer(&self) -> RemotePeer { read_or_die!(self.dptr).remote_peer() }
+    pub fn remote_peer(&self) -> RemotePeer { self.remote_peer.clone() }
 
-    pub fn remote_id(&self) -> Option<P2PNodeId> {
-        match read_or_die!(self.dptr).remote_peer() {
-            RemotePeer::PostHandshake(ref remote_peer) => Some(remote_peer.id()),
-            _ => None,
-        }
-    }
+    pub fn remote_id(&self) -> Option<P2PNodeId> { *read_or_die!(self.remote_peer.id) }
 
-    pub fn remote_peer_type(&self) -> PeerType { read_or_die!(self.dptr).remote_peer.peer_type() }
+    pub fn remote_peer_type(&self) -> PeerType { self.remote_peer.peer_type() }
 
-    pub fn remote_addr(&self) -> SocketAddr { read_or_die!(self.dptr).remote_peer().addr() }
+    pub fn remote_addr(&self) -> SocketAddr { self.remote_peer.addr() }
 
-    pub fn is_post_handshake(&self) -> bool {
-        read_or_die!(self.dptr).remote_peer.is_post_handshake()
-    }
+    pub fn is_post_handshake(&self) -> bool { self.is_post_handshake.load(Ordering::SeqCst) }
 
-    pub fn last_seen(&self) -> u64 { read_or_die!(self.dptr).last_seen() }
+    pub fn last_seen(&self) -> u64 { self.last_seen.load(Ordering::SeqCst) }
 
     pub fn get_messages_received(&self) -> u64 { self.messages_received.load(Ordering::SeqCst) }
 
     pub fn get_messages_sent(&self) -> u64 { self.messages_sent.load(Ordering::SeqCst) }
 
-    pub fn failed_pkts(&self) -> u32 { read_or_die!(self.dptr).failed_pkts }
+    pub fn failed_pkts(&self) -> u32 { self.failed_pkts.load(Ordering::SeqCst) }
 
     /// It registers the connection socket, for read and write ops using *edge*
     /// notifications.
     #[inline]
-    pub fn register(&self, poll: &Poll) -> Fallible<()> { read_or_die!(self.dptr).register(poll) }
+    pub fn register(&self, poll: &Poll) -> Fallible<()> {
+        into_err!(poll.register(
+            &read_or_die!(self.dptr).socket,
+            self.token,
+            Ready::readable() | Ready::writable(),
+            PollOpt::edge()
+        ))
+    }
 
     #[inline]
     pub fn deregister(&self, poll: &Poll) -> Fallible<()> {
-        read_or_die!(self.dptr).deregister(poll)
+        map_io_error_to_fail!(poll.deregister(&read_or_die!(self.dptr).socket))
     }
 
     #[inline]
-    pub fn is_closed(&self) -> bool {
-        let status = read_or_die!(self.dptr).status;
-        status == ConnectionStatus::Closed || status == ConnectionStatus::Closing
+    pub fn is_closed(&self) -> bool { self.is_closing.load(Ordering::SeqCst) }
+
+    #[inline]
+    pub fn close(&self) { self.is_closing.store(true, Ordering::SeqCst) }
+
+    #[inline]
+    pub fn shutdown(&self) -> Fallible<()> {
+        map_io_error_to_fail!(write_or_die!(self.dptr).socket.shutdown(Shutdown::Both))
     }
 
-    #[inline]
-    pub fn close(&self) { write_or_die!(self.dptr).status = ConnectionStatus::Closing; }
-
-    #[inline]
-    pub fn status(&self) -> ConnectionStatus { read_or_die!(self.dptr).status }
-
-    #[inline]
-    pub fn shutdown(&self) -> Fallible<()> { write_or_die!(self.dptr).shutdown() }
-
+    /// This function is called when `poll` indicates that `socket` is ready to
+    /// write or/and read.
     pub fn ready(
         &self,
         ev: &Event,
     ) -> Result<ProcessResult, Vec<Result<ProcessResult, failure::Error>>> {
-        let messages_result = write_or_die!(self.dptr).ready(ev);
-        match messages_result {
+        match write_or_die!(self.dptr).read_from_stream(ev) {
             Ok(messages) => collapse_process_result(self, messages),
             Err(error) => Err(vec![Err(error)]),
         }
@@ -164,7 +157,7 @@ impl Connection {
         let mut archive = ReadArchiveAdapter::new(message, self.remote_peer());
         let message = NetworkMessage::deserialize(&mut archive)?;
 
-        safe_read!(self.dptr)?.update_last_seen();
+        self.update_last_seen();
         self.messages_received.fetch_add(1, Ordering::Relaxed);
         TOTAL_MESSAGES_RECEIVED_COUNTER.fetch_add(1, Ordering::Relaxed);
         if let Some(ref service) = self.handler().stats_export_service {
@@ -177,26 +170,34 @@ impl Connection {
         Ok(ProcessResult::Done)
     }
 
-    #[cfg(test)]
-    pub fn validate_packet_type_test(&self, msg: &[u8]) -> Readiness<bool> {
-        write_or_die!(self.dptr).validate_packet_type(msg)
-    }
-
     pub fn buckets(&self) -> Arc<RwLock<Buckets>> {
         Arc::clone(&self.handler().connection_handler.buckets)
     }
 
-    #[inline]
     pub fn promote_to_post_handshake(&self, id: P2PNodeId, addr: SocketAddr) -> Fallible<()> {
-        write_or_die!(self.dptr).promote_to_post_handshake(id, addr)
+        self.is_post_handshake.store(true, Ordering::SeqCst);
+        *write_or_die!(self.remote_peer.id) = Some(id);
+
+        // register peer's stats in the P2PNode
+        let remote_peer_stats = PeerStats::new(
+            id.as_raw(),
+            addr,
+            self.remote_peer.peer_type(),
+            Arc::clone(&self.messages_sent),
+            Arc::clone(&self.messages_received),
+            Arc::clone(&self.last_latency_measured),
+        );
+        write_or_die!(self.handler().active_peer_stats).insert(id.as_raw(), remote_peer_stats);
+
+        Ok(())
     }
 
-    pub fn remote_end_networks(&self) -> HashSet<NetworkId> {
-        read_or_die!(self.dptr).remote_end_networks.clone()
+    pub fn remote_end_networks(&self) -> Arc<RwLock<HashSet<NetworkId>>> {
+        Arc::clone(&self.remote_end_networks)
     }
 
     pub fn local_end_networks(&self) -> Arc<RwLock<HashSet<NetworkId>>> {
-        Arc::clone(&read_or_die!(self.dptr).local_end_networks)
+        Arc::clone(&self.local_end_networks)
     }
 
     /// It queues a network request
@@ -214,13 +215,63 @@ impl Connection {
             .send(request))
     }
 
+    /// It sends `input` through `socket`.
+    /// This functions returns (almost) immediately, because it does NOT wait
+    /// for real write. Function `ConnectionPrivate::ready` will make ensure to
+    /// write chunks of the message
     #[inline]
     pub fn async_send_from_poll_loop(
         &self,
         input: HybridBuf,
         priority: MessageSendingPriority,
     ) -> Fallible<Readiness<usize>> {
-        write_or_die!(self.dptr).async_send(input, priority)
+        TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
+        if let Some(ref stats) = self.handler().stats_export_service {
+            stats.pkt_sent_inc();
+        }
+
+        self.send_to_dump(&input, false);
+        write_or_die!(self.dptr).write_to_sink(input, priority)
+    }
+
+    pub fn update_last_seen(&self) {
+        if self.handler().peer_type() != PeerType::Bootstrapper {
+            self.last_seen.store(get_current_stamp(), Ordering::SeqCst);
+        }
+    }
+
+    #[inline]
+    pub fn add_remote_end_network(&self, network: NetworkId) {
+        write_or_die!(self.remote_end_networks).insert(network);
+    }
+
+    #[inline]
+    pub fn add_remote_end_networks(&self, networks: &HashSet<NetworkId>) {
+        write_or_die!(self.remote_end_networks).extend(networks.iter())
+    }
+
+    pub fn remove_remote_end_network(&self, network: NetworkId) {
+        write_or_die!(self.remote_end_networks).remove(&network);
+    }
+
+    fn send_to_dump(&self, buf: &HybridBuf, inbound: bool) {
+        if let Some(ref sender) = self.handler().connection_handler.log_dumper {
+            let di = DumpItem::new(
+                Utc::now(),
+                inbound,
+                self.remote_peer(),
+                self.remote_peer().addr().ip(),
+                buf.clone(),
+            );
+            let _ = sender.send(di);
+        }
+    }
+
+    #[cfg(test)]
+    pub fn validate_packet_type_test(&self, msg: &[u8]) -> Readiness<bool> {
+        write_or_die!(self.dptr)
+            .message_stream
+            .validate_packet_type(msg)
     }
 }
 
