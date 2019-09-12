@@ -23,7 +23,7 @@ build-and-test:
     - "git submodule update --init deps/internal/crypto"
     - "cd ${CI_PROJECT_DIR}"
     - "apt-get update && apt-get install -y moreutils curl"
-    - "curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain nightly"
+    - "curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable"
     - "source $HOME/.cargo/env"
     - "./build-deps.sh"
     - "stack build -v --ghc-options -j4 | ts '[%Y-%m-%d %H:%M:%.S]'"
