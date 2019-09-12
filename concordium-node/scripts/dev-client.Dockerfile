@@ -1,4 +1,6 @@
 FROM archlinux/base as build
+
+ARG CI_JOB_TOKEN
  
 RUN pacman -Sy && \
     pacman -Syyu --noconfirm && \
@@ -19,6 +21,8 @@ COPY scripts/genesis-data ./genesis-data
 
 # Build Environment: Hacl, ffi, Haskell (inherited from k8 build)
 RUN ./init.build.env.sh
+
+RUN git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/
 
 ### Baker id gen
 RUN \

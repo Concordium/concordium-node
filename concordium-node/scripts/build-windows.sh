@@ -19,7 +19,7 @@ then
 elif [ "$BUILD" -eq "1" ]
 then
     echo "Building Windows binary. Please wait"
-    docker build -f scripts/Windows.Dockerfile -t concordium/windowsbuild . --no-cache
+    docker build -f scripts/Windows.Dockerfile -t concordium/windowsbuild . --no-cache 
 fi
 
 # We should now have built the binaries. Let us extract them
