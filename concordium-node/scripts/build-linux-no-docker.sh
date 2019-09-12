@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -e
+
 # Setup any dependencies and build Haskell code
 ./scripts/local-setup-unix-deps.sh
 
