@@ -13,6 +13,7 @@ stages:
   extends: .generic
   stage: test
   script:
+    - git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@$gitlab.com/.insteadOf ssh://git@gitlab.com:22/
     - rustc --version && cargo --version
     - scripts/download-static-libs.sh
     - ( cd concordium-global-state-sys && cargo test --all --color=always)
@@ -53,6 +54,7 @@ stages:
   extends: .generic-lint
   stage: lint
   script:
+    - git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@$gitlab.com/.insteadOf ssh://git@gitlab.com:22/
     - rustc --version && cargo --version
     - scripts/download-static-libs.sh
     - rustup component add clippy
