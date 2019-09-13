@@ -29,6 +29,10 @@ elastic_logging = [ "elastic", "elastic_derive", "serde_json", "serde/derive", "
 codegen-units = 1
 #panic = 'abort'
 
+[profile.release]
+codegen-units = 1
+panic = 'abort'
+
 [dependencies]
 # Internal dependencies
 concordium-global-state = { path = "concordium-global-state" }
