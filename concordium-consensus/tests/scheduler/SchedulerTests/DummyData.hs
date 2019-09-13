@@ -16,6 +16,7 @@ import Concordium.Crypto.Ed25519Signature
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.Bakers
+import Concordium.GlobalState.SeedState
 import qualified Data.Aeson as AE
 
 import qualified Data.HashMap.Strict as HM
@@ -83,9 +84,9 @@ mkDummyCDI vfKey nregId =
 
 emptyBirkParameters :: BirkParameters
 emptyBirkParameters = BirkParameters {
-  _birkLeadershipElectionNonce = "",
   _birkElectionDifficulty = 0.5,
-  _birkBakers = emptyBakers
+  _birkBakers = emptyBakers,
+  _seedState = genesisSeedState "NONCE" 360
   }
 
 bakerElectionKey :: Int -> BakerElectionPrivateKey
