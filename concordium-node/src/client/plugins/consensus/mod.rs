@@ -152,7 +152,6 @@ pub fn handle_pkt_out(
         msg.seek(SeekFrom::Start(msg_pos))?;
 
         if dedup_queue.iter().any(|h| h == &hash) {
-            debug!("Dedup queue: got a duplicate finalization message");
             return Ok(());
         } else {
             dedup_queue.push(hash);

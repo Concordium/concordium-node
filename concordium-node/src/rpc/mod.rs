@@ -18,9 +18,7 @@ use crate::{
     proto::*,
 };
 
-use concordium_common::{
-    fails::PoisonError, hybrid_buf::HybridBuf, ConsensusFfiResponse, PacketType,
-};
+use concordium_common::{hybrid_buf::HybridBuf, ConsensusFfiResponse, PacketType};
 use concordium_consensus::consensus::{ConsensusContainer, CALLBACK_QUEUE};
 use concordium_global_state::tree::messaging::{ConsensusMessage, DistributionMode, MessageType};
 use futures::future::Future;
@@ -34,43 +32,29 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-#[derive(Clone)]
-pub struct RpcServerImplShared {
-    pub server:                 Arc<Mutex<Option<grpcio::Server>>>,
-    pub subscription_queue_out: Arc<Mutex<mpsc::Receiver<NetworkMessage>>>,
-    pub subscription_queue_in:  Arc<mpsc::SyncSender<NetworkMessage>>,
-}
-
-impl RpcServerImplShared {
-    pub fn new(
-        subscription_queue_out: mpsc::Receiver<NetworkMessage>,
-        subscription_queue_in: mpsc::SyncSender<NetworkMessage>,
-    ) -> Self {
-        RpcServerImplShared {
-            server:                 Arc::new(Mutex::new(None)),
-            subscription_queue_out: Arc::new(Mutex::new(subscription_queue_out)),
-            subscription_queue_in:  Arc::new(subscription_queue_in),
-        }
-    }
-
-    pub fn stop_server(&mut self) -> Fallible<()> {
-        if let Some(ref mut srv) = *safe_lock!(self.server)? {
-            srv.shutdown()
-                .wait()
-                .map_err(fails::GeneralRpcError::from)?
-        }
-        Ok(())
-    }
-}
-
-#[derive(Clone)]
 pub struct RpcServerImpl {
     node:         Arc<P2PNode>,
     listen_port:  u16,
     listen_addr:  String,
     access_token: String,
     consensus:    Option<ConsensusContainer>,
-    dptr:         RpcServerImplShared,
+    server:       Arc<Mutex<Option<grpcio::Server>>>,
+    receiver:     Option<mpsc::Receiver<NetworkMessage>>,
+}
+
+// a trick implementation so we can have a lockless Receiver
+impl Clone for RpcServerImpl {
+    fn clone(&self) -> Self {
+        RpcServerImpl {
+            node:         Arc::clone(&self.node),
+            listen_port:  self.listen_port,
+            listen_addr:  self.listen_addr.clone(),
+            access_token: self.access_token.clone(),
+            consensus:    None,
+            server:       self.server.clone(),
+            receiver:     None,
+        }
+    }
 }
 
 impl RpcServerImpl {
@@ -80,21 +64,20 @@ impl RpcServerImpl {
         conf: &configuration::RpcCliConfig,
         subscription_queue_out: mpsc::Receiver<NetworkMessage>,
     ) -> Self {
-        let dptr = RpcServerImplShared::new(subscription_queue_out, node.rpc_queue.clone());
-
         RpcServerImpl {
             node: Arc::new(node),
             listen_addr: conf.rpc_server_addr.clone(),
             listen_port: conf.rpc_server_port,
             access_token: conf.rpc_server_token.clone(),
             consensus,
-            dptr,
+            server: Default::default(),
+            receiver: Some(subscription_queue_out),
         }
     }
 
     #[inline]
     pub fn set_server(&mut self, server: grpcio::Server) -> Fallible<()> {
-        let mut srv = safe_lock!(self.dptr.server)?;
+        let mut srv = safe_lock!(self.server)?;
         *srv = Some(server);
         Ok(())
     }
@@ -112,11 +95,20 @@ impl RpcServerImpl {
             .map_err(|_| fails::ServerBuildError)?;
 
         server.start();
-        self.set_server(server)
+        self.set_server(server)?;
+
+        Ok(())
     }
 
     #[inline]
-    pub fn stop_server(&mut self) -> Fallible<()> { self.dptr.stop_server() }
+    pub fn stop_server(&mut self) -> Fallible<()> {
+        if let Some(ref mut srv) = *safe_lock!(self.server)? {
+            srv.shutdown()
+                .wait()
+                .map_err(fails::GeneralRpcError::from)?;
+        }
+        Ok(())
+    }
 
     fn send_message_with_error(&self, req: &SendMessageRequest) -> Fallible<SuccessResponse> {
         let mut r: SuccessResponse = SuccessResponse::new();
@@ -149,17 +141,8 @@ impl RpcServerImpl {
         Ok(r)
     }
 
-    fn receive_network_msg(&self) -> Result<Option<NetworkMessage>, PoisonError> {
-        match safe_lock!(self.dptr.subscription_queue_out) {
-            Ok(locked_queue_out) => {
-                if let Ok(msg) = locked_queue_out.try_recv() {
-                    Ok(Some(msg))
-                } else {
-                    Ok(None)
-                }
-            }
-            Err(e) => Err(e),
-        }
+    fn receive_network_msg(&self) -> Option<NetworkMessage> {
+        self.receiver.as_ref().unwrap().try_recv().ok()
     }
 }
 
@@ -652,43 +635,36 @@ impl P2P for RpcServerImpl {
             let mut r: P2PNetworkMessage = P2PNetworkMessage::new();
 
             let f = {
-                if let Ok(network_msg) = self.receive_network_msg() {
-                    if let Some(network_msg) = network_msg {
-                        if let NetworkMessage::NetworkPacket(ref packet, ..) = network_msg {
-                            let mut inner_msg = packet.message.to_owned();
-                            if let Ok(view_inner_msg) = inner_msg.remaining_bytes() {
-                                let msg = view_inner_msg.into_owned();
+                if let Some(network_msg) = self.receive_network_msg() {
+                    if let NetworkMessage::NetworkPacket(ref packet, ..) = network_msg {
+                        let mut inner_msg = packet.message.to_owned();
+                        if let Ok(view_inner_msg) = inner_msg.remaining_bytes() {
+                            let msg = view_inner_msg.into_owned();
 
-                                match packet.packet_type {
-                                    NetworkPacketType::DirectMessage(..) => {
-                                        let mut i_msg = MessageDirect::new();
-                                        i_msg.set_data(msg);
-                                        r.set_message_direct(i_msg);
-                                    }
-                                    NetworkPacketType::BroadcastedMessage(..) => {
-                                        let mut i_msg = MessageBroadcast::new();
-                                        i_msg.set_data(msg);
-                                        r.set_message_broadcast(i_msg);
-                                    }
-                                };
+                            match packet.packet_type {
+                                NetworkPacketType::DirectMessage(..) => {
+                                    let mut i_msg = MessageDirect::new();
+                                    i_msg.set_data(msg);
+                                    r.set_message_direct(i_msg);
+                                }
+                                NetworkPacketType::BroadcastedMessage(..) => {
+                                    let mut i_msg = MessageBroadcast::new();
+                                    i_msg.set_data(msg);
+                                    r.set_message_broadcast(i_msg);
+                                }
+                            };
 
-                                r.set_network_id(u32::from(packet.network_id.id));
-                                r.set_message_id(packet.message_id.to_vec());
-                                r.set_sender(packet.peer.id().to_string());
-                            } else {
-                                r.set_message_none(MessageNone::new());
-                            }
+                            r.set_network_id(u32::from(packet.network_id.id));
+                            r.set_message_id(packet.message_id.to_vec());
+                            r.set_sender(packet.peer.id().to_string());
+                        } else {
+                            r.set_message_none(MessageNone::new());
                         }
-                    } else {
-                        r.set_message_none(MessageNone::new());
                     }
-                    sink.success(r)
                 } else {
-                    sink.fail(grpcio::RpcStatus::new(
-                        grpcio::RpcStatusCode::ResourceExhausted,
-                        Some("Node can't be locked".to_string()),
-                    ))
+                    r.set_message_none(MessageNone::new());
                 }
+                sink.success(r)
             };
             let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);
@@ -1275,7 +1251,6 @@ mod tests {
     use crate::{
         common::{P2PNodeId, PeerType},
         configuration,
-        network::NetworkMessage,
         p2p::p2p_node::send_broadcast_message,
         proto::concordium_p2p_rpc_grpc::P2PClient,
         rpc::RpcServerImpl,
@@ -1293,19 +1268,14 @@ mod tests {
     // Same as create_node_rpc_call_option but also outputs the Message receiver
     fn create_node_rpc_call_option_waiter(
         nt: PeerType,
-    ) -> (
-        P2PClient,
-        RpcServerImpl,
-        grpcio::CallOption,
-        std::sync::mpsc::Receiver<NetworkMessage>,
-    ) {
+    ) -> (P2PClient, RpcServerImpl, grpcio::CallOption) {
         let conf = configuration::parse_config().expect("Can't parse the config file!");
         let app_prefs = configuration::AppPreferences::new(
             conf.common.config_dir.to_owned(),
             conf.common.data_dir.to_owned(),
         );
 
-        let (node, w, rpc_rx) = make_node_and_sync_with_rpc(
+        let (node, _, rpc_rx) = make_node_and_sync_with_rpc(
             next_available_port(),
             vec![100],
             nt,
@@ -1334,15 +1304,14 @@ mod tests {
 
         let call_options = ::grpcio::CallOption::default().headers(meta_data);
 
-        (client, rpc_server, call_options, w)
+        (client, rpc_server, call_options)
     }
 
     // Creates P2PClient, RpcServImpl and CallOption instances.
     // The intended use is for spawning nodes for testing gRPC api.
     // The port number is safe as it uses a AtomicUsize for respecting the order.
     fn create_node_rpc_call_option(nt: PeerType) -> (P2PClient, RpcServerImpl, grpcio::CallOption) {
-        let (client, rpc_server, call_options, _) = create_node_rpc_call_option_waiter(nt);
-        (client, rpc_server, call_options)
+        create_node_rpc_call_option_waiter(nt)
     }
 
     #[test]
@@ -1640,7 +1609,7 @@ mod tests {
     #[test]
     #[ignore] // TODO: decide how to handle this one
     fn test_subscription_poll() -> Fallible<()> {
-        let (client, rpc_serv, callopts, _) = create_node_rpc_call_option_waiter(PeerType::Node);
+        let (client, rpc_serv, callopts) = create_node_rpc_call_option_waiter(PeerType::Node);
         let port = next_available_port();
         let (mut node2, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
         connect(&mut node2, &rpc_serv.node)?;
