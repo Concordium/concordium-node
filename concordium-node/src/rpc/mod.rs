@@ -18,9 +18,7 @@ use crate::{
     proto::*,
 };
 
-use concordium_common::{
-    fails::PoisonError, hybrid_buf::HybridBuf, ConsensusFfiResponse, PacketType,
-};
+use concordium_common::{hybrid_buf::HybridBuf, ConsensusFfiResponse, PacketType};
 use concordium_consensus::consensus::{ConsensusContainer, CALLBACK_QUEUE};
 use concordium_global_state::tree::messaging::{ConsensusMessage, DistributionMode, MessageType};
 use futures::future::Future;
@@ -34,7 +32,6 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-#[derive(Clone)]
 pub struct RpcServerImpl {
     node:         Arc<P2PNode>,
     listen_port:  u16,
@@ -42,7 +39,22 @@ pub struct RpcServerImpl {
     access_token: String,
     consensus:    Option<ConsensusContainer>,
     server:       Arc<Mutex<Option<grpcio::Server>>>,
-    receiver:     Arc<Mutex<mpsc::Receiver<NetworkMessage>>>,
+    receiver:     Option<mpsc::Receiver<NetworkMessage>>,
+}
+
+// a trick implementation so we can have a lockless Receiver
+impl Clone for RpcServerImpl {
+    fn clone(&self) -> Self {
+        RpcServerImpl {
+            node:         Arc::clone(&self.node),
+            listen_port:  self.listen_port,
+            listen_addr:  self.listen_addr.clone(),
+            access_token: self.access_token.clone(),
+            consensus:    None,
+            server:       self.server.clone(),
+            receiver:     None,
+        }
+    }
 }
 
 impl RpcServerImpl {
@@ -58,8 +70,8 @@ impl RpcServerImpl {
             listen_port: conf.rpc_server_port,
             access_token: conf.rpc_server_token.clone(),
             consensus,
-            server: Arc::new(Mutex::new(None)),
-            receiver: Arc::new(Mutex::new(subscription_queue_out)),
+            server: Default::default(),
+            receiver: Some(subscription_queue_out),
         }
     }
 
@@ -83,11 +95,13 @@ impl RpcServerImpl {
             .map_err(|_| fails::ServerBuildError)?;
 
         server.start();
-        self.set_server(server)
+        self.set_server(server)?;
+
+        Ok(())
     }
 
     #[inline]
-    pub fn stop_server(&self) -> Fallible<()> {
+    pub fn stop_server(&mut self) -> Fallible<()> {
         if let Some(ref mut srv) = *safe_lock!(self.server)? {
             srv.shutdown()
                 .wait()
@@ -127,17 +141,8 @@ impl RpcServerImpl {
         Ok(r)
     }
 
-    fn receive_network_msg(&self) -> Result<Option<NetworkMessage>, PoisonError> {
-        match safe_lock!(self.receiver) {
-            Ok(locked_queue_out) => {
-                if let Ok(msg) = locked_queue_out.try_recv() {
-                    Ok(Some(msg))
-                } else {
-                    Ok(None)
-                }
-            }
-            Err(e) => Err(e),
-        }
+    fn receive_network_msg(&self) -> Option<NetworkMessage> {
+        self.receiver.as_ref().unwrap().try_recv().ok()
     }
 }
 
@@ -630,43 +635,36 @@ impl P2P for RpcServerImpl {
             let mut r: P2PNetworkMessage = P2PNetworkMessage::new();
 
             let f = {
-                if let Ok(network_msg) = self.receive_network_msg() {
-                    if let Some(network_msg) = network_msg {
-                        if let NetworkMessage::NetworkPacket(ref packet, ..) = network_msg {
-                            let mut inner_msg = packet.message.to_owned();
-                            if let Ok(view_inner_msg) = inner_msg.remaining_bytes() {
-                                let msg = view_inner_msg.into_owned();
+                if let Some(network_msg) = self.receive_network_msg() {
+                    if let NetworkMessage::NetworkPacket(ref packet, ..) = network_msg {
+                        let mut inner_msg = packet.message.to_owned();
+                        if let Ok(view_inner_msg) = inner_msg.remaining_bytes() {
+                            let msg = view_inner_msg.into_owned();
 
-                                match packet.packet_type {
-                                    NetworkPacketType::DirectMessage(..) => {
-                                        let mut i_msg = MessageDirect::new();
-                                        i_msg.set_data(msg);
-                                        r.set_message_direct(i_msg);
-                                    }
-                                    NetworkPacketType::BroadcastedMessage(..) => {
-                                        let mut i_msg = MessageBroadcast::new();
-                                        i_msg.set_data(msg);
-                                        r.set_message_broadcast(i_msg);
-                                    }
-                                };
+                            match packet.packet_type {
+                                NetworkPacketType::DirectMessage(..) => {
+                                    let mut i_msg = MessageDirect::new();
+                                    i_msg.set_data(msg);
+                                    r.set_message_direct(i_msg);
+                                }
+                                NetworkPacketType::BroadcastedMessage(..) => {
+                                    let mut i_msg = MessageBroadcast::new();
+                                    i_msg.set_data(msg);
+                                    r.set_message_broadcast(i_msg);
+                                }
+                            };
 
-                                r.set_network_id(u32::from(packet.network_id.id));
-                                r.set_message_id(packet.message_id.to_vec());
-                                r.set_sender(packet.peer.id().to_string());
-                            } else {
-                                r.set_message_none(MessageNone::new());
-                            }
+                            r.set_network_id(u32::from(packet.network_id.id));
+                            r.set_message_id(packet.message_id.to_vec());
+                            r.set_sender(packet.peer.id().to_string());
+                        } else {
+                            r.set_message_none(MessageNone::new());
                         }
-                    } else {
-                        r.set_message_none(MessageNone::new());
                     }
-                    sink.success(r)
                 } else {
-                    sink.fail(grpcio::RpcStatus::new(
-                        grpcio::RpcStatusCode::ResourceExhausted,
-                        Some("Node can't be locked".to_string()),
-                    ))
+                    r.set_message_none(MessageNone::new());
                 }
+                sink.success(r)
             };
             let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);
