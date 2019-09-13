@@ -35,37 +35,14 @@ use std::{
 };
 
 #[derive(Clone)]
-pub struct RpcServerImplShared {
-    pub server:                 Arc<Mutex<Option<grpcio::Server>>>,
-    pub subscription_queue_out: Arc<Mutex<mpsc::Receiver<NetworkMessage>>>,
-}
-
-impl RpcServerImplShared {
-    pub fn new(subscription_queue_out: mpsc::Receiver<NetworkMessage>) -> Self {
-        RpcServerImplShared {
-            server:                 Arc::new(Mutex::new(None)),
-            subscription_queue_out: Arc::new(Mutex::new(subscription_queue_out)),
-        }
-    }
-
-    pub fn stop_server(&mut self) -> Fallible<()> {
-        if let Some(ref mut srv) = *safe_lock!(self.server)? {
-            srv.shutdown()
-                .wait()
-                .map_err(fails::GeneralRpcError::from)?
-        }
-        Ok(())
-    }
-}
-
-#[derive(Clone)]
 pub struct RpcServerImpl {
     node:         Arc<P2PNode>,
     listen_port:  u16,
     listen_addr:  String,
     access_token: String,
     consensus:    Option<ConsensusContainer>,
-    dptr:         RpcServerImplShared,
+    server:       Arc<Mutex<Option<grpcio::Server>>>,
+    receiver:     Arc<Mutex<mpsc::Receiver<NetworkMessage>>>,
 }
 
 impl RpcServerImpl {
@@ -75,21 +52,20 @@ impl RpcServerImpl {
         conf: &configuration::RpcCliConfig,
         subscription_queue_out: mpsc::Receiver<NetworkMessage>,
     ) -> Self {
-        let dptr = RpcServerImplShared::new(subscription_queue_out);
-
         RpcServerImpl {
             node: Arc::new(node),
             listen_addr: conf.rpc_server_addr.clone(),
             listen_port: conf.rpc_server_port,
             access_token: conf.rpc_server_token.clone(),
             consensus,
-            dptr,
+            server: Arc::new(Mutex::new(None)),
+            receiver: Arc::new(Mutex::new(subscription_queue_out)),
         }
     }
 
     #[inline]
     pub fn set_server(&mut self, server: grpcio::Server) -> Fallible<()> {
-        let mut srv = safe_lock!(self.dptr.server)?;
+        let mut srv = safe_lock!(self.server)?;
         *srv = Some(server);
         Ok(())
     }
@@ -111,7 +87,14 @@ impl RpcServerImpl {
     }
 
     #[inline]
-    pub fn stop_server(&mut self) -> Fallible<()> { self.dptr.stop_server() }
+    pub fn stop_server(&self) -> Fallible<()> {
+        if let Some(ref mut srv) = *safe_lock!(self.server)? {
+            srv.shutdown()
+                .wait()
+                .map_err(fails::GeneralRpcError::from)?;
+        }
+        Ok(())
+    }
 
     fn send_message_with_error(&self, req: &SendMessageRequest) -> Fallible<SuccessResponse> {
         let mut r: SuccessResponse = SuccessResponse::new();
@@ -145,7 +128,7 @@ impl RpcServerImpl {
     }
 
     fn receive_network_msg(&self) -> Result<Option<NetworkMessage>, PoisonError> {
-        match safe_lock!(self.dptr.subscription_queue_out) {
+        match safe_lock!(self.receiver) {
             Ok(locked_queue_out) => {
                 if let Ok(msg) = locked_queue_out.try_recv() {
                     Ok(Some(msg))
@@ -1270,7 +1253,6 @@ mod tests {
     use crate::{
         common::{P2PNodeId, PeerType},
         configuration,
-        network::NetworkMessage,
         p2p::p2p_node::send_broadcast_message,
         proto::concordium_p2p_rpc_grpc::P2PClient,
         rpc::RpcServerImpl,
@@ -1288,19 +1270,14 @@ mod tests {
     // Same as create_node_rpc_call_option but also outputs the Message receiver
     fn create_node_rpc_call_option_waiter(
         nt: PeerType,
-    ) -> (
-        P2PClient,
-        RpcServerImpl,
-        grpcio::CallOption,
-        std::sync::mpsc::Receiver<NetworkMessage>,
-    ) {
+    ) -> (P2PClient, RpcServerImpl, grpcio::CallOption) {
         let conf = configuration::parse_config().expect("Can't parse the config file!");
         let app_prefs = configuration::AppPreferences::new(
             conf.common.config_dir.to_owned(),
             conf.common.data_dir.to_owned(),
         );
 
-        let (node, w, rpc_rx) = make_node_and_sync_with_rpc(
+        let (node, _, rpc_rx) = make_node_and_sync_with_rpc(
             next_available_port(),
             vec![100],
             nt,
@@ -1329,15 +1306,14 @@ mod tests {
 
         let call_options = ::grpcio::CallOption::default().headers(meta_data);
 
-        (client, rpc_server, call_options, w)
+        (client, rpc_server, call_options)
     }
 
     // Creates P2PClient, RpcServImpl and CallOption instances.
     // The intended use is for spawning nodes for testing gRPC api.
     // The port number is safe as it uses a AtomicUsize for respecting the order.
     fn create_node_rpc_call_option(nt: PeerType) -> (P2PClient, RpcServerImpl, grpcio::CallOption) {
-        let (client, rpc_server, call_options, _) = create_node_rpc_call_option_waiter(nt);
-        (client, rpc_server, call_options)
+        create_node_rpc_call_option_waiter(nt)
     }
 
     #[test]
@@ -1635,7 +1611,7 @@ mod tests {
     #[test]
     #[ignore] // TODO: decide how to handle this one
     fn test_subscription_poll() -> Fallible<()> {
-        let (client, rpc_serv, callopts, _) = create_node_rpc_call_option_waiter(PeerType::Node);
+        let (client, rpc_serv, callopts) = create_node_rpc_call_option_waiter(PeerType::Node);
         let port = next_available_port();
         let (mut node2, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
         connect(&mut node2, &rpc_serv.node)?;
