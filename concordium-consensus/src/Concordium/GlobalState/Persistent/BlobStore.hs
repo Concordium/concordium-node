@@ -1,6 +1,7 @@
 
 {-# LANGUAGE RecordWildCards, MultiParamTypeClasses, FunctionalDependencies, TypeFamilies, FlexibleInstances, QuantifiedConstraints,
-    GeneralizedNewtypeDeriving, StandaloneDeriving, UndecidableInstances, DefaultSignatures, DeriveFunctor, ConstraintKinds, RankNTypes #-}
+    GeneralizedNewtypeDeriving, StandaloneDeriving, UndecidableInstances, DefaultSignatures, DeriveFunctor, ConstraintKinds, RankNTypes,
+    ScopedTypeVariables, TupleSections, DeriveFoldable, DeriveTraversable #-}
 {-| 
 
 -}
@@ -17,11 +18,15 @@ import Control.Monad.Reader.Class
 import Control.Monad.Trans.Reader (ReaderT, runReaderT)
 import Control.Monad.IO.Class
 import System.Directory
+import Data.Proxy
 
 import Concordium.GlobalState.Persistent.MonadicRecursive
 
 newtype BlobRef a = BlobRef Word64
     deriving (Eq, Ord, Serialize)
+
+instance Show (BlobRef a) where
+    show (BlobRef v) = '@' : show v
 
 nullRef :: BlobRef a
 nullRef = BlobRef maxBound
@@ -49,8 +54,8 @@ runBlobStoreTemp fp a = bracket openf closef usef
             _ <- takeMVar mv
             return res
 
-readBlob :: (Serialize a) => BlobStore -> BlobRef a -> IO a
-readBlob BlobStore{..} (BlobRef offset) = bracketOnError (takeMVar blobStoreFile) (tryPutMVar blobStoreFile) $ \h -> do
+readBlobBS :: BlobStore -> BlobRef a -> IO BS.ByteString
+readBlobBS BlobStore{..} (BlobRef offset) = bracketOnError (takeMVar blobStoreFile) (tryPutMVar blobStoreFile) $ \h -> do
         hSeek h AbsoluteSeek (fromIntegral offset)
         esize <- decode <$> BS.hGet h 8
         case esize :: Either String Word64 of
@@ -58,12 +63,17 @@ readBlob BlobStore{..} (BlobRef offset) = bracketOnError (takeMVar blobStoreFile
             Right size -> do
                 bs <- BS.hGet h (fromIntegral size)
                 putMVar blobStoreFile h
-                case decode bs of
-                    Left e -> error e
-                    Right v -> return v
+                return bs
 
-writeBlob :: (Serialize a) => BlobStore -> a -> IO (BlobRef a)
-writeBlob BlobStore{..} v = bracketOnError (takeMVar blobStoreFile) (tryPutMVar blobStoreFile) $ \h -> do
+readBlob :: (Serialize a) => BlobStore -> BlobRef a -> IO a
+readBlob bstore ref = do
+        bs <- readBlobBS bstore ref
+        case decode bs of
+            Left e -> error e
+            Right v -> return v
+
+writeBlobBS ::BlobStore -> BS.ByteString -> IO (BlobRef a)
+writeBlobBS BlobStore{..} bs = bracketOnError (takeMVar blobStoreFile) (tryPutMVar blobStoreFile) $ \h -> do
         hSeek h SeekFromEnd 0
         offset <- fromIntegral <$> hTell h
         BS.hPut h size
@@ -71,21 +81,31 @@ writeBlob BlobStore{..} v = bracketOnError (takeMVar blobStoreFile) (tryPutMVar 
         putMVar blobStoreFile h
         return (BlobRef offset)
     where
-        bs = encode v
         size = encode (fromIntegral (BS.length bs) :: Word64)
 
-class (Monad m, forall a. Serialize (ref a), forall a. Serialize (Nullable (ref a))) => MonadBlobStore m ref where
+writeBlob :: (Serialize a) => BlobStore -> a -> IO (BlobRef a)
+writeBlob bstore v = writeBlobBS bstore (encode v)
+
+class (Monad m, forall a. Serialize (ref a)) => MonadBlobStore m ref where
+    storeRaw :: BS.ByteString -> m (ref a)
+    loadRaw :: ref a -> m BS.ByteString
     storeBlob :: (Serialize a) => a -> m (ref a)
+    storeBlob = storeRaw . encode
     loadBlob :: (Serialize a) => ref a -> m a
+    loadBlob r = do
+        bs <- loadRaw r
+        case decode bs of
+            Left e -> error e
+            Right v -> return v
 
 instance (MonadIO m, MonadReader r m, HasBlobStore r) => MonadBlobStore m BlobRef where
-    storeBlob b = do
+    storeRaw b = do
         bs <- blobStore <$> ask
-        liftIO $ writeBlob bs b
-    loadBlob r = do
+        liftIO $ writeBlobBS bs b
+    loadRaw r = do
         bs <- blobStore <$> ask
-        liftIO $ readBlob bs r
-
+        liftIO $ readBlobBS bs r
+{-
 class (MonadBlobStore m ref) => Blobbable m ref a where
     store :: a -> m (ref a)
     default store :: (Serialize a) => a -> m (ref a)
@@ -93,9 +113,36 @@ class (MonadBlobStore m ref) => Blobbable m ref a where
     load :: ref a -> m a
     default load :: (Serialize a) => ref a -> m a
     load = loadBlob
+-}
+
+class (MonadBlobStore m ref) => BlobStorable m ref a where
+    store :: Proxy ref -> a -> m Put
+    default store :: (Serialize a) => Proxy ref -> a -> m Put
+    store _ = pure . put
+    load :: Proxy ref -> Get (m a)
+    default load :: (Serialize a) => Proxy ref -> Get (m a)
+    load _ = pure <$> get
+    storeUpdate :: Proxy ref -> a -> m (Put, a)
+    storeUpdate p v = (,v) <$> store p v
+
+    storeRef :: a -> m (ref a)
+    storeRef v = do
+        p <- runPut <$> store (Proxy :: Proxy ref) v
+        storeRaw p
+    storeUpdateRef :: a -> m (ref a, a)
+    storeUpdateRef v = do
+        (p, v') <- storeUpdate (Proxy :: Proxy ref) v
+        (, v') <$> storeRaw (runPut p)
+    loadRef :: (ref a) -> m a
+    loadRef ref = do
+        bs <- loadRaw ref
+        case runGet (load (Proxy :: Proxy ref)) bs of
+            Left e -> error e
+            Right mv -> mv
+
 
 data Nullable v = Null | Some !v
-    deriving (Eq, Ord, Show, Functor)
+    deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
 
 instance Serialize (Nullable (BlobRef a)) where
     put Null = put nullRef
@@ -104,24 +151,30 @@ instance Serialize (Nullable (BlobRef a)) where
         r <- get
         return $! if r == nullRef then Null else Some r
 
+instance (MonadBlobStore m BlobRef) => BlobStorable m BlobRef (BlobRef a)
+instance (MonadBlobStore m BlobRef) => BlobStorable m BlobRef (Nullable (BlobRef a))
+
+
 newtype Blobbed ref f = Blobbed {unblobbed :: ref (f (Blobbed ref f)) }
     
 deriving instance (forall a. Serialize (ref a)) => Serialize (Blobbed ref f)
+
+instance (MonadBlobStore m ref) => BlobStorable m ref (Blobbed ref f)
 
 instance (forall a. Serialize (Nullable (ref a))) => Serialize (Nullable (Blobbed ref f)) where
     put = put . fmap unblobbed
     get = fmap Blobbed <$> get
 
+instance (MonadBlobStore m ref, forall a. Serialize (Nullable (ref a))) => BlobStorable m ref (Nullable (Blobbed ref f)) where
+
 type instance Base (Blobbed ref f) = f
 
-type RefSerialize ref f = (forall a. Serialize (f (ref a)))
+instance (MonadBlobStore m ref, BlobStorable m ref (f (Blobbed ref f))) => MRecursive m (Blobbed ref f) where
+    mproject (Blobbed r) = loadRef r
 
+instance (MonadBlobStore m ref, BlobStorable m ref (f (Blobbed ref f))) => MCorecursive m (Blobbed ref f) where
+    membed r = Blobbed <$> storeRef r
 
-instance (MonadBlobStore m ref, Serialize (f (Blobbed ref f))) => MRecursive m (Blobbed ref f) where
-    mproject (Blobbed r) = loadBlob r
-
-instance (MonadBlobStore m ref, Serialize (f (Blobbed ref f))) => MCorecursive m (Blobbed ref f) where
-    membed r = Blobbed <$> storeBlob r
 
 data CachedBlobbed ref f
     = CBUncached (Blobbed ref f)
@@ -133,14 +186,23 @@ cachedBlob (CBCached r _) = r
 
 type instance Base (CachedBlobbed ref f) = f
 
-instance (MonadBlobStore m ref, Serialize (f (Blobbed ref f)), Functor f) => MRecursive m (CachedBlobbed ref f) where
+instance (MonadBlobStore m ref, BlobStorable m ref (f (Blobbed ref f)), Functor f) => MRecursive m (CachedBlobbed ref f) where
     mproject (CBUncached r) = fmap CBUncached <$> mproject r
     mproject (CBCached _ c) = pure c
 
-instance (MonadBlobStore m ref, Serialize (f (Blobbed ref f)), Functor f) => MCorecursive m (CachedBlobbed ref f) where
+instance (MonadBlobStore m ref, BlobStorable m ref (f (Blobbed ref f)), Functor f) => MCorecursive m (CachedBlobbed ref f) where
     membed r = do
         b <- membed (fmap cachedBlob r)
         return (CBCached b r)
+
+instance (forall a. Serialize (ref a)) => Serialize (CachedBlobbed ref f) where
+    put = put . cachedBlob
+    get = CBUncached <$> get
+
+instance (MonadBlobStore m ref) => BlobStorable m ref (CachedBlobbed ref f)
+
+
+
 
 data BufferedBlobbed ref f
     = LBMemory (f (BufferedBlobbed ref f))
@@ -148,14 +210,47 @@ data BufferedBlobbed ref f
 
 type instance Base (BufferedBlobbed ref f) = f
 
-instance (MonadBlobStore m ref, Serialize (f (Blobbed ref f)), Functor f) => MRecursive m (BufferedBlobbed ref f) where
+instance (MonadBlobStore m ref, BlobStorable m ref (f (Blobbed ref f)), Functor f) => MRecursive m (BufferedBlobbed ref f) where
     mproject (LBMemory r) = pure r
     mproject (LBCached c) = fmap LBCached <$> mproject c
+    {-# INLINE mproject #-}
 
 instance Monad m => MCorecursive m (BufferedBlobbed ref f) where
     membed = pure . LBMemory
+    {-# INLINE membed #-}
+
+instance (MonadBlobStore m ref, Traversable f, BlobStorable m ref (f (Blobbed ref f))) => BlobStorable m ref (BufferedBlobbed ref f) where
+    store p v = fst <$> storeUpdate p v
+
+    storeUpdate p v@(LBCached c) = (, v) <$> store p c
+    storeUpdate p v = do
+            (pu, v') <- sU v
+            return (pu, LBCached v')
+        where
+            sU :: BufferedBlobbed ref f -> m (Put, CachedBlobbed ref f)
+            sU (LBCached c) = storeUpdate p c
+            sU (LBMemory t) = do
+                t' <- mapM (fmap snd . sU) t
+                r <- storeRef (cachedBlob <$> t')
+                return (put r, CBCached (Blobbed r) t')
+    load _ = return . LBCached <$> get
+
 
 -- |Flush a 'BufferedBlobbed' to the blob store.
-bufferedToCached :: (MonadBlobStore m ref, Serialize (f (Blobbed ref f)), Traversable f) => BufferedBlobbed ref f -> m (CachedBlobbed ref f)
+bufferedToCached :: (MonadBlobStore m ref, BlobStorable m ref (f (Blobbed ref f)), Traversable f) => BufferedBlobbed ref f -> m (CachedBlobbed ref f)
 bufferedToCached (LBMemory r) = mapM bufferedToCached r >>= membed
 bufferedToCached (LBCached c) = return c
+
+class FixShowable fix where
+    showFix :: Functor f => (f String -> String) -> fix f -> String
+
+instance (forall a. Show (ref a)) => FixShowable (Blobbed ref) where
+    showFix _ (Blobbed r) = show r
+
+instance (forall a. Show (ref a)) => FixShowable (CachedBlobbed ref) where
+    showFix sh (CBCached r v) = "{" ++ (sh (showFix sh <$> v)) ++ "}" ++ showFix sh r
+    showFix sh (CBUncached r) = showFix sh r
+
+instance (forall a. Show (ref a)) => FixShowable (BufferedBlobbed ref) where
+    showFix sh (LBMemory v) = "{" ++ (sh (showFix sh <$> v)) ++ "}"
+    showFix sh (LBCached r) = showFix sh r

@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveFunctor, GeneralizedNewtypeDeriving, TypeFamilies, DerivingVia, DerivingStrategies, MultiParamTypeClasses, ViewPatterns, ScopedTypeVariables, LambdaCase, TupleSections, FlexibleContexts, DefaultSignatures #-}
+{-# LANGUAGE DeriveFunctor, GeneralizedNewtypeDeriving, TypeFamilies, DerivingVia, DerivingStrategies, MultiParamTypeClasses, ViewPatterns, ScopedTypeVariables, LambdaCase, TupleSections, FlexibleContexts, DefaultSignatures, DeriveFoldable, DeriveTraversable, FlexibleInstances, QuantifiedConstraints, UndecidableInstances, StandaloneDeriving #-}
 module Concordium.GlobalState.Persistent.Trie where
 
 import qualified Data.Vector as V
@@ -24,21 +24,40 @@ instance FixedTrieKey Word64
 
 -- |Trie with keys all of same fixed length treated as lists of bytes.
 data TrieF k v r
-    = Branch (V.Vector (Nullable r))
-    | Stem [Word8] r
+    = Branch !(V.Vector (Nullable r))
+    | Stem [Word8] !r
     | Tip !v
-    deriving (Show)
+    deriving (Show, Functor, Foldable, Traversable)
 
+showTrieFString :: Show v => TrieF k v String -> String
+showTrieFString (Branch vec) = "[ " ++ ss (0 :: Int) (V.toList vec) ++ "]"
+    where
+        ss _ [] = ""
+        ss i (Null:r) = ss (i+1) r
+        ss i (Some v:r) = show i ++ ":" ++ v ++ "; " ++ ss (i+1) r
+showTrieFString (Stem l r) = intercalate ":" (show <$> l) ++ r
+showTrieFString (Tip v) = show v
+
+
+{-
 instance Functor (TrieF k v) where
     fmap f (Branch vec) = Branch (fmap (fmap f) vec)
     fmap f (Stem k r) = Stem k (f r)
     fmap _ (Tip v) = Tip v
-
+-}
 instance Bifunctor (TrieF k) where
     first _ (Branch vec) = Branch vec
     first _ (Stem pref r) = Stem pref r
     first f (Tip v) = Tip (f v)
     second = fmap
+
+{-
+instance Foldable (TrieF k v) where
+    foldr _ b (Tip _) = b
+    foldr f b (Stem _ z) = f z b
+    foldr f b (Branch vec) = foldr f b [z | Some z <- V.toList vec]
+-}
+
 
 instance (Serialize r, Serialize (Nullable r), Serialize v) => Serialize (TrieF k v r) where
     put (Branch vec) = do
@@ -64,6 +83,41 @@ instance (Serialize r, Serialize (Nullable r), Serialize v) => Serialize (TrieF 
                 else
                     return (fromIntegral (v - 3))
             Stem <$> replicateM len getWord8 <*> get
+
+instance (BlobStorable m ref r, BlobStorable m ref (Nullable r), Serialize v) => BlobStorable m ref (TrieF k v r) where
+    storeUpdate p (Branch vec) = do
+        pvec <- mapM (storeUpdate p) vec
+        return (putWord8 1 >> sequence_ (fst <$> pvec), Branch (snd <$> pvec))
+    storeUpdate _ t@(Tip v) = return (putWord8 2 >> put v, t)
+    storeUpdate p (Stem l r) = do
+        (pr, r') <- storeUpdate p r
+        let putter = do
+                let len = length l
+                if len <= 251 then
+                    putWord8 (3 + fromIntegral len)
+                else do
+                    putWord8 255
+                    putWord64be (fromIntegral len)
+                forM_ l putWord8
+                pr
+        return (putter, Stem l r')
+    store p t = fst <$> storeUpdate p t
+    load p = getWord8 >>= \case
+        0 -> fail "Empty trie"
+        1 -> do
+            branchms <- replicateM 256 (load p)
+            return $ Branch . V.fromList <$> sequence branchms
+        2 -> return . Tip <$> get
+        v -> do
+            len <- if v == 255 then do
+                    fromIntegral <$> getWord64be
+                else
+                    return (fromIntegral (v - 3))
+            l <- replicateM len getWord8
+            r <- load p
+            return (Stem l <$> r)
+
+
 
 newtype Trie k v = Trie (TrieF k v (Trie k v)) deriving (Show)
 type instance Base (Trie k v) = TrieF k v
@@ -166,6 +220,28 @@ alterM k upd pt0 = do
 data TrieN fix k v
     = EmptyTrieN
     | TrieN !Int !(fix (TrieF k v))
+
+instance (Show v, FixShowable fix) => Show (TrieN fix k v) where
+    show EmptyTrieN = "EmptyTrieN"
+    show (TrieN _ t) = showFix showTrieFString t
+
+instance (MonadBlobStore m ref, BlobStorable m ref (fix (TrieF k v)), Serialize v, MCorecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) => BlobStorable m ref (TrieN fix k v) where
+    store _ EmptyTrieN = return (put (0 :: Int))
+    store p (TrieN size t) = do
+        pt <- store p t
+        return (put size >> pt)
+    storeUpdate _ v@EmptyTrieN = return (put (0 :: Int), v)
+    storeUpdate p (TrieN size t) = do
+        (pt, t') <- storeUpdate p t
+        return (put size >> pt, TrieN size t')
+    load p = do
+        size <- get
+        if size == 0 then
+            return (return EmptyTrieN)
+        else do
+            mt <- load p
+            return (TrieN size <$> mt)
+
 
 empty :: TrieN fix k v
 empty = EmptyTrieN
