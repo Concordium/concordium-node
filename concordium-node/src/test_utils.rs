@@ -19,7 +19,8 @@ use std::{
         mpsc::Receiver,
         Once, ONCE_INIT,
     },
-    time,
+    thread,
+    time::{self, Duration},
 };
 use structopt::StructOpt;
 
@@ -194,16 +195,17 @@ pub fn connect(source: &mut P2PNode, target: &P2PNode) -> Fallible<()> {
 }
 
 pub fn await_handshake(node: &P2PNode) -> Fallible<()> {
-    let conn = read_or_die!(node.connection_handler.connections)
-        .iter()
-        .next()
-        .cloned()
-        .unwrap();
-
     loop {
-        if conn.is_post_handshake() {
-            break;
+        if let Some(conn) = read_or_die!(node.connection_handler.connections)
+            .iter()
+            .next()
+        {
+            if conn.is_post_handshake() {
+                break;
+            }
         }
+
+        thread::sleep(Duration::from_millis(100));
     }
 
     Ok(())
