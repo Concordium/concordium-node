@@ -47,7 +47,7 @@ sendTransactions :: Chan (InMessage a) -> [Transaction] -> IO ()
 sendTransactions chan (t : ts) = do
         writeChan chan (MsgTransactionReceived $ runPut $ put t)
         -- r <- randomRIO (5000, 15000)
-        threadDelay 50000
+        threadDelay 500000
         sendTransactions chan ts
 sendTransactions _ _ = return ()
 
@@ -116,14 +116,20 @@ main = do
     now <- truncate <$> getPOSIXTime
     let (gen, bis) = makeGenesisData now n 1 0.5 0 dummyCryptographicParameters dummyIdentityProviders
     let iState = Example.initialState (genesisBirkParameters gen) (genesisCryptographicParameters gen) (genesisBakerAccounts gen) [] nContracts
+    print $ iState ^. blockInstances
     trans <- transactions <$> newStdGen
     chans <- mapM (\(bakerId, (bid, _)) -> do
         let logFile = "consensus-" ++ show now ++ "-" ++ show bakerId ++ ".log"
+
         let logM src lvl msg = do
                                     timestamp <- getCurrentTime
                                     appendFile logFile $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg ++ "\n"
-        (cin, cout, out) <- makeAsyncRunner logM bid gen iState
-        -- _ <- forkIO $ sendTransactions cin trans
+        let logTransferFile = "transfer-log-" ++ show now ++ "-" ++ show bakerId ++ ".transfers"
+        let logT bh slot reason = do
+              appendFile logTransferFile (show (bh, slot, reason))
+              appendFile logTransferFile "\n"
+        (cin, cout, out) <- makeAsyncRunner logM (Just logT) bid gen iState
+        _ <- forkIO $ sendTransactions cin trans
         return (cin, cout, out)) (zip [(0::Int) ..] bis)
     monitorChan <- newChan
     mapM_ (\((_,cout, stateRef), cs) -> forkIO $ relay cout stateRef monitorChan ((\(c, _, _) -> c) <$> cs)) (removeEach chans)

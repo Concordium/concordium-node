@@ -59,8 +59,12 @@ jsonValueToCString = newCString . LT.unpack . AET.encodeToLazyText
 -- |Use a 'BlockHash' as a 'BlockReference'.  The 'BlockReference' may not
 -- be valid after the function has returned.
 withBlockReference :: BlockHash -> (BlockReference -> IO a) -> IO a
--- withBlockReference (Hash.Hash fbs) = FBS.withPtr fbs
 withBlockReference (Hash.Hash fbs) = FBS.withPtrReadOnly fbs
+
+-- |Use a 'TransactionHash' as a 'Ptr Word8'. The pointer may not be valid after
+-- the function has returned.
+withTxReference :: TransactionHash -> (Ptr Word8 -> IO a) -> IO a
+withTxReference (Hash.Hash fbs) = FBS.withPtrReadOnly fbs
 
 -- |Create a 'BlockHash' from a 'BlockReference'.  This creates a copy
 -- of the block hash.
@@ -161,6 +165,18 @@ makeGenesisData genTime nBakers cryptoParamsFile idProvidersFile cbkgen cbkbaker
 type LogCallback = Word8 -> Word8 -> CString -> IO ()
 foreign import ccall "dynamic" callLogCallback :: FunPtr LogCallback -> LogCallback
 
+
+type LogTransferCallback = Word8 -- ^Type of transfer (see documentation of 'toLogTransferMethod' below)
+                           -> Ptr Word8 -- ^Pointer to block hash (32 bytes)
+                           -> Slot -- ^Slot number of the block (unsigned 64 bit int)
+                           -> Ptr Word8 -- ^Pointer to transaction hash (32 bytes) or NULL for some types.
+                           -> Amount -- ^Amount (unsigned 64 bit integer)
+                           -> CSize -- ^Size of the rest of the data
+                           -> Ptr Word8 -- ^Type dependent serialized data.
+                           -> IO ()
+
+foreign import ccall "dynamic" callLogTransferCallback :: FunPtr LogTransferCallback -> LogTransferCallback
+
 -- |Wrap a log callback as a log method.
 toLogMethod :: FunPtr LogCallback -> LogMethod IO
 toLogMethod logCallbackPtr = le
@@ -169,6 +185,50 @@ toLogMethod logCallbackPtr = le
         le src lvl msg = BS.useAsCString (BS.pack msg) $
                             logCallback (logSourceId src) (logLevelId lvl)
 
+unsafeWithBSLen :: BS.ByteString -> (CSize -> Ptr Word8 -> IO ()) -> IO ()
+unsafeWithBSLen bs f = BS.unsafeUseAsCStringLen bs $ \(ptr, len) -> f (fromIntegral len) (castPtr ptr) 
+
+-- |Create a method for logging transfers.
+-- The output format is the following.
+-- |--------+---------------------------------+--------------------------------------------------------|
+-- |   Type | Serialized data                 | Comment                                                |
+-- | ====== | ====================            | ===========                                            |
+-- |      0 | source account, target account  | Direct transfer                                        |
+-- |      1 | source account, target contract | Transfer from account to contract                      |
+-- |      2 | source contract, target account | Transfer from contract to account                      |
+-- |      3 | source account, target baker id | Execution cost of transaction                          |
+-- |      4 | baker id, baker account         | Total block reward, transaction hash is a NUll pointer |
+-- |--------+---------------------------------+--------------------------------------------------------|
+
+-- * Account address serialiation is 21 bytes in length
+-- * Contract address serialization is 16 bytes, consisting of two 64-bit unsigned integers in big-endian format 
+-- * Baker Id serialization is a 64 bit unsigned integer in big-endian format.
+
+toLogTransferMethod :: FunPtr LogTransferCallback -> TS.LogTransferMethod IO
+toLogTransferMethod logtCallBackPtr = logTransfer
+    where logit = callLogTransferCallback logtCallBackPtr
+          logTransfer bh slot reason =
+            withBlockReference bh $ \block ->
+              case reason of
+                TS.DirectTransfer{..} ->
+                  withTxReference trdtId $ \txRef ->
+                    let rest = runPut (put trdtSource <> put trdtTarget)
+                    in unsafeWithBSLen rest $ logit 0 block slot txRef trdtAmount
+                TS.AccountToContractTransfer{..} ->
+                  withTxReference tractId $ \txRef ->
+                    let rest = runPut (put tractSource <> put tractTarget)
+                    in unsafeWithBSLen rest $ logit 1 block slot txRef tractAmount
+                TS.ContractToAccountTransfer{..} ->
+                  withTxReference trcatId $ \txRef ->
+                    let rest = runPut (put trcatSource <> put trcatTarget)
+                    in unsafeWithBSLen rest $ logit 2 block slot txRef trcatAmount
+                TS.ExecutionCost{..} ->
+                  withTxReference trecId $ \txRef ->
+                    let rest = runPut (put trecSource <> put trecBaker)
+                    in unsafeWithBSLen rest $ logit 3 block slot txRef trecAmount
+                TS.BakingRewardTransfer{..} ->
+                  let rest = runPut (put trbrBaker <> put trbrAccount)
+                  in unsafeWithBSLen rest $ logit 4 block slot nullPtr trbrAmount
 
 -- |Callback for broadcasting a message to the network.
 -- The first argument indicates the message type.
@@ -228,17 +288,19 @@ startConsensus ::
            -> CString -> Int64 -- ^Serialized baker identity (c string + len)
            -> FunPtr BroadcastCallback -- ^Handler for generated messages
            -> FunPtr LogCallback -- ^Handler for log events
-            -> IO (StablePtr ConsensusRunner)
-startConsensus gdataC gdataLenC bidC bidLenC bcbk lcbk = do
+           -> FunPtr LogTransferCallback -- ^Handler for logging transfer events
+           -> IO (StablePtr ConsensusRunner)
+startConsensus gdataC gdataLenC bidC bidLenC bcbk lcbk ltcbk = do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
         case (decode gdata, decode bdata) of
             (Right genData, Right bid) -> do
-                bakerSyncRunner <- makeSyncRunner logM bid genData (genesisState genData) bakerBroadcast
+                bakerSyncRunner <- makeSyncRunner logM (Just logT) bid genData (genesisState genData) bakerBroadcast
                 newStablePtr BakerRunner{..}
             _ -> ioError (userError $ "Error decoding serialized data.")
     where
         logM = toLogMethod lcbk
+        logT = toLogTransferMethod ltcbk
         bakerBroadcast = broadcastCallback logM bcbk
 
 -- |Start consensus without a baker identity.
@@ -806,7 +868,7 @@ receiveCatchUpStatus cptr src cstr l cbk = do
 
 
 foreign export ccall makeGenesisData :: Timestamp -> Word64 -> CString -> CString -> FunPtr GenesisDataCallback -> FunPtr BakerIdentityCallback -> IO CInt
-foreign export ccall startConsensus :: CString -> Int64 -> CString -> Int64 -> FunPtr BroadcastCallback -> FunPtr LogCallback -> IO (StablePtr ConsensusRunner)
+foreign export ccall startConsensus :: CString -> Int64 -> CString -> Int64 -> FunPtr BroadcastCallback -> FunPtr LogCallback -> FunPtr LogTransferCallback -> IO (StablePtr ConsensusRunner)
 foreign export ccall startConsensusPassive :: CString -> Int64 -> FunPtr LogCallback -> IO (StablePtr ConsensusRunner)
 foreign export ccall stopConsensus :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall startBaker :: StablePtr ConsensusRunner -> IO ()
