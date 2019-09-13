@@ -23,6 +23,7 @@ benchmark = []
 network_dump = []
 static = ["concordium-consensus/static"]
 profiling = ["concordium-consensus/profiling"]
+middleware = [ "elastic", "elastic_derive", "serde_json" ]
 
 [dependencies]
 # Internal dependencies
@@ -79,6 +80,9 @@ nom = { version = "4.2.0", features = ["verbose-errors"],  optional = true }
 hash_hasher = "^2.0"
 digest = "0.8.0"
 twox-hash = { version = "^1.5.0", features = ["digest"] }
+elastic = { version = "0.21.0-pre.5", optional = true }
+elastic_derive = { version = "0.21.0-pre.5", optional = true }
+serde_json = { version = "1", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 ipconfig = { version = "^0.1.9" }
