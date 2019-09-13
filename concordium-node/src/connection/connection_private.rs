@@ -28,8 +28,7 @@ impl ConnectionPrivate {
         map_io_error_to_fail!(self.socket.shutdown(Shutdown::Both))
     }
 
-    pub fn read_from_stream(&mut self, ev: &Event) -> Fallible<Vec<HybridBuf>> {
-        let mut messages = vec![];
+    pub fn read_from_stream(&mut self, ev: &Event) -> Fallible<()> {
         let ev_readiness = ev.readiness();
 
         // 1. Try to read messages from `socket`.
@@ -40,7 +39,15 @@ impl ConnectionPrivate {
                     Ok(readiness) => match readiness {
                         Readiness::Ready(message) => {
                             self.conn().send_to_dump(&message, true);
-                            messages.push(message)
+                            if let Err(e) = self.conn().process_message(message) {
+                                warn!(
+                                    "Terminating connection {} due to {}",
+                                    usize::from(ev.token()),
+                                    e
+                                );
+                                self.conn().close();
+                                break;
+                            }
                         }
                         Readiness::NotReady => break,
                     },
@@ -74,7 +81,7 @@ impl ConnectionPrivate {
             self.shutdown()?;
         }
 
-        Ok(messages)
+        Ok(())
     }
 
     pub fn write_to_sink(
