@@ -136,19 +136,13 @@ impl Connection {
 
     /// This function is called when `poll` indicates that `socket` is ready to
     /// write or/and read.
-    pub fn ready(
-        &self,
-        ev: &Event,
-    ) -> Result<ProcessResult, Vec<Result<ProcessResult, failure::Error>>> {
-        match write_or_die!(self.dptr).read_from_stream(ev) {
-            Ok(messages) => collapse_process_result(self, messages),
-            Err(error) => Err(vec![Err(error)]),
-        }
+    pub fn ready(&self, ev: &Event) -> Fallible<()> {
+        write_or_die!(self.dptr).read_from_stream(ev)
     }
 
     /// It decodes message from `buf` and processes it using its message
     /// handlers.
-    fn process_message(&self, message: HybridBuf) -> Fallible<ProcessResult> {
+    fn process_message(&self, message: HybridBuf) -> Fallible<()> {
         let mut archive = ReadArchiveAdapter::new(message, self.remote_peer());
         let message = NetworkMessage::deserialize(&mut archive)?;
 
@@ -162,7 +156,7 @@ impl Connection {
         handle_incoming_message(self.handler(), self, &message);
         self.handler().forward_network_message(&message)?;
 
-        Ok(ProcessResult::Done)
+        Ok(())
     }
 
     pub fn buckets(&self) -> Arc<RwLock<Buckets>> {
@@ -267,39 +261,6 @@ impl Connection {
         write_or_die!(self.dptr)
             .message_stream
             .validate_packet_type(msg)
-    }
-}
-
-#[derive(Debug)]
-pub enum ProcessResult {
-    Drop,
-    Done,
-}
-
-pub fn collapse_process_result(
-    conn: &Connection,
-    data: Vec<HybridBuf>,
-) -> Result<ProcessResult, Vec<Result<ProcessResult, failure::Error>>> {
-    let mut found_drop = false;
-    let mut errors = vec![];
-
-    for elem in data {
-        let res = conn.process_message(elem);
-        if res.is_err() {
-            errors.push(res);
-        } else if let Ok(ProcessResult::Drop) = res {
-            found_drop = true;
-        }
-    }
-
-    if !errors.is_empty() {
-        return Err(errors);
-    }
-
-    if found_drop {
-        Ok(ProcessResult::Drop)
-    } else {
-        Ok(ProcessResult::Done)
     }
 }
 

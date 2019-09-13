@@ -6,7 +6,7 @@ use crate::{
         NetworkRawRequest, P2PNodeId, P2PPeer, PeerStats, PeerType, RemotePeer,
     },
     configuration::{self as config, Config},
-    connection::{Connection, ConnectionBuilder, MessageSendingPriority, P2PEvent, ProcessResult},
+    connection::{Connection, ConnectionBuilder, MessageSendingPriority, P2PEvent},
     crypto::generate_snow_config,
     dumper::DumpItem,
     network::{
@@ -1004,14 +1004,6 @@ impl P2PNode {
             .cloned()
     }
 
-    pub fn find_connections_by_id(&self, id: P2PNodeId) -> Vec<Connection> {
-        read_or_die!(self.connection_handler.connections)
-            .iter()
-            .filter(|&conn| conn.remote_id() == Some(id))
-            .cloned()
-            .collect()
-    }
-
     pub fn find_connection_by_token(&self, token: Token) -> Option<Connection> {
         read_or_die!(self.connection_handler.connections)
             .iter()
@@ -1043,16 +1035,15 @@ impl P2PNode {
         write_or_die!(self.connection_handler.connections).push(conn);
     }
 
-    pub fn conn_event(&self, event: &Event) -> Fallible<ProcessResult> {
+    pub fn conn_event(&self, event: &Event) {
         let token = event.token();
 
         if let Some(conn) = self.find_connection_by_token(token) {
-            conn.ready(event).map_err(|x| {
-                let x: Vec<failure::Error> = x.into_iter().map(Result::unwrap_err).collect();
-                failure::Error::from(concordium_common::fails::FunctorError::from(x))
-            })
-        } else {
-            Err(Error::from(fails::PeerNotFoundError))
+            if !conn.is_closed() {
+                if let Err(e) = conn.ready(event) {
+                    error!("Error while processing a connection event: {}", e);
+                }
+            }
         }
     }
 
@@ -1571,10 +1562,7 @@ impl P2PNode {
                     };
                 }
                 _ => {
-                    trace!("Got data!");
-                    self.conn_event(&event)
-                        .map_err(|e| error!("Error occurred while parsing event: {}", e))
-                        .ok();
+                    self.conn_event(&event);
                 }
             }
         }
