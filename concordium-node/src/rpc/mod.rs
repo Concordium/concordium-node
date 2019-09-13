@@ -38,18 +38,13 @@ use std::{
 pub struct RpcServerImplShared {
     pub server:                 Arc<Mutex<Option<grpcio::Server>>>,
     pub subscription_queue_out: Arc<Mutex<mpsc::Receiver<NetworkMessage>>>,
-    pub subscription_queue_in:  Arc<mpsc::SyncSender<NetworkMessage>>,
 }
 
 impl RpcServerImplShared {
-    pub fn new(
-        subscription_queue_out: mpsc::Receiver<NetworkMessage>,
-        subscription_queue_in: mpsc::SyncSender<NetworkMessage>,
-    ) -> Self {
+    pub fn new(subscription_queue_out: mpsc::Receiver<NetworkMessage>) -> Self {
         RpcServerImplShared {
             server:                 Arc::new(Mutex::new(None)),
             subscription_queue_out: Arc::new(Mutex::new(subscription_queue_out)),
-            subscription_queue_in:  Arc::new(subscription_queue_in),
         }
     }
 
@@ -80,7 +75,7 @@ impl RpcServerImpl {
         conf: &configuration::RpcCliConfig,
         subscription_queue_out: mpsc::Receiver<NetworkMessage>,
     ) -> Self {
-        let dptr = RpcServerImplShared::new(subscription_queue_out, node.rpc_queue.clone());
+        let dptr = RpcServerImplShared::new(subscription_queue_out);
 
         RpcServerImpl {
             node: Arc::new(node),
