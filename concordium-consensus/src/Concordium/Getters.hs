@@ -32,6 +32,8 @@ import qualified Concordium.Skov.CatchUp as CU
 
 import Concordium.Afgjort.Finalize
 
+import qualified Concordium.Crypto.SHA256 as Hash
+
 import Control.Concurrent.MVar
 import Data.IORef
 import Text.Read hiding (get, String)
@@ -128,7 +130,7 @@ getBlockBirkParameters hash sfsRef = runStateQuery sfsRef $
   bps@BirkParameters{..} <- BS.getBlockBirkParameters st
   return $ object [
     "electionDifficulty" .= _birkElectionDifficulty,
-    "electionNonce" .= String (TL.toStrict . EL.decodeUtf8 . toLazyByteString . byteStringHex $ (_birkLeadershipElectionNonce bps)),
+    "electionNonce" .= String (TL.toStrict . EL.decodeUtf8 . toLazyByteString . byteStringHex $ (Hash.hashToByteString (_birkLeadershipElectionNonce bps))),
     "bakers" .= Array (fromList .
                        map (\(bid, BakerInfo{..}) -> object ["bakerId" .= (toInteger bid)
                                                             ,"bakerAccount" .= show _bakerAccount
