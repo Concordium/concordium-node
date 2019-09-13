@@ -24,6 +24,10 @@ network_dump = []
 static = ["concordium-consensus/static"]
 profiling = ["concordium-consensus/profiling"]
 
+[profile.release]
+codegen-units = 1
+panic = 'abort'
+
 [dependencies]
 # Internal dependencies
 concordium-global-state = { path = "concordium-global-state" }
