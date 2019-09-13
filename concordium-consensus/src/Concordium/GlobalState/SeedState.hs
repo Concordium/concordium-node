@@ -41,10 +41,10 @@ updateSeed (Slot slot) bn state@SeedState{..} =
     if isFirstBlockOfEpoch then 
       SeedState{
         -- H(seed of last epoch, epoch, block nonces in reverse order)
-        currentSeed = hashToByteString (hash (runPut $ do
+        currentSeed = hash (runPut $ do
           put currentSeed
           put (epoch + 1)
-          mapM_ (put . proofToHash) revBlockNonces)), 
+          mapM_ (put . proofToHash) revBlockNonces), 
         epochLength = epochLength , 
         epoch = currentEpoch,
         revBlockNonces = if shouldContributeBlockNonce then [bn] else []

@@ -175,7 +175,7 @@ instance FromJSON GenesisBaker where
 
 -- 'GenesisParameters' provides a convenient abstraction for
 -- constructing 'GenesisData'.
-data GenesisParameters = GenesisParameters {
+data GenesisParameters = GenesisParameters { --TODO add the epoch length
     gpGenesisTime :: Timestamp,
     gpSlotDuration :: Duration,
     gpLeadershipElectionNonce :: LeadershipElectionNonce,
@@ -190,7 +190,7 @@ instance FromJSON GenesisParameters where
     parseJSON = withObject "GenesisParameters" $ \v -> do
         gpGenesisTime <- v .: "genesisTime"
         gpSlotDuration <- v .: "slotDuration"
-        gpLeadershipElectionNonce <- unBase16 <$> v .: "leadershipElectionNonce"
+        gpLeadershipElectionNonce <- deserializeBase16 =<< v .: "leadershipElectionNonce"
         gpElectionDifficulty <- v .: "electionDifficulty"
         gpFinalizationMinimumSkip <- BlockHeight <$> v .: "finalizationMinimumSkip"
         gpBakers <- v .: "bakers"
