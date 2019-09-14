@@ -360,18 +360,18 @@ pub struct CliConfig {
     #[structopt(flatten)]
     pub rpc: RpcCliConfig,
     #[cfg(feature = "elastic_logging")]
-    #[structopt(long = "eleastic-logging", help = "Enable logging to Elastic Search")]
+    #[structopt(long = "elastic-logging", help = "Enable logging to Elastic Search")]
     pub elastic_logging_enabled: bool,
     #[cfg(feature = "elastic_logging")]
     #[structopt(
-        long = "eleastic-logging-host",
+        long = "elastic-logging-host",
         help = "Host to use for logging to Elastic Search",
         default_value = "127.0.0.1"
     )]
     pub elastic_logging_host: String,
     #[cfg(feature = "elastic_logging")]
     #[structopt(
-        long = "eleastic-logging-port",
+        long = "elastic-logging-port",
         help = "Port to use for logging to Elastic Search",
         default_value = "9300"
     )]
