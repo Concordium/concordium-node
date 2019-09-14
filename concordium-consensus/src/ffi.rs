@@ -182,6 +182,7 @@ pub struct consensus_runner {
 }
 
 type LogCallback = extern "C" fn(c_char, c_char, *const u8);
+type TransferLogCallback = extern "C" fn(c_char, *const u8, u64, *const u8, u64, u64, *const u8);
 type BroadcastCallback = extern "C" fn(i64, *const u8, i64);
 type DirectMessageCallback =
     extern "C" fn(peer_id: PeerId, message_type: i64, msg: *const c_char, msg_len: i64);
@@ -194,6 +195,7 @@ extern "C" {
         private_data_len: i64,
         broadcast_callback: BroadcastCallback,
         log_callback: LogCallback,
+        transfer_log_callback: TransferLogCallback,
     ) -> *mut consensus_runner;
     pub fn startConsensusPassive(
         genesis_data: *const u8,
@@ -319,6 +321,7 @@ pub fn get_consensus_ptr(
                     private_data_len as i64,
                     broadcast_callback,
                     on_log_emited,
+                    on_transfer_log_emitted,
                 )
             }
         }
@@ -640,4 +643,51 @@ pub extern "C" fn on_log_emited(identifier: c_char, log_level: c_char, log_messa
         3 | 4 | 5 | 6 | 7 => debug!("{}: {}", id, msg),
         _ => trace!("{}: {}", id, msg),
     };
+}
+
+pub enum TransferLogType {
+    DirectTransfer = 0,
+    TransferFromAccountToContract,
+    TransferFromContractToAccount,
+    ExecutionCost,
+    BlockReward,
+}
+
+impl TryFrom<u8> for TransferLogType {
+    type Error = failure::Error;
+
+    fn try_from(byte: u8) -> Fallible<Self> {
+        match byte as u8 {
+            0 => Ok(Self::DirectTransfer),
+            1 => Ok(Self::TransferFromAccountToContract),
+            2 => Ok(Self::TransferFromContractToAccount),
+            3 => Ok(Self::ExecutionCost),
+            4 => Ok(Self::BlockReward),
+            _ => Err(format_err!("Received invalid transfer log type: {}", byte)),
+        }
+    }
+}
+
+pub extern "C" fn on_transfer_log_emitted(
+    transfer_type: c_char,
+    block_hash: *const u8,
+    slot: u64,
+    transaction_hash: *const u8,
+    amount: u64,
+    remaining_data_len: u64,
+    remaining_data: *const u8,
+) {
+    let callback_type = match TransferLogType::try_from(transfer_type as u8) {
+        Ok(ct) => ct,
+        Err(e) => {
+            error!("{}", e);
+            return;
+        }
+    };
+
+    if cfg!(feature = "beta") {
+
+    } else {
+        info!("Transaction logged");
+    }
 }

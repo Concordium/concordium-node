@@ -23,7 +23,7 @@ benchmark = []
 network_dump = []
 static = ["concordium-consensus/static"]
 profiling = ["concordium-consensus/profiling"]
-middleware = [ "elastic", "elastic_derive", "serde_json" ]
+elastic_logging = [ "elastic", "elastic_derive", "serde_json" ]
 
 [dependencies]
 # Internal dependencies

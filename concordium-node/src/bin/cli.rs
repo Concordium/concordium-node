@@ -115,6 +115,9 @@ fn main() -> Fallible<()> {
         None
     };
 
+    // Start the transaction logging thread
+    setup_transfer_log_thread(&conf.cli);
+
     let (global_state_senders, global_state_receivers) = utils::create_global_state_queues();
 
     // Connect outgoing messages to be forwarded into the baker and RPC streams.
@@ -457,3 +460,60 @@ fn tps_setup_process_output(cli: &config::CliConfig) -> (bool, u64) {
 
 #[cfg(not(feature = "benchmark"))]
 fn tps_setup_process_output(_: &config::CliConfig) -> (bool, u64) { (false, 0) }
+
+#[cfg(feature = "elastic_logging")]
+fn setup_transfer_log_thread(conf: &config::CliConfig) -> std::thread::JoinHandle<()> {
+    let (enabled, host, port) = (
+        conf.elastic_logging_enabled,
+        conf.elastic_logging_host.clone(),
+        conf.elastic_logging_port,
+    );
+    spawn_or_die!("Process transfer log messages", {
+        let receiver = concordium_consensus::transferlog::TRANSACTION_LOG_QUEUE
+            .receiver
+            .lock()
+            .unwrap();
+        loop {
+            if let Ok(msg) = receiver.recv() {
+                match msg {
+                    RelayOrStopEnvelope::Relay(msg) => {
+                        p2p_client::client::plugins::elasticlogging::log_transfer_event(
+                            enabled, &host, port, msg,
+                        )
+                    }
+                    RelayOrStopEnvelope::Stop => {
+                        debug!("Shutting down transfer log queues");
+                        break;
+                    }
+                }
+            } else {
+                error!("Error receiving a transfer log message from the consensus layer");
+            }
+        }
+    })
+}
+
+#[cfg(not(feature = "elastic_logging"))]
+fn setup_transfer_log_thread(_: &config::CliConfig) -> std::thread::JoinHandle<()> {
+    spawn_or_die!("Process transfer log messages", {
+        let receiver = concordium_consensus::transferlog::TRANSACTION_LOG_QUEUE
+            .receiver
+            .lock()
+            .unwrap();
+        loop {
+            if let Ok(msg) = receiver.recv() {
+                match msg {
+                    RelayOrStopEnvelope::Relay(msg) => {
+                        info!("I got an event {:?}", msg);
+                    }
+                    RelayOrStopEnvelope::Stop => {
+                        debug!("Shutting down transfer log queues");
+                        break;
+                    }
+                }
+            } else {
+                error!("Error receiving a transfer log message from the consensus layer");
+            }
+        }
+    })
+}
