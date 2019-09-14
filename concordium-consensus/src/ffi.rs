@@ -668,6 +668,7 @@ impl TryFrom<u8> for TransferLogType {
     }
 }
 
+#[allow(unused_variables)]
 pub extern "C" fn on_transfer_log_emitted(
     transfer_type: c_char,
     block_hash: *const u8,
