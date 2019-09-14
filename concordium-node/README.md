@@ -24,6 +24,7 @@ This repository uses git lfs for storing binary dependencies, and relies on git 
 * network_dump - makes the network dumping capabilites available.
 * static - build against static haskell libraries in GIT LFS (Linux only)
 * profiling - build against haskell libraries in GIT LFS with profiling support enabled (Linux only)
+* elastic_logging - enable ability to log transaction events to elastic search
 
 ## Setting up basic local build environment
 Install the needed dependencies from the list above (Windows build is special, for that see cross-compilation build environment setup script in [scripts/init.win.build.env.sh](/scripts/init.win.build.env.sh) for further details), and run the script (requires that the user executing is has sudo privileges) `scripts/local-setup-unix-deps.sh` and pay special attention to setting the right version of GHC (see [build scripts](/scripts/local-setup-unix-deps.sh#L25) for details).
