@@ -31,7 +31,7 @@ import qualified Data.ByteString.Base16 as BS16
 import qualified Data.Text.Encoding as Text
 import qualified Data.Text as Text
 import qualified Data.Aeson as AE
-import Data.Aeson.Types (FromJSON(..), Value(..), (.:), withText, withObject, typeMismatch, Parser)
+import Data.Aeson.Types (FromJSON(..), (.:), withObject, Parser)
 
 -- |Cryptographic parameters needed to verify on-chain proofs, e.g.,
 -- group parameters (generators), commitment keys, in the future also
