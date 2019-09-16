@@ -63,15 +63,17 @@ mintAndReward bshandle blockParent lfPointer slotNumber bid = do
   -- first take half of the amount on the central bank and use it to reward the baker
   -- TODO: This is temporary POC. We need this fraction to be flexible.
   let bakingReward = cbamount `div` 2
-  (_, bshandle') <- bsoDecrementCentralBankGTU bshandleMinted bakingReward
+  (_, bshandle1) <- bsoDecrementCentralBankGTU bshandleMinted bakingReward
 
-  executionReward <- bsoGetExecutionCost bshandle'
-  macc <- bsoGetBakerAccount bshandle' bid
+  executionReward <- bsoGetExecutionCost bshandle1
+  macc <- bsoGetBakerAccount bshandle1 bid
   case macc of
     Nothing -> error "Precondition violated. Baker account does not exist."
-    Just acc ->
-      bsoModifyAccount bshandle'
+    Just acc -> do
+      bshandle2 <- bsoModifyAccount bshandle1
          (emptyAccountUpdate (acc ^. accountAddress) & auAmount ?~ (amountToDelta (executionReward + bakingReward)))
+      -- record the block reward transaction in the transaction outcomes for this block
+      bsoAddSpecialTransactionOutcome bshandle2 (BakingReward (acc ^. accountAddress) (executionReward + bakingReward))
 
 updateSeed :: TreeStateMonad m => UpdatableBlockState m -> Slot -> BlockNonce -> m (UpdatableBlockState m)
 updateSeed bshandle slot blockNonce = do

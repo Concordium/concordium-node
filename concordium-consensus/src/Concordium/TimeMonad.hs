@@ -13,7 +13,7 @@ import Data.Time
 
 import Concordium.Logger
 
-import Concordium.GlobalState.BlockState (BSMTrans)
+import Concordium.GlobalState.BlockState (BSMTrans, ATLoggerT)
 
 class Monad m => TimeMonad m where
     currentTime :: m UTCTime
@@ -44,4 +44,7 @@ instance TimeMonad m => TimeMonad (LoggerT m) where
     currentTime = lift currentTime
 
 instance (Monad (t m), MonadTrans t, TimeMonad m) => TimeMonad (BSMTrans t m) where
+    currentTime = lift currentTime
+
+instance TimeMonad m => TimeMonad (ATLoggerT m) where
     currentTime = lift currentTime

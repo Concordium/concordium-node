@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards, TupleSections #-}
+{-# LANGUAGE RecordWildCards, TupleSections, LambdaCase #-}
 module Concordium.Afgjort.CSS.NominationSet where
 
 {-
@@ -7,6 +7,7 @@ import Data.Set (Set)
 -}
 import qualified Concordium.Afgjort.CSS.BitSet as Set
 import Concordium.Afgjort.CSS.BitSet (BitSet)
+import qualified Data.Serialize as S
 import Data.Serialize.Put
 import Data.Serialize.Get
 import Data.Bits
@@ -79,6 +80,20 @@ getUntaggedNominationSet tag = do
                 else
                     return Set.empty
         return $! (NominationSet{..})
+
+instance S.Serialize NominationSet where
+    put ns = case nomTag ns of
+        NSEmpty -> putWord8 0
+        NSTop -> putWord8 1 >> putUntaggedNominationSet ns
+        NSBot -> putWord8 2 >> putUntaggedNominationSet ns
+        NSBoth -> putWord8 3 >> putUntaggedNominationSet ns
+    get = do
+        getWord8 >>= \case
+            0 -> return emptyNominationSet
+            1 -> getUntaggedNominationSet NSTop
+            2 -> getUntaggedNominationSet NSBot
+            3 -> getUntaggedNominationSet NSBoth
+            _ -> fail "Invalid nomination set tag"
 
 emptyNominationSet :: NominationSet
 emptyNominationSet = NominationSet minParty Set.empty Set.empty

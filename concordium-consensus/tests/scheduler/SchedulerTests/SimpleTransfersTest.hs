@@ -92,7 +92,7 @@ checkSimpleTransferResult (suc, fails, alesamount, thomasamount) =
   alesamount == (100000 - 4 * fromIntegral Cost.checkHeader - 88 - 98700 + 100) &&
   thomasamount == (100000 - fromIntegral Cost.checkHeader + 88 + 98700 - 100)
   where 
-    nonreject = all (\case (_, Types.TxSuccess _) -> True
+    nonreject = all (\case (_, Types.TxSuccess _ _) -> True
                            (_, Types.TxReject _ _) -> False)
                     (init suc)
     reject = case last suc of

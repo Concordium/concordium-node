@@ -57,6 +57,7 @@ library:
       - -Wall
       - -Wcompat
       - -Werror=missing-fields
+      - -Werror=missing-methods
       - -Wredundant-constraints
       - -fno-ignore-asserts
       - -O2

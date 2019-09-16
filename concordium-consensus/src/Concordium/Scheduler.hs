@@ -169,7 +169,7 @@ handleDeployModule senderAccount meta psize mod = do
     chargeExecutionCost senderAccount energyCost
     b <- commitModule mhash iface viface mod
     if b then do
-      return $ TxSuccess [ModuleDeployed mhash]
+      return $ TxSuccess [ModuleDeployed mhash] energyCost
     else do
       -- FIXME:
       -- we should reject the transaction immediately if we figure out that the module with the hash already exists.
@@ -242,7 +242,7 @@ handleInitContract senderAccount meta amount modref cname param paramSize = do
             commitChanges (addAmountToCS senderAccount (amountDiff 0 amount) (ls ^. changeSet))
             let ins = makeInstance modref cname contract msgty iface viface model initamount (thSender meta)
             addr <- putNewInstance ins
-            return $ TxSuccess [ContractInitialized modref cname addr]
+            return $ TxSuccess [ContractInitialized modref cname addr] energyCost
 
 handleSimpleTransfer ::
   SchedulerMonad m
@@ -274,7 +274,7 @@ handleSimpleTransfer senderAccount meta toaddr amount = do
             energyCost <- computeExecutionCharge meta (ls ^. energyLeft)
             chargeExecutionCost senderAccount energyCost
             commitChanges (ls ^. changeSet)
-            return $ TxSuccess events
+            return $ TxSuccess events energyCost
 
 handleUpdateContract ::
   SchedulerMonad m
@@ -310,7 +310,7 @@ handleUpdateContract senderAccount meta cref amount maybeMsg msgSize = do
             energyCost <- computeExecutionCharge meta (ls ^. energyLeft)
             chargeExecutionCost senderAccount energyCost
             commitChanges (ls ^. changeSet)
-            return $ TxSuccess events
+            return $ TxSuccess events energyCost
 
 -- this will always be run when we know that the contract exists and we can lookup its local state
 handleTransaction ::
@@ -383,7 +383,7 @@ handleTransaction origin istance receivefun txsender transferamount maybeMsg mod
                             -- FIXME: This is temporary until accounts have their own functions
                             handleTransferAccount origin acc (Left istance) transferamount'
                             )
-                  [Updated cref transferamount maybeMsg] txout
+                  [Updated txsenderAddr cref transferamount maybeMsg] txout
 
 combineTx :: Monad m => [Event] -> m [Event] -> m [Event]
 combineTx x ma = (x ++) <$> ma
@@ -473,7 +473,7 @@ handleDeployCredential senderAccount meta cdiBytes cdi = do
                              _ <- putNewAccount account -- first create new account, but only if credential was valid.
                                                         -- We know the address does not yet exist.
                              addAccountCredential account cdv  -- and then add the credentials
-                             return $! TxSuccess [AccountCreated aaddr, CredentialDeployed cdi]
+                             return $! TxSuccess [AccountCreated aaddr, CredentialDeployed cdv] energyCost
                        else return $! TxReject AccountCredentialInvalid energyCost
      
                   Just account -> -- otherwise we just try to add a credential to the account
@@ -485,7 +485,7 @@ handleDeployCredential senderAccount meta cdiBytes cdi = do
                                arPublicKey
                                cdiBytes then do
                               addAccountCredential account cdv
-                              return $! TxSuccess [CredentialDeployed cdi]
+                              return $! TxSuccess [CredentialDeployed cdv] energyCost
                             else
                               return $! TxReject AccountCredentialInvalid energyCost
 
@@ -505,7 +505,7 @@ handleDeployEncryptionKey senderAccount meta encKey = do
             Nothing -> do
               let aaddr = senderAccount ^. accountAddress
               addAccountEncryptionKey senderAccount encKey
-              return . TxSuccess $ [AccountEncryptionKeyDeployed aaddr encKey]
+              return $ TxSuccess [AccountEncryptionKeyDeployed aaddr encKey] energyCost
             Just encKey' -> return $ TxReject (AccountEncryptionKeyAlreadyExists (senderAccount ^. accountAddress) encKey') energyCost
 
 
@@ -571,8 +571,8 @@ handleAddBaker senderAccount meta abElectionVerifyKey abSignatureVerifyKey abAcc
                         -- to the baker.
                         -- Thus we can create the baker, starting it off with 0 lottery power.
                         bid <- addBaker (BakerCreationInfo abElectionVerifyKey abSignatureVerifyKey abAccount)
-                        return $! TxSuccess [BakerAdded bid]
-                      else return $! TxReject InvalidProof energyCost
+                        return $! TxSuccess [BakerAdded bid] energyCost
+                      else return $ TxReject InvalidProof energyCost
 
 -- |Remove a baker from the baker pool.
 -- The current logic is that if the proof validates that the sender of the
@@ -598,7 +598,7 @@ handleRemoveBaker senderAccount meta rbId rbProof =
                       if checkSignatureVerifyKeyProof (binfo ^. bakerSignatureVerifyKey) rbProof then do
                         -- only the baker itself can remove themselves from the pool
                         removeBaker rbId
-                        return $ TxSuccess [BakerRemoved rbId]
+                        return $ TxSuccess [BakerRemoved rbId] energyCost
                       else
                         return $ TxReject (InvalidBakerRemoveSource (senderAccount ^. accountAddress)) energyCost
 
@@ -639,7 +639,7 @@ handleUpdateBakerAccount senderAccount meta ubaId ubaAddress ubaProof = do
                       let accountP = checkAccountOwnership _accountSignatureScheme _accountVerificationKey ubaProof
                       in if accountP then do
                         updateBakerAccount ubaId ubaAddress
-                        return $ TxSuccess [BakerAccountUpdated ubaId ubaAddress]
+                        return $ TxSuccess [BakerAccountUpdated ubaId ubaAddress] energyCost
                       else return $ TxReject InvalidProof energyCost
                 else
                   return $ TxReject InvalidProof energyCost
@@ -676,7 +676,7 @@ handleUpdateBakerSignKey senderAccount meta ubsId ubsKey ubsProof =
                 let signP = checkSignatureVerifyKeyProof ubsKey ubsProof -- FIXME: We will need a separate proof object here.
                 in if signP then do
                      updateBakerSignKey ubsId ubsKey
-                     return $ TxSuccess [BakerKeyUpdated ubsId ubsKey]
+                     return $ TxSuccess [BakerKeyUpdated ubsId ubsKey] energyCost
                    else return $ TxReject InvalidProof energyCost
               else
                 return $ TxReject InvalidProof energyCost
@@ -697,7 +697,7 @@ handleDelegateStake senderAccount meta targetBaker =
           res <- delegateStake (thSender meta) targetBaker
           if res then
             let addr = senderAccount ^. accountAddress
-            in return $! TxSuccess [maybe (StakeUndelegated addr) (StakeDelegated addr) targetBaker]
+            in return $! TxSuccess [maybe (StakeUndelegated addr) (StakeDelegated addr) targetBaker] energyCost
           else 
             return $! TxReject (InvalidStakeDelegationTarget $ fromJust targetBaker) energyCost
         delegateCost = Cost.updateStakeDelegate (Set.size $ senderAccount ^. accountInstances)
