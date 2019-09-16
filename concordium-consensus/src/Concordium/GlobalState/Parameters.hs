@@ -18,6 +18,7 @@ import Data.Ratio
 import Data.Serialize
 import Lens.Micro.Platform
 import Control.Monad.Fail
+import Control.Monad hiding (fail)
 
 import Concordium.Types
 import Concordium.Crypto.FFIDataTypes
@@ -175,10 +176,11 @@ instance FromJSON GenesisBaker where
 
 -- 'GenesisParameters' provides a convenient abstraction for
 -- constructing 'GenesisData'.
-data GenesisParameters = GenesisParameters { --TODO add the epoch length
+data GenesisParameters = GenesisParameters { 
     gpGenesisTime :: Timestamp,
     gpSlotDuration :: Duration,
     gpLeadershipElectionNonce :: LeadershipElectionNonce,
+    gpEpochLength :: EpochLength,
     gpElectionDifficulty :: ElectionDifficulty,
     gpFinalizationMinimumSkip :: BlockHeight,
     gpBakers :: [GenesisBaker],
@@ -191,6 +193,8 @@ instance FromJSON GenesisParameters where
         gpGenesisTime <- v .: "genesisTime"
         gpSlotDuration <- v .: "slotDuration"
         gpLeadershipElectionNonce <- deserializeBase16 =<< v .: "leadershipElectionNonce"
+        gpEpochLength <- Slot <$> v .: "epochLength"
+        when(gpEpochLength == 0) $ fail "Epoch length should be non-zero"
         gpElectionDifficulty <- v .: "electionDifficulty"
         gpFinalizationMinimumSkip <- BlockHeight <$> v .: "finalizationMinimumSkip"
         gpBakers <- v .: "bakers"
@@ -206,7 +210,7 @@ parametersToGenesisData GenesisParameters{..} = GenesisData{..}
         genesisBirkParameters = BirkParameters {
             _birkElectionDifficulty = gpElectionDifficulty,
             _birkBakers = bakersFromList (mkBaker <$> gpBakers),
-            _seedState = genesisSeedState gpLeadershipElectionNonce 360
+            _seedState = genesisSeedState gpLeadershipElectionNonce gpEpochLength
         }
         mkBaker GenesisBaker{..} = BakerInfo 
                 gbElectionVerifyKey
