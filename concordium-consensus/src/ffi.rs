@@ -654,7 +654,7 @@ pub extern "C" fn on_transfer_log_emitted(
     remaining_data_len: u64,
     remaining_data_ptr: *const u8,
 ) {
-    use crate::transferlog::{TransactionLogMessage, TransferLogType};
+    use crate::transferlog::{TransactionLogMessage, TransferLogType, TRANSACTION_LOG_QUEUE};
     use concordium_common::{
         blockchain_types::{AccountAddress, BakerId, BlockHash, ContractAddress, TransactionHash},
         SerializeToBytes,
@@ -833,7 +833,7 @@ pub extern "C" fn on_transfer_log_emitted(
             TransactionLogMessage::BlockReward(block_hash, slot, amount, baker_id, account_address)
         }
     };
-    match crate::transferlog::TRANSACTION_LOG_QUEUE.send_message(msg) {
+    match TRANSACTION_LOG_QUEUE.send_message(msg) {
         Ok(_) => trace!(
             "Logged a callback for an event of type {}",
             transfer_event_type
