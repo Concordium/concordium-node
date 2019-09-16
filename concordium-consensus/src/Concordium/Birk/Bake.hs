@@ -43,13 +43,13 @@ bakerElectionPublicKey ident = VRF.publicKey (bakerElectionKey ident)
 
 instance Serialize BakerIdentity where
 
-processTransactions :: TreeStateMonad m => Slot -> BlockPointer m -> BlockPointer m -> BakerId -> m ([Transaction], BlockState m)
-processTransactions slot bh finalizedP bid = do
+processTransactions :: TreeStateMonad m => Slot -> BlockNonce -> BlockPointer m -> BlockPointer m -> BakerId -> m ([Transaction], BlockState m)
+processTransactions slot bn bh finalizedP bid = do
   -- update the focus block to the parent block (establish invariant needed by constructBlock)
   updateFocusBlockTo bh
   -- at this point we can contruct the block. The function 'constructBlock' also
   -- updates the pending table and purges any transactions deemed invalid
-  constructBlock slot bh finalizedP bid
+  constructBlock slot bh finalizedP bid bn
   -- NB: what remains is to update the focus block to the newly constructed one.
   -- This is done in the method below once a block pointer is constructed.
 
@@ -62,11 +62,11 @@ bakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
 
     (bakerId, _, lotteryPower) <- MaybeT . pure $ birkBakerByKeys (bakerSignPublicKey ident) (bakerElectionPublicKey ident) birkParams
     electionProof <- MaybeT . liftIO $
-        leaderElection _birkLeadershipElectionNonce _birkElectionDifficulty slot bakerElectionKey lotteryPower
+        leaderElection (_birkLeadershipElectionNonce birkParams) _birkElectionDifficulty slot bakerElectionKey lotteryPower
     logEvent Baker LLInfo $ "Won lottery in " ++ show slot ++ "(lottery power: " ++ show lotteryPower ++ ")"
-    nonce <- liftIO $ computeBlockNonce _birkLeadershipElectionNonce slot bakerElectionKey
+    nonce <- liftIO $ computeBlockNonce (_birkLeadershipElectionNonce birkParams)    slot bakerElectionKey
     lastFinal <- lastFinalizedBlock
-    (transactions, newState) <- processTransactions slot bb lastFinal bakerId
+    (transactions, newState) <- processTransactions slot nonce bb lastFinal bakerId
     logEvent Baker LLInfo $ "Baked block"
     receiveTime <- currentTime
     pb <- makePendingBlock bakerSignKey slot (bpHash bb) bakerId electionProof nonce (bpHash lastFinal) transactions receiveTime

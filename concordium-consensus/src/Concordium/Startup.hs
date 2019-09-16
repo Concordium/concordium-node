@@ -8,9 +8,11 @@ import qualified Data.ByteString.Lazy.Char8 as BSL
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
+import qualified Concordium.Crypto.SHA256 as Hash
 
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Bakers
+import Concordium.GlobalState.SeedState
 import Concordium.GlobalState.IdentityProviders
 import Concordium.Birk.Bake
 import Concordium.Types
@@ -48,9 +50,9 @@ makeGenesisData genesisTime nBakers genesisSlotDuration elecDiff finMinSkip gene
     = (GenesisData{..}, bakers)
     where
         genesisBirkParameters =
-            BirkParameters (BS.pack "LeadershipElectionNonce")
-                           elecDiff -- voting power
+            BirkParameters elecDiff -- voting power
                            (bakersFromList (snd <$> bakers))
+                           (genesisSeedState (Hash.hash "LeadershipElectionNonce") 360) -- todo hardcoded epoch length (and initial seed)
         genesisFinalizationParameters = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, BakerInfo vrfk vvk _ _) <- bakers] finMinSkip
         (bakers, genesisBakerAccounts) = unzip (makeBakers nBakers)
 

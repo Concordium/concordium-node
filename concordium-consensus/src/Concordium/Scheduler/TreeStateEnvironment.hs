@@ -75,6 +75,12 @@ mintAndReward bshandle blockParent lfPointer slotNumber bid = do
       -- record the block reward transaction in the transaction outcomes for this block
       bsoAddSpecialTransactionOutcome bshandle2 (BakingReward (acc ^. accountAddress) (executionReward + bakingReward))
 
+updateSeed :: TreeStateMonad m => UpdatableBlockState m -> Slot -> BlockNonce -> m (UpdatableBlockState m)
+updateSeed bshandle slot blockNonce = do
+  bshandle' <- bsoUpdateNonce bshandle slot blockNonce
+  return bshandle' 
+
+
 -- |Execute a block from a given starting state.
 -- Fail if any of the transactions fails, otherwise return the new 'BlockState'.
 executeFrom ::
@@ -83,9 +89,10 @@ executeFrom ::
   -> BlockPointer m  -- ^Parent pointer from which to start executing
   -> BlockPointer m  -- ^Last finalized block pointer.
   -> BakerId -- ^Identity of the baker who should be rewarded.
+  -> BlockNonce
   -> [Transaction] -- ^Transactions on this block.
   -> m (Either FailureKind (BlockState m))
-executeFrom slotNumber blockParent lfPointer blockBaker txs =
+executeFrom slotNumber blockParent lfPointer blockBaker blockNonce txs =
   let cm = let blockHeight = bpHeight blockParent + 1
                finalizedHeight = bpHeight lfPointer
            in ChainMetadata{..}
@@ -100,8 +107,9 @@ executeFrom slotNumber blockParent lfPointer blockBaker txs =
             -- the main execution is now done. At this point we must mint new currencty
             -- and reward the baker and other parties.
             bshandle3 <- mintAndReward bshandle2 blockParent lfPointer slotNumber blockBaker
+            bshandle4 <- updateSeed bshandle3 slotNumber blockNonce
 
-            finalbsHandle <- freezeBlockState bshandle3
+            finalbsHandle <- freezeBlockState bshandle4
             return (Right finalbsHandle)
 
 -- |PRECONDITION: Focus block is the parent block of the block we wish to make,
@@ -117,8 +125,9 @@ constructBlock ::
   -> BlockPointer m -- ^Parent pointer from which to start executing
   -> BlockPointer m -- ^Last finalized block pointer.
   -> BakerId -- ^The baker of the block.
+  -> BlockNonce
   -> m ([Transaction], BlockState m)
-constructBlock slotNumber blockParent lfPointer blockBaker =
+constructBlock slotNumber blockParent lfPointer blockBaker blockNonce =
   let cm = let blockHeight = bpHeight blockParent + 1
                finalizedHeight = bpHeight lfPointer
            in ChainMetadata{..}
@@ -134,6 +143,7 @@ constructBlock slotNumber blockParent lfPointer blockBaker =
 
     bshandle2 <- bsoSetTransactionOutcomes bshandle1 ((\(tr,res) -> (transactionHash tr, res)) <$> valid)
     bshandle3 <- mintAndReward bshandle2 blockParent lfPointer slotNumber blockBaker
+    bshandle4 <- updateSeed bshandle3 slotNumber blockNonce
 
     -- We first commit all valid transactions to the current block slot to prevent them being purged.
     -- At the same time we construct the return blockTransactions to avoid an additional traversal
@@ -143,7 +153,7 @@ constructBlock slotNumber blockParent lfPointer blockBaker =
     -- Moreover all transactions successfully added will be removed from the pending table.
     -- Or equivalently, only a subset of invalid transactions will remain in the pending table.
     let nextNonceFor addr = do
-          macc <- bsoGetAccount bshandle3 addr
+          macc <- bsoGetAccount bshandle4 addr
           case macc of
             Nothing -> return minNonce
             Just acc -> return $ acc ^. accountNonce
@@ -156,5 +166,5 @@ constructBlock slotNumber blockParent lfPointer blockBaker =
                    invalid
     -- commit the new pending transactions to the tree state
     putPendingTransactions newpt
-    bshandleFinal <- freezeBlockState bshandle3
+    bshandleFinal <- freezeBlockState bshandle4
     return (ret, bshandleFinal)
