@@ -3,7 +3,7 @@ module SchedulerTests.DummyData where
 
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.FixedByteString as FBS
-import Concordium.Crypto.SHA256(Hash(..))
+import Concordium.Crypto.SHA256(Hash(..), hash)
 import Concordium.Crypto.SignatureScheme as Sig
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.BlockSignature as BlockSig
@@ -86,7 +86,7 @@ emptyBirkParameters :: BirkParameters
 emptyBirkParameters = BirkParameters {
   _birkElectionDifficulty = 0.5,
   _birkBakers = emptyBakers,
-  _seedState = genesisSeedState "NONCE" 360
+  _seedState = genesisSeedState (hash "NONCE") 360
   }
 
 bakerElectionKey :: Int -> BakerElectionPrivateKey
