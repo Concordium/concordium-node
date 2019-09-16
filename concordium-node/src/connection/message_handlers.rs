@@ -25,104 +25,53 @@ use std::{
 const BOOTSTRAP_PEER_COUNT: usize = 100;
 
 pub fn handle_incoming_message(node_ref: &P2PNode, conn: &Connection, full_msg: &NetworkMessage) {
-    match full_msg {
+    if let Err(e) = match full_msg {
         NetworkMessage::NetworkRequest(NetworkRequest::Handshake(source, ref networks, _), ..) => {
-            if let Err(e) = handle_handshake_req(conn, *source, networks) {
-                error!(
-                    "Couldn't handle a Handshake request from peer {}: {}",
-                    source.id, e
-                );
-            }
+            handle_handshake_req(conn, *source, networks)
         }
         NetworkMessage::NetworkResponse(NetworkResponse::Handshake(source, ref nets, _), ..) => {
-            if let Err(e) = handle_handshake_resp(conn, *source, nets) {
-                error!(
-                    "Couldn't handle a Handshake response from peer {}: {}",
-                    source.id, e
-                );
-            }
+            handle_handshake_resp(conn, *source, nets)
         }
-        NetworkMessage::NetworkRequest(NetworkRequest::Ping(source), ..) => {
-            if let Err(e) = handle_ping(conn) {
-                error!("Couldn't handle a Ping from peer {}: {}", source.id, e);
-            }
+        NetworkMessage::NetworkRequest(NetworkRequest::Ping(_source), ..) => handle_ping(conn),
+        NetworkMessage::NetworkResponse(NetworkResponse::Pong(_source), ..) => handle_pong(conn),
+        NetworkMessage::NetworkRequest(NetworkRequest::FindNode(_source, node), ..) => {
+            handle_find_node_req(conn, *node)
         }
-        NetworkMessage::NetworkResponse(NetworkResponse::Pong(source), ..) => {
-            if let Err(e) = handle_pong(conn) {
-                error!("Couldn't handle a Pong from peer {}: {}", source.id, e);
-            }
-        }
-        NetworkMessage::NetworkRequest(NetworkRequest::FindNode(source, node), ..) => {
-            if let Err(e) = handle_find_node_req(conn, *node) {
-                error!(
-                    "Couldn't handle a FindNode request from peer {}: {}",
-                    source.id, e
-                );
-            }
-        }
-        NetworkMessage::NetworkResponse(NetworkResponse::FindNode(source, ref peers), ..) => {
-            if let Err(e) = handle_find_node_resp(conn, peers) {
-                error!(
-                    "Couldn't handle a FindNode response from peer {}: {}",
-                    source.id, e
-                );
-            }
+        NetworkMessage::NetworkResponse(NetworkResponse::FindNode(_source, ref peers), ..) => {
+            handle_find_node_resp(conn, peers)
         }
         NetworkMessage::NetworkRequest(NetworkRequest::GetPeers(source, ref networks), ..) => {
-            if let Err(e) = handle_get_peers_req(conn, *source, networks) {
-                error!(
-                    "Couldn't handle a GetPeers request from peer {}: {}",
-                    source.id, e
-                );
-            }
+            handle_get_peers_req(conn, *source, networks)
         }
         NetworkMessage::NetworkResponse(NetworkResponse::PeerList(source, ref peers), ..) => {
-            if let Err(e) = handle_peer_list_resp(node_ref, conn, *source, peers) {
-                error!(
-                    "Couldn't handle a PeerList response from peer {}: {}",
-                    source.id, e
-                );
-            }
+            handle_peer_list_resp(node_ref, conn, *source, peers)
         }
-        NetworkMessage::NetworkRequest(NetworkRequest::JoinNetwork(source, network), ..) => {
-            if let Err(e) = handle_join_network_req(conn, *network) {
-                error!(
-                    "Couldn't handle a JoinNetwork request from peer {}: {}",
-                    source.id, e
-                );
-            }
+        NetworkMessage::NetworkRequest(NetworkRequest::JoinNetwork(_source, network), ..) => {
+            handle_join_network_req(conn, *network)
         }
         NetworkMessage::NetworkRequest(NetworkRequest::LeaveNetwork(source, network), ..) => {
-            if let Err(e) = handle_leave_network_req(conn, *source, *network) {
-                error!(
-                    "Couldn't handle a LeaveNetwork request from peer {}: {}",
-                    source.id, e
-                );
-            }
+            handle_leave_network_req(conn, *source, *network)
         }
-        NetworkMessage::NetworkRequest(NetworkRequest::BanNode(source, peer_to_ban), ..) => {
-            if let Err(e) = node_ref.ban_node(*peer_to_ban) {
-                error!(
-                    "Couldn't handle a BanNode request from peer {}: {}",
-                    source.id, e
-                );
-            }
+        NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_source, peer_to_ban), ..) => {
+            node_ref.ban_node(*peer_to_ban)
         }
-        NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(source, peer_to_unban), ..) => {
-            if let Err(e) = node_ref.unban_node(*peer_to_unban) {
-                error!(
-                    "Couldn't handle an UnbanNode request from peer {}: {}",
-                    source.id, e
-                );
-            }
+        NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(_source, peer_to_unban), ..) => {
+            node_ref.unban_node(*peer_to_unban)
         }
         NetworkMessage::NetworkPacket(..) => {
             // handled by handle_incoming_network_packet
+            Ok(())
         }
         NetworkMessage::NetworkRequest(NetworkRequest::Retransmit(..), ..) => {
             // handled by handle_retransmit_req
+            Ok(())
         }
-        NetworkMessage::InvalidMessage => handle_invalid_network_msg(conn),
+        NetworkMessage::InvalidMessage => {
+            handle_invalid_network_msg(conn);
+            Ok(())
+        }
+    } {
+        error!("Couldn't handle the network message {:?}: {}", full_msg, e);
     }
 }
 

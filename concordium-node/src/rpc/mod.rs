@@ -5,7 +5,6 @@ use crate::utils;
 use crate::{
     common::{
         counter::{TOTAL_MESSAGES_RECEIVED_COUNTER, TOTAL_MESSAGES_SENT_COUNTER},
-        serialization::serialize_into_memory,
         P2PNodeId, PeerType,
     },
     configuration,
@@ -19,7 +18,9 @@ use crate::{
     proto::*,
 };
 
-use concordium_common::{hybrid_buf::HybridBuf, ConsensusFfiResponse, PacketType};
+use concordium_common::{
+    hybrid_buf::HybridBuf, ConsensusFfiResponse, PacketType, SerializeToBytes,
+};
 use concordium_consensus::consensus::{ConsensusContainer, CALLBACK_QUEUE};
 use concordium_global_state::tree::messaging::{ConsensusMessage, DistributionMode, MessageType};
 use futures::future::Future;
@@ -739,34 +740,21 @@ impl P2P for RpcServerImpl {
             };
 
             let f = if let Some(to_unban) = banned_node {
-                if let Ok(mut store_key) = serialize_into_memory(&to_unban, 64) {
-                    if let Ok(store_key) = store_key.remaining_bytes() {
-                        match remove_ban(&self.node.kvs, &store_key)
-                            .and_then(|_| self.node.unban_node(to_unban))
-                        {
-                            Ok(_) => {
-                                self.node.send_unban(to_unban);
-                                r.set_value(true);
-                            }
-                            Err(e) => {
-                                error!("{}", e);
-                                r.set_value(false);
-                            }
-                        }
-
-                        sink.success(r)
-                    } else {
-                        sink.fail(grpcio::RpcStatus::new(
-                            grpcio::RpcStatusCode::InvalidArgument,
-                            Some("Couldn't serialize the banned peer".to_string()),
-                        ))
+                let store_key = to_unban.serialize();
+                match remove_ban(&self.node.kvs, &store_key)
+                    .and_then(|_| self.node.unban_node(to_unban))
+                {
+                    Ok(_) => {
+                        self.node.send_unban(to_unban);
+                        r.set_value(true);
                     }
-                } else {
-                    sink.fail(grpcio::RpcStatus::new(
-                        grpcio::RpcStatusCode::InvalidArgument,
-                        Some("Couldn't serialize the banned peer".to_string()),
-                    ))
+                    Err(e) => {
+                        error!("{}", e);
+                        r.set_value(false);
+                    }
                 }
+
+                sink.success(r)
             } else {
                 sink.fail(grpcio::RpcStatus::new(
                     grpcio::RpcStatusCode::InvalidArgument,

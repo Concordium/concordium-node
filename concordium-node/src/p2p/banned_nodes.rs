@@ -130,7 +130,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BannedNode {
         let mut cursor = Cursor::new(bytes);
 
         let mut t = [0u8; 1];
-        cursor.read(&mut t)?;
+        cursor.read_exact(&mut t)?;
 
         match t[0] {
             0 => Ok(BannedNode::ById(P2PNodeId(LittleEndian::read_u64(
@@ -138,17 +138,17 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BannedNode {
             )))),
             1 => {
                 let mut t = [0u8; 1];
-                cursor.read(&mut t)?;
+                cursor.read_exact(&mut t)?;
 
                 match t[0] {
                     4 => {
                         let mut tgt = [0u8; 4];
-                        cursor.read(&mut tgt)?;
+                        cursor.read_exact(&mut tgt)?;
                         Ok(BannedNode::ByAddr(IpAddr::V4(Ipv4Addr::from(tgt))))
                     }
                     6 => {
                         let mut tgt = [0u8; 16];
-                        cursor.read(&mut tgt)?;
+                        cursor.read_exact(&mut tgt)?;
                         Ok(BannedNode::ByAddr(IpAddr::V6(Ipv6Addr::from(tgt))))
                     }
                     _ => bail!("Can't deserialize the IP of a banned node"),
