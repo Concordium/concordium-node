@@ -118,10 +118,10 @@ checkCommCounterResult (suc, fails) =
   length reject == 1 &&  -- one rejected (which is also the last one)
   length nonreject == 6  -- and 6 successful ones
   where 
-    nonreject = filter (\case (_, Types.TxSuccess _) -> True
+    nonreject = filter (\case (_, Types.TxSuccess _ _) -> True
                               (_, Types.TxReject _ _) -> False)
                         suc
-    reject = filter (\case (_, Types.TxSuccess _) -> False
+    reject = filter (\case (_, Types.TxSuccess _ _) -> False
                            (_, Types.TxReject _ _) -> True
                     )
                         suc

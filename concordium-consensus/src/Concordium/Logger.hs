@@ -13,7 +13,7 @@ import Control.Monad.Trans.Except (ExceptT)
 import Control.Monad.IO.Class (MonadIO)
 import Data.Word
 
-import Concordium.GlobalState.BlockState (BSMTrans)
+import Concordium.GlobalState.BlockState (BSMTrans, ATLoggerT)
 
 -- |The source module for a log event.
 data LogSource
@@ -113,6 +113,9 @@ instance LoggerMonad m => LoggerMonad (ExceptT e m) where
     logEvent src lvl msg = lift (logEvent src lvl msg)
 
 instance (Monad (t m), MonadTrans t, LoggerMonad m) => LoggerMonad (BSMTrans t m) where
+    logEvent src lvl msg = lift (logEvent src lvl msg)
+
+instance LoggerMonad m => LoggerMonad (ATLoggerT m) where
     logEvent src lvl msg = lift (logEvent src lvl msg)
 
 type LogIO = LoggerT IO

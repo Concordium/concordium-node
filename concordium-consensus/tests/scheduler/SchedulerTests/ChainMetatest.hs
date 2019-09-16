@@ -89,7 +89,7 @@ checkChainMetaResult (suc, fails, instances) =
   length instances == 1 && -- only a single contract instance should be created
   checkLocalState (snd (head instances)) -- and the local state should match the 
   where 
-    reject = filter (\case (_, Types.TxSuccess _) -> False
+    reject = filter (\case (_, Types.TxSuccess _ _) -> False
                            (_, Types.TxReject _ _) -> True
                     )
                         suc

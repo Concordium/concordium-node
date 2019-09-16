@@ -61,7 +61,7 @@ sendTransactions :: Chan (InEvent) -> [Transaction] -> IO ()
 sendTransactions chan (t : ts) = do
         writeChan chan (IEMessage $ MsgTransactionReceived $ runPut $ put t)
         -- r <- randomRIO (5000, 15000)
-        threadDelay 10000
+        threadDelay 100000
         sendTransactions chan ts
 sendTransactions _ _ = return ()
 
@@ -207,11 +207,15 @@ main = do
         let logM src lvl msg = do
                                     timestamp <- getCurrentTime
                                     writeChan logChan $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg ++ "\n"
-        (cin, cout, out) <- makeAsyncRunner logM bid gen iState
+        let logTransferFile = "transfer-log-" ++ show now ++ "-" ++ show bakerId ++ ".transfers"
+        let logT bh slot reason = do
+              appendFile logTransferFile (show (bh, slot, reason))
+              appendFile logTransferFile "\n"
+        (cin, cout, out) <- makeAsyncRunner logM (Just logT) bid gen iState
         cin' <- newChan
         connectedRef <- newIORef True
         _ <- forkIO $ relayIn cin' cin out connectedRef
-        -- _ <- forkIO $ sendTransactions cin' trans
+        _ <- forkIO $ sendTransactions cin' trans
         return (cin', cout, out, connectedRef, logM)) (zip [0::Int ..] bis)
     monitorChan <- newChan
     forM_ (removeEach chans) $ \((cin, cout, stateRef, connectedRef, logM), cs) -> do
