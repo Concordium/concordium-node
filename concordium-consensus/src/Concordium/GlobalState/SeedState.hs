@@ -11,19 +11,20 @@ import Concordium.Types
 import Concordium.Crypto.VRF
 import Concordium.Crypto.SHA256
 
+-- |State for computing the leadership election nonce.
 data SeedState = SeedState {
-  -- Seed of the current epoch
+  -- |Seed of the current epoch
   currentSeed :: LeadershipElectionNonce,
-  -- number of slots in an epoch, probably stored in genesis data
+  -- |Number of slots in an epoch, probably stored in genesis data
   epochLength :: EpochLength,
-  -- current epoch
+  -- |Current epoch
   epoch :: Word64,
-  -- list of blocknonces from current epoch in reverse order
+  -- |List of blocknonces from current epoch in reverse order
   revBlockNonces :: [BlockNonce]
 } deriving (Eq, Generic, Show)
 instance Serialize SeedState
 
--- Instantiate a seed state: leadership elction nonce should be random, epoch length should be long, but not too long...
+-- |Instantiate a seed state: leadership elction nonce should be random, epoch length should be long, but not too long...
 genesisSeedState :: LeadershipElectionNonce -> EpochLength -> SeedState
 genesisSeedState nonce epochLength =
   SeedState nonce epochLength 0 []
