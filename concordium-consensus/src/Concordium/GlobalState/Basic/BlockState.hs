@@ -190,7 +190,12 @@ instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
 
     {-# INLINE getTransactionOutcome #-}
     getTransactionOutcome bs trh =
-        return $ Transactions.outcomeMap (_blockTransactionOutcomes bs) ^? ix trh
+        return $ bs ^? blockTransactionOutcomes . ix trh
+
+    {-# INLINE getSpecialOutcomes #-}
+    getSpecialOutcomes bs =
+        return $ bs ^. blockTransactionOutcomes . Transactions.outcomeSpecial
+
 
 instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
 
@@ -335,3 +340,6 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
 
     bsoSetTransactionOutcomes bs l =
       return $! bs & blockTransactionOutcomes .~ Transactions.transactionOutcomesFromList l
+
+    bsoAddSpecialTransactionOutcome bs o =
+      return $! bs & blockTransactionOutcomes . Transactions.outcomeSpecial %~ (o:)

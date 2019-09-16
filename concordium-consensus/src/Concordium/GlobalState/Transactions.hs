@@ -1,3 +1,4 @@
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE DeriveGeneric, GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE MultiParamTypeClasses, FlexibleInstances #-}
@@ -11,12 +12,15 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.Set as Set
 import qualified Data.Map.Strict as Map
 import Lens.Micro.Platform
+import Lens.Micro.Internal
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Crypto.SignatureScheme(SchemeId, Signature, KeyPair)
 import qualified Concordium.Crypto.AccountSignatureSchemes as SigScheme
 import qualified Concordium.ID.Types as IDTypes
 import qualified Concordium.ID.Account as AH
+
+import qualified Data.Vector as Vec
 
 import Concordium.Types
 import Concordium.Types.HashableTo
@@ -119,12 +123,8 @@ makeTransaction trSignature trHeader trPayload =
   let trHash = H.hash . S.runPut $ S.put trSignature <> S.put trHeader <> S.put trPayload
   in Transaction{..}
 
--- |NB: We do not use the serialize instance of the body (trPayload) here, since
--- that is already serialized and there is no need to add additional length
--- information.
--- FIXME: This method is inefficient (it creates temporary bytestrings which are
+-- |FIXME: This method is inefficient (it creates temporary bytestrings which are
 -- probably not necessary if we had a more appropriate sign function.
-
 -- |Sign a transaction with the given header and body. Uses serialization as defined on the wiki.
 signTransaction :: KeyPair -> TransactionHeader -> EncodedPayload -> Transaction
 signTransaction keys trHeader trPayload =
@@ -250,15 +250,39 @@ reversePTT trs ptt0 = foldr reverse1 ptt0 trs
                         assert (low == transactionNonce tr + 1) $
                         Just (low-1,high)
 
+-- |Record special transactions as well for logging purposes.
+data SpecialTransactionOutcome =
+  BakingReward !AccountAddress !Amount
+  deriving(Show)
+
+-- |Values of this datatype must satisfy the invariant that the values in the
+-- map are exactly the indices in the vector.
 data TransactionOutcomes = TransactionOutcomes {
-    outcomeMap :: HM.HashMap TransactionHash ValidResult
+    outcomeIndex :: !(HM.HashMap TransactionHash Int),
+    outcomeValues :: !(Vec.Vector ValidResult),
+    _outcomeSpecial :: ![SpecialTransactionOutcome]
 }
 
+makeLenses ''TransactionOutcomes
+
 instance Show TransactionOutcomes where
-    show (TransactionOutcomes m) = show (HM.toList m)
+    show (TransactionOutcomes _ v s) = "Normal transactions: " ++ show (Vec.toList v) ++ ", special transactions: " ++ show s
 
 emptyTransactionOutcomes :: TransactionOutcomes
-emptyTransactionOutcomes = TransactionOutcomes HM.empty
+emptyTransactionOutcomes = TransactionOutcomes HM.empty Vec.empty []
 
 transactionOutcomesFromList :: [(TransactionHash, ValidResult)] -> TransactionOutcomes
-transactionOutcomesFromList l = TransactionOutcomes (HM.fromList l)
+transactionOutcomesFromList l =
+  let outcomeValues = Vec.fromList (map snd l)
+      outcomeIndex = HM.fromList (zip (map fst l) [0..])
+      _outcomeSpecial = []
+  in TransactionOutcomes{..}
+
+type instance Index TransactionOutcomes = TransactionHash
+type instance IxValue TransactionOutcomes = ValidResult
+
+instance Ixed TransactionOutcomes where
+  ix idx f outcomes@TransactionOutcomes{..} = -- result type is f TransactionOutcomes
+    case outcomeIndex ^. at idx of
+      Nothing -> pure outcomes
+      Just i -> (\ov -> TransactionOutcomes{outcomeValues=ov,..}) <$> ix i f outcomeValues
