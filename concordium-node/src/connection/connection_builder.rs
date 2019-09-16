@@ -64,7 +64,7 @@ impl ConnectionBuilder {
                 local_end_networks,
                 remote_end_networks: Default::default(),
                 is_post_handshake: Default::default(),
-                is_closing: Default::default(),
+                is_closed: Default::default(),
                 messages_received: Default::default(),
                 messages_sent: Default::default(),
                 last_ping_sent: Arc::new(AtomicU64::new(curr_stamp)),

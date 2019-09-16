@@ -59,7 +59,7 @@ pub struct Connection {
     pub local_end_networks:    Arc<RwLock<HashSet<NetworkId>>>,
     pub remote_end_networks:   Arc<RwLock<HashSet<NetworkId>>>,
     pub is_post_handshake:     Arc<AtomicBool>,
-    pub is_closing:            Arc<AtomicBool>,
+    pub is_closed:             Arc<AtomicBool>,
     pub messages_sent:         Arc<AtomicU64>,
     pub messages_received:     Arc<AtomicU64>,
     pub last_ping_sent:        Arc<AtomicU64>,
@@ -129,10 +129,10 @@ impl Connection {
     }
 
     #[inline]
-    pub fn is_closed(&self) -> bool { self.is_closing.load(Ordering::SeqCst) }
+    pub fn is_closed(&self) -> bool { self.is_closed.load(Ordering::SeqCst) }
 
     #[inline]
-    pub fn close(&self) { self.is_closing.store(true, Ordering::SeqCst) }
+    pub fn close(&self) { self.is_closed.store(true, Ordering::SeqCst) }
 
     /// This function is called when `poll` indicates that `socket` is ready to
     /// write or/and read.

@@ -75,7 +75,7 @@ impl ConnectionPrivate {
         }
 
         // 2. Write pending data into `socket` or shut the connection down
-        if !self.conn().is_closing.load(Ordering::SeqCst) {
+        if !self.conn().is_closed.load(Ordering::SeqCst) {
             self.message_sink.flush(&mut self.socket)?;
         } else {
             self.shutdown()?;
