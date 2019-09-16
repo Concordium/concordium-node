@@ -15,7 +15,7 @@ data SeedState = SeedState {
   -- Seed of the current epoch
   currentSeed :: LeadershipElectionNonce,
   -- number of slots in an epoch, probably stored in genesis data
-  epochLength :: Word64,
+  epochLength :: EpochLength,
   -- current epoch
   epoch :: Word64,
   -- list of blocknonces from current epoch in reverse order
@@ -24,17 +24,17 @@ data SeedState = SeedState {
 instance Serialize SeedState
 
 -- Instantiate a seed state: leadership elction nonce should be random, epoch length should be long, but not too long...
-genesisSeedState :: LeadershipElectionNonce -> Word64 -> SeedState
-genesisSeedState len epochLength =
-  SeedState len epochLength 0 []
+genesisSeedState :: LeadershipElectionNonce -> EpochLength -> SeedState
+genesisSeedState nonce epochLength =
+  SeedState nonce epochLength 0 []
 
 getSeed :: SeedState -> LeadershipElectionNonce
 getSeed state = currentSeed state
 
 updateSeed :: Slot -> BlockNonce -> SeedState -> SeedState
-updateSeed (Slot slot) bn state@SeedState{..} =
+updateSeed slot bn state@SeedState{..} =
   let 
-    currentEpoch = slot `div` epochLength
+    currentEpoch = theSlot $ slot `div` epochLength
     isFirstBlockOfEpoch = currentEpoch /= epoch
     shouldContributeBlockNonce = slot `rem` epochLength <= (2 * epochLength) `div` 3
   in
