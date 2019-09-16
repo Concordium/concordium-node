@@ -645,7 +645,6 @@ pub extern "C" fn on_log_emited(identifier: c_char, log_level: c_char, log_messa
     };
 }
 
-#[allow(unused_variables)]
 pub extern "C" fn on_transfer_log_emitted(
     transfer_type: c_char,
     block_hash_ptr: *const u8,

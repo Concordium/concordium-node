@@ -80,6 +80,56 @@ pub enum TransactionLogMessage {
     BlockReward(BlockHash, Slot, Amount, BakerId, AccountAddress),
 }
 
+impl std::fmt::Display for TransactionLogMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::DirectTransfer(block_hash, slot, tx_hash, amount, from_account, to_account) => {
+                write!(
+                    f,
+                    "DirectTransfer occured in {}/{}/{} for {} from {} to {}",
+                    block_hash, slot, tx_hash, amount, from_account, to_account
+                )
+            }
+            Self::TransferFromAccountToContract(
+                block_hash,
+                slot,
+                tx_hash,
+                amount,
+                from_account,
+                to_contract,
+            ) => write!(
+                f,
+                "TransferFromAccountToContract occured in {}/{}/{} for {} from {} to {}",
+                block_hash, slot, tx_hash, amount, from_account, to_contract
+            ),
+            Self::TransferFromContractToAccount(
+                block_hash,
+                slot,
+                tx_hash,
+                amount,
+                from_contract,
+                to_account,
+            ) => write!(
+                f,
+                "TransferFromContractToAccount occured in {}/{}/{} for {} from {} to {}",
+                block_hash, slot, tx_hash, amount, from_contract, to_account
+            ),
+            Self::ExecutionCost(block_hash, slot, tx_hash, amount, from_account, baker_id) => {
+                write!(
+                    f,
+                    "ExecutionCost occured in {}/{}/{} for {} from {} to {}",
+                    block_hash, slot, tx_hash, amount, from_account, baker_id
+                )
+            }
+            Self::BlockReward(block_hash, slot, amount, baker_id, baker_account) => write!(
+                f,
+                "BlockReward occured in {}/{} for {} to {}/{}",
+                block_hash, slot, amount, baker_id, baker_account
+            ),
+        }
+    }
+}
+
 pub enum TransferLogType {
     DirectTransfer = 0,
     TransferFromAccountToContract,

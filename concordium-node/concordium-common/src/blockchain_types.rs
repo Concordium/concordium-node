@@ -7,7 +7,7 @@ use sha2::Sha224;
 use std::{
     convert::TryFrom,
     fmt,
-    io::{Cursor, Read, Write},
+    io::{Cursor, Read},
     mem::size_of,
 };
 
@@ -45,6 +45,12 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for ContractAddress {
         let _ = cursor.write_u64::<NetworkEndian>(self.subindex);
 
         cursor.into_inner()
+    }
+}
+
+impl std::fmt::Display for ContractAddress {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "I{}/S{}", self.index, self.subindex)
     }
 }
 

@@ -504,7 +504,7 @@ fn setup_transfer_log_thread(_: &config::CliConfig) -> std::thread::JoinHandle<(
             if let Ok(msg) = receiver.recv() {
                 match msg {
                     RelayOrStopEnvelope::Relay(msg) => {
-                        info!("I got an event {:?}", msg);
+                        info!("{}", msg);
                     }
                     RelayOrStopEnvelope::Stop => {
                         debug!("Shutting down transfer log queues");
