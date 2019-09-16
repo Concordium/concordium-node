@@ -772,7 +772,6 @@ impl P2PNode {
                 .next_id
                 .fetch_add(1, Ordering::SeqCst),
         );
-        let networks = self.networks();
         let key_pair = utils::clone_snow_keypair(&self.connection_handler.key_pair);
 
         let conn = ConnectionBuilder::default()
@@ -786,7 +785,6 @@ impl P2PNode {
                 addr,
                 peer_type: PeerType::Node,
             })
-            .set_local_end_networks(networks)
             .set_noise_params(self.connection_handler.noise_params.clone())
             .build()?;
 
@@ -861,7 +859,6 @@ impl P2PNode {
                         addr,
                         peer_type,
                     })
-                    .set_local_end_networks(Arc::clone(&networks))
                     .set_noise_params(self.connection_handler.noise_params.clone())
                     .build()?;
 

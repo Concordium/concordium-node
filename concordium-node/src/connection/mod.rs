@@ -56,7 +56,6 @@ pub struct Connection {
     pub token:                 Token,
     pub remote_peer:           RemotePeer,
     pub dptr:                  Arc<RwLock<ConnectionPrivate>>,
-    pub local_end_networks:    Arc<RwLock<HashSet<NetworkId>>>,
     pub remote_end_networks:   Arc<RwLock<HashSet<NetworkId>>>,
     pub is_post_handshake:     Arc<AtomicBool>,
     pub is_closed:             Arc<AtomicBool>,
@@ -186,7 +185,7 @@ impl Connection {
     }
 
     pub fn local_end_networks(&self) -> Arc<RwLock<HashSet<NetworkId>>> {
-        Arc::clone(&self.local_end_networks)
+        self.handler().networks()
     }
 
     /// It queues a network request

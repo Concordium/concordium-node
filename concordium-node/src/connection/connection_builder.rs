@@ -4,7 +4,6 @@ use crate::{
         connection_private::ConnectionPrivate, fails::MissingFieldsConnectionBuilder, Connection,
         FrameSink, FrameStream, HandshakeStreamSink,
     },
-    network::NetworkId,
     p2p::P2PNode,
 };
 
@@ -13,21 +12,19 @@ use mio::{net::TcpStream, Token};
 use snow::Keypair;
 
 use std::{
-    collections::HashSet,
     pin::Pin,
     sync::{atomic::AtomicU64, Arc, RwLock},
 };
 
 #[derive(Default)]
 pub struct ConnectionBuilder {
-    handler_ref:        Option<Pin<Arc<P2PNode>>>,
-    token:              Option<Token>,
-    remote_peer:        Option<RemotePeer>,
-    key_pair:           Option<Keypair>,
-    local_end_networks: Option<Arc<RwLock<HashSet<NetworkId>>>>,
-    is_initiator:       bool,
-    priv_conn_builder:  ConnectionPrivateBuilder,
-    noise_params:       Option<snow::params::NoiseParams>,
+    handler_ref:       Option<Pin<Arc<P2PNode>>>,
+    token:             Option<Token>,
+    remote_peer:       Option<RemotePeer>,
+    key_pair:          Option<Keypair>,
+    is_initiator:      bool,
+    priv_conn_builder: ConnectionPrivateBuilder,
+    noise_params:      Option<snow::params::NoiseParams>,
 }
 
 impl ConnectionBuilder {
@@ -40,14 +37,12 @@ impl ConnectionBuilder {
             Some(token),
             Some(remote_peer),
             Some(noise_params),
-            Some(local_end_networks),
         ) = (
             self.handler_ref,
             self.key_pair,
             self.token,
             self.remote_peer,
             self.noise_params,
-            self.local_end_networks,
         ) {
             let priv_conn = self
                 .priv_conn_builder
@@ -61,7 +56,6 @@ impl ConnectionBuilder {
                 token,
                 remote_peer,
                 dptr: Arc::new(RwLock::new(priv_conn)),
-                local_end_networks,
                 remote_end_networks: Default::default(),
                 is_post_handshake: Default::default(),
                 is_closed: Default::default(),
@@ -110,14 +104,6 @@ impl ConnectionBuilder {
 
     pub fn set_remote_peer(mut self, peer: RemotePeer) -> ConnectionBuilder {
         self.remote_peer = Some(peer);
-        self
-    }
-
-    pub fn set_local_end_networks(
-        mut self,
-        local_end_nets: Arc<RwLock<HashSet<NetworkId>>>,
-    ) -> ConnectionBuilder {
-        self.local_end_networks = Some(local_end_nets);
         self
     }
 
