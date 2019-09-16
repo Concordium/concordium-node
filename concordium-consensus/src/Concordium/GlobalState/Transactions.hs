@@ -123,12 +123,8 @@ makeTransaction trSignature trHeader trPayload =
   let trHash = H.hash . S.runPut $ S.put trSignature <> S.put trHeader <> S.put trPayload
   in Transaction{..}
 
--- |NB: We do not use the serialize instance of the body (trPayload) here, since
--- that is already serialized and there is no need to add additional length
--- information.
--- FIXME: This method is inefficient (it creates temporary bytestrings which are
+-- |FIXME: This method is inefficient (it creates temporary bytestrings which are
 -- probably not necessary if we had a more appropriate sign function.
-
 -- |Sign a transaction with the given header and body. Uses serialization as defined on the wiki.
 signTransaction :: KeyPair -> TransactionHeader -> EncodedPayload -> Transaction
 signTransaction keys trHeader trPayload =
