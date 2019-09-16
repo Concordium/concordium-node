@@ -35,7 +35,7 @@ use rkv::{Manager, Rkv, StoreOptions, Value};
 use snow::Keypair;
 
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashMap, HashSet},
     convert::TryFrom,
     net::{
         IpAddr::{self, V4, V6},
@@ -117,7 +117,6 @@ pub struct ConnectionHandler {
     noise_params:               snow::params::NoiseParams,
     pub network_request_sender: SyncSender<NetworkRawRequest>,
     pub connections:            Arc<RwLock<Vec<Connection>>>,
-    pub to_disconnect:          Arc<RwLock<VecDeque<P2PNodeId>>>,
     pub unreachable_nodes:      UnreachableNodes,
     pub networks:               Arc<RwLock<HashSet<NetworkId>>>,
     pub last_bootstrap:         Arc<AtomicU64>,
@@ -152,7 +151,6 @@ impl ConnectionHandler {
             noise_params,
             network_request_sender,
             connections: Default::default(),
-            to_disconnect: Default::default(),
             unreachable_nodes: UnreachableNodes::new(),
             networks: Arc::new(RwLock::new(networks)),
             last_bootstrap: Default::default(),
@@ -627,18 +625,6 @@ impl P2PNode {
 
         let curr_stamp = get_current_stamp();
         let peer_type = self.peer_type();
-
-        write_or_die!(self.connection_handler.to_disconnect)
-            .drain(..)
-            .for_each(|x| {
-                if let Some(ref conn) = self.find_connection_by_id(x) {
-                    trace!(
-                        "Disconnecting connection {} already marked as going down",
-                        usize::from(conn.token)
-                    );
-                    conn.close();
-                }
-            });
 
         // clone the initial collection of connections to reduce locking
         let uncleaned_connections = read_or_die!(self.connection_handler.connections).clone();

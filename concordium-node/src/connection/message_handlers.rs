@@ -143,7 +143,7 @@ fn handle_handshake_req(
     debug!("Got a Handshake request");
 
     if conn.handler().is_banned(BannedNode::ById(source.id()))? {
-        write_or_die!(conn.handler().connection_handler.to_disconnect).push_back(source.id());
+        conn.close();
     }
 
     conn.add_remote_end_networks(networks);
