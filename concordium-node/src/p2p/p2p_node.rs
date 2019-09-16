@@ -710,9 +710,16 @@ impl P2PNode {
         self.connection_handler.unreachable_nodes.insert(addr)
     }
 
-    pub fn accept(&self) -> Fallible<()> {
+    fn accept(&self) -> Fallible<()> {
         let self_peer = self.self_peer;
         let (socket, addr) = self.connection_handler.server.accept()?;
+
+        if read_or_die!(self.connection_handler.connections)
+            .iter()
+            .any(|conn| conn.remote_addr() == addr)
+        {
+            bail!("Duplicate connection attempt from {:?}; rejecting", addr);
+        }
 
         debug!(
             "Accepting new connection from {:?} to {:?}:{}",
@@ -1010,8 +1017,8 @@ impl P2PNode {
             .retain(|conn| !to_remove.contains(&conn.token));
     }
 
-    pub fn add_connection(&self, conn: Connection) {
-        write_or_die!(self.connection_handler.connections).insert(conn);
+    pub fn add_connection(&self, conn: Connection) -> bool {
+        write_or_die!(self.connection_handler.connections).insert(conn)
     }
 
     pub fn conn_event(&self, event: &Event) {
