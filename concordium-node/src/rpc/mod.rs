@@ -52,7 +52,7 @@ impl Clone for RpcServerImpl {
             listen_port:  self.listen_port,
             listen_addr:  self.listen_addr.clone(),
             access_token: self.access_token.clone(),
-            consensus:    None,
+            consensus:    self.consensus.clone(),
             server:       self.server.clone(),
             receiver:     None,
         }
