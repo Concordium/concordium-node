@@ -1012,7 +1012,7 @@ impl P2PNode {
             .collect()
     }
 
-    fn remove_connections(&self, to_remove: &[Token]) {
+    pub fn remove_connections(&self, to_remove: &[Token]) {
         write_or_die!(self.connection_handler.connections)
             .retain(|conn| !to_remove.contains(&conn.token));
     }

@@ -20,6 +20,9 @@ const APP_PREFERENCES_MAIN: &str = "main.config";
 pub const APP_PREFERENCES_KEY_VERSION: &str = "VERSION";
 pub const APP_PREFERENCES_PERSISTED_NODE_ID: &str = "PERSISTED_NODE_ID";
 
+// ticker thread loop interval
+pub const TICKER_INTERVAL_SECS: u8 = 5;
+
 // queue depths
 pub const GS_HIGH_PRIO_QUEUE_DEPTH: usize = 1024;
 pub const GS_LOW_PRIO_QUEUE_DEPTH: usize = 1024 * 10;
