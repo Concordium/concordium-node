@@ -280,8 +280,11 @@ class BlockStateQuery m => BlockStateOperations m where
   -- |Add a special transaction outcome.
   bsoAddSpecialTransactionOutcome :: UpdatableBlockState m -> SpecialTransactionOutcome -> m (UpdatableBlockState m)
 
-  -- |Update the information used to calculate the leadership elction nonce, and possibly the leadership election nonce
-  bsoUpdateNonce :: UpdatableBlockState m -> Slot -> BlockNonce -> m (UpdatableBlockState m)
+  -- |Update the information used to calculate the leadership elction nonce, and possibly the leadership election nonce.
+  bsoUpdateNonce :: UpdatableBlockState m
+    -> Slot -- ^Slot of the block
+    -> BlockNonce -- ^BlockNonce of the block
+    -> m (UpdatableBlockState m)
 
 
 newtype BSMTrans t (m :: * -> *) a = BSMTrans (t m a)
