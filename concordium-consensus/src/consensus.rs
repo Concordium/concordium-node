@@ -1,5 +1,6 @@
 use concordium_common::{
-    into_err, RelayOrStopReceiver, RelayOrStopSenderHelper, RelayOrStopSyncSender,
+    blockchain_types::BakerId, into_err, RelayOrStopReceiver, RelayOrStopSenderHelper,
+    RelayOrStopSyncSender,
 };
 use failure::Fallible;
 
@@ -12,10 +13,7 @@ use std::{
 };
 
 use crate::ffi::*;
-use concordium_global_state::{
-    block::BakerId,
-    tree::{messaging::ConsensusMessage, GlobalState},
-};
+use concordium_global_state::tree::{messaging::ConsensusMessage, GlobalState};
 
 pub type PeerId = u64;
 pub type PrivateData = HashMap<i64, Vec<u8>>;

@@ -1,9 +1,15 @@
 use concordium_common::{
+    blockchain_types::{
+        AccountAddress, Amount, BakerId, BlockHash, ContractAddress, Slot, TransactionHash,
+    },
     into_err, RelayOrStopReceiver, RelayOrStopSenderHelper, RelayOrStopSyncSender,
 };
-use failure::Fallible;
+use failure::{format_err, Fallible};
 
-use std::sync::{mpsc, Mutex};
+use std::{
+    convert::TryFrom,
+    sync::{mpsc, Mutex},
+};
 
 const TRANSACTION_LOG_QUEUE_DEPTH: usize = 4096;
 
@@ -39,5 +45,72 @@ lazy_static! {
 
 #[derive(Debug)]
 pub enum TransactionLogMessage {
-    Unknown(u8),
+    DirectTransfer(
+        BlockHash,
+        Slot,
+        TransactionHash,
+        Amount,
+        AccountAddress,
+        AccountAddress,
+    ),
+    TransferFromAccountToContract(
+        BlockHash,
+        Slot,
+        TransactionHash,
+        Amount,
+        AccountAddress,
+        ContractAddress,
+    ),
+    TransferFromContractToAccount(
+        BlockHash,
+        Slot,
+        TransactionHash,
+        Amount,
+        ContractAddress,
+        AccountAddress,
+    ),
+    ExecutionCost(
+        BlockHash,
+        Slot,
+        TransactionHash,
+        Amount,
+        AccountAddress,
+        BakerId,
+    ),
+    BlockReward(BlockHash, Slot, Amount, BakerId, AccountAddress),
+}
+
+pub enum TransferLogType {
+    DirectTransfer = 0,
+    TransferFromAccountToContract,
+    TransferFromContractToAccount,
+    ExecutionCost,
+    BlockReward,
+}
+
+impl TryFrom<u8> for TransferLogType {
+    type Error = failure::Error;
+
+    fn try_from(byte: u8) -> Fallible<Self> {
+        match byte as u8 {
+            0 => Ok(Self::DirectTransfer),
+            1 => Ok(Self::TransferFromAccountToContract),
+            2 => Ok(Self::TransferFromContractToAccount),
+            3 => Ok(Self::ExecutionCost),
+            4 => Ok(Self::BlockReward),
+            _ => Err(format_err!("Received invalid transfer log type: {}", byte)),
+        }
+    }
+}
+
+impl std::fmt::Display for TransferLogType {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::DirectTransfer => write!(f, "DirectTransfer"),
+            Self::TransferFromAccountToContract => write!(f, "TransferFromAccountToContract"),
+            Self::TransferFromContractToAccount => write!(f, "TransferFromContractToAccount"),
+            Self::ExecutionCost => write!(f, "ExecutionCost"),
+            Self::BlockReward => write!(f, "BlockReward"),
+        }
+    }
 }
