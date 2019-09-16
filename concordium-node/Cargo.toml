@@ -23,7 +23,7 @@ benchmark = []
 network_dump = []
 static = ["concordium-consensus/static"]
 profiling = ["concordium-consensus/profiling"]
-elastic_logging = [ "elastic", "elastic_derive", "serde_json" ]
+elastic_logging = [ "elastic", "elastic_derive", "serde_json", "serde/derive" ]
 
 [dependencies]
 # Internal dependencies
@@ -97,6 +97,7 @@ grpciounix = { package = 'grpcio', version = "0.4.4", default-features = false, 
   "protobuf-codec"
 ] }
 grpc = "0.6.1"
+uuid = { version = "0.7", default-features = false }
 
 [build-dependencies]
 walkdir = "2"

@@ -18,6 +18,15 @@ extern crate log;
 #[macro_use]
 extern crate cfg_if;
 
+#[cfg(feature = "elastic_logging")]
+#[macro_use]
+extern crate elastic_derive;
+#[cfg(feature = "elastic_logging")]
+#[macro_use]
+extern crate serde_json;
+#[cfg(feature = "elastic_logging")]
+extern crate elastic;
+
 cfg_if! {
     if #[cfg(feature = "instrumentation")] {
         #[macro_use]
