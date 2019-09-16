@@ -83,6 +83,7 @@ twox-hash = { version = "^1.5.0", features = ["digest"] }
 elastic = { version = "0.21.0-pre.5", optional = true }
 elastic_derive = { version = "0.21.0-pre.5", optional = true }
 serde_json = { version = "1", optional = true }
+nohash-hasher = "^0.1"
 
 [target.'cfg(windows)'.dependencies]
 ipconfig = { version = "^0.1.9" }

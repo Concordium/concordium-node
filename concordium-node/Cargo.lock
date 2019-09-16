@@ -1776,6 +1776,7 @@ dependencies = [
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "mime 0.3.13 (registry+https://github.com/rust-lang/crates.io-index)",
  "mio 0.6.19 (registry+https://github.com/rust-lang/crates.io-index)",
+ "nohash-hasher 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "nom 4.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "pedersen_scheme 0.1.0",
  "preferences 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)",

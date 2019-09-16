@@ -147,7 +147,7 @@ fn handle_handshake_req(
     }
 
     conn.add_remote_end_networks(networks);
-    conn.promote_to_post_handshake(source.id(), source.addr)?;
+    conn.promote_to_post_handshake(source.id())?;
     send_handshake_and_ping(&conn)?;
     conn.set_measured_ping_sent();
 
@@ -169,7 +169,7 @@ fn handle_handshake_resp(
     debug!("Got a Handshake response");
 
     conn.add_remote_end_networks(networks);
-    conn.promote_to_post_handshake(source.id(), source.addr)?;
+    conn.promote_to_post_handshake(source.id())?;
 
     conn.sent_handshake
         .store(get_current_stamp(), Ordering::SeqCst);
