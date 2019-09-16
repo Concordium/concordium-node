@@ -37,9 +37,7 @@ use p2p_client::{
     p2p::*,
     rpc::RpcServerImpl,
     stats_engine::StatsEngine,
-    utils::{
-        self, get_config_and_logging_setup, load_bans, GlobalStateReceivers, GlobalStateSenders,
-    },
+    utils::{self, get_config_and_logging_setup, GlobalStateReceivers, GlobalStateSenders},
 };
 
 use circular_queue::CircularQueue;
@@ -82,11 +80,6 @@ fn main() -> Fallible<()> {
     for resolver in &node.config.dns_resolvers {
         debug!("Using resolver: {}", resolver);
     }
-
-    // Load and apply existing bans
-    if let Err(e) = load_bans(&mut node) {
-        error!("{}", e);
-    };
 
     #[cfg(feature = "instrumentation")]
     // Thread #2 (optional): the push gateway to Prometheus

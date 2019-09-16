@@ -13,17 +13,13 @@ use crate::{
         packet::MessageId, request::RequestedElementType, Buckets, NetworkId, NetworkMessage,
         NetworkPacket, NetworkPacketType, NetworkRequest,
     },
-    p2p::{
-        banned_nodes::{BannedNode, BannedNodes},
-        fails,
-        unreachable_nodes::UnreachableNodes,
-    },
+    p2p::{banned_nodes::BannedNode, fails, unreachable_nodes::UnreachableNodes},
     utils,
 };
 use chrono::prelude::*;
 use concordium_common::{
     hybrid_buf::HybridBuf, stats_export_service::StatsExportService, RelayOrStopSenderHelper,
-    RelayOrStopSyncSender,
+    RelayOrStopSyncSender, SerializeToBytes,
 };
 use failure::{err_msg, Error, Fallible};
 #[cfg(not(target_os = "windows"))]
@@ -35,7 +31,7 @@ use mio::{
     Event, Events, Poll, PollOpt, Ready, Token,
 };
 use rand::seq::IteratorRandom;
-use rkv::{Manager, Rkv};
+use rkv::{Manager, Rkv, StoreOptions, Value};
 use snow::Keypair;
 
 use std::{
@@ -57,6 +53,7 @@ use std::{
 };
 
 const SERVER: Token = Token(0);
+const BAN_STORE_NAME: &str = "bans";
 
 const MAX_FAILED_PACKETS_ALLOWED: u32 = 50;
 const MAX_UNREACHABLE_MARK_TIME: u64 = 86_400_000;
@@ -122,7 +119,6 @@ pub struct ConnectionHandler {
     pub connections:            Arc<RwLock<Vec<Connection>>>,
     pub to_disconnect:          Arc<RwLock<VecDeque<P2PNodeId>>>,
     pub unreachable_nodes:      UnreachableNodes,
-    pub banned_peers:           Arc<RwLock<BannedNodes>>,
     pub networks:               Arc<RwLock<HashSet<NetworkId>>>,
     pub last_bootstrap:         Arc<AtomicU64>,
 }
@@ -158,7 +154,6 @@ impl ConnectionHandler {
             connections: Default::default(),
             to_disconnect: Default::default(),
             unreachable_nodes: UnreachableNodes::new(),
-            banned_peers: Arc::new(RwLock::new(BannedNodes::new())),
             networks: Arc::new(RwLock::new(networks)),
             last_bootstrap: Default::default(),
         }
@@ -362,6 +357,9 @@ impl P2PNode {
             is_terminated: Default::default(),
             kvs,
         };
+
+        node.clear_bans()
+            .unwrap_or_else(|e| error!("Couldn't reset the ban list: {}", e));
 
         (node, receivers)
     }
@@ -938,51 +936,93 @@ impl P2PNode {
     }
 
     /// Adds a new node to the banned list and marks its connection for closure
-    pub fn ban_node(&self, peer: BannedNode) -> bool {
-        if write_or_die!(self.connection_handler.banned_peers).insert(peer) {
-            match peer {
-                BannedNode::ById(id) => {
-                    if let Some(ref mut c) = self.find_connection_by_id(id) {
-                        c.close();
-                    }
-                }
-                BannedNode::ByAddr(addr) => {
-                    for conn in self.find_connections_by_ip(addr) {
-                        conn.close();
-                    }
-                }
-            };
-            true
-        } else {
-            false
+    pub fn ban_node(&self, peer: BannedNode) -> Fallible<()> {
+        info!("Banning node {:?}", peer);
+
+        let store_key = peer.serialize();
+        {
+            let ban_kvs_env = safe_read!(self.kvs)?;
+            let ban_store = ban_kvs_env.open_single(BAN_STORE_NAME, StoreOptions::create())?;
+            let mut writer = ban_kvs_env.write()?;
+            // TODO: insert ban expiry timestamp as the Value
+            ban_store.put(&mut writer, store_key, &Value::U64(0))?;
+            writer.commit().unwrap();
         }
+
+        match peer {
+            BannedNode::ById(id) => {
+                if let Some(ref mut c) = self.find_connection_by_id(id) {
+                    c.close();
+                }
+            }
+            BannedNode::ByAddr(addr) => {
+                for conn in self.find_connections_by_ip(addr) {
+                    conn.close();
+                }
+            }
+        };
+
+        if !self.config.no_trust_bans {
+            self.send_ban(peer);
+        }
+
+        Ok(())
     }
 
     /// It removes a node from the banned peer list.
-    pub fn unban_node(&self, peer: BannedNode) -> bool {
-        write_or_die!(self.connection_handler.banned_peers).remove(&peer)
+    pub fn unban_node(&self, peer: BannedNode) -> Fallible<()> {
+        info!("Unbanning node {:?}", peer);
+
+        let store_key = peer.serialize();
+        {
+            let ban_kvs_env = safe_read!(self.kvs)?;
+            let ban_store = ban_kvs_env.open_single(BAN_STORE_NAME, StoreOptions::create())?;
+            let mut writer = ban_kvs_env.write()?;
+            // TODO: insert ban expiry timestamp as the Value
+            ban_store.delete(&mut writer, store_key)?;
+            writer.commit().unwrap();
+        }
+
+        if !self.config.no_trust_bans {
+            self.send_unban(peer);
+        }
+
+        Ok(())
     }
 
-    pub fn id_is_banned(&self, id: P2PNodeId) -> bool {
-        read_or_die!(self.connection_handler.banned_peers).is_id_banned(id)
+    pub fn is_banned(&self, peer: BannedNode) -> Fallible<bool> {
+        let ban_kvs_env = safe_read!(self.kvs)?;
+        let ban_store = ban_kvs_env.open_single(BAN_STORE_NAME, StoreOptions::create())?;
+
+        let ban_reader = ban_kvs_env.read()?;
+        let store_key = peer.serialize();
+
+        Ok(ban_store.get(&ban_reader, store_key)?.is_some())
     }
 
-    pub fn addr_is_banned(&self, sockaddr: SocketAddr) -> bool {
-        read_or_die!(self.connection_handler.banned_peers).is_addr_banned(sockaddr.ip())
+    pub fn get_banlist(&self) -> Fallible<Vec<BannedNode>> {
+        let ban_kvs_env = safe_read!(self.kvs)?;
+        let ban_store = ban_kvs_env.open_single(BAN_STORE_NAME, StoreOptions::create())?;
+
+        let ban_reader = ban_kvs_env.read()?;
+        let ban_iter = ban_store.iter_start(&ban_reader)?;
+
+        let mut banlist = Vec::new();
+        for entry in ban_iter {
+            let (id_bytes, _expiry) = entry?;
+            let node_to_ban = BannedNode::deserialize(id_bytes)?;
+            banlist.push(node_to_ban);
+        }
+
+        Ok(banlist)
     }
 
-    pub fn get_banlist(&self) -> Vec<BannedNode> {
-        read_or_die!(self.connection_handler.banned_peers)
-            .by_id
-            .iter()
-            .map(|id| BannedNode::ById(*id))
-            .chain(
-                read_or_die!(self.connection_handler.banned_peers)
-                    .by_addr
-                    .iter()
-                    .map(|addr| BannedNode::ByAddr(*addr)),
-            )
-            .collect()
+    fn clear_bans(&self) -> Fallible<()> {
+        let kvs_env = safe_read!(self.kvs)?;
+        let ban_store = kvs_env.open_single(BAN_STORE_NAME, StoreOptions::create())?;
+        let mut writer = kvs_env.write()?;
+        ban_store.clear(&mut writer)?;
+        into_err!(writer.commit())
     }
 
     /// It removes this server from `network_id` network.

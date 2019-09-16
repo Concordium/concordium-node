@@ -11,14 +11,16 @@ use crate::{
     failure::Fallible,
     network::{request::RequestedElementType, NetworkId, NetworkMessage, NetworkPacketType},
     p2p::{
-        banned_nodes::{insert_ban, remove_ban, BannedNode},
+        banned_nodes::{remove_ban, BannedNode},
         p2p_node::{send_broadcast_message, send_direct_message},
         P2PNode,
     },
     proto::*,
 };
 
-use concordium_common::{hybrid_buf::HybridBuf, ConsensusFfiResponse, PacketType};
+use concordium_common::{
+    hybrid_buf::HybridBuf, ConsensusFfiResponse, PacketType, SerializeToBytes,
+};
 use concordium_consensus::consensus::{ConsensusContainer, CALLBACK_QUEUE};
 use concordium_global_state::tree::messaging::{ConsensusMessage, DistributionMode, MessageType};
 use futures::future::Future;
@@ -693,12 +695,8 @@ impl P2P for RpcServerImpl {
             };
 
             let f = if let Some(to_ban) = banned_node {
-                let store_key = to_ban.to_db_repr();
-
-                match insert_ban(&self.node.kvs, &store_key) {
+                match self.node.ban_node(to_ban) {
                     Ok(_) => {
-                        self.node.ban_node(to_ban);
-                        self.node.send_ban(to_ban);
                         r.set_value(true);
                     }
                     Err(e) => {
@@ -742,11 +740,11 @@ impl P2P for RpcServerImpl {
             };
 
             let f = if let Some(to_unban) = banned_node {
-                let store_key = to_unban.to_db_repr();
-
-                match remove_ban(&self.node.kvs, &store_key) {
+                let store_key = to_unban.serialize();
+                match remove_ban(&self.node.kvs, &store_key)
+                    .and_then(|_| self.node.unban_node(to_unban))
+                {
                     Ok(_) => {
-                        self.node.unban_node(to_unban);
                         self.node.send_unban(to_unban);
                         r.set_value(true);
                     }
@@ -960,26 +958,30 @@ impl P2P for RpcServerImpl {
             let mut r: PeerListResponse = PeerListResponse::new();
             let f = {
                 r.set_peer(::protobuf::RepeatedField::from_vec(
-                    self.node
-                        .get_banlist()
-                        .iter()
-                        .map(|banned_node| {
-                            let mut pe = PeerElement::new();
-                            let mut node_id = ::protobuf::well_known_types::StringValue::new();
-                            node_id.set_value(match banned_node {
-                                BannedNode::ById(id) => id.to_string(),
-                                _ => "*".to_owned(),
-                            });
-                            pe.set_node_id(node_id);
-                            let mut ip = ::protobuf::well_known_types::StringValue::new();
-                            ip.set_value(match banned_node {
-                                BannedNode::ByAddr(addr) => addr.to_string(),
-                                _ => "*".to_owned(),
-                            });
-                            pe.set_ip(ip);
-                            pe
-                        })
-                        .collect::<Vec<PeerElement>>(),
+                    if let Ok(banlist) = self.node.get_banlist() {
+                        banlist
+                            .into_iter()
+                            .map(|banned_node| {
+                                let mut pe = PeerElement::new();
+                                let mut node_id = ::protobuf::well_known_types::StringValue::new();
+                                node_id.set_value(match banned_node {
+                                    BannedNode::ById(id) => id.to_string(),
+                                    _ => "*".to_owned(),
+                                });
+                                pe.set_node_id(node_id);
+                                let mut ip = ::protobuf::well_known_types::StringValue::new();
+                                ip.set_value(match banned_node {
+                                    BannedNode::ByAddr(addr) => addr.to_string(),
+                                    _ => "*".to_owned(),
+                                });
+                                pe.set_ip(ip);
+                                pe
+                            })
+                            .collect::<Vec<PeerElement>>()
+                    } else {
+                        error!("Can't load the banlist");
+                        Vec::new()
+                    },
                 ));
                 sink.success(r)
             };

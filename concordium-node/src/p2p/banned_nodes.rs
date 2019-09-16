@@ -2,10 +2,19 @@ use crate::common::{
     serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
     P2PNodeId,
 };
-use failure::{self, format_err, Fallible};
-use rkv::{Rkv, StoreOptions, Value};
 
-use std::{collections::HashSet, convert::TryFrom, net::IpAddr, sync::RwLock};
+use byteorder::{ByteOrder, LittleEndian};
+use concordium_common::SerializeToBytes;
+use failure::{self, format_err, Fallible};
+use rkv::{Rkv, StoreOptions};
+
+use std::{
+    collections::HashSet,
+    convert::TryFrom,
+    io::{Cursor, Read},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr},
+    sync::RwLock,
+};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
@@ -16,15 +25,6 @@ use std::{collections::HashSet, convert::TryFrom, net::IpAddr, sync::RwLock};
 pub enum BannedNode {
     ById(P2PNodeId),
     ByAddr(IpAddr),
-}
-
-impl BannedNode {
-    pub fn to_db_repr(&self) -> Box<[u8]> {
-        match self {
-            BannedNode::ById(id) => id.to_string().into_bytes().into_boxed_slice(),
-            BannedNode::ByAddr(addr) => addr.to_string().into_bytes().into_boxed_slice(),
-        }
-    }
 }
 
 impl TryFrom<&[u8]> for BannedNode {
@@ -89,12 +89,6 @@ impl BannedNodes {
             BannedNode::ByAddr(addr) => self.by_addr.remove(addr),
         }
     }
-
-    /// Lookup of a `P2PNodeId`
-    pub fn is_id_banned(&self, id: P2PNodeId) -> bool { self.by_id.contains(&id) }
-
-    /// Lookup of a tuple `(IdAddr, u16)`
-    pub fn is_addr_banned(&self, addr: IpAddr) -> bool { self.by_addr.contains(&addr) }
 }
 
 impl Serializable for BannedNode {
@@ -129,14 +123,51 @@ impl Deserializable for BannedNode {
     }
 }
 
-pub fn insert_ban(kvs_handle: &RwLock<Rkv>, id: &[u8]) -> Fallible<()> {
-    let ban_kvs_env = safe_read!(kvs_handle)?;
-    let ban_store = ban_kvs_env.open_single("bans", StoreOptions::create())?;
-    let mut writer = ban_kvs_env.write()?;
-    // TODO: insert ban expiry timestamp as the Value
-    ban_store.put(&mut writer, id, &Value::U64(0))?;
+impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BannedNode {
+    type Source = &'a [u8];
 
-    Ok(())
+    fn deserialize(bytes: &[u8]) -> Fallible<Self> {
+        let mut cursor = Cursor::new(bytes);
+
+        let mut t = [0u8; 1];
+        cursor.read_exact(&mut t)?;
+
+        match t[0] {
+            0 => Ok(BannedNode::ById(P2PNodeId(LittleEndian::read_u64(
+                &cursor.get_ref()[1..],
+            )))),
+            1 => {
+                let mut t = [0u8; 1];
+                cursor.read_exact(&mut t)?;
+
+                match t[0] {
+                    4 => {
+                        let mut tgt = [0u8; 4];
+                        cursor.read_exact(&mut tgt)?;
+                        Ok(BannedNode::ByAddr(IpAddr::V4(Ipv4Addr::from(tgt))))
+                    }
+                    6 => {
+                        let mut tgt = [0u8; 16];
+                        cursor.read_exact(&mut tgt)?;
+                        Ok(BannedNode::ByAddr(IpAddr::V6(Ipv6Addr::from(tgt))))
+                    }
+                    _ => bail!("Can't deserialize the IP of a banned node"),
+                }
+            }
+            _ => bail!("Can't deserialize the type of a banned node"),
+        }
+    }
+
+    fn serialize(&self) -> Box<[u8]> {
+        match self {
+            BannedNode::ById(id) => [&[0][..], &id.as_raw().to_le_bytes()].concat(),
+            BannedNode::ByAddr(addr) => match addr {
+                IpAddr::V4(ip) => [&[1, 4][..], &ip.octets()].concat(),
+                IpAddr::V6(ip) => [&[1, 4][..], &ip.octets()].concat(),
+            },
+        }
+        .into_boxed_slice()
+    }
 }
 
 pub fn remove_ban(kvs_handle: &RwLock<Rkv>, id: &[u8]) -> Fallible<()> {
