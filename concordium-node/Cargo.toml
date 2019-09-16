@@ -31,7 +31,7 @@ codegen-units = 1
 
 [profile.release]
 codegen-units = 1
-panic = 'abort'
+#panic = 'abort'
 
 [dependencies]
 # Internal dependencies
