@@ -10,8 +10,6 @@ import System.Random
 import Concordium.Crypto.SignatureScheme(KeyPair, SchemeId(Ed25519))
 import qualified Concordium.Crypto.SignatureScheme as Sig
 import Concordium.Crypto.Ed25519Signature(randomKeyPair)
-import Concordium.Crypto.SHA256(Hash(..))
-import qualified Data.FixedByteString as FBS
 
 import Concordium.Types
 import qualified Concordium.ID.Account as AH
@@ -67,7 +65,7 @@ inCtx txt = fromJust (Map.lookup txt simpleCounterCtx)
 inCtxTm :: Text.Text -> Core.Atom origin
 inCtxTm = Core.Var . Core.LocalDef . inCtx
 
-initialTrans :: Int -> [Types.Transaction]
+initialTrans :: Int -> [Types.BareTransaction]
 initialTrans n = map initSimpleCounter $ enumFromTo 1 n
  
 mateuszAccount :: AccountAddress
@@ -79,31 +77,30 @@ mateuszKP = fst (randomKeyPair (mkStdGen 0))
 mateuszKP' :: KeyPair
 mateuszKP' = fst (randomKeyPair (mkStdGen 1))
 
-blockPointer :: BlockHash
-blockPointer = Hash (FBS.pack (replicate 32 (fromIntegral (0 :: Word))))
+makeHeader :: KeyPair -> Types.PayloadSize -> Nonce -> Energy -> Types.TransactionHeader
+makeHeader kp = Types.makeTransactionHeader Ed25519 (Sig.verifyKey kp)
 
-makeHeader :: KeyPair -> Nonce -> Energy -> Types.TransactionHeader
-makeHeader kp nonce amount = Types.makeTransactionHeader Ed25519 (Sig.verifyKey kp) nonce amount blockPointer 
-
-initSimpleCounter :: Int -> Types.Transaction
+initSimpleCounter :: Int -> Types.BareTransaction
 initSimpleCounter n = Runner.signTx
                              mateuszKP
-                             (makeHeader mateuszKP (fromIntegral n) 100000)
-                             (Types.encodePayload (Types.InitContract 0
-                                                   simpleCounterHash
-                                                   (fromJust (Map.lookup "Counter" simpleCounterTyCtx))
-                                                   (Core.Atom (Core.Literal (Core.Int64 0)))
-                                                   (-1))) -- -1 as the size is ignore by encodePayload
+                             (makeHeader mateuszKP (fromIntegral (Types.payloadSize payload)) (fromIntegral n) 100000)
+                             payload
+    where payload = Types.encodePayload (Types.InitContract 0
+                                          simpleCounterHash
+                                          (fromJust (Map.lookup "Counter" simpleCounterTyCtx))
+                                          (Core.Atom (Core.Literal (Core.Int64 0)))
+                                        )
 
-makeTransaction :: Bool -> ContractAddress -> Nonce -> Types.Transaction
+
+makeTransaction :: Bool -> ContractAddress -> Nonce -> Types.BareTransaction
 makeTransaction inc ca n = Runner.signTx mateuszKP hdr payload
     where
-        hdr = makeHeader mateuszKP n 1000000
+        hdr = makeHeader mateuszKP (fromIntegral (Types.payloadSize payload)) n 1000000
         payload = Types.encodePayload (Types.Update 0
                                                     ca
                                                     (Core.App (if inc then (inCtxTm "Inc") else (inCtxTm "Dec"))
                                                               [Core.Literal (Core.Int64 10)])
-                                                    (-1))
+                                                    )
 
 -- |State with the given number of contract instances of the counter contract specified.
 initialState :: BirkParameters -> CryptographicParameters -> [Account] -> [Types.IdentityProviderData] -> Int -> BlockState.BlockState

@@ -7,6 +7,7 @@ module Concordium.Scheduler
   (filterTransactions
   ,runTransactions
   ,execTransactions
+  ,FilteredTransactions(..)
   ) where
 
 import qualified Acorn.TypeCheck as TC
@@ -121,15 +122,22 @@ dispatch msg = do
             DeployModule mod ->
               handleDeployModule senderAccount meta psize mod
 
-            InitContract amount modref cname param paramSize ->
-              handleInitContract senderAccount meta amount modref cname param paramSize
+            InitContract amount modref cname param ->
+              -- the payload size includes amount + address of module + name of
+              -- contract + parameters, but since the first three fields are
+              -- fixed size this is OK.
+              let paramSize = fromIntegral (thPayloadSize meta)
+              in handleInitContract senderAccount meta amount modref cname param paramSize
             -- FIXME: This is only temporary for now.
             -- Later on accounts will have policies, and also will be able to execute non-trivial code themselves.
             Transfer toaddr amount ->
               handleSimpleTransfer senderAccount meta toaddr amount
  
-            Update amount cref maybeMsg msgSize ->
-              handleUpdateContract senderAccount meta cref amount maybeMsg msgSize
+            Update amount cref maybeMsg ->
+              -- the payload size includes amount + address + message, but since the first two fields are
+              -- fixed size this is OK.
+              let msgSize = fromIntegral (thPayloadSize meta)
+              in handleUpdateContract senderAccount meta cref amount maybeMsg msgSize
            
             DeployCredential cdi ->
               handleDeployCredential senderAccount meta (payloadBodyBytes (transactionPayload msg)) cdi
@@ -702,23 +710,41 @@ handleDelegateStake senderAccount meta targetBaker =
             return $! TxReject (InvalidStakeDelegationTarget $ fromJust targetBaker) energyCost
         delegateCost = Cost.updateStakeDelegate (Set.size $ senderAccount ^. accountInstances)
 
--- *Exposed methods.
--- |Make a valid block out of a list of transactions. The list is traversed from
--- left to right and any invalid transactions are not included in the block. The
--- return value is a pair of lists of transactions @(valid, invalid)@ where
---    * @valid@ transactions is the list of transactions that should appear
---      on the block in the order they should appear
---    * @invalid@ is a list of invalid transactions.
---    The order these transactions appear is arbitrary
---    (i.e., they do not necessarily appear in the same order as in the input).
+-- *Exposed types and methods.
+
+data FilteredTransactions msg = FilteredTransactions {
+  -- |Transactions which have been added to the block, with results.
+  ftAdded :: [(msg, ValidResult)],
+  -- |Transactions which failed.
+  ftFailed :: [(msg, FailureKind)],
+  -- |Transactions which were not processed since we reached block size limit,
+  ftUnprocessed :: [msg]
+  }
+
+-- |Make a valid block out of a list of transactions, respecting the given
+-- maximum block size. The list of input transactions is traversed from left to
+-- right and any invalid transactions are not included in the block. The return
+-- value is a FilteredTransactions object where
+--
+--   * @ftAdded@ is the list of transactions that should appear on the block in
+--     the order they should appear
+--   * @ftFailed@ is a list of invalid transactions. The order these transactions
+--     appear is arbitrary (i.e., they do not necessarily appear in the same order
+--     as in the input).
+--   * @ftUnprocessed@ is a list of transactions which were not
+--     processed due to size restrictions.
 filterTransactions :: (TransactionData msg, SchedulerMonad m)
-                      => [msg] -> m ([(msg, ValidResult)], [(msg, FailureKind)])
-filterTransactions = go [] []
-  where go valid invalid (t:ts) = do
+                      => Integer -> [msg] -> m (FilteredTransactions msg)
+filterTransactions maxSize = go 0 [] []
+  where go size valid invalid (t:ts) | csize <- size + fromIntegral (transactionSize t), csize < maxSize = do
           dispatch t >>= \case
-            TxValid reason -> go ((t, reason):valid) invalid ts
-            TxInvalid reason -> go valid ((t, reason):invalid) ts
-        go valid invalid [] = return (reverse valid, invalid)
+            TxValid reason -> go csize ((t, reason):valid) invalid ts
+            TxInvalid reason -> go csize valid ((t, reason):invalid) ts
+        go _ valid invalid left = return FilteredTransactions{
+                                           ftAdded = reverse valid,
+                                           ftFailed = invalid,
+                                           ftUnprocessed = left
+                                          }
 
 -- |Execute transactions in sequence. Return 'Nothing' if one of the transactions
 -- fails, and otherwise return a list of transactions with their outcomes.

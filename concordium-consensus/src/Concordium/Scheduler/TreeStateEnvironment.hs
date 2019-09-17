@@ -17,6 +17,7 @@ import Concordium.Types
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Rewards
+import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block(blockSlot)
 import Concordium.Scheduler.Types
 import Concordium.Scheduler.Environment
@@ -127,21 +128,26 @@ constructBlock slotNumber blockParent lfPointer blockBaker =
     pt <- getPendingTransactions
     -- now the set is ordered by accounts
     txSet <- mapM (\(acc, (l, _)) -> fmap snd <$> getAccountNonFinalized acc l) (HM.toList pt)
+
+    -- lookup the maximum block size as mandated by the tree state
+    maxSize <- rpBlockSize <$> getRuntimeParameters
+
     -- FIXME: This is inefficient and should be changed. Doing it only to get the integration working.
     let txs = concatMap (concatMap Set.toList) txSet
-    ((valid, invalid), bshandle1) <- runBSM (Sch.filterTransactions txs) cm bshandle0
+    (Sch.FilteredTransactions{..}, bshandle1) <- runBSM (Sch.filterTransactions (fromIntegral maxSize) txs) cm bshandle0
     -- FIXME: At some point we should log things here using the same logging infrastructure as in consensus.
 
-    bshandle2 <- bsoSetTransactionOutcomes bshandle1 ((\(tr,res) -> (transactionHash tr, res)) <$> valid)
+    bshandle2 <- bsoSetTransactionOutcomes bshandle1 ((\(tr,res) -> (transactionHash tr, res)) <$> ftAdded)
     bshandle3 <- mintAndReward bshandle2 blockParent lfPointer slotNumber blockBaker
 
     -- We first commit all valid transactions to the current block slot to prevent them being purged.
     -- At the same time we construct the return blockTransactions to avoid an additional traversal
-    ret <- mapM (\(tx, _) -> tx <$ commitTransaction slotNumber tx) valid
+    ret <- mapM (\(tx, _) -> tx <$ commitTransaction slotNumber tx) ftAdded
     
     -- Now we need to try to purge each invalid transaction from the pending table.
     -- Moreover all transactions successfully added will be removed from the pending table.
-    -- Or equivalently, only a subset of invalid transactions will remain in the pending table.
+    -- Or equivalently, only a subset of invalid transactions and all the transactions we have not touched 
+    -- will remain in the pending table.
     let nextNonceFor addr = do
           macc <- bsoGetAccount bshandle3 addr
           case macc of
@@ -153,7 +159,7 @@ constructBlock slotNumber blockParent lfPointer blockBaker =
                                            nonce <- nextNonceFor (transactionSender tx)
                                            return $! (checkedExtendPendingTransactionTable nonce tx cpt))  -- but otherwise do
                    emptyPendingTransactionTable
-                   invalid
+                   ftFailed
     -- commit the new pending transactions to the tree state
     putPendingTransactions newpt
     bshandleFinal <- freezeBlockState bshandle3

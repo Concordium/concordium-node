@@ -27,10 +27,10 @@ import qualified Acorn.Core as Core
 
 import Prelude hiding(mod, exp)
 
-signTx :: KeyPair -> Types.TransactionHeader -> EncodedPayload -> Types.Transaction
+signTx :: KeyPair -> Types.TransactionHeader -> EncodedPayload -> Types.BareTransaction
 signTx kp th = Types.signTransaction kp th
 
-transactionHelper :: MonadFail m => TransactionJSON -> Context Core.UA m Types.Transaction
+transactionHelper :: MonadFail m => TransactionJSON -> Context Core.UA m Types.BareTransaction
 transactionHelper t = do
   case t of
     (TJSON meta (DeployModule mnameText) keys) ->
@@ -40,11 +40,11 @@ transactionHelper t = do
       case Map.lookup cNameText tys of
         Just contName -> do
           params <- processTmInCtx mnameText paramExpr
-          return $ signTx keys meta (Types.encodePayload (Types.InitContract amount mref contName params 0)) -- NB: 0 is fine as size as that is not serialized
+          return $ signTx keys meta (Types.encodePayload (Types.InitContract amount mref contName params))
         Nothing -> error (show cNameText)
     (TJSON meta (Update mnameText amount address msgText) keys) -> do
       msg <- processTmInCtx mnameText msgText
-      return $ signTx keys meta (Types.encodePayload (Types.Update amount address msg 0)) -- NB: 0 is fine as size as that is not serialized
+      return $ signTx keys meta (Types.encodePayload (Types.Update amount address msg))
     (TJSON meta (Transfer to amount) keys) ->
       return $ signTx keys meta (Types.encodePayload (Types.Transfer to amount))
     (TJSON meta (DeployCredential c) keys) ->
@@ -69,7 +69,7 @@ transactionHelper t = do
 --     Left err -> fail $ "Error decoding JSON: " ++ err
 --     Right t -> processTransactions t
 
-processTransactions :: MonadFail m => [TransactionJSON]  -> Context Core.UA m [Types.Transaction]
+processTransactions :: MonadFail m => [TransactionJSON]  -> Context Core.UA m [Types.BareTransaction]
 processTransactions = mapM transactionHelper
 
 data PayloadJSON = DeployModule { moduleName :: Text }
