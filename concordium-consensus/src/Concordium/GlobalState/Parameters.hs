@@ -18,10 +18,12 @@ import Data.Ratio
 import Data.Serialize
 import Lens.Micro.Platform
 import Control.Monad.Fail
+import Control.Monad hiding (fail)
 
 import Concordium.Types
 import Concordium.Crypto.FFIDataTypes
 import Concordium.GlobalState.Bakers
+import Concordium.GlobalState.SeedState
 import Concordium.GlobalState.IdentityProviders
 import qualified Concordium.ID.Account as ID
 
@@ -31,7 +33,7 @@ import qualified Data.ByteString.Base16 as BS16
 import qualified Data.Text.Encoding as Text
 import qualified Data.Text as Text
 import qualified Data.Aeson as AE
-import Data.Aeson.Types (FromJSON(..), Value(..), (.:), withText, withObject, typeMismatch)
+import Data.Aeson.Types (FromJSON(..), (.:), withObject, Parser)
 
 -- |Cryptographic parameters needed to verify on-chain proofs, e.g.,
 -- group parameters (generators), commitment keys, in the future also
@@ -48,13 +50,16 @@ data CryptographicParameters = CryptographicParameters {
 instance Serialize CryptographicParameters where
 
 data BirkParameters = BirkParameters {
-    _birkLeadershipElectionNonce :: LeadershipElectionNonce,
     _birkElectionDifficulty :: ElectionDifficulty,
-    _birkBakers :: !Bakers
+    _birkBakers :: !Bakers,
+    _seedState :: !SeedState
 } deriving (Eq, Generic, Show)
 instance Serialize BirkParameters where
 
 makeLenses ''BirkParameters
+
+_birkLeadershipElectionNonce :: BirkParameters -> LeadershipElectionNonce
+_birkLeadershipElectionNonce = currentSeed . _seedState
 
 birkBaker :: BakerId -> BirkParameters -> Maybe (BakerInfo, LotteryPower)
 birkBaker bid bps = (bps ^. birkBakers . bakerMap . at bid) <&>
@@ -96,32 +101,6 @@ data GenesisData = GenesisData {
 
 instance Serialize GenesisData where
 
--- |A convenience wrapper for a bytestring to allow conversion
--- from a JSON string encoded in base 16.
-newtype Base16ByteString = Base16ByteString {unBase16 :: BS.ByteString}
-
-instance FromJSON Base16ByteString where
-    parseJSON = withText "base-16 encoded bytestring" $ \t ->
-                    let (bs, rest) = BS16.decode (Text.encodeUtf8 t) in
-                    if BS.null rest then
-                        return (Base16ByteString bs)
-                    else
-                        typeMismatch "base-16 encoded bytestring" (String t)
-
-deserializeBase16 :: (Serialize a, MonadFail m) => Text.Text -> m a
-deserializeBase16 t =
-        if BS.null rest then
-            case decode bs of
-                Left er -> fail er
-                Right r -> return r
-        else
-            fail $ "Could not decode as base-16: " ++ show t
-    where
-        (bs, rest) = BS16.decode (Text.encodeUtf8 t)
-
-serializeBase16 :: (Serialize a) => a -> Text.Text
-serializeBase16 = Text.decodeUtf8 . BS16.encode . encode
-
 instance FromJSON CryptographicParameters where
   parseJSON = withObject "CryptoGraphicParameters" $ \v ->
     do elgamalGenerator <- v .: "dLogBaseChain"
@@ -158,12 +137,12 @@ data GenesisBaker = GenesisBaker {
 
 instance FromJSON GenesisBaker where
     parseJSON = withObject "GenesisBaker" $ \v -> do
-            gbElectionVerifyKey <- deserializeBase16 =<< v .: "electionVerifyKey"
-            gbSignatureVerifyKey <- deserializeBase16 =<< v .: "signatureVerifyKey"
+            gbElectionVerifyKey <- v .: "electionVerifyKey"
+            gbSignatureVerifyKey <- v .: "signatureVerifyKey"
             acct <- v .: "account"
             (gbAccountSignatureScheme, gbAccountSignatureKey, gbAccountBalance) <- flip (withObject "GenesisBakerAccount") acct $ \v' -> do
                 ss <- toEnum <$> v' .: "signatureScheme"
-                sk <- deserializeBase16 =<< v' .: "signatureKey"
+                sk <- v' .: "signatureKey"
                 ab <- Amount <$> v' .: "balance"
                 return (ss, sk, ab)
             gbFinalizer <- v .: "finalizer"
@@ -171,10 +150,11 @@ instance FromJSON GenesisBaker where
 
 -- 'GenesisParameters' provides a convenient abstraction for
 -- constructing 'GenesisData'.
-data GenesisParameters = GenesisParameters {
+data GenesisParameters = GenesisParameters { 
     gpGenesisTime :: Timestamp,
     gpSlotDuration :: Duration,
     gpLeadershipElectionNonce :: LeadershipElectionNonce,
+    gpEpochLength :: EpochLength,
     gpElectionDifficulty :: ElectionDifficulty,
     gpFinalizationMinimumSkip :: BlockHeight,
     gpBakers :: [GenesisBaker],
@@ -186,7 +166,9 @@ instance FromJSON GenesisParameters where
     parseJSON = withObject "GenesisParameters" $ \v -> do
         gpGenesisTime <- v .: "genesisTime"
         gpSlotDuration <- v .: "slotDuration"
-        gpLeadershipElectionNonce <- unBase16 <$> v .: "leadershipElectionNonce"
+        gpLeadershipElectionNonce <- v .: "leadershipElectionNonce"
+        gpEpochLength <- Slot <$> v .: "epochLength"
+        when(gpEpochLength == 0) $ fail "Epoch length should be non-zero"
         gpElectionDifficulty <- v .: "electionDifficulty"
         gpFinalizationMinimumSkip <- BlockHeight <$> v .: "finalizationMinimumSkip"
         gpBakers <- v .: "bakers"
@@ -200,9 +182,9 @@ parametersToGenesisData GenesisParameters{..} = GenesisData{..}
         genesisTime = gpGenesisTime
         genesisSlotDuration = gpSlotDuration
         genesisBirkParameters = BirkParameters {
-            _birkLeadershipElectionNonce = gpLeadershipElectionNonce,
             _birkElectionDifficulty = gpElectionDifficulty,
-            _birkBakers = bakersFromList (mkBaker <$> gpBakers)
+            _birkBakers = bakersFromList (mkBaker <$> gpBakers),
+            _seedState = genesisSeedState gpLeadershipElectionNonce gpEpochLength
         }
         mkBaker GenesisBaker{..} = BakerInfo 
                 gbElectionVerifyKey
