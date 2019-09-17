@@ -12,7 +12,7 @@ default-run = "p2p_client-cli"
 license = "MIT"
 
 [features]
-default = ["elastic_logging"]
+default = []
 valgrind = []
 s11n_capnp = ["capnp", "capnpc"]
 s11n_serde = ["concordium-common/s11n_serde", "serde", "serde_derive"]
