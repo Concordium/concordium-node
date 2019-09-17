@@ -673,17 +673,26 @@ pub extern "C" fn on_transfer_log_emitted(
         return;
     }
 
+    if transfer_event_type != TransferLogType::BlockReward && transaction_hash_ptr.is_null() {
+        error!(
+            "Could not log {} event as transaction hash is null!",
+            transfer_event_type
+        );
+        return;
+    } else if transfer_event_type == TransferLogType::BlockReward && !transaction_hash_ptr.is_null()
+    {
+        error!(
+            "Could not log {} event as transaction hash is not null!",
+            transfer_event_type
+        );
+        return;
+    }
+
     let block_hash =
         BlockHash::new(unsafe { slice::from_raw_parts(block_hash_ptr, size_of::<BlockHash>()) });
     let msg = match transfer_event_type {
         TransferLogType::DirectTransfer => {
-            if transaction_hash_ptr.is_null() {
-                error!(
-                    "Could not log {} event as transaction hash is null!",
-                    transfer_event_type
-                );
-                return;
-            }
+            if transaction_hash_ptr.is_null() {}
             let transaction_hash = TransactionHash::new(unsafe {
                 slice::from_raw_parts(transaction_hash_ptr, size_of::<TransactionHash>())
             });
@@ -709,13 +718,6 @@ pub extern "C" fn on_transfer_log_emitted(
             )
         }
         TransferLogType::TransferFromAccountToContract => {
-            if transaction_hash_ptr.is_null() {
-                error!(
-                    "Could not log {} event as transaction hash is null!",
-                    transfer_event_type
-                );
-                return;
-            }
             let transaction_hash = TransactionHash::new(unsafe {
                 slice::from_raw_parts(transaction_hash_ptr, size_of::<TransactionHash>())
             });
@@ -744,13 +746,6 @@ pub extern "C" fn on_transfer_log_emitted(
             )
         }
         TransferLogType::TransferFromContractToAccount => {
-            if transaction_hash_ptr.is_null() {
-                error!(
-                    "Could not log {} event as transaction hash is null!",
-                    transfer_event_type
-                );
-                return;
-            }
             let transaction_hash = TransactionHash::new(unsafe {
                 slice::from_raw_parts(transaction_hash_ptr, size_of::<TransactionHash>())
             });
@@ -779,13 +774,6 @@ pub extern "C" fn on_transfer_log_emitted(
             )
         }
         TransferLogType::ExecutionCost => {
-            if transaction_hash_ptr.is_null() {
-                error!(
-                    "Could not log {} event as transaction hash is null!",
-                    transfer_event_type
-                );
-                return;
-            }
             let transaction_hash = TransactionHash::new(unsafe {
                 slice::from_raw_parts(transaction_hash_ptr, size_of::<TransactionHash>())
             });
@@ -811,13 +799,6 @@ pub extern "C" fn on_transfer_log_emitted(
             )
         }
         TransferLogType::BlockReward => {
-            if !transaction_hash_ptr.is_null() {
-                error!(
-                    "Could not log {} event as transaction hash is not null!",
-                    transfer_event_type
-                );
-                return;
-            }
             if remaining_data_len as usize != size_of::<AccountAddress>() + size_of::<BakerId>() {
                 error!(
                     "Incorrect data given for {} event type",

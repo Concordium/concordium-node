@@ -130,7 +130,7 @@ impl std::fmt::Display for TransactionLogMessage {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum TransferLogType {
     DirectTransfer = 0,
     TransferFromAccountToContract,
