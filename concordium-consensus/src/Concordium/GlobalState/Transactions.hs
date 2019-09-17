@@ -7,6 +7,7 @@
 module Concordium.GlobalState.Transactions where
 
 
+import Data.Time.Clock
 import Control.Exception
 import qualified Data.ByteString as BS
 import qualified Data.Serialize as S
@@ -55,10 +56,18 @@ data TransactionHeader = TransactionHeader {
     -- |Amount of gas dedicated for the execution of this transaction.
     thGasAmount :: !Energy,
     -- |Size of the payload in bytes.
-    thSize :: PayloadSize,
+    thPayloadSize :: PayloadSize,
     -- |Sender account. Derived from the sender key as specified.
     thSender :: AccountAddress
-    } deriving (Eq, Show)
+    } deriving (Show)
+
+-- |Eq instance ignores derived fields.
+instance Eq TransactionHeader where
+  th1 == th2 = thScheme th1 == thScheme th2 &&
+               thSenderKey th1 == thSenderKey th2 &&
+               thNonce th1 == thNonce th2 &&
+               thGasAmount th1 == thGasAmount th2 &&
+               thPayloadSize th1 == thPayloadSize th2
 
 -- |NB: Relies on the verify key serialization being defined as specified on the wiki.
 instance S.Serialize TransactionHeader where
@@ -67,30 +76,48 @@ instance S.Serialize TransactionHeader where
       S.put thSenderKey <>
       S.put thNonce <>
       S.put thGasAmount <>
-      S.putWord32be thSize
+      S.putWord32be thPayloadSize
 
   get = do
     thScheme <- S.get
     thSenderKey <- S.get
     thNonce <- S.get
     thGasAmount <- S.get
-    thSize <- S.getWord32be
-    return $ makeTransactionHeader thScheme thSenderKey thSize thNonce thGasAmount
+    thPayloadSize <- S.getWord32be
+    return $ makeTransactionHeader thScheme thSenderKey thPayloadSize thNonce thGasAmount
 
 type TransactionHash = H.Hash
 
+-- |Transaction without the metadata.
+data BareTransaction = BareTransaction{
+  btrSignature :: !TransactionSignature,
+  btrHeader :: !TransactionHeader,
+  btrPayload :: !EncodedPayload
+  } deriving(Eq, Show)
 
--- |The last field is strictly redundant, but is here to avoid needless
--- recomputation. In serialization we do not output it.
+instance S.Serialize BareTransaction where
+  put BareTransaction{..} =
+    S.put btrSignature <>
+    S.put btrHeader <>
+    putPayload btrPayload
+
+  get = do
+    btrSignature <- S.get
+    btrHeader <- S.get
+    btrPayload <- getPayload (thPayloadSize btrHeader)
+    return $ BareTransaction{..}
+
+
+-- |Transaction with all the metadata needed to avoid recomputation.
 data Transaction = Transaction {
-  trSignature :: !TransactionSignature,
-  trHeader :: !TransactionHeader,
-  trPayload :: EncodedPayload,
+  -- |The actual transaction data.
+  trBareTransaction :: !BareTransaction,
 
   -- |Size of the transaction bytes, derived field.
-  trSize :: Int,
+  trSize :: !Int,
   -- |Hash of the transaction. Derived from the first three fields.
-  trHash :: TransactionHash
+  trHash :: !TransactionHash,
+  trArrivalTime :: !UTCTime
   } deriving(Show) -- show is needed in testing
 
 -- |NOTE: Eq and Ord instances based on hash comparison!
@@ -98,39 +125,34 @@ data Transaction = Transaction {
 instance Eq Transaction where
   t1 == t2 = trHash t1 == trHash t2
 
+-- |The Ord instance does comparison based on arrival time for transactions with
+-- different hashes.
 instance Ord Transaction where
-  compare t1 t2 = compare (trHash t1) (trHash t2)
-
-instance S.Serialize Transaction where
-  put Transaction{..} =
-    S.put trSignature <>
-    S.put trHeader <>
-    putPayload trPayload
-
-  get = do
-    trSignature <- S.get
-    trHeader <- S.get
-    trPayload <- getPayload (thSize trHeader)
-    return $ makeTransaction trSignature trHeader trPayload
+  compare t1 t2 =
+    case compare (trHash t1) (trHash t2) of
+      EQ -> EQ
+      x -> case compare (trArrivalTime t1) (trArrivalTime t2) of
+             EQ -> x
+             y -> y
 
 -- |Deserialize a transaction, checking its signature on the way.
-getVerifiedTransaction ::S.Get Transaction
-getVerifiedTransaction = do
+getVerifiedTransaction :: UTCTime -> S.Get Transaction
+getVerifiedTransaction trArrivalTime = do
   -- we use lookahead to deserialize the transaction without consuming the input.
   -- after that we read the bytes we just deserialized for further processing.
-  (trSignature, trHeader, trPayload, sigSize, totalSize) <- S.lookAhead $! do
+  (btrSignature, btrHeader, btrPayload, sigSize, totalSize) <- S.lookAhead $! do
     start <- S.bytesRead
     trSignature <- S.get
     mid <- S.bytesRead
     trHeader <- S.get
-    trPayload <- getPayload (thSize trHeader)
+    trPayload <- getPayload (thPayloadSize trHeader)
     end <- S.bytesRead
     return (trSignature, trHeader, trPayload, mid - start, end - start)
   txBytes <- S.getBytes totalSize
-  if SigScheme.verify (thScheme trHeader) (thSenderKey trHeader) (BS.drop sigSize txBytes) (tsSignature trSignature) then
+  if SigScheme.verify (thScheme btrHeader) (thSenderKey btrHeader) (BS.drop sigSize txBytes) (tsSignature btrSignature) then
     let trHash = H.hash txBytes
         trSize = BS.length txBytes
-    in return Transaction{..}
+    in return Transaction{trBareTransaction=BareTransaction{..},..}
   else fail "Incorrect signature."
 
 makeTransactionHeader ::
@@ -140,30 +162,28 @@ makeTransactionHeader ::
   -> Nonce
   -> Energy
   -> TransactionHeader
-makeTransactionHeader thScheme thSenderKey thSize thNonce thGasAmount =
+makeTransactionHeader thScheme thSenderKey thPayloadSize thNonce thGasAmount =
   TransactionHeader{thSender = AH.accountAddress thSenderKey thScheme,..}
 
 -- |Make a transaction out of minimal data needed.
-makeTransaction :: TransactionSignature -> TransactionHeader -> EncodedPayload -> Transaction
-makeTransaction trSignature trHeader trPayload =
-    let txBytes = S.runPut $ S.put trSignature <> S.put trHeader <> putPayload trPayload
+makeTransaction :: UTCTime -> TransactionSignature -> TransactionHeader -> EncodedPayload -> Transaction
+makeTransaction trArrivalTime btrSignature btrHeader btrPayload =
+    let txBytes = S.runPut $ S.put btrSignature <> S.put btrHeader <> putPayload btrPayload
         trHash = H.hash txBytes
         trSize = BS.length txBytes
-  in Transaction{..}
+        trBareTransaction = BareTransaction{..}
+    in Transaction{..}
 
 -- |FIXME: This method is inefficient (it creates temporary bytestrings which are
 -- probably not necessary if we had a more appropriate sign function.
 -- |Sign a transaction with the given header and body. Uses serialization as defined on the wiki.
-signTransaction :: KeyPair -> TransactionHeader -> EncodedPayload -> Transaction
-signTransaction keys trHeader trPayload =
-  let body = S.runPut (S.put trHeader <> putPayload trPayload)
-      tsScheme = thScheme trHeader
+signTransaction :: KeyPair -> TransactionHeader -> EncodedPayload -> BareTransaction
+signTransaction keys btrHeader btrPayload =
+  let body = S.runPut (S.put btrHeader <> putPayload btrPayload)
+      tsScheme = thScheme btrHeader
       tsSignature = SigScheme.sign tsScheme keys body
-      txBytes = S.encode trSignature <> body
-      trHash = H.hash txBytes
-      trSignature = TransactionSignature{..}
-      trSize = BS.length txBytes
-  in Transaction{..}
+      btrSignature = TransactionSignature{..}
+  in BareTransaction{..}
 
 -- |Verify that the given transaction was signed by the sender's key.
 -- In contrast to 'verifyTransactionSignature' this method takes a structured transaction.
@@ -188,14 +208,24 @@ class TransactionData t where
     transactionHash :: t -> H.Hash
     transactionSize :: t -> Int
 
+instance TransactionData BareTransaction where
+    transactionHeader = btrHeader
+    transactionSender = thSender . btrHeader
+    transactionNonce = thNonce . btrHeader
+    transactionGasAmount = thGasAmount . btrHeader
+    transactionPayload = btrPayload
+    transactionSignature = btrSignature
+    transactionHash t = H.hash (S.encode t)
+    transactionSize t = BS.length serialized
+      where serialized = S.encode t 
 
 instance TransactionData Transaction where
-    transactionHeader = trHeader
-    transactionSender = thSender . trHeader
-    transactionNonce = thNonce . trHeader
-    transactionGasAmount = thGasAmount . trHeader
-    transactionPayload = trPayload
-    transactionSignature = trSignature
+    transactionHeader = btrHeader . trBareTransaction
+    transactionSender = thSender . btrHeader . trBareTransaction
+    transactionNonce = thNonce . btrHeader . trBareTransaction
+    transactionGasAmount = thGasAmount . btrHeader . trBareTransaction
+    transactionPayload = btrPayload . trBareTransaction
+    transactionSignature = btrSignature . trBareTransaction
     transactionHash = getHash
     transactionSize = trSize
 

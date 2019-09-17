@@ -10,6 +10,7 @@ import qualified Data.Serialize.Put as P
 import qualified Data.Serialize.Get as G
 import Data.ByteString.Lazy as BS    
 
+import Data.Time.Clock
 import GlobalStateTests.Gen
 import Concordium.GlobalState.Transactions
 
@@ -22,7 +23,7 @@ groupIntoSize s =
               ub = 10^(nd+1) :: Integer
           in show lb ++ " -- " ++ show ub ++ "B"
 
-checkTransaction :: Transaction -> Property
+checkTransaction :: BareTransaction -> Property
 checkTransaction tx = let bs = P.runPutLazy (put tx)
               in  case G.runGet get (BS.toStrict bs) of
                     Left err -> counterexample err False
@@ -31,16 +32,18 @@ checkTransaction tx = let bs = P.runPutLazy (put tx)
 testTransaction :: Int -> Property
 testTransaction size = forAll (resize size $ genTransaction) checkTransaction
 
-checkTransactionWithSig :: Transaction -> Property
+checkTransactionWithSig :: BareTransaction -> Property
 checkTransactionWithSig tx = let bs = P.runPutLazy (put tx)
-              in  case G.runGet getVerifiedTransaction (BS.toStrict bs) of
+              in  case G.runGet (getVerifiedTransaction dummyTime) (BS.toStrict bs) of
                     Left err -> counterexample err False
-                    Right tx' -> QC.label (groupIntoSize (BS.length bs)) $ tx === tx'
+                    Right tx' -> QC.label (groupIntoSize (BS.length bs)) $ tx === trBareTransaction tx'
 
+dummyTime :: UTCTime
+dummyTime = UTCTime (toEnum 0) 0
 
-checkTransactionWithRandomSig :: Transaction -> Property
+checkTransactionWithRandomSig :: BareTransaction -> Property
 checkTransactionWithRandomSig tx = let bs = P.runPutLazy (put tx)
-              in  case G.runGet getVerifiedTransaction (BS.toStrict bs) of
+              in  case G.runGet (getVerifiedTransaction dummyTime) (BS.toStrict bs) of
                     Left _ -> True === True
                     Right tx' -> counterexample (show (tx, tx')) False
 

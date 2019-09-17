@@ -62,4 +62,4 @@ blockBody b = do
         put (blockProof b)
         put (blockNonce b)
         put (blockLastFinalized b)
-        put (blockTransactions b)
+        put (map trBareTransaction $ blockTransactions b)
