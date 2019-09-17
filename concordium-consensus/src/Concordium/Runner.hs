@@ -97,11 +97,16 @@ asyncTriggerFinalizationCatchUp SyncRunner{..} (Just delay) = when (delay > 0) $
 
 
 -- |Make a 'SyncRunner' without starting a baker thread.
-makeSyncRunner :: forall m. LogMethod IO -> Maybe (LogTransferMethod IO) -> BakerIdentity -> GenesisData -> BlockState (SkovBufferedM m) -> (SimpleOutMessage -> IO ()) -> IO SyncRunner
-makeSyncRunner syncLogMethod syncLogTransferMethod syncBakerIdentity gen initBS syncCallback = do
+makeSyncRunner :: forall m. LogMethod IO ->
+                  Maybe (LogTransferMethod IO) ->
+                  BakerIdentity ->
+                  RuntimeParameters ->
+                  GenesisData ->
+                  BlockState (SkovBufferedM m) -> (SimpleOutMessage -> IO ()) -> IO SyncRunner
+makeSyncRunner syncLogMethod syncLogTransferMethod syncBakerIdentity rtParams gen initBS syncCallback = do
         let
             syncFinalizationInstance = bakerFinalizationInstance syncBakerIdentity
-            sfs0 = initialSkovBufferedHookedState syncFinalizationInstance gen initBS
+            sfs0 = initialSkovBufferedHookedState syncFinalizationInstance rtParams gen initBS
         syncState <- newMVar sfs0
         syncBakerThread <- newEmptyMVar
         syncFinalizationCatchUpActive <- newMVar Nothing
@@ -180,9 +185,9 @@ data SyncPassiveRunner = SyncPassiveRunner {
 }
 
 -- |Make a 'SyncPassiveRunner', which does not support a baker thread.
-makeSyncPassiveRunner :: forall m. LogMethod IO -> GenesisData -> BlockState (SkovPassiveHookedM m) -> IO SyncPassiveRunner
-makeSyncPassiveRunner syncPLogMethod gen initBS = do
-        syncPState <- newMVar $ initialSkovPassiveHookedState gen initBS
+makeSyncPassiveRunner :: forall m. LogMethod IO -> RuntimeParameters -> GenesisData -> BlockState (SkovPassiveHookedM m) -> IO SyncPassiveRunner
+makeSyncPassiveRunner syncPLogMethod rtParams gen initBS = do
+        syncPState <- newMVar $ initialSkovPassiveHookedState rtParams gen initBS
         return $ SyncPassiveRunner{..}
 
 runSkovPassiveMWithStateLog :: SyncPassiveRunner -> SkovPassiveHookedM LogIO a -> IO a
@@ -224,28 +229,35 @@ data OutMessage peer =
     | MsgDirectedCatchUpStatus peer !BS.ByteString
 
 -- |This is provided as a compatibility wrapper for the test runners.
-makeAsyncRunner :: forall m source. LogMethod IO -> Maybe (LogTransferMethod IO) -> BakerIdentity -> GenesisData -> BlockState (SkovBufferedM m) -> IO (Chan (InMessage source), Chan (OutMessage source), MVar SkovBufferedHookedState)
-makeAsyncRunner logm logt bkr gen initBS = do
+makeAsyncRunner :: forall m source. LogMethod IO ->
+                   Maybe (LogTransferMethod IO) ->
+                   BakerIdentity ->
+                   RuntimeParameters ->
+                   GenesisData ->
+                   BlockState (SkovBufferedM m) ->
+                   IO (Chan (InMessage source), Chan (OutMessage source), MVar SkovBufferedHookedState)
+makeAsyncRunner logm logt bkr rtParams gen initBS = do
         logm Runner LLInfo "Starting baker"
         inChan <- newChan
         outChan <- newChan
         let somHandler = writeChan outChan . simpleToOutMessage
-        sr <- makeSyncRunner logm logt bkr gen initBS somHandler
+        sr <- makeSyncRunner logm logt bkr rtParams gen initBS somHandler
         startSyncRunner sr
         let
             msgLoop = readChan inChan >>= \case
                 MsgShutdown -> stopSyncRunner sr
                 MsgBlockReceived src blockBS -> do
-                    case runGet get blockBS of
+                    now <- currentTime
+                    case runGet (getBlock now) blockBS of
                         Right (NormalBlock block) -> do
-                            now <- currentTime
                             (res, evts) <- syncReceiveBlock sr $ makePendingBlock block now
                             forM_ evts $ handleMessage
                             handleResult src res
                         _ -> return ()
                     msgLoop
                 MsgTransactionReceived transBS -> do
-                    case runGet get transBS of
+                    now <- currentTime
+                    case runGet (getVerifiedTransaction now) transBS of
                         Right trans -> do
                             (_, evts) <- syncReceiveTransaction sr trans
                             forM_ evts $ handleMessage
@@ -275,7 +287,7 @@ makeAsyncRunner logm logt bkr gen initBS = do
                                 Right (d, flag) -> do
                                     let
                                         send (Left fr) = writeChan outChan (MsgDirectedFinalizationRecord src (encode fr))
-                                        send (Right b) = writeChan outChan (MsgDirectedBlock src (encode (_bpBlock b)))
+                                        send (Right b) = writeChan outChan (MsgDirectedBlock src (runPut (putBlock (_bpBlock b))))
                                     forM_ d $ \(frbs, rcus) -> do
                                         mapM_ send frbs
                                         writeChan outChan (MsgDirectedCatchUpStatus src (encode rcus))

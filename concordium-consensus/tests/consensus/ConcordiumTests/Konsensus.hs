@@ -44,7 +44,6 @@ import Concordium.Afgjort.Finalize
 import Concordium.Logger
 import Concordium.Birk.Bake
 import Concordium.TimeMonad
-import Concordium.Skov.CatchUp
 
 import Concordium.Startup(makeBakerAccount, dummyCryptographicParameters)
 
@@ -316,7 +315,7 @@ runKonsensusTestSimple steps g states events
 nAccounts :: Int
 nAccounts = 2
 
-genTransactions :: Int -> Gen [Transaction]
+genTransactions :: Int -> Gen [BareTransaction]
 genTransactions n = mapM gent (take n [minNonce..])
     where
         gent nnce = do
@@ -347,7 +346,7 @@ initialiseStates n = do
             fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _ _, _, _)) <- bis] 2
             bakerAccounts = map (\(_, (_, _, acc)) -> acc) bis
             gen = GenesisData 0 1 bps bakerAccounts fps dummyCryptographicParameters dummyIdentityProviders
-        return $ Vec.fromList [(bid, fininst, initialSkovActiveState fininst gen (Example.initialState bps dummyCryptographicParameters bakerAccounts [] nAccounts))
+        return $ Vec.fromList [(bid, fininst, initialSkovActiveState fininst defaultRuntimeParameters gen (Example.initialState bps dummyCryptographicParameters bakerAccounts [] nAccounts))
                               | (_, (_, bid, _)) <- bis, let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid)]
 
 instance Show BakerIdentity where
@@ -371,7 +370,8 @@ withInitialStatesTransactions n trcount r = monadicIO $ do
         s0 <- pick $ initialiseStates n
         trs <- pick $ genTransactions trcount
         gen <- pick $ mkStdGen <$> arbitrary
-        liftIO $ r gen s0 (initialEvents s0 <> Seq.fromList [(x, ETransaction tr) | x <- [0..n-1], tr <- trs])
+        now <- liftIO currentTime
+        liftIO $ r gen s0 (initialEvents s0 <> Seq.fromList [(x, ETransaction (fromBareTransaction now tr)) | x <- [0..n-1], tr <- trs])
 
 withInitialStatesDoubleTransactions :: Int -> Int -> (StdGen -> States -> EventPool -> IO Property) -> Property
 withInitialStatesDoubleTransactions n trcount r = monadicIO $ do
@@ -379,7 +379,8 @@ withInitialStatesDoubleTransactions n trcount r = monadicIO $ do
         trs0 <- pick $ genTransactions trcount
         trs <- (trs0 ++) <$> pick (genTransactions trcount)
         gen <- pick $ mkStdGen <$> arbitrary
-        liftIO $ r gen s0 (initialEvents s0 <> Seq.fromList [(x, ETransaction tr) | x <- [0..n-1], tr <- trs])
+        now <- liftIO currentTime
+        liftIO $ r gen s0 (initialEvents s0 <> Seq.fromList [(x, ETransaction (fromBareTransaction now tr)) | x <- [0..n-1], tr <- trs])
 
 
 tests :: Word -> Spec

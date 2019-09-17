@@ -11,8 +11,8 @@ import Data.IORef
 import Lens.Micro.Platform
 import Data.List(intercalate)
 import Data.Serialize
-import qualified Data.ByteString as BS
 
+import Concordium.TimeMonad
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.Parameters
@@ -32,7 +32,6 @@ import Concordium.Runner
 import Concordium.Logger
 import Concordium.Skov
 import Concordium.Skov.CatchUp
-import qualified Concordium.Getters as Get
 
 import Concordium.Startup
 
@@ -50,14 +49,14 @@ data InEvent
 nContracts :: Int
 nContracts = 2
 
-transactions :: StdGen -> [Transaction]
+transactions :: StdGen -> [BareTransaction]
 transactions gen = trs (0 :: Nonce) (randoms gen :: [Int])
     where
         contr i = ContractAddress (fromIntegral $ i `mod` nContracts) 0
         trs n (a : b : rs) = Example.makeTransaction (a `mod` 9 /= 0) (contr b) n : trs (n+1) rs
         trs _ _ = error "Ran out of transaction data"
 
-sendTransactions :: Chan (InEvent) -> [Transaction] -> IO ()
+sendTransactions :: Chan (InEvent) -> [BareTransaction] -> IO ()
 sendTransactions chan (t : ts) = do
         writeChan chan (IEMessage $ MsgTransactionReceived $ runPut $ put t)
         -- r <- randomRIO (5000, 15000)
@@ -102,9 +101,10 @@ relay myPeer inp sfsRef connectedRef monitor loopback outps = loop
         loop = do
             msg <- readChan inp
             connected <- readIORef connectedRef
+            now <- currentTime
             if connected then case msg of
                 MsgNewBlock blockBS -> do
-                    case runGet get blockBS of
+                    case runGet (getBlock now) blockBS of
                         Right (NormalBlock block) -> do
                             let bh = getHash block :: BlockHash
                             sfs <- readMVar sfsRef
@@ -135,7 +135,7 @@ relay myPeer inp sfsRef connectedRef monitor loopback outps = loop
                 MsgDirectedCatchUpStatus target cu -> usually $ delayed $ writeChan (peerChan target) (IEMessage $ MsgCatchUpStatusReceived myPeer cu)
             else case msg of
                 MsgNewBlock blockBS -> do
-                    case runGet get blockBS of
+                    case runGet (getBlock now) blockBS of
                         Right (NormalBlock block) -> do
                             let bh = getHash block :: BlockHash
                             sfs <- readMVar sfsRef
@@ -211,7 +211,7 @@ main = do
         let logT bh slot reason = do
               appendFile logTransferFile (show (bh, slot, reason))
               appendFile logTransferFile "\n"
-        (cin, cout, out) <- makeAsyncRunner logM (Just logT) bid gen iState
+        (cin, cout, out) <- makeAsyncRunner logM (Just logT) bid defaultRuntimeParameters gen iState
         cin' <- newChan
         connectedRef <- newIORef True
         _ <- forkIO $ relayIn cin' cin out connectedRef

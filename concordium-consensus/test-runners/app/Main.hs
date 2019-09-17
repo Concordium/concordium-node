@@ -10,6 +10,7 @@ import System.IO
 import Lens.Micro.Platform
 import Data.Serialize
 
+import Concordium.TimeMonad
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.Parameters
@@ -27,8 +28,6 @@ import Concordium.Runner
 import Concordium.Logger
 import Concordium.Skov
 
-import Data.List(intercalate)
-
 import Concordium.Scheduler.Utils.Init.Example as Example
 
 import Concordium.Startup
@@ -36,14 +35,14 @@ import Concordium.Startup
 nContracts :: Int
 nContracts = 2
 
-transactions :: StdGen -> [Transaction]
+transactions :: StdGen -> [BareTransaction]
 transactions gen = trs (0 :: Nonce) (randoms gen :: [Int])
     where
         contr i = ContractAddress (fromIntegral $ i `mod` nContracts) 0
         trs n (a : b : rs) = Example.makeTransaction (a `mod` 9 /= 0) (contr b) n : trs (n+1) rs
         trs _ _ = error "Ran out of transaction data"
 
-sendTransactions :: Chan (InMessage a) -> [Transaction] -> IO ()
+sendTransactions :: Chan (InMessage a) -> [BareTransaction] -> IO ()
 sendTransactions chan (t : ts) = do
         writeChan chan (MsgTransactionReceived $ runPut $ put t)
         -- r <- randomRIO (5000, 15000)
@@ -56,9 +55,10 @@ relay inp sfsRef monitor outps = loop
     where
         loop = do
             msg <- readChan inp
+            now <- currentTime
             case msg of
                 MsgNewBlock blockBS -> do
-                    case runGet get blockBS of
+                    case runGet (getBlock now) blockBS of
                         Right (NormalBlock block) -> do
                             let bh = getHash block :: BlockHash
                             sfs <- readMVar sfsRef
@@ -128,7 +128,7 @@ main = do
         let logT bh slot reason = do
               appendFile logTransferFile (show (bh, slot, reason))
               appendFile logTransferFile "\n"
-        (cin, cout, out) <- makeAsyncRunner logM (Just logT) bid gen iState
+        (cin, cout, out) <- makeAsyncRunner logM (Just logT) bid defaultRuntimeParameters gen iState
         _ <- forkIO $ sendTransactions cin trans
         return (cin, cout, out)) (zip [(0::Int) ..] bis)
     monitorChan <- newChan

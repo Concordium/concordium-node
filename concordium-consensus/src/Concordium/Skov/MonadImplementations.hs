@@ -148,10 +148,10 @@ instance Basic.SkovLenses SkovPassiveState where
 instance PassiveFinalizationStateLenses SkovPassiveState where
     pfinState = spsFinalization
 
-initialSkovPassiveState :: GenesisData -> Basic.BlockState -> SkovPassiveState
-initialSkovPassiveState gen initBS = SkovPassiveState{..}
+initialSkovPassiveState :: RuntimeParameters -> GenesisData -> Basic.BlockState -> SkovPassiveState
+initialSkovPassiveState rtParams gen initBS = SkovPassiveState{..}
     where
-        _spsSkov = Basic.initialSkovData gen initBS
+        _spsSkov = Basic.initialSkovData rtParams gen initBS
         _spsFinalization = initialPassiveFinalizationState (bpHash (Basic._skovGenesisBlockPointer _spsSkov))
 
 newtype SkovPassiveM m a = SkovPassiveM {unSkovPassiveM :: StateT SkovPassiveState m a}
@@ -170,8 +170,8 @@ instance Monad m => OnSkov (SkovPassiveM m) where
     {-# INLINE logTransfer #-}
     logTransfer _ _ _ = return ()
 
-evalSkovPassiveM :: (Monad m) => SkovPassiveM m a -> GenesisData -> Basic.BlockState -> m a
-evalSkovPassiveM (SkovPassiveM a) gd bs0 = evalStateT a (initialSkovPassiveState gd bs0)
+evalSkovPassiveM :: (Monad m) => SkovPassiveM m a -> RuntimeParameters -> GenesisData -> Basic.BlockState -> m a
+evalSkovPassiveM (SkovPassiveM a) rtParams gd bs0 = evalStateT a (initialSkovPassiveState rtParams gd bs0)
 
 runSkovPassiveM :: SkovPassiveM m a -> SkovPassiveState -> m (a, SkovPassiveState)
 runSkovPassiveM (SkovPassiveM a) s = runStateT a s
@@ -189,10 +189,10 @@ instance Basic.SkovLenses SkovActiveState where
 instance FinalizationStateLenses SkovActiveState where
     finState = sasFinalization
 
-initialSkovActiveState :: FinalizationInstance -> GenesisData -> Basic.BlockState -> SkovActiveState
-initialSkovActiveState finInst gen initBS = SkovActiveState{..}
+initialSkovActiveState :: FinalizationInstance -> RuntimeParameters -> GenesisData -> Basic.BlockState -> SkovActiveState
+initialSkovActiveState finInst rtParams gen initBS = SkovActiveState{..}
     where
-        _sasSkov = Basic.initialSkovData gen initBS
+        _sasSkov = Basic.initialSkovData rtParams gen initBS
         _sasFinalization = initialFinalizationState finInst (bpHash (Basic._skovGenesisBlockPointer _sasSkov)) (genesisFinalizationParameters gen)
 
 newtype SkovActiveM m a = SkovActiveM {unSkovActiveM :: RWST FinalizationInstance SkovFinalizationEvents SkovActiveState m a}
@@ -235,10 +235,10 @@ instance FinalizationStateLenses SkovBufferedState where
 instance FinalizationBufferLenses SkovBufferedState where
     finBuffer = sbsBuffer
 
-initialSkovBufferedState :: FinalizationInstance -> GenesisData -> Basic.BlockState -> SkovBufferedState
-initialSkovBufferedState finInst gen initBS = SkovBufferedState{..}
+initialSkovBufferedState :: FinalizationInstance -> RuntimeParameters -> GenesisData -> Basic.BlockState -> SkovBufferedState
+initialSkovBufferedState finInst rtParams gen initBS = SkovBufferedState{..}
     where
-        _sbsSkov = Basic.initialSkovData gen initBS
+        _sbsSkov = Basic.initialSkovData rtParams gen initBS
         _sbsFinalization = initialFinalizationState finInst (bpHash (Basic._skovGenesisBlockPointer _sbsSkov)) (genesisFinalizationParameters gen)
         _sbsBuffer = emptyFinalizationBuffer
 
@@ -288,10 +288,10 @@ instance PassiveFinalizationStateLenses SkovPassiveHookedState where
 instance TransactionHookLenses SkovPassiveHookedState where
     hooks = sphsHooks
 
-initialSkovPassiveHookedState :: GenesisData -> Basic.BlockState -> SkovPassiveHookedState
-initialSkovPassiveHookedState gen initBS = SkovPassiveHookedState{..}
+initialSkovPassiveHookedState :: RuntimeParameters -> GenesisData -> Basic.BlockState -> SkovPassiveHookedState
+initialSkovPassiveHookedState rtParams gen initBS = SkovPassiveHookedState{..}
     where
-        _sphsSkov = Basic.initialSkovData gen initBS
+        _sphsSkov = Basic.initialSkovData rtParams gen initBS
         _sphsFinalization = initialPassiveFinalizationState (bpHash (Basic._skovGenesisBlockPointer _sphsSkov))
         _sphsHooks = emptyHooks
 
@@ -314,8 +314,8 @@ instance (TimeMonad m, LoggerMonad m) => OnSkov (SkovPassiveHookedM m) where
     {-# INLINE logTransfer #-}
     logTransfer = \_ _ _ -> return ()
 
-evalSkovPassiveHookedM :: (Monad m) => SkovPassiveHookedM m a -> GenesisData -> Basic.BlockState -> m a
-evalSkovPassiveHookedM (SkovPassiveHookedM a) gd bs0 = evalStateT a (initialSkovPassiveHookedState gd bs0)
+evalSkovPassiveHookedM :: (Monad m) => SkovPassiveHookedM m a -> RuntimeParameters -> GenesisData -> Basic.BlockState -> m a
+evalSkovPassiveHookedM (SkovPassiveHookedM a) rtParams gd bs0 = evalStateT a (initialSkovPassiveHookedState rtParams gd bs0)
 
 runSkovPassiveHookedM :: SkovPassiveHookedM m a -> SkovPassiveHookedState -> m (a, SkovPassiveHookedState)
 runSkovPassiveHookedM (SkovPassiveHookedM a) s = runStateT a s
@@ -338,10 +338,10 @@ instance FinalizationBufferLenses SkovBufferedHookedState where
 instance TransactionHookLenses SkovBufferedHookedState where
     hooks = sbhsHooks
 
-initialSkovBufferedHookedState :: FinalizationInstance -> GenesisData -> Basic.BlockState -> SkovBufferedHookedState
-initialSkovBufferedHookedState finInst gen initBS = SkovBufferedHookedState{..}
+initialSkovBufferedHookedState :: FinalizationInstance -> RuntimeParameters -> GenesisData -> Basic.BlockState -> SkovBufferedHookedState
+initialSkovBufferedHookedState finInst rtParams gen initBS = SkovBufferedHookedState{..}
     where
-        _sbhsSkov = Basic.initialSkovData gen initBS
+        _sbhsSkov = Basic.initialSkovData rtParams gen initBS
         _sbhsFinalization = initialFinalizationState finInst (bpHash (Basic._skovGenesisBlockPointer _sbhsSkov)) (genesisFinalizationParameters gen)
         _sbhsBuffer = emptyFinalizationBuffer
         _sbhsHooks = emptyHooks
