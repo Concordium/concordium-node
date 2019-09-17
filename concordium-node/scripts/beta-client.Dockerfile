@@ -42,6 +42,8 @@ EXPOSE 10000
 ENV RPC_SERVER_ADDR=0.0.0.0
 ENV MODE=basic
 ENV BOOTSTRAP_FIRST_NODE=bootstrap.eu.test.concordium.com:8888
+ENV DATA_DIR=/var/lib/concordium/data
+ENV CONFIG_DIR=/var/lib/concordium/config
 
 RUN apt-get update && apt-get install -y unbound
 COPY --from=build /build-project/p2p_client-cli /p2p_client-cli
@@ -49,6 +51,8 @@ COPY --from=build /build-project/start.sh /start.sh
 
 RUN groupadd -g 61000 docker
 RUN useradd -g 61000 -l -M -s /bin/false -u 61000 docker
+
+RUN mkdir -p ${DATA_DIR} && mkdir -p ${CONFIG_DIR} && chown -R docker:docker ${DATA_DIR} && chown -R docker:docker ${CONFIG_DIR}
 
 USER docker
 
