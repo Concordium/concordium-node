@@ -6,7 +6,9 @@
 {-# LANGUAGE LambdaCase #-}
 module Concordium.GlobalState.Transactions where
 
+
 import Control.Exception
+import qualified Data.ByteString as BS
 import qualified Data.Serialize as S
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Set as Set
@@ -21,6 +23,7 @@ import qualified Concordium.ID.Types as IDTypes
 import qualified Concordium.ID.Account as AH
 
 import qualified Data.Vector as Vec
+import Data.Word
 
 import Concordium.Types
 import Concordium.Types.HashableTo
@@ -33,6 +36,8 @@ newtype TransactionSignature = TransactionSignature { tsSignature :: Signature }
 instance S.Serialize TransactionSignature where
   put TransactionSignature{..} = S.put tsSignature
   get = TransactionSignature <$> S.get
+
+type PayloadSize = Word32
 
 -- | Data common to all transaction types.
 --
@@ -49,10 +54,8 @@ data TransactionHeader = TransactionHeader {
     thNonce :: !Nonce,
     -- |Amount of gas dedicated for the execution of this transaction.
     thGasAmount :: !Energy,
-    -- |Pointer to a finalized block. If this is too out of date at the time of
-    -- execution the transaction is dropped.
-    thFinalizedPointer :: !BlockHash,
-
+    -- |Size of the payload in bytes.
+    thSize :: PayloadSize,
     -- |Sender account. Derived from the sender key as specified.
     thSender :: AccountAddress
     } deriving (Eq, Show)
@@ -64,15 +67,15 @@ instance S.Serialize TransactionHeader where
       S.put thSenderKey <>
       S.put thNonce <>
       S.put thGasAmount <>
-      S.put thFinalizedPointer
+      S.putWord32be thSize
 
   get = do
     thScheme <- S.get
     thSenderKey <- S.get
     thNonce <- S.get
     thGasAmount <- S.get
-    thFinalizedPointer <- S.get
-    return $ makeTransactionHeader thScheme thSenderKey thNonce thGasAmount thFinalizedPointer
+    thSize <- S.getWord32be
+    return $ makeTransactionHeader thScheme thSenderKey thSize thNonce thGasAmount
 
 type TransactionHash = H.Hash
 
@@ -84,7 +87,10 @@ data Transaction = Transaction {
   trHeader :: !TransactionHeader,
   trPayload :: EncodedPayload,
 
-  trHash :: TransactionHash  -- ^Hash of the transaction. Derived from the previous three fields.
+  -- |Size of the transaction bytes, derived field.
+  trSize :: Int,
+  -- |Hash of the transaction. Derived from the first three fields.
+  trHash :: TransactionHash
   } deriving(Show) -- show is needed in testing
 
 -- |NOTE: Eq and Ord instances based on hash comparison!
@@ -99,28 +105,50 @@ instance S.Serialize Transaction where
   put Transaction{..} =
     S.put trSignature <>
     S.put trHeader <>
-    S.put trPayload
+    putPayload trPayload
 
   get = do
     trSignature <- S.get
     trHeader <- S.get
-    trPayload <- S.get
+    trPayload <- getPayload (thSize trHeader)
     return $ makeTransaction trSignature trHeader trPayload
+
+-- |Deserialize a transaction, checking its signature on the way.
+getVerifiedTransaction ::S.Get Transaction
+getVerifiedTransaction = do
+  -- we use lookahead to deserialize the transaction without consuming the input.
+  -- after that we read the bytes we just deserialized for further processing.
+  (trSignature, trHeader, trPayload, sigSize, totalSize) <- S.lookAhead $! do
+    start <- S.bytesRead
+    trSignature <- S.get
+    mid <- S.bytesRead
+    trHeader <- S.get
+    trPayload <- getPayload (thSize trHeader)
+    end <- S.bytesRead
+    return (trSignature, trHeader, trPayload, mid - start, end - start)
+  txBytes <- S.getBytes totalSize
+  if SigScheme.verify (thScheme trHeader) (thSenderKey trHeader) (BS.drop sigSize txBytes) (tsSignature trSignature) then
+    let trHash = H.hash txBytes
+        trSize = BS.length txBytes
+    in return Transaction{..}
+  else fail "Incorrect signature."
 
 makeTransactionHeader ::
   SchemeId
   -> IDTypes.AccountVerificationKey
+  -> PayloadSize
   -> Nonce
   -> Energy
-  -> BlockHash
   -> TransactionHeader
-makeTransactionHeader thScheme thSenderKey thNonce thGasAmount thFinalizedPointer =
+makeTransactionHeader thScheme thSenderKey thSize thNonce thGasAmount =
   TransactionHeader{thSender = AH.accountAddress thSenderKey thScheme,..}
 
 -- |Make a transaction out of minimal data needed.
 makeTransaction :: TransactionSignature -> TransactionHeader -> EncodedPayload -> Transaction
 makeTransaction trSignature trHeader trPayload =
-  let trHash = H.hash . S.runPut $ S.put trSignature <> S.put trHeader <> S.put trPayload
+    let txBytes = S.runPut $ S.put trSignature <> S.put trHeader <> putPayload trPayload
+        trHash = H.hash txBytes
+        trSize = BS.length txBytes
   in Transaction{..}
 
 -- |FIXME: This method is inefficient (it creates temporary bytestrings which are
@@ -128,11 +156,13 @@ makeTransaction trSignature trHeader trPayload =
 -- |Sign a transaction with the given header and body. Uses serialization as defined on the wiki.
 signTransaction :: KeyPair -> TransactionHeader -> EncodedPayload -> Transaction
 signTransaction keys trHeader trPayload =
-  let body = S.runPut (S.put trHeader <> S.put trPayload)
+  let body = S.runPut (S.put trHeader <> putPayload trPayload)
       tsScheme = thScheme trHeader
       tsSignature = SigScheme.sign tsScheme keys body
-      trHash = H.hash (S.encode trSignature <> body)
+      txBytes = S.encode trSignature <> body
+      trHash = H.hash txBytes
       trSignature = TransactionSignature{..}
+      trSize = BS.length txBytes
   in Transaction{..}
 
 -- |Verify that the given transaction was signed by the sender's key.
@@ -140,7 +170,7 @@ signTransaction keys trHeader trPayload =
 verifyTransactionSignature' :: TransactionData msg => IDTypes.AccountVerificationKey -> msg -> TransactionSignature -> Bool
 verifyTransactionSignature' vfkey tx (TransactionSignature sig) =
   SigScheme.verify (thScheme (transactionHeader tx))
-                   vfkey (S.runPut (S.put (transactionHeader tx) <> S.put (transactionPayload tx)))
+                   vfkey (S.runPut (S.put (transactionHeader tx) <> putPayload (transactionPayload tx)))
                    sig
 
 

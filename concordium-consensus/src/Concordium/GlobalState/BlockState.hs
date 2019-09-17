@@ -452,7 +452,7 @@ resultToReasons bp tx res =
           Just (AccountToContractTransfer trId source amount target)
         extractReason (Updated (AddressAccount source) target amount _) =
           Just (AccountToContractTransfer trId source amount target)
-        extractReason r = Nothing
+        extractReason _ = Nothing
         
         trId = trHash tx
         sender = thSender (trHeader tx)
