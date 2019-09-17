@@ -1,4 +1,4 @@
-use byteorder::{NetworkEndian, ReadBytesExt};
+use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt};
 use failure::{format_err, Fallible};
 
 use std::{
@@ -182,6 +182,8 @@ pub struct consensus_runner {
 }
 
 type LogCallback = extern "C" fn(c_char, c_char, *const u8);
+type TransferLogCallback =
+    unsafe extern "C" fn(c_char, *const u8, u64, *const u8, u64, u64, *const u8);
 type BroadcastCallback = extern "C" fn(i64, *const u8, i64);
 type DirectMessageCallback =
     extern "C" fn(peer_id: PeerId, message_type: i64, msg: *const c_char, msg_len: i64);
@@ -194,6 +196,7 @@ extern "C" {
         private_data_len: i64,
         broadcast_callback: BroadcastCallback,
         log_callback: LogCallback,
+        transfer_log_callback: TransferLogCallback,
     ) -> *mut consensus_runner;
     pub fn startConsensusPassive(
         genesis_data: *const u8,
@@ -319,6 +322,7 @@ pub fn get_consensus_ptr(
                     private_data_len as i64,
                     broadcast_callback,
                     on_log_emited,
+                    on_transfer_log_emitted,
                 )
             }
         }
@@ -640,4 +644,172 @@ pub extern "C" fn on_log_emited(identifier: c_char, log_level: c_char, log_messa
         3 | 4 | 5 | 6 | 7 => debug!("{}: {}", id, msg),
         _ => trace!("{}: {}", id, msg),
     };
+}
+
+pub unsafe extern "C" fn on_transfer_log_emitted(
+    transfer_type: c_char,
+    block_hash_ptr: *const u8,
+    slot: u64,
+    transaction_hash_ptr: *const u8,
+    amount: u64,
+    remaining_data_len: u64,
+    remaining_data_ptr: *const u8,
+) {
+    use crate::transferlog::{TransactionLogMessage, TransferLogType, TRANSACTION_LOG_QUEUE};
+    use concordium_common::{
+        blockchain_types::{AccountAddress, BakerId, BlockHash, ContractAddress, TransactionHash},
+        SerializeToBytes,
+    };
+    use std::mem::size_of;
+    let transfer_event_type = match TransferLogType::try_from(transfer_type as u8) {
+        Ok(ct) => ct,
+        Err(e) => {
+            error!("{}", e);
+            return;
+        }
+    };
+
+    if block_hash_ptr.is_null() {
+        error!("Could not log transfer event, as block hash is null!");
+        return;
+    }
+
+    if transfer_event_type != TransferLogType::BlockReward && transaction_hash_ptr.is_null() {
+        error!(
+            "Could not log {} event as transaction hash is null!",
+            transfer_event_type
+        );
+        return;
+    } else if transfer_event_type == TransferLogType::BlockReward && !transaction_hash_ptr.is_null()
+    {
+        error!(
+            "Could not log {} event as transaction hash is not null!",
+            transfer_event_type
+        );
+        return;
+    }
+
+    if remaining_data_len as usize
+        != match transfer_event_type {
+            TransferLogType::DirectTransfer => 2 * size_of::<AccountAddress>(),
+            TransferLogType::TransferFromAccountToContract => {
+                size_of::<AccountAddress>() + size_of::<ContractAddress>()
+            }
+            TransferLogType::TransferFromContractToAccount => {
+                size_of::<ContractAddress>() + size_of::<AccountAddress>()
+            }
+            TransferLogType::ExecutionCost => size_of::<AccountAddress>() + size_of::<BakerId>(),
+            TransferLogType::BlockReward => size_of::<AccountAddress>() + size_of::<BakerId>(),
+        }
+    {
+        error!(
+            "Incorrect data given for {} event type",
+            transfer_event_type
+        );
+        return;
+    }
+
+    let block_hash = BlockHash::new(slice::from_raw_parts(
+        block_hash_ptr,
+        size_of::<BlockHash>(),
+    ));
+    let msg = match transfer_event_type {
+        TransferLogType::DirectTransfer => {
+            let transaction_hash = TransactionHash::new(slice::from_raw_parts(
+                transaction_hash_ptr,
+                size_of::<TransactionHash>(),
+            ));
+            let (sender_account_slice, receiver_account_slice) =
+                slice::from_raw_parts(remaining_data_ptr, remaining_data_len as usize)
+                    .split_at(size_of::<AccountAddress>());
+            let sender_account = AccountAddress::new(&sender_account_slice);
+            let receiver_account = AccountAddress::new(&receiver_account_slice);
+            TransactionLogMessage::DirectTransfer(
+                block_hash,
+                slot,
+                transaction_hash,
+                amount,
+                sender_account,
+                receiver_account,
+            )
+        }
+        TransferLogType::TransferFromAccountToContract => {
+            let transaction_hash = TransactionHash::new(slice::from_raw_parts(
+                transaction_hash_ptr,
+                size_of::<TransactionHash>(),
+            ));
+            let (account_address_slice, contract_address_slice) =
+                slice::from_raw_parts(remaining_data_ptr, remaining_data_len as usize)
+                    .split_at(size_of::<AccountAddress>());
+            let account_address = AccountAddress::new(&account_address_slice);
+            let contract_address =
+                ContractAddress::deserialize(&mut Cursor::new(&contract_address_slice)).unwrap();
+            TransactionLogMessage::TransferFromAccountToContract(
+                block_hash,
+                slot,
+                transaction_hash,
+                amount,
+                account_address,
+                contract_address,
+            )
+        }
+        TransferLogType::TransferFromContractToAccount => {
+            let transaction_hash = TransactionHash::new(slice::from_raw_parts(
+                transaction_hash_ptr,
+                size_of::<TransactionHash>(),
+            ));
+            let (contract_address_slice, account_address_slice) =
+                slice::from_raw_parts(remaining_data_ptr, remaining_data_len as usize)
+                    .split_at(size_of::<ContractAddress>());
+            let account_address = AccountAddress::new(&account_address_slice);
+            let contract_address =
+                ContractAddress::deserialize(&mut Cursor::new(&contract_address_slice)).unwrap();
+            TransactionLogMessage::TransferFromContractToAccount(
+                block_hash,
+                slot,
+                transaction_hash,
+                amount,
+                contract_address,
+                account_address,
+            )
+        }
+        TransferLogType::ExecutionCost => {
+            let transaction_hash = TransactionHash::new(slice::from_raw_parts(
+                transaction_hash_ptr,
+                size_of::<TransactionHash>(),
+            ));
+
+            let (account_address_slice, baker_id_slice) =
+                slice::from_raw_parts(remaining_data_ptr, remaining_data_len as usize)
+                    .split_at(size_of::<AccountAddress>());
+            let account_address = AccountAddress::new(&account_address_slice);
+            let baker_id = NetworkEndian::read_u64(baker_id_slice);
+            TransactionLogMessage::ExecutionCost(
+                block_hash,
+                slot,
+                transaction_hash,
+                amount,
+                account_address,
+                baker_id,
+            )
+        }
+        TransferLogType::BlockReward => {
+            let (baker_id_slice, account_address_slice) =
+                slice::from_raw_parts(remaining_data_ptr, remaining_data_len as usize)
+                    .split_at(size_of::<BakerId>());
+            let account_address = AccountAddress::new(&account_address_slice);
+            let baker_id = NetworkEndian::read_u64(baker_id_slice);
+            TransactionLogMessage::BlockReward(block_hash, slot, amount, baker_id, account_address)
+        }
+    };
+    match TRANSACTION_LOG_QUEUE.send_message(msg) {
+        Ok(_) => trace!(
+            "Logged a callback for an event of type {}",
+            transfer_event_type
+        ),
+        _ => error!(
+            "Couldn't queue a callback for an event of type {} properly",
+            transfer_event_type
+        ),
+    }
 }

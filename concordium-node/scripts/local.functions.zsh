@@ -192,8 +192,6 @@ lint_fmt() {
   ( cd $CONCORDIUM_P2P_DIR/concordium-common && cargo +$NIGHTLY_FMT_VERSION fmt)
   ( cd $CONCORDIUM_P2P_DIR/concordium-consensus && cargo +$NIGHTLY_FMT_VERSION fmt)
   ( cd $CONCORDIUM_P2P_DIR/concordium-global-state && cargo +$NIGHTLY_FMT_VERSION fmt)
-  ( cd $CONCORDIUM_P2P_DIR/concordium-global-state-sys && cargo +$NIGHTLY_FMT_VERSION fmt)
-  ( cd $CONCORDIUM_P2P_DIR/concordium-dns && cargo +$NIGHTLY_FMT_VERSION fmt)
 }
 
 #####

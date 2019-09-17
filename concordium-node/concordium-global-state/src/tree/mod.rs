@@ -1,6 +1,6 @@
 use chrono::prelude::{DateTime, Utc};
 use circular_queue::CircularQueue;
-use concordium_common::indexed_vec::IndexedVec;
+use concordium_common::{blockchain_types::BlockHash, indexed_vec::IndexedVec};
 use hash_hasher::{HashBuildHasher, HashedMap, HashedSet};
 use linked_hash_map::LinkedHashMap;
 use nohash_hasher::BuildNoHashHasher;

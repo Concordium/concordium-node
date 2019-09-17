@@ -20,6 +20,7 @@ use std::{
 };
 
 use concordium_common::{
+    blockchain_types::TransactionHash,
     cache::Cache,
     hybrid_buf::HybridBuf,
     ConsensusFfiResponse,
@@ -32,7 +33,7 @@ use concordium_global_state::{
     block::PendingBlock,
     common::{sha256, SerializeToBytes},
     finalization::FinalizationRecord,
-    transaction::{Transaction, TransactionHash},
+    transaction::Transaction,
     tree::{
         messaging::{
             ConsensusMessage, DistributionMode, GlobalStateMessage, GlobalStateResult, MessageType,

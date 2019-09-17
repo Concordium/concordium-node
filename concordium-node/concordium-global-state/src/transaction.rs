@@ -13,14 +13,11 @@ use std::{
 use concordium_common::indexed_vec::IndexedVec;
 
 use crate::{
-    block::*,
     common::*,
     parameters::{BakerElectionVerifyKey, BakerSignVerifyKey, BAKER_VRF_KEY},
 };
 
 const PAYLOAD_MAX_LEN: u32 = 512 * 1024 * 1024; // 512MB
-
-pub type TransactionHash = HashBytes;
 
 #[derive(Debug)]
 pub struct TransactionHeader {

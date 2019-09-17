@@ -18,6 +18,15 @@ extern crate log;
 #[macro_use]
 extern crate cfg_if;
 
+#[cfg(feature = "elastic_logging")]
+#[macro_use]
+extern crate elastic_derive;
+#[cfg(feature = "elastic_logging")]
+#[macro_use]
+extern crate serde_json;
+#[cfg(feature = "elastic_logging")]
+extern crate elastic;
+
 cfg_if! {
     if #[cfg(feature = "instrumentation")] {
         #[macro_use]
@@ -32,6 +41,7 @@ cfg_if! {
 #[macro_use]
 pub mod fails;
 
+pub mod blockchain_types;
 pub mod cache;
 pub mod hybrid_buf;
 pub mod indexed_vec;
@@ -282,4 +292,15 @@ impl TryFrom<i64> for ConsensusFfiResponse {
             _ => Err(format_err!("Unsupported FFI return code ({})", value)),
         }
     }
+}
+
+/// Reads a number of bytes equal to the size of `object` into an array.
+#[macro_export]
+macro_rules! read_ty {
+    ($source:expr, $object:ty) => {{
+        let mut buf = [0u8; std::mem::size_of::<$object>()];
+        $source.read_exact(&mut buf)?;
+
+        buf
+    }};
 }

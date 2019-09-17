@@ -12,6 +12,15 @@ extern crate grpciounix as grpcio;
 #[cfg(target_os = "windows")]
 extern crate grpciowin as grpcio;
 
+cfg_if! {
+    if #[cfg(feature = "elastic_logging")] {
+        #[macro_use]
+        extern crate elastic_derive;
+        extern crate serde_json;
+        extern crate elastic;
+    }
+}
+
 #[macro_use]
 extern crate lazy_static;
 #[cfg(not(debug_assertions))]

@@ -22,7 +22,7 @@ stages:
     - echo "Running tests without extra features"
     - cargo test --all --features=static --color=always
     - echo "Running tests with instrumentation and benchmark feature enabled"
-    - cargo test --all --color=always --features=static,instrumentation,benchmark
+    - cargo test --all --color=always --features=static,instrumentation,benchmark,elastic_logging
     - echo "Running tests with s11n extras features enabled"
 #    - cargo test --all --color=always --features=static,s11n_capnp,s11n_nom,s11n_serde_cbor
     - echo "Run non-serialization benches"
@@ -61,6 +61,6 @@ stages:
     - echo "Running clippy with without extra features"
     - cargo clippy --color=always --all --features=static -- -Dclippy::all
     - echo "Running clippy with instrumentation feature enabled"
-    - cargo clippy --features=static,instrumentation,benchmark --color=always --all -- -Dclippy::all
+    - cargo clippy --features=static,instrumentation,benchmark,elastic_logging --color=always --all -- -Dclippy::all
     - echo "Running clippy with s11n extra features enabled"
 #    - cargo clippy --features=static,s11n_capnp,s11n_nom,s11n_serde_cbor --color=always --all -- -Dclippy::all

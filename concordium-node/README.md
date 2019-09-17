@@ -24,6 +24,7 @@ This repository uses git lfs for storing binary dependencies, and relies on git 
 * network_dump - makes the network dumping capabilites available.
 * static - build against static haskell libraries in GIT LFS (Linux only)
 * profiling - build against haskell libraries in GIT LFS with profiling support enabled (Linux only)
+* elastic_logging - enable ability to log transaction events to elastic search
 
 ## Setting up basic local build environment
 Install the needed dependencies from the list above (Windows build is special, for that see cross-compilation build environment setup script in [scripts/init.win.build.env.sh](/scripts/init.win.build.env.sh) for further details), and run the script (requires that the user executing is has sudo privileges) `scripts/local-setup-unix-deps.sh` and pay special attention to setting the right version of GHC (see [build scripts](/scripts/local-setup-unix-deps.sh#L25) for details).
@@ -39,7 +40,7 @@ $> cargo run -- --debug
 ```
 
 ## Running all tests
-```
+```bash
 $> cargo test --all
 ```
 
@@ -47,7 +48,7 @@ $> cargo test --all
 For a local docker compose setup, a docker-compose.yml file has been provided in the root of this repository. It uses a image hosted in Docker hub built automatically upon push to the develop branch.
 
 For the most simple and common setup, simply run
-```
+```bash
 NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose up --scale baker=5
 ```
 in the repository root
@@ -59,7 +60,31 @@ Currently this project only sports support for Nix on Linux platforms.
 ### Development
 All `zsh` wrapper functions wraps around `nix-shell`, and if dropping into a `nix-shell` directly remember to use the cargo flag `--features=static` to build against the static libraries in LFS.
 ### Install binaries as a package
-```
+```bash
 $> scripts/download-static-libs.sh
 $> nix-env -f . -i
+```
+
+# Elastic search in local development mode
+Use docker-compose if you only need a middle-ware enabled set of nodes to test on
+```bash
+$> ELASTIC_SEARCH_LOGGING=1 NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.middleware.yml up --scale baker=5
+```
+
+
+To run a pair of elastic search with kibana for local development do the followign
+```bash
+$> docker network create elasticsearch
+$> docker run -d --name elasticsearch --net elasticsearch -p 9200:9200 -p 9300:9300 -e "discovery.type=single-node" elasticsearch:7.3.2
+$> docker run -d --name kibana --net elasticsearch -p 5601:5601 kibana:7.3.2
+```
+
+
+To delete the docker setup run
+```bash
+$> docker stop kibana
+$> docker rm kibana
+$> docker stop elasticsearch
+$> docker rm elasticsearch
+$> docker network rm elasticsearch
 ```
