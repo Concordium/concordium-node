@@ -469,9 +469,10 @@ fn setup_transfer_log_thread(conf: &config::CliConfig) -> std::thread::JoinHandl
         conf.elastic_logging_port,
     );
     if enabled {
-        match p2p_client::client::plugins::elasticlogging::create_transfer_index(&host, port) {
-            Ok(_) => {}
-            Err(e) => error!("{}", e),
+        if let Err(e) =
+            p2p_client::client::plugins::elasticlogging::create_transfer_index(&host, port)
+        {
+            error!("{}", e);
         }
     }
     spawn_or_die!("Process transfer log messages", {
@@ -484,11 +485,12 @@ fn setup_transfer_log_thread(conf: &config::CliConfig) -> std::thread::JoinHandl
                 match msg {
                     RelayOrStopEnvelope::Relay(msg) => {
                         if enabled {
-                            match p2p_client::client::plugins::elasticlogging::log_transfer_event(
-                                &host, port, msg,
-                            ) {
-                                Ok(_) => {}
-                                Err(e) => error!("{}", e),
+                            if let Err(e) =
+                                p2p_client::client::plugins::elasticlogging::log_transfer_event(
+                                    &host, port, msg,
+                                )
+                            {
+                                error!("{}", e);
                             }
                         } else {
                             info!("{}", msg);

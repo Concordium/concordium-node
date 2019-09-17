@@ -130,6 +130,7 @@ impl std::fmt::Display for TransactionLogMessage {
     }
 }
 
+#[derive(Debug)]
 pub enum TransferLogType {
     DirectTransfer = 0,
     TransferFromAccountToContract,
@@ -154,13 +155,5 @@ impl TryFrom<u8> for TransferLogType {
 }
 
 impl std::fmt::Display for TransferLogType {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Self::DirectTransfer => write!(f, "DirectTransfer"),
-            Self::TransferFromAccountToContract => write!(f, "TransferFromAccountToContract"),
-            Self::TransferFromContractToAccount => write!(f, "TransferFromContractToAccount"),
-            Self::ExecutionCost => write!(f, "ExecutionCost"),
-            Self::BlockReward => write!(f, "BlockReward"),
-        }
-    }
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{:?}", self) }
 }
