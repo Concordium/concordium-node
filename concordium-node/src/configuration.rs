@@ -373,7 +373,7 @@ pub struct CliConfig {
     #[structopt(
         long = "elastic-logging-port",
         help = "Port to use for logging to Elastic Search",
-        default_value = "9300"
+        default_value = "9200"
     )]
     pub elastic_logging_port: u16,
 }

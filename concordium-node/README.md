@@ -40,7 +40,7 @@ $> cargo run -- --debug
 ```
 
 ## Running all tests
-```
+```bash
 $> cargo test --all
 ```
 
@@ -48,7 +48,7 @@ $> cargo test --all
 For a local docker compose setup, a docker-compose.yml file has been provided in the root of this repository. It uses a image hosted in Docker hub built automatically upon push to the develop branch.
 
 For the most simple and common setup, simply run
-```
+```bash
 NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose up --scale baker=5
 ```
 in the repository root
@@ -60,7 +60,23 @@ Currently this project only sports support for Nix on Linux platforms.
 ### Development
 All `zsh` wrapper functions wraps around `nix-shell`, and if dropping into a `nix-shell` directly remember to use the cargo flag `--features=static` to build against the static libraries in LFS.
 ### Install binaries as a package
-```
+```bash
 $> scripts/download-static-libs.sh
 $> nix-env -f . -i
+```
+
+# Elastic search in local development mode
+To pair of elastic search with kibana for local development do the followign
+```bash
+$> docker network create elasticsearch
+$> docker run -d --name elasticsearch --net elasticsearch -p 9200:9200 -p 9300:9300 -e "discovery.type=single-node" elasticsearch:7.3.2
+$> docker run -d --name kibana --net elasticsearch -p 5601:5601 kibana:7.3.2
+```
+To delete the docker setup run
+```bash
+$> docker stop kibana
+$> docker rm kibana
+$> docker stop elasticsearch
+$> docker rm elasticsearch
+$> docker network rm elasticsearch
 ```

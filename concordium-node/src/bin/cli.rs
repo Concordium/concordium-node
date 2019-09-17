@@ -468,6 +468,12 @@ fn setup_transfer_log_thread(conf: &config::CliConfig) -> std::thread::JoinHandl
         conf.elastic_logging_host.clone(),
         conf.elastic_logging_port,
     );
+    if enabled {
+        match p2p_client::client::plugins::elasticlogging::create_transfer_index(&host, port) {
+            Ok(_) => {}
+            Err(e) => error!("{}", e),
+        }
+    }
     spawn_or_die!("Process transfer log messages", {
         let receiver = concordium_consensus::transferlog::TRANSACTION_LOG_QUEUE
             .receiver
@@ -477,9 +483,16 @@ fn setup_transfer_log_thread(conf: &config::CliConfig) -> std::thread::JoinHandl
             if let Ok(msg) = receiver.recv() {
                 match msg {
                     RelayOrStopEnvelope::Relay(msg) => {
-                        p2p_client::client::plugins::elasticlogging::log_transfer_event(
-                            enabled, &host, port, msg,
-                        )
+                        if enabled {
+                            match p2p_client::client::plugins::elasticlogging::log_transfer_event(
+                                &host, port, msg,
+                            ) {
+                                Ok(_) => {}
+                                Err(e) => error!("{}", e),
+                            }
+                        } else {
+                            info!("{}", msg);
+                        }
                     }
                     RelayOrStopEnvelope::Stop => {
                         debug!("Shutting down transfer log queues");

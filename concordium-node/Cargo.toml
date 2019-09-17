@@ -12,7 +12,7 @@ default-run = "p2p_client-cli"
 license = "MIT"
 
 [features]
-default = []
+default = ["elastic_logging"]
 valgrind = []
 s11n_capnp = ["capnp", "capnpc"]
 s11n_serde = ["concordium-common/s11n_serde", "serde", "serde_derive"]
@@ -23,7 +23,7 @@ benchmark = []
 network_dump = []
 static = ["concordium-consensus/static"]
 profiling = ["concordium-consensus/profiling"]
-elastic_logging = [ "elastic", "elastic_derive", "serde_json", "serde/derive" ]
+elastic_logging = [ "elastic", "elastic_derive", "serde_json", "serde/derive", "uuid/v4" ]
 
 [dependencies]
 # Internal dependencies
@@ -97,7 +97,7 @@ grpciounix = { package = 'grpcio', version = "0.4.4", default-features = false, 
   "protobuf-codec"
 ] }
 grpc = "0.6.1"
-uuid = { version = "0.7", default-features = false }
+uuid = { version = "0.7", default-features = false, optional = true }
 
 [build-dependencies]
 walkdir = "2"
