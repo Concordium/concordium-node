@@ -29,3 +29,5 @@ result
 0
 **/**/0
 scripts/genesis-data/genesis_data/**
+scripts/genesis-data/binaries/**
+scripts/genesis-data/static-consensus-binaries-**
