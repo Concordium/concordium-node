@@ -6,6 +6,7 @@ import           Data.ByteString
 import Data.Ratio
 
 import qualified Concordium.Crypto.VRF    as VRF
+import           Concordium.Crypto.SHA256
 import           Concordium.Types
 
 newtype BlockLuck = BlockLuck Double deriving (Eq, Ord)
@@ -26,7 +27,7 @@ leaderElectionMessage nonce (Slot sl) =
   L.toStrict
     $  toLazyByteString
     $  stringUtf8 "LE"
-    <> byteString nonce
+    <> byteString (hashToByteString nonce)
     <> word64BE sl
 
 leaderElection
@@ -68,7 +69,7 @@ blockNonceMessage nonce (Slot slot) =
   L.toStrict
     $  toLazyByteString
     $  stringUtf8 "NONCE"
-    <> byteString nonce
+    <> byteString (hashToByteString nonce)
     <> word64BE slot
 
 computeBlockNonce

@@ -6,6 +6,7 @@ import Control.Concurrent.MVar
 import Control.Concurrent
 import Control.Monad.Trans.State hiding (get, put)
 import Control.Monad
+import Control.Monad.IO.Class
 import Control.Exception
 import Data.Time.Clock
 import Data.ByteString as BS
@@ -14,7 +15,7 @@ import Data.IORef
 
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block
-import Concordium.GlobalState.BlockState(BlockState)
+import Concordium.GlobalState.BlockState(BlockState, LogTransferMethod)
 import Concordium.GlobalState.Rust.TreeState
 import Concordium.GlobalState.Rust.FFI
 import Concordium.GlobalState.Transactions
@@ -36,9 +37,16 @@ data SyncRunner = SyncRunner {
     syncState :: MVar SkovBufferedHookedState,
     syncBakerThread :: MVar ThreadId,
     syncLogMethod :: LogMethod IO,
+    syncLogTransferMethod :: Maybe (LogTransferMethod IO),
     syncCallback :: SimpleOutMessage -> IO (),
     syncFinalizationCatchUpActive :: MVar (Maybe (IORef Bool))
 }
+
+getLogTransferMethod :: MonadIO m => SyncRunner -> LogTransferMethod m
+getLogTransferMethod SyncRunner{..} =
+  case syncLogTransferMethod of
+    Nothing -> \_ _ _ -> return ()
+    Just m -> \bh slot reason -> liftIO (m bh slot reason)
 
 bakerFinalizationInstance :: BakerIdentity -> FinalizationInstance
 bakerFinalizationInstance bkr = FinalizationInstance (bakerSignKey bkr) (bakerElectionKey bkr)
@@ -90,8 +98,8 @@ asyncTriggerFinalizationCatchUp SyncRunner{..} (Just delay) = when (delay > 0) $
 
 
 -- |Make a 'SyncRunner' without starting a baker thread.
-makeSyncRunner :: forall m. LogMethod IO -> BakerIdentity -> GenesisData -> BlockState (SkovBufferedM m) -> GlobalStatePtr -> (SimpleOutMessage -> IO ()) -> IO SyncRunner
-makeSyncRunner syncLogMethod syncBakerIdentity gen initBS gsptr syncCallback = do
+makeSyncRunner :: forall m. LogMethod IO -> Maybe (LogTransferMethod IO) -> BakerIdentity -> GenesisData -> BlockState (SkovBufferedM m) -> GlobalStatePtr -> (SimpleOutMessage -> IO ()) -> IO SyncRunner
+makeSyncRunner syncLogMethod syncLogTransferMethod syncBakerIdentity gen initBS gsptr syncCallback = do
         let
             syncFinalizationInstance = bakerFinalizationInstance syncBakerIdentity
         sfs0 <- initialSkovBufferedHookedState syncFinalizationInstance gen initBS gsptr
@@ -111,7 +119,8 @@ startSyncRunner sr@SyncRunner{..} = do
                                 curSlot <- getCurrentSlot
                                 mblock <- if (curSlot > lastSlot) then bakeForSlot syncBakerIdentity curSlot else return Nothing
                                 return (mblock, curSlot)
-                        ((mblock, curSlot), sfs', evs) <- runSkovBufferedHookedM bake (bakerFinalizationInstance syncBakerIdentity) sfs
+                        ((mblock, curSlot), sfs', evs) <-
+                          runSkovBufferedHookedLoggedM bake (bakerFinalizationInstance syncBakerIdentity) sfs (getLogTransferMethod sr)
                         return ((mblock, sfs', evs, curSlot), sfs'))
                 forM_ mblock $ syncCallback . SOMsgNewBlock
                 let
@@ -142,10 +151,10 @@ stopSyncRunner SyncRunner{..} = mask_ $ tryTakeMVar syncBakerThread >>= \case
         Nothing -> return ()
         Just thrd -> killThread thrd
 
-runSkovBufferedMWithStateLog :: SyncRunner -> SkovBufferedHookedM LogIO a -> IO (a, [FinalizationOutputEvent])
+runSkovBufferedMWithStateLog :: SyncRunner -> SkovBufferedHookedLoggedM LogIO a -> IO (a, [FinalizationOutputEvent])
 runSkovBufferedMWithStateLog sr@SyncRunner{..} a = do
         (ret, evts) <- runWithStateLog syncState syncLogMethod (\sfs ->
-            (\(ret, sfs', evs) -> ((ret, evs), sfs')) <$> runSkovBufferedHookedM a (bakerFinalizationInstance syncBakerIdentity) sfs)
+            (\(ret, sfs', evs) -> ((ret, evs), sfs')) <$> runSkovBufferedHookedLoggedM a (bakerFinalizationInstance syncBakerIdentity) sfs (getLogTransferMethod sr))
         forM_ (extractNotifyEvents evts) $ asyncNotify syncState syncLogMethod (syncCallback . SOMsgFinalization . FPMMessage)
         forM_ (extractCatchUpTimer evts) (asyncTriggerFinalizationCatchUp sr)
         return (ret, extractFinalizationOutputEvents evts)
@@ -217,13 +226,13 @@ data OutMessage peer =
     | MsgDirectedCatchUpStatus peer !BS.ByteString
 
 -- |This is provided as a compatibility wrapper for the test runners.
-makeAsyncRunner :: forall m source. LogMethod IO -> BakerIdentity -> GenesisData -> BlockState (SkovBufferedM m) -> GlobalStatePtr -> IO (Chan (InMessage source), Chan (OutMessage source), MVar SkovBufferedHookedState)
-makeAsyncRunner logm bkr gen initBS gsptr = do
+makeAsyncRunner :: forall m source. LogMethod IO -> Maybe (LogTransferMethod IO) -> BakerIdentity -> GenesisData -> BlockState (SkovBufferedM m) -> GlobalStatePtr -> IO (Chan (InMessage source), Chan (OutMessage source), MVar SkovBufferedHookedState)
+makeAsyncRunner logm logt bkr gen initBS gsptr = do
         logm Runner LLInfo "Starting baker"
         inChan <- newChan
         outChan <- newChan
         let somHandler = writeChan outChan . simpleToOutMessage
-        sr <- makeSyncRunner logm bkr gen initBS gsptr somHandler
+        sr <- makeSyncRunner logm logt bkr gen initBS gsptr somHandler
         startSyncRunner sr
         let
             msgLoop = readChan inChan >>= \case

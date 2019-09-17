@@ -88,7 +88,7 @@ makeHeader kp nonce amount = Types.makeTransactionHeader Ed25519 (Sig.verifyKey 
 initSimpleCounter :: Int -> Types.Transaction
 initSimpleCounter n = Runner.signTx
                              mateuszKP
-                             (makeHeader mateuszKP (fromIntegral n) 10000)
+                             (makeHeader mateuszKP (fromIntegral n) 100000)
                              (Types.encodePayload (Types.InitContract 0
                                                    simpleCounterHash
                                                    (fromJust (Map.lookup "Counter" simpleCounterTyCtx))
@@ -98,7 +98,7 @@ initSimpleCounter n = Runner.signTx
 makeTransaction :: Bool -> ContractAddress -> Nonce -> Types.Transaction
 makeTransaction inc ca n = Runner.signTx mateuszKP hdr payload
     where
-        hdr = makeHeader mateuszKP n 100000
+        hdr = makeHeader mateuszKP n 1000000
         payload = Types.encodePayload (Types.Update 0
                                                     ca
                                                     (Core.App (if inc then (inCtxTm "Inc") else (inCtxTm "Dec"))

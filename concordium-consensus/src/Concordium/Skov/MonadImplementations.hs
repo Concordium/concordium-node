@@ -166,6 +166,8 @@ instance Monad m => OnSkov (SkovPassiveM m) where
     onBlock _ = return ()
     {-# INLINE onFinalize #-}
     onFinalize fr _ = spsFinalization %= execState (passiveNotifyBlockFinalized fr)
+    {-# INLINE logTransfer #-}
+    logTransfer _ _ _ = return ()
 
 evalSkovPassiveM :: (MonadIO m) => SkovPassiveM m a -> GenesisData -> Basic.BlockState -> Rust.GlobalStatePtr -> m a
 evalSkovPassiveM (SkovPassiveM a) gd bs0 gsptr = do
@@ -206,6 +208,8 @@ instance (TimeMonad m, LoggerMonad m, MonadIO m) => OnSkov (SkovActiveM m) where
     onBlock = notifyBlockArrival
     {-# INLINE onFinalize #-}
     onFinalize = notifyBlockFinalized
+    {-# INLINE logTransfer #-}
+    logTransfer _ _ _ = return ()
 instance (TimeMonad m, LoggerMonad m, MonadIO m)
             => FinalizationMonad SkovActiveState (SkovActiveM m) where
     broadcastFinalizationMessage = tell . embedFinalizationEvent . BroadcastFinalizationMessage
@@ -251,6 +255,8 @@ instance (TimeMonad m, LoggerMonad m, MonadIO m) => OnSkov (SkovBufferedM m) whe
     onBlock = notifyBlockArrival
     {-# INLINE onFinalize #-}
     onFinalize = notifyBlockFinalized
+    {-# INLINE logTransfer #-}
+    logTransfer _ _ _ = return ()
 instance (TimeMonad m, LoggerMonad m, MonadIO m)
             => FinalizationMonad SkovBufferedState (SkovBufferedM m) where
     broadcastFinalizationMessage msg = bufferFinalizationMessage msg >>= \case
@@ -305,6 +311,8 @@ instance (TimeMonad m, MonadIO m, LoggerMonad m) => OnSkov (SkovPassiveHookedM m
     onFinalize fr bp = do
         sphsFinalization %= execState (passiveNotifyBlockFinalized fr)
         hookOnFinalize fr bp
+    {-# INLINE logTransfer #-}
+    logTransfer = \_ _ _ -> return ()
 
 evalSkovPassiveHookedM :: (MonadIO m) => SkovPassiveHookedM m a -> GenesisData -> Basic.BlockState -> Rust.GlobalStatePtr -> m a
 evalSkovPassiveHookedM (SkovPassiveHookedM a) gd bs0 gsptr = do
@@ -357,6 +365,9 @@ instance (TimeMonad m, LoggerMonad m, MonadIO m) => OnSkov (SkovBufferedHookedM 
     onFinalize bp fr = do
         notifyBlockFinalized bp fr
         hookOnFinalize bp fr
+    {-# INLINE logTransfer #-}
+    logTransfer = \_ _ _ -> return ()
+
 instance (TimeMonad m, LoggerMonad m, MonadIO m)
             => FinalizationMonad SkovBufferedHookedState (SkovBufferedHookedM m) where
     broadcastFinalizationMessage msg = bufferFinalizationMessage msg >>= \case
@@ -368,3 +379,39 @@ instance (TimeMonad m, LoggerMonad m, MonadIO m)
 
 runSkovBufferedHookedM :: SkovBufferedHookedM m a -> FinalizationInstance -> SkovBufferedHookedState -> m (a, SkovBufferedHookedState, BufferedSkovFinalizationEvents)
 runSkovBufferedHookedM (SkovBufferedHookedM a) fi fs = runRWST a fi fs
+
+
+newtype SkovBufferedHookedLoggedM m a = SkovBufferedHookedLoggedM {
+  unSkovBufferedHookedLoggedM :: RWST FinalizationInstance BufferedSkovFinalizationEvents SkovBufferedHookedState (ATLoggerT m) a
+  }
+    deriving (Functor, Applicative, Monad, TimeMonad, LoggerMonad, MonadState SkovBufferedHookedState, MonadReader FinalizationInstance, MonadWriter BufferedSkovFinalizationEvents, MonadIO, ATLMonad)
+    deriving (BlockStateQuery, BlockStateOperations, TreeStateMonad) via (Rust.SkovTreeState SkovBufferedHookedState (SkovBufferedHookedLoggedM m))
+    deriving (SkovQueryMonad, SkovMonad) via (TSSkovUpdateWrapper SkovBufferedHookedState (SkovBufferedHookedLoggedM m) )
+type instance UpdatableBlockState (SkovBufferedHookedLoggedM m) = Basic.BlockState
+type instance BlockPointer (SkovBufferedHookedLoggedM m) = Rust.BlockPointer
+type instance PendingBlock (SkovBufferedHookedLoggedM m) = Rust.PendingBlock
+instance (TimeMonad m, LoggerMonad m, MonadIO m) => OnSkov (SkovBufferedHookedLoggedM m) where
+    {-# INLINE onBlock #-}
+    onBlock bp = do
+        notifyBlockArrival bp
+        hookOnBlock bp
+    {-# INLINE onFinalize #-}
+    onFinalize bp fr = do
+        notifyBlockFinalized bp fr
+        hookOnFinalize bp fr
+
+    {-# INLINE logTransfer #-}
+    logTransfer = atlLogTransfer
+
+instance (TimeMonad m, LoggerMonad m, MonadIO m)
+            => FinalizationMonad SkovBufferedHookedState (SkovBufferedHookedLoggedM m) where
+    broadcastFinalizationMessage msg = bufferFinalizationMessage msg >>= \case
+            Left n -> tell $ embedNotifyEvent n
+            Right msgs -> forM_ msgs $ tell . embedFinalizationEvent . BroadcastFinalizationMessage
+    broadcastFinalizationRecord = tell . embedFinalizationEvent . BroadcastFinalizationRecord
+    getFinalizationInstance = ask
+    resetCatchUpTimer = tell . embedCatchUpTimerEvent
+
+runSkovBufferedHookedLoggedM :: SkovBufferedHookedLoggedM m a -> FinalizationInstance -> SkovBufferedHookedState -> LogTransferMethod m -> m (a, SkovBufferedHookedState, BufferedSkovFinalizationEvents)
+runSkovBufferedHookedLoggedM (SkovBufferedHookedLoggedM a) fi fs tlog = do
+  runATLoggerT (runRWST a fi fs) tlog

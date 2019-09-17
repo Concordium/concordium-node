@@ -68,7 +68,28 @@ data SkovListeners m = SkovListeners {
 class OnSkov m where
     onBlock :: BlockPointer m -> m ()
     onFinalize :: FinalizationRecord -> BlockPointer m -> m ()
+    logTransfer :: BlockHash -> Slot -> TransferReason -> m ()
 
+-- |Log transfers in the given block using the 'logTransfer' method of the
+-- 'OnSkov' class.
+logTransfers :: (TreeStateMonad m, OnSkov m, LoggerMonad m) => BlockPointer m -> m ()
+logTransfers bp = do
+  let state = bpState bp
+  case blockFields bp of
+    Nothing -> return ()  -- don't do anything for the genesis block
+    Just fields -> do
+      forM_ (blockTransactions bp) $ \tx ->
+        getTransactionOutcome state (trHash tx) >>= \case
+          Nothing ->
+            logEvent Skov LLDebug $ "Could not retrieve transaction outcome in block " ++
+                                    show (bpHash bp) ++
+                                    " for transaction " ++
+                                    show (trHash tx)
+          Just outcome ->
+            mapM_ (logTransfer (bpHash bp) (blockSlot bp)) (resultToReasons fields tx outcome)
+      special <- getSpecialOutcomes state
+      mapM_ (logTransfer (bpHash bp) (blockSlot bp) . specialToReason fields) special
+  
 
 -- |Handle a block arriving that is dead.  That is, the block has never
 -- been in the tree before, and now it never can be.  Any descendents of
@@ -168,6 +189,8 @@ processFinalizationPool = do
                                                 logEvent Skov LLDebug $ "Block " ++ show bp ++ " marked dead"
                             pruneTrunk (bpParent keeper) brs
                             finalizeTransactions (blockTransactions keeper)
+                            logTransfers keeper
+                            
                     pruneTrunk newFinBlock (Seq.take pruneHeight oldBranches)
                     -- Prune the branches
                     let
@@ -286,7 +309,7 @@ addBlock block = do
                                 Just (BakerInfo{..}, lotteryPower) ->
                                     -- Check the block proof
                                     check (verifyProof
-                                                _birkLeadershipElectionNonce
+                                                (_birkLeadershipElectionNonce bps)
                                                 _birkElectionDifficulty
                                                 (blockSlot block)
                                                 _bakerElectionVerifyKey
@@ -294,14 +317,14 @@ addBlock block = do
                                                 (blockProof block)) $
                                     -- The block nonce
                                     check (verifyBlockNonce
-                                                _birkLeadershipElectionNonce
+                                                (_birkLeadershipElectionNonce bps)
                                                 (blockSlot block)
                                                 _bakerElectionVerifyKey
                                                 (blockNonce block)) $
                                     -- And the block signature
                                     check (verifyBlockSignature _bakerSignatureVerifyKey block) $ do
                                         let ts = blockTransactions block
-                                        executeFrom (blockSlot block) parentP lfBlockP (blockBaker block) ts >>= \case
+                                        executeFrom (blockSlot block) parentP lfBlockP (blockBaker block) (blockNonce block) ts >>= \case
                                             Left err -> do
                                                 logEvent Skov LLWarning ("Block execution failure: " ++ show err)
                                                 invalidBlock

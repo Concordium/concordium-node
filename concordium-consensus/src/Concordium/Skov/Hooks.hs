@@ -84,8 +84,12 @@ instance AE.ToJSON HookResult where
         ]
         where
             encTR (bh, vr) = AE.object $ ["blockHash" AE..= pack (show bh)] ++ encVR vr
-            encVR (Left rej) = ["result" AE..= AE.String "reject", "rejectReason" AE..= pack (show rej)]
-            encVR (Right evs) = ["result" AE..= AE.String "success", "events" AE..= (pack . show <$> evs)]
+            encVR (TxReject rej execCost) = ["result" AE..= AE.String "reject",
+                                             "rejectReason" AE..= pack (show rej),
+                                             "executionCost" AE..= toInteger execCost]
+            encVR (TxSuccess evs execCost) = ["result" AE..= AE.String "success",
+                                              "events" AE..= (pack . show <$> evs),
+                                              "executionCost" AE..= toInteger execCost]
 
 hookQueryTransaction :: (SkovQueryMonad m, MonadState s m, TransactionHookLenses s, TimeMonad m, LoggerMonad m, TreeStateMonad m) => TransactionHash -> m HookResult
 hookQueryTransaction th = do
