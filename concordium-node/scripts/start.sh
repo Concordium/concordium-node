@@ -226,6 +226,13 @@ elif [ "$MODE" == "bootstrapper" ]; then
 elif [ "$MODE" == "local_basic" ]; then
     export BAKER_ID=`curl http://baker_id_gen:8000/next_id`
     echo "Using BAKER_ID $BAKER_ID"
+    if [ -n "$ELASTIC_SEARCH_LOGGING" ];
+    then
+        if [ "$BAKER_ID" == "0" ];
+        then
+            ARGS="$ARGS --elastic-logging --elastic-logging-host elasticsearch"
+        fi
+    fi
     /p2p_client-cli --baker-id $BAKER_ID --no-dnssec $ARGS --id $(printf "%016d\n" $BAKER_ID)
 elif [ "$MODE" == "local_bootstrapper" ]; then
     export NODE_ID="0000000001000000"
