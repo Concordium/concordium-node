@@ -186,6 +186,7 @@ class TransactionData t where
     transactionPayload :: t -> EncodedPayload
     transactionSignature :: t -> TransactionSignature
     transactionHash :: t -> H.Hash
+    transactionSize :: t -> Int
 
 
 instance TransactionData Transaction where
@@ -196,6 +197,7 @@ instance TransactionData Transaction where
     transactionPayload = trPayload
     transactionSignature = trSignature
     transactionHash = getHash
+    transactionSize = trSize
 
 instance HashableTo H.Hash Transaction where
     getHash = trHash
