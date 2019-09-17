@@ -688,21 +688,33 @@ pub extern "C" fn on_transfer_log_emitted(
         return;
     }
 
+    if remaining_data_len as usize
+        != match transfer_event_type {
+            TransferLogType::DirectTransfer => 2 * size_of::<AccountAddress>(),
+            TransferLogType::TransferFromAccountToContract => {
+                size_of::<AccountAddress>() + size_of::<ContractAddress>()
+            }
+            TransferLogType::TransferFromContractToAccount => {
+                size_of::<ContractAddress>() + size_of::<AccountAddress>()
+            }
+            TransferLogType::ExecutionCost => size_of::<AccountAddress>() + size_of::<BakerId>(),
+            TransferLogType::BlockReward => size_of::<AccountAddress>() + size_of::<BakerId>(),
+        }
+    {
+        error!(
+            "Incorrect data given for {} event type",
+            transfer_event_type
+        );
+        return;
+    }
+
     let block_hash =
         BlockHash::new(unsafe { slice::from_raw_parts(block_hash_ptr, size_of::<BlockHash>()) });
     let msg = match transfer_event_type {
         TransferLogType::DirectTransfer => {
-            if transaction_hash_ptr.is_null() {}
             let transaction_hash = TransactionHash::new(unsafe {
                 slice::from_raw_parts(transaction_hash_ptr, size_of::<TransactionHash>())
             });
-            if remaining_data_len as usize != 2 * size_of::<AccountAddress>() {
-                error!(
-                    "Incorrect data given for {} event type",
-                    transfer_event_type
-                );
-                return;
-            }
             let (sender_account_slice, receiver_account_slice) =
                 unsafe { slice::from_raw_parts(remaining_data_ptr, remaining_data_len as usize) }
                     .split_at(size_of::<AccountAddress>());
@@ -721,15 +733,6 @@ pub extern "C" fn on_transfer_log_emitted(
             let transaction_hash = TransactionHash::new(unsafe {
                 slice::from_raw_parts(transaction_hash_ptr, size_of::<TransactionHash>())
             });
-            if remaining_data_len as usize
-                != size_of::<AccountAddress>() + size_of::<ContractAddress>()
-            {
-                error!(
-                    "Incorrect data given for {} event type",
-                    transfer_event_type
-                );
-                return;
-            }
             let (account_address_slice, contract_address_slice) =
                 unsafe { slice::from_raw_parts(remaining_data_ptr, remaining_data_len as usize) }
                     .split_at(size_of::<AccountAddress>());
@@ -749,15 +752,6 @@ pub extern "C" fn on_transfer_log_emitted(
             let transaction_hash = TransactionHash::new(unsafe {
                 slice::from_raw_parts(transaction_hash_ptr, size_of::<TransactionHash>())
             });
-            if remaining_data_len as usize
-                != size_of::<AccountAddress>() + size_of::<ContractAddress>()
-            {
-                error!(
-                    "Incorrect data given for {} event type",
-                    transfer_event_type
-                );
-                return;
-            }
             let (contract_address_slice, account_address_slice) =
                 unsafe { slice::from_raw_parts(remaining_data_ptr, remaining_data_len as usize) }
                     .split_at(size_of::<ContractAddress>());
@@ -777,13 +771,7 @@ pub extern "C" fn on_transfer_log_emitted(
             let transaction_hash = TransactionHash::new(unsafe {
                 slice::from_raw_parts(transaction_hash_ptr, size_of::<TransactionHash>())
             });
-            if remaining_data_len as usize != size_of::<AccountAddress>() + size_of::<BakerId>() {
-                error!(
-                    "Incorrect data given for {} event type",
-                    transfer_event_type
-                );
-                return;
-            }
+
             let (account_address_slice, baker_id_slice) =
                 unsafe { slice::from_raw_parts(remaining_data_ptr, remaining_data_len as usize) }
                     .split_at(size_of::<AccountAddress>());
@@ -799,13 +787,6 @@ pub extern "C" fn on_transfer_log_emitted(
             )
         }
         TransferLogType::BlockReward => {
-            if remaining_data_len as usize != size_of::<AccountAddress>() + size_of::<BakerId>() {
-                error!(
-                    "Incorrect data given for {} event type",
-                    transfer_event_type
-                );
-                return;
-            }
             let (baker_id_slice, account_address_slice) =
                 unsafe { slice::from_raw_parts(remaining_data_ptr, remaining_data_len as usize) }
                     .split_at(size_of::<BakerId>());
