@@ -107,13 +107,19 @@ instance S.Serialize BareTransaction where
     btrPayload <- getPayload (thPayloadSize btrHeader)
     return $ BareTransaction{..}
 
+fromBareTransaction :: UTCTime -> BareTransaction -> Transaction
+fromBareTransaction trArrivalTime trBareTransaction = 
+  let txBytes = S.encode trBareTransaction
+      trHash = H.hash txBytes
+      trSize = BS.length txBytes
+  in Transaction{..}
 
 -- |Transaction with all the metadata needed to avoid recomputation.
 data Transaction = Transaction {
   -- |The actual transaction data.
   trBareTransaction :: !BareTransaction,
 
-  -- |Size of the transaction bytes, derived field.
+  -- |Size of the transaction in bytes, derived field.
   trSize :: !Int,
   -- |Hash of the transaction. Derived from the first three fields.
   trHash :: !TransactionHash,
@@ -151,7 +157,7 @@ getVerifiedTransaction trArrivalTime = do
   txBytes <- S.getBytes totalSize
   if SigScheme.verify (thScheme btrHeader) (thSenderKey btrHeader) (BS.drop sigSize txBytes) (tsSignature btrSignature) then
     let trHash = H.hash txBytes
-        trSize = BS.length txBytes
+        trSize = totalSize
     in return Transaction{trBareTransaction=BareTransaction{..},..}
   else fail "Incorrect signature."
 
