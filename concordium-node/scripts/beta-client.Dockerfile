@@ -47,4 +47,9 @@ RUN apt-get update && apt-get install -y unbound
 COPY --from=build /build-project/p2p_client-cli /p2p_client-cli
 COPY --from=build /build-project/start.sh /start.sh
 
+RUN groupadd -g 61000 docker
+RUN useradd -g 61000 -l -M -s /bin/false -u 61000 docker
+
+USER docker
+
 ENTRYPOINT [ "/start.sh" ]
