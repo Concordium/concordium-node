@@ -182,7 +182,8 @@ pub struct consensus_runner {
 }
 
 type LogCallback = extern "C" fn(c_char, c_char, *const u8);
-type TransferLogCallback = extern "C" fn(c_char, *const u8, u64, *const u8, u64, u64, *const u8);
+type TransferLogCallback =
+    unsafe extern "C" fn(c_char, *const u8, u64, *const u8, u64, u64, *const u8);
 type BroadcastCallback = extern "C" fn(i64, *const u8, i64);
 type DirectMessageCallback =
     extern "C" fn(peer_id: PeerId, message_type: i64, msg: *const c_char, msg_len: i64);
@@ -645,7 +646,7 @@ pub extern "C" fn on_log_emited(identifier: c_char, log_level: c_char, log_messa
     };
 }
 
-pub extern "C" fn on_transfer_log_emitted(
+pub unsafe extern "C" fn on_transfer_log_emitted(
     transfer_type: c_char,
     block_hash_ptr: *const u8,
     slot: u64,
@@ -708,15 +709,18 @@ pub extern "C" fn on_transfer_log_emitted(
         return;
     }
 
-    let block_hash =
-        BlockHash::new(unsafe { slice::from_raw_parts(block_hash_ptr, size_of::<BlockHash>()) });
+    let block_hash = BlockHash::new(slice::from_raw_parts(
+        block_hash_ptr,
+        size_of::<BlockHash>(),
+    ));
     let msg = match transfer_event_type {
         TransferLogType::DirectTransfer => {
-            let transaction_hash = TransactionHash::new(unsafe {
-                slice::from_raw_parts(transaction_hash_ptr, size_of::<TransactionHash>())
-            });
+            let transaction_hash = TransactionHash::new(slice::from_raw_parts(
+                transaction_hash_ptr,
+                size_of::<TransactionHash>(),
+            ));
             let (sender_account_slice, receiver_account_slice) =
-                unsafe { slice::from_raw_parts(remaining_data_ptr, remaining_data_len as usize) }
+                slice::from_raw_parts(remaining_data_ptr, remaining_data_len as usize)
                     .split_at(size_of::<AccountAddress>());
             let sender_account = AccountAddress::new(&sender_account_slice);
             let receiver_account = AccountAddress::new(&receiver_account_slice);
@@ -730,11 +734,12 @@ pub extern "C" fn on_transfer_log_emitted(
             )
         }
         TransferLogType::TransferFromAccountToContract => {
-            let transaction_hash = TransactionHash::new(unsafe {
-                slice::from_raw_parts(transaction_hash_ptr, size_of::<TransactionHash>())
-            });
+            let transaction_hash = TransactionHash::new(slice::from_raw_parts(
+                transaction_hash_ptr,
+                size_of::<TransactionHash>(),
+            ));
             let (account_address_slice, contract_address_slice) =
-                unsafe { slice::from_raw_parts(remaining_data_ptr, remaining_data_len as usize) }
+                slice::from_raw_parts(remaining_data_ptr, remaining_data_len as usize)
                     .split_at(size_of::<AccountAddress>());
             let account_address = AccountAddress::new(&account_address_slice);
             let contract_address =
@@ -749,11 +754,12 @@ pub extern "C" fn on_transfer_log_emitted(
             )
         }
         TransferLogType::TransferFromContractToAccount => {
-            let transaction_hash = TransactionHash::new(unsafe {
-                slice::from_raw_parts(transaction_hash_ptr, size_of::<TransactionHash>())
-            });
+            let transaction_hash = TransactionHash::new(slice::from_raw_parts(
+                transaction_hash_ptr,
+                size_of::<TransactionHash>(),
+            ));
             let (contract_address_slice, account_address_slice) =
-                unsafe { slice::from_raw_parts(remaining_data_ptr, remaining_data_len as usize) }
+                slice::from_raw_parts(remaining_data_ptr, remaining_data_len as usize)
                     .split_at(size_of::<ContractAddress>());
             let account_address = AccountAddress::new(&account_address_slice);
             let contract_address =
@@ -768,12 +774,13 @@ pub extern "C" fn on_transfer_log_emitted(
             )
         }
         TransferLogType::ExecutionCost => {
-            let transaction_hash = TransactionHash::new(unsafe {
-                slice::from_raw_parts(transaction_hash_ptr, size_of::<TransactionHash>())
-            });
+            let transaction_hash = TransactionHash::new(slice::from_raw_parts(
+                transaction_hash_ptr,
+                size_of::<TransactionHash>(),
+            ));
 
             let (account_address_slice, baker_id_slice) =
-                unsafe { slice::from_raw_parts(remaining_data_ptr, remaining_data_len as usize) }
+                slice::from_raw_parts(remaining_data_ptr, remaining_data_len as usize)
                     .split_at(size_of::<AccountAddress>());
             let account_address = AccountAddress::new(&account_address_slice);
             let baker_id = NetworkEndian::read_u64(baker_id_slice);
@@ -788,7 +795,7 @@ pub extern "C" fn on_transfer_log_emitted(
         }
         TransferLogType::BlockReward => {
             let (baker_id_slice, account_address_slice) =
-                unsafe { slice::from_raw_parts(remaining_data_ptr, remaining_data_len as usize) }
+                slice::from_raw_parts(remaining_data_ptr, remaining_data_len as usize)
                     .split_at(size_of::<BakerId>());
             let account_address = AccountAddress::new(&account_address_slice);
             let baker_id = NetworkEndian::read_u64(baker_id_slice);
