@@ -66,12 +66,20 @@ $> nix-env -f . -i
 ```
 
 # Elastic search in local development mode
-To pair of elastic search with kibana for local development do the followign
+Use docker-compose if you only need a middle-ware enabled set of nodes to test on
+```bash
+$> ELASTIC_SEARCH_LOGGING=1 NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.middleware.yml up --scale baker=5
+```
+
+
+To run a pair of elastic search with kibana for local development do the followign
 ```bash
 $> docker network create elasticsearch
 $> docker run -d --name elasticsearch --net elasticsearch -p 9200:9200 -p 9300:9300 -e "discovery.type=single-node" elasticsearch:7.3.2
 $> docker run -d --name kibana --net elasticsearch -p 5601:5601 kibana:7.3.2
 ```
+
+
 To delete the docker setup run
 ```bash
 $> docker stop kibana
