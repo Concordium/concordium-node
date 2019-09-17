@@ -30,6 +30,8 @@ import Concordium.GlobalState.Modules(moduleSource)
 import Concordium.GlobalState.Finalization
 import qualified Concordium.Skov.CatchUp as CU
 
+import qualified Concordium.Crypto.SHA256 as Hash
+
 import Control.Concurrent.MVar
 import Data.IORef
 import Text.Read hiding (get, String)
@@ -122,10 +124,10 @@ getRewardStatus hash sfsRef = runStateQuery sfsRef $
 getBlockBirkParameters :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
 getBlockBirkParameters hash sfsRef = runStateQuery sfsRef $
   withBlockStateJSON hash $ \st -> do
-  BirkParameters{..} <- BS.getBlockBirkParameters st
+  bps@BirkParameters{..} <- BS.getBlockBirkParameters st
   return $ object [
     "electionDifficulty" .= _birkElectionDifficulty,
-    "electionNonce" .= String (TL.toStrict . EL.decodeUtf8 . toLazyByteString . byteStringHex $ _birkLeadershipElectionNonce),
+    "electionNonce" .= String (TL.toStrict . EL.decodeUtf8 . toLazyByteString . byteStringHex $ (Hash.hashToByteString (_birkLeadershipElectionNonce bps))),
     "bakers" .= Array (fromList .
                        map (\(bid, BakerInfo{..}) -> object ["bakerId" .= (toInteger bid)
                                                             ,"bakerAccount" .= show _bakerAccount

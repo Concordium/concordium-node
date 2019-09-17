@@ -309,7 +309,7 @@ addBlock block = do
                                 Just (BakerInfo{..}, lotteryPower) ->
                                     -- Check the block proof
                                     check (verifyProof
-                                                _birkLeadershipElectionNonce
+                                                (_birkLeadershipElectionNonce bps)
                                                 _birkElectionDifficulty
                                                 (blockSlot block)
                                                 _bakerElectionVerifyKey
@@ -317,14 +317,14 @@ addBlock block = do
                                                 (blockProof block)) $
                                     -- The block nonce
                                     check (verifyBlockNonce
-                                                _birkLeadershipElectionNonce
+                                                (_birkLeadershipElectionNonce bps)
                                                 (blockSlot block)
                                                 _bakerElectionVerifyKey
                                                 (blockNonce block)) $
                                     -- And the block signature
                                     check (verifyBlockSignature _bakerSignatureVerifyKey block) $ do
                                         let ts = blockTransactions block
-                                        executeFrom (blockSlot block) parentP lfBlockP (blockBaker block) ts >>= \case
+                                        executeFrom (blockSlot block) parentP lfBlockP (blockBaker block) (blockNonce block) ts >>= \case
                                             Left err -> do
                                                 logEvent Skov LLWarning ("Block execution failure: " ++ show err)
                                                 invalidBlock

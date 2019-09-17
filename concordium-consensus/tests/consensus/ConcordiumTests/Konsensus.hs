@@ -17,6 +17,8 @@ import Data.Time.Clock
 import qualified Data.PQueue.Prio.Min as MPQ
 import System.Random
 
+import Concordium.Crypto.SHA256
+
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.BlockState(BlockPointerData(..))
@@ -30,6 +32,7 @@ import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Bakers
+import Concordium.GlobalState.SeedState
 
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.BlockSignature as Sig
@@ -340,8 +343,7 @@ initialiseStates :: Int -> Gen States
 initialiseStates n = do
         let bns = [0..fromIntegral n - 1]
         bis <- mapM (\i -> (i,) <$> makeBaker i 1) bns
-        let bps = BirkParameters "LeadershipElectionNonce" 0.5
-                (bakersFromList $ (^. _2 . _1) <$> bis)
+        let bps = BirkParameters 0.5 (bakersFromList $ (^. _2 . _1) <$> bis) (genesisSeedState (hash "LeadershipElectionNonce") 360)
             fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _ _, _, _)) <- bis] 2
             bakerAccounts = map (\(_, (_, _, acc)) -> acc) bis
             gen = GenesisData 0 1 bps bakerAccounts fps dummyCryptographicParameters dummyIdentityProviders
