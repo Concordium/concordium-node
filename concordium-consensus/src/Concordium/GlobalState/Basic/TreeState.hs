@@ -44,7 +44,8 @@ data SkovData = SkovData {
     _skovFocusBlock :: !BlockPointer,
     _skovPendingTransactions :: !PendingTransactionTable,
     _skovTransactionTable :: !TransactionTable,
-    _skovStatistics :: !ConsensusStatistics
+    _skovStatistics :: !ConsensusStatistics,
+    _skovRuntimeParameters :: !RuntimeParameters
 }
 makeLenses ''SkovData
 
@@ -80,12 +81,18 @@ class SkovLenses s where
     transactionTable = skov . skovTransactionTable
     statistics :: Lens' s ConsensusStatistics
     statistics = skov . skovStatistics
+    runtimeParameters :: Lens' s RuntimeParameters
+    runtimeParameters = skov . skovRuntimeParameters
 
 instance SkovLenses SkovData where
     skov = id
 
-initialSkovData :: GenesisData -> BlockState -> SkovData
-initialSkovData gd genState = SkovData {
+-- |Initial skov data with default runtime parameters (block size = 10MB).
+initialSkovDataDefault :: GenesisData -> BlockState -> SkovData
+initialSkovDataDefault = initialSkovData defaultRuntimeParameters
+
+initialSkovData :: RuntimeParameters -> GenesisData -> BlockState -> SkovData
+initialSkovData rp gd genState = SkovData {
             _skovBlockTable = HM.singleton gbh (TS.BlockFinalized gb gbfin),
             _skovPossiblyPendingTable = HM.empty,
             _skovPossiblyPendingQueue = MPQ.empty,
@@ -98,7 +105,8 @@ initialSkovData gd genState = SkovData {
             _skovFocusBlock = gb,
             _skovPendingTransactions = emptyPendingTransactionTable,
             _skovTransactionTable = emptyTransactionTable,
-            _skovStatistics = initialConsensusStatistics
+            _skovStatistics = initialConsensusStatistics,
+            _skovRuntimeParameters = rp
         }
     where
         gb = makeGenesisBlockPointer gd genState
@@ -246,3 +254,6 @@ instance (SkovLenses s, Monad m, MonadState s m) => TS.TreeStateMonad (SkovTreeS
 
     getConsensusStatistics = use statistics
     putConsensusStatistics stats = statistics .= stats
+
+    {-# INLINE getRuntimeParameters #-}
+    getRuntimeParameters = use runtimeParameters

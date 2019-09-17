@@ -446,7 +446,7 @@ data TransferReason =
     }
   deriving(Show)
 
-resultToReasons :: BlockMetadata bp => bp -> Transaction -> ValidResult -> [TransferReason]
+resultToReasons :: (BlockMetadata bp, TransactionData tx) => bp -> tx -> ValidResult -> [TransferReason]
 resultToReasons bp tx res =
   case res of
        TxReject _ a -> [ExecutionCost trId sender a baker]
@@ -461,8 +461,8 @@ resultToReasons bp tx res =
           Just (AccountToContractTransfer trId source amount target)
         extractReason _ = Nothing
         
-        trId = trHash tx
-        sender = thSender (trHeader tx)
+        trId = transactionHash tx
+        sender = thSender (transactionHeader tx)
         baker = blockBaker bp
 
 specialToReason :: BlockMetadata bp => bp -> SpecialTransactionOutcome -> TransferReason

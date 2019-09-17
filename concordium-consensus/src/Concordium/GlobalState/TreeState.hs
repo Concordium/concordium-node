@@ -264,6 +264,10 @@ class (Eq (BlockPointer m),
     -- |Set the consensus statistics.
     putConsensusStatistics :: ConsensusStatistics -> m ()
 
+    -- |Get other runtime parameters that are implementation detail, and hence do
+    -- not belong to genesis data.
+    getRuntimeParameters :: m RuntimeParameters
+
 type instance PendingBlock (BSMTrans t m) = PendingBlock m
 
 instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (BSMTrans t m) where
@@ -309,6 +313,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (BSMTra
     purgeBlockState = lift . purgeBlockState
     getConsensusStatistics = lift getConsensusStatistics
     putConsensusStatistics = lift . putConsensusStatistics
+    getRuntimeParameters = lift getRuntimeParameters
 
     {-# INLINE makePendingBlock #-}
     {-# INLINE getBlockStatus #-}
@@ -352,6 +357,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (BSMTra
     {-# INLINE purgeBlockState #-}
     {-# INLINE getConsensusStatistics #-}
     {-# INLINE putConsensusStatistics #-}
+    {-# INLINE getRuntimeParameters #-}
 
 type instance PendingBlock (MaybeT m) = PendingBlock m
 deriving via (BSMTrans MaybeT m) instance TreeStateMonad m => TreeStateMonad (MaybeT m)

@@ -30,26 +30,26 @@ genTransactionHeader :: Gen TransactionHeader
 genTransactionHeader = do
   thScheme <- genSchemeId
   thSenderKey <- VerifyKey . BSS.pack <$> (vector 32)
-  thSize <- (`mod` 5000) <$> arbitrary
+  thPayloadSize <- (`mod` 5000) <$> arbitrary
   thNonce <- Nonce <$> arbitrary
   thGasAmount <- Energy <$> arbitrary
   thFinalizedPointer <- Hash . FBS.pack <$> vector 32
-  return $ makeTransactionHeader thScheme thSenderKey thSize thNonce thGasAmount
+  return $ makeTransactionHeader thScheme thSenderKey thPayloadSize thNonce thGasAmount
 
-genTransaction :: Gen Transaction
+genTransaction :: Gen BareTransaction
 genTransaction = do
-  trHeader <- genTransactionHeader
-  trPayload <- EncodedPayload . BSS.pack <$> vector (fromIntegral (thSize trHeader))
+  btrHeader <- genTransactionHeader
+  btrPayload <- EncodedPayload . BSS.pack <$> vector (fromIntegral (thPayloadSize btrHeader))
   s <- choose (1, 500)
-  trSignature <- TransactionSignature . Signature . BSS.pack <$> vector s
-  return $! makeTransaction trSignature trHeader trPayload
+  btrSignature <- TransactionSignature . Signature . BSS.pack <$> vector s
+  return $! BareTransaction{..}
 
 
-genSignedTransaction :: Gen Transaction
+genSignedTransaction :: Gen BareTransaction
 genSignedTransaction = do
   kp <- genKeyPair
-  trHeader <- genTransactionHeader
-  trPayload <- EncodedPayload . BSS.pack <$> vector (fromIntegral (thSize trHeader))
+  btrHeader <- genTransactionHeader
+  btrPayload <- EncodedPayload . BSS.pack <$> vector (fromIntegral (thPayloadSize btrHeader))
   s <- choose (1, 500)
-  trSignature <- TransactionSignature . Signature . BSS.pack <$> vector s
-  return $! signTransaction kp (trHeader {thSenderKey = verifyKey kp, thScheme = Ed25519}) trPayload
+  btrSignature <- TransactionSignature . Signature . BSS.pack <$> vector s
+  return $! signTransaction kp (btrHeader {thSenderKey = verifyKey kp, thScheme = Ed25519}) btrPayload
