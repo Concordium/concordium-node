@@ -43,6 +43,7 @@ services:
             - MODE=local_basic
             - DATA_DIR=/var/lib/concordium/data
             - RPC_SERVER_ADDR=0.0.0.0
+            - ELASTIC_SEARCH_LOGGING=1
             - EXTRA_ARGS=${EXTRA_ARGS}
         ports:
             - "11100-11500:10000"
