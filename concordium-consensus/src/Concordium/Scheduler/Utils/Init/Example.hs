@@ -7,7 +7,7 @@ module Concordium.Scheduler.Utils.Init.Example (initialState, makeTransaction, m
 import qualified Data.HashMap.Strict as Map
 import System.Random
 
-import Concordium.Crypto.SignatureScheme(KeyPair, SchemeId(Ed25519))
+import Concordium.Crypto.SignatureScheme(KeyPair(..), SchemeId(Ed25519))
 import qualified Concordium.Crypto.SignatureScheme as Sig
 import Concordium.Crypto.Ed25519Signature(randomKeyPair)
 
@@ -77,25 +77,33 @@ mateuszKP = fst (randomKeyPair (mkStdGen 0))
 mateuszKP' :: KeyPair
 mateuszKP' = fst (randomKeyPair (mkStdGen 1))
 
-makeHeader :: KeyPair -> Types.PayloadSize -> Nonce -> Energy -> Types.TransactionHeader
-makeHeader kp = Types.makeTransactionHeader Ed25519 (Sig.verifyKey kp)
-
 initSimpleCounter :: Int -> Types.BareTransaction
 initSimpleCounter n = Runner.signTx
                              mateuszKP
-                             (makeHeader mateuszKP (fromIntegral (Types.payloadSize payload)) (fromIntegral n) 100000)
+                             header
                              payload
     where payload = Types.encodePayload (Types.InitContract 0
                                           simpleCounterHash
                                           (fromJust (Map.lookup "Counter" simpleCounterTyCtx))
                                           (Core.Atom (Core.Literal (Core.Int64 0)))
                                         )
+          header = Runner.TransactionHeader{
+            thScheme = Ed25519,
+            thNonce = fromIntegral n,
+            thSenderKey = verifyKey mateuszKP,
+            thGasAmount = 100000
+            }
 
 
 makeTransaction :: Bool -> ContractAddress -> Nonce -> Types.BareTransaction
-makeTransaction inc ca n = Runner.signTx mateuszKP hdr payload
+makeTransaction inc ca n = Runner.signTx mateuszKP header payload
     where
-        hdr = makeHeader mateuszKP (fromIntegral (Types.payloadSize payload)) n 1000000
+        header = Runner.TransactionHeader{
+            thScheme = Ed25519,
+            thNonce = n,
+            thSenderKey = verifyKey mateuszKP,
+            thGasAmount = 1000000
+            }
         payload = Types.encodePayload (Types.Update 0
                                                     ca
                                                     (Core.App (if inc then (inCtxTm "Inc") else (inCtxTm "Dec"))

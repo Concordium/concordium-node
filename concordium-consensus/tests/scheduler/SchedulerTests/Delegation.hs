@@ -143,9 +143,9 @@ testTransactions = forAll makeTransactions (ioProperty . PR.evalContext Init.ini
     where
         tt tl = do
             transactions <- processTransactions tl
-            let ((sucs, fails), gs) = EI.runSI (Sch.filterTransactions transactions) dummyChainMeta initialBlockState
-            let rejs = [(z, decodePayload (trPayload z), rr) | (z, TxReject rr _) <- sucs]
-            case invariantBlockState gs >> (if null fails then Right () else Left ("some transactions failed: " ++ show fails))
+            let (Sch.FilteredTransactions{..}, gs) = EI.runSI (Sch.filterTransactions blockSize transactions) dummyChainMeta initialBlockState
+            let rejs = [(z, decodePayload (btrPayload z), rr) | (z, TxReject rr _) <- ftAdded]
+            case invariantBlockState gs >> (if null ftFailed then Right () else Left ("some transactions failed: " ++ show ftFailed))
                 >> (if null rejs then Right () else Left ("some transactions rejected: " ++ show rejs)) of
                 Left f -> return $ counterexample f False
                 Right _ -> return $ property True

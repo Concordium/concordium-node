@@ -98,19 +98,20 @@ transactionsInput =
 testCommCounter ::
   PR.Context Core.UA
     IO
-    ([(Types.Transaction, Types.ValidResult)],
-     [(Types.Transaction, Types.FailureKind)])
+    ([(Types.BareTransaction, Types.ValidResult)],
+     [(Types.BareTransaction, Types.FailureKind)])
 testCommCounter = do
     source <- liftIO $ TIO.readFile "test/contracts/CommCounter.acorn"
     (_, _) <- PR.processModule source -- execute only for effect on global state
     transactions <- processTransactions transactionsInput
-    let ((suc, fails), endState) = Types.runSI (Sch.filterTransactions transactions)
-                                    Types.dummyChainMeta
-                                    initialBlockState
+    let (Sch.FilteredTransactions{..}, endState) =
+            Types.runSI (Sch.filterTransactions blockSize transactions)
+            Types.dummyChainMeta
+            initialBlockState
     case invariantBlockState endState of
         Left f -> liftIO $ assertFailure $ f ++ "\n" ++ show endState
         _ -> return ()
-    return (suc, fails)
+    return (ftAdded, ftFailed)
 
 checkCommCounterResult :: ([(a, Types.ValidResult)], [b]) -> Bool
 checkCommCounterResult (suc, fails) =

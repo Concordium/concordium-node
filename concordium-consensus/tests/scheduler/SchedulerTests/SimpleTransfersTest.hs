@@ -69,18 +69,19 @@ transactionsInput =
 testSimpleTransfer
   :: PR.Context Core.UA
        IO
-       ([(Types.Transaction, Types.ValidResult)],
-        [(Types.Transaction, Types.FailureKind)], Types.Amount, Types.Amount)
+       ([(Types.BareTransaction, Types.ValidResult)],
+        [(Types.BareTransaction, Types.FailureKind)], Types.Amount, Types.Amount)
 testSimpleTransfer = do
     transactions <- processTransactions transactionsInput
-    let ((suc, fails), gstate) = Types.runSI (Sch.filterTransactions transactions)
-                                             Types.dummyChainMeta
-                                             initialBlockState
+    let (Sch.FilteredTransactions{..}, gstate) =
+          Types.runSI (Sch.filterTransactions blockSize transactions)
+            Types.dummyChainMeta
+            initialBlockState
     case invariantBlockState gstate of
         Left f -> liftIO $ assertFailure f
         Right _ -> return ()
-    return (suc,
-            fails,
+    return (ftAdded,
+            ftFailed,
             gstate ^. blockAccounts . singular (ix alesAccount) . Types.accountAmount,
             gstate ^. blockAccounts . singular (ix thomasAccount) . Types.accountAmount)
 

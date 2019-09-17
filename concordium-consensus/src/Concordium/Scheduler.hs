@@ -168,7 +168,7 @@ handleDeployModule ::
   SchedulerMonad m
   => Account
   -> TransactionHeader -- ^Header of the transaction.
-  -> Int -- ^Serialized size of the module. Used for charging execution cost.
+  -> PayloadSize -- ^Serialized size of the module. Used for charging execution cost.
   -> Module -- ^The module to deploy
   -> m TxResult
 handleDeployModule senderAccount meta psize mod = do
@@ -187,12 +187,12 @@ handleDeployModule senderAccount meta psize mod = do
 
 
 -- |TODO: Figure out whether we need the metadata or not here.
-handleModule :: TransactionMonad m => TransactionHeader -> Int -> Module -> m (Core.ModuleRef, Interface, ValueInterface)
+handleModule :: TransactionMonad m => TransactionHeader -> PayloadSize -> Module -> m (Core.ModuleRef, Interface, ValueInterface)
 handleModule _meta msize mod = do
   -- Consume the gas amount required for processing.
   -- This is done even if the transaction is rejected in the end.
   -- NB: The next line will reject the transaction in case there are not enough funds.
-  tickEnergy (Cost.deployModule msize)
+  tickEnergy (Cost.deployModule (fromIntegral msize))
   let mhash = Core.moduleHash mod
   imod <- pure (runExcept (Core.makeInternal mhash (fromIntegral msize) mod)) `rejectingWith'` MissingImports
   iface <- runExceptT (TC.typeModule imod) `rejectingWith'` ModuleNotWF

@@ -21,14 +21,16 @@ import Concordium.Types
 import Concordium.Types.Execution(Proof)
 import Concordium.ID.Types
 import qualified Concordium.Scheduler.Types as Types
+import qualified Concordium.ID.Types as IDTypes
 
 import Acorn.Parser.Runner
 import qualified Acorn.Core as Core
 
 import Prelude hiding(mod, exp)
 
-signTx :: KeyPair -> Types.TransactionHeader -> EncodedPayload -> Types.BareTransaction
-signTx kp th = Types.signTransaction kp th
+signTx :: KeyPair -> TransactionHeader -> EncodedPayload -> Types.BareTransaction
+signTx kp th payload = Types.signTransaction kp header payload
+    where header = Types.makeTransactionHeader (thScheme th) (thSenderKey th) (Types.payloadSize payload) (thNonce th) (thGasAmount th)
 
 transactionHelper :: MonadFail m => TransactionJSON -> Context Core.UA m Types.BareTransaction
 transactionHelper t = do
@@ -111,7 +113,18 @@ data PayloadJSON = DeployModule { moduleName :: Text }
                  | UndelegateStake
                  deriving(Show, Generic)
 
-data TransactionJSON = TJSON { metadata :: Types.TransactionHeader
+data TransactionHeader = TransactionHeader {
+    -- |Signature scheme used by the account.
+    thScheme :: !SchemeId,
+    -- |Verification key of the sender.
+    thSenderKey :: !IDTypes.AccountVerificationKey,
+    -- |Per account nonce, strictly increasing, no gaps.
+    thNonce :: !Nonce,
+    -- |Amount of gas dedicated for the execution of this transaction.
+    thGasAmount :: !Energy
+    } deriving (Show)
+
+data TransactionJSON = TJSON { metadata :: TransactionHeader
                              , payload :: PayloadJSON
                              , keypair :: KeyPair
                              }

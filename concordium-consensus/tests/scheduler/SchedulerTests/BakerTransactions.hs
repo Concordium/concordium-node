@@ -84,17 +84,17 @@ transactionsInput =
            }      
     ]
 
-runWithIntermediateStates :: PR.Context Core.UA IO ([([(Types.Transaction, Types.ValidResult)],
-                                                     [(Types.Transaction, Types.FailureKind)],
+runWithIntermediateStates :: PR.Context Core.UA IO ([([(Types.BareTransaction, Types.ValidResult)],
+                                                     [(Types.BareTransaction, Types.FailureKind)],
                                                      Types.BirkParameters)], BlockState)
 runWithIntermediateStates = do
   txs <- processTransactions transactionsInput
   let (res, state) = foldl (\(acc, st) tx ->
-                            let ((suc, failtx), st') =
-                                  Types.runSI (Sch.filterTransactions [tx])
+                            let (Sch.FilteredTransactions{..}, st') =
+                                  Types.runSI (Sch.filterTransactions blockSize [tx])
                                               Types.dummyChainMeta
                                               st
-                            in (acc ++ [(suc, failtx, st' ^. blockBirkParameters)], st'))
+                            in (acc ++ [(ftAdded, ftFailed, st' ^. blockBirkParameters)], st'))
                          ([], initialBlockState)
                          txs
   return (res, state)

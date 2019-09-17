@@ -73,20 +73,21 @@ transactionsInput =
 testFibonacci ::
   PR.Context Core.UA
     IO
-    ([(Types.Transaction, Types.ValidResult)],
-     [(Types.Transaction, Types.FailureKind)],
+    ([(Types.BareTransaction, Types.ValidResult)],
+     [(Types.BareTransaction, Types.FailureKind)],
      [(Types.ContractAddress, Types.Instance)])
 testFibonacci = do
     source <- liftIO $ TIO.readFile "test/contracts/FibContract.acorn"
     (_, _) <- PR.processModule source -- execute only for effect on global state, i.e., load into cache
     transactions <- processTransactions transactionsInput
-    let ((suc, fails), gs) = Types.runSI (Sch.filterTransactions transactions)
-                                         Types.dummyChainMeta
-                                         initialBlockState
+    let (Sch.FilteredTransactions{..}, gs) =
+          Types.runSI (Sch.filterTransactions blockSize transactions)
+            Types.dummyChainMeta
+            initialBlockState
     case invariantBlockState gs of
         Left f -> liftIO $ assertFailure f
         Right _ -> return ()
-    return (suc, fails, gs ^.. blockInstances . foldInstances . to (\i -> (iaddress i, i)))
+    return (ftAdded, ftFailed, gs ^.. blockInstances . foldInstances . to (\i -> (iaddress i, i)))
 
 fib :: [Int64]
 fib = 1:1:zipWith (+) fib (tail fib)

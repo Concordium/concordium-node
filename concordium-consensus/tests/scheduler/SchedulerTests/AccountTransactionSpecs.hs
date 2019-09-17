@@ -81,26 +81,27 @@ transactionsInput =
 testAccountCreation ::
   PR.Context Core.UA
     IO
-    ([(Types.Transaction, Types.ValidResult)],
-     [(Types.Transaction, Types.FailureKind)],
+    ([(Types.BareTransaction, Types.ValidResult)],
+     [(Types.BareTransaction, Types.FailureKind)],
      [Maybe Types.Account],
      Types.Account,
      Types.BankStatus)
 testAccountCreation = do
     transactions <- processTransactions transactionsInput
-    let ((suc, fails), state) = Types.runSI (Sch.filterTransactions transactions)
-                                            Types.dummyChainMeta
-                                            initialBlockState
+    let (Sch.FilteredTransactions{..}, state) =
+          Types.runSI (Sch.filterTransactions blockSize transactions)
+            Types.dummyChainMeta
+            initialBlockState
     let accounts = state ^. blockAccounts
     let accAddrs = map accountAddressFromCred [cdi1,cdi2,cdi3,cdi4,cdi5,cdi7]
     case invariantBlockState state of
         Left f -> liftIO $ assertFailure $ f ++ "\n" ++ show state
         _ -> return ()
-    return (suc, fails, map (\addr -> accounts ^? ix addr) accAddrs, accounts ^. singular (ix alesAccount), state ^. blockBank)
+    return (ftAdded, ftFailed, map (\addr -> accounts ^? ix addr) accAddrs, accounts ^. singular (ix alesAccount), state ^. blockBank)
 
 checkAccountCreationResult ::
-  ([(Types.Transaction, Types.ValidResult)],
-   [(Types.Transaction, Types.FailureKind)],
+  ([(Types.BareTransaction, Types.ValidResult)],
+   [(Types.BareTransaction, Types.FailureKind)],
    [Maybe Types.Account],
    Types.Account,
    Types.BankStatus)
