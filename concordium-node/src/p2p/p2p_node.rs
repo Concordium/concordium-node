@@ -777,26 +777,23 @@ impl P2PNode {
             }
         }
 
+        // Don't connect to ourselves
+        if self_peer.addr == addr {
+            return Err(Error::from(fails::DuplicatePeerError { peer_id_opt, addr }));
+        }
+
         if peer_type == PeerType::Node && self.is_unreachable(addr) {
             error!("Node marked as unreachable, so not allowing the connection");
             return Err(Error::from(fails::UnreachablePeerError));
         }
 
-        // Avoid duplicate ip+port peers
-        if self_peer.addr == addr {
-            return Err(Error::from(fails::DuplicatePeerError { peer_id_opt, addr }));
-        }
-
-        // Avoid duplicate Id entries
-        if let Some(peer_id) = peer_id_opt {
-            if self.find_connection_by_id(peer_id).is_some() {
+        // Don't connect to peers with a known P2PNodeId or IP+port
+        for conn in read_or_die!(self.connection_handler.connections).iter() {
+            if conn.remote_addr() == addr
+                || (conn.remote_id().is_some() && conn.remote_id() == peer_id_opt)
+            {
                 return Err(Error::from(fails::DuplicatePeerError { peer_id_opt, addr }));
             }
-        }
-
-        // Avoid duplicate ip+port connections
-        if self.find_connection_by_ip_addr(addr).is_some() {
-            return Err(Error::from(fails::DuplicatePeerError { peer_id_opt, addr }));
         }
 
         match TcpStream::connect(&addr) {
@@ -834,7 +831,7 @@ impl P2PNode {
                 self.log_event(P2PEvent::ConnectEvent(addr));
                 debug!("Requesting handshake from new peer {}", addr,);
 
-                if let Some(ref mut conn) = self.find_connection_by_token(token) {
+                if let Some(ref conn) = self.find_connection_by_token(token) {
                     let handshake_request = NetworkMessage::NetworkRequest(
                         NetworkRequest::Handshake(self_peer, safe_read!(networks)?.clone(), vec![]),
                         Some(get_current_stamp()),
