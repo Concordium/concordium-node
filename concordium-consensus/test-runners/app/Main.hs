@@ -46,7 +46,7 @@ sendTransactions :: Chan (InMessage a) -> [BareTransaction] -> IO ()
 sendTransactions chan (t : ts) = do
         writeChan chan (MsgTransactionReceived $ runPut $ put t)
         -- r <- randomRIO (5000, 15000)
-        threadDelay 50000
+        threadDelay 5000
         sendTransactions chan ts
 sendTransactions _ _ = return ()
 

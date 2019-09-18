@@ -12,8 +12,6 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.Set as Set
 import qualified Data.List as List
 
-import Debug.Trace
-
 import Control.Monad
 
 import Concordium.Types
@@ -207,8 +205,6 @@ constructBlock slotNumber blockParent lfPointer blockBaker blockNonce =
               return $! checkedExtendPendingTransactionTable nonce tx cpt
 
     newpt' <- foldM purgeTooBig newpt ftUnprocessed
-
-    traceM $ "Unprocessed transactions: " ++ show (length ftUnprocessed)
 
     -- commit the new pending transactions to the tree state
     putPendingTransactions newpt'
