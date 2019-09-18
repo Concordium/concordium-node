@@ -50,3 +50,16 @@ dummyChainMeta :: ChainMetadata
 dummyChainMeta = ChainMetadata { slotNumber = 0
                                , blockHeight = 0
                                , finalizedHeight = 0}
+
+
+-- |Result type when constructing a block.
+data FilteredTransactions msg = FilteredTransactions {
+  -- |Transactions which have been added to the block, with results.
+  ftAdded :: [(msg, ValidResult)],
+  -- |Transactions which failed. No order is guaranteed.
+  ftFailed :: [(msg, FailureKind)],
+  -- |Transactions which were not processed since we reached block size limit.
+  -- No order is guaranteed.
+  ftUnprocessed :: [msg]
+  }
+

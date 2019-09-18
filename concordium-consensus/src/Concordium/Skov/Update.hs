@@ -89,7 +89,7 @@ logTransfers bp = do
             mapM_ (logTransfer (bpHash bp) (blockSlot bp)) (resultToReasons fields tx outcome)
       special <- getSpecialOutcomes state
       mapM_ (logTransfer (bpHash bp) (blockSlot bp) . specialToReason fields) special
-  
+
 
 -- |Handle a block arriving that is dead.  That is, the block has never
 -- been in the tree before, and now it never can be.  Any descendents of

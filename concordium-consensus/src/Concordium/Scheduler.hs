@@ -710,17 +710,7 @@ handleDelegateStake senderAccount meta targetBaker =
             return $! TxReject (InvalidStakeDelegationTarget $ fromJust targetBaker) energyCost
         delegateCost = Cost.updateStakeDelegate (Set.size $ senderAccount ^. accountInstances)
 
--- *Exposed types and methods.
-
-data FilteredTransactions msg = FilteredTransactions {
-  -- |Transactions which have been added to the block, with results.
-  ftAdded :: [(msg, ValidResult)],
-  -- |Transactions which failed.
-  ftFailed :: [(msg, FailureKind)],
-  -- |Transactions which were not processed since we reached block size limit,
-  ftUnprocessed :: [msg]
-  }
-
+-- *Exposed methods.
 -- |Make a valid block out of a list of transactions, respecting the given
 -- maximum block size. The list of input transactions is traversed from left to
 -- right and any invalid transactions are not included in the block. The return
@@ -735,16 +725,22 @@ data FilteredTransactions msg = FilteredTransactions {
 --     processed due to size restrictions.
 filterTransactions :: (TransactionData msg, SchedulerMonad m)
                       => Integer -> [msg] -> m (FilteredTransactions msg)
-filterTransactions maxSize = go 0 [] []
-  where go size valid invalid (t:ts) | csize <- size + fromIntegral (transactionSize t), csize < maxSize = do
-          dispatch t >>= \case
-            TxValid reason -> go csize ((t, reason):valid) invalid ts
-            TxInvalid reason -> go csize valid ((t, reason):invalid) ts
-        go _ valid invalid left = return FilteredTransactions{
-                                           ftAdded = reverse valid,
-                                           ftFailed = invalid,
-                                           ftUnprocessed = left
-                                          }
+filterTransactions maxSize = go 0 [] [] []
+  where go size valid invalid unprocessed (t:ts) = do
+          let csize = size + fromIntegral (transactionSize t)
+          if csize <= maxSize then -- if the next transaction can fit into a block then add it.
+             dispatch t >>= \case
+               TxValid reason -> go csize ((t, reason):valid) invalid unprocessed ts
+               TxInvalid reason -> go csize valid ((t, reason):invalid) unprocessed ts
+          else -- otherwise still try the remaining transactions to avoid deadlocks from
+               -- one single too-big transaction.
+             go size valid invalid (t:unprocessed) ts
+        go _ valid invalid unprocessed [] = 
+          return FilteredTransactions{
+                   ftAdded = reverse valid,
+                   ftFailed = invalid,
+                   ftUnprocessed = unprocessed
+                 }
 
 -- |Execute transactions in sequence. Return 'Nothing' if one of the transactions
 -- fails, and otherwise return a list of transactions with their outcomes.
