@@ -20,8 +20,8 @@ pub struct ConnectionPrivate {
 }
 
 impl ConnectionPrivate {
-    pub fn conn(&self) -> &Pin<Arc<Connection>> {
-        self.conn_ref.as_ref().unwrap() // safe; always available
+    pub fn conn(&self) -> &Connection {
+        &self.conn_ref.as_ref().unwrap() // safe; always available
     }
 
     pub fn shutdown(&mut self) -> Fallible<()> {

@@ -85,7 +85,7 @@ impl Hash for Connection {
 }
 
 impl Connection {
-    pub fn handler(&self) -> &Pin<Arc<P2PNode>> { &self.handler_ref }
+    pub fn handler(&self) -> &P2PNode { &self.handler_ref }
 
     pub fn get_last_latency_measured(&self) -> u64 {
         self.last_latency_measured.load(Ordering::SeqCst)
