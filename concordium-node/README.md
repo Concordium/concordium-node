@@ -45,11 +45,23 @@ $> cargo test --all
 ```
 
 ## Docker-Compose
-For a local docker compose setup, a docker-compose.yml file has been provided in the root of this repository. It uses a image hosted in Docker hub built automatically upon push to the develop branch.
+### Latest stable from master branch
+For a local docker compose setup, a docker-compose.yml file has been provided in the root of this repository. It uses a image hosted in Docker hub built automatically upon push to the master branch.
 
 For the most simple and common setup, simply run
 ```bash
 NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose up --scale baker=5
+```
+in the repository root
+
+For more complicated setups the EXTRA_ARGS environment variable can be set.
+
+### Latest unstable from develop branch
+For a local docker compose setup, a docker-compose.develop.yml file has been provided in the root of this repository. It uses a image hosted in Docker hub built automatically upon push to the develop branch.
+
+For the most simple and common setup, simply run
+```bash
+NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.yml up --scale baker=5
 ```
 in the repository root
 
@@ -65,13 +77,20 @@ $> scripts/download-static-libs.sh
 $> nix-env -f . -i
 ```
 
-# Elastic search in local development mode
+## Elastic search in local development mode
+### Running the local development version from the stable master branch 
 Use docker-compose if you only need a middle-ware enabled set of nodes to test on
 ```bash
 $> ELASTIC_SEARCH_LOGGING=1 NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.middleware.yml up --scale baker=5
 ```
 
+### Running the local development version from the unstable develop branch 
+Use docker-compose if you only need a middle-ware enabled set of nodes to test on
+```bash
+$> ELASTIC_SEARCH_LOGGING=1 NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.middleware.yml up --scale baker=5
+```
 
+### Using persistent local Elastic Search setup with Kibana
 To run a pair of elastic search with kibana for local development do the followign
 ```bash
 $> docker network create elasticsearch
