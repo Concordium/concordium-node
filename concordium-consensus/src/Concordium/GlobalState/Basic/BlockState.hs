@@ -348,5 +348,5 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
     bsoUpdateNonce  bs slot bn =
       return $
       let ss = bs ^. blockBirkParameters ^. seedState
-          ss' = updateSeed slot bn ss
+          ss' = updateSeedState slot bn ss
       in bs & blockBirkParameters . seedState .~ ss'
