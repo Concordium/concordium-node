@@ -24,35 +24,45 @@ data SeedState = SeedState {
 } deriving (Eq, Generic, Show)
 instance Serialize SeedState
 
--- |Instantiate a seed state: leadership elction nonce should be random, epoch length should be long, but not too long...
+-- |Instantiate a seed state: leadership election nonce should be random, epoch length should be long, but not too long...
 genesisSeedState :: LeadershipElectionNonce -> EpochLength -> SeedState
 genesisSeedState nonce epochLength =
   SeedState nonce epochLength 0 []
 
-getSeed :: SeedState -> LeadershipElectionNonce
-getSeed state = currentSeed state
-
-updateSeed :: Slot -> BlockNonce -> SeedState -> SeedState
-updateSeed slot bn state@SeedState{..} =
-  let 
+-- |Get the seed state for a slot and the seed state of the potential parent.
+-- If slot is in the same epoch as the potential parent, then the seed state is shared
+-- Else update the seed state, possibly iterating over empty epochs separating slot and potential parent
+getSeedState :: Slot -> SeedState -> SeedState
+getSeedState slot state@SeedState{..} = 
+  let
     currentEpoch = theSlot $ slot `div` epochLength
-    isFirstBlockOfEpoch = currentEpoch /= epoch
+    isInSameEpoch = currentEpoch == epoch
+  in
+    if isInSameEpoch then 
+      state
+    else 
+      if currentEpoch == epoch + 1 then
+        SeedState{
+          -- H(seed of last epoch, epoch, block nonces in reverse order)
+          currentSeed = hash (runPut $ do
+            put currentSeed
+            put currentEpoch -- Todo what if several epochs?
+            mapM_ (put . proofToHash) revBlockNonces), 
+          epochLength = epochLength , 
+          epoch = currentEpoch,
+          revBlockNonces = []
+        }
+      else -- this only happens if one or several epochs are completely void of blocks:
+        getSeedState slot $ getSeedState (slot - epochLength) state
+
+updateSeedState :: Slot -> BlockNonce -> SeedState -> SeedState
+updateSeedState slot bn state@SeedState{..} =
+  let 
     shouldContributeBlockNonce = slot `rem` epochLength <= (2 * epochLength) `div` 3
   in
-    if isFirstBlockOfEpoch then 
-      SeedState{
-        -- H(seed of last epoch, epoch, block nonces in reverse order)
-        currentSeed = hash (runPut $ do
-          put currentSeed
-          put (epoch + 1)
-          mapM_ (put . proofToHash) revBlockNonces), 
-        epochLength = epochLength , 
-        epoch = currentEpoch,
-        revBlockNonces = if shouldContributeBlockNonce then [bn] else []
-      }
-    else if shouldContributeBlockNonce then
+    if shouldContributeBlockNonce then
       -- less than 2/3 slots into the epoch, add the new block nonce
-        state {revBlockNonces = bn : revBlockNonces}
+      state {revBlockNonces = bn : revBlockNonces}
     else 
       -- more than 2/3 slots into the epoch, no update
       state
