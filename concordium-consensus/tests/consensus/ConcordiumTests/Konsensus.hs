@@ -342,7 +342,7 @@ dummyIdentityProviders = []
 initialiseStates :: Int -> PropertyM IO States
 initialiseStates n = do
         let bns = [0..fromIntegral n - 1]
-        bis <- mapM (\i -> (i,) <$> makeBaker i 1) bns
+        bis <- mapM (\i -> (i,) <$> pick (makeBaker i 1)) bns
         let bps = BirkParameters 0.5 (bakersFromList $ (^. _2 . _1) <$> bis) (genesisSeedState (hash "LeadershipElectionNonce") 360)
             fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _ _, _, _)) <- bis] 2
             bakerAccounts = map (\(_, (_, _, acc)) -> acc) bis
