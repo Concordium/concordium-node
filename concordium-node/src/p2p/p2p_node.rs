@@ -778,7 +778,7 @@ impl P2PNode {
         }
 
         // Don't connect to ourselves
-        if self_peer.addr == addr {
+        if self.self_peer.addr == addr || peer_id_opt == Some(self.id()) {
             return Err(Error::from(fails::DuplicatePeerError { peer_id_opt, addr }));
         }
 
@@ -790,7 +790,7 @@ impl P2PNode {
         // Don't connect to peers with a known P2PNodeId or IP+port
         for conn in read_or_die!(self.connection_handler.connections).iter() {
             if conn.remote_addr() == addr
-                || (conn.remote_id().is_some() && conn.remote_id() == peer_id_opt)
+                || (peer_id_opt.is_some() && conn.remote_id() == peer_id_opt)
             {
                 return Err(Error::from(fails::DuplicatePeerError { peer_id_opt, addr }));
             }

@@ -202,7 +202,10 @@ impl Connection {
     pub fn is_closed(&self) -> bool { self.is_closed.load(Ordering::SeqCst) }
 
     #[inline]
-    pub fn close(&self) { self.is_closed.store(true, Ordering::SeqCst) }
+    pub fn close(&self) {
+        self.is_closed.store(true, Ordering::SeqCst);
+        self.handler().remove_connections(&[self.token]);
+    }
 
     /// This function is called when `poll` indicates that `socket` is ready to
     /// write or/and read.
