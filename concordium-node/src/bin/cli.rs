@@ -461,9 +461,7 @@ fn setup_transfer_log_thread(conf: &config::CliConfig) -> std::thread::JoinHandl
         conf.elastic_logging_url.clone(),
     );
     if enabled {
-        if let Err(e) =
-            p2p_client::client::plugins::elasticlogging::create_transfer_index(&url)
-        {
+        if let Err(e) = p2p_client::client::plugins::elasticlogging::create_transfer_index(&url) {
             error!("{}", e);
         }
     }

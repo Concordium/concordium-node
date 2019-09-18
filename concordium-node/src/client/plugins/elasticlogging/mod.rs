@@ -167,10 +167,7 @@ pub fn create_transfer_index(url: &str) -> Fallible<()> {
 }
 
 fn create_client(url: &str) -> Fallible<Client<SyncSender>> {
-    match SyncClientBuilder::new()
-        .static_node(url)
-        .build()
-    {
+    match SyncClientBuilder::new().static_node(url).build() {
         Ok(client) => Ok(client),
         Err(e) => bail!("Can't open Elastic Search client due to {}", e),
     }
