@@ -80,7 +80,7 @@ nom = { version = "4.2.0", features = ["verbose-errors"],  optional = true }
 hash_hasher = "^2.0"
 digest = "0.8.0"
 twox-hash = { version = "^1.5.0", features = ["digest"] }
-elastic = { version = "0.21.0-pre.5", optional = true }
+elastic = { version = "0.21.0-pre.5", features = [ "default-tls" ], optional = true }
 elastic_derive = { version = "0.21.0-pre.5", optional = true }
 serde_json = { version = "1", optional = true }
 nohash-hasher = "^0.1"
