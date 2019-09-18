@@ -14,9 +14,6 @@ pub enum MessageSendingPriority {
     Normal,
 }
 
-mod connection_builder;
-pub use connection_builder::ConnectionBuilder;
-
 mod connection_private;
 
 pub use crate::{connection::connection_private::ConnectionPrivate, p2p::P2PNode};
@@ -39,7 +36,9 @@ use concordium_common::hybrid_buf::HybridBuf;
 
 use chrono::prelude::Utc;
 use failure::Fallible;
-use mio::{Event, Poll, PollOpt, Ready, Token};
+use mio::{tcp::TcpStream, Event, Poll, PollOpt, Ready, Token};
+use snow::Keypair;
+
 use std::{
     collections::HashSet,
     hash::{Hash, Hasher},
@@ -86,6 +85,50 @@ impl Hash for Connection {
 
 impl Connection {
     pub fn handler(&self) -> &P2PNode { &self.handler_ref }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        handler_ref: &P2PNode,
+        socket: TcpStream,
+        token: Token,
+        remote_peer: RemotePeer,
+        local_peer_type: PeerType,
+        key_pair: Keypair,
+        is_initiator: bool,
+        noise_params: snow::params::NoiseParams,
+    ) -> Self {
+        let curr_stamp = get_current_stamp();
+
+        let dptr = Arc::new(RwLock::new(ConnectionPrivate::new(
+            local_peer_type,
+            socket,
+            key_pair,
+            is_initiator,
+            noise_params,
+        )));
+
+        let conn = Self {
+            handler_ref: Arc::pin(handler_ref.clone()),
+            token,
+            remote_peer,
+            dptr,
+            remote_end_networks: Default::default(),
+            is_post_handshake: Default::default(),
+            is_closed: Default::default(),
+            messages_received: Default::default(),
+            messages_sent: Default::default(),
+            last_ping_sent: Arc::new(AtomicU64::new(curr_stamp)),
+            sent_handshake: Default::default(),
+            sent_ping: Default::default(),
+            last_latency_measured: Default::default(),
+            last_seen: Arc::new(AtomicU64::new(curr_stamp)),
+            failed_pkts: Default::default(),
+        };
+
+        write_or_die!(conn.dptr).conn_ref = Some(Arc::pin(conn.clone()));
+
+        conn
+    }
 
     pub fn get_last_latency_measured(&self) -> u64 {
         self.last_latency_measured.load(Ordering::SeqCst)

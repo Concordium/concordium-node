@@ -1,15 +1,20 @@
 use failure::Fallible;
 use mio::{net::TcpStream, Event};
+use snow::Keypair;
 
-use crate::connection::{
-    async_adapter::Readiness, fails, Connection, FrameSink, FrameStream, MessageSendingPriority,
+use crate::{
+    common::p2p_peer::PeerType,
+    connection::{
+        async_adapter::{HandshakeStreamSink, Readiness},
+        fails, Connection, FrameSink, FrameStream, MessageSendingPriority,
+    },
 };
 use concordium_common::hybrid_buf::HybridBuf;
 
 use std::{
     net::Shutdown,
     pin::Pin,
-    sync::{atomic::Ordering, Arc},
+    sync::{atomic::Ordering, Arc, RwLock},
 };
 
 pub struct ConnectionPrivate {
@@ -22,6 +27,27 @@ pub struct ConnectionPrivate {
 impl ConnectionPrivate {
     pub fn conn(&self) -> &Connection {
         &self.conn_ref.as_ref().unwrap() // safe; always available
+    }
+
+    pub fn new(
+        peer_type: PeerType,
+        socket: TcpStream,
+        key_pair: Keypair,
+        is_initiator: bool,
+        noise_params: snow::params::NoiseParams,
+    ) -> Self {
+        let handshaker = Arc::new(RwLock::new(HandshakeStreamSink::new(
+            noise_params.clone(),
+            key_pair,
+            is_initiator,
+        )));
+
+        ConnectionPrivate {
+            conn_ref: None,
+            socket,
+            message_sink: FrameSink::new(Arc::clone(&handshaker)),
+            message_stream: FrameStream::new(peer_type, handshaker),
+        }
     }
 
     pub fn shutdown(&mut self) -> Fallible<()> {

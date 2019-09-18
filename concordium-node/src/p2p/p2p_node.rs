@@ -6,7 +6,7 @@ use crate::{
         NetworkRawRequest, P2PNodeId, P2PPeer, PeerStats, PeerType, RemotePeer,
     },
     configuration::{self as config, Config},
-    connection::{Connection, ConnectionBuilder, MessageSendingPriority, P2PEvent},
+    connection::{Connection, MessageSendingPriority, P2PEvent},
     crypto::generate_snow_config,
     dumper::DumpItem,
     network::{
@@ -735,19 +735,22 @@ impl P2PNode {
         );
         let key_pair = utils::clone_snow_keypair(&self.connection_handler.key_pair);
 
-        let conn = ConnectionBuilder::default()
-            .set_handler_ref(Arc::pin(self.clone()))
-            .set_socket(socket)
-            .set_token(token)
-            .set_key_pair(key_pair)
-            .set_local_peer(self_peer)
-            .set_remote_peer(RemotePeer {
-                id: Default::default(),
-                addr,
-                peer_type: PeerType::Node,
-            })
-            .set_noise_params(self.connection_handler.noise_params.clone())
-            .build()?;
+        let remote_peer = RemotePeer {
+            id: Default::default(),
+            addr,
+            peer_type: PeerType::Node,
+        };
+
+        let conn = Connection::new(
+            &self,
+            socket,
+            token,
+            remote_peer,
+            self_peer.peer_type(),
+            key_pair,
+            false,
+            self.connection_handler.noise_params.clone(),
+        );
 
         let register_status = conn.register(&self.poll);
         self.add_connection(conn);
@@ -808,20 +811,22 @@ impl P2PNode {
                 );
                 let networks = self.networks();
                 let keypair = utils::clone_snow_keypair(&self.connection_handler.key_pair);
-                let conn = ConnectionBuilder::default()
-                    .set_handler_ref(Arc::pin(self.clone()))
-                    .set_socket(socket)
-                    .set_token(token)
-                    .set_key_pair(keypair)
-                    .set_as_initiator(true)
-                    .set_local_peer(self_peer)
-                    .set_remote_peer(RemotePeer {
-                        id: Default::default(),
-                        addr,
-                        peer_type,
-                    })
-                    .set_noise_params(self.connection_handler.noise_params.clone())
-                    .build()?;
+                let remote_peer = RemotePeer {
+                    id: Default::default(),
+                    addr,
+                    peer_type,
+                };
+
+                let conn = Connection::new(
+                    &self,
+                    socket,
+                    token,
+                    remote_peer,
+                    self_peer.peer_type(),
+                    keypair,
+                    true,
+                    self.connection_handler.noise_params.clone(),
+                );
 
                 conn.register(&self.poll)?;
 
