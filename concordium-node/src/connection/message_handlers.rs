@@ -140,14 +140,14 @@ fn handle_handshake_req(
     source: P2PPeer,
     networks: &HashSet<NetworkId>,
 ) -> Fallible<()> {
-    debug!("Got a Handshake request");
+    debug!("Got a Handshake request from peer {}", source.id());
 
     if conn.handler().is_banned(BannedNode::ById(source.id()))? {
         conn.close();
     }
 
-    conn.add_remote_end_networks(networks);
     conn.promote_to_post_handshake(source.id())?;
+    conn.add_remote_end_networks(networks);
     send_handshake_and_ping(&conn)?;
     conn.set_measured_ping_sent();
 
@@ -166,10 +166,10 @@ fn handle_handshake_resp(
     source: P2PPeer,
     networks: &HashSet<NetworkId>,
 ) -> Fallible<()> {
-    debug!("Got a Handshake response");
+    debug!("Got a Handshake response from peer {}", source.id());
 
-    conn.add_remote_end_networks(networks);
     conn.promote_to_post_handshake(source.id())?;
+    conn.add_remote_end_networks(networks);
 
     conn.sent_handshake
         .store(get_current_stamp(), Ordering::SeqCst);
@@ -266,14 +266,13 @@ fn handle_get_peers_req(
     source: P2PPeer,
     networks: &HashSet<NetworkId>,
 ) -> Fallible<()> {
-    trace!("Got a GetPeers request");
+    debug!("Got a GetPeers request from peer {}", source.id());
 
     if !conn.is_post_handshake() {
         bail!("handle_get_peers_req was called before the handshake!")
     }
 
     let peer_list_msg = {
-        let remote_peer = conn.remote_peer().peer().unwrap();
         let nodes = if conn.handler().peer_type() == PeerType::Bootstrapper {
             safe_read!(conn.handler().connection_handler.buckets)?
                 .get_all_nodes(Some(&source), networks)
@@ -282,14 +281,12 @@ fn handle_get_peers_req(
                 .get_peer_stats()
                 .iter()
                 .filter(|element| element.peer_type == PeerType::Node)
-                .map(|element| {
-                    P2PPeer::from(element.peer_type, P2PNodeId(element.id), element.addr)
-                })
+                .map(|stat| P2PPeer::from(stat.peer_type, P2PNodeId(stat.id), stat.addr))
                 .collect()
         };
 
         NetworkMessage::NetworkResponse(
-            NetworkResponse::PeerList(remote_peer, nodes),
+            NetworkResponse::PeerList(conn.handler().self_peer, nodes),
             Some(get_current_stamp()),
             None,
         )
@@ -308,24 +305,19 @@ fn handle_peer_list_resp(
     source: P2PPeer,
     peers: &[P2PPeer],
 ) -> Fallible<()> {
-    trace!("Received a PeerList response");
+    debug!("Received a PeerList response from peer {}", source.id());
 
-    let mut locked_buckets = safe_write!(conn.handler().connection_handler.buckets)?;
     let mut new_peers = 0;
     let curr_peer_count = node
         .get_peer_stats()
         .iter()
-        .filter(|x| x.peer_type == PeerType::Node)
+        .filter(|peer| peer.peer_type == PeerType::Node)
         .count();
 
+    let mut locked_buckets = safe_write!(conn.handler().connection_handler.buckets)?;
     for peer in peers.iter() {
-        locked_buckets.insert_into_bucket(peer, HashSet::new());
-
         trace!(
-            "Peer {}/{}/{} sent us peer info for {}/{}/{}",
-            source.id(),
-            source.ip(),
-            source.port(),
+            "Got info for peer {}/{}/{}",
             peer.id(),
             peer.ip(),
             peer.port()
@@ -336,6 +328,7 @@ fn handle_peer_list_resp(
             .is_ok()
         {
             new_peers += 1;
+            locked_buckets.insert_into_bucket(peer, HashSet::new());
         }
 
         if new_peers + curr_peer_count as u8 >= node.config.desired_nodes_count {
@@ -437,6 +430,8 @@ pub fn handle_retransmit_req(
     nid: NetworkId,
     transactions_cache: &mut Cache<Arc<[u8]>>,
 ) {
+    debug!("Received a Retransmit request from peer {}", requester.id());
+
     if let RequestedElementType::Transaction = element_type {
         let transactions = transactions_cache.get_since(since);
         transactions.iter().for_each(|transaction| {

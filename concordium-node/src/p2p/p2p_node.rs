@@ -6,7 +6,7 @@ use crate::{
         NetworkRawRequest, P2PNodeId, P2PPeer, PeerStats, PeerType, RemotePeer,
     },
     configuration::{self as config, Config},
-    connection::{Connection, ConnectionBuilder, MessageSendingPriority, P2PEvent},
+    connection::{Connection, MessageSendingPriority, P2PEvent},
     crypto::generate_snow_config,
     dumper::DumpItem,
     network::{
@@ -735,19 +735,22 @@ impl P2PNode {
         );
         let key_pair = utils::clone_snow_keypair(&self.connection_handler.key_pair);
 
-        let conn = ConnectionBuilder::default()
-            .set_handler_ref(Arc::pin(self.clone()))
-            .set_socket(socket)
-            .set_token(token)
-            .set_key_pair(key_pair)
-            .set_local_peer(self_peer)
-            .set_remote_peer(RemotePeer {
-                id: Default::default(),
-                addr,
-                peer_type: PeerType::Node,
-            })
-            .set_noise_params(self.connection_handler.noise_params.clone())
-            .build()?;
+        let remote_peer = RemotePeer {
+            id: Default::default(),
+            addr,
+            peer_type: PeerType::Node,
+        };
+
+        let conn = Connection::new(
+            &self,
+            socket,
+            token,
+            remote_peer,
+            self_peer.peer_type(),
+            key_pair,
+            false,
+            self.connection_handler.noise_params.clone(),
+        );
 
         let register_status = conn.register(&self.poll);
         self.add_connection(conn);
@@ -774,26 +777,23 @@ impl P2PNode {
             }
         }
 
+        // Don't connect to ourselves
+        if self.self_peer.addr == addr || peer_id_opt == Some(self.id()) {
+            return Err(Error::from(fails::DuplicatePeerError { peer_id_opt, addr }));
+        }
+
         if peer_type == PeerType::Node && self.is_unreachable(addr) {
             error!("Node marked as unreachable, so not allowing the connection");
             return Err(Error::from(fails::UnreachablePeerError));
         }
 
-        // Avoid duplicate ip+port peers
-        if self_peer.addr == addr {
-            return Err(Error::from(fails::DuplicatePeerError { peer_id_opt, addr }));
-        }
-
-        // Avoid duplicate Id entries
-        if let Some(peer_id) = peer_id_opt {
-            if self.find_connection_by_id(peer_id).is_some() {
+        // Don't connect to peers with a known P2PNodeId or IP+port
+        for conn in read_or_die!(self.connection_handler.connections).iter() {
+            if conn.remote_addr() == addr
+                || (peer_id_opt.is_some() && conn.remote_id() == peer_id_opt)
+            {
                 return Err(Error::from(fails::DuplicatePeerError { peer_id_opt, addr }));
             }
-        }
-
-        // Avoid duplicate ip+port connections
-        if self.find_connection_by_ip_addr(addr).is_some() {
-            return Err(Error::from(fails::DuplicatePeerError { peer_id_opt, addr }));
         }
 
         match TcpStream::connect(&addr) {
@@ -808,20 +808,22 @@ impl P2PNode {
                 );
                 let networks = self.networks();
                 let keypair = utils::clone_snow_keypair(&self.connection_handler.key_pair);
-                let conn = ConnectionBuilder::default()
-                    .set_handler_ref(Arc::pin(self.clone()))
-                    .set_socket(socket)
-                    .set_token(token)
-                    .set_key_pair(keypair)
-                    .set_as_initiator(true)
-                    .set_local_peer(self_peer)
-                    .set_remote_peer(RemotePeer {
-                        id: Default::default(),
-                        addr,
-                        peer_type,
-                    })
-                    .set_noise_params(self.connection_handler.noise_params.clone())
-                    .build()?;
+                let remote_peer = RemotePeer {
+                    id: Default::default(),
+                    addr,
+                    peer_type,
+                };
+
+                let conn = Connection::new(
+                    &self,
+                    socket,
+                    token,
+                    remote_peer,
+                    self_peer.peer_type(),
+                    keypair,
+                    true,
+                    self.connection_handler.noise_params.clone(),
+                );
 
                 conn.register(&self.poll)?;
 
@@ -829,7 +831,7 @@ impl P2PNode {
                 self.log_event(P2PEvent::ConnectEvent(addr));
                 debug!("Requesting handshake from new peer {}", addr,);
 
-                if let Some(ref mut conn) = self.find_connection_by_token(token) {
+                if let Some(ref conn) = self.find_connection_by_token(token) {
                     let handshake_request = NetworkMessage::NetworkRequest(
                         NetworkRequest::Handshake(self_peer, safe_read!(networks)?.clone(), vec![]),
                         Some(get_current_stamp()),

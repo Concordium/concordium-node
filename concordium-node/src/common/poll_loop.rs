@@ -45,10 +45,11 @@ pub fn process_network_requests(p2p_node: &P2PNode, receivers: &Receivers) {
                             network_request.priority,
                         ) {
                             conn.close();
-                            debug!(
-                                "Network raw request error in connection {}: {}; the connection \
-                                 will be closed.",
+                            error!(
+                                "Network raw request error in connection {}/{}: {}; the \
+                                 connection will be closed.",
                                 usize::from(network_request.token),
+                                conn.remote_addr(),
                                 err
                             );
                         }
