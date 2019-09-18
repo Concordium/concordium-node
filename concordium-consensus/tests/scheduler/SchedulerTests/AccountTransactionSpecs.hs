@@ -88,7 +88,7 @@ testAccountCreation ::
      Types.BankStatus)
 testAccountCreation = do
     transactions <- processTransactions transactionsInput
-    let (Sch.FilteredTransactions{..}, state) =
+    let ((Sch.FilteredTransactions{..}, _), state) =
           Types.runSI (Sch.filterTransactions blockSize transactions)
             Types.dummyChainMeta
             initialBlockState
@@ -113,13 +113,13 @@ checkAccountCreationResult (suc, fails, stateAccs, stateAles, bankState) =
   stateInvariant
   where txsuc = case suc of
           [(_, a11), (_, a12),(_, a13),(_, a14),(_, a15),(_, a16),(_, a17)] |
-            Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed _] _ <- a11,
-            Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed _] _ <- a12,
-            Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed _] _ <- a13,
-            Types.TxReject (Types.DuplicateAccountRegistrationID _) _ <- a14,
-            Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed _] _ <- a15,
-            Types.TxSuccess [Types.CredentialDeployed _] _ <- a16,
-            Types.TxReject Types.OutOfEnergy _ <- a17 -> True
+            Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed _] _ _ <- a11,
+            Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed _] _ _ <- a12,
+            Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed _] _ _ <- a13,
+            Types.TxReject (Types.DuplicateAccountRegistrationID _) _ _ <- a14,
+            Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed _] _ _ <- a15,
+            Types.TxSuccess [Types.CredentialDeployed _] _ _ <- a16,
+            Types.TxReject Types.OutOfEnergy _ _ <- a17 -> True
           _ -> False
         txstateAccs = case stateAccs of
                         -- account for cdi4 was not created because of duplicate registration id

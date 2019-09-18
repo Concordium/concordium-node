@@ -327,12 +327,20 @@ runLocalT (LocalT st) _tcDepositedAmount _tcTxSender energy = do
 
   where ctx = TransactionContext{..}
 
+{-# INLINE energyUsed #-}
+-- |Compute how much energy was used from the upper bound in the header of a
+-- transaction and the amount left.
+energyUsed :: TransactionHeader -> Energy -> Energy
+energyUsed meta energy = thGasAmount meta - energy
 
 -- |Given the deposited amount and the remaining amount of gas compute how much
--- the sender of the transaction should be charged.
+-- the sender of the transaction should be charged, as well as how much energy was used
+-- for execution.
 -- This function assumes that the deposited energy is not less than the used energy.
-computeExecutionCharge :: SchedulerMonad m => TransactionHeader -> Energy -> m Amount
-computeExecutionCharge meta energy = energyToGtu (thGasAmount meta - energy)
+computeExecutionCharge :: SchedulerMonad m => TransactionHeader -> Energy -> m (Energy, Amount)
+computeExecutionCharge meta energy =
+  let used = energyUsed meta energy
+  in (used, ) <$> energyToGtu used
 
 -- |Reduce the public balance on the account to charge for execution cost. The
 -- given amount is the amount to charge (subtract). The precondition of this
@@ -384,9 +392,9 @@ withDeposit acc txHeader comp k = do
     Left reason -> do
       -- the only effect of this transaction is reduced balance
       -- compute how much we must charge and reject the transaction
-      payment <- computeExecutionCharge txHeader (ls ^. energyLeft)
+      (used, payment) <- computeExecutionCharge txHeader (ls ^. energyLeft)
       chargeExecutionCost acc payment
-      return $ TxValid (TxReject reason payment)
+      return $ TxValid (TxReject reason payment energy)
     Right a ->
       -- in this case we invoke the continuation
       TxValid <$> k ls a

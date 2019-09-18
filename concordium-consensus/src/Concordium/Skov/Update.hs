@@ -328,9 +328,9 @@ addBlock block = do
                                             Left err -> do
                                                 logEvent Skov LLWarning ("Block execution failure: " ++ show err)
                                                 invalidBlock
-                                            Right gs -> do
+                                            Right (gs, energyUsed) -> do
                                                 -- Add the block to the tree
-                                                blockP <- blockArrive block parentP lfBlockP gs
+                                                blockP <- blockArrive block parentP lfBlockP gs energyUsed
                                                 -- Notify of the block arrival (for finalization)
                                                 onBlock blockP
                                                 -- Process finalization records
@@ -358,11 +358,12 @@ blockArrive :: (HasCallStack, TreeStateMonad m, SkovMonad m)
         -> BlockPointer m     -- ^Parent pointer
         -> BlockPointer m    -- ^Last finalized pointer
         -> BlockState m      -- ^State
+        -> Energy            -- ^Energy used by transactions in the block
         -> m (BlockPointer m)
-blockArrive block parentP lfBlockP gs = do
+blockArrive block parentP lfBlockP gs energyUsed = do
         let height = bpHeight parentP + 1
         curTime <- currentTime
-        blockP <- makeLiveBlock block parentP lfBlockP gs curTime
+        blockP <- makeLiveBlock block parentP lfBlockP gs curTime energyUsed
         logEvent Skov LLInfo $ "Block " ++ show block ++ " arrived"
         -- Update the statistics
         updateArriveStatistics blockP
@@ -415,10 +416,11 @@ doStoreBakedBlock :: (TreeStateMonad m, SkovMonad m, OnSkov m)
         -> BlockPointer m    -- ^Parent pointer
         -> BlockPointer m     -- ^Last finalized pointer
         -> BlockState m      -- ^State
+        -> Energy            -- ^Energy used by transactions in this block
         -> m (BlockPointer m)
 {-# INLINE doStoreBakedBlock #-}
-doStoreBakedBlock = \pb parent lastFin st -> do
-        bp <- blockArrive pb parent lastFin st
+doStoreBakedBlock = \pb parent lastFin st energyUsed -> do
+        bp <- blockArrive pb parent lastFin st energyUsed
         onBlock bp
         return bp
 

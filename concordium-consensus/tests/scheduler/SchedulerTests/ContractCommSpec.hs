@@ -104,7 +104,7 @@ testCommCounter = do
     source <- liftIO $ TIO.readFile "test/contracts/CommCounter.acorn"
     (_, _) <- PR.processModule source -- execute only for effect on global state
     transactions <- processTransactions transactionsInput
-    let (Sch.FilteredTransactions{..}, endState) =
+    let ((Sch.FilteredTransactions{..}, _), endState) =
             Types.runSI (Sch.filterTransactions blockSize transactions)
             Types.dummyChainMeta
             initialBlockState
@@ -119,11 +119,11 @@ checkCommCounterResult (suc, fails) =
   length reject == 1 &&  -- one rejected (which is also the last one)
   length nonreject == 6  -- and 6 successful ones
   where 
-    nonreject = filter (\case (_, Types.TxSuccess _ _) -> True
-                              (_, Types.TxReject _ _) -> False)
+    nonreject = filter (\case (_, Types.TxSuccess _ _ _) -> True
+                              (_, Types.TxReject _ _ _) -> False)
                         suc
-    reject = filter (\case (_, Types.TxSuccess _ _) -> False
-                           (_, Types.TxReject _ _) -> True
+    reject = filter (\case (_, Types.TxSuccess _ _ _) -> False
+                           (_, Types.TxReject _ _ _) -> True
                     )
                         suc
 

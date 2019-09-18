@@ -12,6 +12,8 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.Set as Set
 import qualified Data.List as List
 
+import Debug.Trace
+
 import Control.Monad
 
 import Concordium.Types
@@ -84,7 +86,8 @@ updateSeed bshandle slot blockNonce = do
 
 
 -- |Execute a block from a given starting state.
--- Fail if any of the transactions fails, otherwise return the new 'BlockState'.
+-- Fail if any of the transactions fails, otherwise return the new 'BlockState' and the amount of energy used
+-- during this block execution.
 executeFrom ::
   TreeStateMonad m
   => Slot -- ^Slot number of the block being executed.
@@ -93,7 +96,7 @@ executeFrom ::
   -> BakerId -- ^Identity of the baker who should be rewarded.
   -> BlockNonce
   -> [Transaction] -- ^Transactions on this block.
-  -> m (Either FailureKind (BlockState m))
+  -> m (Either FailureKind (BlockState m, Energy))
 executeFrom slotNumber blockParent lfPointer blockBaker blockNonce txs =
   let cm = let blockHeight = bpHeight blockParent + 1
                finalizedHeight = bpHeight lfPointer
@@ -103,7 +106,7 @@ executeFrom slotNumber blockParent lfPointer blockBaker blockNonce txs =
     (res, bshandle1) <- runBSM (Sch.runTransactions txs) cm bshandle0
     case res of
         Left fk -> Left fk <$ (purgeBlockState =<< freezeBlockState bshandle1)
-        Right outcomes -> do
+        Right (outcomes, usedEnergy) -> do
             -- Record the transaction outcomes
             bshandle2 <- bsoSetTransactionOutcomes bshandle1 ((\(tr, o) -> (transactionHash tr, o)) <$> outcomes)
             -- the main execution is now done. At this point we must mint new currencty
@@ -112,7 +115,7 @@ executeFrom slotNumber blockParent lfPointer blockBaker blockNonce txs =
             bshandle4 <- updateSeed bshandle3 slotNumber blockNonce
 
             finalbsHandle <- freezeBlockState bshandle4
-            return (Right finalbsHandle)
+            return (Right (finalbsHandle, usedEnergy))
 
 -- |PRECONDITION: Focus block is the parent block of the block we wish to make,
 -- hence the pending transaction table is correct for the new block.
@@ -128,7 +131,7 @@ constructBlock ::
   -> BlockPointer m -- ^Last finalized block pointer.
   -> BakerId -- ^The baker of the block.
   -> BlockNonce
-  -> m ([Transaction], BlockState m)
+  -> m ([Transaction], BlockState m, Energy)
 constructBlock slotNumber blockParent lfPointer blockBaker blockNonce =
   let cm = let blockHeight = bpHeight blockParent + 1
                finalizedHeight = bpHeight lfPointer
@@ -153,8 +156,8 @@ constructBlock slotNumber blockParent lfPointer blockBaker blockNonce =
     -- In the future we do not want to do concatMap since we gain advantage from grouping transactions
     -- by account (e.g., we only need to look up the account once).
     let orderedTxs = concatMap fst $ List.sortOn snd txs
-        
-    (Sch.FilteredTransactions{..}, bshandle1) <- runBSM (Sch.filterTransactions (fromIntegral maxSize) orderedTxs) cm bshandle0
+
+    ((Sch.FilteredTransactions{..}, usedEnergy), bshandle1) <- runBSM (Sch.filterTransactions (fromIntegral maxSize) orderedTxs) cm bshandle0
     -- FIXME: At some point we should log things here using the same logging infrastructure as in consensus.
 
     bshandle2 <- bsoSetTransactionOutcomes bshandle1 ((\(tr,res) -> (transactionHash tr, res)) <$> ftAdded)
@@ -205,7 +208,9 @@ constructBlock slotNumber blockParent lfPointer blockBaker blockNonce =
 
     newpt' <- foldM purgeTooBig newpt ftUnprocessed
 
+    traceM $ "Unprocessed transactions: " ++ show (length ftUnprocessed)
+
     -- commit the new pending transactions to the tree state
     putPendingTransactions newpt'
     bshandleFinal <- freezeBlockState bshandle4
-    return (ret, bshandleFinal)
+    return (ret, bshandleFinal, usedEnergy)

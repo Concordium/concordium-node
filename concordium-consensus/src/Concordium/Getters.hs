@@ -208,12 +208,14 @@ getBlockInfo sfsRef blockHash = case readMaybe blockHash of
                                             Just bf -> toJSON (toInteger (blockBaker bf)),
                             "finalized" .= bfin,
                             "transactionCount" .= bpTransactionCount bp,
+                            "transactionEnergyCost" .= toInteger (bpTransactionsEnergyCost bp),
+                            "transactionsSize" .= toInteger (bpTransactionsSize bp),
 
-                            "totalAmount" .= (fromIntegral (reward ^. AT.totalGTU) :: Integer),
-                            "totalEncryptedAmount" .= (fromIntegral (reward ^. AT.totalEncryptedGTU) :: Integer),
-                            "centralBankAmount" .= (fromIntegral (reward ^. AT.centralBankGTU) :: Integer),
-                            "mintedAmountPerSlot" .= (fromIntegral (reward ^. AT.mintedGTUPerSlot) :: Integer),
-                            "executionCost" .= (fromIntegral (reward ^. AT.executionCost) :: Integer)
+                            "totalAmount" .= toInteger (reward ^. AT.totalGTU),
+                            "totalEncryptedAmount" .= toInteger (reward ^. AT.totalEncryptedGTU),
+                            "centralBankAmount" .= toInteger (reward ^. AT.centralBankGTU),
+                            "mintedAmountPerSlot" .= toInteger (reward ^. AT.mintedGTUPerSlot),
+                            "executionCost" .= toInteger (reward ^. AT.executionCost)
                             ]
 
 getAncestors :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> String -> BlockHeight -> IO Value

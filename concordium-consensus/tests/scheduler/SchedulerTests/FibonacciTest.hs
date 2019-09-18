@@ -80,7 +80,7 @@ testFibonacci = do
     source <- liftIO $ TIO.readFile "test/contracts/FibContract.acorn"
     (_, _) <- PR.processModule source -- execute only for effect on global state, i.e., load into cache
     transactions <- processTransactions transactionsInput
-    let (Sch.FilteredTransactions{..}, gs) =
+    let ((Sch.FilteredTransactions{..}, _), gs) =
           Types.runSI (Sch.filterTransactions blockSize transactions)
             Types.dummyChainMeta
             initialBlockState
@@ -100,8 +100,8 @@ checkFibonacciResult (suc, fails, instances) =
   length instances == 1 && -- only a single contract instance should be created
   checkLocalState (snd (head instances)) -- and the local state should match the actual list of fibonacci numbers
   where
-    reject = filter (\case (_, Types.TxSuccess _ _) -> False
-                           (_, Types.TxReject _ _) -> True
+    reject = filter (\case (_, Types.TxSuccess _ _ _) -> False
+                           (_, Types.TxReject _ _ _) -> True
                     )
                         suc
     checkLocalState inst = 
