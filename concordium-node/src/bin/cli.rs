@@ -456,14 +456,13 @@ fn tps_setup_process_output(_: &config::CliConfig) -> (bool, u64) { (false, 0) }
 
 #[cfg(feature = "elastic_logging")]
 fn setup_transfer_log_thread(conf: &config::CliConfig) -> std::thread::JoinHandle<()> {
-    let (enabled, host, port) = (
+    let (enabled, url) = (
         conf.elastic_logging_enabled,
-        conf.elastic_logging_host.clone(),
-        conf.elastic_logging_port,
+        conf.elastic_logging_url.clone(),
     );
     if enabled {
         if let Err(e) =
-            p2p_client::client::plugins::elasticlogging::create_transfer_index(&host, port)
+            p2p_client::client::plugins::elasticlogging::create_transfer_index(&url)
         {
             error!("{}", e);
         }
@@ -480,7 +479,7 @@ fn setup_transfer_log_thread(conf: &config::CliConfig) -> std::thread::JoinHandl
                         if enabled {
                             if let Err(e) =
                                 p2p_client::client::plugins::elasticlogging::log_transfer_event(
-                                    &host, port, msg,
+                                    &url, msg,
                                 )
                             {
                                 error!("{}", e);

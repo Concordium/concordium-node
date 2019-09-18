@@ -35,13 +35,9 @@ then
     if [[ -n "$ELASTIC_SEARCH_LOGGING" && "$BAKER_ID" == "0" ]];
     then
         ARGS="$ARGS --elastic-logging"
-        if [ -n "$ELASTIC_SEARCH_HOST" ]
+        if [ -n "$ELASTIC_SEARCH_URL" ]
         then
-            ARGS="$ARGS --elastic-logging-host $ELASTIC_SEARCH_HOST"
-        fi
-        if [ -n "$ELASTIC_SEARCH_PORT" ]
-        then
-            ARGS="$ARGS --elastic-logging-port $ELASTIC_SEARCH_PORT"
+            ARGS="$ARGS --elastic-logging-url $ELASTIC_SEARCH_URL"
         fi
     fi
 fi
@@ -241,7 +237,7 @@ elif [ "$MODE" == "local_basic" ]; then
     then
         if [ "$BAKER_ID" == "0" ];
         then
-            ARGS="$ARGS --elastic-logging --elastic-logging-host elasticsearch"
+            ARGS="$ARGS --elastic-logging --elastic-logging-url http://elasticsearch:9200"
         fi
     fi
     /p2p_client-cli --baker-id $BAKER_ID --no-dnssec $ARGS --id $(printf "%016d\n" $BAKER_ID)

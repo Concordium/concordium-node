@@ -367,18 +367,11 @@ pub struct CliConfig {
     pub elastic_logging_enabled: bool,
     #[cfg(feature = "elastic_logging")]
     #[structopt(
-        long = "elastic-logging-host",
-        help = "Host to use for logging to Elastic Search",
-        default_value = "127.0.0.1"
+        long = "elastic-logging-url",
+        help = "URL to use for logging to Elastic Search",
+        default_value = "http://127.0.0.1:9200"
     )]
-    pub elastic_logging_host: String,
-    #[cfg(feature = "elastic_logging")]
-    #[structopt(
-        long = "elastic-logging-port",
-        help = "Port to use for logging to Elastic Search",
-        default_value = "9200"
-    )]
-    pub elastic_logging_port: u16,
+    pub elastic_logging_url: String,
 }
 
 #[derive(StructOpt, Debug)]
