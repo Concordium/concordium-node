@@ -44,17 +44,6 @@ $> cargo run -- --debug
 $> cargo test --all
 ```
 
-## Docker-Compose
-For a local docker compose setup, a docker-compose.yml file has been provided in the root of this repository. It uses a image hosted in Docker hub built automatically upon push to the develop branch.
-
-For the most simple and common setup, simply run
-```bash
-NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose up --scale baker=5
-```
-in the repository root
-
-For more complicated setups the EXTRA_ARGS environment variable can be set.
-
 ## Nix
 Currently this project only sports support for Nix on Linux platforms.
 ### Development
@@ -65,14 +54,44 @@ $> scripts/download-static-libs.sh
 $> nix-env -f . -i
 ```
 
-# Elastic search in local development mode
+## Docker-Compose
+### Latest stable from master branch
+For a local docker compose setup, a docker-compose.yml file has been provided in the root of this repository. It uses a image hosted in Docker hub built automatically upon push to the master branch.
+
+For the most simple and common setup, simply run the below command in the root of the checked out repository
+```bash
+NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose up --scale baker=5
+```
+
+
+For more complicated setups the EXTRA_ARGS environment variable can be set.
+
+### Latest unstable from develop branch
+For a local docker compose setup, a docker-compose.develop.yml file has been provided in the root of this repository. It uses a image hosted in Docker hub built automatically upon push to the develop branch.
+
+For the most simple and common setup, simply run the below command in the root of the checked out repository
+```bash
+NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.yml up --scale baker=5
+```
+
+
+For more complicated setups the EXTRA_ARGS environment variable can be set.
+
+## Elastic search in local development mode
+### Running the local development version from the stable master branch 
 Use docker-compose if you only need a middle-ware enabled set of nodes to test on
 ```bash
 $> ELASTIC_SEARCH_LOGGING=1 NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.middleware.yml up --scale baker=5
 ```
 
+### Running the local development version from the unstable develop branch 
+Use docker-compose if you only need a middle-ware enabled set of nodes to test on
+```bash
+$> ELASTIC_SEARCH_LOGGING=1 NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.middleware.yml up --scale baker=5
+```
 
-To run a pair of elastic search with kibana for local development do the followign
+### Using persistent local Elastic Search setup with Kibana
+To run a pair of elastic search with kibana for local development do the following
 ```bash
 $> docker network create elasticsearch
 $> docker run -d --name elasticsearch --net elasticsearch -p 9200:9200 -p 9300:9300 -e "discovery.type=single-node" elasticsearch:7.3.2
