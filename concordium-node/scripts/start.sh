@@ -31,8 +31,9 @@ fi
 
 if [ -n "$BAKER_ID" ];
 then
-    ARGS="$ARGS --baker-id $(echo $BAKER_ID | cut -d'-' -f2)"
-    if [[ -n "$ELASTIC_SEARCH_LOGGING" && "$BAKER_ID" == "0" ]];
+    REAL_BAKER_ID=$(echo $BAKER_ID | cut -d'-' -f2)
+    ARGS="$ARGS --baker-id $REAL_BAKER_ID"
+    if [[ -n "$ELASTIC_SEARCH_LOGGING" && "$REAL_BAKER_ID" == "0" ]];
     then
         ARGS="$ARGS --elastic-logging"
         if [ -n "$ELASTIC_SEARCH_URL" ]
