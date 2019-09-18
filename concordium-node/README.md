@@ -91,7 +91,7 @@ $> ELASTIC_SEARCH_LOGGING=1 NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docke
 ```
 
 ### Using persistent local Elastic Search setup with Kibana
-To run a pair of elastic search with kibana for local development do the followign
+To run a pair of elastic search with kibana for local development do the following
 ```bash
 $> docker network create elasticsearch
 $> docker run -d --name elasticsearch --net elasticsearch -p 9200:9200 -p 9300:9300 -e "discovery.type=single-node" elasticsearch:7.3.2
