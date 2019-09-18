@@ -70,6 +70,10 @@ pub struct Connection {
     pub failed_pkts:           Arc<AtomicU32>,
 }
 
+impl Drop for Connection {
+    fn drop(&mut self) { std::mem::drop(write_or_die!(self.dptr)) }
+}
+
 impl PartialEq for Connection {
     fn eq(&self, other: &Self) -> bool { self.token == other.token }
 }
