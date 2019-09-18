@@ -392,7 +392,7 @@ fn start_consensus_threads(
         thread::sleep(Duration::from_secs(10));
 
         loop {
-            thread::sleep(Duration::from_secs(1));
+            thread::sleep(Duration::from_secs(u64::from(config::TICKER_INTERVAL_SECS)));
 
             let current_peers = node_ref.get_node_peer_ids();
 

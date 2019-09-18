@@ -42,6 +42,7 @@ use failure::Fallible;
 use mio::{Event, Poll, PollOpt, Ready, Token};
 use std::{
     collections::HashSet,
+    hash::{Hash, Hasher},
     net::SocketAddr,
     pin::Pin,
     sync::{
@@ -56,10 +57,9 @@ pub struct Connection {
     pub token:                 Token,
     pub remote_peer:           RemotePeer,
     pub dptr:                  Arc<RwLock<ConnectionPrivate>>,
-    pub local_end_networks:    Arc<RwLock<HashSet<NetworkId>>>,
     pub remote_end_networks:   Arc<RwLock<HashSet<NetworkId>>>,
     pub is_post_handshake:     Arc<AtomicBool>,
-    pub is_closing:            Arc<AtomicBool>,
+    pub is_closed:             Arc<AtomicBool>,
     pub messages_sent:         Arc<AtomicU64>,
     pub messages_received:     Arc<AtomicU64>,
     pub last_ping_sent:        Arc<AtomicU64>,
@@ -68,6 +68,16 @@ pub struct Connection {
     pub last_latency_measured: Arc<AtomicU64>,
     pub last_seen:             Arc<AtomicU64>,
     pub failed_pkts:           Arc<AtomicU32>,
+}
+
+impl PartialEq for Connection {
+    fn eq(&self, other: &Self) -> bool { self.token == other.token }
+}
+
+impl Eq for Connection {}
+
+impl Hash for Connection {
+    fn hash<H: Hasher>(&self, state: &mut H) { self.token.hash(state); }
 }
 
 impl Connection {
@@ -99,6 +109,19 @@ impl Connection {
 
     pub fn remote_peer_type(&self) -> PeerType { self.remote_peer.peer_type() }
 
+    pub fn remote_peer_stats(&self) -> Fallible<PeerStats> {
+        Ok(PeerStats::new(
+            self.remote_id()
+                .ok_or_else(|| format_err!("Attempted to get the stats of a pre-handshake peer!"))?
+                .as_raw(),
+            self.remote_addr(),
+            self.remote_peer_type(),
+            Arc::clone(&self.messages_sent),
+            Arc::clone(&self.messages_received),
+            Arc::clone(&self.last_latency_measured),
+        ))
+    }
+
     pub fn remote_addr(&self) -> SocketAddr { self.remote_peer.addr() }
 
     pub fn is_post_handshake(&self) -> bool { self.is_post_handshake.load(Ordering::SeqCst) }
@@ -129,10 +152,10 @@ impl Connection {
     }
 
     #[inline]
-    pub fn is_closed(&self) -> bool { self.is_closing.load(Ordering::SeqCst) }
+    pub fn is_closed(&self) -> bool { self.is_closed.load(Ordering::SeqCst) }
 
     #[inline]
-    pub fn close(&self) { self.is_closing.store(true, Ordering::SeqCst) }
+    pub fn close(&self) { self.is_closed.store(true, Ordering::SeqCst) }
 
     /// This function is called when `poll` indicates that `socket` is ready to
     /// write or/and read.
@@ -163,20 +186,13 @@ impl Connection {
         Arc::clone(&self.handler().connection_handler.buckets)
     }
 
-    pub fn promote_to_post_handshake(&self, id: P2PNodeId, addr: SocketAddr) -> Fallible<()> {
+    pub fn promote_to_post_handshake(&self, id: P2PNodeId) -> Fallible<()> {
         self.is_post_handshake.store(true, Ordering::SeqCst);
         *write_or_die!(self.remote_peer.id) = Some(id);
 
         // register peer's stats in the P2PNode
-        let remote_peer_stats = PeerStats::new(
-            id.as_raw(),
-            addr,
-            self.remote_peer.peer_type(),
-            Arc::clone(&self.messages_sent),
-            Arc::clone(&self.messages_received),
-            Arc::clone(&self.last_latency_measured),
-        );
-        write_or_die!(self.handler().active_peer_stats).insert(id.as_raw(), remote_peer_stats);
+        write_or_die!(self.handler().active_peer_stats)
+            .insert(id.as_raw(), self.remote_peer_stats()?);
 
         Ok(())
     }
@@ -186,7 +202,7 @@ impl Connection {
     }
 
     pub fn local_end_networks(&self) -> Arc<RwLock<HashSet<NetworkId>>> {
-        Arc::clone(&self.local_end_networks)
+        self.handler().networks()
     }
 
     /// It queues a network request

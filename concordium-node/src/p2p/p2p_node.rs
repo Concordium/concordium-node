@@ -30,12 +30,13 @@ use mio::{
     net::{TcpListener, TcpStream},
     Event, Events, Poll, PollOpt, Ready, Token,
 };
+use nohash_hasher::BuildNoHashHasher;
 use rand::seq::IteratorRandom;
 use rkv::{Manager, Rkv, StoreOptions, Value};
 use snow::Keypair;
 
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashMap, HashSet},
     convert::TryFrom,
     net::{
         IpAddr::{self, V4, V6},
@@ -116,8 +117,7 @@ pub struct ConnectionHandler {
     pub log_dumper:             Option<SyncSender<DumpItem>>,
     noise_params:               snow::params::NoiseParams,
     pub network_request_sender: SyncSender<NetworkRawRequest>,
-    pub connections:            Arc<RwLock<Vec<Connection>>>,
-    pub to_disconnect:          Arc<RwLock<VecDeque<P2PNodeId>>>,
+    pub connections:            Arc<RwLock<HashSet<Connection, BuildNoHashHasher<usize>>>>,
     pub unreachable_nodes:      UnreachableNodes,
     pub networks:               Arc<RwLock<HashSet<NetworkId>>>,
     pub last_bootstrap:         Arc<AtomicU64>,
@@ -152,7 +152,6 @@ impl ConnectionHandler {
             noise_params,
             network_request_sender,
             connections: Default::default(),
-            to_disconnect: Default::default(),
             unreachable_nodes: UnreachableNodes::new(),
             networks: Arc::new(RwLock::new(networks)),
             last_bootstrap: Default::default(),
@@ -565,16 +564,17 @@ impl P2PNode {
                 let now = SystemTime::now();
                 if let Ok(difference) = now.duration_since(log_time) {
                     if difference > Duration::from_secs(self_clone.config.housekeeping_interval) {
-                        let peer_stat_list = self_clone.get_peer_stats();
-                        self_clone.print_stats(&peer_stat_list);
-                        self_clone.check_peers(&peer_stat_list);
-
-                        if self_clone.peer_type() != PeerType::Bootstrapper {
-                            self_clone.liveness_check();
-                        }
                         if let Err(e) = self_clone.connection_housekeeping() {
                             error!("Issue with connection cleanups: {:?}", e);
                         }
+                        if self_clone.peer_type() != PeerType::Bootstrapper {
+                            self_clone.liveness_check();
+                        }
+
+                        let peer_stat_list = self_clone.get_peer_stats();
+                        self_clone.check_peers(&peer_stat_list);
+                        self_clone.print_stats(&peer_stat_list);
+
                         log_time = now;
                     }
                 }
@@ -628,45 +628,6 @@ impl P2PNode {
         let curr_stamp = get_current_stamp();
         let peer_type = self.peer_type();
 
-        write_or_die!(self.connection_handler.to_disconnect)
-            .drain(..)
-            .for_each(|x| {
-                if let Some(ref conn) = self.find_connection_by_id(x) {
-                    trace!(
-                        "Disconnecting connection {} already marked as going down",
-                        usize::from(conn.token)
-                    );
-                    conn.close();
-                }
-            });
-
-        // clone the initial collection of connections to reduce locking
-        let uncleaned_connections = read_or_die!(self.connection_handler.connections).clone();
-
-        // Clean duplicates only if it's a regular node we're running
-        if peer_type != PeerType::Bootstrapper {
-            let mut connection_map: Vec<_> = uncleaned_connections
-                .iter()
-                .filter_map(|conn| {
-                    conn.remote_id()
-                        .and_then(|remote_id| Some((remote_id, conn.token, conn.last_seen())))
-                })
-                .collect();
-            connection_map.sort_by_key(|p| std::cmp::Reverse((p.0, p.2)));
-            connection_map.dedup_by_key(|p| p.0);
-            uncleaned_connections
-                .iter()
-                .filter(|conn| conn.remote_id().is_some())
-                .for_each(|conn| {
-                    if !connection_map
-                        .iter()
-                        .any(|(_, token, _)| token == &conn.token)
-                    {
-                        conn.close();
-                    }
-                });
-        }
-
         let filter_predicate_bootstrapper_no_activity_allowed_period = |conn: &Connection| -> bool {
             peer_type == PeerType::Bootstrapper
                 && conn.is_post_handshake()
@@ -685,42 +646,12 @@ impl P2PNode {
                     && conn.last_seen() + MAX_PREHANDSHAKE_KEEP_ALIVE < curr_stamp)
         };
 
-        // Kill nodes which are no longer seen and also closing connections
-        let closing_conns = uncleaned_connections
-            .iter()
-            // Get only connections that have been inactive for more time than allowed or closing connections
-            .filter(|conn| {
-                conn.is_closed() ||
-                    filter_predicate_stable_conn_and_no_handshake(&conn) ||
-                    filter_predicate_bootstrapper_no_activity_allowed_period(&conn) ||
-                    filter_predicate_node_no_activity_allowed_period(&conn)
-            })
-            .map(|conn| conn.token)
-            .collect::<Vec<Token>>();
-
-        self.remove_connections(&closing_conns);
-
-        {
-            let mut locked_active_peers = write_or_die!(self.active_peer_stats);
-
-            for closed_connection in uncleaned_connections
-                .into_iter()
-                .filter(|conn| closing_conns.contains(&conn.token))
-            {
-                trace!(
-                    "Removed connection {} from the Connection Handler",
-                    usize::from(closed_connection.token)
-                );
-
-                if let Some(obsolete_peer_id) = closed_connection
-                    .remote_peer()
-                    .peer()
-                    .map(|peer| peer.id().as_raw())
-                {
-                    locked_active_peers.remove(&obsolete_peer_id);
-                }
-            }
-        }
+        // Kill connections to nodes which are no longer seen
+        write_or_die!(self.connection_handler.connections).retain(|conn| {
+            !(filter_predicate_stable_conn_and_no_handshake(&conn)
+                || filter_predicate_bootstrapper_no_activity_allowed_period(&conn)
+                || filter_predicate_node_no_activity_allowed_period(&conn))
+        });
 
         if peer_type != PeerType::Bootstrapper {
             self.connection_handler
@@ -735,13 +666,22 @@ impl P2PNode {
             let peer_count = self.connections_posthandshake_count(Some(PeerType::Bootstrapper));
             if peer_count > max_allowed_nodes {
                 let mut rng = rand::thread_rng();
-                read_or_die!(self.connection_handler.connections)
+                let to_drop = read_or_die!(self.connection_handler.connections)
                     .iter()
-                    .choose_multiple(&mut rng, (peer_count - max_allowed_nodes) as usize)
-                    .iter()
-                    .for_each(|conn| conn.close());
+                    .map(|conn| conn.token)
+                    .choose_multiple(&mut rng, (peer_count - max_allowed_nodes) as usize);
+
+                write_or_die!(self.connection_handler.connections)
+                    .retain(|conn| !to_drop.contains(&conn.token));
             }
         }
+
+        *write_or_die!(self.active_peer_stats) = read_or_die!(self.connection_handler.connections)
+            .iter()
+            .filter(|conn| conn.is_post_handshake())
+            .filter_map(|conn| conn.remote_peer_stats().ok())
+            .map(|stats| (stats.id, stats))
+            .collect();
 
         // reconnect to bootstrappers after a specified amount of time
         if peer_type == PeerType::Node
@@ -768,9 +708,16 @@ impl P2PNode {
         self.connection_handler.unreachable_nodes.insert(addr)
     }
 
-    pub fn accept(&self) -> Fallible<()> {
+    fn accept(&self) -> Fallible<()> {
         let self_peer = self.self_peer;
         let (socket, addr) = self.connection_handler.server.accept()?;
+
+        if read_or_die!(self.connection_handler.connections)
+            .iter()
+            .any(|conn| conn.remote_addr() == addr)
+        {
+            bail!("Duplicate connection attempt from {:?}; rejecting", addr);
+        }
 
         debug!(
             "Accepting new connection from {:?} to {:?}:{}",
@@ -786,7 +733,6 @@ impl P2PNode {
                 .next_id
                 .fetch_add(1, Ordering::SeqCst),
         );
-        let networks = self.networks();
         let key_pair = utils::clone_snow_keypair(&self.connection_handler.key_pair);
 
         let conn = ConnectionBuilder::default()
@@ -800,7 +746,6 @@ impl P2PNode {
                 addr,
                 peer_type: PeerType::Node,
             })
-            .set_local_end_networks(networks)
             .set_noise_params(self.connection_handler.noise_params.clone())
             .build()?;
 
@@ -875,7 +820,6 @@ impl P2PNode {
                         addr,
                         peer_type,
                     })
-                    .set_local_end_networks(Arc::clone(&networks))
                     .set_noise_params(self.connection_handler.noise_params.clone())
                     .build()?;
 
@@ -951,16 +895,16 @@ impl P2PNode {
 
         match peer {
             BannedNode::ById(id) => {
-                if let Some(ref mut c) = self.find_connection_by_id(id) {
-                    c.close();
+                if let Some(conn) = self.find_connection_by_id(id) {
+                    self.remove_connections(&[conn.token]);
                 }
             }
             BannedNode::ByAddr(addr) => {
                 for conn in self.find_connections_by_ip(addr) {
-                    conn.close();
+                    self.remove_connections(&[conn.token]);
                 }
             }
-        };
+        }
 
         if !self.config.no_trust_bans {
             self.send_ban(peer);
@@ -1066,13 +1010,13 @@ impl P2PNode {
             .collect()
     }
 
-    fn remove_connections(&self, to_remove: &[Token]) {
+    pub fn remove_connections(&self, to_remove: &[Token]) {
         write_or_die!(self.connection_handler.connections)
             .retain(|conn| !to_remove.contains(&conn.token));
     }
 
-    pub fn add_connection(&self, conn: Connection) {
-        write_or_die!(self.connection_handler.connections).push(conn);
+    pub fn add_connection(&self, conn: Connection) -> bool {
+        write_or_die!(self.connection_handler.connections).insert(conn)
     }
 
     pub fn conn_event(&self, event: &Event) {
@@ -1083,6 +1027,8 @@ impl P2PNode {
                 if let Err(e) = conn.ready(event) {
                     error!("Error while processing a connection event: {}", e);
                 }
+            } else {
+                self.remove_connections(&[token])
             }
         }
     }

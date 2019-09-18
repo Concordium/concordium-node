@@ -211,16 +211,30 @@ pub fn handle_global_state_request(
                         // baking may commence (does nothing if already baking)
                         trace!("Global state: all my peers are up to date");
                         consensus.start_baker();
+                        global_state.catch_up_count = 0;
                     }
                     PeerStatus::CatchingUp => {
                         // don't send any catch-up statuses while
                         // there are peers that are catching up
-                        debug!("Global state: I'm still catching up with peer {:016x}", id);
+                        if global_state.catch_up_count < 1 {
+                            debug!("Global state: I'm catching up with peer {:016x}", id);
+                            global_state.catch_up_count += 1;
+                        } else {
+                            warn!("Global state: peer {:016x} took to long to catch up", id);
+                            if let Some(peer_conn) = node
+                                .find_connection_by_id(P2PNodeId(id))
+                                .map(|conn| conn.token)
+                            {
+                                node.remove_connections(&[peer_conn]);
+                            }
+                            global_state.catch_up_count = 0;
+                        }
                     }
                     PeerStatus::Pending => {
                         // send a catch-up message to the first Pending peer
                         debug!("Global state: I need to catch up with peer {:016x}", id);
                         send_catch_up_status(node, network_id, consensus, global_state, id)?;
+                        global_state.catch_up_count = 0;
                     }
                 }
             }
