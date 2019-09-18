@@ -308,19 +308,17 @@ fn handle_peer_list_resp(
     source: P2PPeer,
     peers: &[P2PPeer],
 ) -> Fallible<()> {
-    trace!("Received a PeerList response");
+    debug!("Received a PeerList response");
 
-    let mut locked_buckets = safe_write!(conn.handler().connection_handler.buckets)?;
     let mut new_peers = 0;
     let curr_peer_count = node
         .get_peer_stats()
         .iter()
-        .filter(|x| x.peer_type == PeerType::Node)
+        .filter(|peer| peer.peer_type == PeerType::Node)
         .count();
 
+    let mut locked_buckets = safe_write!(conn.handler().connection_handler.buckets)?;
     for peer in peers.iter() {
-        locked_buckets.insert_into_bucket(peer, HashSet::new());
-
         trace!(
             "Peer {}/{}/{} sent us peer info for {}/{}/{}",
             source.id(),
@@ -336,6 +334,7 @@ fn handle_peer_list_resp(
             .is_ok()
         {
             new_peers += 1;
+            locked_buckets.insert_into_bucket(peer, HashSet::new());
         }
 
         if new_peers + curr_peer_count as u8 >= node.config.desired_nodes_count {
