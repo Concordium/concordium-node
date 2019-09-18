@@ -44,6 +44,16 @@ $> cargo run -- --debug
 $> cargo test --all
 ```
 
+## Nix
+Currently this project only sports support for Nix on Linux platforms.
+### Development
+All `zsh` wrapper functions wraps around `nix-shell`, and if dropping into a `nix-shell` directly remember to use the cargo flag `--features=static` to build against the static libraries in LFS.
+### Install binaries as a package
+```bash
+$> scripts/download-static-libs.sh
+$> nix-env -f . -i
+```
+
 ## Docker-Compose
 ### Latest stable from master branch
 For a local docker compose setup, a docker-compose.yml file has been provided in the root of this repository. It uses a image hosted in Docker hub built automatically upon push to the master branch.
@@ -66,16 +76,6 @@ NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.yml up --s
 in the repository root
 
 For more complicated setups the EXTRA_ARGS environment variable can be set.
-
-## Nix
-Currently this project only sports support for Nix on Linux platforms.
-### Development
-All `zsh` wrapper functions wraps around `nix-shell`, and if dropping into a `nix-shell` directly remember to use the cargo flag `--features=static` to build against the static libraries in LFS.
-### Install binaries as a package
-```bash
-$> scripts/download-static-libs.sh
-$> nix-env -f . -i
-```
 
 ## Elastic search in local development mode
 ### Running the local development version from the stable master branch 
