@@ -280,7 +280,8 @@ fn handle_get_peers_req(
             conn.handler()
                 .get_peer_stats()
                 .iter()
-                .filter(|element| element.peer_type == PeerType::Node)
+                .filter(|stat| stat.peer_type == PeerType::Node)
+                .filter(|stat| P2PNodeId(stat.id) != source.id)
                 .map(|stat| P2PPeer::from(stat.peer_type, P2PNodeId(stat.id), stat.addr))
                 .collect()
         };
