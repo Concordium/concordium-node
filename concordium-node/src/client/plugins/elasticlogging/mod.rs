@@ -22,8 +22,8 @@ struct TransferLogEvent {
     pub baker_id: Option<String>,
 }
 
-pub fn log_transfer_event(host: &str, port: u16, msg: TransactionLogMessage) -> Fallible<()> {
-    let client = create_client(host, port)?;
+pub fn log_transfer_event(url: &str, msg: TransactionLogMessage) -> Fallible<()> {
+    let client = create_client(url)?;
     let doc = match msg {
         TransactionLogMessage::DirectTransfer(
             block_hash,
@@ -141,8 +141,8 @@ pub fn log_transfer_event(host: &str, port: u16, msg: TransactionLogMessage) -> 
     Ok(())
 }
 
-pub fn create_transfer_index(host: &str, port: u16) -> Fallible<()> {
-    let client = create_client(host, port)?;
+pub fn create_transfer_index(url: &str) -> Fallible<()> {
+    let client = create_client(url)?;
     match client
         .index(TransferLogEvent::static_index())
         .exists()
@@ -166,11 +166,8 @@ pub fn create_transfer_index(host: &str, port: u16) -> Fallible<()> {
     }
 }
 
-fn create_client(host: &str, port: u16) -> Fallible<Client<SyncSender>> {
-    match SyncClientBuilder::new()
-        .static_node(format!("http://{}:{}", host, port).to_string())
-        .build()
-    {
+fn create_client(url: &str) -> Fallible<Client<SyncSender>> {
+    match SyncClientBuilder::new().static_node(url).build() {
         Ok(client) => Ok(client),
         Err(e) => bail!("Can't open Elastic Search client due to {}", e),
     }

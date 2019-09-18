@@ -6,7 +6,6 @@ export LD_LIBRARY_PATH=/usr/local/lib
 ARGS=""
 
 # Determine what arguments to pass to the binary
-
 if [ -n "$ID" ];
 then
     ARGS="$ARGS --id $ID"
@@ -33,6 +32,14 @@ fi
 if [ -n "$BAKER_ID" ];
 then
     ARGS="$ARGS --baker-id $(echo $BAKER_ID | cut -d'-' -f2)"
+    if [[ -n "$ELASTIC_SEARCH_LOGGING" && "$BAKER_ID" == "0" ]];
+    then
+        ARGS="$ARGS --elastic-logging"
+        if [ -n "$ELASTIC_SEARCH_URL" ]
+        then
+            ARGS="$ARGS --elastic-logging-url $ELASTIC_SEARCH_URL"
+        fi
+    fi
 fi
 
 if [ -n "$PROMETHEUS_METRICS_SERVER" ];
@@ -226,12 +233,11 @@ elif [ "$MODE" == "bootstrapper" ]; then
 elif [ "$MODE" == "local_basic" ]; then
     export BAKER_ID=`curl http://baker_id_gen:8000/next_id`
     echo "Using BAKER_ID $BAKER_ID"
-    if [ -n "$ELASTIC_SEARCH_LOGGING" ];
+    if [[ -n "$ELASTIC_SEARCH_LOGGING" && "$BAKER_ID" == "0" ]];
     then
-        if [ "$BAKER_ID" == "0" ];
-        then
-            ARGS="$ARGS --elastic-logging --elastic-logging-host elasticsearch"
-        fi
+        ARGS="$ARGS --elastic-logging --elastic-logging-url http://elasticsearch:9200"
+        echo "Sleeping 20s for ES to warmup"
+        sleep 20
     fi
     /p2p_client-cli --baker-id $BAKER_ID --no-dnssec $ARGS --id $(printf "%016d\n" $BAKER_ID)
 elif [ "$MODE" == "local_bootstrapper" ]; then
