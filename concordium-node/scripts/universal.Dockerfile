@@ -8,7 +8,7 @@ COPY ./scripts/start.sh ./start.sh
 COPY ./scripts/genesis-data ./genesis-data
 ENV LD_LIBRARY_PATH=/usr/local/lib
 RUN --mount=type=ssh ./init.build.env.sh 
-RUN --mount=type=ssh cargo build --features=instrumentation,benchmark,profiling && \
+RUN --mount=type=ssh cargo build --features=instrumentation,benchmark,profiling,elastic_logging && \
     cp /build-project/target/debug/p2p_client-cli /build-project/target/debug/p2p_bootstrapper-cli /build-project/ && \
     cargo clean && \
     # Sanitizer build

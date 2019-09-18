@@ -6,7 +6,6 @@ export LD_LIBRARY_PATH=/usr/local/lib
 ARGS=""
 
 # Determine what arguments to pass to the binary
-
 if [ -n "$ID" ];
 then
     ARGS="$ARGS --id $ID"
@@ -33,6 +32,18 @@ fi
 if [ -n "$BAKER_ID" ];
 then
     ARGS="$ARGS --baker-id $(echo $BAKER_ID | cut -d'-' -f2)"
+    if [[ -n "$ELASTIC_SEARCH_LOGGING" && "$BAKER_ID" == "0" ]];
+    then
+        ARGS="$ARGS --elastic-logging"
+        if [ -n "$ELASTIC_SEARCH_HOST" ]
+        then
+            ARGS="$ARGS --elastic-logging-host $ELASTIC_SEARCH_HOST"
+        fi
+        if [ -n "$ELASTIC_SEARCH_PORT" ]
+        then
+            ARGS="$ARGS --elastic-logging-port $ELASTIC_SEARCH_PORT"
+        fi
+    fi
 fi
 
 if [ -n "$PROMETHEUS_METRICS_SERVER" ];
