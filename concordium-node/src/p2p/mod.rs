@@ -18,7 +18,7 @@ mod tests {
     #[test]
     pub fn test_ban_functionalities() -> Fallible<()> {
         // either that or Node::new should have a bool for the creation of the banlist
-        thread::sleep(Duration::from_secs(1));
+        thread::sleep(Duration::from_secs(5));
 
         let port = next_available_port();
         let (node, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
