@@ -125,8 +125,8 @@ type instance BS.UpdatableBlockState (SkovTreeState s m) = BlockState
 instance (SkovLenses s, Monad m, MonadState s m) => TS.TreeStateMonad (SkovTreeState s m) where
     makePendingBlock key slot parent bid pf n lastFin trs time = return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
     getBlockStatus bh = use (blockTable . at bh)
-    makeLiveBlock block parent lastFin st arrTime = do
-            let blockP = makeBlockPointer block parent lastFin st arrTime
+    makeLiveBlock block parent lastFin st arrTime energy = do
+            let blockP = makeBlockPointer block parent lastFin st arrTime energy
             blockTable . at (getHash block) ?= TS.BlockAlive blockP
             return blockP
     markDead bh = blockTable . at bh ?= TS.BlockDead

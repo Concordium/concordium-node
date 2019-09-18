@@ -87,6 +87,7 @@ class (Eq (BlockPointer m),
         -> BlockPointer m                    -- ^Last finalized block pointer
         -> BlockState m                      -- ^Block state
         -> UTCTime                           -- ^Block arrival time
+        -> Energy                            -- ^Energy cost of the transactions in the block.
         -> m (BlockPointer m)
     -- |Mark a block as dead.
     markDead :: BlockHash -> m ()
@@ -273,7 +274,7 @@ type instance PendingBlock (BSMTrans t m) = PendingBlock m
 instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (BSMTrans t m) where
     makePendingBlock key slot parent bid pf n lastFin trs time = lift $ makePendingBlock key slot parent bid pf n lastFin trs time
     getBlockStatus = lift . getBlockStatus
-    makeLiveBlock b parent lastFin st time = lift $ makeLiveBlock b parent lastFin st time
+    makeLiveBlock b parent lastFin st time energy = lift $ makeLiveBlock b parent lastFin st time energy
     markDead = lift . markDead
     markFinalized bh fr = lift $ markFinalized bh fr
     markPending = lift . markPending
