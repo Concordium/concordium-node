@@ -140,7 +140,7 @@ fn handle_handshake_req(
     source: P2PPeer,
     networks: &HashSet<NetworkId>,
 ) -> Fallible<()> {
-    debug!("Got a Handshake request");
+    debug!("Got a Handshake request from peer {}", source.id());
 
     if conn.handler().is_banned(BannedNode::ById(source.id()))? {
         conn.close();
@@ -166,7 +166,7 @@ fn handle_handshake_resp(
     source: P2PPeer,
     networks: &HashSet<NetworkId>,
 ) -> Fallible<()> {
-    debug!("Got a Handshake response");
+    debug!("Got a Handshake response from peer {}", source.id());
 
     conn.add_remote_end_networks(networks);
     conn.promote_to_post_handshake(source.id())?;
@@ -266,7 +266,7 @@ fn handle_get_peers_req(
     source: P2PPeer,
     networks: &HashSet<NetworkId>,
 ) -> Fallible<()> {
-    trace!("Got a GetPeers request");
+    trace!("Got a GetPeers request from peer {}", source.id());
 
     if !conn.is_post_handshake() {
         bail!("handle_get_peers_req was called before the handshake!")
@@ -308,7 +308,7 @@ fn handle_peer_list_resp(
     source: P2PPeer,
     peers: &[P2PPeer],
 ) -> Fallible<()> {
-    debug!("Received a PeerList response");
+    debug!("Received a PeerList response from peer {}", source.id());
 
     let mut new_peers = 0;
     let curr_peer_count = node
@@ -320,10 +320,7 @@ fn handle_peer_list_resp(
     let mut locked_buckets = safe_write!(conn.handler().connection_handler.buckets)?;
     for peer in peers.iter() {
         trace!(
-            "Peer {}/{}/{} sent us peer info for {}/{}/{}",
-            source.id(),
-            source.ip(),
-            source.port(),
+            "Got info for peer {}/{}/{}",
             peer.id(),
             peer.ip(),
             peer.port()
@@ -436,6 +433,8 @@ pub fn handle_retransmit_req(
     nid: NetworkId,
     transactions_cache: &mut Cache<Arc<[u8]>>,
 ) {
+    debug!("Received a Retransmit request from peer {}", requester.id());
+
     if let RequestedElementType::Transaction = element_type {
         let transactions = transactions_cache.get_since(since);
         transactions.iter().for_each(|transaction| {
