@@ -55,6 +55,10 @@ class (Eq bp, Show bp, BlockData bp) => BlockPointerData bp where
     bpArriveTime :: bp -> UTCTime
     -- |Number of transactions in a block
     bpTransactionCount :: bp -> Int
+    -- |Energy cost of all transactions in the block.
+    bpTransactionsEnergyCost :: bp -> Energy
+    -- |Size of the transaction data in bytes.
+    bpTransactionsSize :: bp -> Int
 
 type family BlockPointer (m :: * -> *) :: *
 
@@ -449,8 +453,8 @@ data TransferReason =
 resultToReasons :: (BlockMetadata bp, TransactionData tx) => bp -> tx -> ValidResult -> [TransferReason]
 resultToReasons bp tx res =
   case res of
-       TxReject _ a -> [ExecutionCost trId sender a baker]
-       TxSuccess events a -> mapMaybe extractReason events ++ [ExecutionCost trId sender a baker]
+       TxReject _ a _ -> [ExecutionCost trId sender a baker]
+       TxSuccess events a _ -> mapMaybe extractReason events ++ [ExecutionCost trId sender a baker]
   where extractReason (Transferred (AddressAccount source) amount (AddressAccount target)) =
           Just (DirectTransfer trId source amount target)
         extractReason (Transferred (AddressContract source) amount (AddressAccount target)) =
