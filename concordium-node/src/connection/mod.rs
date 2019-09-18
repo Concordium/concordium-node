@@ -109,17 +109,17 @@ impl Connection {
 
     pub fn remote_peer_type(&self) -> PeerType { self.remote_peer.peer_type() }
 
-    pub fn remote_peer_stats(&self) -> PeerStats {
-        PeerStats::new(
+    pub fn remote_peer_stats(&self) -> Fallible<PeerStats> {
+        Ok(PeerStats::new(
             self.remote_id()
-                .expect("Attempted to get the stats of a pre-handshake peer!")
+                .ok_or_else(|| format_err!("Attempted to get the stats of a pre-handshake peer!"))?
                 .as_raw(),
             self.remote_addr(),
             self.remote_peer_type(),
             Arc::clone(&self.messages_sent),
             Arc::clone(&self.messages_received),
             Arc::clone(&self.last_latency_measured),
-        )
+        ))
     }
 
     pub fn remote_addr(&self) -> SocketAddr { self.remote_peer.addr() }
@@ -192,7 +192,7 @@ impl Connection {
 
         // register peer's stats in the P2PNode
         write_or_die!(self.handler().active_peer_stats)
-            .insert(id.as_raw(), self.remote_peer_stats());
+            .insert(id.as_raw(), self.remote_peer_stats()?);
 
         Ok(())
     }

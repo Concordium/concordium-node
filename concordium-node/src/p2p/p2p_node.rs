@@ -679,10 +679,8 @@ impl P2PNode {
         *write_or_die!(self.active_peer_stats) = read_or_die!(self.connection_handler.connections)
             .iter()
             .filter(|conn| conn.is_post_handshake())
-            .map(|conn| {
-                let stats = conn.remote_peer_stats();
-                (stats.id, stats)
-            })
+            .filter_map(|conn| conn.remote_peer_stats().ok())
+            .map(|stats| (stats.id, stats))
             .collect();
 
         // reconnect to bootstrappers after a specified amount of time
