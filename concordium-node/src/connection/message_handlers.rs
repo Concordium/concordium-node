@@ -144,6 +144,7 @@ fn handle_handshake_req(
 
     if conn.handler().is_banned(BannedNode::ById(source.id()))? {
         conn.close();
+        bail!("Rejected a handshake request from a banned node");
     }
 
     conn.promote_to_post_handshake(source.id())?;
