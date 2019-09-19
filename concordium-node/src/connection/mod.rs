@@ -50,7 +50,6 @@ use std::{
     },
 };
 
-#[derive(Clone)]
 pub struct Connection {
     handler_ref:               Pin<Arc<P2PNode>>,
     pub token:                 Token,
@@ -96,7 +95,7 @@ impl Connection {
         key_pair: Keypair,
         is_initiator: bool,
         noise_params: snow::params::NoiseParams,
-    ) -> Self {
+    ) -> Arc<Self> {
         let curr_stamp = get_current_stamp();
 
         let dptr = Arc::new(RwLock::new(ConnectionPrivate::new(
@@ -107,7 +106,7 @@ impl Connection {
             noise_params,
         )));
 
-        let conn = Self {
+        let conn = Arc::new(Self {
             handler_ref: Arc::pin(handler_ref.clone()),
             token,
             remote_peer,
@@ -123,9 +122,9 @@ impl Connection {
             last_latency_measured: Default::default(),
             last_seen: Arc::new(AtomicU64::new(curr_stamp)),
             failed_pkts: Default::default(),
-        };
+        });
 
-        write_or_die!(conn.dptr).conn_ref = Some(Arc::pin(conn.clone()));
+        write_or_die!(conn.dptr).conn_ref = Some(Pin::new(Arc::clone(&conn)));
 
         conn
     }

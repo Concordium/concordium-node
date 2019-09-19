@@ -987,28 +987,28 @@ impl P2PNode {
         read_or_die!(self.connection_handler.connections)
             .iter()
             .find(|conn| conn.remote_id() == Some(id))
-            .cloned()
+            .map(|conn| Arc::clone(conn))
     }
 
     pub fn find_connection_by_token(&self, token: Token) -> Option<Arc<Connection>> {
         read_or_die!(self.connection_handler.connections)
             .iter()
             .find(|conn| conn.token == token)
-            .cloned()
+            .map(|conn| Arc::clone(conn))
     }
 
     pub fn find_connection_by_ip_addr(&self, addr: SocketAddr) -> Option<Arc<Connection>> {
         read_or_die!(self.connection_handler.connections)
             .iter()
             .find(|conn| conn.remote_addr() == addr)
-            .cloned()
+            .map(|conn| Arc::clone(conn))
     }
 
     pub fn find_connections_by_ip(&self, ip: IpAddr) -> Vec<Arc<Connection>> {
         read_or_die!(self.connection_handler.connections)
             .iter()
             .filter(|conn| conn.remote_peer().addr().ip() == ip)
-            .cloned()
+            .map(|conn| Arc::clone(conn))
             .collect()
     }
 
@@ -1017,8 +1017,8 @@ impl P2PNode {
             .retain(|conn| !to_remove.contains(&conn.token));
     }
 
-    pub fn add_connection(&self, conn: Connection) -> bool {
-        write_or_die!(self.connection_handler.connections).insert(Arc::new(conn))
+    pub fn add_connection(&self, conn: Arc<Connection>) -> bool {
+        write_or_die!(self.connection_handler.connections).insert(conn)
     }
 
     pub fn conn_event(&self, event: &Event) {
