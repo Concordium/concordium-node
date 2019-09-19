@@ -156,6 +156,11 @@ pub struct BakerConfig {
         default_value = "12582912"
     )]
     pub maximum_block_size: u32,
+    #[structopt(
+        long = "scheduler-outcome-logging",
+        help = "Enable outcome of finalized baked blocks from the scheduler"
+    )]
+    pub scheduler_outcome_logging: bool,
 }
 
 #[derive(StructOpt, Debug)]

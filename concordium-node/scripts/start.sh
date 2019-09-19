@@ -35,7 +35,7 @@ then
     ARGS="$ARGS --baker-id $REAL_BAKER_ID"
     if [[ -n "$ELASTIC_SEARCH_LOGGING" && "$REAL_BAKER_ID" == "0" ]];
     then
-        ARGS="$ARGS --elastic-logging"
+        ARGS="$ARGS --elastic-logging --scheduler-outcome-logging"
         if [ -n "$ELASTIC_SEARCH_URL" ]
         then
             ARGS="$ARGS --elastic-logging-url $ELASTIC_SEARCH_URL"
@@ -236,7 +236,7 @@ elif [ "$MODE" == "local_basic" ]; then
     echo "Using BAKER_ID $BAKER_ID"
     if [[ -n "$ELASTIC_SEARCH_LOGGING" && "$BAKER_ID" == "0" ]];
     then
-        ARGS="$ARGS --elastic-logging --elastic-logging-url http://elasticsearch:9200"
+        ARGS="$ARGS --elastic-logging --scheduler-outcome-logging --elastic-logging-url http://elasticsearch:9200"
         echo "Sleeping 20s for ES to warmup"
         sleep 20
     fi

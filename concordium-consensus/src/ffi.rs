@@ -197,6 +197,7 @@ extern "C" {
         private_data_len: i64,
         broadcast_callback: BroadcastCallback,
         log_callback: LogCallback,
+        transfer_log_enabled: u8,
         transfer_log_callback: TransferLogCallback,
     ) -> *mut consensus_runner;
     pub fn startConsensusPassive(
@@ -299,6 +300,7 @@ extern "C" {
 
 pub fn get_consensus_ptr(
     max_block_size: u64,
+    enable_transfer_logging: bool,
     genesis_data: Vec<u8>,
     private_data: Option<Vec<u8>>,
 ) -> *mut consensus_runner {
@@ -326,6 +328,7 @@ pub fn get_consensus_ptr(
                     private_data_len as i64,
                     broadcast_callback,
                     on_log_emited,
+                    if enable_transfer_logging { 1 } else { 0 },
                     on_transfer_log_emitted,
                 )
             }
