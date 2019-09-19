@@ -41,12 +41,6 @@ data SyncRunner = SyncRunner {
     syncFinalizationCatchUpActive :: MVar (Maybe (IORef Bool))
 }
 
-getLogTransferMethod :: MonadIO m => SyncRunner -> LogTransferMethod m
-getLogTransferMethod SyncRunner{..} =
-  case syncLogTransferMethod of
-    Nothing -> \_ _ _ -> return ()
-    Just m -> \bh slot reason -> liftIO (m bh slot reason)
-
 bakerFinalizationInstance :: BakerIdentity -> FinalizationInstance
 bakerFinalizationInstance bkr = FinalizationInstance (bakerSignKey bkr) (bakerElectionKey bkr)
 
@@ -124,7 +118,7 @@ startSyncRunner sr@SyncRunner{..} = do
                                 mblock <- if (curSlot > lastSlot) then bakeForSlot syncBakerIdentity curSlot else return Nothing
                                 return (mblock, curSlot)
                         ((mblock, curSlot), sfs', evs) <-
-                          runSkovBufferedHookedLoggedM bake (bakerFinalizationInstance syncBakerIdentity) sfs (getLogTransferMethod sr)
+                          runSkovBufferedHookedLoggedM bake (bakerFinalizationInstance syncBakerIdentity) syncLogTransferMethod sfs
                         return ((mblock, sfs', evs, curSlot), sfs'))
                 forM_ mblock $ syncCallback . SOMsgNewBlock
                 let
@@ -155,13 +149,13 @@ stopSyncRunner SyncRunner{..} = mask_ $ tryTakeMVar syncBakerThread >>= \case
         Nothing -> return ()
         Just thrd -> killThread thrd
 
-runSkovBufferedMWithStateLog :: SyncRunner -> SkovBufferedHookedLoggedM LogIO a -> IO (a, [FinalizationOutputEvent])
+runSkovBufferedMWithStateLog :: SyncRunner -> SkovBufferedHookedLoggedM (LoggerT IO) a -> IO (a, [FinalizationOutputEvent])
 runSkovBufferedMWithStateLog sr@SyncRunner{..} a = do
-        (ret, evts) <- runWithStateLog syncState syncLogMethod (\sfs -> 
-            (\(ret, sfs', evs) -> ((ret, evs), sfs')) <$> runSkovBufferedHookedLoggedM a (bakerFinalizationInstance syncBakerIdentity) sfs (getLogTransferMethod sr))
-        forM_ (extractNotifyEvents evts) $ asyncNotify syncState syncLogMethod (syncCallback . SOMsgFinalization . FPMMessage)
-        forM_ (extractCatchUpTimer evts) (asyncTriggerFinalizationCatchUp sr)
-        return (ret, extractFinalizationOutputEvents evts)
+     (ret, evts) <- runWithStateLog syncState syncLogMethod (\sfs -> 
+         (\(ret, sfs', evs) -> ((ret, evs), sfs')) <$> runSkovBufferedHookedLoggedM a (bakerFinalizationInstance syncBakerIdentity) syncLogTransferMethod sfs)
+     forM_ (extractNotifyEvents evts) $ asyncNotify syncState syncLogMethod (syncCallback . SOMsgFinalization . FPMMessage)
+     forM_ (extractCatchUpTimer evts) (asyncTriggerFinalizationCatchUp sr)
+     return (ret, extractFinalizationOutputEvents evts)
 
 syncReceiveBlock :: SyncRunner -> PendingBlock -> IO (UpdateResult, [FinalizationOutputEvent])
 syncReceiveBlock syncRunner block = runSkovBufferedMWithStateLog syncRunner (storeBlock block)

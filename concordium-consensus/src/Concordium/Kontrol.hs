@@ -20,7 +20,6 @@ timeUntilNextSlot :: (TimeMonad m, SkovQueryMonad m) => m NominalDiffTime
 timeUntilNextSlot = do
     gen <- getGenesisData
     now <- utcTimeToPOSIXSeconds <$> currentTime
-    let genTime = fromIntegral (genesisTime gen)
     return $ ((fromIntegral (genesisTime gen)) - now) `mod'` (fromIntegral $ genesisSlotDuration gen)
 
 getCurrentSlot :: (TimeMonad m, SkovQueryMonad m) => m Slot

@@ -68,27 +68,32 @@ data SkovListeners m = SkovListeners {
 class OnSkov m where
     onBlock :: BlockPointer m -> m ()
     onFinalize :: FinalizationRecord -> BlockPointer m -> m ()
-    logTransfer :: BlockHash -> Slot -> TransferReason -> m ()
+    -- |A function to log transfers at finalization time. Since it is
+    -- potentially expensive to even keep track of events we make it an
+    -- explicitly optional value to short-circuit evaluation.
+    logTransfer :: m (Maybe (BlockHash -> Slot -> TransferReason -> m ()))
 
 -- |Log transfers in the given block using the 'logTransfer' method of the
 -- 'OnSkov' class.
 logTransfers :: (TreeStateMonad m, OnSkov m, LoggerMonad m) => BlockPointer m -> m ()
-logTransfers bp = do
-  let state = bpState bp
-  case blockFields bp of
-    Nothing -> return ()  -- don't do anything for the genesis block
-    Just fields -> do
-      forM_ (blockTransactions bp) $ \tx ->
-        getTransactionOutcome state (trHash tx) >>= \case
-          Nothing ->
-            logEvent Skov LLDebug $ "Could not retrieve transaction outcome in block " ++
-                                    show (bpHash bp) ++
-                                    " for transaction " ++
-                                    show (trHash tx)
-          Just outcome ->
-            mapM_ (logTransfer (bpHash bp) (blockSlot bp)) (resultToReasons fields tx outcome)
-      special <- getSpecialOutcomes state
-      mapM_ (logTransfer (bpHash bp) (blockSlot bp) . specialToReason fields) special
+logTransfers bp = logTransfer >>= \case
+  Nothing -> return ()
+  Just logger -> do
+    let state = bpState bp
+    case blockFields bp of
+      Nothing -> return ()  -- don't do anything for the genesis block
+      Just fields -> do
+        forM_ (blockTransactions bp) $ \tx ->
+          getTransactionOutcome state (trHash tx) >>= \case
+            Nothing ->
+              logEvent Skov LLDebug $ "Could not retrieve transaction outcome in block " ++
+                                      show (bpHash bp) ++
+                                      " for transaction " ++
+                                      show (trHash tx)
+            Just outcome ->
+              mapM_ (logger (bpHash bp) (blockSlot bp)) (resultToReasons fields tx outcome)
+        special <- getSpecialOutcomes state
+        mapM_ (logger (bpHash bp) (blockSlot bp) . specialToReason fields) special
 
 
 -- |Handle a block arriving that is dead.  That is, the block has never

@@ -300,19 +300,20 @@ startConsensus ::
            -> CString -> Int64 -- ^Serialized baker identity (c string + len)
            -> FunPtr BroadcastCallback -- ^Handler for generated messages
            -> FunPtr LogCallback -- ^Handler for log events
+           -> Word8 -- ^Whether to enable logging of transfer events (/= 0) or not (value 0).
            -> FunPtr LogTransferCallback -- ^Handler for logging transfer events
            -> IO (StablePtr ConsensusRunner)
-startConsensus maxBlock gdataC gdataLenC bidC bidLenC bcbk lcbk ltcbk = do
+startConsensus maxBlock gdataC gdataLenC bidC bidLenC bcbk lcbk enableTransferLogging ltcbk = do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
         case (decode gdata, decode bdata) of
             (Right genData, Right bid) -> do
-                bakerSyncRunner <- makeSyncRunner logM (Just logT) bid (RuntimeParameters (fromIntegral maxBlock)) genData (genesisState genData) bakerBroadcast
+                bakerSyncRunner <- makeSyncRunner logM logT bid (RuntimeParameters (fromIntegral maxBlock)) genData (genesisState genData) bakerBroadcast
                 newStablePtr BakerRunner{..}
             _ -> ioError (userError $ "Error decoding serialized data.")
     where
         logM = toLogMethod lcbk
-        logT = toLogTransferMethod ltcbk
+        logT = if enableTransferLogging /= 0 then Just (toLogTransferMethod ltcbk) else Nothing
         bakerBroadcast = broadcastCallback logM bcbk
 
 -- |Start consensus without a baker identity.
@@ -882,7 +883,7 @@ receiveCatchUpStatus cptr src cstr l cbk = do
 
 
 foreign export ccall makeGenesisData :: Timestamp -> Word64 -> CString -> CString -> FunPtr GenesisDataCallback -> FunPtr BakerIdentityCallback -> IO CInt
-foreign export ccall startConsensus :: Word64 -> CString -> Int64 -> CString -> Int64 -> FunPtr BroadcastCallback -> FunPtr LogCallback -> FunPtr LogTransferCallback -> IO (StablePtr ConsensusRunner)
+foreign export ccall startConsensus :: Word64 -> CString -> Int64 -> CString -> Int64 -> FunPtr BroadcastCallback -> FunPtr LogCallback -> Word8 -> FunPtr LogTransferCallback -> IO (StablePtr ConsensusRunner)
 foreign export ccall startConsensusPassive :: Word64 -> CString -> Int64 -> FunPtr LogCallback -> IO (StablePtr ConsensusRunner)
 foreign export ccall stopConsensus :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall startBaker :: StablePtr ConsensusRunner -> IO ()
