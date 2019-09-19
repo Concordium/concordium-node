@@ -45,7 +45,7 @@ ENV BOOTSTRAP_FIRST_NODE=bootstrap.eu.test.concordium.com:8888
 ENV DATA_DIR=/var/lib/concordium/data
 ENV CONFIG_DIR=/var/lib/concordium/config
 
-RUN apt-get update && apt-get install -y unbound
+RUN apt-get update && apt-get install -y unbound curl
 COPY --from=build /build-project/p2p_client-cli /p2p_client-cli
 COPY --from=build /build-project/start.sh /start.sh
 

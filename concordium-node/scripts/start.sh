@@ -31,7 +31,7 @@ fi
 
 if [ -n "$BAKER_ID" ];
 then
-    REAL_BAKER_ID=$(echo $BAKER_ID | cut -d'-' -f2)
+    export REAL_BAKER_ID=$(echo $BAKER_ID | cut -d'-' -f2)
     ARGS="$ARGS --baker-id $REAL_BAKER_ID"
     if [[ -n "$ELASTIC_SEARCH_LOGGING" && "$REAL_BAKER_ID" == "0" ]];
     then
@@ -181,7 +181,7 @@ fi
 if [ -n "$AWS_FIND_EXTERNAL_IP_AND_USE_BASE_PORT" ];
 then
     export EXTERNAL_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
-    export EXTERNAL_PORT=$(($AWS_FIND_EXTERNAL_IP_AND_USE_BASE_PORT+$i))
+    export EXTERNAL_PORT=$(($AWS_FIND_EXTERNAL_IP_AND_USE_BASE_PORT+$REAL_BAKER_ID))
 fi
 
 if [ -n "$EXTERNAL_IP" ];
