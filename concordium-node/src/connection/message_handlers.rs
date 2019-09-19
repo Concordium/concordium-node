@@ -333,7 +333,7 @@ fn handle_peer_list_resp(
             locked_buckets.insert_into_bucket(peer, HashSet::new());
         }
 
-        if new_peers + curr_peer_count as u8 >= node.config.desired_nodes_count {
+        if new_peers + curr_peer_count >= node.config.desired_nodes_count as usize {
             break;
         }
 

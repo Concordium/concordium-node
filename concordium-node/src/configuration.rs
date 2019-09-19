@@ -196,7 +196,7 @@ pub struct ConnectionConfig {
         help = "Desired nodes to always have",
         default_value = "50"
     )]
-    pub desired_nodes: u8,
+    pub desired_nodes: u16,
     #[structopt(
         long = "max-resend-attempts",
         help = "Maximum number of times a packet is attempted to be resent",
@@ -207,7 +207,7 @@ pub struct ConnectionConfig {
         long = "max-allowed-nodes",
         help = "Maximum nodes to allow a connection to"
     )]
-    pub max_allowed_nodes: Option<u8>,
+    pub max_allowed_nodes: Option<u16>,
     #[structopt(
         long = "max-allowed-nodes-percentage",
         help = "Maximum nodes to allow a connection to is set as a percentage of desired-nodes \
