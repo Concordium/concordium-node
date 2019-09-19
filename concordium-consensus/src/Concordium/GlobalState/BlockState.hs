@@ -16,6 +16,7 @@ import Control.Monad.Trans.Except
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.RWS.Strict
 import Control.Monad
+import Data.Word
 
 import Concordium.Types
 import Concordium.Types.Execution (ValidResult)
@@ -26,7 +27,7 @@ import Concordium.Types.Acorn.Interfaces
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Instances
-import Concordium.GlobalState.Modules hiding (getModule)
+-- import Concordium.GlobalState.Modules hiding (getModule)
 import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.Transactions (TransactionHash)
@@ -58,6 +59,15 @@ class (Eq bp, Show bp, BlockData bp) => BlockPointerData bp where
 type family BlockPointer (m :: * -> *) :: *
 
 type BlockState (m :: * -> *) = BlockState' (BlockPointer m)
+
+type ModuleIndex = Word64
+
+data Module = Module {
+    moduleInterface :: Interface Core.UA,
+    moduleValueInterface :: UnlinkedValueInterface Void,
+    moduleIndex :: !ModuleIndex,
+    moduleSource :: Core.Module Core.UA
+}
 
 
 -- |The block query methods can query block state. They are needed by

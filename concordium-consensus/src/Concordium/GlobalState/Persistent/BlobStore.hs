@@ -1,7 +1,7 @@
 
 {-# LANGUAGE RecordWildCards, MultiParamTypeClasses, FunctionalDependencies, TypeFamilies, FlexibleInstances, QuantifiedConstraints,
     GeneralizedNewtypeDeriving, StandaloneDeriving, UndecidableInstances, DefaultSignatures, DeriveFunctor, ConstraintKinds, RankNTypes,
-    ScopedTypeVariables, TupleSections, DeriveFoldable, DeriveTraversable #-}
+    ScopedTypeVariables, TupleSections, DeriveFoldable, DeriveTraversable, DerivingStrategies, FlexibleContexts #-}
 {-| 
 
 -}
@@ -140,6 +140,10 @@ class (MonadBlobStore m ref) => BlobStorable m ref a where
             Left e -> error e
             Right mv -> mv
 
+newtype SerializeStorable v = SerStore v
+    deriving newtype (Eq, Ord, Show, Serialize)
+
+instance (Serialize v, MonadBlobStore m ref) => BlobStorable m ref (SerializeStorable v)
 
 data Nullable v = Null | Some !v
     deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
@@ -153,6 +157,75 @@ instance Serialize (Nullable (BlobRef a)) where
 
 instance (MonadBlobStore m BlobRef) => BlobStorable m BlobRef (BlobRef a)
 instance (MonadBlobStore m BlobRef) => BlobStorable m BlobRef (Nullable (BlobRef a))
+
+data CachedRef a
+    = CRBlobbed {crRef :: !(BlobRef a)}
+    | CRCached {crRef :: !(BlobRef a), crValue :: !a}
+
+instance (MonadBlobStore m BlobRef) => BlobStorable m BlobRef (CachedRef a) where
+    store p v = store p (crRef v)
+    load p = fmap CRBlobbed <$> load p
+
+instance (MonadBlobStore m BlobRef) => BlobStorable m BlobRef (Nullable (CachedRef a)) where
+    store p v = store p (crRef <$> v)
+    load p = fmap (fmap CRBlobbed) <$> load p
+
+data BufferedRef a
+    = BRBlobbed {brRef :: !(BlobRef a)}
+    | BRCached {brRef :: !(BlobRef a), brValue :: !a}
+    | BRMemory {brValue :: !a}
+
+instance (BlobStorable m BlobRef a) => BlobStorable m BlobRef (BufferedRef a) where
+    store p (BRBlobbed r) = store p r
+    store p (BRCached r _) = store p r
+    store p (BRMemory v) = do
+        (r :: BlobRef a) <- storeRef v
+        store p r
+    load p = fmap BRBlobbed <$> load p
+    storeUpdate p (BRMemory v) = do
+        (r :: BlobRef a, v') <- storeUpdateRef v
+        (,BRMemory v') <$> store p r
+    storeUpdate p x = (,x) <$> store p x
+
+instance (BlobStorable m BlobRef a) => BlobStorable m BlobRef (Nullable (BufferedRef a)) where
+    store _ Null = return $ put nullRef
+    store p (Some v) = store p v
+    load p = do
+        r <- get
+        if r == nullRef then
+            return (pure Null)
+        else
+            fmap Some <$> load p
+    storeUpdate _ n@Null = return (put nullRef, n)
+    storeUpdate p (Some v) = do
+        (r, v') <- storeUpdate p v
+        return (r, Some v')
+
+loadBufferedRef :: (BlobStorable m BlobRef a) => BufferedRef a -> m a
+loadBufferedRef (BRBlobbed ref) = loadRef ref
+loadBufferedRef (BRCached _ v) = return v
+loadBufferedRef (BRMemory v) = return v
+
+{-
+class RefStorable ref m x where
+    makeRef :: (forall a. ref a -> m Put) -> x -> m (ref x)
+    loadRef :: (forall a. Get (m a)) -> m (ref x) -> x
+-}
+
+cachedToBlob :: CachedRef a -> BlobRef a
+cachedToBlob = crRef
+
+blobToCached :: BlobRef a -> CachedRef a
+blobToCached = CRBlobbed
+
+bufferedToCached' :: (BlobStorable m BlobRef a) => BufferedRef a -> m (CachedRef a)
+bufferedToCached' (BRBlobbed r) = return $ CRBlobbed r
+bufferedToCached' (BRCached r v) = return $ CRCached r v
+bufferedToCached' (BRMemory v) = do
+        (r, v') <- storeUpdateRef v
+        return $ CRCached r v'
+
+
 
 
 newtype Blobbed ref f = Blobbed {unblobbed :: ref (f (Blobbed ref f)) }

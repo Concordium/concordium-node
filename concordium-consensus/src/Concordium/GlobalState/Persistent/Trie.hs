@@ -9,9 +9,12 @@ import Data.Bifunctor
 import Control.Monad
 import Data.Serialize
 import qualified Data.ByteString as BS
+import Data.Either
 
 import Concordium.GlobalState.Persistent.MonadicRecursive
 import Concordium.GlobalState.Persistent.BlobStore
+import qualified Concordium.Types.Acorn.Core as Core (Name(..), ModuleRef(..))
+import qualified Concordium.Crypto.SHA256 as SHA256
 
 class FixedTrieKey a where
     -- |Unpack a key to a list of bytes.
@@ -19,8 +22,17 @@ class FixedTrieKey a where
     unpackKey :: a -> [Word8]
     default unpackKey :: (Serialize a) => a -> [Word8]
     unpackKey = BS.unpack . encode
+    -- |Pack a key from a list of bytes.
+    packKey :: [Word8] -> a
+    default packKey :: (Serialize a) => [Word8] -> a
+    packKey = fromRight (error "FixedTrieKey: deserialization failed") . decode . BS.pack
 
 instance FixedTrieKey Word64
+instance FixedTrieKey Word32
+deriving via Word32 instance FixedTrieKey Core.Name
+instance FixedTrieKey SHA256.Hash
+deriving via SHA256.Hash instance FixedTrieKey Core.ModuleRef
+
 
 -- |Trie with keys all of same fixed length treated as lists of bytes.
 data TrieF k v r
@@ -84,11 +96,13 @@ instance (Serialize r, Serialize (Nullable r), Serialize v) => Serialize (TrieF 
                     return (fromIntegral (v - 3))
             Stem <$> replicateM len getWord8 <*> get
 
-instance (BlobStorable m ref r, BlobStorable m ref (Nullable r), Serialize v) => BlobStorable m ref (TrieF k v r) where
+instance (BlobStorable m ref r, BlobStorable m ref (Nullable r), BlobStorable m ref v) => BlobStorable m ref (TrieF k v r) where
     storeUpdate p (Branch vec) = do
         pvec <- mapM (storeUpdate p) vec
         return (putWord8 1 >> sequence_ (fst <$> pvec), Branch (snd <$> pvec))
-    storeUpdate _ t@(Tip v) = return (putWord8 2 >> put v, t)
+    storeUpdate p (Tip v) = do
+        (pv, v') <- storeUpdate p v
+        return (putWord8 2 >> pv, Tip v')
     storeUpdate p (Stem l r) = do
         (pr, r') <- storeUpdate p r
         let putter = do
@@ -107,7 +121,7 @@ instance (BlobStorable m ref r, BlobStorable m ref (Nullable r), Serialize v) =>
         1 -> do
             branchms <- replicateM 256 (load p)
             return $ Branch . V.fromList <$> sequence branchms
-        2 -> return . Tip <$> get
+        2 -> fmap Tip <$> load p
         v -> do
             len <- if v == 255 then do
                     fromIntegral <$> getWord64be
@@ -142,7 +156,18 @@ lookupF k = lu (unpackKey k) <=< mproject
         lu (w:key') (Branch vec) = case vec V.! fromIntegral w of
             Null -> return Nothing
             Some r -> mproject r >>= lu key'
-        
+
+mapReduceF :: (MRecursive m t, Base t ~ TrieF k v, FixedTrieKey k, Monoid a) => (k -> v -> m a) -> t -> m a
+mapReduceF mfun = mr [] <=< mproject
+    where
+        mr keyPrefix (Tip v) = mfun (packKey keyPrefix) v
+        mr keyPrefix (Stem pref r) = mr (keyPrefix ++ pref) =<< mproject r
+        mr keyPrefix (Branch vec) = do
+            let
+                handleBranch _ Null = return mempty
+                handleBranch i (Some r) = mr (keyPrefix ++ [fromIntegral i]) =<< mproject r
+            mconcat . V.toList <$> V.imapM handleBranch vec
+
 commonPrefix :: (Eq a) => [a] -> [a] -> ([a], [a], [a])
 commonPrefix [] [] = ([], [], [])
 commonPrefix l1@(h1:t1) l2@(h2:t2)
@@ -225,7 +250,7 @@ instance (Show v, FixShowable fix) => Show (TrieN fix k v) where
     show EmptyTrieN = "EmptyTrieN"
     show (TrieN _ t) = showFix showTrieFString t
 
-instance (MonadBlobStore m ref, BlobStorable m ref (fix (TrieF k v)), Serialize v, MCorecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) => BlobStorable m ref (TrieN fix k v) where
+instance (MonadBlobStore m ref, BlobStorable m ref (fix (TrieF k v)), BlobStorable m ref v, MCorecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) => BlobStorable m ref (TrieN fix k v) where
     store _ EmptyTrieN = return (put (0 :: Int))
     store p (TrieN size t) = do
         pt <- store p t
@@ -277,6 +302,28 @@ lookup :: (MRecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, F
 lookup _ EmptyTrieN = return Nothing
 lookup k (TrieN _ t) = lookupF k t
 
+adjust :: (MRecursive m (fix (TrieF k v)), MCorecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) =>
+    (Maybe v -> m (a, Alteration v)) -> k -> TrieN fix k v -> m (a, TrieN fix k v)
+adjust adj k EmptyTrieN = do
+        (res, alter) <- adj Nothing
+        case alter of
+            Insert v -> (res, ) <$> singleton k v
+            _ -> return (res, EmptyTrieN)
+adjust adj k (TrieN s t) = do
+    let
+        ur Nothing (a, r@(Insert _)) = ((s+1, a), r)
+        ur Nothing (a, r) = ((s, a), r)
+        ur (Just _) (a, r@(Remove)) = ((s-1, a), r)
+        ur (Just _) (a, r) = ((s, a), r)
+        adj' i = ur i <$> adj i
+    ((s', res), mt') <- alterM k adj' t
+    case mt' of
+        Just t' -> return $! (res, TrieN s' t')
+        Nothing -> return $! (res, EmptyTrieN)
+
+keys :: (MRecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) => TrieN fix k v -> m [k]
+keys EmptyTrieN = return []
+keys (TrieN _ t) = mapReduceF (\k _ -> pure [k]) t
 
 -- data TrieN fix k v = TrieN {length :: Int, trie :: fix (TrieF k v)}
 
