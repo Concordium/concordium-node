@@ -224,16 +224,16 @@ class StaticEnvironmentMonad Core.UA m => TransactionMonad m where
   -- transaction with the given reason.
   {-# INLINE rejectingWith #-}
   rejectingWith :: m (Maybe a) -> RejectReason -> m a
-  rejectingWith c reason = c >>= \case Just a -> return a
-                                       Nothing -> rejectTransaction reason
+  rejectingWith !c reason = c >>= \case Just a -> return a
+                                        Nothing -> rejectTransaction reason
 
 
   -- |If the computation yields a @Right b@ result return it, otherwise fail the
   -- transaction after transforming the reject message.
   {-# INLINE rejectingWith' #-}
   rejectingWith' :: m (Either a b) -> (a -> RejectReason) -> m b
-  rejectingWith' c reason = c >>= \case Right b -> return b
-                                        Left a -> rejectTransaction (reason a)
+  rejectingWith' !c reason = c >>= \case Right b -> return b
+                                         Left a -> rejectTransaction (reason a)
 
 
 -- |The set of changes to be commited on a successful transaction.
@@ -306,7 +306,7 @@ makeLenses ''LocalState
 data TransactionContext = TransactionContext{
   -- |Header of the transaction initiating the transaction.
   _tcTxSender :: !AccountAddress,
-  _tcDepositedAmount :: Amount
+  _tcDepositedAmount :: !Amount
   }
 
 makeLenses ''TransactionContext
@@ -392,12 +392,12 @@ withDeposit acc txHeader comp k = do
     Left reason -> do
       -- the only effect of this transaction is reduced balance
       -- compute how much we must charge and reject the transaction
-      (used, payment) <- computeExecutionCharge txHeader (ls ^. energyLeft)
+      (usedEnergy, payment) <- computeExecutionCharge txHeader (ls ^. energyLeft)
       chargeExecutionCost acc payment
-      return $ TxValid (TxReject reason payment energy)
+      return $! TxValid (TxReject reason payment usedEnergy)
     Right a ->
       -- in this case we invoke the continuation
-      TxValid <$> k ls a
+      TxValid <$!> k ls a
 
 -- {-# INLINE evalLocalT #-}
 -- evalLocalT :: Monad m => LocalT a m a -> Energy -> m (Either RejectReason a)
@@ -472,12 +472,16 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
 
   getCurrentContractInstance addr = do
     newStates <- use (changeSet . instanceUpdates)
-    liftLocal $ do mistance <- getContractInstance addr
-                   case mistance of
-                     Nothing -> return Nothing
-                     Just i -> case newStates ^. at addr of
-                                 Nothing -> return $ Just i
-                                 Just (delta, newmodel) -> return $ Just (updateInstance delta newmodel i)
+    liftLocal $! do
+      mistance <- getContractInstance addr
+      case mistance of
+        Nothing -> return Nothing
+        Just i ->
+          case newStates ^. at addr of
+            Nothing -> return $ Just i
+            Just (delta, newmodel) ->
+              let !updated = updateInstance delta newmodel i
+              in return (Just updated)
 
   {-# INLINE getCurrentAccountAmount #-}
   getCurrentAccountAmount acc = do
@@ -538,10 +542,10 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
   getEnergy = use energyLeft
 
   {-# INLINE tickEnergy #-}
-  tickEnergy tick = do
-    energy <- use energyLeft
+  tickEnergy !tick = do
+    energy <- getEnergy
     if tick > energy then energyLeft .= 0 >> rejectTransaction OutOfEnergy  -- set remaining to 0
-    else energyLeft -= tick
+    else modify' (\ls -> ls { _energyLeft = energy - tick})
 
   {-# INLINE putEnergy #-}
   putEnergy en = energyLeft .= en
@@ -553,9 +557,11 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
 instance SchedulerMonad m => InterpreterMonad NoAnnot (LocalT r m) where
   getCurrentContractState caddr = do
     newStates <- use (changeSet . instanceUpdates)
-    liftLocal $ do mistance <- getContractInstance caddr
-                   case mistance of
-                     Nothing -> return Nothing
-                     Just i -> case newStates ^. at caddr of
-                                 Nothing -> return $ Just (instanceImplements (instanceParameters i), instanceModel i)
-                                 Just (_, newmodel) -> return $ Just (instanceImplements (instanceParameters i), newmodel)
+    liftLocal $! do
+      mistance <- getContractInstance caddr
+      case mistance of
+        Nothing -> return Nothing
+        Just i ->
+          case newStates ^. at caddr of
+            Nothing -> return $ Just (instanceImplements (instanceParameters i), instanceModel i)
+            Just (_, newmodel) -> return $ Just (instanceImplements (instanceParameters i), newmodel)

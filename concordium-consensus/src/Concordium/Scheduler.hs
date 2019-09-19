@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TupleSections #-}
@@ -726,7 +727,7 @@ handleDelegateStake senderAccount meta targetBaker =
 filterTransactions :: (TransactionData msg, SchedulerMonad m)
                       => Integer -> [msg] -> m (FilteredTransactions msg, Energy)
 filterTransactions maxSize = go 0 0 [] [] []
-  where go totalEnergyUsed size valid invalid unprocessed (t:ts) = do
+  where go !totalEnergyUsed size valid invalid unprocessed (t:ts) = do
           let csize = size + fromIntegral (transactionSize t)
           if csize <= maxSize then -- if the next transaction can fit into a block then add it.
              dispatch t >>= \case
@@ -735,7 +736,7 @@ filterTransactions maxSize = go 0 0 [] [] []
           else -- otherwise still try the remaining transactions to avoid deadlocks from
                -- one single too-big transaction.
              go totalEnergyUsed size valid invalid (t:unprocessed) ts
-        go totalEnergyUsed _ valid invalid unprocessed [] = 
+        go !totalEnergyUsed _ valid invalid unprocessed [] = 
           let txs = FilteredTransactions{
                       ftAdded = reverse valid,
                       ftFailed = invalid,
@@ -748,11 +749,11 @@ filterTransactions maxSize = go 0 0 [] [] []
 runTransactions :: (TransactionData msg, SchedulerMonad m)
                    => [msg] -> m (Either FailureKind ([(msg, ValidResult)], Energy))
 runTransactions = go 0 []
-  where go totalEnergyUsed valid (t:ts) =
+  where go !totalEnergyUsed valid (t:ts) =
           dispatch t >>= \case
             TxValid reason -> go (totalEnergyUsed + vrEnergyCost reason) ((t, reason):valid) ts
             TxInvalid reason -> return (Left reason)
-        go totalEnergyUsed valid [] = return (Right (reverse valid, totalEnergyUsed))
+        go !totalEnergyUsed valid [] = return (Right (reverse valid, totalEnergyUsed))
 
 -- |Execute transactions in sequence only for sideffects on global state.
 -- Returns 'Right' '()' if block executed successfully, and 'Left' 'FailureKind' at
@@ -760,8 +761,8 @@ runTransactions = go 0 []
 -- does not have to build a list of results.
 execTransactions :: (TransactionData msg, SchedulerMonad m) => [msg] -> m (Either FailureKind Energy)
 execTransactions = go 0
-  where go totalEnergyUsed (t:ts) =
+  where go !totalEnergyUsed (t:ts) =
           dispatch t >>= \case
             TxValid reason -> go (totalEnergyUsed + vrEnergyCost reason) ts
             TxInvalid reason -> return (Left reason)
-        go totalEnergyUsed [] = return (Right totalEnergyUsed)
+        go !totalEnergyUsed [] = return (Right totalEnergyUsed)
