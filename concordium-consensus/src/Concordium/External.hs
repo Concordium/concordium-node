@@ -199,6 +199,8 @@ unsafeWithBSLen bs f = BS.unsafeUseAsCStringLen bs $ \(ptr, len) -> f (fromInteg
 -- |      2 | source contract, target account | Transfer from contract to account                      |
 -- |      3 | source account, target baker id | Execution cost of transaction                          |
 -- |      4 | baker id, baker account         | Total block reward, transaction hash is a NUll pointer |
+-- |      5 | source contract, target contract| Transfer from contract to contract                     |
+-- |      6 | from acc, to acc, JSON object   | Credential deployed, amount field is a dummy value     |
 -- |--------+---------------------------------+--------------------------------------------------------|
 
 -- * Account address serialiation is 21 bytes in length
@@ -230,6 +232,14 @@ toLogTransferMethod logtCallBackPtr = logTransfer
                 TS.BakingRewardTransfer{..} ->
                   let rest = runPut (put trbrBaker <> put trbrAccount)
                   in unsafeWithBSLen rest $ logit 4 block slot nullPtr trbrAmount
+                TS.ContractToContractTransfer{..} ->
+                  withTxReference trcctId $ \txRef ->
+                    let rest = runPut (put trcctSource <> put trcctTarget)
+                    in unsafeWithBSLen rest $ logit 5 block slot txRef trcctAmount
+                TS.CredentialDeployment{..} ->
+                  withTxReference trcdId $ \txRef ->
+                    let rest = runPut (put trcdSource <> put trcdAccount) <> BSL.toStrict (AE.encode trcdCredentialValues)
+                    in unsafeWithBSLen rest $ logit 6 block slot txRef 0
 
 -- |Callback for broadcasting a message to the network.
 -- The first argument indicates the message type.

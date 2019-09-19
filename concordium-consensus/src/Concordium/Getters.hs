@@ -127,7 +127,7 @@ getBlockBirkParameters hash sfsRef = runStateQuery sfsRef $
   bps@BirkParameters{..} <- BS.getBlockBirkParameters st
   return $ object [
     "electionDifficulty" .= _birkElectionDifficulty,
-    "electionNonce" .= String (TL.toStrict . EL.decodeUtf8 . toLazyByteString . byteStringHex $ (Hash.hashToByteString (_birkLeadershipElectionNonce bps))),
+    "electionNonce" .= _birkLeadershipElectionNonce bps,
     "bakers" .= Array (fromList .
                        map (\(bid, BakerInfo{..}) -> object ["bakerId" .= (toInteger bid)
                                                             ,"bakerAccount" .= show _bakerAccount
