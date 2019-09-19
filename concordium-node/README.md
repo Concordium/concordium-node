@@ -65,7 +65,7 @@ For a local docker compose setup, a docker-compose.yml file has been provided in
 
 For the most simple and common setup, simply run the below command in the root of the checked out repository
 ```bash
-NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose up --scale baker=5
+NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose up --scale baker=5 --force-recreate
 ```
 
 
@@ -76,7 +76,7 @@ For a local docker compose setup, a docker-compose.develop.yml file has been pro
 
 For the most simple and common setup, simply run the below command in the root of the checked out repository
 ```bash
-NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.yml up --scale baker=5
+NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.yml up --scale baker=5 --force-recreate
 ```
 
 
@@ -86,13 +86,13 @@ For more complicated setups the EXTRA_ARGS environment variable can be set.
 ### Running the local development version from the stable master branch 
 Use docker-compose if you only need a middle-ware enabled set of nodes to test on
 ```bash
-$> ELASTIC_SEARCH_LOGGING=1 NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.middleware.yml up --scale baker=5
+$> ELASTIC_SEARCH_LOGGING=1 NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.middleware.yml up --scale baker=5 --force-recreate
 ```
 
 ### Running the local development version from the unstable develop branch 
 Use docker-compose if you only need a middle-ware enabled set of nodes to test on
 ```bash
-$> ELASTIC_SEARCH_LOGGING=1 NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.middleware.yml up --scale baker=5
+$> ELASTIC_SEARCH_LOGGING=1 NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.middleware.yml up --scale baker=5 --force-recreate
 ```
 
 ### Using persistent local Elastic Search setup with Kibana

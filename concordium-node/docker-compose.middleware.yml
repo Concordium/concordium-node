@@ -7,6 +7,11 @@ services:
         ports:
             - "9200:9200"
             - "9300:9300"
+        healthcheck:
+            test: ["CMD", "curl","-s" ,"-f", "http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=50s"]
+            interval: 30s
+            timeout: 10s
+            retries: 5
     kibana:
         image: kibana:7.3.2
         ports:
