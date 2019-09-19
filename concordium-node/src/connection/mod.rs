@@ -41,7 +41,6 @@ use snow::Keypair;
 
 use std::{
     collections::HashSet,
-    hash::{Hash, Hasher},
     net::SocketAddr,
     pin::Pin,
     sync::{
@@ -69,17 +68,17 @@ pub struct Connection {
 }
 
 impl Drop for Connection {
-    fn drop(&mut self) { std::mem::drop(write_or_die!(self.dptr)) }
-}
-
-impl PartialEq for Connection {
-    fn eq(&self, other: &Self) -> bool { self.token == other.token }
-}
-
-impl Eq for Connection {}
-
-impl Hash for Connection {
-    fn hash<H: Hasher>(&self, state: &mut H) { self.token.hash(state); }
+    fn drop(&mut self) {
+        debug!(
+            "Closing connection {}/{}",
+            usize::from(self.token),
+            self.remote_addr()
+        );
+        std::mem::drop(write_or_die!(self.dptr));
+        if let Some(id) = self.remote_id() {
+            write_or_die!(self.handler().active_peer_stats).remove(&id.as_raw());
+        }
+    }
 }
 
 impl Connection {
@@ -201,7 +200,12 @@ impl Connection {
     pub fn is_closed(&self) -> bool { self.is_closed.load(Ordering::SeqCst) }
 
     #[inline]
-    pub fn close(&self) { self.is_closed.store(true, Ordering::SeqCst); }
+    pub fn close(&self) {
+        self.is_closed.store(true, Ordering::SeqCst);
+        if let Some(id) = self.remote_id() {
+            write_or_die!(self.handler().active_peer_stats).remove(&id.as_raw());
+        }
+    }
 
     /// This function is called when `poll` indicates that `socket` is ready to
     /// write or/and read.
