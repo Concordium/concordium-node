@@ -67,6 +67,7 @@ pub fn start_consensus_layer(
         Ok((genesis_data, private_data)) => {
             let consensus = consensus::ConsensusContainer::new(
                 u64::from(conf.maximum_block_size),
+                conf.scheduler_outcome_logging,
                 genesis_data,
                 private_data,
                 conf.baker_id,
