@@ -26,7 +26,6 @@ import Concordium.GlobalState.Basic.BlockState
 import Concordium.Types.HashableTo
 import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.GlobalState.Instances
-import Concordium.GlobalState.Modules(moduleSource)
 import Concordium.GlobalState.Finalization
 import qualified Concordium.Skov.CatchUp as CU
 
@@ -150,7 +149,7 @@ getModuleSource hash sfsRef mhash = runStateQuery sfsRef $
     \case Nothing -> return Nothing
           Just bp -> do
             mmodul <- BS.getModule (bpState bp) mhash
-            return $ (moduleSource <$> mmodul)
+            return (BS.moduleSource <$> mmodul)
 
 getConsensusStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> IO Value
 getConsensusStatus sfsRef = runStateQuery sfsRef $ do

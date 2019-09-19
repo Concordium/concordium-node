@@ -24,7 +24,6 @@ import Concordium.Scheduler.Types
 import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.BlockState hiding (BlockState)
 import Concordium.GlobalState.Basic.BlockState
-import qualified Concordium.GlobalState.Modules as Mod
 import Concordium.GlobalState.Bakers as Bakers
 
 import qualified Acorn.Core as Core
@@ -45,7 +44,7 @@ instance (MonadReader ChainMetadata m, UpdatableBlockState m ~ s, MonadState s m
   getModuleInterfaces mref = do
     s <- get
     mmod <- lift (BS.bsoGetModule s mref)
-    return $ mmod <&> \m -> (Mod.moduleInterface m, Mod.moduleValueInterface m)
+    return $ mmod <&> \m -> (BS.moduleInterface m, BS.moduleValueInterface m)
 
 instance (MonadReader ChainMetadata m, UpdatableBlockState m ~ state, MonadState state m, BlockStateOperations m)
          => SchedulerMonad (BSOMonadWrapper ChainMetadata state m) where
