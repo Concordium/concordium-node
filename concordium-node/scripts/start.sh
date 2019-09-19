@@ -178,6 +178,12 @@ then
     ARGS="$ARGS $PROFILING_ARGS"
 fi
 
+if [ -n "$AWS_FIND_EXTERNAL_IP_AND_USE_BASE_PORT" ];
+then
+    export EXTERNAL_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
+    export EXTERNAL_PORT=$(($AWS_FIND_EXTERNAL_IP_AND_USE_BASE_PORT+$i))
+fi
+
 if [ -n "$EXTERNAL_IP" ];
 then
     ARGS="$ARGS --external-ip $EXTERNAL_IP"
