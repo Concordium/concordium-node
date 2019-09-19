@@ -70,13 +70,29 @@ pub struct Connection {
 impl Drop for Connection {
     fn drop(&mut self) {
         debug!(
-            "Closing connection {}/{}",
+            "Closing connection {} ({}:{})",
             usize::from(self.token),
-            self.remote_addr()
+            self.remote_addr().ip(),
+            self.remote_addr().port()
         );
-        std::mem::drop(write_or_die!(self.dptr));
+
+        if let Err(e) = self.handler().deregister_connection(self) {
+            error!(
+                "Connection {} couldn't be closed: {:?}",
+                usize::from(self.token),
+                e
+            );
+        }
+
         if let Some(id) = self.remote_id() {
             write_or_die!(self.handler().active_peer_stats).remove(&id.as_raw());
+        }
+
+        // Report number of peers to stats export engine
+        if let Some(ref service) = self.handler().stats_export_service {
+            if self.is_post_handshake() {
+                service.peers_dec();
+            }
         }
     }
 }

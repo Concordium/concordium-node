@@ -1003,7 +1003,7 @@ impl P2PNode {
 
     pub fn remove_connection(&self, token: Token) {
         if let Some(conn) = write_or_die!(self.connection_handler.connections).remove(&token) {
-            conn.close();
+            write_or_die!(conn.dptr).conn_ref = None; // necessary in order for Drop to kick in
         }
     }
 
@@ -1572,6 +1572,10 @@ impl P2PNode {
         self.join()
     }
 
+    pub fn deregister_connection(&self, conn: &Connection) -> Fallible<()> {
+        conn.deregister(&self.poll)
+    }
+
     pub fn rpc_subscription_start(&self) { self.is_rpc_online.store(true, Ordering::Relaxed); }
 
     pub fn rpc_subscription_stop(&self) -> bool {
@@ -1698,21 +1702,12 @@ impl P2PNode {
         };
     }
 }
-
-#[cfg(test)]
-impl P2PNode {
-    pub fn deregister_connection(&self, conn: &Connection) -> Fallible<()> {
-        conn.deregister(&self.poll)
-    }
-}
-
-impl Drop for P2PNode {
-    fn drop(&mut self) {
-        let _ = self.queue_to_super.send_stop();
-        let _ = self.close_and_join();
-    }
-}
-
+// impl Drop for P2PNode {
+// fn drop(&mut self) {
+// let _ = self.queue_to_super.send_stop();
+// let _ = self.close_and_join();
+// }
+// }
 fn is_conn_peer_id(conn: &Connection, id: P2PNodeId) -> bool {
     if conn.is_post_handshake() {
         read_or_die!(conn.remote_peer.id).unwrap() == id
