@@ -41,7 +41,6 @@ use snow::Keypair;
 
 use std::{
     collections::HashSet,
-    hash::{Hash, Hasher},
     net::SocketAddr,
     pin::Pin,
     sync::{
@@ -50,7 +49,6 @@ use std::{
     },
 };
 
-#[derive(Clone)]
 pub struct Connection {
     handler_ref:               Pin<Arc<P2PNode>>,
     pub token:                 Token,
@@ -70,17 +68,17 @@ pub struct Connection {
 }
 
 impl Drop for Connection {
-    fn drop(&mut self) { std::mem::drop(write_or_die!(self.dptr)) }
-}
-
-impl PartialEq for Connection {
-    fn eq(&self, other: &Self) -> bool { self.token == other.token }
-}
-
-impl Eq for Connection {}
-
-impl Hash for Connection {
-    fn hash<H: Hasher>(&self, state: &mut H) { self.token.hash(state); }
+    fn drop(&mut self) {
+        debug!(
+            "Closing connection {}/{}",
+            usize::from(self.token),
+            self.remote_addr()
+        );
+        std::mem::drop(write_or_die!(self.dptr));
+        if let Some(id) = self.remote_id() {
+            write_or_die!(self.handler().active_peer_stats).remove(&id.as_raw());
+        }
+    }
 }
 
 impl Connection {
@@ -96,7 +94,7 @@ impl Connection {
         key_pair: Keypair,
         is_initiator: bool,
         noise_params: snow::params::NoiseParams,
-    ) -> Self {
+    ) -> Arc<Self> {
         let curr_stamp = get_current_stamp();
 
         let dptr = Arc::new(RwLock::new(ConnectionPrivate::new(
@@ -107,7 +105,7 @@ impl Connection {
             noise_params,
         )));
 
-        let conn = Self {
+        let conn = Arc::new(Self {
             handler_ref: Arc::pin(handler_ref.clone()),
             token,
             remote_peer,
@@ -123,9 +121,9 @@ impl Connection {
             last_latency_measured: Default::default(),
             last_seen: Arc::new(AtomicU64::new(curr_stamp)),
             failed_pkts: Default::default(),
-        };
+        });
 
-        write_or_die!(conn.dptr).conn_ref = Some(Arc::pin(conn.clone()));
+        write_or_die!(conn.dptr).conn_ref = Some(Pin::new(Arc::clone(&conn)));
 
         conn
     }
@@ -202,7 +200,12 @@ impl Connection {
     pub fn is_closed(&self) -> bool { self.is_closed.load(Ordering::SeqCst) }
 
     #[inline]
-    pub fn close(&self) { self.is_closed.store(true, Ordering::SeqCst); }
+    pub fn close(&self) {
+        self.is_closed.store(true, Ordering::SeqCst);
+        if let Some(id) = self.remote_id() {
+            write_or_die!(self.handler().active_peer_stats).remove(&id.as_raw());
+        }
+    }
 
     /// This function is called when `poll` indicates that `socket` is ready to
     /// write or/and read.

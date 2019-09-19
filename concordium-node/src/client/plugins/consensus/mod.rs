@@ -225,7 +225,7 @@ pub fn handle_global_state_request(
                                 .find_connection_by_id(P2PNodeId(id))
                                 .map(|conn| conn.token)
                             {
-                                node.remove_connections(&[peer_conn]);
+                                node.remove_connection(peer_conn);
                             }
                             global_state.catch_up_count = 0;
                         }
