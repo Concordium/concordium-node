@@ -35,6 +35,7 @@ import Data.Void
 import Data.Maybe
 
 import qualified Concordium.ID.Types as ID
+import qualified Concordium.ID.Account as ID
 
 
 class (Eq bp, Show bp, BlockData bp) => BlockPointerData bp where
@@ -429,6 +430,26 @@ data TransferReason =
     -- |Recepient account.
     trcatTarget :: !AccountAddress
     } |
+  ContractToContractTransfer {
+    -- |Id of the top-level transaction.
+    trcctId :: !TransactionHash,
+    -- |From which contract
+    trcctSource :: !ContractAddress,
+    -- |Amount transferred.
+    trcctAmount :: !Amount,
+    -- |Recepient account.
+    trcctTarget :: !ContractAddress
+    } |
+  CredentialDeployment {
+    -- |Id of the top-level transaction.
+    trcdId :: !TransactionHash,
+    -- |Which account sent the transaction.
+    trcdSource :: !AccountAddress,
+    -- |To which account was the credential deployed.
+    trcdAccount :: !AccountAddress,
+    -- |Credential values which were deployed deployed.
+    trcdCredentialValues :: !ID.CredentialDeploymentValues
+    } |
   -- |Baking reward (here meaning the actual block reward + execution reward for block transactions).
   BakingRewardTransfer {
     -- |Id of the baker.
@@ -461,8 +482,15 @@ resultToReasons bp tx res =
           Just (ContractToAccountTransfer trId source amount target)
         extractReason (Transferred (AddressAccount source) amount (AddressContract target)) =
           Just (AccountToContractTransfer trId source amount target)
+        extractReason (Transferred (AddressContract source) amount (AddressContract target)) =
+          Just (ContractToContractTransfer trId source amount target)
         extractReason (Updated (AddressAccount source) target amount _) =
           Just (AccountToContractTransfer trId source amount target)
+        extractReason (Updated (AddressContract source) target amount _) =
+          Just (ContractToContractTransfer trId source amount target)
+        extractReason (CredentialDeployed cdv) =
+          let caaddr = ID.accountAddress (ID.cdvVerifyKey cdv) (ID.cdvSigScheme cdv)
+          in Just (CredentialDeployment trId sender caaddr cdv)
         extractReason _ = Nothing
         
         trId = transactionHash tx
