@@ -46,7 +46,7 @@ sendTransactions :: Chan (InMessage a) -> [BareTransaction] -> IO ()
 sendTransactions chan (t : ts) = do
         writeChan chan (MsgTransactionReceived $ runPut $ put t)
         -- r <- randomRIO (5000, 15000)
-        threadDelay 50000000
+        threadDelay 500000
         sendTransactions chan ts
 sendTransactions _ _ = return ()
 
@@ -112,7 +112,7 @@ dummyIdentityProviders = []
 
 main :: IO ()
 main = do
-    let n = 20
+    let n = 10
     now <- truncate <$> getPOSIXTime
     let (gen, bis) = makeGenesisData (now + 10) n 1 0.5 0 dummyCryptographicParameters dummyIdentityProviders
     let iState = Example.initialState (genesisBirkParameters gen) (genesisCryptographicParameters gen) (genesisBakerAccounts gen) [] nContracts
@@ -127,7 +127,7 @@ main = do
         let logT bh slot reason = do
               appendFile logTransferFile (show (bh, slot, reason))
               appendFile logTransferFile "\n"
-        (cin, cout, out) <- makeAsyncRunner logM (Just logT) bid defaultRuntimeParameters gen iState
+        (cin, cout, out) <- makeAsyncRunner logM Nothing bid defaultRuntimeParameters gen iState
         _ <- forkIO $ sendTransactions cin trans
         return (cin, cout, out)) (zip [(0::Int) ..] bis)
     monitorChan <- newChan

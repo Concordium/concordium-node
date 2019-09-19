@@ -30,18 +30,13 @@ import Concordium.GlobalState.Modules(moduleSource)
 import Concordium.GlobalState.Finalization
 import qualified Concordium.Skov.CatchUp as CU
 
-import qualified Concordium.Crypto.SHA256 as Hash
-
 import Control.Concurrent.MVar
 import Data.IORef
 import Text.Read hiding (get, String)
 import qualified Data.Map as Map
 import Data.Aeson
 import qualified Data.Text as T
-import qualified Data.Text.Lazy as TL
-import qualified Data.Text.Lazy.Encoding as EL
 import Data.Word
-import Data.ByteString.Builder(toLazyByteString, byteStringHex)
 import Data.Vector (fromList)
 
 class SkovQueryMonad m => SkovStateQueryable z m | z -> m where
