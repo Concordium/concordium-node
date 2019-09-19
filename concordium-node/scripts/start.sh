@@ -236,7 +236,7 @@ elif [ "$MODE" == "local_basic" ]; then
     echo "Using BAKER_ID $BAKER_ID"
     if [[ -n "$ELASTIC_SEARCH_LOGGING" && "$BAKER_ID" == "0" ]];
     then
-        ARGS="$ARGS --elastic-logging --elastic-logging-url http://elasticsearch:9200"
+        ARGS="$ARGS --elastic-logging --scheduler-outcome-logging --elastic-logging-url http://elasticsearch:9200"
     fi
     /p2p_client-cli --baker-id $BAKER_ID --no-dnssec $ARGS --id $(printf "%016d\n" $BAKER_ID)
 elif [ "$MODE" == "local_bootstrapper" ]; then
