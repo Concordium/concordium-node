@@ -35,7 +35,7 @@ then
     ARGS="$ARGS --baker-id $REAL_BAKER_ID"
     if [[ -n "$ELASTIC_SEARCH_LOGGING" && "$REAL_BAKER_ID" == "0" ]];
     then
-        ARGS="$ARGS --elastic-logging"
+        ARGS="$ARGS --elastic-logging --scheduler-outcome-logging"
         if [ -n "$ELASTIC_SEARCH_URL" ]
         then
             ARGS="$ARGS --elastic-logging-url $ELASTIC_SEARCH_URL"

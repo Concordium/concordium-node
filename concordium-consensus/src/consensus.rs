@@ -90,6 +90,7 @@ pub struct ConsensusContainer {
 impl ConsensusContainer {
     pub fn new(
         max_block_size: u64,
+        enable_transfer_logging: bool,
         genesis_data: Vec<u8>,
         private_data: Option<Vec<u8>>,
         baker_id: Option<BakerId>,
@@ -102,7 +103,12 @@ impl ConsensusContainer {
             ConsensusType::Passive
         };
 
-        let consensus_ptr = get_consensus_ptr(max_block_size, genesis_data.clone(), private_data);
+        let consensus_ptr = get_consensus_ptr(
+            max_block_size,
+            enable_transfer_logging,
+            genesis_data.clone(),
+            private_data,
+        );
 
         Self {
             max_block_size,
