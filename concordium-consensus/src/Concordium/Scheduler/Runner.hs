@@ -1,9 +1,4 @@
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE TupleSections #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -Wall #-}
 module Concordium.Scheduler.Runner where
 
@@ -29,34 +24,34 @@ import qualified Acorn.Core as Core
 import Prelude hiding(mod, exp)
 
 signTx :: KeyPair -> TransactionHeader -> EncodedPayload -> Types.BareTransaction
-signTx kp th payload = Types.signTransaction kp header payload
-    where header = Types.makeTransactionHeader (thScheme th) (thSenderKey th) (Types.payloadSize payload) (thNonce th) (thGasAmount th)
+signTx kp th encPayload = Types.signTransaction kp header encPayload
+    where header = Types.makeTransactionHeader (thScheme th) (thSenderKey th) (Types.payloadSize encPayload) (thNonce th) (thGasAmount th)
 
 transactionHelper :: MonadFail m => TransactionJSON -> Context Core.UA m Types.BareTransaction
-transactionHelper t = do
+transactionHelper t =
   case t of
     (TJSON meta (DeployModule mnameText) keys) ->
       (signTx keys meta . Types.encodePayload . Types.DeployModule) <$> getModule mnameText
-    (TJSON meta (InitContract amount mnameText cNameText paramExpr) keys) -> do
+    (TJSON meta (InitContract amnt mnameText cNameText paramExpr) keys) -> do
       (mref, _, tys) <- getModuleTmsTys mnameText
       case Map.lookup cNameText tys of
         Just contName -> do
           params <- processTmInCtx mnameText paramExpr
-          return $ signTx keys meta (Types.encodePayload (Types.InitContract amount mref contName params))
+          return $ signTx keys meta (Types.encodePayload (Types.InitContract amnt mref contName params))
         Nothing -> error (show cNameText)
-    (TJSON meta (Update mnameText amount address msgText) keys) -> do
+    (TJSON meta (Update mnameText amnt addr msgText) keys) -> do
       msg <- processTmInCtx mnameText msgText
-      return $ signTx keys meta (Types.encodePayload (Types.Update amount address msg))
-    (TJSON meta (Transfer to amount) keys) ->
-      return $ signTx keys meta (Types.encodePayload (Types.Transfer to amount))
+      return $ signTx keys meta (Types.encodePayload (Types.Update amnt addr msg))
+    (TJSON meta (Transfer to amnt) keys) ->
+      return $ signTx keys meta (Types.encodePayload (Types.Transfer to amnt))
     (TJSON meta (DeployCredential c) keys) ->
       return $ signTx keys meta (Types.encodePayload (Types.DeployCredential c))
     (TJSON meta (AddBaker vkey sigkey acc proof) keys) ->
       return $ signTx keys meta (Types.encodePayload (Types.AddBaker vkey sigkey acc proof))
     (TJSON meta (RemoveBaker bid proof) keys) ->
       return $ signTx keys meta (Types.encodePayload (Types.RemoveBaker bid proof))
-    (TJSON meta (UpdateBakerAccount bid address proof) keys) ->
-      return $ signTx keys meta (Types.encodePayload (Types.UpdateBakerAccount bid address proof))
+    (TJSON meta (UpdateBakerAccount bid addr proof) keys) ->
+      return $ signTx keys meta (Types.encodePayload (Types.UpdateBakerAccount bid addr proof))
     (TJSON meta (UpdateBakerSignKey bid key proof) keys) ->
       return $ signTx keys meta (Types.encodePayload (Types.UpdateBakerSignKey bid key proof))
     (TJSON meta (DelegateStake bid) keys) ->

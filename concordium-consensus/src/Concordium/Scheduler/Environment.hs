@@ -399,6 +399,19 @@ withDeposit acc txHeader comp k = do
       -- in this case we invoke the continuation
       TxValid <$!> k ls a
 
+{-# INLINE defaultSuccess #-}
+-- |Default continuation to use with 'withDeposit'. It records events and charges for the energy
+-- used, and nothing else.
+defaultSuccess ::
+  SchedulerMonad m =>
+  TransactionHeader
+  -> Account -> LocalState -> [Event] -> m ValidResult
+defaultSuccess meta senderAccount = \ls events -> do
+  (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+  chargeExecutionCost senderAccount energyCost
+  commitChanges (ls ^. changeSet)
+  return $ TxSuccess events energyCost usedEnergy
+
 -- {-# INLINE evalLocalT #-}
 -- evalLocalT :: Monad m => LocalT a m a -> Energy -> m (Either RejectReason a)
 -- evalLocalT (LocalT st) energy = evalStateT (runContT st (return . Right)) (energy, emptyCS)
@@ -423,7 +436,7 @@ instance StaticEnvironmentMonad Core.UA m => StaticEnvironmentMonad Core.UA (Loc
 
 instance SchedulerMonad m => LinkerMonad Void (LocalT r m) where
   {-# INLINE getExprInModule #-}
-  getExprInModule mref n = liftLocal $ do
+  getExprInModule mref n = liftLocal $
     getModuleInterfaces mref >>= \case
       Nothing -> return Nothing
       Just (_, viface) -> return $ Map.lookup n (viDefs viface)
@@ -463,7 +476,7 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
     changeSet %= addContractAmountToCS fromAcc (amountDiff 0 amount)
     cont
 
-  getCurrentAccount addr = do
+  getCurrentAccount addr =
     liftLocal (getAccount addr) >>= \case
       Just acc -> do
         amnt <- getCurrentAccountAmount acc
@@ -495,7 +508,7 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
           else 0
     macc <- (^. at addr) <$> use (changeSet . accountUpdates)
     case macc of
-      Just upd -> do
+      Just upd ->
         -- if we are looking up the account that initiated the transaction we also take into account
         -- the deposited amount
         return $ applyAmountDelta additionalDelta (applyAmountDelta (upd ^. auAmount . non 0) amnt)
@@ -522,14 +535,14 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
   linkContract mref cname unlinked = do
     lCache <- use (changeSet . linkedContracts)
     case Map.lookup (mref, cname) lCache of
-      Nothing -> do
+      Nothing ->
         liftLocal (smTryGetLinkedContract mref cname) >>= \case
           Nothing -> do
             cvInitMethod <- linkExpr mref (Interfaces.cvInitMethod unlinked)
             cvReceiveMethod <- linkExpr mref (Interfaces.cvReceiveMethod unlinked)
             cvImplements <- mapM (\iv -> do
-                                     ivSenders <- mapM (\s -> linkExpr mref s) (Interfaces.ivSenders iv)
-                                     ivGetters <- mapM (\s -> linkExpr mref s) (Interfaces.ivGetters iv)
+                                     ivSenders <- mapM (linkExpr mref) (Interfaces.ivSenders iv)
+                                     ivGetters <- mapM (linkExpr mref) (Interfaces.ivGetters iv)
                                      return Interfaces.ImplementsValue{..}
                                  ) (Interfaces.cvImplements unlinked)
             let linked = Interfaces.ContractValue{..}

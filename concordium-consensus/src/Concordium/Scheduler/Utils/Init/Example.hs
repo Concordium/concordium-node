@@ -43,9 +43,9 @@ import Prelude hiding(mod)
 baseStateWithCounter :: (Parser.Env, Core.ModuleName, ProcessedModules)
 baseStateWithCounter = foldl handleFile
                              baseState
-                             $(embedFiles ([Left  "test/contracts/SimpleAccount.acorn"
+                             $(embedFiles [Left  "test/contracts/SimpleAccount.acorn"
                                            ,Left  "test/contracts/SimpleCounter.acorn"]
-                                          ))
+                                          )
 
 first :: (a, b, c) -> a
 first (x, _, _) = x

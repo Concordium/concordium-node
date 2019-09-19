@@ -1,7 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE LambdaCase #-}
 {-# OPTIONS_GHC -Wall #-}
 module Concordium.Scheduler
@@ -172,19 +171,19 @@ handleDeployModule ::
   -> PayloadSize -- ^Serialized size of the module. Used for charging execution cost.
   -> Module -- ^The module to deploy
   -> m TxResult
-handleDeployModule senderAccount meta psize mod = do
+handleDeployModule senderAccount meta psize mod =
   withDeposit senderAccount meta (handleModule meta psize mod) $ \ls (mhash, iface, viface) -> do
     (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
     chargeExecutionCost senderAccount energyCost
     b <- commitModule mhash iface viface mod
-    if b then do
-      return $ TxSuccess [ModuleDeployed mhash] energyCost usedEnergy
-    else do
+    if b then
+      return $! TxSuccess [ModuleDeployed mhash] energyCost usedEnergy
+    else
       -- FIXME:
       -- we should reject the transaction immediately if we figure out that the module with the hash already exists.
       -- otherwise we can waste some effort in checking before reaching this point.
       -- This could be chedked immediately even before we reach the dispatch since module hash is the hash of module serialization.
-      return $ TxReject (ModuleHashAlreadyExists mhash) energyCost usedEnergy
+      return $! TxReject (ModuleHashAlreadyExists mhash) energyCost usedEnergy
 
 
 -- |TODO: Figure out whether we need the metadata or not here.
@@ -211,7 +210,7 @@ handleInitContract ::
     -> Core.Expr Core.UA Core.ModuleName  -- ^Parameters of the contract.
     -> Int -- ^Serialized size of the parameters. Used for computing typechecking cost.
     -> m TxResult
-handleInitContract senderAccount meta amount modref cname param paramSize = do
+handleInitContract senderAccount meta amount modref cname param paramSize =
   withDeposit senderAccount meta c k
     where c = do
             -- decrease available energy and start processing. This will reject the transaction if not enough is available.
@@ -260,8 +259,8 @@ handleSimpleTransfer ::
     -> Address -- ^Address to send the amount to, either account or contract.
     -> Amount -- ^The amount to transfer.
     -> m TxResult
-handleSimpleTransfer senderAccount meta toaddr amount = do
-  withDeposit senderAccount meta c k
+handleSimpleTransfer senderAccount meta toaddr amount =
+  withDeposit senderAccount meta c (defaultSuccess meta senderAccount)
     where c = case toaddr of
                 AddressContract cref -> do
                   i <- getCurrentContractInstance cref `rejectingWith` InvalidContractAddress cref
@@ -276,14 +275,8 @@ handleSimpleTransfer senderAccount meta toaddr amount = do
                                     amount
                                     (ExprMessage (I.mkJustE qmsgExpLinked))
                                     model
-                AddressAccount toAccAddr -> do
+                AddressAccount toAccAddr ->
                   handleTransferAccount senderAccount toAccAddr (Right senderAccount) amount
-
-          k ls events = do
-            (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-            chargeExecutionCost senderAccount energyCost
-            commitChanges (ls ^. changeSet)
-            return $ TxSuccess events energyCost usedEnergy
 
 handleUpdateContract ::
   SchedulerMonad m
@@ -294,8 +287,8 @@ handleUpdateContract ::
     -> Core.Expr Core.UA Core.ModuleName -- ^Message to send to the receive method.
     -> Int  -- ^Serialized size of the message.
     -> m TxResult
-handleUpdateContract senderAccount meta cref amount maybeMsg msgSize = do
-  withDeposit senderAccount meta c k
+handleUpdateContract senderAccount meta cref amount maybeMsg msgSize =
+  withDeposit senderAccount meta c (defaultSuccess meta senderAccount)
   where c = do
           tickEnergy Cost.updatePreprocess
           i <- getCurrentContractInstance cref `rejectingWith` InvalidContractAddress cref
@@ -314,12 +307,6 @@ handleUpdateContract senderAccount meta cref amount maybeMsg msgSize = do
                             amount
                             (ExprMessage (I.mkJustE qmsgExpLinked))
                             model
-
-        k ls events = do
-            (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-            chargeExecutionCost senderAccount energyCost
-            commitChanges (ls ^. changeSet)
-            return $ TxSuccess events energyCost usedEnergy
 
 -- this will always be run when we know that the contract exists and we can lookup its local state
 handleTransaction ::
@@ -353,8 +340,8 @@ handleTransaction origin istance receivefun txsender transferamount maybeMsg mod
       rejectTransaction Rejected -- transaction rejected due to contract logic
     Just (newmodel, txout) ->
         -- transfer the amount from the sender to the receiving contract in our state.
-        withToContractAmount txsender istance transferamount $ do
-          withInstanceState istance newmodel $ do
+        withToContractAmount txsender istance transferamount $
+          withInstanceState istance newmodel $
             -- and then process the generated messages in the new context in
             -- sequence from left to right, depth first.
             foldM (\res tx -> combineTx res $ do
@@ -433,7 +420,7 @@ handleTransferAccount _origin accAddr txsender transferamount = do
 -- otherwise decrease the consumed amount of gas and return the result.
 {-# INLINE runInterpreter #-}
 runInterpreter :: TransactionMonad m => (Energy -> m (Maybe (a, Energy))) -> m a
-runInterpreter f = do
+runInterpreter f =
   getEnergy >>= f >>= \case Just (x, energy') -> x <$ putEnergy energy'
                             Nothing -> putEnergy 0 >> rejectTransaction OutOfEnergy
 
@@ -449,7 +436,7 @@ handleDeployCredential ::
     -- |Credentials to deploy.
     ID.CredentialDeploymentInformation ->
     m TxResult
-handleDeployCredential senderAccount meta cdiBytes cdi = do
+handleDeployCredential senderAccount meta cdiBytes cdi =
   withDeposit senderAccount meta c k
   where c = tickEnergy Cost.deployCredential
         k ls _ = do
@@ -504,7 +491,7 @@ handleDeployEncryptionKey ::
     -> TransactionHeader -- ^Header of the transaction.
     -> ID.AccountEncryptionKey -- ^The encryption key.
     -> m TxResult
-handleDeployEncryptionKey senderAccount meta encKey = do
+handleDeployEncryptionKey senderAccount meta encKey =
   withDeposit senderAccount meta c k
   where c = tickEnergy Cost.deployEncryptionKey
         k ls _ = do
@@ -562,7 +549,7 @@ handleAddBaker ::
     -> AccountAddress
     -> Proof
     -> m TxResult
-handleAddBaker senderAccount meta abElectionVerifyKey abSignatureVerifyKey abAccount abProof = do
+handleAddBaker senderAccount meta abElectionVerifyKey abSignatureVerifyKey abAccount abProof =
   withDeposit senderAccount meta c k
   where c = tickEnergy Cost.addBaker
         k ls _ = do
@@ -629,7 +616,7 @@ handleUpdateBakerAccount ::
     -> AccountAddress
     -> Proof
     -> m TxResult
-handleUpdateBakerAccount senderAccount meta ubaId ubaAddress ubaProof = do
+handleUpdateBakerAccount senderAccount meta ubaId ubaAddress ubaProof =
   withDeposit senderAccount meta c k
   where c = tickEnergy Cost.updateBakerAccount
         k ls _ = do
