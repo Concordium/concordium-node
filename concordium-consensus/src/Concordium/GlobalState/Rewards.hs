@@ -7,6 +7,7 @@ import Concordium.ID.Types
 
 import Data.HashMap.Strict(HashMap)
 import qualified Data.HashMap.Strict as HM
+import Data.Serialize
 
 import Lens.Micro.Platform
 
@@ -57,6 +58,25 @@ data BankStatus = BankStatus {
   -- rate.
   _mintedGTUPerSlot :: !Amount
   } deriving(Show)
+
+instance Serialize BankStatus where
+    put BankStatus{..} = do
+        put _totalGTU
+        put _totalEncryptedGTU
+        put _centralBankGTU
+        put (HM.toList _identityIssuersRewards)
+        put _finalizationReward
+        put _executionCost
+        put _mintedGTUPerSlot
+    get = do
+        _totalGTU <- get
+        _totalEncryptedGTU <- get
+        _centralBankGTU <- get
+        _identityIssuersRewards <- HM.fromList <$> get
+        _finalizationReward <- get
+        _executionCost <- get
+        _mintedGTUPerSlot <- get
+        return BankStatus{..}
 
 makeLenses ''BankStatus
 
