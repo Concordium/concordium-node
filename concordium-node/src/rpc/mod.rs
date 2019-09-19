@@ -366,7 +366,7 @@ impl P2P for RpcServerImpl {
                     let payload = req.get_payload();
 
                     let request = ConsensusMessage::new(
-                        MessageType::Inbound(self.node.id().0, DistributionMode::Direct),
+                        MessageType::Inbound(self.node.id().0, DistributionMode::Broadcast),
                         PacketType::Transaction,
                         Arc::from(payload),
                         vec![],
