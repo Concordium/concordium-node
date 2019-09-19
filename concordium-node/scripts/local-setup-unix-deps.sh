@@ -32,7 +32,7 @@ fi
 
 echo -e "packages: []\nresolver: $(cat deps/internal/consensus/stack.yaml | grep ^resolver: | awk '{ print $NF }')" > ~/.stack/global-project/stack.yaml
 
-( cd deps/internal/crypto/rust-src &&
+( cd deps/internal/consensus/crypto/rust-src &&
   LD_LIBRARY_PATH=/usr/local/lib cargo build &&
   sudo cp target/debug/libec_vrf_ed25519.$LIBEXTENSION /usr/local/lib &&
   sudo cp target/debug/libeddsa_ed25519.$LIBEXTENSION /usr/local/lib &&
