@@ -84,17 +84,17 @@ transactionsInput =
            }      
     ]
 
-runWithIntermediateStates :: PR.Context Core.UA IO ([([(Types.Transaction, Types.ValidResult)],
-                                                     [(Types.Transaction, Types.FailureKind)],
+runWithIntermediateStates :: PR.Context Core.UA IO ([([(Types.BareTransaction, Types.ValidResult)],
+                                                     [(Types.BareTransaction, Types.FailureKind)],
                                                      Types.BirkParameters)], BlockState)
 runWithIntermediateStates = do
   txs <- processTransactions transactionsInput
   let (res, state) = foldl (\(acc, st) tx ->
-                            let ((suc, failtx), st') =
-                                  Types.runSI (Sch.filterTransactions [tx])
+                            let ((Sch.FilteredTransactions{..}, _), st') =
+                                  Types.runSI (Sch.filterTransactions blockSize [tx])
                                               Types.dummyChainMeta
                                               st
-                            in (acc ++ [(suc, failtx, st' ^. blockBirkParameters)], st'))
+                            in (acc ++ [(ftAdded, ftFailed, st' ^. blockBirkParameters)], st'))
                          ([], initialBlockState)
                          txs
   return (res, state)
@@ -111,9 +111,9 @@ tests = do
         length results == length transactionsInput
     specify "Adding three bakers from initial empty state" $
         case take 3 results of 
-          [([(_,Types.TxSuccess [Types.BakerAdded 0] _)],[],bps1),
-           ([(_,Types.TxSuccess [Types.BakerAdded 1] _)],[],bps2),
-           ([(_,Types.TxSuccess [Types.BakerAdded 2] _)],[],bps3)] ->
+          [([(_,Types.TxSuccess [Types.BakerAdded 0] _ _)],[],bps1),
+           ([(_,Types.TxSuccess [Types.BakerAdded 1] _ _)],[],bps2),
+           ([(_,Types.TxSuccess [Types.BakerAdded 2] _ _)],[],bps3)] ->
             Map.keys (bps1 ^. Types.birkBakers . bakerMap) == [0] &&
             Map.keys (bps2 ^. Types.birkBakers . bakerMap) == [0,1] &&
             Map.keys (bps3 ^. Types.birkBakers . bakerMap) == [0,1,2]
@@ -121,14 +121,14 @@ tests = do
 
     specify "Remove second baker." $
       case results !! 3 of
-        ([(_,Types.TxSuccess [Types.BakerRemoved 1] _)], [], bps4) ->
+        ([(_,Types.TxSuccess [Types.BakerRemoved 1] _ _)], [], bps4) ->
             Map.keys (bps4 ^. Types.birkBakers . bakerMap) == [0,2]
         _ -> False
 
     specify "Update third baker's account." $
       -- first check that before the account was thomasAccount, and now it is alesAccount
       case (results !! 3, results !! 4) of
-        ((_, _, bps4), ([(_,Types.TxSuccess [Types.BakerAccountUpdated 2 _] _)], [], bps5)) ->
+        ((_, _, bps4), ([(_,Types.TxSuccess [Types.BakerAccountUpdated 2 _] _ _)], [], bps5)) ->
           Map.keys (bps5 ^. Types.birkBakers . bakerMap) == [0,2] &&
           let b2 = (bps5 ^. Types.birkBakers . bakerMap) Map.! 2
           in b2 ^. bakerAccount == alesAccount &&
@@ -138,7 +138,7 @@ tests = do
 
     specify "Update first baker's sign key." $
       case (results !! 4, results !! 5) of
-        ((_, _, bps5), ([(_,Types.TxSuccess [Types.BakerKeyUpdated 0 _] _)], [], bps6)) ->
+        ((_, _, bps5), ([(_,Types.TxSuccess [Types.BakerKeyUpdated 0 _] _ _)], [], bps6)) ->
           Map.keys (bps6 ^. Types.birkBakers . bakerMap) == [0,2] &&
           let b0 = (bps6 ^. Types.birkBakers . bakerMap) Map.! 0
           in b0 ^. bakerSignatureVerifyKey == BlockSig.verifyKey (bakerSignKey 3) &&

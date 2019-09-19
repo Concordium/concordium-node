@@ -43,7 +43,14 @@ bakerElectionPublicKey ident = VRF.publicKey (bakerElectionKey ident)
 
 instance Serialize BakerIdentity where
 
-processTransactions :: TreeStateMonad m => Slot -> BlockNonce -> BlockPointer m -> BlockPointer m -> BakerId -> m ([Transaction], BlockState m)
+processTransactions
+    :: TreeStateMonad m
+    => Slot
+    -> BlockNonce
+    -> BlockPointer m
+    -> BlockPointer m
+    -> BakerId
+    -> m ([Transaction], BlockState m, Energy)
 processTransactions slot bn bh finalizedP bid = do
   -- update the focus block to the parent block (establish invariant needed by constructBlock)
   updateFocusBlockTo bh
@@ -66,7 +73,7 @@ bakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     logEvent Baker LLInfo $ "Won lottery in " ++ show slot ++ "(lottery power: " ++ show lotteryPower ++ ")"
     nonce <- liftIO $ computeBlockNonce (_birkLeadershipElectionNonce birkParams)    slot bakerElectionKey
     lastFinal <- lastFinalizedBlock
-    (transactions, newState) <- processTransactions slot nonce bb lastFinal bakerId
+    (transactions, newState, energyUsed) <- processTransactions slot nonce bb lastFinal bakerId
     logEvent Baker LLInfo $ "Baked block"
     receiveTime <- currentTime
     pb <- makePendingBlock bakerSignKey slot (bpHash bb) bakerId electionProof nonce (bpHash lastFinal) transactions receiveTime
@@ -74,6 +81,7 @@ bakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
                          bb
                          lastFinal
                          newState
+                         energyUsed
     -- update the current focus block to the newly created block to maintain invariants.
     putFocusBlock newbp
     logEvent Baker LLInfo $ "Finished bake block " ++ show newbp

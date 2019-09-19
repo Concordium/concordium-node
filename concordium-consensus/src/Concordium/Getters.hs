@@ -30,18 +30,13 @@ import Concordium.GlobalState.Modules(moduleSource)
 import Concordium.GlobalState.Finalization
 import qualified Concordium.Skov.CatchUp as CU
 
-import qualified Concordium.Crypto.SHA256 as Hash
-
 import Control.Concurrent.MVar
 import Data.IORef
 import Text.Read hiding (get, String)
 import qualified Data.Map as Map
 import Data.Aeson
 import qualified Data.Text as T
-import qualified Data.Text.Lazy as TL
-import qualified Data.Text.Lazy.Encoding as EL
 import Data.Word
-import Data.ByteString.Builder(toLazyByteString, byteStringHex)
 import Data.Vector (fromList)
 
 class SkovQueryMonad m => SkovStateQueryable z m | z -> m where
@@ -127,7 +122,7 @@ getBlockBirkParameters hash sfsRef = runStateQuery sfsRef $
   bps@BirkParameters{..} <- BS.getBlockBirkParameters st
   return $ object [
     "electionDifficulty" .= _birkElectionDifficulty,
-    "electionNonce" .= String (TL.toStrict . EL.decodeUtf8 . toLazyByteString . byteStringHex $ (Hash.hashToByteString (_birkLeadershipElectionNonce bps))),
+    "electionNonce" .= _birkLeadershipElectionNonce bps,
     "bakers" .= Array (fromList .
                        map (\(bid, BakerInfo{..}) -> object ["bakerId" .= (toInteger bid)
                                                             ,"bakerAccount" .= show _bakerAccount
@@ -208,12 +203,14 @@ getBlockInfo sfsRef blockHash = case readMaybe blockHash of
                                             Just bf -> toJSON (toInteger (blockBaker bf)),
                             "finalized" .= bfin,
                             "transactionCount" .= bpTransactionCount bp,
+                            "transactionEnergyCost" .= toInteger (bpTransactionsEnergyCost bp),
+                            "transactionsSize" .= toInteger (bpTransactionsSize bp),
 
-                            "totalAmount" .= (fromIntegral (reward ^. AT.totalGTU) :: Integer),
-                            "totalEncryptedAmount" .= (fromIntegral (reward ^. AT.totalEncryptedGTU) :: Integer),
-                            "centralBankAmount" .= (fromIntegral (reward ^. AT.centralBankGTU) :: Integer),
-                            "mintedAmountPerSlot" .= (fromIntegral (reward ^. AT.mintedGTUPerSlot) :: Integer),
-                            "executionCost" .= (fromIntegral (reward ^. AT.executionCost) :: Integer)
+                            "totalAmount" .= toInteger (reward ^. AT.totalGTU),
+                            "totalEncryptedAmount" .= toInteger (reward ^. AT.totalEncryptedGTU),
+                            "centralBankAmount" .= toInteger (reward ^. AT.centralBankGTU),
+                            "mintedAmountPerSlot" .= toInteger (reward ^. AT.mintedGTUPerSlot),
+                            "executionCost" .= toInteger (reward ^. AT.executionCost)
                             ]
 
 getAncestors :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> String -> BlockHeight -> IO Value
