@@ -65,8 +65,12 @@ pub fn start_consensus_layer(
 
     match get_baker_data(app_prefs, conf, conf.baker_id.is_some()) {
         Ok((genesis_data, private_data)) => {
-            let consensus =
-                consensus::ConsensusContainer::new(genesis_data, private_data, conf.baker_id);
+            let consensus = consensus::ConsensusContainer::new(
+                u64::from(conf.maximum_block_size),
+                genesis_data,
+                private_data,
+                conf.baker_id,
+            );
             Some(consensus)
         }
         Err(_) => {
