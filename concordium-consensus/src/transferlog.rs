@@ -148,11 +148,19 @@ impl std::fmt::Display for TransactionLogMessage {
                 transaction_hash,
                 from_account,
                 to_account,
+                _,
             ) => write!(
                 f,
                 "IdentityCredentialsDeployed occured in {}/{}/{} from {} to {}",
                 block_hash, slot, transaction_hash, from_account, to_account
             ),
+            Self::ExecutionCost(block_hash, slot, tx_hash, amount, from_account, baker_id) => {
+                write!(
+                    f,
+                    "ExecutionCost occured in {}/{}/{} for {} from {} to {}",
+                    block_hash, slot, tx_hash, amount, from_account, baker_id
+                )
+            }
             Self::BlockReward(block_hash, slot, amount, baker_id, baker_account) => write!(
                 f,
                 "BlockReward occured in {}/{} for {} to {}/{}",
