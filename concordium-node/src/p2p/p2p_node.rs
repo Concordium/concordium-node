@@ -117,7 +117,7 @@ pub struct ConnectionHandler {
     pub log_dumper:             Option<SyncSender<DumpItem>>,
     noise_params:               snow::params::NoiseParams,
     pub network_request_sender: SyncSender<NetworkRawRequest>,
-    pub connections:            Arc<RwLock<HashSet<Connection, BuildNoHashHasher<usize>>>>,
+    pub connections:            Arc<RwLock<HashSet<Arc<Connection>, BuildNoHashHasher<usize>>>>,
     pub unreachable_nodes:      UnreachableNodes,
     pub networks:               Arc<RwLock<HashSet<NetworkId>>>,
     pub last_bootstrap:         Arc<AtomicU64>,
@@ -983,28 +983,28 @@ impl P2PNode {
         write_or_die!(self.connection_handler.networks).insert(network_id);
     }
 
-    pub fn find_connection_by_id(&self, id: P2PNodeId) -> Option<Connection> {
+    pub fn find_connection_by_id(&self, id: P2PNodeId) -> Option<Arc<Connection>> {
         read_or_die!(self.connection_handler.connections)
             .iter()
             .find(|conn| conn.remote_id() == Some(id))
             .cloned()
     }
 
-    pub fn find_connection_by_token(&self, token: Token) -> Option<Connection> {
+    pub fn find_connection_by_token(&self, token: Token) -> Option<Arc<Connection>> {
         read_or_die!(self.connection_handler.connections)
             .iter()
             .find(|conn| conn.token == token)
             .cloned()
     }
 
-    pub fn find_connection_by_ip_addr(&self, addr: SocketAddr) -> Option<Connection> {
+    pub fn find_connection_by_ip_addr(&self, addr: SocketAddr) -> Option<Arc<Connection>> {
         read_or_die!(self.connection_handler.connections)
             .iter()
             .find(|conn| conn.remote_addr() == addr)
             .cloned()
     }
 
-    pub fn find_connections_by_ip(&self, ip: IpAddr) -> Vec<Connection> {
+    pub fn find_connections_by_ip(&self, ip: IpAddr) -> Vec<Arc<Connection>> {
         read_or_die!(self.connection_handler.connections)
             .iter()
             .filter(|conn| conn.remote_peer().addr().ip() == ip)
@@ -1018,7 +1018,7 @@ impl P2PNode {
     }
 
     pub fn add_connection(&self, conn: Connection) -> bool {
-        write_or_die!(self.connection_handler.connections).insert(conn)
+        write_or_die!(self.connection_handler.connections).insert(Arc::new(conn))
     }
 
     pub fn conn_event(&self, event: &Event) {
