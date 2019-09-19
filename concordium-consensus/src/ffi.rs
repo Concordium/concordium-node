@@ -694,19 +694,27 @@ pub unsafe extern "C" fn on_transfer_log_emitted(
         return;
     }
 
-    if remaining_data_len as usize
-        != match transfer_event_type {
-            TransferLogType::DirectTransfer => 2 * size_of::<AccountAddress>(),
-            TransferLogType::TransferFromAccountToContract => {
-                size_of::<AccountAddress>() + size_of::<ContractAddress>()
-            }
-            TransferLogType::TransferFromContractToAccount => {
-                size_of::<ContractAddress>() + size_of::<AccountAddress>()
-            }
-            TransferLogType::ExecutionCost => size_of::<AccountAddress>() + size_of::<BakerId>(),
-            TransferLogType::BlockReward => size_of::<AccountAddress>() + size_of::<BakerId>(),
+    if !match transfer_event_type {
+        TransferLogType::DirectTransfer => remaining_data_len == 2 * size_of::<AccountAddress>(),
+        TransferLogType::TransferFromAccountToContract => {
+            remaining_data_len == (size_of::<AccountAddress>() + size_of::<ContractAddress>())
         }
-    {
+        TransferLogType::TransferFromContractToAccount => {
+            remaining_data_len == (size_of::<ContractAddress>() + size_of::<AccountAddress>())
+        }
+        TransferLogType::ExecutionCost => {
+            remaining_data_len == (size_of::<AccountAddress>() + size_of::<BakerId>())
+        }
+        TransferLogType::BlockReward => {
+            remaining_data_len == (size_of::<AccountAddress>() + size_of::<BakerId>())
+        }
+        TransferLogType::TransferFromContractToContract => {
+            remaining_data_len == (2 * size_of::<ContractAddress>())
+        }
+        TransferLogType::IdentityCredentialsDeployed => {
+            remaining_data_len > (2 * size_of::<AccountAddress>())
+        }
+    } {
         error!(
             "Incorrect data given for {} event type",
             transfer_event_type
@@ -776,6 +784,46 @@ pub unsafe extern "C" fn on_transfer_log_emitted(
                 amount,
                 contract_address,
                 account_address,
+            )
+        }
+        TransferLogType::TransferFromContractToContract => {
+            let transaction_hash = TransactionHash::new(slice::from_raw_parts(
+                transaction_hash_ptr,
+                size_of::<TransactionHash>(),
+            ));
+            let (from_contract_address_slice, to_contract_address_slice) =
+                slice::from_raw_parts(remaining_data_ptr, remaining_data_len as usize)
+                    .split_at(size_of::<ContractAddress>());
+            let from_contract_address =
+                ContractAddress::deserialize(&mut Cursor::new(&from_contract_address_slice)).unwrap();
+            let to_contract_address =
+                ContractAddress::deserialize(&mut Cursor::new(&to_contract_address_slice)).unwrap();
+            TransactionLogMessage::TransferFromContractToAccount(
+                block_hash,
+                slot,
+                transaction_hash,
+                amount,
+                from_contract_address,
+                to_contract_address,
+            )
+        }
+        TransferLogType::IdentityCredentialsDeployed =>  {
+            let transaction_hash = TransactionHash::new(slice::from_raw_parts(
+                transaction_hash_ptr,
+                size_of::<TransactionHash>(),
+            ));
+            let (sender_account_slice, receiver_account_slice) =
+                slice::from_raw_parts(remaining_data_ptr, remaining_data_len as usize)
+                    .split_at(size_of::<AccountAddress>());
+            let sender_account = AccountAddress::new(&sender_account_slice);
+            let receiver_account = AccountAddress::new(&receiver_account_slice);
+            TransactionLogMessage::DirectTransfer(
+                block_hash,
+                slot,
+                transaction_hash,
+                amount,
+                sender_account,
+                receiver_account,
             )
         }
         TransferLogType::ExecutionCost => {
