@@ -190,6 +190,7 @@ type DirectMessageCallback =
 
 extern "C" {
     pub fn startConsensus(
+        max_block_size: u64,
         genesis_data: *const u8,
         genesis_data_len: i64,
         private_data: *const u8,
@@ -199,6 +200,7 @@ extern "C" {
         transfer_log_callback: TransferLogCallback,
     ) -> *mut consensus_runner;
     pub fn startConsensusPassive(
+        max_block_size: u64,
         genesis_data: *const u8,
         genesis_data_len: i64,
         log_callback: LogCallback,
@@ -296,6 +298,7 @@ extern "C" {
 }
 
 pub fn get_consensus_ptr(
+    max_block_size: u64,
     genesis_data: Vec<u8>,
     private_data: Option<Vec<u8>>,
 ) -> *mut consensus_runner {
@@ -316,6 +319,7 @@ pub fn get_consensus_ptr(
                 let c_string_private_data =
                     CString::from_vec_unchecked(private_data_bytes.to_owned());
                 startConsensus(
+                    max_block_size,
                     c_string_genesis.as_ptr() as *const u8,
                     genesis_data_len as i64,
                     c_string_private_data.as_ptr() as *const u8,
@@ -328,6 +332,7 @@ pub fn get_consensus_ptr(
         }
         None => unsafe {
             startConsensusPassive(
+                max_block_size,
                 c_string_genesis.as_ptr() as *const u8,
                 genesis_data_len as i64,
                 on_log_emited,
