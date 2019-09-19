@@ -666,9 +666,8 @@ impl P2PNode {
                     .copied()
                     .choose_multiple(&mut rng, (peer_count - max_allowed_nodes) as usize);
 
-                let mut connections = write_or_die!(self.connection_handler.connections);
                 for token in to_drop {
-                    connections.remove(&token);
+                    self.remove_connection(token);
                 }
             }
         }
