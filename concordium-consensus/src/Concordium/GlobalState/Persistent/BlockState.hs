@@ -18,6 +18,7 @@ import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.Types.Acorn.Interfaces
 import Concordium.Types.HashableTo
 import Concordium.Types
+import qualified Concordium.ID.Types as ID
 
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
@@ -25,10 +26,12 @@ import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Bakers
 import qualified Concordium.GlobalState.Rewards as Rewards
+import qualified Concordium.GlobalState.Persistent.Account as Account
 
 type PersistentBlockState = BufferedRef BlockStatePointers
 
 data BlockStatePointers = BlockStatePointers {
+    bspAccounts :: !Account.Accounts,
     bspModules :: BufferedRef Modules,
     bspBank :: !Rewards.BankStatus,
     bspBirkParameters :: !BirkParameters -- TODO: Possibly store BirkParameters allowing for sharing
@@ -36,18 +39,22 @@ data BlockStatePointers = BlockStatePointers {
 
 instance (MonadBlobStore m BlobRef) => BlobStorable m BlobRef BlockStatePointers where
     storeUpdate p bsp0@BlockStatePointers{..} = do
+        (paccts, bspAccounts') <- storeUpdate p bspAccounts
         (pmods, bspModules') <- storeUpdate p bspModules
         let putBSP = do
+                paccts
                 pmods
                 put bspBank
                 put bspBirkParameters
-        return (putBSP, bsp0 {bspModules = bspModules'})
+        return (putBSP, bsp0 {bspAccounts = bspAccounts', bspModules = bspModules'})
     store p bsp = fst <$> storeUpdate p bsp
     load p = do
+        maccts <- load p
         mmods <- load p
         bspBank <- get
         bspBirkParameters <- get
         return $! do
+            bspAccounts <- maccts
             bspModules <- mmods
             return $! BlockStatePointers{..}
 
@@ -197,3 +204,47 @@ doDecrementCentralBankGTU pbs amount = do
         bsp <- loadBufferedRef pbs
         let newBank = bspBank bsp & Rewards.centralBankGTU -~ amount
         return (newBank ^. Rewards.centralBankGTU, BRMemory (bsp {bspBank = newBank}))
+
+doGetAccount :: (MonadBlobStore m BlobRef) => PersistentBlockState -> AccountAddress -> m (Maybe Account)
+doGetAccount pbs addr = do
+        bsp <- loadBufferedRef pbs
+        Account.getAccount addr (bspAccounts bsp)
+
+doAccountList :: (MonadBlobStore m BlobRef) => PersistentBlockState -> m [AccountAddress]
+doAccountList pbs = do
+        bsp <- loadBufferedRef pbs
+        Account.accountAddresses (bspAccounts bsp)
+
+doRegIdExists :: (MonadBlobStore m BlobRef) => PersistentBlockState -> ID.CredentialRegistrationID -> m Bool
+doRegIdExists pbs regid = do
+        bsp <- loadBufferedRef pbs
+        fst <$> Account.regIdExists regid (bspAccounts bsp)
+
+doPutNewAccount :: (MonadBlobStore m BlobRef) => PersistentBlockState -> Account -> m (Bool, PersistentBlockState)
+doPutNewAccount pbs acct = do 
+        bsp <- loadBufferedRef pbs
+        (res, accts') <- Account.putNewAccount acct (bspAccounts bsp)
+        return (res, BRMemory (bsp {bspAccounts = accts'}))
+    
+doModifyAccount :: (MonadBlobStore m BlobRef) => PersistentBlockState -> AccountUpdate -> m PersistentBlockState
+doModifyAccount pbs aUpd@AccountUpdate{..} = do
+        bsp <- loadBufferedRef pbs
+        -- Do the update to the account
+        (mbalinfo, accts1) <- Account.updateAccount upd _auAddress (bspAccounts bsp)
+        -- If we deploy a credential, record it
+        accts2 <- case _auCredential of
+            Just cdi -> Account.recordRegId (ID.cdvRegId cdi) accts1
+            Nothing -> return accts1
+        -- If the amount is changed update the delegate stake
+        let birkParams1 = case (_auAmount, mbalinfo) of
+                (Just newAmount, Just (delegate, oldAmount)) ->
+                    bspBirkParameters bsp & birkBakers %~ modifyStake delegate (amountDiff newAmount oldAmount)  
+                _ -> bspBirkParameters bsp
+        return $! BRMemory (bsp {bspAccounts = accts2, bspBirkParameters = birkParams1})
+    where
+        upd oldAccount = return ((oldAccount ^. accountStakeDelegate, oldAccount ^. accountAmount), updateAccount aUpd oldAccount)
+
+{-
+doDelegateStake :: (MonadBlobStore m BlobRef) => PersistentBlockState -> AccountAddress -> Maybe BakerId -> m (Bool, PersistentBlockState)
+doDelegateStake pbs aaddr target
+-}
