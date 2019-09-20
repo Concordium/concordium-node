@@ -205,6 +205,8 @@ unsafeWithBSLen bs f = BS.unsafeUseAsCStringLen bs $ \(ptr, len) -> f (fromInteg
 -- |      2 | source contract, target account | Transfer from contract to account                      |
 -- |      3 | source account, target baker id | Execution cost of transaction                          |
 -- |      4 | baker id, baker account         | Total block reward, transaction hash is a NUll pointer |
+-- |      5 | source contract, target contract| Transfer from contract to contract                     |
+-- |      6 | from acc, to acc, JSON object   | Credential deployed, amount field is a dummy value     |
 -- |--------+---------------------------------+--------------------------------------------------------|
 
 -- * Account address serialiation is 21 bytes in length
@@ -236,6 +238,14 @@ toLogTransferMethod logtCallBackPtr = logTransfer
                 BS.BakingRewardTransfer{..} ->
                   let rest = runPut (put trbrBaker <> put trbrAccount)
                   in unsafeWithBSLen rest $ logit 4 block slot nullPtr trbrAmount
+                TS.ContractToContractTransfer{..} ->
+                  withTxReference trcctId $ \txRef ->
+                    let rest = runPut (put trcctSource <> put trcctTarget)
+                    in unsafeWithBSLen rest $ logit 5 block slot txRef trcctAmount
+                TS.CredentialDeployment{..} ->
+                  withTxReference trcdId $ \txRef ->
+                    let rest = runPut (put trcdSource <> put trcdAccount) <> BSL.toStrict (AE.encode trcdCredentialValues)
+                    in unsafeWithBSLen rest $ logit 6 block slot txRef 0
 
 -- |Callback for broadcasting a message to the network.
 -- The first argument indicates the message type.
@@ -291,39 +301,42 @@ genesisState genData = initialState (genesisBirkParameters genData) (genesisCryp
 
 -- |Start up an instance of Skov without starting the baker thread.
 startConsensus ::
-           CString -> Int64 -- ^Serialized genesis data (c string + len)
+           Word64 -- ^Maximum block size.
+           -> CString -> Int64 -- ^Serialized genesis data (c string + len)
            -> CString -> Int64 -- ^Serialized baker identity (c string + len)
            -> Ptr GlobalStateR
            -> FunPtr BroadcastCallback -- ^Handler for generated messages
            -> FunPtr LogCallback -- ^Handler for log events
+           -> Word8 -- ^Whether to enable logging of transfer events (/= 0) or not (value 0).
            -> FunPtr LogTransferCallback -- ^Handler for logging transfer events
            -> IO (StablePtr ConsensusRunner)
-startConsensus gdataC gdataLenC bidC bidLenC gsptr bcbk lcbk ltcbk = do
+startConsensus maxBlock gdataC gdataLenC bidC bidLenC gsptr bcbk lcbk enableTransferLogging ltcbk = do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
         case (decode gdata, decode bdata) of
             (Right genData, Right bid) -> do
                 foreignGsPtr <- newForeignPtr_ gsptr
-                bakerSyncRunner <- makeSyncRunner logM (Just logT) bid genData (genesisState genData) foreignGsPtr bakerBroadcast
+                bakerSyncRunner <- makeSyncRunner logM logT bid (RuntimeParameters (fromIntegral maxBlock)) genData (genesisState genData) foreignGsPtr bakerBroadcast
                 newStablePtr BakerRunner{..}
             _ -> ioError (userError $ "Error decoding serialized data.")
     where
         logM = toLogMethod lcbk
-        logT = toLogTransferMethod ltcbk
+        logT = if enableTransferLogging /= 0 then Just (toLogTransferMethod ltcbk) else Nothing
         bakerBroadcast = broadcastCallback logM bcbk
 
 -- |Start consensus without a baker identity.
 startConsensusPassive ::
-           CString -> Int64 -- ^Serialized genesis data (c string + len)
+           Word64 -- ^Maximum block size.
+           -> CString -> Int64 -- ^Serialized genesis data (c string + len)
            -> Ptr GlobalStateR
            -> FunPtr LogCallback -- ^Handler for log events
             -> IO (StablePtr ConsensusRunner)
-startConsensusPassive gdataC gdataLenC gsptr lcbk = do
+startConsensusPassive maxBlock gdataC gdataLenC gsptr lcbk = do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         case (decode gdata) of
             (Right genData) -> do
                 foreignGsPtr <- newForeignPtr_ gsptr
-                passiveSyncRunner <- makeSyncPassiveRunner logM genData (genesisState genData) foreignGsPtr
+                passiveSyncRunner <- makeSyncPassiveRunner logM (RuntimeParameters (fromIntegral maxBlock)) genData (genesisState genData) foreignGsPtr
                 newStablePtr PassiveRunner{..}
             _ -> ioError (userError $ "Error decoding serialized data.")
     where
@@ -412,7 +425,8 @@ receiveBlock bptr cstr l = do
     let logm = consensusLogMethod c
     logm External LLDebug $ "Received block data size = " ++ show l ++ ". Decoding ..."
     blockBS <- BS.packCStringLen (cstr, fromIntegral l)
-    toReceiveResult <$> case runGet get blockBS of
+    now <- currentTime
+    toReceiveResult <$> case runGet (BasicBlock.getBlock now) blockBS of
         Left _ -> do
           logm External LLDebug "Block deserialization failed. Ignoring the block."
           return ResultSerializationFail
@@ -496,12 +510,13 @@ receiveTransaction bptr tdata len = do
     let logm = consensusLogMethod c
     logm External LLInfo $ "Received transaction, data size=" ++ show len ++ ". Decoding ..."
     tbs <- BS.packCStringLen (tdata, fromIntegral len)
-    toReceiveResult <$> case runGet get tbs of
-        Left _ -> do
-            logm External LLDebug "Could not decode transaction into header + body."
+    now <- currentTime
+    toReceiveResult <$> case runGet (getVerifiedTransaction now) tbs of
+        Left err -> do
+            logm External LLDebug $ "Could not decode transaction into header + body because " ++ err
             return ResultSerializationFail
         Right tr -> do
-            logm External LLInfo $ "Transaction decoded. Its header is: " ++ show (trHeader tr)
+            logm External LLInfo $ "Transaction decoded. Its header is: " ++ show (btrHeader (trBareTransaction tr))
             case c of
                 BakerRunner{..} -> do
                     (res, _) <- syncReceiveTransaction bakerSyncRunner tr
@@ -843,8 +858,8 @@ receiveCatchUpStatus cptr src cstr l cbk = do
 
 
 foreign export ccall makeGenesisData :: Timestamp -> Word64 -> CString -> CString -> FunPtr GenesisDataCallback -> FunPtr BakerIdentityCallback -> IO CInt
-foreign export ccall startConsensus :: CString -> Int64 -> CString -> Int64 -> Ptr GlobalStateR -> FunPtr BroadcastCallback -> FunPtr LogCallback -> FunPtr LogTransferCallback -> IO (StablePtr ConsensusRunner)
-foreign export ccall startConsensusPassive :: CString -> Int64 -> Ptr GlobalStateR -> FunPtr LogCallback -> IO (StablePtr ConsensusRunner)
+foreign export ccall startConsensus :: Word64 -> CString -> Int64 -> CString -> Int64 -> Ptr GlobalStateR -> FunPtr BroadcastCallback -> FunPtr LogCallback -> Word8 -> FunPtr LogTransferCallback -> IO (StablePtr ConsensusRunner)
+foreign export ccall startConsensusPassive :: Word64 -> CString -> Int64 -> Ptr GlobalStateR -> FunPtr LogCallback -> IO (StablePtr ConsensusRunner)
 foreign export ccall stopConsensus :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall startBaker :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall stopBaker :: StablePtr ConsensusRunner -> IO ()

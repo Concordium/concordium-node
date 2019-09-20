@@ -76,6 +76,7 @@ class (SkovQueryMonad m, TimeMonad m, LoggerMonad m) => SkovMonad m where
         -> BlockPointer m     -- ^Parent pointer
         -> BlockPointer m     -- ^Last finalized pointer
         -> BlockState m       -- ^State
+        -> Energy             -- ^Energy used by the transactions in this block
         -> m (BlockPointer m)
     -- |Add a transaction to the transaction table.
     receiveTransaction :: Transaction -> m UpdateResult
@@ -96,7 +97,7 @@ instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (BSMTra
 
 instance (Monad (t m), MonadTrans t, SkovMonad m) => SkovMonad (BSMTrans t m) where
     storeBlock b = lift $ storeBlock b
-    storeBakedBlock pb parent lastFin state = lift $ storeBakedBlock pb parent lastFin state
+    storeBakedBlock pb parent lastFin state energyUsed = lift $ storeBakedBlock pb parent lastFin state energyUsed
     receiveTransaction = lift . receiveTransaction
     finalizeBlock fr = lift $ finalizeBlock fr
 

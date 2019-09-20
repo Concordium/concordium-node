@@ -2,7 +2,6 @@
 module Concordium.Startup where
 
 import System.Random
-import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy.Char8 as BSL
 
 import qualified Concordium.Crypto.SignatureScheme as SigScheme

@@ -98,19 +98,20 @@ transactionsInput =
 testCommCounter ::
   PR.Context Core.UA
     IO
-    ([(Types.Transaction, Types.ValidResult)],
-     [(Types.Transaction, Types.FailureKind)])
+    ([(Types.BareTransaction, Types.ValidResult)],
+     [(Types.BareTransaction, Types.FailureKind)])
 testCommCounter = do
     source <- liftIO $ TIO.readFile "test/contracts/CommCounter.acorn"
     (_, _) <- PR.processModule source -- execute only for effect on global state
     transactions <- processTransactions transactionsInput
-    let ((suc, fails), endState) = Types.runSI (Sch.filterTransactions transactions)
-                                    Types.dummyChainMeta
-                                    initialBlockState
+    let ((Sch.FilteredTransactions{..}, _), endState) =
+            Types.runSI (Sch.filterTransactions blockSize transactions)
+            Types.dummyChainMeta
+            initialBlockState
     case invariantBlockState endState of
         Left f -> liftIO $ assertFailure $ f ++ "\n" ++ show endState
         _ -> return ()
-    return (suc, fails)
+    return (ftAdded, ftFailed)
 
 checkCommCounterResult :: ([(a, Types.ValidResult)], [b]) -> Bool
 checkCommCounterResult (suc, fails) =
@@ -118,11 +119,11 @@ checkCommCounterResult (suc, fails) =
   length reject == 1 &&  -- one rejected (which is also the last one)
   length nonreject == 6  -- and 6 successful ones
   where 
-    nonreject = filter (\case (_, Types.TxSuccess _ _) -> True
-                              (_, Types.TxReject _ _) -> False)
+    nonreject = filter (\case (_, Types.TxSuccess _ _ _) -> True
+                              (_, Types.TxReject _ _ _) -> False)
                         suc
-    reject = filter (\case (_, Types.TxSuccess _ _) -> False
-                           (_, Types.TxReject _ _) -> True
+    reject = filter (\case (_, Types.TxSuccess _ _ _) -> False
+                           (_, Types.TxReject _ _ _) -> True
                     )
                         suc
 
