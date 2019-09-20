@@ -35,6 +35,7 @@ services:
         image: concordium/dev-client:latest
         depends_on:
             - baker_id_gen
+            - bootstrapper
             - kibana
         entrypoint:
             - /start.sh

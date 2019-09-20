@@ -58,14 +58,14 @@ $> nix-env -f . -i
 ### Building docker images
 To build the stable image built in a Jenkins pipeline (it gets tagged `latest`, if not changed in the line shown below, so it matches the image hosted on docker-hub - and as the layers will have a newer version, it won't download from docker-hub unless the locally built image is removed via e.g. `docker image rmi ..`). It passes the local `ssh-agent` into the docker build environment for the needed stages to download internal crates with git directly.
 ```bash
-$> DOCKER_BUILDKIT=1 docker build -f scripts/dev-client.Dockerfile -t concordium/dev-client:latest --ssh default .
+$> DOCKER_BUILDKIT=1 docker build -f scripts/dev-client.Dockerfile -t concordium/dev-client:latest --ssh default . --no-cache
 ```
 ### Latest stable from master branch
 For a local docker compose setup, a docker-compose.yml file has been provided in the root of this repository. It uses a image hosted in Docker hub built automatically upon push to the master branch.
 
 For the most simple and common setup, simply run the below command in the root of the checked out repository
 ```bash
-NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose up --scale baker=5 --force-recreate
+$> NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose up --scale baker=5 --force-recreate
 ```
 
 
@@ -76,7 +76,7 @@ For a local docker compose setup, a docker-compose.develop.yml file has been pro
 
 For the most simple and common setup, simply run the below command in the root of the checked out repository
 ```bash
-NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.yml up --scale baker=5 --force-recreate
+$> NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.yml up --scale baker=5 --force-recreate
 ```
 
 

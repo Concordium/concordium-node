@@ -13,7 +13,6 @@ services:
         image: concordium/dev-client:develop
         entrypoint:
             - /baker_id_generator
-       
     baker:
         image: concordium/dev-client:develop
         depends_on:
