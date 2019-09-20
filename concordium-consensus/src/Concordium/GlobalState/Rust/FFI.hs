@@ -43,7 +43,7 @@ import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Transactions
 import Concordium.Types
 import Concordium.Types.HashableTo
-import Data.ByteString hiding (intercalate)
+import Data.ByteString hiding (intercalate, map)
 import Data.ByteString.Short (toShort)
 import Data.FixedByteString hiding (pack, unpack)
 import Data.Maybe
@@ -71,7 +71,7 @@ foreign import ccall unsafe "make_pending_block"
 foreign import ccall unsafe "&pending_block_free"
    freePendingBlockF :: FunPtr (Ptr PendingBlockR -> IO ())
 foreign import ccall unsafe "make_block_pointer"
-   makeBlockPointerF :: Ptr GlobalStateR -> Ptr PendingBlockR -> Word64 -> IO (Ptr BlockPointerR)
+   makeBlockPointerF :: Ptr GlobalStateR -> Ptr PendingBlockR -> Word64 -> Word64 -> IO (Ptr BlockPointerR)
 foreign import ccall unsafe "&block_pointer_free"
    freeBlockPointerF :: FunPtr (Ptr BlockPointerR -> IO ())
 foreign import ccall unsafe "block_pointer_to_store"
@@ -225,9 +225,11 @@ blockContentsBlockTransactions (BlockContents b) = unsafePerformIO $ do
   p <- withForeignPtr b blockContentsTransactionsF
   l <- withForeignPtr b blockContentsTransactionsLengthF
   bt_str <- curry packCStringLen p (fromIntegral l)
-  case decode bt_str :: Either String [Transaction] of
+  case decode bt_str :: Either String [BareTransaction] of
         Left e  -> fail $ "Couldn't deserialize txs " ++ show e ++ "input: " ++ show bt_str ++ "tried to take " ++ show l ++ " bytes from " ++ show p
-        Right v -> return v
+        Right v -> do
+          now <- getCurrentTime
+          return $ map (fromBareTransaction now) v
 
 blockContentsSignature :: BlockContents -> Maybe BlockSignature
 blockContentsSignature (BlockContents bc) = unsafePerformIO $ do
@@ -262,7 +264,7 @@ blockBodySerialize b = do
         put . blockProof . fromJust . blockContentsFields $ b
         put . blockNonce . fromJust . blockContentsFields $ b
         put . blockLastFinalized . fromJust . blockContentsFields $ b
-        put . blockTransactions $ b
+        put . map trBareTransaction . blockTransactions $ b
 
 ---------------------------
 -- * PendingBlock FFI calls
@@ -340,7 +342,7 @@ instance BlockPendingData PendingBlock where
 -- This function must initialize the PendingBlockR of the Rust side
 makePendingBlock :: GlobalStatePtr -> BakedBlock -> UTCTime -> IO PendingBlock
 makePendingBlock gsptr bb pendingBlockReceiveTime = do
-  p <- withForeignPtr gsptr $ useAsCStringLen (encode . NormalBlock $ bb) . uncurry . makePendingBlockF
+  p <- withForeignPtr gsptr $ useAsCStringLen (runPut . putBlock . NormalBlock $ bb) . uncurry . makePendingBlockF
   pendingBlockPointer <- newForeignPtr freePendingBlockF p
   return PendingBlock{..}
 
@@ -353,7 +355,7 @@ makePendingBlockWithContents gsptr bb pendingBlockReceiveTime = do
                      (GSBB.BlockFields (blockPointer bf) (blockBaker bf) (blockProof bf) (blockNonce bf) (blockLastFinalized bf))
                      (BlockTransactions (blockTransactions bb))
                      (fromJust (blockContentsSignature bb))
-  p <- withForeignPtr gsptr $ useAsCStringLen (encode . NormalBlock $ b) . uncurry . makePendingBlockF
+  p <- withForeignPtr gsptr $ useAsCStringLen (runPut . putBlock . NormalBlock $ b) . uncurry . makePendingBlockF
   pendingBlockPointer <- newForeignPtr freePendingBlockF p
   return PendingBlock{..}
 
@@ -390,6 +392,10 @@ foreign import ccall unsafe "get_height_from_block_pointer"
     blockPointerHeightF :: Ptr BlockPointerR -> Int
 foreign import ccall unsafe "get_transaction_count_from_block_pointer"
     blockPointerTransactionCountF :: Ptr BlockPointerR -> Int
+foreign import ccall unsafe "get_transaction_energy_cost_from_block_pointer"
+    blockPointerTransactionEnergyF :: Ptr BlockPointerR -> Word64
+foreign import ccall unsafe "get_transaction_size_from_block_pointer"
+    blockPointerTransactionSizeF :: Ptr BlockPointerR -> Int
 foreign import ccall unsafe "get_contents_from_block_pointer"
     blockPointerContentsF :: Ptr BlockPointerR -> Ptr BlockContentsR
 
@@ -406,6 +412,14 @@ blockPointerHeight b = unsafePerformIO $ do
 blockPointerTransactionCount :: BlockPointer -> Int
 blockPointerTransactionCount b = unsafePerformIO $ do
       withForeignPtr (blockPointerPointer b) (return . blockPointerTransactionCountF)
+
+blockPointerTransactionEnergy :: BlockPointer -> Energy
+blockPointerTransactionEnergy b = unsafePerformIO $ do
+      withForeignPtr (blockPointerPointer b) (return . Energy . blockPointerTransactionEnergyF)
+
+blockPointerTransactionSize :: BlockPointer -> Int
+blockPointerTransactionSize b = unsafePerformIO $ do
+      withForeignPtr (blockPointerPointer b) (return . blockPointerTransactionSizeF)
 
 blockPointerExtractBlockFields :: BlockPointer -> Maybe BlockFields
 blockPointerExtractBlockFields = blockContentsFields . blockPointerExtractBlockContents
@@ -451,6 +465,8 @@ instance BlockPointerData BlockPointer where
     bpReceiveTime = blockPointerReceiveTime
     bpArriveTime = blockPointerArriveTime
     bpTransactionCount = blockPointerTransactionCount
+    bpTransactionsEnergyCost = blockPointerTransactionEnergy
+    bpTransactionsSize = blockPointerTransactionSize
 
 -- |Create the BlockPointer for the GenesisBlock
 -- This function must initialize the BlockPointerR of the Rust side
@@ -472,13 +488,14 @@ makeBlockPointer :: GlobalStatePtr ->
                     BlockState'
                     BlockPointer ->
                     UTCTime ->
+                    Energy ->
                     IO BlockPointer
-makeBlockPointer gsptr b blockPointerParent blockPointerLastFinalized blockPointerState blockPointerArriveTime =
+makeBlockPointer gsptr b blockPointerParent blockPointerLastFinalized blockPointerState blockPointerArriveTime (Energy energy) =
   do
     p <-
       withForeignPtr gsptr $ \x ->
       withForeignPtr (pendingBlockPointer b) $ \y ->
-      makeBlockPointerF x y ((+1) . theBlockHeight . bpHeight $ blockPointerParent)
+      makeBlockPointerF x y ((+1) . theBlockHeight . bpHeight $ blockPointerParent) energy
     blockPointerPointer <- newForeignPtr freeBlockPointerF p
     let blockPointerReceiveTime = pendingBlockReceiveTime b
     return $ BlockPointer {..}
