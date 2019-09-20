@@ -26,33 +26,29 @@ pub struct NetworkRawRequest {
 /// poll-loop thread, and any write is queued to be processed later in that
 /// poll-loop.
 pub fn process_network_requests(p2p_node: &P2PNode, receivers: &Receivers) {
-    receivers
-        .network_requests
-        .try_iter()
-        .for_each(|network_request| {
-            trace!(
-                "Processing network raw request ({} bytes) in connection {}",
-                network_request.data.len().unwrap_or(0),
-                usize::from(network_request.token)
-            );
+    for request in receivers.network_requests.try_iter() {
+        trace!(
+            "Processing network raw request ({} bytes) in connection {}",
+            request.data.len().unwrap_or(0),
+            usize::from(request.token)
+        );
 
-            if let Some(ref conn) = p2p_node.find_connection_by_token(network_request.token) {
-                if let Err(err) =
-                    conn.async_send_from_poll_loop(network_request.data, network_request.priority)
-                {
-                    error!(
-                        "Network raw request error in connection {}/{}: {}",
-                        usize::from(network_request.token),
-                        conn.remote_addr(),
-                        err
-                    );
-                    conn.handler().remove_connection(conn.token);
-                }
-            } else {
-                debug!(
-                    "Network raw request cannot be sent due to a missing connection {}",
-                    usize::from(network_request.token)
+        if let Some(ref conn) = p2p_node.find_connection_by_token(request.token) {
+            if let Err(err) = conn.async_send_from_poll_loop(request.data, request.priority) {
+                error!(
+                    "Network raw request error in connection {}/{}: {}",
+                    usize::from(request.token),
+                    conn.remote_addr(),
+                    err
                 );
+                conn.handler().remove_connection(conn.token);
             }
-        });
+        } else {
+            debug!(
+                "Network raw request cannot be sent due to a missing connection {}",
+                usize::from(request.token)
+            );
+            return;
+        }
+    }
 }
