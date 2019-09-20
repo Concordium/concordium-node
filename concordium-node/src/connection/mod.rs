@@ -50,20 +50,19 @@ use std::{
 };
 
 pub struct Connection {
-    handler_ref:               Pin<Arc<P2PNode>>,
-    pub token:                 Token,
-    pub remote_peer:           RemotePeer,
-    pub dptr:                  Arc<RwLock<ConnectionPrivate>>,
-    pub remote_end_networks:   Arc<RwLock<HashSet<NetworkId>>>,
-    pub is_post_handshake:     Arc<AtomicBool>,
-    pub messages_sent:         Arc<AtomicU64>,
-    pub messages_received:     Arc<AtomicU64>,
-    pub last_ping_sent:        Arc<AtomicU64>,
-    pub sent_handshake:        Arc<AtomicU64>,
-    pub sent_ping:             Arc<AtomicU64>,
-    pub last_latency_measured: Arc<AtomicU64>,
-    pub last_seen:             Arc<AtomicU64>,
-    pub failed_pkts:           Arc<AtomicU32>,
+    handler_ref:             Pin<Arc<P2PNode>>,
+    pub token:               Token,
+    pub remote_peer:         RemotePeer,
+    pub dptr:                Arc<RwLock<ConnectionPrivate>>,
+    pub remote_end_networks: Arc<RwLock<HashSet<NetworkId>>>,
+    pub is_post_handshake:   Arc<AtomicBool>,
+    pub messages_sent:       Arc<AtomicU64>,
+    pub messages_received:   Arc<AtomicU64>,
+    pub last_ping_sent:      Arc<AtomicU64>,
+    pub sent_handshake:      Arc<AtomicU64>,
+    pub last_latency:        Arc<AtomicU64>,
+    pub last_seen:           Arc<AtomicU64>,
+    pub failed_pkts:         Arc<AtomicU32>,
 }
 
 impl Drop for Connection {
@@ -131,8 +130,7 @@ impl Connection {
             messages_sent: Default::default(),
             last_ping_sent: Arc::new(AtomicU64::new(curr_stamp)),
             sent_handshake: Default::default(),
-            sent_ping: Default::default(),
-            last_latency_measured: Default::default(),
+            last_latency: Default::default(),
             last_seen: Arc::new(AtomicU64::new(curr_stamp)),
             failed_pkts: Default::default(),
         });
@@ -142,17 +140,13 @@ impl Connection {
         conn
     }
 
-    pub fn get_last_latency_measured(&self) -> u64 {
-        self.last_latency_measured.load(Ordering::SeqCst)
-    }
+    pub fn get_last_latency(&self) -> u64 { self.last_latency.load(Ordering::SeqCst) }
 
-    pub fn set_measured_handshake_sent(&self) {
+    pub fn set_last_latency(&self, value: u64) { self.last_latency.store(value, Ordering::SeqCst); }
+
+    pub fn set_sent_handshake(&self) {
         self.sent_handshake
             .store(get_current_stamp(), Ordering::SeqCst)
-    }
-
-    pub fn set_measured_ping_sent(&self) {
-        self.sent_ping.store(get_current_stamp(), Ordering::SeqCst)
     }
 
     pub fn get_last_ping_sent(&self) -> u64 { self.last_ping_sent.load(Ordering::SeqCst) }
@@ -177,7 +171,7 @@ impl Connection {
             self.remote_peer_type(),
             Arc::clone(&self.messages_sent),
             Arc::clone(&self.messages_received),
-            Arc::clone(&self.last_latency_measured),
+            Arc::clone(&self.last_latency),
         ))
     }
 

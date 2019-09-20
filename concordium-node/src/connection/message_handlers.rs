@@ -107,6 +107,8 @@ fn send_handshake_and_ping(conn: &Connection) -> Fallible<()> {
         MessageSendingPriority::Normal,
     )?;
 
+    conn.set_last_ping_sent();
+
     Ok(())
 }
 
@@ -150,7 +152,6 @@ fn handle_handshake_req(
     conn.promote_to_post_handshake(source.id())?;
     conn.add_remote_end_networks(networks);
     send_handshake_and_ping(&conn)?;
-    conn.set_measured_ping_sent();
 
     write_or_die!(conn.handler().connection_handler.buckets)
         .insert_into_bucket(&source, networks.to_owned());
@@ -211,12 +212,13 @@ fn handle_ping(conn: &Connection) -> Fallible<()> {
 }
 
 fn handle_pong(conn: &Connection) -> Fallible<()> {
-    let ping: u64 = conn.sent_ping.load(Ordering::SeqCst);
-    let curr: u64 = get_current_stamp();
+    let ping_time: u64 = conn.last_ping_sent.load(Ordering::SeqCst);
+    let curr_time: u64 = get_current_stamp();
 
-    if curr >= ping {
-        conn.last_latency_measured
-            .store(curr - ping, Ordering::SeqCst);
+    if curr_time >= ping_time {
+        let new_latency = curr_time - ping_time;
+        let old_latency = conn.get_last_latency();
+        conn.set_last_latency((new_latency + old_latency) / 2);
     }
 
     Ok(())
