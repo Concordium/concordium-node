@@ -143,7 +143,7 @@ fn handle_handshake_req(
     debug!("Got a Handshake request from peer {}", source.id());
 
     if conn.handler().is_banned(BannedNode::ById(source.id()))? {
-        conn.close();
+        conn.handler().remove_connection(conn.token);
         bail!("Rejected a handshake request from a banned node");
     }
 
