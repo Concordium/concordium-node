@@ -96,7 +96,7 @@ $> ELASTIC_SEARCH_LOGGING=1 NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docke
 ```
 
 ### Delay baker startup if Elastic Search starts too slowly
-If Elastic Search starts too slowly the baker enabled for logging to it can be delayed by using the variables `ES_SLEEP`
+If Elastic Search starts too slowly the baker enabled for logging to it can be delayed by using the variable `ES_SLEEP`
 
 ### Using persistent local Elastic Search setup with Kibana
 To run a pair of elastic search with kibana for local development do the following
