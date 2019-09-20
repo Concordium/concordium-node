@@ -550,6 +550,7 @@ getBranches cptr = do
 byteStringToCString :: BS.ByteString -> IO CString
 byteStringToCString bs = do
   let bsp = BS.concat [P.runPut (P.putWord32be (fromIntegral (BS.length bs))), bs]
+  -- This use of unsafe is fine because bsp is a non-null string.
   BS.unsafeUseAsCStringLen bsp $ \(cstr, len) -> do dest <- mallocBytes len
                                                     copyBytes dest cstr len
                                                     return dest
