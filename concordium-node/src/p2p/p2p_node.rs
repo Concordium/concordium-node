@@ -618,7 +618,6 @@ impl P2PNode {
                     {
                         error!("{}", e);
                     }
-                    conn.set_measured_ping_sent();
                     conn.set_last_ping_sent();
                 }
             });

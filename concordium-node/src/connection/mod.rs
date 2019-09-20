@@ -60,7 +60,6 @@ pub struct Connection {
     pub messages_received:     Arc<AtomicU64>,
     pub last_ping_sent:        Arc<AtomicU64>,
     pub sent_handshake:        Arc<AtomicU64>,
-    pub sent_ping:             Arc<AtomicU64>,
     pub last_latency_measured: Arc<AtomicU64>,
     pub last_seen:             Arc<AtomicU64>,
     pub failed_pkts:           Arc<AtomicU32>,
@@ -131,7 +130,6 @@ impl Connection {
             messages_sent: Default::default(),
             last_ping_sent: Arc::new(AtomicU64::new(curr_stamp)),
             sent_handshake: Default::default(),
-            sent_ping: Default::default(),
             last_latency_measured: Default::default(),
             last_seen: Arc::new(AtomicU64::new(curr_stamp)),
             failed_pkts: Default::default(),
@@ -149,10 +147,6 @@ impl Connection {
     pub fn set_measured_handshake_sent(&self) {
         self.sent_handshake
             .store(get_current_stamp(), Ordering::SeqCst)
-    }
-
-    pub fn set_measured_ping_sent(&self) {
-        self.sent_ping.store(get_current_stamp(), Ordering::SeqCst)
     }
 
     pub fn get_last_ping_sent(&self) -> u64 { self.last_ping_sent.load(Ordering::SeqCst) }
