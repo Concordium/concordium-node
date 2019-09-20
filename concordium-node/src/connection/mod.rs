@@ -261,11 +261,20 @@ impl Connection {
     /// It queues a network request
     #[inline]
     pub fn async_send(&self, input: HybridBuf, priority: MessageSendingPriority) -> Fallible<()> {
+        TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
+        self.messages_sent.fetch_add(1, Ordering::Relaxed);
+        if let Some(ref stats) = self.handler().stats_export_service {
+            stats.pkt_sent_inc();
+        }
+
+        self.send_to_dump(&input, false);
+
         let request = NetworkRawRequest {
             token: self.token,
             data: input,
             priority,
         };
+
         into_err!(self
             .handler()
             .connection_handler
@@ -284,11 +293,13 @@ impl Connection {
         priority: MessageSendingPriority,
     ) -> Fallible<Readiness<usize>> {
         TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
+        self.messages_sent.fetch_add(1, Ordering::Relaxed);
         if let Some(ref stats) = self.handler().stats_export_service {
             stats.pkt_sent_inc();
         }
 
         self.send_to_dump(&input, false);
+
         write_or_die!(self.dptr).write_to_sink(input, priority)
     }
 
