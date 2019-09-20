@@ -1021,6 +1021,7 @@ impl P2PNode {
         if let Some(conn) = self.find_connection_by_token(token) {
             if let Err(e) = conn.ready(event) {
                 error!("Error while processing a connection event: {}", e);
+                conn.handler().remove_connection(conn.token);
             }
         }
     }
