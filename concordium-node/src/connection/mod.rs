@@ -14,9 +14,7 @@ pub enum MessageSendingPriority {
     Normal,
 }
 
-mod connection_private;
-
-pub use crate::{connection::connection_private::ConnectionPrivate, p2p::P2PNode};
+pub use crate::p2p::P2PNode;
 
 pub use p2p_event::P2PEvent;
 
@@ -41,7 +39,7 @@ use snow::Keypair;
 
 use std::{
     collections::HashSet,
-    net::SocketAddr,
+    net::{Shutdown, SocketAddr},
     pin::Pin,
     sync::{
         atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
@@ -53,7 +51,7 @@ pub struct Connection {
     handler_ref:             Pin<Arc<P2PNode>>,
     pub token:               Token,
     pub remote_peer:         RemotePeer,
-    pub dptr:                Arc<RwLock<ConnectionPrivate>>,
+    pub low_level:           Arc<RwLock<ConnectionLowLevel>>,
     pub remote_end_networks: Arc<RwLock<HashSet<NetworkId>>>,
     pub is_post_handshake:   Arc<AtomicBool>,
     pub messages_sent:       Arc<AtomicU64>,
@@ -63,36 +61,6 @@ pub struct Connection {
     pub last_latency:        Arc<AtomicU64>,
     pub last_seen:           Arc<AtomicU64>,
     pub failed_pkts:         Arc<AtomicU32>,
-}
-
-impl Drop for Connection {
-    fn drop(&mut self) {
-        debug!(
-            "Closing connection {} ({}:{})",
-            usize::from(self.token),
-            self.remote_addr().ip(),
-            self.remote_addr().port()
-        );
-
-        if let Err(e) = self.handler().deregister_connection(self) {
-            error!(
-                "Connection {} couldn't be closed: {:?}",
-                usize::from(self.token),
-                e
-            );
-        }
-
-        if let Some(id) = self.remote_id() {
-            write_or_die!(self.handler().active_peer_stats).remove(&id.as_raw());
-        }
-
-        // Report number of peers to stats export engine
-        if let Some(ref service) = self.handler().stats_export_service {
-            if self.is_post_handshake() {
-                service.peers_dec();
-            }
-        }
-    }
 }
 
 impl Connection {
@@ -111,7 +79,7 @@ impl Connection {
     ) -> Arc<Self> {
         let curr_stamp = get_current_stamp();
 
-        let dptr = Arc::new(RwLock::new(ConnectionPrivate::new(
+        let low_level = Arc::new(RwLock::new(ConnectionLowLevel::new(
             local_peer_type,
             socket,
             key_pair,
@@ -123,7 +91,7 @@ impl Connection {
             handler_ref: handler.self_ref.clone().unwrap(), // safe, always available
             token,
             remote_peer,
-            dptr,
+            low_level,
             remote_end_networks: Default::default(),
             is_post_handshake: Default::default(),
             messages_received: Default::default(),
@@ -135,7 +103,7 @@ impl Connection {
             failed_pkts: Default::default(),
         });
 
-        write_or_die!(conn.dptr).conn_ref = Some(Pin::new(Arc::clone(&conn)));
+        write_or_die!(conn.low_level).conn_ref = Some(Pin::new(Arc::clone(&conn)));
 
         conn
     }
@@ -192,7 +160,7 @@ impl Connection {
     #[inline]
     pub fn register(&self, poll: &Poll) -> Fallible<()> {
         into_err!(poll.register(
-            &read_or_die!(self.dptr).socket,
+            &read_or_die!(self.low_level).socket,
             self.token,
             Ready::readable() | Ready::writable(),
             PollOpt::edge()
@@ -201,13 +169,13 @@ impl Connection {
 
     #[inline]
     pub fn deregister(&self, poll: &Poll) -> Fallible<()> {
-        map_io_error_to_fail!(poll.deregister(&read_or_die!(self.dptr).socket))
+        map_io_error_to_fail!(poll.deregister(&read_or_die!(self.low_level).socket))
     }
 
     /// This function is called when `poll` indicates that `socket` is ready to
     /// write or/and read.
     pub fn ready(&self, ev: &Event) -> Fallible<()> {
-        write_or_die!(self.dptr).read_from_stream(ev)
+        write_or_die!(self.low_level).read_from_stream(ev)
     }
 
     /// It decodes message from `buf` and processes it using its message
@@ -294,7 +262,7 @@ impl Connection {
 
         self.send_to_dump(&input, false);
 
-        write_or_die!(self.dptr).write_to_sink(input, priority)
+        write_or_die!(self.low_level).write_to_sink(input, priority)
     }
 
     pub fn update_last_seen(&self) {
@@ -332,9 +300,144 @@ impl Connection {
 
     #[cfg(test)]
     pub fn validate_packet_type_test(&self, msg: &[u8]) -> Readiness<bool> {
-        write_or_die!(self.dptr)
+        write_or_die!(self.low_level)
             .message_stream
             .validate_packet_type(msg)
+    }
+}
+
+impl Drop for Connection {
+    fn drop(&mut self) {
+        debug!(
+            "Closing connection {} ({}:{})",
+            usize::from(self.token),
+            self.remote_addr().ip(),
+            self.remote_addr().port()
+        );
+
+        if let Err(e) = self.handler().deregister_connection(self) {
+            error!(
+                "Connection {} couldn't be closed: {:?}",
+                usize::from(self.token),
+                e
+            );
+        }
+
+        if let Some(id) = self.remote_id() {
+            write_or_die!(self.handler().active_peer_stats).remove(&id.as_raw());
+        }
+
+        // Report number of peers to stats export engine
+        if let Some(ref service) = self.handler().stats_export_service {
+            if self.is_post_handshake() {
+                service.peers_dec();
+            }
+        }
+    }
+}
+
+pub struct ConnectionLowLevel {
+    pub conn_ref:   Option<Pin<Arc<Connection>>>,
+    socket:         TcpStream,
+    message_sink:   FrameSink,
+    message_stream: FrameStream,
+}
+
+impl ConnectionLowLevel {
+    fn conn(&self) -> &Connection {
+        &self.conn_ref.as_ref().unwrap() // safe; always available
+    }
+
+    fn new(
+        peer_type: PeerType,
+        socket: TcpStream,
+        key_pair: Keypair,
+        is_initiator: bool,
+        noise_params: snow::params::NoiseParams,
+    ) -> Self {
+        let handshaker = Arc::new(RwLock::new(HandshakeStreamSink::new(
+            noise_params.clone(),
+            key_pair,
+            is_initiator,
+        )));
+
+        ConnectionLowLevel {
+            conn_ref: None,
+            socket,
+            message_sink: FrameSink::new(Arc::clone(&handshaker)),
+            message_stream: FrameStream::new(peer_type, handshaker),
+        }
+    }
+
+    fn read_from_stream(&mut self, ev: &Event) -> Fallible<()> {
+        let ev_readiness = ev.readiness();
+
+        // 1. Try to read messages from `socket`.
+        if ev_readiness.is_readable() {
+            loop {
+                let read_result = self.message_stream.read(&mut self.socket);
+                match read_result {
+                    Ok(readiness) => match readiness {
+                        Readiness::Ready(message) => {
+                            self.conn().send_to_dump(&message, true);
+                            if let Err(e) = self.conn().process_message(message) {
+                                warn!(
+                                    "Terminating connection {} due to {}",
+                                    usize::from(ev.token()),
+                                    e
+                                );
+                                self.conn().handler().remove_connection(self.conn().token);
+                                return Ok(());
+                            }
+                        }
+                        Readiness::NotReady => break,
+                    },
+                    Err(err) => {
+                        let token_id = usize::from(self.conn().token);
+
+                        if err.downcast_ref::<fails::UnwantedMessageError>().is_none()
+                            && err.downcast_ref::<fails::MessageTooBigError>().is_none()
+                        {
+                            warn!(
+                                "Protocol error, connection {} is dropped: {}",
+                                token_id, err
+                            );
+                        } else {
+                            error!("Message stream error on connection {}: {:?}", token_id, err);
+                        }
+
+                        // In this case, we have to drop this connection, so we can avoid
+                        // writing any data.
+                        self.conn().handler().remove_connection(self.conn().token);
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
+        // 2. Write pending data into `socket`
+        self.message_sink.flush(&mut self.socket)?;
+
+        Ok(())
+    }
+
+    fn write_to_sink(
+        &mut self,
+        input: HybridBuf,
+        priority: MessageSendingPriority,
+    ) -> Fallible<Readiness<usize>> {
+        self.message_sink.write(input, &mut self.socket, priority)
+    }
+}
+
+impl Drop for ConnectionLowLevel {
+    fn drop(&mut self) {
+        use crate::connection::fails::PeerTerminatedConnection;
+        if let Err(e) = map_io_error_to_fail!(self.socket.shutdown(Shutdown::Both)) {
+            if e.downcast_ref::<PeerTerminatedConnection>().is_none() {
+                error!("ConnectionPrivate couldn't be closed: {:?}", e);
+            }
+        }
     }
 }
 
