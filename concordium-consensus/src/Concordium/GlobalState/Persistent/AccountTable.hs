@@ -4,11 +4,10 @@ module Concordium.GlobalState.Persistent.AccountTable where
 import Prelude hiding (lookup)
 import Data.Word
 import Data.Bits
-import Lens.Micro.Platform
-import Lens.Micro.Internal (Ixed,Index,IxValue)
 import Data.Serialize
 import Data.Functor.Foldable hiding (Nil)
 import Control.Monad
+import Control.Exception
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
@@ -29,6 +28,10 @@ data ATF r
 instance HashableTo H.Hash (ATF r) where
     getHash (Branch _ _ h _ _) = h
     getHash (Leaf h _) = h
+
+showATFString :: ATF String -> String
+showATFString (Branch lvl _ _ l r) = "Branch(" ++ show lvl ++ ", " ++ l ++ ", " ++ r ++ ")"
+showATFString (Leaf _ a) = show a
 
 -- FIXME: This uses serialization of accounts for storing them.
 -- This is potentially quite wasteful when only small changes are made.
@@ -118,7 +121,7 @@ appendF acct t = mproject t >>= \case
         newHash = getHash acct
         newLeaf = Leaf newHash acct
     
-updateF :: forall m. (MRecursive m t, MCorecursive m t, Base t ~ ATF) => (Account -> m (a, Account)) -> AccountIndex -> t -> m (Maybe (a, H.Hash, t))
+updateF :: forall m t a. (MRecursive m t, MCorecursive m t, Base t ~ ATF) => (Account -> m (a, Account)) -> AccountIndex -> t -> m (Maybe (a, H.Hash, t))
 updateF upd x t = mproject t >>= \case
     (Leaf _ acct) -> if x == 0 then do
             (res, acct') <- upd acct
@@ -135,7 +138,7 @@ updateF upd x t = mproject t >>= \case
                     b <- membed (Branch lvl fll hsh' l r')
                     return $ Just (res, hsh', b)
         else
-            updateF udp x l >>= \case
+            updateF upd x l >>= \case
                 Nothing -> return Nothing
                 Just (res, lhsh, l') -> do
                     rhsh <- getHash <$> mproject r
@@ -143,3 +146,58 @@ updateF upd x t = mproject t >>= \case
                     b <- membed (Branch lvl fll hsh' l' r)
                     return $ Just (res, hsh', b)
 
+mapReduceF :: (MRecursive m t, Base t ~ ATF, Monoid a) => (AccountIndex -> Account -> m a) -> t -> m a
+mapReduceF mfun = mr 0 <=< mproject
+    where
+        mr lowIndex (Leaf _ acct) = mfun lowIndex acct
+        mr lowIndex (Branch lvl _ _ l r) = do
+            la <- mr lowIndex =<< mproject l
+            ra <- mr (setBit lowIndex (fromIntegral lvl)) =<< mproject r
+            return (la <> ra)
+
+data AccountTable = Empty | Tree !AccountIndex (BufferedBlobbed BlobRef ATF)
+
+nextAccountIndex :: AccountTable -> AccountIndex
+nextAccountIndex Empty = 0
+nextAccountIndex (Tree nai _) = nai
+
+instance Show AccountTable where
+    show Empty = "Empty"
+    show (Tree _ t) = showFix showATFString t
+
+instance (MonadBlobStore m BlobRef) => BlobStorable m BlobRef AccountTable where
+    store _ Empty = return (put (0 :: AccountIndex))
+    store p (Tree nai t) = do
+        pt <- store p t
+        return (put nai >> pt)
+    storeUpdate _ v@Empty = return (put (0 :: AccountIndex), v)
+    storeUpdate p (Tree nai t) = do
+        (pt, t') <- storeUpdate p t
+        return (put nai >> pt, Tree nai t')
+    load p = do
+        nai <- get
+        if nai == 0 then
+            return (return Empty)
+        else
+            fmap (Tree nai) <$> load p
+
+empty :: AccountTable
+empty = Empty
+
+lookup :: (MonadBlobStore m BlobRef) => AccountIndex -> AccountTable -> m (Maybe Account)
+lookup _ Empty = return Nothing
+lookup x (Tree _ t) = lookupF x t
+
+append :: (MonadBlobStore m BlobRef) => Account -> AccountTable -> m (AccountIndex, AccountTable)
+append acct Empty = (0,) . (Tree 1) <$> membed (mkLeaf acct)
+append acct (Tree nai t) = do
+    (i, _, _, _, t') <- appendF acct t
+    assert (i == nai) $ return (i, Tree (nai + 1) t')
+
+update :: (MonadBlobStore m BlobRef) => (Account -> m (a, Account)) -> AccountIndex -> AccountTable -> m (Maybe (a, AccountTable))
+update _ _ Empty = return Nothing
+update upd i (Tree nai t) = fmap (\(res, _, t') -> (res, Tree nai t')) <$> updateF upd i t
+
+toList :: (MonadBlobStore m BlobRef) => AccountTable -> m [(AccountIndex, Account)]
+toList Empty = return []
+toList (Tree _ t) = mapReduceF (\ai acct -> return [(ai, acct)]) t

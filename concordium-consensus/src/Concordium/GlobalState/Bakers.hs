@@ -1,5 +1,5 @@
 {-# LANGUAGE DeriveGeneric, TemplateHaskell #-}
-{-# LANGUAGE RecordWildCards, BangPatterns #-}
+{-# LANGUAGE RecordWildCards, BangPatterns, TypeFamilies #-}
 module Concordium.GlobalState.Bakers where
 
 import GHC.Generics
@@ -37,9 +37,19 @@ data Bakers = Bakers {
     -- 'BakerId's should not be reused when bakers are removed.
     _nextBakerId :: !BakerId
 } deriving (Eq, Generic, Show)
-instance Serialize Bakers
 
 makeLenses ''Bakers
+
+instance Serialize Bakers where
+    put Bakers{..} = put _bakerMap >> put _nextBakerId
+    get = do
+        _bakerMap <- get
+        _nextBakerId <- get
+        let
+            (_bakersByKey, _bakerTotalStake) = Map.foldrWithKey deriv (Map.empty, 0) _bakerMap
+            deriv bid BakerInfo{..} (m, t) = (m & at (_bakerSignatureVerifyKey, _bakerElectionVerifyKey) . non [] %~ (bid:),
+                                                t + _bakerStake)
+        return Bakers{..}    
 
 emptyBakers :: Bakers
 emptyBakers = Bakers Map.empty Map.empty 0 0

@@ -175,6 +175,11 @@ data BufferedRef a
     | BRCached {brRef :: !(BlobRef a), brValue :: !a}
     | BRMemory {brValue :: !a}
 
+instance Show a => Show (BufferedRef a) where
+    show (BRBlobbed r) = show r
+    show (BRCached r v) = "{" ++ show v ++ "}" ++ show r
+    show (BRMemory v) = "{" ++ show v ++ "}"
+
 instance (BlobStorable m BlobRef a) => BlobStorable m BlobRef (BufferedRef a) where
     store p (BRBlobbed r) = store p r
     store p (BRCached r _) = store p r
@@ -184,7 +189,7 @@ instance (BlobStorable m BlobRef a) => BlobStorable m BlobRef (BufferedRef a) wh
     load p = fmap BRBlobbed <$> load p
     storeUpdate p (BRMemory v) = do
         (r :: BlobRef a, v') <- storeUpdateRef v
-        (,BRMemory v') <$> store p r
+        (,BRCached r v') <$> store p r
     storeUpdate p x = (,x) <$> store p x
 
 instance (BlobStorable m BlobRef a) => BlobStorable m BlobRef (Nullable (BufferedRef a)) where
