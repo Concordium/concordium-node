@@ -69,6 +69,14 @@ pub enum TransactionLogMessage {
         ContractAddress,
         AccountAddress,
     ),
+    TransferFromContractToContract(
+        BlockHash,
+        Slot,
+        TransactionHash,
+        Amount,
+        ContractAddress,
+        ContractAddress,
+    ),
     ExecutionCost(
         BlockHash,
         Slot,
@@ -76,6 +84,14 @@ pub enum TransactionLogMessage {
         Amount,
         AccountAddress,
         BakerId,
+    ),
+    IdentityCredentialsDeployed(
+        BlockHash,
+        Slot,
+        TransactionHash,
+        AccountAddress,
+        AccountAddress,
+        String,
     ),
     BlockReward(BlockHash, Slot, Amount, BakerId, AccountAddress),
 }
@@ -114,6 +130,30 @@ impl std::fmt::Display for TransactionLogMessage {
                 "TransferFromContractToAccount occured in {}/{}/{} for {} from {} to {}",
                 block_hash, slot, tx_hash, amount, from_contract, to_account
             ),
+            Self::TransferFromContractToContract(
+                block_hash,
+                slot,
+                tx_hash,
+                amount,
+                from_contract,
+                to_contract,
+            ) => write!(
+                f,
+                "TransferFromContractToContract occured in {}/{}/{} for {} from {} to {}",
+                block_hash, slot, tx_hash, amount, from_contract, to_contract
+            ),
+            Self::IdentityCredentialsDeployed(
+                block_hash,
+                slot,
+                transaction_hash,
+                from_account,
+                to_account,
+                _,
+            ) => write!(
+                f,
+                "IdentityCredentialsDeployed occured in {}/{}/{} from {} to {}",
+                block_hash, slot, transaction_hash, from_account, to_account
+            ),
             Self::ExecutionCost(block_hash, slot, tx_hash, amount, from_account, baker_id) => {
                 write!(
                     f,
@@ -137,6 +177,8 @@ pub enum TransferLogType {
     TransferFromContractToAccount,
     ExecutionCost,
     BlockReward,
+    TransferFromContractToContract,
+    IdentityCredentialsDeployed,
 }
 
 impl TryFrom<u8> for TransferLogType {
@@ -149,6 +191,8 @@ impl TryFrom<u8> for TransferLogType {
             2 => Ok(Self::TransferFromContractToAccount),
             3 => Ok(Self::ExecutionCost),
             4 => Ok(Self::BlockReward),
+            5 => Ok(Self::TransferFromContractToContract),
+            6 => Ok(Self::IdentityCredentialsDeployed),
             _ => Err(format_err!("Received invalid transfer log type: {}", byte)),
         }
     }

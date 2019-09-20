@@ -150,6 +150,17 @@ pub struct BakerConfig {
         help = "Persist the the global state store"
     )]
     pub persist_global_state: bool,
+    #[structopt(
+        long = "maximum-block-size",
+        help = "Maximum block size in bytes",
+        default_value = "12582912"
+    )]
+    pub maximum_block_size: u32,
+    #[structopt(
+        long = "scheduler-outcome-logging",
+        help = "Enable outcome of finalized baked blocks from the scheduler"
+    )]
+    pub scheduler_outcome_logging: bool,
 }
 
 #[derive(StructOpt, Debug)]
@@ -426,6 +437,7 @@ impl Config {
 }
 
 pub fn parse_config() -> Fallible<Config> {
+    use crate::network::PROTOCOL_MAX_MESSAGE_SIZE;
     let conf = Config::from_args();
     if conf.connection.max_allowed_nodes_percentage < 100 {
         bail!(
@@ -447,6 +459,16 @@ pub fn parse_config() -> Fallible<Config> {
         || conf.connection.relay_broadcast_percentage > 1.0
     {
         bail!("Percentage of peers to relay broadcasted packets to, must be between 0.0 and 1.0");
+    }
+
+    if conf.cli.baker.maximum_block_size > 4_000_000_000
+        || ((f64::from(conf.cli.baker.maximum_block_size) * 0.9).ceil()) as u32
+            > PROTOCOL_MAX_MESSAGE_SIZE
+    {
+        bail!(
+            "Maximum block size set higher than 90% of network protocol max size ({})",
+            PROTOCOL_MAX_MESSAGE_SIZE
+        );
     }
 
     Ok(conf)

@@ -190,15 +190,18 @@ type DirectMessageCallback =
 
 extern "C" {
     pub fn startConsensus(
+        max_block_size: u64,
         genesis_data: *const u8,
         genesis_data_len: i64,
         private_data: *const u8,
         private_data_len: i64,
         broadcast_callback: BroadcastCallback,
         log_callback: LogCallback,
+        transfer_log_enabled: u8,
         transfer_log_callback: TransferLogCallback,
     ) -> *mut consensus_runner;
     pub fn startConsensusPassive(
+        max_block_size: u64,
         genesis_data: *const u8,
         genesis_data_len: i64,
         log_callback: LogCallback,
@@ -296,6 +299,8 @@ extern "C" {
 }
 
 pub fn get_consensus_ptr(
+    max_block_size: u64,
+    enable_transfer_logging: bool,
     genesis_data: Vec<u8>,
     private_data: Option<Vec<u8>>,
 ) -> *mut consensus_runner {
@@ -316,18 +321,21 @@ pub fn get_consensus_ptr(
                 let c_string_private_data =
                     CString::from_vec_unchecked(private_data_bytes.to_owned());
                 startConsensus(
+                    max_block_size,
                     c_string_genesis.as_ptr() as *const u8,
                     genesis_data_len as i64,
                     c_string_private_data.as_ptr() as *const u8,
                     private_data_len as i64,
                     broadcast_callback,
                     on_log_emited,
+                    if enable_transfer_logging { 1 } else { 0 },
                     on_transfer_log_emitted,
                 )
             }
         }
         None => unsafe {
             startConsensusPassive(
+                max_block_size,
                 c_string_genesis.as_ptr() as *const u8,
                 genesis_data_len as i64,
                 on_log_emited,
@@ -689,19 +697,31 @@ pub unsafe extern "C" fn on_transfer_log_emitted(
         return;
     }
 
-    if remaining_data_len as usize
-        != match transfer_event_type {
-            TransferLogType::DirectTransfer => 2 * size_of::<AccountAddress>(),
-            TransferLogType::TransferFromAccountToContract => {
-                size_of::<AccountAddress>() + size_of::<ContractAddress>()
-            }
-            TransferLogType::TransferFromContractToAccount => {
-                size_of::<ContractAddress>() + size_of::<AccountAddress>()
-            }
-            TransferLogType::ExecutionCost => size_of::<AccountAddress>() + size_of::<BakerId>(),
-            TransferLogType::BlockReward => size_of::<AccountAddress>() + size_of::<BakerId>(),
+    if !match transfer_event_type {
+        TransferLogType::DirectTransfer => {
+            remaining_data_len as usize == 2 * size_of::<AccountAddress>()
         }
-    {
+        TransferLogType::TransferFromAccountToContract => {
+            remaining_data_len as usize
+                == (size_of::<AccountAddress>() + size_of::<ContractAddress>())
+        }
+        TransferLogType::TransferFromContractToAccount => {
+            remaining_data_len as usize
+                == (size_of::<ContractAddress>() + size_of::<AccountAddress>())
+        }
+        TransferLogType::ExecutionCost => {
+            remaining_data_len as usize == (size_of::<AccountAddress>() + size_of::<BakerId>())
+        }
+        TransferLogType::BlockReward => {
+            remaining_data_len as usize == (size_of::<AccountAddress>() + size_of::<BakerId>())
+        }
+        TransferLogType::TransferFromContractToContract => {
+            remaining_data_len as usize == (2 * size_of::<ContractAddress>())
+        }
+        TransferLogType::IdentityCredentialsDeployed => {
+            remaining_data_len as usize > (2 * size_of::<AccountAddress>())
+        }
+    } {
         error!(
             "Incorrect data given for {} event type",
             transfer_event_type
@@ -771,6 +791,52 @@ pub unsafe extern "C" fn on_transfer_log_emitted(
                 amount,
                 contract_address,
                 account_address,
+            )
+        }
+        TransferLogType::TransferFromContractToContract => {
+            let transaction_hash = TransactionHash::new(slice::from_raw_parts(
+                transaction_hash_ptr,
+                size_of::<TransactionHash>(),
+            ));
+            let (from_contract_address_slice, to_contract_address_slice) =
+                slice::from_raw_parts(remaining_data_ptr, remaining_data_len as usize)
+                    .split_at(size_of::<ContractAddress>());
+            let from_contract_address =
+                ContractAddress::deserialize(&mut Cursor::new(&from_contract_address_slice))
+                    .unwrap();
+            let to_contract_address =
+                ContractAddress::deserialize(&mut Cursor::new(&to_contract_address_slice)).unwrap();
+            TransactionLogMessage::TransferFromContractToContract(
+                block_hash,
+                slot,
+                transaction_hash,
+                amount,
+                from_contract_address,
+                to_contract_address,
+            )
+        }
+        TransferLogType::IdentityCredentialsDeployed => {
+            let transaction_hash = TransactionHash::new(slice::from_raw_parts(
+                transaction_hash_ptr,
+                size_of::<TransactionHash>(),
+            ));
+            let remaining_data_slice =
+                slice::from_raw_parts(remaining_data_ptr, remaining_data_len as usize);
+            let sender_account =
+                AccountAddress::new(&remaining_data_slice[0..][..size_of::<AccountAddress>()]);
+            let receiver_account = AccountAddress::new(
+                &remaining_data_slice[size_of::<AccountAddress>()..][..size_of::<AccountAddress>()],
+            );
+            let json_payload =
+                String::from_utf8_lossy(&remaining_data_slice[(2 * size_of::<AccountAddress>())..])
+                    .to_string();
+            TransactionLogMessage::IdentityCredentialsDeployed(
+                block_hash,
+                slot,
+                transaction_hash,
+                sender_account,
+                receiver_account,
+                json_payload,
             )
         }
         TransferLogType::ExecutionCost => {
