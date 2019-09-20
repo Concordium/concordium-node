@@ -55,7 +55,8 @@ data SkovData = SkovData {
     _skovFocusBlock :: !BlockPointer,
     _skovPendingTransactions :: !PendingTransactionTable,
     _skovTransactionTable :: !TransactionTable,
-    _skovStatistics :: !ConsensusStatistics
+    _skovStatistics :: !ConsensusStatistics,
+    _skovRuntimeParameters :: !RuntimeParameters
 }
 makeLenses ''SkovData
 
@@ -94,12 +95,14 @@ class SkovLenses s where
     transactionTable = skov . skovTransactionTable
     statistics :: Lens' s ConsensusStatistics
     statistics = skov . skovStatistics
+    runtimeParameters :: Lens' s RuntimeParameters
+    runtimeParameters = skov . skovRuntimeParameters
 
 instance SkovLenses SkovData where
     skov = id
 
-initialSkovData :: GenesisData -> BlockState -> GlobalStatePtr -> IO SkovData
-initialSkovData gd genState gsptr =
+initialSkovData :: RuntimeParameters -> GenesisData -> BlockState -> GlobalStatePtr -> IO SkovData
+initialSkovData rp gd genState gsptr =
   do
     gb <- makeGenesisBlockPointer gsptr gd genState
     let gbh = BS.bpHash gb
@@ -118,7 +121,8 @@ initialSkovData gd genState gsptr =
             _skovFocusBlock = gb,
             _skovPendingTransactions = emptyPendingTransactionTable,
             _skovTransactionTable = emptyTransactionTable,
-            _skovStatistics = initialConsensusStatistics
+            _skovStatistics = initialConsensusStatistics,
+            _skovRuntimeParameters = rp
         }
 
 newtype SkovTreeState s m a = SkovTreeState {runSkovTreeState :: m a}
@@ -135,9 +139,9 @@ instance (SkovLenses s, Monad m, MonadState s m, MonadIO m) => TS.TreeStateMonad
       gsptr <- use globalStatePtr
       liftIO $ makePendingBlock gsptr (signBlock key slot parent bid pf n lastFin trs) time
     getBlockStatus bh = use (blockTable . at bh)
-    makeLiveBlock block parent lastFin st arrTime = do
+    makeLiveBlock block parent lastFin st arrTime energy = do
             gsptr <- use globalStatePtr
-            blockP <- liftIO $ makeBlockPointer gsptr block parent lastFin st arrTime
+            blockP <- liftIO $ makeBlockPointer gsptr block parent lastFin st arrTime energy
             blockTable . at (getHash block) ?= TS.BlockAlive blockP
             return blockP
     markDead bh = blockTable . at bh ?= TS.BlockDead
@@ -269,3 +273,6 @@ instance (SkovLenses s, Monad m, MonadState s m, MonadIO m) => TS.TreeStateMonad
 
     getConsensusStatistics = use statistics
     putConsensusStatistics stats = statistics .= stats
+
+    {-# INLINE getRuntimeParameters #-}
+    getRuntimeParameters = use runtimeParameters
