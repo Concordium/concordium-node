@@ -35,6 +35,7 @@ import Data.Void
 import Data.Maybe
 
 import qualified Concordium.ID.Types as ID
+import qualified Concordium.ID.Account as ID
 
 
 class (Eq bp, Show bp, BlockData bp) => BlockPointerData bp where
@@ -55,6 +56,10 @@ class (Eq bp, Show bp, BlockData bp) => BlockPointerData bp where
     bpArriveTime :: bp -> UTCTime
     -- |Number of transactions in a block
     bpTransactionCount :: bp -> Int
+    -- |Energy cost of all transactions in the block.
+    bpTransactionsEnergyCost :: bp -> Energy
+    -- |Size of the transaction data in bytes.
+    bpTransactionsSize :: bp -> Int
 
 type family BlockPointer (m :: * -> *) :: *
 
@@ -425,6 +430,26 @@ data TransferReason =
     -- |Recepient account.
     trcatTarget :: !AccountAddress
     } |
+  ContractToContractTransfer {
+    -- |Id of the top-level transaction.
+    trcctId :: !TransactionHash,
+    -- |From which contract
+    trcctSource :: !ContractAddress,
+    -- |Amount transferred.
+    trcctAmount :: !Amount,
+    -- |Recepient account.
+    trcctTarget :: !ContractAddress
+    } |
+  CredentialDeployment {
+    -- |Id of the top-level transaction.
+    trcdId :: !TransactionHash,
+    -- |Which account sent the transaction.
+    trcdSource :: !AccountAddress,
+    -- |To which account was the credential deployed.
+    trcdAccount :: !AccountAddress,
+    -- |Credential values which were deployed deployed.
+    trcdCredentialValues :: !ID.CredentialDeploymentValues
+    } |
   -- |Baking reward (here meaning the actual block reward + execution reward for block transactions).
   BakingRewardTransfer {
     -- |Id of the baker.
@@ -446,23 +471,30 @@ data TransferReason =
     }
   deriving(Show)
 
-resultToReasons :: BlockMetadata bp => bp -> Transaction -> ValidResult -> [TransferReason]
+resultToReasons :: (BlockMetadata bp, TransactionData tx) => bp -> tx -> ValidResult -> [TransferReason]
 resultToReasons bp tx res =
   case res of
-       TxReject _ a -> [ExecutionCost trId sender a baker]
-       TxSuccess events a -> mapMaybe extractReason events ++ [ExecutionCost trId sender a baker]
+       TxReject _ a _ -> [ExecutionCost trId sender a baker]
+       TxSuccess events a _ -> mapMaybe extractReason events ++ [ExecutionCost trId sender a baker]
   where extractReason (Transferred (AddressAccount source) amount (AddressAccount target)) =
           Just (DirectTransfer trId source amount target)
         extractReason (Transferred (AddressContract source) amount (AddressAccount target)) =
           Just (ContractToAccountTransfer trId source amount target)
         extractReason (Transferred (AddressAccount source) amount (AddressContract target)) =
           Just (AccountToContractTransfer trId source amount target)
+        extractReason (Transferred (AddressContract source) amount (AddressContract target)) =
+          Just (ContractToContractTransfer trId source amount target)
         extractReason (Updated (AddressAccount source) target amount _) =
           Just (AccountToContractTransfer trId source amount target)
-        extractReason r = Nothing
+        extractReason (Updated (AddressContract source) target amount _) =
+          Just (ContractToContractTransfer trId source amount target)
+        extractReason (CredentialDeployed cdv) =
+          let caaddr = ID.accountAddress (ID.cdvVerifyKey cdv) (ID.cdvSigScheme cdv)
+          in Just (CredentialDeployment trId sender caaddr cdv)
+        extractReason _ = Nothing
         
-        trId = trHash tx
-        sender = thSender (trHeader tx)
+        trId = transactionHash tx
+        sender = thSender (transactionHeader tx)
         baker = blockBaker bp
 
 specialToReason :: BlockMetadata bp => bp -> SpecialTransactionOutcome -> TransferReason

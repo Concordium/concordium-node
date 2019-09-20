@@ -85,6 +85,7 @@ class (Eq (BlockPointer m),
         -> BlockPointer m                    -- ^Last finalized block pointer
         -> BlockState m                      -- ^Block state
         -> UTCTime                           -- ^Block arrival time
+        -> Energy                            -- ^Energy cost of the transactions in the block.
         -> m (BlockPointer m)
     -- |Mark a block as dead.
     markDead :: BlockHash -> m ()
@@ -262,12 +263,16 @@ class (Eq (BlockPointer m),
     -- |Set the consensus statistics.
     putConsensusStatistics :: ConsensusStatistics -> m ()
 
+    -- |Get other runtime parameters that are implementation detail, and hence do
+    -- not belong to genesis data.
+    getRuntimeParameters :: m RuntimeParameters
+
 type instance PendingBlock (BSMTrans t m) = PendingBlock m
 
 instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (BSMTrans t m) where
     makePendingBlock key slot parent bid pf n lastFin trs time = lift $ makePendingBlock key slot parent bid pf n lastFin trs time
     getBlockStatus = lift . getBlockStatus
-    makeLiveBlock b parent lastFin st time = lift $ makeLiveBlock b parent lastFin st time
+    makeLiveBlock b parent lastFin st time energy = lift $ makeLiveBlock b parent lastFin st time energy
     markDead = lift . markDead
     markFinalized bh fr = lift $ markFinalized bh fr
     markPending = lift . markPending
@@ -307,6 +312,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (BSMTra
     purgeBlockState = lift . purgeBlockState
     getConsensusStatistics = lift getConsensusStatistics
     putConsensusStatistics = lift . putConsensusStatistics
+    getRuntimeParameters = lift getRuntimeParameters
 
     {-# INLINE makePendingBlock #-}
     {-# INLINE getBlockStatus #-}
@@ -350,6 +356,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (BSMTra
     {-# INLINE purgeBlockState #-}
     {-# INLINE getConsensusStatistics #-}
     {-# INLINE putConsensusStatistics #-}
+    {-# INLINE getRuntimeParameters #-}
 
 type instance PendingBlock (MaybeT m) = PendingBlock m
 deriving via (BSMTrans MaybeT m) instance TreeStateMonad m => TreeStateMonad (MaybeT m)

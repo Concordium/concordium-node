@@ -56,4 +56,3 @@ updateSeed slot bn state@SeedState{..} =
     else 
       -- more than 2/3 slots into the epoch, no update
       state
-            

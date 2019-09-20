@@ -80,7 +80,7 @@ instance BlockData BakedBlock where
     {-# INLINE blockTransactions #-}
     verifyBlockSignature key b = Sig.verify key (runPut $ blockBody b) (bbSignature b)
     {-# INLINE verifyBlockSignature #-}
-    putBlock = put . NormalBlock
+    putBlock = putBlock . NormalBlock
     {-# INLINE putBlock #-}
 
 instance HashableTo BlockHash BakedBlock where
@@ -129,33 +129,33 @@ instance BlockData Block where
     verifyBlockSignature _ GenesisBlock{} = True
     verifyBlockSignature key (NormalBlock bb) = verifyBlockSignature key bb
 
-    putBlock = put
+    putBlock (GenesisBlock genData) = put genesisSlot >> put genData
+    putBlock (NormalBlock bb) = blockBody bb >> put (bbSignature bb)
+
     {-# INLINE blockSlot #-}
     {-# INLINE blockFields #-}
     {-# INLINE blockTransactions #-}
     {-# INLINE verifyBlockSignature #-}
     {-# INLINE putBlock #-}
 
-instance Serialize Block where
-    put (GenesisBlock genData) = put genesisSlot >> put genData
-    put (NormalBlock bb) = blockBody bb >> put (bbSignature bb)
-    get = do
-        sl <- get
-        if sl == 0 then do
-            genData <- get
-            return (GenesisBlock genData)
-        else do
-            bfBlockPointer <- get
-            bfBlockBaker <- get
-            bfBlockProof <- get
-            bfBlockNonce <- get
-            bfBlockLastFinalized <- get
-            bbTransactions <- BlockTransactions <$> get
-            bbSignature <- get
-            return $ NormalBlock (BakedBlock{bbSlot = sl, bbFields = BlockFields{..}, ..})
+getBlock :: UTCTime -> Get Block
+getBlock arrivalTime = do
+  sl <- get
+  if sl == 0 then do
+    genData <- get
+    return (GenesisBlock genData)
+  else do
+    bfBlockPointer <- get
+    bfBlockBaker <- get
+    bfBlockProof <- get
+    bfBlockNonce <- get
+    bfBlockLastFinalized <- get
+    bbTransactions <- BlockTransactions <$> getListOf (getVerifiedTransaction arrivalTime)
+    bbSignature <- get
+    return $ NormalBlock (BakedBlock{bbSlot = sl, bbFields = BlockFields{..}, ..})
 
 instance HashableTo BlockHash Block where
-    getHash = Hash.hashLazy . runPutLazy . put
+    getHash = Hash.hashLazy . runPutLazy . putBlock
 
 -- |A baked block, pre-hashed with its arrival time.
 data PendingBlock = PendingBlock {
