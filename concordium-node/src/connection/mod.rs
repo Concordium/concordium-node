@@ -102,7 +102,7 @@ impl Connection {
 
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        handler_ref: &P2PNode,
+        handler: &P2PNode,
         socket: TcpStream,
         token: Token,
         remote_peer: RemotePeer,
@@ -122,7 +122,7 @@ impl Connection {
         )));
 
         let conn = Arc::new(Self {
-            handler_ref: Arc::pin(handler_ref.clone()),
+            handler_ref: handler.self_ref.clone().unwrap(), // safe, always available
             token,
             remote_peer,
             dptr,
@@ -412,10 +412,10 @@ mod tests {
         setup_logger();
 
         // Create connections
-        let (mut node, _) = make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
+        let (node, _) = make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
         let (bootstrapper, _) =
             make_node_and_sync(next_available_port(), vec![100], PeerType::Bootstrapper)?;
-        connect(&mut node, &bootstrapper)?;
+        connect(&node, &bootstrapper)?;
         await_handshake(&node)?;
         // Deregister connection on the node side
         let conn_node = node.find_connection_by_id(bootstrapper.id()).unwrap();

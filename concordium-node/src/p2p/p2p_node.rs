@@ -43,6 +43,7 @@ use std::{
         SocketAddr,
     },
     path::PathBuf,
+    pin::Pin,
     str::FromStr,
     sync::{
         atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
@@ -65,7 +66,7 @@ const MAX_PREHANDSHAKE_KEEP_ALIVE: u64 = 120_000;
 #[derive(Clone)]
 pub struct P2PNodeConfig {
     pub no_net: bool,
-    pub desired_nodes_count: u8,
+    pub desired_nodes_count: u16,
     no_bootstrap_dns: bool,
     bootstrap_server: String,
     pub dns_resolvers: Vec<String>,
@@ -167,10 +168,10 @@ pub struct Receivers {
     pub network_requests: Receiver<NetworkRawRequest>,
 }
 
-#[derive(Clone)]
+#[allow(dead_code)] // caused by the dump_network feature; will fix in a follow-up
 pub struct P2PNode {
+    pub self_ref:             Option<Pin<Arc<Self>>>,
     pub self_peer:            P2PPeer,
-    external_addr:            SocketAddr,
     thread:                   Arc<RwLock<P2PNodeThread>>,
     pub poll:                 Arc<Poll>,
     pub connection_handler:   ConnectionHandler,
@@ -200,7 +201,7 @@ impl P2PNode {
         stats_export_service: Option<StatsExportService>,
         subscription_queue_in: SyncSender<NetworkMessage>,
         data_dir_path: Option<PathBuf>,
-    ) -> (Self, Receivers) {
+    ) -> (Arc<Self>, Receivers) {
         let addr = if let Some(ref addy) = conf.common.listen_address {
             format!("{}:{}", addy, conf.common.listen_port)
                 .parse()
@@ -295,7 +296,7 @@ impl P2PNode {
             bootstrap_nodes: conf.connection.bootstrap_nodes.clone(),
             minimum_per_bucket: conf.common.min_peers_bucket,
             max_allowed_nodes: if let Some(max) = conf.connection.max_allowed_nodes {
-                u16::from(max)
+                max
             } else {
                 f64::floor(
                     f64::from(conf.connection.desired_nodes)
@@ -338,13 +339,13 @@ impl P2PNode {
             .get_or_create(config.data_dir_path.as_path(), Rkv::new)
             .unwrap();
 
-        let node = P2PNode {
+        let node = Arc::new(P2PNode {
+            self_ref: None,
             poll: Arc::new(poll),
             resend_queue_in: resend_queue_in.clone(),
             queue_to_super: pkt_queue,
             rpc_queue: subscription_queue_in,
             start_time: Utc::now(),
-            external_addr: SocketAddr::new(own_peer_ip, own_peer_port),
             thread: Arc::new(RwLock::new(P2PNodeThread::default())),
             config,
             dump_switch: act_tx,
@@ -357,7 +358,15 @@ impl P2PNode {
             stats_export_service,
             is_terminated: Default::default(),
             kvs,
-        };
+        });
+
+        // note: in order to avoid a lock over the self_ref, write to it as soon as it's
+        // available using the unsafe ptr::write
+        // this is safe, as at this point the node is not shared with any other object
+        // or thread
+        let self_ref =
+            &node.self_ref as *const Option<Pin<Arc<P2PNode>>> as *mut Option<Pin<Arc<P2PNode>>>;
+        unsafe { std::ptr::write(self_ref, Some(Pin::new(Arc::clone(&node)))) };
 
         node.clear_bans()
             .unwrap_or_else(|e| error!("Couldn't reset the ban list: {}", e));
@@ -505,7 +514,7 @@ impl P2PNode {
                 > peer_stat_list
                     .iter()
                     .filter(|peer| peer.peer_type != PeerType::Bootstrapper)
-                    .count() as u8
+                    .count() as u16
         {
             if peer_stat_list.is_empty() {
                 info!("Sending out GetPeers to any bootstrappers we may still be connected to");
@@ -534,9 +543,9 @@ impl P2PNode {
         }
     }
 
-    pub fn spawn(&mut self, receivers: Receivers) {
+    pub fn spawn(&self, receivers: Receivers) {
         // Prepare poll-loop channels.
-        let self_clone = self.clone();
+        let self_clone = self.self_ref.clone().unwrap(); // safe, always available
 
         let join_handle = spawn_or_die!("P2PNode spawned thread", move || {
             let mut events = Events::with_capacity(10);
@@ -731,7 +740,7 @@ impl P2PNode {
         };
 
         let conn = Connection::new(
-            &self,
+            self,
             socket,
             token,
             remote_peer,
@@ -804,7 +813,7 @@ impl P2PNode {
                 };
 
                 let conn = Connection::new(
-                    &self,
+                    self,
                     socket,
                     token,
                     remote_peer,
@@ -1029,7 +1038,7 @@ impl P2PNode {
     ///
     /// It is safe to call this function several times, even from internal
     /// P2PNode thread.
-    pub fn join(&mut self) -> Fallible<()> {
+    pub fn join(&self) -> Fallible<()> {
         let id_opt = read_or_die!(self.thread).id;
         if let Some(id) = id_opt {
             let current_thread_id = std::thread::current().id();
@@ -1566,7 +1575,7 @@ impl P2PNode {
         true
     }
 
-    pub fn close_and_join(&mut self) -> Fallible<()> {
+    pub fn close_and_join(&self) -> Fallible<()> {
         self.close();
         self.join()
     }
@@ -1701,12 +1710,14 @@ impl P2PNode {
         };
     }
 }
-// impl Drop for P2PNode {
-// fn drop(&mut self) {
-// let _ = self.queue_to_super.send_stop();
-// let _ = self.close_and_join();
-// }
-// }
+
+impl Drop for P2PNode {
+    fn drop(&mut self) {
+        let _ = self.queue_to_super.send_stop();
+        let _ = self.close_and_join();
+    }
+}
+
 fn is_conn_peer_id(conn: &Connection, id: P2PNodeId) -> bool {
     if conn.is_post_handshake() {
         read_or_die!(conn.remote_peer.id).unwrap() == id

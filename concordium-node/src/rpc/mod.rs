@@ -61,13 +61,13 @@ impl Clone for RpcServerImpl {
 
 impl RpcServerImpl {
     pub fn new(
-        node: P2PNode,
+        node: Arc<P2PNode>,
         consensus: Option<ConsensusContainer>,
         conf: &configuration::RpcCliConfig,
         subscription_queue_out: mpsc::Receiver<NetworkMessage>,
     ) -> Self {
         RpcServerImpl {
-            node: Arc::new(node),
+            node: Arc::clone(&node),
             listen_addr: conf.rpc_server_addr.clone(),
             listen_port: conf.rpc_server_port,
             access_token: conf.rpc_server_token.clone(),
@@ -1400,8 +1400,8 @@ mod tests {
     fn test_peer_total_received() -> Fallible<()> {
         let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
         let port = next_available_port();
-        let (mut node2, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, &rpc_serv.node)?;
+        let (node2, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
+        connect(&node2, &rpc_serv.node)?;
         await_handshake(&node2)?;
         let emp = crate::proto::Empty::new();
         let rcv = client
@@ -1415,8 +1415,8 @@ mod tests {
     fn test_peer_total_sent() -> Fallible<()> {
         let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
         let port = next_available_port();
-        let (mut node2, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, &rpc_serv.node)?;
+        let (node2, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
+        connect(&node2, &rpc_serv.node)?;
         await_handshake(&node2)?;
         let emp = crate::proto::Empty::new();
         let snt = client
@@ -1432,8 +1432,8 @@ mod tests {
 
         let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
         let port = next_available_port();
-        let (mut node2, wt1) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, &rpc_serv.node)?;
+        let (node2, wt1) = make_node_and_sync(port, vec![100], PeerType::Node)?;
+        connect(&node2, &rpc_serv.node)?;
         await_handshake(&node2)?;
         let mut message = protobuf::well_known_types::BytesValue::new();
         message.set_value(b"Hey".to_vec());
@@ -1466,8 +1466,8 @@ mod tests {
 
         let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
         let port = next_available_port();
-        let (mut node2, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, &rpc_serv.node)?;
+        let (node2, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
+        connect(&node2, &rpc_serv.node)?;
         await_handshake(&node2)?;
         let mut net = protobuf::well_known_types::Int32Value::new();
         net.set_value(10);
@@ -1481,8 +1481,8 @@ mod tests {
     fn test_leave_network() -> Fallible<()> {
         let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
         let port = next_available_port();
-        let (mut node2, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, &rpc_serv.node)?;
+        let (node2, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
+        connect(&node2, &rpc_serv.node)?;
         await_handshake(&node2)?;
         let mut net = protobuf::well_known_types::Int32Value::new();
         net.set_value(100);
@@ -1502,8 +1502,8 @@ mod tests {
             .to_vec();
         assert!(rcv.is_empty());
         let port = next_available_port();
-        let (mut node2, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, &rpc_serv.node)?;
+        let (node2, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
+        connect(&node2, &rpc_serv.node)?;
         await_handshake(&node2)?;
         let req = crate::proto::PeersRequest::new();
         let rcv = client
@@ -1523,8 +1523,8 @@ mod tests {
         assert!(rcv.get_peer().to_vec().is_empty());
         assert_eq!(rcv.get_peer_type(), "Node");
         let port = next_available_port();
-        let (mut node2, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, &rpc_serv.node)?;
+        let (node2, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
+        connect(&node2, &rpc_serv.node)?;
         await_handshake(&node2)?;
         let req = crate::proto::PeersRequest::new();
         let rcv = client
@@ -1613,8 +1613,8 @@ mod tests {
     fn test_subscription_poll() -> Fallible<()> {
         let (client, rpc_serv, callopts) = create_node_rpc_call_option_waiter(PeerType::Node);
         let port = next_available_port();
-        let (mut node2, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, &rpc_serv.node)?;
+        let (node2, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
+        connect(&node2, &rpc_serv.node)?;
         await_handshake(&node2)?;
         client.subscription_start_opt(&crate::proto::Empty::new(), callopts.clone())?;
         send_broadcast_message(
@@ -1674,8 +1674,8 @@ mod tests {
         std::fs::write("/tmp/blobs/test", data)?;
         let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
         let port = next_available_port();
-        let (mut node2, wt2) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, &rpc_serv.node)?;
+        let (node2, wt2) = make_node_and_sync(port, vec![100], PeerType::Node)?;
+        connect(&node2, &rpc_serv.node)?;
         await_handshake(&node2)?;
         let mut req = crate::proto::TpsRequest::new();
         req.set_network_id(100);
@@ -1694,8 +1694,8 @@ mod tests {
         std::fs::write("/tmp/blobs/test", data)?;
         let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
         let port = next_available_port();
-        let (mut node2, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, &rpc_serv.node)?;
+        let (node2, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
+        connect(&node2, &rpc_serv.node)?;
         await_handshake(&node2)?;
         let mut req = crate::proto::TpsRequest::new();
         req.set_network_id(100);

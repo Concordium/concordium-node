@@ -16,7 +16,7 @@ mod tests {
     use std::{str::FromStr, thread, time::Duration};
 
     #[test]
-    pub fn test_ban_functionalities() -> Fallible<()> {
+    fn test_ban_functionalities() -> Fallible<()> {
         // either that or Node::new should have a bool for the creation of the banlist
         thread::sleep(Duration::from_secs(5));
 
@@ -64,6 +64,18 @@ mod tests {
         node.unban_node(to_ban2)?;
         let reply = node.get_banlist()?;
         assert!(reply.is_empty());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_node_self_ref() -> Fallible<()> {
+        let (node, _) = make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
+
+        assert!(std::ptr::eq(
+            &*node,
+            &*node.self_ref.as_ref().unwrap().as_ref()
+        ));
 
         Ok(())
     }
