@@ -44,7 +44,8 @@ data SkovData = SkovData {
     _skovFocusBlock :: !BlockPointer,
     _skovPendingTransactions :: !PendingTransactionTable,
     _skovTransactionTable :: !TransactionTable,
-    _skovStatistics :: !ConsensusStatistics
+    _skovStatistics :: !ConsensusStatistics,
+    _skovRuntimeParameters :: !RuntimeParameters
 }
 makeLenses ''SkovData
 
@@ -80,12 +81,18 @@ class BasicSkovLenses s where
     transactionTable = skov . skovTransactionTable
     statistics :: Lens' s ConsensusStatistics
     statistics = skov . skovStatistics
+    runtimeParameters :: Lens' s RuntimeParameters
+    runtimeParameters = skov . skovRuntimeParameters
 
 instance BasicSkovLenses SkovData where
     skov = id
 
-initialSkovData :: GenesisData -> BlockState -> SkovData
-initialSkovData gd genState = SkovData {
+-- |Initial skov data with default runtime parameters (block size = 10MB).
+initialSkovDataDefault :: GenesisData -> BlockState -> SkovData
+initialSkovDataDefault = initialSkovData defaultRuntimeParameters
+
+initialSkovData :: RuntimeParameters -> GenesisData -> BlockState -> SkovData
+initialSkovData rp gd genState = SkovData {
             _skovBlockTable = HM.singleton gbh (TS.BlockFinalized gb gbfin),
             _skovPossiblyPendingTable = HM.empty,
             _skovPossiblyPendingQueue = MPQ.empty,
@@ -98,7 +105,8 @@ initialSkovData gd genState = SkovData {
             _skovFocusBlock = gb,
             _skovPendingTransactions = emptyPendingTransactionTable,
             _skovTransactionTable = emptyTransactionTable,
-            _skovStatistics = initialConsensusStatistics
+            _skovStatistics = initialConsensusStatistics,
+            _skovRuntimeParameters = rp
         }
     where
         gb = makeGenesisBlockPointer gd genState
@@ -117,8 +125,8 @@ type instance BS.UpdatableBlockState (SkovTreeState s m) = BlockState
 instance (BasicSkovLenses s, Monad m, MonadState s m) => TS.TreeStateMonad (SkovTreeState s m) where
     makePendingBlock key slot parent bid pf n lastFin trs time = return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
     getBlockStatus bh = use (blockTable . at bh)
-    makeLiveBlock block parent lastFin st arrTime = do
-            let blockP = makeBlockPointer block parent lastFin st arrTime
+    makeLiveBlock block parent lastFin st arrTime energy = do
+            let blockP = makeBlockPointer block parent lastFin st arrTime energy
             blockTable . at (getHash block) ?= TS.BlockAlive blockP
             return blockP
     markDead bh = blockTable . at bh ?= TS.BlockDead
@@ -246,3 +254,6 @@ instance (BasicSkovLenses s, Monad m, MonadState s m) => TS.TreeStateMonad (Skov
 
     getConsensusStatistics = use statistics
     putConsensusStatistics stats = statistics .= stats
+
+    {-# INLINE getRuntimeParameters #-}
+    getRuntimeParameters = use runtimeParameters

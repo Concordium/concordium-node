@@ -27,13 +27,9 @@ import Concordium.GlobalState.SeedState
 import Concordium.GlobalState.IdentityProviders
 import qualified Concordium.ID.Account as ID
 
-import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BSL
-import qualified Data.ByteString.Base16 as BS16
-import qualified Data.Text.Encoding as Text
-import qualified Data.Text as Text
 import qualified Data.Aeson as AE
-import Data.Aeson.Types (FromJSON(..), (.:), withObject, Parser)
+import Data.Aeson.Types (FromJSON(..), (.:), withObject)
 
 -- |Cryptographic parameters needed to verify on-chain proofs, e.g.,
 -- group parameters (generators), commitment keys, in the future also
@@ -175,6 +171,28 @@ instance FromJSON GenesisParameters where
         gpCryptographicParameters <- v .: "cryptographicParameters"
         gpIdentityProviders <- v .: "identityProviders"
         return GenesisParameters{..}
+
+-- |Implementation-defined parameters, such as block size. They are not
+-- protocol-level parameters hence do not fit into 'GenesisParameters'.
+data RuntimeParameters = RuntimeParameters {
+  -- |Maximum block size produced by the baker (in bytes). Note that this only
+  -- applies to the blocks produced by this baker, we will still accept blocks
+  -- of arbitrary size from other bakers.
+  rpBlockSize :: !Int
+  }
+
+-- |Default runtime parameters, block size = 10MB.
+defaultRuntimeParameters :: RuntimeParameters
+defaultRuntimeParameters = RuntimeParameters{
+  rpBlockSize = 10^(6 :: Int) -- 10MB
+  }
+
+instance FromJSON RuntimeParameters where
+  parseJSON = withObject "RuntimeParameters" $ \v -> do
+    rpBlockSize <- v .: "blockSize"
+    when (rpBlockSize <= 0) $
+      fail "Block size must be a positive integer."
+    return RuntimeParameters{..}
 
 parametersToGenesisData :: GenesisParameters -> GenesisData
 parametersToGenesisData GenesisParameters{..} = GenesisData{..}

@@ -8,6 +8,7 @@ import Data.Time.Clock.POSIX
 import Control.Exception
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
+import qualified Data.List as List
 import Data.Maybe
 
 import qualified Concordium.Crypto.SHA256 as Hash
@@ -72,7 +73,11 @@ data BlockPointer = BlockPointer {
     -- |Time at which the block was first considered part of the tree (validated)
     _bpArriveTime :: UTCTime,
     -- |Number of transactions in a block
-    _bpTransactionCount :: Int
+    _bpTransactionCount :: !Int,
+    -- |Energy cost of all transactions in the block.
+    _bpTransactionsEnergyCost :: !Energy,
+    -- |Size of the transaction data in bytes.
+    _bpTransactionsSize :: !Int
 }
 
 instance Eq BlockPointer where
@@ -114,8 +119,9 @@ makeBlockPointer ::
     -> BlockPointer     -- ^Last finalized block pointer
     -> BlockState       -- ^Block state
     -> UTCTime          -- ^Block arrival time
+    -> Energy           -- ^Energy cost of all transactions in the block
     -> BlockPointer
-makeBlockPointer pb _bpParent _bpLastFinalized _bpState _bpArriveTime
+makeBlockPointer pb _bpParent _bpLastFinalized _bpState _bpArriveTime _bpTransactionsEnergyCost
         = assert (getHash _bpParent == blockPointer bf) $
             assert (getHash _bpLastFinalized == blockLastFinalized bf) $
                 BlockPointer {
@@ -123,10 +129,10 @@ makeBlockPointer pb _bpParent _bpLastFinalized _bpState _bpArriveTime
                     _bpBlock = NormalBlock (pbBlock pb),
                     _bpHeight = _bpHeight _bpParent + 1,
                     _bpReceiveTime = pbReceiveTime pb,
-                    _bpTransactionCount = length (blockTransactions pb),
                     ..}
     where
         bf = bbFields $ pbBlock pb
+        (_bpTransactionCount, _bpTransactionsSize) = List.foldl' (\(clen, csize) tx -> (clen + 1, Transactions.trSize tx + csize)) (0, 0) (blockTransactions pb)
 
 
 makeGenesisBlockPointer :: GenesisData -> BlockState -> BlockPointer
@@ -141,6 +147,8 @@ makeGenesisBlockPointer genData _bpState = theBlockPointer
         _bpReceiveTime = posixSecondsToUTCTime (fromIntegral (genesisTime genData))
         _bpArriveTime = _bpReceiveTime
         _bpTransactionCount = 0
+        _bpTransactionsEnergyCost = 0
+        _bpTransactionsSize = 0
 
 
 instance BS.BlockPointerData BlockPointer where
@@ -154,6 +162,8 @@ instance BS.BlockPointerData BlockPointer where
     bpReceiveTime = _bpReceiveTime
     bpArriveTime = _bpArriveTime
     bpTransactionCount = _bpTransactionCount
+    bpTransactionsEnergyCost = _bpTransactionsEnergyCost
+    bpTransactionsSize = _bpTransactionsSize
 
 newtype PureBlockStateMonad m a = PureBlockStateMonad {runPureBlockStateMonad :: m a}
     deriving (Functor, Applicative, Monad)
