@@ -181,7 +181,7 @@ instance Monad m => OnSkov (SkovPassiveM m) where
     logTransfer = return Nothing
 
 evalSkovPassiveM :: (MonadIO m) => SkovPassiveM m a -> RuntimeParameters -> GenesisData -> Basic.BlockState -> Rust.GlobalStatePtr -> m a
-evalSkovPassiveM (SkovPassiveM a) gd bs0 gsptr = do
+evalSkovPassiveM (SkovPassiveM a) rtParams gd bs0 gsptr = do
   initialState <- liftIO $ initialSkovPassiveState rtParams gd bs0 gsptr
   evalStateT a initialState
 
