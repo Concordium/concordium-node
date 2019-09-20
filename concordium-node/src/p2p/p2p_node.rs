@@ -392,7 +392,7 @@ impl P2PNode {
     ) -> usize {
         read_or_die!(self.connection_handler.connections)
             .values()
-            .filter(|conn| !conn.is_closed() && filter_conn(conn))
+            .filter(|conn| filter_conn(conn))
             .map(|conn| {
                 let status = conn.async_send(data.clone(), MessageSendingPriority::Normal);
                 send_status(&conn, status)
@@ -602,7 +602,6 @@ impl P2PNode {
             .values()
             .filter(|conn| {
                 conn.is_post_handshake()
-                    && !conn.is_closed()
                     && (conn.last_seen() + 120_000 < curr_stamp
                         || conn.get_last_ping_sent() + 300_000 < curr_stamp)
             })
@@ -651,8 +650,7 @@ impl P2PNode {
 
         // Kill connections to nodes which are no longer seen
         write_or_die!(self.connection_handler.connections).retain(|_, conn| {
-            !(conn.is_closed()
-                || filter_predicate_stable_conn_and_no_handshake(&conn)
+            !(filter_predicate_stable_conn_and_no_handshake(&conn)
                 || filter_predicate_bootstrapper_no_activity_allowed_period(&conn)
                 || filter_predicate_node_no_activity_allowed_period(&conn))
         });
@@ -1023,12 +1021,8 @@ impl P2PNode {
         let token = event.token();
 
         if let Some(conn) = self.find_connection_by_token(token) {
-            if !conn.is_closed() {
-                if let Err(e) = conn.ready(event) {
-                    error!("Error while processing a connection event: {}", e);
-                }
-            } else {
-                self.remove_connection(token)
+            if let Err(e) = conn.ready(event) {
+                error!("Error while processing a connection event: {}", e);
             }
         }
     }

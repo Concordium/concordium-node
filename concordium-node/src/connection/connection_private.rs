@@ -14,7 +14,7 @@ use concordium_common::hybrid_buf::HybridBuf;
 use std::{
     net::Shutdown,
     pin::Pin,
-    sync::{atomic::Ordering, Arc, RwLock},
+    sync::{Arc, RwLock},
 };
 
 pub struct ConnectionPrivate {
@@ -71,8 +71,8 @@ impl ConnectionPrivate {
                                     usize::from(ev.token()),
                                     e
                                 );
-                                self.conn().close();
-                                break;
+                                self.conn().handler().remove_connection(self.conn().token);
+                                return Ok(());
                             }
                         }
                         Readiness::NotReady => break,
@@ -93,19 +93,15 @@ impl ConnectionPrivate {
 
                         // In this case, we have to drop this connection, so we can avoid
                         // writing any data.
-                        self.conn().close();
-                        break;
+                        self.conn().handler().remove_connection(self.conn().token);
+                        return Ok(());
                     }
                 }
             }
         }
 
-        // 2. Write pending data into `socket` or shut the connection down
-        if !self.conn().is_closed.load(Ordering::SeqCst) {
-            self.message_sink.flush(&mut self.socket)?;
-        } else {
-            self.shutdown()?;
-        }
+        // 2. Write pending data into `socket`
+        self.message_sink.flush(&mut self.socket)?;
 
         Ok(())
     }

@@ -56,7 +56,6 @@ pub struct Connection {
     pub dptr:                  Arc<RwLock<ConnectionPrivate>>,
     pub remote_end_networks:   Arc<RwLock<HashSet<NetworkId>>>,
     pub is_post_handshake:     Arc<AtomicBool>,
-    pub is_closed:             Arc<AtomicBool>,
     pub messages_sent:         Arc<AtomicU64>,
     pub messages_received:     Arc<AtomicU64>,
     pub last_ping_sent:        Arc<AtomicU64>,
@@ -128,7 +127,6 @@ impl Connection {
             dptr,
             remote_end_networks: Default::default(),
             is_post_handshake: Default::default(),
-            is_closed: Default::default(),
             messages_received: Default::default(),
             messages_sent: Default::default(),
             last_ping_sent: Arc::new(AtomicU64::new(curr_stamp)),
@@ -210,17 +208,6 @@ impl Connection {
     #[inline]
     pub fn deregister(&self, poll: &Poll) -> Fallible<()> {
         map_io_error_to_fail!(poll.deregister(&read_or_die!(self.dptr).socket))
-    }
-
-    #[inline]
-    pub fn is_closed(&self) -> bool { self.is_closed.load(Ordering::SeqCst) }
-
-    #[inline]
-    pub fn close(&self) {
-        self.is_closed.store(true, Ordering::SeqCst);
-        if let Some(id) = self.remote_id() {
-            write_or_die!(self.handler().active_peer_stats).remove(&id.as_raw());
-        }
     }
 
     /// This function is called when `poll` indicates that `socket` is ready to

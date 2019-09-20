@@ -36,31 +36,23 @@ pub fn process_network_requests(p2p_node: &P2PNode, receivers: &Receivers) {
                 usize::from(network_request.token)
             );
 
-            let conn_opt = p2p_node.find_connection_by_token(network_request.token);
-            match conn_opt {
-                Some(ref conn) => {
-                    if !conn.is_closed() {
-                        if let Err(err) = conn.async_send_from_poll_loop(
-                            network_request.data,
-                            network_request.priority,
-                        ) {
-                            conn.close();
-                            error!(
-                                "Network raw request error in connection {}/{}: {}; the \
-                                 connection will be closed.",
-                                usize::from(network_request.token),
-                                conn.remote_addr(),
-                                err
-                            );
-                        }
-                    } else {
-                        trace!("Attempted to write to an already closed connection");
-                    }
+            if let Some(ref conn) = p2p_node.find_connection_by_token(network_request.token) {
+                if let Err(err) =
+                    conn.async_send_from_poll_loop(network_request.data, network_request.priority)
+                {
+                    error!(
+                        "Network raw request error in connection {}/{}: {}",
+                        usize::from(network_request.token),
+                        conn.remote_addr(),
+                        err
+                    );
+                    conn.handler().remove_connection(conn.token);
                 }
-                None => debug!(
+            } else {
+                debug!(
                     "Network raw request cannot be sent due to a missing connection {}",
                     usize::from(network_request.token)
-                ),
+                );
             }
         });
 }
