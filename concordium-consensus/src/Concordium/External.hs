@@ -23,7 +23,7 @@ import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Data.FixedByteString as FBS
 
 import Concordium.Types
-import Concordium.ID.Types(safeDecodeBase58Address)
+import Concordium.ID.Types
 import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Transactions
@@ -603,7 +603,7 @@ getAccountInfo cptr blockcstr cstr = do
     let logm = consensusLogMethod c
     logm External LLInfo "Received account info request."
     bs <- BS.packCString cstr
-    safeDecodeBase58Address bs >>= \case
+    case addressFromBytes bs of 
       Nothing -> do
         logm External LLInfo "Could not decode address."
         jsonValueToCString Null
