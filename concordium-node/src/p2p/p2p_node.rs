@@ -1007,7 +1007,7 @@ impl P2PNode {
 
     pub fn remove_connection(&self, token: Token) {
         if let Some(conn) = write_or_die!(self.connection_handler.connections).remove(&token) {
-            write_or_die!(conn.dptr).conn_ref = None; // necessary in order for Drop to kick in
+            write_or_die!(conn.low_level).conn_ref = None; // necessary in order for Drop to kick in
         }
     }
 
