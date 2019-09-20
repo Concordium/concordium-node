@@ -386,8 +386,7 @@ impl ConnectionLowLevel {
                                     usize::from(ev.token()),
                                     e
                                 );
-                                self.conn().handler().remove_connection(self.conn().token);
-                                return Ok(());
+                                bail!("Can't read the stream");
                             }
                         }
                         Readiness::NotReady => break,
@@ -408,8 +407,7 @@ impl ConnectionLowLevel {
 
                         // In this case, we have to drop this connection, so we can avoid
                         // writing any data.
-                        self.conn().handler().remove_connection(self.conn().token);
-                        return Ok(());
+                        bail!("Can't read the stream");
                     }
                 }
             }
