@@ -95,6 +95,9 @@ Use docker-compose if you only need a middle-ware enabled set of nodes to test o
 $> ELASTIC_SEARCH_LOGGING=1 NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.middleware.yml up --scale baker=5 --force-recreate
 ```
 
+### Delay baker startup if Elastic Search starts too slowly
+If Elastic Search starts too slowly the baker enabled for logging to it can be delayed by using the variables `ES_SLEEP`
+
 ### Using persistent local Elastic Search setup with Kibana
 To run a pair of elastic search with kibana for local development do the following
 ```bash
