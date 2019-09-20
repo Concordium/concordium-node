@@ -51,5 +51,6 @@ services:
             - RPC_SERVER_ADDR=0.0.0.0
             - ELASTIC_SEARCH_LOGGING=1
             - EXTRA_ARGS=${EXTRA_ARGS}
+            - ES_SLEEP=${ES_SLEEP}
         ports:
             - "11100-11500:10000"
