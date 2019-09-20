@@ -10,12 +10,12 @@ services:
         entrypoint:
             - /start.sh
     baker_id_gen:
-        image: concordium/dev-client:latest
+        image: concordium/dev-client:develop
         entrypoint:
             - /baker_id_generator
        
     baker:
-        image: concordium/dev-client:latest
+        image: concordium/dev-client:develop
         depends_on:
             - baker_id_gen
         entrypoint:
