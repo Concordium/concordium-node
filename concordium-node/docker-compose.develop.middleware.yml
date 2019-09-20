@@ -27,16 +27,15 @@ services:
             - EXTRA_ARGS=${EXTRA_ARGS}
         entrypoint:
             - /start.sh
-        depends_on:
-            - kibana
     baker_id_gen:
-        image: concordium/dev-client:latest
+        image: concordium/dev-client:develop
         entrypoint:
             - /baker_id_generator
     baker:
-        image: concordium/dev-client:latest
+        image: concordium/dev-client:develop
         depends_on:
             - baker_id_gen
+            - bootstrapper
             - kibana
         entrypoint:
             - /start.sh
