@@ -142,6 +142,8 @@ impl Connection {
 
     pub fn get_last_latency(&self) -> u64 { self.last_latency.load(Ordering::SeqCst) }
 
+    pub fn set_last_latency(&self, value: u64) { self.last_latency.store(value, Ordering::SeqCst); }
+
     pub fn set_sent_handshake(&self) {
         self.sent_handshake
             .store(get_current_stamp(), Ordering::SeqCst)

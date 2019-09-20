@@ -271,6 +271,12 @@ pub struct ConnectionConfig {
         default_value = "7200"
     )]
     pub bootstrapping_interval: u64,
+    #[structopt(
+        long = "max-latency",
+        help = "The maximum allowed connection latency in ms",
+        default_value = "1000"
+    )]
+    pub max_latency: u64,
 }
 
 #[derive(StructOpt, Debug)]

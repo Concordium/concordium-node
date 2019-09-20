@@ -216,8 +216,9 @@ fn handle_pong(conn: &Connection) -> Fallible<()> {
     let curr_time: u64 = get_current_stamp();
 
     if curr_time >= ping_time {
-        conn.last_latency
-            .store(curr_time - ping_time, Ordering::SeqCst);
+        let new_latency = curr_time - ping_time;
+        let old_latency = conn.get_last_latency();
+        conn.set_last_latency((new_latency + old_latency) / 2);
     }
 
     Ok(())

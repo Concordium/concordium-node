@@ -62,7 +62,6 @@ const MAX_UNREACHABLE_MARK_TIME: u64 = 86_400_000;
 const MAX_BOOTSTRAPPER_KEEP_ALIVE: u64 = 300_000;
 const MAX_NORMAL_KEEP_ALIVE: u64 = 1_200_000;
 const MAX_PREHANDSHAKE_KEEP_ALIVE: u64 = 120_000;
-const MAX_LATENCY_ALLOWED: u64 = 1_000;
 
 #[derive(Clone)]
 pub struct P2PNodeConfig {
@@ -85,6 +84,7 @@ pub struct P2PNodeConfig {
     pub bootstrapper_wait_minimum_peers: u16,
     pub no_trust_bans: bool,
     pub data_dir_path: PathBuf,
+    max_latency: u64,
 }
 
 #[derive(Default)]
@@ -317,6 +317,7 @@ impl P2PNode {
             },
             no_trust_bans: conf.common.no_trust_bans,
             data_dir_path: data_dir_path.unwrap_or_else(|| ".".into()),
+            max_latency: conf.connection.max_latency,
         };
 
         let (send_queue_in, send_queue_out) = sync_channel(config::OUTBOUND_QUEUE_DEPTH);
@@ -631,7 +632,7 @@ impl P2PNode {
         let peer_type = self.peer_type();
 
         let is_conn_faulty = |conn: &Connection| -> bool {
-            conn.get_last_latency() >= MAX_LATENCY_ALLOWED
+            conn.get_last_latency() >= self.config.max_latency
                 || conn.failed_pkts() >= MAX_FAILED_PACKETS_ALLOWED
         };
 
