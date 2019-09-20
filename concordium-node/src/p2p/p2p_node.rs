@@ -62,6 +62,7 @@ const MAX_UNREACHABLE_MARK_TIME: u64 = 86_400_000;
 const MAX_BOOTSTRAPPER_KEEP_ALIVE: u64 = 300_000;
 const MAX_NORMAL_KEEP_ALIVE: u64 = 1_200_000;
 const MAX_PREHANDSHAKE_KEEP_ALIVE: u64 = 120_000;
+const MAX_LATENCY_ALLOWED: u64 = 1_000;
 
 #[derive(Clone)]
 pub struct P2PNodeConfig {
@@ -629,29 +630,26 @@ impl P2PNode {
         let curr_stamp = get_current_stamp();
         let peer_type = self.peer_type();
 
-        let filter_predicate_bootstrapper_no_activity_allowed_period = |conn: &Connection| -> bool {
-            peer_type == PeerType::Bootstrapper
-                && conn.is_post_handshake()
-                && conn.last_seen() + MAX_BOOTSTRAPPER_KEEP_ALIVE < curr_stamp
+        let is_conn_faulty = |conn: &Connection| -> bool {
+            conn.get_last_latency() >= MAX_LATENCY_ALLOWED
+                || conn.failed_pkts() >= MAX_FAILED_PACKETS_ALLOWED
         };
 
-        let filter_predicate_node_no_activity_allowed_period = |conn: &Connection| -> bool {
-            peer_type == PeerType::Node
-                && conn.is_post_handshake()
-                && conn.last_seen() + MAX_NORMAL_KEEP_ALIVE < curr_stamp
+        let is_conn_inactive = |conn: &Connection| -> bool {
+            conn.is_post_handshake()
+                && ((peer_type == PeerType::Node
+                    && conn.last_seen() + MAX_NORMAL_KEEP_ALIVE < curr_stamp)
+                    || (peer_type == PeerType::Bootstrapper
+                        && conn.last_seen() + MAX_BOOTSTRAPPER_KEEP_ALIVE < curr_stamp))
         };
 
-        let filter_predicate_stable_conn_and_no_handshake = |conn: &Connection| -> bool {
-            conn.failed_pkts() >= MAX_FAILED_PACKETS_ALLOWED
-                || (!conn.is_post_handshake()
-                    && conn.last_seen() + MAX_PREHANDSHAKE_KEEP_ALIVE < curr_stamp)
+        let is_conn_without_handshake = |conn: &Connection| -> bool {
+            !conn.is_post_handshake() && conn.last_seen() + MAX_PREHANDSHAKE_KEEP_ALIVE < curr_stamp
         };
 
         // Kill connections to nodes which are no longer seen
         write_or_die!(self.connection_handler.connections).retain(|_, conn| {
-            !(filter_predicate_stable_conn_and_no_handshake(&conn)
-                || filter_predicate_bootstrapper_no_activity_allowed_period(&conn)
-                || filter_predicate_node_no_activity_allowed_period(&conn))
+            !(is_conn_faulty(&conn) || is_conn_inactive(&conn) || is_conn_without_handshake(&conn))
         });
 
         if peer_type != PeerType::Bootstrapper {
@@ -838,7 +836,7 @@ impl P2PNode {
                         HybridBuf::try_from(handshake_request_data)?,
                         MessageSendingPriority::High,
                     )?;
-                    conn.set_measured_handshake_sent();
+                    conn.set_sent_handshake();
                 }
 
                 if peer_type == PeerType::Bootstrapper {

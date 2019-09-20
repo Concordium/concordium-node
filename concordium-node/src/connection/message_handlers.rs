@@ -212,12 +212,12 @@ fn handle_ping(conn: &Connection) -> Fallible<()> {
 }
 
 fn handle_pong(conn: &Connection) -> Fallible<()> {
-    let ping: u64 = conn.last_ping_sent.load(Ordering::SeqCst);
-    let curr: u64 = get_current_stamp();
+    let ping_time: u64 = conn.last_ping_sent.load(Ordering::SeqCst);
+    let curr_time: u64 = get_current_stamp();
 
-    if curr >= ping {
-        conn.last_latency_measured
-            .store(curr - ping, Ordering::SeqCst);
+    if curr_time >= ping_time {
+        conn.last_latency
+            .store(curr_time - ping_time, Ordering::SeqCst);
     }
 
     Ok(())
