@@ -6,7 +6,6 @@ export LD_LIBRARY_PATH=/usr/local/lib
 ARGS=""
 
 # Determine what arguments to pass to the binary
-
 if [ -n "$ID" ];
 then
     ARGS="$ARGS --id $ID"
@@ -32,7 +31,16 @@ fi
 
 if [ -n "$BAKER_ID" ];
 then
-    ARGS="$ARGS --baker-id $(echo $BAKER_ID | cut -d'-' -f2)"
+    REAL_BAKER_ID=$(echo $BAKER_ID | cut -d'-' -f2)
+    ARGS="$ARGS --baker-id $REAL_BAKER_ID"
+    if [[ -n "$ELASTIC_SEARCH_LOGGING" && "$REAL_BAKER_ID" == "0" ]];
+    then
+        ARGS="$ARGS --elastic-logging --scheduler-outcome-logging"
+        if [ -n "$ELASTIC_SEARCH_URL" ]
+        then
+            ARGS="$ARGS --elastic-logging-url $ELASTIC_SEARCH_URL"
+        fi
+    fi
 fi
 
 if [ -n "$PROMETHEUS_METRICS_SERVER" ];
@@ -190,6 +198,11 @@ then
     ARGS="$ARGS --wait-until-minimum-nodes $BOOTSTRAPPER_WAIT_UNTIL_MINIMUM_NODES"
 fi
 
+if [ -n "$MAX_LATENCY" ];
+then
+    ARGS="$ARGS --max-latency $MAX_LATENCY"
+fi
+
 if [ "$MODE" == "tps_receiver" ]; then
     echo "Receiver!"
     /p2p_client-cli \
@@ -226,6 +239,16 @@ elif [ "$MODE" == "bootstrapper" ]; then
 elif [ "$MODE" == "local_basic" ]; then
     export BAKER_ID=`curl http://baker_id_gen:8000/next_id`
     echo "Using BAKER_ID $BAKER_ID"
+    if [[ -n "$ELASTIC_SEARCH_LOGGING" && "$BAKER_ID" == "0" ]];
+    then
+        ARGS="$ARGS --elastic-logging --scheduler-outcome-logging --elastic-logging-url http://elasticsearch:9200"
+        if [ -n "$ES_SLEEP" ];
+        then
+            echo "Sleeping for $ES_SLEEP"
+            sleep $ES_SLEEP
+        fi
+    fi
+
     /p2p_client-cli --baker-id $BAKER_ID --no-dnssec $ARGS --id $(printf "%016d\n" $BAKER_ID)
 elif [ "$MODE" == "local_bootstrapper" ]; then
     export NODE_ID="0000000001000000"

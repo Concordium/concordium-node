@@ -1,8 +1,6 @@
-use base58::ToBase58;
 use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
 use digest::Digest;
 use failure::{format_err, Fallible};
-use sha2::Sha224;
 
 use std::{
     convert::TryFrom,
@@ -12,88 +10,12 @@ use std::{
     ops::Deref,
 };
 
-pub use concordium_common::{HashBytes, SerializeToBytes, SHA256};
+pub use concordium_common::{blockchain_types::*, read_ty, HashBytes, SerializeToBytes, SHA256};
 pub use ec_vrf_ed25519 as vrf;
 pub use ec_vrf_ed25519::{Proof, Sha256, PROOF_LENGTH};
 pub use eddsa_ed25519 as sig;
 
 pub const ALLOCATION_LIMIT: usize = 4096;
-
-use crate::block::{BakerId, BlockHash};
-
-pub type ContractIndex = u64;
-pub type ContractSubIndex = u64;
-
-#[derive(Debug, Clone, Copy)]
-pub struct ContractAddress {
-    index:    ContractIndex,
-    subindex: ContractSubIndex,
-}
-
-impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for ContractAddress {
-    type Source = &'a mut Cursor<&'b [u8]>;
-
-    fn deserialize(cursor: Self::Source) -> Fallible<Self> {
-        let index = NetworkEndian::read_u64(&read_ty!(cursor, ContractIndex));
-        let subindex = NetworkEndian::read_u64(&read_ty!(cursor, ContractSubIndex));
-
-        let contract_address = ContractAddress { index, subindex };
-
-        Ok(contract_address)
-    }
-
-    fn serialize(&self) -> Box<[u8]> {
-        let mut cursor = create_serialization_cursor(size_of::<ContractAddress>());
-
-        let _ = cursor.write_u64::<NetworkEndian>(self.index);
-        let _ = cursor.write_u64::<NetworkEndian>(self.subindex);
-
-        cursor.into_inner()
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum SchemeId {
-    Cl = 0,
-    Ed25519,
-}
-
-impl TryFrom<u8> for SchemeId {
-    type Error = failure::Error;
-
-    fn try_from(id: u8) -> Fallible<Self> {
-        match id {
-            0 => Ok(SchemeId::Cl),
-            1 => Ok(SchemeId::Ed25519),
-            _ => Err(format_err!("Unsupported SchemeId ({})!", id)),
-        }
-    }
-}
-
-#[derive(PartialEq, Eq, Hash, Clone)]
-pub struct AccountAddress(pub [u8; 21]);
-
-impl From<(&[u8], SchemeId)> for AccountAddress {
-    fn from((verification_key, scheme_id): (&[u8], SchemeId)) -> Self {
-        let mut buf = [0u8; size_of::<AccountAddress>()];
-        let hash_len = size_of::<AccountAddress>() - 1;
-
-        buf[0] = scheme_id as u8;
-        buf[1..].copy_from_slice(&Sha224::digest(verification_key)[0..hash_len]);
-
-        Self(buf)
-    }
-}
-
-impl fmt::Debug for AccountAddress {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", ToBase58::to_base58(&self.0[..]))
-    }
-}
-
-impl fmt::Display for AccountAddress {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "{:?}", self) }
-}
 
 #[derive(Debug)]
 pub struct Account {
@@ -231,8 +153,6 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
     }
 }
 
-pub type Amount = u64;
-
 #[derive(PartialEq, Eq, Hash, Clone)]
 pub struct Nonce(pub u64);
 
@@ -255,10 +175,6 @@ impl fmt::Debug for Nonce {
 impl fmt::Display for Nonce {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "{:?}", self) }
 }
-
-pub type Slot = u64;
-
-pub type Energy = u64;
 
 pub type Incarnation = u64;
 
@@ -327,12 +243,6 @@ impl fmt::Debug for Encoded {
 // we don't need to handle it in any special way for now, but we might like to
 // know that it's prefixed with a u64 length of the rest of it
 pub type ByteString = Encoded;
-
-pub fn create_serialization_cursor(size: usize) -> Cursor<Box<[u8]>> {
-    let buf = vec![0; size];
-
-    Cursor::new(buf.into_boxed_slice())
-}
 
 pub fn read_bytestring_short_length(
     input: &mut Cursor<&[u8]>,

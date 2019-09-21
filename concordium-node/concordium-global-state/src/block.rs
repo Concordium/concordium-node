@@ -271,8 +271,6 @@ pub struct GenesisData {
     identity_providers:          Encoded,
 }
 
-pub type BakerId = u64;
-
 pub type Timestamp = u64;
 
 pub type Duration = u64;
@@ -280,8 +278,6 @@ pub type Duration = u64;
 pub type BlockHeight = u64;
 
 pub type Delta = u64;
-
-pub type BlockHash = HashBytes;
 
 #[derive(Debug)]
 pub struct PendingBlock {

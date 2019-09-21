@@ -3,13 +3,9 @@ use concordium_global_state::tree::messaging::GlobalStateMessage;
 
 use crate::{
     self as p2p_client,
-    common::{serialize_addr, P2PPeer},
+    common::serialize_addr,
     configuration as config,
     fails::{HostPortParseError, NoDNSResolversAvailable},
-    p2p::{
-        banned_nodes::{insert_ban, remove_ban, BannedNode},
-        P2PNode,
-    },
 };
 
 use base64;
@@ -21,14 +17,12 @@ use hacl_star::{
     sha2,
 };
 use rand::rngs::OsRng;
-use rkv::StoreOptions;
 use snow::Keypair;
 #[cfg(feature = "benchmark")]
 use std::fs;
 #[cfg(not(target_os = "windows"))]
 use std::fs::File;
 use std::{
-    convert::TryFrom,
     io::Cursor,
     net::{IpAddr, SocketAddr},
     str::{self, FromStr},
@@ -465,53 +459,6 @@ pub fn get_tps_test_messages(path: Option<String>) -> Vec<Vec<u8>> {
     }
 
     ret
-}
-
-pub fn load_bans(node: &mut P2PNode) -> Fallible<()> {
-    let ban_kvs_env = safe_read!(node.kvs)?;
-    let ban_store = ban_kvs_env.open_single("bans", StoreOptions::create())?;
-
-    {
-        let ban_reader = ban_kvs_env.read()?;
-        let ban_iter = ban_store.iter_start(&ban_reader)?;
-
-        for entry in ban_iter {
-            let (id_bytes, _expiry) = entry?;
-            let node_to_ban = BannedNode::try_from(id_bytes)?;
-
-            node.ban_node(node_to_ban);
-        }
-    }
-
-    Ok(())
-}
-
-pub fn ban_node(node: &P2PNode, peer: &P2PPeer, to_ban: BannedNode) {
-    info!("Ban node request for {:?} from {:?}", to_ban, peer);
-    node.ban_node(to_ban);
-
-    let store_key = to_ban.to_db_repr();
-    if let Err(e) = insert_ban(&node.kvs, &store_key) {
-        error!("{}", e);
-    }
-
-    if !node.config.no_trust_bans {
-        node.send_ban(to_ban);
-    }
-}
-
-pub fn unban_node(node: &P2PNode, peer: &P2PPeer, to_unban: BannedNode) {
-    info!("Unban node request for {:?} from {:?}", to_unban, peer);
-    node.unban_node(to_unban);
-
-    let store_key = to_unban.to_db_repr();
-    if let Err(e) = remove_ban(&node.kvs, &store_key) {
-        error!("{}", e);
-    }
-
-    if !node.config.no_trust_bans {
-        node.send_unban(to_unban);
-    }
 }
 
 /// It clones `kp`. `snow::Keypair` does not derive `Clone` in current version.

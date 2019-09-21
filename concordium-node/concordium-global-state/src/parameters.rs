@@ -10,7 +10,9 @@ use std::{
     mem::size_of,
 };
 
-use crate::{block::BakerId, common::*};
+use concordium_common::blockchain_types::BakerId;
+
+use crate::common::*;
 
 pub type BakerSignVerifyKey = ByteString;
 pub type BakerSignPrivateKey = Encoded;

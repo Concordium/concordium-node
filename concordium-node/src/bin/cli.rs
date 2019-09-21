@@ -37,16 +37,18 @@ use p2p_client::{
     p2p::*,
     rpc::RpcServerImpl,
     stats_engine::StatsEngine,
-    utils::{
-        self, get_config_and_logging_setup, load_bans, GlobalStateReceivers, GlobalStateSenders,
-    },
+    utils::{self, get_config_and_logging_setup, GlobalStateReceivers, GlobalStateSenders},
 };
 
 use circular_queue::CircularQueue;
 use failure::Fallible;
 use rkv::{Manager, Rkv};
 
-use std::{sync::mpsc, thread, time::Duration};
+use std::{
+    sync::{mpsc, Arc},
+    thread,
+    time::Duration,
+};
 
 fn main() -> Fallible<()> {
     let (conf, mut app_prefs) = get_config_and_logging_setup()?;
@@ -72,7 +74,7 @@ fn main() -> Fallible<()> {
         mpsc::sync_channel(config::RPC_QUEUE_DEPTH);
 
     // Thread #1: instantiate the P2PNode
-    let ((mut node, receivers), pkt_out) = instantiate_node(
+    let ((node, receivers), pkt_out) = instantiate_node(
         &conf,
         &mut app_prefs,
         stats_export_service.clone(),
@@ -82,11 +84,6 @@ fn main() -> Fallible<()> {
     for resolver in &node.config.dns_resolvers {
         debug!("Using resolver: {}", resolver);
     }
-
-    // Load and apply existing bans
-    if let Err(e) = load_bans(&mut node) {
-        error!("{}", e);
-    };
 
     #[cfg(feature = "instrumentation")]
     // Thread #2 (optional): the push gateway to Prometheus
@@ -114,6 +111,9 @@ fn main() -> Fallible<()> {
     } else {
         None
     };
+
+    // Start the transaction logging thread
+    setup_transfer_log_thread(&conf.cli);
 
     let (global_state_senders, global_state_receivers) = utils::create_global_state_queues();
 
@@ -183,7 +183,7 @@ fn instantiate_node(
     stats_export_service: Option<StatsExportService>,
     subscription_queue_in: mpsc::SyncSender<NetworkMessage>,
 ) -> (
-    (P2PNode, Receivers),
+    (Arc<P2PNode>, Receivers),
     mpsc::Receiver<RelayOrStopEnvelope<NetworkMessage>>,
 ) {
     let (pkt_in, pkt_out) = mpsc::sync_channel(config::CLI_PACKET_QUEUE_DEPTH);
@@ -199,7 +199,7 @@ fn instantiate_node(
     let data_dir_path = app_prefs.get_user_app_dir();
 
     // Start the thread reading P2PEvents from P2PNode
-    let node = if conf.common.debug {
+    let (node, receivers) = if conf.common.debug {
         let (sender, receiver) = mpsc::sync_channel(config::EVENT_LOG_QUEUE_DEPTH);
         let _guard = spawn_or_die!("Log loop", move || loop {
             if let Ok(msg) = receiver.recv() {
@@ -228,7 +228,8 @@ fn instantiate_node(
             Some(data_dir_path),
         )
     };
-    (node, pkt_out)
+
+    ((node, receivers), pkt_out)
 }
 
 fn establish_connections(conf: &config::Config, node: &P2PNode) {
@@ -259,7 +260,7 @@ fn connect_to_config_nodes(conf: &config::ConnectionConfig, node: &P2PNode) {
 }
 
 fn start_consensus_threads(
-    node: &P2PNode,
+    node: &Arc<P2PNode>,
     (conf, app_prefs): (&config::Config, &config::AppPreferences),
     consensus: ConsensusContainer,
     pkt_out: RelayOrStopReceiver<NetworkMessage>,
@@ -269,7 +270,7 @@ fn start_consensus_threads(
     let is_global_state_persistent = conf.cli.baker.persist_global_state;
     let data_dir_path = app_prefs.get_user_app_dir();
 
-    let node_ref = node.clone();
+    let node_ref = Arc::clone(node);
     let mut consensus_clone = consensus.clone();
     let network_id = NetworkId::from(conf.common.network_ids[0]); // defaulted so there's always first()
     let global_state_thread = spawn_or_die!("Process global state requests", {
@@ -321,7 +322,7 @@ fn start_consensus_threads(
         }
     });
 
-    let node_ref = node.clone();
+    let node_ref = Arc::clone(node);
     let gs_senders = global_state_senders.clone();
     let mut _stats_engine = StatsEngine::new(&conf.cli);
     let (_tps_test_enabled, _tps_message_count) = tps_setup_process_output(&conf.cli);
@@ -388,7 +389,7 @@ fn start_consensus_threads(
         }
     });
 
-    let node_ref = node.clone();
+    let node_ref = Arc::clone(node);
     let gs_senders = global_state_senders.clone();
     #[allow(unreachable_code)] // the loop never breaks on its own
     let ticker_thread = spawn_or_die!("Ticker", {
@@ -396,7 +397,7 @@ fn start_consensus_threads(
         thread::sleep(Duration::from_secs(10));
 
         loop {
-            thread::sleep(Duration::from_secs(1));
+            thread::sleep(Duration::from_secs(u64::from(config::TICKER_INTERVAL_SECS)));
 
             let current_peers = node_ref.get_node_peer_ids();
 
@@ -457,3 +458,72 @@ fn tps_setup_process_output(cli: &config::CliConfig) -> (bool, u64) {
 
 #[cfg(not(feature = "benchmark"))]
 fn tps_setup_process_output(_: &config::CliConfig) -> (bool, u64) { (false, 0) }
+
+#[cfg(feature = "elastic_logging")]
+fn setup_transfer_log_thread(conf: &config::CliConfig) -> std::thread::JoinHandle<()> {
+    let (enabled, url) = (
+        conf.elastic_logging_enabled,
+        conf.elastic_logging_url.clone(),
+    );
+    if enabled {
+        if let Err(e) = p2p_client::client::plugins::elasticlogging::create_transfer_index(&url) {
+            error!("{}", e);
+        }
+    }
+    spawn_or_die!("Process transfer log messages", {
+        let receiver = concordium_consensus::transferlog::TRANSACTION_LOG_QUEUE
+            .receiver
+            .lock()
+            .unwrap();
+        loop {
+            if let Ok(msg) = receiver.recv() {
+                match msg {
+                    RelayOrStopEnvelope::Relay(msg) => {
+                        if enabled {
+                            if let Err(e) =
+                                p2p_client::client::plugins::elasticlogging::log_transfer_event(
+                                    &url, msg,
+                                )
+                            {
+                                error!("{}", e);
+                            }
+                        } else {
+                            info!("{}", msg);
+                        }
+                    }
+                    RelayOrStopEnvelope::Stop => {
+                        debug!("Shutting down transfer log queues");
+                        break;
+                    }
+                }
+            } else {
+                error!("Error receiving a transfer log message from the consensus layer");
+            }
+        }
+    })
+}
+
+#[cfg(not(feature = "elastic_logging"))]
+fn setup_transfer_log_thread(_: &config::CliConfig) -> std::thread::JoinHandle<()> {
+    spawn_or_die!("Process transfer log messages", {
+        let receiver = concordium_consensus::transferlog::TRANSACTION_LOG_QUEUE
+            .receiver
+            .lock()
+            .unwrap();
+        loop {
+            if let Ok(msg) = receiver.recv() {
+                match msg {
+                    RelayOrStopEnvelope::Relay(msg) => {
+                        info!("{}", msg);
+                    }
+                    RelayOrStopEnvelope::Stop => {
+                        debug!("Shutting down transfer log queues");
+                        break;
+                    }
+                }
+            } else {
+                error!("Error receiving a transfer log message from the consensus layer");
+            }
+        }
+    })
+}

@@ -11,15 +11,15 @@ use concordium_common::{
 };
 use failure::Fallible;
 use std::{
-    cell::RefCell,
     net::TcpListener,
     path::PathBuf,
     sync::{
         atomic::{AtomicUsize, Ordering},
         mpsc::Receiver,
-        Once, ONCE_INIT,
+        Arc, Once, ONCE_INIT,
     },
-    time,
+    thread,
+    time::{self, Duration},
 };
 use structopt::StructOpt;
 
@@ -91,40 +91,6 @@ pub fn max_recv_timeout() -> std::time::Duration {
     time::Duration::from_secs(60) // 1 minutes
 }
 
-/// It makes a list of nodes using `make_node_and_sync`.
-///
-/// # Arguments
-/// * `port` - Initial port. Each node will use the port `port` + `i` where `i`
-///   is `[0,
-/// count)`.
-/// * `count` - Number of nodes to be generated.
-/// * `networks` - Networks added to new nodes.
-///
-/// # Return
-/// As `make_node_and_sync`, this returns a tuple but it contains list
-/// of objects instead of just one.
-#[allow(clippy::type_complexity)]
-pub fn make_nodes_from_port(
-    count: usize,
-    networks: Vec<u16>,
-) -> Fallible<
-    Vec<(
-        RefCell<P2PNode>,
-        Receiver<RelayOrStopEnvelope<NetworkMessage>>,
-    )>,
-> {
-    let mut nodes_and_receivers = Vec::with_capacity(count);
-
-    for _ in 0..count {
-        let (node, receiver) =
-            make_node_and_sync(next_available_port(), networks.clone(), PeerType::Node)?;
-
-        nodes_and_receivers.push((RefCell::new(node), receiver));
-    }
-
-    Ok(nodes_and_receivers)
-}
-
 /// It creates a pair of `P2PNode` and a `Receiver` which can be used to
 /// wait for specific messages.
 /// Using this approach protocol tests will be easier and cleaner.
@@ -132,14 +98,20 @@ pub fn make_node_and_sync(
     port: u16,
     networks: Vec<u16>,
     node_type: PeerType,
-) -> Fallible<(P2PNode, Receiver<RelayOrStopEnvelope<NetworkMessage>>)> {
+) -> Fallible<(Arc<P2PNode>, Receiver<RelayOrStopEnvelope<NetworkMessage>>)> {
     let (net_tx, net_rx) = std::sync::mpsc::sync_channel(64);
     let (rpc_tx, _rpc_rx) = std::sync::mpsc::sync_channel(64);
 
+    // locally-run tests and benches can be polled with a much greater frequency
+    let mut config = get_test_config(port, networks);
+    config.cli.no_network = true;
+    config.cli.poll_interval = 1;
+    config.connection.housekeeping_interval = 10;
+
     let export_service = StatsExportService::new(StatsServiceMode::NodeMode).unwrap();
-    let (mut node, receivers) = P2PNode::new(
+    let (node, receivers) = P2PNode::new(
         None,
-        &get_test_config(port, networks),
+        &config,
         net_tx,
         None,
         node_type,
@@ -147,11 +119,6 @@ pub fn make_node_and_sync(
         rpc_tx,
         None,
     );
-
-    // locally-run tests and benches can be polled with a much greater frequency
-    node.config.poll_interval = 1;
-    node.config.housekeeping_interval = 10;
-    node.config.no_net = true;
 
     node.spawn(receivers);
     Ok((node, net_rx))
@@ -162,15 +129,25 @@ pub fn make_node_and_sync_with_rpc(
     networks: Vec<u16>,
     node_type: PeerType,
     data_dir_path: PathBuf,
-) -> Fallible<(P2PNode, Receiver<NetworkMessage>, Receiver<NetworkMessage>)> {
+) -> Fallible<(
+    Arc<P2PNode>,
+    Receiver<NetworkMessage>,
+    Receiver<NetworkMessage>,
+)> {
     let (net_tx, _) = std::sync::mpsc::sync_channel(64);
     let (_, msg_wait_rx) = std::sync::mpsc::sync_channel(64);
     let (rpc_tx, rpc_rx) = std::sync::mpsc::sync_channel(64);
 
+    // locally-run tests and benches can be polled with a much greater frequency
+    let mut config = get_test_config(port, networks);
+    config.cli.no_network = true;
+    config.cli.poll_interval = 1;
+    config.connection.housekeeping_interval = 10;
+
     let export_service = StatsExportService::new(StatsServiceMode::NodeMode).unwrap();
-    let (mut node, receivers) = P2PNode::new(
+    let (node, receivers) = P2PNode::new(
         None,
-        &get_test_config(port, networks),
+        &config,
         net_tx,
         None,
         node_type,
@@ -179,31 +156,27 @@ pub fn make_node_and_sync_with_rpc(
         Some(data_dir_path),
     );
 
-    // locally-run tests and benches can be polled with a much greater frequency
-    node.config.poll_interval = 1;
-    node.config.housekeeping_interval = 1;
-    node.config.no_net = true;
-
     node.spawn(receivers);
     Ok((node, msg_wait_rx, rpc_rx))
 }
 
 /// Connects `source` and `target` nodes
-pub fn connect(source: &mut P2PNode, target: &P2PNode) -> Fallible<()> {
+pub fn connect(source: &P2PNode, target: &P2PNode) -> Fallible<()> {
     source.connect(target.self_peer.peer_type, target.internal_addr(), None)
 }
 
 pub fn await_handshake(node: &P2PNode) -> Fallible<()> {
-    let conn = read_or_die!(node.connection_handler.connections)
-        .iter()
-        .next()
-        .cloned()
-        .unwrap();
-
     loop {
-        if conn.is_post_handshake() {
-            break;
+        if let Some(conn) = read_or_die!(node.connection_handler.connections)
+            .values()
+            .next()
+        {
+            if conn.is_post_handshake() {
+                break;
+            }
         }
+
+        thread::sleep(Duration::from_millis(100));
     }
 
     Ok(())

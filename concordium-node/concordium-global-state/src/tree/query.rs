@@ -11,6 +11,8 @@ use super::{
     GlobalData, GlobalState,
 };
 
+use concordium_common::blockchain_types::BlockHash;
+
 impl<'a> GlobalState<'a> {
     pub fn get_stored_block(&'a self, hash: &BlockHash) -> GlobalStateResult {
         let reader = self.data.kvs_env.read().unwrap(); // infallible

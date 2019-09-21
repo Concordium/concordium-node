@@ -67,3 +67,4 @@ macro_rules! wrap_c_call {
 mod fails;
 pub mod consensus;
 pub mod ffi;
+pub mod transferlog;

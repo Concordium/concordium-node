@@ -1,7 +1,7 @@
 version: '3'
 services:
     bootstrapper:
-        image: concordium/dev-client:latest
+        image: concordium/dev-client:develop
         environment:
             - RUST_BACKTRACE=1
             - RUST_LOG=trace
@@ -10,14 +10,13 @@ services:
         entrypoint:
             - /start.sh
     baker_id_gen:
-        image: concordium/dev-client:latest
+        image: concordium/dev-client:develop
         entrypoint:
             - /baker_id_generator
     baker:
-        image: concordium/dev-client:latest
+        image: concordium/dev-client:develop
         depends_on:
             - baker_id_gen
-            - bootstrapper
         entrypoint:
             - /start.sh
         environment:

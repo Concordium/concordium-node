@@ -1,5 +1,6 @@
 use concordium_common::{
-    into_err, RelayOrStopReceiver, RelayOrStopSenderHelper, RelayOrStopSyncSender,
+    blockchain_types::BakerId, into_err, RelayOrStopReceiver, RelayOrStopSenderHelper,
+    RelayOrStopSyncSender,
 };
 use failure::Fallible;
 
@@ -12,10 +13,7 @@ use std::{
 };
 
 use crate::ffi::*;
-use concordium_global_state::{
-    block::BakerId,
-    tree::{messaging::ConsensusMessage, GlobalState},
-};
+use concordium_global_state::tree::{messaging::ConsensusMessage, GlobalState};
 
 pub type PeerId = u64;
 pub type PrivateData = HashMap<i64, Vec<u8>>;
@@ -81,6 +79,7 @@ impl std::fmt::Display for ConsensusType {
 
 #[derive(Clone)]
 pub struct ConsensusContainer {
+    pub max_block_size: u64,
     pub baker_id:       Option<BakerId>,
     pub is_baking:      Arc<AtomicBool>,
     pub consensus:      Arc<AtomicPtr<consensus_runner>>,
@@ -90,6 +89,8 @@ pub struct ConsensusContainer {
 
 impl ConsensusContainer {
     pub fn new(
+        max_block_size: u64,
+        enable_transfer_logging: bool,
         genesis_data: Vec<u8>,
         private_data: Option<Vec<u8>>,
         baker_id: Option<BakerId>,
@@ -102,9 +103,15 @@ impl ConsensusContainer {
             ConsensusType::Passive
         };
 
-        let consensus_ptr = get_consensus_ptr(genesis_data.clone(), private_data);
+        let consensus_ptr = get_consensus_ptr(
+            max_block_size,
+            enable_transfer_logging,
+            genesis_data.clone(),
+            private_data,
+        );
 
         Self {
+            max_block_size,
             baker_id,
             is_baking: Arc::new(AtomicBool::new(false)),
             consensus: Arc::new(AtomicPtr::new(consensus_ptr)),

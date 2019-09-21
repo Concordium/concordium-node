@@ -20,6 +20,9 @@ const APP_PREFERENCES_MAIN: &str = "main.config";
 pub const APP_PREFERENCES_KEY_VERSION: &str = "VERSION";
 pub const APP_PREFERENCES_PERSISTED_NODE_ID: &str = "PERSISTED_NODE_ID";
 
+// ticker thread loop interval
+pub const TICKER_INTERVAL_SECS: u8 = 5;
+
 // queue depths
 pub const GS_HIGH_PRIO_QUEUE_DEPTH: usize = 1024;
 pub const GS_LOW_PRIO_QUEUE_DEPTH: usize = 1024 * 10;
@@ -147,6 +150,17 @@ pub struct BakerConfig {
         help = "Persist the the global state store"
     )]
     pub persist_global_state: bool,
+    #[structopt(
+        long = "maximum-block-size",
+        help = "Maximum block size in bytes",
+        default_value = "12582912"
+    )]
+    pub maximum_block_size: u32,
+    #[structopt(
+        long = "scheduler-outcome-logging",
+        help = "Enable outcome of finalized baked blocks from the scheduler"
+    )]
+    pub scheduler_outcome_logging: bool,
 }
 
 #[derive(StructOpt, Debug)]
@@ -182,7 +196,7 @@ pub struct ConnectionConfig {
         help = "Desired nodes to always have",
         default_value = "50"
     )]
-    pub desired_nodes: u8,
+    pub desired_nodes: u16,
     #[structopt(
         long = "max-resend-attempts",
         help = "Maximum number of times a packet is attempted to be resent",
@@ -193,7 +207,7 @@ pub struct ConnectionConfig {
         long = "max-allowed-nodes",
         help = "Maximum nodes to allow a connection to"
     )]
-    pub max_allowed_nodes: Option<u8>,
+    pub max_allowed_nodes: Option<u16>,
     #[structopt(
         long = "max-allowed-nodes-percentage",
         help = "Maximum nodes to allow a connection to is set as a percentage of desired-nodes \
@@ -257,6 +271,11 @@ pub struct ConnectionConfig {
         default_value = "7200"
     )]
     pub bootstrapping_interval: u64,
+    #[structopt(
+        long = "max-latency",
+        help = "The maximum allowed connection latency in ms"
+    )]
+    pub max_latency: Option<u64>,
 }
 
 #[derive(StructOpt, Debug)]
@@ -359,6 +378,16 @@ pub struct CliConfig {
     pub tps: TpsConfig,
     #[structopt(flatten)]
     pub rpc: RpcCliConfig,
+    #[cfg(feature = "elastic_logging")]
+    #[structopt(long = "elastic-logging", help = "Enable logging to Elastic Search")]
+    pub elastic_logging_enabled: bool,
+    #[cfg(feature = "elastic_logging")]
+    #[structopt(
+        long = "elastic-logging-url",
+        help = "URL to use for logging to Elastic Search",
+        default_value = "http://127.0.0.1:9200"
+    )]
+    pub elastic_logging_url: String,
 }
 
 #[derive(StructOpt, Debug)]
@@ -413,6 +442,7 @@ impl Config {
 }
 
 pub fn parse_config() -> Fallible<Config> {
+    use crate::network::PROTOCOL_MAX_MESSAGE_SIZE;
     let conf = Config::from_args();
     if conf.connection.max_allowed_nodes_percentage < 100 {
         bail!(
@@ -434,6 +464,16 @@ pub fn parse_config() -> Fallible<Config> {
         || conf.connection.relay_broadcast_percentage > 1.0
     {
         bail!("Percentage of peers to relay broadcasted packets to, must be between 0.0 and 1.0");
+    }
+
+    if conf.cli.baker.maximum_block_size > 4_000_000_000
+        || ((f64::from(conf.cli.baker.maximum_block_size) * 0.9).ceil()) as u32
+            > PROTOCOL_MAX_MESSAGE_SIZE
+    {
+        bail!(
+            "Maximum block size set higher than 90% of network protocol max size ({})",
+            PROTOCOL_MAX_MESSAGE_SIZE
+        );
     }
 
     Ok(conf)

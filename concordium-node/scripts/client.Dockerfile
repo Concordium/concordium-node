@@ -9,7 +9,7 @@ EXPOSE 9090
 EXPOSE 8900
 EXPOSE 10000
 
-RUN apt-get update && apt-get install -y unbound
+RUN apt-get update && apt-get install -y unbound ca-certificates
 COPY --from=wrapper /build-project/p2p_client-cli /p2p_client-cli
 COPY --from=wrapper /build-project/start.sh /start.sh
 COPY --from=wrapper /build-project/gen_data.sh /gen_data.sh

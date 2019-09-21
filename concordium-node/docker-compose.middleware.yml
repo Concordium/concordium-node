@@ -1,5 +1,23 @@
 version: '3'
 services:
+    elasticsearch:
+        image: elasticsearch:7.3.2
+        environment:
+            - discovery.type=single-node
+        ports:
+            - "9200:9200"
+            - "9300:9300"
+        healthcheck:
+            test: ["CMD", "curl","-s" ,"-f", "http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=50s"]
+            interval: 30s
+            timeout: 10s
+            retries: 5
+    kibana:
+        image: kibana:7.3.2
+        ports:
+            - "5601:5601"
+        depends_on:
+            - elasticsearch
     bootstrapper:
         image: concordium/dev-client:latest
         environment:
@@ -18,6 +36,7 @@ services:
         depends_on:
             - baker_id_gen
             - bootstrapper
+            - kibana
         entrypoint:
             - /start.sh
         environment:
@@ -30,6 +49,8 @@ services:
             - MODE=local_basic
             - DATA_DIR=/var/lib/concordium/data
             - RPC_SERVER_ADDR=0.0.0.0
+            - ELASTIC_SEARCH_LOGGING=1
             - EXTRA_ARGS=${EXTRA_ARGS}
+            - ES_SLEEP=${ES_SLEEP}
         ports:
             - "11100-11500:10000"
