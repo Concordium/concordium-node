@@ -198,6 +198,11 @@ then
     ARGS="$ARGS --wait-until-minimum-nodes $BOOTSTRAPPER_WAIT_UNTIL_MINIMUM_NODES"
 fi
 
+if [ -n "$MAX_LATENCY" ];
+then
+    ARGS="$ARGS --max-latency $MAX_LATENCY"
+fi
+
 if [ "$MODE" == "tps_receiver" ]; then
     echo "Receiver!"
     /p2p_client-cli \
