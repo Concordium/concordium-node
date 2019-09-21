@@ -11,7 +11,7 @@ use crate::{
     failure::Fallible,
     network::{request::RequestedElementType, NetworkId, NetworkMessage, NetworkPacketType},
     p2p::{
-        banned_nodes::{insert_ban, remove_ban, BannedNode},
+        banned_nodes::{remove_ban, BannedNode},
         p2p_node::{send_broadcast_message, send_direct_message},
         P2PNode,
     },
@@ -19,10 +19,10 @@ use crate::{
 };
 
 use concordium_common::{
-    fails::PoisonError, hybrid_buf::HybridBuf, ConsensusFfiResponse, PacketType,
+    hybrid_buf::HybridBuf, ConsensusFfiResponse, PacketType, SerializeToBytes,
 };
 use concordium_consensus::consensus::{ConsensusContainer, CALLBACK_QUEUE};
-use concordium_global_state::tree::messaging::{ConsensusMessage, DistributionMode, MessageType};
+use concordium_global_state::tree::messaging::{ConsensusMessage, MessageType};
 use futures::future::Future;
 use grpcio::{self, Environment, ServerBuilder};
 
@@ -34,67 +34,52 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-#[derive(Clone)]
-pub struct RpcServerImplShared {
-    pub server:                 Arc<Mutex<Option<grpcio::Server>>>,
-    pub subscription_queue_out: Arc<Mutex<mpsc::Receiver<NetworkMessage>>>,
-    pub subscription_queue_in:  Arc<mpsc::SyncSender<NetworkMessage>>,
-}
-
-impl RpcServerImplShared {
-    pub fn new(
-        subscription_queue_out: mpsc::Receiver<NetworkMessage>,
-        subscription_queue_in: mpsc::SyncSender<NetworkMessage>,
-    ) -> Self {
-        RpcServerImplShared {
-            server:                 Arc::new(Mutex::new(None)),
-            subscription_queue_out: Arc::new(Mutex::new(subscription_queue_out)),
-            subscription_queue_in:  Arc::new(subscription_queue_in),
-        }
-    }
-
-    pub fn stop_server(&mut self) -> Fallible<()> {
-        if let Some(ref mut srv) = *safe_lock!(self.server)? {
-            srv.shutdown()
-                .wait()
-                .map_err(fails::GeneralRpcError::from)?
-        }
-        Ok(())
-    }
-}
-
-#[derive(Clone)]
 pub struct RpcServerImpl {
     node:         Arc<P2PNode>,
     listen_port:  u16,
     listen_addr:  String,
     access_token: String,
     consensus:    Option<ConsensusContainer>,
-    dptr:         RpcServerImplShared,
+    server:       Arc<Mutex<Option<grpcio::Server>>>,
+    receiver:     Option<mpsc::Receiver<NetworkMessage>>,
+}
+
+// a trick implementation so we can have a lockless Receiver
+impl Clone for RpcServerImpl {
+    fn clone(&self) -> Self {
+        RpcServerImpl {
+            node:         Arc::clone(&self.node),
+            listen_port:  self.listen_port,
+            listen_addr:  self.listen_addr.clone(),
+            access_token: self.access_token.clone(),
+            consensus:    self.consensus.clone(),
+            server:       self.server.clone(),
+            receiver:     None,
+        }
+    }
 }
 
 impl RpcServerImpl {
     pub fn new(
-        node: P2PNode,
+        node: Arc<P2PNode>,
         consensus: Option<ConsensusContainer>,
         conf: &configuration::RpcCliConfig,
         subscription_queue_out: mpsc::Receiver<NetworkMessage>,
     ) -> Self {
-        let dptr = RpcServerImplShared::new(subscription_queue_out, node.rpc_queue.clone());
-
         RpcServerImpl {
-            node: Arc::new(node),
+            node: Arc::clone(&node),
             listen_addr: conf.rpc_server_addr.clone(),
             listen_port: conf.rpc_server_port,
             access_token: conf.rpc_server_token.clone(),
             consensus,
-            dptr,
+            server: Default::default(),
+            receiver: Some(subscription_queue_out),
         }
     }
 
     #[inline]
     pub fn set_server(&mut self, server: grpcio::Server) -> Fallible<()> {
-        let mut srv = safe_lock!(self.dptr.server)?;
+        let mut srv = safe_lock!(self.server)?;
         *srv = Some(server);
         Ok(())
     }
@@ -112,11 +97,20 @@ impl RpcServerImpl {
             .map_err(|_| fails::ServerBuildError)?;
 
         server.start();
-        self.set_server(server)
+        self.set_server(server)?;
+
+        Ok(())
     }
 
     #[inline]
-    pub fn stop_server(&mut self) -> Fallible<()> { self.dptr.stop_server() }
+    pub fn stop_server(&mut self) -> Fallible<()> {
+        if let Some(ref mut srv) = *safe_lock!(self.server)? {
+            srv.shutdown()
+                .wait()
+                .map_err(fails::GeneralRpcError::from)?;
+        }
+        Ok(())
+    }
 
     fn send_message_with_error(&self, req: &SendMessageRequest) -> Fallible<SuccessResponse> {
         let mut r: SuccessResponse = SuccessResponse::new();
@@ -149,17 +143,8 @@ impl RpcServerImpl {
         Ok(r)
     }
 
-    fn receive_network_msg(&self) -> Result<Option<NetworkMessage>, PoisonError> {
-        match safe_lock!(self.dptr.subscription_queue_out) {
-            Ok(locked_queue_out) => {
-                if let Ok(msg) = locked_queue_out.try_recv() {
-                    Ok(Some(msg))
-                } else {
-                    Ok(None)
-                }
-            }
-            Err(e) => Err(e),
-        }
+    fn receive_network_msg(&self) -> Option<NetworkMessage> {
+        self.receiver.as_ref().unwrap().try_recv().ok()
     }
 }
 
@@ -379,16 +364,17 @@ impl P2P for RpcServerImpl {
             match self.consensus {
                 Some(ref consensus) => {
                     let payload = req.get_payload();
-
-                    let request = ConsensusMessage::new(
-                        MessageType::Inbound(self.node.id().0, DistributionMode::Direct),
-                        PacketType::Transaction,
-                        Arc::from(payload),
-                        vec![],
-                    );
-                    let gs_result = CALLBACK_QUEUE.send_message(request);
                     let consensus_result = consensus.send_transaction(payload);
-
+                    let gs_result = if consensus_result == ConsensusFfiResponse::Success {
+                        CALLBACK_QUEUE.send_message(ConsensusMessage::new(
+                            MessageType::Outbound(None),
+                            PacketType::Transaction,
+                            Arc::from(payload),
+                            vec![],
+                        ))
+                    } else {
+                        Ok(())
+                    };
                     match (gs_result, consensus_result) {
                         (Ok(_), ConsensusFfiResponse::Success) => {
                             let mut r: SuccessResponse = SuccessResponse::new();
@@ -652,43 +638,36 @@ impl P2P for RpcServerImpl {
             let mut r: P2PNetworkMessage = P2PNetworkMessage::new();
 
             let f = {
-                if let Ok(network_msg) = self.receive_network_msg() {
-                    if let Some(network_msg) = network_msg {
-                        if let NetworkMessage::NetworkPacket(ref packet, ..) = network_msg {
-                            let mut inner_msg = packet.message.to_owned();
-                            if let Ok(view_inner_msg) = inner_msg.remaining_bytes() {
-                                let msg = view_inner_msg.into_owned();
+                if let Some(network_msg) = self.receive_network_msg() {
+                    if let NetworkMessage::NetworkPacket(ref packet, ..) = network_msg {
+                        let mut inner_msg = packet.message.to_owned();
+                        if let Ok(view_inner_msg) = inner_msg.remaining_bytes() {
+                            let msg = view_inner_msg.into_owned();
 
-                                match packet.packet_type {
-                                    NetworkPacketType::DirectMessage(..) => {
-                                        let mut i_msg = MessageDirect::new();
-                                        i_msg.set_data(msg);
-                                        r.set_message_direct(i_msg);
-                                    }
-                                    NetworkPacketType::BroadcastedMessage(..) => {
-                                        let mut i_msg = MessageBroadcast::new();
-                                        i_msg.set_data(msg);
-                                        r.set_message_broadcast(i_msg);
-                                    }
-                                };
+                            match packet.packet_type {
+                                NetworkPacketType::DirectMessage(..) => {
+                                    let mut i_msg = MessageDirect::new();
+                                    i_msg.set_data(msg);
+                                    r.set_message_direct(i_msg);
+                                }
+                                NetworkPacketType::BroadcastedMessage(..) => {
+                                    let mut i_msg = MessageBroadcast::new();
+                                    i_msg.set_data(msg);
+                                    r.set_message_broadcast(i_msg);
+                                }
+                            };
 
-                                r.set_network_id(u32::from(packet.network_id.id));
-                                r.set_message_id(packet.message_id.to_vec());
-                                r.set_sender(packet.peer.id().to_string());
-                            } else {
-                                r.set_message_none(MessageNone::new());
-                            }
+                            r.set_network_id(u32::from(packet.network_id.id));
+                            r.set_message_id(packet.message_id.to_vec());
+                            r.set_sender(packet.peer.id().to_string());
+                        } else {
+                            r.set_message_none(MessageNone::new());
                         }
-                    } else {
-                        r.set_message_none(MessageNone::new());
                     }
-                    sink.success(r)
                 } else {
-                    sink.fail(grpcio::RpcStatus::new(
-                        grpcio::RpcStatusCode::ResourceExhausted,
-                        Some("Node can't be locked".to_string()),
-                    ))
+                    r.set_message_none(MessageNone::new());
                 }
+                sink.success(r)
             };
             let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);
@@ -717,12 +696,8 @@ impl P2P for RpcServerImpl {
             };
 
             let f = if let Some(to_ban) = banned_node {
-                let store_key = to_ban.to_db_repr();
-
-                match insert_ban(&self.node.kvs, &store_key) {
+                match self.node.ban_node(to_ban) {
                     Ok(_) => {
-                        self.node.ban_node(to_ban);
-                        self.node.send_ban(to_ban);
                         r.set_value(true);
                     }
                     Err(e) => {
@@ -766,11 +741,11 @@ impl P2P for RpcServerImpl {
             };
 
             let f = if let Some(to_unban) = banned_node {
-                let store_key = to_unban.to_db_repr();
-
-                match remove_ban(&self.node.kvs, &store_key) {
+                let store_key = to_unban.serialize();
+                match remove_ban(&self.node.kvs, &store_key)
+                    .and_then(|_| self.node.unban_node(to_unban))
+                {
                     Ok(_) => {
-                        self.node.unban_node(to_unban);
                         self.node.send_unban(to_unban);
                         r.set_value(true);
                     }
@@ -984,26 +959,30 @@ impl P2P for RpcServerImpl {
             let mut r: PeerListResponse = PeerListResponse::new();
             let f = {
                 r.set_peer(::protobuf::RepeatedField::from_vec(
-                    self.node
-                        .get_banlist()
-                        .iter()
-                        .map(|banned_node| {
-                            let mut pe = PeerElement::new();
-                            let mut node_id = ::protobuf::well_known_types::StringValue::new();
-                            node_id.set_value(match banned_node {
-                                BannedNode::ById(id) => id.to_string(),
-                                _ => "*".to_owned(),
-                            });
-                            pe.set_node_id(node_id);
-                            let mut ip = ::protobuf::well_known_types::StringValue::new();
-                            ip.set_value(match banned_node {
-                                BannedNode::ByAddr(addr) => addr.to_string(),
-                                _ => "*".to_owned(),
-                            });
-                            pe.set_ip(ip);
-                            pe
-                        })
-                        .collect::<Vec<PeerElement>>(),
+                    if let Ok(banlist) = self.node.get_banlist() {
+                        banlist
+                            .into_iter()
+                            .map(|banned_node| {
+                                let mut pe = PeerElement::new();
+                                let mut node_id = ::protobuf::well_known_types::StringValue::new();
+                                node_id.set_value(match banned_node {
+                                    BannedNode::ById(id) => id.to_string(),
+                                    _ => "*".to_owned(),
+                                });
+                                pe.set_node_id(node_id);
+                                let mut ip = ::protobuf::well_known_types::StringValue::new();
+                                ip.set_value(match banned_node {
+                                    BannedNode::ByAddr(addr) => addr.to_string(),
+                                    _ => "*".to_owned(),
+                                });
+                                pe.set_ip(ip);
+                                pe
+                            })
+                            .collect::<Vec<PeerElement>>()
+                    } else {
+                        error!("Can't load the banlist");
+                        Vec::new()
+                    },
                 ));
                 sink.success(r)
             };
@@ -1275,7 +1254,6 @@ mod tests {
     use crate::{
         common::{P2PNodeId, PeerType},
         configuration,
-        network::NetworkMessage,
         p2p::p2p_node::send_broadcast_message,
         proto::concordium_p2p_rpc_grpc::P2PClient,
         rpc::RpcServerImpl,
@@ -1293,19 +1271,14 @@ mod tests {
     // Same as create_node_rpc_call_option but also outputs the Message receiver
     fn create_node_rpc_call_option_waiter(
         nt: PeerType,
-    ) -> (
-        P2PClient,
-        RpcServerImpl,
-        grpcio::CallOption,
-        std::sync::mpsc::Receiver<NetworkMessage>,
-    ) {
+    ) -> (P2PClient, RpcServerImpl, grpcio::CallOption) {
         let conf = configuration::parse_config().expect("Can't parse the config file!");
         let app_prefs = configuration::AppPreferences::new(
             conf.common.config_dir.to_owned(),
             conf.common.data_dir.to_owned(),
         );
 
-        let (node, w, rpc_rx) = make_node_and_sync_with_rpc(
+        let (node, _, rpc_rx) = make_node_and_sync_with_rpc(
             next_available_port(),
             vec![100],
             nt,
@@ -1334,15 +1307,14 @@ mod tests {
 
         let call_options = ::grpcio::CallOption::default().headers(meta_data);
 
-        (client, rpc_server, call_options, w)
+        (client, rpc_server, call_options)
     }
 
     // Creates P2PClient, RpcServImpl and CallOption instances.
     // The intended use is for spawning nodes for testing gRPC api.
     // The port number is safe as it uses a AtomicUsize for respecting the order.
     fn create_node_rpc_call_option(nt: PeerType) -> (P2PClient, RpcServerImpl, grpcio::CallOption) {
-        let (client, rpc_server, call_options, _) = create_node_rpc_call_option_waiter(nt);
-        (client, rpc_server, call_options)
+        create_node_rpc_call_option_waiter(nt)
     }
 
     #[test]
@@ -1429,8 +1401,8 @@ mod tests {
     fn test_peer_total_received() -> Fallible<()> {
         let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
         let port = next_available_port();
-        let (mut node2, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, &rpc_serv.node)?;
+        let (node2, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
+        connect(&node2, &rpc_serv.node)?;
         await_handshake(&node2)?;
         let emp = crate::proto::Empty::new();
         let rcv = client
@@ -1444,8 +1416,8 @@ mod tests {
     fn test_peer_total_sent() -> Fallible<()> {
         let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
         let port = next_available_port();
-        let (mut node2, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, &rpc_serv.node)?;
+        let (node2, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
+        connect(&node2, &rpc_serv.node)?;
         await_handshake(&node2)?;
         let emp = crate::proto::Empty::new();
         let snt = client
@@ -1461,8 +1433,8 @@ mod tests {
 
         let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
         let port = next_available_port();
-        let (mut node2, wt1) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, &rpc_serv.node)?;
+        let (node2, wt1) = make_node_and_sync(port, vec![100], PeerType::Node)?;
+        connect(&node2, &rpc_serv.node)?;
         await_handshake(&node2)?;
         let mut message = protobuf::well_known_types::BytesValue::new();
         message.set_value(b"Hey".to_vec());
@@ -1495,8 +1467,8 @@ mod tests {
 
         let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
         let port = next_available_port();
-        let (mut node2, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, &rpc_serv.node)?;
+        let (node2, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
+        connect(&node2, &rpc_serv.node)?;
         await_handshake(&node2)?;
         let mut net = protobuf::well_known_types::Int32Value::new();
         net.set_value(10);
@@ -1510,8 +1482,8 @@ mod tests {
     fn test_leave_network() -> Fallible<()> {
         let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
         let port = next_available_port();
-        let (mut node2, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, &rpc_serv.node)?;
+        let (node2, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
+        connect(&node2, &rpc_serv.node)?;
         await_handshake(&node2)?;
         let mut net = protobuf::well_known_types::Int32Value::new();
         net.set_value(100);
@@ -1531,8 +1503,8 @@ mod tests {
             .to_vec();
         assert!(rcv.is_empty());
         let port = next_available_port();
-        let (mut node2, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, &rpc_serv.node)?;
+        let (node2, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
+        connect(&node2, &rpc_serv.node)?;
         await_handshake(&node2)?;
         let req = crate::proto::PeersRequest::new();
         let rcv = client
@@ -1552,8 +1524,8 @@ mod tests {
         assert!(rcv.get_peer().to_vec().is_empty());
         assert_eq!(rcv.get_peer_type(), "Node");
         let port = next_available_port();
-        let (mut node2, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, &rpc_serv.node)?;
+        let (node2, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
+        connect(&node2, &rpc_serv.node)?;
         await_handshake(&node2)?;
         let req = crate::proto::PeersRequest::new();
         let rcv = client
@@ -1640,10 +1612,10 @@ mod tests {
     #[test]
     #[ignore] // TODO: decide how to handle this one
     fn test_subscription_poll() -> Fallible<()> {
-        let (client, rpc_serv, callopts, _) = create_node_rpc_call_option_waiter(PeerType::Node);
+        let (client, rpc_serv, callopts) = create_node_rpc_call_option_waiter(PeerType::Node);
         let port = next_available_port();
-        let (mut node2, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, &rpc_serv.node)?;
+        let (node2, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
+        connect(&node2, &rpc_serv.node)?;
         await_handshake(&node2)?;
         client.subscription_start_opt(&crate::proto::Empty::new(), callopts.clone())?;
         send_broadcast_message(
@@ -1703,8 +1675,8 @@ mod tests {
         std::fs::write("/tmp/blobs/test", data)?;
         let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
         let port = next_available_port();
-        let (mut node2, wt2) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, &rpc_serv.node)?;
+        let (node2, wt2) = make_node_and_sync(port, vec![100], PeerType::Node)?;
+        connect(&node2, &rpc_serv.node)?;
         await_handshake(&node2)?;
         let mut req = crate::proto::TpsRequest::new();
         req.set_network_id(100);
@@ -1723,8 +1695,8 @@ mod tests {
         std::fs::write("/tmp/blobs/test", data)?;
         let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
         let port = next_available_port();
-        let (mut node2, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&mut node2, &rpc_serv.node)?;
+        let (node2, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
+        connect(&node2, &rpc_serv.node)?;
         await_handshake(&node2)?;
         let mut req = crate::proto::TpsRequest::new();
         req.set_network_id(100);

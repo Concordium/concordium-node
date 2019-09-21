@@ -7,9 +7,11 @@ use std::{
 };
 
 use crate::{
-    block::{BlockHash, BlockHeight},
-    common::{create_serialization_cursor, SerializeToBytes},
+    block::BlockHeight,
+    common::{create_serialization_cursor, read_ty, SerializeToBytes},
 };
+
+use concordium_common::blockchain_types::BlockHash;
 
 #[derive(Debug)]
 pub struct CatchUpStatus {

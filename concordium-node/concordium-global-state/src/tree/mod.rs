@@ -1,6 +1,6 @@
 use chrono::prelude::{DateTime, Utc};
 use circular_queue::CircularQueue;
-use concordium_common::indexed_vec::IndexedVec;
+use concordium_common::{blockchain_types::BlockHash, indexed_vec::IndexedVec};
 use hash_hasher::{HashBuildHasher, HashedMap, HashedSet};
 use linked_hash_map::LinkedHashMap;
 use nohash_hasher::BuildNoHashHasher;
@@ -58,8 +58,8 @@ use self::PendingQueueType::*;
 /// Holds the global state and related statistics.
 pub struct GlobalState<'a> {
     pub data:           GlobalData<'a>,
-    pub catch_up_state: PeerStatus,
     pub peers:          PriorityQueue<PeerId, PeerState, BuildNoHashHasher<PeerId>>,
+    pub catch_up_count: u8,
     pub stats:          GlobalStats,
 }
 
@@ -87,8 +87,8 @@ impl<'a> GlobalState<'a> {
 
         Self {
             data:           GlobalData::new(genesis_data, &kvs_env, persistent),
-            catch_up_state: PeerStatus::Pending,
             peers:          Default::default(),
+            catch_up_count: 0,
             stats:          GlobalStats::new(MOVING_AVERAGE_QUEUE_LEN),
         }
     }

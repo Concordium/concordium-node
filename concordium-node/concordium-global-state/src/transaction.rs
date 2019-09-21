@@ -13,14 +13,11 @@ use std::{
 use concordium_common::indexed_vec::IndexedVec;
 
 use crate::{
-    block::*,
     common::*,
     parameters::{BakerElectionVerifyKey, BakerSignVerifyKey, BAKER_VRF_KEY},
 };
 
 const PAYLOAD_MAX_LEN: u32 = 512 * 1024 * 1024; // 512MB
-
-pub type TransactionHash = HashBytes;
 
 #[derive(Debug)]
 pub struct TransactionHeader {
@@ -28,7 +25,6 @@ pub struct TransactionHeader {
     sender_key:         ByteString,
     pub nonce:          Nonce,
     gas_amount:         Energy,
-    finalized_ptr:      BlockHash,
     pub sender_account: AccountAddress,
 }
 
@@ -43,7 +39,6 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionHeader {
         let nonce = Nonce::try_from(nonce_raw)?;
 
         let gas_amount = NetworkEndian::read_u64(&read_ty!(cursor, Energy));
-        let finalized_ptr = HashBytes::from(read_ty!(cursor, HashBytes));
         let sender_account = AccountAddress::from((&*sender_key, scheme_id));
 
         let transaction_header = TransactionHeader {
@@ -51,7 +46,6 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionHeader {
             sender_key,
             nonce,
             gas_amount,
-            finalized_ptr,
             sender_account,
         };
 
@@ -64,8 +58,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionHeader {
                 + size_of::<u16>()
                 + self.sender_key.len()
                 + size_of::<Nonce>()
-                + size_of::<Energy>()
-                + size_of::<BlockHash>(),
+                + size_of::<Energy>(),
         );
 
         let _ = cursor.write(&[self.scheme_id as u8]);
@@ -73,7 +66,6 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionHeader {
         let _ = cursor.write_all(&self.sender_key);
         let _ = cursor.write_u64::<NetworkEndian>(self.nonce.0);
         let _ = cursor.write_u64::<NetworkEndian>(self.gas_amount);
-        let _ = cursor.write_all(&self.finalized_ptr);
 
         cursor.into_inner()
     }

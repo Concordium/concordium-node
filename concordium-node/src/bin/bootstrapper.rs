@@ -25,12 +25,13 @@ use p2p_client::{
     configuration as config,
     network::{NetworkMessage, NetworkRequest},
     p2p::*,
-    utils::{self, load_bans},
 };
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc};
 
 fn main() -> Result<(), Error> {
-    let conf = config::parse_config()?;
+    let mut conf = config::parse_config()?;
+
+    conf.connection.max_allowed_nodes = Some(conf.bootstrapper.max_nodes);
 
     let app_prefs = config::AppPreferences::new(
         conf.common.config_dir.to_owned(),
@@ -94,7 +95,7 @@ fn main() -> Result<(), Error> {
     let (pkt_in, pkt_out) = mpsc::sync_channel(config::BOOT_PACKET_QUEUE_DEPTH);
     let (rpc_tx, _) = std::sync::mpsc::sync_channel(config::RPC_QUEUE_DEPTH);
 
-    let (mut node, receivers) = if conf.common.debug {
+    let (node, receivers) = if conf.common.debug {
         let (sender, receiver) = mpsc::sync_channel(config::EVENT_LOG_QUEUE_DEPTH);
         let _guard = spawn_or_die!("Log loop", move || loop {
             if let Ok(msg) = receiver.recv() {
@@ -128,21 +129,12 @@ fn main() -> Result<(), Error> {
     // Start push gateway to prometheus
     client_utils::start_push_gateway(&conf.prometheus, &stats_export_service, node.id())?;
 
-    // Load and apply existing bans
-    if let Err(e) = load_bans(&mut node) {
-        error!("{}", e);
-    };
-
     // Connect outgoing messages to be forwarded into the baker and RPC streams.
     //
     // Thread #4: Read P2PNode output
     setup_process_output(&node, &conf, pkt_out);
 
-    {
-        node.config.max_allowed_nodes = conf.bootstrapper.max_nodes;
-        node.config.print_peers = true;
-        node.spawn(receivers);
-    }
+    node.spawn(receivers);
 
     node.join().expect("Node thread panicked!");
 
@@ -153,28 +145,26 @@ fn main() -> Result<(), Error> {
 }
 
 fn setup_process_output(
-    node: &P2PNode,
+    node: &Arc<P2PNode>,
     conf: &config::Config,
     pkt_out: RelayOrStopReceiver<NetworkMessage>,
 ) {
-    let mut _node_self_clone = node.clone();
+    let node_ref = Arc::clone(node);
     let _no_trust_bans = conf.common.no_trust_bans;
     let _guard_pkt = spawn_or_die!("Higher queue processing", move || {
         while let Ok(RelayOrStopEnvelope::Relay(full_msg)) = pkt_out.recv() {
-            match full_msg {
+            if let Err(e) = match full_msg {
                 NetworkMessage::NetworkRequest(
-                    NetworkRequest::BanNode(ref peer, peer_to_ban),
+                    NetworkRequest::BanNode(_source, peer_to_ban),
                     ..
-                ) => {
-                    utils::ban_node(&_node_self_clone, peer, peer_to_ban);
-                }
+                ) => node_ref.ban_node(peer_to_ban),
                 NetworkMessage::NetworkRequest(
-                    NetworkRequest::UnbanNode(ref peer, peer_to_ban),
+                    NetworkRequest::UnbanNode(_source, peer_to_unban),
                     ..
-                ) => {
-                    utils::unban_node(&_node_self_clone, peer, peer_to_ban);
-                }
-                _ => {}
+                ) => node_ref.unban_node(peer_to_unban),
+                _ => Ok(()),
+            } {
+                error!("Can't process a ban/unban request: {}", e);
             }
         }
     });

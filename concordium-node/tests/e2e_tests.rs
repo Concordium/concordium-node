@@ -83,7 +83,7 @@ mod tests {
 
         let (net_tx, _) = std::sync::mpsc::sync_channel(64);
         let (rpc_tx, _) = std::sync::mpsc::sync_channel(64);
-        let (mut node, _receivers) = P2PNode::new(
+        let (node, _receivers) = P2PNode::new(
             None,
             &get_test_config(next_available_port(), vec![100]),
             net_tx,
@@ -141,7 +141,7 @@ mod tests {
 
         let to_ban = BannedNode::ById(node_2.id());
 
-        node_1.ban_node(to_ban);
+        node_1.ban_node(to_ban).unwrap();
         let mut reply = node_1.get_peer_stats();
 
         let t1 = time::Instant::now();
@@ -165,7 +165,7 @@ mod tests {
     pub fn e2e_005_network_direct_8m() { p2p_net(8 * 1024 * 1024); }
 
     #[test]
-    pub fn e2e_005_network_direct_32m() { p2p_net(32 * 1024 * 1024); }
+    pub fn e2e_005_network_direct_16m() { p2p_net(16 * 1024 * 1024); }
 
     fn p2p_net(size: usize) {
         setup_logger();

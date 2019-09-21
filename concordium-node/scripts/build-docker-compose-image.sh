@@ -2,6 +2,15 @@
 
 set -e
 
+if [ "$#" -gt "0" ];
+then
+    VERSION=$1
+else
+    VERSION="latest"
+fi
+
+echo "Going to build version $VERSION of dev-client for docker-hub"
+
 if [ ! -z "$JENKINS_HOME" ]; then
     git clone -b master --single-branch git@gitlab.com:Concordium/tools/baker_id_gen.git baker_id_gen
 
@@ -11,7 +20,7 @@ if [ ! -z "$JENKINS_HOME" ]; then
 
     export DOCKER_BUILDKIT=1
 
-    docker build -f scripts/dev-client.Dockerfile -t concordium/dev-client:latest --ssh default .
+    docker build -f scripts/dev-client.Dockerfile -t concordium/dev-client:$VERSION --ssh default .
 
     rm -f CONSENSUS_VERSION
     rm -rf baker_id_gen
