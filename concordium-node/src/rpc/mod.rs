@@ -22,7 +22,7 @@ use concordium_common::{
     hybrid_buf::HybridBuf, ConsensusFfiResponse, PacketType, SerializeToBytes,
 };
 use concordium_consensus::consensus::{ConsensusContainer, CALLBACK_QUEUE};
-use concordium_global_state::tree::messaging::{ConsensusMessage, DistributionMode, MessageType};
+use concordium_global_state::tree::messaging::{ConsensusMessage, MessageType};
 use futures::future::Future;
 use grpcio::{self, Environment, ServerBuilder};
 
@@ -364,16 +364,17 @@ impl P2P for RpcServerImpl {
             match self.consensus {
                 Some(ref consensus) => {
                     let payload = req.get_payload();
-
-                    let request = ConsensusMessage::new(
-                        MessageType::Inbound(self.node.id().0, DistributionMode::Broadcast),
-                        PacketType::Transaction,
-                        Arc::from(payload),
-                        vec![],
-                    );
-                    let gs_result = CALLBACK_QUEUE.send_message(request);
                     let consensus_result = consensus.send_transaction(payload);
-
+                    let gs_result = if consensus_result == ConsensusFfiResponse::Success {
+                        CALLBACK_QUEUE.send_message(ConsensusMessage::new(
+                            MessageType::Outbound(None),
+                            PacketType::Transaction,
+                            Arc::from(payload),
+                            vec![],
+                        ))
+                    } else {
+                        Ok(())
+                    };
                     match (gs_result, consensus_result) {
                         (Ok(_), ConsensusFfiResponse::Success) => {
                             let mut r: SuccessResponse = SuccessResponse::new();
