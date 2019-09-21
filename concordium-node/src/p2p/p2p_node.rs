@@ -84,7 +84,7 @@ pub struct P2PNodeConfig {
     pub bootstrapper_wait_minimum_peers: u16,
     pub no_trust_bans: bool,
     pub data_dir_path: PathBuf,
-    max_latency: u64,
+    max_latency: Option<u64>,
 }
 
 #[derive(Default)]
@@ -632,8 +632,12 @@ impl P2PNode {
         let peer_type = self.peer_type();
 
         let is_conn_faulty = |conn: &Connection| -> bool {
-            conn.get_last_latency() >= self.config.max_latency
-                || conn.failed_pkts() >= MAX_FAILED_PACKETS_ALLOWED
+            conn.failed_pkts() >= MAX_FAILED_PACKETS_ALLOWED
+                || if let Some(max_latency) = self.config.max_latency {
+                    conn.get_last_latency() >= max_latency
+                } else {
+                    false
+                }
         };
 
         let is_conn_inactive = |conn: &Connection| -> bool {
