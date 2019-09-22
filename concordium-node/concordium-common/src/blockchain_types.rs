@@ -50,7 +50,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for ContractAddress {
 
 impl std::fmt::Display for ContractAddress {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "I{}/S{}", self.index, self.subindex)
+        write!(f, "<{},{}>", self.index, self.subindex)
     }
 }
 
