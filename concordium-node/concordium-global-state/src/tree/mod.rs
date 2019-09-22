@@ -1,6 +1,8 @@
 use chrono::prelude::{DateTime, Utc};
 use circular_queue::CircularQueue;
-use concordium_common::{blockchain_types::BlockHash, indexed_vec::IndexedVec};
+use concordium_common::{
+    blockchain_types::BlockHash, indexed_vec::IndexedVec, network_types::PeerId,
+};
 use hash_hasher::{HashBuildHasher, HashedMap, HashedSet};
 use linked_hash_map::LinkedHashMap;
 use nohash_hasher::BuildNoHashHasher;
@@ -10,8 +12,6 @@ use rkv::{Rkv, SingleStore, StoreOptions};
 use std::{cmp::Ordering, fmt, mem, rc::Rc, time::Instant};
 
 use crate::{block::*, finalization::*, transaction::*};
-
-pub type PeerId = u64;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct PeerState {

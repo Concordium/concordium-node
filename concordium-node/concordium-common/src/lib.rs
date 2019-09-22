@@ -45,6 +45,7 @@ pub mod blockchain_types;
 pub mod cache;
 pub mod hybrid_buf;
 pub mod indexed_vec;
+pub mod network_types;
 pub mod stats_export_service;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
