@@ -14,7 +14,6 @@ use crate::{
 };
 use concordium_common::{cache::Cache, read_or_die, write_or_die, PacketType};
 
-use circular_queue::CircularQueue;
 use failure::Fallible;
 
 use std::{
@@ -461,8 +460,7 @@ pub fn handle_incoming_packet(
     pac: &NetworkPacket,
     global_state_senders: &GlobalStateSenders,
     transactions_cache: &mut Cache<Arc<[u8]>>,
-    dedup_queue_finalization: &mut CircularQueue<[u8; 8]>,
-    dedup_queue_transaction: &mut CircularQueue<[u8; 8]>,
+    dedup_queues: &mut DeduplicationQueues,
     _stats_engine: &mut StatsEngine,
     _msg_count: &mut u64,
     _tps_test_enabled: bool,
@@ -506,8 +504,7 @@ pub fn handle_incoming_packet(
         pac.message.clone(),
         &global_state_senders,
         transactions_cache,
-        dedup_queue_finalization,
-        dedup_queue_transaction,
+        dedup_queues,
         is_broadcast,
     ) {
         error!(
