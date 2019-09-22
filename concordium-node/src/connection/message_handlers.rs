@@ -461,7 +461,8 @@ pub fn handle_incoming_packet(
     pac: &NetworkPacket,
     global_state_senders: &GlobalStateSenders,
     transactions_cache: &mut Cache<Arc<[u8]>>,
-    dedup_queue: &mut CircularQueue<[u8; 8]>,
+    dedup_queue_finalization: &mut CircularQueue<[u8; 8]>,
+    dedup_queue_transaction: &mut CircularQueue<[u8; 8]>,
     _stats_engine: &mut StatsEngine,
     _msg_count: &mut u64,
     _tps_test_enabled: bool,
@@ -505,7 +506,8 @@ pub fn handle_incoming_packet(
         pac.message.clone(),
         &global_state_senders,
         transactions_cache,
-        dedup_queue,
+        dedup_queue_finalization,
+        dedup_queue_transaction,
         is_broadcast,
     ) {
         error!(

@@ -138,7 +138,8 @@ pub fn handle_pkt_out(
     mut msg: HybridBuf,
     gs_senders: &GlobalStateSenders,
     transactions_cache: &mut Cache<Arc<[u8]>>,
-    dedup_queue: &mut CircularQueue<[u8; 8]>,
+    dedup_queue_finalization: &mut CircularQueue<[u8; 8]>,
+    dedup_queue_transaction: &mut CircularQueue<[u8; 8]>,
     is_broadcast: bool,
 ) -> Fallible<()> {
     ensure!(
@@ -150,17 +151,28 @@ pub fn handle_pkt_out(
     let consensus_type = msg.read_u16::<NetworkEndian>()?;
     let packet_type = PacketType::try_from(consensus_type)?;
 
-    // deduplicate finalization messages
+    // deduplicate finalization messages and transactions
     if packet_type == PacketType::FinalizationMessage {
         let mut hash = [0u8; 8];
         let msg_pos = msg.position()?;
         hash.copy_from_slice(&XxHash64::digest(&msg.remaining_bytes()?));
         msg.seek(SeekFrom::Start(msg_pos))?;
 
-        if dedup_queue.iter().any(|h| h == &hash) {
+        if dedup_queue_finalization.iter().any(|h| h == &hash) {
             return Ok(());
         } else {
-            dedup_queue.push(hash);
+            dedup_queue_finalization.push(hash);
+        }
+    } else if packet_type == PacketType::Transaction {
+        let mut hash = [0u8; 8];
+        let msg_pos = msg.position()?;
+        hash.copy_from_slice(&XxHash64::digest(&msg.remaining_bytes()?));
+        msg.seek(SeekFrom::Start(msg_pos))?;
+
+        if dedup_queue_transaction.iter().any(|h| h == &hash) {
+            return Ok(());
+        } else {
+            dedup_queue_transaction.push(hash);
         }
     }
 

@@ -331,7 +331,8 @@ fn start_consensus_threads(
 
         let mut _msg_count = 0;
         let mut transactions_cache = Cache::default();
-        let mut dedup_queue = CircularQueue::with_capacity(DEDUP_QUEUE_SIZE);
+        let mut dedup_queue_finalization = CircularQueue::with_capacity(DEDUP_QUEUE_SIZE);
+        let mut dedup_queue_transactions = CircularQueue::with_capacity(DEDUP_QUEUE_SIZE);
 
         while let Ok(RelayOrStopEnvelope::Relay(msg)) = pkt_out.recv() {
             match msg {
@@ -339,7 +340,8 @@ fn start_consensus_threads(
                     pac,
                     &gs_senders,
                     &mut transactions_cache,
-                    &mut dedup_queue,
+                    &mut dedup_queue_finalization,
+                    &mut dedup_queue_transactions,
                     &mut _stats_engine,
                     &mut _msg_count,
                     _tps_test_enabled,
