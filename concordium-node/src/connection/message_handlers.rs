@@ -120,7 +120,7 @@ fn send_peer_list(conn: &Connection, sender: P2PPeer, nets: &HashSet<NetworkId>)
     if random_nodes.len() >= usize::from(conn.handler().config.bootstrapper_wait_minimum_peers) {
         debug!(
             "Running in bootstrapper mode, so instantly sending {} random peers to a peer",
-            BOOTSTRAP_PEER_COUNT
+            random_nodes.len()
         );
         let peer_list_msg = NetworkMessage::NetworkResponse(
             NetworkResponse::PeerList(conn.handler().self_peer, random_nodes),
@@ -276,8 +276,15 @@ fn handle_get_peers_req(
 
     let peer_list_msg = {
         let nodes = if conn.handler().peer_type() == PeerType::Bootstrapper {
-            safe_read!(conn.handler().connection_handler.buckets)?
-                .get_all_nodes(Some(&source), networks)
+            let random_nodes = safe_read!(conn.handler().connection_handler.buckets)?
+                .get_random_nodes(&source, BOOTSTRAP_PEER_COUNT, networks);
+            if random_nodes.len()
+                >= usize::from(conn.handler().config.bootstrapper_wait_minimum_peers)
+            {
+                random_nodes
+            } else {
+                vec![]
+            }
         } else {
             conn.handler()
                 .get_peer_stats()
@@ -288,18 +295,26 @@ fn handle_get_peers_req(
                 .collect()
         };
 
-        NetworkMessage::NetworkResponse(
-            NetworkResponse::PeerList(conn.handler().self_peer, nodes),
-            Some(get_current_stamp()),
-            None,
-        )
+        if !nodes.is_empty() {
+            Some(NetworkMessage::NetworkResponse(
+                NetworkResponse::PeerList(conn.handler().self_peer, nodes),
+                Some(get_current_stamp()),
+                None,
+            ))
+        } else {
+            None
+        }
     };
 
-    conn.async_send(
-        serialize_into_memory(&peer_list_msg, 256)?,
-        MessageSendingPriority::Normal,
-    )
-    .map(|_bytes| ())
+    if let Some(msg) = peer_list_msg {
+        conn.async_send(
+            serialize_into_memory(&msg, 256)?,
+            MessageSendingPriority::Normal,
+        )
+        .map(|_bytes| ())
+    } else {
+        Ok(())
+    }
 }
 
 fn handle_peer_list_resp(
