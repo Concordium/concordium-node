@@ -710,11 +710,19 @@ impl P2PNode {
         let self_peer = self.self_peer;
         let (socket, addr) = self.connection_handler.server.accept()?;
 
-        if read_or_die!(self.connection_handler.connections)
-            .values()
-            .any(|conn| conn.remote_addr() == addr)
         {
-            bail!("Duplicate connection attempt from {:?}; rejecting", addr);
+            let conn_read_lock = read_or_die!(self.connection_handler.connections);
+
+            if conn_read_lock.values().len() >= self.config.max_allowed_nodes as usize {
+                bail!("Too many connections, rejecting attempt from {:?}", addr);
+            }
+
+            if conn_read_lock
+                .values()
+                .any(|conn| conn.remote_addr() == addr)
+            {
+                bail!("Duplicate connection attempt from {:?}; rejecting", addr);
+            }
         }
 
         debug!(
