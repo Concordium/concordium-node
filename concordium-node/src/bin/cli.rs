@@ -40,7 +40,6 @@ use p2p_client::{
     utils::{self, get_config_and_logging_setup, GlobalStateReceivers, GlobalStateSenders},
 };
 
-use circular_queue::CircularQueue;
 use failure::Fallible;
 use rkv::{Manager, Rkv};
 
@@ -327,11 +326,12 @@ fn start_consensus_threads(
     let mut _stats_engine = StatsEngine::new(&conf.cli);
     let (_tps_test_enabled, _tps_message_count) = tps_setup_process_output(&conf.cli);
     let guard_pkt = spawn_or_die!("Higher queue processing", {
+        use p2p_client::client::plugins::consensus::DeduplicationQueues;
         const DEDUP_QUEUE_SIZE: usize = 32 * 1024;
 
         let mut _msg_count = 0;
         let mut transactions_cache = Cache::default();
-        let mut dedup_queue = CircularQueue::with_capacity(DEDUP_QUEUE_SIZE);
+        let mut deduplication_queues = DeduplicationQueues::new(DEDUP_QUEUE_SIZE);
 
         while let Ok(RelayOrStopEnvelope::Relay(msg)) = pkt_out.recv() {
             match msg {
@@ -339,7 +339,7 @@ fn start_consensus_threads(
                     pac,
                     &gs_senders,
                     &mut transactions_cache,
-                    &mut dedup_queue,
+                    &mut deduplication_queues,
                     &mut _stats_engine,
                     &mut _msg_count,
                     _tps_test_enabled,
