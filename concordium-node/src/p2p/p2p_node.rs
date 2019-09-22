@@ -713,7 +713,9 @@ impl P2PNode {
         {
             let conn_read_lock = read_or_die!(self.connection_handler.connections);
 
-            if conn_read_lock.values().len() >= self.config.max_allowed_nodes as usize {
+            if self.self_peer.peer_type() == PeerType::Node
+                && conn_read_lock.values().len() >= self.config.max_allowed_nodes as usize
+            {
                 bail!("Too many connections, rejecting attempt from {:?}", addr);
             }
 
