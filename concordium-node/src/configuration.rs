@@ -276,6 +276,11 @@ pub struct ConnectionConfig {
         help = "The maximum allowed connection latency in ms"
     )]
     pub max_latency: Option<u64>,
+    #[structopt(
+        long = "hard-connection-limit",
+        help = "Maximum connections to keep open at any time"
+    )]
+    pub hard_connection_limit: Option<u16>,
 }
 
 #[derive(StructOpt, Debug)]
@@ -457,6 +462,12 @@ pub fn parse_config() -> Fallible<Config> {
                 "Desired nodes set to {}, but max allowed nodes is set to {}. Max allowed nodes \
                  must be greater or equal to desired amounnt of nodes"
             );
+        }
+    }
+
+    if let Some(hard_connection_limit) = conf.connection.hard_connection_limit {
+        if hard_connection_limit < conf.connection.desired_nodes {
+            bail!("Hard connection limit can't be less than what desired nodes is set to");
         }
     }
 
