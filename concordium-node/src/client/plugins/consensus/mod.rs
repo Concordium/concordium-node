@@ -23,6 +23,7 @@ use concordium_common::{
     blockchain_types::TransactionHash,
     cache::Cache,
     hybrid_buf::HybridBuf,
+    network_types::PeerId,
     ConsensusFfiResponse,
     PacketType::{self, *},
 };
@@ -38,7 +39,7 @@ use concordium_global_state::{
         messaging::{
             ConsensusMessage, DistributionMode, GlobalStateMessage, GlobalStateResult, MessageType,
         },
-        GlobalState, PeerId, PeerState, PeerStatus,
+        GlobalState, PeerState, PeerStatus,
     },
 };
 
