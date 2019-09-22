@@ -203,6 +203,11 @@ then
     ARGS="$ARGS --max-latency $MAX_LATENCY"
 fi
 
+if [ -n "$HARD_CONNECTION_LIMIT" ];
+then
+    ARGS="$ARGS --hard-connection-limit $HARD_CONNECTION_LIMIT"
+fi
+
 if [ "$MODE" == "tps_receiver" ]; then
     echo "Receiver!"
     /p2p_client-cli \

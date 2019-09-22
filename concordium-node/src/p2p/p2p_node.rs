@@ -85,6 +85,7 @@ pub struct P2PNodeConfig {
     pub no_trust_bans: bool,
     pub data_dir_path: PathBuf,
     max_latency: Option<u64>,
+    hard_connection_limit: Option<u16>,
 }
 
 #[derive(Default)]
@@ -318,6 +319,7 @@ impl P2PNode {
             no_trust_bans: conf.common.no_trust_bans,
             data_dir_path: data_dir_path.unwrap_or_else(|| ".".into()),
             max_latency: conf.connection.max_latency,
+            hard_connection_limit: conf.connection.hard_connection_limit,
         };
 
         let (send_queue_in, send_queue_out) = sync_channel(config::OUTBOUND_QUEUE_DEPTH);
@@ -710,11 +712,23 @@ impl P2PNode {
         let self_peer = self.self_peer;
         let (socket, addr) = self.connection_handler.server.accept()?;
 
-        if read_or_die!(self.connection_handler.connections)
-            .values()
-            .any(|conn| conn.remote_addr() == addr)
         {
-            bail!("Duplicate connection attempt from {:?}; rejecting", addr);
+            let conn_read_lock = read_or_die!(self.connection_handler.connections);
+
+            if self.self_peer.peer_type() == PeerType::Node
+                && self.config.hard_connection_limit.is_some()
+                && conn_read_lock.values().len()
+                    >= self.config.hard_connection_limit.unwrap() as usize
+            {
+                bail!("Too many connections, rejecting attempt from {:?}", addr);
+            }
+
+            if conn_read_lock
+                .values()
+                .any(|conn| conn.remote_addr() == addr)
+            {
+                bail!("Duplicate connection attempt from {:?}; rejecting", addr);
+            }
         }
 
         debug!(
