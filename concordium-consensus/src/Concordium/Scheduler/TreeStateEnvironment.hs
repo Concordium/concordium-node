@@ -19,6 +19,7 @@ import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.SeedState
 import Concordium.GlobalState.Block(blockSlot)
 import Concordium.Scheduler.Types
 import Concordium.Scheduler.Environment
@@ -77,11 +78,6 @@ mintAndReward bshandle blockParent lfPointer slotNumber bid = do
       -- record the block reward transaction in the transaction outcomes for this block
       bsoAddSpecialTransactionOutcome bshandle2 (BakingReward (acc ^. accountAddress) (executionReward + bakingReward))
 
-updateSeed :: TreeStateMonad m => UpdatableBlockState m -> Slot -> BlockNonce -> m (UpdatableBlockState m)
-updateSeed bshandle slot blockNonce = do
-  bshandle' <- bsoUpdateNonce bshandle slot blockNonce
-  return bshandle' 
-
 
 -- |Execute a block from a given starting state.
 -- Fail if any of the transactions fails, otherwise return the new 'BlockState' and the amount of energy used
@@ -92,10 +88,10 @@ executeFrom ::
   -> BlockPointer m  -- ^Parent pointer from which to start executing
   -> BlockPointer m  -- ^Last finalized block pointer.
   -> BakerId -- ^Identity of the baker who should be rewarded.
-  -> BlockNonce
+  -> SeedState
   -> [Transaction] -- ^Transactions on this block.
   -> m (Either FailureKind (BlockState m, Energy))
-executeFrom slotNumber blockParent lfPointer blockBaker blockNonce txs =
+executeFrom slotNumber blockParent lfPointer blockBaker seedState txs =
   let cm = let blockHeight = bpHeight blockParent + 1
                finalizedHeight = bpHeight lfPointer
            in ChainMetadata{..}
@@ -110,7 +106,7 @@ executeFrom slotNumber blockParent lfPointer blockBaker blockNonce txs =
             -- the main execution is now done. At this point we must mint new currencty
             -- and reward the baker and other parties.
             bshandle3 <- mintAndReward bshandle2 blockParent lfPointer slotNumber blockBaker
-            bshandle4 <- updateSeed bshandle3 slotNumber blockNonce
+            bshandle4 <- bsoUpdateSeedState bshandle3 seedState
 
             finalbsHandle <- freezeBlockState bshandle4
             return (Right (finalbsHandle, usedEnergy))
@@ -128,9 +124,9 @@ constructBlock ::
   -> BlockPointer m -- ^Parent pointer from which to start executing
   -> BlockPointer m -- ^Last finalized block pointer.
   -> BakerId -- ^The baker of the block.
-  -> BlockNonce
+  -> SeedState
   -> m ([Transaction], BlockState m, Energy)
-constructBlock slotNumber blockParent lfPointer blockBaker blockNonce =
+constructBlock slotNumber blockParent lfPointer blockBaker seedState =
   let cm = let blockHeight = bpHeight blockParent + 1
                finalizedHeight = bpHeight lfPointer
            in ChainMetadata{..}
@@ -160,7 +156,7 @@ constructBlock slotNumber blockParent lfPointer blockBaker blockNonce =
 
     bshandle2 <- bsoSetTransactionOutcomes bshandle1 ((\(tr,res) -> (transactionHash tr, res)) <$> ftAdded)
     bshandle3 <- mintAndReward bshandle2 blockParent lfPointer slotNumber blockBaker
-    bshandle4 <- updateSeed bshandle3 slotNumber blockNonce
+    bshandle4 <- bsoUpdateSeedState bshandle3 seedState
 
     -- We first commit all valid transactions to the current block slot to prevent them being purged.
     -- At the same time we construct the return blockTransactions to avoid an additional traversal
