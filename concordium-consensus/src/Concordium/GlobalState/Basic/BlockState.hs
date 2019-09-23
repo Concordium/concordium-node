@@ -345,8 +345,4 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
     bsoAddSpecialTransactionOutcome bs o =
       return $! bs & blockTransactionOutcomes . Transactions.outcomeSpecial %~ (o:)
 
-    bsoUpdateNonce  bs slot bn =
-      return $
-      let ss = bs ^. blockBirkParameters ^. seedState
-          ss' = updateSeedState slot bn ss
-      in bs & blockBirkParameters . seedState .~ ss'
+    bsoUpdateSeedState bs ss = return $ bs & blockBirkParameters . seedState .~ ss
