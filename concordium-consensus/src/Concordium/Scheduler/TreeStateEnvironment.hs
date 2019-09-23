@@ -10,6 +10,7 @@ module Concordium.Scheduler.TreeStateEnvironment where
 
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Set as Set
+import qualified Data.List as List
 
 import Control.Monad
 
@@ -79,7 +80,8 @@ mintAndReward bshandle blockParent lfPointer slotNumber bid = do
 
 
 -- |Execute a block from a given starting state.
--- Fail if any of the transactions fails, otherwise return the new 'BlockState'.
+-- Fail if any of the transactions fails, otherwise return the new 'BlockState' and the amount of energy used
+-- during this block execution.
 executeFrom ::
   TreeStateMonad m
   => Slot -- ^Slot number of the block being executed.
@@ -88,7 +90,7 @@ executeFrom ::
   -> BakerId -- ^Identity of the baker who should be rewarded.
   -> SeedState
   -> [Transaction] -- ^Transactions on this block.
-  -> m (Either FailureKind (BlockState m))
+  -> m (Either FailureKind (BlockState m, Energy))
 executeFrom slotNumber blockParent lfPointer blockBaker seedState txs =
   let cm = let blockHeight = bpHeight blockParent + 1
                finalizedHeight = bpHeight lfPointer
@@ -98,7 +100,7 @@ executeFrom slotNumber blockParent lfPointer blockBaker seedState txs =
     (res, bshandle1) <- runBSM (Sch.runTransactions txs) cm bshandle0
     case res of
         Left fk -> Left fk <$ (purgeBlockState =<< freezeBlockState bshandle1)
-        Right outcomes -> do
+        Right (outcomes, usedEnergy) -> do
             -- Record the transaction outcomes
             bshandle2 <- bsoSetTransactionOutcomes bshandle1 ((\(tr, o) -> (transactionHash tr, o)) <$> outcomes)
             -- the main execution is now done. At this point we must mint new currencty
@@ -107,7 +109,7 @@ executeFrom slotNumber blockParent lfPointer blockBaker seedState txs =
             bshandle4 <- bsoUpdateSeedState bshandle3 seedState
 
             finalbsHandle <- freezeBlockState bshandle4
-            return (Right finalbsHandle)
+            return (Right (finalbsHandle, usedEnergy))
 
 -- |PRECONDITION: Focus block is the parent block of the block we wish to make,
 -- hence the pending transaction table is correct for the new block.
@@ -123,7 +125,7 @@ constructBlock ::
   -> BlockPointer m -- ^Last finalized block pointer.
   -> BakerId -- ^The baker of the block.
   -> SeedState
-  -> m ([Transaction], BlockState m)
+  -> m ([Transaction], BlockState m, Energy)
 constructBlock slotNumber blockParent lfPointer blockBaker seedState =
   let cm = let blockHeight = bpHeight blockParent + 1
                finalizedHeight = bpHeight lfPointer
@@ -131,37 +133,76 @@ constructBlock slotNumber blockParent lfPointer blockBaker seedState =
   in do
     bshandle0 <- thawBlockState (bpState blockParent)
     pt <- getPendingTransactions
-    -- now the set is ordered by accounts
-    txSet <- mapM (\(acc, (l, _)) -> fmap snd <$> getAccountNonFinalized acc l) (HM.toList pt)
+
+    -- lookup the maximum block size as mandated by the tree state
+    maxSize <- rpBlockSize <$> getRuntimeParameters
+
+    -- now we get transactions for each of the pending accounts.
+    txs <- forM (HM.toList pt) $ \(acc, (l, _)) -> do
+      accTxs <- getAccountNonFinalized acc l
+      -- now find for each account the least arrival time of a transaction
+      let txsList = concatMap (Set.toList . snd) accTxs
+      let minTime = minimum $ map trArrivalTime txsList
+      return (txsList, minTime)
+
     -- FIXME: This is inefficient and should be changed. Doing it only to get the integration working.
-    let txs = concatMap (concatMap Set.toList) txSet
-    ((valid, invalid), bshandle1) <- runBSM (Sch.filterTransactions txs) cm bshandle0
+    -- Order the accounts by the arrival time of the earliest transaction.
+    -- In the future we do not want to do concatMap since we gain advantage from grouping transactions
+    -- by account (e.g., we only need to look up the account once).
+    let orderedTxs = concatMap fst $ List.sortOn snd txs
+
+    ((Sch.FilteredTransactions{..}, usedEnergy), bshandle1) <- runBSM (Sch.filterTransactions (fromIntegral maxSize) orderedTxs) cm bshandle0
     -- FIXME: At some point we should log things here using the same logging infrastructure as in consensus.
 
-    bshandle2 <- bsoSetTransactionOutcomes bshandle1 ((\(tr,res) -> (transactionHash tr, res)) <$> valid)
+    bshandle2 <- bsoSetTransactionOutcomes bshandle1 ((\(tr,res) -> (transactionHash tr, res)) <$> ftAdded)
     bshandle3 <- mintAndReward bshandle2 blockParent lfPointer slotNumber blockBaker
     bshandle4 <- bsoUpdateSeedState bshandle3 seedState
 
     -- We first commit all valid transactions to the current block slot to prevent them being purged.
     -- At the same time we construct the return blockTransactions to avoid an additional traversal
-    ret <- mapM (\(tx, _) -> tx <$ commitTransaction slotNumber tx) valid
-    
+    ret <- mapM (\(tx, _) -> tx <$ commitTransaction slotNumber tx) ftAdded
+
     -- Now we need to try to purge each invalid transaction from the pending table.
     -- Moreover all transactions successfully added will be removed from the pending table.
-    -- Or equivalently, only a subset of invalid transactions will remain in the pending table.
+    -- Or equivalently, only a subset of invalid transactions and all the
+    -- transactions we have not touched and are small enough will remain in the
+    -- pending table.
     let nextNonceFor addr = do
           macc <- bsoGetAccount bshandle4 addr
           case macc of
             Nothing -> return minNonce
             Just acc -> return $ acc ^. accountNonce
-    newpt <- foldM (\cpt (tx, _) -> do b <- purgeTransaction tx
-                                       if b then return cpt  -- if the transaction was purged don't put it back into the pending table
-                                       else do
-                                           nonce <- nextNonceFor (transactionSender tx)
-                                           return $! (checkedExtendPendingTransactionTable nonce tx cpt))  -- but otherwise do
-                   emptyPendingTransactionTable
-                   invalid
+    -- construct a new pending transaction table adding back some failed transactions.
+    let purgeFailed cpt (tx, _) = do
+          b <- purgeTransaction tx
+          if b then return cpt  -- if the transaction was purged don't put it back into the pending table
+          else do
+            -- but otherwise do
+            nonce <- nextNonceFor (transactionSender tx)
+            return $! checkedExtendPendingTransactionTable nonce tx cpt
+
+    newpt <- foldM purgeFailed emptyPendingTransactionTable ftFailed
+
+    -- additionally add in the unprocessed transactions which are sufficiently small (here meaning < maxSize)
+    let purgeTooBig cpt tx =
+          if transactionSize tx < maxSize then do
+            nonce <- nextNonceFor (transactionSender tx)
+            return $! checkedExtendPendingTransactionTable nonce tx cpt
+          else do
+            -- only purge a transaction from the table if it is too big **and**
+            -- not already commited to a recent block. if it is in a currently
+            -- live block then we must not purge it to maintain the invariant
+            -- that all transactions in live blocks exist in the transaction
+            -- table.
+            b <- purgeTransaction tx
+            if b then return cpt
+            else do
+              nonce <- nextNonceFor (transactionSender tx)
+              return $! checkedExtendPendingTransactionTable nonce tx cpt
+
+    newpt' <- foldM purgeTooBig newpt ftUnprocessed
+
     -- commit the new pending transactions to the tree state
-    putPendingTransactions newpt
+    putPendingTransactions newpt'
     bshandleFinal <- freezeBlockState bshandle4
-    return (ret, bshandleFinal)
+    return (ret, bshandleFinal, usedEnergy)

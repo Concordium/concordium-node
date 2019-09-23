@@ -145,7 +145,7 @@ main = cmdArgsRun mode >>=
                         "finalizer" .= finalizerP n,
                         "account" .= object [
                             "signatureScheme" .= fromEnum SigScheme.Ed25519,
-                            "signatureKey" .= Sig.signKey acctkp,
+                            "signatureKey" .= Sig.verifyKey acctkp,
                             "balance" .= (1000000000000 :: Integer)
                             ]
                         ]

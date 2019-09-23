@@ -99,11 +99,22 @@ instance (TreeStateMonad m) => SkovQueryMonad (TSSkovWrapper m) where
 newtype TSSkovUpdateWrapper s m a = TSSkovUpdateWrapper {runTSSkovUpdateWrapper :: m a}
     deriving (Functor, Applicative, Monad, BlockStateOperations,
             BlockStateQuery, TreeStateMonad, TimeMonad, LoggerMonad,
-            MonadState s, MonadIO, OnSkov)
+            MonadState s, MonadIO)
     deriving SkovQueryMonad via (TSSkovWrapper m)
 type instance BlockPointer (TSSkovUpdateWrapper s m) = BlockPointer m
 type instance UpdatableBlockState (TSSkovUpdateWrapper s m) = UpdatableBlockState m
 type instance PendingBlock (TSSkovUpdateWrapper s m) = PendingBlock m
+
+instance (Monad m, OnSkov m) => OnSkov (TSSkovUpdateWrapper s m) where
+  {-# INLINE onBlock #-}
+  onBlock bp = TSSkovUpdateWrapper (onBlock bp)
+  {-# INLINE onFinalize #-}
+  onFinalize fin bp = TSSkovUpdateWrapper (onFinalize fin bp)
+  {-# INLINE logTransfer #-}
+  logTransfer = TSSkovUpdateWrapper $ do
+    logTransfer >>= \case
+      Nothing -> return Nothing
+      Just lm -> return (Just (\bh slot reason -> TSSkovUpdateWrapper (lm bh slot reason)))
 
 instance (TimeMonad m, LoggerMonad m, TreeStateMonad m, MonadIO m,
         MonadState s m, OnSkov m) 
@@ -148,10 +159,10 @@ instance Basic.SkovLenses SkovPassiveState where
 instance PassiveFinalizationStateLenses SkovPassiveState where
     pfinState = spsFinalization
 
-initialSkovPassiveState :: GenesisData -> Basic.BlockState -> SkovPassiveState
-initialSkovPassiveState gen initBS = SkovPassiveState{..}
+initialSkovPassiveState :: RuntimeParameters -> GenesisData -> Basic.BlockState -> SkovPassiveState
+initialSkovPassiveState rtParams gen initBS = SkovPassiveState{..}
     where
-        _spsSkov = Basic.initialSkovData gen initBS
+        _spsSkov = Basic.initialSkovData rtParams gen initBS
         _spsFinalization = initialPassiveFinalizationState (bpHash (Basic._skovGenesisBlockPointer _spsSkov))
 
 newtype SkovPassiveM m a = SkovPassiveM {unSkovPassiveM :: StateT SkovPassiveState m a}
@@ -168,10 +179,10 @@ instance Monad m => OnSkov (SkovPassiveM m) where
     {-# INLINE onFinalize #-}
     onFinalize fr _ = spsFinalization %= execState (passiveNotifyBlockFinalized fr)
     {-# INLINE logTransfer #-}
-    logTransfer _ _ _ = return ()
+    logTransfer = return Nothing
 
-evalSkovPassiveM :: (Monad m) => SkovPassiveM m a -> GenesisData -> Basic.BlockState -> m a
-evalSkovPassiveM (SkovPassiveM a) gd bs0 = evalStateT a (initialSkovPassiveState gd bs0)
+evalSkovPassiveM :: (Monad m) => SkovPassiveM m a -> RuntimeParameters -> GenesisData -> Basic.BlockState -> m a
+evalSkovPassiveM (SkovPassiveM a) rtParams gd bs0 = evalStateT a (initialSkovPassiveState rtParams gd bs0)
 
 runSkovPassiveM :: SkovPassiveM m a -> SkovPassiveState -> m (a, SkovPassiveState)
 runSkovPassiveM (SkovPassiveM a) s = runStateT a s
@@ -189,10 +200,10 @@ instance Basic.SkovLenses SkovActiveState where
 instance FinalizationStateLenses SkovActiveState where
     finState = sasFinalization
 
-initialSkovActiveState :: FinalizationInstance -> GenesisData -> Basic.BlockState -> SkovActiveState
-initialSkovActiveState finInst gen initBS = SkovActiveState{..}
+initialSkovActiveState :: FinalizationInstance -> RuntimeParameters -> GenesisData -> Basic.BlockState -> SkovActiveState
+initialSkovActiveState finInst rtParams gen initBS = SkovActiveState{..}
     where
-        _sasSkov = Basic.initialSkovData gen initBS
+        _sasSkov = Basic.initialSkovData rtParams gen initBS
         _sasFinalization = initialFinalizationState finInst (bpHash (Basic._skovGenesisBlockPointer _sasSkov)) (genesisFinalizationParameters gen)
 
 newtype SkovActiveM m a = SkovActiveM {unSkovActiveM :: RWST FinalizationInstance SkovFinalizationEvents SkovActiveState m a}
@@ -208,7 +219,7 @@ instance (TimeMonad m, LoggerMonad m, MonadIO m) => OnSkov (SkovActiveM m) where
     {-# INLINE onFinalize #-}
     onFinalize = notifyBlockFinalized
     {-# INLINE logTransfer #-}
-    logTransfer = \_ _ _ -> return ()
+    logTransfer = return Nothing
 
 instance (TimeMonad m, LoggerMonad m, MonadIO m) 
             => FinalizationMonad SkovActiveState (SkovActiveM m) where
@@ -235,10 +246,10 @@ instance FinalizationStateLenses SkovBufferedState where
 instance FinalizationBufferLenses SkovBufferedState where
     finBuffer = sbsBuffer
 
-initialSkovBufferedState :: FinalizationInstance -> GenesisData -> Basic.BlockState -> SkovBufferedState
-initialSkovBufferedState finInst gen initBS = SkovBufferedState{..}
+initialSkovBufferedState :: FinalizationInstance -> RuntimeParameters -> GenesisData -> Basic.BlockState -> SkovBufferedState
+initialSkovBufferedState finInst rtParams gen initBS = SkovBufferedState{..}
     where
-        _sbsSkov = Basic.initialSkovData gen initBS
+        _sbsSkov = Basic.initialSkovData rtParams gen initBS
         _sbsFinalization = initialFinalizationState finInst (bpHash (Basic._skovGenesisBlockPointer _sbsSkov)) (genesisFinalizationParameters gen)
         _sbsBuffer = emptyFinalizationBuffer
 
@@ -255,7 +266,7 @@ instance (TimeMonad m, LoggerMonad m, MonadIO m) => OnSkov (SkovBufferedM m) whe
     {-# INLINE onFinalize #-}
     onFinalize = notifyBlockFinalized
     {-# INLINE logTransfer #-}
-    logTransfer = \_ _ _ -> return ()
+    logTransfer = return Nothing
 
 instance (TimeMonad m, LoggerMonad m, MonadIO m) 
             => FinalizationMonad SkovBufferedState (SkovBufferedM m) where
@@ -288,10 +299,10 @@ instance PassiveFinalizationStateLenses SkovPassiveHookedState where
 instance TransactionHookLenses SkovPassiveHookedState where
     hooks = sphsHooks
 
-initialSkovPassiveHookedState :: GenesisData -> Basic.BlockState -> SkovPassiveHookedState
-initialSkovPassiveHookedState gen initBS = SkovPassiveHookedState{..}
+initialSkovPassiveHookedState :: RuntimeParameters -> GenesisData -> Basic.BlockState -> SkovPassiveHookedState
+initialSkovPassiveHookedState rtParams gen initBS = SkovPassiveHookedState{..}
     where
-        _sphsSkov = Basic.initialSkovData gen initBS
+        _sphsSkov = Basic.initialSkovData rtParams gen initBS
         _sphsFinalization = initialPassiveFinalizationState (bpHash (Basic._skovGenesisBlockPointer _sphsSkov))
         _sphsHooks = emptyHooks
 
@@ -312,10 +323,10 @@ instance (TimeMonad m, LoggerMonad m) => OnSkov (SkovPassiveHookedM m) where
         hookOnFinalize fr bp
 
     {-# INLINE logTransfer #-}
-    logTransfer = \_ _ _ -> return ()
+    logTransfer = return Nothing
 
-evalSkovPassiveHookedM :: (Monad m) => SkovPassiveHookedM m a -> GenesisData -> Basic.BlockState -> m a
-evalSkovPassiveHookedM (SkovPassiveHookedM a) gd bs0 = evalStateT a (initialSkovPassiveHookedState gd bs0)
+evalSkovPassiveHookedM :: (Monad m) => SkovPassiveHookedM m a -> RuntimeParameters -> GenesisData -> Basic.BlockState -> m a
+evalSkovPassiveHookedM (SkovPassiveHookedM a) rtParams gd bs0 = evalStateT a (initialSkovPassiveHookedState rtParams gd bs0)
 
 runSkovPassiveHookedM :: SkovPassiveHookedM m a -> SkovPassiveHookedState -> m (a, SkovPassiveHookedState)
 runSkovPassiveHookedM (SkovPassiveHookedM a) s = runStateT a s
@@ -338,10 +349,10 @@ instance FinalizationBufferLenses SkovBufferedHookedState where
 instance TransactionHookLenses SkovBufferedHookedState where
     hooks = sbhsHooks
 
-initialSkovBufferedHookedState :: FinalizationInstance -> GenesisData -> Basic.BlockState -> SkovBufferedHookedState
-initialSkovBufferedHookedState finInst gen initBS = SkovBufferedHookedState{..}
+initialSkovBufferedHookedState :: FinalizationInstance -> RuntimeParameters -> GenesisData -> Basic.BlockState -> SkovBufferedHookedState
+initialSkovBufferedHookedState finInst rtParams gen initBS = SkovBufferedHookedState{..}
     where
-        _sbhsSkov = Basic.initialSkovData gen initBS
+        _sbhsSkov = Basic.initialSkovData rtParams gen initBS
         _sbhsFinalization = initialFinalizationState finInst (bpHash (Basic._skovGenesisBlockPointer _sbhsSkov)) (genesisFinalizationParameters gen)
         _sbhsBuffer = emptyFinalizationBuffer
         _sbhsHooks = emptyHooks
@@ -364,7 +375,7 @@ instance (TimeMonad m, LoggerMonad m, MonadIO m) => OnSkov (SkovBufferedHookedM 
         hookOnFinalize bp fr
 
     {-# INLINE logTransfer #-}
-    logTransfer = \_ _ _ -> return ()
+    logTransfer = return Nothing
 
 instance (TimeMonad m, LoggerMonad m, MonadIO m) 
             => FinalizationMonad SkovBufferedHookedState (SkovBufferedHookedM m) where
@@ -380,9 +391,9 @@ runSkovBufferedHookedM (SkovBufferedHookedM a) fi fs = runRWST a fi fs
 
 
 newtype SkovBufferedHookedLoggedM m a = SkovBufferedHookedLoggedM {
-  unSkovBufferedHookedLoggedM :: RWST FinalizationInstance BufferedSkovFinalizationEvents SkovBufferedHookedState (ATLoggerT m) a
+  unSkovBufferedHookedLoggedM :: RWST (FinalizationInstance, Maybe (LogTransferMethod IO)) BufferedSkovFinalizationEvents SkovBufferedHookedState m a
   }
-    deriving (Functor, Applicative, Monad, TimeMonad, LoggerMonad, MonadState SkovBufferedHookedState, MonadReader FinalizationInstance, MonadWriter BufferedSkovFinalizationEvents, MonadIO, ATLMonad)
+    deriving (Functor, Applicative, Monad, TimeMonad, LoggerMonad, MonadState SkovBufferedHookedState, MonadReader (FinalizationInstance, Maybe (LogTransferMethod IO)), MonadWriter BufferedSkovFinalizationEvents, MonadIO, ATLMonad)
     deriving (BlockStateQuery, BlockStateOperations, TreeStateMonad) via (Basic.SkovTreeState SkovBufferedHookedState (SkovBufferedHookedLoggedM m))
     deriving (SkovQueryMonad, SkovMonad) via (TSSkovUpdateWrapper SkovBufferedHookedState (SkovBufferedHookedLoggedM m) )
 type instance UpdatableBlockState (SkovBufferedHookedLoggedM m) = Basic.BlockState
@@ -399,7 +410,11 @@ instance (TimeMonad m, LoggerMonad m, MonadIO m) => OnSkov (SkovBufferedHookedLo
         hookOnFinalize bp fr
 
     {-# INLINE logTransfer #-}
-    logTransfer = atlLogTransfer
+    logTransfer =
+      asks snd >>= \case
+        Nothing -> return Nothing
+        Just lm -> return (Just (\bh slot reason -> liftIO (lm bh slot reason)))
+
 
 instance (TimeMonad m, LoggerMonad m, MonadIO m) 
             => FinalizationMonad SkovBufferedHookedState (SkovBufferedHookedLoggedM m) where
@@ -407,9 +422,9 @@ instance (TimeMonad m, LoggerMonad m, MonadIO m)
             Left n -> tell $ embedNotifyEvent n
             Right msgs -> forM_ msgs $ tell . embedFinalizationEvent . BroadcastFinalizationMessage
     broadcastFinalizationRecord = tell . embedFinalizationEvent . BroadcastFinalizationRecord
-    getFinalizationInstance = ask
+    getFinalizationInstance = asks fst
     resetCatchUpTimer = tell . embedCatchUpTimerEvent
 
-runSkovBufferedHookedLoggedM :: SkovBufferedHookedLoggedM m a -> FinalizationInstance -> SkovBufferedHookedState -> LogTransferMethod m -> m (a, SkovBufferedHookedState, BufferedSkovFinalizationEvents)
-runSkovBufferedHookedLoggedM (SkovBufferedHookedLoggedM a) fi fs tlog = do
-  runATLoggerT (runRWST a fi fs) tlog
+runSkovBufferedHookedLoggedM :: SkovBufferedHookedLoggedM m a -> FinalizationInstance -> Maybe (LogTransferMethod IO) -> SkovBufferedHookedState -> m (a, SkovBufferedHookedState, BufferedSkovFinalizationEvents)
+runSkovBufferedHookedLoggedM (SkovBufferedHookedLoggedM a) fi tlog fs = do
+  runRWST a (fi, tlog) fs

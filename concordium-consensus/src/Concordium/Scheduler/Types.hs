@@ -1,13 +1,4 @@
-{-# LANGUAGE TupleSections #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE LambdaCase #-}
 {-# OPTIONS_GHC -Wall #-}
-
 module Concordium.Scheduler.Types (module Concordium.Scheduler.Types,
                                    module Concordium.Types,
                                    module Concordium.Types.Execution,
@@ -50,3 +41,16 @@ dummyChainMeta :: ChainMetadata
 dummyChainMeta = ChainMetadata { slotNumber = 0
                                , blockHeight = 0
                                , finalizedHeight = 0}
+
+
+-- |Result type when constructing a block.
+data FilteredTransactions msg = FilteredTransactions {
+  -- |Transactions which have been added to the block, with results.
+  ftAdded :: [(msg, ValidResult)],
+  -- |Transactions which failed. No order is guaranteed.
+  ftFailed :: [(msg, FailureKind)],
+  -- |Transactions which were not processed since we reached block size limit.
+  -- No order is guaranteed.
+  ftUnprocessed :: [msg]
+  }
+

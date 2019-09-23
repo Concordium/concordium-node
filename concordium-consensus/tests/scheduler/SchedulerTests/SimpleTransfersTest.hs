@@ -69,18 +69,19 @@ transactionsInput =
 testSimpleTransfer
   :: PR.Context Core.UA
        IO
-       ([(Types.Transaction, Types.ValidResult)],
-        [(Types.Transaction, Types.FailureKind)], Types.Amount, Types.Amount)
+       ([(Types.BareTransaction, Types.ValidResult)],
+        [(Types.BareTransaction, Types.FailureKind)], Types.Amount, Types.Amount)
 testSimpleTransfer = do
     transactions <- processTransactions transactionsInput
-    let ((suc, fails), gstate) = Types.runSI (Sch.filterTransactions transactions)
-                                             Types.dummyChainMeta
-                                             initialBlockState
+    let ((Sch.FilteredTransactions{..}, _), gstate) =
+          Types.runSI (Sch.filterTransactions blockSize transactions)
+            Types.dummyChainMeta
+            initialBlockState
     case invariantBlockState gstate of
         Left f -> liftIO $ assertFailure f
         Right _ -> return ()
-    return (suc,
-            fails,
+    return (ftAdded,
+            ftFailed,
             gstate ^. blockAccounts . singular (ix alesAccount) . Types.accountAmount,
             gstate ^. blockAccounts . singular (ix thomasAccount) . Types.accountAmount)
 
@@ -92,11 +93,11 @@ checkSimpleTransferResult (suc, fails, alesamount, thomasamount) =
   alesamount == (100000 - 4 * fromIntegral Cost.checkHeader - 88 - 98700 + 100) &&
   thomasamount == (100000 - fromIntegral Cost.checkHeader + 88 + 98700 - 100)
   where 
-    nonreject = all (\case (_, Types.TxSuccess _ _) -> True
-                           (_, Types.TxReject _ _) -> False)
+    nonreject = all (\case (_, Types.TxSuccess _ _ _) -> True
+                           (_, Types.TxReject _ _ _) -> False)
                     (init suc)
     reject = case last suc of
-               (_, Types.TxReject (Types.AmountTooLarge _ _) _) -> True
+               (_, Types.TxReject (Types.AmountTooLarge _ _) _ _) -> True
                _ -> False
 
 tests :: SpecWith ()

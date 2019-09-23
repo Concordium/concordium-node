@@ -81,26 +81,27 @@ transactionsInput =
 testAccountCreation ::
   PR.Context Core.UA
     IO
-    ([(Types.Transaction, Types.ValidResult)],
-     [(Types.Transaction, Types.FailureKind)],
+    ([(Types.BareTransaction, Types.ValidResult)],
+     [(Types.BareTransaction, Types.FailureKind)],
      [Maybe Types.Account],
      Types.Account,
      Types.BankStatus)
 testAccountCreation = do
     transactions <- processTransactions transactionsInput
-    let ((suc, fails), state) = Types.runSI (Sch.filterTransactions transactions)
-                                            Types.dummyChainMeta
-                                            initialBlockState
+    let ((Sch.FilteredTransactions{..}, _), state) =
+          Types.runSI (Sch.filterTransactions blockSize transactions)
+            Types.dummyChainMeta
+            initialBlockState
     let accounts = state ^. blockAccounts
     let accAddrs = map accountAddressFromCred [cdi1,cdi2,cdi3,cdi4,cdi5,cdi7]
     case invariantBlockState state of
         Left f -> liftIO $ assertFailure $ f ++ "\n" ++ show state
         _ -> return ()
-    return (suc, fails, map (\addr -> accounts ^? ix addr) accAddrs, accounts ^. singular (ix alesAccount), state ^. blockBank)
+    return (ftAdded, ftFailed, map (\addr -> accounts ^? ix addr) accAddrs, accounts ^. singular (ix alesAccount), state ^. blockBank)
 
 checkAccountCreationResult ::
-  ([(Types.Transaction, Types.ValidResult)],
-   [(Types.Transaction, Types.FailureKind)],
+  ([(Types.BareTransaction, Types.ValidResult)],
+   [(Types.BareTransaction, Types.FailureKind)],
    [Maybe Types.Account],
    Types.Account,
    Types.BankStatus)
@@ -112,13 +113,13 @@ checkAccountCreationResult (suc, fails, stateAccs, stateAles, bankState) =
   stateInvariant
   where txsuc = case suc of
           [(_, a11), (_, a12),(_, a13),(_, a14),(_, a15),(_, a16),(_, a17)] |
-            Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed _] _ <- a11,
-            Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed _] _ <- a12,
-            Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed _] _ <- a13,
-            Types.TxReject (Types.DuplicateAccountRegistrationID _) _ <- a14,
-            Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed _] _ <- a15,
-            Types.TxSuccess [Types.CredentialDeployed _] _ <- a16,
-            Types.TxReject Types.OutOfEnergy _ <- a17 -> True
+            Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed _] _ _ <- a11,
+            Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed _] _ _ <- a12,
+            Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed _] _ _ <- a13,
+            Types.TxReject (Types.DuplicateAccountRegistrationID _) _ _ <- a14,
+            Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed _] _ _ <- a15,
+            Types.TxSuccess [Types.CredentialDeployed _] _ _ <- a16,
+            Types.TxReject Types.OutOfEnergy _ _ <- a17 -> True
           _ -> False
         txstateAccs = case stateAccs of
                         -- account for cdi4 was not created because of duplicate registration id

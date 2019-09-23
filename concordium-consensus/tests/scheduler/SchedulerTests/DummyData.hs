@@ -8,7 +8,6 @@ import Concordium.Crypto.SignatureScheme as Sig
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.BlockSignature as BlockSig
 import Concordium.Types hiding (accountAddress)
-import Concordium.GlobalState.Transactions
 import Concordium.ID.Account
 import Concordium.ID.Types
 import Concordium.Crypto.Ed25519Signature
@@ -18,6 +17,7 @@ import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.SeedState
 import qualified Data.Aeson as AE
+import qualified Concordium.Scheduler.Runner as Runner
 
 import qualified Data.HashMap.Strict as HM
 
@@ -27,9 +27,8 @@ import System.Random
 blockPointer :: BlockHash
 blockPointer = Hash (FBS.pack (replicate 32 (fromIntegral (0 :: Word))))
 
-makeHeader :: Sig.KeyPair -> Nonce -> Energy -> TransactionHeader
-makeHeader kp nonce amount = makeTransactionHeader Sig.Ed25519 (Sig.verifyKey kp) nonce amount blockPointer
-
+makeHeader :: KeyPair -> Nonce -> Energy -> Runner.TransactionHeader
+makeHeader kp = Runner.TransactionHeader Sig.Ed25519 (Sig.verifyKey kp)
 
 alesKP :: KeyPair
 alesKP = fst (randomKeyPair (mkStdGen 1))
@@ -153,3 +152,6 @@ dummyCryptographicParameters =
   case unsafePerformIO (readCryptographicParameters <$> BSL.readFile "testdata/global.json") of
     Nothing -> error "Could not read cryptographic parameters."
     Just params -> params
+
+blockSize :: Integer
+blockSize = 10000000000

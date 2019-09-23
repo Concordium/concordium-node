@@ -69,28 +69,33 @@ data SkovListeners m = SkovListeners {
 class OnSkov m where
     onBlock :: BlockPointer m -> m ()
     onFinalize :: FinalizationRecord -> BlockPointer m -> m ()
-    logTransfer :: BlockHash -> Slot -> TransferReason -> m ()
+    -- |A function to log transfers at finalization time. Since it is
+    -- potentially expensive to even keep track of events we make it an
+    -- explicitly optional value to short-circuit evaluation.
+    logTransfer :: m (Maybe (BlockHash -> Slot -> TransferReason -> m ()))
 
 -- |Log transfers in the given block using the 'logTransfer' method of the
 -- 'OnSkov' class.
 logTransfers :: (TreeStateMonad m, OnSkov m, LoggerMonad m) => BlockPointer m -> m ()
-logTransfers bp = do
-  let state = bpState bp
-  case blockFields bp of
-    Nothing -> return ()  -- don't do anything for the genesis block
-    Just fields -> do
-      forM_ (blockTransactions bp) $ \tx ->
-        getTransactionOutcome state (trHash tx) >>= \case
-          Nothing ->
-            logEvent Skov LLDebug $ "Could not retrieve transaction outcome in block " ++
-                                    show (bpHash bp) ++
-                                    " for transaction " ++
-                                    show (trHash tx)
-          Just outcome ->
-            mapM_ (logTransfer (bpHash bp) (blockSlot bp)) (resultToReasons fields tx outcome)
-      special <- getSpecialOutcomes state
-      mapM_ (logTransfer (bpHash bp) (blockSlot bp) . specialToReason fields) special
-  
+logTransfers bp = logTransfer >>= \case
+  Nothing -> return ()
+  Just logger -> do
+    let state = bpState bp
+    case blockFields bp of
+      Nothing -> return ()  -- don't do anything for the genesis block
+      Just fields -> do
+        forM_ (blockTransactions bp) $ \tx ->
+          getTransactionOutcome state (trHash tx) >>= \case
+            Nothing ->
+              logEvent Skov LLDebug $ "Could not retrieve transaction outcome in block " ++
+                                      show (bpHash bp) ++
+                                      " for transaction " ++
+                                      show (trHash tx)
+            Just outcome ->
+              mapM_ (logger (bpHash bp) (blockSlot bp)) (resultToReasons fields tx outcome)
+        special <- getSpecialOutcomes state
+        mapM_ (logger (bpHash bp) (blockSlot bp) . specialToReason fields) special
+
 
 -- |Handle a block arriving that is dead.  That is, the block has never
 -- been in the tree before, and now it never can be.  Any descendents of
@@ -330,9 +335,9 @@ addBlock block = do
                                             Left err -> do
                                                 logEvent Skov LLWarning ("Block execution failure: " ++ show err)
                                                 invalidBlock
-                                            Right gs -> do
+                                            Right (gs, energyUsed) -> do
                                                 -- Add the block to the tree
-                                                blockP <- blockArrive block parentP lfBlockP gs
+                                                blockP <- blockArrive block parentP lfBlockP gs energyUsed
                                                 -- Notify of the block arrival (for finalization)
                                                 onBlock blockP
                                                 -- Process finalization records
@@ -360,11 +365,12 @@ blockArrive :: (HasCallStack, TreeStateMonad m, SkovMonad m)
         -> BlockPointer m     -- ^Parent pointer
         -> BlockPointer m    -- ^Last finalized pointer
         -> BlockState m      -- ^State
+        -> Energy            -- ^Energy used by transactions in the block
         -> m (BlockPointer m)
-blockArrive block parentP lfBlockP gs = do
+blockArrive block parentP lfBlockP gs energyUsed = do
         let height = bpHeight parentP + 1
         curTime <- currentTime
-        blockP <- makeLiveBlock block parentP lfBlockP gs curTime
+        blockP <- makeLiveBlock block parentP lfBlockP gs curTime energyUsed
         logEvent Skov LLInfo $ "Block " ++ show block ++ " arrived"
         -- Update the statistics
         updateArriveStatistics blockP
@@ -417,10 +423,11 @@ doStoreBakedBlock :: (TreeStateMonad m, SkovMonad m, OnSkov m)
         -> BlockPointer m    -- ^Parent pointer
         -> BlockPointer m     -- ^Last finalized pointer
         -> BlockState m      -- ^State
+        -> Energy            -- ^Energy used by transactions in this block
         -> m (BlockPointer m)
 {-# INLINE doStoreBakedBlock #-}
-doStoreBakedBlock = \pb parent lastFin st -> do
-        bp <- blockArrive pb parent lastFin st
+doStoreBakedBlock = \pb parent lastFin st energyUsed -> do
+        bp <- blockArrive pb parent lastFin st energyUsed
         onBlock bp
         return bp
 
