@@ -131,15 +131,9 @@ data Transaction = Transaction {
 instance Eq Transaction where
   t1 == t2 = trHash t1 == trHash t2
 
--- |The Ord instance does comparison based on arrival time for transactions with
--- different hashes.
+-- |The Ord instance does comparison only on hashes.
 instance Ord Transaction where
-  compare t1 t2 =
-    case compare (trHash t1) (trHash t2) of
-      EQ -> EQ
-      x -> case compare (trArrivalTime t1) (trArrivalTime t2) of
-             EQ -> x
-             y -> y
+  compare t1 t2 = compare (trHash t1) (trHash t2)
 
 -- |Deserialize a transaction, checking its signature on the way.
 getVerifiedTransaction :: UTCTime -> S.Get Transaction
