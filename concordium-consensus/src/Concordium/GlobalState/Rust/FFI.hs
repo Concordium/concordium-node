@@ -43,9 +43,11 @@ import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Transactions
 import Concordium.Types
 import Concordium.Types.HashableTo
-import Data.ByteString hiding (intercalate, map)
+import Control.Monad
+import Data.ByteString hiding (intercalate, map, head)
 import Data.ByteString.Short (toShort)
 import Data.FixedByteString hiding (pack, unpack)
+import Data.List.Split
 import Data.Maybe
 import Data.Serialize
 import Data.Time.Clock
@@ -55,6 +57,14 @@ import Foreign.C
 import Foreign.Ptr
 import Foreign.ForeignPtr
 import System.IO.Unsafe
+
+-- nominalDiffTimeToSeconds would solve this but it is not introduced until time-1.9.1 and ghc 8.6.5 uses time 1.8.0.
+-- This is just a hack that should be redone in an appropriate way
+utcTimeToTimestamp :: UTCTime -> Int
+utcTimeToTimestamp = (read :: String -> Int) . head . splitOn "." . show . utcTimeToPOSIXSeconds
+
+timestampToUtc :: Int -> UTCTime
+timestampToUtc = (read :: String -> UTCTime) . (++ ".000000000s") . show
 
 ---------------------------
 -- * GlobalState FFI calls
@@ -225,11 +235,9 @@ blockContentsBlockTransactions (BlockContents b) = unsafePerformIO $ do
   p <- withForeignPtr b blockContentsTransactionsF
   l <- withForeignPtr b blockContentsTransactionsLengthF
   bt_str <- curry packCStringLen p (fromIntegral l)
-  case decode bt_str :: Either String [BareTransaction] of
+  case runGet getTransactions bt_str of
         Left e  -> fail $ "Couldn't deserialize txs " ++ show e ++ "input: " ++ show bt_str ++ "tried to take " ++ show l ++ " bytes from " ++ show p
-        Right v -> do
-          now <- getCurrentTime
-          return $ map (fromBareTransaction now) v
+        Right v -> return v
 
 blockContentsSignature :: BlockContents -> Maybe BlockSignature
 blockContentsSignature (BlockContents bc) = unsafePerformIO $ do
@@ -338,11 +346,39 @@ instance Show PendingBlock where
 instance BlockPendingData PendingBlock where
   blockReceiveTime = pendingBlockReceiveTime
 
+putFullTransaction :: Transaction -> Put
+putFullTransaction (Transaction bt s h arrival) = do
+  put bt -- bt
+  put (utcTimeToTimestamp arrival) --8B time
+
+getTransactions :: Get [Transaction]
+getTransactions = do
+  len <- get :: Get Word64
+  replicateM (fromIntegral $ toInteger len) getTransaction
+
+getTransaction :: Get Transaction
+getTransaction = do
+  bt <- get
+  arrival <- get
+  return $ Transaction bt (Data.ByteString.length $ encode bt) (SHA256.hash (encode bt)) (timestampToUtc arrival)
+
+putFullBlock :: BakedBlock -> Put
+putFullBlock b = do
+        put (blockSlot b)
+        put (blockPointer b)
+        put (blockBaker b)
+        put (blockProof b)
+        put (blockNonce b)
+        put (blockLastFinalized b)
+        put (Prelude.length (blockTransactions b))
+        let txs = runPut (mapM_ putFullTransaction (blockTransactions b))
+        putByteString txs
+
 -- |Create a PendingBlock
 -- This function must initialize the PendingBlockR of the Rust side
 makePendingBlock :: GlobalStatePtr -> BakedBlock -> UTCTime -> IO PendingBlock
 makePendingBlock gsptr bb pendingBlockReceiveTime = do
-  p <- withForeignPtr gsptr $ useAsCStringLen (runPut . putBlock . NormalBlock $ bb) . uncurry . makePendingBlockF
+  p <- withForeignPtr gsptr $ useAsCStringLen (runPut $ (putFullBlock $ bb) >> put (bbSignature bb)) . uncurry . makePendingBlockF
   pendingBlockPointer <- newForeignPtr freePendingBlockF p
   return PendingBlock{..}
 
@@ -355,7 +391,7 @@ makePendingBlockWithContents gsptr bb pendingBlockReceiveTime = do
                      (GSBB.BlockFields (blockPointer bf) (blockBaker bf) (blockProof bf) (blockNonce bf) (blockLastFinalized bf))
                      (BlockTransactions (blockTransactions bb))
                      (fromJust (blockContentsSignature bb))
-  p <- withForeignPtr gsptr $ useAsCStringLen (runPut . putBlock . NormalBlock $ b) . uncurry . makePendingBlockF
+  p <- withForeignPtr gsptr $ useAsCStringLen (runPut $ (putFullBlock $ b) >> put (bbSignature b)) . uncurry . makePendingBlockF
   pendingBlockPointer <- newForeignPtr freePendingBlockF p
   return PendingBlock{..}
 
