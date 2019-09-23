@@ -429,14 +429,15 @@ fn start_baker_thread(global_state_senders: GlobalStateSenders) -> std::thread::
                     QueueMsg::Relay(msg) => {
                         let is_direct = msg.distribution_mode() == DistributionMode::Direct;
                         let msg = GlobalStateMessage::ConsensusMessage(msg);
-                        if if is_direct {
+                        if let Err(e) = if is_direct {
                             global_state_senders.send_with_priority(msg)
                         } else {
                             global_state_senders.send(msg)
-                        }
-                        .is_err()
-                        {
-                            error!("Can't pass a consensus message to the global state queue");
+                        } {
+                            error!(
+                                "Can't pass a consensus msg to the global state queue: {}",
+                                e
+                            );
                         }
                     }
                     QueueMsg::Stop => {

@@ -3,7 +3,7 @@
 use byteorder::{NetworkEndian, ReadBytesExt};
 use failure::{format_err, Fallible};
 
-use std::{convert::TryFrom, fmt, ops::Deref};
+use std::{convert::TryFrom, fmt, ops::Deref, sync::mpsc};
 
 /// # Serialization packets
 /// Benchmark of each serialization requires to enable it on features
@@ -60,30 +60,28 @@ pub enum QueueMsg<T> {
     Stop,
 }
 
-/// Represents a `Sender<T>` that is promoted to use `QueueMsg`s
-pub type QueueSyncSender<T> = std::sync::mpsc::SyncSender<QueueMsg<T>>;
+/// Represents a `SyncSender<T>` that is promoted to use `QueueMsg`s
+pub type QueueSyncSender<T> = mpsc::SyncSender<QueueMsg<T>>;
 
 /// Represents a `Receiver<T>` that is promoted to use `QueueMsg`s
-pub type QueueReceiver<T> = std::sync::mpsc::Receiver<QueueMsg<T>>;
+pub type QueueReceiver<T> = mpsc::Receiver<QueueMsg<T>>;
 
 /// Helper trait to ease readability through the code when dealing with
 /// `RelayOrStop` channels
 pub trait RelayOrStopSenderHelper<T> {
     /// Sends a `QueueMsg::Stop` message through the channel
-    fn send_stop(&self) -> Result<(), std::sync::mpsc::SendError<QueueMsg<T>>>;
+    fn send_stop(&self) -> Result<(), mpsc::SendError<QueueMsg<T>>>;
     /// Sends the provided `msg` wrapped inside a `QueueMsg::Relay`
-    fn send_msg(&self, msg: T) -> Result<(), std::sync::mpsc::SendError<QueueMsg<T>>>;
+    fn send_msg(&self, msg: T) -> Result<(), mpsc::TrySendError<QueueMsg<T>>>;
 }
 
 impl<T> RelayOrStopSenderHelper<T> for QueueSyncSender<T> {
     #[inline]
-    fn send_stop(&self) -> Result<(), std::sync::mpsc::SendError<QueueMsg<T>>> {
-        self.send(QueueMsg::Stop)
-    }
+    fn send_stop(&self) -> Result<(), mpsc::SendError<QueueMsg<T>>> { self.send(QueueMsg::Stop) }
 
     #[inline]
-    fn send_msg(&self, msg: T) -> Result<(), std::sync::mpsc::SendError<QueueMsg<T>>> {
-        self.send(QueueMsg::Relay(msg))
+    fn send_msg(&self, msg: T) -> Result<(), mpsc::TrySendError<QueueMsg<T>>> {
+        self.try_send(QueueMsg::Relay(msg))
     }
 }
 
