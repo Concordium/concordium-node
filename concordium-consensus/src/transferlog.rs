@@ -2,7 +2,7 @@ use concordium_common::{
     blockchain_types::{
         AccountAddress, Amount, BakerId, BlockHash, ContractAddress, Slot, TransactionHash,
     },
-    into_err, RelayOrStopReceiver, RelayOrStopSenderHelper, RelayOrStopSyncSender,
+    into_err, QueueReceiver, QueueSyncSender, RelayOrStopSenderHelper,
 };
 use failure::{format_err, Fallible};
 
@@ -14,8 +14,8 @@ use std::{
 const TRANSACTION_LOG_QUEUE_DEPTH: usize = 4096;
 
 pub struct TransactionLogQueue {
-    pub receiver: Mutex<RelayOrStopReceiver<TransactionLogMessage>>,
-    pub sender:   RelayOrStopSyncSender<TransactionLogMessage>,
+    pub receiver: Mutex<QueueReceiver<TransactionLogMessage>>,
+    pub sender:   QueueSyncSender<TransactionLogMessage>,
 }
 
 impl Default for TransactionLogQueue {

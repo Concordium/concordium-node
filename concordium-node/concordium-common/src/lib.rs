@@ -55,50 +55,35 @@ pub const APPNAME: &str = env!("CARGO_PKG_NAME");
 ///
 /// This type is intended for using when a loop is consuming the receiver
 /// output and we want to gracefully stop such loop.
-pub enum RelayOrStopEnvelope<T> {
+pub enum QueueMsg<T> {
     Relay(T),
     Stop,
 }
 
-/// Represents a `Sender<T>` that is promoted to use `RelayOrStopEnvelope`s
-pub type RelayOrStopSender<T> = std::sync::mpsc::Sender<RelayOrStopEnvelope<T>>;
+/// Represents a `Sender<T>` that is promoted to use `QueueMsg`s
+pub type QueueSyncSender<T> = std::sync::mpsc::SyncSender<QueueMsg<T>>;
 
-/// Represents a `Sender<T>` that is promoted to use `RelayOrStopEnvelope`s
-pub type RelayOrStopSyncSender<T> = std::sync::mpsc::SyncSender<RelayOrStopEnvelope<T>>;
-
-/// Represents a `Receiver<T>` that is promoted to use `RelayOrStopEnvelope`s
-pub type RelayOrStopReceiver<T> = std::sync::mpsc::Receiver<RelayOrStopEnvelope<T>>;
+/// Represents a `Receiver<T>` that is promoted to use `QueueMsg`s
+pub type QueueReceiver<T> = std::sync::mpsc::Receiver<QueueMsg<T>>;
 
 /// Helper trait to ease readability through the code when dealing with
 /// `RelayOrStop` channels
 pub trait RelayOrStopSenderHelper<T> {
-    /// Sends a `RelayOrStopEnvelope::Stop` message through the channel
-    fn send_stop(&self) -> Result<(), std::sync::mpsc::SendError<RelayOrStopEnvelope<T>>>;
-    /// Sends the provided `msg` wrapped inside a `RelayOrStopEnvelope::Relay`
-    fn send_msg(&self, msg: T) -> Result<(), std::sync::mpsc::SendError<RelayOrStopEnvelope<T>>>;
+    /// Sends a `QueueMsg::Stop` message through the channel
+    fn send_stop(&self) -> Result<(), std::sync::mpsc::SendError<QueueMsg<T>>>;
+    /// Sends the provided `msg` wrapped inside a `QueueMsg::Relay`
+    fn send_msg(&self, msg: T) -> Result<(), std::sync::mpsc::SendError<QueueMsg<T>>>;
 }
 
-impl<T> RelayOrStopSenderHelper<T> for RelayOrStopSender<T> {
+impl<T> RelayOrStopSenderHelper<T> for QueueSyncSender<T> {
     #[inline]
-    fn send_stop(&self) -> Result<(), std::sync::mpsc::SendError<RelayOrStopEnvelope<T>>> {
-        self.send(RelayOrStopEnvelope::Stop)
+    fn send_stop(&self) -> Result<(), std::sync::mpsc::SendError<QueueMsg<T>>> {
+        self.send(QueueMsg::Stop)
     }
 
     #[inline]
-    fn send_msg(&self, msg: T) -> Result<(), std::sync::mpsc::SendError<RelayOrStopEnvelope<T>>> {
-        self.send(RelayOrStopEnvelope::Relay(msg))
-    }
-}
-
-impl<T> RelayOrStopSenderHelper<T> for RelayOrStopSyncSender<T> {
-    #[inline]
-    fn send_stop(&self) -> Result<(), std::sync::mpsc::SendError<RelayOrStopEnvelope<T>>> {
-        self.send(RelayOrStopEnvelope::Stop)
-    }
-
-    #[inline]
-    fn send_msg(&self, msg: T) -> Result<(), std::sync::mpsc::SendError<RelayOrStopEnvelope<T>>> {
-        self.send(RelayOrStopEnvelope::Relay(msg))
+    fn send_msg(&self, msg: T) -> Result<(), std::sync::mpsc::SendError<QueueMsg<T>>> {
+        self.send(QueueMsg::Relay(msg))
     }
 }
 

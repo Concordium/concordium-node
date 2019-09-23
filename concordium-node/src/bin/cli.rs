@@ -15,7 +15,7 @@ use concordium_common::{
     cache::Cache,
     spawn_or_die,
     stats_export_service::{StatsExportService, StatsServiceMode},
-    PacketType, RelayOrStopEnvelope, RelayOrStopReceiver,
+    PacketType, QueueMsg, QueueReceiver,
 };
 use concordium_consensus::{
     consensus::{ConsensusContainer, CALLBACK_QUEUE},
@@ -183,7 +183,7 @@ fn instantiate_node(
     subscription_queue_in: mpsc::SyncSender<NetworkMessage>,
 ) -> (
     (Arc<P2PNode>, Receivers),
-    mpsc::Receiver<RelayOrStopEnvelope<NetworkMessage>>,
+    mpsc::Receiver<QueueMsg<NetworkMessage>>,
 ) {
     let (pkt_in, pkt_out) = mpsc::sync_channel(config::CLI_PACKET_QUEUE_DEPTH);
     let node_id = conf.common.id.clone().map_or(
@@ -262,7 +262,7 @@ fn start_consensus_threads(
     node: &Arc<P2PNode>,
     (conf, app_prefs): (&config::Config, &config::AppPreferences),
     consensus: ConsensusContainer,
-    pkt_out: RelayOrStopReceiver<NetworkMessage>,
+    pkt_out: QueueReceiver<NetworkMessage>,
     global_state_senders: GlobalStateSenders,
     global_state_receivers: GlobalStateReceivers,
 ) -> Vec<std::thread::JoinHandle<()>> {
@@ -333,7 +333,7 @@ fn start_consensus_threads(
         let mut transactions_cache = Cache::default();
         let mut deduplication_queues = DeduplicationQueues::new(DEDUP_QUEUE_SIZE);
 
-        while let Ok(RelayOrStopEnvelope::Relay(msg)) = pkt_out.recv() {
+        while let Ok(QueueMsg::Relay(msg)) = pkt_out.recv() {
             match msg {
                 NetworkMessage::NetworkPacket(ref pac, ..) => handle_incoming_packet(
                     pac,
@@ -426,7 +426,7 @@ fn start_baker_thread(global_state_senders: GlobalStateSenders) -> std::thread::
         loop {
             if let Ok(msg) = receiver.recv() {
                 match msg {
-                    RelayOrStopEnvelope::Relay(msg) => {
+                    QueueMsg::Relay(msg) => {
                         let is_direct = msg.distribution_mode() == DistributionMode::Direct;
                         let msg = GlobalStateMessage::ConsensusMessage(msg);
                         if if is_direct {
@@ -439,7 +439,7 @@ fn start_baker_thread(global_state_senders: GlobalStateSenders) -> std::thread::
                             error!("Can't pass a consensus message to the global state queue");
                         }
                     }
-                    RelayOrStopEnvelope::Stop => {
+                    QueueMsg::Stop => {
                         debug!("Shutting down consensus queues");
                         break;
                     }
@@ -478,7 +478,7 @@ fn setup_transfer_log_thread(conf: &config::CliConfig) -> std::thread::JoinHandl
         loop {
             if let Ok(msg) = receiver.recv() {
                 match msg {
-                    RelayOrStopEnvelope::Relay(msg) => {
+                    QueueMsg::Relay(msg) => {
                         if enabled {
                             if let Err(e) =
                                 p2p_client::client::plugins::elasticlogging::log_transfer_event(
@@ -491,7 +491,7 @@ fn setup_transfer_log_thread(conf: &config::CliConfig) -> std::thread::JoinHandl
                             info!("{}", msg);
                         }
                     }
-                    RelayOrStopEnvelope::Stop => {
+                    QueueMsg::Stop => {
                         debug!("Shutting down transfer log queues");
                         break;
                     }
@@ -513,10 +513,10 @@ fn setup_transfer_log_thread(_: &config::CliConfig) -> std::thread::JoinHandle<(
         loop {
             if let Ok(msg) = receiver.recv() {
                 match msg {
-                    RelayOrStopEnvelope::Relay(msg) => {
+                    QueueMsg::Relay(msg) => {
                         info!("{}", msg);
                     }
-                    RelayOrStopEnvelope::Stop => {
+                    QueueMsg::Stop => {
                         debug!("Shutting down transfer log queues");
                         break;
                     }
