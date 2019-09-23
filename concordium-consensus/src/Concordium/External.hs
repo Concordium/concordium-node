@@ -23,7 +23,7 @@ import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Data.FixedByteString as FBS
 
 import Concordium.Types
-import Concordium.ID.Types(safeDecodeBase58Address)
+import Concordium.ID.Types
 import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Transactions
@@ -568,6 +568,7 @@ getBranches cptr = do
 byteStringToCString :: BS.ByteString -> IO CString
 byteStringToCString bs = do
   let bsp = BS.concat [P.runPut (P.putWord32be (fromIntegral (BS.length bs))), bs]
+  -- This use of unsafe is fine because bsp is a non-null string.
   BS.unsafeUseAsCStringLen bsp $ \(cstr, len) -> do dest <- mallocBytes len
                                                     copyBytes dest cstr len
                                                     return dest
@@ -621,7 +622,7 @@ getAccountInfo cptr blockcstr cstr = do
     let logm = consensusLogMethod c
     logm External LLInfo "Received account info request."
     bs <- BS.packCString cstr
-    safeDecodeBase58Address bs >>= \case
+    case addressFromBytes bs of 
       Nothing -> do
         logm External LLInfo "Could not decode address."
         jsonValueToCString Null
