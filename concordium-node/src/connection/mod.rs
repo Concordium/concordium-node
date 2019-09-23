@@ -22,12 +22,13 @@ use crate::{
     common::{
         counter::{TOTAL_MESSAGES_RECEIVED_COUNTER, TOTAL_MESSAGES_SENT_COUNTER},
         get_current_stamp,
-        serialization::{Deserializable, ReadArchiveAdapter},
+        p2p_peer::P2PPeer,
+        serialization::{serialize_into_memory, Deserializable, ReadArchiveAdapter},
         NetworkRawRequest, P2PNodeId, PeerStats, PeerType, RemotePeer,
     },
     connection::message_handlers::handle_incoming_message,
     dumper::DumpItem,
-    network::{Buckets, NetworkId, NetworkMessage},
+    network::{Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse},
 };
 
 use concordium_common::hybrid_buf::HybridBuf;
@@ -39,6 +40,7 @@ use snow::Keypair;
 
 use std::{
     collections::HashSet,
+    fmt,
     net::{Shutdown, SocketAddr},
     pin::Pin,
     sync::{
@@ -61,6 +63,17 @@ pub struct Connection {
     pub last_latency:        Arc<AtomicU64>,
     pub last_seen:           Arc<AtomicU64>,
     pub failed_pkts:         Arc<AtomicU32>,
+}
+
+impl fmt::Display for Connection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let target = if let Some(id) = self.remote_id() {
+            format!("peer {}", id)
+        } else {
+            self.remote_addr().to_string()
+        };
+        write!(f, "connection to {}", target)
+    }
 }
 
 impl Connection {
@@ -191,7 +204,7 @@ impl Connection {
             service.pkt_received_inc();
         };
 
-        handle_incoming_message(self.handler(), self, &message);
+        handle_incoming_message(self, &message);
         self.handler().forward_network_message(&message)?;
 
         Ok(())
@@ -298,6 +311,145 @@ impl Connection {
         }
     }
 
+    pub fn send_handshake_request(&self) -> Fallible<()> {
+        debug!("Sending a handshake request to {}", self.remote_addr());
+
+        let handshake_request = NetworkMessage::NetworkRequest(
+            NetworkRequest::Handshake(
+                self.handler().self_peer,
+                read_or_die!(self.handler().networks()).to_owned(),
+                vec![],
+            ),
+            Some(get_current_stamp()),
+            None,
+        );
+
+        self.async_send(
+            serialize_into_memory(&handshake_request, 256)?,
+            MessageSendingPriority::High,
+        )?;
+
+        self.set_sent_handshake();
+
+        Ok(())
+    }
+
+    pub fn send_handshake_response(&self, requestor: P2PPeer) -> Fallible<()> {
+        debug!("Sending a handshake response to peer {}", requestor.id());
+
+        let handshake_msg = NetworkMessage::NetworkResponse(
+            NetworkResponse::Handshake(
+                self.handler().self_peer,
+                read_or_die!(self.remote_end_networks).to_owned(),
+                vec![],
+            ),
+            Some(get_current_stamp()),
+            None,
+        );
+
+        self.async_send(
+            serialize_into_memory(&handshake_msg, 128)?,
+            MessageSendingPriority::High,
+        )
+    }
+
+    pub fn send_ping(&self) -> Fallible<()> {
+        trace!("Sending a ping to {}", self.remote_addr());
+
+        let ping_msg = NetworkMessage::NetworkRequest(
+            NetworkRequest::Ping(self.handler().self_peer),
+            Some(get_current_stamp()),
+            None,
+        );
+
+        self.async_send(
+            serialize_into_memory(&ping_msg, 64)?,
+            MessageSendingPriority::Normal,
+        )?;
+
+        self.set_last_ping_sent();
+
+        Ok(())
+    }
+
+    pub fn send_pong(&self) -> Fallible<()> {
+        trace!("Sending a pong to {}", self.remote_addr());
+
+        let pong_msg = NetworkMessage::NetworkResponse(
+            NetworkResponse::Pong(self.remote_peer().peer().unwrap()), // safe, ensured above
+            Some(get_current_stamp()),
+            None,
+        );
+
+        self.async_send(
+            serialize_into_memory(&pong_msg, 64)?,
+            MessageSendingPriority::High,
+        )
+    }
+
+    pub fn send_peer_list_resp(
+        &self,
+        requestor: P2PPeer,
+        nets: &HashSet<NetworkId>,
+    ) -> Fallible<()> {
+        let peer_list_resp = match self.handler().peer_type() {
+            PeerType::Bootstrapper => {
+                const BOOTSTRAP_PEER_COUNT: usize = 100;
+
+                let random_nodes = safe_read!(self.handler().connection_handler.buckets)?
+                    .get_random_nodes(&requestor, BOOTSTRAP_PEER_COUNT, nets);
+
+                if !random_nodes.is_empty()
+                    && random_nodes.len()
+                        >= usize::from(self.handler().config.bootstrapper_wait_minimum_peers)
+                {
+                    Some(NetworkMessage::NetworkResponse(
+                        NetworkResponse::PeerList(self.handler().self_peer, random_nodes),
+                        Some(get_current_stamp()),
+                        None,
+                    ))
+                } else {
+                    None
+                }
+            }
+            PeerType::Node => {
+                let nodes = self
+                    .handler()
+                    .get_peer_stats()
+                    .iter()
+                    .filter(|stat| stat.peer_type == PeerType::Node)
+                    .filter(|stat| P2PNodeId(stat.id) != requestor.id)
+                    .map(|stat| P2PPeer::from(stat.peer_type, P2PNodeId(stat.id), stat.addr))
+                    .collect::<Vec<_>>();
+
+                if !nodes.is_empty() {
+                    Some(NetworkMessage::NetworkResponse(
+                        NetworkResponse::PeerList(self.handler().self_peer, nodes),
+                        Some(get_current_stamp()),
+                        None,
+                    ))
+                } else {
+                    None
+                }
+            }
+        };
+
+        if let Some(resp) = peer_list_resp {
+            debug!("Sending my PeerList to peer {}", requestor.id());
+
+            self.async_send(
+                serialize_into_memory(&resp, 256)?,
+                MessageSendingPriority::Normal,
+            )
+        } else {
+            debug!(
+                "I don't have any peers to share with peer {}",
+                requestor.id()
+            );
+            Ok(())
+        }
+    }
+
     #[cfg(test)]
     pub fn validate_packet_type_test(&self, msg: &[u8]) -> Readiness<bool> {
         write_or_die!(self.low_level)
@@ -308,19 +460,10 @@ impl Connection {
 
 impl Drop for Connection {
     fn drop(&mut self) {
-        debug!(
-            "Closing connection {} ({}:{})",
-            usize::from(self.token),
-            self.remote_addr().ip(),
-            self.remote_addr().port()
-        );
+        debug!("Closing {}", self);
 
         if let Err(e) = self.handler().deregister_connection(self) {
-            error!(
-                "Connection {} couldn't be closed: {:?}",
-                usize::from(self.token),
-                e
-            );
+            error!("Can't close {}: {:?}", self, e);
         }
 
         if let Some(id) = self.remote_id() {

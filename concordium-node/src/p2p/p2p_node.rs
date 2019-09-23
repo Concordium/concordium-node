@@ -37,7 +37,6 @@ use snow::Keypair;
 
 use std::{
     collections::{HashMap, HashSet},
-    convert::TryFrom,
     net::{
         IpAddr::{self, V4, V6},
         SocketAddr,
@@ -480,7 +479,13 @@ impl P2PNode {
         // Print nodes
         if self.config.print_peers {
             for (i, peer) in peer_stat_list.iter().enumerate() {
-                trace!("Peer {}: {}/{}/{}", i, peer.id, peer.addr, peer.peer_type);
+                trace!(
+                    "Peer {}: {}/{}/{}",
+                    i,
+                    P2PNodeId(peer.id),
+                    peer.addr,
+                    peer.peer_type
+                );
             }
         }
     }
@@ -523,10 +528,7 @@ impl P2PNode {
             if peer_stat_list.is_empty() {
                 info!("Sending out GetPeers to any bootstrappers we may still be connected to");
                 {
-                    let nets = self.networks();
-                    if let Ok(nids) = safe_read!(nets).map(|nets| nets.clone()) {
-                        self.send_get_peers(nids);
-                    }
+                    self.send_get_peers();
                 }
                 if !self.config.no_bootstrap_dns {
                     info!("No peers at all - retrying bootstrapping");
@@ -539,10 +541,7 @@ impl P2PNode {
                 }
             } else {
                 info!("Not enough peers, sending GetPeers requests");
-                let nets = self.networks();
-                if let Ok(nids) = safe_read!(nets).map(|nets| nets.clone()) {
-                    self.send_get_peers(nids);
-                }
+                self.send_get_peers();
             }
         }
     }
@@ -610,19 +609,8 @@ impl P2PNode {
                         || conn.get_last_ping_sent() + 300_000 < curr_stamp)
             })
             .for_each(|conn| {
-                let request_ping = {
-                    NetworkMessage::NetworkRequest(
-                        NetworkRequest::Ping(conn.handler().self_peer),
-                        Some(get_current_stamp()),
-                        None,
-                    )
-                };
-                if let Ok(request_ping_data) = serialize_into_memory(&request_ping, 128) {
-                    if let Err(e) = conn.async_send(request_ping_data, MessageSendingPriority::High)
-                    {
-                        error!("{}", e);
-                    }
-                    conn.set_last_ping_sent();
+                if let Err(e) = conn.send_ping() {
+                    error!("Can't send a ping to {}: {}", conn.remote_addr(), e);
                 }
             });
     }
@@ -776,6 +764,8 @@ impl P2PNode {
         addr: SocketAddr,
         peer_id_opt: Option<P2PNodeId>,
     ) -> Fallible<()> {
+        debug!("Attempting to connect to {}", addr);
+
         self.log_event(P2PEvent::InitiatingConnection(addr));
         let self_peer = self.self_peer;
         if peer_type == PeerType::Node {
@@ -818,7 +808,7 @@ impl P2PNode {
                         .next_id
                         .fetch_add(1, Ordering::SeqCst),
                 );
-                let networks = self.networks();
+
                 let keypair = utils::clone_snow_keypair(&self.connection_handler.key_pair);
                 let remote_peer = RemotePeer {
                     id: Default::default(),
@@ -841,21 +831,9 @@ impl P2PNode {
 
                 self.add_connection(conn);
                 self.log_event(P2PEvent::ConnectEvent(addr));
-                debug!("Requesting handshake from new peer {}", addr,);
 
                 if let Some(ref conn) = self.find_connection_by_token(token) {
-                    let handshake_request = NetworkMessage::NetworkRequest(
-                        NetworkRequest::Handshake(self_peer, safe_read!(networks)?.clone(), vec![]),
-                        Some(get_current_stamp()),
-                        None,
-                    );
-                    let handshake_request_data = serialize_into_memory(&handshake_request, 256)?;
-
-                    conn.async_send(
-                        HybridBuf::try_from(handshake_request_data)?,
-                        MessageSendingPriority::High,
-                    )?;
-                    conn.set_sent_handshake();
+                    conn.send_handshake_request()?;
                 }
 
                 if peer_type == PeerType::Bootstrapper {
@@ -879,16 +857,17 @@ impl P2PNode {
 
     pub fn dump_stop(&mut self) { self.connection_handler.log_dumper = None; }
 
-    pub fn connections_posthandshake_count(&self, exclude_type: Option<PeerType>) -> u16 {
+    fn connections_posthandshake_count(&self, exclude_type: Option<PeerType>) -> u16 {
         // We will never have more than 2^16 connections per node, so this conversion is
         // safe.
         read_or_die!(self.active_peer_stats)
             .values()
             .filter(|&peer| {
                 if let Some(exclude_type) = exclude_type {
-                    return peer.peer_type != exclude_type;
+                    peer.peer_type != exclude_type
+                } else {
+                    true
                 }
-                true
             })
             .count() as u16
     }
@@ -1662,16 +1641,18 @@ impl P2PNode {
         self.queue_size_inc();
     }
 
-    pub fn send_get_peers(&self, nids: HashSet<NetworkId>) {
-        send_or_die!(
-            self.send_queue_in,
-            NetworkMessage::NetworkRequest(
-                NetworkRequest::GetPeers(self.self_peer, nids.clone()),
-                None,
-                None,
-            )
-        );
-        self.queue_size_inc();
+    fn send_get_peers(&self) {
+        if let Ok(nids) = safe_read!(self.networks()) {
+            send_or_die!(
+                self.send_queue_in,
+                NetworkMessage::NetworkRequest(
+                    NetworkRequest::GetPeers(self.self_peer, nids.clone()),
+                    None,
+                    None,
+                )
+            );
+            self.queue_size_inc();
+        }
     }
 
     pub fn send_retransmit(
