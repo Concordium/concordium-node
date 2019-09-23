@@ -108,7 +108,7 @@ instance S.Serialize BareTransaction where
     return $ BareTransaction{..}
 
 fromBareTransaction :: UTCTime -> BareTransaction -> Transaction
-fromBareTransaction trArrivalTime trBareTransaction = 
+fromBareTransaction trArrivalTime trBareTransaction =
   let txBytes = S.encode trBareTransaction
       trHash = H.hash txBytes
       trSize = BS.length txBytes
@@ -223,7 +223,7 @@ instance TransactionData BareTransaction where
     transactionSignature = btrSignature
     transactionHash t = H.hash (S.encode t)
     transactionSize t = BS.length serialized
-      where serialized = S.encode t 
+      where serialized = S.encode t
 
 instance TransactionData Transaction where
     transactionHeader = btrHeader . trBareTransaction
