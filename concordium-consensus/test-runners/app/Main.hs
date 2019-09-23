@@ -22,7 +22,7 @@ import Concordium.GlobalState.BlockState(BlockPointerData(..))
 import Concordium.GlobalState.Rust.TreeState
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Rust.FFI
-import Concordium.GlobalState.Basic.Block (BakedBlock, Block(NormalBlock))
+import Concordium.GlobalState.Basic.Block (BakedBlock, Block(NormalBlock), getBlock)
 
 import Concordium.Types
 import Concordium.Runner

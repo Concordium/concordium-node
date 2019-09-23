@@ -6,7 +6,6 @@ import Control.Concurrent.MVar
 import Control.Concurrent
 import Control.Monad.Trans.State hiding (get, put)
 import Control.Monad
-import Control.Monad.IO.Class
 import Control.Exception
 import Data.Time.Clock
 import Data.ByteString as BS
@@ -14,6 +13,7 @@ import Data.Serialize
 import Data.IORef
 
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Basic.Block (getBlock)
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockState(BlockState, LogTransferMethod)
 import Concordium.GlobalState.Rust.TreeState
@@ -182,7 +182,8 @@ data SyncPassiveRunner = SyncPassiveRunner {
 -- |Make a 'SyncPassiveRunner', which does not support a baker thread.
 makeSyncPassiveRunner :: forall m. LogMethod IO -> RuntimeParameters -> GenesisData -> BlockState (SkovPassiveHookedM m) -> GlobalStatePtr -> IO SyncPassiveRunner
 makeSyncPassiveRunner syncPLogMethod rtParams gen initBS gsptr = do
-        syncPState <- newMVar $ initialSkovPassiveHookedState rtParams gen initBS gsptr
+        initialState <- initialSkovPassiveHookedState rtParams gen initBS gsptr
+        syncPState <- newMVar initialState
         return $ SyncPassiveRunner{..}
 
 runSkovPassiveMWithStateLog :: SyncPassiveRunner -> SkovPassiveHookedM LogIO a -> IO a

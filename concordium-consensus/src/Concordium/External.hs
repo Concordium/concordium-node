@@ -238,11 +238,11 @@ toLogTransferMethod logtCallBackPtr = logTransfer
                 BS.BakingRewardTransfer{..} ->
                   let rest = runPut (put trbrBaker <> put trbrAccount)
                   in unsafeWithBSLen rest $ logit 4 block slot nullPtr trbrAmount
-                TS.ContractToContractTransfer{..} ->
+                BS.ContractToContractTransfer{..} ->
                   withTxReference trcctId $ \txRef ->
                     let rest = runPut (put trcctSource <> put trcctTarget)
                     in unsafeWithBSLen rest $ logit 5 block slot txRef trcctAmount
-                TS.CredentialDeployment{..} ->
+                BS.CredentialDeployment{..} ->
                   withTxReference trcdId $ \txRef ->
                     let rest = runPut (put trcdSource <> put trcdAccount) <> BSL.toStrict (AE.encode trcdCredentialValues)
                     in unsafeWithBSLen rest $ logit 6 block slot txRef 0
@@ -426,7 +426,7 @@ receiveBlock bptr cstr l = do
     logm External LLDebug $ "Received block data size = " ++ show l ++ ". Decoding ..."
     blockBS <- BS.packCStringLen (cstr, fromIntegral l)
     now <- currentTime
-    toReceiveResult <$> case runGet (BasicBlock.getBlock now) blockBS of
+    toReceiveResult <$> case runGet (BSB.getBlock now) blockBS of
         Left _ -> do
           logm External LLDebug "Block deserialization failed. Ignoring the block."
           return ResultSerializationFail

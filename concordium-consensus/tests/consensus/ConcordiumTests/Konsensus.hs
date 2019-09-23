@@ -349,7 +349,7 @@ initialiseStates n = do
         bis2 <- liftIO $ mapM (\(a,b) -> RF.makeEmptyGlobalState gen >>=  (return . ((a, b,)))) bis
         res <- liftIO $ mapM (\(_, (_, bid, _), gs) -> do
                                 let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid)
-                                initState <- liftIO $ initialSkovActiveState fininst gen (Example.initialState bps dummyCryptographicParameters bakerAccounts [] nAccounts) gs
+                                initState <- liftIO $ initialSkovActiveState fininst defaultRuntimeParameters gen (Example.initialState bps dummyCryptographicParameters bakerAccounts [] nAccounts) gs
                                 return (bid, fininst, initState, gs)
                              ) bis2
         return $ Vec.fromList res
