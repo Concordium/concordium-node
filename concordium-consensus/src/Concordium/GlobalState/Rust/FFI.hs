@@ -34,7 +34,7 @@ module Concordium.GlobalState.Rust.FFI (
 import qualified Concordium.Crypto.SHA256 as SHA256
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.SignatureScheme as SSCH
-import Concordium.GlobalState.Basic.Block (BakedBlock(..), Block (NormalBlock), BlockTransactions(..))
+import Concordium.GlobalState.Basic.Block (BakedBlock(..), BlockTransactions(..))
 import qualified Concordium.GlobalState.Basic.Block as GSBB (BlockFields(..))
 import qualified Concordium.GlobalState.Basic.BlockState as BBS hiding (BlockPointer, makeBlockPointer, makeGenesisBlockPointer)
 import Concordium.GlobalState.Block
@@ -47,7 +47,6 @@ import Control.Monad
 import Data.ByteString hiding (intercalate, map, head)
 import Data.ByteString.Short (toShort)
 import Data.FixedByteString hiding (pack, unpack)
-import Data.List.Split
 import Data.Maybe
 import Data.Serialize
 import Data.Time.Clock
@@ -58,13 +57,11 @@ import Foreign.Ptr
 import Foreign.ForeignPtr
 import System.IO.Unsafe
 
--- nominalDiffTimeToSeconds would solve this but it is not introduced until time-1.9.1 and ghc 8.6.5 uses time 1.8.0.
--- This is just a hack that should be redone in an appropriate way
 utcTimeToTimestamp :: UTCTime -> Int
-utcTimeToTimestamp = (read :: String -> Int) . head . splitOn "." . show . utcTimeToPOSIXSeconds
+utcTimeToTimestamp = floor . utcTimeToPOSIXSeconds
 
 timestampToUtc :: Int -> UTCTime
-timestampToUtc = (read :: String -> UTCTime) . (++ ".000000000s") . show
+timestampToUtc = posixSecondsToUTCTime . realToFrac
 
 ---------------------------
 -- * GlobalState FFI calls
