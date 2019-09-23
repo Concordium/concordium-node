@@ -12,12 +12,12 @@ import qualified SchedulerTests.ContractSimpleTransfersSpec(tests)
 import Test.Hspec
 
 main :: IO ()
-main = do hspec $ do
-            SchedulerTests.ContractCommSpec.tests
-            SchedulerTests.SimpleTransfersTest.tests
-            SchedulerTests.ChainMetatest.tests
-            SchedulerTests.FibonacciTest.tests
-            SchedulerTests.AccountTransactionSpecs.tests
-            SchedulerTests.BakerTransactions.tests
-            SchedulerTests.Delegation.tests
-            SchedulerTests.ContractSimpleTransfersSpec.tests
+main = hspec $ do
+         SchedulerTests.ContractCommSpec.tests
+         SchedulerTests.SimpleTransfersTest.tests
+         SchedulerTests.ChainMetatest.tests
+         SchedulerTests.FibonacciTest.tests
+         SchedulerTests.AccountTransactionSpecs.tests
+         SchedulerTests.BakerTransactions.tests
+         SchedulerTests.Delegation.tests
+         SchedulerTests.ContractSimpleTransfersSpec.tests
