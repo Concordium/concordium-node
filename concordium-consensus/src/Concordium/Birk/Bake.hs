@@ -13,6 +13,7 @@ import Concordium.Types
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.SeedState
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.TreeState
@@ -21,6 +22,7 @@ import Concordium.GlobalState.Transactions
 import Concordium.Skov.Monad
 import Concordium.Birk.LeaderElection
 import Concordium.Kontrol.BestBlock
+import Concordium.Kontrol.UpdateLeaderElectionParameters
 
 import Concordium.Skov.Update (updateFocusBlockTo)
 
@@ -43,13 +45,13 @@ bakerElectionPublicKey ident = VRF.publicKey (bakerElectionKey ident)
 
 instance Serialize BakerIdentity where
 
-processTransactions :: TreeStateMonad m => Slot -> BlockNonce -> BlockPointer m -> BlockPointer m -> BakerId -> m ([Transaction], BlockState m)
-processTransactions slot bn bh finalizedP bid = do
+processTransactions :: TreeStateMonad m => Slot -> SeedState -> BlockPointer m -> BlockPointer m -> BakerId -> m ([Transaction], BlockState m)
+processTransactions slot ss bh finalizedP bid = do
   -- update the focus block to the parent block (establish invariant needed by constructBlock)
   updateFocusBlockTo bh
   -- at this point we can contruct the block. The function 'constructBlock' also
   -- updates the pending table and purges any transactions deemed invalid
-  constructBlock slot bh finalizedP bid bn
+  constructBlock slot bh finalizedP bid ss
   -- NB: what remains is to update the focus block to the newly constructed one.
   -- This is done in the method below once a block pointer is constructed.
 
@@ -66,7 +68,8 @@ bakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     logEvent Baker LLInfo $ "Won lottery in " ++ show slot ++ "(lottery power: " ++ show lotteryPower ++ ")"
     nonce <- liftIO $ computeBlockNonce (_birkLeadershipElectionNonce birkParams)    slot bakerElectionKey
     lastFinal <- lastFinalizedBlock
-    (transactions, newState) <- processTransactions slot nonce bb lastFinal bakerId
+    let seedState'  = updateSeedState slot nonce _seedState
+    (transactions, newState) <- processTransactions slot seedState' bb lastFinal bakerId
     logEvent Baker LLInfo $ "Baked block"
     receiveTime <- currentTime
     pb <- makePendingBlock bakerSignKey slot (bpHash bb) bakerId electionProof nonce (bpHash lastFinal) transactions receiveTime

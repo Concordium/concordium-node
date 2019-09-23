@@ -24,6 +24,7 @@ import Concordium.Scheduler.TreeStateEnvironment(executeFrom)
 
 import Concordium.Skov.Monad
 import Concordium.Birk.LeaderElection
+import Concordium.Kontrol.UpdateLeaderElectionParameters
 import Concordium.Afgjort.Finalize
 import Concordium.Logger
 import Concordium.TimeMonad
@@ -324,7 +325,8 @@ addBlock block = do
                                     -- And the block signature
                                     check (verifyBlockSignature _bakerSignatureVerifyKey block) $ do
                                         let ts = blockTransactions block
-                                        executeFrom (blockSlot block) parentP lfBlockP (blockBaker block) (blockNonce block) ts >>= \case
+                                            seedState' = updateSeedState (blockSlot block) (blockNonce block) (_seedState)
+                                        executeFrom (blockSlot block) parentP lfBlockP (blockBaker block) seedState' ts >>= \case
                                             Left err -> do
                                                 logEvent Skov LLWarning ("Block execution failure: " ++ show err)
                                                 invalidBlock
