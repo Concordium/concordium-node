@@ -61,9 +61,6 @@ makeLenses ''BirkParameters
 _birkLeadershipElectionNonce :: BirkParameters -> LeadershipElectionNonce
 _birkLeadershipElectionNonce = currentSeed . _seedState
 
-slotDependentBirkParameters :: Slot -> BirkParameters -> BirkParameters
-slotDependentBirkParameters slot bps = bps {_seedState = getSeedState slot $ _seedState bps}
-
 birkBaker :: BakerId -> BirkParameters -> Maybe (BakerInfo, LotteryPower)
 birkBaker bid bps = (bps ^. birkBakers . bakerMap . at bid) <&>
                         \bkr -> (bkr, (bkr ^. bakerStake) % (bps ^. birkBakers . bakerTotalStake))
