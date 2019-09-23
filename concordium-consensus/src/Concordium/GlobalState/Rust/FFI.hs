@@ -344,20 +344,21 @@ instance BlockPendingData PendingBlock where
   blockReceiveTime = pendingBlockReceiveTime
 
 putFullTransaction :: Transaction -> Put
-putFullTransaction (Transaction bt s h arrival) = do
+putFullTransaction (Transaction bt _ _ arrival) = do
   put bt -- bt
   put (utcTimeToTimestamp arrival) --8B time
 
 getTransactions :: Get [Transaction]
 getTransactions = do
   len <- get :: Get Word64
-  replicateM (fromIntegral $ toInteger len) getTransaction
+  replicateM (fromIntegral len) getTransaction
 
 getTransaction :: Get Transaction
 getTransaction = do
   bt <- get
   arrival <- get
-  return $ Transaction bt (Data.ByteString.length $ encode bt) (SHA256.hash (encode bt)) (timestampToUtc arrival)
+  let encoded = encode bt
+  return $ Transaction bt (Data.ByteString.length encoded) (SHA256.hash encoded) (timestampToUtc arrival)
 
 putFullBlock :: BakedBlock -> Put
 putFullBlock b = do
