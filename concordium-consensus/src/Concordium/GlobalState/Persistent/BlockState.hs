@@ -1,5 +1,5 @@
 {-# LANGUAGE RecordWildCards, FlexibleInstances, MultiParamTypeClasses, FlexibleContexts, GeneralizedNewtypeDeriving,
-        TypeFamilies, BangPatterns, TemplateHaskell
+        TypeFamilies, BangPatterns, TemplateHaskell, LambdaCase
  #-}
 
 module Concordium.GlobalState.Persistent.BlockState where
@@ -10,7 +10,10 @@ import Data.Serialize
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import Control.Monad.Reader.Class
+import Control.Monad.Trans.Reader (ReaderT, runReaderT)
+import Control.Monad.Trans
 import Control.Monad.IO.Class
+import Control.Monad
 import Lens.Micro.Platform
 
 import qualified Concordium.Crypto.SHA256 as H
@@ -19,6 +22,7 @@ import Concordium.Types.Acorn.Interfaces
 import Concordium.Types.HashableTo
 import Concordium.Types
 import qualified Concordium.ID.Types as ID
+import Acorn.Types (link)
 
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
@@ -27,11 +31,15 @@ import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Bakers
 import qualified Concordium.GlobalState.Rewards as Rewards
 import qualified Concordium.GlobalState.Persistent.Account as Account
+import qualified Concordium.GlobalState.Persistent.Instances as Instances
+import Concordium.GlobalState.Persistent.Instances(PersistentInstance(..), PersistentInstanceParameters(..), CacheableInstanceParameters(..))
+import Concordium.GlobalState.Instances (Instance(..),InstanceParameters(..))
 
 type PersistentBlockState = BufferedRef BlockStatePointers
 
 data BlockStatePointers = BlockStatePointers {
     bspAccounts :: !Account.Accounts,
+    bspInstances ::  !Instances.Instances,
     bspModules :: BufferedRef Modules,
     bspBank :: !Rewards.BankStatus,
     bspBirkParameters :: !BirkParameters -- TODO: Possibly store BirkParameters allowing for sharing
@@ -40,21 +48,25 @@ data BlockStatePointers = BlockStatePointers {
 instance (MonadBlobStore m BlobRef) => BlobStorable m BlobRef BlockStatePointers where
     storeUpdate p bsp0@BlockStatePointers{..} = do
         (paccts, bspAccounts') <- storeUpdate p bspAccounts
+        (pinsts, bspInstances') <- storeUpdate p bspInstances
         (pmods, bspModules') <- storeUpdate p bspModules
         let putBSP = do
                 paccts
+                pinsts
                 pmods
                 put bspBank
                 put bspBirkParameters
-        return (putBSP, bsp0 {bspAccounts = bspAccounts', bspModules = bspModules'})
+        return (putBSP, bsp0 {bspAccounts = bspAccounts', bspInstances = bspInstances', bspModules = bspModules'})
     store p bsp = fst <$> storeUpdate p bsp
     load p = do
         maccts <- load p
+        minsts <- load p
         mmods <- load p
         bspBank <- get
         bspBirkParameters <- get
         return $! do
             bspAccounts <- maccts
+            bspInstances <- minsts
             bspModules <- mmods
             return $! BlockStatePointers{..}
 
@@ -109,6 +121,90 @@ makeLenses ''ModuleCache
 class HasModuleCache a where
     moduleCache :: a -> IORef ModuleCache
 
+newtype LinkerWrapper r m a = LinkerWrapper { runLinkerWrapper :: ReaderT PersistentBlockState m a }
+    deriving (Functor, Applicative, Monad, MonadReader PersistentBlockState, MonadTrans)
+
+instance (MonadBlobStore m BlobRef, MonadIO m, MonadReader r m, HasModuleCache r) => LinkerMonad Void (LinkerWrapper r m) where
+    getExprInModule modRef name = do
+        blockState <- ask
+        mmod <- lift $ doGetModule blockState modRef
+        case mmod of
+            Nothing -> return Nothing
+            Just Module{..} -> return (HM.lookup name (viDefs moduleValueInterface))
+    tryGetLinkedExpr modref name = do
+        blockState <- ask
+        lift $ doTryGetLinkedExpr blockState modref name
+    putLinkedExpr modref name linked = do
+        blockState <- ask
+        void $ lift $ doPutLinkedExpr blockState modref name linked
+
+doLinkContract :: (MonadBlobStore m BlobRef, MonadIO m, MonadReader r m, HasModuleCache r) =>
+    PersistentBlockState -> Core.ModuleRef -> Module -> Core.TyName -> m (LinkedContractValue Void)
+doLinkContract pbs mref m cname = do
+    mcontract <- doTryGetLinkedContract pbs mref cname
+    case mcontract of
+        Just contract -> return contract
+        Nothing -> do
+            let unlinked = viContracts (moduleValueInterface m) HM.! cname
+            linked <- flip runReaderT pbs $ runLinkerWrapper $ do
+                cvInitMethod <- link mref (cvInitMethod unlinked)
+                cvReceiveMethod <- link mref (cvReceiveMethod unlinked)
+                cvImplements <- mapM (\iv -> do
+                                        ivSenders <- mapM (link mref) (ivSenders iv)
+                                        ivGetters <- mapM (link mref) (ivGetters iv)
+                                        return ImplementsValue{..}
+                                    ) (cvImplements unlinked)
+                return ContractValue{..}
+            _ <- doPutLinkedContract pbs mref cname linked
+            return linked
+
+
+fromPersistentInstance :: (MonadBlobStore m BlobRef, MonadIO m, MonadReader r m, HasModuleCache r) =>
+    PersistentBlockState -> Instances.PersistentInstance -> m Instance
+fromPersistentInstance _ Instances.PersistentInstance{pinstanceCachedParameters = (Some CacheableInstanceParameters{..}), ..} = do
+    PersistentInstanceParameters{..} <- loadBufferedRef pinstanceParameters
+    let instanceParameters = InstanceParameters {
+            instanceAddress = pinstanceAddress,
+            instanceOwner = pinstanceOwner,
+            instanceContractModule = pinstanceContractModule,
+            instanceContract = pinstanceContract,
+            instanceReceiveFun = pinstanceReceiveFun,
+            instanceModuleInterface = pinstanceModuleInterface,
+            instanceModuleValueInterface = pinstanceModuleValueInterface,
+            instanceMessageType = pinstanceMessageType,
+            instanceImplements = pinstanceImplements,
+            instanceParameterHash = pinstanceParameterHash
+        }
+    return Instance{
+            instanceModel = pinstanceModel,
+            instanceAmount = pinstanceAmount,
+            instanceHash = pinstanceHash,
+            ..
+        }
+fromPersistentInstance pbs Instances.PersistentInstance{..} = do
+    PersistentInstanceParameters{..} <- loadBufferedRef pinstanceParameters
+    doGetModule pbs pinstanceContractModule >>= \case
+        Nothing -> error "fromPersistentInstance: unresolvable module" -- TODO: Possibly don't error here
+        Just m -> do
+            conVal <- doLinkContract pbs pinstanceContractModule m pinstanceContract
+            let instanceParameters = InstanceParameters {
+                    instanceAddress = pinstanceAddress,
+                    instanceOwner = pinstanceOwner,
+                    instanceContractModule = pinstanceContractModule,
+                    instanceContract = pinstanceContract,
+                    instanceReceiveFun = cvReceiveMethod conVal,
+                    instanceModuleInterface = moduleInterface m,
+                    instanceModuleValueInterface = moduleValueInterface m,
+                    instanceMessageType = msgTy (exportedContracts (moduleInterface m) HM.! pinstanceContract),
+                    instanceImplements = cvImplements conVal,
+                    instanceParameterHash = pinstanceParameterHash
+                }
+            return Instance{
+                    instanceModel = pinstanceModel,
+                    instanceAmount = pinstanceAmount,
+                    instanceHash = pinstanceHash,
+                    ..
+                }
 
 doGetModule :: (MonadBlobStore m BlobRef) => PersistentBlockState -> Core.ModuleRef -> m (Maybe Module)
 doGetModule s modRef = do
@@ -243,6 +339,51 @@ doModifyAccount pbs aUpd@AccountUpdate{..} = do
         return $! BRMemory (bsp {bspAccounts = accts2, bspBirkParameters = birkParams1})
     where
         upd oldAccount = return ((oldAccount ^. accountStakeDelegate, oldAccount ^. accountAmount), updateAccount aUpd oldAccount)
+
+doGetInstance :: (MonadBlobStore m BlobRef, MonadIO m, MonadReader r m, HasModuleCache r) => PersistentBlockState -> ContractAddress -> m (Maybe Instance)
+doGetInstance pbs caddr = do
+        bsp <- loadBufferedRef pbs
+        minst <- Instances.lookupContractInstance caddr (bspInstances bsp)
+        forM minst $ fromPersistentInstance pbs
+
+doContractInstanceList :: (MonadBlobStore m BlobRef, MonadIO m, MonadReader r m, HasModuleCache r) => PersistentBlockState -> m [Instance]
+doContractInstanceList pbs = do
+        bsp <- loadBufferedRef pbs
+        insts <- Instances.allInstances (bspInstances bsp)
+        mapM (fromPersistentInstance pbs) insts
+
+doPutNewInstance :: (MonadBlobStore m BlobRef) => PersistentBlockState -> (ContractAddress -> Instance) -> m (ContractAddress, PersistentBlockState)
+doPutNewInstance pbs fnew = do
+        bsp <- loadBufferedRef pbs
+        (ca, insts) <- Instances.newContractInstance fnew' (bspInstances bsp)
+        return (ca, BRMemory bsp{bspInstances = insts})
+    where
+        fnew' ca = let Instance{instanceParameters = InstanceParameters{..}, ..} = fnew ca in
+            return PersistentInstance{
+                pinstanceParameters = BRMemory (PersistentInstanceParameters{
+                        pinstanceAddress = instanceAddress,
+                        pinstanceOwner = instanceOwner,
+                        pinstanceContractModule = instanceContractModule,
+                        pinstanceContract = instanceContract,
+                        pinstanceParameterHash = instanceParameterHash
+                    }),
+                pinstanceCachedParameters = Some (CacheableInstanceParameters{
+                        pinstanceReceiveFun = instanceReceiveFun,
+                        pinstanceModuleInterface = instanceModuleInterface,
+                        pinstanceModuleValueInterface = instanceModuleValueInterface,
+                        pinstanceMessageType = instanceMessageType,
+                        pinstanceImplements = instanceImplements
+                    }),
+                pinstanceModel = instanceModel,
+                pinstanceAmount = instanceAmount,
+                pinstanceHash = instanceHash
+            }
+
+{-
+doModifyInstance :: (MonadBlobStore m BlobRef) => PersistentBlockState -> ContractAddress -> Amount -> Value Void -> m PersistentBlockState
+doModifyInstance pbs caddr amnt val = do
+        bsp <- loadBufferedRef pbs
+-}
 
 {-
 doDelegateStake :: (MonadBlobStore m BlobRef) => PersistentBlockState -> AccountAddress -> Maybe BakerId -> m (Bool, PersistentBlockState)
