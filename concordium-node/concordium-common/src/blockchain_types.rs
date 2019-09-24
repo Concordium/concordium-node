@@ -1,5 +1,6 @@
 use crate::{read_ty, HashBytes, SerializeToBytes};
 use base58check::ToBase58Check;
+use base58::ToBase58;
 use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
 use digest::Digest;
 use failure::{format_err, Fallible};
@@ -54,10 +55,11 @@ impl std::fmt::Display for ContractAddress {
     }
 }
 
+// Until we have more than one scheme identifier this will have an unused placeholder in it
 #[derive(Debug, Clone, Copy)]
 pub enum SchemeId {
-    Cl = 0,
-    Ed25519,
+    Ed25519 = 0,
+    PlaceHolder
 }
 
 impl TryFrom<u8> for SchemeId {
@@ -65,8 +67,7 @@ impl TryFrom<u8> for SchemeId {
 
     fn try_from(id: u8) -> Fallible<Self> {
         match id {
-            0 => Ok(SchemeId::Cl),
-            1 => Ok(SchemeId::Ed25519),
+            0 => Ok(SchemeId::Ed25519),
             _ => Err(format_err!("Unsupported SchemeId ({})!", id)),
         }
     }
@@ -97,7 +98,13 @@ impl From<(&[u8], SchemeId)> for AccountAddress {
 
 impl fmt::Debug for AccountAddress {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", &self.0[..].to_base58check(0))
+        let scheme_id_encoded = &self.0[..1].to_base58();
+        let scheme_part = if scheme_id_encoded.len() < 2 {
+            format!("1{}", scheme_id_encoded ).to_owned()
+        } else {
+            scheme_id_encoded.to_owned()
+        };
+        write!(f, "{}{}", scheme_part, &self.0[1..].to_base58check(1))
     }
 }
 

@@ -37,6 +37,7 @@ tokio = { version = "0.1.19", optional = true }
 base58check = "^0.1"
 sha2 = "0.8.0"
 digest = "0.8.0"
+base58 = "^0.1"
 
 [dev-dependencies]
 static_assertions = "^0.3"

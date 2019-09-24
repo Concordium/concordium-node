@@ -1,8 +1,7 @@
-use base58check::ToBase58Check;
 use concordium_crypto_eddsa_ed25519;
-use sha2::{Digest, Sha224};
 use snow::params::{CipherChoice, DHChoice, HashChoice, NoiseParams};
-pub const ADDRESS_SCHEME: u8 = 2;
+use concordium_common::blockchain_types::{SchemeId,AccountAddress};
+pub const ADDRESS_SCHEME: u8 = 1;
 
 #[derive(Default, Debug)]
 pub struct KeyPair {
@@ -29,10 +28,8 @@ impl KeyPair {
     // Address is generated following next rule:
     // `<ADDRESS_SCHEME> + MostSignificantBits_160( SHA_224( public_key))`
     pub fn address(&self) -> String {
-        let hasher: Sha224 = Sha224::default();
-        let pk_hash = hasher.chain(&self.public_key).result();
-
-        format!("{}{}", ADDRESS_SCHEME, pk_hash[..20].to_base58check(0))
+        let address = AccountAddress::from((&self.public_key[..], SchemeId::Ed25519));
+        format!("{}",address)
     }
 }
 
