@@ -31,7 +31,7 @@ RUN \
     rm -rf baker_id_gen
 
 ### P2P client
-RUN --mount=type=ssh cargo build --features=profiling,elastic_logging
+RUN --mount=type=ssh cargo build --features=profiling,elastic_logging,collector
 
 RUN chmod +x /build-project/start.sh
 
@@ -52,5 +52,6 @@ COPY --from=build /build-project/start.sh /start.sh
 COPY --from=build /build-project/genesis-data /genesis-data
 COPY --from=build /build-project/p2p_client-cli /p2p_client-cli
 COPY --from=build /build-project/p2p_bootstrapper-cli /p2p_bootstrapper-cli
+COPY --from=build /build-project/node-collector /node-collector
 
 ENTRYPOINT ["/start.sh"]
