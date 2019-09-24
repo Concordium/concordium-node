@@ -45,6 +45,7 @@ import Concordium.Types
 import Concordium.Types.HashableTo
 import Control.Monad
 import Data.ByteString hiding (intercalate, map, head)
+import Data.ByteString.Unsafe
 import Data.ByteString.Short (toShort)
 import Data.FixedByteString hiding (pack, unpack)
 import Data.Maybe
@@ -65,8 +66,8 @@ utcTimeToTimestamp = floor . utcTimeToPOSIXSeconds
 timestampToUtc :: Int -> UTCTime
 timestampToUtc = posixSecondsToUTCTime . realToFrac
 
-useAsCStringCSize :: ByteString -> (CString -> CSize -> IO a) -> IO a
-useAsCStringCSize b f = useAsCStringLen b $ (\(x,y) -> f x (CSize $ fromIntegral y))
+unsafeUseAsCStringCSize :: ByteString -> (CString -> CSize -> IO a) -> IO a
+unsafeUseAsCStringCSize b f = unsafeUseAsCStringLen b $ (\(x,y) -> f x (fromIntegral y))
 
 ---------------------------
 -- * GlobalState FFI calls
@@ -392,7 +393,7 @@ putFullBlock b = do
 -- This function must initialize the PendingBlockR of the Rust side
 makePendingBlock :: GlobalStatePtr -> BakedBlock -> UTCTime -> IO PendingBlock
 makePendingBlock gsptr bb pendingBlockReceiveTime = do
-  p <- withForeignPtr gsptr $ \g -> useAsCStringCSize (runPut $ (putFullBlock $ bb) >> put (bbSignature bb)) $ makePendingBlockF g
+  p <- withForeignPtr gsptr $ \g -> unsafeUseAsCStringCSize (runPut $ (putFullBlock $ bb) >> put (bbSignature bb)) $ makePendingBlockF g
   pendingBlockPointer <- newForeignPtr freePendingBlockF p
   return PendingBlock{..}
 
@@ -405,7 +406,7 @@ makePendingBlockWithContents gsptr bb pendingBlockReceiveTime = do
                      (GSBB.BlockFields (blockPointer bf) (blockBaker bf) (blockProof bf) (blockNonce bf) (blockLastFinalized bf))
                      (BlockTransactions (blockTransactions bb))
                      (fromJust (blockContentsSignature bb))
-  p <- withForeignPtr gsptr $ \g -> useAsCStringCSize (runPut $ (putFullBlock $ b) >> put (bbSignature b)) $ makePendingBlockF g
+  p <- withForeignPtr gsptr $ \g -> unsafeUseAsCStringCSize (runPut $ (putFullBlock $ b) >> put (bbSignature b)) $ makePendingBlockF g
   pendingBlockPointer <- newForeignPtr freePendingBlockF p
   return PendingBlock{..}
 
@@ -562,5 +563,5 @@ type GlobalStatePtr = ForeignPtr GlobalStateR
 
 makeEmptyGlobalState :: GenesisData -> IO GlobalStatePtr
 makeEmptyGlobalState gendata = do
-  gsptr <- useAsCStringCSize (encode gendata) makeEmptyGlobalStateF
+  gsptr <- unsafeUseAsCStringCSize (encode gendata) makeEmptyGlobalStateF
   newForeignPtr freeGlobalStateF gsptr
