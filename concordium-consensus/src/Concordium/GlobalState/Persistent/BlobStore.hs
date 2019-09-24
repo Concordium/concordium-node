@@ -230,7 +230,11 @@ bufferedToCached' (BRMemory v) = do
         (r, v') <- storeUpdateRef v
         return $ CRCached r v'
 
-
+flushBuffered :: (BlobStorable m BlobRef a) => BufferedRef a -> m (BufferedRef a)
+flushBuffered (BRMemory v) = do
+        (r, v') <- storeUpdateRef v
+        return $ BRCached r v'
+flushBuffered b = return b
 
 
 newtype Blobbed ref f = Blobbed {unblobbed :: ref (f (Blobbed ref f)) }

@@ -15,6 +15,8 @@ import Control.Monad.Trans
 import Control.Monad.IO.Class
 import Control.Monad
 import Lens.Micro.Platform
+import qualified Data.Set as Set
+import Data.Maybe
 
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.Types.Acorn.Core as Core
@@ -22,18 +24,25 @@ import Concordium.Types.Acorn.Interfaces
 import Concordium.Types.HashableTo
 import Concordium.Types
 import qualified Concordium.ID.Types as ID
-import Acorn.Types (link)
+import Acorn.Types (link, ValidResult)
 
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Bakers
+import qualified Concordium.GlobalState.IdentityProviders as IPS
 import qualified Concordium.GlobalState.Rewards as Rewards
 import qualified Concordium.GlobalState.Persistent.Account as Account
 import qualified Concordium.GlobalState.Persistent.Instances as Instances
+import qualified Concordium.GlobalState.Transactions as Transactions
 import Concordium.GlobalState.Persistent.Instances(PersistentInstance(..), PersistentInstanceParameters(..), CacheableInstanceParameters(..))
 import Concordium.GlobalState.Instances (Instance(..),InstanceParameters(..))
+
+-- FIXME: relocate orphans
+instance (MonadBlobStore m ref) => BlobStorable m ref IPS.IdentityProviders
+
+instance (MonadBlobStore m ref) => BlobStorable m ref CryptographicParameters
 
 type PersistentBlockState = BufferedRef BlockStatePointers
 
@@ -42,7 +51,10 @@ data BlockStatePointers = BlockStatePointers {
     bspInstances ::  !Instances.Instances,
     bspModules :: BufferedRef Modules,
     bspBank :: !Rewards.BankStatus,
-    bspBirkParameters :: !BirkParameters -- TODO: Possibly store BirkParameters allowing for sharing
+    bspIdentityProviders :: BufferedRef IPS.IdentityProviders,
+    bspBirkParameters :: !BirkParameters, -- TODO: Possibly store BirkParameters allowing for sharing
+    bspCryptographicParameters :: BufferedRef CryptographicParameters,
+    bspTransactionOutcomes :: !Transactions.TransactionOutcomes
 }
 
 instance (MonadBlobStore m BlobRef) => BlobStorable m BlobRef BlockStatePointers where
@@ -50,26 +62,41 @@ instance (MonadBlobStore m BlobRef) => BlobStorable m BlobRef BlockStatePointers
         (paccts, bspAccounts') <- storeUpdate p bspAccounts
         (pinsts, bspInstances') <- storeUpdate p bspInstances
         (pmods, bspModules') <- storeUpdate p bspModules
+        (pips, bspIdentityProviders') <- storeUpdate p bspIdentityProviders
+        (pcryptps, bspCryptographicParameters') <- storeUpdate p bspCryptographicParameters
         let putBSP = do
                 paccts
                 pinsts
                 pmods
                 put bspBank
+                pips
                 put bspBirkParameters
-        return (putBSP, bsp0 {bspAccounts = bspAccounts', bspInstances = bspInstances', bspModules = bspModules'})
+                pcryptps
+                put bspTransactionOutcomes
+        return (putBSP, bsp0 {
+                    bspAccounts = bspAccounts',
+                    bspInstances = bspInstances',
+                    bspModules = bspModules',
+                    bspIdentityProviders = bspIdentityProviders',
+                    bspCryptographicParameters = bspCryptographicParameters'
+                })
     store p bsp = fst <$> storeUpdate p bsp
     load p = do
         maccts <- load p
         minsts <- load p
         mmods <- load p
         bspBank <- get
+        mpips <- load p
         bspBirkParameters <- get
+        mcryptps <- load p
+        bspTransactionOutcomes <- get
         return $! do
             bspAccounts <- maccts
             bspInstances <- minsts
             bspModules <- mmods
+            bspIdentityProviders <- mpips
+            bspCryptographicParameters <- mcryptps
             return $! BlockStatePointers{..}
-
 
 data PersistentModule = PersistentModule {
     pmInterface :: !(Interface Core.UA),
@@ -355,11 +382,23 @@ doContractInstanceList pbs = do
 doPutNewInstance :: (MonadBlobStore m BlobRef) => PersistentBlockState -> (ContractAddress -> Instance) -> m (ContractAddress, PersistentBlockState)
 doPutNewInstance pbs fnew = do
         bsp <- loadBufferedRef pbs
-        (ca, insts) <- Instances.newContractInstance fnew' (bspInstances bsp)
-        return (ca, BRMemory bsp{bspInstances = insts})
+        -- Create the instance
+        (inst, insts) <- Instances.newContractInstance fnew' (bspInstances bsp)
+        let ca = instanceAddress (instanceParameters inst)
+        -- Update the owner account's set of instances
+        let updAcct oldAccount = return (oldAccount ^. accountStakeDelegate, oldAccount & accountInstances %~ Set.insert ca)
+        (mdelegate, accts) <- Account.updateAccount updAcct (instanceOwner (instanceParameters inst)) (bspAccounts bsp)
+        -- Update the stake delegate
+        case mdelegate of
+            Nothing -> error "Invalid contract owner"
+            Just delegate -> return (ca, BRMemory bsp{
+                                    bspInstances = insts,
+                                    bspAccounts = accts,
+                                    bspBirkParameters = bspBirkParameters bsp & birkBakers %~ modifyStake delegate (amountToDelta (instanceAmount inst))
+                                })
     where
-        fnew' ca = let Instance{instanceParameters = InstanceParameters{..}, ..} = fnew ca in
-            return PersistentInstance{
+        fnew' ca = let inst@Instance{instanceParameters = InstanceParameters{..}, ..} = fnew ca in
+            return (inst, PersistentInstance{
                 pinstanceParameters = BRMemory (PersistentInstanceParameters{
                         pinstanceAddress = instanceAddress,
                         pinstanceOwner = instanceOwner,
@@ -377,15 +416,85 @@ doPutNewInstance pbs fnew = do
                 pinstanceModel = instanceModel,
                 pinstanceAmount = instanceAmount,
                 pinstanceHash = instanceHash
-            }
+            })
 
-{-
 doModifyInstance :: (MonadBlobStore m BlobRef) => PersistentBlockState -> ContractAddress -> Amount -> Value Void -> m PersistentBlockState
 doModifyInstance pbs caddr amnt val = do
         bsp <- loadBufferedRef pbs
--}
+        -- Update the instance
+        Instances.updateContractInstance upd caddr (bspInstances bsp) >>= \case
+            Nothing -> error "Invalid contract address"
+            Just (Nothing, insts) -> -- no change to staking
+                return (BRMemory bsp{bspInstances = insts})
+            Just (Just (owner, deltaAmnt), insts) ->
+                -- Lookup the owner account and update its stake delegate
+                Account.getAccount owner (bspAccounts bsp) >>= \case
+                    Nothing -> error "Invalid contract owner"
+                    Just acct -> return $! BRMemory bsp{
+                            bspInstances = insts,
+                            bspBirkParameters = bspBirkParameters bsp & birkBakers %~ modifyStake (_accountStakeDelegate acct) deltaAmnt
+                        }
+    where
+        upd oldInst = do
+            let deltaAmnt = amountDiff amnt (pinstanceAmount oldInst)
+            if deltaAmnt == 0 then
+                return (Nothing, oldInst {pinstanceModel = val})
+            else do
+                acct <- pinstanceOwner <$> loadBufferedRef (pinstanceParameters oldInst)
+                return (Just (acct, deltaAmnt), oldInst {pinstanceAmount = amnt, pinstanceModel = val})
 
-{-
 doDelegateStake :: (MonadBlobStore m BlobRef) => PersistentBlockState -> AccountAddress -> Maybe BakerId -> m (Bool, PersistentBlockState)
-doDelegateStake pbs aaddr target
--}
+doDelegateStake pbs aaddr target = do
+        bsp <- loadBufferedRef pbs
+        let targetValid = case target of
+                Nothing -> True
+                Just bid -> isJust $ bspBirkParameters bsp ^. birkBakers . bakerMap . at bid
+        if targetValid then do
+            let updAcc acct = return ((acct ^. accountStakeDelegate, acct ^. accountAmount, Set.toList $ acct ^. accountInstances),
+                                acct & accountStakeDelegate .~ target)
+            Account.updateAccount updAcc aaddr (bspAccounts bsp) >>= \case
+                (Nothing, _) -> error "Invalid account address"
+                (Just (acctOldTarget, acctBal, acctInsts), accts) -> do
+                    instBals <- forM acctInsts $ \caddr -> maybe (error "Invalid contract instance") pinstanceAmount <$> Instances.lookupContractInstance caddr (bspInstances bsp)
+                    let stake = acctBal + sum instBals
+                    return $! (True, BRMemory bsp{
+                            bspAccounts = accts,
+                            bspBirkParameters = bspBirkParameters bsp & birkBakers %~
+                                removeStake acctOldTarget stake . addStake target stake
+                        })
+        else
+            return (False, pbs)
+
+doGetIdentityProvider :: (MonadBlobStore m BlobRef) => PersistentBlockState -> ID.IdentityProviderIdentity -> m (Maybe IPS.IdentityProviderData)
+doGetIdentityProvider pbs ipId = do
+        bsp <- loadBufferedRef pbs
+        ips <- loadBufferedRef (bspIdentityProviders bsp)
+        return $! IPS.idProviders ips ^? ix ipId
+
+doGetCryptoParams :: (MonadBlobStore m BlobRef) => PersistentBlockState -> m CryptographicParameters
+doGetCryptoParams pbs = do
+        bsp <- loadBufferedRef pbs
+        loadBufferedRef (bspCryptographicParameters bsp)
+
+doGetTransactionOutcome :: (MonadBlobStore m BlobRef) => PersistentBlockState -> Transactions.TransactionHash -> m (Maybe ValidResult)
+doGetTransactionOutcome pbs transHash = do
+        bsp <- loadBufferedRef pbs
+        return $! Transactions.outcomeMap (bspTransactionOutcomes bsp) ^? ix transHash
+
+doSetTransactionOutcomes :: (MonadBlobStore m BlobRef) => PersistentBlockState -> [(Transactions.TransactionHash, ValidResult)] -> m PersistentBlockState
+doSetTransactionOutcomes pbs transList = do
+        bsp <- loadBufferedRef pbs
+        return $! BRMemory bsp{bspTransactionOutcomes = Transactions.transactionOutcomesFromList transList}
+
+doNotifyExecutionCost :: (MonadBlobStore m BlobRef) => PersistentBlockState -> Amount -> m PersistentBlockState
+doNotifyExecutionCost pbs amnt = do
+        bsp <- loadBufferedRef pbs
+        return $! BRMemory bsp{bspBank = bspBank bsp & Rewards.executionCost +~ amnt}
+
+doNotifyIdentityIssuerCredential :: (MonadBlobStore m BlobRef) => PersistentBlockState -> ID.IdentityProviderIdentity -> m PersistentBlockState
+doNotifyIdentityIssuerCredential pbs idk = do
+        bsp <- loadBufferedRef pbs
+        return $! BRMemory bsp{bspBank = bspBank bsp & (Rewards.identityIssuersRewards . at idk . non 0) +~ 1}
+
+doGetExecutionCost :: (MonadBlobStore m BlobRef) => PersistentBlockState -> m Amount
+doGetExecutionCost pbs = (^. Rewards.executionCost) . bspBank <$> loadBufferedRef pbs

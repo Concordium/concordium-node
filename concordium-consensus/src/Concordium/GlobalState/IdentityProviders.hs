@@ -105,3 +105,7 @@ instance S.Serialize IdentityProviderData where
     ipVerifyKey <- S.get
     ipArInfo <- S.get
     return IdentityProviderData{..}
+
+instance S.Serialize IdentityProviders where
+    put IdentityProviders{..} = S.put (HM.toList idProviders)
+    get = IdentityProviders . HM.fromList <$> S.get

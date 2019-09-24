@@ -2,13 +2,17 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RecordWildCards, MultiParamTypeClasses, FlexibleInstances, GeneralizedNewtypeDeriving, LambdaCase #-}
 {-# LANGUAGE DerivingStrategies, DerivingVia #-}
-module Concordium.GlobalState.Basic.TreeState where
+module Concordium.GlobalState.Persistent.TreeState where
 
 import Lens.Micro.Platform
 import Data.List as List
 import Data.Foldable
 import Control.Monad.State
+import Control.Monad.Reader
 import Control.Exception
+import Data.Hashable hiding (unhashed, hashed)
+import Data.Time
+import Data.Time.Clock.POSIX
 
 import qualified Data.Map.Strict as Map
 import qualified Data.HashMap.Strict as HM
@@ -16,6 +20,7 @@ import qualified Data.Sequence as Seq
 import qualified Data.PQueue.Prio.Min as MPQ
 import qualified Data.Set as Set
 
+import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Parameters
@@ -28,20 +33,125 @@ import Concordium.GlobalState.Transactions
 import qualified Concordium.GlobalState.Rewards as Rewards
 
 import Concordium.GlobalState.Basic.Block
-import Concordium.GlobalState.Basic.BlockState
+import Concordium.GlobalState.Persistent.BlockState
+import Concordium.GlobalState.Persistent.BlobStore
+
+data PersistentBlockPointer = PersistentBlockPointer {
+    -- |Hash of the block
+    _bpHash :: !BlockHash,
+    -- |The block itself
+    _bpBlock :: !Block,
+    -- |Pointer to the parent (circular reference for genesis block)
+    _bpParent :: PersistentBlockPointer,
+    -- |Pointer to the last finalized block (circular for genesis)
+    _bpLastFinalized :: PersistentBlockPointer,
+    -- |Height of the block in the tree
+    _bpHeight :: !BlockHeight,
+    -- |The handle for accessing the state (of accounts, contracts, etc.) after execution of the block.
+    _bpState :: !PersistentBlockState,
+    -- |Time at which the block was first received
+    _bpReceiveTime :: UTCTime,
+    -- |Time at which the block was first considered part of the tree (validated)
+    _bpArriveTime :: UTCTime,
+    -- |Number of transactions in a block
+    _bpTransactionCount :: Int
+}
+
+instance Eq PersistentBlockPointer where
+    bp1 == bp2 = _bpHash bp1 == _bpHash bp2
+
+instance Ord PersistentBlockPointer where
+    compare bp1 bp2 = compare (_bpHash bp1) (_bpHash bp2)
+
+instance Hashable PersistentBlockPointer where
+    hashWithSalt s = hashWithSalt s . _bpHash
+    hash = hash . _bpHash
+
+instance Show PersistentBlockPointer where
+    show = show . _bpHash
+
+instance HashableTo Hash.Hash PersistentBlockPointer where
+    getHash = _bpHash
+
+type instance BlockFieldType PersistentBlockPointer = BlockFields
+
+instance BlockData PersistentBlockPointer where
+    blockSlot = blockSlot . _bpBlock
+    blockFields = blockFields . _bpBlock
+    blockTransactions = blockTransactions . _bpBlock
+    verifyBlockSignature key = verifyBlockSignature key . _bpBlock
+    putBlock = putBlock . _bpBlock
+    {-# INLINE blockSlot #-}
+    {-# INLINE blockFields #-}
+    {-# INLINE blockTransactions #-}
+    {-# INLINE verifyBlockSignature #-}
+    {-# INLINE putBlock #-}
+
+-- |Make a 'PersistentBlockPointer' from a 'PendingBlock'.
+-- The parent and last finalized block pointers must match the block data.
+makeBlockPointer ::
+    PendingBlock        -- ^Pending block
+    -> PersistentBlockPointer     -- ^Parent block pointer
+    -> PersistentBlockPointer     -- ^Last finalized block pointer
+    -> PersistentBlockState       -- ^Block state
+    -> UTCTime          -- ^Block arrival time
+    -> PersistentBlockPointer
+makeBlockPointer pb _bpParent _bpLastFinalized _bpState _bpArriveTime
+        = assert (getHash _bpParent == blockPointer bf) $
+            assert (getHash _bpLastFinalized == blockLastFinalized bf) $
+                PersistentBlockPointer {
+                    _bpHash = getHash pb,
+                    _bpBlock = NormalBlock (pbBlock pb),
+                    _bpHeight = _bpHeight _bpParent + 1,
+                    _bpReceiveTime = pbReceiveTime pb,
+                    _bpTransactionCount = length (blockTransactions pb),
+                    ..}
+    where
+        bf = bbFields $ pbBlock pb
+
+
+makeGenesisBlockPointer :: GenesisData -> PersistentBlockState -> PersistentBlockPointer
+makeGenesisBlockPointer genData _bpState = theBlockPointer
+    where
+        theBlockPointer = PersistentBlockPointer {..}
+        _bpBlock = makeGenesisBlock genData
+        _bpHash = getHash _bpBlock
+        _bpParent = theBlockPointer
+        _bpLastFinalized = theBlockPointer
+        _bpHeight = 0
+        _bpReceiveTime = posixSecondsToUTCTime (fromIntegral (genesisTime genData))
+        _bpArriveTime = _bpReceiveTime
+        _bpTransactionCount = 0
+
+
+instance BS.BlockPointerData PersistentBlockPointer where
+    type BlockState' PersistentBlockPointer = PersistentBlockState
+
+    bpHash = _bpHash
+    bpParent = _bpParent
+    bpLastFinalized = _bpLastFinalized
+    bpHeight = _bpHeight
+    bpState = _bpState
+    bpReceiveTime = _bpReceiveTime
+    bpArriveTime = _bpArriveTime
+    bpTransactionCount = _bpTransactionCount
+
+
+
+
 
 data SkovData = SkovData {
     -- |Map of all received blocks by hash.
-    _skovBlockTable :: !(HM.HashMap BlockHash (TS.BlockStatus BlockPointer PendingBlock)),
+    _skovBlockTable :: !(HM.HashMap BlockHash (TS.BlockStatus PersistentBlockPointer PendingBlock)),
     _skovPossiblyPendingTable :: !(HM.HashMap BlockHash [PendingBlock]),
     _skovPossiblyPendingQueue :: !(MPQ.MinPQueue Slot (BlockHash, BlockHash)),
     _skovBlocksAwaitingLastFinalized :: !(MPQ.MinPQueue BlockHeight PendingBlock),
-    _skovFinalizationList :: !(Seq.Seq (FinalizationRecord, BlockPointer)),
+    _skovFinalizationList :: !(Seq.Seq (FinalizationRecord, PersistentBlockPointer)),
     _skovFinalizationPool :: !(Map.Map FinalizationIndex [FinalizationRecord]),
-    _skovBranches :: !(Seq.Seq [BlockPointer]),
+    _skovBranches :: !(Seq.Seq [PersistentBlockPointer]),
     _skovGenesisData :: !GenesisData,
-    _skovGenesisBlockPointer :: !BlockPointer,
-    _skovFocusBlock :: !BlockPointer,
+    _skovGenesisBlockPointer :: !PersistentBlockPointer,
+    _skovFocusBlock :: !PersistentBlockPointer,
     _skovPendingTransactions :: !PendingTransactionTable,
     _skovTransactionTable :: !TransactionTable,
     _skovStatistics :: !ConsensusStatistics
@@ -54,7 +164,7 @@ instance Show SkovData where
 
 class SkovLenses s where
     skov :: Lens' s SkovData
-    blockTable :: Lens' s (HM.HashMap BlockHash (TS.BlockStatus BlockPointer PendingBlock))
+    blockTable :: Lens' s (HM.HashMap BlockHash (TS.BlockStatus PersistentBlockPointer PendingBlock))
     blockTable = skov . skovBlockTable
     possiblyPendingTable :: Lens' s (HM.HashMap BlockHash [PendingBlock])
     possiblyPendingTable = skov . skovPossiblyPendingTable
@@ -62,17 +172,17 @@ class SkovLenses s where
     possiblyPendingQueue = skov . skovPossiblyPendingQueue
     blocksAwaitingLastFinalized :: Lens' s (MPQ.MinPQueue BlockHeight PendingBlock)
     blocksAwaitingLastFinalized = skov . skovBlocksAwaitingLastFinalized
-    finalizationList :: Lens' s (Seq.Seq (FinalizationRecord, BlockPointer))
+    finalizationList :: Lens' s (Seq.Seq (FinalizationRecord, PersistentBlockPointer))
     finalizationList = skov . skovFinalizationList
     finalizationPool :: Lens' s (Map.Map FinalizationIndex [FinalizationRecord])
     finalizationPool = skov . skovFinalizationPool
-    branches :: Lens' s (Seq.Seq [BlockPointer])
+    branches :: Lens' s (Seq.Seq [PersistentBlockPointer])
     branches = skov . skovBranches
     genesisData :: Lens' s GenesisData
     genesisData = skov . skovGenesisData
-    genesisBlockPointer :: Lens' s BlockPointer
+    genesisBlockPointer :: Lens' s PersistentBlockPointer
     genesisBlockPointer = skov . skovGenesisBlockPointer
-    focusBlock :: Lens' s BlockPointer
+    focusBlock :: Lens' s PersistentBlockPointer
     focusBlock = skov . skovFocusBlock
     pendingTransactions :: Lens' s PendingTransactionTable
     pendingTransactions = skov . skovPendingTransactions
@@ -84,7 +194,7 @@ class SkovLenses s where
 instance SkovLenses SkovData where
     skov = id
 
-initialSkovData :: GenesisData -> BlockState -> SkovData
+initialSkovData :: GenesisData -> PersistentBlockState -> SkovData
 initialSkovData gd genState = SkovData {
             _skovBlockTable = HM.singleton gbh (TS.BlockFinalized gb gbfin),
             _skovPossiblyPendingTable = HM.empty,
@@ -105,16 +215,91 @@ initialSkovData gd genState = SkovData {
         gbh = _bpHash gb
         gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
 
-newtype SkovTreeState s m a = SkovTreeState {runSkovTreeState :: m a}
-    deriving (Functor, Monad, Applicative, MonadState s)
-    deriving (BS.BlockStateQuery) via (PureBlockStateMonad m)
-    deriving (BS.BlockStateOperations) via (PureBlockStateMonad m)
+newtype SkovTreeState r s m a = SkovTreeState {runSkovTreeState :: m a}
+    deriving (Functor, Monad, Applicative, MonadState s, MonadReader r, MonadIO)
 
-type instance TS.PendingBlock (SkovTreeState s m) = PendingBlock
-type instance BS.BlockPointer (SkovTreeState s m) = BlockPointer
-type instance BS.UpdatableBlockState (SkovTreeState s m) = BlockState
+type instance TS.PendingBlock (SkovTreeState r s m) = PendingBlock
+type instance BS.BlockPointer (SkovTreeState r s m) = PersistentBlockPointer
+type instance BS.UpdatableBlockState (SkovTreeState r s m) = PersistentBlockState
 
-instance (SkovLenses s, Monad m, MonadState s m) => TS.TreeStateMonad (SkovTreeState s m) where
+instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => BS.BlockStateQuery (SkovTreeState r s m) where
+    getModule = doGetModule
+    getAccount = doGetAccount
+    getContractInstance = doGetInstance
+    getModuleList = doGetModuleList
+    getAccountList = doAccountList
+    getContractInstanceList = doContractInstanceList
+    getBlockBirkParameters = doGetBlockBirkParameters
+    getRewardStatus = doGetRewardStatus
+    getTransactionOutcome = doGetTransactionOutcome
+    {-# INLINE getModule #-}
+    {-# INLINE getAccount #-}
+    {-# INLINE getContractInstance #-}
+    {-# INLINE getModuleList #-}
+    {-# INLINE getAccountList #-}
+    {-# INLINE getContractInstanceList #-}
+    {-# INLINE getBlockBirkParameters #-}
+    {-# INLINE getRewardStatus #-}
+    {-# INLINE getTransactionOutcome #-}
+
+instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => BS.BlockStateOperations (SkovTreeState r s m) where
+    bsoGetModule = doGetModule
+    bsoGetAccount = doGetAccount
+    bsoGetInstance = doGetInstance
+    bsoRegIdExists = doRegIdExists
+    bsoPutNewAccount = doPutNewAccount
+    bsoPutNewInstance = doPutNewInstance
+    bsoPutNewModule = doPutNewModule
+    bsoTryGetLinkedExpr = doTryGetLinkedExpr
+    bsoPutLinkedExpr = doPutLinkedExpr
+    bsoTryGetLinkedContract = doTryGetLinkedContract
+    bsoPutLinkedContract = doPutLinkedContract
+    bsoModifyAccount = doModifyAccount
+    bsoModifyInstance = doModifyInstance
+    bsoNotifyExecutionCost = doNotifyExecutionCost
+    bsoNotifyIdentityIssuerCredential = doNotifyIdentityIssuerCredential
+    bsoGetExecutionCost = doGetExecutionCost
+    bsoGetBlockBirkParameters = doGetBlockBirkParameters
+    bsoAddBaker = doAddBaker
+    bsoUpdateBaker = doUpdateBaker
+    bsoRemoveBaker = doRemoveBaker
+    bsoSetInflation = doSetInflation
+    bsoMint = doMint
+    bsoDecrementCentralBankGTU = doDecrementCentralBankGTU
+    bsoDelegateStake = doDelegateStake
+    bsoGetIdentityProvider = doGetIdentityProvider
+    bsoGetCryptoParams = doGetCryptoParams
+    bsoSetTransactionOutcomes = doSetTransactionOutcomes
+    {-# INLINE bsoGetModule #-}
+    {-# INLINE bsoGetAccount #-}
+    {-# INLINE bsoGetInstance #-}
+    {-# INLINE bsoRegIdExists #-}
+    {-# INLINE bsoPutNewAccount #-}
+    {-# INLINE bsoPutNewInstance #-}
+    {-# INLINE bsoPutNewModule #-}
+    {-# INLINE bsoTryGetLinkedExpr #-}
+    {-# INLINE bsoPutLinkedExpr #-}
+    {-# INLINE bsoTryGetLinkedContract #-}
+    {-# INLINE bsoPutLinkedContract #-}
+    {-# INLINE bsoModifyAccount #-}
+    {-# INLINE bsoModifyInstance #-}
+    {-# INLINE bsoNotifyExecutionCost #-}
+    {-# INLINE bsoNotifyIdentityIssuerCredential #-}
+    {-# INLINE bsoGetExecutionCost #-}
+    {-# INLINE bsoGetBlockBirkParameters #-}
+    {-# INLINE bsoAddBaker #-}
+    {-# INLINE bsoUpdateBaker #-}
+    {-# INLINE bsoRemoveBaker #-}
+    {-# INLINE bsoSetInflation #-}
+    {-# INLINE bsoMint #-}
+    {-# INLINE bsoDecrementCentralBankGTU #-}
+    {-# INLINE bsoDelegateStake #-}
+    {-# INLINE bsoGetIdentityProvider #-}
+    {-# INLINE bsoGetCryptoParams #-}
+    {-# INLINE bsoSetTransactionOutcomes #-}
+
+
+instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r, SkovLenses s, Monad m, MonadState s m) => TS.TreeStateMonad (SkovTreeState r s m) where
     makePendingBlock key slot parent bid pf n lastFin trs time = return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
     getBlockStatus bh = use (blockTable . at bh)
     makeLiveBlock block parent lastFin st arrTime = do
@@ -234,12 +419,14 @@ instance (SkovLenses s, Monad m, MonadState s m) => TS.TreeStateMonad (SkovTreeS
     updateBlockTransactions trs pb = return $ pb {pbBlock = (pbBlock pb) {bbTransactions = BlockTransactions trs}}
 
     {-# INLINE thawBlockState #-}
-    thawBlockState bs = return $ bs & (blockBank . Rewards.executionCost .~ 0) .
-                                      (blockBank . Rewards.identityIssuersRewards .~ HM.empty)
-
+    thawBlockState pbs = do
+            bsp <- loadBufferedRef pbs
+            return $! BRMemory bsp {
+                    bspBank = bspBank bsp & Rewards.executionCost .~ 0 & Rewards.identityIssuersRewards .~ HM.empty
+                }
 
     {-# INLINE freezeBlockState #-}
-    freezeBlockState = return
+    freezeBlockState = flushBuffered
 
     {-# INLINE dropUpdatableBlockState #-}
     dropUpdatableBlockState _ = return ()

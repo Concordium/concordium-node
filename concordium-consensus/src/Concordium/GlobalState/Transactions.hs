@@ -257,6 +257,10 @@ data TransactionOutcomes = TransactionOutcomes {
 instance Show TransactionOutcomes where
     show (TransactionOutcomes m) = show (HM.toList m)
 
+instance S.Serialize TransactionOutcomes where
+    put TransactionOutcomes{..} = S.put (HM.toList outcomeMap)
+    get = TransactionOutcomes . HM.fromList <$> S.get
+
 emptyTransactionOutcomes :: TransactionOutcomes
 emptyTransactionOutcomes = TransactionOutcomes HM.empty
 
