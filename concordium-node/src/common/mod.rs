@@ -105,8 +105,15 @@ mod tests {
         ($msg:ident, $msg_type:ident, $peer:expr, $nets:expr) => {
             $msg::$msg_type($peer, $nets.clone())
         };
-        ($msg:ident, $msg_type:ident, $peer:expr, $zk:expr, $nets:expr) => {
-            $msg::$msg_type($peer.clone(), $zk.clone(), $nets.clone())
+        (
+            $msg:ident,
+            $msg_type:ident,
+            $remote_node_id:expr,
+            $remote_port:expr,
+            $zk:expr,
+            $nets:expr
+        ) => {
+            $msg::$msg_type($remote_node_id, $remote_port, $zk.clone(), $nets.clone())
         };
     }
 
@@ -127,7 +134,7 @@ mod tests {
         }};
         ($msg:ident, $msg_type:ident, $deserialized:expr, $zk:expr, $nets:expr) => {{
             match $deserialized {
-                NetworkMessage::$msg($msg::$msg_type(_, nets2, zk2), ..) => {
+                NetworkMessage::$msg($msg::$msg_type(_, _, nets2, zk2), ..) => {
                     assert_eq!($zk, zk2);
                     assert_eq!($nets, nets2);
                 }
@@ -175,7 +182,14 @@ mod tests {
                 .map(|net: u16| NetworkId::from(net))
                 .collect();
             let test_msg = NetworkMessage::$msg(
-                create_message!($msg, $msg_type, self_peer.clone().peer().unwrap(), nets, zk),
+                create_message!(
+                    $msg,
+                    $msg_type,
+                    self_peer.clone().peer().unwrap().id(),
+                    self_peer.clone().peer().unwrap().port(),
+                    nets,
+                    zk
+                ),
                 Some(get_current_stamp()),
                 None,
             );
