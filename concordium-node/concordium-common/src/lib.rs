@@ -73,6 +73,9 @@ pub trait RelayOrStopSenderHelper<T> {
     fn send_stop(&self) -> Result<(), mpsc::SendError<QueueMsg<T>>>;
     /// Sends the provided `msg` wrapped inside a `QueueMsg::Relay`
     fn send_msg(&self, msg: T) -> Result<(), mpsc::TrySendError<QueueMsg<T>>>;
+    /// Sends the provided `msg` wrapped inside a `QueueMsg::Relay` in a
+    /// blocking fashion
+    fn send_blocking_msg(&self, msg: T) -> Result<(), mpsc::SendError<QueueMsg<T>>>;
 }
 
 impl<T> RelayOrStopSenderHelper<T> for QueueSyncSender<T> {
@@ -82,6 +85,11 @@ impl<T> RelayOrStopSenderHelper<T> for QueueSyncSender<T> {
     #[inline]
     fn send_msg(&self, msg: T) -> Result<(), mpsc::TrySendError<QueueMsg<T>>> {
         self.try_send(QueueMsg::Relay(msg))
+    }
+
+    #[inline]
+    fn send_blocking_msg(&self, msg: T) -> Result<(), mpsc::SendError<QueueMsg<T>>> {
+        self.send(QueueMsg::Relay(msg))
     }
 }
 

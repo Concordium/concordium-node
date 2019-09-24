@@ -30,7 +30,7 @@ impl Default for TransactionLogQueue {
 
 impl TransactionLogQueue {
     pub fn send_message(&self, message: TransactionLogMessage) -> Fallible<()> {
-        into_err!(self.sender.send_msg(message))
+        into_err!(self.sender.send_blocking_msg(message))
     }
 
     pub fn stop(&self) -> Fallible<()> {
