@@ -27,7 +27,7 @@ import Data.Void
 data MemModule = MemModule {
     mmoduleInterface :: !(Interface Core.UA),
     mmoduleValueInterface :: !(UnlinkedValueInterface Void),
-    mmoduleLinkedDefs :: Map.HashMap Core.Name (LinkedExpr Void),
+    mmoduleLinkedDefs :: Map.HashMap Core.Name (LinkedExprWithDeps Void),
     mmoduleLinkedContracts :: Map.HashMap Core.TyName (LinkedContractValue Void),
     mmoduleIndex :: !ModuleIndex,
     mmoduleSource :: Core.Module Core.UA
@@ -107,11 +107,11 @@ unsafePutInterfaces mref iface viface source m =
 -- |NB: This method assumes the module with given reference is already in the
 -- database, and also that linked code does not affect the hash of the global
 -- state.
-putLinkedExpr :: Core.ModuleRef -> Core.Name -> LinkedExpr Void -> Modules -> Modules
+putLinkedExpr :: Core.ModuleRef -> Core.Name -> LinkedExprWithDeps Void -> Modules -> Modules
 putLinkedExpr mref n linked mods =
   mods & modules %~ flip Map.adjust mref (\MemModule{..} -> MemModule{mmoduleLinkedDefs=Map.insert n linked mmoduleLinkedDefs,..})
 
-getLinkedExpr :: Core.ModuleRef -> Core.Name -> Modules -> Maybe (LinkedExpr Void)
+getLinkedExpr :: Core.ModuleRef -> Core.Name -> Modules -> Maybe (LinkedExprWithDeps Void)
 getLinkedExpr mref n mods = do
   MemModule{..} <- mods ^. modules . at mref
   Map.lookup n mmoduleLinkedDefs

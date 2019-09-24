@@ -51,12 +51,14 @@ invariantInstanceTable (Tree c0 t) = do
 invariantInstances :: Instances -> Either String ()
 invariantInstances = invariantInstanceTable . _instances
 
+dummyExpr :: (Expr linked annot, Word64)
+dummyExpr = (UnCast, 1)
+
 makeArbitraryInstance :: Gen (ContractAddress -> Instance)
 makeArbitraryInstance = do
         let
             modRef = Core.ModuleRef (H.hash "module")
             tyname = 0
-            dummyExpr = UnCast
             contract = ContractValue dummyExpr dummyExpr HM.empty
             messageType = Core.TBase Core.TInt32
         model <- VLiteral . Core.Int32 <$> arbitrary
@@ -70,7 +72,6 @@ makeDummyInstance (InstanceData model amount) =
     where
         modRef = Core.ModuleRef (H.hash "module")
         tyname = 0
-        dummyExpr = UnCast
         contract = ContractValue dummyExpr dummyExpr HM.empty
         messageType = Core.TBase Core.TInt32
         owner = AccountAddress . FBS.pack . replicate 21 $ 0
@@ -230,7 +231,7 @@ testUpdates n0 = if n0 <= 0 then return (property True) else tu n0 emptyInstance
                     InstanceData v a <- arbitrary
                     let
                         ca = ContractAddress ci csi
-                        insts' = updateInstanceAt ca a v insts
+                        insts' = updateInstanceAt' ca a v insts
                         model' = modelUpdateInstanceAt ca a v model
                     tu (n-1) insts' model'
                 updateExisting = do
@@ -239,7 +240,7 @@ testUpdates n0 = if n0 <= 0 then return (property True) else tu n0 emptyInstance
                     InstanceData v a <- arbitrary
                     let
                         ca = ContractAddress ci csi
-                        insts' = updateInstanceAt ca a v insts
+                        insts' = updateInstanceAt' ca a v insts
                         model' = modelUpdateInstanceAt ca a v model
                     tu (n-1) insts' model'
                 deleteExisting = do
@@ -256,7 +257,7 @@ testUpdates n0 = if n0 <= 0 then return (property True) else tu n0 emptyInstance
                     InstanceData v a <- arbitrary
                     let
                         ca = ContractAddress ci csi
-                        insts' = updateInstanceAt ca a v insts
+                        insts' = updateInstanceAt' ca a v insts
                         model' = modelUpdateInstanceAt ca a v model
                     tu (n-1) insts' model'
                 deleteFree = do
