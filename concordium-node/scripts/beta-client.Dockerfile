@@ -44,6 +44,7 @@ ENV MODE=basic
 ENV BOOTSTRAP_FIRST_NODE=bootstrap.eu.test.concordium.com:8888
 ENV DATA_DIR=/var/lib/concordium/data
 ENV CONFIG_DIR=/var/lib/concordium/config
+ENV EXTRA_ARGS="--no-dnssec"
 
 RUN apt-get update && apt-get install -y unbound curl
 COPY --from=build /build-project/p2p_client-cli /p2p_client-cli
