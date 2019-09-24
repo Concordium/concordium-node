@@ -131,7 +131,7 @@ data Transaction = Transaction {
 instance Eq Transaction where
   t1 == t2 = trHash t1 == trHash t2
 
--- |The Ord instance does comparison based on hash.
+-- |The Ord instance does comparison only on hashes.
 instance Ord Transaction where
   compare t1 t2 = compare (trHash t1) (trHash t2)
 

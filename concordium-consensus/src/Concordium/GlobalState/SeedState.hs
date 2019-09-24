@@ -24,35 +24,7 @@ data SeedState = SeedState {
 } deriving (Eq, Generic, Show)
 instance Serialize SeedState
 
--- |Instantiate a seed state: leadership elction nonce should be random, epoch length should be long, but not too long...
+-- |Instantiate a seed state: leadership election nonce should be random, epoch length should be long, but not too long...
 genesisSeedState :: LeadershipElectionNonce -> EpochLength -> SeedState
 genesisSeedState nonce epochLength =
   SeedState nonce epochLength 0 []
-
-getSeed :: SeedState -> LeadershipElectionNonce
-getSeed state = currentSeed state
-
-updateSeed :: Slot -> BlockNonce -> SeedState -> SeedState
-updateSeed slot bn state@SeedState{..} =
-  let 
-    currentEpoch = theSlot $ slot `div` epochLength
-    isFirstBlockOfEpoch = currentEpoch /= epoch
-    shouldContributeBlockNonce = slot `rem` epochLength <= (2 * epochLength) `div` 3
-  in
-    if isFirstBlockOfEpoch then 
-      SeedState{
-        -- H(seed of last epoch, epoch, block nonces in reverse order)
-        currentSeed = hash (runPut $ do
-          put currentSeed
-          put (epoch + 1)
-          mapM_ (put . proofToHash) revBlockNonces), 
-        epochLength = epochLength , 
-        epoch = currentEpoch,
-        revBlockNonces = if shouldContributeBlockNonce then [bn] else []
-      }
-    else if shouldContributeBlockNonce then
-      -- less than 2/3 slots into the epoch, add the new block nonce
-        state {revBlockNonces = bn : revBlockNonces}
-    else 
-      -- more than 2/3 slots into the epoch, no update
-      state
