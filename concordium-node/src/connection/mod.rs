@@ -49,20 +49,24 @@ use std::{
     },
 };
 
+pub struct ConnectionStats {
+    pub last_ping_sent:    AtomicU64,
+    pub sent_handshake:    AtomicU64,
+    pub last_seen:         AtomicU64,
+    pub failed_pkts:       AtomicU32,
+    pub messages_sent:     Arc<AtomicU64>,
+    pub messages_received: Arc<AtomicU64>,
+    pub last_latency:      Arc<AtomicU64>,
+}
+
 pub struct Connection {
     handler_ref:             Pin<Arc<P2PNode>>,
     pub token:               Token,
     pub remote_peer:         RemotePeer,
     pub low_level:           Arc<RwLock<ConnectionLowLevel>>,
     pub remote_end_networks: Arc<RwLock<HashSet<NetworkId>>>,
-    pub is_post_handshake:   Arc<AtomicBool>,
-    pub messages_sent:       Arc<AtomicU64>,
-    pub messages_received:   Arc<AtomicU64>,
-    pub last_ping_sent:      Arc<AtomicU64>,
-    pub sent_handshake:      Arc<AtomicU64>,
-    pub last_latency:        Arc<AtomicU64>,
-    pub last_seen:           Arc<AtomicU64>,
-    pub failed_pkts:         Arc<AtomicU32>,
+    pub is_post_handshake:   AtomicBool,
+    pub stats:               ConnectionStats,
 }
 
 impl fmt::Display for Connection {
@@ -100,6 +104,16 @@ impl Connection {
             noise_params,
         )));
 
+        let stats = ConnectionStats {
+            messages_received: Default::default(),
+            messages_sent:     Default::default(),
+            sent_handshake:    Default::default(),
+            last_latency:      Default::default(),
+            failed_pkts:       Default::default(),
+            last_ping_sent:    AtomicU64::new(curr_stamp),
+            last_seen:         AtomicU64::new(curr_stamp),
+        };
+
         let conn = Arc::new(Self {
             handler_ref: handler.self_ref.clone().unwrap(), // safe, always available
             token,
@@ -107,13 +121,7 @@ impl Connection {
             low_level,
             remote_end_networks: Default::default(),
             is_post_handshake: Default::default(),
-            messages_received: Default::default(),
-            messages_sent: Default::default(),
-            last_ping_sent: Arc::new(AtomicU64::new(curr_stamp)),
-            sent_handshake: Default::default(),
-            last_latency: Default::default(),
-            last_seen: Arc::new(AtomicU64::new(curr_stamp)),
-            failed_pkts: Default::default(),
+            stats,
         });
 
         write_or_die!(conn.low_level).conn_ref = Some(Pin::new(Arc::clone(&conn)));
@@ -121,19 +129,23 @@ impl Connection {
         conn
     }
 
-    pub fn get_last_latency(&self) -> u64 { self.last_latency.load(Ordering::SeqCst) }
+    pub fn get_last_latency(&self) -> u64 { self.stats.last_latency.load(Ordering::SeqCst) }
 
-    pub fn set_last_latency(&self, value: u64) { self.last_latency.store(value, Ordering::SeqCst); }
+    pub fn set_last_latency(&self, value: u64) {
+        self.stats.last_latency.store(value, Ordering::SeqCst);
+    }
 
     pub fn set_sent_handshake(&self) {
-        self.sent_handshake
+        self.stats
+            .sent_handshake
             .store(get_current_stamp(), Ordering::SeqCst)
     }
 
-    pub fn get_last_ping_sent(&self) -> u64 { self.last_ping_sent.load(Ordering::SeqCst) }
+    pub fn get_last_ping_sent(&self) -> u64 { self.stats.last_ping_sent.load(Ordering::SeqCst) }
 
     pub fn set_last_ping_sent(&self) {
-        self.last_ping_sent
+        self.stats
+            .last_ping_sent
             .store(get_current_stamp(), Ordering::SeqCst);
     }
 
@@ -150,9 +162,9 @@ impl Connection {
                 .as_raw(),
             self.remote_addr(),
             self.remote_peer_type(),
-            Arc::clone(&self.messages_sent),
-            Arc::clone(&self.messages_received),
-            Arc::clone(&self.last_latency),
+            Arc::clone(&self.stats.messages_sent),
+            Arc::clone(&self.stats.messages_received),
+            Arc::clone(&self.stats.last_latency),
         ))
     }
 
@@ -160,13 +172,15 @@ impl Connection {
 
     pub fn is_post_handshake(&self) -> bool { self.is_post_handshake.load(Ordering::SeqCst) }
 
-    pub fn last_seen(&self) -> u64 { self.last_seen.load(Ordering::SeqCst) }
+    pub fn last_seen(&self) -> u64 { self.stats.last_seen.load(Ordering::SeqCst) }
 
-    pub fn get_messages_received(&self) -> u64 { self.messages_received.load(Ordering::SeqCst) }
+    pub fn get_messages_received(&self) -> u64 {
+        self.stats.messages_received.load(Ordering::SeqCst)
+    }
 
-    pub fn get_messages_sent(&self) -> u64 { self.messages_sent.load(Ordering::SeqCst) }
+    pub fn get_messages_sent(&self) -> u64 { self.stats.messages_sent.load(Ordering::SeqCst) }
 
-    pub fn failed_pkts(&self) -> u32 { self.failed_pkts.load(Ordering::SeqCst) }
+    pub fn failed_pkts(&self) -> u32 { self.stats.failed_pkts.load(Ordering::SeqCst) }
 
     /// It registers the connection socket, for read and write ops using *edge*
     /// notifications.
@@ -198,7 +212,7 @@ impl Connection {
         let message = NetworkMessage::deserialize(&mut archive)?;
 
         self.update_last_seen();
-        self.messages_received.fetch_add(1, Ordering::Relaxed);
+        self.stats.messages_received.fetch_add(1, Ordering::Relaxed);
         TOTAL_MESSAGES_RECEIVED_COUNTER.fetch_add(1, Ordering::Relaxed);
         if let Some(ref service) = self.handler().stats_export_service {
             service.pkt_received_inc();
@@ -237,7 +251,7 @@ impl Connection {
     #[inline]
     pub fn async_send(&self, input: HybridBuf, priority: MessageSendingPriority) -> Fallible<()> {
         TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
-        self.messages_sent.fetch_add(1, Ordering::Relaxed);
+        self.stats.messages_sent.fetch_add(1, Ordering::Relaxed);
         if let Some(ref stats) = self.handler().stats_export_service {
             stats.pkt_sent_inc();
         }
@@ -268,7 +282,7 @@ impl Connection {
         priority: MessageSendingPriority,
     ) -> Fallible<Readiness<usize>> {
         TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
-        self.messages_sent.fetch_add(1, Ordering::Relaxed);
+        self.stats.messages_sent.fetch_add(1, Ordering::Relaxed);
         if let Some(ref stats) = self.handler().stats_export_service {
             stats.pkt_sent_inc();
         }
@@ -280,7 +294,9 @@ impl Connection {
 
     pub fn update_last_seen(&self) {
         if self.handler().peer_type() != PeerType::Bootstrapper {
-            self.last_seen.store(get_current_stamp(), Ordering::SeqCst);
+            self.stats
+                .last_seen
+                .store(get_current_stamp(), Ordering::SeqCst);
         }
     }
 
