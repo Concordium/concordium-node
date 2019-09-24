@@ -112,7 +112,8 @@ fn handle_handshake_resp(
     conn.promote_to_post_handshake(source.id())?;
     conn.add_remote_end_networks(networks);
 
-    conn.sent_handshake
+    conn.stats
+        .sent_handshake
         .store(get_current_stamp(), Ordering::SeqCst);
 
     if source.peer_type() != PeerType::Bootstrapper {
@@ -136,7 +137,7 @@ fn handle_ping(conn: &Connection) -> Fallible<()> {
 }
 
 fn handle_pong(conn: &Connection) -> Fallible<()> {
-    let ping_time: u64 = conn.last_ping_sent.load(Ordering::SeqCst);
+    let ping_time: u64 = conn.stats.last_ping_sent.load(Ordering::SeqCst);
     let curr_time: u64 = get_current_stamp();
 
     if curr_time >= ping_time {
@@ -417,7 +418,7 @@ pub fn handle_incoming_packet(
 fn handle_invalid_network_msg(conn: &Connection) {
     debug!("Received an invalid network message!");
 
-    conn.failed_pkts.fetch_add(1, Ordering::Relaxed);
+    conn.stats.failed_pkts.fetch_add(1, Ordering::Relaxed);
 
     if let Some(ref service) = conn.handler().stats_export_service {
         service.invalid_pkts_received_inc();
