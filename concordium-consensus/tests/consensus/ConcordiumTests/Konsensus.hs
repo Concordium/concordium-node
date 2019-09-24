@@ -53,8 +53,6 @@ import Test.Hspec
 
 import Data.Maybe
 
-import QuickCheck.GenT
-
 -- import Debug.Trace
 
 dummyTime :: UTCTime
@@ -329,8 +327,8 @@ initialEvents states = Seq.fromList [(x, EBake 1) | x <- [0..length states -1]]
 
 makeBaker :: BakerId -> Amount -> Gen (BakerInfo, BakerIdentity, Account)
 makeBaker bid lot = do
-        ek@(VRF.KeyPair _ epk) <- liftGen $ arbitrary
-        sk                     <- liftGen $ Sig.genKeyPair
+        ek@(VRF.KeyPair _ epk) <- arbitrary
+        sk                     <- Sig.genKeyPair
         let spk = Sig.verifyKey sk
         let account = makeBakerAccount bid
         return (BakerInfo epk spk lot (_accountAddress account), BakerIdentity sk ek, account)
