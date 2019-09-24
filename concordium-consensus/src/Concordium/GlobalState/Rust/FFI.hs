@@ -63,18 +63,21 @@ utcTimeToTimestamp = floor . utcTimeToPOSIXSeconds
 timestampToUtc :: Int -> UTCTime
 timestampToUtc = posixSecondsToUTCTime . realToFrac
 
+useAsCStringCSize :: ByteString -> (CString -> CSize -> IO a) -> IO a
+useAsCStringCSize b f = useAsCStringLen b $ (\(x,y) -> f x (CSize $ fromIntegral y))
+
 ---------------------------
 -- * GlobalState FFI calls
 ---------------------------
 
 foreign import ccall unsafe "global_state_new"
-    makeEmptyGlobalStateF :: CString -> Int -> IO (Ptr GlobalStateR)
+    makeEmptyGlobalStateF :: CString -> CSize -> IO (Ptr GlobalStateR)
 foreign import ccall unsafe "&global_state_free"
     freeGlobalStateF :: FunPtr (Ptr GlobalStateR -> IO ())
 foreign import ccall unsafe "get_genesis_block_pointer"
    getGenesisBlockPointerF :: Ptr GlobalStateR -> IO (Ptr BlockPointerR)
 foreign import ccall unsafe "make_pending_block"
-   makePendingBlockF :: Ptr GlobalStateR -> CString -> Int -> IO (Ptr PendingBlockR)
+   makePendingBlockF :: Ptr GlobalStateR -> CString -> CSize -> IO (Ptr PendingBlockR)
 foreign import ccall unsafe "&pending_block_free"
    freePendingBlockF :: FunPtr (Ptr PendingBlockR -> IO ())
 foreign import ccall unsafe "make_block_pointer"
@@ -115,50 +118,50 @@ newtype BlockFields = BlockFields (Ptr BlockFieldsR)
 
 -- Will always be 32b
 foreign import ccall unsafe "get_pointer_from_block_fields"
-    blockFieldsBlockPointerF :: BlockFields -> CString
+    blockFieldsBlockPointerF :: BlockFields -> IO CString
 foreign import ccall unsafe "get_baker_from_block_fields"
-    blockFieldsBlockBakerF :: BlockFields -> Int
+    blockFieldsBlockBakerF :: BlockFields -> IO Word64
 foreign import ccall unsafe "get_proof_from_block_fields"
-    blockFieldsBlockProofF :: BlockFields -> CString
+    blockFieldsBlockProofF :: BlockFields -> IO CString
 foreign import ccall unsafe "get_proof_length_from_block_fields"
-    blockFieldsBlockProofLengthF :: BlockFields -> Word64
+    blockFieldsBlockProofLengthF :: BlockFields -> IO Word64
 foreign import ccall unsafe "get_nonce_from_block_fields"
-    blockFieldsBlockNonceF :: BlockFields -> CString
+    blockFieldsBlockNonceF :: BlockFields -> IO CString
 foreign import ccall unsafe "get_nonce_length_from_block_fields"
-    blockFieldsBlockNonceLengthF :: BlockFields -> Word64
+    blockFieldsBlockNonceLengthF :: BlockFields -> IO Word64
 foreign import ccall unsafe "get_last_finalized_from_block_fields"
-    blockFieldsBlockLastFinalizedF :: BlockFields -> CString
+    blockFieldsBlockLastFinalizedF :: BlockFields -> IO CString
 
 blockFieldsBlockPointer :: BlockFields -> BlockHash
 blockFieldsBlockPointer b = unsafePerformIO $ do
-  let p = blockFieldsBlockPointerF b
+  p <- blockFieldsBlockPointerF b
   bh_str <- curry packCStringLen p 32
   return . SHA256.Hash . fromByteString $ bh_str
 
 blockFieldsBlockBaker :: BlockFields -> BakerId
-blockFieldsBlockBaker = BakerId . fromIntegral . blockFieldsBlockBakerF
+blockFieldsBlockBaker = BakerId . fromIntegral . unsafePerformIO . blockFieldsBlockBakerF
 
 blockFieldsBlockProof :: BlockFields -> BlockProof
 blockFieldsBlockProof b = unsafePerformIO $ do
-  let p = blockFieldsBlockProofF b
-      l = blockFieldsBlockProofLengthF b
+  p <- blockFieldsBlockProofF b
+  l <- blockFieldsBlockProofLengthF b
   bp_str <- curry packCStringLen p (fromIntegral l)
-  return $ case decode bp_str of
+  return $! case decode bp_str of
              Right val -> val
              Left e -> error e
 
 blockFieldsBlockNonce :: BlockFields -> BlockNonce
 blockFieldsBlockNonce b = unsafePerformIO $ do
-  let p = blockFieldsBlockNonceF b
-      l = blockFieldsBlockNonceLengthF b
+  p <- blockFieldsBlockNonceF b
+  l <- blockFieldsBlockNonceLengthF b
   bn_str <- curry packCStringLen p (fromIntegral l)
-  return $ case decode bn_str of
+  return $! case decode bn_str of
              Right val -> val
              Left e -> error e
 
 blockFieldsBlockLastFinalized :: BlockFields -> BlockHash
 blockFieldsBlockLastFinalized b = unsafePerformIO $ do
-  let p = blockFieldsBlockLastFinalizedF b
+  p <- blockFieldsBlockLastFinalizedF b
   bn_str <- curry packCStringLen p 32
   return . SHA256.Hash . fromByteString $ bn_str
 
@@ -205,7 +208,7 @@ newtype BlockContents = BlockContents (ForeignPtr BlockContentsR)
 foreign import ccall unsafe "get_fields_from_block_contents"
     blockContentsFieldsF :: Ptr BlockContentsR -> IO (Ptr BlockFieldsR)
 foreign import ccall unsafe "get_slot_from_block_contents"
-    blockContentsSlotF :: Ptr BlockContentsR -> IO Int
+    blockContentsSlotF :: Ptr BlockContentsR -> IO Slot
 foreign import ccall unsafe "get_transactions_from_block_contents"
     blockContentsTransactionsF :: Ptr BlockContentsR -> IO CString
 foreign import ccall unsafe "get_transactions_length_from_block_contents"
@@ -257,19 +260,24 @@ instance BlockData BlockContents where
   blockSlot = blockContentsSlot
   blockFields = blockContentsFields
   blockTransactions b = blockContentsBlockTransactions b
-  verifyBlockSignature key b = Sig.verify key (runPut $ blockBodySerialize b) (fromJust . blockContentsSignature $ b)
+  -- The genesis block should never get its signature checked (it has none) and it is not serialized as it is not sent or moved to rust
+  verifyBlockSignature key b = case blockContentsSignature b of
+    Just bcf -> Sig.verify key (runPut $ blockBodySerialize b) bcf
+    Nothing -> True
   putBlock b = blockBodySerialize b  >> (putByteString . encode . fromJust . blockContentsSignature $ b)
 
--- Improve for serializing also de genesis data
 blockBodySerialize :: BlockContents -> Put
 blockBodySerialize b = do
+  case blockContentsFields b of
+    Just bcf -> do
         put . blockSlot $ b
-        put . blockPointer . fromJust . blockContentsFields $ b
-        put . blockBaker . fromJust . blockContentsFields $ b
-        put . blockProof . fromJust . blockContentsFields $ b
-        put . blockNonce . fromJust . blockContentsFields $ b
-        put . blockLastFinalized . fromJust . blockContentsFields $ b
+        put . blockPointer $ bcf
+        put . blockBaker $ bcf
+        put . blockProof $ bcf
+        put . blockNonce $ bcf
+        put . blockLastFinalized $ bcf
         put . map trBareTransaction . blockTransactions $ b
+    Nothing -> fail "Unacceptable serialization of genesis data"
 
 ---------------------------
 -- * PendingBlock FFI calls
@@ -293,13 +301,13 @@ data PendingBlock = PendingBlock {
   }
 
 foreign import ccall unsafe "get_contents_from_pending_block"
-    pendingBlockContentsF :: Ptr PendingBlockR -> Ptr BlockContentsR
+    pendingBlockContentsF :: Ptr PendingBlockR -> IO (Ptr BlockContentsR)
 foreign import ccall unsafe "get_hash_from_pending_block"
-    pendingBlockHashF :: Ptr PendingBlockR -> CString
+    pendingBlockHashF :: Ptr PendingBlockR -> IO CString
 
 pendingBlockHash :: PendingBlock -> BlockHash
 pendingBlockHash b = unsafePerformIO $ do
-      p <- withForeignPtr (pendingBlockPointer b) (return . pendingBlockHashF)
+      p <- withForeignPtr (pendingBlockPointer b) pendingBlockHashF
       bh_str <- curry packCStringLen p 32
       return . SHA256.Hash . fromByteString $ bh_str
 
@@ -308,7 +316,7 @@ pendingBlockExtractBlockFields pb = fromJust . blockContentsFields . pendingBloc
 
 pendingBlockExtractBlockContents :: PendingBlock -> BlockContents
 pendingBlockExtractBlockContents b = BlockContents . unsafePerformIO $ do
-      p <- withForeignPtr (pendingBlockPointer b) (return . pendingBlockContentsF)
+      p <- withForeignPtr (pendingBlockPointer b) pendingBlockContentsF
       newForeignPtr blockContentsFreeF p
 
 -- |Update the list of transactions held in the Rust side
@@ -350,7 +358,7 @@ putFullTransaction (Transaction bt _ _ arrival) = do
 
 getTransactions :: Get [Transaction]
 getTransactions = do
-  len <- get :: Get Word64
+  len <- getWord64be
   replicateM (fromIntegral len) getTransaction
 
 getTransaction :: Get Transaction
@@ -358,7 +366,7 @@ getTransaction = do
   bt <- get
   arrival <- get
   let encoded = encode bt
-  return $ Transaction bt (Data.ByteString.length encoded) (SHA256.hash encoded) (timestampToUtc arrival)
+  return $! Transaction bt (Data.ByteString.length encoded) (SHA256.hash encoded) (timestampToUtc arrival)
 
 putFullBlock :: BakedBlock -> Put
 putFullBlock b = do
@@ -368,15 +376,14 @@ putFullBlock b = do
         put (blockProof b)
         put (blockNonce b)
         put (blockLastFinalized b)
-        put (Prelude.length (blockTransactions b))
-        let txs = runPut (mapM_ putFullTransaction (blockTransactions b))
-        putByteString txs
+        putWord64be (fromIntegral $ Prelude.length (blockTransactions b))
+        mapM_ putFullTransaction (blockTransactions b)
 
 -- |Create a PendingBlock
 -- This function must initialize the PendingBlockR of the Rust side
 makePendingBlock :: GlobalStatePtr -> BakedBlock -> UTCTime -> IO PendingBlock
 makePendingBlock gsptr bb pendingBlockReceiveTime = do
-  p <- withForeignPtr gsptr $ useAsCStringLen (runPut $ (putFullBlock $ bb) >> put (bbSignature bb)) . uncurry . makePendingBlockF
+  p <- withForeignPtr gsptr $ \g -> useAsCStringCSize (runPut $ (putFullBlock $ bb) >> put (bbSignature bb)) $ makePendingBlockF g
   pendingBlockPointer <- newForeignPtr freePendingBlockF p
   return PendingBlock{..}
 
@@ -389,7 +396,7 @@ makePendingBlockWithContents gsptr bb pendingBlockReceiveTime = do
                      (GSBB.BlockFields (blockPointer bf) (blockBaker bf) (blockProof bf) (blockNonce bf) (blockLastFinalized bf))
                      (BlockTransactions (blockTransactions bb))
                      (fromJust (blockContentsSignature bb))
-  p <- withForeignPtr gsptr $ useAsCStringLen (runPut $ (putFullBlock $ b) >> put (bbSignature b)) . uncurry . makePendingBlockF
+  p <- withForeignPtr gsptr $ \g -> useAsCStringCSize (runPut $ (putFullBlock $ b) >> put (bbSignature b)) $ makePendingBlockF g
   pendingBlockPointer <- newForeignPtr freePendingBlockF p
   return PendingBlock{..}
 
@@ -421,46 +428,47 @@ data BlockPointer = BlockPointer {
   }
 
 foreign import ccall unsafe "get_hash_from_block_pointer"
-    blockPointerHashF :: Ptr BlockPointerR -> CString
+    blockPointerHashF :: Ptr BlockPointerR -> IO CString
 foreign import ccall unsafe "get_height_from_block_pointer"
-    blockPointerHeightF :: Ptr BlockPointerR -> Int
+    blockPointerHeightF :: Ptr BlockPointerR -> IO Word64
 foreign import ccall unsafe "get_transaction_count_from_block_pointer"
-    blockPointerTransactionCountF :: Ptr BlockPointerR -> Int
+    blockPointerTransactionCountF :: Ptr BlockPointerR -> IO Word64
 foreign import ccall unsafe "get_transaction_energy_cost_from_block_pointer"
-    blockPointerTransactionEnergyF :: Ptr BlockPointerR -> Word64
+    blockPointerTransactionEnergyF :: Ptr BlockPointerR -> IO Word64
 foreign import ccall unsafe "get_transaction_size_from_block_pointer"
-    blockPointerTransactionSizeF :: Ptr BlockPointerR -> Int
+    blockPointerTransactionSizeF :: Ptr BlockPointerR -> IO Word64
 foreign import ccall unsafe "get_contents_from_block_pointer"
-    blockPointerContentsF :: Ptr BlockPointerR -> Ptr BlockContentsR
+    blockPointerContentsF :: Ptr BlockPointerR -> IO (Ptr BlockContentsR)
 
 blockPointerHash :: BlockPointer -> BlockHash
 blockPointerHash b = unsafePerformIO $ do
-      p <- withForeignPtr (blockPointerPointer b) (return . blockPointerHashF)
+      p <- withForeignPtr (blockPointerPointer b) blockPointerHashF
       bh_str <- curry packCStringLen p 32
       return . SHA256.Hash . fromByteString $ bh_str
 
 blockPointerHeight :: BlockPointer -> BlockHeight
 blockPointerHeight b = unsafePerformIO $ do
-      withForeignPtr (blockPointerPointer b) (return . BlockHeight . fromIntegral . blockPointerHeightF)
+      withForeignPtr (blockPointerPointer b)
+        (\bp -> (BlockHeight . fromIntegral) <$> blockPointerHeightF bp)
 
 blockPointerTransactionCount :: BlockPointer -> Int
-blockPointerTransactionCount b = unsafePerformIO $ do
-      withForeignPtr (blockPointerPointer b) (return . blockPointerTransactionCountF)
+blockPointerTransactionCount b = fromIntegral . unsafePerformIO $ do
+      withForeignPtr (blockPointerPointer b) blockPointerTransactionCountF
 
 blockPointerTransactionEnergy :: BlockPointer -> Energy
 blockPointerTransactionEnergy b = unsafePerformIO $ do
-      withForeignPtr (blockPointerPointer b) (return . Energy . blockPointerTransactionEnergyF)
+      withForeignPtr (blockPointerPointer b) (\bp -> Energy <$> blockPointerTransactionEnergyF bp)
 
 blockPointerTransactionSize :: BlockPointer -> Int
-blockPointerTransactionSize b = unsafePerformIO $ do
-      withForeignPtr (blockPointerPointer b) (return . blockPointerTransactionSizeF)
+blockPointerTransactionSize b = fromIntegral . unsafePerformIO $ do
+      withForeignPtr (blockPointerPointer b) blockPointerTransactionSizeF
 
 blockPointerExtractBlockFields :: BlockPointer -> Maybe BlockFields
 blockPointerExtractBlockFields = blockContentsFields . blockPointerExtractBlockContents
 
 blockPointerExtractBlockContents :: BlockPointer -> BlockContents
 blockPointerExtractBlockContents b = BlockContents . unsafePerformIO $ do
-      p <- withForeignPtr (blockPointerPointer b) (return . blockPointerContentsF)
+      p <- withForeignPtr (blockPointerPointer b) blockPointerContentsF
       newForeignPtr blockContentsFreeF p
 
 blockPointerExtractSignature :: BlockPointer -> Maybe BlockSignature
@@ -545,5 +553,5 @@ type GlobalStatePtr = ForeignPtr GlobalStateR
 
 makeEmptyGlobalState :: GenesisData -> IO GlobalStatePtr
 makeEmptyGlobalState gendata = do
-  gsptr <- useAsCStringLen (encode gendata) (\(x,y) -> makeEmptyGlobalStateF x y)
+  gsptr <- useAsCStringCSize (encode gendata) makeEmptyGlobalStateF
   newForeignPtr freeGlobalStateF gsptr
