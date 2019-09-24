@@ -55,6 +55,8 @@ import Data.Word
 import Foreign.C
 import Foreign.Ptr
 import Foreign.ForeignPtr
+import Foreign.Marshal.Alloc
+import Foreign.Storable
 import System.IO.Unsafe
 
 utcTimeToTimestamp :: UTCTime -> Int
@@ -114,54 +116,58 @@ data BlockFieldsR
 --    * LastFinalized: hash of the las finalized block
 --
 -- BlockFields is required to implement BlockMetadata.
-newtype BlockFields = BlockFields (Ptr BlockFieldsR)
+newtype BlockFields = BlockFields (ForeignPtr BlockFieldsR)
 
 -- Will always be 32b
 foreign import ccall unsafe "get_pointer_from_block_fields"
-    blockFieldsBlockPointerF :: BlockFields -> IO CString
+    blockFieldsBlockPointerF :: Ptr BlockFieldsR -> IO CString
 foreign import ccall unsafe "get_baker_from_block_fields"
-    blockFieldsBlockBakerF :: BlockFields -> IO Word64
+    blockFieldsBlockBakerF :: Ptr BlockFieldsR -> IO Word64
 foreign import ccall unsafe "get_proof_from_block_fields"
-    blockFieldsBlockProofF :: BlockFields -> IO CString
-foreign import ccall unsafe "get_proof_length_from_block_fields"
-    blockFieldsBlockProofLengthF :: BlockFields -> IO Word64
+    blockFieldsBlockProofF :: Ptr BlockFieldsR -> Ptr CSize -> IO CString
 foreign import ccall unsafe "get_nonce_from_block_fields"
-    blockFieldsBlockNonceF :: BlockFields -> IO CString
-foreign import ccall unsafe "get_nonce_length_from_block_fields"
-    blockFieldsBlockNonceLengthF :: BlockFields -> IO Word64
+    blockFieldsBlockNonceF :: Ptr BlockFieldsR -> Ptr CSize -> IO CString
 foreign import ccall unsafe "get_last_finalized_from_block_fields"
-    blockFieldsBlockLastFinalizedF :: BlockFields -> IO CString
+    blockFieldsBlockLastFinalizedF :: Ptr BlockFieldsR -> IO CString
+foreign import ccall unsafe "&block_fields_free"
+    blockFieldsFreeF :: FunPtr (Ptr BlockFieldsR -> IO ())
 
 blockFieldsBlockPointer :: BlockFields -> BlockHash
-blockFieldsBlockPointer b = unsafePerformIO $ do
-  p <- blockFieldsBlockPointerF b
+blockFieldsBlockPointer (BlockFields b) = unsafePerformIO $
+  withForeignPtr b $ \bf -> do
+  p <- blockFieldsBlockPointerF bf
   bh_str <- curry packCStringLen p 32
   return . SHA256.Hash . fromByteString $ bh_str
 
 blockFieldsBlockBaker :: BlockFields -> BakerId
-blockFieldsBlockBaker = BakerId . fromIntegral . unsafePerformIO . blockFieldsBlockBakerF
+blockFieldsBlockBaker (BlockFields b) = BakerId . fromIntegral . unsafePerformIO $ withForeignPtr b blockFieldsBlockBakerF
 
 blockFieldsBlockProof :: BlockFields -> BlockProof
-blockFieldsBlockProof b = unsafePerformIO $ do
-  p <- blockFieldsBlockProofF b
-  l <- blockFieldsBlockProofLengthF b
-  bp_str <- curry packCStringLen p (fromIntegral l)
-  return $! case decode bp_str of
-             Right val -> val
-             Left e -> error e
+blockFieldsBlockProof (BlockFields b) = unsafePerformIO $
+  withForeignPtr b $ \bf ->
+  alloca $ \len_ptr -> do
+            p <- blockFieldsBlockProofF bf len_ptr
+            len <- peek len_ptr
+            bp_str <- curry packCStringLen p (fromIntegral len)
+            return $! case decode bp_str of
+                        Right val -> val
+                        Left e -> error e
 
 blockFieldsBlockNonce :: BlockFields -> BlockNonce
-blockFieldsBlockNonce b = unsafePerformIO $ do
-  p <- blockFieldsBlockNonceF b
-  l <- blockFieldsBlockNonceLengthF b
-  bn_str <- curry packCStringLen p (fromIntegral l)
-  return $! case decode bn_str of
-             Right val -> val
-             Left e -> error e
+blockFieldsBlockNonce (BlockFields b) = unsafePerformIO $
+  withForeignPtr b $ \bf ->
+  alloca $ \len_ptr -> do
+             p <- blockFieldsBlockNonceF bf len_ptr
+             len <- peek len_ptr
+             bn_str <- curry packCStringLen p (fromIntegral len)
+             return $! case decode bn_str of
+                         Right val -> val
+                         Left e -> error e
 
 blockFieldsBlockLastFinalized :: BlockFields -> BlockHash
-blockFieldsBlockLastFinalized b = unsafePerformIO $ do
-  p <- blockFieldsBlockLastFinalizedF b
+blockFieldsBlockLastFinalized (BlockFields b) = unsafePerformIO $
+  withForeignPtr b $ \bf -> do
+  p <- blockFieldsBlockLastFinalizedF bf
   bn_str <- curry packCStringLen p 32
   return . SHA256.Hash . fromByteString $ bn_str
 
@@ -210,20 +216,19 @@ foreign import ccall unsafe "get_fields_from_block_contents"
 foreign import ccall unsafe "get_slot_from_block_contents"
     blockContentsSlotF :: Ptr BlockContentsR -> IO Slot
 foreign import ccall unsafe "get_transactions_from_block_contents"
-    blockContentsTransactionsF :: Ptr BlockContentsR -> IO CString
-foreign import ccall unsafe "get_transactions_length_from_block_contents"
-    blockContentsTransactionsLengthF :: Ptr BlockContentsR -> IO Word64
+    blockContentsTransactionsF :: Ptr BlockContentsR -> Ptr CSize -> IO CString
 foreign import ccall unsafe "get_signature_from_block_contents"
-    blockContentsSignatureF :: Ptr BlockContentsR -> IO CString
-foreign import ccall unsafe "get_signature_length_from_block_contents"
-    blockContentsSignatureLengthF :: Ptr BlockContentsR -> IO Word64
+    blockContentsSignatureF :: Ptr BlockContentsR -> Ptr CSize -> IO CString
 foreign import ccall unsafe "block_contents_compare"
     blockContentsCompareF :: Ptr BlockContentsR -> Ptr BlockContentsR -> IO Bool
 foreign import ccall unsafe "&block_contents_free"
     blockContentsFreeF :: FunPtr (Ptr BlockContentsR -> IO ())
 
 blockContentsFields :: BlockContents -> Maybe BlockFields
-blockContentsFields (BlockContents bc) = if p == nullPtr then Nothing else Just $ BlockFields p
+blockContentsFields (BlockContents bc) =
+  if p == nullPtr
+  then Nothing
+  else Just . BlockFields . unsafePerformIO $ newForeignPtr blockFieldsFreeF p
   where
     p = unsafePerformIO $ withForeignPtr bc blockContentsFieldsF
 
@@ -232,22 +237,26 @@ blockContentsSlot (BlockContents bc) = Slot . fromIntegral . unsafePerformIO . w
 
 blockContentsBlockTransactions :: BlockContents -> [Transaction]
 blockContentsBlockTransactions (BlockContents b) = unsafePerformIO $ do
-  p <- withForeignPtr b blockContentsTransactionsF
-  l <- withForeignPtr b blockContentsTransactionsLengthF
-  bt_str <- curry packCStringLen p (fromIntegral l)
-  case runGet getTransactions bt_str of
-        Left e  -> fail $ "Couldn't deserialize txs " ++ show e ++ "input: " ++ show bt_str ++ "tried to take " ++ show l ++ " bytes from " ++ show p
+  withForeignPtr b $ \bc ->
+    alloca $ \len_ptr -> do
+    txs <- blockContentsTransactionsF bc len_ptr
+    len <- peek len_ptr
+    bt_str <- curry packCStringLen txs (fromIntegral len)
+    case runGet getTransactions bt_str of
+        Left e  -> fail $ "Couldn't deserialize txs " ++ show e ++ "input: " ++ show bt_str ++ "tried to take " ++ show len ++ " bytes from " ++ show txs
         Right v -> return v
 
 blockContentsSignature :: BlockContents -> Maybe BlockSignature
 blockContentsSignature (BlockContents bc) = unsafePerformIO $ do
-  p <- withForeignPtr bc blockContentsSignatureF
-  l <- withForeignPtr bc blockContentsSignatureLengthF
-  if p == nullPtr then do
-    return Nothing
-  else do
-    bc_hs <- curry packCStringLen p $ fromIntegral l
-    return . Just . SSCH.Signature . toShort $ bc_hs
+  withForeignPtr bc $ \b ->
+    alloca $ \len_ptr -> do
+    sig <- blockContentsSignatureF b len_ptr
+    if sig == nullPtr then do
+      return Nothing
+    else do
+      len <- peek len_ptr
+      bc_hs <- curry packCStringLen sig $ fromIntegral len
+      return . Just . SSCH.Signature . toShort $ bc_hs
 
 instance Eq BlockContents where
   BlockContents a == BlockContents b = unsafePerformIO $
@@ -297,7 +306,7 @@ data PendingBlockR
 -- BlockHash, Show and BlockPendingData
 data PendingBlock = PendingBlock {
   pendingBlockPointer     :: ForeignPtr PendingBlockR,
-  pendingBlockReceiveTime:: UTCTime
+  pendingBlockReceiveTime :: UTCTime
   }
 
 foreign import ccall unsafe "get_contents_from_pending_block"
