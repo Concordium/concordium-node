@@ -296,6 +296,9 @@ instance (MonadBlobStore m BlobRef) => BlobStorable m BlobRef Instances where
             s <- get
             fmap (InstancesTree s) <$> load p
 
+emptyInstances :: Instances
+emptyInstances = InstancesEmpty
+
 newContractInstance :: forall m a. (MonadBlobStore m BlobRef) => (ContractAddress -> m (a, PersistentInstance)) -> Instances -> m (a, Instances)
 newContractInstance fnew InstancesEmpty = do
         let ca = ContractAddress 0 0

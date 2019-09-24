@@ -1,18 +1,16 @@
 {-# LANGUAGE RecordWildCards, FlexibleInstances, MultiParamTypeClasses, FlexibleContexts, GeneralizedNewtypeDeriving,
-        TypeFamilies, BangPatterns, TemplateHaskell, LambdaCase
+        TypeFamilies, BangPatterns, TemplateHaskell, LambdaCase, OverloadedStrings
  #-}
 
 module Concordium.GlobalState.Persistent.BlockState where
 
 import Data.Void
-import Data.Proxy
 import Data.Serialize
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import Control.Monad.Reader.Class
 import Control.Monad.Trans.Reader (ReaderT, runReaderT)
 import Control.Monad.Trans
-import Control.Monad.IO.Class
 import Control.Monad
 import Lens.Micro.Platform
 import qualified Data.Set as Set
@@ -21,10 +19,9 @@ import Data.Maybe
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.Types.Acorn.Interfaces
-import Concordium.Types.HashableTo
 import Concordium.Types
 import qualified Concordium.ID.Types as ID
-import Acorn.Types (link, ValidResult)
+import Acorn.Types (linkWithMaxSize, ValidResult)
 
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
@@ -38,6 +35,7 @@ import qualified Concordium.GlobalState.Persistent.Instances as Instances
 import qualified Concordium.GlobalState.Transactions as Transactions
 import Concordium.GlobalState.Persistent.Instances(PersistentInstance(..), PersistentInstanceParameters(..), CacheableInstanceParameters(..))
 import Concordium.GlobalState.Instances (Instance(..),InstanceParameters(..))
+import Concordium.GlobalState.SeedState (SeedState)
 
 -- FIXME: relocate orphans
 instance (MonadBlobStore m ref) => BlobStorable m ref IPS.IdentityProviders
@@ -126,6 +124,13 @@ data Modules = Modules {
     runningHash :: !H.Hash
 }
 
+emptyModules :: Modules
+emptyModules = Modules {
+        modules = Trie.empty,
+        nextModuleIndex = 0,
+        runningHash = H.hash ""
+    }
+
 instance (MonadBlobStore m BlobRef) => BlobStorable m BlobRef Modules where
     storeUpdate p ms@Modules{..} = do
         (pm, modules') <- storeUpdate p modules
@@ -140,7 +145,7 @@ instance (MonadBlobStore m BlobRef) => BlobStorable m BlobRef Modules where
             return Modules{..}
 
 data ModuleCache = ModuleCache {
-    _cachedLinkedDefs :: HM.HashMap (Core.ModuleRef, Core.Name) (LinkedExpr Void),
+    _cachedLinkedDefs :: HM.HashMap (Core.ModuleRef, Core.Name) (LinkedExprWithDeps Void),
     _cachedLinkedContracts :: HM.HashMap (Core.ModuleRef, Core.TyName) (LinkedContractValue Void)
 }
 makeLenses ''ModuleCache
@@ -165,6 +170,23 @@ instance (MonadBlobStore m BlobRef, MonadIO m, MonadReader r m, HasModuleCache r
         blockState <- ask
         void $ lift $ doPutLinkedExpr blockState modref name linked
 
+-- |Mostly empty block state, apart from using 'Rewards.genesisBankStatus' which
+-- has hard-coded initial values for amount of gtu in existence.
+emptyBlockState :: BirkParameters -> CryptographicParameters -> PersistentBlockState
+emptyBlockState bspBirkParameters cryptParams = BRMemory BlockStatePointers {
+  bspAccounts = Account.emptyAccounts
+  , bspInstances = Instances.emptyInstances
+  , bspModules = BRMemory $! emptyModules
+  , bspBank = Rewards.emptyBankStatus
+  , bspIdentityProviders = BRMemory $! IPS.emptyIdentityProviders
+  , bspCryptographicParameters = BRMemory $! cryptParams
+  , bspTransactionOutcomes = Transactions.emptyTransactionOutcomes
+  ,..
+  }
+
+
+
+
 doLinkContract :: (MonadBlobStore m BlobRef, MonadIO m, MonadReader r m, HasModuleCache r) =>
     PersistentBlockState -> Core.ModuleRef -> Module -> Core.TyName -> m (LinkedContractValue Void)
 doLinkContract pbs mref m cname = do
@@ -174,17 +196,18 @@ doLinkContract pbs mref m cname = do
         Nothing -> do
             let unlinked = viContracts (moduleValueInterface m) HM.! cname
             linked <- flip runReaderT pbs $ runLinkerWrapper $ do
-                cvInitMethod <- link mref (cvInitMethod unlinked)
-                cvReceiveMethod <- link mref (cvReceiveMethod unlinked)
+                cvInitMethod <- myLink (cvInitMethod unlinked)
+                cvReceiveMethod <- myLink (cvReceiveMethod unlinked)
                 cvImplements <- mapM (\iv -> do
-                                        ivSenders <- mapM (link mref) (ivSenders iv)
-                                        ivGetters <- mapM (link mref) (ivGetters iv)
+                                        ivSenders <- mapM myLink (ivSenders iv)
+                                        ivGetters <- mapM myLink (ivGetters iv)
                                         return ImplementsValue{..}
                                     ) (cvImplements unlinked)
                 return ContractValue{..}
             _ <- doPutLinkedContract pbs mref cname linked
             return linked
-
+    where
+        myLink ule = (_1 %~ leExpr) . fromJust <$> linkWithMaxSize mref ule maxBound
 
 fromPersistentInstance :: (MonadBlobStore m BlobRef, MonadIO m, MonadReader r m, HasModuleCache r) =>
     PersistentBlockState -> Instances.PersistentInstance -> m Instance
@@ -219,7 +242,7 @@ fromPersistentInstance pbs Instances.PersistentInstance{..} = do
                     instanceOwner = pinstanceOwner,
                     instanceContractModule = pinstanceContractModule,
                     instanceContract = pinstanceContract,
-                    instanceReceiveFun = cvReceiveMethod conVal,
+                    instanceReceiveFun = fst (cvReceiveMethod conVal),
                     instanceModuleInterface = moduleInterface m,
                     instanceModuleValueInterface = moduleValueInterface m,
                     instanceMessageType = msgTy (exportedContracts (moduleInterface m) HM.! pinstanceContract),
@@ -266,12 +289,12 @@ doPutNewModule pbs mref pmInterface pmValueInterface pmSource = do
         else
             return (False, pbs)
 
-doTryGetLinkedExpr :: (MonadIO m, MonadReader r m, HasModuleCache r) => PersistentBlockState -> Core.ModuleRef -> Core.Name -> m (Maybe (LinkedExpr Void))
+doTryGetLinkedExpr :: (MonadIO m, MonadReader r m, HasModuleCache r) => PersistentBlockState -> Core.ModuleRef -> Core.Name -> m (Maybe (LinkedExprWithDeps Void))
 doTryGetLinkedExpr _ modRef n = do
         cache <- asks moduleCache >>= liftIO . readIORef
         return $! HM.lookup (modRef, n) (_cachedLinkedDefs cache)
 
-doPutLinkedExpr :: (MonadIO m, MonadReader r m, HasModuleCache r) => PersistentBlockState -> Core.ModuleRef -> Core.Name -> LinkedExpr Void -> m PersistentBlockState
+doPutLinkedExpr :: (MonadIO m, MonadReader r m, HasModuleCache r) => PersistentBlockState -> Core.ModuleRef -> Core.Name -> LinkedExprWithDeps Void -> m PersistentBlockState
 doPutLinkedExpr pbs modRef n !le = do
         cacheRef <- asks moduleCache
         liftIO $ modifyIORef' cacheRef (cachedLinkedDefs %~ HM.insert (modRef, n) le)
@@ -360,12 +383,12 @@ doModifyAccount pbs aUpd@AccountUpdate{..} = do
             Nothing -> return accts1
         -- If the amount is changed update the delegate stake
         let birkParams1 = case (_auAmount, mbalinfo) of
-                (Just newAmount, Just (delegate, oldAmount)) ->
-                    bspBirkParameters bsp & birkBakers %~ modifyStake delegate (amountDiff newAmount oldAmount)  
+                (Just deltaAmnt, Just delegate) ->
+                    bspBirkParameters bsp & birkBakers %~ modifyStake delegate deltaAmnt
                 _ -> bspBirkParameters bsp
         return $! BRMemory (bsp {bspAccounts = accts2, bspBirkParameters = birkParams1})
     where
-        upd oldAccount = return ((oldAccount ^. accountStakeDelegate, oldAccount ^. accountAmount), updateAccount aUpd oldAccount)
+        upd oldAccount = return ((oldAccount ^. accountStakeDelegate), updateAccount aUpd oldAccount)
 
 doGetInstance :: (MonadBlobStore m BlobRef, MonadIO m, MonadReader r m, HasModuleCache r) => PersistentBlockState -> ContractAddress -> m (Maybe Instance)
 doGetInstance pbs caddr = do
@@ -418,15 +441,15 @@ doPutNewInstance pbs fnew = do
                 pinstanceHash = instanceHash
             })
 
-doModifyInstance :: (MonadBlobStore m BlobRef) => PersistentBlockState -> ContractAddress -> Amount -> Value Void -> m PersistentBlockState
-doModifyInstance pbs caddr amnt val = do
+doModifyInstance :: (MonadBlobStore m BlobRef) => PersistentBlockState -> ContractAddress -> AmountDelta -> Value Void -> m PersistentBlockState
+doModifyInstance pbs caddr deltaAmnt val = do
         bsp <- loadBufferedRef pbs
         -- Update the instance
         Instances.updateContractInstance upd caddr (bspInstances bsp) >>= \case
             Nothing -> error "Invalid contract address"
             Just (Nothing, insts) -> -- no change to staking
                 return (BRMemory bsp{bspInstances = insts})
-            Just (Just (owner, deltaAmnt), insts) ->
+            Just (Just owner, insts) ->
                 -- Lookup the owner account and update its stake delegate
                 Account.getAccount owner (bspAccounts bsp) >>= \case
                     Nothing -> error "Invalid contract owner"
@@ -436,12 +459,11 @@ doModifyInstance pbs caddr amnt val = do
                         }
     where
         upd oldInst = do
-            let deltaAmnt = amountDiff amnt (pinstanceAmount oldInst)
             if deltaAmnt == 0 then
                 return (Nothing, oldInst {pinstanceModel = val})
             else do
                 acct <- pinstanceOwner <$> loadBufferedRef (pinstanceParameters oldInst)
-                return (Just (acct, deltaAmnt), oldInst {pinstanceAmount = amnt, pinstanceModel = val})
+                return (Just acct, oldInst {pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst), pinstanceModel = val})
 
 doDelegateStake :: (MonadBlobStore m BlobRef) => PersistentBlockState -> AccountAddress -> Maybe BakerId -> m (Bool, PersistentBlockState)
 doDelegateStake pbs aaddr target = do
@@ -479,7 +501,7 @@ doGetCryptoParams pbs = do
 doGetTransactionOutcome :: (MonadBlobStore m BlobRef) => PersistentBlockState -> Transactions.TransactionHash -> m (Maybe ValidResult)
 doGetTransactionOutcome pbs transHash = do
         bsp <- loadBufferedRef pbs
-        return $! Transactions.outcomeMap (bspTransactionOutcomes bsp) ^? ix transHash
+        return $! (bspTransactionOutcomes bsp) ^? ix transHash
 
 doSetTransactionOutcomes :: (MonadBlobStore m BlobRef) => PersistentBlockState -> [(Transactions.TransactionHash, ValidResult)] -> m PersistentBlockState
 doSetTransactionOutcomes pbs transList = do
@@ -498,3 +520,16 @@ doNotifyIdentityIssuerCredential pbs idk = do
 
 doGetExecutionCost :: (MonadBlobStore m BlobRef) => PersistentBlockState -> m Amount
 doGetExecutionCost pbs = (^. Rewards.executionCost) . bspBank <$> loadBufferedRef pbs
+
+doGetSpecialOutcomes :: (MonadBlobStore m BlobRef) => PersistentBlockState -> m [Transactions.SpecialTransactionOutcome]
+doGetSpecialOutcomes pbs = (^. to bspTransactionOutcomes . Transactions.outcomeSpecial) <$> loadBufferedRef pbs
+
+doAddSpecialTransactionOutcome :: (MonadBlobStore m BlobRef) => PersistentBlockState -> Transactions.SpecialTransactionOutcome -> m PersistentBlockState
+doAddSpecialTransactionOutcome pbs o = do
+        bsp <- loadBufferedRef pbs
+        return $! BRMemory bsp{bspTransactionOutcomes = bspTransactionOutcomes bsp & Transactions.outcomeSpecial %~ (o:)}
+
+doUpdateSeedState :: (MonadBlobStore m BlobRef) => PersistentBlockState -> SeedState -> m PersistentBlockState
+doUpdateSeedState pbs ss = do
+        bsp <- loadBufferedRef pbs
+        return $! BRMemory bsp{bspBirkParameters = bspBirkParameters bsp & seedState .~ ss}

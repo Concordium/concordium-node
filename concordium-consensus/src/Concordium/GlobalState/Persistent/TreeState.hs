@@ -54,7 +54,11 @@ data PersistentBlockPointer = PersistentBlockPointer {
     -- |Time at which the block was first considered part of the tree (validated)
     _bpArriveTime :: UTCTime,
     -- |Number of transactions in a block
-    _bpTransactionCount :: Int
+    _bpTransactionCount :: Int,
+    -- |Energy cost of all transactions in the block.
+    _bpTransactionsEnergyCost :: !Energy,
+    -- |Size of the transaction data in bytes.
+    _bpTransactionsSize :: !Int
 }
 
 instance Eq PersistentBlockPointer where
@@ -95,8 +99,9 @@ makeBlockPointer ::
     -> PersistentBlockPointer     -- ^Last finalized block pointer
     -> PersistentBlockState       -- ^Block state
     -> UTCTime          -- ^Block arrival time
+    -> Energy           -- ^Energy cost of all transactions in the block
     -> PersistentBlockPointer
-makeBlockPointer pb _bpParent _bpLastFinalized _bpState _bpArriveTime
+makeBlockPointer pb _bpParent _bpLastFinalized _bpState _bpArriveTime _bpTransactionsEnergyCost
         = assert (getHash _bpParent == blockPointer bf) $
             assert (getHash _bpLastFinalized == blockLastFinalized bf) $
                 PersistentBlockPointer {
@@ -104,10 +109,10 @@ makeBlockPointer pb _bpParent _bpLastFinalized _bpState _bpArriveTime
                     _bpBlock = NormalBlock (pbBlock pb),
                     _bpHeight = _bpHeight _bpParent + 1,
                     _bpReceiveTime = pbReceiveTime pb,
-                    _bpTransactionCount = length (blockTransactions pb),
                     ..}
     where
         bf = bbFields $ pbBlock pb
+        (_bpTransactionCount, _bpTransactionsSize) = List.foldl' (\(clen, csize) tx -> (clen + 1, trSize tx + csize)) (0, 0) (blockTransactions pb)
 
 
 makeGenesisBlockPointer :: GenesisData -> PersistentBlockState -> PersistentBlockPointer
@@ -122,6 +127,8 @@ makeGenesisBlockPointer genData _bpState = theBlockPointer
         _bpReceiveTime = posixSecondsToUTCTime (fromIntegral (genesisTime genData))
         _bpArriveTime = _bpReceiveTime
         _bpTransactionCount = 0
+        _bpTransactionsEnergyCost = 0
+        _bpTransactionsSize = 0
 
 
 instance BS.BlockPointerData PersistentBlockPointer where
@@ -135,9 +142,8 @@ instance BS.BlockPointerData PersistentBlockPointer where
     bpReceiveTime = _bpReceiveTime
     bpArriveTime = _bpArriveTime
     bpTransactionCount = _bpTransactionCount
-
-
-
+    bpTransactionsEnergyCost = _bpTransactionsEnergyCost
+    bpTransactionsSize = _bpTransactionsSize
 
 
 data SkovData = SkovData {
@@ -154,7 +160,8 @@ data SkovData = SkovData {
     _skovFocusBlock :: !PersistentBlockPointer,
     _skovPendingTransactions :: !PendingTransactionTable,
     _skovTransactionTable :: !TransactionTable,
-    _skovStatistics :: !ConsensusStatistics
+    _skovStatistics :: !ConsensusStatistics,
+    _skovRuntimeParameters :: !RuntimeParameters
 }
 makeLenses ''SkovData
 
@@ -190,12 +197,18 @@ class SkovLenses s where
     transactionTable = skov . skovTransactionTable
     statistics :: Lens' s ConsensusStatistics
     statistics = skov . skovStatistics
+    runtimeParameters :: Lens' s RuntimeParameters
+    runtimeParameters = skov . skovRuntimeParameters
 
 instance SkovLenses SkovData where
     skov = id
 
-initialSkovData :: GenesisData -> PersistentBlockState -> SkovData
-initialSkovData gd genState = SkovData {
+-- |Initial skov data with default runtime parameters (block size = 10MB).
+initialSkovDataDefault :: GenesisData -> PersistentBlockState -> SkovData
+initialSkovDataDefault = initialSkovData defaultRuntimeParameters
+
+initialSkovData :: RuntimeParameters -> GenesisData -> PersistentBlockState -> SkovData
+initialSkovData rp gd genState = SkovData {
             _skovBlockTable = HM.singleton gbh (TS.BlockFinalized gb gbfin),
             _skovPossiblyPendingTable = HM.empty,
             _skovPossiblyPendingQueue = MPQ.empty,
@@ -208,7 +221,8 @@ initialSkovData gd genState = SkovData {
             _skovFocusBlock = gb,
             _skovPendingTransactions = emptyPendingTransactionTable,
             _skovTransactionTable = emptyTransactionTable,
-            _skovStatistics = initialConsensusStatistics
+            _skovStatistics = initialConsensusStatistics,
+            _skovRuntimeParameters = rp
         }
     where
         gb = makeGenesisBlockPointer gd genState
@@ -232,6 +246,7 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => BS.Bl
     getBlockBirkParameters = doGetBlockBirkParameters
     getRewardStatus = doGetRewardStatus
     getTransactionOutcome = doGetTransactionOutcome
+    getSpecialOutcomes = doGetSpecialOutcomes
     {-# INLINE getModule #-}
     {-# INLINE getAccount #-}
     {-# INLINE getContractInstance #-}
@@ -241,6 +256,7 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => BS.Bl
     {-# INLINE getBlockBirkParameters #-}
     {-# INLINE getRewardStatus #-}
     {-# INLINE getTransactionOutcome #-}
+    {-# INLINE getSpecialOutcomes #-}
 
 instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => BS.BlockStateOperations (SkovTreeState r s m) where
     bsoGetModule = doGetModule
@@ -270,6 +286,8 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => BS.Bl
     bsoGetIdentityProvider = doGetIdentityProvider
     bsoGetCryptoParams = doGetCryptoParams
     bsoSetTransactionOutcomes = doSetTransactionOutcomes
+    bsoAddSpecialTransactionOutcome = doAddSpecialTransactionOutcome
+    bsoUpdateSeedState = doUpdateSeedState
     {-# INLINE bsoGetModule #-}
     {-# INLINE bsoGetAccount #-}
     {-# INLINE bsoGetInstance #-}
@@ -297,13 +315,15 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => BS.Bl
     {-# INLINE bsoGetIdentityProvider #-}
     {-# INLINE bsoGetCryptoParams #-}
     {-# INLINE bsoSetTransactionOutcomes #-}
+    {-# INLINE bsoAddSpecialTransactionOutcome #-}
+    {-# INLINE bsoUpdateSeedState #-}
 
 
 instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r, SkovLenses s, Monad m, MonadState s m) => TS.TreeStateMonad (SkovTreeState r s m) where
     makePendingBlock key slot parent bid pf n lastFin trs time = return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
     getBlockStatus bh = use (blockTable . at bh)
-    makeLiveBlock block parent lastFin st arrTime = do
-            let blockP = makeBlockPointer block parent lastFin st arrTime
+    makeLiveBlock block parent lastFin st arrTime energy = do
+            let blockP = makeBlockPointer block parent lastFin st arrTime energy
             blockTable . at (getHash block) ?= TS.BlockAlive blockP
             return blockP
     markDead bh = blockTable . at bh ?= TS.BlockDead
@@ -436,3 +456,6 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r, SkovLens
 
     getConsensusStatistics = use statistics
     putConsensusStatistics stats = statistics .= stats
+
+    {-# INLINE getRuntimeParameters #-}
+    getRuntimeParameters = use runtimeParameters

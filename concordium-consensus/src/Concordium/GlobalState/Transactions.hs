@@ -317,6 +317,10 @@ data SpecialTransactionOutcome =
   BakingReward !AccountAddress !Amount
   deriving(Show)
 
+instance S.Serialize SpecialTransactionOutcome where
+    put (BakingReward addr amt) = S.put addr >> S.put amt
+    get = BakingReward <$> S.get <*> S.get
+
 -- |Values of this datatype must satisfy the invariant that the values in the
 -- map are exactly the indices in the vector.
 data TransactionOutcomes = TransactionOutcomes {
@@ -331,8 +335,11 @@ instance Show TransactionOutcomes where
     show (TransactionOutcomes _ v s) = "Normal transactions: " ++ show (Vec.toList v) ++ ", special transactions: " ++ show s
 
 instance S.Serialize TransactionOutcomes where
-    put TransactionOutcomes{..} = S.put (HM.toList outcomeMap)
-    get = TransactionOutcomes . HM.fromList <$> S.get
+    put TransactionOutcomes{..} = do
+        S.put (HM.toList outcomeIndex)
+        S.put (Vec.toList outcomeValues)
+        S.put _outcomeSpecial
+    get = TransactionOutcomes <$> (HM.fromList <$> S.get) <*> (Vec.fromList <$> S.get) <*> S.get
 
 emptyTransactionOutcomes :: TransactionOutcomes
 emptyTransactionOutcomes = TransactionOutcomes HM.empty Vec.empty []
