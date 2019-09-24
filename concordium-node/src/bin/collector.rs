@@ -9,6 +9,7 @@ use failure::Fallible;
 use grpcio::{ChannelBuilder, EnvBuilder};
 use p2p_client::proto::concordium_p2p_rpc_grpc::P2PClient;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::{sync::Arc, thread, time::Duration};
 use structopt::StructOpt;
 #[macro_use]
@@ -23,25 +24,25 @@ static A: System = System;
 #[derive(Serialize, Deserialize)]
 struct NodeInfo {
     nodeName:               String,
-    nodeAlias:              String,
+    nodeId:                 String,
     peerType:               String,
-    uptime:                 u64,
+    uptime:                 f64,
     client:                 String,
     averagePing:            Option<f64>,
-    peersCount:             usize,
+    peersCount:             f64,
     peersList:              Vec<String>,
-    bestBlock:              Option<String>,
-    bestBlockHeight:        Option<usize>,
-    bestArrivedTime:        Option<usize>,
-    blockArrivePeriodEMA:   Option<usize>,
-    blockArrivePeriodEMSD:  Option<usize>,
-    finalizedBlock:         Option<usize>,
-    finalizedBlockHeight:   Option<usize>,
-    finalizedTime:          Option<usize>,
-    finalizationPeriodEMA:  Option<usize>,
-    finalizationPeriodEMSD: Option<usize>,
-    packetsSent:            u64,
-    packetsReceived:        u64,
+    bestBlock:              String,
+    bestBlockHeight:        f64,
+    bestArrivedTime:        Option<String>,
+    blockArrivePeriodEMA:   Option<f64>,
+    blockArrivePeriodEMSD:  Option<f64>,
+    finalizedBlock:         String,
+    finalizedBlockHeight:   f64,
+    finalizedTime:          Option<String>,
+    finalizationPeriodEMA:  Option<f64>,
+    finalizationPeriodEMSD: Option<f64>,
+    packetsSent:            f64,
+    packetsReceived:        f64,
 }
 
 #[derive(StructOpt, Debug)]
@@ -65,15 +66,12 @@ struct ConfigCli {
         default_value = "10000"
     )]
     pub grpc_port: u16,
-    #[structopt(
-        long = "node-alias",
-        help = "Alias submitted of the node collected from"
-    )]
-    pub node_alias: String,
+    #[structopt(long = "node-name", help = "Node name")]
+    pub node_name: String,
     #[structopt(
         long = "collector-url",
         help = "Alias submitted of the node collected from",
-        default_value = "http://localhost:3000/post/node"
+        default_value = "http://localhost:3000/post/nodes"
     )]
     pub collector_url: String,
     #[structopt(long = "print-config", help = "Print out config struct")]
@@ -122,14 +120,15 @@ pub fn main() -> Fallible<()> {
         let mut grpc_failures = 0;
         loop {
             if let Ok(node_info) = collect_data(
-                &conf.node_alias,
+                &conf.node_name,
                 &conf.grpc_host,
                 conf.grpc_port,
                 &conf.grpc_auth_token,
             ) {
                 if let Ok(json_string) = serde_json::to_string(&node_info) {
+                    trace!("Posting JSON {}", json_string);
                     let client = reqwest::Client::new();
-                    if let Err(e) = client.post(&conf.collector_url).body(json_string).send() {
+                    if let Err(e) = client.post(&conf.collector_url).json(&node_info).send() {
                         error!("Could not post to dashboard server due to error {}", e);
                     }
                 }
@@ -148,7 +147,7 @@ pub fn main() -> Fallible<()> {
 }
 
 fn collect_data(
-    node_alias: &str,
+    node_name: &str,
     grpc_host: &str,
     grpc_port: u16,
     grpc_auth_token: &str,
@@ -187,33 +186,76 @@ fn collect_data(
     let node_total_received_reply =
         client.peer_total_received_opt(&p2p_client::proto::Empty::new(), call_options.clone())?;
 
-    let node_name = node_info_reply.get_node_id().get_value().to_owned();
-    let node_alias = node_alias.to_owned();
+    let node_id = node_info_reply.get_node_id().get_value().to_owned();
     let peer_type = node_info_reply.get_peer_type().to_owned();
-    let uptime = node_uptime_reply.get_value();
+    let uptime = node_uptime_reply.get_value() as f64;
     let version = node_version_reply.get_value().to_owned();
-    let packets_sent = node_total_sent_reply.get_value();
-    let packets_received = node_total_received_reply.get_value();
+    let packets_sent = node_total_sent_reply.get_value() as f64;
+    let packets_received = node_total_received_reply.get_value() as f64;
 
     let peer_stats = node_peer_stats_reply.get_peerstats();
-    let average_ping: Option<f64> = None;
-    let peers_count = peer_stats.len();
-    let peers_list = vec![];
+    let peers_total_meassured_latency = peer_stats
+        .iter()
+        .map(|element| element.get_measured_latency())
+        .sum::<u64>() as f64
+        / peer_stats
+            .iter()
+            .filter(|element| element.get_measured_latency() > 0)
+            .count() as f64;
+    let average_ping: Option<f64> = if peers_total_meassured_latency > 0.0 {
+        Some(peers_total_meassured_latency)
+    } else {
+        None
+    };
+    let peers_count = peer_stats.len() as f64;
+    let peers_list = peer_stats
+        .iter()
+        .map(|element| element.node_id.clone())
+        .collect::<Vec<String>>();
 
-    let best_block: Option<String> = None;
-    let best_block_height: Option<usize> = None;
-    let best_arrived_timee: Option<usize> = None;
-    let block_arrive_period_ema: Option<usize> = None;
-    let block_arrive_period_emsd: Option<usize> = None;
-    let finalized_block: Option<usize> = None;
-    let finalized_block_height: Option<usize> = None;
-    let finalized_time: Option<usize> = None;
-    let finalization_period_ema: Option<usize> = None;
-    let finalization_period_emsd: Option<usize> = None;
+    let json_consensus_value: Value =
+        serde_json::from_str(&node_consensus_status_reply.json_value)?;
+
+    let best_block = json_consensus_value["bestBlock"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let best_block_height = json_consensus_value["bestBlockHeight"].as_f64().unwrap();
+    let best_arrived_time = if json_consensus_value["blockLastArrivedTime"].is_string() {
+        Some(
+            json_consensus_value["blockLastArrivedTime"]
+                .as_str()
+                .unwrap()
+                .to_owned(),
+        )
+    } else {
+        None
+    };
+    let block_arrive_period_ema = json_consensus_value["blockArrivePeriodEMA"].as_f64();
+    let block_arrive_period_emsd = json_consensus_value["blockArrivePeriodEMSD"].as_f64();
+    let finalized_block = json_consensus_value["lastFinalizedBlock"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let finalized_block_height = json_consensus_value["lastFinalizedBlockHeight"]
+        .as_f64()
+        .unwrap();
+    let finalized_time = if json_consensus_value["lastFinalizedTime"].is_string() {
+        Some(
+            json_consensus_value["lastFinalizedTime"]
+                .as_str()
+                .unwrap()
+                .to_owned(),
+        )
+    } else {
+        None
+    };
+    let finalization_period_ema = json_consensus_value["finalizationPeriodEMA"].as_f64();
+    let finalization_period_emsd = json_consensus_value["finalizationPeriodEMSD"].as_f64();
 
     Ok(NodeInfo {
-        nodeName: node_name,
-        nodeAlias: node_alias,
+        nodeName: node_name.to_owned(),
+        nodeId: node_id,
         peerType: peer_type,
         uptime,
         client: version,
@@ -222,7 +264,7 @@ fn collect_data(
         peersList: peers_list,
         bestBlock: best_block,
         bestBlockHeight: best_block_height,
-        bestArrivedTime: best_arrived_timee,
+        bestArrivedTime: best_arrived_time,
         blockArrivePeriodEMA: block_arrive_period_ema,
         blockArrivePeriodEMSD: block_arrive_period_emsd,
         finalizedBlock: finalized_block,
