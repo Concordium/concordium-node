@@ -72,7 +72,7 @@ instance FromJSON IdentityProviderData where
     do ipIdbs <- v .: "ipIdentity"
        ipVerifyKeybs <- b16 <$> (v .: "ipVerifyKey")
        arPublicKeybs <- b16 <$> (v .: "arPublicKey")
-       arName <- v .: "arName"
+       arName <- v .: "arIdentity"
        arElgamalGeneratorbs <- b16 <$> (v .: "arElgamalGenerator")
        -- we need to add length information to the deserializer for this field.
        -- This is an unfortunate hack, but ...

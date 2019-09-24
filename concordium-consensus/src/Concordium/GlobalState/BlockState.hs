@@ -11,30 +11,33 @@ module Concordium.GlobalState.BlockState where
 
 import Data.Time
 import Lens.Micro.Platform
+import Control.Monad.Reader
+import Control.Monad.State.Strict
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
-import Control.Monad.Trans.Class
-import Control.Monad.Trans.RWS.Strict
-import Control.Monad
+import Control.Monad.Trans.RWS.Strict hiding (ask)
 import Data.Word
 
 import Concordium.Types
-import Concordium.Types.Execution (ValidResult)
+import Concordium.Types.Execution
 import Concordium.GlobalState.Block
 import Concordium.Types.Acorn.Core(ModuleRef)
 import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.Types.Acorn.Interfaces
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.SeedState
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Instances
 -- import Concordium.GlobalState.Modules hiding (getModule)
 import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.IdentityProviders
-import Concordium.GlobalState.Transactions (TransactionHash)
+import Concordium.GlobalState.Transactions
 
 import Data.Void
+import Data.Maybe
 
 import qualified Concordium.ID.Types as ID
+import qualified Concordium.ID.Account as ID
 
 
 class (Eq bp, Show bp, BlockData bp) => BlockPointerData bp where
@@ -55,6 +58,10 @@ class (Eq bp, Show bp, BlockData bp) => BlockPointerData bp where
     bpArriveTime :: bp -> UTCTime
     -- |Number of transactions in a block
     bpTransactionCount :: bp -> Int
+    -- |Energy cost of all transactions in the block.
+    bpTransactionsEnergyCost :: bp -> Energy
+    -- |Size of the transaction data in bytes.
+    bpTransactionsSize :: bp -> Int
 
 type family BlockPointer (m :: * -> *) :: *
 
@@ -96,8 +103,11 @@ class Monad m => BlockStateQuery m where
     -- |Get reward summary for this block.
     getRewardStatus :: BlockState m -> m BankStatus
 
-    -- |Get the outcome of a transaction in the latest block.
+    -- |Get the outcome of a transaction in the given block.
     getTransactionOutcome :: BlockState m -> TransactionHash -> m (Maybe ValidResult)
+
+    -- |Get special transactions outcomes (for administrative transactions, e.g., baker reward)
+    getSpecialOutcomes :: BlockState m -> m [SpecialTransactionOutcome]
 
 type family UpdatableBlockState (m :: * -> *) :: *
 
@@ -111,8 +121,8 @@ data AccountUpdate = AccountUpdate {
   _auAddress :: !AccountAddress
   -- |Optionally a new account nonce.
   ,_auNonce :: !(Maybe Nonce)
-  -- |Optionally a new account amount.
-  ,_auAmount :: !(Maybe Amount)
+  -- |Optionally an update to the account amount.
+  ,_auAmount :: !(Maybe AmountDelta)
   -- |Optionally an encryption key.
   ,_auEncryptionKey :: !(Maybe ID.AccountEncryptionKey)
   -- |Optionally an update to the encrypted amounts.
@@ -130,7 +140,7 @@ emptyAccountUpdate addr = AccountUpdate addr Nothing Nothing Nothing Empty Nothi
 updateAccount :: AccountUpdate -> Account -> Account
 updateAccount !upd !acc =
   acc {_accountNonce = (acc ^. accountNonce) & setMaybe (upd ^. auNonce),
-       _accountAmount = (acc ^. accountAmount) & setMaybe (upd ^. auAmount),
+       _accountAmount = fst (acc & accountAmount <%~ applyAmountDelta (upd ^. auAmount . non 0)),
        _accountCredentials =
           case upd ^. auCredential of
             Nothing -> acc ^. accountCredentials
@@ -180,11 +190,11 @@ class BlockStateQuery m => BlockStateOperations m where
                   -> m (Bool, UpdatableBlockState m)
 
   -- |Consult the linked expression cache for whether this definitionn is already linked.
-  bsoTryGetLinkedExpr :: UpdatableBlockState m -> Core.ModuleRef -> Core.Name -> m (Maybe (LinkedExpr Void))
+  bsoTryGetLinkedExpr :: UpdatableBlockState m -> Core.ModuleRef -> Core.Name -> m (Maybe (LinkedExprWithDeps Void))
 
   -- |Put a new linked expression to the cache.
   -- This method may assume that the module with given reference is already in the state (i.e., putNewModule was called before).
-  bsoPutLinkedExpr :: UpdatableBlockState m -> Core.ModuleRef -> Core.Name -> LinkedExpr Void -> m (UpdatableBlockState m)
+  bsoPutLinkedExpr :: UpdatableBlockState m -> Core.ModuleRef -> Core.Name -> LinkedExprWithDeps Void -> m (UpdatableBlockState m)
 
   -- |Try to get linked contract code from the cache.
   bsoTryGetLinkedContract :: UpdatableBlockState m
@@ -209,7 +219,7 @@ class BlockStateQuery m => BlockStateOperations m where
   -- This method is only called when it is known the instance exists, and can thus assume it.
   bsoModifyInstance :: UpdatableBlockState m
                     -> ContractAddress
-                    -> Amount
+                    -> AmountDelta
                     -> Value Void
                     -> m (UpdatableBlockState m)
 
@@ -284,6 +294,12 @@ class BlockStateQuery m => BlockStateOperations m where
   -- |Set the list of transaction outcomes for the block.
   bsoSetTransactionOutcomes :: UpdatableBlockState m -> [(TransactionHash, ValidResult)] -> m (UpdatableBlockState m)
 
+  -- |Add a special transaction outcome.
+  bsoAddSpecialTransactionOutcome :: UpdatableBlockState m -> SpecialTransactionOutcome -> m (UpdatableBlockState m)
+
+  -- |Update the information used to construct the next leadership election nonce
+  bsoUpdateSeedState :: UpdatableBlockState m -> SeedState -> m (UpdatableBlockState m)
+
 
 newtype BSMTrans t (m :: * -> *) a = BSMTrans (t m a)
     deriving (Functor, Applicative, Monad, MonadTrans)
@@ -300,6 +316,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (BSMT
   getBlockBirkParameters = lift . getBlockBirkParameters
   getRewardStatus = lift . getRewardStatus
   getTransactionOutcome s = lift . getTransactionOutcome s
+  getSpecialOutcomes = lift . getSpecialOutcomes
   {-# INLINE getModule #-}
   {-# INLINE getAccount #-}
   {-# INLINE getContractInstance #-}
@@ -309,6 +326,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (BSMT
   {-# INLINE getBlockBirkParameters #-}
   {-# INLINE getRewardStatus #-}
   {-# INLINE getTransactionOutcome #-}
+  {-# INLINE getSpecialOutcomes #-}
 
 instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperations (BSMTrans t m) where
   bsoGetModule s = lift . bsoGetModule s
@@ -338,6 +356,8 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoGetIdentityProvider s ipId = lift $ bsoGetIdentityProvider s ipId
   bsoGetCryptoParams s = lift $ bsoGetCryptoParams s
   bsoSetTransactionOutcomes s = lift . bsoSetTransactionOutcomes s
+  bsoAddSpecialTransactionOutcome s = lift . bsoAddSpecialTransactionOutcome s
+  bsoUpdateSeedState seedState = lift . bsoUpdateSeedState seedState
   {-# INLINE bsoGetModule #-}
   {-# INLINE bsoGetAccount #-}
   {-# INLINE bsoGetInstance #-}
@@ -365,7 +385,8 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoGetIdentityProvider #-}
   {-# INLINE bsoGetCryptoParams #-}
   {-# INLINE bsoSetTransactionOutcomes #-}
-
+  {-# INLINE bsoAddSpecialTransactionOutcome #-}
+  {-# INLINE bsoUpdateSeedState #-}
 
 type instance BlockPointer (MaybeT m) = BlockPointer m
 type instance UpdatableBlockState (MaybeT m) = UpdatableBlockState m
@@ -381,3 +402,159 @@ type instance BlockPointer (RWST r w s m) = BlockPointer m
 type instance UpdatableBlockState (RWST r w s m) = UpdatableBlockState m
 deriving via (BSMTrans (RWST r w s) m) instance (BlockStateQuery m, Monoid w) => BlockStateQuery (RWST r w s m)
 deriving via (BSMTrans (RWST r w s) m) instance (BlockStateOperations m, Monoid w) => BlockStateOperations (RWST r w s m)
+
+
+data TransferReason =
+  -- |Transfer because of a top-level transaction recorded on a block.
+  DirectTransfer {
+    -- |Id of the top-level transaction.
+    trdtId :: !TransactionHash,
+    -- |Source account.
+    trdtSource :: !AccountAddress,
+    -- |Amount transferred
+    trdtAmount :: !Amount,
+    -- |Recepient.
+    trdtTarget :: !AccountAddress
+    } |
+  -- |Transfer from accout to contract
+  AccountToContractTransfer {
+    -- |Id of the top-level transaction.
+    tractId :: !TransactionHash,
+    -- |From which account was the transfer made.
+    tractSource :: !AccountAddress,
+    -- |How much was transferred.
+    tractAmount :: !Amount,
+    -- |To which contract.
+    tractTarget :: !ContractAddress
+  } |
+  -- |Generated transaction from a contract to account.
+  -- Transaction hash is of the original top-level transaction.
+  ContractToAccountTransfer {
+    -- |Id of the top-level transaction.
+    trcatId :: !TransactionHash,
+    -- |From which contract
+    trcatSource :: !ContractAddress,
+    -- |Amount transferred.
+    trcatAmount :: !Amount,
+    -- |Recepient account.
+    trcatTarget :: !AccountAddress
+    } |
+  ContractToContractTransfer {
+    -- |Id of the top-level transaction.
+    trcctId :: !TransactionHash,
+    -- |From which contract
+    trcctSource :: !ContractAddress,
+    -- |Amount transferred.
+    trcctAmount :: !Amount,
+    -- |Recepient account.
+    trcctTarget :: !ContractAddress
+    } |
+  CredentialDeployment {
+    -- |Id of the top-level transaction.
+    trcdId :: !TransactionHash,
+    -- |Which account sent the transaction.
+    trcdSource :: !AccountAddress,
+    -- |To which account was the credential deployed.
+    trcdAccount :: !AccountAddress,
+    -- |Credential values which were deployed deployed.
+    trcdCredentialValues :: !ID.CredentialDeploymentValues
+    } |
+  -- |Baking reward (here meaning the actual block reward + execution reward for block transactions).
+  BakingRewardTransfer {
+    -- |Id of the baker.
+    trbrBaker :: !BakerId,
+    -- |Account address of the baker.
+    trbrAccount :: !AccountAddress,
+    -- |Reward amount.
+    trbrAmount :: !Amount
+    } |
+  -- |Cost of a transaction.
+  ExecutionCost {
+    trecId :: !TransactionHash,
+    -- |Sender of the transaction.
+    trecSource :: !AccountAddress,
+    -- |Execution cost.
+    trecAmount :: !Amount,
+    -- |Baker id of block baker.
+    trecBaker :: !BakerId
+    }
+  deriving(Show)
+
+resultToReasons :: (BlockMetadata bp, TransactionData tx) => bp -> tx -> ValidResult -> [TransferReason]
+resultToReasons bp tx res =
+  case res of
+       TxReject _ a _ -> [ExecutionCost trId sender a baker]
+       TxSuccess events a _ -> mapMaybe extractReason events ++ [ExecutionCost trId sender a baker]
+  where extractReason (Transferred (AddressAccount source) amount (AddressAccount target)) =
+          Just (DirectTransfer trId source amount target)
+        extractReason (Transferred (AddressContract source) amount (AddressAccount target)) =
+          Just (ContractToAccountTransfer trId source amount target)
+        extractReason (Transferred (AddressAccount source) amount (AddressContract target)) =
+          Just (AccountToContractTransfer trId source amount target)
+        extractReason (Transferred (AddressContract source) amount (AddressContract target)) =
+          Just (ContractToContractTransfer trId source amount target)
+        extractReason (Updated (AddressAccount source) target amount _) =
+          Just (AccountToContractTransfer trId source amount target)
+        extractReason (Updated (AddressContract source) target amount _) =
+          Just (ContractToContractTransfer trId source amount target)
+        extractReason (CredentialDeployed cdv) =
+          let caaddr = ID.accountAddress (ID.cdvVerifyKey cdv) (ID.cdvSigScheme cdv)
+          in Just (CredentialDeployment trId sender caaddr cdv)
+        extractReason _ = Nothing
+        
+        trId = transactionHash tx
+        sender = thSender (transactionHeader tx)
+        baker = blockBaker bp
+
+specialToReason :: BlockMetadata bp => bp -> SpecialTransactionOutcome -> TransferReason
+specialToReason bp (BakingReward acc amount) = BakingRewardTransfer (blockBaker bp) acc amount
+
+type LogTransferMethod m = BlockHash -> Slot -> TransferReason -> m ()
+
+-- |Account transfer logger monad.
+class Monad m => ATLMonad m where
+  atlLogTransfer :: LogTransferMethod m
+
+newtype ATLoggerT m a = ATLoggerT {_runATLoggerT :: ReaderT (LogTransferMethod m) m a}
+    deriving(Functor, Applicative, Monad, MonadIO)
+
+newtype ATSilentLoggerT m a = ATSilentLoggerT { runATSilentLoggerT :: m a }
+    deriving(Functor, Applicative, Monad, MonadIO)
+
+instance Monad m => ATLMonad (ATSilentLoggerT m) where
+  {-# INLINE atlLogTransfer #-}
+  atlLogTransfer = \_ _ _ -> return ()
+
+instance Monad m => ATLMonad (ATLoggerT m) where
+  {-# INLINE atlLogTransfer #-}
+  atlLogTransfer bh slot reason = ATLoggerT $ do
+    lm <- ask
+    lift (lm bh slot reason)
+
+-- |Run an action handling transfer events with the given log method.
+{-# INLINE runATLoggerT #-}
+runATLoggerT :: ATLoggerT m a -> LogTransferMethod m -> m a
+runATLoggerT = runReaderT . _runATLoggerT
+
+-- |Run an action discarding all events.
+{-# INLINE runSilentLogger #-}
+runSilentLogger :: (Monad m) => ATLoggerT m a -> m a
+runSilentLogger a = runATLoggerT a (\_ _ _ -> pure ())
+
+instance MonadTrans ATLoggerT where
+    lift = ATLoggerT . lift
+
+instance (ATLMonad m, Monoid w) => ATLMonad (RWST r w s m) where
+    atlLogTransfer src lvl msg = lift (atlLogTransfer src lvl msg)
+
+instance ATLMonad m => ATLMonad (StateT s m) where
+    atlLogTransfer src lvl msg = lift (atlLogTransfer src lvl msg)
+
+instance ATLMonad m => ATLMonad (MaybeT m) where
+    atlLogTransfer src lvl msg = lift (atlLogTransfer src lvl msg)
+
+instance ATLMonad m => ATLMonad (ExceptT e m) where
+    atlLogTransfer src lvl msg = lift (atlLogTransfer src lvl msg)
+
+instance (Monad (t m), MonadTrans t, ATLMonad m) => ATLMonad (BSMTrans t m) where
+    atlLogTransfer src lvl msg = lift (atlLogTransfer src lvl msg)

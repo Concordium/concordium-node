@@ -8,6 +8,7 @@ import Data.Time.Clock.POSIX
 import Control.Exception
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
+import qualified Data.List as List
 import Data.Maybe
 
 import qualified Concordium.Crypto.SHA256 as Hash
@@ -17,6 +18,7 @@ import Concordium.Types.HashableTo
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Bakers
+import Concordium.GlobalState.SeedState
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Modules as Modules
 import qualified Concordium.GlobalState.Account as Account
@@ -71,7 +73,11 @@ data BlockPointer = BlockPointer {
     -- |Time at which the block was first considered part of the tree (validated)
     _bpArriveTime :: UTCTime,
     -- |Number of transactions in a block
-    _bpTransactionCount :: Int
+    _bpTransactionCount :: !Int,
+    -- |Energy cost of all transactions in the block.
+    _bpTransactionsEnergyCost :: !Energy,
+    -- |Size of the transaction data in bytes.
+    _bpTransactionsSize :: !Int
 }
 
 instance Eq BlockPointer where
@@ -113,8 +119,9 @@ makeBlockPointer ::
     -> BlockPointer     -- ^Last finalized block pointer
     -> BlockState       -- ^Block state
     -> UTCTime          -- ^Block arrival time
+    -> Energy           -- ^Energy cost of all transactions in the block
     -> BlockPointer
-makeBlockPointer pb _bpParent _bpLastFinalized _bpState _bpArriveTime
+makeBlockPointer pb _bpParent _bpLastFinalized _bpState _bpArriveTime _bpTransactionsEnergyCost
         = assert (getHash _bpParent == blockPointer bf) $
             assert (getHash _bpLastFinalized == blockLastFinalized bf) $
                 BlockPointer {
@@ -122,10 +129,10 @@ makeBlockPointer pb _bpParent _bpLastFinalized _bpState _bpArriveTime
                     _bpBlock = NormalBlock (pbBlock pb),
                     _bpHeight = _bpHeight _bpParent + 1,
                     _bpReceiveTime = pbReceiveTime pb,
-                    _bpTransactionCount = length (blockTransactions pb),
                     ..}
     where
         bf = bbFields $ pbBlock pb
+        (_bpTransactionCount, _bpTransactionsSize) = List.foldl' (\(clen, csize) tx -> (clen + 1, Transactions.trSize tx + csize)) (0, 0) (blockTransactions pb)
 
 
 makeGenesisBlockPointer :: GenesisData -> BlockState -> BlockPointer
@@ -140,6 +147,8 @@ makeGenesisBlockPointer genData _bpState = theBlockPointer
         _bpReceiveTime = posixSecondsToUTCTime (fromIntegral (genesisTime genData))
         _bpArriveTime = _bpReceiveTime
         _bpTransactionCount = 0
+        _bpTransactionsEnergyCost = 0
+        _bpTransactionsSize = 0
 
 
 instance BS.BlockPointerData BlockPointer where
@@ -153,6 +162,8 @@ instance BS.BlockPointerData BlockPointer where
     bpReceiveTime = _bpReceiveTime
     bpArriveTime = _bpArriveTime
     bpTransactionCount = _bpTransactionCount
+    bpTransactionsEnergyCost = _bpTransactionsEnergyCost
+    bpTransactionsSize = _bpTransactionsSize
 
 newtype PureBlockStateMonad m a = PureBlockStateMonad {runPureBlockStateMonad :: m a}
     deriving (Functor, Applicative, Monad)
@@ -190,7 +201,12 @@ instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
 
     {-# INLINE getTransactionOutcome #-}
     getTransactionOutcome bs trh =
-        return $ Transactions.outcomeMap (_blockTransactionOutcomes bs) ^? ix trh
+        return $ bs ^? blockTransactionOutcomes . ix trh
+
+    {-# INLINE getSpecialOutcomes #-}
+    getSpecialOutcomes bs =
+        return $ bs ^. blockTransactionOutcomes . Transactions.outcomeSpecial
+
 
 instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
 
@@ -250,10 +266,10 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
     bsoPutLinkedContract bs mref n linked = return $!
         bs & blockModules %~ (Modules.putLinkedContract mref n linked)
 
-    bsoModifyInstance bs caddr amount model = return $!
-        bs & blockInstances %~ Instances.updateInstanceAt caddr amount model
+    bsoModifyInstance bs caddr delta model = return $!
+        bs & blockInstances %~ Instances.updateInstanceAt caddr delta model
         & maybe (error "Instance has invalid owner") 
-            (\owner -> blockBirkParameters . birkBakers %~ modifyStake (owner ^. accountStakeDelegate) (amountDiff amount $ Instances.instanceAmount inst))
+            (\owner -> blockBirkParameters . birkBakers %~ modifyStake (owner ^. accountStakeDelegate) delta)
             (bs ^? blockAccounts . ix instanceOwner)
         where
             inst = fromMaybe (error "Instance does not exist") $ bs ^? blockInstances . ix caddr
@@ -267,11 +283,9 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
                bs & blockAccounts %~ Account.putAccount updatedAccount
                                    . Account.recordRegId (cdvRegId cdi))
         -- If we change the amount, update the delegate
-        & maybe id 
-            (\amt -> blockBirkParameters . birkBakers
+        & (blockBirkParameters . birkBakers
                     %~ modifyStake (account ^. accountStakeDelegate)
-                            (amountDiff amt $ account ^. accountAmount))
-            (accountUpdates ^. BS.auAmount)
+                                   (accountUpdates ^. BS.auAmount . non 0))
         where
             account = bs ^. blockAccounts . singular (ix (accountUpdates ^. BS.auAddress))
             updatedAccount = BS.updateAccount accountUpdates account
@@ -338,3 +352,8 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
 
     bsoSetTransactionOutcomes bs l =
       return $! bs & blockTransactionOutcomes .~ Transactions.transactionOutcomesFromList l
+
+    bsoAddSpecialTransactionOutcome bs o =
+      return $! bs & blockTransactionOutcomes . Transactions.outcomeSpecial %~ (o:)
+
+    bsoUpdateSeedState bs ss = return $ bs & blockBirkParameters . seedState .~ ss
