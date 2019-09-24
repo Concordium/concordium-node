@@ -29,19 +29,13 @@ import Concordium.GlobalState.Instances
 import Concordium.GlobalState.Finalization
 import qualified Concordium.Skov.CatchUp as CU
 
-import Concordium.Afgjort.Finalize
-
 import Control.Concurrent.MVar
 import Data.IORef
 import Text.Read hiding (get, String)
 import qualified Data.Map as Map
 import Data.Aeson
 import qualified Data.Text as T
-import qualified Data.Text.Lazy as TL
-import qualified Data.Text.Lazy.Encoding as EL
-import Control.Monad.State.Class
 import Data.Word
-import Data.ByteString.Builder(toLazyByteString, byteStringHex)
 import Data.Vector (fromList)
 
 class SkovQueryMonad m => SkovStateQueryable z m | z -> m where
@@ -124,10 +118,10 @@ getRewardStatus hash sfsRef = runStateQuery sfsRef $
 getBlockBirkParameters :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
 getBlockBirkParameters hash sfsRef = runStateQuery sfsRef $
   withBlockStateJSON hash $ \st -> do
-  BirkParameters{..} <- BS.getBlockBirkParameters st
+  bps@BirkParameters{..} <- BS.getBlockBirkParameters st
   return $ object [
     "electionDifficulty" .= _birkElectionDifficulty,
-    "electionNonce" .= String (TL.toStrict . EL.decodeUtf8 . toLazyByteString . byteStringHex $ _birkLeadershipElectionNonce),
+    "electionNonce" .= _birkLeadershipElectionNonce bps,
     "bakers" .= Array (fromList .
                        map (\(bid, BakerInfo{..}) -> object ["bakerId" .= (toInteger bid)
                                                             ,"bakerAccount" .= show _bakerAccount
@@ -208,12 +202,14 @@ getBlockInfo sfsRef blockHash = case readMaybe blockHash of
                                             Just bf -> toJSON (toInteger (blockBaker bf)),
                             "finalized" .= bfin,
                             "transactionCount" .= bpTransactionCount bp,
+                            "transactionEnergyCost" .= toInteger (bpTransactionsEnergyCost bp),
+                            "transactionsSize" .= toInteger (bpTransactionsSize bp),
 
-                            "totalAmount" .= (fromIntegral (reward ^. AT.totalGTU) :: Integer),
-                            "totalEncryptedAmount" .= (fromIntegral (reward ^. AT.totalEncryptedGTU) :: Integer),
-                            "centralBankAmount" .= (fromIntegral (reward ^. AT.centralBankGTU) :: Integer),
-                            "mintedAmountPerSlot" .= (fromIntegral (reward ^. AT.mintedGTUPerSlot) :: Integer),
-                            "executionCost" .= (fromIntegral (reward ^. AT.executionCost) :: Integer)
+                            "totalAmount" .= toInteger (reward ^. AT.totalGTU),
+                            "totalEncryptedAmount" .= toInteger (reward ^. AT.totalEncryptedGTU),
+                            "centralBankAmount" .= toInteger (reward ^. AT.centralBankGTU),
+                            "mintedAmountPerSlot" .= toInteger (reward ^. AT.mintedGTUPerSlot),
+                            "executionCost" .= toInteger (reward ^. AT.executionCost)
                             ]
 
 getAncestors :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> String -> BlockHeight -> IO Value
@@ -262,12 +258,6 @@ getBlockFinalization sfsRef bh = runStateQuery sfsRef $ do
 
 getIndexedFinalization :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> FinalizationIndex -> IO (Maybe FinalizationRecord)
 getIndexedFinalization sfsRef finInd = runStateQuery sfsRef $ TS.getFinalizationAtIndex finInd
-
-getFinalizationMessages :: (SkovStateQueryable z m, MonadState s m, FinalizationQuery s) => z -> FinalizationPoint -> IO [FinalizationMessage]
-getFinalizationMessages sfsRef finPt = runStateQuery sfsRef $ get <&> \sfs -> getPendingFinalizationMessages sfs finPt
-
-getFinalizationPoint :: (SkovStateQueryable z m, MonadState s m, FinalizationQuery s) => z -> IO FinalizationPoint
-getFinalizationPoint sfsRef = runStateQuery sfsRef $ get <&> getCurrentFinalizationPoint
 
 getCatchUpStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> IO CU.CatchUpStatus
 getCatchUpStatus sRef = runStateQuery sRef $ CU.getCatchUpStatus True

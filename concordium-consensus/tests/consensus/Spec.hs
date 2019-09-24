@@ -9,6 +9,7 @@ import qualified ConcordiumTests.Afgjort.CSS.NominationSet (tests)
 import qualified ConcordiumTests.Afgjort.CSS (tests)
 import qualified ConcordiumTests.Afgjort.Lottery (tests)
 import qualified ConcordiumTests.Afgjort.ABBA (tests)
+import qualified ConcordiumTests.Afgjort.Types (tests)
 import qualified ConcordiumTests.Konsensus (tests)
 
 atLevel :: (Word -> IO ()) -> IO ()
@@ -23,6 +24,7 @@ atLevel a = do
 
 main :: IO ()
 main = atLevel $ \lvl -> hspec $ do
+    ConcordiumTests.Afgjort.Types.tests lvl
     ConcordiumTests.Afgjort.CSS.tests lvl
     ConcordiumTests.Afgjort.CSS.NominationSet.tests lvl
     ConcordiumTests.Afgjort.ABBA.tests lvl

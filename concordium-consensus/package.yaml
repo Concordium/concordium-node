@@ -22,6 +22,7 @@ description:         Please see the README on GitHub at <https://github.com/gith
 dependencies:
 - base >= 4.7 && < 5
 - bytestring >= 0.10
+- th-utilities >= 0.2.3
 - random >= 1.1
 - cereal >= 0.5.7
 - unordered-containers >= 0.2
@@ -56,6 +57,7 @@ library:
       - -Wall
       - -Wcompat
       - -Werror=missing-fields
+      - -Werror=missing-methods
       - -Wredundant-constraints
       - -fno-ignore-asserts
       - -O2

@@ -16,6 +16,7 @@ import qualified Acorn.Utils.Init as Init
 import Concordium.Scheduler.Runner
 import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
+import qualified Concordium.Scheduler.Cost as Cost
 
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Account as Acc
@@ -32,7 +33,7 @@ shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState
 initialBlockState = 
-  emptyBlockState emptyBirkParameters Types.dummyCryptographicParameters &
+  emptyBlockState emptyBirkParameters dummyCryptographicParameters &
     (blockAccounts .~ Acc.putAccount (mkAccount alesVK 100000)
                       (Acc.putAccount (mkAccount thomasVK 100000) Acc.emptyAccounts)) .
     (blockBank . Rew.totalGTU .~ 200000) .
@@ -51,11 +52,13 @@ transactionsInput =
   ,TJSON { payload = Transfer {toaddress = Types.AddressAccount thomasAccount, amount = 98700 }
          , metadata = makeHeader alesKP 3 1000
          , keypair = alesKP
-         }    
+         }
   ,TJSON { payload = Transfer {toaddress = Types.AddressAccount alesAccount, amount = 100 }
          , metadata = makeHeader thomasKP 1 500
          , keypair = thomasKP
-         }    
+         }
+    -- the next transaction should fail because the balance on alesAccount is now 1012, which is
+    -- less than 600 + 500
   ,TJSON { payload = Transfer {toaddress = Types.AddressAccount thomasAccount, amount = 600 }
          , metadata = makeHeader alesKP 4 500
          , keypair = alesKP
@@ -66,18 +69,19 @@ transactionsInput =
 testSimpleTransfer
   :: PR.Context Core.UA
        IO
-       ([(Types.Transaction, Types.ValidResult)],
-        [(Types.Transaction, Types.FailureKind)], Types.Amount, Types.Amount)
+       ([(Types.BareTransaction, Types.ValidResult)],
+        [(Types.BareTransaction, Types.FailureKind)], Types.Amount, Types.Amount)
 testSimpleTransfer = do
     transactions <- processTransactions transactionsInput
-    let ((suc, fails), gstate) = Types.runSI (Sch.filterTransactions transactions)
-                                             Types.dummyChainMeta
-                                             initialBlockState
+    let ((Sch.FilteredTransactions{..}, _), gstate) =
+          Types.runSI (Sch.filterTransactions blockSize transactions)
+            Types.dummyChainMeta
+            initialBlockState
     case invariantBlockState gstate of
         Left f -> liftIO $ assertFailure f
         Right _ -> return ()
-    return (suc,
-            fails,
+    return (ftAdded,
+            ftFailed,
             gstate ^. blockAccounts . singular (ix alesAccount) . Types.accountAmount,
             gstate ^. blockAccounts . singular (ix thomasAccount) . Types.accountAmount)
 
@@ -86,14 +90,14 @@ checkSimpleTransferResult (suc, fails, alesamount, thomasamount) =
   null fails && -- should be no failed transactions
   reject &&  -- the last transaction is rejected
   nonreject && -- all initial transactions are successful
-  alesamount == 912 &&
-  thomasamount == 198588
+  alesamount == (100000 - 4 * fromIntegral Cost.checkHeader - 88 - 98700 + 100) &&
+  thomasamount == (100000 - fromIntegral Cost.checkHeader + 88 + 98700 - 100)
   where 
-    nonreject = all (\case (_, Types.TxSuccess _) -> True
-                           (_, Types.TxReject _) -> False)
+    nonreject = all (\case (_, Types.TxSuccess _ _ _) -> True
+                           (_, Types.TxReject _ _ _) -> False)
                     (init suc)
     reject = case last suc of
-               (_, Types.TxReject (Types.AmountTooLarge _ _)) -> True
+               (_, Types.TxReject (Types.AmountTooLarge _ _) _ _) -> True
                _ -> False
 
 tests :: SpecWith ()

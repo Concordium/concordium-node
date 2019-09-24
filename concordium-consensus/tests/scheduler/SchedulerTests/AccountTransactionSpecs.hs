@@ -37,7 +37,7 @@ initialBlockState :: BlockState
 initialBlockState = 
   -- NB: We need 6 * deploy account since we still charge the cost even if an
   -- account already exists (case 4 in the tests).
-  emptyBlockState emptyBirkParameters Types.dummyCryptographicParameters &
+  emptyBlockState emptyBirkParameters dummyCryptographicParameters &
     (blockAccounts .~ Acc.putAccount (mkAccount alesVK initialAmount) Acc.emptyAccounts) .
     (blockBank . Rew.totalGTU .~ initialAmount) .
     (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs))) .
@@ -60,19 +60,19 @@ transactionsInput =
          , metadata = makeHeader alesKP 3 deployAccountCost
          , keypair = alesKP
          }
-  ,TJSON { payload = DeployCredential cdi8 -- should fail because repeated credential ID
+  ,TJSON { payload = DeployCredential cdi4 -- should fail because repeated credential ID
          , metadata = makeHeader alesKP 4 deployAccountCost
          , keypair = alesKP
          }
-  ,TJSON { payload = DeployCredential cdi6
+  ,TJSON { payload = DeployCredential cdi5
          , metadata = makeHeader alesKP 5 deployAccountCost
          , keypair = alesKP
          }
-  ,TJSON { payload = DeployCredential cdi7 -- deploy just a new predicate
+  ,TJSON { payload = DeployCredential cdi6 -- deploy just a new predicate
          , metadata = makeHeader alesKP 6 deployAccountCost
          , keypair = alesKP
          }
-  ,TJSON { payload = DeployCredential cdi4  -- should run out of gas (see initial amount on the sender account)
+  ,TJSON { payload = DeployCredential cdi7  -- should run out of gas (see initial amount on the sender account)
          , metadata = makeHeader alesKP 7 Cost.checkHeader
          , keypair = alesKP
          }
@@ -81,26 +81,27 @@ transactionsInput =
 testAccountCreation ::
   PR.Context Core.UA
     IO
-    ([(Types.Transaction, Types.ValidResult)],
-     [(Types.Transaction, Types.FailureKind)],
+    ([(Types.BareTransaction, Types.ValidResult)],
+     [(Types.BareTransaction, Types.FailureKind)],
      [Maybe Types.Account],
      Types.Account,
      Types.BankStatus)
 testAccountCreation = do
     transactions <- processTransactions transactionsInput
-    let ((suc, fails), state) = Types.runSI (Sch.filterTransactions transactions)
-                                            Types.dummyChainMeta
-                                            initialBlockState
+    let ((Sch.FilteredTransactions{..}, _), state) =
+          Types.runSI (Sch.filterTransactions blockSize transactions)
+            Types.dummyChainMeta
+            initialBlockState
     let accounts = state ^. blockAccounts
-    let accAddrs = map accountAddressFromCred [cdi1,cdi2,cdi3,cdi8,cdi6]
+    let accAddrs = map accountAddressFromCred [cdi1,cdi2,cdi3,cdi4,cdi5,cdi7]
     case invariantBlockState state of
         Left f -> liftIO $ assertFailure $ f ++ "\n" ++ show state
         _ -> return ()
-    return (suc, fails, map (\addr -> accounts ^? ix addr) accAddrs, accounts ^. singular (ix alesAccount), state ^. blockBank)
+    return (ftAdded, ftFailed, map (\addr -> accounts ^? ix addr) accAddrs, accounts ^. singular (ix alesAccount), state ^. blockBank)
 
 checkAccountCreationResult ::
-  ([(Types.Transaction, Types.ValidResult)],
-   [(Types.Transaction, Types.FailureKind)],
+  ([(Types.BareTransaction, Types.ValidResult)],
+   [(Types.BareTransaction, Types.FailureKind)],
    [Maybe Types.Account],
    Types.Account,
    Types.BankStatus)
@@ -111,21 +112,23 @@ checkAccountCreationResult (suc, fails, stateAccs, stateAles, bankState) =
   txstateAccs &&
   stateInvariant
   where txsuc = case suc of
-          (_, a11) : (_, a12) : (_, a13) : (_, a14) : (_, a15) : (_, a16) : (_, a17) : [] |
-            Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed _] <- a11,
-            Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed _] <- a12,
-            Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed _] <- a13,
-            Types.TxReject (Types.DuplicateAccountRegistrationID _) <- a14,
-            Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed _] <- a15,
-            Types.TxSuccess [Types.CredentialDeployed _] <- a16,
-            Types.TxReject Types.OutOfEnergy <- a17 -> True
+          [(_, a11), (_, a12),(_, a13),(_, a14),(_, a15),(_, a16),(_, a17)] |
+            Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed _] _ _ <- a11,
+            Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed _] _ _ <- a12,
+            Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed _] _ _ <- a13,
+            Types.TxReject (Types.DuplicateAccountRegistrationID _) _ _ <- a14,
+            Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed _] _ _ <- a15,
+            Types.TxSuccess [Types.CredentialDeployed _] _ _ <- a16,
+            Types.TxReject Types.OutOfEnergy _ _ <- a17 -> True
           _ -> False
         txstateAccs = case stateAccs of
-                        [Just _, Just _, Just _, Nothing, Just _] -> True -- account 13 was not created because of duplicate registration id
+                        -- account for cdi4 was not created because of duplicate registration id
+                        -- account for cdi7 was not created because of out of gas
+                        [Just _, Just _, Just _, Nothing, Just _, Nothing] -> True
                         _ -> False
         stateInvariant = stateAles ^. Types.accountAmount + bankState ^. Types.executionCost == initialAmount
 
-tests :: SpecWith ()
+tests :: Spec
 tests =
   describe "Account creation" $ do
     specify "3 accounts created, fourth rejected, one more created, a credential deployed, and out of gas " $ do

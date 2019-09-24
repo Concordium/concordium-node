@@ -39,7 +39,7 @@ shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState
 initialBlockState = 
-  emptyBlockState emptyBirkParameters Types.dummyCryptographicParameters &
+  emptyBlockState emptyBirkParameters dummyCryptographicParameters &
     (blockAccounts .~ Acc.putAccount (mkAccount alesVK 1000000000) Acc.emptyAccounts) .
     (blockBank . Rew.totalGTU .~ 1000000000) .
     (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
@@ -56,7 +56,7 @@ transactionsInput =
                                   , parameter = "Unit.Unit"
                                   , contractName = "Fibonacci"
                                   }
-        , metadata = makeHeader alesKP 2 10000
+        , metadata = makeHeader alesKP 2 100000
         , keypair = alesKP
         }
   ,TJSON { payload = Update { amount = 0
@@ -73,20 +73,21 @@ transactionsInput =
 testFibonacci ::
   PR.Context Core.UA
     IO
-    ([(Types.Transaction, Types.ValidResult)],
-     [(Types.Transaction, Types.FailureKind)],
+    ([(Types.BareTransaction, Types.ValidResult)],
+     [(Types.BareTransaction, Types.FailureKind)],
      [(Types.ContractAddress, Types.Instance)])
 testFibonacci = do
     source <- liftIO $ TIO.readFile "test/contracts/FibContract.acorn"
     (_, _) <- PR.processModule source -- execute only for effect on global state, i.e., load into cache
     transactions <- processTransactions transactionsInput
-    let ((suc, fails), gs) = Types.runSI (Sch.filterTransactions transactions)
-                                         Types.dummyChainMeta
-                                         initialBlockState
+    let ((Sch.FilteredTransactions{..}, _), gs) =
+          Types.runSI (Sch.filterTransactions blockSize transactions)
+            Types.dummyChainMeta
+            initialBlockState
     case invariantBlockState gs of
         Left f -> liftIO $ assertFailure f
         Right _ -> return ()
-    return (suc, fails, gs ^.. blockInstances . foldInstances . to (\i -> (iaddress i, i)))
+    return (ftAdded, ftFailed, gs ^.. blockInstances . foldInstances . to (\i -> (iaddress i, i)))
 
 fib :: [Int64]
 fib = 1:1:zipWith (+) fib (tail fib)
@@ -99,8 +100,8 @@ checkFibonacciResult (suc, fails, instances) =
   length instances == 1 && -- only a single contract instance should be created
   checkLocalState (snd (head instances)) -- and the local state should match the actual list of fibonacci numbers
   where
-    reject = filter (\case (_, Types.TxSuccess _) -> False
-                           (_, Types.TxReject _) -> True
+    reject = filter (\case (_, Types.TxSuccess _ _ _) -> False
+                           (_, Types.TxReject _ _ _) -> True
                     )
                         suc
     checkLocalState inst = 

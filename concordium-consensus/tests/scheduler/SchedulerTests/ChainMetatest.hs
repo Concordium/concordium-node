@@ -36,7 +36,7 @@ shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState
 initialBlockState = 
-  emptyBlockState emptyBirkParameters Types.dummyCryptographicParameters &
+  emptyBlockState emptyBirkParameters dummyCryptographicParameters &
     (blockAccounts .~ Acc.putAccount (mkAccount alesVK 100000) Acc.emptyAccounts) . 
     (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs))) .
     (blockBank . Rew.totalGTU .~ 100000)
@@ -58,7 +58,7 @@ transactionsInput =
                                     ,moduleName = "ChainMetaTest"
                                     ,parameter = "Unit.Unit"
                                     }
-           , metadata = makeHeader alesKP 2 1000
+           , metadata = makeHeader alesKP 2 10000
            , keypair = alesKP
            }
     ]
@@ -67,20 +67,21 @@ transactionsInput =
 testChainMeta ::
   PR.Context Core.UA
     IO
-    ([(Types.Transaction, Types.ValidResult)],
-     [(Types.Transaction, Types.FailureKind)],
+    ([(Types.BareTransaction, Types.ValidResult)],
+     [(Types.BareTransaction, Types.FailureKind)],
      [(Types.ContractAddress, Instance)])
 testChainMeta = do
     source <- liftIO $ TIO.readFile "test/contracts/ChainMetaTest.acorn"
     (_, _) <- PR.processModule source -- execute only for effect on global state, i.e., load into cache
     transactions <- processTransactions transactionsInput
-    let ((suc, fails), gs) = Types.runSI (Sch.filterTransactions transactions)
-                                         chainMeta
-                                         initialBlockState
+    let ((Sch.FilteredTransactions{..}, _), gs) =
+          Types.runSI (Sch.filterTransactions blockSize transactions)
+          chainMeta
+          initialBlockState
     case invariantBlockState gs of
         Left f -> liftIO $ assertFailure $ f ++ " " ++ show gs
         _ -> return ()
-    return (suc, fails, gs ^.. blockInstances . foldInstances . to (\i -> (iaddress i, i)))
+    return (ftAdded, ftFailed, gs ^.. blockInstances . foldInstances . to (\i -> (iaddress i, i)))
 
 checkChainMetaResult :: ([(a1, Types.ValidResult)], [b], [(a3, Instance)]) -> Bool
 checkChainMetaResult (suc, fails, instances) =
@@ -89,8 +90,8 @@ checkChainMetaResult (suc, fails, instances) =
   length instances == 1 && -- only a single contract instance should be created
   checkLocalState (snd (head instances)) -- and the local state should match the 
   where 
-    reject = filter (\case (_, Types.TxSuccess _) -> False
-                           (_, Types.TxReject _) -> True
+    reject = filter (\case (_, Types.TxSuccess _ _ _) -> False
+                           (_, Types.TxReject _ _ _) -> True
                     )
                         suc
     checkLocalState inst = do

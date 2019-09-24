@@ -7,11 +7,9 @@ module Concordium.Scheduler.Utils.Init.Example (initialState, makeTransaction, m
 import qualified Data.HashMap.Strict as Map
 import System.Random
 
-import Concordium.Crypto.SignatureScheme(KeyPair, SchemeId(Ed25519))
+import Concordium.Crypto.SignatureScheme(KeyPair(..), SchemeId(Ed25519))
 import qualified Concordium.Crypto.SignatureScheme as Sig
 import Concordium.Crypto.Ed25519Signature(randomKeyPair)
-import Concordium.Crypto.SHA256(Hash(..))
-import qualified Data.FixedByteString as FBS
 
 import Concordium.Types
 import qualified Concordium.ID.Account as AH
@@ -45,9 +43,9 @@ import Prelude hiding(mod)
 baseStateWithCounter :: (Parser.Env, Core.ModuleName, ProcessedModules)
 baseStateWithCounter = foldl handleFile
                              baseState
-                             $(embedFiles ([Left  "test/contracts/SimpleAccount.acorn"
+                             $(embedFiles [Left  "test/contracts/SimpleAccount.acorn"
                                            ,Left  "test/contracts/SimpleCounter.acorn"]
-                                          ))
+                                          )
 
 first :: (a, b, c) -> a
 first (x, _, _) = x
@@ -67,7 +65,7 @@ inCtx txt = fromJust (Map.lookup txt simpleCounterCtx)
 inCtxTm :: Text.Text -> Core.Atom origin
 inCtxTm = Core.Var . Core.LocalDef . inCtx
 
-initialTrans :: Int -> [Types.Transaction]
+initialTrans :: Int -> [Types.BareTransaction]
 initialTrans n = map initSimpleCounter $ enumFromTo 1 n
  
 mateuszAccount :: AccountAddress
@@ -79,31 +77,38 @@ mateuszKP = fst (randomKeyPair (mkStdGen 0))
 mateuszKP' :: KeyPair
 mateuszKP' = fst (randomKeyPair (mkStdGen 1))
 
-blockPointer :: BlockHash
-blockPointer = Hash (FBS.pack (replicate 32 (fromIntegral (0 :: Word))))
-
-makeHeader :: KeyPair -> Nonce -> Energy -> Types.TransactionHeader
-makeHeader kp nonce amount = Types.makeTransactionHeader Ed25519 (Sig.verifyKey kp) nonce amount blockPointer 
-
-initSimpleCounter :: Int -> Types.Transaction
+initSimpleCounter :: Int -> Types.BareTransaction
 initSimpleCounter n = Runner.signTx
                              mateuszKP
-                             (makeHeader mateuszKP (fromIntegral n) 10000)
-                             (Types.encodePayload (Types.InitContract 0
-                                                   simpleCounterHash
-                                                   (fromJust (Map.lookup "Counter" simpleCounterTyCtx))
-                                                   (Core.Atom (Core.Literal (Core.Int64 0)))
-                                                   (-1))) -- -1 as the size is ignore by encodePayload
+                             header
+                             payload
+    where payload = Types.encodePayload (Types.InitContract 0
+                                          simpleCounterHash
+                                          (fromJust (Map.lookup "Counter" simpleCounterTyCtx))
+                                          (Core.Atom (Core.Literal (Core.Int64 0)))
+                                        )
+          header = Runner.TransactionHeader{
+            thScheme = Ed25519,
+            thNonce = fromIntegral n,
+            thSenderKey = verifyKey mateuszKP,
+            thGasAmount = 100000
+            }
 
-makeTransaction :: Bool -> ContractAddress -> Nonce -> Types.Transaction
-makeTransaction inc ca n = Runner.signTx mateuszKP hdr payload
+
+makeTransaction :: Bool -> ContractAddress -> Nonce -> Types.BareTransaction
+makeTransaction inc ca n = Runner.signTx mateuszKP header payload
     where
-        hdr = makeHeader mateuszKP n 100000
+        header = Runner.TransactionHeader{
+            thScheme = Ed25519,
+            thNonce = n,
+            thSenderKey = verifyKey mateuszKP,
+            thGasAmount = 1000000
+            }
         payload = Types.encodePayload (Types.Update 0
                                                     ca
                                                     (Core.App (if inc then (inCtxTm "Inc") else (inCtxTm "Dec"))
                                                               [Core.Literal (Core.Int64 10)])
-                                                    (-1))
+                                                    )
 
 -- |State with the given number of contract instances of the counter contract specified.
 initialState :: BirkParameters -> CryptographicParameters -> [Account] -> [Types.IdentityProviderData] -> Int -> BlockState.BlockState

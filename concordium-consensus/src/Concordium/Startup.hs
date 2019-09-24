@@ -1,18 +1,22 @@
-{-# LANGUAGE RecordWildCards, OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards, OverloadedStrings, TemplateHaskell #-}
 module Concordium.Startup where
 
 import System.Random
-import qualified Data.ByteString.Char8 as BS
+import qualified Data.ByteString.Lazy.Char8 as BSL
 
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
+import qualified Concordium.Crypto.SHA256 as Hash
 
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Bakers
+import Concordium.GlobalState.SeedState
 import Concordium.GlobalState.IdentityProviders
 import Concordium.Birk.Bake
 import Concordium.Types
+
+import TH.RelativePaths
 
 makeBakers :: Word -> [((BakerIdentity,BakerInfo), Account)]
 makeBakers nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17) 0
@@ -27,7 +31,7 @@ makeBakers nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17) 0
                 account = makeBakerAccount bid
 
 makeBakerAccount :: BakerId -> Account
-makeBakerAccount bid = acct {_accountAmount = if bid == 0 then 1000000 else 0, _accountStakeDelegate = Just bid}
+makeBakerAccount bid = acct {_accountAmount = 1000000000000, _accountStakeDelegate = Just bid}
   where
     acct = newAccount (Sig.verifyKey kp) SigScheme.Ed25519
     kp = fst (Sig.randomKeyPair (mkStdGen (- (fromIntegral bid) - 1))) -- NB the negation makes it not conflict with other fake accounts we create elsewhere.
@@ -45,8 +49,21 @@ makeGenesisData genesisTime nBakers genesisSlotDuration elecDiff finMinSkip gene
     = (GenesisData{..}, bakers)
     where
         genesisBirkParameters =
-            BirkParameters (BS.pack "LeadershipElectionNonce")
-                           elecDiff -- voting power
+            BirkParameters elecDiff -- voting power
                            (bakersFromList (snd <$> bakers))
+                           (genesisSeedState (Hash.hash "LeadershipElectionNonce") 360) -- todo hardcoded epoch length (and initial seed)
         genesisFinalizationParameters = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, BakerInfo vrfk vvk _ _) <- bakers] finMinSkip
         (bakers, genesisBakerAccounts) = unzip (makeBakers nBakers)
+
+-- Need to return string because Bytestring does not implement Lift
+dummyCryptographicParametersFile :: String
+dummyCryptographicParametersFile = $(do
+  fileContents <- qReadFileString "../scheduler/testdata/global.json"
+  [| fileContents |])
+
+dummyCryptographicParameters :: CryptographicParameters
+dummyCryptographicParameters =
+  case readCryptographicParameters (BSL.pack dummyCryptographicParametersFile) of
+    Nothing -> error "Could not read crypto params."
+    Just x -> x
+  

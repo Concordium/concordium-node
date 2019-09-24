@@ -136,16 +136,16 @@ main = cmdArgsRun mode >>=
                         object [
                             "address" .= show (ID.accountAddress (Sig.verifyKey acctkp) SigScheme.Ed25519),
                             "signatureScheme" .= fromEnum SigScheme.Ed25519,
-                            "signKey" .= serializeBase16 (Sig.signKey acctkp),
-                            "verifyKey" .= serializeBase16 (Sig.verifyKey acctkp)
+                            "signKey" .= Sig.signKey acctkp,
+                            "verifyKey" .= Sig.verifyKey acctkp
                         ]
                     return $ object [
-                        "electionVerifyKey" .= serializeBase16 (VRF.publicKey vrfkp),
-                        "signatureVerifyKey" .= serializeBase16 (Sig.verifyKey skp),
+                        "electionVerifyKey" .= VRF.publicKey vrfkp,
+                        "signatureVerifyKey" .= Sig.verifyKey skp,
                         "finalizer" .= finalizerP n,
                         "account" .= object [
                             "signatureScheme" .= fromEnum SigScheme.Ed25519,
-                            "signatureKey" .= serializeBase16 (Sig.signKey acctkp),
+                            "signatureKey" .= Sig.verifyKey acctkp,
                             "balance" .= (1000000000000 :: Integer)
                             ]
                         ]

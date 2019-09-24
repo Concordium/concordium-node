@@ -10,6 +10,7 @@ import System.IO
 import Lens.Micro.Platform
 import Data.Serialize
 
+import Concordium.TimeMonad
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.Parameters
@@ -27,8 +28,6 @@ import Concordium.Runner
 import Concordium.Logger
 import Concordium.Skov
 
-import Data.List(intercalate)
-
 import Concordium.Scheduler.Utils.Init.Example as Example
 
 import Concordium.Startup
@@ -36,18 +35,18 @@ import Concordium.Startup
 nContracts :: Int
 nContracts = 2
 
-transactions :: StdGen -> [Transaction]
+transactions :: StdGen -> [BareTransaction]
 transactions gen = trs (0 :: Nonce) (randoms gen :: [Int])
     where
         contr i = ContractAddress (fromIntegral $ i `mod` nContracts) 0
         trs n (a : b : rs) = Example.makeTransaction (a `mod` 9 /= 0) (contr b) n : trs (n+1) rs
         trs _ _ = error "Ran out of transaction data"
 
-sendTransactions :: Chan (InMessage a) -> [Transaction] -> IO ()
+sendTransactions :: Chan (InMessage a) -> [BareTransaction] -> IO ()
 sendTransactions chan (t : ts) = do
         writeChan chan (MsgTransactionReceived $ runPut $ put t)
         -- r <- randomRIO (5000, 15000)
-        threadDelay 50000
+        threadDelay 500000
         sendTransactions chan ts
 sendTransactions _ _ = return ()
 
@@ -56,9 +55,10 @@ relay inp sfsRef monitor outps = loop
     where
         loop = do
             msg <- readChan inp
+            now <- currentTime
             case msg of
                 MsgNewBlock blockBS -> do
-                    case runGet get blockBS of
+                    case runGet (getBlock now) blockBS of
                         Right (NormalBlock block) -> do
                             let bh = getHash block :: BlockHash
                             sfs <- readMVar sfsRef
@@ -102,7 +102,7 @@ removeEach = re []
         re _ [] = []
 
 gsToString :: BlockState -> String
-gsToString gs = intercalate "\\l" . map show $ keys
+gsToString gs = show (gs ^.  blockBirkParameters ^. seedState )
     where
         ca n = ContractAddress (fromIntegral n) 0
         keys = map (\n -> (n, instanceModel <$> getInstance (ca n) (gs ^. blockInstances))) $ enumFromTo 0 (nContracts-1)
@@ -112,18 +112,23 @@ dummyIdentityProviders = []
 
 main :: IO ()
 main = do
-    let n = 20
+    let n = 10
     now <- truncate <$> getPOSIXTime
-    let (gen, bis) = makeGenesisData now n 1 0.5 0 dummyCryptographicParameters dummyIdentityProviders
+    let (gen, bis) = makeGenesisData (now + 10) n 1 0.5 0 dummyCryptographicParameters dummyIdentityProviders
     let iState = Example.initialState (genesisBirkParameters gen) (genesisCryptographicParameters gen) (genesisBakerAccounts gen) [] nContracts
     trans <- transactions <$> newStdGen
     chans <- mapM (\(bakerId, (bid, _)) -> do
         let logFile = "consensus-" ++ show now ++ "-" ++ show bakerId ++ ".log"
+
         let logM src lvl msg = do
                                     timestamp <- getCurrentTime
                                     appendFile logFile $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg ++ "\n"
-        (cin, cout, out) <- makeAsyncRunner logM bid gen iState
-        -- _ <- forkIO $ sendTransactions cin trans
+        let logTransferFile = "transfer-log-" ++ show now ++ "-" ++ show bakerId ++ ".transfers"
+        let logT bh slot reason = do
+              appendFile logTransferFile (show (bh, slot, reason))
+              appendFile logTransferFile "\n"
+        (cin, cout, out) <- makeAsyncRunner logM Nothing bid defaultRuntimeParameters gen iState
+        _ <- forkIO $ sendTransactions cin trans
         return (cin, cout, out)) (zip [(0::Int) ..] bis)
     monitorChan <- newChan
     mapM_ (\((_,cout, stateRef), cs) -> forkIO $ relay cout stateRef monitorChan ((\(c, _, _) -> c) <$> cs)) (removeEach chans)

@@ -10,8 +10,6 @@ import Data.Time
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 
 import Concordium.Types
-import Concordium.GlobalState.Block
--- import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Transactions
@@ -39,6 +37,8 @@ data UpdateResult
     -- ^The message may have been valid in the past, but is no longer relevant
     | ResultIncorrectFinalizationSession
     -- ^The message refers to a different/unknown finalization session
+    | ResultUnverifiable
+    -- ^The message could not be validated with the current state
 
 class (Monad m, Eq (BlockPointer m), BlockPointerData (BlockPointer m), BlockStateQuery m) => SkovQueryMonad m where
     -- |Look up a block in the table given its hash
@@ -76,6 +76,7 @@ class (SkovQueryMonad m, TimeMonad m, LoggerMonad m) => SkovMonad m where
         -> BlockPointer m     -- ^Parent pointer
         -> BlockPointer m     -- ^Last finalized pointer
         -> BlockState m       -- ^State
+        -> Energy             -- ^Energy used by the transactions in this block
         -> m (BlockPointer m)
     -- |Add a transaction to the transaction table.
     receiveTransaction :: Transaction -> m UpdateResult
@@ -96,7 +97,7 @@ instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (BSMTra
 
 instance (Monad (t m), MonadTrans t, SkovMonad m) => SkovMonad (BSMTrans t m) where
     storeBlock b = lift $ storeBlock b
-    storeBakedBlock pb parent lastFin state = lift $ storeBakedBlock pb parent lastFin state
+    storeBakedBlock pb parent lastFin state energyUsed = lift $ storeBakedBlock pb parent lastFin state energyUsed
     receiveTransaction = lift . receiveTransaction
     finalizeBlock fr = lift $ finalizeBlock fr
 
