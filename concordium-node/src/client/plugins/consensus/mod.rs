@@ -236,6 +236,15 @@ pub fn handle_global_state_request(
 ) -> Fallible<()> {
     match request {
         GlobalStateMessage::ConsensusMessage(req) => {
+            if req.distribution_mode() == DistributionMode::Broadcast {
+                if let Some((_, state)) = global_state.peers.peek() {
+                    if state.status != PeerStatus::UpToDate {
+                        warn!("I'm currently catching up; dropping incoming broadcast");
+                        return Ok(());
+                    }
+                }
+            }
+
             handle_consensus_message(node, network_id, consensus, req, global_state)
         }
         GlobalStateMessage::PeerListUpdate(peer_ids) => {
