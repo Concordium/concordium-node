@@ -178,11 +178,6 @@ then
     ARGS="$ARGS $PROFILING_ARGS"
 fi
 
-if [ -n "$EXTERNAL_IP" ];
-then
-    ARGS="$ARGS --external-ip $EXTERNAL_IP"
-fi
-
 if [ -n "$EXTERNAL_PORT" ];
 then
     ARGS="$ARGS --external-port $EXTERNAL_PORT"
@@ -237,7 +232,6 @@ if [ "$MODE" == "tps_receiver" ]; then
     echo "Receiver!"
     /p2p_client-cli \
     --enable-tps-test-recv \
-    --external-ip 10.96.0.15 \
     $ARGS
 elif [ "$MODE" == "tps_sender" ]; then
     echo "Sender!\n"
@@ -252,7 +246,6 @@ elif [ "$MODE" == "tps_sender" ]; then
     # Echo to cron file
     /p2p_client-cli \
     --connect-to 10.96.0.15:8888 \
-    --external-ip 10.96.0.16 \
     $ARGS
 elif [ "$MODE" == "basic" ]; then
     /p2p_client-cli $ARGS
