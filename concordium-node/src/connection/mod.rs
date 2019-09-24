@@ -63,7 +63,7 @@ pub struct Connection {
     handler_ref:             Pin<Arc<P2PNode>>,
     pub token:               Token,
     pub remote_peer:         RemotePeer,
-    pub low_level:           Arc<RwLock<ConnectionLowLevel>>,
+    pub low_level:           RwLock<ConnectionLowLevel>,
     pub remote_end_networks: Arc<RwLock<HashSet<NetworkId>>>,
     pub is_post_handshake:   AtomicBool,
     pub stats:               ConnectionStats,
@@ -96,13 +96,13 @@ impl Connection {
     ) -> Arc<Self> {
         let curr_stamp = get_current_stamp();
 
-        let low_level = Arc::new(RwLock::new(ConnectionLowLevel::new(
+        let low_level = RwLock::new(ConnectionLowLevel::new(
             local_peer_type,
             socket,
             key_pair,
             is_initiator,
             noise_params,
-        )));
+        ));
 
         let stats = ConnectionStats {
             messages_received: Default::default(),
