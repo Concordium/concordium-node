@@ -1,20 +1,25 @@
-pub mod poll_loop;
-pub use poll_loop::{process_network_requests, NetworkRawRequest};
-
 pub mod counter;
+pub mod fails;
 pub mod p2p_node_id;
 pub mod p2p_peer;
 pub mod serialization;
 
-pub use self::{
-    p2p_node_id::P2PNodeId,
-    p2p_peer::{P2PPeer, P2PPeerBuilder, PeerStats, PeerType, RemotePeer},
-};
-
-pub mod fails;
+use crate::connection::MessageSendingPriority;
+use concordium_common::hybrid_buf::HybridBuf;
 
 use chrono::prelude::*;
+use mio::Token;
+
 use std::net::{IpAddr, SocketAddr};
+
+/// This data type is used to queue a request from any thread (like tests, RPC,
+/// Cli, etc.), into a node. Please note that any access to internal `socket`
+/// *must be executed* inside MIO poll-loop thread.
+pub struct NetworkRawRequest {
+    pub token:    Token, // It identifies the connection.
+    pub data:     HybridBuf,
+    pub priority: MessageSendingPriority,
+}
 
 pub fn serialize_ip(ip: IpAddr) -> String {
     match ip {
@@ -53,6 +58,11 @@ pub fn serialize_addr(addr: SocketAddr) -> String {
 }
 
 pub fn get_current_stamp() -> u64 { Utc::now().timestamp_millis() as u64 }
+
+pub use self::{
+    p2p_node_id::P2PNodeId,
+    p2p_peer::{P2PPeer, P2PPeerBuilder, PeerStats, PeerType, RemotePeer},
+};
 
 #[cfg(test)]
 mod tests {
