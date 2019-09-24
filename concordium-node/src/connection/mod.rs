@@ -14,7 +14,7 @@ pub enum MessageSendingPriority {
     Normal,
 }
 
-pub use crate::p2p::P2PNode;
+pub use crate::p2p::{Networks, P2PNode};
 
 pub use p2p_event::P2PEvent;
 
@@ -229,9 +229,7 @@ impl Connection {
         Arc::clone(&self.remote_end_networks)
     }
 
-    pub fn local_end_networks(&self) -> Arc<RwLock<HashSet<NetworkId>>> {
-        self.handler().networks()
-    }
+    pub fn local_end_networks(&self) -> &Arc<RwLock<Networks>> { self.handler().networks() }
 
     /// It queues a network request
     #[inline]
@@ -317,7 +315,10 @@ impl Connection {
         let handshake_request = NetworkMessage::NetworkRequest(
             NetworkRequest::Handshake(
                 self.handler().self_peer,
-                read_or_die!(self.handler().networks()).to_owned(),
+                read_or_die!(self.handler().networks())
+                    .iter()
+                    .copied()
+                    .collect(),
                 vec![],
             ),
             Some(get_current_stamp()),

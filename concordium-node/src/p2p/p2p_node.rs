@@ -109,7 +109,8 @@ impl ResendQueueEntry {
     }
 }
 
-type Connections = HashMap<Token, Arc<Connection>, BuildNoHashHasher<usize>>;
+pub type Networks = HashSet<NetworkId, BuildNoHashHasher<u16>>;
+pub type Connections = HashMap<Token, Arc<Connection>, BuildNoHashHasher<usize>>;
 
 #[derive(Clone)]
 pub struct ConnectionHandler {
@@ -123,7 +124,7 @@ pub struct ConnectionHandler {
     pub network_request_sender: SyncSender<NetworkRawRequest>,
     pub connections:            Arc<RwLock<Connections>>,
     pub unreachable_nodes:      UnreachableNodes,
-    pub networks:               Arc<RwLock<HashSet<NetworkId>>>,
+    pub networks:               Arc<RwLock<Networks>>,
     pub last_bootstrap:         Arc<AtomicU64>,
 }
 
@@ -134,7 +135,7 @@ impl ConnectionHandler {
         network_request_sender: SyncSender<NetworkRawRequest>,
         event_log: Option<SyncSender<P2PEvent>>,
     ) -> Self {
-        let networks: HashSet<NetworkId> = conf
+        let networks = conf
             .common
             .network_ids
             .iter()
@@ -182,7 +183,7 @@ pub struct P2PNode {
     pub rpc_queue:            SyncSender<NetworkMessage>,
     dump_switch:              SyncSender<(std::path::PathBuf, bool)>,
     dump_tx:                  SyncSender<crate::dumper::DumpItem>,
-    pub active_peer_stats:    Arc<RwLock<HashMap<u64, PeerStats>>>,
+    pub active_peer_stats:    Arc<RwLock<HashMap<u64, PeerStats, BuildNoHashHasher<u64>>>>,
     pub stats_export_service: Option<StatsExportService>,
     pub config:               P2PNodeConfig,
     start_time:               DateTime<Utc>,
@@ -393,7 +394,7 @@ impl P2PNode {
         filter_conn: &dyn Fn(&Connection) -> bool,
         send_status: &dyn Fn(&Connection, Fallible<()>),
     ) -> usize {
-        read_or_die!(self.connection_handler.connections)
+        read_or_die!(self.connections())
             .values()
             .filter(|conn| filter_conn(conn))
             .map(|conn| {
@@ -599,7 +600,7 @@ impl P2PNode {
         debug!("Running connection liveness checks");
 
         let curr_stamp = get_current_stamp();
-        let connections = read_or_die!(self.connection_handler.connections).clone();
+        let connections = read_or_die!(self.connections()).clone();
 
         connections
             .values()
@@ -643,7 +644,7 @@ impl P2PNode {
         };
 
         // Kill connections to nodes which are no longer seen
-        write_or_die!(self.connection_handler.connections).retain(|_, conn| {
+        write_or_die!(self.connections()).retain(|_, conn| {
             !(is_conn_faulty(&conn) || is_conn_inactive(&conn) || is_conn_without_handshake(&conn))
         });
 
@@ -660,7 +661,7 @@ impl P2PNode {
             let peer_count = self.connections_posthandshake_count(Some(PeerType::Bootstrapper));
             if peer_count > max_allowed_nodes {
                 let mut rng = rand::thread_rng();
-                let to_drop = read_or_die!(self.connection_handler.connections)
+                let to_drop = read_or_die!(self.connections())
                     .keys()
                     .copied()
                     .choose_multiple(&mut rng, (peer_count - max_allowed_nodes) as usize);
@@ -682,9 +683,10 @@ impl P2PNode {
     }
 
     #[inline]
-    pub fn networks(&self) -> Arc<RwLock<HashSet<NetworkId>>> {
-        Arc::clone(&self.connection_handler.networks)
-    }
+    pub fn connections(&self) -> &Arc<RwLock<Connections>> { &self.connection_handler.connections }
+
+    #[inline]
+    pub fn networks(&self) -> &Arc<RwLock<Networks>> { &self.connection_handler.networks }
 
     /// Returns true if `addr` is in the `unreachable_nodes` list.
     pub fn is_unreachable(&self, addr: SocketAddr) -> bool {
@@ -701,7 +703,7 @@ impl P2PNode {
         let (socket, addr) = self.connection_handler.server.accept()?;
 
         {
-            let conn_read_lock = read_or_die!(self.connection_handler.connections);
+            let conn_read_lock = read_or_die!(self.connections());
 
             if self.self_peer.peer_type() == PeerType::Node
                 && self.config.hard_connection_limit.is_some()
@@ -785,7 +787,7 @@ impl P2PNode {
         }
 
         // Don't connect to peers with a known P2PNodeId or IP+port
-        for conn in read_or_die!(self.connection_handler.connections).values() {
+        for conn in read_or_die!(self.connections()).values() {
             if conn.remote_addr() == addr
                 || (peer_id_opt.is_some() && conn.remote_id() == peer_id_opt)
             {
@@ -975,27 +977,27 @@ impl P2PNode {
     }
 
     pub fn find_connection_by_id(&self, id: P2PNodeId) -> Option<Arc<Connection>> {
-        read_or_die!(self.connection_handler.connections)
+        read_or_die!(self.connections())
             .values()
             .find(|conn| conn.remote_id() == Some(id))
             .map(|conn| Arc::clone(conn))
     }
 
     pub fn find_connection_by_token(&self, token: Token) -> Option<Arc<Connection>> {
-        read_or_die!(self.connection_handler.connections)
+        read_or_die!(self.connections())
             .get(&token)
             .map(|conn| Arc::clone(conn))
     }
 
     pub fn find_connection_by_ip_addr(&self, addr: SocketAddr) -> Option<Arc<Connection>> {
-        read_or_die!(self.connection_handler.connections)
+        read_or_die!(self.connections())
             .values()
             .find(|conn| conn.remote_addr() == addr)
             .map(|conn| Arc::clone(conn))
     }
 
     pub fn find_connections_by_ip(&self, ip: IpAddr) -> Vec<Arc<Connection>> {
-        read_or_die!(self.connection_handler.connections)
+        read_or_die!(self.connections())
             .values()
             .filter(|conn| conn.remote_peer().addr().ip() == ip)
             .map(|conn| Arc::clone(conn))
@@ -1003,13 +1005,13 @@ impl P2PNode {
     }
 
     pub fn remove_connection(&self, token: Token) {
-        if let Some(conn) = write_or_die!(self.connection_handler.connections).remove(&token) {
+        if let Some(conn) = write_or_die!(self.connections()).remove(&token) {
             write_or_die!(conn.low_level).conn_ref = None; // necessary in order for Drop to kick in
         }
     }
 
     pub fn add_connection(&self, conn: Arc<Connection>) {
-        write_or_die!(self.connection_handler.connections).insert(conn.token, conn);
+        write_or_die!(self.connections()).insert(conn.token, conn);
     }
 
     pub fn conn_event(&self, event: &Event) {
@@ -1677,7 +1679,7 @@ impl P2PNode {
             send_or_die!(
                 self.send_queue_in,
                 NetworkMessage::NetworkRequest(
-                    NetworkRequest::GetPeers(self.self_peer, nids.clone()),
+                    NetworkRequest::GetPeers(self.self_peer, nids.iter().copied().collect()),
                     None,
                     None,
                 )
