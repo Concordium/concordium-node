@@ -1,6 +1,5 @@
 use concordium_common::{
-    blockchain_types::BakerId, into_err, RelayOrStopReceiver, RelayOrStopSenderHelper,
-    RelayOrStopSyncSender,
+    blockchain_types::BakerId, into_err, QueueReceiver, QueueSyncSender, RelayOrStopSenderHelper,
 };
 use failure::Fallible;
 
@@ -18,11 +17,11 @@ use concordium_global_state::tree::{messaging::ConsensusMessage, GlobalState};
 pub type PeerId = u64;
 pub type PrivateData = HashMap<i64, Vec<u8>>;
 
-const CONSENSUS_QUEUE_DEPTH: usize = 4096;
+const CONSENSUS_QUEUE_DEPTH: usize = 10000;
 
 pub struct ConsensusQueues {
-    pub receiver: Mutex<RelayOrStopReceiver<ConsensusMessage>>,
-    pub sender:   RelayOrStopSyncSender<ConsensusMessage>,
+    pub receiver: Mutex<QueueReceiver<ConsensusMessage>>,
+    pub sender:   QueueSyncSender<ConsensusMessage>,
 }
 
 impl Default for ConsensusQueues {

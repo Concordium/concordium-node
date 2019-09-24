@@ -549,7 +549,7 @@ pub extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *co
 
         match CALLBACK_QUEUE.send_message(msg) {
             Ok(_) => trace!("Queueing a {} of {} bytes", msg_variant, len),
-            _ => error!("Couldn't queue a {} properly", msg_variant),
+            Err(e) => error!("Couldn't queue a {} properly: {}", msg_variant, e),
         };
     }
 }
@@ -581,7 +581,7 @@ pub extern "C" fn broadcast_callback(msg_type: i64, msg: *const u8, msg_length: 
 
         match CALLBACK_QUEUE.send_message(msg) {
             Ok(_) => trace!("Queueing a {} of {} bytes", msg_variant, msg_length),
-            _ => error!("Couldn't queue a {} properly", msg_variant),
+            Err(e) => error!("Couldn't queue a {} properly: {}", msg_variant, e),
         };
     }
 }
@@ -620,7 +620,7 @@ pub extern "C" fn direct_callback(
 
         match CALLBACK_QUEUE.send_message(msg) {
             Ok(_) => trace!("Queueing a {} of {} bytes", msg_variant, msg_len),
-            _ => error!("Couldn't queue a {} properly", msg_variant),
+            Err(e) => error!("Couldn't queue a {} properly: {}", msg_variant, e),
         };
     }
 }

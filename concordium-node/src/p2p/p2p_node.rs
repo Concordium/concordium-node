@@ -18,8 +18,8 @@ use crate::{
 };
 use chrono::prelude::*;
 use concordium_common::{
-    hybrid_buf::HybridBuf, stats_export_service::StatsExportService, RelayOrStopSenderHelper,
-    RelayOrStopSyncSender, SerializeToBytes,
+    hybrid_buf::HybridBuf, stats_export_service::StatsExportService, QueueSyncSender,
+    RelayOrStopSenderHelper, SerializeToBytes,
 };
 use failure::{err_msg, Error, Fallible};
 #[cfg(not(target_os = "windows"))]
@@ -178,7 +178,7 @@ pub struct P2PNode {
     pub connection_handler:   ConnectionHandler,
     pub send_queue_in:        SyncSender<NetworkMessage>,
     resend_queue_in:          SyncSender<ResendQueueEntry>,
-    pub queue_to_super:       RelayOrStopSyncSender<NetworkMessage>,
+    pub queue_to_super:       QueueSyncSender<NetworkMessage>,
     pub rpc_queue:            SyncSender<NetworkMessage>,
     dump_switch:              SyncSender<(std::path::PathBuf, bool)>,
     dump_tx:                  SyncSender<crate::dumper::DumpItem>,
@@ -196,7 +196,7 @@ impl P2PNode {
     pub fn new(
         supplied_id: Option<String>,
         conf: &Config,
-        pkt_queue: RelayOrStopSyncSender<NetworkMessage>,
+        pkt_queue: QueueSyncSender<NetworkMessage>,
         event_log: Option<SyncSender<P2PEvent>>,
         peer_type: PeerType,
         stats_export_service: Option<StatsExportService>,

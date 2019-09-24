@@ -14,9 +14,7 @@ use std::alloc::System;
 #[global_allocator]
 static A: System = System;
 
-use concordium_common::{
-    stats_export_service::StatsServiceMode, RelayOrStopEnvelope, RelayOrStopReceiver,
-};
+use concordium_common::{stats_export_service::StatsServiceMode, QueueMsg, QueueReceiver};
 use env_logger::{Builder, Env};
 use failure::Error;
 use p2p_client::{
@@ -147,12 +145,12 @@ fn main() -> Result<(), Error> {
 fn setup_process_output(
     node: &Arc<P2PNode>,
     conf: &config::Config,
-    pkt_out: RelayOrStopReceiver<NetworkMessage>,
+    pkt_out: QueueReceiver<NetworkMessage>,
 ) {
     let node_ref = Arc::clone(node);
     let _no_trust_bans = conf.common.no_trust_bans;
     let _guard_pkt = spawn_or_die!("Higher queue processing", move || {
-        while let Ok(RelayOrStopEnvelope::Relay(full_msg)) = pkt_out.recv() {
+        while let Ok(QueueMsg::Relay(full_msg)) = pkt_out.recv() {
             if let Err(e) = match full_msg {
                 NetworkMessage::NetworkRequest(
                     NetworkRequest::BanNode(_source, peer_to_ban),

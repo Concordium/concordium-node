@@ -7,7 +7,7 @@ use crate::{
 use concordium_common::{
     hybrid_buf::HybridBuf,
     stats_export_service::{StatsExportService, StatsServiceMode},
-    RelayOrStopEnvelope,
+    QueueMsg,
 };
 use failure::Fallible;
 use std::{
@@ -98,7 +98,7 @@ pub fn make_node_and_sync(
     port: u16,
     networks: Vec<u16>,
     node_type: PeerType,
-) -> Fallible<(Arc<P2PNode>, Receiver<RelayOrStopEnvelope<NetworkMessage>>)> {
+) -> Fallible<(Arc<P2PNode>, Receiver<QueueMsg<NetworkMessage>>)> {
     let (net_tx, net_rx) = std::sync::mpsc::sync_channel(64);
     let (rpc_tx, _rpc_rx) = std::sync::mpsc::sync_channel(64);
 
@@ -212,12 +212,10 @@ pub fn await_ping_with_timeout(
     bail!("Didn't receive ping request message within the timeout period")
 }
 
-pub fn await_broadcast_message(
-    waiter: &Receiver<RelayOrStopEnvelope<NetworkMessage>>,
-) -> Fallible<HybridBuf> {
+pub fn await_broadcast_message(waiter: &Receiver<QueueMsg<NetworkMessage>>) -> Fallible<HybridBuf> {
     loop {
         let msg = waiter.recv()?;
-        if let RelayOrStopEnvelope::Relay(NetworkMessage::NetworkPacket(pac, ..)) = msg {
+        if let QueueMsg::Relay(NetworkMessage::NetworkPacket(pac, ..)) = msg {
             if let NetworkPacketType::BroadcastedMessage(..) = pac.packet_type {
                 return Ok(pac.message.to_owned());
             }
@@ -225,12 +223,10 @@ pub fn await_broadcast_message(
     }
 }
 
-pub fn await_direct_message(
-    waiter: &Receiver<RelayOrStopEnvelope<NetworkMessage>>,
-) -> Fallible<HybridBuf> {
+pub fn await_direct_message(waiter: &Receiver<QueueMsg<NetworkMessage>>) -> Fallible<HybridBuf> {
     loop {
         let msg = waiter.recv()?;
-        if let RelayOrStopEnvelope::Relay(NetworkMessage::NetworkPacket(pac, ..)) = msg {
+        if let QueueMsg::Relay(NetworkMessage::NetworkPacket(pac, ..)) = msg {
             if let NetworkPacketType::DirectMessage(..) = pac.packet_type {
                 return Ok(pac.message.to_owned());
             }
@@ -239,11 +235,11 @@ pub fn await_direct_message(
 }
 
 pub fn await_direct_message_with_timeout(
-    waiter: &Receiver<RelayOrStopEnvelope<NetworkMessage>>,
+    waiter: &Receiver<QueueMsg<NetworkMessage>>,
     timeout: std::time::Duration,
 ) -> Option<HybridBuf> {
     while let Ok(msg) = waiter.recv_timeout(timeout) {
-        if let RelayOrStopEnvelope::Relay(NetworkMessage::NetworkPacket(pac, ..)) = msg {
+        if let QueueMsg::Relay(NetworkMessage::NetworkPacket(pac, ..)) = msg {
             if let NetworkPacketType::DirectMessage(..) = pac.packet_type {
                 return Some(pac.message.to_owned());
             }
@@ -253,7 +249,7 @@ pub fn await_direct_message_with_timeout(
     None
 }
 
-pub fn consume_pending_messages(waiter: &Receiver<RelayOrStopEnvelope<NetworkMessage>>) {
+pub fn consume_pending_messages(waiter: &Receiver<QueueMsg<NetworkMessage>>) {
     let max_wait_time = time::Duration::from_millis(250);
     loop {
         if waiter.recv_timeout(max_wait_time).is_err() {
