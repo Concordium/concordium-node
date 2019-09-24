@@ -1,6 +1,6 @@
+use concordium_common::blockchain_types::{AccountAddress, SchemeId};
 use concordium_crypto_eddsa_ed25519;
 use snow::params::{CipherChoice, DHChoice, HashChoice, NoiseParams};
-use concordium_common::blockchain_types::{SchemeId,AccountAddress};
 pub const ADDRESS_SCHEME: u8 = 1;
 
 #[derive(Default, Debug)]
@@ -29,7 +29,7 @@ impl KeyPair {
     // `<ADDRESS_SCHEME> + MostSignificantBits_160( SHA_224( public_key))`
     pub fn address(&self) -> String {
         let address = AccountAddress::from((&self.public_key[..], SchemeId::Ed25519));
-        format!("{}",address)
+        format!("{}", address)
     }
 }
 
