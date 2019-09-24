@@ -1,4 +1,5 @@
-use crate::common::serialization::{Deserializable, ReadArchive, Serializable, WriteArchive};
+use byteorder::{ReadBytesExt, WriteBytesExt};
+use concordium_common::Serial;
 
 use failure::Fallible;
 use std::fmt;
@@ -17,20 +18,10 @@ impl fmt::Display for NetworkId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "{:05}", self.id) }
 }
 
-impl Serializable for NetworkId {
-    #[inline]
-    fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
-    where
-        A: WriteArchive, {
-        self.id.serialize(archive)
+impl Serial for NetworkId {
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
+        Ok(NetworkId::from(u16::deserial(source)?))
     }
-}
 
-impl Deserializable for NetworkId {
-    #[inline]
-    fn deserialize<A>(archive: &mut A) -> Fallible<NetworkId>
-    where
-        A: ReadArchive, {
-        Ok(NetworkId::from(u16::deserialize(archive)?))
-    }
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> { self.id.serial(target) }
 }

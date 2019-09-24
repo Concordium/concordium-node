@@ -23,7 +23,7 @@ use crate::{
         counter::{TOTAL_MESSAGES_RECEIVED_COUNTER, TOTAL_MESSAGES_SENT_COUNTER},
         get_current_stamp,
         p2p_peer::P2PPeer,
-        serialization::{serialize_into_memory, Deserializable, ReadArchiveAdapter},
+        serialization::serialize_into_memory,
         NetworkRawRequest, P2PNodeId, PeerStats, PeerType, RemotePeer,
     },
     connection::message_handlers::handle_incoming_message,
@@ -31,7 +31,7 @@ use crate::{
     network::{Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse},
 };
 
-use concordium_common::hybrid_buf::HybridBuf;
+use concordium_common::{hybrid_buf::HybridBuf, Serial};
 
 use chrono::prelude::Utc;
 use failure::Fallible;
@@ -207,9 +207,8 @@ impl Connection {
 
     /// It decodes message from `buf` and processes it using its message
     /// handlers.
-    fn process_message(&self, message: HybridBuf) -> Fallible<()> {
-        let mut archive = ReadArchiveAdapter::new(message, self.remote_peer());
-        let message = NetworkMessage::deserialize(&mut archive)?;
+    fn process_message(&self, mut message: HybridBuf) -> Fallible<()> {
+        let message = NetworkMessage::deserial(&mut message)?;
 
         self.update_last_seen();
         self.stats.messages_received.fetch_add(1, Ordering::Relaxed);

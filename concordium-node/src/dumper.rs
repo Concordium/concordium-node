@@ -1,9 +1,8 @@
 #[cfg(feature = "network_dump")]
 use crate::common::P2PNodeId;
-use crate::common::{
-    serialization::{deserializable::Deserializable, read_archive_adapter::ReadArchiveAdapter},
-    RemotePeer,
-};
+use crate::common::{serialization::read_archive_adapter::ReadArchiveAdapter, RemotePeer};
+use concordium_common::Serial;
+
 #[cfg(feature = "network_dump")]
 use crate::configuration::APP_INFO;
 #[cfg(feature = "network_dump")]
@@ -56,7 +55,7 @@ impl DumpItem {
             } else {
                 (&[][..]).into()
             },
-            crate::network::NetworkMessage::deserialize(&mut archive)
+            crate::network::NetworkMessage::deserial(&mut archive)
         )
     }
 }

@@ -1,10 +1,9 @@
-use crate::common::{
-    fails,
-    serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
-    P2PNodeId,
-};
-
+use byteorder::{ReadBytesExt, WriteBytesExt};
 use failure::{Error, Fallible};
+
+use crate::common::{fails, P2PNodeId};
+use concordium_common::Serial;
+
 use std::{
     cmp::Ordering,
     fmt::{self, Display},
@@ -32,29 +31,21 @@ impl fmt::Display for PeerType {
     }
 }
 
-impl Serializable for PeerType {
-    #[inline]
-    fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
-    where
-        A: WriteArchive, {
-        match self {
-            PeerType::Node => PEER_TYPE_NODE,
-            PeerType::Bootstrapper => PEER_TYPE_BOOTSTRAPPER,
-        }
-        .serialize(archive)
-    }
-}
-
-impl Deserializable for PeerType {
-    #[inline]
-    fn deserialize<A>(archive: &mut A) -> Fallible<PeerType>
-    where
-        A: ReadArchive, {
-        match u8::deserialize(archive)? {
-            PEER_TYPE_NODE => Ok(PeerType::Node),
-            PEER_TYPE_BOOTSTRAPPER => Ok(PeerType::Bootstrapper),
+impl Serial for PeerType {
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
+        match source.read_u8() {
+            Ok(PEER_TYPE_NODE) => Ok(PeerType::Node),
+            Ok(PEER_TYPE_BOOTSTRAPPER) => Ok(PeerType::Bootstrapper),
             _ => bail!("Unsupported PeerType"),
         }
+    }
+
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        let byte = match self {
+            PeerType::Node => PEER_TYPE_NODE,
+            PeerType::Bootstrapper => PEER_TYPE_BOOTSTRAPPER,
+        };
+        Ok(target.write_u8(byte)?)
     }
 }
 
@@ -129,27 +120,19 @@ impl PartialOrd for P2PPeer {
     fn partial_cmp(&self, other: &P2PPeer) -> Option<Ordering> { Some(self.cmp(other)) }
 }
 
-impl Serializable for P2PPeer {
-    #[inline]
-    fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
-    where
-        A: WriteArchive, {
-        self.peer_type.serialize(archive)?;
-        self.id.serialize(archive)?;
-        self.addr.serialize(archive)
-    }
-}
-
-impl Deserializable for P2PPeer {
-    #[inline]
-    fn deserialize<A>(archive: &mut A) -> Fallible<P2PPeer>
-    where
-        A: ReadArchive, {
+impl Serial for P2PPeer {
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         Ok(P2PPeer::from(
-            PeerType::deserialize(archive)?,
-            P2PNodeId::deserialize(archive)?,
-            SocketAddr::deserialize(archive)?,
+            PeerType::deserial(source)?,
+            P2PNodeId::deserial(source)?,
+            SocketAddr::deserial(source)?,
         ))
+    }
+
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        self.peer_type.serial(target)?;
+        self.id.serial(target)?;
+        self.addr.serial(target)
     }
 }
 

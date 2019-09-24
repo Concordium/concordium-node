@@ -1,8 +1,9 @@
-use crate::common::serialization::{Deserializable, ReadArchive, Serializable, WriteArchive};
-
-use concordium_common::network_types::PeerId;
+use byteorder::{ReadBytesExt, WriteBytesExt};
 use failure::Fallible;
 use rand::distributions::{Distribution, Uniform};
+
+use concordium_common::{network_types::PeerId, Serial};
+
 use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -32,21 +33,14 @@ impl std::str::FromStr for P2PNodeId {
     }
 }
 
-impl Serializable for P2PNodeId {
-    #[inline]
-    fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
-    where
-        A: WriteArchive, {
-        self.0.serialize(archive)
+impl Serial for P2PNodeId {
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
+        Ok(P2PNodeId(u64::deserial(source)?))
     }
-}
 
-impl Deserializable for P2PNodeId {
-    #[inline]
-    fn deserialize<A>(archive: &mut A) -> Fallible<P2PNodeId>
-    where
-        A: ReadArchive, {
-        Ok(P2PNodeId(PeerId::deserialize(archive)?))
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        self.0.serial(target)?;
+        Ok(())
     }
 }
 

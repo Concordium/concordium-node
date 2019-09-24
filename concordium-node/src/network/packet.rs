@@ -1,11 +1,10 @@
+use byteorder::{ReadBytesExt, WriteBytesExt};
+
 use crate::{
-    common::{
-        serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
-        P2PNodeId, P2PPeer,
-    },
+    common::{P2PNodeId, P2PPeer},
     network::{AsProtocolPacketType, NetworkId, ProtocolPacketType},
 };
-use concordium_common::{hybrid_buf::HybridBuf, HashBytes};
+use concordium_common::{hybrid_buf::HybridBuf, HashBytes, Serial};
 
 use crate::{failure::Fallible, utils};
 use rand::RngCore;
@@ -27,30 +26,24 @@ impl AsProtocolPacketType for NetworkPacketType {
     }
 }
 
-impl Serializable for NetworkPacketType {
-    fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
-    where
-        A: WriteArchive, {
-        (self.protocol_packet_type() as u8).serialize(archive)?;
-
-        match self {
-            NetworkPacketType::DirectMessage(ref receiver) => receiver.serialize(archive),
-            NetworkPacketType::BroadcastedMessage(..) => Ok(()),
-        }
-    }
-}
-
-impl Deserializable for NetworkPacketType {
-    fn deserialize<A>(archive: &mut A) -> Fallible<NetworkPacketType>
-    where
-        A: ReadArchive, {
-        let protocol_type = ProtocolPacketType::try_from(u8::deserialize(archive)?)?;
+impl Serial for NetworkPacketType {
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
+        let protocol_type = ProtocolPacketType::try_from(source.read_u8()?)?;
 
         match protocol_type {
             ProtocolPacketType::Direct => Ok(NetworkPacketType::DirectMessage(
-                P2PNodeId::deserialize(archive)?,
+                P2PNodeId::deserial(source)?,
             )),
             ProtocolPacketType::Broadcast => Ok(NetworkPacketType::BroadcastedMessage(vec![])),
+        }
+    }
+
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        target.write_u8(self.protocol_packet_type() as u8)?;
+
+        match self {
+            NetworkPacketType::DirectMessage(ref receiver) => receiver.serial(target),
+            NetworkPacketType::BroadcastedMessage(..) => Ok(()),
         }
     }
 }
@@ -78,26 +71,19 @@ impl NetworkPacket {
     }
 }
 
-impl Serializable for NetworkPacket {
-    fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
-    where
-        A: WriteArchive, {
-        self.packet_type.serialize(archive)?;
-        self.network_id.serialize(archive)?;
-        self.message.serialize(archive)
+impl Serial for NetworkPacket {
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
+        Ok(NetworkPacket {
+            packet_type: NetworkPacketType::deserial(source)?,
+            peer:        P2PPeer::deserial(source)?,
+            network_id:  NetworkId::deserial(source)?,
+            message:     HybridBuf::deserial(source)?,
+        })
     }
-}
 
-impl Deserializable for NetworkPacket {
-    fn deserialize<A>(archive: &mut A) -> Fallible<NetworkPacket>
-    where
-        A: ReadArchive, {
-        let packet = NetworkPacket {
-            packet_type: NetworkPacketType::deserialize(archive)?,
-            peer:        archive.post_handshake_peer()?,
-            network_id:  NetworkId::deserialize(archive)?,
-            message:     HybridBuf::deserialize(archive)?,
-        };
-        Ok(packet)
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        self.packet_type.serial(target)?;
+        self.network_id.serial(target)?;
+        self.message.serial(target)
     }
 }

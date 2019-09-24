@@ -12,8 +12,7 @@ pub use self::{
     write_archive_adapter::WriteArchiveAdapter,
 };
 
-use crate::common::RemotePeer;
-use concordium_common::hybrid_buf::HybridBuf;
+use concordium_common::{hybrid_buf::HybridBuf, Serial};
 
 use failure::Fallible;
 
@@ -21,18 +20,17 @@ use failure::Fallible;
 /// It uses `capacity` as initial capacity for target vector.
 pub fn serialize_into_memory<T>(src: &T, capacity: usize) -> Fallible<HybridBuf>
 where
-    T: Serializable, {
-    let mut archive = WriteArchiveAdapter::from(HybridBuf::with_capacity(capacity)?);
-    src.serialize(&mut archive)?;
-    let mut ret = archive.into_inner();
-    ret.rewind()?;
-    Ok(ret)
+    T: Serial, {
+    let mut buffer = HybridBuf::with_capacity(capacity)?;
+    src.serial(&mut buffer)?;
+    buffer.rewind()?;
+
+    Ok(buffer)
 }
 
 /// Helper function to deserialize `src` from memory.
-pub fn deserialize_from_memory<T>(src: HybridBuf, peer: RemotePeer) -> Fallible<T>
+pub fn deserialize_from_memory<T>(mut src: &mut HybridBuf) -> Fallible<T>
 where
-    T: Deserializable, {
-    let mut archive = ReadArchiveAdapter::new(src, peer);
-    T::deserialize(&mut archive)
+    T: Serial, {
+    T::deserial(&mut src)
 }

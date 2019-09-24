@@ -1,12 +1,12 @@
+use byteorder::{ReadBytesExt, WriteBytesExt};
+use failure::Fallible;
+
 use super::{NetworkPacket, NetworkRequest, NetworkResponse};
 use crate::{
-    common::{
-        get_current_stamp,
-        serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
-    },
-    failure::Fallible,
+    common::get_current_stamp,
     network::{AsProtocolMessageType, ProtocolMessageType, PROTOCOL_NAME, PROTOCOL_VERSION},
 };
+use concordium_common::Serial;
 
 use std::{convert::TryFrom, ops::Deref, sync::Arc};
 
@@ -50,58 +50,28 @@ impl AsProtocolMessageType for NetworkMessage {
     }
 }
 
-impl Serializable for NetworkMessage {
-    fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
-    where
-        A: WriteArchive, {
-        archive.write_all(PROTOCOL_NAME.as_bytes())?;
-        PROTOCOL_VERSION.serialize(archive)?;
-        (get_current_stamp() as u64).serialize(archive)?;
-        (self.protocol_message_type() as u8).serialize(archive)?;
-
-        // ATENTION: This constant is used on some validations **before** packet is
-        // deserialized, so we should be completely sure that any updates on
-        // serialization process will be notified. In that case, you should
-        // update that constant.
-        // For instance if we add new field to be serialized before
-        // `self.protocol_message_type()`, or if we change type of any field (It
-        // means, replace `.write_u16` by `.write_u8`).
-        #[cfg(test)]
-        const_assert!(network_message_protocol_type; NETWORK_MESSAGE_PROTOCOL_TYPE_IDX == 13 + 2 + 8);
-
-        match self {
-            NetworkMessage::NetworkRequest(ref request, ..) => request.serialize(archive),
-            NetworkMessage::NetworkResponse(ref response, ..) => response.serialize(archive),
-            NetworkMessage::NetworkPacket(ref packet, ..) => packet.serialize(archive),
-            NetworkMessage::InvalidMessage => bail!("Unsupported type of NetworkMessage"),
-        }
-    }
-}
-
-impl Deserializable for NetworkMessage {
-    fn deserialize<A>(archive: &mut A) -> Fallible<NetworkMessage>
-    where
-        A: ReadArchive, {
+impl Serial for NetworkMessage {
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         // verify the protocol name and version
-        let protocol_name = archive.read_n_bytes(PROTOCOL_NAME.len() as u32)?;
+        let mut protocol_name = vec![0u8; PROTOCOL_NAME.len()];
+        source.read_exact(&mut protocol_name)?;
         if protocol_name.deref() != PROTOCOL_NAME.as_bytes() {
             bail!("Unknown protocol name (`{:?}`)! ", protocol_name.deref())
         }
-        let protocol_version = u16::deserialize(archive)?;
+        let protocol_version = u16::deserial(source)?;
         if protocol_version != PROTOCOL_VERSION {
             bail!("Unknown protocol version (`{:?}`)", protocol_version)
         }
 
-        let timestamp = u64::deserialize(archive)?;
-        let protocol_type: ProtocolMessageType =
-            ProtocolMessageType::try_from(u8::deserialize(archive)?)?;
+        let timestamp = u64::deserial(source)?;
+        let protocol_type: ProtocolMessageType = ProtocolMessageType::try_from(source.read_u8()?)?;
         let message = match protocol_type {
             ProtocolMessageType::Request => {
-                let request = NetworkRequest::deserialize(archive)?;
+                let request = NetworkRequest::deserial(source)?;
                 NetworkMessage::NetworkRequest(request, Some(timestamp), Some(get_current_stamp()))
             }
             ProtocolMessageType::Response => {
-                let response = NetworkResponse::deserialize(archive)?;
+                let response = NetworkResponse::deserial(source)?;
                 NetworkMessage::NetworkResponse(
                     response,
                     Some(timestamp),
@@ -109,12 +79,28 @@ impl Deserializable for NetworkMessage {
                 )
             }
             ProtocolMessageType::Packet => {
-                let packet = Arc::new(NetworkPacket::deserialize(archive)?);
+                let packet = Arc::new(NetworkPacket::deserial(source)?);
                 NetworkMessage::NetworkPacket(packet, Some(timestamp), Some(get_current_stamp()))
             }
         };
 
         Ok(message)
+    }
+
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        target.write_all(PROTOCOL_NAME.as_bytes())?;
+        PROTOCOL_VERSION.serial(target)?;
+        get_current_stamp().serial(target)?;
+        (self.protocol_message_type() as u8).serial(target)?;
+        #[cfg(test)]
+        const_assert!(network_message_protocol_type; NETWORK_MESSAGE_PROTOCOL_TYPE_IDX == 13 + 2 + 8);
+
+        match self {
+            NetworkMessage::NetworkRequest(ref request, ..) => request.serial(target),
+            NetworkMessage::NetworkResponse(ref response, ..) => response.serial(target),
+            NetworkMessage::NetworkPacket(ref packet, ..) => packet.serial(target),
+            NetworkMessage::InvalidMessage => bail!("Unsupported type of NetworkMessage"),
+        }
     }
 }
 

@@ -1,6 +1,9 @@
 use byteorder::{ReadBytesExt, WriteBytesExt, LE};
 use failure::{bail, Fallible};
 
+// desired endianness
+type E = LE;
+
 // the actual trait; might need 2 lifetimes
 
 pub trait Serial
@@ -13,6 +16,38 @@ where
 // implementation for std types
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+
+impl Serial for u8 {
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> { Ok(source.read_u8()?) }
+
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        Ok(target.write_u8(*self)?)
+    }
+}
+
+impl Serial for u16 {
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> { Ok(source.read_u16::<E>()?) }
+
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        Ok(target.write_u16::<E>(*self)?)
+    }
+}
+
+impl Serial for u32 {
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> { Ok(source.read_u32::<E>()?) }
+
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        Ok(target.write_u32::<E>(*self)?)
+    }
+}
+
+impl Serial for u64 {
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> { Ok(source.read_u64::<E>()?) }
+
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        Ok(target.write_u64::<E>(*self)?)
+    }
+}
 
 impl Serial for Ipv4Addr {
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
@@ -31,7 +66,7 @@ impl Serial for Ipv6Addr {
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let mut segments = [0u16; 8];
         for segment in &mut segments {
-            *segment = source.read_u16::<LE>()?;
+            *segment = source.read_u16::<E>()?;
         }
 
         Ok(Ipv6Addr::from(segments))
@@ -40,7 +75,7 @@ impl Serial for Ipv6Addr {
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
         target.write_u8(6)?;
         for segment in &self.segments() {
-            target.write_u16::<LE>(*segment)?;
+            target.write_u16::<E>(*segment)?;
         }
         Ok(())
     }
@@ -68,12 +103,83 @@ impl Serial for SocketAddr {
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         Ok(SocketAddr::new(
             IpAddr::deserial(source)?,
-            source.read_u16::<LE>()?,
+            source.read_u16::<E>()?,
         ))
     }
 
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
         self.ip().serial(target)?;
-        Ok(target.write_u16::<LE>(self.port())?)
+        Ok(target.write_u16::<E>(self.port())?)
+    }
+}
+
+impl<T: Serial> Serial for Vec<T> {
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
+        const MAX_INITIAL_CAPACITY: usize = 4096;
+
+        let len = source.read_u32::<E>()?;
+        let mut out = Vec::with_capacity(std::cmp::min(len as usize, MAX_INITIAL_CAPACITY));
+        for _i in 0..len {
+            out.push(T::deserial(source)?);
+        }
+        Ok(out)
+    }
+
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        (self.len() as u32).serial(target)?;
+        self.iter()
+            .map(|ref item| item.serial(target))
+            .collect::<Fallible<()>>()
+    }
+}
+
+use std::{
+    collections::HashSet,
+    hash::{BuildHasher, Hash},
+};
+
+impl<T: Serial + Eq + Hash, S: BuildHasher + Default> Serial for HashSet<T, S> {
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
+        const MAX_INITIAL_CAPACITY: usize = 4096;
+
+        let len = source.read_u32::<E>()?;
+        let mut out = HashSet::with_capacity_and_hasher(
+            std::cmp::min(len as usize, MAX_INITIAL_CAPACITY),
+            Default::default(),
+        );
+
+        for _i in 0..len {
+            out.insert(T::deserial(source)?);
+        }
+        Ok(out)
+    }
+
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        (self.len() as u32).serial(target)?;
+        self.iter()
+            .map(|ref item| item.serial(target))
+            .collect::<Fallible<()>>()
+    }
+}
+
+use crate::hybrid_buf::HybridBuf;
+
+impl Serial for HybridBuf {
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
+        let len = u32::deserial(source)? as usize; // advance the cursor
+        let mut ret = HybridBuf::with_capacity(len)?;
+        std::io::copy(source, &mut ret)?;
+
+        Ok(ret)
+    }
+
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        let mut self_clone = self.to_owned(); // FIXME!
+        let len = self_clone.len()? - self_clone.position()?;
+
+        (len as u32).serial(target)?;
+        std::io::copy(&mut self_clone, target)?;
+
+        Ok(())
     }
 }
