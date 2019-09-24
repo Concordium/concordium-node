@@ -1,16 +1,11 @@
 {-# LANGUAGE DeriveFunctor, GeneralizedNewtypeDeriving, TypeFamilies, DerivingVia, DerivingStrategies, MultiParamTypeClasses, ViewPatterns, ScopedTypeVariables, LambdaCase, TupleSections, FlexibleContexts, DefaultSignatures, DeriveFoldable, DeriveTraversable, FlexibleInstances, QuantifiedConstraints, UndecidableInstances, StandaloneDeriving, RecordWildCards #-}
 module Concordium.GlobalState.Persistent.Instances where
 
-import qualified Data.Vector as V
-import Data.List
 import Data.Word
 import Data.Functor.Foldable hiding (Nil)
-import Data.Bifunctor
 import Control.Monad
 import Data.Serialize
-import qualified Data.ByteString as BS
 import Data.Void
-import qualified Data.HashMap.Strict as HM
 import Data.HashMap.Strict(HashMap)
 import Data.Bits
 import Control.Exception
@@ -301,14 +296,12 @@ instance (MonadBlobStore m BlobRef) => BlobStorable m BlobRef Instances where
             s <- get
             fmap (InstancesTree s) <$> load p
 
-newContractInstance :: forall m. (MonadBlobStore m BlobRef) => (ContractAddress -> m PersistentInstance) -> Instances -> m (ContractAddress, Instances)
+newContractInstance :: forall m a. (MonadBlobStore m BlobRef) => (ContractAddress -> m (a, PersistentInstance)) -> Instances -> m (a, Instances)
 newContractInstance fnew InstancesEmpty = do
         let ca = ContractAddress 0 0
-        newInst <- fnew ca
-        (ca,) . InstancesTree 1 <$> membed (Leaf newInst)
-newContractInstance fnew (InstancesTree s it) = (\(ca, it') -> (ca, InstancesTree (s+1) it')) <$> newContractInstanceIT fnew' it
-    where
-        fnew' a = (a,) <$> fnew a
+        (res, newInst) <- fnew ca
+        (res,) . InstancesTree 1 <$> membed (Leaf newInst)
+newContractInstance fnew (InstancesTree s it) = (\(res, it') -> (res, InstancesTree (s+1) it')) <$> newContractInstanceIT fnew it
 
 deleteContractInstance :: forall m. (MonadBlobStore m BlobRef) => ContractAddress -> Instances -> m Instances
 deleteContractInstance _ InstancesEmpty = return InstancesEmpty
@@ -385,7 +378,7 @@ updateContractInstance fupd addr (InstancesTree s it0) = upd baseSuccess (contra
                 in upd newCont (i - 2^h) =<< mproject r
             | otherwise = return Nothing
 
-allInstances :: forall m a. (MonadBlobStore m BlobRef) => Instances -> m [PersistentInstance]
+allInstances :: forall m. (MonadBlobStore m BlobRef) => Instances -> m [PersistentInstance]
 allInstances InstancesEmpty = return []
 allInstances (InstancesTree _ it) = mapReduceIT mfun it
     where

@@ -252,6 +252,10 @@ class (Eq (BlockPointer m),
     -- data.
     freezeBlockState :: UpdatableBlockState m -> m (BlockState m)
 
+    -- |Discard a mutable block state instance.  The mutable state instance will
+    -- not be used afterwards.
+    dropUpdatableBlockState :: UpdatableBlockState m -> m ()
+
     -- |Mark the given state instance as no longer needed and eventually
     -- discharge it. This can happen, for instance, when a block becomes dead
     -- due to finalization. The block state instance will not be accessed after
@@ -306,6 +310,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (BSMTra
     updateBlockTransactions trs b = lift $ updateBlockTransactions trs b
     thawBlockState = lift . thawBlockState
     freezeBlockState = lift . freezeBlockState
+    dropUpdatableBlockState = lift . dropUpdatableBlockState
     purgeBlockState = lift . purgeBlockState
     getConsensusStatistics = lift getConsensusStatistics
     putConsensusStatistics = lift . putConsensusStatistics
@@ -349,6 +354,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (BSMTra
     {-# INLINE updateBlockTransactions #-}
     {-# INLINE thawBlockState #-}
     {-# INLINE freezeBlockState #-}
+    {-# INLINE dropUpdatableBlockState #-}
     {-# INLINE purgeBlockState #-}
     {-# INLINE getConsensusStatistics #-}
     {-# INLINE putConsensusStatistics #-}

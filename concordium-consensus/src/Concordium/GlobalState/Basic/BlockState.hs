@@ -225,8 +225,9 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
             bs' = bs
                 -- Add the instance
                 & blockInstances .~ instances'
-                -- Update the owner accounts set of instances
+                -- Update the owner account's set of instances
                 & blockAccounts . ix instanceOwner . accountInstances %~ Set.insert instanceAddress
+                -- Delegate the stake as needed
                 & maybe (error "Instance has invalid owner") 
                     (\owner -> blockBirkParameters . birkBakers %~ addStake (owner ^. accountStakeDelegate) (Instances.instanceAmount inst))
                     (bs ^? blockAccounts . ix instanceOwner)

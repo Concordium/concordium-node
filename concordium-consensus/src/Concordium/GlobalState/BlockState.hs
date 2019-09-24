@@ -269,7 +269,8 @@ class BlockStateQuery m => BlockStateOperations m where
   bsoDecrementCentralBankGTU :: UpdatableBlockState m -> Amount -> m (Amount, UpdatableBlockState m)
 
   -- |Change the given account's stake delegation. Return 'False' if the target
-  --  is an invalid baker (and delegation is unchanged), and 'True' otherwise.
+  -- is an invalid baker (and delegation is unchanged), and 'True' otherwise.
+  -- The method requires that the account already exists.
   bsoDelegateStake :: UpdatableBlockState m -> AccountAddress -> Maybe BakerId -> m (Bool, UpdatableBlockState m)
 
   -- |Get the identity provider data for the given identity provider, or Nothing if
