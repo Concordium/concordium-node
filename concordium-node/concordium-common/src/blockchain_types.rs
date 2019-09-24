@@ -101,7 +101,7 @@ impl fmt::Debug for AccountAddress {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let scheme_id_encoded = &self.0[..1].to_base58();
         let scheme_part = if scheme_id_encoded.len() < 2 {
-            format!("1{}", scheme_id_encoded).to_owned()
+            format!("1{}", scheme_id_encoded)
         } else {
             scheme_id_encoded.to_owned()
         };
@@ -117,4 +117,18 @@ pub fn create_serialization_cursor(size: usize) -> Cursor<Box<[u8]>> {
     let buf = vec![0; size];
 
     Cursor::new(buf.into_boxed_slice())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::blockchain_types::AccountAddress;
+    #[test]
+    fn check_encoding_of_address() {
+        let expected_result = &"11gXqUxCA425wahmjy9RfFZAJpCMsRXi6BZ";
+        let bytes = [
+            0, 177, 161, 218, 231, 97, 52, 140, 166, 47, 87, 0, 117, 36, 195, 102, 196, 50, 70,
+            223, 23,
+        ];
+        assert_eq!(expected_result, &AccountAddress::new(&bytes).to_string());
+    }
 }

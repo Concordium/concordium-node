@@ -29,7 +29,7 @@ impl KeyPair {
     // `<ADDRESS_SCHEME> + MostSignificantBits_160( SHA_224( public_key))`
     pub fn address(&self) -> String {
         let address = AccountAddress::from((&self.public_key[..], SchemeId::Ed25519));
-        format!("{}", address)
+        address.to_string()
     }
 }
 
