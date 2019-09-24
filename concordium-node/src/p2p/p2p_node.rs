@@ -2,8 +2,8 @@
 use crate::dumper::create_dump_thread;
 use crate::{
     common::{
-        get_current_stamp, process_network_requests, serialization::serialize_into_memory,
-        NetworkRawRequest, P2PNodeId, P2PPeer, PeerStats, PeerType, RemotePeer,
+        get_current_stamp, serialization::serialize_into_memory, NetworkRawRequest, P2PNodeId,
+        P2PPeer, PeerStats, PeerType, RemotePeer,
     },
     configuration::{self as config, Config},
     connection::{Connection, MessageSendingPriority, P2PEvent},
@@ -559,7 +559,7 @@ impl P2PNode {
                     .process(&receivers, &mut events)
                     .map_err(|e| error!("{}", e));
 
-                process_network_requests(&self_clone, &receivers);
+                self_clone.process_network_requests(&receivers);
 
                 // Check the termination switch
                 if self_clone.is_terminated.load(Ordering::Relaxed) {
@@ -1279,7 +1279,7 @@ impl P2PNode {
         );
 
         let (peers_to_skip, s11n_data) = match inner_pkt.packet_type {
-            NetworkPacketType::DirectMessage(..) => (vec![].into_boxed_slice(), serialized_packet),
+            NetworkPacketType::DirectMessage(..) => (vec![], serialized_packet),
             NetworkPacketType::BroadcastedMessage(ref dont_send_to) => {
                 let not_valid_receivers = if self.config.relay_broadcast_percentage < 1.0 {
                     use rand::seq::SliceRandom;
@@ -1293,9 +1293,8 @@ impl P2PNode {
                         .choose_multiple(&mut rng, peers_to_take as usize)
                         .copied()
                         .collect::<Vec<_>>()
-                        .into_boxed_slice()
                 } else {
-                    Box::from([])
+                    Vec::new()
                 };
 
                 (not_valid_receivers, serialized_packet)
@@ -1438,9 +1437,9 @@ impl P2PNode {
                     _ => unreachable!("Attempted to reprocess a non-packet network message!"),
                 }
             })
-            .filter_map(|possible_failure| possible_failure)
-            .collect::<Vec<_>>();
-        resend_failures.iter().for_each(|failed_resend_pkt| {
+            .filter_map(|possible_failure| possible_failure);
+
+        resend_failures.for_each(|failed_resend_pkt| {
             if failed_resend_pkt.attempts < self.config.max_resend_attempts {
                 if self
                     .resend_queue_in
@@ -1530,6 +1529,7 @@ impl P2PNode {
 
     pub fn internal_addr(&self) -> SocketAddr { self.self_peer.addr }
 
+    #[inline(always)]
     fn process(&self, receivers: &Receivers, events: &mut Events) -> Fallible<()> {
         self.poll.poll(
             events,
@@ -1557,6 +1557,37 @@ impl P2PNode {
 
         self.process_resend_queue(receivers);
         Ok(())
+    }
+
+    /// It extracts and sends each queued request.
+    ///
+    /// # Mio poll-loop thread
+    ///
+    /// The read process is executed inside the MIO
+    /// poll-loop thread, and any write is queued to be processed later in that
+    /// poll-loop.
+    #[inline(always)]
+    pub fn process_network_requests(&self, receivers: &Receivers) {
+        for request in receivers.network_requests.try_iter() {
+            trace!(
+                "Processing network raw request ({} bytes) in connection {}",
+                request.data.len().unwrap_or(0),
+                usize::from(request.token)
+            );
+
+            if let Some(ref conn) = self.find_connection_by_token(request.token) {
+                if let Err(err) = conn.async_send_from_poll_loop(request.data, request.priority) {
+                    error!("Can't send a raw network request to {}: {}", conn, err);
+                    conn.handler().remove_connection(conn.token);
+                }
+            } else {
+                debug!(
+                    "Can't send a raw network request; connection {} is missing",
+                    usize::from(request.token)
+                );
+                return;
+            }
+        }
     }
 
     pub fn close(&self) -> bool {
