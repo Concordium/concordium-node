@@ -59,7 +59,7 @@ use self::PendingQueueType::*;
 pub struct GlobalState<'a> {
     pub data:           GlobalData<'a>,
     pub peers:          PriorityQueue<PeerId, PeerState, BuildNoHashHasher<PeerId>>,
-    pub catch_up_count: u8,
+    pub catch_up_stamp: u64,
     pub stats:          GlobalStats,
 }
 
@@ -88,7 +88,7 @@ impl<'a> GlobalState<'a> {
         Self {
             data:           GlobalData::new(genesis_data, &kvs_env, persistent),
             peers:          Default::default(),
-            catch_up_count: 0,
+            catch_up_stamp: 0,
             stats:          GlobalStats::new(MOVING_AVERAGE_QUEUE_LEN),
         }
     }

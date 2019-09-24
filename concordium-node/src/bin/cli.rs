@@ -15,7 +15,7 @@ use concordium_common::{
     cache::Cache,
     spawn_or_die,
     stats_export_service::{StatsExportService, StatsServiceMode},
-    PacketType, QueueMsg, QueueReceiver,
+    QueueMsg, QueueReceiver,
 };
 use concordium_consensus::{
     consensus::{ConsensusContainer, CALLBACK_QUEUE},

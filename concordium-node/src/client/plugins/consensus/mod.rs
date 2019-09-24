@@ -44,7 +44,10 @@ use concordium_global_state::{
 };
 
 use crate::{
-    common::P2PNodeId, configuration, network::NetworkId, p2p::p2p_node::*,
+    common::{get_current_stamp, P2PNodeId},
+    configuration::{self, MAX_CATCH_UP_TIME},
+    network::NetworkId,
+    p2p::p2p_node::*,
     utils::GlobalStateSenders,
 };
 
@@ -259,14 +262,12 @@ pub fn handle_global_state_request(
                         // baking may commence (does nothing if already baking)
                         trace!("Global state: all my peers are up to date");
                         consensus.start_baker();
-                        global_state.catch_up_count = 0;
                     }
                     PeerStatus::CatchingUp => {
                         // don't send any catch-up statuses while
                         // there are peers that are catching up
-                        if global_state.catch_up_count < 1 {
+                        if get_current_stamp() < global_state.catch_up_stamp + MAX_CATCH_UP_TIME {
                             debug!("Global state: I'm catching up with peer {:016x}", id);
-                            global_state.catch_up_count += 1;
                         } else {
                             warn!("Global state: peer {:016x} took to long to catch up", id);
                             if let Some(peer_conn) = node
@@ -275,14 +276,12 @@ pub fn handle_global_state_request(
                             {
                                 node.remove_connection(peer_conn);
                             }
-                            global_state.catch_up_count = 0;
                         }
                     }
                     PeerStatus::Pending => {
                         // send a catch-up message to the first Pending peer
                         debug!("Global state: I need to catch up with peer {:016x}", id);
                         send_catch_up_status(node, network_id, consensus, global_state, id)?;
-                        global_state.catch_up_count = 0;
                     }
                 }
             }
@@ -556,6 +555,8 @@ fn send_catch_up_status(
     global_state
         .peers
         .change_priority(&target, PeerState::new(PeerStatus::CatchingUp));
+
+    global_state.catch_up_stamp = get_current_stamp();
 
     send_consensus_msg_to_net(
         node,
