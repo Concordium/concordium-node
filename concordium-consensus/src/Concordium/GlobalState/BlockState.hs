@@ -24,6 +24,7 @@ import Concordium.Types.Acorn.Core(ModuleRef)
 import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.Types.Acorn.Interfaces
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.SeedState
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Instances
 import Concordium.GlobalState.Modules hiding (getModule)
@@ -285,11 +286,8 @@ class BlockStateQuery m => BlockStateOperations m where
   -- |Add a special transaction outcome.
   bsoAddSpecialTransactionOutcome :: UpdatableBlockState m -> SpecialTransactionOutcome -> m (UpdatableBlockState m)
 
-  -- |Update the information used to calculate the leadership elction nonce, and possibly the leadership election nonce.
-  bsoUpdateNonce :: UpdatableBlockState m
-    -> Slot -- ^Slot of the block
-    -> BlockNonce -- ^BlockNonce of the block
-    -> m (UpdatableBlockState m)
+  -- |Update the information used to construct the next leadership election nonce
+  bsoUpdateSeedState :: UpdatableBlockState m -> SeedState -> m (UpdatableBlockState m)
 
 
 newtype BSMTrans t (m :: * -> *) a = BSMTrans (t m a)
@@ -348,7 +346,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoGetCryptoParams s = lift $ bsoGetCryptoParams s
   bsoSetTransactionOutcomes s = lift . bsoSetTransactionOutcomes s
   bsoAddSpecialTransactionOutcome s = lift . bsoAddSpecialTransactionOutcome s
-  bsoUpdateNonce s slot = lift . bsoUpdateNonce s slot
+  bsoUpdateSeedState seedState = lift . bsoUpdateSeedState seedState
   {-# INLINE bsoGetModule #-}
   {-# INLINE bsoGetAccount #-}
   {-# INLINE bsoGetInstance #-}
@@ -377,7 +375,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoGetCryptoParams #-}
   {-# INLINE bsoSetTransactionOutcomes #-}
   {-# INLINE bsoAddSpecialTransactionOutcome #-}
-  {-# INLINE bsoUpdateNonce #-}
+  {-# INLINE bsoUpdateSeedState #-}
 
 type instance BlockPointer (MaybeT m) = BlockPointer m
 type instance UpdatableBlockState (MaybeT m) = UpdatableBlockState m
