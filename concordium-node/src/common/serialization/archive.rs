@@ -71,12 +71,5 @@ pub trait ReadArchive: Sized + std::io::Read {
     fn read_n_bytes(&mut self, len: u32) -> Fallible<Box<[u8]>>;
 
     fn payload(&mut self) -> HybridBuf;
-
-    // Utilities for parsing.
-    // ===========================
-
-    /// It returns the number of bytes left to reach end-of-file.
-    /// This function should be used to ensure if you are able to load
-    /// a specific amount of bytes.
-    fn remaining_bytes_count(&mut self) -> std::io::Result<u64>;
+    fn inner(&mut self) -> &mut HybridBuf;
 }

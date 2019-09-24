@@ -39,7 +39,7 @@ impl ReadArchive for ReadArchiveAdapter {
     #[inline]
     fn read_n_bytes(&mut self, len: u32) -> Fallible<Box<[u8]>> {
         ensure!(
-            u64::from(len) <= into_err!(self.remaining_bytes_count())?,
+            u64::from(len) <= into_err!(self.inner().remaining_len())?,
             "Insufficent bytes in this archive"
         );
         let len = len as usize;
@@ -51,10 +51,7 @@ impl ReadArchive for ReadArchiveAdapter {
     #[inline]
     fn payload(&mut self) -> HybridBuf { mem::replace(&mut self.io_reader, Default::default()) }
 
-    #[inline]
-    fn remaining_bytes_count(&mut self) -> std::io::Result<u64> {
-        Ok(self.io_reader.len()? - self.io_reader.position()?)
-    }
+    fn inner(&mut self) -> &mut HybridBuf { &mut self.io_reader }
 }
 
 impl std::io::Read for ReadArchiveAdapter {
