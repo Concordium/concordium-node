@@ -218,9 +218,9 @@ then
     ARGS="$ARGS --url $COLLECTOR_URL"
 fi
 
-if [ -n "$COLLECTOR_NODE_ALIAS"];
+if [ -n "$COLLECTOR_NODE_NAME"];
 then
-    ARGS="$ARGS --node-alias $COLLECTOR_NODE_ALIAS"
+    ARGS="$ARGS --node-name $COLLECTOR_NODE_NAME"
 fi
 
 if [ -n "$COLLECTOR_GRPC_HOST" ];
