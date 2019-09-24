@@ -1,5 +1,5 @@
 use crate::{read_ty, HashBytes, SerializeToBytes};
-use base58::ToBase58;
+use base58check::ToBase58Check;
 use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
 use digest::Digest;
 use failure::{format_err, Fallible};
@@ -97,7 +97,7 @@ impl From<(&[u8], SchemeId)> for AccountAddress {
 
 impl fmt::Debug for AccountAddress {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", ToBase58::to_base58(&self.0[..]))
+        write!(f, "{}", &self.0[..].to_base58check(0))
     }
 }
 

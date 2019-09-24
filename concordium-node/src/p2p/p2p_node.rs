@@ -2,8 +2,8 @@
 use crate::dumper::create_dump_thread;
 use crate::{
     common::{
-        get_current_stamp, process_network_requests, serialization::serialize_into_memory,
-        NetworkRawRequest, P2PNodeId, P2PPeer, PeerStats, PeerType, RemotePeer,
+        get_current_stamp, serialization::serialize_into_memory, NetworkRawRequest, P2PNodeId,
+        P2PPeer, PeerStats, PeerType, RemotePeer,
     },
     configuration::{self as config, Config},
     connection::{Connection, MessageSendingPriority, P2PEvent},
@@ -18,8 +18,8 @@ use crate::{
 };
 use chrono::prelude::*;
 use concordium_common::{
-    hybrid_buf::HybridBuf, stats_export_service::StatsExportService, RelayOrStopSenderHelper,
-    RelayOrStopSyncSender, SerializeToBytes,
+    hybrid_buf::HybridBuf, stats_export_service::StatsExportService, QueueSyncSender,
+    RelayOrStopSenderHelper, SerializeToBytes,
 };
 use failure::{err_msg, Error, Fallible};
 #[cfg(not(target_os = "windows"))]
@@ -37,7 +37,6 @@ use snow::Keypair;
 
 use std::{
     collections::{HashMap, HashSet},
-    convert::TryFrom,
     net::{
         IpAddr::{self, V4, V6},
         SocketAddr,
@@ -110,7 +109,8 @@ impl ResendQueueEntry {
     }
 }
 
-type Connections = HashMap<Token, Arc<Connection>, BuildNoHashHasher<usize>>;
+pub type Networks = HashSet<NetworkId, BuildNoHashHasher<u16>>;
+pub type Connections = HashMap<Token, Arc<Connection>, BuildNoHashHasher<usize>>;
 
 #[derive(Clone)]
 pub struct ConnectionHandler {
@@ -124,7 +124,7 @@ pub struct ConnectionHandler {
     pub network_request_sender: SyncSender<NetworkRawRequest>,
     pub connections:            Arc<RwLock<Connections>>,
     pub unreachable_nodes:      UnreachableNodes,
-    pub networks:               Arc<RwLock<HashSet<NetworkId>>>,
+    pub networks:               Arc<RwLock<Networks>>,
     pub last_bootstrap:         Arc<AtomicU64>,
 }
 
@@ -135,7 +135,7 @@ impl ConnectionHandler {
         network_request_sender: SyncSender<NetworkRawRequest>,
         event_log: Option<SyncSender<P2PEvent>>,
     ) -> Self {
-        let networks: HashSet<NetworkId> = conf
+        let networks = conf
             .common
             .network_ids
             .iter()
@@ -179,11 +179,11 @@ pub struct P2PNode {
     pub connection_handler:   ConnectionHandler,
     pub send_queue_in:        SyncSender<NetworkMessage>,
     resend_queue_in:          SyncSender<ResendQueueEntry>,
-    pub queue_to_super:       RelayOrStopSyncSender<NetworkMessage>,
+    pub queue_to_super:       QueueSyncSender<NetworkMessage>,
     pub rpc_queue:            SyncSender<NetworkMessage>,
     dump_switch:              SyncSender<(std::path::PathBuf, bool)>,
     dump_tx:                  SyncSender<crate::dumper::DumpItem>,
-    pub active_peer_stats:    Arc<RwLock<HashMap<u64, PeerStats>>>,
+    pub active_peer_stats:    Arc<RwLock<HashMap<u64, PeerStats, BuildNoHashHasher<u64>>>>,
     pub stats_export_service: Option<StatsExportService>,
     pub config:               P2PNodeConfig,
     start_time:               DateTime<Utc>,
@@ -197,7 +197,7 @@ impl P2PNode {
     pub fn new(
         supplied_id: Option<String>,
         conf: &Config,
-        pkt_queue: RelayOrStopSyncSender<NetworkMessage>,
+        pkt_queue: QueueSyncSender<NetworkMessage>,
         event_log: Option<SyncSender<P2PEvent>>,
         peer_type: PeerType,
         stats_export_service: Option<StatsExportService>,
@@ -394,7 +394,7 @@ impl P2PNode {
         filter_conn: &dyn Fn(&Connection) -> bool,
         send_status: &dyn Fn(&Connection, Fallible<()>),
     ) -> usize {
-        read_or_die!(self.connection_handler.connections)
+        read_or_die!(self.connections())
             .values()
             .filter(|conn| filter_conn(conn))
             .map(|conn| {
@@ -480,7 +480,13 @@ impl P2PNode {
         // Print nodes
         if self.config.print_peers {
             for (i, peer) in peer_stat_list.iter().enumerate() {
-                trace!("Peer {}: {}/{}/{}", i, peer.id, peer.addr, peer.peer_type);
+                trace!(
+                    "Peer {}: {}/{}/{}",
+                    i,
+                    P2PNodeId(peer.id),
+                    peer.addr,
+                    peer.peer_type
+                );
             }
         }
     }
@@ -523,10 +529,7 @@ impl P2PNode {
             if peer_stat_list.is_empty() {
                 info!("Sending out GetPeers to any bootstrappers we may still be connected to");
                 {
-                    let nets = self.networks();
-                    if let Ok(nids) = safe_read!(nets).map(|nets| nets.clone()) {
-                        self.send_get_peers(nids);
-                    }
+                    self.send_get_peers();
                 }
                 if !self.config.no_bootstrap_dns {
                     info!("No peers at all - retrying bootstrapping");
@@ -539,10 +542,7 @@ impl P2PNode {
                 }
             } else {
                 info!("Not enough peers, sending GetPeers requests");
-                let nets = self.networks();
-                if let Ok(nids) = safe_read!(nets).map(|nets| nets.clone()) {
-                    self.send_get_peers(nids);
-                }
+                self.send_get_peers();
             }
         }
     }
@@ -560,7 +560,7 @@ impl P2PNode {
                     .process(&receivers, &mut events)
                     .map_err(|e| error!("{}", e));
 
-                process_network_requests(&self_clone, &receivers);
+                self_clone.process_network_requests(&receivers);
 
                 // Check the termination switch
                 if self_clone.is_terminated.load(Ordering::Relaxed) {
@@ -600,7 +600,7 @@ impl P2PNode {
         debug!("Running connection liveness checks");
 
         let curr_stamp = get_current_stamp();
-        let connections = read_or_die!(self.connection_handler.connections).clone();
+        let connections = read_or_die!(self.connections()).clone();
 
         connections
             .values()
@@ -610,19 +610,8 @@ impl P2PNode {
                         || conn.get_last_ping_sent() + 300_000 < curr_stamp)
             })
             .for_each(|conn| {
-                let request_ping = {
-                    NetworkMessage::NetworkRequest(
-                        NetworkRequest::Ping(conn.handler().self_peer),
-                        Some(get_current_stamp()),
-                        None,
-                    )
-                };
-                if let Ok(request_ping_data) = serialize_into_memory(&request_ping, 128) {
-                    if let Err(e) = conn.async_send(request_ping_data, MessageSendingPriority::High)
-                    {
-                        error!("{}", e);
-                    }
-                    conn.set_last_ping_sent();
+                if let Err(e) = conn.send_ping() {
+                    error!("Can't send a ping to {}: {}", conn.remote_addr(), e);
                 }
             });
     }
@@ -655,7 +644,7 @@ impl P2PNode {
         };
 
         // Kill connections to nodes which are no longer seen
-        write_or_die!(self.connection_handler.connections).retain(|_, conn| {
+        write_or_die!(self.connections()).retain(|_, conn| {
             !(is_conn_faulty(&conn) || is_conn_inactive(&conn) || is_conn_without_handshake(&conn))
         });
 
@@ -672,7 +661,7 @@ impl P2PNode {
             let peer_count = self.connections_posthandshake_count(Some(PeerType::Bootstrapper));
             if peer_count > max_allowed_nodes {
                 let mut rng = rand::thread_rng();
-                let to_drop = read_or_die!(self.connection_handler.connections)
+                let to_drop = read_or_die!(self.connections())
                     .keys()
                     .copied()
                     .choose_multiple(&mut rng, (peer_count - max_allowed_nodes) as usize);
@@ -694,9 +683,10 @@ impl P2PNode {
     }
 
     #[inline]
-    pub fn networks(&self) -> Arc<RwLock<HashSet<NetworkId>>> {
-        Arc::clone(&self.connection_handler.networks)
-    }
+    pub fn connections(&self) -> &Arc<RwLock<Connections>> { &self.connection_handler.connections }
+
+    #[inline]
+    pub fn networks(&self) -> &Arc<RwLock<Networks>> { &self.connection_handler.networks }
 
     /// Returns true if `addr` is in the `unreachable_nodes` list.
     pub fn is_unreachable(&self, addr: SocketAddr) -> bool {
@@ -713,7 +703,7 @@ impl P2PNode {
         let (socket, addr) = self.connection_handler.server.accept()?;
 
         {
-            let conn_read_lock = read_or_die!(self.connection_handler.connections);
+            let conn_read_lock = read_or_die!(self.connections());
 
             if self.self_peer.peer_type() == PeerType::Node
                 && self.config.hard_connection_limit.is_some()
@@ -776,6 +766,8 @@ impl P2PNode {
         addr: SocketAddr,
         peer_id_opt: Option<P2PNodeId>,
     ) -> Fallible<()> {
+        debug!("Attempting to connect to {}", addr);
+
         self.log_event(P2PEvent::InitiatingConnection(addr));
         let self_peer = self.self_peer;
         if peer_type == PeerType::Node {
@@ -795,7 +787,7 @@ impl P2PNode {
         }
 
         // Don't connect to peers with a known P2PNodeId or IP+port
-        for conn in read_or_die!(self.connection_handler.connections).values() {
+        for conn in read_or_die!(self.connections()).values() {
             if conn.remote_addr() == addr
                 || (peer_id_opt.is_some() && conn.remote_id() == peer_id_opt)
             {
@@ -818,7 +810,7 @@ impl P2PNode {
                         .next_id
                         .fetch_add(1, Ordering::SeqCst),
                 );
-                let networks = self.networks();
+
                 let keypair = utils::clone_snow_keypair(&self.connection_handler.key_pair);
                 let remote_peer = RemotePeer {
                     id: Default::default(),
@@ -841,21 +833,9 @@ impl P2PNode {
 
                 self.add_connection(conn);
                 self.log_event(P2PEvent::ConnectEvent(addr));
-                debug!("Requesting handshake from new peer {}", addr,);
 
                 if let Some(ref conn) = self.find_connection_by_token(token) {
-                    let handshake_request = NetworkMessage::NetworkRequest(
-                        NetworkRequest::Handshake(self_peer, safe_read!(networks)?.clone(), vec![]),
-                        Some(get_current_stamp()),
-                        None,
-                    );
-                    let handshake_request_data = serialize_into_memory(&handshake_request, 256)?;
-
-                    conn.async_send(
-                        HybridBuf::try_from(handshake_request_data)?,
-                        MessageSendingPriority::High,
-                    )?;
-                    conn.set_sent_handshake();
+                    conn.send_handshake_request()?;
                 }
 
                 if peer_type == PeerType::Bootstrapper {
@@ -879,16 +859,17 @@ impl P2PNode {
 
     pub fn dump_stop(&mut self) { self.connection_handler.log_dumper = None; }
 
-    pub fn connections_posthandshake_count(&self, exclude_type: Option<PeerType>) -> u16 {
+    fn connections_posthandshake_count(&self, exclude_type: Option<PeerType>) -> u16 {
         // We will never have more than 2^16 connections per node, so this conversion is
         // safe.
         read_or_die!(self.active_peer_stats)
             .values()
             .filter(|&peer| {
                 if let Some(exclude_type) = exclude_type {
-                    return peer.peer_type != exclude_type;
+                    peer.peer_type != exclude_type
+                } else {
+                    true
                 }
-                true
             })
             .count() as u16
     }
@@ -996,27 +977,27 @@ impl P2PNode {
     }
 
     pub fn find_connection_by_id(&self, id: P2PNodeId) -> Option<Arc<Connection>> {
-        read_or_die!(self.connection_handler.connections)
+        read_or_die!(self.connections())
             .values()
             .find(|conn| conn.remote_id() == Some(id))
             .map(|conn| Arc::clone(conn))
     }
 
     pub fn find_connection_by_token(&self, token: Token) -> Option<Arc<Connection>> {
-        read_or_die!(self.connection_handler.connections)
+        read_or_die!(self.connections())
             .get(&token)
             .map(|conn| Arc::clone(conn))
     }
 
     pub fn find_connection_by_ip_addr(&self, addr: SocketAddr) -> Option<Arc<Connection>> {
-        read_or_die!(self.connection_handler.connections)
+        read_or_die!(self.connections())
             .values()
             .find(|conn| conn.remote_addr() == addr)
             .map(|conn| Arc::clone(conn))
     }
 
     pub fn find_connections_by_ip(&self, ip: IpAddr) -> Vec<Arc<Connection>> {
-        read_or_die!(self.connection_handler.connections)
+        read_or_die!(self.connections())
             .values()
             .filter(|conn| conn.remote_peer().addr().ip() == ip)
             .map(|conn| Arc::clone(conn))
@@ -1024,13 +1005,13 @@ impl P2PNode {
     }
 
     pub fn remove_connection(&self, token: Token) {
-        if let Some(conn) = write_or_die!(self.connection_handler.connections).remove(&token) {
+        if let Some(conn) = write_or_die!(self.connections()).remove(&token) {
             write_or_die!(conn.low_level).conn_ref = None; // necessary in order for Drop to kick in
         }
     }
 
     pub fn add_connection(&self, conn: Arc<Connection>) {
-        write_or_die!(self.connection_handler.connections).insert(conn.token, conn);
+        write_or_die!(self.connections()).insert(conn.token, conn);
     }
 
     pub fn conn_event(&self, event: &Event) {
@@ -1300,7 +1281,7 @@ impl P2PNode {
         );
 
         let (peers_to_skip, s11n_data) = match inner_pkt.packet_type {
-            NetworkPacketType::DirectMessage(..) => (vec![].into_boxed_slice(), serialized_packet),
+            NetworkPacketType::DirectMessage(..) => (vec![], serialized_packet),
             NetworkPacketType::BroadcastedMessage(ref dont_send_to) => {
                 let not_valid_receivers = if self.config.relay_broadcast_percentage < 1.0 {
                     use rand::seq::SliceRandom;
@@ -1314,9 +1295,8 @@ impl P2PNode {
                         .choose_multiple(&mut rng, peers_to_take as usize)
                         .copied()
                         .collect::<Vec<_>>()
-                        .into_boxed_slice()
                 } else {
-                    Box::from([])
+                    Vec::new()
                 };
 
                 (not_valid_receivers, serialized_packet)
@@ -1459,9 +1439,9 @@ impl P2PNode {
                     _ => unreachable!("Attempted to reprocess a non-packet network message!"),
                 }
             })
-            .filter_map(|possible_failure| possible_failure)
-            .collect::<Vec<_>>();
-        resend_failures.iter().for_each(|failed_resend_pkt| {
+            .filter_map(|possible_failure| possible_failure);
+
+        resend_failures.for_each(|failed_resend_pkt| {
             if failed_resend_pkt.attempts < self.config.max_resend_attempts {
                 if self
                     .resend_queue_in
@@ -1551,6 +1531,7 @@ impl P2PNode {
 
     pub fn internal_addr(&self) -> SocketAddr { self.self_peer.addr }
 
+    #[inline(always)]
     fn process(&self, receivers: &Receivers, events: &mut Events) -> Fallible<()> {
         self.poll.poll(
             events,
@@ -1578,6 +1559,37 @@ impl P2PNode {
 
         self.process_resend_queue(receivers);
         Ok(())
+    }
+
+    /// It extracts and sends each queued request.
+    ///
+    /// # Mio poll-loop thread
+    ///
+    /// The read process is executed inside the MIO
+    /// poll-loop thread, and any write is queued to be processed later in that
+    /// poll-loop.
+    #[inline(always)]
+    pub fn process_network_requests(&self, receivers: &Receivers) {
+        for request in receivers.network_requests.try_iter() {
+            trace!(
+                "Processing network raw request ({} bytes) in connection {}",
+                request.data.len().unwrap_or(0),
+                usize::from(request.token)
+            );
+
+            if let Some(ref conn) = self.find_connection_by_token(request.token) {
+                if let Err(err) = conn.async_send_from_poll_loop(request.data, request.priority) {
+                    error!("Can't send a raw network request to {}: {}", conn, err);
+                    conn.handler().remove_connection(conn.token);
+                }
+            } else {
+                debug!(
+                    "Can't send a raw network request; connection {} is missing",
+                    usize::from(request.token)
+                );
+                return;
+            }
+        }
     }
 
     pub fn close(&self) -> bool {
@@ -1662,16 +1674,18 @@ impl P2PNode {
         self.queue_size_inc();
     }
 
-    pub fn send_get_peers(&self, nids: HashSet<NetworkId>) {
-        send_or_die!(
-            self.send_queue_in,
-            NetworkMessage::NetworkRequest(
-                NetworkRequest::GetPeers(self.self_peer, nids.clone()),
-                None,
-                None,
-            )
-        );
-        self.queue_size_inc();
+    fn send_get_peers(&self) {
+        if let Ok(nids) = safe_read!(self.networks()) {
+            send_or_die!(
+                self.send_queue_in,
+                NetworkMessage::NetworkRequest(
+                    NetworkRequest::GetPeers(self.self_peer, nids.iter().copied().collect()),
+                    None,
+                    None,
+                )
+            );
+            self.queue_size_inc();
+        }
     }
 
     pub fn send_retransmit(

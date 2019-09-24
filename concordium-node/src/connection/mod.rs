@@ -14,7 +14,7 @@ pub enum MessageSendingPriority {
     Normal,
 }
 
-pub use crate::p2p::P2PNode;
+pub use crate::p2p::{Networks, P2PNode};
 
 pub use p2p_event::P2PEvent;
 
@@ -22,12 +22,13 @@ use crate::{
     common::{
         counter::{TOTAL_MESSAGES_RECEIVED_COUNTER, TOTAL_MESSAGES_SENT_COUNTER},
         get_current_stamp,
-        serialization::{Deserializable, ReadArchiveAdapter},
+        p2p_peer::P2PPeer,
+        serialization::{serialize_into_memory, Deserializable, ReadArchiveAdapter},
         NetworkRawRequest, P2PNodeId, PeerStats, PeerType, RemotePeer,
     },
     connection::message_handlers::handle_incoming_message,
     dumper::DumpItem,
-    network::{Buckets, NetworkId, NetworkMessage},
+    network::{Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse},
 };
 
 use concordium_common::hybrid_buf::HybridBuf;
@@ -39,6 +40,7 @@ use snow::Keypair;
 
 use std::{
     collections::HashSet,
+    fmt,
     net::{Shutdown, SocketAddr},
     pin::Pin,
     sync::{
@@ -47,20 +49,35 @@ use std::{
     },
 };
 
+pub struct ConnectionStats {
+    pub last_ping_sent:    AtomicU64,
+    pub sent_handshake:    AtomicU64,
+    pub last_seen:         AtomicU64,
+    pub failed_pkts:       AtomicU32,
+    pub messages_sent:     Arc<AtomicU64>,
+    pub messages_received: Arc<AtomicU64>,
+    pub last_latency:      Arc<AtomicU64>,
+}
+
 pub struct Connection {
     handler_ref:             Pin<Arc<P2PNode>>,
     pub token:               Token,
     pub remote_peer:         RemotePeer,
-    pub low_level:           Arc<RwLock<ConnectionLowLevel>>,
+    pub low_level:           RwLock<ConnectionLowLevel>,
     pub remote_end_networks: Arc<RwLock<HashSet<NetworkId>>>,
-    pub is_post_handshake:   Arc<AtomicBool>,
-    pub messages_sent:       Arc<AtomicU64>,
-    pub messages_received:   Arc<AtomicU64>,
-    pub last_ping_sent:      Arc<AtomicU64>,
-    pub sent_handshake:      Arc<AtomicU64>,
-    pub last_latency:        Arc<AtomicU64>,
-    pub last_seen:           Arc<AtomicU64>,
-    pub failed_pkts:         Arc<AtomicU32>,
+    pub is_post_handshake:   AtomicBool,
+    pub stats:               ConnectionStats,
+}
+
+impl fmt::Display for Connection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let target = if let Some(id) = self.remote_id() {
+            format!("peer {}", id)
+        } else {
+            self.remote_addr().to_string()
+        };
+        write!(f, "connection to {}", target)
+    }
 }
 
 impl Connection {
@@ -79,13 +96,23 @@ impl Connection {
     ) -> Arc<Self> {
         let curr_stamp = get_current_stamp();
 
-        let low_level = Arc::new(RwLock::new(ConnectionLowLevel::new(
+        let low_level = RwLock::new(ConnectionLowLevel::new(
             local_peer_type,
             socket,
             key_pair,
             is_initiator,
             noise_params,
-        )));
+        ));
+
+        let stats = ConnectionStats {
+            messages_received: Default::default(),
+            messages_sent:     Default::default(),
+            sent_handshake:    Default::default(),
+            last_latency:      Default::default(),
+            failed_pkts:       Default::default(),
+            last_ping_sent:    AtomicU64::new(curr_stamp),
+            last_seen:         AtomicU64::new(curr_stamp),
+        };
 
         let conn = Arc::new(Self {
             handler_ref: handler.self_ref.clone().unwrap(), // safe, always available
@@ -94,13 +121,7 @@ impl Connection {
             low_level,
             remote_end_networks: Default::default(),
             is_post_handshake: Default::default(),
-            messages_received: Default::default(),
-            messages_sent: Default::default(),
-            last_ping_sent: Arc::new(AtomicU64::new(curr_stamp)),
-            sent_handshake: Default::default(),
-            last_latency: Default::default(),
-            last_seen: Arc::new(AtomicU64::new(curr_stamp)),
-            failed_pkts: Default::default(),
+            stats,
         });
 
         write_or_die!(conn.low_level).conn_ref = Some(Pin::new(Arc::clone(&conn)));
@@ -108,19 +129,23 @@ impl Connection {
         conn
     }
 
-    pub fn get_last_latency(&self) -> u64 { self.last_latency.load(Ordering::SeqCst) }
+    pub fn get_last_latency(&self) -> u64 { self.stats.last_latency.load(Ordering::SeqCst) }
 
-    pub fn set_last_latency(&self, value: u64) { self.last_latency.store(value, Ordering::SeqCst); }
+    pub fn set_last_latency(&self, value: u64) {
+        self.stats.last_latency.store(value, Ordering::SeqCst);
+    }
 
     pub fn set_sent_handshake(&self) {
-        self.sent_handshake
+        self.stats
+            .sent_handshake
             .store(get_current_stamp(), Ordering::SeqCst)
     }
 
-    pub fn get_last_ping_sent(&self) -> u64 { self.last_ping_sent.load(Ordering::SeqCst) }
+    pub fn get_last_ping_sent(&self) -> u64 { self.stats.last_ping_sent.load(Ordering::SeqCst) }
 
     pub fn set_last_ping_sent(&self) {
-        self.last_ping_sent
+        self.stats
+            .last_ping_sent
             .store(get_current_stamp(), Ordering::SeqCst);
     }
 
@@ -137,9 +162,9 @@ impl Connection {
                 .as_raw(),
             self.remote_addr(),
             self.remote_peer_type(),
-            Arc::clone(&self.messages_sent),
-            Arc::clone(&self.messages_received),
-            Arc::clone(&self.last_latency),
+            Arc::clone(&self.stats.messages_sent),
+            Arc::clone(&self.stats.messages_received),
+            Arc::clone(&self.stats.last_latency),
         ))
     }
 
@@ -147,13 +172,15 @@ impl Connection {
 
     pub fn is_post_handshake(&self) -> bool { self.is_post_handshake.load(Ordering::SeqCst) }
 
-    pub fn last_seen(&self) -> u64 { self.last_seen.load(Ordering::SeqCst) }
+    pub fn last_seen(&self) -> u64 { self.stats.last_seen.load(Ordering::SeqCst) }
 
-    pub fn get_messages_received(&self) -> u64 { self.messages_received.load(Ordering::SeqCst) }
+    pub fn get_messages_received(&self) -> u64 {
+        self.stats.messages_received.load(Ordering::SeqCst)
+    }
 
-    pub fn get_messages_sent(&self) -> u64 { self.messages_sent.load(Ordering::SeqCst) }
+    pub fn get_messages_sent(&self) -> u64 { self.stats.messages_sent.load(Ordering::SeqCst) }
 
-    pub fn failed_pkts(&self) -> u32 { self.failed_pkts.load(Ordering::SeqCst) }
+    pub fn failed_pkts(&self) -> u32 { self.stats.failed_pkts.load(Ordering::SeqCst) }
 
     /// It registers the connection socket, for read and write ops using *edge*
     /// notifications.
@@ -185,13 +212,13 @@ impl Connection {
         let message = NetworkMessage::deserialize(&mut archive)?;
 
         self.update_last_seen();
-        self.messages_received.fetch_add(1, Ordering::Relaxed);
+        self.stats.messages_received.fetch_add(1, Ordering::Relaxed);
         TOTAL_MESSAGES_RECEIVED_COUNTER.fetch_add(1, Ordering::Relaxed);
         if let Some(ref service) = self.handler().stats_export_service {
             service.pkt_received_inc();
         };
 
-        handle_incoming_message(self.handler(), self, &message);
+        handle_incoming_message(self, &message);
         self.handler().forward_network_message(&message)?;
 
         Ok(())
@@ -216,15 +243,13 @@ impl Connection {
         Arc::clone(&self.remote_end_networks)
     }
 
-    pub fn local_end_networks(&self) -> Arc<RwLock<HashSet<NetworkId>>> {
-        self.handler().networks()
-    }
+    pub fn local_end_networks(&self) -> &Arc<RwLock<Networks>> { self.handler().networks() }
 
     /// It queues a network request
     #[inline]
     pub fn async_send(&self, input: HybridBuf, priority: MessageSendingPriority) -> Fallible<()> {
         TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
-        self.messages_sent.fetch_add(1, Ordering::Relaxed);
+        self.stats.messages_sent.fetch_add(1, Ordering::Relaxed);
         if let Some(ref stats) = self.handler().stats_export_service {
             stats.pkt_sent_inc();
         }
@@ -255,7 +280,7 @@ impl Connection {
         priority: MessageSendingPriority,
     ) -> Fallible<Readiness<usize>> {
         TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
-        self.messages_sent.fetch_add(1, Ordering::Relaxed);
+        self.stats.messages_sent.fetch_add(1, Ordering::Relaxed);
         if let Some(ref stats) = self.handler().stats_export_service {
             stats.pkt_sent_inc();
         }
@@ -267,7 +292,9 @@ impl Connection {
 
     pub fn update_last_seen(&self) {
         if self.handler().peer_type() != PeerType::Bootstrapper {
-            self.last_seen.store(get_current_stamp(), Ordering::SeqCst);
+            self.stats
+                .last_seen
+                .store(get_current_stamp(), Ordering::SeqCst);
         }
     }
 
@@ -298,6 +325,148 @@ impl Connection {
         }
     }
 
+    pub fn send_handshake_request(&self) -> Fallible<()> {
+        debug!("Sending a handshake request to {}", self.remote_addr());
+
+        let handshake_request = NetworkMessage::NetworkRequest(
+            NetworkRequest::Handshake(
+                self.handler().self_peer,
+                read_or_die!(self.handler().networks())
+                    .iter()
+                    .copied()
+                    .collect(),
+                vec![],
+            ),
+            Some(get_current_stamp()),
+            None,
+        );
+
+        self.async_send(
+            serialize_into_memory(&handshake_request, 256)?,
+            MessageSendingPriority::High,
+        )?;
+
+        self.set_sent_handshake();
+
+        Ok(())
+    }
+
+    pub fn send_handshake_response(&self, requestor: P2PPeer) -> Fallible<()> {
+        debug!("Sending a handshake response to peer {}", requestor.id());
+
+        let handshake_msg = NetworkMessage::NetworkResponse(
+            NetworkResponse::Handshake(
+                self.handler().self_peer,
+                read_or_die!(self.remote_end_networks).to_owned(),
+                vec![],
+            ),
+            Some(get_current_stamp()),
+            None,
+        );
+
+        self.async_send(
+            serialize_into_memory(&handshake_msg, 128)?,
+            MessageSendingPriority::High,
+        )
+    }
+
+    pub fn send_ping(&self) -> Fallible<()> {
+        trace!("Sending a ping to {}", self.remote_addr());
+
+        let ping_msg = NetworkMessage::NetworkRequest(
+            NetworkRequest::Ping(self.handler().self_peer),
+            Some(get_current_stamp()),
+            None,
+        );
+
+        self.async_send(
+            serialize_into_memory(&ping_msg, 64)?,
+            MessageSendingPriority::Normal,
+        )?;
+
+        self.set_last_ping_sent();
+
+        Ok(())
+    }
+
+    pub fn send_pong(&self) -> Fallible<()> {
+        trace!("Sending a pong to {}", self.remote_addr());
+
+        let pong_msg = NetworkMessage::NetworkResponse(
+            NetworkResponse::Pong(self.remote_peer().peer().unwrap()), // safe, ensured above
+            Some(get_current_stamp()),
+            None,
+        );
+
+        self.async_send(
+            serialize_into_memory(&pong_msg, 64)?,
+            MessageSendingPriority::High,
+        )
+    }
+
+    pub fn send_peer_list_resp(
+        &self,
+        requestor: P2PPeer,
+        nets: &HashSet<NetworkId>,
+    ) -> Fallible<()> {
+        let peer_list_resp = match self.handler().peer_type() {
+            PeerType::Bootstrapper => {
+                const BOOTSTRAP_PEER_COUNT: usize = 100;
+
+                let random_nodes = safe_read!(self.handler().connection_handler.buckets)?
+                    .get_random_nodes(&requestor, BOOTSTRAP_PEER_COUNT, nets);
+
+                if !random_nodes.is_empty()
+                    && random_nodes.len()
+                        >= usize::from(self.handler().config.bootstrapper_wait_minimum_peers)
+                {
+                    Some(NetworkMessage::NetworkResponse(
+                        NetworkResponse::PeerList(self.handler().self_peer, random_nodes),
+                        Some(get_current_stamp()),
+                        None,
+                    ))
+                } else {
+                    None
+                }
+            }
+            PeerType::Node => {
+                let nodes = self
+                    .handler()
+                    .get_peer_stats()
+                    .iter()
+                    .filter(|stat| stat.peer_type == PeerType::Node)
+                    .filter(|stat| P2PNodeId(stat.id) != requestor.id)
+                    .map(|stat| P2PPeer::from(stat.peer_type, P2PNodeId(stat.id), stat.addr))
+                    .collect::<Vec<_>>();
+
+                if !nodes.is_empty() {
+                    Some(NetworkMessage::NetworkResponse(
+                        NetworkResponse::PeerList(self.handler().self_peer, nodes),
+                        Some(get_current_stamp()),
+                        None,
+                    ))
+                } else {
+                    None
+                }
+            }
+        };
+
+        if let Some(resp) = peer_list_resp {
+            debug!("Sending my PeerList to peer {}", requestor.id());
+
+            self.async_send(
+                serialize_into_memory(&resp, 256)?,
+                MessageSendingPriority::Normal,
+            )
+        } else {
+            debug!(
+                "I don't have any peers to share with peer {}",
+                requestor.id()
+            );
+            Ok(())
+        }
+    }
+
     #[cfg(test)]
     pub fn validate_packet_type_test(&self, msg: &[u8]) -> Readiness<bool> {
         write_or_die!(self.low_level)
@@ -308,19 +477,10 @@ impl Connection {
 
 impl Drop for Connection {
     fn drop(&mut self) {
-        debug!(
-            "Closing connection {} ({}:{})",
-            usize::from(self.token),
-            self.remote_addr().ip(),
-            self.remote_addr().port()
-        );
+        debug!("Closing {}", self);
 
         if let Err(e) = self.handler().deregister_connection(self) {
-            error!(
-                "Connection {} couldn't be closed: {:?}",
-                usize::from(self.token),
-                e
-            );
+            error!("Can't close {}: {:?}", self, e);
         }
 
         if let Some(id) = self.remote_id() {

@@ -21,9 +21,7 @@ use std::{
     sync::{atomic::Ordering, Arc},
 };
 
-const BOOTSTRAP_PEER_COUNT: usize = 100;
-
-pub fn handle_incoming_message(node_ref: &P2PNode, conn: &Connection, full_msg: &NetworkMessage) {
+pub fn handle_incoming_message(conn: &Connection, full_msg: &NetworkMessage) {
     if let Err(e) = match full_msg {
         NetworkMessage::NetworkRequest(NetworkRequest::Handshake(source, ref networks, _), ..) => {
             handle_handshake_req(conn, *source, networks)
@@ -43,7 +41,7 @@ pub fn handle_incoming_message(node_ref: &P2PNode, conn: &Connection, full_msg: 
             handle_get_peers_req(conn, *source, networks)
         }
         NetworkMessage::NetworkResponse(NetworkResponse::PeerList(source, ref peers), ..) => {
-            handle_peer_list_resp(node_ref, conn, *source, peers)
+            handle_peer_list_resp(conn, *source, peers)
         }
         NetworkMessage::NetworkRequest(NetworkRequest::JoinNetwork(_source, network), ..) => {
             handle_join_network_req(conn, *network)
@@ -52,13 +50,13 @@ pub fn handle_incoming_message(node_ref: &P2PNode, conn: &Connection, full_msg: 
             handle_leave_network_req(conn, *source, *network)
         }
         NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_source, peer_to_ban), ..) => {
-            node_ref.ban_node(*peer_to_ban)
+            conn.handler().ban_node(*peer_to_ban)
         }
         NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(_source, peer_to_unban), ..) => {
-            node_ref.unban_node(*peer_to_unban)
+            conn.handler().unban_node(*peer_to_unban)
         }
         NetworkMessage::NetworkPacket(..) => {
-            // handled by handle_incoming_network_packet
+            // handled by handle_incoming_packet
             Ok(())
         }
         NetworkMessage::NetworkRequest(NetworkRequest::Retransmit(..), ..) => {
@@ -72,68 +70,6 @@ pub fn handle_incoming_message(node_ref: &P2PNode, conn: &Connection, full_msg: 
     } {
         error!("Couldn't handle the network message {:?}: {}", full_msg, e);
     }
-}
-
-fn send_handshake_and_ping(conn: &Connection) -> Fallible<()> {
-    let local_peer = conn.handler().self_peer;
-
-    let handshake_msg = NetworkMessage::NetworkResponse(
-        NetworkResponse::Handshake(
-            local_peer,
-            read_or_die!(conn.remote_end_networks).to_owned(),
-            vec![],
-        ),
-        Some(get_current_stamp()),
-        None,
-    );
-
-    // Ignore returned value because it is an asynchronous operation.
-    conn.async_send(
-        serialize_into_memory(&handshake_msg, 128)?,
-        MessageSendingPriority::High,
-    )?;
-
-    let ping_msg = NetworkMessage::NetworkRequest(
-        NetworkRequest::Ping(local_peer),
-        Some(get_current_stamp()),
-        None,
-    );
-
-    // Ignore returned value because it is an asynchronous operation, and ship out
-    // as normal priority to ensure proper queueing here.
-    conn.async_send(
-        serialize_into_memory(&ping_msg, 64)?,
-        MessageSendingPriority::Normal,
-    )?;
-
-    conn.set_last_ping_sent();
-
-    Ok(())
-}
-
-fn send_peer_list(conn: &Connection, sender: P2PPeer, nets: &HashSet<NetworkId>) -> Fallible<()> {
-    let random_nodes = safe_read!(conn.handler().connection_handler.buckets)?.get_random_nodes(
-        &sender,
-        BOOTSTRAP_PEER_COUNT,
-        nets,
-    );
-    if random_nodes.len() >= usize::from(conn.handler().config.bootstrapper_wait_minimum_peers) {
-        debug!(
-            "Running in bootstrapper mode, so instantly sending {} random peers to a peer",
-            random_nodes.len()
-        );
-        let peer_list_msg = NetworkMessage::NetworkResponse(
-            NetworkResponse::PeerList(conn.handler().self_peer, random_nodes),
-            Some(get_current_stamp()),
-            None,
-        );
-
-        conn.async_send(
-            serialize_into_memory(&peer_list_msg, 256)?,
-            MessageSendingPriority::Normal,
-        )?;
-    }
-    Ok(())
 }
 
 fn handle_handshake_req(
@@ -150,13 +86,17 @@ fn handle_handshake_req(
 
     conn.promote_to_post_handshake(source.id())?;
     conn.add_remote_end_networks(networks);
-    send_handshake_and_ping(&conn)?;
+    conn.send_handshake_response(source)?;
+    conn.send_ping()?;
 
-    write_or_die!(conn.handler().connection_handler.buckets)
-        .insert_into_bucket(&source, networks.to_owned());
+    if source.peer_type() != PeerType::Bootstrapper {
+        write_or_die!(conn.handler().connection_handler.buckets)
+            .insert_into_bucket(&source, networks.clone());
+    }
 
     if conn.handler().peer_type() == PeerType::Bootstrapper {
-        send_peer_list(&conn, source, networks)?;
+        debug!("Running in bootstrapper mode; attempting to send a PeerList upon handshake");
+        conn.send_peer_list_resp(source, networks)?;
     }
 
     Ok(())
@@ -172,13 +112,13 @@ fn handle_handshake_resp(
     conn.promote_to_post_handshake(source.id())?;
     conn.add_remote_end_networks(networks);
 
-    conn.sent_handshake
+    conn.stats
+        .sent_handshake
         .store(get_current_stamp(), Ordering::SeqCst);
 
-    let bucket_sender = P2PPeer::from(source.peer_type(), source.id(), source.addr);
     if source.peer_type() != PeerType::Bootstrapper {
         write_or_die!(conn.handler().connection_handler.buckets)
-            .insert_into_bucket(&bucket_sender, networks.clone());
+            .insert_into_bucket(&source, networks.clone());
     }
 
     if let Some(ref service) = conn.handler().stats_export_service {
@@ -190,28 +130,14 @@ fn handle_handshake_resp(
 
 fn handle_ping(conn: &Connection) -> Fallible<()> {
     if !conn.is_post_handshake() {
-        bail!("handle_ping was called before the handshake!")
+        bail!("Can't reply to pings before the handshake is complete!")
+    } else {
+        conn.send_pong()
     }
-
-    let pong_msg = {
-        let remote_peer = conn.remote_peer().peer().unwrap();
-
-        NetworkMessage::NetworkResponse(
-            NetworkResponse::Pong(remote_peer),
-            Some(get_current_stamp()),
-            None,
-        )
-    };
-
-    conn.async_send(
-        serialize_into_memory(&pong_msg, 64)?,
-        MessageSendingPriority::High,
-    )
-    .map(|_bytes| ())
 }
 
 fn handle_pong(conn: &Connection) -> Fallible<()> {
-    let ping_time: u64 = conn.last_ping_sent.load(Ordering::SeqCst);
+    let ping_time: u64 = conn.stats.last_ping_sent.load(Ordering::SeqCst);
     let curr_time: u64 = get_current_stamp();
 
     if curr_time >= ping_time {
@@ -274,73 +200,35 @@ fn handle_get_peers_req(
         bail!("handle_get_peers_req was called before the handshake!")
     }
 
-    let peer_list_msg = {
-        let nodes = if conn.handler().peer_type() == PeerType::Bootstrapper {
-            let random_nodes = safe_read!(conn.handler().connection_handler.buckets)?
-                .get_random_nodes(&source, BOOTSTRAP_PEER_COUNT, networks);
-            if random_nodes.len()
-                >= usize::from(conn.handler().config.bootstrapper_wait_minimum_peers)
-            {
-                random_nodes
-            } else {
-                vec![]
-            }
-        } else {
-            conn.handler()
-                .get_peer_stats()
-                .iter()
-                .filter(|stat| stat.peer_type == PeerType::Node)
-                .filter(|stat| P2PNodeId(stat.id) != source.id)
-                .map(|stat| P2PPeer::from(stat.peer_type, P2PNodeId(stat.id), stat.addr))
-                .collect()
-        };
-
-        if !nodes.is_empty() {
-            Some(NetworkMessage::NetworkResponse(
-                NetworkResponse::PeerList(conn.handler().self_peer, nodes),
-                Some(get_current_stamp()),
-                None,
-            ))
-        } else {
-            None
-        }
-    };
-
-    if let Some(msg) = peer_list_msg {
-        conn.async_send(
-            serialize_into_memory(&msg, 256)?,
-            MessageSendingPriority::Normal,
-        )
-        .map(|_bytes| ())
-    } else {
-        Ok(())
-    }
+    conn.send_peer_list_resp(source, networks)
 }
 
-fn handle_peer_list_resp(
-    node: &P2PNode,
-    conn: &Connection,
-    source: P2PPeer,
-    peers: &[P2PPeer],
-) -> Fallible<()> {
+fn handle_peer_list_resp(conn: &Connection, source: P2PPeer, peers: &[P2PPeer]) -> Fallible<()> {
     debug!("Received a PeerList response from peer {}", source.id());
 
     let mut new_peers = 0;
-    let curr_peer_count = node
+    let curr_peer_count = conn
+        .handler()
         .get_peer_stats()
         .iter()
         .filter(|peer| peer.peer_type == PeerType::Node)
         .count();
 
+    let current_peers = conn.handler().get_all_current_peers(Some(PeerType::Node));
+    let applicable_candidates = peers
+        .iter()
+        .filter(|candidate| !current_peers.contains(&candidate.id));
+
     let mut locked_buckets = safe_write!(conn.handler().connection_handler.buckets)?;
-    for peer in peers.iter() {
+    for peer in applicable_candidates {
         trace!(
             "Got info for peer {}/{}/{}",
             peer.id(),
             peer.ip(),
             peer.port()
         );
-        if node
+        if conn
+            .handler()
             .connect(PeerType::Node, peer.addr, Some(peer.id()))
             .map_err(|e| trace!("{}", e))
             .is_ok()
@@ -349,7 +237,7 @@ fn handle_peer_list_resp(
             locked_buckets.insert_into_bucket(peer, HashSet::new());
         }
 
-        if new_peers + curr_peer_count >= node.config.desired_nodes_count as usize {
+        if new_peers + curr_peer_count >= conn.handler().config.desired_nodes_count as usize {
             break;
         }
 
@@ -481,29 +369,27 @@ pub fn handle_incoming_packet(
     _tps_test_enabled: bool,
     _tps_message_count: u64,
 ) {
-    if let NetworkPacketType::DirectMessage(..) = pac.packet_type {
-        if _tps_test_enabled {
-            if let Ok(len) = pac.message.len() {
-                _stats_engine.add_stat(len);
-                *_msg_count += 1;
-
-                if *_msg_count == _tps_message_count {
-                    info!(
-                        "TPS over {} messages is {}",
-                        _tps_message_count,
-                        _stats_engine.calculate_total_tps_average()
-                    );
-                    *_msg_count = 0;
-                    _stats_engine.clear();
-                }
-            }
-        }
-    }
-
     let is_broadcast = match pac.packet_type {
         NetworkPacketType::BroadcastedMessage(..) => true,
         _ => false,
     };
+
+    if !is_broadcast && _tps_test_enabled {
+        if let Ok(len) = pac.message.len() {
+            _stats_engine.add_stat(len);
+            *_msg_count += 1;
+
+            if *_msg_count == _tps_message_count {
+                info!(
+                    "TPS over {} messages is {}",
+                    _tps_message_count,
+                    _stats_engine.calculate_total_tps_average()
+                );
+                *_msg_count = 0;
+                _stats_engine.clear();
+            }
+        }
+    }
 
     let dont_relay_to = if let NetworkPacketType::BroadcastedMessage(ref peers) = pac.packet_type {
         let mut list = peers.clone().to_owned();
@@ -532,7 +418,7 @@ pub fn handle_incoming_packet(
 fn handle_invalid_network_msg(conn: &Connection) {
     debug!("Received an invalid network message!");
 
-    conn.failed_pkts.fetch_add(1, Ordering::Relaxed);
+    conn.stats.failed_pkts.fetch_add(1, Ordering::Relaxed);
 
     if let Some(ref service) = conn.handler().stats_export_service {
         service.invalid_pkts_received_inc();
