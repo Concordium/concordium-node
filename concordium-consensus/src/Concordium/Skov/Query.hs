@@ -9,6 +9,7 @@ import qualified Data.Sequence as Seq
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.TreeState
 import Concordium.Types
+import Concordium.Kontrol.UpdateLeaderElectionParameters
 import qualified Concordium.GlobalState.Parameters as Param
 
 doResolveBlock :: TreeStateMonad m => BlockHash -> m (Maybe (BlockPointer m))
@@ -26,7 +27,9 @@ doIsFinalized = getBlockStatus >=> \case
 
 doGetBirkParameters :: TreeStateMonad m => Slot -> BlockPointer m -> m Param.BirkParameters
 {-# INLINE doGetBirkParameters #-}
-doGetBirkParameters slot bp = getBlockBirkParameters (bpState bp)
+doGetBirkParameters slot bp = do
+        params <- getBlockBirkParameters (bpState bp)
+        return $ slotDependentBirkParameters slot params
 
 doGetCurrentHeight :: TreeStateMonad m => m BlockHeight
 {-# INLINE doGetCurrentHeight #-}
