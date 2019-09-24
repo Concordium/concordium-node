@@ -90,7 +90,7 @@ executeFrom slotNumber blockParent lfPointer blockBaker txs =
     bshandle0 <- thawBlockState (bpState blockParent)
     (res, bshandle1) <- runBSM (Sch.runTransactions txs) cm bshandle0
     case res of
-        Left fk -> Left fk <$ (purgeBlockState =<< freezeBlockState bshandle1)
+        Left fk -> Left fk <$ (dropUpdatableBlockState bshandle1)
         Right outcomes -> do
             -- Record the transaction outcomes
             bshandle2 <- bsoSetTransactionOutcomes bshandle1 ((\(tr, o) -> (transactionHash tr, o)) <$> outcomes)
