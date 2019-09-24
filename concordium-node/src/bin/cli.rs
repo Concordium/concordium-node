@@ -33,7 +33,7 @@ use p2p_client::{
     common::PeerType,
     configuration as config,
     connection::message_handlers::{handle_incoming_packet, handle_retransmit_req},
-    network::{NetworkId, NetworkMessage, NetworkRequest, NetworkResponse},
+    network::{NetworkId, NetworkMessage, NetworkRequest},
     p2p::*,
     rpc::RpcServerImpl,
     stats_engine::StatsEngine,
@@ -357,32 +357,6 @@ fn start_consensus_threads(
                         nid,
                         &mut transactions_cache,
                     );
-                }
-                // TODO: handle the initial catch-up delivery more elegantly
-                NetworkMessage::NetworkResponse(
-                    NetworkResponse::Handshake(src, ref nets, _),
-                    ..
-                ) => {
-                    if src.peer_type() == PeerType::Node {
-                        if let Some(network_id) = nets.iter().next() {
-                            // send a catch-up status
-                            if send_consensus_msg_to_net(
-                                &node_ref,
-                                vec![],
-                                Some(src.id()),
-                                *network_id,
-                                PacketType::CatchUpStatus,
-                                None,
-                                &consensus.get_catch_up_status(),
-                            )
-                            .is_err()
-                            {
-                                error!("Can't send the initial catch-up messages!")
-                            }
-                        } else {
-                            error!("A handshaking peer doesn't seem to have any networks!")
-                        }
-                    }
                 }
                 _ => {}
             }
