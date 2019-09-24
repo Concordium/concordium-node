@@ -167,10 +167,7 @@ pub fn connect(source: &P2PNode, target: &P2PNode) -> Fallible<()> {
 
 pub fn await_handshake(node: &P2PNode) -> Fallible<()> {
     loop {
-        if let Some(conn) = read_or_die!(node.connection_handler.connections)
-            .values()
-            .next()
-        {
+        if let Some(conn) = read_or_die!(node.connections()).values().next() {
             if conn.is_post_handshake() {
                 break;
             }
