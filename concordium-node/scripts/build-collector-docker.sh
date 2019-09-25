@@ -8,7 +8,7 @@ then
   exit 1
 fi
 
-sed -i "s/VERSION_TAG/$1/" scripts/bootstrapper.Dockerfile
+sed -i "s/VERSION_TAG/$1/" scripts/collector.Dockerfile
 
 docker build -f scripts/collector.Dockerfile -t 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/collector:$1 .
 
