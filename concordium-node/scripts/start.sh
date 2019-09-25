@@ -213,7 +213,7 @@ then
     ARGS="$ARGS --url $COLLECTOR_URL"
 fi
 
-if [ -n "$COLLECTOR_NODE_NAME"];
+if [ -n "$COLLECTOR_NODE_NAME" ];
 then
     ARGS="$ARGS --node-name $COLLECTOR_NODE_NAME"
 fi
