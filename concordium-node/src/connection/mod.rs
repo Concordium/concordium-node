@@ -540,11 +540,7 @@ impl ConnectionLowLevel {
                         Readiness::Ready(message) => {
                             self.conn().send_to_dump(&message, true);
                             if let Err(e) = self.conn().process_message(message) {
-                                warn!(
-                                    "Terminating connection {} due to {}",
-                                    usize::from(ev.token()),
-                                    e
-                                );
+                                warn!("Terminating {}: {}", self.conn(), e);
                                 bail!("Can't read the stream");
                             }
                         }

@@ -56,8 +56,10 @@ impl Serial for NetworkResponse {
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
         (self.protocol_response_type() as u8).serial(target)?;
         match self {
-            NetworkResponse::Pong(..) => Ok(()),
-            NetworkResponse::FindNode(.., ref peers) | NetworkResponse::PeerList(.., ref peers) => {
+            NetworkResponse::Pong(peer) => peer.serial(target),
+            NetworkResponse::FindNode(peer, ref peers)
+            | NetworkResponse::PeerList(peer, ref peers) => {
+                peer.serial(target)?;
                 peers.serial(target)
             }
             NetworkResponse::Handshake(my_node_id, my_port, networks, zk) => {

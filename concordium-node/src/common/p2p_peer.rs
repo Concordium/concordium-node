@@ -33,10 +33,10 @@ impl fmt::Display for PeerType {
 
 impl Serial for PeerType {
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
-        match source.read_u8() {
-            Ok(PEER_TYPE_NODE) => Ok(PeerType::Node),
-            Ok(PEER_TYPE_BOOTSTRAPPER) => Ok(PeerType::Bootstrapper),
-            _ => bail!("Unsupported PeerType"),
+        match source.read_u8()? {
+            PEER_TYPE_NODE => Ok(PeerType::Node),
+            PEER_TYPE_BOOTSTRAPPER => Ok(PeerType::Bootstrapper),
+            x => bail!("Can't deserialize a PeerType (unknown type: {})", x),
         }
     }
 

@@ -107,21 +107,33 @@ impl Serial for NetworkRequest {
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
         (self.protocol_request_type() as u8).serial(target)?;
         match self {
-            NetworkRequest::Ping(..) => Ok(()),
-            NetworkRequest::FindNode(.., id) => id.serial(target),
-            NetworkRequest::JoinNetwork(.., network)
-            | NetworkRequest::LeaveNetwork(.., network) => network.serial(target),
-            NetworkRequest::BanNode(.., node_data) | NetworkRequest::UnbanNode(.., node_data) => {
+            NetworkRequest::Ping(peer) => peer.serial(target),
+            NetworkRequest::FindNode(peer, id) => {
+                peer.serial(target)?;
+                id.serial(target)
+            }
+            NetworkRequest::JoinNetwork(peer, network)
+            | NetworkRequest::LeaveNetwork(peer, network) => {
+                peer.serial(target)?;
+                network.serial(target)
+            }
+            NetworkRequest::BanNode(peer, node_data)
+            | NetworkRequest::UnbanNode(peer, node_data) => {
+                peer.serial(target)?;
                 node_data.serial(target)
             }
-            NetworkRequest::GetPeers(.., ref networks) => networks.serial(target),
+            NetworkRequest::GetPeers(peer, ref networks) => {
+                peer.serial(target)?;
+                networks.serial(target)
+            }
             NetworkRequest::Handshake(ref my_node_id, ref my_port, ref networks, ref zk) => {
                 my_node_id.serial(target)?;
                 my_port.serial(target)?;
                 networks.serial(target)?;
                 zk.serial(target)
             }
-            NetworkRequest::Retransmit(_, element_type, since_stamp, network_id) => {
+            NetworkRequest::Retransmit(peer, element_type, since_stamp, network_id) => {
+                peer.serial(target)?;
                 (*element_type as u8).serial(target)?;
                 (*since_stamp).serial(target)?;
                 network_id.serial(target)

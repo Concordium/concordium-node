@@ -71,6 +71,7 @@ impl Serial for NetworkPacket {
 
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
         self.packet_type.serial(target)?;
+        self.peer.serial(target)?;
         self.network_id.serial(target)?;
         self.message.serial(target)
     }

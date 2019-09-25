@@ -83,11 +83,10 @@ impl Serial for Ipv6Addr {
 
 impl Serial for IpAddr {
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
-        let ip_type = source.read_u8()?;
-        match ip_type {
+        match source.read_u8()? {
             4 => Ok(IpAddr::V4(Ipv4Addr::deserial(source)?)),
             6 => Ok(IpAddr::V6(Ipv6Addr::deserial(source)?)),
-            e => bail!("Can't deserialize {} as an IpAddr: {}", ip_type, e),
+            x => bail!("Can't deserialize an IpAddr (unknown type: {})", x),
         }
     }
 
@@ -169,6 +168,7 @@ impl Serial for HybridBuf {
         let len = u32::deserial(source)? as usize; // advance the cursor
         let mut ret = HybridBuf::with_capacity(len)?;
         std::io::copy(source, &mut ret)?;
+        ret.rewind()?;
 
         Ok(ret)
     }
