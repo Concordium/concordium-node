@@ -520,6 +520,13 @@ impl ConnectionLowLevel {
             is_initiator,
         )));
 
+        if let Err(e) = socket.set_linger(Some(std::time::Duration::from_secs(0))) {
+            error!(
+                "Can't set SOLINGER to 0 for socket {:?} due to {}",
+                socket, e
+            );
+        }
+
         ConnectionLowLevel {
             conn_ref: None,
             socket,
