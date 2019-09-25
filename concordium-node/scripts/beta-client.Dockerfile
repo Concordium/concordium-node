@@ -8,9 +8,11 @@ COPY ./scripts/genesis-data ./genesis-data
 ENV LD_LIBRARY_PATH=/usr/local/lib
 RUN --mount=type=ssh ./init.build.env.sh 
 # Build P2P client
-RUN --mount=type=ssh cargo build --release --features=static,elastic_logging && \
+RUN --mount=type=ssh cargo build --release --features=static,elastic_logging,collector,beta && \
     strip /build-project/target/release/p2p_client-cli && \
-    cp /build-project/target/release/p2p_client-cli /build-project/ 
+    strip /build-project/target/release/node-collector && \
+    cp /build-project/target/release/p2p_client-cli /build-project/ && \
+    cp /build-project/target/release/node-collector /build-project/
 # P2P client is now built
 RUN --mount=type=ssh pacman -Syy --noconfirm openssh && \
     mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts && \
@@ -51,10 +53,11 @@ ENV ES_URL=http://localhost:9200
 
 RUN apt-get update && apt-get install -y unbound curl netbase ca-certificates supervisor nginx
 COPY --from=build /build-project/p2p_client-cli /p2p_client-cli
+COPY --from=build /build-project/node-collector /node-collector
 COPY --from=build /build-project/start.sh /start.sh
 COPY --from=build /libs/* /usr/lib/
 COPY --from=build /middleware /middleware
-COPY --from=node-build /node-dashboard/dist/public/* /var/www/html/
+COPY --from=node-build /node-dashboard/dist/public /var/www/html/
 
 COPY ./scripts/supervisord.conf /etc/supervisor/supervisord.conf
 COPY ./scripts/concordium.conf /etc/supervisor/conf.d/concordium.conf
@@ -70,4 +73,4 @@ RUN mkdir -p ${DATA_DIR} && mkdir -p ${CONFIG_DIR} && chown -R docker:docker ${D
     chown -R elasticsearch:elasticsearch /var/log/elasticsearch && \
     chown -R elasticsearch:elasticsearch /var/lib/elasticsearch
 
-ENTRYPOINT [ "/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/concordium.conf" ]
+ENTRYPOINT [ "/usr/bin/supervisord", "-c", "/etc/supervisor/supervisord.conf" ]
