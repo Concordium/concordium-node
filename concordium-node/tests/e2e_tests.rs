@@ -37,7 +37,6 @@ mod tests {
             &node_2,
             Some(node_1.id()),
             NetworkId::from(100),
-            None,
             HybridBuf::try_from(&msg[..])?,
         )?;
         let mut msg_recv = await_direct_message(&msg_waiter_1)?;
@@ -65,7 +64,6 @@ mod tests {
             &node_2,
             Some(node_1.id()),
             NetworkId::from(100),
-            None,
             HybridBuf::try_from(&msg[..])?,
         )?;
         let received_msg = await_direct_message_with_timeout(&msg_waiter_1, max_recv_timeout());
@@ -115,7 +113,6 @@ mod tests {
             &node_1,
             Some(node_2.id()),
             NetworkId::from(100),
-            None,
             HybridBuf::try_from(&msg[..])?,
         )?;
         node_1.close_and_join()?;
@@ -189,7 +186,6 @@ mod tests {
             &node_1,
             Some(node_2.id()),
             net_id,
-            None,
             HybridBuf::try_from(msg.clone()).unwrap(),
         )
         .unwrap();

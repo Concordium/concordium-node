@@ -514,13 +514,12 @@ pub fn send_consensus_msg_to_net(
     packet_buffer.rewind()?;
 
     let result = if target_id.is_some() {
-        send_direct_message(node, target_id, network_id, None, packet_buffer)
+        send_direct_message(node, target_id, network_id, packet_buffer)
     } else {
         send_broadcast_message(
             node,
             dont_relay_to.into_iter().map(P2PNodeId).collect(),
             network_id,
-            None,
             packet_buffer,
         )
     };

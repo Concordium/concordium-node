@@ -1,8 +1,6 @@
 use crate::{
     client::plugins::consensus::*,
-    common::{
-        get_current_stamp, serialization::serialize_into_memory, P2PNodeId, P2PPeer, PeerType,
-    },
+    common::{get_current_stamp, P2PNodeId, P2PPeer, PeerType},
     connection::{Connection, MessageSendingPriority, P2PEvent},
     network::{
         request::RequestedElementType, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType,
@@ -12,7 +10,9 @@ use crate::{
     stats_engine::StatsEngine,
     utils::GlobalStateSenders,
 };
-use concordium_common::{cache::Cache, read_or_die, write_or_die, PacketType};
+use concordium_common::{
+    cache::Cache, read_or_die, serial::serialize_into_buffer, write_or_die, PacketType,
+};
 
 use failure::Fallible;
 
@@ -190,7 +190,7 @@ fn handle_find_node_req(conn: &Connection, _target_node: P2PNodeId) -> Fallible<
     };
 
     conn.async_send(
-        serialize_into_memory(&find_node_msg, 256)?,
+        serialize_into_buffer(&find_node_msg, 256)?,
         MessageSendingPriority::Normal,
     )
     .map(|_bytes| ())
