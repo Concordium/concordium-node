@@ -17,6 +17,7 @@ import Concordium.Types
 import Concordium.Types.HashableTo
 import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.Types.Acorn.Interfaces
+import qualified Concordium.GlobalState.Instances.Internal as Transient
 
 
 data CacheableInstanceParameters = CacheableInstanceParameters {
@@ -387,3 +388,30 @@ allInstances (InstancesTree _ it) = mapReduceIT mfun it
     where
         mfun (Left _) = return mempty
         mfun (Right inst) = return [inst]
+
+makePersistent :: Transient.Instances -> Instances
+makePersistent (Transient.Instances Transient.Empty) = InstancesEmpty
+makePersistent (Transient.Instances (Transient.Tree s t)) = InstancesTree s (conv t)
+    where
+        conv (Transient.Branch lvl fll vac hsh l r) = LBMemory (Branch lvl fll vac hsh (conv l) (conv r))
+        conv (Transient.Leaf i) = LBMemory (Leaf (convInst i))
+        conv (Transient.VacantLeaf si) = LBMemory (VacantLeaf si)
+        convInst Transient.Instance{instanceParameters=Transient.InstanceParameters{..}, ..} = PersistentInstance {
+                pinstanceParameters = BRMemory PersistentInstanceParameters{
+                        pinstanceAddress = instanceAddress,
+                        pinstanceOwner = instanceOwner,
+                        pinstanceContractModule = instanceContractModule,
+                        pinstanceContract = instanceContract,
+                        pinstanceParameterHash = instanceParameterHash
+                    },
+                pinstanceCachedParameters = Some CacheableInstanceParameters{
+                        pinstanceReceiveFun = instanceReceiveFun,
+                        pinstanceModuleInterface = instanceModuleInterface,
+                        pinstanceModuleValueInterface = instanceModuleValueInterface,
+                        pinstanceMessageType = instanceMessageType,
+                        pinstanceImplements = instanceImplements
+                    },
+                pinstanceModel = instanceModel,
+                pinstanceAmount = instanceAmount,
+                pinstanceHash = instanceHash
+            }

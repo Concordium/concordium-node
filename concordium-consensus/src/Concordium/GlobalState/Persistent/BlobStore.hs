@@ -32,7 +32,8 @@ nullRef :: BlobRef a
 nullRef = BlobRef maxBound
 
 data BlobStore = BlobStore {
-    blobStoreFile :: MVar Handle
+    blobStoreFile :: !(MVar Handle),
+    blobStoreFilePath :: !FilePath
 }
 
 class HasBlobStore a where
@@ -41,6 +42,19 @@ class HasBlobStore a where
 instance HasBlobStore BlobStore where
     blobStore = id
 
+createTempBlobStore :: IO BlobStore
+createTempBlobStore = do
+    tempDir <- getTemporaryDirectory
+    (tempFP, h) <- openBinaryTempFile tempDir "blb.dat"
+    mv <- newMVar h
+    return $! BlobStore mv tempFP
+
+destroyTempBlobStore :: BlobStore -> IO ()
+destroyTempBlobStore BlobStore{..} = do
+    h <- takeMVar blobStoreFile
+    hClose h
+    removeFile blobStoreFilePath
+
 runBlobStoreTemp :: FilePath -> ReaderT BlobStore IO a -> IO a
 runBlobStoreTemp fp a = bracket openf closef usef
     where 
@@ -48,9 +62,9 @@ runBlobStoreTemp fp a = bracket openf closef usef
         closef (tempFP, h) = do
             hClose h
             removeFile tempFP
-        usef (_, h) = do
+        usef (fp, h) = do
             mv <- newMVar h
-            res <- runReaderT a (BlobStore mv)
+            res <- runReaderT a (BlobStore mv fp)
             _ <- takeMVar mv
             return res
 

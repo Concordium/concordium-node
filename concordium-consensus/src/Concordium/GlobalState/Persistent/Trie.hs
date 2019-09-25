@@ -2,7 +2,7 @@
 module Concordium.GlobalState.Persistent.Trie where
 
 import qualified Data.Vector as V
-import Data.List
+import Data.List(intercalate,stripPrefix)
 import Data.Word
 import Data.Functor.Foldable hiding (Nil)
 import Data.Bifunctor
@@ -139,6 +139,10 @@ instance Recursive (Trie k v) where
     project (Trie t) = t
 instance Corecursive (Trie k v) where
     embed = Trie
+instance (Monad m) => MRecursive m (Trie k v) where
+    mproject = pure . project
+instance (Monad m) => MCorecursive m (Trie k v) where
+    membed = pure . embed
 
 instance Functor (Trie k) where
     fmap f = hoist (first f)
@@ -324,6 +328,22 @@ adjust adj k (TrieN s t) = do
 keys :: (MRecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) => TrieN fix k v -> m [k]
 keys EmptyTrieN = return []
 keys (TrieN _ t) = mapReduceF (\k _ -> pure [k]) t
+
+fromTrie :: forall m fix k v. (MCorecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v) => TrieN Fix k v -> m (TrieN fix k v)
+fromTrie EmptyTrieN = return EmptyTrieN
+fromTrie (TrieN s t) = do
+        t' <- conv t
+        return (TrieN s t')
+    where
+        conv :: Fix (TrieF k v) -> m (fix (TrieF k v))
+        conv t0 = do
+            t1 <- mapM conv (project t0)
+            membed t1
+
+fromList :: (MCorecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) => [(k,v)] -> m (TrieN fix k v)
+fromList l = do
+        t <- foldM (\tt (k,v) -> insert k v tt) empty l
+        fromTrie t
 
 -- data TrieN fix k v = TrieN {length :: Int, trie :: fix (TrieF k v)}
 
