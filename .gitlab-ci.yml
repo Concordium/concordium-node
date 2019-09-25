@@ -26,7 +26,7 @@ stages:
     - echo "Running tests with s11n extras features enabled"
 #    - cargo test --all --color=always --features=static,s11n_capnp,s11n_nom,s11n_serde_cbor
     - echo "Run non-serialization benches"
-    - cargo bench --features=static --color=always
+    - cargo bench --features=static --color=always --no-run
 
 .generic-lint:
   extends: .generic

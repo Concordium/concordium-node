@@ -1,12 +1,9 @@
-use crate::common::{
-    serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
-    P2PNodeId,
-};
-
-use byteorder::{ByteOrder, LittleEndian};
-use concordium_common::SerializeToBytes;
+use byteorder::{ByteOrder, LittleEndian, ReadBytesExt, WriteBytesExt};
 use failure::{self, format_err, Fallible};
 use rkv::{Rkv, StoreOptions};
+
+use crate::common::P2PNodeId;
+use concordium_common::{Serial, SerializeToBytes};
 
 use std::{
     collections::HashSet,
@@ -91,35 +88,28 @@ impl BannedNodes {
     }
 }
 
-impl Serializable for BannedNode {
-    fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
-    where
-        A: WriteArchive, {
-        match self {
-            BannedNode::ById(id) => {
-                0u8.serialize(archive)?;
-                id.serialize(archive)
-            }
-            BannedNode::ByAddr(addr) => {
-                1u8.serialize(archive)?;
-                addr.serialize(archive)
-            }
-        }
-    }
-}
-
-impl Deserializable for BannedNode {
-    #[inline]
-    fn deserialize<A>(archive: &mut A) -> Fallible<BannedNode>
-    where
-        A: ReadArchive, {
-        let bn = match u8::deserialize(archive)? {
-            0 => BannedNode::ById(P2PNodeId::deserialize(archive)?),
-            1 => BannedNode::ByAddr(IpAddr::deserialize(archive)?),
+impl Serial for BannedNode {
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
+        let bn = match source.read_u8()? {
+            0 => BannedNode::ById(P2PNodeId::deserial(source)?),
+            1 => BannedNode::ByAddr(IpAddr::deserial(source)?),
             _ => bail!("Unsupported type of `BanNode`"),
         };
 
         Ok(bn)
+    }
+
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        match self {
+            BannedNode::ById(id) => {
+                target.write_u8(0)?;
+                id.serial(target)
+            }
+            BannedNode::ByAddr(addr) => {
+                target.write_u8(1)?;
+                addr.serial(target)
+            }
+        }
     }
 }
 
