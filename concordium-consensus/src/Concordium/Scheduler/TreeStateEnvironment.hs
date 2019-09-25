@@ -91,7 +91,7 @@ executeFrom ::
   -> SeedState
   -> [Transaction] -- ^Transactions on this block.
   -> m (Either FailureKind (BlockState m, Energy))
-executeFrom slotNumber blockParent lfPointer blockBaker seedState txs =
+executeFrom slotNumber blockParent lfPointer blockBaker ss txs =
   let cm = let blockHeight = bpHeight blockParent + 1
                finalizedHeight = bpHeight lfPointer
            in ChainMetadata{..}
@@ -106,7 +106,7 @@ executeFrom slotNumber blockParent lfPointer blockBaker seedState txs =
             -- the main execution is now done. At this point we must mint new currencty
             -- and reward the baker and other parties.
             bshandle3 <- mintAndReward bshandle2 blockParent lfPointer slotNumber blockBaker
-            bshandle4 <- bsoUpdateSeedState bshandle3 seedState
+            bshandle4 <- bsoUpdateSeedState bshandle3 ss
 
             finalbsHandle <- freezeBlockState bshandle4
             return (Right (finalbsHandle, usedEnergy))
@@ -126,7 +126,7 @@ constructBlock ::
   -> BakerId -- ^The baker of the block.
   -> SeedState
   -> m ([Transaction], BlockState m, Energy)
-constructBlock slotNumber blockParent lfPointer blockBaker seedState =
+constructBlock slotNumber blockParent lfPointer blockBaker ss =
   let cm = let blockHeight = bpHeight blockParent + 1
                finalizedHeight = bpHeight lfPointer
            in ChainMetadata{..}
@@ -156,7 +156,7 @@ constructBlock slotNumber blockParent lfPointer blockBaker seedState =
 
     bshandle2 <- bsoSetTransactionOutcomes bshandle1 ((\(tr,res) -> (transactionHash tr, res)) <$> ftAdded)
     bshandle3 <- mintAndReward bshandle2 blockParent lfPointer slotNumber blockBaker
-    bshandle4 <- bsoUpdateSeedState bshandle3 seedState
+    bshandle4 <- bsoUpdateSeedState bshandle3 ss
 
     -- We first commit all valid transactions to the current block slot to prevent them being purged.
     -- At the same time we construct the return blockTransactions to avoid an additional traversal

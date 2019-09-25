@@ -310,7 +310,7 @@ addBlock block = do
                             -- get Birk parameters from the __parent__ block. The baker must have existed in that
                             -- block's state in order that the current block is valid
                             bps@BirkParameters{..} <- getBirkParameters (blockSlot block) parentP
-                            case birkBaker (blockBaker block) bps of
+                            case birkEpochBaker (blockBaker block) bps of
                                 Nothing -> invalidBlock
                                 Just (BakerInfo{..}, lotteryPower) ->
                                     -- Check the block proof

@@ -51,6 +51,7 @@ makeGenesisData genesisTime nBakers genesisSlotDuration elecDiff finMinSkip gene
         genesisBirkParameters =
             BirkParameters elecDiff -- voting power
                            (bakersFromList (snd <$> bakers))
+                           (bakersFromList (snd <$> bakers), bakersFromList (snd <$> bakers))
                            (genesisSeedState (Hash.hash "LeadershipElectionNonce") 360) -- todo hardcoded epoch length (and initial seed)
         genesisFinalizationParameters = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, BakerInfo vrfk vvk _ _) <- bakers] finMinSkip
         (bakers, genesisBakerAccounts) = unzip (makeBakers nBakers)

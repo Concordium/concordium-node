@@ -85,6 +85,7 @@ emptyBirkParameters :: BirkParameters
 emptyBirkParameters = BirkParameters {
   _birkElectionDifficulty = 0.5,
   _birkBakers = emptyBakers,
+  _birkEpochBakers = (emptyBakers, emptyBakers),
   _seedState = genesisSeedState (hash "NONCE") 360
   }
 

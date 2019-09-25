@@ -126,9 +126,9 @@ getBlockBirkParameters hash sfsRef = runStateQuery sfsRef $
     "bakers" .= Array (fromList .
                        map (\(bid, BakerInfo{..}) -> object ["bakerId" .= (toInteger bid)
                                                             ,"bakerAccount" .= show _bakerAccount
-                                                            ,"bakerLotteryPower" .= ((fromIntegral _bakerStake :: Double) / fromIntegral (_bakerTotalStake _birkBakers))
+                                                            ,"bakerLotteryPower" .= ((fromIntegral _bakerStake :: Double) / fromIntegral (_bakerTotalStake (snd _birkEpochBakers)))
                                                             ]) .
-                       Map.toList $ _bakerMap $ _birkBakers)
+                       Map.toList $ _bakerMap $ (snd _birkEpochBakers) )
     ]
 
 getModuleList :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
