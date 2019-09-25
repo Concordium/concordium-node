@@ -44,10 +44,13 @@ makeGenesisData ::
     -> BlockHeight -- ^Minimum finalization interval - 1
     -> CryptographicParameters -- ^Initial cryptographic parameters.
     -> [IdentityProviderData]   -- ^List of initial identity providers.
+    -> [Account]  -- ^List of starting genesis accounts (in addition to baker accounts).
     -> (GenesisData, [(BakerIdentity,BakerInfo)])
-makeGenesisData genesisTime nBakers genesisSlotDuration elecDiff finMinSkip genesisCryptographicParameters genesisIdentityProviders
+makeGenesisData genesisTime nBakers genesisSlotDuration elecDiff finMinSkip genesisCryptographicParameters genesisIdentityProviders genesisAdditionalAccounts
     = (GenesisData{..}, bakers)
     where
+        genesisAccounts = genesisBakerAccounts ++ genesisAdditionalAccounts
+        genesisMintPerSlot = 10 -- default value, OK for testing.
         genesisBirkParameters =
             BirkParameters elecDiff -- voting power
                            (bakersFromList (snd <$> bakers))

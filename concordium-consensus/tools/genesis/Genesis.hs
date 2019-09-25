@@ -134,8 +134,8 @@ main = cmdArgsRun mode >>=
                         BakerIdentity skp vrfkp
                     encodeFile (gdOutput </> "baker-" ++ show n ++ "-account.json") $
                         object [
-                            "address" .= show (ID.accountAddress (Sig.verifyKey acctkp) SigScheme.Ed25519),
-                            "signatureScheme" .= fromEnum SigScheme.Ed25519,
+                            "address" .= ID.accountAddress (Sig.verifyKey acctkp) SigScheme.Ed25519,
+                            "signatureScheme" .= SigScheme.Ed25519,
                             "signKey" .= Sig.signKey acctkp,
                             "verifyKey" .= Sig.verifyKey acctkp
                         ]
@@ -144,8 +144,8 @@ main = cmdArgsRun mode >>=
                         "signatureVerifyKey" .= Sig.verifyKey skp,
                         "finalizer" .= finalizerP n,
                         "account" .= object [
-                            "signatureScheme" .= fromEnum SigScheme.Ed25519,
-                            "signatureKey" .= Sig.verifyKey acctkp,
+                            "signatureScheme" .= SigScheme.Ed25519,
+                            "verifyKey" .= Sig.verifyKey acctkp,
                             "balance" .= (1000000000000 :: Integer)
                             ]
                         ]

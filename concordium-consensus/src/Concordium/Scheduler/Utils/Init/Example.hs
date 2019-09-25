@@ -111,7 +111,12 @@ makeTransaction inc ca n = Runner.signTx mateuszKP header payload
                                                     )
 
 -- |State with the given number of contract instances of the counter contract specified.
-initialState :: BirkParameters -> CryptographicParameters -> [Account] -> [Types.IdentityProviderData] -> Int -> BlockState.BlockState
+initialState :: BirkParameters
+             -> CryptographicParameters
+             -> [Account]
+             -> [Types.IdentityProviderData]
+             -> Int
+             -> BlockState.BlockState
 initialState birkParams cryptoParams bakerAccounts ips n = 
     let (_, _, mods) = foldl handleFile
                            baseState
