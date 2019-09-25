@@ -8,6 +8,7 @@ import Data.Word
 import Control.Monad
 
 import qualified Concordium.Crypto.BlockSignature as Sig
+import qualified Concordium.Crypto.BlsSignature as Bls
 
 import Concordium.Types
 
@@ -18,7 +19,7 @@ instance Serialize FinalizationIndex where
   get = FinalizationIndex <$> getWord64be
 
 
-data FinalizationProof = FinalizationProof [(Word32, Sig.Signature)]
+data FinalizationProof = FinalizationProof ([Word32], Bls.BlsSignature)
     deriving (Eq)
 
 
@@ -28,17 +29,19 @@ putLength = putWord32be . fromIntegral
 getLength :: Get Int
 getLength = fromIntegral <$> getWord32be
 
+-- TODO: is this correct?
 instance Serialize FinalizationProof where
-  put (FinalizationProof sigs) =
-    putLength (length sigs) <>
-    mapM_ (\(party, sig) -> putWord32be party <> put sig) sigs
+  put (FinalizationProof (parties, sig)) =
+    putLength (length parties) <>
+      mapM_ (\party -> putWord32be party) parties <>
+      put sig
 
   get = do
     l <- getLength
-    FinalizationProof <$> replicateM l (getTwoOf getWord32be get)
+    FinalizationProof <$> (getTwoOf (replicateM l getWord32be) (getMaybeOf get))
 
 emptyFinalizationProof :: FinalizationProof
-emptyFinalizationProof = FinalizationProof []
+emptyFinalizationProof = FinalizationProof ([], Bls.emptySignature) -- this signature currently won't verify
 
 
 data FinalizationRecord = FinalizationRecord {
