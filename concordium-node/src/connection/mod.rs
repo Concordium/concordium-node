@@ -330,7 +330,8 @@ impl Connection {
 
         let handshake_request = NetworkMessage::NetworkRequest(
             NetworkRequest::Handshake(
-                self.handler().self_peer,
+                self.handler().self_peer.id(),
+                self.handler().self_peer.port(),
                 read_or_die!(self.handler().networks())
                     .iter()
                     .copied()
@@ -351,12 +352,13 @@ impl Connection {
         Ok(())
     }
 
-    pub fn send_handshake_response(&self, requestor: P2PPeer) -> Fallible<()> {
-        debug!("Sending a handshake response to peer {}", requestor.id());
+    pub fn send_handshake_response(&self, remote_node_id: P2PNodeId) -> Fallible<()> {
+        debug!("Sending a handshake response to peer {}", remote_node_id);
 
         let handshake_msg = NetworkMessage::NetworkResponse(
             NetworkResponse::Handshake(
-                self.handler().self_peer,
+                self.handler().self_peer.id(),
+                self.handler().self_peer.port(),
                 read_or_die!(self.remote_end_networks).to_owned(),
                 vec![],
             ),

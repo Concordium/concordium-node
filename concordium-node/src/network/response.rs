@@ -1,7 +1,7 @@
 use crate::{
     common::{
         serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
-        P2PPeer,
+        P2PNodeId, P2PPeer,
     },
     network::{AsProtocolResponseType, NetworkId, ProtocolResponseType},
 };
@@ -16,7 +16,7 @@ pub enum NetworkResponse {
     FindNode(P2PPeer, Vec<P2PPeer>), /* we no longer need this one - we always provide all the
                                       * nodes */
     PeerList(P2PPeer, Vec<P2PPeer>),
-    Handshake(P2PPeer, HashSet<NetworkId>, Vec<u8>),
+    Handshake(P2PNodeId, u16, HashSet<NetworkId>, Vec<u8>),
 }
 
 impl AsProtocolResponseType for NetworkResponse {
@@ -40,8 +40,9 @@ impl Serializable for NetworkResponse {
             NetworkResponse::FindNode(.., ref peers) | NetworkResponse::PeerList(.., ref peers) => {
                 peers.serialize(archive)
             }
-            NetworkResponse::Handshake(me, networks, zk) => {
-                me.serialize(archive)?;
+            NetworkResponse::Handshake(my_node_id, my_port, networks, zk) => {
+                my_node_id.serialize(archive)?;
+                my_port.serialize(archive)?;
                 networks.serialize(archive)?;
                 zk.serialize(archive)
             }
@@ -64,7 +65,8 @@ impl Deserializable for NetworkResponse {
                 NetworkResponse::PeerList(remote_peer?, Vec::<P2PPeer>::deserialize(archive)?)
             }
             ProtocolResponseType::Handshake => NetworkResponse::Handshake(
-                P2PPeer::deserialize(archive)?,
+                P2PNodeId::deserialize(archive)?,
+                u16::deserialize(archive)?,
                 HashSet::<NetworkId>::deserialize(archive)?,
                 Vec::<u8>::deserialize(archive)?,
             ),
