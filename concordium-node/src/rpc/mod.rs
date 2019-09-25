@@ -125,14 +125,14 @@ impl RpcServerImpl {
 
                 trace!("Sending direct message to: {}", id);
                 r.set_value(
-                    send_direct_message(&self.node, Some(id), network_id, None, msg)
+                    send_direct_message(&self.node, Some(id), network_id, msg)
                         .map_err(|e| error!("{}", e))
                         .is_ok(),
                 );
             } else if req.get_broadcast().get_value() {
                 trace!("Sending broadcast message");
                 r.set_value(
-                    send_broadcast_message(&self.node, vec![], network_id, None, msg)
+                    send_broadcast_message(&self.node, vec![], network_id, msg)
                         .map_err(|e| error!("{}", e))
                         .is_ok(),
                 );
@@ -658,7 +658,6 @@ impl P2P for RpcServerImpl {
                             };
 
                             r.set_network_id(u32::from(packet.network_id.id));
-                            r.set_message_id(packet.message_id.to_vec());
                             r.set_sender(packet.peer.id().to_string());
                         } else {
                             r.set_message_none(MessageNone::new());
@@ -1041,7 +1040,6 @@ impl P2P for RpcServerImpl {
                             &self.node,
                             to_send,
                             network_id,
-                            None,
                             HybridBuf::try_from(message).unwrap(),
                         ) {
                             Ok(_) => {
@@ -1622,7 +1620,6 @@ mod tests {
             &node2,
             vec![],
             crate::network::NetworkId::from(100),
-            None,
             HybridBuf::try_from(&b"Hey"[..])?,
         )?;
         // await_broadcast_message(&wt1).expect("Message sender disconnected");

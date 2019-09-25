@@ -311,7 +311,6 @@ mod tests {
         let msg = NetworkPacket {
             packet_type: NetworkPacketType::DirectMessage(P2PNodeId::default()),
             peer:        self_peer.clone().peer().unwrap(),
-            message_id:  NetworkPacket::generate_message_id(),
             network_id:  NetworkId::from(100),
             message:     buf,
         };
@@ -338,7 +337,6 @@ mod tests {
         let msg = NetworkPacket {
             packet_type: NetworkPacketType::BroadcastedMessage(vec![]),
             peer:        self_peer.clone().peer().unwrap(),
-            message_id:  NetworkPacket::generate_message_id(),
             network_id:  NetworkId::from(100),
             message:     buf,
         };

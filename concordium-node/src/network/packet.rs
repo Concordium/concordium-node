@@ -63,7 +63,6 @@ pub type MessageId = HashBytes;
 pub struct NetworkPacket {
     pub packet_type: NetworkPacketType,
     pub peer:        P2PPeer,
-    pub message_id:  MessageId,
     pub network_id:  NetworkId,
     pub message:     HybridBuf,
 }
@@ -84,7 +83,6 @@ impl Serializable for NetworkPacket {
     where
         A: WriteArchive, {
         self.packet_type.serialize(archive)?;
-        self.message_id.serialize(archive)?;
         self.network_id.serialize(archive)?;
         self.message.serialize(archive)
     }
@@ -97,7 +95,6 @@ impl Deserializable for NetworkPacket {
         let packet = NetworkPacket {
             packet_type: NetworkPacketType::deserialize(archive)?,
             peer:        archive.post_handshake_peer()?,
-            message_id:  MessageId::deserialize(archive)?,
             network_id:  NetworkId::deserialize(archive)?,
             message:     HybridBuf::deserialize(archive)?,
         };

@@ -183,7 +183,6 @@ mod unit_test {
         let pkt = NetworkPacket {
             packet_type: NetworkPacketType::DirectMessage(p2p_node_id),
             peer,
-            message_id: NetworkPacket::generate_message_id(),
             network_id: NetworkId::from(111),
             message: payload,
         };

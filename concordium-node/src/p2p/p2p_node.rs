@@ -10,8 +10,8 @@ use crate::{
     crypto::generate_snow_config,
     dumper::DumpItem,
     network::{
-        packet::MessageId, request::RequestedElementType, Buckets, NetworkId, NetworkMessage,
-        NetworkPacket, NetworkPacketType, NetworkRequest,
+        request::RequestedElementType, Buckets, NetworkId, NetworkMessage, NetworkPacket,
+        NetworkPacketType, NetworkRequest,
     },
     p2p::{banned_nodes::BannedNode, fails, unreachable_nodes::UnreachableNodes},
     utils,
@@ -1788,10 +1788,9 @@ pub fn send_direct_message(
     node: &P2PNode,
     target_id: Option<P2PNodeId>,
     network_id: NetworkId,
-    msg_id: Option<MessageId>,
     msg: HybridBuf,
 ) -> Fallible<()> {
-    send_message_from_cursor(node, target_id, vec![], network_id, msg_id, msg, false)
+    send_message_from_cursor(node, target_id, vec![], network_id, msg, false)
 }
 
 #[inline]
@@ -1799,10 +1798,9 @@ pub fn send_broadcast_message(
     node: &P2PNode,
     dont_relay_to: Vec<P2PNodeId>,
     network_id: NetworkId,
-    msg_id: Option<MessageId>,
     msg: HybridBuf,
 ) -> Fallible<()> {
-    send_message_from_cursor(node, None, dont_relay_to, network_id, msg_id, msg, true)
+    send_message_from_cursor(node, None, dont_relay_to, network_id, msg, true)
 }
 
 pub fn send_message_from_cursor(
@@ -1810,7 +1808,6 @@ pub fn send_message_from_cursor(
     target_id: Option<P2PNodeId>,
     dont_relay_to: Vec<P2PNodeId>,
     network_id: NetworkId,
-    msg_id: Option<MessageId>,
     message: HybridBuf,
     broadcast: bool,
 ) -> Fallible<()> {
@@ -1829,7 +1826,6 @@ pub fn send_message_from_cursor(
     let packet = NetworkPacket {
         packet_type,
         peer: node.self_peer,
-        message_id: msg_id.unwrap_or_else(NetworkPacket::generate_message_id),
         network_id,
         message,
     };
