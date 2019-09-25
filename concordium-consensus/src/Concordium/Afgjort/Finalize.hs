@@ -45,6 +45,7 @@ import qualified Data.OrdPSQ as PSQ
 import qualified Data.ByteString as BS
 
 import qualified Concordium.Crypto.BlockSignature as Sig
+import qualified Concordium.Crypto.BlsSignature as Bls
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Types
@@ -284,6 +285,8 @@ handleWMVBAOutputEvents evs = do
                 handleEvs True (WMVBAComplete _ : evs') = handleEvs True evs'
             handleEvs False evs
 
+-- makeFinalizationProof ::  ->
+
 liftWMVBA :: (FinalizationMonad s m) => WMVBA Sig.Signature a -> m a
 liftWMVBA a = do
     FinalizationState{..} <- use finState
@@ -348,7 +351,7 @@ receiveFinalizationMessage :: (FinalizationMonad s m) => FinalizationMessage -> 
 receiveFinalizationMessage msg@FinalizationMessage{msgHeader=FinalizationMessageHeader{..},..} = do
         FinalizationState{..} <- use finState
         -- Check this is the right session
-        if (_finsSessionId == msgSessionId) then 
+        if (_finsSessionId == msgSessionId) then
             -- Check the finalization index is not out of date
             case compare msgFinalizationIndex _finsIndex of
                 LT -> return ResultStale -- message is out of date
@@ -473,7 +476,7 @@ nextFinalizationDelay FinalizationRecord{..} = if finalizationDelay > 2 then fin
 
 -- |Given the finalization minimum skip and an explicitly finalized block, compute
 -- the height of the next finalized block.
-nextFinalizationHeight :: (BlockPointerData bp) 
+nextFinalizationHeight :: (BlockPointerData bp)
     => BlockHeight -- ^Finalization minimum skip
     -> bp -- ^Last finalized block
     -> BlockHeight
@@ -493,20 +496,18 @@ getPartyWeight com pid = case parties com ^? ix (fromIntegral pid) of
         Nothing -> 0
         Just p -> partyWeight p
 
+encodeForBlsSign :: FinalizationSessionId -> FinalizationIndex -> BlockHeight -> WMVBAWitnessCreatorMessage -> ByteString
+encodeForBlsSign sid fid bh m = runPut $ S.put sid >> S.put fid >> S.put bh >> S.put m
+
 -- |Check that a finalization record has a valid proof
 verifyFinalProof :: FinalizationSessionId -> FinalizationCommittee -> FinalizationRecord -> Bool
-verifyFinalProof sid com@FinalizationCommittee{..} FinalizationRecord{..} = sum (sigWeight <$> sigs) > corruptWeight
+verifyFinalProof sid com@FinalizationCommittee{..} FinalizationRecord{..} =
+  if sigWeight parties > corruptWeight then checkProofSignature parties sig else False
     where
-        FinalizationProof sigs = finalizationProof
-        hdr si = FinalizationMessageHeader {
-            msgSessionId = sid,
-            msgFinalizationIndex = finalizationIndex,
-            msgDelta = finalizationDelay,
-            msgSenderIndex = si
-        }
-        sigWeight (pid, sig) = if checkMessageSignature com (FinalizationMessage (hdr pid) (WMVBAWitnessCreatorMessage finalizationBlockPointer) sig)
-            then getPartyWeight com pid
-            else 0
+        FinalizationProof (parties, sig) = finalizationProof
+        toSign = encodeForBlsSign sid finalizationIndex finalizationDelay (WMVBAWitnessCreatorMessage finalizationBlockPointer)
+        checkProofSignature ps s = Bls.verify toSign (map (\pid -> partyBlsKey $ toPartyInfo com pid) ps) s
+        sigWeight ps = foldl (\s p -> getPartyWeight com p + s) ps
 
 {-
 data FinalizationPoint = FinalizationPoint !FinalizationSessionId !FinalizationIndex !BlockHeight
@@ -653,7 +654,7 @@ passiveReceiveFinalizationPseudoMessage pmsg msgBS = do
         PassiveFinalizationState{..} <- use pfinState
         let FinalizationMessageHeader{..} = fpmHeader pmsg
         -- Check this is the right session
-        if (_pfinsSessionId == msgSessionId) then 
+        if (_pfinsSessionId == msgSessionId) then
             -- Check the finalization index is not out of date
             if msgFinalizationIndex < _pfinsIndex then
                 return ResultStale
@@ -666,7 +667,7 @@ passiveReceiveFinalizationPseudoMessage pmsg msgBS = do
                     (isDup, newDeDup) = PSQ.alter alterfun (Hash.hash msgBS) purgedDeDup
                 pfinMessageDeDup .= newDeDup
                 return $!
-                    if isDup then 
+                    if isDup then
                         ResultDuplicate
                     else if msgFinalizationIndex == _pfinsIndex then
                         ResultSuccess

@@ -15,6 +15,7 @@ import Data.Map.Strict (Map)
 
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
+import qualified Concordium.Crypto.BlsSignature as Bls
 import Concordium.Types
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Finalization
@@ -30,7 +31,8 @@ data PartyInfo = PartyInfo {
     partyIndex :: !Party,
     partyWeight :: !VoterPower,
     partySignKey :: !Sig.VerifyKey,
-    partyVRFKey :: !VRF.PublicKey
+    partyVRFKey :: !VRF.PublicKey,
+    partyBlsKey :: !Bls.BlsPublicKey
 } deriving (Eq, Ord)
 
 instance Show PartyInfo where

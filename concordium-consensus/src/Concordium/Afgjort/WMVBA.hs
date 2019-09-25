@@ -59,6 +59,7 @@ messageValues (WMVBAFreezeMessage (Proposal val)) = [val]
 messageValues (WMVBAFreezeMessage (Vote (Just val))) = [val]
 messageValues (WMVBAFreezeMessage (Vote Nothing)) = []
 messageValues (WMVBAABBAMessage _) = []
+messageValues (WMVBAABBAMessage _) = []
 messageValues (WMVBAWitnessCreatorMessage val) = [val]
 
 messageParties :: WMVBAMessage -> [Party]
@@ -217,7 +218,7 @@ instance WMVBAMonad sig (WMVBA sig) where
     sendWMVBAMessage = WMVBA . tell . Endo . (:) . SendWMVBAMessage
     wmvbaComplete = WMVBA . tell . Endo . (:) . WMVBAComplete
 
-liftFreeze :: (WMVBAMonad sig m) => Freeze sig a -> m a
+liftFreeze :: (WMVBAMonad sig m) => Freeze sig a -> m a -- add BLS sig here (maybe)
 liftFreeze a = do
         freezestate <- use freezeState
         freezecontext <- toFreezeInstance <$> ask
@@ -244,7 +245,7 @@ liftFreeze a = do
                     _ -> return ()
             handleEvents r
 
-liftABBA :: (WMVBAMonad sig m) => ABBA sig a -> m a
+liftABBA :: (WMVBAMonad sig m) => ABBA sig a -> m a -- add BLS sign here
 liftABBA a = do
         aBBAInstance <- asks toABBAInstance
         aBBAState <- use abbaState
@@ -282,9 +283,9 @@ receiveWMVBAMessage :: (WMVBAMonad sig m, Eq sig) => Party -> sig -> WMVBAMessag
 receiveWMVBAMessage src sig (WMVBAFreezeMessage msg) = liftFreeze $ receiveFreezeMessage src msg sig
 receiveWMVBAMessage src sig (WMVBAABBAMessage msg) = do
         liftABBA $ receiveABBAMessage src msg sig
-receiveWMVBAMessage src sig (WMVBAWitnessCreatorMessage v) = do
+receiveWMVBAMessage src sig (WMVBAWitnessCreatorMessage v) = do -- receive BLS sig here
         WMVBAInstance{..} <- ask
-        newJV <- justifications . at v . non PM.empty <%= PM.insert src (partyWeight src) sig
+        newJV <- justifications . at v . non PM.empty <%= PM.insert src (partyWeight src) sig -- add BLS sig to justifications
         when (PM.weight newJV > corruptWeight) $
             wmvbaComplete (Just (v, PM.toList newJV))
 
