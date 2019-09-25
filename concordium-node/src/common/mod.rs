@@ -67,14 +67,13 @@ pub use self::{
 mod tests {
     use super::*;
     use crate::{
-        common::serialization::{deserialize_from_memory, serialize_into_memory},
         network::{
             NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType, NetworkRequest,
             NetworkResponse, PROTOCOL_VERSION,
         },
         p2p::banned_nodes::tests::dummy_ban_node,
     };
-    use concordium_common::hybrid_buf::HybridBuf;
+    use concordium_common::{hybrid_buf::HybridBuf, serial::serialize_into_buffer, Serial};
 
     use failure::Fallible;
 
@@ -150,11 +149,9 @@ mod tests {
                 Some(get_current_stamp()),
                 None,
             );
-            let test_msg_data = serialize_into_memory(&test_msg, 256).unwrap();
+            let mut test_msg_data = serialize_into_buffer(&test_msg, 256).unwrap();
 
-            let deserialized =
-                deserialize_from_memory::<NetworkMessage>(test_msg_data, self_peer.clone())
-                    .unwrap();
+            let deserialized = NetworkMessage::deserial(&mut test_msg_data).unwrap();
             net_assertion!($msg, $msg_type, deserialized)
         }};
         ($msg:ident, $msg_type:ident, $nets:expr) => {{
@@ -165,11 +162,9 @@ mod tests {
                 Some(get_current_stamp()),
                 None,
             );
-            let test_msg_data = serialize_into_memory(&test_msg, 256).unwrap();
+            let mut test_msg_data = serialize_into_buffer(&test_msg, 256).unwrap();
 
-            let deserialized =
-                deserialize_from_memory::<NetworkMessage>(test_msg_data, self_peer.clone())
-                    .unwrap();
+            let deserialized = NetworkMessage::deserial(&mut test_msg_data).unwrap();
 
             net_assertion!($msg, $msg_type, deserialized, nets)
         }};
@@ -192,11 +187,9 @@ mod tests {
                 Some(get_current_stamp()),
                 None,
             );
-            let test_msg_data = serialize_into_memory(&test_msg, 256).unwrap();
+            let mut test_msg_data = serialize_into_buffer(&test_msg, 256).unwrap();
 
-            let deserialized =
-                deserialize_from_memory::<NetworkMessage>(test_msg_data, self_peer.clone())
-                    .unwrap();
+            let deserialized = NetworkMessage::deserial(&mut test_msg_data).unwrap();
 
             net_assertion!($msg, $msg_type, deserialized, zk, nets)
         }};
@@ -314,9 +307,8 @@ mod tests {
             message:     buf,
         };
 
-        let msg_serialized = serialize_into_memory(&msg, 256)?;
-        let mut packet =
-            deserialize_from_memory::<NetworkPacket>(msg_serialized, self_peer.clone())?;
+        let mut msg_serialized = serialize_into_buffer(&msg, 256)?;
+        let mut packet = NetworkPacket::deserial(&mut msg_serialized)?;
 
         if let NetworkPacketType::DirectMessage(..) = packet.packet_type {
             assert_eq!(packet.network_id, NetworkId::from(100));
@@ -340,8 +332,8 @@ mod tests {
             message:     buf,
         };
 
-        let serialized = serialize_into_memory(&msg, 256)?;
-        let mut packet = deserialize_from_memory::<NetworkPacket>(serialized, self_peer.clone())?;
+        let mut serialized = serialize_into_buffer(&msg, 256)?;
+        let mut packet = NetworkPacket::deserial(&mut serialized)?;
 
         if let NetworkPacketType::BroadcastedMessage(..) = packet.packet_type {
             assert_eq!(packet.network_id, NetworkId::from(100));
@@ -389,16 +381,15 @@ mod tests {
             None,
             None,
         );
-        let mut ping_data = Vec::try_from(serialize_into_memory(&ping, 128).unwrap()).unwrap();
+        let mut ping_data = Vec::try_from(serialize_into_buffer(&ping, 128).unwrap()).unwrap();
 
         // Force and error in version protocol:
         //  + 13 bytes (PROTOCOL_NAME)
         //  + 1 byte due to endianess (Version is stored as u16)
         ping_data[13 + 1] = (PROTOCOL_VERSION + 1) as u8;
 
-        let ping_data = HybridBuf::try_from(ping_data).unwrap();
-
-        let deserialized = deserialize_from_memory::<NetworkMessage>(ping_data, self_peer());
+        let mut ping_data = HybridBuf::try_from(ping_data).unwrap();
+        let deserialized = NetworkMessage::deserial(&mut ping_data);
 
         assert!(deserialized.is_err());
     }
@@ -410,20 +401,14 @@ mod tests {
             None,
             None,
         );
-        let mut ping_data = Vec::try_from(serialize_into_memory(&ping, 128).unwrap()).unwrap();
+        let mut ping_data = Vec::try_from(serialize_into_buffer(&ping, 128).unwrap()).unwrap();
 
         // Force and error in protocol name:
         ping_data[1] = b'X';
 
-        let ping_data = HybridBuf::try_from(ping_data).unwrap();
-
-        let deserialized = deserialize_from_memory::<NetworkMessage>(ping_data, self_peer());
+        let mut ping_data = HybridBuf::try_from(ping_data).unwrap();
+        let deserialized = NetworkMessage::deserial(&mut ping_data);
 
         assert!(deserialized.is_err())
-    }
-
-    #[test]
-    fn test_message_generate() {
-        assert!(NetworkPacket::generate_message_id() != NetworkPacket::generate_message_id());
     }
 }

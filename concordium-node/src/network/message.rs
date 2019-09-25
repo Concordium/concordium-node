@@ -110,19 +110,16 @@ mod unit_test {
     use rand::{distributions::Alphanumeric, thread_rng, Rng};
     use std::{
         io::{Seek, SeekFrom, Write},
-        net::{IpAddr, Ipv4Addr, SocketAddr},
+        net::{IpAddr, SocketAddr},
         str::FromStr,
     };
 
     use super::*;
     use crate::{
-        common::{
-            serialization::{Deserializable, ReadArchiveAdapter, WriteArchiveAdapter},
-            P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType, RemotePeer,
-        },
+        common::{P2PNodeId, P2PPeer, PeerType},
         network::{NetworkId, NetworkPacket, NetworkPacketType},
     };
-    use concordium_common::hybrid_buf::HybridBuf;
+    use concordium_common::{hybrid_buf::HybridBuf, Serial};
 
     #[test]
     fn ut_s11n_001_direct_message_from_disk_16m() -> Fallible<()> {
@@ -174,30 +171,25 @@ mod unit_test {
         };
         let message = NetworkMessage::NetworkPacket(Arc::new(pkt), Some(get_current_stamp()), None);
 
-        // 3. Serialize package into archive (on disk)
-        let archive_cursor = HybridBuf::new_on_disk()?;
-        let mut archive = WriteArchiveAdapter::from(archive_cursor);
-        message.serialize(&mut archive)?;
+        // 3. Serialize package into a file
+        let mut buffer = HybridBuf::new_on_disk()?;
+        message.serial(&mut buffer)?;
 
-        let mut out_cursor = archive.into_inner();
-        out_cursor.seek(SeekFrom::Start(0))?;
-        Ok(out_cursor)
+        buffer.seek(SeekFrom::Start(0))?;
+        Ok(buffer)
     }
 
     fn ut_s11n_001_direct_message_from_disk(content_size: usize) -> Fallible<()> {
         // Create serialization data in memory and then move to disk
-        let cursor_on_disk = make_direct_message_into_disk(content_size)?;
+        let mut buffer = make_direct_message_into_disk(content_size)?;
 
-        // Local stuff
-        let local_ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
-        let local_peer = P2PPeerBuilder::default()
-            .peer_type(PeerType::Node)
-            .addr(SocketAddr::new(local_ip, 8888))
-            .build()?;
+        let local_peer = P2PPeer::from(
+            PeerType::Node,
+            P2PNodeId::from_str("000000002dd2b6ed")?,
+            SocketAddr::new(IpAddr::from_str("127.0.0.1")?, 8888),
+        );
 
-        let mut archive =
-            ReadArchiveAdapter::new(cursor_on_disk, RemotePeer::from(local_peer.clone()));
-        let mut message = NetworkMessage::deserialize(&mut archive)?;
+        let mut message = NetworkMessage::deserial(&mut buffer)?;
 
         if let NetworkMessage::NetworkPacket(ref mut packet, ..) = message {
             if let NetworkPacketType::BroadcastedMessage(..) = packet.packet_type {

@@ -4,7 +4,7 @@ use crate::{
     common::{P2PNodeId, P2PPeer},
     network::{AsProtocolPacketType, NetworkId, ProtocolPacketType},
 };
-use concordium_common::{hybrid_buf::HybridBuf, HashBytes, Serial};
+use concordium_common::{hybrid_buf::HybridBuf, Serial};
 
 use crate::failure::Fallible;
 use std::convert::TryFrom;
@@ -46,8 +46,6 @@ impl Serial for NetworkPacketType {
         }
     }
 }
-
-pub type MessageId = HashBytes;
 
 /// This is not *thread-safe* but this ensures it temporarily
 #[derive(Clone, Builder, Debug)]

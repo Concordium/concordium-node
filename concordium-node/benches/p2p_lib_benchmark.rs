@@ -5,7 +5,7 @@ use concordium_common::hybrid_buf::HybridBuf;
 
 use p2p_client::{
     common::{P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType},
-    network::{packet::MessageId, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType},
+    network::{NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType},
 };
 
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
@@ -41,7 +41,6 @@ pub fn create_random_packet(size: usize) -> NetworkMessage {
         Arc::new(NetworkPacket {
             packet_type: NetworkPacketType::DirectMessage(P2PNodeId::from_str(&"2A").unwrap()),
             peer:        localhost_peer(),
-            message_id:  MessageId::new(&[0u8; 32]),
             network_id:  NetworkId::from(100u16),
             message:     HybridBuf::try_from(generate_random_data(size)).unwrap(),
         }),
@@ -110,14 +109,9 @@ mod network {
 
     pub mod message {
         use crate::*;
+        use concordium_common::Serial;
         use p2p_client::{
-            common::{
-                get_current_stamp,
-                serialization::{
-                    Deserializable, ReadArchiveAdapter, Serializable, WriteArchiveAdapter,
-                },
-                RemotePeer,
-            },
+            common::{get_current_stamp, RemotePeer},
             network::{NetworkMessage, NetworkResponse},
         };
 
@@ -173,12 +167,11 @@ mod network {
             );
 
             c.bench_function(&bench_id, move |b| {
-                let cloned_cursor = cursor.clone();
-                let peer = RemotePeer::from(local_peer);
+                let cursor = cursor.clone();
 
                 b.iter(move || {
-                    let mut archive = ReadArchiveAdapter::new(cloned_cursor.clone(), peer.clone());
-                    NetworkMessage::deserialize(&mut archive)
+                    let mut buffer = cursor.clone();
+                    NetworkMessage::deserial(&mut buffer);
                 })
             });
         }
@@ -203,14 +196,12 @@ mod network {
             let bench_id = format!("Deserialization of PeerList responses with {} peers ", size);
 
             c.bench_function(&bench_id, move |b| {
-                let mut archive = WriteArchiveAdapter::from(vec![]);
-                let _ = peer_list_msg.serialize(&mut archive).unwrap();
-                let cursor = HybridBuf::try_from(archive.into_inner()).unwrap();
+                let mut cursor = HybridBuf::new();
+                let _ = peer_list_msg.serial(&mut cursor).unwrap();
 
                 b.iter(move || {
-                    let remote_peer = RemotePeer::from(me);
-                    let mut archive = ReadArchiveAdapter::new(cursor.clone(), remote_peer);
-                    NetworkMessage::deserialize(&mut archive).unwrap()
+                    let mut buffer = cursor.clone();
+                    NetworkMessage::deserial(&mut buffer).unwrap()
                 })
             });
         }
@@ -267,7 +258,6 @@ mod network {
                         Some(node_2.id()),
                         vec![],
                         net_id,
-                        None,
                         msg.clone(),
                         false,
                     )
