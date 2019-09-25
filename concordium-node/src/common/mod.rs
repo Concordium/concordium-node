@@ -2,7 +2,6 @@ pub mod counter;
 pub mod fails;
 pub mod p2p_node_id;
 pub mod p2p_peer;
-pub mod serialization;
 
 use crate::connection::MessageSendingPriority;
 use concordium_common::hybrid_buf::HybridBuf;

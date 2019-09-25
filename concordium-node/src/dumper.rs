@@ -1,6 +1,5 @@
 #[cfg(feature = "network_dump")]
 use crate::common::P2PNodeId;
-use crate::common::{serialization::read_archive_adapter::ReadArchiveAdapter, RemotePeer};
 use concordium_common::Serial;
 
 #[cfg(feature = "network_dump")]
@@ -20,7 +19,6 @@ use std::sync::mpsc::Receiver;
 pub struct DumpItem {
     timestamp:   DateTime<Utc>,
     inbound:     bool,
-    remote_peer: RemotePeer,
     remote_addr: IpAddr,
     msg:         HybridBuf,
 }
@@ -29,21 +27,19 @@ impl DumpItem {
     pub fn new(
         timestamp: DateTime<Utc>,
         inbound: bool,
-        remote_peer: RemotePeer,
         remote_addr: IpAddr,
         msg: HybridBuf,
     ) -> Self {
         DumpItem {
             timestamp,
             inbound,
-            remote_peer,
             remote_addr,
             msg,
         }
     }
 
     pub fn into_pretty_dump(mut self) -> String {
-        let mut archive = ReadArchiveAdapter::new(self.msg.clone(), self.remote_peer);
+        let msg = crate::network::NetworkMessage::deserial(&mut self.msg);
 
         format!(
             "{} - {} - {} - {:?} - {:?}",
@@ -55,7 +51,7 @@ impl DumpItem {
             } else {
                 (&[][..]).into()
             },
-            crate::network::NetworkMessage::deserial(&mut archive)
+            msg
         )
     }
 }

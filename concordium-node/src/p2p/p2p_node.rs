@@ -2,8 +2,7 @@
 use crate::dumper::create_dump_thread;
 use crate::{
     common::{
-        get_current_stamp, serialization::serialize_into_memory, NetworkRawRequest, P2PNodeId,
-        P2PPeer, PeerStats, PeerType, RemotePeer,
+        get_current_stamp, NetworkRawRequest, P2PNodeId, P2PPeer, PeerStats, PeerType, RemotePeer,
     },
     configuration::{self as config, Config},
     connection::{Connection, MessageSendingPriority, P2PEvent},
@@ -18,8 +17,8 @@ use crate::{
 };
 use chrono::prelude::*;
 use concordium_common::{
-    hybrid_buf::HybridBuf, stats_export_service::StatsExportService, QueueSyncSender,
-    RelayOrStopSenderHelper, SerializeToBytes,
+    hybrid_buf::HybridBuf, serial::serialize_into_buffer, stats_export_service::StatsExportService,
+    QueueSyncSender, RelayOrStopSenderHelper, SerializeToBytes,
 };
 use failure::{err_msg, Error, Fallible};
 #[cfg(not(target_os = "windows"))]
@@ -1087,7 +1086,7 @@ impl P2PNode {
         let check_sent_status_fn =
             |conn: &Connection, status: Fallible<()>| self.check_sent_status(&conn, status);
 
-        let s11n_data = serialize_into_memory(
+        let s11n_data = serialize_into_buffer(
             &NetworkMessage::NetworkRequest(inner_pkt.clone(), Some(get_current_stamp()), None),
             256,
         );
@@ -1127,7 +1126,7 @@ impl P2PNode {
             |conn: &Connection, status: Fallible<()>| self.check_sent_status(&conn, status);
 
         if let NetworkRequest::BanNode(_, to_ban) = inner_pkt {
-            let s11n_data = serialize_into_memory(
+            let s11n_data = serialize_into_buffer(
                 &NetworkMessage::NetworkRequest(inner_pkt.clone(), Some(get_current_stamp()), None),
                 256,
             );
@@ -1159,7 +1158,7 @@ impl P2PNode {
         let check_sent_status_fn =
             |conn: &Connection, status: Fallible<()>| self.check_sent_status(&conn, status);
 
-        let s11n_data = serialize_into_memory(
+        let s11n_data = serialize_into_buffer(
             &NetworkMessage::NetworkRequest(inner_pkt.clone(), Some(get_current_stamp()), None),
             256,
         );
@@ -1187,7 +1186,7 @@ impl P2PNode {
     fn process_leave_network(&self, inner_pkt: &NetworkRequest) {
         let check_sent_status_fn =
             |conn: &Connection, status: Fallible<()>| self.check_sent_status(&conn, status);
-        let s11n_data = serialize_into_memory(
+        let s11n_data = serialize_into_buffer(
             &NetworkMessage::NetworkRequest(inner_pkt.clone(), Some(get_current_stamp()), None),
             256,
         );
@@ -1215,7 +1214,7 @@ impl P2PNode {
     fn process_get_peers(&self, inner_pkt: &NetworkRequest) {
         let check_sent_status_fn =
             |conn: &Connection, status: Fallible<()>| self.check_sent_status(&conn, status);
-        let s11n_data = serialize_into_memory(
+        let s11n_data = serialize_into_buffer(
             &NetworkMessage::NetworkRequest(inner_pkt.clone(), Some(get_current_stamp()), None),
             256,
         );
@@ -1243,7 +1242,7 @@ impl P2PNode {
         if let NetworkRequest::Retransmit(ref peer, ..) = inner_pkt {
             let filter = |conn: &Connection| is_conn_peer_id(conn, peer.id());
 
-            let s11n_data = serialize_into_memory(
+            let s11n_data = serialize_into_buffer(
                 &NetworkMessage::NetworkRequest(inner_pkt.clone(), Some(get_current_stamp()), None),
                 256,
             );
@@ -1266,7 +1265,7 @@ impl P2PNode {
         let check_sent_status_fn =
             |conn: &Connection, status: Fallible<()>| self.check_sent_status(&conn, status);
 
-        let serialized_packet = serialize_into_memory(
+        let serialized_packet = serialize_into_buffer(
             &NetworkMessage::NetworkPacket(Arc::clone(&inner_pkt), Some(get_current_stamp()), None),
             256,
         );

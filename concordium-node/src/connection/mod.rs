@@ -23,7 +23,6 @@ use crate::{
         counter::{TOTAL_MESSAGES_RECEIVED_COUNTER, TOTAL_MESSAGES_SENT_COUNTER},
         get_current_stamp,
         p2p_peer::P2PPeer,
-        serialization::serialize_into_memory,
         NetworkRawRequest, P2PNodeId, PeerStats, PeerType, RemotePeer,
     },
     connection::message_handlers::handle_incoming_message,
@@ -31,7 +30,7 @@ use crate::{
     network::{Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse},
 };
 
-use concordium_common::{hybrid_buf::HybridBuf, Serial};
+use concordium_common::{hybrid_buf::HybridBuf, serial::serialize_into_buffer, Serial};
 
 use chrono::prelude::Utc;
 use failure::Fallible;
@@ -316,7 +315,6 @@ impl Connection {
             let di = DumpItem::new(
                 Utc::now(),
                 inbound,
-                self.remote_peer(),
                 self.remote_peer().addr().ip(),
                 buf.clone(),
             );
@@ -342,7 +340,7 @@ impl Connection {
         );
 
         self.async_send(
-            serialize_into_memory(&handshake_request, 256)?,
+            serialize_into_buffer(&handshake_request, 256)?,
             MessageSendingPriority::High,
         )?;
 
@@ -366,7 +364,7 @@ impl Connection {
         );
 
         self.async_send(
-            serialize_into_memory(&handshake_msg, 128)?,
+            serialize_into_buffer(&handshake_msg, 128)?,
             MessageSendingPriority::High,
         )
     }
@@ -381,7 +379,7 @@ impl Connection {
         );
 
         self.async_send(
-            serialize_into_memory(&ping_msg, 64)?,
+            serialize_into_buffer(&ping_msg, 64)?,
             MessageSendingPriority::Normal,
         )?;
 
@@ -400,7 +398,7 @@ impl Connection {
         );
 
         self.async_send(
-            serialize_into_memory(&pong_msg, 64)?,
+            serialize_into_buffer(&pong_msg, 64)?,
             MessageSendingPriority::High,
         )
     }
@@ -456,7 +454,7 @@ impl Connection {
             debug!("Sending my PeerList to peer {}", requestor.id());
 
             self.async_send(
-                serialize_into_memory(&resp, 256)?,
+                serialize_into_buffer(&resp, 256)?,
                 MessageSendingPriority::Normal,
             )
         } else {

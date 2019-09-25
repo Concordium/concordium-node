@@ -183,3 +183,15 @@ impl Serial for HybridBuf {
         Ok(())
     }
 }
+
+pub fn serialize_into_buffer<T: Serial>(src: &T, capacity: usize) -> Fallible<HybridBuf> {
+    let mut buffer = HybridBuf::with_capacity(capacity)?;
+    src.serial(&mut buffer)?;
+    buffer.rewind()?;
+
+    Ok(buffer)
+}
+
+pub fn deserialize_from_memory<T: Serial>(mut src: &mut HybridBuf) -> Fallible<T> {
+    T::deserial(&mut src)
+}
