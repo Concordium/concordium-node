@@ -12,7 +12,6 @@ use std::alloc::System;
 static A: System = System;
 
 use concordium_common::{
-    cache::Cache,
     spawn_or_die,
     stats_export_service::{StatsExportService, StatsServiceMode},
     QueueMsg, QueueReceiver,
@@ -32,8 +31,8 @@ use p2p_client::{
     },
     common::PeerType,
     configuration as config,
-    connection::message_handlers::{handle_incoming_packet, handle_retransmit_req},
-    network::{NetworkId, NetworkMessage, NetworkRequest},
+    connection::message_handlers::handle_incoming_packet,
+    network::{NetworkId, NetworkMessage},
     p2p::*,
     rpc::RpcServerImpl,
     stats_engine::StatsEngine,
@@ -341,35 +340,20 @@ fn start_consensus_threads(
         const DEDUP_QUEUE_SIZE: usize = 32 * 1024;
 
         let mut _msg_count = 0;
-        let mut transactions_cache = Cache::default();
         let mut deduplication_queues = DeduplicationQueues::new(DEDUP_QUEUE_SIZE);
 
         while let Ok(QueueMsg::Relay(msg)) = pkt_out.recv() {
-            match msg {
-                NetworkMessage::NetworkPacket(ref pac, ..) => handle_incoming_packet(
+            if let NetworkMessage::NetworkPacket(ref pac, ..) = msg {
+                handle_incoming_packet(
+                    &node_ref,
                     pac,
                     &gs_senders,
-                    &mut transactions_cache,
                     &mut deduplication_queues,
                     &mut _stats_engine,
                     &mut _msg_count,
                     _tps_test_enabled,
                     _tps_message_count,
-                ),
-                NetworkMessage::NetworkRequest(
-                    NetworkRequest::Retransmit(requester, element_type, since, nid),
-                    ..
-                ) => {
-                    handle_retransmit_req(
-                        &node_ref,
-                        requester,
-                        element_type,
-                        since,
-                        nid,
-                        &mut transactions_cache,
-                    );
-                }
-                _ => {}
+                )
             }
         }
     });

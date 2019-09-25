@@ -6,21 +6,15 @@ use crate::{
         request::RequestedElementType, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType,
         NetworkRequest, NetworkResponse,
     },
-    p2p::{banned_nodes::BannedNode, *},
+    p2p::{banned_nodes::BannedNode, p2p_node::P2PNode},
     stats_engine::StatsEngine,
     utils::GlobalStateSenders,
 };
-use concordium_common::{
-    cache::Cache, read_or_die, serial::serialize_into_buffer, write_or_die, PacketType,
-};
+use concordium_common::{read_or_die, serial::serialize_into_buffer, write_or_die, PacketType};
 
 use failure::Fallible;
 
-use std::{
-    collections::HashSet,
-    net::SocketAddr,
-    sync::{atomic::Ordering, Arc},
-};
+use std::{collections::HashSet, net::SocketAddr, sync::atomic::Ordering};
 
 pub fn handle_incoming_message(conn: &Connection, full_msg: &NetworkMessage) {
     if let Err(e) = match full_msg {
@@ -32,39 +26,38 @@ pub fn handle_incoming_message(conn: &Connection, full_msg: &NetworkMessage) {
             NetworkResponse::Handshake(remote_node_id, remote_port, ref nets, _),
             ..
         ) => handle_handshake_resp(conn, *remote_node_id, *remote_port, nets),
-        NetworkMessage::NetworkRequest(NetworkRequest::Ping(_source), ..) => handle_ping(conn),
-        NetworkMessage::NetworkResponse(NetworkResponse::Pong(_source), ..) => handle_pong(conn),
-        NetworkMessage::NetworkRequest(NetworkRequest::FindNode(_source, node), ..) => {
+        NetworkMessage::NetworkRequest(NetworkRequest::Ping, ..) => handle_ping(conn),
+        NetworkMessage::NetworkResponse(NetworkResponse::Pong, ..) => handle_pong(conn),
+        NetworkMessage::NetworkRequest(NetworkRequest::FindNode(node), ..) => {
             handle_find_node_req(conn, *node)
         }
-        NetworkMessage::NetworkResponse(NetworkResponse::FindNode(_source, ref peers), ..) => {
+        NetworkMessage::NetworkResponse(NetworkResponse::FindNode(ref peers), ..) => {
             handle_find_node_resp(conn, peers)
         }
-        NetworkMessage::NetworkRequest(NetworkRequest::GetPeers(source, ref networks), ..) => {
-            handle_get_peers_req(conn, *source, networks)
+        NetworkMessage::NetworkRequest(NetworkRequest::GetPeers(ref networks), ..) => {
+            handle_get_peers_req(conn, networks)
         }
-        NetworkMessage::NetworkResponse(NetworkResponse::PeerList(source, ref peers), ..) => {
-            handle_peer_list_resp(conn, *source, peers)
+        NetworkMessage::NetworkResponse(NetworkResponse::PeerList(ref peers), ..) => {
+            handle_peer_list_resp(conn, peers)
         }
-        NetworkMessage::NetworkRequest(NetworkRequest::JoinNetwork(_source, network), ..) => {
+        NetworkMessage::NetworkRequest(NetworkRequest::JoinNetwork(network), ..) => {
             handle_join_network_req(conn, *network)
         }
-        NetworkMessage::NetworkRequest(NetworkRequest::LeaveNetwork(source, network), ..) => {
-            handle_leave_network_req(conn, *source, *network)
+        NetworkMessage::NetworkRequest(NetworkRequest::LeaveNetwork(network), ..) => {
+            handle_leave_network_req(conn, *network)
         }
-        NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_source, peer_to_ban), ..) => {
-            conn.handler().ban_node(*peer_to_ban)
+        NetworkMessage::NetworkRequest(NetworkRequest::BanNode(peer_to_ban), ..) => {
+            handle_ban(conn, *peer_to_ban)
         }
-        NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(_source, peer_to_unban), ..) => {
-            conn.handler().unban_node(*peer_to_unban)
+        NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(peer_to_unban), ..) => {
+            handle_unban(conn, *peer_to_unban)
         }
         NetworkMessage::NetworkPacket(..) => {
             // handled by handle_incoming_packet
             Ok(())
         }
-        NetworkMessage::NetworkRequest(NetworkRequest::Retransmit(..), ..) => {
-            // handled by handle_retransmit_req
-            Ok(())
+        NetworkMessage::NetworkRequest(NetworkRequest::Retransmit(elem_type, since, nid), ..) => {
+            handle_retransmit_req(conn, *elem_type, *since, *nid)
         }
         NetworkMessage::InvalidMessage => {
             handle_invalid_network_msg(conn);
@@ -107,7 +100,7 @@ fn handle_handshake_req(
 
     if conn.handler().peer_type() == PeerType::Bootstrapper {
         debug!("Running in bootstrapper mode; attempting to send a PeerList upon handshake");
-        conn.send_peer_list_resp(remote_peer, networks)?;
+        conn.send_peer_list_resp(networks)?;
     }
 
     Ok(())
@@ -175,7 +168,6 @@ fn handle_find_node_req(conn: &Connection, _target_node: P2PNodeId) -> Fallible<
     }
 
     let find_node_msg = {
-        let remote_peer = conn.remote_peer().peer().unwrap();
         let nodes = safe_read!(conn.handler().connection_handler.buckets)?.buckets[0] // The Buckets object is never empty
             .clone()
             .into_iter()
@@ -183,7 +175,7 @@ fn handle_find_node_req(conn: &Connection, _target_node: P2PNodeId) -> Fallible<
             .collect::<Vec<_>>();
 
         NetworkMessage::NetworkResponse(
-            NetworkResponse::FindNode(remote_peer, nodes),
+            NetworkResponse::FindNode(nodes),
             Some(get_current_stamp()),
             None,
         )
@@ -207,22 +199,29 @@ fn handle_find_node_resp(conn: &Connection, nodes: &[P2PPeer]) -> Fallible<()> {
     Ok(())
 }
 
-fn handle_get_peers_req(
-    conn: &Connection,
-    source: P2PPeer,
-    networks: &HashSet<NetworkId>,
-) -> Fallible<()> {
-    debug!("Got a GetPeers request from peer {}", source.id());
-
+fn handle_get_peers_req(conn: &Connection, networks: &HashSet<NetworkId>) -> Fallible<()> {
     if !conn.is_post_handshake() {
         bail!("handle_get_peers_req was called before the handshake!")
     }
 
-    conn.send_peer_list_resp(source, networks)
+    let remote_peer = P2PPeer::from(
+        conn.remote_peer.peer_type(),
+        conn.remote_id().unwrap(), // safe, post-handshake
+        conn.remote_addr(),
+    );
+
+    debug!("Got a GetPeers request from peer {}", remote_peer.id);
+
+    conn.send_peer_list_resp(networks)
 }
 
-fn handle_peer_list_resp(conn: &Connection, source: P2PPeer, peers: &[P2PPeer]) -> Fallible<()> {
-    debug!("Received a PeerList response from peer {}", source.id());
+fn handle_peer_list_resp(conn: &Connection, peers: &[P2PPeer]) -> Fallible<()> {
+    if !conn.is_post_handshake() {
+        bail!("handle_get_peers_req was called before the handshake!")
+    }
+    let peer_id = conn.remote_id().unwrap(); // safe, post-handshake
+
+    debug!("Received a PeerList response from peer {}", peer_id);
 
     let mut new_peers = 0;
     let curr_peer_count = conn
@@ -264,10 +263,7 @@ fn handle_peer_list_resp(conn: &Connection, source: P2PPeer, peers: &[P2PPeer]) 
         #[cfg(debug_assertions)]
         {
             if peer.id().as_raw() >= 1_000_000 {
-                error!(
-                    "I got a bootstrapper in a PeerList from the node {}",
-                    source
-                );
+                error!("I got a bootstrapper in a PeerList from peer {}", peer_id);
             }
         }
     }
@@ -313,32 +309,26 @@ fn handle_join_network_req(conn: &Connection, network: NetworkId) -> Fallible<()
     Ok(())
 }
 
-fn handle_leave_network_req(
-    conn: &Connection,
-    source: P2PPeer,
-    network: NetworkId,
-) -> Fallible<()> {
+fn handle_leave_network_req(conn: &Connection, network: NetworkId) -> Fallible<()> {
     trace!("Received a LeaveNetwork request");
 
     if !conn.is_post_handshake() {
         bail!("handle_leave_network_req was called before the handshake!")
     }
+    let remote_peer = conn.remote_peer().peer().unwrap();
 
     conn.remove_remote_end_network(network);
 
-    let event_log = {
-        let remote_peer = conn.remote_peer().peer().unwrap();
+    safe_write!(conn.handler().connection_handler.buckets)?.update_network_ids(
+        &remote_peer,
+        read_or_die!(conn.remote_end_networks).to_owned(),
+    );
 
-        safe_write!(conn.handler().connection_handler.buckets)?.update_network_ids(
-            &remote_peer,
-            read_or_die!(conn.remote_end_networks).to_owned(),
-        );
-
-        conn.handler().connection_handler.event_log.clone()
-    };
-
-    if let Some(ref log) = event_log {
-        if log.send(P2PEvent::LeftNetwork(source, network)).is_err() {
+    if let Some(ref log) = conn.handler().connection_handler.event_log {
+        if log
+            .send(P2PEvent::LeftNetwork(remote_peer, network))
+            .is_err()
+        {
             error!("Left Network Event cannot be sent to log");
         }
     };
@@ -347,40 +337,69 @@ fn handle_leave_network_req(
 }
 
 pub fn handle_retransmit_req(
-    node: &P2PNode,
-    requester: P2PPeer,
+    conn: &Connection,
     element_type: RequestedElementType,
     since: u64,
     nid: NetworkId,
-    transactions_cache: &mut Cache<Arc<[u8]>>,
-) {
-    debug!("Received a Retransmit request from peer {}", requester.id());
+) -> Fallible<()> {
+    let remote_peer = if let Some(id) = conn.remote_peer().peer() {
+        id
+    } else {
+        bail!("handle_retransmit_req was called before the handshake!");
+    };
+
+    debug!("Received a Retransmit request from peer {}", remote_peer);
 
     if let RequestedElementType::Transaction = element_type {
-        let transactions = transactions_cache.get_since(since);
-        transactions.iter().for_each(|transaction| {
-            if let Err(e) = send_consensus_msg_to_net(
-                node,
-                vec![],
-                Some(requester.id()),
-                nid,
-                PacketType::Transaction,
-                Some(format!("{:?}", transaction)),
-                &transaction,
-            ) {
-                error!("Couldn't retransmit a transaction! ({:?})", e);
-            }
-        })
+        read_or_die!(conn.handler().transactions_cache)
+            .get_since(since)
+            .iter()
+            .for_each(|transaction| {
+                if let Err(e) = send_consensus_msg_to_net(
+                    conn.handler(),
+                    vec![],
+                    Some(remote_peer.id),
+                    nid,
+                    PacketType::Transaction,
+                    Some(format!("{:?}", transaction)),
+                    &transaction,
+                ) {
+                    error!("Couldn't retransmit a transaction! ({:?})", e);
+                }
+            })
     } else {
-        error!("Received request for unknown element type in a Retransmit request")
+        bail!("Received request for unknown element type in a Retransmit request");
     }
+
+    Ok(())
+}
+
+fn handle_ban(conn: &Connection, peer: BannedNode) -> Fallible<()> {
+    conn.handler().ban_node(peer)?;
+
+    Ok(())
+}
+
+fn handle_unban(conn: &Connection, peer: BannedNode) -> Fallible<()> {
+    let is_self_unban = match peer {
+        BannedNode::ById(id) => Some(id) == conn.remote_id(),
+        BannedNode::ByAddr(addr) => addr == conn.remote_addr().ip(),
+    };
+
+    if is_self_unban {
+        bail!("Rejecting a self-unban attempt");
+    }
+
+    conn.handler().unban_node(peer)?;
+
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
 pub fn handle_incoming_packet(
+    node: &P2PNode,
     pac: &NetworkPacket,
     global_state_senders: &GlobalStateSenders,
-    transactions_cache: &mut Cache<Arc<[u8]>>,
     dedup_queues: &mut DeduplicationQueues,
     _stats_engine: &mut StatsEngine,
     _msg_count: &mut u64,
@@ -418,11 +437,11 @@ pub fn handle_incoming_packet(
     };
 
     if let Err(e) = handle_pkt_out(
+        node,
         dont_relay_to,
         pac.peer.id(),
         pac.message.clone(),
         &global_state_senders,
-        transactions_cache,
         dedup_queues,
         is_broadcast,
     ) {
