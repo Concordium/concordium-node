@@ -18,7 +18,6 @@ import Concordium.Types.HashableTo
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Bakers
-import Concordium.GlobalState.SeedState
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Modules as Modules
 import qualified Concordium.GlobalState.Account as Account

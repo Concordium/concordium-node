@@ -6,6 +6,7 @@ import GHC.Generics
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict(Map)
 import Data.Serialize
+import Data.Ratio
 import Lens.Micro.Platform
 
 import Concordium.Types
@@ -53,6 +54,11 @@ bakersFromList bkrs = Bakers {
     }
     where
         ibkrs = zip [0..] bkrs
+
+
+bakerData :: BakerId -> Bakers -> Maybe (BakerInfo, LotteryPower)
+bakerData bid bkrs = (bkrs ^. bakerMap . at bid) <&>
+                        \bkr -> (bkr, (bkr ^. bakerStake) % (bkrs ^. bakerTotalStake))
 
 createBaker :: BakerCreationInfo -> Bakers -> (BakerId, Bakers)
 createBaker (BakerCreationInfo _bakerElectionVerifyKey _bakerSignatureVerifyKey _bakerAccount) bkrs =
