@@ -1,3 +1,4 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -29,7 +30,7 @@ import qualified Concordium.ID.Account as ID
 
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Aeson as AE
-import Data.Aeson.Types (FromJSON(..), (.:), withObject)
+import Data.Aeson.Types (FromJSON(..), (.:), (.:?), (.!=), withObject)
 
 -- |Cryptographic parameters needed to verify on-chain proofs, e.g.,
 -- group parameters (generators), commitment keys, in the future also
@@ -89,10 +90,11 @@ data GenesisData = GenesisData {
     genesisTime :: Timestamp,
     genesisSlotDuration :: Duration,
     genesisBirkParameters :: BirkParameters,
-    genesisBakerAccounts :: [Account],
+    genesisAccounts :: [Account],
     genesisFinalizationParameters :: FinalizationParameters,
     genesisCryptographicParameters :: CryptographicParameters,
-    genesisIdentityProviders :: [IdentityProviderData]
+    genesisIdentityProviders :: [IdentityProviderData],
+    genesisMintPerSlot :: Amount
 } deriving (Generic, Show)
 
 instance Serialize GenesisData where
@@ -137,12 +139,30 @@ instance FromJSON GenesisBaker where
             gbSignatureVerifyKey <- v .: "signatureVerifyKey"
             acct <- v .: "account"
             (gbAccountSignatureScheme, gbAccountSignatureKey, gbAccountBalance) <- flip (withObject "GenesisBakerAccount") acct $ \v' -> do
-                ss <- toEnum <$> v' .: "signatureScheme"
-                sk <- v' .: "signatureKey"
+                ss <- v' .: "signatureScheme"
+                sk <- v' .: "verifyKey"
                 ab <- Amount <$> v' .: "balance"
                 return (ss, sk, ab)
             gbFinalizer <- v .: "finalizer"
             return GenesisBaker{..}
+
+-- |'GenesisAccount' are special account existing in the genesis block, in
+-- addition to baker accounts which are defined by the 'GenesisBaker' structure.
+data GenesisAccount = GenesisAccount {
+  gaAccountSignatureScheme :: !SchemeId,
+  gaAccountVerifyKey :: !AccountVerificationKey,
+  gaAccountBalance :: !Amount,
+  gaDelegate :: !(Maybe BakerId)
+  -- TODO: credentials
+}
+
+instance FromJSON GenesisAccount where
+  parseJSON = withObject "GenesisAccount" $ \v -> do
+    gaAccountSignatureScheme <- v .: "signatureScheme"
+    gaAccountVerifyKey <- v .: "verifyKey"
+    gaAccountBalance <- Amount <$> v .: "balance"
+    gaDelegate <- fmap BakerId <$> v .:? "delegate"
+    return GenesisAccount{..}
 
 -- 'GenesisParameters' provides a convenient abstraction for
 -- constructing 'GenesisData'.
@@ -155,7 +175,9 @@ data GenesisParameters = GenesisParameters {
     gpFinalizationMinimumSkip :: BlockHeight,
     gpBakers :: [GenesisBaker],
     gpCryptographicParameters :: CryptographicParameters,
-    gpIdentityProviders :: [IdentityProviderData]
+    gpIdentityProviders :: [IdentityProviderData],
+    gpAccounts :: [GenesisAccount],
+    gpMintPerSlot :: Amount
 }
 
 instance FromJSON GenesisParameters where
@@ -168,8 +190,11 @@ instance FromJSON GenesisParameters where
         gpElectionDifficulty <- v .: "electionDifficulty"
         gpFinalizationMinimumSkip <- BlockHeight <$> v .: "finalizationMinimumSkip"
         gpBakers <- v .: "bakers"
+        when (null gpBakers) $ fail "There should be at least one baker."
         gpCryptographicParameters <- v .: "cryptographicParameters"
-        gpIdentityProviders <- v .: "identityProviders"
+        gpIdentityProviders <- v .:? "identityProviders" .!= []
+        gpAccounts <- v .:? "genesisAccounts" .!= []
+        gpMintPerSlot <- Amount <$> v .: "mintPerSlot"
         return GenesisParameters{..}
 
 -- |Implementation-defined parameters, such as block size. They are not
@@ -184,7 +209,7 @@ data RuntimeParameters = RuntimeParameters {
 -- |Default runtime parameters, block size = 10MB.
 defaultRuntimeParameters :: RuntimeParameters
 defaultRuntimeParameters = RuntimeParameters{
-  rpBlockSize = 10^(6 :: Int) -- 10MB
+  rpBlockSize = 10 * 10^(6 :: Int) -- 10MB
   }
 
 instance FromJSON RuntimeParameters where
@@ -197,6 +222,7 @@ instance FromJSON RuntimeParameters where
 parametersToGenesisData :: GenesisParameters -> GenesisData
 parametersToGenesisData GenesisParameters{..} = GenesisData{..}
     where
+        genesisMintPerSlot = gpMintPerSlot
         genesisTime = gpGenesisTime
         genesisSlotDuration = gpSlotDuration
         genesisBirkParameters = BirkParameters {
@@ -209,9 +235,14 @@ parametersToGenesisData GenesisParameters{..} = GenesisData{..}
                 gbSignatureVerifyKey
                 gbAccountBalance 
                 (ID.accountAddress gbAccountSignatureKey gbAccountSignatureScheme)
-        genesisBakerAccounts =
-            [(newAccount gbAccountSignatureKey gbAccountSignatureScheme) {_accountAmount = gbAccountBalance, _accountStakeDelegate = Just bid}
-                | (GenesisBaker{..}, bid) <- zip gpBakers [0..]]
+        genesisAccounts =
+            [(newAccount gbAccountSignatureKey gbAccountSignatureScheme) {_accountAmount = gbAccountBalance,
+                                                                          _accountStakeDelegate = Just bid}
+            | (GenesisBaker{..}, bid) <- zip gpBakers [0..]] ++
+            -- add special accounts as well. They may delegate.
+            [(newAccount gaAccountVerifyKey gaAccountSignatureScheme) {_accountAmount = gaAccountBalance,
+                                                                       _accountStakeDelegate = gaDelegate}
+            | GenesisAccount{..} <- gpAccounts]
         genesisFinalizationParameters =
             FinalizationParameters
                 [VoterInfo {voterVerificationKey = gbSignatureVerifyKey, voterVRFKey = gbElectionVerifyKey, voterPower = 1} 

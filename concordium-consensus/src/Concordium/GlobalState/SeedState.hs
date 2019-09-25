@@ -8,8 +8,6 @@ import Data.Word
 import Data.Serialize
 
 import Concordium.Types
-import Concordium.Crypto.VRF
-import Concordium.Crypto.SHA256
 
 -- |State for computing the leadership election nonce.
 data SeedState = SeedState {
