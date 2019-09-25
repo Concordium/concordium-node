@@ -61,7 +61,7 @@ fn main() -> Fallible<()> {
         use failure::bail;
         if !p2p_client::client::plugins::beta::authenticate(
             &conf.cli.beta_username,
-            &conf.cli.beta_password,
+            &conf.cli.beta_token,
         ) {
             bail!("Beta client authentication failed");
         }

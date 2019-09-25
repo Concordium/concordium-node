@@ -400,8 +400,8 @@ pub struct CliConfig {
     #[structopt(long = "beta-username", help = "Beta client username")]
     pub beta_username: String,
     #[cfg(feature = "beta")]
-    #[structopt(long = "beta-password", help = "Beta client password")]
-    pub beta_password: String,
+    #[structopt(long = "beta-token", help = "Beta client token")]
+    pub beta_token: String,
 }
 
 #[derive(StructOpt, Debug)]

@@ -22,11 +22,11 @@ struct ClientLoginResponse {
 
 const AUTH_URL: &str = "https://auth.eu.test.concordium.com/auth";
 
-pub fn authenticate(username: &str, password: &str) -> bool {
+pub fn authenticate(username: &str, token: &str) -> bool {
     let client = Client::new();
     let login_details = ClientLogin {
         username: username.to_owned(),
-        password: password.to_owned(),
+        password: token.to_owned(),
         version:  crate::VERSION.to_owned(),
     };
     let response = client
