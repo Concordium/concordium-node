@@ -15,6 +15,7 @@ import Control.Monad
 import Lens.Micro.Platform
 import qualified Data.Set as Set
 import Data.Maybe
+import Data.Functor.Identity
 
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.Types.Acorn.Core as Core
@@ -36,6 +37,9 @@ import qualified Concordium.GlobalState.Transactions as Transactions
 import Concordium.GlobalState.Persistent.Instances(PersistentInstance(..), PersistentInstanceParameters(..), CacheableInstanceParameters(..))
 import Concordium.GlobalState.Instances (Instance(..),InstanceParameters(..))
 import Concordium.GlobalState.SeedState (SeedState)
+import qualified Concordium.GlobalState.Basic.BlockState as Basic
+import qualified Concordium.GlobalState.Modules as TransientMods
+
 
 -- FIXME: relocate orphans
 instance (MonadBlobStore m ref) => BlobStorable m ref IPS.IdentityProviders
@@ -144,14 +148,42 @@ instance (MonadBlobStore m BlobRef) => BlobStorable m BlobRef Modules where
             modules <- mmodules
             return Modules{..}
 
+makePersistentModules :: TransientMods.Modules -> Modules
+makePersistentModules (TransientMods.Modules m nmi rh) = Modules m' nmi rh
+    where
+        m' = runIdentity $ Trie.fromList $ fmap upd $ HM.toList m
+        upd (mref, TransientMods.MemModule{..}) = (mref, PersistentModule{
+                pmInterface = mmoduleInterface,
+                pmValueInterface = mmoduleValueInterface,
+                pmIndex = mmoduleIndex,
+                pmSource = mmoduleSource
+            })
+
 data ModuleCache = ModuleCache {
     _cachedLinkedDefs :: HM.HashMap (Core.ModuleRef, Core.Name) (LinkedExprWithDeps Void),
     _cachedLinkedContracts :: HM.HashMap (Core.ModuleRef, Core.TyName) (LinkedContractValue Void)
 }
 makeLenses ''ModuleCache
 
+emptyModuleCache :: ModuleCache
+emptyModuleCache = ModuleCache HM.empty HM.empty
+
 class HasModuleCache a where
     moduleCache :: a -> IORef ModuleCache
+
+makePersistent :: Basic.BlockState -> PersistentBlockState
+makePersistent Basic.BlockState{..} = BRMemory BlockStatePointers {
+        bspAccounts = Account.makePersistent _blockAccounts
+        , bspInstances = Instances.makePersistent _blockInstances
+        , bspModules = BRMemory $! makePersistentModules _blockModules
+        , bspBank = _blockBank
+        , bspIdentityProviders = BRMemory $! _blockIdentityProviders
+        , bspBirkParameters = _blockBirkParameters
+        , bspCryptographicParameters = BRMemory $! _blockCryptographicParameters
+        , bspTransactionOutcomes = _blockTransactionOutcomes
+        }
+    
+
 
 newtype LinkerWrapper r m a = LinkerWrapper { runLinkerWrapper :: ReaderT PersistentBlockState m a }
     deriving (Functor, Applicative, Monad, MonadReader PersistentBlockState, MonadTrans)

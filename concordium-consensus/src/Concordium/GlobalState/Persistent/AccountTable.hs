@@ -15,6 +15,7 @@ import Concordium.Types.HashableTo
 
 import Concordium.GlobalState.Persistent.MonadicRecursive
 import Concordium.GlobalState.Persistent.BlobStore
+import qualified Concordium.GlobalState.AccountTable as Transient
 
 -- |Account indexes are 64-bit values.
 -- This means that the level of a branch cannot exceed 64, which is used in the encoding.
@@ -201,3 +202,10 @@ update upd i (Tree nai t) = fmap (\(res, _, t') -> (res, Tree nai t')) <$> updat
 toList :: (MonadBlobStore m BlobRef) => AccountTable -> m [(AccountIndex, Account)]
 toList Empty = return []
 toList (Tree _ t) = mapReduceF (\ai acct -> return [(ai, acct)]) t
+
+makePersistent :: Transient.AccountTable -> AccountTable
+makePersistent Transient.Empty = Empty
+makePersistent (Transient.Tree t) = uncurry Tree (conv t)
+    where
+        conv (Transient.Branch lvl fll hsh l r) = let (nxtr, cr) = conv r in (nxtr + 2^lvl, LBMemory (Branch lvl fll hsh (snd $ conv l) cr))
+        conv (Transient.Leaf hsh acct) = (1, LBMemory (Leaf hsh acct))

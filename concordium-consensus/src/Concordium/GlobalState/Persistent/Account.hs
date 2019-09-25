@@ -9,6 +9,8 @@ import Lens.Micro.Platform
 import Data.Serialize
 import GHC.Generics
 import Data.Maybe
+import Data.Functor.Identity
+import qualified Data.Map.Strict as Map
 
 import Concordium.Types
 import qualified Concordium.GlobalState.Persistent.AccountTable as AT
@@ -16,6 +18,7 @@ import Concordium.GlobalState.Persistent.AccountTable (AccountIndex, AccountTabl
 import qualified Concordium.ID.Types as ID
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import Concordium.GlobalState.Persistent.BlobStore
+import qualified Concordium.GlobalState.Account as Transient
 
 instance (MonadBlobStore m ref) => BlobStorable m ref AccountIndex
 instance Trie.FixedTrieKey AccountAddress
@@ -26,6 +29,14 @@ data Accounts = Accounts {
     accountRegIds :: !(Nullable (Set.Set ID.CredentialRegistrationID)),
     accountRegIdHistory :: !RegIdHistory
 }
+
+makePersistent :: Transient.Accounts -> Accounts
+makePersistent (Transient.Accounts amap atbl aregids) = Accounts {..}
+    where
+        accountMap = runIdentity (Trie.fromList (Map.toList amap))
+        accountTable = AT.makePersistent atbl
+        accountRegIds = Some aregids
+        accountRegIdHistory = RegIdHistory (Set.toList aregids) Null
 
 instance Show Accounts where
     show a = show (accountTable a)
