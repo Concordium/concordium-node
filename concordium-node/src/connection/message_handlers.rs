@@ -18,17 +18,20 @@ use failure::Fallible;
 
 use std::{
     collections::HashSet,
+    net::SocketAddr,
     sync::{atomic::Ordering, Arc},
 };
 
 pub fn handle_incoming_message(conn: &Connection, full_msg: &NetworkMessage) {
     if let Err(e) = match full_msg {
-        NetworkMessage::NetworkRequest(NetworkRequest::Handshake(source, ref networks, _), ..) => {
-            handle_handshake_req(conn, *source, networks)
-        }
-        NetworkMessage::NetworkResponse(NetworkResponse::Handshake(source, ref nets, _), ..) => {
-            handle_handshake_resp(conn, *source, nets)
-        }
+        NetworkMessage::NetworkRequest(
+            NetworkRequest::Handshake(remote_node_id, remote_port, ref networks, _),
+            ..
+        ) => handle_handshake_req(conn, *remote_node_id, *remote_port, networks),
+        NetworkMessage::NetworkResponse(
+            NetworkResponse::Handshake(remote_node_id, remote_port, ref nets, _),
+            ..
+        ) => handle_handshake_resp(conn, *remote_node_id, *remote_port, nets),
         NetworkMessage::NetworkRequest(NetworkRequest::Ping(_source), ..) => handle_ping(conn),
         NetworkMessage::NetworkResponse(NetworkResponse::Pong(_source), ..) => handle_pong(conn),
         NetworkMessage::NetworkRequest(NetworkRequest::FindNode(_source, node), ..) => {
@@ -74,29 +77,37 @@ pub fn handle_incoming_message(conn: &Connection, full_msg: &NetworkMessage) {
 
 fn handle_handshake_req(
     conn: &Connection,
-    source: P2PPeer,
+    remote_node_id: P2PNodeId,
+    remote_port: u16,
     networks: &HashSet<NetworkId>,
 ) -> Fallible<()> {
-    debug!("Got a Handshake request from peer {}", source.id());
+    debug!("Got a Handshake request from peer {}", remote_node_id);
 
-    if conn.handler().is_banned(BannedNode::ById(source.id()))? {
+    if conn.handler().is_banned(BannedNode::ById(remote_node_id))? {
         conn.handler().remove_connection(conn.token);
         bail!("Rejected a handshake request from a banned node");
     }
 
-    conn.promote_to_post_handshake(source.id())?;
+    conn.promote_to_post_handshake(remote_node_id)?;
     conn.add_remote_end_networks(networks);
-    conn.send_handshake_response(source)?;
+
+    let remote_peer = P2PPeer::from(
+        conn.remote_peer.peer_type(),
+        remote_node_id,
+        SocketAddr::new(conn.remote_peer.addr().ip(), remote_port),
+    );
+
+    conn.send_handshake_response(remote_node_id)?;
     conn.send_ping()?;
 
-    if source.peer_type() != PeerType::Bootstrapper {
+    if remote_peer.peer_type() != PeerType::Bootstrapper {
         write_or_die!(conn.handler().connection_handler.buckets)
-            .insert_into_bucket(&source, networks.clone());
+            .insert_into_bucket(&remote_peer, networks.clone());
     }
 
     if conn.handler().peer_type() == PeerType::Bootstrapper {
         debug!("Running in bootstrapper mode; attempting to send a PeerList upon handshake");
-        conn.send_peer_list_resp(source, networks)?;
+        conn.send_peer_list_resp(remote_peer, networks)?;
     }
 
     Ok(())
@@ -104,21 +115,28 @@ fn handle_handshake_req(
 
 fn handle_handshake_resp(
     conn: &Connection,
-    source: P2PPeer,
+    remote_node_id: P2PNodeId,
+    remote_port: u16,
     networks: &HashSet<NetworkId>,
 ) -> Fallible<()> {
-    debug!("Got a Handshake response from peer {}", source.id());
+    debug!("Got a Handshake response from peer {}", remote_node_id);
 
-    conn.promote_to_post_handshake(source.id())?;
+    conn.promote_to_post_handshake(remote_node_id)?;
     conn.add_remote_end_networks(networks);
 
     conn.stats
         .sent_handshake
         .store(get_current_stamp(), Ordering::SeqCst);
 
-    if source.peer_type() != PeerType::Bootstrapper {
+    let remote_peer = P2PPeer::from(
+        conn.remote_peer.peer_type(),
+        remote_node_id,
+        SocketAddr::new(conn.remote_peer.addr().ip(), remote_port),
+    );
+
+    if remote_peer.peer_type() != PeerType::Bootstrapper {
         write_or_die!(conn.handler().connection_handler.buckets)
-            .insert_into_bucket(&source, networks.clone());
+            .insert_into_bucket(&remote_peer, networks.clone());
     }
 
     if let Some(ref service) = conn.handler().stats_export_service {

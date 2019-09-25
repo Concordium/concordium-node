@@ -33,7 +33,7 @@ pub enum NetworkRequest {
     Ping(P2PPeer),
     FindNode(P2PPeer, P2PNodeId), // we no longer need the id - always provide all the nodes
     BanNode(P2PPeer, BannedNode),
-    Handshake(P2PPeer, HashSet<NetworkId>, Vec<u8>),
+    Handshake(P2PNodeId, u16, HashSet<NetworkId>, Vec<u8>),
     GetPeers(P2PPeer, HashSet<NetworkId>),
     UnbanNode(P2PPeer, BannedNode),
     JoinNetwork(P2PPeer, NetworkId),
@@ -71,8 +71,9 @@ impl Serializable for NetworkRequest {
                 node_data.serialize(archive)
             }
             NetworkRequest::GetPeers(.., ref networks) => networks.serialize(archive),
-            NetworkRequest::Handshake(ref me, ref networks, ref zk) => {
-                me.serialize(archive)?;
+            NetworkRequest::Handshake(ref my_node_id, ref my_port, ref networks, ref zk) => {
+                my_node_id.serialize(archive)?;
+                my_port.serialize(archive)?;
                 networks.serialize(archive)?;
                 zk.serialize(archive)
             }
@@ -103,7 +104,8 @@ impl Deserializable for NetworkRequest {
                 NetworkRequest::UnbanNode(remote_peer?, BannedNode::deserialize(archive)?)
             }
             ProtocolRequestType::Handshake => NetworkRequest::Handshake(
-                P2PPeer::deserialize(archive)?,
+                P2PNodeId::deserialize(archive)?,
+                u16::deserialize(archive)?,
                 HashSet::<NetworkId>::deserialize(archive)?,
                 Vec::<u8>::deserialize(archive)?,
             ),

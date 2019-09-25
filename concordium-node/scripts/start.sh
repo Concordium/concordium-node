@@ -178,11 +178,6 @@ then
     ARGS="$ARGS $PROFILING_ARGS"
 fi
 
-if [ -n "$EXTERNAL_IP" ];
-then
-    ARGS="$ARGS --external-ip $EXTERNAL_IP"
-fi
-
 if [ -n "$EXTERNAL_PORT" ];
 then
     ARGS="$ARGS --external-port $EXTERNAL_PORT"
@@ -208,11 +203,35 @@ then
     ARGS="$ARGS --hard-connection-limit $HARD_CONNECTION_LIMIT"
 fi
 
+if [ -n "$COLLECTOR_INTERVAL" ];
+then
+    ARGS="$ARGS --collect-interval $COLLECTOR_INTERVAL"
+fi
+
+if [ -n "$COLLECTOR_URL" ];
+then
+    ARGS="$ARGS --url $COLLECTOR_URL"
+fi
+
+if [ -n "$COLLECTOR_NODE_NAME" ];
+then
+    ARGS="$ARGS --node-name $COLLECTOR_NODE_NAME"
+fi
+
+if [ -n "$COLLECTOR_GRPC_HOST" ];
+then
+    ARGS="$ARGS --grpc-host $COLLECTOR_GRPC_HOST"
+fi
+
+if [ -n "$COLLECTOR_GRPC_PORT" ];
+then
+    ARGS="$ARGS --grpc-port $COLLECTOR_GRPC_PORT"
+fi
+
 if [ "$MODE" == "tps_receiver" ]; then
     echo "Receiver!"
     /p2p_client-cli \
     --enable-tps-test-recv \
-    --external-ip 10.96.0.15 \
     $ARGS
 elif [ "$MODE" == "tps_sender" ]; then
     echo "Sender!\n"
@@ -227,7 +246,6 @@ elif [ "$MODE" == "tps_sender" ]; then
     # Echo to cron file
     /p2p_client-cli \
     --connect-to 10.96.0.15:8888 \
-    --external-ip 10.96.0.16 \
     $ARGS
 elif [ "$MODE" == "basic" ]; then
     /p2p_client-cli $ARGS
@@ -241,6 +259,8 @@ elif [ "$MODE" == "basic" ]; then
     fi
 elif [ "$MODE" == "bootstrapper" ]; then
     /p2p_bootstrapper-cli $ARGS
+elif [ "$MODE" == "collector" ]; then
+    /node-collector $ARGS
 elif [ "$MODE" == "local_basic" ]; then
     export BAKER_ID=`curl http://baker_id_gen:8000/next_id`
     echo "Using BAKER_ID $BAKER_ID"

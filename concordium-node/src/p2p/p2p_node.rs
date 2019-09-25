@@ -262,28 +262,19 @@ impl P2PNode {
             panic!("Couldn't register server with poll!")
         };
 
-        let own_peer_ip = if let Some(ref own_ip) = conf.common.external_ip {
-            match IpAddr::from_str(own_ip) {
-                Ok(ip) => ip,
-                _ => ip,
-            }
-        } else {
-            ip
-        };
-
         let own_peer_port = if let Some(own_port) = conf.common.external_port {
             own_port
         } else {
             conf.common.listen_port
         };
 
-        let self_peer = P2PPeer::from(peer_type, id, SocketAddr::new(own_peer_ip, own_peer_port));
+        let self_peer = P2PPeer::from(peer_type, id, SocketAddr::new(ip, own_peer_port));
 
         let (dump_tx, _dump_rx) = std::sync::mpsc::sync_channel(config::DUMP_QUEUE_DEPTH);
         let (act_tx, _act_rx) = std::sync::mpsc::sync_channel(config::DUMP_SWITCH_QUEUE_DEPTH);
 
         #[cfg(feature = "network_dump")]
-        create_dump_thread(own_peer_ip, id, _dump_rx, _act_rx, &conf.common.data_dir);
+        create_dump_thread(ip, id, _dump_rx, _act_rx, &conf.common.data_dir);
 
         let config = P2PNodeConfig {
             no_net: conf.cli.no_network,

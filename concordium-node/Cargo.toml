@@ -24,6 +24,7 @@ network_dump = []
 static = ["concordium-consensus/static"]
 profiling = ["concordium-consensus/profiling"]
 elastic_logging = [ "elastic", "elastic_derive", "serde_json", "serde/derive", "uuid/v4" ]
+collector = [ "reqwest/default-tls", "serde_json", "serde/derive" ]
 
 [profile.release]
 codegen-units = 1
@@ -145,6 +146,11 @@ name = "dns_key_generator"
 [[bin]]
 path = "src/bin/generate-new-keypair.rs"
 name = "generate-new-keypair"
+
+[[bin]]
+name = "node-collector"
+path = "src/bin/collector.rs"
+required-features = [ "collector" ]
 
 [[bench]]
 name = "p2p_lib_benchmark"
