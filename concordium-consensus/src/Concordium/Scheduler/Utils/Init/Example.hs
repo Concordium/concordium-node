@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -Wall #-}
-module Concordium.Scheduler.Utils.Init.Example (initialState, makeTransaction, mateuszAccount) where
+module Concordium.Scheduler.Utils.Init.Example (initialState, initialPersistentState, makeTransaction, mateuszAccount) where
 
 import qualified Data.HashMap.Strict as Map
 import System.Random
@@ -17,6 +17,7 @@ import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 
 import qualified Concordium.GlobalState.Basic.BlockState as BlockState
+import qualified Concordium.GlobalState.Persistent.BlockState as Persistent
 import qualified Concordium.GlobalState.Account as Acc
 import qualified Concordium.GlobalState.Modules as Mod
 import Concordium.GlobalState.Parameters(BirkParameters, CryptographicParameters)
@@ -132,3 +133,7 @@ initialState birkParams cryptoParams bakerAccounts ips n =
         gs' = Types.execSI (execTransactions (initialTrans n)) Types.dummyChainMeta gs
     in gs' & (BlockState.blockAccounts .~ initAccount) .
              (BlockState.blockBank .~ Types.makeGenesisBankStatus initialAmount 10) -- also reset the bank after execution to maintain invariants.
+
+-- |State with the given number of contract instances of the counter contract specified.
+initialPersistentState :: BirkParameters -> CryptographicParameters -> [Account] -> [Types.IdentityProviderData] -> Int -> Persistent.PersistentBlockState
+initialPersistentState birkParams cryptoParams bakerAccounts ips n = Persistent.makePersistent $! initialState birkParams cryptoParams bakerAccounts ips n

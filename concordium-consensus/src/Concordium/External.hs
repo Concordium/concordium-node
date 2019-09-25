@@ -31,12 +31,13 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.Basic.Block hiding (getBlock)
 import qualified Concordium.GlobalState.Basic.Block as BasicBlock
 import Concordium.GlobalState.Finalization(FinalizationIndex(..),FinalizationRecord)
-import Concordium.GlobalState.Basic.BlockState(BlockState, BlockPointer, _bpBlock)
+import Concordium.GlobalState.Persistent.BlockState(PersistentBlockState)
+import Concordium.GlobalState.Persistent.TreeState(PersistentBlockPointer, _bpBlock)
 import qualified Concordium.GlobalState.TreeState as TS
 import qualified Concordium.GlobalState.BlockState as TS
 
 
-import Concordium.Scheduler.Utils.Init.Example (initialState)
+import Concordium.Scheduler.Utils.Init.Example (initialPersistentState)
 
 import Concordium.Runner
 import Concordium.Skov hiding (receiveTransaction, getBirkParameters)
@@ -290,8 +291,8 @@ consensusLogMethod :: ConsensusRunner -> LogMethod IO
 consensusLogMethod BakerRunner{bakerSyncRunner=SyncRunner{syncLogMethod=logM}} = logM
 consensusLogMethod PassiveRunner{passiveSyncRunner=SyncPassiveRunner{syncPLogMethod=logM}} = logM
 
-genesisState :: GenesisData -> BlockState
-genesisState genData = initialState (genesisBirkParameters genData) (genesisCryptographicParameters genData) (genesisBakerAccounts genData) (genesisIdentityProviders genData) 2
+genesisState :: GenesisData -> PersistentBlockState
+genesisState genData = initialPersistentState (genesisBirkParameters genData) (genesisCryptographicParameters genData) (genesisBakerAccounts genData) (genesisIdentityProviders genData) 2
 
 -- |Start up an instance of Skov without starting the baker thread.
 startConsensus ::
@@ -337,8 +338,8 @@ startConsensusPassive maxBlock gdataC gdataLenC lcbk = do
 stopConsensus :: StablePtr ConsensusRunner -> IO ()
 stopConsensus cptr = mask_ $ do
     deRefStablePtr cptr >>= \case
-        BakerRunner{..} -> stopSyncRunner bakerSyncRunner
-        _ -> return ()
+        BakerRunner{..} -> shutdownSyncRunner bakerSyncRunner
+        PassiveRunner{..} -> shutdownSyncPassiveRunner passiveSyncRunner
     freeStablePtr cptr
 
 -- |Start the baker thread.  Calling this more than once
@@ -506,9 +507,9 @@ receiveTransaction bptr tdata len = do
                     return res
                 PassiveRunner{..} -> syncPassiveReceiveTransaction passiveSyncRunner tr
 
-runConsensusQuery :: ConsensusRunner -> (forall z m s. (Get.SkovStateQueryable z m, TS.TreeStateMonad m, MonadState s m, TS.PendingBlock m ~ PendingBlock, TS.BlockPointer m ~ BlockPointer) => z -> a) -> a
-runConsensusQuery BakerRunner{..} f = f (syncState bakerSyncRunner)
-runConsensusQuery PassiveRunner{..} f = f (syncPState passiveSyncRunner)
+runConsensusQuery :: ConsensusRunner -> (forall z m s. (Get.SkovStateQueryable z m, TS.TreeStateMonad m, MonadState s m, TS.PendingBlock m ~ PendingBlock, TS.BlockPointer m ~ PersistentBlockPointer) => z -> a) -> a
+runConsensusQuery BakerRunner{..} f = f bakerSyncRunner
+runConsensusQuery PassiveRunner{..} f = f passiveSyncRunner
 
 
 -- |Returns a null-terminated string with a JSON representation of the current status of Consensus.
@@ -864,7 +865,7 @@ receiveCatchUpStatus cptr src cstr l cbk = do
         Right cus -> do
             logm External LLDebug $ "Catch-up status message deserialized: " ++ show cus
             res <- runConsensusQuery c Get.handleCatchUpStatus cus
-            case res :: (Either String (Maybe ([Either FinalizationRecord (BlockPointer)], CatchUpStatus), Bool)) of
+            case res :: (Either String (Maybe ([Either FinalizationRecord (PersistentBlockPointer)], CatchUpStatus), Bool)) of
                 Left emsg -> logm Skov LLWarning emsg >> return ResultInvalid
                 Right (d, flag) -> do
                     let

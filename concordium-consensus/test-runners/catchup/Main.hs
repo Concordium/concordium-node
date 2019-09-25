@@ -1,4 +1,4 @@
-{-# LANGUAGE TupleSections, LambdaCase, OverloadedStrings #-}
+{-# LANGUAGE TupleSections, LambdaCase, OverloadedStrings, TypeFamilies #-}
 {-# LANGUAGE LambdaCase #-}
 module Main where
 
@@ -20,9 +20,9 @@ import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Instances
-import Concordium.GlobalState.BlockState(BlockPointerData(..))
-import Concordium.GlobalState.Basic.BlockState
-import Concordium.GlobalState.Basic.TreeState
+import Concordium.GlobalState.BlockState(BlockPointerData(..),getContractInstanceList)
+import Concordium.GlobalState.Persistent.BlockState
+import Concordium.GlobalState.Persistent.TreeState
 import Concordium.GlobalState.Basic.Block
 import Concordium.Scheduler.Utils.Init.Example as Example
 
@@ -85,8 +85,8 @@ relayIn msgChan bakerChan sfsRef connectedRef = loop
             loop
 
 
-relay :: Peer -> Chan (OutMessage Peer) -> MVar SkovBufferedHookedState -> IORef Bool -> Chan (Either (BlockHash, BakedBlock, Maybe BlockState) FinalizationRecord) -> Chan InEvent -> [Chan InEvent] -> IO ()
-relay myPeer inp sfsRef connectedRef monitor loopback outps = loop
+relay :: Peer -> Chan (OutMessage Peer) -> MVar SkovBufferedHookedState -> PersistentContext -> IORef Bool -> Chan (Either (BlockHash, BakedBlock, [Instance]) FinalizationRecord) -> Chan InEvent -> [Chan InEvent] -> IO ()
+relay myPeer inp sfsRef ctx connectedRef monitor loopback outps = loop
     where
         chooseDelay = do
             factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
@@ -108,9 +108,9 @@ relay myPeer inp sfsRef connectedRef monitor loopback outps = loop
                         Right (NormalBlock block) -> do
                             let bh = getHash block :: BlockHash
                             sfs <- readMVar sfsRef
-                            bp <- runSilentLogger $ flip evalSkovQueryM (sfs ^. skov) (resolveBlock bh)
+                            binsts <- runSilentLogger $ evalSkovQueryM (bInsts bh) ctx (sfs ^. skov)
                             -- when (isNothing bp) $ error "Block is missing!"
-                            writeChan monitor (Left (bh, block, bpState <$> bp))
+                            writeChan monitor (Left (bh, block, binsts))
                         _ -> return ()
                     forM_ outps $ \outp -> usually $ delayed $
                         writeChan outp (IEMessage $ MsgBlockReceived myPeer blockBS)
@@ -128,7 +128,7 @@ relay myPeer inp sfsRef connectedRef monitor loopback outps = loop
                         writeChan outp (IEMessage $ MsgFinalizationRecordReceived myPeer fr)
                 MsgCatchUpRequired target -> do
                     sfs <- readMVar sfsRef
-                    cur <- runSilentLogger $ flip evalSkovQueryM (sfs ^. skov) (getCatchUpStatus True)
+                    cur <- runSilentLogger $ evalSkovQueryM (getCatchUpStatus True) ctx (sfs ^. skov)
                     delayed $ writeChan (peerChan target) (IEMessage $ MsgCatchUpStatusReceived myPeer (encode cur))
                 MsgDirectedBlock target b -> usually $ delayed $ writeChan (peerChan target) (IEMessage $ MsgBlockReceived myPeer b)
                 MsgDirectedFinalizationRecord target fr -> usually $ delayed $ writeChan (peerChan target) (IEMessage $ MsgFinalizationReceived myPeer fr)
@@ -139,15 +139,20 @@ relay myPeer inp sfsRef connectedRef monitor loopback outps = loop
                         Right (NormalBlock block) -> do
                             let bh = getHash block :: BlockHash
                             sfs <- readMVar sfsRef
-                            bp <- runSilentLogger $ flip evalSkovQueryM (sfs ^. skov) (resolveBlock bh)
+                            binsts <- runSilentLogger $ evalSkovQueryM (bInsts bh) ctx (sfs ^. skov)
                             -- when (isNothing bp) $ error "Block is missing!"
-                            writeChan monitor (Left (bh, block, bpState <$> bp))
+                            writeChan monitor (Left (bh, block, binsts))
                         _ -> return ()
                 MsgFinalizationRecord fr -> case runGet get fr of
                         Right fr' -> writeChan monitor (Right fr')
                         _ -> return ()
                 _ -> return ()
             loop
+        bInsts bh = do
+            bst <- resolveBlock bh
+            case bst of
+                Nothing -> return []
+                Just bs -> getContractInstanceList (bpState bs)
 
 toggleConnection :: LogMethod IO -> MVar SkovBufferedHookedState -> IORef Bool -> Chan InEvent -> [Chan InEvent] -> IO ()
 toggleConnection logM sfsRef connectedRef loopback outps = readIORef connectedRef >>= loop
@@ -180,11 +185,13 @@ removeEach = re []
         re l (x:xs) = (x,l++xs) : re (x:l) xs
         re _ [] = []
 
-gsToString :: BlockState -> String
+{-
+gsToString :: PersistentBlockState -> String
 gsToString gs = intercalate "\\l" . map show $ keys
     where
         ca n = ContractAddress (fromIntegral n) 0
         keys = map (\n -> (n, instanceModel <$> getInstance (ca n) (gs ^. blockInstances))) $ enumFromTo 0 (nContracts-1)
+-}
 
 dummyIdentityProviders :: [IdentityProviderData]
 dummyIdentityProviders = []
@@ -194,7 +201,7 @@ main = do
     let n = 3
     now <- truncate <$> getPOSIXTime
     let (gen, bis) = makeGenesisData now n 1 0.5 1 dummyCryptographicParameters dummyIdentityProviders
-    let iState = Example.initialState (genesisBirkParameters gen) (genesisCryptographicParameters gen) (genesisBakerAccounts gen) [] nContracts
+    let iState = Example.initialPersistentState (genesisBirkParameters gen) (genesisCryptographicParameters gen) (genesisBakerAccounts gen) [] nContracts
     trans <- transactions <$> newStdGen
     chans <- mapM (\(bakerId, (bid, _)) -> do
         let logFile = "consensus-" ++ show now ++ "-" ++ show bakerId ++ ".log"
@@ -211,26 +218,26 @@ main = do
         let logT bh slot reason = do
               appendFile logTransferFile (show (bh, slot, reason))
               appendFile logTransferFile "\n"
-        (cin, cout, out) <- makeAsyncRunner logM (Just logT) bid defaultRuntimeParameters gen iState
+        (cin, cout, stateRef, ctx) <- makeAsyncRunner logM (Just logT) bid defaultRuntimeParameters gen iState
         cin' <- newChan
         connectedRef <- newIORef True
-        _ <- forkIO $ relayIn cin' cin out connectedRef
+        _ <- forkIO $ relayIn cin' cin stateRef connectedRef
         _ <- forkIO $ sendTransactions cin' trans
-        return (cin', cout, out, connectedRef, logM)) (zip [0::Int ..] bis)
+        return (cin', cout, stateRef, ctx, connectedRef, logM)) (zip [0::Int ..] bis)
     monitorChan <- newChan
-    forM_ (removeEach chans) $ \((cin, cout, stateRef, connectedRef, logM), cs) -> do
-        let cs' = ((\(c, _, _, _, _) -> c) <$> cs)
+    forM_ (removeEach chans) $ \((cin, cout, stateRef, ctx, connectedRef, logM), cs) -> do
+        let cs' = ((\(c, _, _, _, _, _) -> c) <$> cs)
         when False $ do
             _ <- forkIO $ toggleConnection logM stateRef connectedRef cin cs'
             return ()
-        forkIO $ relay (Peer stateRef cin) cout stateRef connectedRef monitorChan cin cs'
+        forkIO $ relay (Peer stateRef cin) cout stateRef ctx connectedRef monitorChan cin cs'
     let loop = do
             readChan monitorChan >>= \case
                 Left (bh, block, gs') -> do
                     let ts = blockTransactions block
-                    let stateStr = case gs' of
+                    let stateStr = show gs' {-case gs' of
                                     Nothing -> ""
-                                    Just gs -> gsToString gs
+                                    Just gs -> gsToString gs -}
                     putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker $ bbFields block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]\\l" ++ stateStr ++ "\\l\"];"
                     putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockPointer $ bbFields block) ++ ";"
                     putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockLastFinalized $ bbFields block) ++ " [style=dotted];"

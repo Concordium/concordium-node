@@ -22,7 +22,8 @@ import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Basic.Block
-import Concordium.GlobalState.Basic.BlockState
+import Concordium.GlobalState.Persistent.BlockState
+import Concordium.GlobalState.Persistent.TreeState (PersistentBlockPointer, _bpBlock)
 import Concordium.Types.HashableTo
 import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.GlobalState.Instances
@@ -41,20 +42,20 @@ import Data.Vector (fromList)
 class SkovQueryMonad m => SkovStateQueryable z m | z -> m where
     runStateQuery :: z -> m a -> IO a
 
-instance SkovStateQueryable (IORef SkovActiveState) (SkovQueryM SkovActiveState IO) where
-    runStateQuery sfsRef a = readIORef sfsRef >>= evalSkovQueryM a
+instance SkovStateQueryable (IORef SkovActiveState, PersistentContext) (SkovQueryM PersistentContext SkovActiveState IO) where
+    runStateQuery (sfsRef, ctx) a = readIORef sfsRef >>= evalSkovQueryM a ctx
 
-instance SkovStateQueryable (MVar SkovBufferedState) (SkovQueryM SkovBufferedState IO) where
-    runStateQuery sfsRef a = readMVar sfsRef >>= evalSkovQueryM a
+instance SkovStateQueryable (MVar SkovBufferedState, PersistentContext) (SkovQueryM PersistentContext SkovBufferedState IO) where
+    runStateQuery (sfsRef, ctx) a = readMVar sfsRef >>= evalSkovQueryM a ctx
 
-instance SkovStateQueryable (MVar SkovBufferedHookedState) (SkovQueryM SkovBufferedHookedState IO) where
-    runStateQuery sfsRef a = readMVar sfsRef >>= evalSkovQueryM a
+instance SkovStateQueryable (MVar SkovBufferedHookedState, PersistentContext) (SkovQueryM PersistentContext SkovBufferedHookedState IO) where
+    runStateQuery (sfsRef, ctx) a = readMVar sfsRef >>= evalSkovQueryM a ctx
 
-instance SkovStateQueryable (MVar SkovPassiveState) (SkovQueryM SkovPassiveState IO) where
-    runStateQuery sfsRef a = readMVar sfsRef >>= evalSkovQueryM a
+instance SkovStateQueryable (MVar SkovPassiveState, PersistentContext) (SkovQueryM PersistentContext SkovPassiveState IO) where
+    runStateQuery (sfsRef, ctx) a = readMVar sfsRef >>= evalSkovQueryM a ctx
 
-instance SkovStateQueryable (MVar SkovPassiveHookedState) (SkovQueryM SkovPassiveHookedState IO) where
-    runStateQuery sfsRef a = readMVar sfsRef >>= evalSkovQueryM a
+instance SkovStateQueryable (MVar SkovPassiveHookedState, PersistentContext) (SkovQueryM PersistentContext SkovPassiveHookedState IO) where
+    runStateQuery (sfsRef, ctx) a = readMVar sfsRef >>= evalSkovQueryM a ctx
 
 hsh :: (HashableTo BlockHash a) => a -> String
 hsh x = show (getHash x :: BlockHash)
@@ -231,7 +232,7 @@ getBranches sfsRef = runStateQuery sfsRef $ do
     where
         up childrenMap = foldr (\b -> at (bpParent b) . non [] %~ (object ["blockHash" .= hsh b, "children" .= Map.findWithDefault [] b childrenMap] :)) Map.empty
 
-getBlockData :: (SkovStateQueryable z m, TS.TreeStateMonad m, BS.BlockPointer m ~ BlockPointer, TS.PendingBlock m ~ PendingBlock)
+getBlockData :: (SkovStateQueryable z m, TS.TreeStateMonad m, BS.BlockPointer m ~ PersistentBlockPointer, TS.PendingBlock m ~ PendingBlock)
     => z -> BlockHash -> IO (Maybe Block)
 getBlockData sfsRef bh = runStateQuery sfsRef $
             TS.getBlockStatus bh <&> \case
@@ -241,7 +242,7 @@ getBlockData sfsRef bh = runStateQuery sfsRef $
                 Just (TS.BlockDead) -> Nothing
                 Nothing -> Nothing
 
-getBlockDescendant :: (SkovStateQueryable z m, BS.BlockPointer m ~ BlockPointer) => z -> BlockHash -> BlockHeight -> IO (Maybe Block)
+getBlockDescendant :: (SkovStateQueryable z m, BS.BlockPointer m ~ PersistentBlockPointer) => z -> BlockHash -> BlockHeight -> IO (Maybe Block)
 getBlockDescendant sfsRef ancestor distance = runStateQuery sfsRef $
             resolveBlock ancestor >>= \case
                 Nothing -> return Nothing

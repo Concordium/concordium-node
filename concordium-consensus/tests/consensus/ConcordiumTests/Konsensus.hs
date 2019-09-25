@@ -37,7 +37,8 @@ import Concordium.GlobalState.SeedState
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Scheduler.Utils.Init.Example as Example
-import Concordium.Skov
+import Concordium.Skov.Monad
+import Concordium.Skov.MonadImplementations
 import Concordium.Afgjort.Freeze
 import Concordium.Afgjort.WMVBA
 import Concordium.Afgjort.Finalize

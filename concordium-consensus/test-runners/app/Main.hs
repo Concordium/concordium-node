@@ -18,9 +18,8 @@ import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Instances
-import Concordium.GlobalState.BlockState(BlockPointerData(..))
-import Concordium.GlobalState.Basic.TreeState
-import Concordium.GlobalState.Basic.BlockState
+import Concordium.GlobalState.BlockState(BlockPointerData(..),getContractInstanceList)
+import Concordium.GlobalState.Persistent.TreeState
 import Concordium.GlobalState.Basic.Block
 
 import Concordium.Types
@@ -50,8 +49,8 @@ sendTransactions chan (t : ts) = do
         sendTransactions chan ts
 sendTransactions _ _ = return ()
 
-relay :: Chan (OutMessage src) -> MVar SkovBufferedHookedState -> Chan (Either (BlockHash, BakedBlock, Maybe BlockState) FinalizationRecord) -> [Chan (InMessage ())] -> IO ()
-relay inp sfsRef monitor outps = loop
+relay :: Chan (OutMessage src) -> MVar SkovBufferedHookedState -> PersistentContext -> Chan (Either (BlockHash, BakedBlock, [Instance]) FinalizationRecord) -> [Chan (InMessage ())] -> IO ()
+relay inp sfsRef ctx monitor outps = loop
     where
         loop = do
             msg <- readChan inp
@@ -62,9 +61,9 @@ relay inp sfsRef monitor outps = loop
                         Right (NormalBlock block) -> do
                             let bh = getHash block :: BlockHash
                             sfs <- readMVar sfsRef
-                            bp <- runSilentLogger $ flip evalSkovQueryM (sfs ^. skov) (resolveBlock bh)
+                            bi <- runSilentLogger $ evalSkovQueryM (bInsts bh) ctx (sfs ^. skov)
                             -- when (isNothing bp) $ error "Block is missing!"
-                            writeChan monitor (Left (bh, block, bpState <$> bp))
+                            writeChan monitor (Left (bh, block, bi))
                         _ -> return ()
                     forM_ outps $ \outp -> forkIO $ do
                         --factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
@@ -94,6 +93,11 @@ relay inp sfsRef monitor outps = loop
                         writeChan outp (MsgFinalizationRecordReceived () fr)
                 _ -> return ()
             loop
+        bInsts bh = do
+            bst <- resolveBlock bh
+            case bst of
+                Nothing -> return []
+                Just bs -> getContractInstanceList (bpState bs)
 
 removeEach :: [a] -> [(a,[a])]
 removeEach = re []
@@ -101,11 +105,13 @@ removeEach = re []
         re l (x:xs) = (x,l++xs) : re (x:l) xs
         re _ [] = []
 
+{-
 gsToString :: BlockState -> String
 gsToString gs = show (gs ^.  blockBirkParameters ^. seedState )
     where
         ca n = ContractAddress (fromIntegral n) 0
         keys = map (\n -> (n, instanceModel <$> getInstance (ca n) (gs ^. blockInstances))) $ enumFromTo 0 (nContracts-1)
+-}
 
 dummyIdentityProviders :: [IdentityProviderData]
 dummyIdentityProviders = []  
@@ -115,7 +121,7 @@ main = do
     let n = 10
     now <- truncate <$> getPOSIXTime
     let (gen, bis) = makeGenesisData (now + 10) n 1 0.5 0 dummyCryptographicParameters dummyIdentityProviders
-    let iState = Example.initialState (genesisBirkParameters gen) (genesisCryptographicParameters gen) (genesisBakerAccounts gen) [] nContracts
+    let iState = Example.initialPersistentState (genesisBirkParameters gen) (genesisCryptographicParameters gen) (genesisBakerAccounts gen) [] nContracts
     trans <- transactions <$> newStdGen
     chans <- mapM (\(bakerId, (bid, _)) -> do
         let logFile = "consensus-" ++ show now ++ "-" ++ show bakerId ++ ".log"
@@ -127,18 +133,16 @@ main = do
         let logT bh slot reason = do
               appendFile logTransferFile (show (bh, slot, reason))
               appendFile logTransferFile "\n"
-        (cin, cout, out) <- makeAsyncRunner logM Nothing bid defaultRuntimeParameters gen iState
+        (cin, cout, stateRef, ctx) <- makeAsyncRunner logM Nothing bid defaultRuntimeParameters gen iState
         _ <- forkIO $ sendTransactions cin trans
-        return (cin, cout, out)) (zip [(0::Int) ..] bis)
+        return (cin, cout, stateRef, ctx)) (zip [(0::Int) ..] bis)
     monitorChan <- newChan
-    mapM_ (\((_,cout, stateRef), cs) -> forkIO $ relay cout stateRef monitorChan ((\(c, _, _) -> c) <$> cs)) (removeEach chans)
+    mapM_ (\((_,cout, stateRef, ctx), cs) -> forkIO $ relay cout stateRef ctx monitorChan ((\(c, _, _, _) -> c) <$> cs)) (removeEach chans)
     let loop = do
             readChan monitorChan >>= \case
                 Left (bh, block, gs') -> do
                     let ts = blockTransactions block
-                    let stateStr = case gs' of
-                                    Nothing -> ""
-                                    Just gs -> gsToString gs
+                    let stateStr = show gs'
 
                     putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker $ bbFields block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]\\l" ++ stateStr ++ "\\l\"];"
                     putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockPointer $ bbFields block) ++ ";"
