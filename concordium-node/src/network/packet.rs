@@ -6,8 +6,7 @@ use crate::{
 };
 use concordium_common::{hybrid_buf::HybridBuf, HashBytes, Serial};
 
-use crate::{failure::Fallible, utils};
-use rand::RngCore;
+use crate::failure::Fallible;
 use std::convert::TryFrom;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -58,17 +57,6 @@ pub struct NetworkPacket {
     pub peer:        P2PPeer,
     pub network_id:  NetworkId,
     pub message:     HybridBuf,
-}
-
-impl NetworkPacket {
-    pub fn generate_message_id() -> MessageId {
-        let mut secure_bytes = vec![0u8; 256];
-        let mut rng = rand::thread_rng();
-
-        rng.fill_bytes(&mut secure_bytes);
-
-        MessageId::new(&utils::sha256_bytes(&secure_bytes))
-    }
 }
 
 impl Serial for NetworkPacket {
