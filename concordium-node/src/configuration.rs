@@ -396,6 +396,12 @@ pub struct CliConfig {
         default_value = "http://127.0.0.1:9200"
     )]
     pub elastic_logging_url: String,
+    #[cfg(feature = "beta")]
+    #[structopt(long = "beta-username", help = "Beta client username")]
+    pub beta_username: String,
+    #[cfg(feature = "beta")]
+    #[structopt(long = "beta-token", help = "Beta client token")]
+    pub beta_token: String,
 }
 
 #[derive(StructOpt, Debug)]

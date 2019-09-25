@@ -56,6 +56,17 @@ fn main() -> Fallible<()> {
         info!("{:?}", conf);
     }
 
+    #[cfg(feature = "beta")]
+    {
+        use failure::bail;
+        if !p2p_client::client::plugins::beta::authenticate(
+            &conf.cli.beta_username,
+            &conf.cli.beta_token,
+        ) {
+            bail!("Beta client authentication failed");
+        }
+    }
+
     // Instantiate stats export engine
     let stats_export_service =
         client_utils::instantiate_stats_export_engine(&conf, StatsServiceMode::NodeMode)
