@@ -662,6 +662,19 @@ impl P2PNode {
             }
         }
 
+        // recreate the active peer list if it's not aligned with the connection list
+        // while unlikely to happen in practice, we definitely don't want it to happen
+        if read_or_die!(self.connections()).len() != self.get_all_current_peers(None).len() {
+            warn!("The peer stats are not aligned with the connections; fixing");
+            let mut active_peers = write_or_die!(self.active_peer_stats);
+            active_peers.clear();
+            for conn in read_or_die!(self.connections()).values() {
+                if let Some(id) = conn.remote_id() {
+                    active_peers.insert(id.as_raw(), conn.remote_peer_stats()?);
+                }
+            }
+        }
+
         // reconnect to bootstrappers after a specified amount of time
         if peer_type == PeerType::Node
             && curr_stamp >= self.get_last_bootstrap() + self.config.bootstrapping_interval * 1000
@@ -994,9 +1007,12 @@ impl P2PNode {
             .collect()
     }
 
-    pub fn remove_connection(&self, token: Token) {
+    pub fn remove_connection(&self, token: Token) -> bool {
         if let Some(conn) = write_or_die!(self.connections()).remove(&token) {
             write_or_die!(conn.low_level).conn_ref = None; // necessary in order for Drop to kick in
+            true
+        } else {
+            false
         }
     }
 

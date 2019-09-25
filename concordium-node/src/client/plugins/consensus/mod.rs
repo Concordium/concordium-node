@@ -274,7 +274,13 @@ pub fn handle_global_state_request(
                                 .find_connection_by_id(P2PNodeId(id))
                                 .map(|conn| conn.token)
                             {
-                                node.remove_connection(peer_conn);
+                                // temporary safeguard; we can't recover if this is not true
+                                assert_eq!(
+                                    node.find_connection_by_token(peer_conn)
+                                        .and_then(|conn| conn.remote_id()),
+                                    Some(P2PNodeId(id))
+                                );
+                                assert!(node.remove_connection(peer_conn));
                             }
                         }
                     }
