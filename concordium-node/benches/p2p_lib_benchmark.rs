@@ -111,7 +111,7 @@ mod network {
         use crate::*;
         use concordium_common::Serial;
         use p2p_client::{
-            common::{get_current_stamp, RemotePeer},
+            common::get_current_stamp,
             network::{NetworkMessage, NetworkResponse},
         };
 
@@ -158,20 +158,19 @@ mod network {
         }
 
         fn bench_s11n_001_direct_message(c: &mut Criterion, content_size: usize) {
-            let cursor = HybridBuf::try_from(generate_random_data(content_size)).unwrap();
+            let buffer = HybridBuf::try_from(generate_random_data(content_size)).unwrap();
 
-            let local_peer = localhost_peer();
             let bench_id = format!(
                 "Deserialization of DirectMessages with a {}B payload",
                 content_size
             );
 
             c.bench_function(&bench_id, move |b| {
-                let cursor = cursor.clone();
+                let mut buffer = buffer.clone();
 
                 b.iter(move || {
-                    let mut buffer = cursor.clone();
-                    NetworkMessage::deserial(&mut buffer);
+                    buffer.rewind().unwrap();
+                    NetworkMessage::deserial(&mut buffer).unwrap();
                 })
             });
         }
@@ -196,12 +195,12 @@ mod network {
             let bench_id = format!("Deserialization of PeerList responses with {} peers ", size);
 
             c.bench_function(&bench_id, move |b| {
-                let mut cursor = HybridBuf::new();
-                let _ = peer_list_msg.serial(&mut cursor).unwrap();
+                let mut buffer = HybridBuf::new();
+                let _ = peer_list_msg.serial(&mut buffer).unwrap();
 
                 b.iter(move || {
-                    let mut buffer = cursor.clone();
-                    NetworkMessage::deserial(&mut buffer).unwrap()
+                    buffer.rewind().unwrap();
+                    NetworkMessage::deserial(&mut buffer).unwrap();
                 })
             });
         }
@@ -528,7 +527,7 @@ criterion_main!(
     dedup,
     p2p_net,
     s11n_get_peers,
-    s11n_custom_benches,
+    // s11n_custom_benches,
     s11n_cbor_benches,
     s11n_nom_benches,
     s11n_capnp_benches
