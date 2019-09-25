@@ -49,7 +49,7 @@ ENV DATA_DIR=/var/lib/concordium/data
 ENV CONFIG_DIR=/var/lib/concordium/config
 ENV EXTRA_ARGS="--no-dnssec"
 ENV NODE_URL=localhost:10000
-ENV ES_URL=http://localhost:9200
+#ENV ES_URL=http://localhost:9200
 
 RUN apt-get update && apt-get install -y unbound curl netbase ca-certificates supervisor nginx
 COPY --from=build /build-project/p2p_client-cli /p2p_client-cli
@@ -65,12 +65,12 @@ COPY ./scripts/concordium.conf /etc/supervisor/conf.d/concordium.conf
 RUN groupadd -g 61000 docker
 RUN useradd -g 61000 -l -M -s /bin/false -u 61000 docker
 
-RUN mkdir -p ${DATA_DIR} && mkdir -p ${CONFIG_DIR} && chown -R docker:docker ${DATA_DIR} && chown -R docker:docker ${CONFIG_DIR} && \
-    curl https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-oss-7.1.1-amd64.deb -O && \
-    dpkg -i elasticsearch-oss-7.1.1-amd64.deb && \
-    mkdir -p /var/log/elasticsearch && \
-    mkdir -p /var/lib/elasticsearch && \
-    chown -R elasticsearch:elasticsearch /var/log/elasticsearch && \
-    chown -R elasticsearch:elasticsearch /var/lib/elasticsearch
+RUN mkdir -p ${DATA_DIR} && mkdir -p ${CONFIG_DIR} && chown -R docker:docker ${DATA_DIR} && chown -R docker:docker ${CONFIG_DIR}
+    #curl https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-oss-7.1.1-amd64.deb -O && \
+    #dpkg -i elasticsearch-oss-7.1.1-amd64.deb && \
+    #mkdir -p /var/log/elasticsearch && \
+    #mkdir -p /var/lib/elasticsearch && \
+    #chown -R elasticsearch:elasticsearch /var/log/elasticsearch && \
+    #chown -R elasticsearch:elasticsearch /var/lib/elasticsearch
 
 ENTRYPOINT [ "/usr/bin/supervisord", "-c", "/etc/supervisor/supervisord.conf" ]
