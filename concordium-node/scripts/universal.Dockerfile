@@ -10,6 +10,7 @@ ENV LD_LIBRARY_PATH=/usr/local/lib
 RUN --mount=type=ssh ./init.build.env.sh 
 RUN --mount=type=ssh cargo build --features=instrumentation,benchmark,profiling,elastic_logging,collector && \
     cp /build-project/target/debug/p2p_client-cli /build-project/target/debug/p2p_bootstrapper-cli /build-project/ && \
+    cp /build-project/target/debug/node-collector /build-project/ && \
     cargo clean && \
     # Sanitizer build
     #rustup install nightly-2019-03-22 && \
