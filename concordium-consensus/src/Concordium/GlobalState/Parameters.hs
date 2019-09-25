@@ -14,7 +14,6 @@ module Concordium.GlobalState.Parameters(
 import Prelude hiding (fail)
 import GHC.Generics
 import Data.Word
-import Data.Ratio
 import Data.Serialize
 import Lens.Micro.Platform
 import Control.Monad.Fail
@@ -48,6 +47,7 @@ instance Serialize CryptographicParameters where
 data BirkParameters = BirkParameters {
     _birkElectionDifficulty :: ElectionDifficulty,
     _birkBakers :: !Bakers,
+    _birkEpochBakers :: !(Bakers, Bakers),
     _seedState :: !SeedState
 } deriving (Eq, Generic, Show)
 instance Serialize BirkParameters where
@@ -58,12 +58,14 @@ _birkLeadershipElectionNonce :: BirkParameters -> LeadershipElectionNonce
 _birkLeadershipElectionNonce = currentSeed . _seedState
 
 birkBaker :: BakerId -> BirkParameters -> Maybe (BakerInfo, LotteryPower)
-birkBaker bid bps = (bps ^. birkBakers . bakerMap . at bid) <&>
-                        \bkr -> (bkr, (bkr ^. bakerStake) % (bps ^. birkBakers . bakerTotalStake))
+birkBaker bid bps = bakerData bid $ bps ^. birkBakers
 
-birkBakerByKeys :: BakerSignVerifyKey -> BakerElectionVerifyKey -> BirkParameters -> Maybe (BakerId, BakerInfo, LotteryPower)
-birkBakerByKeys sigKey elKey bps = case bps ^? birkBakers . bakersByKey . ix (sigKey, elKey) of
-        (Just (bid : _)) -> birkBaker bid bps <&> \(binfo, lotPow) -> (bid, binfo, lotPow)
+birkEpochBaker :: BakerId -> BirkParameters -> Maybe (BakerInfo, LotteryPower)
+birkEpochBaker bid bps = bakerData bid $ bps ^. birkEpochBakers ._2
+
+birkEpochBakerByKeys :: BakerSignVerifyKey -> BakerElectionVerifyKey -> BirkParameters -> Maybe (BakerId, BakerInfo, LotteryPower)
+birkEpochBakerByKeys sigKey elKey bps = case bps ^? birkEpochBakers ._2 . bakersByKey . ix (sigKey, elKey) of
+        (Just (bid : _)) -> birkEpochBaker bid bps <&> \(binfo, lotPow) -> (bid, binfo, lotPow)
         _ -> Nothing
 
 data VoterInfo = VoterInfo {
@@ -202,6 +204,7 @@ parametersToGenesisData GenesisParameters{..} = GenesisData{..}
         genesisBirkParameters = BirkParameters {
             _birkElectionDifficulty = gpElectionDifficulty,
             _birkBakers = bakersFromList (mkBaker <$> gpBakers),
+            _birkEpochBakers = (bakersFromList (mkBaker <$> gpBakers), bakersFromList (mkBaker <$> gpBakers)),
             _seedState = genesisSeedState gpLeadershipElectionNonce gpEpochLength
         }
         mkBaker GenesisBaker{..} = BakerInfo 
