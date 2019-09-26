@@ -577,11 +577,17 @@ impl P2P for RpcServerImpl {
                         resp.set_consensus_baker_running(consensus.is_baking());
                         resp.set_consensus_running(true);
                         resp.set_consensus_type(consensus.consensus_type.to_string());
+                        resp.set_consensus_baker_committee(consensus.in_baking_committee());
+                        resp.set_consensus_finalizer_committee(
+                            consensus.in_finalization_committee(),
+                        );
                     }
                     None => {
                         resp.set_consensus_baker_running(false);
                         resp.set_consensus_running(false);
                         resp.set_consensus_type("Inactive".to_owned());
+                        resp.set_consensus_baker_committee(false);
+                        resp.set_consensus_finalizer_committee(false);
                     }
                 }
                 sink.success(resp)

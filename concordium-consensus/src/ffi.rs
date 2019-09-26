@@ -296,6 +296,8 @@ extern "C" {
         msg_len: i64,
         direct_callback: DirectMessageCallback,
     ) -> i64;
+    pub fn checkIfWeAreBaker(consensus: *mut consensus_runner) -> u8;
+    pub fn checkIfWeAreFinalizer(consensus: *mut consensus_runner) -> u8;
 }
 
 pub fn get_consensus_ptr(
@@ -511,6 +513,14 @@ impl ConsensusContainer {
             request.len() as i64,
             direct_callback
         ))
+    }
+
+    pub fn in_baking_committee(&self) -> bool {
+        wrap_c_bool_call!(self, |consensus| checkIfWeAreBaker(consensus))
+    }
+
+    pub fn in_finalization_committee(&self) -> bool {
+        wrap_c_bool_call!(self, |consensus| checkIfWeAreFinalizer(consensus))
     }
 }
 

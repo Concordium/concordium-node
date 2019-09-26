@@ -86,6 +86,8 @@ message NodeInfoResponse {
   bool consensus_baker_running = 4;
   bool consensus_running = 5;
   string consensus_type = 6;
+  bool consensus_baker_committee = 7;
+  bool consensus_finalizer_committee = 8;
 }
 
 message SuccessfulJsonPayloadResponse {

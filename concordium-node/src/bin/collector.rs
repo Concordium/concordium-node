@@ -23,26 +23,29 @@ static A: System = System;
 #[allow(non_snake_case)]
 #[derive(Serialize, Deserialize)]
 struct NodeInfo {
-    nodeName:               String,
-    nodeId:                 String,
-    peerType:               String,
-    uptime:                 f64,
-    client:                 String,
-    averagePing:            Option<f64>,
-    peersCount:             f64,
-    peersList:              Vec<String>,
-    bestBlock:              String,
-    bestBlockHeight:        f64,
-    bestArrivedTime:        Option<String>,
-    blockArrivePeriodEMA:   Option<f64>,
-    blockArrivePeriodEMSD:  Option<f64>,
-    finalizedBlock:         String,
-    finalizedBlockHeight:   f64,
-    finalizedTime:          Option<String>,
-    finalizationPeriodEMA:  Option<f64>,
+    nodeName: String,
+    nodeId: String,
+    peerType: String,
+    uptime: f64,
+    client: String,
+    averagePing: Option<f64>,
+    peersCount: f64,
+    peersList: Vec<String>,
+    bestBlock: String,
+    bestBlockHeight: f64,
+    bestArrivedTime: Option<String>,
+    blockArrivePeriodEMA: Option<f64>,
+    blockArrivePeriodEMSD: Option<f64>,
+    finalizedBlock: String,
+    finalizedBlockHeight: f64,
+    finalizedTime: Option<String>,
+    finalizationPeriodEMA: Option<f64>,
     finalizationPeriodEMSD: Option<f64>,
-    packetsSent:            f64,
-    packetsReceived:        f64,
+    packetsSent: f64,
+    packetsReceived: f64,
+    consensusRunning: bool,
+    bakingCommitteeMember: bool,
+    finalizationCommitteeMember: bool,
 }
 
 #[derive(StructOpt, Debug)]
@@ -188,6 +191,9 @@ fn collect_data(
 
     let node_id = node_info_reply.get_node_id().get_value().to_owned();
     let peer_type = node_info_reply.get_peer_type().to_owned();
+    let baker_committee = node_info_reply.get_consensus_baker_committee();
+    let finalization_committee = node_info_reply.get_consensus_finalizer_committee();
+    let consensus_running = node_info_reply.get_consensus_running();
     let uptime = node_uptime_reply.get_value() as f64;
     let version = node_version_reply.get_value().to_owned();
     let packets_sent = node_total_sent_reply.get_value() as f64;
@@ -274,5 +280,8 @@ fn collect_data(
         finalizationPeriodEMSD: finalization_period_emsd,
         packetsSent: packets_sent,
         packetsReceived: packets_received,
+        consensusRunning: consensus_running,
+        bakingCommitteeMember: baker_committee,
+        finalizationCommitteeMember: finalization_committee,
     })
 }
