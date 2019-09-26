@@ -17,6 +17,9 @@ RUN --mount=type=ssh cargo build --release --features=static,collector,beta && \
     tar -xf 20-bakers.tar.gz && \
     cd genesis_data && \
     cp genesis.dat /build-project/
+
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.1 as haskell-build
+COPY ./src/proto/concordium_p2p_rpc.proto /concordium.proto
 # P2P client is now built
 RUN --mount=type=ssh pacman -Syy --noconfirm openssh && \
     mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts && \
@@ -24,17 +27,16 @@ RUN --mount=type=ssh pacman -Syy --noconfirm openssh && \
     cd simple-client && \
     git checkout http-server-interface && \
     git submodule update --init --recursive && \
+    curl -s "https://s3-eu-west-1.amazonaws.com/static-libraries.concordium.com/static-consensus-binaries-$(git submodule | grep prototype | head -n1 | awk '{print $1}').tar.gz" -O && \
+    tar -xf static-consensus-binaries-$(git submodule | grep prototype | head -n1 | awk '{print $1}').tar.gz && \
+    mv binaries /genesis-binaries && \
     rm proto/concordium.proto && \
-    cp /build-project/src/proto/concordium_p2p_rpc.proto proto/concordium.proto && \
+    cp /concordium.proto proto/concordium.proto && \
     ./build-deps.sh && \
     ./stack build && \
     mkdir -p /libs && \
     cp extra-libs/* /libs/ && \
-    cp .stack-work/dist/*/*/build/middleware/middleware /middleware && \
-    wget -qc "https://s3-eu-west-1.amazonaws.com/static-libraries.concordium.com/static-consensus-binaries-$(git submodule | grep prototype | head -n1 | awk '{print $1}').tar.gz" && \
-    tar -xf static-consensus-binaries-$(git submodule | grep prototype | head -n1 | awk '{print $1}').tar.gz && \
-    mv binaries genesis-binaries && \
-    cp genesis-binaries /genesis-binaries
+    cp .stack-work/dist/*/*/build/middleware/middleware /middleware
 
 FROM node:11 as node-build
 WORKDIR /
@@ -68,9 +70,9 @@ COPY --from=build /build-project/p2p_client-cli /p2p_client-cli
 COPY --from=build /build-project/node-collector /node-collector
 COPY --from=build /build-project/start.sh /start.sh
 COPY --from=build /build-project/genesis.dat /genesis.dat
-COPY --from=build /libs/* /usr/lib/
-COPY --from=build /middleware /middleware
-COPY --from=build /genesis-binaries /genesis-binaries
+COPY --from=haskell-build /libs/* /usr/lib/
+COPY --from=haskell-build /middleware /middleware
+COPY --from=haskell-build /genesis-binaries /genesis-binaries
 COPY --from=node-build /node-dashboard/dist/public /var/www/html/
 
 COPY ./scripts/supervisord.conf /etc/supervisor/supervisord.conf
