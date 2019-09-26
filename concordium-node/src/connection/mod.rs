@@ -781,8 +781,8 @@ mod tests {
         setup_logger();
 
         // Create connections
-        let (node, _) = make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
-        let (bootstrapper, _) =
+        let node = make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
+        let bootstrapper =
             make_node_and_sync(next_available_port(), vec![100], PeerType::Bootstrapper)?;
         connect(&node, &bootstrapper)?;
         await_handshake(&node)?;

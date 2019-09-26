@@ -21,7 +21,7 @@ mod tests {
         thread::sleep(Duration::from_secs(5));
 
         let port = next_available_port();
-        let (node, _) = make_node_and_sync(port, vec![100], PeerType::Node)?;
+        let node = make_node_and_sync(port, vec![100], PeerType::Node)?;
 
         // Empty on init
         let reply = node.get_banlist()?;
@@ -70,7 +70,7 @@ mod tests {
 
     #[test]
     fn test_node_self_ref() -> Fallible<()> {
-        let (node, _) = make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
+        let node = make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
 
         assert!(std::ptr::eq(
             &*node,
