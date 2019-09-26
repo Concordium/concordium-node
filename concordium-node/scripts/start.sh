@@ -238,6 +238,16 @@ then
     ARGS="$ARGS --beta-token $BETA_TOKEN"
 fi
 
+if [ -n "$DISTRIBUTION_CLIENT" ];
+then
+    if [ ! -f $DATA_DIR/baker-0.dat ];
+    then
+        LD_LIBRARY_PATH=/genesis-binaries/lib /genesis-binaries/bin/genesis make-bakers 1
+    fi
+
+    cp /genesis.dat $DATA_DIR
+fi
+
 if [ "$MODE" == "tps_receiver" ]; then
     echo "Receiver!"
     /p2p_client-cli \

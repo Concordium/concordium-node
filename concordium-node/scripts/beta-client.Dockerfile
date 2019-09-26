@@ -8,11 +8,15 @@ COPY ./scripts/genesis-data ./genesis-data
 ENV LD_LIBRARY_PATH=/usr/local/lib
 RUN --mount=type=ssh ./init.build.env.sh 
 # Build P2P client
-RUN --mount=type=ssh cargo build --release --features=static,elastic_logging,collector,beta && \
+RUN --mount=type=ssh cargo build --release --features=static,collector,beta && \
     strip /build-project/target/release/p2p_client-cli && \
     strip /build-project/target/release/node-collector && \
     cp /build-project/target/release/p2p_client-cli /build-project/ && \
-    cp /build-project/target/release/node-collector /build-project/
+    cp /build-project/target/release/node-collector /build-project/ && \
+    cd /build-project/scripts/genesis-data && \
+    tar -xf 20-bakers.tar.gz && \
+    cd genesis_data && \
+    cp genesis.dat /build-project/
 # P2P client is now built
 RUN --mount=type=ssh pacman -Syy --noconfirm openssh && \
     mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts && \
@@ -26,7 +30,11 @@ RUN --mount=type=ssh pacman -Syy --noconfirm openssh && \
     ./stack build && \
     mkdir -p /libs && \
     cp extra-libs/* /libs/ && \
-    cp .stack-work/dist/*/*/build/middleware/middleware /middleware
+    cp .stack-work/dist/*/*/build/middleware/middleware /middleware && \
+    wget -qc "https://s3-eu-west-1.amazonaws.com/static-libraries.concordium.com/static-consensus-binaries-$(git submodule | grep prototype | head -n1 | awk '{print $1}').tar.gz" && \
+    tar -xf static-consensus-binaries-$(git submodule | grep prototype | head -n1 | awk '{print $1}').tar.gz && \
+    mv binaries genesis-binaries && \
+    cp genesis-binaries /genesis-binaries
 
 FROM node:11 as node-build
 WORKDIR /
@@ -49,14 +57,20 @@ ENV DATA_DIR=/var/lib/concordium/data
 ENV CONFIG_DIR=/var/lib/concordium/config
 ENV EXTRA_ARGS="--no-dnssec"
 ENV NODE_URL=localhost:10000
+ENV COLLECTORD_URL=https://dashboard.eu.prod.concordium.com/post/nodes
+ENV GRPC_HOST=localhost
+ENV GRPC_PORT=10000
+ENV DISTRIBUTION_CLIENT=true
 #ENV ES_URL=http://localhost:9200
 
 RUN apt-get update && apt-get install -y unbound curl netbase ca-certificates supervisor nginx
 COPY --from=build /build-project/p2p_client-cli /p2p_client-cli
 COPY --from=build /build-project/node-collector /node-collector
 COPY --from=build /build-project/start.sh /start.sh
+COPY --from=build /build-project/genesis.dat /genesis.dat
 COPY --from=build /libs/* /usr/lib/
 COPY --from=build /middleware /middleware
+COPY --from=build /genesis-binaries /genesis-binaries
 COPY --from=node-build /node-dashboard/dist/public /var/www/html/
 
 COPY ./scripts/supervisord.conf /etc/supervisor/supervisord.conf
