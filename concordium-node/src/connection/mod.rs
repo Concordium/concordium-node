@@ -25,7 +25,6 @@ use crate::{
         p2p_peer::P2PPeer,
         NetworkRawRequest, P2PNodeId, PeerStats, PeerType, RemotePeer,
     },
-    connection::message_handlers::handle_incoming_message,
     dumper::DumpItem,
     network::{Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse},
     p2p::banned_nodes::BannedNode,
@@ -41,7 +40,7 @@ use snow::Keypair;
 use std::{
     collections::HashSet,
     fmt,
-    net::{Shutdown, SocketAddr},
+    net::SocketAddr,
     pin::Pin,
     sync::{
         atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
@@ -200,11 +199,6 @@ impl Connection {
         ))
     }
 
-    #[inline]
-    pub fn deregister(&self, poll: &Poll) -> Fallible<()> {
-        map_io_error_to_fail!(poll.deregister(&read_or_die!(self.low_level).socket))
-    }
-
     /// This function is called when `poll` indicates that `socket` is ready to
     /// write or/and read.
     pub fn ready(&self, ev: &Event) -> Fallible<()> {
@@ -212,8 +206,6 @@ impl Connection {
     }
 
     fn process_message(&self, mut message: HybridBuf) -> Fallible<()> {
-        let message = NetworkMessage::deserial(&mut message)?;
-
         self.update_last_seen();
         self.stats.messages_received.fetch_add(1, Ordering::Relaxed);
         TOTAL_MESSAGES_RECEIVED_COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -221,28 +213,48 @@ impl Connection {
             service.pkt_received_inc();
         };
 
-        handle_incoming_message(self, &message);
+        let message = NetworkMessage::deserial(&mut message)?;
 
-        match message {
+        let is_msg_processable = match message {
+            NetworkMessage::NetworkRequest(NetworkRequest::Handshake(..), ..)
+            | NetworkMessage::NetworkResponse(NetworkResponse::Handshake(..), ..) => true,
+            _ => self.is_post_handshake(),
+        };
+
+        // process the incoming request if applicable
+        if is_msg_processable {
+            self.handle_incoming_message(&message);
+        } else {
+            bail!("Refusing to process or forward any incoming messages before a handshake");
+        };
+
+        let is_msg_forwardable = match message {
             NetworkMessage::NetworkRequest(ref request, ..) => match request {
                 NetworkRequest::BanNode(..) | NetworkRequest::UnbanNode(..) => {
-                    if !self.handler().config.no_trust_bans {
-                        self.forward_network_message(&message)
-                    } else {
-                        Ok(())
-                    }
+                    !self.handler().config.no_trust_bans
                 }
-                NetworkRequest::Retransmit(..) => self.forward_network_message(&message),
-                _ => Ok(()),
+                _ => false,
             },
             NetworkMessage::NetworkResponse(ref response, ..) => match response {
-                _ => Ok(()),
+                _ => false,
             },
-            _ => self.handler().forward_network_packet(&message),
+            NetworkMessage::NetworkPacket(..) => true,
+            NetworkMessage::InvalidMessage => false,
+        };
+
+        // forward applicable requests to other connections
+        if is_msg_forwardable {
+            if let NetworkMessage::NetworkPacket(..) = message {
+                self.handler().forward_network_packet(&message)
+            } else {
+                self.forward_network_message(&message)
+            }
+        } else {
+            Ok(())
         }
     }
 
-    pub fn buckets(&self) -> &Arc<RwLock<Buckets>> { &self.handler().connection_handler.buckets }
+    pub fn buckets(&self) -> &RwLock<Buckets> { &self.handler().connection_handler.buckets }
 
     pub fn promote_to_post_handshake(&self, id: P2PNodeId) -> Fallible<()> {
         self.is_post_handshake.store(true, Ordering::SeqCst);
@@ -259,7 +271,7 @@ impl Connection {
         Arc::clone(&self.remote_end_networks)
     }
 
-    pub fn local_end_networks(&self) -> &Arc<RwLock<Networks>> { self.handler().networks() }
+    pub fn local_end_networks(&self) -> &RwLock<Networks> { self.handler().networks() }
 
     /// It queues a network request
     #[inline]
@@ -488,7 +500,6 @@ impl Connection {
                         .peer()
                         .map_or(true, |peer| peer.ip() != *addr),
                 },
-                NetworkRequest::Retransmit(..) => conn.remote_id() == self.remote_id(),
                 _ => true,
             },
             _ => unreachable!("Only network requests are ever forwarded"),
@@ -526,10 +537,6 @@ impl Connection {
 impl Drop for Connection {
     fn drop(&mut self) {
         debug!("Closing {}", self);
-
-        if let Err(e) = self.handler().deregister_connection(self) {
-            error!("Can't close {}: {:?}", self, e);
-        }
 
         if let Some(id) = self.remote_id() {
             write_or_die!(self.handler().active_peer_stats).remove(&id.as_raw());
@@ -596,30 +603,12 @@ impl ConnectionLowLevel {
                         Readiness::Ready(message) => {
                             self.conn().send_to_dump(&message, true);
                             if let Err(e) = self.conn().process_message(message) {
-                                warn!("Terminating {}: {}", self.conn(), e);
-                                bail!("Can't read the stream");
+                                bail!("Can't read the stream: {}", e);
                             }
                         }
                         Readiness::NotReady => break,
                     },
-                    Err(err) => {
-                        let token_id = usize::from(self.conn().token);
-
-                        if err.downcast_ref::<fails::UnwantedMessageError>().is_none()
-                            && err.downcast_ref::<fails::MessageTooBigError>().is_none()
-                        {
-                            warn!(
-                                "Protocol error, connection {} is dropped: {}",
-                                token_id, err
-                            );
-                        } else {
-                            error!("Message stream error on connection {}: {:?}", token_id, err);
-                        }
-
-                        // In this case, we have to drop this connection, so we can avoid
-                        // writing any data.
-                        bail!("Can't read the stream");
-                    }
+                    Err(e) => bail!("Can't read the stream: {}", e),
                 }
             }
         }
@@ -636,31 +625,6 @@ impl ConnectionLowLevel {
         priority: MessageSendingPriority,
     ) -> Fallible<Readiness<usize>> {
         self.message_sink.write(input, &mut self.socket, priority)
-    }
-}
-
-impl Drop for ConnectionLowLevel {
-    fn drop(&mut self) {
-        use crate::connection::fails::PeerTerminatedConnection;
-        use std::io::{Read, Write};
-        let mut buffer: Vec<u8> = Vec::new();
-        if let Err(e) = self.socket.write(&[]) {
-            error!(
-                "Could not flush write buffer on socket {:?} due to {}",
-                self.socket, e
-            );
-        }
-        if let Err(e) = self.socket.read(&mut buffer) {
-            error!(
-                "Could not flush read buffer on socket {:?} due to {}",
-                self.socket, e
-            );
-        }
-        if let Err(e) = map_io_error_to_fail!(self.socket.shutdown(Shutdown::Both)) {
-            if e.downcast_ref::<PeerTerminatedConnection>().is_none() {
-                error!("ConnectionPrivate couldn't be closed: {:?}", e);
-            }
-        }
     }
 }
 
@@ -735,12 +699,10 @@ mod tests {
             make_node_and_sync(next_available_port(), vec![100], PeerType::Bootstrapper)?;
         connect(&node, &bootstrapper)?;
         await_handshake(&node)?;
-        // Deregister connection on the node side
+
         let conn_node = node.find_connection_by_id(bootstrapper.id()).unwrap();
-        node.deregister_connection(&conn_node)?;
-        // Deregister connection on the bootstrapper side
         let conn_bootstrapper = bootstrapper.find_connection_by_id(node.id()).unwrap();
-        bootstrapper.deregister_connection(&conn_bootstrapper)?;
+
         // Assert that a Node accepts every packet
         match conn_node.validate_packet_type_test(&[]) {
             Readiness::Ready(true) => {}

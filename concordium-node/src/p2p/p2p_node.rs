@@ -112,20 +112,19 @@ impl ResendQueueEntry {
 pub type Networks = HashSet<NetworkId, BuildNoHashHasher<u16>>;
 pub type Connections = HashMap<Token, Arc<Connection>, BuildNoHashHasher<usize>>;
 
-#[derive(Clone)]
 pub struct ConnectionHandler {
-    server:                     Arc<TcpListener>,
-    next_id:                    Arc<AtomicUsize>,
-    key_pair:                   Arc<Keypair>,
+    server:                     TcpListener,
+    next_id:                    AtomicUsize,
+    key_pair:                   Keypair,
     pub event_log:              Option<SyncSender<P2PEvent>>,
-    pub buckets:                Arc<RwLock<Buckets>>,
+    pub buckets:                RwLock<Buckets>,
     pub log_dumper:             Option<SyncSender<DumpItem>>,
     noise_params:               snow::params::NoiseParams,
     pub network_request_sender: SyncSender<NetworkRawRequest>,
-    pub connections:            Arc<RwLock<Connections>>,
+    pub connections:            RwLock<Connections>,
     pub unreachable_nodes:      UnreachableNodes,
-    pub networks:               Arc<RwLock<Networks>>,
-    pub last_bootstrap:         Arc<AtomicU64>,
+    pub networks:               RwLock<Networks>,
+    pub last_bootstrap:         AtomicU64,
 }
 
 impl ConnectionHandler {
@@ -148,17 +147,17 @@ impl ConnectionHandler {
             .expect("Can't create a connection handler!");
 
         ConnectionHandler {
-            server: Arc::new(server),
-            next_id: Arc::new(AtomicUsize::new(2)),
-            key_pair: Arc::new(key_pair),
+            server,
+            next_id: AtomicUsize::new(2),
+            key_pair,
             event_log,
-            buckets: Arc::new(RwLock::new(Buckets::new())),
+            buckets: RwLock::new(Buckets::new()),
             log_dumper: None,
             noise_params,
             network_request_sender,
             connections: Default::default(),
             unreachable_nodes: UnreachableNodes::new(),
-            networks: Arc::new(RwLock::new(networks)),
+            networks: RwLock::new(networks),
             last_bootstrap: Default::default(),
         }
     }
@@ -174,8 +173,8 @@ pub struct Receivers {
 pub struct P2PNode {
     pub self_ref:             Option<Pin<Arc<Self>>>,
     pub self_peer:            P2PPeer,
-    thread:                   Arc<RwLock<P2PNodeThread>>,
-    pub poll:                 Arc<Poll>,
+    thread:                   RwLock<P2PNodeThread>,
+    pub poll:                 Poll,
     pub connection_handler:   ConnectionHandler,
     pub send_queue_in:        SyncSender<NetworkMessage>,
     resend_queue_in:          SyncSender<ResendQueueEntry>,
@@ -183,14 +182,14 @@ pub struct P2PNode {
     pub rpc_queue:            SyncSender<NetworkMessage>,
     dump_switch:              SyncSender<(std::path::PathBuf, bool)>,
     dump_tx:                  SyncSender<crate::dumper::DumpItem>,
-    pub active_peer_stats:    Arc<RwLock<HashMap<u64, PeerStats, BuildNoHashHasher<u64>>>>,
+    pub active_peer_stats:    RwLock<HashMap<u64, PeerStats, BuildNoHashHasher<u64>>>,
     pub stats_export_service: Option<StatsExportService>,
     pub config:               P2PNodeConfig,
     start_time:               DateTime<Utc>,
-    pub is_rpc_online:        Arc<AtomicBool>,
-    pub is_terminated:        Arc<AtomicBool>,
+    pub is_rpc_online:        AtomicBool,
+    pub is_terminated:        AtomicBool,
     pub kvs:                  Arc<RwLock<Rkv>>,
-    pub transactions_cache:   Arc<RwLock<Cache<Vec<u8>>>>,
+    pub transactions_cache:   RwLock<Cache<Vec<u8>>>,
 }
 
 // a convenience macro to send an object to all connections
@@ -365,16 +364,16 @@ impl P2PNode {
 
         let node = Arc::new(P2PNode {
             self_ref: None,
-            poll: Arc::new(poll),
+            poll,
             resend_queue_in: resend_queue_in.clone(),
             queue_to_super: pkt_queue,
             rpc_queue: subscription_queue_in,
             start_time: Utc::now(),
-            thread: Arc::new(RwLock::new(P2PNodeThread::default())),
+            thread: RwLock::new(P2PNodeThread::default()),
             config,
             dump_switch: act_tx,
             dump_tx,
-            is_rpc_online: Arc::new(AtomicBool::new(false)),
+            is_rpc_online: AtomicBool::new(false),
             connection_handler,
             self_peer,
             active_peer_stats: Default::default(),
@@ -435,10 +434,10 @@ impl P2PNode {
 
     pub fn forward_network_packet(&self, msg: &NetworkMessage) -> Fallible<()> {
         if let NetworkMessage::NetworkPacket(pac, ..) = msg {
-            trace!("Processing message for relaying");
+            trace!("Processing a packet for relaying");
             if safe_read!(self.networks())?.contains(&pac.network_id) {
                 trace!(
-                    "Received message of size {} from {}",
+                    "Received packet of size {} from {}",
                     pac.message.len()?,
                     pac.peer.id()
                 );
@@ -462,7 +461,7 @@ impl P2PNode {
             } else if let Some(ref service) = self.stats_export_service {
                 service.invalid_network_pkts_received_inc();
             }
-        };
+        }
 
         Ok(())
     }
@@ -696,10 +695,10 @@ impl P2PNode {
     }
 
     #[inline]
-    pub fn connections(&self) -> &Arc<RwLock<Connections>> { &self.connection_handler.connections }
+    pub fn connections(&self) -> &RwLock<Connections> { &self.connection_handler.connections }
 
     #[inline]
-    pub fn networks(&self) -> &Arc<RwLock<Networks>> { &self.connection_handler.networks }
+    pub fn networks(&self) -> &RwLock<Networks> { &self.connection_handler.networks }
 
     /// Returns true if `addr` is in the `unreachable_nodes` list.
     pub fn is_unreachable(&self, addr: SocketAddr) -> bool {
@@ -1149,21 +1148,20 @@ impl P2PNode {
             .send_queue_out
             .try_iter()
             .map(|outer_pkt| {
-                trace!("Processing send_queue_out messages");
+                trace!("Processing outbound packets");
 
                 if let Some(ref service) = self.stats_export_service {
                     service.queue_size_dec();
                 };
 
-                match outer_pkt {
-                    NetworkMessage::NetworkPacket(ref inner_pkt, ..) => {
-                        if !self.process_network_packet(Arc::clone(&inner_pkt)) {
-                            Some(outer_pkt)
-                        } else {
-                            None
-                        }
+                if let NetworkMessage::NetworkPacket(ref inner_pkt, ..) = outer_pkt {
+                    if !self.process_network_packet(Arc::clone(&inner_pkt)) {
+                        Some(outer_pkt)
+                    } else {
+                        None
                     }
-                    _ => None,
+                } else {
+                    unreachable!("Only packets are to be processed in process_messages!")
                 }
             })
             .filter_map(|possible_failure| possible_failure)
@@ -1180,52 +1178,49 @@ impl P2PNode {
                     self.resend_queue_size_inc();
                 } else {
                     self.pks_dropped_inc();
-                    error!("Can't put a message in the resend queue");
+                    error!("Can't put a packet in the resend queue");
                 }
             });
     }
 
     fn process_resend_queue(&self, receivers: &Receivers) {
-        let resend_failures = receivers
+        receivers
             .resend_queue_out
             .try_iter()
             .map(|wrapper| {
-                trace!("Processing messages!");
+                trace!("Processing the resend queue");
                 self.resend_queue_size_dec();
-                trace!("Got a message to reprocess!");
 
-                match wrapper.message {
-                    NetworkMessage::NetworkPacket(ref inner_pkt, ..) => {
-                        if !self.process_network_packet(Arc::clone(&inner_pkt)) {
-                            Some(wrapper)
-                        } else {
-                            None
-                        }
+                if let NetworkMessage::NetworkPacket(ref inner_pkt, ..) = wrapper.message {
+                    if !self.process_network_packet(Arc::clone(&inner_pkt)) {
+                        Some(wrapper)
+                    } else {
+                        None
                     }
-                    _ => unreachable!("Attempted to reprocess a non-packet network message!"),
+                } else {
+                    unreachable!("Attempted to reprocess a non-packet network message!");
                 }
             })
-            .filter_map(|possible_failure| possible_failure);
-
-        resend_failures.for_each(|failed_resend_pkt| {
-            if failed_resend_pkt.attempts < self.config.max_resend_attempts {
-                if self
-                    .resend_queue_in
-                    .send(ResendQueueEntry::new(
-                        failed_resend_pkt.message.clone(),
-                        failed_resend_pkt.last_attempt,
-                        failed_resend_pkt.attempts + 1,
-                    ))
-                    .is_ok()
-                {
-                    trace!("Successfully requeued a failed network packet");
-                    self.resend_queue_size_inc();
-                } else {
-                    error!("Can't put a packet in the resend queue!");
-                    self.pks_dropped_inc();
+            .filter_map(|possible_failure| possible_failure)
+            .for_each(|failed_resend_pkt| {
+                if failed_resend_pkt.attempts < self.config.max_resend_attempts {
+                    if self
+                        .resend_queue_in
+                        .send(ResendQueueEntry::new(
+                            failed_resend_pkt.message.clone(),
+                            failed_resend_pkt.last_attempt,
+                            failed_resend_pkt.attempts + 1,
+                        ))
+                        .is_ok()
+                    {
+                        trace!("Successfully requeued a failed network packet");
+                        self.resend_queue_size_inc();
+                    } else {
+                        error!("Can't put a packet in the resend queue");
+                        self.pks_dropped_inc();
+                    }
                 }
-            }
-        })
+            })
     }
 
     pub fn get_peer_stats(&self) -> Vec<PeerStats> {
@@ -1365,10 +1360,6 @@ impl P2PNode {
     pub fn close_and_join(&self) -> Fallible<()> {
         self.close();
         self.join()
-    }
-
-    pub fn deregister_connection(&self, conn: &Connection) -> Fallible<()> {
-        conn.deregister(&self.poll)
     }
 
     pub fn rpc_subscription_start(&self) { self.is_rpc_online.store(true, Ordering::Relaxed); }
