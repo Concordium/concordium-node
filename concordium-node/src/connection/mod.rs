@@ -543,7 +543,7 @@ impl Drop for Connection {
     fn drop(&mut self) {
         debug!("Closing {}", self);
 
-        if let Err(e) = self.handler().deregister_connection(self) {
+        if let Err(e) = self.deregister(&self.handler().poll) {
             error!("Can't close {}: {:?}", self, e);
         }
 
@@ -612,29 +612,13 @@ impl ConnectionLowLevel {
                         Readiness::Ready(message) => {
                             self.conn().send_to_dump(&message, true);
                             if let Err(e) = self.conn().process_message(message) {
-                                warn!("Terminating {}: {}", self.conn(), e);
-                                bail!("Can't read the stream");
+                                bail!("Can't read the stream: {}", e);
                             }
                         }
                         Readiness::NotReady => break,
                     },
                     Err(err) => {
-                        let token_id = usize::from(self.conn().token);
-
-                        if err.downcast_ref::<fails::UnwantedMessageError>().is_none()
-                            && err.downcast_ref::<fails::MessageTooBigError>().is_none()
-                        {
-                            warn!(
-                                "Protocol error, connection {} is dropped: {}",
-                                token_id, err
-                            );
-                        } else {
-                            error!("Message stream error on connection {}: {:?}", token_id, err);
-                        }
-
-                        // In this case, we have to drop this connection, so we can avoid
-                        // writing any data.
-                        bail!("Can't read the stream");
+                        bail!("Can't read the stream: {}", e);
                     }
                 }
             }

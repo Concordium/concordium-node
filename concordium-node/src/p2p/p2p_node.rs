@@ -1362,10 +1362,6 @@ impl P2PNode {
         self.join()
     }
 
-    pub fn deregister_connection(&self, conn: &Connection) -> Fallible<()> {
-        conn.deregister(&self.poll)
-    }
-
     pub fn rpc_subscription_start(&self) { self.is_rpc_online.store(true, Ordering::Relaxed); }
 
     pub fn rpc_subscription_stop(&self) -> bool {
