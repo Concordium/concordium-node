@@ -31,13 +31,11 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.Basic.Block hiding (getBlock)
 import qualified Concordium.GlobalState.Basic.Block as BasicBlock
 import Concordium.GlobalState.Finalization(FinalizationIndex(..),FinalizationRecord)
-import Concordium.GlobalState.Persistent.BlockState(PersistentBlockState)
+import Concordium.GlobalState.Persistent.BlockState(PersistentBlockState, initialPersistentState)
 import Concordium.GlobalState.Persistent.TreeState(PersistentBlockPointer, _bpBlock)
 import qualified Concordium.GlobalState.TreeState as TS
 import qualified Concordium.GlobalState.BlockState as TS
-
-
-import Concordium.Scheduler.Utils.Init.Example (initialPersistentState)
+import qualified Concordium.Birk.Bake as Baker
 
 import Concordium.Runner
 import Concordium.Skov hiding (receiveTransaction, getBirkParameters)
@@ -47,7 +45,6 @@ import Concordium.TimeMonad
 import Concordium.Skov.CatchUp (CatchUpStatus)
 
 import qualified Concordium.Getters as Get
-import qualified Concordium.Startup as S
 
 -- |A 'PeerID' identifies peer at the p2p layer.
 type PeerID = Word64
@@ -89,38 +86,6 @@ type BakerIdentityCallback = Int64 -> CString -> Int64 -> IO ()
 foreign import ccall "dynamic" invokeBakerIdentityCallback :: FunPtr BakerIdentityCallback -> BakerIdentityCallback
 callBakerIdentityCallback :: FunPtr BakerIdentityCallback -> Word64 -> BS.ByteString -> IO ()
 callBakerIdentityCallback cb bix bs = BS.useAsCStringLen bs $ \(cdata, clen) -> invokeBakerIdentityCallback cb (fromIntegral bix) cdata (fromIntegral clen)
-
--- |Generate genesis data given a genesis time (in seconds since the UNIX epoch) and
--- number of bakers.  This function is deterministic: calling with the same genesis
--- time and number of bakers should generate the same genesis data and baker identities.
--- Returns
--- - 9 if cryptographic parameters could not be loaded,
--- - 10 if identity providers could not be loaded
--- - 0 if data was generated.
-makeGenesisData ::
-    Timestamp -- ^Genesis time
-    -> Word64 -- ^Number of bakers
-    -> CString -- ^File name of the data with cryptographic providers. Null-terminated.
-    -> CString -- ^File name of the data with identity providers. Null-terminated.
-    -> FunPtr GenesisDataCallback -- ^Function to process the generated genesis data.
-    -> FunPtr BakerIdentityCallback -- ^Function to process each baker identity. Will be called repeatedly with different baker ids.
-    -> IO CInt
-makeGenesisData genTime nBakers cryptoParamsFile idProvidersFile cbkgen cbkbaker = do
-    mCryptoParams <- readCryptographicParameters <$>
-      catch (BSL.readFile =<< peekCString cryptoParamsFile) (\(_ :: IOException) -> return BSL.empty)
-    mIdProviders <- readIdentityProviders <$>
-      catch (BSL.readFile =<< peekCString idProvidersFile) (\(_ :: IOException) -> return BSL.empty)
-    case mCryptoParams of
-      Nothing -> return 9
-      Just cryptoParams ->
-        case mIdProviders of
-          Nothing -> return 10
-          Just idProviders -> do
-            let (genData, bakers) = S.makeGenesisData genTime (fromIntegral nBakers) 10 0.5 9 cryptoParams idProviders
-            let bakersPrivate = map fst bakers
-            callGenesisDataCallback cbkgen (encode genData)
-            mapM_ (\(bid, bkr) -> callBakerIdentityCallback cbkbaker bid (encode bkr)) (zip [0..] bakersPrivate)
-            return 0
 
 -- | External function that logs in Rust a message using standard Rust log output
 --
@@ -292,7 +257,12 @@ consensusLogMethod BakerRunner{bakerSyncRunner=SyncRunner{syncLogMethod=logM}} =
 consensusLogMethod PassiveRunner{passiveSyncRunner=SyncPassiveRunner{syncPLogMethod=logM}} = logM
 
 genesisState :: GenesisData -> IO PersistentBlockState
-genesisState genData = initialPersistentState (genesisBirkParameters genData) (genesisCryptographicParameters genData) (genesisBakerAccounts genData) (genesisIdentityProviders genData) 2
+genesisState genData = initialPersistentState
+                       (genesisBirkParameters genData)
+                       (genesisCryptographicParameters genData)
+                       (genesisAccounts genData ++ genesisSpecialBetaAccounts genData)
+                       (genesisIdentityProviders genData)
+                       (genesisMintPerSlot genData)
 
 -- |Start up an instance of Skov without starting the baker thread.
 startConsensus ::
@@ -662,6 +632,45 @@ getBirkParameters cptr blockcstr = do
       jsonValueToCString bps
 
 
+-- |Check whether we are a baker from the perspective of the best block.
+-- Returns 0 for 'False' and 1 for 'True'.
+checkIfWeAreBaker :: StablePtr ConsensusRunner -> IO Word8
+checkIfWeAreBaker cptr = do
+    c <- deRefStablePtr cptr
+    let logm = consensusLogMethod c
+    logm External LLInfo "Checking whether we are a baker."
+    case c of
+      PassiveRunner _ -> do
+        logm External LLDebug "Passive consensus, not a baker."
+        return 0
+      BakerRunner s _ -> do
+        logm External LLDebug "Active consensus, querying best block."
+        let bid = syncBakerIdentity s
+        let signKey = Baker.bakerSignPublicKey bid
+        let electionKey = Baker.bakerElectionPublicKey bid
+        r <- runConsensusQuery c (Get.checkBakerExistsBestBlock (signKey, electionKey))
+        logm External LLDebug $ "Replying with " ++ show r
+        if r then return 1 else return 0
+
+-- |Check if we are members of the finalization committee.
+-- Returns 0 for 'False' and 1 for 'True'.
+checkIfWeAreFinalizer :: StablePtr ConsensusRunner -> IO Word8
+checkIfWeAreFinalizer cptr = do
+    c <- deRefStablePtr cptr
+    let logm = consensusLogMethod c
+    logm External LLInfo "Checking whether we are a finalizer."
+    case c of
+      PassiveRunner _ -> do
+        logm External LLDebug "Passive consensus, not a finalizer."
+        return 0
+      BakerRunner s _ -> do
+        logm External LLDebug "Active consensus, querying best block."
+        let bid = syncBakerIdentity s
+        r <- Get.checkFinalizerExistsBestBlock s
+        logm External LLDebug $ "Replying with " ++ show r
+        if r then return 1 else return 0
+
+
 -- |Get instance information the given block and instance. The block must be
 -- given as a null-terminated base16 encoding of the block hash and the address
 -- (second CString) must be given as a null-terminated JSON-encoded value.
@@ -886,7 +895,6 @@ receiveCatchUpStatus cptr src cstr l cbk = do
                         
 
 
-foreign export ccall makeGenesisData :: Timestamp -> Word64 -> CString -> CString -> FunPtr GenesisDataCallback -> FunPtr BakerIdentityCallback -> IO CInt
 foreign export ccall startConsensus :: Word64 -> CString -> Int64 -> CString -> Int64 -> FunPtr BroadcastCallback -> FunPtr LogCallback -> Word8 -> FunPtr LogTransferCallback -> IO (StablePtr ConsensusRunner)
 foreign export ccall startConsensusPassive :: Word64 -> CString -> Int64 -> FunPtr LogCallback -> IO (StablePtr ConsensusRunner)
 foreign export ccall stopConsensus :: StablePtr ConsensusRunner -> IO ()
@@ -922,3 +930,7 @@ foreign export ccall getBirkParameters :: StablePtr ConsensusRunner -> CString -
 foreign export ccall getModuleList :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getModuleSource :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
 foreign export ccall hookTransaction :: StablePtr ConsensusRunner -> CString -> IO CString
+
+-- baker status checking
+foreign export ccall checkIfWeAreBaker :: StablePtr ConsensusRunner -> IO Word8
+foreign export ccall checkIfWeAreFinalizer :: StablePtr ConsensusRunner -> IO Word8

@@ -11,6 +11,8 @@ import Concordium.Kontrol.BestBlock
 import Concordium.Skov
 import Concordium.Skov.Update (isAncestorOf)
 
+import Control.Monad.State.Class
+
 import qualified Concordium.Scheduler.Types as AT
 import Concordium.GlobalState.BlockState(BlockPointerData(..))
 import qualified Concordium.GlobalState.TreeState as TS
@@ -29,6 +31,8 @@ import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.GlobalState.Instances
 import Concordium.GlobalState.Finalization
 import qualified Concordium.Skov.CatchUp as CU
+
+import Concordium.Afgjort.Finalize(FinalizationStateLenses(..))
 
 import Control.Concurrent.MVar
 import Data.IORef
@@ -76,7 +80,7 @@ getAccountList :: SkovStateQueryable z m => BlockHash -> z -> IO Value
 getAccountList hash sfsRef = runStateQuery sfsRef $
   withBlockStateJSON hash $ \st -> do
   alist <- BS.getAccountList st
-  return . toJSON . map show $ alist  -- show instance for account addresses is based on Base58 encoding
+  return . toJSON $ alist  -- show instance for account addresses is based on Base58 encoding
 
 getInstances :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
 getInstances hash sfsRef = runStateQuery sfsRef $
@@ -256,6 +260,28 @@ getBlockFinalization sfsRef bh = runStateQuery sfsRef $ do
             case bs of
                 Just (TS.BlockFinalized _ fr) -> return $ Just fr
                 _ -> return Nothing
+
+-- |Check whether a keypair is part of the baking committee by a key pair in the current best block.
+checkBakerExistsBestBlock :: (SkovStateQueryable z m)
+    => (BakerSignVerifyKey, BakerElectionVerifyKey)
+    -> z
+    -> IO Bool
+checkBakerExistsBestBlock keys sfsRef = runStateQuery sfsRef $ do
+  bb <- bestBlock
+  bps <- BS.getBlockBirkParameters (bpState bb)
+  case bps ^. birkBakers . bakersByKey . at keys of
+    Nothing -> return False
+    Just [] -> return False
+    Just _ -> return True
+
+-- |Check whether a keypair is part of the finalization committee by a key pair in the current best block.
+-- checkFinalizerExistsBestBlock :: (SkovStateQueryable z m, FinalizationMonad s m) => z -> IO Bool
+checkFinalizerExistsBestBlock :: (SkovStateQueryable z m, MonadState s m, FinalizationStateLenses s) => z -> IO Bool
+checkFinalizerExistsBestBlock sfsRef = runStateQuery sfsRef $ do
+   fs <- use finState
+   case fs ^. finCurrentRound of
+     Nothing -> return False
+     Just _ -> return True
 
 getIndexedFinalization :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> FinalizationIndex -> IO (Maybe FinalizationRecord)
 getIndexedFinalization sfsRef finInd = runStateQuery sfsRef $ TS.getFinalizationAtIndex finInd

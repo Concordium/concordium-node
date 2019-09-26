@@ -6,7 +6,6 @@ import Control.Concurrent.MVar
 import Control.Concurrent
 import Control.Monad.Trans.State hiding (get, put)
 import Control.Monad
-import Control.Monad.IO.Class
 import Control.Exception
 import Data.Time.Clock
 import Data.ByteString as BS
