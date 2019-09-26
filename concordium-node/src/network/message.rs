@@ -92,8 +92,6 @@ impl Serial for NetworkMessage {
         PROTOCOL_VERSION.serial(target)?;
         get_current_stamp().serial(target)?;
         (self.protocol_message_type() as u8).serial(target)?;
-        #[cfg(test)]
-        const_assert!(network_message_protocol_type; NETWORK_MESSAGE_PROTOCOL_TYPE_IDX == 13 + 2 + 8);
 
         match self {
             NetworkMessage::NetworkRequest(ref request, ..) => request.serial(target),

@@ -19,8 +19,7 @@ use crate::{
 use chrono::prelude::*;
 use concordium_common::{
     cache::Cache, hybrid_buf::HybridBuf, serial::serialize_into_buffer,
-    stats_export_service::StatsExportService, QueueSyncSender, RelayOrStopSenderHelper,
-    SerializeToBytes,
+    stats_export_service::StatsExportService, SerializeToBytes,
 };
 use failure::{err_msg, Error, Fallible};
 #[cfg(not(target_os = "windows"))]
@@ -184,7 +183,6 @@ pub struct P2PNode {
     pub connection_handler:   ConnectionHandler,
     pub send_queue_in:        SyncSender<NetworkMessage>,
     resend_queue_in:          SyncSender<ResendQueueEntry>,
-    pub queue_to_super:       QueueSyncSender<NetworkMessage>,
     pub rpc_queue:            SyncSender<NetworkMessage>,
     dump_switch:              SyncSender<(std::path::PathBuf, bool)>,
     dump_tx:                  SyncSender<crate::dumper::DumpItem>,
@@ -231,7 +229,6 @@ impl P2PNode {
     pub fn new(
         supplied_id: Option<String>,
         conf: &Config,
-        pkt_queue: QueueSyncSender<NetworkMessage>,
         event_log: Option<SyncSender<P2PEvent>>,
         peer_type: PeerType,
         stats_export_service: Option<StatsExportService>,
@@ -381,7 +378,6 @@ impl P2PNode {
             self_ref: None,
             poll,
             resend_queue_in: resend_queue_in.clone(),
-            queue_to_super: pkt_queue,
             rpc_queue: subscription_queue_in,
             start_time: Utc::now(),
             thread: RwLock::new(P2PNodeThread::default()),
@@ -467,13 +463,6 @@ impl P2PNode {
                             e.to_string()
                         );
                     }
-                }
-
-                if let Err(e) = self.queue_to_super.send_msg(outer.clone()) {
-                    warn!(
-                        "Can't relay a message on to the outer super queue: {}",
-                        e.to_string()
-                    );
                 }
             } else if let Some(ref service) = self.stats_export_service {
                 service.invalid_network_pkts_received_inc();
@@ -1471,10 +1460,7 @@ impl P2PNode {
 }
 
 impl Drop for P2PNode {
-    fn drop(&mut self) {
-        let _ = self.queue_to_super.send_stop();
-        let _ = self.close_and_join();
-    }
+    fn drop(&mut self) { let _ = self.close_and_join(); }
 }
 
 /// Connetion is valid for a broadcast if sender is not target,

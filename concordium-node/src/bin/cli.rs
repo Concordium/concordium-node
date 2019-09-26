@@ -14,7 +14,7 @@ static A: System = System;
 use concordium_common::{
     spawn_or_die,
     stats_export_service::{StatsExportService, StatsServiceMode},
-    QueueMsg, QueueReceiver,
+    QueueMsg,
 };
 use concordium_consensus::{
     consensus::{ConsensusContainer, CALLBACK_QUEUE},
@@ -31,7 +31,6 @@ use p2p_client::{
     },
     common::PeerType,
     configuration as config,
-    connection::message_handlers::handle_incoming_packet,
     network::{NetworkId, NetworkMessage},
     p2p::*,
     rpc::RpcServerImpl,
@@ -82,7 +81,7 @@ fn main() -> Fallible<()> {
         mpsc::sync_channel(config::RPC_QUEUE_DEPTH);
 
     // Thread #1: instantiate the P2PNode
-    let ((node, mut receivers), pkt_out) = instantiate_node(
+    let (node, mut receivers) = instantiate_node(
         &conf,
         &mut app_prefs,
         stats_export_service.clone(),
@@ -133,7 +132,6 @@ fn main() -> Fallible<()> {
             &node,
             (&conf, &app_prefs),
             consensus.clone(),
-            pkt_out,
             global_state_receivers,
         )
     } else {
@@ -189,11 +187,7 @@ fn instantiate_node(
     app_prefs: &mut config::AppPreferences,
     stats_export_service: Option<StatsExportService>,
     subscription_queue_in: mpsc::SyncSender<NetworkMessage>,
-) -> (
-    (Arc<P2PNode>, Receivers),
-    mpsc::Receiver<QueueMsg<NetworkMessage>>,
-) {
-    let (pkt_in, pkt_out) = mpsc::sync_channel(config::CLI_PACKET_QUEUE_DEPTH);
+) -> (Arc<P2PNode>, Receivers) {
     let node_id = conf.common.id.clone().map_or(
         app_prefs.get_config(config::APP_PREFERENCES_PERSISTED_NODE_ID),
         |id| {
@@ -216,7 +210,6 @@ fn instantiate_node(
         P2PNode::new(
             node_id,
             &conf,
-            pkt_in,
             Some(sender),
             PeerType::Node,
             stats_export_service,
@@ -227,7 +220,6 @@ fn instantiate_node(
         P2PNode::new(
             node_id,
             &conf,
-            pkt_in,
             None,
             PeerType::Node,
             stats_export_service,
@@ -236,7 +228,7 @@ fn instantiate_node(
         )
     };
 
-    ((node, receivers), pkt_out)
+    (node, receivers)
 }
 
 fn establish_connections(conf: &config::Config, node: &P2PNode) {
@@ -270,7 +262,6 @@ fn start_consensus_threads(
     node: &Arc<P2PNode>,
     (conf, app_prefs): (&config::Config, &config::AppPreferences),
     consensus: ConsensusContainer,
-    pkt_out: QueueReceiver<NetworkMessage>,
     global_state_receivers: GlobalStateReceivers,
 ) -> Vec<std::thread::JoinHandle<()>> {
     let is_global_state_persistent = conf.cli.baker.persist_global_state;
@@ -329,15 +320,6 @@ fn start_consensus_threads(
     });
 
     let node_ref = Arc::clone(node);
-    let guard_pkt = spawn_or_die!("Higher queue processing", {
-        while let Ok(QueueMsg::Relay(msg)) = pkt_out.recv() {
-            if let NetworkMessage::NetworkPacket(ref pac, ..) = msg {
-                handle_incoming_packet(&node_ref, pac)
-            }
-        }
-    });
-
-    let node_ref = Arc::clone(node);
     #[allow(unreachable_code)] // the loop never breaks on its own
     let ticker_thread = spawn_or_die!("Ticker", {
         // an initial delay before we begin catching up and baking
@@ -364,7 +346,7 @@ fn start_consensus_threads(
         conf.cli.no_network
     );
 
-    vec![global_state_thread, guard_pkt, ticker_thread]
+    vec![global_state_thread, ticker_thread]
 }
 
 fn start_baker_thread(node: &P2PNode) -> std::thread::JoinHandle<()> {

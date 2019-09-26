@@ -26,7 +26,10 @@ use crate::{
         NetworkRawRequest, P2PNodeId, PeerStats, PeerType, RemotePeer,
     },
     dumper::DumpItem,
-    network::{Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse},
+    network::{
+        Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse,
+        NETWORK_MESSAGE_PROTOCOL_TYPE_IDX,
+    },
     p2p::banned_nodes::BannedNode,
 };
 
@@ -252,11 +255,11 @@ impl Connection {
             service.pkt_received_inc();
         };
 
-        let msg_pos = message.position()?;
-        let packet_type = PacketType::try_from(message.read_u16::<E>()?)?;
-
         // deduplicate finalization messages and transactions
-        if packet_type == PacketType::FinalizationMessage {
+        message.seek(SeekFrom::Start(NETWORK_MESSAGE_PROTOCOL_TYPE_IDX as u64))?;
+        let packet_type = PacketType::try_from(message.read_u16::<E>()?);
+
+        if let Ok(PacketType::FinalizationMessage) = packet_type {
             let mut hash = [0u8; 8];
             hash.copy_from_slice(&XxHash64::digest(&message.remaining_bytes()?));
 
@@ -269,7 +272,7 @@ impl Connection {
             } else {
                 deduplication_queues.dedup_queue_finalization.push(hash);
             }
-        } else if packet_type == PacketType::Transaction {
+        } else if let Ok(PacketType::Transaction) = packet_type {
             let mut hash = [0u8; 8];
             hash.copy_from_slice(&XxHash64::digest(&message.remaining_bytes()?));
 
@@ -284,7 +287,7 @@ impl Connection {
             }
         }
 
-        message.seek(SeekFrom::Start(msg_pos))?;
+        message.rewind()?;
 
         let message = NetworkMessage::deserial(&mut message)?;
 
