@@ -183,6 +183,13 @@ makePersistent Basic.BlockState{..} = liftIO $ newIORef $! BRMemory BlockStatePo
         , bspTransactionOutcomes = _blockTransactionOutcomes
         }
     
+initialPersistentState :: MonadIO m => BirkParameters
+             -> CryptographicParameters
+             -> [Account]
+             -> [IPS.IdentityProviderData]
+             -> Amount
+             -> m PersistentBlockState
+initialPersistentState bps cps accts ips amt = makePersistent $ Basic.initialState bps cps accts ips amt
 
 
 newtype LinkerWrapper r m a = LinkerWrapper { runLinkerWrapper :: ReaderT PersistentBlockState m a }
