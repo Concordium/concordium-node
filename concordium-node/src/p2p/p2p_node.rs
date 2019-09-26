@@ -434,10 +434,10 @@ impl P2PNode {
 
     pub fn forward_network_packet(&self, msg: &NetworkMessage) -> Fallible<()> {
         if let NetworkMessage::NetworkPacket(pac, ..) = msg {
-            trace!("Processing message for relaying");
+            trace!("Processing a packet for relaying");
             if safe_read!(self.networks())?.contains(&pac.network_id) {
                 trace!(
-                    "Received message of size {} from {}",
+                    "Received packet of size {} from {}",
                     pac.message.len()?,
                     pac.peer.id()
                 );
@@ -461,7 +461,7 @@ impl P2PNode {
             } else if let Some(ref service) = self.stats_export_service {
                 service.invalid_network_pkts_received_inc();
             }
-        };
+        }
 
         Ok(())
     }

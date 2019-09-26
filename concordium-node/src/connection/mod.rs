@@ -25,7 +25,6 @@ use crate::{
         p2p_peer::P2PPeer,
         NetworkRawRequest, P2PNodeId, PeerStats, PeerType, RemotePeer,
     },
-    connection::message_handlers::handle_incoming_message,
     dumper::DumpItem,
     network::{Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse},
     p2p::banned_nodes::BannedNode,
@@ -212,8 +211,6 @@ impl Connection {
     }
 
     fn process_message(&self, mut message: HybridBuf) -> Fallible<()> {
-        let message = NetworkMessage::deserial(&mut message)?;
-
         self.update_last_seen();
         self.stats.messages_received.fetch_add(1, Ordering::Relaxed);
         TOTAL_MESSAGES_RECEIVED_COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -221,24 +218,44 @@ impl Connection {
             service.pkt_received_inc();
         };
 
-        handle_incoming_message(self, &message);
+        let message = NetworkMessage::deserial(&mut message)?;
 
-        match message {
+        let is_msg_processable = match message {
+            NetworkMessage::NetworkRequest(NetworkRequest::Handshake(..), ..)
+            | NetworkMessage::NetworkResponse(NetworkResponse::Handshake(..), ..) => true,
+            _ => self.is_post_handshake(),
+        };
+
+        // process the incoming request if applicable
+        if is_msg_processable {
+            self.handle_incoming_message(&message);
+        } else {
+            bail!("Refusing to process or forward any incoming messages before a handshake");
+        };
+
+        let is_msg_forwardable = match message {
             NetworkMessage::NetworkRequest(ref request, ..) => match request {
                 NetworkRequest::BanNode(..) | NetworkRequest::UnbanNode(..) => {
-                    if !self.handler().config.no_trust_bans {
-                        self.forward_network_message(&message)
-                    } else {
-                        Ok(())
-                    }
+                    !self.handler().config.no_trust_bans
                 }
-                NetworkRequest::Retransmit(..) => self.forward_network_message(&message),
-                _ => Ok(()),
+                _ => false,
             },
             NetworkMessage::NetworkResponse(ref response, ..) => match response {
-                _ => Ok(()),
+                _ => false,
             },
-            _ => self.handler().forward_network_packet(&message),
+            NetworkMessage::NetworkPacket(..) => true,
+            NetworkMessage::InvalidMessage => false,
+        };
+
+        // forward applicable requests to other connections
+        if is_msg_forwardable {
+            if let NetworkMessage::NetworkPacket(..) = message {
+                self.handler().forward_network_packet(&message)
+            } else {
+                self.forward_network_message(&message)
+            }
+        } else {
+            Ok(())
         }
     }
 
@@ -488,7 +505,6 @@ impl Connection {
                         .peer()
                         .map_or(true, |peer| peer.ip() != *addr),
                 },
-                NetworkRequest::Retransmit(..) => conn.remote_id() == self.remote_id(),
                 _ => true,
             },
             _ => unreachable!("Only network requests are ever forwarded"),
