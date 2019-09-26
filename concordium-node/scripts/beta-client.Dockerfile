@@ -63,6 +63,7 @@ ENV COLLECTORD_URL=https://dashboard.eu.prod.concordium.com/post/nodes
 ENV GRPC_HOST=localhost
 ENV GRPC_PORT=10000
 ENV DISTRIBUTION_CLIENT=true
+ENV BAKER_ID=node-0
 #ENV ES_URL=http://localhost:9200
 
 RUN apt-get update && apt-get install -y unbound curl netbase ca-certificates supervisor nginx
