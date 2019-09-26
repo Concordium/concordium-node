@@ -1148,21 +1148,20 @@ impl P2PNode {
             .send_queue_out
             .try_iter()
             .map(|outer_pkt| {
-                trace!("Processing send_queue_out messages");
+                trace!("Processing outbound packets");
 
                 if let Some(ref service) = self.stats_export_service {
                     service.queue_size_dec();
                 };
 
-                match outer_pkt {
-                    NetworkMessage::NetworkPacket(ref inner_pkt, ..) => {
-                        if !self.process_network_packet(Arc::clone(&inner_pkt)) {
-                            Some(outer_pkt)
-                        } else {
-                            None
-                        }
+                if let NetworkMessage::NetworkPacket(ref inner_pkt, ..) = outer_pkt {
+                    if !self.process_network_packet(Arc::clone(&inner_pkt)) {
+                        Some(outer_pkt)
+                    } else {
+                        None
                     }
-                    _ => None,
+                } else {
+                    unreachable!("Only packets are to be processed in process_messages!")
                 }
             })
             .filter_map(|possible_failure| possible_failure)
@@ -1179,52 +1178,49 @@ impl P2PNode {
                     self.resend_queue_size_inc();
                 } else {
                     self.pks_dropped_inc();
-                    error!("Can't put a message in the resend queue");
+                    error!("Can't put a packet in the resend queue");
                 }
             });
     }
 
     fn process_resend_queue(&self, receivers: &Receivers) {
-        let resend_failures = receivers
+        receivers
             .resend_queue_out
             .try_iter()
             .map(|wrapper| {
-                trace!("Processing messages!");
+                trace!("Processing the resend queue");
                 self.resend_queue_size_dec();
-                trace!("Got a message to reprocess!");
 
-                match wrapper.message {
-                    NetworkMessage::NetworkPacket(ref inner_pkt, ..) => {
-                        if !self.process_network_packet(Arc::clone(&inner_pkt)) {
-                            Some(wrapper)
-                        } else {
-                            None
-                        }
+                if let NetworkMessage::NetworkPacket(ref inner_pkt, ..) = wrapper.message {
+                    if !self.process_network_packet(Arc::clone(&inner_pkt)) {
+                        Some(wrapper)
+                    } else {
+                        None
                     }
-                    _ => unreachable!("Attempted to reprocess a non-packet network message!"),
+                } else {
+                    unreachable!("Attempted to reprocess a non-packet network message!");
                 }
             })
-            .filter_map(|possible_failure| possible_failure);
-
-        resend_failures.for_each(|failed_resend_pkt| {
-            if failed_resend_pkt.attempts < self.config.max_resend_attempts {
-                if self
-                    .resend_queue_in
-                    .send(ResendQueueEntry::new(
-                        failed_resend_pkt.message.clone(),
-                        failed_resend_pkt.last_attempt,
-                        failed_resend_pkt.attempts + 1,
-                    ))
-                    .is_ok()
-                {
-                    trace!("Successfully requeued a failed network packet");
-                    self.resend_queue_size_inc();
-                } else {
-                    error!("Can't put a packet in the resend queue!");
-                    self.pks_dropped_inc();
+            .filter_map(|possible_failure| possible_failure)
+            .for_each(|failed_resend_pkt| {
+                if failed_resend_pkt.attempts < self.config.max_resend_attempts {
+                    if self
+                        .resend_queue_in
+                        .send(ResendQueueEntry::new(
+                            failed_resend_pkt.message.clone(),
+                            failed_resend_pkt.last_attempt,
+                            failed_resend_pkt.attempts + 1,
+                        ))
+                        .is_ok()
+                    {
+                        trace!("Successfully requeued a failed network packet");
+                        self.resend_queue_size_inc();
+                    } else {
+                        error!("Can't put a packet in the resend queue");
+                        self.pks_dropped_inc();
+                    }
                 }
-            }
-        })
+            })
     }
 
     pub fn get_peer_stats(&self) -> Vec<PeerStats> {
