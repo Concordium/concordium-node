@@ -180,6 +180,12 @@ processFinalizationPool = do
                     -- This is to ensure that the focus block is always a live (or finalized) block.
                     unless focusBlockSurvives $ updateFocusBlockTo newFinBlock
                     putFinalizationPoolAtIndex nextFinIx []
+                    -- Archive the states of blocks up to but not including the new finalized block
+                    let doArchive b = case compare (bpHeight b) lastFinHeight of
+                            LT -> return ()
+                            EQ -> archiveBlockState (bpState b)
+                            GT -> doArchive (bpParent b) >> archiveBlockState (bpState b)
+                    doArchive (bpParent newFinBlock)
                     addFinalization newFinBlock finRec
                     oldBranches <- getBranches
                     let pruneHeight = fromIntegral (bpHeight newFinBlock - lastFinHeight)
@@ -192,6 +198,7 @@ processFinalizationPool = do
                                                 logEvent Skov LLDebug $ "Block " ++ show bp ++ " marked finalized"
                                             else do
                                                 markDead (getHash bp)
+                                                purgeBlockState (bpState bp)
                                                 logEvent Skov LLDebug $ "Block " ++ show bp ++ " marked dead"
                             pruneTrunk (bpParent keeper) brs
                             finalizeTransactions (blockTransactions keeper)
@@ -207,6 +214,7 @@ processFinalizationPool = do
                                     return (bp:l)
                                 else do
                                     markDead (bpHash bp)
+                                    purgeBlockState (bpState bp)
                                     logEvent Skov LLDebug $ "Block " ++ show (bpHash bp) ++ " marked dead"
                                     return l)
                                 [] brs

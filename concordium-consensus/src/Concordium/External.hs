@@ -291,7 +291,7 @@ consensusLogMethod :: ConsensusRunner -> LogMethod IO
 consensusLogMethod BakerRunner{bakerSyncRunner=SyncRunner{syncLogMethod=logM}} = logM
 consensusLogMethod PassiveRunner{passiveSyncRunner=SyncPassiveRunner{syncPLogMethod=logM}} = logM
 
-genesisState :: GenesisData -> PersistentBlockState
+genesisState :: GenesisData -> IO PersistentBlockState
 genesisState genData = initialPersistentState (genesisBirkParameters genData) (genesisCryptographicParameters genData) (genesisBakerAccounts genData) (genesisIdentityProviders genData) 2
 
 -- |Start up an instance of Skov without starting the baker thread.
@@ -309,7 +309,8 @@ startConsensus maxBlock gdataC gdataLenC bidC bidLenC bcbk lcbk enableTransferLo
         bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
         case (decode gdata, decode bdata) of
             (Right genData, Right bid) -> do
-                bakerSyncRunner <- makeSyncRunner logM logT bid (RuntimeParameters (fromIntegral maxBlock)) genData (genesisState genData) bakerBroadcast
+                genState <- genesisState genData
+                bakerSyncRunner <- makeSyncRunner logM logT bid (RuntimeParameters (fromIntegral maxBlock)) genData genState bakerBroadcast
                 newStablePtr BakerRunner{..}
             _ -> ioError (userError $ "Error decoding serialized data.")
     where
@@ -327,7 +328,8 @@ startConsensusPassive maxBlock gdataC gdataLenC lcbk = do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         case (decode gdata) of
             (Right genData) -> do
-                passiveSyncRunner <- makeSyncPassiveRunner logM (RuntimeParameters (fromIntegral maxBlock)) genData (genesisState genData)
+                genState <- genesisState genData
+                passiveSyncRunner <- makeSyncPassiveRunner logM (RuntimeParameters (fromIntegral maxBlock)) genData genState
                 newStablePtr PassiveRunner{..}
             _ -> ioError (userError $ "Error decoding serialized data.")
     where

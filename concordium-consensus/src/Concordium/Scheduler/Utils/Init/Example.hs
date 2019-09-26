@@ -6,6 +6,7 @@ module Concordium.Scheduler.Utils.Init.Example (initialState, initialPersistentS
 
 import qualified Data.HashMap.Strict as Map
 import System.Random
+import Control.Monad.IO.Class
 
 import Concordium.Crypto.SignatureScheme(KeyPair(..), SchemeId(Ed25519))
 import qualified Concordium.Crypto.SignatureScheme as Sig
@@ -135,5 +136,5 @@ initialState birkParams cryptoParams bakerAccounts ips n =
              (BlockState.blockBank .~ Types.makeGenesisBankStatus initialAmount 10) -- also reset the bank after execution to maintain invariants.
 
 -- |State with the given number of contract instances of the counter contract specified.
-initialPersistentState :: BirkParameters -> CryptographicParameters -> [Account] -> [Types.IdentityProviderData] -> Int -> Persistent.PersistentBlockState
+initialPersistentState :: (MonadIO m) => BirkParameters -> CryptographicParameters -> [Account] -> [Types.IdentityProviderData] -> Int -> m Persistent.PersistentBlockState
 initialPersistentState birkParams cryptoParams bakerAccounts ips n = Persistent.makePersistent $! initialState birkParams cryptoParams bakerAccounts ips n
