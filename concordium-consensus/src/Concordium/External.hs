@@ -44,7 +44,6 @@ import Concordium.TimeMonad
 import Concordium.Skov.CatchUp (CatchUpStatus)
 
 import qualified Concordium.Getters as Get
-import qualified Concordium.Startup as S
 
 -- |A 'PeerID' identifies peer at the p2p layer.
 type PeerID = Word64

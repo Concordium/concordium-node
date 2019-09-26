@@ -44,19 +44,18 @@ makeGenesisData ::
     -> BlockHeight -- ^Minimum finalization interval - 1
     -> CryptographicParameters -- ^Initial cryptographic parameters.
     -> [IdentityProviderData]   -- ^List of initial identity providers.
-    -> [Account]  -- ^List of starting genesis accounts (in addition to baker accounts).
+    -> [Account]  -- ^List of starting genesis special accounts (in addition to baker accounts).
     -> (GenesisData, [(BakerIdentity,BakerInfo)])
-makeGenesisData genesisTime nBakers genesisSlotDuration elecDiff finMinSkip genesisCryptographicParameters genesisIdentityProviders genesisAdditionalAccounts
+makeGenesisData genesisTime nBakers genesisSlotDuration elecDiff finMinSkip genesisCryptographicParameters genesisIdentityProviders genesisSpecialBetaAccounts
     = (GenesisData{..}, bakers)
     where
-        genesisAccounts = genesisBakerAccounts ++ genesisAdditionalAccounts
         genesisMintPerSlot = 10 -- default value, OK for testing.
         genesisBirkParameters =
             BirkParameters elecDiff -- voting power
                            (bakersFromList (snd <$> bakers))
                            (genesisSeedState (Hash.hash "LeadershipElectionNonce") 360) -- todo hardcoded epoch length (and initial seed)
         genesisFinalizationParameters = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, BakerInfo vrfk vvk _ _) <- bakers] finMinSkip
-        (bakers, genesisBakerAccounts) = unzip (makeBakers nBakers)
+        (bakers, genesisAccounts) = unzip (makeBakers nBakers)
 
 -- Need to return string because Bytestring does not implement Lift
 dummyCryptographicParametersFile :: String
@@ -69,4 +68,3 @@ dummyCryptographicParameters =
   case readCryptographicParameters (BSL.pack dummyCryptographicParametersFile) of
     Nothing -> error "Could not read crypto params."
     Just x -> x
-  
