@@ -197,7 +197,7 @@ pub struct ConnectionConfig {
     #[structopt(
         long = "desired-nodes",
         help = "Desired nodes to always have",
-        default_value = "50"
+        default_value = "7"
     )]
     pub desired_nodes: u16,
     #[structopt(

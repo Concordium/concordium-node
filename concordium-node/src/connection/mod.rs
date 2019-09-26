@@ -520,6 +520,13 @@ impl ConnectionLowLevel {
             is_initiator,
         )));
 
+        if let Err(e) = socket.set_linger(Some(std::time::Duration::from_secs(0))) {
+            error!(
+                "Can't set SOLINGER to 0 for socket {:?} due to {}",
+                socket, e
+            );
+        }
+
         ConnectionLowLevel {
             conn_ref: None,
             socket,
@@ -586,6 +593,20 @@ impl ConnectionLowLevel {
 impl Drop for ConnectionLowLevel {
     fn drop(&mut self) {
         use crate::connection::fails::PeerTerminatedConnection;
+        use std::io::{Read, Write};
+        let mut buffer: Vec<u8> = Vec::new();
+        if let Err(e) = self.socket.write(&[]) {
+            error!(
+                "Could not flush write buffer on socket {:?} due to {}",
+                self.socket, e
+            );
+        }
+        if let Err(e) = self.socket.read(&mut buffer) {
+            error!(
+                "Could not flush read buffer on socket {:?} due to {}",
+                self.socket, e
+            );
+        }
         if let Err(e) = map_io_error_to_fail!(self.socket.shutdown(Shutdown::Both)) {
             if e.downcast_ref::<PeerTerminatedConnection>().is_none() {
                 error!("ConnectionPrivate couldn't be closed: {:?}", e);
