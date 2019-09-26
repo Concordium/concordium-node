@@ -250,7 +250,7 @@ impl Connection {
         // forward applicable requests to other connections
         if is_msg_forwardable {
             if let NetworkMessage::NetworkPacket(..) = message {
-                self.handler().forward_network_packet(&message)
+                self.handler().forward_network_packet(message)
             } else {
                 self.forward_network_message(&message)
             }

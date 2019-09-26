@@ -432,7 +432,7 @@ impl P2PNode {
             .store(get_current_stamp(), Ordering::SeqCst);
     }
 
-    pub fn forward_network_packet(&self, msg: &NetworkMessage) -> Fallible<()> {
+    pub fn forward_network_packet(&self, msg: NetworkMessage) -> Fallible<()> {
         if let NetworkMessage::NetworkPacket(pac, ..) = msg {
             trace!("Processing a packet for relaying");
             if safe_read!(self.networks())?.contains(&pac.network_id) {
@@ -441,7 +441,7 @@ impl P2PNode {
                     pac.message.len()?,
                     pac.peer.id()
                 );
-                let outer = NetworkMessage::NetworkPacket(Arc::clone(&pac), None, None);
+                let outer = NetworkMessage::NetworkPacket(pac, None, None);
 
                 if self.is_rpc_online.load(Ordering::Relaxed) {
                     if let Err(e) = self.rpc_queue.send(outer.clone()) {
@@ -1084,9 +1084,9 @@ impl P2PNode {
 
     // the returned bool determines if the message is to be re-sent in case of
     // failure
-    fn process_network_packet(&self, inner_pkt: Arc<NetworkPacket>) -> bool {
+    fn process_network_packet(&self, inner_pkt: &NetworkPacket) -> bool {
         let serialized_packet = serialize_into_buffer(
-            &NetworkMessage::NetworkPacket(Arc::clone(&inner_pkt), Some(get_current_stamp()), None),
+            &NetworkMessage::NetworkPacket(inner_pkt.clone(), Some(get_current_stamp()), None),
             256,
         );
 
@@ -1158,7 +1158,7 @@ impl P2PNode {
                 };
 
                 if let NetworkMessage::NetworkPacket(ref inner_pkt, ..) = outer_pkt {
-                    if !self.process_network_packet(Arc::clone(&inner_pkt)) {
+                    if !self.process_network_packet(&inner_pkt) {
                         Some(outer_pkt)
                     } else {
                         None
@@ -1195,7 +1195,7 @@ impl P2PNode {
                 self.resend_queue_size_dec();
 
                 if let NetworkMessage::NetworkPacket(ref inner_pkt, ..) = wrapper.message {
-                    if !self.process_network_packet(Arc::clone(&inner_pkt)) {
+                    if !self.process_network_packet(&inner_pkt) {
                         Some(wrapper)
                     } else {
                         None
@@ -1543,7 +1543,7 @@ pub fn send_message_from_cursor(
     // Push packet into our `send queue`
     send_or_die!(
         node.send_queue_in,
-        NetworkMessage::NetworkPacket(Arc::new(packet), None, None)
+        NetworkMessage::NetworkPacket(packet, None, None)
     );
 
     if let Some(ref service) = node.stats_export_service {
