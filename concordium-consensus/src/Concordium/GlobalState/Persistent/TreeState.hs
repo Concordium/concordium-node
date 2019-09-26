@@ -13,6 +13,7 @@ import Control.Exception
 import Data.Hashable hiding (unhashed, hashed)
 import Data.Time
 import Data.Time.Clock.POSIX
+import Data.IORef
 
 import qualified Data.Map.Strict as Map
 import qualified Data.HashMap.Strict as HM
@@ -440,19 +441,31 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r, SkovLens
 
     {-# INLINE thawBlockState #-}
     thawBlockState pbs = do
-            bsp <- loadBufferedRef pbs
-            return $! BRMemory bsp {
+            bsp <- loadPBS pbs
+            liftIO $ newIORef $! BRMemory bsp {
                     bspBank = bspBank bsp & Rewards.executionCost .~ 0 & Rewards.identityIssuersRewards .~ HM.empty
                 }
 
     {-# INLINE freezeBlockState #-}
-    freezeBlockState = flushBuffered
+    freezeBlockState pbs = do
+        {-
+        inner <- liftIO $ readIORef pbs
+        inner' <- uncacheBuffered inner
+        liftIO $ writeIORef pbs inner'
+        -}
+        return pbs
 
     {-# INLINE dropUpdatableBlockState #-}
-    dropUpdatableBlockState _ = return ()
+    dropUpdatableBlockState pbs = liftIO $ writeIORef pbs (error "Block state dropped")
 
     {-# INLINE purgeBlockState #-}
-    purgeBlockState _ = return ()
+    purgeBlockState pbs = liftIO $ writeIORef pbs (error "Block state purged")
+
+    {-# INLINE archiveBlockState #-}
+    archiveBlockState pbs = do
+        inner <- liftIO $ readIORef pbs
+        inner' <- uncacheBuffered inner
+        liftIO $ writeIORef pbs inner'
 
     getConsensusStatistics = use statistics
     putConsensusStatistics stats = statistics .= stats
