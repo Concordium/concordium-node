@@ -332,11 +332,7 @@ impl Connection {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn handle_incoming_packet(
-    node: &P2PNode,
-    pac: &NetworkPacket,
-    dedup_queues: &mut DeduplicationQueues,
-) {
+pub fn handle_incoming_packet(node: &P2PNode, pac: &NetworkPacket) {
     let is_broadcast = match pac.packet_type {
         NetworkPacketType::BroadcastedMessage(..) => true,
         _ => false,
@@ -374,7 +370,6 @@ pub fn handle_incoming_packet(
         dont_relay_to,
         pac.peer.id(),
         pac.message.clone(),
-        dedup_queues,
         is_broadcast,
     ) {
         error!(

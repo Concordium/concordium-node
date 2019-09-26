@@ -2,7 +2,7 @@ use byteorder::{ReadBytesExt, WriteBytesExt, BE};
 use failure::{bail, Fallible};
 
 // desired endianness
-type E = BE;
+pub type E = BE;
 
 // the actual trait; might need 2 lifetimes
 

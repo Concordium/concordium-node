@@ -30,16 +30,26 @@ use crate::{
     p2p::banned_nodes::BannedNode,
 };
 
-use concordium_common::{hybrid_buf::HybridBuf, serial::serialize_into_buffer, Serial};
+use concordium_common::{
+    hybrid_buf::HybridBuf,
+    serial::{serialize_into_buffer, E},
+    PacketType, Serial,
+};
 
+use byteorder::ReadBytesExt;
 use chrono::prelude::Utc;
+use circular_queue::CircularQueue;
+use digest::Digest;
 use failure::Fallible;
 use mio::{tcp::TcpStream, Event, Poll, PollOpt, Ready, Token};
 use snow::Keypair;
+use twox_hash::XxHash64;
 
 use std::{
     collections::HashSet,
+    convert::TryFrom,
     fmt,
+    io::{Seek, SeekFrom},
     net::SocketAddr,
     pin::Pin,
     sync::{
@@ -47,6 +57,22 @@ use std::{
         Arc, RwLock,
     },
 };
+
+pub struct DeduplicationQueues {
+    pub dedup_queue_finalization: CircularQueue<[u8; 8]>,
+    pub dedup_queue_transaction:  CircularQueue<[u8; 8]>,
+}
+
+impl DeduplicationQueues {
+    pub fn default() -> Self {
+        const DEDUP_QUEUE_SIZE: usize = 32 * 1024;
+
+        Self {
+            dedup_queue_finalization: CircularQueue::with_capacity(DEDUP_QUEUE_SIZE),
+            dedup_queue_transaction:  CircularQueue::with_capacity(DEDUP_QUEUE_SIZE),
+        }
+    }
+}
 
 pub struct ConnectionStats {
     pub last_ping_sent:    AtomicU64,
@@ -206,17 +232,59 @@ impl Connection {
 
     /// This function is called when `poll` indicates that `socket` is ready to
     /// write or/and read.
-    pub fn ready(&self, ev: &Event) -> Fallible<()> {
-        write_or_die!(self.low_level).read_from_stream(ev)
+    pub fn ready(
+        &self,
+        ev: &Event,
+        deduplication_queues: &mut DeduplicationQueues,
+    ) -> Fallible<()> {
+        write_or_die!(self.low_level).read_from_stream(ev, deduplication_queues)
     }
 
-    fn process_message(&self, mut message: HybridBuf) -> Fallible<()> {
+    fn process_message(
+        &self,
+        mut message: HybridBuf,
+        deduplication_queues: &mut DeduplicationQueues,
+    ) -> Fallible<()> {
         self.update_last_seen();
         self.stats.messages_received.fetch_add(1, Ordering::Relaxed);
         TOTAL_MESSAGES_RECEIVED_COUNTER.fetch_add(1, Ordering::Relaxed);
         if let Some(ref service) = self.handler().stats_export_service {
             service.pkt_received_inc();
         };
+
+        let msg_pos = message.position()?;
+        let packet_type = PacketType::try_from(message.read_u16::<E>()?)?;
+
+        // deduplicate finalization messages and transactions
+        if packet_type == PacketType::FinalizationMessage {
+            let mut hash = [0u8; 8];
+            hash.copy_from_slice(&XxHash64::digest(&message.remaining_bytes()?));
+
+            if deduplication_queues
+                .dedup_queue_finalization
+                .iter()
+                .any(|h| h == &hash)
+            {
+                return Ok(());
+            } else {
+                deduplication_queues.dedup_queue_finalization.push(hash);
+            }
+        } else if packet_type == PacketType::Transaction {
+            let mut hash = [0u8; 8];
+            hash.copy_from_slice(&XxHash64::digest(&message.remaining_bytes()?));
+
+            if deduplication_queues
+                .dedup_queue_transaction
+                .iter()
+                .any(|h| h == &hash)
+            {
+                return Ok(());
+            } else {
+                deduplication_queues.dedup_queue_transaction.push(hash);
+            }
+        }
+
+        message.seek(SeekFrom::Start(msg_pos))?;
 
         let message = NetworkMessage::deserial(&mut message)?;
 
@@ -601,7 +669,11 @@ impl ConnectionLowLevel {
         }
     }
 
-    fn read_from_stream(&mut self, ev: &Event) -> Fallible<()> {
+    fn read_from_stream(
+        &mut self,
+        ev: &Event,
+        deduplication_queues: &mut DeduplicationQueues,
+    ) -> Fallible<()> {
         let ev_readiness = ev.readiness();
 
         // 1. Try to read messages from `socket`.
@@ -612,7 +684,9 @@ impl ConnectionLowLevel {
                     Ok(readiness) => match readiness {
                         Readiness::Ready(message) => {
                             self.conn().send_to_dump(&message, true);
-                            if let Err(e) = self.conn().process_message(message) {
+                            if let Err(e) =
+                                self.conn().process_message(message, deduplication_queues)
+                            {
                                 bail!("Can't read the stream: {}", e);
                             }
                         }

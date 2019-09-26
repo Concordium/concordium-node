@@ -5,7 +5,7 @@ use crate::{
         get_current_stamp, NetworkRawRequest, P2PNodeId, P2PPeer, PeerStats, PeerType, RemotePeer,
     },
     configuration::{self as config, Config},
-    connection::{Connection, MessageSendingPriority, P2PEvent},
+    connection::{Connection, DeduplicationQueues, MessageSendingPriority, P2PEvent},
     crypto::generate_snow_config,
     dumper::DumpItem,
     network::{
@@ -571,9 +571,11 @@ impl P2PNode {
             let mut events = Events::with_capacity(10);
             let mut log_time = SystemTime::now();
 
+            let mut deduplication_queues = DeduplicationQueues::default();
+
             loop {
                 let _ = self_clone
-                    .process(&receivers, &mut events)
+                    .process(&receivers, &mut events, &mut deduplication_queues)
                     .map_err(|e| error!("{}", e));
 
                 self_clone.process_network_requests(&receivers);
@@ -1033,11 +1035,11 @@ impl P2PNode {
         write_or_die!(self.connections()).insert(conn.token, conn);
     }
 
-    pub fn conn_event(&self, event: &Event) {
+    pub fn conn_event(&self, event: &Event, deduplication_queues: &mut DeduplicationQueues) {
         let token = event.token();
 
         if let Some(conn) = self.find_connection_by_token(token) {
-            if let Err(e) = conn.ready(event) {
+            if let Err(e) = conn.ready(event, deduplication_queues) {
                 error!("Error while processing a connection event: {}", e);
                 conn.handler().remove_connection(conn.token);
             }
@@ -1311,7 +1313,12 @@ impl P2PNode {
     pub fn internal_addr(&self) -> SocketAddr { self.self_peer.addr }
 
     #[inline(always)]
-    fn process(&self, receivers: &Receivers, events: &mut Events) -> Fallible<()> {
+    fn process(
+        &self,
+        receivers: &Receivers,
+        events: &mut Events,
+        deduplication_queues: &mut DeduplicationQueues,
+    ) -> Fallible<()> {
         self.poll.poll(
             events,
             Some(Duration::from_millis(self.config.poll_interval)),
@@ -1327,7 +1334,7 @@ impl P2PNode {
                     };
                 }
                 _ => {
-                    self.conn_event(&event);
+                    self.conn_event(&event, deduplication_queues);
                 }
             }
         }

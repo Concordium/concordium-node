@@ -330,15 +330,9 @@ fn start_consensus_threads(
 
     let node_ref = Arc::clone(node);
     let guard_pkt = spawn_or_die!("Higher queue processing", {
-        use p2p_client::client::plugins::consensus::DeduplicationQueues;
-        const DEDUP_QUEUE_SIZE: usize = 32 * 1024;
-
-        let mut _msg_count = 0;
-        let mut deduplication_queues = DeduplicationQueues::new(DEDUP_QUEUE_SIZE);
-
         while let Ok(QueueMsg::Relay(msg)) = pkt_out.recv() {
             if let NetworkMessage::NetworkPacket(ref pac, ..) = msg {
-                handle_incoming_packet(&node_ref, pac, &mut deduplication_queues)
+                handle_incoming_packet(&node_ref, pac)
             }
         }
     });
