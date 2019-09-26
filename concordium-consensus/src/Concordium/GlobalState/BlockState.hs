@@ -357,7 +357,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoGetCryptoParams s = lift $ bsoGetCryptoParams s
   bsoSetTransactionOutcomes s = lift . bsoSetTransactionOutcomes s
   bsoAddSpecialTransactionOutcome s = lift . bsoAddSpecialTransactionOutcome s
-  bsoUpdateSeedState seedState = lift . bsoUpdateSeedState seedState
+  bsoUpdateSeedState ss = lift . bsoUpdateSeedState ss
   {-# INLINE bsoGetModule #-}
   {-# INLINE bsoGetAccount #-}
   {-# INLINE bsoGetInstance #-}
