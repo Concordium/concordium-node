@@ -32,9 +32,6 @@ impl Connection {
             NetworkMessage::NetworkRequest(NetworkRequest::FindNode(node), ..) => {
                 self.handle_find_node_req(*node)
             }
-            NetworkMessage::NetworkResponse(NetworkResponse::FindNode(ref peers), ..) => {
-                self.handle_find_node_resp(peers)
-            }
             NetworkMessage::NetworkRequest(NetworkRequest::GetPeers(ref networks), ..) => {
                 self.handle_get_peers_req(networks)
             }
@@ -165,7 +162,7 @@ impl Connection {
                 .collect::<Vec<_>>();
 
             NetworkMessage::NetworkResponse(
-                NetworkResponse::FindNode(nodes),
+                NetworkResponse::PeerList(nodes),
                 Some(get_current_stamp()),
                 None,
             )
@@ -175,17 +172,6 @@ impl Connection {
             serialize_into_buffer(&find_node_msg, 256)?,
             MessageSendingPriority::Normal,
         )
-    }
-
-    fn handle_find_node_resp(&self, nodes: &[P2PPeer]) -> Fallible<()> {
-        debug!("Got a FindNode reponse");
-
-        let mut ref_buckets = safe_write!(self.handler().connection_handler.buckets)?;
-        for peer in nodes.iter() {
-            ref_buckets.insert_into_bucket(peer, HashSet::new());
-        }
-
-        Ok(())
     }
 
     fn handle_get_peers_req(&self, networks: &HashSet<NetworkId>) -> Fallible<()> {

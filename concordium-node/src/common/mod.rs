@@ -232,11 +232,11 @@ mod tests {
     }
 
     #[test]
-    fn resp_findnode_empty_test() { net_test!(NetworkResponse, FindNode, vec![] as Vec<P2PPeer>) }
+    fn resp_findnode_empty_test() { net_test!(NetworkResponse, PeerList, vec![] as Vec<P2PPeer>) }
 
     #[test]
     fn resp_findnode_v4_test() {
-        net_test!(NetworkResponse, FindNode, vec![dummy_peer(
+        net_test!(NetworkResponse, PeerList, vec![dummy_peer(
             IpAddr::from([8, 8, 8, 8]),
             9999
         )
@@ -246,7 +246,7 @@ mod tests {
 
     #[test]
     fn resp_findnode_v6_test() {
-        net_test!(NetworkResponse, FindNode, vec![dummy_peer(
+        net_test!(NetworkResponse, PeerList, vec![dummy_peer(
             IpAddr::from_str("ff80::dead:beaf").unwrap(),
             9999
         )
@@ -256,7 +256,7 @@ mod tests {
 
     #[test]
     fn resp_findnode_mixed_test() {
-        net_test!(NetworkResponse, FindNode, vec![
+        net_test!(NetworkResponse, PeerList, vec![
             dummy_peer(IpAddr::from_str("ff80::dead:beaf").unwrap(), 9999)
                 .peer()
                 .unwrap(),
