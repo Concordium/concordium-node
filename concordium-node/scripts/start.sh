@@ -228,6 +228,16 @@ then
     ARGS="$ARGS --grpc-port $COLLECTOR_GRPC_PORT"
 fi
 
+if [ -n "$BETA_USERNAME" ];
+then
+    ARGS="$ARGS --beta-username $BETA_USERNAME"
+fi
+
+if [ -n "$BETA_TOKEN" ];
+then
+    ARGS="$ARGS --beta-token $BETA_TOKEN"
+fi
+
 if [ "$MODE" == "tps_receiver" ]; then
     echo "Receiver!"
     /p2p_client-cli \
