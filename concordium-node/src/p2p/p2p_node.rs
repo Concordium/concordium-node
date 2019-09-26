@@ -1082,6 +1082,8 @@ impl P2PNode {
         Utc::now().timestamp_millis() - self.start_time.timestamp_millis()
     }
 
+    // the returned bool determines if the message is to be re-sent in case of
+    // failure
     fn process_network_packet(&self, inner_pkt: Arc<NetworkPacket>) -> bool {
         let serialized_packet = serialize_into_buffer(
             &NetworkMessage::NetworkPacket(Arc::clone(&inner_pkt), Some(get_current_stamp()), None),
@@ -1118,7 +1120,7 @@ impl P2PNode {
                     let filter =
                         |conn: &Connection| read_or_die!(conn.remote_peer.id).unwrap() == *receiver;
 
-                    self.send_over_all_connections(data, &filter) >= 1
+                    self.send_over_all_connections(data, &filter) == 1
                 }
                 NetworkPacketType::BroadcastedMessage(ref dont_relay_to) => {
                     let filter = |conn: &Connection| {
@@ -1131,8 +1133,7 @@ impl P2PNode {
                         )
                     };
 
-                    self.send_over_all_connections(data, &filter);
-                    true
+                    self.send_over_all_connections(data, &filter) > 0
                 }
             },
             Err(e) => {
