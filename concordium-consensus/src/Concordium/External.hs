@@ -259,7 +259,7 @@ genesisState :: GenesisData -> BlockState
 genesisState genData = initialState
                        (genesisBirkParameters genData)
                        (genesisCryptographicParameters genData)
-                       (genesisAccounts genData)
+                       (genesisAccounts genData ++ genesisSpecialBetaAccounts genData)
                        (genesisIdentityProviders genData)
                        (genesisMintPerSlot genData)
 
