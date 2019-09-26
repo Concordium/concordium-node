@@ -19,6 +19,7 @@ import Control.Monad.Trans.Reader (ReaderT, runReaderT)
 import Control.Monad.IO.Class
 import System.Directory
 import Data.Proxy
+import GHC.Stack
 
 import Concordium.GlobalState.Persistent.MonadicRecursive
 
@@ -147,11 +148,11 @@ class (MonadBlobStore m ref) => BlobStorable m ref a where
     storeUpdateRef v = do
         (p, v') <- storeUpdate (Proxy :: Proxy ref) v
         (, v') <$> storeRaw (runPut p)
-    loadRef :: (ref a) -> m a
+    loadRef :: (HasCallStack) => (ref a) -> m a
     loadRef ref = do
         bs <- loadRaw ref
         case runGet (load (Proxy :: Proxy ref)) bs of
-            Left e -> error e
+            Left e -> error (e ++ " :: " ++ show bs)
             Right mv -> mv
 
 newtype SerializeStorable v = SerStore v
@@ -220,7 +221,7 @@ instance (BlobStorable m BlobRef a) => BlobStorable m BlobRef (Nullable (Buffere
         (r, v') <- storeUpdate p v
         return (r, Some v')
 
-loadBufferedRef :: (BlobStorable m BlobRef a) => BufferedRef a -> m a
+loadBufferedRef :: (HasCallStack, BlobStorable m BlobRef a) => BufferedRef a -> m a
 loadBufferedRef (BRBlobbed ref) = loadRef ref
 loadBufferedRef (BRCached _ v) = return v
 loadBufferedRef (BRMemory v) = return v
@@ -249,6 +250,13 @@ flushBuffered (BRMemory v) = do
         (r, v') <- storeUpdateRef v
         return $ BRCached r v'
 flushBuffered b = return b
+
+uncacheBuffered :: (BlobStorable m BlobRef a) => BufferedRef a -> m (BufferedRef a)
+uncacheBuffered (BRMemory v) = do
+        r <- storeRef v
+        return $ BRBlobbed r
+uncacheBuffered (BRCached r _) = return $ BRBlobbed r
+uncacheBuffered b = return b
 
 
 newtype Blobbed ref f = Blobbed {unblobbed :: ref (f (Blobbed ref f)) }

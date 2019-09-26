@@ -263,6 +263,10 @@ class (Eq (BlockPointer m),
     -- this method is called.
     purgeBlockState :: BlockState m -> m ()
 
+    -- |Mark a block state for archive: i.e. it will no longer be needed by
+    -- consensus (but could be required for historical queries).
+    archiveBlockState :: BlockState m -> m ()
+
     -- * Operations on statistics
     -- |Get the current consensus statistics.
     getConsensusStatistics :: m ConsensusStatistics
@@ -317,6 +321,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (BSMTra
     freezeBlockState = lift . freezeBlockState
     dropUpdatableBlockState = lift . dropUpdatableBlockState
     purgeBlockState = lift . purgeBlockState
+    archiveBlockState = lift . archiveBlockState
     getConsensusStatistics = lift getConsensusStatistics
     putConsensusStatistics = lift . putConsensusStatistics
     getRuntimeParameters = lift getRuntimeParameters
@@ -362,6 +367,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (BSMTra
     {-# INLINE freezeBlockState #-}
     {-# INLINE dropUpdatableBlockState #-}
     {-# INLINE purgeBlockState #-}
+    {-# INLINE archiveBlockState #-}
     {-# INLINE getConsensusStatistics #-}
     {-# INLINE putConsensusStatistics #-}
     {-# INLINE getRuntimeParameters #-}

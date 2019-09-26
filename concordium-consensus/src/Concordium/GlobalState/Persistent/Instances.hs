@@ -284,11 +284,11 @@ instance (MonadBlobStore m BlobRef) => BlobStorable m BlobRef Instances where
     store _ InstancesEmpty = return (putWord8 0)
     store p (InstancesTree s t) = do
         pt <- store p t
-        return (putWord8 0 >> put s >> pt)
+        return (putWord8 1 >> put s >> pt)
     storeUpdate _ i@InstancesEmpty = return (putWord8 0, i)
     storeUpdate p (InstancesTree s t) = do
         (pt, t') <- storeUpdate p t
-        return (putWord8 0 >> put s >> pt, InstancesTree s t')
+        return (putWord8 1 >> put s >> pt, InstancesTree s t')
     load p = do
         tag <- getWord8
         if tag == 0 then

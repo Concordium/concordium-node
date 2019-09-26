@@ -255,6 +255,9 @@ instance (SkovLenses s, Monad m, MonadState s m) => TS.TreeStateMonad (SkovTreeS
     {-# INLINE purgeBlockState #-}
     purgeBlockState _ = return ()
 
+    {-# INLINE archiveBlockState #-}
+    archiveBlockState _ = return ()
+
     getConsensusStatistics = use statistics
     putConsensusStatistics stats = statistics .= stats
 
