@@ -242,7 +242,7 @@ impl Connection {
         }
     }
 
-    pub fn buckets(&self) -> &Arc<RwLock<Buckets>> { &self.handler().connection_handler.buckets }
+    pub fn buckets(&self) -> &RwLock<Buckets> { &self.handler().connection_handler.buckets }
 
     pub fn promote_to_post_handshake(&self, id: P2PNodeId) -> Fallible<()> {
         self.is_post_handshake.store(true, Ordering::SeqCst);
@@ -259,7 +259,7 @@ impl Connection {
         Arc::clone(&self.remote_end_networks)
     }
 
-    pub fn local_end_networks(&self) -> &Arc<RwLock<Networks>> { self.handler().networks() }
+    pub fn local_end_networks(&self) -> &RwLock<Networks> { self.handler().networks() }
 
     /// It queues a network request
     #[inline]
