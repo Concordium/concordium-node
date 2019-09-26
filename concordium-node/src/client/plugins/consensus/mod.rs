@@ -21,7 +21,6 @@ use std::{
 
 use concordium_common::{
     blockchain_types::TransactionHash,
-    cache::Cache,
     hybrid_buf::HybridBuf,
     network_types::PeerId,
     ConsensusFfiResponse,
@@ -151,11 +150,11 @@ fn get_baker_data(
 
 /// Handles packets coming from other peers
 pub fn handle_pkt_out(
+    node: &P2PNode,
     dont_relay_to: Vec<P2PNodeId>,
     peer_id: P2PNodeId,
     mut msg: HybridBuf,
     gs_senders: &GlobalStateSenders,
-    transactions_cache: &mut Cache<Arc<[u8]>>,
     dedup_queues: &mut DeduplicationQueues,
     is_broadcast: bool,
 ) -> Fallible<()> {
@@ -203,18 +202,19 @@ pub fn handle_pkt_out(
 
     let mut payload = Vec::with_capacity(msg.remaining_len()? as usize);
     io::copy(&mut msg, &mut payload)?;
+
+    if packet_type == PacketType::Transaction {
+        let hash_offset = payload.len() - mem::size_of::<TransactionHash>();
+        let hash = TransactionHash::new(&payload[hash_offset..]);
+        write_or_die!(node.transactions_cache).insert(hash, payload.clone());
+    }
+
     let payload: Arc<[u8]> = Arc::from(payload);
     let distribution_mode = if is_broadcast {
         DistributionMode::Broadcast
     } else {
         DistributionMode::Direct
     };
-
-    if packet_type == PacketType::Transaction {
-        let hash_offset = payload.len() - mem::size_of::<TransactionHash>();
-        let hash = TransactionHash::new(&payload[hash_offset..]);
-        transactions_cache.insert(hash, payload.clone());
-    }
 
     let request = GlobalStateMessage::ConsensusMessage(ConsensusMessage::new(
         MessageType::Inbound(peer_id.0, distribution_mode),
@@ -269,7 +269,7 @@ pub fn handle_global_state_request(
                         if get_current_stamp() < global_state.catch_up_stamp + MAX_CATCH_UP_TIME {
                             debug!("Global state: I'm catching up with peer {:016x}", id);
                         } else {
-                            warn!("Global state: peer {:016x} took to long to catch up", id);
+                            warn!("Global state: peer {:016x} took too long to catch up", id);
                             if let Some(peer_conn) = node
                                 .find_connection_by_id(P2PNodeId(id))
                                 .map(|conn| conn.token)

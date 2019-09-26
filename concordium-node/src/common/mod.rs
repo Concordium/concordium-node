@@ -98,10 +98,10 @@ mod tests {
 
     macro_rules! create_message {
         ($msg:ident, $msg_type:ident, $peer:expr) => {
-            $msg::$msg_type($peer.clone())
+            $msg::$msg_type
         };
         ($msg:ident, $msg_type:ident, $peer:expr, $nets:expr) => {
-            $msg::$msg_type($peer, $nets.clone())
+            $msg::$msg_type($nets.clone())
         };
         (
             $msg:ident,
@@ -118,13 +118,13 @@ mod tests {
     macro_rules! net_assertion {
         ($msg:ident, $msg_type:ident, $deserialized:expr) => {
             assert!(match $deserialized {
-                NetworkMessage::$msg($msg::$msg_type(_), ..) => true,
+                NetworkMessage::$msg($msg::$msg_type, ..) => true,
                 _ => false,
             })
         };
         ($msg:ident, $msg_type:ident, $deserialized:expr, $nets:expr) => {{
             match $deserialized {
-                NetworkMessage::$msg($msg::$msg_type(_, nets2), ..) => {
+                NetworkMessage::$msg($msg::$msg_type(nets2), ..) => {
                     assert_eq!($nets, nets2);
                 }
                 _ => panic!("invalid network message"),
@@ -143,7 +143,6 @@ mod tests {
 
     macro_rules! net_test {
         ($msg:ident, $msg_type:ident) => {{
-            let self_peer = self_peer();
             let test_msg = NetworkMessage::$msg(
                 create_message!($msg, $msg_type, self_peer.clone().peer().unwrap()),
                 Some(get_current_stamp()),
@@ -155,7 +154,6 @@ mod tests {
             net_assertion!($msg, $msg_type, deserialized)
         }};
         ($msg:ident, $msg_type:ident, $nets:expr) => {{
-            let self_peer = self_peer();
             let nets = $nets;
             let test_msg = NetworkMessage::$msg(
                 create_message!($msg, $msg_type, self_peer.clone().peer().unwrap(), nets),
@@ -376,11 +374,7 @@ mod tests {
 
     #[test]
     fn resp_invalid_version() {
-        let ping = NetworkMessage::NetworkRequest(
-            NetworkRequest::Ping(self_peer().peer().unwrap()),
-            None,
-            None,
-        );
+        let ping = NetworkMessage::NetworkRequest(NetworkRequest::Ping, None, None);
         let mut ping_data = Vec::try_from(serialize_into_buffer(&ping, 128).unwrap()).unwrap();
 
         // Force and error in version protocol:
@@ -396,11 +390,7 @@ mod tests {
 
     #[test]
     fn resp_invalid_protocol() {
-        let ping = NetworkMessage::NetworkRequest(
-            NetworkRequest::Ping(self_peer().peer().unwrap()),
-            None,
-            None,
-        );
+        let ping = NetworkMessage::NetworkRequest(NetworkRequest::Ping, None, None);
         let mut ping_data = Vec::try_from(serialize_into_buffer(&ping, 128).unwrap()).unwrap();
 
         // Force and error in protocol name:

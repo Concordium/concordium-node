@@ -12,17 +12,16 @@ use std::{collections::HashSet, convert::TryFrom};
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum NetworkResponse {
-    Pong(P2PPeer),
-    FindNode(P2PPeer, Vec<P2PPeer>), /* we no longer need this one - we always provide all the
-                                      * nodes */
-    PeerList(P2PPeer, Vec<P2PPeer>),
+    Pong,
+    FindNode(Vec<P2PPeer>), // FIXME: merge with PeerList
+    PeerList(Vec<P2PPeer>),
     Handshake(P2PNodeId, u16, HashSet<NetworkId>, Vec<u8>),
 }
 
 impl AsProtocolResponseType for NetworkResponse {
     fn protocol_response_type(&self) -> ProtocolResponseType {
         match self {
-            NetworkResponse::Pong(..) => ProtocolResponseType::Pong,
+            NetworkResponse::Pong => ProtocolResponseType::Pong,
             NetworkResponse::FindNode(..) => ProtocolResponseType::FindNode,
             NetworkResponse::PeerList(..) => ProtocolResponseType::PeersList,
             NetworkResponse::Handshake(..) => ProtocolResponseType::Handshake,
@@ -34,15 +33,13 @@ impl Serial for NetworkResponse {
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let protocol_type = ProtocolResponseType::try_from(source.read_u8()?)?;
         let response = match protocol_type {
-            ProtocolResponseType::Pong => NetworkResponse::Pong(P2PPeer::deserial(source)?),
-            ProtocolResponseType::FindNode => NetworkResponse::FindNode(
-                P2PPeer::deserial(source)?,
-                Vec::<P2PPeer>::deserial(source)?,
-            ),
-            ProtocolResponseType::PeersList => NetworkResponse::PeerList(
-                P2PPeer::deserial(source)?,
-                Vec::<P2PPeer>::deserial(source)?,
-            ),
+            ProtocolResponseType::Pong => NetworkResponse::Pong,
+            ProtocolResponseType::FindNode => {
+                NetworkResponse::FindNode(Vec::<P2PPeer>::deserial(source)?)
+            }
+            ProtocolResponseType::PeersList => {
+                NetworkResponse::PeerList(Vec::<P2PPeer>::deserial(source)?)
+            }
             ProtocolResponseType::Handshake => NetworkResponse::Handshake(
                 P2PNodeId::deserial(source)?,
                 u16::deserial(source)?,
@@ -56,10 +53,8 @@ impl Serial for NetworkResponse {
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
         (self.protocol_response_type() as u8).serial(target)?;
         match self {
-            NetworkResponse::Pong(peer) => peer.serial(target),
-            NetworkResponse::FindNode(peer, ref peers)
-            | NetworkResponse::PeerList(peer, ref peers) => {
-                peer.serial(target)?;
+            NetworkResponse::Pong => Ok(()),
+            NetworkResponse::FindNode(ref peers) | NetworkResponse::PeerList(ref peers) => {
                 peers.serial(target)
             }
             NetworkResponse::Handshake(my_node_id, my_port, networks, zk) => {
