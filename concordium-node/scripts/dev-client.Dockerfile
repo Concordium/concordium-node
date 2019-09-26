@@ -31,7 +31,7 @@ RUN \
     rm -rf baker_id_gen
 
 ### P2P client
-RUN --mount=type=ssh cargo build --features=profiling,elastic_logging,collector
+RUN --mount=type=ssh cargo build --release --features=profiling,elastic_logging,collector
 
 RUN chmod +x /build-project/start.sh
 
