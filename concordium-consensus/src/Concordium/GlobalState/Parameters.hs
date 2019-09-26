@@ -91,6 +91,9 @@ data GenesisData = GenesisData {
     genesisSlotDuration :: Duration,
     genesisBirkParameters :: BirkParameters,
     genesisAccounts :: [Account],
+    -- |Special admin accounts used during beta for chain management, e.g.,
+    -- adding, removing bakers.
+    genesisSpecialBetaAccounts :: [Account],
     genesisFinalizationParameters :: FinalizationParameters,
     genesisCryptographicParameters :: CryptographicParameters,
     genesisIdentityProviders :: [IdentityProviderData],
@@ -176,7 +179,7 @@ data GenesisParameters = GenesisParameters {
     gpBakers :: [GenesisBaker],
     gpCryptographicParameters :: CryptographicParameters,
     gpIdentityProviders :: [IdentityProviderData],
-    gpAccounts :: [GenesisAccount],
+    gpBetaAccounts :: [GenesisAccount],
     gpMintPerSlot :: Amount
 }
 
@@ -193,7 +196,7 @@ instance FromJSON GenesisParameters where
         when (null gpBakers) $ fail "There should be at least one baker."
         gpCryptographicParameters <- v .: "cryptographicParameters"
         gpIdentityProviders <- v .:? "identityProviders" .!= []
-        gpAccounts <- v .:? "genesisAccounts" .!= []
+        gpBetaAccounts <- v .:? "genesisBetaAccounts" .!= []
         gpMintPerSlot <- Amount <$> v .: "mintPerSlot"
         return GenesisParameters{..}
 
@@ -235,14 +238,15 @@ parametersToGenesisData GenesisParameters{..} = GenesisData{..}
                 gbSignatureVerifyKey
                 gbAccountBalance 
                 (ID.accountAddress gbAccountSignatureKey gbAccountSignatureScheme)
-        genesisAccounts =
-            [(newAccount gbAccountSignatureKey gbAccountSignatureScheme) {_accountAmount = gbAccountBalance,
-                                                                          _accountStakeDelegate = Just bid}
-            | (GenesisBaker{..}, bid) <- zip gpBakers [0..]] ++
-            -- add special accounts as well. They may delegate.
-            [(newAccount gaAccountVerifyKey gaAccountSignatureScheme) {_accountAmount = gaAccountBalance,
-                                                                       _accountStakeDelegate = gaDelegate}
-            | GenesisAccount{..} <- gpAccounts]
+        -- special accounts will have some special privileges during beta.
+        genesisSpecialBetaAccounts =
+          [(newAccount gaAccountVerifyKey gaAccountSignatureScheme) {_accountAmount = gaAccountBalance,
+                                                                     _accountStakeDelegate = gaDelegate}
+            | GenesisAccount{..} <- gpBetaAccounts]
+        -- Baker accounts will have no special privileges.
+        genesisAccounts = [(newAccount gbAccountSignatureKey gbAccountSignatureScheme) {_accountAmount = gbAccountBalance,
+                                                                                        _accountStakeDelegate = Just bid}
+                          | (GenesisBaker{..}, bid) <- zip gpBakers [0..]]
         genesisFinalizationParameters =
             FinalizationParameters
                 [VoterInfo {voterVerificationKey = gbSignatureVerifyKey, voterVRFKey = gbElectionVerifyKey, voterPower = 1} 
