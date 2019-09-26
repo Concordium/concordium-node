@@ -40,7 +40,7 @@ use snow::Keypair;
 use std::{
     collections::HashSet,
     fmt,
-    net::{Shutdown, SocketAddr},
+    net::SocketAddr,
     pin::Pin,
     sync::{
         atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
@@ -197,11 +197,6 @@ impl Connection {
             Ready::readable() | Ready::writable(),
             PollOpt::edge()
         ))
-    }
-
-    #[inline]
-    pub fn deregister(&self, poll: &Poll) -> Fallible<()> {
-        map_io_error_to_fail!(poll.deregister(&read_or_die!(self.low_level).socket))
     }
 
     /// This function is called when `poll` indicates that `socket` is ready to
@@ -543,10 +538,6 @@ impl Drop for Connection {
     fn drop(&mut self) {
         debug!("Closing {}", self);
 
-        if let Err(e) = self.deregister(&self.handler().poll) {
-            error!("Can't close {}: {:?}", self, e);
-        }
-
         if let Some(id) = self.remote_id() {
             write_or_die!(self.handler().active_peer_stats).remove(&id.as_raw());
         }
@@ -617,9 +608,7 @@ impl ConnectionLowLevel {
                         }
                         Readiness::NotReady => break,
                     },
-                    Err(err) => {
-                        bail!("Can't read the stream: {}", e);
-                    }
+                    Err(e) => bail!("Can't read the stream: {}", e),
                 }
             }
         }
@@ -636,31 +625,6 @@ impl ConnectionLowLevel {
         priority: MessageSendingPriority,
     ) -> Fallible<Readiness<usize>> {
         self.message_sink.write(input, &mut self.socket, priority)
-    }
-}
-
-impl Drop for ConnectionLowLevel {
-    fn drop(&mut self) {
-        use crate::connection::fails::PeerTerminatedConnection;
-        use std::io::{Read, Write};
-        let mut buffer: Vec<u8> = Vec::new();
-        if let Err(e) = self.socket.write(&[]) {
-            error!(
-                "Could not flush write buffer on socket {:?} due to {}",
-                self.socket, e
-            );
-        }
-        if let Err(e) = self.socket.read(&mut buffer) {
-            error!(
-                "Could not flush read buffer on socket {:?} due to {}",
-                self.socket, e
-            );
-        }
-        if let Err(e) = map_io_error_to_fail!(self.socket.shutdown(Shutdown::Both)) {
-            if e.downcast_ref::<PeerTerminatedConnection>().is_none() {
-                error!("ConnectionPrivate couldn't be closed: {:?}", e);
-            }
-        }
     }
 }
 
@@ -735,12 +699,10 @@ mod tests {
             make_node_and_sync(next_available_port(), vec![100], PeerType::Bootstrapper)?;
         connect(&node, &bootstrapper)?;
         await_handshake(&node)?;
-        // Deregister connection on the node side
+
         let conn_node = node.find_connection_by_id(bootstrapper.id()).unwrap();
-        node.deregister_connection(&conn_node)?;
-        // Deregister connection on the bootstrapper side
         let conn_bootstrapper = bootstrapper.find_connection_by_id(node.id()).unwrap();
-        bootstrapper.deregister_connection(&conn_bootstrapper)?;
+
         // Assert that a Node accepts every packet
         match conn_node.validate_packet_type_test(&[]) {
             Readiness::Ready(true) => {}
