@@ -196,7 +196,7 @@ instance FromJSON GenesisParameters where
         when (null gpBakers) $ fail "There should be at least one baker."
         gpCryptographicParameters <- v .: "cryptographicParameters"
         gpIdentityProviders <- v .:? "identityProviders" .!= []
-        gpBetaAccounts <- v .:? "genesisBetaAccounts" .!= []
+        gpBetaAccounts <- v .:? "betaAccounts" .!= []
         gpMintPerSlot <- Amount <$> v .: "mintPerSlot"
         return GenesisParameters{..}
 
