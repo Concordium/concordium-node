@@ -7,8 +7,6 @@ use crate::{
         NetworkRequest, NetworkResponse,
     },
     p2p::{banned_nodes::BannedNode, p2p_node::P2PNode},
-    stats_engine::StatsEngine,
-    utils::GlobalStateSenders,
 };
 use concordium_common::{read_or_die, serial::serialize_into_buffer, write_or_die, PacketType};
 
@@ -337,31 +335,28 @@ impl Connection {
 pub fn handle_incoming_packet(
     node: &P2PNode,
     pac: &NetworkPacket,
-    global_state_senders: &GlobalStateSenders,
     dedup_queues: &mut DeduplicationQueues,
-    _stats_engine: &mut StatsEngine,
-    _msg_count: &mut u64,
-    _tps_test_enabled: bool,
-    _tps_message_count: u64,
 ) {
     let is_broadcast = match pac.packet_type {
         NetworkPacketType::BroadcastedMessage(..) => true,
         _ => false,
     };
 
-    if !is_broadcast && _tps_test_enabled {
-        if let Ok(len) = pac.message.len() {
-            _stats_engine.add_stat(len);
-            *_msg_count += 1;
+    #[cfg(feature = "benchmark")]
+    {
+        if !is_broadcast && node.config.enable_tps_test {
+            let mut stats_engine = write_or_die!(node.stats_engine);
+            if let Ok(len) = pac.message.len() {
+                stats_engine.add_stat(len);
 
-            if *_msg_count == _tps_message_count {
-                info!(
-                    "TPS over {} messages is {}",
-                    _tps_message_count,
-                    _stats_engine.calculate_total_tps_average()
-                );
-                *_msg_count = 0;
-                _stats_engine.clear();
+                if stats_engine.msg_count == node.config.tps_message_count {
+                    info!(
+                        "TPS over {} messages is {}",
+                        node.config.tps_message_count,
+                        stats_engine.calculate_total_tps_average()
+                    );
+                    stats_engine.clear();
+                }
             }
         }
     }
@@ -379,7 +374,6 @@ pub fn handle_incoming_packet(
         dont_relay_to,
         pac.peer.id(),
         pac.message.clone(),
-        &global_state_senders,
         dedup_queues,
         is_broadcast,
     ) {

@@ -47,7 +47,6 @@ use crate::{
     configuration::{self, MAX_CATCH_UP_TIME},
     network::NetworkId,
     p2p::p2p_node::*,
-    utils::GlobalStateSenders,
 };
 
 pub struct DeduplicationQueues {
@@ -154,7 +153,6 @@ pub fn handle_pkt_out(
     dont_relay_to: Vec<P2PNodeId>,
     peer_id: P2PNodeId,
     mut msg: HybridBuf,
-    gs_senders: &GlobalStateSenders,
     dedup_queues: &mut DeduplicationQueues,
     is_broadcast: bool,
 ) -> Fallible<()> {
@@ -224,9 +222,9 @@ pub fn handle_pkt_out(
     ));
 
     if is_broadcast {
-        gs_senders.send(request)
+        node.global_state_senders.send(request)
     } else {
-        gs_senders.send_with_priority(request)
+        node.global_state_senders.send_with_priority(request)
     }
 }
 

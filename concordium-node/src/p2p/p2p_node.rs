@@ -13,7 +13,8 @@ use crate::{
         NetworkPacketType, NetworkRequest,
     },
     p2p::{banned_nodes::BannedNode, fails, unreachable_nodes::UnreachableNodes},
-    utils,
+    stats_engine::StatsEngine,
+    utils::{self, GlobalStateReceivers, GlobalStateSenders},
 };
 use chrono::prelude::*;
 use concordium_common::{
@@ -85,6 +86,10 @@ pub struct P2PNodeConfig {
     pub data_dir_path: PathBuf,
     max_latency: Option<u64>,
     hard_connection_limit: Option<u16>,
+    #[cfg(feature = "benchmark")]
+    pub enable_tps_test: bool,
+    #[cfg(feature = "benchmark")]
+    pub tps_message_count: u64,
 }
 
 #[derive(Default)]
@@ -164,9 +169,10 @@ impl ConnectionHandler {
 }
 
 pub struct Receivers {
-    send_queue_out:       Receiver<NetworkMessage>,
-    resend_queue_out:     Receiver<ResendQueueEntry>,
-    pub network_requests: Receiver<NetworkRawRequest>,
+    send_queue_out:             Receiver<NetworkMessage>,
+    resend_queue_out:           Receiver<ResendQueueEntry>,
+    pub network_requests:       Receiver<NetworkRawRequest>,
+    pub global_state_receivers: Option<GlobalStateReceivers>,
 }
 
 #[allow(dead_code)] // caused by the dump_network feature; will fix in a follow-up
@@ -190,6 +196,8 @@ pub struct P2PNode {
     pub is_terminated:        AtomicBool,
     pub kvs:                  Arc<RwLock<Rkv>>,
     pub transactions_cache:   RwLock<Cache<Vec<u8>>>,
+    pub stats_engine:         RwLock<StatsEngine>,
+    pub global_state_senders: GlobalStateSenders,
 }
 
 // a convenience macro to send an object to all connections
@@ -337,17 +345,23 @@ impl P2PNode {
             data_dir_path: data_dir_path.unwrap_or_else(|| ".".into()),
             max_latency: conf.connection.max_latency,
             hard_connection_limit: conf.connection.hard_connection_limit,
+            #[cfg(feature = "benchmark")]
+            enable_tps_test: conf.cli.tps.enable_tps_test,
+            #[cfg(feature = "benchmark")]
+            tps_message_count: conf.cli.tps.tps_message_count,
         };
 
         let (send_queue_in, send_queue_out) = sync_channel(config::OUTBOUND_QUEUE_DEPTH);
         let (resend_queue_in, resend_queue_out) = sync_channel(config::RESEND_QUEUE_DEPTH);
         let (network_request_sender, network_request_receiver) =
             sync_channel(config::RAW_NETWORK_MSG_QUEUE_DEPTH);
+        let (global_state_senders, global_state_receivers) = utils::create_global_state_queues();
 
         let receivers = Receivers {
             send_queue_out,
             resend_queue_out,
             network_requests: network_request_receiver,
+            global_state_receivers: Some(global_state_receivers),
         };
 
         let connection_handler =
@@ -361,6 +375,7 @@ impl P2PNode {
             .unwrap();
 
         let transactions_cache = Default::default();
+        let stats_engine = RwLock::new(StatsEngine::new(&conf.cli));
 
         let node = Arc::new(P2PNode {
             self_ref: None,
@@ -382,6 +397,8 @@ impl P2PNode {
             is_terminated: Default::default(),
             kvs,
             transactions_cache,
+            stats_engine,
+            global_state_senders,
         });
 
         // note: in order to avoid a lock over the self_ref, write to it as soon as it's

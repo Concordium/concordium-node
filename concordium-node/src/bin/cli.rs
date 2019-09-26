@@ -35,8 +35,7 @@ use p2p_client::{
     network::{NetworkId, NetworkMessage},
     p2p::*,
     rpc::RpcServerImpl,
-    stats_engine::StatsEngine,
-    utils::{self, get_config_and_logging_setup, GlobalStateReceivers, GlobalStateSenders},
+    utils::{self, get_config_and_logging_setup, GlobalStateReceivers},
 };
 
 use failure::Fallible;
@@ -83,7 +82,7 @@ fn main() -> Fallible<()> {
         mpsc::sync_channel(config::RPC_QUEUE_DEPTH);
 
     // Thread #1: instantiate the P2PNode
-    let ((node, receivers), pkt_out) = instantiate_node(
+    let ((node, mut receivers), pkt_out) = instantiate_node(
         &conf,
         &mut app_prefs,
         stats_export_service.clone(),
@@ -97,6 +96,8 @@ fn main() -> Fallible<()> {
     #[cfg(feature = "instrumentation")]
     // Thread #2 (optional): the push gateway to Prometheus
     client_utils::start_push_gateway(&conf.prometheus, &stats_export_service, node.id())?;
+
+    let global_state_receivers = receivers.global_state_receivers.take().unwrap(); // always there
 
     // Start the P2PNode
     //
@@ -124,8 +125,6 @@ fn main() -> Fallible<()> {
     // Start the transaction logging thread
     setup_transfer_log_thread(&conf.cli);
 
-    let (global_state_senders, global_state_receivers) = utils::create_global_state_queues();
-
     // Connect outgoing messages to be forwarded into the baker and RPC streams.
     //
     // Thread #3 (#4): read P2PNode output
@@ -135,7 +134,6 @@ fn main() -> Fallible<()> {
             (&conf, &app_prefs),
             consensus.clone(),
             pkt_out,
-            global_state_senders.clone(),
             global_state_receivers,
         )
     } else {
@@ -146,7 +144,7 @@ fn main() -> Fallible<()> {
     //
     // Thread #4 (#5): the Baker thread
     let baker_thread = if is_baker {
-        Some(start_baker_thread(global_state_senders.clone()))
+        Some(start_baker_thread(&node))
     } else {
         None
     };
@@ -273,7 +271,6 @@ fn start_consensus_threads(
     (conf, app_prefs): (&config::Config, &config::AppPreferences),
     consensus: ConsensusContainer,
     pkt_out: QueueReceiver<NetworkMessage>,
-    global_state_senders: GlobalStateSenders,
     global_state_receivers: GlobalStateReceivers,
 ) -> Vec<std::thread::JoinHandle<()>> {
     let is_global_state_persistent = conf.cli.baker.persist_global_state;
@@ -332,9 +329,6 @@ fn start_consensus_threads(
     });
 
     let node_ref = Arc::clone(node);
-    let gs_senders = global_state_senders.clone();
-    let mut _stats_engine = StatsEngine::new(&conf.cli);
-    let (_tps_test_enabled, _tps_message_count) = tps_setup_process_output(&conf.cli);
     let guard_pkt = spawn_or_die!("Higher queue processing", {
         use p2p_client::client::plugins::consensus::DeduplicationQueues;
         const DEDUP_QUEUE_SIZE: usize = 32 * 1024;
@@ -344,22 +338,12 @@ fn start_consensus_threads(
 
         while let Ok(QueueMsg::Relay(msg)) = pkt_out.recv() {
             if let NetworkMessage::NetworkPacket(ref pac, ..) = msg {
-                handle_incoming_packet(
-                    &node_ref,
-                    pac,
-                    &gs_senders,
-                    &mut deduplication_queues,
-                    &mut _stats_engine,
-                    &mut _msg_count,
-                    _tps_test_enabled,
-                    _tps_message_count,
-                )
+                handle_incoming_packet(&node_ref, pac, &mut deduplication_queues)
             }
         }
     });
 
     let node_ref = Arc::clone(node);
-    let gs_senders = global_state_senders.clone();
     #[allow(unreachable_code)] // the loop never breaks on its own
     let ticker_thread = spawn_or_die!("Ticker", {
         // an initial delay before we begin catching up and baking
@@ -374,7 +358,7 @@ fn start_consensus_threads(
             // number is within the desired range
             if current_peers.len() <= node_ref.config.max_allowed_nodes as usize {
                 let msg = GlobalStateMessage::PeerListUpdate(current_peers);
-                if let Err(e) = gs_senders.send_with_priority(msg) {
+                if let Err(e) = node_ref.global_state_senders.send_with_priority(msg) {
                     error!("Error updating the global state peer list: {}", e)
                 }
             }
@@ -389,7 +373,9 @@ fn start_consensus_threads(
     vec![global_state_thread, guard_pkt, ticker_thread]
 }
 
-fn start_baker_thread(global_state_senders: GlobalStateSenders) -> std::thread::JoinHandle<()> {
+fn start_baker_thread(node: &P2PNode) -> std::thread::JoinHandle<()> {
+    let global_state_senders = node.global_state_senders.clone();
+
     spawn_or_die!("Process consensus messages", {
         let receiver = CALLBACK_QUEUE.receiver.lock().unwrap();
         loop {
@@ -420,14 +406,6 @@ fn start_baker_thread(global_state_senders: GlobalStateSenders) -> std::thread::
         }
     })
 }
-
-#[cfg(feature = "benchmark")]
-fn tps_setup_process_output(cli: &config::CliConfig) -> (bool, u64) {
-    (cli.tps.enable_tps_test, cli.tps.tps_message_count)
-}
-
-#[cfg(not(feature = "benchmark"))]
-fn tps_setup_process_output(_: &config::CliConfig) -> (bool, u64) { (false, 0) }
 
 #[cfg(feature = "elastic_logging")]
 fn setup_transfer_log_thread(conf: &config::CliConfig) -> std::thread::JoinHandle<()> {
