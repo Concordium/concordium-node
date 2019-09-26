@@ -15,7 +15,7 @@ pub use ec_vrf_ed25519 as vrf;
 pub use ec_vrf_ed25519::{Proof, Sha256, PROOF_LENGTH};
 pub use eddsa_ed25519 as sig;
 
-pub const ALLOCATION_LIMIT: usize = 4096;
+pub const ALLOCATION_LIMIT: usize = 10_000_000;
 
 #[derive(Debug)]
 pub struct Account {

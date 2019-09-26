@@ -1,6 +1,5 @@
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt, WriteBytesExt};
 use failure::{self, format_err, Fallible};
-use rkv::{Rkv, StoreOptions};
 
 use crate::common::P2PNodeId;
 use concordium_common::{Serial, SerializeToBytes};
@@ -10,7 +9,6 @@ use std::{
     convert::TryFrom,
     io::{Cursor, Read},
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
-    sync::RwLock,
 };
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -158,16 +156,6 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BannedNode {
         }
         .into_boxed_slice()
     }
-}
-
-pub fn remove_ban(kvs_handle: &RwLock<Rkv>, id: &[u8]) -> Fallible<()> {
-    let ban_kvs_env = safe_read!(kvs_handle)?;
-    let ban_store = ban_kvs_env.open_single("bans", StoreOptions::create())?;
-    let mut writer = ban_kvs_env.write()?;
-
-    ban_store.delete(&mut writer, id)?;
-
-    Ok(())
 }
 
 #[cfg(test)]

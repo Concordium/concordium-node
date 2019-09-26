@@ -201,7 +201,7 @@ pub fn await_ping_with_timeout(
     timeout: std::time::Duration,
 ) -> Fallible<()> {
     // Wait for Ping request
-    if let Ok(NetworkMessage::NetworkRequest(NetworkRequest::Ping(..), ..)) =
+    if let Ok(NetworkMessage::NetworkRequest(NetworkRequest::Ping, ..)) =
         receiver.recv_timeout(timeout)
     {
         return Ok(());

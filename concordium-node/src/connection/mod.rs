@@ -28,6 +28,7 @@ use crate::{
     connection::message_handlers::handle_incoming_message,
     dumper::DumpItem,
     network::{Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse},
+    p2p::banned_nodes::BannedNode,
 };
 
 use concordium_common::{hybrid_buf::HybridBuf, serial::serialize_into_buffer, Serial};
@@ -67,6 +68,12 @@ pub struct Connection {
     pub is_post_handshake:   AtomicBool,
     pub stats:               ConnectionStats,
 }
+
+impl PartialEq for Connection {
+    fn eq(&self, other: &Self) -> bool { self.token == other.token }
+}
+
+impl Eq for Connection {}
 
 impl fmt::Display for Connection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -204,8 +211,6 @@ impl Connection {
         write_or_die!(self.low_level).read_from_stream(ev)
     }
 
-    /// It decodes message from `buf` and processes it using its message
-    /// handlers.
     fn process_message(&self, mut message: HybridBuf) -> Fallible<()> {
         let message = NetworkMessage::deserial(&mut message)?;
 
@@ -217,14 +222,27 @@ impl Connection {
         };
 
         handle_incoming_message(self, &message);
-        self.handler().forward_network_message(&message)?;
 
-        Ok(())
+        match message {
+            NetworkMessage::NetworkRequest(ref request, ..) => match request {
+                NetworkRequest::BanNode(..) | NetworkRequest::UnbanNode(..) => {
+                    if !self.handler().config.no_trust_bans {
+                        self.forward_network_message(&message)
+                    } else {
+                        Ok(())
+                    }
+                }
+                NetworkRequest::Retransmit(..) => self.forward_network_message(&message),
+                _ => Ok(()),
+            },
+            NetworkMessage::NetworkResponse(ref response, ..) => match response {
+                _ => Ok(()),
+            },
+            _ => self.handler().forward_network_packet(&message),
+        }
     }
 
-    pub fn buckets(&self) -> Arc<RwLock<Buckets>> {
-        Arc::clone(&self.handler().connection_handler.buckets)
-    }
+    pub fn buckets(&self) -> &Arc<RwLock<Buckets>> { &self.handler().connection_handler.buckets }
 
     pub fn promote_to_post_handshake(&self, id: P2PNodeId) -> Fallible<()> {
         self.is_post_handshake.store(true, Ordering::SeqCst);
@@ -372,11 +390,8 @@ impl Connection {
     pub fn send_ping(&self) -> Fallible<()> {
         trace!("Sending a ping to {}", self.remote_addr());
 
-        let ping_msg = NetworkMessage::NetworkRequest(
-            NetworkRequest::Ping(self.handler().self_peer),
-            Some(get_current_stamp()),
-            None,
-        );
+        let ping_msg =
+            NetworkMessage::NetworkRequest(NetworkRequest::Ping, Some(get_current_stamp()), None);
 
         self.async_send(
             serialize_into_buffer(&ping_msg, 64)?,
@@ -391,11 +406,8 @@ impl Connection {
     pub fn send_pong(&self) -> Fallible<()> {
         trace!("Sending a pong to {}", self.remote_addr());
 
-        let pong_msg = NetworkMessage::NetworkResponse(
-            NetworkResponse::Pong(self.remote_peer().peer().unwrap()), // safe, ensured above
-            Some(get_current_stamp()),
-            None,
-        );
+        let pong_msg =
+            NetworkMessage::NetworkResponse(NetworkResponse::Pong, Some(get_current_stamp()), None);
 
         self.async_send(
             serialize_into_buffer(&pong_msg, 64)?,
@@ -403,11 +415,9 @@ impl Connection {
         )
     }
 
-    pub fn send_peer_list_resp(
-        &self,
-        requestor: P2PPeer,
-        nets: &HashSet<NetworkId>,
-    ) -> Fallible<()> {
+    pub fn send_peer_list_resp(&self, nets: &HashSet<NetworkId>) -> Fallible<()> {
+        let requestor = self.remote_peer().peer().unwrap();
+
         let peer_list_resp = match self.handler().peer_type() {
             PeerType::Bootstrapper => {
                 const BOOTSTRAP_PEER_COUNT: usize = 100;
@@ -420,7 +430,7 @@ impl Connection {
                         >= usize::from(self.handler().config.bootstrapper_wait_minimum_peers)
                 {
                     Some(NetworkMessage::NetworkResponse(
-                        NetworkResponse::PeerList(self.handler().self_peer, random_nodes),
+                        NetworkResponse::PeerList(random_nodes),
                         Some(get_current_stamp()),
                         None,
                     ))
@@ -440,7 +450,7 @@ impl Connection {
 
                 if !nodes.is_empty() {
                     Some(NetworkMessage::NetworkResponse(
-                        NetworkResponse::PeerList(self.handler().self_peer, nodes),
+                        NetworkResponse::PeerList(nodes),
                         Some(get_current_stamp()),
                         None,
                     ))
@@ -464,6 +474,45 @@ impl Connection {
             );
             Ok(())
         }
+    }
+
+    fn forward_network_message(&self, msg: &NetworkMessage) -> Fallible<()> {
+        let conn_filter = |conn: &Connection| match msg {
+            NetworkMessage::NetworkRequest(request, ..) => match request {
+                NetworkRequest::BanNode(peer_to_ban) => match peer_to_ban {
+                    BannedNode::ById(id) => {
+                        conn.remote_peer().peer().map_or(true, |x| x.id() != *id)
+                    }
+                    BannedNode::ByAddr(addr) => conn
+                        .remote_peer()
+                        .peer()
+                        .map_or(true, |peer| peer.ip() != *addr),
+                },
+                NetworkRequest::Retransmit(..) => conn.remote_id() == self.remote_id(),
+                _ => true,
+            },
+            _ => unreachable!("Only network requests are ever forwarded"),
+        };
+
+        match serialize_into_buffer(msg, 256) {
+            Ok(data) => {
+                for conn in read_or_die!(self.handler().connections())
+                    .values()
+                    .filter(|&conn| {
+                        conn.is_post_handshake() && conn.as_ref() != self && conn_filter(conn)
+                    })
+                {
+                    if let Err(e) = conn.async_send(data.clone(), MessageSendingPriority::Normal) {
+                        error!("Can't forward a network message to {}: {}", conn, e);
+                    }
+                }
+            }
+            Err(e) => {
+                error!("A network message couldn't be forwarded: {}", e);
+            }
+        }
+
+        Ok(())
     }
 
     #[cfg(test)]

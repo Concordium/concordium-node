@@ -152,14 +152,12 @@ fn setup_process_output(
     let _guard_pkt = spawn_or_die!("Higher queue processing", move || {
         while let Ok(QueueMsg::Relay(full_msg)) = pkt_out.recv() {
             if let Err(e) = match full_msg {
-                NetworkMessage::NetworkRequest(
-                    NetworkRequest::BanNode(_source, peer_to_ban),
-                    ..
-                ) => node_ref.ban_node(peer_to_ban),
-                NetworkMessage::NetworkRequest(
-                    NetworkRequest::UnbanNode(_source, peer_to_unban),
-                    ..
-                ) => node_ref.unban_node(peer_to_unban),
+                NetworkMessage::NetworkRequest(NetworkRequest::BanNode(peer_to_ban), ..) => {
+                    node_ref.ban_node(peer_to_ban)
+                }
+                NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(peer_to_unban), ..) => {
+                    node_ref.unban_node(peer_to_unban)
+                }
                 _ => Ok(()),
             } {
                 error!("Can't process a ban/unban request: {}", e);

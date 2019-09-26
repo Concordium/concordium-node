@@ -11,16 +11,14 @@ use crate::{
     failure::Fallible,
     network::{request::RequestedElementType, NetworkId, NetworkMessage, NetworkPacketType},
     p2p::{
-        banned_nodes::{remove_ban, BannedNode},
+        banned_nodes::BannedNode,
         p2p_node::{send_broadcast_message, send_direct_message},
         P2PNode,
     },
     proto::*,
 };
 
-use concordium_common::{
-    hybrid_buf::HybridBuf, ConsensusFfiResponse, PacketType, SerializeToBytes,
-};
+use concordium_common::{hybrid_buf::HybridBuf, ConsensusFfiResponse, PacketType};
 use concordium_consensus::consensus::{ConsensusContainer, CALLBACK_QUEUE};
 use concordium_global_state::tree::messaging::{ConsensusMessage, MessageType};
 use futures::future::Future;
@@ -697,6 +695,9 @@ impl P2P for RpcServerImpl {
             let f = if let Some(to_ban) = banned_node {
                 match self.node.ban_node(to_ban) {
                     Ok(_) => {
+                        if !self.node.config.no_trust_bans {
+                            self.node.send_ban(to_ban);
+                        }
                         r.set_value(true);
                     }
                     Err(e) => {
@@ -740,12 +741,11 @@ impl P2P for RpcServerImpl {
             };
 
             let f = if let Some(to_unban) = banned_node {
-                let store_key = to_unban.serialize();
-                match remove_ban(&self.node.kvs, &store_key)
-                    .and_then(|_| self.node.unban_node(to_unban))
-                {
+                match self.node.unban_node(to_unban) {
                     Ok(_) => {
-                        self.node.send_unban(to_unban);
+                        if !self.node.config.no_trust_bans {
+                            self.node.send_unban(to_unban);
+                        }
                         r.set_value(true);
                     }
                     Err(e) => {

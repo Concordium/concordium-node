@@ -182,12 +182,8 @@ mod network {
         pub fn bench_s11n_get_peers_200(c: &mut Criterion) { bench_s11n_get_peers(c, 200) }
 
         fn bench_s11n_get_peers(c: &mut Criterion, size: usize) {
-            let me = localhost_peer();
-            let mut peers = vec![];
-            peers.resize_with(size, || localhost_peer());
-
             let peer_list_msg = NetworkMessage::NetworkResponse(
-                NetworkResponse::PeerList(me, peers),
+                NetworkResponse::PeerList(vec![localhost_peer(); size]),
                 Some(get_current_stamp()),
                 None,
             );
