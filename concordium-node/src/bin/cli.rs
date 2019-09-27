@@ -17,7 +17,7 @@ use concordium_common::{
     QueueMsg,
 };
 use concordium_consensus::{
-    consensus::{ConsensusContainer, CALLBACK_QUEUE},
+    consensus::{ConsensusContainer, ConsensusLogLevel, CALLBACK_QUEUE},
     ffi,
 };
 use concordium_global_state::tree::{
@@ -105,7 +105,17 @@ fn main() -> Fallible<()> {
 
     let is_baker = conf.cli.baker.baker_id.is_some();
 
-    let mut consensus = plugins::consensus::start_consensus_layer(&conf.cli.baker, &app_prefs);
+    let mut consensus = plugins::consensus::start_consensus_layer(
+        &conf.cli.baker,
+        &app_prefs,
+        if conf.common.trace {
+            ConsensusLogLevel::Trace
+        } else if conf.common.debug {
+            ConsensusLogLevel::Debug
+        } else {
+            ConsensusLogLevel::Info
+        },
+    );
 
     // Start the RPC server
     let mut rpc_serv = if !conf.cli.rpc.no_rpc_server {

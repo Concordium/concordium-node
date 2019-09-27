@@ -49,6 +49,7 @@ use crate::{
 pub fn start_consensus_layer(
     conf: &configuration::BakerConfig,
     app_prefs: &configuration::AppPreferences,
+    max_logging_level: consensus::ConsensusLogLevel,
 ) -> Option<consensus::ConsensusContainer> {
     info!("Starting up the consensus thread");
 
@@ -70,6 +71,7 @@ pub fn start_consensus_layer(
                 genesis_data,
                 private_data,
                 conf.baker_id,
+                max_logging_level,
             );
             Some(consensus)
         }
