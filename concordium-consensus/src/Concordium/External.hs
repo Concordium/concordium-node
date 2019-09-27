@@ -460,15 +460,16 @@ receiveTransaction :: StablePtr ConsensusRunner -> CString -> Int64 -> IO Receiv
 receiveTransaction bptr tdata len = do
     c <- deRefStablePtr bptr
     let logm = consensusLogMethod c
-    logm External LLInfo $ "Received transaction, data size=" ++ show len ++ ". Decoding ..."
+    logm External LLDebug $ "Received transaction, data size=" ++ show len ++ ". Decoding ..."
     tbs <- BS.packCStringLen (tdata, fromIntegral len)
     now <- currentTime
     toReceiveResult <$> case runGet (getVerifiedTransaction now) tbs of
-        Left err -> do
-            logm External LLDebug $ "Could not decode transaction into header + body because " ++ err
+        Left _ -> do
+            logm External LLDebug $ "Could not decode transaction."
             return ResultSerializationFail
         Right tr -> do
-            logm External LLInfo $ "Transaction decoded. Its header is: " ++ show (btrHeader (trBareTransaction tr))
+            logm External LLDebug $ "Transaction decoded. Sending to consensus."
+            logm External LLTrace $ "Transaction header is: " ++ show (btrHeader (trBareTransaction tr))
             case c of
                 BakerRunner{..} -> do
                     (res, _) <- syncReceiveTransaction bakerSyncRunner tr
@@ -544,7 +545,7 @@ getAccountList cptr blockcstr = do
     logm External LLInfo "Received account list request."
     withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
       alist <- runConsensusQuery c (Get.getAccountList hash)
-      logm External LLDebug $ "Replying with the list: " ++ show alist
+      logm External LLTrace $ "Replying with the list: " ++ show alist
       jsonValueToCString alist
 
 -- |Get the list of contract instances (their addresses) in the given block. The
@@ -558,7 +559,7 @@ getInstances cptr blockcstr = do
     logm External LLInfo "Received instance list request."
     withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
       istances <- runConsensusQuery c (Get.getInstances hash)
-      logm External LLDebug $ "Replying with the list: " ++ (show istances)
+      logm External LLTrace $ "Replying with the list: " ++ (show istances)
       jsonValueToCString istances
 
 
@@ -582,7 +583,7 @@ getAccountInfo cptr blockcstr cstr = do
         logm External LLInfo $ "Decoded address to: " ++ show acc
         withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
           ainfo <- runConsensusQuery c (Get.getAccountInfo hash) acc
-          logm External LLDebug $ "Replying with: " ++ show ainfo
+          logm External LLTrace $ "Replying with: " ++ show ainfo
           jsonValueToCString ainfo
 
 -- |Get the status of the rewards parameters for the given block. The block must
@@ -596,7 +597,7 @@ getRewardStatus cptr blockcstr = do
     logm External LLInfo "Received request for bank status."
     withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
       reward <- runConsensusQuery c (Get.getRewardStatus hash)
-      logm External LLDebug $ "Replying with: " ++ show reward
+      logm External LLTrace $ "Replying with: " ++ show reward
       jsonValueToCString reward
 
 
@@ -611,7 +612,7 @@ getModuleList cptr blockcstr = do
     logm External LLInfo "Received request for list of modules."
     withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
       mods <- runConsensusQuery c (Get.getModuleList hash)
-      logm External LLDebug $ "Replying with" ++ show mods
+      logm External LLTrace $ "Replying with" ++ show mods
       jsonValueToCString mods
 
 -- |Get birk parameters for the given block. The block must be given as a
@@ -625,7 +626,7 @@ getBirkParameters cptr blockcstr = do
     logm External LLInfo "Received request Birk parameters."
     withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
       bps <- runConsensusQuery c (Get.getBlockBirkParameters hash)
-      logm External LLDebug $ "Replying with" ++ show bps
+      logm External LLTrace $ "Replying with" ++ show bps
       jsonValueToCString bps
 
 
@@ -646,7 +647,7 @@ checkIfWeAreBaker cptr = do
         let signKey = Baker.bakerSignPublicKey bid
         let electionKey = Baker.bakerElectionPublicKey bid
         r <- runConsensusQuery c (Get.checkBakerExistsBestBlock (signKey, electionKey))
-        logm External LLDebug $ "Replying with " ++ show r
+        logm External LLTrace $ "Replying with " ++ show r
         if r then return 1 else return 0
 
 -- |Check if we are members of the finalization committee.
@@ -662,9 +663,8 @@ checkIfWeAreFinalizer cptr = do
         return 0
       BakerRunner s _ -> do
         logm External LLDebug "Active consensus, querying best block."
-        let bid = syncBakerIdentity s
         r <- Get.checkFinalizerExistsBestBlock s
-        logm External LLDebug $ "Replying with " ++ show r
+        logm External LLTrace $ "Replying with " ++ show r
         if r then return 1 else return 0
 
 
@@ -687,7 +687,7 @@ getInstanceInfo cptr blockcstr cstr = do
         logm External LLDebug $ "Decoded address to: " ++ show ii
         withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
           iinfo <- runConsensusQuery c (Get.getContractInfo hash) ii
-          logm External LLDebug $ "Replying with: " ++ show iinfo
+          logm External LLTrace $ "Replying with: " ++ show iinfo
           jsonValueToCString iinfo
 
 
@@ -717,7 +717,7 @@ getModuleSource cptr blockcstr cstr = do
             Just modul ->
               let reply = P.runPut (Core.putModule modul)
               in do
-                logm External LLDebug $ "Replying with data size = " ++ show (BS.length reply)
+                logm External LLTrace $ "Replying with data size = " ++ show (BS.length reply)
                 byteStringToCString reply
 
 -- |Query consensus about a specific transaction, installing a hook to
@@ -735,7 +735,7 @@ hookTransaction cptr trcstr = do
             BakerRunner{..} -> syncHookTransaction bakerSyncRunner hash
             PassiveRunner{..} -> syncPassiveHookTransaction passiveSyncRunner hash
         let v = AE.toJSON hookRes
-        logm External LLDebug $ "Replying with: " ++ show v
+        logm External LLTrace $ "Replying with: " ++ show v
         jsonValueToCString v
 
 freeCStr :: CString -> IO ()
@@ -834,7 +834,7 @@ getCatchUpStatus cptr = do
         let logm = consensusLogMethod c
         logm External LLInfo $ "Received request for catch-up status"
         cus <- runConsensusQuery c Get.getCatchUpStatus
-        logm External LLDebug $ "Replying with catch-up status = " ++ show cus
+        logm External LLTrace $ "Replying with catch-up status = " ++ show cus
         byteStringToCString $ encode (cus :: CatchUpStatus)
 
 -- |Callback for sending a message to a peer.
