@@ -45,7 +45,7 @@ use std::{
     pin::Pin,
     str::FromStr,
     sync::{
-        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU16, AtomicU64, AtomicUsize, Ordering},
         mpsc::{sync_channel, Receiver, SyncSender},
         Arc, RwLock,
     },
@@ -752,6 +752,7 @@ impl P2PNode {
         let remote_peer = RemotePeer {
             id: Default::default(),
             addr,
+            peer_external_port: Arc::new(AtomicU16::new(addr.port())),
             peer_type: PeerType::Node,
         };
 
@@ -827,6 +828,7 @@ impl P2PNode {
                 let remote_peer = RemotePeer {
                     id: Default::default(),
                     addr,
+                    peer_external_port: Arc::new(AtomicU16::new(addr.port())),
                     peer_type,
                 };
 

@@ -216,7 +216,8 @@ impl<'a> GlobalData<'a> {
             let mut kvs_writer = kvs_env.write().unwrap(); // infallible
             finalized_block_store
                 .clear(&mut kvs_writer)
-                .expect("Can't clear the block store");
+                .map_err(|err| panic!("Can't clear the block store due to {}", err))
+                .ok();
         }
 
         let mut finalized_blocks = LinkedHashMap::with_capacity_and_hasher(

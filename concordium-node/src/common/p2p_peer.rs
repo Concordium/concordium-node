@@ -9,7 +9,10 @@ use std::{
     fmt::{self, Display},
     hash::{Hash, Hasher},
     net::{IpAddr, SocketAddr},
-    sync::{atomic::AtomicU64, Arc, RwLock},
+    sync::{
+        atomic::{AtomicU16, AtomicU64, Ordering as AtomicOrdering},
+        Arc, RwLock,
+    },
 };
 
 const PEER_TYPE_NODE: u8 = 0;
@@ -144,9 +147,10 @@ impl Display for P2PPeer {
 
 #[derive(Debug, Clone)]
 pub struct RemotePeer {
-    pub id:        Arc<RwLock<Option<P2PNodeId>>>,
-    pub addr:      SocketAddr,
-    pub peer_type: PeerType,
+    pub id:                 Arc<RwLock<Option<P2PNodeId>>>,
+    pub addr:               SocketAddr,
+    pub peer_external_port: Arc<AtomicU16>,
+    pub peer_type:          PeerType,
 }
 
 impl RemotePeer {
@@ -162,35 +166,62 @@ impl RemotePeer {
         }
     }
 
+    pub fn peer_external(self) -> Option<P2PPeer> {
+        if let Some(id) = &*read_or_die!(self.id) {
+            Some(P2PPeer {
+                id:        *id,
+                addr:      SocketAddr::new(
+                    self.addr.ip(),
+                    self.peer_external_port.load(AtomicOrdering::SeqCst),
+                ),
+                peer_type: self.peer_type,
+            })
+        } else {
+            None
+        }
+    }
+
     pub fn addr(&self) -> SocketAddr { self.addr }
 
     pub fn peer_type(&self) -> PeerType { self.peer_type }
+
+    pub fn peer_external_port(&self) -> u16 { self.peer_external_port.load(AtomicOrdering::SeqCst) }
+
+    pub fn peer_external_addr(&self) -> SocketAddr {
+        SocketAddr::new(
+            self.addr.ip(),
+            self.peer_external_port.load(AtomicOrdering::SeqCst),
+        )
+    }
 }
 
 impl From<P2PPeer> for RemotePeer {
     fn from(peer: P2PPeer) -> Self {
         Self {
-            id:        Arc::new(RwLock::new(Some(peer.id))),
-            addr:      peer.addr,
-            peer_type: peer.peer_type,
+            id:                 Arc::new(RwLock::new(Some(peer.id))),
+            addr:               peer.addr,
+            peer_external_port: Arc::new(AtomicU16::new(peer.addr.port())),
+            peer_type:          peer.peer_type,
         }
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct PeerStats {
-    pub id:               u64,
-    pub addr:             SocketAddr,
-    pub peer_type:        PeerType,
-    pub sent:             Arc<AtomicU64>,
-    pub received:         Arc<AtomicU64>,
-    pub measured_latency: Arc<AtomicU64>,
+    pub id:                 u64,
+    pub addr:               SocketAddr,
+    pub peer_external_port: u16,
+    pub peer_type:          PeerType,
+    pub sent:               Arc<AtomicU64>,
+    pub received:           Arc<AtomicU64>,
+    pub measured_latency:   Arc<AtomicU64>,
 }
 
 impl PeerStats {
     pub fn new(
         id: u64,
         addr: SocketAddr,
+        peer_external_port: u16,
         peer_type: PeerType,
         sent: Arc<AtomicU64>,
         received: Arc<AtomicU64>,
@@ -199,10 +230,15 @@ impl PeerStats {
         PeerStats {
             id,
             addr,
+            peer_external_port,
             peer_type,
             sent,
             received,
             measured_latency,
         }
+    }
+
+    pub fn external_address(&self) -> SocketAddr {
+        SocketAddr::new(self.addr.ip(), self.peer_external_port)
     }
 }
