@@ -81,14 +81,15 @@ mod tests {
         collections::HashSet,
         convert::TryFrom,
         str::FromStr,
-        sync::{Arc, RwLock},
+        sync::{atomic::AtomicU16, Arc, RwLock},
     };
 
     fn dummy_peer(ip: IpAddr, port: u16) -> RemotePeer {
         RemotePeer {
-            id:        Arc::new(RwLock::new(Some(P2PNodeId::default()))),
-            addr:      SocketAddr::new(ip, port),
-            peer_type: PeerType::Node,
+            id:                 Arc::new(RwLock::new(Some(P2PNodeId::default()))),
+            addr:               SocketAddr::new(ip, port),
+            peer_external_port: Arc::new(AtomicU16::new(port)),
+            peer_type:          PeerType::Node,
         }
     }
 
