@@ -143,13 +143,15 @@ type LogTransferCallback = Word8 -- ^Type of transfer (see documentation of 'toL
 
 foreign import ccall "dynamic" callLogTransferCallback :: FunPtr LogTransferCallback -> LogTransferCallback
 
--- |Wrap a log callback as a log method.
-toLogMethod :: FunPtr LogCallback -> LogMethod IO
-toLogMethod logCallbackPtr = le
+-- |Wrap a log callback as a log method, only logging events with loglevel <= given log level.
+toLogMethod :: Word8 -> FunPtr LogCallback -> LogMethod IO
+toLogMethod maxLogLevel logCallbackPtr = le
     where
         logCallback = callLogCallback logCallbackPtr
-        le src lvl msg = BS.useAsCString (BS.pack msg) $
-                            logCallback (logSourceId src) (logLevelId lvl)
+        le src lvl = if logLevelId lvl <= maxLogLevel then -- only log if log level less than maximum requested
+                       \msg -> BS.useAsCString (BS.pack msg) $
+                               logCallback (logSourceId src) (logLevelId lvl)
+                     else \_ -> return ()
 
 unsafeWithBSLen :: BS.ByteString -> (CSize -> Ptr Word8 -> IO ()) -> IO ()
 unsafeWithBSLen bs f = BS.unsafeUseAsCStringLen bs $ \(ptr, len) -> f (fromIntegral len) (castPtr ptr) 
@@ -269,11 +271,12 @@ startConsensus ::
            -> CString -> Int64 -- ^Serialized genesis data (c string + len)
            -> CString -> Int64 -- ^Serialized baker identity (c string + len)
            -> FunPtr BroadcastCallback -- ^Handler for generated messages
+           -> Word8 -- ^Maximum log level (inclusive) (0 to disable logging).
            -> FunPtr LogCallback -- ^Handler for log events
            -> Word8 -- ^Whether to enable logging of transfer events (/= 0) or not (value 0).
            -> FunPtr LogTransferCallback -- ^Handler for logging transfer events
            -> IO (StablePtr ConsensusRunner)
-startConsensus maxBlock gdataC gdataLenC bidC bidLenC bcbk lcbk enableTransferLogging ltcbk = do
+startConsensus maxBlock gdataC gdataLenC bidC bidLenC bcbk maxLogLevel lcbk enableTransferLogging ltcbk = do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
         case (decode gdata, decode bdata) of
@@ -282,7 +285,7 @@ startConsensus maxBlock gdataC gdataLenC bidC bidLenC bcbk lcbk enableTransferLo
                 newStablePtr BakerRunner{..}
             _ -> ioError (userError $ "Error decoding serialized data.")
     where
-        logM = toLogMethod lcbk
+        logM = toLogMethod maxLogLevel lcbk
         logT = if enableTransferLogging /= 0 then Just (toLogTransferMethod ltcbk) else Nothing
         bakerBroadcast = broadcastCallback logM bcbk
 
@@ -290,9 +293,10 @@ startConsensus maxBlock gdataC gdataLenC bidC bidLenC bcbk lcbk enableTransferLo
 startConsensusPassive ::
            Word64 -- ^Maximum block size.
            -> CString -> Int64 -- ^Serialized genesis data (c string + len)
+           -> Word8 -- ^Maximum log level (inclusive) (0 to disable logging).
            -> FunPtr LogCallback -- ^Handler for log events
             -> IO (StablePtr ConsensusRunner)
-startConsensusPassive maxBlock gdataC gdataLenC lcbk = do
+startConsensusPassive maxBlock gdataC gdataLenC maxLogLevel lcbk = do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         case (decode gdata) of
             (Right genData) -> do
@@ -300,7 +304,7 @@ startConsensusPassive maxBlock gdataC gdataLenC lcbk = do
                 newStablePtr PassiveRunner{..}
             _ -> ioError (userError $ "Error decoding serialized data.")
     where
-        logM = toLogMethod lcbk
+        logM = toLogMethod maxLogLevel lcbk
 
 -- |Shuts down consensus, stopping any baker thread if necessary.
 -- The pointer is not valid after this function returns.
@@ -892,8 +896,8 @@ receiveCatchUpStatus cptr src cstr l cbk = do
                         
 
 
-foreign export ccall startConsensus :: Word64 -> CString -> Int64 -> CString -> Int64 -> FunPtr BroadcastCallback -> FunPtr LogCallback -> Word8 -> FunPtr LogTransferCallback -> IO (StablePtr ConsensusRunner)
-foreign export ccall startConsensusPassive :: Word64 -> CString -> Int64 -> FunPtr LogCallback -> IO (StablePtr ConsensusRunner)
+foreign export ccall startConsensus :: Word64 -> CString -> Int64 -> CString -> Int64 -> FunPtr BroadcastCallback -> Word8 -> FunPtr LogCallback -> Word8 -> FunPtr LogTransferCallback -> IO (StablePtr ConsensusRunner)
+foreign export ccall startConsensusPassive :: Word64 -> CString -> Int64 -> Word8 -> FunPtr LogCallback -> IO (StablePtr ConsensusRunner)
 foreign export ccall stopConsensus :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall startBaker :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall stopBaker :: StablePtr ConsensusRunner -> IO ()
