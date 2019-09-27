@@ -196,6 +196,7 @@ extern "C" {
         private_data: *const u8,
         private_data_len: i64,
         broadcast_callback: BroadcastCallback,
+        maximum_log_level: u8,
         log_callback: LogCallback,
         transfer_log_enabled: u8,
         transfer_log_callback: TransferLogCallback,
@@ -204,6 +205,7 @@ extern "C" {
         max_block_size: u64,
         genesis_data: *const u8,
         genesis_data_len: i64,
+        maximum_log_level: u8,
         log_callback: LogCallback,
     ) -> *mut consensus_runner;
     pub fn startBaker(consensus: *mut consensus_runner);
@@ -305,6 +307,7 @@ pub fn get_consensus_ptr(
     enable_transfer_logging: bool,
     genesis_data: Vec<u8>,
     private_data: Option<Vec<u8>>,
+    maximum_log_level: ConsensusLogLevel,
 ) -> *mut consensus_runner {
     let genesis_data_len = genesis_data.len();
 
@@ -329,6 +332,7 @@ pub fn get_consensus_ptr(
                     c_string_private_data.as_ptr() as *const u8,
                     private_data_len as i64,
                     broadcast_callback,
+                    maximum_log_level as u8,
                     on_log_emited,
                     if enable_transfer_logging { 1 } else { 0 },
                     on_transfer_log_emitted,
@@ -340,6 +344,7 @@ pub fn get_consensus_ptr(
                 max_block_size,
                 c_string_genesis.as_ptr() as *const u8,
                 genesis_data_len as i64,
+                maximum_log_level as u8,
                 on_log_emited,
             )
         },
