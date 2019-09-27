@@ -170,13 +170,9 @@ impl Connection {
     }
 
     fn handle_get_peers_req(&self, networks: &HashSet<NetworkId>) -> Fallible<()> {
-        let remote_peer = P2PPeer::from(
-            self.remote_peer.peer_type(),
-            self.remote_id().unwrap(), // safe, post-handshake
-            self.remote_addr(),
-        );
+        let peer_id = self.remote_id().unwrap(); // safe, post-handshake
 
-        debug!("Got a GetPeers request from peer {}", remote_peer.id);
+        debug!("Got a GetPeers request from peer {}", peer_id);
 
         self.send_peer_list_resp(networks)
     }
@@ -226,9 +222,12 @@ impl Connection {
     }
 
     fn handle_join_network_req(&self, network: NetworkId) -> Fallible<()> {
-        debug!("Received a JoinNetwork request");
-
         let remote_peer = self.remote_peer().peer().unwrap(); // safe, post-handshake
+
+        debug!(
+            "Received a JoinNetwork request from peer {}",
+            remote_peer.id
+        );
 
         self.add_remote_end_network(network);
         safe_write!(self.handler().connection_handler.buckets)?.update_network_ids(
@@ -249,9 +248,12 @@ impl Connection {
     }
 
     fn handle_leave_network_req(&self, network: NetworkId) -> Fallible<()> {
-        debug!("Received a LeaveNetwork request");
-
         let remote_peer = self.remote_peer().peer().unwrap(); // safe, post-handshake
+
+        debug!(
+            "Received a LeaveNetwork request from peer {}",
+            remote_peer.id
+        );
 
         self.remove_remote_end_network(network);
         safe_write!(self.handler().connection_handler.buckets)?.update_network_ids(
@@ -277,9 +279,9 @@ impl Connection {
         since: u64,
         nid: NetworkId,
     ) -> Fallible<()> {
-        debug!("Received a Retransmit request");
+        let peer_id = self.remote_id().unwrap(); // safe, post-handshake
 
-        let remote_peer = self.remote_peer().peer().unwrap(); // safe, post-handshake
+        debug!("Received a Retransmit request");
 
         if let RequestedElementType::Transaction = element_type {
             read_or_die!(self.handler().transactions_cache)
@@ -289,8 +291,8 @@ impl Connection {
                     if let Err(e) = send_consensus_msg_to_net(
                         self.handler(),
                         vec![],
-                        remote_peer.id,
-                        Some(remote_peer.id),
+                        peer_id,
+                        Some(peer_id),
                         nid,
                         PacketType::Transaction,
                         Some(format!("{:?}", transaction)),
@@ -319,9 +321,9 @@ impl Connection {
     }
 
     pub fn handle_incoming_packet(&self, pac: &NetworkPacket) -> Fallible<()> {
-        trace!("Received a Packet");
+        let peer_id = self.remote_id().unwrap(); // safe, post-handshake
 
-        let remote_peer = self.remote_peer().peer().unwrap(); // safe, post-handshake
+        trace!("Received a Packet from peer {}", peer_id);
 
         let is_broadcast = match pac.packet_type {
             NetworkPacketType::BroadcastedMessage(..) => true,
@@ -350,7 +352,7 @@ impl Connection {
         let dont_relay_to =
             if let NetworkPacketType::BroadcastedMessage(ref peers) = pac.packet_type {
                 let mut list = peers.clone().to_owned();
-                list.push(remote_peer.id);
+                list.push(peer_id);
                 list
             } else {
                 vec![]
@@ -359,14 +361,16 @@ impl Connection {
         handle_pkt_out(
             self.handler(),
             dont_relay_to,
-            remote_peer.id,
+            peer_id,
             pac.message.clone(),
             is_broadcast,
         )
     }
 
     fn handle_invalid_network_msg(&self) {
-        debug!("Received an invalid network message!");
+        let peer_id = self.remote_id().unwrap(); // safe, post-handshake
+
+        debug!("Received an invalid network message from peer {}!", peer_id);
 
         self.stats.failed_pkts.fetch_add(1, Ordering::Relaxed);
 
