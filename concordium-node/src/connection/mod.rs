@@ -243,19 +243,11 @@ impl Connection {
         write_or_die!(self.low_level).read_from_stream(ev, deduplication_queues)
     }
 
-    fn process_message(
+    fn dedup_message(
         &self,
-        mut message: HybridBuf,
+        message: &mut HybridBuf,
         deduplication_queues: &mut DeduplicationQueues,
     ) -> Fallible<()> {
-        self.update_last_seen();
-        self.stats.messages_received.fetch_add(1, Ordering::Relaxed);
-        TOTAL_MESSAGES_RECEIVED_COUNTER.fetch_add(1, Ordering::Relaxed);
-        if let Some(ref service) = self.handler().stats_export_service {
-            service.pkt_received_inc();
-        };
-
-        // deduplicate finalization messages and transactions
         message.seek(SeekFrom::Start(NETWORK_MESSAGE_PROTOCOL_TYPE_IDX as u64))?;
         let packet_type = PacketType::try_from(message.read_u16::<E>()?);
 
@@ -289,6 +281,24 @@ impl Connection {
 
         message.rewind()?;
 
+        Ok(())
+    }
+
+    fn process_message(
+        &self,
+        mut message: HybridBuf,
+        deduplication_queues: &mut DeduplicationQueues,
+    ) -> Fallible<()> {
+        self.update_last_seen();
+        self.stats.messages_received.fetch_add(1, Ordering::Relaxed);
+        TOTAL_MESSAGES_RECEIVED_COUNTER.fetch_add(1, Ordering::Relaxed);
+        if let Some(ref service) = self.handler().stats_export_service {
+            service.pkt_received_inc();
+        };
+
+        // deduplicate the incoming message
+        self.dedup_message(&mut message, deduplication_queues)?;
+
         let message = NetworkMessage::deserial(&mut message)?;
 
         let is_msg_processable = match message {
@@ -297,7 +307,7 @@ impl Connection {
             _ => self.is_post_handshake(),
         };
 
-        // process the incoming request if applicable
+        // process the incoming message if applicable
         if is_msg_processable {
             self.handle_incoming_message(&message);
         } else {
@@ -318,7 +328,7 @@ impl Connection {
             NetworkMessage::InvalidMessage => false,
         };
 
-        // forward applicable requests to other connections
+        // forward applicable messages to other connections
         if is_msg_forwardable {
             if let NetworkMessage::NetworkPacket(..) = message {
                 self.handler().forward_network_packet(message)
