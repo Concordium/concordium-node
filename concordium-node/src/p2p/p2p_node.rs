@@ -169,7 +169,6 @@ impl ConnectionHandler {
 
 pub struct Receivers {
     send_queue_out:             Receiver<NetworkMessage>,
-    resend_queue_out:           Receiver<ResendQueueEntry>,
     pub network_requests:       Receiver<NetworkRawRequest>,
     pub global_state_receivers: Option<GlobalStateReceivers>,
 }
@@ -182,7 +181,6 @@ pub struct P2PNode {
     pub poll:                 Poll,
     pub connection_handler:   ConnectionHandler,
     pub send_queue_in:        SyncSender<NetworkMessage>,
-    resend_queue_in:          SyncSender<ResendQueueEntry>,
     pub rpc_queue:            SyncSender<NetworkMessage>,
     dump_switch:              SyncSender<(std::path::PathBuf, bool)>,
     dump_tx:                  SyncSender<crate::dumper::DumpItem>,
@@ -349,14 +347,12 @@ impl P2PNode {
         };
 
         let (send_queue_in, send_queue_out) = sync_channel(config::OUTBOUND_QUEUE_DEPTH);
-        let (resend_queue_in, resend_queue_out) = sync_channel(config::RESEND_QUEUE_DEPTH);
         let (network_request_sender, network_request_receiver) =
             sync_channel(config::RAW_NETWORK_MSG_QUEUE_DEPTH);
         let (global_state_senders, global_state_receivers) = utils::create_global_state_queues();
 
         let receivers = Receivers {
             send_queue_out,
-            resend_queue_out,
             network_requests: network_request_receiver,
             global_state_receivers: Some(global_state_receivers),
         };
@@ -377,7 +373,6 @@ impl P2PNode {
         let node = Arc::new(P2PNode {
             self_ref: None,
             poll,
-            resend_queue_in: resend_queue_in.clone(),
             rpc_queue: subscription_queue_in,
             start_time: Utc::now(),
             thread: RwLock::new(P2PNodeThread::default()),
@@ -1092,7 +1087,7 @@ impl P2PNode {
 
     // the returned bool determines if the message is to be re-sent in case of
     // failure
-    fn process_network_packet(&self, inner_pkt: &NetworkPacket) -> bool {
+    fn process_network_packet(&self, inner_pkt: &NetworkPacket) {
         let serialized_packet = serialize_into_buffer(
             &NetworkMessage::NetworkPacket(inner_pkt.clone(), Some(get_current_stamp()), None),
             256,
@@ -1128,7 +1123,7 @@ impl P2PNode {
                     let filter =
                         |conn: &Connection| read_or_die!(conn.remote_peer.id).unwrap() == *receiver;
 
-                    self.send_over_all_connections(data, &filter) == 1
+                    self.send_over_all_connections(data, &filter);
                 }
                 NetworkPacketType::BroadcastedMessage(ref dont_relay_to) => {
                     let filter = |conn: &Connection| {
@@ -1141,7 +1136,7 @@ impl P2PNode {
                         )
                     };
 
-                    self.send_over_all_connections(data, &filter) > 0
+                    self.send_over_all_connections(data, &filter);
                 }
             },
             Err(e) => {
@@ -1149,89 +1144,24 @@ impl P2PNode {
                     "Packet message cannot be sent due to a serialization issue: {}",
                     e
                 );
-                true
             }
         }
     }
 
     fn process_messages(&self, receivers: &Receivers) {
-        receivers
-            .send_queue_out
-            .try_iter()
-            .map(|outer_pkt| {
-                trace!("Processing outbound packets");
+        trace!("Processing outbound packets");
 
-                if let Some(ref service) = self.stats_export_service {
-                    service.queue_size_dec();
-                };
+        receivers.send_queue_out.try_iter().for_each(|outer_pkt| {
+            if let Some(ref service) = self.stats_export_service {
+                service.queue_size_dec();
+            };
 
-                if let NetworkMessage::NetworkPacket(ref inner_pkt, ..) = outer_pkt {
-                    if !self.process_network_packet(&inner_pkt) {
-                        Some(outer_pkt)
-                    } else {
-                        None
-                    }
-                } else {
-                    unreachable!("Only packets are to be processed in process_messages!")
-                }
-            })
-            .filter_map(|possible_failure| possible_failure)
-            .for_each(|failed_pkt| {
-                self.pks_resend_inc();
-                // attempt to process failed messages again
-                if self.config.max_resend_attempts > 0
-                    && self
-                        .resend_queue_in
-                        .send(ResendQueueEntry::new(failed_pkt, get_current_stamp(), 0u8))
-                        .is_ok()
-                {
-                    trace!("Successfully sent a failed packet to the resend queue");
-                    self.resend_queue_size_inc();
-                } else {
-                    self.pks_dropped_inc();
-                    error!("Can't put a packet in the resend queue");
-                }
-            });
-    }
-
-    fn process_resend_queue(&self, receivers: &Receivers) {
-        receivers
-            .resend_queue_out
-            .try_iter()
-            .map(|wrapper| {
-                trace!("Processing the resend queue");
-                self.resend_queue_size_dec();
-
-                if let NetworkMessage::NetworkPacket(ref inner_pkt, ..) = wrapper.message {
-                    if !self.process_network_packet(&inner_pkt) {
-                        Some(wrapper)
-                    } else {
-                        None
-                    }
-                } else {
-                    unreachable!("Attempted to reprocess a non-packet network message!");
-                }
-            })
-            .filter_map(|possible_failure| possible_failure)
-            .for_each(|failed_resend_pkt| {
-                if failed_resend_pkt.attempts < self.config.max_resend_attempts {
-                    if self
-                        .resend_queue_in
-                        .send(ResendQueueEntry::new(
-                            failed_resend_pkt.message.clone(),
-                            failed_resend_pkt.last_attempt,
-                            failed_resend_pkt.attempts + 1,
-                        ))
-                        .is_ok()
-                    {
-                        trace!("Successfully requeued a failed network packet");
-                        self.resend_queue_size_inc();
-                    } else {
-                        error!("Can't put a packet in the resend queue");
-                        self.pks_dropped_inc();
-                    }
-                }
-            })
+            if let NetworkMessage::NetworkPacket(ref inner_pkt, ..) = outer_pkt {
+                self.process_network_packet(&inner_pkt);
+            } else {
+                unreachable!("Only packets are to be processed in process_messages!")
+            }
+        })
     }
 
     pub fn get_peer_stats(&self) -> Vec<PeerStats> {
@@ -1331,7 +1261,6 @@ impl P2PNode {
         events.clear();
 
         self.process_messages(receivers);
-        self.process_resend_queue(receivers);
 
         Ok(())
     }
@@ -1432,30 +1361,6 @@ impl P2PNode {
             }
             Err(e) => error!("A network message couldn't be forwarded: {}", e),
         }
-    }
-
-    fn resend_queue_size_inc(&self) {
-        if let Some(ref service) = self.stats_export_service {
-            service.resend_queue_size_inc();
-        };
-    }
-
-    fn resend_queue_size_dec(&self) {
-        if let Some(ref service) = self.stats_export_service {
-            service.resend_queue_size_dec();
-        };
-    }
-
-    fn pks_dropped_inc(&self) {
-        if let Some(ref service) = self.stats_export_service {
-            service.pkt_dropped_inc();
-        };
-    }
-
-    fn pks_resend_inc(&self) {
-        if let Some(ref service) = self.stats_export_service {
-            service.pkt_resend_inc();
-        };
     }
 }
 
