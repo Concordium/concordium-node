@@ -166,6 +166,7 @@ impl Connection {
                 .ok_or_else(|| format_err!("Attempted to get the stats of a pre-handshake peer!"))?
                 .as_raw(),
             self.remote_addr(),
+            self.remote_peer_external_port(),
             self.remote_peer_type(),
             Arc::clone(&self.stats.messages_sent),
             Arc::clone(&self.stats.messages_received),
@@ -174,6 +175,10 @@ impl Connection {
     }
 
     pub fn remote_addr(&self) -> SocketAddr { self.remote_peer.addr() }
+
+    pub fn remote_peer_external_port(&self) -> u16 {
+        self.remote_peer.peer_external_port.load(Ordering::SeqCst)
+    }
 
     pub fn is_post_handshake(&self) -> bool { self.is_post_handshake.load(Ordering::SeqCst) }
 
@@ -256,9 +261,12 @@ impl Connection {
 
     pub fn buckets(&self) -> &RwLock<Buckets> { &self.handler().connection_handler.buckets }
 
-    pub fn promote_to_post_handshake(&self, id: P2PNodeId) -> Fallible<()> {
+    pub fn promote_to_post_handshake(&self, id: P2PNodeId, peer_port: u16) -> Fallible<()> {
         self.is_post_handshake.store(true, Ordering::SeqCst);
         *write_or_die!(self.remote_peer.id) = Some(id);
+        self.remote_peer
+            .peer_external_port
+            .store(peer_port, Ordering::SeqCst);
 
         // register peer's stats in the P2PNode
         write_or_die!(self.handler().active_peer_stats)
@@ -457,7 +465,9 @@ impl Connection {
                     .iter()
                     .filter(|stat| stat.peer_type == PeerType::Node)
                     .filter(|stat| P2PNodeId(stat.id) != requestor.id)
-                    .map(|stat| P2PPeer::from(stat.peer_type, P2PNodeId(stat.id), stat.addr))
+                    .map(|stat| {
+                        P2PPeer::from(stat.peer_type, P2PNodeId(stat.id), stat.external_address())
+                    })
                     .collect::<Vec<_>>();
 
                 if !nodes.is_empty() {

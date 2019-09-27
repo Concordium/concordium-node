@@ -83,7 +83,7 @@ impl Connection {
             bail!("Rejected a handshake request from a banned node");
         }
 
-        self.promote_to_post_handshake(remote_node_id)?;
+        self.promote_to_post_handshake(remote_node_id, remote_port)?;
         self.add_remote_end_networks(networks);
 
         let remote_peer = P2PPeer::from(
@@ -116,7 +116,7 @@ impl Connection {
     ) -> Fallible<()> {
         debug!("Got a Handshake response from peer {}", remote_node_id);
 
-        self.promote_to_post_handshake(remote_node_id)?;
+        self.promote_to_post_handshake(remote_node_id, remote_port)?;
         self.add_remote_end_networks(networks);
 
         self.stats
