@@ -8,7 +8,7 @@ use crate::{
 };
 use concordium_common::Serial;
 
-use std::{convert::TryFrom, ops::Deref, sync::Arc};
+use std::{convert::TryFrom, ops::Deref};
 
 pub const NETWORK_MESSAGE_PROTOCOL_TYPE_IDX: usize = 13 +    // PROTOCOL_NAME.len()
     2 +     // PROTOCOL_VERSION
@@ -22,7 +22,7 @@ use crate::network::serialization::nom::s11n_network_message;
 pub enum NetworkMessage {
     NetworkRequest(NetworkRequest, Option<u64>, Option<u64>),
     NetworkResponse(NetworkResponse, Option<u64>, Option<u64>),
-    NetworkPacket(Arc<NetworkPacket>, Option<u64>, Option<u64>),
+    NetworkPacket(NetworkPacket, Option<u64>, Option<u64>),
     InvalidMessage,
 }
 
@@ -79,7 +79,7 @@ impl Serial for NetworkMessage {
                 )
             }
             ProtocolMessageType::Packet => {
-                let packet = Arc::new(NetworkPacket::deserial(source)?);
+                let packet = NetworkPacket::deserial(source)?;
                 NetworkMessage::NetworkPacket(packet, Some(timestamp), Some(get_current_stamp()))
             }
         };
@@ -92,8 +92,6 @@ impl Serial for NetworkMessage {
         PROTOCOL_VERSION.serial(target)?;
         get_current_stamp().serial(target)?;
         (self.protocol_message_type() as u8).serial(target)?;
-        #[cfg(test)]
-        const_assert!(network_message_protocol_type; NETWORK_MESSAGE_PROTOCOL_TYPE_IDX == 13 + 2 + 8);
 
         match self {
             NetworkMessage::NetworkRequest(ref request, ..) => request.serial(target),
@@ -169,7 +167,7 @@ mod unit_test {
             network_id: NetworkId::from(111),
             message: payload,
         };
-        let message = NetworkMessage::NetworkPacket(Arc::new(pkt), Some(get_current_stamp()), None);
+        let message = NetworkMessage::NetworkPacket(pkt, Some(get_current_stamp()), None);
 
         // 3. Serialize package into a file
         let mut buffer = HybridBuf::new_on_disk()?;

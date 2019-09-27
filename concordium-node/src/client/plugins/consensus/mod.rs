@@ -6,15 +6,12 @@ pub const FILE_NAME_PREFIX_BAKER_PRIVATE: &str = "baker-";
 pub const FILE_NAME_SUFFIX_BAKER_PRIVATE: &str = ".dat";
 
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
-use circular_queue::CircularQueue;
-use digest::Digest;
 use failure::Fallible;
-use twox_hash::XxHash64;
 
 use std::{
     convert::TryFrom,
     fs::OpenOptions,
-    io::{self, Cursor, Read, Seek, SeekFrom, Write},
+    io::{self, Cursor, Read, Write},
     mem,
     sync::Arc,
 };
@@ -47,22 +44,7 @@ use crate::{
     configuration::{self, MAX_CATCH_UP_TIME},
     network::NetworkId,
     p2p::p2p_node::*,
-    utils::GlobalStateSenders,
 };
-
-pub struct DeduplicationQueues {
-    pub dedup_queue_finalization: CircularQueue<[u8; 8]>,
-    pub dedup_queue_transaction:  CircularQueue<[u8; 8]>,
-}
-
-impl DeduplicationQueues {
-    pub fn new(dedup_size: usize) -> Self {
-        Self {
-            dedup_queue_finalization: CircularQueue::with_capacity(dedup_size),
-            dedup_queue_transaction:  CircularQueue::with_capacity(dedup_size),
-        }
-    }
-}
 
 pub fn start_consensus_layer(
     conf: &configuration::BakerConfig,
@@ -154,8 +136,6 @@ pub fn handle_pkt_out(
     dont_relay_to: Vec<P2PNodeId>,
     peer_id: P2PNodeId,
     mut msg: HybridBuf,
-    gs_senders: &GlobalStateSenders,
-    dedup_queues: &mut DeduplicationQueues,
     is_broadcast: bool,
 ) -> Fallible<()> {
     ensure!(
@@ -166,39 +146,6 @@ pub fn handle_pkt_out(
 
     let consensus_type = msg.read_u16::<NetworkEndian>()?;
     let packet_type = PacketType::try_from(consensus_type)?;
-
-    // deduplicate finalization messages and transactions
-    if packet_type == PacketType::FinalizationMessage {
-        let mut hash = [0u8; 8];
-        let msg_pos = msg.position()?;
-        hash.copy_from_slice(&XxHash64::digest(&msg.remaining_bytes()?));
-        msg.seek(SeekFrom::Start(msg_pos))?;
-
-        if dedup_queues
-            .dedup_queue_finalization
-            .iter()
-            .any(|h| h == &hash)
-        {
-            return Ok(());
-        } else {
-            dedup_queues.dedup_queue_finalization.push(hash);
-        }
-    } else if packet_type == PacketType::Transaction {
-        let mut hash = [0u8; 8];
-        let msg_pos = msg.position()?;
-        hash.copy_from_slice(&XxHash64::digest(&msg.remaining_bytes()?));
-        msg.seek(SeekFrom::Start(msg_pos))?;
-
-        if dedup_queues
-            .dedup_queue_transaction
-            .iter()
-            .any(|h| h == &hash)
-        {
-            return Ok(());
-        } else {
-            dedup_queues.dedup_queue_transaction.push(hash);
-        }
-    }
 
     let mut payload = Vec::with_capacity(msg.remaining_len()? as usize);
     io::copy(&mut msg, &mut payload)?;
@@ -224,9 +171,9 @@ pub fn handle_pkt_out(
     ));
 
     if is_broadcast {
-        gs_senders.send(request)
+        node.global_state_senders.send(request)
     } else {
-        gs_senders.send_with_priority(request)
+        node.global_state_senders.send_with_priority(request)
     }
 }
 

@@ -5,7 +5,7 @@ use crate::{
         get_current_stamp, NetworkRawRequest, P2PNodeId, P2PPeer, PeerStats, PeerType, RemotePeer,
     },
     configuration::{self as config, Config},
-    connection::{Connection, MessageSendingPriority, P2PEvent},
+    connection::{Connection, DeduplicationQueues, MessageSendingPriority, P2PEvent},
     crypto::generate_snow_config,
     dumper::DumpItem,
     network::{
@@ -13,13 +13,13 @@ use crate::{
         NetworkPacketType, NetworkRequest,
     },
     p2p::{banned_nodes::BannedNode, fails, unreachable_nodes::UnreachableNodes},
-    utils,
+    stats_engine::StatsEngine,
+    utils::{self, GlobalStateReceivers, GlobalStateSenders},
 };
 use chrono::prelude::*;
 use concordium_common::{
     cache::Cache, hybrid_buf::HybridBuf, serial::serialize_into_buffer,
-    stats_export_service::StatsExportService, QueueSyncSender, RelayOrStopSenderHelper,
-    SerializeToBytes,
+    stats_export_service::StatsExportService, SerializeToBytes,
 };
 use failure::{err_msg, Error, Fallible};
 #[cfg(not(target_os = "windows"))]
@@ -85,6 +85,10 @@ pub struct P2PNodeConfig {
     pub data_dir_path: PathBuf,
     max_latency: Option<u64>,
     hard_connection_limit: Option<u16>,
+    #[cfg(feature = "benchmark")]
+    pub enable_tps_test: bool,
+    #[cfg(feature = "benchmark")]
+    pub tps_message_count: u64,
 }
 
 #[derive(Default)]
@@ -164,9 +168,10 @@ impl ConnectionHandler {
 }
 
 pub struct Receivers {
-    send_queue_out:       Receiver<NetworkMessage>,
-    resend_queue_out:     Receiver<ResendQueueEntry>,
-    pub network_requests: Receiver<NetworkRawRequest>,
+    send_queue_out:             Receiver<NetworkMessage>,
+    resend_queue_out:           Receiver<ResendQueueEntry>,
+    pub network_requests:       Receiver<NetworkRawRequest>,
+    pub global_state_receivers: Option<GlobalStateReceivers>,
 }
 
 #[allow(dead_code)] // caused by the dump_network feature; will fix in a follow-up
@@ -178,7 +183,6 @@ pub struct P2PNode {
     pub connection_handler:   ConnectionHandler,
     pub send_queue_in:        SyncSender<NetworkMessage>,
     resend_queue_in:          SyncSender<ResendQueueEntry>,
-    pub queue_to_super:       QueueSyncSender<NetworkMessage>,
     pub rpc_queue:            SyncSender<NetworkMessage>,
     dump_switch:              SyncSender<(std::path::PathBuf, bool)>,
     dump_tx:                  SyncSender<crate::dumper::DumpItem>,
@@ -190,6 +194,8 @@ pub struct P2PNode {
     pub is_terminated:        AtomicBool,
     pub kvs:                  Arc<RwLock<Rkv>>,
     pub transactions_cache:   RwLock<Cache<Vec<u8>>>,
+    pub stats_engine:         RwLock<StatsEngine>,
+    pub global_state_senders: GlobalStateSenders,
 }
 
 // a convenience macro to send an object to all connections
@@ -223,7 +229,6 @@ impl P2PNode {
     pub fn new(
         supplied_id: Option<String>,
         conf: &Config,
-        pkt_queue: QueueSyncSender<NetworkMessage>,
         event_log: Option<SyncSender<P2PEvent>>,
         peer_type: PeerType,
         stats_export_service: Option<StatsExportService>,
@@ -337,17 +342,23 @@ impl P2PNode {
             data_dir_path: data_dir_path.unwrap_or_else(|| ".".into()),
             max_latency: conf.connection.max_latency,
             hard_connection_limit: conf.connection.hard_connection_limit,
+            #[cfg(feature = "benchmark")]
+            enable_tps_test: conf.cli.tps.enable_tps_test,
+            #[cfg(feature = "benchmark")]
+            tps_message_count: conf.cli.tps.tps_message_count,
         };
 
         let (send_queue_in, send_queue_out) = sync_channel(config::OUTBOUND_QUEUE_DEPTH);
         let (resend_queue_in, resend_queue_out) = sync_channel(config::RESEND_QUEUE_DEPTH);
         let (network_request_sender, network_request_receiver) =
             sync_channel(config::RAW_NETWORK_MSG_QUEUE_DEPTH);
+        let (global_state_senders, global_state_receivers) = utils::create_global_state_queues();
 
         let receivers = Receivers {
             send_queue_out,
             resend_queue_out,
             network_requests: network_request_receiver,
+            global_state_receivers: Some(global_state_receivers),
         };
 
         let connection_handler =
@@ -361,12 +372,12 @@ impl P2PNode {
             .unwrap();
 
         let transactions_cache = Default::default();
+        let stats_engine = RwLock::new(StatsEngine::new(&conf.cli));
 
         let node = Arc::new(P2PNode {
             self_ref: None,
             poll,
             resend_queue_in: resend_queue_in.clone(),
-            queue_to_super: pkt_queue,
             rpc_queue: subscription_queue_in,
             start_time: Utc::now(),
             thread: RwLock::new(P2PNodeThread::default()),
@@ -382,6 +393,8 @@ impl P2PNode {
             is_terminated: Default::default(),
             kvs,
             transactions_cache,
+            stats_engine,
+            global_state_senders,
         });
 
         // note: in order to avoid a lock over the self_ref, write to it as soon as it's
@@ -432,7 +445,7 @@ impl P2PNode {
             .store(get_current_stamp(), Ordering::SeqCst);
     }
 
-    pub fn forward_network_packet(&self, msg: &NetworkMessage) -> Fallible<()> {
+    pub fn forward_network_packet(&self, msg: NetworkMessage) -> Fallible<()> {
         if let NetworkMessage::NetworkPacket(pac, ..) = msg {
             trace!("Processing a packet for relaying");
             if safe_read!(self.networks())?.contains(&pac.network_id) {
@@ -441,7 +454,7 @@ impl P2PNode {
                     pac.message.len()?,
                     pac.peer.id()
                 );
-                let outer = NetworkMessage::NetworkPacket(Arc::clone(&pac), None, None);
+                let outer = NetworkMessage::NetworkPacket(pac, None, None);
 
                 if self.is_rpc_online.load(Ordering::Relaxed) {
                     if let Err(e) = self.rpc_queue.send(outer.clone()) {
@@ -450,13 +463,6 @@ impl P2PNode {
                             e.to_string()
                         );
                     }
-                }
-
-                if let Err(e) = self.queue_to_super.send_msg(outer.clone()) {
-                    warn!(
-                        "Can't relay a message on to the outer super queue: {}",
-                        e.to_string()
-                    );
                 }
             } else if let Some(ref service) = self.stats_export_service {
                 service.invalid_network_pkts_received_inc();
@@ -554,9 +560,11 @@ impl P2PNode {
             let mut events = Events::with_capacity(10);
             let mut log_time = SystemTime::now();
 
+            let mut deduplication_queues = DeduplicationQueues::default();
+
             loop {
                 let _ = self_clone
-                    .process(&receivers, &mut events)
+                    .process(&receivers, &mut events, &mut deduplication_queues)
                     .map_err(|e| error!("{}", e));
 
                 self_clone.process_network_requests(&receivers);
@@ -1016,11 +1024,11 @@ impl P2PNode {
         write_or_die!(self.connections()).insert(conn.token, conn);
     }
 
-    pub fn conn_event(&self, event: &Event) {
+    pub fn conn_event(&self, event: &Event, deduplication_queues: &mut DeduplicationQueues) {
         let token = event.token();
 
         if let Some(conn) = self.find_connection_by_token(token) {
-            if let Err(e) = conn.ready(event) {
+            if let Err(e) = conn.ready(event, deduplication_queues) {
                 error!("Error while processing a connection event: {}", e);
                 conn.handler().remove_connection(conn.token);
             }
@@ -1082,9 +1090,11 @@ impl P2PNode {
         Utc::now().timestamp_millis() - self.start_time.timestamp_millis()
     }
 
-    fn process_network_packet(&self, inner_pkt: Arc<NetworkPacket>) -> bool {
+    // the returned bool determines if the message is to be re-sent in case of
+    // failure
+    fn process_network_packet(&self, inner_pkt: &NetworkPacket) -> bool {
         let serialized_packet = serialize_into_buffer(
-            &NetworkMessage::NetworkPacket(Arc::clone(&inner_pkt), Some(get_current_stamp()), None),
+            &NetworkMessage::NetworkPacket(inner_pkt.clone(), Some(get_current_stamp()), None),
             256,
         );
 
@@ -1118,7 +1128,7 @@ impl P2PNode {
                     let filter =
                         |conn: &Connection| read_or_die!(conn.remote_peer.id).unwrap() == *receiver;
 
-                    self.send_over_all_connections(data, &filter) >= 1
+                    self.send_over_all_connections(data, &filter) == 1
                 }
                 NetworkPacketType::BroadcastedMessage(ref dont_relay_to) => {
                     let filter = |conn: &Connection| {
@@ -1131,8 +1141,7 @@ impl P2PNode {
                         )
                     };
 
-                    self.send_over_all_connections(data, &filter);
-                    true
+                    self.send_over_all_connections(data, &filter) > 0
                 }
             },
             Err(e) => {
@@ -1157,7 +1166,7 @@ impl P2PNode {
                 };
 
                 if let NetworkMessage::NetworkPacket(ref inner_pkt, ..) = outer_pkt {
-                    if !self.process_network_packet(Arc::clone(&inner_pkt)) {
+                    if !self.process_network_packet(&inner_pkt) {
                         Some(outer_pkt)
                     } else {
                         None
@@ -1194,7 +1203,7 @@ impl P2PNode {
                 self.resend_queue_size_dec();
 
                 if let NetworkMessage::NetworkPacket(ref inner_pkt, ..) = wrapper.message {
-                    if !self.process_network_packet(Arc::clone(&inner_pkt)) {
+                    if !self.process_network_packet(&inner_pkt) {
                         Some(wrapper)
                     } else {
                         None
@@ -1293,7 +1302,12 @@ impl P2PNode {
     pub fn internal_addr(&self) -> SocketAddr { self.self_peer.addr }
 
     #[inline(always)]
-    fn process(&self, receivers: &Receivers, events: &mut Events) -> Fallible<()> {
+    fn process(
+        &self,
+        receivers: &Receivers,
+        events: &mut Events,
+        deduplication_queues: &mut DeduplicationQueues,
+    ) -> Fallible<()> {
         self.poll.poll(
             events,
             Some(Duration::from_millis(self.config.poll_interval)),
@@ -1309,7 +1323,7 @@ impl P2PNode {
                     };
                 }
                 _ => {
-                    self.conn_event(&event);
+                    self.conn_event(&event, deduplication_queues);
                 }
             }
         }
@@ -1446,10 +1460,7 @@ impl P2PNode {
 }
 
 impl Drop for P2PNode {
-    fn drop(&mut self) {
-        let _ = self.queue_to_super.send_stop();
-        let _ = self.close_and_join();
-    }
+    fn drop(&mut self) { let _ = self.close_and_join(); }
 }
 
 /// Connetion is valid for a broadcast if sender is not target,
@@ -1542,7 +1553,7 @@ pub fn send_message_from_cursor(
     // Push packet into our `send queue`
     send_or_die!(
         node.send_queue_in,
-        NetworkMessage::NetworkPacket(Arc::new(packet), None, None)
+        NetworkMessage::NetworkPacket(packet, None, None)
     );
 
     if let Some(ref service) = node.stats_export_service {

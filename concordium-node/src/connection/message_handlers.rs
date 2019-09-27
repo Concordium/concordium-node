@@ -6,9 +6,7 @@ use crate::{
         request::RequestedElementType, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType,
         NetworkRequest, NetworkResponse,
     },
-    p2p::{banned_nodes::BannedNode, p2p_node::P2PNode},
-    stats_engine::StatsEngine,
-    utils::GlobalStateSenders,
+    p2p::banned_nodes::BannedNode,
 };
 use concordium_common::{read_or_die, serial::serialize_into_buffer, write_or_die, PacketType};
 
@@ -32,9 +30,6 @@ impl Connection {
             NetworkMessage::NetworkRequest(NetworkRequest::FindNode(node), ..) => {
                 self.handle_find_node_req(*node)
             }
-            NetworkMessage::NetworkResponse(NetworkResponse::FindNode(ref peers), ..) => {
-                self.handle_find_node_resp(peers)
-            }
             NetworkMessage::NetworkRequest(NetworkRequest::GetPeers(ref networks), ..) => {
                 self.handle_get_peers_req(networks)
             }
@@ -53,10 +48,7 @@ impl Connection {
             NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(peer_to_unban), ..) => {
                 self.handle_unban(*peer_to_unban)
             }
-            NetworkMessage::NetworkPacket(..) => {
-                // handled by handle_incoming_packet
-                Ok(())
-            }
+            NetworkMessage::NetworkPacket(pac, ..) => self.handle_incoming_packet(pac),
             NetworkMessage::NetworkRequest(
                 NetworkRequest::Retransmit(elem_type, since, nid),
                 ..
@@ -165,7 +157,7 @@ impl Connection {
                 .collect::<Vec<_>>();
 
             NetworkMessage::NetworkResponse(
-                NetworkResponse::FindNode(nodes),
+                NetworkResponse::PeerList(nodes),
                 Some(get_current_stamp()),
                 None,
             )
@@ -175,17 +167,6 @@ impl Connection {
             serialize_into_buffer(&find_node_msg, 256)?,
             MessageSendingPriority::Normal,
         )
-    }
-
-    fn handle_find_node_resp(&self, nodes: &[P2PPeer]) -> Fallible<()> {
-        debug!("Got a FindNode reponse");
-
-        let mut ref_buckets = safe_write!(self.handler().connection_handler.buckets)?;
-        for peer in nodes.iter() {
-            ref_buckets.insert_into_bucket(peer, HashSet::new());
-        }
-
-        Ok(())
     }
 
     fn handle_get_peers_req(&self, networks: &HashSet<NetworkId>) -> Fallible<()> {
@@ -336,6 +317,49 @@ impl Connection {
         self.handler().unban_node(peer)
     }
 
+    pub fn handle_incoming_packet(&self, pac: &NetworkPacket) -> Fallible<()> {
+        let is_broadcast = match pac.packet_type {
+            NetworkPacketType::BroadcastedMessage(..) => true,
+            _ => false,
+        };
+
+        #[cfg(feature = "benchmark")]
+        {
+            if !is_broadcast && self.handler().config.enable_tps_test {
+                let mut stats_engine = write_or_die!(self.handler().stats_engine);
+                if let Ok(len) = pac.message.len() {
+                    stats_engine.add_stat(len);
+
+                    if stats_engine.msg_count == self.handler().config.tps_message_count {
+                        info!(
+                            "TPS over {} messages is {}",
+                            self.handler().config.tps_message_count,
+                            stats_engine.calculate_total_tps_average()
+                        );
+                        stats_engine.clear();
+                    }
+                }
+            }
+        }
+
+        let dont_relay_to =
+            if let NetworkPacketType::BroadcastedMessage(ref peers) = pac.packet_type {
+                let mut list = peers.clone().to_owned();
+                list.push(pac.peer.id());
+                list
+            } else {
+                vec![]
+            };
+
+        handle_pkt_out(
+            self.handler(),
+            dont_relay_to,
+            pac.peer.id(),
+            pac.message.clone(),
+            is_broadcast,
+        )
+    }
+
     fn handle_invalid_network_msg(&self) {
         debug!("Received an invalid network message!");
 
@@ -344,62 +368,5 @@ impl Connection {
         if let Some(ref service) = self.handler().stats_export_service {
             service.invalid_pkts_received_inc();
         }
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-pub fn handle_incoming_packet(
-    node: &P2PNode,
-    pac: &NetworkPacket,
-    global_state_senders: &GlobalStateSenders,
-    dedup_queues: &mut DeduplicationQueues,
-    _stats_engine: &mut StatsEngine,
-    _msg_count: &mut u64,
-    _tps_test_enabled: bool,
-    _tps_message_count: u64,
-) {
-    let is_broadcast = match pac.packet_type {
-        NetworkPacketType::BroadcastedMessage(..) => true,
-        _ => false,
-    };
-
-    if !is_broadcast && _tps_test_enabled {
-        if let Ok(len) = pac.message.len() {
-            _stats_engine.add_stat(len);
-            *_msg_count += 1;
-
-            if *_msg_count == _tps_message_count {
-                info!(
-                    "TPS over {} messages is {}",
-                    _tps_message_count,
-                    _stats_engine.calculate_total_tps_average()
-                );
-                *_msg_count = 0;
-                _stats_engine.clear();
-            }
-        }
-    }
-
-    let dont_relay_to = if let NetworkPacketType::BroadcastedMessage(ref peers) = pac.packet_type {
-        let mut list = peers.clone().to_owned();
-        list.push(pac.peer.id());
-        list
-    } else {
-        vec![]
-    };
-
-    if let Err(e) = handle_pkt_out(
-        node,
-        dont_relay_to,
-        pac.peer.id(),
-        pac.message.clone(),
-        &global_state_senders,
-        dedup_queues,
-        is_broadcast,
-    ) {
-        error!(
-            "Couldn't handle a NetworkPacket from peer {}: {}",
-            pac.peer.id, e
-        );
     }
 }

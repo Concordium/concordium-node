@@ -98,8 +98,7 @@ pub fn make_node_and_sync(
     port: u16,
     networks: Vec<u16>,
     node_type: PeerType,
-) -> Fallible<(Arc<P2PNode>, Receiver<QueueMsg<NetworkMessage>>)> {
-    let (net_tx, net_rx) = std::sync::mpsc::sync_channel(64);
+) -> Fallible<(Arc<P2PNode>)> {
     let (rpc_tx, _rpc_rx) = std::sync::mpsc::sync_channel(64);
 
     // locally-run tests and benches can be polled with a much greater frequency
@@ -112,7 +111,6 @@ pub fn make_node_and_sync(
     let (node, receivers) = P2PNode::new(
         None,
         &config,
-        net_tx,
         None,
         node_type,
         Some(export_service),
@@ -121,7 +119,7 @@ pub fn make_node_and_sync(
     );
 
     node.spawn(receivers);
-    Ok((node, net_rx))
+    Ok(node)
 }
 
 pub fn make_node_and_sync_with_rpc(
@@ -134,7 +132,6 @@ pub fn make_node_and_sync_with_rpc(
     Receiver<NetworkMessage>,
     Receiver<NetworkMessage>,
 )> {
-    let (net_tx, _) = std::sync::mpsc::sync_channel(64);
     let (_, msg_wait_rx) = std::sync::mpsc::sync_channel(64);
     let (rpc_tx, rpc_rx) = std::sync::mpsc::sync_channel(64);
 
@@ -148,7 +145,6 @@ pub fn make_node_and_sync_with_rpc(
     let (node, receivers) = P2PNode::new(
         None,
         &config,
-        net_tx,
         None,
         node_type,
         Some(export_service),
