@@ -289,6 +289,7 @@ impl Connection {
                     if let Err(e) = send_consensus_msg_to_net(
                         self.handler(),
                         vec![],
+                        remote_peer.id,
                         Some(remote_peer.id),
                         nid,
                         PacketType::Transaction,
@@ -318,6 +319,10 @@ impl Connection {
     }
 
     pub fn handle_incoming_packet(&self, pac: &NetworkPacket) -> Fallible<()> {
+        trace!("Received a Packet");
+
+        let remote_peer = self.remote_peer().peer().unwrap(); // safe, post-handshake
+
         let is_broadcast = match pac.packet_type {
             NetworkPacketType::BroadcastedMessage(..) => true,
             _ => false,
@@ -345,7 +350,7 @@ impl Connection {
         let dont_relay_to =
             if let NetworkPacketType::BroadcastedMessage(ref peers) = pac.packet_type {
                 let mut list = peers.clone().to_owned();
-                list.push(pac.peer.id());
+                list.push(remote_peer.id);
                 list
             } else {
                 vec![]
@@ -354,7 +359,7 @@ impl Connection {
         handle_pkt_out(
             self.handler(),
             dont_relay_to,
-            pac.peer.id(),
+            remote_peer.id,
             pac.message.clone(),
             is_broadcast,
         )

@@ -1063,7 +1063,11 @@ impl P2PNode {
         Utc::now().timestamp_millis() - self.start_time.timestamp_millis()
     }
 
-    fn process_network_packet(&self, inner_pkt: NetworkPacket) -> Fallible<usize> {
+    fn process_network_packet(
+        &self,
+        inner_pkt: NetworkPacket,
+        source_id: P2PNodeId,
+    ) -> Fallible<usize> {
         let serialized_packet = serialize_into_buffer(
             &NetworkMessage::NetworkPacket(inner_pkt.clone(), Some(get_current_stamp()), None),
             256,
@@ -1102,7 +1106,7 @@ impl P2PNode {
                 let filter = |conn: &Connection| {
                     is_valid_connection_in_broadcast(
                         conn,
-                        &inner_pkt.peer,
+                        source_id,
                         &peers_to_skip,
                         &dont_relay_to,
                         inner_pkt.network_id,
@@ -1318,7 +1322,7 @@ impl Drop for P2PNode {
 /// a bootstrap node.
 fn is_valid_connection_in_broadcast(
     conn: &Connection,
-    sender: &P2PPeer,
+    sender: P2PNodeId,
     peers_to_skip: &[P2PNodeId],
     dont_relay_to: &[P2PNodeId],
     network_id: NetworkId,
@@ -1327,7 +1331,7 @@ fn is_valid_connection_in_broadcast(
     let peer_id = read_or_die!(conn.remote_peer.id).unwrap();
 
     if conn.remote_peer.peer_type() != PeerType::Bootstrapper
-        && peer_id != sender.id()
+        && peer_id != sender
         && !peers_to_skip.contains(&peer_id)
         && !dont_relay_to.contains(&peer_id)
     {
@@ -1356,25 +1360,28 @@ fn get_ip_if_suitable(addr: &IpAddr) -> Option<IpAddr> {
 #[inline]
 pub fn send_direct_message(
     node: &P2PNode,
+    source_id: P2PNodeId,
     target_id: Option<P2PNodeId>,
     network_id: NetworkId,
     msg: HybridBuf,
 ) -> Fallible<()> {
-    send_message_from_cursor(node, target_id, vec![], network_id, msg, false)
+    send_message_from_cursor(node, source_id, target_id, vec![], network_id, msg, false)
 }
 
 #[inline]
 pub fn send_broadcast_message(
     node: &P2PNode,
+    source_id: P2PNodeId,
     dont_relay_to: Vec<P2PNodeId>,
     network_id: NetworkId,
     msg: HybridBuf,
 ) -> Fallible<()> {
-    send_message_from_cursor(node, None, dont_relay_to, network_id, msg, true)
+    send_message_from_cursor(node, source_id, None, dont_relay_to, network_id, msg, true)
 }
 
 pub fn send_message_from_cursor(
     node: &P2PNode,
+    source_id: P2PNodeId,
     target_id: Option<P2PNodeId>,
     dont_relay_to: Vec<P2PNodeId>,
     network_id: NetworkId,
@@ -1395,12 +1402,11 @@ pub fn send_message_from_cursor(
     // Create packet.
     let packet = NetworkPacket {
         packet_type,
-        peer: node.self_peer,
         network_id,
         message,
     };
 
-    if let Ok(sent_packets) = node.process_network_packet(packet) {
+    if let Ok(sent_packets) = node.process_network_packet(packet, source_id) {
         trace!("Send a packet to {} peers", sent_packets);
     } else {
         error!("Couldn't send a packet");
