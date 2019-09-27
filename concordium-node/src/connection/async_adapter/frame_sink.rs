@@ -1,14 +1,10 @@
-use crate::connection::{
-    async_adapter::{EncryptSink, HandshakeStreamSink, Readiness},
-    MessageSendingPriority,
-};
+use crate::connection::async_adapter::{EncryptSink, HandshakeStreamSink, Readiness};
 
 use concordium_common::hybrid_buf::HybridBuf;
 
 use failure::Fallible;
 
 use std::{
-    collections::VecDeque,
     io::Write,
     sync::{Arc, RwLock},
 };
@@ -37,7 +33,7 @@ use std::{
 /// It establishes a `Noise IKpsk2` handshake to encrypt data before start
 /// sending any data.
 pub struct FrameSink {
-    frame_queue: VecDeque<HybridBuf>,
+    frame_queue: Vec<HybridBuf>,
     handshaker:  Option<Arc<RwLock<HandshakeStreamSink>>>,
     encryptor:   Option<EncryptSink>,
 }
@@ -45,7 +41,7 @@ pub struct FrameSink {
 impl FrameSink {
     pub fn new(handshaker: Arc<RwLock<HandshakeStreamSink>>) -> Self {
         FrameSink {
-            frame_queue: VecDeque::new(),
+            frame_queue: Vec::with_capacity(16),
             handshaker:  Some(handshaker),
             encryptor:   None,
         }
@@ -61,7 +57,6 @@ impl FrameSink {
         &mut self,
         input: HybridBuf,
         output: &mut impl Write,
-        priority: MessageSendingPriority,
     ) -> Fallible<Readiness<usize>> {
         if let Some(ref mut encryptor) = self.encryptor {
             encryptor.write(input, output)
@@ -71,10 +66,7 @@ impl FrameSink {
                 input.len().unwrap_or(0),
                 self.frame_queue.len()
             );
-            match priority {
-                MessageSendingPriority::High => self.frame_queue.push_front(input),
-                MessageSendingPriority::Normal => self.frame_queue.push_back(input),
-            }
+            self.frame_queue.push(input);
             self.flush(output)
         }
     }
@@ -96,8 +88,7 @@ impl FrameSink {
                     // Create an encryptor and enqueue pending messages.
                     let mut encryptor = EncryptSink::new(session);
 
-                    let clear_frames = std::mem::replace(&mut self.frame_queue, VecDeque::new());
-                    for frame in clear_frames.into_iter() {
+                    for frame in std::mem::replace(&mut self.frame_queue, Default::default()) {
                         encryptor.write_without_flush(frame)?;
                     }
 

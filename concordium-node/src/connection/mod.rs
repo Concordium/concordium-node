@@ -372,12 +372,8 @@ impl Connection {
     /// This functions returns (almost) immediately, because it does NOT wait
     /// for real write. Function `ConnectionPrivate::ready` will make ensure to
     /// write chunks of the message
-    #[inline(always)]
-    pub fn async_send_from_poll_loop(
-        &self,
-        input: HybridBuf,
-        priority: MessageSendingPriority,
-    ) -> Fallible<Readiness<usize>> {
+    #[inline]
+    pub fn async_send_from_poll_loop(&self, input: HybridBuf) -> Fallible<Readiness<usize>> {
         TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
         self.stats.messages_sent.fetch_add(1, Ordering::Relaxed);
         if let Some(ref stats) = self.handler().stats_export_service {
@@ -386,7 +382,7 @@ impl Connection {
 
         self.send_to_dump(&input, false);
 
-        write_or_die!(self.low_level).write_to_sink(input, priority)
+        write_or_die!(self.low_level).write_to_sink(input)
     }
 
     pub fn update_last_seen(&self) {
@@ -700,12 +696,8 @@ impl ConnectionLowLevel {
     }
 
     #[inline(always)]
-    fn write_to_sink(
-        &mut self,
-        input: HybridBuf,
-        priority: MessageSendingPriority,
-    ) -> Fallible<Readiness<usize>> {
-        self.message_sink.write(input, &mut self.socket, priority)
+    fn write_to_sink(&mut self, input: HybridBuf) -> Fallible<Readiness<usize>> {
+        self.message_sink.write(input, &mut self.socket)
     }
 }
 
