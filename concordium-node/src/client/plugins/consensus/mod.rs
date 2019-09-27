@@ -67,7 +67,7 @@ impl DeduplicationQueues {
 pub fn start_consensus_layer(
     conf: &configuration::BakerConfig,
     app_prefs: &configuration::AppPreferences,
-    max_logging_level: ConsensusLogLevel,
+    max_logging_level: consensus::ConsensusLogLevel,
 ) -> Option<consensus::ConsensusContainer> {
     info!("Starting up the consensus thread");
 
