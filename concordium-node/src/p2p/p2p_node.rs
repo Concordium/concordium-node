@@ -168,7 +168,6 @@ impl ConnectionHandler {
 }
 
 pub struct Receivers {
-    send_queue_out:             Receiver<NetworkMessage>,
     pub network_requests:       Receiver<NetworkRawRequest>,
     pub global_state_receivers: Option<GlobalStateReceivers>,
 }
@@ -180,7 +179,6 @@ pub struct P2PNode {
     thread:                   RwLock<P2PNodeThread>,
     pub poll:                 Poll,
     pub connection_handler:   ConnectionHandler,
-    pub send_queue_in:        SyncSender<NetworkMessage>,
     pub rpc_queue:            SyncSender<NetworkMessage>,
     dump_switch:              SyncSender<(std::path::PathBuf, bool)>,
     dump_tx:                  SyncSender<crate::dumper::DumpItem>,
@@ -204,11 +202,8 @@ macro_rules! send_to_all {
             let msg = NetworkMessage::NetworkRequest(req, None, None);
             let filter = |_: &Connection| true;
 
-            match serialize_into_buffer(&msg, 256) {
-                Ok(data) => {
-                    self.send_over_all_connections(data, &filter);
-                },
-                Err(e) => error!("A network message couldn't be forwarded: {}", e),
+            if let Err(e) = serialize_into_buffer(&msg, 256).and_then(|data| self.send_over_all_connections(data, &filter)) {
+                error!("A network message couldn't be forwarded: {}", e);
             }
         }
     }
@@ -346,14 +341,12 @@ impl P2PNode {
             tps_message_count: conf.cli.tps.tps_message_count,
         };
 
-        let (send_queue_in, send_queue_out) = sync_channel(config::OUTBOUND_QUEUE_DEPTH);
         let (network_request_sender, network_request_receiver) =
             sync_channel(config::RAW_NETWORK_MSG_QUEUE_DEPTH);
         let (global_state_senders, global_state_receivers) = utils::create_global_state_queues();
 
         let receivers = Receivers {
-            send_queue_out,
-            network_requests: network_request_receiver,
+            network_requests:       network_request_receiver,
             global_state_receivers: Some(global_state_receivers),
         };
 
@@ -383,7 +376,6 @@ impl P2PNode {
             connection_handler,
             self_peer,
             active_peer_stats: Default::default(),
-            send_queue_in,
             stats_export_service,
             is_terminated: Default::default(),
             kvs,
@@ -416,16 +408,21 @@ impl P2PNode {
         &self,
         data: HybridBuf,
         conn_filter: &dyn Fn(&Connection) -> bool,
-    ) -> usize {
-        read_or_die!(self.connections())
+    ) -> Fallible<usize> {
+        let mut sent_messages = 0usize;
+
+        for conn in read_or_die!(self.connections())
             .values()
             .filter(|conn| conn.is_post_handshake() && conn_filter(conn))
-            .map(|conn| {
-                if let Err(e) = conn.async_send(data.clone(), MessageSendingPriority::Normal) {
-                    error!("Couldn't send a message to {}: {}", conn, e);
-                }
-            })
-            .count()
+        {
+            if let Err(e) = conn.async_send(data.clone(), MessageSendingPriority::Normal) {
+                error!("Couldn't send a message to {}: {}", conn, e);
+            } else {
+                sent_messages += 1;
+            }
+        }
+
+        Ok(sent_messages)
     }
 
     pub fn get_last_bootstrap(&self) -> u64 {
@@ -441,27 +438,8 @@ impl P2PNode {
     }
 
     pub fn forward_network_packet(&self, msg: NetworkMessage) -> Fallible<()> {
-        if let NetworkMessage::NetworkPacket(pac, ..) = msg {
-            trace!("Processing a packet for relaying");
-            if safe_read!(self.networks())?.contains(&pac.network_id) {
-                trace!(
-                    "Received packet of size {} from {}",
-                    pac.message.len()?,
-                    pac.peer.id()
-                );
-                let outer = NetworkMessage::NetworkPacket(pac, None, None);
-
-                if self.is_rpc_online.load(Ordering::Relaxed) {
-                    if let Err(e) = self.rpc_queue.send(outer.clone()) {
-                        warn!(
-                            "Can't relay a message to the RPC outbound queue: {}",
-                            e.to_string()
-                        );
-                    }
-                }
-            } else if let Some(ref service) = self.stats_export_service {
-                service.invalid_network_pkts_received_inc();
-            }
+        if let Err(e) = self.rpc_queue.send(msg) {
+            error!("Can't relay a message to the RPC outbound queue: {}", e);
         }
 
         Ok(())
@@ -559,7 +537,7 @@ impl P2PNode {
 
             loop {
                 let _ = self_clone
-                    .process(&receivers, &mut events, &mut deduplication_queues)
+                    .process(&mut events, &mut deduplication_queues)
                     .map_err(|e| error!("{}", e));
 
                 self_clone.process_network_requests(&receivers);
@@ -1085,18 +1063,16 @@ impl P2PNode {
         Utc::now().timestamp_millis() - self.start_time.timestamp_millis()
     }
 
-    // the returned bool determines if the message is to be re-sent in case of
-    // failure
-    fn process_network_packet(&self, inner_pkt: &NetworkPacket) {
+    fn process_network_packet(&self, inner_pkt: NetworkPacket) -> Fallible<usize> {
         let serialized_packet = serialize_into_buffer(
             &NetworkMessage::NetworkPacket(inner_pkt.clone(), Some(get_current_stamp()), None),
             256,
-        );
+        )?;
 
-        let (peers_to_skip, s11n_data) = match inner_pkt.packet_type {
-            NetworkPacketType::DirectMessage(..) => (vec![], serialized_packet),
+        let peers_to_skip = match inner_pkt.packet_type {
+            NetworkPacketType::DirectMessage(..) => vec![],
             NetworkPacketType::BroadcastedMessage(ref dont_send_to) => {
-                let not_valid_receivers = if self.config.relay_broadcast_percentage < 1.0 {
+                if self.config.relay_broadcast_percentage < 1.0 {
                     use rand::seq::SliceRandom;
                     let mut rng = rand::thread_rng();
                     let mut peers = self.get_all_current_peers(Some(PeerType::Node));
@@ -1110,58 +1086,32 @@ impl P2PNode {
                         .collect::<Vec<_>>()
                 } else {
                     Vec::new()
-                };
-
-                (not_valid_receivers, serialized_packet)
+                }
             }
         };
 
-        match s11n_data {
-            Ok(data) => match inner_pkt.packet_type {
-                NetworkPacketType::DirectMessage(ref receiver) => {
-                    // safe, used only in a post-handshake context
-                    let filter =
-                        |conn: &Connection| read_or_die!(conn.remote_peer.id).unwrap() == *receiver;
+        match inner_pkt.packet_type {
+            NetworkPacketType::DirectMessage(ref receiver) => {
+                // safe, used only in a post-handshake context
+                let filter =
+                    |conn: &Connection| read_or_die!(conn.remote_peer.id).unwrap() == *receiver;
 
-                    self.send_over_all_connections(data, &filter);
-                }
-                NetworkPacketType::BroadcastedMessage(ref dont_relay_to) => {
-                    let filter = |conn: &Connection| {
-                        is_valid_connection_in_broadcast(
-                            conn,
-                            &inner_pkt.peer,
-                            &peers_to_skip,
-                            &dont_relay_to,
-                            inner_pkt.network_id,
-                        )
-                    };
+                self.send_over_all_connections(serialized_packet, &filter)
+            }
+            NetworkPacketType::BroadcastedMessage(ref dont_relay_to) => {
+                let filter = |conn: &Connection| {
+                    is_valid_connection_in_broadcast(
+                        conn,
+                        &inner_pkt.peer,
+                        &peers_to_skip,
+                        &dont_relay_to,
+                        inner_pkt.network_id,
+                    )
+                };
 
-                    self.send_over_all_connections(data, &filter);
-                }
-            },
-            Err(e) => {
-                error!(
-                    "Packet message cannot be sent due to a serialization issue: {}",
-                    e
-                );
+                self.send_over_all_connections(serialized_packet, &filter)
             }
         }
-    }
-
-    fn process_messages(&self, receivers: &Receivers) {
-        trace!("Processing outbound packets");
-
-        receivers.send_queue_out.try_iter().for_each(|outer_pkt| {
-            if let Some(ref service) = self.stats_export_service {
-                service.queue_size_dec();
-            };
-
-            if let NetworkMessage::NetworkPacket(ref inner_pkt, ..) = outer_pkt {
-                self.process_network_packet(&inner_pkt);
-            } else {
-                unreachable!("Only packets are to be processed in process_messages!")
-            }
-        })
     }
 
     pub fn get_peer_stats(&self) -> Vec<PeerStats> {
@@ -1234,7 +1184,6 @@ impl P2PNode {
     #[inline(always)]
     fn process(
         &self,
-        receivers: &Receivers,
         events: &mut Events,
         deduplication_queues: &mut DeduplicationQueues,
     ) -> Fallible<()> {
@@ -1259,8 +1208,6 @@ impl P2PNode {
         }
 
         events.clear();
-
-        self.process_messages(receivers);
 
         Ok(())
     }
@@ -1336,11 +1283,10 @@ impl P2PNode {
             let msg = NetworkMessage::NetworkRequest(req, None, None);
             let filter = |_: &Connection| true;
 
-            match serialize_into_buffer(&msg, 256) {
-                Ok(data) => {
-                    self.send_over_all_connections(data, &filter);
-                }
-                Err(e) => error!("A network message couldn't be forwarded: {}", e),
+            if let Err(e) = serialize_into_buffer(&msg, 256)
+                .and_then(|data| self.send_over_all_connections(data, &filter))
+            {
+                error!("A network message couldn't be forwarded: {}", e);
             }
         }
     }
@@ -1355,11 +1301,10 @@ impl P2PNode {
         let msg = NetworkMessage::NetworkRequest(req, None, None);
         let filter = |_: &Connection| true;
 
-        match serialize_into_buffer(&msg, 256) {
-            Ok(data) => {
-                self.send_over_all_connections(data, &filter);
-            }
-            Err(e) => error!("A network message couldn't be forwarded: {}", e),
+        if let Err(e) = serialize_into_buffer(&msg, 256)
+            .and_then(|data| self.send_over_all_connections(data, &filter))
+        {
+            error!("A network message couldn't be forwarded: {}", e);
         }
     }
 }
@@ -1455,15 +1400,11 @@ pub fn send_message_from_cursor(
         message,
     };
 
-    // Push packet into our `send queue`
-    send_or_die!(
-        node.send_queue_in,
-        NetworkMessage::NetworkPacket(packet, None, None)
-    );
-
-    if let Some(ref service) = node.stats_export_service {
-        service.queue_size_inc();
-    };
+    if let Ok(sent_packets) = node.process_network_packet(packet) {
+        trace!("Send a packet to {} peers", sent_packets);
+    } else {
+        error!("Couldn't send a packet");
+    }
 
     Ok(())
 }

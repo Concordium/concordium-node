@@ -255,26 +255,22 @@ impl Connection {
             let mut hash = [0u8; 8];
             hash.copy_from_slice(&XxHash64::digest(&message.remaining_bytes()?));
 
-            if deduplication_queues
+            if !deduplication_queues
                 .dedup_queue_finalization
                 .iter()
                 .any(|h| h == &hash)
             {
-                return Ok(());
-            } else {
                 deduplication_queues.dedup_queue_finalization.push(hash);
             }
         } else if let Ok(PacketType::Transaction) = packet_type {
             let mut hash = [0u8; 8];
             hash.copy_from_slice(&XxHash64::digest(&message.remaining_bytes()?));
 
-            if deduplication_queues
+            if !deduplication_queues
                 .dedup_queue_transaction
                 .iter()
                 .any(|h| h == &hash)
             {
-                return Ok(());
-            } else {
                 deduplication_queues.dedup_queue_transaction.push(hash);
             }
         }
@@ -324,7 +320,9 @@ impl Connection {
             NetworkMessage::NetworkResponse(ref response, ..) => match response {
                 _ => false,
             },
-            NetworkMessage::NetworkPacket(..) => true,
+            NetworkMessage::NetworkPacket(..) => {
+                self.handler().is_rpc_online.load(Ordering::Relaxed)
+            }
             NetworkMessage::InvalidMessage => false,
         };
 
@@ -356,9 +354,7 @@ impl Connection {
         Ok(())
     }
 
-    pub fn remote_end_networks(&self) -> Arc<RwLock<HashSet<NetworkId>>> {
-        Arc::clone(&self.remote_end_networks)
-    }
+    pub fn remote_end_networks(&self) -> &RwLock<HashSet<NetworkId>> { &self.remote_end_networks }
 
     pub fn local_end_networks(&self) -> &RwLock<Networks> { self.handler().networks() }
 
