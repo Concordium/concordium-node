@@ -353,16 +353,8 @@ impl Connection {
     pub fn local_end_networks(&self) -> &RwLock<Networks> { self.handler().networks() }
 
     /// It queues a network request
-    #[inline]
+    #[inline(always)]
     pub fn async_send(&self, input: HybridBuf, priority: MessageSendingPriority) -> Fallible<()> {
-        TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
-        self.stats.messages_sent.fetch_add(1, Ordering::Relaxed);
-        if let Some(ref stats) = self.handler().stats_export_service {
-            stats.pkt_sent_inc();
-        }
-
-        self.send_to_dump(&input, false);
-
         let request = NetworkRawRequest {
             token: self.token,
             data: input,
@@ -380,7 +372,7 @@ impl Connection {
     /// This functions returns (almost) immediately, because it does NOT wait
     /// for real write. Function `ConnectionPrivate::ready` will make ensure to
     /// write chunks of the message
-    #[inline]
+    #[inline(always)]
     pub fn async_send_from_poll_loop(
         &self,
         input: HybridBuf,
@@ -672,6 +664,7 @@ impl ConnectionLowLevel {
         }
     }
 
+    #[inline(always)]
     fn read_from_stream(
         &mut self,
         ev: &Event,
@@ -706,6 +699,7 @@ impl ConnectionLowLevel {
         Ok(())
     }
 
+    #[inline(always)]
     fn write_to_sink(
         &mut self,
         input: HybridBuf,
