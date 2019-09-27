@@ -36,7 +36,7 @@ use rkv::{Manager, Rkv, StoreOptions, Value};
 use snow::Keypair;
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     net::{
         IpAddr::{self, V4, V6},
         SocketAddr,
@@ -561,13 +561,14 @@ impl P2PNode {
             let mut log_time = SystemTime::now();
 
             let mut deduplication_queues = DeduplicationQueues::default();
+            let mut order_queue = VecDeque::with_capacity(16);
 
             loop {
                 let _ = self_clone
                     .process(&receivers, &mut events, &mut deduplication_queues)
                     .map_err(|e| error!("{}", e));
 
-                self_clone.process_network_requests(&receivers);
+                self_clone.process_network_requests(&receivers, &mut order_queue);
 
                 // Check the termination switch
                 if self_clone.is_terminated.load(Ordering::Relaxed) {
@@ -1344,8 +1345,19 @@ impl P2PNode {
     /// poll-loop thread, and any write is queued to be processed later in that
     /// poll-loop.
     #[inline(always)]
-    pub fn process_network_requests(&self, receivers: &Receivers) {
+    pub fn process_network_requests(
+        &self,
+        receivers: &Receivers,
+        order_queue: &mut VecDeque<NetworkRawRequest>,
+    ) {
         for request in receivers.network_requests.try_iter() {
+            match request.priority {
+                MessageSendingPriority::High => order_queue.push_front(request),
+                MessageSendingPriority::Normal => order_queue.push_back(request),
+            }
+        }
+
+        for request in order_queue.drain(..) {
             trace!(
                 "Processing network raw request ({} bytes) in connection {}",
                 request.data.len().unwrap_or(0),
@@ -1353,7 +1365,7 @@ impl P2PNode {
             );
 
             if let Some(ref conn) = self.find_connection_by_token(request.token) {
-                if let Err(err) = conn.async_send_from_poll_loop(request.data, request.priority) {
+                if let Err(err) = conn.async_send_from_poll_loop(request.data) {
                     error!("Can't send a raw network request to {}: {}", conn, err);
                     conn.handler().remove_connection(conn.token);
                 }
