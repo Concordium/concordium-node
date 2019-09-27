@@ -55,6 +55,8 @@ cabal new-update
 (cd
 cabal new-install hpack)
 
+sed -i '/benchmark/,$d' /build/globalstate-mockup/globalstate/package.yaml
+
 (cd /build/acorn
  hpack
  cd /build/Concordium
