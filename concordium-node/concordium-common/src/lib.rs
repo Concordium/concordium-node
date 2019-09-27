@@ -1,6 +1,7 @@
 #![recursion_limit = "1024"]
 
 use byteorder::{NetworkEndian, ReadBytesExt};
+use digest::Digest;
 use failure::{format_err, Fallible};
 
 use std::{convert::TryFrom, fmt, ops::Deref, sync::mpsc};
@@ -139,12 +140,7 @@ impl fmt::Debug for HashBytes {
 // the full SHA256 in hex
 impl fmt::Display for HashBytes {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{:0len$x}",
-            (&self.0[..]).read_u128::<NetworkEndian>().unwrap(),
-            len = SHA256 as usize,
-        )
+        write!(f, "{:064x}", sha2::Sha256::digest(self))
     }
 }
 
