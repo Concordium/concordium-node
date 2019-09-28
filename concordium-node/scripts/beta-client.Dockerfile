@@ -78,16 +78,6 @@ COPY --from=node-build /node-dashboard/dist/public /var/www/html/
 
 COPY ./scripts/supervisord.conf /etc/supervisor/supervisord.conf
 COPY ./scripts/concordium.conf /etc/supervisor/conf.d/concordium.conf
-
-RUN groupadd -g 61000 docker
-RUN useradd -g 61000 -l -M -s /bin/false -u 61000 docker
-
-RUN mkdir -p ${DATA_DIR} && mkdir -p ${CONFIG_DIR} && chown -R docker:docker ${DATA_DIR} && chown -R docker:docker ${CONFIG_DIR}
-    #curl https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-oss-7.1.1-amd64.deb -O && \
-    #dpkg -i elasticsearch-oss-7.1.1-amd64.deb && \
-    #mkdir -p /var/log/elasticsearch && \
-    #mkdir -p /var/lib/elasticsearch && \
-    #chown -R elasticsearch:elasticsearch /var/log/elasticsearch && \
-    #chown -R elasticsearch:elasticsearch /var/lib/elasticsearch
+COPY ./scripts/nginx.conf /etc/nginx/nginx.conf
 
 ENTRYPOINT [ "/usr/bin/supervisord", "-c", "/etc/supervisor/supervisord.conf" ]
