@@ -57,10 +57,10 @@ transactionsInput =
          , metadata = makeHeader thomasKP 1 500
          , keypair = thomasKP
          }
-    -- the next transaction should fail because the balance on alesAccount is now 1012, which is
-    -- less than 600 + 500
+    -- the next transaction should fail because the balance on alesAccount is now 1282, which is
+    -- less than 600 + 700
   ,TJSON { payload = Transfer {toaddress = Types.AddressAccount thomasAccount, amount = 600 }
-         , metadata = makeHeader alesKP 4 500
+         , metadata = makeHeader alesKP 4 700
          , keypair = alesKP
          }    
   ]
