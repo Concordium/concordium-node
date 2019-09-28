@@ -5,5 +5,5 @@
   "epochLength" : 360,
   "electionDifficulty" : 0.2,
   "finalizationMinimumSkip" : 3,
-  "mintPerSlot": 10
+  "mintPerSlot": 100
 }
