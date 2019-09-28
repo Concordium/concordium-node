@@ -10,7 +10,7 @@ EXPOSE 8900
 EXPOSE 10000
 
 RUN apt-get update && apt-get install -y unbound
-COPY --from=wrapper /build-project/BUILD_MODE/p2p_bootstrapper-cli /p2p_bootstrapper-cli
+COPY --from=wrapper /build-project/BUILD_TYPE/p2p_bootstrapper-cli /p2p_bootstrapper-cli
 COPY --from=wrapper /build-project/start.sh /start.sh
 
 ENTRYPOINT ["/start.sh"]
