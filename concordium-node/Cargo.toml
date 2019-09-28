@@ -24,7 +24,7 @@ network_dump = []
 static = ["concordium-consensus/static"]
 profiling = ["concordium-consensus/profiling"]
 elastic_logging = [ "elastic", "elastic_derive", "serde_json", "serde/derive", "uuid/v4" ]
-collector = [ "reqwest/default-tls", "serde_json", "serde/derive" ]
+collector = [ "reqwest/default-tls", "serde_json", "serde/derive", "gotham", "mime", "gotham_derive", "hyper" ]
 beta = [ "serde_json", "serde/derive", "reqwest/default-tls" ]
 
 [dependencies]
@@ -146,6 +146,11 @@ name = "generate-new-keypair"
 [[bin]]
 name = "node-collector"
 path = "src/bin/collector.rs"
+required-features = [ "collector" ]
+
+[[bin]]
+name = "node-collector-backend"
+path = "src/bin/collector_backend.rs"
 required-features = [ "collector" ]
 
 [[bench]]

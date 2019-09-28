@@ -20,6 +20,9 @@ pub struct NetworkRawRequest {
     pub priority: MessageSendingPriority,
 }
 
+#[cfg(features = "collector")]
+pub mod collector_utils;
+
 pub fn serialize_ip(ip: IpAddr) -> String {
     match ip {
         IpAddr::V4(ip4) => format!(

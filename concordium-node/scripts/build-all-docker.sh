@@ -20,4 +20,5 @@ scripts/build-universal-docker.sh $1
 
 scripts/build-bootstrapper-docker.sh $1
 scripts/build-collector-docker.sh $1
+scripts/build-collector-backend-docker.sh $1
 scripts/build-client-docker.sh $1

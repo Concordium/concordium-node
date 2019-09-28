@@ -238,6 +238,10 @@ then
     ARGS="$ARGS --beta-token $BETA_TOKEN"
 fi
 
+if [ -n "$COLLECTOR_BACKEND_PORT" ];
+    ARGS="$ARGS --port $COLLECTOR_BACKEND_PORT"
+fi
+
 if [ "$MODE" == "tps_receiver" ]; then
     echo "Receiver!"
     /p2p_client-cli \
@@ -271,6 +275,8 @@ elif [ "$MODE" == "bootstrapper" ]; then
     /p2p_bootstrapper-cli $ARGS
 elif [ "$MODE" == "collector" ]; then
     /node-collector $ARGS
+elif [ "$MODE" == "collector_backend" ]; then
+    /node-collector-backend $ARGS
 elif [ "$MODE" == "local_basic" ]; then
     export BAKER_ID=`curl http://baker_id_gen:8000/next_id`
     echo "Using BAKER_ID $BAKER_ID"
