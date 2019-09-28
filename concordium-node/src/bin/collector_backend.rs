@@ -7,13 +7,13 @@ extern crate grpciowin as grpcio;
 extern crate gotham_derive;
 use env_logger::{Builder, Env};
 use failure::Fallible;
-use p2p_client::common::collector_utils::NodeInfo;
+use p2p_client::common::{collector_utils::NodeInfo, get_current_stamp};
 use std::hash::BuildHasherDefault;
 use structopt::StructOpt;
 use twox_hash::XxHash64;
 #[macro_use]
 extern crate log;
-use concordium_common::{read_or_die, safe_read, safe_write, write_or_die};
+use concordium_common::{read_or_die, safe_read, safe_write, spawn_or_die, write_or_die};
 use futures::{future, Future, Stream};
 use gotham::{
     handler::{HandlerFuture, IntoHandlerError, IntoResponse},
@@ -29,6 +29,8 @@ use std::{
     collections::HashMap,
     str,
     sync::{Arc, RwLock},
+    thread,
+    time::Duration,
 };
 
 // Explicitly defining allocator to avoid future reintroduction of jemalloc
@@ -51,6 +53,18 @@ struct ConfigCli {
         default_value = "8080"
     )]
     pub port: u16,
+    #[structopt(
+        long = "stale-time-allowed",
+        help = "Time in ms nodes are allowed to not have reported updates in before being removed",
+        default_value = "3600000"
+    )]
+    pub stale_time_allowed: u64,
+    #[structopt(
+        long = "cleanup-interval",
+        help = "Time in ms to sleep between cleanups",
+        default_value = "300000"
+    )]
+    pub cleanup_interval: u64,
     #[structopt(long = "print-config", help = "Print out config struct")]
     pub print_config: bool,
     #[structopt(long = "debug", short = "d", help = "Debug mode")]
@@ -86,12 +100,8 @@ struct CollectorStateData {
 }
 
 impl CollectorStateData {
-    fn new() -> Self {
-        let node_info_map: HashMap<String, NodeInfo, BuildHasherDefault<XxHash64>> =
-            HashMap::with_capacity_and_hasher(1500, Default::default());
-        Self {
-            nodes: Arc::new(RwLock::new(node_info_map)),
-        }
+    fn new(nodes: Arc<RwLock<HashMap<String, NodeInfo, BuildHasherDefault<XxHash64>>>>) -> Self {
+        Self { nodes }
     }
 }
 
@@ -117,9 +127,30 @@ pub fn main() -> Fallible<()> {
         info!("{:?}", conf);
     }
 
+    let node_info_map: Arc<RwLock<HashMap<String, NodeInfo, BuildHasherDefault<XxHash64>>>> =
+        Arc::new(RwLock::new(HashMap::with_capacity_and_hasher(
+            1500,
+            Default::default(),
+        )));
+
+    let _allowed_stale_time = conf.stale_time_allowed;
+    let _node_info_map_clone = Arc::clone(&node_info_map);
+    let _cleanup_interval = conf.cleanup_interval;
+    #[allow(unreachable_code)] // the loop never breaks on its own
+    let _ = spawn_or_die!("Cleanup thread", {
+        loop {
+            thread::sleep(Duration::from_millis(_cleanup_interval));
+            info!("Running cleanup");
+            let current_stamp = get_current_stamp();
+            write_or_die!(_node_info_map_clone)
+                .retain(|_, element| element.last_updated + _allowed_stale_time < current_stamp);
+        }
+    });
+
     let addr = format!("{}:{}", conf.host, conf.port).to_string();
     println!("Listening for requests at http://{}", addr);
-    gotham::start(addr, router());
+
+    gotham::start(addr, router(node_info_map));
     Ok(())
 }
 
@@ -148,9 +179,10 @@ fn nodes_post_handler(mut state: State) -> Box<HandlerFuture> {
                     let nodes_info_json: Result<NodeInfo, Error> =
                         serde_json::from_str(body_content);
                     match nodes_info_json {
-                        Ok(nodes_info) => {
+                        Ok(mut nodes_info) => {
                             if !nodes_info.nodeName.is_empty() {
                                 let state_data = CollectorStateData::borrow_from(&state);
+                                nodes_info.last_updated = get_current_stamp();
                                 write_or_die!(state_data.nodes)
                                     .insert(nodes_info.nodeName.clone(), nodes_info);
                             } else {
@@ -172,8 +204,10 @@ fn nodes_post_handler(mut state: State) -> Box<HandlerFuture> {
     Box::new(f)
 }
 
-pub fn router() -> Router {
-    let state_data = CollectorStateData::new();
+pub fn router(
+    node_info_map: Arc<RwLock<HashMap<String, NodeInfo, BuildHasherDefault<XxHash64>>>>,
+) -> Router {
+    let state_data = CollectorStateData::new(node_info_map);
     let middleware = StateMiddleware::new(state_data);
     let pipeline = single_middleware(middleware);
     let (chain, pipelines) = single_pipeline(pipeline);

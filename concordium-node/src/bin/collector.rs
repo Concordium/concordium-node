@@ -254,5 +254,6 @@ fn collect_data(
         consensusRunning: consensus_running,
         bakingCommitteeMember: baker_committee,
         finalizationCommitteeMember: finalization_committee,
+        last_updated: 0,
     })
 }
