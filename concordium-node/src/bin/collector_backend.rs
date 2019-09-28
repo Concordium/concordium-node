@@ -148,9 +148,13 @@ fn nodes_post_handler(mut state: State) -> Box<HandlerFuture> {
                         serde_json::from_str(&body_content);
                     match nodes_info_json {
                         Ok(nodes_info) => {
-                            let state_data = CollectorStateData::borrow_from(&state);
-                            write_or_die!(state_data.nodes)
-                                .insert(nodes_info.nodeName.clone(), nodes_info);
+                            if nodes_info.nodeName.len() > 0 {
+                                let state_data = CollectorStateData::borrow_from(&state);
+                                write_or_die!(state_data.nodes)
+                                    .insert(nodes_info.nodeName.clone(), nodes_info);
+                            } else {
+                                error!("Client submitted JSON without nodeName");
+                            }
                             let res = create_empty_response(&state, StatusCode::OK);
                             future::ok((state, res))
                         }
