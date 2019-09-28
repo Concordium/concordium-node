@@ -33,26 +33,28 @@ use std::{
 };
 
 pub struct RpcServerImpl {
-    node:         Arc<P2PNode>,
-    listen_port:  u16,
-    listen_addr:  String,
+    node: Arc<P2PNode>,
+    listen_port: u16,
+    listen_addr: String,
     access_token: String,
-    consensus:    Option<ConsensusContainer>,
-    server:       Arc<Mutex<Option<grpcio::Server>>>,
-    receiver:     Option<mpsc::Receiver<NetworkMessage>>,
+    baker_private_data_json_file: Option<String>,
+    consensus: Option<ConsensusContainer>,
+    server: Arc<Mutex<Option<grpcio::Server>>>,
+    receiver: Option<mpsc::Receiver<NetworkMessage>>,
 }
 
 // a trick implementation so we can have a lockless Receiver
 impl Clone for RpcServerImpl {
     fn clone(&self) -> Self {
         RpcServerImpl {
-            node:         Arc::clone(&self.node),
-            listen_port:  self.listen_port,
-            listen_addr:  self.listen_addr.clone(),
+            node: Arc::clone(&self.node),
+            listen_port: self.listen_port,
+            listen_addr: self.listen_addr.clone(),
             access_token: self.access_token.clone(),
-            consensus:    self.consensus.clone(),
-            server:       self.server.clone(),
-            receiver:     None,
+            baker_private_data_json_file: self.baker_private_data_json_file.clone(),
+            consensus: self.consensus.clone(),
+            server: self.server.clone(),
+            receiver: None,
         }
     }
 }
@@ -63,12 +65,14 @@ impl RpcServerImpl {
         consensus: Option<ConsensusContainer>,
         conf: &configuration::RpcCliConfig,
         subscription_queue_out: mpsc::Receiver<NetworkMessage>,
+        baker_private_data_json_file: Option<String>,
     ) -> Self {
         RpcServerImpl {
             node: Arc::clone(&node),
             listen_addr: conf.rpc_server_addr.clone(),
             listen_port: conf.rpc_server_port,
             access_token: conf.rpc_server_token.clone(),
+            baker_private_data_json_file,
             consensus,
             server: Default::default(),
             receiver: Some(subscription_queue_out),
@@ -915,6 +919,36 @@ impl P2P for RpcServerImpl {
         });
     }
 
+    fn get_baker_private_data(
+        &self,
+        ctx: ::grpcio::RpcContext<'_>,
+        req: Empty,
+        sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
+    ) {
+        use std::fs;
+        authenticate!(ctx, req, sink, self.access_token, {
+            let f = if let Some(file) = &self.baker_private_data_json_file {
+                if let Ok(data) = fs::read_to_string(file) {
+                    let mut r: SuccessfulJsonPayloadResponse = SuccessfulJsonPayloadResponse::new();
+                    r.set_json_value(data);
+                    sink.success(r)
+                } else {
+                    sink.fail(grpcio::RpcStatus::new(
+                        grpcio::RpcStatusCode::FailedPrecondition,
+                        Some("Could not read baker private data file".to_string()),
+                    ))
+                }
+            } else {
+                sink.fail(grpcio::RpcStatus::new(
+                    grpcio::RpcStatusCode::FailedPrecondition,
+                    Some("Running in passive consensus mode".to_string()),
+                ))
+            };
+            let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+            ctx.spawn(f);
+        });
+    }
+
     fn get_birk_parameters(
         &self,
         ctx: ::grpcio::RpcContext<'_>,
@@ -1293,7 +1327,7 @@ mod tests {
         config.cli.rpc.rpc_server_port = rpc_port;
         config.cli.rpc.rpc_server_addr = "127.0.0.1".to_owned();
         config.cli.rpc.rpc_server_token = "rpcadmin".to_owned();
-        let mut rpc_server = RpcServerImpl::new(node, None, &config.cli.rpc, rpc_rx);
+        let mut rpc_server = RpcServerImpl::new(node, None, &config.cli.rpc, rpc_rx, None);
         rpc_server.start_server().expect("rpc");
 
         let env = Arc::new(EnvBuilder::new().build());

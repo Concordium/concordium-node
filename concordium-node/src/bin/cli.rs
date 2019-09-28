@@ -103,8 +103,6 @@ fn main() -> Fallible<()> {
     // Thread #2 (#3): P2P event loop
     node.spawn(receivers);
 
-    let is_baker = conf.cli.baker.baker_id.is_some();
-
     let mut consensus = plugins::consensus::start_consensus_layer(
         &conf.cli.baker,
         &app_prefs,
@@ -124,6 +122,7 @@ fn main() -> Fallible<()> {
             consensus.clone(),
             &conf.cli.rpc,
             subscription_queue_out,
+            get_baker_private_data_json_file(&app_prefs, &conf.cli.baker),
         );
         serv.start_server()?;
         Some(serv)
@@ -151,7 +150,7 @@ fn main() -> Fallible<()> {
     // Create a listener on baker output to forward to the P2PNode
     //
     // Thread #4 (#5): the Baker thread
-    let baker_thread = if is_baker {
+    let baker_thread = if conf.cli.baker.baker_id.is_some() {
         Some(start_baker_thread(&node))
     } else {
         None
