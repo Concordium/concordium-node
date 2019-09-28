@@ -519,11 +519,11 @@ pub struct GlobalStateSenders {
 
 impl GlobalStateSenders {
     pub fn send_with_priority(&self, msg: GlobalStateMessage) -> Fallible<()> {
-        into_err!(self.high_prio.send(msg))
+        into_err!(self.high_prio.try_send(msg))
     }
 
     pub fn send(&self, msg: GlobalStateMessage) -> Fallible<()> {
-        into_err!(self.low_prio.send(msg))
+        into_err!(self.low_prio.try_send(msg))
     }
 }
 

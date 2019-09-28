@@ -5,7 +5,7 @@ use concordium_common::hybrid_buf::HybridBuf;
 
 use p2p_client::{
     common::{P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType},
-    network::{packet::MessageId, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType},
+    network::{NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType},
 };
 
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
@@ -14,7 +14,6 @@ use std::{
     convert::TryFrom,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     str::FromStr,
-    sync::Arc,
 };
 
 pub fn localhost_peer() -> P2PPeer {
@@ -38,13 +37,11 @@ pub fn generate_random_data(size: usize) -> Vec<u8> {
 
 pub fn create_random_packet(size: usize) -> NetworkMessage {
     NetworkMessage::NetworkPacket(
-        Arc::new(NetworkPacket {
+        NetworkPacket {
             packet_type: NetworkPacketType::DirectMessage(P2PNodeId::from_str(&"2A").unwrap()),
-            peer:        localhost_peer(),
-            message_id:  MessageId::new(&[0u8; 32]),
             network_id:  NetworkId::from(100u16),
             message:     HybridBuf::try_from(generate_random_data(size)).unwrap(),
-        }),
+        },
         Some(10),
         None,
     )
@@ -110,14 +107,9 @@ mod network {
 
     pub mod message {
         use crate::*;
+        use concordium_common::Serial;
         use p2p_client::{
-            common::{
-                get_current_stamp,
-                serialization::{
-                    Deserializable, ReadArchiveAdapter, Serializable, WriteArchiveAdapter,
-                },
-                RemotePeer,
-            },
+            common::get_current_stamp,
             network::{NetworkMessage, NetworkResponse},
         };
 
@@ -164,21 +156,19 @@ mod network {
         }
 
         fn bench_s11n_001_direct_message(c: &mut Criterion, content_size: usize) {
-            let cursor = HybridBuf::try_from(generate_random_data(content_size)).unwrap();
+            let buffer = HybridBuf::try_from(generate_random_data(content_size)).unwrap();
 
-            let local_peer = localhost_peer();
             let bench_id = format!(
                 "Deserialization of DirectMessages with a {}B payload",
                 content_size
             );
 
             c.bench_function(&bench_id, move |b| {
-                let cloned_cursor = cursor.clone();
-                let peer = RemotePeer::from(local_peer);
+                let mut buffer = buffer.clone();
 
                 b.iter(move || {
-                    let mut archive = ReadArchiveAdapter::new(cloned_cursor.clone(), peer.clone());
-                    NetworkMessage::deserialize(&mut archive)
+                    buffer.rewind().unwrap();
+                    NetworkMessage::deserial(&mut buffer).unwrap();
                 })
             });
         }
@@ -190,12 +180,8 @@ mod network {
         pub fn bench_s11n_get_peers_200(c: &mut Criterion) { bench_s11n_get_peers(c, 200) }
 
         fn bench_s11n_get_peers(c: &mut Criterion, size: usize) {
-            let me = localhost_peer();
-            let mut peers = vec![];
-            peers.resize_with(size, || localhost_peer());
-
             let peer_list_msg = NetworkMessage::NetworkResponse(
-                NetworkResponse::PeerList(me, peers),
+                NetworkResponse::PeerList(vec![localhost_peer(); size]),
                 Some(get_current_stamp()),
                 None,
             );
@@ -203,14 +189,12 @@ mod network {
             let bench_id = format!("Deserialization of PeerList responses with {} peers ", size);
 
             c.bench_function(&bench_id, move |b| {
-                let mut archive = WriteArchiveAdapter::from(vec![]);
-                let _ = peer_list_msg.serialize(&mut archive).unwrap();
-                let cursor = HybridBuf::try_from(archive.into_inner()).unwrap();
+                let mut buffer = HybridBuf::new();
+                let _ = peer_list_msg.serial(&mut buffer).unwrap();
 
                 b.iter(move || {
-                    let remote_peer = RemotePeer::from(me);
-                    let mut archive = ReadArchiveAdapter::new(cursor.clone(), remote_peer);
-                    NetworkMessage::deserialize(&mut archive).unwrap()
+                    buffer.rewind().unwrap();
+                    NetworkMessage::deserial(&mut buffer).unwrap();
                 })
             });
         }
@@ -224,8 +208,7 @@ mod network {
             network::NetworkId,
             p2p::p2p_node::send_message_from_cursor,
             test_utils::{
-                await_direct_message, await_handshake, connect, make_node_and_sync,
-                next_available_port, setup_logger,
+                await_handshake, connect, make_node_and_sync, next_available_port, setup_logger,
             },
         };
 
@@ -247,9 +230,9 @@ mod network {
             setup_logger();
 
             // Create nodes and connect them.
-            let (mut node_1, _) =
+            let mut node_1 =
                 make_node_and_sync(next_available_port(), vec![100], PeerType::Node).unwrap();
-            let (node_2, msg_waiter_2) =
+            let node_2 =
                 make_node_and_sync(next_available_port(), vec![100], PeerType::Node).unwrap();
 
             connect(&mut node_1, &node_2).unwrap();
@@ -264,16 +247,17 @@ mod network {
                 b.iter(|| {
                     send_message_from_cursor(
                         &node_1,
+                        node_1.self_peer.id,
                         Some(node_2.id()),
                         vec![],
                         net_id,
-                        None,
                         msg.clone(),
                         false,
                     )
                     .unwrap();
-                    let mut msg_recv = await_direct_message(&msg_waiter_2).unwrap();
-                    assert_eq!(msg.len().unwrap(), msg_recv.remaining_len().unwrap());
+                    // FIXME count packets and other messages separately
+                    // let mut msg_recv = await_direct_message(&msg_waiter_2).unwrap();
+                    // assert_eq!(msg.len().unwrap(), msg_recv.remaining_len().unwrap());
                     msg.rewind().unwrap();
                 });
             });
@@ -538,7 +522,7 @@ criterion_main!(
     dedup,
     p2p_net,
     s11n_get_peers,
-    s11n_custom_benches,
+    // s11n_custom_benches,
     s11n_cbor_benches,
     s11n_nom_benches,
     s11n_capnp_benches

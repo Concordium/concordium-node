@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:experimental
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.1
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.2
 COPY . /build-project
 WORKDIR /build-project
 COPY ./scripts/init.build.env.sh ./init.build.env.sh
@@ -8,8 +8,10 @@ COPY ./scripts/start.sh ./start.sh
 COPY ./scripts/genesis-data ./genesis-data
 ENV LD_LIBRARY_PATH=/usr/local/lib
 RUN --mount=type=ssh ./init.build.env.sh 
-RUN --mount=type=ssh cargo build --features=instrumentation,benchmark,profiling,elastic_logging && \
-    cp /build-project/target/debug/p2p_client-cli /build-project/target/debug/p2p_bootstrapper-cli /build-project/ && \
+RUN --mount=type=ssh cargo build --release --features=instrumentation,benchmark,profiling,elastic_logging,collector && \
+    cp /build-project/target/release/p2p_client-cli /build-project/target/release/p2p_bootstrapper-cli /build-project/ && \
+    cp /build-project/target/release/node-collector /build-project/ && \
+    cp /build-project/target/release/node-collector-backend /build-project/ && \
     cargo clean && \
     # Sanitizer build
     #rustup install nightly-2019-03-22 && \
@@ -23,7 +25,7 @@ RUN --mount=type=ssh cargo build --features=instrumentation,benchmark,profiling,
     #cp target/x86_64-unknown-linux-gnu/debug/address_sanitizer* sanitized/ && \
     #cp target/x86_64-unknown-linux-gnu/debug/p2p_client-* sanitized/ && \
     cargo clean && \
-    #rustup default 1.37.0  && \
+    #rustup default 1.38.0  && \
     # Clean
     rm -rf ~/.cargo ~/.rustup && \
     rm -rf deps src benches tests src concordium-common && \

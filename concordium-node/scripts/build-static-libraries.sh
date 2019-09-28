@@ -15,7 +15,7 @@ rm -r bootstrapped_out
 cp /manifests/cabal.project           /build
 cp /manifests/cabal.project.local     /build
 
-rustup default 1.37.0
+rustup default 1.38.0
 
 mkdir -p /target/{profiling,vanilla}/{ghc,cabal,concordium}
 mkdir -p /binaries/{lib,bin}
@@ -54,6 +54,8 @@ cabal new-update
 
 (cd
 cabal new-install hpack)
+
+sed -i '/benchmark/,$d' /build/globalstate-mockup/globalstate/package.yaml
 
 (cd /build/acorn
  hpack

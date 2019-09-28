@@ -1,11 +1,11 @@
 use concordium_common::{
-    blockchain_types::BakerId, into_err, RelayOrStopReceiver, RelayOrStopSenderHelper,
-    RelayOrStopSyncSender,
+    blockchain_types::BakerId, into_err, QueueReceiver, QueueSyncSender, RelayOrStopSenderHelper,
 };
 use failure::Fallible;
 
 use std::{
     collections::HashMap,
+    convert::TryFrom,
     sync::{
         atomic::{AtomicBool, AtomicPtr, Ordering},
         mpsc, Arc, Mutex,
@@ -18,11 +18,34 @@ use concordium_global_state::tree::{messaging::ConsensusMessage, GlobalState};
 pub type PeerId = u64;
 pub type PrivateData = HashMap<i64, Vec<u8>>;
 
-const CONSENSUS_QUEUE_DEPTH: usize = 4096;
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum ConsensusLogLevel {
+    Error = 1,
+    Warning,
+    Info,
+    Debug,
+    Trace,
+}
+
+impl TryFrom<u8> for ConsensusLogLevel {
+    type Error = failure::Error;
+
+    fn try_from(value: u8) -> Fallible<Self> {
+        Ok(match value {
+            1 => Self::Error,
+            2 => Self::Warning,
+            3 => Self::Info,
+            4 => Self::Debug,
+            _ => Self::Trace,
+        })
+    }
+}
+
+const CONSENSUS_QUEUE_DEPTH: usize = 10000;
 
 pub struct ConsensusQueues {
-    pub receiver: Mutex<RelayOrStopReceiver<ConsensusMessage>>,
-    pub sender:   RelayOrStopSyncSender<ConsensusMessage>,
+    pub receiver: Mutex<QueueReceiver<ConsensusMessage>>,
+    pub sender:   QueueSyncSender<ConsensusMessage>,
 }
 
 impl Default for ConsensusQueues {
@@ -94,6 +117,7 @@ impl ConsensusContainer {
         genesis_data: Vec<u8>,
         private_data: Option<Vec<u8>>,
         baker_id: Option<BakerId>,
+        max_log_level: ConsensusLogLevel,
     ) -> Self {
         info!("Starting up the consensus layer");
 
@@ -108,6 +132,7 @@ impl ConsensusContainer {
             enable_transfer_logging,
             genesis_data.clone(),
             private_data,
+            max_log_level,
         );
 
         Self {

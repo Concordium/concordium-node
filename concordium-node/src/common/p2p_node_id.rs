@@ -1,17 +1,19 @@
-use crate::common::serialization::{Deserializable, ReadArchive, Serializable, WriteArchive};
-
+use byteorder::{ReadBytesExt, WriteBytesExt};
 use failure::Fallible;
 use rand::distributions::{Distribution, Uniform};
+
+use concordium_common::{network_types::PeerId, Serial};
+
 use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
-pub struct P2PNodeId(pub u64);
+pub struct P2PNodeId(pub PeerId);
 
 impl Default for P2PNodeId {
     fn default() -> Self {
         let mut rng = rand::thread_rng();
-        let n = Uniform::from(0..u64::max_value()).sample(&mut rng);
+        let n = Uniform::from(0..PeerId::max_value()).sample(&mut rng);
         P2PNodeId(n)
     }
 }
@@ -24,31 +26,24 @@ impl std::str::FromStr for P2PNodeId {
     type Err = failure::Error;
 
     fn from_str(s: &str) -> Fallible<Self> {
-        match u64::from_str_radix(s, 16) {
+        match PeerId::from_str_radix(s, 16) {
             Ok(n) => Ok(P2PNodeId(n)),
             Err(e) => bail!("Invalid Node Id ({})", e),
         }
     }
 }
 
-impl Serializable for P2PNodeId {
-    #[inline]
-    fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
-    where
-        A: WriteArchive, {
-        self.0.serialize(archive)
+impl Serial for P2PNodeId {
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
+        Ok(P2PNodeId(u64::deserial(source)?))
     }
-}
 
-impl Deserializable for P2PNodeId {
-    #[inline]
-    fn deserialize<A>(archive: &mut A) -> Fallible<P2PNodeId>
-    where
-        A: ReadArchive, {
-        Ok(P2PNodeId(u64::deserialize(archive)?))
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        self.0.serial(target)?;
+        Ok(())
     }
 }
 
 impl P2PNodeId {
-    pub fn as_raw(self) -> u64 { self.0 }
+    pub fn as_raw(self) -> PeerId { self.0 }
 }

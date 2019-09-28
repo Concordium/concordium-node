@@ -21,7 +21,10 @@ pub const APP_PREFERENCES_KEY_VERSION: &str = "VERSION";
 pub const APP_PREFERENCES_PERSISTED_NODE_ID: &str = "PERSISTED_NODE_ID";
 
 // ticker thread loop interval
-pub const TICKER_INTERVAL_SECS: u8 = 5;
+pub const TICKER_INTERVAL_SECS: u8 = 3;
+
+// maximum time allowed for a peer to catch up with in milliseconds
+pub const MAX_CATCH_UP_TIME: u64 = 30_000;
 
 // queue depths
 pub const GS_HIGH_PRIO_QUEUE_DEPTH: usize = 1024;
@@ -194,7 +197,7 @@ pub struct ConnectionConfig {
     #[structopt(
         long = "desired-nodes",
         help = "Desired nodes to always have",
-        default_value = "50"
+        default_value = "7"
     )]
     pub desired_nodes: u16,
     #[structopt(
@@ -276,6 +279,11 @@ pub struct ConnectionConfig {
         help = "The maximum allowed connection latency in ms"
     )]
     pub max_latency: Option<u64>,
+    #[structopt(
+        long = "hard-connection-limit",
+        help = "Maximum connections to keep open at any time"
+    )]
+    pub hard_connection_limit: Option<u16>,
 }
 
 #[derive(StructOpt, Debug)]
@@ -388,6 +396,12 @@ pub struct CliConfig {
         default_value = "http://127.0.0.1:9200"
     )]
     pub elastic_logging_url: String,
+    #[cfg(feature = "beta")]
+    #[structopt(long = "beta-username", help = "Beta client username")]
+    pub beta_username: String,
+    #[cfg(feature = "beta")]
+    #[structopt(long = "beta-token", help = "Beta client token")]
+    pub beta_token: String,
 }
 
 #[derive(StructOpt, Debug)]
@@ -457,6 +471,12 @@ pub fn parse_config() -> Fallible<Config> {
                 "Desired nodes set to {}, but max allowed nodes is set to {}. Max allowed nodes \
                  must be greater or equal to desired amounnt of nodes"
             );
+        }
+    }
+
+    if let Some(hard_connection_limit) = conf.connection.hard_connection_limit {
+        if hard_connection_limit < conf.connection.desired_nodes {
+            bail!("Hard connection limit can't be less than what desired nodes is set to");
         }
     }
 

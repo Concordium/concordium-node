@@ -9,7 +9,7 @@ use std::{
     slice,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Once, ONCE_INIT,
+        Arc, Once,
     },
 };
 
@@ -27,8 +27,8 @@ extern "C" {
     pub fn hs_exit();
 }
 
-static START_ONCE: Once = ONCE_INIT;
-static STOP_ONCE: Once = ONCE_INIT;
+static START_ONCE: Once = Once::new();
+static STOP_ONCE: Once = Once::new();
 static STOPPED: AtomicBool = AtomicBool::new(false);
 
 /// Initialize the Haskell runtime. This function is safe to call more than
@@ -196,6 +196,7 @@ extern "C" {
         private_data: *const u8,
         private_data_len: i64,
         broadcast_callback: BroadcastCallback,
+        maximum_log_level: u8,
         log_callback: LogCallback,
         transfer_log_enabled: u8,
         transfer_log_callback: TransferLogCallback,
@@ -204,6 +205,7 @@ extern "C" {
         max_block_size: u64,
         genesis_data: *const u8,
         genesis_data_len: i64,
+        maximum_log_level: u8,
         log_callback: LogCallback,
     ) -> *mut consensus_runner;
     pub fn startBaker(consensus: *mut consensus_runner);
@@ -296,6 +298,8 @@ extern "C" {
         msg_len: i64,
         direct_callback: DirectMessageCallback,
     ) -> i64;
+    pub fn checkIfWeAreBaker(consensus: *mut consensus_runner) -> u8;
+    pub fn checkIfWeAreFinalizer(consensus: *mut consensus_runner) -> u8;
 }
 
 pub fn get_consensus_ptr(
@@ -303,6 +307,7 @@ pub fn get_consensus_ptr(
     enable_transfer_logging: bool,
     genesis_data: Vec<u8>,
     private_data: Option<Vec<u8>>,
+    maximum_log_level: ConsensusLogLevel,
 ) -> *mut consensus_runner {
     let genesis_data_len = genesis_data.len();
 
@@ -327,6 +332,7 @@ pub fn get_consensus_ptr(
                     c_string_private_data.as_ptr() as *const u8,
                     private_data_len as i64,
                     broadcast_callback,
+                    maximum_log_level as u8,
                     on_log_emited,
                     if enable_transfer_logging { 1 } else { 0 },
                     on_transfer_log_emitted,
@@ -338,6 +344,7 @@ pub fn get_consensus_ptr(
                 max_block_size,
                 c_string_genesis.as_ptr() as *const u8,
                 genesis_data_len as i64,
+                maximum_log_level as u8,
                 on_log_emited,
             )
         },
@@ -512,6 +519,14 @@ impl ConsensusContainer {
             direct_callback
         ))
     }
+
+    pub fn in_baking_committee(&self) -> bool {
+        wrap_c_bool_call!(self, |consensus| checkIfWeAreBaker(consensus))
+    }
+
+    pub fn in_finalization_committee(&self) -> bool {
+        wrap_c_bool_call!(self, |consensus| checkIfWeAreFinalizer(consensus))
+    }
 }
 
 pub enum CallbackType {
@@ -549,7 +564,7 @@ pub extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *co
 
         match CALLBACK_QUEUE.send_message(msg) {
             Ok(_) => trace!("Queueing a {} of {} bytes", msg_variant, len),
-            _ => error!("Couldn't queue a {} properly", msg_variant),
+            Err(e) => error!("Couldn't queue a {} properly: {}", msg_variant, e),
         };
     }
 }
@@ -581,7 +596,7 @@ pub extern "C" fn broadcast_callback(msg_type: i64, msg: *const u8, msg_length: 
 
         match CALLBACK_QUEUE.send_message(msg) {
             Ok(_) => trace!("Queueing a {} of {} bytes", msg_variant, msg_length),
-            _ => error!("Couldn't queue a {} properly", msg_variant),
+            Err(e) => error!("Couldn't queue a {} properly: {}", msg_variant, e),
         };
     }
 }
@@ -620,7 +635,7 @@ pub extern "C" fn direct_callback(
 
         match CALLBACK_QUEUE.send_message(msg) {
             Ok(_) => trace!("Queueing a {} of {} bytes", msg_variant, msg_len),
-            _ => error!("Couldn't queue a {} properly", msg_variant),
+            Err(e) => error!("Couldn't queue a {} properly: {}", msg_variant, e),
         };
     }
 }

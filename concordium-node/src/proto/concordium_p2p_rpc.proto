@@ -64,7 +64,6 @@ message P2PNetworkMessage {
   uint64 sent_at = 2;
   string sender = 3;
   uint32 network_id = 4;
-  bytes message_id = 5;
   oneof payload {
     MessageDirect message_direct = 20;
     MessageBroadcast message_broadcast = 21;
@@ -87,6 +86,8 @@ message NodeInfoResponse {
   bool consensus_baker_running = 4;
   bool consensus_running = 5;
   string consensus_type = 6;
+  bool consensus_baker_committee = 7;
+  bool consensus_finalizer_committee = 8;
 }
 
 message SuccessfulJsonPayloadResponse {
@@ -230,4 +231,5 @@ service P2P {
   rpc RetransmitRequest(RetransmitRequestMessage) returns (SuccessResponse) {}
   rpc GetSkovStats(Empty) returns (SuccesfulStructResponse) {}
   rpc HookTransaction(TransactionHash) returns (SuccessfulJsonPayloadResponse) {}
+  rpc GetBakerPrivateData(Empty) returns (SuccessfulJsonPayloadResponse) {}
 }

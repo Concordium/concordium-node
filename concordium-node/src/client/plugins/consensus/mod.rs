@@ -4,25 +4,23 @@ pub const FILE_NAME_CRYPTO_PROV_DATA: &str = "crypto_providers.json";
 pub const FILE_NAME_ID_PROV_DATA: &str = "identity_providers.json";
 pub const FILE_NAME_PREFIX_BAKER_PRIVATE: &str = "baker-";
 pub const FILE_NAME_SUFFIX_BAKER_PRIVATE: &str = ".dat";
+pub const FILE_NAME_SUFFIX_BAKER_PRIVATE_JSON: &str = "-credentials.json";
 
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
-use circular_queue::CircularQueue;
-use digest::Digest;
 use failure::Fallible;
-use twox_hash::XxHash64;
 
 use std::{
     convert::TryFrom,
     fs::OpenOptions,
-    io::{self, Cursor, Read, Seek, SeekFrom, Write},
+    io::{self, Cursor, Read, Write},
     mem,
     sync::Arc,
 };
 
 use concordium_common::{
     blockchain_types::TransactionHash,
-    cache::Cache,
     hybrid_buf::HybridBuf,
+    network_types::PeerId,
     ConsensusFfiResponse,
     PacketType::{self, *},
 };
@@ -38,18 +36,21 @@ use concordium_global_state::{
         messaging::{
             ConsensusMessage, DistributionMode, GlobalStateMessage, GlobalStateResult, MessageType,
         },
-        GlobalState, PeerId, PeerState, PeerStatus,
+        GlobalState, PeerState, PeerStatus,
     },
 };
 
 use crate::{
-    common::P2PNodeId, configuration, network::NetworkId, p2p::p2p_node::*,
-    utils::GlobalStateSenders,
+    common::{get_current_stamp, P2PNodeId},
+    configuration::{self, MAX_CATCH_UP_TIME},
+    network::NetworkId,
+    p2p::p2p_node::*,
 };
 
 pub fn start_consensus_layer(
     conf: &configuration::BakerConfig,
     app_prefs: &configuration::AppPreferences,
+    max_logging_level: consensus::ConsensusLogLevel,
 ) -> Option<consensus::ConsensusContainer> {
     info!("Starting up the consensus thread");
 
@@ -71,6 +72,7 @@ pub fn start_consensus_layer(
                 genesis_data,
                 private_data,
                 conf.baker_id,
+                max_logging_level,
             );
             Some(consensus)
         }
@@ -78,6 +80,26 @@ pub fn start_consensus_layer(
             error!("Can't start the consensus layer!");
             None
         }
+    }
+}
+
+pub fn get_baker_private_data_json_file(
+    app_prefs: &configuration::AppPreferences,
+    conf: &configuration::BakerConfig,
+) -> Option<String> {
+    if let Some(baker_id) = conf.baker_id {
+        let mut private_loc = app_prefs.get_user_app_dir();
+        private_loc.push(format!(
+            "{}{}{}",
+            FILE_NAME_PREFIX_BAKER_PRIVATE, baker_id, FILE_NAME_SUFFIX_BAKER_PRIVATE_JSON
+        ));
+        if let Some(path) = private_loc.to_str() {
+            Some(path.to_owned())
+        } else {
+            None
+        }
+    } else {
+        None
     }
 }
 
@@ -133,12 +155,10 @@ fn get_baker_data(
 
 /// Handles packets coming from other peers
 pub fn handle_pkt_out(
+    node: &P2PNode,
     dont_relay_to: Vec<P2PNodeId>,
     peer_id: P2PNodeId,
     mut msg: HybridBuf,
-    gs_senders: &GlobalStateSenders,
-    transactions_cache: &mut Cache<Arc<[u8]>>,
-    dedup_queue: &mut CircularQueue<[u8; 8]>,
     is_broadcast: bool,
 ) -> Fallible<()> {
     ensure!(
@@ -150,34 +170,21 @@ pub fn handle_pkt_out(
     let consensus_type = msg.read_u16::<NetworkEndian>()?;
     let packet_type = PacketType::try_from(consensus_type)?;
 
-    // deduplicate finalization messages
-    if packet_type == PacketType::FinalizationMessage {
-        let mut hash = [0u8; 8];
-        let msg_pos = msg.position()?;
-        hash.copy_from_slice(&XxHash64::digest(&msg.remaining_bytes()?));
-        msg.seek(SeekFrom::Start(msg_pos))?;
-
-        if dedup_queue.iter().any(|h| h == &hash) {
-            return Ok(());
-        } else {
-            dedup_queue.push(hash);
-        }
-    }
-
     let mut payload = Vec::with_capacity(msg.remaining_len()? as usize);
     io::copy(&mut msg, &mut payload)?;
+
+    if packet_type == PacketType::Transaction {
+        let hash_offset = payload.len() - mem::size_of::<TransactionHash>();
+        let hash = TransactionHash::new(&payload[hash_offset..]);
+        write_or_die!(node.transactions_cache).insert(hash, payload.clone());
+    }
+
     let payload: Arc<[u8]> = Arc::from(payload);
     let distribution_mode = if is_broadcast {
         DistributionMode::Broadcast
     } else {
         DistributionMode::Direct
     };
-
-    if packet_type == PacketType::Transaction {
-        let hash_offset = payload.len() - mem::size_of::<TransactionHash>();
-        let hash = TransactionHash::new(&payload[hash_offset..]);
-        transactions_cache.insert(hash, payload.clone());
-    }
 
     let request = GlobalStateMessage::ConsensusMessage(ConsensusMessage::new(
         MessageType::Inbound(peer_id.0, distribution_mode),
@@ -187,9 +194,9 @@ pub fn handle_pkt_out(
     ));
 
     if is_broadcast {
-        gs_senders.send(request)
+        node.global_state_senders.send(request)
     } else {
-        gs_senders.send_with_priority(request)
+        node.global_state_senders.send_with_priority(request)
     }
 }
 
@@ -202,6 +209,15 @@ pub fn handle_global_state_request(
 ) -> Fallible<()> {
     match request {
         GlobalStateMessage::ConsensusMessage(req) => {
+            if req.distribution_mode() == DistributionMode::Broadcast {
+                if let Some((_, state)) = global_state.peers.peek() {
+                    if state.status != PeerStatus::UpToDate {
+                        warn!("I'm currently catching up; dropping incoming broadcast");
+                        return Ok(());
+                    }
+                }
+            }
+
             handle_consensus_message(node, network_id, consensus, req, global_state)
         }
         GlobalStateMessage::PeerListUpdate(peer_ids) => {
@@ -216,30 +232,32 @@ pub fn handle_global_state_request(
                         // baking may commence (does nothing if already baking)
                         trace!("Global state: all my peers are up to date");
                         consensus.start_baker();
-                        global_state.catch_up_count = 0;
                     }
                     PeerStatus::CatchingUp => {
                         // don't send any catch-up statuses while
                         // there are peers that are catching up
-                        if global_state.catch_up_count < 1 {
+                        if get_current_stamp() < global_state.catch_up_stamp + MAX_CATCH_UP_TIME {
                             debug!("Global state: I'm catching up with peer {:016x}", id);
-                            global_state.catch_up_count += 1;
                         } else {
-                            warn!("Global state: peer {:016x} took to long to catch up", id);
+                            warn!("Global state: peer {:016x} took too long to catch up", id);
                             if let Some(peer_conn) = node
                                 .find_connection_by_id(P2PNodeId(id))
                                 .map(|conn| conn.token)
                             {
-                                node.remove_connection(peer_conn);
+                                // temporary safeguard; we can't recover if this is not true
+                                assert_eq!(
+                                    node.find_connection_by_token(peer_conn)
+                                        .and_then(|conn| conn.remote_id()),
+                                    Some(P2PNodeId(id))
+                                );
+                                assert!(node.remove_connection(peer_conn));
                             }
-                            global_state.catch_up_count = 0;
                         }
                     }
                     PeerStatus::Pending => {
                         // send a catch-up message to the first Pending peer
                         debug!("Global state: I need to catch up with peer {:016x}", id);
                         send_catch_up_status(node, network_id, consensus, global_state, id)?;
-                        global_state.catch_up_count = 0;
                     }
                 }
             }
@@ -349,6 +367,7 @@ fn process_internal_gs_entry(
     send_consensus_msg_to_net(
         node,
         request.dont_relay_to(),
+        node.self_peer.id,
         request.target_peer().map(P2PNodeId),
         network_id,
         request.variant,
@@ -415,6 +434,7 @@ fn process_external_gs_entry(
         send_consensus_msg_to_net(
             &node,
             request.dont_relay_to(),
+            source,
             None,
             network_id,
             request.variant,
@@ -454,9 +474,11 @@ fn send_msg_to_consensus(
     Ok(consensus_response)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn send_consensus_msg_to_net(
     node: &P2PNode,
     dont_relay_to: Vec<u64>,
+    source_id: P2PNodeId,
     target_id: Option<P2PNodeId>,
     network_id: NetworkId,
     payload_type: PacketType,
@@ -472,13 +494,13 @@ pub fn send_consensus_msg_to_net(
     packet_buffer.rewind()?;
 
     let result = if target_id.is_some() {
-        send_direct_message(node, target_id, network_id, None, packet_buffer)
+        send_direct_message(node, source_id, target_id, network_id, packet_buffer)
     } else {
         send_broadcast_message(
             node,
+            source_id,
             dont_relay_to.into_iter().map(P2PNodeId).collect(),
             network_id,
-            None,
             packet_buffer,
         )
     };
@@ -514,9 +536,12 @@ fn send_catch_up_status(
         .peers
         .change_priority(&target, PeerState::new(PeerStatus::CatchingUp));
 
+    global_state.catch_up_stamp = get_current_stamp();
+
     send_consensus_msg_to_net(
         node,
         vec![],
+        node.self_peer.id,
         Some(P2PNodeId(target)),
         network_id,
         PacketType::CatchUpStatus,

@@ -12,13 +12,12 @@ use std::alloc::System;
 static A: System = System;
 
 use concordium_common::{
-    cache::Cache,
     spawn_or_die,
     stats_export_service::{StatsExportService, StatsServiceMode},
-    PacketType, RelayOrStopEnvelope, RelayOrStopReceiver,
+    QueueMsg,
 };
 use concordium_consensus::{
-    consensus::{ConsensusContainer, CALLBACK_QUEUE},
+    consensus::{ConsensusContainer, ConsensusLogLevel, CALLBACK_QUEUE},
     ffi,
 };
 use concordium_global_state::tree::{
@@ -32,15 +31,12 @@ use p2p_client::{
     },
     common::PeerType,
     configuration as config,
-    connection::message_handlers::{handle_incoming_packet, handle_retransmit_req},
-    network::{NetworkId, NetworkMessage, NetworkRequest, NetworkResponse},
+    network::{NetworkId, NetworkMessage},
     p2p::*,
     rpc::RpcServerImpl,
-    stats_engine::StatsEngine,
-    utils::{self, get_config_and_logging_setup, GlobalStateReceivers, GlobalStateSenders},
+    utils::{self, get_config_and_logging_setup, GlobalStateReceivers},
 };
 
-use circular_queue::CircularQueue;
 use failure::Fallible;
 use rkv::{Manager, Rkv};
 
@@ -55,6 +51,17 @@ fn main() -> Fallible<()> {
     if conf.common.print_config {
         // Print out the configuration
         info!("{:?}", conf);
+    }
+
+    #[cfg(feature = "beta")]
+    {
+        use failure::bail;
+        if !p2p_client::client::plugins::beta::authenticate(
+            &conf.cli.beta_username,
+            &conf.cli.beta_token,
+        ) {
+            bail!("Beta client authentication failed");
+        }
     }
 
     // Instantiate stats export engine
@@ -74,7 +81,7 @@ fn main() -> Fallible<()> {
         mpsc::sync_channel(config::RPC_QUEUE_DEPTH);
 
     // Thread #1: instantiate the P2PNode
-    let ((node, receivers), pkt_out) = instantiate_node(
+    let (node, mut receivers) = instantiate_node(
         &conf,
         &mut app_prefs,
         stats_export_service.clone(),
@@ -89,14 +96,24 @@ fn main() -> Fallible<()> {
     // Thread #2 (optional): the push gateway to Prometheus
     client_utils::start_push_gateway(&conf.prometheus, &stats_export_service, node.id())?;
 
+    let global_state_receivers = receivers.global_state_receivers.take().unwrap(); // always there
+
     // Start the P2PNode
     //
     // Thread #2 (#3): P2P event loop
     node.spawn(receivers);
 
-    let is_baker = conf.cli.baker.baker_id.is_some();
-
-    let mut consensus = plugins::consensus::start_consensus_layer(&conf.cli.baker, &app_prefs);
+    let mut consensus = plugins::consensus::start_consensus_layer(
+        &conf.cli.baker,
+        &app_prefs,
+        if conf.common.trace {
+            ConsensusLogLevel::Trace
+        } else if conf.common.debug {
+            ConsensusLogLevel::Debug
+        } else {
+            ConsensusLogLevel::Info
+        },
+    );
 
     // Start the RPC server
     let mut rpc_serv = if !conf.cli.rpc.no_rpc_server {
@@ -105,6 +122,7 @@ fn main() -> Fallible<()> {
             consensus.clone(),
             &conf.cli.rpc,
             subscription_queue_out,
+            get_baker_private_data_json_file(&app_prefs, &conf.cli.baker),
         );
         serv.start_server()?;
         Some(serv)
@@ -115,8 +133,6 @@ fn main() -> Fallible<()> {
     // Start the transaction logging thread
     setup_transfer_log_thread(&conf.cli);
 
-    let (global_state_senders, global_state_receivers) = utils::create_global_state_queues();
-
     // Connect outgoing messages to be forwarded into the baker and RPC streams.
     //
     // Thread #3 (#4): read P2PNode output
@@ -125,8 +141,6 @@ fn main() -> Fallible<()> {
             &node,
             (&conf, &app_prefs),
             consensus.clone(),
-            pkt_out,
-            global_state_senders.clone(),
             global_state_receivers,
         )
     } else {
@@ -136,8 +150,8 @@ fn main() -> Fallible<()> {
     // Create a listener on baker output to forward to the P2PNode
     //
     // Thread #4 (#5): the Baker thread
-    let baker_thread = if is_baker {
-        Some(start_baker_thread(global_state_senders.clone()))
+    let baker_thread = if conf.cli.baker.baker_id.is_some() {
+        Some(start_baker_thread(&node))
     } else {
         None
     };
@@ -182,11 +196,7 @@ fn instantiate_node(
     app_prefs: &mut config::AppPreferences,
     stats_export_service: Option<StatsExportService>,
     subscription_queue_in: mpsc::SyncSender<NetworkMessage>,
-) -> (
-    (Arc<P2PNode>, Receivers),
-    mpsc::Receiver<RelayOrStopEnvelope<NetworkMessage>>,
-) {
-    let (pkt_in, pkt_out) = mpsc::sync_channel(config::CLI_PACKET_QUEUE_DEPTH);
+) -> (Arc<P2PNode>, Receivers) {
     let node_id = conf.common.id.clone().map_or(
         app_prefs.get_config(config::APP_PREFERENCES_PERSISTED_NODE_ID),
         |id| {
@@ -209,7 +219,6 @@ fn instantiate_node(
         P2PNode::new(
             node_id,
             &conf,
-            pkt_in,
             Some(sender),
             PeerType::Node,
             stats_export_service,
@@ -220,7 +229,6 @@ fn instantiate_node(
         P2PNode::new(
             node_id,
             &conf,
-            pkt_in,
             None,
             PeerType::Node,
             stats_export_service,
@@ -229,7 +237,7 @@ fn instantiate_node(
         )
     };
 
-    ((node, receivers), pkt_out)
+    (node, receivers)
 }
 
 fn establish_connections(conf: &config::Config, node: &P2PNode) {
@@ -263,8 +271,6 @@ fn start_consensus_threads(
     node: &Arc<P2PNode>,
     (conf, app_prefs): (&config::Config, &config::AppPreferences),
     consensus: ConsensusContainer,
-    pkt_out: RelayOrStopReceiver<NetworkMessage>,
-    global_state_senders: GlobalStateSenders,
     global_state_receivers: GlobalStateReceivers,
 ) -> Vec<std::thread::JoinHandle<()>> {
     let is_global_state_persistent = conf.cli.baker.persist_global_state;
@@ -323,74 +329,6 @@ fn start_consensus_threads(
     });
 
     let node_ref = Arc::clone(node);
-    let gs_senders = global_state_senders.clone();
-    let mut _stats_engine = StatsEngine::new(&conf.cli);
-    let (_tps_test_enabled, _tps_message_count) = tps_setup_process_output(&conf.cli);
-    let guard_pkt = spawn_or_die!("Higher queue processing", {
-        const DEDUP_QUEUE_SIZE: usize = 32 * 1024;
-
-        let mut _msg_count = 0;
-        let mut transactions_cache = Cache::default();
-        let mut dedup_queue = CircularQueue::with_capacity(DEDUP_QUEUE_SIZE);
-
-        while let Ok(RelayOrStopEnvelope::Relay(msg)) = pkt_out.recv() {
-            match msg {
-                NetworkMessage::NetworkPacket(ref pac, ..) => handle_incoming_packet(
-                    pac,
-                    &gs_senders,
-                    &mut transactions_cache,
-                    &mut dedup_queue,
-                    &mut _stats_engine,
-                    &mut _msg_count,
-                    _tps_test_enabled,
-                    _tps_message_count,
-                ),
-                NetworkMessage::NetworkRequest(
-                    NetworkRequest::Retransmit(requester, element_type, since, nid),
-                    ..
-                ) => {
-                    handle_retransmit_req(
-                        &node_ref,
-                        requester,
-                        element_type,
-                        since,
-                        nid,
-                        &mut transactions_cache,
-                    );
-                }
-                // TODO: handle the initial catch-up delivery more elegantly
-                NetworkMessage::NetworkResponse(
-                    NetworkResponse::Handshake(src, ref nets, _),
-                    ..
-                ) => {
-                    if src.peer_type() == PeerType::Node {
-                        if let Some(network_id) = nets.iter().next() {
-                            // send a catch-up status
-                            if send_consensus_msg_to_net(
-                                &node_ref,
-                                vec![],
-                                Some(src.id()),
-                                *network_id,
-                                PacketType::CatchUpStatus,
-                                None,
-                                &consensus.get_catch_up_status(),
-                            )
-                            .is_err()
-                            {
-                                error!("Can't send the initial catch-up messages!")
-                            }
-                        } else {
-                            error!("A handshaking peer doesn't seem to have any networks!")
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-    });
-
-    let node_ref = Arc::clone(node);
-    let gs_senders = global_state_senders.clone();
     #[allow(unreachable_code)] // the loop never breaks on its own
     let ticker_thread = spawn_or_die!("Ticker", {
         // an initial delay before we begin catching up and baking
@@ -405,7 +343,7 @@ fn start_consensus_threads(
             // number is within the desired range
             if current_peers.len() <= node_ref.config.max_allowed_nodes as usize {
                 let msg = GlobalStateMessage::PeerListUpdate(current_peers);
-                if let Err(e) = gs_senders.send_with_priority(msg) {
+                if let Err(e) = node_ref.global_state_senders.send_with_priority(msg) {
                     error!("Error updating the global state peer list: {}", e)
                 }
             }
@@ -417,29 +355,32 @@ fn start_consensus_threads(
         conf.cli.no_network
     );
 
-    vec![global_state_thread, guard_pkt, ticker_thread]
+    vec![global_state_thread, ticker_thread]
 }
 
-fn start_baker_thread(global_state_senders: GlobalStateSenders) -> std::thread::JoinHandle<()> {
+fn start_baker_thread(node: &P2PNode) -> std::thread::JoinHandle<()> {
+    let global_state_senders = node.global_state_senders.clone();
+
     spawn_or_die!("Process consensus messages", {
         let receiver = CALLBACK_QUEUE.receiver.lock().unwrap();
         loop {
             if let Ok(msg) = receiver.recv() {
                 match msg {
-                    RelayOrStopEnvelope::Relay(msg) => {
+                    QueueMsg::Relay(msg) => {
                         let is_direct = msg.distribution_mode() == DistributionMode::Direct;
                         let msg = GlobalStateMessage::ConsensusMessage(msg);
-                        if if is_direct {
+                        if let Err(e) = if is_direct {
                             global_state_senders.send_with_priority(msg)
                         } else {
                             global_state_senders.send(msg)
-                        }
-                        .is_err()
-                        {
-                            error!("Can't pass a consensus message to the global state queue");
+                        } {
+                            error!(
+                                "Can't pass a consensus msg to the global state queue: {}",
+                                e
+                            );
                         }
                     }
-                    RelayOrStopEnvelope::Stop => {
+                    QueueMsg::Stop => {
                         debug!("Shutting down consensus queues");
                         break;
                     }
@@ -450,14 +391,6 @@ fn start_baker_thread(global_state_senders: GlobalStateSenders) -> std::thread::
         }
     })
 }
-
-#[cfg(feature = "benchmark")]
-fn tps_setup_process_output(cli: &config::CliConfig) -> (bool, u64) {
-    (cli.tps.enable_tps_test, cli.tps.tps_message_count)
-}
-
-#[cfg(not(feature = "benchmark"))]
-fn tps_setup_process_output(_: &config::CliConfig) -> (bool, u64) { (false, 0) }
 
 #[cfg(feature = "elastic_logging")]
 fn setup_transfer_log_thread(conf: &config::CliConfig) -> std::thread::JoinHandle<()> {
@@ -478,7 +411,7 @@ fn setup_transfer_log_thread(conf: &config::CliConfig) -> std::thread::JoinHandl
         loop {
             if let Ok(msg) = receiver.recv() {
                 match msg {
-                    RelayOrStopEnvelope::Relay(msg) => {
+                    QueueMsg::Relay(msg) => {
                         if enabled {
                             if let Err(e) =
                                 p2p_client::client::plugins::elasticlogging::log_transfer_event(
@@ -491,7 +424,7 @@ fn setup_transfer_log_thread(conf: &config::CliConfig) -> std::thread::JoinHandl
                             info!("{}", msg);
                         }
                     }
-                    RelayOrStopEnvelope::Stop => {
+                    QueueMsg::Stop => {
                         debug!("Shutting down transfer log queues");
                         break;
                     }
@@ -513,10 +446,10 @@ fn setup_transfer_log_thread(_: &config::CliConfig) -> std::thread::JoinHandle<(
         loop {
             if let Ok(msg) = receiver.recv() {
                 match msg {
-                    RelayOrStopEnvelope::Relay(msg) => {
+                    QueueMsg::Relay(msg) => {
                         info!("{}", msg);
                     }
-                    RelayOrStopEnvelope::Stop => {
+                    QueueMsg::Stop => {
                         debug!("Shutting down transfer log queues");
                         break;
                     }
