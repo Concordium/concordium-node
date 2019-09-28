@@ -80,5 +80,6 @@ COPY --from=node-build /node-dashboard/dist/public /var/www/html/
 COPY ./scripts/supervisord.conf /etc/supervisor/supervisord.conf
 COPY ./scripts/concordium.conf /etc/supervisor/conf.d/concordium.conf
 COPY ./scripts/nginx.conf /etc/nginx/nginx.conf
+COPY ./scripts/beta-client.sh /beta-client.sh
 
-ENTRYPOINT [ "/usr/bin/supervisord", "-c", "/etc/supervisor/supervisord.conf" ]
+ENTRYPOINT [ "/beta-client.sh" ]
