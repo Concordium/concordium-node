@@ -12,15 +12,18 @@ use p2p_client::common::collector_utils::NodeInfo;
 #[macro_use]
 extern crate log;
 use gotham::{
-    handler::IntoResponse,
+    handler::{HandlerFuture, IntoResponse, IntoHandlerError},
     helpers::http::response::create_response,
     middleware::state::StateMiddleware,
     pipeline::{single::single_pipeline, single_middleware},
     router::{builder::*, Router},
     state::{FromState, State},
 };
+use serde_json::error::Error;
+use gotham::helpers::http::response::create_empty_response;
 use hyper::{Body, Response, StatusCode};
 use std::{sync::{Arc,RwLock}, collections::HashMap};
+use futures::{future, Future, Stream};
 
 // Explicitly defining allocator to avoid future reintroduction of jemalloc
 use std::alloc::System;
@@ -47,7 +50,7 @@ struct ConfigCli {
     pub no_log_timestamp: bool,
 }
 
-struct HTMLStringResponse(pub String);
+pub struct HTMLStringResponse(pub String);
 
 impl IntoResponse for HTMLStringResponse {
     fn into_response(self, state: &State) -> Response<Body> {
@@ -67,8 +70,6 @@ impl CollectorStateData {
         }
     }
 }
-
-const MAX_GRPC_FAILURES: usize = 20;
 
 pub fn main() -> Fallible<()> {
     let conf = ConfigCli::from_args();
@@ -94,10 +95,11 @@ pub fn main() -> Fallible<()> {
 
     let addr = format!("{}:{}", conf.host, conf.port).to_string();
     println!("Listening for requests at http://{}", addr);
-    gotham::start(addr, || router() )
+    gotham::start(addr, router() );
+    Ok(())
 }
 
-pub fn index(state: State) -> (State, HTMLStringResponse) {
+fn index(state: State) -> (State, HTMLStringResponse) {
     let message = HTMLStringResponse(format!(
         "<html><body><h1>Collector backend for {} v{}</h1>Operational!</p></body></html>",
         p2p_client::APPNAME,
@@ -106,13 +108,42 @@ pub fn index(state: State) -> (State, HTMLStringResponse) {
     (state, message)
 }
 
-fn router() -> Router {
+fn nodes_post_handler(mut state: State) -> Box<HandlerFuture> {
+    let f = Body::take_from(&mut state)
+        .concat2()
+        .then(|full_body| match full_body {
+            Ok(valid_body) => {
+                match String::from_utf8(valid_body.to_vec()) {
+                    Ok(body_content) => {
+                        let nodes_info_json: Result<NodeInfo,Error> = serde_json::from_str(&body_content);
+                        match nodes_info_json {
+                            Ok(nodes_info) => {
+                                println!("Body: {}", body_content);
+                                let res = create_empty_response(&state, StatusCode::OK);
+                                future::ok((state, res))
+                            }
+                            Err(e) => {
+                                error!("Can't parse JSON as valid due to {}", e);
+                                future::err((state, e.into_handler_error()))
+                            }
+                        }
+                    }
+                    Err(e) => future::err((state, e.into_handler_error())),
+                }
+            }
+            Err(e) => future::err((state, e.into_handler_error())),
+        });
+    Box::new(f)
+}
+
+pub fn router() -> Router {
     let state_data = CollectorStateData::new();
     let middleware = StateMiddleware::new(state_data);
     let pipeline = single_middleware(middleware);
     let (chain, pipelines) = single_pipeline(pipeline);
     build_router(chain, pipelines, |route| {
         route.get("/").to(index);
+        route.post("/nodes/post").to(nodes_post_handler);
         //route.get("/metrics").to(Self::metrics);
     })
 }
