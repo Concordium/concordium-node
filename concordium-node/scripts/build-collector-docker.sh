@@ -4,7 +4,7 @@ set -e
 
 if [ "$#" -ne 2 ]
 then
-  echo "Usage: ./build-collector-docker.sh VERSION-TAG BUILD-MODE"
+  echo "Usage: ./build-collector-docker.sh VERSION-TAG [debug|release]"
   exit 1
 fi
 
