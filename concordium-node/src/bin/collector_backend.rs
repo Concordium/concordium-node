@@ -3,12 +3,10 @@
 extern crate grpciounix as grpcio;
 #[cfg(target_os = "windows")]
 extern crate grpciowin as grpcio;
-use concordium_common::spawn_or_die;
+#[macro_use]
+extern crate gotham_derive;
 use env_logger::{Builder, Env};
 use failure::Fallible;
-use grpcio::{ChannelBuilder, EnvBuilder};
-use serde_json::Value;
-use std::{thread, time::Duration};
 use structopt::StructOpt;
 use p2p_client::common::collector_utils::NodeInfo;
 #[macro_use]
@@ -59,7 +57,7 @@ impl IntoResponse for HTMLStringResponse {
 
 #[derive(Clone, StateData)]
 struct CollectorStateData {
-    nodes: Arc<RwLock<HashMap<String,NodeInfo>>,
+    nodes: Arc<RwLock<HashMap<String,NodeInfo>>>,
 }
 
 impl CollectorStateData {
@@ -96,11 +94,10 @@ pub fn main() -> Fallible<()> {
 
     let addr = format!("{}:{}", conf.host, conf.port).to_string();
     println!("Listening for requests at http://{}", addr);
-    gotham::start(addr, || router() );
-    Ok(())
+    gotham::start(addr, || router() )
 }
 
-fn index(state: State) -> (State, HTMLStringResponse) {
+pub fn index(state: State) -> (State, HTMLStringResponse) {
     let message = HTMLStringResponse(format!(
         "<html><body><h1>Collector backend for {} v{}</h1>Operational!</p></body></html>",
         p2p_client::APPNAME,
@@ -115,7 +112,7 @@ fn router() -> Router {
     let pipeline = single_middleware(middleware);
     let (chain, pipelines) = single_pipeline(pipeline);
     build_router(chain, pipelines, |route| {
-        //route.get("/").to(index());
+        route.get("/").to(index);
         //route.get("/metrics").to(Self::metrics);
     })
 }

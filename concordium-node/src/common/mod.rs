@@ -20,7 +20,7 @@ pub struct NetworkRawRequest {
     pub priority: MessageSendingPriority,
 }
 
-#[cfg(features = "collector")]
+#[cfg(feature = "collector")]
 pub mod collector_utils;
 
 pub fn serialize_ip(ip: IpAddr) -> String {
