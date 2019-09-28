@@ -27,6 +27,7 @@ use hyper::{Body, Response, StatusCode};
 use serde_json::error::Error;
 use std::{
     collections::HashMap,
+    str,
     sync::{Arc, RwLock},
 };
 
@@ -87,7 +88,7 @@ struct CollectorStateData {
 impl CollectorStateData {
     fn new() -> Self {
         let node_info_map: HashMap<String, NodeInfo, BuildHasherDefault<XxHash64>> =
-            Default::default();
+            HashMap::with_capacity_and_hasher(1500, Default::default());
         Self {
             nodes: Arc::new(RwLock::new(node_info_map)),
         }
@@ -142,13 +143,13 @@ fn nodes_post_handler(mut state: State) -> Box<HandlerFuture> {
     let f = Body::take_from(&mut state)
         .concat2()
         .then(|full_body| match full_body {
-            Ok(valid_body) => match String::from_utf8(valid_body.to_vec()) {
+            Ok(valid_body) => match str::from_utf8(&valid_body) {
                 Ok(body_content) => {
                     let nodes_info_json: Result<NodeInfo, Error> =
-                        serde_json::from_str(&body_content);
+                        serde_json::from_str(body_content);
                     match nodes_info_json {
                         Ok(nodes_info) => {
-                            if nodes_info.nodeName.len() > 0 {
+                            if nodes_info.nodeName.is_empty() {
                                 let state_data = CollectorStateData::borrow_from(&state);
                                 write_or_die!(state_data.nodes)
                                     .insert(nodes_info.nodeName.clone(), nodes_info);
