@@ -123,16 +123,28 @@ impl RpcServerImpl {
 
                 trace!("Sending direct message to: {}", id);
                 r.set_value(
-                    send_direct_message(&self.node, Some(id), network_id, msg)
-                        .map_err(|e| error!("{}", e))
-                        .is_ok(),
+                    send_direct_message(
+                        &self.node,
+                        self.node.self_peer.id,
+                        Some(id),
+                        network_id,
+                        msg,
+                    )
+                    .map_err(|e| error!("{}", e))
+                    .is_ok(),
                 );
             } else if req.get_broadcast().get_value() {
                 trace!("Sending broadcast message");
                 r.set_value(
-                    send_broadcast_message(&self.node, vec![], network_id, msg)
-                        .map_err(|e| error!("{}", e))
-                        .is_ok(),
+                    send_broadcast_message(
+                        &self.node,
+                        self.node.self_peer.id,
+                        vec![],
+                        network_id,
+                        msg,
+                    )
+                    .map_err(|e| error!("{}", e))
+                    .is_ok(),
                 );
             }
         } else {
@@ -662,7 +674,6 @@ impl P2P for RpcServerImpl {
                             };
 
                             r.set_network_id(u32::from(packet.network_id.id));
-                            r.set_sender(packet.peer.id().to_string());
                         } else {
                             r.set_message_none(MessageNone::new());
                         }
@@ -1044,6 +1055,7 @@ impl P2P for RpcServerImpl {
                         let to_send = P2PNodeId::from_str(&id).ok();
                         match send_direct_message(
                             &self.node,
+                            self.node.self_peer.id,
                             to_send,
                             network_id,
                             HybridBuf::try_from(message).unwrap(),
@@ -1622,6 +1634,7 @@ mod tests {
         client.subscription_start_opt(&crate::proto::Empty::new(), callopts.clone())?;
         send_broadcast_message(
             &node2,
+            node2.self_peer.id,
             vec![],
             crate::network::NetworkId::from(100),
             HybridBuf::try_from(&b"Hey"[..])?,

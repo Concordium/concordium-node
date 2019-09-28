@@ -296,12 +296,10 @@ mod tests {
 
     #[test]
     pub fn direct_message_test() -> Fallible<()> {
-        let self_peer = self_peer();
         let text_msg = b"Hello world!";
         let buf = HybridBuf::try_from(&text_msg[..])?;
         let msg = NetworkPacket {
             packet_type: NetworkPacketType::DirectMessage(P2PNodeId::default()),
-            peer:        self_peer.clone().peer().unwrap(),
             network_id:  NetworkId::from(100),
             message:     buf,
         };
@@ -321,12 +319,10 @@ mod tests {
 
     #[test]
     pub fn broadcasted_message_test() -> Fallible<()> {
-        let self_peer = self_peer();
         let text_msg = b"Hello  broadcasted world!";
         let buf = HybridBuf::try_from(&text_msg[..])?;
         let msg = NetworkPacket {
             packet_type: NetworkPacketType::BroadcastedMessage(vec![]),
-            peer:        self_peer.clone().peer().unwrap(),
             network_id:  NetworkId::from(100),
             message:     buf,
         };

@@ -243,6 +243,43 @@ impl Connection {
         write_or_die!(self.low_level).read_from_stream(ev, deduplication_queues)
     }
 
+    fn dedup_message(
+        &self,
+        message: &mut HybridBuf,
+        deduplication_queues: &mut DeduplicationQueues,
+    ) -> Fallible<()> {
+        message.seek(SeekFrom::Start(NETWORK_MESSAGE_PROTOCOL_TYPE_IDX as u64))?;
+        let packet_type = PacketType::try_from(message.read_u16::<E>()?);
+
+        if let Ok(PacketType::FinalizationMessage) = packet_type {
+            let mut hash = [0u8; 8];
+            hash.copy_from_slice(&XxHash64::digest(&message.remaining_bytes()?));
+
+            if !deduplication_queues
+                .dedup_queue_finalization
+                .iter()
+                .any(|h| h == &hash)
+            {
+                deduplication_queues.dedup_queue_finalization.push(hash);
+            }
+        } else if let Ok(PacketType::Transaction) = packet_type {
+            let mut hash = [0u8; 8];
+            hash.copy_from_slice(&XxHash64::digest(&message.remaining_bytes()?));
+
+            if !deduplication_queues
+                .dedup_queue_transaction
+                .iter()
+                .any(|h| h == &hash)
+            {
+                deduplication_queues.dedup_queue_transaction.push(hash);
+            }
+        }
+
+        message.rewind()?;
+
+        Ok(())
+    }
+
     fn process_message(
         &self,
         mut message: HybridBuf,
@@ -255,39 +292,8 @@ impl Connection {
             service.pkt_received_inc();
         };
 
-        // deduplicate finalization messages and transactions
-        message.seek(SeekFrom::Start(NETWORK_MESSAGE_PROTOCOL_TYPE_IDX as u64))?;
-        let packet_type = PacketType::try_from(message.read_u16::<E>()?);
-
-        if let Ok(PacketType::FinalizationMessage) = packet_type {
-            let mut hash = [0u8; 8];
-            hash.copy_from_slice(&XxHash64::digest(&message.remaining_bytes()?));
-
-            if deduplication_queues
-                .dedup_queue_finalization
-                .iter()
-                .any(|h| h == &hash)
-            {
-                return Ok(());
-            } else {
-                deduplication_queues.dedup_queue_finalization.push(hash);
-            }
-        } else if let Ok(PacketType::Transaction) = packet_type {
-            let mut hash = [0u8; 8];
-            hash.copy_from_slice(&XxHash64::digest(&message.remaining_bytes()?));
-
-            if deduplication_queues
-                .dedup_queue_transaction
-                .iter()
-                .any(|h| h == &hash)
-            {
-                return Ok(());
-            } else {
-                deduplication_queues.dedup_queue_transaction.push(hash);
-            }
-        }
-
-        message.rewind()?;
+        // deduplicate the incoming message
+        self.dedup_message(&mut message, deduplication_queues)?;
 
         let message = NetworkMessage::deserial(&mut message)?;
 
@@ -297,7 +303,7 @@ impl Connection {
             _ => self.is_post_handshake(),
         };
 
-        // process the incoming request if applicable
+        // process the incoming message if applicable
         if is_msg_processable {
             self.handle_incoming_message(&message);
         } else {
@@ -314,11 +320,13 @@ impl Connection {
             NetworkMessage::NetworkResponse(ref response, ..) => match response {
                 _ => false,
             },
-            NetworkMessage::NetworkPacket(..) => true,
+            NetworkMessage::NetworkPacket(..) => {
+                self.handler().is_rpc_online.load(Ordering::Relaxed)
+            }
             NetworkMessage::InvalidMessage => false,
         };
 
-        // forward applicable requests to other connections
+        // forward applicable messages to other connections
         if is_msg_forwardable {
             if let NetworkMessage::NetworkPacket(..) = message {
                 self.handler().forward_network_packet(message)
@@ -346,9 +354,7 @@ impl Connection {
         Ok(())
     }
 
-    pub fn remote_end_networks(&self) -> Arc<RwLock<HashSet<NetworkId>>> {
-        Arc::clone(&self.remote_end_networks)
-    }
+    pub fn remote_end_networks(&self) -> &RwLock<HashSet<NetworkId>> { &self.remote_end_networks }
 
     pub fn local_end_networks(&self) -> &RwLock<Networks> { self.handler().networks() }
 

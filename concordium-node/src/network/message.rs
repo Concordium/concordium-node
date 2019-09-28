@@ -108,13 +108,12 @@ mod unit_test {
     use rand::{distributions::Alphanumeric, thread_rng, Rng};
     use std::{
         io::{Seek, SeekFrom, Write},
-        net::{IpAddr, SocketAddr},
         str::FromStr,
     };
 
     use super::*;
     use crate::{
-        common::{P2PNodeId, P2PPeer, PeerType},
+        common::P2PNodeId,
         network::{NetworkId, NetworkPacket, NetworkPacketType},
     };
     use concordium_common::{hybrid_buf::HybridBuf, Serial};
@@ -156,16 +155,10 @@ mod unit_test {
 
         // 2. Generate packet.
         let p2p_node_id = P2PNodeId::from_str("000000002dd2b6ed")?;
-        let peer = P2PPeer::from(
-            PeerType::Node,
-            p2p_node_id.clone(),
-            SocketAddr::new(IpAddr::from_str("127.0.0.1")?, 8888),
-        );
         let pkt = NetworkPacket {
             packet_type: NetworkPacketType::DirectMessage(p2p_node_id),
-            peer,
-            network_id: NetworkId::from(111),
-            message: payload,
+            network_id:  NetworkId::from(111),
+            message:     payload,
         };
         let message = NetworkMessage::NetworkPacket(pkt, Some(get_current_stamp()), None);
 
@@ -181,19 +174,12 @@ mod unit_test {
         // Create serialization data in memory and then move to disk
         let mut buffer = make_direct_message_into_disk(content_size)?;
 
-        let local_peer = P2PPeer::from(
-            PeerType::Node,
-            P2PNodeId::from_str("000000002dd2b6ed")?,
-            SocketAddr::new(IpAddr::from_str("127.0.0.1")?, 8888),
-        );
-
         let mut message = NetworkMessage::deserial(&mut buffer)?;
 
         if let NetworkMessage::NetworkPacket(ref mut packet, ..) = message {
             if let NetworkPacketType::BroadcastedMessage(..) = packet.packet_type {
                 bail!("Unexpected Packet type");
             }
-            assert_eq!(packet.peer, local_peer);
             assert_eq!(packet.network_id, NetworkId::from(111));
             assert_eq!(packet.message.clone().remaining_len()?, content_size as u64);
         } else {

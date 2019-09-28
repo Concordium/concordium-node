@@ -39,7 +39,6 @@ pub fn create_random_packet(size: usize) -> NetworkMessage {
     NetworkMessage::NetworkPacket(
         NetworkPacket {
             packet_type: NetworkPacketType::DirectMessage(P2PNodeId::from_str(&"2A").unwrap()),
-            peer:        localhost_peer(),
             network_id:  NetworkId::from(100u16),
             message:     HybridBuf::try_from(generate_random_data(size)).unwrap(),
         },
@@ -248,6 +247,7 @@ mod network {
                 b.iter(|| {
                     send_message_from_cursor(
                         &node_1,
+                        node_1.self_peer.id,
                         Some(node_2.id()),
                         vec![],
                         net_id,

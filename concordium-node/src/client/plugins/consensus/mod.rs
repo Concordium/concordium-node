@@ -346,6 +346,7 @@ fn process_internal_gs_entry(
     send_consensus_msg_to_net(
         node,
         request.dont_relay_to(),
+        node.self_peer.id,
         request.target_peer().map(P2PNodeId),
         network_id,
         request.variant,
@@ -412,6 +413,7 @@ fn process_external_gs_entry(
         send_consensus_msg_to_net(
             &node,
             request.dont_relay_to(),
+            source,
             None,
             network_id,
             request.variant,
@@ -451,9 +453,11 @@ fn send_msg_to_consensus(
     Ok(consensus_response)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn send_consensus_msg_to_net(
     node: &P2PNode,
     dont_relay_to: Vec<u64>,
+    source_id: P2PNodeId,
     target_id: Option<P2PNodeId>,
     network_id: NetworkId,
     payload_type: PacketType,
@@ -469,10 +473,11 @@ pub fn send_consensus_msg_to_net(
     packet_buffer.rewind()?;
 
     let result = if target_id.is_some() {
-        send_direct_message(node, target_id, network_id, packet_buffer)
+        send_direct_message(node, source_id, target_id, network_id, packet_buffer)
     } else {
         send_broadcast_message(
             node,
+            source_id,
             dont_relay_to.into_iter().map(P2PNodeId).collect(),
             network_id,
             packet_buffer,
@@ -515,6 +520,7 @@ fn send_catch_up_status(
     send_consensus_msg_to_net(
         node,
         vec![],
+        node.self_peer.id,
         Some(P2PNodeId(target)),
         network_id,
         PacketType::CatchUpStatus,
