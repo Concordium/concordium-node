@@ -81,14 +81,15 @@ mod tests {
         collections::HashSet,
         convert::TryFrom,
         str::FromStr,
-        sync::{Arc, RwLock},
+        sync::{atomic::AtomicU16, Arc, RwLock},
     };
 
     fn dummy_peer(ip: IpAddr, port: u16) -> RemotePeer {
         RemotePeer {
-            id:        Arc::new(RwLock::new(Some(P2PNodeId::default()))),
-            addr:      SocketAddr::new(ip, port),
-            peer_type: PeerType::Node,
+            id:                 Arc::new(RwLock::new(Some(P2PNodeId::default()))),
+            addr:               SocketAddr::new(ip, port),
+            peer_external_port: Arc::new(AtomicU16::new(port)),
+            peer_type:          PeerType::Node,
         }
     }
 
@@ -231,11 +232,11 @@ mod tests {
     }
 
     #[test]
-    fn resp_findnode_empty_test() { net_test!(NetworkResponse, FindNode, vec![] as Vec<P2PPeer>) }
+    fn resp_findnode_empty_test() { net_test!(NetworkResponse, PeerList, vec![] as Vec<P2PPeer>) }
 
     #[test]
     fn resp_findnode_v4_test() {
-        net_test!(NetworkResponse, FindNode, vec![dummy_peer(
+        net_test!(NetworkResponse, PeerList, vec![dummy_peer(
             IpAddr::from([8, 8, 8, 8]),
             9999
         )
@@ -245,7 +246,7 @@ mod tests {
 
     #[test]
     fn resp_findnode_v6_test() {
-        net_test!(NetworkResponse, FindNode, vec![dummy_peer(
+        net_test!(NetworkResponse, PeerList, vec![dummy_peer(
             IpAddr::from_str("ff80::dead:beaf").unwrap(),
             9999
         )
@@ -255,7 +256,7 @@ mod tests {
 
     #[test]
     fn resp_findnode_mixed_test() {
-        net_test!(NetworkResponse, FindNode, vec![
+        net_test!(NetworkResponse, PeerList, vec![
             dummy_peer(IpAddr::from_str("ff80::dead:beaf").unwrap(), 9999)
                 .peer()
                 .unwrap(),
@@ -295,12 +296,10 @@ mod tests {
 
     #[test]
     pub fn direct_message_test() -> Fallible<()> {
-        let self_peer = self_peer();
         let text_msg = b"Hello world!";
         let buf = HybridBuf::try_from(&text_msg[..])?;
         let msg = NetworkPacket {
             packet_type: NetworkPacketType::DirectMessage(P2PNodeId::default()),
-            peer:        self_peer.clone().peer().unwrap(),
             network_id:  NetworkId::from(100),
             message:     buf,
         };
@@ -320,12 +319,10 @@ mod tests {
 
     #[test]
     pub fn broadcasted_message_test() -> Fallible<()> {
-        let self_peer = self_peer();
         let text_msg = b"Hello  broadcasted world!";
         let buf = HybridBuf::try_from(&text_msg[..])?;
         let msg = NetworkPacket {
             packet_type: NetworkPacketType::BroadcastedMessage(vec![]),
-            peer:        self_peer.clone().peer().unwrap(),
             network_id:  NetworkId::from(100),
             message:     buf,
         };

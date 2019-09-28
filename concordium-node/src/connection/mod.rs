@@ -25,29 +25,57 @@ use crate::{
         p2p_peer::P2PPeer,
         NetworkRawRequest, P2PNodeId, PeerStats, PeerType, RemotePeer,
     },
-    connection::message_handlers::handle_incoming_message,
     dumper::DumpItem,
-    network::{Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse},
+    network::{
+        Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse,
+        NETWORK_MESSAGE_PROTOCOL_TYPE_IDX,
+    },
     p2p::banned_nodes::BannedNode,
 };
 
-use concordium_common::{hybrid_buf::HybridBuf, serial::serialize_into_buffer, Serial};
+use concordium_common::{
+    hybrid_buf::HybridBuf,
+    serial::{serialize_into_buffer, E},
+    PacketType, Serial,
+};
 
+use byteorder::ReadBytesExt;
 use chrono::prelude::Utc;
+use circular_queue::CircularQueue;
+use digest::Digest;
 use failure::Fallible;
 use mio::{tcp::TcpStream, Event, Poll, PollOpt, Ready, Token};
 use snow::Keypair;
+use twox_hash::XxHash64;
 
 use std::{
     collections::HashSet,
+    convert::TryFrom,
     fmt,
-    net::{Shutdown, SocketAddr},
+    io::{Seek, SeekFrom},
+    net::SocketAddr,
     pin::Pin,
     sync::{
         atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         Arc, RwLock,
     },
 };
+
+pub struct DeduplicationQueues {
+    pub dedup_queue_finalization: CircularQueue<[u8; 8]>,
+    pub dedup_queue_transaction:  CircularQueue<[u8; 8]>,
+}
+
+impl DeduplicationQueues {
+    pub fn default() -> Self {
+        const DEDUP_QUEUE_SIZE: usize = 32 * 1024;
+
+        Self {
+            dedup_queue_finalization: CircularQueue::with_capacity(DEDUP_QUEUE_SIZE),
+            dedup_queue_transaction:  CircularQueue::with_capacity(DEDUP_QUEUE_SIZE),
+        }
+    }
+}
 
 pub struct ConnectionStats {
     pub last_ping_sent:    AtomicU64,
@@ -167,6 +195,7 @@ impl Connection {
                 .ok_or_else(|| format_err!("Attempted to get the stats of a pre-handshake peer!"))?
                 .as_raw(),
             self.remote_addr(),
+            self.remote_peer_external_port(),
             self.remote_peer_type(),
             Arc::clone(&self.stats.messages_sent),
             Arc::clone(&self.stats.messages_received),
@@ -175,6 +204,10 @@ impl Connection {
     }
 
     pub fn remote_addr(&self) -> SocketAddr { self.remote_peer.addr() }
+
+    pub fn remote_peer_external_port(&self) -> u16 {
+        self.remote_peer.peer_external_port.load(Ordering::SeqCst)
+    }
 
     pub fn is_post_handshake(&self) -> bool { self.is_post_handshake.load(Ordering::SeqCst) }
 
@@ -200,20 +233,58 @@ impl Connection {
         ))
     }
 
-    #[inline]
-    pub fn deregister(&self, poll: &Poll) -> Fallible<()> {
-        map_io_error_to_fail!(poll.deregister(&read_or_die!(self.low_level).socket))
-    }
-
     /// This function is called when `poll` indicates that `socket` is ready to
     /// write or/and read.
-    pub fn ready(&self, ev: &Event) -> Fallible<()> {
-        write_or_die!(self.low_level).read_from_stream(ev)
+    pub fn ready(
+        &self,
+        ev: &Event,
+        deduplication_queues: &mut DeduplicationQueues,
+    ) -> Fallible<()> {
+        write_or_die!(self.low_level).read_from_stream(ev, deduplication_queues)
     }
 
-    fn process_message(&self, mut message: HybridBuf) -> Fallible<()> {
-        let message = NetworkMessage::deserial(&mut message)?;
+    fn dedup_message(
+        &self,
+        message: &mut HybridBuf,
+        deduplication_queues: &mut DeduplicationQueues,
+    ) -> Fallible<()> {
+        message.seek(SeekFrom::Start(NETWORK_MESSAGE_PROTOCOL_TYPE_IDX as u64))?;
+        let packet_type = PacketType::try_from(message.read_u16::<E>()?);
 
+        if let Ok(PacketType::FinalizationMessage) = packet_type {
+            let mut hash = [0u8; 8];
+            hash.copy_from_slice(&XxHash64::digest(&message.remaining_bytes()?));
+
+            if !deduplication_queues
+                .dedup_queue_finalization
+                .iter()
+                .any(|h| h == &hash)
+            {
+                deduplication_queues.dedup_queue_finalization.push(hash);
+            }
+        } else if let Ok(PacketType::Transaction) = packet_type {
+            let mut hash = [0u8; 8];
+            hash.copy_from_slice(&XxHash64::digest(&message.remaining_bytes()?));
+
+            if !deduplication_queues
+                .dedup_queue_transaction
+                .iter()
+                .any(|h| h == &hash)
+            {
+                deduplication_queues.dedup_queue_transaction.push(hash);
+            }
+        }
+
+        message.rewind()?;
+
+        Ok(())
+    }
+
+    fn process_message(
+        &self,
+        mut message: HybridBuf,
+        deduplication_queues: &mut DeduplicationQueues,
+    ) -> Fallible<()> {
         self.update_last_seen();
         self.stats.messages_received.fetch_add(1, Ordering::Relaxed);
         TOTAL_MESSAGES_RECEIVED_COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -221,32 +292,60 @@ impl Connection {
             service.pkt_received_inc();
         };
 
-        handle_incoming_message(self, &message);
+        // deduplicate the incoming message
+        self.dedup_message(&mut message, deduplication_queues)?;
 
-        match message {
+        let message = NetworkMessage::deserial(&mut message)?;
+
+        let is_msg_processable = match message {
+            NetworkMessage::NetworkRequest(NetworkRequest::Handshake(..), ..)
+            | NetworkMessage::NetworkResponse(NetworkResponse::Handshake(..), ..) => true,
+            _ => self.is_post_handshake(),
+        };
+
+        // process the incoming message if applicable
+        if is_msg_processable {
+            self.handle_incoming_message(&message);
+        } else {
+            bail!("Refusing to process or forward any incoming messages before a handshake");
+        };
+
+        let is_msg_forwardable = match message {
             NetworkMessage::NetworkRequest(ref request, ..) => match request {
                 NetworkRequest::BanNode(..) | NetworkRequest::UnbanNode(..) => {
-                    if !self.handler().config.no_trust_bans {
-                        self.forward_network_message(&message)
-                    } else {
-                        Ok(())
-                    }
+                    !self.handler().config.no_trust_bans
                 }
-                NetworkRequest::Retransmit(..) => self.forward_network_message(&message),
-                _ => Ok(()),
+                _ => false,
             },
             NetworkMessage::NetworkResponse(ref response, ..) => match response {
-                _ => Ok(()),
+                _ => false,
             },
-            _ => self.handler().forward_network_packet(&message),
+            NetworkMessage::NetworkPacket(..) => {
+                self.handler().is_rpc_online.load(Ordering::Relaxed)
+            }
+            NetworkMessage::InvalidMessage => false,
+        };
+
+        // forward applicable messages to other connections
+        if is_msg_forwardable {
+            if let NetworkMessage::NetworkPacket(..) = message {
+                self.handler().forward_network_packet(message)
+            } else {
+                self.forward_network_message(&message)
+            }
+        } else {
+            Ok(())
         }
     }
 
-    pub fn buckets(&self) -> &Arc<RwLock<Buckets>> { &self.handler().connection_handler.buckets }
+    pub fn buckets(&self) -> &RwLock<Buckets> { &self.handler().connection_handler.buckets }
 
-    pub fn promote_to_post_handshake(&self, id: P2PNodeId) -> Fallible<()> {
+    pub fn promote_to_post_handshake(&self, id: P2PNodeId, peer_port: u16) -> Fallible<()> {
         self.is_post_handshake.store(true, Ordering::SeqCst);
         *write_or_die!(self.remote_peer.id) = Some(id);
+        self.remote_peer
+            .peer_external_port
+            .store(peer_port, Ordering::SeqCst);
 
         // register peer's stats in the P2PNode
         write_or_die!(self.handler().active_peer_stats)
@@ -255,23 +354,13 @@ impl Connection {
         Ok(())
     }
 
-    pub fn remote_end_networks(&self) -> Arc<RwLock<HashSet<NetworkId>>> {
-        Arc::clone(&self.remote_end_networks)
-    }
+    pub fn remote_end_networks(&self) -> &RwLock<HashSet<NetworkId>> { &self.remote_end_networks }
 
-    pub fn local_end_networks(&self) -> &Arc<RwLock<Networks>> { self.handler().networks() }
+    pub fn local_end_networks(&self) -> &RwLock<Networks> { self.handler().networks() }
 
     /// It queues a network request
-    #[inline]
+    #[inline(always)]
     pub fn async_send(&self, input: HybridBuf, priority: MessageSendingPriority) -> Fallible<()> {
-        TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
-        self.stats.messages_sent.fetch_add(1, Ordering::Relaxed);
-        if let Some(ref stats) = self.handler().stats_export_service {
-            stats.pkt_sent_inc();
-        }
-
-        self.send_to_dump(&input, false);
-
         let request = NetworkRawRequest {
             token: self.token,
             data: input,
@@ -290,11 +379,7 @@ impl Connection {
     /// for real write. Function `ConnectionPrivate::ready` will make ensure to
     /// write chunks of the message
     #[inline]
-    pub fn async_send_from_poll_loop(
-        &self,
-        input: HybridBuf,
-        priority: MessageSendingPriority,
-    ) -> Fallible<Readiness<usize>> {
+    pub fn async_send_from_poll_loop(&self, input: HybridBuf) -> Fallible<Readiness<usize>> {
         TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
         self.stats.messages_sent.fetch_add(1, Ordering::Relaxed);
         if let Some(ref stats) = self.handler().stats_export_service {
@@ -303,7 +388,7 @@ impl Connection {
 
         self.send_to_dump(&input, false);
 
-        write_or_die!(self.low_level).write_to_sink(input, priority)
+        write_or_die!(self.low_level).write_to_sink(input)
     }
 
     pub fn update_last_seen(&self) {
@@ -445,7 +530,9 @@ impl Connection {
                     .iter()
                     .filter(|stat| stat.peer_type == PeerType::Node)
                     .filter(|stat| P2PNodeId(stat.id) != requestor.id)
-                    .map(|stat| P2PPeer::from(stat.peer_type, P2PNodeId(stat.id), stat.addr))
+                    .map(|stat| {
+                        P2PPeer::from(stat.peer_type, P2PNodeId(stat.id), stat.external_address())
+                    })
                     .collect::<Vec<_>>();
 
                 if !nodes.is_empty() {
@@ -488,7 +575,6 @@ impl Connection {
                         .peer()
                         .map_or(true, |peer| peer.ip() != *addr),
                 },
-                NetworkRequest::Retransmit(..) => conn.remote_id() == self.remote_id(),
                 _ => true,
             },
             _ => unreachable!("Only network requests are ever forwarded"),
@@ -526,10 +612,6 @@ impl Connection {
 impl Drop for Connection {
     fn drop(&mut self) {
         debug!("Closing {}", self);
-
-        if let Err(e) = self.handler().deregister_connection(self) {
-            error!("Can't close {}: {:?}", self, e);
-        }
 
         if let Some(id) = self.remote_id() {
             write_or_die!(self.handler().active_peer_stats).remove(&id.as_raw());
@@ -584,7 +666,12 @@ impl ConnectionLowLevel {
         }
     }
 
-    fn read_from_stream(&mut self, ev: &Event) -> Fallible<()> {
+    #[inline(always)]
+    fn read_from_stream(
+        &mut self,
+        ev: &Event,
+        deduplication_queues: &mut DeduplicationQueues,
+    ) -> Fallible<()> {
         let ev_readiness = ev.readiness();
 
         // 1. Try to read messages from `socket`.
@@ -595,31 +682,15 @@ impl ConnectionLowLevel {
                     Ok(readiness) => match readiness {
                         Readiness::Ready(message) => {
                             self.conn().send_to_dump(&message, true);
-                            if let Err(e) = self.conn().process_message(message) {
-                                warn!("Terminating {}: {}", self.conn(), e);
-                                bail!("Can't read the stream");
+                            if let Err(e) =
+                                self.conn().process_message(message, deduplication_queues)
+                            {
+                                bail!("Can't read the stream: {}", e);
                             }
                         }
                         Readiness::NotReady => break,
                     },
-                    Err(err) => {
-                        let token_id = usize::from(self.conn().token);
-
-                        if err.downcast_ref::<fails::UnwantedMessageError>().is_none()
-                            && err.downcast_ref::<fails::MessageTooBigError>().is_none()
-                        {
-                            warn!(
-                                "Protocol error, connection {} is dropped: {}",
-                                token_id, err
-                            );
-                        } else {
-                            error!("Message stream error on connection {}: {:?}", token_id, err);
-                        }
-
-                        // In this case, we have to drop this connection, so we can avoid
-                        // writing any data.
-                        bail!("Can't read the stream");
-                    }
+                    Err(e) => bail!("Can't read the stream: {}", e),
                 }
             }
         }
@@ -630,37 +701,9 @@ impl ConnectionLowLevel {
         Ok(())
     }
 
-    fn write_to_sink(
-        &mut self,
-        input: HybridBuf,
-        priority: MessageSendingPriority,
-    ) -> Fallible<Readiness<usize>> {
-        self.message_sink.write(input, &mut self.socket, priority)
-    }
-}
-
-impl Drop for ConnectionLowLevel {
-    fn drop(&mut self) {
-        use crate::connection::fails::PeerTerminatedConnection;
-        use std::io::{Read, Write};
-        let mut buffer: Vec<u8> = Vec::new();
-        if let Err(e) = self.socket.write(&[]) {
-            error!(
-                "Could not flush write buffer on socket {:?} due to {}",
-                self.socket, e
-            );
-        }
-        if let Err(e) = self.socket.read(&mut buffer) {
-            error!(
-                "Could not flush read buffer on socket {:?} due to {}",
-                self.socket, e
-            );
-        }
-        if let Err(e) = map_io_error_to_fail!(self.socket.shutdown(Shutdown::Both)) {
-            if e.downcast_ref::<PeerTerminatedConnection>().is_none() {
-                error!("ConnectionPrivate couldn't be closed: {:?}", e);
-            }
-        }
+    #[inline(always)]
+    fn write_to_sink(&mut self, input: HybridBuf) -> Fallible<Readiness<usize>> {
+        self.message_sink.write(input, &mut self.socket)
     }
 }
 
@@ -730,17 +773,15 @@ mod tests {
         setup_logger();
 
         // Create connections
-        let (node, _) = make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
-        let (bootstrapper, _) =
+        let node = make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
+        let bootstrapper =
             make_node_and_sync(next_available_port(), vec![100], PeerType::Bootstrapper)?;
         connect(&node, &bootstrapper)?;
         await_handshake(&node)?;
-        // Deregister connection on the node side
+
         let conn_node = node.find_connection_by_id(bootstrapper.id()).unwrap();
-        node.deregister_connection(&conn_node)?;
-        // Deregister connection on the bootstrapper side
         let conn_bootstrapper = bootstrapper.find_connection_by_id(node.id()).unwrap();
-        bootstrapper.deregister_connection(&conn_bootstrapper)?;
+
         // Assert that a Node accepts every packet
         match conn_node.validate_packet_type_test(&[]) {
             Readiness::Ready(true) => {}

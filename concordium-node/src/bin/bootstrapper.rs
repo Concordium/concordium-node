@@ -14,17 +14,16 @@ use std::alloc::System;
 #[global_allocator]
 static A: System = System;
 
-use concordium_common::{stats_export_service::StatsServiceMode, QueueMsg, QueueReceiver};
+use concordium_common::stats_export_service::StatsServiceMode;
 use env_logger::{Builder, Env};
 use failure::Error;
 use p2p_client::{
     client::utils as client_utils,
     common::{P2PNodeId, PeerType},
     configuration as config,
-    network::{NetworkMessage, NetworkRequest},
     p2p::*,
 };
-use std::sync::{mpsc, Arc};
+use std::sync::mpsc;
 
 fn main() -> Result<(), Error> {
     let mut conf = config::parse_config()?;
@@ -90,7 +89,6 @@ fn main() -> Result<(), Error> {
         _ => format!("{}", P2PNodeId::default()),
     };
 
-    let (pkt_in, pkt_out) = mpsc::sync_channel(config::BOOT_PACKET_QUEUE_DEPTH);
     let (rpc_tx, _) = std::sync::mpsc::sync_channel(config::RPC_QUEUE_DEPTH);
 
     let (node, receivers) = if conf.common.debug {
@@ -103,7 +101,6 @@ fn main() -> Result<(), Error> {
         P2PNode::new(
             Some(id),
             &conf,
-            pkt_in,
             Some(sender),
             PeerType::Bootstrapper,
             stats_export_service.clone(),
@@ -114,7 +111,6 @@ fn main() -> Result<(), Error> {
         P2PNode::new(
             Some(id),
             &conf,
-            pkt_in,
             None,
             PeerType::Bootstrapper,
             stats_export_service.clone(),
@@ -127,10 +123,10 @@ fn main() -> Result<(), Error> {
     // Start push gateway to prometheus
     client_utils::start_push_gateway(&conf.prometheus, &stats_export_service, node.id())?;
 
-    // Connect outgoing messages to be forwarded into the baker and RPC streams.
-    //
-    // Thread #4: Read P2PNode output
-    setup_process_output(&node, &conf, pkt_out);
+    info!(
+        "Concordium P2P layer. Network disabled: {}",
+        conf.cli.no_network
+    );
 
     node.spawn(receivers);
 
@@ -140,33 +136,4 @@ fn main() -> Result<(), Error> {
     client_utils::stop_stats_export_engine(&conf, &stats_export_service);
 
     Ok(())
-}
-
-fn setup_process_output(
-    node: &Arc<P2PNode>,
-    conf: &config::Config,
-    pkt_out: QueueReceiver<NetworkMessage>,
-) {
-    let node_ref = Arc::clone(node);
-    let _no_trust_bans = conf.common.no_trust_bans;
-    let _guard_pkt = spawn_or_die!("Higher queue processing", move || {
-        while let Ok(QueueMsg::Relay(full_msg)) = pkt_out.recv() {
-            if let Err(e) = match full_msg {
-                NetworkMessage::NetworkRequest(NetworkRequest::BanNode(peer_to_ban), ..) => {
-                    node_ref.ban_node(peer_to_ban)
-                }
-                NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(peer_to_unban), ..) => {
-                    node_ref.unban_node(peer_to_unban)
-                }
-                _ => Ok(()),
-            } {
-                error!("Can't process a ban/unban request: {}", e);
-            }
-        }
-    });
-
-    info!(
-        "Concordium P2P layer. Network disabled: {}",
-        conf.cli.no_network
-    );
 }

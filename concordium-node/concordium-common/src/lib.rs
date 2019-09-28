@@ -139,12 +139,10 @@ impl fmt::Debug for HashBytes {
 // the full SHA256 in hex
 impl fmt::Display for HashBytes {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{:0len$x}",
-            (&self.0[..]).read_u128::<NetworkEndian>().unwrap(),
-            len = SHA256 as usize,
-        )
+        for byte in self.iter() {
+            write!(f, "{:02x}", byte)?;
+        }
+        Ok(())
     }
 }
 

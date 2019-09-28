@@ -1,8 +1,8 @@
-use byteorder::{ReadBytesExt, WriteBytesExt, LE};
+use byteorder::{ReadBytesExt, WriteBytesExt, BE};
 use failure::{bail, Fallible};
 
 // desired endianness
-type E = LE;
+pub type E = BE;
 
 // the actual trait; might need 2 lifetimes
 

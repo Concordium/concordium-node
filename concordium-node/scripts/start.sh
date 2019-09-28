@@ -210,7 +210,7 @@ fi
 
 if [ -n "$COLLECTOR_URL" ];
 then
-    ARGS="$ARGS --url $COLLECTOR_URL"
+    ARGS="$ARGS --collector-url $COLLECTOR_URL"
 fi
 
 if [ -n "$COLLECTOR_NODE_NAME" ];

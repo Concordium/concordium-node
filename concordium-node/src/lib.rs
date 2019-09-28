@@ -57,10 +57,6 @@ extern crate capnp;
 #[macro_use]
 extern crate nom;
 
-#[cfg(test)]
-#[macro_use]
-extern crate static_assertions;
-
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const APPNAME: &str = env!("CARGO_PKG_NAME");
 const DEFAULT_DNS_PUBLIC_KEY: &str =

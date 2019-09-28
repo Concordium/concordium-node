@@ -1,7 +1,7 @@
 use byteorder::{ReadBytesExt, WriteBytesExt};
 
 use crate::{
-    common::{P2PNodeId, P2PPeer},
+    common::P2PNodeId,
     network::{AsProtocolPacketType, NetworkId, ProtocolPacketType},
 };
 use concordium_common::{hybrid_buf::HybridBuf, Serial};
@@ -52,7 +52,6 @@ impl Serial for NetworkPacketType {
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub struct NetworkPacket {
     pub packet_type: NetworkPacketType,
-    pub peer:        P2PPeer,
     pub network_id:  NetworkId,
     pub message:     HybridBuf,
 }
@@ -61,7 +60,6 @@ impl Serial for NetworkPacket {
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         Ok(NetworkPacket {
             packet_type: NetworkPacketType::deserial(source)?,
-            peer:        P2PPeer::deserial(source)?,
             network_id:  NetworkId::deserial(source)?,
             message:     HybridBuf::deserial(source)?,
         })
@@ -69,7 +67,6 @@ impl Serial for NetworkPacket {
 
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
         self.packet_type.serial(target)?;
-        self.peer.serial(target)?;
         self.network_id.serial(target)?;
         self.message.serial(target)
     }

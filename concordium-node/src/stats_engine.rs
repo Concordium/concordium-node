@@ -21,7 +21,8 @@ impl DataPoint {
 pub struct DataPoint;
 
 pub struct StatsEngine {
-    datapoints: CircularQueue<DataPoint>,
+    datapoints:    CircularQueue<DataPoint>,
+    pub msg_count: u64,
 }
 
 impl StatsEngine {
@@ -29,6 +30,7 @@ impl StatsEngine {
     pub fn new(config: &crate::configuration::CliConfig) -> Self {
         StatsEngine {
             datapoints: CircularQueue::with_capacity(config.tps.tps_stats_save_amount as usize),
+            msg_count:  0,
         }
     }
 
@@ -36,11 +38,14 @@ impl StatsEngine {
     pub fn new(_: &crate::configuration::CliConfig) -> Self {
         StatsEngine {
             datapoints: CircularQueue::with_capacity(1),
+            msg_count:  0,
         }
     }
 
     #[cfg(feature = "benchmark")]
     pub fn add_stat(&mut self, size: u64) {
+        self.msg_count += 1;
+
         let _dur = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .expect("can't happen before epoch");
@@ -57,7 +62,10 @@ impl StatsEngine {
     #[cfg(not(feature = "benchmark"))]
     pub fn add_stat(&mut self, _: u64) {}
 
-    pub fn clear(&mut self) { self.datapoints.clear(); }
+    pub fn clear(&mut self) {
+        self.datapoints.clear();
+        self.msg_count = 0;
+    }
 
     #[cfg(feature = "benchmark")]
     pub fn calculate_total_tps_average(&self) -> f64 {

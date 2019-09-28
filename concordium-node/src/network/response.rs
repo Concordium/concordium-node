@@ -13,7 +13,6 @@ use std::{collections::HashSet, convert::TryFrom};
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum NetworkResponse {
     Pong,
-    FindNode(Vec<P2PPeer>), // FIXME: merge with PeerList
     PeerList(Vec<P2PPeer>),
     Handshake(P2PNodeId, u16, HashSet<NetworkId>, Vec<u8>),
 }
@@ -22,8 +21,7 @@ impl AsProtocolResponseType for NetworkResponse {
     fn protocol_response_type(&self) -> ProtocolResponseType {
         match self {
             NetworkResponse::Pong => ProtocolResponseType::Pong,
-            NetworkResponse::FindNode(..) => ProtocolResponseType::FindNode,
-            NetworkResponse::PeerList(..) => ProtocolResponseType::PeersList,
+            NetworkResponse::PeerList(..) => ProtocolResponseType::PeerList,
             NetworkResponse::Handshake(..) => ProtocolResponseType::Handshake,
         }
     }
@@ -34,10 +32,7 @@ impl Serial for NetworkResponse {
         let protocol_type = ProtocolResponseType::try_from(source.read_u8()?)?;
         let response = match protocol_type {
             ProtocolResponseType::Pong => NetworkResponse::Pong,
-            ProtocolResponseType::FindNode => {
-                NetworkResponse::FindNode(Vec::<P2PPeer>::deserial(source)?)
-            }
-            ProtocolResponseType::PeersList => {
+            ProtocolResponseType::PeerList => {
                 NetworkResponse::PeerList(Vec::<P2PPeer>::deserial(source)?)
             }
             ProtocolResponseType::Handshake => NetworkResponse::Handshake(
@@ -54,9 +49,7 @@ impl Serial for NetworkResponse {
         (self.protocol_response_type() as u8).serial(target)?;
         match self {
             NetworkResponse::Pong => Ok(()),
-            NetworkResponse::FindNode(ref peers) | NetworkResponse::PeerList(ref peers) => {
-                peers.serial(target)
-            }
+            NetworkResponse::PeerList(ref peers) => peers.serial(target),
             NetworkResponse::Handshake(my_node_id, my_port, networks, zk) => {
                 my_node_id.serial(target)?;
                 my_port.serial(target)?;

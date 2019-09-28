@@ -4,17 +4,15 @@ pub const FILE_NAME_CRYPTO_PROV_DATA: &str = "crypto_providers.json";
 pub const FILE_NAME_ID_PROV_DATA: &str = "identity_providers.json";
 pub const FILE_NAME_PREFIX_BAKER_PRIVATE: &str = "baker-";
 pub const FILE_NAME_SUFFIX_BAKER_PRIVATE: &str = ".dat";
+pub const FILE_NAME_SUFFIX_BAKER_PRIVATE_JSON: &str = "-credentials.json";
 
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
-use circular_queue::CircularQueue;
-use digest::Digest;
 use failure::Fallible;
-use twox_hash::XxHash64;
 
 use std::{
     convert::TryFrom,
     fs::OpenOptions,
-    io::{self, Cursor, Read, Seek, SeekFrom, Write},
+    io::{self, Cursor, Read, Write},
     mem,
     sync::Arc,
 };
@@ -47,26 +45,12 @@ use crate::{
     configuration::{self, MAX_CATCH_UP_TIME},
     network::NetworkId,
     p2p::p2p_node::*,
-    utils::GlobalStateSenders,
 };
-
-pub struct DeduplicationQueues {
-    pub dedup_queue_finalization: CircularQueue<[u8; 8]>,
-    pub dedup_queue_transaction:  CircularQueue<[u8; 8]>,
-}
-
-impl DeduplicationQueues {
-    pub fn new(dedup_size: usize) -> Self {
-        Self {
-            dedup_queue_finalization: CircularQueue::with_capacity(dedup_size),
-            dedup_queue_transaction:  CircularQueue::with_capacity(dedup_size),
-        }
-    }
-}
 
 pub fn start_consensus_layer(
     conf: &configuration::BakerConfig,
     app_prefs: &configuration::AppPreferences,
+    max_logging_level: consensus::ConsensusLogLevel,
 ) -> Option<consensus::ConsensusContainer> {
     info!("Starting up the consensus thread");
 
@@ -88,6 +72,7 @@ pub fn start_consensus_layer(
                 genesis_data,
                 private_data,
                 conf.baker_id,
+                max_logging_level,
             );
             Some(consensus)
         }
@@ -95,6 +80,26 @@ pub fn start_consensus_layer(
             error!("Can't start the consensus layer!");
             None
         }
+    }
+}
+
+pub fn get_baker_private_data_json_file(
+    app_prefs: &configuration::AppPreferences,
+    conf: &configuration::BakerConfig,
+) -> Option<String> {
+    if let Some(baker_id) = conf.baker_id {
+        let mut private_loc = app_prefs.get_user_app_dir();
+        private_loc.push(format!(
+            "{}{}{}",
+            FILE_NAME_PREFIX_BAKER_PRIVATE, baker_id, FILE_NAME_SUFFIX_BAKER_PRIVATE_JSON
+        ));
+        if let Some(path) = private_loc.to_str() {
+            Some(path.to_owned())
+        } else {
+            None
+        }
+    } else {
+        None
     }
 }
 
@@ -154,8 +159,6 @@ pub fn handle_pkt_out(
     dont_relay_to: Vec<P2PNodeId>,
     peer_id: P2PNodeId,
     mut msg: HybridBuf,
-    gs_senders: &GlobalStateSenders,
-    dedup_queues: &mut DeduplicationQueues,
     is_broadcast: bool,
 ) -> Fallible<()> {
     ensure!(
@@ -166,39 +169,6 @@ pub fn handle_pkt_out(
 
     let consensus_type = msg.read_u16::<NetworkEndian>()?;
     let packet_type = PacketType::try_from(consensus_type)?;
-
-    // deduplicate finalization messages and transactions
-    if packet_type == PacketType::FinalizationMessage {
-        let mut hash = [0u8; 8];
-        let msg_pos = msg.position()?;
-        hash.copy_from_slice(&XxHash64::digest(&msg.remaining_bytes()?));
-        msg.seek(SeekFrom::Start(msg_pos))?;
-
-        if dedup_queues
-            .dedup_queue_finalization
-            .iter()
-            .any(|h| h == &hash)
-        {
-            return Ok(());
-        } else {
-            dedup_queues.dedup_queue_finalization.push(hash);
-        }
-    } else if packet_type == PacketType::Transaction {
-        let mut hash = [0u8; 8];
-        let msg_pos = msg.position()?;
-        hash.copy_from_slice(&XxHash64::digest(&msg.remaining_bytes()?));
-        msg.seek(SeekFrom::Start(msg_pos))?;
-
-        if dedup_queues
-            .dedup_queue_transaction
-            .iter()
-            .any(|h| h == &hash)
-        {
-            return Ok(());
-        } else {
-            dedup_queues.dedup_queue_transaction.push(hash);
-        }
-    }
 
     let mut payload = Vec::with_capacity(msg.remaining_len()? as usize);
     io::copy(&mut msg, &mut payload)?;
@@ -224,9 +194,9 @@ pub fn handle_pkt_out(
     ));
 
     if is_broadcast {
-        gs_senders.send(request)
+        node.global_state_senders.send(request)
     } else {
-        gs_senders.send_with_priority(request)
+        node.global_state_senders.send_with_priority(request)
     }
 }
 
@@ -397,6 +367,7 @@ fn process_internal_gs_entry(
     send_consensus_msg_to_net(
         node,
         request.dont_relay_to(),
+        node.self_peer.id,
         request.target_peer().map(P2PNodeId),
         network_id,
         request.variant,
@@ -463,6 +434,7 @@ fn process_external_gs_entry(
         send_consensus_msg_to_net(
             &node,
             request.dont_relay_to(),
+            source,
             None,
             network_id,
             request.variant,
@@ -502,9 +474,11 @@ fn send_msg_to_consensus(
     Ok(consensus_response)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn send_consensus_msg_to_net(
     node: &P2PNode,
     dont_relay_to: Vec<u64>,
+    source_id: P2PNodeId,
     target_id: Option<P2PNodeId>,
     network_id: NetworkId,
     payload_type: PacketType,
@@ -520,10 +494,11 @@ pub fn send_consensus_msg_to_net(
     packet_buffer.rewind()?;
 
     let result = if target_id.is_some() {
-        send_direct_message(node, target_id, network_id, packet_buffer)
+        send_direct_message(node, source_id, target_id, network_id, packet_buffer)
     } else {
         send_broadcast_message(
             node,
+            source_id,
             dont_relay_to.into_iter().map(P2PNodeId).collect(),
             network_id,
             packet_buffer,
@@ -566,6 +541,7 @@ fn send_catch_up_status(
     send_consensus_msg_to_net(
         node,
         vec![],
+        node.self_peer.id,
         Some(P2PNodeId(target)),
         network_id,
         PacketType::CatchUpStatus,

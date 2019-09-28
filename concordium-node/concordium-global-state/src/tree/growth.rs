@@ -85,25 +85,25 @@ impl<'a> GlobalData<'a> {
     pub(crate) fn store_block(&mut self, block_ptr: &BlockPtr) {
         let mut kvs_writer = self.kvs_env.write().unwrap(); // infallible
 
-        self.finalized_block_store
-            .put(
-                &mut kvs_writer,
-                block_ptr.hash.clone(),
-                &Value::Blob(&block_ptr.serialize()),
-            )
-            .expect("Can't store a block!");
+        if let Err(e) = self.finalized_block_store.put(
+            &mut kvs_writer,
+            block_ptr.hash.clone(),
+            &Value::Blob(&block_ptr.serialize()),
+        ) {
+            panic!("Can't store a block due to {}", e);
+        }
     }
 
     fn store_serialized_block(&mut self, serialized_block: &[u8]) {
         let mut kvs_writer = self.kvs_env.write().unwrap(); // infallible
 
-        self.finalized_block_store
-            .put(
-                &mut kvs_writer,
-                sha256(serialized_block),
-                &Value::Blob(serialized_block),
-            )
-            .expect("Can't store a block!");
+        if let Err(e) = self.finalized_block_store.put(
+            &mut kvs_writer,
+            sha256(serialized_block),
+            &Value::Blob(serialized_block),
+        ) {
+            panic!("Can't store a blocke due to {}", e);
+        }
     }
 
     fn add_block(&mut self, pending_block: PendingBlock) -> GlobalStateResult {

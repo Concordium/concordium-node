@@ -63,6 +63,17 @@ macro_rules! wrap_c_call {
     }};
 }
 
+macro_rules! wrap_c_bool_call {
+    ($self:ident, $c_call:expr) => {{
+        let consensus = $self.consensus.load(Ordering::SeqCst);
+        match unsafe { $c_call(consensus) } {
+            0u8 => false,
+            1u8 => true,
+            code => panic!("FFI call didn't return 0 or 1 but {}", code),
+        }
+    }};
+}
+
 #[macro_use]
 mod fails;
 pub mod consensus;
