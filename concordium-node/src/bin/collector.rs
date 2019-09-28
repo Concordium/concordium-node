@@ -7,11 +7,10 @@ use concordium_common::spawn_or_die;
 use env_logger::{Builder, Env};
 use failure::Fallible;
 use grpcio::{ChannelBuilder, EnvBuilder};
-use p2p_client::proto::concordium_p2p_rpc_grpc::P2PClient;
+use p2p_client::{common::collector_utils::NodeInfo, proto::concordium_p2p_rpc_grpc::P2PClient};
 use serde_json::Value;
 use std::{sync::Arc, thread, time::Duration};
 use structopt::StructOpt;
-use p2p_client::common::collector_utils::NodeInfo;
 #[macro_use]
 extern crate log;
 
