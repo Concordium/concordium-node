@@ -222,8 +222,8 @@ impl<'a> GlobalData<'a> {
 
         let target_block = self.live_blocks.remove(&record.block_pointer);
 
-        let (target_hash, target_block) = if target_block.is_some() {
-            (record.block_pointer.clone(), target_block.unwrap())
+        let (target_hash, target_block) = if let Some(block) = target_block {
+            (record.block_pointer.clone(), block)
         } else {
             let error = GlobalStateError::MissingBlockToFinalize(record.block_pointer.clone());
 
