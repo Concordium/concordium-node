@@ -11,6 +11,7 @@ RUN --mount=type=ssh ./init.build.env.sh
 RUN --mount=type=ssh cargo build --release --features=instrumentation,benchmark,profiling,elastic_logging,collector && \
     cp /build-project/target/release/p2p_client-cli /build-project/target/release/p2p_bootstrapper-cli /build-project/ && \
     cp /build-project/target/release/node-collector /build-project/ && \
+    cp /build-project/target/release/node-collector-backend /build-project/ && \
     cargo clean && \
     # Sanitizer build
     #rustup install nightly-2019-03-22 && \
