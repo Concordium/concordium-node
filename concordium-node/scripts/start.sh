@@ -240,7 +240,7 @@ fi
 
 if [ -n "$DISTRIBUTION_CLIENT" ];
 then
-    if [ ! -f $DATA_DIR/baker-0.dat ];
+    if [ ! -f $DATA_DIR/baker-0.dat ] || [ ! -f $DATA_DIR/baker-0-account.json ] || [ ! -f $DATA_DIR/baker-0-credentials.json ] ;
     then
         LD_LIBRARY_PATH=/genesis-binaries/lib /genesis-binaries/bin/genesis make-bakers 1
     fi
