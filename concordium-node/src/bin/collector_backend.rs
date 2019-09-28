@@ -7,23 +7,28 @@ extern crate grpciowin as grpcio;
 extern crate gotham_derive;
 use env_logger::{Builder, Env};
 use failure::Fallible;
-use structopt::StructOpt;
 use p2p_client::common::collector_utils::NodeInfo;
+use std::hash::BuildHasherDefault;
+use structopt::StructOpt;
+use twox_hash::XxHash64;
 #[macro_use]
 extern crate log;
+use concordium_common::{read_or_die, safe_read, safe_write, write_or_die};
+use futures::{future, Future, Stream};
 use gotham::{
-    handler::{HandlerFuture, IntoResponse, IntoHandlerError},
-    helpers::http::response::create_response,
+    handler::{HandlerFuture, IntoHandlerError, IntoResponse},
+    helpers::http::response::{create_empty_response, create_response},
     middleware::state::StateMiddleware,
     pipeline::{single::single_pipeline, single_middleware},
     router::{builder::*, Router},
     state::{FromState, State},
 };
-use serde_json::error::Error;
-use gotham::helpers::http::response::create_empty_response;
 use hyper::{Body, Response, StatusCode};
-use std::{sync::{Arc,RwLock}, collections::HashMap};
-use futures::{future, Future, Stream};
+use serde_json::error::Error;
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+};
 
 // Explicitly defining allocator to avoid future reintroduction of jemalloc
 use std::alloc::System;
@@ -33,9 +38,17 @@ static A: System = System;
 #[derive(StructOpt, Debug)]
 #[structopt(name = "Node Collector Backend")]
 struct ConfigCli {
-    #[structopt(long = "listen-address", help = "IP to listen on", default_value = "0.0.0.0" )]
+    #[structopt(
+        long = "listen-address",
+        help = "IP to listen on",
+        default_value = "0.0.0.0"
+    )]
     pub host: String,
-    #[structopt(long = "listen-port", help = "Port to listen on", default_value = "8080" )]
+    #[structopt(
+        long = "listen-port",
+        help = "Port to listen on",
+        default_value = "8080"
+    )]
     pub port: u16,
     #[structopt(long = "print-config", help = "Print out config struct")]
     pub print_config: bool,
@@ -58,15 +71,25 @@ impl IntoResponse for HTMLStringResponse {
     }
 }
 
+pub struct JSONStringResponse(pub String);
+
+impl IntoResponse for JSONStringResponse {
+    fn into_response(self, state: &State) -> Response<Body> {
+        create_response(state, StatusCode::OK, mime::APPLICATION_JSON, self.0)
+    }
+}
+
 #[derive(Clone, StateData)]
 struct CollectorStateData {
-    nodes: Arc<RwLock<HashMap<String,NodeInfo>>>,
+    pub nodes: Arc<RwLock<HashMap<String, NodeInfo, BuildHasherDefault<XxHash64>>>>,
 }
 
 impl CollectorStateData {
     fn new() -> Self {
+        let node_info_map: HashMap<String, NodeInfo, BuildHasherDefault<XxHash64>> =
+            Default::default();
         Self {
-            nodes: Arc::new(RwLock::new(HashMap::new())),
+            nodes: Arc::new(RwLock::new(node_info_map)),
         }
     }
 }
@@ -95,7 +118,7 @@ pub fn main() -> Fallible<()> {
 
     let addr = format!("{}:{}", conf.host, conf.port).to_string();
     println!("Listening for requests at http://{}", addr);
-    gotham::start(addr, router() );
+    gotham::start(addr, router());
     Ok(())
 }
 
@@ -108,29 +131,37 @@ fn index(state: State) -> (State, HTMLStringResponse) {
     (state, message)
 }
 
+fn nodes_summary(state: State) -> (State, JSONStringResponse) {
+    let state_data = CollectorStateData::borrow_from(&state);
+    let message =
+        JSONStringResponse(serde_json::to_string(&*read_or_die!(state_data.nodes)).unwrap());
+    (state, message)
+}
+
 fn nodes_post_handler(mut state: State) -> Box<HandlerFuture> {
     let f = Body::take_from(&mut state)
         .concat2()
         .then(|full_body| match full_body {
-            Ok(valid_body) => {
-                match String::from_utf8(valid_body.to_vec()) {
-                    Ok(body_content) => {
-                        let nodes_info_json: Result<NodeInfo,Error> = serde_json::from_str(&body_content);
-                        match nodes_info_json {
-                            Ok(nodes_info) => {
-                                println!("Body: {}", body_content);
-                                let res = create_empty_response(&state, StatusCode::OK);
-                                future::ok((state, res))
-                            }
-                            Err(e) => {
-                                error!("Can't parse JSON as valid due to {}", e);
-                                future::err((state, e.into_handler_error()))
-                            }
+            Ok(valid_body) => match String::from_utf8(valid_body.to_vec()) {
+                Ok(body_content) => {
+                    let nodes_info_json: Result<NodeInfo, Error> =
+                        serde_json::from_str(&body_content);
+                    match nodes_info_json {
+                        Ok(nodes_info) => {
+                            let state_data = CollectorStateData::borrow_from(&state);
+                            write_or_die!(state_data.nodes)
+                                .insert(nodes_info.nodeName.clone(), nodes_info);
+                            let res = create_empty_response(&state, StatusCode::OK);
+                            future::ok((state, res))
+                        }
+                        Err(e) => {
+                            error!("Can't parse JSON as valid due to {}", e);
+                            future::err((state, e.into_handler_error()))
                         }
                     }
-                    Err(e) => future::err((state, e.into_handler_error())),
                 }
-            }
+                Err(e) => future::err((state, e.into_handler_error())),
+            },
             Err(e) => future::err((state, e.into_handler_error())),
         });
     Box::new(f)
@@ -143,7 +174,7 @@ pub fn router() -> Router {
     let (chain, pipelines) = single_pipeline(pipeline);
     build_router(chain, pipelines, |route| {
         route.get("/").to(index);
+        route.get("/nodesSummary").to(nodes_summary);
         route.post("/nodes/post").to(nodes_post_handler);
-        //route.get("/metrics").to(Self::metrics);
     })
 }
