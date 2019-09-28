@@ -10,7 +10,7 @@ EXPOSE 8900
 EXPOSE 10000
 
 RUN apt-get update && apt-get install -y unbound ca-certificates
-COPY --from=wrapper /build-project/node-collector /node-collector
+COPY --from=wrapper /build-project/BUILD_MODE/node-collector /node-collector
 COPY --from=wrapper /build-project/start.sh /start.sh
 
 ENTRYPOINT ["/start.sh"]
