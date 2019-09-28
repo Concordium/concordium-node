@@ -239,7 +239,13 @@ then
 fi
 
 if [ -n "$COLLECTOR_BACKEND_PORT" ];
-    ARGS="$ARGS --port $COLLECTOR_BACKEND_PORT"
+then
+    ARGS="$ARGS --listen-port $COLLECTOR_BACKEND_PORT"
+fi
+
+if [ -n "$COLLECTOR_BACKEND_HOST" ];
+then
+    ARGS="$ARGS --listen-address $COLLECTOR_BACKEND_HOST"
 fi
 
 if [ "$MODE" == "tps_receiver" ]; then
