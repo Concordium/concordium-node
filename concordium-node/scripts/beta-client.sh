@@ -18,6 +18,6 @@ else
 fi
 
 groupadd -g $GROUP_ID docker
-RUN useradd -g $GROUP_ID -l -M -s /bin/false -u $USER_ID docker
+useradd -g $GROUP_ID -l -M -s /bin/false -u $USER_ID docker
 
 /usr/bin/supervisord -c /etc/supervisor/supervisord.conf
