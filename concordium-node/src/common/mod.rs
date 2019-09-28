@@ -1,20 +1,27 @@
-pub mod poll_loop;
-pub use poll_loop::{process_network_requests, NetworkRawRequest};
-
 pub mod counter;
+pub mod fails;
 pub mod p2p_node_id;
 pub mod p2p_peer;
-pub mod serialization;
 
-pub use self::{
-    p2p_node_id::P2PNodeId,
-    p2p_peer::{P2PPeer, P2PPeerBuilder, PeerStats, PeerType, RemotePeer},
-};
-
-pub mod fails;
+use crate::connection::MessageSendingPriority;
+use concordium_common::hybrid_buf::HybridBuf;
 
 use chrono::prelude::*;
+use mio::Token;
+
 use std::net::{IpAddr, SocketAddr};
+
+/// This data type is used to queue a request from any thread (like tests, RPC,
+/// Cli, etc.), into a node. Please note that any access to internal `socket`
+/// *must be executed* inside MIO poll-loop thread.
+pub struct NetworkRawRequest {
+    pub token:    Token, // It identifies the connection.
+    pub data:     HybridBuf,
+    pub priority: MessageSendingPriority,
+}
+
+#[cfg(feature = "collector")]
+pub mod collector_utils;
 
 pub fn serialize_ip(ip: IpAddr) -> String {
     match ip {
@@ -54,18 +61,22 @@ pub fn serialize_addr(addr: SocketAddr) -> String {
 
 pub fn get_current_stamp() -> u64 { Utc::now().timestamp_millis() as u64 }
 
+pub use self::{
+    p2p_node_id::P2PNodeId,
+    p2p_peer::{P2PPeer, P2PPeerBuilder, PeerStats, PeerType, RemotePeer},
+};
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
-        common::serialization::{deserialize_from_memory, serialize_into_memory},
         network::{
             NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType, NetworkRequest,
             NetworkResponse, PROTOCOL_VERSION,
         },
         p2p::banned_nodes::tests::dummy_ban_node,
     };
-    use concordium_common::hybrid_buf::HybridBuf;
+    use concordium_common::{hybrid_buf::HybridBuf, serial::serialize_into_buffer, Serial};
 
     use failure::Fallible;
 
@@ -73,14 +84,15 @@ mod tests {
         collections::HashSet,
         convert::TryFrom,
         str::FromStr,
-        sync::{Arc, RwLock},
+        sync::{atomic::AtomicU16, Arc, RwLock},
     };
 
     fn dummy_peer(ip: IpAddr, port: u16) -> RemotePeer {
         RemotePeer {
-            id:        Arc::new(RwLock::new(Some(P2PNodeId::default()))),
-            addr:      SocketAddr::new(ip, port),
-            peer_type: PeerType::Node,
+            id:                 Arc::new(RwLock::new(Some(P2PNodeId::default()))),
+            addr:               SocketAddr::new(ip, port),
+            peer_external_port: Arc::new(AtomicU16::new(port)),
+            peer_type:          PeerType::Node,
         }
     }
 
@@ -90,26 +102,33 @@ mod tests {
 
     macro_rules! create_message {
         ($msg:ident, $msg_type:ident, $peer:expr) => {
-            $msg::$msg_type($peer.clone())
+            $msg::$msg_type
         };
         ($msg:ident, $msg_type:ident, $peer:expr, $nets:expr) => {
-            $msg::$msg_type($peer, $nets.clone())
+            $msg::$msg_type($nets.clone())
         };
-        ($msg:ident, $msg_type:ident, $peer:expr, $zk:expr, $nets:expr) => {
-            $msg::$msg_type($peer.clone(), $zk.clone(), $nets.clone())
+        (
+            $msg:ident,
+            $msg_type:ident,
+            $remote_node_id:expr,
+            $remote_port:expr,
+            $zk:expr,
+            $nets:expr
+        ) => {
+            $msg::$msg_type($remote_node_id, $remote_port, $zk.clone(), $nets.clone())
         };
     }
 
     macro_rules! net_assertion {
         ($msg:ident, $msg_type:ident, $deserialized:expr) => {
             assert!(match $deserialized {
-                NetworkMessage::$msg($msg::$msg_type(_), ..) => true,
+                NetworkMessage::$msg($msg::$msg_type, ..) => true,
                 _ => false,
             })
         };
         ($msg:ident, $msg_type:ident, $deserialized:expr, $nets:expr) => {{
             match $deserialized {
-                NetworkMessage::$msg($msg::$msg_type(_, nets2), ..) => {
+                NetworkMessage::$msg($msg::$msg_type(nets2), ..) => {
                     assert_eq!($nets, nets2);
                 }
                 _ => panic!("invalid network message"),
@@ -117,7 +136,7 @@ mod tests {
         }};
         ($msg:ident, $msg_type:ident, $deserialized:expr, $zk:expr, $nets:expr) => {{
             match $deserialized {
-                NetworkMessage::$msg($msg::$msg_type(_, nets2, zk2), ..) => {
+                NetworkMessage::$msg($msg::$msg_type(_, _, nets2, zk2), ..) => {
                     assert_eq!($zk, zk2);
                     assert_eq!($nets, nets2);
                 }
@@ -128,32 +147,26 @@ mod tests {
 
     macro_rules! net_test {
         ($msg:ident, $msg_type:ident) => {{
-            let self_peer = self_peer();
             let test_msg = NetworkMessage::$msg(
                 create_message!($msg, $msg_type, self_peer.clone().peer().unwrap()),
                 Some(get_current_stamp()),
                 None,
             );
-            let test_msg_data = serialize_into_memory(&test_msg, 256).unwrap();
+            let mut test_msg_data = serialize_into_buffer(&test_msg, 256).unwrap();
 
-            let deserialized =
-                deserialize_from_memory::<NetworkMessage>(test_msg_data, self_peer.clone())
-                    .unwrap();
+            let deserialized = NetworkMessage::deserial(&mut test_msg_data).unwrap();
             net_assertion!($msg, $msg_type, deserialized)
         }};
         ($msg:ident, $msg_type:ident, $nets:expr) => {{
-            let self_peer = self_peer();
             let nets = $nets;
             let test_msg = NetworkMessage::$msg(
                 create_message!($msg, $msg_type, self_peer.clone().peer().unwrap(), nets),
                 Some(get_current_stamp()),
                 None,
             );
-            let test_msg_data = serialize_into_memory(&test_msg, 256).unwrap();
+            let mut test_msg_data = serialize_into_buffer(&test_msg, 256).unwrap();
 
-            let deserialized =
-                deserialize_from_memory::<NetworkMessage>(test_msg_data, self_peer.clone())
-                    .unwrap();
+            let deserialized = NetworkMessage::deserial(&mut test_msg_data).unwrap();
 
             net_assertion!($msg, $msg_type, deserialized, nets)
         }};
@@ -165,15 +178,20 @@ mod tests {
                 .map(|net: u16| NetworkId::from(net))
                 .collect();
             let test_msg = NetworkMessage::$msg(
-                create_message!($msg, $msg_type, self_peer.clone().peer().unwrap(), nets, zk),
+                create_message!(
+                    $msg,
+                    $msg_type,
+                    self_peer.clone().peer().unwrap().id(),
+                    self_peer.clone().peer().unwrap().port(),
+                    nets,
+                    zk
+                ),
                 Some(get_current_stamp()),
                 None,
             );
-            let test_msg_data = serialize_into_memory(&test_msg, 256).unwrap();
+            let mut test_msg_data = serialize_into_buffer(&test_msg, 256).unwrap();
 
-            let deserialized =
-                deserialize_from_memory::<NetworkMessage>(test_msg_data, self_peer.clone())
-                    .unwrap();
+            let deserialized = NetworkMessage::deserial(&mut test_msg_data).unwrap();
 
             net_assertion!($msg, $msg_type, deserialized, zk, nets)
         }};
@@ -217,11 +235,11 @@ mod tests {
     }
 
     #[test]
-    fn resp_findnode_empty_test() { net_test!(NetworkResponse, FindNode, vec![] as Vec<P2PPeer>) }
+    fn resp_findnode_empty_test() { net_test!(NetworkResponse, PeerList, vec![] as Vec<P2PPeer>) }
 
     #[test]
     fn resp_findnode_v4_test() {
-        net_test!(NetworkResponse, FindNode, vec![dummy_peer(
+        net_test!(NetworkResponse, PeerList, vec![dummy_peer(
             IpAddr::from([8, 8, 8, 8]),
             9999
         )
@@ -231,7 +249,7 @@ mod tests {
 
     #[test]
     fn resp_findnode_v6_test() {
-        net_test!(NetworkResponse, FindNode, vec![dummy_peer(
+        net_test!(NetworkResponse, PeerList, vec![dummy_peer(
             IpAddr::from_str("ff80::dead:beaf").unwrap(),
             9999
         )
@@ -241,7 +259,7 @@ mod tests {
 
     #[test]
     fn resp_findnode_mixed_test() {
-        net_test!(NetworkResponse, FindNode, vec![
+        net_test!(NetworkResponse, PeerList, vec![
             dummy_peer(IpAddr::from_str("ff80::dead:beaf").unwrap(), 9999)
                 .peer()
                 .unwrap(),
@@ -281,20 +299,16 @@ mod tests {
 
     #[test]
     pub fn direct_message_test() -> Fallible<()> {
-        let self_peer = self_peer();
         let text_msg = b"Hello world!";
         let buf = HybridBuf::try_from(&text_msg[..])?;
         let msg = NetworkPacket {
             packet_type: NetworkPacketType::DirectMessage(P2PNodeId::default()),
-            peer:        self_peer.clone().peer().unwrap(),
-            message_id:  NetworkPacket::generate_message_id(),
             network_id:  NetworkId::from(100),
             message:     buf,
         };
 
-        let msg_serialized = serialize_into_memory(&msg, 256)?;
-        let mut packet =
-            deserialize_from_memory::<NetworkPacket>(msg_serialized, self_peer.clone())?;
+        let mut msg_serialized = serialize_into_buffer(&msg, 256)?;
+        let mut packet = NetworkPacket::deserial(&mut msg_serialized)?;
 
         if let NetworkPacketType::DirectMessage(..) = packet.packet_type {
             assert_eq!(packet.network_id, NetworkId::from(100));
@@ -308,19 +322,16 @@ mod tests {
 
     #[test]
     pub fn broadcasted_message_test() -> Fallible<()> {
-        let self_peer = self_peer();
         let text_msg = b"Hello  broadcasted world!";
         let buf = HybridBuf::try_from(&text_msg[..])?;
         let msg = NetworkPacket {
             packet_type: NetworkPacketType::BroadcastedMessage(vec![]),
-            peer:        self_peer.clone().peer().unwrap(),
-            message_id:  NetworkPacket::generate_message_id(),
             network_id:  NetworkId::from(100),
             message:     buf,
         };
 
-        let serialized = serialize_into_memory(&msg, 256)?;
-        let mut packet = deserialize_from_memory::<NetworkPacket>(serialized, self_peer.clone())?;
+        let mut serialized = serialize_into_buffer(&msg, 256)?;
+        let mut packet = NetworkPacket::deserial(&mut serialized)?;
 
         if let NetworkPacketType::BroadcastedMessage(..) = packet.packet_type {
             assert_eq!(packet.network_id, NetworkId::from(100));
@@ -363,46 +374,31 @@ mod tests {
 
     #[test]
     fn resp_invalid_version() {
-        let ping = NetworkMessage::NetworkRequest(
-            NetworkRequest::Ping(self_peer().peer().unwrap()),
-            None,
-            None,
-        );
-        let mut ping_data = Vec::try_from(serialize_into_memory(&ping, 128).unwrap()).unwrap();
+        let ping = NetworkMessage::NetworkRequest(NetworkRequest::Ping, None, None);
+        let mut ping_data = Vec::try_from(serialize_into_buffer(&ping, 128).unwrap()).unwrap();
 
         // Force and error in version protocol:
         //  + 13 bytes (PROTOCOL_NAME)
         //  + 1 byte due to endianess (Version is stored as u16)
         ping_data[13 + 1] = (PROTOCOL_VERSION + 1) as u8;
 
-        let ping_data = HybridBuf::try_from(ping_data).unwrap();
-
-        let deserialized = deserialize_from_memory::<NetworkMessage>(ping_data, self_peer());
+        let mut ping_data = HybridBuf::try_from(ping_data).unwrap();
+        let deserialized = NetworkMessage::deserial(&mut ping_data);
 
         assert!(deserialized.is_err());
     }
 
     #[test]
     fn resp_invalid_protocol() {
-        let ping = NetworkMessage::NetworkRequest(
-            NetworkRequest::Ping(self_peer().peer().unwrap()),
-            None,
-            None,
-        );
-        let mut ping_data = Vec::try_from(serialize_into_memory(&ping, 128).unwrap()).unwrap();
+        let ping = NetworkMessage::NetworkRequest(NetworkRequest::Ping, None, None);
+        let mut ping_data = Vec::try_from(serialize_into_buffer(&ping, 128).unwrap()).unwrap();
 
         // Force and error in protocol name:
         ping_data[1] = b'X';
 
-        let ping_data = HybridBuf::try_from(ping_data).unwrap();
-
-        let deserialized = deserialize_from_memory::<NetworkMessage>(ping_data, self_peer());
+        let mut ping_data = HybridBuf::try_from(ping_data).unwrap();
+        let deserialized = NetworkMessage::deserial(&mut ping_data);
 
         assert!(deserialized.is_err())
-    }
-
-    #[test]
-    fn test_message_generate() {
-        assert!(NetworkPacket::generate_message_id() != NetworkPacket::generate_message_id());
     }
 }

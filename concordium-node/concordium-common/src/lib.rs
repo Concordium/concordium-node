@@ -3,7 +3,7 @@
 use byteorder::{NetworkEndian, ReadBytesExt};
 use failure::{format_err, Fallible};
 
-use std::{convert::TryFrom, fmt, ops::Deref};
+use std::{convert::TryFrom, fmt, ops::Deref, sync::mpsc};
 
 /// # Serialization packets
 /// Benchmark of each serialization requires to enable it on features
@@ -45,7 +45,11 @@ pub mod blockchain_types;
 pub mod cache;
 pub mod hybrid_buf;
 pub mod indexed_vec;
+pub mod network_types;
+pub mod serial;
 pub mod stats_export_service;
+
+pub use serial::Serial;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const APPNAME: &str = env!("CARGO_PKG_NAME");
@@ -54,50 +58,41 @@ pub const APPNAME: &str = env!("CARGO_PKG_NAME");
 ///
 /// This type is intended for using when a loop is consuming the receiver
 /// output and we want to gracefully stop such loop.
-pub enum RelayOrStopEnvelope<T> {
+pub enum QueueMsg<T> {
     Relay(T),
     Stop,
 }
 
-/// Represents a `Sender<T>` that is promoted to use `RelayOrStopEnvelope`s
-pub type RelayOrStopSender<T> = std::sync::mpsc::Sender<RelayOrStopEnvelope<T>>;
+/// Represents a `SyncSender<T>` that is promoted to use `QueueMsg`s
+pub type QueueSyncSender<T> = mpsc::SyncSender<QueueMsg<T>>;
 
-/// Represents a `Sender<T>` that is promoted to use `RelayOrStopEnvelope`s
-pub type RelayOrStopSyncSender<T> = std::sync::mpsc::SyncSender<RelayOrStopEnvelope<T>>;
-
-/// Represents a `Receiver<T>` that is promoted to use `RelayOrStopEnvelope`s
-pub type RelayOrStopReceiver<T> = std::sync::mpsc::Receiver<RelayOrStopEnvelope<T>>;
+/// Represents a `Receiver<T>` that is promoted to use `QueueMsg`s
+pub type QueueReceiver<T> = mpsc::Receiver<QueueMsg<T>>;
 
 /// Helper trait to ease readability through the code when dealing with
 /// `RelayOrStop` channels
 pub trait RelayOrStopSenderHelper<T> {
-    /// Sends a `RelayOrStopEnvelope::Stop` message through the channel
-    fn send_stop(&self) -> Result<(), std::sync::mpsc::SendError<RelayOrStopEnvelope<T>>>;
-    /// Sends the provided `msg` wrapped inside a `RelayOrStopEnvelope::Relay`
-    fn send_msg(&self, msg: T) -> Result<(), std::sync::mpsc::SendError<RelayOrStopEnvelope<T>>>;
+    /// Sends a `QueueMsg::Stop` message through the channel
+    fn send_stop(&self) -> Result<(), mpsc::SendError<QueueMsg<T>>>;
+    /// Sends the provided `msg` wrapped inside a `QueueMsg::Relay`
+    fn send_msg(&self, msg: T) -> Result<(), mpsc::TrySendError<QueueMsg<T>>>;
+    /// Sends the provided `msg` wrapped inside a `QueueMsg::Relay` in a
+    /// blocking fashion
+    fn send_blocking_msg(&self, msg: T) -> Result<(), mpsc::SendError<QueueMsg<T>>>;
 }
 
-impl<T> RelayOrStopSenderHelper<T> for RelayOrStopSender<T> {
+impl<T> RelayOrStopSenderHelper<T> for QueueSyncSender<T> {
     #[inline]
-    fn send_stop(&self) -> Result<(), std::sync::mpsc::SendError<RelayOrStopEnvelope<T>>> {
-        self.send(RelayOrStopEnvelope::Stop)
+    fn send_stop(&self) -> Result<(), mpsc::SendError<QueueMsg<T>>> { self.send(QueueMsg::Stop) }
+
+    #[inline]
+    fn send_msg(&self, msg: T) -> Result<(), mpsc::TrySendError<QueueMsg<T>>> {
+        self.try_send(QueueMsg::Relay(msg))
     }
 
     #[inline]
-    fn send_msg(&self, msg: T) -> Result<(), std::sync::mpsc::SendError<RelayOrStopEnvelope<T>>> {
-        self.send(RelayOrStopEnvelope::Relay(msg))
-    }
-}
-
-impl<T> RelayOrStopSenderHelper<T> for RelayOrStopSyncSender<T> {
-    #[inline]
-    fn send_stop(&self) -> Result<(), std::sync::mpsc::SendError<RelayOrStopEnvelope<T>>> {
-        self.send(RelayOrStopEnvelope::Stop)
-    }
-
-    #[inline]
-    fn send_msg(&self, msg: T) -> Result<(), std::sync::mpsc::SendError<RelayOrStopEnvelope<T>>> {
-        self.send(RelayOrStopEnvelope::Relay(msg))
+    fn send_blocking_msg(&self, msg: T) -> Result<(), mpsc::SendError<QueueMsg<T>>> {
+        self.send(QueueMsg::Relay(msg))
     }
 }
 
@@ -144,12 +139,10 @@ impl fmt::Debug for HashBytes {
 // the full SHA256 in hex
 impl fmt::Display for HashBytes {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{:0len$x}",
-            (&self.0[..]).read_u128::<NetworkEndian>().unwrap(),
-            len = SHA256 as usize,
-        )
+        for byte in self.iter() {
+            write!(f, "{:02x}", byte)?;
+        }
+        Ok(())
     }
 }
 

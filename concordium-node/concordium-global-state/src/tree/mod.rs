@@ -1,6 +1,8 @@
 use chrono::prelude::{DateTime, Utc};
 use circular_queue::CircularQueue;
-use concordium_common::{blockchain_types::BlockHash, indexed_vec::IndexedVec};
+use concordium_common::{
+    blockchain_types::BlockHash, indexed_vec::IndexedVec, network_types::PeerId,
+};
 use hash_hasher::{HashBuildHasher, HashedMap, HashedSet};
 use linked_hash_map::LinkedHashMap;
 use nohash_hasher::BuildNoHashHasher;
@@ -10,8 +12,6 @@ use rkv::{Rkv, SingleStore, StoreOptions};
 use std::{cmp::Ordering, fmt, mem, rc::Rc, time::Instant};
 
 use crate::{block::*, finalization::*, transaction::*};
-
-pub type PeerId = u64;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct PeerState {
@@ -59,7 +59,7 @@ use self::PendingQueueType::*;
 pub struct GlobalState<'a> {
     pub data:           GlobalData<'a>,
     pub peers:          PriorityQueue<PeerId, PeerState, BuildNoHashHasher<PeerId>>,
-    pub catch_up_count: u8,
+    pub catch_up_stamp: u64,
     pub stats:          GlobalStats,
 }
 
@@ -88,7 +88,7 @@ impl<'a> GlobalState<'a> {
         Self {
             data:           GlobalData::new(genesis_data, &kvs_env, persistent),
             peers:          Default::default(),
-            catch_up_count: 0,
+            catch_up_stamp: 0,
             stats:          GlobalStats::new(MOVING_AVERAGE_QUEUE_LEN),
         }
     }
@@ -216,7 +216,8 @@ impl<'a> GlobalData<'a> {
             let mut kvs_writer = kvs_env.write().unwrap(); // infallible
             finalized_block_store
                 .clear(&mut kvs_writer)
-                .expect("Can't clear the block store");
+                .map_err(|err| panic!("Can't clear the block store due to {}", err))
+                .ok();
         }
 
         let mut finalized_blocks = LinkedHashMap::with_capacity_and_hasher(

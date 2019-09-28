@@ -6,7 +6,7 @@ RUN pacman -Sy && \
     pacman -S protobuf cmake clang git libtool rustup make m4 pkgconf autoconf automake \
         file which boost patch libunwind libdwarf elfutils unbound llvm numactl --noconfirm && \
     pacman -Scc --noconfirm && \
-    rustup default 1.37.0 && \
+    rustup default 1.38.0 && \
     git clone https://github.com/libffi/libffi.git && \
     cd libffi && ./autogen.sh && ./configure && make -j$(nproc) && make install && \
     rm -rf libffi
@@ -31,11 +31,11 @@ RUN \
     rm -rf baker_id_gen
 
 ### P2P client
-RUN --mount=type=ssh cargo build --features=profiling,elastic_logging
+RUN --mount=type=ssh cargo build --features=profiling,elastic_logging,collector
 
 RUN chmod +x /build-project/start.sh
 
-RUN cp /build-project/target/debug/p2p_client-cli /build-project/target/debug/p2p_bootstrapper-cli /build-project/
+RUN cp /build-project/target/debug/p2p_client-cli /build-project/target/debug/p2p_bootstrapper-cli /build-project/target/debug/node-collector /build-project/
 
 FROM ubuntu:19.10
 
@@ -52,5 +52,6 @@ COPY --from=build /build-project/start.sh /start.sh
 COPY --from=build /build-project/genesis-data /genesis-data
 COPY --from=build /build-project/p2p_client-cli /p2p_client-cli
 COPY --from=build /build-project/p2p_bootstrapper-cli /p2p_bootstrapper-cli
+COPY --from=build /build-project/node-collector /node-collector
 
 ENTRYPOINT ["/start.sh"]

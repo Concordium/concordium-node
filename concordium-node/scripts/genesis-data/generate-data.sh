@@ -18,7 +18,7 @@ CONSENSUS_VERSION_TAG=$( ( cd $cwd/../../deps/internal/consensus && git rev-pars
         rm -rf genesis_data &&
         mkdir genesis_data &&
         LD_LIBRARY_PATH=$(pwd)/binaries/lib binaries/bin/genesis make-bakers $baker_size genesis_data &&
-        LD_LIBRARY_PATH=$(pwd)/binaries/lib binaries/bin/genesis make-genesis --identity-providers=identity-providers.json --crypto-params=global.json --bakers=genesis_data/bakers.json genesis.json genesis_data/genesis.dat &&
+        LD_LIBRARY_PATH=$(pwd)/binaries/lib binaries/bin/genesis make-genesis --identity-providers=identity-providers.json --crypto-params=global.json --bakers=genesis_data/bakers.json genesis.json genesis_data/genesis.dat --beta-accounts=beta-accounts.json &&
         tar czf $baker_size-bakers.tar.gz genesis_data &&
         rm -r genesis_data
     done

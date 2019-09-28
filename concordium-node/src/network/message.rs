@@ -1,14 +1,14 @@
+use byteorder::{ReadBytesExt, WriteBytesExt};
+use failure::Fallible;
+
 use super::{NetworkPacket, NetworkRequest, NetworkResponse};
 use crate::{
-    common::{
-        get_current_stamp,
-        serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
-    },
-    failure::Fallible,
+    common::get_current_stamp,
     network::{AsProtocolMessageType, ProtocolMessageType, PROTOCOL_NAME, PROTOCOL_VERSION},
 };
+use concordium_common::Serial;
 
-use std::{convert::TryFrom, ops::Deref, sync::Arc};
+use std::{convert::TryFrom, ops::Deref};
 
 pub const NETWORK_MESSAGE_PROTOCOL_TYPE_IDX: usize = 13 +    // PROTOCOL_NAME.len()
     2 +     // PROTOCOL_VERSION
@@ -22,7 +22,7 @@ use crate::network::serialization::nom::s11n_network_message;
 pub enum NetworkMessage {
     NetworkRequest(NetworkRequest, Option<u64>, Option<u64>),
     NetworkResponse(NetworkResponse, Option<u64>, Option<u64>),
-    NetworkPacket(Arc<NetworkPacket>, Option<u64>, Option<u64>),
+    NetworkPacket(NetworkPacket, Option<u64>, Option<u64>),
     InvalidMessage,
 }
 
@@ -50,58 +50,28 @@ impl AsProtocolMessageType for NetworkMessage {
     }
 }
 
-impl Serializable for NetworkMessage {
-    fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
-    where
-        A: WriteArchive, {
-        archive.write_all(PROTOCOL_NAME.as_bytes())?;
-        PROTOCOL_VERSION.serialize(archive)?;
-        (get_current_stamp() as u64).serialize(archive)?;
-        (self.protocol_message_type() as u8).serialize(archive)?;
-
-        // ATENTION: This constant is used on some validations **before** packet is
-        // deserialized, so we should be completely sure that any updates on
-        // serialization process will be notified. In that case, you should
-        // update that constant.
-        // For instance if we add new field to be serialized before
-        // `self.protocol_message_type()`, or if we change type of any field (It
-        // means, replace `.write_u16` by `.write_u8`).
-        #[cfg(test)]
-        const_assert!(network_message_protocol_type; NETWORK_MESSAGE_PROTOCOL_TYPE_IDX == 13 + 2 + 8);
-
-        match self {
-            NetworkMessage::NetworkRequest(ref request, ..) => request.serialize(archive),
-            NetworkMessage::NetworkResponse(ref response, ..) => response.serialize(archive),
-            NetworkMessage::NetworkPacket(ref packet, ..) => packet.serialize(archive),
-            NetworkMessage::InvalidMessage => bail!("Unsupported type of NetworkMessage"),
-        }
-    }
-}
-
-impl Deserializable for NetworkMessage {
-    fn deserialize<A>(archive: &mut A) -> Fallible<NetworkMessage>
-    where
-        A: ReadArchive, {
+impl Serial for NetworkMessage {
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         // verify the protocol name and version
-        let protocol_name = archive.read_n_bytes(PROTOCOL_NAME.len() as u32)?;
+        let mut protocol_name = vec![0u8; PROTOCOL_NAME.len()];
+        source.read_exact(&mut protocol_name)?;
         if protocol_name.deref() != PROTOCOL_NAME.as_bytes() {
             bail!("Unknown protocol name (`{:?}`)! ", protocol_name.deref())
         }
-        let protocol_version = u16::deserialize(archive)?;
+        let protocol_version = u16::deserial(source)?;
         if protocol_version != PROTOCOL_VERSION {
             bail!("Unknown protocol version (`{:?}`)", protocol_version)
         }
 
-        let timestamp = u64::deserialize(archive)?;
-        let protocol_type: ProtocolMessageType =
-            ProtocolMessageType::try_from(u8::deserialize(archive)?)?;
+        let timestamp = u64::deserial(source)?;
+        let protocol_type: ProtocolMessageType = ProtocolMessageType::try_from(source.read_u8()?)?;
         let message = match protocol_type {
             ProtocolMessageType::Request => {
-                let request = NetworkRequest::deserialize(archive)?;
+                let request = NetworkRequest::deserial(source)?;
                 NetworkMessage::NetworkRequest(request, Some(timestamp), Some(get_current_stamp()))
             }
             ProtocolMessageType::Response => {
-                let response = NetworkResponse::deserialize(archive)?;
+                let response = NetworkResponse::deserial(source)?;
                 NetworkMessage::NetworkResponse(
                     response,
                     Some(timestamp),
@@ -109,12 +79,26 @@ impl Deserializable for NetworkMessage {
                 )
             }
             ProtocolMessageType::Packet => {
-                let packet = Arc::new(NetworkPacket::deserialize(archive)?);
+                let packet = NetworkPacket::deserial(source)?;
                 NetworkMessage::NetworkPacket(packet, Some(timestamp), Some(get_current_stamp()))
             }
         };
 
         Ok(message)
+    }
+
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        target.write_all(PROTOCOL_NAME.as_bytes())?;
+        PROTOCOL_VERSION.serial(target)?;
+        get_current_stamp().serial(target)?;
+        (self.protocol_message_type() as u8).serial(target)?;
+
+        match self {
+            NetworkMessage::NetworkRequest(ref request, ..) => request.serial(target),
+            NetworkMessage::NetworkResponse(ref response, ..) => response.serial(target),
+            NetworkMessage::NetworkPacket(ref packet, ..) => packet.serial(target),
+            NetworkMessage::InvalidMessage => bail!("Unsupported type of NetworkMessage"),
+        }
     }
 }
 
@@ -124,19 +108,15 @@ mod unit_test {
     use rand::{distributions::Alphanumeric, thread_rng, Rng};
     use std::{
         io::{Seek, SeekFrom, Write},
-        net::{IpAddr, Ipv4Addr, SocketAddr},
         str::FromStr,
     };
 
     use super::*;
     use crate::{
-        common::{
-            serialization::{Deserializable, ReadArchiveAdapter, WriteArchiveAdapter},
-            P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType, RemotePeer,
-        },
+        common::P2PNodeId,
         network::{NetworkId, NetworkPacket, NetworkPacketType},
     };
-    use concordium_common::hybrid_buf::HybridBuf;
+    use concordium_common::{hybrid_buf::HybridBuf, Serial};
 
     #[test]
     fn ut_s11n_001_direct_message_from_disk_16m() -> Fallible<()> {
@@ -175,50 +155,31 @@ mod unit_test {
 
         // 2. Generate packet.
         let p2p_node_id = P2PNodeId::from_str("000000002dd2b6ed")?;
-        let peer = P2PPeer::from(
-            PeerType::Node,
-            p2p_node_id.clone(),
-            SocketAddr::new(IpAddr::from_str("127.0.0.1")?, 8888),
-        );
         let pkt = NetworkPacket {
             packet_type: NetworkPacketType::DirectMessage(p2p_node_id),
-            peer,
-            message_id: NetworkPacket::generate_message_id(),
-            network_id: NetworkId::from(111),
-            message: payload,
+            network_id:  NetworkId::from(111),
+            message:     payload,
         };
-        let message = NetworkMessage::NetworkPacket(Arc::new(pkt), Some(get_current_stamp()), None);
+        let message = NetworkMessage::NetworkPacket(pkt, Some(get_current_stamp()), None);
 
-        // 3. Serialize package into archive (on disk)
-        let archive_cursor = HybridBuf::new_on_disk()?;
-        let mut archive = WriteArchiveAdapter::from(archive_cursor);
-        message.serialize(&mut archive)?;
+        // 3. Serialize package into a file
+        let mut buffer = HybridBuf::new_on_disk()?;
+        message.serial(&mut buffer)?;
 
-        let mut out_cursor = archive.into_inner();
-        out_cursor.seek(SeekFrom::Start(0))?;
-        Ok(out_cursor)
+        buffer.seek(SeekFrom::Start(0))?;
+        Ok(buffer)
     }
 
     fn ut_s11n_001_direct_message_from_disk(content_size: usize) -> Fallible<()> {
         // Create serialization data in memory and then move to disk
-        let cursor_on_disk = make_direct_message_into_disk(content_size)?;
+        let mut buffer = make_direct_message_into_disk(content_size)?;
 
-        // Local stuff
-        let local_ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
-        let local_peer = P2PPeerBuilder::default()
-            .peer_type(PeerType::Node)
-            .addr(SocketAddr::new(local_ip, 8888))
-            .build()?;
-
-        let mut archive =
-            ReadArchiveAdapter::new(cursor_on_disk, RemotePeer::from(local_peer.clone()));
-        let mut message = NetworkMessage::deserialize(&mut archive)?;
+        let mut message = NetworkMessage::deserial(&mut buffer)?;
 
         if let NetworkMessage::NetworkPacket(ref mut packet, ..) = message {
             if let NetworkPacketType::BroadcastedMessage(..) = packet.packet_type {
                 bail!("Unexpected Packet type");
             }
-            assert_eq!(packet.peer, local_peer);
             assert_eq!(packet.network_id, NetworkId::from(111));
             assert_eq!(packet.message.clone().remaining_len()?, content_size as u64);
         } else {

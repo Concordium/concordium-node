@@ -105,8 +105,7 @@ impl TryFrom<&str> for ProtocolRequestType {
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ProtocolResponseType {
     Pong = 0,
-    FindNode,
-    PeersList,
+    PeerList,
     Handshake,
 }
 
@@ -124,9 +123,8 @@ impl TryFrom<u8> for ProtocolResponseType {
     fn try_from(value: u8) -> Fallible<ProtocolResponseType> {
         let prt = match value {
             0 => ProtocolResponseType::Pong,
-            1 => ProtocolResponseType::FindNode,
-            2 => ProtocolResponseType::PeersList,
-            3 => ProtocolResponseType::Handshake,
+            1 => ProtocolResponseType::PeerList,
+            2 => ProtocolResponseType::Handshake,
             _ => bail!("Unsupported Protocol Response type '{}'", value),
         };
         Ok(prt)

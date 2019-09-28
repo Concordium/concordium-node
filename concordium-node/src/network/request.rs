@@ -1,12 +1,13 @@
+use byteorder::{ReadBytesExt, WriteBytesExt};
+use failure::Fallible;
+
 use crate::{
-    common::{
-        serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
-        P2PNodeId, P2PPeer,
-    },
+    common::P2PNodeId,
     network::{AsProtocolRequestType, NetworkId, ProtocolRequestType},
     p2p::banned_nodes::BannedNode,
 };
-use failure::Fallible;
+use concordium_common::Serial;
+
 use std::{collections::HashSet, convert::TryFrom};
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
@@ -30,21 +31,21 @@ pub type RequestedSince = u64;
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum NetworkRequest {
-    Ping(P2PPeer),
-    FindNode(P2PPeer, P2PNodeId), // we no longer need the id - always provide all the nodes
-    BanNode(P2PPeer, BannedNode),
-    Handshake(P2PPeer, HashSet<NetworkId>, Vec<u8>),
-    GetPeers(P2PPeer, HashSet<NetworkId>),
-    UnbanNode(P2PPeer, BannedNode),
-    JoinNetwork(P2PPeer, NetworkId),
-    LeaveNetwork(P2PPeer, NetworkId),
-    Retransmit(P2PPeer, RequestedElementType, RequestedSince, NetworkId),
+    Ping,
+    FindNode(P2PNodeId), // we no longer need the id - always provide all the nodes
+    BanNode(BannedNode),
+    Handshake(P2PNodeId, u16, HashSet<NetworkId>, Vec<u8>),
+    GetPeers(HashSet<NetworkId>),
+    UnbanNode(BannedNode),
+    JoinNetwork(NetworkId),
+    LeaveNetwork(NetworkId),
+    Retransmit(RequestedElementType, RequestedSince, NetworkId),
 }
 
 impl AsProtocolRequestType for NetworkRequest {
     fn protocol_request_type(&self) -> ProtocolRequestType {
         match self {
-            NetworkRequest::Ping(..) => ProtocolRequestType::Ping,
+            NetworkRequest::Ping => ProtocolRequestType::Ping,
             NetworkRequest::FindNode(..) => ProtocolRequestType::FindNode,
             NetworkRequest::BanNode(..) => ProtocolRequestType::BanNode,
             NetworkRequest::Handshake(..) => ProtocolRequestType::Handshake,
@@ -57,73 +58,67 @@ impl AsProtocolRequestType for NetworkRequest {
     }
 }
 
-impl Serializable for NetworkRequest {
-    fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
-    where
-        A: WriteArchive, {
-        (self.protocol_request_type() as u8).serialize(archive)?;
-        match self {
-            NetworkRequest::Ping(..) => Ok(()),
-            NetworkRequest::FindNode(.., id) => id.serialize(archive),
-            NetworkRequest::JoinNetwork(.., network)
-            | NetworkRequest::LeaveNetwork(.., network) => network.serialize(archive),
-            NetworkRequest::BanNode(.., node_data) | NetworkRequest::UnbanNode(.., node_data) => {
-                node_data.serialize(archive)
-            }
-            NetworkRequest::GetPeers(.., ref networks) => networks.serialize(archive),
-            NetworkRequest::Handshake(ref me, ref networks, ref zk) => {
-                me.serialize(archive)?;
-                networks.serialize(archive)?;
-                zk.serialize(archive)
-            }
-            NetworkRequest::Retransmit(_, element_type, since_stamp, network_id) => {
-                (*element_type as u8).serialize(archive)?;
-                (*since_stamp).serialize(archive)?;
-                network_id.serialize(archive)
-            }
-        }
-    }
-}
+impl Serial for NetworkRequest {
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
+        let protocol_type = ProtocolRequestType::try_from(source.read_u8()?)?;
 
-impl Deserializable for NetworkRequest {
-    fn deserialize<A>(archive: &mut A) -> Fallible<NetworkRequest>
-    where
-        A: ReadArchive, {
-        let protocol_type = ProtocolRequestType::try_from(u8::deserialize(archive)?)?;
-        let remote_peer = archive.post_handshake_peer();
         let request = match protocol_type {
-            ProtocolRequestType::Ping => NetworkRequest::Ping(remote_peer?),
-            ProtocolRequestType::FindNode => {
-                NetworkRequest::FindNode(remote_peer?, P2PNodeId::deserialize(archive)?)
-            }
-            ProtocolRequestType::BanNode => {
-                NetworkRequest::BanNode(remote_peer?, BannedNode::deserialize(archive)?)
-            }
+            ProtocolRequestType::Ping => NetworkRequest::Ping,
+            ProtocolRequestType::FindNode => NetworkRequest::FindNode(P2PNodeId::deserial(source)?),
+            ProtocolRequestType::BanNode => NetworkRequest::BanNode(BannedNode::deserial(source)?),
             ProtocolRequestType::UnbanNode => {
-                NetworkRequest::UnbanNode(remote_peer?, BannedNode::deserialize(archive)?)
+                NetworkRequest::UnbanNode(BannedNode::deserial(source)?)
             }
-            ProtocolRequestType::Handshake => NetworkRequest::Handshake(
-                P2PPeer::deserialize(archive)?,
-                HashSet::<NetworkId>::deserialize(archive)?,
-                Vec::<u8>::deserialize(archive)?,
-            ),
+            ProtocolRequestType::Handshake => {
+                let id = P2PNodeId::deserial(source)?;
+                let port = u16::deserial(source)?;
+                let nets = HashSet::<NetworkId>::deserial(source)?;
+                let vec = Vec::<u8>::deserial(source)?;
+
+                NetworkRequest::Handshake(id, port, nets, vec)
+            }
             ProtocolRequestType::GetPeers => {
-                NetworkRequest::GetPeers(remote_peer?, HashSet::<NetworkId>::deserialize(archive)?)
+                NetworkRequest::GetPeers(HashSet::<NetworkId>::deserial(source)?)
             }
             ProtocolRequestType::JoinNetwork => {
-                NetworkRequest::JoinNetwork(remote_peer?, NetworkId::deserialize(archive)?)
+                NetworkRequest::JoinNetwork(NetworkId::deserial(source)?)
             }
             ProtocolRequestType::LeaveNetwork => {
-                NetworkRequest::LeaveNetwork(remote_peer?, NetworkId::deserialize(archive)?)
+                NetworkRequest::LeaveNetwork(NetworkId::deserial(source)?)
             }
             ProtocolRequestType::Retransmit => NetworkRequest::Retransmit(
-                remote_peer?,
-                RequestedElementType::from(u8::deserialize(archive)?),
-                u64::deserialize(archive)?,
-                NetworkId::deserialize(archive)?,
+                RequestedElementType::from(source.read_u8()?),
+                u64::deserial(source)?,
+                NetworkId::deserial(source)?,
             ),
         };
 
         Ok(request)
+    }
+
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        (self.protocol_request_type() as u8).serial(target)?;
+        match self {
+            NetworkRequest::Ping => Ok(()),
+            NetworkRequest::FindNode(id) => id.serial(target),
+            NetworkRequest::JoinNetwork(network) | NetworkRequest::LeaveNetwork(network) => {
+                network.serial(target)
+            }
+            NetworkRequest::BanNode(node_data) | NetworkRequest::UnbanNode(node_data) => {
+                node_data.serial(target)
+            }
+            NetworkRequest::GetPeers(ref networks) => networks.serial(target),
+            NetworkRequest::Handshake(ref my_node_id, ref my_port, ref networks, ref zk) => {
+                my_node_id.serial(target)?;
+                my_port.serial(target)?;
+                networks.serial(target)?;
+                zk.serial(target)
+            }
+            NetworkRequest::Retransmit(element_type, since_stamp, network_id) => {
+                (*element_type as u8).serial(target)?;
+                (*since_stamp).serial(target)?;
+                network_id.serial(target)
+            }
+        }
     }
 }

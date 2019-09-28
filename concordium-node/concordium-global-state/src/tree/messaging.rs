@@ -1,4 +1,4 @@
-use concordium_common::PacketType;
+use concordium_common::{network_types::PeerId, PacketType};
 use failure::Fail;
 
 use std::{fmt, sync::Arc};
@@ -8,8 +8,6 @@ use crate::{
     common::{HashBytes, SerializeToBytes},
     finalization::*,
 };
-
-use super::PeerId;
 
 pub enum GlobalStateMessage {
     ConsensusMessage(ConsensusMessage),
