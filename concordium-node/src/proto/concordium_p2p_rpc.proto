@@ -231,4 +231,5 @@ service P2P {
   rpc RetransmitRequest(RetransmitRequestMessage) returns (SuccessResponse) {}
   rpc GetSkovStats(Empty) returns (SuccesfulStructResponse) {}
   rpc HookTransaction(TransactionHash) returns (SuccessfulJsonPayloadResponse) {}
+  rpc GetBakerPrivateData(Empty) returns (SuccessfulJsonPayloadResponse) {}
 }
