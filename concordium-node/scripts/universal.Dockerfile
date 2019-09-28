@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:experimental
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.1
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.2
 COPY . /build-project
 WORKDIR /build-project
 COPY ./scripts/init.build.env.sh ./init.build.env.sh
@@ -24,7 +24,7 @@ RUN --mount=type=ssh cargo build --release --features=instrumentation,benchmark,
     #cp target/x86_64-unknown-linux-gnu/debug/address_sanitizer* sanitized/ && \
     #cp target/x86_64-unknown-linux-gnu/debug/p2p_client-* sanitized/ && \
     cargo clean && \
-    #rustup default 1.37.0  && \
+    #rustup default 1.38.0  && \
     # Clean
     rm -rf ~/.cargo ~/.rustup && \
     rm -rf deps src benches tests src concordium-common && \

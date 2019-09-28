@@ -9,7 +9,7 @@ use std::{
     slice,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Once, ONCE_INIT,
+        Arc, Once,
     },
 };
 
@@ -27,8 +27,8 @@ extern "C" {
     pub fn hs_exit();
 }
 
-static START_ONCE: Once = ONCE_INIT;
-static STOP_ONCE: Once = ONCE_INIT;
+static START_ONCE: Once = Once::new();
+static STOP_ONCE: Once = Once::new();
 static STOPPED: AtomicBool = AtomicBool::new(false);
 
 /// Initialize the Haskell runtime. This function is safe to call more than
