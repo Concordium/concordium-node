@@ -16,14 +16,14 @@ use std::{
     sync::{
         atomic::{AtomicUsize, Ordering},
         mpsc::Receiver,
-        Arc, Once, ONCE_INIT,
+        Arc, Once,
     },
     thread,
     time::{self, Duration},
 };
 use structopt::StructOpt;
 
-static INIT: Once = ONCE_INIT;
+static INIT: Once = Once::new();
 static PORT_OFFSET: AtomicUsize = AtomicUsize::new(0);
 static PORT_START_NODE: u16 = 8888;
 
