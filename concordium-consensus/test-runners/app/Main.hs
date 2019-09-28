@@ -127,7 +127,7 @@ main = do
         let logT bh slot reason = do
               appendFile logTransferFile (show (bh, slot, reason))
               appendFile logTransferFile "\n"
-        (cin, cout, out) <- makeAsyncRunner logM Nothing bid defaultRuntimeParameters gen iState
+        (cin, cout, out) <- makeAsyncRunner logM (Just logT) bid defaultRuntimeParameters gen iState
         _ <- forkIO $ sendTransactions cin trans
         return (cin, cout, out)) (zip [(0::Int) ..] bis)
     monitorChan <- newChan

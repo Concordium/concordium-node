@@ -75,6 +75,7 @@ testSimpleTransfer = do
     transactions <- processTransactions transactionsInput
     let ((Sch.FilteredTransactions{..}, _), gstate) =
           Types.runSI (Sch.filterTransactions blockSize transactions)
+            dummySpecialBetaAccounts
             Types.dummyChainMeta
             initialBlockState
     case invariantBlockState gstate of

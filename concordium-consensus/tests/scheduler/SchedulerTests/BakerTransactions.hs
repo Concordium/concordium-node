@@ -7,6 +7,7 @@ module SchedulerTests.BakerTransactions where
 import Test.Hspec
 
 import qualified Data.Map as Map
+import qualified Data.HashSet as Set
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Acorn.Utils.Init as Init
@@ -75,12 +76,14 @@ transactionsInput =
            , keypair = alesKP
            },
      TJSON { payload = UpdateBakerAccount 2 alesAccount "<dummy proof>"
-           , metadata = makeHeader alesKP 5 10000
-           , keypair = alesKP
+           , metadata = makeHeader thomasKP 1 10000
+           , keypair = thomasKP
+           -- baker 2's account is Thomas account, so only it can update it
            },
      TJSON { payload = UpdateBakerSignKey 0 (BlockSig.verifyKey (bakerSignKey 3)) "<dummy proof>"
-           , metadata = makeHeader alesKP 6 10000
+           , metadata = makeHeader alesKP 5 10000
            , keypair = alesKP
+           -- baker 0's account is Thomas account, so only it can update it
            }      
     ]
 
@@ -91,9 +94,11 @@ runWithIntermediateStates = do
   txs <- processTransactions transactionsInput
   let (res, state) = foldl (\(acc, st) tx ->
                             let ((Sch.FilteredTransactions{..}, _), st') =
-                                  Types.runSI (Sch.filterTransactions blockSize [tx])
-                                              Types.dummyChainMeta
-                                              st
+                                  Types.runSI
+                                    (Sch.filterTransactions blockSize [tx])
+                                    (Set.singleton alesAccount)
+                                    Types.dummyChainMeta
+                                    st
                             in (acc ++ [(ftAdded, ftFailed, st' ^. blockBirkParameters)], st'))
                          ([], initialBlockState)
                          txs
