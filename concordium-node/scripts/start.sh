@@ -238,6 +238,16 @@ then
     ARGS="$ARGS --beta-token $BETA_TOKEN"
 fi
 
+if [ -n "$DISTRIBUTION_CLIENT" ];
+then
+    if [ ! -f $DATA_DIR/baker-0.dat ] || [ ! -f $DATA_DIR/baker-0-account.json ] || [ ! -f $DATA_DIR/baker-0-credentials.json ] ;
+    then
+        LD_LIBRARY_PATH=/genesis-binaries/lib /genesis-binaries/bin/genesis make-bakers 1
+    fi
+
+    cp /genesis.dat $DATA_DIR
+fi
+
 if [ -n "$COLLECTOR_BACKEND_PORT" ];
 then
     ARGS="$ARGS --listen-port $COLLECTOR_BACKEND_PORT"

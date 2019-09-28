@@ -27,6 +27,10 @@ elastic_logging = [ "elastic", "elastic_derive", "serde_json", "serde/derive", "
 collector = [ "reqwest/default-tls", "serde_json", "serde/derive", "gotham", "mime", "gotham_derive", "hyper" ]
 beta = [ "serde_json", "serde/derive", "reqwest/default-tls" ]
 
+[profile.release]
+codegen-units = 1
+#panic = 'abort'
+
 [dependencies]
 # Internal dependencies
 concordium-global-state = { path = "concordium-global-state" }
