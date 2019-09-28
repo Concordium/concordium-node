@@ -24,7 +24,7 @@ network_dump = []
 static = ["concordium-consensus/static"]
 profiling = ["concordium-consensus/profiling"]
 elastic_logging = [ "elastic", "elastic_derive", "serde_json", "serde/derive", "uuid/v4" ]
-collector = [ "reqwest/default-tls", "serde_json", "serde/derive" ]
+collector = [ "reqwest/default-tls", "serde_json", "serde/derive", "gotham", "mime", "gotham_derive", "hyper" ]
 beta = [ "serde_json", "serde/derive", "reqwest/default-tls" ]
 
 [dependencies]
@@ -69,8 +69,8 @@ snow = { version = "0.5.2", features = ["hacl-star-accelerated"] }
 protobuf = "2.0.6"
 futures = "0.1"
 # Feature gated dependencies
-gotham = { version = "0.3", optional = true }
-gotham_derive = { version = "0.3", optional = true }
+gotham = { version = "0.4", optional = true }
+gotham_derive = { version = "0.4", optional = true }
 hyper = { version = "0.12", optional = true }
 reqwest = { version = "^0.9", default-features = false, optional = true }
 mime = { version = "0.3", optional = true }
@@ -146,6 +146,11 @@ name = "generate-new-keypair"
 [[bin]]
 name = "node-collector"
 path = "src/bin/collector.rs"
+required-features = [ "collector" ]
+
+[[bin]]
+name = "node-collector-backend"
+path = "src/bin/collector_backend.rs"
 required-features = [ "collector" ]
 
 [[bench]]
