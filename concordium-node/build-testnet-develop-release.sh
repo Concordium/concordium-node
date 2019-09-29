@@ -7,7 +7,7 @@ fi
 
 if [ "$#" -ne 1 ]
 then
-  echo "Usage: ./build-testnet-develop-release.sh VERSION-TAG [debug|release]"
+  echo "Usage: ./build-testnet-develop-release.sh [debug|release]"
   exit 1
 fi
 
