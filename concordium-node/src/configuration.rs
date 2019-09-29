@@ -23,11 +23,11 @@ pub const APP_PREFERENCES_PERSISTED_NODE_ID: &str = "PERSISTED_NODE_ID";
 pub const TICKER_INTERVAL_SECS: u8 = 1;
 
 // maximum time allowed for a peer to catch up with in milliseconds
-pub const MAX_CATCH_UP_TIME: u64 = 30_000;
+pub const MAX_CATCH_UP_TIME: u64 = 60_000;
 
 // queue depths
-pub const GS_HIGH_PRIO_QUEUE_DEPTH: usize = 1024;
-pub const GS_LOW_PRIO_QUEUE_DEPTH: usize = 1024 * 10;
+pub const GS_HIGH_PRIO_QUEUE_DEPTH: usize = 1024 * 10;
+pub const GS_LOW_PRIO_QUEUE_DEPTH: usize = 1024 * 20;
 pub const RAW_NETWORK_MSG_QUEUE_DEPTH: usize = 1024 * 25;
 pub const RPC_QUEUE_DEPTH: usize = 1024 * 25;
 pub const RESEND_QUEUE_DEPTH: usize = 1024 * 10;
