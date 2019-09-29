@@ -1,6 +1,6 @@
 [package]
 name = "concordium-common"
-version = "0.1.57"
+version = "0.1.58"
 description = "Concordium Common library"
 authors = ["Concordium AG <info@concordium.com>"]
 exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*"]

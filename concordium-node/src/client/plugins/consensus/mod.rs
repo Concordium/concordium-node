@@ -212,7 +212,7 @@ pub fn handle_global_state_request(
             if req.distribution_mode() == DistributionMode::Broadcast {
                 if let Some((_, state)) = global_state.peers.peek() {
                     if state.status != PeerStatus::UpToDate {
-                        warn!("I'm currently catching up; dropping incoming broadcast");
+                        debug!("I'm currently catching up; dropping incoming broadcast");
                         return Ok(());
                     }
                 }

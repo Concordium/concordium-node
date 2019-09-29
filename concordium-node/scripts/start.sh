@@ -258,6 +258,16 @@ then
     ARGS="$ARGS --listen-address $COLLECTOR_BACKEND_HOST"
 fi
 
+if [ -n "$COLLECTOR_BACKEND_STALE_TIME_ALLOWED" ];
+then
+    ARGS="$ARGS --stale-time-allowed $COLLECTOR_BACKEND_STALE_TIME_ALLOWED"
+fi
+
+if [ -n "$COLLECTOR_BACKEND_CLEANUP_INTERVAL" ];
+then
+    ARGS="$ARGS --cleanup-interval $COLLECTOR_BACKEND_CLEANUP_INTERVAL"
+fi
+
 if [ "$MODE" == "tps_receiver" ]; then
     echo "Receiver!"
     /p2p_client-cli \

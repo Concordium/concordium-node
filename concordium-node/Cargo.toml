@@ -1,6 +1,6 @@
 [package]
 name = "p2p_client"
-version = "0.1.57"
+version = "0.1.58"
 description = "Concordium P2P Client"
 authors = ["Concordium AG <info@concordium.com>"]
 exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*","**/**/.gitignore","**/**/.gitlab-ci.yml"]
@@ -57,9 +57,7 @@ app_dirs2 = "^2.0"
 chrono = "0.4"
 failure = "^0.1.5"
 lazy_static = "^1.2"
-human-panic = "1.0"
 cfg-if = "0.1"
-semver = "0.9"
 derive_builder = "0.7.1"
 tempfile = "^3.0.7"
 base64 = "^0.10.1"

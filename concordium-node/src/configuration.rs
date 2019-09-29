@@ -1,7 +1,6 @@
 use app_dirs2::*;
 use failure::{bail, Fallible};
 use preferences::{Preferences, PreferencesMap};
-use semver::Version;
 use snow::params::{CipherChoice, DHChoice, HashChoice};
 use std::{
     fs::{File, OpenOptions},
@@ -21,7 +20,7 @@ pub const APP_PREFERENCES_KEY_VERSION: &str = "VERSION";
 pub const APP_PREFERENCES_PERSISTED_NODE_ID: &str = "PERSISTED_NODE_ID";
 
 // ticker thread loop interval
-pub const TICKER_INTERVAL_SECS: u8 = 3;
+pub const TICKER_INTERVAL_SECS: u8 = 1;
 
 // maximum time allowed for a peer to catch up with in milliseconds
 pub const MAX_CATCH_UP_TIME: u64 = 30_000;
@@ -514,33 +513,13 @@ impl AppPreferences {
                 let mut reader = BufReader::new(&file);
                 let load_result = PreferencesMap::<String>::load_from(&mut reader);
                 if let Ok(mut prefs) = load_result {
-                    let entry = prefs
-                        .entry(APP_PREFERENCES_KEY_VERSION.to_string())
-                        .or_insert_with(|| super::VERSION.to_string());
-                    if entry != &super::VERSION.to_string() {
-                        if let Some(ref vers_str) =
-                            prefs.get(&APP_PREFERENCES_KEY_VERSION.to_string())
-                        {
-                            match Version::parse(vers_str) {
-                                Ok(vers) => {
-                                    if let Ok(int_vers) = Version::parse(super::VERSION) {
-                                        if int_vers.major != vers.major {
-                                            panic!(
-                                                "Major versions do not match {} != {}",
-                                                int_vers.major, vers.major
-                                            );
-                                        } else if vers.minor > int_vers.minor {
-                                            panic!(
-                                                "Version file too new {} > {}",
-                                                vers.to_string(),
-                                                int_vers.to_string()
-                                            );
-                                        }
-                                    }
-                                }
-                                Err(e) => panic!("Can't parse version in config file '{}'", e),
-                            }
-                        };
+                    prefs.insert(
+                        APP_PREFERENCES_KEY_VERSION.to_string(),
+                        super::VERSION.to_string(),
+                    );
+                    let mut writer = BufWriter::new(&file);
+                    if prefs.save_to(&mut writer).is_err() {
+                        panic!("Can't write to config file!");
                     }
                     AppPreferences {
                         preferences_map:     Arc::new(RwLock::new(prefs)),

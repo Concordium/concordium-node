@@ -8,10 +8,16 @@ COPY ./scripts/start.sh ./start.sh
 COPY ./scripts/genesis-data ./genesis-data
 ENV LD_LIBRARY_PATH=/usr/local/lib
 RUN --mount=type=ssh ./init.build.env.sh 
-RUN --mount=type=ssh cargo build --release --features=instrumentation,benchmark,profiling,elastic_logging,collector && \
-    cp /build-project/target/release/p2p_client-cli /build-project/target/release/p2p_bootstrapper-cli /build-project/ && \
-    cp /build-project/target/release/node-collector /build-project/ && \
-    cp /build-project/target/release/node-collector-backend /build-project/ && \
+RUN --mount=type=ssh mkdir -p /build-project/release && \
+    cargo build --release --features=instrumentation,benchmark,profiling,elastic_logging,collector && \
+    cp /build-project/target/release/p2p_client-cli /build-project/target/release/p2p_bootstrapper-cli /build-project/release/ && \
+    cp /build-project/target/release/node-collector /build-project/release/ && \
+    cp /build-project/target/release/node-collector-backend /build-project/release/ && \
+    mkdir -p /build-project/debug/ && \
+    cargo build --features=instrumentation,benchmark,profiling,elastic_logging,collector && \
+    cp /build-project/target/release/p2p_client-cli /build-project/target/release/p2p_bootstrapper-cli /build-project/debug/ && \
+    cp /build-project/target/release/node-collector /build-project/debug/ && \
+    cp /build-project/target/release/node-collector-backend /build-project/debug/ && \
     cargo clean && \
     # Sanitizer build
     #rustup install nightly-2019-03-22 && \

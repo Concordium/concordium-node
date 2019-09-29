@@ -26,4 +26,6 @@ pub struct NodeInfo {
     pub consensusRunning: bool,
     pub bakingCommitteeMember: bool,
     pub finalizationCommitteeMember: bool,
+    #[serde(skip)]
+    pub last_updated: u64,
 }

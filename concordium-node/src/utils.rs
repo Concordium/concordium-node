@@ -492,8 +492,6 @@ pub fn get_config_and_logging_setup() -> Fallible<(config::Config, config::AppPr
     }
     log_builder.init();
 
-    p2p_client::setup_panics();
-
     info!(
         "Starting up {} version {}!",
         p2p_client::APPNAME,
