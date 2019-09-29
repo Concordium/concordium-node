@@ -2,9 +2,9 @@
 
 set -e 
 
-if [ "$#" -ne 1 ]
+if [ "$#" -ne 2 ]
 then
-  echo "Usage: ./build-all-docker.sh VERSION-TAG"
+  echo "Usage: ./build-all-docker.sh VERSION-TAG [debug|release]"
   exit 1
 fi
 
@@ -18,7 +18,7 @@ echo $CONSENSUS_VERSION > CONSENSUS_VERSION
 
 scripts/build-universal-docker.sh $1
 
-scripts/build-bootstrapper-docker.sh $1
-scripts/build-collector-docker.sh $1
-scripts/build-collector-backend-docker.sh $1
-scripts/build-client-docker.sh $1
+scripts/build-bootstrapper-docker.sh $1 $2
+scripts/build-collector-docker.sh $1 $2
+scripts/build-collector-backend-docker.sh $1 $2
+scripts/build-client-docker.sh $1 $2
