@@ -50,8 +50,6 @@ fn main() -> Result<(), Error> {
     }
     log_builder.init();
 
-    p2p_client::setup_panics();
-
     if conf.common.print_config {
         // Print out the configuration
         info!("Config {:?}", conf);

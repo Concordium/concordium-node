@@ -23,9 +23,6 @@ cfg_if! {
 
 #[macro_use]
 extern crate lazy_static;
-#[cfg(not(debug_assertions))]
-#[macro_use]
-extern crate human_panic;
 #[macro_use]
 extern crate cfg_if;
 #[cfg(target_os = "windows")]
@@ -87,11 +84,3 @@ pub mod test_utils;
 
 #[cfg(feature = "s11n_capnp")]
 pub mod p2p_capnp;
-
-cfg_if! {
-    if #[cfg(not(debug_assertions))] {
-        pub fn setup_panics() { setup_panic!(); }
-    } else  {
-        pub fn setup_panics() {}
-    }
-}

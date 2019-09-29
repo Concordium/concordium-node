@@ -122,7 +122,6 @@ pub fn main() -> Fallible<()> {
         log_builder.default_format_timestamp(false);
     }
     log_builder.init();
-    p2p_client::setup_panics();
     if conf.print_config {
         info!("{:?}", conf);
     }
@@ -143,7 +142,7 @@ pub fn main() -> Fallible<()> {
             info!("Running cleanup");
             let current_stamp = get_current_stamp();
             write_or_die!(_node_info_map_clone)
-                .retain(|_, element| element.last_updated + _allowed_stale_time < current_stamp);
+                .retain(|_, element| current_stamp < element.last_updated + _allowed_stale_time);
         }
     });
 
