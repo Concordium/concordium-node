@@ -85,24 +85,32 @@ impl<'a> GlobalData<'a> {
     pub(crate) fn store_block(&mut self, block_ptr: &BlockPtr) {
         let mut kvs_writer = self.kvs_env.write().unwrap(); // infallible
 
-        if let Err(e) = self.finalized_block_store.put(
-            &mut kvs_writer,
-            block_ptr.hash.clone(),
-            &Value::Blob(&block_ptr.serialize()),
-        ) {
-            panic!("Can't store a block due to {}", e);
+        if let Err(e) = self
+            .finalized_block_store
+            .put(
+                &mut kvs_writer,
+                block_ptr.hash.clone(),
+                &Value::Blob(&block_ptr.serialize()),
+            )
+            .and_then(|_| kvs_writer.commit())
+        {
+            error!("Can't store a block: {}", e);
         }
     }
 
     fn store_serialized_block(&mut self, serialized_block: &[u8]) {
         let mut kvs_writer = self.kvs_env.write().unwrap(); // infallible
 
-        if let Err(e) = self.finalized_block_store.put(
-            &mut kvs_writer,
-            sha256(serialized_block),
-            &Value::Blob(serialized_block),
-        ) {
-            panic!("Can't store a blocke due to {}", e);
+        if let Err(e) = self
+            .finalized_block_store
+            .put(
+                &mut kvs_writer,
+                sha256(serialized_block),
+                &Value::Blob(serialized_block),
+            )
+            .and_then(|_| kvs_writer.commit())
+        {
+            error!("Can't store a block: {}", e);
         }
     }
 
@@ -168,7 +176,7 @@ impl<'a> GlobalData<'a> {
             );
 
             // for now, don't break on unaligned last finalized block
-            warn!("{:?}", error);
+            debug!("{:?}", error);
         }
 
         // if the above checks pass, a BlockPtr can be created

@@ -30,7 +30,6 @@ pub fn main() -> Fallible<()> {
         println!("{:?}", conf);
     }
 
-    p2p_client::setup_panics();
     if !std::path::Path::new(&conf.keyfile).exists() || conf.force_overwrite {
         match OpenOptions::new()
             .read(true)

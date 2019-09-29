@@ -45,8 +45,6 @@ pub fn main() -> Fallible<()> {
         exit(1);
     }
 
-    p2p_client::setup_panics();
-
     let mut private_key_bytes: [u8; 32] = [0; 32];
     match File::open(&conf.keyfile) {
         Ok(ref mut file) => {

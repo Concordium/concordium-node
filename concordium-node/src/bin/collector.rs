@@ -86,7 +86,6 @@ pub fn main() -> Fallible<()> {
         log_builder.default_format_timestamp(false);
     }
     log_builder.init();
-    p2p_client::setup_panics();
     if conf.print_config {
         info!("{:?}", conf);
     }
@@ -254,5 +253,6 @@ fn collect_data(
         consensusRunning: consensus_running,
         bakingCommitteeMember: baker_committee,
         finalizationCommitteeMember: finalization_committee,
+        last_updated: 0,
     })
 }
