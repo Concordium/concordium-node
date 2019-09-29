@@ -36,7 +36,7 @@ use rkv::{Manager, Rkv, StoreOptions, Value};
 use snow::Keypair;
 
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashMap, HashSet},
     net::{
         IpAddr::{self, V4, V6},
         SocketAddr,
@@ -534,14 +534,14 @@ impl P2PNode {
             let mut log_time = SystemTime::now();
 
             let mut deduplication_queues = DeduplicationQueues::default();
-            let mut order_queue = VecDeque::with_capacity(16);
+            let mut request_queue = Vec::with_capacity(64);
 
             loop {
                 let _ = self_clone
                     .process(&mut events, &mut deduplication_queues)
                     .map_err(|e| error!("{}", e));
 
-                self_clone.process_network_requests(&receivers, &mut order_queue);
+                self_clone.process_network_requests(&receivers, &mut request_queue);
 
                 // Check the termination switch
                 if self_clone.is_terminated.load(Ordering::Relaxed) {
@@ -1228,34 +1228,38 @@ impl P2PNode {
     pub fn process_network_requests(
         &self,
         receivers: &Receivers,
-        order_queue: &mut VecDeque<NetworkRawRequest>,
+        request_queue: &mut Vec<NetworkRawRequest>,
     ) {
         for request in receivers.network_requests.try_iter() {
             match request.priority {
-                MessageSendingPriority::High => order_queue.push_front(request),
-                MessageSendingPriority::Normal => order_queue.push_back(request),
+                MessageSendingPriority::High => self.process_network_request(request),
+                MessageSendingPriority::Normal => request_queue.push(request),
             }
         }
 
-        for request in order_queue.drain(..) {
+        for request in request_queue.drain(..) {
+            self.process_network_request(request);
+        }
+    }
+
+    #[inline(always)]
+    pub fn process_network_request(&self, request: NetworkRawRequest) {
+        if let Some(ref conn) = self.find_connection_by_token(request.token) {
             trace!(
-                "Processing network raw request ({} bytes) in connection {}",
+                "Processing a raw {}B network request from {}",
                 request.data.len().unwrap_or(0),
-                usize::from(request.token)
+                conn,
             );
 
-            if let Some(ref conn) = self.find_connection_by_token(request.token) {
-                if let Err(err) = conn.async_send_from_poll_loop(request.data) {
-                    error!("Can't send a raw network request to {}: {}", conn, err);
-                    conn.handler().remove_connection(conn.token);
-                }
-            } else {
-                debug!(
-                    "Can't send a raw network request; connection {} is missing",
-                    usize::from(request.token)
-                );
-                return;
+            if let Err(err) = conn.async_send_from_poll_loop(request.data) {
+                error!("Can't send a raw network request to {}: {}", conn, err);
+                conn.handler().remove_connection(conn.token);
             }
+        } else {
+            debug!(
+                "Can't send a raw network request; connection {} is missing",
+                usize::from(request.token)
+            );
         }
     }
 
