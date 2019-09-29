@@ -168,7 +168,7 @@ impl<'a> GlobalData<'a> {
             );
 
             // for now, don't break on unaligned last finalized block
-            warn!("{:?}", error);
+            debug!("{:?}", error);
         }
 
         // if the above checks pass, a BlockPtr can be created
