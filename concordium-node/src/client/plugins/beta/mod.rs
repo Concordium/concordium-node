@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize)]
 struct ClientLogin {
     username: String,
-    password: String,
+    token:    String,
     version:  String,
 }
 
@@ -26,7 +26,7 @@ pub fn authenticate(username: &str, token: &str) -> bool {
     let client = Client::new();
     let login_details = ClientLogin {
         username: username.to_owned(),
-        password: token.to_owned(),
+        token:    token.to_owned(),
         version:  crate::VERSION.to_owned(),
     };
     let response = client
