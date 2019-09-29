@@ -18,8 +18,9 @@ RUN --mount=type=ssh cargo build --release --features=static,collector,beta && \
     cd genesis_data && \
     cp genesis.dat /build-project/
 
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.1 as haskell-build
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.2 as haskell-build
 COPY ./src/proto/concordium_p2p_rpc.proto /concordium.proto
+COPY ./CONSENSUS_VERSION /CONSENSUS_VERSION
 # P2P client is now built
 RUN --mount=type=ssh pacman -Syy --noconfirm openssh && \
     mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts && \
@@ -27,8 +28,8 @@ RUN --mount=type=ssh pacman -Syy --noconfirm openssh && \
     cd simple-client && \
     git checkout http-server-interface && \
     git submodule update --init --recursive && \
-    curl -s "https://s3-eu-west-1.amazonaws.com/static-libraries.concordium.com/static-consensus-binaries-$(git submodule | grep prototype | head -n1 | awk '{print $1}').tar.gz" -O && \
-    tar -xf static-consensus-binaries-$(git submodule | grep prototype | head -n1 | awk '{print $1}').tar.gz && \
+    curl -s "https://s3-eu-west-1.amazonaws.com/static-libraries.concordium.com/static-consensus-binaries-$(cat /CONSENSUS_VERSION).tar.gz" -O && \
+    tar -xf static-consensus-binaries-$(cat /CONSENSUS_VERSION).tar.gz && \
     mv binaries /genesis-binaries && \
     rm proto/concordium.proto && \
     cp /concordium.proto proto/concordium.proto && \
