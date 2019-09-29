@@ -21,7 +21,7 @@ pub const APP_PREFERENCES_KEY_VERSION: &str = "VERSION";
 pub const APP_PREFERENCES_PERSISTED_NODE_ID: &str = "PERSISTED_NODE_ID";
 
 // ticker thread loop interval
-pub const TICKER_INTERVAL_SECS: u8 = 3;
+pub const TICKER_INTERVAL_SECS: u8 = 1;
 
 // maximum time allowed for a peer to catch up with in milliseconds
 pub const MAX_CATCH_UP_TIME: u64 = 30_000;
