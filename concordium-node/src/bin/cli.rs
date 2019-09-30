@@ -291,6 +291,10 @@ fn start_global_state_thread(
             .read()
             .expect("Can't unlock the kvs env for GlobalState!");
 
+        if let Err(e) = gs_kvs_env.set_map_size(1024 * 1024 * 256) {
+            error!("Can't set up the desired RKV map size: {}", e);
+        }
+
         let mut global_state = GlobalState::new(
             &consensus_ref.genesis,
             &gs_kvs_env,
