@@ -44,10 +44,8 @@ WORKDIR /
 RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
 RUN --mount=type=ssh git clone git@gitlab.com:Concordium/node-dashboard.git
 WORKDIR /node-dashboard
-RUN git checkout 42c0d5ccf311843899bf4e9f3b5602c477314874
+ENV NODE_ENV=development
 RUN npm i
-RUN npm run build
-ENV NODE_ENV=production
 RUN npm run build
 
 FROM ubuntu:19.10
