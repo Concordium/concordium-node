@@ -7,12 +7,12 @@ import Control.Exception(assert)
 -- |The cost to process the header. This cost will be subtracted from the sender
 -- account after the header is checked.
 checkHeader :: Energy
-checkHeader = 100
+checkHeader = 10
 
 -- |Minimal deposit needed in order to start processing the transaction.
 -- We should have this since checking the header is non-trivial cost.
 minimumDeposit :: Energy
-minimumDeposit = 100
+minimumDeposit = 10
 
 -- |Cost to deploy the module. Computed from the serialized size of the module.
 deployModule :: Int -> Energy
@@ -55,7 +55,7 @@ interContractMessage = 10
 -- |Cost to add a credential to an account. This cost is costant regardless of
 -- the details of the data. This might change.
 deployCredential :: Energy
-deployCredential = 3000
+deployCredential = 10000 - checkHeader
 
 -- |Cost to add an encryption key to an account.
 deployEncryptionKey :: Energy

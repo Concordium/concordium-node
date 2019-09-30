@@ -12,6 +12,7 @@ module Concordium.Scheduler.EnvironmentImplementation where
 import Concordium.Scheduler.Environment
 
 import Data.HashMap.Strict as Map
+import qualified Data.HashSet as Set
 import Data.Functor.Identity
 
 import Lens.Micro.Platform
@@ -36,10 +37,14 @@ instance MonadTrans (BSOMonadWrapper r s) where
     {-# INLINE lift #-}
     lift a = BSOMonadWrapper a
 
-instance (MonadReader ChainMetadata m, UpdatableBlockState m ~ s, MonadState s m, BlockStateOperations m)
-    => StaticEnvironmentMonad Core.UA (BSOMonadWrapper ChainMetadata s m) where
+-- |Chain metadata together with a set of special accounts which have special
+-- rights during the beta phase.
+type ContextState = (Set.HashSet AccountAddress, ChainMetadata)
+
+instance (MonadReader ContextState m, UpdatableBlockState m ~ s, MonadState s m, BlockStateOperations m)
+    => StaticEnvironmentMonad Core.UA (BSOMonadWrapper ContextState s m) where
   {-# INLINE getChainMetadata #-}
-  getChainMetadata = ask
+  getChainMetadata = view _2
 
   {-# INLINE getModuleInterfaces #-}
   getModuleInterfaces mref = do
@@ -47,8 +52,12 @@ instance (MonadReader ChainMetadata m, UpdatableBlockState m ~ s, MonadState s m
     mmod <- lift (BS.bsoGetModule s mref)
     return $ mmod <&> \m -> (Mod.moduleInterface m, Mod.moduleValueInterface m)
 
-instance (MonadReader ChainMetadata m, UpdatableBlockState m ~ state, MonadState state m, BlockStateOperations m)
-         => SchedulerMonad (BSOMonadWrapper ChainMetadata state m) where
+instance (MonadReader ContextState m, UpdatableBlockState m ~ state, MonadState state m, BlockStateOperations m)
+         => SchedulerMonad (BSOMonadWrapper ContextState state m) where
+
+  {-# INLINE getSpecialBetaAccounts #-}
+  getSpecialBetaAccounts = view _1
+
   {-# INLINE getContractInstance #-}
   getContractInstance addr = lift . flip bsoGetInstance addr =<< get
 
@@ -201,16 +210,16 @@ instance (MonadReader ChainMetadata m, UpdatableBlockState m ~ state, MonadState
   {-# INLINE getCrypoParams #-}
   getCrypoParams = lift . bsoGetCryptoParams =<< get
 
-newtype SchedulerImplementation a = SchedulerImplementation { _runScheduler :: RWST ChainMetadata () BlockState (PureBlockStateMonad Identity) a }
-    deriving (Functor, Applicative, Monad, MonadReader ChainMetadata, MonadState BlockState)
-    deriving (StaticEnvironmentMonad Core.UA) via (BSOMonadWrapper ChainMetadata BlockState (RWST ChainMetadata () BlockState (PureBlockStateMonad Identity)))
-    deriving SchedulerMonad via (BSOMonadWrapper ChainMetadata BlockState (RWST ChainMetadata () BlockState (PureBlockStateMonad Identity)))
+newtype SchedulerImplementation a = SchedulerImplementation { _runScheduler :: RWST ContextState () BlockState (PureBlockStateMonad Identity) a }
+    deriving (Functor, Applicative, Monad, MonadReader ContextState, MonadState BlockState)
+    deriving (StaticEnvironmentMonad Core.UA) via (BSOMonadWrapper ContextState BlockState (RWST ContextState () BlockState (PureBlockStateMonad Identity)))
+    deriving SchedulerMonad via (BSOMonadWrapper ContextState BlockState (RWST ContextState () BlockState (PureBlockStateMonad Identity)))
 
-runSI :: SchedulerImplementation a -> ChainMetadata -> BlockState -> (a, BlockState)
-runSI sc cd gs = let (a, s, _) = runIdentity $ runPureBlockStateMonad $ runRWST (_runScheduler sc) cd gs in (a, s)
+runSI :: SchedulerImplementation a -> SpecialBetaAccounts -> ChainMetadata -> BlockState -> (a, BlockState)
+runSI sc gd cd gs = let (a, s, _) = runIdentity $ runPureBlockStateMonad $ runRWST (_runScheduler sc) (gd, cd) gs in (a, s)
 
-execSI :: SchedulerImplementation a -> ChainMetadata -> BlockState -> BlockState
-execSI sc cd gs = fst (runIdentity $ runPureBlockStateMonad $ execRWST (_runScheduler sc) cd gs)
+execSI :: SchedulerImplementation a -> SpecialBetaAccounts -> ChainMetadata -> BlockState -> BlockState
+execSI sc gd cd gs = fst (runIdentity $ runPureBlockStateMonad $ execRWST (_runScheduler sc) (gd, cd) gs)
 
-evalSI :: SchedulerImplementation a -> ChainMetadata -> BlockState -> a
-evalSI sc cd gs = fst (runIdentity $ runPureBlockStateMonad $ evalRWST (_runScheduler sc) cd gs)
+evalSI :: SchedulerImplementation a -> SpecialBetaAccounts -> ChainMetadata -> BlockState -> a
+evalSI sc gd cd gs = fst (runIdentity $ runPureBlockStateMonad $ evalRWST (_runScheduler sc) (gd, cd) gs)

@@ -96,8 +96,9 @@ testSimpleTransfers = do
     transactions <- processTransactions transactionsInput
     let ((Sch.FilteredTransactions{..}, _), endState) =
             Types.runSI (Sch.filterTransactions blockSize transactions)
-            Types.dummyChainMeta
-            initialBlockState
+              dummySpecialBetaAccounts
+              Types.dummyChainMeta
+              initialBlockState
     case invariantBlockState endState of
         Left f -> liftIO $ assertFailure $ f ++ "\n" ++ show endState
         _ -> return ()
