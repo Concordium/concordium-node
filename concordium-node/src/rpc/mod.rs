@@ -501,7 +501,7 @@ impl P2P for RpcServerImpl {
                     })
                     .map(|peer| {
                         let mut peer_resp = PeerStatsResponse_PeerStats::new();
-                        peer_resp.set_node_id(P2PNodeId(peer.id).to_string());
+                        peer_resp.set_node_id(format!("{:0>16x}", peer.id));
                         peer_resp.set_packets_sent(peer.sent.load(Ordering::Relaxed));
                         peer_resp.set_packets_received(peer.received.load(Ordering::Relaxed));
 
@@ -542,7 +542,7 @@ impl P2P for RpcServerImpl {
                     .map(|peer| {
                         let mut peer_resp = PeerElement::new();
                         let mut node_id = ::protobuf::well_known_types::StringValue::new();
-                        node_id.set_value(peer.id.to_string());
+                        node_id.set_value(format!("{:0>16x}", peer.id));
                         peer_resp.set_node_id(node_id);
                         let mut ip = ::protobuf::well_known_types::StringValue::new();
                         ip.set_value(peer.addr.ip().to_string());
