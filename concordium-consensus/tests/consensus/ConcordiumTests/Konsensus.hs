@@ -343,7 +343,7 @@ initialiseStates n = do
         let bps = BirkParameters 0.5 (bakersFromList $ (^. _2 . _1) <$> bis) (genesisSeedState (hash "LeadershipElectionNonce") 360)
             fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _ _, _, _)) <- bis] 2
             bakerAccounts = map (\(_, (_, _, acc)) -> acc) bis
-            gen = GenesisData 0 1 bps bakerAccounts fps dummyCryptographicParameters dummyIdentityProviders
+            gen = GenesisData 0 1 bps bakerAccounts [] fps dummyCryptographicParameters dummyIdentityProviders 10
         bis2 <- liftIO $ mapM (\(a,b) -> RF.makeEmptyGlobalState gen >>=  (return . ((a, b,)))) bis
         res <- liftIO $ mapM (\(_, (_, bid, _), gs) -> do
                                 let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid)
