@@ -1583,7 +1583,8 @@ mod tests {
         assert!(rcv.len() == 1);
         let elem = rcv[0].clone();
         assert_eq!(
-            P2PNodeId(str::parse::<u64>(elem.node_id.unwrap().get_value()).unwrap()).to_string(),
+            P2PNodeId(u64::from_str_radix(elem.node_id.unwrap().get_value(), 16).unwrap())
+                .to_string(),
             node2.id().to_string()
         );
         assert_eq!(
