@@ -11,7 +11,6 @@ use crate::{
 
 pub enum GlobalStateMessage {
     ConsensusMessage(ConsensusMessage),
-    PeerListUpdate(Vec<PeerId>),
     Shutdown,
 }
 

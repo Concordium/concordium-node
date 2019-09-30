@@ -277,8 +277,8 @@ fn start_consensus_threads(
     let data_dir_path = app_prefs.get_user_app_dir();
 
     let node_ref = Arc::clone(node);
-    let mut consensus_clone = consensus.clone();
-    let network_id = NetworkId::from(conf.common.network_ids[0]); // defaulted so there's always first()
+    let mut consensus_ref = consensus.clone();
+    let nid = NetworkId::from(conf.common.network_ids[0]); // defaulted so there's always first()
     let global_state_thread = spawn_or_die!("Process global state requests", {
         // Open the GlobalState-exclusive k-v store environment
         let gs_kvs_handle = Manager::singleton()
@@ -292,10 +292,16 @@ fn start_consensus_threads(
             .expect("Can't unlock the kvs env for GlobalState!");
 
         let mut global_state = GlobalState::new(
-            &consensus_clone.genesis,
+            &consensus_ref.genesis,
             &gs_kvs_env,
             is_global_state_persistent,
         );
+
+        if let Err(e) = check_peer_states(&node_ref, nid, &mut consensus_ref, &mut global_state) {
+            error!("Couldn't run the initial catch-up round: {}", e);
+        }
+
+        consensus.start_baker();
 
         // consensus_clone.send_global_state_ptr(&global_state);
 
@@ -313,8 +319,8 @@ fn start_consensus_threads(
                     break 'outer_loop;
                 } else if let Err(e) = handle_global_state_request(
                     &node_ref,
-                    network_id,
-                    &mut consensus_clone,
+                    nid,
+                    &mut consensus_ref,
                     request,
                     &mut global_state,
                 ) {
@@ -328,34 +334,12 @@ fn start_consensus_threads(
         }
     });
 
-    let node_ref = Arc::clone(node);
-    #[allow(unreachable_code)] // the loop never breaks on its own
-    let ticker_thread = spawn_or_die!("Ticker", {
-        // an initial delay before we begin catching up and baking
-        thread::sleep(Duration::from_secs(10));
-
-        loop {
-            thread::sleep(Duration::from_secs(u64::from(config::TICKER_INTERVAL_SECS)));
-
-            let current_peers = node_ref.get_node_peer_ids();
-
-            // don't provide the global state with the peer information until their
-            // number is within the desired range
-            if current_peers.len() <= node_ref.config.max_allowed_nodes as usize {
-                let msg = GlobalStateMessage::PeerListUpdate(current_peers);
-                if let Err(e) = node_ref.global_state_senders.send_with_priority(msg) {
-                    error!("Error updating the global state peer list: {}", e)
-                }
-            }
-        }
-    });
-
     info!(
         "Concordium P2P layer. Network disabled: {}",
         conf.cli.no_network
     );
 
-    vec![global_state_thread, ticker_thread]
+    vec![global_state_thread]
 }
 
 fn start_baker_thread(node: &P2PNode) -> std::thread::JoinHandle<()> {
