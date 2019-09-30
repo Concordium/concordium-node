@@ -182,7 +182,6 @@ pub struct P2PNode {
     pub rpc_queue:            SyncSender<NetworkMessage>,
     dump_switch:              SyncSender<(std::path::PathBuf, bool)>,
     dump_tx:                  SyncSender<crate::dumper::DumpItem>,
-    pub active_peer_stats:    RwLock<HashMap<u64, PeerStats, BuildNoHashHasher<u64>>>,
     pub stats_export_service: Option<StatsExportService>,
     pub config:               P2PNodeConfig,
     start_time:               DateTime<Utc>,
@@ -375,7 +374,6 @@ impl P2PNode {
             is_rpc_online: AtomicBool::new(false),
             connection_handler,
             self_peer,
-            active_peer_stats: Default::default(),
             stats_export_service,
             is_terminated: Default::default(),
             kvs,
@@ -559,7 +557,7 @@ impl P2PNode {
                             self_clone.liveness_check();
                         }
 
-                        let peer_stat_list = self_clone.get_peer_stats();
+                        let peer_stat_list = self_clone.get_peer_stats(None);
                         self_clone.check_peers(&peer_stat_list);
                         self_clone.print_stats(&peer_stat_list);
 
@@ -639,7 +637,7 @@ impl P2PNode {
         // post-handshake connections to lower it
         if peer_type == PeerType::Node {
             let max_allowed_nodes = self.config.max_allowed_nodes;
-            let peer_count = self.connections_posthandshake_count(Some(PeerType::Bootstrapper));
+            let peer_count = self.get_peer_stats(Some(PeerType::Node)).len() as u16;
             if peer_count > max_allowed_nodes {
                 let mut rng = rand::thread_rng();
                 let to_drop = read_or_die!(self.connections())
@@ -649,19 +647,6 @@ impl P2PNode {
 
                 for token in to_drop {
                     self.remove_connection(token);
-                }
-            }
-        }
-
-        // recreate the active peer list if it's not aligned with the connection list
-        // while unlikely to happen in practice, we definitely don't want it to happen
-        if read_or_die!(self.connections()).len() != self.get_all_current_peers(None).len() {
-            warn!("The peer stats are not aligned with the connections; fixing");
-            let mut active_peers = write_or_die!(self.active_peer_stats);
-            active_peers.clear();
-            for conn in read_or_die!(self.connections()).values() {
-                if let Some(id) = conn.remote_id() {
-                    active_peers.insert(id.as_raw(), conn.remote_peer_stats()?);
                 }
             }
         }
@@ -766,8 +751,7 @@ impl P2PNode {
         self.log_event(P2PEvent::InitiatingConnection(addr));
         let self_peer = self.self_peer;
         if peer_type == PeerType::Node {
-            let current_peer_count =
-                self.connections_posthandshake_count(Some(PeerType::Bootstrapper));
+            let current_peer_count = self.get_peer_stats(Some(PeerType::Node)).len() as u16;
             if current_peer_count > self.config.max_allowed_nodes {
                 return Err(Error::from(fails::MaxmimumAmountOfPeers {
                     max_allowed_peers: self.config.max_allowed_nodes,
@@ -854,21 +838,6 @@ impl P2PNode {
     }
 
     pub fn dump_stop(&mut self) { self.connection_handler.log_dumper = None; }
-
-    fn connections_posthandshake_count(&self, exclude_type: Option<PeerType>) -> u16 {
-        // We will never have more than 2^16 connections per node, so this conversion is
-        // safe.
-        read_or_die!(self.active_peer_stats)
-            .values()
-            .filter(|&peer| {
-                if let Some(exclude_type) = exclude_type {
-                    peer.peer_type != exclude_type
-                } else {
-                    true
-                }
-            })
-            .count() as u16
-    }
 
     /// Adds a new node to the banned list and marks its connection for closure
     pub fn ban_node(&self, peer: BannedNode) -> Fallible<()> {
@@ -1080,14 +1049,15 @@ impl P2PNode {
                 if self.config.relay_broadcast_percentage < 1.0 {
                     use rand::seq::SliceRandom;
                     let mut rng = rand::thread_rng();
-                    let mut peers = self.get_all_current_peers(Some(PeerType::Node));
-                    peers.retain(|peer| !dont_send_to.contains(peer));
+                    let mut peers = self.get_node_peer_ids();
+                    peers.retain(|id| !dont_send_to.contains(&P2PNodeId(*id)));
                     let peers_to_take = f64::floor(
                         f64::from(peers.len() as u32) * self.config.relay_broadcast_percentage,
                     );
                     peers
                         .choose_multiple(&mut rng, peers_to_take as usize)
-                        .copied()
+                        .into_iter()
+                        .map(|id| P2PNodeId(*id))
                         .collect::<Vec<_>>()
                 } else {
                     Vec::new()
@@ -1119,27 +1089,19 @@ impl P2PNode {
         }
     }
 
-    pub fn get_peer_stats(&self) -> Vec<PeerStats> {
-        read_or_die!(self.active_peer_stats)
+    pub fn get_peer_stats(&self, peer_type: Option<PeerType>) -> Vec<PeerStats> {
+        read_or_die!(self.connections())
             .values()
-            .cloned()
-            .collect()
-    }
-
-    pub fn get_all_current_peers(&self, peer_type: Option<PeerType>) -> Vec<P2PNodeId> {
-        read_or_die!(self.active_peer_stats)
-            .values()
-            .filter(|peer| peer_type.is_none() || peer_type == Some(peer.peer_type))
-            .map(|peer| P2PNodeId(peer.id))
+            .filter(|conn| conn.is_post_handshake())
+            .filter(|conn| peer_type.is_none() || peer_type == Some(conn.remote_peer_type()))
+            .filter_map(|conn| conn.remote_peer_stats().ok())
             .collect()
     }
 
     pub fn get_node_peer_ids(&self) -> Vec<u64> {
-        read_or_die!(self.active_peer_stats)
-            .iter()
-            .filter(|(_, stats)| stats.peer_type == PeerType::Node)
-            .map(|(id, _)| id)
-            .copied()
+        self.get_peer_stats(Some(PeerType::Node))
+            .into_iter()
+            .map(|stats| stats.id)
             .collect()
     }
 

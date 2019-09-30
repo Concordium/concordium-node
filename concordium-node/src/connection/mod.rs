@@ -347,10 +347,6 @@ impl Connection {
             .peer_external_port
             .store(peer_port, Ordering::SeqCst);
 
-        // register peer's stats in the P2PNode
-        write_or_die!(self.handler().active_peer_stats)
-            .insert(id.as_raw(), self.remote_peer_stats()?);
-
         Ok(())
     }
 
@@ -526,9 +522,8 @@ impl Connection {
             PeerType::Node => {
                 let nodes = self
                     .handler()
-                    .get_peer_stats()
+                    .get_peer_stats(Some(PeerType::Node))
                     .iter()
-                    .filter(|stat| stat.peer_type == PeerType::Node)
                     .filter(|stat| P2PNodeId(stat.id) != requestor.id)
                     .map(|stat| {
                         P2PPeer::from(stat.peer_type, P2PNodeId(stat.id), stat.external_address())
@@ -612,10 +607,6 @@ impl Connection {
 impl Drop for Connection {
     fn drop(&mut self) {
         debug!("Closing {}", self);
-
-        if let Some(id) = self.remote_id() {
-            write_or_die!(self.handler().active_peer_stats).remove(&id.as_raw());
-        }
 
         // Report number of peers to stats export engine
         if let Some(ref service) = self.handler().stats_export_service {
