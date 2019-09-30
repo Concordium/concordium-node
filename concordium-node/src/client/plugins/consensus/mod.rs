@@ -15,8 +15,6 @@ use std::{
     io::{self, Cursor, Read, Write},
     mem,
     sync::Arc,
-    thread,
-    time::Duration,
 };
 
 use concordium_common::{
@@ -222,7 +220,7 @@ pub fn handle_global_state_request(
 
             handle_consensus_message(node, network_id, consensus, req, global_state)
         }
-        _ => unreachable!("A Shutdown message is handled within the cli module"),
+        _ => unreachable!("Shutdown message is handled within the cli module"),
     }
 }
 
@@ -485,8 +483,8 @@ fn send_catch_up_status(
     )
 }
 
-fn update_peer_list(node: &P2PNode, global_state: &mut GlobalState) {
-    let peer_ids = node.get_node_peer_ids();
+pub fn update_peer_list(global_state: &mut GlobalState, peer_ids: Vec<u64>) {
+    debug!("The peers have changed; updating the catch-up peer list");
 
     global_state.peers.reserve(peer_ids.len());
     for id in peer_ids {
@@ -504,15 +502,8 @@ pub fn check_peer_states(
     consensus: &mut consensus::ConsensusContainer,
     global_state: &mut GlobalState,
 ) -> Fallible<()> {
-    // check if there are any new peers or any of the current ones have died
-    update_peer_list(node, global_state);
-
     // take advantage of the priority queue ordering
-    while global_state.peers.peek().is_some()
-        && global_state.peers.peek().unwrap().1.status != PeerStatus::UpToDate
-    {
-        let (&id, state) = global_state.peers.peek().unwrap();
-
+    if let Some((&id, state)) = global_state.peers.peek() {
         match state.status {
             PeerStatus::CatchingUp => {
                 // don't send any catch-up statuses while
@@ -523,12 +514,6 @@ pub fn check_peer_states(
                         .find_connection_by_id(P2PNodeId(id))
                         .map(|conn| conn.token)
                     {
-                        // temporary safeguard; we can't recover if this is not true
-                        assert_eq!(
-                            node.find_connection_by_token(peer_conn)
-                                .and_then(|conn| conn.remote_id()),
-                            Some(P2PNodeId(id))
-                        );
                         assert!(node.remove_connection(peer_conn));
                     }
                 }
@@ -538,13 +523,13 @@ pub fn check_peer_states(
                 debug!("Global state: I need to catch up with peer {:016x}", id);
                 send_catch_up_status(node, network_id, consensus, global_state, id)?;
             }
-            _ => unreachable!(),
+            PeerStatus::UpToDate => {
+                if !consensus.is_baking() && consensus.is_active() {
+                    consensus.start_baker();
+                }
+            }
         }
-
-        thread::sleep(Duration::from_millis(200));
     }
-
-    trace!("Global state: all my peers are up to date");
 
     Ok(())
 }

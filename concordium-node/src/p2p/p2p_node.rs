@@ -129,6 +129,7 @@ pub struct ConnectionHandler {
     pub unreachable_nodes:      UnreachableNodes,
     pub networks:               RwLock<Networks>,
     pub last_bootstrap:         AtomicU64,
+    pub last_peer_update:       AtomicU64,
 }
 
 impl ConnectionHandler {
@@ -163,6 +164,7 @@ impl ConnectionHandler {
             unreachable_nodes: UnreachableNodes::new(),
             networks: RwLock::new(networks),
             last_bootstrap: Default::default(),
+            last_peer_update: Default::default(),
         }
     }
 }
@@ -957,6 +959,7 @@ impl P2PNode {
     pub fn remove_connection(&self, token: Token) -> bool {
         if let Some(conn) = write_or_die!(self.connections()).remove(&token) {
             write_or_die!(conn.low_level).conn_ref = None; // necessary in order for Drop to kick in
+            self.bump_last_peer_update();
             true
         } else {
             false
@@ -1056,7 +1059,6 @@ impl P2PNode {
                     );
                     peers
                         .choose_multiple(&mut rng, peers_to_take as usize)
-                        .into_iter()
                         .map(|id| P2PNodeId(*id))
                         .collect::<Vec<_>>()
                 } else {
@@ -1288,6 +1290,18 @@ impl P2PNode {
         {
             error!("A network message couldn't be forwarded: {}", e);
         }
+    }
+
+    pub fn bump_last_peer_update(&self) {
+        self.connection_handler
+            .last_peer_update
+            .store(get_current_stamp(), Ordering::SeqCst)
+    }
+
+    pub fn last_peer_update(&self) -> u64 {
+        self.connection_handler
+            .last_peer_update
+            .load(Ordering::SeqCst)
     }
 }
 

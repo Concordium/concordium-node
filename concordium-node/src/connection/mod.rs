@@ -347,6 +347,8 @@ impl Connection {
             .peer_external_port
             .store(peer_port, Ordering::SeqCst);
 
+        self.handler().bump_last_peer_update();
+
         Ok(())
     }
 

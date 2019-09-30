@@ -29,7 +29,7 @@ use p2p_client::{
         plugins::{self, consensus::*},
         utils as client_utils,
     },
-    common::PeerType,
+    common::{get_current_stamp, PeerType},
     configuration as config,
     network::{NetworkId, NetworkMessage},
     p2p::*,
@@ -136,15 +136,15 @@ fn main() -> Fallible<()> {
     // Connect outgoing messages to be forwarded into the baker and RPC streams.
     //
     // Thread #3 (#4): read P2PNode output
-    let higer_process_threads = if let Some(ref mut consensus) = consensus {
-        start_consensus_threads(
+    let global_state_thread = if let Some(ref mut consensus) = consensus {
+        Some(start_global_state_thread(
             &node,
             (&conf, &app_prefs),
             consensus.clone(),
             global_state_receivers,
-        )
+        ))
     } else {
-        vec![]
+        None
     };
 
     // Create a listener on baker output to forward to the P2PNode
@@ -170,9 +170,9 @@ fn main() -> Fallible<()> {
         ffi::stop_haskell();
     }
 
-    // Wait for the higher process threads to stop
-    for th in higer_process_threads {
-        th.join().expect("Higher process thread panicked")
+    // Wait for the global state thread to stop
+    if let Some(thread) = global_state_thread {
+        thread.join().expect("Higher process thread panicked");
     }
 
     // Close the baker thread
@@ -267,12 +267,12 @@ fn connect_to_config_nodes(conf: &config::ConnectionConfig, node: &P2PNode) {
     }
 }
 
-fn start_consensus_threads(
+fn start_global_state_thread(
     node: &Arc<P2PNode>,
     (conf, app_prefs): (&config::Config, &config::AppPreferences),
     consensus: ConsensusContainer,
     global_state_receivers: GlobalStateReceivers,
-) -> Vec<std::thread::JoinHandle<()>> {
+) -> std::thread::JoinHandle<()> {
     let is_global_state_persistent = conf.cli.baker.persist_global_state;
     let data_dir_path = app_prefs.get_user_app_dir();
 
@@ -297,17 +297,29 @@ fn start_consensus_threads(
             is_global_state_persistent,
         );
 
-        if let Err(e) = check_peer_states(&node_ref, nid, &mut consensus_ref, &mut global_state) {
-            error!("Couldn't run the initial catch-up round: {}", e);
-        }
-
-        consensus.start_baker();
-
         // consensus_clone.send_global_state_ptr(&global_state);
+
+        let mut last_peer_list_update = 0;
 
         let mut loop_interval: u64;
         'outer_loop: loop {
             loop_interval = 100;
+
+            // don't provide the global state with the peer information until their
+            // number is within the desired range
+            let curr_peer_ids = node_ref.get_node_peer_ids();
+            if curr_peer_ids.len() <= node_ref.config.max_allowed_nodes as usize {
+                if node_ref.last_peer_update() > last_peer_list_update {
+                    update_peer_list(&mut global_state, curr_peer_ids);
+                    last_peer_list_update = get_current_stamp();
+                }
+
+                if let Err(e) =
+                    check_peer_states(&node_ref, nid, &mut consensus_ref, &mut global_state)
+                {
+                    error!("Couldn't update the catch-up peer list: {}", e);
+                }
+            }
 
             for request in global_state_receivers
                 .high_prio
@@ -339,7 +351,7 @@ fn start_consensus_threads(
         conf.cli.no_network
     );
 
-    vec![global_state_thread]
+    global_state_thread
 }
 
 fn start_baker_thread(node: &P2PNode) -> std::thread::JoinHandle<()> {
