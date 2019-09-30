@@ -19,7 +19,7 @@ instance Serialize FinalizationIndex where
   get = FinalizationIndex <$> getWord64be
 
 
-data FinalizationProof = FinalizationProof ([Word32], Bls.BlsSignature)
+data FinalizationProof = FinalizationProof ([Word32], Bls.Signature)
     deriving (Eq)
 
 
