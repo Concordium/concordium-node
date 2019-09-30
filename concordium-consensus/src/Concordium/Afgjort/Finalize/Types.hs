@@ -32,7 +32,7 @@ data PartyInfo = PartyInfo {
     partyWeight :: !VoterPower,
     partySignKey :: !Sig.VerifyKey,
     partyVRFKey :: !VRF.PublicKey,
-    partyBlsKey :: !Bls.BlsPublicKey
+    partyBlsKey :: !Bls.PublicKey
 } deriving (Eq, Ord)
 
 instance Show PartyInfo where
@@ -51,7 +51,7 @@ makeFinalizationCommittee :: FinalizationParameters -> FinalizationCommittee
 makeFinalizationCommittee (FinalizationParameters {..}) = FinalizationCommittee {..}
     where
         parties = Vec.fromList $ zipWith makeParty [0..] finalizationCommittee
-        makeParty pix (VoterInfo psk pvk pow) = PartyInfo pix pow psk pvk
+        makeParty pix (VoterInfo psk pvk pow pbls) = PartyInfo pix pow psk pvk pbls
         totalWeight = sum (partyWeight <$> parties)
         corruptWeight = (totalWeight - 1) `div` 3
 

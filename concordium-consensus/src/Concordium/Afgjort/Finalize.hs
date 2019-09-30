@@ -272,11 +272,11 @@ handleWMVBAOutputEvents evs = do
                     -- Round failed, so start a new one
                     nextRound _finsIndex roundDelta
                     handleEvs True evs'
-                handleEvs False (WMVBAComplete (Just (finBlock, sigs)) : evs') = do
+                handleEvs False (WMVBAComplete (Just (finBlock, (parties, sig))) : evs') = do
                     let finRec = FinalizationRecord {
                         finalizationIndex = _finsIndex,
                         finalizationBlockPointer = finBlock,
-                        finalizationProof = FinalizationProof sigs,
+                        finalizationProof = FinalizationProof (parties, sig), 
                         finalizationDelay = roundDelta
                     }
                     _ <- finalizeBlock finRec
@@ -496,18 +496,21 @@ getPartyWeight com pid = case parties com ^? ix (fromIntegral pid) of
         Nothing -> 0
         Just p -> partyWeight p
 
-encodeForBlsSign :: FinalizationSessionId -> FinalizationIndex -> BlockHeight -> WMVBAWitnessCreatorMessage -> ByteString
+-- TODO: perhaps only sign WMVBAWitnessCreatorMessage
+encodeForBlsSign :: FinalizationSessionId -> FinalizationIndex -> BlockHeight -> Val -> BS.ByteString
 encodeForBlsSign sid fid bh m = runPut $ S.put sid >> S.put fid >> S.put bh >> S.put m
 
 -- |Check that a finalization record has a valid proof
 verifyFinalProof :: FinalizationSessionId -> FinalizationCommittee -> FinalizationRecord -> Bool
 verifyFinalProof sid com@FinalizationCommittee{..} FinalizationRecord{..} =
-  if sigWeight parties > corruptWeight then checkProofSignature parties sig else False
+  if sigWeight parties > corruptWeight then checkProofSignature sig else False
     where
         FinalizationProof (parties, sig) = finalizationProof
-        toSign = encodeForBlsSign sid finalizationIndex finalizationDelay (WMVBAWitnessCreatorMessage finalizationBlockPointer)
-        checkProofSignature ps s = Bls.verify toSign (map (\pid -> partyBlsKey $ toPartyInfo com pid) ps) s
-        sigWeight ps = foldl (\s p -> getPartyWeight com p + s) ps
+        toSign = encodeForBlsSign sid finalizationIndex finalizationDelay finalizationBlockPointer
+        pks = foldl (\s pid -> case (toPartyInfo com pid) of Just info -> (partyBlsKey $ info) : s
+                                                             Nothing -> s) [] parties
+        checkProofSignature s = Bls.verifyAggregate toSign pks s
+        sigWeight ps = foldl (\s p -> getPartyWeight com p + s) (fromIntegral 0) ps
 
 {-
 data FinalizationPoint = FinalizationPoint !FinalizationSessionId !FinalizationIndex !BlockHeight

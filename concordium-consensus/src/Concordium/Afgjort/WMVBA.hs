@@ -192,11 +192,11 @@ toABBAInstance (WMVBAInstance baid totalWeight corruptWeight partyWeight maxPart
 
 class (MonadState (WMVBAState sig) m, MonadReader (WMVBAInstance sig) m, MonadIO m) => WMVBAMonad sig m where
     sendWMVBAMessage :: WMVBAMessage -> m ()
-    wmvbaComplete :: Maybe (Val, [(Party, sig)]) -> m () -- TODO: change to new finalproof
+    wmvbaComplete :: Maybe (Val, ([Party], sig)) -> m () -- TODO: change to new finalproof
 
 data WMVBAOutputEvent sig
     = SendWMVBAMessage WMVBAMessage
-    | WMVBAComplete (Maybe (Val, [(Party, sig)])) -- TODO: change to new finalproof
+    | WMVBAComplete (Maybe (Val, ([Party], sig))) -- TODO: change to new finalproof
 
 newtype WMVBA sig a = WMVBA {
     runWMVBA' :: RWST (WMVBAInstance sig) (Endo [WMVBAOutputEvent sig]) (WMVBAState sig) IO a
@@ -219,7 +219,7 @@ instance WMVBAMonad sig (WMVBA sig) where
     sendWMVBAMessage = WMVBA . tell . Endo . (:) . SendWMVBAMessage
     wmvbaComplete = WMVBA . tell . Endo . (:) . WMVBAComplete
 
-liftFreeze :: (WMVBAMonad sig m) => Freeze sig a -> m a -- add BLS sig here (maybe)
+liftFreeze :: (WMVBAMonad sig m) => Freeze sig a -> m a -- TODO: add BLS sig here (maybe)
 liftFreeze a = do
         freezestate <- use freezeState
         freezecontext <- toFreezeInstance <$> ask
@@ -246,7 +246,7 @@ liftFreeze a = do
                     _ -> return ()
             handleEvents r
 
-liftABBA :: (WMVBAMonad sig m) => ABBA sig a -> m a -- add BLS sign here
+liftABBA :: (WMVBAMonad sig m) => ABBA sig a -> m a -- TODO: add BLS sign here
 liftABBA a = do
         aBBAInstance <- asks toABBAInstance
         aBBAState <- use abbaState
@@ -284,9 +284,9 @@ receiveWMVBAMessage :: (WMVBAMonad sig m, Eq sig) => Party -> sig -> WMVBAMessag
 receiveWMVBAMessage src sig (WMVBAFreezeMessage msg) = liftFreeze $ receiveFreezeMessage src msg sig
 receiveWMVBAMessage src sig (WMVBAABBAMessage msg) = do
         liftABBA $ receiveABBAMessage src msg sig
-receiveWMVBAMessage src sig (WMVBAWitnessCreatorMessage v) = do -- receive BLS sig here
+receiveWMVBAMessage src sig (WMVBAWitnessCreatorMessage v) = do -- TODO: receive BLS sig here
         WMVBAInstance{..} <- ask
-        newJV <- justifications . at v . non PM.empty <%= PM.insert src (partyWeight src) sig -- add BLS sig to justifications
+        newJV <- justifications . at v . non PM.empty <%= PM.insert src (partyWeight src) sig -- TODO: add BLS sig to justifications
         when (PM.weight newJV > corruptWeight) $
             wmvbaComplete (Just (v, PM.toList newJV))
 
