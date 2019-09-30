@@ -38,10 +38,11 @@ instance Serialize FinalizationProof where
 
   get = do
     l <- getLength
-    FinalizationProof <$> (getTwoOf (replicateM l getWord32be) (getMaybeOf get))
+    FinalizationProof <$> (getTwoOf (replicateM l getWord32be) get)
 
 emptyFinalizationProof :: FinalizationProof
 emptyFinalizationProof = FinalizationProof ([], Bls.emptySignature) -- this signature currently won't verify
+                                                                    -- perhaps it should
 
 
 data FinalizationRecord = FinalizationRecord {
