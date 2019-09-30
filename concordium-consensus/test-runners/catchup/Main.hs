@@ -1,5 +1,5 @@
 {-# LANGUAGE TupleSections, LambdaCase, OverloadedStrings #-}
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE LambdaCase, CPP #-}
 module Main where
 
 import Control.Concurrent
@@ -21,9 +21,9 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Instances
 import Concordium.GlobalState.BlockState(BlockPointerData(..))
-import Concordium.GlobalState.Basic.BlockState
-import Concordium.GlobalState.Rust.TreeState
-import Concordium.GlobalState.Basic.Block
+import Concordium.GlobalState.Implementation.BlockState
+import Concordium.GlobalState.Implementation.TreeState
+import Concordium.GlobalState.Implementation.Block
 import Concordium.Scheduler.Utils.Init.Example as Example
 
 import Concordium.Afgjort.Finalize.Types
@@ -34,9 +34,6 @@ import Concordium.Skov
 import Concordium.Skov.CatchUp
 
 import Concordium.Startup
-
-import Concordium.GlobalState.Rust.FFI
-
 
 data Peer = Peer {
     peerState :: MVar SkovBufferedHookedState,
@@ -213,8 +210,12 @@ main = do
         let logT bh slot reason = do
               appendFile logTransferFile (show (bh, slot, reason))
               appendFile logTransferFile "\n"
+#ifdef RUST
         gsptr <- makeEmptyGlobalState gen
         (cin, cout, out) <- makeAsyncRunner logM (Just logT) bid defaultRuntimeParameters gen iState gsptr
+#else
+        (cin, cout, out) <- makeAsyncRunner logM (Just logT) bid defaultRuntimeParameters gen iState
+#endif
         cin' <- newChan
         connectedRef <- newIORef True
         _ <- forkIO $ relayIn cin' cin out connectedRef

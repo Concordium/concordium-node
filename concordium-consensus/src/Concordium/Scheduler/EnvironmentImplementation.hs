@@ -24,7 +24,7 @@ import Control.Monad.State.Class
 import Concordium.Scheduler.Types
 import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.BlockState hiding (BlockState)
-import Concordium.GlobalState.Basic.BlockState
+import Concordium.GlobalState.Implementation.BlockState
 import qualified Concordium.GlobalState.Modules as Mod
 import Concordium.GlobalState.Bakers as Bakers
 

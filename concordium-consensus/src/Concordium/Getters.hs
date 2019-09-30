@@ -23,8 +23,8 @@ import Concordium.GlobalState.Information(jsonStorable)
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.Block
-import Concordium.GlobalState.Basic.Block
-import Concordium.GlobalState.Basic.BlockState
+import Concordium.GlobalState.Implementation.Block
+import Concordium.GlobalState.Implementation.BlockState
 import Concordium.Types.HashableTo
 import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.GlobalState.Instances
