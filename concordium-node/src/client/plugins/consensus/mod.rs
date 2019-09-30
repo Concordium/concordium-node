@@ -465,7 +465,7 @@ fn send_msg_to_consensus(
     if consensus_response.is_acceptable() {
         info!("Peer {} processed a {}", our_id, request,);
     } else {
-        error!(
+        debug!(
             "Peer {} couldn't process a {} due to error code {:?}",
             our_id, request, consensus_response,
         );

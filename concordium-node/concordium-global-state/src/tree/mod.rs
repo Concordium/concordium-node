@@ -95,7 +95,7 @@ impl<'a> GlobalState<'a> {
 
     /// Save a GlobalState error.
     pub fn register_error(&mut self, err: GlobalStateError) {
-        warn!("{}", err);
+        debug!("{}", err);
         self.stats.errors.push(err)
     }
 
