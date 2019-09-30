@@ -1,7 +1,6 @@
 EXPORTS
  hs_init
  hs_exit
- makeGenesisData
  startConsensus
  startConsensusPassive
  stopConsensus
@@ -31,3 +30,5 @@ EXPORTS
  getModuleList
  getModuleSource
  hookTransaction
+ checkIfWeAreBaker
+ checkIfWeAreFinalizer

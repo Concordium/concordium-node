@@ -2,7 +2,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE LambdaCase #-}
 {-# OPTIONS_GHC -Wall #-}
-module SchedulerTests.ContractCommSpec where
+module SchedulerTests.ContractSimpleTransfersSpec where
 
 import Test.Hspec
 import Test.HUnit
@@ -41,67 +41,57 @@ initialBlockState =
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =
-  [TJSON { payload = DeployModule "CommCounter"
+  [TJSON { payload = DeployModule "SimpleTransfers"
          , metadata = makeHeader alesKP 1 100000
          , keypair = alesKP
          }
+  -- create three contracts with addresses 0, 1, 2
   ,TJSON { payload = InitContract {amount = 100
-                                  ,contractName = "Recorder"
-                                  ,moduleName = "CommCounter"
+                                  ,contractName = "Transfer"
+                                  ,moduleName = "SimpleTransfers"
                                   ,parameter = "Unit.Unit"
                                   }
          , metadata = makeHeader alesKP 2 100000
          , keypair = alesKP
          }
   ,TJSON { payload = InitContract {amount = 100
-                                  ,contractName = "Counter"
-                                  ,moduleName = "CommCounter"
-                                  ,parameter = "let pair :: Int64 -> <address> -> Prod.Pair Int64 <address> = Prod.Pair [Int64, <address>] in pair 0 <0, 0>"
+                                  ,contractName = "Transfer"
+                                  ,moduleName = "SimpleTransfers"
+                                  ,parameter = "Unit.Unit"
                                   }
          , metadata = makeHeader alesKP 3 100000
          , keypair = alesKP
          }
-  ,TJSON { payload = Update {amount = 101
-                            ,address = Types.ContractAddress {contractIndex = 1, contractSubindex = 0}
-                            ,moduleName = "CommCounter"
-                            ,message = "Inc 100"
-                            }
+  ,TJSON { payload = InitContract {amount = 100
+                                  ,contractName = "Transfer"
+                                  ,moduleName = "SimpleTransfers"
+                                  ,parameter = "Unit.Unit"
+                                  }
          , metadata = makeHeader alesKP 4 100000
          , keypair = alesKP
          }
-  ,TJSON { payload = Update {amount = 100
-                            ,address = Types.ContractAddress {contractIndex = 1, contractSubindex = 0}
-                            ,moduleName = "CommCounter"
-                            ,message = "Dec 50"
+  -- and then invoke the first to send a message to the last two,
+  -- but make it two messages to contract 1, and one message to contract 2
+  ,TJSON { payload = Update {amount = 66
+                            ,address = Types.ContractAddress 0 0
+                            ,moduleName = "SimpleTransfers"
+                            ,message = "let one :: ListBase.List Blockchain.Caller = singletonC <1,0> in \ 
+                                        \let two :: ListBase.List Blockchain.Caller = consC <2,0> one in \
+                                        \consC <1,0> two"
                             }
-         , metadata = makeHeader alesKP 5 100000
-         , keypair = alesKP
-         }
-  ,TJSON { payload = Update {amount = 100
-                            ,address = Types.ContractAddress {contractIndex = 1, contractSubindex = 0}
-                            ,moduleName = "CommCounter"
-                            ,message = "Dec 50"
-                            }
-         , metadata = makeHeader alesKP 6 120000
-         , keypair = alesKP
-         }
-  ,TJSON { payload = Update {amount = 100
-                            ,address = Types.ContractAddress {contractIndex = 1, contractSubindex = 0}
-                            ,moduleName = "CommCounter"
-                            ,message = "Dec 1"
-                            }
-         , metadata = makeHeader alesKP 7 120000
+         , metadata = makeHeader alesKP 5 10000
          , keypair = alesKP
          }
   ]
 
-testCommCounter ::
+testSimpleTransfers ::
   PR.Context Core.UA
     IO
     ([(Types.BareTransaction, Types.ValidResult)],
-     [(Types.BareTransaction, Types.FailureKind)])
-testCommCounter = do
-    source <- liftIO $ TIO.readFile "test/contracts/CommCounter.acorn"
+     [(Types.BareTransaction, Types.FailureKind)],
+     BlockState)
+testSimpleTransfers = do
+    source <- liftIO $ TIO.readFile "test/contracts/SimpleContractTransfers.acorn"
     (_, _) <- PR.processModule source -- execute only for effect on global state
     transactions <- processTransactions transactionsInput
     let ((Sch.FilteredTransactions{..}, _), endState) =
@@ -112,13 +102,14 @@ testCommCounter = do
     case invariantBlockState endState of
         Left f -> liftIO $ assertFailure $ f ++ "\n" ++ show endState
         _ -> return ()
-    return (ftAdded, ftFailed)
+    return (ftAdded, ftFailed, endState)
 
-checkCommCounterResult :: ([(a, Types.ValidResult)], [b]) -> Bool
-checkCommCounterResult (suc, fails) =
+checkSimpleTransfersResult :: ([(a, Types.ValidResult)], [b], BlockState) -> Bool
+checkSimpleTransfersResult (suc, fails, gs) =
   null fails && -- should be no failed transactions
-  length reject == 1 &&  -- one rejected (which is also the last one)
-  length nonreject == 6  -- and 6 successful ones
+  length reject == 0 &&
+  length nonreject == 5 &&
+  stateCheck
   where 
     nonreject = filter (\case (_, Types.TxSuccess _ _ _) -> True
                               (_, Types.TxReject _ _ _) -> False)
@@ -127,9 +118,16 @@ checkCommCounterResult (suc, fails) =
                            (_, Types.TxReject _ _ _) -> True
                     )
                         suc
+    
+    stateInstances = gs ^. blockInstances
+    stateCheck = let i00 = stateInstances ^. singular (ix $ Types.ContractAddress 0 0)
+                     i10 = stateInstances ^. singular (ix $ Types.ContractAddress 1 0)
+                     i20 = stateInstances ^. singular (ix $ Types.ContractAddress 2 0)
+                 in Types.instanceAmount i00 == 100 &&
+                    Types.instanceAmount i10 == 144 &&
+                    Types.instanceAmount i20 == 122
 
-tests :: SpecWith ()
-tests = 
-  describe "Communicating counter." $ do
-    specify "6 successful and 1 failed transaction" $ do
-      PR.evalContext Init.initialContextData testCommCounter `shouldReturnP` checkCommCounterResult
+tests :: Spec
+tests =
+  specify "Send simple transfers from contract." $
+    PR.evalContext Init.initialContextData testSimpleTransfers `shouldReturnP` checkSimpleTransfersResult

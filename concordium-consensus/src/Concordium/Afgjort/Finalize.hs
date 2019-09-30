@@ -190,7 +190,7 @@ doResetTimer = do
 tryNominateBlock :: (FinalizationMonad s m) => m ()
 tryNominateBlock = do
     currRound <- use finCurrentRound
-    forM_ currRound $ \r@FinalizationRound{..} -> 
+    forM_ currRound $ \r@FinalizationRound{..} ->
         when (isNothing roundInput) $ do
             h <- use finHeight
             bBlock <- bestBlock

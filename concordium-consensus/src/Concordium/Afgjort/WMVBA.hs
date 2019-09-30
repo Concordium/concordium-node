@@ -160,7 +160,7 @@ data WMVBAState sig = WMVBAState {
     _freezeState :: FreezeState sig,
     _abbaState :: ABBAState sig,
     _justifiedDecision :: OutcomeState,
-    _justifications :: Map Val (PartyMap sig)
+    _justifications :: Map Val (PartyMap sig) -- TODO: change to also hold BlsSig
 } deriving (Show)
 makeLenses ''WMVBAState
 
@@ -181,6 +181,7 @@ data WMVBAInstance sig = WMVBAInstance {
     publicKeys :: Party -> VRF.PublicKey,
     me :: Party,
     privateKey :: VRF.KeyPair
+    -- TODO: add Blskeys
 }
 
 toFreezeInstance :: WMVBAInstance sig -> FreezeInstance
@@ -191,11 +192,11 @@ toABBAInstance (WMVBAInstance baid totalWeight corruptWeight partyWeight maxPart
 
 class (MonadState (WMVBAState sig) m, MonadReader (WMVBAInstance sig) m, MonadIO m) => WMVBAMonad sig m where
     sendWMVBAMessage :: WMVBAMessage -> m ()
-    wmvbaComplete :: Maybe (Val, [(Party, sig)]) -> m ()
+    wmvbaComplete :: Maybe (Val, [(Party, sig)]) -> m () -- TODO: change to new finalproof
 
 data WMVBAOutputEvent sig
     = SendWMVBAMessage WMVBAMessage
-    | WMVBAComplete (Maybe (Val, [(Party, sig)]))
+    | WMVBAComplete (Maybe (Val, [(Party, sig)])) -- TODO: change to new finalproof
 
 newtype WMVBA sig a = WMVBA {
     runWMVBA' :: RWST (WMVBAInstance sig) (Endo [WMVBAOutputEvent sig]) (WMVBAState sig) IO a

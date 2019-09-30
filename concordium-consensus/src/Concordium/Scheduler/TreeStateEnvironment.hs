@@ -9,6 +9,7 @@
 module Concordium.Scheduler.TreeStateEnvironment where
 
 import qualified Data.HashMap.Strict as HM
+import qualified Data.HashSet as HashSet
 import qualified Data.Set as Set
 import qualified Data.List as List
 
@@ -19,6 +20,7 @@ import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.SeedState
 import Concordium.GlobalState.Block(blockSlot)
 import Concordium.Scheduler.Types
 import Concordium.Scheduler.Environment
@@ -32,16 +34,18 @@ import qualified Acorn.Core as Core
 
 import qualified Concordium.Scheduler as Sch
 
-newtype BlockStateMonad state m a = BSM { _runBSM :: RWST ChainMetadata () state m a}
-    deriving (Functor, Applicative, Monad, MonadState state, MonadReader ChainMetadata, MonadTrans)
+type ContextState = (HashSet.HashSet AccountAddress, ChainMetadata)
 
-deriving via (BSOMonadWrapper ChainMetadata state (RWST ChainMetadata () state m))
+newtype BlockStateMonad state m a = BSM { _runBSM :: RWST ContextState () state m a}
+    deriving (Functor, Applicative, Monad, MonadState state, MonadReader ContextState, MonadTrans)
+
+deriving via (BSOMonadWrapper ContextState state (RWST ContextState () state m))
     instance (UpdatableBlockState m ~ state, BlockStateOperations m) => StaticEnvironmentMonad Core.UA (BlockStateMonad state m)
 
-deriving via (BSOMonadWrapper ChainMetadata state (RWST ChainMetadata () state m))
+deriving via (BSOMonadWrapper ContextState state (RWST ContextState () state m))
     instance (UpdatableBlockState m ~ state, BlockStateOperations m) => SchedulerMonad (BlockStateMonad state m)
 
-runBSM :: Monad m => BlockStateMonad b m a -> ChainMetadata -> b -> m (a, b)
+runBSM :: Monad m => BlockStateMonad b m a -> ContextState -> b -> m (a, b)
 runBSM m cm s = do
   (r, s', ()) <- runRWST (_runBSM m) cm s
   return (r, s')
@@ -77,11 +81,6 @@ mintAndReward bshandle blockParent lfPointer slotNumber bid = do
       -- record the block reward transaction in the transaction outcomes for this block
       bsoAddSpecialTransactionOutcome bshandle2 (BakingReward (acc ^. accountAddress) (executionReward + bakingReward))
 
-updateSeed :: TreeStateMonad m => UpdatableBlockState m -> Slot -> BlockNonce -> m (UpdatableBlockState m)
-updateSeed bshandle slot blockNonce = do
-  bshandle' <- bsoUpdateNonce bshandle slot blockNonce
-  return bshandle' 
-
 
 -- |Execute a block from a given starting state.
 -- Fail if any of the transactions fails, otherwise return the new 'BlockState' and the amount of energy used
@@ -92,16 +91,17 @@ executeFrom ::
   -> BlockPointer m  -- ^Parent pointer from which to start executing
   -> BlockPointer m  -- ^Last finalized block pointer.
   -> BakerId -- ^Identity of the baker who should be rewarded.
-  -> BlockNonce
+  -> SeedState
   -> [Transaction] -- ^Transactions on this block.
   -> m (Either FailureKind (BlockState m, Energy))
-executeFrom slotNumber blockParent lfPointer blockBaker blockNonce txs =
+executeFrom slotNumber blockParent lfPointer blockBaker seedState txs =
   let cm = let blockHeight = bpHeight blockParent + 1
                finalizedHeight = bpHeight lfPointer
            in ChainMetadata{..}
   in do
     bshandle0 <- thawBlockState (bpState blockParent)
-    (res, bshandle1) <- runBSM (Sch.runTransactions txs) cm bshandle0
+    genBetaAccounts <- HashSet.fromList . map _accountAddress . genesisSpecialBetaAccounts <$> getGenesisData
+    (res, bshandle1) <- runBSM (Sch.runTransactions txs) (genBetaAccounts, cm) bshandle0
     case res of
         Left fk -> Left fk <$ (purgeBlockState =<< freezeBlockState bshandle1)
         Right (outcomes, usedEnergy) -> do
@@ -110,7 +110,7 @@ executeFrom slotNumber blockParent lfPointer blockBaker blockNonce txs =
             -- the main execution is now done. At this point we must mint new currencty
             -- and reward the baker and other parties.
             bshandle3 <- mintAndReward bshandle2 blockParent lfPointer slotNumber blockBaker
-            bshandle4 <- updateSeed bshandle3 slotNumber blockNonce
+            bshandle4 <- bsoUpdateSeedState bshandle3 seedState
 
             finalbsHandle <- freezeBlockState bshandle4
             return (Right (finalbsHandle, usedEnergy))
@@ -128,9 +128,9 @@ constructBlock ::
   -> BlockPointer m -- ^Parent pointer from which to start executing
   -> BlockPointer m -- ^Last finalized block pointer.
   -> BakerId -- ^The baker of the block.
-  -> BlockNonce
+  -> SeedState
   -> m ([Transaction], BlockState m, Energy)
-constructBlock slotNumber blockParent lfPointer blockBaker blockNonce =
+constructBlock slotNumber blockParent lfPointer blockBaker seedState =
   let cm = let blockHeight = bpHeight blockParent + 1
                finalizedHeight = bpHeight lfPointer
            in ChainMetadata{..}
@@ -154,13 +154,14 @@ constructBlock slotNumber blockParent lfPointer blockBaker blockNonce =
     -- In the future we do not want to do concatMap since we gain advantage from grouping transactions
     -- by account (e.g., we only need to look up the account once).
     let orderedTxs = concatMap fst $ List.sortOn snd txs
-
-    ((Sch.FilteredTransactions{..}, usedEnergy), bshandle1) <- runBSM (Sch.filterTransactions (fromIntegral maxSize) orderedTxs) cm bshandle0
+    genBetaAccounts <- HashSet.fromList . map _accountAddress . genesisSpecialBetaAccounts <$> getGenesisData
+    ((Sch.FilteredTransactions{..}, usedEnergy), bshandle1) <-
+        runBSM (Sch.filterTransactions (fromIntegral maxSize) orderedTxs) (genBetaAccounts, cm) bshandle0
     -- FIXME: At some point we should log things here using the same logging infrastructure as in consensus.
 
     bshandle2 <- bsoSetTransactionOutcomes bshandle1 ((\(tr,res) -> (transactionHash tr, res)) <$> ftAdded)
     bshandle3 <- mintAndReward bshandle2 blockParent lfPointer slotNumber blockBaker
-    bshandle4 <- updateSeed bshandle3 slotNumber blockNonce
+    bshandle4 <- bsoUpdateSeedState bshandle3 seedState
 
     -- We first commit all valid transactions to the current block slot to prevent them being purged.
     -- At the same time we construct the return blockTransactions to avoid an additional traversal

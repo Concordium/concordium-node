@@ -16,10 +16,11 @@ import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.SeedState
-import qualified Data.Aeson as AE
 import qualified Concordium.Scheduler.Runner as Runner
+import qualified Concordium.Scheduler.Environment as Types
 
 import qualified Data.HashMap.Strict as HM
+import qualified Data.Aeson as AE
 
 import System.IO.Unsafe
 import System.Random
@@ -155,3 +156,6 @@ dummyCryptographicParameters =
 
 blockSize :: Integer
 blockSize = 10000000000
+
+dummySpecialBetaAccounts :: Types.SpecialBetaAccounts
+dummySpecialBetaAccounts = Types.emptySpecialBetaAccounts
