@@ -20,6 +20,7 @@ import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Implementation.BlockState(BlockPointer)
 import Concordium.GlobalState.Implementation.Block(Block(NormalBlock), makePendingBlock)
+import Concordium.GlobalState.Implementation
 import Concordium.TimeMonad
 import Concordium.Birk.Bake
 import Concordium.Kontrol
@@ -97,7 +98,10 @@ makeSyncRunner :: forall m. LogMethod IO ->
                   BakerIdentity ->
                   RuntimeParameters ->
                   GenesisData ->
-                  BlockState (SkovBufferedM m) -> GlobalStatePtr -> (SimpleOutMessage -> IO ()) -> IO SyncRunner
+                  BlockState (SkovBufferedM m) ->
+                  GlobalStatePtr ->
+                  (SimpleOutMessage -> IO ()) ->
+                  IO SyncRunner
 makeSyncRunner syncLogMethod syncLogTransferMethod syncBakerIdentity rtParams gen initBS gsptr syncCallback = do
         let
             syncFinalizationInstance = bakerFinalizationInstance syncBakerIdentity

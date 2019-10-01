@@ -14,11 +14,11 @@ import Concordium.Scheduler.Runner
 import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
 
-import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Account as Acc
 import Concordium.GlobalState.Modules as Mod
 import Concordium.GlobalState.Rewards as Rew
-import Concordium.GlobalState.Basic.Invariants
+import Concordium.GlobalState.Implementation.BlockState
+import Concordium.GlobalState.Implementation.Invariants
 
 import qualified Data.Text.IO as TIO
 
@@ -33,7 +33,7 @@ shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState
-initialBlockState = 
+initialBlockState =
   emptyBlockState emptyBirkParameters dummyCryptographicParameters &
     (blockAccounts .~ Acc.putAccount (mkAccount alesVK 1000000) Acc.emptyAccounts) .
     (blockBank . Rew.totalGTU .~ 1000000) .
@@ -75,7 +75,7 @@ transactionsInput =
   ,TJSON { payload = Update {amount = 66
                             ,address = Types.ContractAddress 0 0
                             ,moduleName = "SimpleTransfers"
-                            ,message = "let one :: ListBase.List Blockchain.Caller = singletonC <1,0> in \ 
+                            ,message = "let one :: ListBase.List Blockchain.Caller = singletonC <1,0> in \
                                         \let two :: ListBase.List Blockchain.Caller = consC <2,0> one in \
                                         \consC <1,0> two"
                             }
@@ -110,7 +110,7 @@ checkSimpleTransfersResult (suc, fails, gs) =
   length reject == 0 &&
   length nonreject == 5 &&
   stateCheck
-  where 
+  where
     nonreject = filter (\case (_, Types.TxSuccess _ _ _) -> True
                               (_, Types.TxReject _ _ _) -> False)
                         suc
@@ -118,7 +118,7 @@ checkSimpleTransfersResult (suc, fails, gs) =
                            (_, Types.TxReject _ _ _) -> True
                     )
                         suc
-    
+
     stateInstances = gs ^. blockInstances
     stateCheck = let i00 = stateInstances ^. singular (ix $ Types.ContractAddress 0 0)
                      i10 = stateInstances ^. singular (ix $ Types.ContractAddress 1 0)

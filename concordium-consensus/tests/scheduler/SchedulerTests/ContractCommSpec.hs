@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE CPP #-}
 {-# OPTIONS_GHC -Wall #-}
 module SchedulerTests.ContractCommSpec where
 
@@ -14,11 +15,11 @@ import Concordium.Scheduler.Runner
 import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
 
-import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Account as Acc
 import Concordium.GlobalState.Modules as Mod
 import Concordium.GlobalState.Rewards as Rew
-import Concordium.GlobalState.Basic.Invariants
+import Concordium.GlobalState.Implementation.BlockState
+import Concordium.GlobalState.Implementation.Invariants
 
 import qualified Data.Text.IO as TIO
 
@@ -33,7 +34,7 @@ shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState
-initialBlockState = 
+initialBlockState =
   emptyBlockState emptyBirkParameters dummyCryptographicParameters &
     (blockAccounts .~ Acc.putAccount (mkAccount alesVK 1000000) Acc.emptyAccounts) .
     (blockBank . Rew.totalGTU .~ 1000000) .
@@ -119,7 +120,7 @@ checkCommCounterResult (suc, fails) =
   null fails && -- should be no failed transactions
   length reject == 1 &&  -- one rejected (which is also the last one)
   length nonreject == 6  -- and 6 successful ones
-  where 
+  where
     nonreject = filter (\case (_, Types.TxSuccess _ _ _) -> True
                               (_, Types.TxReject _ _ _) -> False)
                         suc
@@ -129,7 +130,7 @@ checkCommCounterResult (suc, fails) =
                         suc
 
 tests :: SpecWith ()
-tests = 
+tests =
   describe "Communicating counter." $ do
     specify "6 successful and 1 failed transaction" $ do
       PR.evalContext Init.initialContextData testCommCounter `shouldReturnP` checkCommCounterResult

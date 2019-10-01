@@ -76,7 +76,7 @@ library:
             else:
               ghc-options: -static
     - condition: flag(rust)
-      ghc-options: "-optC-DRUST"
+      ghc-options: "-optP-DRUST"
 
 # Other options might be needed, such has -dynamic -lHSrts or -lHSrts-ghc8.4.3
 # Possibly this depends on the platform
@@ -103,8 +103,11 @@ executables:
                 ghc-options: -dynamic
               else:
                 ghc-options: -static
+      - condition: flag(rust)
+        ghc-options: "-optP-DRUST"
     dependencies:
-    - Concordium
+      - Concordium
+
 
   Concordium-catchup:
     main:                Main.hs
@@ -127,6 +130,8 @@ executables:
                 ghc-options: -dynamic
               else:
                 ghc-options: -static
+      - condition: flag(rust)
+        ghc-options: "-optP-DRUST"
     dependencies:
     - Concordium
 

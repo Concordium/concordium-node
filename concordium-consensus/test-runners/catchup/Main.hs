@@ -24,6 +24,7 @@ import Concordium.GlobalState.BlockState(BlockPointerData(..))
 import Concordium.GlobalState.Implementation.BlockState
 import Concordium.GlobalState.Implementation.TreeState
 import Concordium.GlobalState.Implementation.Block
+import Concordium.GlobalState.Implementation
 import Concordium.Scheduler.Utils.Init.Example as Example
 
 import Concordium.Afgjort.Finalize.Types

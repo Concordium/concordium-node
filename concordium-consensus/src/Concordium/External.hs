@@ -31,6 +31,7 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.Implementation.Block as BSB hiding (makePendingBlock)
 import Concordium.GlobalState.Implementation.BlockState as BSBS
 import Concordium.GlobalState.Implementation.Block as RSB
+import Concordium.GlobalState.Implementation
 import Concordium.GlobalState.Finalization(FinalizationIndex(..),FinalizationRecord)
 import Concordium.GlobalState.BlockState as GSBS (BlockPointer)
 import qualified Concordium.GlobalState.TreeState as TS

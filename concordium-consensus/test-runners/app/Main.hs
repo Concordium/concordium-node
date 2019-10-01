@@ -22,6 +22,7 @@ import Concordium.GlobalState.BlockState(BlockPointerData(..))
 import Concordium.GlobalState.Implementation.TreeState
 import Concordium.GlobalState.Implementation.BlockState
 import Concordium.GlobalState.Implementation.Block (BakedBlock, Block(NormalBlock), getBlock)
+import Concordium.GlobalState.Implementation
 
 import Concordium.Types
 import Concordium.Runner

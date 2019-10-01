@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE LambdaCase, CPP #-}
 {-# LANGUAGE MultiParamTypeClasses, FlexibleInstances, FunctionalDependencies, FlexibleContexts, TypeFamilies #-}
 module Concordium.Getters where
 
@@ -236,6 +236,25 @@ getBranches sfsRef = runStateQuery sfsRef $ do
     where
         up childrenMap = foldr (\b -> at (bpParent b) . non [] %~ (object ["blockHash" .= hsh b, "children" .= Map.findWithDefault [] b childrenMap] :)) Map.empty
 
+#ifdef RUST
+getBlockData :: (SkovStateQueryable z m, TS.TreeStateMonad m, BS.BlockPointer m ~ BlockPointer, TS.PendingBlock m ~ PendingBlock)
+    => z -> BlockHash -> IO (Maybe BlockContents)
+getBlockData sfsRef bh = runStateQuery sfsRef $
+            TS.getBlockStatus bh <&> \case
+                Just (TS.BlockAlive bp) -> Just (blockPointerExtractBlockContents bp)
+                Just (TS.BlockFinalized bp _) -> Just (blockPointerExtractBlockContents bp)
+                Just (TS.BlockPending pb) -> Just (pendingBlockExtractBlockContents pb)
+                Just (TS.BlockDead) -> Nothing
+                Nothing -> Nothing
+
+getBlockDescendant :: (SkovStateQueryable z m, BS.BlockPointer m ~ BlockPointer) => z -> BlockHash -> BlockHeight -> IO (Maybe BlockContents)
+getBlockDescendant sfsRef ancestor distance = runStateQuery sfsRef $
+            resolveBlock ancestor >>= \case
+                Nothing -> return Nothing
+                Just bp -> do
+                    candidates <- getBlocksAtHeight (bpHeight bp + distance)
+                    return $ blockPointerExtractBlockContents <$> candidates ^? each . filtered (bp `isAncestorOf`)
+#else
 getBlockData :: (SkovStateQueryable z m, TS.TreeStateMonad m, BS.BlockPointer m ~ BlockPointer, TS.PendingBlock m ~ PendingBlock)
     => z -> BlockHash -> IO (Maybe Block)
 getBlockData sfsRef bh = runStateQuery sfsRef $
@@ -253,6 +272,9 @@ getBlockDescendant sfsRef ancestor distance = runStateQuery sfsRef $
                 Just bp -> do
                     candidates <- getBlocksAtHeight (bpHeight bp + distance)
                     return $ _bpBlock <$> candidates ^? each . filtered (bp `isAncestorOf`)
+#endif
+
+
 
 getBlockFinalization :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> BlockHash -> IO (Maybe FinalizationRecord)
 getBlockFinalization sfsRef bh = runStateQuery sfsRef $ do
