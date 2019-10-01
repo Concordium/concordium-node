@@ -7,6 +7,7 @@ import Data.Time
 import Data.Time.Clock.POSIX
 import Control.Exception
 import qualified Data.Map.Strict as Map
+import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Set as Set
 import qualified Data.List as List
 import Data.Maybe
@@ -26,6 +27,9 @@ import qualified Concordium.GlobalState.Rewards as Rewards
 import qualified Concordium.GlobalState.IdentityProviders as IPS
 import qualified Concordium.GlobalState.Transactions as Transactions
 import Concordium.GlobalState.Basic.Block
+
+import qualified Acorn.Utils.Init as Acorn
+
 
 data BlockState = BlockState {
     _blockAccounts :: !Account.Accounts,
@@ -302,14 +306,17 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
     {-# INLINE bsoGetBlockBirkParameters #-}
     bsoGetBlockBirkParameters = return . _blockBirkParameters
 
-    bsoAddBaker bs binfo = return $ 
-        let
-            (bid, newBakers) = createBaker binfo (bs ^. blockBirkParameters . birkBakers)
-        in (bid, bs & blockBirkParameters . birkBakers .~ newBakers)
+    bsoAddBaker bs binfo = return $!
+        case createBaker binfo (bs ^. blockBirkParameters . birkBakers) of
+          Just(bid, newBakers) -> (Just bid, bs & blockBirkParameters . birkBakers .~ newBakers)
+          Nothing -> (Nothing, bs)
 
     -- NB: The caller must ensure the baker exists. Otherwise this method is incorrect and will raise a runtime error.
-    bsoUpdateBaker bs bupdate = return $
-        bs & blockBirkParameters . birkBakers %~ updateBaker bupdate
+    bsoUpdateBaker bs bupdate = return $!
+        let bakers = bs ^. blockBirkParameters . birkBakers
+        in case updateBaker bupdate bakers of
+             Nothing -> (False, bs)
+             Just newBakers -> (True, bs & blockBirkParameters . birkBakers .~ newBakers)
 
     bsoRemoveBaker bs bid = return $ 
         let
@@ -355,3 +362,23 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
       return $! bs & blockTransactionOutcomes . Transactions.outcomeSpecial %~ (o:)
 
     bsoUpdateSeedState bs ss = return $ bs & blockBirkParameters . seedState .~ ss
+
+
+-- |Initial block state.
+initialState :: BirkParameters
+             -> CryptographicParameters
+             -> [Account]
+             -> [IPS.IdentityProviderData]
+             -> Amount
+             -> BlockState
+initialState _blockBirkParameters _blockCryptographicParameters genesisAccounts ips mintPerSlot = BlockState{..}
+  where
+    _blockAccounts = List.foldl' (flip Account.putAccount) Account.emptyAccounts genesisAccounts
+    _blockInstances = Instances.emptyInstances
+    _blockModules = Modules.fromModuleList (Acorn.moduleList (let (_, _, pm) = Acorn.baseState in pm))
+    _blockBank = Rewards.makeGenesisBankStatus initialAmount mintPerSlot
+    _blockIdentityProviders = IPS.IdentityProviders (HashMap.fromList (map (\r -> (IPS.ipIdentity r, r)) ips))
+    _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes
+
+    -- initial amount in the central bank is the amount on all genesis accounts combined
+    initialAmount = List.foldl' (\c acc -> c + acc ^. accountAmount) 0 $ genesisAccounts
