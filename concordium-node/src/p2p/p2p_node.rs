@@ -153,7 +153,7 @@ impl ConnectionHandler {
 
         ConnectionHandler {
             server,
-            next_id: AtomicUsize::new(2),
+            next_id: AtomicUsize::new(1),
             key_pair,
             event_log,
             buckets: RwLock::new(Buckets::new()),
