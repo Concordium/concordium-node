@@ -209,15 +209,6 @@ pub fn handle_global_state_request(
 ) -> Fallible<()> {
     match request {
         GlobalStateMessage::ConsensusMessage(req) => {
-            if req.distribution_mode() == DistributionMode::Broadcast {
-                if let Some((_, state)) = global_state.peers.peek() {
-                    if state.status == PeerStatus::CatchingUp {
-                        debug!("I'm currently catching up; dropping incoming broadcast");
-                        return Ok(());
-                    }
-                }
-            }
-
             handle_consensus_message(node, network_id, consensus, req, global_state)
         }
         _ => unreachable!("Shutdown message is handled within the cli module"),
@@ -295,18 +286,9 @@ fn process_internal_gs_entry(
         _ => {}
     }
 
-    let mut dont_relay_to = request.dont_relay_to();
-    dont_relay_to.extend(
-        global_state
-            .peers
-            .iter()
-            .filter(|(_, state)| state.status != PeerStatus::UpToDate)
-            .map(|(id, _)| id),
-    );
-
     send_consensus_msg_to_net(
         node,
-        dont_relay_to,
+        request.dont_relay_to(),
         node.self_peer.id,
         request.target_peer().map(P2PNodeId),
         network_id,
@@ -367,22 +349,13 @@ fn process_external_gs_entry(
         _ => {}
     }
 
-    let mut dont_relay_to = request.dont_relay_to();
-    dont_relay_to.extend(
-        global_state
-            .peers
-            .iter()
-            .filter(|(_, state)| state.status != PeerStatus::UpToDate)
-            .map(|(id, _)| id),
-    );
-
     // rebroadcast incoming broadcasts if applicable
     if request.distribution_mode() == DistributionMode::Broadcast
         && consensus_result.is_rebroadcastable()
     {
         send_consensus_msg_to_net(
             &node,
-            dont_relay_to,
+            request.dont_relay_to(),
             source,
             None,
             network_id,
@@ -505,10 +478,7 @@ pub fn update_peer_list(global_state: &mut GlobalState, peer_ids: Vec<u64>) {
     debug!("The peers have changed; updating the catch-up peer list");
 
     // remove global state peers whose connections were dropped
-    let gs_peers = mem::replace(&mut global_state.peers, Default::default());
-
-    global_state.peers.reserve(peer_ids.len());
-    for (live_peer, state) in gs_peers
+    for (live_peer, state) in mem::replace(&mut global_state.peers, Default::default())
         .into_iter()
         .filter(|(id, _)| peer_ids.contains(&id))
     {
