@@ -44,10 +44,8 @@ WORKDIR /
 RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
 RUN --mount=type=ssh git clone git@gitlab.com:Concordium/node-dashboard.git
 WORKDIR /node-dashboard
-RUN git checkout 42c0d5ccf311843899bf4e9f3b5602c477314874
+ENV NODE_ENV=development
 RUN npm i
-RUN npm run build
-ENV NODE_ENV=production
 RUN npm run build
 
 FROM ubuntu:19.10
@@ -77,6 +75,8 @@ COPY --from=haskell-build /libs/* /usr/lib/
 COPY --from=haskell-build /middleware /middleware
 COPY --from=haskell-build /genesis-binaries /genesis-binaries
 COPY --from=node-build /node-dashboard/dist/public /var/www/html/
+RUN mkdir /var/www/html/public
+RUN mv /var/www/html/*.js /var/www/html/public/
 
 COPY ./scripts/supervisord.conf /etc/supervisor/supervisord.conf
 COPY ./scripts/concordium.conf /etc/supervisor/conf.d/concordium.conf
