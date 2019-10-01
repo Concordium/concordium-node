@@ -504,6 +504,18 @@ fn send_catch_up_status(
 pub fn update_peer_list(global_state: &mut GlobalState, peer_ids: Vec<u64>) {
     debug!("The peers have changed; updating the catch-up peer list");
 
+    // remove global state peers whose connections were dropped
+    let gs_peers = mem::replace(&mut global_state.peers, Default::default());
+
+    global_state.peers.reserve(peer_ids.len());
+    for (live_peer, state) in gs_peers
+        .into_iter()
+        .filter(|(id, _)| peer_ids.contains(&id))
+    {
+        global_state.peers.push(live_peer, state);
+    }
+
+    // include newly added peers
     global_state.peers.reserve(peer_ids.len());
     for id in peer_ids {
         if global_state.peers.get(&id).is_none() {
