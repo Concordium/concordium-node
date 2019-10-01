@@ -62,9 +62,9 @@ birkBaker :: BakerId -> BirkParameters -> Maybe (BakerInfo, LotteryPower)
 birkBaker bid bps = (bps ^. birkBakers . bakerMap . at bid) <&>
                         \bkr -> (bkr, (bkr ^. bakerStake) % (bps ^. birkBakers . bakerTotalStake))
 
-birkBakerByKeys :: BakerSignVerifyKey -> BakerElectionVerifyKey -> BirkParameters -> Maybe (BakerId, BakerInfo, LotteryPower)
-birkBakerByKeys sigKey elKey bps = case bps ^? birkBakers . bakersByKey . ix (sigKey, elKey) of
-        (Just (bid : _)) -> birkBaker bid bps <&> \(binfo, lotPow) -> (bid, binfo, lotPow)
+birkBakerByKeys :: BakerSignVerifyKey -> BirkParameters -> Maybe (BakerId, BakerInfo, LotteryPower)
+birkBakerByKeys sigKey bps = case bps ^? birkBakers . bakersByKey . ix sigKey of
+        Just bid -> birkBaker bid bps <&> \(binfo, lotPow) -> (bid, binfo, lotPow)
         _ -> Nothing
 
 data VoterInfo = VoterInfo {
@@ -222,6 +222,7 @@ instance FromJSON RuntimeParameters where
       fail "Block size must be a positive integer."
     return RuntimeParameters{..}
 
+-- |NB: This function will silently ignore bakers with duplicate signing keys.
 parametersToGenesisData :: GenesisParameters -> GenesisData
 parametersToGenesisData GenesisParameters{..} = GenesisData{..}
     where
@@ -230,7 +231,7 @@ parametersToGenesisData GenesisParameters{..} = GenesisData{..}
         genesisSlotDuration = gpSlotDuration
         genesisBirkParameters = BirkParameters {
             _birkElectionDifficulty = gpElectionDifficulty,
-            _birkBakers = bakersFromList (mkBaker <$> gpBakers),
+            _birkBakers = fst (bakersFromList (mkBaker <$> gpBakers)),
             _seedState = genesisSeedState gpLeadershipElectionNonce gpEpochLength
         }
         mkBaker GenesisBaker{..} = BakerInfo 
