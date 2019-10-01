@@ -19,6 +19,7 @@ import Concordium.GlobalState.Parameters
 import qualified Concordium.GlobalState.Implementation.TreeState as Impl
 import qualified Concordium.GlobalState.Implementation.Block as Impl
 import qualified Concordium.GlobalState.Implementation.BlockState as Impl
+import qualified Concordium.GlobalState.Implementation as Impl
 import Concordium.Skov.Monad
 import Concordium.Skov.Query
 import Concordium.Skov.Update

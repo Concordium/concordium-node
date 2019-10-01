@@ -25,6 +25,11 @@ import Concordium.GlobalState.BlockState(BlockPointerData(..))
 import qualified Concordium.GlobalState.TreeState as TreeState
 import qualified Concordium.GlobalState.Implementation.TreeState as TS
 import qualified Concordium.GlobalState.Implementation.Block as B
+#ifdef RUST
+import qualified Concordium.GlobalState.Basic.Block as BA
+#endif
+import qualified Concordium.GlobalState.Implementation.Block as B
+import qualified Concordium.GlobalState.Implementation as I
 import qualified Concordium.GlobalState.Implementation.BlockState as BS
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Finalization
@@ -209,11 +214,11 @@ instance Show Event where
     show (EBake sl) = "bake for " ++ show sl
     show (EBlock bb) =
       let bf = fromJust . blockFields $ bb in
-        let b = BakedBlock (blockSlot bb)
-                (B.BlockFields (blockPointer bf) (blockBaker bf) (blockProof bf) (blockNonce bf) (blockLastFinalized bf))
-                (BlockTransactions . blockTransactions $ bb)
-                (fromJust . RF.blockContentsSignature $ bb) in
-          "block: " ++ show (getHash . NormalBlock $ b :: BlockHash)
+        let b = B.BakedBlock (blockSlot bb)
+                (BA.BlockFields (blockPointer bf) (blockBaker bf) (blockProof bf) (blockNonce bf) (blockLastFinalized bf))
+                (BA.BlockTransactions . blockTransactions $ bb)
+                (fromJust . B.blockContentsSignature $ bb) in
+          "block: " ++ show (getHash . B.NormalBlock $ b :: BlockHash)
     show (ETransaction tr) = "transaction: " ++ show tr
     show (EFinalization fmsg) = "finalization message: " ++ show fmsg
     show (EFinalizationRecord fr) = "finalize: " ++ show (finalizationBlockPointer fr)
@@ -244,7 +249,7 @@ selectFromSeq g s =
     (Seq.index s n, Seq.deleteAt n s, g')
 
 #ifdef RUST
-type States = Vec.Vector (BakerIdentity, FinalizationInstance, SkovActiveState, RF.GlobalStatePtr)
+type States = Vec.Vector (BakerIdentity, FinalizationInstance, SkovActiveState, TS.GlobalStatePtr)
 #else
 type States = Vec.Vector (BakerIdentity, FinalizationInstance, SkovActiveState)
 #endif
@@ -275,7 +280,7 @@ runKonsensusTest steps g states events
                                         Nothing -> Seq.empty
 #ifdef RUST
                                         Just (blockPtr) ->
-                                          Seq.fromList [(r, EBlock (RF.blockPointerExtractBlockContents blockPtr))
+                                          Seq.fromList [(r, EBlock (BS.blockPointerExtractBlockContents blockPtr))
                                                          | r <- btargets]
 #else
                                         Just (BS.BlockPointer {_bpBlock = B.NormalBlock b}) ->
@@ -286,7 +291,7 @@ runKonsensusTest steps g states events
                     return (fs', events'')
                 EBlock block -> do
 #ifdef RUST
-                   pb <- RF.makePendingBlockWithContents gs block dummyTime
+                   pb <- B.makePendingBlockWithContents gs block dummyTime
                    runAndHandle (storeBlock pb) fi fs btargets
 #else
                    runAndHandle (storeBlock (B.makePendingBlock block dummyTime)) fi fs btargets
@@ -333,7 +338,7 @@ runKonsensusTestSimple steps g states events
                                         Nothing -> Seq.empty
 #ifdef RUST
                                         Just (blockPtr) ->
-                                          Seq.fromList [(r, EBlock (RF.blockPointerExtractBlockContents blockPtr))
+                                          Seq.fromList [(r, EBlock (BS.blockPointerExtractBlockContents blockPtr))
                                                          | r <- btargets]
 #else
                                         Just (BS.BlockPointer {_bpBlock = B.NormalBlock b}) ->
@@ -344,7 +349,7 @@ runKonsensusTestSimple steps g states events
                     return (fs', events'')
                 EBlock block -> do
 #ifdef RUST
-                   pb <- RF.makePendingBlockWithContents gs block dummyTime
+                   pb <- B.makePendingBlockWithContents gs block dummyTime
                    runAndHandle (storeBlock pb) fi fs btargets
 #else
                    runAndHandle (storeBlock (B.makePendingBlock block dummyTime)) fi fs btargets
@@ -398,7 +403,7 @@ initialiseStates n = do
             bakerAccounts = map (\(_, (_, _, acc)) -> acc) bis
             gen = GenesisData 0 1 bps bakerAccounts [] fps dummyCryptographicParameters dummyIdentityProviders 10
 #ifdef RUST
-        bis2 <- liftIO $ mapM (\(a,b) -> RF.makeEmptyGlobalState gen >>=  (return . ((a, b,)))) bis
+        bis2 <- liftIO $ mapM (\(a,b) -> I.makeEmptyGlobalState gen >>=  (return . ((a, b,)))) bis
         res <- liftIO $ mapM (\(_, (_, bid, _), gs) -> do
                                 let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid)
                                 initState <- liftIO $ initialSkovActiveState fininst defaultRuntimeParameters gen (Example.initialState bps dummyCryptographicParameters bakerAccounts [] nAccounts) gs
