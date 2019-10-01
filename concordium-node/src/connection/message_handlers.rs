@@ -183,17 +183,16 @@ impl Connection {
         debug!("Received a PeerList response from peer {}", peer_id);
 
         let mut new_peers = 0;
-        let curr_peer_count = self
-            .handler()
-            .get_peer_stats()
-            .iter()
-            .filter(|peer| peer.peer_type == PeerType::Node)
-            .count();
+        let current_peers = self.handler().get_peer_stats(Some(PeerType::Node));
 
-        let current_peers = self.handler().get_all_current_peers(Some(PeerType::Node));
-        let applicable_candidates = peers
-            .iter()
-            .filter(|candidate| !current_peers.contains(&candidate.id));
+        let curr_peer_count = current_peers.len();
+
+        let applicable_candidates = peers.iter().filter(|candidate| {
+            !current_peers
+                .iter()
+                .map(|peer| peer.id)
+                .any(|id| id == candidate.id.as_raw())
+        });
 
         let mut locked_buckets = safe_write!(self.handler().connection_handler.buckets)?;
         for peer in applicable_candidates {

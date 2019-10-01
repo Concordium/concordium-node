@@ -490,7 +490,7 @@ impl P2P for RpcServerImpl {
         sink: ::grpcio::UnarySink<PeerStatsResponse>,
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
-            let peer_stats = self.node.get_peer_stats();
+            let peer_stats = self.node.get_peer_stats(None);
 
             let f = {
                 let data = peer_stats
@@ -533,7 +533,7 @@ impl P2P for RpcServerImpl {
                 let peer_type = self.node.peer_type();
                 let data = self
                     .node
-                    .get_peer_stats()
+                    .get_peer_stats(None)
                     .iter()
                     .filter(|peer| match peer.peer_type {
                         PeerType::Node => true,
@@ -1072,7 +1072,7 @@ impl P2P for RpcServerImpl {
                     req.id.clone(),
                     req.directory.clone(),
                 );
-                let _node_list = self.node.get_peer_stats();
+                let _node_list = self.node.get_peer_stats(None);
                 if !_node_list
                     .into_iter()
                     .any(|s| P2PNodeId(s.id).to_string() == id)
