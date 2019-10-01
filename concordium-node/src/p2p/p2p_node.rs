@@ -1048,12 +1048,12 @@ impl P2PNode {
 
         let peers_to_skip = match inner_pkt.packet_type {
             NetworkPacketType::DirectMessage(..) => vec![],
-            NetworkPacketType::BroadcastedMessage(ref dont_send_to) => {
+            NetworkPacketType::BroadcastedMessage(ref dont_relay_to) => {
                 if self.config.relay_broadcast_percentage < 1.0 {
                     use rand::seq::SliceRandom;
                     let mut rng = rand::thread_rng();
                     let mut peers = self.get_node_peer_ids();
-                    peers.retain(|id| !dont_send_to.contains(&P2PNodeId(*id)));
+                    peers.retain(|id| !dont_relay_to.contains(&P2PNodeId(*id)));
                     let peers_to_take = f64::floor(
                         f64::from(peers.len() as u32) * self.config.relay_broadcast_percentage,
                     );
@@ -1062,7 +1062,7 @@ impl P2PNode {
                         .map(|id| P2PNodeId(*id))
                         .collect::<Vec<_>>()
                 } else {
-                    Vec::new()
+                    dont_relay_to.to_owned()
                 }
             }
         };
@@ -1075,13 +1075,12 @@ impl P2PNode {
 
                 self.send_over_all_connections(serialized_packet, &filter)
             }
-            NetworkPacketType::BroadcastedMessage(ref dont_relay_to) => {
+            NetworkPacketType::BroadcastedMessage(_) => {
                 let filter = |conn: &Connection| {
                     is_valid_connection_in_broadcast(
                         conn,
                         source_id,
                         &peers_to_skip,
-                        &dont_relay_to,
                         inner_pkt.network_id,
                     )
                 };
@@ -1316,21 +1315,15 @@ fn is_valid_connection_in_broadcast(
     conn: &Connection,
     sender: P2PNodeId,
     peers_to_skip: &[P2PNodeId],
-    dont_relay_to: &[P2PNodeId],
     network_id: NetworkId,
 ) -> bool {
     // safe, used only in a post-handshake context
     let peer_id = read_or_die!(conn.remote_peer.id).unwrap();
 
-    if conn.remote_peer.peer_type() != PeerType::Bootstrapper
+    conn.remote_peer.peer_type() != PeerType::Bootstrapper
         && peer_id != sender
         && !peers_to_skip.contains(&peer_id)
-        && !dont_relay_to.contains(&peer_id)
-    {
-        read_or_die!(conn.remote_end_networks()).contains(&network_id)
-    } else {
-        false
-    }
+        && read_or_die!(conn.remote_end_networks()).contains(&network_id)
 }
 
 /// Connection is valid to send over as it has completed the handshake
