@@ -56,12 +56,6 @@ use std::{
 const SERVER: Token = Token(0);
 const BAN_STORE_NAME: &str = "bans";
 
-const MAX_FAILED_PACKETS_ALLOWED: u32 = 50;
-const MAX_UNREACHABLE_MARK_TIME: u64 = 86_400_000;
-const MAX_BOOTSTRAPPER_KEEP_ALIVE: u64 = 300_000;
-const MAX_NORMAL_KEEP_ALIVE: u64 = 1_200_000;
-const MAX_PREHANDSHAKE_KEEP_ALIVE: u64 = 120_000;
-
 #[derive(Clone)]
 pub struct P2PNodeConfig {
     pub no_net: bool,
@@ -604,7 +598,7 @@ impl P2PNode {
         let peer_type = self.peer_type();
 
         let is_conn_faulty = |conn: &Connection| -> bool {
-            conn.failed_pkts() >= MAX_FAILED_PACKETS_ALLOWED
+            conn.failed_pkts() >= config::MAX_FAILED_PACKETS_ALLOWED
                 || if let Some(max_latency) = self.config.max_latency {
                     conn.get_last_latency() >= max_latency
                 } else {
@@ -615,13 +609,14 @@ impl P2PNode {
         let is_conn_inactive = |conn: &Connection| -> bool {
             conn.is_post_handshake()
                 && ((peer_type == PeerType::Node
-                    && conn.last_seen() + MAX_NORMAL_KEEP_ALIVE < curr_stamp)
+                    && conn.last_seen() + config::MAX_NORMAL_KEEP_ALIVE < curr_stamp)
                     || (peer_type == PeerType::Bootstrapper
-                        && conn.last_seen() + MAX_BOOTSTRAPPER_KEEP_ALIVE < curr_stamp))
+                        && conn.last_seen() + config::MAX_BOOTSTRAPPER_KEEP_ALIVE < curr_stamp))
         };
 
         let is_conn_without_handshake = |conn: &Connection| -> bool {
-            !conn.is_post_handshake() && conn.last_seen() + MAX_PREHANDSHAKE_KEEP_ALIVE < curr_stamp
+            !conn.is_post_handshake()
+                && conn.last_seen() + config::MAX_PREHANDSHAKE_KEEP_ALIVE < curr_stamp
         };
 
         // Kill connections to nodes which are no longer seen
@@ -632,7 +627,7 @@ impl P2PNode {
         if peer_type != PeerType::Bootstrapper {
             self.connection_handler
                 .unreachable_nodes
-                .cleanup(curr_stamp - MAX_UNREACHABLE_MARK_TIME);
+                .cleanup(curr_stamp - config::MAX_UNREACHABLE_MARK_TIME);
         }
 
         // If the number of peers exceeds the desired value, close a random selection of
