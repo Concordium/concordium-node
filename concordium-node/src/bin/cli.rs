@@ -386,7 +386,7 @@ fn start_baker_thread(node: &P2PNode) -> std::thread::JoinHandle<()> {
                     }
                 }
             } else {
-                error!("Error receiving a message from the consensus layer");
+                panic!("The consensus callback channel is down!");
             }
         }
     })

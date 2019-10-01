@@ -193,10 +193,16 @@ pub fn handle_pkt_out(
         dont_relay_to.into_iter().map(P2PNodeId::as_raw).collect(),
     ));
 
-    if is_broadcast {
+    let was_sent = if is_broadcast {
         node.global_state_senders.send(request)
     } else {
         node.global_state_senders.send_with_priority(request)
+    };
+
+    if was_sent.is_err() {
+        panic!("A global state channel is down!");
+    } else {
+        Ok(())
     }
 }
 
