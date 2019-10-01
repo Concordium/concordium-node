@@ -14,6 +14,7 @@
 module Concordium.Scheduler.Environment where
 
 import qualified Data.HashMap.Strict as Map
+import qualified Data.HashSet as Set
 
 import Control.Monad.RWS.Strict
 import Control.Monad.Cont hiding (cont)
@@ -32,10 +33,19 @@ import Control.Exception(assert)
 
 import qualified Concordium.ID.Types as ID
 
+type SpecialBetaAccounts = Set.HashSet AccountAddress
+
+emptySpecialBetaAccounts :: SpecialBetaAccounts
+emptySpecialBetaAccounts = Set.empty
+
 -- * Scheduler monad
 
 -- |Information needed to execute transactions in the form that is easy to use.
 class StaticEnvironmentMonad Core.UA m => SchedulerMonad m where
+  -- |Get adddresses of special beta accounts which during the beta phase will
+  -- have special privileges.
+  getSpecialBetaAccounts :: m SpecialBetaAccounts
+
   -- |Return a contract instance if it exists at the given address.
   getContractInstance :: ContractAddress -> m (Maybe Instance)
 

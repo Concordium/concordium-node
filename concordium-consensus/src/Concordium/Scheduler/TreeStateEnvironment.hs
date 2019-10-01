@@ -9,6 +9,7 @@
 module Concordium.Scheduler.TreeStateEnvironment where
 
 import qualified Data.HashMap.Strict as HM
+import qualified Data.HashSet as HashSet
 import qualified Data.Set as Set
 import qualified Data.List as List
 
@@ -33,16 +34,18 @@ import qualified Acorn.Core as Core
 
 import qualified Concordium.Scheduler as Sch
 
-newtype BlockStateMonad state m a = BSM { _runBSM :: RWST ChainMetadata () state m a}
-    deriving (Functor, Applicative, Monad, MonadState state, MonadReader ChainMetadata, MonadTrans)
+type ContextState = (HashSet.HashSet AccountAddress, ChainMetadata)
 
-deriving via (BSOMonadWrapper ChainMetadata state (RWST ChainMetadata () state m))
+newtype BlockStateMonad state m a = BSM { _runBSM :: RWST ContextState () state m a}
+    deriving (Functor, Applicative, Monad, MonadState state, MonadReader ContextState, MonadTrans)
+
+deriving via (BSOMonadWrapper ContextState state (RWST ContextState () state m))
     instance (UpdatableBlockState m ~ state, BlockStateOperations m) => StaticEnvironmentMonad Core.UA (BlockStateMonad state m)
 
-deriving via (BSOMonadWrapper ChainMetadata state (RWST ChainMetadata () state m))
+deriving via (BSOMonadWrapper ContextState state (RWST ContextState () state m))
     instance (UpdatableBlockState m ~ state, BlockStateOperations m) => SchedulerMonad (BlockStateMonad state m)
 
-runBSM :: Monad m => BlockStateMonad b m a -> ChainMetadata -> b -> m (a, b)
+runBSM :: Monad m => BlockStateMonad b m a -> ContextState -> b -> m (a, b)
 runBSM m cm s = do
   (r, s', ()) <- runRWST (_runBSM m) cm s
   return (r, s')
@@ -97,7 +100,8 @@ executeFrom slotNumber blockParent lfPointer blockBaker ss txs =
            in ChainMetadata{..}
   in do
     bshandle0 <- thawBlockState (bpState blockParent)
-    (res, bshandle1) <- runBSM (Sch.runTransactions txs) cm bshandle0
+    genBetaAccounts <- HashSet.fromList . map _accountAddress . genesisSpecialBetaAccounts <$> getGenesisData
+    (res, bshandle1) <- runBSM (Sch.runTransactions txs) (genBetaAccounts, cm) bshandle0
     case res of
         Left fk -> Left fk <$ (purgeBlockState =<< freezeBlockState bshandle1)
         Right (outcomes, usedEnergy) -> do
@@ -150,8 +154,9 @@ constructBlock slotNumber blockParent lfPointer blockBaker ss =
     -- In the future we do not want to do concatMap since we gain advantage from grouping transactions
     -- by account (e.g., we only need to look up the account once).
     let orderedTxs = concatMap fst $ List.sortOn snd txs
-
-    ((Sch.FilteredTransactions{..}, usedEnergy), bshandle1) <- runBSM (Sch.filterTransactions (fromIntegral maxSize) orderedTxs) cm bshandle0
+    genBetaAccounts <- HashSet.fromList . map _accountAddress . genesisSpecialBetaAccounts <$> getGenesisData
+    ((Sch.FilteredTransactions{..}, usedEnergy), bshandle1) <-
+        runBSM (Sch.filterTransactions (fromIntegral maxSize) orderedTxs) (genBetaAccounts, cm) bshandle0
     -- FIXME: At some point we should log things here using the same logging infrastructure as in consensus.
 
     bshandle2 <- bsoSetTransactionOutcomes bshandle1 ((\(tr,res) -> (transactionHash tr, res)) <$> ftAdded)

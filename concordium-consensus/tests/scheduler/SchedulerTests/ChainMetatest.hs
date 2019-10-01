@@ -76,8 +76,9 @@ testChainMeta = do
     transactions <- processTransactions transactionsInput
     let ((Sch.FilteredTransactions{..}, _), gs) =
           Types.runSI (Sch.filterTransactions blockSize transactions)
-          chainMeta
-          initialBlockState
+            dummySpecialBetaAccounts
+            chainMeta
+            initialBlockState
     case invariantBlockState gs of
         Left f -> liftIO $ assertFailure $ f ++ " " ++ show gs
         _ -> return ()

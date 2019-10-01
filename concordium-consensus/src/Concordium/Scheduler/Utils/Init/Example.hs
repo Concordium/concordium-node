@@ -15,6 +15,7 @@ import Concordium.Types
 import qualified Concordium.ID.Account as AH
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
+import qualified Concordium.Scheduler.Environment as Types
 
 import qualified Concordium.GlobalState.Basic.BlockState as BlockState
 import qualified Concordium.GlobalState.Account as Acc
@@ -111,7 +112,12 @@ makeTransaction inc ca n = Runner.signTx mateuszKP header payload
                                                     )
 
 -- |State with the given number of contract instances of the counter contract specified.
-initialState :: BirkParameters -> CryptographicParameters -> [Account] -> [Types.IdentityProviderData] -> Int -> BlockState.BlockState
+initialState :: BirkParameters
+             -> CryptographicParameters
+             -> [Account]
+             -> [Types.IdentityProviderData]
+             -> Int
+             -> BlockState.BlockState
 initialState birkParams cryptoParams bakerAccounts ips n = 
     let (_, _, mods) = foldl handleFile
                            baseState
@@ -129,6 +135,6 @@ initialState birkParams cryptoParams bakerAccounts ips n =
                (BlockState.blockAccounts .~ initAccount) .
                (BlockState.blockModules .~ Mod.fromModuleList (moduleList mods)) .
                (BlockState.blockBank .~ Types.makeGenesisBankStatus initialAmount 10) -- 10 GTU minted per slot.
-        gs' = Types.execSI (execTransactions (initialTrans n)) Types.dummyChainMeta gs
+        gs' = Types.execSI (execTransactions (initialTrans n)) Types.emptySpecialBetaAccounts Types.dummyChainMeta gs
     in gs' & (BlockState.blockAccounts .~ initAccount) .
              (BlockState.blockBank .~ Types.makeGenesisBankStatus initialAmount 10) -- also reset the bank after execution to maintain invariants.

@@ -90,6 +90,7 @@ testAccountCreation = do
     transactions <- processTransactions transactionsInput
     let ((Sch.FilteredTransactions{..}, _), state) =
           Types.runSI (Sch.filterTransactions blockSize transactions)
+            dummySpecialBetaAccounts
             Types.dummyChainMeta
             initialBlockState
     let accounts = state ^. blockAccounts

@@ -82,6 +82,7 @@ testFibonacci = do
     transactions <- processTransactions transactionsInput
     let ((Sch.FilteredTransactions{..}, _), gs) =
           Types.runSI (Sch.filterTransactions blockSize transactions)
+            dummySpecialBetaAccounts
             Types.dummyChainMeta
             initialBlockState
     case invariantBlockState gs of
