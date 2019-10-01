@@ -781,18 +781,18 @@ mod tests {
             _ => bail!("Unwanted packet type"),
         }
         match conn_node
-            .validate_packet_type_test(&iter::repeat(0).take(23).chain(Some(2)).collect::<Vec<_>>())
+            .validate_packet_type_test(&iter::repeat(0).take(13).chain(Some(2)).collect::<Vec<_>>())
         {
             Readiness::Ready(true) => {}
             _ => bail!("Unwanted packet type"),
         }
         match conn_node
-            .validate_packet_type_test(&iter::repeat(0).take(23).chain(Some(1)).collect::<Vec<_>>())
+            .validate_packet_type_test(&iter::repeat(0).take(13).chain(Some(1)).collect::<Vec<_>>())
         {
             Readiness::Ready(true) => {}
             _ => bail!("Unwanted packet type"),
         }
-        match conn_node.validate_packet_type_test(&iter::repeat(0).take(24).collect::<Vec<_>>()) {
+        match conn_node.validate_packet_type_test(&iter::repeat(0).take(14).collect::<Vec<_>>()) {
             Readiness::Ready(true) => {}
             _ => bail!("Unwanted packet type"),
         }
@@ -803,20 +803,20 @@ mod tests {
         }
         // Assert that a Bootstrapper reports as Invalid messages that are packets
         match conn_bootstrapper
-            .validate_packet_type_test(&iter::repeat(0).take(23).chain(Some(2)).collect::<Vec<_>>())
+            .validate_packet_type_test(&iter::repeat(0).take(13).chain(Some(2)).collect::<Vec<_>>())
         {
             Readiness::Ready(false) => {}
             _ => bail!("Unwanted packet type"),
         }
         // Assert that a Bootstrapper accepts Request and Response messages
         match conn_bootstrapper
-            .validate_packet_type_test(&iter::repeat(0).take(23).chain(Some(1)).collect::<Vec<_>>())
+            .validate_packet_type_test(&iter::repeat(0).take(13).chain(Some(1)).collect::<Vec<_>>())
         {
             Readiness::Ready(true) => {}
             _ => bail!("Unwanted packet type"),
         }
         match conn_bootstrapper
-            .validate_packet_type_test(&iter::repeat(0).take(24).collect::<Vec<_>>())
+            .validate_packet_type_test(&iter::repeat(0).take(14).collect::<Vec<_>>())
         {
             Readiness::Ready(true) => {}
             _ => bail!("Unwanted packet type"),
