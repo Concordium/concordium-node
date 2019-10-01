@@ -263,15 +263,14 @@ getBlockFinalization sfsRef bh = runStateQuery sfsRef $ do
 
 -- |Check whether a keypair is part of the baking committee by a key pair in the current best block.
 checkBakerExistsBestBlock :: (SkovStateQueryable z m)
-    => (BakerSignVerifyKey, BakerElectionVerifyKey)
+    => BakerSignVerifyKey
     -> z
     -> IO Bool
-checkBakerExistsBestBlock keys sfsRef = runStateQuery sfsRef $ do
+checkBakerExistsBestBlock key sfsRef = runStateQuery sfsRef $ do
   bb <- bestBlock
   bps <- BS.getBlockBirkParameters (bpState bb)
-  case bps ^. birkBakers . bakersByKey . at keys of
+  case bps ^. birkBakers . bakersByKey . at key of
     Nothing -> return False
-    Just [] -> return False
     Just _ -> return True
 
 -- |Check whether a keypair is part of the finalization committee by a key pair in the current best block.
