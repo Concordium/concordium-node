@@ -295,9 +295,18 @@ fn process_internal_gs_entry(
         _ => {}
     }
 
+    let mut dont_relay_to = request.dont_relay_to();
+    dont_relay_to.extend(
+        global_state
+            .peers
+            .iter()
+            .filter(|(_, state)| state.status != PeerStatus::UpToDate)
+            .map(|(id, _)| id),
+    );
+
     send_consensus_msg_to_net(
         node,
-        request.dont_relay_to(),
+        dont_relay_to,
         node.self_peer.id,
         request.target_peer().map(P2PNodeId),
         network_id,
@@ -358,13 +367,22 @@ fn process_external_gs_entry(
         _ => {}
     }
 
+    let mut dont_relay_to = request.dont_relay_to();
+    dont_relay_to.extend(
+        global_state
+            .peers
+            .iter()
+            .filter(|(_, state)| state.status != PeerStatus::UpToDate)
+            .map(|(id, _)| id),
+    );
+
     // rebroadcast incoming broadcasts if applicable
     if request.distribution_mode() == DistributionMode::Broadcast
         && consensus_result.is_rebroadcastable()
     {
         send_consensus_msg_to_net(
             &node,
-            request.dont_relay_to(),
+            dont_relay_to,
             source,
             None,
             network_id,
