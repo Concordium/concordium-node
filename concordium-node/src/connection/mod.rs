@@ -26,10 +26,7 @@ use crate::{
         NetworkRawRequest, P2PNodeId, PeerStats, PeerType, RemotePeer,
     },
     dumper::DumpItem,
-    network::{
-        Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse,
-        NETWORK_MESSAGE_PROTOCOL_TYPE_IDX,
-    },
+    network::{Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse},
     p2p::banned_nodes::BannedNode,
 };
 
@@ -52,7 +49,6 @@ use std::{
     collections::HashSet,
     convert::TryFrom,
     fmt,
-    io::{Seek, SeekFrom},
     net::SocketAddr,
     pin::Pin,
     sync::{
@@ -62,17 +58,20 @@ use std::{
 };
 
 pub struct DeduplicationQueues {
-    pub dedup_queue_finalization: CircularQueue<[u8; 8]>,
-    pub dedup_queue_transaction:  CircularQueue<[u8; 8]>,
+    pub finalizations: CircularQueue<[u8; 8]>,
+    pub transactions:  CircularQueue<[u8; 8]>,
+    pub blocks:        CircularQueue<[u8; 8]>,
 }
 
 impl DeduplicationQueues {
     pub fn default() -> Self {
-        const DEDUP_QUEUE_SIZE: usize = 32 * 1024;
+        const SHORT_DEDUP_SIZE: usize = 16;
+        const LONG_QUEUE_SIZE: usize = 32 * 1024;
 
         Self {
-            dedup_queue_finalization: CircularQueue::with_capacity(DEDUP_QUEUE_SIZE),
-            dedup_queue_transaction:  CircularQueue::with_capacity(DEDUP_QUEUE_SIZE),
+            finalizations: CircularQueue::with_capacity(LONG_QUEUE_SIZE),
+            transactions:  CircularQueue::with_capacity(LONG_QUEUE_SIZE),
+            blocks:        CircularQueue::with_capacity(SHORT_DEDUP_SIZE),
         }
     }
 }
@@ -243,41 +242,27 @@ impl Connection {
         write_or_die!(self.low_level).read_from_stream(ev, deduplication_queues)
     }
 
-    fn dedup_message(
+    fn is_message_duplicate(
         &self,
         message: &mut HybridBuf,
         deduplication_queues: &mut DeduplicationQueues,
-    ) -> Fallible<()> {
-        message.seek(SeekFrom::Start(NETWORK_MESSAGE_PROTOCOL_TYPE_IDX as u64))?;
+    ) -> Fallible<bool> {
         let packet_type = PacketType::try_from(message.read_u16::<E>()?);
 
-        if let Ok(PacketType::FinalizationMessage) = packet_type {
-            let mut hash = [0u8; 8];
-            hash.copy_from_slice(&XxHash64::digest(&message.remaining_bytes()?));
-
-            if !deduplication_queues
-                .dedup_queue_finalization
-                .iter()
-                .any(|h| h == &hash)
-            {
-                deduplication_queues.dedup_queue_finalization.push(hash);
+        let is_duplicate = match packet_type {
+            Ok(PacketType::FinalizationMessage) => {
+                dedup_with(message, &mut deduplication_queues.finalizations)?
             }
-        } else if let Ok(PacketType::Transaction) = packet_type {
-            let mut hash = [0u8; 8];
-            hash.copy_from_slice(&XxHash64::digest(&message.remaining_bytes()?));
-
-            if !deduplication_queues
-                .dedup_queue_transaction
-                .iter()
-                .any(|h| h == &hash)
-            {
-                deduplication_queues.dedup_queue_transaction.push(hash);
+            Ok(PacketType::Transaction) => {
+                dedup_with(message, &mut deduplication_queues.transactions)?
             }
-        }
+            Ok(PacketType::Block) => dedup_with(message, &mut deduplication_queues.blocks)?,
+            _ => false,
+        };
 
         message.rewind()?;
 
-        Ok(())
+        Ok(is_duplicate)
     }
 
     fn process_message(
@@ -292,10 +277,14 @@ impl Connection {
             service.pkt_received_inc();
         };
 
-        // deduplicate the incoming message
-        self.dedup_message(&mut message, deduplication_queues)?;
+        let mut message = NetworkMessage::deserial(&mut message)?;
 
-        let message = NetworkMessage::deserial(&mut message)?;
+        // deduplicate the incoming message
+        if let NetworkMessage::NetworkPacket(ref mut packet, ..) = message {
+            if self.is_message_duplicate(&mut packet.message, deduplication_queues)? {
+                return Ok(());
+            }
+        }
 
         let is_msg_processable = match message {
             NetworkMessage::NetworkRequest(NetworkRequest::Handshake(..), ..)
@@ -697,6 +686,19 @@ impl ConnectionLowLevel {
     #[inline(always)]
     fn write_to_sink(&mut self, input: HybridBuf) -> Fallible<Readiness<usize>> {
         self.message_sink.write(input, &mut self.socket)
+    }
+}
+
+// returns a bool indicating if the message is a duplicate
+fn dedup_with(message: &mut HybridBuf, queue: &mut CircularQueue<[u8; 8]>) -> Fallible<bool> {
+    let mut hash = [0u8; 8];
+    hash.copy_from_slice(&XxHash64::digest(&message.remaining_bytes()?));
+
+    if !queue.iter().any(|h| h == &hash) {
+        queue.push(hash);
+        Ok(false)
+    } else {
+        Ok(true)
     }
 }
 
