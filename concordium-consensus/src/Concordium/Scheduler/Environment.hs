@@ -128,17 +128,20 @@ class StaticEnvironmentMonad Core.UA m => SchedulerMonad m where
 
   -- |Add a new baker with a fresh baker id.
   -- Moreover also update the next available baker id.
-  addBaker :: BakerCreationInfo -> m BakerId
+  addBaker :: BakerCreationInfo -> m (Maybe BakerId)
 
   -- |Remove a baker with the given id from the baker pool.
   removeBaker :: BakerId -> m ()
 
   -- |Replace the given baker's verification key with the given value.
   -- The function may assume that the baker exists.
-  updateBakerSignKey :: BakerId -> BakerSignVerifyKey -> m ()
+  -- Return 'True' if the signing key was updated, and 'False' in case
+  -- it lead to a duplicate signing key.
+  updateBakerSignKey :: BakerId -> BakerSignVerifyKey -> m Bool
 
   -- |Replace the given baker's reward account with the given value.
-  -- The function may assume that the baker exists.
+  -- The function may assume that the baker exists and the reward account
+  -- also exists in the global state.
   updateBakerAccount :: BakerId -> AccountAddress -> m ()
 
   -- |Delegate the stake from an account to a baker. The account is

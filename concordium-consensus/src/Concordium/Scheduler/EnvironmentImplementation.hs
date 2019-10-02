@@ -185,13 +185,15 @@ instance (MonadReader ContextState m, UpdatableBlockState m ~ state, MonadState 
   {-# INLINE updateBakerSignKey #-}
   updateBakerSignKey bid signKey = do
     s <- get
-    s' <- lift (bsoUpdateBaker s (emptyBakerUpdate bid & buSignKey ?~ signKey))
+    (r, s') <- lift (bsoUpdateBaker s (emptyBakerUpdate bid & buSignKey ?~ signKey))
     put s'
+    return r
 
   {-# INLINE updateBakerAccount #-}
   updateBakerAccount bid bacc = do
     s <- get
-    s' <- lift (bsoUpdateBaker s (emptyBakerUpdate bid & buAccount ?~ bacc))
+    (_, s') <- lift (bsoUpdateBaker s (emptyBakerUpdate bid & buAccount ?~ bacc))
+    -- updating the account cannot fail, so we ignore the return value.
     put s'
 
   {-# INLINE delegateStake #-}

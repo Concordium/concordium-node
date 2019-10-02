@@ -691,8 +691,7 @@ checkIfWeAreBaker cptr = do
         logm External LLDebug "Active consensus, querying best block."
         let bid = syncBakerIdentity s
         let signKey = Baker.bakerSignPublicKey bid
-        let electionKey = Baker.bakerElectionPublicKey bid
-        r <- runConsensusQuery c (Get.checkBakerExistsBestBlock (signKey, electionKey))
+        r <- runConsensusQuery c (Get.checkBakerExistsBestBlock signKey)
         logm External LLTrace $ "Replying with " ++ show r
         if r then return 1 else return 0
 

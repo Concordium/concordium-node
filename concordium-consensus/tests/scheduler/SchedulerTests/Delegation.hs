@@ -62,7 +62,9 @@ data Model = Model {
     _mAccounts :: Map.Map AccountAddress (KeyPair, Nonce),
     _mBakers :: [BakerId],
     _mNextBaker :: BakerId,
-    _mAdminAccounts :: Map.Map AccountAddress (KeyPair, Nonce)
+    _mAdminAccounts :: Map.Map AccountAddress (KeyPair, Nonce),
+    _mNextSeed :: Int,
+    _mBakerMap :: Map.Map BakerId KeyPair -- mapping of baker ids to their associated account keypairs
 }
 makeLenses ''Model
 
@@ -71,23 +73,27 @@ initialModel = Model {
     _mAccounts = Map.fromList [(accountAddress (verifyKey kp) Ed25519, (kp, minNonce)) | kp <- take numAccounts staticKeys],
     _mBakers = [],
     _mNextBaker = minBound,
-    _mAdminAccounts = Map.fromList [(alesAccount, (alesKP, minNonce)), (thomasAccount, (thomasKP, minNonce))]
+    _mAdminAccounts = Map.fromList [(alesAccount, (alesKP, minNonce)), (thomasAccount, (thomasKP, minNonce))],
+    _mNextSeed = 0,
+    _mBakerMap = Map.empty
 }
 
 addBaker :: Model -> Gen (TransactionJSON, Model)
 addBaker m0 = do
-        bkrSeed <- arbitrary
-        bkrAcct <- elements (Map.keys $ _mAccounts m0)
-        let bkr = mkBaker bkrSeed bkrAcct
+        (bkrAcct, (kp, _)) <- elements (Map.toList $ _mAccounts m0)
+        let (bkr, electionSecretKey, signKey) = mkBaker (m0 ^. mNextSeed) bkrAcct
         (srcAcct, (srcKp, srcN)) <- elements (Map.toList $ _mAdminAccounts m0)
         return (TJSON {
-            payload = AddBaker (bkr ^. bakerElectionVerifyKey) (bkr ^. bakerSignatureVerifyKey) bkrAcct "<dummy proof>",
+            payload = AddBaker (bkr ^. bakerElectionVerifyKey) electionSecretKey (bkr ^. bakerSignatureVerifyKey) signKey (Sig.verifyKey kp) (Sig.signKey kp),
             metadata = makeHeader srcKp srcN (Cost.checkHeader + Cost.addBaker),
             keypair = srcKp
         }, m0
             & mAdminAccounts . ix srcAcct . _2 %~ (+1)
             & mBakers %~ (_mNextBaker m0 :)
-            & mNextBaker %~ (+1))
+            & mNextBaker %~ (+1)
+            & mNextSeed +~ 1
+            & mBakerMap %~ (Map.insert (m0 ^. mNextBaker) kp)
+               )
 
 takeOne :: [a] -> Gen (a, [a])
 takeOne l = do
@@ -97,14 +103,17 @@ takeOne l = do
 removeBaker :: Model -> Gen (TransactionJSON, Model)
 removeBaker m0 = do
         (bkr, bkrs') <- takeOne (_mBakers m0)
-        (srcAcct, (srcKp, srcN)) <- elements (Map.toList $ _mAdminAccounts m0)
+        let srcKp = m0 ^. mBakerMap . singular (ix bkr)
+        let address = accountAddress (verifyKey srcKp) Ed25519
+        let (_, srcN) = m0 ^. mAccounts . singular (ix address)
         return (TJSON {
             payload = RemoveBaker bkr "<dummy proof>",
             metadata = makeHeader srcKp srcN (Cost.checkHeader + Cost.removeBaker),
             keypair = srcKp
         }, m0
-            & mAdminAccounts . ix srcAcct . _2 %~ (+1)
-            & mBakers .~ bkrs')
+            & mAccounts . ix address . _2 %~ (+1)
+            & mBakers .~ bkrs'
+            & mBakerMap %~ (Map.delete bkr))
 
 delegateStake :: Model -> Gen (TransactionJSON, Model)
 delegateStake m0 = do

@@ -23,6 +23,7 @@ import Concordium.GlobalState.Implementation.Invariants
 import qualified Concordium.GlobalState.Rewards as Rew
 
 import qualified Concordium.Crypto.BlockSignature as BlockSig
+import qualified Concordium.Crypto.VRF as VRF
 
 import qualified Acorn.Core as Core
 
@@ -41,33 +42,41 @@ initialBlockState =
     (blockBank . Rew.totalGTU .~ 200000) .
     (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
 
-baker0 :: Types.BakerInfo
+baker0 :: (BakerInfo, VRF.SecretKey, BlockSig.SignKey)
 baker0 = mkBaker 0 alesAccount
 
-baker1 :: Types.BakerInfo
-baker1 = mkBaker 1 thomasAccount
+baker1 :: (BakerInfo, VRF.SecretKey, BlockSig.SignKey)
+baker1 = mkBaker 1 alesAccount
 
-baker2 :: Types.BakerInfo
+baker2 :: (BakerInfo, VRF.SecretKey, BlockSig.SignKey)
 baker2 = mkBaker 2 thomasAccount
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =
-    [TJSON { payload = AddBaker (baker0 ^. bakerElectionVerifyKey)
-                                (baker0 ^. bakerSignatureVerifyKey)
-                                (baker0 ^. bakerAccount)
-                                "<dummy proof>"
+    [TJSON { payload = AddBaker (baker0 ^. _1 . bakerElectionVerifyKey)
+                                (baker0 ^. _2)
+                                (baker0 ^. _1 . bakerSignatureVerifyKey)
+                                (baker0 ^. _3)
+                                (BlockSig.verifyKey alesKP)
+                                (BlockSig.signKey alesKP)
            , metadata = makeHeader alesKP 1 10000
            , keypair = alesKP
            },
-     TJSON { payload = AddBaker (baker1 ^. bakerElectionVerifyKey)
-                                (baker1 ^. bakerSignatureVerifyKey)
-                                (baker1 ^. bakerAccount) "<dummy proof>"
+     TJSON { payload = AddBaker (baker1 ^. _1 . bakerElectionVerifyKey)
+                                (baker1 ^. _2)
+                                (baker1 ^. _1 . bakerSignatureVerifyKey)
+                                (baker1 ^. _3)
+                                (BlockSig.verifyKey alesKP)
+                                (BlockSig.signKey alesKP)
            , metadata = makeHeader alesKP 2 10000
            , keypair = alesKP
            },
-     TJSON { payload = AddBaker (baker2 ^. bakerElectionVerifyKey)
-                                (baker2 ^. bakerSignatureVerifyKey)
-                                (baker2 ^. bakerAccount) "<dummy proof>"
+     TJSON { payload = AddBaker (baker2 ^. _1 . bakerElectionVerifyKey)
+                                (baker2 ^. _2)
+                                (baker2 ^. _1 . bakerSignatureVerifyKey)
+                                (baker2 ^. _3)
+                                (BlockSig.verifyKey thomasKP)
+                                (BlockSig.signKey thomasKP)
            , metadata = makeHeader alesKP 3 10000
            , keypair = alesKP
            },
@@ -75,12 +84,12 @@ transactionsInput =
            , metadata = makeHeader alesKP 4 10000
            , keypair = alesKP
            },
-     TJSON { payload = UpdateBakerAccount 2 alesAccount "<dummy proof>"
+     TJSON { payload = UpdateBakerAccount 2 (BlockSig.verifyKey alesKP) (BlockSig.signKey alesKP)
            , metadata = makeHeader thomasKP 1 10000
            , keypair = thomasKP
            -- baker 2's account is Thomas account, so only it can update it
            },
-     TJSON { payload = UpdateBakerSignKey 0 (BlockSig.verifyKey (bakerSignKey 3)) "<dummy proof>"
+     TJSON { payload = UpdateBakerSignKey 0 (BlockSig.verifyKey (bakerSignKey 3)) (BlockSig.signKey (bakerSignKey 3))
            , metadata = makeHeader alesKP 5 10000
            , keypair = alesKP
            -- baker 0's account is Thomas account, so only it can update it
