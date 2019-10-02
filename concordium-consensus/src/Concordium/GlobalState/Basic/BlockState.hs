@@ -306,14 +306,17 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
     {-# INLINE bsoGetBlockBirkParameters #-}
     bsoGetBlockBirkParameters = return . _blockBirkParameters
 
-    bsoAddBaker bs binfo = return $
-        let
-            (bid, newBakers) = createBaker binfo (bs ^. blockBirkParameters . birkBakers)
-        in (bid, bs & blockBirkParameters . birkBakers .~ newBakers)
+    bsoAddBaker bs binfo = return $!
+        case createBaker binfo (bs ^. blockBirkParameters . birkBakers) of
+          Just(bid, newBakers) -> (Just bid, bs & blockBirkParameters . birkBakers .~ newBakers)
+          Nothing -> (Nothing, bs)
 
     -- NB: The caller must ensure the baker exists. Otherwise this method is incorrect and will raise a runtime error.
-    bsoUpdateBaker bs bupdate = return $
-        bs & blockBirkParameters . birkBakers %~ updateBaker bupdate
+    bsoUpdateBaker bs bupdate = return $!
+        let bakers = bs ^. blockBirkParameters . birkBakers
+        in case updateBaker bupdate bakers of
+             Nothing -> (False, bs)
+             Just newBakers -> (True, bs & blockBirkParameters . birkBakers .~ newBakers)
 
     bsoRemoveBaker bs bid = return $
         let
