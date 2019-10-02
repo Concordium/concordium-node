@@ -74,7 +74,7 @@ bakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     logEvent Baker LLInfo $ "Won lottery in " ++ show slot ++ "(lottery power: " ++ show lotteryPower ++ ")"
     nonce <- liftIO $ computeBlockNonce (_birkLeadershipElectionNonce birkParams)    slot bakerElectionKey
     lastFinal <- lastFinalizedBlock
-    let seedState'  = updateSeedState slot nonce _seedState
+    let seedState'  = updateSeedState slot nonce _birkSeedState
     (transactions, newState, energyUsed) <- processTransactions slot seedState' bb lastFinal bakerId
     logEvent Baker LLInfo $ "Baked block"
     receiveTime <- currentTime

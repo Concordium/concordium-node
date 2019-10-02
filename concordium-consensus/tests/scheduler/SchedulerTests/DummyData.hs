@@ -85,9 +85,10 @@ mkDummyCDI vfKey nregId =
 emptyBirkParameters :: BirkParameters
 emptyBirkParameters = BirkParameters {
   _birkElectionDifficulty = 0.5,
-  _birkBakers = emptyBakers,
-  _birkEpochBakers = (emptyBakers, emptyBakers),
-  _seedState = genesisSeedState (hash "NONCE") 360
+  _birkCurrentBakers = emptyBakers,
+  _birkPrevEpochBakers = emptyBakers,
+  _birkLotteryBakers = emptyBakers,
+  _birkSeedState = genesisSeedState (hash "NONCE") 360
   }
 
 bakerElectionKey :: Int -> BakerElectionPrivateKey

@@ -13,9 +13,11 @@ import Concordium.Crypto.SHA256
 slotDependentBirkParameters :: Slot -> BirkParameters -> BirkParameters
 slotDependentBirkParameters slot bps@BirkParameters{..} = 
   bps {
-    _seedState = getSlotDependentSeedState slot _seedState,
-    -- save the stake distribution from the end of the epoch, use stake distribution saved from the former epoch for leader election
-    _birkEpochBakers = (_birkBakers,  fst _birkEpochBakers)}
+    _birkSeedState = getSlotDependentSeedState slot _birkSeedState,
+    -- use stake distribution saved from the former epoch for leader election
+    _birkLotteryBakers = _birkPrevEpochBakers,
+    -- save the stake distribution from the end of the epoch
+    _birkPrevEpochBakers = _birkCurrentBakers}
 
 
 -- |Instantiate a seed state: leadership election nonce should be random, epoch length should be long, but not too long...

@@ -130,9 +130,9 @@ getBlockBirkParameters hash sfsRef = runStateQuery sfsRef $
     "bakers" .= Array (fromList .
                        map (\(bid, BakerInfo{..}) -> object ["bakerId" .= (toInteger bid)
                                                             ,"bakerAccount" .= show _bakerAccount
-                                                            ,"bakerLotteryPower" .= ((fromIntegral _bakerStake :: Double) / fromIntegral (_bakerTotalStake (snd _birkEpochBakers)))
+                                                            ,"bakerLotteryPower" .= ((fromIntegral _bakerStake :: Double) / fromIntegral (_bakerTotalStake _birkLotteryBakers))
                                                             ]) .
-                       Map.toList $ _bakerMap $ (snd _birkEpochBakers) )
+                       Map.toList $ _bakerMap _birkLotteryBakers )
     ]
 
 getModuleList :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
@@ -269,7 +269,7 @@ checkBakerExistsBestBlock :: (SkovStateQueryable z m)
 checkBakerExistsBestBlock key sfsRef = runStateQuery sfsRef $ do
   bb <- bestBlock
   bps <- BS.getBlockBirkParameters (bpState bb)
-  case bps ^. birkBakers . bakersByKey . at key of
+  case bps ^. birkCurrentBakers . bakersByKey . at key of
     Nothing -> return False
     Just _ -> return True
 
