@@ -167,15 +167,18 @@ fn index(state: State) -> (State, HTMLStringResponse) {
 
 fn nodes_summary(state: State) -> (State, JSONStringResponse) {
     let state_data = CollectorStateData::borrow_from(&state);
-    let elements = {
+    let mut response = Vec::new();
+    {
         let map_lock = &*read_or_die!(state_data.nodes);
-        map_lock
-            .iter()
-            .map(|(_, value)| value.clone())
-            .collect::<Vec<NodeInfo>>()
-    };
-    let message = JSONStringResponse(serde_json::to_string(&elements).unwrap());
-    (state, message)
+
+        for node_info in map_lock.values() {
+            serde_json::to_writer(&mut response, node_info).unwrap()
+        }
+    }
+    (
+        state,
+        JSONStringResponse(String::from_utf8(response).unwrap()),
+    )
 }
 
 fn nodes_post_handler(mut state: State) -> Box<HandlerFuture> {
