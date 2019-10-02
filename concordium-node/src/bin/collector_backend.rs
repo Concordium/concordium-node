@@ -90,7 +90,10 @@ pub struct JSONStringResponse(pub String);
 
 impl IntoResponse for JSONStringResponse {
     fn into_response(self, state: &State) -> Response<Body> {
-        create_response(state, StatusCode::OK, mime::APPLICATION_JSON, self.0)
+        let mut res = create_response(state, StatusCode::OK, mime::APPLICATION_JSON, self.0);
+        res.headers_mut()
+            .insert("Access-Control-Allow-Origin", "*".parse().unwrap());
+        res
     }
 }
 
@@ -164,8 +167,14 @@ fn index(state: State) -> (State, HTMLStringResponse) {
 
 fn nodes_summary(state: State) -> (State, JSONStringResponse) {
     let state_data = CollectorStateData::borrow_from(&state);
-    let message =
-        JSONStringResponse(serde_json::to_string(&*read_or_die!(state_data.nodes)).unwrap());
+    let elements = {
+        let map_lock = &*read_or_die!(state_data.nodes);
+        map_lock
+            .iter()
+            .map(|(_, value)| value.clone())
+            .collect::<Vec<NodeInfo>>()
+    };
+    let message = JSONStringResponse(serde_json::to_string(&elements).unwrap());
     (state, message)
 }
 
