@@ -235,7 +235,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
         where
             accounts = bs ^. blockAccounts
             addr = acc ^. accountAddress
-            bakerUpdate = blockBirkParameters . birkBakers %~ addStake (acc ^. accountStakeDelegate) (acc ^. accountAmount)
+            bakerUpdate = blockBirkParameters . birkCurrentBakers %~ addStake (acc ^. accountStakeDelegate) (acc ^. accountAmount)
 
     bsoPutNewInstance bs mkInstance = return (instanceAddress, bs')
         where
@@ -247,7 +247,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
                 -- Update the owner accounts set of instances
                 & blockAccounts . ix instanceOwner . accountInstances %~ Set.insert instanceAddress
                 & maybe (error "Instance has invalid owner") 
-                    (\owner -> blockBirkParameters . birkBakers %~ addStake (owner ^. accountStakeDelegate) (Instances.instanceAmount inst))
+                    (\owner -> blockBirkParameters . birkCurrentBakers %~ addStake (owner ^. accountStakeDelegate) (Instances.instanceAmount inst))
                     (bs ^? blockAccounts . ix instanceOwner)
 
     bsoPutNewModule bs mref iface viface source = return $!
@@ -271,7 +271,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
     bsoModifyInstance bs caddr delta model = return $!
         bs & blockInstances %~ Instances.updateInstanceAt caddr delta model
         & maybe (error "Instance has invalid owner") 
-            (\owner -> blockBirkParameters . birkBakers %~ modifyStake (owner ^. accountStakeDelegate) delta)
+            (\owner -> blockBirkParameters . birkCurrentBakers %~ modifyStake (owner ^. accountStakeDelegate) delta)
             (bs ^? blockAccounts . ix instanceOwner)
         where
             inst = fromMaybe (error "Instance does not exist") $ bs ^? blockInstances . ix caddr
@@ -285,7 +285,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
                bs & blockAccounts %~ Account.putAccount updatedAccount
                                    . Account.recordRegId (cdvRegId cdi))
         -- If we change the amount, update the delegate
-        & (blockBirkParameters . birkBakers
+        & (blockBirkParameters . birkCurrentBakers
                     %~ modifyStake (account ^. accountStakeDelegate)
                                    (accountUpdates ^. BS.auAmount . non 0))
         where
@@ -307,21 +307,21 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
     bsoGetBlockBirkParameters = return . _blockBirkParameters
 
     bsoAddBaker bs binfo = return $!
-        case createBaker binfo (bs ^. blockBirkParameters . birkBakers) of
-          Just(bid, newBakers) -> (Just bid, bs & blockBirkParameters . birkBakers .~ newBakers)
+        case createBaker binfo (bs ^. blockBirkParameters . birkCurrentBakers) of
+          Just(bid, newBakers) -> (Just bid, bs & blockBirkParameters . birkCurrentBakers .~ newBakers)
           Nothing -> (Nothing, bs)
 
     -- NB: The caller must ensure the baker exists. Otherwise this method is incorrect and will raise a runtime error.
     bsoUpdateBaker bs bupdate = return $!
-        let bakers = bs ^. blockBirkParameters . birkBakers
+        let bakers = bs ^. blockBirkParameters . birkCurrentBakers
         in case updateBaker bupdate bakers of
              Nothing -> (False, bs)
-             Just newBakers -> (True, bs & blockBirkParameters . birkBakers .~ newBakers)
+             Just newBakers -> (True, bs & blockBirkParameters . birkCurrentBakers .~ newBakers)
 
     bsoRemoveBaker bs bid = return $ 
         let
-            (rv, bakers') = removeBaker bid $ bs ^. blockBirkParameters . birkBakers
-        in (rv, bs & blockBirkParameters . birkBakers .~ bakers')
+            (rv, bakers') = removeBaker bid $ bs ^. blockBirkParameters . birkCurrentBakers
+        in (rv, bs & blockBirkParameters . birkCurrentBakers .~ bakers')
 
     bsoSetInflation bs amnt = return $
         bs & blockBank . Rewards.mintedGTUPerSlot .~ amnt
@@ -341,12 +341,12 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
         where
             targetValid = case target of
                 Nothing -> True
-                Just bid -> isJust $ bs ^. blockBirkParameters . birkBakers . bakerMap . at bid
+                Just bid -> isJust $ bs ^. blockBirkParameters . birkCurrentBakers . bakerMap . at bid
             acct = fromMaybe (error "Invalid account address") $ bs ^? blockAccounts . ix aaddr
             stake = acct ^. accountAmount + 
                 sum [Instances.instanceAmount inst |
                         Just inst <- Set.toList (acct ^. accountInstances) <&> flip Instances.getInstance (bs ^. blockInstances)]
-            bs' = bs & blockBirkParameters . birkBakers %~ removeStake (acct ^. accountStakeDelegate) stake . addStake target stake
+            bs' = bs & blockBirkParameters . birkCurrentBakers %~ removeStake (acct ^. accountStakeDelegate) stake . addStake target stake
                     & blockAccounts . ix aaddr %~ (accountStakeDelegate .~ target)
 
     bsoGetIdentityProvider bs ipId =
@@ -361,7 +361,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
     bsoAddSpecialTransactionOutcome bs o =
       return $! bs & blockTransactionOutcomes . Transactions.outcomeSpecial %~ (o:)
 
-    bsoUpdateSeedState bs ss = return $ bs & blockBirkParameters . seedState .~ ss
+    bsoUpdateSeedState bs ss = return $ bs & blockBirkParameters . birkSeedState .~ ss
 
 
 -- |Initial block state.

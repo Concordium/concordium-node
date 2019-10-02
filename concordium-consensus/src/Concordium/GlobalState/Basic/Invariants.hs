@@ -26,8 +26,8 @@ invariantBlockState :: BlockState -> Either String ()
 invariantBlockState bs = do
         (creds, amp, totalBalance, delegationMap, ninstances) <- foldM checkAccount (Set.empty, Map.empty, 0, Map.empty, 0) (AT.toList $ Account.accountTable $ bs ^. blockAccounts)
         checkBinary (==) ninstances (instanceCount $ bs ^. blockInstances) "==" "accounted for instances" "all instances"
-        totalStake <- foldM (checkBaker delegationMap) 0 (Map.toList $ bs ^. blockBirkParameters . birkBakers . bakerMap)
-        checkBinary (==) totalStake (bs ^. blockBirkParameters . birkBakers . bakerTotalStake) "==" "total baker stake" "recorded amount"
+        totalStake <- foldM (checkBaker delegationMap) 0 (Map.toList $ bs ^. blockBirkParameters . birkCurrentBakers . bakerMap)
+        checkBinary (==) totalStake (bs ^. blockBirkParameters . birkCurrentBakers . bakerTotalStake) "==" "total baker stake" "recorded amount"
         let untrackedRegIds = Set.difference creds (bs ^. blockAccounts . to Account.accountRegIds)
         unless (null untrackedRegIds) $ Left $ "Untracked account reg ids: " ++ show untrackedRegIds
         let
