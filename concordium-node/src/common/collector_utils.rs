@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[allow(non_snake_case)]
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize)]
 pub struct NodeInfo {
     pub nodeName: String,
     pub nodeId: String,
