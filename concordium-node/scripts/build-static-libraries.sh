@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 GHC_BUILDER_VERSION="8.6.5"
-CABAL_BUILDER_VERSION="2.4.1.0"
+CABAL_BUILDER_VERSION="3.0.0.0"
 pacman -Sy
 pacman -Syyu --noconfirm
 pacman -S wget tar make m4 pkgconf autoconf automake grep python clang libtool ncurses which rustup binutils --noconfirm
@@ -50,19 +50,17 @@ chmod +x cabal
 mv cabal $HOME/.cabal/bin/
 export PATH=$PATH:$HOME/.cabal/bin
 
-cabal new-update
+cabal update
 
-(cd
-cabal new-install hpack)
-
-sed -i '/benchmark/,$d' /build/globalstate-mockup/globalstate/package.yaml
+wget https://github.com/sol/hpack/releases/download/0.32.0/hpack_linux.gz
+gzip -d hpack_linux.gz
+chmod +x hpack_linux
+mv hpack_linux $HOME/.cabal/bin/hpack
 
 (cd /build/acorn
  hpack
  cd /build/Concordium
  hpack
- # cd /build/crypto
- # hpack
  cd /build/globalstate-mockup/globalstate
  hpack
  cd /build/globalstate-mockup/globalstate-types
@@ -70,16 +68,18 @@ sed -i '/benchmark/,$d' /build/globalstate-mockup/globalstate/package.yaml
  cd /build/scheduler
  hpack)
 
-rm -rf ~/.cabal/store/ghc-$GHC_VERSION
-
 cd /build
 
-LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release cabal new-build all --flags="-dynamic"
-
+LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release:$(pwd)/globalstate-mockup/deps/concordium-global-state-sys/target/release cabal build all \
+               --constraint="Concordium -dynamic"\
+               --constraint="globalstate +rust"\
+               --constraint="scheduler +rust"\
+               --constraint="Concordium +rust"
 
 echo "Let's copy the binaries and their dependent libraries"
 cp dist-newstyle/build/x86_64-linux/ghc-$GHC_BUILDER_VERSION/Concordium-0.1.0.0/x/genesis/build/genesis/genesis /binaries/bin/
 cp $(pwd)/crypto/rust-src/target/release/*.so /binaries/lib/
+cp $(pwd)/globalstate-mockup/deps/concordium-global-state-sys/target/release/*.so /binaries/lib/
 
 echo "Let's copy the needed concordium libraries"
 for lib in $(find . -type f -name "*inplace.a"); do
@@ -101,12 +101,7 @@ done
 
 mkdir -p /target/rust
 cp -r $(pwd)/crypto/rust-src/target/release/*.a /target/rust/
-
-cd /target/rust
-for i in $(ls)
-do
-ar x $i
-done
+cp -r $(pwd)/globalstate-mockup/deps/concordium-global-state-sys/target/release/*.a /target/rust/
 
 echo "Removing debug symbols because certain distros can't update their stuff to be compliant with the spec"
 strip --strip-debug /target/vanilla/cabal/libHS* \
@@ -119,7 +114,27 @@ strip --strip-debug /target/vanilla/cabal/libHS* \
 strip --strip-debug /binaries/bin/* \
 		    /binaries/lib/*
 
-echo "Removing duplicated symbols"
+echo "Removing object files"
+echo "Expanding libraries"
+cd /target/rust
+for i in $(ls)
+do
+    if [[ $i != "libconcordium_global_state_sys.a" ]]; then
+        ar x $i
+    fi
+done
+
+mkdir crypto
+mv *.o crypto
+
+ar x libconcordium_global_state_sys.a
+
+mkdir gs
+mv *.o gs
+
+rm *a
+
+echo "Removing objects with standard symbols that collide with any other rust instance"
 for file in $(find . -type f -name "*.o"); do
   nm $file | grep "\(T __rust_alloc\)\|\(T __rdl_alloc\)|\(T __clzsi2\)" >> /dev/null;
   if [ $? -eq 0 ]; then
@@ -129,10 +144,18 @@ for file in $(find . -type f -name "*.o"); do
   fi
 done
 
+echo "Unifying duplicated objects that collide between both libraries"
+ar rcs libRcommon.a $(diff -sqr gs crypto | grep identical | cut -d" " -f2)
+rm $(diff -sqr gs crypto | grep identical | cut -d" " -f2,4)
 
-ar rcs libRcrypto.a *.o
+echo "Removing duplicated crypto objects that differ in name but collide between both libraries"
+rm gs/curve* gs/ec_vrf* gs/ed255* gs/eddsa* gs/ffi_helpers*
 
-rm *.o
+echo "Recreating the libraries"
+ar rcs libconcordium_global_state_sys.a gs/*.o
+ar rcs libRcrypto.a crypto/*.o
+
+rm -r gs crypto
 
 cd /build
 
@@ -140,5 +163,5 @@ echo "Done!"
 
 tar czf static-consensus-$GHC_VERSION.tar.gz /target
 tar czf static-consensus-binaries-$GHC_VERSION.tar.gz /binaries
-mv static-consensus-$GHC_VERSION.tar.gz /out 
-mv static-consensus-binaries-$GHC_VERSION.tar.gz /out 
+mv static-consensus-$GHC_VERSION.tar.gz /out
+mv static-consensus-binaries-$GHC_VERSION.tar.gz /out

@@ -29,32 +29,40 @@ cp cabal.project.local     $consensus_dir
 cabal new-update)
 
 # Build our stuff
-(rm -rf ~/.cabal/store/ghc-$GHCVER/
+(
+    cd $rootdir/../../deps/internal/consensus/crypto/rust-src/
+    cargo build
+    echo "Built rust crypto"
+    cd  $rootdir/../../concordium-global-state-sys/
+    cargo build
+    echo "Built rust global state"
+    rm -rf ~/.cabal/store/ghc-$GHCVER/
     cd $consensus_dir
-LD_LIBRARY_PATH=$rootdir/../../deps/internal/consensus/crypto/rust-src/target/release cabal new-build all --flags="-dynamic"
+    LD_LIBRARY_PATH=$rootdir/../../deps/internal/consensus/crypto/rust-src/target/release:$rootdir/../../concordium-global-state-sys/target/debug cabal new-build all --flags="-dynamic"
+    echo "Built consensus"
 
-rm -rf $rootdir/target
-mkdir -p $rootdir/target/{profiling,vanilla}/{cabal,concordium}
-mkdir -p $rootdir/target/rust
+    [[ -d $rootdir/target ]] || mkdir $rootdir/target
+    mkdir -p $rootdir/target/{profiling,vanilla}/{cabal,concordium}
+    mkdir -p $rootdir/target/rust
 
-# Copy our libraries
-echo "Let's copy the needed concordium libraries"
-for lib in $(find . -type f -name "*inplace.a"); do
-    cp $(pwd)/$lib $rootdir/target/vanilla/concordium;
-done
+    # Copy our libraries
+    echo "Let's copy the needed concordium libraries"
+    for lib in $(find . -type f -name "*inplace.a"); do
+        cp $(pwd)/$lib $rootdir/target/vanilla/concordium;
+    done
 
-for lib in $(find . -type f -name "*_p.a"); do
-    cp $(pwd)/$lib $rootdir/target/profiling/concordium;
-done
+    for lib in $(find . -type f -name "*_p.a"); do
+        cp $(pwd)/$lib $rootdir/target/profiling/concordium;
+    done
 
-echo "Let's copy the needed vendor libraries"
-for lib in $(find ~/.cabal/store/ghc-$GHCVER/ -type f -name "*[^_p].a"); do
-    cp $lib $rootdir/target/vanilla/cabal;
-done
+    echo "Let's copy the needed vendor libraries"
+    for lib in $(find ~/.cabal/store/ghc-$GHCVER/ -type f -name "*[^_p].a"); do
+        cp $lib $rootdir/target/vanilla/cabal;
+    done
 
-for lib in $(find ~/.cabal/store/ghc-$GHCVER/ -type f -name "*_p.a"); do
-    cp $lib $rootdir/target/profiling/cabal;
-done)
+    for lib in $(find ~/.cabal/store/ghc-$GHCVER/ -type f -name "*_p.a"); do
+        cp $lib $rootdir/target/profiling/cabal;
+    done)
 
 # Copy the rust libraries
 (echo "Let's copy the needed rust libraries"
@@ -81,7 +89,9 @@ done)
  for lib in $rustlibs; do
      rm $lib;
  done
- rm *.o)
+ rm *.o
+
+cp $rootdir/../../concordium-global-state-sys/target/debug/libconcordium_global_state_sys.a $rootdir/../../deps/internal/static-libs/linux/rust/)
 
 strip --strip-debug $rootdir/target/vanilla/cabal/libHS* $rootdir/target/vanilla/concordium/libHS* $rootdir/target/profiling/cabal/libHS* $rootdir/target/profiling/concordium/libHS*
 

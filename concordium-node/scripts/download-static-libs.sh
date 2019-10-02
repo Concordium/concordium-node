@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 
 set -e
-git submodule update --init --recursive
 BASEDIR="$( cd "$(dirname "$0")" ; pwd -P )"
-( 
+(
   cd $BASEDIR/../deps/internal/consensus
   VERSION_TAG=$(git rev-parse --verify HEAD)
   ARCHIVES_DIR=$BASEDIR/../deps/static-libs/linux/archives
@@ -27,7 +26,7 @@ BASEDIR="$( cd "$(dirname "$0")" ; pwd -P )"
       printf "Expanding downloaded archive\n"
       rm -rf target
       tar -xf $ARCHIVE
-      ( 
+      (
         cd target/
         printf "Replacing local version with upstream\n"
         rm -rf $BASEDIR/../deps/static-libs/linux/{profiling,rust,vanilla}

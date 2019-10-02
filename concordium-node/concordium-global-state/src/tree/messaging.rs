@@ -68,8 +68,10 @@ impl fmt::Display for ConsensusMessage {
             ($object:ty) => {{
                 if let Ok(object) = <$object>::deserialize(&self.payload) {
                     format!("{:?}", object)
+                } else if self.variant == PacketType::Block {
+                    format!("a block")
                 } else {
-                    format!("corrupted bytes")
+                    format!("corrupt packet or unknown packet type")
                 }
             }};
         }

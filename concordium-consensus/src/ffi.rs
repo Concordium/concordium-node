@@ -18,7 +18,10 @@ use concordium_common::{ConsensusFfiResponse, PacketType};
 use concordium_global_state::{
     block::*,
     finalization::*,
-    tree::messaging::{ConsensusMessage, MessageType},
+    tree::{
+        messaging::{ConsensusMessage, MessageType},
+        GlobalState,
+    },
 };
 
 extern "C" {
@@ -189,12 +192,14 @@ type DirectMessageCallback =
     extern "C" fn(peer_id: PeerId, message_type: i64, msg: *const c_char, msg_len: i64);
 
 extern "C" {
+    #[allow(improper_ctypes)]
     pub fn startConsensus(
         max_block_size: u64,
         genesis_data: *const u8,
         genesis_data_len: i64,
         private_data: *const u8,
         private_data_len: i64,
+        gsptr: *const GlobalState,
         broadcast_callback: BroadcastCallback,
         maximum_log_level: u8,
         log_callback: LogCallback,
@@ -307,6 +312,7 @@ pub fn get_consensus_ptr(
     enable_transfer_logging: bool,
     genesis_data: Vec<u8>,
     private_data: Option<Vec<u8>>,
+    gsptr: &GlobalState,
     maximum_log_level: ConsensusLogLevel,
 ) -> *mut consensus_runner {
     let genesis_data_len = genesis_data.len();
@@ -331,6 +337,7 @@ pub fn get_consensus_ptr(
                     genesis_data_len as i64,
                     c_string_private_data.as_ptr() as *const u8,
                     private_data_len as i64,
+                    gsptr as *const GlobalState,
                     broadcast_callback,
                     maximum_log_level as u8,
                     on_log_emited,
@@ -376,8 +383,9 @@ impl ConsensusContainer {
             )
         };
 
-        ConsensusFfiResponse::try_from(result)
-            .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code))
+        let return_code = ConsensusFfiResponse::try_from(result);
+
+        return_code.unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code))
     }
 
     pub fn get_consensus_status(&self) -> String {

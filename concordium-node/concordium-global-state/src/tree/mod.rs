@@ -1,15 +1,18 @@
 use chrono::prelude::{DateTime, Utc};
 use circular_queue::CircularQueue;
-use concordium_common::{
-    blockchain_types::BlockHash, indexed_vec::IndexedVec, network_types::PeerId,
-};
-use hash_hasher::{HashBuildHasher, HashedMap, HashedSet};
+use concordium_common::{blockchain_types::BlockHash, network_types::PeerId};
+use hash_hasher::{HashBuildHasher, HashedMap};
 use linked_hash_map::LinkedHashMap;
 use nohash_hasher::BuildNoHashHasher;
 use priority_queue::PriorityQueue;
 use rkv::{Rkv, SingleStore, StoreOptions};
 
-use std::{cmp::Ordering, fmt, mem, rc::Rc, time::Instant};
+use std::{
+    cmp::Ordering,
+    fmt, mem,
+    sync::{Arc, RwLock},
+    time::Instant,
+};
 
 use crate::{block::*, finalization::*, transaction::*};
 
@@ -26,6 +29,8 @@ impl PeerState {
             timestamp: Instant::now(),
         }
     }
+
+    pub fn is_catching_up(&self) -> bool { PeerStatus::CatchingUp == self.status }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
@@ -56,8 +61,9 @@ use messaging::{ConsensusMessage, GlobalStateError};
 use self::PendingQueueType::*;
 
 /// Holds the global state and related statistics.
-pub struct GlobalState<'a> {
-    pub data:           GlobalData<'a>,
+#[repr(C)]
+pub struct GlobalState {
+    pub data:           GlobalData,
     pub peers:          PriorityQueue<PeerId, PeerState, BuildNoHashHasher<PeerId>>,
     pub catch_up_stamp: u64,
     pub stats:          GlobalStats,
@@ -80,13 +86,13 @@ macro_rules! timed {
     }};
 }
 
-impl<'a> GlobalState<'a> {
+impl GlobalState {
     #[doc(hidden)]
-    pub fn new(genesis_data: &[u8], kvs_env: &'a Rkv, persistent: bool) -> Self {
+    pub fn new(genesis_data: &[u8], kvs: Arc<RwLock<Rkv>>, persistent: bool) -> Self {
         const MOVING_AVERAGE_QUEUE_LEN: usize = 16;
 
         Self {
-            data:           GlobalData::new(genesis_data, &kvs_env, persistent),
+            data:           GlobalData::new(genesis_data, kvs, persistent),
             peers:          Default::default(),
             catch_up_stamp: 0,
             stats:          GlobalStats::new(MOVING_AVERAGE_QUEUE_LEN),
@@ -99,20 +105,6 @@ impl<'a> GlobalState<'a> {
         self.stats.errors.push(err)
     }
 
-    pub fn is_tree_valid(&self) -> bool {
-        self.data.finalized_blocks.len() + self.data.live_blocks.len() > 1
-            && self.data.pending_queue_ref(AwaitingParentBlock).is_empty()
-            && self
-                .data
-                .pending_queue_ref(AwaitingLastFinalizedBlock)
-                .is_empty()
-            && self
-                .data
-                .pending_queue_ref(AwaitingLastFinalizedFinalization)
-                .is_empty()
-            && self.data.inapplicable_finalization_records.is_empty()
-    }
-
     pub fn delay_broadcast(&mut self, broadcast: ConsensusMessage) {
         self.data.delayed_broadcasts.push(broadcast);
     }
@@ -123,189 +115,92 @@ impl<'a> GlobalState<'a> {
         mem::replace(&mut self.data.delayed_broadcasts, Vec::new())
     }
 
-    pub fn iter_tree_since(
-        &self,
-        since: BlockHeight,
-    ) -> impl Iterator<Item = (&Block, Option<&FinalizationRecord>)> {
-        self.data.iter_tree_since(since)
-    }
-
-    #[doc(hidden)]
-    pub fn display_state(&self) {
-        info!(
-            "GlobalState data:\nblock tree: {:?}\nlast finalized: {:?}\nfinalization list: \
-             {:?}\ntree candidates: {:?}{}{}{}{}\n",
-            self.data.finalized_blocks.keys().collect::<Vec<_>>(),
-            self.data.last_finalized.hash,
-            self.data
-                .finalization_records
-                .iter()
-                .filter_map(|e| e.as_ref())
-                .map(|rec| &rec.block_pointer)
-                .collect::<Vec<_>>(),
-            self.data.live_blocks.keys().collect::<Vec<_>>(),
-            self.data.print_inapplicable_finalizations(),
-            self.data.print_pending_queue(AwaitingParentBlock),
-            self.data.print_pending_queue(AwaitingLastFinalizedBlock),
-            self.data
-                .print_pending_queue(AwaitingLastFinalizedFinalization),
-        );
-    }
-
     #[doc(hidden)]
     pub fn display_stats(&self) {
         info!("GlobalState stats: {}", self.stats);
     }
 }
 
-/// An alias used to represent queues for blocks that are not yet applicable to
-/// the tree.
-///
-/// The key is the missing block's hash and the values are affected pending
-/// blocks.
-type PendingQueue = HashedMap<BlockHash, HashedSet<PendingBlock>>;
-
 /// Holds the global state objects.
 #[allow(dead_code)]
-pub struct GlobalData<'a> {
+#[repr(C)]
+pub struct GlobalData {
     /// the kvs handle
-    kvs_env: &'a Rkv,
-    /// finalized blocks AKA the blockchain
-    pub finalized_blocks: LinkedHashMap<BlockHash, Rc<BlockPtr>, HashBuildHasher>,
+    pub kvs_env: Arc<RwLock<Rkv>>,
     /// persistent storage for finalized blocks
-    finalized_block_store: SingleStore,
+    pub finalized_block_store: SingleStore,
     /// finalization records; the blocks they point to are in the tree
-    pub finalization_records: IndexedVec<FinalizationRecord>,
+    pub finalization_records_store: SingleStore,
     /// the genesis block
-    pub genesis_block_ptr: Rc<BlockPtr>,
+    pub genesis_block_ptr: Arc<BlockPtr>,
     /// the last finalized block
-    pub last_finalized: Rc<BlockPtr>,
+    pub last_finalized: Arc<BlockPtr>,
+    /// the last finalization record
+    pub last_finalization_record: FinalizationRecord,
     /// valid blocks (parent and last finalized blocks are already in
     /// GlobalState) pending finalization
-    pub live_blocks: LinkedHashMap<BlockHash, Rc<BlockPtr>, HashBuildHasher>,
-    /// blocks waiting for their parent to be added to the tree
-    awaiting_parent_block: PendingQueue,
-    /// blocks waiting for their last finalized block to actually be finalized
-    awaiting_last_finalized_finalization: PendingQueue,
-    /// blocks waiting for their last finalized block to be included in the tree
-    awaiting_last_finalized_block: PendingQueue,
-    /// finalization records that point to blocks not present in the tree
-    inapplicable_finalization_records: HashedMap<BlockHash, FinalizationRecord>,
+    pub live_blocks: LinkedHashMap<BlockHash, Arc<BlockPtr>, HashBuildHasher>,
+    /// blocks waiting to be included ion the tree
+    pending_blocks: HashedMap<BlockHash, Arc<PendingBlock>>,
     /// contains transactions
     transaction_table: TransactionTable,
     /// incoming broacasts rejected during a catch-up round
     delayed_broadcasts: Vec<ConsensusMessage>,
 }
 
-impl<'a> GlobalData<'a> {
-    fn new(genesis_data: &[u8], kvs_env: &'a Rkv, persistent: bool) -> Self {
-        const GS_LONG_PREALLOCATION_SIZE: usize = 128;
+impl GlobalData {
+    fn new(genesis_data: &[u8], kvs_env: Arc<RwLock<Rkv>>, persistent: bool) -> Self {
         const GS_SHORT_PREALLOCATION_SIZE: usize = 16;
         const GS_ERR_PREALLOCATION_SIZE: usize = 16;
 
-        let genesis_block_ptr = Rc::new(BlockPtr::genesis(genesis_data));
+        let genesis_block_ptr = Arc::new(BlockPtr::genesis(genesis_data));
 
-        let mut finalization_records = IndexedVec::with_capacity(GS_LONG_PREALLOCATION_SIZE);
-        finalization_records.insert(0, FinalizationRecord::genesis(&genesis_block_ptr));
+        let last_finalization_record = FinalizationRecord::genesis(&genesis_block_ptr);
 
-        let finalized_block_store = kvs_env
-            .open_single("blocks", StoreOptions::create())
-            .unwrap();
+        let finalized_block_store = {
+            kvs_env
+                .read()
+                .unwrap()
+                .open_single("blocks", StoreOptions::create())
+                .expect("Couldn't open kvs store when reading the finalized block store")
+        };
+
+        let finalization_records_store = {
+            kvs_env
+                .read()
+                .unwrap()
+                .open_single("records", StoreOptions::create())
+                .expect("Couldn't open kvs store when reading the finalized record store")
+        };
 
         if !persistent {
-            let mut kvs_writer = kvs_env.write().unwrap(); // infallible
+            let kvs = kvs_env.write().unwrap();
+            let mut kvs_writer = kvs
+                .write()
+                .expect("Couldn't open kvs store when cleaning up the storage");
             finalized_block_store
                 .clear(&mut kvs_writer)
                 .map_err(|err| panic!("Can't clear the block store due to {}", err))
                 .ok();
         }
 
-        let mut finalized_blocks = LinkedHashMap::with_capacity_and_hasher(
-            GS_LONG_PREALLOCATION_SIZE,
-            HashBuildHasher::default(),
-        );
-        finalized_blocks.insert(genesis_block_ptr.hash.clone(), genesis_block_ptr);
+        let last_finalized = genesis_block_ptr.clone();
 
-        let genesis_block_ref = finalized_blocks.values().next().unwrap(); // safe; we just put it there
-        let last_finalized = Rc::clone(genesis_block_ref);
-        let genesis_block_ptr = Rc::clone(genesis_block_ref);
-
-        let genesis_to_store = Rc::clone(genesis_block_ref);
-
-        let mut global_state = Self {
+        Self {
             kvs_env,
             finalized_block_store,
-            finalized_blocks,
-            finalization_records,
-            genesis_block_ptr,
+            finalization_records_store,
+            genesis_block_ptr: genesis_block_ptr.clone(),
             last_finalized,
+            last_finalization_record,
             live_blocks: LinkedHashMap::with_capacity_and_hasher(
                 GS_SHORT_PREALLOCATION_SIZE,
                 HashBuildHasher::default(),
             ),
-            awaiting_parent_block: hashed!(HashedMap, GS_ERR_PREALLOCATION_SIZE),
-            awaiting_last_finalized_finalization: hashed!(HashedMap, GS_ERR_PREALLOCATION_SIZE),
-            awaiting_last_finalized_block: hashed!(HashedMap, GS_ERR_PREALLOCATION_SIZE),
-            inapplicable_finalization_records: hashed!(HashedMap, GS_ERR_PREALLOCATION_SIZE),
+            pending_blocks: hashed!(HashedMap, GS_ERR_PREALLOCATION_SIZE),
             transaction_table: TransactionTable::default(),
             delayed_broadcasts: Vec::new(),
-        };
-
-        // store the genesis block
-        global_state.store_block(&genesis_to_store);
-
-        global_state
-    }
-
-    fn pending_queue_ref(&self, queue: PendingQueueType) -> &PendingQueue {
-        match queue {
-            AwaitingParentBlock => &self.awaiting_parent_block,
-            AwaitingLastFinalizedBlock => &self.awaiting_last_finalized_block,
-            AwaitingLastFinalizedFinalization => &self.awaiting_last_finalized_finalization,
         }
-    }
-
-    fn pending_queue_mut(&mut self, queue: PendingQueueType) -> &mut PendingQueue {
-        match queue {
-            AwaitingParentBlock => &mut self.awaiting_parent_block,
-            AwaitingLastFinalizedBlock => &mut self.awaiting_last_finalized_block,
-            AwaitingLastFinalizedFinalization => &mut self.awaiting_last_finalized_finalization,
-        }
-    }
-
-    fn print_inapplicable_finalizations(&self) -> String {
-        if !self.inapplicable_finalization_records.is_empty() {
-            format!(
-                "\ninapplicable finalization records: {:?}",
-                self.inapplicable_finalization_records
-                    .keys()
-                    .collect::<Vec<_>>()
-            )
-        } else {
-            String::new()
-        }
-    }
-
-    fn print_pending_queue(&self, queue: PendingQueueType) -> String {
-        if self.pending_queue_ref(queue).is_empty() {
-            return String::new();
-        }
-
-        // it's heavy debugging at this point; we don't mind reallocating the string
-        let mut output = format!("\n{}: [", queue);
-
-        for (missing, affected) in self.pending_queue_ref(queue) {
-            output.push_str(&format!("{:?}: [", missing));
-            for pending_hash in affected.iter().map(|pb| &pb.hash) {
-                output.push_str(&format!("{:?}, ", pending_hash));
-            }
-            output.truncate(output.len() - 2);
-            output.push_str("], ");
-        }
-        output.truncate(output.len() - 2);
-        output.push_str("]");
-
-        output
     }
 }
 

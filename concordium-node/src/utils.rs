@@ -284,7 +284,7 @@ pub fn read_peers_from_dns_entries(
     if buffer.len() > 4 {
         match base64::decode(&buffer[..4]) {
             Ok(size_bytes) => {
-                let mut bytes_buf = Cursor::new(size_bytes);;
+                let mut bytes_buf = Cursor::new(size_bytes);
                 match bytes_buf.read_u16::<NetworkEndian>() {
                     Ok(size) => {
                         if size as usize == buffer.len() - 4 {

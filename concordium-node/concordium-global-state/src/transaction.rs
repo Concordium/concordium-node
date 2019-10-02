@@ -17,14 +17,15 @@ use crate::{
     parameters::{BakerElectionVerifyKey, BakerSignVerifyKey, BAKER_VRF_KEY},
 };
 
-const PAYLOAD_MAX_LEN: u32 = 512 * 1024 * 1024; // 512MB
+// const PAYLOAD_MAX_LEN: u32 = 512 * 1024 * 1024; // 512MB
 
 #[derive(Debug)]
 pub struct TransactionHeader {
-    scheme_id:          SchemeId,
-    sender_key:         ByteString,
+    pub scheme_id:      SchemeId,
+    pub sender_key:     ByteString,
     pub nonce:          Nonce,
-    gas_amount:         Energy,
+    pub gas_amount:     Energy,
+    pub payload_size:   u32,
     pub sender_account: AccountAddress,
 }
 
@@ -39,6 +40,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionHeader {
         let nonce = Nonce::try_from(nonce_raw)?;
 
         let gas_amount = NetworkEndian::read_u64(&read_ty!(cursor, Energy));
+        let payload_size = NetworkEndian::read_u32(&read_const_sized!(cursor, 4));
         let sender_account = AccountAddress::from((&*sender_key, scheme_id));
 
         let transaction_header = TransactionHeader {
@@ -46,6 +48,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionHeader {
             sender_key,
             nonce,
             gas_amount,
+            payload_size,
             sender_account,
         };
 
@@ -58,7 +61,8 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionHeader {
                 + size_of::<u16>()
                 + self.sender_key.len()
                 + size_of::<Nonce>()
-                + size_of::<Energy>(),
+                + size_of::<Energy>()
+                + size_of::<u32>(),
         );
 
         let _ = cursor.write(&[self.scheme_id as u8]);
@@ -66,39 +70,31 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionHeader {
         let _ = cursor.write_all(&self.sender_key);
         let _ = cursor.write_u64::<NetworkEndian>(self.nonce.0);
         let _ = cursor.write_u64::<NetworkEndian>(self.gas_amount);
+        let _ = cursor.write_u32::<NetworkEndian>(self.payload_size);
 
         cursor.into_inner()
     }
 }
 
 #[derive(Debug)]
-pub struct Transaction {
+pub struct BareTransaction {
     signature:   ByteString,
     pub header:  TransactionHeader,
     pub payload: TransactionPayload,
     pub hash:    TransactionHash,
 }
 
-impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Transaction {
+impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BareTransaction {
     type Source = &'a mut Cursor<&'b [u8]>;
 
     fn deserialize(cursor: Self::Source) -> Fallible<Self> {
         let initial_pos = cursor.position() as usize;
         let signature = read_bytestring_short_length(cursor, "transaction signature")?;
         let header = TransactionHeader::deserialize(cursor)?;
-        debug!("{:#?}", header);
-        let payload_len = NetworkEndian::read_u32(&read_const_sized!(cursor, 4));
-        ensure!(
-            payload_len <= PAYLOAD_MAX_LEN,
-            "The payload size ({}) exceeds the protocol limit ({})!",
-            payload_len,
-            PAYLOAD_MAX_LEN,
-        );
-        let payload = TransactionPayload::deserialize((cursor, payload_len))?;
+        let payload = TransactionPayload::deserialize((cursor, header.payload_size))?;
 
         let hash = sha256(&cursor.get_ref()[initial_pos..cursor.position() as usize]);
-
-        let transaction = Transaction {
+        let transaction = BareTransaction {
             signature,
             header,
             payload,
@@ -117,18 +113,51 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Transaction {
         let payload = self.payload.serialize();
 
         let mut cursor = create_serialization_cursor(
-            size_of::<u16>()
-                + self.signature.len()
-                + header.len()
-                + size_of::<u32>()
-                + payload.len(),
+            size_of::<u16>() + self.signature.len() + header.len() + payload.len(),
         );
 
         let _ = cursor.write_u16::<NetworkEndian>(self.signature.len() as u16);
         let _ = cursor.write_all(&self.signature);
         let _ = cursor.write_all(&header);
-        let _ = cursor.write_u32::<NetworkEndian>(payload.len() as u32);
         let _ = cursor.write_all(&payload);
+
+        cursor.into_inner()
+    }
+}
+
+#[derive(Debug)]
+pub struct FullTransaction {
+    pub bare_transaction: BareTransaction,
+    pub arrival:          u64,
+}
+
+impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for FullTransaction {
+    type Source = &'a mut Cursor<&'b [u8]>;
+
+    fn deserialize(cursor: Self::Source) -> Fallible<Self> {
+        let initial_pos = cursor.position() as usize;
+        let bare_transaction = BareTransaction::deserialize(cursor)?;
+
+        let arrival = NetworkEndian::read_u64(&read_const_sized!(cursor, 8));
+        let transaction = FullTransaction {
+            bare_transaction,
+            arrival,
+        };
+        check_partial_serialization!(
+            transaction,
+            &cursor.get_ref()[initial_pos..cursor.position() as usize]
+        );
+
+        Ok(transaction)
+    }
+
+    fn serialize(&self) -> Box<[u8]> {
+        let bare_transaction = self.bare_transaction.serialize();
+
+        let mut cursor = create_serialization_cursor(bare_transaction.len() + size_of::<u64>());
+
+        let _ = cursor.write_all(&bare_transaction);
+        let _ = cursor.write_u64::<NetworkEndian>(self.arrival as u64);
 
         cursor.into_inner()
     }
@@ -457,7 +486,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
 }
 
 pub struct AccountNonFinalizedTransactions {
-    map:        IndexedVec<Vec<Transaction>>, // indexed by Nonce
+    map:        IndexedVec<Vec<BareTransaction>>, // indexed by Nonce
     next_nonce: Nonce,
 }
 
@@ -473,13 +502,13 @@ impl Default for AccountNonFinalizedTransactions {
 #[derive(Default)]
 pub struct TransactionTable {
     #[allow(dead_code)]
-    map: HashedMap<TransactionHash, (Transaction, Slot)>,
+    map: HashedMap<TransactionHash, (BareTransaction, Slot)>,
     pub(super) non_finalized_transactions:
         HashedMap<AccountAddress, AccountNonFinalizedTransactions>,
 }
 
 impl TransactionTable {
-    pub fn insert(&mut self, transaction: Transaction, finalized: bool) {
+    pub fn insert(&mut self, transaction: BareTransaction, finalized: bool) {
         if !finalized {
             let account_transactions = self
                 .non_finalized_transactions
