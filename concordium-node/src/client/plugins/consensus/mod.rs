@@ -12,7 +12,7 @@ use failure::Fallible;
 use std::{
     convert::TryFrom,
     fs::OpenOptions,
-    io::{self, Cursor, Read, Write},
+    io::{self, Read, Write},
     mem,
     sync::{mpsc::TrySendError, Arc},
 };
@@ -20,21 +20,20 @@ use std::{
 use concordium_common::{
     blockchain_types::TransactionHash,
     hybrid_buf::HybridBuf,
-    network_types::PeerId,
     ConsensusFfiResponse,
     PacketType::{self, *},
     QueueMsg,
 };
 
-use concordium_consensus::{consensus, ffi};
+use concordium_consensus::{
+    consensus::{self, PeerId},
+    ffi,
+};
 
 use concordium_global_state::{
-    block::PendingBlock,
-    common::{sha256, SerializeToBytes},
-    finalization::FinalizationRecord,
-    transaction::Transaction,
+    common::sha256,
     tree::{
-        messaging::{ConsensusMessage, DistributionMode, GlobalStateResult, MessageType},
+        messaging::{ConsensusMessage, DistributionMode, MessageType},
         GlobalState, PeerState, PeerStatus,
     },
 };
@@ -48,9 +47,11 @@ use crate::{
 
 pub fn start_consensus_layer(
     conf: &configuration::BakerConfig,
-    app_prefs: &configuration::AppPreferences,
+    gsptr: &GlobalState,
+    genesis_data: Vec<u8>,
+    private_data: Option<Vec<u8>>,
     max_logging_level: consensus::ConsensusLogLevel,
-) -> Option<consensus::ConsensusContainer> {
+) -> consensus::ConsensusContainer {
     info!("Starting up the consensus thread");
 
     #[cfg(feature = "profiling")]
@@ -63,23 +64,15 @@ pub fn start_consensus_layer(
     #[cfg(not(feature = "profiling"))]
     ffi::start_haskell();
 
-    match get_baker_data(app_prefs, conf, conf.baker_id.is_some()) {
-        Ok((genesis_data, private_data)) => {
-            let consensus = consensus::ConsensusContainer::new(
-                u64::from(conf.maximum_block_size),
-                conf.scheduler_outcome_logging,
-                genesis_data,
-                private_data,
-                conf.baker_id,
-                max_logging_level,
-            );
-            Some(consensus)
-        }
-        Err(_) => {
-            error!("Can't start the consensus layer!");
-            None
-        }
-    }
+    consensus::ConsensusContainer::new(
+        u64::from(conf.maximum_block_size),
+        conf.scheduler_outcome_logging,
+        genesis_data,
+        private_data,
+        conf.baker_id,
+        gsptr,
+        max_logging_level,
+    )
 }
 
 pub fn get_baker_private_data_json_file(
@@ -102,7 +95,7 @@ pub fn get_baker_private_data_json_file(
     }
 }
 
-fn get_baker_data(
+pub fn get_baker_data(
     app_prefs: &configuration::AppPreferences,
     conf: &configuration::BakerConfig,
     needs_private: bool,
@@ -209,7 +202,7 @@ pub fn handle_consensus_message(
     global_state: &mut GlobalState,
 ) -> Fallible<()> {
     if let MessageType::Outbound(_) = request.direction {
-        process_internal_gs_entry(node, network_id, request, global_state)?
+        process_internal_gs_entry(node, network_id, request)?
     } else {
         process_external_gs_entry(node, network_id, consensus, request, global_state)?
     }
@@ -231,47 +224,7 @@ fn process_internal_gs_entry(
     node: &P2PNode,
     network_id: NetworkId,
     request: ConsensusMessage,
-    global_state: &mut GlobalState,
 ) -> Fallible<()> {
-    let (entry_info, gs_result) = match request.variant {
-        PacketType::Block => {
-            let block = PendingBlock::new(&request.payload)?;
-            (format!("{:?}", block.block), global_state.add_block(block))
-        }
-        PacketType::FinalizationRecord => {
-            let record = FinalizationRecord::deserialize(&request.payload)?;
-            (
-                format!("{:?}", record),
-                global_state.add_finalization(record),
-            )
-        }
-        PacketType::Transaction => {
-            let transaction = Transaction::deserialize(&mut Cursor::new(&request.payload))?;
-            (
-                format!("{:?}", transaction.payload.transaction_type()),
-                global_state.add_transaction(transaction, false),
-            )
-        }
-        _ => (request.variant.to_string(), GlobalStateResult::IgnoredEntry),
-    };
-
-    match gs_result {
-        GlobalStateResult::SuccessfulEntry(entry) => {
-            trace!(
-                "GlobalState: successfully processed a {} from our consensus layer",
-                entry
-            );
-        }
-        GlobalStateResult::IgnoredEntry => {
-            trace!(
-                "GlobalState: ignoring a {} from our consensus layer",
-                request.variant
-            );
-        }
-        GlobalStateResult::Error(e) => global_state.register_error(e),
-        _ => {}
-    }
-
     send_consensus_msg_to_net(
         node,
         request.dont_relay_to(),
@@ -279,7 +232,7 @@ fn process_internal_gs_entry(
         request.target_peer().map(P2PNodeId),
         network_id,
         request.variant,
-        Some(entry_info),
+        None,
         &request.payload,
     )
 }
@@ -294,46 +247,11 @@ fn process_external_gs_entry(
     let self_node_id = node.self_peer.id;
     let source = P2PNodeId(request.source_peer());
 
-    let gs_result = match request.variant {
-        PacketType::Block => {
-            let block = PendingBlock::new(&request.payload)?;
-            global_state.add_block(block)
-        }
-        PacketType::FinalizationRecord => {
-            let record = FinalizationRecord::deserialize(&request.payload)?;
-            global_state.add_finalization(record)
-        }
-        PacketType::Transaction => {
-            let transaction = Transaction::deserialize(&mut Cursor::new(&request.payload))?;
-            global_state.add_transaction(transaction, false)
-        }
-        _ => GlobalStateResult::IgnoredEntry,
-    };
-
     // relay external messages to Consensus
     let consensus_result = send_msg_to_consensus(self_node_id, source, consensus, &request)?;
 
     // adjust the peer state(s) based on the feedback from Consensus
     update_peer_states(global_state, &request, consensus_result);
-
-    match gs_result {
-        GlobalStateResult::SuccessfulEntry(_entry_type) => {
-            trace!(
-                "GlobalState: {} successfully processed a {}",
-                node.self_peer.id,
-                request
-            );
-        }
-        GlobalStateResult::SuccessfulQuery(_result) => {}
-        GlobalStateResult::DuplicateEntry => {
-            debug!("GlobalState: got a duplicate {}", request);
-            return Ok(());
-        }
-        GlobalStateResult::Error(err) => {
-            global_state.register_error(err);
-        }
-        _ => {}
-    }
 
     // rebroadcast incoming broadcasts if applicable
     if request.distribution_mode() == DistributionMode::Broadcast
@@ -371,7 +289,10 @@ fn send_msg_to_consensus(
     };
 
     if consensus_response.is_acceptable() {
-        info!("Peer {} processed a {}", our_id, request,);
+        info!(
+            "Peer {} (myself) processed a {} from {}",
+            our_id, request.variant, source_id
+        );
     } else {
         debug!(
             "Peer {} couldn't process a {} due to error code {:?}",
@@ -393,7 +314,6 @@ pub fn send_consensus_msg_to_net(
     payload_desc: Option<String>,
     payload: &[u8],
 ) -> Fallible<()> {
-    let self_node_id = node.self_peer.id;
     let mut packet_buffer = HybridBuf::with_capacity(PAYLOAD_TYPE_LENGTH as usize + payload.len())?;
     packet_buffer
         .write_u16::<NetworkEndian>(payload_type as u16)
@@ -421,13 +341,10 @@ pub fn send_consensus_msg_to_net(
     let message_desc = payload_desc.unwrap_or_else(|| payload_type.to_string());
 
     match result {
-        Ok(_) => info!(
-            "Peer {} sent a {} containing a {}",
-            self_node_id, target_desc, message_desc,
-        ),
+        Ok(_) => info!("Sent a {} containing a {}", target_desc, message_desc,),
         Err(_) => error!(
-            "Peer {} couldn't send a {} containing a {}!",
-            self_node_id, target_desc, message_desc,
+            "Couldn't send a {} containing a {}!",
+            target_desc, message_desc,
         ),
     }
     Ok(())
