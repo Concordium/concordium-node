@@ -502,28 +502,27 @@ pub fn check_peer_states(
     consensus: &mut consensus::ConsensusContainer,
     global_state: &mut GlobalState,
 ) -> Fallible<()> {
+    use PeerStatus::*;
+
     // take advantage of the priority queue ordering
-    if let Some((&id, state)) = global_state.peers.peek() {
+    if let Some((id, state)) = global_state.peers.peek().map(|(&i, s)| (i, s)) {
         match state.status {
-            PeerStatus::CatchingUp => {
+            CatchingUp => {
                 // don't send any catch-up statuses while
                 // there are peers that are catching up
                 if get_current_stamp() > global_state.catch_up_stamp + MAX_CATCH_UP_TIME {
-                    warn!("Global state: peer {:016x} took too long to catch up", id);
-                    if let Some(peer_conn) = node
-                        .find_connection_by_id(P2PNodeId(id))
-                        .map(|conn| conn.token)
-                    {
-                        assert!(node.remove_connection(peer_conn));
-                    }
+                    debug!("Global state: peer {:016x} took too long to catch up", id);
+                    global_state
+                        .peers
+                        .change_priority(&id, PeerState::new(Pending));
                 }
             }
-            PeerStatus::Pending => {
+            Pending => {
                 // send a catch-up message to the first Pending peer
                 debug!("Global state: I need to catch up with peer {:016x}", id);
                 send_catch_up_status(node, network_id, consensus, global_state, id)?;
             }
-            PeerStatus::UpToDate => {
+            UpToDate => {
                 if !consensus.is_baking() && consensus.is_active() {
                     consensus.start_baker();
                 }
