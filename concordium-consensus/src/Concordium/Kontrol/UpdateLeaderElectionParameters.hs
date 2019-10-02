@@ -12,12 +12,22 @@ import Concordium.Crypto.SHA256
 
 slotDependentBirkParameters :: Slot -> BirkParameters -> BirkParameters
 slotDependentBirkParameters slot bps@BirkParameters{..} = 
-  bps {
-    _birkSeedState = getSlotDependentSeedState slot _birkSeedState,
-    -- use stake distribution saved from the former epoch for leader election
-    _birkLotteryBakers = _birkPrevEpochBakers,
-    -- save the stake distribution from the end of the epoch
-    _birkPrevEpochBakers = _birkCurrentBakers}
+  let
+    currentEpoch = theSlot $ slot `div` (epochLength _birkSeedState)
+    isInSameEpoch = currentEpoch == (epoch _birkSeedState)
+  in
+    if isInSameEpoch then
+      -- if the slot is in the same epoch as the predecessor, nothing changes
+      bps
+    else
+      -- if the slot is in a newer epoch, update the state of seed and bakers
+      bps {
+        -- leadership election nonce is updated recursively
+        _birkSeedState = getSlotDependentSeedState slot _birkSeedState,
+        -- use stake distribution saved from the former epoch for leader election
+        _birkLotteryBakers = _birkPrevEpochBakers,
+        -- save the stake distribution from the end of the epoch
+        _birkPrevEpochBakers = _birkCurrentBakers}
 
 
 -- |Instantiate a seed state: leadership election nonce should be random, epoch length should be long, but not too long...
@@ -25,9 +35,9 @@ genesisSeedState :: LeadershipElectionNonce -> EpochLength -> SeedState
 genesisSeedState nonce epochLength =
   SeedState nonce epochLength 0 []
 
--- |Get the seed state used in leader election for a particular slot and the seed state of the parent block
--- If the slot is in the same epoch as the slot of the parent, nothing changes
--- Else update the seed state, possibly iterating over empty epochs separating slot and parent
+-- |Get the updated seed state, possibly iterating over empty epochs separating slot and parent
+-- TODO this could be much cleaner
+-- TODO suggestion define successive empty epochs to have the same nonce?
 getSlotDependentSeedState :: Slot -- |The slot we need parameters for
                           -> SeedState -- |The seed state of the parent
                           -> SeedState
