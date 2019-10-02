@@ -247,11 +247,16 @@ class BlockStateQuery m => BlockStateOperations m where
   -- |Add a new baker to the baker pool. Assign a fresh baker identity to the
   -- new baker and return the assigned identity.
   -- This method should also update the next available baker id in the system.
-  bsoAddBaker :: UpdatableBlockState m -> BakerCreationInfo -> m (BakerId, UpdatableBlockState m)
-
-  -- |Update an existing baker's information. The method may assume that the baker with
+  -- If a baker with the given signing key already exists do nothing and
+  -- return 'Nothing'
+  bsoAddBaker :: UpdatableBlockState m -> BakerCreationInfo -> m (Maybe BakerId, UpdatableBlockState m)
+  
+  -- |Update an existing baker's information. The method may assume that the baker with 
   -- the given Id exists.
-  bsoUpdateBaker :: UpdatableBlockState m -> BakerUpdate -> m (UpdatableBlockState m)
+  -- If a baker with a given signing key already exists return 'False', and if the baker
+  -- was successfully updated return 'True'.
+  -- If updating the account the precondition of this method is that the reward account exists.
+  bsoUpdateBaker :: UpdatableBlockState m -> BakerUpdate -> m (Bool, UpdatableBlockState m)
 
   -- |Remove a baker from the list of allowed bakers. Return 'True' if a baker
   -- with given 'BakerId' existed, and 'False' otherwise.
