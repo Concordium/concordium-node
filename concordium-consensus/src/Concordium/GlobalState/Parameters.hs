@@ -47,25 +47,31 @@ instance Serialize CryptographicParameters where
 
 data BirkParameters = BirkParameters {
     _birkElectionDifficulty :: ElectionDifficulty,
-    _birkBakers :: !Bakers,
-    _birkEpochBakers :: !(Bakers, Bakers),
-    _seedState :: !SeedState
+    -- |The current stake of bakers. All updates should be to this state.
+    _birkCurrentBakers :: !Bakers,
+    -- |The state of bakers at the end of the previous epoch,
+    -- will be used as lottery bakers in next epoch.
+    _birkPrevEpochBakers :: !Bakers,
+    -- |The state of the bakers fixed before previous epoch, 
+    -- the lottery power and reward account is used in leader election.
+    _birkLotteryBakers :: !Bakers,
+    _birkSeedState :: !SeedState
 } deriving (Eq, Generic, Show)
 instance Serialize BirkParameters where
 
 makeLenses ''BirkParameters
 
 _birkLeadershipElectionNonce :: BirkParameters -> LeadershipElectionNonce
-_birkLeadershipElectionNonce = currentSeed . _seedState
+_birkLeadershipElectionNonce = currentSeed . _birkSeedState
 
 birkBaker :: BakerId -> BirkParameters -> Maybe (BakerInfo, LotteryPower)
-birkBaker bid bps = bakerData bid $ bps ^. birkBakers
+birkBaker bid bps = bakerData bid $ bps ^. birkCurrentBakers
 
 birkEpochBaker :: BakerId -> BirkParameters -> Maybe (BakerInfo, LotteryPower)
-birkEpochBaker bid bps = bakerData bid $ bps ^. birkEpochBakers ._2
+birkEpochBaker bid bps = bakerData bid $ bps ^. birkLotteryBakers
 
 birkEpochBakerByKeys :: BakerSignVerifyKey -> BirkParameters -> Maybe (BakerId, BakerInfo, LotteryPower)
-birkEpochBakerByKeys sigKey bps = case bps ^? birkEpochBakers ._2 . bakersByKey . ix sigKey of
+birkEpochBakerByKeys sigKey bps = case bps ^? birkLotteryBakers . bakersByKey . ix sigKey of
         Just bid -> birkEpochBaker bid bps <&> \(binfo, lotPow) -> (bid, binfo, lotPow)
         _ -> Nothing
 
@@ -231,12 +237,13 @@ parametersToGenesisData GenesisParameters{..} = GenesisData{..}
         genesisMintPerSlot = gpMintPerSlot
         genesisTime = gpGenesisTime
         genesisSlotDuration = gpSlotDuration
+        genesisBakers = fst (bakersFromList (mkBaker <$> gpBakers))
         genesisBirkParameters = BirkParameters {
             _birkElectionDifficulty = gpElectionDifficulty,
-            _birkBakers = fst (bakersFromList (mkBaker <$> gpBakers)),
-            _birkEpochBakers = (fst (bakersFromList (mkBaker <$> gpBakers)), fst (bakersFromList (mkBaker <$> gpBakers))),
-
-            _seedState = genesisSeedState gpLeadershipElectionNonce gpEpochLength
+            _birkCurrentBakers = genesisBakers,
+            _birkPrevEpochBakers = genesisBakers,
+            _birkLotteryBakers = genesisBakers,
+            _birkSeedState = genesisSeedState gpLeadershipElectionNonce gpEpochLength
         }
         mkBaker GenesisBaker{..} = BakerInfo 
                 gbElectionVerifyKey
