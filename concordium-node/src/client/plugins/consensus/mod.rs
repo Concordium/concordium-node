@@ -14,7 +14,7 @@ use std::{
     fs::OpenOptions,
     io::{self, Cursor, Read, Write},
     mem,
-    sync::Arc,
+    sync::{mpsc::TrySendError, Arc},
 };
 
 use concordium_common::{
@@ -23,6 +23,7 @@ use concordium_common::{
     network_types::PeerId,
     ConsensusFfiResponse,
     PacketType::{self, *},
+    QueueMsg,
 };
 
 use concordium_consensus::{consensus, ffi};
@@ -33,9 +34,7 @@ use concordium_global_state::{
     finalization::FinalizationRecord,
     transaction::Transaction,
     tree::{
-        messaging::{
-            ConsensusMessage, DistributionMode, GlobalStateMessage, GlobalStateResult, MessageType,
-        },
+        messaging::{ConsensusMessage, DistributionMode, GlobalStateResult, MessageType},
         GlobalState, PeerState, PeerStatus,
     },
 };
@@ -186,33 +185,20 @@ pub fn handle_pkt_out(
         DistributionMode::Direct
     };
 
-    let request = GlobalStateMessage::ConsensusMessage(ConsensusMessage::new(
+    let request = QueueMsg::Relay(ConsensusMessage::new(
         MessageType::Inbound(peer_id.0, distribution_mode),
         packet_type,
         payload,
         dont_relay_to.into_iter().map(P2PNodeId::as_raw).collect(),
     ));
 
-    if node.global_state_sender.send(request).is_err() {
-        panic!("A global state channel is down!");
-    } else {
-        Ok(())
+    match node.global_state_sender.try_send(request) {
+        Err(TrySendError::Full(_)) => warn!("The global state queue is full!"),
+        Err(TrySendError::Disconnected(_)) => panic!("The global state channel is down!"),
+        Ok(_) => {}
     }
-}
 
-pub fn handle_global_state_request(
-    node: &P2PNode,
-    network_id: NetworkId,
-    consensus: &mut consensus::ConsensusContainer,
-    request: GlobalStateMessage,
-    global_state: &mut GlobalState,
-) -> Fallible<()> {
-    match request {
-        GlobalStateMessage::ConsensusMessage(req) => {
-            handle_consensus_message(node, network_id, consensus, req, global_state)
-        }
-        _ => unreachable!("Shutdown message is handled within the cli module"),
-    }
+    Ok(())
 }
 
 pub fn handle_consensus_message(

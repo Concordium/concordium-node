@@ -14,13 +14,13 @@ static A: System = System;
 use concordium_common::{
     spawn_or_die,
     stats_export_service::{StatsExportService, StatsServiceMode},
-    QueueMsg,
+    QueueMsg, QueueReceiver,
 };
 use concordium_consensus::{
     consensus::{ConsensusContainer, ConsensusLogLevel, CALLBACK_QUEUE},
     ffi,
 };
-use concordium_global_state::tree::{messaging::GlobalStateMessage, GlobalState};
+use concordium_global_state::tree::{messaging::ConsensusMessage, GlobalState};
 use p2p_client::{
     client::{
         plugins::{self, consensus::*},
@@ -38,7 +38,10 @@ use failure::Fallible;
 use rkv::{Manager, Rkv};
 
 use std::{
-    sync::{mpsc, Arc},
+    sync::{
+        mpsc::{self, TrySendError},
+        Arc,
+    },
     thread,
     time::Duration,
 };
@@ -268,7 +271,7 @@ fn start_global_state_thread(
     node: &Arc<P2PNode>,
     (conf, app_prefs): (&config::Config, &config::AppPreferences),
     consensus: ConsensusContainer,
-    global_state_receiver: mpsc::Receiver<GlobalStateMessage>,
+    global_state_receiver: QueueReceiver<ConsensusMessage>,
 ) -> std::thread::JoinHandle<()> {
     let is_global_state_persistent = conf.cli.baker.persist_global_state;
     let data_dir_path = app_prefs.get_user_app_dir();
@@ -323,17 +326,22 @@ fn start_global_state_thread(
             }
 
             for request in global_state_receiver.try_iter() {
-                if let GlobalStateMessage::Shutdown = request {
-                    warn!("Shutting the global state queues down");
-                    break 'outer_loop;
-                } else if let Err(e) = handle_global_state_request(
-                    &node_ref,
-                    nid,
-                    &mut consensus_ref,
-                    request,
-                    &mut global_state,
-                ) {
-                    error!("There's an issue with a global state request: {}", e);
+                match request {
+                    QueueMsg::Relay(msg) => {
+                        if let Err(e) = handle_consensus_message(
+                            &node_ref,
+                            nid,
+                            &mut consensus_ref,
+                            msg,
+                            &mut global_state,
+                        ) {
+                            error!("There's an issue with a global state request: {}", e);
+                        }
+                    }
+                    QueueMsg::Stop => {
+                        warn!("Closing the global state channel");
+                        break 'outer_loop;
+                    }
                 }
 
                 loop_interval = loop_interval.saturating_sub(1);
@@ -359,15 +367,13 @@ fn start_baker_thread(node: &P2PNode) -> std::thread::JoinHandle<()> {
         loop {
             if let Ok(msg) = receiver.recv() {
                 match msg {
-                    QueueMsg::Relay(msg) => {
-                        let msg = GlobalStateMessage::ConsensusMessage(msg);
-                        if let Err(e) = global_state_sender.send(msg) {
-                            error!(
-                                "Can't pass a consensus msg to the global state queue: {}",
-                                e
-                            );
+                    QueueMsg::Relay(_) => match global_state_sender.try_send(msg) {
+                        Err(TrySendError::Full(_)) => warn!("The global state queue is full!"),
+                        Err(TrySendError::Disconnected(_)) => {
+                            panic!("The global state channel is down!")
                         }
-                    }
+                        Ok(_) => {}
+                    },
                     QueueMsg::Stop => {
                         debug!("Shutting down consensus queues");
                         break;
