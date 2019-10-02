@@ -316,11 +316,7 @@ runKonsensusTest steps g states events
 runKonsensusTestSimple :: RandomGen g => Int -> g -> States -> EventPool -> IO Property
 runKonsensusTestSimple steps g states events
         | steps <= 0 || null events = return
-#ifdef RUST
-            (case forM_ states $ \(_, _, s, _) -> invariantSkovFinalization s of
-#else
-            (case forM_ states $ \(_, _, s) -> invariantSkovFinalization s of
-#endif
+            (case forM_ states $ \s -> invariantSkovFinalization (s .^ _3) of
                 Left err -> counterexample ("Invariant failed: " ++ err) False
                 Right _ -> property True)
         | otherwise = do

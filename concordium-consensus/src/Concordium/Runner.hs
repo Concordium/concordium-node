@@ -89,9 +89,6 @@ asyncTriggerFinalizationCatchUp SyncRunner{..} (Just delay) = when (delay > 0) $
                     loop (n + 1)
         void $ forkIO $ loop 1
 
-
-
-#ifdef RUST
 -- |Make a 'SyncRunner' without starting a baker thread.
 makeSyncRunner :: forall m. LogMethod IO ->
                   Maybe (LogTransferMethod IO) ->
@@ -99,34 +96,27 @@ makeSyncRunner :: forall m. LogMethod IO ->
                   RuntimeParameters ->
                   GenesisData ->
                   BlockState (SkovBufferedM m) ->
+#ifdef RUST
                   GlobalStatePtr ->
+#endif
                   (SimpleOutMessage -> IO ()) ->
                   IO SyncRunner
+#ifdef RUST
 makeSyncRunner syncLogMethod syncLogTransferMethod syncBakerIdentity rtParams gen initBS gsptr syncCallback = do
-        let
-            syncFinalizationInstance = bakerFinalizationInstance syncBakerIdentity
-        sfs0 <- initialSkovBufferedHookedState syncFinalizationInstance rtParams gen initBS gsptr
-        syncState <- newMVar sfs0
-        syncBakerThread <- newEmptyMVar
-        syncFinalizationCatchUpActive <- newMVar Nothing
-        return $ SyncRunner{..}
 #else
--- |Make a 'SyncRunner' without starting a baker thread.
-makeSyncRunner :: forall m. LogMethod IO ->
-                  Maybe (LogTransferMethod IO) ->
-                  BakerIdentity ->
-                  RuntimeParameters ->
-                  GenesisData ->
-                  BlockState (SkovBufferedM m) -> (SimpleOutMessage -> IO ()) -> IO SyncRunner
 makeSyncRunner syncLogMethod syncLogTransferMethod syncBakerIdentity rtParams gen initBS syncCallback = do
+#endif
         let
             syncFinalizationInstance = bakerFinalizationInstance syncBakerIdentity
+#ifdef RUST
+        sfs0 <- initialSkovBufferedHookedState syncFinalizationInstance rtParams gen initBS gsptr
+#else
         sfs0 <- initialSkovBufferedHookedState syncFinalizationInstance rtParams gen initBS
+#endif
         syncState <- newMVar sfs0
         syncBakerThread <- newEmptyMVar
         syncFinalizationCatchUpActive <- newMVar Nothing
         return $ SyncRunner{..}
-#endif
 
 -- |Start the baker thread for a 'SyncRunner'.
 startSyncRunner :: SyncRunner -> IO ()
@@ -200,21 +190,24 @@ data SyncPassiveRunner = SyncPassiveRunner {
     syncPLogMethod :: LogMethod IO
 }
 
-#ifdef RUST
 -- |Make a 'SyncPassiveRunner', which does not support a baker thread.
-makeSyncPassiveRunner :: forall m. LogMethod IO -> RuntimeParameters -> GenesisData -> BlockState (SkovPassiveHookedM m) -> GlobalStatePtr -> IO SyncPassiveRunner
+makeSyncPassiveRunner :: forall m. LogMethod IO ->
+                        RuntimeParameters ->
+                        GenesisData ->
+                        BlockState (SkovPassiveHookedM m) ->
+#ifdef RUST
+                        GlobalStatePtr ->
+#endif
+                        IO SyncPassiveRunner
+#ifdef RUST
 makeSyncPassiveRunner syncPLogMethod rtParams gen initBS gsptr = do
         initialState <- initialSkovPassiveHookedState rtParams gen initBS gsptr
-        syncPState <- newMVar initialState
-        return $ SyncPassiveRunner{..}
 #else
--- |Make a 'SyncPassiveRunner', which does not support a baker thread.
-makeSyncPassiveRunner :: forall m. LogMethod IO -> RuntimeParameters -> GenesisData -> BlockState (SkovPassiveHookedM m) -> IO SyncPassiveRunner
 makeSyncPassiveRunner syncPLogMethod rtParams gen initBS = do
         initialState <- initialSkovPassiveHookedState rtParams gen initBS
+#endif
         syncPState <- newMVar initialState
         return $ SyncPassiveRunner{..}
-#endif
 
 runSkovPassiveMWithStateLog :: SyncPassiveRunner -> SkovPassiveHookedM LogIO a -> IO a
 runSkovPassiveMWithStateLog SyncPassiveRunner{..} =
