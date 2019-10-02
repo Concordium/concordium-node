@@ -19,9 +19,8 @@ use crate::{
 use chrono::prelude::*;
 use concordium_common::{
     cache::Cache, hybrid_buf::HybridBuf, serial::serialize_into_buffer,
-    stats_export_service::StatsExportService, QueueReceiver, QueueSyncSender, SerializeToBytes,
+    stats_export_service::StatsExportService, SerializeToBytes,
 };
-use concordium_global_state::tree::messaging::ConsensusMessage;
 use failure::{err_msg, Error, Fallible};
 #[cfg(not(target_os = "windows"))]
 use get_if_addrs;
@@ -165,8 +164,7 @@ impl ConnectionHandler {
 }
 
 pub struct Receivers {
-    pub network_requests:      Receiver<NetworkRawRequest>,
-    pub global_state_receiver: Option<QueueReceiver<ConsensusMessage>>,
+    pub network_requests: Receiver<NetworkRawRequest>,
 }
 
 #[allow(dead_code)] // caused by the dump_network feature; will fix in a follow-up
@@ -187,7 +185,6 @@ pub struct P2PNode {
     pub kvs:                  Arc<RwLock<Rkv>>,
     pub transactions_cache:   RwLock<Cache<Vec<u8>>>,
     pub stats_engine:         RwLock<StatsEngine>,
-    pub global_state_sender:  QueueSyncSender<ConsensusMessage>,
 }
 
 // a convenience macro to send an object to all connections
@@ -339,12 +336,9 @@ impl P2PNode {
 
         let (network_request_sender, network_request_receiver) =
             sync_channel(config::RAW_NETWORK_MSG_QUEUE_DEPTH);
-        let (global_state_sender, global_state_receiver) =
-            sync_channel(config::GLOBAL_STATE_QUEUE_DEPTH);
 
         let receivers = Receivers {
-            network_requests:      network_request_receiver,
-            global_state_receiver: Some(global_state_receiver),
+            network_requests: network_request_receiver,
         };
 
         let connection_handler =
@@ -377,7 +371,6 @@ impl P2PNode {
             kvs,
             transactions_cache,
             stats_engine,
-            global_state_sender,
         });
 
         // note: in order to avoid a lock over the self_ref, write to it as soon as it's

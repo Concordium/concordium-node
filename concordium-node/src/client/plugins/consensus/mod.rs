@@ -22,11 +22,10 @@ use concordium_common::{
     hybrid_buf::HybridBuf,
     ConsensusFfiResponse,
     PacketType::{self, *},
-    QueueMsg,
 };
 
 use concordium_consensus::{
-    consensus::{self, PeerId},
+    consensus::{self, PeerId, CALLBACK_QUEUE},
     ffi,
 };
 
@@ -178,17 +177,19 @@ pub fn handle_pkt_out(
         DistributionMode::Direct
     };
 
-    let request = QueueMsg::Relay(ConsensusMessage::new(
+    let request = ConsensusMessage::new(
         MessageType::Inbound(peer_id.0, distribution_mode),
         packet_type,
         payload,
         dont_relay_to.into_iter().map(P2PNodeId::as_raw).collect(),
-    ));
+    );
 
-    match node.global_state_sender.try_send(request) {
-        Err(TrySendError::Full(_)) => warn!("The global state queue is full!"),
-        Err(TrySendError::Disconnected(_)) => panic!("The global state channel is down!"),
+    match CALLBACK_QUEUE.send_blocking_msg(request) {
         Ok(_) => {}
+        Err(e) => match e.downcast::<TrySendError<ConsensusMessage>>()? {
+            TrySendError::Full(_) => warn!("The global state queue is full!"),
+            TrySendError::Disconnected(_) => panic!("The global state channel is down!"),
+        },
     }
 
     Ok(())
