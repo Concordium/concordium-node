@@ -14,13 +14,14 @@ use crate::{
     },
     p2p::{banned_nodes::BannedNode, fails, unreachable_nodes::UnreachableNodes},
     stats_engine::StatsEngine,
-    utils::{self, GlobalStateReceivers, GlobalStateSenders},
+    utils,
 };
 use chrono::prelude::*;
 use concordium_common::{
     cache::Cache, hybrid_buf::HybridBuf, serial::serialize_into_buffer,
     stats_export_service::StatsExportService, SerializeToBytes,
 };
+use concordium_global_state::tree::messaging::GlobalStateMessage;
 use failure::{err_msg, Error, Fallible};
 #[cfg(not(target_os = "windows"))]
 use get_if_addrs;
@@ -55,12 +56,6 @@ use std::{
 
 const SERVER: Token = Token(0);
 const BAN_STORE_NAME: &str = "bans";
-
-const MAX_FAILED_PACKETS_ALLOWED: u32 = 50;
-const MAX_UNREACHABLE_MARK_TIME: u64 = 86_400_000;
-const MAX_BOOTSTRAPPER_KEEP_ALIVE: u64 = 300_000;
-const MAX_NORMAL_KEEP_ALIVE: u64 = 1_200_000;
-const MAX_PREHANDSHAKE_KEEP_ALIVE: u64 = 120_000;
 
 #[derive(Clone)]
 pub struct P2PNodeConfig {
@@ -153,7 +148,7 @@ impl ConnectionHandler {
 
         ConnectionHandler {
             server,
-            next_id: AtomicUsize::new(2),
+            next_id: AtomicUsize::new(1),
             key_pair,
             event_log,
             buckets: RwLock::new(Buckets::new()),
@@ -170,8 +165,8 @@ impl ConnectionHandler {
 }
 
 pub struct Receivers {
-    pub network_requests:       Receiver<NetworkRawRequest>,
-    pub global_state_receivers: Option<GlobalStateReceivers>,
+    pub network_requests:      Receiver<NetworkRawRequest>,
+    pub global_state_receiver: Option<Receiver<GlobalStateMessage>>,
 }
 
 #[allow(dead_code)] // caused by the dump_network feature; will fix in a follow-up
@@ -192,7 +187,7 @@ pub struct P2PNode {
     pub kvs:                  Arc<RwLock<Rkv>>,
     pub transactions_cache:   RwLock<Cache<Vec<u8>>>,
     pub stats_engine:         RwLock<StatsEngine>,
-    pub global_state_senders: GlobalStateSenders,
+    pub global_state_sender:  SyncSender<GlobalStateMessage>,
 }
 
 // a convenience macro to send an object to all connections
@@ -344,11 +339,12 @@ impl P2PNode {
 
         let (network_request_sender, network_request_receiver) =
             sync_channel(config::RAW_NETWORK_MSG_QUEUE_DEPTH);
-        let (global_state_senders, global_state_receivers) = utils::create_global_state_queues();
+        let (global_state_sender, global_state_receiver) =
+            sync_channel(config::GLOBAL_STATE_QUEUE_DEPTH);
 
         let receivers = Receivers {
-            network_requests:       network_request_receiver,
-            global_state_receivers: Some(global_state_receivers),
+            network_requests:      network_request_receiver,
+            global_state_receiver: Some(global_state_receiver),
         };
 
         let connection_handler =
@@ -381,7 +377,7 @@ impl P2PNode {
             kvs,
             transactions_cache,
             stats_engine,
-            global_state_senders,
+            global_state_sender,
         });
 
         // note: in order to avoid a lock over the self_ref, write to it as soon as it's
@@ -604,7 +600,7 @@ impl P2PNode {
         let peer_type = self.peer_type();
 
         let is_conn_faulty = |conn: &Connection| -> bool {
-            conn.failed_pkts() >= MAX_FAILED_PACKETS_ALLOWED
+            conn.failed_pkts() >= config::MAX_FAILED_PACKETS_ALLOWED
                 || if let Some(max_latency) = self.config.max_latency {
                     conn.get_last_latency() >= max_latency
                 } else {
@@ -615,13 +611,14 @@ impl P2PNode {
         let is_conn_inactive = |conn: &Connection| -> bool {
             conn.is_post_handshake()
                 && ((peer_type == PeerType::Node
-                    && conn.last_seen() + MAX_NORMAL_KEEP_ALIVE < curr_stamp)
+                    && conn.last_seen() + config::MAX_NORMAL_KEEP_ALIVE < curr_stamp)
                     || (peer_type == PeerType::Bootstrapper
-                        && conn.last_seen() + MAX_BOOTSTRAPPER_KEEP_ALIVE < curr_stamp))
+                        && conn.last_seen() + config::MAX_BOOTSTRAPPER_KEEP_ALIVE < curr_stamp))
         };
 
         let is_conn_without_handshake = |conn: &Connection| -> bool {
-            !conn.is_post_handshake() && conn.last_seen() + MAX_PREHANDSHAKE_KEEP_ALIVE < curr_stamp
+            !conn.is_post_handshake()
+                && conn.last_seen() + config::MAX_PREHANDSHAKE_KEEP_ALIVE < curr_stamp
         };
 
         // Kill connections to nodes which are no longer seen
@@ -632,7 +629,7 @@ impl P2PNode {
         if peer_type != PeerType::Bootstrapper {
             self.connection_handler
                 .unreachable_nodes
-                .cleanup(curr_stamp - MAX_UNREACHABLE_MARK_TIME);
+                .cleanup(curr_stamp - config::MAX_UNREACHABLE_MARK_TIME);
         }
 
         // If the number of peers exceeds the desired value, close a random selection of

@@ -19,24 +19,23 @@ const APP_PREFERENCES_MAIN: &str = "main.config";
 pub const APP_PREFERENCES_KEY_VERSION: &str = "VERSION";
 pub const APP_PREFERENCES_PERSISTED_NODE_ID: &str = "PERSISTED_NODE_ID";
 
-// ticker thread loop interval
-pub const TICKER_INTERVAL_SECS: u8 = 1;
-
 // maximum time allowed for a peer to catch up with in milliseconds
 pub const MAX_CATCH_UP_TIME: u64 = 10_000;
 
 // queue depths
-pub const GS_HIGH_PRIO_QUEUE_DEPTH: usize = 1024 * 10;
-pub const GS_LOW_PRIO_QUEUE_DEPTH: usize = 1024 * 20;
+pub const GLOBAL_STATE_QUEUE_DEPTH: usize = 1024 * 25;
 pub const RAW_NETWORK_MSG_QUEUE_DEPTH: usize = 1024 * 25;
 pub const RPC_QUEUE_DEPTH: usize = 1024 * 25;
-pub const RESEND_QUEUE_DEPTH: usize = 1024 * 10;
-pub const CLI_PACKET_QUEUE_DEPTH: usize = 1024 * 25;
-pub const BOOT_PACKET_QUEUE_DEPTH: usize = 0;
 pub const EVENT_LOG_QUEUE_DEPTH: usize = 100;
 pub const DUMP_QUEUE_DEPTH: usize = 100;
 pub const DUMP_SWITCH_QUEUE_DEPTH: usize = 0;
-pub const OUTBOUND_QUEUE_DEPTH: usize = 1024 * 25;
+
+// connection-related consts
+pub const MAX_FAILED_PACKETS_ALLOWED: u32 = 50;
+pub const MAX_UNREACHABLE_MARK_TIME: u64 = 86_400_000;
+pub const MAX_BOOTSTRAPPER_KEEP_ALIVE: u64 = 300_000;
+pub const MAX_NORMAL_KEEP_ALIVE: u64 = 1_200_000;
+pub const MAX_PREHANDSHAKE_KEEP_ALIVE: u64 = 120_000;
 
 #[cfg(feature = "instrumentation")]
 #[derive(StructOpt, Debug)]
