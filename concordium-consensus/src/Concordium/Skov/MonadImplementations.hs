@@ -1,6 +1,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving, TypeFamilies, DerivingStrategies, DerivingVia, FlexibleInstances, MultiParamTypeClasses, UndecidableInstances, StandaloneDeriving #-}
 {-# LANGUAGE LambdaCase, RecordWildCards, TupleSections #-}
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TemplateHaskell, CPP #-}
 module Concordium.Skov.MonadImplementations where
 
 import Control.Monad
@@ -16,9 +16,10 @@ import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.Parameters
-import qualified Concordium.GlobalState.Rust.TreeState as Rust
-import qualified Concordium.GlobalState.Rust.Block as Rust
-import qualified Concordium.GlobalState.Basic.BlockState as Basic
+import qualified Concordium.GlobalState.Implementation.TreeState as Impl
+import qualified Concordium.GlobalState.Implementation.Block as Impl
+import qualified Concordium.GlobalState.Implementation.BlockState as Impl
+import qualified Concordium.GlobalState.Implementation as Impl
 import Concordium.Skov.Monad
 import Concordium.Skov.Query
 import Concordium.Skov.Update
@@ -128,14 +129,14 @@ instance (TimeMonad m, LoggerMonad m, TreeStateMonad m, MonadIO m,
 -- when the state implements 'SkovLenses'.
 newtype SkovQueryM s m a = SkovQueryM {runSkovQueryM :: StateT s m a}
     deriving (Functor, Applicative, Monad, TimeMonad, LoggerMonad, MonadState s)
-    deriving BlockStateQuery via (Rust.SkovTreeState s (StateT s m))
-    deriving BlockStateOperations via (Rust.SkovTreeState s (StateT s m))
-    deriving TreeStateMonad via (Rust.SkovTreeState s (StateT s m))
-    deriving SkovQueryMonad via (TSSkovWrapper (Rust.SkovTreeState s (StateT s m)))
+    deriving BlockStateQuery via (Impl.SkovTreeState s (StateT s m))
+    deriving BlockStateOperations via (Impl.SkovTreeState s (StateT s m))
+    deriving TreeStateMonad via (Impl.SkovTreeState s (StateT s m))
+    deriving SkovQueryMonad via (TSSkovWrapper (Impl.SkovTreeState s (StateT s m)))
 -- UndecidableInstances is required to allow these type instance declarations.
-type instance BlockPointer (SkovQueryM s m) = BlockPointer (Rust.SkovTreeState s (StateT s m))
-type instance UpdatableBlockState (SkovQueryM s m) = UpdatableBlockState (Rust.SkovTreeState s (StateT s m))
-type instance PendingBlock (SkovQueryM s m) = PendingBlock (Rust.SkovTreeState s (StateT s m))
+type instance BlockPointer (SkovQueryM s m) = BlockPointer (Impl.SkovTreeState s (StateT s m))
+type instance UpdatableBlockState (SkovQueryM s m) = UpdatableBlockState (Impl.SkovTreeState s (StateT s m))
+type instance PendingBlock (SkovQueryM s m) = PendingBlock (Impl.SkovTreeState s (StateT s m))
 
 
 
@@ -148,29 +149,37 @@ evalSkovQueryM (SkovQueryM a) st = evalStateT a st
 
 -- |Skov state without finalizion.
 data SkovPassiveState = SkovPassiveState {
-    _spsSkov :: !Rust.SkovData,
+    _spsSkov :: !Impl.SkovData,
     _spsFinalization :: !PassiveFinalizationState
 }
 makeLenses ''SkovPassiveState
 
-instance Rust.SkovLenses SkovPassiveState where
+instance Impl.SkovLenses SkovPassiveState where
     skov = spsSkov
 instance PassiveFinalizationStateLenses SkovPassiveState where
     pfinState = spsFinalization
 
-initialSkovPassiveState :: RuntimeParameters -> GenesisData -> Basic.BlockState -> Rust.GlobalStatePtr -> IO SkovPassiveState
+#ifdef RUST
+initialSkovPassiveState :: RuntimeParameters -> GenesisData -> Impl.BlockState -> Impl.GlobalStatePtr -> IO SkovPassiveState
 initialSkovPassiveState rtParams gen initBS gsptr = do
-  _spsSkov <- Rust.initialSkovData rtParams gen initBS gsptr
-  let _spsFinalization = initialPassiveFinalizationState (bpHash (Rust._skovGenesisBlockPointer _spsSkov))
+  _spsSkov <- Impl.initialSkovData rtParams gen initBS gsptr
+  let _spsFinalization = initialPassiveFinalizationState (bpHash (Impl._skovGenesisBlockPointer _spsSkov))
   return SkovPassiveState{..}
+#else
+initialSkovPassiveState :: RuntimeParameters -> GenesisData -> Impl.BlockState -> IO SkovPassiveState
+initialSkovPassiveState rtParams gen initBS = do
+  let _spsSkov = Impl.initialSkovData rtParams gen initBS
+      _spsFinalization = initialPassiveFinalizationState (bpHash (Impl._skovGenesisBlockPointer _spsSkov))
+  return SkovPassiveState{..}
+#endif
 
 newtype SkovPassiveM m a = SkovPassiveM {unSkovPassiveM :: StateT SkovPassiveState m a}
     deriving (Functor, Applicative, Monad, TimeMonad, LoggerMonad, MonadState SkovPassiveState, MonadIO)
-    deriving (BlockStateQuery, BlockStateOperations, TreeStateMonad) via (Rust.SkovTreeState SkovPassiveState (SkovPassiveM m))
+    deriving (BlockStateQuery, BlockStateOperations, TreeStateMonad) via (Impl.SkovTreeState SkovPassiveState (SkovPassiveM m))
     deriving (SkovQueryMonad, SkovMonad) via (TSSkovUpdateWrapper SkovPassiveState (SkovPassiveM m))
-type instance UpdatableBlockState (SkovPassiveM m) = Basic.BlockState
-type instance BlockPointer (SkovPassiveM m) = Rust.BlockPointer
-type instance PendingBlock (SkovPassiveM m) = Rust.PendingBlock
+type instance UpdatableBlockState (SkovPassiveM m) = Impl.BlockState
+type instance BlockPointer (SkovPassiveM m) = Impl.BlockPointer
+type instance PendingBlock (SkovPassiveM m) = Impl.PendingBlock
 
 instance Monad m => OnSkov (SkovPassiveM m) where
     {-# INLINE onBlock #-}
@@ -180,10 +189,18 @@ instance Monad m => OnSkov (SkovPassiveM m) where
     {-# INLINE logTransfer #-}
     logTransfer = return Nothing
 
-evalSkovPassiveM :: (MonadIO m) => SkovPassiveM m a -> RuntimeParameters -> GenesisData -> Basic.BlockState -> Rust.GlobalStatePtr -> m a
+#ifdef RUST
+evalSkovPassiveM :: (MonadIO m) => SkovPassiveM m a -> RuntimeParameters -> GenesisData -> Impl.BlockState -> Impl.GlobalStatePtr -> m a
 evalSkovPassiveM (SkovPassiveM a) rtParams gd bs0 gsptr = do
   initialState <- liftIO $ initialSkovPassiveState rtParams gd bs0 gsptr
   evalStateT a initialState
+#else
+evalSkovPassiveM :: (MonadIO m) => SkovPassiveM m a -> RuntimeParameters -> GenesisData -> Impl.BlockState -> m a
+evalSkovPassiveM (SkovPassiveM a) rtParams gd bs0 = do
+  initialState <- liftIO $ initialSkovPassiveState rtParams gd bs0
+  evalStateT a initialState
+#endif
+
 
 runSkovPassiveM :: SkovPassiveM m a -> SkovPassiveState -> m (a, SkovPassiveState)
 runSkovPassiveM (SkovPassiveM a) s = runStateT a s
@@ -191,29 +208,37 @@ runSkovPassiveM (SkovPassiveM a) s = runStateT a s
 
 -- |Skov state with active finalization.
 data SkovActiveState = SkovActiveState {
-    _sasSkov :: !Rust.SkovData,
+    _sasSkov :: !Impl.SkovData,
     _sasFinalization :: !FinalizationState
 }
 makeLenses ''SkovActiveState
 
-instance Rust.SkovLenses SkovActiveState where
+instance Impl.SkovLenses SkovActiveState where
     skov = sasSkov
 instance FinalizationStateLenses SkovActiveState where
     finState = sasFinalization
 
-initialSkovActiveState :: FinalizationInstance -> RuntimeParameters -> GenesisData -> Basic.BlockState -> Rust.GlobalStatePtr -> IO SkovActiveState
+#ifdef RUST
+initialSkovActiveState :: FinalizationInstance -> RuntimeParameters -> GenesisData -> Impl.BlockState -> Impl.GlobalStatePtr -> IO SkovActiveState
 initialSkovActiveState finInst rtParams gen initBS gsptr = do
-  _sasSkov <- Rust.initialSkovData rtParams gen initBS gsptr
-  let _sasFinalization = initialFinalizationState finInst (bpHash (Rust._skovGenesisBlockPointer _sasSkov)) (genesisFinalizationParameters gen)
+  _sasSkov <- Impl.initialSkovData rtParams gen initBS gsptr
+  let _sasFinalization = initialFinalizationState finInst (bpHash (Impl._skovGenesisBlockPointer _sasSkov)) (genesisFinalizationParameters gen)
   return SkovActiveState{..}
+#else
+initialSkovActiveState :: FinalizationInstance -> RuntimeParameters -> GenesisData -> Impl.BlockState -> IO SkovActiveState
+initialSkovActiveState finInst rtParams gen initBS = do
+  let _sasSkov = Impl.initialSkovData rtParams gen initBS
+      _sasFinalization = initialFinalizationState finInst (bpHash (Impl._skovGenesisBlockPointer _sasSkov)) (genesisFinalizationParameters gen)
+  return SkovActiveState{..}
+#endif
 
 newtype SkovActiveM m a = SkovActiveM {unSkovActiveM :: RWST FinalizationInstance SkovFinalizationEvents SkovActiveState m a}
     deriving (Functor, Applicative, Monad, TimeMonad, LoggerMonad, MonadState SkovActiveState, MonadReader FinalizationInstance, MonadWriter SkovFinalizationEvents, MonadIO)
-    deriving (BlockStateQuery, BlockStateOperations, TreeStateMonad) via (Rust.SkovTreeState SkovActiveState (SkovActiveM m))
+    deriving (BlockStateQuery, BlockStateOperations, TreeStateMonad) via (Impl.SkovTreeState SkovActiveState (SkovActiveM m))
     deriving (SkovQueryMonad, SkovMonad) via (TSSkovUpdateWrapper SkovActiveState (SkovActiveM m) )
-type instance UpdatableBlockState (SkovActiveM m) = Basic.BlockState
-type instance BlockPointer (SkovActiveM m) = Rust.BlockPointer
-type instance PendingBlock (SkovActiveM m) = Rust.PendingBlock
+type instance UpdatableBlockState (SkovActiveM m) = Impl.BlockState
+type instance BlockPointer (SkovActiveM m) = Impl.BlockPointer
+type instance PendingBlock (SkovActiveM m) = Impl.PendingBlock
 instance (TimeMonad m, LoggerMonad m, MonadIO m) => OnSkov (SkovActiveM m) where
     {-# INLINE onBlock #-}
     onBlock = notifyBlockArrival
@@ -234,34 +259,44 @@ runSkovActiveM (SkovActiveM a) fi fs = runRWST a fi fs
 
 -- |Skov state with buffered finalization.
 data SkovBufferedState = SkovBufferedState {
-    _sbsSkov :: !Rust.SkovData,
+    _sbsSkov :: !Impl.SkovData,
     _sbsFinalization :: !FinalizationState,
     _sbsBuffer :: !FinalizationBuffer
 }
 makeLenses ''SkovBufferedState
 
-instance Rust.SkovLenses SkovBufferedState where
+instance Impl.SkovLenses SkovBufferedState where
     skov = sbsSkov
 instance FinalizationStateLenses SkovBufferedState where
     finState = sbsFinalization
 instance FinalizationBufferLenses SkovBufferedState where
     finBuffer = sbsBuffer
 
-initialSkovBufferedState :: FinalizationInstance -> RuntimeParameters -> GenesisData -> Basic.BlockState -> Rust.GlobalStatePtr -> IO SkovBufferedState
+#ifdef RUST
+initialSkovBufferedState :: FinalizationInstance -> RuntimeParameters -> GenesisData -> Impl.BlockState -> Impl.GlobalStatePtr -> IO SkovBufferedState
 initialSkovBufferedState finInst rtParams gen initBS gsptr = do
-  _sbsSkov <- Rust.initialSkovData rtParams gen initBS gsptr
-  let _sbsFinalization = initialFinalizationState finInst (bpHash (Rust._skovGenesisBlockPointer _sbsSkov)) (genesisFinalizationParameters gen)
+  _sbsSkov <- Impl.initialSkovData rtParams gen initBS gsptr
+  let _sbsFinalization = initialFinalizationState finInst (bpHash (Impl._skovGenesisBlockPointer _sbsSkov)) (genesisFinalizationParameters gen)
   return SkovBufferedState{..}
     where
         _sbsBuffer = emptyFinalizationBuffer
+#else
+initialSkovBufferedState :: FinalizationInstance -> RuntimeParameters -> GenesisData -> Impl.BlockState -> IO SkovBufferedState
+initialSkovBufferedState finInst rtParams gen initBS = do
+  let _sbsSkov = Impl.initialSkovData rtParams gen initBS
+      _sbsFinalization = initialFinalizationState finInst (bpHash (Impl._skovGenesisBlockPointer _sbsSkov)) (genesisFinalizationParameters gen)
+  return SkovBufferedState{..}
+    where
+        _sbsBuffer = emptyFinalizationBuffer
+#endif
 
 newtype SkovBufferedM m a = SkovBufferedM {unSkovBufferedM :: RWST FinalizationInstance BufferedSkovFinalizationEvents SkovBufferedState m a}
     deriving (Functor, Applicative, Monad, TimeMonad, LoggerMonad, MonadState SkovBufferedState, MonadReader FinalizationInstance, MonadWriter BufferedSkovFinalizationEvents, MonadIO)
-    deriving (BlockStateQuery, BlockStateOperations, TreeStateMonad) via (Rust.SkovTreeState SkovBufferedState (SkovBufferedM m))
+    deriving (BlockStateQuery, BlockStateOperations, TreeStateMonad) via (Impl.SkovTreeState SkovBufferedState (SkovBufferedM m))
     deriving (SkovQueryMonad, SkovMonad) via (TSSkovUpdateWrapper SkovBufferedState (SkovBufferedM m))
-type instance UpdatableBlockState (SkovBufferedM m) = Basic.BlockState
-type instance BlockPointer (SkovBufferedM m) = Rust.BlockPointer
-type instance PendingBlock (SkovBufferedM m) = Rust.PendingBlock
+type instance UpdatableBlockState (SkovBufferedM m) = Impl.BlockState
+type instance BlockPointer (SkovBufferedM m) = Impl.BlockPointer
+type instance PendingBlock (SkovBufferedM m) = Impl.PendingBlock
 instance (TimeMonad m, LoggerMonad m, MonadIO m) => OnSkov (SkovBufferedM m) where
     {-# INLINE onBlock #-}
     onBlock = notifyBlockArrival
@@ -288,34 +323,44 @@ runSkovBufferedM (SkovBufferedM a) fi fs = runRWST a fi fs
 -- |Skov state with passive finalizion and transaction hooks.
 -- This keeps finalization messages, but does not process them.
 data SkovPassiveHookedState = SkovPassiveHookedState {
-    _sphsSkov :: !Rust.SkovData,
+    _sphsSkov :: !Impl.SkovData,
     _sphsFinalization :: !PassiveFinalizationState,
     _sphsHooks :: !TransactionHooks
 }
 makeLenses ''SkovPassiveHookedState
 
-instance Rust.SkovLenses SkovPassiveHookedState where
+instance Impl.SkovLenses SkovPassiveHookedState where
     skov = sphsSkov
 instance PassiveFinalizationStateLenses SkovPassiveHookedState where
     pfinState = sphsFinalization
 instance TransactionHookLenses SkovPassiveHookedState where
     hooks = sphsHooks
 
-initialSkovPassiveHookedState :: RuntimeParameters -> GenesisData -> Basic.BlockState -> Rust.GlobalStatePtr -> IO SkovPassiveHookedState
+#ifdef RUST
+initialSkovPassiveHookedState :: RuntimeParameters -> GenesisData -> Impl.BlockState -> Impl.GlobalStatePtr -> IO SkovPassiveHookedState
 initialSkovPassiveHookedState rtParams gen initBS gsptr = do
-  _sphsSkov <- Rust.initialSkovData rtParams gen initBS gsptr
-  let _sphsFinalization = initialPassiveFinalizationState (bpHash (Rust._skovGenesisBlockPointer _sphsSkov))
+  _sphsSkov <- Impl.initialSkovData rtParams gen initBS gsptr
+  let _sphsFinalization = initialPassiveFinalizationState (bpHash (Impl._skovGenesisBlockPointer _sphsSkov))
   return SkovPassiveHookedState{..}
   where
         _sphsHooks = emptyHooks
+#else
+initialSkovPassiveHookedState :: RuntimeParameters -> GenesisData -> Impl.BlockState -> IO SkovPassiveHookedState
+initialSkovPassiveHookedState rtParams gen initBS = do
+  let _sphsSkov = Impl.initialSkovData rtParams gen initBS
+      _sphsFinalization = initialPassiveFinalizationState (bpHash (Impl._skovGenesisBlockPointer _sphsSkov))
+  return SkovPassiveHookedState{..}
+  where
+        _sphsHooks = emptyHooks
+#endif
 
 newtype SkovPassiveHookedM m a = SkovPassiveHookedM {unSkovPassiveHookedM :: StateT SkovPassiveHookedState m a}
     deriving (Functor, Applicative, Monad, TimeMonad, LoggerMonad, MonadState SkovPassiveHookedState, MonadIO)
-    deriving (BlockStateQuery, BlockStateOperations, TreeStateMonad) via (Rust.SkovTreeState SkovPassiveHookedState (SkovPassiveHookedM m))
+    deriving (BlockStateQuery, BlockStateOperations, TreeStateMonad) via (Impl.SkovTreeState SkovPassiveHookedState (SkovPassiveHookedM m))
     deriving (SkovQueryMonad, SkovMonad) via (TSSkovUpdateWrapper SkovPassiveHookedState (SkovPassiveHookedM m))
-type instance UpdatableBlockState (SkovPassiveHookedM m) = Basic.BlockState
-type instance BlockPointer (SkovPassiveHookedM m) = Rust.BlockPointer
-type instance PendingBlock (SkovPassiveHookedM m) = Rust.PendingBlock
+type instance UpdatableBlockState (SkovPassiveHookedM m) = Impl.BlockState
+type instance BlockPointer (SkovPassiveHookedM m) = Impl.BlockPointer
+type instance PendingBlock (SkovPassiveHookedM m) = Impl.PendingBlock
 
 instance (TimeMonad m, MonadIO m, LoggerMonad m) => OnSkov (SkovPassiveHookedM m) where
     {-# INLINE onBlock #-}
@@ -327,24 +372,30 @@ instance (TimeMonad m, MonadIO m, LoggerMonad m) => OnSkov (SkovPassiveHookedM m
     {-# INLINE logTransfer #-}
     logTransfer = return Nothing
 
-evalSkovPassiveHookedM :: (MonadIO m) => SkovPassiveHookedM m a -> RuntimeParameters -> GenesisData -> Basic.BlockState -> Rust.GlobalStatePtr -> m a
+#ifdef RUST
+evalSkovPassiveHookedM :: (MonadIO m) => SkovPassiveHookedM m a -> RuntimeParameters -> GenesisData -> Impl.BlockState -> Impl.GlobalStatePtr -> m a
 evalSkovPassiveHookedM (SkovPassiveHookedM a) rtParams gd bs0 gsptr = do
   initialState <- liftIO $ initialSkovPassiveHookedState rtParams gd bs0 gsptr
   evalStateT a initialState
-
+#else
+evalSkovPassiveHookedM :: (MonadIO m) => SkovPassiveHookedM m a -> RuntimeParameters -> GenesisData -> Impl.BlockState -> m a
+evalSkovPassiveHookedM (SkovPassiveHookedM a) rtParams gd bs0 = do
+  initialState <- liftIO $ initialSkovPassiveHookedState rtParams gd bs0
+  evalStateT a initialState
+#endif
 runSkovPassiveHookedM :: SkovPassiveHookedM m a -> SkovPassiveHookedState -> m (a, SkovPassiveHookedState)
 runSkovPassiveHookedM (SkovPassiveHookedM a) s = runStateT a s
 
 -- |Skov state with buffered finalization and transaction hooks.
 data SkovBufferedHookedState = SkovBufferedHookedState {
-    _sbhsSkov :: !Rust.SkovData,
+    _sbhsSkov :: !Impl.SkovData,
     _sbhsFinalization :: !FinalizationState,
     _sbhsBuffer :: !FinalizationBuffer,
     _sbhsHooks :: !TransactionHooks
 }
 makeLenses ''SkovBufferedHookedState
 
-instance Rust.SkovLenses SkovBufferedHookedState where
+instance Impl.SkovLenses SkovBufferedHookedState where
     skov = sbhsSkov
 instance FinalizationStateLenses SkovBufferedHookedState where
     finState = sbhsFinalization
@@ -353,22 +404,33 @@ instance FinalizationBufferLenses SkovBufferedHookedState where
 instance TransactionHookLenses SkovBufferedHookedState where
     hooks = sbhsHooks
 
-initialSkovBufferedHookedState :: FinalizationInstance -> RuntimeParameters -> GenesisData -> Basic.BlockState -> Rust.GlobalStatePtr -> IO SkovBufferedHookedState
+#ifdef RUST
+initialSkovBufferedHookedState :: FinalizationInstance -> RuntimeParameters -> GenesisData -> Impl.BlockState -> Impl.GlobalStatePtr -> IO SkovBufferedHookedState
 initialSkovBufferedHookedState finInst rtParams gen initBS gsptr = do
-  _sbhsSkov <- Rust.initialSkovData rtParams gen initBS gsptr
-  let _sbhsFinalization = initialFinalizationState finInst (bpHash (Rust._skovGenesisBlockPointer _sbhsSkov)) (genesisFinalizationParameters gen)
+  _sbhsSkov <- Impl.initialSkovData rtParams gen initBS gsptr
+  let _sbhsFinalization = initialFinalizationState finInst (bpHash (Impl._skovGenesisBlockPointer _sbhsSkov)) (genesisFinalizationParameters gen)
   return SkovBufferedHookedState{..}
   where
         _sbhsBuffer = emptyFinalizationBuffer
         _sbhsHooks = emptyHooks
+#else
+initialSkovBufferedHookedState :: FinalizationInstance -> RuntimeParameters -> GenesisData -> Impl.BlockState -> IO SkovBufferedHookedState
+initialSkovBufferedHookedState finInst rtParams gen initBS = do
+  let _sbhsSkov = Impl.initialSkovData rtParams gen initBS
+      _sbhsFinalization = initialFinalizationState finInst (bpHash (Impl._skovGenesisBlockPointer _sbhsSkov)) (genesisFinalizationParameters gen)
+  return SkovBufferedHookedState{..}
+  where
+        _sbhsBuffer = emptyFinalizationBuffer
+        _sbhsHooks = emptyHooks
+#endif
 
 newtype SkovBufferedHookedM m a = SkovBufferedHookedM {unSkovBufferedHookedM :: RWST FinalizationInstance BufferedSkovFinalizationEvents SkovBufferedHookedState m a}
     deriving (Functor, Applicative, Monad, TimeMonad, LoggerMonad, MonadState SkovBufferedHookedState, MonadReader FinalizationInstance, MonadWriter BufferedSkovFinalizationEvents, MonadIO)
-    deriving (BlockStateQuery, BlockStateOperations, TreeStateMonad) via (Rust.SkovTreeState SkovBufferedHookedState (SkovBufferedHookedM m))
+    deriving (BlockStateQuery, BlockStateOperations, TreeStateMonad) via (Impl.SkovTreeState SkovBufferedHookedState (SkovBufferedHookedM m))
     deriving (SkovQueryMonad, SkovMonad) via (TSSkovUpdateWrapper SkovBufferedHookedState (SkovBufferedHookedM m) )
-type instance UpdatableBlockState (SkovBufferedHookedM m) = Basic.BlockState
-type instance BlockPointer (SkovBufferedHookedM m) = Rust.BlockPointer
-type instance PendingBlock (SkovBufferedHookedM m) = Rust.PendingBlock
+type instance UpdatableBlockState (SkovBufferedHookedM m) = Impl.BlockState
+type instance BlockPointer (SkovBufferedHookedM m) = Impl.BlockPointer
+type instance PendingBlock (SkovBufferedHookedM m) = Impl.PendingBlock
 instance (TimeMonad m, LoggerMonad m, MonadIO m) => OnSkov (SkovBufferedHookedM m) where
     {-# INLINE onBlock #-}
     onBlock bp = do
@@ -398,11 +460,11 @@ newtype SkovBufferedHookedLoggedM m a = SkovBufferedHookedLoggedM {
   unSkovBufferedHookedLoggedM :: RWST (FinalizationInstance, Maybe (LogTransferMethod IO)) BufferedSkovFinalizationEvents SkovBufferedHookedState m a
   }
     deriving (Functor, Applicative, Monad, TimeMonad, LoggerMonad, MonadState SkovBufferedHookedState, MonadReader (FinalizationInstance, Maybe (LogTransferMethod IO)), MonadWriter BufferedSkovFinalizationEvents, MonadIO, ATLMonad)
-    deriving (BlockStateQuery, BlockStateOperations, TreeStateMonad) via (Rust.SkovTreeState SkovBufferedHookedState (SkovBufferedHookedLoggedM m))
+    deriving (BlockStateQuery, BlockStateOperations, TreeStateMonad) via (Impl.SkovTreeState SkovBufferedHookedState (SkovBufferedHookedLoggedM m))
     deriving (SkovQueryMonad, SkovMonad) via (TSSkovUpdateWrapper SkovBufferedHookedState (SkovBufferedHookedLoggedM m) )
-type instance UpdatableBlockState (SkovBufferedHookedLoggedM m) = Basic.BlockState
-type instance BlockPointer (SkovBufferedHookedLoggedM m) = Rust.BlockPointer
-type instance PendingBlock (SkovBufferedHookedLoggedM m) = Rust.PendingBlock
+type instance UpdatableBlockState (SkovBufferedHookedLoggedM m) = Impl.BlockState
+type instance BlockPointer (SkovBufferedHookedLoggedM m) = Impl.BlockPointer
+type instance PendingBlock (SkovBufferedHookedLoggedM m) = Impl.PendingBlock
 instance (TimeMonad m, LoggerMonad m, MonadIO m) => OnSkov (SkovBufferedHookedLoggedM m) where
     {-# INLINE onBlock #-}
     onBlock bp = do

@@ -1,4 +1,4 @@
-{-# LANGUAGE ForeignFunctionInterface, LambdaCase, RecordWildCards, ScopedTypeVariables, OverloadedStrings, RankNTypes, TypeFamilies #-}
+{-# LANGUAGE ForeignFunctionInterface, LambdaCase, RecordWildCards, ScopedTypeVariables, OverloadedStrings, RankNTypes, TypeFamilies, CPP #-}
 module Concordium.External where
 
 import Foreign
@@ -28,15 +28,15 @@ import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Block
-import Concordium.GlobalState.Basic.Block as BSB hiding (makePendingBlock)
-import Concordium.GlobalState.Basic.BlockState as BSBS
-import Concordium.GlobalState.Rust.Block as RSB
-import Concordium.GlobalState.Rust.FFI as RSBS
+import Concordium.GlobalState.Implementation.Block as BSB hiding (makePendingBlock)
+import Concordium.GlobalState.Implementation.BlockState as BSBS
+import Concordium.GlobalState.Implementation.Block as RSB
+import Concordium.GlobalState.Implementation
 import Concordium.GlobalState.Finalization(FinalizationIndex(..),FinalizationRecord)
 import Concordium.GlobalState.BlockState as GSBS (BlockPointer)
 import qualified Concordium.GlobalState.TreeState as TS
 import qualified Concordium.GlobalState.BlockState as BS
-import Concordium.GlobalState.Rust.TreeState
+import Concordium.GlobalState.Implementation.TreeState
 import Concordium.Birk.Bake as Baker
 
 import Concordium.Runner
@@ -276,20 +276,30 @@ startConsensus ::
            Word64 -- ^Maximum block size.
            -> CString -> Int64 -- ^Serialized genesis data (c string + len)
            -> CString -> Int64 -- ^Serialized baker identity (c string + len)
+#ifdef RUST
            -> Ptr GlobalStateR
+#endif
            -> FunPtr BroadcastCallback -- ^Handler for generated messages
            -> Word8 -- ^Maximum log level (inclusive) (0 to disable logging).
            -> FunPtr LogCallback -- ^Handler for log events
            -> Word8 -- ^Whether to enable logging of transfer events (/= 0) or not (value 0).
            -> FunPtr LogTransferCallback -- ^Handler for logging transfer events
            -> IO (StablePtr ConsensusRunner)
+#ifdef RUST
 startConsensus maxBlock gdataC gdataLenC bidC bidLenC gsptr bcbk maxLogLevel lcbk enableTransferLogging ltcbk = do
+#else
+startConsensus maxBlock gdataC gdataLenC bidC bidLenC bcbk maxLogLevel lcbk enableTransferLogging ltcbk = do
+#endif
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
         case (decode gdata, decode bdata) of
             (Right genData, Right bid) -> do
+#ifdef RUST
                 foreignGsPtr <- newForeignPtr_ gsptr
                 bakerSyncRunner <- makeSyncRunner logM logT bid (RuntimeParameters (fromIntegral maxBlock)) genData (genesisState genData) foreignGsPtr bakerBroadcast
+#else
+                bakerSyncRunner <- makeSyncRunner logM logT bid (RuntimeParameters (fromIntegral maxBlock)) genData (genesisState genData) bakerBroadcast
+#endif
                 newStablePtr BakerRunner{..}
             _ -> ioError (userError $ "Error decoding serialized data.")
     where
@@ -301,16 +311,26 @@ startConsensus maxBlock gdataC gdataLenC bidC bidLenC gsptr bcbk maxLogLevel lcb
 startConsensusPassive ::
            Word64 -- ^Maximum block size.
            -> CString -> Int64 -- ^Serialized genesis data (c string + len)
+#ifdef RUST
            -> Ptr GlobalStateR
+#endif
            -> Word8 -- ^Maximum log level (inclusive) (0 to disable logging).
            -> FunPtr LogCallback -- ^Handler for log events
             -> IO (StablePtr ConsensusRunner)
+#ifdef RUST
 startConsensusPassive maxBlock gdataC gdataLenC gsptr maxLogLevel lcbk = do
+#else
+startConsensusPassive maxBlock gdataC gdataLenC maxLogLevel lcbk = do
+#endif
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         case (decode gdata) of
             (Right genData) -> do
+#ifdef RUST
                 foreignGsPtr <- newForeignPtr_ gsptr
                 passiveSyncRunner <- makeSyncPassiveRunner logM (RuntimeParameters (fromIntegral maxBlock)) genData (genesisState genData) foreignGsPtr
+#else
+                passiveSyncRunner <- makeSyncPassiveRunner logM (RuntimeParameters (fromIntegral maxBlock)) genData (genesisState genData)
+#endif
                 newStablePtr PassiveRunner{..}
             _ -> ioError (userError $ "Error decoding serialized data.")
     where
@@ -410,6 +430,7 @@ receiveBlock bptr cstr l = do
         Right (NormalBlock block0) -> do
                         logm External LLInfo $ "Block deserialized. Sending to consensus."
                         now <- currentTime
+#ifdef RUST
                         gsptr <- case c of
                           BakerRunner{..} -> liftIO $ do
                             st <- readMVar . syncState $ bakerSyncRunner
@@ -418,6 +439,9 @@ receiveBlock bptr cstr l = do
                             st <- readMVar . syncPState $ passiveSyncRunner
                             return . _skovGlobalStatePtr . _sphsSkov $ st
                         block <- makePendingBlock gsptr block0 now
+#else
+                        let block = makePendingBlock block0 now
+#endif
                         case c of
                             BakerRunner{..} -> do
                                 (res, evts) <- syncReceiveBlock bakerSyncRunner block
@@ -499,7 +523,7 @@ receiveTransaction bptr tdata len = do
                     return res
                 PassiveRunner{..} -> syncPassiveReceiveTransaction passiveSyncRunner tr
 
-runConsensusQuery :: ConsensusRunner -> (forall z m s. (Get.SkovStateQueryable z m, TS.TreeStateMonad m, MonadState s m, TS.PendingBlock m ~ RSB.PendingBlock, GSBS.BlockPointer m ~ RSB.BlockPointer) => z -> a) -> a
+runConsensusQuery :: ConsensusRunner -> (forall z m s. (Get.SkovStateQueryable z m, TS.TreeStateMonad m, MonadState s m, TS.PendingBlock m ~ RSB.PendingBlock, GSBS.BlockPointer m ~ BSBS.BlockPointer) => z -> a) -> a
 runConsensusQuery BakerRunner{..} f = f (syncState bakerSyncRunner)
 runConsensusQuery PassiveRunner{..} f = f (syncPState passiveSyncRunner)
 
@@ -852,7 +876,7 @@ receiveCatchUpStatus cptr src cstr l cbk = do
         Right cus -> do
             logm External LLDebug $ "Catch-up status message deserialized: " ++ show cus
             res <- runConsensusQuery c Get.handleCatchUpStatus cus
-            case res :: (Either String (Maybe ([Either FinalizationRecord RSBS.BlockPointer], CatchUpStatus), Bool)) of
+            case res :: (Either String (Maybe ([Either FinalizationRecord BSBS.BlockPointer], CatchUpStatus), Bool)) of
                 Left emsg -> logm Skov LLWarning emsg >> return ResultInvalid
                 Right (d, flag) -> do
                     let
@@ -870,9 +894,13 @@ receiveCatchUpStatus cptr src cstr l cbk = do
                     return $! if flag then ResultPendingBlock else ResultSuccess
 
 
-
+#ifdef RUST
 foreign export ccall startConsensus :: Word64 -> CString -> Int64 -> CString -> Int64 ->  Ptr GlobalStateR -> FunPtr BroadcastCallback -> Word8 -> FunPtr LogCallback -> Word8 -> FunPtr LogTransferCallback -> IO (StablePtr ConsensusRunner)
 foreign export ccall startConsensusPassive :: Word64 -> CString -> Int64 -> Ptr GlobalStateR -> Word8 -> FunPtr LogCallback -> IO (StablePtr ConsensusRunner)
+#else
+foreign export ccall startConsensus :: Word64 -> CString -> Int64 -> CString -> Int64 -> FunPtr BroadcastCallback -> Word8 -> FunPtr LogCallback -> Word8 -> FunPtr LogTransferCallback -> IO (StablePtr ConsensusRunner)
+foreign export ccall startConsensusPassive :: Word64 -> CString -> Int64 -> Word8 -> FunPtr LogCallback -> IO (StablePtr ConsensusRunner)
+#endif
 foreign export ccall stopConsensus :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall startBaker :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall stopBaker :: StablePtr ConsensusRunner -> IO ()

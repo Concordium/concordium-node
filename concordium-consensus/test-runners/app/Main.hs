@@ -1,5 +1,5 @@
 {-# LANGUAGE TupleSections, LambdaCase, OverloadedStrings #-}
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE LambdaCase, CPP #-}
 module Main where
 
 import Control.Concurrent
@@ -19,10 +19,10 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Instances
 import Concordium.GlobalState.BlockState(BlockPointerData(..))
-import Concordium.GlobalState.Rust.TreeState
-import Concordium.GlobalState.Basic.BlockState
-import Concordium.GlobalState.Rust.FFI
-import Concordium.GlobalState.Basic.Block (BakedBlock, Block(NormalBlock), getBlock)
+import Concordium.GlobalState.Implementation.TreeState
+import Concordium.GlobalState.Implementation.BlockState
+import Concordium.GlobalState.Implementation.Block (BakedBlock, Block(NormalBlock), getBlock)
+import Concordium.GlobalState.Implementation
 
 import Concordium.Types
 import Concordium.Runner
@@ -130,8 +130,12 @@ main = do
         let logT bh slot reason = do
               appendFile logTransferFile (show (bh, slot, reason))
               appendFile logTransferFile "\n"
+#ifdef RUST
         gsptr <- makeEmptyGlobalState gen
         (cin, cout, out) <- makeAsyncRunner logM (Just logT) bid defaultRuntimeParameters gen iState gsptr
+#else
+        (cin, cout, out) <- makeAsyncRunner logM (Just logT) bid defaultRuntimeParameters gen iState
+#endif
         _ <- forkIO $ sendTransactions cin trans
         return (cin, cout, out)) (zip [(0::Int) ..] bis)
     monitorChan <- newChan

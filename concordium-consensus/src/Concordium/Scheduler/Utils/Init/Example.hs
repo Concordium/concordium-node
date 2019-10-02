@@ -17,7 +17,7 @@ import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Concordium.Scheduler.Environment as Types
 
-import qualified Concordium.GlobalState.Basic.BlockState as BlockState
+import qualified Concordium.GlobalState.Implementation.BlockState as BlockState
 import qualified Concordium.GlobalState.Account as Acc
 import qualified Concordium.GlobalState.Modules as Mod
 import Concordium.GlobalState.Parameters(BirkParameters, CryptographicParameters)
