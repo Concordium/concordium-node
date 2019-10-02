@@ -20,10 +20,7 @@ use concordium_consensus::{
     consensus::{ConsensusContainer, ConsensusLogLevel, CALLBACK_QUEUE},
     ffi,
 };
-use concordium_global_state::tree::{
-    messaging::{DistributionMode, GlobalStateMessage},
-    GlobalState,
-};
+use concordium_global_state::tree::{messaging::GlobalStateMessage, GlobalState};
 use p2p_client::{
     client::{
         plugins::{self, consensus::*},
@@ -34,7 +31,7 @@ use p2p_client::{
     network::{NetworkId, NetworkMessage},
     p2p::*,
     rpc::RpcServerImpl,
-    utils::{self, get_config_and_logging_setup, GlobalStateReceivers},
+    utils::{self, get_config_and_logging_setup},
 };
 
 use failure::Fallible;
@@ -96,7 +93,7 @@ fn main() -> Fallible<()> {
     // Thread #2 (optional): the push gateway to Prometheus
     client_utils::start_push_gateway(&conf.prometheus, &stats_export_service, node.id())?;
 
-    let global_state_receivers = receivers.global_state_receivers.take().unwrap(); // always there
+    let global_state_receiver = receivers.global_state_receiver.take().unwrap(); // always there
 
     // Start the P2PNode
     //
@@ -141,7 +138,7 @@ fn main() -> Fallible<()> {
             &node,
             (&conf, &app_prefs),
             consensus.clone(),
-            global_state_receivers,
+            global_state_receiver,
         ))
     } else {
         None
@@ -271,7 +268,7 @@ fn start_global_state_thread(
     node: &Arc<P2PNode>,
     (conf, app_prefs): (&config::Config, &config::AppPreferences),
     consensus: ConsensusContainer,
-    global_state_receivers: GlobalStateReceivers,
+    global_state_receiver: mpsc::Receiver<GlobalStateMessage>,
 ) -> std::thread::JoinHandle<()> {
     let is_global_state_persistent = conf.cli.baker.persist_global_state;
     let data_dir_path = app_prefs.get_user_app_dir();
@@ -325,11 +322,7 @@ fn start_global_state_thread(
                 }
             }
 
-            for request in global_state_receivers
-                .high_prio
-                .try_iter()
-                .chain(global_state_receivers.low_prio.try_iter())
-            {
+            for request in global_state_receiver.try_iter() {
                 if let GlobalStateMessage::Shutdown = request {
                     warn!("Shutting the global state queues down");
                     break 'outer_loop;
@@ -359,7 +352,7 @@ fn start_global_state_thread(
 }
 
 fn start_baker_thread(node: &P2PNode) -> std::thread::JoinHandle<()> {
-    let global_state_senders = node.global_state_senders.clone();
+    let global_state_sender = node.global_state_sender.clone();
 
     spawn_or_die!("Process consensus messages", {
         let receiver = CALLBACK_QUEUE.receiver.lock().unwrap();
@@ -367,13 +360,8 @@ fn start_baker_thread(node: &P2PNode) -> std::thread::JoinHandle<()> {
             if let Ok(msg) = receiver.recv() {
                 match msg {
                     QueueMsg::Relay(msg) => {
-                        let is_direct = msg.distribution_mode() == DistributionMode::Direct;
                         let msg = GlobalStateMessage::ConsensusMessage(msg);
-                        if let Err(e) = if is_direct {
-                            global_state_senders.send_with_priority(msg)
-                        } else {
-                            global_state_senders.send(msg)
-                        } {
+                        if let Err(e) = global_state_sender.send(msg) {
                             error!(
                                 "Can't pass a consensus msg to the global state queue: {}",
                                 e

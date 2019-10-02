@@ -41,7 +41,7 @@ impl TryFrom<u8> for ConsensusLogLevel {
     }
 }
 
-const CONSENSUS_QUEUE_DEPTH: usize = 20000;
+const CONSENSUS_QUEUE_DEPTH: usize = 25 * 1024;
 
 pub struct ConsensusQueues {
     pub receiver: Mutex<QueueReceiver<ConsensusMessage>>,
