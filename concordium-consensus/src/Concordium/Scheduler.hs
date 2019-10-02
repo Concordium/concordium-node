@@ -17,11 +17,13 @@ import Acorn.Types(compile)
 import Concordium.Scheduler.Types
 import Concordium.Scheduler.Environment
 
+import qualified Data.Serialize as S
+import qualified Data.ByteString as BS
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.ID.Account as AH
 import qualified Concordium.ID.Types as ID
 
-import Concordium.GlobalState.Bakers(bakerSignatureVerifyKey, bakerAccount)
+import Concordium.GlobalState.Bakers(bakerAccount)
 import qualified Concordium.GlobalState.Instances as Ins
 import qualified Concordium.Scheduler.Cost as Cost
 
@@ -31,6 +33,8 @@ import qualified Data.HashMap.Strict as Map
 import Data.Maybe(fromJust)
 import qualified Data.Set as Set
 import qualified Data.HashSet as HashSet
+
+import qualified Concordium.Crypto.Proofs as Proofs
 
 import Control.Exception(assert)
 
@@ -147,7 +151,7 @@ dispatch msg = do
               handleDeployEncryptionKey senderAccount meta encKey
 
             AddBaker{..} ->
-              handleAddBaker senderAccount meta abElectionVerifyKey abSignatureVerifyKey abAccount abProof
+              handleAddBaker senderAccount meta abElectionVerifyKey abSignatureVerifyKey abAccount abProofSig abProofElection abProofAccount
 
             RemoveBaker{..} ->
               handleRemoveBaker senderAccount meta rbId rbProof
@@ -514,15 +518,15 @@ handleDeployEncryptionKey senderAccount meta encKey =
 
 -- |The following functions are placeholders until we have sigma protocols and
 -- can check these proofs.
-checkElectionKeyProof :: BakerElectionVerifyKey -> Proof -> Bool             
-checkElectionKeyProof _ _ = True
+checkElectionKeyProof :: BS.ByteString -> BakerElectionVerifyKey -> Proofs.Dlog25519Proof -> Bool             
+checkElectionKeyProof = Proofs.checkDlog25519ProofVRF
 
-checkSignatureVerifyKeyProof :: BakerSignVerifyKey -> Proof -> Bool             
-checkSignatureVerifyKeyProof _ _ = True
+checkSignatureVerifyKeyProof :: BS.ByteString -> BakerSignVerifyKey -> Proofs.Dlog25519Proof -> Bool             
+checkSignatureVerifyKeyProof = Proofs.checkDlog25519ProofSig
 
-checkAccountOwnership :: SigScheme.SchemeId -> ID.AccountVerificationKey -> Proof -> Bool             
-checkAccountOwnership _ _ _ = True
-
+checkAccountOwnership :: BS.ByteString -> SigScheme.SchemeId -> ID.AccountVerificationKey -> Proofs.Dlog25519Proof -> Bool             
+checkAccountOwnership challenge schId vfkey proof =
+  schId == SigScheme.Ed25519 && Proofs.checkDlog25519ProofSig challenge vfkey proof
 
 -- |Add a baker to the baker pool. The current logic for when this is allowed is as follows.
 --
@@ -548,9 +552,11 @@ handleAddBaker ::
     -> BakerElectionVerifyKey
     -> BakerSignVerifyKey
     -> AccountAddress
-    -> Proof
+    -> Proofs.Dlog25519Proof
+    -> Proofs.Dlog25519Proof
+    -> Proofs.Dlog25519Proof
     -> m TxResult
-handleAddBaker senderAccount meta abElectionVerifyKey abSignatureVerifyKey abAccount abProof =
+handleAddBaker senderAccount meta abElectionVerifyKey abSignatureVerifyKey abAccount abProofSig abProofElection abProofAccount =
   withDeposit senderAccount meta c k
   where c = tickEnergy Cost.addBaker
         k ls _ = do
@@ -566,21 +572,24 @@ handleAddBaker senderAccount meta abElectionVerifyKey abSignatureVerifyKey abAcc
             getAccount abAccount >>=
                 \case Nothing -> return $! TxReject (NonExistentRewardAccount abAccount) energyCost usedEnergy
                       Just Account{..} ->
-                        let electionP = checkElectionKeyProof abElectionVerifyKey abProof
-                            signP = checkSignatureVerifyKeyProof abSignatureVerifyKey abProof
-                            accountP = checkAccountOwnership _accountSignatureScheme _accountVerificationKey abProof
+                        let challenge = S.runPut (S.put abElectionVerifyKey <> S.put abSignatureVerifyKey <> S.put abAccount)
+                            electionP = checkElectionKeyProof challenge abElectionVerifyKey abProofElection
+                            signP = checkSignatureVerifyKeyProof challenge abSignatureVerifyKey abProofSig
+                            accountP = checkAccountOwnership challenge _accountSignatureScheme _accountVerificationKey abProofAccount
                         in if electionP && signP && accountP then do
                           -- the proof validates that the baker owns all the private keys.
                           -- Moreover at this point we know the reward account exists and belongs
                           -- to the baker.
                           -- Thus we can create the baker, starting it off with 0 lottery power.
-                          bid <- addBaker (BakerCreationInfo abElectionVerifyKey abSignatureVerifyKey abAccount)
-                          return $! TxSuccess [BakerAdded bid] energyCost usedEnergy
+                          mbid <- addBaker (BakerCreationInfo abElectionVerifyKey abSignatureVerifyKey abAccount)
+                          case mbid of
+                            Nothing -> return $! TxReject (DuplicateSignKey abSignatureVerifyKey) energyCost usedEnergy
+                            Just bid -> return $! TxSuccess [BakerAdded bid] energyCost usedEnergy
                         else return $ TxReject InvalidProof energyCost usedEnergy
 
 -- |Remove a baker from the baker pool.
 -- The current logic is that if the proof validates that the sender of the
--- transaction knows the baker's private key corresponding to its signature key.
+-- transaction is the reward account of the baker.
 -- TODO: Need to make sure that this proof is not duplicable (via the challenge prefix I suppose).
 handleRemoveBaker ::
   SchedulerMonad m
@@ -589,29 +598,23 @@ handleRemoveBaker ::
     -> BakerId
     -> Proof
     -> m TxResult
-handleRemoveBaker senderAccount meta rbId rbProof =
+handleRemoveBaker senderAccount meta rbId _rbProof =
   withDeposit senderAccount meta c k
   where c = tickEnergy Cost.removeBaker
         k ls _ = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost senderAccount energyCost
 
-          -- TODO:NB: during beta we have special accounts which can add and remove bakers.
-          -- in the future the logic will be different. Thus this branching here is temporary.
-          specialBetaAccounts <- getSpecialBetaAccounts
-          if not (HashSet.member (senderAccount ^. accountAddress) specialBetaAccounts) then
-            return $! TxReject (NotAllowedToManipulateBakers (senderAccount ^. accountAddress)) energyCost usedEnergy
-          else do
-            getBakerInfo rbId >>=
-                \case Nothing ->
-                        return $ TxReject (RemovingNonExistentBaker rbId) energyCost usedEnergy
-                      Just binfo ->
-                        if checkSignatureVerifyKeyProof (binfo ^. bakerSignatureVerifyKey) rbProof then do
-                          -- only the baker itself can remove themselves from the pool
-                          removeBaker rbId
-                          return $ TxSuccess [BakerRemoved rbId] energyCost usedEnergy
-                        else
-                          return $ TxReject (InvalidBakerRemoveSource (senderAccount ^. accountAddress)) energyCost usedEnergy
+          getBakerInfo rbId >>=
+              \case Nothing ->
+                      return $ TxReject (RemovingNonExistentBaker rbId) energyCost usedEnergy
+                    Just binfo ->
+                      if senderAccount ^. accountAddress == binfo ^. bakerAccount then do
+                        -- only the baker itself can remove themselves from the pool
+                        removeBaker rbId
+                        return $ TxSuccess [BakerRemoved rbId] energyCost usedEnergy
+                      else
+                        return $ TxReject (InvalidBakerRemoveSource (senderAccount ^. accountAddress)) energyCost usedEnergy
 
 -- |Update the baker's reward account. The transaction is considered valid if
 --
@@ -627,7 +630,7 @@ handleUpdateBakerAccount ::
     -> TransactionHeader
     -> BakerId
     -> AccountAddress
-    -> Proof
+    -> Proofs.Dlog25519Proof
     -> m TxResult
 handleUpdateBakerAccount senderAccount meta ubaId ubaAddress ubaProof =
   withDeposit senderAccount meta c k
@@ -646,9 +649,10 @@ handleUpdateBakerAccount senderAccount meta ubaId ubaAddress ubaProof =
                   getAccount ubaAddress >>= \case
                     Nothing -> return $! TxReject (NonExistentRewardAccount ubaAddress) energyCost usedEnergy
                     Just Account{..} ->
-                      let accountP = checkAccountOwnership _accountSignatureScheme _accountVerificationKey ubaProof
+                      let challenge = S.runPut (S.put ubaId <> S.put ubaAddress)
+                          accountP = checkAccountOwnership challenge _accountSignatureScheme _accountVerificationKey ubaProof
                       in if accountP then do
-                        updateBakerAccount ubaId ubaAddress
+                        _ <- updateBakerAccount ubaId ubaAddress
                         return $ TxSuccess [BakerAccountUpdated ubaId ubaAddress] energyCost usedEnergy
                       else return $ TxReject InvalidProof energyCost usedEnergy
                 else
@@ -665,7 +669,7 @@ handleUpdateBakerSignKey ::
     -> TransactionHeader
     -> BakerId
     -> BakerSignVerifyKey
-    -> Proof
+    -> Proofs.Dlog25519Proof
     -> m TxResult
 handleUpdateBakerSignKey senderAccount meta ubsId ubsKey ubsProof =
   withDeposit senderAccount meta c k
@@ -680,10 +684,13 @@ handleUpdateBakerSignKey senderAccount meta ubsId ubsKey ubsProof =
               if binfo ^. bakerAccount == senderAccount ^. accountAddress then
                 -- only the baker itself can update its own keys
                 -- now also check that they own the private key for the new signature key
-                let signP = checkSignatureVerifyKeyProof ubsKey ubsProof -- FIXME: We will need a separate proof object here.
+                let challenge = S.runPut (S.put ubsId <> S.put ubsKey)
+                    signP = checkSignatureVerifyKeyProof challenge ubsKey ubsProof
                 in if signP then do
-                     updateBakerSignKey ubsId ubsKey
-                     return $ TxSuccess [BakerKeyUpdated ubsId ubsKey] energyCost usedEnergy
+                     success <- updateBakerSignKey ubsId ubsKey
+                     if success then 
+                       return $ TxSuccess [BakerKeyUpdated ubsId ubsKey] energyCost usedEnergy
+                     else return $! TxReject (DuplicateSignKey ubsKey) energyCost usedEnergy
                    else return $ TxReject InvalidProof energyCost usedEnergy
               else
                 return $ TxReject (NotFromBakerAccount (senderAccount ^. accountAddress) (binfo ^. bakerAccount)) energyCost usedEnergy
