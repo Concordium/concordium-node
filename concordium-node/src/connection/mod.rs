@@ -27,8 +27,8 @@ use crate::{
     },
     dumper::DumpItem,
     network::{
-        Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse,
-        NETWORK_MESSAGE_PROTOCOL_TYPE_IDX,
+        Buckets, NetworkId, NetworkMessage, NetworkPacketType, NetworkRequest, NetworkResponse,
+        ProtocolMessageType, NETWORK_MESSAGE_PROTOCOL_TYPE_IDX,
     },
     p2p::banned_nodes::BannedNode,
 };
@@ -62,17 +62,20 @@ use std::{
 };
 
 pub struct DeduplicationQueues {
-    pub dedup_queue_finalization: CircularQueue<[u8; 8]>,
-    pub dedup_queue_transaction:  CircularQueue<[u8; 8]>,
+    pub finalizations: CircularQueue<[u8; 8]>,
+    pub transactions:  CircularQueue<[u8; 8]>,
+    pub blocks:        CircularQueue<[u8; 8]>,
 }
 
 impl DeduplicationQueues {
     pub fn default() -> Self {
-        const DEDUP_QUEUE_SIZE: usize = 32 * 1024;
+        const SHORT_DEDUP_SIZE: usize = 16;
+        const LONG_QUEUE_SIZE: usize = 32 * 1024;
 
         Self {
-            dedup_queue_finalization: CircularQueue::with_capacity(DEDUP_QUEUE_SIZE),
-            dedup_queue_transaction:  CircularQueue::with_capacity(DEDUP_QUEUE_SIZE),
+            finalizations: CircularQueue::with_capacity(LONG_QUEUE_SIZE),
+            transactions:  CircularQueue::with_capacity(LONG_QUEUE_SIZE),
+            blocks:        CircularQueue::with_capacity(SHORT_DEDUP_SIZE),
         }
     }
 }
@@ -243,41 +246,25 @@ impl Connection {
         write_or_die!(self.low_level).read_from_stream(ev, deduplication_queues)
     }
 
-    fn dedup_message(
+    fn is_message_duplicate(
         &self,
         message: &mut HybridBuf,
         deduplication_queues: &mut DeduplicationQueues,
-    ) -> Fallible<()> {
-        message.seek(SeekFrom::Start(NETWORK_MESSAGE_PROTOCOL_TYPE_IDX as u64))?;
+    ) -> Fallible<bool> {
         let packet_type = PacketType::try_from(message.read_u16::<E>()?);
 
-        if let Ok(PacketType::FinalizationMessage) = packet_type {
-            let mut hash = [0u8; 8];
-            hash.copy_from_slice(&XxHash64::digest(&message.remaining_bytes()?));
-
-            if !deduplication_queues
-                .dedup_queue_finalization
-                .iter()
-                .any(|h| h == &hash)
-            {
-                deduplication_queues.dedup_queue_finalization.push(hash);
+        let is_duplicate = match packet_type {
+            Ok(PacketType::FinalizationMessage) => {
+                dedup_with(message, &mut deduplication_queues.finalizations)?
             }
-        } else if let Ok(PacketType::Transaction) = packet_type {
-            let mut hash = [0u8; 8];
-            hash.copy_from_slice(&XxHash64::digest(&message.remaining_bytes()?));
-
-            if !deduplication_queues
-                .dedup_queue_transaction
-                .iter()
-                .any(|h| h == &hash)
-            {
-                deduplication_queues.dedup_queue_transaction.push(hash);
+            Ok(PacketType::Transaction) => {
+                dedup_with(message, &mut deduplication_queues.transactions)?
             }
-        }
+            Ok(PacketType::Block) => dedup_with(message, &mut deduplication_queues.blocks)?,
+            _ => false,
+        };
 
-        message.rewind()?;
-
-        Ok(())
+        Ok(is_duplicate)
     }
 
     fn process_message(
@@ -292,8 +279,19 @@ impl Connection {
             service.pkt_received_inc();
         };
 
-        // deduplicate the incoming message
-        self.dedup_message(&mut message, deduplication_queues)?;
+        // avoid allocations by not deserializing into a NetworkMessage before dedup
+        message.seek(SeekFrom::Start(NETWORK_MESSAGE_PROTOCOL_TYPE_IDX as u64))?;
+        let protocol_type = ProtocolMessageType::try_from(message.read_u8()?)?;
+        if protocol_type == ProtocolMessageType::Packet {
+            let _ = NetworkPacketType::deserial(&mut message)?;
+            let _ = NetworkId::deserial(&mut message)?;
+
+            // deduplicate the incoming packet payload
+            if self.is_message_duplicate(&mut message, deduplication_queues)? {
+                return Ok(());
+            }
+        }
+        message.rewind()?;
 
         let message = NetworkMessage::deserial(&mut message)?;
 
@@ -347,9 +345,7 @@ impl Connection {
             .peer_external_port
             .store(peer_port, Ordering::SeqCst);
 
-        // register peer's stats in the P2PNode
-        write_or_die!(self.handler().active_peer_stats)
-            .insert(id.as_raw(), self.remote_peer_stats()?);
+        self.handler().bump_last_peer_update();
 
         Ok(())
     }
@@ -526,9 +522,8 @@ impl Connection {
             PeerType::Node => {
                 let nodes = self
                     .handler()
-                    .get_peer_stats()
+                    .get_peer_stats(Some(PeerType::Node))
                     .iter()
-                    .filter(|stat| stat.peer_type == PeerType::Node)
                     .filter(|stat| P2PNodeId(stat.id) != requestor.id)
                     .map(|stat| {
                         P2PPeer::from(stat.peer_type, P2PNodeId(stat.id), stat.external_address())
@@ -612,10 +607,6 @@ impl Connection {
 impl Drop for Connection {
     fn drop(&mut self) {
         debug!("Closing {}", self);
-
-        if let Some(id) = self.remote_id() {
-            write_or_die!(self.handler().active_peer_stats).remove(&id.as_raw());
-        }
 
         // Report number of peers to stats export engine
         if let Some(ref service) = self.handler().stats_export_service {
@@ -707,6 +698,19 @@ impl ConnectionLowLevel {
     }
 }
 
+// returns a bool indicating if the message is a duplicate
+fn dedup_with(message: &mut HybridBuf, queue: &mut CircularQueue<[u8; 8]>) -> Fallible<bool> {
+    let mut hash = [0u8; 8];
+    hash.copy_from_slice(&XxHash64::digest(&message.remaining_bytes()?));
+
+    if !queue.iter().any(|h| h == &hash) {
+        queue.push(hash);
+        Ok(false)
+    } else {
+        Ok(true)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{
@@ -788,18 +792,18 @@ mod tests {
             _ => bail!("Unwanted packet type"),
         }
         match conn_node
-            .validate_packet_type_test(&iter::repeat(0).take(23).chain(Some(2)).collect::<Vec<_>>())
+            .validate_packet_type_test(&iter::repeat(0).take(13).chain(Some(2)).collect::<Vec<_>>())
         {
             Readiness::Ready(true) => {}
             _ => bail!("Unwanted packet type"),
         }
         match conn_node
-            .validate_packet_type_test(&iter::repeat(0).take(23).chain(Some(1)).collect::<Vec<_>>())
+            .validate_packet_type_test(&iter::repeat(0).take(13).chain(Some(1)).collect::<Vec<_>>())
         {
             Readiness::Ready(true) => {}
             _ => bail!("Unwanted packet type"),
         }
-        match conn_node.validate_packet_type_test(&iter::repeat(0).take(24).collect::<Vec<_>>()) {
+        match conn_node.validate_packet_type_test(&iter::repeat(0).take(14).collect::<Vec<_>>()) {
             Readiness::Ready(true) => {}
             _ => bail!("Unwanted packet type"),
         }
@@ -810,20 +814,20 @@ mod tests {
         }
         // Assert that a Bootstrapper reports as Invalid messages that are packets
         match conn_bootstrapper
-            .validate_packet_type_test(&iter::repeat(0).take(23).chain(Some(2)).collect::<Vec<_>>())
+            .validate_packet_type_test(&iter::repeat(0).take(13).chain(Some(2)).collect::<Vec<_>>())
         {
             Readiness::Ready(false) => {}
             _ => bail!("Unwanted packet type"),
         }
         // Assert that a Bootstrapper accepts Request and Response messages
         match conn_bootstrapper
-            .validate_packet_type_test(&iter::repeat(0).take(23).chain(Some(1)).collect::<Vec<_>>())
+            .validate_packet_type_test(&iter::repeat(0).take(13).chain(Some(1)).collect::<Vec<_>>())
         {
             Readiness::Ready(true) => {}
             _ => bail!("Unwanted packet type"),
         }
         match conn_bootstrapper
-            .validate_packet_type_test(&iter::repeat(0).take(24).collect::<Vec<_>>())
+            .validate_packet_type_test(&iter::repeat(0).take(14).collect::<Vec<_>>())
         {
             Readiness::Ready(true) => {}
             _ => bail!("Unwanted packet type"),

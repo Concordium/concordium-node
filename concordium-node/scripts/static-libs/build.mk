@@ -112,4 +112,3 @@ GhcRtsHcOpts += -fPIC
 
 # Don't strip debug and other unneeded symbols from libraries and executables.
 STRIP_CMD = :
-

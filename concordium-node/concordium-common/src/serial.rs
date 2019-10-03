@@ -165,8 +165,7 @@ use crate::hybrid_buf::HybridBuf;
 
 impl Serial for HybridBuf {
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
-        let len = u32::deserial(source)? as usize; // advance the cursor
-        let mut ret = HybridBuf::with_capacity(len)?;
+        let mut ret = HybridBuf::new();
         std::io::copy(source, &mut ret)?;
         ret.rewind()?;
 
@@ -174,10 +173,7 @@ impl Serial for HybridBuf {
     }
 
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
-        let mut self_clone = self.to_owned(); // FIXME!
-        let len = self_clone.len()? - self_clone.position()?;
-
-        (len as u32).serial(target)?;
+        let mut self_clone = self.to_owned(); // FIXME
         std::io::copy(&mut self_clone, target)?;
 
         Ok(())

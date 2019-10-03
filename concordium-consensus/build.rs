@@ -47,6 +47,8 @@ fn main() {
         out_dir
     );
     println!("cargo:rustc-link-lib=static=Rcrypto");
+    println!("cargo:rustc-link-lib=static=Rcommon");
+    println!("cargo:rustc-link-lib=static=concordium_global_state_sys");
 }
 
 #[cfg(not(feature = "static"))]

@@ -4,11 +4,11 @@ use std::{
     io::{self, Cursor, Read},
 };
 
-use concordium_global_state::{common::SerializeToBytes, transaction::Transaction};
+use concordium_global_state::{common::SerializeToBytes, transaction::BareTransaction};
 
 fn read_transaction(bytes: &[u8]) {
     let mut cursor = Cursor::new(bytes);
-    let transaction = Transaction::deserialize(&mut cursor)
+    let transaction = BareTransaction::deserialize(&mut cursor)
         .expect("Can't serialize the provided data as a Transaction object!");
 
     println!("{:#?}", transaction);

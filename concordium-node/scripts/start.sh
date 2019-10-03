@@ -228,6 +228,11 @@ then
     ARGS="$ARGS --grpc-port $COLLECTOR_GRPC_PORT"
 fi
 
+if [ -n "$RPC_PASSWORD" ];
+then
+    ARGS="$ARGS --rpc-server-token $RPC_PASSWORD"
+fi
+
 if [ -n "$BETA_USERNAME" ];
 then
     ARGS="$ARGS --beta-username $BETA_USERNAME"

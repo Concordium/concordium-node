@@ -1,5 +1,4 @@
 use concordium_dns::dns;
-use concordium_global_state::tree::messaging::GlobalStateMessage;
 
 use crate::{
     self as p2p_client,
@@ -26,7 +25,6 @@ use std::{
     io::Cursor,
     net::{IpAddr, SocketAddr},
     str::{self, FromStr},
-    sync::mpsc::{self, Receiver, SyncSender},
 };
 
 pub fn sha256(input: &str) -> [u8; 32] { sha256_bytes(input.as_bytes()) }
@@ -286,7 +284,7 @@ pub fn read_peers_from_dns_entries(
     if buffer.len() > 4 {
         match base64::decode(&buffer[..4]) {
             Ok(size_bytes) => {
-                let mut bytes_buf = Cursor::new(size_bytes);;
+                let mut bytes_buf = Cursor::new(size_bytes);
                 match bytes_buf.read_u16::<NetworkEndian>() {
                     Ok(size) => {
                         if size as usize == buffer.len() - 4 {
@@ -507,44 +505,6 @@ pub fn get_config_and_logging_setup() -> Fallible<(config::Config, config::AppPr
     );
 
     Ok((conf, app_prefs))
-}
-
-#[derive(Clone)]
-pub struct GlobalStateSenders {
-    high_prio: SyncSender<GlobalStateMessage>,
-    low_prio:  SyncSender<GlobalStateMessage>,
-}
-
-impl GlobalStateSenders {
-    pub fn send_with_priority(&self, msg: GlobalStateMessage) -> Fallible<()> {
-        into_err!(self.high_prio.try_send(msg))
-    }
-
-    pub fn send(&self, msg: GlobalStateMessage) -> Fallible<()> {
-        into_err!(self.low_prio.try_send(msg))
-    }
-}
-
-pub struct GlobalStateReceivers {
-    pub high_prio: Receiver<GlobalStateMessage>,
-    pub low_prio:  Receiver<GlobalStateMessage>,
-}
-
-pub fn create_global_state_queues() -> (GlobalStateSenders, GlobalStateReceivers) {
-    let (sender_high_prio, receiver_high_prio) =
-        mpsc::sync_channel(config::GS_HIGH_PRIO_QUEUE_DEPTH);
-    let (sender_low_prio, receiver_low_prio) = mpsc::sync_channel(config::GS_LOW_PRIO_QUEUE_DEPTH);
-
-    let global_state_senders = GlobalStateSenders {
-        high_prio: sender_high_prio,
-        low_prio:  sender_low_prio,
-    };
-    let global_state_receivers = GlobalStateReceivers {
-        high_prio: receiver_high_prio,
-        low_prio:  receiver_low_prio,
-    };
-
-    (global_state_senders, global_state_receivers)
 }
 
 #[cfg(test)]

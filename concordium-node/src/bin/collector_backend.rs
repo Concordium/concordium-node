@@ -90,7 +90,10 @@ pub struct JSONStringResponse(pub String);
 
 impl IntoResponse for JSONStringResponse {
     fn into_response(self, state: &State) -> Response<Body> {
-        create_response(state, StatusCode::OK, mime::APPLICATION_JSON, self.0)
+        let mut res = create_response(state, StatusCode::OK, mime::APPLICATION_JSON, self.0);
+        res.headers_mut()
+            .insert("Access-Control-Allow-Origin", "*".parse().unwrap());
+        res
     }
 }
 
@@ -164,9 +167,22 @@ fn index(state: State) -> (State, HTMLStringResponse) {
 
 fn nodes_summary(state: State) -> (State, JSONStringResponse) {
     let state_data = CollectorStateData::borrow_from(&state);
-    let message =
-        JSONStringResponse(serde_json::to_string(&*read_or_die!(state_data.nodes)).unwrap());
-    (state, message)
+    let mut response = Vec::new();
+    {
+        let map_lock = &*read_or_die!(state_data.nodes);
+        response.extend(b"[");
+        for (i, node_info) in map_lock.values().enumerate() {
+            if i != 0 {
+                response.extend(b",");
+            }
+            serde_json::to_writer(&mut response, node_info).unwrap()
+        }
+        response.extend(b"]");
+    }
+    (
+        state,
+        JSONStringResponse(String::from_utf8(response).unwrap()),
+    )
 }
 
 fn nodes_post_handler(mut state: State) -> Box<HandlerFuture> {
@@ -213,6 +229,8 @@ pub fn router(
     build_router(chain, pipelines, |route| {
         route.get("/").to(index);
         route.get("/nodesSummary").to(nodes_summary);
+        route.get("/data/nodesSummary").to(nodes_summary);
         route.post("/nodes/post").to(nodes_post_handler);
+        route.post("/post/nodes").to(nodes_post_handler);
     })
 }

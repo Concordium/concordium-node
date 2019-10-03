@@ -9,12 +9,6 @@ use crate::{
     finalization::*,
 };
 
-pub enum GlobalStateMessage {
-    ConsensusMessage(ConsensusMessage),
-    PeerListUpdate(Vec<PeerId>),
-    Shutdown,
-}
-
 /// The type of messages passed between GlobalState and the consensus layer.
 ///
 /// It contains an optional identifier of the source peer if it is not our own
@@ -74,8 +68,10 @@ impl fmt::Display for ConsensusMessage {
             ($object:ty) => {{
                 if let Ok(object) = <$object>::deserialize(&self.payload) {
                     format!("{:?}", object)
+                } else if self.variant == PacketType::Block {
+                    format!("a block")
                 } else {
-                    format!("corrupted bytes")
+                    format!("corrupt packet or unknown packet type")
                 }
             }};
         }
