@@ -14,13 +14,13 @@ static A: System = System;
 use concordium_common::{
     spawn_or_die,
     stats_export_service::{StatsExportService, StatsServiceMode},
-    QueueMsg, QueueReceiver,
+    QueueMsg,
 };
 use concordium_consensus::{
     consensus::{ConsensusContainer, ConsensusLogLevel, CALLBACK_QUEUE},
     ffi,
 };
-use concordium_global_state::tree::{messaging::ConsensusMessage, GlobalState};
+use concordium_global_state::tree::GlobalState;
 use p2p_client::{
     client::{
         plugins::{self, consensus::*},
@@ -38,10 +38,7 @@ use failure::Fallible;
 use rkv::{Manager, Rkv};
 
 use std::{
-    sync::{
-        mpsc::{self, TrySendError},
-        Arc,
-    },
+    sync::{mpsc, Arc},
     thread,
     time::Duration,
 };
@@ -81,7 +78,7 @@ fn main() -> Fallible<()> {
         mpsc::sync_channel(config::RPC_QUEUE_DEPTH);
 
     // Thread #1: instantiate the P2PNode
-    let (node, mut receivers) = instantiate_node(
+    let (node, receivers) = instantiate_node(
         &conf,
         &mut app_prefs,
         stats_export_service.clone(),
@@ -95,8 +92,6 @@ fn main() -> Fallible<()> {
     #[cfg(feature = "instrumentation")]
     // Thread #2 (optional): the push gateway to Prometheus
     client_utils::start_push_gateway(&conf.prometheus, &stats_export_service, node.id())?;
-
-    let global_state_receiver = receivers.global_state_receiver.take().unwrap(); // always there
 
     // Start the P2PNode
     //
@@ -163,22 +158,13 @@ fn main() -> Fallible<()> {
     // Connect outgoing messages to be forwarded into the baker and RPC streams.
     //
     // Thread #3 (#4): read P2PNode output
-    let global_state_thread = start_global_state_thread(
-        &node,
-        &conf,
-        consensus.clone(),
-        global_state_receiver,
-        global_state,
-    );
+    let global_state_thread =
+        start_global_state_thread(&node, &conf, consensus.clone(), global_state);
 
-    // Create a listener on baker output to forward to the P2PNode
-    //
-    // Thread #4 (#5): the Baker thread
-    let baker_thread = if conf.cli.baker.baker_id.is_some() {
-        Some(start_baker_thread(&node))
-    } else {
-        None
-    };
+    info!(
+        "Concordium P2P layer. Network disabled: {}",
+        conf.cli.no_network
+    );
 
     // Connect to nodes (args and bootstrap)
     if !conf.cli.no_network {
@@ -197,11 +183,6 @@ fn main() -> Fallible<()> {
     global_state_thread
         .join()
         .expect("Higher process thread panicked");
-
-    // Close the baker thread
-    if let Some(th) = baker_thread {
-        th.join().expect("Baker sub-thread panicked")
-    }
 
     // Close the RPC server if present
     if let Some(ref mut serv) = rpc_serv {
@@ -294,33 +275,34 @@ fn start_global_state_thread(
     node: &Arc<P2PNode>,
     conf: &config::Config,
     consensus: ConsensusContainer,
-    global_state_receiver: QueueReceiver<ConsensusMessage>,
     mut gsptr: GlobalState,
 ) -> std::thread::JoinHandle<()> {
     let node_ref = Arc::clone(node);
     let mut consensus_ref = consensus.clone();
     let nid = NetworkId::from(conf.common.network_ids[0]); // defaulted so there's always first()
     let global_state_thread = spawn_or_die!("Process global state requests", {
+        // don't do anything until the peer number is within the desired range
+        while node_ref.get_node_peer_ids().len() > node_ref.config.max_allowed_nodes as usize {
+            thread::sleep(Duration::from_secs(1));
+        }
+
         let mut last_peer_list_update = 0;
         let mut loop_interval: u64;
+        let consensus_receiver = CALLBACK_QUEUE.receiver.lock().unwrap();
+
         'outer_loop: loop {
-            loop_interval = 100;
+            loop_interval = 200;
 
-            // don't provide the global state with the peer information until their
-            // number is within the desired range
-            let curr_peer_ids = node_ref.get_node_peer_ids();
-            if curr_peer_ids.len() <= node_ref.config.max_allowed_nodes as usize {
-                if node_ref.last_peer_update() > last_peer_list_update {
-                    update_peer_list(&mut gsptr, curr_peer_ids);
-                    last_peer_list_update = get_current_stamp();
-                }
-
-                if let Err(e) = check_peer_states(&node_ref, nid, &mut consensus_ref, &mut gsptr) {
-                    error!("Couldn't update the catch-up peer list: {}", e);
-                }
+            if node_ref.last_peer_update() > last_peer_list_update {
+                update_peer_list(&node_ref, &mut gsptr);
+                last_peer_list_update = get_current_stamp();
             }
 
-            for request in global_state_receiver.try_iter() {
+            if let Err(e) = check_peer_states(&node_ref, nid, &mut consensus_ref, &mut gsptr) {
+                error!("Couldn't update the catch-up peer list: {}", e);
+            }
+
+            for request in consensus_receiver.try_iter() {
                 match request {
                     QueueMsg::Relay(msg) => {
                         if let Err(e) = handle_consensus_message(
@@ -346,39 +328,7 @@ fn start_global_state_thread(
         }
     });
 
-    info!(
-        "Concordium P2P layer. Network disabled: {}",
-        conf.cli.no_network
-    );
-
     global_state_thread
-}
-
-fn start_baker_thread(node: &P2PNode) -> std::thread::JoinHandle<()> {
-    let global_state_sender = node.global_state_sender.clone();
-
-    spawn_or_die!("Process consensus messages", {
-        let receiver = CALLBACK_QUEUE.receiver.lock().unwrap();
-        loop {
-            if let Ok(msg) = receiver.recv() {
-                match msg {
-                    QueueMsg::Relay(_) => match global_state_sender.try_send(msg) {
-                        Err(TrySendError::Full(_)) => warn!("The global state queue is full!"),
-                        Err(TrySendError::Disconnected(_)) => {
-                            panic!("The global state channel is down!")
-                        }
-                        Ok(_) => {}
-                    },
-                    QueueMsg::Stop => {
-                        debug!("Shutting down consensus queues");
-                        break;
-                    }
-                }
-            } else {
-                panic!("The consensus callback channel is down!");
-            }
-        }
-    })
 }
 
 #[cfg(feature = "elastic_logging")]

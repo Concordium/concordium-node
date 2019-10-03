@@ -26,7 +26,10 @@ use crate::{
         NetworkRawRequest, P2PNodeId, PeerStats, PeerType, RemotePeer,
     },
     dumper::DumpItem,
-    network::{Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse},
+    network::{
+        Buckets, NetworkId, NetworkMessage, NetworkPacketType, NetworkRequest, NetworkResponse,
+        ProtocolMessageType, NETWORK_MESSAGE_PROTOCOL_TYPE_IDX,
+    },
     p2p::banned_nodes::BannedNode,
 };
 
@@ -49,6 +52,7 @@ use std::{
     collections::HashSet,
     convert::TryFrom,
     fmt,
+    io::{Seek, SeekFrom},
     net::SocketAddr,
     pin::Pin,
     sync::{
@@ -260,8 +264,6 @@ impl Connection {
             _ => false,
         };
 
-        message.rewind()?;
-
         Ok(is_duplicate)
     }
 
@@ -277,14 +279,21 @@ impl Connection {
             service.pkt_received_inc();
         };
 
-        let mut message = NetworkMessage::deserial(&mut message)?;
+        // avoid allocations by not deserializing into a NetworkMessage before dedup
+        message.seek(SeekFrom::Start(NETWORK_MESSAGE_PROTOCOL_TYPE_IDX as u64))?;
+        let protocol_type = ProtocolMessageType::try_from(message.read_u8()?)?;
+        if protocol_type == ProtocolMessageType::Packet {
+            let _ = NetworkPacketType::deserial(&mut message)?;
+            let _ = NetworkId::deserial(&mut message)?;
 
-        // deduplicate the incoming message
-        if let NetworkMessage::NetworkPacket(ref mut packet, ..) = message {
-            if self.is_message_duplicate(&mut packet.message, deduplication_queues)? {
+            // deduplicate the incoming packet payload
+            if self.is_message_duplicate(&mut message, deduplication_queues)? {
                 return Ok(());
             }
         }
+        message.rewind()?;
+
+        let message = NetworkMessage::deserial(&mut message)?;
 
         let is_msg_processable = match message {
             NetworkMessage::NetworkRequest(NetworkRequest::Handshake(..), ..)

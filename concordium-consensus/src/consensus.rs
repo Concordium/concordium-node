@@ -41,7 +41,7 @@ impl TryFrom<u8> for ConsensusLogLevel {
     }
 }
 
-const CONSENSUS_QUEUE_DEPTH: usize = 25 * 1024;
+const CONSENSUS_QUEUE_DEPTH: usize = 32 * 1024;
 
 pub struct ConsensusQueues {
     pub receiver: Mutex<QueueReceiver<ConsensusMessage>>,
@@ -61,6 +61,10 @@ impl Default for ConsensusQueues {
 impl ConsensusQueues {
     pub fn send_message(&self, message: ConsensusMessage) -> Fallible<()> {
         into_err!(self.sender.send_msg(message))
+    }
+
+    pub fn send_blocking_msg(&self, message: ConsensusMessage) -> Fallible<()> {
+        into_err!(self.sender.send_blocking_msg(message))
     }
 
     pub fn clear(&self) {
