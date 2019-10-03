@@ -114,6 +114,14 @@ fn main() -> Fallible<()> {
         .get_or_create(data_dir_path.as_ref(), Rkv::new)
         .expect("Can't load the GlobalState kvs environment!");
 
+    if let Err(e) = gs_kvs_handle
+        .write()
+        .unwrap()
+        .set_map_size(1024 * 1024 * 256)
+    {
+        error!("Can't set up the desired RKV map size: {}", e);
+    }
+
     let global_state = GlobalState::new(
         &gen_data,
         gs_kvs_handle,
