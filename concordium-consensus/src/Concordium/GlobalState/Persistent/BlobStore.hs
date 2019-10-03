@@ -57,9 +57,9 @@ destroyTempBlobStore BlobStore{..} = do
     removeFile blobStoreFilePath
 
 runBlobStoreTemp :: FilePath -> ReaderT BlobStore IO a -> IO a
-runBlobStoreTemp fp a = bracket openf closef usef
+runBlobStoreTemp dir a = bracket openf closef usef
     where 
-        openf = openBinaryTempFile fp "blb.dat"
+        openf = openBinaryTempFile dir "blb.dat"
         closef (tempFP, h) = do
             hClose h
             removeFile tempFP
