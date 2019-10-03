@@ -2,6 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE CPP #-}
 module SchedulerTests.Delegation where
 
 import Test.Hspec
@@ -17,8 +18,8 @@ import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
 import qualified Concordium.Scheduler.Cost as Cost
 
-import Concordium.GlobalState.Basic.BlockState
-import Concordium.GlobalState.Basic.Invariants
+import Concordium.GlobalState.Implementation.BlockState
+import Concordium.GlobalState.Implementation.Invariants
 import Concordium.GlobalState.Account as Acc
 import Concordium.GlobalState.Modules as Mod
 import Concordium.GlobalState.Rewards as Rew
@@ -87,7 +88,7 @@ addBaker m0 = do
             metadata = makeHeader srcKp srcN (Cost.checkHeader + Cost.addBaker),
             keypair = srcKp
         }, m0
-            & mAdminAccounts . ix srcAcct . _2 %~ (+1) 
+            & mAdminAccounts . ix srcAcct . _2 %~ (+1)
             & mBakers %~ (_mNextBaker m0 :)
             & mNextBaker %~ (+1)
             & mNextSeed +~ 1

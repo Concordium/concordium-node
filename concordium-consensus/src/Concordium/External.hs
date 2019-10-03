@@ -1,4 +1,4 @@
-{-# LANGUAGE ForeignFunctionInterface, LambdaCase, RecordWildCards, ScopedTypeVariables, OverloadedStrings, RankNTypes, TypeFamilies #-}
+{-# LANGUAGE ForeignFunctionInterface, LambdaCase, RecordWildCards, ScopedTypeVariables, OverloadedStrings, RankNTypes, TypeFamilies, CPP #-}
 module Concordium.External where
 
 import Foreign
@@ -28,13 +28,16 @@ import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Block
-import Concordium.GlobalState.Basic.Block hiding (getBlock)
-import qualified Concordium.GlobalState.Basic.Block as BasicBlock
+import Concordium.GlobalState.Implementation.Block as BSB hiding (makePendingBlock)
+import Concordium.GlobalState.Implementation.BlockState as BSBS
+import Concordium.GlobalState.Implementation.Block as RSB
+import Concordium.GlobalState.Implementation
 import Concordium.GlobalState.Finalization(FinalizationIndex(..),FinalizationRecord)
-import Concordium.GlobalState.Basic.BlockState(BlockState, BlockPointer, _bpBlock, initialState)
+import Concordium.GlobalState.BlockState as GSBS (BlockPointer)
 import qualified Concordium.GlobalState.TreeState as TS
-import qualified Concordium.GlobalState.BlockState as TS
-import qualified Concordium.Birk.Bake as Baker
+import qualified Concordium.GlobalState.BlockState as BS
+import Concordium.GlobalState.Implementation.TreeState
+import Concordium.Birk.Bake as Baker
 
 import Concordium.Runner
 import Concordium.Skov hiding (receiveTransaction, getBirkParameters)
@@ -44,6 +47,9 @@ import Concordium.TimeMonad
 import Concordium.Skov.CatchUp (CatchUpStatus)
 
 import qualified Concordium.Getters as Get
+
+import Control.Concurrent.MVar
+import Control.Monad.IO.Class
 
 -- |A 'PeerID' identifies peer at the p2p layer.
 type PeerID = Word64
@@ -154,7 +160,7 @@ toLogMethod maxLogLevel logCallbackPtr = le
                      else \_ -> return ()
 
 unsafeWithBSLen :: BS.ByteString -> (CSize -> Ptr Word8 -> IO ()) -> IO ()
-unsafeWithBSLen bs f = BS.unsafeUseAsCStringLen bs $ \(ptr, len) -> f (fromIntegral len) (castPtr ptr) 
+unsafeWithBSLen bs f = BS.unsafeUseAsCStringLen bs $ \(ptr, len) -> f (fromIntegral len) (castPtr ptr)
 
 -- |Create a method for logging transfers.
 -- The output format is the following.
@@ -171,39 +177,39 @@ unsafeWithBSLen bs f = BS.unsafeUseAsCStringLen bs $ \(ptr, len) -> f (fromInteg
 -- |--------+---------------------------------+--------------------------------------------------------|
 
 -- * Account address serialiation is 21 bytes in length
--- * Contract address serialization is 16 bytes, consisting of two 64-bit unsigned integers in big-endian format 
+-- * Contract address serialization is 16 bytes, consisting of two 64-bit unsigned integers in big-endian format
 -- * Baker Id serialization is a 64 bit unsigned integer in big-endian format.
 
-toLogTransferMethod :: FunPtr LogTransferCallback -> TS.LogTransferMethod IO
+toLogTransferMethod :: FunPtr LogTransferCallback -> BS.LogTransferMethod IO
 toLogTransferMethod logtCallBackPtr = logTransfer
     where logit = callLogTransferCallback logtCallBackPtr
           logTransfer bh slot reason =
             withBlockReference bh $ \block ->
               case reason of
-                TS.DirectTransfer{..} ->
+                BS.DirectTransfer{..} ->
                   withTxReference trdtId $ \txRef ->
                     let rest = runPut (put trdtSource <> put trdtTarget)
                     in unsafeWithBSLen rest $ logit 0 block slot txRef trdtAmount
-                TS.AccountToContractTransfer{..} ->
+                BS.AccountToContractTransfer{..} ->
                   withTxReference tractId $ \txRef ->
                     let rest = runPut (put tractSource <> put tractTarget)
                     in unsafeWithBSLen rest $ logit 1 block slot txRef tractAmount
-                TS.ContractToAccountTransfer{..} ->
+                BS.ContractToAccountTransfer{..} ->
                   withTxReference trcatId $ \txRef ->
                     let rest = runPut (put trcatSource <> put trcatTarget)
                     in unsafeWithBSLen rest $ logit 2 block slot txRef trcatAmount
-                TS.ExecutionCost{..} ->
+                BS.ExecutionCost{..} ->
                   withTxReference trecId $ \txRef ->
                     let rest = runPut (put trecSource <> put trecBaker)
                     in unsafeWithBSLen rest $ logit 3 block slot txRef trecAmount
-                TS.BakingRewardTransfer{..} ->
+                BS.BakingRewardTransfer{..} ->
                   let rest = runPut (put trbrBaker <> put trbrAccount)
                   in unsafeWithBSLen rest $ logit 4 block slot nullPtr trbrAmount
-                TS.ContractToContractTransfer{..} ->
+                BS.ContractToContractTransfer{..} ->
                   withTxReference trcctId $ \txRef ->
                     let rest = runPut (put trcctSource <> put trcctTarget)
                     in unsafeWithBSLen rest $ logit 5 block slot txRef trcctAmount
-                TS.CredentialDeployment{..} ->
+                BS.CredentialDeployment{..} ->
                   withTxReference trcdId $ \txRef ->
                     let rest = runPut (put trcdSource <> put trcdAccount) <> BSL.toStrict (AE.encode trcdCredentialValues)
                     in unsafeWithBSLen rest $ logit 6 block slot txRef 0
@@ -214,7 +220,7 @@ toLogTransferMethod logtCallBackPtr = logTransfer
 -- The third argument is the length of the data in bytes.
 type BroadcastCallback = Int64 -> CString -> Int64 -> IO ()
 foreign import ccall "dynamic" invokeBroadcastCallback :: FunPtr BroadcastCallback -> BroadcastCallback
-data MessageType 
+data MessageType
     = MTBlock
     | MTFinalization
     | MTFinalizationRecord
@@ -257,7 +263,7 @@ consensusLogMethod :: ConsensusRunner -> LogMethod IO
 consensusLogMethod BakerRunner{bakerSyncRunner=SyncRunner{syncLogMethod=logM}} = logM
 consensusLogMethod PassiveRunner{passiveSyncRunner=SyncPassiveRunner{syncPLogMethod=logM}} = logM
 
-genesisState :: GenesisData -> BlockState
+genesisState :: GenesisData -> BSBS.BlockState
 genesisState genData = initialState
                        (genesisBirkParameters genData)
                        (genesisCryptographicParameters genData)
@@ -270,18 +276,30 @@ startConsensus ::
            Word64 -- ^Maximum block size.
            -> CString -> Int64 -- ^Serialized genesis data (c string + len)
            -> CString -> Int64 -- ^Serialized baker identity (c string + len)
+#ifdef RUST
+           -> Ptr GlobalStateR
+#endif
            -> FunPtr BroadcastCallback -- ^Handler for generated messages
            -> Word8 -- ^Maximum log level (inclusive) (0 to disable logging).
            -> FunPtr LogCallback -- ^Handler for log events
            -> Word8 -- ^Whether to enable logging of transfer events (/= 0) or not (value 0).
            -> FunPtr LogTransferCallback -- ^Handler for logging transfer events
            -> IO (StablePtr ConsensusRunner)
+#ifdef RUST
+startConsensus maxBlock gdataC gdataLenC bidC bidLenC gsptr bcbk maxLogLevel lcbk enableTransferLogging ltcbk = do
+#else
 startConsensus maxBlock gdataC gdataLenC bidC bidLenC bcbk maxLogLevel lcbk enableTransferLogging ltcbk = do
+#endif
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
         case (decode gdata, decode bdata) of
             (Right genData, Right bid) -> do
+#ifdef RUST
+                foreignGsPtr <- newForeignPtr_ gsptr
+                bakerSyncRunner <- makeSyncRunner logM logT bid (RuntimeParameters (fromIntegral maxBlock)) genData (genesisState genData) foreignGsPtr bakerBroadcast
+#else
                 bakerSyncRunner <- makeSyncRunner logM logT bid (RuntimeParameters (fromIntegral maxBlock)) genData (genesisState genData) bakerBroadcast
+#endif
                 newStablePtr BakerRunner{..}
             _ -> ioError (userError $ "Error decoding serialized data.")
     where
@@ -293,14 +311,26 @@ startConsensus maxBlock gdataC gdataLenC bidC bidLenC bcbk maxLogLevel lcbk enab
 startConsensusPassive ::
            Word64 -- ^Maximum block size.
            -> CString -> Int64 -- ^Serialized genesis data (c string + len)
+#ifdef RUST
+           -> Ptr GlobalStateR
+#endif
            -> Word8 -- ^Maximum log level (inclusive) (0 to disable logging).
            -> FunPtr LogCallback -- ^Handler for log events
             -> IO (StablePtr ConsensusRunner)
+#ifdef RUST
+startConsensusPassive maxBlock gdataC gdataLenC gsptr maxLogLevel lcbk = do
+#else
 startConsensusPassive maxBlock gdataC gdataLenC maxLogLevel lcbk = do
+#endif
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         case (decode gdata) of
             (Right genData) -> do
+#ifdef RUST
+                foreignGsPtr <- newForeignPtr_ gsptr
+                passiveSyncRunner <- makeSyncPassiveRunner logM (RuntimeParameters (fromIntegral maxBlock)) genData (genesisState genData) foreignGsPtr
+#else
                 passiveSyncRunner <- makeSyncPassiveRunner logM (RuntimeParameters (fromIntegral maxBlock)) genData (genesisState genData)
+#endif
                 newStablePtr PassiveRunner{..}
             _ -> ioError (userError $ "Error decoding serialized data.")
     where
@@ -390,7 +420,7 @@ receiveBlock bptr cstr l = do
     logm External LLDebug $ "Received block data size = " ++ show l ++ ". Decoding ..."
     blockBS <- BS.packCStringLen (cstr, fromIntegral l)
     now <- currentTime
-    toReceiveResult <$> case runGet (BasicBlock.getBlock now) blockBS of
+    toReceiveResult <$> case runGet (BSB.getBlock now) blockBS of
         Left _ -> do
           logm External LLDebug "Block deserialization failed. Ignoring the block."
           return ResultSerializationFail
@@ -399,7 +429,19 @@ receiveBlock bptr cstr l = do
             return ResultSerializationFail
         Right (NormalBlock block0) -> do
                         logm External LLInfo $ "Block deserialized. Sending to consensus."
+                        now <- currentTime
+#ifdef RUST
+                        gsptr <- case c of
+                          BakerRunner{..} -> liftIO $ do
+                            st <- readMVar . syncState $ bakerSyncRunner
+                            return . _skovGlobalStatePtr . _sbhsSkov $ st
+                          PassiveRunner{..} -> do
+                            st <- readMVar . syncPState $ passiveSyncRunner
+                            return . _skovGlobalStatePtr . _sphsSkov $ st
+                        block <- makePendingBlock gsptr block0 now
+#else
                         let block = makePendingBlock block0 now
+#endif
                         case c of
                             BakerRunner{..} -> do
                                 (res, evts) <- syncReceiveBlock bakerSyncRunner block
@@ -481,7 +523,7 @@ receiveTransaction bptr tdata len = do
                     return res
                 PassiveRunner{..} -> syncPassiveReceiveTransaction passiveSyncRunner tr
 
-runConsensusQuery :: ConsensusRunner -> (forall z m s. (Get.SkovStateQueryable z m, TS.TreeStateMonad m, MonadState s m, TS.PendingBlock m ~ PendingBlock, TS.BlockPointer m ~ BlockPointer) => z -> a) -> a
+runConsensusQuery :: ConsensusRunner -> (forall z m s. (Get.SkovStateQueryable z m, TS.TreeStateMonad m, MonadState s m, TS.PendingBlock m ~ RSB.PendingBlock, GSBS.BlockPointer m ~ BSBS.BlockPointer) => z -> a) -> a
 runConsensusQuery BakerRunner{..} f = f (syncState bakerSyncRunner)
 runConsensusQuery PassiveRunner{..} f = f (syncPState passiveSyncRunner)
 
@@ -531,7 +573,7 @@ byteStringToCString bs = do
                                                     return dest
 
 withBlockHash :: CString -> (String -> IO ()) -> (BlockHash -> IO CString) -> IO CString
-withBlockHash blockcstr logm f = 
+withBlockHash blockcstr logm f =
   readMaybe <$> (peekCString blockcstr) >>=
     \case Nothing -> do
             logm "Block hash invalid. Returning error value."
@@ -579,7 +621,7 @@ getAccountInfo cptr blockcstr cstr = do
     let logm = consensusLogMethod c
     logm External LLInfo "Received account info request."
     bs <- BS.packCString cstr
-    case addressFromBytes bs of 
+    case addressFromBytes bs of
       Nothing -> do
         logm External LLInfo "Could not decode address."
         jsonValueToCString Null
@@ -744,49 +786,6 @@ hookTransaction cptr trcstr = do
 freeCStr :: CString -> IO ()
 freeCStr = free
 
--- |Get a block for the given block hash.
--- The block hash is passed as a pointer to a fixed length (32 byte) string.
--- The return value is a length encoded string: the first 4 bytes are
--- the length (encoded big-endian), followed by the data itself.
--- The string should be freed by calling 'freeCStr'.
--- The string may be empty (length 0) if the finalization record is not found.
-getBlock :: StablePtr ConsensusRunner -> BlockReference -> IO CString
-getBlock cptr blockRef = do
-        c <- deRefStablePtr cptr
-        let logm = consensusLogMethod c
-        bh <- blockReferenceToBlockHash blockRef
-        logm External LLInfo $ "Received request for block: " ++ show bh
-        b <- runConsensusQuery c Get.getBlockData bh
-        case b :: Maybe Block of
-            Nothing -> do
-                logm External LLInfo $ "Block not available"
-                byteStringToCString BS.empty
-            Just block -> do
-                logm External LLInfo $ "Block found"
-                byteStringToCString $ P.runPut $ putBlock block
-
--- |Get a block that is descended from the given block hash by the given number of generations.
--- The block hash is passed as a pointer to a fixed length (32 byte) string.
--- The return value is a length encoded string: the first 4 bytes are
--- the length (encoded big-endian), followed by the data itself.
--- The string should be freed by calling 'freeCStr'.
--- The string may be empty (length 0) if the finalization record is not found.
-getBlockDelta :: StablePtr ConsensusRunner -> BlockReference -> Word64 -> IO CString
-getBlockDelta bptr blockRef 0 = getBlock bptr blockRef
-getBlockDelta cptr blockRef delta = do
-        c <- deRefStablePtr cptr
-        let logm = consensusLogMethod c
-        bh <- blockReferenceToBlockHash blockRef
-        logm External LLInfo $ "Received request for descendent of block " ++ show bh ++ " with delta " ++ show delta
-        b <- runConsensusQuery c Get.getBlockDescendant bh (BlockHeight delta)
-        case b :: Maybe Block of
-            Nothing -> do
-                logm External LLInfo $ "Block not available"
-                byteStringToCString BS.empty
-            Just block -> do
-                logm External LLInfo $ "Block found"
-                byteStringToCString . P.runPut . putBlock $ block
-
 -- |Get a finalization record for the given block.
 -- The block hash is passed as a pointer to a fixed length (32 byte) string.
 -- The return value is a length encoded string: the first 4 bytes are
@@ -876,12 +875,12 @@ receiveCatchUpStatus cptr src cstr l cbk = do
         Right cus -> do
             logm External LLDebug $ "Catch-up status message deserialized: " ++ show cus
             res <- runConsensusQuery c Get.handleCatchUpStatus cus
-            case res :: (Either String (Maybe ([Either FinalizationRecord (BlockPointer)], CatchUpStatus), Bool)) of
+            case res :: (Either String (Maybe ([Either FinalizationRecord BSBS.BlockPointer], CatchUpStatus), Bool)) of
                 Left emsg -> logm Skov LLWarning emsg >> return ResultInvalid
                 Right (d, flag) -> do
                     let
                         sendMsg = callDirectMessageCallback cbk src
-                        sendBlock = sendMsg MTBlock . runPut . putBlock . _bpBlock
+                        sendBlock = sendMsg MTBlock . runPut . putBlock
                         sendFinRec = sendMsg MTFinalizationRecord . encode
                         send [] = return ()
                         send (Left fr:r) = sendFinRec fr >> send r
@@ -892,11 +891,15 @@ receiveCatchUpStatus cptr src cstr l cbk = do
                         logm Skov LLDebug $ "Catch up response status message: " ++ show rcus
                         sendMsg MTCatchUpStatus $ encode rcus
                     return $! if flag then ResultPendingBlock else ResultSuccess
-                        
 
 
+#ifdef RUST
+foreign export ccall startConsensus :: Word64 -> CString -> Int64 -> CString -> Int64 ->  Ptr GlobalStateR -> FunPtr BroadcastCallback -> Word8 -> FunPtr LogCallback -> Word8 -> FunPtr LogTransferCallback -> IO (StablePtr ConsensusRunner)
+foreign export ccall startConsensusPassive :: Word64 -> CString -> Int64 -> Ptr GlobalStateR -> Word8 -> FunPtr LogCallback -> IO (StablePtr ConsensusRunner)
+#else
 foreign export ccall startConsensus :: Word64 -> CString -> Int64 -> CString -> Int64 -> FunPtr BroadcastCallback -> Word8 -> FunPtr LogCallback -> Word8 -> FunPtr LogTransferCallback -> IO (StablePtr ConsensusRunner)
 foreign export ccall startConsensusPassive :: Word64 -> CString -> Int64 -> Word8 -> FunPtr LogCallback -> IO (StablePtr ConsensusRunner)
+#endif
 foreign export ccall stopConsensus :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall startBaker :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall stopBaker :: StablePtr ConsensusRunner -> IO ()
@@ -911,8 +914,6 @@ foreign export ccall getAncestors :: StablePtr ConsensusRunner -> CString -> Wor
 foreign export ccall getBranches :: StablePtr ConsensusRunner -> IO CString
 foreign export ccall freeCStr :: CString -> IO ()
 
-foreign export ccall getBlock :: StablePtr ConsensusRunner -> BlockReference -> IO CString
-foreign export ccall getBlockDelta :: StablePtr ConsensusRunner -> BlockReference -> Word64 -> IO CString
 foreign export ccall getBlockFinalization :: StablePtr ConsensusRunner -> BlockReference -> IO CString
 foreign export ccall getIndexedFinalization :: StablePtr ConsensusRunner -> Word64 -> IO CString
 

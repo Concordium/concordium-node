@@ -189,7 +189,7 @@ doResetTimer = do
 tryNominateBlock :: (FinalizationMonad s m) => m ()
 tryNominateBlock = do
     currRound <- use finCurrentRound
-    forM_ currRound $ \r@FinalizationRound{..} -> 
+    forM_ currRound $ \r@FinalizationRound{..} ->
         when (isNothing roundInput) $ do
             h <- use finHeight
             bBlock <- bestBlock
@@ -348,7 +348,7 @@ receiveFinalizationMessage :: (FinalizationMonad s m) => FinalizationMessage -> 
 receiveFinalizationMessage msg@FinalizationMessage{msgHeader=FinalizationMessageHeader{..},..} = do
         FinalizationState{..} <- use finState
         -- Check this is the right session
-        if (_finsSessionId == msgSessionId) then 
+        if (_finsSessionId == msgSessionId) then
             -- Check the finalization index is not out of date
             case compare msgFinalizationIndex _finsIndex of
                 LT -> return ResultStale -- message is out of date
@@ -473,7 +473,7 @@ nextFinalizationDelay FinalizationRecord{..} = if finalizationDelay > 2 then fin
 
 -- |Given the finalization minimum skip and an explicitly finalized block, compute
 -- the height of the next finalized block.
-nextFinalizationHeight :: (BlockPointerData bp) 
+nextFinalizationHeight :: (BlockPointerData bp)
     => BlockHeight -- ^Finalization minimum skip
     -> bp -- ^Last finalized block
     -> BlockHeight
@@ -653,7 +653,7 @@ passiveReceiveFinalizationPseudoMessage pmsg msgBS = do
         PassiveFinalizationState{..} <- use pfinState
         let FinalizationMessageHeader{..} = fpmHeader pmsg
         -- Check this is the right session
-        if (_pfinsSessionId == msgSessionId) then 
+        if (_pfinsSessionId == msgSessionId) then
             -- Check the finalization index is not out of date
             if msgFinalizationIndex < _pfinsIndex then
                 return ResultStale
@@ -666,7 +666,7 @@ passiveReceiveFinalizationPseudoMessage pmsg msgBS = do
                     (isDup, newDeDup) = PSQ.alter alterfun (Hash.hash msgBS) purgedDeDup
                 pfinMessageDeDup .= newDeDup
                 return $!
-                    if isDup then 
+                    if isDup then
                         ResultDuplicate
                     else if msgFinalizationIndex == _pfinsIndex then
                         ResultSuccess
