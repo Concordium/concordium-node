@@ -378,8 +378,10 @@ fn send_catch_up_status(
     )
 }
 
-pub fn update_peer_list(global_state: &mut GlobalState, peer_ids: Vec<u64>) {
+pub fn update_peer_list(node: &P2PNode, global_state: &mut GlobalState) {
     debug!("The peers have changed; updating the catch-up peer list");
+
+    let peer_ids = node.get_node_peer_ids();
 
     // remove global state peers whose connections were dropped
     for (live_peer, state) in mem::replace(&mut global_state.peers, Default::default())

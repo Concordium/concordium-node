@@ -161,6 +161,11 @@ fn main() -> Fallible<()> {
     let global_state_thread =
         start_global_state_thread(&node, &conf, consensus.clone(), global_state);
 
+    info!(
+        "Concordium P2P layer. Network disabled: {}",
+        conf.cli.no_network
+    );
+
     // Connect to nodes (args and bootstrap)
     if !conf.cli.no_network {
         establish_connections(&conf, &node);
@@ -276,6 +281,11 @@ fn start_global_state_thread(
     let mut consensus_ref = consensus.clone();
     let nid = NetworkId::from(conf.common.network_ids[0]); // defaulted so there's always first()
     let global_state_thread = spawn_or_die!("Process global state requests", {
+        // don't do anything until the peer number is within the desired range
+        while node_ref.get_node_peer_ids().len() > node_ref.config.max_allowed_nodes as usize {
+            thread::sleep(Duration::from_secs(1));
+        }
+
         let mut last_peer_list_update = 0;
         let mut loop_interval: u64;
         let consensus_receiver = CALLBACK_QUEUE.receiver.lock().unwrap();
@@ -283,18 +293,13 @@ fn start_global_state_thread(
         'outer_loop: loop {
             loop_interval = 200;
 
-            // don't provide the global state with the peer information until their
-            // number is within the desired range
-            let curr_peer_ids = node_ref.get_node_peer_ids();
-            if curr_peer_ids.len() <= node_ref.config.max_allowed_nodes as usize {
-                if node_ref.last_peer_update() > last_peer_list_update {
-                    update_peer_list(&mut gsptr, curr_peer_ids);
-                    last_peer_list_update = get_current_stamp();
-                }
+            if node_ref.last_peer_update() > last_peer_list_update {
+                update_peer_list(&node_ref, &mut gsptr);
+                last_peer_list_update = get_current_stamp();
+            }
 
-                if let Err(e) = check_peer_states(&node_ref, nid, &mut consensus_ref, &mut gsptr) {
-                    error!("Couldn't update the catch-up peer list: {}", e);
-                }
+            if let Err(e) = check_peer_states(&node_ref, nid, &mut consensus_ref, &mut gsptr) {
+                error!("Couldn't update the catch-up peer list: {}", e);
             }
 
             for request in consensus_receiver.try_iter() {
@@ -322,11 +327,6 @@ fn start_global_state_thread(
             thread::sleep(Duration::from_millis(loop_interval));
         }
     });
-
-    info!(
-        "Concordium P2P layer. Network disabled: {}",
-        conf.cli.no_network
-    );
 
     global_state_thread
 }
