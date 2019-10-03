@@ -1,6 +1,7 @@
 #!/bin/bash
 
 GHCVER=8.6.5
+ROOTDIR=$(pwd)
 
 ## Prepare our stuff for cabal
 if [ -f "/etc/arch-release" ]; then
@@ -51,46 +52,46 @@ fi
 
 ## Build the fPIC ghc
 echo "Build the boot libraries and runtime (This will take some time (a lot))"
-cp $rootdir/build.mk $rootdir/ghc-$GHCVER/mk/build.mk
-cd $rootdir/ghc-$GHCVER
+cp $ROOTDIR/build.mk $ROOTDIR/ghc-$GHCVER/mk/build.mk
+cd $ROOTDIR/ghc-$GHCVER
 ./boot
 ./configure
-sed -i 's/CFLAGS="/&-fPIC -g -fstack-protector-all /' $rootdir/ghc-$GHCVER/libffi/ghc.mk
+sed -i 's/CFLAGS="/&-fPIC -g -fstack-protector-all /' $ROOTDIR/ghc-$GHCVER/libffi/ghc.mk
 make -j8
 sudo make install
 
 # Copy the needed libraries
 echo "Let's copy the needed boot libraries"
-(rm -rf $rootdir/target
- mkdir -p $rootdir/target/{profiling,vanilla}/{ghc,cabal,concordium}
+(rm -rf $ROOTDIR/target
+ mkdir -p $ROOTDIR/target/{profiling,vanilla}/{ghc,cabal,concordium}
 
-for lib in $(find $rootdir/ghc-$GHCVER -type f -name "*_p.a"); do
-    cp $lib $rootdir/target/profiling/ghc
+for lib in $(find $ROOTDIR/ghc-$GHCVER -type f -name "*_p.a"); do
+    cp $lib $ROOTDIR/target/profiling/ghc
 done
 
-for lib in $rootdir/ghc-$GHCVER/rts/dist/build/libCffi_thr.a \
-               $rootdir/ghc-$GHCVER/rts/dist/build/libHSrts_thr.a \
-               $(find $rootdir/ghc-$GHCVER/libraries -type f -name "*[^_p].a" | grep dist-install); do
-    cp $lib $rootdir/target/vanilla/ghc
+for lib in $ROOTDIR/ghc-$GHCVER/rts/dist/build/libCffi_thr.a \
+               $ROOTDIR/ghc-$GHCVER/rts/dist/build/libHSrts_thr.a \
+               $(find $ROOTDIR/ghc-$GHCVER/libraries -type f -name "*[^_p].a" | grep dist-install); do
+    cp $lib $ROOTDIR/target/vanilla/ghc
 done
 
-for l in $rootdir/target/profiling/ghc/libHSrts_p.a \
-             $rootdir/target/profiling/ghc/libCffi_p.a \
-             $rootdir/target/vanilla/ghc/libCffi.a \
-             $rootdir/target/vanilla/ghc/libHSrts.a \
-             $rootdir/target/vanilla/ghc/libHSCabal-2.4.0.1.a \
-             $rootdir/target/vanilla/ghc/libHSghc-$GHCVER.a \
-             $rootdir/target/vanilla/ghc/libHSghc-boot-$GHCVER.a \
-             $rootdir/target/vanilla/ghc/libHSghc-heap-$GHCVER.a \
-             $rootdir/target/vanilla/ghc/libHSghci-$GHCVER.a \
-             $rootdir/target/vanilla/ghc/libHShpc-0.6.0.3.a \
-             $rootdir/target/vanilla/ghc/libHSterminfo-0.4.1.2.a \
-             $(find $rootdir/target/vanilla/ghc -name "libffi*") \
-             $(find $rootdir/target/vanilla/ghc -name "*[debug|l].a"); do
+for l in $ROOTDIR/target/profiling/ghc/libHSrts_p.a \
+             $ROOTDIR/target/profiling/ghc/libCffi_p.a \
+             $ROOTDIR/target/vanilla/ghc/libCffi.a \
+             $ROOTDIR/target/vanilla/ghc/libHSrts.a \
+             $ROOTDIR/target/vanilla/ghc/libHSCabal-2.4.0.1.a \
+             $ROOTDIR/target/vanilla/ghc/libHSghc-$GHCVER.a \
+             $ROOTDIR/target/vanilla/ghc/libHSghc-boot-$GHCVER.a \
+             $ROOTDIR/target/vanilla/ghc/libHSghc-heap-$GHCVER.a \
+             $ROOTDIR/target/vanilla/ghc/libHSghci-$GHCVER.a \
+             $ROOTDIR/target/vanilla/ghc/libHShpc-0.6.0.3.a \
+             $ROOTDIR/target/vanilla/ghc/libHSterminfo-0.4.1.2.a \
+             $(find $ROOTDIR/target/vanilla/ghc -name "libffi*") \
+             $(find $ROOTDIR/target/vanilla/ghc -name "*[debug|l].a"); do
     rm $l;
 done
 
-strip --strip-debug $rootdir/target/vanilla/ghc/lib* $rootdir/target/profiling/ghc/lib*
+strip --strip-debug $ROOTDIR/target/vanilla/ghc/lib* $ROOTDIR/target/profiling/ghc/lib*
 )
 
 # Install cabal if needed
@@ -100,7 +101,7 @@ if [ $? -eq 0 ]; then
     echo "OK, Cabal already installed"
 else
     echo "Cabal not installed"
-    cd $rootdir/ghc-$GHCVER/libraries/Cabal/cabal-install
+    cd $ROOTDIR/ghc-$GHCVER/libraries/Cabal/cabal-install
     ./bootstrap.sh --no-doc
     export PATH=$HOME/.cabal/bin
     cabal --version
@@ -111,5 +112,5 @@ else
         exit 1
     fi
 fi
-rm -rf $rootdir/ghc-$GHCVER)
+rm -rf $ROOTDIR/ghc-$GHCVER)
 cabal new-update

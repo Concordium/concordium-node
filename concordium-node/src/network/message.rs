@@ -10,8 +10,8 @@ use concordium_common::Serial;
 
 use std::{convert::TryFrom, ops::Deref};
 
-pub const NETWORK_MESSAGE_PROTOCOL_TYPE_IDX: usize = 13 +    // PROTOCOL_NAME.len()
-    2 +     // PROTOCOL_VERSION
+pub const NETWORK_MESSAGE_PROTOCOL_TYPE_IDX: usize = 4 + // PROTOCOL_NAME.len()
+    1 + // PROTOCOL_VERSION
     8; // Timestamp: get_current_stamp
 
 #[cfg(feature = "s11n_nom")]
@@ -58,7 +58,7 @@ impl Serial for NetworkMessage {
         if protocol_name.deref() != PROTOCOL_NAME.as_bytes() {
             bail!("Unknown protocol name (`{:?}`)! ", protocol_name.deref())
         }
-        let protocol_version = u16::deserial(source)?;
+        let protocol_version = u8::deserial(source)?;
         if protocol_version != PROTOCOL_VERSION {
             bail!("Unknown protocol version (`{:?}`)", protocol_version)
         }

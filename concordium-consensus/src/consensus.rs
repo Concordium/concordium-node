@@ -41,7 +41,7 @@ impl TryFrom<u8> for ConsensusLogLevel {
     }
 }
 
-const CONSENSUS_QUEUE_DEPTH: usize = 10000;
+const CONSENSUS_QUEUE_DEPTH: usize = 32 * 1024;
 
 pub struct ConsensusQueues {
     pub receiver: Mutex<QueueReceiver<ConsensusMessage>>,
@@ -61,6 +61,10 @@ impl Default for ConsensusQueues {
 impl ConsensusQueues {
     pub fn send_message(&self, message: ConsensusMessage) -> Fallible<()> {
         into_err!(self.sender.send_msg(message))
+    }
+
+    pub fn send_blocking_msg(&self, message: ConsensusMessage) -> Fallible<()> {
+        into_err!(self.sender.send_blocking_msg(message))
     }
 
     pub fn clear(&self) {
@@ -117,6 +121,7 @@ impl ConsensusContainer {
         genesis_data: Vec<u8>,
         private_data: Option<Vec<u8>>,
         baker_id: Option<BakerId>,
+        gsptr: &GlobalState,
         max_log_level: ConsensusLogLevel,
     ) -> Self {
         info!("Starting up the consensus layer");
@@ -132,6 +137,7 @@ impl ConsensusContainer {
             enable_transfer_logging,
             genesis_data.clone(),
             private_data,
+            gsptr,
             max_log_level,
         );
 
@@ -189,12 +195,4 @@ impl ConsensusContainer {
     pub fn is_baking(&self) -> bool { self.is_baking.load(Ordering::SeqCst) }
 
     pub fn is_active(&self) -> bool { self.consensus_type == ConsensusType::Active }
-
-    pub fn send_global_state_ptr(&self, global_state: &GlobalState) {
-        let gs_ptr = global_state as *const GlobalState as *const u8;
-        let consensus = self.consensus.load(Ordering::SeqCst);
-        unsafe {
-            sendGlobalStatePtr(consensus, gs_ptr);
-        }
-    }
 }

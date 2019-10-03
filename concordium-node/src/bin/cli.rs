@@ -20,21 +20,18 @@ use concordium_consensus::{
     consensus::{ConsensusContainer, ConsensusLogLevel, CALLBACK_QUEUE},
     ffi,
 };
-use concordium_global_state::tree::{
-    messaging::{DistributionMode, GlobalStateMessage},
-    GlobalState,
-};
+use concordium_global_state::tree::GlobalState;
 use p2p_client::{
     client::{
         plugins::{self, consensus::*},
         utils as client_utils,
     },
-    common::PeerType,
+    common::{get_current_stamp, PeerType},
     configuration as config,
     network::{NetworkId, NetworkMessage},
     p2p::*,
     rpc::RpcServerImpl,
-    utils::{self, get_config_and_logging_setup, GlobalStateReceivers},
+    utils::{self, get_config_and_logging_setup},
 };
 
 use failure::Fallible;
@@ -81,7 +78,7 @@ fn main() -> Fallible<()> {
         mpsc::sync_channel(config::RPC_QUEUE_DEPTH);
 
     // Thread #1: instantiate the P2PNode
-    let (node, mut receivers) = instantiate_node(
+    let (node, receivers) = instantiate_node(
         &conf,
         &mut app_prefs,
         stats_export_service.clone(),
@@ -96,16 +93,41 @@ fn main() -> Fallible<()> {
     // Thread #2 (optional): the push gateway to Prometheus
     client_utils::start_push_gateway(&conf.prometheus, &stats_export_service, node.id())?;
 
-    let global_state_receivers = receivers.global_state_receivers.take().unwrap(); // always there
-
     // Start the P2PNode
     //
     // Thread #2 (#3): P2P event loop
     node.spawn(receivers);
 
-    let mut consensus = plugins::consensus::start_consensus_layer(
+    let is_baker = conf.cli.baker.baker_id.is_some();
+
+    let data_dir_path = app_prefs.get_user_app_dir();
+    let (gen_data, prov_data) = get_baker_data(&app_prefs, &conf.cli.baker, is_baker)
+        .expect("Can't get genesis data or private data. Aborting");
+    let gs_kvs_handle = Manager::singleton()
+        .write()
+        .expect("Can't write to the kvs manager for GlobalState purposes!")
+        .get_or_create(data_dir_path.as_ref(), Rkv::new)
+        .expect("Can't load the GlobalState kvs environment!");
+
+    if let Err(e) = gs_kvs_handle
+        .write()
+        .unwrap()
+        .set_map_size(1024 * 1024 * 256)
+    {
+        error!("Can't set up the desired RKV map size: {}", e);
+    }
+
+    let global_state = GlobalState::new(
+        &gen_data,
+        gs_kvs_handle,
+        conf.cli.baker.persist_global_state,
+    );
+
+    let consensus = plugins::consensus::start_consensus_layer(
         &conf.cli.baker,
-        &app_prefs,
+        &global_state,
+        gen_data,
+        prov_data,
         if conf.common.trace {
             ConsensusLogLevel::Trace
         } else if conf.common.debug {
@@ -119,7 +141,7 @@ fn main() -> Fallible<()> {
     let mut rpc_serv = if !conf.cli.rpc.no_rpc_server {
         let mut serv = RpcServerImpl::new(
             node.clone(),
-            consensus.clone(),
+            Some(consensus.clone()),
             &conf.cli.rpc,
             subscription_queue_out,
             get_baker_private_data_json_file(&app_prefs, &conf.cli.baker),
@@ -136,25 +158,13 @@ fn main() -> Fallible<()> {
     // Connect outgoing messages to be forwarded into the baker and RPC streams.
     //
     // Thread #3 (#4): read P2PNode output
-    let higer_process_threads = if let Some(ref mut consensus) = consensus {
-        start_consensus_threads(
-            &node,
-            (&conf, &app_prefs),
-            consensus.clone(),
-            global_state_receivers,
-        )
-    } else {
-        vec![]
-    };
+    let global_state_thread =
+        start_global_state_thread(&node, &conf, consensus.clone(), global_state);
 
-    // Create a listener on baker output to forward to the P2PNode
-    //
-    // Thread #4 (#5): the Baker thread
-    let baker_thread = if conf.cli.baker.baker_id.is_some() {
-        Some(start_baker_thread(&node))
-    } else {
-        None
-    };
+    info!(
+        "Concordium P2P layer. Network disabled: {}",
+        conf.cli.no_network
+    );
 
     // Connect to nodes (args and bootstrap)
     if !conf.cli.no_network {
@@ -165,20 +175,14 @@ fn main() -> Fallible<()> {
     node.join().expect("The node thread panicked!");
 
     // Shut down the consensus layer
-    if let Some(ref mut consensus) = consensus {
-        consensus.stop();
-        ffi::stop_haskell();
-    }
 
-    // Wait for the higher process threads to stop
-    for th in higer_process_threads {
-        th.join().expect("Higher process thread panicked")
-    }
+    consensus.stop();
+    ffi::stop_haskell();
 
-    // Close the baker thread
-    if let Some(th) = baker_thread {
-        th.join().expect("Baker sub-thread panicked")
-    }
+    // Wait for the global state thread to stop
+    global_state_thread
+        .join()
+        .expect("Higher process thread panicked");
 
     // Close the RPC server if present
     if let Some(ref mut serv) = rpc_serv {
@@ -267,58 +271,54 @@ fn connect_to_config_nodes(conf: &config::ConnectionConfig, node: &P2PNode) {
     }
 }
 
-fn start_consensus_threads(
+fn start_global_state_thread(
     node: &Arc<P2PNode>,
-    (conf, app_prefs): (&config::Config, &config::AppPreferences),
+    conf: &config::Config,
     consensus: ConsensusContainer,
-    global_state_receivers: GlobalStateReceivers,
-) -> Vec<std::thread::JoinHandle<()>> {
-    let is_global_state_persistent = conf.cli.baker.persist_global_state;
-    let data_dir_path = app_prefs.get_user_app_dir();
-
+    mut gsptr: GlobalState,
+) -> std::thread::JoinHandle<()> {
     let node_ref = Arc::clone(node);
-    let mut consensus_clone = consensus.clone();
-    let network_id = NetworkId::from(conf.common.network_ids[0]); // defaulted so there's always first()
+    let mut consensus_ref = consensus.clone();
+    let nid = NetworkId::from(conf.common.network_ids[0]); // defaulted so there's always first()
     let global_state_thread = spawn_or_die!("Process global state requests", {
-        // Open the GlobalState-exclusive k-v store environment
-        let gs_kvs_handle = Manager::singleton()
-            .write()
-            .expect("Can't write to the kvs manager for GlobalState purposes!")
-            .get_or_create(data_dir_path.as_ref(), Rkv::new)
-            .expect("Can't load the GlobalState kvs environment!");
+        // don't do anything until the peer number is within the desired range
+        while node_ref.get_node_peer_ids().len() > node_ref.config.max_allowed_nodes as usize {
+            thread::sleep(Duration::from_secs(1));
+        }
 
-        let gs_kvs_env = gs_kvs_handle
-            .read()
-            .expect("Can't unlock the kvs env for GlobalState!");
-
-        let mut global_state = GlobalState::new(
-            &consensus_clone.genesis,
-            &gs_kvs_env,
-            is_global_state_persistent,
-        );
-
-        // consensus_clone.send_global_state_ptr(&global_state);
-
+        let mut last_peer_list_update = 0;
         let mut loop_interval: u64;
-        'outer_loop: loop {
-            loop_interval = 100;
+        let consensus_receiver = CALLBACK_QUEUE.receiver.lock().unwrap();
 
-            for request in global_state_receivers
-                .high_prio
-                .try_iter()
-                .chain(global_state_receivers.low_prio.try_iter())
-            {
-                if let GlobalStateMessage::Shutdown = request {
-                    warn!("Shutting the global state queues down");
-                    break 'outer_loop;
-                } else if let Err(e) = handle_global_state_request(
-                    &node_ref,
-                    network_id,
-                    &mut consensus_clone,
-                    request,
-                    &mut global_state,
-                ) {
-                    error!("There's an issue with a global state request: {}", e);
+        'outer_loop: loop {
+            loop_interval = 200;
+
+            if node_ref.last_peer_update() > last_peer_list_update {
+                update_peer_list(&node_ref, &mut gsptr);
+                last_peer_list_update = get_current_stamp();
+            }
+
+            if let Err(e) = check_peer_states(&node_ref, nid, &mut consensus_ref, &mut gsptr) {
+                error!("Couldn't update the catch-up peer list: {}", e);
+            }
+
+            for request in consensus_receiver.try_iter() {
+                match request {
+                    QueueMsg::Relay(msg) => {
+                        if let Err(e) = handle_consensus_message(
+                            &node_ref,
+                            nid,
+                            &mut consensus_ref,
+                            msg,
+                            &mut gsptr,
+                        ) {
+                            error!("There's an issue with a global state request: {}", e);
+                        }
+                    }
+                    QueueMsg::Stop => {
+                        warn!("Closing the global state channel");
+                        break 'outer_loop;
+                    }
                 }
 
                 loop_interval = loop_interval.saturating_sub(1);
@@ -328,68 +328,7 @@ fn start_consensus_threads(
         }
     });
 
-    let node_ref = Arc::clone(node);
-    #[allow(unreachable_code)] // the loop never breaks on its own
-    let ticker_thread = spawn_or_die!("Ticker", {
-        // an initial delay before we begin catching up and baking
-        thread::sleep(Duration::from_secs(10));
-
-        loop {
-            thread::sleep(Duration::from_secs(u64::from(config::TICKER_INTERVAL_SECS)));
-
-            let current_peers = node_ref.get_node_peer_ids();
-
-            // don't provide the global state with the peer information until their
-            // number is within the desired range
-            if current_peers.len() <= node_ref.config.max_allowed_nodes as usize {
-                let msg = GlobalStateMessage::PeerListUpdate(current_peers);
-                if let Err(e) = node_ref.global_state_senders.send_with_priority(msg) {
-                    error!("Error updating the global state peer list: {}", e)
-                }
-            }
-        }
-    });
-
-    info!(
-        "Concordium P2P layer. Network disabled: {}",
-        conf.cli.no_network
-    );
-
-    vec![global_state_thread, ticker_thread]
-}
-
-fn start_baker_thread(node: &P2PNode) -> std::thread::JoinHandle<()> {
-    let global_state_senders = node.global_state_senders.clone();
-
-    spawn_or_die!("Process consensus messages", {
-        let receiver = CALLBACK_QUEUE.receiver.lock().unwrap();
-        loop {
-            if let Ok(msg) = receiver.recv() {
-                match msg {
-                    QueueMsg::Relay(msg) => {
-                        let is_direct = msg.distribution_mode() == DistributionMode::Direct;
-                        let msg = GlobalStateMessage::ConsensusMessage(msg);
-                        if let Err(e) = if is_direct {
-                            global_state_senders.send_with_priority(msg)
-                        } else {
-                            global_state_senders.send(msg)
-                        } {
-                            error!(
-                                "Can't pass a consensus msg to the global state queue: {}",
-                                e
-                            );
-                        }
-                    }
-                    QueueMsg::Stop => {
-                        debug!("Shutting down consensus queues");
-                        break;
-                    }
-                }
-            } else {
-                error!("Error receiving a message from the consensus layer");
-            }
-        }
-    })
+    global_state_thread
 }
 
 #[cfg(feature = "elastic_logging")]

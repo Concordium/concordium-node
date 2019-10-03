@@ -490,7 +490,7 @@ impl P2P for RpcServerImpl {
         sink: ::grpcio::UnarySink<PeerStatsResponse>,
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
-            let peer_stats = self.node.get_peer_stats();
+            let peer_stats = self.node.get_peer_stats(None);
 
             let f = {
                 let data = peer_stats
@@ -501,7 +501,7 @@ impl P2P for RpcServerImpl {
                     })
                     .map(|peer| {
                         let mut peer_resp = PeerStatsResponse_PeerStats::new();
-                        peer_resp.set_node_id(P2PNodeId(peer.id).to_string());
+                        peer_resp.set_node_id(format!("{:0>16x}", peer.id));
                         peer_resp.set_packets_sent(peer.sent.load(Ordering::Relaxed));
                         peer_resp.set_packets_received(peer.received.load(Ordering::Relaxed));
 
@@ -533,7 +533,7 @@ impl P2P for RpcServerImpl {
                 let peer_type = self.node.peer_type();
                 let data = self
                     .node
-                    .get_peer_stats()
+                    .get_peer_stats(None)
                     .iter()
                     .filter(|peer| match peer.peer_type {
                         PeerType::Node => true,
@@ -542,7 +542,7 @@ impl P2P for RpcServerImpl {
                     .map(|peer| {
                         let mut peer_resp = PeerElement::new();
                         let mut node_id = ::protobuf::well_known_types::StringValue::new();
-                        node_id.set_value(peer.id.to_string());
+                        node_id.set_value(format!("{:0>16x}", peer.id));
                         peer_resp.set_node_id(node_id);
                         let mut ip = ::protobuf::well_known_types::StringValue::new();
                         ip.set_value(peer.addr.ip().to_string());
@@ -1072,7 +1072,7 @@ impl P2P for RpcServerImpl {
                     req.id.clone(),
                     req.directory.clone(),
                 );
-                let _node_list = self.node.get_peer_stats();
+                let _node_list = self.node.get_peer_stats(None);
                 if !_node_list
                     .into_iter()
                     .any(|s| P2PNodeId(s.id).to_string() == id)
@@ -1583,7 +1583,8 @@ mod tests {
         assert!(rcv.len() == 1);
         let elem = rcv[0].clone();
         assert_eq!(
-            P2PNodeId(str::parse::<u64>(elem.node_id.unwrap().get_value()).unwrap()).to_string(),
+            P2PNodeId(u64::from_str_radix(elem.node_id.unwrap().get_value(), 16).unwrap())
+                .to_string(),
             node2.id().to_string()
         );
         assert_eq!(
