@@ -315,9 +315,7 @@ impl Connection {
                 }
                 _ => false,
             },
-            NetworkMessage::NetworkResponse(ref response, ..) => match response {
-                _ => false,
-            },
+            NetworkMessage::NetworkResponse(..) => false,
             NetworkMessage::NetworkPacket(..) => {
                 self.handler().is_rpc_online.load(Ordering::Relaxed)
             }
@@ -374,7 +372,7 @@ impl Connection {
     /// This functions returns (almost) immediately, because it does NOT wait
     /// for real write. Function `ConnectionPrivate::ready` will make ensure to
     /// write chunks of the message
-    #[inline]
+    #[inline(always)]
     pub fn async_send_from_poll_loop(&self, input: HybridBuf) -> Fallible<Readiness<usize>> {
         TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
         self.stats.messages_sent.fetch_add(1, Ordering::Relaxed);

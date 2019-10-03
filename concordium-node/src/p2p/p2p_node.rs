@@ -532,15 +532,15 @@ impl P2PNode {
 
                 self_clone.process_network_requests(&receivers, &mut request_queue);
 
-                // Check the termination switch
-                if self_clone.is_terminated.load(Ordering::Relaxed) {
-                    break;
-                }
-
                 // Run periodic tasks
                 let now = SystemTime::now();
                 if let Ok(difference) = now.duration_since(log_time) {
                     if difference > Duration::from_secs(self_clone.config.housekeeping_interval) {
+                        // Check the termination switch
+                        if self_clone.is_terminated.load(Ordering::Relaxed) {
+                            break;
+                        }
+
                         if let Err(e) = self_clone.connection_housekeeping() {
                             error!("Issue with connection cleanups: {:?}", e);
                         }
