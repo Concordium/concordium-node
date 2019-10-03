@@ -222,6 +222,8 @@ pub fn router(
     build_router(chain, pipelines, |route| {
         route.get("/").to(index);
         route.get("/nodesSummary").to(nodes_summary);
+        route.get("/data/nodesSummary").to(nodes_summary);
         route.post("/nodes/post").to(nodes_post_handler);
+        route.post("/post/nodes").to(nodes_post_handler);
     })
 }
