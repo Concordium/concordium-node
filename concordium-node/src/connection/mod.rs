@@ -9,6 +9,7 @@ mod p2p_event;
 
 // If a message is labelled as having `High` priority it is always pushed to the
 // front of the queue in the sinks when sending, and otherwise to the back
+#[derive(PartialEq, Eq, Clone, Copy)]
 pub enum MessageSendingPriority {
     High,
     Normal,
@@ -357,15 +358,22 @@ impl Connection {
     pub fn async_send(&self, input: HybridBuf, priority: MessageSendingPriority) -> Fallible<()> {
         let request = NetworkRawRequest {
             token: self.token,
-            data: input,
-            priority,
+            data:  input,
         };
 
-        into_err!(self
-            .handler()
-            .connection_handler
-            .network_request_sender
-            .send(request))
+        if priority == MessageSendingPriority::High {
+            into_err!(self
+                .handler()
+                .connection_handler
+                .network_messages_hi
+                .send(request))
+        } else {
+            into_err!(self
+                .handler()
+                .connection_handler
+                .network_messages_lo
+                .send(request))
+        }
     }
 
     /// It sends `input` through `socket`.
