@@ -170,10 +170,14 @@ fn nodes_summary(state: State) -> (State, JSONStringResponse) {
     let mut response = Vec::new();
     {
         let map_lock = &*read_or_die!(state_data.nodes);
-
-        for node_info in map_lock.values() {
+        response.extend(b"[");
+        for (i, node_info) in map_lock.values().enumerate() {
+            if i != 0 {
+                response.extend(b",");
+            }
             serde_json::to_writer(&mut response, node_info).unwrap()
         }
+        response.extend(b"]");
     }
     (
         state,
