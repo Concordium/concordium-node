@@ -146,15 +146,28 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BannedNode {
         }
     }
 
-    fn serialize(&self) -> Box<[u8]> {
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
         match self {
-            BannedNode::ById(id) => [&[0][..], &id.as_raw().to_le_bytes()].concat(),
-            BannedNode::ByAddr(addr) => match addr {
-                IpAddr::V4(ip) => [&[1, 4][..], &ip.octets()].concat(),
-                IpAddr::V6(ip) => [&[1, 4][..], &ip.octets()].concat(),
-            },
+            BannedNode::ById(id) => {
+                target.write_u8(0)?;
+                target.write_all(&id.as_raw().to_le_bytes())?;
+            }
+            BannedNode::ByAddr(addr) => {
+                target.write_u8(1)?;
+                match addr {
+                    IpAddr::V4(ip) => {
+                        target.write_u8(4)?;
+                        target.write_all(&ip.octets())?;
+                    }
+                    IpAddr::V6(ip) => {
+                        target.write_u8(6)?;
+                        target.write_all(&ip.octets())?;
+                    }
+                }
+            }
         }
-        .into_boxed_slice()
+
+        Ok(())
     }
 }
 

@@ -4,7 +4,7 @@ use failure::Fallible;
 use std::{
     cmp::Ordering,
     fmt,
-    io::{Cursor, Read, Write},
+    io::{Cursor, Read},
     mem::size_of,
 };
 
@@ -55,22 +55,14 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for FinalizationMessage {
             // signature,
         };
 
-        check_serialization!(msg, cursor);
-
         Ok(msg)
     }
 
-    fn serialize(&self) -> Box<[u8]> {
-        // let mut buffer = [0; 2];
-        // NetworkEndian::write_u16(&mut buffer, self.signature.len() as u16);
-        [
-            &self.header.serialize(),
-            &*self.message,
-            /* &buffer[..],
-             * self.signature.as_ref(), */
-        ]
-        .concat()
-        .into_boxed_slice()
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        self.header.serial(target)?;
+        target.write_all(&*self.message)?;
+
+        Ok(())
     }
 }
 
@@ -104,25 +96,16 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for FinalizationMessageHeader {
             sender,
         };
 
-        check_serialization!(header, cursor);
-
         Ok(header)
     }
 
-    fn serialize(&self) -> Box<[u8]> {
-        let mut cursor = create_serialization_cursor(
-            size_of::<SessionId>()
-                + size_of::<FinalizationIndex>()
-                + size_of::<BlockHeight>()
-                + size_of::<Party>(),
-        );
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        self.session_id.serial(target)?;
+        target.write_u64::<NetworkEndian>(self.index)?;
+        target.write_u64::<NetworkEndian>(self.delta)?;
+        target.write_u32::<NetworkEndian>(self.sender)?;
 
-        let _ = cursor.write_all(&self.session_id.serialize());
-        let _ = cursor.write_u64::<NetworkEndian>(self.index);
-        let _ = cursor.write_u64::<NetworkEndian>(self.delta);
-        let _ = cursor.write_u32::<NetworkEndian>(self.sender);
-
-        cursor.into_inner()
+        Ok(())
     }
 }
 
@@ -199,35 +182,46 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for WmvbaMessage {
         Ok(msg)
     }
 
-    fn serialize(&self) -> Box<[u8]> {
-        let vec = match self {
-            WmvbaMessage::Proposal(ref val) => [&[0], val.as_ref()].concat(),
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        match self {
+            WmvbaMessage::Proposal(ref val) => {
+                target.write_u8(0)?;
+                target.write_all(val.as_ref())?;
+            }
             WmvbaMessage::Vote(vote) => match vote {
-                None => vec![1],
-                Some(val) => [&[2], val.as_ref()].concat(),
+                None => target.write_u8(1)?,
+                Some(val) => {
+                    target.write_u8(2)?;
+                    target.write_all(val.as_ref())?;
+                }
             },
             WmvbaMessage::Abba(abba) => {
                 if !abba.justified {
-                    [&[3], &*abba.serialize()].concat()
+                    target.write_u8(3)?
                 } else {
-                    [&[4], &*abba.serialize()].concat()
+                    target.write_u8(4)?
                 }
+                abba.serial(target)?;
             }
             WmvbaMessage::Css(css) => {
                 let nt = css.nomination_tag() as u8;
                 match css.variant {
-                    CssVariant::Seen => [&[nt], &*css.serialize()].concat(),
-                    CssVariant::DoneReporting => [&[nt + 3], &*css.serialize()].concat(),
+                    CssVariant::Seen => target.write_u8(nt)?,
+                    CssVariant::DoneReporting => target.write_u8(nt + 3)?,
                 }
+                css.serial(target)?;
             }
             WmvbaMessage::AreWeDone(arewe) => match arewe {
-                false => vec![11],
-                true => vec![12],
+                false => target.write_u8(11)?,
+                true => target.write_u8(12)?,
             },
-            WmvbaMessage::WitnessCreator(val) => [&[13], val.as_ref()].concat(),
-        };
+            WmvbaMessage::WitnessCreator(val) => {
+                target.write_u8(13)?;
+                target.write_all(val.as_ref())?;
+            }
+        }
 
-        vec.into_boxed_slice()
+        Ok(())
     }
 }
 
@@ -256,13 +250,11 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Abba {
         Ok(abba)
     }
 
-    fn serialize(&self) -> Box<[u8]> {
-        let mut cursor = create_serialization_cursor(size_of::<Phase>() + TICKET as usize);
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        target.write_u32::<NetworkEndian>(self.phase)?;
+        target.write_all(&self.ticket)?;
 
-        let _ = cursor.write_u32::<NetworkEndian>(self.phase);
-        let _ = cursor.write_all(&self.ticket);
-
-        cursor.into_inner()
+        Ok(())
     }
 }
 
@@ -339,7 +331,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for NominationSet {
         Ok(set)
     }
 
-    fn serialize(&self) -> Box<[u8]> {
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
         fn set_bit(bit: u32, number: u32) -> u32 {
             if bit < 32 {
                 number | (1 << bit)
@@ -348,8 +340,8 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for NominationSet {
             }
         }
 
-        fn unpack_party(
-            unpacked: &mut Cursor<Box<[u8]>>,
+        fn unpack_party<W: WriteBytesExt>(
+            unpacked: &mut W,
             packed: &[u32],
             party: Party,
             max_party: Party,
@@ -365,28 +357,15 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for NominationSet {
             }
         }
 
-        let bitstr_len = ((f64::from(self.max_party) + 1.0) / 8.0).ceil() as usize;
-        let set_size = if !self.top.0.is_empty() && !self.bottom.0.is_empty() {
-            2 * bitstr_len
-        } else {
-            bitstr_len
-        };
-        let mut cursor = create_serialization_cursor(size_of::<Party>() + set_size);
-
-        let _ = cursor.write_u32::<NetworkEndian>(self.max_party);
+        target.write_u32::<NetworkEndian>(self.max_party)?;
         if !self.top.0.is_empty() {
-            unpack_party(&mut cursor, &self.top.0, Party::min_value(), self.max_party);
+            unpack_party(target, &self.top.0, Party::min_value(), self.max_party);
         }
         if !self.bottom.0.is_empty() {
-            unpack_party(
-                &mut cursor,
-                &self.bottom.0,
-                Party::min_value(),
-                self.max_party,
-            );
+            unpack_party(target, &self.bottom.0, Party::min_value(), self.max_party);
         }
 
-        cursor.into_inner()
+        Ok(())
     }
 }
 
@@ -437,15 +416,11 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Css {
         Ok(css)
     }
 
-    fn serialize(&self) -> Box<[u8]> {
-        let nomination_set = self.nomination_set.serialize();
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        target.write_u32::<NetworkEndian>(self.phase)?;
+        self.nomination_set.serial(target)?;
 
-        let mut cursor = create_serialization_cursor(size_of::<Phase>() + nomination_set.len());
-
-        let _ = cursor.write_u32::<NetworkEndian>(self.phase);
-        let _ = cursor.write_all(&nomination_set);
-
-        cursor.into_inner()
+        Ok(())
     }
 }
 
@@ -527,38 +502,22 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationRecord {
             delay,
         };
 
-        check_serialization!(rec, cursor);
-
         Ok(rec)
     }
 
-    fn serialize(&self) -> Box<[u8]> {
-        let proof_len = self
-            .proof
-            .iter()
-            .map(|(_, sig)| size_of::<Party>() + size_of::<u16>() + sig.len())
-            .sum::<usize>();
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        target.write_u64::<NetworkEndian>(self.index)?;
+        target.write_all(&self.block_pointer)?;
 
-        let mut cursor = create_serialization_cursor(
-            size_of::<FinalizationIndex>()
-                + self.block_pointer.len()
-                + size_of::<u32>()
-                + proof_len
-                + size_of::<BlockHeight>(),
-        );
-
-        let _ = cursor.write_u64::<NetworkEndian>(self.index);
-        let _ = cursor.write_all(&self.block_pointer);
-
-        let _ = cursor.write_u32::<NetworkEndian>(self.proof.len() as u32);
+        target.write_u32::<NetworkEndian>(self.proof.len() as u32)?;
         for (party, signature) in &*self.proof {
-            let _ = cursor.write_u32::<NetworkEndian>(*party);
-            let _ = cursor.write_u16::<NetworkEndian>(signature.len() as u16);
-            let _ = cursor.write_all(signature);
+            target.write_u32::<NetworkEndian>(*party)?;
+            target.write_u16::<NetworkEndian>(signature.len() as u16)?;
+            target.write_all(signature)?;
         }
 
-        let _ = cursor.write_u64::<NetworkEndian>(self.delay);
+        target.write_u64::<NetworkEndian>(self.delay)?;
 
-        cursor.into_inner()
+        Ok(())
     }
 }

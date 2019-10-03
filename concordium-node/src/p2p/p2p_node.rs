@@ -846,7 +846,8 @@ impl P2PNode {
     pub fn ban_node(&self, peer: BannedNode) -> Fallible<()> {
         info!("Banning node {:?}", peer);
 
-        let store_key = peer.serialize();
+        let mut store_key = Vec::new();
+        peer.serial(&mut store_key)?;
         {
             let ban_kvs_env = safe_read!(self.kvs)?;
             let ban_store = ban_kvs_env.open_single(BAN_STORE_NAME, StoreOptions::create())?;
@@ -876,7 +877,8 @@ impl P2PNode {
     pub fn unban_node(&self, peer: BannedNode) -> Fallible<()> {
         info!("Unbanning node {:?}", peer);
 
-        let store_key = peer.serialize();
+        let mut store_key = Vec::new();
+        peer.serial(&mut store_key)?;
         {
             let ban_kvs_env = safe_read!(self.kvs)?;
             let ban_store = ban_kvs_env.open_single(BAN_STORE_NAME, StoreOptions::create())?;
@@ -894,7 +896,8 @@ impl P2PNode {
         let ban_store = ban_kvs_env.open_single(BAN_STORE_NAME, StoreOptions::create())?;
 
         let ban_reader = ban_kvs_env.read()?;
-        let store_key = peer.serialize();
+        let mut store_key = Vec::new();
+        peer.serial(&mut store_key)?;
 
         Ok(ban_store.get(&ban_reader, store_key)?.is_some())
     }

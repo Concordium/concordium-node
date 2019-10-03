@@ -84,10 +84,12 @@ impl<'a, 'b, T: SerializeToBytes<'a, 'b>> DiskCache<'a, 'b, T> {
     pub fn insert(&mut self, store_handle: &Rkv, hash: HashBytes, elem: T) -> Fallible<()> {
         if let Some(entry) = self.cache.insert(hash.clone(), elem) {
             let mut store_writer = store_handle.write().expect("Can't write to the store!");
+            let mut val = Vec::new();
+            entry.serial(&mut val)?;
 
             Ok(self
                 .store
-                .put(&mut store_writer, hash, &Value::Blob(&entry.serialize()))?)
+                .put(&mut store_writer, hash, &Value::Blob(&val))?)
         } else {
             Ok(())
         }

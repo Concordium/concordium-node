@@ -1,14 +1,11 @@
 use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
 use failure::Fallible;
 
-use std::{
-    io::{Cursor, Read, Write},
-    mem::size_of,
-};
+use std::io::{Cursor, Read};
 
 use crate::{
     block::BlockHeight,
-    common::{create_serialization_cursor, read_ty, SerializeToBytes},
+    common::{read_ty, SerializeToBytes},
 };
 
 use concordium_common::blockchain_types::BlockHash;
@@ -49,33 +46,20 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for CatchUpStatus {
             finalization_justifiers,
         };
 
-        check_serialization!(status, cursor);
-
         Ok(status)
     }
 
-    fn serialize(&self) -> Box<[u8]> {
-        let justifiers_len = self.finalization_justifiers.len() * size_of::<BlockHash>();
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        target.write_u8(self.is_request as u8)?;
+        target.write_all(&self.last_finalized_block)?;
+        target.write_u64::<NetworkEndian>(self.last_finalized_height)?;
+        target.write_all(&self.best_block)?;
 
-        let mut cursor = create_serialization_cursor(
-            size_of::<bool>()
-                + size_of::<BlockHash>()
-                + size_of::<BlockHeight>()
-                + size_of::<BlockHash>()
-                + size_of::<u32>()
-                + justifiers_len,
-        );
-
-        let _ = cursor.write_u8(self.is_request as u8);
-        let _ = cursor.write_all(&self.last_finalized_block);
-        let _ = cursor.write_u64::<NetworkEndian>(self.last_finalized_height);
-        let _ = cursor.write_all(&self.best_block);
-
-        let _ = cursor.write_u32::<NetworkEndian>(self.finalization_justifiers.len() as u32);
+        target.write_u32::<NetworkEndian>(self.finalization_justifiers.len() as u32)?;
         for fj in &*self.finalization_justifiers {
-            let _ = cursor.write_all(fj);
+            target.write_all(fj)?;
         }
 
-        cursor.into_inner()
+        Ok(())
     }
 }

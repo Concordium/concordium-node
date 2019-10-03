@@ -4,6 +4,7 @@ extern crate log;
 /// A debug test designed to check whether deserialization is perfectly
 /// reversible. It also verifies that the input buffer is exhausted in the
 /// process.
+#[allow(unused_macros)]
 macro_rules! check_serialization {
     ($target:expr, $cursor:expr) => {
         if $cursor.position() != $cursor.get_ref().len() as u64 {
@@ -103,7 +104,7 @@ macro_rules! write_multiple {
     ($target:expr, $list:expr, $write_function:path) => {{
         let _ = $target.write_u64::<NetworkEndian>($list.len() as u64);
         for elem in &*$list {
-            let _ = $write_function($target, &*elem);
+            $write_function($target, &*elem)?;
         }
     }};
 }
@@ -125,10 +126,10 @@ macro_rules! read_maybe {
 macro_rules! write_maybe {
     ($target:expr, $maybe:expr, $write_function:path) => {{
         if let Some(ref value) = $maybe {
-            let _ = $target.write(&[1]);
-            $write_function($target, &*value);
+            $target.write_u8(1)?;
+            $write_function($target, &*value)?;
         } else {
-            let _ = $target.write(&[0]);
+            $target.write_u8(0)?;
         }
     }};
 }

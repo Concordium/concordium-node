@@ -6,7 +6,7 @@ use failure::Fallible;
 
 use std::{
     collections::HashMap,
-    io::{Cursor, Read, Write},
+    io::{Cursor, Read},
     mem::size_of,
 };
 
@@ -91,54 +91,27 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Bakers {
         Ok(params)
     }
 
-    fn serialize(&self) -> Box<[u8]> {
-        let baker_info_size1 =
-            8 + self.baker_map.len() * (size_of::<BakerId>() + BAKER_INFO as usize);
-        let mut baker_cursor = create_serialization_cursor(baker_info_size1);
-
-        let _ = baker_cursor.write_u64::<NetworkEndian>(self.baker_map.len() as u64);
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        target.write_u64::<NetworkEndian>(self.baker_map.len() as u64)?;
         for (id, info) in self.baker_map.iter() {
-            let _ = baker_cursor.write_u64::<NetworkEndian>(*id);
-            let _ = baker_cursor.write_all(&info.serialize());
+            target.write_u64::<NetworkEndian>(*id)?;
+            info.serial(target)?;
         }
 
-        debug_assert_eq!(baker_cursor.position(), baker_cursor.get_ref().len() as u64);
-
-        let baker_info_size2 =
-            8 + self.bakers_by_key.len() * ((BAKER_SIGN_KEY + BAKER_VRF_KEY) as usize) + {
-                let mut sz = 0;
-                for (_, v) in self.bakers_by_key.iter() {
-                    sz = sz + size_of::<u64>() + (v.len() * size_of::<BakerId>());
-                }
-                sz
-            };
-
-        let mut baker_by_key_cursor = create_serialization_cursor(baker_info_size2);
-
-        let _ = baker_by_key_cursor.write_u64::<NetworkEndian>(self.bakers_by_key.len() as u64);
+        target.write_u64::<NetworkEndian>(self.bakers_by_key.len() as u64)?;
         for ((bsk, bvk), bakerids) in self.bakers_by_key.iter() {
-            write_bytestring_short_length(&mut baker_by_key_cursor, bsk);
-            let _ = baker_by_key_cursor.write_all(bvk);
-            let _ = baker_by_key_cursor.write_u64::<NetworkEndian>(bakerids.len() as u64);
+            write_bytestring_short_length(target, bsk)?;
+            target.write_all(bvk)?;
+            target.write_u64::<NetworkEndian>(bakerids.len() as u64)?;
             for id in bakerids.iter() {
-                let _ = baker_by_key_cursor.write_u64::<NetworkEndian>(*id);
+                target.write_u64::<NetworkEndian>(*id)?;
             }
         }
 
-        debug_assert_eq!(
-            baker_by_key_cursor.position(),
-            baker_by_key_cursor.get_ref().len() as u64
-        );
+        target.write_u64::<NetworkEndian>(self.baker_total_stake)?;
+        target.write_u64::<NetworkEndian>(self.next_baker_id)?;
 
-        let size = baker_info_size1 + baker_info_size2 + size_of::<u64>() + size_of::<u64>();
-        let mut cursor = create_serialization_cursor(size);
-
-        let _ = cursor.write_all(baker_cursor.get_ref());
-        let _ = cursor.write_all(baker_by_key_cursor.get_ref());
-        let _ = cursor.write_u64::<NetworkEndian>(self.baker_total_stake);
-        let _ = cursor.write_u64::<NetworkEndian>(self.next_baker_id);
-
-        cursor.into_inner()
+        Ok(())
     }
 }
 
@@ -166,20 +139,12 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
         Ok(params)
     }
 
-    fn serialize(&self) -> Box<[u8]> {
-        let bakers = self.bakers.serialize();
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        write_bytestring(target, &self.election_nonce)?;
+        target.write_f64::<NetworkEndian>(self.election_difficulty)?;
+        self.bakers.serial(target)?;
 
-        let size = size_of::<u64>()
-            + self.election_nonce.len()
-            + size_of::<ElectionDifficulty>()
-            + bakers.len();
-        let mut cursor = create_serialization_cursor(size);
-
-        write_bytestring(&mut cursor, &self.election_nonce);
-        let _ = cursor.write_f64::<NetworkEndian>(self.election_difficulty);
-        let _ = cursor.write_all(&bakers);
-
-        cursor.into_inner()
+        Ok(())
     }
 }
 
@@ -193,8 +158,6 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for CryptographicParameters {
     type Source = &'a mut Cursor<&'b [u8]>;
 
     fn deserialize(mut cursor: Self::Source) -> Fallible<Self> {
-        let initial_pos = cursor.position() as usize;
-
         let elgamal_generator = Encoded::new(&read_const_sized!(&mut cursor, ELGAMAL_GENERATOR));
         let attribute_commitment_key =
             read_bytestring_medium(&mut cursor, "attribute commitment key")?;
@@ -204,23 +167,15 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for CryptographicParameters {
             attribute_commitment_key,
         };
 
-        let final_pos = cursor.position() as usize;
-
-        check_partial_serialization!(crypto_params, &cursor.get_ref()[initial_pos..final_pos]);
-
         Ok(crypto_params)
     }
 
-    fn serialize(&self) -> Box<[u8]> {
-        let mut cursor = create_serialization_cursor(
-            (ELGAMAL_GENERATOR as usize) + size_of::<u32>() + self.attribute_commitment_key.len(),
-        );
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        target.write_all(&self.elgamal_generator)?;
+        target.write_u32::<NetworkEndian>(self.attribute_commitment_key.len() as u32)?;
+        target.write_all(&self.attribute_commitment_key)?;
 
-        let _ = cursor.write_all(&self.elgamal_generator);
-        let _ = cursor.write_u32::<NetworkEndian>(self.attribute_commitment_key.len() as u32);
-        let _ = cursor.write_all(&self.attribute_commitment_key);
-
-        cursor.into_inner()
+        Ok(())
     }
 }
 
@@ -251,20 +206,16 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for BakerInfo {
             account_address,
         };
 
-        check_serialization!(info, cursor);
-
         Ok(info)
     }
 
-    fn serialize(&self) -> Box<[u8]> {
-        let mut cursor = create_serialization_cursor(BAKER_INFO as usize);
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        target.write_all(&self.election_verify_key)?;
+        write_bytestring_short_length(target, &self.signature_verify_key)?;
+        target.write_f64::<NetworkEndian>(self.lottery_power)?;
+        target.write_all(&self.account_address.0)?;
 
-        let _ = cursor.write_all(&self.election_verify_key);
-        write_bytestring_short_length(&mut cursor, &self.signature_verify_key);
-        let _ = cursor.write_f64::<NetworkEndian>(self.lottery_power);
-        let _ = cursor.write_all(&self.account_address.0);
-
-        cursor.into_inner()
+        Ok(())
     }
 }
 
@@ -292,18 +243,14 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for VoterInfo {
             voting_power,
         };
 
-        check_serialization!(info, cursor);
-
         Ok(info)
     }
 
-    fn serialize(&self) -> Box<[u8]> {
-        let mut cursor = create_serialization_cursor(VOTER_INFO as usize);
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        write_bytestring_short_length(target, &self.signature_verify_key)?;
+        target.write_all(&self.election_verify_key)?;
+        target.write_u64::<NetworkEndian>(self.voting_power)?;
 
-        write_bytestring_short_length(&mut cursor, &self.signature_verify_key);
-        let _ = cursor.write_all(&self.election_verify_key);
-        let _ = cursor.write_u64::<NetworkEndian>(self.voting_power);
-
-        cursor.into_inner()
+        Ok(())
     }
 }

@@ -39,13 +39,10 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for ContractAddress {
         Ok(contract_address)
     }
 
-    fn serialize(&self) -> Box<[u8]> {
-        let mut cursor = create_serialization_cursor(size_of::<ContractAddress>());
-
-        let _ = cursor.write_u64::<NetworkEndian>(self.index);
-        let _ = cursor.write_u64::<NetworkEndian>(self.subindex);
-
-        cursor.into_inner()
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        target.write_u64::<NetworkEndian>(self.index)?;
+        target.write_u64::<NetworkEndian>(self.subindex)?;
+        Ok(())
     }
 }
 
