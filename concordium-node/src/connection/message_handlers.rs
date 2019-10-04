@@ -108,6 +108,8 @@ impl Connection {
     ) -> Fallible<()> {
         debug!("Got a Handshake response from peer {}", remote_node_id);
 
+        self.send_ping()?;
+
         self.promote_to_post_handshake(remote_node_id, remote_port)?;
         self.add_remote_end_networks(networks);
 
@@ -134,6 +136,8 @@ impl Connection {
     }
 
     fn handle_pong(&self) -> Fallible<()> {
+        self.stats.valid_latency.store(true, Ordering::Relaxed);
+
         let ping_time: u64 = self.stats.last_ping_sent.load(Ordering::SeqCst);
         let curr_time: u64 = get_current_stamp();
 

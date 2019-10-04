@@ -176,7 +176,7 @@ fn collect_data(
         .sum::<u64>() as f64
         / peer_stats
             .iter()
-            .filter(|element| element.get_measured_latency() > 0)
+            .filter(|element| element.get_valid_latency())
             .count() as f64;
     let average_ping: Option<f64> = if peers_total_meassured_latency > 0.0 {
         Some(peers_total_meassured_latency)

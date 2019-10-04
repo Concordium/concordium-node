@@ -504,11 +504,10 @@ impl P2P for RpcServerImpl {
                         peer_resp.set_node_id(format!("{:0>16x}", peer.id));
                         peer_resp.set_packets_sent(peer.sent.load(Ordering::Relaxed));
                         peer_resp.set_packets_received(peer.received.load(Ordering::Relaxed));
+                        peer_resp.set_valid_latency(peer.valid_latency.load(Ordering::Relaxed));
 
                         let latency = peer.measured_latency.load(Ordering::Relaxed);
-                        if latency > 0 {
-                            peer_resp.set_measured_latency(latency);
-                        }
+                        peer_resp.set_measured_latency(latency);
 
                         peer_resp
                     })
