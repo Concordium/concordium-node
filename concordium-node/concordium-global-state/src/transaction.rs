@@ -34,7 +34,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionHeader {
 
     fn deserialize(cursor: Self::Source) -> Fallible<Self> {
         let scheme_id = SchemeId::try_from(read_const_sized!(cursor, 1)[0])?;
-        let sender_key = read_bytestring_short_length(cursor, "sender key's length")?;
+        let sender_key = read_bytestring_short_length(cursor)?;
 
         let nonce_raw = NetworkEndian::read_u64(&read_ty!(cursor, Nonce));
         let nonce = Nonce::try_from(nonce_raw)?;
@@ -80,7 +80,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BareTransaction {
 
     fn deserialize(cursor: Self::Source) -> Fallible<Self> {
         let initial_pos = cursor.position() as usize;
-        let signature = read_bytestring_short_length(cursor, "transaction signature")?;
+        let signature = read_bytestring_short_length(cursor)?;
         let header = TransactionHeader::deserialize(cursor)?;
         let payload = TransactionPayload::deserialize((cursor, header.payload_size))?;
 
@@ -308,16 +308,15 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
                 Ok(TransactionPayload::DeployCredential(credential))
             }
             TransactionType::DeployEncryptionKey => {
-                let ek = read_bytestring_short_length(cursor, "encryption key to deploy")?;
+                let ek = read_bytestring_short_length(cursor)?;
 
                 Ok(TransactionPayload::DeployEncryptionKey(ek))
             }
             TransactionType::AddBaker => {
                 let election_verify_key = Encoded::new(&read_const_sized!(cursor, BAKER_VRF_KEY));
-                let signature_verify_key =
-                    read_bytestring_short_length(cursor, "baker sign verify key")?;
+                let signature_verify_key = read_bytestring_short_length(cursor)?;
                 let account_address = AccountAddress(read_ty!(cursor, AccountAddress));
-                let proof = read_bytestring(cursor, "baker addition proof")?;
+                let proof = read_bytestring(cursor)?;
 
                 Ok(TransactionPayload::AddBaker {
                     election_verify_key,
@@ -328,14 +327,14 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
             }
             TransactionType::RemoveBaker => {
                 let id = NetworkEndian::read_u64(&read_ty!(cursor, BakerId));
-                let proof = read_bytestring(cursor, "baker removal proof")?;
+                let proof = read_bytestring(cursor)?;
 
                 Ok(TransactionPayload::RemoveBaker { id, proof })
             }
             TransactionType::UpdateBakerAccount => {
                 let id = NetworkEndian::read_u64(&read_ty!(cursor, BakerId));
                 let account_address = AccountAddress(read_ty!(cursor, AccountAddress));
-                let proof = read_bytestring(cursor, "baker update proof")?;
+                let proof = read_bytestring(cursor)?;
 
                 Ok(TransactionPayload::UpdateBakerAccount {
                     id,
@@ -345,9 +344,8 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
             }
             TransactionType::UpdateBakerSignKey => {
                 let id = NetworkEndian::read_u64(&read_ty!(cursor, BakerId));
-                let signature_verify_key =
-                    read_bytestring_short_length(cursor, "baker sign verify key")?;
-                let proof = read_bytestring(cursor, "baker update proof")?;
+                let signature_verify_key = read_bytestring_short_length(cursor)?;
+                let proof = read_bytestring(cursor)?;
 
                 Ok(TransactionPayload::UpdateBakerSignKey {
                     id,

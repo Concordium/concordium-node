@@ -30,12 +30,11 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for CatchUpStatus {
         let last_finalized_height = NetworkEndian::read_u64(&read_ty!(&mut cursor, BlockHeight));
         let best_block = BlockHash::from(read_ty!(&mut cursor, BlockHash));
 
-        const ALLOCATION_LIMIT: usize = 1024;
         let finalization_justifiers = read_multiple!(
             cursor,
-            "finalization justifiers",
             BlockHash::from(read_ty!(&mut cursor, BlockHash)),
-            4
+            4,
+            1024
         );
 
         let status = CatchUpStatus {

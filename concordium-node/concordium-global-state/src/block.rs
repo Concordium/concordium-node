@@ -16,6 +16,7 @@ use std::{
 use crate::{common::*, parameters::*, transaction::*};
 
 const NONCE: u8 = PROOF_LENGTH as u8;
+const TX_ALLOC_LIMIT: usize = 256 * 1024;
 
 pub struct Block {
     pub slot: Slot,
@@ -162,11 +163,11 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BlockData {
             let last_finalized = HashBytes::from(read_ty!(cursor, BlockHash));
             let transactions = read_multiple!(
                 cursor,
-                "transactions",
                 FullTransaction::deserialize(cursor)?,
-                8
+                8,
+                TX_ALLOC_LIMIT
             );
-            let signature = read_bytestring_short_length(cursor, "block signature")?;
+            let signature = read_bytestring_short_length(cursor)?;
             let txs = serialize_list(&transactions)?;
             let mut transactions = vec![];
             write_multiple!(&mut transactions, txs, Write::write_all);
@@ -286,9 +287,9 @@ fn hash_without_timestamps(block: &Block) -> Fallible<BlockHash> {
                 let mut cursor_txs = Cursor::new(source);
                 let txs = read_multiple!(
                     &mut cursor_txs,
-                    "transactions",
                     FullTransaction::deserialize(&mut cursor_txs)?,
-                    8
+                    8,
+                    TX_ALLOC_LIMIT
                 );
 
                 let mut ret = Vec::new();
@@ -373,9 +374,9 @@ impl BlockPtr {
         fn get_tx_count_energy(mut cursor: Cursor<&[u8]>) -> Fallible<(u64, u64)> {
             let txs = read_multiple!(
                 cursor,
-                "transactions",
                 FullTransaction::deserialize(&mut cursor)?,
-                8
+                8,
+                TX_ALLOC_LIMIT
             );
 
             Ok((

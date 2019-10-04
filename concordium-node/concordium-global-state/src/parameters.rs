@@ -38,6 +38,7 @@ const VOTER_SIGN_KEY: u8 = 2 + 32;
 const VOTER_VRF_KEY: u8 = 32;
 pub const VOTER_INFO: u8 = VOTER_SIGN_KEY + VOTER_VRF_KEY + size_of::<VoterPower>() as u8;
 const ELGAMAL_GENERATOR: u8 = 48;
+const MAX_BAKER_ALLOC: usize = 512;
 
 #[derive(Debug)]
 pub struct Bakers {
@@ -53,29 +54,29 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Bakers {
     fn deserialize(cursor: Self::Source) -> Fallible<Self> {
         let baker_map = read_hashmap!(
             cursor,
-            "baker map",
             (
                 NetworkEndian::read_u64(&read_ty!(cursor, BakerId)),
                 BakerInfo::deserialize(&read_const_sized!(cursor, BAKER_INFO))?
             ),
-            8
+            8,
+            MAX_BAKER_ALLOC
         );
         let bakers_by_key = read_hashmap!(
             cursor,
-            "bakers by key",
             (
                 (
-                    read_bytestring_short_length(cursor, "baker signature verify")?,
+                    read_bytestring_short_length(cursor)?,
                     Encoded::new(&read_const_sized!(cursor, BAKER_VRF_KEY))
                 ),
                 read_multiple!(
                     cursor,
-                    "baker ids",
                     NetworkEndian::read_u64(&read_ty!(cursor, BakerId)),
-                    8
+                    8,
+                    MAX_BAKER_ALLOC
                 )
             ),
-            8
+            8,
+            MAX_BAKER_ALLOC
         );
 
         let baker_total_stake = NetworkEndian::read_u64(&read_ty!(cursor, Amount));
@@ -126,7 +127,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
     type Source = &'a mut Cursor<&'b [u8]>;
 
     fn deserialize(cursor: Self::Source) -> Fallible<Self> {
-        let election_nonce = read_bytestring(cursor, "election nonce")?;
+        let election_nonce = read_bytestring(cursor)?;
         let election_difficulty = NetworkEndian::read_f64(&read_ty!(cursor, ElectionDifficulty));
         let bakers = Bakers::deserialize(cursor)?;
 
@@ -159,8 +160,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for CryptographicParameters {
 
     fn deserialize(mut cursor: Self::Source) -> Fallible<Self> {
         let elgamal_generator = Encoded::new(&read_const_sized!(&mut cursor, ELGAMAL_GENERATOR));
-        let attribute_commitment_key =
-            read_bytestring_medium(&mut cursor, "attribute commitment key")?;
+        let attribute_commitment_key = read_bytestring_medium(&mut cursor)?;
 
         let crypto_params = CryptographicParameters {
             elgamal_generator,
@@ -194,8 +194,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for BakerInfo {
         let mut cursor = Cursor::new(bytes);
 
         let election_verify_key = Encoded::new(&read_const_sized!(&mut cursor, BAKER_VRF_KEY));
-        let signature_verify_key =
-            read_bytestring_short_length(&mut cursor, "baker sign verify key")?;
+        let signature_verify_key = read_bytestring_short_length(&mut cursor)?;
         let lottery_power = NetworkEndian::read_f64(&read_ty!(cursor, LotteryPower));
         let account_address = AccountAddress(read_ty!(cursor, AccountAddress));
 
@@ -232,8 +231,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for VoterInfo {
     fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         let mut cursor = Cursor::new(bytes);
 
-        let signature_verify_key =
-            read_bytestring_short_length(&mut cursor, "signature verify key")?;
+        let signature_verify_key = read_bytestring_short_length(&mut cursor)?;
         let election_verify_key = Encoded::new(&read_const_sized!(&mut cursor, VOTER_VRF_KEY));
         let voting_power = NetworkEndian::read_u64(&read_ty!(cursor, VoterPower));
 

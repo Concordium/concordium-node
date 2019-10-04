@@ -71,8 +71,8 @@ macro_rules! read_sized {
 /// Reads multiple objects from into a boxed slice, checking if the target
 /// length is not suspiciously long in the process.
 macro_rules! read_multiple {
-    ($source:expr, $list_name:expr, $elem:expr, $len_size:expr) => {{
-        let count = safe_get_len!($source, $list_name, $len_size);
+    ($source:expr, $elem:expr, $len_size:expr, $limit:expr) => {{
+        let count = safe_get_len!($source, $len_size, $limit);
         let mut list = Vec::with_capacity(count as usize);
         for _ in 0..count {
             let elem = $elem;
@@ -86,8 +86,8 @@ macro_rules! read_multiple {
 /// Reads multiple objects from into a boxed slice, checking if the target
 /// length is not suspiciously long in the process.
 macro_rules! read_hashmap {
-    ($source:expr, $list_name:expr, $elem:expr, $len_size:expr) => {{
-        let count = safe_get_len!($source, $list_name, $len_size);
+    ($source:expr, $elem:expr, $len_size:expr, $limit:expr) => {{
+        let count = safe_get_len!($source, $len_size, $limit);
         let mut list = HashMap::with_capacity(count as usize);
         for _ in 0..count {
             let elem = $elem;
@@ -137,7 +137,7 @@ macro_rules! write_maybe {
 /// Checks whether an object intended to be used as a length is not too big
 /// in order to avoid OOMs.
 macro_rules! safe_get_len {
-    ($source:expr, $object:expr, $len_size:expr) => {{
+    ($source:expr, $len_size:expr, $limit:expr) => {{
         let raw_len = if $len_size == 8 {
             NetworkEndian::read_u64(&read_const_sized!($source, 8)) as usize
         } else if $len_size == 4 {
@@ -148,14 +148,11 @@ macro_rules! safe_get_len {
             panic!("Unexpected len size in safe_get_len!")
         };
 
-        failure::ensure!(
-            raw_len <= ALLOCATION_LIMIT,
-            "The requested size ({}) of {} exceeds the safety limit! bytes: {:?}",
-            raw_len,
-            $object,
-            $source,
-        );
-        raw_len
+        if raw_len <= $limit {
+            raw_len
+        } else {
+            0
+        }
     }};
 }
 

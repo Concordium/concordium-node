@@ -487,12 +487,12 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationRecord {
 
         let proof = read_multiple!(
             cursor,
-            "finalization proof",
             (
                 NetworkEndian::read_u32(&read_const_sized!(&mut cursor, 4)),
-                read_bytestring_short_length(&mut cursor, "finalization proof signature")?
+                read_bytestring_short_length(&mut cursor)?
             ),
-            4
+            4,
+            1024
         );
 
         let delay = NetworkEndian::read_u64(&read_ty!(&mut cursor, BlockHeight));

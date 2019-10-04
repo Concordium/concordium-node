@@ -14,8 +14,6 @@ pub use ec_vrf_ed25519 as vrf;
 pub use ec_vrf_ed25519::{Proof, Sha256, PROOF_LENGTH};
 pub use eddsa_ed25519 as sig;
 
-pub const ALLOCATION_LIMIT: usize = 10_000_000;
-
 #[derive(Debug)]
 pub struct Account {
     address:           AccountAddress,
@@ -41,36 +39,20 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
 
         let amount = NetworkEndian::read_u64(&read_ty!(cursor, Amount));
 
-        let encrypted_amounts = read_multiple!(
-            cursor,
-            "encrypted amounts",
-            read_bytestring(cursor, "encrypted amount's length")?,
-            8
-        );
+        let encrypted_amounts = read_multiple!(cursor, read_bytestring(cursor)?, 8, 256);
 
-        let encryption_key =
-            read_maybe!(cursor, read_bytestring(cursor, "encrypted key's length")?);
+        let encryption_key = read_maybe!(cursor, read_bytestring(cursor)?);
 
-        let verification_key = read_bytestring_short_length(cursor, "verification key's length")?;
+        let verification_key = read_bytestring_short_length(cursor)?;
 
         let signature_scheme = SchemeId::try_from(read_ty!(cursor, SchemeId)[0])?;
 
-        let credentials = read_multiple!(
-            cursor,
-            "credentials",
-            read_bytestring(cursor, "encrypted amount's length")?,
-            8
-        );
+        let credentials = read_multiple!(cursor, read_bytestring(cursor)?, 8, 256);
 
         let stake_delegate =
             read_maybe!(cursor, NetworkEndian::read_u64(&read_ty!(cursor, BakerId)));
 
-        let instances = read_multiple!(
-            cursor,
-            "instances",
-            ContractAddress::deserialize(cursor)?,
-            8
-        );
+        let instances = read_multiple!(cursor, ContractAddress::deserialize(cursor)?, 8, 256);
 
         let account = Account {
             address,
@@ -202,26 +184,20 @@ impl fmt::Debug for Encoded {
 // know that it's prefixed with a u64 length of the rest of it
 pub type ByteString = Encoded;
 
-pub fn read_bytestring_short_length(
-    input: &mut Cursor<&[u8]>,
-    object_name: &str,
-) -> Fallible<ByteString> {
-    let object_length = safe_get_len!(input, object_name, 2);
+pub fn read_bytestring_short_length(input: &mut Cursor<&[u8]>) -> Fallible<ByteString> {
+    let object_length = safe_get_len!(input, 2, 1024);
 
     Ok(Encoded(read_sized!(input, object_length)))
 }
 
-pub fn read_bytestring_medium(
-    input: &mut Cursor<&[u8]>,
-    object_name: &str,
-) -> Fallible<ByteString> {
-    let object_length = safe_get_len!(input, object_name, 4);
+pub fn read_bytestring_medium(input: &mut Cursor<&[u8]>) -> Fallible<ByteString> {
+    let object_length = safe_get_len!(input, 4, 4 * 1024);
 
     Ok(Encoded(read_sized!(input, object_length)))
 }
 
-pub fn read_bytestring(input: &mut Cursor<&[u8]>, object_name: &str) -> Fallible<ByteString> {
-    let object_length = safe_get_len!(input, object_name, 8);
+pub fn read_bytestring(input: &mut Cursor<&[u8]>) -> Fallible<ByteString> {
+    let object_length = safe_get_len!(input, 8, 64 * 1024);
 
     Ok(Encoded(read_sized!(input, object_length)))
 }
