@@ -537,11 +537,11 @@ impl P2PNode {
             let mut deduplication_queues = DeduplicationQueues::default();
 
             loop {
+                self_clone.process_network_requests(&receivers);
+
                 let _ = self_clone
                     .process(&mut events, &mut deduplication_queues)
                     .map_err(|e| error!("{}", e));
-
-                self_clone.process_network_requests(&receivers);
 
                 // Run periodic tasks
                 let now = SystemTime::now();
@@ -1193,12 +1193,16 @@ impl P2PNode {
     /// poll-loop.
     #[inline(always)]
     pub fn process_network_requests(&self, receivers: &Receivers) {
-        for request in receivers
-            .network_messages_hi
-            .try_iter()
-            .chain(receivers.network_messages_lo.try_iter())
-        {
+        for request in receivers.network_messages_hi.try_iter() {
             self.process_network_request(request);
+        }
+
+        for _ in 0..256 {
+            if let Ok(request) = receivers.network_messages_lo.try_recv() {
+                self.process_network_request(request);
+            } else {
+                break;
+            }
         }
     }
 
