@@ -15,7 +15,7 @@ use std::{
 };
 
 const DEFAULT_MEM_SIZE: usize = 4 * 1024;
-const MAX_MEM_SIZE: usize = 4 * 1024 * 1024;
+const MAX_MEM_SIZE: usize = 8 * 1024 * 1024;
 
 type MemBuf = Cursor<Vec<u8>>;
 

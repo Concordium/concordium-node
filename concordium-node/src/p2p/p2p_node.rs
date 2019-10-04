@@ -111,26 +111,28 @@ pub type Networks = HashSet<NetworkId, BuildNoHashHasher<u16>>;
 pub type Connections = HashMap<Token, Arc<Connection>, BuildNoHashHasher<usize>>;
 
 pub struct ConnectionHandler {
-    server:                     TcpListener,
-    next_id:                    AtomicUsize,
-    key_pair:                   Keypair,
-    pub event_log:              Option<SyncSender<P2PEvent>>,
-    pub buckets:                RwLock<Buckets>,
-    pub log_dumper:             Option<SyncSender<DumpItem>>,
-    noise_params:               snow::params::NoiseParams,
-    pub network_request_sender: SyncSender<NetworkRawRequest>,
-    pub connections:            RwLock<Connections>,
-    pub unreachable_nodes:      UnreachableNodes,
-    pub networks:               RwLock<Networks>,
-    pub last_bootstrap:         AtomicU64,
-    pub last_peer_update:       AtomicU64,
+    server:                  TcpListener,
+    next_id:                 AtomicUsize,
+    key_pair:                Keypair,
+    pub event_log:           Option<SyncSender<P2PEvent>>,
+    pub buckets:             RwLock<Buckets>,
+    pub log_dumper:          Option<SyncSender<DumpItem>>,
+    noise_params:            snow::params::NoiseParams,
+    pub network_messages_hi: SyncSender<NetworkRawRequest>,
+    pub network_messages_lo: SyncSender<NetworkRawRequest>,
+    pub connections:         RwLock<Connections>,
+    pub unreachable_nodes:   UnreachableNodes,
+    pub networks:            RwLock<Networks>,
+    pub last_bootstrap:      AtomicU64,
+    pub last_peer_update:    AtomicU64,
 }
 
 impl ConnectionHandler {
     fn new(
         conf: &Config,
         server: TcpListener,
-        network_request_sender: SyncSender<NetworkRawRequest>,
+        network_messages_hi: SyncSender<NetworkRawRequest>,
+        network_messages_lo: SyncSender<NetworkRawRequest>,
         event_log: Option<SyncSender<P2PEvent>>,
     ) -> Self {
         let networks = conf
@@ -153,7 +155,8 @@ impl ConnectionHandler {
             buckets: RwLock::new(Buckets::new()),
             log_dumper: None,
             noise_params,
-            network_request_sender,
+            network_messages_hi,
+            network_messages_lo,
             connections: Default::default(),
             unreachable_nodes: UnreachableNodes::new(),
             networks: RwLock::new(networks),
@@ -164,7 +167,8 @@ impl ConnectionHandler {
 }
 
 pub struct Receivers {
-    pub network_requests: Receiver<NetworkRawRequest>,
+    pub network_messages_hi: Receiver<NetworkRawRequest>,
+    pub network_messages_lo: Receiver<NetworkRawRequest>,
 }
 
 #[allow(dead_code)] // caused by the dump_network feature; will fix in a follow-up
@@ -334,15 +338,23 @@ impl P2PNode {
             tps_message_count: conf.cli.tps.tps_message_count,
         };
 
-        let (network_request_sender, network_request_receiver) =
-            sync_channel(config::RAW_NETWORK_MSG_QUEUE_DEPTH);
+        let (network_msgs_sender_hi, network_msgs_receiver_hi) =
+            sync_channel(config::RAW_NETWORK_MSG_QUEUE_DEPTH_HI);
+        let (network_msgs_sender_lo, network_msgs_receiver_lo) =
+            sync_channel(config::RAW_NETWORK_MSG_QUEUE_DEPTH_LO);
 
         let receivers = Receivers {
-            network_requests: network_request_receiver,
+            network_messages_hi: network_msgs_receiver_hi,
+            network_messages_lo: network_msgs_receiver_lo,
         };
 
-        let connection_handler =
-            ConnectionHandler::new(conf, server, network_request_sender, event_log);
+        let connection_handler = ConnectionHandler::new(
+            conf,
+            server,
+            network_msgs_sender_hi,
+            network_msgs_sender_lo,
+            event_log,
+        );
 
         // Create the node key-value store environment
         let kvs = Manager::singleton()
@@ -523,24 +535,23 @@ impl P2PNode {
             let mut log_time = SystemTime::now();
 
             let mut deduplication_queues = DeduplicationQueues::default();
-            let mut request_queue = Vec::with_capacity(64);
 
             loop {
                 let _ = self_clone
                     .process(&mut events, &mut deduplication_queues)
                     .map_err(|e| error!("{}", e));
 
-                self_clone.process_network_requests(&receivers, &mut request_queue);
-
-                // Check the termination switch
-                if self_clone.is_terminated.load(Ordering::Relaxed) {
-                    break;
-                }
+                self_clone.process_network_requests(&receivers);
 
                 // Run periodic tasks
                 let now = SystemTime::now();
                 if let Ok(difference) = now.duration_since(log_time) {
                     if difference > Duration::from_secs(self_clone.config.housekeeping_interval) {
+                        // Check the termination switch
+                        if self_clone.is_terminated.load(Ordering::Relaxed) {
+                            break;
+                        }
+
                         if let Err(e) = self_clone.connection_housekeeping() {
                             error!("Issue with connection cleanups: {:?}", e);
                         }
@@ -1178,19 +1189,12 @@ impl P2PNode {
     /// poll-loop thread, and any write is queued to be processed later in that
     /// poll-loop.
     #[inline(always)]
-    pub fn process_network_requests(
-        &self,
-        receivers: &Receivers,
-        request_queue: &mut Vec<NetworkRawRequest>,
-    ) {
-        for request in receivers.network_requests.try_iter() {
-            match request.priority {
-                MessageSendingPriority::High => self.process_network_request(request),
-                MessageSendingPriority::Normal => request_queue.push(request),
-            }
-        }
-
-        for request in request_queue.drain(..) {
+    pub fn process_network_requests(&self, receivers: &Receivers) {
+        for request in receivers
+            .network_messages_hi
+            .try_iter()
+            .chain(receivers.network_messages_lo.try_iter())
+        {
             self.process_network_request(request);
         }
     }

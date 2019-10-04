@@ -3,7 +3,6 @@ pub mod fails;
 pub mod p2p_node_id;
 pub mod p2p_peer;
 
-use crate::connection::MessageSendingPriority;
 use concordium_common::hybrid_buf::HybridBuf;
 
 use chrono::prelude::*;
@@ -15,9 +14,8 @@ use std::net::{IpAddr, SocketAddr};
 /// Cli, etc.), into a node. Please note that any access to internal `socket`
 /// *must be executed* inside MIO poll-loop thread.
 pub struct NetworkRawRequest {
-    pub token:    Token, // It identifies the connection.
-    pub data:     HybridBuf,
-    pub priority: MessageSendingPriority,
+    pub token: Token, // Identifies the connection.
+    pub data:  HybridBuf,
 }
 
 #[cfg(feature = "collector")]

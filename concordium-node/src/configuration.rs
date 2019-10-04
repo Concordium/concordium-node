@@ -23,7 +23,8 @@ pub const APP_PREFERENCES_PERSISTED_NODE_ID: &str = "PERSISTED_NODE_ID";
 pub const MAX_CATCH_UP_TIME: u64 = 10_000;
 
 // queue depths
-pub const RAW_NETWORK_MSG_QUEUE_DEPTH: usize = 1024 * 32;
+pub const RAW_NETWORK_MSG_QUEUE_DEPTH_HI: usize = 1024;
+pub const RAW_NETWORK_MSG_QUEUE_DEPTH_LO: usize = 1024 * 32;
 pub const RPC_QUEUE_DEPTH: usize = 1024 * 32;
 pub const EVENT_LOG_QUEUE_DEPTH: usize = 100;
 pub const DUMP_QUEUE_DEPTH: usize = 100;
