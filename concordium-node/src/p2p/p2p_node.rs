@@ -36,6 +36,7 @@ use rkv::{Manager, Rkv, StoreOptions, Value};
 use snow::Keypair;
 
 use std::{
+    cmp::Reverse,
     collections::{HashMap, HashSet},
     net::{
         IpAddr::{self, V4, V6},
@@ -593,6 +594,19 @@ impl P2PNode {
 
         let curr_stamp = get_current_stamp();
         let peer_type = self.peer_type();
+
+        // deduplicate by peer id
+        {
+            let conns = read_or_die!(self.connections()).clone();
+            let mut conns = conns
+                .values()
+                .filter(|conn| conn.is_post_handshake())
+                .collect::<Vec<_>>();
+            conns.sort_by_key(|conn| (conn.remote_id(), Reverse(conn.token)));
+            conns.dedup_by_key(|conn| conn.remote_id());
+            write_or_die!(self.connections())
+                .retain(|_, conn| conns.iter().map(|c| c.token).any(|t| conn.token == t));
+        }
 
         let is_conn_faulty = |conn: &Connection| -> bool {
             conn.failed_pkts() >= config::MAX_FAILED_PACKETS_ALLOWED
