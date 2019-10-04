@@ -580,21 +580,12 @@ impl P2PNode {
     fn liveness_check(&self) {
         debug!("Running connection liveness checks");
 
-        let curr_stamp = get_current_stamp();
         let connections = read_or_die!(self.connections()).clone();
-
-        connections
-            .values()
-            .filter(|conn| {
-                conn.is_post_handshake()
-                    && (conn.last_seen() + 120_000 < curr_stamp
-                        || conn.get_last_ping_sent() + 300_000 < curr_stamp)
-            })
-            .for_each(|conn| {
-                if let Err(e) = conn.send_ping() {
-                    error!("Can't send a ping to {}: {}", conn.remote_addr(), e);
-                }
-            });
+        for conn in connections.values().filter(|conn| conn.is_post_handshake()) {
+            if let Err(e) = conn.send_ping() {
+                error!("Can't send a ping on {}: {}", conn, e);
+            }
+        }
     }
 
     fn connection_housekeeping(&self) -> Fallible<()> {

@@ -475,7 +475,7 @@ impl Connection {
     }
 
     pub fn send_ping(&self) -> Fallible<()> {
-        trace!("Sending a ping to {}", self.remote_addr());
+        trace!("Sending a ping on {}", self);
 
         let ping_msg =
             NetworkMessage::NetworkRequest(NetworkRequest::Ping, Some(get_current_stamp()), None);
@@ -491,7 +491,7 @@ impl Connection {
     }
 
     pub fn send_pong(&self) -> Fallible<()> {
-        trace!("Sending a pong to {}", self.remote_addr());
+        trace!("Sending a pong on {}", self);
 
         let pong_msg =
             NetworkMessage::NetworkResponse(NetworkResponse::Pong, Some(get_current_stamp()), None);

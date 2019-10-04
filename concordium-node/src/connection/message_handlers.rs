@@ -142,9 +142,7 @@ impl Connection {
         let curr_time: u64 = get_current_stamp();
 
         if curr_time >= ping_time {
-            let new_latency = curr_time - ping_time;
-            let old_latency = self.get_last_latency();
-            self.set_last_latency((new_latency + old_latency) / 2);
+            self.set_last_latency(curr_time - ping_time);
         }
 
         Ok(())
