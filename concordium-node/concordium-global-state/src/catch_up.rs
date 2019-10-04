@@ -1,11 +1,9 @@
-use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
+use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
 use failure::Fallible;
-
-use std::io::{Cursor, Read};
 
 use crate::{
     block::BlockHeight,
-    common::{read_ty, SerializeToBytes},
+    common::{read_ty, Serial},
 };
 
 use concordium_common::blockchain_types::BlockHash;
@@ -19,20 +17,16 @@ pub struct CatchUpStatus {
     finalization_justifiers: Box<[BlockHash]>,
 }
 
-impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for CatchUpStatus {
-    type Source = &'a [u8];
-
-    fn deserialize(bytes: Self::Source) -> Fallible<Self> {
-        let mut cursor = Cursor::new(bytes);
-
-        let is_request = read_ty!(&mut cursor, bool)[0] != 0;
-        let last_finalized_block = BlockHash::from(read_ty!(&mut cursor, BlockHash));
-        let last_finalized_height = NetworkEndian::read_u64(&read_ty!(&mut cursor, BlockHeight));
-        let best_block = BlockHash::from(read_ty!(&mut cursor, BlockHash));
+impl Serial for CatchUpStatus {
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
+        let is_request = read_ty!(source, bool)[0] != 0;
+        let last_finalized_block = BlockHash::from(read_ty!(source, BlockHash));
+        let last_finalized_height = NetworkEndian::read_u64(&read_ty!(source, BlockHeight));
+        let best_block = BlockHash::from(read_ty!(source, BlockHash));
 
         let finalization_justifiers = read_multiple!(
-            cursor,
-            BlockHash::from(read_ty!(&mut cursor, BlockHash)),
+            source,
+            BlockHash::from(read_ty!(source, BlockHash)),
             4,
             1024
         );

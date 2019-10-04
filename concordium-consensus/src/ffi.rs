@@ -14,7 +14,7 @@ use std::{
 };
 
 use crate::consensus::*;
-use concordium_common::{hybrid_buf::HybridBuf, ConsensusFfiResponse, PacketType};
+use concordium_common::{hybrid_buf::HybridBuf, ConsensusFfiResponse, PacketType, Serial};
 use concordium_global_state::{
     block::*,
     finalization::*,
@@ -698,9 +698,8 @@ pub unsafe extern "C" fn on_transfer_log_emitted(
     remaining_data_ptr: *const u8,
 ) {
     use crate::transferlog::{TransactionLogMessage, TransferLogType, TRANSACTION_LOG_QUEUE};
-    use concordium_common::{
-        blockchain_types::{AccountAddress, BakerId, BlockHash, ContractAddress, TransactionHash},
-        SerializeToBytes,
+    use concordium_common::blockchain_types::{
+        AccountAddress, BakerId, BlockHash, ContractAddress, TransactionHash,
     };
     use std::mem::size_of;
     let transfer_event_type = match TransferLogType::try_from(transfer_type as u8) {
@@ -797,7 +796,7 @@ pub unsafe extern "C" fn on_transfer_log_emitted(
                     .split_at(size_of::<AccountAddress>());
             let account_address = AccountAddress::new(&account_address_slice);
             let contract_address =
-                ContractAddress::deserialize(&mut Cursor::new(&contract_address_slice)).unwrap();
+                ContractAddress::deserial(&mut Cursor::new(&contract_address_slice)).unwrap();
             TransactionLogMessage::TransferFromAccountToContract(
                 block_hash,
                 slot,
@@ -817,7 +816,7 @@ pub unsafe extern "C" fn on_transfer_log_emitted(
                     .split_at(size_of::<ContractAddress>());
             let account_address = AccountAddress::new(&account_address_slice);
             let contract_address =
-                ContractAddress::deserialize(&mut Cursor::new(&contract_address_slice)).unwrap();
+                ContractAddress::deserial(&mut Cursor::new(&contract_address_slice)).unwrap();
             TransactionLogMessage::TransferFromContractToAccount(
                 block_hash,
                 slot,
@@ -836,10 +835,9 @@ pub unsafe extern "C" fn on_transfer_log_emitted(
                 slice::from_raw_parts(remaining_data_ptr, remaining_data_len as usize)
                     .split_at(size_of::<ContractAddress>());
             let from_contract_address =
-                ContractAddress::deserialize(&mut Cursor::new(&from_contract_address_slice))
-                    .unwrap();
+                ContractAddress::deserial(&mut Cursor::new(&from_contract_address_slice)).unwrap();
             let to_contract_address =
-                ContractAddress::deserialize(&mut Cursor::new(&to_contract_address_slice)).unwrap();
+                ContractAddress::deserial(&mut Cursor::new(&to_contract_address_slice)).unwrap();
             TransactionLogMessage::TransferFromContractToContract(
                 block_hash,
                 slot,

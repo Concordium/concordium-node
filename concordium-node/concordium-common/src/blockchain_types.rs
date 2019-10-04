@@ -1,16 +1,13 @@
-use crate::{read_ty, HashBytes, SerializeToBytes};
 use base58::ToBase58;
 use base58check::ToBase58Check;
-use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
+use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
 use digest::Digest;
 use failure::{format_err, Fallible};
 use sha2::Sha224;
-use std::{
-    convert::TryFrom,
-    fmt,
-    io::{Cursor, Read},
-    mem::size_of,
-};
+
+use crate::{read_ty, HashBytes, Serial};
+
+use std::{convert::TryFrom, fmt, io::Cursor, mem::size_of};
 
 pub type ContractIndex = u64;
 pub type ContractSubIndex = u64;
@@ -27,12 +24,10 @@ pub struct ContractAddress {
     subindex: ContractSubIndex,
 }
 
-impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for ContractAddress {
-    type Source = &'a mut Cursor<&'b [u8]>;
-
-    fn deserialize(cursor: Self::Source) -> Fallible<Self> {
-        let index = NetworkEndian::read_u64(&read_ty!(cursor, ContractIndex));
-        let subindex = NetworkEndian::read_u64(&read_ty!(cursor, ContractSubIndex));
+impl Serial for ContractAddress {
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
+        let index = NetworkEndian::read_u64(&read_ty!(source, ContractIndex));
+        let subindex = NetworkEndian::read_u64(&read_ty!(source, ContractSubIndex));
 
         let contract_address = ContractAddress { index, subindex };
 

@@ -275,7 +275,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
             }
             TransactionType::Update => {
                 let amount = NetworkEndian::read_u64(&read_ty!(cursor, Amount));
-                let address = ContractAddress::deserialize(cursor)?;
+                let address = ContractAddress::deserial(cursor)?;
 
                 let non_message_len = sum_ty_lens!(TransactionType, Amount, ContractAddress);
                 ensure!(

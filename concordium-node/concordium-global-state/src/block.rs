@@ -1,6 +1,6 @@
 // https://gitlab.com/Concordium/consensus/globalstate-mockup/blob/master/globalstate/src/Concordium/GlobalState/Block.hs
 
-use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
+use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
 use failure::{bail, Fallible};
 
 use std::{
@@ -438,12 +438,10 @@ impl fmt::Debug for BlockPtr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "{:?}", self.hash) }
 }
 
-impl<'a, 'b> SerializeToBytes<'a, 'b> for BlockPtr {
-    type Source = &'a [u8];
-
-    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> { self.block.serial(target) }
-
-    fn deserialize(_source: Self::Source) -> Fallible<Self> {
+impl Serial for BlockPtr {
+    fn deserial<R: ReadBytesExt>(_source: &mut R) -> Fallible<Self> {
         unimplemented!("BlockPtr is not to be deserialized directly")
     }
+
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> { self.block.serial(target) }
 }

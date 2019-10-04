@@ -1,15 +1,12 @@
-use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
+use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
 use digest::Digest;
 use failure::{format_err, Fallible};
 
-use std::{
-    convert::TryFrom,
-    fmt,
-    io::{Cursor, Read, Write},
-    ops::Deref,
-};
+use std::{convert::TryFrom, fmt, io::Write, ops::Deref};
 
-pub use concordium_common::{blockchain_types::*, read_ty, HashBytes, SerializeToBytes, SHA256};
+pub use concordium_common::{
+    blockchain_types::*, read_ty, HashBytes, Serial, SerializeToBytes, SHA256,
+};
 pub use ec_vrf_ed25519 as vrf;
 pub use ec_vrf_ed25519::{Proof, Sha256, PROOF_LENGTH};
 pub use eddsa_ed25519 as sig;
@@ -28,31 +25,29 @@ pub struct Account {
     instances:         Box<[ContractAddress]>,
 }
 
-impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
-    type Source = &'a mut Cursor<&'b [u8]>;
+impl Serial for Account {
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
+        let address = AccountAddress(read_ty!(source, AccountAddress));
 
-    fn deserialize(cursor: Self::Source) -> Fallible<Self> {
-        let address = AccountAddress(read_ty!(cursor, AccountAddress));
-
-        let nonce_raw = NetworkEndian::read_u64(&read_ty!(cursor, Nonce));
+        let nonce_raw = NetworkEndian::read_u64(&read_ty!(source, Nonce));
         let nonce = Nonce::try_from(nonce_raw)?;
 
-        let amount = NetworkEndian::read_u64(&read_ty!(cursor, Amount));
+        let amount = NetworkEndian::read_u64(&read_ty!(source, Amount));
 
-        let encrypted_amounts = read_multiple!(cursor, read_bytestring(cursor)?, 8, 256);
+        let encrypted_amounts = read_multiple!(source, read_bytestring(source)?, 8, 256);
 
-        let encryption_key = read_maybe!(cursor, read_bytestring(cursor)?);
+        let encryption_key = read_maybe!(source, read_bytestring(source)?);
 
-        let verification_key = read_bytestring_short_length(cursor)?;
+        let verification_key = read_bytestring_short_length(source)?;
 
-        let signature_scheme = SchemeId::try_from(read_ty!(cursor, SchemeId)[0])?;
+        let signature_scheme = SchemeId::try_from(read_ty!(source, SchemeId)[0])?;
 
-        let credentials = read_multiple!(cursor, read_bytestring(cursor)?, 8, 256);
+        let credentials = read_multiple!(source, read_bytestring(source)?, 8, 256);
 
         let stake_delegate =
-            read_maybe!(cursor, NetworkEndian::read_u64(&read_ty!(cursor, BakerId)));
+            read_maybe!(source, NetworkEndian::read_u64(&read_ty!(source, BakerId)));
 
-        let instances = read_multiple!(cursor, ContractAddress::deserialize(cursor)?, 8, 256);
+        let instances = read_multiple!(source, ContractAddress::deserial(source)?, 8, 256);
 
         let account = Account {
             address,
@@ -131,14 +126,10 @@ impl fmt::Display for SessionId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "{}", self.incarnation) }
 }
 
-impl<'a, 'b> SerializeToBytes<'a, 'b> for SessionId {
-    type Source = &'a [u8];
-
-    fn deserialize(bytes: Self::Source) -> Fallible<Self> {
-        let mut cursor = Cursor::new(bytes);
-
-        let genesis_block = HashBytes::from(read_ty!(&mut cursor, HashBytes));
-        let incarnation = NetworkEndian::read_u64(&read_ty!(&mut cursor, Incarnation));
+impl Serial for SessionId {
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
+        let genesis_block = HashBytes::from(read_ty!(source, HashBytes));
+        let incarnation = NetworkEndian::read_u64(&read_ty!(source, Incarnation));
 
         let sess = SessionId {
             genesis_block,
@@ -184,19 +175,19 @@ impl fmt::Debug for Encoded {
 // know that it's prefixed with a u64 length of the rest of it
 pub type ByteString = Encoded;
 
-pub fn read_bytestring_short_length(input: &mut Cursor<&[u8]>) -> Fallible<ByteString> {
+pub fn read_bytestring_short_length<R: ReadBytesExt>(input: &mut R) -> Fallible<ByteString> {
     let object_length = safe_get_len!(input, 2, 1024);
 
     Ok(Encoded(read_sized!(input, object_length)))
 }
 
-pub fn read_bytestring_medium(input: &mut Cursor<&[u8]>) -> Fallible<ByteString> {
+pub fn read_bytestring_medium<R: ReadBytesExt>(input: &mut R) -> Fallible<ByteString> {
     let object_length = safe_get_len!(input, 4, 4 * 1024);
 
     Ok(Encoded(read_sized!(input, object_length)))
 }
 
-pub fn read_bytestring(input: &mut Cursor<&[u8]>) -> Fallible<ByteString> {
+pub fn read_bytestring<R: ReadBytesExt>(input: &mut R) -> Fallible<ByteString> {
     let object_length = safe_get_len!(input, 8, 64 * 1024);
 
     Ok(Encoded(read_sized!(input, object_length)))
