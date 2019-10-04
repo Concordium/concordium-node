@@ -6,7 +6,6 @@ use std::{
     convert::TryFrom,
     fmt,
     io::{Cursor, Read, Write},
-    mem::size_of,
     ops::Deref,
 };
 
@@ -89,67 +88,29 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
         Ok(account)
     }
 
-    fn serialize(&self) -> Box<[u8]> {
-        fn serialized_bs_list_len(bs_list: &[ByteString]) -> usize {
-            bs_list
-                .iter()
-                .map(|bs| size_of::<u64>() + bs.len())
-                .sum::<usize>()
-        }
-
-        let encryption_key_len = self
-            .encryption_key
-            .iter()
-            .next()
-            .map(|k| k.len())
-            .unwrap_or(0);
-
-        let stake_delegate_len = self
-            .stake_delegate
-            .map(|_| size_of::<BakerId>())
-            .unwrap_or(0);
-
-        let mut cursor = create_serialization_cursor(
-            size_of::<AccountAddress>()
-                + size_of::<Nonce>()
-                + size_of::<Amount>()
-                + size_of::<u64>()
-                + serialized_bs_list_len(&self.encrypted_amounts)
-                + size_of::<u8>()
-                + encryption_key_len
-                + size_of::<u16>()
-                + self.verification_key.len()
-                + size_of::<SchemeId>()
-                + size_of::<u64>()
-                + serialized_bs_list_len(&self.credentials)
-                + size_of::<u8>()
-                + stake_delegate_len
-                + size_of::<u64>()
-                + self.instances.len() * size_of::<ContractAddress>(),
-        );
-
-        let _ = cursor.write_all(&self.address.0);
-        let _ = cursor.write_u64::<NetworkEndian>(self.nonce.0);
-        let _ = cursor.write_u64::<NetworkEndian>(self.amount);
-        write_multiple!(&mut cursor, self.encrypted_amounts, write_bytestring);
-        write_maybe!(&mut cursor, self.encryption_key, write_bytestring);
-        write_bytestring_short_length(&mut cursor, &self.verification_key);
-        let _ = cursor.write(&[self.signature_scheme as u8]);
-        write_multiple!(&mut cursor, self.credentials, write_bytestring);
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        target.write_all(&self.address.0)?;
+        target.write_u64::<NetworkEndian>(self.nonce.0)?;
+        target.write_u64::<NetworkEndian>(self.amount)?;
+        write_multiple!(target, self.encrypted_amounts, write_bytestring);
+        write_maybe!(target, self.encryption_key, write_bytestring);
+        write_bytestring_short_length(target, &self.verification_key)?;
+        target.write_u8(self.signature_scheme as u8)?;
+        write_multiple!(target, self.credentials, write_bytestring);
 
         if let Some(baker_id) = self.stake_delegate {
-            let _ = cursor.write(&[1]);
-            let _ = cursor.write_u64::<NetworkEndian>(baker_id);
+            target.write_u8(1)?;
+            target.write_u64::<NetworkEndian>(baker_id)?;
         } else {
-            let _ = cursor.write(&[0]);
+            target.write_u8(0)?;
         }
 
-        let _ = cursor.write_u64::<NetworkEndian>(self.instances.len() as u64);
+        target.write_u64::<NetworkEndian>(self.instances.len() as u64)?;
         for instance in &*self.instances {
-            let _ = cursor.write_all(&ContractAddress::serialize(instance));
+            instance.serial(target)?;
         }
 
-        cursor.into_inner()
+        Ok(())
     }
 }
 
@@ -188,8 +149,10 @@ impl fmt::Display for SessionId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "{}", self.incarnation) }
 }
 
-impl SessionId {
-    pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
+impl<'a, 'b> SerializeToBytes<'a, 'b> for SessionId {
+    type Source = &'a [u8];
+
+    fn deserialize(bytes: Self::Source) -> Fallible<Self> {
         let mut cursor = Cursor::new(bytes);
 
         let genesis_block = HashBytes::from(read_ty!(&mut cursor, HashBytes));
@@ -200,19 +163,14 @@ impl SessionId {
             incarnation,
         };
 
-        check_serialization!(sess, cursor);
-
         Ok(sess)
     }
 
-    pub fn serialize(&self) -> Box<[u8]> {
-        let mut cursor =
-            create_serialization_cursor(size_of::<BlockHash>() + size_of::<Incarnation>());
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        target.write_all(&self.genesis_block)?;
+        target.write_u64::<NetworkEndian>(self.incarnation)?;
 
-        let _ = cursor.write_all(&self.genesis_block);
-        let _ = cursor.write_u64::<NetworkEndian>(self.incarnation);
-
-        cursor.into_inner()
+        Ok(())
     }
 }
 
@@ -268,18 +226,31 @@ pub fn read_bytestring(input: &mut Cursor<&[u8]>, object_name: &str) -> Fallible
     Ok(Encoded(read_sized!(input, object_length)))
 }
 
-pub fn write_bytestring_short_length<T: Write>(target: &mut T, bytes: &[u8]) {
-    let _ = target.write_u16::<NetworkEndian>(bytes.len() as u16);
-    let _ = target.write_all(&bytes);
+pub fn write_bytestring_short_length<T: Write>(target: &mut T, bytes: &[u8]) -> Fallible<()> {
+    target.write_u16::<NetworkEndian>(bytes.len() as u16)?;
+    target.write_all(&bytes)?;
+
+    Ok(())
 }
 
-pub fn write_bytestring<T: Write>(target: &mut T, bytes: &[u8]) {
-    let _ = target.write_u64::<NetworkEndian>(bytes.len() as u64);
-    let _ = target.write_all(&bytes);
+pub fn write_bytestring<T: Write>(target: &mut T, bytes: &[u8]) -> Fallible<()> {
+    target.write_u64::<NetworkEndian>(bytes.len() as u64)?;
+    target.write_all(&bytes)?;
+
+    Ok(())
 }
 
-pub fn serialize_list<'a, 'b, T: SerializeToBytes<'a, 'b>>(list: &'a [T]) -> Vec<Box<[u8]>> {
-    list.iter().map(|elem| elem.serialize()).collect()
+pub fn serialize_list<'a, 'b, T: SerializeToBytes<'a, 'b>>(
+    list: &'a [T],
+) -> Fallible<Vec<Box<[u8]>>> {
+    let mut ret = Vec::new();
+    for elem in list {
+        let mut e = Vec::new();
+        elem.serial(&mut e)?;
+        ret.push(e.into_boxed_slice());
+    }
+
+    Ok(ret)
 }
 
 pub fn list_len<T: AsRef<[u8]>>(list: &[T]) -> usize {

@@ -16,7 +16,6 @@ use std::{
 use crate::{common::*, parameters::*, transaction::*};
 
 const NONCE: u8 = PROOF_LENGTH as u8;
-const CHRONO_DATE_TIME_LEN: u8 = 12;
 
 pub struct Block {
     pub slot: Slot,
@@ -80,33 +79,29 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for Block {
 
         let block = Block { slot, data };
 
-        check_serialization!(block, cursor);
-
         Ok(block)
     }
 
-    fn serialize(&self) -> Box<[u8]> {
-        let block_data = BlockData::serialize(&self.data);
-
-        let mut cursor = create_serialization_cursor(size_of::<Slot>() + block_data.len());
-
-        let _ = cursor.write_u64::<NetworkEndian>(self.slot);
-        let _ = cursor.write_all(&block_data);
-
-        cursor.into_inner()
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        target.write_u64::<NetworkEndian>(self.slot)?;
+        self.data.serial(target)?;
+        Ok(())
     }
 }
 
 impl fmt::Debug for Block {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut serialized = Vec::new();
+        self.serial(&mut serialized).unwrap_or(());
+
         let hash = if self.slot != 0 {
             format!(
                 "block {:?} by baker {}",
-                sha256(&self.serialize()),
+                sha256(&serialized),
                 self.block_data().fields.baker_id
             )
         } else {
-            format!("genesis {:?}", sha256(&self.serialize()))
+            format!("genesis {:?}", sha256(&serialized))
         };
 
         write!(f, "{}", hash)
@@ -172,7 +167,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BlockData {
                 8
             );
             let signature = read_bytestring_short_length(cursor, "block signature")?;
-            let txs = serialize_list(&transactions);
+            let txs = serialize_list(&transactions)?;
             let mut transactions = vec![];
             write_multiple!(&mut transactions, txs, Write::write_all);
             let data = BlockData::Regular(BakedBlock {
@@ -191,11 +186,10 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BlockData {
         }
     }
 
-    fn serialize(&self) -> Box<[u8]> {
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
         match self {
             BlockData::Genesis(ref data) => {
-                let mut cursor = create_serialization_cursor(data.len());
-                let _ = cursor.write_all(data);
+                target.write_all(data)?;
                 // let birk_params = BirkParameters::serialize(&data.birk_parameters);
                 // let cryptographic_parameters =
                 //     CryptographicParameters::serialize(&data.cryptographic_parameters);
@@ -224,32 +218,18 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BlockData {
                 // let _ = cursor.write_u64::<NetworkEndian>(data.finalization_minimum_skip);
                 // let _ = cursor.write_all(&cryptographic_parameters);
                 // let _ = cursor.write_all(&data.identity_providers);
-
-                cursor.into_inner()
             }
             BlockData::Regular(ref data) => {
-                let mut cursor = create_serialization_cursor(
-                    size_of::<BlockHash>()
-                        + size_of::<BakerId>()
-                        + PROOF_LENGTH
-                        + NONCE as usize
-                        + size_of::<BlockHash>()
-                        + data.transactions.len()
-                        + size_of::<u16>()
-                        + data.signature.len() as usize,
-                );
-
-                let _ = cursor.write_all(&data.fields.pointer);
-                let _ = cursor.write_u64::<NetworkEndian>(data.fields.baker_id);
-                let _ = cursor.write_all(&data.fields.proof);
-                let _ = cursor.write_all(&data.fields.nonce);
-                let _ = cursor.write_all(&data.fields.last_finalized);
-                let _ = cursor.write_all(data.transactions.deref());
-                write_bytestring_short_length(&mut cursor, &data.signature);
-
-                cursor.into_inner()
+                target.write_all(&data.fields.pointer)?;
+                target.write_u64::<NetworkEndian>(data.fields.baker_id)?;
+                target.write_all(&data.fields.proof)?;
+                target.write_all(&data.fields.nonce)?;
+                target.write_all(&data.fields.last_finalized)?;
+                target.write_all(data.transactions.deref())?;
+                write_bytestring_short_length(target, &data.signature)?;
             }
         }
+        Ok(())
     }
 }
 
@@ -295,8 +275,12 @@ pub struct PendingBlock {
     pub block: Arc<Block>,
 }
 
-fn hash_without_timestamps(block: &Block) -> BlockHash {
-    let data_serialized = match block.data {
+fn hash_without_timestamps(block: &Block) -> Fallible<BlockHash> {
+    let mut target = Vec::new();
+
+    target.write_u64::<NetworkEndian>(block.slot)?;
+
+    match block.data {
         BlockData::Regular(ref data) => {
             fn transform_txs(source: &[u8]) -> Fallible<Vec<Box<[u8]>>> {
                 let mut cursor_txs = Cursor::new(source);
@@ -307,48 +291,37 @@ fn hash_without_timestamps(block: &Block) -> BlockHash {
                     8
                 );
 
-                Ok(txs.iter().map(|x| x.bare_transaction.serialize()).collect())
+                let mut ret = Vec::new();
+                for tx in txs.iter() {
+                    let mut bare_tx = Vec::new();
+                    tx.bare_transaction.serial(&mut bare_tx)?;
+                    ret.push(bare_tx.into_boxed_slice());
+                }
+
+                Ok(ret)
             }
-            let transactions = transform_txs(data.transactions.deref()).unwrap();
-            let txs_len: usize = transactions.iter().map(|x| x.len()).sum();
 
-            let mut cursor = create_serialization_cursor(
-                size_of::<BlockHash>()
-                    + size_of::<BakerId>()
-                    + PROOF_LENGTH
-                    + NONCE as usize
-                    + size_of::<BlockHash>()
-                    + txs_len
-                    + size_of::<u16>()
-                    + data.signature.len() as usize,
-            );
+            let transactions = transform_txs(data.transactions.deref())?;
 
-            let _ = cursor.write_all(&data.fields.pointer);
-            let _ = cursor.write_u64::<NetworkEndian>(data.fields.baker_id);
-            let _ = cursor.write_all(&data.fields.proof);
-            let _ = cursor.write_all(&data.fields.nonce);
-            let _ = cursor.write_all(&data.fields.last_finalized);
-            write_multiple!(&mut cursor, transactions, Write::write_all);
-            write_bytestring_short_length(&mut cursor, &data.signature);
-
-            cursor.into_inner()
+            target.write_all(&data.fields.pointer)?;
+            target.write_u64::<NetworkEndian>(data.fields.baker_id)?;
+            target.write_all(&data.fields.proof)?;
+            target.write_all(&data.fields.nonce)?;
+            target.write_all(&data.fields.last_finalized)?;
+            write_multiple!(&mut target, transactions, Write::write_all);
+            write_bytestring_short_length(&mut target, &data.signature)?;
         }
         _ => unreachable!("GenesisData will never be transformed into a Pending Block"),
     };
 
-    let mut cursor = create_serialization_cursor(size_of::<Slot>() + data_serialized.len());
-
-    let _ = cursor.write_u64::<NetworkEndian>(block.slot);
-    let _ = cursor.write_all(&data_serialized);
-
-    sha256(&cursor.into_inner())
+    Ok(sha256(&target))
 }
 
 impl PendingBlock {
     pub fn new(bytes: &[u8]) -> Fallible<Self> {
         let block = Block::deserialize(bytes)?;
         Ok(Self {
-            hash:  hash_without_timestamps(&block),
+            hash:  hash_without_timestamps(&block)?,
             block: Arc::new(block),
         })
     }
@@ -374,25 +347,26 @@ pub struct BlockPtr {
 }
 
 impl BlockPtr {
-    pub fn genesis(genesis_bytes: &[u8]) -> Self {
+    pub fn genesis(genesis_bytes: &[u8]) -> Fallible<Self> {
         let mut cursor = Cursor::new(genesis_bytes);
         let genesis_data = BlockData::deserialize((&mut cursor, 0)).expect("Invalid genesis data");
         let genesis_block = Block {
             slot: 0,
             data: genesis_data,
         };
-        // the genesis block byte representation is the genesis data prefixed with a
-        // 0u64 slot id
-        let genesis_block_hash = sha256(&genesis_block.serialize());
 
-        Self {
+        let mut genesis_block_hash = Vec::new();
+        genesis_block.serial(&mut genesis_block_hash)?;
+        let genesis_block_hash = sha256(&genesis_block_hash);
+
+        Ok(Self {
             hash:                    genesis_block_hash,
             block:                   Arc::new(genesis_block),
             height:                  0,
             transaction_count:       0,
             transaction_energy_cost: 0,
             transaction_size:        0,
-        }
+        })
     }
 
     pub fn new(pb: &PendingBlock, height: BlockHeight) -> Fallible<Self> {
@@ -435,17 +409,13 @@ impl BlockPtr {
         }
     }
 
-    // possibly change to SerializeToBytes::serialize when implementing caching
-    pub fn serialize_to_disk_format(&self) -> Box<[u8]> {
-        let block = self.block.serialize();
+    pub fn serialize_to_disk_format(&self) -> Fallible<Vec<u8>> {
+        let mut buffer = Vec::new();
 
-        let mut cursor = create_serialization_cursor(
-            block.len() + size_of::<BlockHeight>() + 2 * CHRONO_DATE_TIME_LEN as usize,
-        );
+        self.block.serial(&mut buffer)?;
+        buffer.write_u64::<NetworkEndian>(self.height)?;
 
-        let _ = cursor.write_all(&block);
-        let _ = cursor.write_u64::<NetworkEndian>(self.height);
-        cursor.into_inner()
+        Ok(buffer)
     }
 }
 
@@ -470,7 +440,7 @@ impl fmt::Debug for BlockPtr {
 impl<'a, 'b> SerializeToBytes<'a, 'b> for BlockPtr {
     type Source = &'a [u8];
 
-    fn serialize(&self) -> Box<[u8]> { self.block.serialize() }
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> { self.block.serial(target) }
 
     fn deserialize(_source: Self::Source) -> Fallible<Self> {
         unimplemented!("BlockPtr is not to be deserialized directly")
