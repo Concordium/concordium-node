@@ -1,13 +1,9 @@
-use concordium_common::{network_types::PeerId, PacketType};
+use concordium_common::{hybrid_buf::HybridBuf, network_types::PeerId, PacketType};
 use failure::Fail;
 
-use std::{fmt, sync::Arc};
+use std::fmt;
 
-use crate::{
-    block::*,
-    common::{HashBytes, SerializeToBytes},
-    finalization::*,
-};
+use crate::{common::HashBytes, finalization::*};
 
 /// The type of messages passed between GlobalState and the consensus layer.
 ///
@@ -16,7 +12,7 @@ use crate::{
 pub struct ConsensusMessage {
     pub direction:     MessageType,
     pub variant:       PacketType,
-    pub payload:       Arc<[u8]>,
+    pub payload:       HybridBuf,
     pub dont_relay_to: Vec<PeerId>,
 }
 
@@ -24,7 +20,7 @@ impl ConsensusMessage {
     pub fn new(
         direction: MessageType,
         variant: PacketType,
-        payload: Arc<[u8]>,
+        payload: HybridBuf,
         dont_relay_to: Vec<PeerId>,
     ) -> Self {
         Self {
@@ -64,32 +60,13 @@ impl ConsensusMessage {
 
 impl fmt::Display for ConsensusMessage {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        macro_rules! print_deserialized {
-            ($object:ty) => {{
-                if let Ok(object) = <$object>::deserialize(&self.payload) {
-                    format!("{:?}", object)
-                } else if self.variant == PacketType::Block {
-                    format!("a block")
-                } else {
-                    format!("corrupt packet or unknown packet type")
-                }
-            }};
-        }
-
-        let content = match self.variant {
-            PacketType::Block => print_deserialized!(Block),
-            PacketType::FinalizationRecord => print_deserialized!(FinalizationRecord),
-            PacketType::FinalizationMessage => print_deserialized!(FinalizationMessage),
-            p => p.to_string(),
-        };
-
         let party_name = match self.direction {
             MessageType::Inbound(peer_id, _) => format!("from peer {:016x}", peer_id),
             MessageType::Outbound(Some(peer_id)) => format!("to peer {:016x}", peer_id),
             _ => "from our consensus layer".to_owned(),
         };
 
-        write!(f, "{} {}", content, party_name)
+        write!(f, "{} {}", self.variant, party_name)
     }
 }
 
