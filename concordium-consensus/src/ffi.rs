@@ -9,12 +9,12 @@ use std::{
     slice,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Once,
+        Once,
     },
 };
 
 use crate::consensus::*;
-use concordium_common::{ConsensusFfiResponse, PacketType};
+use concordium_common::{hybrid_buf::HybridBuf, ConsensusFfiResponse, PacketType};
 use concordium_global_state::{
     block::*,
     finalization::*,
@@ -561,7 +561,8 @@ impl TryFrom<u8> for CallbackType {
 pub extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *const u8, len: i64) {
     unsafe {
         let msg_variant = PacketType::FinalizationMessage;
-        let payload = Arc::from(slice::from_raw_parts(data as *const u8, len as usize));
+        let payload =
+            HybridBuf::try_from(slice::from_raw_parts(data as *const u8, len as usize)).unwrap();
 
         let msg = ConsensusMessage::new(
             MessageType::Outbound(Some(peer_id)),
@@ -596,7 +597,9 @@ pub extern "C" fn broadcast_callback(msg_type: i64, msg: *const u8, msg_length: 
             CallbackType::CatchUpStatus => PacketType::CatchUpStatus,
         };
 
-        let payload = Arc::from(slice::from_raw_parts(msg as *const u8, msg_length as usize));
+        let payload =
+            HybridBuf::try_from(slice::from_raw_parts(msg as *const u8, msg_length as usize))
+                .unwrap();
         let target = None;
 
         let msg =
@@ -635,7 +638,8 @@ pub extern "C" fn direct_callback(
             CallbackType::CatchUpStatus => PacketType::CatchUpStatus,
         };
 
-        let payload = Arc::from(slice::from_raw_parts(msg as *const u8, msg_len as usize));
+        let payload =
+            HybridBuf::try_from(slice::from_raw_parts(msg as *const u8, msg_len as usize)).unwrap();
         let target = Some(peer_id);
 
         let msg =
