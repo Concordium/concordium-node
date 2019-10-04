@@ -345,24 +345,26 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for NominationSet {
             packed: &[u32],
             party: Party,
             max_party: Party,
-        ) {
+        ) -> Fallible<()> {
             fn party_byte(bits: &[u32], party: Party) -> u8 {
                 bits.iter().fold(0, |acc, byte| set_bit(byte - party, acc)) as u8
             }
 
             if party <= max_party {
                 let (curr, rest): (Vec<_>, Vec<_>) = packed.iter().partition(|&&b| b < party + 8);
-                let _ = unpacked.write(&[party_byte(&curr, party)]);
-                unpack_party(unpacked, &rest, party + 8, max_party);
+                unpacked.write_u8(party_byte(&curr, party))?;
+                unpack_party(unpacked, &rest, party + 8, max_party)?;
             }
+
+            Ok(())
         }
 
         target.write_u32::<NetworkEndian>(self.max_party)?;
         if !self.top.0.is_empty() {
-            unpack_party(target, &self.top.0, Party::min_value(), self.max_party);
+            unpack_party(target, &self.top.0, Party::min_value(), self.max_party)?;
         }
         if !self.bottom.0.is_empty() {
-            unpack_party(target, &self.bottom.0, Party::min_value(), self.max_party);
+            unpack_party(target, &self.bottom.0, Party::min_value(), self.max_party)?;
         }
 
         Ok(())
