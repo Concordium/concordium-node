@@ -153,7 +153,9 @@ impl GlobalData {
         const GS_SHORT_PREALLOCATION_SIZE: usize = 16;
         const GS_ERR_PREALLOCATION_SIZE: usize = 16;
 
-        let genesis_block_ptr = Arc::new(BlockPtr::genesis(genesis_data));
+        let genesis_block_ptr = Arc::new(
+            BlockPtr::genesis(genesis_data).expect("Can't create the genesis data BlockPtr"),
+        );
 
         let last_finalization_record = FinalizationRecord::genesis(&genesis_block_ptr);
 

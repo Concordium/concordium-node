@@ -1,6 +1,6 @@
 #![recursion_limit = "1024"]
 
-use byteorder::{NetworkEndian, ReadBytesExt};
+use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use failure::{format_err, Fallible};
 
 use std::{convert::TryFrom, fmt, ops::Deref, sync::mpsc};
@@ -152,7 +152,7 @@ where
     type Source; // either a byte slice or a mutable cursor (when total size is unknown)
 
     fn deserialize(source: Self::Source) -> Fallible<Self>;
-    fn serialize(&self) -> Box<[u8]>;
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()>;
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]

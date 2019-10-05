@@ -12,9 +12,9 @@ use failure::Fallible;
 use std::{
     convert::TryFrom,
     fs::OpenOptions,
-    io::{self, Read, Write},
+    io::{Read, Seek, SeekFrom, Write},
     mem,
-    sync::{mpsc::TrySendError, Arc},
+    sync::mpsc::TrySendError,
 };
 
 use concordium_common::{
@@ -161,16 +161,15 @@ pub fn handle_pkt_out(
     let consensus_type = msg.read_u16::<NetworkEndian>()?;
     let packet_type = PacketType::try_from(consensus_type)?;
 
-    let mut payload = Vec::with_capacity(msg.remaining_len()? as usize);
-    io::copy(&mut msg, &mut payload)?;
-
     if packet_type == PacketType::Transaction {
-        let hash_offset = payload.len() - mem::size_of::<TransactionHash>();
-        let hash = TransactionHash::new(&payload[hash_offset..]);
-        write_or_die!(node.transactions_cache).insert(hash, payload.clone());
+        let curr_pos = msg.position()?;
+        let transaction = msg.remaining_bytes()?.into_owned();
+        let hash_offset = transaction.len() - mem::size_of::<TransactionHash>();
+        let hash = TransactionHash::new(&transaction[hash_offset..]);
+        write_or_die!(node.transactions_cache).insert(hash, transaction);
+        msg.seek(SeekFrom::Start(curr_pos))?;
     }
 
-    let payload: Arc<[u8]> = Arc::from(payload);
     let distribution_mode = if is_broadcast {
         DistributionMode::Broadcast
     } else {
@@ -180,7 +179,7 @@ pub fn handle_pkt_out(
     let request = ConsensusMessage::new(
         MessageType::Inbound(peer_id.0, distribution_mode),
         packet_type,
-        payload,
+        msg,
         dont_relay_to.into_iter().map(P2PNodeId::as_raw).collect(),
     );
 
@@ -224,7 +223,7 @@ pub fn handle_consensus_message(
 fn process_internal_gs_entry(
     node: &P2PNode,
     network_id: NetworkId,
-    request: ConsensusMessage,
+    mut request: ConsensusMessage,
 ) -> Fallible<()> {
     send_consensus_msg_to_net(
         node,
@@ -234,7 +233,7 @@ fn process_internal_gs_entry(
         network_id,
         request.variant,
         None,
-        &request.payload,
+        &request.payload.remaining_bytes()?,
     )
 }
 
@@ -242,14 +241,13 @@ fn process_external_gs_entry(
     node: &P2PNode,
     network_id: NetworkId,
     consensus: &mut consensus::ConsensusContainer,
-    request: ConsensusMessage,
+    mut request: ConsensusMessage,
     global_state: &mut GlobalState,
 ) -> Fallible<()> {
-    let self_node_id = node.self_peer.id;
     let source = P2PNodeId(request.source_peer());
 
     // relay external messages to Consensus
-    let consensus_result = send_msg_to_consensus(self_node_id, source, consensus, &request)?;
+    let consensus_result = send_msg_to_consensus(source, consensus, &mut request)?;
 
     // adjust the peer state(s) based on the feedback from Consensus
     update_peer_states(global_state, &request, consensus_result);
@@ -266,7 +264,7 @@ fn process_external_gs_entry(
             network_id,
             request.variant,
             None,
-            &request.payload,
+            &request.payload.remaining_bytes()?,
         )?;
     }
 
@@ -274,30 +272,30 @@ fn process_external_gs_entry(
 }
 
 fn send_msg_to_consensus(
-    our_id: P2PNodeId,
     source_id: P2PNodeId,
     consensus: &mut consensus::ConsensusContainer,
-    request: &ConsensusMessage,
+    request: &mut ConsensusMessage,
 ) -> Fallible<ConsensusFfiResponse> {
     let raw_id = source_id.as_raw();
+    let payload_offset = request.payload.position()?;
+    let payload = request.payload.remaining_bytes()?;
 
     let consensus_response = match request.variant {
-        Block => consensus.send_block(&request.payload),
-        Transaction => consensus.send_transaction(&request.payload),
-        FinalizationMessage => consensus.send_finalization(&request.payload),
-        FinalizationRecord => consensus.send_finalization_record(&request.payload),
-        CatchUpStatus => consensus.receive_catch_up_status(&request.payload, raw_id),
+        Block => consensus.send_block(&payload),
+        Transaction => consensus.send_transaction(&payload),
+        FinalizationMessage => consensus.send_finalization(&payload),
+        FinalizationRecord => consensus.send_finalization_record(&payload),
+        CatchUpStatus => consensus.receive_catch_up_status(&payload, raw_id),
     };
 
+    request.payload.seek(SeekFrom::Start(payload_offset))?;
+
     if consensus_response.is_acceptable() {
-        info!(
-            "Peer {} (myself) processed a {} from {}",
-            our_id, request.variant, source_id
-        );
+        info!("Processed a {} from {}", request.variant, source_id);
     } else {
         debug!(
-            "Peer {} couldn't process a {} due to error code {:?}",
-            our_id, request, consensus_response,
+            "Couldn't process a {} due to error code {:?}",
+            request, consensus_response,
         );
     }
 
@@ -418,9 +416,12 @@ pub fn check_peer_states(
                 // there are peers that are catching up
                 if get_current_stamp() > global_state.catch_up_stamp + MAX_CATCH_UP_TIME {
                     debug!("Global state: peer {:016x} took too long to catch up", id);
-                    global_state
-                        .peers
-                        .change_priority(&id, PeerState::new(Pending));
+                    if let Some(token) = node
+                        .find_connection_by_id(P2PNodeId(id))
+                        .map(|conn| conn.token)
+                    {
+                        node.remove_connection(token);
+                    }
                 }
             }
             Pending => {

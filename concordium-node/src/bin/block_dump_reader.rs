@@ -15,7 +15,10 @@ fn read_block_dump(bytes: &[u8]) {
 
     let genesis_data = BlockData::deserialize((&mut cursor, 0))
         .expect("Can't deserialize the provided data as a GenesisData object!");
-    assert_eq!(*BlockData::serialize(&genesis_data), *bytes);
+    let mut serialized = Vec::new();
+    genesis_data.serial(&mut serialized).unwrap();
+
+    assert_eq!(serialized.as_slice(), bytes);
 
     let genesis_block = Block {
         slot: 0,
