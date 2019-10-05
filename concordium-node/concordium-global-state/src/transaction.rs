@@ -6,7 +6,7 @@ use hash_hasher::HashedMap;
 
 use std::{
     convert::TryFrom,
-    io::{Cursor, Read, Write},
+    io::{Cursor, Read},
     mem::size_of,
 };
 
@@ -34,7 +34,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionHeader {
 
     fn deserialize(cursor: Self::Source) -> Fallible<Self> {
         let scheme_id = SchemeId::try_from(read_const_sized!(cursor, 1)[0])?;
-        let sender_key = read_bytestring_short_length(cursor, "sender key's length")?;
+        let sender_key = read_bytestring_short_length(cursor)?;
 
         let nonce_raw = NetworkEndian::read_u64(&read_ty!(cursor, Nonce));
         let nonce = Nonce::try_from(nonce_raw)?;
@@ -55,24 +55,15 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionHeader {
         Ok(transaction_header)
     }
 
-    fn serialize(&self) -> Box<[u8]> {
-        let mut cursor = create_serialization_cursor(
-            size_of::<SchemeId>()
-                + size_of::<u16>()
-                + self.sender_key.len()
-                + size_of::<Nonce>()
-                + size_of::<Energy>()
-                + size_of::<u32>(),
-        );
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        target.write_u8(self.scheme_id as u8)?;
+        target.write_u16::<NetworkEndian>(self.sender_key.len() as u16)?;
+        target.write_all(&self.sender_key)?;
+        target.write_u64::<NetworkEndian>(self.nonce.0)?;
+        target.write_u64::<NetworkEndian>(self.gas_amount)?;
+        target.write_u32::<NetworkEndian>(self.payload_size)?;
 
-        let _ = cursor.write(&[self.scheme_id as u8]);
-        let _ = cursor.write_u16::<NetworkEndian>(self.sender_key.len() as u16);
-        let _ = cursor.write_all(&self.sender_key);
-        let _ = cursor.write_u64::<NetworkEndian>(self.nonce.0);
-        let _ = cursor.write_u64::<NetworkEndian>(self.gas_amount);
-        let _ = cursor.write_u32::<NetworkEndian>(self.payload_size);
-
-        cursor.into_inner()
+        Ok(())
     }
 }
 
@@ -89,7 +80,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BareTransaction {
 
     fn deserialize(cursor: Self::Source) -> Fallible<Self> {
         let initial_pos = cursor.position() as usize;
-        let signature = read_bytestring_short_length(cursor, "transaction signature")?;
+        let signature = read_bytestring_short_length(cursor)?;
         let header = TransactionHeader::deserialize(cursor)?;
         let payload = TransactionPayload::deserialize((cursor, header.payload_size))?;
 
@@ -100,28 +91,17 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BareTransaction {
             payload,
             hash,
         };
-        check_partial_serialization!(
-            transaction,
-            &cursor.get_ref()[initial_pos..cursor.position() as usize]
-        );
 
         Ok(transaction)
     }
 
-    fn serialize(&self) -> Box<[u8]> {
-        let header = self.header.serialize();
-        let payload = self.payload.serialize();
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        target.write_u16::<NetworkEndian>(self.signature.len() as u16)?;
+        target.write_all(&self.signature)?;
+        self.header.serial(target)?;
+        self.payload.serial(target)?;
 
-        let mut cursor = create_serialization_cursor(
-            size_of::<u16>() + self.signature.len() + header.len() + payload.len(),
-        );
-
-        let _ = cursor.write_u16::<NetworkEndian>(self.signature.len() as u16);
-        let _ = cursor.write_all(&self.signature);
-        let _ = cursor.write_all(&header);
-        let _ = cursor.write_all(&payload);
-
-        cursor.into_inner()
+        Ok(())
     }
 }
 
@@ -135,7 +115,6 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for FullTransaction {
     type Source = &'a mut Cursor<&'b [u8]>;
 
     fn deserialize(cursor: Self::Source) -> Fallible<Self> {
-        let initial_pos = cursor.position() as usize;
         let bare_transaction = BareTransaction::deserialize(cursor)?;
 
         let arrival = NetworkEndian::read_u64(&read_const_sized!(cursor, 8));
@@ -143,23 +122,15 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for FullTransaction {
             bare_transaction,
             arrival,
         };
-        check_partial_serialization!(
-            transaction,
-            &cursor.get_ref()[initial_pos..cursor.position() as usize]
-        );
 
         Ok(transaction)
     }
 
-    fn serialize(&self) -> Box<[u8]> {
-        let bare_transaction = self.bare_transaction.serialize();
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        self.bare_transaction.serial(target)?;
+        target.write_u64::<NetworkEndian>(self.arrival as u64)?;
 
-        let mut cursor = create_serialization_cursor(bare_transaction.len() + size_of::<u64>());
-
-        let _ = cursor.write_all(&bare_transaction);
-        let _ = cursor.write_u64::<NetworkEndian>(self.arrival as u64);
-
-        cursor.into_inner()
+        Ok(())
     }
 }
 
@@ -337,16 +308,15 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
                 Ok(TransactionPayload::DeployCredential(credential))
             }
             TransactionType::DeployEncryptionKey => {
-                let ek = read_bytestring_short_length(cursor, "encryption key to deploy")?;
+                let ek = read_bytestring_short_length(cursor)?;
 
                 Ok(TransactionPayload::DeployEncryptionKey(ek))
             }
             TransactionType::AddBaker => {
                 let election_verify_key = Encoded::new(&read_const_sized!(cursor, BAKER_VRF_KEY));
-                let signature_verify_key =
-                    read_bytestring_short_length(cursor, "baker sign verify key")?;
+                let signature_verify_key = read_bytestring_short_length(cursor)?;
                 let account_address = AccountAddress(read_ty!(cursor, AccountAddress));
-                let proof = read_bytestring(cursor, "baker addition proof")?;
+                let proof = read_bytestring(cursor)?;
 
                 Ok(TransactionPayload::AddBaker {
                     election_verify_key,
@@ -357,14 +327,14 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
             }
             TransactionType::RemoveBaker => {
                 let id = NetworkEndian::read_u64(&read_ty!(cursor, BakerId));
-                let proof = read_bytestring(cursor, "baker removal proof")?;
+                let proof = read_bytestring(cursor)?;
 
                 Ok(TransactionPayload::RemoveBaker { id, proof })
             }
             TransactionType::UpdateBakerAccount => {
                 let id = NetworkEndian::read_u64(&read_ty!(cursor, BakerId));
                 let account_address = AccountAddress(read_ty!(cursor, AccountAddress));
-                let proof = read_bytestring(cursor, "baker update proof")?;
+                let proof = read_bytestring(cursor)?;
 
                 Ok(TransactionPayload::UpdateBakerAccount {
                     id,
@@ -374,9 +344,8 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
             }
             TransactionType::UpdateBakerSignKey => {
                 let id = NetworkEndian::read_u64(&read_ty!(cursor, BakerId));
-                let signature_verify_key =
-                    read_bytestring_short_length(cursor, "baker sign verify key")?;
-                let proof = read_bytestring(cursor, "baker update proof")?;
+                let signature_verify_key = read_bytestring_short_length(cursor)?;
+                let proof = read_bytestring(cursor)?;
 
                 Ok(TransactionPayload::UpdateBakerSignKey {
                     id,
@@ -393,16 +362,12 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
         }
     }
 
-    fn serialize(&self) -> Box<[u8]> {
-        // FIXME: tweak based on the smallest possible size or trigger from within
-        // branches
-        let mut cursor = Cursor::new(Vec::with_capacity(16));
-        let transaction_type = self.transaction_type();
-        let _ = cursor.write(&[transaction_type as u8]);
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        target.write_u8(self.transaction_type() as u8)?;
 
         match self {
             TransactionPayload::DeployModule(module) => {
-                let _ = cursor.write_all(&module);
+                target.write_all(&module)?;
             }
             TransactionPayload::InitContract {
                 amount,
@@ -410,35 +375,35 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
                 contract,
                 param,
             } => {
-                let _ = cursor.write_u64::<NetworkEndian>(*amount);
-                let _ = cursor.write_all(&*module);
-                let _ = cursor.write_u32::<NetworkEndian>(*contract);
-                let _ = cursor.write_all(&*param);
+                target.write_u64::<NetworkEndian>(*amount)?;
+                target.write_all(&*module)?;
+                target.write_u32::<NetworkEndian>(*contract)?;
+                target.write_all(&*param)?;
             }
             TransactionPayload::Update {
                 amount,
                 address,
                 message,
             } => {
-                let _ = cursor.write_u64::<NetworkEndian>(*amount);
-                let _ = cursor.write_all(&address.serialize());
-                let _ = cursor.write_all(&*message);
+                target.write_u64::<NetworkEndian>(*amount)?;
+                address.serial(target)?;
+                target.write_all(&*message)?;
             }
             TransactionPayload::Transfer {
                 target_scheme,
                 target_address,
                 amount,
             } => {
-                let _ = cursor.write(&[*target_scheme as u8]);
-                let _ = cursor.write_all(&target_address.0);
-                let _ = cursor.write_u64::<NetworkEndian>(*amount);
+                target.write_u8(*target_scheme as u8)?;
+                target.write_all(&target_address.0)?;
+                target.write_u64::<NetworkEndian>(*amount)?;
             }
             TransactionPayload::DeployCredential(credential) => {
-                let _ = cursor.write_all(&credential);
+                target.write_all(&credential)?;
             }
             TransactionPayload::DeployEncryptionKey(ek) => {
-                let _ = cursor.write_u16::<NetworkEndian>(ek.len() as u16);
-                let _ = cursor.write_all(&ek);
+                target.write_u16::<NetworkEndian>(ek.len() as u16)?;
+                target.write_all(&ek)?;
             }
             TransactionPayload::AddBaker {
                 election_verify_key,
@@ -446,42 +411,42 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
                 account_address,
                 proof,
             } => {
-                let _ = cursor.write_all(&election_verify_key);
-                write_bytestring_short_length(&mut cursor, &signature_verify_key);
-                let _ = cursor.write_all(&account_address.0);
-                write_bytestring(&mut cursor, &proof);
+                target.write_all(&election_verify_key)?;
+                write_bytestring_short_length(target, &signature_verify_key)?;
+                target.write_all(&account_address.0)?;
+                write_bytestring(target, &proof)?;
             }
             TransactionPayload::RemoveBaker { id, proof } => {
-                let _ = cursor.write_u64::<NetworkEndian>(*id);
-                write_bytestring(&mut cursor, &proof);
+                target.write_u64::<NetworkEndian>(*id)?;
+                write_bytestring(target, &proof)?;
             }
             TransactionPayload::UpdateBakerAccount {
                 id,
                 account_address,
                 proof,
             } => {
-                let _ = cursor.write_u64::<NetworkEndian>(*id);
-                let _ = cursor.write_all(&account_address.0);
-                write_bytestring(&mut cursor, &proof);
+                target.write_u64::<NetworkEndian>(*id)?;
+                target.write_all(&account_address.0)?;
+                write_bytestring(target, &proof)?;
             }
             TransactionPayload::UpdateBakerSignKey {
                 id,
                 signature_verify_key,
                 proof,
             } => {
-                let _ = cursor.write_u64::<NetworkEndian>(*id);
-                write_bytestring_short_length(&mut cursor, &signature_verify_key);
-                write_bytestring(&mut cursor, &proof);
+                target.write_u64::<NetworkEndian>(*id)?;
+                write_bytestring_short_length(target, &signature_verify_key)?;
+                write_bytestring(target, &proof)?;
             }
             TransactionPayload::DelegateStake(id) => {
-                let _ = cursor.write_u64::<NetworkEndian>(*id);
+                target.write_u64::<NetworkEndian>(*id)?;
             }
             TransactionPayload::UndelegateStake => {
-                let _ = cursor.write(&[TransactionType::UndelegateStake as u8]);
+                target.write_u8(TransactionType::UndelegateStake as u8)?;
             }
         }
 
-        cursor.into_inner().into_boxed_slice()
+        Ok(())
     }
 }
 

@@ -9,6 +9,7 @@ mod p2p_event;
 
 // If a message is labelled as having `High` priority it is always pushed to the
 // front of the queue in the sinks when sending, and otherwise to the back
+#[derive(PartialEq, Eq, Clone, Copy)]
 pub enum MessageSendingPriority {
     High,
     Normal,
@@ -70,7 +71,7 @@ pub struct DeduplicationQueues {
 impl DeduplicationQueues {
     pub fn default() -> Self {
         const SHORT_DEDUP_SIZE: usize = 16;
-        const LONG_QUEUE_SIZE: usize = 32 * 1024;
+        const LONG_QUEUE_SIZE: usize = 16 * 1024;
 
         Self {
             finalizations: CircularQueue::with_capacity(LONG_QUEUE_SIZE),
@@ -315,9 +316,7 @@ impl Connection {
                 }
                 _ => false,
             },
-            NetworkMessage::NetworkResponse(ref response, ..) => match response {
-                _ => false,
-            },
+            NetworkMessage::NetworkResponse(..) => false,
             NetworkMessage::NetworkPacket(..) => {
                 self.handler().is_rpc_online.load(Ordering::Relaxed)
             }
@@ -359,22 +358,29 @@ impl Connection {
     pub fn async_send(&self, input: HybridBuf, priority: MessageSendingPriority) -> Fallible<()> {
         let request = NetworkRawRequest {
             token: self.token,
-            data: input,
-            priority,
+            data:  input,
         };
 
-        into_err!(self
-            .handler()
-            .connection_handler
-            .network_request_sender
-            .send(request))
+        if priority == MessageSendingPriority::High {
+            into_err!(self
+                .handler()
+                .connection_handler
+                .network_messages_hi
+                .send(request))
+        } else {
+            into_err!(self
+                .handler()
+                .connection_handler
+                .network_messages_lo
+                .send(request))
+        }
     }
 
     /// It sends `input` through `socket`.
     /// This functions returns (almost) immediately, because it does NOT wait
     /// for real write. Function `ConnectionPrivate::ready` will make ensure to
     /// write chunks of the message
-    #[inline]
+    #[inline(always)]
     pub fn async_send_from_poll_loop(&self, input: HybridBuf) -> Fallible<Readiness<usize>> {
         TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
         self.stats.messages_sent.fetch_add(1, Ordering::Relaxed);

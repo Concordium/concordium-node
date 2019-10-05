@@ -383,7 +383,7 @@ impl P2P for RpcServerImpl {
                         CALLBACK_QUEUE.send_message(ConsensusMessage::new(
                             MessageType::Outbound(None),
                             PacketType::Transaction,
-                            Arc::from(payload),
+                            HybridBuf::try_from(payload).unwrap_or_default(),
                             vec![],
                         ))
                     } else {

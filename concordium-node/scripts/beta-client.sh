@@ -3,16 +3,16 @@
 GROUP_ID=""
 USER_ID=""
 
-if [ ! -z "$EXTERNAL_GID" ];
+if [ ! -z "$GID" ];
 then
-  GROUP_ID="$EXTERNAL_GID"
+  GROUP_ID="$GID"
 else
   GROUP_ID="61000"
 fi
 
-if [ ! -z "$EXTERNAL_UID" ];
+if [ ! -z "$UID" ];
 then
-  USER_ID="$EXTERNAL_UID"
+  USER_ID="$UID"
 else
   USER_ID="61000"
 fi
