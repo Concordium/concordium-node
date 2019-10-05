@@ -20,7 +20,7 @@ pub const APP_PREFERENCES_KEY_VERSION: &str = "VERSION";
 pub const APP_PREFERENCES_PERSISTED_NODE_ID: &str = "PERSISTED_NODE_ID";
 
 // maximum time allowed for a peer to catch up with in milliseconds
-pub const MAX_CATCH_UP_TIME: u64 = 10_000;
+pub const MAX_CATCH_UP_TIME: u64 = 300_000;
 
 // queue depths
 pub const RAW_NETWORK_MSG_QUEUE_DEPTH_HI: usize = 1024;

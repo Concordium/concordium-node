@@ -244,11 +244,10 @@ fn process_external_gs_entry(
     mut request: ConsensusMessage,
     global_state: &mut GlobalState,
 ) -> Fallible<()> {
-    let self_node_id = node.self_peer.id;
     let source = P2PNodeId(request.source_peer());
 
     // relay external messages to Consensus
-    let consensus_result = send_msg_to_consensus(self_node_id, source, consensus, &mut request)?;
+    let consensus_result = send_msg_to_consensus(source, consensus, &mut request)?;
 
     // adjust the peer state(s) based on the feedback from Consensus
     update_peer_states(global_state, &request, consensus_result);
@@ -273,7 +272,6 @@ fn process_external_gs_entry(
 }
 
 fn send_msg_to_consensus(
-    our_id: P2PNodeId,
     source_id: P2PNodeId,
     consensus: &mut consensus::ConsensusContainer,
     request: &mut ConsensusMessage,
@@ -293,14 +291,11 @@ fn send_msg_to_consensus(
     request.payload.seek(SeekFrom::Start(payload_offset))?;
 
     if consensus_response.is_acceptable() {
-        info!(
-            "Peer {} (myself) processed a {} from {}",
-            our_id, request.variant, source_id
-        );
+        info!("Processed a {} from {}", request.variant, source_id);
     } else {
         debug!(
-            "Peer {} couldn't process a {} due to error code {:?}",
-            our_id, request, consensus_response,
+            "Couldn't process a {} due to error code {:?}",
+            request, consensus_response,
         );
     }
 
@@ -421,9 +416,12 @@ pub fn check_peer_states(
                 // there are peers that are catching up
                 if get_current_stamp() > global_state.catch_up_stamp + MAX_CATCH_UP_TIME {
                     debug!("Global state: peer {:016x} took too long to catch up", id);
-                    global_state
-                        .peers
-                        .change_priority(&id, PeerState::new(Pending));
+                    if let Some(token) = node
+                        .find_connection_by_id(P2PNodeId(id))
+                        .map(|conn| conn.token)
+                    {
+                        node.remove_connection(token);
+                    }
                 }
             }
             Pending => {
