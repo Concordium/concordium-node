@@ -79,7 +79,7 @@ makeInstanceHash params v a = H.hashLazy $ runPutLazy $ do
         putStorable v
         put a
 
-data InstanceTable 
+data InstanceTable
     -- |The empty instance table
     = Empty
     -- |A non-empty instance table (recording the size)
@@ -170,7 +170,7 @@ newContractInstance mk (Tree s0 t0) = Tree (s0 + 1) <$> nci 0 t0
     where
         -- Insert into a tree with vacancies: insert in left if it has vacancies, otherwise right
         nci offset (Branch h f True _ l r)
-            | hasVacancies l = let newBranch l' = mkBranch h f (hasVacancies l' || hasVacancies r) l' r in newBranch <$> nci offset l 
+            | hasVacancies l = let newBranch l' = mkBranch h f (hasVacancies l' || hasVacancies r) l' r in newBranch <$> nci offset l
             | hasVacancies r = let newBranch r' = mkBranch h f (hasVacancies r') l r' in newBranch <$> nci (offset + 2^h) r
             | otherwise = error "newContractInstance: branch has vacancies, but children do not"
         -- Insert into full tree with no vacancies: create new branch at top level

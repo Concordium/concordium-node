@@ -145,7 +145,7 @@ updateAccount !upd !acc =
             Add ea -> ea:(acc ^. accountEncryptedAmount)
             Replace ea -> [ea]
     }
-  
+
   where setMaybe (Just x) _ = x
         setMaybe Nothing y = y
 
@@ -244,7 +244,8 @@ class BlockStateQuery m => BlockStateOperations m where
     let binfo = fst <$> (birkEpochBaker bid bps)
     join <$> mapM (bsoGetAccount s . _bakerAccount) binfo
 
-  -- |Add a new baker to the baker pool. Assign a fresh baker identity to the 
+
+  -- |Add a new baker to the baker pool. Assign a fresh baker identity to the
   -- new baker and return the assigned identity.
   -- This method should also update the next available baker id in the system.
   -- If a baker with the given signing key already exists do nothing and

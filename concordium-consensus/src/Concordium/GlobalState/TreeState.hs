@@ -26,8 +26,6 @@ import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Statistics
 import Concordium.GlobalState.BlockState
 
-
-
 data BlockStatus bp pb =
     BlockAlive !bp
     | BlockDead
@@ -142,7 +140,7 @@ class (Eq (BlockPointer m),
     -- When a block is finalized, all pending blocks with a lower or equal slot
     -- number can be handled (they will become dead, since they can no longer
     -- join the tree).  This uses 'takeNextPendingUntil'.
-    -- 
+    --
     -- |Return a list of the blocks that are pending the given parent block,
     -- removing them from the pending table.
     takePendingChildren :: BlockHash -> m [PendingBlock m]
@@ -181,7 +179,7 @@ class (Eq (BlockPointer m),
     --
     -- $pendingTransactions
     -- We maintain a 'PendingTransactionTable' for a particular block that is
-    -- the focus block.  (Ideally, this should be the best block, however, it 
+    -- the focus block.  (Ideally, this should be the best block, however, it
     -- shouldn't be a problem if it's not.)
     -- |Return the focus block.
     getFocusBlock :: m (BlockPointer m)
