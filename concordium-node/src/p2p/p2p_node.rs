@@ -1159,6 +1159,7 @@ impl P2PNode {
         events: &mut Events,
         deduplication_queues: &mut DeduplicationQueues,
     ) -> Fallible<()> {
+        events.clear();
         self.poll.poll(
             events,
             Some(Duration::from_millis(self.config.poll_interval)),
@@ -1178,8 +1179,6 @@ impl P2PNode {
                 }
             }
         }
-
-        events.clear();
 
         Ok(())
     }
