@@ -44,7 +44,7 @@ import Concordium.Skov hiding (receiveTransaction, getBirkParameters)
 import Concordium.Afgjort.Finalize (FinalizationPseudoMessage(..))
 import Concordium.Logger
 import Concordium.TimeMonad
-import Concordium.Skov.CatchUp (CatchUpStatus)
+import Concordium.Skov.CatchUp (CatchUpStatus,cusIsRequest)
 
 import qualified Concordium.Getters as Get
 
@@ -385,6 +385,8 @@ stopBaker cptr = mask_ $ do
 +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
 |     9 | ResultUnverifiable                 | The message could not be verified in the current state (initiate catch-up with peer)   | No       |
 +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
+|    10 | ResultContinueCatchUp              | The peer should be marked pending catch-up if it is currently up-to-date               | N/A      |
++-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
 -}
 type ReceiveResult = Int64
 
@@ -399,6 +401,7 @@ toReceiveResult ResultDuplicate = 6
 toReceiveResult ResultStale = 7
 toReceiveResult ResultIncorrectFinalizationSession = 8
 toReceiveResult ResultUnverifiable = 9
+toReceiveResult ResultContinueCatchUp = 10
 
 
 handleSkovFinalizationEvents :: (SimpleOutMessage -> IO ()) -> [FinalizationOutputEvent] -> IO ()
@@ -863,8 +866,16 @@ callDirectMessageCallback cbk peer mt bs = BS.useAsCStringLen bs $ \(cdata, clen
 -- * @ResultInvalid@ -- the catch-up message is inconsistent with the skov
 -- * @ResultPendingBlock@ -- the sender has some data I am missing, and should be marked pending
 -- * @ResultSuccess@ -- I do not require additional data from the sender, so mark it as up-to-date
-receiveCatchUpStatus :: StablePtr ConsensusRunner -> PeerID -> CString -> Int64 -> FunPtr DirectMessageCallback -> IO ReceiveResult
-receiveCatchUpStatus cptr src cstr l cbk = do
+-- * @ResultContinueCatchUp@ -- The sender should be marked pending if it is currently up-to-date (no change otherwise)
+receiveCatchUpStatus ::
+    StablePtr ConsensusRunner           -- ^Consensus pointer
+    -> PeerID                           -- ^Identifier of peer (passed to callback)
+    -> CString                          -- ^Serialised catch-up message
+    -> Int64                            -- ^Length of message
+    -> Word64                           -- ^Limit to number of responses (0 = unlimited)
+    -> FunPtr DirectMessageCallback     -- ^Callback to receive messages
+    -> IO ReceiveResult
+receiveCatchUpStatus cptr src cstr l limit cbk = do
     c <- deRefStablePtr cptr
     let logm = consensusLogMethod c
     bs <- BS.packCStringLen (cstr, fromIntegral l)
@@ -887,10 +898,17 @@ receiveCatchUpStatus cptr src cstr l cbk = do
                         send (Right b:r) = sendBlock b >> send r
                     forM_ d $ \(frbs, rcus) -> do
                         logm Skov LLDebug $ "Catch up response data: " ++ show frbs
-                        send frbs
+                        let limFrbs = if limit == 0 then frbs else take (fromIntegral limit) frbs
+                        send limFrbs
                         logm Skov LLDebug $ "Catch up response status message: " ++ show rcus
                         sendMsg MTCatchUpStatus $ encode rcus
-                    return $! if flag then ResultPendingBlock else ResultSuccess
+                    return $! if flag then 
+                                if cusIsRequest cus then
+                                    ResultContinueCatchUp
+                                else
+                                    ResultPendingBlock
+                            else
+                                ResultSuccess
 
 
 #ifdef RUST
@@ -918,7 +936,7 @@ foreign export ccall getBlockFinalization :: StablePtr ConsensusRunner -> BlockR
 foreign export ccall getIndexedFinalization :: StablePtr ConsensusRunner -> Word64 -> IO CString
 
 foreign export ccall getCatchUpStatus :: StablePtr ConsensusRunner -> IO CString
-foreign export ccall receiveCatchUpStatus :: StablePtr ConsensusRunner -> PeerID -> CString -> Int64 -> FunPtr DirectMessageCallback -> IO ReceiveResult
+foreign export ccall receiveCatchUpStatus :: StablePtr ConsensusRunner -> PeerID -> CString -> Int64 -> Word64 -> FunPtr DirectMessageCallback -> IO ReceiveResult
 
 -- report global state information will be removed in the future when global
 -- state is handled better
