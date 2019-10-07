@@ -28,7 +28,7 @@ use get_if_addrs;
 use ipconfig;
 use mio::{
     net::{TcpListener, TcpStream},
-    Event, Events, Poll, PollOpt, Ready, Token,
+    Events, Poll, PollOpt, Ready, Token,
 };
 use nohash_hasher::BuildNoHashHasher;
 use rand::seq::IteratorRandom;
@@ -974,17 +974,6 @@ impl P2PNode {
         write_or_die!(self.connections()).insert(conn.token, conn);
     }
 
-    pub fn conn_event(&self, event: &Event, deduplication_queues: &mut DeduplicationQueues) {
-        let token = event.token();
-
-        if let Some(conn) = self.find_connection_by_token(token) {
-            if let Err(e) = conn.ready(event, deduplication_queues) {
-                error!("Error while processing a connection event: {}", e);
-                conn.handler().remove_connection(conn.token);
-            }
-        }
-    }
-
     /// Waits for P2PNode termination. Use `P2PNode::close` to notify the
     /// termination.
     ///
@@ -1175,7 +1164,20 @@ impl P2PNode {
                     };
                 }
                 _ => {
-                    self.conn_event(&event, deduplication_queues);
+                    let readiness = event.readiness();
+                    if readiness.is_readable() || readiness.is_writable() {
+                        if let Some(conn) = self.find_connection_by_token(event.token()) {
+                            if readiness.is_readable() {
+                                if let Err(e) = conn.ready(deduplication_queues) {
+                                    error!("Couldn't process a connection read event: {}", e);
+                                    conn.handler().remove_connection(conn.token);
+                                }
+                            }
+                            if readiness.is_writable() {
+                                write_or_die!(conn.low_level).flush_sink()?;
+                            }
+                        }
+                    }
                 }
             }
         }
