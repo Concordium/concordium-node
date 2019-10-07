@@ -282,6 +282,12 @@ pub struct ConnectionConfig {
         help = "Maximum connections to keep open at any time"
     )]
     pub hard_connection_limit: Option<u16>,
+    #[structopt(
+        long = "catch-up-batch-limit",
+        help = "The maximum batch size for a catch-up round (0 = no limit)",
+        default_value = "50"
+    )]
+    pub catch_up_batch_limit: u64,
 }
 
 #[derive(StructOpt, Debug)]

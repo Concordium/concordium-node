@@ -301,6 +301,7 @@ extern "C" {
         peer_id: PeerId,
         msg: *const u8,
         msg_len: i64,
+        object_limit: u64,
         direct_callback: DirectMessageCallback,
     ) -> i64;
     pub fn checkIfWeAreBaker(consensus: *mut consensus_runner) -> u8;
@@ -518,12 +519,18 @@ impl ConsensusContainer {
         wrap_c_call_bytes!(self, |consensus| getCatchUpStatus(consensus))
     }
 
-    pub fn receive_catch_up_status(&self, request: &[u8], peer_id: PeerId) -> ConsensusFfiResponse {
+    pub fn receive_catch_up_status(
+        &self,
+        request: &[u8],
+        peer_id: PeerId,
+        object_limit: u64,
+    ) -> ConsensusFfiResponse {
         wrap_c_call!(self, |consensus| receiveCatchUpStatus(
             consensus,
             peer_id,
             request.as_ptr(),
             request.len() as i64,
+            object_limit,
             direct_callback
         ))
     }
