@@ -547,7 +547,7 @@ impl P2PNode {
                 // Run periodic tasks
                 let now = SystemTime::now();
                 if let Ok(difference) = now.duration_since(log_time) {
-                    if difference > Duration::from_secs(self_clone.config.housekeeping_interval) {
+                    if difference >= Duration::from_secs(self_clone.config.housekeeping_interval) {
                         // Check the termination switch
                         if self_clone.is_terminated.load(Ordering::Relaxed) {
                             break;
@@ -557,7 +557,7 @@ impl P2PNode {
                             error!("Issue with connection cleanups: {:?}", e);
                         }
                         if self_clone.peer_type() != PeerType::Bootstrapper {
-                            self_clone.liveness_check();
+                            self_clone.measure_connection_latencies();
                         }
 
                         let peer_stat_list = self_clone.get_peer_stats(None);
@@ -578,13 +578,17 @@ impl P2PNode {
         }
     }
 
-    fn liveness_check(&self) {
-        debug!("Running connection liveness checks");
+    fn measure_connection_latencies(&self) {
+        debug!("Measuring connection latencies");
 
         let connections = read_or_die!(self.connections()).clone();
         for conn in connections.values().filter(|conn| conn.is_post_handshake()) {
-            if let Err(e) = conn.send_ping() {
-                error!("Can't send a ping on {}: {}", conn, e);
+            // don't send pings to lagging connections so
+            // that the latency calculation is not invalid
+            if conn.last_seen() > conn.get_last_ping_sent() {
+                if let Err(e) = conn.send_ping() {
+                    error!("Can't send a ping on {}: {}", conn, e);
+                }
             }
         }
     }
@@ -595,7 +599,7 @@ impl P2PNode {
         let curr_stamp = get_current_stamp();
         let peer_type = self.peer_type();
 
-        // deduplicate by peer id
+        // deduplicate by P2PNodeId
         {
             let conns = read_or_die!(self.connections()).clone();
             let mut conns = conns
@@ -630,7 +634,7 @@ impl P2PNode {
                 && conn.last_seen() + config::MAX_PREHANDSHAKE_KEEP_ALIVE < curr_stamp
         };
 
-        // Kill connections to nodes which are no longer seen
+        // Kill faulty and inactive connections
         write_or_die!(self.connections()).retain(|_, conn| {
             !(is_conn_faulty(&conn) || is_conn_inactive(&conn) || is_conn_without_handshake(&conn))
         });
