@@ -35,7 +35,7 @@ import Data.Void
 instanceInfo :: Instance -> InstanceInfo
 instanceInfo Instance{..} = InstanceInfo (instanceMessageType instanceParameters) instanceModel instanceAmount
 
-makeInstance :: 
+makeInstance ::
     Core.ModuleRef     -- ^Module of the contract
     -> Core.TyName     -- ^Contract name
     -> LinkedContractValue Void  -- ^The contract value

@@ -66,7 +66,7 @@ getInterfaces :: Core.ModuleRef -> Modules -> Maybe (Interface Core.UA, Unlinked
 getInterfaces mref m = do
         Module {..} <- Map.lookup mref (_modules m)
         return (moduleInterface, moduleValueInterface)
-       
+
 
 -- |Try to add interfaces to the module table. If a module with the given
 -- reference exists returns @Nothing@.

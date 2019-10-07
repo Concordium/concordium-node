@@ -41,7 +41,7 @@ instance S.Serialize InstanceInfo where
 data AccountInfo = AccountInfo
     {accountNonce :: !Nonce
     ,accountAmount :: !Amount
-    } 
+    }
     deriving(Show, Generic)
 
 instance S.Serialize AccountInfo
@@ -66,7 +66,7 @@ jsonLiteral l = case l of
 
 -- |The serialization instances for values are only for storable values. If you
 -- try to serialize with a value which is not storable the methods will fail
--- raising an exception. 
+-- raising an exception.
 jsonStorable :: Value Void -> JSON.Value
 jsonStorable (VLiteral l) = jsonLiteral l
 jsonStorable (VConstructor n vals) =
