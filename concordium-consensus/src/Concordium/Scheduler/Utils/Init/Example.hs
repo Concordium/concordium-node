@@ -17,7 +17,7 @@ import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Concordium.Scheduler.Environment as Types
 
-import qualified Concordium.GlobalState.Basic.BlockState as BlockState
+import qualified Concordium.GlobalState.Implementation.BlockState as BlockState
 import qualified Concordium.GlobalState.Account as Acc
 import qualified Concordium.GlobalState.Modules as Mod
 import Concordium.GlobalState.Parameters(BirkParameters, CryptographicParameters)
@@ -68,7 +68,7 @@ inCtxTm = Core.Var . Core.LocalDef . inCtx
 
 initialTrans :: Int -> [Types.BareTransaction]
 initialTrans n = map initSimpleCounter $ enumFromTo 1 n
- 
+
 mateuszAccount :: AccountAddress
 mateuszAccount = AH.accountAddress (Sig.verifyKey mateuszKP) Ed25519
 
@@ -118,7 +118,7 @@ initialState :: BirkParameters
              -> [Types.IdentityProviderData]
              -> Int
              -> BlockState.BlockState
-initialState birkParams cryptoParams bakerAccounts ips n = 
+initialState birkParams cryptoParams bakerAccounts ips n =
     let (_, _, mods) = foldl handleFile
                            baseState
                            $(embedFiles [Left "test/contracts/SimpleAccount.acorn"

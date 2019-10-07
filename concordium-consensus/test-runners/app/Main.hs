@@ -1,5 +1,5 @@
 {-# LANGUAGE TupleSections, LambdaCase, OverloadedStrings #-}
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE LambdaCase, CPP #-}
 module Main where
 
 import Control.Concurrent
@@ -19,9 +19,10 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Instances
 import Concordium.GlobalState.BlockState(BlockPointerData(..))
-import Concordium.GlobalState.Basic.TreeState
-import Concordium.GlobalState.Basic.BlockState
-import Concordium.GlobalState.Basic.Block
+import Concordium.GlobalState.Implementation.TreeState
+import Concordium.GlobalState.Implementation.BlockState
+import Concordium.GlobalState.Implementation.Block (BakedBlock, Block(NormalBlock), getBlock)
+import Concordium.GlobalState.Implementation
 
 import Concordium.Types
 import Concordium.Runner
@@ -31,6 +32,8 @@ import Concordium.Skov
 import Concordium.Scheduler.Utils.Init.Example as Example
 
 import Concordium.Startup
+
+import Foreign.ForeignPtr
 
 nContracts :: Int
 nContracts = 2
@@ -108,7 +111,7 @@ gsToString gs = show (gs ^.  blockBirkParameters ^. birkSeedState )
         keys = map (\n -> (n, instanceModel <$> getInstance (ca n) (gs ^. blockInstances))) $ enumFromTo 0 (nContracts-1)
 
 dummyIdentityProviders :: [IdentityProviderData]
-dummyIdentityProviders = []  
+dummyIdentityProviders = []
 
 main :: IO ()
 main = do
@@ -127,7 +130,12 @@ main = do
         let logT bh slot reason = do
               appendFile logTransferFile (show (bh, slot, reason))
               appendFile logTransferFile "\n"
+#ifdef RUST
+        gsptr <- makeEmptyGlobalState gen
+        (cin, cout, out) <- makeAsyncRunner logM (Just logT) bid defaultRuntimeParameters gen iState gsptr
+#else
         (cin, cout, out) <- makeAsyncRunner logM (Just logT) bid defaultRuntimeParameters gen iState
+#endif
         _ <- forkIO $ sendTransactions cin trans
         return (cin, cout, out)) (zip [(0::Int) ..] bis)
     monitorChan <- newChan
@@ -140,9 +148,9 @@ main = do
                                     Nothing -> ""
                                     Just gs -> gsToString gs
 
-                    putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker $ bbFields block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]\\l" ++ stateStr ++ "\\l\"];"
-                    putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockPointer $ bbFields block) ++ ";"
-                    putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockLastFinalized $ bbFields block) ++ " [style=dotted];"
+                    putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]\\l" ++ stateStr ++ "\\l\"];"
+                    putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockPointer block) ++ ";"
+                    putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockLastFinalized block) ++ " [style=dotted];"
                     hFlush stdout
                     loop
                 Right fr -> do

@@ -37,14 +37,14 @@ contract Fibonacci where
   receive (c :: Blockchain.ReceiveContext) (model :: Map.Map Int64 Int64) (caller :: Blockchain.Caller) (amount :: Amount) (msg :: Maybe.Maybe MsgFib) =
     case msg of
       Maybe.Nothing -> mkReturn model Prim.TxNone
-      Maybe.Just (msg' :: MsgFib) -> 
+      Maybe.Just (msg' :: MsgFib) ->
           case msg' of
               Fib (n :: Int64) ->
                 let addr :: <address> = Blockchain.receiveSelfAddress c in
                 let casted :: Maybe.Maybe Fibonacci = castFibonacci addr in
                 case casted of
                   Maybe.Nothing -> mkReturn model Prim.TxReject
-                  Maybe.Just (i :: Fibonacci) -> 
+                  Maybe.Just (i :: Fibonacci) ->
                     let amodel :: Map.Map Int64 Int64 = getFibonacci i in
                     let lkp :: Maybe.Maybe Int64 = lookup n amodel in
                     case lkp of

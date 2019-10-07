@@ -22,9 +22,8 @@ import Control.Monad.Trans.RWS.Strict hiding (ask, get, put)
 import Control.Monad.State.Class
 
 import Concordium.Scheduler.Types
-import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.BlockState hiding (BlockState)
-import Concordium.GlobalState.Basic.BlockState
+import Concordium.GlobalState.Implementation.BlockState (BlockState, PureBlockStateMonad(..))
 import qualified Concordium.GlobalState.Modules as Mod
 import Concordium.GlobalState.Bakers as Bakers
 
@@ -41,7 +40,7 @@ instance MonadTrans (BSOMonadWrapper r s) where
 -- rights during the beta phase.
 type ContextState = (Set.HashSet AccountAddress, ChainMetadata)
 
-instance (MonadReader ContextState m, UpdatableBlockState m ~ s, MonadState s m, BlockStateOperations m) 
+instance (MonadReader ContextState m, UpdatableBlockState m ~ s, MonadState s m, BlockStateOperations m)
     => StaticEnvironmentMonad Core.UA (BSOMonadWrapper ContextState s m) where
   {-# INLINE getChainMetadata #-}
   getChainMetadata = view _2
@@ -49,7 +48,7 @@ instance (MonadReader ContextState m, UpdatableBlockState m ~ s, MonadState s m,
   {-# INLINE getModuleInterfaces #-}
   getModuleInterfaces mref = do
     s <- get
-    mmod <- lift (BS.bsoGetModule s mref)
+    mmod <- lift (bsoGetModule s mref)
     return $ mmod <&> \m -> (Mod.moduleInterface m, Mod.moduleValueInterface m)
 
 instance (MonadReader ContextState m, UpdatableBlockState m ~ state, MonadState state m, BlockStateOperations m)
@@ -63,7 +62,7 @@ instance (MonadReader ContextState m, UpdatableBlockState m ~ state, MonadState 
 
   {-# INLINE getAccount #-}
   getAccount !addr = lift . flip bsoGetAccount addr =<< get
-  
+
   {-# INLINE putNewInstance #-}
   putNewInstance !mkInstance = do
     (caddr, s') <- lift . flip bsoPutNewInstance mkInstance =<< get

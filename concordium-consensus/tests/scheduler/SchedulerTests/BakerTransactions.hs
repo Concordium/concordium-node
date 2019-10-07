@@ -15,11 +15,11 @@ import Concordium.Scheduler.Runner
 import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
 
-import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.Account as Acc
 import Concordium.GlobalState.Modules as Mod
-import Concordium.GlobalState.Basic.Invariants
+import Concordium.GlobalState.Implementation.BlockState
+import Concordium.GlobalState.Implementation.Invariants
 import qualified Concordium.GlobalState.Rewards as Rew
 
 import qualified Concordium.Crypto.BlockSignature as BlockSig
@@ -35,7 +35,7 @@ shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState
-initialBlockState = 
+initialBlockState =
   emptyBlockState emptyBirkParameters dummyCryptographicParameters &
     (blockAccounts .~ Acc.putAccount (mkAccount alesVK 100000)
                       (Acc.putAccount (mkAccount thomasVK 100000) Acc.emptyAccounts)) .
@@ -70,7 +70,7 @@ transactionsInput =
                                 (BlockSig.signKey alesKP)
            , metadata = makeHeader alesKP 2 10000
            , keypair = alesKP
-           },     
+           },
      TJSON { payload = AddBaker (baker2 ^. _1 . bakerElectionVerifyKey)
                                 (baker2 ^. _2)
                                 (baker2 ^. _1 . bakerSignatureVerifyKey)
@@ -79,7 +79,7 @@ transactionsInput =
                                 (BlockSig.signKey thomasKP)
            , metadata = makeHeader alesKP 3 10000
            , keypair = alesKP
-           },     
+           },
      TJSON { payload = RemoveBaker 1 "<dummy proof>"
            , metadata = makeHeader alesKP 4 10000
            , keypair = alesKP
@@ -93,7 +93,7 @@ transactionsInput =
            , metadata = makeHeader alesKP 5 10000
            , keypair = alesKP
            -- baker 0's account is Thomas account, so only it can update it
-           }      
+           }
     ]
 
 runWithIntermediateStates :: PR.Context Core.UA IO ([([(Types.BareTransaction, Types.ValidResult)],
@@ -124,7 +124,7 @@ tests = do
     specify "Correct number of transactions" $
         length results == length transactionsInput
     specify "Adding three bakers from initial empty state" $
-        case take 3 results of 
+        case take 3 results of
           [([(_,Types.TxSuccess [Types.BakerAdded 0] _ _)],[],bps1),
            ([(_,Types.TxSuccess [Types.BakerAdded 1] _ _)],[],bps2),
            ([(_,Types.TxSuccess [Types.BakerAdded 2] _ _)],[],bps3)] ->
@@ -158,4 +158,3 @@ tests = do
           in b0 ^. bakerSignatureVerifyKey == BlockSig.verifyKey (bakerSignKey 3) &&
              ((bps5 ^. Types.birkCurrentBakers . bakerMap) Map.! 0) ^. bakerSignatureVerifyKey == BlockSig.verifyKey (bakerSignKey 0)
         _ -> False
-        

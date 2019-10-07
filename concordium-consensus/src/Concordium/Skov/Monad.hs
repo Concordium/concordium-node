@@ -39,6 +39,8 @@ data UpdateResult
     -- ^The message refers to a different/unknown finalization session
     | ResultUnverifiable
     -- ^The message could not be validated with the current state
+    | ResultContinueCatchUp
+    -- ^The peer should be marked as pending unless catch up is already in progress
 
 class (Monad m, Eq (BlockPointer m), BlockPointerData (BlockPointer m), BlockStateQuery m) => SkovQueryMonad m where
     -- |Look up a block in the table given its hash
@@ -71,7 +73,7 @@ class (SkovQueryMonad m, TimeMonad m, LoggerMonad m) => SkovMonad m where
     -- |Store a block in the block table that has just been baked.
     -- This assumes the block is valid and that there can be nothing
     -- pending for it (children or finalization).
-    storeBakedBlock :: 
+    storeBakedBlock ::
         PendingBlock m        -- ^The block to add
         -> BlockPointer m     -- ^Parent pointer
         -> BlockPointer m     -- ^Last finalized pointer
