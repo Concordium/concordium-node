@@ -1167,14 +1167,15 @@ impl P2PNode {
                     let readiness = event.readiness();
                     if readiness.is_readable() || readiness.is_writable() {
                         if let Some(conn) = self.find_connection_by_token(event.token()) {
+                            let mut conn_lock = write_or_die!(conn.low_level);
                             if readiness.is_readable() {
-                                if let Err(e) = conn.ready(deduplication_queues) {
+                                if let Err(e) = conn_lock.read_stream(deduplication_queues) {
                                     error!("Couldn't process a connection read event: {}", e);
                                     conn.handler().remove_connection(conn.token);
                                 }
                             }
                             if readiness.is_writable() {
-                                write_or_die!(conn.low_level).flush_sink()?;
+                                conn_lock.flush_sink()?;
                             }
                         }
                     }

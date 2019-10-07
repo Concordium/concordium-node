@@ -237,13 +237,6 @@ impl Connection {
         ))
     }
 
-    /// This function is called when `poll` indicates that `socket` is ready to
-    /// write or/and read.
-    #[inline(always)]
-    pub fn ready(&self, deduplication_queues: &mut DeduplicationQueues) -> Fallible<()> {
-        write_or_die!(self.low_level).read_from_stream(deduplication_queues)
-    }
-
     fn is_message_duplicate(
         &self,
         message: &mut HybridBuf,
@@ -661,7 +654,7 @@ impl ConnectionLowLevel {
     }
 
     #[inline(always)]
-    fn read_from_stream(&mut self, deduplication_queues: &mut DeduplicationQueues) -> Fallible<()> {
+    pub fn read_stream(&mut self, deduplication_queues: &mut DeduplicationQueues) -> Fallible<()> {
         loop {
             let read_result = self.message_stream.read(&mut self.socket);
             match read_result {
