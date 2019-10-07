@@ -36,6 +36,7 @@ use rkv::{Manager, Rkv, StoreOptions, Value};
 use snow::Keypair;
 
 use std::{
+    cmp::Reverse,
     collections::{HashMap, HashSet},
     net::{
         IpAddr::{self, V4, V6},
@@ -537,16 +538,16 @@ impl P2PNode {
             let mut deduplication_queues = DeduplicationQueues::default();
 
             loop {
+                self_clone.process_network_requests(&receivers);
+
                 let _ = self_clone
                     .process(&mut events, &mut deduplication_queues)
                     .map_err(|e| error!("{}", e));
 
-                self_clone.process_network_requests(&receivers);
-
                 // Run periodic tasks
                 let now = SystemTime::now();
                 if let Ok(difference) = now.duration_since(log_time) {
-                    if difference > Duration::from_secs(self_clone.config.housekeeping_interval) {
+                    if difference >= Duration::from_secs(self_clone.config.housekeeping_interval) {
                         // Check the termination switch
                         if self_clone.is_terminated.load(Ordering::Relaxed) {
                             break;
@@ -556,7 +557,7 @@ impl P2PNode {
                             error!("Issue with connection cleanups: {:?}", e);
                         }
                         if self_clone.peer_type() != PeerType::Bootstrapper {
-                            self_clone.liveness_check();
+                            self_clone.measure_connection_latencies();
                         }
 
                         let peer_stat_list = self_clone.get_peer_stats(None);
@@ -577,24 +578,19 @@ impl P2PNode {
         }
     }
 
-    fn liveness_check(&self) {
-        debug!("Running connection liveness checks");
+    fn measure_connection_latencies(&self) {
+        debug!("Measuring connection latencies");
 
-        let curr_stamp = get_current_stamp();
         let connections = read_or_die!(self.connections()).clone();
-
-        connections
-            .values()
-            .filter(|conn| {
-                conn.is_post_handshake()
-                    && (conn.last_seen() + 120_000 < curr_stamp
-                        || conn.get_last_ping_sent() + 300_000 < curr_stamp)
-            })
-            .for_each(|conn| {
+        for conn in connections.values().filter(|conn| conn.is_post_handshake()) {
+            // don't send pings to lagging connections so
+            // that the latency calculation is not invalid
+            if conn.last_seen() > conn.get_last_ping_sent() {
                 if let Err(e) = conn.send_ping() {
-                    error!("Can't send a ping to {}: {}", conn.remote_addr(), e);
+                    error!("Can't send a ping on {}: {}", conn, e);
                 }
-            });
+            }
+        }
     }
 
     fn connection_housekeeping(&self) -> Fallible<()> {
@@ -602,6 +598,19 @@ impl P2PNode {
 
         let curr_stamp = get_current_stamp();
         let peer_type = self.peer_type();
+
+        // deduplicate by P2PNodeId
+        {
+            let conns = read_or_die!(self.connections()).clone();
+            let mut conns = conns
+                .values()
+                .filter(|conn| conn.is_post_handshake())
+                .collect::<Vec<_>>();
+            conns.sort_by_key(|conn| (conn.remote_id(), Reverse(conn.token)));
+            conns.dedup_by_key(|conn| conn.remote_id());
+            write_or_die!(self.connections())
+                .retain(|_, conn| conns.iter().map(|c| c.token).any(|t| conn.token == t));
+        }
 
         let is_conn_faulty = |conn: &Connection| -> bool {
             conn.failed_pkts() >= config::MAX_FAILED_PACKETS_ALLOWED
@@ -625,7 +634,7 @@ impl P2PNode {
                 && conn.last_seen() + config::MAX_PREHANDSHAKE_KEEP_ALIVE < curr_stamp
         };
 
-        // Kill connections to nodes which are no longer seen
+        // Kill faulty and inactive connections
         write_or_die!(self.connections()).retain(|_, conn| {
             !(is_conn_faulty(&conn) || is_conn_inactive(&conn) || is_conn_without_handshake(&conn))
         });
@@ -1195,12 +1204,16 @@ impl P2PNode {
     /// poll-loop.
     #[inline(always)]
     pub fn process_network_requests(&self, receivers: &Receivers) {
-        for request in receivers
-            .network_messages_hi
-            .try_iter()
-            .chain(receivers.network_messages_lo.try_iter())
-        {
+        for request in receivers.network_messages_hi.try_iter() {
             self.process_network_request(request);
+        }
+
+        for _ in 0..256 {
+            if let Ok(request) = receivers.network_messages_lo.try_recv() {
+                self.process_network_request(request);
+            } else {
+                break;
+            }
         }
     }
 

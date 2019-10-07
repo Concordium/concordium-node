@@ -88,6 +88,7 @@ pub struct ConnectionStats {
     pub failed_pkts:       AtomicU32,
     pub messages_sent:     Arc<AtomicU64>,
     pub messages_received: Arc<AtomicU64>,
+    pub valid_latency:     Arc<AtomicBool>,
     pub last_latency:      Arc<AtomicU64>,
 }
 
@@ -146,6 +147,7 @@ impl Connection {
             messages_received: Default::default(),
             messages_sent:     Default::default(),
             sent_handshake:    Default::default(),
+            valid_latency:     Default::default(),
             last_latency:      Default::default(),
             failed_pkts:       Default::default(),
             last_ping_sent:    AtomicU64::new(curr_stamp),
@@ -201,9 +203,7 @@ impl Connection {
             self.remote_addr(),
             self.remote_peer_external_port(),
             self.remote_peer_type(),
-            Arc::clone(&self.stats.messages_sent),
-            Arc::clone(&self.stats.messages_received),
-            Arc::clone(&self.stats.last_latency),
+            &self.stats,
         ))
     }
 
@@ -465,14 +465,14 @@ impl Connection {
     }
 
     pub fn send_ping(&self) -> Fallible<()> {
-        trace!("Sending a ping to {}", self.remote_addr());
+        trace!("Sending a ping on {}", self);
 
         let ping_msg =
             NetworkMessage::NetworkRequest(NetworkRequest::Ping, Some(get_current_stamp()), None);
 
         self.async_send(
             serialize_into_buffer(&ping_msg, 64)?,
-            MessageSendingPriority::Normal,
+            MessageSendingPriority::High,
         )?;
 
         self.set_last_ping_sent();
@@ -481,7 +481,7 @@ impl Connection {
     }
 
     pub fn send_pong(&self) -> Fallible<()> {
-        trace!("Sending a pong to {}", self.remote_addr());
+        trace!("Sending a pong on {}", self);
 
         let pong_msg =
             NetworkMessage::NetworkResponse(NetworkResponse::Pong, Some(get_current_stamp()), None);
