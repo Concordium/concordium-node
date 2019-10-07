@@ -21,7 +21,7 @@ impl Serial for CatchUpStatus {
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let is_request = read_ty!(source, bool)[0] != 0;
         let last_finalized_block = BlockHash::from(read_ty!(source, BlockHash));
-        let last_finalized_height = NetworkEndian::read_u64(&read_ty!(source, BlockHeight));
+        let last_finalized_height = BlockHeight::deserial(source)?;
         let best_block = BlockHash::from(read_ty!(source, BlockHash));
 
         let finalization_justifiers = read_multiple!(
@@ -45,7 +45,7 @@ impl Serial for CatchUpStatus {
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
         target.write_u8(self.is_request as u8)?;
         target.write_all(&self.last_finalized_block)?;
-        target.write_u64::<NetworkEndian>(self.last_finalized_height)?;
+        self.last_finalized_height.serial(target)?;
         target.write_all(&self.best_block)?;
 
         target.write_u32::<NetworkEndian>(self.finalization_justifiers.len() as u32)?;

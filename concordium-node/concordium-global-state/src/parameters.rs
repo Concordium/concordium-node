@@ -24,11 +24,6 @@ pub type VoterSignKey = Encoded;
 pub type VoterPower = u64;
 
 pub const BAKER_VRF_KEY: u8 = 32;
-const BAKER_SIGN_KEY: u8 = 2 + 32;
-const BAKER_INFO: u8 = BAKER_VRF_KEY
-    + BAKER_SIGN_KEY
-    + size_of::<LotteryPower>() as u8
-    + size_of::<AccountAddress>() as u8;
 
 const VOTER_SIGN_KEY: u8 = 2 + 32;
 const VOTER_VRF_KEY: u8 = 32;
@@ -48,10 +43,7 @@ impl Serial for Bakers {
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let baker_map = read_hashmap!(
             source,
-            (
-                NetworkEndian::read_u64(&read_ty!(source, BakerId)),
-                BakerInfo::deserial(&mut &read_const_sized!(source, BAKER_INFO)[..])?
-            ),
+            (BakerId::deserial(source)?, BakerInfo::deserial(source)?),
             8,
             MAX_BAKER_ALLOC
         );
@@ -62,19 +54,14 @@ impl Serial for Bakers {
                     read_bytestring_short_length(source)?,
                     Encoded::new(&read_const_sized!(source, BAKER_VRF_KEY))
                 ),
-                read_multiple!(
-                    source,
-                    NetworkEndian::read_u64(&read_ty!(source, BakerId)),
-                    8,
-                    MAX_BAKER_ALLOC
-                )
+                read_multiple!(source, BakerId::deserial(source)?, 8, MAX_BAKER_ALLOC)
             ),
             8,
             MAX_BAKER_ALLOC
         );
 
-        let baker_total_stake = NetworkEndian::read_u64(&read_ty!(source, Amount));
-        let next_baker_id = NetworkEndian::read_u64(&read_ty!(source, BakerId));
+        let baker_total_stake = Amount::deserial(source)?;
+        let next_baker_id = BakerId::deserial(source)?;
 
         let params = Bakers {
             baker_map,
@@ -215,7 +202,7 @@ impl Serial for VoterInfo {
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let signature_verify_key = read_bytestring_short_length(source)?;
         let election_verify_key = Encoded::new(&read_const_sized!(source, VOTER_VRF_KEY));
-        let voting_power = NetworkEndian::read_u64(&read_ty!(source, VoterPower));
+        let voting_power = VoterPower::deserial(source)?;
 
         let info = VoterInfo {
             signature_verify_key,

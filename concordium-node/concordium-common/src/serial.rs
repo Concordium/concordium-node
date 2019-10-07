@@ -3,6 +3,7 @@ use failure::{bail, Fallible};
 
 // desired endianness
 pub type E = BE;
+pub type Endianness = BE;
 
 // the actual trait; might need 2 lifetimes
 

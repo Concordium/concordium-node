@@ -922,8 +922,8 @@ impl P2PNode {
 
         let mut banlist = Vec::new();
         for entry in ban_iter {
-            let (id_bytes, _expiry) = entry?;
-            let node_to_ban = BannedNode::deserialize(id_bytes)?;
+            let (mut id_bytes, _expiry) = entry?;
+            let node_to_ban = BannedNode::deserial(&mut id_bytes)?;
             banlist.push(node_to_ban);
         }
 

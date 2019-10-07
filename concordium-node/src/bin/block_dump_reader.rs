@@ -13,7 +13,7 @@ use concordium_global_state::{
 fn read_block_dump(bytes: &[u8]) {
     let mut cursor = Cursor::new(bytes);
 
-    let genesis_data = BlockData::deserialize((&mut cursor, 0))
+    let genesis_data = BlockData::deserial_with_param(&mut cursor, 0)
         .expect("Can't deserialize the provided data as a GenesisData object!");
     let mut serialized = Vec::new();
     genesis_data.serial(&mut serialized).unwrap();

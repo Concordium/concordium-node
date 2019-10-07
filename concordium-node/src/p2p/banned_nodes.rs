@@ -1,4 +1,4 @@
-use byteorder::{ByteOrder, LittleEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{ReadBytesExt, WriteBytesExt, LE};
 use failure::{self, format_err, Fallible};
 
 use crate::common::P2PNodeId;
@@ -7,7 +7,6 @@ use concordium_common::{Serial, SerializeToBytes};
 use std::{
     collections::HashSet,
     convert::TryFrom,
-    io::{Cursor, Read},
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
 };
 
@@ -112,31 +111,26 @@ impl Serial for BannedNode {
 }
 
 impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BannedNode {
-    type Source = &'a [u8];
+    type Param = bool;
 
-    fn deserialize(bytes: &[u8]) -> Fallible<Self> {
-        let mut cursor = Cursor::new(bytes);
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
+        let ban_type = source.read_u8()?;
 
-        let mut t = [0u8; 1];
-        cursor.read_exact(&mut t)?;
-
-        match t[0] {
-            0 => Ok(BannedNode::ById(P2PNodeId(LittleEndian::read_u64(
-                &cursor.get_ref()[1..],
-            )))),
+        match ban_type {
+            0 => Ok(BannedNode::ById(P2PNodeId(source.read_u64::<LE>()?))),
             1 => {
                 let mut t = [0u8; 1];
-                cursor.read_exact(&mut t)?;
+                source.read_exact(&mut t)?;
 
                 match t[0] {
                     4 => {
                         let mut tgt = [0u8; 4];
-                        cursor.read_exact(&mut tgt)?;
+                        source.read_exact(&mut tgt)?;
                         Ok(BannedNode::ByAddr(IpAddr::V4(Ipv4Addr::from(tgt))))
                     }
                     6 => {
                         let mut tgt = [0u8; 16];
-                        cursor.read_exact(&mut tgt)?;
+                        source.read_exact(&mut tgt)?;
                         Ok(BannedNode::ByAddr(IpAddr::V6(Ipv6Addr::from(tgt))))
                     }
                     _ => bail!("Can't deserialize the IP of a banned node"),

@@ -49,7 +49,7 @@ pub mod network_types;
 pub mod serial;
 pub mod stats_export_service;
 
-pub use serial::Serial;
+pub use serial::{Endianness, Serial};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const APPNAME: &str = env!("CARGO_PKG_NAME");
@@ -149,9 +149,18 @@ impl fmt::Display for HashBytes {
 pub trait SerializeToBytes<'a, 'b>
 where
     Self: Sized, {
-    type Source; // either a byte slice or a mutable cursor (when total size is unknown)
+    type Param;
 
-    fn deserialize(source: Self::Source) -> Fallible<Self>;
+    fn deserial<R: ReadBytesExt>(_source: &mut R) -> Fallible<Self> {
+        unimplemented!();
+    }
+    fn deserial_with_param<R: ReadBytesExt>(
+        _source: &mut R,
+        _param: Self::Param,
+    ) -> Fallible<Self> {
+        unimplemented!();
+    }
+
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()>;
 }
 

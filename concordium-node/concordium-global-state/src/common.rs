@@ -5,7 +5,7 @@ use failure::{format_err, Fallible};
 use std::{convert::TryFrom, fmt, io::Write, ops::Deref};
 
 pub use concordium_common::{
-    blockchain_types::*, read_ty, HashBytes, Serial, SerializeToBytes, SHA256,
+    blockchain_types::*, read_ty, Endianness, HashBytes, Serial, SerializeToBytes, SHA256,
 };
 pub use ec_vrf_ed25519 as vrf;
 pub use ec_vrf_ed25519::{Proof, Sha256, PROOF_LENGTH};
@@ -29,10 +29,9 @@ impl Serial for Account {
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let address = AccountAddress(read_ty!(source, AccountAddress));
 
-        let nonce_raw = NetworkEndian::read_u64(&read_ty!(source, Nonce));
-        let nonce = Nonce::try_from(nonce_raw)?;
+        let nonce = Nonce::try_from(u64::deserial(source)?)?;
 
-        let amount = NetworkEndian::read_u64(&read_ty!(source, Amount));
+        let amount = Amount::deserial(source)?;
 
         let encrypted_amounts = read_multiple!(source, read_bytestring(source)?, 8, 256);
 
@@ -40,12 +39,11 @@ impl Serial for Account {
 
         let verification_key = read_bytestring_short_length(source)?;
 
-        let signature_scheme = SchemeId::try_from(read_ty!(source, SchemeId)[0])?;
+        let signature_scheme = SchemeId::try_from(source.read_u8()?)?;
 
         let credentials = read_multiple!(source, read_bytestring(source)?, 8, 256);
 
-        let stake_delegate =
-            read_maybe!(source, NetworkEndian::read_u64(&read_ty!(source, BakerId)));
+        let stake_delegate = read_maybe!(source, BakerId::deserial(source)?);
 
         let instances = read_multiple!(source, ContractAddress::deserial(source)?, 8, 256);
 
@@ -129,7 +127,7 @@ impl fmt::Display for SessionId {
 impl Serial for SessionId {
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let genesis_block = HashBytes::from(read_ty!(source, HashBytes));
-        let incarnation = NetworkEndian::read_u64(&read_ty!(source, Incarnation));
+        let incarnation = Incarnation::deserial(source)?;
 
         let sess = SessionId {
             genesis_block,

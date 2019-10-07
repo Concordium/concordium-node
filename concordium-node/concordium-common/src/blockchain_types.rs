@@ -1,11 +1,11 @@
 use base58::ToBase58;
 use base58check::ToBase58Check;
-use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{ReadBytesExt, WriteBytesExt};
 use digest::Digest;
 use failure::{format_err, Fallible};
 use sha2::Sha224;
 
-use crate::{read_ty, HashBytes, Serial};
+use crate::{HashBytes, Serial};
 
 use std::{convert::TryFrom, fmt, io::Cursor, mem::size_of};
 
@@ -26,8 +26,8 @@ pub struct ContractAddress {
 
 impl Serial for ContractAddress {
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
-        let index = NetworkEndian::read_u64(&read_ty!(source, ContractIndex));
-        let subindex = NetworkEndian::read_u64(&read_ty!(source, ContractSubIndex));
+        let index = ContractIndex::deserial(source)?;
+        let subindex = ContractSubIndex::deserial(source)?;
 
         let contract_address = ContractAddress { index, subindex };
 
@@ -35,8 +35,8 @@ impl Serial for ContractAddress {
     }
 
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
-        target.write_u64::<NetworkEndian>(self.index)?;
-        target.write_u64::<NetworkEndian>(self.subindex)?;
+        self.index.serial(target)?;
+        self.subindex.serial(target)?;
         Ok(())
     }
 }
