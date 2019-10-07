@@ -170,16 +170,17 @@ fn collect_data(
     let packets_received = node_total_received_reply.get_value() as f64;
 
     let peer_stats = node_peer_stats_reply.get_peerstats();
-    let peers_total_meassured_latency = peer_stats
+    let peers_summed_latency = peer_stats
         .iter()
         .map(|element| element.get_measured_latency())
-        .sum::<u64>() as f64
-        / peer_stats
-            .iter()
-            .filter(|element| element.get_valid_latency())
-            .count() as f64;
-    let average_ping: Option<f64> = if peers_total_meassured_latency > 0.0 {
-        Some(peers_total_meassured_latency)
+        .sum::<u64>() as f64;
+    let peers_with_valid_latencies_count = peer_stats
+        .iter()
+        .filter(|element| element.get_valid_latency())
+        .count();
+
+    let average_ping = if peers_with_valid_latencies_count > 0 {
+        Some(peers_summed_latency / peers_with_valid_latencies_count as f64)
     } else {
         None
     };
