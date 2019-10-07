@@ -23,7 +23,7 @@ slotDependentBirkParameters slot bps@BirkParameters{..} =
       -- if the slot is in a newer epoch, update the state of seed and bakers
       bps {
         -- leadership election nonce is updated recursively
-        _birkSeedState = getSlotDependentSeedState slot _birkSeedState,
+        _birkSeedState = getNewEpochSeedState slot _birkSeedState,
         -- use stake distribution saved from the former epoch for leader election
         _birkLotteryBakers = _birkPrevEpochBakers,
         -- save the stake distribution from the end of the epoch
@@ -35,35 +35,24 @@ genesisSeedState :: LeadershipElectionNonce -> EpochLength -> SeedState
 genesisSeedState nonce epochLength =
   SeedState nonce epochLength 0 []
 
--- |Get the updated seed state, possibly iterating over empty epochs separating slot and parent
--- TODO this could be much cleaner
--- TODO suggestion define successive empty epochs to have the same nonce?
-getSlotDependentSeedState :: Slot -- |The slot we need parameters for
+-- |Get the seed state of the new epoch
+getNewEpochSeedState :: Slot -- |The slot we need parameters for
                           -> SeedState -- |The seed state of the parent
                           -> SeedState
-getSlotDependentSeedState slot state@SeedState{..} = 
+getNewEpochSeedState slot state@SeedState{..} = 
   let
     currentEpoch = theSlot $ slot `div` epochLength
-    isInSameEpoch = currentEpoch == epoch
   in
-    if isInSameEpoch then 
-      state
-    else 
-      if currentEpoch == epoch + 1 then
-        SeedState{
-          -- H(seed of last epoch, epoch, block nonces in reverse order)
-          currentSeed = hash (runPut $ do
-            put currentSeed
-            put currentEpoch
-            mapM_ (put . proofToHash) revBlockNonces), 
-          epochLength = epochLength , 
-          epoch = currentEpoch,
-          revBlockNonces = []
-        }
-      else -- this only happens if one or several epochs are completely void of blocks:
-        getSlotDependentSeedState
-          slot $ getSlotDependentSeedState
-          (slot - epochLength) state
+    SeedState{
+      -- H(seed of predecessors epoch, epoch, block nonces in reverse order)
+      currentSeed = hash (runPut $ do
+        put currentSeed
+        put currentEpoch
+        mapM_ (put . proofToHash) revBlockNonces), 
+      epochLength = epochLength , 
+      epoch = currentEpoch,
+      revBlockNonces = []
+    }
 
 -- |When a new block is added, it affects the resettable leaky beacon iff it is in the first 2/3 slots of the epoch
 updateSeedState :: Slot -> BlockNonce -> SeedState -> SeedState
