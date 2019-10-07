@@ -84,6 +84,7 @@ pub struct P2PNodeConfig {
     pub enable_tps_test: bool,
     #[cfg(feature = "benchmark")]
     pub tps_message_count: u64,
+    pub catch_up_batch_limit: u64,
 }
 
 #[derive(Default)]
@@ -337,6 +338,7 @@ impl P2PNode {
             enable_tps_test: conf.cli.tps.enable_tps_test,
             #[cfg(feature = "benchmark")]
             tps_message_count: conf.cli.tps.tps_message_count,
+            catch_up_batch_limit: conf.connection.catch_up_batch_limit,
         };
 
         let (network_msgs_sender_hi, network_msgs_receiver_hi) =
