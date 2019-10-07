@@ -237,10 +237,11 @@ class BlockStateQuery m => BlockStateOperations m where
     bps <- bsoGetBlockBirkParameters s
     return $! fst <$> birkBaker bid bps
 
-  -- |Get the account of the given baker.
-  bsoGetBakerAccount :: UpdatableBlockState m -> BakerId -> m (Maybe Account)
-  bsoGetBakerAccount s bid = do
-    binfo <- bsoGetBakerInfo s bid
+  -- |Get the reward account of the given baker.
+  bsoGetEpochBakerAccount :: UpdatableBlockState m -> BakerId -> m (Maybe Account)
+  bsoGetEpochBakerAccount s bid = do
+    bps <- bsoGetBlockBirkParameters s
+    let binfo = fst <$> (birkEpochBaker bid bps)
     join <$> mapM (bsoGetAccount s . _bakerAccount) binfo
 
 
