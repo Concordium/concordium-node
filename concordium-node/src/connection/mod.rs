@@ -45,7 +45,7 @@ use chrono::prelude::Utc;
 use circular_queue::CircularQueue;
 use digest::Digest;
 use failure::Fallible;
-use mio::{tcp::TcpStream, Event, Poll, PollOpt, Ready, Token};
+use mio::{tcp::TcpStream, Poll, PollOpt, Ready, Token};
 use snow::Keypair;
 use twox_hash::XxHash64;
 
@@ -88,6 +88,7 @@ pub struct ConnectionStats {
     pub failed_pkts:       AtomicU32,
     pub messages_sent:     Arc<AtomicU64>,
     pub messages_received: Arc<AtomicU64>,
+    pub valid_latency:     Arc<AtomicBool>,
     pub last_latency:      Arc<AtomicU64>,
 }
 
@@ -146,6 +147,7 @@ impl Connection {
             messages_received: Default::default(),
             messages_sent:     Default::default(),
             sent_handshake:    Default::default(),
+            valid_latency:     Default::default(),
             last_latency:      Default::default(),
             failed_pkts:       Default::default(),
             last_ping_sent:    AtomicU64::new(curr_stamp),
@@ -201,9 +203,7 @@ impl Connection {
             self.remote_addr(),
             self.remote_peer_external_port(),
             self.remote_peer_type(),
-            Arc::clone(&self.stats.messages_sent),
-            Arc::clone(&self.stats.messages_received),
-            Arc::clone(&self.stats.last_latency),
+            &self.stats,
         ))
     }
 
@@ -239,12 +239,9 @@ impl Connection {
 
     /// This function is called when `poll` indicates that `socket` is ready to
     /// write or/and read.
-    pub fn ready(
-        &self,
-        ev: &Event,
-        deduplication_queues: &mut DeduplicationQueues,
-    ) -> Fallible<()> {
-        write_or_die!(self.low_level).read_from_stream(ev, deduplication_queues)
+    #[inline(always)]
+    pub fn ready(&self, deduplication_queues: &mut DeduplicationQueues) -> Fallible<()> {
+        write_or_die!(self.low_level).read_from_stream(deduplication_queues)
     }
 
     fn is_message_duplicate(
@@ -475,14 +472,14 @@ impl Connection {
     }
 
     pub fn send_ping(&self) -> Fallible<()> {
-        trace!("Sending a ping to {}", self.remote_addr());
+        trace!("Sending a ping on {}", self);
 
         let ping_msg =
             NetworkMessage::NetworkRequest(NetworkRequest::Ping, Some(get_current_stamp()), None);
 
         self.async_send(
             serialize_into_buffer(&ping_msg, 64)?,
-            MessageSendingPriority::Normal,
+            MessageSendingPriority::High,
         )?;
 
         self.set_last_ping_sent();
@@ -491,7 +488,7 @@ impl Connection {
     }
 
     pub fn send_pong(&self) -> Fallible<()> {
-        trace!("Sending a pong to {}", self.remote_addr());
+        trace!("Sending a pong on {}", self);
 
         let pong_msg =
             NetworkMessage::NetworkResponse(NetworkResponse::Pong, Some(get_current_stamp()), None);
@@ -664,38 +661,29 @@ impl ConnectionLowLevel {
     }
 
     #[inline(always)]
-    fn read_from_stream(
-        &mut self,
-        ev: &Event,
-        deduplication_queues: &mut DeduplicationQueues,
-    ) -> Fallible<()> {
-        let ev_readiness = ev.readiness();
-
-        // 1. Try to read messages from `socket`.
-        if ev_readiness.is_readable() {
-            loop {
-                let read_result = self.message_stream.read(&mut self.socket);
-                match read_result {
-                    Ok(readiness) => match readiness {
-                        Readiness::Ready(message) => {
-                            self.conn().send_to_dump(&message, true);
-                            if let Err(e) =
-                                self.conn().process_message(message, deduplication_queues)
-                            {
-                                bail!("Can't read the stream: {}", e);
-                            }
+    fn read_from_stream(&mut self, deduplication_queues: &mut DeduplicationQueues) -> Fallible<()> {
+        loop {
+            let read_result = self.message_stream.read(&mut self.socket);
+            match read_result {
+                Ok(readiness) => match readiness {
+                    Readiness::Ready(message) => {
+                        self.conn().send_to_dump(&message, true);
+                        if let Err(e) = self.conn().process_message(message, deduplication_queues) {
+                            bail!("Can't read the stream: {}", e);
                         }
-                        Readiness::NotReady => break,
-                    },
-                    Err(e) => bail!("Can't read the stream: {}", e),
-                }
+                    }
+                    Readiness::NotReady => break,
+                },
+                Err(e) => bail!("Can't read the stream: {}", e),
             }
         }
 
-        // 2. Write pending data into `socket`
-        self.message_sink.flush(&mut self.socket)?;
-
         Ok(())
+    }
+
+    #[inline(always)]
+    pub fn flush_sink(&mut self) -> Fallible<Readiness<usize>> {
+        self.message_sink.flush(&mut self.socket)
     }
 
     #[inline(always)]

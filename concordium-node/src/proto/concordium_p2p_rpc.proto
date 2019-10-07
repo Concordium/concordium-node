@@ -38,6 +38,7 @@ message PeerStatsResponse {
     uint64 packets_sent = 2;
     uint64 packets_received = 3;
     uint64 measured_latency  = 4;
+    bool valid_latency  = 5;
   }
   repeated PeerStats peerstats = 1;
 }
