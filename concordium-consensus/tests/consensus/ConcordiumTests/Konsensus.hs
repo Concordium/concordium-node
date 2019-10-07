@@ -263,7 +263,7 @@ myRunSkovActiveM a fi sfs = liftIO $ runLoggerT (runSkovActiveM a fi sfs) doLog
 
 runKonsensusTest :: RandomGen g => Int -> g -> States -> EventPool -> IO Property
 runKonsensusTest steps g states events
-        | steps <= 0 = return $ property True
+        | steps <= 0 = return $ (label $ "fin length: " ++ (show $ maximum $ (\s -> s ^. _3 . to _sasSkov . TS.skovFinalizationList . to Seq.length) <$> states )) $ property True
         | null events = return $ property True
         | otherwise = do
             let ((rcpt, ev), events', g') = selectFromSeq g events
