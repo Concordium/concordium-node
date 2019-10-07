@@ -105,7 +105,7 @@ removeEach = re []
         re _ [] = []
 
 gsToString :: BlockState -> String
-gsToString gs = show (gs ^.  blockBirkParameters ^. seedState )
+gsToString gs = show (gs ^.  blockBirkParameters ^. birkSeedState )
     where
         ca n = ContractAddress (fromIntegral n) 0
         keys = map (\n -> (n, instanceModel <$> getInstance (ca n) (gs ^. blockInstances))) $ enumFromTo 0 (nContracts-1)

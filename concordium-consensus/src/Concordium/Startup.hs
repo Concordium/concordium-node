@@ -50,10 +50,13 @@ makeGenesisData genesisTime nBakers genesisSlotDuration elecDiff finMinSkip gene
     = (GenesisData{..}, bakers)
     where
         genesisMintPerSlot = 10 -- default value, OK for testing.
+        genesisBakers = (fst (bakersFromList (snd <$> bakers)))
         genesisBirkParameters =
             BirkParameters elecDiff -- voting power
-                           (fst (bakersFromList (snd <$> bakers))) -- NB: This ignores any bakers with duplicate keys
-                           (genesisSeedState (Hash.hash "LeadershipElectionNonce") 360) -- todo hardcoded epoch length (and initial seed)
+                          genesisBakers
+                          genesisBakers
+                          genesisBakers
+                          (genesisSeedState (Hash.hash "LeadershipElectionNonce") 360) -- todo hardcoded epoch length (and initial seed)
         genesisFinalizationParameters = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, BakerInfo vrfk vvk _ _) <- bakers] finMinSkip
         (bakers, genesisAccounts) = unzip (makeBakers nBakers)
 

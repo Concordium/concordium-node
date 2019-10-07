@@ -68,14 +68,13 @@ bakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     bb <- bestBlockBefore slot
     guard (blockSlot bb < slot)
     birkParams@BirkParameters{..} <- getBirkParameters slot bb
-
-    (bakerId, _, lotteryPower) <- MaybeT . pure $ birkBakerByKeys (bakerSignPublicKey ident) birkParams
+    (bakerId, _, lotteryPower) <- MaybeT . pure $ birkEpochBakerByKeys (bakerSignPublicKey ident) birkParams
     electionProof <- MaybeT . liftIO $
         leaderElection (_birkLeadershipElectionNonce birkParams) _birkElectionDifficulty slot bakerElectionKey lotteryPower
     logEvent Baker LLInfo $ "Won lottery in " ++ show slot ++ "(lottery power: " ++ show lotteryPower ++ ")"
     nonce <- liftIO $ computeBlockNonce (_birkLeadershipElectionNonce birkParams)    slot bakerElectionKey
     lastFinal <- lastFinalizedBlock
-    let seedState'  = updateSeedState slot nonce _seedState
+    let seedState'  = updateSeedState slot nonce _birkSeedState
     (transactions, newState, energyUsed) <- processTransactions slot seedState' bb lastFinal bakerId
     logEvent Baker LLInfo $ "Baked block"
     receiveTime <- currentTime

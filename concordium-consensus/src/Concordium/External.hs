@@ -680,7 +680,9 @@ getBirkParameters cptr blockcstr = do
 
 
 -- |Check whether we are a baker from the perspective of the best block.
--- Returns 0 for 'False' and 1 for 'True'.
+-- Returns 0 if we are not added as a baker.
+-- Returns 1 if we are added as a baker, but not part of the baking committee yet.
+-- Returns 2 if we are part of the baking committee.
 checkIfWeAreBaker :: StablePtr ConsensusRunner -> IO Word8
 checkIfWeAreBaker cptr = do
     c <- deRefStablePtr cptr
@@ -696,7 +698,7 @@ checkIfWeAreBaker cptr = do
         let signKey = Baker.bakerSignPublicKey bid
         r <- runConsensusQuery c (Get.checkBakerExistsBestBlock signKey)
         logm External LLTrace $ "Replying with " ++ show r
-        if r then return 1 else return 0
+        return r
 
 -- |Check if we are members of the finalization committee.
 -- Returns 0 for 'False' and 1 for 'True'.

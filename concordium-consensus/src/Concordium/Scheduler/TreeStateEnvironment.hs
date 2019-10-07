@@ -72,7 +72,7 @@ mintAndReward bshandle blockParent lfPointer slotNumber bid = do
   (_, bshandle1) <- bsoDecrementCentralBankGTU bshandleMinted bakingReward
 
   executionReward <- bsoGetExecutionCost bshandle1
-  macc <- bsoGetBakerAccount bshandle1 bid
+  macc <- bsoGetEpochBakerAccount bshandle1 bid
   case macc of
     Nothing -> error "Precondition violated. Baker account does not exist."
     Just acc -> do

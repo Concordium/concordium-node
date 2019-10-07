@@ -310,7 +310,7 @@ addBlock block = do
                             -- get Birk parameters from the __parent__ block. The baker must have existed in that
                             -- block's state in order that the current block is valid
                             bps@BirkParameters{..} <- getBirkParameters (blockSlot block) parentP
-                            case birkBaker (blockBaker block) bps of
+                            case birkEpochBaker (blockBaker block) bps of
                                 Nothing -> invalidBlock
                                 Just (BakerInfo{..}, lotteryPower) ->
                                     -- Check the block proof
@@ -330,7 +330,7 @@ addBlock block = do
                                     -- And the block signature
                                     check (verifyBlockSignature _bakerSignatureVerifyKey block) $ do
                                         let ts = blockTransactions block
-                                            seedState' = updateSeedState (blockSlot block) (blockNonce block) (_seedState)
+                                            seedState' = updateSeedState (blockSlot block) (blockNonce block) (_birkSeedState)
                                         executeFrom (blockSlot block) parentP lfBlockP (blockBaker block) seedState' ts >>= \case
                                             Left err -> do
                                                 logEvent Skov LLWarning ("Block execution failure: " ++ show err)
