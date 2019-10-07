@@ -46,7 +46,7 @@ pub fn partial_copy(input: &mut HybridBuf, output: &mut impl Write) -> Fallible<
     let mut chunk = [0u8; CHUNK_SIZE];
 
     while !is_would_block && !input.is_eof()? {
-        let offset = input.seek(SeekFrom::Current(0))?;
+        let offset = input.position()?;
 
         let chunk_size = std::cmp::min(CHUNK_SIZE, (input.len()? - input.position()?) as usize);
         input.read_exact(&mut chunk[..chunk_size])?;

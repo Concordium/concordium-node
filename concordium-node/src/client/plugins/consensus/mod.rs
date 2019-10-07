@@ -247,7 +247,7 @@ fn process_external_gs_entry(
     let source = P2PNodeId(request.source_peer());
 
     // relay external messages to Consensus
-    let consensus_result = send_msg_to_consensus(source, consensus, &mut request)?;
+    let consensus_result = send_msg_to_consensus(node, source, consensus, &mut request)?;
 
     // adjust the peer state(s) based on the feedback from Consensus
     update_peer_states(global_state, &request, consensus_result);
@@ -272,6 +272,7 @@ fn process_external_gs_entry(
 }
 
 fn send_msg_to_consensus(
+    node: &P2PNode,
     source_id: P2PNodeId,
     consensus: &mut consensus::ConsensusContainer,
     request: &mut ConsensusMessage,
@@ -285,7 +286,9 @@ fn send_msg_to_consensus(
         Transaction => consensus.send_transaction(&payload),
         FinalizationMessage => consensus.send_finalization(&payload),
         FinalizationRecord => consensus.send_finalization_record(&payload),
-        CatchUpStatus => consensus.receive_catch_up_status(&payload, raw_id),
+        CatchUpStatus => {
+            consensus.receive_catch_up_status(&payload, raw_id, node.config.catch_up_batch_limit)
+        }
     };
 
     request.payload.seek(SeekFrom::Start(payload_offset))?;
@@ -458,6 +461,13 @@ fn update_peer_states(
             global_state
                 .peers
                 .push(source_peer, PeerState::new(Pending));
+        } else if consensus_result == ConsensusFfiResponse::ContinueCatchUp {
+            global_state
+                .peers
+                .change_priority_by(&source_peer, |state| match state.status {
+                    UpToDate => PeerState::new(Pending),
+                    _ => state,
+                });
         }
     } else if [Block, FinalizationRecord].contains(&request.variant) {
         match request.distribution_mode() {

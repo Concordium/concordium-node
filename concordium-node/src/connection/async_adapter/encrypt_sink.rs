@@ -199,7 +199,7 @@ impl EncryptSink {
             );
 
             if encrypted.is_eof()? {
-                trace!("Sent completed with {}", self.written_bytes);
+                trace!("Send completed with {}", self.written_bytes);
 
                 // The message has been fully processed.
                 self.written_bytes = 0;

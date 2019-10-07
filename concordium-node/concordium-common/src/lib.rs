@@ -210,8 +210,8 @@ pub enum ConsensusFfiResponse {
     DuplicateEntry,
     Stale,
     IncorrectFinalizationSession,
-    CryptographicProvidersNotLoaded,
-    IdentityProvidersNotLoaded,
+    Unverifiable,
+    ContinueCatchUp,
 }
 
 impl ConsensusFfiResponse {
@@ -237,11 +237,7 @@ impl ConsensusFfiResponse {
         use ConsensusFfiResponse::*;
 
         match self {
-            BakerNotFound
-            | DeserializationError
-            | InvalidResult
-            | CryptographicProvidersNotLoaded
-            | IdentityProvidersNotLoaded => false,
+            BakerNotFound | DeserializationError | InvalidResult | Unverifiable => false,
             _ => true,
         }
     }
@@ -252,8 +248,7 @@ impl ConsensusFfiResponse {
         match self {
             DeserializationError
             | InvalidResult
-            | CryptographicProvidersNotLoaded
-            | IdentityProvidersNotLoaded
+            | Unverifiable
             | DuplicateEntry
             | Stale
             | IncorrectFinalizationSession => false,
@@ -280,8 +275,8 @@ impl TryFrom<i64> for ConsensusFfiResponse {
             6 => Ok(DuplicateEntry),
             7 => Ok(Stale),
             8 => Ok(IncorrectFinalizationSession),
-            9 => Ok(CryptographicProvidersNotLoaded),
-            10 => Ok(IdentityProvidersNotLoaded),
+            9 => Ok(Unverifiable),
+            10 => Ok(ContinueCatchUp),
             _ => Err(format_err!("Unsupported FFI return code ({})", value)),
         }
     }
