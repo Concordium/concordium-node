@@ -45,7 +45,7 @@ RUN --mount=type=ssh pacman -Syy --noconfirm openssh && \
     rm proto/concordium.proto && \
     cp /concordium.proto proto/concordium.proto && \
     ./build-deps.sh && \
-    ./stack build && \
+    ./stack build --flag "simple-client:middleware" && \
     mkdir -p /libs && \
     cp extra-libs/* /libs/ && \
     cp .stack-work/dist/*/*/build/middleware/middleware /middleware
