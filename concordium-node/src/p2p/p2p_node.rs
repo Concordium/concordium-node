@@ -40,6 +40,7 @@ use snow::Keypair;
 use std::{
     cmp::Reverse,
     collections::{HashMap, HashSet},
+    mem,
     net::{
         IpAddr::{self, V4, V6},
         SocketAddr,
@@ -52,7 +53,7 @@ use std::{
         mpsc::{sync_channel, Receiver, SyncSender},
         Arc, RwLock,
     },
-    thread::{JoinHandle, ThreadId},
+    thread::{self, JoinHandle},
     time::{Duration, SystemTime},
 };
 
@@ -90,9 +91,8 @@ pub struct P2PNodeConfig {
 }
 
 #[derive(Default)]
-pub struct P2PNodeThread {
-    pub join_handle: Option<JoinHandle<()>>,
-    pub id:          Option<ThreadId>,
+pub struct P2PNodeThreads {
+    pub join_handles: Vec<JoinHandle<()>>,
 }
 
 pub struct ResendQueueEntry {
@@ -179,7 +179,7 @@ pub struct Receivers {
 pub struct P2PNode {
     pub self_ref:             Option<Pin<Arc<Self>>>,
     pub self_peer:            P2PPeer,
-    thread:                   RwLock<P2PNodeThread>,
+    threads:                  RwLock<P2PNodeThreads>,
     pub poll:                 Poll,
     pub connection_handler:   ConnectionHandler,
     pub rpc_queue:            SyncSender<NetworkMessage>,
@@ -376,7 +376,7 @@ impl P2PNode {
             poll,
             rpc_queue: subscription_queue_in,
             start_time: Utc::now(),
-            thread: RwLock::new(P2PNodeThread::default()),
+            threads: RwLock::new(P2PNodeThreads::default()),
             config,
             dump_switch: act_tx,
             dump_tx,
@@ -532,20 +532,16 @@ impl P2PNode {
     }
 
     pub fn spawn(&self, receivers: Receivers) {
-        // Prepare poll-loop channels.
         let self_clone = self.self_ref.clone().unwrap(); // safe, always available
-
-        let join_handle = spawn_or_die!("P2PNode spawned thread", move || {
+        let poll_thread = spawn_or_die!("Poll thread", move || {
             let mut events = Events::with_capacity(10);
             let mut log_time = SystemTime::now();
 
             let mut deduplication_queues = DeduplicationQueues::default();
 
             loop {
-                self_clone.process_network_requests(&receivers);
-
                 let _ = self_clone
-                    .process(&mut events, &mut deduplication_queues)
+                    .receive_network_events(&mut events, &mut deduplication_queues)
                     .map_err(|e| error!("{}", e));
 
                 // Run periodic tasks
@@ -574,12 +570,18 @@ impl P2PNode {
             }
         });
 
+        let self_clone = self.self_ref.clone().unwrap(); // safe, always available
+        let send_thread = spawn_or_die!("Send thread", move || {
+            loop {
+                self_clone.send_queued_messages(&receivers);
+                thread::sleep(Duration::from_millis(self_clone.config.poll_interval));
+            }
+        });
+
         // Register info about thread into P2PNode.
-        {
-            let mut locked_thread = write_or_die!(self.thread);
-            locked_thread.id = Some(join_handle.thread().id());
-            locked_thread.join_handle = Some(join_handle);
-        }
+        let mut locked_threads = write_or_die!(self.threads);
+        locked_threads.join_handles.push(poll_thread);
+        locked_threads.join_handles.push(send_thread);
     }
 
     fn measure_connection_latencies(&self) {
@@ -989,38 +991,19 @@ impl P2PNode {
 
     /// Waits for P2PNode termination. Use `P2PNode::close` to notify the
     /// termination.
-    ///
-    /// It is safe to call this function several times, even from internal
-    /// P2PNode thread.
     pub fn join(&self) -> Fallible<()> {
-        let id_opt = read_or_die!(self.thread).id;
-        if let Some(id) = id_opt {
-            let current_thread_id = std::thread::current().id();
-            if id != current_thread_id {
-                let join_handle_opt = write_or_die!(self.thread).join_handle.take();
-                if let Some(join_handle) = join_handle_opt {
-                    join_handle.join().map_err(|e| {
-                        let join_error = format!("{:?}", e);
-                        fails::JoinError {
-                            cause: err_msg(join_error),
-                        }
-                    })?;
-                    Ok(())
-                } else {
-                    Err(Error::from(fails::JoinError {
-                        cause: err_msg("Event thread has already be joined"),
-                    }))
+        for handle in mem::replace(
+            &mut write_or_die!(self.threads).join_handles,
+            Default::default(),
+        ) {
+            handle.join().map_err(|e| {
+                let join_error = format!("{:?}", e);
+                fails::JoinError {
+                    cause: err_msg(join_error),
                 }
-            } else {
-                Err(Error::from(fails::JoinError {
-                    cause: err_msg("It is called from inside event thread"),
-                }))
-            }
-        } else {
-            Err(Error::from(fails::JoinError {
-                cause: err_msg("Missing event thread id"),
-            }))
+            })?;
         }
+        Ok(())
     }
 
     pub fn get_version(&self) -> String { crate::VERSION.to_string() }
@@ -1156,7 +1139,7 @@ impl P2PNode {
     pub fn internal_addr(&self) -> SocketAddr { self.self_peer.addr }
 
     #[inline(always)]
-    fn process(
+    fn receive_network_events(
         &self,
         events: &mut Events,
         deduplication_queues: &mut DeduplicationQueues,
@@ -1205,15 +1188,8 @@ impl P2PNode {
         Ok(())
     }
 
-    /// It extracts and sends each queued request.
-    ///
-    /// # Mio poll-loop thread
-    ///
-    /// The read process is executed inside the MIO
-    /// poll-loop thread, and any write is queued to be processed later in that
-    /// poll-loop.
     #[inline(always)]
-    pub fn process_network_requests(&self, receivers: &Receivers) {
+    pub fn send_queued_messages(&self, receivers: &Receivers) {
         for request in receivers.network_messages_hi.try_iter() {
             self.process_network_request(request);
         }
