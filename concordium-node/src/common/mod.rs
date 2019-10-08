@@ -74,7 +74,10 @@ mod tests {
         },
         p2p::banned_nodes::tests::dummy_ban_node,
     };
-    use concordium_common::{hybrid_buf::HybridBuf, serial::serialize_into_buffer, Serial};
+    use concordium_common::{
+        hybrid_buf::HybridBuf,
+        serial::{serialize_into_buffer, Serial},
+    };
 
     use failure::Fallible;
 

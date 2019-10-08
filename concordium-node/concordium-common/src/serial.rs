@@ -3,13 +3,26 @@ use failure::{bail, Fallible};
 
 // desired endianness
 pub type E = BE;
+pub type Endianness = BE;
 
-// the actual trait; might need 2 lifetimes
+// an empty struct used to indicate there is no serialization parameter
+pub struct NoParam;
 
 pub trait Serial
 where
     Self: Sized, {
-    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self>;
+    // FIXME: use a default NoParam value when Rust#29661 is closed
+    type Param;
+
+    fn deserial<R: ReadBytesExt>(_source: &mut R) -> Fallible<Self> {
+        unimplemented!();
+    }
+    fn deserial_with_param<R: ReadBytesExt>(
+        _source: &mut R,
+        _param: Self::Param,
+    ) -> Fallible<Self> {
+        unimplemented!();
+    }
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()>;
 }
 
@@ -18,6 +31,8 @@ where
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 impl Serial for u8 {
+    type Param = NoParam;
+
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> { Ok(source.read_u8()?) }
 
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
@@ -26,6 +41,8 @@ impl Serial for u8 {
 }
 
 impl Serial for u16 {
+    type Param = NoParam;
+
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> { Ok(source.read_u16::<E>()?) }
 
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
@@ -34,6 +51,8 @@ impl Serial for u16 {
 }
 
 impl Serial for u32 {
+    type Param = NoParam;
+
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> { Ok(source.read_u32::<E>()?) }
 
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
@@ -42,6 +61,8 @@ impl Serial for u32 {
 }
 
 impl Serial for u64 {
+    type Param = NoParam;
+
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> { Ok(source.read_u64::<E>()?) }
 
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
@@ -50,6 +71,8 @@ impl Serial for u64 {
 }
 
 impl Serial for Ipv4Addr {
+    type Param = NoParam;
+
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let mut octects = [0u8; 4];
         source.read_exact(&mut octects)?;
@@ -63,6 +86,8 @@ impl Serial for Ipv4Addr {
 }
 
 impl Serial for Ipv6Addr {
+    type Param = NoParam;
+
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let mut segments = [0u16; 8];
         for segment in &mut segments {
@@ -82,6 +107,8 @@ impl Serial for Ipv6Addr {
 }
 
 impl Serial for IpAddr {
+    type Param = NoParam;
+
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         match source.read_u8()? {
             4 => Ok(IpAddr::V4(Ipv4Addr::deserial(source)?)),
@@ -99,6 +126,8 @@ impl Serial for IpAddr {
 }
 
 impl Serial for SocketAddr {
+    type Param = NoParam;
+
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         Ok(SocketAddr::new(
             IpAddr::deserial(source)?,
@@ -113,6 +142,8 @@ impl Serial for SocketAddr {
 }
 
 impl<T: Serial> Serial for Vec<T> {
+    type Param = NoParam;
+
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         const MAX_INITIAL_CAPACITY: usize = 4096;
 
@@ -138,6 +169,8 @@ use std::{
 };
 
 impl<T: Serial + Eq + Hash, S: BuildHasher + Default> Serial for HashSet<T, S> {
+    type Param = NoParam;
+
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         const MAX_INITIAL_CAPACITY: usize = 4096;
 
@@ -164,6 +197,8 @@ impl<T: Serial + Eq + Hash, S: BuildHasher + Default> Serial for HashSet<T, S> {
 use crate::hybrid_buf::HybridBuf;
 
 impl Serial for HybridBuf {
+    type Param = NoParam;
+
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let mut ret = HybridBuf::new();
         std::io::copy(source, &mut ret)?;

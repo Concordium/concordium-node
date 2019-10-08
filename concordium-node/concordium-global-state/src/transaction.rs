@@ -1,14 +1,10 @@
 // https://gitlab.com/Concordium/consensus/globalstate-mockup/blob/master/globalstate/src/Concordium/GlobalState/Transactions.hs
 
-use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
+use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use failure::{ensure, format_err, Fallible};
 use hash_hasher::HashedMap;
 
-use std::{
-    convert::TryFrom,
-    io::{Cursor, Read},
-    mem::size_of,
-};
+use std::{convert::TryFrom, io::Cursor, mem::size_of};
 
 use concordium_common::indexed_vec::IndexedVec;
 
@@ -29,18 +25,17 @@ pub struct TransactionHeader {
     pub sender_account: AccountAddress,
 }
 
-impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionHeader {
-    type Source = &'a mut Cursor<&'b [u8]>;
+impl Serial for TransactionHeader {
+    type Param = NoParam;
 
-    fn deserialize(cursor: Self::Source) -> Fallible<Self> {
-        let scheme_id = SchemeId::try_from(read_const_sized!(cursor, 1)[0])?;
-        let sender_key = read_bytestring_short_length(cursor)?;
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
+        let scheme_id = SchemeId::try_from(u8::deserial(source)?)?;
+        let sender_key = read_bytestring_short_length(source)?;
 
-        let nonce_raw = NetworkEndian::read_u64(&read_ty!(cursor, Nonce));
-        let nonce = Nonce::try_from(nonce_raw)?;
+        let nonce = Nonce::try_from(u64::deserial(source)?)?;
 
-        let gas_amount = NetworkEndian::read_u64(&read_ty!(cursor, Energy));
-        let payload_size = NetworkEndian::read_u32(&read_const_sized!(cursor, 4));
+        let gas_amount = Energy::deserial(source)?;
+        let payload_size = source.read_u32::<Endianness>()?;
         let sender_account = AccountAddress::from((&*sender_key, scheme_id));
 
         let transaction_header = TransactionHeader {
@@ -56,11 +51,11 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionHeader {
     }
 
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
-        target.write_u8(self.scheme_id as u8)?;
+        u8::serial(&(self.scheme_id as u8), target)?;
         target.write_u16::<NetworkEndian>(self.sender_key.len() as u16)?;
         target.write_all(&self.sender_key)?;
-        target.write_u64::<NetworkEndian>(self.nonce.0)?;
-        target.write_u64::<NetworkEndian>(self.gas_amount)?;
+        u64::serial(&self.nonce.0, target)?;
+        Energy::serial(&self.gas_amount, target)?;
         target.write_u32::<NetworkEndian>(self.payload_size)?;
 
         Ok(())
@@ -75,16 +70,19 @@ pub struct BareTransaction {
     pub hash:    TransactionHash,
 }
 
-impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BareTransaction {
-    type Source = &'a mut Cursor<&'b [u8]>;
+impl Serial for BareTransaction {
+    type Param = NoParam;
 
-    fn deserialize(cursor: Self::Source) -> Fallible<Self> {
-        let initial_pos = cursor.position() as usize;
-        let signature = read_bytestring_short_length(cursor)?;
-        let header = TransactionHeader::deserialize(cursor)?;
-        let payload = TransactionPayload::deserialize((cursor, header.payload_size))?;
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
+        let mut full_tx = Vec::new();
+        source.read_to_end(&mut full_tx)?;
+        let hash = sha256(&full_tx);
 
-        let hash = sha256(&cursor.get_ref()[initial_pos..cursor.position() as usize]);
+        let source = &mut Cursor::new(full_tx);
+        let signature = read_bytestring_short_length(source)?;
+        let header = TransactionHeader::deserial(source)?;
+        let payload = TransactionPayload::deserial_with_param(source, header.payload_size)?;
+
         let transaction = BareTransaction {
             signature,
             header,
@@ -111,13 +109,13 @@ pub struct FullTransaction {
     pub arrival:          u64,
 }
 
-impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for FullTransaction {
-    type Source = &'a mut Cursor<&'b [u8]>;
+impl Serial for FullTransaction {
+    type Param = NoParam;
 
-    fn deserialize(cursor: Self::Source) -> Fallible<Self> {
-        let bare_transaction = BareTransaction::deserialize(cursor)?;
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
+        let bare_transaction = BareTransaction::deserial(source)?;
 
-        let arrival = NetworkEndian::read_u64(&read_const_sized!(cursor, 8));
+        let arrival = source.read_u64::<Endianness>()?;
         let transaction = FullTransaction {
             bare_transaction,
             arrival,
@@ -242,21 +240,21 @@ impl TransactionPayload {
     }
 }
 
-impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
-    type Source = (&'a mut Cursor<&'b [u8]>, u32);
+impl Serial for TransactionPayload {
+    type Param = u32;
 
-    fn deserialize((cursor, len): Self::Source) -> Fallible<Self> {
-        let variant = TransactionType::try_from(read_ty!(cursor, TransactionType)[0])?;
+    fn deserial_with_param<R: ReadBytesExt>(source: &mut R, len: Self::Param) -> Fallible<Self> {
+        let variant = TransactionType::try_from(source.read_u8()?)?;
 
         match variant {
             TransactionType::DeployModule => {
-                let module = Encoded::new(&read_sized!(cursor, len - 1));
+                let module = Encoded::new(&read_sized!(source, len - 1));
                 Ok(TransactionPayload::DeployModule(module))
             }
             TransactionType::InitContract => {
-                let amount = NetworkEndian::read_u64(&read_ty!(cursor, Amount));
-                let module = HashBytes::from(read_ty!(cursor, HashBytes));
-                let contract = NetworkEndian::read_u32(&read_ty!(cursor, TyName));
+                let amount = Amount::deserial(source)?;
+                let module = HashBytes::from(read_ty!(source, HashBytes));
+                let contract = TyName::deserial(source)?;
 
                 let non_param_len = sum_ty_lens!(TransactionType, Amount, HashBytes, TyName);
                 ensure!(
@@ -264,7 +262,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
                     "malformed transaction param!"
                 );
                 let param_size = len as usize - non_param_len;
-                let param = Encoded::new(&read_sized!(cursor, param_size));
+                let param = Encoded::new(&read_sized!(source, param_size));
 
                 Ok(TransactionPayload::InitContract {
                     amount,
@@ -274,8 +272,8 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
                 })
             }
             TransactionType::Update => {
-                let amount = NetworkEndian::read_u64(&read_ty!(cursor, Amount));
-                let address = ContractAddress::deserialize(cursor)?;
+                let amount = Amount::deserial(source)?;
+                let address = ContractAddress::deserial(source)?;
 
                 let non_message_len = sum_ty_lens!(TransactionType, Amount, ContractAddress);
                 ensure!(
@@ -283,7 +281,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
                     "malformed transaction message!"
                 );
                 let msg_size = len as usize - non_message_len;
-                let message = Encoded::new(&read_sized!(cursor, msg_size));
+                let message = Encoded::new(&read_sized!(source, msg_size));
 
                 Ok(TransactionPayload::Update {
                     amount,
@@ -292,9 +290,9 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
                 })
             }
             TransactionType::Transfer => {
-                let target_scheme = SchemeId::try_from(read_ty!(cursor, SchemeId)[0])?;
-                let target_address = AccountAddress(read_ty!(cursor, AccountAddress));
-                let amount = NetworkEndian::read_u64(&read_ty!(cursor, Amount));
+                let target_scheme = SchemeId::try_from(source.read_u8()?)?;
+                let target_address = AccountAddress(read_ty!(source, AccountAddress));
+                let amount = Amount::deserial(source)?;
 
                 Ok(TransactionPayload::Transfer {
                     target_scheme,
@@ -303,20 +301,20 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
                 })
             }
             TransactionType::DeployCredential => {
-                let credential = Encoded::new(&read_sized!(cursor, len - 1));
+                let credential = Encoded::new(&read_sized!(source, len - 1));
 
                 Ok(TransactionPayload::DeployCredential(credential))
             }
             TransactionType::DeployEncryptionKey => {
-                let ek = read_bytestring_short_length(cursor)?;
+                let ek = read_bytestring_short_length(source)?;
 
                 Ok(TransactionPayload::DeployEncryptionKey(ek))
             }
             TransactionType::AddBaker => {
-                let election_verify_key = Encoded::new(&read_const_sized!(cursor, BAKER_VRF_KEY));
-                let signature_verify_key = read_bytestring_short_length(cursor)?;
-                let account_address = AccountAddress(read_ty!(cursor, AccountAddress));
-                let proof = read_bytestring(cursor)?;
+                let election_verify_key = Encoded::new(&read_const_sized!(source, BAKER_VRF_KEY));
+                let signature_verify_key = read_bytestring_short_length(source)?;
+                let account_address = AccountAddress(read_ty!(source, AccountAddress));
+                let proof = read_bytestring(source)?;
 
                 Ok(TransactionPayload::AddBaker {
                     election_verify_key,
@@ -326,15 +324,15 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
                 })
             }
             TransactionType::RemoveBaker => {
-                let id = NetworkEndian::read_u64(&read_ty!(cursor, BakerId));
-                let proof = read_bytestring(cursor)?;
+                let id = BakerId::deserial(source)?;
+                let proof = read_bytestring(source)?;
 
                 Ok(TransactionPayload::RemoveBaker { id, proof })
             }
             TransactionType::UpdateBakerAccount => {
-                let id = NetworkEndian::read_u64(&read_ty!(cursor, BakerId));
-                let account_address = AccountAddress(read_ty!(cursor, AccountAddress));
-                let proof = read_bytestring(cursor)?;
+                let id = BakerId::deserial(source)?;
+                let account_address = AccountAddress(read_ty!(source, AccountAddress));
+                let proof = read_bytestring(source)?;
 
                 Ok(TransactionPayload::UpdateBakerAccount {
                     id,
@@ -343,9 +341,9 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
                 })
             }
             TransactionType::UpdateBakerSignKey => {
-                let id = NetworkEndian::read_u64(&read_ty!(cursor, BakerId));
-                let signature_verify_key = read_bytestring_short_length(cursor)?;
-                let proof = read_bytestring(cursor)?;
+                let id = BakerId::deserial(source)?;
+                let signature_verify_key = read_bytestring_short_length(source)?;
+                let proof = read_bytestring(source)?;
 
                 Ok(TransactionPayload::UpdateBakerSignKey {
                     id,
@@ -354,7 +352,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
                 })
             }
             TransactionType::DelegateStake => {
-                let id = NetworkEndian::read_u64(&read_ty!(cursor, BakerId));
+                let id = BakerId::deserial(source)?;
 
                 Ok(TransactionPayload::DelegateStake(id))
             }

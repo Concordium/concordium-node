@@ -5,7 +5,7 @@ use crate::{
     common::{P2PNodeId, P2PPeer},
     network::{AsProtocolResponseType, NetworkId, ProtocolResponseType},
 };
-use concordium_common::Serial;
+use concordium_common::serial::{NoParam, Serial};
 
 use std::{collections::HashSet, convert::TryFrom};
 
@@ -28,6 +28,8 @@ impl AsProtocolResponseType for NetworkResponse {
 }
 
 impl Serial for NetworkResponse {
+    type Param = NoParam;
+
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let protocol_type = ProtocolResponseType::try_from(source.read_u8()?)?;
         let response = match protocol_type {

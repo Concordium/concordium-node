@@ -1,16 +1,15 @@
 // https://gitlab.com/Concordium/consensus/globalstate-mockup/blob/master/globalstate/src/Concordium/GlobalState/Parameters.hs
 
-use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
+use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
 
 use failure::Fallible;
 
-use std::{
-    collections::HashMap,
-    io::{Cursor, Read},
-    mem::size_of,
-};
+use std::{collections::HashMap, mem::size_of};
 
-use concordium_common::blockchain_types::BakerId;
+use concordium_common::{
+    blockchain_types::BakerId,
+    serial::{NoParam, Serial},
+};
 
 use crate::common::*;
 
@@ -28,11 +27,6 @@ pub type VoterSignKey = Encoded;
 pub type VoterPower = u64;
 
 pub const BAKER_VRF_KEY: u8 = 32;
-const BAKER_SIGN_KEY: u8 = 2 + 32;
-const BAKER_INFO: u8 = BAKER_VRF_KEY
-    + BAKER_SIGN_KEY
-    + size_of::<LotteryPower>() as u8
-    + size_of::<AccountAddress>() as u8;
 
 const VOTER_SIGN_KEY: u8 = 2 + 32;
 const VOTER_VRF_KEY: u8 = 32;
@@ -48,39 +42,31 @@ pub struct Bakers {
     next_baker_id:     BakerId,
 }
 
-impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Bakers {
-    type Source = &'a mut Cursor<&'b [u8]>;
+impl Serial for Bakers {
+    type Param = NoParam;
 
-    fn deserialize(cursor: Self::Source) -> Fallible<Self> {
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let baker_map = read_hashmap!(
-            cursor,
-            (
-                NetworkEndian::read_u64(&read_ty!(cursor, BakerId)),
-                BakerInfo::deserialize(&read_const_sized!(cursor, BAKER_INFO))?
-            ),
+            source,
+            (BakerId::deserial(source)?, BakerInfo::deserial(source)?),
             8,
             MAX_BAKER_ALLOC
         );
         let bakers_by_key = read_hashmap!(
-            cursor,
+            source,
             (
                 (
-                    read_bytestring_short_length(cursor)?,
-                    Encoded::new(&read_const_sized!(cursor, BAKER_VRF_KEY))
+                    read_bytestring_short_length(source)?,
+                    Encoded::new(&read_const_sized!(source, BAKER_VRF_KEY))
                 ),
-                read_multiple!(
-                    cursor,
-                    NetworkEndian::read_u64(&read_ty!(cursor, BakerId)),
-                    8,
-                    MAX_BAKER_ALLOC
-                )
+                read_multiple!(source, BakerId::deserial(source)?, 8, MAX_BAKER_ALLOC)
             ),
             8,
             MAX_BAKER_ALLOC
         );
 
-        let baker_total_stake = NetworkEndian::read_u64(&read_ty!(cursor, Amount));
-        let next_baker_id = NetworkEndian::read_u64(&read_ty!(cursor, BakerId));
+        let baker_total_stake = Amount::deserial(source)?;
+        let next_baker_id = BakerId::deserial(source)?;
 
         let params = Bakers {
             baker_map,
@@ -123,13 +109,13 @@ pub struct BirkParameters {
     pub bakers:          Bakers,
 }
 
-impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
-    type Source = &'a mut Cursor<&'b [u8]>;
+impl Serial for BirkParameters {
+    type Param = NoParam;
 
-    fn deserialize(cursor: Self::Source) -> Fallible<Self> {
-        let election_nonce = read_bytestring(cursor)?;
-        let election_difficulty = NetworkEndian::read_f64(&read_ty!(cursor, ElectionDifficulty));
-        let bakers = Bakers::deserialize(cursor)?;
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
+        let election_nonce = read_bytestring(source)?;
+        let election_difficulty = NetworkEndian::read_f64(&read_ty!(source, ElectionDifficulty));
+        let bakers = Bakers::deserial(source)?;
 
         let params = BirkParameters {
             election_nonce,
@@ -155,12 +141,12 @@ pub struct CryptographicParameters {
     pub attribute_commitment_key: ByteString,
 }
 
-impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for CryptographicParameters {
-    type Source = &'a mut Cursor<&'b [u8]>;
+impl Serial for CryptographicParameters {
+    type Param = NoParam;
 
-    fn deserialize(mut cursor: Self::Source) -> Fallible<Self> {
-        let elgamal_generator = Encoded::new(&read_const_sized!(&mut cursor, ELGAMAL_GENERATOR));
-        let attribute_commitment_key = read_bytestring_medium(&mut cursor)?;
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
+        let elgamal_generator = Encoded::new(&read_const_sized!(source, ELGAMAL_GENERATOR));
+        let attribute_commitment_key = read_bytestring_medium(source)?;
 
         let crypto_params = CryptographicParameters {
             elgamal_generator,
@@ -187,16 +173,14 @@ pub struct BakerInfo {
     account_address:      AccountAddress,
 }
 
-impl<'a, 'b> SerializeToBytes<'a, 'b> for BakerInfo {
-    type Source = &'a [u8];
+impl Serial for BakerInfo {
+    type Param = NoParam;
 
-    fn deserialize(bytes: &[u8]) -> Fallible<Self> {
-        let mut cursor = Cursor::new(bytes);
-
-        let election_verify_key = Encoded::new(&read_const_sized!(&mut cursor, BAKER_VRF_KEY));
-        let signature_verify_key = read_bytestring_short_length(&mut cursor)?;
-        let lottery_power = NetworkEndian::read_f64(&read_ty!(cursor, LotteryPower));
-        let account_address = AccountAddress(read_ty!(cursor, AccountAddress));
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
+        let election_verify_key = Encoded::new(&read_const_sized!(source, BAKER_VRF_KEY));
+        let signature_verify_key = read_bytestring_short_length(source)?;
+        let lottery_power = NetworkEndian::read_f64(&read_ty!(source, LotteryPower));
+        let account_address = AccountAddress(read_ty!(source, AccountAddress));
 
         let info = BakerInfo {
             election_verify_key,
@@ -225,15 +209,13 @@ pub struct VoterInfo {
     voting_power:             VoterPower,
 }
 
-impl<'a, 'b> SerializeToBytes<'a, 'b> for VoterInfo {
-    type Source = &'a [u8];
+impl Serial for VoterInfo {
+    type Param = NoParam;
 
-    fn deserialize(bytes: &[u8]) -> Fallible<Self> {
-        let mut cursor = Cursor::new(bytes);
-
-        let signature_verify_key = read_bytestring_short_length(&mut cursor)?;
-        let election_verify_key = Encoded::new(&read_const_sized!(&mut cursor, VOTER_VRF_KEY));
-        let voting_power = NetworkEndian::read_u64(&read_ty!(cursor, VoterPower));
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
+        let signature_verify_key = read_bytestring_short_length(source)?;
+        let election_verify_key = Encoded::new(&read_const_sized!(source, VOTER_VRF_KEY));
+        let voting_power = VoterPower::deserial(source)?;
 
         let info = VoterInfo {
             signature_verify_key,

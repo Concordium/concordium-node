@@ -20,7 +20,7 @@ struct ClientLoginResponse {
     status: ClientLoginReturnStatus,
 }
 
-const AUTH_URL: &str = "https://auth.eu.test.concordium.com/auth";
+const AUTH_URL: &str = "https://auth.eu.prod.concordium.com/auth";
 
 pub fn authenticate(username: &str, token: &str) -> bool {
     let client = Client::new();

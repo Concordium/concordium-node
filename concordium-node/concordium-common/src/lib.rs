@@ -1,6 +1,6 @@
 #![recursion_limit = "1024"]
 
-use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{NetworkEndian, ReadBytesExt};
 use failure::{format_err, Fallible};
 
 use std::{convert::TryFrom, fmt, ops::Deref, sync::mpsc};
@@ -48,8 +48,6 @@ pub mod indexed_vec;
 pub mod network_types;
 pub mod serial;
 pub mod stats_export_service;
-
-pub use serial::Serial;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const APPNAME: &str = env!("CARGO_PKG_NAME");
@@ -144,15 +142,6 @@ impl fmt::Display for HashBytes {
         }
         Ok(())
     }
-}
-
-pub trait SerializeToBytes<'a, 'b>
-where
-    Self: Sized, {
-    type Source; // either a byte slice or a mutable cursor (when total size is unknown)
-
-    fn deserialize(source: Self::Source) -> Fallible<Self>;
-    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()>;
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
