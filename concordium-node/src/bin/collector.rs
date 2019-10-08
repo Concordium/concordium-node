@@ -230,6 +230,32 @@ fn collect_data(
     let finalization_period_ema = json_consensus_value["finalizationPeriodEMA"].as_f64();
     let finalization_period_emsd = json_consensus_value["finalizationPeriodEMSD"].as_f64();
 
+    let ancestors_since_best_block = if best_block_height > finalized_block_height {
+        let block_and_height_req = &mut p2p_client::proto::BlockHashAndAmount::new();
+        block_and_height_req.set_block_hash(best_block.clone());
+        block_and_height_req.set_amount(best_block_height as u64 - finalized_block_height as u64);
+        let node_ancestors_reply =
+            client.get_ancestors_opt(block_and_height_req, call_options.clone())?;
+        let json_consensus_ancestors_value: Value =
+            serde_json::from_str(&node_ancestors_reply.json_value)?;
+        if json_consensus_ancestors_value.is_array() {
+            if let Some(ancestors_arr) = json_consensus_ancestors_value.as_array() {
+                Some(
+                    ancestors_arr
+                        .iter()
+                        .map(|value| value.as_str().unwrap().to_owned())
+                        .collect::<Vec<String>>(),
+                )
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     Ok(NodeInfo {
         nodeName: node_name.to_owned(),
         nodeId: node_id,
@@ -254,6 +280,7 @@ fn collect_data(
         consensusRunning: consensus_running,
         bakingCommitteeMember: baker_committee,
         finalizationCommitteeMember: finalization_committee,
+        ancestorsSinceBestBlock: ancestors_since_best_block,
         last_updated: 0,
     })
 }
