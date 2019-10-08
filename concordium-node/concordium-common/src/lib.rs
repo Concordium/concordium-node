@@ -1,6 +1,6 @@
 #![recursion_limit = "1024"]
 
-use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{NetworkEndian, ReadBytesExt};
 use failure::{format_err, Fallible};
 
 use std::{convert::TryFrom, fmt, ops::Deref, sync::mpsc};
@@ -142,26 +142,6 @@ impl fmt::Display for HashBytes {
         }
         Ok(())
     }
-}
-
-pub struct NoParam;
-
-pub trait SerializeToBytes<'a, 'b>
-where
-    Self: Sized, {
-    type Param;
-
-    fn deserial<R: ReadBytesExt>(_source: &mut R) -> Fallible<Self> {
-        unimplemented!();
-    }
-    fn deserial_with_param<R: ReadBytesExt>(
-        _source: &mut R,
-        _param: Self::Param,
-    ) -> Fallible<Self> {
-        unimplemented!();
-    }
-
-    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()>;
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]

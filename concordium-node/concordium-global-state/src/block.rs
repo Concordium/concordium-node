@@ -69,7 +69,7 @@ impl Block {
     pub fn slot(&self) -> Slot { self.slot }
 }
 
-impl<'a, 'b> SerializeToBytes<'a, 'b> for Block {
+impl Serial for Block {
     type Param = NoParam;
 
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
@@ -113,7 +113,7 @@ pub enum BlockData {
     Regular(BakedBlock),
 }
 
-impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BlockData {
+impl Serial for BlockData {
     type Param = Slot;
 
     fn deserial_with_param<R: ReadBytesExt>(source: &mut R, slot: Self::Param) -> Fallible<Self> {

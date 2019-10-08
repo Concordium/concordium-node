@@ -26,7 +26,7 @@ impl fmt::Debug for FinalizationMessage {
     }
 }
 
-impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for FinalizationMessage {
+impl Serial for FinalizationMessage {
     type Param = NoParam;
 
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
@@ -61,7 +61,7 @@ struct FinalizationMessageHeader {
     sender:     Party,
 }
 
-impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for FinalizationMessageHeader {
+impl Serial for FinalizationMessageHeader {
     type Param = NoParam;
 
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
@@ -130,7 +130,7 @@ impl FinalizationRecord {
     }
 }
 
-impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationRecord {
+impl Serial for FinalizationRecord {
     type Param = NoParam;
 
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {

@@ -25,7 +25,7 @@ pub struct TransactionHeader {
     pub sender_account: AccountAddress,
 }
 
-impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionHeader {
+impl Serial for TransactionHeader {
     type Param = NoParam;
 
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
@@ -70,7 +70,7 @@ pub struct BareTransaction {
     pub hash:    TransactionHash,
 }
 
-impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BareTransaction {
+impl Serial for BareTransaction {
     type Param = NoParam;
 
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
@@ -109,7 +109,7 @@ pub struct FullTransaction {
     pub arrival:          u64,
 }
 
-impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for FullTransaction {
+impl Serial for FullTransaction {
     type Param = NoParam;
 
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
@@ -240,7 +240,7 @@ impl TransactionPayload {
     }
 }
 
-impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
+impl Serial for TransactionPayload {
     type Param = u32;
 
     fn deserial_with_param<R: ReadBytesExt>(source: &mut R, len: Self::Param) -> Fallible<Self> {

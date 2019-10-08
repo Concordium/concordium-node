@@ -8,7 +8,7 @@ pub use concordium_common::{
     blockchain_types::*,
     read_ty,
     serial::{Endianness, NoParam, Serial},
-    HashBytes, SerializeToBytes, SHA256,
+    HashBytes, SHA256,
 };
 pub use ec_vrf_ed25519 as vrf;
 pub use ec_vrf_ed25519::{Proof, Sha256, PROOF_LENGTH};
@@ -212,9 +212,7 @@ pub fn write_bytestring<T: Write>(target: &mut T, bytes: &[u8]) -> Fallible<()> 
     Ok(())
 }
 
-pub fn serialize_list<'a, 'b, T: SerializeToBytes<'a, 'b>>(
-    list: &'a [T],
-) -> Fallible<Vec<Box<[u8]>>> {
+pub fn serialize_list<T: Serial>(list: &[T]) -> Fallible<Vec<Box<[u8]>>> {
     let mut ret = Vec::new();
     for elem in list {
         let mut e = Vec::new();

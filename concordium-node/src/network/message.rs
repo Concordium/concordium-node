@@ -118,7 +118,7 @@ mod unit_test {
         common::P2PNodeId,
         network::{NetworkId, NetworkPacket, NetworkPacketType},
     };
-    use concordium_common::{hybrid_buf::HybridBuf, Serial};
+    use concordium_common::{hybrid_buf::HybridBuf, serial::Serial};
 
     #[test]
     fn ut_s11n_001_direct_message_from_disk_16m() -> Fallible<()> {
