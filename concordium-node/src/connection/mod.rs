@@ -66,6 +66,7 @@ pub struct DeduplicationQueues {
     pub finalizations: CircularQueue<[u8; 8]>,
     pub transactions:  CircularQueue<[u8; 8]>,
     pub blocks:        CircularQueue<[u8; 8]>,
+    pub fin_records:   CircularQueue<[u8; 8]>,
 }
 
 impl DeduplicationQueues {
@@ -77,6 +78,7 @@ impl DeduplicationQueues {
             finalizations: CircularQueue::with_capacity(LONG_QUEUE_SIZE),
             transactions:  CircularQueue::with_capacity(LONG_QUEUE_SIZE),
             blocks:        CircularQueue::with_capacity(SHORT_DEDUP_SIZE),
+            fin_records:   CircularQueue::with_capacity(SHORT_DEDUP_SIZE),
         }
     }
 }
@@ -252,6 +254,9 @@ impl Connection {
                 dedup_with(message, &mut deduplication_queues.transactions)?
             }
             Ok(PacketType::Block) => dedup_with(message, &mut deduplication_queues.blocks)?,
+            Ok(PacketType::FinalizationRecord) => {
+                dedup_with(message, &mut deduplication_queues.fin_records)?
+            }
             _ => false,
         };
 
