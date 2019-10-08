@@ -70,7 +70,7 @@ impl Block {
 }
 
 impl<'a, 'b> SerializeToBytes<'a, 'b> for Block {
-    type Param = bool;
+    type Param = NoParam;
 
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let slot = Slot::deserial(source)?;

@@ -26,7 +26,7 @@ pub struct TransactionHeader {
 }
 
 impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionHeader {
-    type Param = bool;
+    type Param = NoParam;
 
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let scheme_id = SchemeId::try_from(u8::deserial(source)?)?;
@@ -71,7 +71,7 @@ pub struct BareTransaction {
 }
 
 impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BareTransaction {
-    type Param = bool;
+    type Param = NoParam;
 
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let mut full_tx = Vec::new();
@@ -110,7 +110,7 @@ pub struct FullTransaction {
 }
 
 impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for FullTransaction {
-    type Param = bool;
+    type Param = NoParam;
 
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let bare_transaction = BareTransaction::deserial(source)?;

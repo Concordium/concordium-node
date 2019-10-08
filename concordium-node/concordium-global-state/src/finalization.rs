@@ -27,7 +27,7 @@ impl fmt::Debug for FinalizationMessage {
 }
 
 impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for FinalizationMessage {
-    type Param = bool;
+    type Param = NoParam;
 
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let header =
@@ -62,7 +62,7 @@ struct FinalizationMessageHeader {
 }
 
 impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for FinalizationMessageHeader {
-    type Param = bool;
+    type Param = NoParam;
 
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let session_id = SessionId::deserial(&mut &read_ty!(source, SessionId)[..])?;
@@ -131,7 +131,7 @@ impl FinalizationRecord {
 }
 
 impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationRecord {
-    type Param = bool;
+    type Param = NoParam;
 
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let index = FinalizationIndex::deserial(source)?;

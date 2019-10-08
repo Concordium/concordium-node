@@ -146,6 +146,8 @@ impl fmt::Display for HashBytes {
     }
 }
 
+pub struct NoParam;
+
 pub trait SerializeToBytes<'a, 'b>
 where
     Self: Sized, {

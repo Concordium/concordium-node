@@ -5,7 +5,7 @@ use failure::{format_err, Fallible};
 use std::{convert::TryFrom, fmt, io::Write, ops::Deref};
 
 pub use concordium_common::{
-    blockchain_types::*, read_ty, Endianness, HashBytes, Serial, SerializeToBytes, SHA256,
+    blockchain_types::*, read_ty, Endianness, HashBytes, NoParam, Serial, SerializeToBytes, SHA256,
 };
 pub use ec_vrf_ed25519 as vrf;
 pub use ec_vrf_ed25519::{Proof, Sha256, PROOF_LENGTH};
