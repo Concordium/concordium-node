@@ -107,7 +107,7 @@ mod network {
 
     pub mod message {
         use crate::*;
-        use concordium_common::Serial;
+        use concordium_common::serial::Serial;
         use p2p_client::{
             common::get_current_stamp,
             network::{NetworkMessage, NetworkResponse},

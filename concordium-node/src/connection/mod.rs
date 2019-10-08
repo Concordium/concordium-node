@@ -36,8 +36,8 @@ use crate::{
 
 use concordium_common::{
     hybrid_buf::HybridBuf,
-    serial::{serialize_into_buffer, E},
-    PacketType, Serial,
+    serial::{serialize_into_buffer, Endianness, Serial},
+    PacketType,
 };
 
 use byteorder::ReadBytesExt;
@@ -66,6 +66,7 @@ pub struct DeduplicationQueues {
     pub finalizations: CircularQueue<[u8; 8]>,
     pub transactions:  CircularQueue<[u8; 8]>,
     pub blocks:        CircularQueue<[u8; 8]>,
+    pub fin_records:   CircularQueue<[u8; 8]>,
 }
 
 impl DeduplicationQueues {
@@ -77,6 +78,7 @@ impl DeduplicationQueues {
             finalizations: CircularQueue::with_capacity(LONG_QUEUE_SIZE),
             transactions:  CircularQueue::with_capacity(LONG_QUEUE_SIZE),
             blocks:        CircularQueue::with_capacity(SHORT_DEDUP_SIZE),
+            fin_records:   CircularQueue::with_capacity(SHORT_DEDUP_SIZE),
         }
     }
 }
@@ -237,19 +239,12 @@ impl Connection {
         ))
     }
 
-    /// This function is called when `poll` indicates that `socket` is ready to
-    /// write or/and read.
-    #[inline(always)]
-    pub fn ready(&self, deduplication_queues: &mut DeduplicationQueues) -> Fallible<()> {
-        write_or_die!(self.low_level).read_from_stream(deduplication_queues)
-    }
-
     fn is_message_duplicate(
         &self,
         message: &mut HybridBuf,
         deduplication_queues: &mut DeduplicationQueues,
     ) -> Fallible<bool> {
-        let packet_type = PacketType::try_from(message.read_u16::<E>()?);
+        let packet_type = PacketType::try_from(message.read_u16::<Endianness>()?);
 
         let is_duplicate = match packet_type {
             Ok(PacketType::FinalizationMessage) => {
@@ -259,6 +254,9 @@ impl Connection {
                 dedup_with(message, &mut deduplication_queues.transactions)?
             }
             Ok(PacketType::Block) => dedup_with(message, &mut deduplication_queues.blocks)?,
+            Ok(PacketType::FinalizationRecord) => {
+                dedup_with(message, &mut deduplication_queues.fin_records)?
+            }
             _ => false,
         };
 
@@ -661,7 +659,7 @@ impl ConnectionLowLevel {
     }
 
     #[inline(always)]
-    fn read_from_stream(&mut self, deduplication_queues: &mut DeduplicationQueues) -> Fallible<()> {
+    pub fn read_stream(&mut self, deduplication_queues: &mut DeduplicationQueues) -> Fallible<()> {
         loop {
             let read_result = self.message_stream.read(&mut self.socket);
             match read_result {

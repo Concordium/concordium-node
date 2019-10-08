@@ -7,7 +7,7 @@ extern crate grpciowin as grpcio;
 extern crate gotham_derive;
 use env_logger::{Builder, Env};
 use failure::Fallible;
-use p2p_client::common::{collector_utils::NodeInfo, get_current_stamp};
+use p2p_client::common::{collector_utils::*, get_current_stamp};
 use std::hash::BuildHasherDefault;
 use structopt::StructOpt;
 use twox_hash::XxHash64;
@@ -175,7 +175,27 @@ fn nodes_summary(state: State) -> (State, JSONStringResponse) {
             if i != 0 {
                 response.extend(b",");
             }
-            serde_json::to_writer(&mut response, node_info).unwrap()
+            serde_json::to_writer(&mut response, &NodeInfoDashboard::from(node_info)).unwrap()
+        }
+        response.extend(b"]");
+    }
+    (
+        state,
+        JSONStringResponse(String::from_utf8(response).unwrap()),
+    )
+}
+
+fn nodes_block_info(state: State) -> (State, JSONStringResponse) {
+    let state_data = CollectorStateData::borrow_from(&state);
+    let mut response = Vec::new();
+    {
+        let map_lock = &*read_or_die!(state_data.nodes);
+        response.extend(b"[");
+        for (i, node_info) in map_lock.values().enumerate() {
+            if i != 0 {
+                response.extend(b",");
+            }
+            serde_json::to_writer(&mut response, &NodeInfoChainViz::from(node_info)).unwrap()
         }
         response.extend(b"]");
     }
@@ -230,6 +250,8 @@ pub fn router(
         route.get("/").to(index);
         route.get("/nodesSummary").to(nodes_summary);
         route.get("/data/nodesSummary").to(nodes_summary);
+        route.get("/nodesBlocksInfo").to(nodes_block_info);
+        route.get("/data/nodesBlocksInfo").to(nodes_block_info);
         route.post("/nodes/post").to(nodes_post_handler);
         route.post("/post/nodes").to(nodes_post_handler);
     })

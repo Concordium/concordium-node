@@ -1,6 +1,6 @@
 // https://gitlab.com/Concordium/consensus/globalstate-mockup/blob/master/globalstate/src/Concordium/GlobalState/Block.hs
 
-use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
+use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
 use failure::{bail, Fallible};
 
 use std::{
@@ -69,14 +69,12 @@ impl Block {
     pub fn slot(&self) -> Slot { self.slot }
 }
 
-impl<'a, 'b> SerializeToBytes<'a, 'b> for Block {
-    type Source = &'a [u8];
+impl Serial for Block {
+    type Param = NoParam;
 
-    fn deserialize(bytes: &[u8]) -> Fallible<Self> {
-        let mut cursor = Cursor::new(bytes);
-
-        let slot = NetworkEndian::read_u64(&read_ty!(&mut cursor, Slot));
-        let data = BlockData::deserialize((&mut cursor, slot))?;
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
+        let slot = Slot::deserial(source)?;
+        let data = BlockData::deserial_with_param(source, slot)?;
 
         let block = Block { slot, data };
 
@@ -84,8 +82,8 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for Block {
     }
 
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
-        target.write_u64::<NetworkEndian>(self.slot)?;
-        self.data.serial(target)?;
+        Slot::serial(&self.slot, target)?;
+        BlockData::serial(&self.data, target)?;
         Ok(())
     }
 }
@@ -115,59 +113,27 @@ pub enum BlockData {
     Regular(BakedBlock),
 }
 
-impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BlockData {
-    type Source = (&'a mut Cursor<&'b [u8]>, Slot);
+impl Serial for BlockData {
+    type Param = Slot;
 
-    fn deserialize((cursor, slot): Self::Source) -> Fallible<Self> {
+    fn deserial_with_param<R: ReadBytesExt>(source: &mut R, slot: Self::Param) -> Fallible<Self> {
         if slot == 0 {
             let mut buffer = Vec::new();
-            let _ = cursor.read_to_end(&mut buffer);
+            source.read_to_end(&mut buffer)?;
             Ok(BlockData::Genesis(Encoded::new(&buffer.into_boxed_slice())))
-
-        // let timestamp = NetworkEndian::read_u64(&read_ty!(cursor, Timestamp));
-        // let slot_duration = NetworkEndian::read_u64(&read_ty!(cursor, Duration));
-        // let birk_parameters = BirkParameters::deserialize(cursor)?;
-        // let baker_accounts =
-        //     read_multiple!(cursor, "baker accounts", Account::deserialize(cursor)?,
-        // 8); let finalization_parameters = read_multiple!(
-        //     cursor,
-        //     "finalization parameters",
-        //     VoterInfo::deserialize(&read_const_sized!(cursor, VOTER_INFO))?,
-        //     8
-        // );
-        // let finalization_minimum_skip = NetworkEndian::read_u64(&read_ty!(cursor,
-        // BlockHeight)); let cryptographic_parameters =
-        // CryptographicParameters::deserialize(cursor)?; let mut buffer =
-        // Vec::new(); cursor.read_to_end(&mut buffer)?;
-        // let identity_providers = Encoded::new(&buffer);
-
-        // let data = BlockData::Genesis(GenesisData {
-        //     timestamp,
-        //     slot_duration,
-        //     birk_parameters,
-        //     baker_accounts,
-        //     finalization_parameters,
-        //     finalization_minimum_skip,
-        //     cryptographic_parameters,
-        //     identity_providers,
-        // });
-
-        // check_partial_serialization!(data, *cursor.get_ref());
-
-        // Ok(data)
         } else {
-            let pointer = HashBytes::from(read_ty!(cursor, BlockHash));
-            let baker_id = NetworkEndian::read_u64(&read_ty!(cursor, BakerId));
-            let proof = Encoded::new(&read_const_sized!(cursor, PROOF_LENGTH));
-            let nonce = Encoded::new(&read_const_sized!(cursor, NONCE));
-            let last_finalized = HashBytes::from(read_ty!(cursor, BlockHash));
+            let pointer = HashBytes::from(read_ty!(source, BlockHash));
+            let baker_id = BakerId::deserial(source)?;
+            let proof = Encoded::new(&read_const_sized!(source, PROOF_LENGTH));
+            let nonce = Encoded::new(&read_const_sized!(source, NONCE));
+            let last_finalized = HashBytes::from(read_ty!(source, BlockHash));
             let transactions = read_multiple!(
-                cursor,
-                FullTransaction::deserialize(cursor)?,
+                source,
+                FullTransaction::deserial(source)?,
                 8,
                 TX_ALLOC_LIMIT
             );
-            let signature = read_bytestring_short_length(cursor)?;
+            let signature = read_bytestring_short_length(source)?;
             let txs = serialize_list(&transactions)?;
             let mut transactions = vec![];
             write_multiple!(&mut transactions, txs, Write::write_all);
@@ -191,34 +157,6 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BlockData {
         match self {
             BlockData::Genesis(ref data) => {
                 target.write_all(data)?;
-                // let birk_params = BirkParameters::serialize(&data.birk_parameters);
-                // let cryptographic_parameters =
-                //     CryptographicParameters::serialize(&data.cryptographic_parameters);
-                // let baker_accounts = serialize_list(&data.baker_accounts);
-                // let finalization_params = serialize_list(&data.finalization_parameters);
-
-                // let size = size_of::<Timestamp>()
-                //     + size_of::<Duration>()
-                //     + birk_params.len()
-                //     + size_of::<u64>()
-                //     + list_len(&baker_accounts)
-                //     + size_of::<u64>()
-                //     + list_len(&finalization_params)
-                //     + size_of::<u64>()
-                //     + size_of::<u32>()
-                //     + data.cryptographic_parameters.elgamal_generator.len()
-                //     + data.cryptographic_parameters.attribute_commitment_key.len()
-                //     + data.identity_providers.len();
-                // let mut cursor = create_serialization_cursor(size);
-
-                // let _ = cursor.write_u64::<NetworkEndian>(data.timestamp);
-                // let _ = cursor.write_u64::<NetworkEndian>(data.slot_duration);
-                // let _ = cursor.write_all(&birk_params);
-                // write_multiple!(&mut cursor, baker_accounts, Write::write_all);
-                // write_multiple!(&mut cursor, finalization_params, Write::write_all);
-                // let _ = cursor.write_u64::<NetworkEndian>(data.finalization_minimum_skip);
-                // let _ = cursor.write_all(&cryptographic_parameters);
-                // let _ = cursor.write_all(&data.identity_providers);
             }
             BlockData::Regular(ref data) => {
                 target.write_all(&data.fields.pointer)?;
@@ -287,7 +225,7 @@ fn hash_without_timestamps(block: &Block) -> Fallible<BlockHash> {
                 let mut cursor_txs = Cursor::new(source);
                 let txs = read_multiple!(
                     &mut cursor_txs,
-                    FullTransaction::deserialize(&mut cursor_txs)?,
+                    FullTransaction::deserial(&mut cursor_txs)?,
                     8,
                     TX_ALLOC_LIMIT
                 );
@@ -320,7 +258,7 @@ fn hash_without_timestamps(block: &Block) -> Fallible<BlockHash> {
 
 impl PendingBlock {
     pub fn new(bytes: &[u8]) -> Fallible<Self> {
-        let block = Block::deserialize(bytes)?;
+        let block = Block::deserial(&mut Cursor::new(bytes))?;
         Ok(Self {
             hash:  hash_without_timestamps(&block)?,
             block: Arc::new(block),
@@ -350,7 +288,8 @@ pub struct BlockPtr {
 impl BlockPtr {
     pub fn genesis(genesis_bytes: &[u8]) -> Fallible<Self> {
         let mut cursor = Cursor::new(genesis_bytes);
-        let genesis_data = BlockData::deserialize((&mut cursor, 0)).expect("Invalid genesis data");
+        let genesis_data =
+            BlockData::deserial_with_param(&mut cursor, 0).expect("Invalid genesis data");
         let genesis_block = Block {
             slot: 0,
             data: genesis_data,
@@ -374,7 +313,7 @@ impl BlockPtr {
         fn get_tx_count_energy(mut cursor: Cursor<&[u8]>) -> Fallible<(u64, u64)> {
             let txs = read_multiple!(
                 cursor,
-                FullTransaction::deserialize(&mut cursor)?,
+                FullTransaction::deserial(&mut cursor)?,
                 8,
                 TX_ALLOC_LIMIT
             );
@@ -438,12 +377,12 @@ impl fmt::Debug for BlockPtr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "{:?}", self.hash) }
 }
 
-impl<'a, 'b> SerializeToBytes<'a, 'b> for BlockPtr {
-    type Source = &'a [u8];
+impl Serial for BlockPtr {
+    type Param = NoParam;
 
-    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> { self.block.serial(target) }
-
-    fn deserialize(_source: Self::Source) -> Fallible<Self> {
+    fn deserial<R: ReadBytesExt>(_source: &mut R) -> Fallible<Self> {
         unimplemented!("BlockPtr is not to be deserialized directly")
     }
+
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> { self.block.serial(target) }
 }

@@ -1,5 +1,5 @@
 use byteorder::{ReadBytesExt, WriteBytesExt};
-use concordium_common::Serial;
+use concordium_common::serial::{NoParam, Serial};
 
 use failure::Fallible;
 use std::fmt;
@@ -19,6 +19,8 @@ impl fmt::Display for NetworkId {
 }
 
 impl Serial for NetworkId {
+    type Param = NoParam;
+
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         Ok(NetworkId::from(u16::deserial(source)?))
     }

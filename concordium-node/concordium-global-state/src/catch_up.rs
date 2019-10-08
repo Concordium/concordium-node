@@ -1,14 +1,12 @@
-use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
+use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
 use failure::Fallible;
 
-use std::io::{Cursor, Read};
+use crate::{block::BlockHeight, common::read_ty};
 
-use crate::{
-    block::BlockHeight,
-    common::{read_ty, SerializeToBytes},
+use concordium_common::{
+    blockchain_types::BlockHash,
+    serial::{NoParam, Serial},
 };
-
-use concordium_common::blockchain_types::BlockHash;
 
 #[derive(Debug)]
 pub struct CatchUpStatus {
@@ -19,20 +17,18 @@ pub struct CatchUpStatus {
     finalization_justifiers: Box<[BlockHash]>,
 }
 
-impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for CatchUpStatus {
-    type Source = &'a [u8];
+impl Serial for CatchUpStatus {
+    type Param = NoParam;
 
-    fn deserialize(bytes: Self::Source) -> Fallible<Self> {
-        let mut cursor = Cursor::new(bytes);
-
-        let is_request = read_ty!(&mut cursor, bool)[0] != 0;
-        let last_finalized_block = BlockHash::from(read_ty!(&mut cursor, BlockHash));
-        let last_finalized_height = NetworkEndian::read_u64(&read_ty!(&mut cursor, BlockHeight));
-        let best_block = BlockHash::from(read_ty!(&mut cursor, BlockHash));
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
+        let is_request = read_ty!(source, bool)[0] != 0;
+        let last_finalized_block = BlockHash::from(read_ty!(source, BlockHash));
+        let last_finalized_height = BlockHeight::deserial(source)?;
+        let best_block = BlockHash::from(read_ty!(source, BlockHash));
 
         let finalization_justifiers = read_multiple!(
-            cursor,
-            BlockHash::from(read_ty!(&mut cursor, BlockHash)),
+            source,
+            BlockHash::from(read_ty!(source, BlockHash)),
             4,
             1024
         );
@@ -51,7 +47,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for CatchUpStatus {
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
         target.write_u8(self.is_request as u8)?;
         target.write_all(&self.last_finalized_block)?;
-        target.write_u64::<NetworkEndian>(self.last_finalized_height)?;
+        self.last_finalized_height.serial(target)?;
         target.write_all(&self.best_block)?;
 
         target.write_u32::<NetworkEndian>(self.finalization_justifiers.len() as u32)?;

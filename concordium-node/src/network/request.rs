@@ -6,7 +6,7 @@ use crate::{
     network::{AsProtocolRequestType, NetworkId, ProtocolRequestType},
     p2p::banned_nodes::BannedNode,
 };
-use concordium_common::Serial;
+use concordium_common::serial::{NoParam, Serial};
 
 use std::{collections::HashSet, convert::TryFrom};
 
@@ -59,6 +59,8 @@ impl AsProtocolRequestType for NetworkRequest {
 }
 
 impl Serial for NetworkRequest {
+    type Param = NoParam;
+
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let protocol_type = ProtocolRequestType::try_from(source.read_u8()?)?;
 

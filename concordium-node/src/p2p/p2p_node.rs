@@ -18,8 +18,10 @@ use crate::{
 };
 use chrono::prelude::*;
 use concordium_common::{
-    cache::Cache, hybrid_buf::HybridBuf, serial::serialize_into_buffer,
-    stats_export_service::StatsExportService, SerializeToBytes,
+    cache::Cache,
+    hybrid_buf::HybridBuf,
+    serial::{serialize_into_buffer, Serial},
+    stats_export_service::StatsExportService,
 };
 use failure::{err_msg, Error, Fallible};
 #[cfg(not(target_os = "windows"))]
@@ -922,8 +924,8 @@ impl P2PNode {
 
         let mut banlist = Vec::new();
         for entry in ban_iter {
-            let (id_bytes, _expiry) = entry?;
-            let node_to_ban = BannedNode::deserialize(id_bytes)?;
+            let (mut id_bytes, _expiry) = entry?;
+            let node_to_ban = BannedNode::deserial(&mut id_bytes)?;
             banlist.push(node_to_ban);
         }
 
@@ -1178,14 +1180,21 @@ impl P2PNode {
                     let readiness = event.readiness();
                     if readiness.is_readable() || readiness.is_writable() {
                         if let Some(conn) = self.find_connection_by_token(event.token()) {
-                            if readiness.is_readable() {
-                                if let Err(e) = conn.ready(deduplication_queues) {
-                                    error!("Couldn't process a connection read event: {}", e);
-                                    conn.handler().remove_connection(conn.token);
+                            let mut read_result = Ok(());
+                            {
+                                let mut conn_lock = write_or_die!(conn.low_level);
+                                if readiness.is_readable() {
+                                    read_result = conn_lock.read_stream(deduplication_queues);
+                                }
+                                if readiness.is_writable() {
+                                    // TODO: we might want to close the connection
+                                    // when specific write errors are detected
+                                    conn_lock.flush_sink()?;
                                 }
                             }
-                            if readiness.is_writable() {
-                                write_or_die!(conn.low_level).flush_sink()?;
+                            if let Err(e) = read_result {
+                                error!("Couldn't process a connection read event: {}", e);
+                                conn.handler().remove_connection(conn.token);
                             }
                         }
                     }
