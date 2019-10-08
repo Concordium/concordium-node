@@ -1,6 +1,6 @@
 #[cfg(feature = "network_dump")]
 use crate::common::P2PNodeId;
-use concordium_common::Serial;
+use concordium_common::serial::Serial;
 
 #[cfg(feature = "network_dump")]
 use crate::configuration::APP_INFO;

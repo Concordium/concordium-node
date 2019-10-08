@@ -3,12 +3,9 @@ use failure::Fallible;
 use hash_hasher::HashedMap;
 use rkv::{Rkv, SingleStore, Value};
 
-use std::{
-    marker::PhantomData,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::{HashBytes, SerializeToBytes};
+use crate::{serial::Serial, HashBytes};
 
 const DEFAULT_CACHE_SIZE: usize = 128;
 
@@ -74,13 +71,12 @@ impl<T> Cache<T> {
 }
 
 /// A cache dumping overflowing entries as blobs to a key-value store.
-pub struct DiskCache<'a, 'b, T: SerializeToBytes<'a, 'b>> {
-    store:   SingleStore,
-    cache:   Cache<T>,
-    phantom: PhantomData<(&'a T, &'b T)>,
+pub struct DiskCache<T: Serial> {
+    store: SingleStore,
+    cache: Cache<T>,
 }
 
-impl<'a, 'b, T: SerializeToBytes<'a, 'b>> DiskCache<'a, 'b, T> {
+impl<T: Serial> DiskCache<T> {
     pub fn insert(&mut self, store_handle: &Rkv, hash: HashBytes, elem: T) -> Fallible<()> {
         if let Some(entry) = self.cache.insert(hash.clone(), elem) {
             let mut store_writer = store_handle.write().expect("Can't write to the store!");

@@ -2,7 +2,10 @@ use byteorder::{ReadBytesExt, WriteBytesExt};
 use failure::Fallible;
 use rand::distributions::{Distribution, Uniform};
 
-use concordium_common::{network_types::PeerId, Serial};
+use concordium_common::{
+    network_types::PeerId,
+    serial::{NoParam, Serial},
+};
 
 use std::fmt;
 
@@ -34,6 +37,8 @@ impl std::str::FromStr for P2PNodeId {
 }
 
 impl Serial for P2PNodeId {
+    type Param = NoParam;
+
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         Ok(P2PNodeId(u64::deserial(source)?))
     }

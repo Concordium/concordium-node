@@ -4,7 +4,10 @@ use crate::{
     common::P2PNodeId,
     network::{AsProtocolPacketType, NetworkId, ProtocolPacketType},
 };
-use concordium_common::{hybrid_buf::HybridBuf, Serial};
+use concordium_common::{
+    hybrid_buf::HybridBuf,
+    serial::{NoParam, Serial},
+};
 
 use crate::failure::Fallible;
 use std::convert::TryFrom;
@@ -26,6 +29,8 @@ impl AsProtocolPacketType for NetworkPacketType {
 }
 
 impl Serial for NetworkPacketType {
+    type Param = NoParam;
+
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let protocol_type = ProtocolPacketType::try_from(source.read_u8()?)?;
 
@@ -57,6 +62,8 @@ pub struct NetworkPacket {
 }
 
 impl Serial for NetworkPacket {
+    type Param = NoParam;
+
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         Ok(NetworkPacket {
             packet_type: NetworkPacketType::deserial(source)?,

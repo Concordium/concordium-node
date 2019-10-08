@@ -18,8 +18,10 @@ use crate::{
 };
 use chrono::prelude::*;
 use concordium_common::{
-    cache::Cache, hybrid_buf::HybridBuf, serial::serialize_into_buffer,
-    stats_export_service::StatsExportService, SerializeToBytes,
+    cache::Cache,
+    hybrid_buf::HybridBuf,
+    serial::{serialize_into_buffer, Serial},
+    stats_export_service::StatsExportService,
 };
 use failure::{err_msg, Error, Fallible};
 #[cfg(not(target_os = "windows"))]
@@ -922,8 +924,8 @@ impl P2PNode {
 
         let mut banlist = Vec::new();
         for entry in ban_iter {
-            let (id_bytes, _expiry) = entry?;
-            let node_to_ban = BannedNode::deserialize(id_bytes)?;
+            let (mut id_bytes, _expiry) = entry?;
+            let node_to_ban = BannedNode::deserial(&mut id_bytes)?;
             banlist.push(node_to_ban);
         }
 
