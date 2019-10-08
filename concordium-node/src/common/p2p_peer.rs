@@ -5,7 +5,7 @@ use crate::{
     common::{fails, P2PNodeId},
     connection::ConnectionStats,
 };
-use concordium_common::Serial;
+use concordium_common::serial::{NoParam, Serial};
 
 use std::{
     cmp::Ordering,
@@ -38,6 +38,8 @@ impl fmt::Display for PeerType {
 }
 
 impl Serial for PeerType {
+    type Param = NoParam;
+
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         match source.read_u8()? {
             PEER_TYPE_NODE => Ok(PeerType::Node),
@@ -127,6 +129,8 @@ impl PartialOrd for P2PPeer {
 }
 
 impl Serial for P2PPeer {
+    type Param = NoParam;
+
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         Ok(P2PPeer::from(
             PeerType::deserial(source)?,

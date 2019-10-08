@@ -18,8 +18,10 @@ use crate::{
 };
 use chrono::prelude::*;
 use concordium_common::{
-    cache::Cache, hybrid_buf::HybridBuf, serial::serialize_into_buffer,
-    stats_export_service::StatsExportService, SerializeToBytes,
+    cache::Cache,
+    hybrid_buf::HybridBuf,
+    serial::{serialize_into_buffer, Serial},
+    stats_export_service::StatsExportService,
 };
 use failure::{err_msg, Error, Fallible};
 #[cfg(not(target_os = "windows"))]

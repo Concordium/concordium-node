@@ -6,7 +6,7 @@ use crate::{
     common::get_current_stamp,
     network::{AsProtocolMessageType, ProtocolMessageType, PROTOCOL_NAME, PROTOCOL_VERSION},
 };
-use concordium_common::Serial;
+use concordium_common::serial::{NoParam, Serial};
 
 use std::{convert::TryFrom, ops::Deref};
 
@@ -51,6 +51,8 @@ impl AsProtocolMessageType for NetworkMessage {
 }
 
 impl Serial for NetworkMessage {
+    type Param = NoParam;
+
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         // verify the protocol name and version
         let mut protocol_name = vec![0u8; PROTOCOL_NAME.len()];

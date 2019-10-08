@@ -49,8 +49,6 @@ pub mod network_types;
 pub mod serial;
 pub mod stats_export_service;
 
-pub use serial::{Endianness, Serial};
-
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const APPNAME: &str = env!("CARGO_PKG_NAME");
 

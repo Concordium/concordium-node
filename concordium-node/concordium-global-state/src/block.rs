@@ -378,6 +378,8 @@ impl fmt::Debug for BlockPtr {
 }
 
 impl Serial for BlockPtr {
+    type Param = NoParam;
+
     fn deserial<R: ReadBytesExt>(_source: &mut R) -> Fallible<Self> {
         unimplemented!("BlockPtr is not to be deserialized directly")
     }

@@ -1,14 +1,10 @@
-use byteorder::{ReadBytesExt, WriteBytesExt, LE};
-use failure::{self, format_err, Fallible};
+use byteorder::{ReadBytesExt, WriteBytesExt};
+use failure::{self, Fallible};
 
 use crate::common::P2PNodeId;
-use concordium_common::{Serial, SerializeToBytes};
+use concordium_common::serial::{NoParam, Serial};
 
-use std::{
-    collections::HashSet,
-    convert::TryFrom,
-    net::{IpAddr, Ipv4Addr, Ipv6Addr},
-};
+use std::{collections::HashSet, net::IpAddr};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
@@ -19,31 +15,6 @@ use std::{
 pub enum BannedNode {
     ById(P2PNodeId),
     ByAddr(IpAddr),
-}
-
-impl TryFrom<&[u8]> for BannedNode {
-    type Error = failure::Error;
-
-    fn try_from(bytes: &[u8]) -> Fallible<Self> {
-        match bytes.len() {
-            4 => {
-                let mut arr = [0u8; 4];
-                arr.copy_from_slice(bytes);
-                Ok(BannedNode::ByAddr(IpAddr::from(arr)))
-            }
-            8 => {
-                let mut arr = [0u8; 8];
-                arr.copy_from_slice(bytes);
-                Ok(BannedNode::ById(P2PNodeId(u64::from_le_bytes(arr))))
-            }
-            16 => {
-                let mut arr = [0u8; 16];
-                arr.copy_from_slice(bytes);
-                Ok(BannedNode::ByAddr(IpAddr::from(arr)))
-            }
-            n => Err(format_err!("Invalid ban id length ({})!", n)),
-        }
-    }
 }
 
 /// Combination of nodes banned by id and banned by address
@@ -86,6 +57,8 @@ impl BannedNodes {
 }
 
 impl Serial for BannedNode {
+    type Param = NoParam;
+
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let bn = match source.read_u8()? {
             0 => BannedNode::ById(P2PNodeId::deserial(source)?),
@@ -107,61 +80,6 @@ impl Serial for BannedNode {
                 addr.serial(target)
             }
         }
-    }
-}
-
-impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BannedNode {
-    type Param = bool;
-
-    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
-        let ban_type = source.read_u8()?;
-
-        match ban_type {
-            0 => Ok(BannedNode::ById(P2PNodeId(source.read_u64::<LE>()?))),
-            1 => {
-                let mut t = [0u8; 1];
-                source.read_exact(&mut t)?;
-
-                match t[0] {
-                    4 => {
-                        let mut tgt = [0u8; 4];
-                        source.read_exact(&mut tgt)?;
-                        Ok(BannedNode::ByAddr(IpAddr::V4(Ipv4Addr::from(tgt))))
-                    }
-                    6 => {
-                        let mut tgt = [0u8; 16];
-                        source.read_exact(&mut tgt)?;
-                        Ok(BannedNode::ByAddr(IpAddr::V6(Ipv6Addr::from(tgt))))
-                    }
-                    _ => bail!("Can't deserialize the IP of a banned node"),
-                }
-            }
-            _ => bail!("Can't deserialize the type of a banned node"),
-        }
-    }
-
-    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
-        match self {
-            BannedNode::ById(id) => {
-                target.write_u8(0)?;
-                target.write_all(&id.as_raw().to_le_bytes())?;
-            }
-            BannedNode::ByAddr(addr) => {
-                target.write_u8(1)?;
-                match addr {
-                    IpAddr::V4(ip) => {
-                        target.write_u8(4)?;
-                        target.write_all(&ip.octets())?;
-                    }
-                    IpAddr::V6(ip) => {
-                        target.write_u8(6)?;
-                        target.write_all(&ip.octets())?;
-                    }
-                }
-            }
-        }
-
-        Ok(())
     }
 }
 

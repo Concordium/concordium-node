@@ -6,7 +6,10 @@ use failure::Fallible;
 
 use std::{collections::HashMap, mem::size_of};
 
-use concordium_common::{blockchain_types::BakerId, Serial};
+use concordium_common::{
+    blockchain_types::BakerId,
+    serial::{NoParam, Serial},
+};
 
 use crate::common::*;
 
@@ -40,6 +43,8 @@ pub struct Bakers {
 }
 
 impl Serial for Bakers {
+    type Param = NoParam;
+
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let baker_map = read_hashmap!(
             source,
@@ -105,6 +110,8 @@ pub struct BirkParameters {
 }
 
 impl Serial for BirkParameters {
+    type Param = NoParam;
+
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let election_nonce = read_bytestring(source)?;
         let election_difficulty = NetworkEndian::read_f64(&read_ty!(source, ElectionDifficulty));
@@ -135,6 +142,8 @@ pub struct CryptographicParameters {
 }
 
 impl Serial for CryptographicParameters {
+    type Param = NoParam;
+
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let elgamal_generator = Encoded::new(&read_const_sized!(source, ELGAMAL_GENERATOR));
         let attribute_commitment_key = read_bytestring_medium(source)?;
@@ -165,6 +174,8 @@ pub struct BakerInfo {
 }
 
 impl Serial for BakerInfo {
+    type Param = NoParam;
+
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let election_verify_key = Encoded::new(&read_const_sized!(source, BAKER_VRF_KEY));
         let signature_verify_key = read_bytestring_short_length(source)?;
@@ -199,6 +210,8 @@ pub struct VoterInfo {
 }
 
 impl Serial for VoterInfo {
+    type Param = NoParam;
+
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let signature_verify_key = read_bytestring_short_length(source)?;
         let election_verify_key = Encoded::new(&read_const_sized!(source, VOTER_VRF_KEY));

@@ -5,7 +5,10 @@ use failure::{format_err, Fallible};
 use std::{convert::TryFrom, fmt, io::Write, ops::Deref};
 
 pub use concordium_common::{
-    blockchain_types::*, read_ty, Endianness, HashBytes, NoParam, Serial, SerializeToBytes, SHA256,
+    blockchain_types::*,
+    read_ty,
+    serial::{Endianness, NoParam, Serial},
+    HashBytes, SerializeToBytes, SHA256,
 };
 pub use ec_vrf_ed25519 as vrf;
 pub use ec_vrf_ed25519::{Proof, Sha256, PROOF_LENGTH};
@@ -26,6 +29,8 @@ pub struct Account {
 }
 
 impl Serial for Account {
+    type Param = NoParam;
+
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let address = AccountAddress(read_ty!(source, AccountAddress));
 
@@ -125,6 +130,8 @@ impl fmt::Display for SessionId {
 }
 
 impl Serial for SessionId {
+    type Param = NoParam;
+
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let genesis_block = HashBytes::from(read_ty!(source, HashBytes));
         let incarnation = Incarnation::deserial(source)?;

@@ -5,7 +5,10 @@ use digest::Digest;
 use failure::{format_err, Fallible};
 use sha2::Sha224;
 
-use crate::{HashBytes, Serial};
+use crate::{
+    serial::{NoParam, Serial},
+    HashBytes,
+};
 
 use std::{convert::TryFrom, fmt, io::Cursor, mem::size_of};
 
@@ -25,6 +28,8 @@ pub struct ContractAddress {
 }
 
 impl Serial for ContractAddress {
+    type Param = NoParam;
+
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let index = ContractIndex::deserial(source)?;
         let subindex = ContractSubIndex::deserial(source)?;

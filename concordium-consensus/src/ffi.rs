@@ -14,7 +14,7 @@ use std::{
 };
 
 use crate::consensus::*;
-use concordium_common::{hybrid_buf::HybridBuf, ConsensusFfiResponse, PacketType, Serial};
+use concordium_common::{hybrid_buf::HybridBuf, serial::Serial, ConsensusFfiResponse, PacketType};
 use concordium_global_state::{
     block::*,
     finalization::*,

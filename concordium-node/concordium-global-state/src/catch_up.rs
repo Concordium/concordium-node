@@ -1,12 +1,12 @@
 use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
 use failure::Fallible;
 
-use crate::{
-    block::BlockHeight,
-    common::{read_ty, Serial},
-};
+use crate::{block::BlockHeight, common::read_ty};
 
-use concordium_common::blockchain_types::BlockHash;
+use concordium_common::{
+    blockchain_types::BlockHash,
+    serial::{NoParam, Serial},
+};
 
 #[derive(Debug)]
 pub struct CatchUpStatus {
@@ -18,6 +18,8 @@ pub struct CatchUpStatus {
 }
 
 impl Serial for CatchUpStatus {
+    type Param = NoParam;
+
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let is_request = read_ty!(source, bool)[0] != 0;
         let last_finalized_block = BlockHash::from(read_ty!(source, BlockHash));

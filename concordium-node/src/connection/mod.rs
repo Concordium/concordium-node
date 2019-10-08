@@ -36,8 +36,8 @@ use crate::{
 
 use concordium_common::{
     hybrid_buf::HybridBuf,
-    serial::{serialize_into_buffer, E},
-    PacketType, Serial,
+    serial::{serialize_into_buffer, Endianness, Serial},
+    PacketType,
 };
 
 use byteorder::ReadBytesExt;
@@ -242,7 +242,7 @@ impl Connection {
         message: &mut HybridBuf,
         deduplication_queues: &mut DeduplicationQueues,
     ) -> Fallible<bool> {
-        let packet_type = PacketType::try_from(message.read_u16::<E>()?);
+        let packet_type = PacketType::try_from(message.read_u16::<Endianness>()?);
 
         let is_duplicate = match packet_type {
             Ok(PacketType::FinalizationMessage) => {
