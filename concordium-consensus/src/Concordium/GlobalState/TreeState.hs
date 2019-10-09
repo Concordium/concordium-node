@@ -117,10 +117,10 @@ class (Eq (BlockPointer m),
     -- The block must be the one finalized by the record, and the finalization
     -- index must be the next finalization index.  These are not checked.
     addFinalization :: BlockPointer m -> FinalizationRecord -> m ()
-    -- |Get the finalization record for a particular finalization index (if available).
-    getFinalizationAtIndex :: FinalizationIndex -> m (Maybe FinalizationRecord)
-    -- |Get a list of all (validated) finalization records from the given index
-    getFinalizationFromIndex :: FinalizationIndex -> m [FinalizationRecord]
+    -- |Get the finalization record for a particular finalization index (if available), with the finalized block.
+    getFinalizationAtIndex :: FinalizationIndex -> m (Maybe (FinalizationRecord, BlockPointer m))
+    -- |Get a list of all (validated) finalization records with blocks from the given index
+    getFinalizationFromIndex :: FinalizationIndex -> m [(FinalizationRecord, BlockPointer m)]
     getFinalizationFromIndex i = getFinalizationAtIndex i >>= \case
             Nothing -> return []
             Just f -> (f :) <$> getFinalizationFromIndex (i+1)
