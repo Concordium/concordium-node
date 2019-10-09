@@ -275,14 +275,6 @@ getBlockDescendant sfsRef ancestor distance = runStateQuery sfsRef $
 #endif
 
 
-
-getBlockFinalization :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> BlockHash -> IO (Maybe FinalizationRecord)
-getBlockFinalization sfsRef bh = runStateQuery sfsRef $ do
-            bs <- TS.getBlockStatus bh
-            case bs of
-                Just (TS.BlockFinalized _ fr) -> return $ Just fr
-                _ -> return Nothing
-
 -- |Check whether a keypair is part of the baking committee by a key pair in the current best block.
 -- Returns 0 if keypair is not added as a baker.
 -- Returns 1 if keypair is added as a baker, but not part of the baking committee yet.
@@ -309,9 +301,6 @@ checkFinalizerExistsBestBlock sfsRef = runStateQuery sfsRef $ do
    case fs ^. finCurrentRound of
      Nothing -> return False
      Just _ -> return True
-
-getIndexedFinalization :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> FinalizationIndex -> IO (Maybe FinalizationRecord)
-getIndexedFinalization sfsRef finInd = runStateQuery sfsRef $ TS.getFinalizationAtIndex finInd
 
 getCatchUpStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> IO CU.CatchUpStatus
 getCatchUpStatus sRef = runStateQuery sRef $ CU.getCatchUpStatus True

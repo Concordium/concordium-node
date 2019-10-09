@@ -136,11 +136,17 @@ handleCatchUp peerCUS = runExceptT $ do
                     makeChain kb b = makeChain' kb b []
                     (_, chain) = foldl (\(kbs, ch0) b -> let (kbs', ch1) = makeChain kbs b in (addKnownBlock b kbs', ch0 ++ ch1)) (knownBlocks, []) (bb : justifiers)
                     myCUS = makeCatchUpStatus False lfb bb justifiers
+                    -- Note: since the list can be truncated, we have to be careful about the
+                    -- order that finalization records are interleaved with blocks.
+                    -- Specifically, we send a finalization record as soon as possible after
+                    -- the corresponding block; and where the block is not being sent, we
+                    -- send the finalization record before all other blocks.  We also send
+                    -- finalization records and blocks in order.
                     merge [] bs = Right <$> bs
-                    merge fs [] = Left <$> fs
-                    merge fs0@(f : fs1) (b : bs)
-                        | finalizationBlockPointer f == bpHash b = (Right b) : Left f : merge fs1 bs
-                        | otherwise = Right b : merge fs0 bs
+                    merge fs [] = Left . fst <$> fs
+                    merge fs0@((f, fb) : fs1) bs0@(b : bs1)
+                        | bpHeight fb < bpHeight b = Left f : merge fs1 bs0
+                        | otherwise = Right b : merge fs0 bs1
                 return (Just (merge frs chain, myCUS), catchUpWithPeer)
             else
                 -- No response required

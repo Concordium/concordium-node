@@ -791,46 +791,6 @@ hookTransaction cptr trcstr = do
 freeCStr :: CString -> IO ()
 freeCStr = free
 
--- |Get a finalization record for the given block.
--- The block hash is passed as a pointer to a fixed length (32 byte) string.
--- The return value is a length encoded string: the first 4 bytes are
--- the length (encoded big-endian), followed by the data itself.
--- The string should be freed by calling 'freeCStr'.
--- The string may be empty (length 0) if the finalization record is not found.
-getBlockFinalization :: StablePtr ConsensusRunner -> BlockReference -> IO CString
-getBlockFinalization cptr blockRef = do
-        c <- deRefStablePtr cptr
-        let logm = consensusLogMethod c
-        bh <- blockReferenceToBlockHash blockRef
-        logm External LLInfo $ "Received request for finalization record for block: " ++ show bh
-        f <- runConsensusQuery c Get.getBlockFinalization bh
-        case f :: Maybe FinalizationRecord of
-            Nothing -> do
-                logm External LLInfo $ "Finalization record not available"
-                byteStringToCString BS.empty
-            Just finRec -> do
-                logm External LLInfo $ "Finalization record found"
-                byteStringToCString $ P.runPut $ put finRec
-
--- |Get a finalization record for the given finalization index.
--- The return value is a length encoded string: the first 4 bytes are
--- the length (encoded big-endian), followed by the data itself.
--- The string should be freed by calling 'freeCStr'.
--- The string may be empty (length 0) if the finalization record is not found.
-getIndexedFinalization :: StablePtr ConsensusRunner -> Word64 -> IO CString
-getIndexedFinalization cptr finInd = do
-        c <- deRefStablePtr cptr
-        let logm = consensusLogMethod c
-        logm External LLInfo $ "Received request for finalization record at index " ++ show finInd
-        f <- runConsensusQuery c Get.getIndexedFinalization (fromIntegral finInd :: FinalizationIndex)
-        case f :: Maybe FinalizationRecord of
-            Nothing -> do
-                logm External LLInfo $ "Finalization record not available"
-                byteStringToCString BS.empty
-            Just finRec -> do
-                logm External LLInfo $ "Finalization record found"
-                byteStringToCString $ P.runPut $ put finRec
-
 -- |Get a catch-up status message for requesting catch-up with peers.
 -- The return value is a length encoded string: the first 4 bytes are
 -- the length (encoded big-endian), followed by the data itself.
@@ -932,9 +892,6 @@ foreign export ccall getBlockInfo :: StablePtr ConsensusRunner -> CString -> IO 
 foreign export ccall getAncestors :: StablePtr ConsensusRunner -> CString -> Word64 -> IO CString
 foreign export ccall getBranches :: StablePtr ConsensusRunner -> IO CString
 foreign export ccall freeCStr :: CString -> IO ()
-
-foreign export ccall getBlockFinalization :: StablePtr ConsensusRunner -> BlockReference -> IO CString
-foreign export ccall getIndexedFinalization :: StablePtr ConsensusRunner -> Word64 -> IO CString
 
 foreign export ccall getCatchUpStatus :: StablePtr ConsensusRunner -> IO CString
 foreign export ccall receiveCatchUpStatus :: StablePtr ConsensusRunner -> PeerID -> CString -> Int64 -> Word64 -> FunPtr DirectMessageCallback -> IO ReceiveResult
