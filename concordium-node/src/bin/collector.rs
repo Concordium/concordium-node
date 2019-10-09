@@ -28,7 +28,7 @@ impl FromStr for NodeName {
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         Ok(Self(
             input
-                .split(' ')
+                .split_whitespace()
                 .map(ToOwned::to_owned)
                 .collect::<Vec<String>>(),
         ))
