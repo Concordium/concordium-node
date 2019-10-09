@@ -899,10 +899,9 @@ receiveCatchUpStatus cptr src cstr l limit cbk = do
                         send (Left fr:r) = sendFinRec fr >> send r
                         send (Right b:r) = sendBlock b >> send r
                     forM_ d $ \(frbs, rcus) -> do
-                        logm Skov LLDebug $ "Catch up response data: " ++ show frbs
                         let limFrbs = if limit == 0 then frbs else take (fromIntegral limit) frbs
                         send limFrbs
-                        logm Skov LLDebug $ "Catch up response status message: " ++ show rcus
+                        logm Skov LLDebug $ "Catch-up response (length: " ++ show (length limFrbs) ++ ") status message: " ++ show rcus
                         sendMsg MTCatchUpStatus $ encode rcus
                     return $! if flag then 
                                 if cusIsRequest cus then
