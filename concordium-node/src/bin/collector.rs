@@ -9,7 +9,7 @@ use failure::Fallible;
 use grpcio::{ChannelBuilder, EnvBuilder};
 use p2p_client::{common::collector_utils::NodeInfo, proto::concordium_p2p_rpc_grpc::P2PClient};
 use serde_json::Value;
-use std::{sync::Arc, thread, time::Duration};
+use std::{borrow::ToOwned, fmt, str::FromStr, sync::Arc, thread, time::Duration};
 use structopt::StructOpt;
 #[macro_use]
 extern crate log;
@@ -18,6 +18,28 @@ extern crate log;
 use std::alloc::System;
 #[global_allocator]
 static A: System = System;
+
+#[derive(Debug)]
+struct NodeName(Vec<String>);
+
+impl FromStr for NodeName {
+    type Err = failure::Error;
+
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+        Ok(Self(
+            input
+                .split(' ')
+                .map(ToOwned::to_owned)
+                .collect::<Vec<String>>(),
+        ))
+    }
+}
+
+impl fmt::Display for NodeName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", &self.0[..].join(" "))
+    }
+}
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "Node Collector")]
@@ -41,7 +63,7 @@ struct ConfigCli {
     )]
     pub grpc_port: u16,
     #[structopt(long = "node-name", help = "Node name")]
-    pub node_name: String,
+    pub node_name: NodeName,
     #[structopt(
         long = "collector-url",
         help = "Alias submitted of the node collected from",
@@ -120,7 +142,7 @@ pub fn main() -> Fallible<()> {
 }
 
 fn collect_data(
-    node_name: &str,
+    node_name: &NodeName,
     grpc_host: &str,
     grpc_port: u16,
     grpc_auth_token: &str,
@@ -257,7 +279,7 @@ fn collect_data(
     };
 
     Ok(NodeInfo {
-        nodeName: node_name.to_owned(),
+        nodeName: node_name.to_string(),
         nodeId: node_id,
         peerType: peer_type,
         uptime,
