@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
 set -x
+
+if [ !-d "$CONCORDIUM_P2P_DIR/deps/internal/consensus" ];
+then
+    echo "Missing consensus checked out at $CONCORDIUM_P2P_DIR/deps/internal/consensus, which is needed for local developmenet of the Haskell parts"
+    exit 1
+fi
+
 if [[ "$OSTYPE" == "darwin"* ]]; then
 	LIBEXTENSION="dylib"
     PLATFORM="osx"

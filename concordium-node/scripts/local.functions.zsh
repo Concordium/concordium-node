@@ -41,7 +41,12 @@ else
   NIXOS=0
 fi
 
-export CONCORDIUM_GHC_VERSION=$(stack ghc -- --version --short | awk '{ print $NF }')
+if [ -d "$CONCORDIUM_P2P_DIR/deps/internal/consensus" ];
+then
+  export CONCORDIUM_GHC_VERSION="$(stack ghc -- --version --short | awk '{ print $NF }')"
+else
+  export CONCORDIUM_GHC_VERSION="8.6.5"
+fi
 
 if (( ${+LD_LIBRARY_PATH} )); then
   export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib:~/.stack/programs/x86_64-$CONCORDIUM_GHC_PLATFORM/ghc-tinfo6-$CONCORDIUM_GHC_VERSION/lib/ghc-$CONCORDIUM_GHC_VERSION/rts
