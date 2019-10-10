@@ -3,6 +3,7 @@
 set -e
 BASEDIR="$( cd "$(dirname "$0")" ; pwd -P )"
 (
+  ls $BASEDIR
   VERSION_TAG=$(cat $BASEDIR/CONSENSUS_VERSION)
   ARCHIVES_DIR=$BASEDIR/../deps/static-libs/linux/archives
   if [ ! -d $ARCHIVES_DIR ]; then
