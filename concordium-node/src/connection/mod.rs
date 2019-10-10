@@ -28,8 +28,8 @@ use crate::{
     },
     dumper::DumpItem,
     network::{
-        Buckets, NetworkId, NetworkMessage, NetworkPacketType, NetworkRequest, NetworkResponse,
-        ProtocolMessageType, NETWORK_MESSAGE_PROTOCOL_TYPE_IDX,
+        Buckets, NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacketType,
+        NetworkRequest, NetworkResponse, ProtocolMessageType, NETWORK_MESSAGE_PROTOCOL_TYPE_IDX,
     },
     p2p::banned_nodes::BannedNode,
 };
@@ -289,11 +289,16 @@ impl Connection {
         }
         message.rewind()?;
 
-        let message = NetworkMessage::deserial(&mut message)?;
+        let message = NetworkMessage::deserial(&mut message);
+        if let Err(e) = message {
+            self.handle_invalid_network_msg(e);
+            return Ok(());
+        }
+        let message = message.unwrap(); // safe, checked right above
 
-        let is_msg_processable = match message {
-            NetworkMessage::NetworkRequest(NetworkRequest::Handshake(..), ..)
-            | NetworkMessage::NetworkResponse(NetworkResponse::Handshake(..), ..) => true,
+        let is_msg_processable = match message.payload {
+            NetworkMessagePayload::NetworkRequest(NetworkRequest::Handshake(..), ..)
+            | NetworkMessagePayload::NetworkResponse(NetworkResponse::Handshake(..), ..) => true,
             _ => self.is_post_handshake(),
         };
 
@@ -304,23 +309,22 @@ impl Connection {
             bail!("Refusing to process or forward any incoming messages before a handshake");
         };
 
-        let is_msg_forwardable = match message {
-            NetworkMessage::NetworkRequest(ref request, ..) => match request {
+        let is_msg_forwardable = match message.payload {
+            NetworkMessagePayload::NetworkRequest(ref request, ..) => match request {
                 NetworkRequest::BanNode(..) | NetworkRequest::UnbanNode(..) => {
                     !self.handler().config.no_trust_bans
                 }
                 _ => false,
             },
-            NetworkMessage::NetworkResponse(..) => false,
-            NetworkMessage::NetworkPacket(..) => {
+            NetworkMessagePayload::NetworkResponse(..) => false,
+            NetworkMessagePayload::NetworkPacket(..) => {
                 self.handler().is_rpc_online.load(Ordering::Relaxed)
             }
-            NetworkMessage::InvalidMessage => false,
         };
 
         // forward applicable messages to other connections
         if is_msg_forwardable {
-            if let NetworkMessage::NetworkPacket(..) = message {
+            if let NetworkMessagePayload::NetworkPacket(..) = message.payload {
                 self.handler().forward_network_packet(message)
             } else {
                 self.forward_network_message(&message)
@@ -425,8 +429,10 @@ impl Connection {
     pub fn send_handshake_request(&self) -> Fallible<()> {
         debug!("Sending a handshake request to {}", self.remote_addr());
 
-        let handshake_request = NetworkMessage::NetworkRequest(
-            NetworkRequest::Handshake(
+        let handshake_request = NetworkMessage {
+            timestamp1: Some(get_current_stamp()),
+            timestamp2: None,
+            payload:    NetworkMessagePayload::NetworkRequest(NetworkRequest::Handshake(
                 self.handler().self_peer.id(),
                 self.handler().self_peer.port(),
                 read_or_die!(self.handler().networks())
@@ -434,10 +440,8 @@ impl Connection {
                     .copied()
                     .collect(),
                 vec![],
-            ),
-            Some(get_current_stamp()),
-            None,
-        );
+            )),
+        };
 
         self.async_send(
             serialize_into_buffer(&handshake_request, 256)?,
@@ -452,16 +456,16 @@ impl Connection {
     pub fn send_handshake_response(&self, remote_node_id: P2PNodeId) -> Fallible<()> {
         debug!("Sending a handshake response to peer {}", remote_node_id);
 
-        let handshake_msg = NetworkMessage::NetworkResponse(
-            NetworkResponse::Handshake(
+        let handshake_msg = NetworkMessage {
+            timestamp1: Some(get_current_stamp()),
+            timestamp2: None,
+            payload:    NetworkMessagePayload::NetworkResponse(NetworkResponse::Handshake(
                 self.handler().self_peer.id(),
                 self.handler().self_peer.port(),
                 read_or_die!(self.remote_end_networks).to_owned(),
                 vec![],
-            ),
-            Some(get_current_stamp()),
-            None,
-        );
+            )),
+        };
 
         self.async_send(
             serialize_into_buffer(&handshake_msg, 128)?,
@@ -472,8 +476,11 @@ impl Connection {
     pub fn send_ping(&self) -> Fallible<()> {
         trace!("Sending a ping on {}", self);
 
-        let ping_msg =
-            NetworkMessage::NetworkRequest(NetworkRequest::Ping, Some(get_current_stamp()), None);
+        let ping_msg = NetworkMessage {
+            timestamp1: Some(get_current_stamp()),
+            timestamp2: None,
+            payload:    NetworkMessagePayload::NetworkRequest(NetworkRequest::Ping),
+        };
 
         self.async_send(
             serialize_into_buffer(&ping_msg, 64)?,
@@ -488,8 +495,11 @@ impl Connection {
     pub fn send_pong(&self) -> Fallible<()> {
         trace!("Sending a pong on {}", self);
 
-        let pong_msg =
-            NetworkMessage::NetworkResponse(NetworkResponse::Pong, Some(get_current_stamp()), None);
+        let pong_msg = NetworkMessage {
+            timestamp1: Some(get_current_stamp()),
+            timestamp2: None,
+            payload:    NetworkMessagePayload::NetworkResponse(NetworkResponse::Pong),
+        };
 
         self.async_send(
             serialize_into_buffer(&pong_msg, 64)?,
@@ -511,11 +521,13 @@ impl Connection {
                     && random_nodes.len()
                         >= usize::from(self.handler().config.bootstrapper_wait_minimum_peers)
                 {
-                    Some(NetworkMessage::NetworkResponse(
-                        NetworkResponse::PeerList(random_nodes),
-                        Some(get_current_stamp()),
-                        None,
-                    ))
+                    Some(NetworkMessage {
+                        timestamp1: Some(get_current_stamp()),
+                        timestamp2: None,
+                        payload:    NetworkMessagePayload::NetworkResponse(
+                            NetworkResponse::PeerList(random_nodes),
+                        ),
+                    })
                 } else {
                     None
                 }
@@ -532,11 +544,13 @@ impl Connection {
                     .collect::<Vec<_>>();
 
                 if !nodes.is_empty() {
-                    Some(NetworkMessage::NetworkResponse(
-                        NetworkResponse::PeerList(nodes),
-                        Some(get_current_stamp()),
-                        None,
-                    ))
+                    Some(NetworkMessage {
+                        timestamp1: Some(get_current_stamp()),
+                        timestamp2: None,
+                        payload:    NetworkMessagePayload::NetworkResponse(
+                            NetworkResponse::PeerList(nodes),
+                        ),
+                    })
                 } else {
                     None
                 }
@@ -560,8 +574,8 @@ impl Connection {
     }
 
     fn forward_network_message(&self, msg: &NetworkMessage) -> Fallible<()> {
-        let conn_filter = |conn: &Connection| match msg {
-            NetworkMessage::NetworkRequest(request, ..) => match request {
+        let conn_filter = |conn: &Connection| match msg.payload {
+            NetworkMessagePayload::NetworkRequest(ref request, ..) => match request {
                 NetworkRequest::BanNode(peer_to_ban) => match peer_to_ban {
                     BannedNode::ById(id) => {
                         conn.remote_peer().peer().map_or(true, |x| x.id() != *id)

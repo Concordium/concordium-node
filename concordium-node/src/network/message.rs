@@ -1,11 +1,11 @@
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use failure::Fallible;
 
-use super::{NetworkPacket, NetworkRequest, NetworkResponse};
-use crate::{
-    common::get_current_stamp,
-    network::{AsProtocolMessageType, ProtocolMessageType, PROTOCOL_NAME, PROTOCOL_VERSION},
+use super::{
+    AsProtocolMessageType, NetworkPacket, NetworkRequest, NetworkResponse, ProtocolMessageType,
+    PROTOCOL_NAME, PROTOCOL_VERSION,
 };
+use crate::common::get_current_stamp;
 use concordium_common::serial::{NoParam, Serial};
 
 use std::{convert::TryFrom, ops::Deref};
@@ -14,22 +14,27 @@ pub const NETWORK_MESSAGE_PROTOCOL_TYPE_IDX: usize = 4 + // PROTOCOL_NAME.len()
     1 + // PROTOCOL_VERSION
     8; // Timestamp: get_current_stamp
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
-pub enum NetworkMessage {
-    NetworkRequest(NetworkRequest, Option<u64>, Option<u64>),
-    NetworkResponse(NetworkResponse, Option<u64>, Option<u64>),
-    NetworkPacket(NetworkPacket, Option<u64>, Option<u64>),
-    InvalidMessage,
+pub struct NetworkMessage {
+    pub timestamp1: Option<u64>,
+    pub timestamp2: Option<u64>,
+    pub payload:    NetworkMessagePayload,
+}
+
+#[derive(Debug)]
+pub enum NetworkMessagePayload {
+    NetworkRequest(NetworkRequest),
+    NetworkResponse(NetworkResponse),
+    NetworkPacket(NetworkPacket),
 }
 
 impl AsProtocolMessageType for NetworkMessage {
     fn protocol_message_type(&self) -> ProtocolMessageType {
-        match self {
-            NetworkMessage::NetworkRequest(..) => ProtocolMessageType::Request,
-            NetworkMessage::NetworkResponse(..) => ProtocolMessageType::Response,
-            NetworkMessage::NetworkPacket(..) => ProtocolMessageType::Packet,
-            NetworkMessage::InvalidMessage => unreachable!("Invalid messages are not serializable"),
+        match self.payload {
+            NetworkMessagePayload::NetworkRequest(..) => ProtocolMessageType::Request,
+            NetworkMessagePayload::NetworkResponse(..) => ProtocolMessageType::Response,
+            NetworkMessagePayload::NetworkPacket(..) => ProtocolMessageType::Packet,
         }
     }
 }
@@ -54,19 +59,27 @@ impl Serial for NetworkMessage {
         let message = match protocol_type {
             ProtocolMessageType::Request => {
                 let request = NetworkRequest::deserial(source)?;
-                NetworkMessage::NetworkRequest(request, Some(timestamp), Some(get_current_stamp()))
+                NetworkMessage {
+                    timestamp1: Some(timestamp),
+                    timestamp2: Some(get_current_stamp()),
+                    payload:    NetworkMessagePayload::NetworkRequest(request),
+                }
             }
             ProtocolMessageType::Response => {
                 let response = NetworkResponse::deserial(source)?;
-                NetworkMessage::NetworkResponse(
-                    response,
-                    Some(timestamp),
-                    Some(get_current_stamp()),
-                )
+                NetworkMessage {
+                    timestamp1: Some(timestamp),
+                    timestamp2: Some(get_current_stamp()),
+                    payload:    NetworkMessagePayload::NetworkResponse(response),
+                }
             }
             ProtocolMessageType::Packet => {
                 let packet = NetworkPacket::deserial(source)?;
-                NetworkMessage::NetworkPacket(packet, Some(timestamp), Some(get_current_stamp()))
+                NetworkMessage {
+                    timestamp1: Some(timestamp),
+                    timestamp2: Some(get_current_stamp()),
+                    payload:    NetworkMessagePayload::NetworkPacket(packet),
+                }
             }
         };
 
@@ -79,11 +92,10 @@ impl Serial for NetworkMessage {
         get_current_stamp().serial(target)?;
         (self.protocol_message_type() as u8).serial(target)?;
 
-        match self {
-            NetworkMessage::NetworkRequest(ref request, ..) => request.serial(target),
-            NetworkMessage::NetworkResponse(ref response, ..) => response.serial(target),
-            NetworkMessage::NetworkPacket(ref packet, ..) => packet.serial(target),
-            NetworkMessage::InvalidMessage => bail!("Unsupported type of NetworkMessage"),
+        match self.payload {
+            NetworkMessagePayload::NetworkRequest(ref request) => request.serial(target),
+            NetworkMessagePayload::NetworkResponse(ref response) => response.serial(target),
+            NetworkMessagePayload::NetworkPacket(ref packet) => packet.serial(target),
         }
     }
 }
@@ -146,7 +158,11 @@ mod unit_test {
             network_id:  NetworkId::from(111),
             message:     payload,
         };
-        let message = NetworkMessage::NetworkPacket(pkt, Some(get_current_stamp()), None);
+        let message = NetworkMessage {
+            timestamp1: Some(get_current_stamp()),
+            timestamp2: None,
+            payload:    NetworkMessagePayload::NetworkPacket(pkt),
+        };
 
         // 3. Serialize package into a file
         let mut buffer = HybridBuf::new_on_disk()?;
@@ -162,7 +178,7 @@ mod unit_test {
 
         let mut message = NetworkMessage::deserial(&mut buffer)?;
 
-        if let NetworkMessage::NetworkPacket(ref mut packet, ..) = message {
+        if let NetworkMessagePayload::NetworkPacket(ref mut packet) = message.payload {
             if let NetworkPacketType::BroadcastedMessage(..) = packet.packet_type {
                 bail!("Unexpected Packet type");
             }

@@ -1,7 +1,9 @@
 use crate::{
     common::PeerType,
     configuration::Config,
-    network::{NetworkMessage, NetworkPacketType, NetworkRequest, NetworkResponse},
+    network::{
+        NetworkMessage, NetworkMessagePayload, NetworkPacketType, NetworkRequest, NetworkResponse,
+    },
     p2p::p2p_node::P2PNode,
 };
 use concordium_common::{
@@ -182,8 +184,8 @@ pub fn await_peerlist_with_timeout(
     timeout: std::time::Duration,
 ) -> Fallible<()> {
     // Wait for Peerlist response
-    if let Ok(NetworkMessage::NetworkResponse(NetworkResponse::PeerList(..), ..)) =
-        receiver.recv_timeout(timeout)
+    if let Ok(NetworkMessagePayload::NetworkResponse(NetworkResponse::PeerList(..))) =
+        receiver.recv_timeout(timeout).map(|msg| msg.payload)
     {
         return Ok(());
     }
@@ -197,8 +199,8 @@ pub fn await_ping_with_timeout(
     timeout: std::time::Duration,
 ) -> Fallible<()> {
     // Wait for Ping request
-    if let Ok(NetworkMessage::NetworkRequest(NetworkRequest::Ping, ..)) =
-        receiver.recv_timeout(timeout)
+    if let Ok(NetworkMessagePayload::NetworkRequest(NetworkRequest::Ping)) =
+        receiver.recv_timeout(timeout).map(|msg| msg.payload)
     {
         return Ok(());
     }
@@ -208,7 +210,11 @@ pub fn await_ping_with_timeout(
 pub fn await_broadcast_message(waiter: &Receiver<QueueMsg<NetworkMessage>>) -> Fallible<HybridBuf> {
     loop {
         let msg = waiter.recv()?;
-        if let QueueMsg::Relay(NetworkMessage::NetworkPacket(pac, ..)) = msg {
+        if let QueueMsg::Relay(NetworkMessage {
+            payload: NetworkMessagePayload::NetworkPacket(pac),
+            ..
+        }) = msg
+        {
             if let NetworkPacketType::BroadcastedMessage(..) = pac.packet_type {
                 return Ok(pac.message.to_owned());
             }
@@ -219,7 +225,11 @@ pub fn await_broadcast_message(waiter: &Receiver<QueueMsg<NetworkMessage>>) -> F
 pub fn await_direct_message(waiter: &Receiver<QueueMsg<NetworkMessage>>) -> Fallible<HybridBuf> {
     loop {
         let msg = waiter.recv()?;
-        if let QueueMsg::Relay(NetworkMessage::NetworkPacket(pac, ..)) = msg {
+        if let QueueMsg::Relay(NetworkMessage {
+            payload: NetworkMessagePayload::NetworkPacket(pac),
+            ..
+        }) = msg
+        {
             if let NetworkPacketType::DirectMessage(..) = pac.packet_type {
                 return Ok(pac.message.to_owned());
             }
@@ -232,7 +242,11 @@ pub fn await_direct_message_with_timeout(
     timeout: std::time::Duration,
 ) -> Option<HybridBuf> {
     while let Ok(msg) = waiter.recv_timeout(timeout) {
-        if let QueueMsg::Relay(NetworkMessage::NetworkPacket(pac, ..)) = msg {
+        if let QueueMsg::Relay(NetworkMessage {
+            payload: NetworkMessagePayload::NetworkPacket(pac),
+            ..
+        }) = msg
+        {
             if let NetworkPacketType::DirectMessage(..) = pac.packet_type {
                 return Some(pac.message.to_owned());
             }

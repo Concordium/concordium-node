@@ -9,8 +9,8 @@ use crate::{
     crypto::generate_snow_config,
     dumper::DumpItem,
     network::{
-        request::RequestedElementType, Buckets, NetworkId, NetworkMessage, NetworkPacket,
-        NetworkPacketType, NetworkRequest,
+        request::RequestedElementType, Buckets, NetworkId, NetworkMessage, NetworkMessagePayload,
+        NetworkPacket, NetworkPacketType, NetworkRequest,
     },
     p2p::{banned_nodes::BannedNode, fails, unreachable_nodes::UnreachableNodes},
     stats_engine::StatsEngine,
@@ -202,7 +202,11 @@ macro_rules! send_to_all {
     ($foo_name:ident, $object_type:ty, $req_type:ident) => {
         pub fn $foo_name(&self, object: $object_type) {
             let req = NetworkRequest::$req_type(object);
-            let msg = NetworkMessage::NetworkRequest(req, None, None);
+            let msg = NetworkMessage {
+                timestamp1: None,
+                timestamp2: None,
+                payload: NetworkMessagePayload::NetworkRequest(req)
+            };
             let filter = |_: &Connection| true;
 
             if let Err(e) = serialize_into_buffer(&msg, 256).and_then(|data| self.send_over_all_connections(data, &filter)) {
@@ -1054,7 +1058,11 @@ impl P2PNode {
         source_id: P2PNodeId,
     ) -> Fallible<usize> {
         let serialized_packet = serialize_into_buffer(
-            &NetworkMessage::NetworkPacket(inner_pkt.clone(), Some(get_current_stamp()), None),
+            &NetworkMessage {
+                timestamp1: Some(get_current_stamp()),
+                timestamp2: None,
+                payload:    NetworkMessagePayload::NetworkPacket(inner_pkt.clone()),
+            },
             256,
         )?;
 
@@ -1284,7 +1292,11 @@ impl P2PNode {
     fn send_get_peers(&self) {
         if let Ok(nids) = safe_read!(self.networks()) {
             let req = NetworkRequest::GetPeers(nids.iter().copied().collect());
-            let msg = NetworkMessage::NetworkRequest(req, None, None);
+            let msg = NetworkMessage {
+                timestamp1: None,
+                timestamp2: None,
+                payload:    NetworkMessagePayload::NetworkRequest(req),
+            };
             let filter = |_: &Connection| true;
 
             if let Err(e) = serialize_into_buffer(&msg, 256)
@@ -1302,7 +1314,11 @@ impl P2PNode {
         nid: NetworkId,
     ) {
         let req = NetworkRequest::Retransmit(requested_type, since, nid);
-        let msg = NetworkMessage::NetworkRequest(req, None, None);
+        let msg = NetworkMessage {
+            timestamp1: None,
+            timestamp2: None,
+            payload:    NetworkMessagePayload::NetworkRequest(req),
+        };
         let filter = |_: &Connection| true;
 
         if let Err(e) = serialize_into_buffer(&msg, 256)
