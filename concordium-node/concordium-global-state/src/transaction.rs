@@ -4,7 +4,7 @@ use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use failure::{ensure, format_err, Fallible};
 use hash_hasher::HashedMap;
 
-use std::{convert::TryFrom, io::Cursor, mem::size_of};
+use std::{convert::TryFrom, mem::size_of};
 
 use concordium_common::indexed_vec::IndexedVec;
 
@@ -74,15 +74,27 @@ impl Serial for BareTransaction {
     type Param = NoParam;
 
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
-        let mut full_tx = Vec::new();
-        source.read_to_end(&mut full_tx)?;
-        let hash = sha256(&full_tx);
+        use std::io::Write;
+        // let mut full_tx = Vec::new();
+        // source.read_to_end(&mut full_tx)?;
+        // let hash = sha256(&full_tx);
 
-        let source = &mut Cursor::new(full_tx);
+        // let source = &mut Cursor::new(full_tx);
         let signature = read_bytestring_short_length(source)?;
         let header = TransactionHeader::deserial(source)?;
         let payload = TransactionPayload::deserial_with_param(source, header.payload_size)?;
-
+        let hash = sha256(&{
+            let mut header_ser = Vec::new();
+            header.serial(&mut header_ser)?;
+            let mut payload_ser = Vec::new();
+            payload.serial(&mut payload_ser)?;
+            let mut target = create_serialization_cursor(
+                size_of::<u16>() + signature.len() + header_ser.len() + payload_ser.len(),
+            );
+            target.write_u16::<NetworkEndian>(signature.len() as u16)?;
+            target.write_all(&signature)?;
+            target.into_inner()
+        });
         let transaction = BareTransaction {
             signature,
             header,
