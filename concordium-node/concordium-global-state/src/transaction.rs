@@ -75,11 +75,8 @@ impl Serial for BareTransaction {
 
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         use std::io::Write;
-        // let mut full_tx = Vec::new();
-        // source.read_to_end(&mut full_tx)?;
-        // let hash = sha256(&full_tx);
-
-        // let source = &mut Cursor::new(full_tx);
+        // TODO avoid serializing the transaction again to get the hash
+        // maybe requiring `+ Seek` or sth similar
         let signature = read_bytestring_short_length(source)?;
         let header = TransactionHeader::deserial(source)?;
         let payload = TransactionPayload::deserial_with_param(source, header.payload_size)?;
