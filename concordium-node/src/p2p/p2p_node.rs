@@ -88,6 +88,8 @@ pub struct P2PNodeConfig {
     #[cfg(feature = "benchmark")]
     pub tps_message_count: u64,
     pub catch_up_batch_limit: u64,
+    pub timeout_bucket_entry_period: u64,
+    pub bucket_cleanup_interval: u64,
 }
 
 #[derive(Default)]
@@ -341,6 +343,12 @@ impl P2PNode {
             #[cfg(feature = "benchmark")]
             tps_message_count: conf.cli.tps.tps_message_count,
             catch_up_batch_limit: conf.connection.catch_up_batch_limit,
+            timeout_bucket_entry_period: if peer_type == PeerType::Bootstrapper {
+                conf.bootstrapper.bootstrapper_timeout_bucket_entry_period
+            } else {
+                conf.cli.timeout_bucket_entry_period
+            },
+            bucket_cleanup_interval: conf.common.bucket_cleanup_interval,
         };
 
         let (network_msgs_sender_hi, network_msgs_receiver_hi) =
@@ -531,11 +539,14 @@ impl P2PNode {
         }
     }
 
+    fn is_bucket_cleanup_enabled(&self) -> bool { self.config.timeout_bucket_entry_period > 0 }
+
     pub fn spawn(&self, receivers: Receivers) {
         let self_clone = self.self_ref.clone().unwrap(); // safe, always available
         let poll_thread = spawn_or_die!("Poll thread", move || {
             let mut events = Events::with_capacity(10);
             let mut log_time = SystemTime::now();
+            let mut last_buckets_cleaned = SystemTime::now();
 
             let mut deduplication_queues = DeduplicationQueues::default();
 
@@ -565,6 +576,18 @@ impl P2PNode {
                         self_clone.print_stats(&peer_stat_list);
 
                         log_time = now;
+                    }
+                }
+
+                if self_clone.is_bucket_cleanup_enabled() {
+                    if let Ok(difference) = now.duration_since(last_buckets_cleaned) {
+                        if difference
+                            >= Duration::from_millis(self_clone.config.bucket_cleanup_interval)
+                        {
+                            write_or_die!(self_clone.connection_handler.buckets)
+                                .clean_buckets(self_clone.config.timeout_bucket_entry_period);
+                            last_buckets_cleaned = now;
+                        }
                     }
                 }
             }

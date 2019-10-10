@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    common::{P2PPeer, PeerType},
+    common::{get_current_stamp, P2PPeer, PeerType},
     network::NetworkId,
 };
 
@@ -13,8 +13,9 @@ const BUCKET_COUNT: usize = 1;
 
 #[derive(Eq, Clone)]
 pub struct Node {
-    pub peer:     P2PPeer,
-    pub networks: HashSet<NetworkId>,
+    pub peer:      P2PPeer,
+    pub networks:  HashSet<NetworkId>,
+    pub last_seen: u64,
 }
 
 impl PartialEq for Node {
@@ -47,6 +48,7 @@ impl Buckets {
         bucket.insert(Node {
             peer: peer.to_owned(),
             networks,
+            last_seen: get_current_stamp(),
         });
     }
 
@@ -56,6 +58,7 @@ impl Buckets {
         bucket.replace(Node {
             peer: peer.to_owned(),
             networks,
+            last_seen: get_current_stamp(),
         });
     }
 
@@ -107,6 +110,11 @@ impl Buckets {
         self.get_all_nodes(Some(sender), networks)
             .into_iter()
             .choose_multiple(&mut rng, amount)
+    }
+
+    pub fn clean_buckets(&mut self, timeout_bucket_entry_period: u64) {
+        let clean_before = get_current_stamp() - timeout_bucket_entry_period;
+        self.buckets[0].retain(|entry| entry.last_seen >= clean_before);
     }
 }
 
