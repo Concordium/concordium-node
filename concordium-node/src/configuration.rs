@@ -373,7 +373,7 @@ pub struct CommonConfig {
     pub print_config: bool,
     #[structopt(
         long = "timeout-bucket-entry-interval",
-        help = "Try to timeout entries in the buckets every set interval",
+        help = "Try to timeout entries in the buckets every set interval (in ms)",
         default_value = "600000"
     )]
     pub timeout_bucket_entry_interval: u64,
