@@ -4,74 +4,39 @@ use serde_cbor::from_slice;
 pub fn s11n_network_message(input: &[u8]) -> NetworkMessage {
     match from_slice::<NetworkMessage>(input) {
         Ok(nm) => nm,
-        Err(e) => {
-            let err_msg = format!("Error during CBOR deserialization: {:?}", e);
-            warn!("{}", err_msg);
-            NetworkMessage::InvalidMessage
-        }
+        Err(e) => panic!("{}", e),
     }
 }
 
 #[cfg(test)]
 mod unit_test {
     use serde_cbor::ser;
-    use std::{
-        net::{IpAddr, Ipv4Addr, SocketAddr},
-        str::FromStr,
-        sync::Arc,
-    };
+    use std::convert::TryFrom;
 
     use super::s11n_network_message;
-    use concordium_common::{hybrid_buf::HybridBuf, SHA256};
+    use concordium_common::hybrid_buf::HybridBuf;
 
     use crate::{
-        common::{P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType},
+        common::P2PNodeId,
         network::{
-            packet::MessageId, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType,
-            NetworkRequest, NetworkResponse,
+            NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType, NetworkRequest,
+            NetworkResponse,
         },
     };
 
-    fn localhost_peer() -> P2PPeer {
-        P2PPeerBuilder::default()
-            .peer_type(PeerType::Node)
-            .addr(SocketAddr::new(
-                IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-                8888,
-            ))
-            .build()
-            .unwrap()
-    }
-
     fn ut_s11n_001_data() -> Vec<(Vec<u8>, NetworkMessage)> {
-        let mut direct_message_content = HybridBuf::from(b"Hello world!".to_vec());
+        let mut direct_message_content = HybridBuf::try_from(b"Hello world!".to_vec()).unwrap();
         direct_message_content.rewind().unwrap();
         let messages = vec![
-            NetworkMessage::NetworkRequest(
-                NetworkRequest::Ping(localhost_peer()),
-                Some(0 as u64),
-                None,
-            ),
-            NetworkMessage::NetworkRequest(
-                NetworkRequest::Ping(localhost_peer()),
-                Some(11529215046068469760),
-                None,
-            ),
-            NetworkMessage::NetworkResponse(
-                NetworkResponse::Pong(localhost_peer()),
-                Some(u64::max_value()),
-                None,
-            ),
+            NetworkMessage::NetworkRequest(NetworkRequest::Ping, Some(0 as u64), None),
+            NetworkMessage::NetworkRequest(NetworkRequest::Ping, Some(11529215046068469760), None),
+            NetworkMessage::NetworkResponse(NetworkResponse::Pong, Some(u64::max_value()), None),
             NetworkMessage::NetworkPacket(
-                Arc::new(NetworkPacket {
-                    packet_type: NetworkPacketType::DirectMessage(
-                        P2PNodeId::from_str(&"2A").unwrap(),
-                    ),
-                    peer:        localhost_peer(),
-                    message_id:  MessageId::new(&[0u8; SHA256 as usize]),
+                NetworkPacket {
+                    packet_type: NetworkPacketType::DirectMessage(P2PNodeId::default()),
                     network_id:  NetworkId::from(100u16),
                     message:     direct_message_content,
-                }),
+                },
                 Some(10),
                 None,
             ),
