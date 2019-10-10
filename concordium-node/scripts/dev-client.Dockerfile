@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:experimental
-FROM archlinux/base as build
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.2 as build
 
 RUN pacman -Sy && \
     pacman -Syyu --noconfirm && \
