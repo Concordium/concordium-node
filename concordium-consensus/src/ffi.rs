@@ -14,7 +14,10 @@ use std::{
 };
 
 use crate::consensus::*;
-use concordium_common::{hybrid_buf::HybridBuf, serial::Serial, ConsensusFfiResponse, PacketType};
+use concordium_common::{
+    hybrid_buf::HybridBuf, serial::Serial, ConsensusFfiResponse, ConsensusIsInCommitteeResponse,
+    PacketType,
+};
 use concordium_global_state::{
     block::*,
     tree::{
@@ -515,8 +518,8 @@ impl ConsensusContainer {
         ))
     }
 
-    pub fn in_baking_committee(&self) -> bool {
-        wrap_c_bool_call!(self, |consensus| checkIfWeAreBaker(consensus))
+    pub fn in_baking_committee(&self) -> ConsensusIsInCommitteeResponse {
+        wrap_c_committee_call!(self, |consensus| checkIfWeAreBaker(consensus))
     }
 
     pub fn in_finalization_committee(&self) -> bool {

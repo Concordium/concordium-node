@@ -271,6 +271,32 @@ impl TryFrom<i64> for ConsensusFfiResponse {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum ConsensusIsInCommitteeResponse {
+    NotInCommittee = 0,
+    AddedButNotActiveInCommittee,
+    ActiveInCommittee,
+}
+
+impl TryFrom<u8> for ConsensusIsInCommitteeResponse {
+    type Error = failure::Error;
+
+    #[inline]
+    fn try_from(value: u8) -> Fallible<ConsensusIsInCommitteeResponse> {
+        use ConsensusIsInCommitteeResponse::*;
+
+        match value {
+            0 => Ok(NotInCommittee),
+            1 => Ok(AddedButNotActiveInCommittee),
+            2 => Ok(ActiveInCommittee),
+            _ => Err(format_err!(
+                "Unsupported FFI return code for committee status ({})",
+                value
+            )),
+        }
+    }
+}
+
 /// Reads a number of bytes equal to the size of `object` into an array.
 #[macro_export]
 macro_rules! read_ty {
