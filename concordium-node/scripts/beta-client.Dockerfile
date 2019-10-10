@@ -25,6 +25,7 @@ COPY ./scripts/CONSENSUS_VERSION /CONSENSUS_VERSION
 RUN --mount=type=ssh pacman -Syy --noconfirm openssh && \
     mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts && \
     git clone --recurse-submodules git@gitlab.com:Concordium/consensus/simple-client.git && \
+    cd simple-client && \
     curl -s "https://s3-eu-west-1.amazonaws.com/static-libraries.concordium.com/static-consensus-binaries-$(cat /CONSENSUS_VERSION).tar.gz" -O && \
     tar -xf static-consensus-binaries-$(cat /CONSENSUS_VERSION).tar.gz && \
     mv binaries /genesis-binaries && \
