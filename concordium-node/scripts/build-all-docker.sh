@@ -8,7 +8,7 @@ then
   exit 1
 fi
 
-CONSENSUS_VERSION=$(cat scripts/CONSENSEUS_VERSION)
+CONSENSUS_VERSION=$(cat scripts/CONSENSUS_VERSION)
 
 echo "Consensus commit ID $CONSENSUS_VERSION"
 
