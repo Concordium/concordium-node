@@ -3,8 +3,7 @@
 set -e
 BASEDIR="$( cd "$(dirname "$0")" ; pwd -P )"
 (
-  cd $BASEDIR/../deps/internal/consensus
-  VERSION_TAG=$(git rev-parse --verify HEAD)
+  VERSION_TAG=$(cat $BASEDIR/CONSENSUS_VERSION)
   ARCHIVES_DIR=$BASEDIR/../deps/static-libs/linux/archives
   if [ ! -d $ARCHIVES_DIR ]; then
     mkdir -p $ARCHIVES_DIR

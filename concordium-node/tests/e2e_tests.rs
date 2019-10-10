@@ -76,6 +76,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     pub fn e2e_004_01_close_and_join_on_not_spawned_node() -> Fallible<()> {
         setup_logger();
 
