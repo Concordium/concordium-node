@@ -3,7 +3,7 @@ image: "haskell"
 variables:
     STACK_ROOT: "${CI_PROJECT_DIR}/.stack"
     LD_LIBRARY_PATH: "${CI_PROJECT_DIR}/crypto/rust-src/target/release:${CI_PROJECT_DIR}/globalstate-mockup/deps/concordium-global-state-sys/target/release:$LD_LIBRARY_PATH"
-
+    GIT_SUBMODULE_STRATEGY: recursive
 cache:
   paths:
     - .stack
@@ -12,16 +12,6 @@ cache:
 
 build-and-test:
   script:
-    - "git submodule update --init acorn"
-    - "git submodule update --init crypto"
-    - "git submodule update --init globalstate-mockup"
-    - "cd globalstate-mockup"
-    - "git submodule update --init deps/concordium-global-state-sys"
-    - "cd deps/concordium-global-state-sys"
-    - "git submodule update --init deps/p2p-client"
-    - "cd deps/p2p-client"
-    - "git submodule update --init deps/internal/crypto"
-    - "cd ${CI_PROJECT_DIR}"
     - "apt-get update && apt-get install -y moreutils curl"
     - "curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable"
     - "source $HOME/.cargo/env"
