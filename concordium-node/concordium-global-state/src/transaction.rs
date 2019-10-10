@@ -90,6 +90,8 @@ impl Serial for BareTransaction {
             );
             target.write_u16::<NetworkEndian>(signature.len() as u16)?;
             target.write_all(&signature)?;
+            target.write_all(&header_ser)?;
+            target.write_all(&payload_ser)?;
             target.into_inner()
         });
         let transaction = BareTransaction {
