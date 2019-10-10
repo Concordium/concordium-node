@@ -8,9 +8,7 @@ then
   exit 1
 fi
 
-git submodule update --init deps/internal/consensus
-
-CONSENSUS_VERSION=$(cat scripts/CONSENSEUS_VERSION)
+CONSENSUS_VERSION=$(cat scripts/CONSENSUS_VERSION)
 
 echo "Consensus commit ID $CONSENSUS_VERSION"
 
