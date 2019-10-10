@@ -1,8 +1,9 @@
 use crate::network::NetworkMessage;
-use serde_cbor::from_slice;
+use serde_cbor::from_reader;
+use std::io::Read;
 
-pub fn s11n_network_message(input: &[u8]) -> NetworkMessage {
-    match from_slice::<NetworkMessage>(input) {
+pub fn s11n_network_message<T: Read>(input: &mut T) -> NetworkMessage {
+    match from_reader::<NetworkMessage, &mut T>(input) {
         Ok(nm) => nm,
         Err(e) => panic!("{}", e),
     }
@@ -65,9 +66,9 @@ mod unit_test {
 
     #[test]
     fn ut_s11n_001() {
-        let data = ut_s11n_001_data();
-        for (cbor, expected) in data {
-            let output = s11n_network_message(&cbor);
+        let messages = ut_s11n_001_data();
+        for (cbor, expected) in messages {
+            let output = s11n_network_message(&mut std::io::Cursor::new(cbor));
             assert_eq!(format!("{:?}", output), format!("{:?}", expected));
         }
     }

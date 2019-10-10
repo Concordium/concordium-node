@@ -1,4 +1,4 @@
-use capnp::serialize_packed;
+use capnp::serialize;
 use failure::Fallible;
 
 use concordium_common::hybrid_buf::HybridBuf;
@@ -12,7 +12,10 @@ use crate::{
     p2p_capnp,
 };
 
-use std::{convert::TryFrom, io::Cursor};
+use std::{
+    convert::TryFrom,
+    io::{BufReader, Read, Write},
+};
 
 #[inline(always)]
 fn load_p2p_node_id(p2p_node_id: &p2p_capnp::p2_p_node_id::Reader) -> capnp::Result<P2PNodeId> {
@@ -76,10 +79,9 @@ fn load_network_response(
     }
 }
 
-pub fn load_from_slice(input: &[u8]) -> capnp::Result<NetworkMessage> {
-    let mut buff = Cursor::new(input);
-    let reader =
-        serialize_packed::read_message(&mut buff, capnp::message::ReaderOptions::default())?;
+fn load_from_reader<T: Read>(input: &mut T) -> capnp::Result<NetworkMessage> {
+    let mut input = BufReader::new(input);
+    let reader = serialize::read_message(&mut input, capnp::message::ReaderOptions::default())?;
 
     let nm = reader.get_root::<p2p_capnp::network_message::Reader>()?;
     let timestamp = nm.get_timestamp();
@@ -206,23 +208,20 @@ pub fn write_network_message(
     }
 }
 
-pub fn deserialize(input: &[u8]) -> Fallible<NetworkMessage> {
-    match load_from_slice(input) {
+pub fn deserialize<T: Read>(input: &mut T) -> Fallible<NetworkMessage> {
+    match load_from_reader(input) {
         Ok(msg) => Ok(msg),
         Err(e) => bail!(e),
     }
 }
 
-pub fn save_network_message(nm: &mut NetworkMessage) -> Vec<u8> {
+pub fn save_network_message<T: Write>(buffer: &mut T, nm: &mut NetworkMessage) {
     let mut message = capnp::message::Builder::new_default();
     {
         let mut builder = message.init_root::<p2p_capnp::network_message::Builder>();
         write_network_message(&mut builder, nm);
     }
-    let mut buffer = vec![];
-    assert!(capnp::serialize_packed::write_message(&mut buffer, &message).is_ok());
-
-    buffer
+    capnp::serialize::write_message(buffer, &message).unwrap(); // FIXME
 }
 
 #[cfg(test)]
@@ -271,7 +270,8 @@ mod unit_test {
 
         let mut messages_data: Vec<(Vec<u8>, NetworkMessage)> = Vec::with_capacity(messages.len());
         for mut message in messages.into_iter() {
-            let data: Vec<u8> = save_network_message(&mut message);
+            let mut data = Vec::new();
+            save_network_message(&mut data, &mut message);
             messages_data.push((data, message));
         }
 
@@ -282,7 +282,7 @@ mod unit_test {
     fn ut_s11n_capnp_001() {
         let test_params = ut_s11n_001_data();
         for (data, expected) in test_params {
-            let output = deserialize(data.as_slice()).unwrap();
+            let output = deserialize(&mut data.as_slice()).unwrap();
             assert_eq!(
                 format!("{:?}", output.payload),
                 format!("{:?}", expected.payload)

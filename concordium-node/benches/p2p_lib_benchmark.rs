@@ -122,8 +122,6 @@ mod network {
 
         use criterion::Criterion;
 
-        use std::io::{Cursor, Seek, SeekFrom};
-
         pub fn bench_s11n_001_direct_message_256(b: &mut Criterion) {
             bench_s11n_001_direct_message(b, 256)
         }
@@ -152,23 +150,17 @@ mod network {
             bench_s11n_001_direct_message(b, 4 * 1024 * 1024)
         }
 
-        pub fn bench_s11n_001_direct_message_16m(b: &mut Criterion) {
-            bench_s11n_001_direct_message(b, 16 * 1024 * 1024)
-        }
-
         fn bench_s11n_001_direct_message(c: &mut Criterion, size: usize) {
             let packet = create_random_packet(size);
-            let mut serialized = Cursor::new(Vec::with_capacity(size));
-            packet.serial(&mut serialized).unwrap();
 
             let bench_id = format!("Deserialization of a packet with a {}B payload", size);
 
             c.bench_function(&bench_id, move |b| {
-                let mut serialized = serialized.clone();
-
-                b.iter(move || {
-                    serialized.seek(SeekFrom::Start(0)).unwrap();
-                    NetworkMessage::deserial(&mut serialized).unwrap();
+                b.iter(|| {
+                    let mut buffer = HybridBuf::with_capacity(size).unwrap();
+                    packet.serial(&mut buffer).unwrap();
+                    buffer.rewind().unwrap();
+                    NetworkMessage::deserial(&mut buffer).unwrap();
                 })
             });
         }
@@ -180,6 +172,8 @@ mod network {
         pub fn bench_s11n_get_peers_200(c: &mut Criterion) { bench_s11n_get_peers(c, 200) }
 
         fn bench_s11n_get_peers(c: &mut Criterion, size: usize) {
+            let bench_id = format!("Deserialization of PeerList responses with {} peers ", size);
+
             let peer_list_msg = NetworkMessage {
                 timestamp1: Some(10),
                 timestamp2: None,
@@ -188,13 +182,11 @@ mod network {
                 )),
             };
 
-            let bench_id = format!("Deserialization of PeerList responses with {} peers ", size);
+            let mut buffer = HybridBuf::new();
 
             c.bench_function(&bench_id, move |b| {
-                let mut buffer = HybridBuf::new();
-                let _ = peer_list_msg.serial(&mut buffer).unwrap();
-
-                b.iter(move || {
+                b.iter(|| {
+                    peer_list_msg.serial(&mut buffer).unwrap();
                     buffer.rewind().unwrap();
                     NetworkMessage::deserial(&mut buffer).unwrap();
                 })
@@ -226,10 +218,10 @@ mod network {
         pub fn p2p_net_64k(c: &mut Criterion) { p2p_net(c, 64 * 1024); }
         pub fn p2p_net_1m(c: &mut Criterion) { p2p_net(c, 1 * 1024 * 1024); }
         pub fn p2p_net_4m(c: &mut Criterion) { p2p_net(c, 4 * 1024 * 1024); }
-        pub fn p2p_net_8m(c: &mut Criterion) { p2p_net(c, 8 * 1024 * 1024); }
-        pub fn p2p_net_16m(c: &mut Criterion) { p2p_net(c, 16 * 1024 * 1024); }
 
         fn p2p_net(c: &mut Criterion, size: usize) {
+            let bench_id = format!("P2P network using {}B messages", size);
+
             setup_logger();
 
             // Create nodes and connect them.
@@ -242,8 +234,6 @@ mod network {
             await_handshake(&node_1).unwrap();
 
             let mut packet_buffer = generate_fake_block(size).unwrap();
-
-            let bench_id = format!("P2P network using {}B messages", size);
 
             c.bench_function(&bench_id, move |b| {
                 let net_id = NetworkId::from(100);
@@ -279,11 +269,18 @@ mod serialization {
         use serde_cbor::ser;
 
         fn bench_s11n_001_direct_message(c: &mut Criterion, content_size: usize) {
-            let dm = create_random_packet(content_size);
-            let data: Vec<u8> = ser::to_vec(&dm).unwrap();
             let bench_id = format!("Serde CBOR serialization with {}B messages", content_size);
 
-            c.bench_function(&bench_id, move |b| b.iter(|| s11n_network_message(&data)));
+            let mut msg = create_random_packet(content_size);
+            let mut buffer = HybridBuf::with_capacity(content_size).unwrap();
+
+            c.bench_function(&bench_id, move |b| {
+                b.iter(|| {
+                    ser::to_writer(&mut buffer, &msg).unwrap();
+                    buffer.rewind().unwrap();
+                    s11n_network_message(&mut buffer)
+                })
+            });
         }
 
         pub fn bench_s11n_001_direct_message_256(b: &mut Criterion) {
@@ -312,10 +309,6 @@ mod serialization {
 
         pub fn bench_s11n_001_direct_message_4m(b: &mut Criterion) {
             bench_s11n_001_direct_message(b, 4 * 1024 * 1024)
-        }
-
-        pub fn bench_s11n_001_direct_message_16m(b: &mut Criterion) {
-            bench_s11n_001_direct_message(b, 16 * 1024 * 1024)
         }
     }
 
@@ -328,12 +321,18 @@ mod serialization {
         use criterion::Criterion;
 
         fn bench_s11n_001_direct_message(c: &mut Criterion, content_size: usize) {
-            let mut dm = create_random_packet(content_size);
-
-            let data: Vec<u8> = save_network_message(&mut dm);
-
             let bench_id = format!("CAPnP serialization with {}B messages", content_size);
-            c.bench_function(&bench_id, move |b| b.iter(|| deserialize(&data)));
+
+            let mut msg = create_random_packet(content_size);
+            let mut buffer = HybridBuf::with_capacity(content_size).unwrap();
+
+            c.bench_function(&bench_id, move |b| {
+                b.iter(|| {
+                    save_network_message(&mut buffer, &mut msg);
+                    buffer.rewind().unwrap();
+                    deserialize(&mut buffer)
+                })
+            });
         }
 
         pub fn bench_s11n_001_direct_message_256(b: &mut Criterion) {
@@ -362,10 +361,6 @@ mod serialization {
 
         pub fn bench_s11n_001_direct_message_4m(b: &mut Criterion) {
             bench_s11n_001_direct_message(b, 4 * 1024 * 1024)
-        }
-
-        pub fn bench_s11n_001_direct_message_16m(b: &mut Criterion) {
-            bench_s11n_001_direct_message(b, 16 * 1024 * 1024)
         }
     }
 }
@@ -386,7 +381,6 @@ criterion_group!(
     network::message::bench_s11n_001_direct_message_256k,
     network::message::bench_s11n_001_direct_message_1m,
     network::message::bench_s11n_001_direct_message_4m,
-    network::message::bench_s11n_001_direct_message_16m,
 );
 
 #[cfg(feature = "s11n_capnp")]
@@ -399,7 +393,6 @@ criterion_group!(
     serialization::capnp::bench_s11n_001_direct_message_256k,
     serialization::capnp::bench_s11n_001_direct_message_1m,
     serialization::capnp::bench_s11n_001_direct_message_4m,
-    serialization::capnp::bench_s11n_001_direct_message_16m,
 );
 #[cfg(not(feature = "s11n_capnp"))]
 criterion_group!(s11n_capnp_benches, common::nop_bench);
@@ -414,7 +407,6 @@ criterion_group!(
     serialization::serde_cbor::bench_s11n_001_direct_message_256k,
     serialization::serde_cbor::bench_s11n_001_direct_message_1m,
     serialization::serde_cbor::bench_s11n_001_direct_message_4m,
-    serialization::serde_cbor::bench_s11n_001_direct_message_16m,
 );
 #[cfg(not(feature = "s11n_serde_cbor"))]
 criterion_group!(s11n_cbor_benches, common::nop_bench);
@@ -426,8 +418,6 @@ criterion_group!(
     network::connection::p2p_net_64k,
     network::connection::p2p_net_1m,
     network::connection::p2p_net_4m,
-    network::connection::p2p_net_8m,
-    network::connection::p2p_net_16m,
 );
 
 criterion_group!(
@@ -441,7 +431,7 @@ criterion_main!(
     // dedup,
     // p2p_net,
     // s11n_get_peers,
-    s11n_our_benches,
-    s11n_capnp_benches,
+    // s11n_our_benches,
     s11n_cbor_benches,
+    s11n_capnp_benches,
 );
