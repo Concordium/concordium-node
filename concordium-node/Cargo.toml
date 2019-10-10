@@ -98,9 +98,10 @@ grpc = "0.6.1"
 
 [target.'cfg(unix)'.dependencies]
 get_if_addrs = { version = "0.5" }
-grpciounix = { package = 'grpcio', version = "0.4.4", default-features = false, features = [
+grpciounix = { package = "grpcio", git = "ssh://git@gitlab.com:22/Concordium/rust/external/grpc-rs.git", version = "0.4.4", rev = "dff66a519324661039a8cea919336c0c628d2409", default-features = false, features = [
   "protobuf-codec"
 ] }
+
 grpc = "0.6.1"
 uuid = { version = "0.7", default-features = false, optional = true }
 
