@@ -113,8 +113,8 @@ impl Buckets {
     }
 
     pub fn clean_buckets(&mut self, timeout_bucket_entry_period: u64) {
-        let clean_since = get_current_stamp() - timeout_bucket_entry_period;
-        self.buckets[0].retain(|entry| entry.last_seen >= clean_since);
+        let clean_before = get_current_stamp() - timeout_bucket_entry_period;
+        self.buckets[0].retain(|entry| entry.last_seen >= clean_before);
     }
 }
 
