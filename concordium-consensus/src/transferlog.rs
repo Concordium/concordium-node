@@ -11,7 +11,7 @@ use std::{
     sync::{mpsc, Mutex},
 };
 
-const TRANSACTION_LOG_QUEUE_DEPTH: usize = 4096;
+const TRANSACTION_LOG_QUEUE_DEPTH: usize = 32 * 1024;
 
 pub struct TransactionLogQueue {
     pub receiver: Mutex<QueueReceiver<TransactionLogMessage>>,

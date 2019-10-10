@@ -1,7 +1,7 @@
 #[cfg(feature = "s11n_serde")]
 use serde::{
     de::{self, Deserializer, Visitor},
-    ser::{self, SerializeStruct, Serializer},
+    ser::Serializer,
 };
 use tempfile::tempfile;
 
@@ -13,6 +13,9 @@ use std::{
     io::{self, Cursor, Read, Result, Seek, SeekFrom, Write},
     mem,
 };
+
+#[cfg(feature = "s11n_serde")]
+use std::fmt;
 
 const DEFAULT_MEM_SIZE: usize = 4 * 1024;
 const MAX_MEM_SIZE: usize = 8 * 1024 * 1024;
@@ -223,10 +226,7 @@ impl serde::ser::Serialize for HybridBuf {
     fn serialize<S>(&self, serializer: S) -> core::result::Result<S::Ok, S::Error>
     where
         S: Serializer, {
-        let mut state = serializer.serialize_struct("HybridBuf", 1)?;
-        let potential_err = ser::Error::custom("can't read a HybridBuf into memory");
-        state.serialize_field("hb", &self.clone().into_vec().map_err(|_| potential_err)?)?;
-        state.end()
+        serializer.serialize_bytes(&self.clone().remaining_bytes().unwrap())
     }
 }
 
@@ -235,26 +235,24 @@ impl<'de> serde::de::Deserialize<'de> for HybridBuf {
     fn deserialize<D>(deserializer: D) -> core::result::Result<Self, D::Error>
     where
         D: Deserializer<'de>, {
-        struct HybridBufVisitor;
+        struct ByteVisitor;
 
-        impl<'de> Visitor<'de> for HybridBufVisitor {
+        impl<'de> Visitor<'de> for ByteVisitor {
             type Value = HybridBuf;
 
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a HybridBuf struct")
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a slice of bytes")
             }
 
-            fn visit_bytes<E>(self, buf: &[u8]) -> core::result::Result<Self::Value, E>
-            where
-                E: serde::de::Error, {
-                let potential_err = de::Error::custom("can't write a HybridBuf to disk");
-                let mut ret = HybridBuf::new();
-                ret.write_all(&buf).map_err(|_| potential_err)?;
-                Ok(ret)
+            fn visit_bytes<E: de::Error>(
+                self,
+                bytes: &[u8],
+            ) -> core::result::Result<Self::Value, E> {
+                Ok(HybridBuf::try_from(bytes).unwrap())
             }
         }
 
-        deserializer.deserialize_bytes(HybridBufVisitor)
+        deserializer.deserialize_bytes(ByteVisitor)
     }
 }
 

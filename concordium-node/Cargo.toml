@@ -1,6 +1,6 @@
 [package]
 name = "p2p_client"
-version = "0.1.63"
+version = "0.1.64"
 description = "Concordium P2P Client"
 authors = ["Concordium AG <info@concordium.com>"]
 exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*","**/**/.gitignore","**/**/.gitlab-ci.yml"]
@@ -36,13 +36,13 @@ codegen-units = 1
 concordium-global-state = { path = "concordium-global-state" }
 concordium-consensus = { path = "concordium-consensus" }
 concordium-dns = { git = "ssh://git@gitlab.com:22/Concordium/rust/concordium-dns.git", branch = "master" }
-concordium_crypto_ec_vrf_ed25519_sha256 = { package = "ec_vrf_ed25519_sha256", path = "deps/internal/consensus/crypto/rust-src/ec_vrf_ed25519_sha256" }
-concordium_crypto_eddsa_ed25519 = { package = "eddsa_ed25519", path = "deps/internal/consensus/crypto/rust-src/eddsa_ed25519" }
-concordium_crypto_sha2 = { package = "sha_2", path = "deps/internal/consensus/crypto/rust-src/sha_2" }
-concordium_crypto_elgamal = { package = "elgamal", path = "deps/internal/consensus/crypto/rust-src/elgamal" }
-concordium_crypto_pedersen_scheme = { package = "pedersen_scheme", path = "deps/internal/consensus/crypto/rust-src/pedersen_scheme" }
-concordium_dodis_yampolskiy_prf = { package = "dodis_yampolskiy_prf", path = "deps/internal/consensus/crypto/rust-src/dodis_yampolskiy_prf" }
-# concordium_curve_arithmetic = { package = "curve_arithmetic", path = "deps/internal/consensus/crypto/rust-src/curve_arithmetic" }
+concordium_crypto_ec_vrf_ed25519_sha256 = { package = "ec_vrf_ed25519_sha256", path = "deps/internal/crypto/rust-src/ec_vrf_ed25519_sha256" }
+concordium_crypto_eddsa_ed25519 = { package = "eddsa_ed25519", path = "deps/internal/crypto/rust-src/eddsa_ed25519" }
+concordium_crypto_sha2 = { package = "sha_2", path = "deps/internal/crypto/rust-src/sha_2" }
+concordium_crypto_elgamal = { package = "elgamal", path = "deps/internal/crypto/rust-src/elgamal" }
+concordium_crypto_pedersen_scheme = { package = "pedersen_scheme", path = "deps/internal/crypto/rust-src/pedersen_scheme" }
+concordium_dodis_yampolskiy_prf = { package = "dodis_yampolskiy_prf", path = "deps/internal/crypto/rust-src/dodis_yampolskiy_prf" }
+# concordium_curve_arithmetic = { package = "curve_arithmetic", path = "deps/internal/crypto/rust-src/curve_arithmetic" }
 concordium-common = { path = "concordium-common" }
 # External dependencies
 structopt = "0.2"
@@ -98,9 +98,10 @@ grpc = "0.6.1"
 
 [target.'cfg(unix)'.dependencies]
 get_if_addrs = { version = "0.5" }
-grpciounix = { package = 'grpcio', version = "0.4.4", default-features = false, features = [
+grpciounix = { package = "grpcio", git = "ssh://git@gitlab.com:22/Concordium/rust/external/grpc-rs.git", version = "0.4.4", rev = "dff66a519324661039a8cea919336c0c628d2409", default-features = false, features = [
   "protobuf-codec"
 ] }
+
 grpc = "0.6.1"
 uuid = { version = "0.7", default-features = false, optional = true }
 

@@ -273,6 +273,22 @@ then
     ARGS="$ARGS --cleanup-interval $COLLECTOR_BACKEND_CLEANUP_INTERVAL"
 fi
 
+
+if [ -n "$BUCKET_CLEANUP_INTERVAL" ];
+then
+    ARGS="$ARGS --bucket_cleanup_interval $BUCKET_CLEANUP_INTERVAL"
+fi
+
+if [ -n "$TIMEOUT_BUCKET_ENTRY_PERIOD" ];
+then
+    ARGS="$ARGS --timeout-bucket-entry-period $TIMEOUT_BUCKET_ENTRY_PERIOD"
+fi
+
+if [ -n "$BOOTSTRAPPER_TIMEOUT_BUCKET_ENTRY_PERIOD" ];
+then
+    ARGS="$ARGS --bootstrapper-timeout-bucket-entry-period $BOOTSTRAPPER_TIMEOUT_BUCKET_ENTRY_PERIOD"
+fi
+
 if [ "$MODE" == "tps_receiver" ]; then
     echo "Receiver!"
     /p2p_client-cli \

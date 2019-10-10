@@ -1,7 +1,9 @@
 #[macro_use]
 extern crate criterion;
 
-use concordium_common::hybrid_buf::HybridBuf;
+use byteorder::{WriteBytesExt, BE};
+use concordium_common::{hybrid_buf::HybridBuf, PacketType};
+use failure::Fallible;
 
 use p2p_client::{
     common::{P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType},
@@ -11,7 +13,7 @@ use p2p_client::{
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 
 use std::{
-    convert::TryFrom,
+    io::Write,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     str::FromStr,
 };
@@ -35,12 +37,20 @@ pub fn generate_random_data(size: usize) -> Vec<u8> {
         .collect()
 }
 
+pub fn generate_fake_block(size: usize) -> Fallible<HybridBuf> {
+    let mut buffer = HybridBuf::with_capacity(size + 2)?;
+    buffer.write_u16::<BE>(PacketType::Block as u16)?;
+    buffer.write_all(&generate_random_data(size))?;
+    buffer.rewind()?;
+    Ok(buffer)
+}
+
 pub fn create_random_packet(size: usize) -> NetworkMessage {
     NetworkMessage::NetworkPacket(
         NetworkPacket {
             packet_type: NetworkPacketType::DirectMessage(P2PNodeId::from_str(&"2A").unwrap()),
             network_id:  NetworkId::from(100u16),
-            message:     HybridBuf::try_from(generate_random_data(size)).unwrap(),
+            message:     generate_fake_block(size).unwrap(),
         },
         Some(10),
         None,
@@ -115,12 +125,10 @@ mod network {
 
         use criterion::Criterion;
 
+        use std::io::{Cursor, Seek, SeekFrom};
+
         pub fn bench_s11n_001_direct_message_256(b: &mut Criterion) {
             bench_s11n_001_direct_message(b, 256)
-        }
-
-        pub fn bench_s11n_001_direct_message_512(b: &mut Criterion) {
-            bench_s11n_001_direct_message(b, 512)
         }
 
         pub fn bench_s11n_001_direct_message_1k(b: &mut Criterion) {
@@ -129,10 +137,6 @@ mod network {
 
         pub fn bench_s11n_001_direct_message_4k(b: &mut Criterion) {
             bench_s11n_001_direct_message(b, 4096)
-        }
-
-        pub fn bench_s11n_001_direct_message_32k(b: &mut Criterion) {
-            bench_s11n_001_direct_message(b, 32 * 1024)
         }
 
         pub fn bench_s11n_001_direct_message_64k(b: &mut Criterion) {
@@ -155,20 +159,19 @@ mod network {
             bench_s11n_001_direct_message(b, 16 * 1024 * 1024)
         }
 
-        fn bench_s11n_001_direct_message(c: &mut Criterion, content_size: usize) {
-            let buffer = HybridBuf::try_from(generate_random_data(content_size)).unwrap();
+        fn bench_s11n_001_direct_message(c: &mut Criterion, size: usize) {
+            let packet = create_random_packet(size);
+            let mut serialized = Cursor::new(Vec::with_capacity(size));
+            packet.serial(&mut serialized).unwrap();
 
-            let bench_id = format!(
-                "Deserialization of DirectMessages with a {}B payload",
-                content_size
-            );
+            let bench_id = format!("Deserialization of a packet with a {}B payload", size);
 
             c.bench_function(&bench_id, move |b| {
-                let mut buffer = buffer.clone();
+                let mut serialized = serialized.clone();
 
                 b.iter(move || {
-                    buffer.rewind().unwrap();
-                    NetworkMessage::deserial(&mut buffer).unwrap();
+                    serialized.seek(SeekFrom::Start(0)).unwrap();
+                    NetworkMessage::deserial(&mut serialized).unwrap();
                 })
             });
         }
@@ -202,6 +205,7 @@ mod network {
 
     pub mod connection {
         use crate::*;
+
         use criterion::Criterion;
         use p2p_client::{
             common::PeerType,
@@ -238,7 +242,8 @@ mod network {
             connect(&mut node_1, &node_2).unwrap();
             await_handshake(&node_1).unwrap();
 
-            let mut msg = HybridBuf::try_from(generate_random_data(size)).unwrap();
+            let mut packet_buffer = generate_fake_block(size).unwrap();
+
             let bench_id = format!("P2P network using {}B messages", size);
 
             c.bench_function(&bench_id, move |b| {
@@ -251,14 +256,14 @@ mod network {
                         Some(node_2.id()),
                         vec![],
                         net_id,
-                        msg.clone(),
+                        packet_buffer.clone(),
                         false,
                     )
                     .unwrap();
                     // FIXME count packets and other messages separately
                     // let mut msg_recv = await_direct_message(&msg_waiter_2).unwrap();
                     // assert_eq!(msg.len().unwrap(), msg_recv.remaining_len().unwrap());
-                    msg.rewind().unwrap();
+                    packet_buffer.rewind().unwrap();
                 });
             });
         }
@@ -286,20 +291,12 @@ mod serialization {
             bench_s11n_001_direct_message(b, 256)
         }
 
-        pub fn bench_s11n_001_direct_message_512(b: &mut Criterion) {
-            bench_s11n_001_direct_message(b, 512)
-        }
-
         pub fn bench_s11n_001_direct_message_1k(b: &mut Criterion) {
             bench_s11n_001_direct_message(b, 1024)
         }
 
         pub fn bench_s11n_001_direct_message_4k(b: &mut Criterion) {
             bench_s11n_001_direct_message(b, 4096)
-        }
-
-        pub fn bench_s11n_001_direct_message_32k(b: &mut Criterion) {
-            bench_s11n_001_direct_message(b, 32 * 1024)
         }
 
         pub fn bench_s11n_001_direct_message_64k(b: &mut Criterion) {
@@ -309,36 +306,41 @@ mod serialization {
         pub fn bench_s11n_001_direct_message_256k(b: &mut Criterion) {
             bench_s11n_001_direct_message(b, 256 * 1024)
         }
+
+        pub fn bench_s11n_001_direct_message_1m(b: &mut Criterion) {
+            bench_s11n_001_direct_message(b, 1024 * 1024)
+        }
+
+        pub fn bench_s11n_001_direct_message_4m(b: &mut Criterion) {
+            bench_s11n_001_direct_message(b, 4 * 1024 * 1024)
+        }
+
+        pub fn bench_s11n_001_direct_message_16m(b: &mut Criterion) {
+            bench_s11n_001_direct_message(b, 16 * 1024 * 1024)
+        }
     }
 
     #[cfg(feature = "s11n_nom")]
     pub mod nom {
         use crate::*;
         use p2p_client::network::{
-            serialization::nom::s11n_network_message, NetworkId, NetworkPacket,
-            ProtocolMessageType, ProtocolPacketType, PROTOCOL_NAME,
+            serialization::nom::s11n_network_message, ProtocolMessageType, ProtocolPacketType,
         };
 
         use criterion::Criterion;
 
         fn bench_s11n_001_direct_message(c: &mut Criterion, content_size: usize) {
-            let header = format!(
-                "{}{}{}{}{}{}{}{}{:010}",
-                PROTOCOL_NAME,
-                "001",
-                base64::encode(&10u64.to_le_bytes()[..]),
-                ProtocolMessageType::Packet,
-                ProtocolPacketType::Direct,
-                localhost_peer().id(),
-                NetworkPacket::generate_message_id(),
-                NetworkId::from(111u16),
-                content_size
-            )
-            .into_bytes();
-
-            let content = generate_random_data(content_size);
-
-            let pkt = [header, content].concat();
+            let mut raw = std::io::Cursor::new(Vec::new());
+            raw.write_all(p2p_client::network::PROTOCOL_NAME.as_bytes())
+                .unwrap();
+            raw.write_u8(p2p_client::network::PROTOCOL_VERSION).unwrap();
+            raw.write_u64::<BE>(0).unwrap();
+            raw.write_u8(ProtocolMessageType::Packet as u8).unwrap();
+            raw.write_u8(ProtocolPacketType::Direct as u8).unwrap();
+            raw.write_u64::<BE>(9999).unwrap();
+            raw.write_u16::<BE>(111).unwrap();
+            raw.write_all(&generate_random_data(content_size)).unwrap();
+            let pkt = raw.into_inner();
 
             let bench_id = format!("NOM serialization with {}B messages", content_size);
             c.bench_function(&bench_id, move |b| {
@@ -350,10 +352,6 @@ mod serialization {
             bench_s11n_001_direct_message(b, 256)
         }
 
-        pub fn bench_s11n_001_direct_message_512(b: &mut Criterion) {
-            bench_s11n_001_direct_message(b, 512)
-        }
-
         pub fn bench_s11n_001_direct_message_1k(b: &mut Criterion) {
             bench_s11n_001_direct_message(b, 1024)
         }
@@ -362,16 +360,24 @@ mod serialization {
             bench_s11n_001_direct_message(b, 4096)
         }
 
-        pub fn bench_s11n_001_direct_message_32k(b: &mut Criterion) {
-            bench_s11n_001_direct_message(b, 32 * 1024)
-        }
-
         pub fn bench_s11n_001_direct_message_64k(b: &mut Criterion) {
             bench_s11n_001_direct_message(b, 64 * 1024)
         }
 
         pub fn bench_s11n_001_direct_message_256k(b: &mut Criterion) {
             bench_s11n_001_direct_message(b, 256 * 1024)
+        }
+
+        pub fn bench_s11n_001_direct_message_1m(b: &mut Criterion) {
+            bench_s11n_001_direct_message(b, 1024 * 1024)
+        }
+
+        pub fn bench_s11n_001_direct_message_4m(b: &mut Criterion) {
+            bench_s11n_001_direct_message(b, 4 * 1024 * 1024)
+        }
+
+        pub fn bench_s11n_001_direct_message_16m(b: &mut Criterion) {
+            bench_s11n_001_direct_message(b, 16 * 1024 * 1024)
         }
     }
 
@@ -379,39 +385,23 @@ mod serialization {
     pub mod capnp {
         use crate::*;
 
-        use p2p_client::{
-            common::{P2PPeerBuilder, PeerType},
-            network::serialization::cap::{deserialize, save_network_message},
-        };
+        use p2p_client::network::serialization::cap::{deserialize, save_network_message};
 
         use criterion::Criterion;
 
-        use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+        use std::net::{IpAddr, Ipv4Addr};
 
         fn bench_s11n_001_direct_message(c: &mut Criterion, content_size: usize) {
-            let local_ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
-            let local_peer = P2PPeerBuilder::default()
-                .peer_type(PeerType::Node)
-                .addr(SocketAddr::new(local_ip, 8888))
-                .build()
-                .unwrap();
-
             let mut dm = create_random_packet(content_size);
 
             let data: Vec<u8> = save_network_message(&mut dm);
 
             let bench_id = format!("CAPnP serialization with {}B messages", content_size);
-            c.bench_function(&bench_id, move |b| {
-                b.iter(|| deserialize(&local_peer, &local_ip, &data))
-            });
+            c.bench_function(&bench_id, move |b| b.iter(|| deserialize(&data)));
         }
 
         pub fn bench_s11n_001_direct_message_256(b: &mut Criterion) {
             bench_s11n_001_direct_message(b, 256)
-        }
-
-        pub fn bench_s11n_001_direct_message_512(b: &mut Criterion) {
-            bench_s11n_001_direct_message(b, 512)
         }
 
         pub fn bench_s11n_001_direct_message_1k(b: &mut Criterion) {
@@ -422,10 +412,6 @@ mod serialization {
             bench_s11n_001_direct_message(b, 4096)
         }
 
-        pub fn bench_s11n_001_direct_message_32k(b: &mut Criterion) {
-            bench_s11n_001_direct_message(b, 32 * 1024)
-        }
-
         pub fn bench_s11n_001_direct_message_64k(b: &mut Criterion) {
             bench_s11n_001_direct_message(b, 64 * 1024)
         }
@@ -434,22 +420,19 @@ mod serialization {
             bench_s11n_001_direct_message(b, 256 * 1024)
         }
 
+        pub fn bench_s11n_001_direct_message_1m(b: &mut Criterion) {
+            bench_s11n_001_direct_message(b, 1024 * 1024)
+        }
+
+        pub fn bench_s11n_001_direct_message_4m(b: &mut Criterion) {
+            bench_s11n_001_direct_message(b, 4 * 1024 * 1024)
+        }
+
+        pub fn bench_s11n_001_direct_message_16m(b: &mut Criterion) {
+            bench_s11n_001_direct_message(b, 16 * 1024 * 1024)
+        }
     }
 }
-
-criterion_group!(
-    s11n_custom_benches,
-    network::message::bench_s11n_001_direct_message_256,
-    network::message::bench_s11n_001_direct_message_512,
-    network::message::bench_s11n_001_direct_message_1k,
-    network::message::bench_s11n_001_direct_message_4k,
-    network::message::bench_s11n_001_direct_message_32k,
-    network::message::bench_s11n_001_direct_message_64k,
-    network::message::bench_s11n_001_direct_message_256k,
-    network::message::bench_s11n_001_direct_message_1m,
-    network::message::bench_s11n_001_direct_message_4m,
-    network::message::bench_s11n_001_direct_message_16m,
-);
 
 criterion_group!(
     s11n_get_peers,
@@ -458,16 +441,44 @@ criterion_group!(
     network::message::bench_s11n_get_peers_200
 );
 
+criterion_group!(
+    s11n_our_benches,
+    network::message::bench_s11n_001_direct_message_256,
+    network::message::bench_s11n_001_direct_message_1k,
+    network::message::bench_s11n_001_direct_message_4k,
+    network::message::bench_s11n_001_direct_message_64k,
+    network::message::bench_s11n_001_direct_message_256k,
+    network::message::bench_s11n_001_direct_message_1m,
+    network::message::bench_s11n_001_direct_message_4m,
+    network::message::bench_s11n_001_direct_message_16m,
+);
+
+#[cfg(feature = "s11n_capnp")]
+criterion_group!(
+    s11n_capnp_benches,
+    serialization::capnp::bench_s11n_001_direct_message_256,
+    serialization::capnp::bench_s11n_001_direct_message_1k,
+    serialization::capnp::bench_s11n_001_direct_message_4k,
+    serialization::capnp::bench_s11n_001_direct_message_64k,
+    serialization::capnp::bench_s11n_001_direct_message_256k,
+    serialization::capnp::bench_s11n_001_direct_message_1m,
+    serialization::capnp::bench_s11n_001_direct_message_4m,
+    serialization::capnp::bench_s11n_001_direct_message_16m,
+);
+#[cfg(not(feature = "s11n_capnp"))]
+criterion_group!(s11n_capnp_benches, common::nop_bench);
+
 #[cfg(feature = "s11n_serde_cbor")]
 criterion_group!(
     s11n_cbor_benches,
     serialization::serde_cbor::bench_s11n_001_direct_message_256,
-    serialization::serde_cbor::bench_s11n_001_direct_message_512,
     serialization::serde_cbor::bench_s11n_001_direct_message_1k,
     serialization::serde_cbor::bench_s11n_001_direct_message_4k,
-    serialization::serde_cbor::bench_s11n_001_direct_message_32k,
     serialization::serde_cbor::bench_s11n_001_direct_message_64k,
     serialization::serde_cbor::bench_s11n_001_direct_message_256k,
+    serialization::serde_cbor::bench_s11n_001_direct_message_1m,
+    serialization::serde_cbor::bench_s11n_001_direct_message_4m,
+    serialization::serde_cbor::bench_s11n_001_direct_message_16m,
 );
 #[cfg(not(feature = "s11n_serde_cbor"))]
 criterion_group!(s11n_cbor_benches, common::nop_bench);
@@ -476,29 +487,16 @@ criterion_group!(s11n_cbor_benches, common::nop_bench);
 criterion_group!(
     s11n_nom_benches,
     serialization::nom::bench_s11n_001_direct_message_256,
-    serialization::nom::bench_s11n_001_direct_message_512,
     serialization::nom::bench_s11n_001_direct_message_1k,
     serialization::nom::bench_s11n_001_direct_message_4k,
-    serialization::nom::bench_s11n_001_direct_message_32k,
     serialization::nom::bench_s11n_001_direct_message_64k,
     serialization::nom::bench_s11n_001_direct_message_256k,
+    serialization::nom::bench_s11n_001_direct_message_1m,
+    serialization::nom::bench_s11n_001_direct_message_4m,
+    serialization::nom::bench_s11n_001_direct_message_16m,
 );
 #[cfg(not(feature = "s11n_nom"))]
 criterion_group!(s11n_nom_benches, common::nop_bench);
-
-#[cfg(feature = "s11n_capnp")]
-criterion_group!(
-    s11n_capnp_benches,
-    serialization::capnp::bench_s11n_001_direct_message_256,
-    serialization::capnp::bench_s11n_001_direct_message_512,
-    serialization::capnp::bench_s11n_001_direct_message_1k,
-    serialization::capnp::bench_s11n_001_direct_message_4k,
-    serialization::capnp::bench_s11n_001_direct_message_32k,
-    serialization::capnp::bench_s11n_001_direct_message_64k,
-    serialization::capnp::bench_s11n_001_direct_message_256k,
-);
-#[cfg(not(feature = "s11n_capnp"))]
-criterion_group!(s11n_capnp_benches, common::nop_bench);
 
 criterion_group!(
     name = p2p_net;
@@ -519,11 +517,11 @@ criterion_group!(
 );
 
 criterion_main!(
-    dedup,
-    p2p_net,
-    s11n_get_peers,
-    // s11n_custom_benches,
+    // dedup,
+    // p2p_net,
+    // s11n_get_peers,
+    s11n_our_benches,
+    s11n_capnp_benches,
     s11n_cbor_benches,
     s11n_nom_benches,
-    s11n_capnp_benches
 );

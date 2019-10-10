@@ -1,21 +1,19 @@
 mod s11n {
+    use capnp::serialize_packed;
+    use failure::Fallible;
+
+    use concordium_common::hybrid_buf::HybridBuf;
+
     use crate::{
-        common::{P2PNodeId, P2PPeer, PeerType},
+        common::P2PNodeId,
         network::{
-            packet::MessageId, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType,
-            NetworkRequest, NetworkResponse,
+            NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType, NetworkRequest,
+            NetworkResponse,
         },
         p2p_capnp,
     };
 
-    use concordium_common::hybrid_buf::HybridBuf;
-
-    use ::capnp::serialize;
-    use std::{
-        io::Cursor,
-        net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
-        sync::Arc,
-    };
+    use std::{convert::TryFrom, io::Cursor};
 
     #[inline(always)]
     fn load_p2p_node_id(
@@ -25,97 +23,41 @@ mod s11n {
     }
 
     #[inline(always)]
-    fn load_ip_addr(ip_addr: &p2p_capnp::ip_addr::Reader) -> ::capnp::Result<IpAddr> {
-        match ip_addr.which()? {
-            p2p_capnp::ip_addr::Which::V4(v4_res) => {
-                let v4 = &v4_res?;
-                Ok(IpAddr::V4(Ipv4Addr::new(
-                    v4.get_a(),
-                    v4.get_b(),
-                    v4.get_c(),
-                    v4.get_d(),
-                )))
+    fn load_packet_type(
+        packet_type: &p2p_capnp::packet_type::Reader,
+    ) -> ::capnp::Result<NetworkPacketType> {
+        match packet_type.which()? {
+            p2p_capnp::packet_type::Which::Direct(target_id) => {
+                let target_id = load_p2p_node_id(&target_id?)?;
+                Ok(NetworkPacketType::DirectMessage(target_id))
             }
-            p2p_capnp::ip_addr::Which::V6(v6_res) => {
-                let v6 = &v6_res?;
-                Ok(IpAddr::V6(Ipv6Addr::new(
-                    v6.get_a(),
-                    v6.get_b(),
-                    v6.get_c(),
-                    v6.get_d(),
-                    v6.get_e(),
-                    v6.get_f(),
-                    v6.get_g(),
-                    v6.get_h(),
-                )))
+            p2p_capnp::packet_type::Which::Broadcast(ids_to_exclude) => {
+                let ids_to_exclude = ids_to_exclude?;
+                let mut ids = Vec::with_capacity(ids_to_exclude.len() as usize);
+                for id in ids_to_exclude.iter() {
+                    ids.push(load_p2p_node_id(&id)?);
+                }
+                Ok(NetworkPacketType::BroadcastedMessage(ids))
             }
         }
-    }
-
-    #[inline(always)]
-    fn load_peer_type(peer_type: p2p_capnp::PeerType) -> PeerType {
-        match peer_type {
-            p2p_capnp::PeerType::Node => PeerType::Node,
-            p2p_capnp::PeerType::Bootstrapper => PeerType::Bootstrapper,
-        }
-    }
-
-    #[inline(always)]
-    fn load_p2p_peer(p2p_peer: &p2p_capnp::p2_p_peer::Reader) -> ::capnp::Result<P2PPeer> {
-        Ok(P2PPeer::from(
-            load_peer_type(p2p_peer.get_peer_type()?),
-            load_p2p_node_id(&p2p_peer.get_id()?)?,
-            SocketAddr::new(load_ip_addr(&p2p_peer.get_ip()?)?, p2p_peer.get_port()),
-        ))
-    }
-
-    #[inline(always)]
-    fn load_network_packet_direct(
-        direct: &p2p_capnp::network_packet_direct::Reader,
-        peer: &P2PPeer,
-        timestamp: u64,
-    ) -> ::capnp::Result<NetworkMessage> {
-        let msg_id = direct.get_msg_id()?;
-        let network_id = direct.get_network_id();
-        let receiver_id = load_p2p_node_id(&direct.get_receiver()?)?;
-        let msg = direct.get_msg()?;
-
-        let packet = NetworkPacket {
-            packet_type: NetworkPacketType::DirectMessage(receiver_id),
-            peer:        peer.to_owned(),
-            message_id:  MessageId::new(msg_id),
-            network_id:  NetworkId::from(network_id),
-            message:     HybridBuf::from(msg.to_vec()),
-        };
-
-        Ok(NetworkMessage::NetworkPacket(
-            Arc::new(packet),
-            Some(timestamp),
-            None,
-        ))
     }
 
     #[inline(always)]
     fn load_network_packet(
         packet: &p2p_capnp::network_packet::Reader,
-        peer: &P2PPeer,
-        _ip: &IpAddr,
     ) -> ::capnp::Result<NetworkMessage> {
-        match packet.which()? {
-            p2p_capnp::network_packet::Which::Direct(direct) => {
-                let timestamp = packet.get_timestamp();
-                load_network_packet_direct(&direct?, peer, timestamp)
-            }
-            _ => Ok(NetworkMessage::InvalidMessage),
-        }
-    }
+        let packet_type = load_packet_type(&packet.get_packet_type()?)?;
+        let network_id = NetworkId::from(packet.get_network_id());
+        let message = HybridBuf::try_from(packet.get_message()?)?;
+        let timestamp = packet.get_timestamp();
 
-    #[inline(always)]
-    fn load_request_ping(
-        ping: &p2p_capnp::request_ping::Reader,
-    ) -> ::capnp::Result<NetworkRequest> {
-        let peer = load_p2p_peer(&ping.get_peer()?);
-        Ok(NetworkRequest::Ping(peer?))
+        let packet = NetworkPacket {
+            packet_type,
+            network_id,
+            message,
+        };
+
+        Ok(NetworkMessage::NetworkPacket(packet, Some(timestamp), None))
     }
 
     #[inline(always)]
@@ -123,9 +65,7 @@ mod s11n {
         request: &p2p_capnp::network_request::Reader,
     ) -> ::capnp::Result<NetworkRequest> {
         match request.which()? {
-            p2p_capnp::network_request::Which::Ping(ping_reader) => {
-                load_request_ping(&ping_reader?)
-            }
+            p2p_capnp::network_request::Which::Ping(_) => Ok(NetworkRequest::Ping),
             _ => Err(capnp::Error::unimplemented(
                 "Network request type not implemented".to_owned(),
             )),
@@ -133,42 +73,26 @@ mod s11n {
     }
 
     #[inline(always)]
-    fn load_response_pong(
-        pong: &p2p_capnp::response_pong::Reader,
-    ) -> ::capnp::Result<NetworkResponse> {
-        let peer = load_p2p_peer(&pong.get_peer()?);
-        Ok(NetworkResponse::Pong(peer?))
-    }
-
-    #[inline(always)]
     fn load_network_response(
         response: &p2p_capnp::network_response::Reader,
     ) -> ::capnp::Result<NetworkResponse> {
         match response.which()? {
-            p2p_capnp::network_response::Which::Pong(pong_reader) => {
-                load_response_pong(&pong_reader?)
-            }
+            p2p_capnp::network_response::Which::Pong(_) => Ok(NetworkResponse::Pong),
             _ => Err(capnp::Error::unimplemented(
                 "Network response type not implemented".to_owned(),
             )),
         }
     }
 
-    pub fn load_from_slice(
-        peer: &P2PPeer,
-        ip: &IpAddr,
-        input: &[u8],
-    ) -> ::capnp::Result<NetworkMessage> {
+    pub fn load_from_slice(input: &[u8]) -> ::capnp::Result<NetworkMessage> {
         let mut buff = Cursor::new(input);
-        // let reader = serialize_packed::read_message(
-        let reader = serialize::read_message(&mut buff, capnp::message::ReaderOptions::default())?;
+        let reader =
+            serialize_packed::read_message(&mut buff, capnp::message::ReaderOptions::default())?;
 
         let nm = reader.get_root::<p2p_capnp::network_message::Reader>()?;
 
         match nm.which()? {
-            p2p_capnp::network_message::Which::Packet(packet) => {
-                load_network_packet(&packet?, peer, ip)
-            }
+            p2p_capnp::network_message::Which::Packet(packet) => load_network_packet(&packet?),
             p2p_capnp::network_message::Which::Request(request_reader_res) => {
                 if let Ok(request_reader) = request_reader_res {
                     let request = load_network_request(&request_reader)?;
@@ -191,143 +115,50 @@ mod s11n {
                     Ok(NetworkMessage::InvalidMessage)
                 }
             }
-            p2p_capnp::network_message::Which::Unknown(()) => Ok(NetworkMessage::UnknownMessage),
             _ => Ok(NetworkMessage::InvalidMessage),
         }
     }
 
     #[inline(always)]
-    fn write_p2p_node_id(
-        node_id_builder: &mut p2p_capnp::p2_p_node_id::Builder,
-        p2p_node_id: P2PNodeId,
+    fn write_packet_type(
+        builder: &mut p2p_capnp::packet_type::Builder,
+        packet_type: &NetworkPacketType,
     ) {
-        node_id_builder.set_id(p2p_node_id.0);
-    }
-
-    #[inline(always)]
-    fn write_peer_type(peer_type: PeerType) -> p2p_capnp::PeerType {
-        match peer_type {
-            PeerType::Node => p2p_capnp::PeerType::Node,
-            PeerType::Bootstrapper => p2p_capnp::PeerType::Bootstrapper,
-        }
-    }
-
-    #[inline(always)]
-    fn write_ip_addr_v4(
-        ip_addr_v4_builder: &mut p2p_capnp::ip_addr_v4::Builder,
-        ip_addr_v4: Ipv4Addr,
-    ) {
-        let octets: [u8; 4] = ip_addr_v4.octets();
-        ip_addr_v4_builder.set_a(octets[0]);
-        ip_addr_v4_builder.set_b(octets[1]);
-        ip_addr_v4_builder.set_c(octets[2]);
-        ip_addr_v4_builder.set_d(octets[3]);
-    }
-
-    #[inline(always)]
-    fn write_ip_addr_v6(
-        ip_addr_v6_builder: &mut p2p_capnp::ip_addr_v6::Builder,
-        ip_addr_v6: &Ipv6Addr,
-    ) {
-        let segments: [u16; 8] = ip_addr_v6.segments();
-        ip_addr_v6_builder.set_a(segments[0]);
-        ip_addr_v6_builder.set_b(segments[1]);
-        ip_addr_v6_builder.set_c(segments[2]);
-        ip_addr_v6_builder.set_d(segments[3]);
-        ip_addr_v6_builder.set_e(segments[4]);
-        ip_addr_v6_builder.set_f(segments[5]);
-        ip_addr_v6_builder.set_g(segments[6]);
-        ip_addr_v6_builder.set_h(segments[7]);
-    }
-
-    #[inline(always)]
-    fn write_ip_addr(builder: &mut p2p_capnp::ip_addr::Builder, ip_addr: IpAddr) {
-        match ip_addr {
-            IpAddr::V4(ip_addr_v4) => {
-                let mut v4_builder = builder.reborrow().init_v4();
-                write_ip_addr_v4(&mut v4_builder, ip_addr_v4);
+        match packet_type {
+            NetworkPacketType::DirectMessage(target_id) => {
+                let mut builder = builder.reborrow().init_direct();
+                builder.set_id(target_id.as_raw());
             }
-            IpAddr::V6(ip_addr_v6) => {
-                let mut v6_builder = builder.reborrow().init_v6();
-                write_ip_addr_v6(&mut v6_builder, &ip_addr_v6);
+            NetworkPacketType::BroadcastedMessage(ids_to_exclude) => {
+                let mut builder = builder
+                    .reborrow()
+                    .init_broadcast(ids_to_exclude.len() as u32);
+                for (i, id) in ids_to_exclude.iter().enumerate() {
+                    builder.reborrow().get(i as u32).set_id(id.as_raw());
+                }
             }
         }
-    }
-
-    #[inline(always)]
-    fn write_p2p_peer(builder: &mut p2p_capnp::p2_p_peer::Builder, peer: &P2PPeer) {
-        {
-            let mut ip_builder = builder.reborrow().init_ip();
-            let ip = peer.ip();
-            write_ip_addr(&mut ip_builder, ip);
-        }
-
-        builder.set_port(peer.port());
-        {
-            let mut builder_id = builder.reborrow().init_id();
-            let id = peer.id();
-            write_p2p_node_id(&mut builder_id, id);
-        }
-        builder.set_peer_type(write_peer_type(peer.peer_type()));
-    }
-
-    #[inline(always)]
-    fn write_network_packet_direct(
-        builder: &mut p2p_capnp::network_packet_direct::Builder,
-        peer: &P2PPeer,
-        msg_id: &MessageId,
-        receiver: P2PNodeId,
-        network_id: u16,
-        msg: &[u8],
-    ) {
-        {
-            let mut peer_builder = builder.reborrow().init_peer();
-            write_p2p_peer(&mut peer_builder, peer);
-        }
-        builder.set_msg_id(msg_id);
-
-        {
-            let mut node_id_builder = builder.reborrow().init_receiver();
-            write_p2p_node_id(&mut node_id_builder, receiver);
-        }
-
-        builder.set_network_id(network_id);
-        builder.set_msg(msg);
     }
 
     #[inline(always)]
     fn write_network_packet(
         builder: &mut p2p_capnp::network_packet::Builder,
-        np: &NetworkPacket,
+        packet: &mut NetworkPacket,
         timestamp: u64,
-    ) {
-        match np.packet_type {
-            NetworkPacketType::DirectMessage(receiver) => {
-                let view = np
-                    .message
-                    .clone()
-                    .into_vec()
-                    .expect("Not enought memory to serialize using CAPNP");
+    ) -> Fallible<()> {
+        let message = packet.message.remaining_bytes()?;
 
-                let mut direct_builder = builder.reborrow().init_direct();
-                write_network_packet_direct(
-                    &mut direct_builder,
-                    &np.peer,
-                    &np.message_id,
-                    receiver,
-                    np.network_id.id,
-                    view.as_slice(),
-                );
-            }
-            _ => panic!("Network Packet is not yet supported"),
-        };
+        write_packet_type(
+            &mut builder.reborrow().init_packet_type(),
+            &packet.packet_type,
+        );
+        builder.set_network_id(packet.network_id.id);
+        builder.set_message(&message);
         builder.set_timestamp(timestamp);
-    }
 
-    #[inline(always)]
-    fn write_request_ping(builder: &mut p2p_capnp::request_ping::Builder, peer: &P2PPeer) {
-        let mut peer_builder = builder.reborrow().init_peer();
-        write_p2p_peer(&mut peer_builder, peer);
+        packet.message.rewind().unwrap(); // FIXME; doesn't need to be here, it's just for the test
+
+        Ok(())
     }
 
     #[inline(always)]
@@ -337,19 +168,10 @@ mod s11n {
         timestamp: u64,
     ) {
         match request {
-            NetworkRequest::Ping(ref peer) => {
-                let mut ping_builder = builder.reborrow().init_ping();
-                write_request_ping(&mut ping_builder, peer);
-            }
+            NetworkRequest::Ping => builder.set_ping(()),
             _ => panic!("Network request is not yet supported"),
         };
         builder.set_timestamp(timestamp);
-    }
-
-    #[inline(always)]
-    fn write_response_pong(builder: &mut p2p_capnp::response_pong::Builder, peer: &P2PPeer) {
-        let mut peer_builder = builder.reborrow().init_peer();
-        write_p2p_peer(&mut peer_builder, peer);
     }
 
     #[inline(always)]
@@ -359,15 +181,13 @@ mod s11n {
         timestamp: u64,
     ) {
         match response {
-            NetworkResponse::Pong(ref peer) => {
-                let mut pong_builder = builder.reborrow().init_pong();
-                write_response_pong(&mut pong_builder, peer);
-            }
+            NetworkResponse::Pong => builder.set_pong(()),
             _ => panic!("Network response is not yet supported"),
         };
         builder.set_timestamp(timestamp);
     }
 
+    #[inline(always)]
     pub fn write_network_message(
         builder: &mut p2p_capnp::network_message::Builder,
         nm: &mut NetworkMessage,
@@ -376,7 +196,7 @@ mod s11n {
             NetworkMessage::NetworkPacket(ref mut np, ref timestamp_opt, _) => {
                 let timestamp: u64 = timestamp_opt.unwrap_or(0 as u64);
                 let mut packet_builder = builder.reborrow().init_packet();
-                write_network_packet(&mut packet_builder, np, timestamp);
+                write_network_packet(&mut packet_builder, np, timestamp).unwrap(); // FIXME
             }
             NetworkMessage::NetworkRequest(ref request, ref timestamp_opt, _) => {
                 let timestamp: u64 = timestamp_opt.unwrap_or(0 as u64);
@@ -393,11 +213,10 @@ mod s11n {
     }
 }
 
-use crate::{common::P2PPeer, network::NetworkMessage, p2p_capnp};
-use std::net::IpAddr;
+use crate::{network::NetworkMessage, p2p_capnp};
 
-pub fn deserialize(peer: &P2PPeer, ip: &IpAddr, input: &[u8]) -> NetworkMessage {
-    match s11n::load_from_slice(peer, ip, input) {
+pub fn deserialize(input: &[u8]) -> NetworkMessage {
+    match s11n::load_from_slice(input) {
         Ok(nm) => nm,
         Err(e) => {
             warn!("CAPNP error: {:?}", e);
@@ -413,68 +232,40 @@ pub fn save_network_message(nm: &mut NetworkMessage) -> Vec<u8> {
         s11n::write_network_message(&mut builder, nm);
     }
     let mut buffer = vec![];
-    assert!(capnp::serialize::write_message(&mut buffer, &message).is_ok());
+    assert!(capnp::serialize_packed::write_message(&mut buffer, &message).is_ok());
 
     buffer
 }
 
 #[cfg(test)]
 mod unit_test {
-    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-
     use super::{deserialize, save_network_message};
-    use concordium_common::{hybrid_buf::HybridBuf, SHA256};
-    use std::{str::FromStr, sync::Arc};
+    use concordium_common::hybrid_buf::HybridBuf;
+    use std::{convert::TryFrom, str::FromStr};
 
     use crate::{
-        common::{P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType},
+        common::P2PNodeId,
         network::{
-            packet::MessageId, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType,
-            NetworkRequest, NetworkResponse,
+            NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType, NetworkRequest,
+            NetworkResponse,
         },
     };
 
-    fn localhost_peer() -> P2PPeer {
-        P2PPeerBuilder::default()
-            .peer_type(PeerType::Node)
-            .id(P2PNodeId(100000u64))
-            .addr(SocketAddr::new(
-                IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-                8888,
-            ))
-            .build()
-            .unwrap()
-    }
-
     fn ut_s11n_001_data() -> Vec<(Vec<u8>, NetworkMessage)> {
-        let mut direct_message_content = HybridBuf::from(b"Hello world!".to_vec());
-        direct_message_content.rewind().unwrap();
+        let payload = HybridBuf::try_from(b"Hello world!".to_vec()).unwrap();
+
         let mut messages = vec![
-            NetworkMessage::NetworkRequest(
-                NetworkRequest::Ping(localhost_peer()),
-                Some(0 as u64),
-                None,
-            ),
-            NetworkMessage::NetworkRequest(
-                NetworkRequest::Ping(localhost_peer()),
-                Some(11529215046068469760),
-                None,
-            ),
-            NetworkMessage::NetworkResponse(
-                NetworkResponse::Pong(localhost_peer()),
-                Some(u64::max_value()),
-                None,
-            ),
+            NetworkMessage::NetworkRequest(NetworkRequest::Ping, Some(0 as u64), None),
+            NetworkMessage::NetworkRequest(NetworkRequest::Ping, Some(11529215046068469760), None),
+            NetworkMessage::NetworkResponse(NetworkResponse::Pong, Some(u64::max_value()), None),
             NetworkMessage::NetworkPacket(
-                Arc::new(NetworkPacket {
+                NetworkPacket {
                     packet_type: NetworkPacketType::DirectMessage(
                         P2PNodeId::from_str(&"2A").unwrap(),
                     ),
-                    peer:        localhost_peer(),
-                    message_id:  MessageId::new(&[0u8; SHA256 as usize]),
                     network_id:  NetworkId::from(111u16),
-                    message:     direct_message_content,
-                }),
+                    message:     payload,
+                },
                 Some(10),
                 None,
             ),
@@ -491,12 +282,9 @@ mod unit_test {
 
     #[test]
     fn ut_s11n_capnp_001() {
-        let local_ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
-        let local_peer = localhost_peer();
-
         let test_params = ut_s11n_001_data();
         for (data, expected) in test_params {
-            let output = deserialize(&local_peer, &local_ip, data.as_slice());
+            let output = deserialize(data.as_slice());
             assert_eq!(format!("{:?}", output), format!("{:?}", expected));
         }
     }
