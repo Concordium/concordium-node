@@ -344,7 +344,7 @@ impl P2PNode {
             tps_message_count: conf.cli.tps.tps_message_count,
             catch_up_batch_limit: conf.connection.catch_up_batch_limit,
             timeout_bucket_entry_period: if peer_type == PeerType::Bootstrapper {
-                conf.bootstrapper.timeout_bucket_entry_period
+                conf.bootstrapper.bootstrapper_timeout_bucket_entry_period
             } else {
                 conf.cli.timeout_bucket_entry_period
             },

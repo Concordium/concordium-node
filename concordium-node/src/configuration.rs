@@ -437,11 +437,11 @@ pub struct BootstrapperConfig {
     )]
     pub wait_until_minimum_nodes: u16,
     #[structopt(
-        long = "timeout-bucket-entry-period",
+        long = "bootstrapper-timeout-bucket-entry-period",
         help = "Timeout an entry in the buckets after a given period (in ms), 0 means never",
         default_value = "2700000"
     )]
-    pub timeout_bucket_entry_period: u64,
+    pub bootstrapper_timeout_bucket_entry_period: u64,
 }
 
 #[derive(StructOpt, Debug)]

@@ -284,6 +284,11 @@ then
     ARGS="$ARGS --timeout-bucket-entry-period $TIMEOUT_BUCKET_ENTRY_PERIOD"
 fi
 
+if [ -n "$BOOTSTRAPPER_TIMEOUT_BUCKET_ENTRY_PERIOD" ];
+then
+    ARGS="$ARGS --bootstrapper-timeout-bucket-entry-period $BOOTSTRAPPER_TIMEOUT_BUCKET_ENTRY_PERIOD"
+fi
+
 if [ "$MODE" == "tps_receiver" ]; then
     echo "Receiver!"
     /p2p_client-cli \
