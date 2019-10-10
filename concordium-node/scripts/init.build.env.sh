@@ -2,11 +2,7 @@
 
 set -e 
 
-if [ -f "CONSENSUS_VERSION" ] ; then
-    CONSENSUS_VERSION=$(cat CONSENSUS_VERSION)
-else
-    CONSENSUS_VERSION=`git submodule | grep consensus | head -n1 | awk '{print $1}'`
-fi
+CONSENSUS_VERSION=$(cat scripts/CONSENSUS_VERSION)
 
 ln -s /usr/lib/libtinfo.so.6 /usr/lib/libtinfo.so.5
 

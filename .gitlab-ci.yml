@@ -14,10 +14,7 @@ stages:
   script:
     - git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/
     - rustc --version && cargo --version
-    - git submodule update --init deps/internal/consensus
-    - cd deps/internal/consensus
-    - git submodule update --init crypto
-    - cd ../../..
+    - git submodule update --init deps/internal/crypto
     - scripts/download-static-libs.sh
     - ( cd concordium-global-state && cargo test --all --color=always)
     - ( cd concordium-consensus && cargo test --all --color=always --features=static)
@@ -57,13 +54,10 @@ stages:
   script:
     - git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/
     - rustc --version && cargo --version
-    - git submodule update --init deps/internal/consensus
-    - cd deps/internal/consensus
-    - git submodule update --init crypto
-    - cd ../../..
+    - git submodule update --init deps/internal/crypto
     - scripts/download-static-libs.sh
     - rustup component add clippy
-    - ( cd deps/internal/consensus/crypto/rust-src && cargo clean )
+    - ( cd deps/internal/crypto/rust-src && cargo clean )
     - cargo clean
     - echo "Running clippy with without extra features"
     - cargo clippy --color=always --all --features=static -- -Dclippy::all

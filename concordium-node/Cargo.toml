@@ -36,13 +36,13 @@ codegen-units = 1
 concordium-global-state = { path = "concordium-global-state" }
 concordium-consensus = { path = "concordium-consensus" }
 concordium-dns = { git = "ssh://git@gitlab.com:22/Concordium/rust/concordium-dns.git", branch = "master" }
-concordium_crypto_ec_vrf_ed25519_sha256 = { package = "ec_vrf_ed25519_sha256", path = "deps/internal/consensus/crypto/rust-src/ec_vrf_ed25519_sha256" }
-concordium_crypto_eddsa_ed25519 = { package = "eddsa_ed25519", path = "deps/internal/consensus/crypto/rust-src/eddsa_ed25519" }
-concordium_crypto_sha2 = { package = "sha_2", path = "deps/internal/consensus/crypto/rust-src/sha_2" }
-concordium_crypto_elgamal = { package = "elgamal", path = "deps/internal/consensus/crypto/rust-src/elgamal" }
-concordium_crypto_pedersen_scheme = { package = "pedersen_scheme", path = "deps/internal/consensus/crypto/rust-src/pedersen_scheme" }
-concordium_dodis_yampolskiy_prf = { package = "dodis_yampolskiy_prf", path = "deps/internal/consensus/crypto/rust-src/dodis_yampolskiy_prf" }
-# concordium_curve_arithmetic = { package = "curve_arithmetic", path = "deps/internal/consensus/crypto/rust-src/curve_arithmetic" }
+concordium_crypto_ec_vrf_ed25519_sha256 = { package = "ec_vrf_ed25519_sha256", path = "deps/internal/crypto/rust-src/ec_vrf_ed25519_sha256" }
+concordium_crypto_eddsa_ed25519 = { package = "eddsa_ed25519", path = "deps/internal/crypto/rust-src/eddsa_ed25519" }
+concordium_crypto_sha2 = { package = "sha_2", path = "deps/internal/crypto/rust-src/sha_2" }
+concordium_crypto_elgamal = { package = "elgamal", path = "deps/internal/crypto/rust-src/elgamal" }
+concordium_crypto_pedersen_scheme = { package = "pedersen_scheme", path = "deps/internal/crypto/rust-src/pedersen_scheme" }
+concordium_dodis_yampolskiy_prf = { package = "dodis_yampolskiy_prf", path = "deps/internal/crypto/rust-src/dodis_yampolskiy_prf" }
+# concordium_curve_arithmetic = { package = "curve_arithmetic", path = "deps/internal/crypto/rust-src/curve_arithmetic" }
 concordium-common = { path = "concordium-common" }
 # External dependencies
 structopt = "0.2"
