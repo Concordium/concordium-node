@@ -18,14 +18,14 @@ profiling = ["static"]
 [dependencies]
 concordium-common = { path = "../concordium-common" }
 concordium-global-state = { path = "../concordium-global-state" }
-# curve_arithmetic = { path = "../deps/internal/consensus/crypto/rust-src/curve_arithmetic" }
-dodis_yampolskiy_prf = { path = "../deps/internal/consensus/crypto/rust-src/dodis_yampolskiy_prf" }
-ec_vrf_ed25519_sha256 = { path = "../deps/internal/consensus/crypto/rust-src/ec_vrf_ed25519_sha256" }
-eddsa_ed25519 = { path = "../deps/internal/consensus/crypto/rust-src/eddsa_ed25519" }
-elgamal = { path = "../deps/internal/consensus/crypto/rust-src/elgamal" }
-pedersen_scheme = { path = "../deps/internal/consensus/crypto/rust-src/pedersen_scheme" }
-ps_sig = { path = "../deps/internal/consensus/crypto/rust-src/ps_sig" }
-sha_2 = { path = "../deps/internal/consensus/crypto/rust-src/sha_2" }
+# curve_arithmetic = { path = "../deps/internal/crypto/rust-src/curve_arithmetic" }
+dodis_yampolskiy_prf = { path = "../deps/internal/crypto/rust-src/dodis_yampolskiy_prf" }
+ec_vrf_ed25519_sha256 = { path = "../deps/internal/crypto/rust-src/ec_vrf_ed25519_sha256" }
+eddsa_ed25519 = { path = "../deps/internal/crypto/rust-src/eddsa_ed25519" }
+elgamal = { path = "../deps/internal/crypto/rust-src/elgamal" }
+pedersen_scheme = { path = "../deps/internal/crypto/rust-src/pedersen_scheme" }
+ps_sig = { path = "../deps/internal/crypto/rust-src/ps_sig" }
+sha_2 = { path = "../deps/internal/crypto/rust-src/sha_2" }
 libc = "0.2"
 log = "0.4"
 lazy_static = "^1.2"
