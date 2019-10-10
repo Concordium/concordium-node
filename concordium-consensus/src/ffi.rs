@@ -17,7 +17,6 @@ use crate::consensus::*;
 use concordium_common::{hybrid_buf::HybridBuf, serial::Serial, ConsensusFfiResponse, PacketType};
 use concordium_global_state::{
     block::*,
-    finalization::*,
     tree::{
         messaging::{ConsensusMessage, MessageType},
         GlobalState,
@@ -282,14 +281,6 @@ extern "C" {
         block_hash: *const u8,
         delta: Delta,
     ) -> *const u8;
-    pub fn getBlockFinalization(
-        consensus: *mut consensus_runner,
-        block_hash: *const u8,
-    ) -> *const u8;
-    pub fn getIndexedFinalization(
-        consensus: *mut consensus_runner,
-        finalization_index: FinalizationIndex,
-    ) -> *const u8;
     pub fn hookTransaction(
         consensus: *mut consensus_runner,
         transaction_hash: *const u8,
@@ -502,17 +493,6 @@ impl ConsensusContainer {
             _block_hash.as_ptr(),
             delta
         ))
-    }
-
-    pub fn get_block_finalization(&self, _block_hash: &[u8]) -> Vec<u8> {
-        wrap_c_call_bytes!(self, |consensus| getBlockFinalization(
-            consensus,
-            _block_hash.as_ptr()
-        ))
-    }
-
-    pub fn get_indexed_finalization(&self, index: FinalizationIndex) -> Vec<u8> {
-        wrap_c_call_bytes!(self, |consensus| getIndexedFinalization(consensus, index))
     }
 
     pub fn get_catch_up_status(&self) -> Vec<u8> {
