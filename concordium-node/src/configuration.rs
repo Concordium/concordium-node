@@ -372,11 +372,11 @@ pub struct CommonConfig {
     #[structopt(long = "print-config", help = "Print out config struct")]
     pub print_config: bool,
     #[structopt(
-        long = "timeout-bucket-entry-interval",
+        long = "bucket-cleanup-interval",
         help = "Try to timeout entries in the buckets every set interval (in ms)",
         default_value = "600000"
     )]
-    pub timeout_bucket_entry_interval: u64,
+    pub bucket_cleanup_interval: u64,
 }
 
 #[derive(StructOpt, Debug)]

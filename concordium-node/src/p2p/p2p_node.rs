@@ -89,7 +89,7 @@ pub struct P2PNodeConfig {
     pub tps_message_count: u64,
     pub catch_up_batch_limit: u64,
     pub timeout_bucket_entry_period: u64,
-    pub timeout_bucket_entry_interval: u64,
+    pub bucket_cleanup_interval: u64,
 }
 
 #[derive(Default)]
@@ -348,7 +348,7 @@ impl P2PNode {
             } else {
                 conf.cli.timeout_bucket_entry_period
             },
-            timeout_bucket_entry_interval: conf.common.timeout_bucket_entry_interval,
+            bucket_cleanup_interval: conf.common.bucket_cleanup_interval,
         };
 
         let (network_msgs_sender_hi, network_msgs_receiver_hi) =
@@ -580,9 +580,7 @@ impl P2PNode {
                 if self_clone.config.timeout_bucket_entry_period > 0 {
                     if let Ok(difference) = now.duration_since(last_buckets_cleaned) {
                         if difference
-                            >= Duration::from_millis(
-                                self_clone.config.timeout_bucket_entry_interval,
-                            )
+                            >= Duration::from_millis(self_clone.config.bucket_cleanup_interval)
                         {
                             write_or_die!(self_clone.connection_handler.buckets)
                                 .clean_buckets(self_clone.config.timeout_bucket_entry_period);

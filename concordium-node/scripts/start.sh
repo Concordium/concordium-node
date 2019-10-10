@@ -274,9 +274,9 @@ then
 fi
 
 
-if [ -n "$TIMEOUT_BUCKET_ENTRY_INTERVAL" ];
+if [ -n "$BUCKET_CLEANUP_INTERVAL" ];
 then
-    ARGS="$ARGS --timeout-bucket-entry-interval $TIMEOUT_BUCKET_ENTRY_INTERVAL"
+    ARGS="$ARGS --bucket_cleanup_interval $BUCKET_CLEANUP_INTERVAL"
 fi
 
 if [ -n "$TIMEOUT_BUCKET_ENTRY_PERIOD" ];
