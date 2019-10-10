@@ -19,8 +19,8 @@ mod unit_test {
     use crate::{
         common::P2PNodeId,
         network::{
-            NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType, NetworkRequest,
-            NetworkResponse,
+            NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkPacketType,
+            NetworkRequest, NetworkResponse,
         },
     };
 
@@ -28,18 +28,30 @@ mod unit_test {
         let mut direct_message_content = HybridBuf::try_from(b"Hello world!".to_vec()).unwrap();
         direct_message_content.rewind().unwrap();
         let messages = vec![
-            NetworkMessage::NetworkRequest(NetworkRequest::Ping, Some(0 as u64), None),
-            NetworkMessage::NetworkRequest(NetworkRequest::Ping, Some(11529215046068469760), None),
-            NetworkMessage::NetworkResponse(NetworkResponse::Pong, Some(u64::max_value()), None),
-            NetworkMessage::NetworkPacket(
-                NetworkPacket {
+            NetworkMessage {
+                timestamp1: Some(0),
+                timestamp2: None,
+                payload:    NetworkMessagePayload::NetworkRequest(NetworkRequest::Ping),
+            },
+            NetworkMessage {
+                timestamp1: Some(11529215046068469760),
+                timestamp2: None,
+                payload:    NetworkMessagePayload::NetworkRequest(NetworkRequest::Ping),
+            },
+            NetworkMessage {
+                timestamp1: Some(u64::max_value()),
+                timestamp2: None,
+                payload:    NetworkMessagePayload::NetworkResponse(NetworkResponse::Pong),
+            },
+            NetworkMessage {
+                timestamp1: Some(10),
+                timestamp2: None,
+                payload:    NetworkMessagePayload::NetworkPacket(NetworkPacket {
                     packet_type: NetworkPacketType::DirectMessage(P2PNodeId::default()),
                     network_id:  NetworkId::from(100u16),
                     message:     direct_message_content,
-                },
-                Some(10),
-                None,
-            ),
+                }),
+            },
         ];
 
         let mut messages_data: Vec<(Vec<u8>, NetworkMessage)> = Vec::with_capacity(messages.len());

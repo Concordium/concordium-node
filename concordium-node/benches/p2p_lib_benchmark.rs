@@ -7,7 +7,7 @@ use failure::Fallible;
 
 use p2p_client::{
     common::{P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType},
-    network::{NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType},
+    network::{NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkPacketType},
 };
 
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
@@ -46,15 +46,15 @@ pub fn generate_fake_block(size: usize) -> Fallible<HybridBuf> {
 }
 
 pub fn create_random_packet(size: usize) -> NetworkMessage {
-    NetworkMessage::NetworkPacket(
-        NetworkPacket {
+    NetworkMessage {
+        timestamp1: Some(10),
+        timestamp2: None,
+        payload:    NetworkMessagePayload::NetworkPacket(NetworkPacket {
             packet_type: NetworkPacketType::DirectMessage(P2PNodeId::from_str(&"2A").unwrap()),
             network_id:  NetworkId::from(100u16),
             message:     generate_fake_block(size).unwrap(),
-        },
-        Some(10),
-        None,
-    )
+        }),
+    }
 }
 
 #[cfg(any(
@@ -118,10 +118,7 @@ mod network {
     pub mod message {
         use crate::*;
         use concordium_common::serial::Serial;
-        use p2p_client::{
-            common::get_current_stamp,
-            network::{NetworkMessage, NetworkResponse},
-        };
+        use p2p_client::network::{NetworkMessage, NetworkMessagePayload, NetworkResponse};
 
         use criterion::Criterion;
 
@@ -183,11 +180,13 @@ mod network {
         pub fn bench_s11n_get_peers_200(c: &mut Criterion) { bench_s11n_get_peers(c, 200) }
 
         fn bench_s11n_get_peers(c: &mut Criterion, size: usize) {
-            let peer_list_msg = NetworkMessage::NetworkResponse(
-                NetworkResponse::PeerList(vec![localhost_peer(); size]),
-                Some(get_current_stamp()),
-                None,
-            );
+            let peer_list_msg = NetworkMessage {
+                timestamp1: Some(10),
+                timestamp2: None,
+                payload:    NetworkMessagePayload::NetworkResponse(NetworkResponse::PeerList(
+                    vec![localhost_peer(); size],
+                )),
+            };
 
             let bench_id = format!("Deserialization of PeerList responses with {} peers ", size);
 
@@ -327,8 +326,6 @@ mod serialization {
         use p2p_client::network::serialization::cap::{deserialize, save_network_message};
 
         use criterion::Criterion;
-
-        use std::net::{IpAddr, Ipv4Addr};
 
         fn bench_s11n_001_direct_message(c: &mut Criterion, content_size: usize) {
             let mut dm = create_random_packet(content_size);

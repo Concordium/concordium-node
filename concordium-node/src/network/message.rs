@@ -23,6 +23,7 @@ pub struct NetworkMessage {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum NetworkMessagePayload {
     NetworkRequest(NetworkRequest),
     NetworkResponse(NetworkResponse),

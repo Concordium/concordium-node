@@ -5,11 +5,11 @@ struct P2PNodeId {
 }
 
 struct NetworkMessage {
+    timestamp @0 :UInt64;
     union {
-        packet @0 :NetworkPacket;
-        request @1 :NetworkRequest;
-        response @2 :NetworkResponse;
-        invalid @3 :Void;
+        packet @1 :NetworkPacket;
+        request @2 :NetworkRequest;
+        response @3 :NetworkResponse;
     }
 }
 
@@ -17,8 +17,6 @@ struct NetworkPacket {
     packetType @0 :PacketType;
     networkId @1 :UInt16;
     message @2 :Data;
-    timestamp @3 :UInt64;
-    other @4 :UInt64;
 }
 
 struct PacketType {
@@ -37,8 +35,6 @@ struct NetworkRequest {
         ping @0 :Void;
         findNode @1 :RequestFindNode;
     }
-    timestamp @2 :UInt64;
-    other @3 :UInt64;
 }
 
 struct ResponseFindNode {
@@ -50,6 +46,4 @@ struct NetworkResponse {
         pong @0 :Void;
         findNode @1 :ResponseFindNode;
     }
-    timestamp @2 :UInt64;
-    other @3 :UInt64;
 }
