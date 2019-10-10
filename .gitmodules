@@ -1,4 +1,0 @@
-[submodule "deps/internal/consensus"]
-	path = deps/internal/consensus
-	url = ../consensus/prototype.git
-	branch = master
