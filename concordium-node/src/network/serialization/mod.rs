@@ -1,6 +1,3 @@
-#[cfg(feature = "s11n_nom")]
-pub mod nom;
-
 #[cfg(feature = "s11n_serde_cbor")]
 pub mod cbor;
 

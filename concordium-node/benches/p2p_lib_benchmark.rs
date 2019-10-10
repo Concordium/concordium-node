@@ -320,67 +320,6 @@ mod serialization {
         }
     }
 
-    #[cfg(feature = "s11n_nom")]
-    pub mod nom {
-        use crate::*;
-        use p2p_client::network::{
-            serialization::nom::s11n_network_message, ProtocolMessageType, ProtocolPacketType,
-        };
-
-        use criterion::Criterion;
-
-        fn bench_s11n_001_direct_message(c: &mut Criterion, content_size: usize) {
-            let mut raw = std::io::Cursor::new(Vec::new());
-            raw.write_all(p2p_client::network::PROTOCOL_NAME.as_bytes())
-                .unwrap();
-            raw.write_u8(p2p_client::network::PROTOCOL_VERSION).unwrap();
-            raw.write_u64::<BE>(0).unwrap();
-            raw.write_u8(ProtocolMessageType::Packet as u8).unwrap();
-            raw.write_u8(ProtocolPacketType::Direct as u8).unwrap();
-            raw.write_u64::<BE>(9999).unwrap();
-            raw.write_u16::<BE>(111).unwrap();
-            raw.write_all(&generate_random_data(content_size)).unwrap();
-            let pkt = raw.into_inner();
-
-            let bench_id = format!("NOM serialization with {}B messages", content_size);
-            c.bench_function(&bench_id, move |b| {
-                b.iter(|| s11n_network_message(&pkt));
-            });
-        }
-
-        pub fn bench_s11n_001_direct_message_256(b: &mut Criterion) {
-            bench_s11n_001_direct_message(b, 256)
-        }
-
-        pub fn bench_s11n_001_direct_message_1k(b: &mut Criterion) {
-            bench_s11n_001_direct_message(b, 1024)
-        }
-
-        pub fn bench_s11n_001_direct_message_4k(b: &mut Criterion) {
-            bench_s11n_001_direct_message(b, 4096)
-        }
-
-        pub fn bench_s11n_001_direct_message_64k(b: &mut Criterion) {
-            bench_s11n_001_direct_message(b, 64 * 1024)
-        }
-
-        pub fn bench_s11n_001_direct_message_256k(b: &mut Criterion) {
-            bench_s11n_001_direct_message(b, 256 * 1024)
-        }
-
-        pub fn bench_s11n_001_direct_message_1m(b: &mut Criterion) {
-            bench_s11n_001_direct_message(b, 1024 * 1024)
-        }
-
-        pub fn bench_s11n_001_direct_message_4m(b: &mut Criterion) {
-            bench_s11n_001_direct_message(b, 4 * 1024 * 1024)
-        }
-
-        pub fn bench_s11n_001_direct_message_16m(b: &mut Criterion) {
-            bench_s11n_001_direct_message(b, 16 * 1024 * 1024)
-        }
-    }
-
     #[cfg(feature = "s11n_capnp")]
     pub mod capnp {
         use crate::*;
@@ -483,21 +422,6 @@ criterion_group!(
 #[cfg(not(feature = "s11n_serde_cbor"))]
 criterion_group!(s11n_cbor_benches, common::nop_bench);
 
-#[cfg(feature = "s11n_nom")]
-criterion_group!(
-    s11n_nom_benches,
-    serialization::nom::bench_s11n_001_direct_message_256,
-    serialization::nom::bench_s11n_001_direct_message_1k,
-    serialization::nom::bench_s11n_001_direct_message_4k,
-    serialization::nom::bench_s11n_001_direct_message_64k,
-    serialization::nom::bench_s11n_001_direct_message_256k,
-    serialization::nom::bench_s11n_001_direct_message_1m,
-    serialization::nom::bench_s11n_001_direct_message_4m,
-    serialization::nom::bench_s11n_001_direct_message_16m,
-);
-#[cfg(not(feature = "s11n_nom"))]
-criterion_group!(s11n_nom_benches, common::nop_bench);
-
 criterion_group!(
     name = p2p_net;
     config = network::connection::bench_config(10);
@@ -523,5 +447,4 @@ criterion_main!(
     s11n_our_benches,
     s11n_capnp_benches,
     s11n_cbor_benches,
-    s11n_nom_benches,
 );

@@ -14,9 +14,6 @@ pub const NETWORK_MESSAGE_PROTOCOL_TYPE_IDX: usize = 4 + // PROTOCOL_NAME.len()
     1 + // PROTOCOL_VERSION
     8; // Timestamp: get_current_stamp
 
-#[cfg(feature = "s11n_nom")]
-use crate::network::serialization::nom::s11n_network_message;
-
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum NetworkMessage {
@@ -24,19 +21,6 @@ pub enum NetworkMessage {
     NetworkResponse(NetworkResponse, Option<u64>, Option<u64>),
     NetworkPacket(NetworkPacket, Option<u64>, Option<u64>),
     InvalidMessage,
-}
-
-impl NetworkMessage {
-    #[cfg(feature = "s11n_nom")]
-    pub fn deserialize_nom(bytes: &[u8]) -> NetworkMessage {
-        match s11n_network_message(bytes) {
-            Ok(msg) => msg.1,
-            Err(e) => {
-                warn!("Network deserialization has failed {}", e);
-                NetworkMessage::InvalidMessage
-            }
-        }
-    }
 }
 
 impl AsProtocolMessageType for NetworkMessage {
