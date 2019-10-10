@@ -5,7 +5,7 @@ set -e
 cwd=$(dirname $0)
 . $cwd/config.sh
 final_state=0
-CONSENSUS_VERSION_TAG=$( ( cd $cwd/../../deps/internal/consensus && git rev-parse --verify HEAD ) )
+CONSENSUS_VERSION_TAG=$( cat $cwd/../CONSENSUS_VERSION )
 
 ( 
     cd $cwd 
