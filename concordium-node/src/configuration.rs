@@ -371,6 +371,12 @@ pub struct CommonConfig {
     pub min_peers_bucket: usize,
     #[structopt(long = "print-config", help = "Print out config struct")]
     pub print_config: bool,
+    #[structopt(
+        long = "timeout-bucket-entry-interval",
+        help = "Try to timeout entries in the buckets every set interval",
+        default_value = "600000"
+    )]
+    pub timeout_bucket_entry_interval: u64,
 }
 
 #[derive(StructOpt, Debug)]
@@ -406,6 +412,12 @@ pub struct CliConfig {
     #[cfg(feature = "beta")]
     #[structopt(long = "beta-token", help = "Beta client token")]
     pub beta_token: String,
+    #[structopt(
+        long = "timeout-bucket-entry-period",
+        help = "Timeout an entry in the buckets after a given period (in ms), 0 means never",
+        default_value = "0"
+    )]
+    pub timeout_bucket_entry_period: u64,
 }
 
 #[derive(StructOpt, Debug)]
@@ -424,6 +436,12 @@ pub struct BootstrapperConfig {
         default_value = "0"
     )]
     pub wait_until_minimum_nodes: u16,
+    #[structopt(
+        long = "timeout-bucket-entry-period",
+        help = "Timeout an entry in the buckets after a given period (in ms), 0 means never",
+        default_value = "2700000"
+    )]
+    pub timeout_bucket_entry_period: u64,
 }
 
 #[derive(StructOpt, Debug)]
