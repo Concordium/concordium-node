@@ -539,6 +539,8 @@ impl P2PNode {
         }
     }
 
+    fn is_bucket_cleanup_enabled(&self) -> bool { self.config.timeout_bucket_entry_period > 0 }
+
     pub fn spawn(&self, receivers: Receivers) {
         let self_clone = self.self_ref.clone().unwrap(); // safe, always available
         let poll_thread = spawn_or_die!("Poll thread", move || {
@@ -577,7 +579,7 @@ impl P2PNode {
                     }
                 }
 
-                if self_clone.config.timeout_bucket_entry_period > 0 {
+                if self_clone.is_bucket_cleanup_enabled() {
                     if let Ok(difference) = now.duration_since(last_buckets_cleaned) {
                         if difference
                             >= Duration::from_millis(self_clone.config.bucket_cleanup_interval)
