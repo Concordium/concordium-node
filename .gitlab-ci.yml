@@ -7,6 +7,7 @@ stages:
 .generic:
   variables:
     RUSTFLAGS: -Dwarnings
+    GIT_SUBMODULE_STRATEGY: recursive
 
 "cargo:test":
   extends: .generic
@@ -14,7 +15,6 @@ stages:
   script:
     - git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/
     - rustc --version && cargo --version
-    - git submodule update --init deps/internal/crypto
     - scripts/download-static-libs.sh
     - ( cd concordium-global-state && cargo test --all --color=always)
     - ( cd concordium-consensus && cargo test --all --color=always --features=static)
@@ -54,7 +54,6 @@ stages:
   script:
     - git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/
     - rustc --version && cargo --version
-    - git submodule update --init deps/internal/crypto
     - scripts/download-static-libs.sh
     - rustup component add clippy
     - ( cd deps/internal/crypto/rust-src && cargo clean )
