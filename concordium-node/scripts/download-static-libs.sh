@@ -3,7 +3,7 @@
 set -e
 BASEDIR="$( cd "$(dirname "$0")" ; pwd -P )"
 (
-  VERSION_TAG=$(cat scripts/CONSENSUS_VERSION)
+  VERSION_TAG=$(cat $BASEDIR/CONSENSUS_VERSION)
   ARCHIVES_DIR=$BASEDIR/../deps/static-libs/linux/archives
   if [ ! -d $ARCHIVES_DIR ]; then
     mkdir -p $ARCHIVES_DIR
