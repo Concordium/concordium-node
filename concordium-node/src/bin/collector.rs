@@ -111,6 +111,9 @@ pub fn main() -> Fallible<()> {
     if conf.print_config {
         info!("{:?}", conf);
     }
+
+    info!("Node name: {}", conf.node_name);
+
     let main_thread = spawn_or_die!("Main loop", {
         let mut grpc_failures = 0;
         loop {
