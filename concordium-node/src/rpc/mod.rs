@@ -18,7 +18,9 @@ use crate::{
     proto::*,
 };
 
-use concordium_common::{hybrid_buf::HybridBuf, ConsensusFfiResponse, PacketType};
+use concordium_common::{
+    hybrid_buf::HybridBuf, ConsensusFfiResponse, ConsensusIsInCommitteeResponse, PacketType,
+};
 use concordium_consensus::consensus::{ConsensusContainer, CALLBACK_QUEUE};
 use concordium_global_state::tree::messaging::{ConsensusMessage, MessageType};
 use futures::future::Future;
@@ -592,7 +594,10 @@ impl P2P for RpcServerImpl {
                         resp.set_consensus_baker_running(consensus.is_baking());
                         resp.set_consensus_running(true);
                         resp.set_consensus_type(consensus.consensus_type.to_string());
-                        resp.set_consensus_baker_committee(consensus.in_baking_committee());
+                        resp.set_consensus_baker_committee(
+                            consensus.in_baking_committee()
+                                == ConsensusIsInCommitteeResponse::ActiveInCommittee,
+                        );
                         resp.set_consensus_finalizer_committee(
                             consensus.in_finalization_committee(),
                         );
