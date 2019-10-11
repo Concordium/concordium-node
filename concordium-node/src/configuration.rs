@@ -635,7 +635,12 @@ impl AppPreferences {
             }
             let file_path =
                 Self::calculate_config_file_path(&self.override_config_dir, APP_PREFERENCES_MAIN);
-            match OpenOptions::new().read(true).write(true).open(&file_path) {
+            match OpenOptions::new()
+                .read(true)
+                .write(true)
+                .truncate(true)
+                .open(&file_path)
+            {
                 Ok(ref mut file) => {
                     let mut writer = BufWriter::new(file);
                     if store.save_to(&mut writer).is_err() {
