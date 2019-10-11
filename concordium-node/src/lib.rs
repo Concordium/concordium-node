@@ -50,6 +50,9 @@ extern crate serde_cbor;
 #[cfg(feature = "s11n_capnp")]
 extern crate capnp;
 
+#[cfg(feature = "s11n_fbs")]
+extern crate flatbuffers;
+
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const APPNAME: &str = env!("CARGO_PKG_NAME");
 const DEFAULT_DNS_PUBLIC_KEY: &str =

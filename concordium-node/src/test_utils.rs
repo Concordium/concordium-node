@@ -1,17 +1,24 @@
+use byteorder::WriteBytesExt;
+use failure::Fallible;
+use rand::{distributions::Alphanumeric, thread_rng, Rng};
+use structopt::StructOpt;
+
 use crate::{
-    common::PeerType,
+    common::{P2PNodeId, PeerType},
     configuration::Config,
     network::{
-        NetworkMessage, NetworkMessagePayload, NetworkPacketType, NetworkRequest, NetworkResponse,
+        NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkPacketType,
+        NetworkRequest, NetworkResponse,
     },
     p2p::p2p_node::P2PNode,
 };
 use concordium_common::{
     hybrid_buf::HybridBuf,
+    serial::Endianness,
     stats_export_service::{StatsExportService, StatsServiceMode},
-    QueueMsg,
+    PacketType, QueueMsg,
 };
-use failure::Fallible;
+
 use std::{
     net::TcpListener,
     path::PathBuf,
@@ -23,7 +30,6 @@ use std::{
     thread,
     time::{self, Duration},
 };
-use structopt::StructOpt;
 
 static INIT: Once = Once::new();
 static PORT_OFFSET: AtomicUsize = AtomicUsize::new(0);
@@ -262,5 +268,33 @@ pub fn consume_pending_messages(waiter: &Receiver<QueueMsg<NetworkMessage>>) {
         if waiter.recv_timeout(max_wait_time).is_err() {
             break;
         }
+    }
+}
+
+pub fn generate_random_data(size: usize) -> Vec<u8> {
+    thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(size)
+        .map(|c| c as u32 as u8)
+        .collect()
+}
+
+pub fn generate_fake_block(size: usize) -> Fallible<HybridBuf> {
+    let mut buffer = HybridBuf::with_capacity(2 + size)?;
+    buffer.write_u16::<Endianness>(PacketType::Block as u16)?;
+    buffer.write_all(&generate_random_data(size))?;
+    buffer.rewind()?;
+    Ok(buffer)
+}
+
+pub fn create_random_packet(size: usize) -> NetworkMessage {
+    NetworkMessage {
+        timestamp1: Some(thread_rng().gen()),
+        timestamp2: None,
+        payload:    NetworkMessagePayload::NetworkPacket(NetworkPacket {
+            packet_type: NetworkPacketType::DirectMessage(P2PNodeId::default()),
+            network_id:  NetworkId::from(thread_rng().gen::<u16>()),
+            message:     generate_fake_block(size).unwrap(),
+        }),
     }
 }

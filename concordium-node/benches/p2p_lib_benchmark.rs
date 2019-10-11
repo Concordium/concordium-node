@@ -1,22 +1,14 @@
 #[macro_use]
 extern crate criterion;
 
-use byteorder::{WriteBytesExt, BE};
-use concordium_common::{hybrid_buf::HybridBuf, PacketType};
-use failure::Fallible;
+use concordium_common::hybrid_buf::HybridBuf;
 
 use p2p_client::{
-    common::{P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType},
-    network::{NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkPacketType},
+    common::{P2PPeer, P2PPeerBuilder, PeerType},
+    test_utils::{create_random_packet, generate_fake_block, generate_random_data},
 };
 
-use rand::{distributions::Alphanumeric, thread_rng, Rng};
-
-use std::{
-    io::Write,
-    net::{IpAddr, Ipv4Addr, SocketAddr},
-    str::FromStr,
-};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 pub fn localhost_peer() -> P2PPeer {
     P2PPeerBuilder::default()
@@ -29,36 +21,8 @@ pub fn localhost_peer() -> P2PPeer {
         .unwrap()
 }
 
-pub fn generate_random_data(size: usize) -> Vec<u8> {
-    thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(size)
-        .map(|c| c as u32 as u8)
-        .collect()
-}
-
-pub fn generate_fake_block(size: usize) -> Fallible<HybridBuf> {
-    let mut buffer = HybridBuf::with_capacity(size + 2)?;
-    buffer.write_u16::<BE>(PacketType::Block as u16)?;
-    buffer.write_all(&generate_random_data(size))?;
-    buffer.rewind()?;
-    Ok(buffer)
-}
-
-pub fn create_random_packet(size: usize) -> NetworkMessage {
-    NetworkMessage {
-        timestamp1: Some(10),
-        timestamp2: None,
-        payload:    NetworkMessagePayload::NetworkPacket(NetworkPacket {
-            packet_type: NetworkPacketType::DirectMessage(P2PNodeId::from_str(&"2A").unwrap()),
-            network_id:  NetworkId::from(100u16),
-            message:     generate_fake_block(size).unwrap(),
-        }),
-    }
-}
-
 #[cfg(any(
-    not(feature = "s11n_nom"),
+    not(feature = "s11n_fbs"),
     not(feature = "s11n_capnp"),
     not(feature = "s11n_serde_cbor"),
 ))]
@@ -151,14 +115,14 @@ mod network {
         }
 
         fn bench_s11n_001_direct_message(c: &mut Criterion, size: usize) {
-            let packet = create_random_packet(size);
+            let msg = create_random_packet(size);
+            let mut buffer = HybridBuf::with_capacity(size).unwrap();
 
             let bench_id = format!("Deserialization of a packet with a {}B payload", size);
 
             c.bench_function(&bench_id, move |b| {
                 b.iter(|| {
-                    let mut buffer = HybridBuf::with_capacity(size).unwrap();
-                    packet.serial(&mut buffer).unwrap();
+                    msg.serial(&mut buffer).unwrap();
                     buffer.rewind().unwrap();
                     NetworkMessage::deserial(&mut buffer).unwrap();
                 })
@@ -271,7 +235,7 @@ mod serialization {
         fn bench_s11n_001_direct_message(c: &mut Criterion, content_size: usize) {
             let bench_id = format!("Serde CBOR serialization with {}B messages", content_size);
 
-            let mut msg = create_random_packet(content_size);
+            let msg = create_random_packet(content_size);
             let mut buffer = HybridBuf::with_capacity(content_size).unwrap();
 
             c.bench_function(&bench_id, move |b| {
@@ -328,9 +292,63 @@ mod serialization {
 
             c.bench_function(&bench_id, move |b| {
                 b.iter(|| {
+                    msg.rewind_packet();
                     save_network_message(&mut buffer, &mut msg);
                     buffer.rewind().unwrap();
                     deserialize(&mut buffer)
+                })
+            });
+        }
+
+        pub fn bench_s11n_001_direct_message_256(b: &mut Criterion) {
+            bench_s11n_001_direct_message(b, 256)
+        }
+
+        pub fn bench_s11n_001_direct_message_1k(b: &mut Criterion) {
+            bench_s11n_001_direct_message(b, 1024)
+        }
+
+        pub fn bench_s11n_001_direct_message_4k(b: &mut Criterion) {
+            bench_s11n_001_direct_message(b, 4096)
+        }
+
+        pub fn bench_s11n_001_direct_message_64k(b: &mut Criterion) {
+            bench_s11n_001_direct_message(b, 64 * 1024)
+        }
+
+        pub fn bench_s11n_001_direct_message_256k(b: &mut Criterion) {
+            bench_s11n_001_direct_message(b, 256 * 1024)
+        }
+
+        pub fn bench_s11n_001_direct_message_1m(b: &mut Criterion) {
+            bench_s11n_001_direct_message(b, 1024 * 1024)
+        }
+
+        pub fn bench_s11n_001_direct_message_4m(b: &mut Criterion) {
+            bench_s11n_001_direct_message(b, 4 * 1024 * 1024)
+        }
+    }
+
+    #[cfg(feature = "s11n_fbs")]
+    pub mod fbs {
+        use crate::*;
+
+        use p2p_client::network::serialization::fbs::{deserialize, serialize};
+
+        use criterion::Criterion;
+
+        fn bench_s11n_001_direct_message(c: &mut Criterion, content_size: usize) {
+            let bench_id = format!("Flatbuffers serialization with {}B messages", content_size);
+
+            let mut msg = create_random_packet(content_size);
+            let mut buffer = HybridBuf::with_capacity(content_size).unwrap();
+
+            c.bench_function(&bench_id, move |b| {
+                b.iter(|| {
+                    msg.rewind_packet();
+                    serialize(&mut msg, &mut buffer).unwrap();
+                    buffer.rewind().unwrap();
+                    deserialize(&mut buffer.remaining_bytes()?)
                 })
             });
         }
@@ -397,6 +415,20 @@ criterion_group!(
 #[cfg(not(feature = "s11n_capnp"))]
 criterion_group!(s11n_capnp_benches, common::nop_bench);
 
+#[cfg(feature = "s11n_fbs")]
+criterion_group!(
+    s11n_fbs_benches,
+    serialization::fbs::bench_s11n_001_direct_message_256,
+    serialization::fbs::bench_s11n_001_direct_message_1k,
+    serialization::fbs::bench_s11n_001_direct_message_4k,
+    serialization::fbs::bench_s11n_001_direct_message_64k,
+    serialization::fbs::bench_s11n_001_direct_message_256k,
+    serialization::fbs::bench_s11n_001_direct_message_1m,
+    serialization::fbs::bench_s11n_001_direct_message_4m,
+);
+#[cfg(not(feature = "s11n_fbs"))]
+criterion_group!(s11n_fbs_benches, common::nop_bench);
+
 #[cfg(feature = "s11n_serde_cbor")]
 criterion_group!(
     s11n_cbor_benches,
@@ -431,7 +463,8 @@ criterion_main!(
     // dedup,
     // p2p_net,
     // s11n_get_peers,
-    // s11n_our_benches,
-    s11n_cbor_benches,
+    s11n_fbs_benches,
     s11n_capnp_benches,
+    s11n_cbor_benches,
+    s11n_our_benches,
 );
