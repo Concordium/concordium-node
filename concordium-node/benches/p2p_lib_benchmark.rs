@@ -128,98 +128,6 @@ mod network {
                 })
             });
         }
-
-        pub fn bench_s11n_get_peers_50(c: &mut Criterion) { bench_s11n_get_peers(c, 50) }
-
-        pub fn bench_s11n_get_peers_100(c: &mut Criterion) { bench_s11n_get_peers(c, 100) }
-
-        pub fn bench_s11n_get_peers_200(c: &mut Criterion) { bench_s11n_get_peers(c, 200) }
-
-        fn bench_s11n_get_peers(c: &mut Criterion, size: usize) {
-            let bench_id = format!("Deserialization of PeerList responses with {} peers ", size);
-
-            let peer_list_msg = NetworkMessage {
-                timestamp1: Some(10),
-                timestamp2: None,
-                payload:    NetworkMessagePayload::NetworkResponse(NetworkResponse::PeerList(
-                    vec![localhost_peer(); size],
-                )),
-            };
-
-            let mut buffer = HybridBuf::new();
-
-            c.bench_function(&bench_id, move |b| {
-                b.iter(|| {
-                    peer_list_msg.serial(&mut buffer).unwrap();
-                    buffer.rewind().unwrap();
-                    NetworkMessage::deserial(&mut buffer).unwrap();
-                })
-            });
-        }
-    }
-
-    pub mod connection {
-        use crate::*;
-
-        use criterion::Criterion;
-        use p2p_client::{
-            common::PeerType,
-            network::NetworkId,
-            p2p::p2p_node::send_message_from_cursor,
-            test_utils::{
-                await_handshake, connect, make_node_and_sync, next_available_port, setup_logger,
-            },
-        };
-
-        pub fn bench_config(sample_size: usize) -> Criterion {
-            Criterion::default().sample_size(sample_size)
-        }
-
-        // P2P Communication Benchmark
-        // ============================
-        pub fn p2p_net_64b(c: &mut Criterion) { p2p_net(c, 64); }
-        pub fn p2p_net_4k(c: &mut Criterion) { p2p_net(c, 4 * 1024); }
-        pub fn p2p_net_64k(c: &mut Criterion) { p2p_net(c, 64 * 1024); }
-        pub fn p2p_net_1m(c: &mut Criterion) { p2p_net(c, 1 * 1024 * 1024); }
-        pub fn p2p_net_4m(c: &mut Criterion) { p2p_net(c, 4 * 1024 * 1024); }
-
-        fn p2p_net(c: &mut Criterion, size: usize) {
-            let bench_id = format!("P2P network using {}B messages", size);
-
-            setup_logger();
-
-            // Create nodes and connect them.
-            let mut node_1 =
-                make_node_and_sync(next_available_port(), vec![100], PeerType::Node).unwrap();
-            let node_2 =
-                make_node_and_sync(next_available_port(), vec![100], PeerType::Node).unwrap();
-
-            connect(&mut node_1, &node_2).unwrap();
-            await_handshake(&node_1).unwrap();
-
-            let mut packet_buffer = generate_fake_block(size).unwrap();
-
-            c.bench_function(&bench_id, move |b| {
-                let net_id = NetworkId::from(100);
-
-                b.iter(|| {
-                    send_message_from_cursor(
-                        &node_1,
-                        node_1.self_peer.id,
-                        Some(node_2.id()),
-                        vec![],
-                        net_id,
-                        packet_buffer.clone(),
-                        false,
-                    )
-                    .unwrap();
-                    // FIXME count packets and other messages separately
-                    // let mut msg_recv = await_direct_message(&msg_waiter_2).unwrap();
-                    // assert_eq!(msg.len().unwrap(), msg_recv.remaining_len().unwrap());
-                    packet_buffer.rewind().unwrap();
-                });
-            });
-        }
     }
 }
 
@@ -384,13 +292,6 @@ mod serialization {
 }
 
 criterion_group!(
-    s11n_get_peers,
-    network::message::bench_s11n_get_peers_50,
-    network::message::bench_s11n_get_peers_100,
-    network::message::bench_s11n_get_peers_200
-);
-
-criterion_group!(
     s11n_our_benches,
     network::message::bench_s11n_001_direct_message_256,
     network::message::bench_s11n_001_direct_message_1k,
@@ -444,15 +345,6 @@ criterion_group!(
 criterion_group!(s11n_cbor_benches, common::nop_bench);
 
 criterion_group!(
-    name = p2p_net;
-    config = network::connection::bench_config(10);
-    targets = network::connection::p2p_net_64b, network::connection::p2p_net_4k,
-    network::connection::p2p_net_64k,
-    network::connection::p2p_net_1m,
-    network::connection::p2p_net_4m,
-);
-
-criterion_group!(
     name = dedup;
     config = network::connection::bench_config(10);
     targets = network::deduplication::bench_dedup_1k, network::deduplication::bench_dedup_4k,
@@ -461,8 +353,6 @@ criterion_group!(
 
 criterion_main!(
     // dedup,
-    // p2p_net,
-    // s11n_get_peers,
     s11n_fbs_benches,
     s11n_capnp_benches,
     s11n_cbor_benches,
