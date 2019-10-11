@@ -1,17 +1,14 @@
 // https://gitlab.com/Concordium/consensus/globalstate-mockup/blob/master/globalstate/src/Concordium/GlobalState/Transactions.hs
 
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
-use failure::{ensure, format_err, Fallible};
+use failure::{format_err, Fallible};
 use hash_hasher::HashedMap;
 
 use std::{convert::TryFrom, mem::size_of};
 
 use concordium_common::indexed_vec::IndexedVec;
 
-use crate::{
-    common::*,
-    parameters::{BakerElectionVerifyKey, BakerSignVerifyKey, BAKER_VRF_KEY},
-};
+use crate::common::*;
 
 // const PAYLOAD_MAX_LEN: u32 = 512 * 1024 * 1024; // 512MB
 
@@ -183,70 +180,23 @@ impl TryFrom<u8> for TransactionType {
 
 pub type TyName = u32;
 
-type Proof = ByteString;
-
-#[derive(Debug)]
-pub enum TransactionPayload {
-    DeployModule(Encoded),
-    InitContract {
-        amount:   Amount,
-        module:   HashBytes,
-        contract: TyName,
-        param:    Encoded,
-    },
-    Update {
-        amount:  Amount,
-        address: ContractAddress,
-        message: Encoded,
-    },
-    Transfer {
-        target_scheme:  SchemeId,
-        target_address: AccountAddress,
-        amount:         Amount,
-    },
-    DeployCredential(Encoded),
-    DeployEncryptionKey(ByteString),
-    AddBaker {
-        election_verify_key:  BakerElectionVerifyKey,
-        signature_verify_key: BakerSignVerifyKey,
-        account_address:      AccountAddress,
-        proof:                Proof,
-    },
-    RemoveBaker {
-        id:    BakerId,
-        proof: Proof,
-    },
-    UpdateBakerAccount {
-        id:              BakerId,
-        account_address: AccountAddress,
-        proof:           Proof,
-    },
-    UpdateBakerSignKey {
-        id:                   BakerId,
-        signature_verify_key: BakerSignVerifyKey,
-        proof:                Proof,
-    },
-    DelegateStake(BakerId),
-    UndelegateStake,
-}
+pub type TransactionPayload = Encoded;
 
 impl TransactionPayload {
     pub fn transaction_type(&self) -> TransactionType {
-        use TransactionPayload::*;
-
-        match self {
-            DeployModule(_) => TransactionType::DeployModule,
-            InitContract { .. } => TransactionType::InitContract,
-            Update { .. } => TransactionType::Update,
-            Transfer { .. } => TransactionType::Transfer,
-            DeployCredential(_) => TransactionType::DeployCredential,
-            DeployEncryptionKey(_) => TransactionType::DeployEncryptionKey,
-            AddBaker { .. } => TransactionType::AddBaker,
-            RemoveBaker { .. } => TransactionType::RemoveBaker,
-            UpdateBakerAccount { .. } => TransactionType::UpdateBakerAccount,
-            UpdateBakerSignKey { .. } => TransactionType::UpdateBakerSignKey,
-            DelegateStake(_) => TransactionType::DelegateStake,
-            UndelegateStake => TransactionType::UndelegateStake,
+        match &self[0] {
+            0 => TransactionType::DeployModule,
+            1 => TransactionType::InitContract,
+            2 => TransactionType::Update,
+            3 => TransactionType::Transfer,
+            4 => TransactionType::DeployCredential,
+            5 => TransactionType::DeployEncryptionKey,
+            6 => TransactionType::AddBaker,
+            7 => TransactionType::RemoveBaker,
+            8 => TransactionType::UpdateBakerAccount,
+            9 => TransactionType::UpdateBakerSignKey,
+            10 => TransactionType::DelegateStake,
+            _ => TransactionType::UndelegateStake,
         }
     }
 }
@@ -255,206 +205,11 @@ impl Serial for TransactionPayload {
     type Param = u32;
 
     fn deserial_with_param<R: ReadBytesExt>(source: &mut R, len: Self::Param) -> Fallible<Self> {
-        let variant = TransactionType::try_from(source.read_u8()?)?;
-
-        match variant {
-            TransactionType::DeployModule => {
-                let module = Encoded::new(&read_sized!(source, len - 1));
-                Ok(TransactionPayload::DeployModule(module))
-            }
-            TransactionType::InitContract => {
-                let amount = Amount::deserial(source)?;
-                let module = HashBytes::from(read_ty!(source, HashBytes));
-                let contract = TyName::deserial(source)?;
-
-                let non_param_len = sum_ty_lens!(TransactionType, Amount, HashBytes, TyName);
-                ensure!(
-                    len as usize >= non_param_len,
-                    "malformed transaction param!"
-                );
-                let param_size = len as usize - non_param_len;
-                let param = Encoded::new(&read_sized!(source, param_size));
-
-                Ok(TransactionPayload::InitContract {
-                    amount,
-                    module,
-                    contract,
-                    param,
-                })
-            }
-            TransactionType::Update => {
-                let amount = Amount::deserial(source)?;
-                let address = ContractAddress::deserial(source)?;
-
-                let non_message_len = sum_ty_lens!(TransactionType, Amount, ContractAddress);
-                ensure!(
-                    len as usize >= non_message_len,
-                    "malformed transaction message!"
-                );
-                let msg_size = len as usize - non_message_len;
-                let message = Encoded::new(&read_sized!(source, msg_size));
-
-                Ok(TransactionPayload::Update {
-                    amount,
-                    address,
-                    message,
-                })
-            }
-            TransactionType::Transfer => {
-                let target_scheme = SchemeId::try_from(source.read_u8()?)?;
-                let target_address = AccountAddress(read_ty!(source, AccountAddress));
-                let amount = Amount::deserial(source)?;
-
-                Ok(TransactionPayload::Transfer {
-                    target_scheme,
-                    target_address,
-                    amount,
-                })
-            }
-            TransactionType::DeployCredential => {
-                let credential = Encoded::new(&read_sized!(source, len - 1));
-
-                Ok(TransactionPayload::DeployCredential(credential))
-            }
-            TransactionType::DeployEncryptionKey => {
-                let ek = read_bytestring_short_length(source)?;
-
-                Ok(TransactionPayload::DeployEncryptionKey(ek))
-            }
-            TransactionType::AddBaker => {
-                let election_verify_key = Encoded::new(&read_const_sized!(source, BAKER_VRF_KEY));
-                let signature_verify_key = read_bytestring_short_length(source)?;
-                let account_address = AccountAddress(read_ty!(source, AccountAddress));
-                let proof = read_bytestring(source)?;
-
-                Ok(TransactionPayload::AddBaker {
-                    election_verify_key,
-                    signature_verify_key,
-                    account_address,
-                    proof,
-                })
-            }
-            TransactionType::RemoveBaker => {
-                let id = BakerId::deserial(source)?;
-                let proof = read_bytestring(source)?;
-
-                Ok(TransactionPayload::RemoveBaker { id, proof })
-            }
-            TransactionType::UpdateBakerAccount => {
-                let id = BakerId::deserial(source)?;
-                let account_address = AccountAddress(read_ty!(source, AccountAddress));
-                let proof = read_bytestring(source)?;
-
-                Ok(TransactionPayload::UpdateBakerAccount {
-                    id,
-                    account_address,
-                    proof,
-                })
-            }
-            TransactionType::UpdateBakerSignKey => {
-                let id = BakerId::deserial(source)?;
-                let signature_verify_key = read_bytestring_short_length(source)?;
-                let proof = read_bytestring(source)?;
-
-                Ok(TransactionPayload::UpdateBakerSignKey {
-                    id,
-                    signature_verify_key,
-                    proof,
-                })
-            }
-            TransactionType::DelegateStake => {
-                let id = BakerId::deserial(source)?;
-
-                Ok(TransactionPayload::DelegateStake(id))
-            }
-            TransactionType::UndelegateStake => Ok(TransactionPayload::UndelegateStake),
-        }
+        Ok(Encoded::new(&read_sized!(source, len)))
     }
 
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
-        target.write_u8(self.transaction_type() as u8)?;
-
-        match self {
-            TransactionPayload::DeployModule(module) => {
-                target.write_all(&module)?;
-            }
-            TransactionPayload::InitContract {
-                amount,
-                module,
-                contract,
-                param,
-            } => {
-                target.write_u64::<NetworkEndian>(*amount)?;
-                target.write_all(&*module)?;
-                target.write_u32::<NetworkEndian>(*contract)?;
-                target.write_all(&*param)?;
-            }
-            TransactionPayload::Update {
-                amount,
-                address,
-                message,
-            } => {
-                target.write_u64::<NetworkEndian>(*amount)?;
-                address.serial(target)?;
-                target.write_all(&*message)?;
-            }
-            TransactionPayload::Transfer {
-                target_scheme,
-                target_address,
-                amount,
-            } => {
-                target.write_u8(*target_scheme as u8)?;
-                target.write_all(&target_address.0)?;
-                target.write_u64::<NetworkEndian>(*amount)?;
-            }
-            TransactionPayload::DeployCredential(credential) => {
-                target.write_all(&credential)?;
-            }
-            TransactionPayload::DeployEncryptionKey(ek) => {
-                target.write_u16::<NetworkEndian>(ek.len() as u16)?;
-                target.write_all(&ek)?;
-            }
-            TransactionPayload::AddBaker {
-                election_verify_key,
-                signature_verify_key,
-                account_address,
-                proof,
-            } => {
-                target.write_all(&election_verify_key)?;
-                write_bytestring_short_length(target, &signature_verify_key)?;
-                target.write_all(&account_address.0)?;
-                write_bytestring(target, &proof)?;
-            }
-            TransactionPayload::RemoveBaker { id, proof } => {
-                target.write_u64::<NetworkEndian>(*id)?;
-                write_bytestring(target, &proof)?;
-            }
-            TransactionPayload::UpdateBakerAccount {
-                id,
-                account_address,
-                proof,
-            } => {
-                target.write_u64::<NetworkEndian>(*id)?;
-                target.write_all(&account_address.0)?;
-                write_bytestring(target, &proof)?;
-            }
-            TransactionPayload::UpdateBakerSignKey {
-                id,
-                signature_verify_key,
-                proof,
-            } => {
-                target.write_u64::<NetworkEndian>(*id)?;
-                write_bytestring_short_length(target, &signature_verify_key)?;
-                write_bytestring(target, &proof)?;
-            }
-            TransactionPayload::DelegateStake(id) => {
-                target.write_u64::<NetworkEndian>(*id)?;
-            }
-            TransactionPayload::UndelegateStake => {
-                target.write_u8(TransactionType::UndelegateStake as u8)?;
-            }
-        }
-
+        target.write_all(self)?;
         Ok(())
     }
 }
