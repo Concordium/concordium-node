@@ -17,7 +17,7 @@ use std::{
 };
 
 pub fn deserialize(buffer: &[u8]) -> Fallible<NetworkMessage> {
-    let root = network::get_root_as_network_message(buffer);
+    let root = network::get_size_prefixed_root_as_network_message(buffer);
 
     let timestamp1 = Some(root.timestamp());
 
@@ -100,7 +100,8 @@ pub fn serialize<T: Write>(source: &mut NetworkMessage, target: &mut T) -> io::R
                 }
             };
 
-            let message_offset = builder.create_vector::<u8>(&packet.message.remaining_bytes()?);
+            let message_offset =
+                builder.create_vector_direct::<u8>(&packet.message.remaining_bytes()?);
 
             let mut packet_builder = network::NetworkPacketBuilder::new(&mut builder);
             packet_builder.add_packetType_type(packet_type);
@@ -123,7 +124,7 @@ pub fn serialize<T: Write>(source: &mut NetworkMessage, target: &mut T) -> io::R
     message_builder.add_payload(payload_offset);
     let offset = message_builder.finish();
 
-    network::finish_network_message_buffer(&mut builder, offset);
+    network::finish_size_prefixed_network_message_buffer(&mut builder, offset);
 
     target.write(builder.finished_data()).map(|_| ())
 }
