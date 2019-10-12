@@ -1,4 +1,4 @@
-use capnp::serialize;
+use capnp;
 use failure::Fallible;
 
 use concordium_common::hybrid_buf::HybridBuf;
@@ -14,7 +14,7 @@ use crate::{
 
 use std::{
     convert::TryFrom,
-    io::{BufReader, Read, Write},
+    io::{self, BufReader, Read, Write},
 };
 
 #[inline(always)]
@@ -79,9 +79,13 @@ fn load_network_response(
     }
 }
 
-fn load_from_reader<T: Read>(input: &mut T) -> capnp::Result<NetworkMessage> {
+pub fn deserialize<T: Read>(input: &mut T, packed: bool) -> capnp::Result<NetworkMessage> {
     let mut input = BufReader::new(input);
-    let reader = serialize::read_message(&mut input, capnp::message::ReaderOptions::default())?;
+    let reader = if packed {
+        capnp::serialize_packed::read_message(&mut input, capnp::message::ReaderOptions::default())?
+    } else {
+        capnp::serialize::read_message(&mut input, capnp::message::ReaderOptions::default())?
+    };
 
     let nm = reader.get_root::<p2p_capnp::network_message::Reader>()?;
     let timestamp = nm.get_timestamp();
@@ -158,7 +162,9 @@ fn write_network_packet(
     builder.set_network_id(packet.network_id.id);
     builder.set_message(&message);
 
-    packet.message.rewind().unwrap(); // FIXME; doesn't need to be here, it's just for the test
+    if cfg!(test) {
+        packet.message.rewind().unwrap();
+    }
 
     Ok(())
 }
@@ -208,20 +214,21 @@ pub fn write_network_message(
     }
 }
 
-pub fn deserialize<T: Read>(input: &mut T) -> Fallible<NetworkMessage> {
-    match load_from_reader(input) {
-        Ok(msg) => Ok(msg),
-        Err(e) => bail!(e),
-    }
-}
-
-pub fn save_network_message<T: Write>(buffer: &mut T, nm: &mut NetworkMessage) {
+pub fn serialize<T: Write>(
+    buffer: &mut T,
+    nm: &mut NetworkMessage,
+    packed: bool,
+) -> io::Result<()> {
     let mut message = capnp::message::Builder::new_default();
     {
         let mut builder = message.init_root::<p2p_capnp::network_message::Builder>();
         write_network_message(&mut builder, nm);
     }
-    capnp::serialize::write_message(buffer, &message).unwrap(); // FIXME
+    if packed {
+        capnp::serialize_packed::write_message(buffer, &message)
+    } else {
+        capnp::serialize::write_message(buffer, &message)
+    }
 }
 
 #[cfg(test)]
@@ -271,7 +278,7 @@ mod unit_test {
         let mut messages_data: Vec<(Vec<u8>, NetworkMessage)> = Vec::with_capacity(messages.len());
         for mut message in messages.into_iter() {
             let mut data = Vec::new();
-            save_network_message(&mut data, &mut message);
+            serialize(&mut data, &mut message, false);
             messages_data.push((data, message));
         }
 
@@ -282,7 +289,7 @@ mod unit_test {
     fn ut_s11n_capnp_001() {
         let test_params = ut_s11n_001_data();
         for (data, expected) in test_params {
-            let output = deserialize(&mut data.as_slice()).unwrap();
+            let output = deserialize(&mut data.as_slice(), false).unwrap();
             assert_eq!(
                 format!("{:?}", output.payload),
                 format!("{:?}", expected.payload)

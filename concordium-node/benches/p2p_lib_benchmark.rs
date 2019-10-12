@@ -138,10 +138,13 @@ mod s11n {
     #[cfg(feature = "s11n_capnp")]
     pub mod capnp {
         use crate::*;
-        use p2p_client::network::serialization::cap::{deserialize, save_network_message};
+        use p2p_client::network::serialization::cap::{deserialize, serialize};
 
-        fn bench_s11n(c: &mut Criterion, size: usize) {
-            let bench_id = format!("CAPnP serialization with {}B messages", size);
+        fn bench_s11n(c: &mut Criterion, size: usize, packed: bool) {
+            let bench_id = format!(
+                "CAPnP (packed: {}) serialization with {}B messages",
+                packed, size
+            );
 
             let mut msg = create_random_packet(size);
             let mut buffer = Cursor::new(Vec::with_capacity(size));
@@ -149,20 +152,28 @@ mod s11n {
             c.bench_function(&bench_id, move |b| {
                 b.iter(|| {
                     msg.rewind_packet();
-                    save_network_message(&mut buffer, &mut msg);
+                    serialize(&mut buffer, &mut msg, packed).unwrap();
                     buffer.seek(SeekFrom::Start(0)).unwrap();
-                    deserialize(&mut buffer)
+                    deserialize(&mut buffer, packed)
                 })
             });
         }
 
-        pub fn bench_s11n_256(b: &mut Criterion) { bench_s11n(b, 256) }
-        pub fn bench_s11n_1k(b: &mut Criterion) { bench_s11n(b, 1024) }
-        pub fn bench_s11n_4k(b: &mut Criterion) { bench_s11n(b, 4096) }
-        pub fn bench_s11n_64k(b: &mut Criterion) { bench_s11n(b, 64 * 1024) }
-        pub fn bench_s11n_256k(b: &mut Criterion) { bench_s11n(b, 256 * 1024) }
-        pub fn bench_s11n_1m(b: &mut Criterion) { bench_s11n(b, 1024 * 1024) }
-        pub fn bench_s11n_4m(b: &mut Criterion) { bench_s11n(b, 4 * 1024 * 1024) }
+        pub fn bench_s11n_256(b: &mut Criterion) { bench_s11n(b, 256, false) }
+        pub fn bench_s11n_1k(b: &mut Criterion) { bench_s11n(b, 1024, false) }
+        pub fn bench_s11n_4k(b: &mut Criterion) { bench_s11n(b, 4096, false) }
+        pub fn bench_s11n_64k(b: &mut Criterion) { bench_s11n(b, 64 * 1024, false) }
+        pub fn bench_s11n_256k(b: &mut Criterion) { bench_s11n(b, 256 * 1024, false) }
+        pub fn bench_s11n_1m(b: &mut Criterion) { bench_s11n(b, 1024 * 1024, false) }
+        pub fn bench_s11n_4m(b: &mut Criterion) { bench_s11n(b, 4 * 1024 * 1024, false) }
+
+        pub fn bench_s11n_256_packed(b: &mut Criterion) { bench_s11n(b, 256, true) }
+        pub fn bench_s11n_1k_packed(b: &mut Criterion) { bench_s11n(b, 1024, true) }
+        pub fn bench_s11n_4k_packed(b: &mut Criterion) { bench_s11n(b, 4096, true) }
+        pub fn bench_s11n_64k_packed(b: &mut Criterion) { bench_s11n(b, 64 * 1024, true) }
+        pub fn bench_s11n_256k_packed(b: &mut Criterion) { bench_s11n(b, 256 * 1024, true) }
+        pub fn bench_s11n_1m_packed(b: &mut Criterion) { bench_s11n(b, 1024 * 1024, true) }
+        pub fn bench_s11n_4m_packed(b: &mut Criterion) { bench_s11n(b, 4 * 1024 * 1024, true) }
     }
 
     #[cfg(feature = "s11n_fbs")]
@@ -217,6 +228,13 @@ criterion_group!(
     s11n::capnp::bench_s11n_256k,
     s11n::capnp::bench_s11n_1m,
     s11n::capnp::bench_s11n_4m,
+    s11n::capnp::bench_s11n_256_packed,
+    s11n::capnp::bench_s11n_1k_packed,
+    s11n::capnp::bench_s11n_4k_packed,
+    s11n::capnp::bench_s11n_64k_packed,
+    s11n::capnp::bench_s11n_256k_packed,
+    s11n::capnp::bench_s11n_1m_packed,
+    s11n::capnp::bench_s11n_4m_packed,
 );
 #[cfg(not(feature = "s11n_capnp"))]
 criterion_group!(s11n_capnp_benches, common::nop_bench);
