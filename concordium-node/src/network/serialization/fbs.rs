@@ -67,9 +67,14 @@ pub fn deserialize(buffer: &[u8]) -> Fallible<NetworkMessage> {
 }
 
 pub fn serialize<T: Write>(source: &mut NetworkMessage, target: &mut T) -> io::Result<()> {
-    let mut builder = FlatBufferBuilder::new_with_capacity(4096);
+    let capacity = if let NetworkMessagePayload::NetworkPacket(ref packet) = source.payload {
+        packet.message.len()? as usize + 64 // FIXME: fine-tune the overhead
+    } else {
+        256
+    };
+    let mut builder = FlatBufferBuilder::new_with_capacity(capacity);
 
-    let payload_offset = match source.payload {
+    let (payload_offset, payload_type) = match source.payload {
         NetworkMessagePayload::NetworkPacket(ref mut packet) => {
             let (packet_type_offset, packet_type) = match packet.packet_type {
                 NetworkPacketType::DirectMessage(target) => {
@@ -103,30 +108,30 @@ pub fn serialize<T: Write>(source: &mut NetworkMessage, target: &mut T) -> io::R
             let message_offset =
                 builder.create_vector_direct::<u8>(&packet.message.remaining_bytes()?);
 
-            let mut packet_builder = network::NetworkPacketBuilder::new(&mut builder);
-            packet_builder.add_packetType_type(packet_type);
-            packet_builder.add_packetType(packet_type_offset);
-            packet_builder.add_networkId(packet.network_id.id);
-            packet_builder.add_message(message_offset);
-            packet_builder.finish().as_union_value()
+            let packet_offset =
+                network::NetworkPacket::create(&mut builder, &network::NetworkPacketArgs {
+                    packetType_type: packet_type,
+                    packetType:      Some(packet_type_offset),
+                    networkId:       packet.network_id.id,
+                    message:         Some(message_offset),
+                })
+                .as_union_value();
+
+            (packet_offset, network::NetworkMessagePayload::NetworkPacket)
         }
         _ => unimplemented!(),
     };
 
-    let payload_type = match source.payload {
-        NetworkMessagePayload::NetworkPacket(_) => network::NetworkMessagePayload::NetworkPacket,
-        _ => unimplemented!(),
-    };
+    let message_offset =
+        network::NetworkMessage::create(&mut builder, &network::NetworkMessageArgs {
+            timestamp: get_current_stamp(),
+            payload_type,
+            payload: Some(payload_offset),
+        });
 
-    let mut message_builder = network::NetworkMessageBuilder::new(&mut builder);
-    message_builder.add_timestamp(get_current_stamp());
-    message_builder.add_payload_type(payload_type);
-    message_builder.add_payload(payload_offset);
-    let offset = message_builder.finish();
+    network::finish_size_prefixed_network_message_buffer(&mut builder, message_offset);
 
-    network::finish_size_prefixed_network_message_buffer(&mut builder, offset);
-
-    target.write(builder.finished_data()).map(|_| ())
+    target.write_all(builder.finished_data())
 }
 
 #[cfg(test)]
