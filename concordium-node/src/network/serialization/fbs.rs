@@ -1,7 +1,7 @@
 use failure::Fallible;
 use flatbuffers::FlatBufferBuilder;
 
-#[path = "../../schema_generated.rs"]
+#[path = "schema_generated.rs"]
 mod schema_generated;
 use schema_generated::network;
 
