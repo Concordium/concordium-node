@@ -1,9 +1,7 @@
 use failure::Fallible;
 use flatbuffers::FlatBufferBuilder;
 
-#[path = "schema_generated.rs"]
-mod schema_generated;
-use schema_generated::network;
+use crate::flatbuffers_shim::network;
 
 use crate::{
     common::{get_current_stamp, P2PNodeId},

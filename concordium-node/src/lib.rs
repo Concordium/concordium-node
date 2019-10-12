@@ -83,3 +83,6 @@ pub mod test_utils;
 
 #[cfg(feature = "s11n_capnp")]
 pub mod p2p_capnp;
+
+#[cfg(feature = "s11n_fbs")]
+pub mod flatbuffers_shim;

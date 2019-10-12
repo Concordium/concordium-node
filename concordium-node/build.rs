@@ -7,9 +7,11 @@ extern crate capnpc;
 
 #[cfg(feature = "s11n_fbs")]
 extern crate flatc_rust;
+#[cfg(feature = "s11n_fbs")]
+use std::path::Path;
 
 use regex::Regex;
-use std::{fs, io::Write, path::Path};
+use std::{fs, io::Write};
 
 fn main() {
     // Compile the Cap'n'Proto schema
@@ -25,7 +27,7 @@ fn main() {
     #[cfg(feature = "s11n_fbs")]
     flatc_rust::run(flatc_rust::Args {
         inputs: &[Path::new("src/network/serialization/schema.fbs")],
-        out_dir: Path::new("src/network/serialization"),
+        out_dir: Path::new("target/"),
         ..Default::default()
     })
     .expect("Can't compile the flatbuffers schema");
