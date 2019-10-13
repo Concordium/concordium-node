@@ -278,7 +278,7 @@ mod unit_test {
         let mut messages_data: Vec<(Vec<u8>, NetworkMessage)> = Vec::with_capacity(messages.len());
         for mut message in messages.into_iter() {
             let mut data = Vec::new();
-            serialize(&mut data, &mut message, false);
+            serialize(&mut data, &mut message, false).unwrap();
             messages_data.push((data, message));
         }
 

@@ -8,17 +8,18 @@ This repository uses git lfs for storing binary dependencies, and relies on git 
 * cmake >= 3.8.0
 * protobuf >= 3.7.1
 * LLVM and Clang >= 3.9
-* [Unbound](https://www.nlnetlabs.nl/projects/unbound/about/) >= 1.9.2 
+* [Unbound](https://www.nlnetlabs.nl/projects/unbound/about/) >= 1.9.2
 
 ### Optional dependencies
 * Stack (and GHC-8.6.5, if not building using static libraries)
 * capnp (for running `s11n_capnp` enabled benches only)
+* flatc (for running `s11n_fbs` enabled benches only)
 
 ## Supported features
 * instrumentation - switches the default internal counter implementation out with prometheus
-* s11n_nom - enables serialization using [nom](https://crates.io/crates/nom) (only used in benches)
 * s11n_serde_cbor - enables serialization using [serde_cbor](https://crates.io/crates/serde_cbor) (only used in benches)
-* s11n_capnp - enables serialization using [capnp](https://crates.io/crates/capnp) (only used in benches)
+* s11n_capnp - enables serialization using [Cap'n'Proto](https://crates.io/crates/capnp) (only used in benches)
+* s11n_fbs - enables serialization using [flatbuffers](https://crates.io/crates/flatbuffers) (only used in benches)
 * instrumentation - enables stats data exporting to [prometheus](https://crates.io/crates/prometheus)
 * benchmark - enables the TPS testing
 * network_dump - makes the network dumping capabilites available.
@@ -88,13 +89,13 @@ $> NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.yml up 
 For more complicated setups the EXTRA_ARGS environment variable can be set.
 
 ## Elastic search in local development mode
-### Running the local development version from the stable master branch 
+### Running the local development version from the stable master branch
 Use docker-compose if you only need a middle-ware enabled set of nodes to test on
 ```bash
 $> ELASTIC_SEARCH_LOGGING=1 NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.middleware.yml up --scale baker=5 --force-recreate
 ```
 
-### Running the local development version from the unstable develop branch 
+### Running the local development version from the unstable develop branch
 Use docker-compose if you only need a middle-ware enabled set of nodes to test on
 ```bash
 $> ELASTIC_SEARCH_LOGGING=1 NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.middleware.yml up --scale baker=5 --force-recreate
