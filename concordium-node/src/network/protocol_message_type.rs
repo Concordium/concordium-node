@@ -6,17 +6,12 @@ use std::{
 };
 
 // Utilities for NetworkMessage
-// =================================
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ProtocolMessageType {
     Request = 0,
     Response,
     Packet,
-}
-
-impl Display for ProtocolMessageType {
-    fn fmt(&self, f: &mut Formatter) -> Result { write!(f, "{:02x}", *self as u8) }
 }
 
 pub trait AsProtocolMessageType {
@@ -37,17 +32,7 @@ impl TryFrom<u8> for ProtocolMessageType {
     }
 }
 
-impl TryFrom<&str> for ProtocolMessageType {
-    type Error = Error;
-
-    fn try_from(value: &str) -> Fallible<ProtocolMessageType> {
-        debug_assert_eq!(value.len(), 2);
-        ProtocolMessageType::try_from(u8::from_str_radix(value, 16)?)
-    }
-}
-
-// Utilities for Network Request
-// =================================
+// Utilities for NetworkRequest
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ProtocolRequestType {
@@ -59,10 +44,6 @@ pub enum ProtocolRequestType {
     JoinNetwork,
     LeaveNetwork,
     Retransmit,
-}
-
-impl Display for ProtocolRequestType {
-    fn fmt(&self, f: &mut Formatter) -> Result { write!(f, "{:02x}", *self as u8) }
 }
 
 pub trait AsProtocolRequestType {
@@ -88,17 +69,7 @@ impl TryFrom<u8> for ProtocolRequestType {
     }
 }
 
-impl TryFrom<&str> for ProtocolRequestType {
-    type Error = Error;
-
-    fn try_from(value: &str) -> Fallible<ProtocolRequestType> {
-        debug_assert_eq!(value.len(), 2);
-        ProtocolRequestType::try_from(u8::from_str_radix(value, 16)?)
-    }
-}
-
-// Utilities for Network Response
-// =================================
+// Utilities for NetworkResponse
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ProtocolResponseType {
@@ -129,26 +100,12 @@ impl TryFrom<u8> for ProtocolResponseType {
     }
 }
 
-impl TryFrom<&str> for ProtocolResponseType {
-    type Error = Error;
-
-    fn try_from(value: &str) -> Fallible<ProtocolResponseType> {
-        debug_assert_eq!(value.len(), 2);
-        ProtocolResponseType::try_from(u8::from_str_radix(value, 16)?)
-    }
-}
-
-// Utilities for Packet
-// =================================
+// Utilities for NetworkPacket
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ProtocolPacketType {
     Direct = 0,
     Broadcast,
-}
-
-impl Display for ProtocolPacketType {
-    fn fmt(&self, f: &mut Formatter) -> Result { write!(f, "{:02x}", *self as u8) }
 }
 
 pub trait AsProtocolPacketType {
@@ -165,14 +122,5 @@ impl TryFrom<u8> for ProtocolPacketType {
             _ => bail!("Unsupported Protocol Packet type '{}'", value),
         };
         Ok(ppt)
-    }
-}
-
-impl TryFrom<&str> for ProtocolPacketType {
-    type Error = Error;
-
-    fn try_from(value: &str) -> Fallible<ProtocolPacketType> {
-        debug_assert_eq!(value.len(), 2);
-        ProtocolPacketType::try_from(u8::from_str_radix(value, 16)?)
     }
 }
