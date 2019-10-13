@@ -296,4 +296,25 @@ mod unit_test {
             );
         }
     }
+
+    #[test]
+    fn s11n_size_capnp() {
+        use crate::test_utils::create_random_packet;
+
+        let payload_size = 1000;
+        let mut msg = create_random_packet(payload_size);
+        let mut buffer_unpacked = std::io::Cursor::new(Vec::with_capacity(payload_size));
+        let mut buffer_packed = std::io::Cursor::new(Vec::with_capacity(payload_size));
+
+        serialize(&mut buffer_unpacked, &mut msg, false).unwrap();
+        serialize(&mut buffer_packed, &mut msg, true).unwrap();
+        println!(
+            "capnp (unpacked) s11n ratio: {}",
+            buffer_unpacked.get_ref().len() as f64 / payload_size as f64
+        );
+        println!(
+            "capnp   (packed) s11n ratio: {}",
+            buffer_packed.get_ref().len() as f64 / payload_size as f64
+        );
+    }
 }

@@ -146,4 +146,19 @@ mod tests {
         serialize(&mut network_message, &mut buffer).unwrap();
         deserialize(&buffer).unwrap();
     }
+
+    #[test]
+    fn s11n_size_fbs() {
+        use crate::test_utils::create_random_packet;
+
+        let payload_size = 1000;
+        let mut msg = create_random_packet(payload_size);
+        let mut buffer = std::io::Cursor::new(Vec::with_capacity(payload_size));
+
+        serialize(&mut msg, &mut buffer).unwrap();
+        println!(
+            "flatbuffers s11n ratio: {}",
+            buffer.get_ref().len() as f64 / payload_size as f64
+        );
+    }
 }

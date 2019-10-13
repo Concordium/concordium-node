@@ -72,4 +72,19 @@ mod unit_test {
             assert_eq!(format!("{:?}", output), format!("{:?}", expected));
         }
     }
+
+    #[test]
+    fn s11n_size_cbor() {
+        use crate::test_utils::create_random_packet;
+
+        let payload_size = 1000;
+        let msg = create_random_packet(payload_size);
+        let mut buffer = std::io::Cursor::new(Vec::with_capacity(payload_size));
+
+        ser::to_writer(&mut buffer, &msg).unwrap();
+        println!(
+            "serde CBOR s11n ratio: {}",
+            buffer.get_ref().len() as f64 / payload_size as f64
+        );
+    }
 }
