@@ -21,8 +21,11 @@ union NetworkMessagePayload {
 }
 
 table NetworkMessage {
+    version: uint8;
     timestamp: uint64;
     payload: NetworkMessagePayload;
 }
+
+file_identifier "CP2P";
 
 root_type NetworkMessage;

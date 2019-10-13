@@ -5,7 +5,10 @@ use crate::flatbuffers_shim::network;
 
 use crate::{
     common::{get_current_stamp, P2PNodeId},
-    network::{NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkPacketType},
+    network::{
+        NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkPacketType,
+        PROTOCOL_VERSION,
+    },
 };
 use concordium_common::hybrid_buf::HybridBuf;
 
@@ -16,6 +19,10 @@ use std::{
 
 pub fn deserialize(buffer: &[u8]) -> Fallible<NetworkMessage> {
     let root = network::get_size_prefixed_root_as_network_message(buffer);
+
+    if root.version() != PROTOCOL_VERSION {
+        bail!("invalid protocol version");
+    }
 
     let timestamp1 = Some(root.timestamp());
 
@@ -122,6 +129,7 @@ pub fn serialize<T: Write>(source: &mut NetworkMessage, target: &mut T) -> io::R
 
     let message_offset =
         network::NetworkMessage::create(&mut builder, &network::NetworkMessageArgs {
+            version: PROTOCOL_VERSION,
             timestamp: get_current_stamp(),
             payload_type,
             payload: Some(payload_offset),
