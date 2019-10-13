@@ -10,10 +10,6 @@ use concordium_common::serial::{NoParam, Serial};
 
 use std::{convert::TryFrom, ops::Deref};
 
-pub const NETWORK_MESSAGE_PROTOCOL_TYPE_IDX: usize = 4 + // PROTOCOL_NAME.len()
-    1 + // PROTOCOL_VERSION
-    8; // Timestamp: get_current_stamp
-
 #[derive(Debug)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub struct NetworkMessage {

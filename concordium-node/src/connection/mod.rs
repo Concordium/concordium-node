@@ -29,7 +29,7 @@ use crate::{
     dumper::DumpItem,
     network::{
         Buckets, NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacketType,
-        NetworkRequest, NetworkResponse, ProtocolMessageType, NETWORK_MESSAGE_PROTOCOL_TYPE_IDX,
+        NetworkRequest, NetworkResponse, ProtocolMessageType, PROTOCOL_HEADER_LEN,
     },
     p2p::banned_nodes::BannedNode,
 };
@@ -276,7 +276,7 @@ impl Connection {
         };
 
         // avoid allocations by not deserializing into a NetworkMessage before dedup
-        message.seek(SeekFrom::Start(NETWORK_MESSAGE_PROTOCOL_TYPE_IDX as u64))?;
+        message.seek(SeekFrom::Start(PROTOCOL_HEADER_LEN as u64))?;
         let protocol_type = ProtocolMessageType::try_from(message.read_u8()?)?;
         if protocol_type == ProtocolMessageType::Packet {
             let _ = NetworkPacketType::deserial(&mut message)?;
