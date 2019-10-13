@@ -52,7 +52,6 @@ impl TryFrom<&str> for ProtocolMessageType {
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ProtocolRequestType {
     Ping = 0,
-    FindNode,
     Handshake,
     GetPeers,
     BanNode,
@@ -76,14 +75,13 @@ impl TryFrom<u8> for ProtocolRequestType {
     fn try_from(value: u8) -> Fallible<ProtocolRequestType> {
         let prt = match value {
             0 => ProtocolRequestType::Ping,
-            1 => ProtocolRequestType::FindNode,
-            2 => ProtocolRequestType::Handshake,
-            3 => ProtocolRequestType::GetPeers,
-            4 => ProtocolRequestType::BanNode,
-            5 => ProtocolRequestType::UnbanNode,
-            6 => ProtocolRequestType::JoinNetwork,
-            7 => ProtocolRequestType::LeaveNetwork,
-            8 => ProtocolRequestType::Retransmit,
+            1 => ProtocolRequestType::Handshake,
+            2 => ProtocolRequestType::GetPeers,
+            3 => ProtocolRequestType::BanNode,
+            4 => ProtocolRequestType::UnbanNode,
+            5 => ProtocolRequestType::JoinNetwork,
+            6 => ProtocolRequestType::LeaveNetwork,
+            7 => ProtocolRequestType::Retransmit,
             _ => bail!("Unsupported Protocol Request type '{}'", value),
         };
         Ok(prt)

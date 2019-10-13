@@ -32,7 +32,6 @@ pub type RequestedSince = u64;
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum NetworkRequest {
     Ping,
-    FindNode(P2PNodeId), // we no longer need the id - always provide all the nodes
     BanNode(BannedNode),
     Handshake(P2PNodeId, u16, HashSet<NetworkId>, Vec<u8>),
     GetPeers(HashSet<NetworkId>),
@@ -46,7 +45,6 @@ impl AsProtocolRequestType for NetworkRequest {
     fn protocol_request_type(&self) -> ProtocolRequestType {
         match self {
             NetworkRequest::Ping => ProtocolRequestType::Ping,
-            NetworkRequest::FindNode(..) => ProtocolRequestType::FindNode,
             NetworkRequest::BanNode(..) => ProtocolRequestType::BanNode,
             NetworkRequest::Handshake(..) => ProtocolRequestType::Handshake,
             NetworkRequest::GetPeers(..) => ProtocolRequestType::GetPeers,
@@ -66,7 +64,6 @@ impl Serial for NetworkRequest {
 
         let request = match protocol_type {
             ProtocolRequestType::Ping => NetworkRequest::Ping,
-            ProtocolRequestType::FindNode => NetworkRequest::FindNode(P2PNodeId::deserial(source)?),
             ProtocolRequestType::BanNode => NetworkRequest::BanNode(BannedNode::deserial(source)?),
             ProtocolRequestType::UnbanNode => {
                 NetworkRequest::UnbanNode(BannedNode::deserial(source)?)
@@ -102,7 +99,6 @@ impl Serial for NetworkRequest {
         (self.protocol_request_type() as u8).serial(target)?;
         match self {
             NetworkRequest::Ping => Ok(()),
-            NetworkRequest::FindNode(id) => id.serial(target),
             NetworkRequest::JoinNetwork(network) | NetworkRequest::LeaveNetwork(network) => {
                 network.serial(target)
             }

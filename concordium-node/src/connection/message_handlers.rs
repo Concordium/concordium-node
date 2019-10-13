@@ -1,14 +1,14 @@
 use crate::{
     client::plugins::consensus::*,
     common::{get_current_stamp, P2PNodeId, P2PPeer, PeerType},
-    connection::{Connection, MessageSendingPriority, P2PEvent},
+    connection::{Connection, P2PEvent},
     network::{
         request::RequestedElementType, NetworkId, NetworkMessage, NetworkMessagePayload,
         NetworkPacket, NetworkPacketType, NetworkRequest, NetworkResponse,
     },
     p2p::banned_nodes::BannedNode,
 };
-use concordium_common::{read_or_die, serial::serialize_into_buffer, write_or_die, PacketType};
+use concordium_common::{read_or_die, write_or_die, PacketType};
 
 use failure::{Error, Fallible};
 
@@ -27,9 +27,6 @@ impl Connection {
             ) => self.handle_handshake_resp(*remote_node_id, *remote_port, nets),
             NetworkMessagePayload::NetworkRequest(NetworkRequest::Ping, ..) => self.send_pong(),
             NetworkMessagePayload::NetworkResponse(NetworkResponse::Pong, ..) => self.handle_pong(),
-            NetworkMessagePayload::NetworkRequest(NetworkRequest::FindNode(node), ..) => {
-                self.handle_find_node_req(*node)
-            }
             NetworkMessagePayload::NetworkRequest(NetworkRequest::GetPeers(ref networks), ..) => {
                 self.handle_get_peers_req(networks)
             }
@@ -142,31 +139,6 @@ impl Connection {
         }
 
         Ok(())
-    }
-
-    fn handle_find_node_req(&self, _target_node: P2PNodeId) -> Fallible<()> {
-        debug!("Got a FindNode request");
-
-        let find_node_msg = {
-            let nodes = safe_read!(self.handler().connection_handler.buckets)?.buckets[0] // The Buckets object is never empty
-                .clone()
-                .into_iter()
-                .map(|node| node.peer)
-                .collect::<Vec<_>>();
-
-            NetworkMessage {
-                timestamp1: Some(get_current_stamp()),
-                timestamp2: None,
-                payload:    NetworkMessagePayload::NetworkResponse(NetworkResponse::PeerList(
-                    nodes,
-                )),
-            }
-        };
-
-        self.async_send(
-            serialize_into_buffer(&find_node_msg, 256)?,
-            MessageSendingPriority::Normal,
-        )
     }
 
     fn handle_get_peers_req(&self, networks: &HashSet<NetworkId>) -> Fallible<()> {
