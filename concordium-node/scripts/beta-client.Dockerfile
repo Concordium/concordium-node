@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:experimental
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.2 as build
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.3 as build
 COPY . /build-project
 WORKDIR /build-project
 COPY ./scripts/init.build.env.sh ./init.build.env.sh
@@ -18,7 +18,7 @@ RUN --mount=type=ssh cargo build --release --features=static,collector,beta && \
     cd genesis_data && \
     cp genesis.dat /build-project/
 
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.2 as haskell-build
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.3 as haskell-build
 COPY ./src/proto/concordium_p2p_rpc.proto /concordium.proto
 COPY ./scripts/CONSENSUS_VERSION /CONSENSUS_VERSION
 # P2P client is now built

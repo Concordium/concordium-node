@@ -9,7 +9,10 @@ use crate::{
     },
     configuration,
     failure::Fallible,
-    network::{request::RequestedElementType, NetworkId, NetworkMessage, NetworkPacketType},
+    network::{
+        request::RequestedElementType, NetworkId, NetworkMessage, NetworkMessagePayload,
+        NetworkPacketType,
+    },
     p2p::{
         banned_nodes::BannedNode,
         p2p_node::{send_broadcast_message, send_direct_message},
@@ -663,7 +666,7 @@ impl P2P for RpcServerImpl {
 
             let f = {
                 if let Some(network_msg) = self.receive_network_msg() {
-                    if let NetworkMessage::NetworkPacket(ref packet, ..) = network_msg {
+                    if let NetworkMessagePayload::NetworkPacket(ref packet) = network_msg.payload {
                         let mut inner_msg = packet.message.to_owned();
                         if let Ok(view_inner_msg) = inner_msg.remaining_bytes() {
                             let msg = view_inner_msg.into_owned();
