@@ -172,7 +172,7 @@ processFinalizationPool = do
             foldrM checkFin (Right []) frs >>= \case
                 -- We got a valid finalization proof, so progress finalization
                 Left (finRec, newFinBlock) -> do
-                    logEvent Skov LLInfo $ "Block " ++ show (bpHash newFinBlock) ++ " is finalized at height " ++ show (theBlockHeight $ bpHeight newFinBlock)
+                    logEvent Skov LLInfo $ "Block " ++ show (bpHash newFinBlock) ++ " is finalized at height " ++ show (theBlockHeight $ bpHeight newFinBlock) ++ " with finalization delta=" ++ show (finalizationDelay finRec)
                     updateFinalizationStatistics
                     -- Check if the focus block is a descendent of the block we are finalizing
                     focusBlockSurvives <- (isAncestorOf newFinBlock) <$> getFocusBlock
