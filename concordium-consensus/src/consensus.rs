@@ -41,43 +41,56 @@ impl TryFrom<u8> for ConsensusLogLevel {
     }
 }
 
-const CONSENSUS_QUEUE_DEPTH: usize = 32 * 1024;
+const CONSENSUS_QUEUE_DEPTH_HI: usize = 1024;
+const CONSENSUS_QUEUE_DEPTH_LO: usize = 64 * 1024;
 
 pub struct ConsensusQueues {
-    pub receiver: Mutex<QueueReceiver<ConsensusMessage>>,
-    pub sender:   QueueSyncSender<ConsensusMessage>,
+    pub receiver_hi: Mutex<QueueReceiver<ConsensusMessage>>,
+    pub sender_hi:   QueueSyncSender<ConsensusMessage>,
+    pub receiver_lo: Mutex<QueueReceiver<ConsensusMessage>>,
+    pub sender_lo:   QueueSyncSender<ConsensusMessage>,
 }
 
 impl Default for ConsensusQueues {
     fn default() -> Self {
-        let (sender, receiver) = mpsc::sync_channel(CONSENSUS_QUEUE_DEPTH);
+        let (sender_hi, receiver_hi) = mpsc::sync_channel(CONSENSUS_QUEUE_DEPTH_HI);
+        let (sender_lo, receiver_lo) = mpsc::sync_channel(CONSENSUS_QUEUE_DEPTH_LO);
         Self {
-            receiver: Mutex::new(receiver),
-            sender,
+            receiver_hi: Mutex::new(receiver_hi),
+            sender_hi,
+            receiver_lo: Mutex::new(receiver_lo),
+            sender_lo,
         }
     }
 }
 
 impl ConsensusQueues {
     pub fn send_message(&self, message: ConsensusMessage) -> Fallible<()> {
-        into_err!(self.sender.send_msg(message))
+        into_err!(self.sender_lo.send_msg(message))
     }
 
     pub fn send_blocking_msg(&self, message: ConsensusMessage) -> Fallible<()> {
-        into_err!(self.sender.send_blocking_msg(message))
+        into_err!(self.sender_hi.send_blocking_msg(message))
     }
 
     pub fn clear(&self) {
-        if let Ok(ref mut q) = self.receiver.try_lock() {
+        if let Ok(ref mut q) = self.receiver_lo.try_lock() {
             debug!(
-                "Drained the Consensus request queue for {} element(s)",
+                "Drained the Consensus low priority queue for {} element(s)",
+                q.try_iter().count()
+            );
+        }
+        if let Ok(ref mut q) = self.receiver_hi.try_lock() {
+            debug!(
+                "Drained the Consensus high priority queue for {} element(s)",
                 q.try_iter().count()
             );
         }
     }
 
     pub fn stop(&self) -> Fallible<()> {
-        into_err!(self.sender.send_stop())?;
+        into_err!(self.sender_lo.send_stop())?;
+        into_err!(self.sender_hi.send_stop())?;
         Ok(())
     }
 }
