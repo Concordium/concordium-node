@@ -62,8 +62,6 @@ $> nix-env -f . -i
 To build the stable image built in a Jenkins pipeline (it gets tagged `latest`, if not changed in the line shown below, so it matches the image hosted on docker-hub - and as the layers will have a newer version, it won't download from docker-hub unless the locally built image is removed via e.g. `docker image rmi ..`). It passes the local `ssh-agent` into the docker build environment for the needed stages to download internal crates with git directly.
 ```bash
 $> git clone -b master --single-branch git@gitlab.com:Concordium/tools/baker_id_gen.git baker_id_gen # Only needed once, as it's a vital component to scaling the bakers inside docker-compose
-$> CONSENSUS_VERSION=`git submodule | grep consensus | head -n1 | awk '{print $1}'`
-$> echo $CONSENSUS_VERSION > CONSENSUS_VERSION
 $> DOCKER_BUILDKIT=1 docker build -f scripts/dev-client.Dockerfile -t concordium/dev-client:latest --ssh default . --no-cache
 ```
 ### Latest stable from master branch
