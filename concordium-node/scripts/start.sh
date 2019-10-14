@@ -108,7 +108,7 @@ then
     ARGS="$ARGS --tps-test-recv-id $TPS_RECEIVER_ID"
 fi
 
-if [ -n "$MAX_NODES" ];
+if [ -n "$BOOTSTRAPPER_WAIT_UNTIL_MINIMUM_NODES" ];
 then
     ARGS="$ARGS --max-nodes $MAX_NODES"
 fi
@@ -120,7 +120,7 @@ fi
 
 if [ -n "$MAX_ALLOWED_NODES" ];
 then
-    ARGS="$ARGS --max-allowed-nodes $MAX_NODES"
+    ARGS="$ARGS --max-allowed-nodes $MAX_ALLOWED_NODES"
 fi
 
 if [ -n "$MAX_ALLOWED_NODES_PERCENTAGE" ];
