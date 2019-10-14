@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:experimental
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.2 as build
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.3 as build
 
 COPY . /build-project/
 WORKDIR /build-project

@@ -52,14 +52,8 @@ echo -e "packages: []\nresolver: $(cat deps/internal/consensus/stack.yaml | grep
 )
 
 ( cd deps/internal/consensus &&
-      ( cd globalstate-mockup &&
-            git submodule update --init deps/concordium-global-state-sys &&
-            cd deps/concordium-global-state-sys &&
-            git submodule update --init deps/p2p-client &&
-            (cd deps/p2p-client &&
-                 git submodule update --init deps/internal/consensus/ &&
-                 cd deps/internal/consensus &&
-                 git submodule update --init crypto) &&
+      git submodule update --init --recursive &&
+      ( cd globalstate-mockup/deps/concordium-global-state-sys &&
             LD_LIBRARY_PATH=/usr/local/lib cargo build &&
             sudo cp target/debug/libconcordium_global_state_sys.$LIBEXTENSION /usr/local/lib &&
             #rm -rf target/ &&

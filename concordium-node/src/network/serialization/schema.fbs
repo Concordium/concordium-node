@@ -1,0 +1,28 @@
+namespace network;
+
+table DirectMessage {
+    target: uint64;
+}
+
+table BroadcastMessage {
+    ids_to_exclude: [uint64];
+}
+
+union PacketType { DirectMessage, BroadcastMessage }
+
+table NetworkPacket {
+    packetType: PacketType;
+    networkId: uint16;
+    message: [uint8];
+}
+
+union NetworkMessagePayload {
+    NetworkPacket
+}
+
+table NetworkMessage {
+    timestamp: uint64;
+    payload: NetworkMessagePayload;
+}
+
+root_type NetworkMessage;
