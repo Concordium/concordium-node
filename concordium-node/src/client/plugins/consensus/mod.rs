@@ -157,6 +157,7 @@ pub fn handle_pkt_out(
         "Message needs at least {} bytes",
         PAYLOAD_TYPE_LENGTH
     );
+    msg.rewind()?; // FIXME: why is the buffer cursor moved by 2 here?
 
     let consensus_type = msg.read_u16::<NetworkEndian>()?;
     let packet_type = PacketType::try_from(consensus_type)?;

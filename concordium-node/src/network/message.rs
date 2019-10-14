@@ -1,16 +1,8 @@
-use byteorder::{ReadBytesExt, WriteBytesExt};
-use failure::Fallible;
-
 use super::{
     AsProtocolMessageType, NetworkPacket, NetworkRequest, NetworkResponse, ProtocolMessageType,
-    PROTOCOL_NAME, PROTOCOL_VERSION,
 };
-use crate::common::get_current_stamp;
-use concordium_common::serial::{NoParam, Serial};
 
-use std::{convert::TryFrom, ops::Deref};
-
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub struct NetworkMessage {
     pub timestamp1: Option<u64>,
@@ -29,7 +21,7 @@ impl NetworkMessage {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum NetworkMessagePayload {
     NetworkRequest(NetworkRequest),
@@ -47,67 +39,6 @@ impl AsProtocolMessageType for NetworkMessage {
     }
 }
 
-impl Serial for NetworkMessage {
-    type Param = NoParam;
-
-    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
-        // verify the protocol name and version
-        let mut protocol_name = vec![0u8; PROTOCOL_NAME.len()];
-        source.read_exact(&mut protocol_name)?;
-        if protocol_name.deref() != PROTOCOL_NAME.as_bytes() {
-            bail!("Unknown protocol name (`{:?}`)! ", protocol_name.deref())
-        }
-        let protocol_version = u8::deserial(source)?;
-        if protocol_version != PROTOCOL_VERSION {
-            bail!("Unknown protocol version (`{:?}`)", protocol_version)
-        }
-
-        let timestamp = u64::deserial(source)?;
-        let protocol_type: ProtocolMessageType = ProtocolMessageType::try_from(source.read_u8()?)?;
-        let message = match protocol_type {
-            ProtocolMessageType::Request => {
-                let request = NetworkRequest::deserial(source)?;
-                NetworkMessage {
-                    timestamp1: Some(timestamp),
-                    timestamp2: Some(get_current_stamp()),
-                    payload:    NetworkMessagePayload::NetworkRequest(request),
-                }
-            }
-            ProtocolMessageType::Response => {
-                let response = NetworkResponse::deserial(source)?;
-                NetworkMessage {
-                    timestamp1: Some(timestamp),
-                    timestamp2: Some(get_current_stamp()),
-                    payload:    NetworkMessagePayload::NetworkResponse(response),
-                }
-            }
-            ProtocolMessageType::Packet => {
-                let packet = NetworkPacket::deserial(source)?;
-                NetworkMessage {
-                    timestamp1: Some(timestamp),
-                    timestamp2: Some(get_current_stamp()),
-                    payload:    NetworkMessagePayload::NetworkPacket(packet),
-                }
-            }
-        };
-
-        Ok(message)
-    }
-
-    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
-        target.write_all(PROTOCOL_NAME.as_bytes())?;
-        PROTOCOL_VERSION.serial(target)?;
-        get_current_stamp().serial(target)?;
-        (self.protocol_message_type() as u8).serial(target)?;
-
-        match self.payload {
-            NetworkMessagePayload::NetworkRequest(ref request) => request.serial(target),
-            NetworkMessagePayload::NetworkResponse(ref response) => response.serial(target),
-            NetworkMessagePayload::NetworkPacket(ref packet) => packet.serial(target),
-        }
-    }
-}
-
 #[cfg(test)]
 mod unit_test {
     use failure::Fallible;
@@ -119,10 +50,10 @@ mod unit_test {
 
     use super::*;
     use crate::{
-        common::P2PNodeId,
-        network::{NetworkId, NetworkPacket, NetworkPacketType},
+        common::{get_current_stamp, P2PNodeId},
+        network::{deserialize, serialize, NetworkId, NetworkPacket, NetworkPacketType},
     };
-    use concordium_common::{hybrid_buf::HybridBuf, serial::Serial};
+    use concordium_common::hybrid_buf::HybridBuf;
 
     #[test]
     fn ut_s11n_001_direct_message_from_disk_16m() -> Fallible<()> {
@@ -166,7 +97,7 @@ mod unit_test {
             network_id:  NetworkId::from(111),
             message:     payload,
         };
-        let message = NetworkMessage {
+        let mut message = NetworkMessage {
             timestamp1: Some(get_current_stamp()),
             timestamp2: None,
             payload:    NetworkMessagePayload::NetworkPacket(pkt),
@@ -174,7 +105,7 @@ mod unit_test {
 
         // 3. Serialize package into a file
         let mut buffer = HybridBuf::new_on_disk()?;
-        message.serial(&mut buffer)?;
+        serialize(&mut message, &mut buffer)?;
 
         buffer.seek(SeekFrom::Start(0))?;
         Ok(buffer)
@@ -184,7 +115,7 @@ mod unit_test {
         // Create serialization data in memory and then move to disk
         let mut buffer = make_direct_message_into_disk(content_size)?;
 
-        let mut message = NetworkMessage::deserial(&mut buffer)?;
+        let mut message = deserialize(&buffer.remaining_bytes()?)?;
 
         if let NetworkMessagePayload::NetworkPacket(ref mut packet) = message.payload {
             if let NetworkPacketType::BroadcastedMessage(..) = packet.packet_type {

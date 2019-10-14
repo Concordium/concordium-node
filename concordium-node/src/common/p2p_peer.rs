@@ -1,10 +1,7 @@
 use byteorder::{ReadBytesExt, WriteBytesExt};
-use failure::{Error, Fallible};
+use failure::Fallible;
 
-use crate::{
-    common::{fails, P2PNodeId},
-    connection::ConnectionStats,
-};
+use crate::{common::P2PNodeId, connection::ConnectionStats};
 use concordium_common::serial::{NoParam, Serial};
 
 use std::{
@@ -17,9 +14,6 @@ use std::{
         Arc, RwLock,
     },
 };
-
-const PEER_TYPE_NODE: u8 = 0;
-const PEER_TYPE_BOOTSTRAPPER: u8 = 1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
@@ -42,54 +36,23 @@ impl Serial for PeerType {
 
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         match source.read_u8()? {
-            PEER_TYPE_NODE => Ok(PeerType::Node),
-            PEER_TYPE_BOOTSTRAPPER => Ok(PeerType::Bootstrapper),
+            0 => Ok(PeerType::Node),
+            1 => Ok(PeerType::Bootstrapper),
             x => bail!("Can't deserialize a PeerType (unknown type: {})", x),
         }
     }
 
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
-        let byte = match self {
-            PeerType::Node => PEER_TYPE_NODE,
-            PeerType::Bootstrapper => PEER_TYPE_BOOTSTRAPPER,
-        };
-        Ok(target.write_u8(byte)?)
+        Ok(target.write_u8(*self as u8)?)
     }
 }
 
 #[derive(Debug, Clone, Copy, Builder)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
-#[builder(build_fn(skip))]
 pub struct P2PPeer {
     pub id:        P2PNodeId,
     pub addr:      SocketAddr,
     pub peer_type: PeerType,
-}
-
-impl P2PPeerBuilder {
-    pub fn build(&mut self) -> Fallible<P2PPeer> {
-        let id = self.id.unwrap_or_else(P2PNodeId::default);
-        self.id(id);
-
-        if let Some((peer_type, (id, addr))) = self
-            .peer_type
-            .iter()
-            .zip(self.id.iter().zip(self.addr.iter()))
-            .next()
-        {
-            Ok(P2PPeer {
-                peer_type: *peer_type,
-                addr:      *addr,
-                id:        *id,
-            })
-        } else {
-            Err(Error::from(fails::MissingFieldsError::new(
-                self.peer_type,
-                self.id,
-                self.addr,
-            )))
-        }
-    }
 }
 
 impl P2PPeer {
@@ -132,17 +95,20 @@ impl Serial for P2PPeer {
     type Param = NoParam;
 
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
-        Ok(P2PPeer::from(
-            PeerType::deserial(source)?,
-            P2PNodeId::deserial(source)?,
-            SocketAddr::deserial(source)?,
-        ))
+        let id = P2PNodeId::deserial(source)?;
+        let addr = SocketAddr::deserial(source)?;
+        let peer_type = PeerType::deserial(source)?;
+        Ok(P2PPeer {
+            id,
+            addr,
+            peer_type,
+        })
     }
 
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
-        self.peer_type.serial(target)?;
         self.id.serial(target)?;
-        self.addr.serial(target)
+        self.addr.serial(target)?;
+        self.peer_type.serial(target)
     }
 }
 
@@ -247,5 +213,33 @@ impl PeerStats {
 
     pub fn external_address(&self) -> SocketAddr {
         SocketAddr::new(self.addr.ip(), self.peer_external_port)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Cursor, Seek, SeekFrom};
+
+    #[test]
+    fn serial_p2ppeer_s11n() {
+        let peers = vec![
+            P2PPeer {
+                id:        P2PNodeId(1234567890123),
+                addr:      SocketAddr::new(IpAddr::from([1, 2, 3, 4]), 8000),
+                peer_type: PeerType::Bootstrapper,
+            },
+            P2PPeer {
+                id:        P2PNodeId(1),
+                addr:      SocketAddr::new(IpAddr::from([8, 7, 6, 5, 4, 3, 2, 1]), 8080),
+                peer_type: PeerType::Node,
+            },
+        ];
+        let mut serialized = Cursor::new(Vec::new());
+        peers.serial(&mut serialized).unwrap();
+        serialized.seek(SeekFrom::Start(0)).unwrap();
+        let deserialized = <Vec<P2PPeer>>::deserial(&mut serialized).unwrap();
+
+        assert_eq!(deserialized, peers)
     }
 }

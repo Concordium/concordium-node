@@ -221,6 +221,21 @@ impl Seek for HybridBuf {
     }
 }
 
+// used only in tests
+impl PartialEq for HybridBuf {
+    fn eq(&self, other: &Self) -> bool {
+        if let Self::Mem(cursor1) = self {
+            if let Self::Mem(cursor2) = other {
+                cursor1.get_ref() == cursor2.get_ref()
+            } else {
+                unimplemented!()
+            }
+        } else {
+            unimplemented!()
+        }
+    }
+}
+
 #[cfg(feature = "s11n_serde")]
 impl serde::ser::Serialize for HybridBuf {
     fn serialize<S>(&self, serializer: S) -> core::result::Result<S::Ok, S::Error>

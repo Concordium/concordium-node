@@ -15,7 +15,6 @@ license = "MIT"
 default = []
 valgrind = []
 s11n_capnp = ["capnp", "capnpc"]
-s11n_fbs = ["flatbuffers", "flatc-rust"]
 s11n_serde = ["concordium-common/s11n_serde", "serde", "serde_derive"]
 s11n_serde_cbor = ["serde_cbor", "s11n_serde"]
 instrumentation = ["concordium-common/instrumentation", "serde", "serde_derive", "gotham", "mime", "gotham_derive", "hyper", "reqwest"]
@@ -65,6 +64,8 @@ sha2 = "0"
 base58check = "^0.1"
 rkv = "^0.9"
 circular-queue = "^0.2"
+flatbuffers = "^0.6"
+flatc-rust = "^0.1"
 # Snow : Noise implementation.
 snow = { version = "0.5.2", features = ["hacl-star-accelerated"] }
 # gRPC dependencies
@@ -79,8 +80,6 @@ mime = { version = "0.3", optional = true }
 serde = { version = "1.0", features = ["rc"], optional = true }
 serde_derive = { version = "1.0", optional = true }
 capnp = { version = "^0.9", optional = true }
-flatbuffers = { version = "^0.6", optional = true }
-flatc-rust = { version = "^0.1", optional = true }
 serde_cbor = { version = "0.9.0", optional = true }
 hash_hasher = "^2.0"
 digest = "0.8.0"
@@ -111,7 +110,7 @@ walkdir = "2"
 regex = "1"
 protoc-grpcio = "0.2.0"
 capnpc = { version = "^0.9", optional = true }
-flatc-rust = { version = "^0.1", optional = true }
+flatc-rust = "^0.1"
 
 [dev-dependencies]
 criterion = "0.2"

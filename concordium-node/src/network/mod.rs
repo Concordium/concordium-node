@@ -18,6 +18,7 @@ pub use self::{
     },
     request::NetworkRequest,
     response::NetworkResponse,
+    serialization::fbs::{deserialize, serialize},
 };
 
 pub const PROTOCOL_NAME: &str = "CP2P";

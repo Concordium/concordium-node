@@ -6,6 +6,7 @@ This repository uses git lfs for storing binary dependencies, and relies on git 
 * Rust (stable 1.37+, and stable 1.37.0 (eae3437df 2019-08-13) for using static libraries)
 * binutils >= 2.22
 * cmake >= 3.8.0
+* flatc >= 1.11.0
 * protobuf >= 3.7.1
 * LLVM and Clang >= 3.9
 * [Unbound](https://www.nlnetlabs.nl/projects/unbound/about/) >= 1.9.2
@@ -13,13 +14,11 @@ This repository uses git lfs for storing binary dependencies, and relies on git 
 ### Optional dependencies
 * Stack (and GHC-8.6.5, if not building using static libraries)
 * capnp (for running `s11n_capnp` enabled benches only)
-* flatc (for running `s11n_fbs` enabled benches only)
 
 ## Supported features
 * instrumentation - switches the default internal counter implementation out with prometheus
 * s11n_serde_cbor - enables serialization using [serde_cbor](https://crates.io/crates/serde_cbor) (only used in benches)
 * s11n_capnp - enables serialization using [Cap'n'Proto](https://crates.io/crates/capnp) (only used in benches)
-* s11n_fbs - enables serialization using [flatbuffers](https://crates.io/crates/flatbuffers) (only used in benches)
 * instrumentation - enables stats data exporting to [prometheus](https://crates.io/crates/prometheus)
 * benchmark - enables the TPS testing
 * network_dump - makes the network dumping capabilites available.

@@ -56,8 +56,8 @@ impl TryFrom<u8> for ProtocolRequestType {
     fn try_from(value: u8) -> Fallible<ProtocolRequestType> {
         let prt = match value {
             0 => ProtocolRequestType::Ping,
-            1 => ProtocolRequestType::Handshake,
-            2 => ProtocolRequestType::GetPeers,
+            1 => ProtocolRequestType::GetPeers,
+            2 => ProtocolRequestType::Handshake,
             3 => ProtocolRequestType::BanNode,
             4 => ProtocolRequestType::UnbanNode,
             5 => ProtocolRequestType::JoinNetwork,

@@ -9,8 +9,8 @@ use crate::{
     crypto::generate_snow_config,
     dumper::DumpItem,
     network::{
-        request::RequestedElementType, Buckets, NetworkId, NetworkMessage, NetworkMessagePayload,
-        NetworkPacket, NetworkPacketType, NetworkRequest,
+        request::RequestedElementType, serialize, Buckets, NetworkId, NetworkMessage,
+        NetworkMessagePayload, NetworkPacket, NetworkPacketType, NetworkRequest,
     },
     p2p::{banned_nodes::BannedNode, fails, unreachable_nodes::UnreachableNodes},
     stats_engine::StatsEngine,
@@ -18,10 +18,7 @@ use crate::{
 };
 use chrono::prelude::*;
 use concordium_common::{
-    cache::Cache,
-    hybrid_buf::HybridBuf,
-    serial::{serialize_into_buffer, Serial},
-    stats_export_service::StatsExportService,
+    cache::Cache, hybrid_buf::HybridBuf, serial::Serial, stats_export_service::StatsExportService,
 };
 use failure::{err_msg, Error, Fallible};
 #[cfg(not(target_os = "windows"))]
@@ -196,20 +193,23 @@ pub struct P2PNode {
     pub transactions_cache:   RwLock<Cache<Vec<u8>>>,
     pub stats_engine:         RwLock<StatsEngine>,
 }
-
 // a convenience macro to send an object to all connections
 macro_rules! send_to_all {
     ($foo_name:ident, $object_type:ty, $req_type:ident) => {
         pub fn $foo_name(&self, object: $object_type) {
-            let req = NetworkRequest::$req_type(object);
-            let msg = NetworkMessage {
+            let request = NetworkRequest::$req_type(object);
+            let mut message = NetworkMessage {
                 timestamp1: None,
                 timestamp2: None,
-                payload: NetworkMessagePayload::NetworkRequest(req)
+                payload: NetworkMessagePayload::NetworkRequest(request)
             };
             let filter = |_: &Connection| true;
 
-            if let Err(e) = serialize_into_buffer(&msg, 256).and_then(|data| self.send_over_all_connections(data, &filter)) {
+            if let Err(e) = HybridBuf::with_capacity(256)
+                .map_err(Error::from)
+                .and_then(|mut buf| serialize(&mut message, &mut buf).map(|_| buf))
+                .and_then(|buf| self.send_over_all_connections(buf, &filter))
+            {
                 error!("A network message couldn't be forwarded: {}", e);
             }
         }
@@ -1057,15 +1057,6 @@ impl P2PNode {
         inner_pkt: NetworkPacket,
         source_id: P2PNodeId,
     ) -> Fallible<usize> {
-        let serialized_packet = serialize_into_buffer(
-            &NetworkMessage {
-                timestamp1: Some(get_current_stamp()),
-                timestamp2: None,
-                payload:    NetworkMessagePayload::NetworkPacket(inner_pkt.clone()),
-            },
-            256,
-        )?;
-
         let peers_to_skip = match inner_pkt.packet_type {
             NetworkPacketType::DirectMessage(..) => vec![],
             NetworkPacketType::BroadcastedMessage(ref dont_relay_to) => {
@@ -1087,26 +1078,38 @@ impl P2PNode {
             }
         };
 
-        match inner_pkt.packet_type {
-            NetworkPacketType::DirectMessage(ref receiver) => {
-                // safe, used only in a post-handshake context
-                let filter =
-                    |conn: &Connection| read_or_die!(conn.remote_peer.id).unwrap() == *receiver;
+        let target = if let NetworkPacketType::DirectMessage(receiver) = inner_pkt.packet_type {
+            Some(receiver)
+        } else {
+            None
+        };
+        let network_id = inner_pkt.network_id;
 
-                self.send_over_all_connections(serialized_packet, &filter)
-            }
-            NetworkPacketType::BroadcastedMessage(_) => {
-                let filter = |conn: &Connection| {
-                    is_valid_connection_in_broadcast(
-                        conn,
-                        source_id,
-                        &peers_to_skip,
-                        inner_pkt.network_id,
-                    )
-                };
+        let mut message = NetworkMessage {
+            timestamp1: Some(get_current_stamp()),
+            timestamp2: None,
+            payload:    NetworkMessagePayload::NetworkPacket(inner_pkt),
+        };
 
-                self.send_over_all_connections(serialized_packet, &filter)
-            }
+        if let Some(target_id) = target {
+            // direct messages
+            let filter =
+                |conn: &Connection| read_or_die!(conn.remote_peer.id).unwrap() == target_id;
+
+            let mut serialized = HybridBuf::with_capacity(256)?;
+            serialize(&mut message, &mut serialized)?;
+
+            self.send_over_all_connections(serialized, &filter)
+        } else {
+            // broadcast messages
+            let filter = |conn: &Connection| {
+                is_valid_connection_in_broadcast(conn, source_id, &peers_to_skip, network_id)
+            };
+
+            let mut serialized = HybridBuf::with_capacity(256)?;
+            serialize(&mut message, &mut serialized)?;
+
+            self.send_over_all_connections(serialized, &filter)
         }
     }
 
@@ -1291,16 +1294,18 @@ impl P2PNode {
 
     fn send_get_peers(&self) {
         if let Ok(nids) = safe_read!(self.networks()) {
-            let req = NetworkRequest::GetPeers(nids.iter().copied().collect());
-            let msg = NetworkMessage {
+            let request = NetworkRequest::GetPeers(nids.iter().copied().collect());
+            let mut message = NetworkMessage {
                 timestamp1: None,
                 timestamp2: None,
-                payload:    NetworkMessagePayload::NetworkRequest(req),
+                payload:    NetworkMessagePayload::NetworkRequest(request),
             };
             let filter = |_: &Connection| true;
 
-            if let Err(e) = serialize_into_buffer(&msg, 256)
-                .and_then(|data| self.send_over_all_connections(data, &filter))
+            if let Err(e) = HybridBuf::with_capacity(256)
+                .map_err(Error::from)
+                .and_then(|mut buf| serialize(&mut message, &mut buf).map(|_| buf))
+                .and_then(|buf| self.send_over_all_connections(buf, &filter))
             {
                 error!("A network message couldn't be forwarded: {}", e);
             }
@@ -1313,16 +1318,18 @@ impl P2PNode {
         since: u64,
         nid: NetworkId,
     ) {
-        let req = NetworkRequest::Retransmit(requested_type, since, nid);
-        let msg = NetworkMessage {
+        let request = NetworkRequest::Retransmit(requested_type, since, nid);
+        let mut message = NetworkMessage {
             timestamp1: None,
             timestamp2: None,
-            payload:    NetworkMessagePayload::NetworkRequest(req),
+            payload:    NetworkMessagePayload::NetworkRequest(request),
         };
         let filter = |_: &Connection| true;
 
-        if let Err(e) = serialize_into_buffer(&msg, 256)
-            .and_then(|data| self.send_over_all_connections(data, &filter))
+        if let Err(e) = HybridBuf::with_capacity(256)
+            .map_err(Error::from)
+            .and_then(|mut buf| serialize(&mut message, &mut buf).map(|_| buf))
+            .and_then(|buf| self.send_over_all_connections(buf, &filter))
         {
             error!("A network message couldn't be forwarded: {}", e);
         }
