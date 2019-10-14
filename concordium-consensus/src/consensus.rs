@@ -41,7 +41,7 @@ impl TryFrom<u8> for ConsensusLogLevel {
     }
 }
 
-const CONSENSUS_QUEUE_DEPTH_HI: usize = 1024;
+const CONSENSUS_QUEUE_DEPTH_HI: usize = 4 * 1024;
 const CONSENSUS_QUEUE_DEPTH_LO: usize = 64 * 1024;
 
 pub struct ConsensusQueues {
