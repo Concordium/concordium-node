@@ -531,35 +531,18 @@ pub struct AppPreferences {
 impl AppPreferences {
     pub fn new(override_conf: Option<String>, override_data: Option<String>) -> Self {
         let file_path = Self::calculate_config_file_path(&override_conf, APP_PREFERENCES_MAIN);
-        match OpenOptions::new().read(true).write(true).open(&file_path) {
+        let mut new_prefs = match OpenOptions::new().read(true).write(true).open(&file_path) {
             Ok(file) => {
                 let mut reader = BufReader::new(&file);
                 let load_result = PreferencesMap::<String>::load_from(&mut reader);
-                if let Ok(mut prefs) = load_result {
-                    prefs.insert(
-                        APP_PREFERENCES_KEY_VERSION.to_string(),
-                        super::VERSION.to_string(),
-                    );
-                    let mut writer = BufWriter::new(&file);
-                    if prefs.save_to(&mut writer).is_err() {
-                        panic!("Can't write to config file!");
-                    }
+                if let Ok(prefs) = load_result {
                     AppPreferences {
                         preferences_map:     Arc::new(RwLock::new(prefs)),
                         override_data_dir:   override_data,
                         override_config_dir: override_conf,
                     }
                 } else {
-                    let mut prefs = PreferencesMap::<String>::new();
-                    prefs.insert(
-                        APP_PREFERENCES_KEY_VERSION.to_string(),
-                        super::VERSION.to_string(),
-                    );
-                    let mut writer = BufWriter::new(&file);
-                    if prefs.save_to(&mut writer).is_err() {
-                        panic!("Can't write to config file!");
-                    }
-                    writer.flush().ok();
+                    let prefs = PreferencesMap::<String>::new();
                     AppPreferences {
                         preferences_map:     Arc::new(RwLock::new(prefs)),
                         override_data_dir:   override_data,
@@ -568,17 +551,8 @@ impl AppPreferences {
                 }
             }
             _ => match File::create(&file_path) {
-                Ok(file) => {
-                    let mut prefs = PreferencesMap::<String>::new();
-                    prefs.insert(
-                        APP_PREFERENCES_KEY_VERSION.to_string(),
-                        super::VERSION.to_string(),
-                    );
-                    let mut writer = BufWriter::new(&file);
-                    if prefs.save_to(&mut writer).is_err() {
-                        panic!("Can't write to config file!");
-                    }
-                    writer.flush().ok();
+                Ok(_) => {
+                    let prefs = PreferencesMap::<String>::new();
                     AppPreferences {
                         preferences_map:     Arc::new(RwLock::new(prefs)),
                         override_data_dir:   override_data,
@@ -587,7 +561,12 @@ impl AppPreferences {
                 }
                 _ => panic!("Can't write to config file!"),
             },
-        }
+        };
+        new_prefs.set_config(
+            APP_PREFERENCES_KEY_VERSION,
+            Some(super::VERSION.to_string()),
+        );
+        new_prefs
     }
 
     fn calculate_config_path(override_path: &Option<String>) -> PathBuf {

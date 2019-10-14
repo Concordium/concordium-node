@@ -69,8 +69,8 @@ mod tests {
     use super::*;
     use crate::{
         network::{
-            NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType, NetworkRequest,
-            NetworkResponse, PROTOCOL_VERSION,
+            NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkPacketType,
+            NetworkRequest, NetworkResponse, PROTOCOL_VERSION,
         },
         p2p::banned_nodes::tests::dummy_ban_node,
     };
@@ -122,22 +122,22 @@ mod tests {
 
     macro_rules! net_assertion {
         ($msg:ident, $msg_type:ident, $deserialized:expr) => {
-            assert!(match $deserialized {
-                NetworkMessage::$msg($msg::$msg_type, ..) => true,
+            assert!(match $deserialized.payload {
+                NetworkMessagePayload::$msg($msg::$msg_type) => true,
                 _ => false,
             })
         };
         ($msg:ident, $msg_type:ident, $deserialized:expr, $nets:expr) => {{
-            match $deserialized {
-                NetworkMessage::$msg($msg::$msg_type(nets2), ..) => {
+            match $deserialized.payload {
+                NetworkMessagePayload::$msg($msg::$msg_type(nets2)) => {
                     assert_eq!($nets, nets2);
                 }
                 _ => panic!("invalid network message"),
             }
         }};
         ($msg:ident, $msg_type:ident, $deserialized:expr, $zk:expr, $nets:expr) => {{
-            match $deserialized {
-                NetworkMessage::$msg($msg::$msg_type(_, _, nets2, zk2), ..) => {
+            match $deserialized.payload {
+                NetworkMessagePayload::$msg($msg::$msg_type(_, _, nets2, zk2)) => {
                     assert_eq!($zk, zk2);
                     assert_eq!($nets, nets2);
                 }
@@ -148,11 +148,15 @@ mod tests {
 
     macro_rules! net_test {
         ($msg:ident, $msg_type:ident) => {{
-            let test_msg = NetworkMessage::$msg(
-                create_message!($msg, $msg_type, self_peer.clone().peer().unwrap()),
-                Some(get_current_stamp()),
-                None,
-            );
+            let test_msg = NetworkMessage {
+                timestamp1: Some(get_current_stamp()),
+                timestamp2: None,
+                payload:    NetworkMessagePayload::$msg(create_message!(
+                    $msg,
+                    $msg_type,
+                    self_peer.clone().peer().unwrap()
+                )),
+            };
             let mut test_msg_data = serialize_into_buffer(&test_msg, 256).unwrap();
 
             let deserialized = NetworkMessage::deserial(&mut test_msg_data).unwrap();
@@ -160,11 +164,16 @@ mod tests {
         }};
         ($msg:ident, $msg_type:ident, $nets:expr) => {{
             let nets = $nets;
-            let test_msg = NetworkMessage::$msg(
-                create_message!($msg, $msg_type, self_peer.clone().peer().unwrap(), nets),
-                Some(get_current_stamp()),
-                None,
-            );
+            let test_msg = NetworkMessage {
+                timestamp1: Some(get_current_stamp()),
+                timestamp2: None,
+                payload:    NetworkMessagePayload::$msg(create_message!(
+                    $msg,
+                    $msg_type,
+                    self_peer.clone().peer().unwrap(),
+                    nets
+                )),
+            };
             let mut test_msg_data = serialize_into_buffer(&test_msg, 256).unwrap();
 
             let deserialized = NetworkMessage::deserial(&mut test_msg_data).unwrap();
@@ -178,18 +187,18 @@ mod tests {
                 .into_iter()
                 .map(|net: u16| NetworkId::from(net))
                 .collect();
-            let test_msg = NetworkMessage::$msg(
-                create_message!(
+            let test_msg = NetworkMessage {
+                timestamp1: Some(get_current_stamp()),
+                timestamp2: None,
+                payload:    NetworkMessagePayload::$msg(create_message!(
                     $msg,
                     $msg_type,
                     self_peer.clone().peer().unwrap().id(),
                     self_peer.clone().peer().unwrap().port(),
                     nets,
                     zk
-                ),
-                Some(get_current_stamp()),
-                None,
-            );
+                )),
+            };
             let mut test_msg_data = serialize_into_buffer(&test_msg, 256).unwrap();
 
             let deserialized = NetworkMessage::deserial(&mut test_msg_data).unwrap();
@@ -375,7 +384,11 @@ mod tests {
 
     #[test]
     fn resp_invalid_version() {
-        let ping = NetworkMessage::NetworkRequest(NetworkRequest::Ping, None, None);
+        let ping = NetworkMessage {
+            timestamp1: None,
+            timestamp2: None,
+            payload:    NetworkMessagePayload::NetworkRequest(NetworkRequest::Ping),
+        };
         let mut ping_data = Vec::try_from(serialize_into_buffer(&ping, 128).unwrap()).unwrap();
 
         // Force and error in version protocol:
@@ -391,7 +404,11 @@ mod tests {
 
     #[test]
     fn resp_invalid_protocol() {
-        let ping = NetworkMessage::NetworkRequest(NetworkRequest::Ping, None, None);
+        let ping = NetworkMessage {
+            timestamp1: None,
+            timestamp2: None,
+            payload:    NetworkMessagePayload::NetworkRequest(NetworkRequest::Ping),
+        };
         let mut ping_data = Vec::try_from(serialize_into_buffer(&ping, 128).unwrap()).unwrap();
 
         // Force and error in protocol name:

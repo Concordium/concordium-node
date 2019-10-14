@@ -3,60 +3,56 @@ use crate::{
     common::{get_current_stamp, P2PNodeId, P2PPeer, PeerType},
     connection::{Connection, MessageSendingPriority, P2PEvent},
     network::{
-        request::RequestedElementType, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType,
-        NetworkRequest, NetworkResponse,
+        request::RequestedElementType, NetworkId, NetworkMessage, NetworkMessagePayload,
+        NetworkPacket, NetworkPacketType, NetworkRequest, NetworkResponse,
     },
     p2p::banned_nodes::BannedNode,
 };
 use concordium_common::{read_or_die, serial::serialize_into_buffer, write_or_die, PacketType};
 
-use failure::Fallible;
+use failure::{Error, Fallible};
 
 use std::{collections::HashSet, net::SocketAddr, sync::atomic::Ordering};
 
 impl Connection {
     pub fn handle_incoming_message(&self, full_msg: &NetworkMessage) {
-        if let Err(e) = match full_msg {
-            NetworkMessage::NetworkRequest(
+        if let Err(e) = match &full_msg.payload {
+            NetworkMessagePayload::NetworkRequest(
                 NetworkRequest::Handshake(remote_node_id, remote_port, ref networks, _),
                 ..
             ) => self.handle_handshake_req(*remote_node_id, *remote_port, networks),
-            NetworkMessage::NetworkResponse(
+            NetworkMessagePayload::NetworkResponse(
                 NetworkResponse::Handshake(remote_node_id, remote_port, ref nets, _),
                 ..
             ) => self.handle_handshake_resp(*remote_node_id, *remote_port, nets),
-            NetworkMessage::NetworkRequest(NetworkRequest::Ping, ..) => self.send_pong(),
-            NetworkMessage::NetworkResponse(NetworkResponse::Pong, ..) => self.handle_pong(),
-            NetworkMessage::NetworkRequest(NetworkRequest::FindNode(node), ..) => {
+            NetworkMessagePayload::NetworkRequest(NetworkRequest::Ping, ..) => self.send_pong(),
+            NetworkMessagePayload::NetworkResponse(NetworkResponse::Pong, ..) => self.handle_pong(),
+            NetworkMessagePayload::NetworkRequest(NetworkRequest::FindNode(node), ..) => {
                 self.handle_find_node_req(*node)
             }
-            NetworkMessage::NetworkRequest(NetworkRequest::GetPeers(ref networks), ..) => {
+            NetworkMessagePayload::NetworkRequest(NetworkRequest::GetPeers(ref networks), ..) => {
                 self.handle_get_peers_req(networks)
             }
-            NetworkMessage::NetworkResponse(NetworkResponse::PeerList(ref peers), ..) => {
+            NetworkMessagePayload::NetworkResponse(NetworkResponse::PeerList(ref peers), ..) => {
                 self.handle_peer_list_resp(peers)
             }
-            NetworkMessage::NetworkRequest(NetworkRequest::JoinNetwork(network), ..) => {
+            NetworkMessagePayload::NetworkRequest(NetworkRequest::JoinNetwork(network), ..) => {
                 self.handle_join_network_req(*network)
             }
-            NetworkMessage::NetworkRequest(NetworkRequest::LeaveNetwork(network), ..) => {
+            NetworkMessagePayload::NetworkRequest(NetworkRequest::LeaveNetwork(network), ..) => {
                 self.handle_leave_network_req(*network)
             }
-            NetworkMessage::NetworkRequest(NetworkRequest::BanNode(peer_to_ban), ..) => {
+            NetworkMessagePayload::NetworkRequest(NetworkRequest::BanNode(peer_to_ban), ..) => {
                 self.handler().ban_node(*peer_to_ban)
             }
-            NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(peer_to_unban), ..) => {
+            NetworkMessagePayload::NetworkRequest(NetworkRequest::UnbanNode(peer_to_unban), ..) => {
                 self.handle_unban(*peer_to_unban)
             }
-            NetworkMessage::NetworkPacket(pac, ..) => self.handle_incoming_packet(pac),
-            NetworkMessage::NetworkRequest(
+            NetworkMessagePayload::NetworkPacket(pac, ..) => self.handle_incoming_packet(&pac),
+            NetworkMessagePayload::NetworkRequest(
                 NetworkRequest::Retransmit(elem_type, since, nid),
                 ..
             ) => self.handle_retransmit_req(*elem_type, *since, *nid),
-            NetworkMessage::InvalidMessage => {
-                self.handle_invalid_network_msg();
-                Ok(())
-            }
         } {
             error!("Couldn't handle the network message {:?}: {}", full_msg, e);
         }
@@ -158,11 +154,13 @@ impl Connection {
                 .map(|node| node.peer)
                 .collect::<Vec<_>>();
 
-            NetworkMessage::NetworkResponse(
-                NetworkResponse::PeerList(nodes),
-                Some(get_current_stamp()),
-                None,
-            )
+            NetworkMessage {
+                timestamp1: Some(get_current_stamp()),
+                timestamp2: None,
+                payload:    NetworkMessagePayload::NetworkResponse(NetworkResponse::PeerList(
+                    nodes,
+                )),
+            }
         };
 
         self.async_send(
@@ -368,10 +366,10 @@ impl Connection {
         )
     }
 
-    fn handle_invalid_network_msg(&self) {
+    pub fn handle_invalid_network_msg(&self, err: Error) {
         let peer_id = self.remote_id().unwrap(); // safe, post-handshake
 
-        debug!("Received an invalid network message from peer {}!", peer_id);
+        debug!("Invalid network message from peer {}: {}", peer_id, err);
 
         self.stats.failed_pkts.fetch_add(1, Ordering::Relaxed);
 

@@ -26,7 +26,7 @@ use p2p_client::{
         plugins::{self, consensus::*},
         utils as client_utils,
     },
-    common::{get_current_stamp, PeerType},
+    common::{get_current_stamp, P2PNodeId, PeerType},
     configuration as config,
     network::{NetworkId, NetworkMessage},
     p2p::*,
@@ -201,7 +201,22 @@ fn instantiate_node(
     stats_export_service: Option<StatsExportService>,
     subscription_queue_in: mpsc::SyncSender<NetworkMessage>,
 ) -> (Arc<P2PNode>, Receivers) {
-    let node_id = conf.common.id.clone().map_or(
+    let node_id = match conf.common.id.clone() {
+        None => match app_prefs.get_config(config::APP_PREFERENCES_PERSISTED_NODE_ID) {
+            None => {
+                let new_id: P2PNodeId = Default::default();
+                Some(new_id.to_string())
+            }
+            Some(id) => Some(id),
+        },
+        Some(id) => Some(id),
+    };
+
+    if !app_prefs.set_config(config::APP_PREFERENCES_PERSISTED_NODE_ID, node_id.clone()) {
+        error!("Failed to persist own node id");
+    };
+
+    match conf.common.id.clone().map_or(
         app_prefs.get_config(config::APP_PREFERENCES_PERSISTED_NODE_ID),
         |id| {
             if !app_prefs.set_config(config::APP_PREFERENCES_PERSISTED_NODE_ID, Some(id.clone())) {
@@ -209,7 +224,20 @@ fn instantiate_node(
             };
             Some(id)
         },
-    );
+    ) {
+        Some(id) => Some(id),
+        None => {
+            let new_id: P2PNodeId = Default::default();
+            if !app_prefs.set_config(
+                config::APP_PREFERENCES_PERSISTED_NODE_ID,
+                Some(new_id.to_string()),
+            ) {
+                error!("Failed to persist own node id");
+            };
+            Some(new_id.to_string())
+        }
+    };
+
     let data_dir_path = app_prefs.get_user_app_dir();
 
     // Start the thread reading P2PEvents from P2PNode
