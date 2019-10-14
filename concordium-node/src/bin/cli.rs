@@ -132,8 +132,10 @@ fn main() -> Fallible<()> {
             ConsensusLogLevel::Trace
         } else if conf.common.debug {
             ConsensusLogLevel::Debug
-        } else {
+        } else if conf.common.info {
             ConsensusLogLevel::Info
+        } else {
+            ConsensusLogLevel::Warning
         },
     );
 
