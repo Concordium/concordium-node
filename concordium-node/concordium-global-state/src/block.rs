@@ -336,7 +336,7 @@ impl BlockPtr {
                     transaction_count: tx_count,
                     transaction_energy_cost: energy,
                     transaction_size: bblock.transactions.deref().len() as u64
-                        - (size_of::<u64> as u64 + size_of::<u64>() as u64 * tx_count as u64),
+                        - (size_of::<u64>() as u64 + size_of::<u64>() as u64 * tx_count as u64),
                 })
             } else {
                 bail!(
