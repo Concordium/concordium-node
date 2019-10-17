@@ -390,38 +390,22 @@ fn serialize_request(
                     (network::BanId::NodeId, offset)
                 }
                 BannedNode::ByAddr(ip) => {
-                    let offset = match ip {
-                        IpAddr::V4(ip) => {
-                            let octets = ip.octets();
-                            builder.start_vector::<u8>(octets.len());
-                            for &byte in ip.octets().iter().rev() {
-                                builder.push(byte);
-                            }
-                            let offset = Some(builder.end_vector(octets.len()));
-
-                            network::IpAddr::create(builder, &network::IpAddrArgs {
-                                variant: network::IpVariant::V4,
-                                octets:  offset,
-                            })
-                            .as_union_value()
-                        }
-                        IpAddr::V6(ip) => {
-                            let octets = ip.octets();
-                            builder.start_vector::<u8>(octets.len());
-                            for &byte in ip.octets().iter().rev() {
-                                builder.push(byte);
-                            }
-                            let offset = Some(builder.end_vector(octets.len()));
-
-                            network::IpAddr::create(builder, &network::IpAddrArgs {
-                                variant: network::IpVariant::V6,
-                                octets:  offset,
-                            })
-                            .as_union_value()
-                        }
+                    let (variant, octets) = match ip {
+                        IpAddr::V4(ip) => (network::IpVariant::V4, ip.octets().to_vec()),
+                        IpAddr::V6(ip) => (network::IpVariant::V6, ip.octets().to_vec()),
                     };
 
-                    (network::BanId::IpAddr, offset)
+                    let octets_len = octets.len();
+                    builder.start_vector::<u8>(octets_len);
+                    for byte in octets.into_iter().rev() {
+                        builder.push(byte);
+                    }
+                    let octets = Some(builder.end_vector(octets_len));
+
+                    let ip_offset =
+                        network::IpAddr::create(builder, &network::IpAddrArgs { variant, octets });
+
+                    (network::BanId::IpAddr, ip_offset.as_union_value())
                 }
             };
             let offset = network::BanUnban::create(builder, &network::BanUnbanArgs {
@@ -480,35 +464,21 @@ fn serialize_response(
         ),
         NetworkResponse::PeerList(peerlist) => {
             let mut peers = Vec::with_capacity(peerlist.len());
-            for peer in peerlist.into_iter() {
-                let ip_offset = match peer.addr.ip() {
-                    IpAddr::V4(ip) => {
-                        let octets = ip.octets();
-                        builder.start_vector::<u8>(octets.len());
-                        for &byte in ip.octets().iter().rev() {
-                            builder.push(byte);
-                        }
-                        let offset = Some(builder.end_vector(octets.len()));
-
-                        network::IpAddr::create(builder, &network::IpAddrArgs {
-                            variant: network::IpVariant::V4,
-                            octets:  offset,
-                        })
-                    }
-                    IpAddr::V6(ip) => {
-                        let octets = ip.octets();
-                        builder.start_vector::<u8>(octets.len());
-                        for &byte in ip.octets().iter().rev() {
-                            builder.push(byte);
-                        }
-                        let offset = Some(builder.end_vector(octets.len()));
-
-                        network::IpAddr::create(builder, &network::IpAddrArgs {
-                            variant: network::IpVariant::V6,
-                            octets:  offset,
-                        })
-                    }
+            for peer in peerlist.iter() {
+                let (variant, octets) = match peer.addr.ip() {
+                    IpAddr::V4(ip) => (network::IpVariant::V4, ip.octets().to_vec()),
+                    IpAddr::V6(ip) => (network::IpVariant::V6, ip.octets().to_vec()),
                 };
+
+                let octets_len = octets.len();
+                builder.start_vector::<u8>(octets_len);
+                for byte in octets.into_iter().rev() {
+                    builder.push(byte);
+                }
+                let octets = Some(builder.end_vector(octets_len));
+
+                let ip_offset =
+                    network::IpAddr::create(builder, &network::IpAddrArgs { variant, octets });
 
                 let peer_type = match peer.peer_type {
                     PeerType::Node => network::PeerVariant::Node,
