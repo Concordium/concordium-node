@@ -23,6 +23,13 @@ table Handshake {
     zk: [uint8];
 }
 
+enum IpVariant: uint8 { V4, V6 }
+
+table IpAddr {
+    variant: IpVariant;
+    octets: [uint8];
+}
+
 // network request
 
 enum RequestVariant: uint8 {
@@ -31,18 +38,10 @@ enum RequestVariant: uint8 {
 
 table NodeId { id: uint64; }
 
-enum IpVariant: uint8 { Ipv4Addr, Ipv6Addr }
-
-table IpAddr {
-    variant: IpVariant;
-    addr: [uint8];
-}
-
 union BanId { NodeId, IpAddr }
 
 table BanUnban {
-    id: [uint8]; // FIXME
-    // id: BanId;
+    id: BanId;
 }
 
 table NetworkId { id: uint16; }

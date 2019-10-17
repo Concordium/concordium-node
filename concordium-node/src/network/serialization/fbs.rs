@@ -15,7 +15,7 @@ use concordium_common::{hybrid_buf::HybridBuf, serial::Serial};
 
 use std::{
     convert::TryFrom,
-    io::{self, Cursor, Seek, SeekFrom, Write},
+    io::{self, Cursor, Read, Seek, SeekFrom, Write},
     net::IpAddr,
 };
 
@@ -134,12 +134,29 @@ fn deserialize_request(root: &network::NetworkMessage) -> Fallible<NetworkMessag
             }
         }
         network::RequestVariant::BanNode | network::RequestVariant::UnbanNode => {
-            if let Some(id) = request
-                .payload()
-                .map(network::BanUnban::init_from_table)
-                .and_then(|ban| ban.id())
-            {
-                let tgt = BannedNode::deserial(&mut Cursor::new(id))?;
+            if let Some(id) = request.payload().map(network::BanUnban::init_from_table) {
+                let tgt = if let Some(id) = id.id_as_node_id().map(|id| id.id()) {
+                    BannedNode::ById(P2PNodeId(id))
+                } else if let Some(ip) = id.id_as_ip_addr() {
+                    if let Some(mut octets) = ip.octets() {
+                        match ip.variant() {
+                            network::IpVariant::V4 => {
+                                let mut addr = [0u8; 4];
+                                octets.read_exact(&mut addr)?;
+                                BannedNode::ByAddr(IpAddr::from(addr))
+                            }
+                            network::IpVariant::V6 => {
+                                let mut addr = [0u8; 16];
+                                octets.read_exact(&mut addr)?;
+                                BannedNode::ByAddr(IpAddr::from(addr))
+                            }
+                        }
+                    } else {
+                        bail!("missing ban ip in a ban/unban request")
+                    }
+                } else {
+                    bail!("missing ban id/ip in a ban/unban request")
+                };
 
                 Ok(NetworkMessagePayload::NetworkRequest(
                     match request.variant() {
@@ -342,25 +359,62 @@ fn serialize_request(
             )
         }
         NetworkRequest::BanNode(id) | NetworkRequest::UnbanNode(id) => {
-            let mut buf = Vec::new();
-            id.serial(&mut buf).expect("can't serialize a ban/unban");
-            builder.start_vector::<u8>(buf.len());
-            for &byte in buf.iter().rev() {
-                builder.push(byte);
-            }
-            let id_offset = Some(builder.end_vector(buf.len()));
-            let offset = Some(
-                network::BanUnban::create(builder, &network::BanUnbanArgs { id: id_offset })
-                    .as_union_value(),
-            );
-
             let ban_unban = match request {
                 NetworkRequest::BanNode(_) => network::RequestVariant::BanNode,
                 NetworkRequest::UnbanNode(_) => network::RequestVariant::UnbanNode,
                 _ => unreachable!(),
             };
 
-            (ban_unban, network::RequestPayload::BanUnban, offset)
+            let (id_type, id_offset) = match id {
+                BannedNode::ById(id) => {
+                    let offset =
+                        network::NodeId::create(builder, &network::NodeIdArgs { id: id.as_raw() })
+                            .as_union_value();
+
+                    (network::BanId::NodeId, offset)
+                }
+                BannedNode::ByAddr(ip) => {
+                    let offset = match ip {
+                        IpAddr::V4(ip) => {
+                            let octets = ip.octets();
+                            builder.start_vector::<u8>(octets.len());
+                            for &byte in ip.octets().iter().rev() {
+                                builder.push(byte);
+                            }
+                            let offset = Some(builder.end_vector(octets.len()));
+
+                            network::IpAddr::create(builder, &network::IpAddrArgs {
+                                variant: network::IpVariant::V4,
+                                octets:  offset,
+                            })
+                            .as_union_value()
+                        }
+                        IpAddr::V6(ip) => {
+                            let octets = ip.octets();
+                            builder.start_vector::<u8>(octets.len());
+                            for &byte in ip.octets().iter().rev() {
+                                builder.push(byte);
+                            }
+                            let offset = Some(builder.end_vector(octets.len()));
+
+                            network::IpAddr::create(builder, &network::IpAddrArgs {
+                                variant: network::IpVariant::V6,
+                                octets:  offset,
+                            })
+                            .as_union_value()
+                        }
+                    };
+
+                    (network::BanId::IpAddr, offset)
+                }
+            };
+            let offset = network::BanUnban::create(builder, &network::BanUnbanArgs {
+                id_type,
+                id: Some(id_offset),
+            })
+            .as_union_value();
+
+            (ban_unban, network::RequestPayload::BanUnban, Some(offset))
         }
         NetworkRequest::JoinNetwork(id) => {
             let offset = Some(
@@ -623,7 +677,7 @@ mod tests {
             timestamp1: None,
             timestamp2: None,
             payload:    NetworkMessagePayload::NetworkRequest(NetworkRequest::BanNode(
-                BannedNode::ByAddr(IpAddr::from([255, 255, 255, 255])),
+                BannedNode::ByAddr(IpAddr::from([4, 3, 2, 1])),
             )),
         };
         let mut buffer = Cursor::new(Vec::new());
