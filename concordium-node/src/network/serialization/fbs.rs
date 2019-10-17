@@ -38,7 +38,7 @@ fn deserialize_packet(root: &network::NetworkMessage) -> Fallible<NetworkMessage
         let ids_to_exclude = if let Some(ids) = broadcast.ids_to_exclude() {
             ids.safe_slice().iter().copied().map(P2PNodeId).collect()
         } else {
-            bail!("FIXME: missing values or an encoding issue?")
+            Vec::new()
         };
         NetworkPacketType::BroadcastedMessage(ids_to_exclude)
     } else {
@@ -343,14 +343,12 @@ fn serialize_request(
                 builder.push(net.id);
             }
             let nets_offset = Some(builder.end_vector(nets.len()));
-            let offset = Some(
-                network::NetworkIds::create(builder, &network::NetworkIdsArgs { ids: nets_offset })
-                    .as_union_value(),
-            );
+            let offset =
+                network::NetworkIds::create(builder, &network::NetworkIdsArgs { ids: nets_offset });
             (
                 network::RequestVariant::GetPeers,
                 network::RequestPayload::NetworkIds,
-                offset,
+                Some(offset.as_union_value()),
             )
         }
         NetworkRequest::Handshake(id, port, nets, _zk) => {
@@ -359,19 +357,16 @@ fn serialize_request(
                 builder.push(net.id);
             }
             let nets_offset = Some(builder.end_vector(nets.len()));
-            let offset = Some(
-                network::Handshake::create(builder, &network::HandshakeArgs {
-                    nodeId:     id.as_raw(),
-                    port:       *port,
-                    networkIds: nets_offset,
-                    zk:         None,
-                })
-                .as_union_value(),
-            );
+            let offset = network::Handshake::create(builder, &network::HandshakeArgs {
+                nodeId:     id.as_raw(),
+                port:       *port,
+                networkIds: nets_offset,
+                zk:         None,
+            });
             (
                 network::RequestVariant::Handshake,
                 network::RequestPayload::Handshake,
-                offset,
+                Some(offset.as_union_value()),
             )
         }
         NetworkRequest::BanNode(id) | NetworkRequest::UnbanNode(id) => {
@@ -411,31 +406,28 @@ fn serialize_request(
             let offset = network::BanUnban::create(builder, &network::BanUnbanArgs {
                 id_type,
                 id: Some(id_offset),
-            })
-            .as_union_value();
+            });
 
-            (ban_unban, network::RequestPayload::BanUnban, Some(offset))
+            (
+                ban_unban,
+                network::RequestPayload::BanUnban,
+                Some(offset.as_union_value()),
+            )
         }
         NetworkRequest::JoinNetwork(id) => {
-            let offset = Some(
-                network::NetworkId::create(builder, &network::NetworkIdArgs { id: id.id })
-                    .as_union_value(),
-            );
+            let offset = network::NetworkId::create(builder, &network::NetworkIdArgs { id: id.id });
             (
                 network::RequestVariant::JoinNetwork,
                 network::RequestPayload::NetworkId,
-                offset,
+                Some(offset.as_union_value()),
             )
         }
         NetworkRequest::LeaveNetwork(id) => {
-            let offset = Some(
-                network::NetworkId::create(builder, &network::NetworkIdArgs { id: id.id })
-                    .as_union_value(),
-            );
+            let offset = network::NetworkId::create(builder, &network::NetworkIdArgs { id: id.id });
             (
                 network::RequestVariant::LeaveNetwork,
                 network::RequestPayload::NetworkId,
-                offset,
+                Some(offset.as_union_value()),
             )
         }
         // TODO: Retransmit
@@ -469,7 +461,6 @@ fn serialize_response(
                     IpAddr::V4(ip) => (network::IpVariant::V4, ip.octets().to_vec()),
                     IpAddr::V6(ip) => (network::IpVariant::V6, ip.octets().to_vec()),
                 };
-
                 let octets_len = octets.len();
                 builder.start_vector::<u8>(octets_len);
                 for byte in octets.into_iter().rev() {
@@ -605,227 +596,125 @@ mod tests {
         );
     }
 
-    #[test]
-    fn fbs_serde_request_ping() {
-        let mut message = NetworkMessage {
-            timestamp1: None,
-            timestamp2: None,
-            payload:    NetworkMessagePayload::NetworkRequest(NetworkRequest::Ping),
-        };
-        let mut buffer = Cursor::new(Vec::new());
+    macro_rules! test_s11n {
+        ($name:ident, $payload:expr) => {
+            #[test]
+            fn $name() {
+                let mut msg = NetworkMessage {
+                    timestamp1: None,
+                    timestamp2: None,
+                    payload:    $payload,
+                };
+                let mut buffer = Cursor::new(Vec::new());
 
-        serialize(&mut message, &mut buffer).unwrap();
-        let deserialized = deserialize(&buffer.get_ref()).unwrap();
-        assert_eq!(deserialized.payload, message.payload);
+                serialize(&mut msg, &mut buffer).unwrap();
+                let deserialized = deserialize(&buffer.get_ref()).unwrap();
+                assert_eq!(deserialized.payload, msg.payload);
+            }
+        };
     }
 
-    #[test]
-    fn fbs_serde_request_get_peers() {
-        let mut message = NetworkMessage {
-            timestamp1: None,
-            timestamp2: None,
-            payload:    NetworkMessagePayload::NetworkRequest(NetworkRequest::GetPeers(
-                [100u16, 1000, 1234, 9999]
-                    .iter()
-                    .copied()
-                    .map(NetworkId::from)
-                    .collect(),
-            )),
-        };
-        let mut buffer = Cursor::new(Vec::new());
-
-        serialize(&mut message, &mut buffer).unwrap();
-        let deserialized = deserialize(&buffer.get_ref()).unwrap();
-        assert_eq!(deserialized.payload, message.payload);
-    }
-
-    #[test]
-    fn fbs_serde_request_handshake() {
-        let mut message = NetworkMessage {
-            timestamp1: None,
-            timestamp2: None,
-            payload:    NetworkMessagePayload::NetworkRequest(NetworkRequest::Handshake(
-                P2PNodeId(77),
-                1234,
-                [100u16, 1000, 1234, 9999]
-                    .iter()
-                    .copied()
-                    .map(NetworkId::from)
-                    .collect(),
-                Vec::new(),
-            )),
-        };
-        let mut buffer = Cursor::new(Vec::new());
-
-        serialize(&mut message, &mut buffer).unwrap();
-        let deserialized = deserialize(&buffer.get_ref()).unwrap();
-        assert_eq!(deserialized.payload, message.payload);
-    }
-
-    #[test]
-    fn fbs_serde_request_ban_node_by_id() {
-        let mut message = NetworkMessage {
-            timestamp1: None,
-            timestamp2: None,
-            payload:    NetworkMessagePayload::NetworkRequest(NetworkRequest::BanNode(
-                BannedNode::ById(P2PNodeId(1337)),
-            )),
-        };
-        let mut buffer = Cursor::new(Vec::new());
-
-        serialize(&mut message, &mut buffer).unwrap();
-        let deserialized = deserialize(&buffer.get_ref()).unwrap();
-        assert_eq!(deserialized.payload, message.payload);
-    }
-
-    #[test]
-    fn fbs_serde_request_unban_node_by_id() {
-        let mut message = NetworkMessage {
-            timestamp1: None,
-            timestamp2: None,
-            payload:    NetworkMessagePayload::NetworkRequest(NetworkRequest::UnbanNode(
-                BannedNode::ById(P2PNodeId(1337)),
-            )),
-        };
-        let mut buffer = Cursor::new(Vec::new());
-
-        serialize(&mut message, &mut buffer).unwrap();
-        let deserialized = deserialize(&buffer.get_ref()).unwrap();
-        assert_eq!(deserialized.payload, message.payload);
-    }
-
-    #[test]
-    fn fbs_serde_request_ban_node_by_addr_v4() {
-        let mut message = NetworkMessage {
-            timestamp1: None,
-            timestamp2: None,
-            payload:    NetworkMessagePayload::NetworkRequest(NetworkRequest::BanNode(
-                BannedNode::ByAddr(IpAddr::from([4, 3, 2, 1])),
-            )),
-        };
-        let mut buffer = Cursor::new(Vec::new());
-
-        serialize(&mut message, &mut buffer).unwrap();
-        let deserialized = deserialize(&buffer.get_ref()).unwrap();
-        assert_eq!(deserialized.payload, message.payload);
-    }
-
-    #[test]
-    fn fbs_serde_request_ban_node_by_addr_v6() {
-        let mut message = NetworkMessage {
-            timestamp1: None,
-            timestamp2: None,
-            payload:    NetworkMessagePayload::NetworkRequest(NetworkRequest::BanNode(
-                BannedNode::ByAddr(IpAddr::from([1, 2, 3, 4, 5, 6, 7, 8])),
-            )),
-        };
-        let mut buffer = Cursor::new(Vec::new());
-
-        serialize(&mut message, &mut buffer).unwrap();
-        let deserialized = deserialize(&buffer.get_ref()).unwrap();
-        assert_eq!(deserialized.payload, message.payload);
-    }
-
-    #[test]
-    fn fbs_serde_request_join_network() {
-        let mut message = NetworkMessage {
-            timestamp1: None,
-            timestamp2: None,
-            payload:    NetworkMessagePayload::NetworkRequest(NetworkRequest::JoinNetwork(
-                NetworkId::from(1337),
-            )),
-        };
-        let mut buffer = Cursor::new(Vec::new());
-
-        serialize(&mut message, &mut buffer).unwrap();
-        let deserialized = deserialize(&buffer.get_ref()).unwrap();
-        assert_eq!(deserialized.payload, message.payload);
-    }
-
-    #[test]
-    fn fbs_serde_request_leave_network() {
-        let mut message = NetworkMessage {
-            timestamp1: None,
-            timestamp2: None,
-            payload:    NetworkMessagePayload::NetworkRequest(NetworkRequest::LeaveNetwork(
-                NetworkId::from(1337),
-            )),
-        };
-        let mut buffer = Cursor::new(Vec::new());
-
-        serialize(&mut message, &mut buffer).unwrap();
-        let deserialized = deserialize(&buffer.get_ref()).unwrap();
-        assert_eq!(deserialized.payload, message.payload);
-    }
+    test_s11n!(
+        fbs_s11n_req_ping,
+        NetworkMessagePayload::NetworkRequest(NetworkRequest::Ping)
+    );
+    test_s11n!(
+        fbs_s11n_req_get_peers,
+        NetworkMessagePayload::NetworkRequest(NetworkRequest::GetPeers(
+            [100u16, 1000, 1234, 9999]
+                .iter()
+                .copied()
+                .map(NetworkId::from)
+                .collect(),
+        ))
+    );
+    test_s11n!(
+        fbs_s11n_req_handshake,
+        NetworkMessagePayload::NetworkRequest(NetworkRequest::Handshake(
+            P2PNodeId(77),
+            1234,
+            [100u16, 1000, 1234, 9999]
+                .iter()
+                .copied()
+                .map(NetworkId::from)
+                .collect(),
+            Vec::new(),
+        ))
+    );
+    test_s11n!(
+        fbs_s11n_req_ban_id,
+        NetworkMessagePayload::NetworkRequest(NetworkRequest::BanNode(BannedNode::ById(
+            P2PNodeId(1337)
+        ),))
+    );
+    test_s11n!(
+        fbs_s11n_req_unban_id,
+        NetworkMessagePayload::NetworkRequest(NetworkRequest::UnbanNode(BannedNode::ById(
+            P2PNodeId(1337)
+        ),))
+    );
+    test_s11n!(
+        fbs_s11n_req_ban_ip_v4,
+        NetworkMessagePayload::NetworkRequest(NetworkRequest::BanNode(BannedNode::ByAddr(
+            IpAddr::from([4, 3, 2, 1])
+        ),))
+    );
+    test_s11n!(
+        fbs_s11n_req_ban_ip_v6,
+        NetworkMessagePayload::NetworkRequest(NetworkRequest::BanNode(BannedNode::ByAddr(
+            IpAddr::from([1, 2, 3, 4, 5, 6, 7, 8])
+        ),))
+    );
+    test_s11n!(
+        fbs_s11n_req_join_net,
+        NetworkMessagePayload::NetworkRequest(NetworkRequest::JoinNetwork(NetworkId::from(1337),))
+    );
+    test_s11n!(
+        fbs_s11n_req_leave_net,
+        NetworkMessagePayload::NetworkRequest(NetworkRequest::LeaveNetwork(NetworkId::from(1337),))
+    );
 
     // TODO: Retransmit (Requests)
 
-    #[test]
-    fn fbs_serde_response_pong() {
-        let mut message = NetworkMessage {
-            timestamp1: None,
-            timestamp2: None,
-            payload:    NetworkMessagePayload::NetworkResponse(NetworkResponse::Pong),
-        };
-        let mut buffer = Cursor::new(Vec::new());
+    test_s11n!(
+        fbs_s11n_resp_pong,
+        NetworkMessagePayload::NetworkResponse(NetworkResponse::Pong)
+    );
 
-        serialize(&mut message, &mut buffer).unwrap();
-        let deserialized = deserialize(&buffer.get_ref()).unwrap();
-        assert_eq!(deserialized.payload, message.payload);
-    }
+    test_s11n!(
+        fbs_s11n_resp_peer_list,
+        NetworkMessagePayload::NetworkResponse(NetworkResponse::PeerList(
+            [
+                P2PPeer {
+                    id:        P2PNodeId(1234567890123),
+                    addr:      SocketAddr::new(IpAddr::from([1, 2, 3, 4]), 80),
+                    peer_type: PeerType::Bootstrapper,
+                },
+                P2PPeer {
+                    id:        P2PNodeId(1),
+                    addr:      SocketAddr::new(IpAddr::from([8, 7, 6, 5, 4, 3, 2, 1]), 8080),
+                    peer_type: PeerType::Node,
+                },
+            ]
+            .iter()
+            .cloned()
+            .collect(),
+        ))
+    );
 
-    #[test]
-    fn fbs_serde_response_peer_list() {
-        let mut message = NetworkMessage {
-            timestamp1: None,
-            timestamp2: None,
-            payload:    NetworkMessagePayload::NetworkResponse(NetworkResponse::PeerList(
-                [
-                    P2PPeer {
-                        id:        P2PNodeId(1234567890123),
-                        addr:      SocketAddr::new(IpAddr::from([1, 2, 3, 4]), 80),
-                        peer_type: PeerType::Bootstrapper,
-                    },
-                    P2PPeer {
-                        id:        P2PNodeId(1),
-                        addr:      SocketAddr::new(IpAddr::from([8, 7, 6, 5, 4, 3, 2, 1]), 8080),
-                        peer_type: PeerType::Node,
-                    },
-                ]
+    test_s11n!(
+        fbs_s11n_resp_handshake,
+        NetworkMessagePayload::NetworkResponse(NetworkResponse::Handshake(
+            P2PNodeId(77),
+            1234,
+            [100u16, 1000, 1234, 9999]
                 .iter()
-                .cloned()
+                .copied()
+                .map(NetworkId::from)
                 .collect(),
-            )),
-        };
-        let mut buffer = Cursor::new(Vec::new());
-
-        serialize(&mut message, &mut buffer).unwrap();
-        let deserialized = deserialize(&buffer.get_ref()).unwrap();
-        assert_eq!(deserialized.payload, message.payload);
-    }
-
-    #[test]
-    fn fbs_serde_response_handshake() {
-        let mut message = NetworkMessage {
-            timestamp1: None,
-            timestamp2: None,
-            payload:    NetworkMessagePayload::NetworkResponse(NetworkResponse::Handshake(
-                P2PNodeId(77),
-                1234,
-                [100u16, 1000, 1234, 9999]
-                    .iter()
-                    .copied()
-                    .map(NetworkId::from)
-                    .collect(),
-                Vec::new(),
-            )),
-        };
-        let mut buffer = Cursor::new(Vec::new());
-
-        serialize(&mut message, &mut buffer).unwrap();
-        let deserialized = deserialize(&buffer.get_ref()).unwrap();
-        assert_eq!(deserialized.payload, message.payload);
-    }
+            Vec::new(),
+        ))
+    );
 
     #[test]
     fn fbs_serde_packet() {
