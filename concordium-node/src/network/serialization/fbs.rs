@@ -139,25 +139,6 @@ fn deserialize_request(root: &network::NetworkMessage) -> Fallible<NetworkMessag
                 .map(network::BanUnban::init_from_table)
                 .and_then(|ban| ban.id())
             {
-                // let id = if let Some(id) = id.map(|id|
-                // network::NodeId::init_from_table(id).id()) { BannedNode::
-                // ById(P2PNodeId(id)) } else if let Some(ip) = id.map(|id|
-                // network::IpAddr::init_from_table(id)) { let ip_variant =
-                // ip.variant(); if let Some(addr) = ip.addr() {
-                // BannedNode::ByAddr(match ip_variant {
-                // network::IpVariant::Ipv4Addr => {
-                // IpAddr::V4(Ipv4Addr::from(<[u8; 4]>::try_from(addr)?))
-                // }
-                // network::IpVariant::Ipv6Addr => {
-                // IpAddr::V6(Ipv6Addr::from(<[u8; 16]>::try_from(addr)?))
-                // }
-                // })
-                // } else {
-                // bail!("missing IP address in a ban/unban request")
-                // }
-                // } else {
-                // bail!("missing ban id in a ban/unban request")
-                // };
                 let tgt = BannedNode::deserial(&mut Cursor::new(id))?;
 
                 Ok(NetworkMessagePayload::NetworkRequest(
@@ -188,7 +169,7 @@ fn deserialize_request(root: &network::NetworkMessage) -> Fallible<NetworkMessag
                 bail!("missing network id in a join/leave network request")
             }
         }
-        // network::RequestVariant::Retransmit => ,
+        // TODO: network::RequestVariant::Retransmit => ,
         _ => unimplemented!(),
     }
 }
@@ -218,48 +199,6 @@ fn deserialize_response(root: &network::NetworkMessage) -> Fallible<NetworkMessa
             } else {
                 bail!("missing peers in a PeerList response")
             }
-            // if let Some(peers) = response
-            // .payload_as_peer_list()
-            // .and_then(|peers| peers.peers())
-            // {
-            // let mut list: Vec<P2PPeer> = Vec::with_capacity(peers.len());
-            // for i in 0..peers.len() {
-            // let peer = peers.get(i);
-            //
-            // let addr = if let Some(addr) = peer.addr() {
-            // let ip = if let Some(ip) = addr.ip().and_then(|ip| ip.ip()) {
-            // match ip.len() {
-            // 4 => IpAddr::V4(Ipv4Addr::from(<[u8; 4]>::try_from(ip)?)),
-            // 16 => IpAddr::V6(Ipv6Addr::from(<[u8; 16]>::try_from(ip)?)),
-            // _ => bail!("invalid IP address in a ban/unban request"),
-            // }
-            // } else {
-            // bail!("missing ip address in a PeerList response")
-            // };
-            //
-            // SocketAddr::new(ip, addr.port())
-            // } else {
-            // bail!("missing peer address in a PeerList response")
-            // };
-            //
-            // let peer_type = match peer.variant() {
-            // network::PeerVariant::Node => PeerType::Node,
-            // network::PeerVariant::Bootstrapper => PeerType::Bootstrapper,
-            // };
-            //
-            // list.push(P2PPeer {
-            // id: P2PNodeId(peer.id()),
-            // addr,
-            // peer_type,
-            // });
-            // }
-            //
-            // Ok(NetworkMessagePayload::NetworkResponse(
-            // NetworkResponse::PeerList(list),
-            // ))
-            // } else {
-            // bail!("missing peers in a PeerList response")
-            // }
         }
         network::ResponseVariant::Handshake => {
             if let Some(handshake) = response.payload().map(network::Handshake::init_from_table) {
@@ -403,38 +342,6 @@ fn serialize_request(
             )
         }
         NetworkRequest::BanNode(id) | NetworkRequest::UnbanNode(id) => {
-            // let (id_type, id) = match id {
-            // BannedNode::ById(id) => {
-            // let offset =
-            // network::NodeId::create(builder, &network::NodeIdArgs { id: id.as_raw() });
-            // (network::BanId::NodeId, Some(offset.as_union_value()))
-            // }
-            // BannedNode::ByAddr(ip) => {
-            // let (variant, addr_offset) = match ip {
-            // IpAddr::V4(ip) => {
-            // builder.start_vector::<u8>(4);
-            // for &byte in &ip.octets() {
-            // builder.push(byte);
-            // }
-            // let addr_offset = builder.end_vector(4);
-            // (network::IpVariant::Ipv4Addr, addr_offset)
-            // }
-            // IpAddr::V6(ip) => {
-            // builder.start_vector::<u8>(16);
-            // for &byte in &ip.octets() {
-            // builder.push(byte);
-            // }
-            // let addr_offset = builder.end_vector(16);
-            // (network::IpVariant::Ipv6Addr, addr_offset)
-            // }
-            // };
-            // let offset = network::IpAddr::create(builder, &network::IpAddrArgs {
-            // variant,
-            // addr: Some(addr_offset),
-            // });
-            // (network::BanId::IpAddr, Some(offset.as_union_value()))
-            // }
-            // };
             let mut buf = Vec::new();
             id.serial(&mut buf).expect("can't serialize a ban/unban");
             builder.start_vector::<u8>(buf.len());
@@ -452,10 +359,7 @@ fn serialize_request(
                 NetworkRequest::UnbanNode(_) => network::RequestVariant::UnbanNode,
                 _ => unreachable!(),
             };
-            // let offset = Some(
-            // network::BanUnban::create(builder, &network::BanUnbanArgs { id_type, id })
-            // .as_union_value(),
-            // );
+
             (ban_unban, network::RequestPayload::BanUnban, offset)
         }
         NetworkRequest::JoinNetwork(id) => {
@@ -518,17 +422,7 @@ fn serialize_response(
                 network::PeerList::create(builder, &network::PeerListArgs { blob: blob_offset })
                     .as_union_value(),
             );
-            // builder.start_vector::<P2PPeer>(peerlist.len());
-            // for &peer in peerlist {
-            // builder.push(peer);
-            // }
-            // let peer_offset = Some(builder.end_vector(peerlist.len()));
-            // let offset = Some(
-            // network::PeerList::create(builder, &network::PeerListArgs {
-            // peers: peer_offset,
-            // })
-            // .as_union_value(),
-            // );
+
             (
                 network::ResponseVariant::PeerList,
                 network::ResponsePayload::PeerList,
