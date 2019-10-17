@@ -249,14 +249,13 @@ impl Connection {
             Ok(PacketType::Transaction) => {
                 dedup_with(message, &mut deduplication_queues.transactions)?
             }
-            Ok(PacketType::Block) => {
-                dedup_with(&mut packet.message, &mut deduplication_queues.blocks)?
-            }
+            Ok(PacketType::Block) => dedup_with(message, &mut deduplication_queues.blocks)?,
             Ok(PacketType::FinalizationRecord) => {
                 dedup_with(message, &mut deduplication_queues.fin_records)?
             }
             _ => false,
         };
+        message.rewind()?;
 
         Ok(is_duplicate)
     }
@@ -695,16 +694,12 @@ fn dedup_with(message: &mut HybridBuf, queue: &mut CircularQueue<[u8; 8]>) -> Fa
     let mut hash = [0u8; 8];
     hash.copy_from_slice(&XxHash64::digest(&message.remaining_bytes()?));
 
-    let ret = if !queue.iter().any(|h| h == &hash) {
+    if !queue.iter().any(|h| h == &hash) {
         queue.push(hash);
         Ok(false)
     } else {
         Ok(true)
-    };
-
-    message.rewind()?;
-
-    ret
+    }
 }
 
 #[cfg(test)]
