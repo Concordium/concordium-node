@@ -90,7 +90,6 @@ table NetworkResponse {
 union NetworkMessagePayload { NetworkPacket, NetworkRequest, NetworkResponse }
 
 table NetworkMessage {
-    version: uint8;
     timestamp: uint64;
     payload: NetworkMessagePayload;
 }

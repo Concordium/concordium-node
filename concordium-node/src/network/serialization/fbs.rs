@@ -11,7 +11,7 @@ use crate::{
     },
     network::{
         NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkPacketType,
-        NetworkRequest, NetworkResponse, PROTOCOL_VERSION,
+        NetworkRequest, NetworkResponse,
     },
     p2p::banned_nodes::BannedNode,
 };
@@ -260,15 +260,15 @@ fn deserialize_response(root: &network::NetworkMessage) -> Fallible<NetworkMessa
 }
 
 pub fn deserialize(buffer: &[u8]) -> Fallible<NetworkMessage> {
+    if buffer.is_empty() {
+        bail!("can't deserialize an empty buffer")
+    }
+
     if !network::network_message_size_prefixed_buffer_has_identifier(buffer) {
         bail!("unrecognized protocol name")
     }
 
     let root = network::get_size_prefixed_root_as_network_message(buffer);
-
-    if root.version() != PROTOCOL_VERSION {
-        bail!("invalid protocol version")
-    }
 
     let timestamp1 = Some(root.timestamp());
 
@@ -566,7 +566,6 @@ pub fn serialize<T: Write + Seek>(source: &mut NetworkMessage, target: &mut T) -
 
     let message_offset =
         network::NetworkMessage::create(&mut builder, &network::NetworkMessageArgs {
-            version: PROTOCOL_VERSION,
             timestamp: get_current_stamp(),
             payload_type,
             payload: Some(payload_offset),
