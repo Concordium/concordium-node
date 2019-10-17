@@ -1,8 +1,4 @@
-use byteorder::{ReadBytesExt, WriteBytesExt};
-use failure::Fallible;
-
 use crate::{common::P2PNodeId, connection::ConnectionStats};
-use concordium_common::serial::{NoParam, Serial};
 
 use std::{
     cmp::Ordering,
@@ -28,22 +24,6 @@ impl fmt::Display for PeerType {
             PeerType::Node => "Node",
             PeerType::Bootstrapper => "Bootstrapper",
         })
-    }
-}
-
-impl Serial for PeerType {
-    type Param = NoParam;
-
-    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
-        match source.read_u8()? {
-            0 => Ok(PeerType::Node),
-            1 => Ok(PeerType::Bootstrapper),
-            x => bail!("Can't deserialize a PeerType (unknown type: {})", x),
-        }
-    }
-
-    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
-        Ok(target.write_u8(*self as u8)?)
     }
 }
 
@@ -89,27 +69,6 @@ impl Ord for P2PPeer {
 
 impl PartialOrd for P2PPeer {
     fn partial_cmp(&self, other: &P2PPeer) -> Option<Ordering> { Some(self.cmp(other)) }
-}
-
-impl Serial for P2PPeer {
-    type Param = NoParam;
-
-    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
-        let id = P2PNodeId::deserial(source)?;
-        let addr = SocketAddr::deserial(source)?;
-        let peer_type = PeerType::deserial(source)?;
-        Ok(P2PPeer {
-            id,
-            addr,
-            peer_type,
-        })
-    }
-
-    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
-        self.id.serial(target)?;
-        self.addr.serial(target)?;
-        self.peer_type.serial(target)
-    }
 }
 
 impl Display for P2PPeer {
@@ -213,33 +172,5 @@ impl PeerStats {
 
     pub fn external_address(&self) -> SocketAddr {
         SocketAddr::new(self.addr.ip(), self.peer_external_port)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::io::{Cursor, Seek, SeekFrom};
-
-    #[test]
-    fn serial_p2ppeer_s11n() {
-        let peers = vec![
-            P2PPeer {
-                id:        P2PNodeId(1234567890123),
-                addr:      SocketAddr::new(IpAddr::from([1, 2, 3, 4]), 8000),
-                peer_type: PeerType::Bootstrapper,
-            },
-            P2PPeer {
-                id:        P2PNodeId(1),
-                addr:      SocketAddr::new(IpAddr::from([8, 7, 6, 5, 4, 3, 2, 1]), 8080),
-                peer_type: PeerType::Node,
-            },
-        ];
-        let mut serialized = Cursor::new(Vec::new());
-        peers.serial(&mut serialized).unwrap();
-        serialized.seek(SeekFrom::Start(0)).unwrap();
-        let deserialized = <Vec<P2PPeer>>::deserial(&mut serialized).unwrap();
-
-        assert_eq!(deserialized, peers)
     }
 }

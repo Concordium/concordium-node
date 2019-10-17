@@ -1,47 +1,27 @@
 use failure::{Error, Fallible};
-use flatbuffers::{FlatBufferBuilder, Push};
+use flatbuffers::FlatBufferBuilder;
 
 use crate::flatbuffers_shim::network;
 
 use crate::{
-    common::{get_current_stamp, p2p_peer::P2PPeer, P2PNodeId},
+    common::{
+        get_current_stamp,
+        p2p_peer::{P2PPeer, PeerType},
+        P2PNodeId,
+    },
     network::{
         NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkPacketType,
         NetworkRequest, NetworkResponse, PROTOCOL_VERSION,
     },
     p2p::banned_nodes::BannedNode,
 };
-use concordium_common::{hybrid_buf::HybridBuf, serial::Serial};
+use concordium_common::hybrid_buf::HybridBuf;
 
 use std::{
     convert::TryFrom,
-    io::{self, Cursor, Read, Seek, SeekFrom, Write},
-    net::IpAddr,
+    io::{self, Read, Seek, SeekFrom, Write},
+    net::{IpAddr, SocketAddr},
 };
-
-// misc. helpers
-
-impl Push for P2PPeer {
-    type Output = [u8; 15];
-
-    fn push(&self, dest: &mut [u8], _rest: &[u8]) {
-        flatbuffers::emplace_scalar::<u64>(dest, self.id.as_raw());
-        match self.addr.ip() {
-            IpAddr::V4(ip) => {
-                for &byte in &ip.octets() {
-                    flatbuffers::emplace_scalar::<u8>(dest, byte);
-                }
-            }
-            IpAddr::V6(ip) => {
-                for &byte in &ip.octets() {
-                    flatbuffers::emplace_scalar::<u8>(dest, byte);
-                }
-            }
-        }
-        flatbuffers::emplace_scalar::<u16>(dest, self.addr.port());
-        flatbuffers::emplace_scalar::<u8>(dest, self.peer_type as u8);
-    }
-}
 
 // deserialization
 
@@ -203,12 +183,48 @@ fn deserialize_response(root: &network::NetworkMessage) -> Fallible<NetworkMessa
             NetworkResponse::Pong,
         )),
         network::ResponseVariant::PeerList => {
-            if let Some(blob) = response
+            if let Some(peers) = response
                 .payload_as_peer_list()
-                .and_then(|peers| peers.blob())
+                .and_then(|peers| peers.peers())
             {
-                let mut blob = Cursor::new(blob);
-                let list = <Vec<P2PPeer>>::deserial(&mut blob)?;
+                let mut list = Vec::with_capacity(peers.len());
+                for i in 0..peers.len() {
+                    let peer = peers.get(i);
+
+                    let addr = if let Some(addr) = peer.addr() {
+                        if let Some(mut ip) = addr.octets() {
+                            match addr.variant() {
+                                network::IpVariant::V4 => {
+                                    let mut octets = [0u8; 4];
+                                    ip.read_exact(&mut octets)?;
+                                    SocketAddr::new(IpAddr::from(octets), peer.port())
+                                }
+                                network::IpVariant::V6 => {
+                                    let mut octets = [0u8; 16];
+                                    ip.read_exact(&mut octets)?;
+                                    SocketAddr::new(IpAddr::from(octets), peer.port())
+                                }
+                            }
+                        } else {
+                            bail!("missing peer ip in a PeerList response")
+                        }
+                    } else {
+                        bail!("missing peer address in a PeerList response")
+                    };
+
+                    let peer_type = match peer.variant() {
+                        network::PeerVariant::Node => PeerType::Node,
+                        network::PeerVariant::Bootstrapper => PeerType::Bootstrapper,
+                    };
+
+                    let peer = P2PPeer {
+                        id: P2PNodeId(peer.id()),
+                        addr,
+                        peer_type,
+                    };
+
+                    list.push(peer);
+                }
 
                 Ok(NetworkMessagePayload::NetworkResponse(
                     NetworkResponse::PeerList(list),
@@ -463,18 +479,56 @@ fn serialize_response(
             None,
         ),
         NetworkResponse::PeerList(peerlist) => {
-            let mut buf = Vec::new();
-            peerlist
-                .serial(&mut buf)
-                .expect("can't serialize a list of peers");
-            builder.start_vector::<u8>(buf.len());
-            for &byte in buf.iter().rev() {
-                builder.push(byte);
+            let mut peers = Vec::with_capacity(peerlist.len());
+            for peer in peerlist.into_iter() {
+                let ip_offset = match peer.addr.ip() {
+                    IpAddr::V4(ip) => {
+                        let octets = ip.octets();
+                        builder.start_vector::<u8>(octets.len());
+                        for &byte in ip.octets().iter().rev() {
+                            builder.push(byte);
+                        }
+                        let offset = Some(builder.end_vector(octets.len()));
+
+                        network::IpAddr::create(builder, &network::IpAddrArgs {
+                            variant: network::IpVariant::V4,
+                            octets:  offset,
+                        })
+                    }
+                    IpAddr::V6(ip) => {
+                        let octets = ip.octets();
+                        builder.start_vector::<u8>(octets.len());
+                        for &byte in ip.octets().iter().rev() {
+                            builder.push(byte);
+                        }
+                        let offset = Some(builder.end_vector(octets.len()));
+
+                        network::IpAddr::create(builder, &network::IpAddrArgs {
+                            variant: network::IpVariant::V6,
+                            octets:  offset,
+                        })
+                    }
+                };
+
+                let peer_type = match peer.peer_type {
+                    PeerType::Node => network::PeerVariant::Node,
+                    PeerType::Bootstrapper => network::PeerVariant::Bootstrapper,
+                };
+
+                let peer = network::P2PPeer::create(builder, &network::P2PPeerArgs {
+                    id:      peer.id.as_raw(),
+                    addr:    Some(ip_offset),
+                    port:    peer.addr.port(),
+                    variant: peer_type,
+                });
+                peers.push(peer);
             }
-            let blob_offset = Some(builder.end_vector(buf.len()));
+            let peers_offset = Some(builder.create_vector(&peers));
             let offset = Some(
-                network::PeerList::create(builder, &network::PeerListArgs { blob: blob_offset })
-                    .as_union_value(),
+                network::PeerList::create(builder, &network::PeerListArgs {
+                    peers: peers_offset,
+                })
+                .as_union_value(),
             );
 
             (
@@ -760,7 +814,7 @@ mod tests {
                 [
                     P2PPeer {
                         id:        P2PNodeId(1234567890123),
-                        addr:      SocketAddr::new(IpAddr::from([1, 2, 3, 4]), 8000),
+                        addr:      SocketAddr::new(IpAddr::from([1, 2, 3, 4]), 80),
                         peer_type: PeerType::Bootstrapper,
                     },
                     P2PPeer {

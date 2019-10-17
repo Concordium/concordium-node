@@ -65,22 +65,17 @@ table NetworkRequest {
 
 enum ResponseVariant: uint8 { Pong, PeerList, Handshake }
 
-table SocketAddr {
-    ip: IpAddr;
-    port: uint16;
-}
-
 enum PeerVariant: uint8 { Node, Bootstrapper }
 
 table P2PPeer {
     id: uint64;
-    addr: SocketAddr;
+    addr: IpAddr;
+    port: uint16;
     variant: PeerVariant;
 }
 
 table PeerList {
-    blob: [uint8]; // FIXME
-    // peers: [P2PPeer];
+    peers: [P2PPeer];
 }
 
 union ResponsePayload { PeerList, Handshake }
