@@ -48,6 +48,26 @@ type Branches m = Seq.Seq [BlockPointer m]
 
 type family PendingBlock (m :: * -> *) :: *
 
+ -- |@addCommitTransaction tr slot@ adds a transaction and marks it committed
+    -- for the given slot number.
+    -- Returns
+    --   * @(Just tx, False)@ if @tr@ is a duplicate of the transaction @tx@
+    --   * @(Just tr, True)@ if the transaction is newly added.
+    --   * @Nothing@ if its nonce is not later than the last finalized transaction for the sender.
+    --     In this case the transaction is not added to the table.
+data AddTransactionResult =
+  -- |Transaction is a duplicate of the given transaction.
+  Duplicate !Transaction |
+  -- |The transaction was newly added.
+  Added !Transaction |
+  -- |Transaction was new (according to the hash), but its signature was incorrect.
+  -- The transaction is not added to the table.
+  InvalidSignature |
+  -- |The nonce of the transaction is not later than the last finalized transaction for the sender.
+  -- The transaction is not added to the table.
+  ObsoleteNonce
+  deriving(Eq, Show)
+
 -- |Monad that provides operations for working with the low-level tree state.
 -- These operations are abstracted where possible to allow for a range of implementation
 -- choices.
@@ -205,7 +225,9 @@ class (Eq (BlockPointer m),
     -- present).  A return value of @False@ indicates that the transaction was not added,
     -- either because it was already present or the nonce has already been finalized.
     addTransaction :: Transaction -> m Bool
-    addTransaction tr = maybe False snd <$> addCommitTransaction tr 0
+    addTransaction tr = process <$> addCommitTransaction tr 0
+      where process (Added _) = True
+            process _ = False
     -- |Finalize a list of transactions.  Per account, the transactions must be in
     -- continuous sequence by nonce, starting from the next available non-finalized
     -- nonce.
@@ -216,12 +238,8 @@ class (Eq (BlockPointer m),
     commitTransaction :: Slot -> Transaction -> m ()
     -- |@addCommitTransaction tr slot@ adds a transaction and marks it committed
     -- for the given slot number.
-    -- Returns
-    --   * @(Just tx, False)@ if @tr@ is a duplicate of the transaction @tx@
-    --   * @(Just tr, True)@ if the transaction is newly added.
-    --   * @Nothing@ if its nonce is not later than the last finalized transaction for the sender.
-    --     In this case the transaction is not added to the table.
-    addCommitTransaction :: Transaction -> Slot -> m (Maybe (Transaction, Bool))
+    -- See documentation of 'AddTransactionResult' for meaning of the return value.
+    addCommitTransaction :: Transaction -> Slot -> m AddTransactionResult
     -- |Purge a transaction from the transaction table if its last committed slot
     -- number does not exceed the slot number of the last finalized block.
     -- (A transaction that has been committed to a finalized block should not be purged.)
