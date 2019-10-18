@@ -48,13 +48,7 @@ type Branches m = Seq.Seq [BlockPointer m]
 
 type family PendingBlock (m :: * -> *) :: *
 
- -- |@addCommitTransaction tr slot@ adds a transaction and marks it committed
-    -- for the given slot number.
-    -- Returns
-    --   * @(Just tx, False)@ if @tr@ is a duplicate of the transaction @tx@
-    --   * @(Just tr, True)@ if the transaction is newly added.
-    --   * @Nothing@ if its nonce is not later than the last finalized transaction for the sender.
-    --     In this case the transaction is not added to the table.
+-- |Result of trying to add a transaction to the transaction table.
 data AddTransactionResult =
   -- |Transaction is a duplicate of the given transaction.
   Duplicate !Transaction |
