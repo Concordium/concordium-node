@@ -23,6 +23,76 @@ use std::{
     net::{IpAddr, SocketAddr},
 };
 
+impl NetworkMessage {
+    pub fn deserialize(buffer: &[u8]) -> Fallible<Self> {
+        if buffer.is_empty() {
+            bail!("can't deserialize an empty buffer")
+        }
+
+        if !network::network_message_size_prefixed_buffer_has_identifier(buffer) {
+            bail!("unrecognized protocol name")
+        }
+
+        let root = network::get_size_prefixed_root_as_network_message(buffer);
+
+        let timestamp1 = Some(root.timestamp());
+
+        let payload = match root.payload_type() {
+            network::NetworkMessagePayload::NetworkPacket => deserialize_packet(&root)?,
+            network::NetworkMessagePayload::NetworkRequest => deserialize_request(&root)?,
+            network::NetworkMessagePayload::NetworkResponse => deserialize_response(&root)?,
+            _ => bail!("Invalid network message payload type"),
+        };
+
+        Ok(NetworkMessage {
+            timestamp1,
+            timestamp2: Some(get_current_stamp()),
+            payload,
+        })
+    }
+
+    pub fn serialize<T: Write + Seek>(&mut self, target: &mut T) -> Fallible<()> {
+        let capacity = if let NetworkMessagePayload::NetworkPacket(ref packet) = self.payload {
+            packet.message.len()? as usize + 64 // FIXME: fine-tune the overhead
+        } else {
+            256
+        };
+        let mut builder = FlatBufferBuilder::new_with_capacity(capacity);
+
+        let (payload_type, payload_offset) = match self.payload {
+            NetworkMessagePayload::NetworkPacket(ref mut packet) => (
+                network::NetworkMessagePayload::NetworkPacket,
+                serialize_packet(&mut builder, packet)?,
+            ),
+            NetworkMessagePayload::NetworkRequest(ref request) => (
+                network::NetworkMessagePayload::NetworkRequest,
+                serialize_request(&mut builder, request)?,
+            ),
+            NetworkMessagePayload::NetworkResponse(ref response) => (
+                network::NetworkMessagePayload::NetworkResponse,
+                serialize_response(&mut builder, response)?,
+            ),
+        };
+
+        let message_offset =
+            network::NetworkMessage::create(&mut builder, &network::NetworkMessageArgs {
+                timestamp: get_current_stamp(),
+                payload_type,
+                payload: Some(payload_offset),
+            });
+
+        network::finish_size_prefixed_network_message_buffer(&mut builder, message_offset);
+
+        target
+            .write_all(builder.finished_data())
+            .map_err(Error::from)?;
+
+        target.seek(SeekFrom::Start(0))?;
+
+        Ok(())
+    }
+}
+
 // deserialization
 
 fn deserialize_packet(root: &network::NetworkMessage) -> Fallible<NetworkMessagePayload> {
@@ -257,33 +327,6 @@ fn deserialize_response(root: &network::NetworkMessage) -> Fallible<NetworkMessa
             }
         }
     }
-}
-
-pub fn deserialize(buffer: &[u8]) -> Fallible<NetworkMessage> {
-    if buffer.is_empty() {
-        bail!("can't deserialize an empty buffer")
-    }
-
-    if !network::network_message_size_prefixed_buffer_has_identifier(buffer) {
-        bail!("unrecognized protocol name")
-    }
-
-    let root = network::get_size_prefixed_root_as_network_message(buffer);
-
-    let timestamp1 = Some(root.timestamp());
-
-    let payload = match root.payload_type() {
-        network::NetworkMessagePayload::NetworkPacket => deserialize_packet(&root)?,
-        network::NetworkMessagePayload::NetworkRequest => deserialize_request(&root)?,
-        network::NetworkMessagePayload::NetworkResponse => deserialize_response(&root)?,
-        _ => bail!("Invalid network message payload type"),
-    };
-
-    Ok(NetworkMessage {
-        timestamp1,
-        timestamp2: Some(get_current_stamp()),
-        payload,
-    })
 }
 
 // serialization
@@ -532,51 +575,8 @@ fn serialize_response(
     Ok(response_offset)
 }
 
-pub fn serialize<T: Write + Seek>(source: &mut NetworkMessage, target: &mut T) -> Fallible<()> {
-    let capacity = if let NetworkMessagePayload::NetworkPacket(ref packet) = source.payload {
-        packet.message.len()? as usize + 64 // FIXME: fine-tune the overhead
-    } else {
-        256
-    };
-    let mut builder = FlatBufferBuilder::new_with_capacity(capacity);
-
-    let (payload_type, payload_offset) = match source.payload {
-        NetworkMessagePayload::NetworkPacket(ref mut packet) => (
-            network::NetworkMessagePayload::NetworkPacket,
-            serialize_packet(&mut builder, packet)?,
-        ),
-        NetworkMessagePayload::NetworkRequest(ref request) => (
-            network::NetworkMessagePayload::NetworkRequest,
-            serialize_request(&mut builder, request)?,
-        ),
-        NetworkMessagePayload::NetworkResponse(ref response) => (
-            network::NetworkMessagePayload::NetworkResponse,
-            serialize_response(&mut builder, response)?,
-        ),
-    };
-
-    let message_offset =
-        network::NetworkMessage::create(&mut builder, &network::NetworkMessageArgs {
-            timestamp: get_current_stamp(),
-            payload_type,
-            payload: Some(payload_offset),
-        });
-
-    network::finish_size_prefixed_network_message_buffer(&mut builder, message_offset);
-
-    target
-        .write_all(builder.finished_data())
-        .map_err(Error::from)?;
-
-    target.seek(SeekFrom::Start(0))?;
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn s11n_size_fbs() {
         use crate::test_utils::create_random_packet;
@@ -585,7 +585,7 @@ mod tests {
         let mut msg = create_random_packet(payload_size);
         let mut buffer = std::io::Cursor::new(Vec::with_capacity(payload_size));
 
-        serialize(&mut msg, &mut buffer).unwrap();
+        msg.serialize(&mut buffer).unwrap();
         println!(
             "flatbuffers s11n ratio: {}",
             buffer.get_ref().len() as f64 / payload_size as f64

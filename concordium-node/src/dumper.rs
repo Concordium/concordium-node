@@ -1,6 +1,6 @@
 #[cfg(feature = "network_dump")]
 use crate::common::P2PNodeId;
-use crate::network::deserialize;
+use crate::network::NetworkMessage;
 
 #[cfg(feature = "network_dump")]
 use crate::configuration::APP_INFO;
@@ -39,7 +39,7 @@ impl DumpItem {
     }
 
     pub fn into_pretty_dump(mut self) -> String {
-        let msg = deserialize(
+        let msg = NetworkMessage::deserialize(
             &self
                 .msg
                 .remaining_bytes()

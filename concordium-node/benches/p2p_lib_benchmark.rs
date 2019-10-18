@@ -71,7 +71,7 @@ pub mod deduplication {
 mod s11n {
     pub mod fbs {
         use crate::*;
-        use p2p_client::network::serialization::fbs::{deserialize, serialize};
+        use p2p_client::network::NetworkMessage;
 
         fn bench_s11n(c: &mut Criterion, size: usize) {
             let bench_id = format!("Flatbuffers serialization with {}B messages", size);
@@ -82,8 +82,8 @@ mod s11n {
             c.bench_function(&bench_id, move |b| {
                 b.iter(|| {
                     msg.rewind_packet();
-                    serialize(&mut msg, &mut buffer).unwrap();
-                    deserialize(&buffer.get_ref()).unwrap();
+                    msg.serialize(&mut buffer).unwrap();
+                    NetworkMessage::deserialize(&buffer.get_ref()).unwrap();
                     buffer.seek(SeekFrom::Start(0)).unwrap();
                 })
             });

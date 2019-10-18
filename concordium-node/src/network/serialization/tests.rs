@@ -1,9 +1,6 @@
 use crate::{
     common::{p2p_peer::P2PPeer, P2PNodeId},
-    network::{
-        deserialize, serialize, NetworkId, NetworkMessage, NetworkMessagePayload, NetworkRequest,
-        NetworkResponse,
-    },
+    network::{NetworkId, NetworkMessage, NetworkMessagePayload, NetworkRequest, NetworkResponse},
     p2p::banned_nodes::BannedNode,
 };
 
@@ -25,8 +22,8 @@ mod tests {
                 };
                 let mut buffer = Cursor::new(Vec::new());
 
-                serialize(&mut msg, &mut buffer).unwrap();
-                let deserialized = deserialize(&buffer.get_ref()).unwrap();
+                msg.serialize(&mut buffer).unwrap();
+                let deserialized = NetworkMessage::deserialize(&buffer.get_ref()).unwrap();
                 assert_eq!(deserialized.payload, msg.payload);
             }
         };
@@ -136,11 +133,11 @@ mod tests {
 
     #[test]
     fn s11n_packet() {
-        let mut message = create_random_packet(8);
+        let mut msg = create_random_packet(8);
         let mut buffer = Cursor::new(Vec::new());
 
-        serialize(&mut message, &mut buffer).unwrap();
-        let deserialized = deserialize(&buffer.get_ref()).unwrap();
-        assert_eq!(deserialized.payload, message.payload);
+        msg.serialize(&mut buffer).unwrap();
+        let deserialized = NetworkMessage::deserialize(&buffer.get_ref()).unwrap();
+        assert_eq!(deserialized.payload, msg.payload);
     }
 }

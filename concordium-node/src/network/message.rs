@@ -51,7 +51,7 @@ mod unit_test {
     use super::*;
     use crate::{
         common::{get_current_stamp, P2PNodeId},
-        network::{deserialize, serialize, NetworkId, NetworkPacket, NetworkPacketType},
+        network::{NetworkId, NetworkPacket, NetworkPacketType},
     };
     use concordium_common::hybrid_buf::HybridBuf;
 
@@ -105,7 +105,7 @@ mod unit_test {
 
         // 3. Serialize package into a file
         let mut buffer = HybridBuf::new_on_disk()?;
-        serialize(&mut message, &mut buffer)?;
+        message.serialize(&mut buffer)?;
 
         buffer.seek(SeekFrom::Start(0))?;
         Ok(buffer)
@@ -115,7 +115,7 @@ mod unit_test {
         // Create serialization data in memory and then move to disk
         let mut buffer = make_direct_message_into_disk(content_size)?;
 
-        let mut message = deserialize(&buffer.remaining_bytes()?)?;
+        let mut message = NetworkMessage::deserialize(&buffer.remaining_bytes()?)?;
 
         if let NetworkMessagePayload::NetworkPacket(ref mut packet) = message.payload {
             if let NetworkPacketType::BroadcastedMessage(..) = packet.packet_type {

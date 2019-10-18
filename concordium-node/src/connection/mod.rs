@@ -28,8 +28,8 @@ use crate::{
     },
     dumper::DumpItem,
     network::{
-        deserialize, serialize, Buckets, NetworkId, NetworkMessage, NetworkMessagePayload,
-        NetworkPacket, NetworkRequest, NetworkResponse,
+        Buckets, NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkRequest,
+        NetworkResponse,
     },
     p2p::banned_nodes::BannedNode,
 };
@@ -272,7 +272,7 @@ impl Connection {
             service.pkt_received_inc();
         };
 
-        let message = deserialize(&message.remaining_bytes()?);
+        let message = NetworkMessage::deserialize(&message.remaining_bytes()?);
         if let Err(e) = message {
             self.handle_invalid_network_msg(e);
             return Ok(());
@@ -438,7 +438,7 @@ impl Connection {
             )),
         };
         let mut serialized = HybridBuf::with_capacity(128)?;
-        serialize(&mut handshake_request, &mut serialized)?;
+        handshake_request.serialize(&mut serialized)?;
 
         self.async_send(serialized, MessageSendingPriority::High)?;
 
@@ -461,7 +461,7 @@ impl Connection {
             )),
         };
         let mut serialized = HybridBuf::with_capacity(128)?;
-        serialize(&mut handshake_response, &mut serialized)?;
+        handshake_response.serialize(&mut serialized)?;
 
         self.async_send(serialized, MessageSendingPriority::High)
     }
@@ -475,7 +475,7 @@ impl Connection {
             payload:    NetworkMessagePayload::NetworkRequest(NetworkRequest::Ping),
         };
         let mut serialized = HybridBuf::with_capacity(64)?;
-        serialize(&mut ping, &mut serialized)?;
+        ping.serialize(&mut serialized)?;
 
         self.async_send(serialized, MessageSendingPriority::High)?;
 
@@ -493,7 +493,7 @@ impl Connection {
             payload:    NetworkMessagePayload::NetworkResponse(NetworkResponse::Pong),
         };
         let mut serialized = HybridBuf::with_capacity(64)?;
-        serialize(&mut pong, &mut serialized)?;
+        pong.serialize(&mut serialized)?;
 
         self.async_send(serialized, MessageSendingPriority::High)
     }
@@ -552,7 +552,7 @@ impl Connection {
             debug!("Sending my PeerList to peer {}", requestor.id());
 
             let mut serialized = HybridBuf::with_capacity(256)?;
-            serialize(&mut resp, &mut serialized)?;
+            resp.serialize(&mut serialized)?;
 
             self.async_send(serialized, MessageSendingPriority::Normal)
         } else {
@@ -566,7 +566,7 @@ impl Connection {
 
     fn forward_network_message(&self, msg: &mut NetworkMessage) -> Fallible<()> {
         let mut serialized = HybridBuf::with_capacity(256)?;
-        serialize(msg, &mut serialized)?;
+        msg.serialize(&mut serialized)?;
 
         let conn_filter = |conn: &Connection| match msg.payload {
             NetworkMessagePayload::NetworkRequest(ref request, ..) => match request {
