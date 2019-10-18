@@ -101,10 +101,7 @@ mod s11n {
     #[cfg(feature = "s11n_serde_cbor")]
     pub mod serde_cbor {
         use crate::*;
-        use p2p_client::network::serialization::cbor::s11n_network_message;
-
-        use criterion::Criterion;
-        use serde_cbor::ser;
+        use p2p_client::network::NetworkMessage;
 
         fn bench_s11n(c: &mut Criterion, size: usize) {
             let bench_id = format!("Serde CBOR serialization with {}B messages", size);
@@ -114,9 +111,9 @@ mod s11n {
 
             c.bench_function(&bench_id, move |b| {
                 b.iter(|| {
-                    ser::to_writer(&mut buffer, &msg).unwrap();
+                    msg.serialize(&mut buffer).unwrap();
                     buffer.seek(SeekFrom::Start(0)).unwrap();
-                    s11n_network_message(&mut buffer);
+                    NetworkMessage::deserialize(&buffer.get_ref()).unwrap();
                     buffer.seek(SeekFrom::Start(0)).unwrap();
                 })
             });

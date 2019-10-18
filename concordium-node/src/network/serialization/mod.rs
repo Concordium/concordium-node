@@ -1,3 +1,4 @@
+#[cfg(not(feature = "s11n_serde_cbor"))]
 pub mod fbs;
 
 #[cfg(feature = "s11n_serde_cbor")]
