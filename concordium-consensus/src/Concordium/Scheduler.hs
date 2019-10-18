@@ -62,9 +62,7 @@ checkHeader meta =
                        -- check they have enough funds to cover the deposit
                        unless (depositedAmount <= amnt) (throwError InsufficientFunds)
                        unless (txnonce == nextNonce) (throwError (NonSequentialNonce nextNonce))
-                       let sigCheck = verifyTransactionSignature' (acc ^. accountVerificationKey) -- the signature is correct.
-                                                                  meta
-                                                                  (transactionSignature meta)
+                       let sigCheck = verifyTransactionSignature meta
                        assert sigCheck (return acc)) -- only use assert because we rely on the signature being valid in the transaction table
                        -- unless sigCheck (throwError IncorrectSignature))
         -- TODO: If we are going to check that the signature is correct before adding the transaction to the table then this check can be removed,

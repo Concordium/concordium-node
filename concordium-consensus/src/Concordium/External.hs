@@ -504,7 +504,7 @@ receiveFinalizationRecord bptr cstr l = do
                 PassiveRunner{..} -> syncPassiveReceiveFinalizationRecord passiveSyncRunner finRec
 
 -- |Handle receipt of a transaction.
--- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultDuplicate@, and @ResultStale@
+-- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultDuplicate@, @ResultStale@, @ResultInvalid@.
 receiveTransaction :: StablePtr ConsensusRunner -> CString -> Int64 -> IO ReceiveResult
 receiveTransaction bptr tdata len = do
     c <- deRefStablePtr bptr
@@ -512,7 +512,7 @@ receiveTransaction bptr tdata len = do
     logm External LLDebug $ "Received transaction, data size=" ++ show len ++ ". Decoding ..."
     tbs <- BS.packCStringLen (tdata, fromIntegral len)
     now <- currentTime
-    toReceiveResult <$> case runGet (getVerifiedTransaction now) tbs of
+    toReceiveResult <$> case runGet (getUnverifiedTransaction now) tbs of
         Left _ -> do
             logm External LLDebug $ "Could not decode transaction."
             return ResultSerializationFail

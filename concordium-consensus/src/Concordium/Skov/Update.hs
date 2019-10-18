@@ -472,6 +472,7 @@ doFinalizeBlock = \finRec -> do
 --   * 'ResultDuplicate', which indicates that either the transaction is a duplicate
 --   * 'ResultStale' which indicates that a transaction with the same sender
 --     and nonce has already been finalized. In this case the transaction is not added to the table.
+--   * 'ResultInvalid' which indicates that the transaction signature was invalid.
 doReceiveTransaction :: (TreeStateMonad m) => Transaction -> Slot -> m UpdateResult
 doReceiveTransaction tr slot = snd <$> doReceiveTransactionInternal tr slot
 
@@ -483,9 +484,7 @@ doReceiveTransaction tr slot = snd <$> doReceiveTransactionInternal tr slot
 doReceiveTransactionInternal :: (TreeStateMonad m) => Transaction -> Slot -> m (Maybe Transaction, UpdateResult)
 doReceiveTransactionInternal tr slot = do
         addCommitTransaction tr slot >>= \case
-          Nothing -> return (Nothing, ResultStale)
-          Just (tx, added) -> 
-            if added then do
+          Added tx -> do
               ptrs <- getPendingTransactions
               focus <- getFocusBlock
               macct <- getAccount (bpState focus) $! (transactionSender tr)
@@ -496,5 +495,6 @@ doReceiveTransactionInternal tr slot = do
               when (nextNonce <= transactionNonce tr) $
                   putPendingTransactions $! extendPendingTransactionTable nextNonce tx ptrs
               return $ (Just tx, ResultSuccess)
-            else
-              return $ (Just tx, ResultDuplicate)
+          Duplicate tx -> return (Just tx, ResultDuplicate)
+          InvalidSignature -> return (Nothing, ResultInvalid)
+          ObsoleteNonce -> return (Nothing, ResultStale)
