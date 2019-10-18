@@ -5,3 +5,6 @@ pub mod cbor;
 
 #[cfg(feature = "s11n_capnp")]
 pub mod cap;
+
+#[cfg(test)]
+mod tests;
