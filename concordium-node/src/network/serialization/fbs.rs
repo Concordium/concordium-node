@@ -21,34 +21,16 @@ use std::{
     convert::TryFrom,
     io::{self, Read, Seek, SeekFrom, Write},
     net::{IpAddr, SocketAddr},
+    panic,
 };
 
 impl NetworkMessage {
+    // FIXME: remove the unwind once the verifier is available
     pub fn deserialize(buffer: &[u8]) -> Fallible<Self> {
-        if buffer.is_empty() {
-            bail!("can't deserialize an empty buffer")
+        match panic::catch_unwind(|| _deserialize(buffer)) {
+            Ok(nm) => nm,
+            Err(e) => bail!("can't deserialize a network message: {:?}", e),
         }
-
-        if !network::network_message_size_prefixed_buffer_has_identifier(buffer) {
-            bail!("unrecognized protocol name")
-        }
-
-        let root = network::get_size_prefixed_root_as_network_message(buffer);
-
-        let timestamp1 = Some(root.timestamp());
-
-        let payload = match root.payload_type() {
-            network::NetworkMessagePayload::NetworkPacket => deserialize_packet(&root)?,
-            network::NetworkMessagePayload::NetworkRequest => deserialize_request(&root)?,
-            network::NetworkMessagePayload::NetworkResponse => deserialize_response(&root)?,
-            _ => bail!("Invalid network message payload type"),
-        };
-
-        Ok(NetworkMessage {
-            timestamp1,
-            timestamp2: Some(get_current_stamp()),
-            payload,
-        })
     }
 
     pub fn serialize<T: Write + Seek>(&mut self, target: &mut T) -> Fallible<()> {
@@ -94,6 +76,33 @@ impl NetworkMessage {
 }
 
 // deserialization
+
+fn _deserialize(buffer: &[u8]) -> Fallible<NetworkMessage> {
+    if buffer.is_empty() {
+        bail!("empty buffer received")
+    }
+
+    if !network::network_message_size_prefixed_buffer_has_identifier(buffer) {
+        bail!("unrecognized protocol name")
+    }
+
+    let root = network::get_size_prefixed_root_as_network_message(buffer);
+
+    let timestamp1 = Some(root.timestamp());
+
+    let payload = match root.payload_type() {
+        network::NetworkMessagePayload::NetworkPacket => deserialize_packet(&root)?,
+        network::NetworkMessagePayload::NetworkRequest => deserialize_request(&root)?,
+        network::NetworkMessagePayload::NetworkResponse => deserialize_response(&root)?,
+        _ => bail!("invalid network message payload type"),
+    };
+
+    Ok(NetworkMessage {
+        timestamp1,
+        timestamp2: Some(get_current_stamp()),
+        payload,
+    })
+}
 
 fn deserialize_packet(root: &network::NetworkMessage) -> Fallible<NetworkMessagePayload> {
     let packet = if let Some(payload) = root.payload() {
