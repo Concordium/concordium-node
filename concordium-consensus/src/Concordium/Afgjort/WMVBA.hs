@@ -305,7 +305,7 @@ receiveWMVBAMessage src sig (WMVBAABBAMessage msg) = do
         liftABBA $ receiveABBAMessage src msg sig
 receiveWMVBAMessage src sig (WMVBAWitnessCreatorMessage (v, blssig)) = do
         WMVBAInstance{..} <- ask
-        -- add the (v, blssig) to the list of justifications under key src
+        -- add the (v, (sig, blssig)) to the list of justifications under key src
         newJV <- justifications . at v . non PM.empty <%= PM.insert src (partyWeight src) (sig, blssig)
         badJV <- use $ badJustifications . at v . non PS.empty
         -- When justifications combined weight minus the weight of the bad justifications exceeds corruptWeight,
@@ -320,7 +320,7 @@ receiveWMVBAMessage src sig (WMVBAWitnessCreatorMessage (v, blssig)) = do
               -- keys' = case (f keys []) of Just ks -> ks
               --                             Nothing -> []
           in if Bls.verifyAggregate toSign keys blssig then
-            wmvbaComplete (Just (v, (PM.keys newJV, blssig))) -- TODO add parties
+            wmvbaComplete (Just (v, (PM.keys newJV, blssig)))
           else -- somebody sent an incorrect BlsSignature on v with a correct EDDSA signature on the message
             -- TODO: find cheaters, mark as bad
             return ()
@@ -333,6 +333,15 @@ receiveWMVBAMessage src sig (WMVBAWitnessCreatorMessage (v, blssig)) = do
         makeBlsAggregateSig ((p, (s, blss)) : tl) = Bls.aggregate blss (makeBlsAggregateSig tl)
         makeBlsAggregateSig ((p, (s, blss)) : []) = blss
         makeBlsAggregateSig [] = Bls.emptySignature -- this should never happen!
+        -- TODO: optimize heavily, this is just a first draft
+        findCulprits lst toSign keys =
+          let (lst1, lst2) = splitAt ((length lst) `div` 2) lst
+              culprits ((p, (s, blss)) : []) = if Bls.verify toSign (keys p) blss then [] else [p]
+              culprits lst' = if Bls.verifyAggregate toSign (map (\(p, (s, blss)) -> keys p) lst') (makeBlsAggregateSig lst')
+                              then [] else findCulprits lst' toSign keys
+              culprits [] = []
+          in (culprits lst1) ++ (culprits lst2)
+
 
 -- |Start the WMVBA for us with a given input.  This should only be called once
 -- per instance, and the input should already be justified.
