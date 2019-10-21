@@ -75,6 +75,7 @@ COPY --from=haskell-build /genesis-binaries /genesis-binaries
 COPY --from=node-build /node-dashboard/dist/public /var/www/html/
 RUN mkdir /var/www/html/public
 RUN mv /var/www/html/*.js /var/www/html/public/
+RUN sed -i 's/try_files.*$/try_files \$uri \/index.html =404;/g' /etc/nginx/sites-available/default 
 
 COPY ./scripts/supervisord.conf /etc/supervisor/supervisord.conf
 COPY ./scripts/concordium.conf /etc/supervisor/conf.d/concordium.conf
