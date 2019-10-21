@@ -24,7 +24,7 @@ pub fn localhost_peer() -> P2PPeer {
         .unwrap()
 }
 
-#[cfg(any(not(feature = "s11n_capnp"), not(feature = "s11n_serde_cbor"),))]
+#[cfg(any(not(feature = "s11n_capnp"), not(feature = "s11n_serde")))]
 mod common {
     use criterion::Criterion;
     pub fn nop_bench(_c: &mut Criterion) {}
@@ -69,6 +69,7 @@ pub mod deduplication {
 }
 
 mod s11n {
+    #[cfg(not(feature = "s11n_serde"))]
     pub mod fbs {
         use crate::*;
         use p2p_client::network::NetworkMessage;
@@ -106,13 +107,43 @@ mod s11n {
         fn bench_s11n(c: &mut Criterion, size: usize) {
             let bench_id = format!("Serde CBOR serialization with {}B messages", size);
 
-            let msg = create_random_packet(size);
+            let mut msg = create_random_packet(size);
             let mut buffer = Cursor::new(Vec::with_capacity(size));
 
             c.bench_function(&bench_id, move |b| {
                 b.iter(|| {
+                    msg.rewind_packet();
                     msg.serialize(&mut buffer).unwrap();
+                    NetworkMessage::deserialize(&buffer.get_ref()).unwrap();
                     buffer.seek(SeekFrom::Start(0)).unwrap();
+                })
+            });
+        }
+
+        pub fn bench_s11n_256(b: &mut Criterion) { bench_s11n(b, 256) }
+        pub fn bench_s11n_1k(b: &mut Criterion) { bench_s11n(b, 1024) }
+        pub fn bench_s11n_4k(b: &mut Criterion) { bench_s11n(b, 4096) }
+        pub fn bench_s11n_64k(b: &mut Criterion) { bench_s11n(b, 64 * 1024) }
+        pub fn bench_s11n_256k(b: &mut Criterion) { bench_s11n(b, 256 * 1024) }
+        pub fn bench_s11n_1m(b: &mut Criterion) { bench_s11n(b, 1024 * 1024) }
+        pub fn bench_s11n_4m(b: &mut Criterion) { bench_s11n(b, 4 * 1024 * 1024) }
+    }
+
+    #[cfg(feature = "s11n_serde_msgpack")]
+    pub mod serde_msgpack {
+        use crate::*;
+        use p2p_client::network::NetworkMessage;
+
+        fn bench_s11n(c: &mut Criterion, size: usize) {
+            let bench_id = format!("Serde msgpack serialization with {}B messages", size);
+
+            let mut msg = create_random_packet(size);
+            let mut buffer = Cursor::new(Vec::with_capacity(size));
+
+            c.bench_function(&bench_id, move |b| {
+                b.iter(|| {
+                    msg.rewind_packet();
+                    msg.serialize(&mut buffer).unwrap();
                     NetworkMessage::deserialize(&buffer.get_ref()).unwrap();
                     buffer.seek(SeekFrom::Start(0)).unwrap();
                 })
@@ -224,9 +255,24 @@ criterion_group!(
 #[cfg(not(feature = "s11n_serde_cbor"))]
 criterion_group!(s11n_cbor_benches, common::nop_bench);
 
+#[cfg(feature = "s11n_serde_msgpack")]
+criterion_group!(
+    s11n_msgpack_benches,
+    s11n::serde_msgpack::bench_s11n_256,
+    s11n::serde_msgpack::bench_s11n_1k,
+    s11n::serde_msgpack::bench_s11n_4k,
+    s11n::serde_msgpack::bench_s11n_64k,
+    s11n::serde_msgpack::bench_s11n_256k,
+    s11n::serde_msgpack::bench_s11n_1m,
+    s11n::serde_msgpack::bench_s11n_4m,
+);
+#[cfg(not(feature = "s11n_serde_msgpack"))]
+criterion_group!(s11n_msgpack_benches, common::nop_bench);
+
 criterion_main!(
     s11n_fbs_benches,
     s11n_capnp_benches,
     s11n_cbor_benches,
+    s11n_msgpack_benches,
     dedup_benches,
 );
