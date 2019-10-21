@@ -24,7 +24,8 @@ import Concordium.Afgjort.WMVBA
 
 data FinalizationInstance = FinalizationInstance {
     finMySignKey :: !Sig.KeyPair,
-    finMyVRFKey :: !VRF.KeyPair
+    finMyVRFKey :: !VRF.KeyPair,
+    finMyBlsKey :: !Bls.SecretKey
 }
 
 data PartyInfo = PartyInfo {

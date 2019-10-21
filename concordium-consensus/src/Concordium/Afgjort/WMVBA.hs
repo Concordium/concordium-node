@@ -41,17 +41,20 @@ import Data.Bits
 import Data.Word
 
 import qualified Concordium.Crypto.VRF as VRF
+import qualified Concordium.Crypto.BlsSignature as Bls
 import Concordium.Afgjort.Types
 import Concordium.Afgjort.Freeze
 import Concordium.Afgjort.ABBA
 import Concordium.Afgjort.CSS.NominationSet
 import Concordium.Afgjort.PartyMap (PartyMap)
+import Concordium.Afgjort.PartySet (PartySet)
 import qualified Concordium.Afgjort.PartyMap as PM
+import qualified Concordium.Afgjort.PartySet as PS
 
 data WMVBAMessage
     = WMVBAFreezeMessage !FreezeMessage
     | WMVBAABBAMessage !ABBAMessage
-    | WMVBAWitnessCreatorMessage !Val
+    | WMVBAWitnessCreatorMessage !(Val, Bls.Signature)
     deriving (Eq, Ord)
 
 messageValues :: WMVBAMessage -> [Val]
@@ -60,7 +63,7 @@ messageValues (WMVBAFreezeMessage (Vote (Just val))) = [val]
 messageValues (WMVBAFreezeMessage (Vote Nothing)) = []
 messageValues (WMVBAABBAMessage _) = []
 messageValues (WMVBAABBAMessage _) = []
-messageValues (WMVBAWitnessCreatorMessage val) = [val]
+messageValues (WMVBAWitnessCreatorMessage (val, _)) = [val]
 
 messageParties :: WMVBAMessage -> [Party]
 messageParties (WMVBAFreezeMessage _) = []
@@ -68,6 +71,11 @@ messageParties (WMVBAABBAMessage (CSSSeen _ ns)) = fst <$> nominationSetToList n
 messageParties (WMVBAABBAMessage (CSSDoneReporting _ choices)) = fst <$> nominationSetToList choices
 messageParties (WMVBAABBAMessage _) = []
 messageParties (WMVBAWitnessCreatorMessage _) = []
+
+messageBlsSig :: WMVBAMessage -> Maybe Bls.Signature
+messageBlsSig (WMVBAFreezeMessage _) = Nothing
+messageBlsSig (WMVBAABBAMessage _) = Nothing
+messageBlsSig (WMVBAWitnessCreatorMessage (_, sig)) = Just sig
 
 instance Show WMVBAMessage where
     show (WMVBAFreezeMessage (Proposal val)) = "Propose " ++ show val
@@ -102,7 +110,7 @@ putWMVBAMessageBody (WMVBAABBAMessage (CSSDoneReporting phase choices)) = putWor
             NSBoth -> 10
 putWMVBAMessageBody (WMVBAABBAMessage (WeAreDone False)) = putWord8 11
 putWMVBAMessageBody (WMVBAABBAMessage (WeAreDone True)) = putWord8 12
-putWMVBAMessageBody (WMVBAWitnessCreatorMessage val) = putWord8 13 >> putVal val
+putWMVBAMessageBody (WMVBAWitnessCreatorMessage (val, blssig)) = putWord8 13 >> putVal val >> S.put blssig
 
 instance S.Serialize WMVBAMessage where
     put m@(WMVBAABBAMessage (Justified _ _ ticket)) = putWMVBAMessageBody m >> S.put ticket
@@ -146,7 +154,7 @@ instance S.Serialize WMVBAMessage where
             return $! WMVBAABBAMessage $ CSSDoneReporting phase choices
         11 -> return (WMVBAABBAMessage (WeAreDone False))
         12 -> return (WMVBAABBAMessage (WeAreDone True))
-        13 -> WMVBAWitnessCreatorMessage <$> getVal
+        13 -> WMVBAWitnessCreatorMessage <$> (getTwoOf getVal S.get)
         _ -> fail "Incorrect message type"
 
 data OutcomeState = OSAwaiting | OSFrozen Val | OSABBASuccess | OSDone Val deriving (Show)
@@ -160,7 +168,8 @@ data WMVBAState sig = WMVBAState {
     _freezeState :: FreezeState sig,
     _abbaState :: ABBAState sig,
     _justifiedDecision :: OutcomeState,
-    _justifications :: Map Val (PartyMap sig) -- TODO: change to also hold BlsSig
+    _justifications :: Map Val (PartyMap (sig, Bls.Signature)),
+    _badJustifications :: Map Val (PartySet) -- TODO: make specific datatype (partymap Bool stores redundant information, the bool is meaningless)
 } deriving (Show)
 makeLenses ''WMVBAState
 
@@ -169,7 +178,8 @@ initialWMVBAState = WMVBAState {
     _freezeState = initialFreezeState,
     _abbaState = initialABBAState,
     _justifiedDecision = OSAwaiting,
-    _justifications = Map.empty
+    _justifications = Map.empty,
+    _badJustifications = Map.empty
 }
 
 data WMVBAInstance sig = WMVBAInstance {
@@ -180,23 +190,25 @@ data WMVBAInstance sig = WMVBAInstance {
     maxParty :: Party,
     publicKeys :: Party -> VRF.PublicKey,
     me :: Party,
-    privateKey :: VRF.KeyPair
-    -- TODO: add Blskeys
+    privateKey :: VRF.KeyPair,
+    publicBlsKeys :: Party -> Bls.PublicKey,
+    privateBlsKey :: Bls.SecretKey
 }
 
 toFreezeInstance :: WMVBAInstance sig -> FreezeInstance
-toFreezeInstance (WMVBAInstance _ totalWeight corruptWeight partyWeight _ _ me _) = FreezeInstance totalWeight corruptWeight partyWeight me
+toFreezeInstance (WMVBAInstance _ totalWeight corruptWeight partyWeight _ _ me _ _ _) = FreezeInstance totalWeight corruptWeight partyWeight me
 
 toABBAInstance :: WMVBAInstance sig -> ABBAInstance
-toABBAInstance (WMVBAInstance baid totalWeight corruptWeight partyWeight maxParty pubKeys me privateKey) = ABBAInstance baid totalWeight corruptWeight partyWeight maxParty pubKeys me privateKey
+toABBAInstance (WMVBAInstance baid totalWeight corruptWeight partyWeight maxParty pubKeys me privateKey _ _) =
+  ABBAInstance baid totalWeight corruptWeight partyWeight maxParty pubKeys me privateKey
 
 class (MonadState (WMVBAState sig) m, MonadReader (WMVBAInstance sig) m, MonadIO m) => WMVBAMonad sig m where
     sendWMVBAMessage :: WMVBAMessage -> m ()
-    wmvbaComplete :: Maybe (Val, ([Party], sig)) -> m () -- TODO: change to new finalproof
+    wmvbaComplete :: Maybe (Val, ([Party], Bls.Signature)) -> m () -- TODO: change to new finalproof
 
 data WMVBAOutputEvent sig
     = SendWMVBAMessage WMVBAMessage
-    | WMVBAComplete (Maybe (Val, ([Party], sig))) -- TODO: change to new finalproof
+    | WMVBAComplete (Maybe (Val, ([Party], Bls.Signature))) -- TODO: change to new finalproof
 
 newtype WMVBA sig a = WMVBA {
     runWMVBA' :: RWST (WMVBAInstance sig) (Endo [WMVBAOutputEvent sig]) (WMVBAState sig) IO a
@@ -242,7 +254,8 @@ liftFreeze a = do
                     OSAwaiting -> justifiedDecision .= OSFrozen v
                     OSABBASuccess -> do
                         justifiedDecision .= OSDone v
-                        sendWMVBAMessage (WMVBAWitnessCreatorMessage v)
+                        WMVBAInstance{..} <- ask
+                        sendWMVBAMessage (makeWMVBAWitnessCreatorMessage baid v privateBlsKey)
                     _ -> return ()
             handleEvents r
 
@@ -265,11 +278,17 @@ liftABBA a = do
                     OSAwaiting -> justifiedDecision .= OSABBASuccess
                     OSFrozen v -> do
                         justifiedDecision .= OSDone v
-                        sendWMVBAMessage (WMVBAWitnessCreatorMessage v)
+                        WMVBAInstance{..} <- ask
+                        sendWMVBAMessage (makeWMVBAWitnessCreatorMessage baid v privateBlsKey)
                     _ -> return ()
             else
                 wmvbaComplete Nothing
             handleEvents r
+
+makeWMVBAWitnessCreatorMessage :: BS.ByteString -> Val -> Bls.SecretKey -> WMVBAMessage
+makeWMVBAWitnessCreatorMessage baid v privateBlsKey = do
+  -- TODO: doublecheck that the signature is produced on the correct bytestring
+  WMVBAWitnessCreatorMessage (v, Bls.sign (runPut $ S.put baid >> S.put v) privateBlsKey)
 
 -- |Record that an input is justified.
 justifyWMVBAInput :: forall sig m. (WMVBAMonad sig m) => Val -> m ()
@@ -284,11 +303,36 @@ receiveWMVBAMessage :: (WMVBAMonad sig m, Eq sig) => Party -> sig -> WMVBAMessag
 receiveWMVBAMessage src sig (WMVBAFreezeMessage msg) = liftFreeze $ receiveFreezeMessage src msg sig
 receiveWMVBAMessage src sig (WMVBAABBAMessage msg) = do
         liftABBA $ receiveABBAMessage src msg sig
-receiveWMVBAMessage src sig (WMVBAWitnessCreatorMessage v) = do -- TODO: receive BLS sig here
+receiveWMVBAMessage src sig (WMVBAWitnessCreatorMessage (v, blssig)) = do
         WMVBAInstance{..} <- ask
-        newJV <- justifications . at v . non PM.empty <%= PM.insert src (partyWeight src) sig -- TODO: add BLS sig to justifications
-        when (PM.weight newJV > corruptWeight) $
-            wmvbaComplete (Just (v, PM.toList newJV))
+        -- add the (v, blssig) to the list of justifications under key src
+        newJV <- justifications . at v . non PM.empty <%= PM.insert src (partyWeight src) (sig, blssig)
+        badJV <- use $ badJustifications . at v . non PS.empty
+        -- When justifications combined weight minus the weight of the bad justifications exceeds corruptWeight,
+        -- we can attempt to create the bls aggregate signature
+        when ((PM.weight newJV) - (PS.weight badJV) > corruptWeight) $
+          let blssig = makeBlsAggregateSig $ PM.toList newJV
+              toSign = runPut $ S.put baid >> S.put v -- this should probably be a call to some function
+                                                      -- to ensure consistency accross different functions
+              keys = map (\p -> publicBlsKeys p) (PM.keys newJV)
+              -- commented this code out for now, it might become relevant if the committee members blskey
+              -- changes type to Maybe Bls.PublicKey
+              -- keys' = case (f keys []) of Just ks -> ks
+              --                             Nothing -> []
+          in if Bls.verifyAggregate toSign keys blssig then
+            wmvbaComplete (Just (v, (PM.keys newJV, blssig))) -- TODO add parties
+          else -- somebody sent an incorrect BlsSignature on v with a correct EDDSA signature on the message
+            -- TODO: find cheaters, mark as bad
+            return ()
+      where
+        -- commented this code out for now, it might become relevant if the committee members blskey
+        -- changes type to Maybe Bls.PublicKey
+        -- f [] acc = Just acc
+        -- f (Just key : tl) acc = f tl (key : acc)
+        -- f (Nothing : tl) _ = Nothing
+        makeBlsAggregateSig ((p, (s, blss)) : tl) = Bls.aggregate blss (makeBlsAggregateSig tl)
+        makeBlsAggregateSig ((p, (s, blss)) : []) = blss
+        makeBlsAggregateSig [] = Bls.emptySignature -- this should never happen!
 
 -- |Start the WMVBA for us with a given input.  This should only be called once
 -- per instance, and the input should already be justified.
@@ -300,7 +344,7 @@ data WMVBASummary sig = WMVBASummary {
     summaryABBA :: Maybe (ABBASummary sig),
     -- |If freeze has completed and we have witness creation signatures,
     -- then this records them.
-    summaryWitnessCreation :: Maybe (Val, Map Party sig)
+    summaryWitnessCreation :: Maybe (Val, Map Party (sig, Bls.Signature))
 }
 
 putWMVBASummary :: (S.Serialize sig) => Party -> WMVBASummary sig -> Put
@@ -356,16 +400,17 @@ processWMVBASummary WMVBASummary{..} checkSig = do
         WMVBASummary{summaryWitnessCreation=myWC} <- use wmvbaSummary
         wcBehind <- case (summaryWitnessCreation, myWC) of
             (Just (v, m), Nothing) -> do
-                forM_ (Map.toList . Map.filterWithKey (checkWCSig v) $ m) $ \(p, s) -> receiveWMVBAMessage p s (WMVBAWitnessCreatorMessage v)
+                forM_ (Map.toList . Map.filterWithKey (checkWCSig v) $ m) $
+                  \(p, (s, blssig)) -> receiveWMVBAMessage p s (WMVBAWitnessCreatorMessage (v, blssig))
                 return False
             (Just (v, m), Just (v', m')) ->
                 if v == v' then do
                     forM_ (Map.toList . Map.filterWithKey (checkWCSig v) . (`Map.difference` m') $ m) $
-                        \(p, s) -> receiveWMVBAMessage p s (WMVBAWitnessCreatorMessage v)
+                        \(p, (s, blssig)) -> receiveWMVBAMessage p s (WMVBAWitnessCreatorMessage (v, blssig))
                     -- If we have some signatures they don't, then they're behind
                     return $ not $ null $ Map.differenceWithKey (\party x y -> if x == y || checkWCSig v party y then Nothing else Just x) m' m
                 else do
-                    forM_ (Map.toList . Map.filterWithKey (checkWCSig v) $ m) $ \(p, s) -> receiveWMVBAMessage p s (WMVBAWitnessCreatorMessage v)
+                    forM_ (Map.toList . Map.filterWithKey (checkWCSig v) $ m) $ \(p, (s, blssig)) -> receiveWMVBAMessage p s (WMVBAWitnessCreatorMessage (v, blssig))
                     return True
             (Nothing, Just _) -> return True
             _ -> return False
@@ -381,7 +426,7 @@ processWMVBASummary WMVBASummary{..} checkSig = do
     where
         checkFreezeSig p fm sig = checkSig p (WMVBAFreezeMessage fm) sig
         checkABBASig p am sig = checkSig p (WMVBAABBAMessage am) sig
-        checkWCSig v p sig = checkSig p (WMVBAWitnessCreatorMessage v) sig
+        checkWCSig v p (sig, blssig) = checkSig p (WMVBAWitnessCreatorMessage (v, blssig)) sig
 
 -- |Create a 'WMVBASummary' from a collection of signatures on @WeAreDone False@.
 wmvbaFailedSummary :: Map Party sig -> WMVBASummary sig
