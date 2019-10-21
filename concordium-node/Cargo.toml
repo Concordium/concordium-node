@@ -116,6 +116,7 @@ flatc-rust = "^0.1"
 
 [dev-dependencies]
 criterion = "0.2"
+quickcheck = "^0.9"
 
 [lib]
 path = "src/lib.rs"
