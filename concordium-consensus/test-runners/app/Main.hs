@@ -14,6 +14,8 @@ import Concordium.TimeMonad
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.SeedState
+import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
@@ -105,7 +107,10 @@ removeEach = re []
         re _ [] = []
 
 gsToString :: BlockState -> String
-gsToString gs = show (gs ^.  blockBirkParameters ^. birkSeedState )
+gsToString gs = (show (currentSeed (gs ^.  blockBirkParameters ^. birkSeedState))) ++ 
+                    "\n current: " ++ show ( (gs ^. blockBirkParameters ^. birkCurrentBakers ^. bakerTotalStake)) ++
+                    "\n prev   : " ++ show ( (gs ^. blockBirkParameters ^. birkPrevEpochBakers ^. bakerTotalStake)) ++
+                    "\n lottery: " ++ show ( (gs ^. blockBirkParameters ^. birkLotteryBakers ^. bakerTotalStake))
     where
         ca n = ContractAddress (fromIntegral n) 0
         keys = map (\n -> (n, instanceModel <$> getInstance (ca n) (gs ^. blockInstances))) $ enumFromTo 0 (nContracts-1)
