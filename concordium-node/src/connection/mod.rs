@@ -66,8 +66,8 @@ pub struct DeduplicationQueues {
 
 impl DeduplicationQueues {
     pub fn default() -> Self {
-        const SHORT_DEDUP_SIZE: usize = 16;
-        const LONG_QUEUE_SIZE: usize = 16 * 1024;
+        const SHORT_DEDUP_SIZE: usize = 64;
+        const LONG_QUEUE_SIZE: usize = 32 * 1024;
 
         Self {
             finalizations: CircularQueue::with_capacity(LONG_QUEUE_SIZE),
