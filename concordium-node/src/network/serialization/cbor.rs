@@ -1,87 +1,33 @@
-use crate::network::NetworkMessage;
-use serde_cbor::from_reader;
-use std::io::Read;
+use failure::Fallible;
+use serde_cbor::{de, ser};
 
-pub fn s11n_network_message<T: Read>(input: &mut T) -> NetworkMessage {
-    match from_reader::<NetworkMessage, &mut T>(input) {
-        Ok(nm) => nm,
-        Err(e) => panic!("{}", e),
+use crate::network::NetworkMessage;
+
+use std::io::{Seek, SeekFrom, Write};
+
+impl NetworkMessage {
+    pub fn deserialize(input: &[u8]) -> Fallible<Self> {
+        de::from_slice::<NetworkMessage>(input).map_err(|e| e.into())
+    }
+
+    pub fn serialize<T: Write + Seek>(&mut self, target: &mut T) -> Fallible<()> {
+        ser::to_writer(target, self)?;
+        target.seek(SeekFrom::Start(0))?;
+        Ok(())
     }
 }
 
 #[cfg(test)]
-mod unit_test {
-    use serde_cbor::ser;
-    use std::convert::TryFrom;
-
-    use super::s11n_network_message;
-    use concordium_common::hybrid_buf::HybridBuf;
-
-    use crate::{
-        common::P2PNodeId,
-        network::{
-            NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkPacketType,
-            NetworkRequest, NetworkResponse,
-        },
-    };
-
-    fn ut_s11n_001_data() -> Vec<(Vec<u8>, NetworkMessage)> {
-        let mut direct_message_content = HybridBuf::try_from(b"Hello world!".to_vec()).unwrap();
-        direct_message_content.rewind().unwrap();
-        let messages = vec![
-            NetworkMessage {
-                timestamp1: Some(0),
-                timestamp2: None,
-                payload:    NetworkMessagePayload::NetworkRequest(NetworkRequest::Ping),
-            },
-            NetworkMessage {
-                timestamp1: Some(11529215046068469760),
-                timestamp2: None,
-                payload:    NetworkMessagePayload::NetworkRequest(NetworkRequest::Ping),
-            },
-            NetworkMessage {
-                timestamp1: Some(u64::max_value()),
-                timestamp2: None,
-                payload:    NetworkMessagePayload::NetworkResponse(NetworkResponse::Pong),
-            },
-            NetworkMessage {
-                timestamp1: Some(10),
-                timestamp2: None,
-                payload:    NetworkMessagePayload::NetworkPacket(NetworkPacket {
-                    packet_type: NetworkPacketType::DirectMessage(P2PNodeId::default()),
-                    network_id:  NetworkId::from(100u16),
-                    message:     direct_message_content,
-                }),
-            },
-        ];
-
-        let mut messages_data: Vec<(Vec<u8>, NetworkMessage)> = Vec::with_capacity(messages.len());
-        for message in messages {
-            let data: Vec<u8> = ser::to_vec(&message).unwrap();
-            messages_data.push((data, message));
-        }
-
-        messages_data
-    }
-
-    #[test]
-    fn ut_s11n_001() {
-        let messages = ut_s11n_001_data();
-        for (cbor, expected) in messages {
-            let output = s11n_network_message(&mut std::io::Cursor::new(cbor));
-            assert_eq!(format!("{:?}", output), format!("{:?}", expected));
-        }
-    }
-
+mod tests {
     #[test]
     fn s11n_size_cbor() {
         use crate::test_utils::create_random_packet;
 
         let payload_size = 1000;
-        let msg = create_random_packet(payload_size);
+        let mut msg = create_random_packet(payload_size);
         let mut buffer = std::io::Cursor::new(Vec::with_capacity(payload_size));
 
-        ser::to_writer(&mut buffer, &msg).unwrap();
+        msg.serialize(&mut buffer).unwrap();
         println!(
             "serde CBOR s11n ratio: {}",
             buffer.get_ref().len() as f64 / payload_size as f64

@@ -339,9 +339,9 @@ impl Connection {
     }
 
     pub fn handle_invalid_network_msg(&self, err: Error) {
-        let peer_id = self.remote_id().unwrap(); // safe, post-handshake
-
-        debug!("Invalid network message from peer {}: {}", peer_id, err);
+        if let Some(peer_id) = self.remote_id() {
+            debug!("Invalid network message from peer {}: {}", peer_id, err);
+        }
 
         self.stats.failed_pkts.fetch_add(1, Ordering::Relaxed);
 

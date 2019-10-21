@@ -9,8 +9,8 @@ use crate::{
     crypto::generate_snow_config,
     dumper::DumpItem,
     network::{
-        request::RequestedElementType, serialize, Buckets, NetworkId, NetworkMessage,
-        NetworkMessagePayload, NetworkPacket, NetworkPacketType, NetworkRequest,
+        request::RequestedElementType, Buckets, NetworkId, NetworkMessage, NetworkMessagePayload,
+        NetworkPacket, NetworkPacketType, NetworkRequest,
     },
     p2p::{banned_nodes::BannedNode, fails, unreachable_nodes::UnreachableNodes},
     stats_engine::StatsEngine,
@@ -207,7 +207,7 @@ macro_rules! send_to_all {
 
             if let Err(e) = HybridBuf::with_capacity(256)
                 .map_err(Error::from)
-                .and_then(|mut buf| serialize(&mut message, &mut buf).map(|_| buf))
+                .and_then(|mut buf| message.serialize(&mut buf).map(|_| buf))
                 .and_then(|buf| self.send_over_all_connections(buf, &filter))
             {
                 error!("A network message couldn't be forwarded: {}", e);
@@ -1097,7 +1097,7 @@ impl P2PNode {
                 |conn: &Connection| read_or_die!(conn.remote_peer.id).unwrap() == target_id;
 
             let mut serialized = HybridBuf::with_capacity(256)?;
-            serialize(&mut message, &mut serialized)?;
+            message.serialize(&mut serialized)?;
 
             self.send_over_all_connections(serialized, &filter)
         } else {
@@ -1107,7 +1107,7 @@ impl P2PNode {
             };
 
             let mut serialized = HybridBuf::with_capacity(256)?;
-            serialize(&mut message, &mut serialized)?;
+            message.serialize(&mut serialized)?;
 
             self.send_over_all_connections(serialized, &filter)
         }
@@ -1304,7 +1304,7 @@ impl P2PNode {
 
             if let Err(e) = HybridBuf::with_capacity(256)
                 .map_err(Error::from)
-                .and_then(|mut buf| serialize(&mut message, &mut buf).map(|_| buf))
+                .and_then(|mut buf| message.serialize(&mut buf).map(|_| buf))
                 .and_then(|buf| self.send_over_all_connections(buf, &filter))
             {
                 error!("A network message couldn't be forwarded: {}", e);
@@ -1328,7 +1328,7 @@ impl P2PNode {
 
         if let Err(e) = HybridBuf::with_capacity(256)
             .map_err(Error::from)
-            .and_then(|mut buf| serialize(&mut message, &mut buf).map(|_| buf))
+            .and_then(|mut buf| message.serialize(&mut buf).map(|_| buf))
             .and_then(|buf| self.send_over_all_connections(buf, &filter))
         {
             error!("A network message couldn't be forwarded: {}", e);

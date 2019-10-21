@@ -21,9 +21,88 @@ use std::{
     convert::TryFrom,
     io::{self, Read, Seek, SeekFrom, Write},
     net::{IpAddr, SocketAddr},
+    panic,
 };
 
+impl NetworkMessage {
+    // FIXME: remove the unwind once the verifier is available
+    pub fn deserialize(buffer: &[u8]) -> Fallible<Self> {
+        match panic::catch_unwind(|| _deserialize(buffer)) {
+            Ok(nm) => nm,
+            Err(e) => bail!("can't deserialize a network message: {:?}", e),
+        }
+    }
+
+    pub fn serialize<T: Write + Seek>(&mut self, target: &mut T) -> Fallible<()> {
+        let capacity = if let NetworkMessagePayload::NetworkPacket(ref packet) = self.payload {
+            packet.message.len()? as usize + 64 // FIXME: fine-tune the overhead
+        } else {
+            256
+        };
+        let mut builder = FlatBufferBuilder::new_with_capacity(capacity);
+
+        let (payload_type, payload_offset) = match self.payload {
+            NetworkMessagePayload::NetworkPacket(ref mut packet) => (
+                network::NetworkMessagePayload::NetworkPacket,
+                serialize_packet(&mut builder, packet)?,
+            ),
+            NetworkMessagePayload::NetworkRequest(ref request) => (
+                network::NetworkMessagePayload::NetworkRequest,
+                serialize_request(&mut builder, request)?,
+            ),
+            NetworkMessagePayload::NetworkResponse(ref response) => (
+                network::NetworkMessagePayload::NetworkResponse,
+                serialize_response(&mut builder, response)?,
+            ),
+        };
+
+        let message_offset =
+            network::NetworkMessage::create(&mut builder, &network::NetworkMessageArgs {
+                timestamp: get_current_stamp(),
+                payload_type,
+                payload: Some(payload_offset),
+            });
+
+        network::finish_size_prefixed_network_message_buffer(&mut builder, message_offset);
+
+        target
+            .write_all(builder.finished_data())
+            .map_err(Error::from)?;
+
+        target.seek(SeekFrom::Start(0))?;
+
+        Ok(())
+    }
+}
+
 // deserialization
+
+fn _deserialize(buffer: &[u8]) -> Fallible<NetworkMessage> {
+    if buffer.is_empty() {
+        bail!("empty buffer received")
+    }
+
+    if !network::network_message_size_prefixed_buffer_has_identifier(buffer) {
+        bail!("unrecognized protocol name")
+    }
+
+    let root = network::get_size_prefixed_root_as_network_message(buffer);
+
+    let timestamp1 = Some(root.timestamp());
+
+    let payload = match root.payload_type() {
+        network::NetworkMessagePayload::NetworkPacket => deserialize_packet(&root)?,
+        network::NetworkMessagePayload::NetworkRequest => deserialize_request(&root)?,
+        network::NetworkMessagePayload::NetworkResponse => deserialize_response(&root)?,
+        _ => bail!("invalid network message payload type"),
+    };
+
+    Ok(NetworkMessage {
+        timestamp1,
+        timestamp2: Some(get_current_stamp()),
+        payload,
+    })
+}
 
 fn deserialize_packet(root: &network::NetworkMessage) -> Fallible<NetworkMessagePayload> {
     let packet = if let Some(payload) = root.payload() {
@@ -257,33 +336,6 @@ fn deserialize_response(root: &network::NetworkMessage) -> Fallible<NetworkMessa
             }
         }
     }
-}
-
-pub fn deserialize(buffer: &[u8]) -> Fallible<NetworkMessage> {
-    if buffer.is_empty() {
-        bail!("can't deserialize an empty buffer")
-    }
-
-    if !network::network_message_size_prefixed_buffer_has_identifier(buffer) {
-        bail!("unrecognized protocol name")
-    }
-
-    let root = network::get_size_prefixed_root_as_network_message(buffer);
-
-    let timestamp1 = Some(root.timestamp());
-
-    let payload = match root.payload_type() {
-        network::NetworkMessagePayload::NetworkPacket => deserialize_packet(&root)?,
-        network::NetworkMessagePayload::NetworkRequest => deserialize_request(&root)?,
-        network::NetworkMessagePayload::NetworkResponse => deserialize_response(&root)?,
-        _ => bail!("Invalid network message payload type"),
-    };
-
-    Ok(NetworkMessage {
-        timestamp1,
-        timestamp2: Some(get_current_stamp()),
-        payload,
-    })
 }
 
 // serialization
@@ -532,55 +584,8 @@ fn serialize_response(
     Ok(response_offset)
 }
 
-pub fn serialize<T: Write + Seek>(source: &mut NetworkMessage, target: &mut T) -> Fallible<()> {
-    let capacity = if let NetworkMessagePayload::NetworkPacket(ref packet) = source.payload {
-        packet.message.len()? as usize + 64 // FIXME: fine-tune the overhead
-    } else {
-        256
-    };
-    let mut builder = FlatBufferBuilder::new_with_capacity(capacity);
-
-    let (payload_type, payload_offset) = match source.payload {
-        NetworkMessagePayload::NetworkPacket(ref mut packet) => (
-            network::NetworkMessagePayload::NetworkPacket,
-            serialize_packet(&mut builder, packet)?,
-        ),
-        NetworkMessagePayload::NetworkRequest(ref request) => (
-            network::NetworkMessagePayload::NetworkRequest,
-            serialize_request(&mut builder, request)?,
-        ),
-        NetworkMessagePayload::NetworkResponse(ref response) => (
-            network::NetworkMessagePayload::NetworkResponse,
-            serialize_response(&mut builder, response)?,
-        ),
-    };
-
-    let message_offset =
-        network::NetworkMessage::create(&mut builder, &network::NetworkMessageArgs {
-            timestamp: get_current_stamp(),
-            payload_type,
-            payload: Some(payload_offset),
-        });
-
-    network::finish_size_prefixed_network_message_buffer(&mut builder, message_offset);
-
-    target
-        .write_all(builder.finished_data())
-        .map_err(Error::from)?;
-
-    target.seek(SeekFrom::Start(0))?;
-
-    Ok(())
-}
-
-// tests
-
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::{common::PeerType, test_utils::create_random_packet};
-    use std::{io::Cursor, net::SocketAddr};
-
     #[test]
     fn s11n_size_fbs() {
         use crate::test_utils::create_random_packet;
@@ -589,140 +594,10 @@ mod tests {
         let mut msg = create_random_packet(payload_size);
         let mut buffer = std::io::Cursor::new(Vec::with_capacity(payload_size));
 
-        serialize(&mut msg, &mut buffer).unwrap();
+        msg.serialize(&mut buffer).unwrap();
         println!(
             "flatbuffers s11n ratio: {}",
             buffer.get_ref().len() as f64 / payload_size as f64
         );
-    }
-
-    macro_rules! test_s11n {
-        ($name:ident, $payload:expr) => {
-            #[test]
-            fn $name() {
-                let mut msg = NetworkMessage {
-                    timestamp1: None,
-                    timestamp2: None,
-                    payload:    $payload,
-                };
-                let mut buffer = Cursor::new(Vec::new());
-
-                serialize(&mut msg, &mut buffer).unwrap();
-                let deserialized = deserialize(&buffer.get_ref()).unwrap();
-                assert_eq!(deserialized.payload, msg.payload);
-            }
-        };
-    }
-
-    test_s11n!(
-        fbs_s11n_req_ping,
-        NetworkMessagePayload::NetworkRequest(NetworkRequest::Ping)
-    );
-    test_s11n!(
-        fbs_s11n_req_get_peers,
-        NetworkMessagePayload::NetworkRequest(NetworkRequest::GetPeers(
-            [100u16, 1000, 1234, 9999]
-                .iter()
-                .copied()
-                .map(NetworkId::from)
-                .collect(),
-        ))
-    );
-    test_s11n!(
-        fbs_s11n_req_handshake,
-        NetworkMessagePayload::NetworkRequest(NetworkRequest::Handshake(
-            P2PNodeId(77),
-            1234,
-            [100u16, 1000, 1234, 9999]
-                .iter()
-                .copied()
-                .map(NetworkId::from)
-                .collect(),
-            Vec::new(),
-        ))
-    );
-    test_s11n!(
-        fbs_s11n_req_ban_id,
-        NetworkMessagePayload::NetworkRequest(NetworkRequest::BanNode(BannedNode::ById(
-            P2PNodeId(1337)
-        ),))
-    );
-    test_s11n!(
-        fbs_s11n_req_unban_id,
-        NetworkMessagePayload::NetworkRequest(NetworkRequest::UnbanNode(BannedNode::ById(
-            P2PNodeId(1337)
-        ),))
-    );
-    test_s11n!(
-        fbs_s11n_req_ban_ip_v4,
-        NetworkMessagePayload::NetworkRequest(NetworkRequest::BanNode(BannedNode::ByAddr(
-            IpAddr::from([4, 3, 2, 1])
-        ),))
-    );
-    test_s11n!(
-        fbs_s11n_req_ban_ip_v6,
-        NetworkMessagePayload::NetworkRequest(NetworkRequest::BanNode(BannedNode::ByAddr(
-            IpAddr::from([1, 2, 3, 4, 5, 6, 7, 8])
-        ),))
-    );
-    test_s11n!(
-        fbs_s11n_req_join_net,
-        NetworkMessagePayload::NetworkRequest(NetworkRequest::JoinNetwork(NetworkId::from(1337),))
-    );
-    test_s11n!(
-        fbs_s11n_req_leave_net,
-        NetworkMessagePayload::NetworkRequest(NetworkRequest::LeaveNetwork(NetworkId::from(1337),))
-    );
-
-    // TODO: Retransmit (Requests)
-
-    test_s11n!(
-        fbs_s11n_resp_pong,
-        NetworkMessagePayload::NetworkResponse(NetworkResponse::Pong)
-    );
-
-    test_s11n!(
-        fbs_s11n_resp_peer_list,
-        NetworkMessagePayload::NetworkResponse(NetworkResponse::PeerList(
-            [
-                P2PPeer {
-                    id:        P2PNodeId(1234567890123),
-                    addr:      SocketAddr::new(IpAddr::from([1, 2, 3, 4]), 80),
-                    peer_type: PeerType::Bootstrapper,
-                },
-                P2PPeer {
-                    id:        P2PNodeId(1),
-                    addr:      SocketAddr::new(IpAddr::from([8, 7, 6, 5, 4, 3, 2, 1]), 8080),
-                    peer_type: PeerType::Node,
-                },
-            ]
-            .iter()
-            .cloned()
-            .collect(),
-        ))
-    );
-
-    test_s11n!(
-        fbs_s11n_resp_handshake,
-        NetworkMessagePayload::NetworkResponse(NetworkResponse::Handshake(
-            P2PNodeId(77),
-            1234,
-            [100u16, 1000, 1234, 9999]
-                .iter()
-                .copied()
-                .map(NetworkId::from)
-                .collect(),
-            Vec::new(),
-        ))
-    );
-
-    #[test]
-    fn fbs_serde_packet() {
-        let mut message = create_random_packet(8);
-        let mut buffer = Cursor::new(Vec::new());
-
-        serialize(&mut message, &mut buffer).unwrap();
-        let deserialized = deserialize(&buffer.get_ref()).unwrap();
-        assert_eq!(deserialized.payload, message.payload);
     }
 }
