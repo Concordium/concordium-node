@@ -10,13 +10,15 @@ import Lens.Micro.Platform
 
 import Concordium.Types
 
-data BakerCreationInfo = BakerCreationInfo !BakerElectionVerifyKey !BakerSignVerifyKey !AccountAddress
+data BakerCreationInfo = BakerCreationInfo !BakerElectionVerifyKey !BakerSignVerifyKey !BakerAggregationVerifyKey !AccountAddress
 
 data BakerInfo = BakerInfo {
     -- |The baker's public VRF key
     _bakerElectionVerifyKey :: !BakerElectionVerifyKey,
     -- |The baker's public signature key
     _bakerSignatureVerifyKey :: !BakerSignVerifyKey,
+    -- |The baker's public key for finalization record aggregation
+    _bakerAggregationVerifyKey :: !BakerAggregationVerifyKey,
     -- |The stake delegated to the baker
     _bakerStake :: !Amount,
     -- |The account associated with the baker
@@ -55,8 +57,8 @@ bakersFromList bkrs = Bakers {
         ibkrs = zip [0..] bkrs
 
 createBaker :: BakerCreationInfo -> Bakers -> (BakerId, Bakers)
-createBaker (BakerCreationInfo _bakerElectionVerifyKey _bakerSignatureVerifyKey _bakerAccount) bkrs =
-        (bid, bkrs 
+createBaker (BakerCreationInfo _bakerElectionVerifyKey _bakerSignatureVerifyKey _bakerAggregationVerifyKey _bakerAccount) bkrs =
+        (bid, bkrs
                 & bakerMap . at bid ?~ BakerInfo{..}
                 & bakersByKey . at (_bakerSignatureVerifyKey, _bakerElectionVerifyKey) . non [] %~ (bid :)
                 & nextBakerId .~ bid + 1)
