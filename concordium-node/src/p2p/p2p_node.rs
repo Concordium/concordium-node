@@ -1228,7 +1228,7 @@ impl P2PNode {
             self.process_network_request(request);
         }
 
-        for _ in 0..256 {
+        for _ in 0..512 {
             if let Ok(request) = receivers.network_messages_lo.try_recv() {
                 self.process_network_request(request);
             } else {
