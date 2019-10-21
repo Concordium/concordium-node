@@ -127,14 +127,14 @@ data GenesisBaker = GenesisBaker {
     gbElectionVerifyKey :: BakerElectionVerifyKey,
     -- |The baker's public signature key
     gbSignatureVerifyKey :: BakerSignVerifyKey,
+    -- |The baker's public key for aggregate signatures
+    gbAggregationVerifyKey :: BakerAggregationVerifyKey,
     -- |The baker's account signature scheme
     gbAccountSignatureScheme :: SchemeId,
     -- |The baker's account public signature key
     gbAccountSignatureKey :: AccountVerificationKey,
     -- |The baker's initial balance
     gbAccountBalance :: Amount,
-    -- |The baker's Bls public key
-    gbBlsPublicKey :: Bls.PublicKey,
     -- |Whether the baker should be included in the initial
     -- finalization committee.
     gbFinalizer :: Bool
@@ -144,7 +144,7 @@ instance FromJSON GenesisBaker where
     parseJSON = withObject "GenesisBaker" $ \v -> do
             gbElectionVerifyKey <- v .: "electionVerifyKey"
             gbSignatureVerifyKey <- v .: "signatureVerifyKey"
-            gbBlsPublicKey <- v .: "blsPublicKey"
+            gbAggregationVerifyKey <- v .: "aggregationVerifyKey"
             acct <- v .: "account"
             (gbAccountSignatureScheme, gbAccountSignatureKey, gbAccountBalance) <- flip (withObject "GenesisBakerAccount") acct $ \v' -> do
                 ss <- v' .: "signatureScheme"
@@ -241,6 +241,7 @@ parametersToGenesisData GenesisParameters{..} = GenesisData{..}
         mkBaker GenesisBaker{..} = BakerInfo
                 gbElectionVerifyKey
                 gbSignatureVerifyKey
+                gbAggregationVerifyKey
                 gbAccountBalance
                 (ID.accountAddress gbAccountSignatureKey gbAccountSignatureScheme)
         -- special accounts will have some special privileges during beta.
@@ -254,7 +255,7 @@ parametersToGenesisData GenesisParameters{..} = GenesisData{..}
                           | (GenesisBaker{..}, bid) <- zip gpBakers [0..]]
         genesisFinalizationParameters =
             FinalizationParameters
-                [VoterInfo {voterVerificationKey = gbSignatureVerifyKey, voterVRFKey = gbElectionVerifyKey, voterPower = 1, voterBlsKey = gbBlsPublicKey}
+                [VoterInfo {voterVerificationKey = gbSignatureVerifyKey, voterVRFKey = gbElectionVerifyKey, voterPower = 1, voterBlsKey = gbAggregationVerifyKey}
                     | GenesisBaker{..} <- gpBakers, gbFinalizer]
                 gpFinalizationMinimumSkip
         genesisCryptographicParameters = gpCryptographicParameters
