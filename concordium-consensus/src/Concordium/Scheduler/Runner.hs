@@ -46,8 +46,8 @@ transactionHelper t =
       return $ signTx keys meta (Types.encodePayload (Types.Transfer to amnt))
     (TJSON meta (DeployCredential c) keys) ->
       return $ signTx keys meta (Types.encodePayload (Types.DeployCredential c))
-    (TJSON meta (AddBaker vkey sigkey acc proof) keys) ->
-      return $ signTx keys meta (Types.encodePayload (Types.AddBaker vkey sigkey acc proof))
+    (TJSON meta (AddBaker vkey sigkey aggkey acc proof) keys) ->
+      return $ signTx keys meta (Types.encodePayload (Types.AddBaker vkey sigkey aggkey acc proof))
     (TJSON meta (RemoveBaker bid proof) keys) ->
       return $ signTx keys meta (Types.encodePayload (Types.RemoveBaker bid proof))
     (TJSON meta (UpdateBakerAccount bid addr proof) keys) ->
@@ -86,6 +86,7 @@ data PayloadJSON = DeployModule { moduleName :: Text }
                  | AddBaker {
                      bvfkey :: BakerElectionVerifyKey,
                      bsigvfkey :: BakerSignVerifyKey,
+                     baggvfkey :: BakerAggregationVerifyKey,
                      baccount :: AccountAddress,
                      bproof :: Proof }
                  | RemoveBaker {

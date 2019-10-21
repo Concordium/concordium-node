@@ -71,17 +71,17 @@ checkHeader meta =
 
 -- TODO: When we have policies checking one sensible approach to rewarding
 -- identity providers would be as follows.
--- 
+--
 -- - Each time we need to check a policy on an account all the identity
 -- providers that have valid credentials deployed on that account are counted.
 -- This means that if the same account is involved multiple times inside one
 -- transaction then the identity providers on that account would be rewarded
 -- multiple times.
--- 
+--
 -- An alternative design is that each identity provider involved in one
 -- transaction is rewarded only once. To allow for this we will need to keep
 -- track of the identity providers inside the transaction monad.
--- 
+--
 -- Another important point to resolve is how identity providers should be
 -- rewarded in case of a rejected transaction. Should they be, or should they
 -- not be. In particular when a transaction is rejected based on transaction
@@ -118,7 +118,7 @@ dispatch msg = do
           payment <- energyToGtu cost
           chargeExecutionCost senderAccount payment
           return $ TxValid $ TxReject (SerializationFailure err) payment cost
-        Right payload -> 
+        Right payload ->
           case payload of
             DeployModule mod ->
               handleDeployModule senderAccount meta psize mod
@@ -133,21 +133,21 @@ dispatch msg = do
             -- Later on accounts will have policies, and also will be able to execute non-trivial code themselves.
             Transfer toaddr amount ->
               handleSimpleTransfer senderAccount meta toaddr amount
- 
+
             Update amount cref maybeMsg ->
               -- the payload size includes amount + address + message, but since the first two fields are
               -- fixed size this is OK.
               let msgSize = fromIntegral (thPayloadSize meta)
               in handleUpdateContract senderAccount meta cref amount maybeMsg msgSize
-           
+
             DeployCredential cdi ->
               handleDeployCredential senderAccount meta (payloadBodyBytes (transactionPayload msg)) cdi
-            
+
             DeployEncryptionKey encKey ->
               handleDeployEncryptionKey senderAccount meta encKey
 
             AddBaker{..} ->
-              handleAddBaker senderAccount meta abElectionVerifyKey abSignatureVerifyKey abAccount abProof
+              handleAddBaker senderAccount meta abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abAccount abProof
 
             RemoveBaker{..} ->
               handleRemoveBaker senderAccount meta rbId rbProof
@@ -157,10 +157,10 @@ dispatch msg = do
 
             UpdateBakerSignKey{..} ->
               handleUpdateBakerSignKey senderAccount meta ubsId ubsKey ubsProof
-            
+
             DelegateStake{..} ->
               handleDelegateStake senderAccount meta (Just dsID)
-            
+
             UndelegateStake ->
               handleDelegateStake senderAccount meta Nothing
 
@@ -352,7 +352,7 @@ handleTransaction origin istance receivefun txsender transferamount maybeMsg mod
                         case tx of
                           TSend cref' transferamount' message' -> do
                             -- the only way to send is to first check existence, so this must succeed
-                            cinstance <- fromJust <$> getCurrentContractInstance cref' 
+                            cinstance <- fromJust <$> getCurrentContractInstance cref'
                             let receivefun' = Ins.ireceiveFun cinstance
                             let model' = Ins.instanceModel cinstance
                             handleTransaction origin
@@ -376,7 +376,7 @@ handleTransaction origin istance receivefun txsender transferamount maybeMsg mod
                                               transferamount'
                                               (ValueMessage I.aNothing)
                                               model'
-                          TSimpleTransfer (AddressAccount acc) transferamount' -> 
+                          TSimpleTransfer (AddressAccount acc) transferamount' ->
                             -- FIXME: This is temporary until accounts have their own functions
                             handleTransferAccount origin acc (Left istance) transferamount'
                             )
@@ -410,7 +410,7 @@ handleTransferAccount _origin accAddr txsender transferamount = do
 
   -- check if target account exists and get it
   targetAccount <- getCurrentAccount accAddr `rejectingWith` InvalidAccountReference accAddr
-  
+
   -- FIXME: Should pay for execution here as well.
 
   withToAccountAmount txsender targetAccount transferamount $
@@ -472,7 +472,7 @@ handleDeployCredential senderAccount meta cdiBytes cdi =
                              addAccountCredential account cdv  -- and then add the credentials
                              return $! TxSuccess [AccountCreated aaddr, CredentialDeployed cdv] energyCost usedEnergy
                        else return $! TxReject AccountCredentialInvalid energyCost usedEnergy
-     
+
                   Just account -> -- otherwise we just try to add a credential to the account
                             if AH.verifyCredential
                                elgamalGenerator
@@ -508,19 +508,19 @@ handleDeployEncryptionKey senderAccount meta encKey =
 
 -- FIXME: The baker handling is purely proof-of-concept.
 -- In particular there is no checking of proofs that the baker holds relevant
--- private keys, etc, and the precise logic for when a baker can be added and removed 
+-- private keys, etc, and the precise logic for when a baker can be added and removed
 -- should be analyzed from a security perspective.
 
 
 -- |The following functions are placeholders until we have sigma protocols and
 -- can check these proofs.
-checkElectionKeyProof :: BakerElectionVerifyKey -> Proof -> Bool             
+checkElectionKeyProof :: BakerElectionVerifyKey -> Proof -> Bool
 checkElectionKeyProof _ _ = True
 
-checkSignatureVerifyKeyProof :: BakerSignVerifyKey -> Proof -> Bool             
+checkSignatureVerifyKeyProof :: BakerSignVerifyKey -> Proof -> Bool
 checkSignatureVerifyKeyProof _ _ = True
 
-checkAccountOwnership :: SigScheme.SchemeId -> ID.AccountVerificationKey -> Proof -> Bool             
+checkAccountOwnership :: SigScheme.SchemeId -> ID.AccountVerificationKey -> Proof -> Bool
 checkAccountOwnership _ _ _ = True
 
 
@@ -533,7 +533,7 @@ checkAccountOwnership _ _ _ = True
 --    - they own the private key corresponding to the reward account's key
 --    - they own the private key corresponding to the election verification key
 --    - they own the private key corresponding to the signature verification key
--- 
+--
 -- Upon successful completion of this transaction a new baker is added to the
 -- baking pool (birk parameters). Initially the baker has 0 lottery power. If
 -- they wish to gain lotter power they need some stake delegated to them, which
@@ -547,10 +547,11 @@ handleAddBaker ::
     -> TransactionHeader
     -> BakerElectionVerifyKey
     -> BakerSignVerifyKey
+    -> BakerAggregationVerifyKey
     -> AccountAddress
     -> Proof
     -> m TxResult
-handleAddBaker senderAccount meta abElectionVerifyKey abSignatureVerifyKey abAccount abProof =
+handleAddBaker senderAccount meta abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abAccount abProof =
   withDeposit senderAccount meta c k
   where c = tickEnergy Cost.addBaker
         k ls _ = do
@@ -574,7 +575,7 @@ handleAddBaker senderAccount meta abElectionVerifyKey abSignatureVerifyKey abAcc
                           -- Moreover at this point we know the reward account exists and belongs
                           -- to the baker.
                           -- Thus we can create the baker, starting it off with 0 lottery power.
-                          bid <- addBaker (BakerCreationInfo abElectionVerifyKey abSignatureVerifyKey abAccount)
+                          bid <- addBaker (BakerCreationInfo abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abAccount)
                           return $! TxSuccess [BakerAdded bid] energyCost usedEnergy
                         else return $ TxReject InvalidProof energyCost usedEnergy
 
@@ -641,7 +642,7 @@ handleUpdateBakerAccount senderAccount meta ubaId ubaAddress ubaProof =
                 return $ TxReject (UpdatingNonExistentBaker ubaId) energyCost usedEnergy
             Just binfo ->
               if binfo ^. bakerAccount == senderAccount ^. accountAddress then
-                  -- the transaction is coming from the current baker's account. 
+                  -- the transaction is coming from the current baker's account.
                   -- now check the account exists and the baker owns it
                   getAccount ubaAddress >>= \case
                     Nothing -> return $! TxReject (NonExistentRewardAccount ubaAddress) energyCost usedEnergy
@@ -673,7 +674,7 @@ handleUpdateBakerSignKey senderAccount meta ubsId ubsKey ubsProof =
         k ls _ = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost senderAccount energyCost
-          getBakerInfo ubsId >>= \case 
+          getBakerInfo ubsId >>= \case
             Nothing ->
               return $ TxReject (UpdatingNonExistentBaker ubsId) energyCost usedEnergy
             Just binfo ->
@@ -705,7 +706,7 @@ handleDelegateStake senderAccount meta targetBaker =
           if res then
             let addr = senderAccount ^. accountAddress
             in return $! TxSuccess [maybe (StakeUndelegated addr) (StakeDelegated addr) targetBaker] energyCost usedEnergy
-          else 
+          else
             return $! TxReject (InvalidStakeDelegationTarget $! fromJust targetBaker) energyCost usedEnergy
         delegateCost = Cost.updateStakeDelegate (Set.size $! senderAccount ^. accountInstances)
 
@@ -734,7 +735,7 @@ filterTransactions maxSize = go 0 0 [] [] []
           else -- otherwise still try the remaining transactions to avoid deadlocks from
                -- one single too-big transaction.
              go totalEnergyUsed size valid invalid (t:unprocessed) ts
-        go !totalEnergyUsed _ valid invalid unprocessed [] = 
+        go !totalEnergyUsed _ valid invalid unprocessed [] =
           let txs = FilteredTransactions{
                       ftAdded = reverse valid,
                       ftFailed = invalid,
