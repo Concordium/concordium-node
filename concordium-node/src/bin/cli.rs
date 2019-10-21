@@ -355,7 +355,7 @@ fn start_global_state_thread(
                 loop_interval = loop_interval.saturating_sub(1);
             }
 
-            for _ in 0..256 {
+            for _ in 0..4096 {
                 if let Ok(message) = consensus_receiver_lo.try_recv() {
                     match message {
                         QueueMsg::Relay(msg) => {
