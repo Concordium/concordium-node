@@ -91,26 +91,29 @@ executeFrom ::
   -> BlockPointer m  -- ^Parent pointer from which to start executing
   -> BlockPointer m  -- ^Last finalized block pointer.
   -> BakerId -- ^Identity of the baker who should be rewarded.
-  -> SeedState
+  -> BirkParameters
   -> [Transaction] -- ^Transactions on this block.
   -> m (Either FailureKind (BlockState m, Energy))
-executeFrom slotNumber blockParent lfPointer blockBaker currentSeedState txs =
+executeFrom slotNumber blockParent lfPointer blockBaker bps txs =
   let cm = let blockHeight = bpHeight blockParent + 1
                finalizedHeight = bpHeight lfPointer
            in ChainMetadata{..}
   in do
     bshandle0 <- thawBlockState (bpState blockParent)
+    -- update the block states parameters according to the slot of this block
+    -- if the block is in a new epoch, the bakers are shifted and a new leadership election nonce is computed
+    -- in most cases the block nonce is added to the seed state
+    bshandle1 <- bsoUpdateBirkParameters bshandle0 bps
     genBetaAccounts <- HashSet.fromList . map _accountAddress . genesisSpecialBetaAccounts <$> getGenesisData
-    (res, bshandle1) <- runBSM (Sch.runTransactions txs) (genBetaAccounts, cm) bshandle0
+    (res, bshandle2) <- runBSM (Sch.runTransactions txs) (genBetaAccounts, cm) bshandle1
     case res of
-        Left fk -> Left fk <$ (purgeBlockState =<< freezeBlockState bshandle1)
+        Left fk -> Left fk <$ (purgeBlockState =<< freezeBlockState bshandle2)
         Right (outcomes, usedEnergy) -> do
             -- Record the transaction outcomes
-            bshandle2 <- bsoSetTransactionOutcomes bshandle1 ((\(tr, o) -> (transactionHash tr, o)) <$> outcomes)
+            bshandle3 <- bsoSetTransactionOutcomes bshandle2 ((\(tr, o) -> (transactionHash tr, o)) <$> outcomes)
             -- the main execution is now done. At this point we must mint new currencty
             -- and reward the baker and other parties.
-            bshandle3 <- mintAndReward bshandle2 blockParent lfPointer slotNumber blockBaker
-            bshandle4 <- bsoUpdateSeedState bshandle3 currentSeedState
+            bshandle4 <- mintAndReward bshandle3 blockParent lfPointer slotNumber blockBaker
 
             finalbsHandle <- freezeBlockState bshandle4
             return (Right (finalbsHandle, usedEnergy))
@@ -128,14 +131,18 @@ constructBlock ::
   -> BlockPointer m -- ^Parent pointer from which to start executing
   -> BlockPointer m -- ^Last finalized block pointer.
   -> BakerId -- ^The baker of the block.
-  -> SeedState
+  -> BirkParameters
   -> m ([Transaction], BlockState m, Energy)
-constructBlock slotNumber blockParent lfPointer blockBaker currentSeedState =
+constructBlock slotNumber blockParent lfPointer blockBaker bps =
   let cm = let blockHeight = bpHeight blockParent + 1
                finalizedHeight = bpHeight lfPointer
            in ChainMetadata{..}
   in do
     bshandle0 <- thawBlockState (bpState blockParent)
+    -- update the block states parameters according to the slot of this block
+    -- if the block is in a new epoch, the bakers are shifted and a new leadership election nonce is computed
+    -- in most cases the block nonce is added to the seed state
+    bshandle1 <- bsoUpdateBirkParameters bshandle0 bps
     pt <- getPendingTransactions
 
     -- lookup the maximum block size as mandated by the tree state
@@ -155,13 +162,12 @@ constructBlock slotNumber blockParent lfPointer blockBaker currentSeedState =
     -- by account (e.g., we only need to look up the account once).
     let orderedTxs = concatMap fst $ List.sortOn snd txs
     genBetaAccounts <- HashSet.fromList . map _accountAddress . genesisSpecialBetaAccounts <$> getGenesisData
-    ((Sch.FilteredTransactions{..}, usedEnergy), bshandle1) <-
-        runBSM (Sch.filterTransactions (fromIntegral maxSize) orderedTxs) (genBetaAccounts, cm) bshandle0
+    ((Sch.FilteredTransactions{..}, usedEnergy), bshandle2) <-
+        runBSM (Sch.filterTransactions (fromIntegral maxSize) orderedTxs) (genBetaAccounts, cm) bshandle1
     -- FIXME: At some point we should log things here using the same logging infrastructure as in consensus.
 
-    bshandle2 <- bsoSetTransactionOutcomes bshandle1 ((\(tr,res) -> (transactionHash tr, res)) <$> ftAdded)
-    bshandle3 <- mintAndReward bshandle2 blockParent lfPointer slotNumber blockBaker
-    bshandle4 <- bsoUpdateSeedState bshandle3 currentSeedState
+    bshandle3 <- bsoSetTransactionOutcomes bshandle2 ((\(tr,res) -> (transactionHash tr, res)) <$> ftAdded)
+    bshandle4 <- mintAndReward bshandle3 blockParent lfPointer slotNumber blockBaker
 
     -- We first commit all valid transactions to the current block slot to prevent them being purged.
     -- At the same time we construct the return blockTransactions to avoid an additional traversal
