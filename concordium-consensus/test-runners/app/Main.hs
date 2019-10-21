@@ -9,6 +9,7 @@ import Data.Time.Clock.POSIX
 import System.IO
 import Lens.Micro.Platform
 import Data.Serialize
+import qualified Data.Map as Map
 
 import Concordium.TimeMonad
 import Concordium.Types.HashableTo
@@ -108,21 +109,22 @@ removeEach = re []
 
 gsToString :: BlockState -> String
 gsToString gs = (show (currentSeed (gs ^.  blockBirkParameters ^. birkSeedState))) ++ 
-                    "\n current: " ++ show ( (gs ^. blockBirkParameters ^. birkCurrentBakers ^. bakerTotalStake)) ++
-                    "\n prev   : " ++ show ( (gs ^. blockBirkParameters ^. birkPrevEpochBakers ^. bakerTotalStake)) ++
-                    "\n lottery: " ++ show ( (gs ^. blockBirkParameters ^. birkLotteryBakers ^. bakerTotalStake))
+                    "\n current: " ++ showBakers ( (gs ^. blockBirkParameters ^. birkCurrentBakers)) ++
+                    "\n prev   : " ++ showBakers ( (gs ^. blockBirkParameters ^. birkPrevEpochBakers)) ++
+                    "\n lottery: " ++ showBakers ( (gs ^. blockBirkParameters ^. birkLotteryBakers))
     where
         ca n = ContractAddress (fromIntegral n) 0
         keys = map (\n -> (n, instanceModel <$> getInstance (ca n) (gs ^. blockInstances))) $ enumFromTo 0 (nContracts-1)
+        showBakers bs = show [ _bakerStake binfo | (_, binfo) <- Map.toList (_bakerMap bs)]
 
 dummyIdentityProviders :: [IdentityProviderData]
 dummyIdentityProviders = []
 
 main :: IO ()
 main = do
-    let n = 10
+    let n = 5
     now <- truncate <$> getPOSIXTime
-    let (gen, bis) = makeGenesisData (now + 10) n 1 0.5 0 dummyCryptographicParameters dummyIdentityProviders []
+    let (gen, bis) = makeGenesisData (now) n 1 0.5 0 dummyCryptographicParameters dummyIdentityProviders []
     let iState = Example.initialState (genesisBirkParameters gen) (genesisCryptographicParameters gen) (genesisAccounts gen) [] nContracts
     trans <- transactions <$> newStdGen
     chans <- mapM (\(bakerId, (bid, _)) -> do
