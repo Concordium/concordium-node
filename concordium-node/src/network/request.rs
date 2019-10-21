@@ -1,14 +1,10 @@
-use byteorder::{ReadBytesExt, WriteBytesExt};
-use failure::Fallible;
-
 use crate::{
     common::P2PNodeId,
     network::{AsProtocolRequestType, NetworkId, ProtocolRequestType},
     p2p::banned_nodes::BannedNode,
 };
-use concordium_common::serial::{NoParam, Serial};
 
-use std::{collections::HashSet, convert::TryFrom};
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
@@ -32,9 +28,9 @@ pub type RequestedSince = u64;
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum NetworkRequest {
     Ping,
-    BanNode(BannedNode),
-    Handshake(P2PNodeId, u16, HashSet<NetworkId>, Vec<u8>),
     GetPeers(HashSet<NetworkId>),
+    Handshake(P2PNodeId, u16, HashSet<NetworkId>, Vec<u8>),
+    BanNode(BannedNode),
     UnbanNode(BannedNode),
     JoinNetwork(NetworkId),
     LeaveNetwork(NetworkId),
@@ -52,71 +48,6 @@ impl AsProtocolRequestType for NetworkRequest {
             NetworkRequest::JoinNetwork(..) => ProtocolRequestType::JoinNetwork,
             NetworkRequest::LeaveNetwork(..) => ProtocolRequestType::LeaveNetwork,
             NetworkRequest::Retransmit(..) => ProtocolRequestType::Retransmit,
-        }
-    }
-}
-
-impl Serial for NetworkRequest {
-    type Param = NoParam;
-
-    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
-        let protocol_type = ProtocolRequestType::try_from(source.read_u8()?)?;
-
-        let request = match protocol_type {
-            ProtocolRequestType::Ping => NetworkRequest::Ping,
-            ProtocolRequestType::BanNode => NetworkRequest::BanNode(BannedNode::deserial(source)?),
-            ProtocolRequestType::UnbanNode => {
-                NetworkRequest::UnbanNode(BannedNode::deserial(source)?)
-            }
-            ProtocolRequestType::Handshake => {
-                let id = P2PNodeId::deserial(source)?;
-                let port = u16::deserial(source)?;
-                let nets = HashSet::<NetworkId>::deserial(source)?;
-                let vec = Vec::<u8>::deserial(source)?;
-
-                NetworkRequest::Handshake(id, port, nets, vec)
-            }
-            ProtocolRequestType::GetPeers => {
-                NetworkRequest::GetPeers(HashSet::<NetworkId>::deserial(source)?)
-            }
-            ProtocolRequestType::JoinNetwork => {
-                NetworkRequest::JoinNetwork(NetworkId::deserial(source)?)
-            }
-            ProtocolRequestType::LeaveNetwork => {
-                NetworkRequest::LeaveNetwork(NetworkId::deserial(source)?)
-            }
-            ProtocolRequestType::Retransmit => NetworkRequest::Retransmit(
-                RequestedElementType::from(source.read_u8()?),
-                u64::deserial(source)?,
-                NetworkId::deserial(source)?,
-            ),
-        };
-
-        Ok(request)
-    }
-
-    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
-        (self.protocol_request_type() as u8).serial(target)?;
-        match self {
-            NetworkRequest::Ping => Ok(()),
-            NetworkRequest::JoinNetwork(network) | NetworkRequest::LeaveNetwork(network) => {
-                network.serial(target)
-            }
-            NetworkRequest::BanNode(node_data) | NetworkRequest::UnbanNode(node_data) => {
-                node_data.serial(target)
-            }
-            NetworkRequest::GetPeers(ref networks) => networks.serial(target),
-            NetworkRequest::Handshake(ref my_node_id, ref my_port, ref networks, ref zk) => {
-                my_node_id.serial(target)?;
-                my_port.serial(target)?;
-                networks.serial(target)?;
-                zk.serial(target)
-            }
-            NetworkRequest::Retransmit(element_type, since_stamp, network_id) => {
-                (*element_type as u8).serial(target)?;
-                (*since_stamp).serial(target)?;
-                network_id.serial(target)
-            }
         }
     }
 }

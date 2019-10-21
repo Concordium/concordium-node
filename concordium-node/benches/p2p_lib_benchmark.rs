@@ -24,11 +24,7 @@ pub fn localhost_peer() -> P2PPeer {
         .unwrap()
 }
 
-#[cfg(any(
-    not(feature = "s11n_fbs"),
-    not(feature = "s11n_capnp"),
-    not(feature = "s11n_serde_cbor"),
-))]
+#[cfg(any(not(feature = "s11n_capnp"), not(feature = "s11n_serde_cbor"),))]
 mod common {
     use criterion::Criterion;
     pub fn nop_bench(_c: &mut Criterion) {}
@@ -73,22 +69,22 @@ pub mod deduplication {
 }
 
 mod s11n {
-    pub mod in_house {
+    pub mod fbs {
         use crate::*;
-        use concordium_common::serial::Serial;
-        use p2p_client::network::NetworkMessage;
+        use p2p_client::network::serialization::fbs::{deserialize, serialize};
 
         fn bench_s11n(c: &mut Criterion, size: usize) {
-            let msg = create_random_packet(size);
-            let mut buffer = Cursor::new(Vec::with_capacity(size));
+            let bench_id = format!("Flatbuffers serialization with {}B messages", size);
 
-            let bench_id = format!("Deserialization of a packet with a {}B payload", size);
+            let mut msg = create_random_packet(size);
+            let mut buffer = Cursor::new(Vec::with_capacity(size));
 
             c.bench_function(&bench_id, move |b| {
                 b.iter(|| {
-                    msg.serial(&mut buffer).unwrap();
+                    msg.rewind_packet();
+                    serialize(&mut msg, &mut buffer).unwrap();
+                    deserialize(&buffer.get_ref()).unwrap();
                     buffer.seek(SeekFrom::Start(0)).unwrap();
-                    NetworkMessage::deserial(&mut buffer).unwrap();
                 })
             });
         }
@@ -175,47 +171,25 @@ mod s11n {
         pub fn bench_s11n_1m_packed(b: &mut Criterion) { bench_s11n(b, 1024 * 1024, true) }
         pub fn bench_s11n_4m_packed(b: &mut Criterion) { bench_s11n(b, 4 * 1024 * 1024, true) }
     }
-
-    #[cfg(feature = "s11n_fbs")]
-    pub mod fbs {
-        use crate::*;
-        use p2p_client::network::serialization::fbs::{deserialize, serialize};
-
-        fn bench_s11n(c: &mut Criterion, size: usize) {
-            let bench_id = format!("Flatbuffers serialization with {}B messages", size);
-
-            let mut msg = create_random_packet(size);
-            let mut buffer = Cursor::new(Vec::with_capacity(size));
-
-            c.bench_function(&bench_id, move |b| {
-                b.iter(|| {
-                    msg.rewind_packet();
-                    serialize(&mut msg, &mut buffer).unwrap();
-                    deserialize(&buffer.get_ref()).unwrap();
-                    buffer.seek(SeekFrom::Start(0)).unwrap();
-                })
-            });
-        }
-
-        pub fn bench_s11n_256(b: &mut Criterion) { bench_s11n(b, 256) }
-        pub fn bench_s11n_1k(b: &mut Criterion) { bench_s11n(b, 1024) }
-        pub fn bench_s11n_4k(b: &mut Criterion) { bench_s11n(b, 4096) }
-        pub fn bench_s11n_64k(b: &mut Criterion) { bench_s11n(b, 64 * 1024) }
-        pub fn bench_s11n_256k(b: &mut Criterion) { bench_s11n(b, 256 * 1024) }
-        pub fn bench_s11n_1m(b: &mut Criterion) { bench_s11n(b, 1024 * 1024) }
-        pub fn bench_s11n_4m(b: &mut Criterion) { bench_s11n(b, 4 * 1024 * 1024) }
-    }
 }
 
 criterion_group!(
-    s11n_our_benches,
-    s11n::in_house::bench_s11n_256,
-    s11n::in_house::bench_s11n_1k,
-    s11n::in_house::bench_s11n_4k,
-    s11n::in_house::bench_s11n_64k,
-    s11n::in_house::bench_s11n_256k,
-    s11n::in_house::bench_s11n_1m,
-    s11n::in_house::bench_s11n_4m,
+    dedup_benches,
+    deduplication::bench_dedup_1k,
+    deduplication::bench_dedup_4k,
+    deduplication::bench_dedup_16k,
+    deduplication::bench_dedup_32k
+);
+
+criterion_group!(
+    s11n_fbs_benches,
+    s11n::fbs::bench_s11n_256,
+    s11n::fbs::bench_s11n_1k,
+    s11n::fbs::bench_s11n_4k,
+    s11n::fbs::bench_s11n_64k,
+    s11n::fbs::bench_s11n_256k,
+    s11n::fbs::bench_s11n_1m,
+    s11n::fbs::bench_s11n_4m,
 );
 
 #[cfg(feature = "s11n_capnp")]
@@ -239,20 +213,6 @@ criterion_group!(
 #[cfg(not(feature = "s11n_capnp"))]
 criterion_group!(s11n_capnp_benches, common::nop_bench);
 
-#[cfg(feature = "s11n_fbs")]
-criterion_group!(
-    s11n_fbs_benches,
-    s11n::fbs::bench_s11n_256,
-    s11n::fbs::bench_s11n_1k,
-    s11n::fbs::bench_s11n_4k,
-    s11n::fbs::bench_s11n_64k,
-    s11n::fbs::bench_s11n_256k,
-    s11n::fbs::bench_s11n_1m,
-    s11n::fbs::bench_s11n_4m,
-);
-#[cfg(not(feature = "s11n_fbs"))]
-criterion_group!(s11n_fbs_benches, common::nop_bench);
-
 #[cfg(feature = "s11n_serde_cbor")]
 criterion_group!(
     s11n_cbor_benches,
@@ -267,18 +227,9 @@ criterion_group!(
 #[cfg(not(feature = "s11n_serde_cbor"))]
 criterion_group!(s11n_cbor_benches, common::nop_bench);
 
-criterion_group!(
-    dedup_benches,
-    deduplication::bench_dedup_1k,
-    deduplication::bench_dedup_4k,
-    deduplication::bench_dedup_16k,
-    deduplication::bench_dedup_32k
-);
-
 criterion_main!(
-    // dedup,
-    s11n_cbor_benches,
     s11n_fbs_benches,
     s11n_capnp_benches,
-    // s11n_our_benches,
+    s11n_cbor_benches,
+    dedup_benches,
 );

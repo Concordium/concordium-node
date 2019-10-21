@@ -1,28 +1,95 @@
 namespace network;
 
-table DirectMessage {
-    target: uint64;
-}
+// network packet
 
-table BroadcastMessage {
-    ids_to_exclude: [uint64];
-}
+table Direct { target_id: uint64; }
 
-union PacketType { DirectMessage, BroadcastMessage }
+table Broadcast { ids_to_exclude: [uint64]; }
+
+union Destination { Direct, Broadcast }
 
 table NetworkPacket {
-    packetType: PacketType;
+    destination: Destination;
     networkId: uint16;
-    message: [uint8];
+    payload: [uint8];
 }
 
-union NetworkMessagePayload {
-    NetworkPacket
+// cross request/response types
+
+table Handshake {
+    nodeId: uint64;
+    port: uint16;
+    networkIds: [uint16];
+    zk: [uint8];
 }
+
+enum IpVariant: uint8 { V4, V6 }
+
+table IpAddr {
+    variant: IpVariant;
+    octets: [uint8];
+}
+
+// network request
+
+enum RequestVariant: uint8 {
+    Ping, GetPeers, Handshake, BanNode, UnbanNode, JoinNetwork, LeaveNetwork, Retransmit
+}
+
+table NodeId { id: uint64; }
+
+union BanId { NodeId, IpAddr }
+
+table BanUnban { id: BanId; }
+
+table NetworkId { id: uint16; }
+
+table NetworkIds { ids: [uint16]; }
+
+table Retransmit {
+    object: uint8;
+    since: uint64;
+    networkId: uint16;
+}
+
+union RequestPayload { NetworkIds, Handshake, BanUnban, NetworkId, Retransmit }
+
+table NetworkRequest {
+    variant: RequestVariant;
+    payload: RequestPayload;
+}
+
+// network response
+
+enum ResponseVariant: uint8 { Pong, PeerList, Handshake }
+
+enum PeerVariant: uint8 { Node, Bootstrapper }
+
+table P2PPeer {
+    id: uint64;
+    addr: IpAddr;
+    port: uint16;
+    variant: PeerVariant;
+}
+
+table PeerList { peers: [P2PPeer]; }
+
+union ResponsePayload { PeerList, Handshake }
+
+table NetworkResponse {
+    variant: ResponseVariant;
+    payload: ResponsePayload;
+}
+
+// network message
+
+union NetworkMessagePayload { NetworkPacket, NetworkRequest, NetworkResponse }
 
 table NetworkMessage {
     timestamp: uint64;
     payload: NetworkMessagePayload;
 }
+
+file_identifier "CP2P";
 
 root_type NetworkMessage;

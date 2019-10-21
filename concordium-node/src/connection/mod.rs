@@ -28,17 +28,13 @@ use crate::{
     },
     dumper::DumpItem,
     network::{
-        Buckets, NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacketType,
-        NetworkRequest, NetworkResponse, ProtocolMessageType, PROTOCOL_HEADER_LEN,
+        deserialize, serialize, Buckets, NetworkId, NetworkMessage, NetworkMessagePayload,
+        NetworkPacket, NetworkRequest, NetworkResponse,
     },
     p2p::banned_nodes::BannedNode,
 };
 
-use concordium_common::{
-    hybrid_buf::HybridBuf,
-    serial::{serialize_into_buffer, Endianness, Serial},
-    PacketType,
-};
+use concordium_common::{hybrid_buf::HybridBuf, serial::Endianness, PacketType};
 
 use byteorder::ReadBytesExt;
 use chrono::prelude::Utc;
@@ -53,7 +49,6 @@ use std::{
     collections::HashSet,
     convert::TryFrom,
     fmt,
-    io::{Seek, SeekFrom},
     net::SocketAddr,
     pin::Pin,
     sync::{
@@ -239,11 +234,12 @@ impl Connection {
         ))
     }
 
-    fn is_message_duplicate(
+    fn is_packet_duplicate(
         &self,
-        message: &mut HybridBuf,
+        packet: &mut NetworkPacket,
         deduplication_queues: &mut DeduplicationQueues,
     ) -> Fallible<bool> {
+        let message = &mut packet.message;
         let packet_type = PacketType::try_from(message.read_u16::<Endianness>()?);
 
         let is_duplicate = match packet_type {
@@ -259,6 +255,7 @@ impl Connection {
             }
             _ => false,
         };
+        message.rewind()?;
 
         Ok(is_duplicate)
     }
@@ -275,26 +272,19 @@ impl Connection {
             service.pkt_received_inc();
         };
 
-        // avoid allocations by not deserializing into a NetworkMessage before dedup
-        message.seek(SeekFrom::Start(PROTOCOL_HEADER_LEN as u64))?;
-        let protocol_type = ProtocolMessageType::try_from(message.read_u8()?)?;
-        if protocol_type == ProtocolMessageType::Packet {
-            let _ = NetworkPacketType::deserial(&mut message)?;
-            let _ = NetworkId::deserial(&mut message)?;
-
-            // deduplicate the incoming packet payload
-            if self.is_message_duplicate(&mut message, deduplication_queues)? {
-                return Ok(());
-            }
-        }
-        message.rewind()?;
-
-        let message = NetworkMessage::deserial(&mut message);
+        let message = deserialize(&message.remaining_bytes()?);
         if let Err(e) = message {
             self.handle_invalid_network_msg(e);
             return Ok(());
         }
-        let message = message.unwrap(); // safe, checked right above
+        let mut message = message.unwrap(); // safe, checked right above
+
+        if let NetworkMessagePayload::NetworkPacket(ref mut packet) = message.payload {
+            // deduplicate the incoming packet payload
+            if self.is_packet_duplicate(packet, deduplication_queues)? {
+                return Ok(());
+            }
+        }
 
         let is_msg_processable = match message.payload {
             NetworkMessagePayload::NetworkRequest(NetworkRequest::Handshake(..), ..)
@@ -322,12 +312,17 @@ impl Connection {
             }
         };
 
-        // forward applicable messages to other connections
+        // forward applicable messages to other connections or RPC
         if is_msg_forwardable {
-            if let NetworkMessagePayload::NetworkPacket(..) = message.payload {
+            if let Err(e) = if let NetworkMessagePayload::NetworkPacket(..) = message.payload {
                 self.handler().forward_network_packet(message)
             } else {
-                self.forward_network_message(&message)
+                self.forward_network_message(&mut message)
+            } {
+                error!("Couldn't forward a network message: {}", e);
+                Ok(())
+            } else {
+                Ok(())
             }
         } else {
             Ok(())
@@ -429,7 +424,7 @@ impl Connection {
     pub fn send_handshake_request(&self) -> Fallible<()> {
         debug!("Sending a handshake request to {}", self.remote_addr());
 
-        let handshake_request = NetworkMessage {
+        let mut handshake_request = NetworkMessage {
             timestamp1: Some(get_current_stamp()),
             timestamp2: None,
             payload:    NetworkMessagePayload::NetworkRequest(NetworkRequest::Handshake(
@@ -442,11 +437,10 @@ impl Connection {
                 vec![],
             )),
         };
+        let mut serialized = HybridBuf::with_capacity(128)?;
+        serialize(&mut handshake_request, &mut serialized)?;
 
-        self.async_send(
-            serialize_into_buffer(&handshake_request, 256)?,
-            MessageSendingPriority::High,
-        )?;
+        self.async_send(serialized, MessageSendingPriority::High)?;
 
         self.set_sent_handshake();
 
@@ -456,7 +450,7 @@ impl Connection {
     pub fn send_handshake_response(&self, remote_node_id: P2PNodeId) -> Fallible<()> {
         debug!("Sending a handshake response to peer {}", remote_node_id);
 
-        let handshake_msg = NetworkMessage {
+        let mut handshake_response = NetworkMessage {
             timestamp1: Some(get_current_stamp()),
             timestamp2: None,
             payload:    NetworkMessagePayload::NetworkResponse(NetworkResponse::Handshake(
@@ -466,26 +460,24 @@ impl Connection {
                 vec![],
             )),
         };
+        let mut serialized = HybridBuf::with_capacity(128)?;
+        serialize(&mut handshake_response, &mut serialized)?;
 
-        self.async_send(
-            serialize_into_buffer(&handshake_msg, 128)?,
-            MessageSendingPriority::High,
-        )
+        self.async_send(serialized, MessageSendingPriority::High)
     }
 
     pub fn send_ping(&self) -> Fallible<()> {
         trace!("Sending a ping on {}", self);
 
-        let ping_msg = NetworkMessage {
+        let mut ping = NetworkMessage {
             timestamp1: Some(get_current_stamp()),
             timestamp2: None,
             payload:    NetworkMessagePayload::NetworkRequest(NetworkRequest::Ping),
         };
+        let mut serialized = HybridBuf::with_capacity(64)?;
+        serialize(&mut ping, &mut serialized)?;
 
-        self.async_send(
-            serialize_into_buffer(&ping_msg, 64)?,
-            MessageSendingPriority::High,
-        )?;
+        self.async_send(serialized, MessageSendingPriority::High)?;
 
         self.set_last_ping_sent();
 
@@ -495,16 +487,15 @@ impl Connection {
     pub fn send_pong(&self) -> Fallible<()> {
         trace!("Sending a pong on {}", self);
 
-        let pong_msg = NetworkMessage {
+        let mut pong = NetworkMessage {
             timestamp1: Some(get_current_stamp()),
             timestamp2: None,
             payload:    NetworkMessagePayload::NetworkResponse(NetworkResponse::Pong),
         };
+        let mut serialized = HybridBuf::with_capacity(64)?;
+        serialize(&mut pong, &mut serialized)?;
 
-        self.async_send(
-            serialize_into_buffer(&pong_msg, 64)?,
-            MessageSendingPriority::High,
-        )
+        self.async_send(serialized, MessageSendingPriority::High)
     }
 
     pub fn send_peer_list_resp(&self, nets: &HashSet<NetworkId>) -> Fallible<()> {
@@ -557,13 +548,13 @@ impl Connection {
             }
         };
 
-        if let Some(resp) = peer_list_resp {
+        if let Some(mut resp) = peer_list_resp {
             debug!("Sending my PeerList to peer {}", requestor.id());
 
-            self.async_send(
-                serialize_into_buffer(&resp, 256)?,
-                MessageSendingPriority::Normal,
-            )
+            let mut serialized = HybridBuf::with_capacity(256)?;
+            serialize(&mut resp, &mut serialized)?;
+
+            self.async_send(serialized, MessageSendingPriority::Normal)
         } else {
             debug!(
                 "I don't have any peers to share with peer {}",
@@ -573,7 +564,10 @@ impl Connection {
         }
     }
 
-    fn forward_network_message(&self, msg: &NetworkMessage) -> Fallible<()> {
+    fn forward_network_message(&self, msg: &mut NetworkMessage) -> Fallible<()> {
+        let mut serialized = HybridBuf::with_capacity(256)?;
+        serialize(msg, &mut serialized)?;
+
         let conn_filter = |conn: &Connection| match msg.payload {
             NetworkMessagePayload::NetworkRequest(ref request, ..) => match request {
                 NetworkRequest::BanNode(peer_to_ban) => match peer_to_ban {
@@ -590,21 +584,12 @@ impl Connection {
             _ => unreachable!("Only network requests are ever forwarded"),
         };
 
-        match serialize_into_buffer(msg, 256) {
-            Ok(data) => {
-                for conn in read_or_die!(self.handler().connections())
-                    .values()
-                    .filter(|&conn| {
-                        conn.is_post_handshake() && conn.as_ref() != self && conn_filter(conn)
-                    })
-                {
-                    if let Err(e) = conn.async_send(data.clone(), MessageSendingPriority::Normal) {
-                        error!("Can't forward a network message to {}: {}", conn, e);
-                    }
-                }
-            }
-            Err(e) => {
-                error!("A network message couldn't be forwarded: {}", e);
+        for conn in read_or_die!(self.handler().connections())
+            .values()
+            .filter(|&conn| conn.is_post_handshake() && conn.as_ref() != self && conn_filter(conn))
+        {
+            if let Err(e) = conn.async_send(serialized.clone(), MessageSendingPriority::Normal) {
+                error!("Can't forward a network message to {}: {}", conn, e);
             }
         }
 
