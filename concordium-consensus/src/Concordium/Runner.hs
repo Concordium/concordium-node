@@ -41,7 +41,7 @@ data SyncRunner = SyncRunner {
 }
 
 bakerFinalizationInstance :: BakerIdentity -> FinalizationInstance
-bakerFinalizationInstance bkr = FinalizationInstance (bakerSignKey bkr) (bakerElectionKey bkr)
+bakerFinalizationInstance bkr = FinalizationInstance (bakerSignKey bkr) (bakerElectionKey bkr) (bakerAggregationKey bkr)
 
 instance SkovStateQueryable SyncRunner (SkovQueryM SkovBufferedHookedState IO) where
     runStateQuery sr a = readMVar (syncState sr) >>= evalSkovQueryM a

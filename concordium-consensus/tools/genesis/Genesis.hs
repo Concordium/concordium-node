@@ -16,6 +16,7 @@ import Concordium.GlobalState.Parameters
 import Concordium.Birk.Bake
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.Crypto.BlockSignature as Sig
+import qualified Concordium.Crypto.BlsSignature as Bls
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.ID.Account as ID
 
@@ -75,7 +76,7 @@ generateBakerData = GenerateBakers {
                     help "Number of bakers which are finalizers.",
     gdOutput = def &= typDir &= opt ("." :: FilePath) &= argPos 1
 } &= help "Generate baker data"
-    &= details ["This generates the following files:", 
+    &= details ["This generates the following files:",
         " bakers.json: JSON encoding of the public identities of the generated bakers",
         " baker-0.dat .. : baker credentials for running consensus",
         " baker-0-acct.json .. : baker account keys"]
@@ -87,7 +88,7 @@ generateBetaAccounts = GenerateBetaAccounts {
     number = def &= typ "NUM" &= argPos 0,
     gdOutput = def &= typDir &= opt ("." :: FilePath) &= argPos 1
 } &= help "Generate beta accounts"
-    &= details ["This generates the following files:", 
+    &= details ["This generates the following files:",
         " beta-accounts.json: JSON encoding of the public identities of the generated accounts.",
         " beta-account-0-acct.json .. : beta account private account keys"]
     &= explicit &= name "make-beta-accounts"
@@ -153,8 +154,10 @@ main = cmdArgsRun mode >>=
                     skp <- Sig.newKeyPair
                     vrfkp <- VRF.newKeyPair
                     acctkp <- Sig.newKeyPair
+                    blssk <- Bls.generateSecretKey
+                    -- blspk <- Bls.derivePublicKey blssk
                     LBS.writeFile (gdOutput </> "baker-" ++ show n ++ ".dat") $ S.encodeLazy $
-                        BakerIdentity skp vrfkp
+                        BakerIdentity skp vrfkp blssk
                     encodeFile (gdOutput </> "baker-" ++ show n ++ "-account.json") $
                         object [
                             "address" .= ID.accountAddress (Sig.verifyKey acctkp) SigScheme.Ed25519,

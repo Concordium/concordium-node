@@ -12,6 +12,7 @@ import Concordium.Types
 
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
+import qualified Concordium.Crypto.BlsSignature as Bls
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.SeedState
 import Concordium.GlobalState.Block
@@ -34,7 +35,8 @@ import Concordium.TimeMonad
 
 data BakerIdentity = BakerIdentity {
     bakerSignKey :: BakerSignPrivateKey,
-    bakerElectionKey :: BakerElectionPrivateKey
+    bakerElectionKey :: BakerElectionPrivateKey,
+    bakerAggregationKey :: BakerAggregationPrivateKey
 } deriving (Eq, Generic)
 
 bakerSignPublicKey :: BakerIdentity -> BakerSignVerifyKey
