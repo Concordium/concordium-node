@@ -7,6 +7,7 @@ RUN pacman -Sy && \
     pacman -S protobuf cmake clang git libtool rustup make m4 pkgconf autoconf automake \
         file which boost patch libunwind libdwarf elfutils unbound llvm capnproto numactl flatbuffers --noconfirm && \
     pacman -Scc --noconfirm && \
+    rustup set profile minimal && \
     rustup default 1.38.0 && \
     git clone https://github.com/libffi/libffi.git && \
     cd libffi && ./autogen.sh && ./configure && make -j$(nproc) && make install && \

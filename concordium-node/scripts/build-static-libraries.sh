@@ -15,6 +15,7 @@ rm -r bootstrapped_out
 cp /manifests/cabal.project           /build
 cp /manifests/cabal.project.local     /build
 
+rustup set profile minimal
 rustup default 1.38.0
 
 mkdir -p /target/{profiling,vanilla}/{ghc,cabal,concordium}
