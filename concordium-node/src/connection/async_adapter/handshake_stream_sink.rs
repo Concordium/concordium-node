@@ -22,12 +22,14 @@ use std::{
 ///  B -> e,ee,se,psk
 /// ```
 #[allow(non_camel_case_types)]
-enum HandshakeStreamSinkState {
+enum HandshakeState {
     ResponderAwaitingRequest_S,
     InitiatorAwaiting_S,
     ResponderAwaiting_E_ES_S_SS,
     InitiatorAwaiting_E_EE_SE_PSK,
+    Complete,
 }
+
 type TransportSession = Arc<RwLock<Session>>;
 type AsyncResultSession = Fallible<Readiness<TransportSession>>;
 
@@ -36,7 +38,7 @@ type AsyncResultSession = Fallible<Readiness<TransportSession>>;
 pub struct HandshakeStreamSink {
     // Common
     keypair:           Keypair,
-    state:             HandshakeStreamSinkState,
+    state:             HandshakeState,
     noise_session:     Option<Session>,
     transport_session: Option<TransportSession>,
     noise_params:      snow::params::NoiseParams,
@@ -69,7 +71,7 @@ impl HandshakeStreamSink {
             send_queue.push_back(create_frame(&[]).unwrap());
 
             // The initiator needs remote public key to create its session.
-            (HandshakeStreamSinkState::InitiatorAwaiting_S, None)
+            (HandshakeState::InitiatorAwaiting_S, None)
         } else {
             // The responder does NOT need any key from initiator, so let's create its
             // session.
@@ -79,10 +81,7 @@ impl HandshakeStreamSink {
                 .local_private_key(&keypair.private)
                 .build_responder()
                 .unwrap();
-            (
-                HandshakeStreamSinkState::ResponderAwaitingRequest_S,
-                Some(session),
-            )
+            (HandshakeState::ResponderAwaitingRequest_S, Some(session))
         };
 
         HandshakeStreamSink {
@@ -118,7 +117,7 @@ impl HandshakeStreamSink {
         );
 
         // Next state
-        self.state = HandshakeStreamSinkState::ResponderAwaiting_E_ES_S_SS;
+        self.state = HandshakeState::ResponderAwaiting_E_ES_S_SS;
 
         Ok(Readiness::NotReady)
     }
@@ -170,7 +169,7 @@ impl HandshakeStreamSink {
             .push_back(create_frame(&self.buffer[..buf_len])?);
         trace!("Initiator sends ({} bytes): A -> e,es,s,ss", buf_len);
 
-        self.state = HandshakeStreamSinkState::InitiatorAwaiting_E_EE_SE_PSK;
+        self.state = HandshakeState::InitiatorAwaiting_E_EE_SE_PSK;
         self.noise_session = Some(session);
         Ok(Readiness::NotReady)
     }
@@ -185,6 +184,7 @@ impl HandshakeStreamSink {
             );
 
             session.read_message(&e_ee_se_psk, &mut self.buffer)?;
+            self.state = HandshakeState::Complete;
 
             // Transport session is ready.
             self.set_transport_mode(Arc::new(RwLock::new(
@@ -206,16 +206,13 @@ impl HandshakeStreamSink {
     /// `Readiness::NotReady`.
     pub fn read(&mut self, input: HybridBuf) -> AsyncResultSession {
         match self.state {
-            HandshakeStreamSinkState::ResponderAwaitingRequest_S => {
-                self.on_responder_get_request_s()
-            }
-            HandshakeStreamSinkState::ResponderAwaiting_E_ES_S_SS => {
-                self.on_responder_get_e_ee_s_ss(input)
-            }
-            HandshakeStreamSinkState::InitiatorAwaiting_S => self.on_initiator_get_s(input),
-            HandshakeStreamSinkState::InitiatorAwaiting_E_EE_SE_PSK => {
+            HandshakeState::ResponderAwaitingRequest_S => self.on_responder_get_request_s(),
+            HandshakeState::ResponderAwaiting_E_ES_S_SS => self.on_responder_get_e_ee_s_ss(input),
+            HandshakeState::InitiatorAwaiting_S => self.on_initiator_get_s(input),
+            HandshakeState::InitiatorAwaiting_E_EE_SE_PSK => {
                 self.on_initiator_get_e_ee_se_psk(input)
             }
+            _ => unreachable!(),
         }
     }
 
