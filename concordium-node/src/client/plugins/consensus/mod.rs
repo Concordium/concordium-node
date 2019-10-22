@@ -183,7 +183,11 @@ pub fn handle_pkt_out(
         dont_relay_to.into_iter().map(P2PNodeId::as_raw).collect(),
     );
 
-    match CALLBACK_QUEUE.send_blocking_msg(request) {
+    match if packet_type == PacketType::Transaction {
+        CALLBACK_QUEUE.send_message(request)
+    } else {
+        CALLBACK_QUEUE.send_blocking_msg(request)
+    } {
         Ok(_) => {}
         Err(e) => match e.downcast::<TrySendError<ConsensusMessage>>()? {
             TrySendError::Full(_) => warn!("The global state queue is full!"),

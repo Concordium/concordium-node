@@ -1,13 +1,9 @@
-use byteorder::{ReadBytesExt, WriteBytesExt};
-use failure::Fallible;
-
 use crate::{
     common::{P2PNodeId, P2PPeer},
     network::{AsProtocolResponseType, NetworkId, ProtocolResponseType},
 };
-use concordium_common::serial::{NoParam, Serial};
 
-use std::{collections::HashSet, convert::TryFrom};
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
@@ -23,41 +19,6 @@ impl AsProtocolResponseType for NetworkResponse {
             NetworkResponse::Pong => ProtocolResponseType::Pong,
             NetworkResponse::PeerList(..) => ProtocolResponseType::PeerList,
             NetworkResponse::Handshake(..) => ProtocolResponseType::Handshake,
-        }
-    }
-}
-
-impl Serial for NetworkResponse {
-    type Param = NoParam;
-
-    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
-        let protocol_type = ProtocolResponseType::try_from(source.read_u8()?)?;
-        let response = match protocol_type {
-            ProtocolResponseType::Pong => NetworkResponse::Pong,
-            ProtocolResponseType::PeerList => {
-                NetworkResponse::PeerList(Vec::<P2PPeer>::deserial(source)?)
-            }
-            ProtocolResponseType::Handshake => NetworkResponse::Handshake(
-                P2PNodeId::deserial(source)?,
-                u16::deserial(source)?,
-                HashSet::<NetworkId>::deserial(source)?,
-                Vec::<u8>::deserial(source)?,
-            ),
-        };
-        Ok(response)
-    }
-
-    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
-        (self.protocol_response_type() as u8).serial(target)?;
-        match self {
-            NetworkResponse::Pong => Ok(()),
-            NetworkResponse::PeerList(ref peers) => peers.serial(target),
-            NetworkResponse::Handshake(my_node_id, my_port, networks, zk) => {
-                my_node_id.serial(target)?;
-                my_port.serial(target)?;
-                networks.serial(target)?;
-                zk.serial(target)
-            }
         }
     }
 }

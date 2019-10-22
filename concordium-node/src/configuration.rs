@@ -339,6 +339,8 @@ pub struct CommonConfig {
     pub debug: bool,
     #[structopt(long = "trace", help = "Trace mode")]
     pub trace: bool,
+    #[structopt(long = "info", help = "Info mode")]
+    pub info: bool,
     #[structopt(
         long = "network-id",
         short = "n",

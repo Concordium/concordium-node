@@ -583,7 +583,6 @@ impl P2P for RpcServerImpl {
             let mut node_id = ::protobuf::well_known_types::StringValue::new();
             let f = {
                 let (id, peer_type) = (self.node.id(), self.node.peer_type());
-
                 node_id.set_value(id.to_string());
                 resp.set_node_id(node_id);
                 let curtime = SystemTime::now()
@@ -592,6 +591,12 @@ impl P2P for RpcServerImpl {
                     .as_secs();
                 resp.set_current_localtime(curtime);
                 resp.set_peer_type(peer_type.to_string());
+                #[cfg(feature = "beta")]
+                {
+                    let mut beta_username = ::protobuf::well_known_types::StringValue::new();
+                    beta_username.set_value(self.node.config.beta_username.clone());
+                    resp.set_beta_username(beta_username);
+                }
                 match self.consensus {
                     Some(ref consensus) => {
                         resp.set_consensus_baker_running(consensus.is_baking());
@@ -1518,8 +1523,6 @@ mod tests {
 
     #[test]
     fn test_join_network() -> Fallible<()> {
-        setup_logger();
-
         let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
         let port = next_available_port();
         let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;

@@ -185,6 +185,11 @@ fn collect_data(
         client.peer_total_received_opt(&p2p_client::proto::Empty::new(), call_options.clone())?;
 
     let node_id = node_info_reply.get_node_id().get_value().to_owned();
+    let beta_username = if node_info_reply.has_beta_username() {
+        Some(node_info_reply.get_beta_username().get_value().to_owned())
+    } else {
+        None
+    };
     let peer_type = node_info_reply.get_peer_type().to_owned();
     let baker_committee = node_info_reply.get_consensus_baker_committee();
     let finalization_committee = node_info_reply.get_consensus_finalizer_committee();
@@ -306,6 +311,7 @@ fn collect_data(
         bakingCommitteeMember: baker_committee,
         finalizationCommitteeMember: finalization_committee,
         ancestorsSinceBestBlock: ancestors_since_best_block,
+        betaUsername: beta_username,
         last_updated: 0,
     })
 }

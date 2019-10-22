@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
+
+set -e 
 GHC_BUILDER_VERSION="8.6.5"
 CABAL_BUILDER_VERSION="3.0.0.0"
 pacman -Sy
-pacman -Syyu --noconfirm
 pacman -S wget tar make m4 pkgconf autoconf automake grep python clang libtool ncurses which rustup binutils --noconfirm
 ln -s /usr/lib/libtinfo.so.6 /usr/lib/libtinfo.so.5
 
@@ -15,7 +16,17 @@ rm -r bootstrapped_out
 cp /manifests/cabal.project           /build
 cp /manifests/cabal.project.local     /build
 
+rustup set profile minimal
 rustup default 1.38.0
+
+rm -rf $HOME/.cargo
+
+sed -i 's/git-fetch-with-cli = true/git-fetch-with-cli = false/' /build/crypto/rust-src/.cargo/config
+
+(
+    cd /build/crypto/rust-src &&
+    cargo check
+)
 
 mkdir -p /target/{profiling,vanilla}/{ghc,cabal,concordium}
 mkdir -p /binaries/{lib,bin}
@@ -134,6 +145,8 @@ mv *.o gs
 
 rm *a
 
+set +e
+
 echo "Removing objects with standard symbols that collide with any other rust instance"
 for file in $(find . -type f -name "*.o"); do
   nm $file | grep "\(T __rust_alloc\)\|\(T __rdl_alloc\)|\(T __clzsi2\)" >> /dev/null;
@@ -143,6 +156,8 @@ for file in $(find . -type f -name "*.o"); do
     rm $file;
   fi
 done
+
+set -e
 
 echo "Unifying duplicated objects that collide between both libraries"
 ar rcs libRcommon.a $(diff -sqr gs crypto | grep identical | cut -d" " -f2)
@@ -163,5 +178,3 @@ echo "Done!"
 
 tar czf static-consensus-$GHC_VERSION.tar.gz /target
 tar czf static-consensus-binaries-$GHC_VERSION.tar.gz /binaries
-mv static-consensus-$GHC_VERSION.tar.gz /out
-mv static-consensus-binaries-$GHC_VERSION.tar.gz /out

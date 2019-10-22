@@ -1,9 +1,8 @@
-use byteorder::{ReadBytesExt, WriteBytesExt, BE};
+use byteorder::{ReadBytesExt, WriteBytesExt, LE};
 use failure::{bail, Fallible};
 
 // desired endianness
-pub type E = BE;
-pub type Endianness = BE;
+pub type Endianness = LE;
 
 // an empty struct used to indicate there is no serialization parameter
 pub struct NoParam;
@@ -43,30 +42,36 @@ impl Serial for u8 {
 impl Serial for u16 {
     type Param = NoParam;
 
-    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> { Ok(source.read_u16::<E>()?) }
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
+        Ok(source.read_u16::<Endianness>()?)
+    }
 
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
-        Ok(target.write_u16::<E>(*self)?)
+        Ok(target.write_u16::<Endianness>(*self)?)
     }
 }
 
 impl Serial for u32 {
     type Param = NoParam;
 
-    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> { Ok(source.read_u32::<E>()?) }
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
+        Ok(source.read_u32::<Endianness>()?)
+    }
 
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
-        Ok(target.write_u32::<E>(*self)?)
+        Ok(target.write_u32::<Endianness>(*self)?)
     }
 }
 
 impl Serial for u64 {
     type Param = NoParam;
 
-    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> { Ok(source.read_u64::<E>()?) }
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
+        Ok(source.read_u64::<Endianness>()?)
+    }
 
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
-        Ok(target.write_u64::<E>(*self)?)
+        Ok(target.write_u64::<Endianness>(*self)?)
     }
 }
 
@@ -89,20 +94,14 @@ impl Serial for Ipv6Addr {
     type Param = NoParam;
 
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
-        let mut segments = [0u16; 8];
-        for segment in &mut segments {
-            *segment = source.read_u16::<E>()?;
-        }
-
-        Ok(Ipv6Addr::from(segments))
+        let mut octets = [0u8; 16];
+        source.read_exact(&mut octets)?;
+        Ok(Ipv6Addr::from(octets))
     }
 
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
         target.write_u8(6)?;
-        for segment in &self.segments() {
-            target.write_u16::<E>(*segment)?;
-        }
-        Ok(())
+        Ok(target.write_all(&self.octets())?)
     }
 }
 
@@ -131,13 +130,13 @@ impl Serial for SocketAddr {
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         Ok(SocketAddr::new(
             IpAddr::deserial(source)?,
-            source.read_u16::<E>()?,
+            source.read_u16::<Endianness>()?,
         ))
     }
 
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
         self.ip().serial(target)?;
-        Ok(target.write_u16::<E>(self.port())?)
+        Ok(target.write_u16::<Endianness>(self.port())?)
     }
 }
 
@@ -147,19 +146,20 @@ impl<T: Serial> Serial for Vec<T> {
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         const MAX_INITIAL_CAPACITY: usize = 4096;
 
-        let len = source.read_u32::<E>()?;
+        let len = source.read_u32::<Endianness>()?;
         let mut out = Vec::with_capacity(std::cmp::min(len as usize, MAX_INITIAL_CAPACITY));
-        for _i in 0..len {
-            out.push(T::deserial(source)?);
+        while let Ok(object) = T::deserial(source) {
+            out.push(object);
         }
         Ok(out)
     }
 
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
         (self.len() as u32).serial(target)?;
-        self.iter()
-            .map(|ref item| item.serial(target))
-            .collect::<Fallible<()>>()
+        for item in self {
+            item.serial(target)?
+        }
+        Ok(())
     }
 }
 
@@ -174,7 +174,7 @@ impl<T: Serial + Eq + Hash, S: BuildHasher + Default> Serial for HashSet<T, S> {
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         const MAX_INITIAL_CAPACITY: usize = 4096;
 
-        let len = source.read_u32::<E>()?;
+        let len = source.read_u32::<Endianness>()?;
         let mut out = HashSet::with_capacity_and_hasher(
             std::cmp::min(len as usize, MAX_INITIAL_CAPACITY),
             Default::default(),
@@ -225,4 +225,21 @@ pub fn serialize_into_buffer<T: Serial>(src: &T, capacity: usize) -> Fallible<Hy
 
 pub fn deserialize_from_memory<T: Serial>(mut src: &mut HybridBuf) -> Fallible<T> {
     T::deserial(&mut src)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Cursor, Seek, SeekFrom};
+
+    #[test]
+    fn serial_vec_s11n() {
+        let vec = vec![13462436u64, 34615462, 736853];
+        let mut serialized = Cursor::new(Vec::new());
+        vec.serial(&mut serialized).unwrap();
+        serialized.seek(SeekFrom::Start(0)).unwrap();
+        let deserialized = <Vec<u64>>::deserial(&mut serialized).unwrap();
+
+        assert_eq!(deserialized, vec)
+    }
 }

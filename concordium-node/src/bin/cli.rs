@@ -132,8 +132,10 @@ fn main() -> Fallible<()> {
             ConsensusLogLevel::Trace
         } else if conf.common.debug {
             ConsensusLogLevel::Debug
-        } else {
+        } else if conf.common.info {
             ConsensusLogLevel::Info
+        } else {
+            ConsensusLogLevel::Warning
         },
     );
 
@@ -316,7 +318,8 @@ fn start_global_state_thread(
 
         let mut last_peer_list_update = 0;
         let mut loop_interval: u64;
-        let consensus_receiver = CALLBACK_QUEUE.receiver.lock().unwrap();
+        let consensus_receiver_hi = CALLBACK_QUEUE.receiver_hi.lock().unwrap();
+        let consensus_receiver_lo = CALLBACK_QUEUE.receiver_lo.lock().unwrap();
 
         'outer_loop: loop {
             loop_interval = 200;
@@ -330,8 +333,8 @@ fn start_global_state_thread(
                 error!("Couldn't update the catch-up peer list: {}", e);
             }
 
-            for request in consensus_receiver.try_iter() {
-                match request {
+            for message in consensus_receiver_hi.try_iter() {
+                match message {
                     QueueMsg::Relay(msg) => {
                         if let Err(e) = handle_consensus_message(
                             &node_ref,
@@ -350,6 +353,30 @@ fn start_global_state_thread(
                 }
 
                 loop_interval = loop_interval.saturating_sub(1);
+            }
+
+            for _ in 0..4096 {
+                if let Ok(message) = consensus_receiver_lo.try_recv() {
+                    match message {
+                        QueueMsg::Relay(msg) => {
+                            if let Err(e) = handle_consensus_message(
+                                &node_ref,
+                                nid,
+                                &mut consensus_ref,
+                                msg,
+                                &mut gsptr,
+                            ) {
+                                error!("There's an issue with a global state request: {}", e);
+                            }
+                        }
+                        QueueMsg::Stop => {
+                            warn!("Closing the global state channel");
+                            break 'outer_loop;
+                        }
+                    }
+                } else {
+                    break;
+                }
             }
 
             thread::sleep(Duration::from_millis(loop_interval));

@@ -205,6 +205,26 @@ fn nodes_block_info(state: State) -> (State, JSONStringResponse) {
     )
 }
 
+fn nodes_beta_users_info(state: State) -> (State, JSONStringResponse) {
+    let state_data = CollectorStateData::borrow_from(&state);
+    let mut response = Vec::new();
+    {
+        let map_lock = &*read_or_die!(state_data.nodes);
+        response.extend(b"[");
+        for (i, node_info) in map_lock.values().enumerate() {
+            if i != 0 {
+                response.extend(b",");
+            }
+            serde_json::to_writer(&mut response, &NodeInfoBetaUsers::from(node_info)).unwrap()
+        }
+        response.extend(b"]");
+    }
+    (
+        state,
+        JSONStringResponse(String::from_utf8(response).unwrap()),
+    )
+}
+
 fn nodes_post_handler(mut state: State) -> Box<HandlerFuture> {
     let f = Body::take_from(&mut state)
         .concat2()
@@ -252,6 +272,8 @@ pub fn router(
         route.get("/data/nodesSummary").to(nodes_summary);
         route.get("/nodesBlocksInfo").to(nodes_block_info);
         route.get("/data/nodesBlocksInfo").to(nodes_block_info);
+        route.get("/nodesBetaUsers").to(nodes_beta_users_info);
+        route.get("/data/nodesBetaUsers").to(nodes_beta_users_info);
         route.post("/nodes/post").to(nodes_post_handler);
         route.post("/post/nodes").to(nodes_post_handler);
     })
