@@ -6,6 +6,7 @@ This repository uses git lfs for storing binary dependencies, and relies on git 
 * Rust (stable 1.37+, and stable 1.37.0 (eae3437df 2019-08-13) for using static libraries)
 * binutils >= 2.22
 * cmake >= 3.8.0
+* flatc >= 1.11.0
 * protobuf >= 3.7.1
 * LLVM and Clang >= 3.9
 * [Unbound](https://www.nlnetlabs.nl/projects/unbound/about/) >= 1.9.2
@@ -13,13 +14,12 @@ This repository uses git lfs for storing binary dependencies, and relies on git 
 ### Optional dependencies
 * Stack (and GHC-8.6.5, if not building using static libraries)
 * capnp (for running `s11n_capnp` enabled benches only)
-* flatc (for running `s11n_fbs` enabled benches only)
 
 ## Supported features
 * instrumentation - switches the default internal counter implementation out with prometheus
 * s11n_serde_cbor - enables serialization using [serde_cbor](https://crates.io/crates/serde_cbor) (only used in benches)
+* s11n_serde_msgpack - enables serialization using [rmp-serde](https://crates.io/crates/rmp-serde) (only used in benches)
 * s11n_capnp - enables serialization using [Cap'n'Proto](https://crates.io/crates/capnp) (only used in benches)
-* s11n_fbs - enables serialization using [flatbuffers](https://crates.io/crates/flatbuffers) (only used in benches)
 * instrumentation - enables stats data exporting to [prometheus](https://crates.io/crates/prometheus)
 * benchmark - enables the TPS testing
 * network_dump - makes the network dumping capabilites available.
@@ -62,8 +62,6 @@ $> nix-env -f . -i
 To build the stable image built in a Jenkins pipeline (it gets tagged `latest`, if not changed in the line shown below, so it matches the image hosted on docker-hub - and as the layers will have a newer version, it won't download from docker-hub unless the locally built image is removed via e.g. `docker image rmi ..`). It passes the local `ssh-agent` into the docker build environment for the needed stages to download internal crates with git directly.
 ```bash
 $> git clone -b master --single-branch git@gitlab.com:Concordium/tools/baker_id_gen.git baker_id_gen # Only needed once, as it's a vital component to scaling the bakers inside docker-compose
-$> CONSENSUS_VERSION=`git submodule | grep consensus | head -n1 | awk '{print $1}'`
-$> echo $CONSENSUS_VERSION > CONSENSUS_VERSION
 $> DOCKER_BUILDKIT=1 docker build -f scripts/dev-client.Dockerfile -t concordium/dev-client:latest --ssh default . --no-cache
 ```
 ### Latest stable from master branch

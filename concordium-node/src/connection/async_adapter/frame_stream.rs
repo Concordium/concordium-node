@@ -5,7 +5,7 @@ use crate::{
         fails::{MessageTooBigError, StreamWouldBlock, UnwantedMessageError},
         Readiness,
     },
-    network::{ProtocolMessageType, NETWORK_MESSAGE_PROTOCOL_TYPE_IDX, PROTOCOL_MAX_MESSAGE_SIZE},
+    network::{ProtocolMessageType, PROTOCOL_HEADER_LEN, PROTOCOL_MAX_MESSAGE_SIZE},
 };
 
 use byteorder::{ByteOrder, NetworkEndian};
@@ -187,9 +187,9 @@ impl FrameStream {
     /// Bootstrapper mode.
     fn validate(&mut self) -> Readiness<bool> {
         if self.peer_type == PeerType::Bootstrapper {
-            if self.message.len() > NETWORK_MESSAGE_PROTOCOL_TYPE_IDX {
+            if self.message.len() > PROTOCOL_HEADER_LEN {
                 let protocol_type =
-                    ProtocolMessageType::try_from(self.message[NETWORK_MESSAGE_PROTOCOL_TYPE_IDX])
+                    ProtocolMessageType::try_from(self.message[PROTOCOL_HEADER_LEN])
                         .unwrap_or(ProtocolMessageType::Packet);
                 match protocol_type {
                     ProtocolMessageType::Packet => Readiness::Ready(false),

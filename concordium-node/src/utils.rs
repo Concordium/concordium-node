@@ -480,8 +480,10 @@ pub fn get_config_and_logging_setup() -> Fallible<(config::Config, config::AppPr
         Env::default().filter_or("LOG_LEVEL", "trace")
     } else if conf.common.debug {
         Env::default().filter_or("LOG_LEVEL", "debug")
-    } else {
+    } else if conf.common.info {
         Env::default().filter_or("LOG_LEVEL", "info")
+    } else {
+        Env::default().filter_or("LOG_LEVEL", "warn")
     };
 
     let mut log_builder = Builder::from_env(env);

@@ -14,8 +14,23 @@ use crate::{
 
 use std::{
     convert::TryFrom,
-    io::{self, BufReader, Read, Write},
+    io::{BufRead, BufReader, Seek, Write},
 };
+
+impl NetworkMessage {
+    pub fn deserialize(buffer: &[u8]) -> Fallible<Self> {
+        _deserialize(&mut BufReader::new(buffer), false).map_err(|e| e.into())
+    }
+
+    pub fn serialize<T: Write + Seek>(&mut self, target: &mut T) -> Fallible<()> {
+        let mut message = capnp::message::Builder::new_default();
+
+        let mut builder = message.init_root::<p2p_capnp::network_message::Builder>();
+        write_network_message(&mut builder, self);
+
+        capnp::serialize::write_message(target, &message).map_err(|e| e.into())
+    }
+}
 
 #[inline(always)]
 fn load_p2p_node_id(p2p_node_id: &p2p_capnp::p2_p_node_id::Reader) -> capnp::Result<P2PNodeId> {
@@ -79,12 +94,11 @@ fn load_network_response(
     }
 }
 
-pub fn deserialize<T: Read>(input: &mut T, packed: bool) -> capnp::Result<NetworkMessage> {
-    let mut input = BufReader::new(input);
+fn _deserialize<T: BufRead>(input: &mut T, packed: bool) -> capnp::Result<NetworkMessage> {
     let reader = if packed {
-        capnp::serialize_packed::read_message(&mut input, capnp::message::ReaderOptions::default())?
+        capnp::serialize_packed::read_message(input, capnp::message::ReaderOptions::default())?
     } else {
-        capnp::serialize::read_message(&mut input, capnp::message::ReaderOptions::default())?
+        capnp::serialize::read_message(input, capnp::message::ReaderOptions::default())?
     };
 
     let nm = reader.get_root::<p2p_capnp::network_message::Reader>()?;
@@ -192,7 +206,7 @@ fn write_network_response(
 }
 
 #[inline(always)]
-pub fn write_network_message(
+fn write_network_message(
     builder: &mut p2p_capnp::network_message::Builder,
     message: &mut NetworkMessage,
 ) {
@@ -214,28 +228,15 @@ pub fn write_network_message(
     }
 }
 
-pub fn serialize<T: Write>(
-    buffer: &mut T,
-    nm: &mut NetworkMessage,
-    packed: bool,
-) -> io::Result<()> {
-    let mut message = capnp::message::Builder::new_default();
-    {
-        let mut builder = message.init_root::<p2p_capnp::network_message::Builder>();
-        write_network_message(&mut builder, nm);
-    }
-    if packed {
-        capnp::serialize_packed::write_message(buffer, &message)
-    } else {
-        capnp::serialize::write_message(buffer, &message)
-    }
-}
-
 #[cfg(test)]
 mod unit_test {
     use super::*;
     use concordium_common::hybrid_buf::HybridBuf;
-    use std::{convert::TryFrom, str::FromStr};
+    use std::{
+        convert::TryFrom,
+        io::{Cursor, SeekFrom},
+        str::FromStr,
+    };
 
     use crate::{
         common::P2PNodeId,
@@ -245,7 +246,7 @@ mod unit_test {
         },
     };
 
-    fn ut_s11n_001_data() -> Vec<(Vec<u8>, NetworkMessage)> {
+    fn ut_s11n_001_data() -> Vec<(Cursor<Vec<u8>>, NetworkMessage)> {
         let messages = vec![
             NetworkMessage {
                 timestamp1: Some(0 as u64),
@@ -275,10 +276,12 @@ mod unit_test {
             },
         ];
 
-        let mut messages_data: Vec<(Vec<u8>, NetworkMessage)> = Vec::with_capacity(messages.len());
+        let mut messages_data: Vec<(Cursor<Vec<u8>>, NetworkMessage)> =
+            Vec::with_capacity(messages.len());
         for mut message in messages.into_iter() {
-            let mut data = Vec::new();
-            serialize(&mut data, &mut message, false).unwrap();
+            let mut data = Cursor::new(Vec::new());
+            message.serialize(&mut data).unwrap();
+            data.seek(SeekFrom::Start(0)).unwrap();
             messages_data.push((data, message));
         }
 
@@ -289,11 +292,8 @@ mod unit_test {
     fn ut_s11n_capnp_001() {
         let test_params = ut_s11n_001_data();
         for (data, expected) in test_params {
-            let output = deserialize(&mut data.as_slice(), false).unwrap();
-            assert_eq!(
-                format!("{:?}", output.payload),
-                format!("{:?}", expected.payload)
-            );
+            let output = NetworkMessage::deserialize(&data.get_ref()).unwrap();
+            assert_eq!(output.payload, expected.payload);
         }
     }
 
@@ -303,18 +303,12 @@ mod unit_test {
 
         let payload_size = 1000;
         let mut msg = create_random_packet(payload_size);
-        let mut buffer_unpacked = std::io::Cursor::new(Vec::with_capacity(payload_size));
-        let mut buffer_packed = std::io::Cursor::new(Vec::with_capacity(payload_size));
+        let mut buffer = std::io::Cursor::new(Vec::with_capacity(payload_size));
 
-        serialize(&mut buffer_unpacked, &mut msg, false).unwrap();
-        serialize(&mut buffer_packed, &mut msg, true).unwrap();
+        msg.serialize(&mut buffer).unwrap();
         println!(
             "capnp (unpacked) s11n ratio: {}",
-            buffer_unpacked.get_ref().len() as f64 / payload_size as f64
-        );
-        println!(
-            "capnp   (packed) s11n ratio: {}",
-            buffer_packed.get_ref().len() as f64 / payload_size as f64
+            buffer.get_ref().len() as f64 / payload_size as f64
         );
     }
 }

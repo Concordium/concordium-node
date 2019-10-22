@@ -16,8 +16,6 @@ cfg_if! {
     if #[cfg(feature = "elastic_logging")] {
         #[macro_use]
         extern crate elastic_derive;
-        extern crate serde_json;
-        extern crate elastic;
     }
 }
 
@@ -30,15 +28,13 @@ extern crate ipconfig;
 
 #[macro_use]
 extern crate failure;
-extern crate tempfile;
+
+#[macro_use]
+#[cfg(all(test, not(feature = "s11n_capnp")))]
+extern crate quickcheck;
 
 #[macro_use]
 extern crate concordium_common;
-
-/// # Serialization packets
-/// Benchmark of each serialization requires to enable it on features
-#[cfg(feature = "s11n_serde")]
-extern crate serde;
 
 #[cfg(feature = "s11n_serde")]
 #[macro_use]

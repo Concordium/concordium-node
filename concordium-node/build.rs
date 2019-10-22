@@ -1,3 +1,4 @@
+extern crate flatc_rust;
 extern crate protoc_grpcio;
 extern crate regex;
 extern crate walkdir;
@@ -5,13 +6,8 @@ extern crate walkdir;
 #[cfg(feature = "s11n_capnp")]
 extern crate capnpc;
 
-#[cfg(feature = "s11n_fbs")]
-extern crate flatc_rust;
-#[cfg(feature = "s11n_fbs")]
-use std::path::Path;
-
 use regex::Regex;
-use std::{fs, io::Write};
+use std::{fs, io::Write, path::Path};
 
 fn main() {
     // Compile the Cap'n'Proto schema
@@ -24,7 +20,6 @@ fn main() {
         .expect("Can't compile the Cap'n'Proto schema");
 
     // Compile the flatbuffers schema
-    #[cfg(feature = "s11n_fbs")]
     flatc_rust::run(flatc_rust::Args {
         inputs: &[Path::new("src/network/serialization/schema.fbs")],
         out_dir: Path::new("target/"),

@@ -1,6 +1,6 @@
 #[cfg(feature = "network_dump")]
 use crate::common::P2PNodeId;
-use concordium_common::serial::Serial;
+use crate::network::NetworkMessage;
 
 #[cfg(feature = "network_dump")]
 use crate::configuration::APP_INFO;
@@ -39,7 +39,12 @@ impl DumpItem {
     }
 
     pub fn into_pretty_dump(mut self) -> String {
-        let msg = crate::network::NetworkMessage::deserial(&mut self.msg);
+        let msg = NetworkMessage::deserialize(
+            &self
+                .msg
+                .remaining_bytes()
+                .expect("Can't dump network data!"),
+        );
 
         format!(
             "{} - {} - {} - {:?} - {:?}",
