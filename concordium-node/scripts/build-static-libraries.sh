@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+
+set -e 
 GHC_BUILDER_VERSION="8.6.5"
 CABAL_BUILDER_VERSION="3.0.0.0"
 pacman -Sy
@@ -17,6 +19,11 @@ cp /manifests/cabal.project.local     /build
 
 rustup set profile minimal
 rustup default 1.38.0
+
+(
+    cd /build/crypto/rust-src &&
+    cargo check
+)
 
 mkdir -p /target/{profiling,vanilla}/{ghc,cabal,concordium}
 mkdir -p /binaries/{lib,bin}
