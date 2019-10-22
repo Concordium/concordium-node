@@ -21,7 +21,7 @@ rustup default 1.38.0
 
 rm -rf $HOME/.cargo
 
-sed -i 's/git-fetch-with-cli = true/git-fetch-with-cli = false/' /build/Concordium/rust-src/.cargo/config
+sed -i 's/git-fetch-with-cli = true/git-fetch-with-cli = false/' /build/crypto/rust-src/.cargo/config
 
 (
     cd /build/crypto/rust-src &&
