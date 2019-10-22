@@ -45,12 +45,12 @@ pub struct NodeInfoDashboard<'a> {
     pub peersList: &'a [String],
     pub bestBlock: &'a str,
     pub bestBlockHeight: f64,
-    pub bestArrivedTime: &'a Option<String>,
+    pub bestArrivedTime: Option<&'a str>,
     pub blockArrivePeriodEMA: Option<f64>,
     pub blockArrivePeriodEMSD: Option<f64>,
     pub finalizedBlock: &'a str,
     pub finalizedBlockHeight: f64,
-    pub finalizedTime: &'a Option<String>,
+    pub finalizedTime: Option<&'a str>,
     pub finalizationPeriodEMA: Option<f64>,
     pub finalizationPeriodEMSD: Option<f64>,
     pub packetsSent: f64,
@@ -73,12 +73,12 @@ impl<'a> From<&'a NodeInfo> for NodeInfoDashboard<'a> {
             peersList: &other.peersList,
             bestBlock: &other.bestBlock,
             bestBlockHeight: other.bestBlockHeight,
-            bestArrivedTime: &other.bestArrivedTime,
+            bestArrivedTime: other.bestArrivedTime.as_ref().map(|s| s.as_str()),
             blockArrivePeriodEMA: other.blockArrivePeriodEMA,
             blockArrivePeriodEMSD: other.blockArrivePeriodEMSD,
             finalizedBlock: &other.finalizedBlock,
             finalizedBlockHeight: other.finalizedBlockHeight,
-            finalizedTime: &other.finalizedTime,
+            finalizedTime: other.finalizedTime.as_ref().map(|s| s.as_str()),
             finalizationPeriodEMA: other.finalizationPeriodEMA,
             finalizationPeriodEMSD: other.finalizationPeriodEMSD,
             packetsSent: other.packetsSent,
@@ -99,7 +99,7 @@ pub struct NodeInfoChainViz<'a> {
     pub bestBlockHeight:         f64,
     pub finalizedBlock:          &'a str,
     pub finalizedBlockHeight:    f64,
-    pub ancestorsSinceBestBlock: &'a Option<Vec<String>>,
+    pub ancestorsSinceBestBlock: Option<&'a [String]>,
 }
 
 impl<'a> From<&'a NodeInfo> for NodeInfoChainViz<'a> {
@@ -111,7 +111,7 @@ impl<'a> From<&'a NodeInfo> for NodeInfoChainViz<'a> {
             bestBlockHeight:         other.bestBlockHeight,
             finalizedBlock:          &other.finalizedBlock,
             finalizedBlockHeight:    other.finalizedBlockHeight,
-            ancestorsSinceBestBlock: &other.ancestorsSinceBestBlock,
+            ancestorsSinceBestBlock: other.ancestorsSinceBestBlock.as_ref().map(|s| s.as_slice()),
         }
     }
 }
@@ -121,7 +121,7 @@ impl<'a> From<&'a NodeInfo> for NodeInfoChainViz<'a> {
 pub struct NodeInfoBetaUsers<'a> {
     pub nodeName:     &'a str,
     pub nodeId:       &'a str,
-    pub betaUsername: &'a Option<String>,
+    pub betaUsername: Option<&'a str>,
 }
 
 impl<'a> From<&'a NodeInfo> for NodeInfoBetaUsers<'a> {
@@ -129,7 +129,7 @@ impl<'a> From<&'a NodeInfo> for NodeInfoBetaUsers<'a> {
         Self {
             nodeName:     &other.nodeName,
             nodeId:       &other.nodeId,
-            betaUsername: &other.betaUsername,
+            betaUsername: other.betaUsername.as_ref().map(|s| s.as_str()),
         }
     }
 }
