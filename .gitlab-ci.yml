@@ -17,7 +17,6 @@ stages:
     - rustc --version && cargo --version
     - scripts/download-static-libs.sh
     - ( cd concordium-global-state && cargo test --all --color=always)
-    - ( cd concordium-consensus && cargo test --all --color=always --features=static)
     - ( cd concordium-common && cargo test --all --color=always)
     - echo "Running tests without extra features"
     - cargo test --all --features=static --color=always

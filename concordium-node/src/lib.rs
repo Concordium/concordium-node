@@ -30,7 +30,7 @@ extern crate ipconfig;
 extern crate failure;
 
 #[macro_use]
-#[cfg(test)]
+#[cfg(all(test, not(feature = "s11n_capnp")))]
 extern crate quickcheck;
 
 #[macro_use]

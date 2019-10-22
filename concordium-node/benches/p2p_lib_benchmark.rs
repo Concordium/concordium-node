@@ -3,10 +3,7 @@ extern crate criterion;
 
 use p2p_client::test_utils::{create_random_packet, generate_random_data};
 
-use std::{
-    io::{Cursor, Seek, SeekFrom},
-    time::Duration,
-};
+use std::io::{Cursor, Seek, SeekFrom};
 
 #[cfg(any(
     not(feature = "s11n_fbs"),
