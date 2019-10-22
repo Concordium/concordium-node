@@ -1,5 +1,5 @@
 use failure::Fallible;
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 
 /// It allows to know the status of asynchronous operations.
 ///
@@ -29,48 +29,29 @@ impl<T> Readiness<T> {
 
 type PayloadSize = u32;
 
-const CHUNK_SIZE: usize = 8_192; // 8KB
 const SNOW_MAXMSGLEN: usize = 65_535;
 const SNOW_TAGLEN: usize = 16;
 
 pub const MAX_NOISE_PROTOCOL_MESSAGE_LEN: usize = SNOW_MAXMSGLEN - SNOW_TAGLEN;
 
-/// It tries to copy as much as possible from `input` to `output`, using chunks
-/// of maximum `CHUNK_SIZE`. It is used with `socket` that blocks them when
+/// It tries to copy as much as possible from `input` to `output` in a
+/// streaming fashion. It is used with `socket` that blocks them when
 /// their output buffers are full. Written bytes are consumed from `input`.
 pub fn partial_copy<R: Read + Seek, W: Write>(input: &mut R, output: &mut W) -> Fallible<usize> {
-    let mut total_written_bytes = 0;
-    let mut is_would_block = false;
-    let mut chunk = [0u8; CHUNK_SIZE];
+    let initial_pos = input.seek(SeekFrom::Current(0))?;
 
-    let mut curr_pos = input.seek(SeekFrom::Current(0))?;
-    let eof = input.seek(SeekFrom::End(0))?;
-    input.seek(SeekFrom::Start(curr_pos))?;
-
-    while !is_would_block && curr_pos != eof {
-        let chunk_size = std::cmp::min(CHUNK_SIZE, (eof - curr_pos) as usize);
-        input.read_exact(&mut chunk[..chunk_size])?;
-
-        match output.write(&chunk[..chunk_size]) {
-            Ok(written_bytes) => {
-                total_written_bytes += written_bytes;
-                if written_bytes != chunk_size {
-                    // Fix the offset because read data was not written completely.
-                    input.seek(SeekFrom::Start(curr_pos + written_bytes as u64))?;
-                }
-            }
-            Err(io_err) => {
-                input.seek(SeekFrom::Start(curr_pos))?;
-                is_would_block = io_err.kind() == std::io::ErrorKind::WouldBlock;
-                if !is_would_block {
-                    return Err(failure::Error::from(io_err));
-                }
+    match io::copy(input, output) {
+        Ok(written) => Ok(written as usize),
+        Err(err) => {
+            if err.kind() == std::io::ErrorKind::WouldBlock {
+                let curr_pos = input.seek(SeekFrom::Current(0))?;
+                let written = curr_pos - initial_pos;
+                Ok(written as usize)
+            } else {
+                Err(err.into())
             }
         }
-        curr_pos = input.seek(SeekFrom::Current(0))?;
     }
-
-    Ok(total_written_bytes)
 }
 
 pub const PROLOGUE: &[u8] = b"CP2P";
