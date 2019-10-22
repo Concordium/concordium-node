@@ -27,6 +27,7 @@ pub struct NodeInfo {
     pub bakingCommitteeMember: bool,
     pub finalizationCommitteeMember: bool,
     pub ancestorsSinceBestBlock: Option<Vec<String>>,
+    pub betaUsername: Option<String>,
     #[serde(skip)]
     pub last_updated: u64,
 }
@@ -111,6 +112,24 @@ impl<'a> From<&'a NodeInfo> for NodeInfoChainViz<'a> {
             finalizedBlock:          &other.finalizedBlock,
             finalizedBlockHeight:    other.finalizedBlockHeight,
             ancestorsSinceBestBlock: &other.ancestorsSinceBestBlock,
+        }
+    }
+}
+
+#[allow(non_snake_case)]
+#[derive(Serialize)]
+pub struct NodeInfoBetaUsers<'a> {
+    pub nodeName:     &'a str,
+    pub nodeId:       &'a str,
+    pub betaUsername: &'a Option<String>,
+}
+
+impl<'a> From<&'a NodeInfo> for NodeInfoBetaUsers<'a> {
+    fn from(other: &'a NodeInfo) -> Self {
+        Self {
+            nodeName:     &other.nodeName,
+            nodeId:       &other.nodeId,
+            betaUsername: &other.betaUsername,
         }
     }
 }

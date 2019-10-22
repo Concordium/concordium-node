@@ -87,6 +87,8 @@ pub struct P2PNodeConfig {
     pub catch_up_batch_limit: u64,
     pub timeout_bucket_entry_period: u64,
     pub bucket_cleanup_interval: u64,
+    #[cfg(feature = "beta")]
+    pub beta_username: String,
 }
 
 #[derive(Default)]
@@ -353,6 +355,8 @@ impl P2PNode {
                 conf.cli.timeout_bucket_entry_period
             },
             bucket_cleanup_interval: conf.common.bucket_cleanup_interval,
+            #[cfg(feature = "beta")]
+            beta_username: conf.cli.beta_username.clone(),
         };
 
         let (network_msgs_sender_hi, network_msgs_receiver_hi) =
