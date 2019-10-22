@@ -72,7 +72,7 @@ pub fn partial_copy(input: &mut HybridBuf, output: &mut impl Write) -> Fallible<
     Ok(total_written_bytes)
 }
 
-pub const PROLOGUE: &[u8] = b"CONCORDIUMP2P";
+pub const PROLOGUE: &[u8] = b"CP2P";
 pub const PRE_SHARED_KEY: &[u8; 32] = b"54686973206973206d79204175737472";
 
 mod handshake_stream_sink;
