@@ -15,7 +15,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-const MAX_BUFFER_SIZE: usize = 4_096;
+const HANDSHAKE_BUFFER_SIZE: usize = 64 * 1024;
 
 /// State of the *IKpsk2* handshake:
 /// ```ignore
@@ -42,7 +42,7 @@ pub struct HandshakeStreamSink {
     noise_session:     Option<Session>,
     transport_session: Option<TransportSession>,
     noise_params:      snow::params::NoiseParams,
-    buffer:            [u8; MAX_BUFFER_SIZE],
+    buffer:            [u8; HANDSHAKE_BUFFER_SIZE],
 
     // Sink
     send_queue:         VecDeque<HybridBuf>,
@@ -93,7 +93,7 @@ impl HandshakeStreamSink {
             noise_session,
             transport_session: None,
             noise_params,
-            buffer: [0u8; MAX_BUFFER_SIZE],
+            buffer: [0u8; HANDSHAKE_BUFFER_SIZE],
             send_queue,
             last_written_bytes: 0,
         }
