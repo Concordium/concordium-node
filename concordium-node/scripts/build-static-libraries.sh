@@ -19,6 +19,8 @@ cp /manifests/cabal.project.local     /build
 
 rustup default 1.38.0
 
+rm -rf $HOME/.cargo
+
 (
     cd /build/crypto/rust-src &&
     cargo check
