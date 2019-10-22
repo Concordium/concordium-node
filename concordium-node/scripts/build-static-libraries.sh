@@ -145,6 +145,8 @@ mv *.o gs
 
 rm *a
 
+set +e
+
 echo "Removing objects with standard symbols that collide with any other rust instance"
 for file in $(find . -type f -name "*.o"); do
   nm $file | grep "\(T __rust_alloc\)\|\(T __rdl_alloc\)|\(T __clzsi2\)" >> /dev/null;
@@ -154,6 +156,8 @@ for file in $(find . -type f -name "*.o"); do
     rm $file;
   fi
 done
+
+set -e
 
 echo "Unifying duplicated objects that collide between both libraries"
 ar rcs libRcommon.a $(diff -sqr gs crypto | grep identical | cut -d" " -f2)
