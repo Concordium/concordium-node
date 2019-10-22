@@ -77,22 +77,24 @@ impl EncryptSink {
     /// It should be used to add a *bunch of messages* without the overhead of
     /// flushing each of them.
     #[inline]
-    pub fn write_without_flush(&mut self, input: HybridBuf) -> Fallible<()> {
+    pub fn write_without_flush<R: Read + Seek>(&mut self, input: R) -> Fallible<()> {
         let encrypted = self.encrypt(input)?;
         self.messages.push_back(encrypted);
         Ok(())
     }
 
     /// It splits `input` into chunks (64kb max) and encrypts each of them.
-    fn encrypt_chunks(&mut self, nonce: u64, input: &mut HybridBuf) -> Fallible<usize> {
+    fn encrypt_chunks<R: Read + Seek>(&mut self, nonce: u64, input: &mut R) -> Fallible<usize> {
         let session_reader = read_or_die!(self.session);
         let mut written = 0;
 
-        while !input.is_eof()? {
-            let chunk_size = std::cmp::min(
-                MAX_NOISE_PROTOCOL_MESSAGE_LEN,
-                (input.len()? - input.position()?) as usize,
-            );
+        let mut curr_pos = input.seek(SeekFrom::Current(0))?;
+        let eof = input.seek(SeekFrom::End(0))?;
+        input.seek(SeekFrom::Start(curr_pos))?;
+
+        while curr_pos != eof {
+            let chunk_size =
+                std::cmp::min(MAX_NOISE_PROTOCOL_MESSAGE_LEN, (eof - curr_pos) as usize);
             input.read_exact(&mut self.plaintext_chunk_buffer[..chunk_size])?;
 
             let len = session_reader.write_message_with_nonce(
@@ -104,6 +106,8 @@ impl EncryptSink {
             written += self
                 .full_output_buffer
                 .write(&self.encrypted_chunk_buffer[..len])?;
+
+            curr_pos = input.seek(SeekFrom::Current(0))?;
         }
 
         Ok(written)
@@ -120,7 +124,7 @@ impl EncryptSink {
 
     /// It encrypts `input`, and returns an encrypted data with its *chunk
     /// table* as prefix.
-    fn encrypt(&mut self, mut input: HybridBuf) -> Fallible<HybridBuf> {
+    fn encrypt<R: Read + Seek>(&mut self, mut input: R) -> Fallible<HybridBuf> {
         let nonce = rand::thread_rng().gen::<u64>();
 
         // write metadata placeholders

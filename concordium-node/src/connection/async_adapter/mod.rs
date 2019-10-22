@@ -1,5 +1,3 @@
-use concordium_common::hybrid_buf::HybridBuf;
-
 use failure::Fallible;
 use std::io::{Read, Seek, SeekFrom, Write};
 
@@ -40,15 +38,17 @@ pub const MAX_NOISE_PROTOCOL_MESSAGE_LEN: usize = SNOW_MAXMSGLEN - SNOW_TAGLEN;
 /// It tries to copy as much as possible from `input` to `output`, using chunks
 /// of maximum `CHUNK_SIZE`. It is used with `socket` that blocks them when
 /// their output buffers are full. Written bytes are consumed from `input`.
-pub fn partial_copy(input: &mut HybridBuf, output: &mut impl Write) -> Fallible<usize> {
+pub fn partial_copy<R: Read + Seek, W: Write>(input: &mut R, output: &mut W) -> Fallible<usize> {
     let mut total_written_bytes = 0;
     let mut is_would_block = false;
     let mut chunk = [0u8; CHUNK_SIZE];
 
-    while !is_would_block && !input.is_eof()? {
-        let offset = input.position()?;
+    let mut curr_pos = input.seek(SeekFrom::Current(0))?;
+    let eof = input.seek(SeekFrom::End(0))?;
+    input.seek(SeekFrom::Start(curr_pos))?;
 
-        let chunk_size = std::cmp::min(CHUNK_SIZE, (input.len()? - input.position()?) as usize);
+    while !is_would_block && curr_pos != eof {
+        let chunk_size = std::cmp::min(CHUNK_SIZE, (eof - curr_pos) as usize);
         input.read_exact(&mut chunk[..chunk_size])?;
 
         match output.write(&chunk[..chunk_size]) {
@@ -56,17 +56,18 @@ pub fn partial_copy(input: &mut HybridBuf, output: &mut impl Write) -> Fallible<
                 total_written_bytes += written_bytes;
                 if written_bytes != chunk_size {
                     // Fix the offset because read data was not written completely.
-                    input.seek(SeekFrom::Start(offset + written_bytes as u64))?;
+                    input.seek(SeekFrom::Start(curr_pos + written_bytes as u64))?;
                 }
             }
             Err(io_err) => {
-                input.seek(SeekFrom::Start(offset))?;
+                input.seek(SeekFrom::Start(curr_pos))?;
                 is_would_block = io_err.kind() == std::io::ErrorKind::WouldBlock;
                 if !is_would_block {
                     return Err(failure::Error::from(io_err));
                 }
             }
         }
+        curr_pos = input.seek(SeekFrom::Current(0))?;
     }
 
     Ok(total_written_bytes)

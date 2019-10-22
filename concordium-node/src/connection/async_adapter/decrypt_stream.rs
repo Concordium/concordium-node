@@ -47,7 +47,7 @@ impl DecryptStream {
     ///
     /// # Return
     /// The decrypted message.
-    fn decrypt(&mut self, mut input: HybridBuf) -> Fallible<HybridBuf> {
+    fn decrypt<R: Read + Seek>(&mut self, mut input: R) -> Fallible<HybridBuf> {
         // 0. Read NONCE.
         let nonce = input.read_u64::<NetworkEndian>()?;
 
@@ -72,12 +72,12 @@ impl DecryptStream {
         ))
     }
 
-    fn decrypt_chunk(
+    fn decrypt_chunk<R: Read + Seek>(
         &mut self,
         chunk_idx: usize,
         chunk_size: usize,
         nonce: u64,
-        input: &mut HybridBuf,
+        input: &mut R,
     ) -> Fallible<()> {
         debug_assert!(chunk_size <= SNOW_MAXMSGLEN);
 
@@ -111,5 +111,5 @@ impl DecryptStream {
 
     /// It is just a helper function to keep a coherent interface.
     #[inline]
-    pub fn read(&mut self, input: HybridBuf) -> Fallible<HybridBuf> { self.decrypt(input) }
+    pub fn read<R: Read + Seek>(&mut self, input: R) -> Fallible<HybridBuf> { self.decrypt(input) }
 }
