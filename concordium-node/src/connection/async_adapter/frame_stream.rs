@@ -1,7 +1,7 @@
 use crate::{
     common::PeerType,
     connection::{
-        async_adapter::{DecryptStream, HandshakeStreamSink, PayloadSize},
+        async_adapter::{DecryptStream, HandshakeStreamSink, PayloadSize, NOISE_MAX_MESSAGE_LEN},
         fails::{MessageTooBigError, StreamWouldBlock, UnwantedMessageError},
         Readiness,
     },
@@ -17,8 +17,6 @@ use std::{
     io::{ErrorKind, Read},
     sync::{Arc, RwLock},
 };
-
-const DEFAULT_MESSAGE_SIZE: usize = 65_536;
 
 /// A stream to receive and decrypt messages over an asynchronous `Read`.
 ///
@@ -67,7 +65,7 @@ pub struct FrameStream {
     handshaker: Option<Arc<RwLock<HandshakeStreamSink>>>,
     decryptor:  Option<DecryptStream>,
     peer_type:  PeerType,
-    buffer:     [u8; DEFAULT_MESSAGE_SIZE],
+    buffer:     [u8; NOISE_MAX_MESSAGE_LEN],
 
     message:       Vec<u8>,
     expected_size: PayloadSize,
@@ -82,7 +80,7 @@ impl FrameStream {
             handshaker: Some(handshaker),
             decryptor: None,
             peer_type,
-            buffer: [0u8; DEFAULT_MESSAGE_SIZE],
+            buffer: [0u8; NOISE_MAX_MESSAGE_LEN],
             message: Vec::with_capacity(std::mem::size_of::<PayloadSize>()),
             expected_size: 0,
             is_validated: false,
@@ -131,7 +129,7 @@ impl FrameStream {
             // Pre-allocate some space. We don't allocate the expected size in order to
             // reduce the memory foot-print during transmission and the impact
             // of invalid packages.
-            let pre_alloc_size = std::cmp::min(DEFAULT_MESSAGE_SIZE, self.expected_size as usize);
+            let pre_alloc_size = std::cmp::min(NOISE_MAX_MESSAGE_LEN, self.expected_size as usize);
             self.message.reserve(pre_alloc_size);
 
             // Read data next...
@@ -145,7 +143,7 @@ impl FrameStream {
     /// Once we know the message expected size, we can start to receive data.
     fn read_payload(&mut self, input: &mut impl Read) -> Fallible<Readiness<HybridBuf>> {
         // Read no more than expected, directly into our buffer
-        while self.read_intermediate(input)? >= DEFAULT_MESSAGE_SIZE {
+        while self.read_intermediate(input)? >= NOISE_MAX_MESSAGE_LEN {
             // Validation only on encrypted channels.
             if self.decryptor.is_some() && !self.is_validated {
                 match self.validate() {
@@ -207,7 +205,7 @@ impl FrameStream {
 
     fn read_intermediate(&mut self, input: &mut impl Read) -> Fallible<usize> {
         let pending_bytes = self.expected_size - self.message.len() as u32;
-        let max_buff = std::cmp::min(pending_bytes as usize, DEFAULT_MESSAGE_SIZE);
+        let max_buff = std::cmp::min(pending_bytes as usize, NOISE_MAX_MESSAGE_LEN);
 
         match input.read(&mut self.buffer[..max_buff]) {
             Ok(read_bytes) => {

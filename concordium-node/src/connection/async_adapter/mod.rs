@@ -29,10 +29,9 @@ impl<T> Readiness<T> {
 
 type PayloadSize = u32;
 
-const SNOW_MAXMSGLEN: usize = 65_535;
-const SNOW_TAGLEN: usize = 16;
-
-pub const MAX_NOISE_PROTOCOL_MESSAGE_LEN: usize = SNOW_MAXMSGLEN - SNOW_TAGLEN;
+const NOISE_MAX_MESSAGE_LEN: usize = 64 * 1024;
+const NOISE_AUTH_TAG_LEN: usize = 16;
+const NOISE_MAX_PAYLOAD_LEN: usize = NOISE_MAX_MESSAGE_LEN - NOISE_AUTH_TAG_LEN;
 
 /// It tries to copy as much as possible from `input` to `output` in a
 /// streaming fashion. It is used with `socket` that blocks them when

@@ -1,5 +1,5 @@
 use crate::connection::async_adapter::{
-    MAX_NOISE_PROTOCOL_MESSAGE_LEN, SNOW_MAXMSGLEN, SNOW_TAGLEN,
+    NOISE_AUTH_TAG_LEN, NOISE_MAX_MESSAGE_LEN, NOISE_MAX_PAYLOAD_LEN,
 };
 use concordium_common::hybrid_buf::HybridBuf;
 
@@ -38,8 +38,8 @@ impl DecryptStream {
         Self {
             session,
             full_output_buffer: BufWriter::new(Default::default()),
-            encrypted_chunk_buffer: vec![0; SNOW_MAXMSGLEN],
-            plaintext_chunk_buffer: vec![0; MAX_NOISE_PROTOCOL_MESSAGE_LEN],
+            encrypted_chunk_buffer: vec![0; NOISE_MAX_MESSAGE_LEN],
+            plaintext_chunk_buffer: vec![0; NOISE_MAX_PAYLOAD_LEN],
         }
     }
 
@@ -56,7 +56,7 @@ impl DecryptStream {
         let last_chunk_size = input.read_u32::<NetworkEndian>()? as usize;
 
         for idx in 0..num_full_chunks {
-            self.decrypt_chunk(idx, SNOW_MAXMSGLEN, nonce, &mut input)?;
+            self.decrypt_chunk(idx, NOISE_MAX_MESSAGE_LEN, nonce, &mut input)?;
         }
 
         if last_chunk_size > 0 {
@@ -79,14 +79,14 @@ impl DecryptStream {
         nonce: u64,
         input: &mut R,
     ) -> Fallible<()> {
-        debug_assert!(chunk_size <= SNOW_MAXMSGLEN);
+        debug_assert!(chunk_size <= NOISE_MAX_MESSAGE_LEN);
 
         input.read_exact(&mut self.encrypted_chunk_buffer[..chunk_size])?;
 
         match read_or_die!(self.session).read_message_with_nonce(
             nonce,
             &self.encrypted_chunk_buffer[..chunk_size],
-            &mut self.plaintext_chunk_buffer[..(chunk_size - SNOW_TAGLEN)],
+            &mut self.plaintext_chunk_buffer[..(chunk_size - NOISE_AUTH_TAG_LEN)],
         ) {
             Ok(len) => {
                 debug_assert!(
@@ -96,7 +96,7 @@ impl DecryptStream {
                     len,
                     chunk_size
                 );
-                debug_assert!(len <= MAX_NOISE_PROTOCOL_MESSAGE_LEN);
+                debug_assert!(len <= NOISE_MAX_PAYLOAD_LEN);
 
                 self.full_output_buffer
                     .write_all(&self.plaintext_chunk_buffer[..len])?;

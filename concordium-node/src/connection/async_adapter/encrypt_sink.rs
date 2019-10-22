@@ -1,5 +1,5 @@
 use crate::connection::async_adapter::{
-    partial_copy, PayloadSize, Readiness, MAX_NOISE_PROTOCOL_MESSAGE_LEN, SNOW_MAXMSGLEN,
+    partial_copy, PayloadSize, Readiness, NOISE_MAX_MESSAGE_LEN, NOISE_MAX_PAYLOAD_LEN,
 };
 
 use concordium_common::hybrid_buf::HybridBuf;
@@ -68,8 +68,8 @@ impl EncryptSink {
             messages: VecDeque::new(),
             written_bytes: 0,
             full_output_buffer: BufWriter::new(Default::default()),
-            plaintext_chunk_buffer: vec![0u8; MAX_NOISE_PROTOCOL_MESSAGE_LEN],
-            encrypted_chunk_buffer: vec![0u8; SNOW_MAXMSGLEN],
+            plaintext_chunk_buffer: vec![0u8; NOISE_MAX_PAYLOAD_LEN],
+            encrypted_chunk_buffer: vec![0u8; NOISE_MAX_MESSAGE_LEN],
         }
     }
 
@@ -93,8 +93,7 @@ impl EncryptSink {
         input.seek(SeekFrom::Start(curr_pos))?;
 
         while curr_pos != eof {
-            let chunk_size =
-                std::cmp::min(MAX_NOISE_PROTOCOL_MESSAGE_LEN, (eof - curr_pos) as usize);
+            let chunk_size = std::cmp::min(NOISE_MAX_PAYLOAD_LEN, (eof - curr_pos) as usize);
             input.read_exact(&mut self.plaintext_chunk_buffer[..chunk_size])?;
 
             let len = session_reader.write_message_with_nonce(
@@ -148,12 +147,12 @@ impl EncryptSink {
 
         // 2. Write Chunk index table: num of full chunks (64K) + size of latest
         // 2.1. Number of full chunks.
-        let num_full_chunks = encrypted_len / SNOW_MAXMSGLEN;
+        let num_full_chunks = encrypted_len / NOISE_MAX_MESSAGE_LEN;
         self.full_output_buffer
             .write_u32::<NetworkEndian>(num_full_chunks as PayloadSize)?;
 
         // 2.2. Size of the last chunk.
-        let last_chunk_size = encrypted_len - (num_full_chunks * SNOW_MAXMSGLEN);
+        let last_chunk_size = encrypted_len - (num_full_chunks * NOISE_MAX_MESSAGE_LEN);
         debug_assert!(last_chunk_size <= PayloadSize::max_value() as usize);
         self.full_output_buffer
             .write_u32::<NetworkEndian>(last_chunk_size as PayloadSize)?;

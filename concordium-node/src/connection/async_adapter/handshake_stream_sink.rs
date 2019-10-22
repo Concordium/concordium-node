@@ -1,5 +1,5 @@
 use crate::connection::async_adapter::{
-    partial_copy, PayloadSize, Readiness, PRE_SHARED_KEY, PROLOGUE,
+    partial_copy, PayloadSize, Readiness, NOISE_MAX_MESSAGE_LEN, PRE_SHARED_KEY, PROLOGUE,
 };
 
 use concordium_common::hybrid_buf::HybridBuf;
@@ -14,8 +14,6 @@ use std::{
     io::Write,
     sync::{Arc, RwLock},
 };
-
-const HANDSHAKE_BUFFER_SIZE: usize = 64 * 1024;
 
 /// State of the *IKpsk2* handshake:
 /// ```ignore
@@ -42,7 +40,7 @@ pub struct HandshakeStreamSink {
     noise_session:     Option<Session>,
     transport_session: Option<TransportSession>,
     noise_params:      snow::params::NoiseParams,
-    buffer:            [u8; HANDSHAKE_BUFFER_SIZE],
+    buffer:            [u8; NOISE_MAX_MESSAGE_LEN],
 
     // Sink
     send_queue:         VecDeque<HybridBuf>,
@@ -93,7 +91,7 @@ impl HandshakeStreamSink {
             noise_session,
             transport_session: None,
             noise_params,
-            buffer: [0u8; HANDSHAKE_BUFFER_SIZE],
+            buffer: [0u8; NOISE_MAX_MESSAGE_LEN],
             send_queue,
             last_written_bytes: 0,
         }
