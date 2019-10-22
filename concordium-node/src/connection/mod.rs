@@ -707,9 +707,7 @@ mod tests {
     use crate::{
         common::PeerType,
         connection::Readiness,
-        test_utils::{
-            await_handshake, connect, make_node_and_sync, next_available_port, setup_logger,
-        },
+        test_utils::{await_handshake, connect, make_node_and_sync, next_available_port},
     };
     use failure::Fallible;
     use rand::{distributions::Standard, thread_rng, Rng};
@@ -765,8 +763,6 @@ mod tests {
     // and the buffer is not filled by other threads.
     #[test]
     fn test_validate_packet_type() -> Fallible<()> {
-        setup_logger();
-
         // Create connections
         let node = make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
         let bootstrapper =

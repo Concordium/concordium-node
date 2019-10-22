@@ -1523,8 +1523,6 @@ mod tests {
 
     #[test]
     fn test_join_network() -> Fallible<()> {
-        setup_logger();
-
         let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
         let port = next_available_port();
         let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;

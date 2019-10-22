@@ -30,7 +30,7 @@ extern crate ipconfig;
 extern crate failure;
 
 #[macro_use]
-#[cfg(test)]
+#[cfg(all(test, not(feature = "s11n_capnp")))]
 extern crate quickcheck;
 
 #[macro_use]
@@ -39,6 +39,15 @@ extern crate concordium_common;
 #[cfg(feature = "s11n_serde")]
 #[macro_use]
 extern crate serde_derive;
+
+#[cfg(feature = "s11n_serde_cbor")]
+extern crate serde_cbor;
+
+#[cfg(feature = "s11n_capnp")]
+extern crate capnp;
+
+#[cfg(feature = "s11n_fbs")]
+extern crate flatbuffers;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const APPNAME: &str = env!("CARGO_PKG_NAME");
@@ -71,4 +80,5 @@ pub mod test_utils;
 #[cfg(feature = "s11n_capnp")]
 pub mod p2p_capnp;
 
+#[cfg(feature = "s11n_fbs")]
 pub mod flatbuffers_shim;
