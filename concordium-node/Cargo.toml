@@ -94,9 +94,6 @@ nohash-hasher = "^0.1"
 
 [target.'cfg(windows)'.dependencies]
 ipconfig = { version = "^0.1.9" }
-grpciowin = { package = 'grpcio', version = "0.4.0", default-features = false, features = [
-  "protobuf-codec"
-], path = "deps/windows/grpc-rs-0.4.0" }
 grpc = "0.6.1"
 
 [target.'cfg(unix)'.dependencies]
