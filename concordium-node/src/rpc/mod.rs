@@ -413,6 +413,10 @@ impl P2P for RpcServerImpl {
                                     )),
                                 ))
                                 .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+                            error!(
+                                "Consensus didn't accept transaction via gRPC due to {:?}",
+                                e
+                            );
                             ctx.spawn(f);
                         }
                     }
