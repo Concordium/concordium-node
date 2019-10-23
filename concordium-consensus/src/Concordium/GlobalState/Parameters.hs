@@ -21,29 +21,17 @@ import Control.Monad.Fail
 import Control.Monad hiding (fail)
 
 import Concordium.Types
-import Concordium.Crypto.FFIDataTypes
+import Concordium.ID.Parameters(GlobalContext)
 import Concordium.GlobalState.Bakers
-import Concordium.GlobalState.SeedState
 import Concordium.GlobalState.IdentityProviders
+import Concordium.GlobalState.SeedState
 import qualified Concordium.ID.Account as ID
 
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Aeson as AE
 import Data.Aeson.Types (FromJSON(..), (.:), (.:?), (.!=), withObject)
 
--- |Cryptographic parameters needed to verify on-chain proofs, e.g.,
--- group parameters (generators), commitment keys, in the future also
--- common reference strings, etc.
-data CryptographicParameters = CryptographicParameters {
-  -- |Generator of the group used for elgamal encryption, also serving as the
-  -- base of the discrete logarithm parameter in the dlog sigma protocol.
-  elgamalGenerator :: ElgamalGen,
-  -- |Commitment key used to construct pedersen commitments to individual
-  -- attributes of the attribute list.
-  attributeCommitmentKey :: PedersenKey
-} deriving (Show, Generic)
-
-instance Serialize CryptographicParameters where
+type CryptographicParameters = GlobalContext
 
 data BirkParameters = BirkParameters {
     _birkElectionDifficulty :: ElectionDifficulty,
@@ -104,22 +92,16 @@ data GenesisData = GenesisData {
     genesisSpecialBetaAccounts :: [Account],
     genesisFinalizationParameters :: FinalizationParameters,
     genesisCryptographicParameters :: CryptographicParameters,
-    genesisIdentityProviders :: [IdentityProviderData],
+    genesisIdentityProviders :: [IpInfo],
     genesisMintPerSlot :: Amount
 } deriving (Generic, Show)
 
 instance Serialize GenesisData where
 
-instance FromJSON CryptographicParameters where
-  parseJSON = withObject "CryptoGraphicParameters" $ \v ->
-    do elgamalGenerator <- v .: "dLogBaseChain"
-       attributeCommitmentKey <- v .: "onChainCommitmentKey"
-       return CryptographicParameters{..}
-
-readIdentityProviders :: BSL.ByteString -> Maybe [IdentityProviderData]
+readIdentityProviders :: BSL.ByteString -> Maybe [IpInfo]
 readIdentityProviders = AE.decode
 
-eitherReadIdentityProviders :: BSL.ByteString -> Either String [IdentityProviderData]
+eitherReadIdentityProviders :: BSL.ByteString -> Either String [IpInfo]
 eitherReadIdentityProviders = AE.eitherDecode
 
 readCryptographicParameters :: BSL.ByteString -> Maybe CryptographicParameters
@@ -186,7 +168,7 @@ data GenesisParameters = GenesisParameters {
     gpFinalizationMinimumSkip :: BlockHeight,
     gpBakers :: [GenesisBaker],
     gpCryptographicParameters :: CryptographicParameters,
-    gpIdentityProviders :: [IdentityProviderData],
+    gpIdentityProviders :: [IpInfo],
     gpBetaAccounts :: [GenesisAccount],
     gpMintPerSlot :: Amount
 }
