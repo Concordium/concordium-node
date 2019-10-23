@@ -21,7 +21,7 @@ use concordium_consensus::{
     consensus::{ConsensusContainer, ConsensusLogLevel, CALLBACK_QUEUE},
     ffi,
 };
-use concordium_global_state::tree::GlobalState;
+use concordium_global_state::tree::{GlobalState, Peers};
 use p2p_client::{
     client::{
         plugins::{self, consensus::*},
@@ -126,7 +126,7 @@ fn main() -> Fallible<()> {
 
     let consensus = plugins::consensus::start_consensus_layer(
         &conf.cli.baker,
-        &global_state,
+        global_state,
         gen_data,
         prov_data,
         if conf.common.trace {
@@ -162,7 +162,7 @@ fn main() -> Fallible<()> {
     //
     // Thread #3 (#4): read P2PNode output
     let (global_state_inbound_thread, global_state_outbound_thread) =
-        start_global_state_threads(&node, &conf, consensus.clone(), global_state);
+        start_global_state_threads(&node, &conf, consensus.clone(), Peers::new());
 
     info!(
         "Concordium P2P layer. Network disabled: {}",
@@ -312,14 +312,15 @@ fn start_global_state_threads(
     node: &Arc<P2PNode>,
     conf: &config::Config,
     consensus: ConsensusContainer,
-    mut gsptr: GlobalState,
+    mut gspeers: Peers,
 ) -> (std::thread::JoinHandle<()>, std::thread::JoinHandle<()>) {
     let node_in_ref = Arc::clone(node);
     let mut consensus_in_ref = consensus.clone();
     let nid_in = NetworkId::from(conf.common.network_ids[0]); // defaulted so there's always first()
     let global_state_inbound_thread = spawn_or_die!("Process inbound global state requests", {
         // don't do anything until the peer number is within the desired range
-        while node_in_ref.get_node_peer_ids().len() > node_in_ref.config.max_allowed_nodes as usize {
+        while node_in_ref.get_node_peer_ids().len() > node_in_ref.config.max_allowed_nodes as usize
+        {
             thread::sleep(Duration::from_secs(1));
         }
 
@@ -332,11 +333,13 @@ fn start_global_state_threads(
             loop_interval_in = 200;
 
             if node_in_ref.last_peer_update() > last_peer_list_update {
-                update_peer_list(&node_in_ref, &mut gsptr);
+                update_peer_list(&node_in_ref, &mut gspeers);
                 last_peer_list_update = get_current_stamp();
             }
 
-            if let Err(e) = check_peer_states(&node_in_ref, nid_in, &mut consensus_in_ref, &mut gsptr) {
+            if let Err(e) =
+                check_peer_states(&node_in_ref, nid_in, &mut consensus_in_ref, &mut gspeers)
+            {
                 error!("Couldn't update the catch-up peer list: {}", e);
             }
 
@@ -344,12 +347,12 @@ fn start_global_state_threads(
                 match message {
                     QueueMsg::Relay(msg) => {
                         let msg_type = msg.variant;
-                        if let Err(e) = handle_consensus_message(
+                        if let Err(e) = handle_consensus_inbound_message(
                             &node_in_ref,
                             nid_in,
                             &mut consensus_in_ref,
                             msg,
-                            &mut gsptr,
+                            &mut gspeers,
                         ) {
                             error!("There's an issue with a global state request: {}", e);
                         } else {
@@ -381,12 +384,12 @@ fn start_global_state_threads(
                 if let Ok(message) = consensus_receiver_in_lo.try_recv() {
                     match message {
                         QueueMsg::Relay(msg) => {
-                            if let Err(e) = handle_consensus_message(
+                            if let Err(e) = handle_consensus_inbound_message(
                                 &node_in_ref,
                                 nid_in,
                                 &mut consensus_in_ref,
                                 msg,
-                                &mut gsptr,
+                                &mut gspeers,
                             ) {
                                 error!("There's an issue with a global state request: {}", e);
                             }
@@ -409,11 +412,12 @@ fn start_global_state_threads(
     });
 
     let node_out_ref = Arc::clone(node);
-    let mut consensus_out_ref = consensus.clone();
     let nid_out = NetworkId::from(conf.common.network_ids[0]); // defaulted so there's always first()
     let global_state_outbound_thread = spawn_or_die!("Process outbound global state requests", {
         // don't do anything until the peer number is within the desired range
-        while node_out_ref.get_node_peer_ids().len() > node_out_ref.config.max_allowed_nodes as usize {
+        while node_out_ref.get_node_peer_ids().len()
+            > node_out_ref.config.max_allowed_nodes as usize
+        {
             thread::sleep(Duration::from_secs(1));
         }
 
@@ -428,13 +432,9 @@ fn start_global_state_threads(
                 match message {
                     QueueMsg::Relay(msg) => {
                         let msg_type = msg.variant;
-                        if let Err(e) = handle_consensus_message(
-                            &node_out_ref,
-                            nid_out,
-                            &mut consensus_out_ref,
-                            msg,
-                            &mut gsptr,
-                        ) {
+                        if let Err(e) =
+                            handle_consensus_outbound_message(&node_out_ref, nid_out, msg)
+                        {
                             error!("There's an issue with a global state request: {}", e);
                         } else {
                             loop_interval_out = match msg_type {
@@ -465,13 +465,9 @@ fn start_global_state_threads(
                 if let Ok(message) = consensus_receiver_out_lo.try_recv() {
                     match message {
                         QueueMsg::Relay(msg) => {
-                            if let Err(e) = handle_consensus_message(
-                                &node_out_ref,
-                                nid_out,
-                                &mut consensus_out_ref,
-                                msg,
-                                &mut gsptr,
-                            ) {
+                            if let Err(e) =
+                                handle_consensus_outbound_message(&node_out_ref, nid_out, msg)
+                            {
                                 error!("There's an issue with a global state request: {}", e);
                             }
                         }

@@ -168,7 +168,7 @@ impl ConsensusContainer {
         genesis_data: Vec<u8>,
         private_data: Option<Vec<u8>>,
         baker_id: Option<BakerId>,
-        gsptr: &GlobalState,
+        gsptr: GlobalState,
         max_log_level: ConsensusLogLevel,
     ) -> Self {
         info!("Starting up the consensus layer");

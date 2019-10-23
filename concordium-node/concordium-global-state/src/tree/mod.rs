@@ -54,6 +54,20 @@ impl PartialOrd for PeerState {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> { Some(self.cmp(other)) }
 }
 
+pub struct Peers {
+    pub peers:          PriorityQueue<PeerId, PeerState, BuildNoHashHasher<PeerId>>,
+    pub catch_up_stamp: u64,
+}
+
+impl Peers {
+    pub fn new() -> Self {
+        Self {
+            peers:          Default::default(),
+            catch_up_stamp: 0,
+        }
+    }
+}
+
 pub mod messaging;
 
 use messaging::{ConsensusMessage, GlobalStateError};
@@ -63,10 +77,8 @@ use self::PendingQueueType::*;
 /// Holds the global state and related statistics.
 #[repr(C)]
 pub struct GlobalState {
-    pub data:           GlobalData,
-    pub peers:          PriorityQueue<PeerId, PeerState, BuildNoHashHasher<PeerId>>,
-    pub catch_up_stamp: u64,
-    pub stats:          GlobalStats,
+    pub data:  GlobalData,
+    pub stats: GlobalStats,
 }
 
 /// Returns a result of an operation and its duration.
@@ -92,10 +104,8 @@ impl GlobalState {
         const MOVING_AVERAGE_QUEUE_LEN: usize = 16;
 
         Self {
-            data:           GlobalData::new(genesis_data, kvs, persistent),
-            peers:          Default::default(),
-            catch_up_stamp: 0,
-            stats:          GlobalStats::new(MOVING_AVERAGE_QUEUE_LEN),
+            data:  GlobalData::new(genesis_data, kvs, persistent),
+            stats: GlobalStats::new(MOVING_AVERAGE_QUEUE_LEN),
         }
     }
 
