@@ -131,6 +131,6 @@ checkAccountCreationResult (suc, fails, stateAccs, stateAles, bankState) =
 
 tests :: Spec
 tests =
-  describe "Account creation" $ do
+  xdescribe "Account creation" $ do
     specify "3 accounts created, fourth rejected, one more created, a credential deployed, and out of gas " $ do
       PR.evalContext Init.initialContextData testAccountCreation `shouldReturnP` checkAccountCreationResult
