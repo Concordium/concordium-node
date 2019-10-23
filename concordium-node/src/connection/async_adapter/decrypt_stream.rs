@@ -11,7 +11,6 @@ use std::{
     convert::From,
     io::{BufWriter, Read, Seek, SeekFrom, Write},
     mem,
-    sync::{Arc, RwLock},
 };
 
 /// It is a `stream` that decrypts data using `snow` session.
@@ -26,7 +25,6 @@ use std::{
 ///     - List of the size of each chunk: as `unsigned of 32 bit` in
 ///       `NetworkEndian`. It is omitted if there is only one chunk.
 pub struct DecryptStream {
-    session:                Arc<RwLock<Session>>,
     full_output_buffer:     BufWriter<HybridBuf>,
     encrypted_chunk_buffer: Vec<u8>,
     plaintext_chunk_buffer: Vec<u8>,
@@ -34,10 +32,9 @@ pub struct DecryptStream {
 
 impl DecryptStream {
     /// Session HAS to be shared by `decrypt` stream and `encrypt` sink.
-    pub fn new(session: Arc<RwLock<Session>>) -> Self {
+    pub fn new() -> Self {
         Self {
-            session,
-            full_output_buffer: BufWriter::new(Default::default()),
+            full_output_buffer:     BufWriter::new(Default::default()),
             encrypted_chunk_buffer: vec![0; NOISE_MAX_MESSAGE_LEN],
             plaintext_chunk_buffer: vec![0; NOISE_MAX_PAYLOAD_LEN],
         }
@@ -47,7 +44,11 @@ impl DecryptStream {
     ///
     /// # Return
     /// The decrypted message.
-    fn decrypt<R: Read + Seek>(&mut self, mut input: R) -> Fallible<HybridBuf> {
+    pub fn decrypt<R: Read + Seek>(
+        &mut self,
+        session: &Session,
+        mut input: R,
+    ) -> Fallible<HybridBuf> {
         // 0. Read NONCE.
         let nonce = input.read_u64::<NetworkEndian>()?;
 
@@ -56,11 +57,11 @@ impl DecryptStream {
         let last_chunk_size = input.read_u32::<NetworkEndian>()? as usize;
 
         for idx in 0..num_full_chunks {
-            self.decrypt_chunk(idx, NOISE_MAX_MESSAGE_LEN, nonce, &mut input)?;
+            self.decrypt_chunk(session, idx, NOISE_MAX_MESSAGE_LEN, nonce, &mut input)?;
         }
 
         if last_chunk_size > 0 {
-            self.decrypt_chunk(num_full_chunks, last_chunk_size, nonce, &mut input)?;
+            self.decrypt_chunk(session, num_full_chunks, last_chunk_size, nonce, &mut input)?;
         }
 
         // rewind the buffer
@@ -74,6 +75,7 @@ impl DecryptStream {
 
     fn decrypt_chunk<R: Read + Seek>(
         &mut self,
+        session: &Session,
         chunk_idx: usize,
         chunk_size: usize,
         nonce: u64,
@@ -83,7 +85,7 @@ impl DecryptStream {
 
         input.read_exact(&mut self.encrypted_chunk_buffer[..chunk_size])?;
 
-        match read_or_die!(self.session).read_message_with_nonce(
+        match session.read_message_with_nonce(
             nonce,
             &self.encrypted_chunk_buffer[..chunk_size],
             &mut self.plaintext_chunk_buffer[..(chunk_size - NOISE_AUTH_TAG_LEN)],
@@ -108,8 +110,4 @@ impl DecryptStream {
             }
         }
     }
-
-    /// It is just a helper function to keep a coherent interface.
-    #[inline]
-    pub fn read<R: Read + Seek>(&mut self, input: R) -> Fallible<HybridBuf> { self.decrypt(input) }
 }

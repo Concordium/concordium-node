@@ -6,7 +6,7 @@ mod async_adapter;
 mod low_level;
 
 pub use crate::p2p::{Networks, P2PNode};
-pub use async_adapter::{FrameSink, FrameStream, HandshakeStreamSink, Readiness};
+pub use async_adapter::{FrameStream, HandshakeStreamSink, Readiness};
 use low_level::ConnectionLowLevel;
 pub use p2p_event::P2PEvent;
 
@@ -125,7 +125,6 @@ impl Connection {
         socket: TcpStream,
         token: Token,
         remote_peer: RemotePeer,
-        local_peer_type: PeerType,
         key_pair: Keypair,
         is_initiator: bool,
         noise_params: snow::params::NoiseParams,
@@ -133,7 +132,6 @@ impl Connection {
         let curr_stamp = get_current_stamp();
 
         let low_level = RwLock::new(ConnectionLowLevel::new(
-            local_peer_type,
             socket,
             key_pair,
             is_initiator,
@@ -384,7 +382,7 @@ impl Connection {
 
         self.send_to_dump(&input, false);
 
-        write_or_die!(self.low_level).write_to_sink(input)
+        write_or_die!(self.low_level).write_to_socket(input)
     }
 
     pub fn update_last_seen(&self) {

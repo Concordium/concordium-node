@@ -27,11 +27,11 @@ impl<T> Readiness<T> {
     }
 }
 
-type PayloadSize = u32;
+pub type PayloadSize = u32;
 
-const NOISE_MAX_MESSAGE_LEN: usize = 64 * 1024;
+pub const NOISE_MAX_MESSAGE_LEN: usize = 64 * 1024;
 const NOISE_AUTH_TAG_LEN: usize = 16;
-const NOISE_MAX_PAYLOAD_LEN: usize = NOISE_MAX_MESSAGE_LEN - NOISE_AUTH_TAG_LEN;
+pub const NOISE_MAX_PAYLOAD_LEN: usize = NOISE_MAX_MESSAGE_LEN - NOISE_AUTH_TAG_LEN;
 
 /// It tries to copy as much as possible from `input` to `output` in a
 /// streaming fashion. It is used with `socket` that blocks them when
@@ -64,9 +64,6 @@ pub use decrypt_stream::DecryptStream;
 
 mod encrypt_sink;
 pub use encrypt_sink::EncryptSink;
-
-mod frame_sink;
-pub use frame_sink::FrameSink;
 
 mod frame_stream;
 pub use frame_stream::FrameStream;
