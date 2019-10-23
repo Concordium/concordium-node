@@ -115,7 +115,7 @@ makeTransaction inc ca n = Runner.signTx mateuszKP header payload
 initialState :: BirkParameters
              -> CryptographicParameters
              -> [Account]
-             -> [Types.IdentityProviderData]
+             -> [Types.IpInfo]
              -> Int
              -> BlockState.BlockState
 initialState birkParams cryptoParams bakerAccounts ips n =

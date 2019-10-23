@@ -58,30 +58,6 @@ accountVFKeyFrom = verifyKey . fst . randomKeyPair . mkStdGen
 mkAccount ::AccountVerificationKey -> Amount -> Account
 mkAccount vfKey amnt = (newAccount vfKey Ed25519) {_accountAmount = amnt}
 
-
--- |Make a dummy credential deployment information from an account registration
--- id and sequential registration id. All the proofs are dummy values, and there
--- is no anoymity revocation data.
-mkDummyCDI :: AccountVerificationKey -> Int -> CredentialDeploymentInformation
-mkDummyCDI vfKey nregId =
-    CredentialDeploymentInformation {
-        cdiValues = CredentialDeploymentValues {
-            cdvVerifyKey = vfKey
-            ,cdvSigScheme = Ed25519
-            ,cdvRegId = let d = show nregId
-                            l = length d
-                            pad = replicate (48-l) '0'
-                        in RegIdCred (FBS.pack . map (fromIntegral . fromEnum) $ (pad ++ d))
-            ,cdvIpId = IP_ID 0
-            ,cdvPolicy = Policy 0 0 []
-            ,cdvArData = AnonymityRevocationData {
-                ardName = ARName 13,
-                ardIdCredPubEnc = undefined -- FIXME
-                }
-            },
-          cdiProofs = Proofs "proof"
-        }
-
 emptyBirkParameters :: BirkParameters
 emptyBirkParameters = BirkParameters {
   _birkElectionDifficulty = 0.5,

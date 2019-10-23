@@ -455,20 +455,14 @@ handleDeployCredential senderAccount meta cdiBytes cdi =
             -- Of course if it does not exist we reject the transaction.
             getIPInfo (ID.cdvIpId cdv) >>= \case
               Nothing -> return $! TxReject (NonExistentIdentityProvider (ID.cdvIpId cdv)) energyCost usedEnergy
-              Just IdentityProviderData{ipArInfo=AnonymityRevokerData{..},..} -> do
-                CryptographicParameters{..} <- getCrypoParams
+              Just ipInfo -> do
+                cryptoParams <- getCrypoParams
                 -- first check whether an account with the address exists in the global store
                 let aaddr = AH.accountAddress (ID.cdvVerifyKey cdv) (ID.cdvSigScheme cdv)
                 getAccount aaddr >>= \case
                   Nothing ->  -- account does not yet exist, so create it, but we need to be careful
                     let account = newAccount (ID.cdvVerifyKey cdv) (ID.cdvSigScheme cdv)
-                    in if AH.verifyCredential
-                          elgamalGenerator
-                          attributeCommitmentKey
-                          ipVerifyKey
-                          arElgamalGenerator
-                          arPublicKey
-                          cdiBytes then do
+                    in if AH.verifyCredential cryptoParams ipInfo cdiBytes then do
                              _ <- putNewAccount account -- first create new account, but only if credential was valid.
                                                         -- We know the address does not yet exist.
                              addAccountCredential account cdv  -- and then add the credentials
@@ -476,13 +470,7 @@ handleDeployCredential senderAccount meta cdiBytes cdi =
                        else return $! TxReject AccountCredentialInvalid energyCost usedEnergy
      
                   Just account -> -- otherwise we just try to add a credential to the account
-                            if AH.verifyCredential
-                               elgamalGenerator
-                               attributeCommitmentKey
-                               ipVerifyKey
-                               arElgamalGenerator
-                               arPublicKey
-                               cdiBytes then do
+                            if AH.verifyCredential cryptoParams ipInfo cdiBytes then do
                               addAccountCredential account cdv
                               return $! TxSuccess [CredentialDeployed cdv] energyCost usedEnergy
                             else

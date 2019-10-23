@@ -153,7 +153,7 @@ class StaticEnvironmentMonad Core.UA m => SchedulerMonad m where
   -- *Other metadata.
 
   -- |Retrieve the identity provider with given id, if possible.
-  getIPInfo :: IdentityProviderIdentity -> m (Maybe IdentityProviderData)
+  getIPInfo :: IdentityProviderIdentity -> m (Maybe IpInfo)
 
   -- |Get cryptographic parameters for the current state.
   getCrypoParams :: m CryptographicParameters
