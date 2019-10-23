@@ -280,7 +280,7 @@ class BlockStateQuery m => BlockStateOperations m where
 
   -- |Get the identity provider data for the given identity provider, or Nothing if
   -- the identity provider with given ID does not exist.
-  bsoGetIdentityProvider :: UpdatableBlockState m -> ID.IdentityProviderIdentity -> m (Maybe IdentityProviderData)
+  bsoGetIdentityProvider :: UpdatableBlockState m -> ID.IdentityProviderIdentity -> m (Maybe IpInfo)
 
   -- |Get the current cryptographic parameters. The idea is that these will be
   -- periodically updated and so they must be part of the block state.
