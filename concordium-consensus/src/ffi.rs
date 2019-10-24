@@ -42,9 +42,15 @@ static STOPPED: AtomicBool = AtomicBool::new(false);
 /// The runtime will automatically be shutdown at program exit, or you can stop
 /// it earlier with `stop`.
 #[cfg(all(not(windows), feature = "profiling"))]
-pub fn start_haskell(heap: &str, time: bool, exceptions: bool, gc_log: Option<String>) {
+pub fn start_haskell(
+    heap: &str,
+    time: bool,
+    exceptions: bool,
+    gc_log: Option<String>,
+    profile_sampling_interval: f64,
+) {
     START_ONCE.call_once(|| {
-        start_haskell_init(heap, time, exceptions, gc_log);
+        start_haskell_init(heap, time, exceptions, gc_log, profile_sampling_interval);
         unsafe {
             ::libc::atexit(stop_nopanic);
         }
@@ -62,11 +68,17 @@ pub fn start_haskell() {
 }
 
 #[cfg(all(not(windows), feature = "profiling"))]
-fn start_haskell_init(heap: &str, time: bool, exceptions: bool, gc_log: Option<String>) {
+fn start_haskell_init(
+    heap: &str,
+    time: bool,
+    exceptions: bool,
+    gc_log: Option<String>,
+    profile_sampling_interval: f64,
+) {
     let program_name = std::env::args().take(1).next().unwrap();
     let mut args = vec![program_name.to_owned()];
 
-    if heap != "none" || time || gc_log.is_some() {
+    if heap != "none" || time || gc_log.is_some() || profile_sampling_interval != 0.1 {
         args.push("+RTS".to_owned());
         args.push("-L100".to_owned());
     }
@@ -88,6 +100,10 @@ fn start_haskell_init(heap: &str, time: bool, exceptions: bool, gc_log: Option<S
         _ => {
             error!("Wrong heap profiling option provided: {}", heap);
         }
+    }
+
+    if profile_sampling_interval != 0.1 {
+        args.push(format!("-i{}", profile_sampling_interval));
     }
 
     if time {
