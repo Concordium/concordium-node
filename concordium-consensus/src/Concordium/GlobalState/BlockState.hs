@@ -24,7 +24,6 @@ import Concordium.Types.Acorn.Core(ModuleRef)
 import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.Types.Acorn.Interfaces
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.SeedState
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Instances
 import Concordium.GlobalState.Modules hiding (getModule)

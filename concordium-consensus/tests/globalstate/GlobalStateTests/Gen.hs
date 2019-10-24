@@ -51,7 +51,7 @@ baseTime = read "2019-09-23 13:27:13.257285424 UTC"
 genTransaction' :: Gen Transaction
 genTransaction' = do
   trBareTransaction <- genTransaction
-  trArrivalTime <- flip addUTCTime baseTime . fromInteger <$> arbitrary
+  trArrivalTime <- arbitrary
   let body = encode trBareTransaction
   let trHash = hash body
   let trSize = BS.length body

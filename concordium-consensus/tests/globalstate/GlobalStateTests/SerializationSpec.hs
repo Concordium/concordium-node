@@ -38,8 +38,8 @@ checkTransactionWithSig tx = let bs = P.runPutLazy (put tx)
                     Left err -> counterexample err False
                     Right tx' -> QC.label (groupIntoSize (BS.length bs)) $ tx === trBareTransaction tx'
 
-dummyTime :: UTCTime
-dummyTime = UTCTime (toEnum 0) 0
+dummyTime :: TransactionTime
+dummyTime = 37
 
 checkTransactionWithRandomSig :: BareTransaction -> Property
 checkTransactionWithRandomSig tx = let bs = P.runPutLazy (put tx)
