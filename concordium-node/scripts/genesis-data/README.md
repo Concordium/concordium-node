@@ -16,7 +16,9 @@ The below expects the p2p-client source to be checked out at
 ```bash
 $> docker run -v $HOME/git/concordium/p2p-client:/p2p-client -t -i archlinux/base /bin/bash
 $> pacman -Syyu wget tar git
-$> cd /p2p-client
+$> cd /p2p-client/scripts/genesis-data
+$> tar xzf 60-bakers.tar.gz
+$> cd ../../
 $> scripts/genesis-data/generate-data-tps.sh
 $> exit # to exit the docker container```
 
