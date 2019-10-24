@@ -292,9 +292,8 @@ class BlockStateQuery m => BlockStateOperations m where
   -- |Add a special transaction outcome.
   bsoAddSpecialTransactionOutcome :: UpdatableBlockState m -> SpecialTransactionOutcome -> m (UpdatableBlockState m)
 
-  -- |Update the information used to construct the next leadership election nonce
-  bsoUpdateSeedState :: UpdatableBlockState m -> SeedState -> m (UpdatableBlockState m)
-
+  -- |Update the birk parameters of a block state
+  bsoUpdateBirkParameters :: UpdatableBlockState m -> BirkParameters -> m (UpdatableBlockState m)
 
 newtype BSMTrans t (m :: * -> *) a = BSMTrans (t m a)
     deriving (Functor, Applicative, Monad, MonadTrans)
@@ -352,7 +351,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoGetCryptoParams s = lift $ bsoGetCryptoParams s
   bsoSetTransactionOutcomes s = lift . bsoSetTransactionOutcomes s
   bsoAddSpecialTransactionOutcome s = lift . bsoAddSpecialTransactionOutcome s
-  bsoUpdateSeedState ss = lift . bsoUpdateSeedState ss
+  bsoUpdateBirkParameters bps = lift . bsoUpdateBirkParameters bps
   {-# INLINE bsoGetModule #-}
   {-# INLINE bsoGetAccount #-}
   {-# INLINE bsoGetInstance #-}
@@ -381,7 +380,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoGetCryptoParams #-}
   {-# INLINE bsoSetTransactionOutcomes #-}
   {-# INLINE bsoAddSpecialTransactionOutcome #-}
-  {-# INLINE bsoUpdateSeedState #-}
+  {-# INLINE bsoUpdateBirkParameters #-}
 
 type instance BlockPointer (MaybeT m) = BlockPointer m
 type instance UpdatableBlockState (MaybeT m) = UpdatableBlockState m
