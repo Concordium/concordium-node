@@ -48,7 +48,10 @@ type TransactionTime = Int64
 
 -- |Get time in seconds since the unix epoch.
 getTransactionTime :: IO TransactionTime
-getTransactionTime = floor . utcTimeToPOSIXSeconds <$> getCurrentTime
+getTransactionTime = utcTimeToTransactionTime <$> getCurrentTime
+
+utcTimeToTransactionTime :: UTCTime -> TransactionTime
+utcTimeToTransactionTime = floor . utcTimeToPOSIXSeconds
 
 -- | Data common to all transaction types.
 --
