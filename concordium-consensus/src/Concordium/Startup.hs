@@ -56,7 +56,7 @@ makeGenesisData genesisTime nBakers genesisSlotDuration elecDiff finMinSkip gene
                           genesisBakers
                           genesisBakers
                           genesisBakers
-                          (genesisSeedState (Hash.hash "LeadershipElectionNonce") 360) -- todo hardcoded epoch length (and initial seed)
+                          (genesisSeedState (Hash.hash "LeadershipElectionNonce") 10) -- todo hardcoded epoch length (and initial seed)
         genesisFinalizationParameters = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, BakerInfo vrfk vvk _ _) <- bakers] finMinSkip
         (bakers, genesisAccounts) = unzip (makeBakers nBakers)
 

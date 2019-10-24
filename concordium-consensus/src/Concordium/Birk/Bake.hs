@@ -48,7 +48,7 @@ instance Serialize BakerIdentity where
 processTransactions
     :: TreeStateMonad m
     => Slot
-    -> SeedState
+    -> BirkParameters
     -> BlockPointer m
     -> BlockPointer m
     -> BakerId
@@ -74,8 +74,9 @@ bakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     logEvent Baker LLInfo $ "Won lottery in " ++ show slot ++ "(lottery power: " ++ show lotteryPower ++ ")"
     nonce <- liftIO $ computeBlockNonce (_birkLeadershipElectionNonce birkParams)    slot bakerElectionKey
     lastFinal <- lastFinalizedBlock
-    let seedState'  = updateSeedState slot nonce _birkSeedState
-    (transactions, newState, energyUsed) <- processTransactions slot seedState' bb lastFinal bakerId
+    -- possibly add the block nonce in the seed state
+    let bps = birkParams{_birkSeedState = updateSeedState slot nonce _birkSeedState}
+    (transactions, newState, energyUsed) <- processTransactions slot bps bb lastFinal bakerId
     logEvent Baker LLInfo $ "Baked block"
     receiveTime <- currentTime
     pb <- makePendingBlock bakerSignKey slot (bpHash bb) bakerId electionProof nonce (bpHash lastFinal) transactions receiveTime

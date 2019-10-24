@@ -1,4 +1,4 @@
-image: "haskell"
+image: "haskell:8.6.5"
 
 variables:
     STACK_ROOT: "${CI_PROJECT_DIR}/.stack"
@@ -13,6 +13,7 @@ cache:
 build-and-test:
   script:
     - "apt-get update && apt-get install -y moreutils curl"
+    - "git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/"
     - "curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable"
     - "source $HOME/.cargo/env"
     - "./build-deps.sh"
