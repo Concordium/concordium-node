@@ -18,11 +18,11 @@ CONSENSUS_VERSION_TAG=$( cat $cwd/../CONSENSUS_VERSION )
     do
         echo "Generating genesis data with $baker_size baker(s)" &&
         rm -f genesis_data/genesis.dat &&
-	if [ ! -f genesis_data/bakers.json ];
-	then
-	    rm -rf genesis_data/*
+	    if [ ! -f genesis_data/bakers.json ];
+	    then
+	        rm -rf genesis_data/*
             LD_LIBRARY_PATH=$(pwd)/binaries/lib binaries/bin/genesis make-bakers $baker_size genesis_data
-        fi &&
+            fi &&
         LD_LIBRARY_PATH=$(pwd)/binaries/lib binaries/bin/genesis make-genesis --identity-providers=identity-providers.json --crypto-params=global.json --bakers=genesis_data/bakers.json genesis-tps.json genesis_data/genesis.dat --beta-accounts=beta-accounts.json &&
         tar czf $baker_size-bakers.tar.gz genesis_data
     done
