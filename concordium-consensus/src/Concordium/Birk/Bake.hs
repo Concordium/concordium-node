@@ -13,7 +13,6 @@ import Concordium.Types
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.SeedState
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.TreeState

@@ -43,7 +43,7 @@ makeGenesisData ::
     -> ElectionDifficulty  -- ^Initial election difficulty.
     -> BlockHeight -- ^Minimum finalization interval - 1
     -> CryptographicParameters -- ^Initial cryptographic parameters.
-    -> [IdentityProviderData]   -- ^List of initial identity providers.
+    -> [IpInfo]   -- ^List of initial identity providers.
     -> [Account]  -- ^List of starting genesis special accounts (in addition to baker accounts).
     -> (GenesisData, [(BakerIdentity,BakerInfo)])
 makeGenesisData genesisTime nBakers genesisSlotDuration elecDiff finMinSkip genesisCryptographicParameters genesisIdentityProviders genesisSpecialBetaAccounts
