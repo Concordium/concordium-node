@@ -11,7 +11,6 @@ import Lens.Micro.Platform
 import Data.Serialize
 import qualified Data.Map as Map
 
-import Concordium.TimeMonad
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.Parameters
@@ -25,7 +24,6 @@ import Concordium.GlobalState.BlockState(BlockPointerData(..))
 import Concordium.GlobalState.Implementation.TreeState
 import Concordium.GlobalState.Implementation.BlockState
 import Concordium.GlobalState.Implementation.Block (BakedBlock, Block(NormalBlock), getBlock)
-import Concordium.GlobalState.Implementation
 
 import Concordium.Types
 import Concordium.Runner
@@ -35,8 +33,6 @@ import Concordium.Skov
 import Concordium.Scheduler.Utils.Init.Example as Example
 
 import Concordium.Startup
-
-import Foreign.ForeignPtr
 
 nContracts :: Int
 nContracts = 2
@@ -61,7 +57,7 @@ relay inp sfsRef monitor outps = loop
     where
         loop = do
             msg <- readChan inp
-            now <- currentTime
+            now <- getTransactionTime
             case msg of
                 MsgNewBlock blockBS -> do
                     case runGet (getBlock now) blockBS of

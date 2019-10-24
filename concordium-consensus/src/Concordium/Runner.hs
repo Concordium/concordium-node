@@ -278,7 +278,8 @@ makeAsyncRunner logm logt bkr rtParams gen initBS = do
                 MsgShutdown -> stopSyncRunner sr
                 MsgBlockReceived src blockBS -> do
                     now <- currentTime
-                    case runGet (getBlock now) blockBS of
+                    let nowtx = utcTimeToTransactionTime now
+                    case runGet (getBlock nowtx) blockBS of
                         Right (NormalBlock block) -> do
 #ifdef RUST
                             pblock <- makePendingBlock gsptr block now
@@ -291,7 +292,7 @@ makeAsyncRunner logm logt bkr rtParams gen initBS = do
                         _ -> return ()
                     msgLoop
                 MsgTransactionReceived transBS -> do
-                    now <- currentTime
+                    now <- getTransactionTime
                     case runGet (getVerifiedTransaction now) transBS of
                         Right trans -> do
                             (_, evts) <- syncReceiveTransaction sr trans

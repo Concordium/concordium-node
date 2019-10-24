@@ -101,7 +101,7 @@ relay myPeer inp sfsRef connectedRef monitor loopback outps = loop
         loop = do
             msg <- readChan inp
             connected <- readIORef connectedRef
-            now <- currentTime
+            now <- getTransactionTime
             if connected then case msg of
                 MsgNewBlock blockBS -> do
                     case runGet (getBlock now) blockBS of

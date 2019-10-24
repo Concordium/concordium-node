@@ -423,7 +423,8 @@ receiveBlock bptr cstr l = do
     logm External LLDebug $ "Received block data size = " ++ show l ++ ". Decoding ..."
     blockBS <- BS.packCStringLen (cstr, fromIntegral l)
     now <- currentTime
-    toReceiveResult <$> case runGet (BSB.getBlock now) blockBS of
+    let nowtx = utcTimeToTransactionTime now
+    toReceiveResult <$> case runGet (BSB.getBlock nowtx) blockBS of
         Left _ -> do
           logm External LLDebug "Block deserialization failed. Ignoring the block."
           return ResultSerializationFail
@@ -432,7 +433,6 @@ receiveBlock bptr cstr l = do
             return ResultSerializationFail
         Right (NormalBlock block0) -> do
                         logm External LLInfo $ "Block deserialized. Sending to consensus."
-                        now <- currentTime
 #ifdef RUST
                         gsptr <- case c of
                           BakerRunner{..} -> liftIO $ do
@@ -511,7 +511,7 @@ receiveTransaction bptr tdata len = do
     let logm = consensusLogMethod c
     logm External LLDebug $ "Received transaction, data size=" ++ show len ++ ". Decoding ..."
     tbs <- BS.packCStringLen (tdata, fromIntegral len)
-    now <- currentTime
+    now <- getTransactionTime
     toReceiveResult <$> case runGet (getUnverifiedTransaction now) tbs of
         Left _ -> do
             logm External LLDebug $ "Could not decode transaction."
@@ -562,8 +562,8 @@ getAncestors cptr blockcstr depth = do
 getBranches :: StablePtr ConsensusRunner -> IO CString
 getBranches cptr = do
     c <- deRefStablePtr cptr
-    branches <- runConsensusQuery c Get.getBranches
-    jsonValueToCString branches
+    rbranches <- runConsensusQuery c Get.getBranches
+    jsonValueToCString rbranches
 
 
 
