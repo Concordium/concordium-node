@@ -180,6 +180,7 @@ tar czf static-consensus-$GHC_VERSION.tar.gz /target
 tar czf static-consensus-binaries-$GHC_VERSION.tar.gz /binaries
 
 rm -rf /target /binaries
+mkdir -p /target /binaries
 
 cabal clean 
 
