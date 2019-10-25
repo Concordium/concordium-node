@@ -46,7 +46,6 @@ use crate::connection::async_adapter::PayloadSize;
 pub struct FrameStream {
     pub message:       Vec<u8>,
     pub expected_size: PayloadSize,
-    pub is_validated:  bool,
 }
 
 impl FrameStream {
@@ -56,22 +55,13 @@ impl FrameStream {
         FrameStream {
             message:       Vec::with_capacity(std::mem::size_of::<PayloadSize>()),
             expected_size: 0,
-            is_validated:  false,
         }
     }
 
     /// It clears the internal state, in order to be able to receive new
     /// packets.
     pub fn clear_input(&mut self) {
-        self.is_validated = false;
         self.expected_size = 0;
         self.message.clear();
-    }
-
-    #[cfg(test)]
-    pub fn validate_packet_type(&mut self, msg: &[u8]) -> Readiness<bool> {
-        self.message.clear();
-        self.message.extend_from_slice(msg);
-        self.validate()
     }
 }

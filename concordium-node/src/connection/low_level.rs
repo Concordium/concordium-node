@@ -8,13 +8,10 @@ use super::{
         partial_copy, DecryptStream, EncryptSink, FrameStream, HandshakeStreamSink, PayloadSize,
         Readiness, NOISE_MAX_MESSAGE_LEN, PRE_SHARED_KEY, PROLOGUE,
     },
-    fails::{MessageTooBigError, StreamWouldBlock, UnwantedMessageError},
+    fails::{MessageTooBigError, StreamWouldBlock},
     Connection, DeduplicationQueues,
 };
-use crate::{
-    common::p2p_peer::PeerType,
-    network::{ProtocolMessageType, PROTOCOL_HEADER_LEN, PROTOCOL_MAX_MESSAGE_SIZE},
-};
+use crate::network::PROTOCOL_MAX_MESSAGE_SIZE;
 use concordium_common::hybrid_buf::HybridBuf;
 
 use std::{
@@ -354,19 +351,7 @@ impl ConnectionLowLevel {
     pub fn read_payload(&mut self) -> Fallible<Readiness<HybridBuf>> {
         // Read no more than expected, directly into our buffer
         while self.read_intermediate()? >= NOISE_MAX_MESSAGE_LEN {
-            // Validation only on encrypted channels.
-            if self.decryptor.is_some() && !self.message_stream.is_validated {
-                match self.validate() {
-                    Readiness::Ready(true) => self.message_stream.is_validated = true,
-                    Readiness::Ready(false) => {
-                        self.message_stream.clear_input();
-                        return Err(Error::from(UnwantedMessageError {
-                            message: "Packet is not valid for this node".to_owned(),
-                        }));
-                    }
-                    _ => {}
-                }
-            }
+            // FIXME: I have no idea what the intention of this loop was
         }
 
         if self.message_stream.expected_size == self.message_stream.message.len() as u32 {
@@ -380,28 +365,6 @@ impl ConnectionLowLevel {
             Ok(Readiness::Ready(HybridBuf::try_from(new_data)?))
         } else {
             Ok(Readiness::NotReady)
-        }
-    }
-
-    /// It invalidates any `Packet` or unknown message when we are in
-    /// Bootstrapper mode.
-    fn validate(&mut self) -> Readiness<bool> {
-        if self.conn().handler().self_peer.peer_type() == PeerType::Bootstrapper {
-            if self.message_stream.message.len() > PROTOCOL_HEADER_LEN {
-                let protocol_type =
-                    ProtocolMessageType::try_from(self.message_stream.message[PROTOCOL_HEADER_LEN])
-                        .unwrap_or(ProtocolMessageType::Packet);
-                match protocol_type {
-                    ProtocolMessageType::Packet => Readiness::Ready(false),
-                    _ => Readiness::Ready(true),
-                }
-            } else {
-                // The message doesn't have enough data yet.
-                Readiness::NotReady
-            }
-        } else {
-            // Any message is valid for non-boostrapper node.
-            Readiness::Ready(true)
         }
     }
 

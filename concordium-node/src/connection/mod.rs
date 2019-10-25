@@ -278,6 +278,10 @@ impl Connection {
         let mut message = message.unwrap(); // safe, checked right above
 
         if let NetworkMessagePayload::NetworkPacket(ref mut packet) = message.payload {
+            // disregard packets when in bootstrapper mode
+            if self.handler().self_peer.peer_type == PeerType::Bootstrapper {
+                return Ok(());
+            }
             // deduplicate the incoming packet payload
             if self.is_packet_duplicate(packet, deduplication_queues)? {
                 return Ok(());
@@ -680,74 +684,4 @@ mod tests {
 
     #[test]
     fn check_bytes_mut_drop_8m() { check_bytes_mut_drop(8 * 1024 * 1024); }
-
-    // This test stops the event loop because it needs a connection to be tested.
-    // Connections are not simple objects and require complex objects i.e.
-    // TcpStream, so the implementation creates a pair of nodes and connects them.
-    //
-    // The pkt_buffer inside a connection can be filled with events that trigger
-    // processes in the event loop. Therefore, the safe way to work with this is
-    // deregistering it from the event loop. This way we keep the connection alive
-    // and the buffer is not filled by other threads.
-    #[test]
-    fn test_validate_packet_type() -> Fallible<()> {
-        // Create connections
-        let node = make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
-        let bootstrapper =
-            make_node_and_sync(next_available_port(), vec![100], PeerType::Bootstrapper)?;
-        connect(&node, &bootstrapper)?;
-        await_handshake(&node)?;
-
-        let conn_node = node.find_connection_by_id(bootstrapper.id()).unwrap();
-        let conn_bootstrapper = bootstrapper.find_connection_by_id(node.id()).unwrap();
-
-        // Assert that a Node accepts every packet
-        match conn_node.validate_packet_type_test(&[]) {
-            Readiness::Ready(true) => {}
-            _ => bail!("Unwanted packet type"),
-        }
-        match conn_node
-            .validate_packet_type_test(&iter::repeat(0).take(13).chain(Some(2)).collect::<Vec<_>>())
-        {
-            Readiness::Ready(true) => {}
-            _ => bail!("Unwanted packet type"),
-        }
-        match conn_node
-            .validate_packet_type_test(&iter::repeat(0).take(13).chain(Some(1)).collect::<Vec<_>>())
-        {
-            Readiness::Ready(true) => {}
-            _ => bail!("Unwanted packet type"),
-        }
-        match conn_node.validate_packet_type_test(&iter::repeat(0).take(14).collect::<Vec<_>>()) {
-            Readiness::Ready(true) => {}
-            _ => bail!("Unwanted packet type"),
-        }
-        // Assert that a Boostrapper reports as unknown packets that are too small
-        match conn_bootstrapper.validate_packet_type_test(&[]) {
-            Readiness::NotReady => {}
-            _ => bail!("Unwanted packet type"),
-        }
-        // Assert that a Bootstrapper reports as Invalid messages that are packets
-        match conn_bootstrapper
-            .validate_packet_type_test(&iter::repeat(0).take(13).chain(Some(2)).collect::<Vec<_>>())
-        {
-            Readiness::Ready(false) => {}
-            _ => bail!("Unwanted packet type"),
-        }
-        // Assert that a Bootstrapper accepts Request and Response messages
-        match conn_bootstrapper
-            .validate_packet_type_test(&iter::repeat(0).take(13).chain(Some(1)).collect::<Vec<_>>())
-        {
-            Readiness::Ready(true) => {}
-            _ => bail!("Unwanted packet type"),
-        }
-        match conn_bootstrapper
-            .validate_packet_type_test(&iter::repeat(0).take(14).collect::<Vec<_>>())
-        {
-            Readiness::Ready(true) => {}
-            _ => bail!("Unwanted packet type"),
-        }
-        Ok(())
-    }
-
 }
