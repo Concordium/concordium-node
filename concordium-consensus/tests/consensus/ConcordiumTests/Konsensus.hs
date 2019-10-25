@@ -387,7 +387,7 @@ makeBaker bid lot = do
         let account = makeBakerAccount bid
         return (BakerInfo epk spk lot (_accountAddress account), BakerIdentity sk ek, account)
 
-dummyIdentityProviders :: [IdentityProviderData]
+dummyIdentityProviders :: [IpInfo]
 dummyIdentityProviders = []
 
 initialiseStates :: Int -> PropertyM IO States
@@ -436,7 +436,7 @@ withInitialStatesTransactions n trcount r = monadicIO $ do
         s0 <- initialiseStates $ n
         trs <- pick . genTransactions $ trcount
         gen <- pick $ mkStdGen <$> arbitrary
-        now <- liftIO currentTime
+        now <- liftIO getTransactionTime
         liftIO $ r gen s0 (initialEvents s0 <> Seq.fromList [(x, ETransaction (fromBareTransaction now tr)) | x <- [0..n-1], tr <- trs])
 
 withInitialStatesDoubleTransactions :: Int -> Int -> (StdGen -> States -> EventPool -> IO Property) -> Property
@@ -445,7 +445,7 @@ withInitialStatesDoubleTransactions n trcount r = monadicIO $ do
         trs0 <- pick . genTransactions $ trcount
         trs <- (trs0 ++) <$> pick (genTransactions trcount)
         gen <- pick $ mkStdGen <$> arbitrary
-        now <- liftIO currentTime
+        now <- liftIO getTransactionTime
         liftIO $ r gen s0 (initialEvents s0 <> Seq.fromList [(x, ETransaction (fromBareTransaction now tr)) | x <- [0..n-1], tr <- trs])
 
 
