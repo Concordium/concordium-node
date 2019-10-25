@@ -695,9 +695,11 @@ fn dedup_with(message: &mut HybridBuf, queue: &mut CircularQueue<[u8; 8]>) -> Fa
     hash.copy_from_slice(&XxHash64::digest(&message.remaining_bytes()?));
 
     if !queue.iter().any(|h| h == &hash) {
+        trace!("Message {:?} is unique, adding to dedup queue", hash);
         queue.push(hash);
         Ok(false)
     } else {
+        trace!("Message {:?} is a duplicate", hash);
         Ok(true)
     }
 }

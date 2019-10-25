@@ -6,7 +6,7 @@ pub const FILE_NAME_PREFIX_BAKER_PRIVATE: &str = "baker-";
 pub const FILE_NAME_SUFFIX_BAKER_PRIVATE: &str = ".dat";
 pub const FILE_NAME_SUFFIX_BAKER_PRIVATE_JSON: &str = "-credentials.json";
 
-use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{ReadBytesExt, WriteBytesExt};
 use failure::Fallible;
 
 use std::{
@@ -20,6 +20,7 @@ use std::{
 use concordium_common::{
     blockchain_types::TransactionHash,
     hybrid_buf::HybridBuf,
+    serial::Endianness,
     ConsensusFfiResponse,
     PacketType::{self, *},
 };
@@ -159,7 +160,7 @@ pub fn handle_pkt_out(
         PAYLOAD_TYPE_LENGTH
     );
 
-    let consensus_type = msg.read_u16::<NetworkEndian>()?;
+    let consensus_type = msg.read_u16::<Endianness>()?;
     let packet_type = PacketType::try_from(consensus_type)?;
 
     if packet_type == PacketType::Transaction {
@@ -323,7 +324,7 @@ pub fn send_consensus_msg_to_net(
 ) -> Fallible<()> {
     let mut packet_buffer = HybridBuf::with_capacity(PAYLOAD_TYPE_LENGTH as usize + payload.len())?;
     packet_buffer
-        .write_u16::<NetworkEndian>(payload_type as u16)
+        .write_u16::<Endianness>(payload_type as u16)
         .expect("Can't write a packet payload to buffer");
     packet_buffer.write_all(payload)?;
     packet_buffer.rewind()?;
