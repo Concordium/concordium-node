@@ -2,6 +2,9 @@ version: '3'
 services:
     bootstrapper:
         image: concordium/dev-client:develop
+        depends_on:
+            - baker_id_gen
+            - collector_backend
         environment:
             - RUST_BACKTRACE=1
             - RUST_LOG=trace
@@ -30,8 +33,6 @@ services:
         image: concordium/dev-client:develop
         depends_on:
             - bootstrapper
-            - collector_backend
-            - baker_id_gen
         entrypoint:
             - /start.sh
         environment:
@@ -49,6 +50,8 @@ services:
             - "11100-11500:10000"
     collector:
         image: concordium/dev-client:develop
+        depends_on:
+            - baker
         environment:
             - RUST_BACKTRACE=1
             - RUST_LOG=trace
@@ -58,5 +61,3 @@ services:
             - EXTRA_ARGS=${EXTRA_ARGS}
         entrypoint:
             - /start.sh
-        ports:
-            - "12000:10000"

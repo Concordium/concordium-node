@@ -325,7 +325,12 @@ elif [ "$MODE" == "local_collector" ]; then
         echo "Sleeping for $COLLECTOR_SLEEP"
         sleep $COLLECTOR_SLEEP
     fi
-    
+    COLLECTOR_NODE_URLS="--grpc-host 'baker-1:10000' --node-name 'baker-1'"
+    for i in `seq 2 $NUM_BAKERS`
+    do
+        COLLECTOR_NODE_URLS="$COLLECTOR_NODE_URLS --grpc-host 'baker-$i:10000' --node-name 'baker-$i'"
+    done
+    ARGS="$ARGS $COLLECTOR_NODE_URLS"
     /node-collector-backend $ARGS
 elif [ "$MODE" == "local_collector_backend" ]; then
     /node-collector-backend $ARGS

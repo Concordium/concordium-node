@@ -57,7 +57,7 @@ struct ConfigCli {
     )]
     pub grpc_hosts: Vec<String>,
     #[structopt(long = "node-name", help = "Node name")]
-    pub node_name: NodeName,
+    pub node_names: Vec<NodeName>,
     #[structopt(
         long = "collector-url",
         help = "Alias submitted of the node collected from",
@@ -83,7 +83,7 @@ struct ConfigCli {
     pub collector_interval: u64,
 }
 
-const MAX_GRPC_FAILURES: usize = 20;
+const MAX_GRPC_FAILURES: usize = 40;
 
 pub fn main() -> Fallible<()> {
     let conf = ConfigCli::from_args();
@@ -106,15 +106,18 @@ pub fn main() -> Fallible<()> {
         info!("{:?}", conf);
     }
 
-    info!("Node name: {}", conf.node_name);
+    if conf.node_names.len() != conf.grpc_hosts.len() {
+        error!("Amount of node-names and grpc-hosts must be equal!");
+        exit(1);
+    }
 
     #[allow(unreachable_code)]
     let main_thread = spawn_or_die!("Main loop", {
         let mut grpc_failures = 0;
         loop {
-            conf.grpc_hosts.iter().for_each(|grpc_host| {
+            conf.node_names.iter().zip( conf.grpc_hosts.iter() ).for_each(|(node_name, grpc_host)| {
                 if let Ok(node_info) =
-                    collect_data(&conf.node_name, &grpc_host, &conf.grpc_auth_token)
+                    collect_data(&node_name, &grpc_host, &conf.grpc_auth_token)
                 {
                     if let Ok(json_string) = serde_json::to_string(&node_info) {
                         trace!("Posting JSON {}", json_string);
