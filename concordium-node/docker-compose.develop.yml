@@ -9,6 +9,19 @@ services:
             - EXTRA_ARGS=${EXTRA_ARGS}
         entrypoint:
             - /start.sh
+    collector_backend:
+        image: concordium/dev-client:develop
+        environment:
+            - RUST_BACKTRACE=1
+            - RUST_LOG=trace
+            - MODE=local_collector_backend
+            - COLLECTOR_BACKEND_PORT=10000
+            - COLLECTOR_BACKEND_HOST=0.0.0.0
+            - EXTRA_ARGS=${EXTRA_ARGS}
+        entrypoint:
+            - /start.sh
+        ports:
+            - "12000:10000"
     baker_id_gen:
         image: concordium/dev-client:develop
         entrypoint:
@@ -16,6 +29,8 @@ services:
     baker:
         image: concordium/dev-client:develop
         depends_on:
+            - bootstrapper
+            - collector_backend
             - baker_id_gen
         entrypoint:
             - /start.sh
@@ -32,3 +47,16 @@ services:
             - EXTRA_ARGS=${EXTRA_ARGS}
         ports:
             - "11100-11500:10000"
+    collector:
+        image: concordium/dev-client:develop
+        environment:
+            - RUST_BACKTRACE=1
+            - RUST_LOG=trace
+            - MODE=local_collector
+            - NUM_BAKERS=${NUM_BAKERS}
+            - COLLECTOR_SLEEP=${COLLECTOR_SLEEP}
+            - EXTRA_ARGS=${EXTRA_ARGS}
+        entrypoint:
+            - /start.sh
+        ports:
+            - "12000:10000"

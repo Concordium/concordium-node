@@ -43,5 +43,6 @@ COPY --from=build /build-project/genesis-data /genesis-data
 COPY --from=build /build-project/p2p_client-cli /p2p_client-cli
 COPY --from=build /build-project/p2p_bootstrapper-cli /p2p_bootstrapper-cli
 COPY --from=build /build-project/node-collector /node-collector
+COPY --from=build /build-project/node-collector-backend /node-collector-backend 
 
 ENTRYPOINT ["/start.sh"]
