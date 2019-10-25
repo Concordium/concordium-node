@@ -8,6 +8,7 @@ module Concordium.GlobalState.Transactions where
 
 
 import Data.Time.Clock
+import Data.Time.Clock.POSIX
 import Control.Exception
 import Control.Monad
 import qualified Data.ByteString as BS
@@ -31,6 +32,8 @@ import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Execution
 
+import Data.Int
+
 newtype TransactionSignature = TransactionSignature { tsSignature :: Signature }
   deriving (Eq, Show)
 
@@ -40,6 +43,15 @@ instance S.Serialize TransactionSignature where
   get = TransactionSignature <$> S.get
 
 type PayloadSize = Word32
+
+type TransactionTime = Int64
+
+-- |Get time in seconds since the unix epoch.
+getTransactionTime :: IO TransactionTime
+getTransactionTime = utcTimeToTransactionTime <$> getCurrentTime
+
+utcTimeToTransactionTime :: UTCTime -> TransactionTime
+utcTimeToTransactionTime = floor . utcTimeToPOSIXSeconds
 
 -- | Data common to all transaction types.
 --
@@ -108,7 +120,7 @@ instance S.Serialize BareTransaction where
     btrPayload <- getPayload (thPayloadSize btrHeader)
     return $! BareTransaction{..}
 
-fromBareTransaction :: UTCTime -> BareTransaction -> Transaction
+fromBareTransaction :: TransactionTime -> BareTransaction -> Transaction
 fromBareTransaction trArrivalTime trBareTransaction@BareTransaction{..} =
   let txBodyBytes = S.runPut (S.put btrHeader <> putPayload btrPayload)
       trHash = H.hash txBodyBytes
@@ -124,7 +136,7 @@ data Transaction = Transaction {
   trSize :: !Int,
   -- |Hash of the transaction. Derived from the first three fields.
   trHash :: !TransactionHash,
-  trArrivalTime :: !UTCTime
+  trArrivalTime :: !TransactionTime
   } deriving(Show) -- show is needed in testing
 
 -- |NOTE: Eq and Ord instances based on hash comparison!
@@ -137,7 +149,7 @@ instance Ord Transaction where
   compare t1 t2 = compare (trHash t1) (trHash t2)
 
 -- |Deserialize a transaction, checking its signature on the way.
-getVerifiedTransaction :: UTCTime -> S.Get Transaction
+getVerifiedTransaction :: TransactionTime -> S.Get Transaction
 getVerifiedTransaction arTime = do
   t@Transaction{trBareTransaction=BareTransaction{..},..} <- getUnverifiedTransaction arTime
   unless (SigScheme.verify (thScheme btrHeader) (thSenderKey btrHeader) (H.hashToByteString trHash) (tsSignature btrSignature)) $
@@ -145,7 +157,7 @@ getVerifiedTransaction arTime = do
   return t
 
 -- |Deserialize a transaction, but don't check it's signature.
-getUnverifiedTransaction :: UTCTime -> S.Get Transaction
+getUnverifiedTransaction :: TransactionTime -> S.Get Transaction
 getUnverifiedTransaction trArrivalTime = do
   sigStart <- S.bytesRead
   btrSignature <- S.get
@@ -175,7 +187,7 @@ makeTransactionHeader thScheme thSenderKey thPayloadSize thNonce thGasAmount =
   TransactionHeader{thSender = AH.accountAddress thSenderKey thScheme,..}
 
 -- |Make a transaction out of minimal data needed.
-makeTransaction :: UTCTime -> TransactionSignature -> TransactionHeader -> EncodedPayload -> Transaction
+makeTransaction :: TransactionTime -> TransactionSignature -> TransactionHeader -> EncodedPayload -> Transaction
 makeTransaction trArrivalTime btrSignature btrHeader btrPayload =
     let txBodyBytes = S.runPut $ S.put btrHeader <> putPayload btrPayload
         -- transaction hash only refers to the body, not the signature of the transaction

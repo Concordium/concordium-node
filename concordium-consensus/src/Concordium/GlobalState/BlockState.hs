@@ -24,7 +24,6 @@ import Concordium.Types.Acorn.Core(ModuleRef)
 import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.Types.Acorn.Interfaces
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.SeedState
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Instances
 import Concordium.GlobalState.Modules hiding (getModule)
@@ -280,7 +279,7 @@ class BlockStateQuery m => BlockStateOperations m where
 
   -- |Get the identity provider data for the given identity provider, or Nothing if
   -- the identity provider with given ID does not exist.
-  bsoGetIdentityProvider :: UpdatableBlockState m -> ID.IdentityProviderIdentity -> m (Maybe IdentityProviderData)
+  bsoGetIdentityProvider :: UpdatableBlockState m -> ID.IdentityProviderIdentity -> m (Maybe IpInfo)
 
   -- |Get the current cryptographic parameters. The idea is that these will be
   -- periodically updated and so they must be part of the block state.
