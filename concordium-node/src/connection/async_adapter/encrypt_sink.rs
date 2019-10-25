@@ -157,7 +157,7 @@ impl EncryptSink {
             .write_u32::<NetworkEndian>(last_chunk_size as PayloadSize)?;
 
         trace!(
-            "Encrypted a frame of {} bytes with chunk index: full chunks {}, latest size {}",
+            "Encrypted a frame of {} bytes with chunk index: full chunks {}, last chunk size {}",
             frame_len,
             num_full_chunks,
             last_chunk_size

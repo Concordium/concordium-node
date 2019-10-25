@@ -5,8 +5,8 @@ use snow::{Keypair, Session};
 
 use super::{
     async_adapter::{
-        partial_copy, DecryptStream, EncryptSink, FrameStream, HandshakeStreamSink, PayloadSize,
-        Readiness, NOISE_MAX_MESSAGE_LEN, PRE_SHARED_KEY, PROLOGUE,
+        partial_copy, DecryptStream, EncryptSink, PayloadSize, Readiness, NOISE_MAX_MESSAGE_LEN,
+        NOISE_MAX_PAYLOAD_LEN, PRE_SHARED_KEY, PROLOGUE,
     },
     fails::{MessageTooBigError, StreamWouldBlock},
     Connection, DeduplicationQueues,
@@ -15,6 +15,7 @@ use crate::network::PROTOCOL_MAX_MESSAGE_SIZE;
 use concordium_common::hybrid_buf::HybridBuf;
 
 use std::{
+    collections::VecDeque,
     convert::TryFrom,
     io::{ErrorKind, Read},
     pin::Pin,
@@ -43,10 +44,10 @@ pub struct ConnectionLowLevel {
     keypair:         Keypair,
     noise_session:   Option<Session>,
     input_buffer:    [u8; NOISE_MAX_MESSAGE_LEN],
+    current_input:   Vec<u8>,
+    handshake_queue: VecDeque<HybridBuf>,
     output_queue:    Vec<HybridBuf>,
     handshake_state: HandshakeState,
-    handshaker:      HandshakeStreamSink,
-    message_stream:  FrameStream,
     decryptor:       Option<DecryptStream>,
     encryptor:       Option<EncryptSink>,
 }
@@ -69,13 +70,13 @@ impl ConnectionLowLevel {
             );
         }
 
+        let mut handshake_queue = VecDeque::with_capacity(4);
         let handshake_state = if is_initiator {
+            handshake_queue.push_back(create_frame(&[]).unwrap());
             HandshakeState::InitiatorAwaiting_S
         } else {
             HandshakeState::ResponderAwaitingRequest_S
         };
-
-        let handshaker = HandshakeStreamSink::new(is_initiator);
 
         let noise_session = if is_initiator {
             None
@@ -96,10 +97,10 @@ impl ConnectionLowLevel {
             keypair,
             noise_session,
             input_buffer: [0u8; NOISE_MAX_MESSAGE_LEN],
+            current_input: Vec::with_capacity(NOISE_MAX_PAYLOAD_LEN),
+            handshake_queue,
             output_queue: Vec::with_capacity(16),
             handshake_state,
-            handshaker,
-            message_stream: FrameStream::new(),
             decryptor: None,
             encryptor: None,
         }
@@ -130,8 +131,7 @@ impl ConnectionLowLevel {
 
         // Send: A -> e,es,s,ss
         let buf_len = session.write_message(&[], &mut self.input_buffer)?;
-        self.handshaker
-            .send_queue
+        self.handshake_queue
             .push_back(create_frame(&self.input_buffer[..buf_len])?);
         trace!("Initiator sends ({} bytes): A -> e,es,s,ss", buf_len);
 
@@ -143,8 +143,7 @@ impl ConnectionLowLevel {
 
     fn on_responder_get_request_s(&mut self) -> Fallible<Readiness<()>> {
         // Send the public key
-        self.handshaker
-            .send_queue
+        self.handshake_queue
             .push_back(create_frame(&self.keypair.public)?);
         trace!(
             "Responder sends its public key ({} bytes): <- s",
@@ -170,8 +169,7 @@ impl ConnectionLowLevel {
 
             // Send: B -> e,ee,se,psk
             let buf_len = session.write_message(&[], &mut self.input_buffer)?;
-            self.handshaker
-                .send_queue
+            self.handshake_queue
                 .push_back(create_frame(&self.input_buffer[..buf_len])?);
             trace!("Responder sends ({} bytes):B -> e,ee,se,psk", buf_len);
 
@@ -248,11 +246,7 @@ impl ConnectionLowLevel {
 
     #[inline(always)]
     fn read_from_socket(&mut self) -> Fallible<Readiness<HybridBuf>> {
-        let payload_readiness = if self.message_stream.expected_size == 0 {
-            self.read_expected_size()
-        } else {
-            self.read_payload()
-        };
+        let payload_readiness = self.read_expected_size();
 
         match payload_readiness {
             Ok(Readiness::Ready(payload)) => self.forward(payload),
@@ -287,8 +281,8 @@ impl ConnectionLowLevel {
     /// It allows packet with empty payloads.
     #[inline]
     fn pending_bytes_to_know_expected_size(&self) -> usize {
-        if self.message_stream.message.len() < std::mem::size_of::<PayloadSize>() {
-            std::mem::size_of::<PayloadSize>() - self.message_stream.message.len()
+        if self.current_input.len() < std::mem::size_of::<PayloadSize>() {
+            std::mem::size_of::<PayloadSize>() - self.current_input.len()
         } else {
             0
         }
@@ -304,43 +298,34 @@ impl ConnectionLowLevel {
         let read_bytes =
             map_io_error_to_fail!(self.socket.read(&mut self.input_buffer[..min_bytes]))?;
 
-        self.message_stream
-            .message
+        self.current_input
             .extend_from_slice(&self.input_buffer[..read_bytes]);
 
         // Load expected size
-        if self.message_stream.message.len() >= std::mem::size_of::<PayloadSize>() {
+        if self.current_input.len() >= std::mem::size_of::<PayloadSize>() {
             // Update target: ignore first 4 bytes on data.
-            self.message_stream.expected_size = NetworkEndian::read_u32(
-                &self.message_stream.message[..std::mem::size_of::<PayloadSize>()],
-            );
-            self.message_stream.message.clear();
-            trace!(
-                "Expected message size is {}",
-                self.message_stream.expected_size
-            );
+            let expected_size =
+                NetworkEndian::read_u32(&self.current_input[..std::mem::size_of::<PayloadSize>()]);
+            self.current_input.clear();
 
             // Check protocol limits
-            if self.message_stream.expected_size > PROTOCOL_MAX_MESSAGE_SIZE as u32 {
+            if expected_size > PROTOCOL_MAX_MESSAGE_SIZE as u32 {
                 let error = MessageTooBigError {
-                    message_size:  self.message_stream.expected_size,
+                    message_size:  expected_size,
                     protocol_size: PROTOCOL_MAX_MESSAGE_SIZE as u32,
                 };
-                self.message_stream.clear_input();
+                self.current_input.clear();
                 return Err(Error::from(error));
             }
 
             // Pre-allocate some space. We don't allocate the expected size in order to
             // reduce the memory foot-print during transmission and the impact
             // of invalid packages.
-            let pre_alloc_size = std::cmp::min(
-                NOISE_MAX_MESSAGE_LEN,
-                self.message_stream.expected_size as usize,
-            );
-            self.message_stream.message.reserve(pre_alloc_size);
+            let pre_alloc_size = std::cmp::min(NOISE_MAX_MESSAGE_LEN, expected_size as usize);
+            self.current_input.reserve(pre_alloc_size);
 
             // Read data next...
-            self.read_payload()
+            self.read_payload(expected_size)
         } else {
             // We need more data to determine the message size.
             Ok(Readiness::NotReady)
@@ -348,19 +333,19 @@ impl ConnectionLowLevel {
     }
 
     /// Once we know the message expected size, we can start to receive data.
-    pub fn read_payload(&mut self) -> Fallible<Readiness<HybridBuf>> {
+    pub fn read_payload(&mut self, expected_size: PayloadSize) -> Fallible<Readiness<HybridBuf>> {
         // Read no more than expected, directly into our buffer
-        while self.read_intermediate()? >= NOISE_MAX_MESSAGE_LEN {
+        while self.read_intermediate(expected_size)? >= NOISE_MAX_MESSAGE_LEN {
             // FIXME: I have no idea what the intention of this loop was
         }
 
-        if self.message_stream.expected_size == self.message_stream.message.len() as u32 {
+        if self.current_input.len() as u32 == expected_size {
             // Ready message
             let new_data = std::mem::replace(
-                &mut self.message_stream.message,
+                &mut self.current_input,
                 Vec::with_capacity(std::mem::size_of::<PayloadSize>()),
             );
-            self.message_stream.clear_input();
+            self.current_input.clear();
 
             Ok(Readiness::Ready(HybridBuf::try_from(new_data)?))
         } else {
@@ -368,22 +353,13 @@ impl ConnectionLowLevel {
         }
     }
 
-    fn read_intermediate(&mut self) -> Fallible<usize> {
-        let pending_bytes =
-            self.message_stream.expected_size - self.message_stream.message.len() as u32;
+    fn read_intermediate(&mut self, expected_size: PayloadSize) -> Fallible<usize> {
+        let pending_bytes = expected_size - self.current_input.len() as u32;
         let max_buff = std::cmp::min(pending_bytes as usize, NOISE_MAX_MESSAGE_LEN);
 
         match self.socket.read(&mut self.input_buffer[..max_buff]) {
             Ok(read_bytes) => {
-                trace!(
-                    "Appended {} bytes to current message of {} bytes, and an expected size of {} \
-                     bytes",
-                    read_bytes,
-                    self.message_stream.message.len(),
-                    self.message_stream.expected_size
-                );
-                self.message_stream
-                    .message
+                self.current_input
                     .extend_from_slice(&self.input_buffer[..read_bytes]);
 
                 Ok(read_bytes)
@@ -440,12 +416,12 @@ impl ConnectionLowLevel {
     }
 
     fn flush_handshaker(&mut self) -> Fallible<Readiness<usize>> {
-        if let Some(mut data) = self.handshaker.send_queue.pop_front() {
+        if let Some(mut data) = self.handshake_queue.pop_front() {
             let written_bytes = partial_copy(&mut data, &mut self.socket)?;
 
             // Requeue data if it is not eof.
             if !data.is_eof()? {
-                self.handshaker.send_queue.push_front(data);
+                self.handshake_queue.push_front(data);
                 Ok(Readiness::NotReady)
             } else {
                 Ok(Readiness::Ready(written_bytes))

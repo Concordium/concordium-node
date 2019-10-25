@@ -56,14 +56,8 @@ pub fn partial_copy<R: Read + Seek, W: Write>(input: &mut R, output: &mut W) -> 
 pub const PROLOGUE: &[u8] = b"CP2P";
 pub const PRE_SHARED_KEY: &[u8; 32] = b"54686973206973206d79204175737472";
 
-mod handshake_stream_sink;
-pub use handshake_stream_sink::HandshakeStreamSink;
-
 mod decrypt_stream;
 pub use decrypt_stream::DecryptStream;
 
 mod encrypt_sink;
 pub use encrypt_sink::EncryptSink;
-
-mod frame_stream;
-pub use frame_stream::FrameStream;

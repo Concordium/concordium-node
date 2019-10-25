@@ -6,7 +6,7 @@ mod async_adapter;
 mod low_level;
 
 pub use crate::p2p::{Networks, P2PNode};
-pub use async_adapter::{FrameStream, HandshakeStreamSink, Readiness};
+pub use async_adapter::Readiness;
 use low_level::ConnectionLowLevel;
 pub use p2p_event::P2PEvent;
 

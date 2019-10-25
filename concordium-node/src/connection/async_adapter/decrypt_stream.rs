@@ -31,7 +31,6 @@ pub struct DecryptStream {
 }
 
 impl DecryptStream {
-    /// Session HAS to be shared by `decrypt` stream and `encrypt` sink.
     pub fn new() -> Self {
         Self {
             full_output_buffer:     BufWriter::new(Default::default()),
