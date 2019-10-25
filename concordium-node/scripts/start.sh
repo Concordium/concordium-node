@@ -319,21 +319,21 @@ elif [ "$MODE" == "collector" ]; then
     /node-collector $ARGS
 elif [ "$MODE" == "collector_backend" ]; then
     /node-collector-backend $ARGS
+elif [ "$MODE" == "local_collector_backend" ]; then
+    /node-collector-backend $ARGS
 elif [ "$MODE" == "local_collector" ]; then
     if [ -n "$COLLECTOR_SLEEP" ];
     then
         echo "Sleeping for $COLLECTOR_SLEEP"
         sleep $COLLECTOR_SLEEP
     fi
-    COLLECTOR_NODE_URLS="--grpc-host 'baker-1:10000' --node-name 'baker-1'"
+    COLLECTOR_NODE_URLS="--grpc-host 'p2p-client_baker_1:10000' --node-name 'baker_1'"
     for i in `seq 2 $NUM_BAKERS`
     do
-        COLLECTOR_NODE_URLS="$COLLECTOR_NODE_URLS --grpc-host 'baker-$i:10000' --node-name 'baker-$i'"
+        COLLECTOR_NODE_URLS="$COLLECTOR_NODE_URLS --grpc-host 'p2p-client_baker_$i:10000' --node-name 'baker_$i'"
     done
     ARGS="$ARGS $COLLECTOR_NODE_URLS"
-    /node-collector-backend $ARGS
-elif [ "$MODE" == "local_collector_backend" ]; then
-    /node-collector-backend $ARGS
+    /node-collector $ARGS
 elif [ "$MODE" == "local_basic" ]; then
     export BAKER_ID=`curl http://baker_id_gen:8000/next_id`
     echo "Using BAKER_ID $BAKER_ID"
