@@ -115,28 +115,31 @@ pub fn main() -> Fallible<()> {
     let main_thread = spawn_or_die!("Main loop", {
         let mut grpc_failures = 0;
         loop {
-            conf.node_names.iter().zip( conf.grpc_hosts.iter() ).for_each(|(node_name, grpc_host)| {
-                if let Ok(node_info) =
-                    collect_data(&node_name, &grpc_host, &conf.grpc_auth_token)
-                {
-                    if let Ok(json_string) = serde_json::to_string(&node_info) {
-                        trace!("Posting JSON {}", json_string);
-                        let client = reqwest::Client::new();
-                        if let Err(e) = client.post(&conf.collector_url).json(&node_info).send() {
-                            error!("Could not post to dashboard server due to error {}", e);
+            conf.node_names.iter().zip(conf.grpc_hosts.iter()).for_each(
+                |(node_name, grpc_host)| {
+                    if let Ok(node_info) =
+                        collect_data(&node_name, &grpc_host, &conf.grpc_auth_token)
+                    {
+                        if let Ok(json_string) = serde_json::to_string(&node_info) {
+                            trace!("Posting JSON {}", json_string);
+                            let client = reqwest::Client::new();
+                            if let Err(e) = client.post(&conf.collector_url).json(&node_info).send()
+                            {
+                                error!("Could not post to dashboard server due to error {}", e);
+                            }
                         }
+                    } else if grpc_failures + 1 >= MAX_GRPC_FAILURES {
+                        error!("Too many gRPC failures, exiting!");
+                        exit(1);
+                    } else {
+                        grpc_failures += 1;
+                        error!(
+                            "gRPC failed for {}, sleeping for {} ms",
+                            &grpc_host, conf.collector_interval
+                        );
                     }
-                } else if grpc_failures + 1 >= MAX_GRPC_FAILURES {
-                    error!("Too many gRPC failures, exiting!");
-                    exit(1);
-                } else {
-                    grpc_failures += 1;
-                    error!(
-                        "gRPC failed for {}, sleeping for {} ms",
-                        &grpc_host, conf.collector_interval
-                    );
-                }
-            });
+                },
+            );
             thread::sleep(Duration::from_millis(conf.collector_interval));
         }
     });

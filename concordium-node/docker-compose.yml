@@ -58,6 +58,7 @@ services:
             - MODE=local_collector
             - NUM_BAKERS=${NUM_BAKERS}
             - COLLECTOR_SLEEP=${COLLECTOR_SLEEP}
+            - COLLECTOR_URL=http://collector_backend:10000/nodes/post
             - EXTRA_ARGS=${EXTRA_ARGS}
         entrypoint:
             - /start.sh
