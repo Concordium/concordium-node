@@ -178,3 +178,105 @@ echo "Done!"
 
 tar czf static-consensus-$GHC_VERSION.tar.gz /target
 tar czf static-consensus-binaries-$GHC_VERSION.tar.gz /binaries
+
+rm -rf /target /binaries
+
+cabal clean 
+
+LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release:$(pwd)/globalstate-mockup/deps/concordium-global-state-sys/target/release cabal build all \
+               --constraint="Concordium -dynamic"\
+               --constraint="globalstate -rust"\
+               --constraint="scheduler -rust"\
+               --constraint="Concordium -rust"
+
+echo "Let's copy the binaries and their dependent libraries"
+cp dist-newstyle/build/x86_64-linux/ghc-$GHC_BUILDER_VERSION/Concordium-0.1.0.0/x/genesis/build/genesis/genesis /binaries/bin/
+cp $(pwd)/crypto/rust-src/target/release/*.so /binaries/lib/
+cp $(pwd)/globalstate-mockup/deps/concordium-global-state-sys/target/release/*.so /binaries/lib/
+
+echo "Let's copy the needed concordium libraries"
+for lib in $(find . -type f -name "*inplace.a"); do
+    cp $(pwd)/$lib /target/vanilla/concordium;
+done
+
+for lib in $(find . -type f -name "*_p.a"); do
+    cp $(pwd)/$lib /target/profiling/concordium;
+done
+
+echo "Let's copy the needed cabal libraries"
+for lib in $(find ~/.cabal/store/ghc-$GHC_VERSION/ -type f -name "*[^_p].a"); do
+    cp $lib /target/vanilla/cabal;
+done
+
+for lib in $(find ~/.cabal/store/ghc-$GHC_VERSION/ -type f -name "*_p.a"); do
+    cp $lib /target/profiling/cabal;
+done
+
+mkdir -p /target/rust
+cp -r $(pwd)/crypto/rust-src/target/release/*.a /target/rust/
+cp -r $(pwd)/globalstate-mockup/deps/concordium-global-state-sys/target/release/*.a /target/rust/
+
+echo "Removing debug symbols because certain distros can't update their stuff to be compliant with the spec"
+strip --strip-debug /target/vanilla/cabal/libHS* \
+		    /target/vanilla/concordium/libHS* \
+	            /target/profiling/cabal/libHS* \
+	            /target/profiling/concordium/libHS* \
+	            /target/vanilla/ghc/lib* \
+	            /target/profiling/ghc/lib*
+
+strip --strip-debug /binaries/bin/* \
+		    /binaries/lib/*
+
+echo "Removing object files"
+echo "Expanding libraries"
+cd /target/rust
+for i in $(ls)
+do
+    if [[ $i != "libconcordium_global_state_sys.a" ]]; then
+        ar x $i
+    fi
+done
+
+mkdir crypto
+mv *.o crypto
+
+ar x libconcordium_global_state_sys.a
+
+mkdir gs
+mv *.o gs
+
+rm *a
+
+set +e
+
+echo "Removing objects with standard symbols that collide with any other rust instance"
+for file in $(find . -type f -name "*.o"); do
+  nm $file | grep "\(T __rust_alloc\)\|\(T __rdl_alloc\)|\(T __clzsi2\)" >> /dev/null;
+  if [ $? -eq 0 ]; then
+    echo "Removing file:"
+    echo $file
+    rm $file;
+  fi
+done
+
+set -e
+
+echo "Unifying duplicated objects that collide between both libraries"
+ar rcs libRcommon.a $(diff -sqr gs crypto | grep identical | cut -d" " -f2)
+rm $(diff -sqr gs crypto | grep identical | cut -d" " -f2,4)
+
+echo "Removing duplicated crypto objects that differ in name but collide between both libraries"
+rm gs/curve* gs/ec_vrf* gs/ed255* gs/eddsa* gs/ffi_helpers*
+
+echo "Recreating the libraries"
+ar rcs libconcordium_global_state_sys.a gs/*.o
+ar rcs libRcrypto.a crypto/*.o
+
+rm -r gs crypto
+
+cd /build
+
+echo "Done!"
+
+tar czf static-consensus-$GHC_VERSION-no-rgs.tar.gz /target
+tar czf static-consensus-binaries-$GHC_VERSION-no-rgs.tar.gz /binaries
