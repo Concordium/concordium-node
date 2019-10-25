@@ -7,7 +7,7 @@ services:
             - collector_backend
         environment:
             - RUST_BACKTRACE=1
-            - RUST_LOG=trace
+            - RUST_LOG=info
             - MODE=local_bootstrapper
             - EXTRA_ARGS=${EXTRA_ARGS}
         entrypoint:
@@ -16,7 +16,7 @@ services:
         image: concordium/dev-client:develop
         environment:
             - RUST_BACKTRACE=1
-            - RUST_LOG=trace
+            - RUST_LOG=info
             - MODE=local_collector_backend
             - COLLECTOR_BACKEND_PORT=10000
             - COLLECTOR_BACKEND_HOST=0.0.0.0
@@ -37,7 +37,7 @@ services:
             - /start.sh
         environment:
             - RUST_BACKTRACE=1
-            - RUST_LOG=debug
+            - RUST_LOG=info
             - DESIRED_PEERS=${DESIRED_PEERS}
             - BOOTSTRAP_FIRST_NODE=bootstrapper:8888
             - EXTERNAL_PORT=8888
@@ -54,7 +54,7 @@ services:
             - baker
         environment:
             - RUST_BACKTRACE=1
-            - RUST_LOG=trace
+            - RUST_LOG=info
             - MODE=local_collector
             - NUM_BAKERS=${NUM_BAKERS}
             - COLLECTOR_SLEEP=${COLLECTOR_SLEEP}
