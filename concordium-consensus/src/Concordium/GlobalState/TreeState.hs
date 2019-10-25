@@ -7,7 +7,11 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE StandaloneDeriving, DerivingVia #-}
-module Concordium.GlobalState.TreeState where
+module Concordium.GlobalState.TreeState(
+    module Concordium.GlobalState.Classes,
+    module Concordium.GlobalState.Block,
+    module Concordium.GlobalState.TreeState
+) where
 
 import qualified Data.Sequence as Seq
 import Data.Time
@@ -15,10 +19,10 @@ import qualified Data.Set as Set
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
-import Control.Monad.Trans.RWS.Strict
 
 import Concordium.Types
 import Concordium.Types.HashableTo
+import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
@@ -46,8 +50,6 @@ instance Show (BlockStatus bp pb) where
 -- in the branches at the level below.
 type Branches m = Seq.Seq [BlockPointer m]
 
-type family PendingBlock (m :: * -> *) :: *
-
 -- |Monad that provides operations for working with the low-level tree state.
 -- These operations are abstracted where possible to allow for a range of implementation
 -- choices.
@@ -55,9 +57,9 @@ class (Eq (BlockPointer m),
        Ord (BlockPointer m),
        HashableTo BlockHash (BlockPointer m),
        BlockData (BlockPointer m),
-       BlockPointerData (BlockPointer m),
+       BlockPointerData (BlockState m) (BlockPointer m),
        BlockPendingData (PendingBlock m),
-       BlockStateOperations m,
+       BlockStateStorage m,
        Monad m)
       => TreeStateMonad m where
 
@@ -236,35 +238,6 @@ class (Eq (BlockPointer m),
     -- Ideally, this should be handled better.
     updateBlockTransactions :: [Transaction] -> PendingBlock m -> m (PendingBlock m)
 
-    -- * Operations on block state
-
-    -- |Derive a mutable state instance from a block state instance. The mutable
-    -- state instance supports all the operations needed by the scheduler for
-    -- block execution. Semantically the 'UpdatableBlockState' must be a copy,
-    -- changes to it must not affect 'BlockState', but an efficient
-    -- implementation should expect that only a small subset of the state will
-    -- change, and thus a variant of copy-on-write should be used.
-    thawBlockState :: BlockState m -> m (UpdatableBlockState m)
-
-    -- |Freeze a mutable block state instance. The mutable state instance will
-    -- not be used afterwards and the implementation can thus avoid copying
-    -- data.
-    freezeBlockState :: UpdatableBlockState m -> m (BlockState m)
-
-    -- |Discard a mutable block state instance.  The mutable state instance will
-    -- not be used afterwards.
-    dropUpdatableBlockState :: UpdatableBlockState m -> m ()
-
-    -- |Mark the given state instance as no longer needed and eventually
-    -- discharge it. This can happen, for instance, when a block becomes dead
-    -- due to finalization. The block state instance will not be accessed after
-    -- this method is called.
-    purgeBlockState :: BlockState m -> m ()
-
-    -- |Mark a block state for archive: i.e. it will no longer be needed by
-    -- consensus (but could be required for historical queries).
-    archiveBlockState :: BlockState m -> m ()
-
     -- * Operations on statistics
     -- |Get the current consensus statistics.
     getConsensusStatistics :: m ConsensusStatistics
@@ -275,9 +248,7 @@ class (Eq (BlockPointer m),
     -- not belong to genesis data.
     getRuntimeParameters :: m RuntimeParameters
 
-type instance PendingBlock (BSMTrans t m) = PendingBlock m
-
-instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (BSMTrans t m) where
+instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTrans t m) where
     makePendingBlock key slot parent bid pf n lastFin trs time = lift $ makePendingBlock key slot parent bid pf n lastFin trs time
     getBlockStatus = lift . getBlockStatus
     makeLiveBlock b parent lastFin st time energy = lift $ makeLiveBlock b parent lastFin st time energy
@@ -315,11 +286,6 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (BSMTra
     purgeTransaction = lift . purgeTransaction
     lookupTransaction = lift . lookupTransaction
     updateBlockTransactions trs b = lift $ updateBlockTransactions trs b
-    thawBlockState = lift . thawBlockState
-    freezeBlockState = lift . freezeBlockState
-    dropUpdatableBlockState = lift . dropUpdatableBlockState
-    purgeBlockState = lift . purgeBlockState
-    archiveBlockState = lift . archiveBlockState
     getConsensusStatistics = lift getConsensusStatistics
     putConsensusStatistics = lift . putConsensusStatistics
     getRuntimeParameters = lift getRuntimeParameters
@@ -361,18 +327,10 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (BSMTra
     {-# INLINE purgeTransaction #-}
     {-# INLINE lookupTransaction #-}
     {-# INLINE updateBlockTransactions #-}
-    {-# INLINE thawBlockState #-}
-    {-# INLINE freezeBlockState #-}
-    {-# INLINE dropUpdatableBlockState #-}
-    {-# INLINE purgeBlockState #-}
-    {-# INLINE archiveBlockState #-}
     {-# INLINE getConsensusStatistics #-}
     {-# INLINE putConsensusStatistics #-}
     {-# INLINE getRuntimeParameters #-}
 
-type instance PendingBlock (MaybeT m) = PendingBlock m
-deriving via (BSMTrans MaybeT m) instance TreeStateMonad m => TreeStateMonad (MaybeT m)
-type instance PendingBlock (RWST r w s m) = PendingBlock m
-deriving via (BSMTrans (RWST r w s) m) instance (TreeStateMonad m, Monoid w) => TreeStateMonad (RWST r w s m)
-type instance PendingBlock (ExceptT e m) = PendingBlock m
-deriving via (BSMTrans (ExceptT e) m) instance TreeStateMonad m => TreeStateMonad (ExceptT e m)
+deriving via (MGSTrans MaybeT m) instance TreeStateMonad m => TreeStateMonad (MaybeT m)
+-- deriving via (MGSTrans (RWST r w s) m) instance (TreeStateMonad m, Monoid w) => TreeStateMonad (RWST r w s m)
+deriving via (MGSTrans (ExceptT e) m) instance TreeStateMonad m => TreeStateMonad (ExceptT e m)
