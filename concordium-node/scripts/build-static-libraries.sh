@@ -180,7 +180,34 @@ tar czf static-consensus-$GHC_VERSION.tar.gz /target
 tar czf static-consensus-binaries-$GHC_VERSION.tar.gz /binaries
 
 rm -rf /target /binaries
-mkdir -p /target /binaries
+
+# Build again but with no rust global state
+
+mkdir -p /target/{profiling,vanilla}/{ghc,cabal,concordium}
+mkdir -p /binaries/{lib,bin}
+for lib in $(find /usr/local/lib/ghc-$GHC_VERSION -type f -name "*_p.a"); do
+    cp $lib /target/profiling/ghc/
+done
+
+for lib in $(find /usr/local/lib/ghc-$GHC_VERSION -type f -name "*[^_p].a"); do
+    cp $lib /target/vanilla/ghc/
+done
+
+for l in /target/profiling/ghc/libHSrts_p.a \
+             /target/profiling/ghc/libCffi_p.a \
+             /target/vanilla/ghc/libCffi.a \
+             /target/vanilla/ghc/libHSrts.a \
+             /target/vanilla/ghc/libHSCabal-2.4.0.1.a \
+             /target/vanilla/ghc/libHSghc-$GHC_VERSION.a \
+             /target/vanilla/ghc/libHSghc-boot-$GHC_VERSION.a \
+             /target/vanilla/ghc/libHSghc-heap-$GHC_VERSION.a \
+             /target/vanilla/ghc/libHSghci-$GHC_VERSION.a \
+             /target/vanilla/ghc/libHShpc-0.6.0.3.a \
+             /target/vanilla/ghc/libHSterminfo-0.4.1.2.a \
+             $(find /target/vanilla/ghc -name "libffi*") \
+             $(find /target/vanilla/ghc -name "*[debug|l].a"); do
+    rm $l;
+done
 
 cabal clean 
 
