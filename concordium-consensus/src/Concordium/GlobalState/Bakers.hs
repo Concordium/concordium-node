@@ -48,7 +48,7 @@ instance Serialize Bakers where
         _nextBakerId <- get
         let
             (_bakersByKey, _bakerTotalStake) = Map.foldrWithKey deriv (Map.empty, 0) _bakerMap
-            deriv bid BakerInfo{..} (m, t) = (m & at (_bakerSignatureVerifyKey, _bakerElectionVerifyKey) . non [] %~ (bid:),
+            deriv bid BakerInfo{..} (m, t) = (m & at (_bakerSignatureVerifyKey) ?~ bid,
                                                 t + _bakerStake)
         return Bakers{..}    
 

@@ -3,7 +3,7 @@
 {-# LANGUAGE RecordWildCards, MultiParamTypeClasses, FlexibleInstances, GeneralizedNewtypeDeriving, LambdaCase #-}
 {-# LANGUAGE DerivingStrategies, DerivingVia #-}
 module Concordium.GlobalState.Persistent.TreeState where
-
+{-
 import Lens.Micro.Platform
 import Data.List as List
 import Data.Foldable
@@ -472,3 +472,4 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r, SkovLens
 
     {-# INLINE getRuntimeParameters #-}
     getRuntimeParameters = use runtimeParameters
+-}

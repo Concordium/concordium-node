@@ -1,5 +1,5 @@
 {-# LANGUAGE RecordWildCards, FlexibleInstances, MultiParamTypeClasses, FlexibleContexts, GeneralizedNewtypeDeriving,
-        TypeFamilies, BangPatterns, TemplateHaskell, LambdaCase, OverloadedStrings, TupleSections
+        TypeFamilies, BangPatterns, TemplateHaskell, LambdaCase, OverloadedStrings, TupleSections, StandaloneDeriving
  #-}
 
 module Concordium.GlobalState.Persistent.BlockState where
@@ -24,6 +24,7 @@ import Concordium.Types
 import qualified Concordium.ID.Types as ID
 import Acorn.Types (linkWithMaxSize, ValidResult)
 
+import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import Concordium.GlobalState.BlockState
@@ -359,16 +360,19 @@ doPutLinkedContract pbs modRef n !lc = do
 doGetBlockBirkParameters :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> m BirkParameters
 doGetBlockBirkParameters pbs = bspBirkParameters <$> loadPBS pbs
 
-doAddBaker :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> BakerCreationInfo -> m (BakerId, PersistentBlockState)
+doAddBaker :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> BakerCreationInfo -> m (Maybe BakerId, PersistentBlockState)
 doAddBaker pbs binfo = do
         bsp <- loadPBS pbs
-        let (bid, newBakers) = createBaker binfo (bspBirkParameters bsp ^. birkBakers)
-        (bid,) <$> storePBS pbs (bsp {bspBirkParameters = bspBirkParameters bsp & birkBakers .~ newBakers})
+        case createBaker binfo (bspBirkParameters bsp ^. birkBakers) of
+            Nothing -> return $! (Nothing, pbs)
+            Just (bid, newBakers) -> (Just bid,) <$> storePBS pbs (bsp {bspBirkParameters = bspBirkParameters bsp & birkBakers .~ newBakers})
 
-doUpdateBaker :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> BakerUpdate -> m PersistentBlockState
+doUpdateBaker :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> BakerUpdate -> m (Bool, PersistentBlockState)
 doUpdateBaker pbs bupdate = do
         bsp <- loadPBS pbs
-        storePBS pbs (bsp {bspBirkParameters = bspBirkParameters bsp & birkBakers %~ updateBaker bupdate})
+        case updateBaker bupdate (bspBirkParameters bsp ^. birkBakers) of
+            Nothing -> return $! (False, pbs)
+            Just newBakers -> (True, ) <$!> storePBS pbs (bsp {bspBirkParameters =  bspBirkParameters bsp & birkBakers .~ newBakers})
 
 doRemoveBaker :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> BakerId -> m (Bool, PersistentBlockState)
 doRemoveBaker pbs bid = do
@@ -578,3 +582,126 @@ doUpdateSeedState :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockSta
 doUpdateSeedState pbs ss = do
         bsp <- loadPBS pbs
         storePBS pbs bsp{bspBirkParameters = bspBirkParameters bsp & seedState .~ ss}
+
+data PersistentBlockStateContext = PersistentBlockStateContext {
+    pbscModuleCache :: IORef ModuleCache,
+    pbscBlobStore :: BlobStore
+}
+
+instance HasModuleCache PersistentBlockStateContext where
+    moduleCache = pbscModuleCache
+
+instance HasBlobStore PersistentBlockStateContext where
+    blobStore = pbscBlobStore
+
+newtype PersistentBlockStateMonad r m a = PersistentBlockStateMonad (m a)
+    deriving (Functor, Applicative, Monad, MonadIO, MonadReader r)
+
+instance BlockStateTypes (PersistentBlockStateMonad r m) where
+    type BlockState (PersistentBlockStateMonad r m) = PersistentBlockState
+    type UpdatableBlockState (PersistentBlockStateMonad r m) = PersistentBlockState
+
+instance (MonadIO m, HasModuleCache r, HasBlobStore r, MonadReader r m) => BlockStateQuery (PersistentBlockStateMonad r m) where
+    getModule = doGetModule
+    getAccount = doGetAccount
+    getContractInstance = doGetInstance
+    getModuleList = doGetModuleList
+    getAccountList = doAccountList
+    getContractInstanceList = doContractInstanceList
+    getBlockBirkParameters = doGetBlockBirkParameters
+    getRewardStatus = doGetRewardStatus
+    getTransactionOutcome = doGetTransactionOutcome
+    getSpecialOutcomes = doGetSpecialOutcomes
+    {-# INLINE getModule #-}
+    {-# INLINE getAccount #-}
+    {-# INLINE getContractInstance #-}
+    {-# INLINE getModuleList #-}
+    {-# INLINE getAccountList #-}
+    {-# INLINE getContractInstanceList #-}
+    {-# INLINE getBlockBirkParameters #-}
+    {-# INLINE getRewardStatus #-}
+    {-# INLINE getTransactionOutcome #-}
+    {-# INLINE getSpecialOutcomes #-}
+
+instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => BlockStateOperations (PersistentBlockStateMonad r m) where
+    bsoGetModule = doGetModule
+    bsoGetAccount = doGetAccount
+    bsoGetInstance = doGetInstance
+    bsoRegIdExists = doRegIdExists
+    bsoPutNewAccount = doPutNewAccount
+    bsoPutNewInstance = doPutNewInstance
+    bsoPutNewModule = doPutNewModule
+    bsoTryGetLinkedExpr = doTryGetLinkedExpr
+    bsoPutLinkedExpr = doPutLinkedExpr
+    bsoTryGetLinkedContract = doTryGetLinkedContract
+    bsoPutLinkedContract = doPutLinkedContract
+    bsoModifyAccount = doModifyAccount
+    bsoModifyInstance = doModifyInstance
+    bsoNotifyExecutionCost = doNotifyExecutionCost
+    bsoNotifyIdentityIssuerCredential = doNotifyIdentityIssuerCredential
+    bsoGetExecutionCost = doGetExecutionCost
+    bsoGetBlockBirkParameters = doGetBlockBirkParameters
+    bsoAddBaker = doAddBaker
+    bsoUpdateBaker = doUpdateBaker
+    bsoRemoveBaker = doRemoveBaker
+    bsoSetInflation = doSetInflation
+    bsoMint = doMint
+    bsoDecrementCentralBankGTU = doDecrementCentralBankGTU
+    bsoDelegateStake = doDelegateStake
+    bsoGetIdentityProvider = doGetIdentityProvider
+    bsoGetCryptoParams = doGetCryptoParams
+    bsoSetTransactionOutcomes = doSetTransactionOutcomes
+    bsoAddSpecialTransactionOutcome = doAddSpecialTransactionOutcome
+    bsoUpdateSeedState = doUpdateSeedState
+    {-# INLINE bsoGetModule #-}
+    {-# INLINE bsoGetAccount #-}
+    {-# INLINE bsoGetInstance #-}
+    {-# INLINE bsoRegIdExists #-}
+    {-# INLINE bsoPutNewAccount #-}
+    {-# INLINE bsoPutNewInstance #-}
+    {-# INLINE bsoPutNewModule #-}
+    {-# INLINE bsoTryGetLinkedExpr #-}
+    {-# INLINE bsoPutLinkedExpr #-}
+    {-# INLINE bsoTryGetLinkedContract #-}
+    {-# INLINE bsoPutLinkedContract #-}
+    {-# INLINE bsoModifyAccount #-}
+    {-# INLINE bsoModifyInstance #-}
+    {-# INLINE bsoNotifyExecutionCost #-}
+    {-# INLINE bsoNotifyIdentityIssuerCredential #-}
+    {-# INLINE bsoGetExecutionCost #-}
+    {-# INLINE bsoGetBlockBirkParameters #-}
+    {-# INLINE bsoAddBaker #-}
+    {-# INLINE bsoUpdateBaker #-}
+    {-# INLINE bsoRemoveBaker #-}
+    {-# INLINE bsoSetInflation #-}
+    {-# INLINE bsoMint #-}
+    {-# INLINE bsoDecrementCentralBankGTU #-}
+    {-# INLINE bsoDelegateStake #-}
+    {-# INLINE bsoGetIdentityProvider #-}
+    {-# INLINE bsoGetCryptoParams #-}
+    {-# INLINE bsoSetTransactionOutcomes #-}
+    {-# INLINE bsoAddSpecialTransactionOutcome #-}
+    {-# INLINE bsoUpdateSeedState #-}
+
+instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => BlockStateStorage (PersistentBlockStateMonad r m) where
+    {-# INLINE thawBlockState #-}
+    thawBlockState pbs = do
+            bsp <- loadPBS pbs
+            liftIO $ newIORef $! BRMemory bsp {
+                    bspBank = bspBank bsp & Rewards.executionCost .~ 0 & Rewards.identityIssuersRewards .~ HM.empty
+                }
+
+    {-# INLINE freezeBlockState #-}
+    freezeBlockState pbs = return pbs
+
+    {-# INLINE dropUpdatableBlockState #-}
+    dropUpdatableBlockState pbs = liftIO $ writeIORef pbs (error "Block state dropped")
+
+    {-# INLINE purgeBlockState #-}
+    purgeBlockState pbs = liftIO $ writeIORef pbs (error "Block state purged")
+
+    {-# INLINE archiveBlockState #-}
+    archiveBlockState pbs = do
+        inner <- liftIO $ readIORef pbs
+        inner' <- uncacheBuffered inner
+        liftIO $ writeIORef pbs inner'
