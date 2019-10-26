@@ -7,6 +7,8 @@ then
   exit 1
 fi
 
+BUILD_TYPE=$1
+
 CONSENSUS_TYPE=""
 if [ ! -z "$2" ]; then 
   CONSENSUS_TYPE="$2"
@@ -28,6 +30,6 @@ PATH="$PATH:/usr/local/bin" git lfs pull
 
 VERSION=`git rev-parse --verify HEAD`
 
-./scripts/build-all-docker.sh $VERSION $2 $CONSENSUS_TYPE $CONSENSUS_PROFILING
+./scripts/build-all-docker.sh $VERSION $BUILD_TYPE $CONSENSUS_TYPE $CONSENSUS_PROFILING
 
 echo "Finished building and pushing develop release with tag $VERSION with consensus $CONSENSUS_TYPE, and profiling $CONSENSUS_PROFILING"
