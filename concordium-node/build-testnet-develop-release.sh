@@ -12,7 +12,7 @@ then
 fi
 
 CONSENSUS_TYPE=""
-if [ !-z "$2" ]; then 
+if [ ! -z "$2" ]; then 
   CONSENSUS_TYPE="$2"
 else
   CONSENSUS_TYPE="default"

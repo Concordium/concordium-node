@@ -4,7 +4,7 @@ set -e
 BASEDIR="$( cd "$(dirname "$0")" ; pwd -P )"
 (
   VERSION_TAG=$(cat $BASEDIR/CONSENSUS_VERSION)
-  if [[ !-z "$1" && "$1" != "default" ]]; then
+  if [[ ! -z "$1" && "$1" != "default" ]]; then
     VERSION_TAG="$VERSION_TAG-$1"
   fi
   ARCHIVES_DIR=$BASEDIR/../deps/static-libs/linux/archives
