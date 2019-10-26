@@ -30,7 +30,7 @@ PATH="$PATH:/usr/local/bin" git lfs pull
 
 VERSION=`cat Cargo.toml | grep "version = \"" | head -n1 | sed 's/version = \"//' | sed 's/\"//'`
 
-./scripts/build-all-docker.sh $VERSION $1 $CONSENSUS_TYPE $CONSENSUS_PROFILING
+./scripts/build-all-docker.sh $VERSION $CONSENSUS_TYPE $CONSENSUS_PROFILING
 
 if [ -z "$JENKINS_HOME" ]; then
   git checkout $CURRENT_BRANCH
