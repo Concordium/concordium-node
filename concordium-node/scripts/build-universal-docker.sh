@@ -2,7 +2,7 @@
 
 set -e
 
-if [ "$#" -lt 3 ]
+if [ "$#" -le 3 ]
 then
   echo "Usage: ./build-universal-docker.sh VERSION-TAG [default|no-rgs] [profiling:true|false]"
   exit 1
