@@ -12,8 +12,10 @@ then
 fi
 
 CONSENSUS_TYPE=""
-if [[ -n "$2" && "$2" != "default" ]; then 
+if [ !-z "$2" ]; then 
   CONSENSUS_TYPE="$2"
+else
+  CONSENSUS_TYPE="default"
 fi
 
 PATH="$PATH:/usr/local/bin" git lfs install
