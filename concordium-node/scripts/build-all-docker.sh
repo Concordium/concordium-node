@@ -22,8 +22,9 @@ if [[ ! -z "$CONSENSUS_TYPE" && "$CONSENSUS_TYPE" != "default" ]]; then
   VERSION_TAG="$VERSION_TAG-$CONSENSUS_TYPE"
 fi
 
-scripts/build-universal-docker.sh $VERSION_TAG $CONSENSUS_TYPE $CONSENSUS_PROFILING
+echo "Building docker images for $VERSION_TAG with $CONSENSUS_TYPE/$CONSENSUS_PROFILING"
 
+scripts/build-universal-docker.sh $VERSION_TAG $CONSENSUS_TYPE $CONSENSUS_PROFILING
 scripts/build-bootstrapper-docker.sh $VERSION_TAG $2
 scripts/build-collector-docker.sh $VERSION_TAG $2
 scripts/build-collector-backend-docker.sh $VERSION_TAG $2
