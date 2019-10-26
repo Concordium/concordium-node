@@ -2,7 +2,7 @@
 
 set -e
 
-if [ "$#" -ne 1 ]
+if [ "$#" -ne 2 ]
 then
   echo "Usage: ./build-universal-docker.sh VERSION-TAG [default|no-rgs]"
   exit 1

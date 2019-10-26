@@ -2,7 +2,7 @@
 
 set -e 
 
-if [ "$#" -ne 2 ]
+if [ "$#" -ne 3 ]
 then
   echo "Usage: ./build-all-docker.sh VERSION-TAG [debug|release] [default|no-rgs]"
   exit 1

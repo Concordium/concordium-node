@@ -1,14 +1,14 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -e
-
-if [ -z "$JENKINS_HOME" ]; then
-  git pull
-fi
 
 if [ "$#" -lt 1 ]
 then
   echo "Usage: ./build-testnet-develop-release.sh [debug|release] [default|no-rgs]"
   exit 1
+fi
+
+if [ -z "$JENKINS_HOME" ]; then
+  git pull
 fi
 
 CONSENSUS_TYPE=""

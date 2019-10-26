@@ -1,11 +1,5 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -e
-
-if [ -z "$JENKINS_HOME" ]; then
-  CURRENT_BRANCH=$(git branch | grep \* | cut -d ' ' -f2)
-  git checkout master
-  git pull
-fi
 
 if [ "$#" -lt 1 ]
 then
@@ -18,6 +12,12 @@ if [ ! -z "$2" ]; then
   CONSENSUS_TYPE="$2"
 else
   CONSENSUS_TYPE="default"
+fi
+
+if [ -z "$JENKINS_HOME" ]; then
+  CURRENT_BRANCH=$(git branch | grep \* | cut -d ' ' -f2)
+  git checkout master
+  git pull
 fi
 
 PATH="$PATH:/usr/local/bin" git lfs install
