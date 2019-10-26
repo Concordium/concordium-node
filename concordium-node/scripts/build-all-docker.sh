@@ -2,7 +2,7 @@
 
 set -e 
 
-if [ "$#" -ne 3 ]
+if [ "$#" -lt 2 ]
 then
   echo "Usage: ./build-all-docker.sh VERSION-TAG [debug|release] [default|no-rgs]"
   exit 1
@@ -14,9 +14,16 @@ echo "Consensus commit ID $CONSENSUS_VERSION with type $3"
 
 echo $CONSENSUS_VERSION > CONSENSUS_VERSION
 
-scripts/build-universal-docker.sh $1 $3
+VERSION_TAG="$1"
+CONSENSUS_TYPE="$3"
 
-scripts/build-bootstrapper-docker.sh $1 $2
-scripts/build-collector-docker.sh $1 $2
-scripts/build-collector-backend-docker.sh $1 $2
-scripts/build-client-docker.sh $1 $2
+if [[ ! -z "$CONSENSUS_TYPE" && "$CONSENSUS_TYPE" != "default" ]]; then
+  VERSION_TAG="$VERSION_TAG-$CONSENSUS_TYPE"
+fi
+
+scripts/build-universal-docker.sh $VERSION_TAG $CONSENSUS_TYPE
+
+scripts/build-bootstrapper-docker.sh $VERSION_TAG $2
+scripts/build-collector-docker.sh $VERSION_TAG $2
+scripts/build-collector-backend-docker.sh $VERSION_TAG $2
+scripts/build-client-docker.sh $VERSION_TAG $2
