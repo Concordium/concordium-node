@@ -3,6 +3,8 @@ FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.3 as build
 
 ARG consensus_type
 ENV CONSENSUS_TYPE=$consensus_type
+ARG consensus_profiling=true
+ENV CONSENSUS_PROFILING=$consensus_profiling
 
 COPY . /build-project/
 WORKDIR /build-project
@@ -24,7 +26,7 @@ RUN \
     rm -rf baker_id_gen
 
 ### P2P client
-RUN --mount=type=ssh ./build-binaries.sh "profiling,elastic_logging,collector"
+RUN --mount=type=ssh ./build-binaries.sh "elastic_logging,collector"
 
 RUN chmod +x /build-project/start.sh
 
