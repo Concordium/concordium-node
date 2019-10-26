@@ -6,9 +6,10 @@ if [[ -z "$CONSENSUS_TYPE" && "$CONSENSUS_TYPE" == "no-rgs" ]]; then
     FEATURES="$FEATURES,no_rgs"
 fi
 
-MODE=""
-if [[ -z "$2" && "$2" == "release" ]]; then
-    MODE="--release"
+if [[ -z "$2""$2" == "release" ]]; then
+    echo "Building release build with $FEATURES"
+    cargo build --release --features=$FEATURES
+else
+    echo "Building debug build with $FEATURES"
+    cargo build --features=$FEATURES
 fi
-
-cargo build $MODE --features=$FEATURES

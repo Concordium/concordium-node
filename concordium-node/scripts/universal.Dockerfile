@@ -12,7 +12,7 @@ COPY ./scripts/build-binaries.sh ./build-binaries.sh
 ENV LD_LIBRARY_PATH=/usr/local/lib
 RUN --mount=type=ssh ./init.build.env.sh 
 RUN --mount=type=ssh mkdir -p /build-project/release && \
-    ./build-binaries.sh "instrumentation,benchmark,profiling,elastic_logging,collector" release && \
+    ./build-binaries.sh "instrumentation,benchmark,profiling,elastic_logging,collector" "release" && \
     cp /build-project/target/release/p2p_client-cli /build-project/target/release/p2p_bootstrapper-cli /build-project/release/ && \
     cp /build-project/target/release/node-collector /build-project/release/ && \
     cp /build-project/target/release/node-collector-backend /build-project/release/ && \
