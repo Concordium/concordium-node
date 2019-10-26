@@ -251,17 +251,10 @@ fn process_external_gs_entry(
     global_state: &mut GlobalState,
 ) -> Fallible<()> {
     let source = P2PNodeId(request.source_peer());
-
-    // relay external messages to Consensus
-    let consensus_result = send_msg_to_consensus(node, source, consensus, &mut request)?;
-
-    // adjust the peer state(s) based on the feedback from Consensus
-    update_peer_states(global_state, &request, consensus_result);
+    let curr_pos = request.payload.position()?;
 
     // rebroadcast incoming broadcasts if applicable
-    if request.distribution_mode() == DistributionMode::Broadcast
-        && consensus_result.is_rebroadcastable()
-    {
+    if request.distribution_mode() == DistributionMode::Broadcast {
         send_consensus_msg_to_net(
             &node,
             request.dont_relay_to(),
@@ -273,6 +266,14 @@ fn process_external_gs_entry(
             &request.payload.remaining_bytes()?,
         )?;
     }
+
+    request.payload.seek(SeekFrom::Start(curr_pos))?;
+
+    // relay external messages to Consensus
+    let consensus_result = send_msg_to_consensus(node, source, consensus, &mut request)?;
+
+    // adjust the peer state(s) based on the feedback from Consensus
+    update_peer_states(global_state, &request, consensus_result);
 
     Ok(())
 }

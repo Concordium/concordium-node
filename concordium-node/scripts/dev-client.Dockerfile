@@ -6,9 +6,9 @@ ENV CONSENSUS_TYPE=$consensus_type
 
 COPY . /build-project/
 WORKDIR /build-project
-COPY scripts/start.sh /build-project/start.sh
-COPY scripts/init.build.env.sh /build-project/init.build.env.sh
-
+COPY scripts/start.sh ./start.sh
+COPY scripts/init.build.env.sh ./init.build.env.sh
+COPY scripts/build-binaries.sh ./build-binaries.sh
 COPY scripts/genesis-data ./genesis-data
 
 # Build Environment: Hacl, ffi, Haskell (inherited from k8 build)
@@ -24,7 +24,7 @@ RUN \
     rm -rf baker_id_gen
 
 ### P2P client
-RUN --mount=type=ssh cargo build --features=profiling,elastic_logging,collector
+RUN --mount=type=ssh ./build-binaries.sh "profiling,elastic_logging,collector"
 
 RUN chmod +x /build-project/start.sh
 

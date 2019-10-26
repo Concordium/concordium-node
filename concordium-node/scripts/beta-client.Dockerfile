@@ -7,10 +7,11 @@ WORKDIR /build-project
 COPY ./scripts/init.build.env.sh ./init.build.env.sh
 COPY ./scripts/start.sh ./start.sh
 COPY ./scripts/genesis-data ./genesis-data
+COPY ./scripts/build-binaries.sh ./build-binaries.sh
 ENV LD_LIBRARY_PATH=/usr/local/lib
 RUN --mount=type=ssh ./init.build.env.sh 
 # Build P2P client
-RUN --mount=type=ssh cargo build --release --features=static,collector,beta && \
+RUN --mount=type=ssh ./build-binaries.sh "static,collector,beta" release && \
     strip /build-project/target/release/p2p_client-cli && \
     strip /build-project/target/release/node-collector && \
     cp /build-project/target/release/p2p_client-cli /build-project/ && \

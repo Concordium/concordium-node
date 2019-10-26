@@ -211,7 +211,7 @@ done
 
 cabal clean 
 
-LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release:$(pwd)/globalstate-mockup/deps/concordium-global-state-sys/target/release cabal build all \
+LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release cabal build all \
                --constraint="Concordium -dynamic"\
                --constraint="globalstate -rust"\
                --constraint="scheduler -rust"\
@@ -220,7 +220,6 @@ LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release:$(pwd)/globalstate-mockup/
 echo "Let's copy the binaries and their dependent libraries"
 cp dist-newstyle/build/x86_64-linux/ghc-$GHC_BUILDER_VERSION/Concordium-0.1.0.0/x/genesis/build/genesis/genesis /binaries/bin/
 cp $(pwd)/crypto/rust-src/target/release/*.so /binaries/lib/
-cp $(pwd)/globalstate-mockup/deps/concordium-global-state-sys/target/release/*.so /binaries/lib/
 
 echo "Let's copy the needed concordium libraries"
 for lib in $(find . -type f -name "*inplace.a"); do
@@ -242,7 +241,6 @@ done
 
 mkdir -p /target/rust
 cp -r $(pwd)/crypto/rust-src/target/release/*.a /target/rust/
-cp -r $(pwd)/globalstate-mockup/deps/concordium-global-state-sys/target/release/*.a /target/rust/
 
 echo "Removing debug symbols because certain distros can't update their stuff to be compliant with the spec"
 strip --strip-debug /target/vanilla/cabal/libHS* \
@@ -260,18 +258,11 @@ echo "Expanding libraries"
 cd /target/rust
 for i in $(ls)
 do
-    if [[ $i != "libconcordium_global_state_sys.a" ]]; then
-        ar x $i
-    fi
+    ar x $i
 done
 
 mkdir crypto
 mv *.o crypto
-
-ar x libconcordium_global_state_sys.a
-
-mkdir gs
-mv *.o gs
 
 rm *a
 
@@ -289,18 +280,12 @@ done
 
 set -e
 
-echo "Unifying duplicated objects that collide between both libraries"
-ar rcs libRcommon.a $(diff -sqr gs crypto | grep identical | cut -d" " -f2)
-rm $(diff -sqr gs crypto | grep identical | cut -d" " -f2,4)
-
-echo "Removing duplicated crypto objects that differ in name but collide between both libraries"
-rm gs/curve* gs/ec_vrf* gs/ed255* gs/eddsa* gs/ffi_helpers*
-
 echo "Recreating the libraries"
-ar rcs libconcordium_global_state_sys.a gs/*.o
+ar rcs libconcordium_global_state_sys.a # This one is created as an empty archive as we don't need it for this build
+ar rcs libRcommon.a                     # This one is created as an empty archive as we don't need it for this build
 ar rcs libRcrypto.a crypto/*.o
 
-rm -r gs crypto
+rm -r crypto
 
 cd /build
 

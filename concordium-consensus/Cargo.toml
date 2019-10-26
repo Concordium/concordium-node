@@ -14,6 +14,7 @@ default = []
 valgrind = []
 static = []
 profiling = ["static"]
+no_rgs = [] 
 
 [dependencies]
 concordium-common = { path = "../concordium-common" }
