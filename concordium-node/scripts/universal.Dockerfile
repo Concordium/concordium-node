@@ -2,6 +2,8 @@
 FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.3
 ARG consensus_type
 ENV CONSENSUS_TYPE=$consensus_type
+ARG consensus_profiling=false
+ENV CONSENSUS_PROFILING=$consensus_profiling
 COPY . /build-project
 WORKDIR /build-project
 COPY ./scripts/init.build.env.sh ./init.build.env.sh
@@ -12,12 +14,12 @@ COPY ./scripts/build-binaries.sh ./build-binaries.sh
 ENV LD_LIBRARY_PATH=/usr/local/lib
 RUN --mount=type=ssh ./init.build.env.sh 
 RUN --mount=type=ssh mkdir -p /build-project/release && \
-    ./build-binaries.sh "instrumentation,benchmark,profiling,elastic_logging,collector" "release" && \
+    ./build-binaries.sh "instrumentation,benchmark,elastic_logging,collector" "release" && \
     cp /build-project/target/release/p2p_client-cli /build-project/target/release/p2p_bootstrapper-cli /build-project/release/ && \
     cp /build-project/target/release/node-collector /build-project/release/ && \
     cp /build-project/target/release/node-collector-backend /build-project/release/ && \
     mkdir -p /build-project/debug/ && \
-    ./build-binaries.sh "instrumentation,benchmark,profiling,elastic_logging,collector" && \
+    ./build-binaries.sh "instrumentation,benchmark,elastic_logging,collector" && \
     cp /build-project/target/release/p2p_client-cli /build-project/target/release/p2p_bootstrapper-cli /build-project/debug/ && \
     cp /build-project/target/release/node-collector /build-project/debug/ && \
     cp /build-project/target/release/node-collector-backend /build-project/debug/ && \

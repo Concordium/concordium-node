@@ -2,6 +2,8 @@
 FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.3 as build
 ARG consensus_type
 ENV CONSENSUS_TYPE=$consensus_type
+ARG consensus_profiling=false
+ENV CONSENSUS_PROFILING=$consensus_profiling
 COPY . /build-project
 WORKDIR /build-project
 COPY ./scripts/init.build.env.sh ./init.build.env.sh
@@ -11,7 +13,7 @@ COPY ./scripts/build-binaries.sh ./build-binaries.sh
 ENV LD_LIBRARY_PATH=/usr/local/lib
 RUN --mount=type=ssh ./init.build.env.sh 
 # Build P2P client
-RUN --mount=type=ssh ./build-binaries.sh "static,collector,beta" release && \
+RUN --mount=type=ssh ./build-binaries.sh "collector,beta" release && \
     strip /build-project/target/release/p2p_client-cli && \
     strip /build-project/target/release/node-collector && \
     cp /build-project/target/release/p2p_client-cli /build-project/ && \
