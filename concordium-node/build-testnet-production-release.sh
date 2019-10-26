@@ -3,7 +3,7 @@ set -e
 
 if [ "$#" -lt 1 ]
 then
-  echo "Usage: ./build-testnet-production-release.sh [debug|release] [default|no-rgs]"
+  echo "Usage: ./build-testnet-production-release.sh [debug|release] [default|no-rgs] [profiling=[true|false]]"
   exit 1
 fi
 
@@ -12,6 +12,11 @@ if [ ! -z "$2" ]; then
   CONSENSUS_TYPE="$2"
 else
   CONSENSUS_TYPE="default"
+fi
+
+CONSENSUS_PROFILING="false"
+if [[ ! -z "$3" && "$3" == "true" ]]; then 
+  CONSENSUS_PROFILING="true"
 fi
 
 if [ -z "$JENKINS_HOME" ]; then
@@ -25,10 +30,10 @@ PATH="$PATH:/usr/local/bin" git lfs pull
 
 VERSION=`cat Cargo.toml | grep "version = \"" | head -n1 | sed 's/version = \"//' | sed 's/\"//'`
 
-./scripts/build-all-docker.sh $VERSION $1 $CONSENSUS_TYPE
+./scripts/build-all-docker.sh $VERSION $1 $CONSENSUS_TYPE $CONSENSUS_PROFILING
 
 if [ -z "$JENKINS_HOME" ]; then
   git checkout $CURRENT_BRANCH
 fi
 
-echo "Finished building production release with tag $VERSION with consensus $CONSENSUS_TYPE"
+echo "Finished building production release with tag $VERSION with consensus $CONSENSUS_TYPE, and profiling $CONSENSUS_PROFILING"
