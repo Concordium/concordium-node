@@ -8,14 +8,14 @@ then
 fi
 
 CONSENSUS_TYPE=""
-if [ ! -z "$3" ]; then 
-  CONSENSUS_TYPE="$3"
+if [ ! -z "$2" ]; then 
+  CONSENSUS_TYPE="$2"
 else
   CONSENSUS_TYPE="default"
 fi
 
 CONSENSUS_PROFILING="false"
-if [[ ! -z "$4" && "$4" == "true" ]]; then 
+if [[ ! -z "$3" && "$3" == "true" ]]; then 
   CONSENSUS_PROFILING="true"
 fi
 
