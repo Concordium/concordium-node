@@ -16,12 +16,13 @@ echo $CONSENSUS_VERSION > CONSENSUS_VERSION
 
 VERSION_TAG="$1"
 CONSENSUS_TYPE="$3"
+CONSENSUS_PROFILING="$4"
 
 if [[ ! -z "$CONSENSUS_TYPE" && "$CONSENSUS_TYPE" != "default" ]]; then
   VERSION_TAG="$VERSION_TAG-$CONSENSUS_TYPE"
 fi
 
-scripts/build-universal-docker.sh $VERSION_TAG $CONSENSUS_TYPE
+scripts/build-universal-docker.sh $VERSION_TAG $CONSENSUS_TYPE $CONSENSUS_PROFILING
 
 scripts/build-bootstrapper-docker.sh $VERSION_TAG $2
 scripts/build-collector-docker.sh $VERSION_TAG $2
