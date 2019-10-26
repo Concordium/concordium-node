@@ -8,7 +8,7 @@ COPY ./scripts/init.build.env.sh ./init.build.env.sh
 COPY ./scripts/gen_data.sh ./gen_data.sh
 COPY ./scripts/start.sh ./start.sh
 COPY ./scripts/genesis-data ./genesis-data
-COPY ./scripts/build-binaries.sh /build-binaries.sh
+COPY ./scripts/build-binaries.sh ./build-binaries.sh
 ENV LD_LIBRARY_PATH=/usr/local/lib
 RUN --mount=type=ssh ./init.build.env.sh 
 RUN --mount=type=ssh mkdir -p /build-project/release && \
