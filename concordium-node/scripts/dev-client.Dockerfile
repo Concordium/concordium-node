@@ -8,6 +8,7 @@ COPY . /build-project/
 WORKDIR /build-project
 COPY scripts/start.sh /build-project/start.sh
 COPY scripts/init.build.env.sh /build-project/init.build.env.sh
+COPY scripts/build-binaries.sh /build-project/build-binaries.sh
 
 COPY scripts/genesis-data ./genesis-data
 
@@ -24,7 +25,7 @@ RUN \
     rm -rf baker_id_gen
 
 ### P2P client
-RUN --mount=type=ssh cargo build --features=profiling,elastic_logging,collector
+RUN --mount=type=ssh ./build-universal-binaries.sh "profiling,elastic_logging,collector"
 
 RUN chmod +x /build-project/start.sh
 
