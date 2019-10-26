@@ -4,7 +4,7 @@ set -e
 
 if [ "$#" -lt 2 ]
 then
-  echo "Usage: ./build-all-docker.sh VERSION-TAG [debug|release] [default|no-rgs]"
+  echo "Usage: ./build-all-docker.sh VERSION-TAG [debug|release] [default|no-rgs] [profiling:[true|false]]"
   exit 1
 fi
 
@@ -18,11 +18,11 @@ VERSION_TAG="$1"
 CONSENSUS_TYPE="$3"
 CONSENSUS_PROFILING="$4"
 
+echo "Building docker images for $VERSION_TAG with $CONSENSUS_TYPE/$CONSENSUS_PROFILING"
+
 if [[ ! -z "$CONSENSUS_TYPE" && "$CONSENSUS_TYPE" != "default" ]]; then
   VERSION_TAG="$VERSION_TAG-$CONSENSUS_TYPE"
 fi
-
-echo "Building docker images for $VERSION_TAG with $CONSENSUS_TYPE/$CONSENSUS_PROFILING"
 
 scripts/build-universal-docker.sh $VERSION_TAG $CONSENSUS_TYPE $CONSENSUS_PROFILING
 scripts/build-bootstrapper-docker.sh $VERSION_TAG $2
