@@ -223,11 +223,6 @@ then
     ARGS="$ARGS --grpc-host $COLLECTOR_GRPC_HOST"
 fi
 
-if [ -n "$COLLECTOR_GRPC_PORT" ];
-then
-    ARGS="$ARGS --grpc-port $COLLECTOR_GRPC_PORT"
-fi
-
 if [ -n "$RPC_PASSWORD" ];
 then
     ARGS="$ARGS --rpc-server-token $RPC_PASSWORD"
@@ -324,6 +319,21 @@ elif [ "$MODE" == "collector" ]; then
     /node-collector $ARGS
 elif [ "$MODE" == "collector_backend" ]; then
     /node-collector-backend $ARGS
+elif [ "$MODE" == "local_collector_backend" ]; then
+    /node-collector-backend $ARGS
+elif [ "$MODE" == "local_collector" ]; then
+    if [ -n "$COLLECTOR_SLEEP" ];
+    then
+        echo "Sleeping for $COLLECTOR_SLEEP"
+        sleep $COLLECTOR_SLEEP
+    fi
+    COLLECTOR_NODE_URLS="--grpc-host p2p-client_baker_1:10000 --node-name baker_1"
+    for i in `seq 2 $NUM_BAKERS`
+    do
+        COLLECTOR_NODE_URLS="$COLLECTOR_NODE_URLS --grpc-host p2p-client_baker_$i:10000 --node-name baker_$i"
+    done
+    ARGS="$ARGS $COLLECTOR_NODE_URLS"
+    /node-collector $ARGS
 elif [ "$MODE" == "local_basic" ]; then
     export BAKER_ID=`curl http://baker_id_gen:8000/next_id`
     echo "Using BAKER_ID $BAKER_ID"

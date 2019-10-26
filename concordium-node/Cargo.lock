@@ -1183,17 +1183,6 @@ dependencies = [
 
 [[package]]
 name = "grpcio"
-version = "0.4.0"
-dependencies = [
- "futures 0.1.28 (registry+https://github.com/rust-lang/crates.io-index)",
- "grpcio-sys 0.4.0",
- "libc 0.2.60 (registry+https://github.com/rust-lang/crates.io-index)",
- "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
- "protobuf 2.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "grpcio"
 version = "0.4.5"
 source = "git+ssh://git@gitlab.com:22/Concordium/rust/external/grpc-rs.git?rev=dff66a519324661039a8cea919336c0c628d2409#dff66a519324661039a8cea919336c0c628d2409"
 dependencies = [
@@ -1211,16 +1200,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "protobuf 2.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "protobuf-codegen 2.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "grpcio-sys"
-version = "0.4.0"
-dependencies = [
- "cc 1.0.38 (registry+https://github.com/rust-lang/crates.io-index)",
- "cmake 0.1.40 (registry+https://github.com/rust-lang/crates.io-index)",
- "libc 0.2.60 (registry+https://github.com/rust-lang/crates.io-index)",
- "pkg-config 0.3.15 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -1835,7 +1814,6 @@ dependencies = [
  "gotham 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "gotham_derive 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "grpc 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "grpcio 0.4.0",
  "grpcio 0.4.5 (git+ssh://git@gitlab.com:22/Concordium/rust/external/grpc-rs.git?rev=dff66a519324661039a8cea919336c0c628d2409)",
  "hacl-star 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "hash_hasher 2.0.0 (registry+https://github.com/rust-lang/crates.io-index)",

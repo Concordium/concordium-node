@@ -28,7 +28,7 @@ RUN --mount=type=ssh cargo build --features=profiling,elastic_logging,collector
 
 RUN chmod +x /build-project/start.sh
 
-RUN cp /build-project/target/debug/p2p_client-cli /build-project/target/debug/p2p_bootstrapper-cli /build-project/target/debug/node-collector /build-project/
+RUN cp /build-project/target/debug/p2p_client-cli /build-project/target/debug/p2p_bootstrapper-cli /build-project/target/debug/node-collector /build-project/target/debug/node-collector-backend /build-project/
 
 FROM ubuntu:19.10
 
@@ -46,5 +46,6 @@ COPY --from=build /build-project/genesis-data /genesis-data
 COPY --from=build /build-project/p2p_client-cli /p2p_client-cli
 COPY --from=build /build-project/p2p_bootstrapper-cli /p2p_bootstrapper-cli
 COPY --from=build /build-project/node-collector /node-collector
+COPY --from=build /build-project/node-collector-backend /node-collector-backend 
 
 ENTRYPOINT ["/start.sh"]

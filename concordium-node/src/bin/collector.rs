@@ -9,7 +9,7 @@ use failure::Fallible;
 use grpcio::{ChannelBuilder, EnvBuilder};
 use p2p_client::{common::collector_utils::NodeInfo, proto::concordium_p2p_rpc_grpc::P2PClient};
 use serde_json::Value;
-use std::{borrow::ToOwned, fmt, str::FromStr, sync::Arc, thread, time::Duration};
+use std::{borrow::ToOwned, fmt, process::exit, str::FromStr, sync::Arc, thread, time::Duration};
 use structopt::StructOpt;
 #[macro_use]
 extern crate log;
@@ -53,17 +53,11 @@ struct ConfigCli {
     #[structopt(
         long = "grpc-host",
         help = "gRPC host to collect from",
-        default_value = "127.0.0.1"
+        default_value = "127.0.0.1:10000"
     )]
-    pub grpc_host: String,
-    #[structopt(
-        long = "grpc-port",
-        help = "gRPC port to collect from",
-        default_value = "10000"
-    )]
-    pub grpc_port: u16,
+    pub grpc_hosts: Vec<String>,
     #[structopt(long = "node-name", help = "Node name")]
-    pub node_name: NodeName,
+    pub node_names: Vec<NodeName>,
     #[structopt(
         long = "collector-url",
         help = "Alias submitted of the node collected from",
@@ -89,7 +83,7 @@ struct ConfigCli {
     pub collector_interval: u64,
 }
 
-const MAX_GRPC_FAILURES: usize = 20;
+const MAX_GRPC_FAILURES: usize = 40;
 
 pub fn main() -> Fallible<()> {
     let conf = ConfigCli::from_args();
@@ -112,31 +106,40 @@ pub fn main() -> Fallible<()> {
         info!("{:?}", conf);
     }
 
-    info!("Node name: {}", conf.node_name);
+    if conf.node_names.len() != conf.grpc_hosts.len() {
+        error!("Amount of node-names and grpc-hosts must be equal!");
+        exit(1);
+    }
 
+    #[allow(unreachable_code)]
     let main_thread = spawn_or_die!("Main loop", {
         let mut grpc_failures = 0;
         loop {
-            if let Ok(node_info) = collect_data(
-                &conf.node_name,
-                &conf.grpc_host,
-                conf.grpc_port,
-                &conf.grpc_auth_token,
-            ) {
-                if let Ok(json_string) = serde_json::to_string(&node_info) {
-                    trace!("Posting JSON {}", json_string);
-                    let client = reqwest::Client::new();
-                    if let Err(e) = client.post(&conf.collector_url).json(&node_info).send() {
-                        error!("Could not post to dashboard server due to error {}", e);
+            conf.node_names.iter().zip(conf.grpc_hosts.iter()).for_each(
+                |(node_name, grpc_host)| {
+                    if let Ok(node_info) =
+                        collect_data(&node_name, &grpc_host, &conf.grpc_auth_token)
+                    {
+                        if let Ok(json_string) = serde_json::to_string(&node_info) {
+                            trace!("Posting JSON {}", json_string);
+                            let client = reqwest::Client::new();
+                            if let Err(e) = client.post(&conf.collector_url).json(&node_info).send()
+                            {
+                                error!("Could not post to dashboard server due to error {}", e);
+                            }
+                        }
+                    } else if grpc_failures + 1 >= MAX_GRPC_FAILURES {
+                        error!("Too many gRPC failures, exiting!");
+                        exit(1);
+                    } else {
+                        grpc_failures += 1;
+                        error!(
+                            "gRPC failed for {}, sleeping for {} ms",
+                            &grpc_host, conf.collector_interval
+                        );
                     }
-                }
-            } else if grpc_failures + 1 >= MAX_GRPC_FAILURES {
-                error!("Too many gRPC failures, exiting!");
-                break;
-            } else {
-                grpc_failures += 1;
-                error!("gRPC failed, sleeping for {} ms", conf.collector_interval);
-            }
+                },
+            );
             thread::sleep(Duration::from_millis(conf.collector_interval));
         }
     });
@@ -147,11 +150,10 @@ pub fn main() -> Fallible<()> {
 fn collect_data(
     node_name: &NodeName,
     grpc_host: &str,
-    grpc_port: u16,
     grpc_auth_token: &str,
 ) -> Fallible<NodeInfo> {
     let env = Arc::new(EnvBuilder::new().build());
-    let ch = ChannelBuilder::new(env).connect(&format!("{}:{}", grpc_host, grpc_port));
+    let ch = ChannelBuilder::new(env).connect(grpc_host);
     let client = P2PClient::new(ch);
 
     let mut req_meta_builder = ::grpcio::MetadataBuilder::new();
