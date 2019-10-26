@@ -7,15 +7,15 @@ then
   exit 1
 fi
 
-if [ -z "$JENKINS_HOME" ]; then
-  git pull
-fi
-
 CONSENSUS_TYPE=""
 if [ ! -z "$2" ]; then 
   CONSENSUS_TYPE="$2"
 else
   CONSENSUS_TYPE="default"
+fi
+
+if [ -z "$JENKINS_HOME" ]; then
+  git pull
 fi
 
 PATH="$PATH:/usr/local/bin" git lfs install

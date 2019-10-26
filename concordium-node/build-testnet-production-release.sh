@@ -3,7 +3,7 @@ set -e
 
 if [ "$#" -lt 1 ]
 then
-  echo "Usage: ./build-testnet-production-release.sh [debug|release]  [default|no-rgs]"
+  echo "Usage: ./build-testnet-production-release.sh [debug|release] [default|no-rgs]"
   exit 1
 fi
 
