@@ -2,7 +2,7 @@
 
 FEATURES=$1
 
-if [[ -z "$CONSENSUS_TYPE" && "$CONSENSUS_TYPE" == "no-rgs" ]]; then
+if [[ -n "$CONSENSUS_TYPE" && "$CONSENSUS_TYPE" == "no-rgs" ]]; then
     FEATURES="$FEATURES,no_rgs"
 fi
 
