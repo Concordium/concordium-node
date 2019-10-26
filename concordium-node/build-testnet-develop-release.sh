@@ -5,7 +5,7 @@ if [ -z "$JENKINS_HOME" ]; then
   git pull
 fi
 
-if [ "$#" -ne 1 ]
+if [ "$#" -lt 1 ]
 then
   echo "Usage: ./build-testnet-develop-release.sh [debug|release] [default|no-rgs]"
   exit 1
