@@ -24,7 +24,7 @@ RUN \
     rm -rf baker_id_gen
 
 ### P2P client
-RUN --mount=type=ssh ./build-universal-binaries.sh "profiling,elastic_logging,collector"
+RUN --mount=type=ssh ./build-binaries.sh "profiling,elastic_logging,collector"
 
 RUN chmod +x /build-project/start.sh
 

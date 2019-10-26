@@ -11,7 +11,7 @@ COPY ./scripts/build-binaries.sh ./build-binaries.sh
 ENV LD_LIBRARY_PATH=/usr/local/lib
 RUN --mount=type=ssh ./init.build.env.sh 
 # Build P2P client
-RUN --mount=type=ssh ./build-universal-binaries.sh "static,collector,beta" release && \
+RUN --mount=type=ssh ./build-binaries.sh "static,collector,beta" release && \
     strip /build-project/target/release/p2p_client-cli && \
     strip /build-project/target/release/node-collector && \
     cp /build-project/target/release/p2p_client-cli /build-project/ && \
