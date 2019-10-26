@@ -8,14 +8,14 @@ then
 fi
 
 CONSENSUS_TYPE=""
-if [ ! -z "$2" ]; then 
-  CONSENSUS_TYPE="$2"
+if [ ! -z "$3" ]; then 
+  CONSENSUS_TYPE="$3"
 else
   CONSENSUS_TYPE="default"
 fi
 
 CONSENSUS_PROFILING="false"
-if [[ ! -z "$3" && "$3" == "true" ]]; then 
+if [[ ! -z "$4" && "$4" == "true" ]]; then 
   CONSENSUS_PROFILING="true"
 fi
 
@@ -30,7 +30,7 @@ PATH="$PATH:/usr/local/bin" git lfs pull
 
 VERSION=`cat Cargo.toml | grep "version = \"" | head -n1 | sed 's/version = \"//' | sed 's/\"//'`
 
-./scripts/build-all-docker.sh $VERSION $CONSENSUS_TYPE $CONSENSUS_PROFILING
+./scripts/build-all-docker.sh $VERSION $2 $CONSENSUS_TYPE $CONSENSUS_PROFILING
 
 if [ -z "$JENKINS_HOME" ]; then
   git checkout $CURRENT_BRANCH

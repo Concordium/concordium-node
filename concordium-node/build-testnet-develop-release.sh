@@ -28,6 +28,6 @@ PATH="$PATH:/usr/local/bin" git lfs pull
 
 VERSION=`git rev-parse --verify HEAD`
 
-./scripts/build-all-docker.sh $VERSION $CONSENSUS_TYPE $CONSENSUS_PROFILING
+./scripts/build-all-docker.sh $VERSION $2 $CONSENSUS_TYPE $CONSENSUS_PROFILING
 
 echo "Finished building and pushing develop release with tag $VERSION with consensus $CONSENSUS_TYPE, and profiling $CONSENSUS_PROFILING"
