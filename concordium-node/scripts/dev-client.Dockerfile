@@ -1,6 +1,9 @@
 # syntax=docker/dockerfile:experimental
 FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.3 as build
 
+ARG consensus_type
+ENV CONSENSUS_TYPE=$consensus_type
+
 COPY . /build-project/
 WORKDIR /build-project
 COPY scripts/start.sh /build-project/start.sh
@@ -9,7 +12,7 @@ COPY scripts/init.build.env.sh /build-project/init.build.env.sh
 COPY scripts/genesis-data ./genesis-data
 
 # Build Environment: Hacl, ffi, Haskell (inherited from k8 build)
-RUN ./init.build.env.sh
+RUN --mount=type=ssh ./init.build.env.sh
 
 ### Baker id gen
 RUN \
