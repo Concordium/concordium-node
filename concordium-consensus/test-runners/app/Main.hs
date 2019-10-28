@@ -21,6 +21,7 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Instances
 import Concordium.GlobalState.BlockState(BlockPointerData(..))
+import Concordium.GlobalState.Implementation
 import Concordium.GlobalState.Implementation.TreeState
 import Concordium.GlobalState.Implementation.BlockState
 import Concordium.GlobalState.Implementation.Block (BakedBlock, Block(NormalBlock), getBlock)
@@ -104,7 +105,7 @@ removeEach = re []
         re _ [] = []
 
 gsToString :: BlockState -> String
-gsToString gs = (show (currentSeed (gs ^.  blockBirkParameters ^. birkSeedState))) ++ 
+gsToString gs = (show (currentSeed (gs ^.  blockBirkParameters ^. birkSeedState))) ++
                     "\n current: " ++ showBakers ( (gs ^. blockBirkParameters ^. birkCurrentBakers)) ++
                     "\n prev   : " ++ showBakers ( (gs ^. blockBirkParameters ^. birkPrevEpochBakers)) ++
                     "\n lottery: " ++ showBakers ( (gs ^. blockBirkParameters ^. birkLotteryBakers))
