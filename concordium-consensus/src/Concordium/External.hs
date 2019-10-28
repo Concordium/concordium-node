@@ -278,6 +278,8 @@ startConsensus ::
            -> CString -> Int64 -- ^Serialized baker identity (c string + len)
 #ifdef RUST
            -> Ptr GlobalStateR
+#else
+           -> Ptr ()
 #endif
            -> FunPtr BroadcastCallback -- ^Handler for generated messages
            -> Word8 -- ^Maximum log level (inclusive) (0 to disable logging).
@@ -288,7 +290,7 @@ startConsensus ::
 #ifdef RUST
 startConsensus maxBlock gdataC gdataLenC bidC bidLenC gsptr bcbk maxLogLevel lcbk enableTransferLogging ltcbk = do
 #else
-startConsensus maxBlock gdataC gdataLenC bidC bidLenC bcbk maxLogLevel lcbk enableTransferLogging ltcbk = do
+startConsensus maxBlock gdataC gdataLenC bidC bidLenC _ bcbk maxLogLevel lcbk enableTransferLogging ltcbk = do
 #endif
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
@@ -313,6 +315,8 @@ startConsensusPassive ::
            -> CString -> Int64 -- ^Serialized genesis data (c string + len)
 #ifdef RUST
            -> Ptr GlobalStateR
+#else
+           -> Ptr ()
 #endif
            -> Word8 -- ^Maximum log level (inclusive) (0 to disable logging).
            -> FunPtr LogCallback -- ^Handler for log events
@@ -320,7 +324,7 @@ startConsensusPassive ::
 #ifdef RUST
 startConsensusPassive maxBlock gdataC gdataLenC gsptr maxLogLevel lcbk = do
 #else
-startConsensusPassive maxBlock gdataC gdataLenC maxLogLevel lcbk = do
+startConsensusPassive maxBlock gdataC gdataLenC _ maxLogLevel lcbk = do
 #endif
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         case (decode gdata) of
@@ -863,7 +867,7 @@ receiveCatchUpStatus cptr src cstr l limit cbk = do
                         send limFrbs
                         logm Skov LLDebug $ "Catch-up response (length: " ++ show (length limFrbs) ++ ") status message: " ++ show rcus
                         sendMsg MTCatchUpStatus $ encode rcus
-                    return $! if flag then 
+                    return $! if flag then
                                 if cusIsRequest cus then
                                     ResultContinueCatchUp
                                 else
@@ -876,8 +880,8 @@ receiveCatchUpStatus cptr src cstr l limit cbk = do
 foreign export ccall startConsensus :: Word64 -> CString -> Int64 -> CString -> Int64 ->  Ptr GlobalStateR -> FunPtr BroadcastCallback -> Word8 -> FunPtr LogCallback -> Word8 -> FunPtr LogTransferCallback -> IO (StablePtr ConsensusRunner)
 foreign export ccall startConsensusPassive :: Word64 -> CString -> Int64 -> Ptr GlobalStateR -> Word8 -> FunPtr LogCallback -> IO (StablePtr ConsensusRunner)
 #else
-foreign export ccall startConsensus :: Word64 -> CString -> Int64 -> CString -> Int64 -> FunPtr BroadcastCallback -> Word8 -> FunPtr LogCallback -> Word8 -> FunPtr LogTransferCallback -> IO (StablePtr ConsensusRunner)
-foreign export ccall startConsensusPassive :: Word64 -> CString -> Int64 -> Word8 -> FunPtr LogCallback -> IO (StablePtr ConsensusRunner)
+foreign export ccall startConsensus :: Word64 -> CString -> Int64 -> CString -> Int64 ->  Ptr () -> FunPtr BroadcastCallback -> Word8 -> FunPtr LogCallback -> Word8 -> FunPtr LogTransferCallback -> IO (StablePtr ConsensusRunner)
+foreign export ccall startConsensusPassive :: Word64 -> CString -> Int64 ->  Ptr ()  -> Word8 -> FunPtr LogCallback -> IO (StablePtr ConsensusRunner)
 #endif
 foreign export ccall stopConsensus :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall startBaker :: StablePtr ConsensusRunner -> IO ()
