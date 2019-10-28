@@ -34,6 +34,10 @@ impl fmt::Display for StatsServiceMode {
     }
 }
 
+impl Default for StatsServiceMode {
+    fn default() -> Self { Self::NodeMode }
+}
+
 cfg_if! {
     if #[cfg(feature = "instrumentation")] {
         struct HTMLStringResponse(pub String);
@@ -59,7 +63,7 @@ cfg_if! {
 
         #[derive(Clone)]
         pub struct StatsExportService {
-            mode: StatsServiceMode,
+            pub mode: StatsServiceMode,
             registry: Registry,
             pkts_received_counter: IntCounter,
             pkts_sent_counter: IntCounter,
@@ -85,9 +89,9 @@ cfg_if! {
 }
 
 #[cfg(not(feature = "instrumentation"))]
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct StatsExportService {
-    mode: StatsServiceMode,
+    pub mode: StatsServiceMode,
     pkts_received_counter: Arc<AtomicUsize>,
     pkts_sent_counter: Arc<AtomicUsize>,
     pkts_dropped_counter: Arc<AtomicUsize>,
@@ -249,26 +253,9 @@ impl StatsExportService {
 
     #[cfg(not(feature = "instrumentation"))]
     pub fn new(mode: StatsServiceMode) -> Fallible<Self> {
-        Ok(StatsExportService {
+        Ok(Self {
             mode,
-            pkts_received_counter: Arc::new(AtomicUsize::new(0)),
-            pkts_sent_counter: Arc::new(AtomicUsize::new(0)),
-            pkts_dropped_counter: Arc::new(AtomicUsize::new(0)),
-            pkts_resend_counter: Arc::new(AtomicUsize::new(0)),
-            peers_gauge: Arc::new(AtomicUsize::new(0)),
-            connections_received: Arc::new(AtomicUsize::new(0)),
-            invalid_packets_received: Arc::new(AtomicUsize::new(0)),
-            invalid_network_packets_received: Arc::new(AtomicUsize::new(0)),
-            queue_size: Arc::new(AtomicUsize::new(0)),
-            resend_queue_size: Arc::new(AtomicUsize::new(0)),
-            gs_block_receipt: Arc::new(AtomicUsize::new(0)),
-            gs_block_entry: Arc::new(AtomicUsize::new(0)),
-            gs_block_query: Arc::new(AtomicUsize::new(0)),
-            gs_finalization_receipt: Arc::new(AtomicUsize::new(0)),
-            gs_finalization_entry: Arc::new(AtomicUsize::new(0)),
-            gs_finalization_query: Arc::new(AtomicUsize::new(0)),
-            inbound_high_priority_consensus_drops_counter: Arc::new(AtomicUsize::new(0)),
-            inbound_low_priority_consensus_drops_counter: Arc::new(AtomicUsize::new(0)),
+            ..Default::default()
         })
     }
 
@@ -586,12 +573,16 @@ mod tests {
     use crate::stats_export_service::*;
 
     #[test]
-    pub fn test_node_mode() {
-        let _prom_inst = StatsExportService::new(StatsServiceMode::NodeMode);
+    pub fn test_node_mode() -> Fallible<()> {
+        let prom_inst = StatsExportService::new(StatsServiceMode::NodeMode)?;
+        assert_eq!(StatsServiceMode::NodeMode, prom_inst.mode);
+        Ok(())
     }
 
     #[test]
-    pub fn test_bootstrapper_mode() {
-        let _prom_inst = StatsExportService::new(StatsServiceMode::BootstrapperMode);
+    pub fn test_bootstrapper_mode() -> Fallible<()> {
+        let prom_inst = StatsExportService::new(StatsServiceMode::BootstrapperMode)?;
+        assert_eq!(StatsServiceMode::BootstrapperMode, prom_inst.mode);
+        Ok(())
     }
 }
