@@ -209,31 +209,6 @@ type BroadcastCallback = extern "C" fn(i64, *const u8, i64);
 type DirectMessageCallback =
     extern "C" fn(peer_id: PeerId, message_type: i64, msg: *const c_char, msg_len: i64);
 
-#[cfg(feature = "no_rgs")]
-#[allow(improper_ctypes)]
-extern "C" {
-    pub fn startConsensus(
-        max_block_size: u64,
-        genesis_data: *const u8,
-        genesis_data_len: i64,
-        private_data: *const u8,
-        private_data_len: i64,
-        broadcast_callback: BroadcastCallback,
-        maximum_log_level: u8,
-        log_callback: LogCallback,
-        transfer_log_enabled: u8,
-        transfer_log_callback: TransferLogCallback,
-    ) -> *mut consensus_runner;
-    pub fn startConsensusPassive(
-        max_block_size: u64,
-        genesis_data: *const u8,
-        genesis_data_len: i64,
-        maximum_log_level: u8,
-        log_callback: LogCallback,
-    ) -> *mut consensus_runner;
-}
-
-#[cfg(not(feature = "no_rgs"))]
 #[allow(improper_ctypes)]
 extern "C" {
     pub fn startConsensus(
@@ -398,6 +373,7 @@ pub fn get_consensus_ptr(
                         genesis_data_len as i64,
                         c_string_private_data.as_ptr() as *const u8,
                         private_data_len as i64,
+                        std::ptr::null(),
                         broadcast_callback,
                         maximum_log_level as u8,
                         on_log_emited,
@@ -425,6 +401,7 @@ pub fn get_consensus_ptr(
                     max_block_size,
                     c_string_genesis.as_ptr() as *const u8,
                     genesis_data_len as i64,
+                    std::ptr::null(),
                     maximum_log_level as u8,
                     on_log_emited,
                 )
