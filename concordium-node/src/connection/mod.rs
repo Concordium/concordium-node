@@ -2,12 +2,10 @@
 pub mod fails;
 pub mod message_handlers;
 
-mod async_adapter;
 mod low_level;
 
 pub use crate::p2p::{Networks, P2PNode};
-pub use async_adapter::Readiness;
-use low_level::ConnectionLowLevel;
+use low_level::{ConnectionLowLevel, Readiness};
 pub use p2p_event::P2PEvent;
 
 mod p2p_event;
@@ -597,13 +595,6 @@ impl Connection {
 
         Ok(())
     }
-
-    #[cfg(test)]
-    pub fn validate_packet_type_test(&self, msg: &[u8]) -> Readiness<bool> {
-        write_or_die!(self.low_level)
-            .message_stream
-            .validate_packet_type(msg)
-    }
 }
 
 impl Drop for Connection {
@@ -636,14 +627,7 @@ fn dedup_with(message: &mut HybridBuf, queue: &mut CircularQueue<[u8; 8]>) -> Fa
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        common::PeerType,
-        connection::Readiness,
-        test_utils::{await_handshake, connect, make_node_and_sync, next_available_port},
-    };
-    use failure::Fallible;
     use rand::{distributions::Standard, thread_rng, Rng};
-    use std::iter;
 
     const PACKAGE_INITIAL_BUFFER_SZ: usize = 1024;
     const PACKAGE_MAX_BUFFER_SZ: usize = 4096;

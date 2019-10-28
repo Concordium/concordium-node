@@ -39,11 +39,11 @@ pub struct UnwantedMessageError {
 /// This error covers when message exceeds that constraint.
 #[derive(Debug, Fail)]
 #[fail(
-    display = "Message expected size ({} bytes) exceeds the maximum protocol size: {} bytes",
-    message_size, protocol_size
+    display = "Expected message size ({}B) exceeds the maximum protocol size ({}B)",
+    expected_size, protocol_size
 )]
 pub struct MessageTooBigError {
-    pub message_size:  u32,
+    pub expected_size: u32,
     pub protocol_size: u32,
 }
 
