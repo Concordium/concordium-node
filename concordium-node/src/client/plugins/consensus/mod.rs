@@ -185,15 +185,26 @@ pub fn handle_pkt_out(
         dont_relay_to.into_iter().map(P2PNodeId::as_raw).collect(),
     );
 
+    // TODO @ij - instrument below so we can catch if this happens too much
+
     match if packet_type == PacketType::Transaction {
-        CALLBACK_QUEUE.send_message(request)
+        CALLBACK_QUEUE.send_in_low_priority_message(request)
     } else {
-        CALLBACK_QUEUE.send_blocking_msg(request)
+        CALLBACK_QUEUE.send_in_high_priority_message(request)
     } {
         Ok(_) => {}
         Err(e) => match e.downcast::<TrySendError<ConsensusMessage>>()? {
-            TrySendError::Full(_) => warn!("The global state queue is full!"),
-            TrySendError::Disconnected(_) => panic!("The global state channel is down!"),
+            TrySendError::Full(_) => {
+                if let Some(ref service) = &node.stats_export_service {
+                    if packet_type == PacketType::Transaction {
+                        service.inbound_low_priority_consensus_drops_inc();
+                    } else {
+                        service.inbound_high_priority_consensus_drops_inc();
+                    }
+                };
+                warn!("The inbound global state queue is full!")
+            }
+            TrySendError::Disconnected(_) => panic!("The inbound global state channel is down!"),
         },
     }
 

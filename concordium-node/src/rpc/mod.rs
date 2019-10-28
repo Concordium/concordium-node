@@ -385,7 +385,7 @@ impl P2P for RpcServerImpl {
                     let payload = req.get_payload();
                     let consensus_result = consensus.send_transaction(payload);
                     let gs_result = if consensus_result == ConsensusFfiResponse::Success {
-                        CALLBACK_QUEUE.send_message(ConsensusMessage::new(
+                        CALLBACK_QUEUE.send_out_message(ConsensusMessage::new(
                             MessageType::Outbound(None),
                             PacketType::Transaction,
                             HybridBuf::try_from(payload).unwrap_or_default(),
