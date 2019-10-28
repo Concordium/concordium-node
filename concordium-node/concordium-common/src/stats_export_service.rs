@@ -78,6 +78,8 @@ cfg_if! {
             gs_finalization_receipt: IntGauge,
             gs_finalization_entry: IntGauge,
             gs_finalization_query: IntGauge,
+            inbound_high_priority_consensus_drops_counter: IntCounter,
+            inbound_low_priority_consensus_drops_counter: IntCounter,
         }
     }
 }
@@ -102,6 +104,8 @@ pub struct StatsExportService {
     gs_finalization_receipt: Arc<AtomicUsize>,
     gs_finalization_entry: Arc<AtomicUsize>,
     gs_finalization_query: Arc<AtomicUsize>,
+    inbound_high_priority_consensus_drops_counter: Arc<AtomicUsize>,
+    inbound_low_priority_consensus_drops_counter: Arc<AtomicUsize>,
 }
 
 impl StatsExportService {
@@ -198,6 +202,26 @@ impl StatsExportService {
         let sfq = IntGauge::with_opts(sfq_opts)?;
         registry.register(Box::new(sfq.clone()))?;
 
+        let inbound_high_priority_consensus_drops_opts = Opts::new(
+            "inbound_high_priority_consensus_drops",
+            "inbound high priority consensus messages dropped",
+        );
+        let inbound_high_priority_consensus_drops_counter =
+            IntCounter::with_opts(inbound_high_priority_consensus_drops_opts)?;
+        registry.register(Box::new(
+            inbound_high_priority_consensus_drops_counter.clone(),
+        ))?;
+
+        let inbound_low_priority_consensus_drops_opts = Opts::new(
+            "inbound_low_priority_consensus_drops",
+            "inbound low priority consensus messages dropped",
+        );
+        let inbound_low_priority_consensus_drops_counter =
+            IntCounter::with_opts(inbound_low_priority_consensus_drops_opts)?;
+        registry.register(Box::new(
+            inbound_low_priority_consensus_drops_counter.clone(),
+        ))?;
+
         Ok(StatsExportService {
             mode,
             registry,
@@ -218,6 +242,8 @@ impl StatsExportService {
             gs_finalization_receipt: sfr,
             gs_finalization_entry: sfe,
             gs_finalization_query: sfq,
+            inbound_high_priority_consensus_drops_counter,
+            inbound_low_priority_consensus_drops_counter,
         })
     }
 
@@ -241,6 +267,8 @@ impl StatsExportService {
             gs_finalization_receipt: Arc::new(AtomicUsize::new(0)),
             gs_finalization_entry: Arc::new(AtomicUsize::new(0)),
             gs_finalization_query: Arc::new(AtomicUsize::new(0)),
+            inbound_high_priority_consensus_drops_counter: Arc::new(AtomicUsize::new(0)),
+            inbound_low_priority_consensus_drops_counter: Arc::new(AtomicUsize::new(0)),
         })
     }
 
@@ -404,6 +432,22 @@ impl StatsExportService {
         #[cfg(not(feature = "instrumentation"))]
         self.gs_finalization_query
             .store(value as usize, Ordering::Relaxed);
+    }
+
+    pub fn inbound_high_priority_consensus_drops_inc(&self) {
+        #[cfg(feature = "instrumentation")]
+        self.inbound_high_priority_consensus_drops_counter.inc();
+        #[cfg(not(feature = "instrumentation"))]
+        self.inbound_high_priority_consensus_drops_counter
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn inbound_low_priority_consensus_drops_inc(&self) {
+        #[cfg(feature = "instrumentation")]
+        self.inbound_low_priority_consensus_drops_counter.inc();
+        #[cfg(not(feature = "instrumentation"))]
+        self.inbound_low_priority_consensus_drops_counter
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     #[cfg(feature = "instrumentation")]

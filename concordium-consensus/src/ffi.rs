@@ -641,7 +641,7 @@ pub extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *co
             vec![],
         );
 
-        match CALLBACK_QUEUE.send_blocking_msg(msg) {
+        match CALLBACK_QUEUE.send_out_blocking_msg(msg) {
             Ok(_) => trace!("Queueing a {} of {} bytes", msg_variant, len),
             Err(e) => error!("Couldn't queue a {} properly: {}", msg_variant, e),
         };
@@ -675,7 +675,7 @@ pub extern "C" fn broadcast_callback(msg_type: i64, msg: *const u8, msg_length: 
         let msg =
             ConsensusMessage::new(MessageType::Outbound(target), msg_variant, payload, vec![]);
 
-        match CALLBACK_QUEUE.send_blocking_msg(msg) {
+        match CALLBACK_QUEUE.send_out_blocking_msg(msg) {
             Ok(_) => trace!("Queueing a {} of {} bytes", msg_variant, msg_length),
             Err(e) => error!("Couldn't queue a {} properly: {}", msg_variant, e),
         };
@@ -715,7 +715,7 @@ pub extern "C" fn direct_callback(
         let msg =
             ConsensusMessage::new(MessageType::Outbound(target), msg_variant, payload, vec![]);
 
-        match CALLBACK_QUEUE.send_blocking_msg(msg) {
+        match CALLBACK_QUEUE.send_out_blocking_msg(msg) {
             Ok(_) => trace!("Queueing a {} of {} bytes", msg_variant, msg_len),
             Err(e) => error!("Couldn't queue a {} properly: {}", msg_variant, e),
         };

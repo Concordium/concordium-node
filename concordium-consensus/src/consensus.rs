@@ -41,56 +41,90 @@ impl TryFrom<u8> for ConsensusLogLevel {
     }
 }
 
-const CONSENSUS_QUEUE_DEPTH_HI: usize = 32 * 1024;
-const CONSENSUS_QUEUE_DEPTH_LO: usize = 64 * 1024;
+const CONSENSUS_QUEUE_DEPTH_OUT_HI: usize = 8 * 1024;
+const CONSENSUS_QUEUE_DEPTH_OUT_LO: usize = 16 * 1024;
+const CONSENSUS_QUEUE_DEPTH_IN_HI: usize = 16 * 1024;
+const CONSENSUS_QUEUE_DEPTH_IN_LO: usize = 32 * 1024;
 
 pub struct ConsensusQueues {
-    pub receiver_hi: Mutex<QueueReceiver<ConsensusMessage>>,
-    pub sender_hi:   QueueSyncSender<ConsensusMessage>,
-    pub receiver_lo: Mutex<QueueReceiver<ConsensusMessage>>,
-    pub sender_lo:   QueueSyncSender<ConsensusMessage>,
+    pub receiver_out_hi: Mutex<QueueReceiver<ConsensusMessage>>,
+    pub sender_out_hi:   QueueSyncSender<ConsensusMessage>,
+    pub receiver_out_lo: Mutex<QueueReceiver<ConsensusMessage>>,
+    pub sender_out_lo:   QueueSyncSender<ConsensusMessage>,
+    pub receiver_in_hi:  Mutex<QueueReceiver<ConsensusMessage>>,
+    pub sender_in_hi:    QueueSyncSender<ConsensusMessage>,
+    pub receiver_in_lo:  Mutex<QueueReceiver<ConsensusMessage>>,
+    pub sender_in_lo:    QueueSyncSender<ConsensusMessage>,
 }
 
 impl Default for ConsensusQueues {
     fn default() -> Self {
-        let (sender_hi, receiver_hi) = mpsc::sync_channel(CONSENSUS_QUEUE_DEPTH_HI);
-        let (sender_lo, receiver_lo) = mpsc::sync_channel(CONSENSUS_QUEUE_DEPTH_LO);
+        let (sender_out_hi, receiver_out_hi) = mpsc::sync_channel(CONSENSUS_QUEUE_DEPTH_OUT_HI);
+        let (sender_out_lo, receiver_out_lo) = mpsc::sync_channel(CONSENSUS_QUEUE_DEPTH_OUT_LO);
+        let (sender_in_hi, receiver_in_hi) = mpsc::sync_channel(CONSENSUS_QUEUE_DEPTH_IN_HI);
+        let (sender_in_lo, receiver_in_lo) = mpsc::sync_channel(CONSENSUS_QUEUE_DEPTH_IN_LO);
         Self {
-            receiver_hi: Mutex::new(receiver_hi),
-            sender_hi,
-            receiver_lo: Mutex::new(receiver_lo),
-            sender_lo,
+            receiver_out_hi: Mutex::new(receiver_out_hi),
+            sender_out_hi,
+            receiver_out_lo: Mutex::new(receiver_out_lo),
+            sender_out_lo,
+            receiver_in_hi: Mutex::new(receiver_in_hi),
+            sender_in_hi,
+            receiver_in_lo: Mutex::new(receiver_in_lo),
+            sender_in_lo,
         }
     }
 }
 
 impl ConsensusQueues {
-    pub fn send_message(&self, message: ConsensusMessage) -> Fallible<()> {
-        into_err!(self.sender_lo.send_msg(message))
+    pub fn send_in_high_priority_message(&self, message: ConsensusMessage) -> Fallible<()> {
+        into_err!(self.sender_in_lo.send_msg(message))
     }
 
-    pub fn send_blocking_msg(&self, message: ConsensusMessage) -> Fallible<()> {
-        into_err!(self.sender_hi.send_blocking_msg(message))
+    pub fn send_in_low_priority_message(&self, message: ConsensusMessage) -> Fallible<()> {
+        into_err!(self.sender_in_hi.send_msg(message))
+    }
+
+    pub fn send_out_message(&self, message: ConsensusMessage) -> Fallible<()> {
+        into_err!(self.sender_out_lo.send_msg(message))
+    }
+
+    pub fn send_out_blocking_msg(&self, message: ConsensusMessage) -> Fallible<()> {
+        into_err!(self.sender_out_hi.send_blocking_msg(message))
     }
 
     pub fn clear(&self) {
-        if let Ok(ref mut q) = self.receiver_lo.try_lock() {
+        if let Ok(ref mut q) = self.receiver_out_lo.try_lock() {
             debug!(
-                "Drained the Consensus low priority queue for {} element(s)",
+                "Drained the Consensus outbound low priority queue for {} element(s)",
                 q.try_iter().count()
             );
         }
-        if let Ok(ref mut q) = self.receiver_hi.try_lock() {
+        if let Ok(ref mut q) = self.receiver_out_hi.try_lock() {
             debug!(
-                "Drained the Consensus high priority queue for {} element(s)",
+                "Drained the Consensus outbound high priority queue for {} element(s)",
+                q.try_iter().count()
+            );
+        }
+        if let Ok(ref mut q) = self.receiver_in_lo.try_lock() {
+            debug!(
+                "Drained the Consensus inbound low priority queue for {} element(s)",
+                q.try_iter().count()
+            );
+        }
+        if let Ok(ref mut q) = self.receiver_in_hi.try_lock() {
+            debug!(
+                "Drained the Consensus inbound high priority queue for {} element(s)",
                 q.try_iter().count()
             );
         }
     }
 
     pub fn stop(&self) -> Fallible<()> {
-        into_err!(self.sender_lo.send_stop())?;
-        into_err!(self.sender_hi.send_stop())?;
+        into_err!(self.sender_out_lo.send_stop())?;
+        into_err!(self.sender_out_hi.send_stop())?;
+        into_err!(self.sender_in_lo.send_stop())?;
+        into_err!(self.sender_in_hi.send_stop())?;
         Ok(())
     }
 }
