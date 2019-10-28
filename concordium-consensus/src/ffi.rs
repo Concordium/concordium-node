@@ -232,9 +232,6 @@ extern "C" {
         maximum_log_level: u8,
         log_callback: LogCallback,
     ) -> *mut consensus_runner;
-}
-
-extern "C" {
     #[allow(improper_ctypes)]
     pub fn startBaker(consensus: *mut consensus_runner);
     pub fn receiveBlock(
@@ -349,38 +346,24 @@ pub fn get_consensus_ptr(
                     CString::from_vec_unchecked(private_data_bytes.to_owned());
 
                 #[cfg(not(feature = "no_rgs"))]
-                {
-                    startConsensus(
-                        max_block_size,
-                        c_string_genesis.as_ptr() as *const u8,
-                        genesis_data_len as i64,
-                        c_string_private_data.as_ptr() as *const u8,
-                        private_data_len as i64,
-                        _gsptr as *const GlobalState,
-                        broadcast_callback,
-                        maximum_log_level as u8,
-                        on_log_emited,
-                        if enable_transfer_logging { 1 } else { 0 },
-                        on_transfer_log_emitted,
-                    )
-                }
+                let gsptr = _gsptr as *const GlobalState;
 
                 #[cfg(feature = "no_rgs")]
-                {
-                    startConsensus(
-                        max_block_size,
-                        c_string_genesis.as_ptr() as *const u8,
-                        genesis_data_len as i64,
-                        c_string_private_data.as_ptr() as *const u8,
-                        private_data_len as i64,
-                        std::ptr::null(),
-                        broadcast_callback,
-                        maximum_log_level as u8,
-                        on_log_emited,
-                        if enable_transfer_logging { 1 } else { 0 },
-                        on_transfer_log_emitted,
-                    )
-                }
+                let gsptr = std::ptr::null();
+
+                startConsensus(
+                    max_block_size,
+                    c_string_genesis.as_ptr() as *const u8,
+                    genesis_data_len as i64,
+                    c_string_private_data.as_ptr() as *const u8,
+                    private_data_len as i64,
+                    gsptr,
+                    broadcast_callback,
+                    maximum_log_level as u8,
+                    on_log_emited,
+                    if enable_transfer_logging { 1 } else { 0 },
+                    on_transfer_log_emitted,
+                )
             }
         }
         None => unsafe {
