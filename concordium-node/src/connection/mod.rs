@@ -5,7 +5,7 @@ pub mod message_handlers;
 mod low_level;
 
 pub use crate::p2p::{Networks, P2PNode};
-use low_level::{ConnectionLowLevel, Readiness};
+use low_level::{ConnectionLowLevel, TcpResult};
 pub use p2p_event::P2PEvent;
 
 mod p2p_event;
@@ -375,7 +375,7 @@ impl Connection {
     /// for real write. Function `ConnectionPrivate::ready` will make ensure to
     /// write chunks of the message
     #[inline(always)]
-    pub fn async_send_from_poll_loop(&self, input: HybridBuf) -> Fallible<Readiness<usize>> {
+    pub fn async_send_from_poll_loop(&self, input: HybridBuf) -> Fallible<TcpResult<usize>> {
         TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
         self.stats.messages_sent.fetch_add(1, Ordering::Relaxed);
         if let Some(ref stats) = self.handler().stats_export_service {

@@ -28,27 +28,23 @@ const NOISE_MAX_MESSAGE_LEN: usize = 64 * 1024;
 const NOISE_AUTH_TAG_LEN: usize = 16;
 const NOISE_MAX_PAYLOAD_LEN: usize = NOISE_MAX_MESSAGE_LEN - NOISE_AUTH_TAG_LEN;
 
+/// The result of a socket operation
 #[derive(Debug, Clone)]
-pub enum Readiness<T> {
-    Ready(T),
-    NotReady,
+pub enum TcpResult<T> {
+    /// For socket reads, `T` is the complete read message; for writes it's the
+    /// number of written bytes
+    Complete(T),
+    /// Indicates that a read or write operation is incomplete and will be
+    /// requeued
+    Incomplete,
+    /// A status dedicated to operations whose read/write result is of no
+    /// interest or void
+    Discarded,
+    // The current read/write operation was aborted due to a `WouldBlock` error
+    Aborted,
 }
 
-impl<T> Readiness<T> {
-    pub fn ready(self) -> Option<T> {
-        match self {
-            Readiness::Ready(v) => Some(v),
-            _ => None,
-        }
-    }
-}
-
-/// State of the *IKpsk2* handshake:
-/// ```ignore
-/// <- s
-///  A -> e,es,s,ss
-///  B -> e,ee,se,psk
-/// ```
+/// State of the *IKpsk2* handshake
 #[allow(non_camel_case_types)]
 #[derive(Debug, PartialEq)]
 pub enum HandshakeState {
@@ -212,15 +208,6 @@ impl ConnectionLowLevel {
         }
     }
 
-    /// It reads from `input`, and based on current internal state, interprets
-    /// it.
-    ///
-    /// # Return
-    ///
-    /// As soon as handshake is done, it will return
-    /// `Readiness::Ready(session)`, which contains a transport session,
-    /// ready to encrypt/decrypt. Otherwise, it returns
-    /// `Readiness::NotReady`.
     fn read_handshake_msg(&mut self, input: HybridBuf) -> Fallible<()> {
         use HandshakeState::*;
 
@@ -251,14 +238,15 @@ impl ConnectionLowLevel {
     pub fn read_stream(&mut self, deduplication_queues: &mut DeduplicationQueues) -> Fallible<()> {
         loop {
             match self.read_from_socket() {
-                Ok(readiness) => match readiness {
-                    Readiness::Ready(message) => {
+                Ok(read_result) => match read_result {
+                    TcpResult::Complete(message) => {
                         self.conn().send_to_dump(&message, true);
                         if let Err(e) = self.conn().process_message(message, deduplication_queues) {
                             bail!("can't process a message: {}", e);
                         }
                     }
-                    Readiness::NotReady => return Ok(()),
+                    TcpResult::Discarded => {}
+                    TcpResult::Incomplete | TcpResult::Aborted => return Ok(()),
                 },
                 Err(e) => bail!("can't read from the socket: {}", e),
             }
@@ -266,23 +254,24 @@ impl ConnectionLowLevel {
     }
 
     #[inline(always)]
-    fn read_from_socket(&mut self) -> Fallible<Readiness<HybridBuf>> {
+    fn read_from_socket(&mut self) -> Fallible<TcpResult<HybridBuf>> {
         trace!("Reading from the socket");
-        let payload_readiness = self.read_expected_size();
+        let read_result = self.read_expected_size();
 
-        match payload_readiness {
-            Ok(Readiness::Ready(payload)) => {
+        match read_result {
+            Ok(TcpResult::Complete(payload)) => {
                 trace!("The message is complete");
                 self.forward(payload)
             }
-            Ok(Readiness::NotReady) => {
+            Ok(TcpResult::Incomplete) => {
                 trace!("The message is incomplete");
-                Ok(Readiness::NotReady)
+                Ok(TcpResult::Incomplete)
             }
+            Ok(_) => unreachable!(),
             Err(err) => {
                 if err.downcast_ref::<StreamWouldBlock>().is_some() {
-                    trace!("Further reads would be blocking; the message is incomplete");
-                    Ok(Readiness::NotReady)
+                    trace!("Further reads would be blocking; aborting");
+                    Ok(TcpResult::Aborted)
                 } else {
                     Err(err)
                 }
@@ -290,13 +279,13 @@ impl ConnectionLowLevel {
         }
     }
 
-    fn forward(&mut self, input: HybridBuf) -> Fallible<Readiness<HybridBuf>> {
+    fn forward(&mut self, input: HybridBuf) -> Fallible<TcpResult<HybridBuf>> {
         if self.handshake_state == HandshakeState::Complete {
-            Ok(Readiness::Ready(self.decrypt(input)?))
+            Ok(TcpResult::Complete(self.decrypt(input)?))
         } else {
             self.read_handshake_msg(input)?;
 
-            Ok(Readiness::NotReady)
+            Ok(TcpResult::Discarded)
         }
     }
 
@@ -310,12 +299,9 @@ impl ConnectionLowLevel {
         }
     }
 
-    /// It only reads the first 4 bytes of the message to determine its size.
-    ///
-    /// This operation could not be completed in just one shot due to limits of
-    /// `output` buffers.
-    fn read_expected_size(&mut self) -> Fallible<Readiness<HybridBuf>> {
-        // Extract only the bytes needed to know the size.
+    /// It first reads the first 4 bytes of the message to determine its size.
+    fn read_expected_size(&mut self) -> Fallible<TcpResult<HybridBuf>> {
+        // Only extract the bytes needed to know the size.
         let min_bytes = self.pending_bytes_to_know_expected_size();
         let read_bytes =
             map_io_error_to_fail!(self.socket.read(&mut self.input_buffer[..min_bytes]))?;
@@ -329,31 +315,34 @@ impl ConnectionLowLevel {
                 NetworkEndian::read_u32(&self.current_input[..std::mem::size_of::<PayloadSize>()]);
             trace!("Expecting a message of {}B", expected_size);
 
+            // remove the length from the buffer
+            self.current_input.clear();
+
             // Check protocol limits
             if expected_size > PROTOCOL_MAX_MESSAGE_SIZE as u32 {
                 let error = MessageTooBigError {
                     expected_size,
                     protocol_size: PROTOCOL_MAX_MESSAGE_SIZE as u32,
                 };
-                self.current_input.clear();
                 return Err(Error::from(error));
             }
-
-            // remove the length from the buffer
-            self.current_input.clear();
 
             // Read data next...
             self.read_payload(expected_size)
         } else {
             // We need more data to determine the message size.
-            Ok(Readiness::NotReady)
+            Ok(TcpResult::Incomplete)
         }
     }
 
     /// Once we know the message expected size, we can start to receive data.
-    fn read_payload(&mut self, expected_size: PayloadSize) -> Fallible<Readiness<HybridBuf>> {
-        trace!("Reading the message payload");
-        self.read_intermediate(expected_size - self.current_input.len() as u32)?;
+    fn read_payload(&mut self, expected_size: PayloadSize) -> Fallible<TcpResult<HybridBuf>> {
+        let remaining_length = expected_size - self.current_input.len() as u32;
+        trace!(
+            "Reading the message payload ({}B remaining)",
+            remaining_length
+        );
+        self.read_intermediate(remaining_length)?;
 
         if self.current_input.len() as u32 == expected_size {
             // Ready message
@@ -362,9 +351,9 @@ impl ConnectionLowLevel {
                 Vec::with_capacity(std::mem::size_of::<PayloadSize>()),
             );
 
-            Ok(Readiness::Ready(HybridBuf::try_from(new_data)?))
+            Ok(TcpResult::Complete(HybridBuf::try_from(new_data)?))
         } else {
-            Ok(Readiness::NotReady)
+            Ok(TcpResult::Incomplete)
         }
     }
 
@@ -457,23 +446,20 @@ impl ConnectionLowLevel {
 
     // output
 
-    /// If a channel is encrypted, `encryptor` will take care of it.
-    /// Otherwise, `input` is enqueued until `encryptor` is ready
-    /// (after the handshake is done).
     #[inline(always)]
-    pub fn write_to_socket(&mut self, input: HybridBuf) -> Fallible<Readiness<usize>> {
+    pub fn write_to_socket(&mut self, input: HybridBuf) -> Fallible<TcpResult<usize>> {
         if self.handshake_state == HandshakeState::Complete {
             let encrypted = self.encrypt(input)?;
             self.encrypted_queue.push_back(encrypted);
             self.flush_encryptor()
         } else {
             self.pending_output_queue.push(input);
-            Ok(Readiness::NotReady)
+            Ok(TcpResult::Discarded)
         }
     }
 
     #[inline(always)]
-    pub fn flush_socket(&mut self) -> Fallible<Readiness<usize>> {
+    pub fn flush_socket(&mut self) -> Fallible<TcpResult<usize>> {
         if self.handshake_state == HandshakeState::Complete {
             self.flush_encryptor()
         } else {
@@ -481,40 +467,40 @@ impl ConnectionLowLevel {
         }
     }
 
-    fn flush_handshaker(&mut self) -> Fallible<Readiness<usize>> {
+    fn flush_handshaker(&mut self) -> Fallible<TcpResult<usize>> {
         if let Some(mut data) = self.handshake_queue.pop_front() {
             trace!("Pushing a handshake message to the socket");
             let written_bytes = partial_copy(&mut data, &mut self.socket)?;
 
             if data.is_eof()? {
                 trace!("Successfully sent a handshake message");
-                Ok(Readiness::Ready(written_bytes))
+                Ok(TcpResult::Complete(written_bytes))
             } else {
                 trace!("The message was not fully written; requeuing");
                 self.handshake_queue.push_front(data);
-                Ok(Readiness::NotReady)
+                Ok(TcpResult::Incomplete)
             }
         } else {
-            Ok(Readiness::Ready(0))
+            Ok(TcpResult::Discarded)
         }
     }
 
     #[inline(always)]
-    fn flush_encryptor(&mut self) -> Fallible<Readiness<usize>> {
+    fn flush_encryptor(&mut self) -> Fallible<TcpResult<usize>> {
         if let Some(mut encrypted) = self.encrypted_queue.pop_front() {
             trace!("Pushing an encrypted message to the socket");
             let written_bytes = partial_copy(&mut encrypted, &mut self.socket)?;
 
             if encrypted.is_eof()? {
                 trace!("Successfully sent an encrypted message");
-                Ok(Readiness::Ready(written_bytes))
+                Ok(TcpResult::Complete(written_bytes))
             } else {
                 trace!("The message was not fully written; requeuing");
                 self.encrypted_queue.push_front(encrypted);
-                Ok(Readiness::NotReady)
+                Ok(TcpResult::Incomplete)
             }
         } else {
-            Ok(Readiness::Ready(0))
+            Ok(TcpResult::Discarded)
         }
     }
 
