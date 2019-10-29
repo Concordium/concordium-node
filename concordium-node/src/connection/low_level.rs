@@ -249,19 +249,19 @@ impl ConnectionLowLevel {
 
     #[inline(always)]
     pub fn read_stream(&mut self, deduplication_queues: &mut DeduplicationQueues) -> Fallible<()> {
-        match self.read_from_socket() {
-            Ok(readiness) => match readiness {
-                Readiness::Ready(message) => {
-                    self.conn().send_to_dump(&message, true);
-                    if let Err(e) = self.conn().process_message(message, deduplication_queues) {
-                        bail!("can't process a message: {}", e);
-                    } else {
-                        Ok(())
+        loop {
+            match self.read_from_socket() {
+                Ok(readiness) => match readiness {
+                    Readiness::Ready(message) => {
+                        self.conn().send_to_dump(&message, true);
+                        if let Err(e) = self.conn().process_message(message, deduplication_queues) {
+                            bail!("can't process a message: {}", e);
+                        }
                     }
-                }
-                Readiness::NotReady => Ok(()),
-            },
-            Err(e) => bail!("can't read from the socket: {}", e),
+                    Readiness::NotReady => return Ok(()),
+                },
+                Err(e) => bail!("can't read from the socket: {}", e),
+            }
         }
     }
 
