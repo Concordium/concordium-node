@@ -337,12 +337,11 @@ impl ConnectionLowLevel {
 
     /// Once we know the message expected size, we can start to receive data.
     fn read_payload(&mut self, expected_size: PayloadSize) -> Fallible<TcpResult<HybridBuf>> {
-        let remaining_length = expected_size - self.current_input.len() as u32;
-        trace!(
-            "Reading the message payload ({}B remaining)",
-            remaining_length
-        );
-        self.read_intermediate(remaining_length)?;
+        let mut remaining_length = expected_size - self.current_input.len() as u32;
+
+        while remaining_length > 0 && self.read_intermediate(remaining_length)? > 0 {
+            remaining_length = expected_size - self.current_input.len() as u32;
+        }
 
         if self.current_input.len() as u32 == expected_size {
             // Ready message
@@ -357,8 +356,12 @@ impl ConnectionLowLevel {
         }
     }
 
-    fn read_intermediate(&mut self, pending_bytes: PayloadSize) -> Fallible<usize> {
-        let read_size = std::cmp::min(pending_bytes as usize, NOISE_MAX_MESSAGE_LEN);
+    fn read_intermediate(&mut self, remaining_length: PayloadSize) -> Fallible<usize> {
+        trace!(
+            "Reading the message payload ({}B remaining)",
+            remaining_length
+        );
+        let read_size = std::cmp::min(remaining_length as usize, NOISE_MAX_MESSAGE_LEN);
 
         match self.socket.read(&mut self.input_buffer[..read_size]) {
             Ok(read_bytes) => {
