@@ -24,7 +24,7 @@ type PayloadSize = u32;
 
 const PROLOGUE: &[u8] = b"CP2P";
 const PRE_SHARED_KEY: &[u8; 32] = b"54686973206973206d79204175737472";
-const NOISE_MAX_MESSAGE_LEN: usize = 64 * 1024;
+const NOISE_MAX_MESSAGE_LEN: usize = 64 * 1024 - 1;
 const NOISE_AUTH_TAG_LEN: usize = 16;
 const NOISE_MAX_PAYLOAD_LEN: usize = NOISE_MAX_MESSAGE_LEN - NOISE_AUTH_TAG_LEN;
 
@@ -544,7 +544,7 @@ impl ConnectionLowLevel {
             let len = self
                 .noise_session
                 .as_ref()
-                .unwrap()
+                .unwrap() // infallible
                 .write_message_with_nonce(
                     nonce,
                     &self.plaintext_chunk_buffer[..chunk_size],
