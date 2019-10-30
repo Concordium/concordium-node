@@ -45,13 +45,12 @@ pub enum TcpResult<T> {
 }
 
 /// State of the *IKpsk2* handshake
-#[allow(non_camel_case_types)]
 #[derive(Debug, PartialEq)]
 pub enum HandshakeState {
-    ResponderAwaitingRequest_S,
-    InitiatorAwaiting_S,
-    ResponderAwaiting_E_ES_S_SS,
-    InitiatorAwaiting_E_EE_SE_PSK,
+    AwaitingPreSharedKey,
+    AwaitingPublicKey,
+    AwaitingMessageA,
+    AwaitingMessageB,
     Complete,
 }
 
@@ -120,10 +119,10 @@ impl ConnectionLowLevel {
         let handshake_state = if is_initiator {
             trace!("I'm sending my pre-shared static key");
             handshake_queue.push_back(create_frame(&[]).unwrap()); // infallible
-            HandshakeState::InitiatorAwaiting_S
+            HandshakeState::AwaitingPublicKey
         } else {
             trace!("I'm awaiting the pre-shared static key");
-            HandshakeState::ResponderAwaitingRequest_S
+            HandshakeState::AwaitingPreSharedKey
         };
 
         ConnectionLowLevel {
@@ -146,7 +145,7 @@ impl ConnectionLowLevel {
 
     // handshake
 
-    fn on_initiator_get_s(&mut self, mut input: HybridBuf) -> Fallible<()> {
+    fn initiator_got_public_key(&mut self, mut input: HybridBuf) -> Fallible<()> {
         trace!("I've received the peer's public key");
         let remote_public_key_vw = input.remaining_bytes()?;
 
@@ -168,25 +167,25 @@ impl ConnectionLowLevel {
         self.handshake_queue
             .push_back(create_frame(&self.input_buffer[..msg_len])?);
 
-        self.handshake_state = HandshakeState::InitiatorAwaiting_E_EE_SE_PSK;
+        self.handshake_state = HandshakeState::AwaitingMessageB;
         self.noise_session = Some(session);
 
         Ok(())
     }
 
-    fn on_responder_get_request_s(&mut self) -> Fallible<()> {
+    fn responder_got_psk(&mut self) -> Fallible<()> {
         trace!("I've received the pre-shared static key");
         trace!("I'm sending my public key");
         self.handshake_queue
             .push_back(create_frame(&self.keypair.public)?);
 
         // Next state
-        self.handshake_state = HandshakeState::ResponderAwaiting_E_ES_S_SS;
+        self.handshake_state = HandshakeState::AwaitingMessageA;
 
         Ok(())
     }
 
-    fn on_responder_get_e_ee_s_ss(&mut self, mut input: HybridBuf) -> Fallible<()> {
+    fn responder_got_message_a(&mut self, mut input: HybridBuf) -> Fallible<()> {
         trace!("I've received Ikpsk2 message A");
         if let Some(mut session) = self.noise_session.take() {
             let e_es_s_ss = input.remaining_bytes()?;
@@ -206,7 +205,7 @@ impl ConnectionLowLevel {
         }
     }
 
-    fn on_initiator_get_e_ee_se_psk(&mut self, mut input: HybridBuf) -> Fallible<()> {
+    fn initiator_got_message_b(&mut self, mut input: HybridBuf) -> Fallible<()> {
         trace!("I've received Ikpsk2 message B");
         if let Some(mut session) = self.noise_session.take() {
             let e_ee_se_psk = input.remaining_bytes()?;
@@ -225,10 +224,10 @@ impl ConnectionLowLevel {
         use HandshakeState::*;
 
         match self.handshake_state {
-            ResponderAwaitingRequest_S => self.on_responder_get_request_s(),
-            InitiatorAwaiting_S => self.on_initiator_get_s(input),
-            ResponderAwaiting_E_ES_S_SS => self.on_responder_get_e_ee_s_ss(input),
-            InitiatorAwaiting_E_EE_SE_PSK => self.on_initiator_get_e_ee_se_psk(input),
+            AwaitingPreSharedKey => self.responder_got_psk(),
+            AwaitingPublicKey => self.initiator_got_public_key(input),
+            AwaitingMessageA => self.responder_got_message_a(input),
+            AwaitingMessageB => self.initiator_got_message_b(input),
             Complete => unreachable!("Handshake logic error"),
         }?;
 
