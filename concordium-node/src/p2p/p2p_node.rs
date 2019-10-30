@@ -1418,8 +1418,6 @@ pub fn send_message_from_cursor(
     message: HybridBuf,
     broadcast: bool,
 ) -> Fallible<()> {
-    trace!("Queueing message!");
-
     let packet_type = if broadcast {
         NetworkPacketType::BroadcastedMessage(dont_relay_to)
     } else {
@@ -1437,7 +1435,9 @@ pub fn send_message_from_cursor(
     };
 
     if let Ok(sent_packets) = node.process_network_packet(packet, source_id) {
-        trace!("Sent a packet to {} peers", sent_packets);
+        if sent_packets > 0 {
+            trace!("Sent a packet to {} peers", sent_packets);
+        }
     } else {
         error!("Couldn't send a packet");
     }
