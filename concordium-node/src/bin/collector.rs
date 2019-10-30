@@ -139,6 +139,14 @@ pub fn main() -> Fallible<()> {
         exit(1);
     }
 
+    if conf.artificial_start_delay > 0 {
+        info!(
+            "Delaying first collection from the node for {} ms",
+            conf.artificial_start_delay
+        );
+        thread::sleep(Duration::from_millis(conf.artificial_start_delay));
+    }
+
     #[allow(unreachable_code)]
     let main_thread = spawn_or_die!("Main loop", {
         let atomic_counter: AtomicUsize = Default::default();
