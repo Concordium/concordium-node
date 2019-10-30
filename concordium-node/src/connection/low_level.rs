@@ -60,7 +60,7 @@ pub struct ConnectionLowLevel {
     keypair: Keypair,
     noise_session: Option<Session>,
     /// The buffer for reading straight from the socket
-    input_buffer: [u8; NOISE_MAX_MESSAGE_LEN],
+    input_buffer: [u8; NOISE_MAX_MESSAGE_LEN + 1],
     /// The single message currently being read
     current_input: Vec<u8>,
     /// The number of bytes remaining to be appended to `current_input`
@@ -136,7 +136,7 @@ impl ConnectionLowLevel {
             pending_output_queue: Vec::with_capacity(4),
             encrypted_queue: VecDeque::with_capacity(16),
             handshake_state,
-            input_buffer: [0u8; NOISE_MAX_MESSAGE_LEN],
+            input_buffer: [0u8; NOISE_MAX_MESSAGE_LEN + 1],
             encrypted_chunk_buffer: vec![0u8; NOISE_MAX_MESSAGE_LEN],
             plaintext_chunk_buffer: vec![0; NOISE_MAX_PAYLOAD_LEN],
             full_output_buffer: BufWriter::new(Default::default()),
@@ -381,7 +381,7 @@ impl ConnectionLowLevel {
             "Reading the message payload ({}B remaining)",
             self.pending_bytes,
         );
-        let read_size = std::cmp::min(self.pending_bytes as usize, NOISE_MAX_MESSAGE_LEN);
+        let read_size = std::cmp::min(self.pending_bytes as usize, NOISE_MAX_MESSAGE_LEN + 1);
 
         match self.socket.read(&mut self.input_buffer[..read_size]) {
             Ok(read_bytes) => {
