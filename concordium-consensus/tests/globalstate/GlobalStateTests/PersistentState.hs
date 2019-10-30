@@ -21,7 +21,7 @@ import qualified Concordium.Crypto.BlockSignature as Sig
 import Acorn.Utils.Init
 
 import Concordium.GlobalState.Persistent.BlobStore
-import Concordium.GlobalState.Persistent.TreeState
+import Concordium.GlobalState.Basic.TreeState
 import Concordium.GlobalState.Persistent.BlockState
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Bakers
