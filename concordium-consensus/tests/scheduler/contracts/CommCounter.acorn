@@ -110,19 +110,19 @@ contract Counter where
       Maybe.Nothing -> mkReturnCounter model Prim.TxNone
       Maybe.Just (msg' :: MsgCnt) ->
         case callerOr of
-          Blockchain.CallerAccount (caller :: {address}) -> 
+          Blockchain.CallerAccount (caller :: {address}) ->
             let inst :: <address> = recorder model in
             let minstance :: Maybe.Maybe RecorderC = castRecorderC inst in
             case minstance of
               Maybe.Nothing -> mkReturnCounter model Prim.TxReject
-              Maybe.Just (i :: RecorderC) -> 
+              Maybe.Just (i :: RecorderC) ->
                 case msg' of
                   Inc (n :: Int64) ->
                       let newAmount :: ModelCnt = addAmountModel n model in
                       let pair :: Prod.Pair {address} Int64 = pairAddrInt caller n in
                       let recordTx :: Prim.Transaction = sendInc i pair amount in
                       mkReturnCounter newAmount recordTx
-                  Dec (n :: Int64) -> 
+                  Dec (n :: Int64) ->
                       let ga :: ModelRec = getAccounts i in
                       let d :: Map.Map {address} Int64 = accounts ga in
                       let check :: Maybe.Maybe Int64 = checkAmount caller d n in
@@ -133,7 +133,7 @@ contract Counter where
                           let tx :: Prim.Transaction = sendDec i pair amount in
                           mkReturnCounter newAmount tx
                         Maybe.Nothing -> mkReturnCounter model Prim.TxReject
-        
+
           Blockchain.CallerContract (_ :: <address>) -> mkReturnCounter model Prim.TxReject
 
 

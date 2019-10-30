@@ -16,10 +16,11 @@ import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.SeedState
-import qualified Data.Aeson as AE
 import qualified Concordium.Scheduler.Runner as Runner
+import qualified Concordium.Scheduler.Environment as Types
 
 import qualified Data.HashMap.Strict as HM
+import qualified Data.Aeson as AE
 
 import System.IO.Unsafe
 import System.Random
@@ -98,13 +99,16 @@ bakerSignKey n = fst (BlockSig.randomKeyPair (mkStdGen n))
 -- |Make a baker deterministically from a given seed and with the given reward account.
 -- Uses 'bakerElectionKey' and 'bakerSignKey' with the given seed to generate the keys.
 -- The baker has 0 lottery power.
-mkBaker :: Int -> AccountAddress -> BakerInfo
-mkBaker seed acc = BakerInfo {
-  _bakerElectionVerifyKey = VRF.publicKey (bakerElectionKey seed),
-  _bakerSignatureVerifyKey = BlockSig.verifyKey (bakerSignKey seed),
+-- mkBaker :: Int -> AccountAddress -> (BakerInfo
+mkBaker :: Int -> AccountAddress -> (BakerInfo, VRF.SecretKey, BlockSig.SignKey)
+mkBaker seed acc = (BakerInfo {
+  _bakerElectionVerifyKey = VRF.publicKey electionKey,
+  _bakerSignatureVerifyKey = BlockSig.verifyKey sk,
   _bakerStake = 0,
   _bakerAccount = acc
-  }
+  }, VRF.privateKey electionKey, BlockSig.signKey sk)
+  where electionKey = bakerElectionKey seed
+        sk = bakerSignKey seed
 
 readCredential :: FilePath -> IO CredentialDeploymentInformation
 readCredential fp = do
@@ -155,3 +159,6 @@ dummyCryptographicParameters =
 
 blockSize :: Integer
 blockSize = 10000000000
+
+dummySpecialBetaAccounts :: Types.SpecialBetaAccounts
+dummySpecialBetaAccounts = Types.emptySpecialBetaAccounts

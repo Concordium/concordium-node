@@ -49,6 +49,9 @@ flags:
   dynamic:
     manual: False
     default: True
+  rust:
+    manual: True
+    default: True
 
 library:
   source-dirs: src
@@ -72,6 +75,8 @@ library:
               ghc-options: -shared -dynamic
             else:
               ghc-options: -static
+    - condition: flag(rust)
+      ghc-options: "-optP-DRUST"
 
 # Other options might be needed, such has -dynamic -lHSrts or -lHSrts-ghc8.4.3
 # Possibly this depends on the platform
@@ -98,9 +103,12 @@ executables:
                 ghc-options: -dynamic
               else:
                 ghc-options: -static
+      - condition: flag(rust)
+        ghc-options: "-optP-DRUST"
     dependencies:
-    - Concordium
-  
+      - Concordium
+
+
   Concordium-catchup:
     main:                Main.hs
     source-dirs:         catchup
@@ -122,9 +130,11 @@ executables:
                 ghc-options: -dynamic
               else:
                 ghc-options: -static
+      - condition: flag(rust)
+        ghc-options: "-optP-DRUST"
     dependencies:
     - Concordium
-  
+
   genesis:
     main:         Genesis.hs
     source-dirs:  genesis
@@ -170,6 +180,8 @@ tests:
                 ghc-options: -dynamic
               else:
                 ghc-options: -static
+      - condition: flag(rust)
+        ghc-options: "-optP-DRUST"
     dependencies:
     - Concordium
     - hspec >= 2.5

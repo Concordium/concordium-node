@@ -18,11 +18,11 @@ import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
 import qualified Concordium.Scheduler.Cost as Cost
 
-import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Account as Acc
 import Concordium.GlobalState.Modules as Mod
 import Concordium.GlobalState.Rewards as Rew
-import Concordium.GlobalState.Basic.Invariants
+import Concordium.GlobalState.Implementation.BlockState
+import Concordium.GlobalState.Implementation.Invariants
 
 import qualified Acorn.Core as Core
 
@@ -32,7 +32,7 @@ shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState
-initialBlockState = 
+initialBlockState =
   emptyBlockState emptyBirkParameters dummyCryptographicParameters &
     (blockAccounts .~ Acc.putAccount (mkAccount alesVK 100000)
                       (Acc.putAccount (mkAccount thomasVK 100000) Acc.emptyAccounts)) .
@@ -57,12 +57,12 @@ transactionsInput =
          , metadata = makeHeader thomasKP 1 500
          , keypair = thomasKP
          }
-    -- the next transaction should fail because the balance on alesAccount is now 1012, which is
-    -- less than 600 + 500
+    -- the next transaction should fail because the balance on alesAccount is now 1282, which is
+    -- less than 600 + 700
   ,TJSON { payload = Transfer {toaddress = Types.AddressAccount thomasAccount, amount = 600 }
-         , metadata = makeHeader alesKP 4 500
+         , metadata = makeHeader alesKP 4 700
          , keypair = alesKP
-         }    
+         }
   ]
 
 
@@ -75,6 +75,7 @@ testSimpleTransfer = do
     transactions <- processTransactions transactionsInput
     let ((Sch.FilteredTransactions{..}, _), gstate) =
           Types.runSI (Sch.filterTransactions blockSize transactions)
+            dummySpecialBetaAccounts
             Types.dummyChainMeta
             initialBlockState
     case invariantBlockState gstate of
@@ -92,7 +93,7 @@ checkSimpleTransferResult (suc, fails, alesamount, thomasamount) =
   nonreject && -- all initial transactions are successful
   alesamount == (100000 - 4 * fromIntegral Cost.checkHeader - 88 - 98700 + 100) &&
   thomasamount == (100000 - fromIntegral Cost.checkHeader + 88 + 98700 - 100)
-  where 
+  where
     nonreject = all (\case (_, Types.TxSuccess _ _ _) -> True
                            (_, Types.TxReject _ _ _) -> False)
                     (init suc)
@@ -101,7 +102,7 @@ checkSimpleTransferResult (suc, fails, alesamount, thomasamount) =
                _ -> False
 
 tests :: SpecWith ()
-tests = 
+tests =
   describe "Simple transfers test:" $ do
     specify "3 successful and 1 failed transaction" $ do
       PR.evalContext Init.initialContextData testSimpleTransfer `shouldReturnP` checkSimpleTransferResult

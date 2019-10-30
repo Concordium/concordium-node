@@ -13,7 +13,7 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.Parameters
 import Concordium.Skov.Monad
 import Concordium.Birk.LeaderElection
-import Concordium.GlobalState.BlockState(BlockPointer, BlockPointerData(..), bpParent)
+import Concordium.GlobalState.TreeState(BlockPointer, BlockPointerData(..), bpParent)
 
 blockLuck :: (SkovQueryMonad m) => BlockPointer m -> m BlockLuck
 blockLuck block = case blockFields block of

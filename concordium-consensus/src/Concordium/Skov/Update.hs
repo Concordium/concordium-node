@@ -32,7 +32,7 @@ import Concordium.Skov.Statistics
 
 -- |Determine if one block is an ancestor of another.
 -- A block is considered to be an ancestor of itself.
-isAncestorOf :: BlockPointerData bp => bp -> bp -> Bool
+isAncestorOf :: BlockPointerData bs bp => bp -> bp -> Bool
 isAncestorOf b1 b2 = case compare (bpHeight b1) (bpHeight b2) of
         GT -> False
         EQ -> b1 == b2

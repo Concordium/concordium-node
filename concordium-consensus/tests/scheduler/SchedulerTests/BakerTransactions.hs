@@ -7,6 +7,7 @@ module SchedulerTests.BakerTransactions where
 import Test.Hspec
 
 import qualified Data.Map as Map
+import qualified Data.HashSet as Set
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Acorn.Utils.Init as Init
@@ -14,14 +15,15 @@ import Concordium.Scheduler.Runner
 import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
 
-import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.Account as Acc
 import Concordium.GlobalState.Modules as Mod
-import Concordium.GlobalState.Basic.Invariants
+import Concordium.GlobalState.Implementation.BlockState
+import Concordium.GlobalState.Implementation.Invariants
 import qualified Concordium.GlobalState.Rewards as Rew
 
 import qualified Concordium.Crypto.BlockSignature as BlockSig
+import qualified Concordium.Crypto.VRF as VRF
 
 import qualified Acorn.Core as Core
 
@@ -33,55 +35,65 @@ shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState
-initialBlockState = 
+initialBlockState =
   emptyBlockState emptyBirkParameters dummyCryptographicParameters &
     (blockAccounts .~ Acc.putAccount (mkAccount alesVK 100000)
                       (Acc.putAccount (mkAccount thomasVK 100000) Acc.emptyAccounts)) .
     (blockBank . Rew.totalGTU .~ 200000) .
     (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
 
-baker0 :: Types.BakerInfo
+baker0 :: (BakerInfo, VRF.SecretKey, BlockSig.SignKey)
 baker0 = mkBaker 0 alesAccount
 
-baker1 :: Types.BakerInfo
-baker1 = mkBaker 1 thomasAccount
+baker1 :: (BakerInfo, VRF.SecretKey, BlockSig.SignKey)
+baker1 = mkBaker 1 alesAccount
 
-baker2 :: Types.BakerInfo
+baker2 :: (BakerInfo, VRF.SecretKey, BlockSig.SignKey)
 baker2 = mkBaker 2 thomasAccount
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =
-    [TJSON { payload = AddBaker (baker0 ^. bakerElectionVerifyKey)
-                                (baker0 ^. bakerSignatureVerifyKey)
-                                (baker0 ^. bakerAccount)
-                                "<dummy proof>"
+    [TJSON { payload = AddBaker (baker0 ^. _1 . bakerElectionVerifyKey)
+                                (baker0 ^. _2)
+                                (baker0 ^. _1 . bakerSignatureVerifyKey)
+                                (baker0 ^. _3)
+                                (BlockSig.verifyKey alesKP)
+                                (BlockSig.signKey alesKP)
            , metadata = makeHeader alesKP 1 10000
            , keypair = alesKP
            },
-     TJSON { payload = AddBaker (baker1 ^. bakerElectionVerifyKey)
-                                (baker1 ^. bakerSignatureVerifyKey)
-                                (baker1 ^. bakerAccount) "<dummy proof>"
+     TJSON { payload = AddBaker (baker1 ^. _1 . bakerElectionVerifyKey)
+                                (baker1 ^. _2)
+                                (baker1 ^. _1 . bakerSignatureVerifyKey)
+                                (baker1 ^. _3)
+                                (BlockSig.verifyKey alesKP)
+                                (BlockSig.signKey alesKP)
            , metadata = makeHeader alesKP 2 10000
            , keypair = alesKP
-           },     
-     TJSON { payload = AddBaker (baker2 ^. bakerElectionVerifyKey)
-                                (baker2 ^. bakerSignatureVerifyKey)
-                                (baker2 ^. bakerAccount) "<dummy proof>"
+           },
+     TJSON { payload = AddBaker (baker2 ^. _1 . bakerElectionVerifyKey)
+                                (baker2 ^. _2)
+                                (baker2 ^. _1 . bakerSignatureVerifyKey)
+                                (baker2 ^. _3)
+                                (BlockSig.verifyKey thomasKP)
+                                (BlockSig.signKey thomasKP)
            , metadata = makeHeader alesKP 3 10000
            , keypair = alesKP
-           },     
+           },
      TJSON { payload = RemoveBaker 1 "<dummy proof>"
            , metadata = makeHeader alesKP 4 10000
            , keypair = alesKP
            },
-     TJSON { payload = UpdateBakerAccount 2 alesAccount "<dummy proof>"
+     TJSON { payload = UpdateBakerAccount 2 (BlockSig.verifyKey alesKP) (BlockSig.signKey alesKP)
+           , metadata = makeHeader thomasKP 1 10000
+           , keypair = thomasKP
+           -- baker 2's account is Thomas account, so only it can update it
+           },
+     TJSON { payload = UpdateBakerSignKey 0 (BlockSig.verifyKey (bakerSignKey 3)) (BlockSig.signKey (bakerSignKey 3))
            , metadata = makeHeader alesKP 5 10000
            , keypair = alesKP
-           },
-     TJSON { payload = UpdateBakerSignKey 0 (BlockSig.verifyKey (bakerSignKey 3)) "<dummy proof>"
-           , metadata = makeHeader alesKP 6 10000
-           , keypair = alesKP
-           }      
+           -- baker 0's account is Thomas account, so only it can update it
+           }
     ]
 
 runWithIntermediateStates :: PR.Context Core.UA IO ([([(Types.BareTransaction, Types.ValidResult)],
@@ -91,9 +103,11 @@ runWithIntermediateStates = do
   txs <- processTransactions transactionsInput
   let (res, state) = foldl (\(acc, st) tx ->
                             let ((Sch.FilteredTransactions{..}, _), st') =
-                                  Types.runSI (Sch.filterTransactions blockSize [tx])
-                                              Types.dummyChainMeta
-                                              st
+                                  Types.runSI
+                                    (Sch.filterTransactions blockSize [tx])
+                                    (Set.singleton alesAccount)
+                                    Types.dummyChainMeta
+                                    st
                             in (acc ++ [(ftAdded, ftFailed, st' ^. blockBirkParameters)], st'))
                          ([], initialBlockState)
                          txs
@@ -110,7 +124,7 @@ tests = do
     specify "Correct number of transactions" $
         length results == length transactionsInput
     specify "Adding three bakers from initial empty state" $
-        case take 3 results of 
+        case take 3 results of
           [([(_,Types.TxSuccess [Types.BakerAdded 0] _ _)],[],bps1),
            ([(_,Types.TxSuccess [Types.BakerAdded 1] _ _)],[],bps2),
            ([(_,Types.TxSuccess [Types.BakerAdded 2] _ _)],[],bps3)] ->
@@ -144,4 +158,3 @@ tests = do
           in b0 ^. bakerSignatureVerifyKey == BlockSig.verifyKey (bakerSignKey 3) &&
              ((bps5 ^. Types.birkBakers . bakerMap) Map.! 0) ^. bakerSignatureVerifyKey == BlockSig.verifyKey (bakerSignKey 0)
         _ -> False
-        

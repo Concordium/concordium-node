@@ -2,12 +2,14 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE CPP #-}
 module SchedulerTests.Delegation where
 
 import Test.Hspec
 import Test.QuickCheck
 
 import qualified Data.Map as Map
+import qualified Data.HashSet as Set
 
 import qualified Concordium.Scheduler.EnvironmentImplementation as EI
 import qualified Acorn.Utils.Init as Init
@@ -16,8 +18,8 @@ import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
 import qualified Concordium.Scheduler.Cost as Cost
 
-import Concordium.GlobalState.Basic.BlockState
-import Concordium.GlobalState.Basic.Invariants
+import Concordium.GlobalState.Implementation.BlockState
+import Concordium.GlobalState.Implementation.Invariants
 import Concordium.GlobalState.Account as Acc
 import Concordium.GlobalState.Modules as Mod
 import Concordium.GlobalState.Rewards as Rew
@@ -42,11 +44,15 @@ staticKeys = ks (mkStdGen 1333)
 numAccounts :: Int
 numAccounts = 10
 
+-- NB: we add two special admin accounts that will have the ability to add and remove
+-- bakers.
+-- This is the logic that will likely be changed after the beta, or in its later stages,
+-- but at the moment we need it since we lack an alternative governance specification.
 initialBlockState :: BlockState
 initialBlockState =
     emptyBlockState emptyBirkParameters dummyCryptographicParameters &
-        (blockAccounts .~ foldr addAcc Acc.emptyAccounts (take numAccounts staticKeys)) .
-        (blockBank . Rew.totalGTU .~ fromIntegral numAccounts * initBal) .
+        (blockAccounts .~ foldr addAcc Acc.emptyAccounts (take numAccounts staticKeys ++ [alesKP, thomasKP])) .
+        (blockBank . Rew.totalGTU .~ fromIntegral (numAccounts + 2) * initBal) .
         (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
     where
         addAcc kp = Acc.putAccount (mkAccount (verifyKey kp) initBal )
@@ -55,7 +61,10 @@ initialBlockState =
 data Model = Model {
     _mAccounts :: Map.Map AccountAddress (KeyPair, Nonce),
     _mBakers :: [BakerId],
-    _mNextBaker :: BakerId
+    _mNextBaker :: BakerId,
+    _mAdminAccounts :: Map.Map AccountAddress (KeyPair, Nonce),
+    _mNextSeed :: Int,
+    _mBakerMap :: Map.Map BakerId KeyPair -- mapping of baker ids to their associated account keypairs
 }
 makeLenses ''Model
 
@@ -63,23 +72,28 @@ initialModel :: Model
 initialModel = Model {
     _mAccounts = Map.fromList [(accountAddress (verifyKey kp) Ed25519, (kp, minNonce)) | kp <- take numAccounts staticKeys],
     _mBakers = [],
-    _mNextBaker = minBound
+    _mNextBaker = minBound,
+    _mAdminAccounts = Map.fromList [(alesAccount, (alesKP, minNonce)), (thomasAccount, (thomasKP, minNonce))],
+    _mNextSeed = 0,
+    _mBakerMap = Map.empty
 }
 
 addBaker :: Model -> Gen (TransactionJSON, Model)
 addBaker m0 = do
-        bkrSeed <- arbitrary
-        bkrAcct <- elements (Map.keys $ _mAccounts m0)
-        let bkr = mkBaker bkrSeed bkrAcct
-        (srcAcct, (srcKp, srcN)) <- elements (Map.toList $ _mAccounts m0)
+        (bkrAcct, (kp, _)) <- elements (Map.toList $ _mAccounts m0)
+        let (bkr, electionSecretKey, signKey) = mkBaker (m0 ^. mNextSeed) bkrAcct
+        (srcAcct, (srcKp, srcN)) <- elements (Map.toList $ _mAdminAccounts m0)
         return (TJSON {
-            payload = AddBaker (bkr ^. bakerElectionVerifyKey) (bkr ^. bakerSignatureVerifyKey) bkrAcct "<dummy proof>",
+            payload = AddBaker (bkr ^. bakerElectionVerifyKey) electionSecretKey (bkr ^. bakerSignatureVerifyKey) signKey (Sig.verifyKey kp) (Sig.signKey kp),
             metadata = makeHeader srcKp srcN (Cost.checkHeader + Cost.addBaker),
             keypair = srcKp
         }, m0
-            & mAccounts . ix srcAcct . _2 %~ (+1) 
+            & mAdminAccounts . ix srcAcct . _2 %~ (+1)
             & mBakers %~ (_mNextBaker m0 :)
-            & mNextBaker %~ (+1))
+            & mNextBaker %~ (+1)
+            & mNextSeed +~ 1
+            & mBakerMap %~ (Map.insert (m0 ^. mNextBaker) kp)
+               )
 
 takeOne :: [a] -> Gen (a, [a])
 takeOne l = do
@@ -89,14 +103,17 @@ takeOne l = do
 removeBaker :: Model -> Gen (TransactionJSON, Model)
 removeBaker m0 = do
         (bkr, bkrs') <- takeOne (_mBakers m0)
-        (srcAcct, (srcKp, srcN)) <- elements (Map.toList $ _mAccounts m0)
+        let srcKp = m0 ^. mBakerMap . singular (ix bkr)
+        let address = accountAddress (verifyKey srcKp) Ed25519
+        let (_, srcN) = m0 ^. mAccounts . singular (ix address)
         return (TJSON {
             payload = RemoveBaker bkr "<dummy proof>",
             metadata = makeHeader srcKp srcN (Cost.checkHeader + Cost.removeBaker),
             keypair = srcKp
         }, m0
-            & mAccounts . ix srcAcct . _2 %~ (+1)
-            & mBakers .~ bkrs')
+            & mAccounts . ix address . _2 %~ (+1)
+            & mBakers .~ bkrs'
+            & mBakerMap %~ (Map.delete bkr))
 
 delegateStake :: Model -> Gen (TransactionJSON, Model)
 delegateStake m0 = do
@@ -143,7 +160,12 @@ testTransactions = forAll makeTransactions (ioProperty . PR.evalContext Init.ini
     where
         tt tl = do
             transactions <- processTransactions tl
-            let ((Sch.FilteredTransactions{..}, _), gs) = EI.runSI (Sch.filterTransactions blockSize transactions) dummyChainMeta initialBlockState
+            let ((Sch.FilteredTransactions{..}, _), gs) =
+                  EI.runSI
+                    (Sch.filterTransactions blockSize transactions)
+                    (Set.fromList [alesAccount, thomasAccount])
+                    dummyChainMeta
+                    initialBlockState
             let rejs = [(z, decodePayload (btrPayload z), rr) | (z, TxReject rr _ _) <- ftAdded]
             case invariantBlockState gs >> (if null ftFailed then Right () else Left ("some transactions failed: " ++ show ftFailed))
                 >> (if null rejs then Right () else Left ("some transactions rejected: " ++ show rejs)) of

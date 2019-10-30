@@ -15,10 +15,10 @@ import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
 import qualified Concordium.Scheduler.Cost as Cost
 
-import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Account as Acc
 import Concordium.GlobalState.Modules as Mod
-import Concordium.GlobalState.Basic.Invariants
+import Concordium.GlobalState.Implementation.BlockState
+import Concordium.GlobalState.Implementation.Invariants
 import qualified Concordium.GlobalState.Rewards as Rew
 import Lens.Micro.Platform
 import Control.Monad.IO.Class
@@ -34,7 +34,7 @@ initialAmount :: Types.Amount
 initialAmount = fromIntegral (6 * Cost.deployCredential + 7 * Cost.checkHeader)
 
 initialBlockState :: BlockState
-initialBlockState = 
+initialBlockState =
   -- NB: We need 6 * deploy account since we still charge the cost even if an
   -- account already exists (case 4 in the tests).
   emptyBlockState emptyBirkParameters dummyCryptographicParameters &
@@ -90,6 +90,7 @@ testAccountCreation = do
     transactions <- processTransactions transactionsInput
     let ((Sch.FilteredTransactions{..}, _), state) =
           Types.runSI (Sch.filterTransactions blockSize transactions)
+            dummySpecialBetaAccounts
             Types.dummyChainMeta
             initialBlockState
     let accounts = state ^. blockAccounts

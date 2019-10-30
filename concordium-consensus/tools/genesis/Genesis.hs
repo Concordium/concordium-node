@@ -162,6 +162,13 @@ main = cmdArgsRun mode >>=
                             "signKey" .= Sig.signKey acctkp,
                             "verifyKey" .= Sig.verifyKey acctkp
                         ]
+                    encodeFile (gdOutput </> "baker-" ++ show n ++ "-credentials.json") $
+                        object [
+                          "electionPrivateKey" .= VRF.privateKey vrfkp,
+                          "electionVerifyKey" .= VRF.publicKey vrfkp,
+                          "signatureSignKey" .= Sig.signKey skp,
+                          "signatureVerifyKey" .= Sig.verifyKey skp
+                          ]
                     return $ object [
                         "electionVerifyKey" .= VRF.publicKey vrfkp,
                         "signatureVerifyKey" .= Sig.verifyKey skp,

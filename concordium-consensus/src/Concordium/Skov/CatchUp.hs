@@ -38,7 +38,7 @@ instance Serialize CatchUpStatus where
     put CatchUpStatus{..} = put cusIsRequest <> put cusLastFinalizedBlock <> put cusLastFinalizedHeight <> put cusBestBlock <> put cusFinalizationJustifiers
     get = CatchUpStatus <$> get <*> get <*> get <*> get <*> get
 
-makeCatchUpStatus :: (BlockPointerData b) => Bool -> b -> b -> [b] -> CatchUpStatus
+makeCatchUpStatus :: (BlockPointerData bs b) => Bool -> b -> b -> [b] -> CatchUpStatus
 makeCatchUpStatus cusIsRequest lfb bb fjs = CatchUpStatus{..}
     where
         cusLastFinalizedBlock = bpHash lfb
@@ -66,17 +66,17 @@ data KnownBlocks b = KnownBlocks {
 emptyKnownBlocks :: KnownBlocks b
 emptyKnownBlocks = KnownBlocks Map.empty 0
 
-addKnownBlock :: (BlockPointerData b, Ord b) => b -> KnownBlocks b -> KnownBlocks b
+addKnownBlock :: (BlockPointerData bs b, Ord b) => b -> KnownBlocks b -> KnownBlocks b
 addKnownBlock b kb@(KnownBlocks m h) = if present then kb else KnownBlocks m' (max h (bpHeight b))
     where
         (present, m') = Map.alterF upd (bpHeight b) m
         upd Nothing = (False, Just $! Set.singleton b)
         upd (Just s) = if b `Set.member` s then (True, Just s) else (False, Just $! Set.insert b s)
 
-makeKnownBlocks :: (BlockPointerData b, Ord b) => [b] -> KnownBlocks b
+makeKnownBlocks :: (BlockPointerData bs b, Ord b) => [b] -> KnownBlocks b
 makeKnownBlocks = foldr addKnownBlock emptyKnownBlocks
 
-updateKnownBlocksToHeight :: (BlockPointerData b, Ord b) => BlockHeight -> KnownBlocks b -> KnownBlocks b
+updateKnownBlocksToHeight :: (BlockPointerData bs b, Ord b) => BlockHeight -> KnownBlocks b -> KnownBlocks b
 updateKnownBlocksToHeight h kb@(KnownBlocks m hkb)
         | h >= kbAncestorsHeight kb = kb
         | otherwise = updateKnownBlocksToHeight h kb'
@@ -86,7 +86,7 @@ updateKnownBlocksToHeight h kb@(KnownBlocks m hkb)
         genhkb' = Set.fromList $ maybe [] (fmap bpParent . Set.toList) genhkb
         m' = m & at (hkb - 1) . non Set.empty %~ Set.union genhkb'
 
-checkKnownBlock :: (BlockPointerData b, Ord b) => b -> KnownBlocks b -> (Bool, KnownBlocks b)
+checkKnownBlock :: (BlockPointerData bs b, Ord b) => b -> KnownBlocks b -> (Bool, KnownBlocks b)
 checkKnownBlock b kb = (b `Set.member` (m ^. at (bpHeight b) . non Set.empty), kb')
     where
         kb'@(KnownBlocks m _) = updateKnownBlocksToHeight (bpHeight b) kb

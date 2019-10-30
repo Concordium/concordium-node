@@ -20,12 +20,12 @@ import Concordium.Scheduler.Runner
 import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
 
-import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Account as Acc
 import Concordium.GlobalState.Instances as Ins
 import Concordium.GlobalState.Modules as Mod
 import qualified Concordium.GlobalState.Rewards as Rew
-import Concordium.GlobalState.Basic.Invariants
+import Concordium.GlobalState.Implementation.BlockState
+import Concordium.GlobalState.Implementation.Invariants
 
 import qualified Data.Text.IO as TIO
 import Control.Monad.IO.Class
@@ -38,7 +38,7 @@ shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState
-initialBlockState = 
+initialBlockState =
   emptyBlockState emptyBirkParameters dummyCryptographicParameters &
     (blockAccounts .~ Acc.putAccount (mkAccount alesVK 1000000000) Acc.emptyAccounts) .
     (blockBank . Rew.totalGTU .~ 1000000000) .
@@ -82,6 +82,7 @@ testFibonacci = do
     transactions <- processTransactions transactionsInput
     let ((Sch.FilteredTransactions{..}, _), gs) =
           Types.runSI (Sch.filterTransactions blockSize transactions)
+            dummySpecialBetaAccounts
             Types.dummyChainMeta
             initialBlockState
     case invariantBlockState gs of
@@ -104,7 +105,7 @@ checkFibonacciResult (suc, fails, instances) =
                            (_, Types.TxReject _ _ _) -> True
                     )
                         suc
-    checkLocalState inst = 
+    checkLocalState inst =
       let results = List.sort . map snd $ (extractMap (Types.instanceModel inst))
       in results == take 31 fib
     extractMap (Types.VConstructor _ (Types.VLiteral (Core.Int64 k) Seq.:<|

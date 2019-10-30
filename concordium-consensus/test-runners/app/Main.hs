@@ -1,5 +1,5 @@
 {-# LANGUAGE TupleSections, LambdaCase, OverloadedStrings #-}
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE LambdaCase, CPP #-}
 module Main where
 
 import Control.Concurrent
@@ -11,6 +11,7 @@ import Lens.Micro.Platform
 import Data.Serialize
 
 import Concordium.TimeMonad
+import Concordium.TimerMonad
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.Parameters
@@ -18,18 +19,27 @@ import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Instances
-import Concordium.GlobalState.BlockState(BlockPointerData(..),getContractInstanceList)
-import Concordium.GlobalState.Persistent.TreeState
 import Concordium.GlobalState.Basic.Block
+import qualified Concordium.GlobalState.Basic.BlockState as Basic
+import Concordium.GlobalState.BlockState
+import Concordium.GlobalState
+#ifdef RUST
+import qualified Concordium.GlobalState.Implementation as Rust
+#endif
 
 import Concordium.Types
 import Concordium.Runner
 import Concordium.Logger
 import Concordium.Skov
+import Concordium.Getters
+import Concordium.Afgjort.Finalize (FinalizationPseudoMessage(..),FinalizationInstance(..))
+import Concordium.Birk.Bake
 
 import Concordium.Scheduler.Utils.Init.Example as Example
 
 import Concordium.Startup
+
+import Foreign.ForeignPtr
 
 nContracts :: Int
 nContracts = 2
@@ -49,8 +59,8 @@ sendTransactions chan (t : ts) = do
         sendTransactions chan ts
 sendTransactions _ _ = return ()
 
-relay :: Chan (OutMessage src) -> MVar SkovBufferedHookedState -> PersistentContext -> Chan (Either (BlockHash, BakedBlock, [Instance]) FinalizationRecord) -> [Chan (InMessage ())] -> IO ()
-relay inp sfsRef ctx monitor outps = loop
+relay :: Chan (OutMessage src) -> SyncRunner ActiveConfig -> Chan (Either (BlockHash, BakedBlock, [Instance]) FinalizationRecord) -> [Chan (InMessage ())] -> IO ()
+relay inp sr monitor outps = loop
     where
         loop = do
             msg <- readChan inp
@@ -60,9 +70,7 @@ relay inp sfsRef ctx monitor outps = loop
                     case runGet (getBlock now) blockBS of
                         Right (NormalBlock block) -> do
                             let bh = getHash block :: BlockHash
-                            sfs <- readMVar sfsRef
-                            bi <- runSilentLogger $ evalSkovQueryM (bInsts bh) ctx (sfs ^. skov)
-                            -- when (isNothing bp) $ error "Block is missing!"
+                            bi <- runStateQuery sr (bInsts bh)
                             writeChan monitor (Left (bh, block, bi))
                         _ -> return ()
                     forM_ outps $ \outp -> forkIO $ do
@@ -114,7 +122,31 @@ gsToString gs = show (gs ^.  blockBirkParameters ^. seedState )
 -}
 
 dummyIdentityProviders :: [IdentityProviderData]
-dummyIdentityProviders = []  
+dummyIdentityProviders = []
+
+genesisState :: GenesisData -> Basic.BlockState
+genesisState genData = Basic.initialState
+                       (genesisBirkParameters genData)
+                       (genesisCryptographicParameters genData)
+                       (genesisAccounts genData ++ genesisSpecialBetaAccounts genData)
+                       (genesisIdentityProviders genData)
+                       (genesisMintPerSlot genData)
+
+
+#ifdef RUST
+type TreeConfig = DiskTreeDiskBlockConfig
+makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
+makeGlobalStateConfig rt genData = do
+    gsptr <- Rust.makeEmptyGlobalState genData
+    return $ DTDBConfig rt genData (genesisState genData) gsptr
+#else
+type TreeConfig = MemoryTreeDiskBlockConfig
+makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
+makeGlobalStateConfig rt genData = return $ MTDBConfig rt genData (genesisState genData)
+#endif
+
+type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) HookLogHandler
+
 
 main :: IO ()
 main = do
@@ -132,21 +164,25 @@ main = do
         let logT bh slot reason = do
               appendFile logTransferFile (show (bh, slot, reason))
               appendFile logTransferFile "\n"
-        iState <- Example.initialPersistentState (genesisBirkParameters gen) (genesisCryptographicParameters gen) (genesisAccounts gen) [] nContracts
-        (cin, cout, stateRef, ctx) <- makeAsyncRunner logM Nothing bid defaultRuntimeParameters gen iState
+        gsconfig <- makeGlobalStateConfig defaultRuntimeParameters gen
+        let
+            finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid)) gen
+            hconfig = HookLogHandler (Just logT)
+            config = SkovConfig gsconfig finconfig hconfig
+        (cin, cout, sr) <- makeAsyncRunner logM bid config
         _ <- forkIO $ sendTransactions cin trans
-        return (cin, cout, stateRef, ctx)) (zip [(0::Int) ..] bis)
+        return (cin, cout, sr)) (zip [(0::Int) ..] bis)
     monitorChan <- newChan
-    mapM_ (\((_,cout, stateRef, ctx), cs) -> forkIO $ relay cout stateRef ctx monitorChan ((\(c, _, _, _) -> c) <$> cs)) (removeEach chans)
+    mapM_ (\((_,cout, sr), cs) -> forkIO $ relay cout sr monitorChan ((\(c, _, _) -> c) <$> cs)) (removeEach chans)
     let loop = do
             readChan monitorChan >>= \case
                 Left (bh, block, gs') -> do
                     let ts = blockTransactions block
                     let stateStr = show gs'
 
-                    putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker $ bbFields block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]\\l" ++ stateStr ++ "\\l\"];"
-                    putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockPointer $ bbFields block) ++ ";"
-                    putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockLastFinalized $ bbFields block) ++ " [style=dotted];"
+                    putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]\\l" ++ stateStr ++ "\\l\"];"
+                    putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockPointer block) ++ ";"
+                    putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockLastFinalized block) ++ " [style=dotted];"
                     hFlush stdout
                     loop
                 Right fr -> do
