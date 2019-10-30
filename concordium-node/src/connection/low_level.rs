@@ -28,7 +28,7 @@ const NOISE_MAX_MESSAGE_LEN: usize = 64 * 1024 - 1;
 const NOISE_AUTH_TAG_LEN: usize = 16;
 const NOISE_MAX_PAYLOAD_LEN: usize = NOISE_MAX_MESSAGE_LEN - NOISE_AUTH_TAG_LEN;
 
-/// The result of a socket operation
+/// The result of a socket operation.
 #[derive(Debug, Clone)]
 pub enum TcpResult<T> {
     /// For socket reads, `T` is the complete read message; for writes it's the
@@ -44,7 +44,7 @@ pub enum TcpResult<T> {
     Aborted,
 }
 
-/// State of the *IKpsk2* handshake
+/// State of the *IKpsk2* handshake.
 #[derive(Debug, PartialEq)]
 pub enum HandshakeState {
     AwaitingPreSharedKey,
@@ -69,8 +69,7 @@ pub struct ConnectionLowLevel {
     handshake_queue: VecDeque<HybridBuf>,
     /// A queue for outbound messages queued during the noise handshake phase
     pending_output_queue: Vec<HybridBuf>,
-    /// A queue for encrypted outbound messages waiting to be written to the
-    /// socket
+    /// A queue for encrypted messages waiting to be written to the socket
     encrypted_queue: VecDeque<HybridBuf>,
     /// The current status of the noise handshake
     handshake_state: HandshakeState,
@@ -248,6 +247,7 @@ impl ConnectionLowLevel {
 
     // input
 
+    /// Keeps reading from the socket as long as there is data to be read.
     #[inline(always)]
     pub fn read_stream(&mut self, deduplication_queues: &mut DeduplicationQueues) -> Fallible<()> {
         loop {
@@ -267,6 +267,7 @@ impl ConnectionLowLevel {
         }
     }
 
+    /// Attempts to read a complete message from the socket.
     #[inline(always)]
     fn read_from_socket(&mut self) -> Fallible<TcpResult<HybridBuf>> {
         trace!("Attempting to read from the socket");
@@ -319,7 +320,7 @@ impl ConnectionLowLevel {
 
     /// It first reads the first 4 bytes of the message to determine its size.
     fn read_expected_size(&mut self) -> Fallible<TcpResult<HybridBuf>> {
-        // Only extract the bytes needed to know the size.
+        // only extract the bytes needed to know the size.
         let min_bytes = self.pending_bytes_to_know_expected_size();
         let read_bytes =
             map_io_error_to_fail!(self.socket.read(&mut self.input_buffer[..min_bytes]))?;
@@ -327,7 +328,7 @@ impl ConnectionLowLevel {
         self.current_input
             .extend_from_slice(&self.input_buffer[..read_bytes]);
 
-        // Load expected size
+        // once the number of bytes needed to read the message size is known, continue
         if self.current_input.len() == std::mem::size_of::<PayloadSize>() {
             let expected_size =
                 NetworkEndian::read_u32(&self.current_input[..std::mem::size_of::<PayloadSize>()]);
@@ -336,7 +337,7 @@ impl ConnectionLowLevel {
             // remove the length from the buffer
             self.current_input.clear();
 
-            // Check protocol limits
+            // check if the expected size doesn't exceed the protocol limit
             if expected_size > PROTOCOL_MAX_MESSAGE_SIZE as PayloadSize {
                 let error = MessageTooBigError {
                     expected_size,
@@ -377,10 +378,7 @@ impl ConnectionLowLevel {
     }
 
     fn read_intermediate(&mut self) -> Fallible<usize> {
-        trace!(
-            "Reading the message payload ({}B remaining)",
-            self.pending_bytes,
-        );
+        trace!("Reading the message ({}B remaining)", self.pending_bytes,);
         let read_size = std::cmp::min(self.pending_bytes as usize, NOISE_MAX_MESSAGE_LEN + 1);
 
         match self.socket.read(&mut self.input_buffer[..read_size]) {
@@ -398,10 +396,7 @@ impl ConnectionLowLevel {
         }
     }
 
-    /// It reads the chunk table and decodes each of them.
-    ///
-    /// # Return
-    /// The decrypted message.
+    /// It reads the chunk table and decrypts the chunks.
     pub fn decrypt<R: Read + Seek>(&mut self, mut input: R) -> Fallible<HybridBuf> {
         // 0. Read NONCE.
         let nonce = input.read_u64::<NetworkEndian>()?;
@@ -528,7 +523,8 @@ impl ConnectionLowLevel {
         }
     }
 
-    /// It splits `input` into chunks (64kb max) and encrypts each of them.
+    /// It splits `input` into chunks of `NOISE_MAX_PAYLOAD_LEN` and encrypts
+    /// each of them.
     fn encrypt_chunks<R: Read + Seek>(&mut self, nonce: u64, input: &mut R) -> Fallible<usize> {
         let mut written = 0;
 
