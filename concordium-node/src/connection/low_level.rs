@@ -62,6 +62,7 @@ pub struct ConnectionLowLevel {
     noise_session:          Option<Session>,
     input_buffer:           [u8; NOISE_MAX_MESSAGE_LEN],
     current_input:          Vec<u8>,
+    pending_bytes:          PayloadSize,
     handshake_queue:        VecDeque<HybridBuf>,
     pending_output_queue:   Vec<HybridBuf>,
     encrypted_queue:        VecDeque<HybridBuf>,
@@ -120,6 +121,7 @@ impl ConnectionLowLevel {
             keypair,
             noise_session,
             current_input: Vec::with_capacity(NOISE_MAX_PAYLOAD_LEN),
+            pending_bytes: 0,
             handshake_queue,
             pending_output_queue: Vec::with_capacity(4),
             encrypted_queue: VecDeque::with_capacity(16),
@@ -256,7 +258,11 @@ impl ConnectionLowLevel {
     #[inline(always)]
     fn read_from_socket(&mut self) -> Fallible<TcpResult<HybridBuf>> {
         trace!("Reading from the socket");
-        let read_result = self.read_expected_size();
+        let read_result = if self.pending_bytes == 0 {
+            self.read_expected_size()
+        } else {
+            self.read_payload()
+        };
 
         match read_result {
             Ok(TcpResult::Complete(payload)) => {
@@ -310,7 +316,7 @@ impl ConnectionLowLevel {
             .extend_from_slice(&self.input_buffer[..read_bytes]);
 
         // Load expected size
-        if self.current_input.len() >= std::mem::size_of::<PayloadSize>() {
+        if self.current_input.len() == std::mem::size_of::<PayloadSize>() {
             let expected_size =
                 NetworkEndian::read_u32(&self.current_input[..std::mem::size_of::<PayloadSize>()]);
             trace!("Expecting a message of {}B", expected_size);
@@ -319,16 +325,18 @@ impl ConnectionLowLevel {
             self.current_input.clear();
 
             // Check protocol limits
-            if expected_size > PROTOCOL_MAX_MESSAGE_SIZE as u32 {
+            if expected_size > PROTOCOL_MAX_MESSAGE_SIZE as PayloadSize {
                 let error = MessageTooBigError {
                     expected_size,
-                    protocol_size: PROTOCOL_MAX_MESSAGE_SIZE as u32,
+                    protocol_size: PROTOCOL_MAX_MESSAGE_SIZE as PayloadSize,
                 };
                 return Err(Error::from(error));
+            } else {
+                self.pending_bytes = expected_size;
             }
 
             // Read data next...
-            self.read_payload(expected_size)
+            self.read_payload()
         } else {
             // We need more data to determine the message size.
             Ok(TcpResult::Incomplete)
@@ -336,14 +344,14 @@ impl ConnectionLowLevel {
     }
 
     /// Once we know the message expected size, we can start to receive data.
-    fn read_payload(&mut self, expected_size: PayloadSize) -> Fallible<TcpResult<HybridBuf>> {
-        let mut remaining_length = expected_size - self.current_input.len() as u32;
-
-        while remaining_length > 0 && self.read_intermediate(remaining_length)? > 0 {
-            remaining_length = expected_size - self.current_input.len() as u32;
+    fn read_payload(&mut self) -> Fallible<TcpResult<HybridBuf>> {
+        while self.pending_bytes > 0 {
+            if self.read_intermediate()? == 0 {
+                break;
+            }
         }
 
-        if self.current_input.len() as u32 == expected_size {
+        if self.pending_bytes == 0 {
             // Ready message
             let new_data = std::mem::replace(
                 &mut self.current_input,
@@ -356,17 +364,18 @@ impl ConnectionLowLevel {
         }
     }
 
-    fn read_intermediate(&mut self, remaining_length: PayloadSize) -> Fallible<usize> {
+    fn read_intermediate(&mut self) -> Fallible<usize> {
         trace!(
             "Reading the message payload ({}B remaining)",
-            remaining_length
+            self.pending_bytes,
         );
-        let read_size = std::cmp::min(remaining_length as usize, NOISE_MAX_MESSAGE_LEN);
+        let read_size = std::cmp::min(self.pending_bytes as usize, NOISE_MAX_MESSAGE_LEN);
 
         match self.socket.read(&mut self.input_buffer[..read_size]) {
             Ok(read_bytes) => {
                 self.current_input
                     .extend_from_slice(&self.input_buffer[..read_bytes]);
+                self.pending_bytes -= read_bytes as PayloadSize;
 
                 Ok(read_bytes)
             }
