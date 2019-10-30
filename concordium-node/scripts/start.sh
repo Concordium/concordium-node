@@ -223,6 +223,16 @@ then
     ARGS="$ARGS --grpc-host $COLLECTOR_GRPC_HOST"
 fi
 
+if [ -n "$COLLECTOR_ARTIFICIAL_START_DELAY" ];
+then
+    ARGS="$ARGS --artificial-start-delay $COLLECTOR_ARTIFICIAL_START_DELAY"
+fi
+
+if [ -n "$COLLECTOR_MAX_GRPC_FAILURES_ALLOWED" ];
+then
+    ARGS="$ARGS --max-grpc-failures-allowed $COLLECTOR_MAX_GRPC_FAILURES_ALLOWED"
+fi
+
 if [ -n "$RPC_PASSWORD" ];
 then
     ARGS="$ARGS --rpc-server-token $RPC_PASSWORD"

@@ -4,12 +4,27 @@ extern crate grpciounix as grpcio;
 #[cfg(target_os = "windows")]
 extern crate grpciowin as grpcio;
 use concordium_common::spawn_or_die;
-use env_logger::{Builder, Env};
+use env_logger::Env;
 use failure::Fallible;
 use grpcio::{ChannelBuilder, EnvBuilder};
-use p2p_client::{common::collector_utils::NodeInfo, proto::concordium_p2p_rpc_grpc::P2PClient};
+use p2p_client::{
+    common::collector_utils::NodeInfo, proto::concordium_p2p_rpc_grpc::P2PClient,
+    utils::setup_logger_env,
+};
 use serde_json::Value;
-use std::{borrow::ToOwned, fmt, process::exit, str::FromStr, sync::Arc, thread, time::Duration};
+use std::{
+    borrow::ToOwned,
+    default::Default,
+    fmt,
+    process::exit,
+    str::FromStr,
+    sync::{
+        atomic::{AtomicUsize, Ordering as AtomicOrdering},
+        Arc,
+    },
+    thread,
+    time::Duration,
+};
 use structopt::StructOpt;
 #[macro_use]
 extern crate log;
@@ -81,9 +96,19 @@ struct ConfigCli {
         default_value = "5000"
     )]
     pub collector_interval: u64,
+    #[structopt(
+        long = "artificial-start-delay",
+        help = "Time (in ms) to delay when the first gRPC request is sent to the node",
+        default_value = "3000"
+    )]
+    pub artificial_start_delay: u64,
+    #[structopt(
+        long = "max-grpc-failures-allowed",
+        help = "Maximum allowed times a gRPC call can fail before terminating the program",
+        default_value = "50"
+    )]
+    pub max_grpc_failures_allowed: u64,
 }
-
-const MAX_GRPC_FAILURES: usize = 40;
 
 pub fn main() -> Fallible<()> {
     let conf = ConfigCli::from_args();
@@ -97,29 +122,52 @@ pub fn main() -> Fallible<()> {
         Env::default().filter_or("LOG_LEVEL", "info")
     };
 
-    let mut log_builder = Builder::from_env(env);
-    if conf.no_log_timestamp {
-        log_builder.default_format_timestamp(false);
-    }
-    log_builder.init();
+    setup_logger_env(env, conf.no_log_timestamp);
+
     if conf.print_config {
         info!("{:?}", conf);
     }
+
+    info!(
+        "Starting up {}-node-collector version {}!",
+        p2p_client::APPNAME,
+        p2p_client::VERSION
+    );
 
     if conf.node_names.len() != conf.grpc_hosts.len() {
         error!("Amount of node-names and grpc-hosts must be equal!");
         exit(1);
     }
 
+    if conf.artificial_start_delay > 0 {
+        info!(
+            "Delaying first collection from the node for {} ms",
+            conf.artificial_start_delay
+        );
+        thread::sleep(Duration::from_millis(conf.artificial_start_delay));
+    }
+
     #[allow(unreachable_code)]
     let main_thread = spawn_or_die!("Main loop", {
-        let mut grpc_failures = 0;
+        let atomic_counter: AtomicUsize = Default::default();
         loop {
+            let grpc_failure_count = atomic_counter.load(AtomicOrdering::Relaxed);
+            trace!(
+                "Failure count is {}/{}",
+                grpc_failure_count,
+                conf.max_grpc_failures_allowed
+            );
             conf.node_names.iter().zip(conf.grpc_hosts.iter()).for_each(
                 |(node_name, grpc_host)| {
+                    trace!("Processing node {}/{}", node_name, grpc_host);
                     if let Ok(node_info) =
                         collect_data(&node_name, &grpc_host, &conf.grpc_auth_token)
                     {
+                        trace!(
+                            "Node data collected successfully from {}/{}",
+                            node_name,
+                            grpc_host
+                        );
                         if let Ok(json_string) = serde_json::to_string(&node_info) {
                             trace!("Posting JSON {}", json_string);
                             let client = reqwest::Client::new();
@@ -128,18 +176,21 @@ pub fn main() -> Fallible<()> {
                                 error!("Could not post to dashboard server due to error {}", e);
                             }
                         }
-                    } else if grpc_failures + 1 >= MAX_GRPC_FAILURES {
-                        error!("Too many gRPC failures, exiting!");
-                        exit(1);
                     } else {
-                        grpc_failures += 1;
+                        let _ = atomic_counter.fetch_add(1, AtomicOrdering::SeqCst);
                         error!(
                             "gRPC failed for {}, sleeping for {} ms",
                             &grpc_host, conf.collector_interval
                         );
                     }
+
+                    if grpc_failure_count + 1 >= conf.max_grpc_failures_allowed as usize {
+                        error!("Too many gRPC failures, exiting!");
+                        exit(1);
+                    }
                 },
             );
+            trace!("Sleeping for {} ms", conf.collector_interval);
             thread::sleep(Duration::from_millis(conf.collector_interval));
         }
     });
@@ -152,6 +203,12 @@ fn collect_data(
     grpc_host: &str,
     grpc_auth_token: &str,
 ) -> Fallible<NodeInfo> {
+    trace!(
+        "Collecting node information via gRPC from {}/{}/{}",
+        node_name,
+        grpc_host,
+        grpc_auth_token
+    );
     let env = Arc::new(EnvBuilder::new().build());
     let ch = ChannelBuilder::new(env).connect(grpc_host);
     let client = P2PClient::new(ch);
@@ -163,26 +220,33 @@ fn collect_data(
     let meta_data = req_meta_builder.build();
     let call_options = ::grpcio::CallOption::default().headers(meta_data);
 
+    trace!("Requesting basic node info via gRPC");
     let node_info_reply =
         client.node_info_opt(&p2p_client::proto::Empty::new(), call_options.clone())?;
 
+    trace!("Requesting node uptime info via gRPC");
     let node_uptime_reply =
         client.peer_uptime_opt(&p2p_client::proto::Empty::new(), call_options.clone())?;
 
+    trace!("Requesting node version info via gRPC");
     let node_version_reply =
         client.peer_version_opt(&p2p_client::proto::Empty::new(), call_options.clone())?;
 
+    trace!("Requesting consensus statuc info via gRPC");
     let node_consensus_status_reply =
         client.get_consensus_status_opt(&p2p_client::proto::Empty::new(), call_options.clone())?;
 
+    trace!("Requesting node peer stats info via gRPC");
     let node_peer_stats_reply = client.peer_stats_opt(
         &p2p_client::proto::PeersRequest::new(),
         call_options.clone(),
     )?;
 
+    trace!("Requesting node total sent message count info via gRPC");
     let node_total_sent_reply =
         client.peer_total_sent_opt(&p2p_client::proto::Empty::new(), call_options.clone())?;
 
+    trace!(" Requesting node total received message count via gRPC");
     let node_total_received_reply =
         client.peer_total_received_opt(&p2p_client::proto::Empty::new(), call_options.clone())?;
 
@@ -222,6 +286,7 @@ fn collect_data(
         .map(|element| element.node_id.clone())
         .collect::<Vec<String>>();
 
+    trace!("Parsing consensus JSON status response");
     let json_consensus_value: Value =
         serde_json::from_str(&node_consensus_status_reply.json_value)?;
 
@@ -263,6 +328,7 @@ fn collect_data(
     let finalization_period_emsd = json_consensus_value["finalizationPeriodEMSD"].as_f64();
 
     let ancestors_since_best_block = if best_block_height > finalized_block_height {
+        trace!("Requesting further consensus status via gRPC");
         let block_and_height_req = &mut p2p_client::proto::BlockHashAndAmount::new();
         block_and_height_req.set_block_hash(best_block.clone());
         block_and_height_req.set_amount(best_block_height as u64 - finalized_block_height as u64);

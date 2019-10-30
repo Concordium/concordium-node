@@ -15,6 +15,7 @@ use hacl_star::{
     ed25519::{keypair, PublicKey, SecretKey, Signature},
     sha2,
 };
+use log::LevelFilter;
 use rand::rngs::OsRng;
 use snow::Keypair;
 #[cfg(feature = "benchmark")]
@@ -59,6 +60,18 @@ pub fn parse_ip_port(input: &str) -> Option<SocketAddr> {
     }
 
     None
+}
+
+pub fn setup_logger_env(env: Env, no_log_timestamp: bool) {
+    let mut log_builder = Builder::from_env(env);
+    if no_log_timestamp {
+        log_builder.default_format_timestamp(false);
+    }
+    log_builder.filter(Some(&"tokio_reactor"), LevelFilter::Error);
+    log_builder.filter(Some(&"hyper"), LevelFilter::Error);
+    log_builder.filter(Some(&"reqwest"), LevelFilter::Error);
+    log_builder.filter(Some(&"gotham"), LevelFilter::Error);
+    log_builder.init();
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -486,11 +499,7 @@ pub fn get_config_and_logging_setup() -> Fallible<(config::Config, config::AppPr
         Env::default().filter_or("LOG_LEVEL", "warn")
     };
 
-    let mut log_builder = Builder::from_env(env);
-    if conf.common.no_log_timestamp {
-        log_builder.default_format_timestamp(false);
-    }
-    log_builder.init();
+    setup_logger_env(env, conf.common.no_log_timestamp);
 
     info!(
         "Starting up {} version {}!",
