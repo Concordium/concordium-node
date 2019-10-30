@@ -5,7 +5,6 @@ extern crate grpciounix as grpcio;
 extern crate grpciowin as grpcio;
 #[macro_use]
 extern crate log;
-extern crate p2p_client;
 #[macro_use]
 extern crate concordium_common;
 
@@ -15,40 +14,20 @@ use std::alloc::System;
 static A: System = System;
 
 use concordium_common::stats_export_service::StatsServiceMode;
-use env_logger::{Builder, Env};
 use failure::Error;
 use p2p_client::{
     client::utils as client_utils,
     common::{P2PNodeId, PeerType},
     configuration as config,
     p2p::*,
+    utils::get_config_and_logging_setup,
 };
 use std::sync::mpsc;
 
 fn main() -> Result<(), Error> {
-    let mut conf = config::parse_config()?;
-
+    let (mut conf, app_prefs) = get_config_and_logging_setup()?;
     conf.connection.max_allowed_nodes = Some(conf.bootstrapper.max_nodes);
-
-    let app_prefs = config::AppPreferences::new(
-        conf.common.config_dir.to_owned(),
-        conf.common.data_dir.to_owned(),
-    );
     let data_dir_path = app_prefs.get_user_app_dir();
-
-    let env = if conf.common.trace {
-        Env::default().filter_or("LOG_LEVEL", "trace")
-    } else if conf.common.debug {
-        Env::default().filter_or("LOG_LEVEL", "debug")
-    } else {
-        Env::default().filter_or("LOG_LEVEL", "info")
-    };
-
-    let mut log_builder = Builder::from_env(env);
-    if conf.common.no_log_timestamp {
-        log_builder.default_format_timestamp(false);
-    }
-    log_builder.init();
 
     if conf.common.print_config {
         // Print out the configuration
