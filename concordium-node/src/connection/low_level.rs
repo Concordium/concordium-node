@@ -56,20 +56,31 @@ pub enum HandshakeState {
 }
 
 pub struct ConnectionLowLevel {
-    pub conn_ref:           Option<Pin<Arc<Connection>>>,
-    pub socket:             TcpStream,
-    keypair:                Keypair,
-    noise_session:          Option<Session>,
-    input_buffer:           [u8; NOISE_MAX_MESSAGE_LEN],
-    current_input:          Vec<u8>,
-    pending_bytes:          PayloadSize,
-    handshake_queue:        VecDeque<HybridBuf>,
-    pending_output_queue:   Vec<HybridBuf>,
-    encrypted_queue:        VecDeque<HybridBuf>,
-    handshake_state:        HandshakeState,
+    pub conn_ref: Option<Pin<Arc<Connection>>>,
+    pub socket: TcpStream,
+    keypair: Keypair,
+    noise_session: Option<Session>,
+    /// The buffer for reading straight from the socket
+    input_buffer: [u8; NOISE_MAX_MESSAGE_LEN],
+    /// The single message currently being read
+    current_input: Vec<u8>,
+    /// The number of bytes remaining to be appended to `current_input`
+    pending_bytes: PayloadSize,
+    /// A queue for outbound noise handshake messages
+    handshake_queue: VecDeque<HybridBuf>,
+    /// A queue for outbound messages queued during the noise handshake phase
+    pending_output_queue: Vec<HybridBuf>,
+    /// A queue for encrypted outbound messages waiting to be written to the
+    /// socket
+    encrypted_queue: VecDeque<HybridBuf>,
+    /// The current status of the noise handshake
+    handshake_state: HandshakeState,
+    /// A buffer for encrypted message chunks
     encrypted_chunk_buffer: Vec<u8>,
+    /// A buffer for decrypted message chunks
     plaintext_chunk_buffer: Vec<u8>,
-    full_output_buffer:     BufWriter<HybridBuf>,
+    /// A buffer for the full decrypted incoming message
+    full_output_buffer: BufWriter<HybridBuf>,
 }
 
 impl ConnectionLowLevel {
@@ -225,6 +236,8 @@ impl ConnectionLowLevel {
             self.flush_handshaker()?;
         }
 
+        // once the noise handshake is complete, send out any pending messages
+        // we might have queued during the process
         if self.handshake_state == HandshakeState::Complete {
             for frame in mem::replace(&mut self.pending_output_queue, Default::default()) {
                 self.write_to_socket(frame)?;
@@ -257,7 +270,7 @@ impl ConnectionLowLevel {
 
     #[inline(always)]
     fn read_from_socket(&mut self) -> Fallible<TcpResult<HybridBuf>> {
-        trace!("Reading from the socket");
+        trace!("Attempting to read from the socket");
         let read_result = if self.pending_bytes == 0 {
             self.read_expected_size()
         } else {

@@ -1437,7 +1437,7 @@ pub fn send_message_from_cursor(
     };
 
     if let Ok(sent_packets) = node.process_network_packet(packet, source_id) {
-        trace!("Send a packet to {} peers", sent_packets);
+        trace!("Sent a packet to {} peers", sent_packets);
     } else {
         error!("Couldn't send a packet");
     }
