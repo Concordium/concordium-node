@@ -9,12 +9,14 @@ import Data.List as List
 import Data.Foldable
 import Control.Monad.State
 import Control.Exception
+import Data.Serialize (runGet)
 
 import qualified Data.Map.Strict as Map
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Sequence as Seq
 import qualified Data.PQueue.Prio.Min as MPQ
 import qualified Data.Set as Set
+import qualified Data.ByteString as ByteString
 
 import Concordium.Types
 import Concordium.Types.HashableTo
@@ -99,6 +101,11 @@ instance (bs ~ GS.BlockState m) => GS.GlobalStateTypes (GS.TreeStateM (SkovData 
 
 instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadState (SkovData bs) m) => TS.TreeStateMonad (GS.TreeStateM (SkovData bs) m) where
     makePendingBlock key slot parent bid pf n lastFin trs time = return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
+    importPendingBlock blockBS rectime =
+        case runGet (getBlock rectime) blockBS of
+            Left err -> return $ Left $ "Block deserialization failed: " ++ err
+            Right (GenesisBlock {}) -> return $ Left $ "Block desrialization failed: unexpected genesis block"
+            Right (NormalBlock block0) -> return $ Right $ makePendingBlock block0 rectime
     getBlockStatus bh = use (blockTable . at bh)
     makeLiveBlock block parent lastFin st arrTime energy = do
             let blockP = makeBasicBlockPointer block parent lastFin st arrTime energy

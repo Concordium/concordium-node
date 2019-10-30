@@ -19,6 +19,7 @@ import qualified Data.Set as Set
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
+import qualified Data.ByteString as ByteString
 
 import Concordium.Types
 import Concordium.Types.HashableTo
@@ -75,6 +76,14 @@ class (Eq (BlockPointer m),
         -> [Transaction]    -- ^List of transactions
         -> UTCTime          -- ^Block receive time
         -> m (PendingBlock m)
+    -- |Create a 'PendingBlock' from the raw block data.
+    -- If deserialisation fails, it returns an error.
+    -- Otherwise, it returns the block.
+    importPendingBlock ::
+        ByteString.ByteString
+                            -- ^Block data
+        -> UTCTime          -- ^Block received time
+        -> m (Either String (PendingBlock m))
 
     -- * Operations on the block table
     -- |Get the current status of a block.
@@ -250,6 +259,7 @@ class (Eq (BlockPointer m),
 
 instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTrans t m) where
     makePendingBlock key slot parent bid pf n lastFin trs time = lift $ makePendingBlock key slot parent bid pf n lastFin trs time
+    importPendingBlock bdata rectime = lift $ importPendingBlock bdata rectime
     getBlockStatus = lift . getBlockStatus
     makeLiveBlock b parent lastFin st time energy = lift $ makeLiveBlock b parent lastFin st time energy
     markDead = lift . markDead
@@ -291,6 +301,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     getRuntimeParameters = lift getRuntimeParameters
 
     {-# INLINE makePendingBlock #-}
+    {-# INLINE importPendingBlock #-}
     {-# INLINE getBlockStatus #-}
     {-# INLINE makeLiveBlock #-}
     {-# INLINE markDead #-}
