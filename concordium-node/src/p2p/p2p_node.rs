@@ -54,6 +54,8 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use std::ops::Deref;
+
 const SERVER: Token = Token(0);
 const BAN_STORE_NAME: &str = "bans";
 
@@ -177,6 +179,7 @@ pub struct Receivers {
 }
 
 #[allow(dead_code)] // caused by the dump_network feature; will fix in a follow-up
+#[repr(C)]
 pub struct P2PNode {
     pub self_ref:             Option<Pin<Arc<Self>>>,
     pub self_peer:            P2PPeer,
@@ -410,9 +413,11 @@ impl P2PNode {
         // available using the unsafe ptr::write
         // this is safe, as at this point the node is not shared with any other object
         // or thread
-        let self_ref =
-            &node.self_ref as *const Option<Pin<Arc<P2PNode>>> as *mut Option<Pin<Arc<P2PNode>>>;
-        unsafe { std::ptr::write(self_ref, Some(Pin::new(Arc::clone(&node)))) };
+        let n1 = node.deref() as *const P2PNode;
+        let n2 = Arc::into_raw(node) as *const P2PNode;
+        let n3 = n2;
+        unsafe { std::ptr::write(n1 as *mut *const u8, n2 as *const P2PNode as *const u8) };
+        let node = unsafe { Arc::from_raw(n3) };
 
         node.clear_bans()
             .unwrap_or_else(|e| error!("Couldn't reset the ban list: {}", e));
