@@ -2,22 +2,22 @@
 pub mod fails;
 pub mod message_handlers;
 
-mod async_adapter;
-pub use async_adapter::{FrameSink, FrameStream, HandshakeStreamSink, Readiness};
+mod low_level;
+
+pub use crate::p2p::{Networks, P2PNode};
+use low_level::{ConnectionLowLevel, TcpResult};
+pub use p2p_event::P2PEvent;
 
 mod p2p_event;
 
-// If a message is labelled as having `High` priority it is always pushed to the
-// front of the queue in the sinks when sending, and otherwise to the back
-#[derive(PartialEq, Eq, Clone, Copy)]
-pub enum MessageSendingPriority {
-    High,
-    Normal,
-}
-
-pub use crate::p2p::{Networks, P2PNode};
-
-pub use p2p_event::P2PEvent;
+use byteorder::ReadBytesExt;
+use chrono::prelude::Utc;
+use circular_queue::CircularQueue;
+use digest::Digest;
+use failure::Fallible;
+use mio::{tcp::TcpStream, Poll, PollOpt, Ready, Token};
+use snow::Keypair;
+use twox_hash::XxHash64;
 
 use crate::{
     common::{
@@ -33,17 +33,7 @@ use crate::{
     },
     p2p::banned_nodes::BannedNode,
 };
-
 use concordium_common::{hybrid_buf::HybridBuf, serial::Endianness, PacketType};
-
-use byteorder::ReadBytesExt;
-use chrono::prelude::Utc;
-use circular_queue::CircularQueue;
-use digest::Digest;
-use failure::Fallible;
-use mio::{tcp::TcpStream, Poll, PollOpt, Ready, Token};
-use snow::Keypair;
-use twox_hash::XxHash64;
 
 use std::{
     collections::HashSet,
@@ -56,6 +46,14 @@ use std::{
         Arc, RwLock,
     },
 };
+
+// If a message is labelled as having `High` priority it is always pushed to the
+// front of the queue in the sinks when sending, and otherwise to the back
+#[derive(PartialEq, Eq, Clone, Copy)]
+pub enum MessageSendingPriority {
+    High,
+    Normal,
+}
 
 pub struct DeduplicationQueues {
     pub finalizations: CircularQueue<[u8; 8]>,
@@ -125,7 +123,6 @@ impl Connection {
         socket: TcpStream,
         token: Token,
         remote_peer: RemotePeer,
-        local_peer_type: PeerType,
         key_pair: Keypair,
         is_initiator: bool,
         noise_params: snow::params::NoiseParams,
@@ -133,7 +130,6 @@ impl Connection {
         let curr_stamp = get_current_stamp();
 
         let low_level = RwLock::new(ConnectionLowLevel::new(
-            local_peer_type,
             socket,
             key_pair,
             is_initiator,
@@ -280,6 +276,10 @@ impl Connection {
         let mut message = message.unwrap(); // safe, checked right above
 
         if let NetworkMessagePayload::NetworkPacket(ref mut packet) = message.payload {
+            // disregard packets when in bootstrapper mode
+            if self.handler().self_peer.peer_type == PeerType::Bootstrapper {
+                return Ok(());
+            }
             // deduplicate the incoming packet payload
             if self.is_packet_duplicate(packet, deduplication_queues)? {
                 return Ok(());
@@ -375,7 +375,7 @@ impl Connection {
     /// for real write. Function `ConnectionPrivate::ready` will make ensure to
     /// write chunks of the message
     #[inline(always)]
-    pub fn async_send_from_poll_loop(&self, input: HybridBuf) -> Fallible<Readiness<usize>> {
+    pub fn async_send_from_poll_loop(&self, input: HybridBuf) -> Fallible<TcpResult<usize>> {
         TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
         self.stats.messages_sent.fetch_add(1, Ordering::Relaxed);
         if let Some(ref stats) = self.handler().stats_export_service {
@@ -384,7 +384,7 @@ impl Connection {
 
         self.send_to_dump(&input, false);
 
-        write_or_die!(self.low_level).write_to_sink(input)
+        write_or_die!(self.low_level).write_to_socket(input)
     }
 
     pub fn update_last_seen(&self) {
@@ -595,13 +595,6 @@ impl Connection {
 
         Ok(())
     }
-
-    #[cfg(test)]
-    pub fn validate_packet_type_test(&self, msg: &[u8]) -> Readiness<bool> {
-        write_or_die!(self.low_level)
-            .message_stream
-            .validate_packet_type(msg)
-    }
 }
 
 impl Drop for Connection {
@@ -614,78 +607,6 @@ impl Drop for Connection {
                 service.peers_dec();
             }
         }
-    }
-}
-
-pub struct ConnectionLowLevel {
-    pub conn_ref:   Option<Pin<Arc<Connection>>>,
-    socket:         TcpStream,
-    message_sink:   FrameSink,
-    message_stream: FrameStream,
-}
-
-impl ConnectionLowLevel {
-    fn conn(&self) -> &Connection {
-        &self.conn_ref.as_ref().unwrap() // safe; always available
-    }
-
-    fn new(
-        peer_type: PeerType,
-        socket: TcpStream,
-        key_pair: Keypair,
-        is_initiator: bool,
-        noise_params: snow::params::NoiseParams,
-    ) -> Self {
-        let handshaker = Arc::new(RwLock::new(HandshakeStreamSink::new(
-            noise_params.clone(),
-            key_pair,
-            is_initiator,
-        )));
-
-        if let Err(e) = socket.set_linger(Some(std::time::Duration::from_secs(0))) {
-            error!(
-                "Can't set SOLINGER to 0 for socket {:?} due to {}",
-                socket, e
-            );
-        }
-
-        ConnectionLowLevel {
-            conn_ref: None,
-            socket,
-            message_sink: FrameSink::new(Arc::clone(&handshaker)),
-            message_stream: FrameStream::new(peer_type, handshaker),
-        }
-    }
-
-    #[inline(always)]
-    pub fn read_stream(&mut self, deduplication_queues: &mut DeduplicationQueues) -> Fallible<()> {
-        loop {
-            let read_result = self.message_stream.read(&mut self.socket);
-            match read_result {
-                Ok(readiness) => match readiness {
-                    Readiness::Ready(message) => {
-                        self.conn().send_to_dump(&message, true);
-                        if let Err(e) = self.conn().process_message(message, deduplication_queues) {
-                            bail!("Can't read the stream: {}", e);
-                        }
-                    }
-                    Readiness::NotReady => break,
-                },
-                Err(e) => bail!("Can't read the stream: {}", e),
-            }
-        }
-
-        Ok(())
-    }
-
-    #[inline(always)]
-    pub fn flush_sink(&mut self) -> Fallible<Readiness<usize>> {
-        self.message_sink.flush(&mut self.socket)
-    }
-
-    #[inline(always)]
-    fn write_to_sink(&mut self, input: HybridBuf) -> Fallible<Readiness<usize>> {
-        self.message_sink.write(input, &mut self.socket)
     }
 }
 
@@ -706,14 +627,7 @@ fn dedup_with(message: &mut HybridBuf, queue: &mut CircularQueue<[u8; 8]>) -> Fa
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        common::PeerType,
-        connection::Readiness,
-        test_utils::{await_handshake, connect, make_node_and_sync, next_available_port},
-    };
-    use failure::Fallible;
     use rand::{distributions::Standard, thread_rng, Rng};
-    use std::iter;
 
     const PACKAGE_INITIAL_BUFFER_SZ: usize = 1024;
     const PACKAGE_MAX_BUFFER_SZ: usize = 4096;
@@ -754,74 +668,4 @@ mod tests {
 
     #[test]
     fn check_bytes_mut_drop_8m() { check_bytes_mut_drop(8 * 1024 * 1024); }
-
-    // This test stops the event loop because it needs a connection to be tested.
-    // Connections are not simple objects and require complex objects i.e.
-    // TcpStream, so the implementation creates a pair of nodes and connects them.
-    //
-    // The pkt_buffer inside a connection can be filled with events that trigger
-    // processes in the event loop. Therefore, the safe way to work with this is
-    // deregistering it from the event loop. This way we keep the connection alive
-    // and the buffer is not filled by other threads.
-    #[test]
-    fn test_validate_packet_type() -> Fallible<()> {
-        // Create connections
-        let node = make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
-        let bootstrapper =
-            make_node_and_sync(next_available_port(), vec![100], PeerType::Bootstrapper)?;
-        connect(&node, &bootstrapper)?;
-        await_handshake(&node)?;
-
-        let conn_node = node.find_connection_by_id(bootstrapper.id()).unwrap();
-        let conn_bootstrapper = bootstrapper.find_connection_by_id(node.id()).unwrap();
-
-        // Assert that a Node accepts every packet
-        match conn_node.validate_packet_type_test(&[]) {
-            Readiness::Ready(true) => {}
-            _ => bail!("Unwanted packet type"),
-        }
-        match conn_node
-            .validate_packet_type_test(&iter::repeat(0).take(13).chain(Some(2)).collect::<Vec<_>>())
-        {
-            Readiness::Ready(true) => {}
-            _ => bail!("Unwanted packet type"),
-        }
-        match conn_node
-            .validate_packet_type_test(&iter::repeat(0).take(13).chain(Some(1)).collect::<Vec<_>>())
-        {
-            Readiness::Ready(true) => {}
-            _ => bail!("Unwanted packet type"),
-        }
-        match conn_node.validate_packet_type_test(&iter::repeat(0).take(14).collect::<Vec<_>>()) {
-            Readiness::Ready(true) => {}
-            _ => bail!("Unwanted packet type"),
-        }
-        // Assert that a Boostrapper reports as unknown packets that are too small
-        match conn_bootstrapper.validate_packet_type_test(&[]) {
-            Readiness::NotReady => {}
-            _ => bail!("Unwanted packet type"),
-        }
-        // Assert that a Bootstrapper reports as Invalid messages that are packets
-        match conn_bootstrapper
-            .validate_packet_type_test(&iter::repeat(0).take(13).chain(Some(2)).collect::<Vec<_>>())
-        {
-            Readiness::Ready(false) => {}
-            _ => bail!("Unwanted packet type"),
-        }
-        // Assert that a Bootstrapper accepts Request and Response messages
-        match conn_bootstrapper
-            .validate_packet_type_test(&iter::repeat(0).take(13).chain(Some(1)).collect::<Vec<_>>())
-        {
-            Readiness::Ready(true) => {}
-            _ => bail!("Unwanted packet type"),
-        }
-        match conn_bootstrapper
-            .validate_packet_type_test(&iter::repeat(0).take(14).collect::<Vec<_>>())
-        {
-            Readiness::Ready(true) => {}
-            _ => bail!("Unwanted packet type"),
-        }
-        Ok(())
-    }
-
 }

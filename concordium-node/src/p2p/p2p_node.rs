@@ -122,7 +122,7 @@ pub struct ConnectionHandler {
     pub event_log:           Option<SyncSender<P2PEvent>>,
     pub buckets:             RwLock<Buckets>,
     pub log_dumper:          Option<SyncSender<DumpItem>>,
-    noise_params:            snow::params::NoiseParams,
+    pub noise_params:        snow::params::NoiseParams,
     pub network_messages_hi: SyncSender<NetworkRawRequest>,
     pub network_messages_lo: SyncSender<NetworkRawRequest>,
     pub connections:         RwLock<Connections>,
@@ -777,7 +777,6 @@ impl P2PNode {
             socket,
             token,
             remote_peer,
-            self_peer.peer_type(),
             key_pair,
             false,
             self.connection_handler.noise_params.clone(),
@@ -798,7 +797,6 @@ impl P2PNode {
         debug!("Attempting to connect to {}", addr);
 
         self.log_event(P2PEvent::InitiatingConnection(addr));
-        let self_peer = self.self_peer;
         if peer_type == PeerType::Node {
             let current_peer_count = self.get_peer_stats(Some(PeerType::Node)).len() as u16;
             if current_peer_count > self.config.max_allowed_nodes {
@@ -852,7 +850,6 @@ impl P2PNode {
                     socket,
                     token,
                     remote_peer,
-                    self_peer.peer_type(),
                     keypair,
                     true,
                     self.connection_handler.noise_params.clone(),
@@ -1210,7 +1207,7 @@ impl P2PNode {
                                 if readiness.is_writable() {
                                     // TODO: we might want to close the connection
                                     // when specific write errors are detected
-                                    conn_lock.flush_sink()?;
+                                    conn_lock.flush_socket()?;
                                 }
                             }
                             if let Err(e) = read_result {
@@ -1245,7 +1242,7 @@ impl P2PNode {
     pub fn process_network_request(&self, request: NetworkRawRequest) {
         if let Some(ref conn) = self.find_connection_by_token(request.token) {
             trace!(
-                "Processing a raw {}B network request from {}",
+                "Attempting to send {}B to {}",
                 request.data.len().unwrap_or(0),
                 conn,
             );
@@ -1421,8 +1418,6 @@ pub fn send_message_from_cursor(
     message: HybridBuf,
     broadcast: bool,
 ) -> Fallible<()> {
-    trace!("Queueing message!");
-
     let packet_type = if broadcast {
         NetworkPacketType::BroadcastedMessage(dont_relay_to)
     } else {
@@ -1440,7 +1435,9 @@ pub fn send_message_from_cursor(
     };
 
     if let Ok(sent_packets) = node.process_network_packet(packet, source_id) {
-        trace!("Send a packet to {} peers", sent_packets);
+        if sent_packets > 0 {
+            trace!("Sent a packet to {} peers", sent_packets);
+        }
     } else {
         error!("Couldn't send a packet");
     }
