@@ -160,7 +160,7 @@ path = "src/bin/collector_backend.rs"
 required-features = [ "collector" ]
 
 [[bin]]
-name = "tnss"
+name = "tnst"
 path = "src/bin/two_node_stress_test.rs"
 
 [[bench]]

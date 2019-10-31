@@ -14,6 +14,8 @@ use p2p_client::{
 
 use std::convert::TryFrom;
 
+const MB: usize = 1024 * 1024;
+
 fn main() -> Fallible<()> {
     let env = Env::default().filter_or("LOG_LEVEL", "trace");
     let mut log_builder = Builder::from_env(env);
@@ -21,14 +23,12 @@ fn main() -> Fallible<()> {
     log_builder.filter_module("p2p_client::connection::message_handlers", LevelFilter::Off);
     log_builder.init();
 
-    let mut node_1 = make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
+    let node_1 = make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
     let node_2 = make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
-    connect(&mut node_1, &node_2)?;
+    connect(&node_1, &node_2)?;
 
     for _ in 0..1000 {
-        // let msg_size: usize = thread_rng().gen_range(4 * 1024 * 1024, 8 * 1024 *
-        // 1024);
-        let msg_size = 11 * 1024 * 1024 - 1;
+        let msg_size: usize = thread_rng().gen_range(0, 20 * MB);
         let msg = generate_random_data(msg_size);
 
         send_direct_message(

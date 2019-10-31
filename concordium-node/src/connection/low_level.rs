@@ -14,7 +14,7 @@ use concordium_common::hybrid_buf::HybridBuf;
 use std::{
     collections::VecDeque,
     convert::TryFrom,
-    io::{self, BufWriter, ErrorKind, Read, Seek, SeekFrom, Write},
+    io::{ErrorKind, Read, Seek, SeekFrom, Write},
     mem,
     pin::Pin,
     sync::Arc,
@@ -78,7 +78,7 @@ pub struct ConnectionLowLevel {
     /// A buffer for decrypted message chunks
     plaintext_chunk_buffer: Vec<u8>,
     /// A buffer for the full decrypted incoming message
-    full_output_buffer: BufWriter<HybridBuf>,
+    full_output_buffer: HybridBuf,
 }
 
 impl ConnectionLowLevel {
@@ -138,7 +138,7 @@ impl ConnectionLowLevel {
             input_buffer: [0u8; NOISE_MAX_MESSAGE_LEN],
             encrypted_chunk_buffer: vec![0u8; NOISE_MAX_MESSAGE_LEN],
             plaintext_chunk_buffer: vec![0; NOISE_MAX_PAYLOAD_LEN],
-            full_output_buffer: BufWriter::new(Default::default()),
+            full_output_buffer: Default::default(),
         }
     }
 
@@ -410,22 +410,25 @@ impl ConnectionLowLevel {
         let num_full_chunks = input.read_u32::<NetworkEndian>()? as usize;
         trace!("There are {} full chunks to decrypt", num_full_chunks);
         let last_chunk_size = input.read_u32::<NetworkEndian>()? as usize;
-        if last_chunk_size > 0 {
+        let num_all_chunks = if last_chunk_size > 0 {
             trace!("The last chunk is {}B long", last_chunk_size);
+            num_full_chunks + 1
         } else {
             trace!("All the chunks are full");
-        }
+            num_full_chunks
+        };
 
         for idx in 0..num_full_chunks {
             trace!(
-                "Decrypting a message ({} chunks remaining)",
-                num_full_chunks - idx
+                "Decrypting chunk {} ({} remaining)",
+                idx,
+                num_all_chunks - idx
             );
             self.decrypt_chunk(idx, NOISE_MAX_MESSAGE_LEN, nonce, &mut input)?;
         }
 
         if last_chunk_size > 0 {
-            trace!("Decrypting the last (incomplete) chunk");
+            trace!("Decrypting the last chunk ({}B)", last_chunk_size);
             self.decrypt_chunk(num_full_chunks, last_chunk_size, nonce, &mut input)?;
         }
 
@@ -433,7 +436,7 @@ impl ConnectionLowLevel {
         self.full_output_buffer.seek(SeekFrom::Start(0))?;
 
         Ok(mem::replace(
-            &mut self.full_output_buffer.get_mut(),
+            &mut self.full_output_buffer,
             Default::default(),
         ))
     }
@@ -448,7 +451,6 @@ impl ConnectionLowLevel {
         debug_assert!(chunk_size <= NOISE_MAX_MESSAGE_LEN);
 
         input.read_exact(&mut self.encrypted_chunk_buffer[..chunk_size])?;
-        // trace!("Attempting to decrypt a chunk of {}B", chunk_size);
 
         match self
             .noise_session
@@ -555,8 +557,10 @@ impl ConnectionLowLevel {
         let eof = input.seek(SeekFrom::End(0))?;
         input.seek(SeekFrom::Start(curr_pos))?;
 
+        let mut idx: usize = 0;
+
         while curr_pos != eof {
-            trace!("Encrypting a message ({}B remaining)", eof - curr_pos);
+            trace!("Encrypting chunk {} ({}B remaining)", idx, eof - curr_pos);
             let chunk_size = std::cmp::min(NOISE_MAX_PAYLOAD_LEN, (eof - curr_pos) as usize);
             input.read_exact(&mut self.plaintext_chunk_buffer[..chunk_size])?;
 
@@ -579,13 +583,14 @@ impl ConnectionLowLevel {
             written += wrote;
 
             curr_pos = input.seek(SeekFrom::Current(0))?;
+            idx += 1;
         }
 
         Ok(written)
     }
 
     /// Frame length is:
-    ///     - Size of NONCE: u64.
+    ///     - Size of the nonce: u64.
     ///     - Size of chunk table: Number of full chunks + last chunk size.
     ///     - Sum of the lenghts of the encrypted chunks.
     fn calculate_frame_len(&self, encrypted_buffer_len: usize) -> Fallible<usize> {
@@ -605,7 +610,7 @@ impl ConnectionLowLevel {
         let encrypted_len = self.encrypt_chunks(nonce, &mut input)?;
 
         // rewind the buffer to write the metadata
-        self.full_output_buffer.seek(SeekFrom::Start(0))?;
+        self.full_output_buffer.rewind()?;
 
         // 1. Frame: Size of Payload + Chunk table.
         let frame_len = self.calculate_frame_len(encrypted_len)?;
@@ -638,9 +643,9 @@ impl ConnectionLowLevel {
         );
 
         // rewind the buffer
-        self.full_output_buffer.seek(SeekFrom::Start(0))?;
+        self.full_output_buffer.rewind()?;
 
-        let ret = mem::replace(self.full_output_buffer.get_mut(), Default::default());
+        let ret = mem::replace(&mut self.full_output_buffer, Default::default());
 
         debug_assert_eq!(ret.len()?, total_len as u64);
 
@@ -651,21 +656,37 @@ impl ConnectionLowLevel {
 /// It tries to copy as much as possible from `input` to `output` in a
 /// streaming fashion. It is used with `socket` that blocks them when
 /// their output buffers are full. Written bytes are consumed from `input`.
-fn partial_copy<R: Read + Seek, W: Write>(input: &mut R, output: &mut W) -> Fallible<usize> {
-    let initial_pos = input.seek(SeekFrom::Current(0))?;
+fn partial_copy<W: Write>(input: &mut HybridBuf, output: &mut W) -> Fallible<usize> {
+    const BUF_SIZE: usize = 8 * 1024;
+    let mut total_written_bytes = 0;
+    let mut is_would_block = false;
+    let mut chunk = [0u8; BUF_SIZE];
 
-    match io::copy(input, output) {
-        Ok(written) => Ok(written as usize),
-        Err(err) => {
-            if err.kind() == std::io::ErrorKind::WouldBlock {
-                let curr_pos = input.seek(SeekFrom::Current(0))?;
-                let written = curr_pos - initial_pos;
-                Ok(written as usize)
-            } else {
-                Err(err.into())
+    while !is_would_block && !input.is_eof()? {
+        let offset = input.position()?;
+
+        let chunk_size = std::cmp::min(BUF_SIZE, (input.len()? - input.position()?) as usize);
+        input.read_exact(&mut chunk[..chunk_size])?;
+
+        match output.write(&chunk[..chunk_size]) {
+            Ok(written_bytes) => {
+                total_written_bytes += written_bytes;
+                if written_bytes != chunk_size {
+                    // Fix the offset because read data was not written completely.
+                    input.seek(SeekFrom::Start(offset + written_bytes as u64))?;
+                }
+            }
+            Err(io_err) => {
+                input.seek(SeekFrom::Start(offset))?;
+                is_would_block = io_err.kind() == std::io::ErrorKind::WouldBlock;
+                if !is_would_block {
+                    return Err(failure::Error::from(io_err));
+                }
             }
         }
     }
+
+    Ok(total_written_bytes)
 }
 
 /// It prefixes `data` with its length, encoded as `u32` in `NetworkEndian`.
