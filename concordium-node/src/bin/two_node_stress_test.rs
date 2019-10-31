@@ -27,17 +27,27 @@ fn main() -> Fallible<()> {
     let node_2 = make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
     connect(&node_1, &node_2)?;
 
-    for _ in 0..1000 {
+    for i in 0..1000 {
         let msg_size: usize = thread_rng().gen_range(0, 20 * MB);
         let msg = generate_random_data(msg_size);
 
-        send_direct_message(
-            &node_2,
-            node_2.self_peer.id,
-            Some(node_1.id()),
-            NetworkId::from(100),
-            HybridBuf::try_from(msg)?,
-        )?;
+        if i % 2 == 0 {
+            send_direct_message(
+                &node_2,
+                node_2.self_peer.id,
+                Some(node_1.id()),
+                NetworkId::from(100),
+                HybridBuf::try_from(msg)?,
+            )?;
+        } else {
+            send_direct_message(
+                &node_1,
+                node_1.self_peer.id,
+                Some(node_2.id()),
+                NetworkId::from(100),
+                HybridBuf::try_from(msg)?,
+            )?;
+        }
     }
 
     Ok(())

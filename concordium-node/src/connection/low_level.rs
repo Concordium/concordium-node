@@ -487,8 +487,10 @@ impl ConnectionLowLevel {
     #[inline(always)]
     pub fn write_to_socket(&mut self, input: HybridBuf) -> Fallible<TcpResult<usize>> {
         if self.handshake_state == HandshakeState::Complete {
-            let encrypted = self.encrypt(input)?;
-            self.encrypted_queue.push_back(encrypted);
+            let encrypted_chunks = self.encrypt(input)?;
+            for chunk in encrypted_chunks {
+                self.encrypted_queue.push_back(chunk);
+            }
             self.flush_encryptor()
         } else {
             self.pending_output_queue.push(input);
@@ -506,51 +508,58 @@ impl ConnectionLowLevel {
     }
 
     fn flush_handshaker(&mut self) -> Fallible<TcpResult<usize>> {
-        if let Some(mut data) = self.handshake_queue.pop_front() {
+        let mut written_bytes = 0;
+
+        while let Some(mut data) = self.handshake_queue.pop_front() {
             trace!("Pushing a handshake message to the socket");
-            let written_bytes = partial_copy(&mut data, &mut self.socket)?;
+            written_bytes += partial_copy(&mut data, &mut self.socket)?;
 
             if data.is_eof()? {
-                trace!("Successfully sent a handshake message");
-                Ok(TcpResult::Complete(written_bytes))
+                trace!("Successfully sent a chunk of a handshake message");
             } else {
                 trace!("The message was not fully written; requeuing");
                 self.handshake_queue.push_front(data);
-                Ok(TcpResult::Incomplete)
+                return Ok(TcpResult::Incomplete);
             }
-        } else {
-            Ok(TcpResult::Discarded)
         }
+
+        Ok(TcpResult::Complete(written_bytes))
     }
 
     #[inline(always)]
     fn flush_encryptor(&mut self) -> Fallible<TcpResult<usize>> {
-        if let Some(mut encrypted) = self.encrypted_queue.pop_front() {
+        let mut written_bytes = 0;
+
+        while let Some(mut encrypted) = self.encrypted_queue.pop_front() {
             trace!(
                 "Writing a {}B message to the socket",
                 encrypted.remaining_len()?
             );
-            let written_bytes = partial_copy(&mut encrypted, &mut self.socket)?;
+            written_bytes += partial_copy(&mut encrypted, &mut self.socket)?;
 
             if encrypted.is_eof()? {
                 trace!("Successfully written an encrypted message");
-                Ok(TcpResult::Complete(written_bytes))
             } else {
                 trace!(
                     "Incomplete write ({}B remaining); requeuing",
                     encrypted.remaining_len()?
                 );
                 self.encrypted_queue.push_front(encrypted);
-                Ok(TcpResult::Incomplete)
+                return Ok(TcpResult::Incomplete);
             }
-        } else {
-            Ok(TcpResult::Discarded)
         }
+
+        Ok(TcpResult::Complete(written_bytes))
     }
 
     /// It splits `input` into chunks of `NOISE_MAX_PAYLOAD_LEN` and encrypts
     /// each of them.
-    fn encrypt_chunks<R: Read + Seek>(&mut self, nonce: u64, input: &mut R) -> Fallible<usize> {
+    fn encrypt_chunks<R: Read + Seek>(
+        &mut self,
+        nonce: u64,
+        input: &mut R,
+        chunks: &mut Vec<HybridBuf>,
+    ) -> Fallible<usize> {
         let mut written = 0;
 
         let mut curr_pos = input.seek(SeekFrom::Current(0))?;
@@ -561,6 +570,7 @@ impl ConnectionLowLevel {
 
         while curr_pos != eof {
             trace!("Encrypting chunk {} ({}B remaining)", idx, eof - curr_pos);
+
             let chunk_size = std::cmp::min(NOISE_MAX_PAYLOAD_LEN, (eof - curr_pos) as usize);
             input.read_exact(&mut self.plaintext_chunk_buffer[..chunk_size])?;
 
@@ -574,9 +584,11 @@ impl ConnectionLowLevel {
                     &mut self.encrypted_chunk_buffer,
                 )?;
 
-            let wrote = self
-                .full_output_buffer
-                .write(&self.encrypted_chunk_buffer[..len])?;
+            let mut chunk = HybridBuf::with_capacity(len)?;
+            let wrote = chunk.write(&self.encrypted_chunk_buffer[..len])?;
+            chunk.rewind()?;
+
+            chunks.push(chunk);
 
             // trace!("Encrypted a chunk of {} + 16B", wrote - 16);
 
@@ -598,42 +610,39 @@ impl ConnectionLowLevel {
         Ok(mem::size_of::<u64>() + chunk_table_len + encrypted_buffer_len)
     }
 
-    /// It encrypts `input`, and returns an encrypted data with its *chunk
-    /// table* as prefix.
-    pub fn encrypt<R: Read + Seek>(&mut self, mut input: R) -> Fallible<HybridBuf> {
+    /// It encrypts `input` and returns the encrypted chunks preceded by the
+    /// metadata chunk.
+    pub fn encrypt<R: Read + Seek>(&mut self, mut input: R) -> Fallible<Vec<HybridBuf>> {
         let nonce = rand::thread_rng().gen::<u64>();
         trace!("Commencing encryption with nonce {:x}", nonce);
 
-        // write metadata placeholders
-        self.full_output_buffer.write_all(&[0u8; 4 + 8 + 4 + 4])?;
+        let mut chunks = Vec::with_capacity(2);
 
-        let encrypted_len = self.encrypt_chunks(nonce, &mut input)?;
+        // create the metadata chunk
+        let metadata = HybridBuf::with_capacity(4 + 8 + 4 + 4)?;
+        chunks.push(metadata);
 
-        // rewind the buffer to write the metadata
-        self.full_output_buffer.rewind()?;
+        let encrypted_len = self.encrypt_chunks(nonce, &mut input, &mut chunks)?;
 
-        // 1. Frame: Size of Payload + Chunk table.
+        // 1. frame: size of payload + chunk table
         let frame_len = self.calculate_frame_len(encrypted_len)?;
-        let total_len = frame_len + mem::size_of::<PayloadSize>();
 
-        // 1.1. Add frame size.
-        self.full_output_buffer
-            .write_u32::<NetworkEndian>(frame_len as PayloadSize)?;
+        // 1.1. frame size
+        chunks[0].write_u32::<NetworkEndian>(frame_len as PayloadSize)?;
 
-        // 1.2. NONCE
-        self.full_output_buffer.write_u64::<NetworkEndian>(nonce)?;
+        // 1.2. nonce
+        chunks[0].write_u64::<NetworkEndian>(nonce)?;
 
-        // 2. Write Chunk index table: num of full chunks (64K) + size of latest
-        // 2.1. Number of full chunks.
+        // 1.3. number of full chunks
         let num_full_chunks = encrypted_len / NOISE_MAX_MESSAGE_LEN;
-        self.full_output_buffer
-            .write_u32::<NetworkEndian>(num_full_chunks as PayloadSize)?;
+        chunks[0].write_u32::<NetworkEndian>(num_full_chunks as PayloadSize)?;
 
-        // 2.2. Size of the last chunk.
+        // 1.4. size of the last chunk
         let last_chunk_size = encrypted_len - (num_full_chunks * NOISE_MAX_MESSAGE_LEN);
         debug_assert!(last_chunk_size <= PayloadSize::max_value() as usize);
-        self.full_output_buffer
-            .write_u32::<NetworkEndian>(last_chunk_size as PayloadSize)?;
+        chunks[0].write_u32::<NetworkEndian>(last_chunk_size as PayloadSize)?;
+
+        chunks[0].rewind()?;
 
         trace!(
             "Encrypted a frame of {}B; full chunks: {}, last chunk size: {}",
@@ -642,14 +651,7 @@ impl ConnectionLowLevel {
             last_chunk_size
         );
 
-        // rewind the buffer
-        self.full_output_buffer.rewind()?;
-
-        let ret = mem::replace(&mut self.full_output_buffer, Default::default());
-
-        debug_assert_eq!(ret.len()?, total_len as u64);
-
-        Ok(ret)
+        Ok(chunks)
     }
 }
 
