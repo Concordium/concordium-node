@@ -657,7 +657,7 @@ impl ConnectionLowLevel {
 /// streaming fashion. It is used with `socket` that blocks them when
 /// their output buffers are full. Written bytes are consumed from `input`.
 fn partial_copy<W: Write>(input: &mut HybridBuf, output: &mut W) -> Fallible<usize> {
-    const BUF_SIZE: usize = 8 * 1024;
+    const BUF_SIZE: usize = 16 * 1024;
     let mut total_written_bytes = 0;
     let mut is_would_block = false;
     let mut chunk = [0u8; BUF_SIZE];
