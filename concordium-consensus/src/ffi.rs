@@ -601,7 +601,7 @@ pub extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *co
             vec![],
         );
 
-        match CALLBACK_QUEUE.send_out_blocking_msg(msg) {
+        match CALLBACK_QUEUE.send_blocking_msg(msg) {
             Ok(_) => trace!("Queueing a {} of {} bytes", msg_variant, len),
             Err(e) => error!("Couldn't queue a {} properly: {}", msg_variant, e),
         };
