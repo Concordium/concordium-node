@@ -608,78 +608,57 @@ pub extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *co
     }
 }
 
+macro_rules! sending_callback {
+    ($target:expr, $msg_type:expr, $msg:expr, $msg_length:expr) => {
+        unsafe {
+            let callback_type = match CallbackType::try_from($msg_type as u8) {
+                Ok(ct) => ct,
+                Err(e) => {
+                    error!("{}", e);
+                    return;
+                }
+            };
+
+            let msg_variant = match callback_type {
+                CallbackType::Block => PacketType::Block,
+                CallbackType::FinalizationMessage => PacketType::FinalizationMessage,
+                CallbackType::FinalizationRecord => PacketType::FinalizationRecord,
+                CallbackType::CatchUpStatus => PacketType::CatchUpStatus,
+            };
+
+            let payload = HybridBuf::try_from(slice::from_raw_parts(
+                $msg as *const u8,
+                $msg_length as usize,
+            ))
+            .unwrap();
+            let target = $target;
+
+            let msg =
+                ConsensusMessage::new(MessageType::Outbound(target), msg_variant, payload, vec![]);
+
+            match CALLBACK_QUEUE.send_blocking_msg(msg) {
+                Ok(_) => trace!("Queueing a {} of {} bytes", msg_variant, $msg_length),
+                Err(e) => error!("Couldn't queue a {} properly: {}", msg_variant, e),
+            };
+        }
+    };
+}
+
 pub extern "C" fn broadcast_callback(msg_type: i64, msg: *const u8, msg_length: i64) {
     trace!("Broadcast callback hit - queueing message");
-
-    unsafe {
-        let callback_type = match CallbackType::try_from(msg_type as u8) {
-            Ok(ct) => ct,
-            Err(e) => {
-                error!("{}", e);
-                return;
-            }
-        };
-
-        let msg_variant = match callback_type {
-            CallbackType::Block => PacketType::Block,
-            CallbackType::FinalizationMessage => PacketType::FinalizationMessage,
-            CallbackType::FinalizationRecord => PacketType::FinalizationRecord,
-            CallbackType::CatchUpStatus => PacketType::CatchUpStatus,
-        };
-
-        let payload =
-            HybridBuf::try_from(slice::from_raw_parts(msg as *const u8, msg_length as usize))
-                .unwrap();
-        let target = None;
-
-        let msg =
-            ConsensusMessage::new(MessageType::Outbound(target), msg_variant, payload, vec![]);
-
-        match CALLBACK_QUEUE.send_out_blocking_msg(msg) {
-            Ok(_) => trace!("Queueing a {} of {} bytes", msg_variant, msg_length),
-            Err(e) => error!("Couldn't queue a {} properly: {}", msg_variant, e),
-        };
-    }
+    sending_callback!(None, msg_type, msg, msg_length);
 }
 
 // This is almost the same function as broadcast_callback, just for direct
 // messages TODO: macroize or merge on Haskell side
 pub extern "C" fn direct_callback(
     peer_id: PeerId,
-    message_type: i64,
+    msg_type: i64,
     msg: *const c_char,
-    msg_len: i64,
+    msg_length: i64,
 ) {
     trace!("Direct callback hit - queueing message");
-
-    unsafe {
-        let callback_type = match CallbackType::try_from(message_type as u8) {
-            Ok(ct) => ct,
-            Err(e) => {
-                error!("{}", e);
-                return;
-            }
-        };
-
-        let msg_variant = match callback_type {
-            CallbackType::Block => PacketType::Block,
-            CallbackType::FinalizationMessage => PacketType::FinalizationMessage,
-            CallbackType::FinalizationRecord => PacketType::FinalizationRecord,
-            CallbackType::CatchUpStatus => PacketType::CatchUpStatus,
-        };
-
-        let payload =
-            HybridBuf::try_from(slice::from_raw_parts(msg as *const u8, msg_len as usize)).unwrap();
-        let target = Some(peer_id);
-
-        let msg =
-            ConsensusMessage::new(MessageType::Outbound(target), msg_variant, payload, vec![]);
-
-        match CALLBACK_QUEUE.send_out_blocking_msg(msg) {
-            Ok(_) => trace!("Queueing a {} of {} bytes", msg_variant, msg_len),
-            Err(e) => error!("Couldn't queue a {} properly: {}", msg_variant, e),
-        };
-    }
+    sending_callback!(Some(peer_id), msg_type, msg, msg_length);
 }
 
 /// Following the implementation of the log crate, error = 1, warning = 2, info
