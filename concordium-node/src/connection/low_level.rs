@@ -24,7 +24,7 @@ type PayloadSize = u32;
 
 const PROLOGUE: &[u8] = b"CP2P";
 const PRE_SHARED_KEY: &[u8; 32] = b"54686973206973206d79204175737472";
-const NOISE_MAX_MESSAGE_LEN: usize = 64 * 1024 - 1;
+const NOISE_MAX_MESSAGE_LEN: usize = 64 * 1024 - 1; // 65535
 const NOISE_AUTH_TAG_LEN: usize = 16;
 const NOISE_MAX_PAYLOAD_LEN: usize = NOISE_MAX_MESSAGE_LEN - NOISE_AUTH_TAG_LEN;
 
@@ -279,11 +279,11 @@ impl ConnectionLowLevel {
 
         match read_result {
             Ok(TcpResult::Complete(payload)) => {
-                trace!("The message is complete");
+                trace!("A {}B message was fully read", payload.len()?);
                 self.forward(payload)
             }
             Ok(TcpResult::Incomplete) => {
-                trace!("The message is incomplete");
+                trace!("The current message is incomplete");
                 Ok(TcpResult::Incomplete)
             }
             Ok(_) => unreachable!(),
@@ -378,12 +378,12 @@ impl ConnectionLowLevel {
     }
 
     fn read_intermediate(&mut self) -> Fallible<usize> {
-        trace!("Reading the message ({}B remaining)", self.pending_bytes);
+        trace!("Reading a message ({}B remaining)", self.pending_bytes);
         let read_size = std::cmp::min(self.pending_bytes as usize, NOISE_MAX_MESSAGE_LEN);
 
         match self.socket.read(&mut self.input_buffer[..read_size]) {
             Ok(read_bytes) => {
-                trace!("Read {}B", read_bytes);
+                // trace!("Read {}B", read_bytes);
                 self.current_input
                     .extend_from_slice(&self.input_buffer[..read_bytes]);
                 self.pending_bytes -= read_bytes as PayloadSize;
@@ -391,7 +391,10 @@ impl ConnectionLowLevel {
                 Ok(read_bytes)
             }
             Err(err) => match err.kind() {
-                ErrorKind::WouldBlock => Ok(0),
+                ErrorKind::WouldBlock => {
+                    trace!("This read would be blocking; aborting");
+                    Ok(0)
+                }
                 _ => Err(Error::from(err)),
             },
         }
@@ -407,13 +410,22 @@ impl ConnectionLowLevel {
         let num_full_chunks = input.read_u32::<NetworkEndian>()? as usize;
         trace!("There are {} full chunks to decrypt", num_full_chunks);
         let last_chunk_size = input.read_u32::<NetworkEndian>()? as usize;
-        trace!("The last chunk's size is {}B", last_chunk_size);
+        if last_chunk_size > 0 {
+            trace!("The last chunk is {}B long", last_chunk_size);
+        } else {
+            trace!("All the chunks are full");
+        }
 
         for idx in 0..num_full_chunks {
+            trace!(
+                "Decrypting a message ({} chunks remaining)",
+                num_full_chunks - idx
+            );
             self.decrypt_chunk(idx, NOISE_MAX_MESSAGE_LEN, nonce, &mut input)?;
         }
 
         if last_chunk_size > 0 {
+            trace!("Decrypting the last (incomplete) chunk");
             self.decrypt_chunk(num_full_chunks, last_chunk_size, nonce, &mut input)?;
         }
 
@@ -433,10 +445,10 @@ impl ConnectionLowLevel {
         nonce: u64,
         input: &mut R,
     ) -> Fallible<()> {
-        trace!("Decrypting chunk {} ({}B)", chunk_idx, chunk_size);
         debug_assert!(chunk_size <= NOISE_MAX_MESSAGE_LEN);
 
         input.read_exact(&mut self.encrypted_chunk_buffer[..chunk_size])?;
+        // trace!("Attempting to decrypt a chunk of {}B", chunk_size);
 
         match self
             .noise_session
@@ -462,7 +474,7 @@ impl ConnectionLowLevel {
                 Ok(())
             }
             Err(err) => {
-                error!("decryption error : {}", err);
+                error!("Decryption error: {}", err);
                 Err(failure::Error::from(err))
             }
         }
@@ -512,14 +524,20 @@ impl ConnectionLowLevel {
     #[inline(always)]
     fn flush_encryptor(&mut self) -> Fallible<TcpResult<usize>> {
         if let Some(mut encrypted) = self.encrypted_queue.pop_front() {
-            trace!("Pushing an encrypted message to the socket");
+            trace!(
+                "Writing a {}B message to the socket",
+                encrypted.remaining_len()?
+            );
             let written_bytes = partial_copy(&mut encrypted, &mut self.socket)?;
 
             if encrypted.is_eof()? {
-                trace!("Successfully sent an encrypted message");
+                trace!("Successfully written an encrypted message");
                 Ok(TcpResult::Complete(written_bytes))
             } else {
-                trace!("The message was not fully written; requeuing");
+                trace!(
+                    "Incomplete write ({}B remaining); requeuing",
+                    encrypted.remaining_len()?
+                );
                 self.encrypted_queue.push_front(encrypted);
                 Ok(TcpResult::Incomplete)
             }
@@ -538,6 +556,7 @@ impl ConnectionLowLevel {
         input.seek(SeekFrom::Start(curr_pos))?;
 
         while curr_pos != eof {
+            trace!("Encrypting a message ({}B remaining)", eof - curr_pos);
             let chunk_size = std::cmp::min(NOISE_MAX_PAYLOAD_LEN, (eof - curr_pos) as usize);
             input.read_exact(&mut self.plaintext_chunk_buffer[..chunk_size])?;
 
@@ -551,9 +570,13 @@ impl ConnectionLowLevel {
                     &mut self.encrypted_chunk_buffer,
                 )?;
 
-            written += self
+            let wrote = self
                 .full_output_buffer
                 .write(&self.encrypted_chunk_buffer[..len])?;
+
+            // trace!("Encrypted a chunk of {} + 16B", wrote - 16);
+
+            written += wrote;
 
             curr_pos = input.seek(SeekFrom::Current(0))?;
         }
@@ -574,6 +597,7 @@ impl ConnectionLowLevel {
     /// table* as prefix.
     pub fn encrypt<R: Read + Seek>(&mut self, mut input: R) -> Fallible<HybridBuf> {
         let nonce = rand::thread_rng().gen::<u64>();
+        trace!("Commencing encryption with nonce {:x}", nonce);
 
         // write metadata placeholders
         self.full_output_buffer.write_all(&[0u8; 4 + 8 + 4 + 4])?;
@@ -607,9 +631,8 @@ impl ConnectionLowLevel {
             .write_u32::<NetworkEndian>(last_chunk_size as PayloadSize)?;
 
         trace!(
-            "Encrypted a frame of {}B with nonce {:x}; full chunks: {}, last chunk size: {}",
+            "Encrypted a frame of {}B; full chunks: {}, last chunk size: {}",
             frame_len,
-            nonce,
             num_full_chunks,
             last_chunk_size
         );
@@ -652,254 +675,4 @@ fn create_frame(data: &[u8]) -> Fallible<HybridBuf> {
     frame.extend_from_slice(data);
 
     into_err!(HybridBuf::try_from(frame))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{
-        configuration::parse_config, crypto::generate_snow_config, test_utils::generate_random_data,
-    };
-    use snow;
-    use std::io::Cursor;
-
-    // a minimal, post-handshake ConnectionLowLevel stub for testing
-    struct CllStub {
-        noise_session:          Option<Session>,
-        encrypted_chunk_buffer: Vec<u8>,
-        plaintext_chunk_buffer: Vec<u8>,
-        full_output_buffer:     BufWriter<HybridBuf>,
-    }
-
-    impl CllStub {
-        fn new(noise_session: Session) -> Self {
-            Self {
-                noise_session:          Some(noise_session),
-                encrypted_chunk_buffer: vec![0u8; NOISE_MAX_MESSAGE_LEN],
-                plaintext_chunk_buffer: vec![0; NOISE_MAX_PAYLOAD_LEN],
-                full_output_buffer:     BufWriter::new(Default::default()),
-            }
-        }
-
-        pub fn encrypt<R: Read + Seek>(&mut self, mut input: R) -> Fallible<HybridBuf> {
-            let nonce = rand::thread_rng().gen::<u64>();
-
-            // write metadata placeholders
-            self.full_output_buffer.write_all(&[0u8; 4 + 8 + 4 + 4])?;
-
-            let encrypted_len = self.encrypt_chunks(nonce, &mut input)?;
-
-            // rewind the buffer to write the metadata
-            self.full_output_buffer.seek(SeekFrom::Start(0))?;
-
-            // 1. Frame: Size of Payload + Chunk table.
-            let frame_len = self.calculate_frame_len(encrypted_len)?;
-
-            // 1.1. Add frame size.
-            self.full_output_buffer
-                .write_u32::<NetworkEndian>(frame_len as PayloadSize)?;
-
-            // 1.2. NONCE
-            self.full_output_buffer.write_u64::<NetworkEndian>(nonce)?;
-
-            // 2. Write Chunk index table: num of full chunks (64K) + size of latest
-            // 2.1. Number of full chunks.
-            let num_full_chunks = encrypted_len / NOISE_MAX_MESSAGE_LEN;
-            self.full_output_buffer
-                .write_u32::<NetworkEndian>(num_full_chunks as PayloadSize)?;
-
-            // 2.2. Size of the last chunk.
-            let last_chunk_size = encrypted_len - (num_full_chunks * NOISE_MAX_MESSAGE_LEN);
-            self.full_output_buffer
-                .write_u32::<NetworkEndian>(last_chunk_size as PayloadSize)?;
-
-            println!(
-                "Encrypted a frame of {}B with nonce {:x}; full chunks: {}, last chunk size: {}",
-                frame_len, nonce, num_full_chunks, last_chunk_size
-            );
-
-            // rewind the buffer
-            self.full_output_buffer.seek(SeekFrom::Start(0))?;
-
-            let ret = mem::replace(self.full_output_buffer.get_mut(), Default::default());
-
-            Ok(ret)
-        }
-
-        fn encrypt_chunks<R: Read + Seek>(&mut self, nonce: u64, input: &mut R) -> Fallible<usize> {
-            let mut written = 0;
-
-            let mut curr_pos = input.seek(SeekFrom::Current(0))?;
-            let eof = input.seek(SeekFrom::End(0))?;
-            input.seek(SeekFrom::Start(curr_pos))?;
-
-            while curr_pos != eof {
-                let chunk_size = std::cmp::min(NOISE_MAX_PAYLOAD_LEN, (eof - curr_pos) as usize);
-                input.read_exact(&mut self.plaintext_chunk_buffer[..chunk_size])?;
-
-                let len = self
-                    .noise_session
-                    .as_ref()
-                    .unwrap() // infallible
-                    .write_message_with_nonce(
-                        nonce,
-                        &self.plaintext_chunk_buffer[..chunk_size],
-                        &mut self.encrypted_chunk_buffer,
-                    )?;
-
-                written += self
-                    .full_output_buffer
-                    .write(&self.encrypted_chunk_buffer[..len])?;
-
-                curr_pos = input.seek(SeekFrom::Current(0))?;
-            }
-
-            Ok(written)
-        }
-
-        fn calculate_frame_len(&self, encrypted_buffer_len: usize) -> Fallible<usize> {
-            let chunk_table_len = 2 * mem::size_of::<PayloadSize>();
-            Ok(mem::size_of::<u64>() + chunk_table_len + encrypted_buffer_len)
-        }
-
-        pub fn decrypt<R: Read + Seek>(&mut self, mut input: R) -> Fallible<HybridBuf> {
-            // 0. Read NONCE.
-            let nonce = input.read_u64::<NetworkEndian>()?;
-            println!("Commencing decryption with nonce {:x}", nonce);
-
-            // 1. Read the chunk table.
-            let num_full_chunks = input.read_u32::<NetworkEndian>()? as usize;
-            println!("There are {} full chunks to decrypt", num_full_chunks);
-            let last_chunk_size = input.read_u32::<NetworkEndian>()? as usize;
-            println!("The last chunk's size is {}B", last_chunk_size);
-
-            for idx in 0..num_full_chunks {
-                self.decrypt_chunk(idx, NOISE_MAX_MESSAGE_LEN, nonce, &mut input)?;
-            }
-
-            if last_chunk_size > 0 {
-                self.decrypt_chunk(num_full_chunks, last_chunk_size, nonce, &mut input)?;
-            }
-
-            // rewind the buffer
-            self.full_output_buffer.seek(SeekFrom::Start(0))?;
-
-            Ok(mem::replace(
-                &mut self.full_output_buffer.get_mut(),
-                Default::default(),
-            ))
-        }
-
-        fn decrypt_chunk<R: Read + Seek>(
-            &mut self,
-            chunk_idx: usize,
-            chunk_size: usize,
-            nonce: u64,
-            input: &mut R,
-        ) -> Fallible<()> {
-            println!("Decrypting chunk {} ({}B)", chunk_idx, chunk_size);
-
-            input.read_exact(&mut self.encrypted_chunk_buffer[..chunk_size])?;
-
-            match self
-                .noise_session
-                .as_ref()
-                .unwrap() // infallible
-                .read_message_with_nonce(
-                    nonce,
-                    &self.encrypted_chunk_buffer[..chunk_size],
-                    &mut self.plaintext_chunk_buffer[..(chunk_size - NOISE_AUTH_TAG_LEN)],
-                ) {
-                Ok(len) => {
-                    self.full_output_buffer
-                        .write_all(&self.plaintext_chunk_buffer[..len])?;
-                    Ok(())
-                }
-                Err(err) => {
-                    error!("decryption error : {}", err);
-                    Err(failure::Error::from(err))
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn noise_encrypt_decrypt() -> Fallible<()> {
-        println!("running the noise tests");
-
-        // prepare the prerequisites
-
-        println!("- preparing the prerequisites");
-        let conf = parse_config()?;
-        let noise_params = generate_snow_config(&conf.crypto);
-        let keypair1 = snow::Builder::new(noise_params.clone()).generate_keypair()?;
-        let keypair2 = snow::Builder::new(noise_params.clone()).generate_keypair()?;
-        let mut shared_buffer = [0u8; NOISE_MAX_MESSAGE_LEN];
-        let mut temp_buffer = [0u8; 256];
-
-        // create 2 noise sessions
-
-        println!("- creating the responder session");
-        let mut responder_session = snow::Builder::new(noise_params.clone())
-            .prologue(PROLOGUE)
-            .psk(2, PRE_SHARED_KEY)
-            .local_private_key(&keypair1.private)
-            .build_responder()?;
-
-        println!("- creating the initiator session");
-        let mut initiator_session = snow::Builder::new(noise_params.clone())
-            .prologue(PROLOGUE)
-            .psk(2, PRE_SHARED_KEY)
-            .local_private_key(&keypair2.private)
-            .remote_public_key(&keypair1.public)
-            .build_initiator()?;
-
-        // perform the noise handshake
-
-        let mut len;
-        println!("- initiator sends A");
-        len = initiator_session.write_message(&[], &mut shared_buffer)?;
-        println!("  - wrote {}B", len);
-        println!("- responder reads A");
-        len = responder_session.read_message(&shared_buffer[..len], &mut temp_buffer)?;
-        println!("  - read {}B", len);
-        println!("- responder sends B");
-        len = responder_session.write_message(&[], &mut shared_buffer)?;
-        println!("  - wrote {}B", len);
-        println!("- responder goes into transport mode");
-        responder_session = responder_session.into_stateless_transport_mode()?;
-        println!("- initiator reads B");
-        len = initiator_session.read_message(&shared_buffer[..len], &mut temp_buffer)?;
-        println!("  - read {}B", len);
-        println!("- initiator goes into transport mode");
-        initiator_session = initiator_session.into_stateless_transport_mode()?;
-
-        // create post-handshake objects
-
-        let mut noise1 = CllStub::new(initiator_session);
-        let mut noise2 = CllStub::new(responder_session);
-
-        for &size in &[
-            0,
-            32,
-            4096,
-            64 * 1024 - 1,
-            64 * 1024,
-            77 * 1024,
-            128 * 1024 - 2,
-            133 * 1024,
-            2 * 1024 * 1024,
-        ] {
-            println!("- testing message size {}", size);
-            let mut msg = Cursor::new(generate_random_data(size));
-            let mut encrypted = noise1.encrypt(&mut msg).expect("encryption failed!");
-            println!("  - encrypted {}B", encrypted.len()? - 4); // disregard payload len
-            encrypted.seek(SeekFrom::Start(4))?;
-            let mut decrypted = noise2.decrypt(&mut encrypted).expect("decryption failed!");
-            println!("  - decrypted {}B", decrypted.len()?);
-            assert_eq!(&decrypted.remaining_bytes()?, msg.get_ref());
-        }
-
-        Ok(())
-    }
 }

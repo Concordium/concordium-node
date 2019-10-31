@@ -1242,7 +1242,7 @@ impl P2PNode {
     pub fn process_network_request(&self, request: NetworkRawRequest) {
         if let Some(ref conn) = self.find_connection_by_token(request.token) {
             trace!(
-                "Attempting to send a raw {}B network request to {}",
+                "Attempting to send {}B to {}",
                 request.data.len().unwrap_or(0),
                 conn,
             );
