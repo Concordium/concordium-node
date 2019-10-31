@@ -54,8 +54,6 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use std::ops::Deref;
-
 const SERVER: Token = Token(0);
 const BAN_STORE_NAME: &str = "bans";
 
@@ -390,7 +388,7 @@ impl P2PNode {
         let transactions_cache = Default::default();
         let stats_engine = RwLock::new(StatsEngine::new(&conf.cli));
 
-        let node = Arc::new(P2PNode {
+        let mut node = Arc::new(P2PNode {
             self_ref: None,
             poll,
             rpc_queue: subscription_queue_in,
@@ -413,10 +411,15 @@ impl P2PNode {
         // available using the unsafe ptr::write
         // this is safe, as at this point the node is not shared with any other object
         // or thread
-        let n1 = node.deref() as *const P2PNode;
+        let n1 = Arc::get_mut(&mut node).unwrap() as *mut P2PNode;
         let n2 = Arc::into_raw(node) as *const P2PNode;
         let n3 = n2;
-        unsafe { std::ptr::write(n1 as *mut *const u8, n2 as *const P2PNode as *const u8) };
+        unsafe {
+            std::ptr::write(
+                n1 as *mut *const u8,
+                &Arc::from_raw(n2) as *const Arc<P2PNode> as *const u8,
+            )
+        };
         let node = unsafe { Arc::from_raw(n3) };
 
         node.clear_bans()
