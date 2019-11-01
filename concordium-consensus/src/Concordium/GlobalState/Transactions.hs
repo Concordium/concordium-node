@@ -20,8 +20,8 @@ import Lens.Micro.Platform
 import Lens.Micro.Internal
 
 import qualified Concordium.Crypto.SHA256 as H
-import Concordium.Crypto.SignatureScheme(SchemeId, Signature, KeyPair)
-import qualified Concordium.Crypto.AccountSignatureSchemes as SigScheme
+import Concordium.Crypto.SignatureScheme(Signature, KeyPair)
+import Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.ID.Types as IDTypes
 import qualified Concordium.ID.Account as AH
 
@@ -55,13 +55,10 @@ utcTimeToTransactionTime = floor . utcTimeToPOSIXSeconds
 
 -- | Data common to all transaction types.
 --
---    * INVARIANT: First byte of 'thSender' matches the signature 'thScheme' field,
---    and @thSender = AH.accountAddress thSenderKey thScheme@.
+--    * INVARIANT: @thSender = AH.accountAddress thSenderKey@.
 --    * The last field is strictly redundant, but is here to avoid needless recomputation. In
 --    serialization we do not output it, and when deserializing we compute it from other data.
 data TransactionHeader = TransactionHeader {
-    -- |Signature scheme used by the account.
-    thScheme :: !SchemeId,
     -- |Verification key of the sender.
     thSenderKey :: !IDTypes.AccountVerificationKey,
     -- |Per account nonce, strictly increasing, no gaps.
@@ -76,8 +73,7 @@ data TransactionHeader = TransactionHeader {
 
 -- |Eq instance ignores derived fields.
 instance Eq TransactionHeader where
-  th1 == th2 = thScheme th1 == thScheme th2 &&
-               thSenderKey th1 == thSenderKey th2 &&
+  th1 == th2 = thSenderKey th1 == thSenderKey th2 &&
                thNonce th1 == thNonce th2 &&
                thGasAmount th1 == thGasAmount th2 &&
                thPayloadSize th1 == thPayloadSize th2
@@ -85,19 +81,17 @@ instance Eq TransactionHeader where
 -- |NB: Relies on the verify key serialization being defined as specified on the wiki.
 instance S.Serialize TransactionHeader where
   put TransactionHeader{..} =
-      S.put thScheme <>
       S.put thSenderKey <>
       S.put thNonce <>
       S.put thGasAmount <>
       S.putWord32be thPayloadSize
 
   get = do
-    thScheme <- S.get
     thSenderKey <- S.get
     thNonce <- S.get
     thGasAmount <- S.get
     thPayloadSize <- S.getWord32be
-    return $ makeTransactionHeader thScheme thSenderKey thPayloadSize thNonce thGasAmount
+    return $ makeTransactionHeader thSenderKey thPayloadSize thNonce thGasAmount
 
 type TransactionHash = H.Hash
 
@@ -152,7 +146,7 @@ instance Ord Transaction where
 getVerifiedTransaction :: TransactionTime -> S.Get Transaction
 getVerifiedTransaction arTime = do
   t@Transaction{trBareTransaction=BareTransaction{..},..} <- getUnverifiedTransaction arTime
-  unless (SigScheme.verify (thScheme btrHeader) (thSenderKey btrHeader) (H.hashToByteString trHash) (tsSignature btrSignature)) $
+  unless (SigScheme.verify (thSenderKey btrHeader) (H.hashToByteString trHash) (tsSignature btrSignature)) $
       fail "Incorrect signature."
   return t
 
@@ -177,14 +171,13 @@ getUnverifiedTransaction trArrivalTime = do
   return Transaction{trBareTransaction=BareTransaction{..},..}
 
 makeTransactionHeader ::
-  SchemeId
-  -> IDTypes.AccountVerificationKey
+  IDTypes.AccountVerificationKey
   -> PayloadSize
   -> Nonce
   -> Energy
   -> TransactionHeader
-makeTransactionHeader thScheme thSenderKey thPayloadSize thNonce thGasAmount =
-  TransactionHeader{thSender = AH.accountAddress thSenderKey thScheme,..}
+makeTransactionHeader thSenderKey thPayloadSize thNonce thGasAmount =
+  TransactionHeader{thSender = AH.accountAddress thSenderKey,..}
 
 -- |Make a transaction out of minimal data needed.
 makeTransaction :: TransactionTime -> TransactionSignature -> TransactionHeader -> EncodedPayload -> Transaction
@@ -204,8 +197,7 @@ signTransaction keys btrHeader btrPayload =
   let body = S.runPut (S.put btrHeader <> putPayload btrPayload)
       -- only sign the hash of the transaction
       bodyHash = H.hashToByteString (H.hash body)
-      tsScheme = thScheme btrHeader
-      tsSignature = SigScheme.sign tsScheme keys bodyHash
+      tsSignature = SigScheme.sign keys bodyHash
       btrSignature = TransactionSignature{..}
   in BareTransaction{..}
 
@@ -216,10 +208,7 @@ verifyTransactionSignature tx =
       header = transactionHeader tx
       vfkey = thSenderKey header
       TransactionSignature sig = transactionSignature tx
-  in SigScheme.verify (thScheme header)
-                      vfkey
-                      bodyHash
-                      sig
+  in SigScheme.verify vfkey bodyHash sig
 
 -- |The 'TransactionData' class abstracts away from the particular data
 -- structure. It makes it possible to unify operations on 'Transaction' as well

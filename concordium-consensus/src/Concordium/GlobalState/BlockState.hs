@@ -491,7 +491,7 @@ resultToReasons bp tx res =
         extractReason (Updated (AddressContract source) target amount _) =
           Just (ContractToContractTransfer trId source amount target)
         extractReason (CredentialDeployed cdv) =
-          let caaddr = ID.accountAddress (ID.cdvVerifyKey cdv) (ID.cdvSigScheme cdv)
+          let caaddr = ID.accountAddress (ID.cdvVerifyKey cdv)
           in Just (CredentialDeployment trId sender caaddr cdv)
         extractReason _ = Nothing
         
