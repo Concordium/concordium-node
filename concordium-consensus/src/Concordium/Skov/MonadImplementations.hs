@@ -87,6 +87,7 @@ instance (Monad m) => MonadReader (SkovContext c) (SkovT h c m) where
 
 instance MonadTrans (SkovT h c) where
     lift a = SkovT (\_ _ -> lift a)
+    {-# INLINE lift #-}
 
 instance (Monad m, SkovTimerHandlers h c m) => TimerMonad (SkovT h c m) where
     type Timer (SkovT h c m) = SkovHandlerTimer h
