@@ -115,8 +115,6 @@ data GenesisBaker = GenesisBaker {
     gbElectionVerifyKey :: BakerElectionVerifyKey,
     -- |The baker's public signature key
     gbSignatureVerifyKey :: BakerSignVerifyKey,
-    -- |The baker's account signature scheme
-    gbAccountSignatureScheme :: SchemeId,
     -- |The baker's account public signature key
     gbAccountSignatureKey :: AccountVerificationKey,
     -- |The baker's initial balance
@@ -131,18 +129,16 @@ instance FromJSON GenesisBaker where
             gbElectionVerifyKey <- v .: "electionVerifyKey"
             gbSignatureVerifyKey <- v .: "signatureVerifyKey"
             acct <- v .: "account"
-            (gbAccountSignatureScheme, gbAccountSignatureKey, gbAccountBalance) <- flip (withObject "GenesisBakerAccount") acct $ \v' -> do
-                ss <- v' .: "signatureScheme"
-                sk <- v' .: "verifyKey"
+            (gbAccountSignatureKey, gbAccountBalance) <- flip (withObject "GenesisBakerAccount") acct $ \v' -> do
+                sk <- parseJSON acct
                 ab <- Amount <$> v' .: "balance"
-                return (ss, sk, ab)
+                return (sk, ab)
             gbFinalizer <- v .: "finalizer"
             return GenesisBaker{..}
 
 -- |'GenesisAccount' are special account existing in the genesis block, in
 -- addition to baker accounts which are defined by the 'GenesisBaker' structure.
 data GenesisAccount = GenesisAccount {
-  gaAccountSignatureScheme :: !SchemeId,
   gaAccountVerifyKey :: !AccountVerificationKey,
   gaAccountBalance :: !Amount,
   gaDelegate :: !(Maybe BakerId)
@@ -150,11 +146,10 @@ data GenesisAccount = GenesisAccount {
 }
 
 instance FromJSON GenesisAccount where
-  parseJSON = withObject "GenesisAccount" $ \v -> do
-    gaAccountSignatureScheme <- v .: "signatureScheme"
-    gaAccountVerifyKey <- v .: "verifyKey"
-    gaAccountBalance <- Amount <$> v .: "balance"
-    gaDelegate <- fmap BakerId <$> v .:? "delegate"
+  parseJSON v = flip (withObject "GenesisAccount") v $ \obj -> do
+    gaAccountVerifyKey <- parseJSON v
+    gaAccountBalance <- Amount <$> obj .: "balance"
+    gaDelegate <- fmap BakerId <$> obj .:? "delegate"
     return GenesisAccount{..}
 
 -- 'GenesisParameters' provides a convenient abstraction for
@@ -231,15 +226,15 @@ parametersToGenesisData GenesisParameters{..} = GenesisData{..}
                 gbElectionVerifyKey
                 gbSignatureVerifyKey
                 gbAccountBalance 
-                (ID.accountAddress gbAccountSignatureKey gbAccountSignatureScheme)
+                (ID.accountAddress gbAccountSignatureKey)
         -- special accounts will have some special privileges during beta.
         genesisSpecialBetaAccounts =
-          [(newAccount gaAccountVerifyKey gaAccountSignatureScheme) {_accountAmount = gaAccountBalance,
+          [(newAccount gaAccountVerifyKey) {_accountAmount = gaAccountBalance,
                                                                      _accountStakeDelegate = gaDelegate}
             | GenesisAccount{..} <- gpBetaAccounts]
         -- Baker accounts will have no special privileges.
-        genesisAccounts = [(newAccount gbAccountSignatureKey gbAccountSignatureScheme) {_accountAmount = gbAccountBalance,
-                                                                                        _accountStakeDelegate = Just bid}
+        genesisAccounts = [(newAccount gbAccountSignatureKey) {_accountAmount = gbAccountBalance,
+                                                               _accountStakeDelegate = Just bid}
                           | (GenesisBaker{..}, bid) <- zip gpBakers [0..]]
         genesisFinalizationParameters =
             FinalizationParameters

@@ -10,7 +10,6 @@ import qualified Data.Serialize.Put as P
 import qualified Data.Serialize.Get as G
 import Data.ByteString.Lazy as BS    
 
-import Data.Time.Clock
 import GlobalStateTests.Gen
 import Concordium.GlobalState.Transactions
 
@@ -30,13 +29,13 @@ checkTransaction tx = let bs = P.runPutLazy (put tx)
                     Right tx' -> QC.label (groupIntoSize (BS.length bs)) $ tx === tx'
 
 testTransaction :: Int -> Property
-testTransaction size = forAll (resize size $ genTransaction) checkTransaction
+testTransaction size = forAll (resize size $ genBareTransaction) checkTransaction
 
 checkTransactionWithSig :: BareTransaction -> Property
 checkTransactionWithSig tx = let bs = P.runPutLazy (put tx)
-              in  case G.runGet (getVerifiedTransaction dummyTime) (BS.toStrict bs) of
-                    Left err -> counterexample err False
-                    Right tx' -> QC.label (groupIntoSize (BS.length bs)) $ tx === trBareTransaction tx'
+              in case G.runGet (getVerifiedTransaction dummyTime) (BS.toStrict bs) of
+                   Left err -> counterexample err False
+                   Right tx' -> QC.label (groupIntoSize (BS.length bs)) $ tx === trBareTransaction tx'
 
 dummyTime :: TransactionTime
 dummyTime = 37
@@ -50,7 +49,7 @@ checkTransactionWithRandomSig tx = let bs = P.runPutLazy (put tx)
 
 -- |These should all fail, since the signature is generated to be a random bytestring.
 testTransactionWithRandomSig :: Int -> Property
-testTransactionWithRandomSig size = forAll (resize size $ genTransaction) checkTransactionWithRandomSig
+testTransactionWithRandomSig size = forAll (resize size $ genBareTransaction) checkTransactionWithRandomSig
 
 testTransactionWithSig :: Int -> Property
 testTransactionWithSig size = forAll (resize size $ genSignedTransaction) checkTransactionWithSig
