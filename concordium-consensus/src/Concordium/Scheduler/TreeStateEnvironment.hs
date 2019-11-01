@@ -20,7 +20,6 @@ import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.SeedState
 import Concordium.GlobalState.Block(blockSlot)
 import Concordium.Scheduler.Types
 import Concordium.Scheduler.Environment

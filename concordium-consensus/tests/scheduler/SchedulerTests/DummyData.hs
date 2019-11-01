@@ -10,7 +10,7 @@ import qualified Concordium.Crypto.BlockSignature as BlockSig
 import Concordium.Types hiding (accountAddress)
 import Concordium.ID.Account
 import Concordium.ID.Types
-import Concordium.Crypto.Ed25519Signature
+import qualified Concordium.Crypto.Ed25519Signature as Ed25519
 
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.IdentityProviders
@@ -29,34 +29,34 @@ blockPointer :: BlockHash
 blockPointer = Hash (FBS.pack (replicate 32 (fromIntegral (0 :: Word))))
 
 makeHeader :: KeyPair -> Nonce -> Energy -> Runner.TransactionHeader
-makeHeader kp = Runner.TransactionHeader Sig.Ed25519 (Sig.verifyKey kp)
+makeHeader kp = Runner.TransactionHeader (Sig.correspondingVerifyKey kp)
 
 alesKP :: KeyPair
-alesKP = fst (randomKeyPair (mkStdGen 1))
+alesKP = uncurry Sig.KeyPairEd25519 . fst $ Ed25519.randomKeyPair (mkStdGen 1)
 
 alesVK :: VerifyKey
-alesVK = verifyKey alesKP
+alesVK = correspondingVerifyKey alesKP
 
 alesAccount :: AccountAddress
-alesAccount = accountAddress alesVK Ed25519
+alesAccount = accountAddress alesVK
 
 thomasKP :: KeyPair
-thomasKP = fst (randomKeyPair (mkStdGen 2))
+thomasKP = uncurry Sig.KeyPairEd25519 . fst $ Ed25519.randomKeyPair (mkStdGen 2)
 
 thomasVK :: VerifyKey
-thomasVK = verifyKey thomasKP
+thomasVK = correspondingVerifyKey thomasKP
 
 thomasAccount :: AccountAddress
-thomasAccount = accountAddress thomasVK Ed25519
+thomasAccount = accountAddress thomasVK
 
 accountAddressFrom :: Int -> AccountAddress
-accountAddressFrom n = accountAddress (accountVFKeyFrom n) Ed25519
+accountAddressFrom n = accountAddress (accountVFKeyFrom n)
 
 accountVFKeyFrom :: Int -> VerifyKey
-accountVFKeyFrom = verifyKey . fst . randomKeyPair . mkStdGen 
+accountVFKeyFrom = correspondingVerifyKey . uncurry Sig.KeyPairEd25519 . fst . Ed25519.randomKeyPair . mkStdGen 
 
 mkAccount ::AccountVerificationKey -> Amount -> Account
-mkAccount vfKey amnt = (newAccount vfKey Ed25519) {_accountAmount = amnt}
+mkAccount vfKey amnt = (newAccount vfKey) {_accountAmount = amnt}
 
 emptyBirkParameters :: BirkParameters
 emptyBirkParameters = BirkParameters {
@@ -120,7 +120,7 @@ cdi7 :: CredentialDeploymentInformation
 cdi7 = unsafePerformIO (readCredential "testdata/credential-7.json")
 
 accountAddressFromCred :: CredentialDeploymentInformation -> AccountAddress
-accountAddressFromCred cdi = accountAddress (cdvVerifyKey (cdiValues cdi)) (cdvSigScheme (cdiValues cdi))
+accountAddressFromCred cdi = accountAddress (cdvVerifyKey (cdiValues cdi))
 
 {-# NOINLINE dummyIdentityProviders #-}
 dummyIdentityProviders :: IdentityProviders

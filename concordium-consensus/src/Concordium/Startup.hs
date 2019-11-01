@@ -5,6 +5,7 @@ import System.Random
 import qualified Data.ByteString.Lazy.Char8 as BSL
 
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
+import qualified Concordium.Crypto.Ed25519Signature as Ed25519
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.SHA256 as Hash
@@ -33,8 +34,9 @@ makeBakers nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17) 0
 makeBakerAccount :: BakerId -> Account
 makeBakerAccount bid = acct {_accountAmount = 1000000000000, _accountStakeDelegate = Just bid}
   where
-    acct = newAccount (Sig.verifyKey kp) SigScheme.Ed25519
-    kp = fst (Sig.randomKeyPair (mkStdGen (- (fromIntegral bid) - 1))) -- NB the negation makes it not conflict with other fake accounts we create elsewhere.
+    acct = newAccount (SigScheme.correspondingVerifyKey kp)
+    -- NB the negation makes it not conflict with other fake accounts we create elsewhere.
+    kp = uncurry SigScheme.KeyPairEd25519 $ fst (Ed25519.randomKeyPair (mkStdGen (- (fromIntegral bid) - 1)))
     
 makeGenesisData :: 
     Timestamp -- ^Genesis time
@@ -50,7 +52,7 @@ makeGenesisData genesisTime nBakers genesisSlotDuration elecDiff finMinSkip gene
     = (GenesisData{..}, bakers)
     where
         genesisMintPerSlot = 10 -- default value, OK for testing.
-        genesisBakers = (fst (bakersFromList (snd <$> bakers)))
+        genesisBakers = fst (bakersFromList (snd <$> bakers))
         genesisBirkParameters =
             BirkParameters elecDiff -- voting power
                           genesisBakers

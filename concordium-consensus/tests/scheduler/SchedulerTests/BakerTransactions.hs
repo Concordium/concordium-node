@@ -57,8 +57,7 @@ transactionsInput =
                                 (baker0 ^. _2)
                                 (baker0 ^. _1 . bakerSignatureVerifyKey)
                                 (baker0 ^. _3)
-                                (BlockSig.verifyKey alesKP)
-                                (BlockSig.signKey alesKP)
+                                alesKP
            , metadata = makeHeader alesKP 1 10000
            , keypair = alesKP
            },
@@ -66,8 +65,7 @@ transactionsInput =
                                 (baker1 ^. _2)
                                 (baker1 ^. _1 . bakerSignatureVerifyKey)
                                 (baker1 ^. _3)
-                                (BlockSig.verifyKey alesKP)
-                                (BlockSig.signKey alesKP)
+                                alesKP
            , metadata = makeHeader alesKP 2 10000
            , keypair = alesKP
            },
@@ -75,8 +73,7 @@ transactionsInput =
                                 (baker2 ^. _2)
                                 (baker2 ^. _1 . bakerSignatureVerifyKey)
                                 (baker2 ^. _3)
-                                (BlockSig.verifyKey thomasKP)
-                                (BlockSig.signKey thomasKP)
+                                thomasKP
            , metadata = makeHeader alesKP 3 10000
            , keypair = alesKP
            },
@@ -84,7 +81,7 @@ transactionsInput =
            , metadata = makeHeader alesKP 4 10000
            , keypair = alesKP
            },
-     TJSON { payload = UpdateBakerAccount 2 (BlockSig.verifyKey alesKP) (BlockSig.signKey alesKP)
+     TJSON { payload = UpdateBakerAccount 2 alesKP
            , metadata = makeHeader thomasKP 1 10000
            , keypair = thomasKP
            -- baker 2's account is Thomas account, so only it can update it
