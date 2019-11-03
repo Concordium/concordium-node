@@ -307,6 +307,21 @@ fn collect_data(
     };
     let block_arrive_period_ema = json_consensus_value["blockArrivePeriodEMA"].as_f64();
     let block_arrive_period_emsd = json_consensus_value["blockArrivePeriodEMSD"].as_f64();
+    let block_arrive_latency_ema = json_consensus_value["blockArriveLatencyEMA"].as_f64();
+    let block_arrive_latency_emsd = json_consensus_value["blockArriveLatencyEMSD"].as_f64();
+    let block_receive_period_ema = json_consensus_value["blockReceivePeriodEMA"].as_f64();
+    let block_receive_period_emsd = json_consensus_value["blockReceivePeriodEMSD"].as_f64();
+    let block_receive_latency_ema = json_consensus_value["blockReceiveLatencyEMA"].as_f64();
+    let block_receive_latency_emsd = json_consensus_value["blockReceiveLatencyEMSD"].as_f64();
+
+    let blocks_verified_count = json_consensus_value["blocksVerifiedCount"].as_f64();
+    let blocks_received_count = json_consensus_value["blocksReceivedCount"].as_f64();
+    let finalization_count = json_consensus_value["finalizationCount"].as_f64();
+    let genesis_block = json_consensus_value["genesisBlock"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
     let finalized_block = json_consensus_value["lastFinalizedBlock"]
         .as_str()
         .unwrap()
@@ -326,6 +341,8 @@ fn collect_data(
     };
     let finalization_period_ema = json_consensus_value["finalizationPeriodEMA"].as_f64();
     let finalization_period_emsd = json_consensus_value["finalizationPeriodEMSD"].as_f64();
+    let transactions_per_block_ema = json_consensus_value["transactionsPerBlockEMA"].as_f64();
+    let transactions_per_block_emsd = json_consensus_value["transactionsPerBlockEMSD"].as_f64();
 
     let ancestors_since_best_block = if best_block_height > finalized_block_height {
         trace!("Requesting further consensus status via gRPC");
@@ -354,6 +371,19 @@ fn collect_data(
         None
     };
 
+    let block_req = &mut p2p_client::proto::BlockHash::new();
+    block_req.set_block_hash(best_block.clone());
+    let node_block_info_reply = client.get_block_info_opt(block_req, call_options.clone())?;
+    let json_block_info_value: Value = serde_json::from_str(&node_block_info_reply.json_value)?;
+    let best_block_total_encrypted_amount = json_block_info_value["totalEncryptedAmount"].as_f64();
+    let best_block_transactions_size = json_block_info_value["transactionsSize"].as_f64();
+    let best_block_total_amount = json_block_info_value["totalAmount"].as_f64();
+    let best_block_transaction_count = json_block_info_value["transactionCount"].as_f64();
+    let best_block_transaction_energy_cost =
+        json_block_info_value["transactionEnergyCost"].as_f64();
+    let best_block_execution_cost = json_block_info_value["executionCost"].as_f64();
+    let best_block_central_bank_amount = json_block_info_value["centralBankAmount"].as_f64();
+
     Ok(NodeInfo {
         nodeName: node_name.to_string(),
         nodeId: node_id,
@@ -368,6 +398,12 @@ fn collect_data(
         bestArrivedTime: best_arrived_time,
         blockArrivePeriodEMA: block_arrive_period_ema,
         blockArrivePeriodEMSD: block_arrive_period_emsd,
+        blockArriveLatencyEMA: block_arrive_latency_ema,
+        blockArriveLatencyEMSD: block_arrive_latency_emsd,
+        blockReceivePeriodEMA: block_receive_period_ema,
+        blockReceivePeriodEMSD: block_receive_period_emsd,
+        blockReceiveLatencyEMA: block_receive_latency_ema,
+        blockReceiveLatencyEMSD: block_receive_latency_emsd,
         finalizedBlock: finalized_block,
         finalizedBlockHeight: finalized_block_height,
         finalizedTime: finalized_time,
@@ -381,5 +417,18 @@ fn collect_data(
         ancestorsSinceBestBlock: ancestors_since_best_block,
         betaUsername: beta_username,
         last_updated: 0,
+        transactionsPerBlockEMA: transactions_per_block_ema,
+        transactionsPerBlockEMSD: transactions_per_block_emsd,
+        bestBlockTransactionsSize: best_block_transactions_size,
+        bestBlockTotalEncryptedAmount: best_block_total_encrypted_amount,
+        bestBlockTotalAmount: best_block_total_amount,
+        bestBlockTransactionCount: best_block_transaction_count,
+        bestBlockTransactionEnergyCost: best_block_transaction_energy_cost,
+        bestBlockExecutionCost: best_block_execution_cost,
+        bestBlockCentralBankAmount: best_block_central_bank_amount,
+        blocksReceivedCount: blocks_received_count,
+        blocksVerifiedCount: blocks_verified_count,
+        finalizationCount: finalization_count,
+        genesisBlock: genesis_block,
     })
 }
