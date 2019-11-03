@@ -14,7 +14,7 @@ static A: System = System;
 use concordium_common::{
     spawn_or_die,
     stats_export_service::{StatsExportService, StatsServiceMode},
-    QueueMsg,
+    PacketType, QueueMsg,
 };
 use concordium_consensus::{
     consensus::{ConsensusContainer, ConsensusLogLevel, CALLBACK_QUEUE},
@@ -338,6 +338,10 @@ fn start_global_state_thread(
             for message in consensus_receiver_in_hi.try_iter() {
                 match message {
                     QueueMsg::Relay(msg) => {
+                        loop_interval = match msg.variant {
+                            PacketType::Block => loop_interval.saturating_sub(5),
+                            _ => loop_interval.saturating_sub(1),
+                        };
                         if let Err(e) = handle_consensus_message(
                             &node_ref,
                             nid,
@@ -353,9 +357,18 @@ fn start_global_state_thread(
                         break 'outer_loop;
                     }
                 }
-
-                loop_interval = loop_interval.saturating_sub(1);
             }
+
+            let queue_take_amount_inbound = match loop_interval {
+                176..=200 => 2048,
+                151..=175 => 1536,
+                126..=150 => 1024,
+                101..=125 => 768,
+                76..=100 => 576,
+                51..=75 => 432,
+                26..=50 => 324,
+                _ => 243,
+            };
 
             for message in consensus_receiver_out_hi.try_iter() {
                 match message {
@@ -379,7 +392,7 @@ fn start_global_state_thread(
                 loop_interval = loop_interval.saturating_sub(1);
             }
 
-            for _ in 0..4096 {
+            for _ in 0..queue_take_amount_inbound {
                 if let Ok(message) = consensus_receiver_in_lo.try_recv() {
                     match message {
                         QueueMsg::Relay(msg) => {
