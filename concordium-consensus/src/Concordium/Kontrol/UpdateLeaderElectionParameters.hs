@@ -39,7 +39,7 @@ genesisSeedState nonce epochLength =
 getNewEpochSeedState :: Slot -- |The slot we need parameters for
                           -> SeedState -- |The seed state of the parent
                           -> SeedState
-getNewEpochSeedState slot state@SeedState{..} = 
+getNewEpochSeedState slot SeedState{..} = 
   let
     currentEpoch = theSlot $ slot `div` epochLength
   in

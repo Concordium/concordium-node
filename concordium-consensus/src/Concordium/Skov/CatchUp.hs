@@ -12,7 +12,6 @@ import Control.Monad
 
 import Concordium.Types
 import Concordium.GlobalState.Finalization
-import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.TreeState hiding (getGenesisData)
 import Concordium.GlobalState.Parameters
 
