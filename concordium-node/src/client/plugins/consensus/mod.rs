@@ -23,6 +23,7 @@ use concordium_common::{
     serial::Endianness,
     ConsensusFfiResponse,
     PacketType::{self, *},
+    QueueMsg,
 };
 
 use concordium_consensus::{
@@ -193,7 +194,7 @@ pub fn handle_pkt_out(
         CALLBACK_QUEUE.send_in_high_priority_message(request)
     } {
         Ok(_) => {}
-        Err(e) => match e.downcast::<TrySendError<ConsensusMessage>>()? {
+        Err(e) => match e.downcast::<TrySendError<QueueMsg<ConsensusMessage>>>()? {
             TrySendError::Full(_) => {
                 if let Some(ref service) = &node.stats_export_service {
                     if packet_type == PacketType::Transaction {
