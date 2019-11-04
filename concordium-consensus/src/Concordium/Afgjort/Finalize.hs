@@ -276,7 +276,7 @@ handleWMVBAOutputEvents evs = do
                     let finRec = FinalizationRecord {
                         finalizationIndex = _finsIndex,
                         finalizationBlockPointer = finBlock,
-                        finalizationProof = FinalizationProof (parties, sig), -- TODO: add blssig aggregate here
+                        finalizationProof = FinalizationProof (parties, sig),
                         finalizationDelay = roundDelta
                     }
                     _ <- finalizeBlock finRec
@@ -284,8 +284,6 @@ handleWMVBAOutputEvents evs = do
                     handleEvs True evs'
                 handleEvs True (WMVBAComplete _ : evs') = handleEvs True evs'
             handleEvs False evs
-
--- makeFinalizationProof ::  ->
 
 liftWMVBA :: (FinalizationMonad s m) => WMVBA Sig.Signature a -> m a
 liftWMVBA a = do
@@ -498,6 +496,7 @@ getPartyWeight com pid = case parties com ^? ix (fromIntegral pid) of
         Just p -> partyWeight p
 
 -- |Check that a finalization record has a valid proof
+-- FIXME: doesn't work properly. Suspected issue, toSign is not the actual string signed.
 verifyFinalProof :: FinalizationSessionId -> FinalizationCommittee -> FinalizationRecord -> Bool
 verifyFinalProof sid com@FinalizationCommittee{..} FinalizationRecord{..} =
   if sigWeight parties > corruptWeight then checkProofSignature sig else False

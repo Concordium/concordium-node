@@ -316,7 +316,7 @@ receiveWMVBAMessage src sig (WMVBAWitnessCreatorMessage (v, blssig)) = do
               blssig = makeBlsAggregateSig goodJustifications
               toSign = runPut $ S.put baid >> S.put v -- this should probably be a call to some function
                                                       -- to ensure consistency accross different functions
-              keys = map (\p -> publicBlsKeys p) (PM.keys newJV)
+              keys = map (\(p, _) -> publicBlsKeys p) goodJustifications
           in
             if Bls.verifyAggregate toSign keys blssig then -- A correct finalization record was obtained, send it out
               wmvbaComplete (Just (v, (map (\(p, _) -> p) goodJustifications, blssig)))
@@ -326,16 +326,18 @@ receiveWMVBAMessage src sig (WMVBAWitnessCreatorMessage (v, blssig)) = do
                   addCulprits (h : t) = badJustifications . at v . non PS.empty %= PS.insert h (partyWeight h)
               in addCulprits culprits
 
+              -- TODO: check if finalization can still finish. If enough bad justifications has been seen,
+              -- finalization may not be able to finish
       where
-        makeBlsAggregateSig ((p, (s, blss)) : tl) = Bls.aggregate blss (makeBlsAggregateSig tl)
-        makeBlsAggregateSig ((p, (s, blss)) : []) = blss
-        makeBlsAggregateSig [] = Bls.emptySignature -- this should never happen! makeBlsAggregateSig should never be called
+        makeBlsAggregateSig [(_, (_, blss))] = blss
+        makeBlsAggregateSig ((_, (_, blss)) : tl) = Bls.aggregate blss (makeBlsAggregateSig tl)
+        makeBlsAggregateSig [] = Bls.emptySignature -- WARNING: this should never happen! makeBlsAggregateSig should never be called
                                                     -- on an empty list
         extractNonBadJustifications jv badjv = removeBadJustifications (PM.toList jv) badjv []
         removeBadJustifications [] badjv acc = acc
-        removeBadJustifications ((h, s) : t) badjv acc = if PS.member h badjv
-                                                    then removeBadJustifications t badjv acc
-                                                    else removeBadJustifications t badjv ((h, s) : acc)
+        removeBadJustifications ((p, s) : t) badjv acc = if PS.member p badjv
+                                                         then removeBadJustifications t badjv acc
+                                                         else removeBadJustifications t badjv ((p, s) : acc)
         -- TODO: optimize, this is just a first draft
         findCulprits lst toSign keys =
           let (lst1, lst2) = splitAt ((length lst) `div` 2) lst
