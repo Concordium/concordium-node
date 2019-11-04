@@ -28,6 +28,7 @@ import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.SeedState
 import Concordium.Types
 
+{-
 
 data PersistentContext = PersistentContext {
     pcBlobStore :: !BlobStore,
@@ -45,7 +46,6 @@ cryptoParams = fromJust $ readCryptographicParameters "{  \"dLogBaseChain\": \"9
 
 emptyBirkParameters :: BirkParameters
 emptyBirkParameters = BirkParameters 0.5 emptyBakers (genesisSeedState (Hash.hash "blah") 360)
-{-
 myEmptyBlockState :: PersistentBlockState
 myEmptyBlockState = emptyBlockState emptyBirkParameters cryptoParams
 
