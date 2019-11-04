@@ -408,7 +408,7 @@ impl P2PNode {
         });
 
         // note: in order to create the reference to the `Arc`'ed self, we need to do
-        // some pointer arithmetic. Some things to note:
+        // some raw pointer work. Some things to note:
         // 1. `size_of::<Option<Arc<P2PNode>>>() == size_of::<Arc<P2PNode>>()`. There is
         // no overhead when wrapping an `Arc` inside an `Option` as it is a `NonNull`
         // pointer so it gets optimized away.
@@ -1374,7 +1374,7 @@ impl P2PNode {
 impl Drop for P2PNode {
     fn drop(&mut self) {
         // As we have two copies of the `Arc<P2PNode>` construct, we need to forget one
-        // of them in order to not double copy so we just `take()` the value of the
+        // of them in order to not double free so we just `take()` the value of the
         // `self_ref` and forget about it using `Arc::into_raw`.
         let node = self.self_ref.take();
         Arc::into_raw(node.unwrap());
