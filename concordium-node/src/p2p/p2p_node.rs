@@ -407,16 +407,22 @@ impl P2PNode {
             stats_engine,
         });
 
-        // note: in order to create the reference to the Arc'ed self, we need to do some
-        // pointer arithmetic. Some things to note:
-        // 1. size_of::<Option<Arc<P2PNode>>>() == size_of::<Arc<P2PNode>>(). There is
-        // no overhead when wrapping an Arc inside an Option.
-        // 2. get_mut succeeds because at this point there is only one reference to the
-        // node.
-        // 3. We copy 1 * size_of::<Arc<P2PNode>>() into the self_ref field
+        // note: in order to create the reference to the `Arc`'ed self, we need to do
+        // some pointer arithmetic. Some things to note:
+        // 1. `size_of::<Option<Arc<P2PNode>>>() == size_of::<Arc<P2PNode>>()`. There is
+        // no overhead when wrapping an `Arc` inside an `Option` as it is a `NonNull`
+        // pointer so it gets optimized away.
+        // 2. `get_mut` succeeds because at this point there is only one reference to
+        // the node.
+        // 3. We copy `1 * size_of::<Arc<P2PNode>>()` into the `self_ref` field, which
+        // is the ptr to the `NonNull<ArcInner<T>>` effectively creating a copy
+        // of the `Arc` in new place without increasing the ref_count. Cloning
+        // from either inside or outside of the node will have the same
+        // behaviour.
         // 4. As the `self_ref` field is the first one and it is laid out
-        // in C representation, we do not need to do pointer arithmetics, just
-        // casting the pointer to the node as a pointer to the Arc<P2PNode>.
+        // in C representation, we do not need to do pointer arithmetics,
+        // just casting the pointer to the node as a pointer to the
+        // `Arc<P2PNode>`.
         //
         // This approach has been validated using Miri to check that it doesn't lead to
         // UB
@@ -1367,6 +1373,9 @@ impl P2PNode {
 
 impl Drop for P2PNode {
     fn drop(&mut self) {
+        // As we have two copies of the `Arc<P2PNode>` construct, we need to forget one
+        // of them in order to not double copy so we just `take()` the value of the
+        // `self_ref` and forget about it using `Arc::into_raw`.
         let node = self.self_ref.take();
         Arc::into_raw(node.unwrap());
         let _ = self.close_and_join();
