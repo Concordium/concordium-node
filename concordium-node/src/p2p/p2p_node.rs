@@ -176,7 +176,8 @@ pub struct Receivers {
 }
 
 #[allow(dead_code)] // caused by the dump_network feature; will fix in a follow-up
-#[repr(C)]
+#[repr(C)] // specifying this representation is needed for the pointer work done in the
+           // last steps of `P2PNode::new`
 pub struct P2PNode {
     pub self_ref:             Option<Arc<Self>>,
     pub self_peer:            P2PPeer,
@@ -406,10 +407,16 @@ impl P2PNode {
             stats_engine,
         });
 
-        // note: in order to avoid a lock over the self_ref, write to it as soon as it's
-        // available using the unsafe ptr::write
-        // this is safe, as at this point the node is not shared with any other object
-        // or thread
+        // note: in order to create the reference to the Arc'ed self, we need to do some
+        // pointer arithmetic. Some things to note:
+        // 1. size_of::<Option<Arc<P2PNode>>>() == size_of::<Arc<P2PNode>>(). There is
+        // no overhead when wrapping an Arc inside an Option.
+        // 2. get_mut succeeds because at this point there is only one reference to the
+        // node.
+        // 3. We copy 1 * size_of::<Arc<P2PNode>>() into the self_ref field
+        // 4. As the `self_ref` field is the first one and it is laid out
+        // in C representation, we do not need to do pointer arithmetics, just
+        // casting the pointer to the node as a pointer to the Arc<P2PNode>.
         let inner_node = Arc::get_mut(&mut node).unwrap() as *mut P2PNode;
         let data_to_copy = &node as *const Arc<P2PNode>;
         let self_ref_ptr = inner_node as *mut Arc<P2PNode>;
