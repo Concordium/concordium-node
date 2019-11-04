@@ -332,14 +332,12 @@ impl Connection {
     pub fn buckets(&self) -> &RwLock<Buckets> { &self.handler().connection_handler.buckets }
 
     pub fn promote_to_post_handshake(&self, id: P2PNodeId, peer_port: u16) -> Fallible<()> {
-        self.is_post_handshake.store(true, Ordering::SeqCst);
         *write_or_die!(self.remote_peer.id) = Some(id);
         self.remote_peer
             .peer_external_port
             .store(peer_port, Ordering::SeqCst);
-
+        self.is_post_handshake.store(true, Ordering::SeqCst);
         self.handler().bump_last_peer_update();
-
         Ok(())
     }
 
