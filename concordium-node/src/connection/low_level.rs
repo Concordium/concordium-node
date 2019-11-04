@@ -79,9 +79,7 @@ pub struct ConnectionLowLevel {
     encrypted_queue: VecDeque<HybridBuf>,
     /// The current status of the noise handshake
     handshake_state: HandshakeState,
-    /// A buffer for encrypted message chunks
-    encrypted_chunk_buffer: Vec<u8>,
-    /// A buffer for decrypted message chunks
+    /// A buffer for decrypted/unencrypted message chunks
     plaintext_chunk_buffer: Vec<u8>,
 }
 
@@ -139,9 +137,7 @@ impl ConnectionLowLevel {
             encrypted_queue: VecDeque::with_capacity(16),
             handshake_state,
             noise_msg_buffer: [0u8; NOISE_MAX_MESSAGE_LEN],
-            encrypted_chunk_buffer: vec![0u8; NOISE_MAX_MESSAGE_LEN],
             plaintext_chunk_buffer: vec![0; NOISE_MAX_PAYLOAD_LEN],
-            full_msg_buffer: Default::default(),
         }
     }
 
@@ -371,10 +367,7 @@ impl ConnectionLowLevel {
 
         if self.incoming_msg.pending_bytes == 0 {
             // Ready message
-            let new_data = std::mem::replace(
-                &mut self.incoming_msg.message,
-                Vec::with_capacity(std::mem::size_of::<PayloadSize>()),
-            );
+            let new_data = std::mem::replace(&mut self.incoming_msg.message, Vec::new());
 
             Ok(TcpResult::Complete(HybridBuf::try_from(new_data)?))
         } else {
@@ -477,7 +470,7 @@ impl ConnectionLowLevel {
     ) -> Fallible<()> {
         debug_assert!(chunk_size <= NOISE_MAX_MESSAGE_LEN);
 
-        input.read_exact(&mut self.encrypted_chunk_buffer[..chunk_size])?;
+        input.read_exact(&mut self.noise_msg_buffer[..chunk_size])?;
 
         match self
             .noise_session
@@ -485,7 +478,7 @@ impl ConnectionLowLevel {
             .unwrap() // infallible
             .read_message_with_nonce(
                 nonce,
-                &self.encrypted_chunk_buffer[..chunk_size],
+                &self.noise_msg_buffer[..chunk_size],
                 &mut self.plaintext_chunk_buffer[..(chunk_size - NOISE_AUTH_TAG_LEN)],
             ) {
             Ok(len) => {
@@ -608,11 +601,11 @@ impl ConnectionLowLevel {
                 .write_message_with_nonce(
                     nonce,
                     &self.plaintext_chunk_buffer[..chunk_size],
-                    &mut self.encrypted_chunk_buffer,
+                    &mut self.noise_msg_buffer,
                 )?;
 
             let mut chunk = HybridBuf::with_capacity(len)?;
-            let wrote = chunk.write(&self.encrypted_chunk_buffer[..len])?;
+            let wrote = chunk.write(&self.noise_msg_buffer[..len])?;
             chunk.rewind()?;
 
             chunks.push(chunk);
