@@ -6,7 +6,6 @@ import Test.QuickCheck
 import Concordium.Crypto.SHA256(hash)
 import Concordium.GlobalState.Transactions
 import Concordium.Crypto.SignatureScheme
-import Concordium.Crypto.Ed25519Signature(genKeyPair)
 import Data.Time.Clock
 
 import Concordium.Types
@@ -30,28 +29,28 @@ genAccountAddress = do
 
 genTransactionHeader :: Gen TransactionHeader
 genTransactionHeader = do
-  thScheme <- genSchemeId
-  thSenderKey <- VerifyKey . BSS.pack <$> (vector 32)
+  thSenderKey' <- correspondingVerifyKey <$> genKeyPair
+  thSenderKey <- correspondingVerifyKey <$> genKeyPair
   thPayloadSize <- (`mod` 5000) <$> arbitrary
   thNonce <- Nonce <$> arbitrary
   thGasAmount <- Energy <$> arbitrary
-  return $ makeTransactionHeader thScheme thSenderKey thPayloadSize thNonce thGasAmount
+  return $ makeTransactionHeader thSenderKey thPayloadSize thNonce thGasAmount
 
-genTransaction :: Gen BareTransaction
-genTransaction = do
+genBareTransaction :: Gen BareTransaction
+genBareTransaction = do
   btrHeader <- genTransactionHeader
   btrPayload <- EncodedPayload . BSS.pack <$> vector (fromIntegral (thPayloadSize btrHeader))
-  s <- choose (1, 500)
+  s <- choose (50,70)
   btrSignature <- TransactionSignature . Signature . BSS.pack <$> vector s
   return $! BareTransaction{..}
 
 baseTime :: UTCTime
 baseTime = read "2019-09-23 13:27:13.257285424 UTC"
 
-genTransaction' :: Gen Transaction
-genTransaction' = do
-  trBareTransaction <- genTransaction
-  trArrivalTime <- flip addUTCTime baseTime . fromInteger <$> arbitrary
+genTransaction :: Gen Transaction
+genTransaction = do
+  trBareTransaction <- genBareTransaction
+  trArrivalTime <- arbitrary
   let body = encode trBareTransaction
   let trHash = hash body
   let trSize = BS.length body
@@ -63,4 +62,4 @@ genSignedTransaction = do
   kp <- genKeyPair
   btrHeader <- genTransactionHeader
   btrPayload <- EncodedPayload . BSS.pack <$> vector (fromIntegral (thPayloadSize btrHeader))
-  return $! signTransaction kp (btrHeader {thSenderKey = verifyKey kp, thScheme = Ed25519}) btrPayload
+  return $! signTransaction kp (btrHeader {thSenderKey = correspondingVerifyKey kp}) btrPayload

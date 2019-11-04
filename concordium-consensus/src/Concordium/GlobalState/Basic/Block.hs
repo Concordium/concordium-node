@@ -138,7 +138,7 @@ instance BlockData Block where
     {-# INLINE verifyBlockSignature #-}
     {-# INLINE putBlock #-}
 
-getBlock :: UTCTime -> Get Block
+getBlock :: TransactionTime -> Get Block
 getBlock arrivalTime = do
   sl <- get
   if sl == 0 then do

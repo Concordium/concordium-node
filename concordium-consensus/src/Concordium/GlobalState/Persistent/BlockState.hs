@@ -187,7 +187,7 @@ makePersistent Basic.BlockState{..} = liftIO $ newIORef $! BRMemory BlockStatePo
 initialPersistentState :: MonadIO m => BirkParameters
              -> CryptographicParameters
              -> [Account]
-             -> [IPS.IdentityProviderData]
+             -> [IPS.IpInfo]
              -> Amount
              -> m PersistentBlockState
 initialPersistentState bps cps accts ips amt = makePersistent $ Basic.initialState bps cps accts ips amt
@@ -363,22 +363,22 @@ doGetBlockBirkParameters pbs = bspBirkParameters <$> loadPBS pbs
 doAddBaker :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> BakerCreationInfo -> m (Maybe BakerId, PersistentBlockState)
 doAddBaker pbs binfo = do
         bsp <- loadPBS pbs
-        case createBaker binfo (bspBirkParameters bsp ^. birkBakers) of
+        case createBaker binfo (bspBirkParameters bsp ^. birkCurrentBakers) of
             Nothing -> return $! (Nothing, pbs)
-            Just (bid, newBakers) -> (Just bid,) <$> storePBS pbs (bsp {bspBirkParameters = bspBirkParameters bsp & birkBakers .~ newBakers})
+            Just (bid, newBakers) -> (Just bid,) <$> storePBS pbs (bsp {bspBirkParameters = bspBirkParameters bsp & birkCurrentBakers .~ newBakers})
 
 doUpdateBaker :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> BakerUpdate -> m (Bool, PersistentBlockState)
 doUpdateBaker pbs bupdate = do
         bsp <- loadPBS pbs
-        case updateBaker bupdate (bspBirkParameters bsp ^. birkBakers) of
+        case updateBaker bupdate (bspBirkParameters bsp ^. birkCurrentBakers) of
             Nothing -> return $! (False, pbs)
-            Just newBakers -> (True, ) <$!> storePBS pbs (bsp {bspBirkParameters =  bspBirkParameters bsp & birkBakers .~ newBakers})
+            Just newBakers -> (True, ) <$!> storePBS pbs (bsp {bspBirkParameters =  bspBirkParameters bsp & birkCurrentBakers .~ newBakers})
 
 doRemoveBaker :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> BakerId -> m (Bool, PersistentBlockState)
 doRemoveBaker pbs bid = do
         bsp <- loadPBS pbs
-        let (rv, newBakers) = removeBaker bid (bspBirkParameters bsp ^. birkBakers)
-        (rv,) <$> storePBS pbs (bsp {bspBirkParameters = bspBirkParameters bsp & birkBakers .~ newBakers})
+        let (rv, newBakers) = removeBaker bid (bspBirkParameters bsp ^. birkCurrentBakers)
+        (rv,) <$> storePBS pbs (bsp {bspBirkParameters = bspBirkParameters bsp & birkCurrentBakers .~ newBakers})
 
 doGetRewardStatus :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> m Rewards.BankStatus
 doGetRewardStatus pbs = bspBank <$> loadPBS pbs
@@ -433,7 +433,7 @@ doModifyAccount pbs aUpd@AccountUpdate{..} = do
         -- If the amount is changed update the delegate stake
         let birkParams1 = case (_auAmount, mbalinfo) of
                 (Just deltaAmnt, Just delegate) ->
-                    bspBirkParameters bsp & birkBakers %~ modifyStake delegate deltaAmnt
+                    bspBirkParameters bsp & birkCurrentBakers %~ modifyStake delegate deltaAmnt
                 _ -> bspBirkParameters bsp
         storePBS pbs (bsp {bspAccounts = accts2, bspBirkParameters = birkParams1})
     where
@@ -466,7 +466,7 @@ doPutNewInstance pbs fnew = do
             Just delegate -> (ca,) <$> storePBS pbs bsp{
                                     bspInstances = insts,
                                     bspAccounts = accts,
-                                    bspBirkParameters = bspBirkParameters bsp & birkBakers %~ modifyStake delegate (amountToDelta (instanceAmount inst))
+                                    bspBirkParameters = bspBirkParameters bsp & birkCurrentBakers %~ modifyStake delegate (amountToDelta (instanceAmount inst))
                                 }
     where
         fnew' ca = let inst@Instance{instanceParameters = InstanceParameters{..}, ..} = fnew ca in
@@ -504,7 +504,7 @@ doModifyInstance pbs caddr deltaAmnt val = do
                     Nothing -> error "Invalid contract owner"
                     Just acct -> storePBS pbs bsp{
                             bspInstances = insts,
-                            bspBirkParameters = bspBirkParameters bsp & birkBakers %~ modifyStake (_accountStakeDelegate acct) deltaAmnt
+                            bspBirkParameters = bspBirkParameters bsp & birkCurrentBakers %~ modifyStake (_accountStakeDelegate acct) deltaAmnt
                         }
     where
         upd oldInst = do
@@ -519,7 +519,7 @@ doDelegateStake pbs aaddr target = do
         bsp <- loadPBS pbs
         let targetValid = case target of
                 Nothing -> True
-                Just bid -> isJust $ bspBirkParameters bsp ^. birkBakers . bakerMap . at bid
+                Just bid -> isJust $ bspBirkParameters bsp ^. birkCurrentBakers . bakerMap . at bid
         if targetValid then do
             let updAcc acct = return ((acct ^. accountStakeDelegate, acct ^. accountAmount, Set.toList $ acct ^. accountInstances),
                                 acct & accountStakeDelegate .~ target)
@@ -530,13 +530,13 @@ doDelegateStake pbs aaddr target = do
                     let stake = acctBal + sum instBals
                     (True,) <$> storePBS pbs bsp{
                             bspAccounts = accts,
-                            bspBirkParameters = bspBirkParameters bsp & birkBakers %~
+                            bspBirkParameters = bspBirkParameters bsp & birkCurrentBakers %~
                                 removeStake acctOldTarget stake . addStake target stake
                         }
         else
             return (False, pbs)
 
-doGetIdentityProvider :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> ID.IdentityProviderIdentity -> m (Maybe IPS.IdentityProviderData)
+doGetIdentityProvider :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> ID.IdentityProviderIdentity -> m (Maybe IPS.IpInfo)
 doGetIdentityProvider pbs ipId = do
         bsp <- loadPBS pbs
         ips <- loadBufferedRef (bspIdentityProviders bsp)
@@ -578,10 +578,10 @@ doAddSpecialTransactionOutcome pbs o = do
         bsp <- loadPBS pbs
         storePBS pbs bsp{bspTransactionOutcomes = bspTransactionOutcomes bsp & Transactions.outcomeSpecial %~ (o:)}
 
-doUpdateSeedState :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> SeedState -> m PersistentBlockState
-doUpdateSeedState pbs ss = do
+doUpdateBirkParameters :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> BirkParameters -> m PersistentBlockState
+doUpdateBirkParameters pbs newBirk = do
         bsp <- loadPBS pbs
-        storePBS pbs bsp{bspBirkParameters = bspBirkParameters bsp & seedState .~ ss}
+        storePBS pbs bsp{bspBirkParameters = newBirk}
 
 data PersistentBlockStateContext = PersistentBlockStateContext {
     pbscModuleCache :: IORef ModuleCache,
@@ -652,7 +652,7 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => Block
     bsoGetCryptoParams = doGetCryptoParams
     bsoSetTransactionOutcomes = doSetTransactionOutcomes
     bsoAddSpecialTransactionOutcome = doAddSpecialTransactionOutcome
-    bsoUpdateSeedState = doUpdateSeedState
+    bsoUpdateBirkParameters = doUpdateBirkParameters
     {-# INLINE bsoGetModule #-}
     {-# INLINE bsoGetAccount #-}
     {-# INLINE bsoGetInstance #-}
@@ -681,7 +681,7 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => Block
     {-# INLINE bsoGetCryptoParams #-}
     {-# INLINE bsoSetTransactionOutcomes #-}
     {-# INLINE bsoAddSpecialTransactionOutcome #-}
-    {-# INLINE bsoUpdateSeedState #-}
+    {-# INLINE bsoUpdateBirkParameters #-}
 
 instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => BlockStateStorage (PersistentBlockStateMonad r m) where
     {-# INLINE thawBlockState #-}

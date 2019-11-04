@@ -102,7 +102,7 @@ instance (bs ~ GS.BlockState m) => GS.GlobalStateTypes (GS.TreeStateM (SkovData 
 instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadState (SkovData bs) m) => TS.TreeStateMonad (GS.TreeStateM (SkovData bs) m) where
     makePendingBlock key slot parent bid pf n lastFin trs time = return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
     importPendingBlock blockBS rectime =
-        case runGet (getBlock rectime) blockBS of
+        case runGet (getBlock $ utcTimeToTransactionTime rectime) blockBS of
             Left err -> return $ Left $ "Block deserialization failed: " ++ err
             Right (GenesisBlock {}) -> return $ Left $ "Block desrialization failed: unexpected genesis block"
             Right (NormalBlock block0) -> return $ Right $ makePendingBlock block0 rectime
@@ -123,8 +123,8 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadState (Sko
             _ -> error "empty finalization list"
     getNextFinalizationIndex = FinalizationIndex . fromIntegral . Seq.length <$> use finalizationList
     addFinalization newFinBlock finRec = finalizationList %= (Seq.:|> (finRec, newFinBlock))
-    getFinalizationAtIndex finIndex = fmap fst . Seq.lookup (fromIntegral finIndex) <$> use finalizationList
-    getFinalizationFromIndex finIndex = toList . fmap fst . Seq.drop (fromIntegral finIndex) <$> use finalizationList
+    getFinalizationAtIndex finIndex = Seq.lookup (fromIntegral finIndex) <$> use finalizationList
+    getFinalizationFromIndex finIndex = toList . Seq.drop (fromIntegral finIndex) <$> use finalizationList
     getBranches = use branches
     putBranches brs = branches .= brs
     takePendingChildren bh = possiblyPendingTable . at bh . non [] <<.= []
@@ -177,14 +177,18 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadState (Sko
             tt <- use transactionTable
             let trHash = getHash tr
             case tt ^. ttHashMap . at trHash of
-                Nothing -> if (tt ^. ttNonFinalizedTransactions . at sender . non emptyANFT . anftNextNonce) <= nonce then do
-                                transactionTable .= (tt & (ttNonFinalizedTransactions . at sender . non emptyANFT . anftMap . at nonce . non Set.empty %~ Set.insert tr)
-                                                        & (ttHashMap . at (getHash tr) ?~ (tr, slot)))
-                                return $ Just (tr, True)
-                            else return Nothing
+                Nothing ->
+                  if (tt ^. ttNonFinalizedTransactions . at sender . non emptyANFT . anftNextNonce) <= nonce then do
+                    -- transaction should be added, provided its signature checks out.
+                    if verifyTransactionSignature tr then do
+                      transactionTable .= (tt & (ttNonFinalizedTransactions . at sender . non emptyANFT . anftMap . at nonce . non Set.empty %~ Set.insert tr)
+                                              & (ttHashMap . at (getHash tr) ?~ (tr, slot)))
+                      return (TS.Added tr)
+                    else return TS.InvalidSignature
+                  else return TS.ObsoleteNonce
                 Just (tr', slot') -> do
                                 when (slot > slot') $ transactionTable .= (tt & ttHashMap . at trHash ?~ (tr', slot))
-                                return $ Just (tr', False)
+                                return $ TS.Duplicate tr'
         where
             sender = transactionSender tr
             nonce = transactionNonce tr

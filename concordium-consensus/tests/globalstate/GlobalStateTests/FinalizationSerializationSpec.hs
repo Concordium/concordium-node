@@ -12,7 +12,7 @@ import qualified Data.Serialize.Put as P
 import qualified Data.Serialize.Get as G
 import Data.ByteString.Lazy as LBS    
 import Concordium.Crypto.SHA256(Hash(..))
-import Concordium.Crypto.SignatureScheme(Signature(..))
+import Concordium.Crypto.BlockSignature(Signature(..), signatureLength)
 import Data.FixedByteString as FBS
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Short as BSS
@@ -37,8 +37,7 @@ genFinalizationRecord = do
     l <- choose (0,200) -- between 0 and 200 parties, inclusive
     replicateM l $ do
       party <- arbitrary
-      sl <- choose(40,80) -- signature really is 64 bytes, but serialization should work with any size (at the moment)
-      bs <- BSS.pack <$> vector sl
+      bs <- BSS.pack <$> vector signatureLength
       return (party, Signature bs)
   finalizationDelay <- BlockHeight <$> arbitrary
   return FinalizationRecord{..}
