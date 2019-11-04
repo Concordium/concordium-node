@@ -632,7 +632,13 @@ impl ConnectionLowLevel {
     ) -> Fallible<Vec<HybridBuf>> {
         trace!("Commencing encryption with nonce {:x}", self.output_nonce);
 
-        let mut chunks = Vec::with_capacity(1 + len / NOISE_MAX_MESSAGE_LEN);
+        let last_chunk = if len % NOISE_MAX_MESSAGE_LEN == 0 {
+            0
+        } else {
+            1
+        };
+
+        let mut chunks = Vec::with_capacity(1 + len / NOISE_MAX_MESSAGE_LEN + last_chunk);
 
         // create the metadata chunk
         let metadata = HybridBuf::with_capacity(4)?;
@@ -640,7 +646,7 @@ impl ConnectionLowLevel {
 
         let encrypted_len = self.encrypt_chunks(&mut input, &mut chunks)?;
 
-        // 1.1. frame size
+        // write the message size
         chunks[0].write_u32::<NetworkEndian>(encrypted_len as PayloadSize)?;
 
         chunks[0].rewind()?;
