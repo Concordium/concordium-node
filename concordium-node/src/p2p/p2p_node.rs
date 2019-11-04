@@ -43,7 +43,6 @@ use std::{
         SocketAddr,
     },
     path::PathBuf,
-    pin::Pin,
     str::FromStr,
     sync::{
         atomic::{AtomicBool, AtomicU16, AtomicU64, AtomicUsize, Ordering},
@@ -179,7 +178,7 @@ pub struct Receivers {
 #[allow(dead_code)] // caused by the dump_network feature; will fix in a follow-up
 #[repr(C)]
 pub struct P2PNode {
-    pub self_ref:             Option<Pin<Arc<Self>>>,
+    pub self_ref:             Option<Arc<Self>>,
     pub self_peer:            P2PPeer,
     threads:                  RwLock<P2PNodeThreads>,
     pub poll:                 Poll,
@@ -411,16 +410,12 @@ impl P2PNode {
         // available using the unsafe ptr::write
         // this is safe, as at this point the node is not shared with any other object
         // or thread
-        let n1 = Arc::get_mut(&mut node).unwrap() as *mut P2PNode;
-        let n2 = Arc::into_raw(node) as *const P2PNode;
-        let n3 = n2;
+        let inner_node = Arc::get_mut(&mut node).unwrap() as *mut P2PNode;
+        let data_to_copy = &node as *const Arc<P2PNode>;
+        let self_ref_ptr = inner_node as *mut Arc<P2PNode>;
         unsafe {
-            std::ptr::write(
-                n1 as *mut *const u8,
-                &Arc::from_raw(n2) as *const Arc<P2PNode> as *const u8,
-            )
+            self_ref_ptr.copy_from(data_to_copy, 1);
         };
-        let node = unsafe { Arc::from_raw(n3) };
 
         node.clear_bans()
             .unwrap_or_else(|e| error!("Couldn't reset the ban list: {}", e));
@@ -1361,7 +1356,11 @@ impl P2PNode {
 }
 
 impl Drop for P2PNode {
-    fn drop(&mut self) { let _ = self.close_and_join(); }
+    fn drop(&mut self) {
+        let node = self.self_ref.take();
+        Arc::into_raw(node.unwrap());
+        let _ = self.close_and_join();
+    }
 }
 
 /// Connetion is valid for a broadcast if sender is not target,
