@@ -317,14 +317,16 @@ fn start_global_state_thread(
         }
 
         let mut last_peer_list_update = 0;
-        let mut loop_interval: u64;
+        let mut loop_interval_in: u64;
+        let mut loop_interval_out: u64;
         let consensus_receiver_out_hi = CALLBACK_QUEUE.receiver_out_hi.lock().unwrap();
         let consensus_receiver_out_lo = CALLBACK_QUEUE.receiver_out_lo.lock().unwrap();
         let consensus_receiver_in_hi = CALLBACK_QUEUE.receiver_in_hi.lock().unwrap();
         let consensus_receiver_in_lo = CALLBACK_QUEUE.receiver_in_lo.lock().unwrap();
 
         'outer_loop: loop {
-            loop_interval = 200;
+            loop_interval_in = 200;
+            loop_interval_out = 200;
 
             if node_ref.last_peer_update() > last_peer_list_update {
                 update_peer_list(&node_ref, &mut gsptr);
@@ -338,10 +340,7 @@ fn start_global_state_thread(
             for message in consensus_receiver_in_hi.try_iter() {
                 match message {
                     QueueMsg::Relay(msg) => {
-                        loop_interval = match msg.variant {
-                            PacketType::Block => loop_interval.saturating_sub(5),
-                            _ => loop_interval.saturating_sub(1),
-                        };
+                        let msg_type = msg.variant;
                         if let Err(e) = handle_consensus_message(
                             &node_ref,
                             nid,
@@ -350,6 +349,11 @@ fn start_global_state_thread(
                             &mut gsptr,
                         ) {
                             error!("There's an issue with a global state request: {}", e);
+                        } else {
+                            loop_interval_in = match msg_type {
+                                PacketType::Block => loop_interval_in.saturating_sub(5),
+                                _ => loop_interval_in.saturating_sub(1),
+                            };
                         }
                     }
                     QueueMsg::Stop => {
@@ -359,7 +363,7 @@ fn start_global_state_thread(
                 }
             }
 
-            let queue_take_amount_inbound = match loop_interval {
+            let queue_take_amount_inbound = match loop_interval_in {
                 176..=200 => 2048,
                 151..=175 => 1536,
                 126..=150 => 1024,
@@ -373,6 +377,7 @@ fn start_global_state_thread(
             for message in consensus_receiver_out_hi.try_iter() {
                 match message {
                     QueueMsg::Relay(msg) => {
+                        let msg_type = msg.variant;
                         if let Err(e) = handle_consensus_message(
                             &node_ref,
                             nid,
@@ -381,6 +386,11 @@ fn start_global_state_thread(
                             &mut gsptr,
                         ) {
                             error!("There's an issue with a global state request: {}", e);
+                        } else {
+                            loop_interval_out = match msg_type {
+                                PacketType::Block => loop_interval_out.saturating_sub(5),
+                                _ => loop_interval_out.saturating_sub(1),
+                            };
                         }
                     }
                     QueueMsg::Stop => {
@@ -388,9 +398,18 @@ fn start_global_state_thread(
                         break 'outer_loop;
                     }
                 }
-
-                loop_interval = loop_interval.saturating_sub(1);
             }
+
+            let queue_take_amount_outbound = match loop_interval_out {
+                176..=200 => 2048,
+                151..=175 => 1536,
+                126..=150 => 1024,
+                101..=125 => 768,
+                76..=100 => 576,
+                51..=75 => 432,
+                26..=50 => 324,
+                _ => 243,
+            };
 
             for _ in 0..queue_take_amount_inbound {
                 if let Ok(message) = consensus_receiver_in_lo.try_recv() {
@@ -416,7 +435,7 @@ fn start_global_state_thread(
                 }
             }
 
-            for _ in 0..4096 {
+            for _ in 0..queue_take_amount_outbound {
                 if let Ok(message) = consensus_receiver_out_lo.try_recv() {
                     match message {
                         QueueMsg::Relay(msg) => {
@@ -440,7 +459,9 @@ fn start_global_state_thread(
                 }
             }
 
-            thread::sleep(Duration::from_millis(loop_interval));
+            thread::sleep(Duration::from_millis(
+                loop_interval_in.saturating_sub(loop_interval_out),
+            ));
         }
     });
 
