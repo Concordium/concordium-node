@@ -53,12 +53,18 @@ import Concordium.Afgjort.Finalize (FinalizationPseudoMessage(..),FinalizationIn
 import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.TimerMonad (ThreadTimer)
-import Concordium.Skov.CatchUp (CatchUpStatus)
+import Concordium.Skov.CatchUp (CatchUpStatus,cusIsRequest)
 
 import qualified Concordium.Getters as Get
 
 import Control.Concurrent.MVar
 import Control.Monad.IO.Class
+
+#ifdef RUST
+type GlobalStatePtr = Ptr Rust.GlobalStateR
+#else
+type GlobalStatePtr = Ptr ()
+#endif
 
 -- |A 'PeerID' identifies peer at the p2p layer.
 type PeerID = Word64
@@ -304,20 +310,14 @@ startConsensus ::
            Word64 -- ^Maximum block size.
            -> CString -> Int64 -- ^Serialized genesis data (c string + len)
            -> CString -> Int64 -- ^Serialized baker identity (c string + len)
-#ifdef RUST
-           -> Ptr Rust.GlobalStateR
-#endif
+           -> GlobalStatePtr    -- ^Pointer to global state (if compiled with RUST flag)
            -> FunPtr BroadcastCallback -- ^Handler for generated messages
            -> Word8 -- ^Maximum log level (inclusive) (0 to disable logging).
            -> FunPtr LogCallback -- ^Handler for log events
            -> Word8 -- ^Whether to enable logging of transfer events (/= 0) or not (value 0).
            -> FunPtr LogTransferCallback -- ^Handler for logging transfer events
            -> IO (StablePtr ConsensusRunner)
-startConsensus maxBlock gdataC gdataLenC bidC bidLenC
-#ifdef RUST
-    gsptr
-#endif
-    bcbk maxLogLevel lcbk enableTransferLogging ltcbk = do
+startConsensus maxBlock gdataC gdataLenC bidC bidLenC gsptr bcbk maxLogLevel lcbk enableTransferLogging ltcbk = do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
         case (decode gdata, decode bdata) of
@@ -354,17 +354,11 @@ startConsensus maxBlock gdataC gdataLenC bidC bidLenC
 startConsensusPassive ::
            Word64 -- ^Maximum block size.
            -> CString -> Int64 -- ^Serialized genesis data (c string + len)
-#ifdef RUST
-           -> Ptr Rust.GlobalStateR
-#endif
+           -> GlobalStatePtr    -- ^Pointer to global state (if compiled with RUST flag)
            -> Word8 -- ^Maximum log level (inclusive) (0 to disable logging).
            -> FunPtr LogCallback -- ^Handler for log events
             -> IO (StablePtr ConsensusRunner)
-startConsensusPassive maxBlock gdataC gdataLenC
-#ifdef RUST
-    gsptr
-#endif
-    maxLogLevel lcbk = do
+startConsensusPassive maxBlock gdataC gdataLenC gsptr maxLogLevel lcbk = do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         case decode gdata of
             Right genData -> do
@@ -438,6 +432,8 @@ stopBaker cptr = mask_ $ do
 +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
 |     9 | ResultUnverifiable                 | The message could not be verified in the current state (initiate catch-up with peer)   | No       |
 +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
+|    10 | ResultContinueCatchUp              | The peer should be marked pending catch-up if it is currently up-to-date               | N/A      |
++-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
 -}
 type ReceiveResult = Int64
 
@@ -452,6 +448,7 @@ toReceiveResult ResultDuplicate = 6
 toReceiveResult ResultStale = 7
 toReceiveResult ResultIncorrectFinalizationSession = 8
 toReceiveResult ResultUnverifiable = 9
+toReceiveResult ResultContinueCatchUp = 10
 
 
 -- |Handle receipt of a block.
@@ -523,15 +520,15 @@ receiveFinalizationRecord bptr cstr l = do
                 PassiveRunner{..} -> syncPassiveReceiveFinalizationRecord passiveSyncRunner finRec
 
 -- |Handle receipt of a transaction.
--- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultDuplicate@, and @ResultStale@
+-- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultDuplicate@, @ResultStale@, @ResultInvalid@.
 receiveTransaction :: StablePtr ConsensusRunner -> CString -> Int64 -> IO ReceiveResult
 receiveTransaction bptr tdata len = do
     c <- deRefStablePtr bptr
     let logm = consensusLogMethod c
     logm External LLDebug $ "Received transaction, data size=" ++ show len ++ ". Decoding ..."
     tbs <- BS.packCStringLen (tdata, fromIntegral len)
-    now <- currentTime
-    toReceiveResult <$> case runGet (getVerifiedTransaction now) tbs of
+    now <- getTransactionTime
+    toReceiveResult <$> case runGet (getUnverifiedTransaction now) tbs of
         Left _ -> do
             logm External LLDebug $ "Could not decode transaction."
             return ResultSerializationFail
@@ -578,8 +575,8 @@ getAncestors cptr blockcstr depth = do
 getBranches :: StablePtr ConsensusRunner -> IO CString
 getBranches cptr = do
     c <- deRefStablePtr cptr
-    branches <- runConsensusQuery c Get.getBranches
-    jsonValueToCString branches
+    rbranches <- runConsensusQuery c Get.getBranches
+    jsonValueToCString rbranches
 
 
 
@@ -696,7 +693,9 @@ getBirkParameters cptr blockcstr = do
 
 
 -- |Check whether we are a baker from the perspective of the best block.
--- Returns 0 for 'False' and 1 for 'True'.
+-- Returns 0 if we are not added as a baker.
+-- Returns 1 if we are added as a baker, but not part of the baking committee yet.
+-- Returns 2 if we are part of the baking committee.
 checkIfWeAreBaker :: StablePtr ConsensusRunner -> IO Word8
 checkIfWeAreBaker cptr = do
     c <- deRefStablePtr cptr
@@ -712,7 +711,7 @@ checkIfWeAreBaker cptr = do
         let signKey = Baker.bakerSignPublicKey bid
         r <- runConsensusQuery c (Get.checkBakerExistsBestBlock signKey)
         logm External LLTrace $ "Replying with " ++ show r
-        if r then return 1 else return 0
+        return r
 
 -- |Check if we are members of the finalization committee.
 -- Returns 0 for 'False' and 1 for 'True'.
@@ -805,46 +804,6 @@ hookTransaction cptr trcstr = do
 freeCStr :: CString -> IO ()
 freeCStr = free
 
--- |Get a finalization record for the given block.
--- The block hash is passed as a pointer to a fixed length (32 byte) string.
--- The return value is a length encoded string: the first 4 bytes are
--- the length (encoded big-endian), followed by the data itself.
--- The string should be freed by calling 'freeCStr'.
--- The string may be empty (length 0) if the finalization record is not found.
-getBlockFinalization :: StablePtr ConsensusRunner -> BlockReference -> IO CString
-getBlockFinalization cptr blockRef = do
-        c <- deRefStablePtr cptr
-        let logm = consensusLogMethod c
-        bh <- blockReferenceToBlockHash blockRef
-        logm External LLInfo $ "Received request for finalization record for block: " ++ show bh
-        f <- runConsensusQuery c Get.getBlockFinalization bh
-        case f :: Maybe FinalizationRecord of
-            Nothing -> do
-                logm External LLInfo $ "Finalization record not available"
-                byteStringToCString BS.empty
-            Just finRec -> do
-                logm External LLInfo $ "Finalization record found"
-                byteStringToCString $ P.runPut $ put finRec
-
--- |Get a finalization record for the given finalization index.
--- The return value is a length encoded string: the first 4 bytes are
--- the length (encoded big-endian), followed by the data itself.
--- The string should be freed by calling 'freeCStr'.
--- The string may be empty (length 0) if the finalization record is not found.
-getIndexedFinalization :: StablePtr ConsensusRunner -> Word64 -> IO CString
-getIndexedFinalization cptr finInd = do
-        c <- deRefStablePtr cptr
-        let logm = consensusLogMethod c
-        logm External LLInfo $ "Received request for finalization record at index " ++ show finInd
-        f <- runConsensusQuery c Get.getIndexedFinalization (fromIntegral finInd :: FinalizationIndex)
-        case f :: Maybe FinalizationRecord of
-            Nothing -> do
-                logm External LLInfo $ "Finalization record not available"
-                byteStringToCString BS.empty
-            Just finRec -> do
-                logm External LLInfo $ "Finalization record found"
-                byteStringToCString $ P.runPut $ put finRec
-
 -- |Get a catch-up status message for requesting catch-up with peers.
 -- The return value is a length encoded string: the first 4 bytes are
 -- the length (encoded big-endian), followed by the data itself.
@@ -882,8 +841,16 @@ callDirectMessageCallback cbk peer mt bs = BS.useAsCStringLen bs $ \(cdata, clen
 -- * @ResultInvalid@ -- the catch-up message is inconsistent with the skov
 -- * @ResultPendingBlock@ -- the sender has some data I am missing, and should be marked pending
 -- * @ResultSuccess@ -- I do not require additional data from the sender, so mark it as up-to-date
-receiveCatchUpStatus :: StablePtr ConsensusRunner -> PeerID -> CString -> Int64 -> FunPtr DirectMessageCallback -> IO ReceiveResult
-receiveCatchUpStatus cptr src cstr l cbk = do
+-- * @ResultContinueCatchUp@ -- The sender should be marked pending if it is currently up-to-date (no change otherwise)
+receiveCatchUpStatus ::
+    StablePtr ConsensusRunner           -- ^Consensus pointer
+    -> PeerID                           -- ^Identifier of peer (passed to callback)
+    -> CString                          -- ^Serialised catch-up message
+    -> Int64                            -- ^Length of message
+    -> Word64                           -- ^Limit to number of responses (0 = unlimited)
+    -> FunPtr DirectMessageCallback     -- ^Callback to receive messages
+    -> IO ReceiveResult
+receiveCatchUpStatus cptr src cstr l limit cbk = do
     c <- deRefStablePtr cptr
     let logm = consensusLogMethod c
     bs <- BS.packCStringLen (cstr, fromIntegral l)
@@ -902,19 +869,21 @@ receiveCatchUpStatus cptr src cstr l cbk = do
                     let
                         sendMsg = callDirectMessageCallback cbk src
                     forM_ d $ \(frbs, rcus) -> do
-                        logm Skov LLTrace $ "Sending " ++ show (length frbs) ++ " blocks/finalization records"
-                        mapM_ (uncurry sendMsg) frbs
-                        logm Skov LLDebug $ "Catch up response status message: " ++ show rcus
+                        let limFrbs = if limit == 0 then frbs else take (fromIntegral limit) frbs
+                        logm Skov LLTrace $ "Sending " ++ show (length limFrbs) ++ " blocks/finalization records"
+                        mapM_ (uncurry sendMsg) limFrbs
+                        logm Skov LLDebug $ "Catch-up response status message: " ++ show rcus
                         sendMsg MTCatchUpStatus $ encode rcus
-                    return $! if flag then ResultPendingBlock else ResultSuccess
+                    return $! if flag then
+                                if cusIsRequest cus then
+                                    ResultContinueCatchUp
+                                else
+                                    ResultPendingBlock
+                            else
+                                ResultSuccess
 
-#ifdef RUST
-foreign export ccall startConsensus :: Word64 -> CString -> Int64 -> CString -> Int64 ->  Ptr Rust.GlobalStateR -> FunPtr BroadcastCallback -> Word8 -> FunPtr LogCallback -> Word8 -> FunPtr LogTransferCallback -> IO (StablePtr ConsensusRunner)
-foreign export ccall startConsensusPassive :: Word64 -> CString -> Int64 -> Ptr Rust.GlobalStateR -> Word8 -> FunPtr LogCallback -> IO (StablePtr ConsensusRunner)
-#else
-foreign export ccall startConsensus :: Word64 -> CString -> Int64 -> CString -> Int64 -> FunPtr BroadcastCallback -> Word8 -> FunPtr LogCallback -> Word8 -> FunPtr LogTransferCallback -> IO (StablePtr ConsensusRunner)
-foreign export ccall startConsensusPassive :: Word64 -> CString -> Int64 -> Word8 -> FunPtr LogCallback -> IO (StablePtr ConsensusRunner)
-#endif
+foreign export ccall startConsensus :: Word64 -> CString -> Int64 -> CString -> Int64 -> GlobalStatePtr -> FunPtr BroadcastCallback -> Word8 -> FunPtr LogCallback -> Word8 -> FunPtr LogTransferCallback -> IO (StablePtr ConsensusRunner)
+foreign export ccall startConsensusPassive :: Word64 -> CString -> Int64 -> GlobalStatePtr -> Word8 -> FunPtr LogCallback -> IO (StablePtr ConsensusRunner)
 foreign export ccall stopConsensus :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall startBaker :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall stopBaker :: StablePtr ConsensusRunner -> IO ()
@@ -929,11 +898,8 @@ foreign export ccall getAncestors :: StablePtr ConsensusRunner -> CString -> Wor
 foreign export ccall getBranches :: StablePtr ConsensusRunner -> IO CString
 foreign export ccall freeCStr :: CString -> IO ()
 
-foreign export ccall getBlockFinalization :: StablePtr ConsensusRunner -> BlockReference -> IO CString
-foreign export ccall getIndexedFinalization :: StablePtr ConsensusRunner -> Word64 -> IO CString
-
 foreign export ccall getCatchUpStatus :: StablePtr ConsensusRunner -> IO CString
-foreign export ccall receiveCatchUpStatus :: StablePtr ConsensusRunner -> PeerID -> CString -> Int64 -> FunPtr DirectMessageCallback -> IO ReceiveResult
+foreign export ccall receiveCatchUpStatus :: StablePtr ConsensusRunner -> PeerID -> CString -> Int64 -> Word64 -> FunPtr DirectMessageCallback -> IO ReceiveResult
 
 -- report global state information will be removed in the future when global
 -- state is handled better

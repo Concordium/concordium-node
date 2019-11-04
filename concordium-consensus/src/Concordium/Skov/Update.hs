@@ -172,7 +172,7 @@ processFinalizationPool = do
             foldrM checkFin (Right []) frs >>= \case
                 -- We got a valid finalization proof, so progress finalization
                 Left (finRec, newFinBlock) -> do
-                    logEvent Skov LLInfo $ "Block " ++ show (bpHash newFinBlock) ++ " is finalized at height " ++ show (theBlockHeight $ bpHeight newFinBlock)
+                    logEvent Skov LLInfo $ "Block " ++ show (bpHash newFinBlock) ++ " is finalized at height " ++ show (theBlockHeight $ bpHeight newFinBlock) ++ " with finalization delta=" ++ show (finalizationDelay finRec)
                     updateFinalizationStatistics
                     -- Check if the focus block is a descendent of the block we are finalizing
                     focusBlockSurvives <- (isAncestorOf newFinBlock) <$> getFocusBlock
@@ -318,7 +318,7 @@ addBlock block = do
                             -- get Birk parameters from the __parent__ block. The baker must have existed in that
                             -- block's state in order that the current block is valid
                             bps@BirkParameters{..} <- getBirkParameters (blockSlot block) parentP
-                            case birkBaker (blockBaker block) bps of
+                            case birkEpochBaker (blockBaker block) bps of
                                 Nothing -> invalidBlock
                                 Just (BakerInfo{..}, lotteryPower) ->
                                     -- Check the block proof
@@ -338,8 +338,9 @@ addBlock block = do
                                     -- And the block signature
                                     check (verifyBlockSignature _bakerSignatureVerifyKey block) $ do
                                         let ts = blockTransactions block
-                                            seedState' = updateSeedState (blockSlot block) (blockNonce block) (_seedState)
-                                        executeFrom (blockSlot block) parentP lfBlockP (blockBaker block) seedState' ts >>= \case
+                                        -- possibly add the block nonce in the seed state
+                                            bps' = bps{_birkSeedState = updateSeedState (blockSlot block) (blockNonce block) (_birkSeedState)}
+                                        executeFrom (blockSlot block) parentP lfBlockP (blockBaker block) bps' ts >>= \case
                                             Left err -> do
                                                 logEvent Skov LLWarning ("Block execution failure: " ++ show err)
                                                 invalidBlock
@@ -480,6 +481,7 @@ doFinalizeBlock = \finRec -> do
 --   * 'ResultDuplicate', which indicates that either the transaction is a duplicate
 --   * 'ResultStale' which indicates that a transaction with the same sender
 --     and nonce has already been finalized. In this case the transaction is not added to the table.
+--   * 'ResultInvalid' which indicates that the transaction signature was invalid.
 doReceiveTransaction :: (TreeStateMonad m) => Transaction -> Slot -> m UpdateResult
 doReceiveTransaction tr slot = snd <$> doReceiveTransactionInternal tr slot
 
@@ -491,9 +493,7 @@ doReceiveTransaction tr slot = snd <$> doReceiveTransactionInternal tr slot
 doReceiveTransactionInternal :: (TreeStateMonad m) => Transaction -> Slot -> m (Maybe Transaction, UpdateResult)
 doReceiveTransactionInternal tr slot = do
         addCommitTransaction tr slot >>= \case
-          Nothing -> return (Nothing, ResultStale)
-          Just (tx, added) -> 
-            if added then do
+          Added tx -> do
               ptrs <- getPendingTransactions
               focus <- getFocusBlock
               macct <- getAccount (bpState focus) $! (transactionSender tr)
@@ -504,5 +504,6 @@ doReceiveTransactionInternal tr slot = do
               when (nextNonce <= transactionNonce tr) $
                   putPendingTransactions $! extendPendingTransactionTable nextNonce tx ptrs
               return $ (Just tx, ResultSuccess)
-            else
-              return $ (Just tx, ResultDuplicate)
+          Duplicate tx -> return (Just tx, ResultDuplicate)
+          InvalidSignature -> return (Nothing, ResultInvalid)
+          ObsoleteNonce -> return (Nothing, ResultStale)

@@ -8,11 +8,8 @@ import System.Random
 import Data.Time.Clock.POSIX
 import System.IO
 import Data.IORef
-import Lens.Micro.Platform
-import Data.List(intercalate)
 import Data.Serialize
 
-import Concordium.TimeMonad
 import Concordium.TimerMonad
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.IdentityProviders
@@ -32,7 +29,6 @@ import qualified Concordium.GlobalState.Implementation as Rust
 
 import Concordium.Scheduler.Utils.Init.Example as Example
 
-import Concordium.Afgjort.Finalize.Types
 import Concordium.Types
 import Concordium.Runner
 import Concordium.Logger
@@ -122,7 +118,7 @@ relay myPeer inp sr connectedRef monitor loopback outps = loop
         loop = do
             msg <- readChan inp
             connected <- readIORef connectedRef
-            now <- currentTime
+            now <- getTransactionTime
             -- If we're connected, relay the message as required
             if connected then case msg of
                 MsgNewBlock blockBS -> do
@@ -213,7 +209,7 @@ gsToString gs = intercalate "\\l" . map show $ keys
         keys = map (\n -> (n, instanceModel <$> getInstance (ca n) (gs ^. blockInstances))) $ enumFromTo 0 (nContracts-1)
 -}
 
-dummyIdentityProviders :: [IdentityProviderData]
+dummyIdentityProviders :: [IpInfo]
 dummyIdentityProviders = []
 
 genesisState :: GenesisData -> Basic.BlockState

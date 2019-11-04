@@ -39,6 +39,8 @@ data UpdateResult
     -- ^The message refers to a different/unknown finalization session
     | ResultUnverifiable
     -- ^The message could not be validated with the current state
+    | ResultContinueCatchUp
+    -- ^The peer should be marked as pending unless catch up is already in progress
 
 class (Monad m, Eq (BlockPointer m), BlockPointerData (BlockState m) (BlockPointer m), BlockStateQuery m) => SkovQueryMonad m where
     -- |Look up a block in the table given its hash

@@ -23,7 +23,7 @@ blockLuck block = case blockFields block of
             -- These are the parameters which determine valid bakers, election difficulty,
             -- that determine the luck of the block itself.
             params <- getBirkParameters (blockSlot block) (bpParent block)
-            case birkBaker (blockBaker bf) params of
+            case birkEpochBaker (blockBaker bf) params of
                 Nothing -> assert False $ return zeroLuck -- This should not happen, since it would mean the block was baked by an invalid baker
                 Just (_, lotteryPower) ->
                     return (electionLuck (params ^. birkElectionDifficulty) lotteryPower (blockProof bf))

@@ -2,13 +2,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -Wall #-}
-module Concordium.Scheduler.Utils.Init.Example (initialState, initialPersistentState, makeTransaction, mateuszAccount) where
+module Concordium.Scheduler.Utils.Init.Example (initialState, makeTransaction, mateuszAccount) where
 
 import qualified Data.HashMap.Strict as Map
 import System.Random
 import Control.Monad.IO.Class
 
-import Concordium.Crypto.SignatureScheme(KeyPair(..), SchemeId(Ed25519))
+import Concordium.Crypto.SignatureScheme(KeyPair(..))
 import qualified Concordium.Crypto.SignatureScheme as Sig
 import Concordium.Crypto.Ed25519Signature(randomKeyPair)
 
@@ -72,13 +72,13 @@ initialTrans :: Int -> [Types.BareTransaction]
 initialTrans n = map initSimpleCounter $ enumFromTo 1 n
 
 mateuszAccount :: AccountAddress
-mateuszAccount = AH.accountAddress (Sig.verifyKey mateuszKP) Ed25519
+mateuszAccount = AH.accountAddress (Sig.correspondingVerifyKey mateuszKP)
 
 mateuszKP :: KeyPair
-mateuszKP = fst (randomKeyPair (mkStdGen 0))
+mateuszKP = uncurry Sig.KeyPairEd25519 . fst $ randomKeyPair (mkStdGen 0)
 
 mateuszKP' :: KeyPair
-mateuszKP' = fst (randomKeyPair (mkStdGen 1))
+mateuszKP' = uncurry Sig.KeyPairEd25519 . fst $ randomKeyPair (mkStdGen 1)
 
 initSimpleCounter :: Int -> Types.BareTransaction
 initSimpleCounter n = Runner.signTx
@@ -91,9 +91,8 @@ initSimpleCounter n = Runner.signTx
                                           (Core.Atom (Core.Literal (Core.Int64 0)))
                                         )
           header = Runner.TransactionHeader{
-            thScheme = Ed25519,
             thNonce = fromIntegral n,
-            thSenderKey = verifyKey mateuszKP,
+            thSenderKey = Sig.correspondingVerifyKey mateuszKP,
             thGasAmount = 100000
             }
 
@@ -102,9 +101,8 @@ makeTransaction :: Bool -> ContractAddress -> Nonce -> Types.BareTransaction
 makeTransaction inc ca n = Runner.signTx mateuszKP header payload
     where
         header = Runner.TransactionHeader{
-            thScheme = Ed25519,
             thNonce = n,
-            thSenderKey = verifyKey mateuszKP,
+            thSenderKey = Sig.correspondingVerifyKey mateuszKP,
             thGasAmount = 1000000
             }
         payload = Types.encodePayload (Types.Update 0
@@ -117,7 +115,7 @@ makeTransaction inc ca n = Runner.signTx mateuszKP header payload
 initialState :: BirkParameters
              -> CryptographicParameters
              -> [Account]
-             -> [Types.IdentityProviderData]
+             -> [Types.IpInfo]
              -> Int
              -> BlockState.BlockState
 initialState birkParams cryptoParams bakerAccounts ips n =
@@ -127,8 +125,8 @@ initialState birkParams cryptoParams bakerAccounts ips n =
                                         ,Left "test/contracts/SimpleCounter.acorn"]
                             )
         initialAmount = 2 ^ (62 :: Int)
-        customAccounts = [newAccount (Sig.verifyKey mateuszKP) Ed25519 & accountAmount .~ initialAmount,
-                          newAccount (Sig.verifyKey mateuszKP') Ed25519 & accountAmount .~ initialAmount]
+        customAccounts = [newAccount (Sig.correspondingVerifyKey mateuszKP) & accountAmount .~ initialAmount,
+                          newAccount (Sig.correspondingVerifyKey mateuszKP') & accountAmount .~ initialAmount]
         initAccount = foldl (flip Acc.putAccount)
                             Acc.emptyAccounts
                             (customAccounts ++ bakerAccounts)
@@ -140,7 +138,3 @@ initialState birkParams cryptoParams bakerAccounts ips n =
         gs' = Types.execSI (execTransactions (initialTrans n)) Types.emptySpecialBetaAccounts Types.dummyChainMeta gs
     in gs' & (BlockState.blockAccounts .~ initAccount) .
              (BlockState.blockBank .~ Types.makeGenesisBankStatus initialAmount 10) -- also reset the bank after execution to maintain invariants.
-
--- |State with the given number of contract instances of the counter contract specified.
-initialPersistentState :: (MonadIO m) => BirkParameters -> CryptographicParameters -> [Account] -> [Types.IdentityProviderData] -> Int -> m Persistent.PersistentBlockState
-initialPersistentState birkParams cryptoParams bakerAccounts ips n = Persistent.makePersistent $! initialState birkParams cryptoParams bakerAccounts ips n

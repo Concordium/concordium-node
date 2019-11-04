@@ -19,7 +19,6 @@ import Concordium.Scheduler.Environment
 
 import qualified Data.Serialize as S
 import qualified Data.ByteString as BS
-import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.ID.Account as AH
 import qualified Concordium.ID.Types as ID
 
@@ -62,9 +61,7 @@ checkHeader meta =
                        -- check they have enough funds to cover the deposit
                        unless (depositedAmount <= amnt) (throwError InsufficientFunds)
                        unless (txnonce == nextNonce) (throwError (NonSequentialNonce nextNonce))
-                       let sigCheck = verifyTransactionSignature' (acc ^. accountVerificationKey) -- the signature is correct.
-                                                                  meta
-                                                                  (transactionSignature meta)
+                       let sigCheck = verifyTransactionSignature meta
                        assert sigCheck (return acc)) -- only use assert because we rely on the signature being valid in the transaction table
                        -- unless sigCheck (throwError IncorrectSignature))
         -- TODO: If we are going to check that the signature is correct before adding the transaction to the table then this check can be removed,
@@ -457,20 +454,14 @@ handleDeployCredential senderAccount meta cdiBytes cdi =
             -- Of course if it does not exist we reject the transaction.
             getIPInfo (ID.cdvIpId cdv) >>= \case
               Nothing -> return $! TxReject (NonExistentIdentityProvider (ID.cdvIpId cdv)) energyCost usedEnergy
-              Just IdentityProviderData{ipArInfo=AnonymityRevokerData{..},..} -> do
-                CryptographicParameters{..} <- getCrypoParams
+              Just ipInfo -> do
+                cryptoParams <- getCrypoParams
                 -- first check whether an account with the address exists in the global store
-                let aaddr = AH.accountAddress (ID.cdvVerifyKey cdv) (ID.cdvSigScheme cdv)
+                let aaddr = AH.accountAddress (ID.cdvVerifyKey cdv)
                 getAccount aaddr >>= \case
                   Nothing ->  -- account does not yet exist, so create it, but we need to be careful
-                    let account = newAccount (ID.cdvVerifyKey cdv) (ID.cdvSigScheme cdv)
-                    in if AH.verifyCredential
-                          elgamalGenerator
-                          attributeCommitmentKey
-                          ipVerifyKey
-                          arElgamalGenerator
-                          arPublicKey
-                          cdiBytes then do
+                    let account = newAccount (ID.cdvVerifyKey cdv)
+                    in if AH.verifyCredential cryptoParams ipInfo cdiBytes then do
                              _ <- putNewAccount account -- first create new account, but only if credential was valid.
                                                         -- We know the address does not yet exist.
                              addAccountCredential account cdv  -- and then add the credentials
@@ -478,13 +469,7 @@ handleDeployCredential senderAccount meta cdiBytes cdi =
                        else return $! TxReject AccountCredentialInvalid energyCost usedEnergy
      
                   Just account -> -- otherwise we just try to add a credential to the account
-                            if AH.verifyCredential
-                               elgamalGenerator
-                               attributeCommitmentKey
-                               ipVerifyKey
-                               arElgamalGenerator
-                               arPublicKey
-                               cdiBytes then do
+                            if AH.verifyCredential cryptoParams ipInfo cdiBytes then do
                               addAccountCredential account cdv
                               return $! TxSuccess [CredentialDeployed cdv] energyCost usedEnergy
                             else
@@ -522,11 +507,11 @@ checkElectionKeyProof :: BS.ByteString -> BakerElectionVerifyKey -> Proofs.Dlog2
 checkElectionKeyProof = Proofs.checkDlog25519ProofVRF
 
 checkSignatureVerifyKeyProof :: BS.ByteString -> BakerSignVerifyKey -> Proofs.Dlog25519Proof -> Bool             
-checkSignatureVerifyKeyProof = Proofs.checkDlog25519ProofSig
+checkSignatureVerifyKeyProof = Proofs.checkDlog25519ProofBlock
 
-checkAccountOwnership :: BS.ByteString -> SigScheme.SchemeId -> ID.AccountVerificationKey -> Proofs.Dlog25519Proof -> Bool             
-checkAccountOwnership challenge schId vfkey proof =
-  schId == SigScheme.Ed25519 && Proofs.checkDlog25519ProofSig challenge vfkey proof
+checkAccountOwnership :: BS.ByteString -> ID.AccountVerificationKey -> Proofs.Dlog25519Proof -> Bool             
+checkAccountOwnership challenge vfkey proof =
+  Proofs.checkDlog25519ProofSig challenge vfkey proof
 
 -- |Add a baker to the baker pool. The current logic for when this is allowed is as follows.
 --
@@ -575,7 +560,7 @@ handleAddBaker senderAccount meta abElectionVerifyKey abSignatureVerifyKey abAcc
                         let challenge = S.runPut (S.put abElectionVerifyKey <> S.put abSignatureVerifyKey <> S.put abAccount)
                             electionP = checkElectionKeyProof challenge abElectionVerifyKey abProofElection
                             signP = checkSignatureVerifyKeyProof challenge abSignatureVerifyKey abProofSig
-                            accountP = checkAccountOwnership challenge _accountSignatureScheme _accountVerificationKey abProofAccount
+                            accountP = checkAccountOwnership challenge _accountVerificationKey abProofAccount
                         in if electionP && signP && accountP then do
                           -- the proof validates that the baker owns all the private keys.
                           -- Moreover at this point we know the reward account exists and belongs
@@ -650,7 +635,7 @@ handleUpdateBakerAccount senderAccount meta ubaId ubaAddress ubaProof =
                     Nothing -> return $! TxReject (NonExistentRewardAccount ubaAddress) energyCost usedEnergy
                     Just Account{..} ->
                       let challenge = S.runPut (S.put ubaId <> S.put ubaAddress)
-                          accountP = checkAccountOwnership challenge _accountSignatureScheme _accountVerificationKey ubaProof
+                          accountP = checkAccountOwnership challenge _accountVerificationKey ubaProof
                       in if accountP then do
                         _ <- updateBakerAccount ubaId ubaAddress
                         return $ TxSuccess [BakerAccountUpdated ubaId ubaAddress] energyCost usedEnergy

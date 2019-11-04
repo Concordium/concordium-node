@@ -270,7 +270,7 @@ myRunSkovT a handlers ctx st es = liftIO $ flip runLoggerT doLog $ do
 
 runKonsensusTest :: RandomGen g => Int -> g -> States -> ExecState -> IO Property
 runKonsensusTest steps g states es
-        | steps <= 0 = return $ property True
+        | steps <= 0 = return $ (label $ "fin length: " ++ (show $ maximum $ (\s -> s ^. _3 . to _sasSkov . TS.skovFinalizationList . to Seq.length) <$> states )) $ property True
         | null (es ^. esEventPool) = return $ property True
         | otherwise = do
             let ((rcpt, ev), events', g') = selectFromSeq g (es ^. esEventPool)
@@ -379,14 +379,15 @@ makeBaker bid lot = do
         let account = makeBakerAccount bid
         return (BakerInfo epk spk lot (_accountAddress account), BakerIdentity sk ek, account)
 
-dummyIdentityProviders :: [IdentityProviderData]
+dummyIdentityProviders :: [IpInfo]
 dummyIdentityProviders = []
 
 initialiseStates :: Int -> PropertyM IO States
 initialiseStates n = do
         let bns = [0..fromIntegral n - 1]
         bis <- mapM (\i -> (i,) <$> pick (makeBaker i 1)) bns
-        let bps = BirkParameters 0.5 (fst . bakersFromList $ (^. _2 . _1) <$> bis) (genesisSeedState (hash "LeadershipElectionNonce") 360)
+        let genesisBakers = fst . bakersFromList $ (^. _2 . _1) <$> bis
+        let bps = BirkParameters 0.5 genesisBakers genesisBakers genesisBakers (genesisSeedState (hash "LeadershipElectionNonce") 360)
             fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _ _, _, _)) <- bis] 2
             bakerAccounts = map (\(_, (_, _, acc)) -> acc) bis
             gen = GenesisData 0 1 bps bakerAccounts [] fps dummyCryptographicParameters dummyIdentityProviders 10
@@ -424,7 +425,7 @@ withInitialStatesTransactions n trcount r = monadicIO $ do
         s0 <- initialiseStates $ n
         trs <- pick . genTransactions $ trcount
         gen <- pick $ mkStdGen <$> arbitrary
-        now <- liftIO currentTime
+        now <- liftIO getTransactionTime
         liftIO $ r gen s0 (makeExecState $ initialEvents s0 <> Seq.fromList [(x, ETransaction (fromBareTransaction now tr)) | x <- [0..n-1], tr <- trs])
 
 withInitialStatesDoubleTransactions :: Int -> Int -> (StdGen -> States -> ExecState -> IO Property) -> Property
@@ -433,7 +434,7 @@ withInitialStatesDoubleTransactions n trcount r = monadicIO $ do
         trs0 <- pick . genTransactions $ trcount
         trs <- (trs0 ++) <$> pick (genTransactions trcount)
         gen <- pick $ mkStdGen <$> arbitrary
-        now <- liftIO currentTime
+        now <- liftIO getTransactionTime
         liftIO $ r gen s0 (makeExecState $ initialEvents s0 <> Seq.fromList [(x, ETransaction (fromBareTransaction now tr)) | x <- [0..n-1], tr <- trs])
 
 

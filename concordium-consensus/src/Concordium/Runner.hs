@@ -257,7 +257,7 @@ makeAsyncRunner logm bkr config = do
                         Right pblock -> syncReceiveBlock sr pblock >>= handleResult src
                     msgLoop
                 MsgTransactionReceived transBS -> do
-                    now <- currentTime
+                    now <- getTransactionTime
                     case runGet (getVerifiedTransaction now) transBS of
                         Right trans -> void $ syncReceiveTransaction sr trans
                         _ -> return ()

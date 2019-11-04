@@ -7,14 +7,13 @@ import Control.Monad
 import System.Random
 import Data.Time.Clock.POSIX
 import System.IO
-import Lens.Micro.Platform
 import Data.Serialize
 
-import Concordium.TimeMonad
 import Concordium.TimerMonad
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.SeedState
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
@@ -29,17 +28,14 @@ import qualified Concordium.GlobalState.Implementation as Rust
 
 import Concordium.Types
 import Concordium.Runner
-import Concordium.Logger
 import Concordium.Skov
 import Concordium.Getters
-import Concordium.Afgjort.Finalize (FinalizationPseudoMessage(..),FinalizationInstance(..))
+import Concordium.Afgjort.Finalize (FinalizationInstance(..))
 import Concordium.Birk.Bake
 
 import Concordium.Scheduler.Utils.Init.Example as Example
 
 import Concordium.Startup
-
-import Foreign.ForeignPtr
 
 nContracts :: Int
 nContracts = 2
@@ -64,7 +60,7 @@ relay inp sr monitor outps = loop
     where
         loop = do
             msg <- readChan inp
-            now <- currentTime
+            now <- getTransactionTime
             case msg of
                 MsgNewBlock blockBS -> do
                     case runGet (getBlock now) blockBS of
@@ -115,13 +111,17 @@ removeEach = re []
 
 {-
 gsToString :: BlockState -> String
-gsToString gs = show (gs ^.  blockBirkParameters ^. seedState )
+gsToString gs = (show (currentSeed (gs ^.  blockBirkParameters ^. birkSeedState))) ++
+                    "\n current: " ++ showBakers ( (gs ^. blockBirkParameters ^. birkCurrentBakers)) ++
+                    "\n prev   : " ++ showBakers ( (gs ^. blockBirkParameters ^. birkPrevEpochBakers)) ++
+                    "\n lottery: " ++ showBakers ( (gs ^. blockBirkParameters ^. birkLotteryBakers))
     where
         ca n = ContractAddress (fromIntegral n) 0
         keys = map (\n -> (n, instanceModel <$> getInstance (ca n) (gs ^. blockInstances))) $ enumFromTo 0 (nContracts-1)
+        showBakers bs = show [ _bakerStake binfo | (_, binfo) <- Map.toList (_bakerMap bs)]
 -}
 
-dummyIdentityProviders :: [IdentityProviderData]
+dummyIdentityProviders :: [IpInfo]
 dummyIdentityProviders = []
 
 genesisState :: GenesisData -> Basic.BlockState
@@ -150,7 +150,7 @@ type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) Hoo
 
 main :: IO ()
 main = do
-    let n = 10
+    let n = 5
     now <- truncate <$> getPOSIXTime
     let (gen, bis) = makeGenesisData (now + 10) n 1 0.5 0 dummyCryptographicParameters dummyIdentityProviders []
     trans <- transactions <$> newStdGen

@@ -33,7 +33,7 @@ import Prelude hiding(mod, exp)
 
 signTx :: KeyPair -> TransactionHeader -> EncodedPayload -> Types.BareTransaction
 signTx kp th encPayload = Types.signTransaction kp header encPayload
-    where header = Types.makeTransactionHeader (thScheme th) (thSenderKey th) (Types.payloadSize encPayload) (thNonce th) (thGasAmount th)
+    where header = Types.makeTransactionHeader (thSenderKey th) (Types.payloadSize encPayload) (thNonce th) (thGasAmount th)
 
 transactionHelper :: (MonadFail m, MonadIO m) => TransactionJSON -> Context Core.UA m Types.BareTransaction
 transactionHelper t =
@@ -57,25 +57,25 @@ transactionHelper t =
     (TJSON meta AddBaker{..} keys) ->
       let abElectionVerifyKey = bvfkey
           abSignatureVerifyKey = bsigvfkey
-          abAccount = AH.accountAddress baccountVerifyKey Sig.Ed25519
+          abAccount = AH.accountAddress (Sig.correspondingVerifyKey baccountKeyPair)
           challenge = runPut (put abElectionVerifyKey <> put abSignatureVerifyKey <> put abAccount)
       in do
         Just abProofElection <- liftIO $ Proofs.proveDlog25519VRF challenge (VRF.KeyPair bvfSecretKey abElectionVerifyKey)
-        Just abProofSig <- liftIO $ Proofs.proveDlog25519KP challenge (Sig.KeyPair bsigkey bsigvfkey)
-        Just abProofAccount <- liftIO $ Proofs.proveDlog25519KP challenge (Sig.KeyPair baccountSignKey baccountVerifyKey)
+        Just abProofSig <- liftIO $ Proofs.proveDlog25519KP challenge (Sig.KeyPairEd25519 bsigkey bsigvfkey)
+        Just abProofAccount <- liftIO $ Proofs.proveDlog25519KP challenge baccountKeyPair
         return $ signTx keys meta (Types.encodePayload Types.AddBaker{..})
     (TJSON meta (RemoveBaker bid proof) keys) ->
       return $ signTx keys meta (Types.encodePayload (Types.RemoveBaker bid proof))
-    (TJSON meta (UpdateBakerAccount bid vfkey sigkey) keys) ->
-      let ubaAddress = AH.accountAddress vfkey Sig.Ed25519
+    (TJSON meta (UpdateBakerAccount bid kp) keys) ->
+      let ubaAddress = AH.accountAddress (Sig.correspondingVerifyKey kp)
           challenge = runPut (put bid <> put ubaAddress)
       in do
-        Just ubaProof <- liftIO $ Proofs.proveDlog25519KP challenge (Sig.KeyPair sigkey vfkey)
+        Just ubaProof <- liftIO $ Proofs.proveDlog25519KP challenge kp
         return $ signTx keys meta (Types.encodePayload (Types.UpdateBakerAccount bid ubaAddress ubaProof))
     (TJSON meta (UpdateBakerSignKey bid ubsKey signkey) keys) ->
       let challenge = runPut (put bid <> put ubsKey)
       in do
-        Just ubsProof <- liftIO $ Proofs.proveDlog25519KP challenge (Sig.KeyPair signkey ubsKey)
+        Just ubsProof <- liftIO $ Proofs.proveDlog25519KP challenge (Sig.KeyPairEd25519 signkey ubsKey)
         return $ signTx keys meta (Types.encodePayload (Types.UpdateBakerSignKey bid ubsKey ubsProof))
     (TJSON meta (DelegateStake bid) keys) ->
       return $ signTx keys meta (Types.encodePayload (Types.DelegateStake bid))
@@ -104,8 +104,7 @@ data PayloadJSON = DeployModule { moduleName :: Text }
                      bvfSecretKey :: VRF.SecretKey,
                      bsigvfkey :: BakerSignVerifyKey,
                      bsigkey :: BlockSig.SignKey,
-                     baccountVerifyKey :: Sig.VerifyKey,
-                     baccountSignKey :: Sig.SignKey
+                     baccountKeyPair :: Sig.KeyPair
                  }
                  | RemoveBaker {
                      rbId :: !BakerId,
@@ -113,8 +112,7 @@ data PayloadJSON = DeployModule { moduleName :: Text }
                      } 
                  | UpdateBakerAccount {
                      ubaId :: !BakerId,
-                     ubaVerifyKey :: !Sig.VerifyKey,  -- assume Ed25519 signature scheme
-                     ubaSignKey :: Sig.SignKey
+                     ubaKeyPair :: !Sig.KeyPair
                      }
                  | UpdateBakerSignKey {
                      ubsId :: !BakerId,
@@ -128,8 +126,6 @@ data PayloadJSON = DeployModule { moduleName :: Text }
                  deriving(Show, Generic)
 
 data TransactionHeader = TransactionHeader {
-    -- |Signature scheme used by the account.
-    thScheme :: !SchemeId,
     -- |Verification key of the sender.
     thSenderKey :: !IDTypes.AccountVerificationKey,
     -- |Per account nonce, strictly increasing, no gaps.

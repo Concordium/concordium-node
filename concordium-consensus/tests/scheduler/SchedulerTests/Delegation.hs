@@ -39,7 +39,7 @@ import SchedulerTests.DummyData
 staticKeys :: [KeyPair]
 staticKeys = ks (mkStdGen 1333)
     where
-        ks g = let (k, g') = EdSig.randomKeyPair g in k : ks g'
+        ks g = let (k, g') = EdSig.randomKeyPair g in uncurry KeyPairEd25519 k : ks g'
 
 numAccounts :: Int
 numAccounts = 10
@@ -55,7 +55,7 @@ initialBlockState =
         (blockBank . Rew.totalGTU .~ fromIntegral (numAccounts + 2) * initBal) .
         (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
     where
-        addAcc kp = Acc.putAccount (mkAccount (verifyKey kp) initBal )
+        addAcc kp = Acc.putAccount (mkAccount (correspondingVerifyKey kp) initBal )
         initBal = 10^(12::Int) :: Amount
 
 data Model = Model {
@@ -70,7 +70,7 @@ makeLenses ''Model
 
 initialModel :: Model
 initialModel = Model {
-    _mAccounts = Map.fromList [(accountAddress (verifyKey kp) Ed25519, (kp, minNonce)) | kp <- take numAccounts staticKeys],
+    _mAccounts = Map.fromList [(accountAddress (correspondingVerifyKey kp), (kp, minNonce)) | kp <- take numAccounts staticKeys],
     _mBakers = [],
     _mNextBaker = minBound,
     _mAdminAccounts = Map.fromList [(alesAccount, (alesKP, minNonce)), (thomasAccount, (thomasKP, minNonce))],
@@ -84,7 +84,7 @@ addBaker m0 = do
         let (bkr, electionSecretKey, signKey) = mkBaker (m0 ^. mNextSeed) bkrAcct
         (srcAcct, (srcKp, srcN)) <- elements (Map.toList $ _mAdminAccounts m0)
         return (TJSON {
-            payload = AddBaker (bkr ^. bakerElectionVerifyKey) electionSecretKey (bkr ^. bakerSignatureVerifyKey) signKey (Sig.verifyKey kp) (Sig.signKey kp),
+            payload = AddBaker (bkr ^. bakerElectionVerifyKey) electionSecretKey (bkr ^. bakerSignatureVerifyKey) signKey kp,
             metadata = makeHeader srcKp srcN (Cost.checkHeader + Cost.addBaker),
             keypair = srcKp
         }, m0
@@ -104,7 +104,7 @@ removeBaker :: Model -> Gen (TransactionJSON, Model)
 removeBaker m0 = do
         (bkr, bkrs') <- takeOne (_mBakers m0)
         let srcKp = m0 ^. mBakerMap . singular (ix bkr)
-        let address = accountAddress (verifyKey srcKp) Ed25519
+        let address = accountAddress (correspondingVerifyKey srcKp)
         let (_, srcN) = m0 ^. mAccounts . singular (ix address)
         return (TJSON {
             payload = RemoveBaker bkr "<dummy proof>",
