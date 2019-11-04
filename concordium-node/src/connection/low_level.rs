@@ -687,9 +687,8 @@ fn partial_copy<W: Write>(
     output: &mut W,
 ) -> Fallible<usize> {
     let mut total_written_bytes = 0;
-    let mut is_would_block = false;
 
-    while !is_would_block && !input.is_eof()? {
+    while !input.is_eof()? {
         let offset = input.position()?;
 
         let chunk_size = std::cmp::min(
@@ -708,9 +707,9 @@ fn partial_copy<W: Write>(
             }
             Err(io_err) => {
                 input.seek(SeekFrom::Start(offset))?;
-                is_would_block = io_err.kind() == std::io::ErrorKind::WouldBlock;
-                if !is_would_block {
-                    return Err(failure::Error::from(io_err));
+                match io_err.kind() {
+                    std::io::ErrorKind::WouldBlock => break,
+                    _ => return Err(failure::Error::from(io_err)),
                 }
             }
         }
