@@ -51,6 +51,20 @@ instance Show (BlockStatus bp pb) where
 -- in the branches at the level below.
 type Branches m = Seq.Seq [BlockPointer m]
 
+-- |Result of trying to add a transaction to the transaction table.
+data AddTransactionResult =
+  -- |Transaction is a duplicate of the given transaction.
+  Duplicate !Transaction |
+  -- |The transaction was newly added.
+  Added !Transaction |
+  -- |Transaction was new (according to the hash), but its signature was incorrect.
+  -- The transaction is not added to the table.
+  InvalidSignature |
+  -- |The nonce of the transaction is not later than the last finalized transaction for the sender.
+  -- The transaction is not added to the table.
+  ObsoleteNonce
+  deriving(Eq, Show)
+
 -- |Monad that provides operations for working with the low-level tree state.
 -- These operations are abstracted where possible to allow for a range of implementation
 -- choices.
@@ -128,10 +142,10 @@ class (Eq (BlockPointer m),
     -- The block must be the one finalized by the record, and the finalization
     -- index must be the next finalization index.  These are not checked.
     addFinalization :: BlockPointer m -> FinalizationRecord -> m ()
-    -- |Get the finalization record for a particular finalization index (if available).
-    getFinalizationAtIndex :: FinalizationIndex -> m (Maybe FinalizationRecord)
-    -- |Get a list of all (validated) finalization records from the given index
-    getFinalizationFromIndex :: FinalizationIndex -> m [FinalizationRecord]
+    -- |Get the finalization record for a particular finalization index (if available), with the finalized block.
+    getFinalizationAtIndex :: FinalizationIndex -> m (Maybe (FinalizationRecord, BlockPointer m))
+    -- |Get a list of all (validated) finalization records with blocks from the given index
+    getFinalizationFromIndex :: FinalizationIndex -> m [(FinalizationRecord, BlockPointer m)]
     getFinalizationFromIndex i = getFinalizationAtIndex i >>= \case
             Nothing -> return []
             Just f -> (f :) <$> getFinalizationFromIndex (i+1)
@@ -216,7 +230,9 @@ class (Eq (BlockPointer m),
     -- present).  A return value of @False@ indicates that the transaction was not added,
     -- either because it was already present or the nonce has already been finalized.
     addTransaction :: Transaction -> m Bool
-    addTransaction tr = maybe False snd <$> addCommitTransaction tr 0
+    addTransaction tr = process <$> addCommitTransaction tr 0
+      where process (Added _) = True
+            process _ = False
     -- |Finalize a list of transactions.  Per account, the transactions must be in
     -- continuous sequence by nonce, starting from the next available non-finalized
     -- nonce.
@@ -227,12 +243,8 @@ class (Eq (BlockPointer m),
     commitTransaction :: Slot -> Transaction -> m ()
     -- |@addCommitTransaction tr slot@ adds a transaction and marks it committed
     -- for the given slot number.
-    -- Returns
-    --   * @(Just tx, False)@ if @tr@ is a duplicate of the transaction @tx@
-    --   * @(Just tr, True)@ if the transaction is newly added.
-    --   * @Nothing@ if its nonce is not later than the last finalized transaction for the sender.
-    --     In this case the transaction is not added to the table.
-    addCommitTransaction :: Transaction -> Slot -> m (Maybe (Transaction, Bool))
+    -- See documentation of 'AddTransactionResult' for meaning of the return value.
+    addCommitTransaction :: Transaction -> Slot -> m AddTransactionResult
     -- |Purge a transaction from the transaction table if its last committed slot
     -- number does not exceed the slot number of the last finalized block.
     -- (A transaction that has been committed to a finalized block should not be purged.)

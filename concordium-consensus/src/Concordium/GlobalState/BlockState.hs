@@ -26,7 +26,6 @@ import Concordium.Types.Acorn.Core(ModuleRef)
 import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.Types.Acorn.Interfaces
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.SeedState
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Instances
 import Concordium.GlobalState.Bakers
@@ -217,10 +216,11 @@ class BlockStateQuery m => BlockStateOperations m where
     bps <- bsoGetBlockBirkParameters s
     return $! fst <$> birkBaker bid bps
 
-  -- |Get the account of the given baker.
-  bsoGetBakerAccount :: UpdatableBlockState m -> BakerId -> m (Maybe Account)
-  bsoGetBakerAccount s bid = do
-    binfo <- bsoGetBakerInfo s bid
+  -- |Get the reward account of the given baker.
+  bsoGetEpochBakerAccount :: UpdatableBlockState m -> BakerId -> m (Maybe Account)
+  bsoGetEpochBakerAccount s bid = do
+    bps <- bsoGetBlockBirkParameters s
+    let binfo = fst <$> (birkEpochBaker bid bps)
     join <$> mapM (bsoGetAccount s . _bakerAccount) binfo
 
 
@@ -260,7 +260,7 @@ class BlockStateQuery m => BlockStateOperations m where
 
   -- |Get the identity provider data for the given identity provider, or Nothing if
   -- the identity provider with given ID does not exist.
-  bsoGetIdentityProvider :: UpdatableBlockState m -> ID.IdentityProviderIdentity -> m (Maybe IdentityProviderData)
+  bsoGetIdentityProvider :: UpdatableBlockState m -> ID.IdentityProviderIdentity -> m (Maybe IpInfo)
 
   -- |Get the current cryptographic parameters. The idea is that these will be
   -- periodically updated and so they must be part of the block state.
@@ -272,8 +272,8 @@ class BlockStateQuery m => BlockStateOperations m where
   -- |Add a special transaction outcome.
   bsoAddSpecialTransactionOutcome :: UpdatableBlockState m -> SpecialTransactionOutcome -> m (UpdatableBlockState m)
 
-  -- |Update the information used to construct the next leadership election nonce
-  bsoUpdateSeedState :: UpdatableBlockState m -> SeedState -> m (UpdatableBlockState m)
+  -- |Update the birk parameters of a block state
+  bsoUpdateBirkParameters :: UpdatableBlockState m -> BirkParameters -> m (UpdatableBlockState m)
 
 -- | Block state storage operations
 class BlockStateOperations m => BlockStateStorage m where
@@ -367,7 +367,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoGetCryptoParams s = lift $ bsoGetCryptoParams s
   bsoSetTransactionOutcomes s = lift . bsoSetTransactionOutcomes s
   bsoAddSpecialTransactionOutcome s = lift . bsoAddSpecialTransactionOutcome s
-  bsoUpdateSeedState ss = lift . bsoUpdateSeedState ss
+  bsoUpdateBirkParameters bps = lift . bsoUpdateBirkParameters bps
   {-# INLINE bsoGetModule #-}
   {-# INLINE bsoGetAccount #-}
   {-# INLINE bsoGetInstance #-}
@@ -396,7 +396,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoGetCryptoParams #-}
   {-# INLINE bsoSetTransactionOutcomes #-}
   {-# INLINE bsoAddSpecialTransactionOutcome #-}
-  {-# INLINE bsoUpdateSeedState #-}
+  {-# INLINE bsoUpdateBirkParameters #-}
 
 instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (MGSTrans t m) where
     thawBlockState = lift . thawBlockState
@@ -520,7 +520,7 @@ resultToReasons bp tx res =
         extractReason (Updated (AddressContract source) target amount _) =
           Just (ContractToContractTransfer trId source amount target)
         extractReason (CredentialDeployed cdv) =
-          let caaddr = ID.accountAddress (ID.cdvVerifyKey cdv) (ID.cdvSigScheme cdv)
+          let caaddr = ID.accountAddress (ID.cdvVerifyKey cdv)
           in Just (CredentialDeployment trId sender caaddr cdv)
         extractReason _ = Nothing
         

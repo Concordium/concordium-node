@@ -7,6 +7,7 @@ import qualified Data.Map.Strict as Map
 import Data.Map.Strict(Map)
 import qualified Data.List as List
 import Data.Serialize
+import Data.Ratio
 import Lens.Micro.Platform
 
 import Concordium.Types
@@ -78,6 +79,9 @@ bakersFromList bkrs = (
                     (Map.empty, [], [], 0, 0)
                     bkrs
                                       
+bakerData :: BakerId -> Bakers -> Maybe (BakerInfo, LotteryPower)
+bakerData bid bkrs = (bkrs ^. bakerMap . at bid) <&>
+                        \bkr -> (bkr, (bkr ^. bakerStake) % (bkrs ^. bakerTotalStake))
 
 -- |Add a baker to the set of known bakers. If a baker with the given signing
 -- key already exists then return 'Nothing', otherwise assign it a fresh id and add it to the set of known bakers.

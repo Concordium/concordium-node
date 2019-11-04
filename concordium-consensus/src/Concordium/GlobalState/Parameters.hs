@@ -15,56 +15,52 @@ module Concordium.GlobalState.Parameters(
 import Prelude hiding (fail)
 import GHC.Generics
 import Data.Word
-import Data.Ratio
 import Data.Serialize
 import Lens.Micro.Platform
 import Control.Monad.Fail
 import Control.Monad hiding (fail)
 
 import Concordium.Types
-import Concordium.Crypto.FFIDataTypes
+import Concordium.ID.Parameters(GlobalContext)
 import Concordium.GlobalState.Bakers
-import Concordium.GlobalState.SeedState
 import Concordium.GlobalState.IdentityProviders
+import Concordium.GlobalState.SeedState
 import qualified Concordium.ID.Account as ID
 
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Aeson as AE
 import Data.Aeson.Types (FromJSON(..), (.:), (.:?), (.!=), withObject)
 
--- |Cryptographic parameters needed to verify on-chain proofs, e.g.,
--- group parameters (generators), commitment keys, in the future also
--- common reference strings, etc.
-data CryptographicParameters = CryptographicParameters {
-  -- |Generator of the group used for elgamal encryption, also serving as the
-  -- base of the discrete logarithm parameter in the dlog sigma protocol.
-  elgamalGenerator :: ElgamalGen,
-  -- |Commitment key used to construct pedersen commitments to individual
-  -- attributes of the attribute list.
-  attributeCommitmentKey :: PedersenKey
-} deriving (Show, Generic)
-
-instance Serialize CryptographicParameters where
+type CryptographicParameters = GlobalContext
 
 data BirkParameters = BirkParameters {
     _birkElectionDifficulty :: ElectionDifficulty,
-    _birkBakers :: !Bakers,
-    _seedState :: !SeedState
+    -- |The current stake of bakers. All updates should be to this state.
+    _birkCurrentBakers :: !Bakers,
+    -- |The state of bakers at the end of the previous epoch,
+    -- will be used as lottery bakers in next epoch.
+    _birkPrevEpochBakers :: !Bakers,
+    -- |The state of the bakers fixed before previous epoch, 
+    -- the lottery power and reward account is used in leader election.
+    _birkLotteryBakers :: !Bakers,
+    _birkSeedState :: !SeedState
 } deriving (Eq, Generic, Show)
 instance Serialize BirkParameters where
 
 makeLenses ''BirkParameters
 
 _birkLeadershipElectionNonce :: BirkParameters -> LeadershipElectionNonce
-_birkLeadershipElectionNonce = currentSeed . _seedState
+_birkLeadershipElectionNonce = currentSeed . _birkSeedState
 
 birkBaker :: BakerId -> BirkParameters -> Maybe (BakerInfo, LotteryPower)
-birkBaker bid bps = (bps ^. birkBakers . bakerMap . at bid) <&>
-                        \bkr -> (bkr, (bkr ^. bakerStake) % (bps ^. birkBakers . bakerTotalStake))
+birkBaker bid bps = bakerData bid $ bps ^. birkCurrentBakers
 
-birkBakerByKeys :: BakerSignVerifyKey -> BirkParameters -> Maybe (BakerId, BakerInfo, LotteryPower)
-birkBakerByKeys sigKey bps = case bps ^? birkBakers . bakersByKey . ix sigKey of
-        Just bid -> birkBaker bid bps <&> \(binfo, lotPow) -> (bid, binfo, lotPow)
+birkEpochBaker :: BakerId -> BirkParameters -> Maybe (BakerInfo, LotteryPower)
+birkEpochBaker bid bps = bakerData bid $ bps ^. birkLotteryBakers
+
+birkEpochBakerByKeys :: BakerSignVerifyKey -> BirkParameters -> Maybe (BakerId, BakerInfo, LotteryPower)
+birkEpochBakerByKeys sigKey bps = case bps ^? birkLotteryBakers . bakersByKey . ix sigKey of
+        Just bid -> birkEpochBaker bid bps <&> \(binfo, lotPow) -> (bid, binfo, lotPow)
         _ -> Nothing
 
 data VoterInfo = VoterInfo {
@@ -96,22 +92,16 @@ data GenesisData = GenesisData {
     genesisSpecialBetaAccounts :: [Account],
     genesisFinalizationParameters :: FinalizationParameters,
     genesisCryptographicParameters :: CryptographicParameters,
-    genesisIdentityProviders :: [IdentityProviderData],
+    genesisIdentityProviders :: [IpInfo],
     genesisMintPerSlot :: Amount
 } deriving (Generic, Show)
 
 instance Serialize GenesisData where
 
-instance FromJSON CryptographicParameters where
-  parseJSON = withObject "CryptoGraphicParameters" $ \v ->
-    do elgamalGenerator <- v .: "dLogBaseChain"
-       attributeCommitmentKey <- v .: "onChainCommitmentKey"
-       return CryptographicParameters{..}
-
-readIdentityProviders :: BSL.ByteString -> Maybe [IdentityProviderData]
+readIdentityProviders :: BSL.ByteString -> Maybe [IpInfo]
 readIdentityProviders = AE.decode
 
-eitherReadIdentityProviders :: BSL.ByteString -> Either String [IdentityProviderData]
+eitherReadIdentityProviders :: BSL.ByteString -> Either String [IpInfo]
 eitherReadIdentityProviders = AE.eitherDecode
 
 readCryptographicParameters :: BSL.ByteString -> Maybe CryptographicParameters
@@ -125,8 +115,6 @@ data GenesisBaker = GenesisBaker {
     gbElectionVerifyKey :: BakerElectionVerifyKey,
     -- |The baker's public signature key
     gbSignatureVerifyKey :: BakerSignVerifyKey,
-    -- |The baker's account signature scheme
-    gbAccountSignatureScheme :: SchemeId,
     -- |The baker's account public signature key
     gbAccountSignatureKey :: AccountVerificationKey,
     -- |The baker's initial balance
@@ -141,18 +129,16 @@ instance FromJSON GenesisBaker where
             gbElectionVerifyKey <- v .: "electionVerifyKey"
             gbSignatureVerifyKey <- v .: "signatureVerifyKey"
             acct <- v .: "account"
-            (gbAccountSignatureScheme, gbAccountSignatureKey, gbAccountBalance) <- flip (withObject "GenesisBakerAccount") acct $ \v' -> do
-                ss <- v' .: "signatureScheme"
-                sk <- v' .: "verifyKey"
+            (gbAccountSignatureKey, gbAccountBalance) <- flip (withObject "GenesisBakerAccount") acct $ \v' -> do
+                sk <- parseJSON acct
                 ab <- Amount <$> v' .: "balance"
-                return (ss, sk, ab)
+                return (sk, ab)
             gbFinalizer <- v .: "finalizer"
             return GenesisBaker{..}
 
 -- |'GenesisAccount' are special account existing in the genesis block, in
 -- addition to baker accounts which are defined by the 'GenesisBaker' structure.
 data GenesisAccount = GenesisAccount {
-  gaAccountSignatureScheme :: !SchemeId,
   gaAccountVerifyKey :: !AccountVerificationKey,
   gaAccountBalance :: !Amount,
   gaDelegate :: !(Maybe BakerId)
@@ -160,11 +146,10 @@ data GenesisAccount = GenesisAccount {
 }
 
 instance FromJSON GenesisAccount where
-  parseJSON = withObject "GenesisAccount" $ \v -> do
-    gaAccountSignatureScheme <- v .: "signatureScheme"
-    gaAccountVerifyKey <- v .: "verifyKey"
-    gaAccountBalance <- Amount <$> v .: "balance"
-    gaDelegate <- fmap BakerId <$> v .:? "delegate"
+  parseJSON v = flip (withObject "GenesisAccount") v $ \obj -> do
+    gaAccountVerifyKey <- parseJSON v
+    gaAccountBalance <- Amount <$> obj .: "balance"
+    gaDelegate <- fmap BakerId <$> obj .:? "delegate"
     return GenesisAccount{..}
 
 -- 'GenesisParameters' provides a convenient abstraction for
@@ -178,7 +163,7 @@ data GenesisParameters = GenesisParameters {
     gpFinalizationMinimumSkip :: BlockHeight,
     gpBakers :: [GenesisBaker],
     gpCryptographicParameters :: CryptographicParameters,
-    gpIdentityProviders :: [IdentityProviderData],
+    gpIdentityProviders :: [IpInfo],
     gpBetaAccounts :: [GenesisAccount],
     gpMintPerSlot :: Amount
 }
@@ -229,24 +214,27 @@ parametersToGenesisData GenesisParameters{..} = GenesisData{..}
         genesisMintPerSlot = gpMintPerSlot
         genesisTime = gpGenesisTime
         genesisSlotDuration = gpSlotDuration
+        genesisBakers = fst (bakersFromList (mkBaker <$> gpBakers))
         genesisBirkParameters = BirkParameters {
             _birkElectionDifficulty = gpElectionDifficulty,
-            _birkBakers = fst (bakersFromList (mkBaker <$> gpBakers)),
-            _seedState = genesisSeedState gpLeadershipElectionNonce gpEpochLength
+            _birkCurrentBakers = genesisBakers,
+            _birkPrevEpochBakers = genesisBakers,
+            _birkLotteryBakers = genesisBakers,
+            _birkSeedState = genesisSeedState gpLeadershipElectionNonce gpEpochLength
         }
         mkBaker GenesisBaker{..} = BakerInfo 
                 gbElectionVerifyKey
                 gbSignatureVerifyKey
                 gbAccountBalance 
-                (ID.accountAddress gbAccountSignatureKey gbAccountSignatureScheme)
+                (ID.accountAddress gbAccountSignatureKey)
         -- special accounts will have some special privileges during beta.
         genesisSpecialBetaAccounts =
-          [(newAccount gaAccountVerifyKey gaAccountSignatureScheme) {_accountAmount = gaAccountBalance,
+          [(newAccount gaAccountVerifyKey) {_accountAmount = gaAccountBalance,
                                                                      _accountStakeDelegate = gaDelegate}
             | GenesisAccount{..} <- gpBetaAccounts]
         -- Baker accounts will have no special privileges.
-        genesisAccounts = [(newAccount gbAccountSignatureKey gbAccountSignatureScheme) {_accountAmount = gbAccountBalance,
-                                                                                        _accountStakeDelegate = Just bid}
+        genesisAccounts = [(newAccount gbAccountSignatureKey) {_accountAmount = gbAccountBalance,
+                                                               _accountStakeDelegate = Just bid}
                           | (GenesisBaker{..}, bid) <- zip gpBakers [0..]]
         genesisFinalizationParameters =
             FinalizationParameters
