@@ -459,9 +459,9 @@ fn start_global_state_thread(
                 }
             }
 
-            thread::sleep(Duration::from_millis(
-                loop_interval_in.saturating_sub(loop_interval_out),
-            ));
+            let time_to_sleep = std::cmp::min(loop_interval_in, loop_interval_out);
+            trace!("Going to sleep for {} ms", time_to_sleep);
+            thread::sleep(Duration::from_millis(time_to_sleep));
         }
     });
 
