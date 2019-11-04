@@ -46,12 +46,20 @@ pub enum TcpResult<T> {
 
 /// State of the *IKpsk2* handshake.
 #[derive(Debug, PartialEq)]
-pub enum HandshakeState {
+enum HandshakeState {
     AwaitingPreSharedKey,
     AwaitingPublicKey,
     AwaitingMessageA,
     AwaitingMessageB,
     Complete,
+}
+
+/// The single message currently being read from the socket along with its
+/// pending length.
+#[derive(Default)]
+struct IncomingMessage {
+    pending_bytes: PayloadSize,
+    message:       Vec<u8>,
 }
 
 pub struct ConnectionLowLevel {
@@ -62,9 +70,7 @@ pub struct ConnectionLowLevel {
     /// The buffer for reading/writing raw noise messages
     noise_msg_buffer: [u8; NOISE_MAX_MESSAGE_LEN],
     /// The single message currently being read
-    current_input: Vec<u8>,
-    /// The number of bytes remaining to be appended to `current_input`
-    pending_bytes: PayloadSize,
+    incoming_msg: IncomingMessage,
     /// A queue for outbound noise handshake messages
     handshake_queue: VecDeque<HybridBuf>,
     /// A queue for outbound messages queued during the noise handshake phase
@@ -129,8 +135,7 @@ impl ConnectionLowLevel {
             socket,
             keypair,
             noise_session,
-            current_input: Vec::with_capacity(NOISE_MAX_PAYLOAD_LEN),
-            pending_bytes: 0,
+            incoming_msg: IncomingMessage::default(),
             handshake_queue,
             pending_output_queue: Vec::with_capacity(4),
             encrypted_queue: VecDeque::with_capacity(16),
@@ -271,7 +276,7 @@ impl ConnectionLowLevel {
     #[inline(always)]
     fn read_from_socket(&mut self) -> Fallible<TcpResult<HybridBuf>> {
         trace!("Attempting to read from the socket");
-        let read_result = if self.pending_bytes == 0 {
+        let read_result = if self.incoming_msg.pending_bytes == 0 {
             self.read_expected_size()
         } else {
             self.read_payload()
@@ -311,8 +316,8 @@ impl ConnectionLowLevel {
     /// Reads the number of bytes required to read the frame length
     #[inline]
     fn pending_bytes_to_know_expected_size(&self) -> usize {
-        if self.current_input.len() < std::mem::size_of::<PayloadSize>() {
-            std::mem::size_of::<PayloadSize>() - self.current_input.len()
+        if self.incoming_msg.message.len() < std::mem::size_of::<PayloadSize>() {
+            std::mem::size_of::<PayloadSize>() - self.incoming_msg.message.len()
         } else {
             0
         }
@@ -325,17 +330,19 @@ impl ConnectionLowLevel {
         let read_bytes =
             map_io_error_to_fail!(self.socket.read(&mut self.noise_msg_buffer[..min_bytes]))?;
 
-        self.current_input
+        self.incoming_msg
+            .message
             .extend_from_slice(&self.noise_msg_buffer[..read_bytes]);
 
         // once the number of bytes needed to read the message size is known, continue
-        if self.current_input.len() == std::mem::size_of::<PayloadSize>() {
-            let expected_size =
-                NetworkEndian::read_u32(&self.current_input[..std::mem::size_of::<PayloadSize>()]);
+        if self.incoming_msg.message.len() == std::mem::size_of::<PayloadSize>() {
+            let expected_size = NetworkEndian::read_u32(
+                &self.incoming_msg.message[..std::mem::size_of::<PayloadSize>()],
+            );
             trace!("Expecting a message of {}B", expected_size);
 
             // remove the length from the buffer
-            self.current_input.clear();
+            self.incoming_msg.message.clear();
 
             // check if the expected size doesn't exceed the protocol limit
             if expected_size > PROTOCOL_MAX_MESSAGE_SIZE as PayloadSize {
@@ -345,7 +352,7 @@ impl ConnectionLowLevel {
                 };
                 return Err(Error::from(error));
             } else {
-                self.pending_bytes = expected_size;
+                self.incoming_msg.pending_bytes = expected_size;
             }
 
             // Read data next...
@@ -358,16 +365,16 @@ impl ConnectionLowLevel {
 
     /// Once we know the message expected size, we can start to receive data.
     fn read_payload(&mut self) -> Fallible<TcpResult<HybridBuf>> {
-        while self.pending_bytes > 0 {
+        while self.incoming_msg.pending_bytes > 0 {
             if self.read_intermediate()? == 0 {
                 break;
             }
         }
 
-        if self.pending_bytes == 0 {
+        if self.incoming_msg.pending_bytes == 0 {
             // Ready message
             let new_data = std::mem::replace(
-                &mut self.current_input,
+                &mut self.incoming_msg.message,
                 Vec::with_capacity(std::mem::size_of::<PayloadSize>()),
             );
 
@@ -378,15 +385,22 @@ impl ConnectionLowLevel {
     }
 
     fn read_intermediate(&mut self) -> Fallible<usize> {
-        trace!("Reading a message ({}B remaining)", self.pending_bytes);
-        let read_size = std::cmp::min(self.pending_bytes as usize, NOISE_MAX_MESSAGE_LEN);
+        trace!(
+            "Reading a message ({}B remaining)",
+            self.incoming_msg.pending_bytes
+        );
+        let read_size = std::cmp::min(
+            self.incoming_msg.pending_bytes as usize,
+            NOISE_MAX_MESSAGE_LEN,
+        );
 
         match self.socket.read(&mut self.noise_msg_buffer[..read_size]) {
             Ok(read_bytes) => {
                 // trace!("Read {}B", read_bytes);
-                self.current_input
+                self.incoming_msg
+                    .message
                     .extend_from_slice(&self.noise_msg_buffer[..read_bytes]);
-                self.pending_bytes -= read_bytes as PayloadSize;
+                self.incoming_msg.pending_bytes -= read_bytes as PayloadSize;
 
                 Ok(read_bytes)
             }
