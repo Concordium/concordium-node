@@ -88,7 +88,7 @@ pub struct ConnectionStats {
 }
 
 pub struct Connection {
-    handler_ref:             Pin<Arc<P2PNode>>,
+    handler_ref:             Arc<P2PNode>,
     pub token:               Token,
     pub remote_peer:         RemotePeer,
     pub low_level:           RwLock<ConnectionLowLevel>,

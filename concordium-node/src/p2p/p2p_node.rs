@@ -43,7 +43,6 @@ use std::{
         SocketAddr,
     },
     path::PathBuf,
-    pin::Pin,
     str::FromStr,
     sync::{
         atomic::{AtomicBool, AtomicU16, AtomicU64, AtomicUsize, Ordering},
@@ -177,8 +176,10 @@ pub struct Receivers {
 }
 
 #[allow(dead_code)] // caused by the dump_network feature; will fix in a follow-up
+#[repr(C)] // specifying this representation is needed for the pointer work done in the
+           // last steps of `P2PNode::new`
 pub struct P2PNode {
-    pub self_ref:             Option<Pin<Arc<Self>>>,
+    pub self_ref:             Option<Arc<Self>>,
     pub self_peer:            P2PPeer,
     threads:                  RwLock<P2PNodeThreads>,
     pub poll:                 Poll,
@@ -387,7 +388,7 @@ impl P2PNode {
         let transactions_cache = Default::default();
         let stats_engine = RwLock::new(StatsEngine::new(&conf.cli));
 
-        let node = Arc::new(P2PNode {
+        let mut node = Arc::new(P2PNode {
             self_ref: None,
             poll,
             rpc_queue: subscription_queue_in,
@@ -406,13 +407,31 @@ impl P2PNode {
             stats_engine,
         });
 
-        // note: in order to avoid a lock over the self_ref, write to it as soon as it's
-        // available using the unsafe ptr::write
-        // this is safe, as at this point the node is not shared with any other object
-        // or thread
-        let self_ref =
-            &node.self_ref as *const Option<Pin<Arc<P2PNode>>> as *mut Option<Pin<Arc<P2PNode>>>;
-        unsafe { std::ptr::write(self_ref, Some(Pin::new(Arc::clone(&node)))) };
+        // note: in order to create the reference to the `Arc`'ed self, we need to do
+        // some raw pointer work. Some things to note:
+        // 1. `size_of::<Option<Arc<P2PNode>>>() == size_of::<Arc<P2PNode>>()`. There is
+        // no overhead when wrapping an `Arc` inside an `Option` as it is a `NonNull`
+        // pointer so it gets optimized away.
+        // 2. `get_mut` succeeds because at this point there is only one reference to
+        // the node.
+        // 3. We copy `1 * size_of::<Arc<P2PNode>>()` into the `self_ref` field, which
+        // is the ptr to the `NonNull<ArcInner<T>>` effectively creating a copy
+        // of the `Arc` in new place without increasing the ref_count. Cloning
+        // from either inside or outside of the node will have the same
+        // behaviour.
+        // 4. As the `self_ref` field is the first one and it is laid out
+        // in C representation, we do not need to do pointer arithmetics,
+        // just casting the pointer to the node as a pointer to the
+        // `Arc<P2PNode>`.
+        //
+        // This approach has been validated using Miri to check that it doesn't lead to
+        // UB
+        let inner_node = Arc::get_mut(&mut node).unwrap() as *mut P2PNode;
+        let data_to_copy = &node as *const Arc<P2PNode>;
+        let self_ref_ptr = inner_node as *mut Arc<P2PNode>;
+        unsafe {
+            self_ref_ptr.copy_from(data_to_copy, 1);
+        };
 
         node.clear_bans()
             .unwrap_or_else(|e| error!("Couldn't reset the ban list: {}", e));
@@ -1350,7 +1369,14 @@ impl P2PNode {
 }
 
 impl Drop for P2PNode {
-    fn drop(&mut self) { let _ = self.close_and_join(); }
+    fn drop(&mut self) {
+        // As we have two copies of the `Arc<P2PNode>` construct, we need to forget one
+        // of them in order to not double free so we just `take()` the value of the
+        // `self_ref` and forget about it using `Arc::into_raw`.
+        let node = self.self_ref.take();
+        Arc::into_raw(node.unwrap());
+        let _ = self.close_and_join();
+    }
 }
 
 /// Connetion is valid for a broadcast if sender is not target,
