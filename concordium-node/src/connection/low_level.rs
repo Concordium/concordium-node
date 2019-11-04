@@ -1,7 +1,6 @@
-use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
 use failure::{Error, Fallible};
 use mio::tcp::TcpStream;
-use rand::Rng;
 use snow::{Keypair, Session};
 
 use super::{
@@ -67,6 +66,10 @@ pub struct ConnectionLowLevel {
     pub socket: TcpStream,
     keypair: Keypair,
     noise_session: Option<Session>,
+    /// The input nonce
+    input_nonce: u64,
+    /// The output nonce
+    output_nonce: u64,
     /// The buffer for reading/writing raw noise messages
     noise_msg_buffer: [u8; NOISE_MAX_MESSAGE_LEN],
     /// The single message currently being read
@@ -132,6 +135,8 @@ impl ConnectionLowLevel {
             socket,
             keypair,
             noise_session,
+            input_nonce: 0,
+            output_nonce: 0,
             incoming_msg: IncomingMessage::default(),
             handshake_queue,
             high_lvl_handshake: None,
@@ -409,19 +414,12 @@ impl ConnectionLowLevel {
 
     /// It reads the chunk table and decrypts the chunks.
     pub fn decrypt<R: Read + Seek>(&mut self, mut input: R, len: usize) -> Fallible<HybridBuf> {
-        // read the nonce
-        let nonce = input.read_u64::<NetworkEndian>()?;
-        trace!("Commencing decryption with nonce {:x}", nonce);
-
-        // calculate the payload length (i.e. subtract the length of the nonce)
-        let len = len - 8;
-
         // calculate the number of full-sized chunks
-        let num_full_chunks = (len - 8) / NOISE_MAX_MESSAGE_LEN;
+        let num_full_chunks = len / NOISE_MAX_MESSAGE_LEN;
         trace!("There are {} full chunks to decrypt", num_full_chunks);
 
         // calculate the number of the incomplete chunk (if there is one)
-        let last_chunk_size = (len - 8) % NOISE_MAX_MESSAGE_LEN;
+        let last_chunk_size = len % NOISE_MAX_MESSAGE_LEN;
         let num_all_chunks = if last_chunk_size > 0 {
             trace!("The last chunk is {}B long", last_chunk_size);
             num_full_chunks + 1
@@ -440,13 +438,7 @@ impl ConnectionLowLevel {
                 idx,
                 num_all_chunks - idx
             );
-            self.decrypt_chunk(
-                idx,
-                NOISE_MAX_MESSAGE_LEN,
-                nonce,
-                &mut input,
-                &mut decrypted_msg,
-            )?;
+            self.decrypt_chunk(idx, NOISE_MAX_MESSAGE_LEN, &mut input, &mut decrypted_msg)?;
         }
 
         // decrypt the incomplete chunk
@@ -455,7 +447,6 @@ impl ConnectionLowLevel {
             self.decrypt_chunk(
                 num_full_chunks,
                 last_chunk_size,
-                nonce,
                 &mut input,
                 &mut decrypted_msg,
             )?;
@@ -464,6 +455,9 @@ impl ConnectionLowLevel {
         // rewind the decrypted message buffer
         decrypted_msg.rewind()?;
 
+        // increment the input nonce
+        self.input_nonce += 1;
+
         Ok(decrypted_msg)
     }
 
@@ -471,7 +465,6 @@ impl ConnectionLowLevel {
         &mut self,
         chunk_idx: usize,
         chunk_size: usize,
-        nonce: u64,
         input: &mut R,
         output: &mut W,
     ) -> Fallible<()> {
@@ -484,7 +477,7 @@ impl ConnectionLowLevel {
             .as_ref()
             .unwrap() // infallible
             .read_message_with_nonce(
-                nonce,
+                self.input_nonce,
                 &self.noise_msg_buffer[..chunk_size],
                 &mut self.plaintext_chunk_buffer[..(chunk_size - NOISE_AUTH_TAG_LEN)],
             ) {
@@ -513,7 +506,8 @@ impl ConnectionLowLevel {
     #[inline(always)]
     pub fn write_to_socket(&mut self, input: HybridBuf) -> Fallible<TcpResult<usize>> {
         if self.handshake_state == HandshakeState::Complete {
-            let encrypted_chunks = self.encrypt(input)?;
+            let len = input.len()? as usize;
+            let encrypted_chunks = self.encrypt(input, len)?;
             for chunk in encrypted_chunks {
                 self.encrypted_queue.push_back(chunk);
             }
@@ -585,7 +579,6 @@ impl ConnectionLowLevel {
     /// each of them.
     fn encrypt_chunks<R: Read + Seek>(
         &mut self,
-        nonce: u64,
         input: &mut R,
         chunks: &mut Vec<HybridBuf>,
     ) -> Fallible<usize> {
@@ -608,7 +601,7 @@ impl ConnectionLowLevel {
                 .as_ref()
                 .unwrap() // infallible
                 .write_message_with_nonce(
-                    nonce,
+                    self.output_nonce,
                     &self.plaintext_chunk_buffer[..chunk_size],
                     &mut self.noise_msg_buffer,
                 )?;
@@ -631,31 +624,34 @@ impl ConnectionLowLevel {
     }
 
     /// It encrypts `input` and returns the encrypted chunks preceded by the
-    /// metadata chunk.
-    pub fn encrypt<R: Read + Seek>(&mut self, mut input: R) -> Fallible<Vec<HybridBuf>> {
-        let nonce = rand::thread_rng().gen::<u64>();
-        trace!("Commencing encryption with nonce {:x}", nonce);
+    /// length
+    pub fn encrypt<R: Read + Seek>(
+        &mut self,
+        mut input: R,
+        len: usize,
+    ) -> Fallible<Vec<HybridBuf>> {
+        trace!("Commencing encryption with nonce {:x}", self.output_nonce);
 
-        let mut chunks = Vec::with_capacity(2);
+        let mut chunks = Vec::with_capacity(1 + len / NOISE_MAX_MESSAGE_LEN);
 
         // create the metadata chunk
-        let metadata = HybridBuf::with_capacity(4 + 8)?;
+        let metadata = HybridBuf::with_capacity(4)?;
         chunks.push(metadata);
 
-        let encrypted_len = self.encrypt_chunks(nonce, &mut input, &mut chunks)?;
-
-        // 1. frame: size of payload
-        let frame_len = mem::size_of::<u64>() + encrypted_len;
+        let encrypted_len = self.encrypt_chunks(&mut input, &mut chunks)?;
 
         // 1.1. frame size
-        chunks[0].write_u32::<NetworkEndian>(frame_len as PayloadSize)?;
-
-        // 1.2. nonce
-        chunks[0].write_u64::<NetworkEndian>(nonce)?;
+        chunks[0].write_u32::<NetworkEndian>(encrypted_len as PayloadSize)?;
 
         chunks[0].rewind()?;
 
-        trace!("Encrypted a frame of {}B", frame_len);
+        trace!(
+            "Encrypted a frame of {}B",
+            mem::size_of::<PayloadSize>() + encrypted_len
+        );
+
+        // increment the nonce
+        self.output_nonce += 1;
 
         Ok(chunks)
     }
