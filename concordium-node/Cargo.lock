@@ -1801,6 +1801,7 @@ dependencies = [
  "digest 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "dodis_yampolskiy_prf 0.1.0",
  "ec_vrf_ed25519_sha256 0.0.1",
+ "ed25519-dalek 1.0.0-pre.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "eddsa_ed25519 0.1.0",
  "elastic 0.21.0-pre.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "elastic_derive 0.21.0-pre.5 (registry+https://github.com/rust-lang/crates.io-index)",
