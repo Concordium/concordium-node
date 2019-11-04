@@ -279,8 +279,9 @@ impl ConnectionLowLevel {
 
         match read_result {
             Ok(TcpResult::Complete(payload)) => {
-                trace!("A {}B message was fully read", payload.len()?);
-                self.forward(payload)
+                let len = payload.len()?;
+                trace!("A {}B message was fully read", len);
+                self.forward(payload, len as usize)
             }
             Ok(TcpResult::Incomplete) => {
                 trace!("The current message is incomplete");
@@ -298,9 +299,9 @@ impl ConnectionLowLevel {
         }
     }
 
-    fn forward(&mut self, input: HybridBuf) -> Fallible<TcpResult<HybridBuf>> {
+    fn forward(&mut self, input: HybridBuf, len: usize) -> Fallible<TcpResult<HybridBuf>> {
         if self.handshake_state == HandshakeState::Complete {
-            Ok(TcpResult::Complete(self.decrypt(input)?))
+            Ok(TcpResult::Complete(self.decrypt(input, len)?))
         } else {
             self.read_handshake_msg(input)?;
 
@@ -407,15 +408,20 @@ impl ConnectionLowLevel {
     }
 
     /// It reads the chunk table and decrypts the chunks.
-    pub fn decrypt<R: Read + Seek>(&mut self, mut input: R) -> Fallible<HybridBuf> {
-        // 0. Read the nonce
+    pub fn decrypt<R: Read + Seek>(&mut self, mut input: R, len: usize) -> Fallible<HybridBuf> {
+        // read the nonce
         let nonce = input.read_u64::<NetworkEndian>()?;
         trace!("Commencing decryption with nonce {:x}", nonce);
 
-        // 1. read the frame metadata
-        let num_full_chunks = input.read_u32::<NetworkEndian>()? as usize;
+        // calculate the payload length (i.e. subtract the length of the nonce)
+        let len = len - 8;
+
+        // calculate the number of full-sized chunks
+        let num_full_chunks = (len - 8) / NOISE_MAX_MESSAGE_LEN;
         trace!("There are {} full chunks to decrypt", num_full_chunks);
-        let last_chunk_size = input.read_u32::<NetworkEndian>()? as usize;
+
+        // calculate the number of the incomplete chunk (if there is one)
+        let last_chunk_size = (len - 8) % NOISE_MAX_MESSAGE_LEN;
         let num_all_chunks = if last_chunk_size > 0 {
             trace!("The last chunk is {}B long", last_chunk_size);
             num_full_chunks + 1
@@ -427,7 +433,7 @@ impl ConnectionLowLevel {
         let mut decrypted_msg =
             HybridBuf::with_capacity(NOISE_MAX_MESSAGE_LEN * num_full_chunks + last_chunk_size)?;
 
-        // 2. decrypt full chunks
+        // decrypt the full chunks
         for idx in 0..num_full_chunks {
             trace!(
                 "Decrypting chunk {} ({} remaining)",
@@ -443,7 +449,7 @@ impl ConnectionLowLevel {
             )?;
         }
 
-        // 3. decrypt the incomplete chunk
+        // decrypt the incomplete chunk
         if last_chunk_size > 0 {
             trace!("Decrypting the last chunk ({}B)", last_chunk_size);
             self.decrypt_chunk(
@@ -624,15 +630,6 @@ impl ConnectionLowLevel {
         Ok(written)
     }
 
-    /// Frame length is:
-    ///     - Size of the nonce: u64.
-    ///     - Size of chunk table: Number of full chunks + last chunk size.
-    ///     - Sum of the lenghts of the encrypted chunks.
-    fn calculate_frame_len(&self, encrypted_buffer_len: usize) -> Fallible<usize> {
-        let chunk_table_len = 2 * mem::size_of::<PayloadSize>();
-        Ok(mem::size_of::<u64>() + chunk_table_len + encrypted_buffer_len)
-    }
-
     /// It encrypts `input` and returns the encrypted chunks preceded by the
     /// metadata chunk.
     pub fn encrypt<R: Read + Seek>(&mut self, mut input: R) -> Fallible<Vec<HybridBuf>> {
@@ -642,13 +639,13 @@ impl ConnectionLowLevel {
         let mut chunks = Vec::with_capacity(2);
 
         // create the metadata chunk
-        let metadata = HybridBuf::with_capacity(4 + 8 + 4 + 4)?;
+        let metadata = HybridBuf::with_capacity(4 + 8)?;
         chunks.push(metadata);
 
         let encrypted_len = self.encrypt_chunks(nonce, &mut input, &mut chunks)?;
 
-        // 1. frame: size of payload + chunk table
-        let frame_len = self.calculate_frame_len(encrypted_len)?;
+        // 1. frame: size of payload
+        let frame_len = mem::size_of::<u64>() + encrypted_len;
 
         // 1.1. frame size
         chunks[0].write_u32::<NetworkEndian>(frame_len as PayloadSize)?;
@@ -656,23 +653,9 @@ impl ConnectionLowLevel {
         // 1.2. nonce
         chunks[0].write_u64::<NetworkEndian>(nonce)?;
 
-        // 1.3. number of full chunks
-        let num_full_chunks = encrypted_len / NOISE_MAX_MESSAGE_LEN;
-        chunks[0].write_u32::<NetworkEndian>(num_full_chunks as PayloadSize)?;
-
-        // 1.4. size of the last chunk
-        let last_chunk_size = encrypted_len - (num_full_chunks * NOISE_MAX_MESSAGE_LEN);
-        debug_assert!(last_chunk_size <= PayloadSize::max_value() as usize);
-        chunks[0].write_u32::<NetworkEndian>(last_chunk_size as PayloadSize)?;
-
         chunks[0].rewind()?;
 
-        trace!(
-            "Encrypted a frame of {}B; full chunks: {}, last chunk size: {}",
-            frame_len,
-            num_full_chunks,
-            last_chunk_size
-        );
+        trace!("Encrypted a frame of {}B", frame_len);
 
         Ok(chunks)
     }
