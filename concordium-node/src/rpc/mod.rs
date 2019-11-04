@@ -403,6 +403,23 @@ impl P2P for RpcServerImpl {
                                 .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
                             ctx.spawn(f);
                         }
+                        (Err(e), ConsensusFfiResponse::Success) => {
+                            let f = sink
+                                .fail(::grpcio::RpcStatus::new(
+                                    ::grpcio::RpcStatusCode::Internal,
+                                    Some(format!(
+                                        "Got non-success response while trying to put transaction \
+                                         into outbound queue {:?}",
+                                        e
+                                    )),
+                                ))
+                                .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+                            error!(
+                                "Couldn't put transaction into outbound queue due to {:?}",
+                                e
+                            );
+                            ctx.spawn(f);
+                        }
                         (_, e) => {
                             let f = sink
                                 .fail(::grpcio::RpcStatus::new(
