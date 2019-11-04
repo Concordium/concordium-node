@@ -311,29 +311,32 @@ receiveWMVBAMessage src sig (WMVBAWitnessCreatorMessage (v, blssig)) = do
         -- When justifications combined weight minus the weight of the bad justifications exceeds corruptWeight,
         -- we can attempt to create the bls aggregate signature
         when ((PM.weight newJV) - (PS.weight badJV) > corruptWeight) $
-          let blssig = makeBlsAggregateSig $ PM.toList newJV
+          -- TODO: optimize, this is just a first draft
+          let goodJustifications = extractNonBadJustifications newJV badJV
+              blssig = makeBlsAggregateSig goodJustifications
               toSign = runPut $ S.put baid >> S.put v -- this should probably be a call to some function
                                                       -- to ensure consistency accross different functions
               keys = map (\p -> publicBlsKeys p) (PM.keys newJV)
-              -- commented this code out for now, it might become relevant if the committee members blskey
-              -- changes type to Maybe Bls.PublicKey
-              -- keys' = case (f keys []) of Just ks -> ks
-              --                             Nothing -> []
-          in if Bls.verifyAggregate toSign keys blssig then
-            wmvbaComplete (Just (v, (PM.keys newJV, blssig)))
-          else -- somebody sent an incorrect BlsSignature on v with a correct EDDSA signature on the message
-            -- TODO: find cheaters, mark as bad
-            return ()
+          in
+            if Bls.verifyAggregate toSign keys blssig then -- A correct finalization record was obtained, send it out
+              wmvbaComplete (Just (v, (map (\(p, _) -> p) goodJustifications, blssig)))
+            else -- somebody sent an incorrect BlsSignature on v with a correct EDDSA signature on the message
+              let culprits = findCulprits goodJustifications toSign publicBlsKeys
+                  addCulprits [] = return ()
+                  addCulprits (h : t) = badJustifications . at v . non PS.empty %= PS.insert h (partyWeight h)
+              in addCulprits culprits
+
       where
-        -- commented this code out for now, it might become relevant if the committee members blskey
-        -- changes type to Maybe Bls.PublicKey
-        -- f [] acc = Just acc
-        -- f (Just key : tl) acc = f tl (key : acc)
-        -- f (Nothing : tl) _ = Nothing
         makeBlsAggregateSig ((p, (s, blss)) : tl) = Bls.aggregate blss (makeBlsAggregateSig tl)
         makeBlsAggregateSig ((p, (s, blss)) : []) = blss
-        makeBlsAggregateSig [] = Bls.emptySignature -- this should never happen!
-        -- TODO: optimize heavily, this is just a first draft
+        makeBlsAggregateSig [] = Bls.emptySignature -- this should never happen! makeBlsAggregateSig should never be called
+                                                    -- on an empty list
+        extractNonBadJustifications jv badjv = removeBadJustifications (PM.toList jv) badjv []
+        removeBadJustifications [] badjv acc = acc
+        removeBadJustifications ((h, s) : t) badjv acc = if PS.member h badjv
+                                                    then removeBadJustifications t badjv acc
+                                                    else removeBadJustifications t badjv ((h, s) : acc)
+        -- TODO: optimize, this is just a first draft
         findCulprits lst toSign keys =
           let (lst1, lst2) = splitAt ((length lst) `div` 2) lst
               culprits ((p, (s, blss)) : []) = if Bls.verify toSign (keys p) blss then [] else [p]
