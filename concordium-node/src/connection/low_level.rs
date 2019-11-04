@@ -61,6 +61,8 @@ pub struct ConnectionLowLevel {
     noise_session: Option<Session>,
     /// The buffer for reading straight from the socket
     input_buffer: [u8; NOISE_MAX_MESSAGE_LEN],
+    /// The buffer for reading straight from the socket
+    output_buffer: [u8; NOISE_MAX_MESSAGE_LEN],
     /// The single message currently being read
     current_input: Vec<u8>,
     /// The number of bytes remaining to be appended to `current_input`
@@ -136,6 +138,7 @@ impl ConnectionLowLevel {
             encrypted_queue: VecDeque::with_capacity(16),
             handshake_state,
             input_buffer: [0u8; NOISE_MAX_MESSAGE_LEN],
+            output_buffer: [0u8; NOISE_MAX_MESSAGE_LEN],
             encrypted_chunk_buffer: vec![0u8; NOISE_MAX_MESSAGE_LEN],
             plaintext_chunk_buffer: vec![0; NOISE_MAX_PAYLOAD_LEN],
             full_output_buffer: Default::default(),
@@ -308,7 +311,7 @@ impl ConnectionLowLevel {
         }
     }
 
-    /// It allows packet with empty payloads.
+    /// Reads the number of bytes required to read the frame length
     #[inline]
     fn pending_bytes_to_know_expected_size(&self) -> usize {
         if self.current_input.len() < std::mem::size_of::<PayloadSize>() {
@@ -402,11 +405,11 @@ impl ConnectionLowLevel {
 
     /// It reads the chunk table and decrypts the chunks.
     pub fn decrypt<R: Read + Seek>(&mut self, mut input: R) -> Fallible<HybridBuf> {
-        // 0. Read NONCE.
+        // 0. Read the nonce
         let nonce = input.read_u64::<NetworkEndian>()?;
         trace!("Commencing decryption with nonce {:x}", nonce);
 
-        // 1. Read the chunk table.
+        // 1. read the frame metadata
         let num_full_chunks = input.read_u32::<NetworkEndian>()? as usize;
         trace!("There are {} full chunks to decrypt", num_full_chunks);
         let last_chunk_size = input.read_u32::<NetworkEndian>()? as usize;
@@ -418,6 +421,7 @@ impl ConnectionLowLevel {
             num_full_chunks
         };
 
+        // 2. decrypt full chunks
         for idx in 0..num_full_chunks {
             trace!(
                 "Decrypting chunk {} ({} remaining)",
@@ -427,12 +431,13 @@ impl ConnectionLowLevel {
             self.decrypt_chunk(idx, NOISE_MAX_MESSAGE_LEN, nonce, &mut input)?;
         }
 
+        // 3. decrypt the incomplete chunk
         if last_chunk_size > 0 {
             trace!("Decrypting the last chunk ({}B)", last_chunk_size);
             self.decrypt_chunk(num_full_chunks, last_chunk_size, nonce, &mut input)?;
         }
 
-        // rewind the buffer
+        // rewind the input message buffer
         self.full_output_buffer.seek(SeekFrom::Start(0))?;
 
         Ok(mem::replace(
@@ -512,7 +517,7 @@ impl ConnectionLowLevel {
 
         while let Some(mut data) = self.handshake_queue.pop_front() {
             trace!("Pushing a handshake message to the socket");
-            written_bytes += partial_copy(&mut data, &mut self.socket)?;
+            written_bytes += partial_copy(&mut data, &mut self.output_buffer, &mut self.socket)?;
 
             if data.is_eof()? {
                 trace!("Successfully sent a chunk of a handshake message");
@@ -535,7 +540,8 @@ impl ConnectionLowLevel {
                 "Writing a {}B message to the socket",
                 encrypted.remaining_len()?
             );
-            written_bytes += partial_copy(&mut encrypted, &mut self.socket)?;
+            written_bytes +=
+                partial_copy(&mut encrypted, &mut self.output_buffer, &mut self.socket)?;
 
             if encrypted.is_eof()? {
                 trace!("Successfully written an encrypted message");
@@ -658,19 +664,24 @@ impl ConnectionLowLevel {
 /// It tries to copy as much as possible from `input` to `output` in a
 /// streaming fashion. It is used with `socket` that blocks them when
 /// their output buffers are full. Written bytes are consumed from `input`.
-fn partial_copy<W: Write>(input: &mut HybridBuf, output: &mut W) -> Fallible<usize> {
-    const BUF_SIZE: usize = 16 * 1024;
+fn partial_copy<W: Write>(
+    input: &mut HybridBuf,
+    buffer: &mut [u8],
+    output: &mut W,
+) -> Fallible<usize> {
     let mut total_written_bytes = 0;
     let mut is_would_block = false;
-    let mut chunk = [0u8; BUF_SIZE];
 
     while !is_would_block && !input.is_eof()? {
         let offset = input.position()?;
 
-        let chunk_size = std::cmp::min(BUF_SIZE, (input.len()? - input.position()?) as usize);
-        input.read_exact(&mut chunk[..chunk_size])?;
+        let chunk_size = std::cmp::min(
+            NOISE_MAX_MESSAGE_LEN,
+            (input.len()? - input.position()?) as usize,
+        );
+        input.read_exact(&mut buffer[..chunk_size])?;
 
-        match output.write(&chunk[..chunk_size]) {
+        match output.write(&buffer[..chunk_size]) {
             Ok(written_bytes) => {
                 total_written_bytes += written_bytes;
                 if written_bytes != chunk_size {
