@@ -71,6 +71,8 @@ pub struct ConnectionLowLevel {
     noise_msg_buffer: [u8; NOISE_MAX_MESSAGE_LEN],
     /// The single message currently being read
     incoming_msg: IncomingMessage,
+    /// The current status of the noise handshake
+    handshake_state: HandshakeState,
     /// A queue for outbound noise handshake messages
     handshake_queue: VecDeque<HybridBuf>,
     /// A container for the high-level handshake message in case we're the
@@ -78,10 +80,8 @@ pub struct ConnectionLowLevel {
     high_lvl_handshake: Option<HybridBuf>,
     /// A queue for encrypted messages waiting to be written to the socket
     encrypted_queue: VecDeque<HybridBuf>,
-    /// The current status of the noise handshake
-    handshake_state: HandshakeState,
     /// A buffer for decrypted/unencrypted message chunks
-    plaintext_chunk_buffer: Vec<u8>,
+    plaintext_chunk_buffer: [u8; NOISE_MAX_PAYLOAD_LEN],
 }
 
 impl ConnectionLowLevel {
@@ -138,7 +138,7 @@ impl ConnectionLowLevel {
             encrypted_queue: VecDeque::with_capacity(16),
             handshake_state,
             noise_msg_buffer: [0u8; NOISE_MAX_MESSAGE_LEN],
-            plaintext_chunk_buffer: vec![0; NOISE_MAX_PAYLOAD_LEN],
+            plaintext_chunk_buffer: [0u8; NOISE_MAX_PAYLOAD_LEN],
         }
     }
 
