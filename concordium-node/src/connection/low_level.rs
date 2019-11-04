@@ -73,8 +73,9 @@ pub struct ConnectionLowLevel {
     incoming_msg: IncomingMessage,
     /// A queue for outbound noise handshake messages
     handshake_queue: VecDeque<HybridBuf>,
-    /// A queue for outbound messages queued during the noise handshake phase
-    pending_output_queue: Vec<HybridBuf>,
+    /// A container for the high-level handshake message in case we're the
+    /// initiator
+    high_lvl_handshake: Option<HybridBuf>,
     /// A queue for encrypted messages waiting to be written to the socket
     encrypted_queue: VecDeque<HybridBuf>,
     /// The current status of the noise handshake
@@ -133,7 +134,7 @@ impl ConnectionLowLevel {
             noise_session,
             incoming_msg: IncomingMessage::default(),
             handshake_queue,
-            pending_output_queue: Vec::with_capacity(4),
+            high_lvl_handshake: None,
             encrypted_queue: VecDeque::with_capacity(16),
             handshake_state,
             noise_msg_buffer: [0u8; NOISE_MAX_MESSAGE_LEN],
@@ -236,8 +237,8 @@ impl ConnectionLowLevel {
         // once the noise handshake is complete, send out any pending messages
         // we might have queued during the process
         if self.handshake_state == HandshakeState::Complete {
-            for frame in mem::replace(&mut self.pending_output_queue, Default::default()) {
-                self.write_to_socket(frame)?;
+            if let Some(handshake_msg) = self.high_lvl_handshake.take() {
+                self.write_to_socket(handshake_msg)?;
             }
         }
 
@@ -512,7 +513,9 @@ impl ConnectionLowLevel {
             }
             self.flush_encryptor()
         } else {
-            self.pending_output_queue.push(input);
+            // in case we are the connection initiator, we need to queue the high-level
+            // handshake message until the noise handshake is complete
+            self.high_lvl_handshake = Some(input);
             Ok(TcpResult::Discarded)
         }
     }
