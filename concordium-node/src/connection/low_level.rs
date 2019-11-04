@@ -83,8 +83,6 @@ pub struct ConnectionLowLevel {
     encrypted_chunk_buffer: Vec<u8>,
     /// A buffer for decrypted message chunks
     plaintext_chunk_buffer: Vec<u8>,
-    /// A buffer for the full decrypted incoming message
-    full_msg_buffer: HybridBuf,
 }
 
 impl ConnectionLowLevel {
@@ -432,6 +430,9 @@ impl ConnectionLowLevel {
             num_full_chunks
         };
 
+        let mut decrypted_msg =
+            HybridBuf::with_capacity(NOISE_MAX_MESSAGE_LEN * num_full_chunks + last_chunk_size)?;
+
         // 2. decrypt full chunks
         for idx in 0..num_full_chunks {
             trace!(
@@ -439,27 +440,40 @@ impl ConnectionLowLevel {
                 idx,
                 num_all_chunks - idx
             );
-            self.decrypt_chunk(idx, NOISE_MAX_MESSAGE_LEN, nonce, &mut input)?;
+            self.decrypt_chunk(
+                idx,
+                NOISE_MAX_MESSAGE_LEN,
+                nonce,
+                &mut input,
+                &mut decrypted_msg,
+            )?;
         }
 
         // 3. decrypt the incomplete chunk
         if last_chunk_size > 0 {
             trace!("Decrypting the last chunk ({}B)", last_chunk_size);
-            self.decrypt_chunk(num_full_chunks, last_chunk_size, nonce, &mut input)?;
+            self.decrypt_chunk(
+                num_full_chunks,
+                last_chunk_size,
+                nonce,
+                &mut input,
+                &mut decrypted_msg,
+            )?;
         }
 
-        // rewind the input message buffer
-        self.full_msg_buffer.seek(SeekFrom::Start(0))?;
+        // rewind the decrypted message buffer
+        decrypted_msg.rewind()?;
 
-        Ok(mem::replace(&mut self.full_msg_buffer, Default::default()))
+        Ok(decrypted_msg)
     }
 
-    fn decrypt_chunk<R: Read + Seek>(
+    fn decrypt_chunk<R: Read + Seek, W: Write>(
         &mut self,
         chunk_idx: usize,
         chunk_size: usize,
         nonce: u64,
         input: &mut R,
+        output: &mut W,
     ) -> Fallible<()> {
         debug_assert!(chunk_size <= NOISE_MAX_MESSAGE_LEN);
 
@@ -484,8 +498,7 @@ impl ConnectionLowLevel {
                 );
                 debug_assert!(len <= NOISE_MAX_PAYLOAD_LEN);
 
-                self.full_msg_buffer
-                    .write_all(&self.plaintext_chunk_buffer[..len])?;
+                output.write_all(&self.plaintext_chunk_buffer[..len])?;
                 Ok(())
             }
             Err(err) => {
