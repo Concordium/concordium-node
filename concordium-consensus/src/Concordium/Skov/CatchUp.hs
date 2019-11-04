@@ -8,6 +8,7 @@ import Data.Serialize
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Lens.Micro.Platform
+import Control.Monad
 
 import Concordium.Types
 import Concordium.GlobalState.Finalization
@@ -32,19 +33,36 @@ data CatchUpStatus = CatchUpStatus {
     cusBestBlock :: BlockHash,
     -- |List of blocks at the height which justifies a
     -- block as a candidate for the next round of finalization
-    cusFinalizationJustifiers :: [BlockHash]
+    cusFinalizationJustifiers :: [BlockHash],
+    -- |List of live (non-finalized) blocks. This should
+    -- only be included in a request.
+    cusAdditionalBlocks :: [BlockHash]
 } deriving (Show)
 instance Serialize CatchUpStatus where
-    put CatchUpStatus{..} = put cusIsRequest <> put cusLastFinalizedBlock <> put cusLastFinalizedHeight <> put cusBestBlock <> put cusFinalizationJustifiers
-    get = CatchUpStatus <$> get <*> get <*> get <*> get <*> get
+    put CatchUpStatus{..} = do
+        put cusIsRequest
+        put cusLastFinalizedBlock
+        put cusLastFinalizedHeight
+        put cusBestBlock
+        put cusFinalizationJustifiers
+        when cusIsRequest $ put cusAdditionalBlocks
+    get = do
+        cusIsRequest <- get
+        cusLastFinalizedBlock <- get
+        cusLastFinalizedHeight <- get
+        cusBestBlock <- get
+        cusFinalizationJustifiers <- get
+        cusAdditionalBlocks <- if cusIsRequest then get else return []
+        return CatchUpStatus{..}
 
-makeCatchUpStatus :: (BlockPointerData b) => Bool -> b -> b -> [b] -> CatchUpStatus
-makeCatchUpStatus cusIsRequest lfb bb fjs = CatchUpStatus{..}
+makeCatchUpStatus :: (BlockPointerData b) => Bool -> b -> b -> [b] -> [b] -> CatchUpStatus
+makeCatchUpStatus cusIsRequest lfb bb fjs abs = CatchUpStatus{..}
     where
         cusLastFinalizedBlock = bpHash lfb
         cusLastFinalizedHeight = bpHeight lfb
         cusBestBlock = bpHash bb
         cusFinalizationJustifiers = bpHash <$> fjs
+        cusAdditionalBlocks = if cusIsRequest then bpHash <$> abs else []
 
 getCatchUpStatus :: (TreeStateMonad m, SkovQueryMonad m) => Bool -> m CatchUpStatus
 getCatchUpStatus cusIsRequest = do
@@ -53,7 +71,8 @@ getCatchUpStatus cusIsRequest = do
         let justHeight = nextFinalizationJustifierHeight finParams lastFinRec lfb
         justifiers <- getBlocksAtHeight justHeight
         bb <- bestBlock
-        return $ makeCatchUpStatus cusIsRequest lfb bb justifiers
+        branches <- getBranches
+        return $ makeCatchUpStatus cusIsRequest lfb bb justifiers (concat branches)
 
 data KnownBlocks b = KnownBlocks {
     -- |The known blocks indexed by height
@@ -127,20 +146,26 @@ handleCatchUp peerCUS = runExceptT $ do
                 -- We want our best chain up to the latest known common ancestor of the
                 -- peer's best block.  If we know that block, start there; otherwise, 
                 -- start with the peer's last finalized block.
-
-                let knownBlocks = makeKnownBlocks $ peerlfb : maybe id (:) peerbb peerFinJustifiers
+                peerBranches <- catMaybes <$> mapM (lift . resolveBlock) (cusAdditionalBlocks peerCUS)
+                let knownBlocks = makeKnownBlocks $ peerlfb : maybe id (:) peerbb peerFinJustifiers ++ peerBranches
                 let
                     makeChain' kb b l = case checkKnownBlock b kb of
                         (True, _) -> (kb, l)
                         (False, kb') -> makeChain' kb' (bpParent b) (b : l)
                     makeChain kb b = makeChain' kb b []
                     (_, chain) = foldl (\(kbs, ch0) b -> let (kbs', ch1) = makeChain kbs b in (addKnownBlock b kbs', ch0 ++ ch1)) (knownBlocks, []) (bb : justifiers)
-                    myCUS = makeCatchUpStatus False lfb bb justifiers
+                    myCUS = makeCatchUpStatus False lfb bb justifiers []
+                    -- Note: since the list can be truncated, we have to be careful about the
+                    -- order that finalization records are interleaved with blocks.
+                    -- Specifically, we send a finalization record as soon as possible after
+                    -- the corresponding block; and where the block is not being sent, we
+                    -- send the finalization record before all other blocks.  We also send
+                    -- finalization records and blocks in order.
                     merge [] bs = Right <$> bs
-                    merge fs [] = Left <$> fs
-                    merge fs0@(f : fs1) (b : bs)
-                        | finalizationBlockPointer f == bpHash b = (Right b) : Left f : merge fs1 bs
-                        | otherwise = Right b : merge fs0 bs
+                    merge fs [] = Left . fst <$> fs
+                    merge fs0@((f, fb) : fs1) bs0@(b : bs1)
+                        | bpHeight fb < bpHeight b = Left f : merge fs1 bs0
+                        | otherwise = Right b : merge fs0 bs1
                 return (Just (merge frs chain, myCUS), catchUpWithPeer)
             else
                 -- No response required

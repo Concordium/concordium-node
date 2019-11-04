@@ -1,5 +1,5 @@
 {-# LANGUAGE TupleSections, LambdaCase, OverloadedStrings #-}
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE LambdaCase, CPP #-}
 module Main where
 
 import Control.Concurrent
@@ -21,9 +21,10 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Instances
 import Concordium.GlobalState.BlockState(BlockPointerData(..))
-import Concordium.GlobalState.Basic.BlockState
-import Concordium.GlobalState.Basic.TreeState
-import Concordium.GlobalState.Basic.Block
+import Concordium.GlobalState.Implementation.BlockState
+import Concordium.GlobalState.Implementation.TreeState
+import Concordium.GlobalState.Implementation.Block
+import Concordium.GlobalState.Implementation
 import Concordium.Scheduler.Utils.Init.Example as Example
 
 import Concordium.Afgjort.Finalize.Types
@@ -34,7 +35,6 @@ import Concordium.Skov
 import Concordium.Skov.CatchUp
 
 import Concordium.Startup
-
 
 data Peer = Peer {
     peerState :: MVar SkovBufferedHookedState,
@@ -101,7 +101,7 @@ relay myPeer inp sfsRef connectedRef monitor loopback outps = loop
         loop = do
             msg <- readChan inp
             connected <- readIORef connectedRef
-            now <- currentTime
+            now <- getTransactionTime
             if connected then case msg of
                 MsgNewBlock blockBS -> do
                     case runGet (getBlock now) blockBS of
@@ -116,7 +116,7 @@ relay myPeer inp sfsRef connectedRef monitor loopback outps = loop
                         writeChan outp (IEMessage $ MsgBlockReceived myPeer blockBS)
                 MsgFinalization bs ->
                     case decode bs of
-                        Right (FPMCatchUp _) -> 
+                        Right (FPMCatchUp _) ->
                             forM_ outps $ \outp -> delayed $
                                 writeChan outp (IEMessage $ MsgFinalizationReceived myPeer bs)
                         _ -> return ()
@@ -186,7 +186,7 @@ gsToString gs = intercalate "\\l" . map show $ keys
         ca n = ContractAddress (fromIntegral n) 0
         keys = map (\n -> (n, instanceModel <$> getInstance (ca n) (gs ^. blockInstances))) $ enumFromTo 0 (nContracts-1)
 
-dummyIdentityProviders :: [IdentityProviderData]
+dummyIdentityProviders :: [IpInfo]
 dummyIdentityProviders = []
 
 main :: IO ()
@@ -211,7 +211,12 @@ main = do
         let logT bh slot reason = do
               appendFile logTransferFile (show (bh, slot, reason))
               appendFile logTransferFile "\n"
+#ifdef RUST
+        gsptr <- makeEmptyGlobalState gen
+        (cin, cout, out) <- makeAsyncRunner logM (Just logT) bid defaultRuntimeParameters gen iState gsptr
+#else
         (cin, cout, out) <- makeAsyncRunner logM (Just logT) bid defaultRuntimeParameters gen iState
+#endif
         cin' <- newChan
         connectedRef <- newIORef True
         _ <- forkIO $ relayIn cin' cin out connectedRef

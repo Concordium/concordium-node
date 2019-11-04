@@ -15,10 +15,6 @@ EXPORTS
  getAncestors
  getBranches
  freeCStr
- getBlock
- getBlockDelta
- getBlockFinalization
- getIndexedFinalization
  getCatchUpStatus
  receiveCatchUpStatus
  getAccountList

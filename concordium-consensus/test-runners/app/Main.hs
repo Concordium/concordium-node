@@ -1,5 +1,5 @@
 {-# LANGUAGE TupleSections, LambdaCase, OverloadedStrings #-}
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE LambdaCase, CPP #-}
 module Main where
 
 import Control.Concurrent
@@ -9,19 +9,22 @@ import Data.Time.Clock.POSIX
 import System.IO
 import Lens.Micro.Platform
 import Data.Serialize
+import qualified Data.Map as Map
 
-import Concordium.TimeMonad
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.SeedState
+import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Instances
 import Concordium.GlobalState.BlockState(BlockPointerData(..))
-import Concordium.GlobalState.Basic.TreeState
-import Concordium.GlobalState.Basic.BlockState
-import Concordium.GlobalState.Basic.Block
+import Concordium.GlobalState.Implementation
+import Concordium.GlobalState.Implementation.TreeState
+import Concordium.GlobalState.Implementation.BlockState
+import Concordium.GlobalState.Implementation.Block (BakedBlock, Block(NormalBlock), getBlock)
 
 import Concordium.Types
 import Concordium.Runner
@@ -55,7 +58,7 @@ relay inp sfsRef monitor outps = loop
     where
         loop = do
             msg <- readChan inp
-            now <- currentTime
+            now <- getTransactionTime
             case msg of
                 MsgNewBlock blockBS -> do
                     case runGet (getBlock now) blockBS of
@@ -102,19 +105,23 @@ removeEach = re []
         re _ [] = []
 
 gsToString :: BlockState -> String
-gsToString gs = show (gs ^.  blockBirkParameters ^. seedState )
+gsToString gs = (show (currentSeed (gs ^.  blockBirkParameters ^. birkSeedState))) ++
+                    "\n current: " ++ showBakers ( (gs ^. blockBirkParameters ^. birkCurrentBakers)) ++
+                    "\n prev   : " ++ showBakers ( (gs ^. blockBirkParameters ^. birkPrevEpochBakers)) ++
+                    "\n lottery: " ++ showBakers ( (gs ^. blockBirkParameters ^. birkLotteryBakers))
     where
         ca n = ContractAddress (fromIntegral n) 0
         keys = map (\n -> (n, instanceModel <$> getInstance (ca n) (gs ^. blockInstances))) $ enumFromTo 0 (nContracts-1)
+        showBakers bs = show [ _bakerStake binfo | (_, binfo) <- Map.toList (_bakerMap bs)]
 
-dummyIdentityProviders :: [IdentityProviderData]
-dummyIdentityProviders = []  
+dummyIdentityProviders :: [IpInfo]
+dummyIdentityProviders = []
 
 main :: IO ()
 main = do
-    let n = 10
+    let n = 5
     now <- truncate <$> getPOSIXTime
-    let (gen, bis) = makeGenesisData (now + 10) n 1 0.5 0 dummyCryptographicParameters dummyIdentityProviders []
+    let (gen, bis) = makeGenesisData (now) n 1 0.5 0 dummyCryptographicParameters dummyIdentityProviders []
     let iState = Example.initialState (genesisBirkParameters gen) (genesisCryptographicParameters gen) (genesisAccounts gen) [] nContracts
     trans <- transactions <$> newStdGen
     chans <- mapM (\(bakerId, (bid, _)) -> do
@@ -127,7 +134,12 @@ main = do
         let logT bh slot reason = do
               appendFile logTransferFile (show (bh, slot, reason))
               appendFile logTransferFile "\n"
+#ifdef RUST
+        gsptr <- makeEmptyGlobalState gen
+        (cin, cout, out) <- makeAsyncRunner logM (Just logT) bid defaultRuntimeParameters gen iState gsptr
+#else
         (cin, cout, out) <- makeAsyncRunner logM (Just logT) bid defaultRuntimeParameters gen iState
+#endif
         _ <- forkIO $ sendTransactions cin trans
         return (cin, cout, out)) (zip [(0::Int) ..] bis)
     monitorChan <- newChan
@@ -140,9 +152,9 @@ main = do
                                     Nothing -> ""
                                     Just gs -> gsToString gs
 
-                    putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker $ bbFields block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]\\l" ++ stateStr ++ "\\l\"];"
-                    putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockPointer $ bbFields block) ++ ";"
-                    putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockLastFinalized $ bbFields block) ++ " [style=dotted];"
+                    putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]\\l" ++ stateStr ++ "\\l\"];"
+                    putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockPointer block) ++ ";"
+                    putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockLastFinalized block) ++ " [style=dotted];"
                     hFlush stdout
                     loop
                 Right fr -> do

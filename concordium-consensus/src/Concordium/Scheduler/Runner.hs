@@ -1,3 +1,4 @@
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# OPTIONS_GHC -Wall #-}
 module Concordium.Scheduler.Runner where
@@ -11,12 +12,19 @@ import Control.Monad.Except
 import Control.Monad.Fail(MonadFail)
 
 import Concordium.Crypto.SignatureScheme(KeyPair)
+import qualified Concordium.Crypto.VRF as VRF
+import qualified Concordium.Crypto.BlockSignature as BlockSig
+import qualified Concordium.Crypto.SignatureScheme as Sig
+import qualified Concordium.Crypto.Proofs as Proofs
 
 import Concordium.Types
 import Concordium.Types.Execution(Proof)
 import Concordium.ID.Types
+import qualified Concordium.ID.Account as AH
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.ID.Types as IDTypes
+
+import Data.Serialize
 
 import Acorn.Parser.Runner
 import qualified Acorn.Core as Core
@@ -25,9 +33,9 @@ import Prelude hiding(mod, exp)
 
 signTx :: KeyPair -> TransactionHeader -> EncodedPayload -> Types.BareTransaction
 signTx kp th encPayload = Types.signTransaction kp header encPayload
-    where header = Types.makeTransactionHeader (thScheme th) (thSenderKey th) (Types.payloadSize encPayload) (thNonce th) (thGasAmount th)
+    where header = Types.makeTransactionHeader (thSenderKey th) (Types.payloadSize encPayload) (thNonce th) (thGasAmount th)
 
-transactionHelper :: MonadFail m => TransactionJSON -> Context Core.UA m Types.BareTransaction
+transactionHelper :: (MonadFail m, MonadIO m) => TransactionJSON -> Context Core.UA m Types.BareTransaction
 transactionHelper t =
   case t of
     (TJSON meta (DeployModule mnameText) keys) ->
@@ -46,27 +54,36 @@ transactionHelper t =
       return $ signTx keys meta (Types.encodePayload (Types.Transfer to amnt))
     (TJSON meta (DeployCredential c) keys) ->
       return $ signTx keys meta (Types.encodePayload (Types.DeployCredential c))
-    (TJSON meta (AddBaker vkey sigkey aggkey acc proof) keys) ->
-      return $ signTx keys meta (Types.encodePayload (Types.AddBaker vkey sigkey aggkey acc proof))
+    (TJSON meta AddBaker{..} keys) ->
+      let abElectionVerifyKey = bvfkey
+          abSignatureVerifyKey = bsigvfkey
+          abAggregationVerifyKey = baggvfkey
+          abAccount = AH.accountAddress (Sig.correspondingVerifyKey baccountKeyPair)
+          challenge = runPut (put abElectionVerifyKey <> put abSignatureVerifyKey <> put abAccount)
+      in do
+        Just abProofElection <- liftIO $ Proofs.proveDlog25519VRF challenge (VRF.KeyPair bvfSecretKey abElectionVerifyKey)
+        Just abProofSig <- liftIO $ Proofs.proveDlog25519KP challenge (Sig.KeyPairEd25519 bsigkey bsigvfkey)
+        Just abProofAccount <- liftIO $ Proofs.proveDlog25519KP challenge baccountKeyPair
+        return $ signTx keys meta (Types.encodePayload Types.AddBaker{..})
     (TJSON meta (RemoveBaker bid proof) keys) ->
       return $ signTx keys meta (Types.encodePayload (Types.RemoveBaker bid proof))
-    (TJSON meta (UpdateBakerAccount bid addr proof) keys) ->
-      return $ signTx keys meta (Types.encodePayload (Types.UpdateBakerAccount bid addr proof))
-    (TJSON meta (UpdateBakerSignKey bid key proof) keys) ->
-      return $ signTx keys meta (Types.encodePayload (Types.UpdateBakerSignKey bid key proof))
+    (TJSON meta (UpdateBakerAccount bid kp) keys) ->
+      let ubaAddress = AH.accountAddress (Sig.correspondingVerifyKey kp)
+          challenge = runPut (put bid <> put ubaAddress)
+      in do
+        Just ubaProof <- liftIO $ Proofs.proveDlog25519KP challenge kp
+        return $ signTx keys meta (Types.encodePayload (Types.UpdateBakerAccount bid ubaAddress ubaProof))
+    (TJSON meta (UpdateBakerSignKey bid ubsKey signkey) keys) ->
+      let challenge = runPut (put bid <> put ubsKey)
+      in do
+        Just ubsProof <- liftIO $ Proofs.proveDlog25519KP challenge (Sig.KeyPairEd25519 signkey ubsKey)
+        return $ signTx keys meta (Types.encodePayload (Types.UpdateBakerSignKey bid ubsKey ubsProof))
     (TJSON meta (DelegateStake bid) keys) ->
       return $ signTx keys meta (Types.encodePayload (Types.DelegateStake bid))
     (TJSON meta UndelegateStake keys) ->
       return $ signTx keys meta (Types.encodePayload Types.UndelegateStake)
 
-
--- decodeAndProcessTransactions :: MonadFail m => ByteString -> Context m [Types.Transaction]
--- decodeAndProcessTransactions txt =
---   case AE.eitherDecode txt of
---     Left err -> fail $ "Error decoding JSON: " ++ err
---     Right t -> processTransactions t
-
-processTransactions :: MonadFail m => [TransactionJSON]  -> Context Core.UA m [Types.BareTransaction]
+processTransactions :: (MonadFail m, MonadIO m) => [TransactionJSON]  -> Context Core.UA m [Types.BareTransaction]
 processTransactions = mapM transactionHelper
 
 data PayloadJSON = DeployModule { moduleName :: Text }
@@ -85,23 +102,24 @@ data PayloadJSON = DeployModule { moduleName :: Text }
                  | DeployCredential {cdi :: CredentialDeploymentInformation}
                  | AddBaker {
                      bvfkey :: BakerElectionVerifyKey,
+                     bvfSecretKey :: VRF.SecretKey,
                      bsigvfkey :: BakerSignVerifyKey,
                      baggvfkey :: BakerAggregationVerifyKey,
-                     baccount :: AccountAddress,
-                     bproof :: Proof }
+                     bsigkey :: BlockSig.SignKey,
+                     baccountKeyPair :: Sig.KeyPair
+                 }
                  | RemoveBaker {
                      rbId :: !BakerId,
                      rbProof :: !Proof
                      }
                  | UpdateBakerAccount {
                      ubaId :: !BakerId,
-                     ubaAddress :: !AccountAddress,
-                     ubaProof :: !Proof
+                     ubaKeyPair :: !Sig.KeyPair
                      }
                  | UpdateBakerSignKey {
                      ubsId :: !BakerId,
                      ubsKey :: !BakerSignVerifyKey,
-                     ubsProof :: !Proof
+                     ubsSecretKey :: !BlockSig.SignKey
                      }
                  | DelegateStake {
                      dsID :: !BakerId
@@ -110,8 +128,6 @@ data PayloadJSON = DeployModule { moduleName :: Text }
                  deriving(Show, Generic)
 
 data TransactionHeader = TransactionHeader {
-    -- |Signature scheme used by the account.
-    thScheme :: !SchemeId,
     -- |Verification key of the sender.
     thSenderKey :: !IDTypes.AccountVerificationKey,
     -- |Per account nonce, strictly increasing, no gaps.

@@ -153,18 +153,14 @@ main = cmdArgsRun mode >>=
                 bakers <- forM [0..number - 1] $ \n -> do
                     skp <- Sig.newKeyPair
                     vrfkp <- VRF.newKeyPair
-                    acctkp <- Sig.newKeyPair
+                    acctkp <- SigScheme.newKeyPair SigScheme.Ed25519
                     blssk <- Bls.generateSecretKey
                     -- blspk <- Bls.derivePublicKey blssk
                     LBS.writeFile (gdOutput </> "baker-" ++ show n ++ ".dat") $ S.encodeLazy $
                         BakerIdentity skp vrfkp blssk
                     encodeFile (gdOutput </> "baker-" ++ show n ++ "-account.json") $
-                        object [
-                            "address" .= ID.accountAddress (Sig.verifyKey acctkp) SigScheme.Ed25519,
-                            "signatureScheme" .= SigScheme.Ed25519,
-                            "signKey" .= Sig.signKey acctkp,
-                            "verifyKey" .= Sig.verifyKey acctkp
-                        ]
+                        object $ SigScheme.keyPairToJSONPairs acctkp ++
+                               ["address" .= ID.accountAddress (SigScheme.correspondingVerifyKey acctkp)]
                     encodeFile (gdOutput </> "baker-" ++ show n ++ "-credentials.json") $
                         object [
                           "electionPrivateKey" .= VRF.privateKey vrfkp,
@@ -176,25 +172,14 @@ main = cmdArgsRun mode >>=
                         "electionVerifyKey" .= VRF.publicKey vrfkp,
                         "signatureVerifyKey" .= Sig.verifyKey skp,
                         "finalizer" .= finalizerP n,
-                        "account" .= object [
-                            "signatureScheme" .= SigScheme.Ed25519,
-                            "verifyKey" .= Sig.verifyKey acctkp,
-                            "balance" .= (1000000000000 :: Integer)
-                            ]
+                        "account" .= (object $ SigScheme.verifyKeyToJSONPairs (SigScheme.correspondingVerifyKey acctkp) ++
+                          ["balance" .= (1000000000000 :: Integer)])
                         ]
                 encodeFile (gdOutput </> "bakers.json") bakers
         GenerateBetaAccounts{..} -> do
           accounts <- forM [0..number-1] $ \n -> do
-            acctkp <- Sig.newKeyPair
+            acctkp <- SigScheme.newKeyPair SigScheme.Ed25519
             encodeFile (gdOutput </> "beta-account-" ++ show n ++ ".json") $
-                object ["address" .= ID.accountAddress (Sig.verifyKey acctkp) SigScheme.Ed25519,
-                        "signatureScheme" .= SigScheme.Ed25519,
-                        "signKey" .= Sig.signKey acctkp,
-                        "verifyKey" .= Sig.verifyKey acctkp
-                       ]
-            return $ object [
-              "signatureScheme" .= SigScheme.Ed25519,
-              "verifyKey" .= Sig.verifyKey acctkp,
-              "balance" .= (1000000000000 :: Integer)
-              ]
+                object $ SigScheme.keyPairToJSONPairs acctkp ++ ["address" .= ID.accountAddress (SigScheme.correspondingVerifyKey acctkp)]
+            return $ object $ SigScheme.verifyKeyToJSONPairs (SigScheme.correspondingVerifyKey acctkp) ++ ["balance" .= (1000000000000 :: Integer)]
           encodeFile (gdOutput </> "beta-accounts.json") accounts

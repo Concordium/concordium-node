@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE LambdaCase, CPP #-}
 {-# LANGUAGE MultiParamTypeClasses, FlexibleInstances, FunctionalDependencies, FlexibleContexts, TypeFamilies #-}
 module Concordium.Getters where
 
@@ -23,8 +23,8 @@ import Concordium.GlobalState.Information(jsonStorable)
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.Block
-import Concordium.GlobalState.Basic.Block
-import Concordium.GlobalState.Basic.BlockState
+import Concordium.GlobalState.Implementation.Block
+import Concordium.GlobalState.Implementation.BlockState
 import Concordium.Types.HashableTo
 import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.GlobalState.Instances
@@ -130,9 +130,9 @@ getBlockBirkParameters hash sfsRef = runStateQuery sfsRef $
     "bakers" .= Array (fromList .
                        map (\(bid, BakerInfo{..}) -> object ["bakerId" .= (toInteger bid)
                                                             ,"bakerAccount" .= show _bakerAccount
-                                                            ,"bakerLotteryPower" .= ((fromIntegral _bakerStake :: Double) / fromIntegral (_bakerTotalStake _birkBakers))
+                                                            ,"bakerLotteryPower" .= ((fromIntegral _bakerStake :: Double) / fromIntegral (_bakerTotalStake _birkLotteryBakers))
                                                             ]) .
-                       Map.toList $ _bakerMap $ _birkBakers)
+                       Map.toList $ _bakerMap _birkLotteryBakers )
     ]
 
 getModuleList :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
@@ -226,7 +226,7 @@ getAncestors sfsRef blockHash count = case readMaybe blockHash of
                     Just bp -> do
                         let heightLim = if count > bpHeight bp then 0 else bpHeight bp - count + 1
                         return $ toJSONList $ map hsh $ takeWhile (\b -> bpHeight b >= heightLim) $ iterate bpParent bp
- 
+
 getBranches :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> IO Value
 getBranches sfsRef = runStateQuery sfsRef $ do
             brs <- branchesFromTop
@@ -236,6 +236,25 @@ getBranches sfsRef = runStateQuery sfsRef $ do
     where
         up childrenMap = foldr (\b -> at (bpParent b) . non [] %~ (object ["blockHash" .= hsh b, "children" .= Map.findWithDefault [] b childrenMap] :)) Map.empty
 
+#ifdef RUST
+getBlockData :: (SkovStateQueryable z m, TS.TreeStateMonad m, BS.BlockPointer m ~ BlockPointer, TS.PendingBlock m ~ PendingBlock)
+    => z -> BlockHash -> IO (Maybe BlockContents)
+getBlockData sfsRef bh = runStateQuery sfsRef $
+            TS.getBlockStatus bh <&> \case
+                Just (TS.BlockAlive bp) -> Just (blockPointerExtractBlockContents bp)
+                Just (TS.BlockFinalized bp _) -> Just (blockPointerExtractBlockContents bp)
+                Just (TS.BlockPending pb) -> Just (pendingBlockExtractBlockContents pb)
+                Just (TS.BlockDead) -> Nothing
+                Nothing -> Nothing
+
+getBlockDescendant :: (SkovStateQueryable z m, BS.BlockPointer m ~ BlockPointer) => z -> BlockHash -> BlockHeight -> IO (Maybe BlockContents)
+getBlockDescendant sfsRef ancestor distance = runStateQuery sfsRef $
+            resolveBlock ancestor >>= \case
+                Nothing -> return Nothing
+                Just bp -> do
+                    candidates <- getBlocksAtHeight (bpHeight bp + distance)
+                    return $ blockPointerExtractBlockContents <$> candidates ^? each . filtered (bp `isAncestorOf`)
+#else
 getBlockData :: (SkovStateQueryable z m, TS.TreeStateMonad m, BS.BlockPointer m ~ BlockPointer, TS.PendingBlock m ~ PendingBlock)
     => z -> BlockHash -> IO (Maybe Block)
 getBlockData sfsRef bh = runStateQuery sfsRef $
@@ -253,26 +272,26 @@ getBlockDescendant sfsRef ancestor distance = runStateQuery sfsRef $
                 Just bp -> do
                     candidates <- getBlocksAtHeight (bpHeight bp + distance)
                     return $ _bpBlock <$> candidates ^? each . filtered (bp `isAncestorOf`)
+#endif
 
-getBlockFinalization :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> BlockHash -> IO (Maybe FinalizationRecord)
-getBlockFinalization sfsRef bh = runStateQuery sfsRef $ do
-            bs <- TS.getBlockStatus bh
-            case bs of
-                Just (TS.BlockFinalized _ fr) -> return $ Just fr
-                _ -> return Nothing
 
 -- |Check whether a keypair is part of the baking committee by a key pair in the current best block.
+-- Returns 0 if keypair is not added as a baker.
+-- Returns 1 if keypair is added as a baker, but not part of the baking committee yet.
+-- Returns 2 if keypair is part of the baking committee.
 checkBakerExistsBestBlock :: (SkovStateQueryable z m)
-    => (BakerSignVerifyKey, BakerElectionVerifyKey)
+    => BakerSignVerifyKey
     -> z
-    -> IO Bool
-checkBakerExistsBestBlock keys sfsRef = runStateQuery sfsRef $ do
+    -> IO Word8
+checkBakerExistsBestBlock key sfsRef = runStateQuery sfsRef $ do
   bb <- bestBlock
   bps <- BS.getBlockBirkParameters (bpState bb)
-  case bps ^. birkBakers . bakersByKey . at keys of
-    Nothing -> return False
-    Just [] -> return False
-    Just _ -> return True
+  case bps ^. birkLotteryBakers . bakersByKey . at key of
+    Just _ -> return 2
+    Nothing -> 
+      case bps ^. birkCurrentBakers . bakersByKey . at key of
+        Just _ -> return 1
+        Nothing -> return 0
 
 -- |Check whether a keypair is part of the finalization committee by a key pair in the current best block.
 -- checkFinalizerExistsBestBlock :: (SkovStateQueryable z m, FinalizationMonad s m) => z -> IO Bool
@@ -282,9 +301,6 @@ checkFinalizerExistsBestBlock sfsRef = runStateQuery sfsRef $ do
    case fs ^. finCurrentRound of
      Nothing -> return False
      Just _ -> return True
-
-getIndexedFinalization :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> FinalizationIndex -> IO (Maybe FinalizationRecord)
-getIndexedFinalization sfsRef finInd = runStateQuery sfsRef $ TS.getFinalizationAtIndex finInd
 
 getCatchUpStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> IO CU.CatchUpStatus
 getCatchUpStatus sRef = runStateQuery sRef $ CU.getCatchUpStatus True

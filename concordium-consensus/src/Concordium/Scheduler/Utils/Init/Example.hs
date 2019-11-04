@@ -7,7 +7,7 @@ module Concordium.Scheduler.Utils.Init.Example (initialState, makeTransaction, m
 import qualified Data.HashMap.Strict as Map
 import System.Random
 
-import Concordium.Crypto.SignatureScheme(KeyPair(..), SchemeId(Ed25519))
+import Concordium.Crypto.SignatureScheme(KeyPair(..))
 import qualified Concordium.Crypto.SignatureScheme as Sig
 import Concordium.Crypto.Ed25519Signature(randomKeyPair)
 
@@ -17,7 +17,7 @@ import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Concordium.Scheduler.Environment as Types
 
-import qualified Concordium.GlobalState.Basic.BlockState as BlockState
+import qualified Concordium.GlobalState.Implementation.BlockState as BlockState
 import qualified Concordium.GlobalState.Account as Acc
 import qualified Concordium.GlobalState.Modules as Mod
 import Concordium.GlobalState.Parameters(BirkParameters, CryptographicParameters)
@@ -68,15 +68,15 @@ inCtxTm = Core.Var . Core.LocalDef . inCtx
 
 initialTrans :: Int -> [Types.BareTransaction]
 initialTrans n = map initSimpleCounter $ enumFromTo 1 n
- 
+
 mateuszAccount :: AccountAddress
-mateuszAccount = AH.accountAddress (Sig.verifyKey mateuszKP) Ed25519
+mateuszAccount = AH.accountAddress (Sig.correspondingVerifyKey mateuszKP)
 
 mateuszKP :: KeyPair
-mateuszKP = fst (randomKeyPair (mkStdGen 0))
+mateuszKP = uncurry Sig.KeyPairEd25519 . fst $ randomKeyPair (mkStdGen 0)
 
 mateuszKP' :: KeyPair
-mateuszKP' = fst (randomKeyPair (mkStdGen 1))
+mateuszKP' = uncurry Sig.KeyPairEd25519 . fst $ randomKeyPair (mkStdGen 1)
 
 initSimpleCounter :: Int -> Types.BareTransaction
 initSimpleCounter n = Runner.signTx
@@ -89,9 +89,8 @@ initSimpleCounter n = Runner.signTx
                                           (Core.Atom (Core.Literal (Core.Int64 0)))
                                         )
           header = Runner.TransactionHeader{
-            thScheme = Ed25519,
             thNonce = fromIntegral n,
-            thSenderKey = verifyKey mateuszKP,
+            thSenderKey = Sig.correspondingVerifyKey mateuszKP,
             thGasAmount = 100000
             }
 
@@ -100,9 +99,8 @@ makeTransaction :: Bool -> ContractAddress -> Nonce -> Types.BareTransaction
 makeTransaction inc ca n = Runner.signTx mateuszKP header payload
     where
         header = Runner.TransactionHeader{
-            thScheme = Ed25519,
             thNonce = n,
-            thSenderKey = verifyKey mateuszKP,
+            thSenderKey = Sig.correspondingVerifyKey mateuszKP,
             thGasAmount = 1000000
             }
         payload = Types.encodePayload (Types.Update 0
@@ -115,18 +113,18 @@ makeTransaction inc ca n = Runner.signTx mateuszKP header payload
 initialState :: BirkParameters
              -> CryptographicParameters
              -> [Account]
-             -> [Types.IdentityProviderData]
+             -> [Types.IpInfo]
              -> Int
              -> BlockState.BlockState
-initialState birkParams cryptoParams bakerAccounts ips n = 
+initialState birkParams cryptoParams bakerAccounts ips n =
     let (_, _, mods) = foldl handleFile
                            baseState
                            $(embedFiles [Left "test/contracts/SimpleAccount.acorn"
                                         ,Left "test/contracts/SimpleCounter.acorn"]
                             )
         initialAmount = 2 ^ (62 :: Int)
-        customAccounts = [newAccount (Sig.verifyKey mateuszKP) Ed25519 & accountAmount .~ initialAmount,
-                          newAccount (Sig.verifyKey mateuszKP') Ed25519 & accountAmount .~ initialAmount]
+        customAccounts = [newAccount (Sig.correspondingVerifyKey mateuszKP) & accountAmount .~ initialAmount,
+                          newAccount (Sig.correspondingVerifyKey mateuszKP') & accountAmount .~ initialAmount]
         initAccount = foldl (flip Acc.putAccount)
                             Acc.emptyAccounts
                             (customAccounts ++ bakerAccounts)

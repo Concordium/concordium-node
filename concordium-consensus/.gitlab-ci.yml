@@ -1,9 +1,9 @@
-image: "haskell"
+image: "haskell:8.6.5"
 
 variables:
     STACK_ROOT: "${CI_PROJECT_DIR}/.stack"
+    LD_LIBRARY_PATH: "${CI_PROJECT_DIR}/crypto/rust-src/target/release:${CI_PROJECT_DIR}/globalstate-mockup/deps/concordium-global-state-sys/target/release:$LD_LIBRARY_PATH"
     GIT_SUBMODULE_STRATEGY: recursive
-
 cache:
   paths:
     - .stack
@@ -13,7 +13,9 @@ cache:
 build-and-test:
   script:
     - "apt-get update && apt-get install -y moreutils curl"
-    - "curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain nightly"
+    - "git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/"
+    - "curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable"
     - "source $HOME/.cargo/env"
-    - "LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release:$LD_LIBRARY_PATH stack build -v --ghc-options -j4 | ts '[%Y-%m-%d %H:%M:%.S]'"
-    - "LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release:$LD_LIBRARY_PATH stack test -v | ts '[%Y-%m-%d %H:%M:%.S]'"
+    - "./build-deps.sh"
+    - "stack build -v --ghc-options -j4 | ts '[%Y-%m-%d %H:%M:%.S]'"
+    - "stack test -v | ts '[%Y-%m-%d %H:%M:%.S]'"

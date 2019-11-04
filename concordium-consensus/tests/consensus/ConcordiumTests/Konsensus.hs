@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards, GeneralizedNewtypeDeriving, TupleSections, OverloadedStrings, InstanceSigs #-}
+{-# LANGUAGE RecordWildCards, GeneralizedNewtypeDeriving, TupleSections, OverloadedStrings, InstanceSigs, FlexibleContexts, CPP #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 module ConcordiumTests.Konsensus where
 
@@ -23,9 +23,14 @@ import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.BlockState(BlockPointerData(..))
 import qualified Concordium.GlobalState.TreeState as TreeState
-import Concordium.GlobalState.Basic.TreeState
-import Concordium.GlobalState.Basic.BlockState
-import Concordium.GlobalState.Basic.Block
+import qualified Concordium.GlobalState.Implementation.TreeState as TS
+import qualified Concordium.GlobalState.Implementation.Block as B
+#ifdef RUST
+import qualified Concordium.GlobalState.Basic.Block as BA
+#endif
+import qualified Concordium.GlobalState.Implementation.Block as B
+import qualified Concordium.GlobalState.Implementation as I
+import qualified Concordium.GlobalState.Implementation.BlockState as BS
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
@@ -51,6 +56,8 @@ import Test.QuickCheck
 import Test.QuickCheck.Monadic
 import Test.Hspec
 
+import Data.Maybe
+
 -- import Debug.Trace
 
 dummyTime :: UTCTime
@@ -59,8 +66,8 @@ dummyTime = posixSecondsToUTCTime 0
 type Trs = HM.HashMap TransactionHash (Transaction, Slot)
 type ANFTS = HM.HashMap AccountAddress AccountNonFinalizedTransactions
 
-invariantSkovData :: SkovData -> Either String ()
-invariantSkovData SkovData{..} = do
+invariantSkovData :: TS.SkovData -> Either String ()
+invariantSkovData TS.SkovData{..} = do
         -- Finalization list
         when (Seq.null _skovFinalizationList) $ Left "Finalization list is empty"
         (finMap, lastFin, _) <- foldM checkFin (HM.empty, _skovGenesisBlockPointer, 0) _skovFinalizationList
@@ -111,20 +118,20 @@ invariantSkovData SkovData{..} = do
         checkPending lfSlot queue (parent, children) = do
             when (null children) $ Left $ "Empty list of blocks pending parent"
             let checkChild q child = do
-                    let pendingBlockStatus = _skovBlockTable ^. at (pbHash child)
+                    let pendingBlockStatus = _skovBlockTable ^. at (getHash child)
                     case pendingBlockStatus of
                         Just TreeState.BlockPending{} -> return ()
                         _ -> Left $ "Pending block status (" ++ show pendingBlockStatus ++ ") should be BlockPending"
-                    checkBinary (==) (blockPointer (bbFields (pbBlock child))) parent "==" "pending block's parent" "pending parent"
-                    checkBinary (>) (blockSlot (pbBlock child)) lfSlot ">" "pending block's slot" "last finalized slot"
-                    return (Set.insert ((blockSlot (pbBlock child)), (pbHash child, parent)) q)
+                    checkBinary (==) (blockPointer child) parent "==" "pending block's parent" "pending parent"
+                    checkBinary (>) (blockSlot child) lfSlot ">" "pending block's slot" "last finalized slot"
+                    return (Set.insert ((blockSlot child), (getHash child, parent)) q)
             let parentBlockStatus = _skovBlockTable ^. at parent
             case parentBlockStatus of
                 Just TreeState.BlockPending{} -> return ()
                 Nothing -> return ()
                 _ -> Left $ "Pending parent status (" ++ show parentBlockStatus ++ ") should be BlockPending or Nothing"
             foldM checkChild queue children
-        walkTransactions :: BlockPointer -> BlockPointer -> Trs -> ANFTS -> Either String (Trs, ANFTS)
+        walkTransactions :: BS.BlockPointer -> BS.BlockPointer -> Trs -> ANFTS -> Either String (Trs, ANFTS)
         walkTransactions src dest trMap anfts
             | src == dest = return (trMap, anfts)
             | otherwise = do
@@ -147,7 +154,7 @@ invariantSkovData SkovData{..} = do
         onlyPending _ = False
 
 invariantSkovFinalization :: SkovActiveState -> Either String ()
-invariantSkovFinalization (SkovActiveState sd@SkovData{..} FinalizationState{..}) = do
+invariantSkovFinalization (SkovActiveState sd@TS.SkovData{..} FinalizationState{..}) = do
         invariantSkovData sd
         let (_ Seq.:|> (lfr, lfb)) = _skovFinalizationList
         checkBinary (==) _finsIndex (succ $ finalizationIndex lfr) "==" "current finalization index" "successor of last finalized index"
@@ -173,7 +180,7 @@ invariantSkovFinalization (SkovActiveState sd@SkovData{..} FinalizationState{..}
                 Just nom -> checkBinary Set.member nom eligibleBlocks "is an element of" "the nominated final block" "the set of eligible blocks"
     where
         checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
-        
+
 
 data DummyM a = DummyM {runDummy :: a}
 
@@ -195,9 +202,30 @@ instance LoggerMonad DummyM where
     logEvent src LLError msg = error $ show src ++ ": " ++ msg
     logEvent _ _ _ = return () -- trace (show src ++ ": " ++ msg) $ return ()
 
+#ifdef RUST
 data Event
     = EBake Slot
-    | EBlock BakedBlock
+    | EBlock B.BlockContents
+    | ETransaction Transaction
+    | EFinalization FinalizationMessage
+    | EFinalizationRecord FinalizationRecord
+
+instance Show Event where
+    show (EBake sl) = "bake for " ++ show sl
+    show (EBlock bb) =
+      let bf = fromJust . blockFields $ bb in
+        let b = B.BakedBlock (blockSlot bb)
+                (BA.BlockFields (blockPointer bf) (blockBaker bf) (blockProof bf) (blockNonce bf) (blockLastFinalized bf))
+                (BA.BlockTransactions . blockTransactions $ bb)
+                (fromJust . B.blockContentsSignature $ bb) in
+          "block: " ++ show (getHash . B.NormalBlock $ b :: BlockHash)
+    show (ETransaction tr) = "transaction: " ++ show tr
+    show (EFinalization fmsg) = "finalization message: " ++ show fmsg
+    show (EFinalizationRecord fr) = "finalize: " ++ show (finalizationBlockPointer fr)
+#else
+data Event
+    = EBake Slot
+    | EBlock B.BakedBlock
     | ETransaction Transaction
     | EFinalization FinalizationMessage
     | EFinalizationRecord FinalizationRecord
@@ -209,6 +237,8 @@ instance Show Event where
     show (EFinalization fmsg) = "finalization message: " ++ show fmsg
     show (EFinalizationRecord fr) = "finalize: " ++ show (finalizationBlockPointer fr)
 
+#endif
+
 type EventPool = Seq (Int, Event)
 
 -- |Pick an element from a seqeunce, returning the element
@@ -218,7 +248,11 @@ selectFromSeq g s =
     let (n , g') = randomR (0, length s - 1) g in
     (Seq.index s n, Seq.deleteAt n s, g')
 
+#ifdef RUST
+type States = Vec.Vector (BakerIdentity, FinalizationInstance, SkovActiveState, TS.GlobalStatePtr)
+#else
 type States = Vec.Vector (BakerIdentity, FinalizationInstance, SkovActiveState)
+#endif
 
 myRunSkovActiveM :: (MonadIO m) => SkovActiveM LogIO a -> FinalizationInstance -> SkovActiveState -> m (a, SkovActiveState, SkovFinalizationEvents)
 myRunSkovActiveM a fi sfs = liftIO $ runLoggerT (runSkovActiveM a fi sfs) doLog
@@ -229,23 +263,39 @@ myRunSkovActiveM a fi sfs = liftIO $ runLoggerT (runSkovActiveM a fi sfs) doLog
 
 runKonsensusTest :: RandomGen g => Int -> g -> States -> EventPool -> IO Property
 runKonsensusTest steps g states events
-        | steps <= 0 = return $ property True
+        | steps <= 0 = return $ (label $ "fin length: " ++ (show $ maximum $ (\s -> s ^. _3 . to _sasSkov . TS.skovFinalizationList . to Seq.length) <$> states )) $ property True
         | null events = return $ property True
         | otherwise = do
             let ((rcpt, ev), events', g') = selectFromSeq g events
+#ifdef RUST
+            let (bkr, fi, fs, gs) = states Vec.! rcpt
+#else
             let (bkr, fi, fs) = states Vec.! rcpt
+#endif
             let btargets = [x | x <- [0..length states - 1], x /= rcpt]
             (fs', events'') <- {- trace (show rcpt ++ ": " ++ show ev) $ -} case ev of
                 EBake sl -> do
                     (mb, fs', evs) <- myRunSkovActiveM (bakeForSlot bkr sl) fi fs
                     let blockEvents = case mb of
                                         Nothing -> Seq.empty
-                                        Just (BlockPointer {_bpBlock = NormalBlock b}) ->
-                                            Seq.fromList [(r, EBlock b) | r <- btargets]
+#ifdef RUST
+                                        Just (blockPtr) ->
+                                          Seq.fromList [(r, EBlock (BS.blockPointerExtractBlockContents blockPtr))
+                                                         | r <- btargets]
+#else
+                                        Just (BS.BlockPointer {_bpBlock = B.NormalBlock b}) ->
+                                          Seq.fromList [(r, EBlock b) | r <- btargets]
                                         _ -> error "Baked genesis block"
+#endif
                     let events'' = blockEvents <> handleMessages btargets (extractFinalizationOutputEvents evs) Seq.|> (rcpt, EBake (sl + 1))
                     return (fs', events'')
-                EBlock block -> runAndHandle (storeBlock (makePendingBlock block dummyTime)) fi fs btargets
+                EBlock block -> do
+#ifdef RUST
+                   pb <- B.makePendingBlockWithContents gs block dummyTime
+                   runAndHandle (storeBlock pb) fi fs btargets
+#else
+                   runAndHandle (storeBlock (B.makePendingBlock block dummyTime)) fi fs btargets
+#endif
                 ETransaction tr -> runAndHandle (receiveTransaction tr) fi fs btargets
                 EFinalization fmsg -> runAndHandle (receiveFinalizationMessage fmsg) fi fs btargets
                 EFinalizationRecord frec -> runAndHandle (finalizeBlock frec) fi fs btargets
@@ -265,39 +315,41 @@ runKonsensusTest steps g states events
 
 runKonsensusTestSimple :: RandomGen g => Int -> g -> States -> EventPool -> IO Property
 runKonsensusTestSimple steps g states events
-        | steps <= 0 || null events = do
-            {-
-            let (_, fi, st) = states Vec.! 0
-            let (_, fi', st') = states Vec.! 1
-            print st
-            print st'
-            (cus, _, _) <- myRunSkovActiveM (getCatchUpStatus True) fi' st'
-            let a = do
-                    -- lfb <- lastFinalizedBlock
-                    -- let cus = makeCatchUpStatus True lfb lfb []
-                    handleCatchUp cus
-            (r, _, _) <- myRunSkovActiveM a fi st
-            print r
-            -}
-            return
-                (case forM_ states $ \(_, _, s) -> invariantSkovFinalization s of
-                    Left err -> counterexample ("Invariant failed: " ++ err) False
-                    Right _ -> property True)
+        | steps <= 0 || null events = return
+            (case forM_ states $ \s -> invariantSkovFinalization (s ^. _3) of
+                Left err -> counterexample ("Invariant failed: " ++ err) False
+                Right _ -> property True)
         | otherwise = do
             let ((rcpt, ev), events', g') = selectFromSeq g events
+#ifdef RUST
+            let (bkr, fi, fs, gs) = states Vec.! rcpt
+#else
             let (bkr, fi, fs) = states Vec.! rcpt
+#endif
             let btargets = [x | x <- [0..length states - 1], x /= rcpt]
             (fs', events'') <- case ev of
                 EBake sl -> do
                     (mb, fs', evs) <- myRunSkovActiveM (bakeForSlot bkr sl) fi fs
                     let blockEvents = case mb of
                                         Nothing -> Seq.empty
-                                        Just (BlockPointer {_bpBlock = NormalBlock b}) ->
-                                            Seq.fromList [(r, EBlock b) | r <- btargets]
+#ifdef RUST
+                                        Just (blockPtr) ->
+                                          Seq.fromList [(r, EBlock (BS.blockPointerExtractBlockContents blockPtr))
+                                                         | r <- btargets]
+#else
+                                        Just (BS.BlockPointer {_bpBlock = B.NormalBlock b}) ->
+                                          Seq.fromList [(r, EBlock b) | r <- btargets]
                                         _ -> error "Baked genesis block"
+#endif
                     let events'' = blockEvents <> handleMessages btargets (extractFinalizationOutputEvents evs) Seq.|> (rcpt, EBake (sl + 1))
                     return (fs', events'')
-                EBlock block -> runAndHandle (storeBlock (makePendingBlock block dummyTime)) fi fs btargets
+                EBlock block -> do
+#ifdef RUST
+                   pb <- B.makePendingBlockWithContents gs block dummyTime
+                   runAndHandle (storeBlock pb) fi fs btargets
+#else
+                   runAndHandle (storeBlock (B.makePendingBlock block dummyTime)) fi fs btargets
+#endif
                 ETransaction tr -> runAndHandle (receiveTransaction tr) fi fs btargets
                 EFinalization fmsg -> runAndHandle (receiveFinalizationMessage fmsg) fi fs btargets
                 EFinalizationRecord frec -> runAndHandle (finalizeBlock frec) fi fs btargets
@@ -335,19 +387,33 @@ makeBaker bid lot = do
         let account = makeBakerAccount bid
         return (BakerInfo epk spk lot (_accountAddress account), BakerIdentity sk ek, account)
 
-dummyIdentityProviders :: [IdentityProviderData]
-dummyIdentityProviders = []  
+dummyIdentityProviders :: [IpInfo]
+dummyIdentityProviders = []
 
-initialiseStates :: Int -> Gen States
+initialiseStates :: Int -> PropertyM IO States
 initialiseStates n = do
         let bns = [0..fromIntegral n - 1]
-        bis <- mapM (\i -> (i,) <$> makeBaker i 1) bns
-        let bps = BirkParameters 0.5 (bakersFromList $ (^. _2 . _1) <$> bis) (genesisSeedState (hash "LeadershipElectionNonce") 360)
+        bis <- mapM (\i -> (i,) <$> pick (makeBaker i 1)) bns
+        let genesisBakers = fst . bakersFromList $ (^. _2 . _1) <$> bis
+        let bps = BirkParameters 0.5 genesisBakers genesisBakers genesisBakers (genesisSeedState (hash "LeadershipElectionNonce") 360)
             fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _ _, _, _)) <- bis] 2
             bakerAccounts = map (\(_, (_, _, acc)) -> acc) bis
             gen = GenesisData 0 1 bps bakerAccounts [] fps dummyCryptographicParameters dummyIdentityProviders 10
-        return $ Vec.fromList [(bid, fininst, initialSkovActiveState fininst defaultRuntimeParameters gen (Example.initialState bps dummyCryptographicParameters bakerAccounts [] nAccounts))
-                              | (_, (_, bid, _)) <- bis, let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid)]
+#ifdef RUST
+        bis2 <- liftIO $ mapM (\(a,b) -> I.makeEmptyGlobalState gen >>=  (return . ((a, b,)))) bis
+        res <- liftIO $ mapM (\(_, (_, bid, _), gs) -> do
+                                let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid)
+                                initState <- liftIO $ initialSkovActiveState fininst defaultRuntimeParameters gen (Example.initialState bps dummyCryptographicParameters bakerAccounts [] nAccounts) gs
+                                return (bid, fininst, initState, gs)
+                             ) bis2
+#else
+        res <- liftIO $ mapM (\(_, (_, bid, _)) -> do
+                                let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid)
+                                initState <- liftIO $ initialSkovActiveState fininst defaultRuntimeParameters gen (Example.initialState bps dummyCryptographicParameters bakerAccounts [] nAccounts)
+                                return (bid, fininst, initState)
+                             ) bis
+#endif
+        return $ Vec.fromList res
 
 instance Show BakerIdentity where
     show _ = "[Baker Identity]"
@@ -356,30 +422,30 @@ instance Show FinalizationInstance where
     show _ = "[Finalization Instance]"
 
 instance Show SkovActiveState where
-    show sfs = show (sfs ^. skov)
+    show sfs = show (sfs ^. TS.skov)
 
 
 withInitialStates :: Int -> (StdGen -> States -> EventPool -> IO Property) -> Property
 withInitialStates n r = monadicIO $ do
-        s0 <- pick $ initialiseStates n
+        s0 <- initialiseStates $ n
         gen <- pick $ mkStdGen <$> arbitrary
         liftIO $ r gen s0 (initialEvents s0)
 
 withInitialStatesTransactions :: Int -> Int -> (StdGen -> States -> EventPool -> IO Property) -> Property
 withInitialStatesTransactions n trcount r = monadicIO $ do
-        s0 <- pick $ initialiseStates n
-        trs <- pick $ genTransactions trcount
+        s0 <- initialiseStates $ n
+        trs <- pick . genTransactions $ trcount
         gen <- pick $ mkStdGen <$> arbitrary
-        now <- liftIO currentTime
+        now <- liftIO getTransactionTime
         liftIO $ r gen s0 (initialEvents s0 <> Seq.fromList [(x, ETransaction (fromBareTransaction now tr)) | x <- [0..n-1], tr <- trs])
 
 withInitialStatesDoubleTransactions :: Int -> Int -> (StdGen -> States -> EventPool -> IO Property) -> Property
 withInitialStatesDoubleTransactions n trcount r = monadicIO $ do
-        s0 <- pick $ initialiseStates n
-        trs0 <- pick $ genTransactions trcount
+        s0 <- initialiseStates $ n
+        trs0 <- pick . genTransactions $ trcount
         trs <- (trs0 ++) <$> pick (genTransactions trcount)
         gen <- pick $ mkStdGen <$> arbitrary
-        now <- liftIO currentTime
+        now <- liftIO getTransactionTime
         liftIO $ r gen s0 (initialEvents s0 <> Seq.fromList [(x, ETransaction (fromBareTransaction now tr)) | x <- [0..n-1], tr <- trs])
 
 
