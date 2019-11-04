@@ -417,6 +417,9 @@ impl P2PNode {
         // 4. As the `self_ref` field is the first one and it is laid out
         // in C representation, we do not need to do pointer arithmetics, just
         // casting the pointer to the node as a pointer to the Arc<P2PNode>.
+        //
+        // This approach has been validated using Miri to check that it doesn't lead to
+        // UB
         let inner_node = Arc::get_mut(&mut node).unwrap() as *mut P2PNode;
         let data_to_copy = &node as *const Arc<P2PNode>;
         let self_ref_ptr = inner_node as *mut Arc<P2PNode>;
