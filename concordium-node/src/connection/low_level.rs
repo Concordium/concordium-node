@@ -76,13 +76,11 @@ pub struct ConnectionLowLevel {
     incoming_msg: IncomingMessage,
     /// The current status of the noise handshake
     handshake_state: HandshakeState,
-    /// A queue for outbound noise handshake messages
-    handshake_queue: VecDeque<HybridBuf>,
     /// A container for the high-level handshake message in case we're the
     /// initiator
     high_lvl_handshake: Option<HybridBuf>,
-    /// A queue for encrypted messages waiting to be written to the socket
-    encrypted_queue: VecDeque<HybridBuf>,
+    /// A queue for messages waiting to be written to the socket
+    output_queue: VecDeque<HybridBuf>,
     /// A buffer for decrypted/unencrypted message chunks
     plaintext_chunk_buffer: [u8; NOISE_MAX_PAYLOAD_LEN],
 }
@@ -120,10 +118,10 @@ impl ConnectionLowLevel {
             )
         };
 
-        let mut handshake_queue = VecDeque::with_capacity(4);
+        let mut output_queue = VecDeque::with_capacity(16);
         let handshake_state = if is_initiator {
             trace!("I'm sending my pre-shared static key");
-            handshake_queue.push_back(create_frame(&[]).unwrap()); // infallible
+            output_queue.push_back(create_frame(&[]).unwrap()); // infallible
             HandshakeState::AwaitingPublicKey
         } else {
             trace!("I'm awaiting the pre-shared static key");
@@ -138,9 +136,8 @@ impl ConnectionLowLevel {
             input_nonce: 0,
             output_nonce: 0,
             incoming_msg: IncomingMessage::default(),
-            handshake_queue,
             high_lvl_handshake: None,
-            encrypted_queue: VecDeque::with_capacity(16),
+            output_queue,
             handshake_state,
             noise_msg_buffer: [0u8; NOISE_MAX_MESSAGE_LEN],
             plaintext_chunk_buffer: [0u8; NOISE_MAX_PAYLOAD_LEN],
@@ -168,7 +165,7 @@ impl ConnectionLowLevel {
 
         trace!("I'm sending Ikpsk2 message A");
         let msg_len = session.write_message(&[], &mut self.noise_msg_buffer)?;
-        self.handshake_queue
+        self.output_queue
             .push_back(create_frame(&self.noise_msg_buffer[..msg_len])?);
 
         self.handshake_state = HandshakeState::AwaitingMessageB;
@@ -180,7 +177,7 @@ impl ConnectionLowLevel {
     fn responder_got_psk(&mut self) -> Fallible<()> {
         trace!("I've received the pre-shared static key");
         trace!("I'm sending my public key");
-        self.handshake_queue
+        self.output_queue
             .push_back(create_frame(&self.keypair.public)?);
 
         // Next state
@@ -197,7 +194,7 @@ impl ConnectionLowLevel {
 
             trace!("I'm sending Ikpsk2 message B");
             let msg_len = session.write_message(&[], &mut self.noise_msg_buffer)?;
-            self.handshake_queue
+            self.output_queue
                 .push_back(create_frame(&self.noise_msg_buffer[..msg_len])?);
 
             self.noise_session = Some(session.into_stateless_transport_mode()?);
@@ -235,8 +232,8 @@ impl ConnectionLowLevel {
             Complete => unreachable!("Handshake logic error"),
         }?;
 
-        while !self.handshake_queue.is_empty() {
-            self.flush_handshaker()?;
+        while !self.output_queue.is_empty() {
+            self.flush_socket()?;
         }
 
         // once the noise handshake is complete, send out any pending messages
@@ -509,9 +506,9 @@ impl ConnectionLowLevel {
             let len = input.len()? as usize;
             let encrypted_chunks = self.encrypt(input, len)?;
             for chunk in encrypted_chunks {
-                self.encrypted_queue.push_back(chunk);
+                self.output_queue.push_back(chunk);
             }
-            self.flush_encryptor()
+            self.flush_socket()
         } else {
             // in case we are the connection initiator, we need to queue the high-level
             // handshake message until the noise handshake is complete
@@ -522,52 +519,24 @@ impl ConnectionLowLevel {
 
     #[inline(always)]
     pub fn flush_socket(&mut self) -> Fallible<TcpResult<usize>> {
-        if self.handshake_state == HandshakeState::Complete {
-            self.flush_encryptor()
-        } else {
-            self.flush_handshaker()
-        }
-    }
-
-    fn flush_handshaker(&mut self) -> Fallible<TcpResult<usize>> {
         let mut written_bytes = 0;
 
-        while let Some(mut data) = self.handshake_queue.pop_front() {
-            trace!("Pushing a handshake message to the socket");
-            written_bytes += partial_copy(&mut data, &mut self.noise_msg_buffer, &mut self.socket)?;
-
-            if data.is_eof()? {
-                trace!("Successfully sent a chunk of a handshake message");
-            } else {
-                trace!("The message was not fully written; requeuing");
-                self.handshake_queue.push_front(data);
-                return Ok(TcpResult::Incomplete);
-            }
-        }
-
-        Ok(TcpResult::Complete(written_bytes))
-    }
-
-    #[inline(always)]
-    fn flush_encryptor(&mut self) -> Fallible<TcpResult<usize>> {
-        let mut written_bytes = 0;
-
-        while let Some(mut encrypted) = self.encrypted_queue.pop_front() {
+        while let Some(mut message) = self.output_queue.pop_front() {
             trace!(
                 "Writing a {}B message to the socket",
-                encrypted.remaining_len()?
+                message.remaining_len()?
             );
             written_bytes +=
-                partial_copy(&mut encrypted, &mut self.noise_msg_buffer, &mut self.socket)?;
+                partial_copy(&mut message, &mut self.noise_msg_buffer, &mut self.socket)?;
 
-            if encrypted.is_eof()? {
-                trace!("Successfully written an encrypted message");
+            if message.is_eof()? {
+                trace!("Successfully written a message to the socket");
             } else {
                 trace!(
                     "Incomplete write ({}B remaining); requeuing",
-                    encrypted.remaining_len()?
+                    message.remaining_len()?
                 );
-                self.encrypted_queue.push_front(encrypted);
+                self.output_queue.push_front(message);
                 return Ok(TcpResult::Incomplete);
             }
         }
