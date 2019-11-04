@@ -59,10 +59,8 @@ pub struct ConnectionLowLevel {
     pub socket: TcpStream,
     keypair: Keypair,
     noise_session: Option<Session>,
-    /// The buffer for reading straight from the socket
-    input_buffer: [u8; NOISE_MAX_MESSAGE_LEN],
-    /// The buffer for reading straight from the socket
-    output_buffer: [u8; NOISE_MAX_MESSAGE_LEN],
+    /// The buffer for reading/writing raw noise messages
+    noise_msg_buffer: [u8; NOISE_MAX_MESSAGE_LEN],
     /// The single message currently being read
     current_input: Vec<u8>,
     /// The number of bytes remaining to be appended to `current_input`
@@ -80,7 +78,7 @@ pub struct ConnectionLowLevel {
     /// A buffer for decrypted message chunks
     plaintext_chunk_buffer: Vec<u8>,
     /// A buffer for the full decrypted incoming message
-    full_output_buffer: HybridBuf,
+    full_msg_buffer: HybridBuf,
 }
 
 impl ConnectionLowLevel {
@@ -137,11 +135,10 @@ impl ConnectionLowLevel {
             pending_output_queue: Vec::with_capacity(4),
             encrypted_queue: VecDeque::with_capacity(16),
             handshake_state,
-            input_buffer: [0u8; NOISE_MAX_MESSAGE_LEN],
-            output_buffer: [0u8; NOISE_MAX_MESSAGE_LEN],
+            noise_msg_buffer: [0u8; NOISE_MAX_MESSAGE_LEN],
             encrypted_chunk_buffer: vec![0u8; NOISE_MAX_MESSAGE_LEN],
             plaintext_chunk_buffer: vec![0; NOISE_MAX_PAYLOAD_LEN],
-            full_output_buffer: Default::default(),
+            full_msg_buffer: Default::default(),
         }
     }
 
@@ -165,9 +162,9 @@ impl ConnectionLowLevel {
         .build_initiator()?;
 
         trace!("I'm sending Ikpsk2 message A");
-        let msg_len = session.write_message(&[], &mut self.input_buffer)?;
+        let msg_len = session.write_message(&[], &mut self.noise_msg_buffer)?;
         self.handshake_queue
-            .push_back(create_frame(&self.input_buffer[..msg_len])?);
+            .push_back(create_frame(&self.noise_msg_buffer[..msg_len])?);
 
         self.handshake_state = HandshakeState::AwaitingMessageB;
         self.noise_session = Some(session);
@@ -191,12 +188,12 @@ impl ConnectionLowLevel {
         trace!("I've received Ikpsk2 message A");
         if let Some(mut session) = self.noise_session.take() {
             let e_es_s_ss = input.remaining_bytes()?;
-            session.read_message(&e_es_s_ss, &mut self.input_buffer)?;
+            session.read_message(&e_es_s_ss, &mut self.noise_msg_buffer)?;
 
             trace!("I'm sending Ikpsk2 message B");
-            let msg_len = session.write_message(&[], &mut self.input_buffer)?;
+            let msg_len = session.write_message(&[], &mut self.noise_msg_buffer)?;
             self.handshake_queue
-                .push_back(create_frame(&self.input_buffer[..msg_len])?);
+                .push_back(create_frame(&self.noise_msg_buffer[..msg_len])?);
 
             self.noise_session = Some(session.into_stateless_transport_mode()?);
             self.handshake_state = HandshakeState::Complete;
@@ -211,7 +208,7 @@ impl ConnectionLowLevel {
         trace!("I've received Ikpsk2 message B");
         if let Some(mut session) = self.noise_session.take() {
             let e_ee_se_psk = input.remaining_bytes()?;
-            session.read_message(&e_ee_se_psk, &mut self.input_buffer)?;
+            session.read_message(&e_ee_se_psk, &mut self.noise_msg_buffer)?;
 
             self.noise_session = Some(session.into_stateless_transport_mode()?);
             self.handshake_state = HandshakeState::Complete;
@@ -326,10 +323,10 @@ impl ConnectionLowLevel {
         // only extract the bytes needed to know the size.
         let min_bytes = self.pending_bytes_to_know_expected_size();
         let read_bytes =
-            map_io_error_to_fail!(self.socket.read(&mut self.input_buffer[..min_bytes]))?;
+            map_io_error_to_fail!(self.socket.read(&mut self.noise_msg_buffer[..min_bytes]))?;
 
         self.current_input
-            .extend_from_slice(&self.input_buffer[..read_bytes]);
+            .extend_from_slice(&self.noise_msg_buffer[..read_bytes]);
 
         // once the number of bytes needed to read the message size is known, continue
         if self.current_input.len() == std::mem::size_of::<PayloadSize>() {
@@ -384,11 +381,11 @@ impl ConnectionLowLevel {
         trace!("Reading a message ({}B remaining)", self.pending_bytes);
         let read_size = std::cmp::min(self.pending_bytes as usize, NOISE_MAX_MESSAGE_LEN);
 
-        match self.socket.read(&mut self.input_buffer[..read_size]) {
+        match self.socket.read(&mut self.noise_msg_buffer[..read_size]) {
             Ok(read_bytes) => {
                 // trace!("Read {}B", read_bytes);
                 self.current_input
-                    .extend_from_slice(&self.input_buffer[..read_bytes]);
+                    .extend_from_slice(&self.noise_msg_buffer[..read_bytes]);
                 self.pending_bytes -= read_bytes as PayloadSize;
 
                 Ok(read_bytes)
@@ -438,12 +435,9 @@ impl ConnectionLowLevel {
         }
 
         // rewind the input message buffer
-        self.full_output_buffer.seek(SeekFrom::Start(0))?;
+        self.full_msg_buffer.seek(SeekFrom::Start(0))?;
 
-        Ok(mem::replace(
-            &mut self.full_output_buffer,
-            Default::default(),
-        ))
+        Ok(mem::replace(&mut self.full_msg_buffer, Default::default()))
     }
 
     fn decrypt_chunk<R: Read + Seek>(
@@ -476,7 +470,7 @@ impl ConnectionLowLevel {
                 );
                 debug_assert!(len <= NOISE_MAX_PAYLOAD_LEN);
 
-                self.full_output_buffer
+                self.full_msg_buffer
                     .write_all(&self.plaintext_chunk_buffer[..len])?;
                 Ok(())
             }
@@ -517,7 +511,7 @@ impl ConnectionLowLevel {
 
         while let Some(mut data) = self.handshake_queue.pop_front() {
             trace!("Pushing a handshake message to the socket");
-            written_bytes += partial_copy(&mut data, &mut self.output_buffer, &mut self.socket)?;
+            written_bytes += partial_copy(&mut data, &mut self.noise_msg_buffer, &mut self.socket)?;
 
             if data.is_eof()? {
                 trace!("Successfully sent a chunk of a handshake message");
@@ -541,7 +535,7 @@ impl ConnectionLowLevel {
                 encrypted.remaining_len()?
             );
             written_bytes +=
-                partial_copy(&mut encrypted, &mut self.output_buffer, &mut self.socket)?;
+                partial_copy(&mut encrypted, &mut self.noise_msg_buffer, &mut self.socket)?;
 
             if encrypted.is_eof()? {
                 trace!("Successfully written an encrypted message");
