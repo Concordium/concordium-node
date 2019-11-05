@@ -18,7 +18,11 @@ use crate::{
 };
 use chrono::prelude::*;
 use concordium_common::{
-    cache::Cache, hybrid_buf::HybridBuf, serial::Serial, stats_export_service::StatsExportService,
+    cache::Cache,
+    hybrid_buf::HybridBuf,
+    serial::Serial,
+    stats_export_service::StatsExportService,
+    QueueMsg::{self, Relay},
 };
 use failure::{err_msg, Error, Fallible};
 #[cfg(not(target_os = "windows"))]
@@ -34,6 +38,7 @@ use rand::seq::IteratorRandom;
 use rkv::{Manager, Rkv, StoreOptions, Value};
 use snow::Keypair;
 
+use concordium_consensus::{consensus::CALLBACK_QUEUE, transferlog::TRANSACTION_LOG_QUEUE};
 use std::{
     cmp::Reverse,
     collections::{HashMap, HashSet},
@@ -118,7 +123,7 @@ pub struct ConnectionHandler {
     server:                  TcpListener,
     next_id:                 AtomicUsize,
     key_pair:                Keypair,
-    pub event_log:           Option<SyncSender<P2PEvent>>,
+    pub event_log:           Option<SyncSender<QueueMsg<P2PEvent>>>,
     pub buckets:             RwLock<Buckets>,
     pub log_dumper:          Option<SyncSender<DumpItem>>,
     pub noise_params:        snow::params::NoiseParams,
@@ -137,7 +142,7 @@ impl ConnectionHandler {
         server: TcpListener,
         network_messages_hi: SyncSender<NetworkRawRequest>,
         network_messages_lo: SyncSender<NetworkRawRequest>,
-        event_log: Option<SyncSender<P2PEvent>>,
+        event_log: Option<SyncSender<QueueMsg<P2PEvent>>>,
     ) -> Self {
         let networks = conf
             .common
@@ -232,7 +237,7 @@ impl P2PNode {
     pub fn new(
         supplied_id: Option<String>,
         conf: &Config,
-        event_log: Option<SyncSender<P2PEvent>>,
+        event_log: Option<SyncSender<QueueMsg<P2PEvent>>>,
         peer_type: PeerType,
         stats_export_service: Option<StatsExportService>,
         subscription_queue_in: SyncSender<NetworkMessage>,
@@ -570,7 +575,7 @@ impl P2PNode {
 
     pub fn spawn(&self, receivers: Receivers) {
         let self_clone = self.self_ref.clone().unwrap(); // safe, always available
-        let poll_thread = spawn_or_die!("Poll thread", move || {
+        let poll_thread = spawn_or_die!("Poll thread", {
             let mut events = Events::with_capacity(10);
             let mut log_time = SystemTime::now();
             let mut last_buckets_cleaned = SystemTime::now();
@@ -580,7 +585,11 @@ impl P2PNode {
             loop {
                 let _ = self_clone
                     .receive_network_events(&mut events, &mut deduplication_queues)
-                    .map_err(|e| error!("{}", e));
+                    .map_err(|e| {
+                        if !self_clone.is_terminated.load(Ordering::Relaxed) {
+                            error!("{}", e)
+                        }
+                    });
 
                 // Run periodic tasks
                 let now = SystemTime::now();
@@ -621,10 +630,13 @@ impl P2PNode {
         });
 
         let self_clone = self.self_ref.clone().unwrap(); // safe, always available
-        let send_thread = spawn_or_die!("Send thread", move || {
+        let send_thread = spawn_or_die!("Send thread", {
             loop {
                 self_clone.send_queued_messages(&receivers);
                 thread::sleep(Duration::from_millis(self_clone.config.poll_interval));
+                if self_clone.is_terminated.load(Ordering::Relaxed) {
+                    break;
+                }
             }
         });
 
@@ -1062,7 +1074,7 @@ impl P2PNode {
 
     fn log_event(&self, event: P2PEvent) {
         if let Some(ref log) = self.connection_handler.event_log {
-            if let Err(e) = log.send(event) {
+            if let Err(e) = log.send(Relay(event)) {
                 error!("Couldn't send error {:?}", e)
             }
         }
@@ -1281,7 +1293,7 @@ impl P2PNode {
     pub fn close(&self) -> bool {
         info!("P2PNode shutting down.");
         self.is_terminated.store(true, Ordering::Relaxed);
-        true
+        CALLBACK_QUEUE.stop().is_ok() && TRANSACTION_LOG_QUEUE.stop().is_ok()
     }
 
     pub fn close_and_join(&self) -> Fallible<()> {
