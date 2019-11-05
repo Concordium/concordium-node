@@ -354,7 +354,7 @@ fn start_consensus_message_threads(
                             msg,
                             &mut gspeers,
                         ) {
-                            error!("There's an issue with a global state request: {}", e);
+                            error!("There's an issue with an inbound consensus request: {}", e);
                         } else {
                             loop_interval_in = match msg_type {
                                 PacketType::Block => loop_interval_in.saturating_sub(5),
@@ -363,7 +363,7 @@ fn start_consensus_message_threads(
                         }
                     }
                     QueueMsg::Stop => {
-                        warn!("Closing the global state channel");
+                        warn!("Closing the consensus inbound channel");
                         break 'outer_loop;
                     }
                 }
@@ -391,11 +391,11 @@ fn start_consensus_message_threads(
                                 msg,
                                 &mut gspeers,
                             ) {
-                                error!("There's an issue with a global state request: {}", e);
+                                error!("There's an issue with an inbound consensus request: {}", e);
                             }
                         }
                         QueueMsg::Stop => {
-                            warn!("Closing the global state channel");
+                            warn!("Closing the inbound consensus channel");
                             break 'outer_loop;
                         }
                     }
@@ -435,7 +435,7 @@ fn start_consensus_message_threads(
                         if let Err(e) =
                             handle_consensus_outbound_message(&node_out_ref, nid_out, msg)
                         {
-                            error!("There's an issue with a global state request: {}", e);
+                            error!("There's an issue with an outbound consensus request: {}", e);
                         } else {
                             loop_interval_out = match msg_type {
                                 PacketType::Block => loop_interval_out.saturating_sub(5),
@@ -444,7 +444,7 @@ fn start_consensus_message_threads(
                         }
                     }
                     QueueMsg::Stop => {
-                        warn!("Closing the global state channel");
+                        warn!("Closing the outbound consensus channel");
                         break 'outer_loop;
                     }
                 }
@@ -468,11 +468,14 @@ fn start_consensus_message_threads(
                             if let Err(e) =
                                 handle_consensus_outbound_message(&node_out_ref, nid_out, msg)
                             {
-                                error!("There's an issue with a global state request: {}", e);
+                                error!(
+                                    "There's an issue with an outbound consensus request: {}",
+                                    e
+                                );
                             }
                         }
                         QueueMsg::Stop => {
-                            warn!("Closing the global state channel");
+                            warn!("Closing the outboudn consensus channel");
                             break 'outer_loop;
                         }
                     }
