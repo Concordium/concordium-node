@@ -161,8 +161,8 @@ fn main() -> Fallible<()> {
     // Connect outgoing messages to be forwarded into the baker and RPC streams.
     //
     // Thread #3 (#4): read P2PNode output
-    let (global_state_inbound_thread, global_state_outbound_thread) =
-        start_global_state_threads(&node, &conf, consensus.clone(), PeerList::new());
+    let (consensus_inbound_thread, consensus_outbound_thread) =
+        start_consensus_message_threads(&node, &conf, consensus.clone(), PeerList::new());
 
     info!(
         "Concordium P2P layer. Network disabled: {}",
@@ -183,13 +183,13 @@ fn main() -> Fallible<()> {
     ffi::stop_haskell();
 
     // Wait for the global state threads to stop
-    global_state_inbound_thread
+    consensus_inbound_thread
         .join()
-        .expect("Higher inbound process thread panicked");
+        .expect("Consensus inbound process thread panicked");
 
-    global_state_outbound_thread
+    consensus_outbound_thread
         .join()
-        .expect("Higher outbound process thread panicked");
+        .expect("Consensus outbound process thread panicked");
 
     // Close the RPC server if present
     if let Some(ref mut serv) = rpc_serv {
@@ -308,7 +308,7 @@ fn connect_to_config_nodes(conf: &config::ConnectionConfig, node: &P2PNode) {
     }
 }
 
-fn start_global_state_threads(
+fn start_consensus_message_threads(
     node: &Arc<P2PNode>,
     conf: &config::Config,
     consensus: ConsensusContainer,
@@ -317,7 +317,7 @@ fn start_global_state_threads(
     let node_in_ref = Arc::clone(node);
     let mut consensus_in_ref = consensus.clone();
     let nid_in = NetworkId::from(conf.common.network_ids[0]); // defaulted so there's always first()
-    let global_state_inbound_thread = spawn_or_die!("Process inbound global state requests", {
+    let consensus_inbound_thread = spawn_or_die!("Process inbound consensus requests", {
         // don't do anything until the peer number is within the desired range
         while node_in_ref.get_node_peer_ids().len() > node_in_ref.config.max_allowed_nodes as usize
         {
@@ -413,7 +413,7 @@ fn start_global_state_threads(
 
     let node_out_ref = Arc::clone(node);
     let nid_out = NetworkId::from(conf.common.network_ids[0]); // defaulted so there's always first()
-    let global_state_outbound_thread = spawn_or_die!("Process outbound global state requests", {
+    let consensus_outbound_thread = spawn_or_die!("Process outbound consensus requests", {
         // don't do anything until the peer number is within the desired range
         while node_out_ref.get_node_peer_ids().len()
             > node_out_ref.config.max_allowed_nodes as usize
@@ -488,7 +488,7 @@ fn start_global_state_threads(
         }
     });
 
-    (global_state_inbound_thread, global_state_outbound_thread)
+    (consensus_inbound_thread, consensus_outbound_thread)
 }
 
 #[cfg(feature = "elastic_logging")]
