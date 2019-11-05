@@ -147,10 +147,6 @@ path = "src/bin/genkey.rs"
 name = "dns_key_generator"
 
 [[bin]]
-path = "src/bin/generate-new-keypair.rs"
-name = "generate-new-keypair"
-
-[[bin]]
 name = "node-collector"
 path = "src/bin/collector.rs"
 required-features = [ "collector" ]
