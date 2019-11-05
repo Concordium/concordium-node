@@ -58,23 +58,23 @@ pub enum MessageSendingPriority {
 }
 
 pub struct DeduplicationQueues {
-    pub finalizations: CircularQueue<[u8; 8]>,
-    pub transactions:  CircularQueue<[u8; 8]>,
-    pub blocks:        CircularQueue<[u8; 8]>,
-    pub fin_records:   CircularQueue<[u8; 8]>,
+    pub finalizations: RwLock<CircularQueue<[u8; 8]>>,
+    pub transactions:  RwLock<CircularQueue<[u8; 8]>>,
+    pub blocks:        RwLock<CircularQueue<[u8; 8]>>,
+    pub fin_records:   RwLock<CircularQueue<[u8; 8]>>,
 }
 
 impl DeduplicationQueues {
-    pub fn default() -> Self {
+    pub fn default() -> Arc<Self> {
         const SHORT_DEDUP_SIZE: usize = 64;
         const LONG_QUEUE_SIZE: usize = 32 * 1024;
 
-        Self {
-            finalizations: CircularQueue::with_capacity(LONG_QUEUE_SIZE),
-            transactions:  CircularQueue::with_capacity(LONG_QUEUE_SIZE),
-            blocks:        CircularQueue::with_capacity(SHORT_DEDUP_SIZE),
-            fin_records:   CircularQueue::with_capacity(SHORT_DEDUP_SIZE),
-        }
+        Arc::new(Self {
+            finalizations: RwLock::new(CircularQueue::with_capacity(LONG_QUEUE_SIZE)),
+            transactions:  RwLock::new(CircularQueue::with_capacity(LONG_QUEUE_SIZE)),
+            blocks:        RwLock::new(CircularQueue::with_capacity(SHORT_DEDUP_SIZE)),
+            fin_records:   RwLock::new(CircularQueue::with_capacity(SHORT_DEDUP_SIZE)),
+        })
     }
 }
 
@@ -239,22 +239,27 @@ impl Connection {
     fn is_packet_duplicate(
         &self,
         packet: &mut NetworkPacket,
-        deduplication_queues: &mut DeduplicationQueues,
+        deduplication_queues: &DeduplicationQueues,
     ) -> Fallible<bool> {
         let message = &mut packet.message;
         let packet_type = PacketType::try_from(message.read_u16::<Endianness>()?);
 
         let is_duplicate = match packet_type {
-            Ok(PacketType::FinalizationMessage) => {
-                dedup_with(message, &mut deduplication_queues.finalizations)?
+            Ok(PacketType::FinalizationMessage) => dedup_with(
+                message,
+                &mut write_or_die!(deduplication_queues.finalizations),
+            )?,
+            Ok(PacketType::Transaction) => dedup_with(
+                message,
+                &mut write_or_die!(deduplication_queues.transactions),
+            )?,
+            Ok(PacketType::Block) => {
+                dedup_with(message, &mut write_or_die!(deduplication_queues.blocks))?
             }
-            Ok(PacketType::Transaction) => {
-                dedup_with(message, &mut deduplication_queues.transactions)?
-            }
-            Ok(PacketType::Block) => dedup_with(message, &mut deduplication_queues.blocks)?,
-            Ok(PacketType::FinalizationRecord) => {
-                dedup_with(message, &mut deduplication_queues.fin_records)?
-            }
+            Ok(PacketType::FinalizationRecord) => dedup_with(
+                message,
+                &mut write_or_die!(deduplication_queues.fin_records),
+            )?,
             _ => false,
         };
         message.rewind()?;
@@ -265,7 +270,7 @@ impl Connection {
     fn process_message(
         &self,
         mut message: HybridBuf,
-        deduplication_queues: &mut DeduplicationQueues,
+        deduplication_queues: &DeduplicationQueues,
     ) -> Fallible<()> {
         self.update_last_seen();
         self.stats.messages_received.fetch_add(1, Ordering::Relaxed);

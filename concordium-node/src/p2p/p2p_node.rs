@@ -553,7 +553,7 @@ impl P2PNode {
             let mut log_time = SystemTime::now();
             let mut last_buckets_cleaned = SystemTime::now();
 
-            let mut deduplication_queues = DeduplicationQueues::default();
+            let deduplication_queues = DeduplicationQueues::default();
 
             let num_socket_threads = match self_clone.self_peer.peer_type {
                 PeerType::Bootstrapper => 1,
@@ -566,7 +566,7 @@ impl P2PNode {
 
             loop {
                 let _ = self_clone
-                    .receive_network_events(&mut events, &mut deduplication_queues)
+                    .receive_network_events(&mut events, &deduplication_queues)
                     .map_err(|e| {
                         if !self_clone.is_terminated.load(Ordering::Relaxed) {
                             error!("{}", e)
@@ -1180,7 +1180,7 @@ impl P2PNode {
     fn receive_network_events(
         &self,
         events: &mut Events,
-        deduplication_queues: &mut DeduplicationQueues,
+        deduplication_queues: &Arc<DeduplicationQueues>,
     ) -> Fallible<()> {
         events.clear();
         self.poll.poll(

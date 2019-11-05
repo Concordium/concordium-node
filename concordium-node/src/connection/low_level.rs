@@ -251,7 +251,7 @@ impl ConnectionLowLevel {
 
     /// Keeps reading from the socket as long as there is data to be read.
     #[inline(always)]
-    pub fn read_stream(&mut self, deduplication_queues: &mut DeduplicationQueues) -> Fallible<()> {
+    pub fn read_stream(&mut self, deduplication_queues: &DeduplicationQueues) -> Fallible<()> {
         loop {
             match self.read_from_socket() {
                 Ok(read_result) => match read_result {
