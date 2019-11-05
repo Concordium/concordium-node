@@ -531,18 +531,6 @@ impl StatsExportService {
         });
     }
 
-    #[cfg(not(feature = "instrumentation"))]
-    pub fn start_push_to_gateway(
-        &self,
-        _: String,
-        _: u64,
-        _: String,
-        _: String,
-        _: Option<String>,
-        _: Option<String>,
-    ) {
-    }
-
     #[cfg(feature = "instrumentation")]
     pub fn get_gs_stats(&self) -> (u32, u32, u32, u32, u32, u32) {
         (

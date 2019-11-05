@@ -8,7 +8,7 @@ use crate::{
     },
     p2p::banned_nodes::BannedNode,
 };
-use concordium_common::{read_or_die, write_or_die, PacketType};
+use concordium_common::{read_or_die, write_or_die, PacketType, QueueMsg::Relay};
 
 use failure::{Error, Fallible};
 
@@ -51,7 +51,11 @@ impl Connection {
                 ..
             ) => self.handle_retransmit_req(*elem_type, *since, *nid),
         } {
-            error!("Couldn't handle the network message {:?}: {}", full_msg, e);
+            if !self.handler_ref.is_terminated.load(Ordering::Relaxed) {
+                // In other case we are closing the node so we won't output the possibly closed
+                // channels errors
+                error!("Couldn't handle the network message {:?}: {}", full_msg, e);
+            }
         }
     }
 
@@ -208,7 +212,7 @@ impl Connection {
 
         if let Some(ref log) = self.handler().connection_handler.event_log {
             if log
-                .send(P2PEvent::JoinedNetwork(remote_peer, network))
+                .send(Relay(P2PEvent::JoinedNetwork(remote_peer, network)))
                 .is_err()
             {
                 error!("A JoinNetwork Event cannot be sent to the P2PEvent log");
@@ -234,7 +238,7 @@ impl Connection {
 
         if let Some(ref log) = self.handler().connection_handler.event_log {
             if log
-                .send(P2PEvent::LeftNetwork(remote_peer, network))
+                .send(Relay(P2PEvent::LeftNetwork(remote_peer, network)))
                 .is_err()
             {
                 error!("Left Network Event cannot be sent to the P2PEvent log");

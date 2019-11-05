@@ -45,25 +45,27 @@ pub fn start_push_gateway(
     conf: &configuration::PrometheusConfig,
     stats_export_service: &Option<StatsExportService>,
     id: P2PNodeId,
-) -> Fallible<()> {
-    if let Some(ref service) = stats_export_service {
-        if let Some(ref prom_push_addy) = conf.prometheus_push_gateway {
-            let instance_name = if let Some(ref instance_id) = conf.prometheus_instance_name {
-                instance_id.clone()
-            } else {
-                id.to_string()
-            };
-            service.start_push_to_gateway(
-                prom_push_addy.clone(),
-                conf.prometheus_push_interval,
-                conf.prometheus_job_name.clone(),
-                instance_name,
-                conf.prometheus_push_username.clone(),
-                conf.prometheus_push_password.clone(),
-            )
-        }
-    }
-    Ok(())
+) {
+    stats_export_service.as_ref().and_then(|service| {
+        conf.prometheus_push_gateway
+            .as_ref()
+            .and_then(|prom_push_addy| {
+                let instance_name = if let Some(ref instance_id) = conf.prometheus_instance_name {
+                    instance_id.clone()
+                } else {
+                    id.to_string()
+                };
+                service.start_push_to_gateway(
+                    prom_push_addy.clone(),
+                    conf.prometheus_push_interval,
+                    conf.prometheus_job_name.clone(),
+                    instance_name,
+                    conf.prometheus_push_username.clone(),
+                    conf.prometheus_push_password.clone(),
+                );
+                Some(())
+            })
+    });
 }
 
 #[cfg(feature = "instrumentation")]

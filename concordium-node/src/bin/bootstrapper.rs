@@ -13,7 +13,7 @@ use std::alloc::System;
 #[global_allocator]
 static A: System = System;
 
-use concordium_common::stats_export_service::StatsServiceMode;
+use concordium_common::{stats_export_service::StatsServiceMode, QueueMsg::Relay};
 use failure::Error;
 use p2p_client::{
     client::utils as client_utils,
@@ -71,7 +71,7 @@ fn main() -> Result<(), Error> {
     let (node, receivers) = if conf.common.debug {
         let (sender, receiver) = mpsc::sync_channel(config::EVENT_LOG_QUEUE_DEPTH);
         let _guard = spawn_or_die!("Log loop", move || loop {
-            if let Ok(msg) = receiver.recv() {
+            if let Ok(Relay(msg)) = receiver.recv() {
                 info!("{}", msg);
             }
         });
@@ -98,7 +98,7 @@ fn main() -> Result<(), Error> {
 
     #[cfg(feature = "instrumentation")]
     // Start push gateway to prometheus
-    client_utils::start_push_gateway(&conf.prometheus, &stats_export_service, node.id())?;
+    client_utils::start_push_gateway(&conf.prometheus, &stats_export_service, node.id());
 
     info!(
         "Concordium P2P layer. Network disabled: {}",

@@ -14,7 +14,8 @@ static A: System = System;
 use concordium_common::{
     spawn_or_die,
     stats_export_service::{StatsExportService, StatsServiceMode},
-    PacketType, QueueMsg,
+    PacketType,
+    QueueMsg::{self, Relay},
 };
 use concordium_consensus::{
     consensus::{ConsensusContainer, ConsensusLogLevel, CALLBACK_QUEUE},
@@ -91,7 +92,7 @@ fn main() -> Fallible<()> {
 
     #[cfg(feature = "instrumentation")]
     // Thread #2 (optional): the push gateway to Prometheus
-    client_utils::start_push_gateway(&conf.prometheus, &stats_export_service, node.id())?;
+    client_utils::start_push_gateway(&conf.prometheus, &stats_export_service, node.id());
 
     // Start the P2PNode
     //
@@ -194,6 +195,8 @@ fn main() -> Fallible<()> {
     // Close the stats server if present
     client_utils::stop_stats_export_engine(&conf, &stats_export_service);
 
+    info!("P2PNode gracefully closed.");
+
     Ok(())
 }
 
@@ -246,7 +249,7 @@ fn instantiate_node(
     let (node, receivers) = if conf.common.debug {
         let (sender, receiver) = mpsc::sync_channel(config::EVENT_LOG_QUEUE_DEPTH);
         let _guard = spawn_or_die!("Log loop", move || loop {
-            if let Ok(msg) = receiver.recv() {
+            if let Ok(Relay(msg)) = receiver.recv() {
                 info!("{}", msg);
             }
         });
