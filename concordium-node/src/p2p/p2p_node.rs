@@ -1188,40 +1188,42 @@ impl P2PNode {
             Some(Duration::from_millis(self.config.poll_interval)),
         )?;
 
-        for event in events.iter() {
-            match event.token() {
-                SERVER => {
-                    debug!("Got a new connection!");
-                    self.accept().map_err(|e| error!("{}", e)).ok();
-                    if let Some(ref service) = &self.stats_export_service {
-                        service.conn_received_inc();
-                    };
-                }
-                _ => {
-                    let readiness = event.readiness();
-                    if readiness.is_readable() || readiness.is_writable() {
-                        if let Some(conn) = self.find_connection_by_token(event.token()) {
-                            let mut read_result = Ok(());
-                            {
-                                let mut conn_lock = write_or_die!(conn.low_level);
-                                if readiness.is_readable() {
-                                    read_result = conn_lock.read_stream(deduplication_queues);
-                                }
-                                if readiness.is_writable() {
-                                    // TODO: we might want to close the connection
-                                    // when specific write errors are detected
-                                    conn_lock.flush_socket()?;
+        if events.iter().any(|event| event.token() == SERVER) {
+            debug!("Got a new connection!");
+            self.accept().map_err(|e| error!("{}", e)).ok();
+            if let Some(ref service) = &self.stats_export_service {
+                service.conn_received_inc();
+            };
+        }
+
+        read_or_die!(self.connections())
+            .par_iter()
+            .for_each(|(&token, conn)| {
+                let mut error_flag = false;
+                {
+                    let mut conn_lock = write_or_die!(conn.low_level);
+                    for event in events.iter().filter(|event| event.token() == token) {
+                        let readiness = event.readiness();
+
+                        if readiness.is_readable() || readiness.is_writable() {
+                            if readiness.is_readable() {
+                                if conn_lock.read_stream(deduplication_queues).is_err() {
+                                    error_flag = true;
+                                    break;
                                 }
                             }
-                            if let Err(e) = read_result {
-                                error!("Couldn't process a connection read event: {}", e);
-                                conn.handler().remove_connection(conn.token);
+                            if readiness.is_writable() {
+                                // TODO: we might want to close the connection
+                                // when specific write errors are detected
+                                let _ = conn_lock.flush_socket().map_err(|e| error!("{}", e));
                             }
                         }
                     }
                 }
-            }
-        }
+                if error_flag {
+                    self.remove_connection(token);
+                }
+            });
 
         Ok(())
     }
