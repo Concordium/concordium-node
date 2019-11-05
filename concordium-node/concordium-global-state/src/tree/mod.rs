@@ -1,72 +1,16 @@
 use chrono::prelude::{DateTime, Utc};
 use circular_queue::CircularQueue;
-use concordium_common::{blockchain_types::BlockHash, network_types::PeerId};
+use concordium_common::blockchain_types::BlockHash;
 use hash_hasher::{HashBuildHasher, HashedMap};
 use linked_hash_map::LinkedHashMap;
-use nohash_hasher::BuildNoHashHasher;
-use priority_queue::PriorityQueue;
 use rkv::{Rkv, SingleStore, StoreOptions};
 
 use std::{
-    cmp::Ordering,
     fmt, mem,
     sync::{Arc, RwLock},
-    time::Instant,
 };
 
 use crate::{block::*, finalization::*, transaction::*};
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub struct PeerState {
-    pub status: PeerStatus,
-    timestamp:  Instant,
-}
-
-impl PeerState {
-    pub fn new(status: PeerStatus) -> Self {
-        Self {
-            status,
-            timestamp: Instant::now(),
-        }
-    }
-
-    pub fn is_catching_up(&self) -> bool { PeerStatus::CatchingUp == self.status }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
-pub enum PeerStatus {
-    CatchingUp = 2,
-    Pending    = 1,
-    UpToDate   = 0,
-}
-
-impl Ord for PeerState {
-    fn cmp(&self, other: &Self) -> Ordering {
-        if self.status != other.status {
-            self.status.cmp(&other.status)
-        } else {
-            other.timestamp.cmp(&self.timestamp)
-        }
-    }
-}
-
-impl PartialOrd for PeerState {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { Some(self.cmp(other)) }
-}
-
-pub struct Peers {
-    pub peers:          PriorityQueue<PeerId, PeerState, BuildNoHashHasher<PeerId>>,
-    pub catch_up_stamp: u64,
-}
-
-impl Peers {
-    pub fn new() -> Self {
-        Self {
-            peers:          Default::default(),
-            catch_up_stamp: 0,
-        }
-    }
-}
 
 pub mod messaging;
 
@@ -346,25 +290,3 @@ impl fmt::Display for GlobalStats {
 
 pub mod growth;
 pub mod query;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn peer_queue_logic() {
-        let mut peers = PriorityQueue::new();
-
-        peers.push(0, PeerState::new(PeerStatus::UpToDate));
-        peers.push(1, PeerState::new(PeerStatus::Pending));
-        peers.push(2, PeerState::new(PeerStatus::CatchingUp));
-        peers.push(3, PeerState::new(PeerStatus::Pending));
-
-        let sorted_ids = peers
-            .into_sorted_iter()
-            .map(|(id, _)| id)
-            .collect::<Vec<_>>();
-
-        assert_eq!(sorted_ids, vec![2, 1, 3, 0]);
-    }
-}

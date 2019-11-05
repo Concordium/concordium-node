@@ -32,10 +32,11 @@ use concordium_consensus::{
 };
 
 use concordium_global_state::{
+    catch_up::{PeerList, PeerState, PeerStatus},
     common::sha256,
     tree::{
         messaging::{ConsensusMessage, DistributionMode, MessageType},
-        GlobalState, PeerState, PeerStatus, Peers,
+        GlobalState,
     },
 };
 
@@ -217,7 +218,7 @@ pub fn handle_consensus_inbound_message(
     network_id: NetworkId,
     consensus: &mut consensus::ConsensusContainer,
     request: ConsensusMessage,
-    peers: &mut Peers,
+    peers: &mut PeerList,
 ) -> Fallible<()> {
     process_external_gs_entry(node, network_id, consensus, request, peers)
 }
@@ -252,7 +253,7 @@ fn process_external_gs_entry(
     network_id: NetworkId,
     consensus: &mut consensus::ConsensusContainer,
     mut request: ConsensusMessage,
-    peers: &mut Peers,
+    peers: &mut PeerList,
 ) -> Fallible<()> {
     let source = P2PNodeId(request.source_peer());
 
@@ -366,7 +367,7 @@ fn send_catch_up_status(
     node: &P2PNode,
     network_id: NetworkId,
     consensus: &mut consensus::ConsensusContainer,
-    peers: &mut Peers,
+    peers: &mut PeerList,
     target: PeerId,
 ) -> Fallible<()> {
     debug!("Global state: I'm catching up with peer {:016x}", target);
@@ -389,7 +390,7 @@ fn send_catch_up_status(
     )
 }
 
-pub fn update_peer_list(node: &P2PNode, peers: &mut Peers) {
+pub fn update_peer_list(node: &P2PNode, peers: &mut PeerList) {
     debug!("The peers have changed; updating the catch-up peer list");
 
     let peer_ids = node.get_node_peer_ids();
@@ -415,7 +416,7 @@ pub fn check_peer_states(
     node: &P2PNode,
     network_id: NetworkId,
     consensus: &mut consensus::ConsensusContainer,
-    peers: &mut Peers,
+    peers: &mut PeerList,
 ) -> Fallible<()> {
     use PeerStatus::*;
 
@@ -452,7 +453,7 @@ pub fn check_peer_states(
 }
 
 fn update_peer_states(
-    peers: &mut Peers,
+    peers: &mut PeerList,
     request: &ConsensusMessage,
     consensus_result: ConsensusFfiResponse,
 ) {

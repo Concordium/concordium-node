@@ -21,7 +21,7 @@ use concordium_consensus::{
     consensus::{ConsensusContainer, ConsensusLogLevel, CALLBACK_QUEUE},
     ffi,
 };
-use concordium_global_state::tree::{GlobalState, Peers};
+use concordium_global_state::{catch_up::PeerList, tree::GlobalState};
 use p2p_client::{
     client::{
         plugins::{self, consensus::*},
@@ -162,7 +162,7 @@ fn main() -> Fallible<()> {
     //
     // Thread #3 (#4): read P2PNode output
     let (global_state_inbound_thread, global_state_outbound_thread) =
-        start_global_state_threads(&node, &conf, consensus.clone(), Peers::new());
+        start_global_state_threads(&node, &conf, consensus.clone(), PeerList::new());
 
     info!(
         "Concordium P2P layer. Network disabled: {}",
@@ -312,7 +312,7 @@ fn start_global_state_threads(
     node: &Arc<P2PNode>,
     conf: &config::Config,
     consensus: ConsensusContainer,
-    mut gspeers: Peers,
+    mut gspeers: PeerList,
 ) -> (std::thread::JoinHandle<()>, std::thread::JoinHandle<()>) {
     let node_in_ref = Arc::clone(node);
     let mut consensus_in_ref = consensus.clone();
