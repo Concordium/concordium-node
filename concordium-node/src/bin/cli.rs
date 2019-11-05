@@ -460,7 +460,9 @@ fn start_global_state_thread(
             }
 
             let time_to_sleep = std::cmp::min(loop_interval_in, loop_interval_out);
-            trace!("Going to sleep for {} ms", time_to_sleep);
+            if time_to_sleep != 200 {
+                trace!("Going to sleep for {} ms", time_to_sleep);
+            }
             thread::sleep(Duration::from_millis(time_to_sleep));
         }
     });
