@@ -2,32 +2,24 @@
 module Concordium.GlobalState.Basic.BlockState where
 
 import Lens.Micro.Platform
-import Data.Hashable hiding (unhashed, hashed)
-import Data.Time
-import Data.Time.Clock.POSIX
-import Control.Exception
 import qualified Data.Map.Strict as Map
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Set as Set
 import qualified Data.List as List
 import Data.Maybe
 
-import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.ID.Types(cdvRegId)
 import Concordium.Types
-import Concordium.Types.HashableTo
 import qualified Concordium.GlobalState.Classes as GS
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Block
 import Concordium.GlobalState.Bakers
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Modules as Modules
-import qualified Concordium.GlobalState.Account as Account
-import qualified Concordium.GlobalState.Instances as Instances
+import qualified Concordium.GlobalState.Basic.BlockState.Account as Account
+import qualified Concordium.GlobalState.Basic.BlockState.Instances as Instances
 import qualified Concordium.GlobalState.Rewards as Rewards
 import qualified Concordium.GlobalState.IdentityProviders as IPS
 import qualified Concordium.GlobalState.Transactions as Transactions
-import Concordium.GlobalState.Basic.Block
 
 import qualified Acorn.Utils.Init as Acorn
 
@@ -62,7 +54,7 @@ emptyBlockState _blockBirkParameters _blockCryptographicParameters = BlockState 
 newtype PureBlockStateMonad m a = PureBlockStateMonad {runPureBlockStateMonad :: m a}
     deriving (Functor, Applicative, Monad)
 
-instance (Monad m) => GS.BlockStateTypes (PureBlockStateMonad m) where
+instance GS.BlockStateTypes (PureBlockStateMonad m) where
     type BlockState (PureBlockStateMonad m) = BlockState
     type UpdatableBlockState (PureBlockStateMonad m) = BlockState
 

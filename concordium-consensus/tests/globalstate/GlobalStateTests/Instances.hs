@@ -13,8 +13,8 @@ import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Acorn.Interfaces
 import qualified Concordium.Types.Acorn.Core as Core
-import Concordium.GlobalState.Instances.Internal
-import Concordium.GlobalState.Instances
+import Concordium.GlobalState.Basic.BlockState.InstanceTable
+import Concordium.GlobalState.Basic.BlockState.Instances
 
 import qualified Data.FixedByteString as FBS
 

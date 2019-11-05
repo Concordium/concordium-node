@@ -11,7 +11,6 @@ import Concordium.Types.HashableTo
 import Concordium.GlobalState.BlockState
 
 import Data.Maybe
-import Data.Word
 import Data.HashMap.Strict(HashMap)
 import qualified Data.HashMap.Strict as Map
 import Data.Serialize

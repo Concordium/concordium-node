@@ -11,7 +11,7 @@ main :: IO ()
 main = hspec $ do
   GlobalStateTests.Trie.tests
   GlobalStateTests.PersistentState.tests
-  {-GlobalStateTests.SerializationSpec.tests
+  GlobalStateTests.SerializationSpec.tests
   GlobalStateTests.FinalizationSerializationSpec.tests
-  GlobalStateTests.Instances.tests-}
+  GlobalStateTests.Instances.tests
 

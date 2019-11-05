@@ -15,7 +15,7 @@ import Concordium.Types.HashableTo
 
 import Concordium.GlobalState.Persistent.MonadicRecursive
 import Concordium.GlobalState.Persistent.BlobStore
-import qualified Concordium.GlobalState.AccountTable as Transient
+import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as Transient
 
 -- |Account indexes are 64-bit values.
 -- This means that the level of a branch cannot exceed 64, which is used in the encoding.
@@ -83,12 +83,6 @@ full (Leaf _ _) = True
 mkLeaf :: Account -> ATF r
 mkLeaf acct = Leaf (getHash acct) acct
 {-# INLINE mkLeaf #-}
-
-{-
-mkBranch :: Word8 -> Bool -> ATF r -> ATF r -> ATF r
-mkBranch lvl f l r = Branch lvl f (H.hashShort $ H.hashToShortByteString (getHash l) <> H.hashToShortByteString (getHash r)) l r
-{-# INLINE mkBranch #-}
--}
 
 branchHash :: H.Hash -> H.Hash -> H.Hash
 branchHash h1 h2 = H.hashShort $ H.hashToShortByteString h1 <> H.hashToShortByteString h2
