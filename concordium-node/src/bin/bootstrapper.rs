@@ -68,7 +68,7 @@ fn main() -> Result<(), Error> {
 
     let (rpc_tx, _) = std::sync::mpsc::sync_channel(config::RPC_QUEUE_DEPTH);
 
-    let (node, receivers) = if conf.common.debug {
+    let node = if conf.common.debug {
         let (sender, receiver) = mpsc::sync_channel(config::EVENT_LOG_QUEUE_DEPTH);
         let _guard = spawn_or_die!("Log loop", move || loop {
             if let Ok(Relay(msg)) = receiver.recv() {
@@ -105,7 +105,7 @@ fn main() -> Result<(), Error> {
         conf.cli.no_network
     );
 
-    node.spawn(receivers);
+    node.spawn();
 
     node.join().expect("Node thread panicked!");
 

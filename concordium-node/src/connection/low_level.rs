@@ -78,7 +78,7 @@ pub struct ConnectionLowLevel {
     handshake_state: HandshakeState,
     /// A container for the high-level handshake message in case we're the
     /// initiator
-    high_lvl_handshake: Option<Vec<u8>>,
+    high_lvl_handshake: Option<Arc<[u8]>>,
     /// A queue for messages waiting to be written to the socket
     output_queue: VecDeque<Cursor<Vec<u8>>>,
     /// A buffer for decrypted/unencrypted message chunks
@@ -256,8 +256,10 @@ impl ConnectionLowLevel {
             match self.read_from_socket() {
                 Ok(read_result) => match read_result {
                     TcpResult::Complete(message) => {
-                        self.conn()
-                            .send_to_dump(message.clone().remaining_bytes()?.to_vec(), true);
+                        self.conn().send_to_dump(
+                            Arc::from(message.clone().remaining_bytes()?.to_vec()),
+                            true,
+                        );
                         if let Err(e) = self.conn().process_message(message, deduplication_queues) {
                             bail!("can't process a message: {}", e);
                         }
@@ -502,7 +504,7 @@ impl ConnectionLowLevel {
     // output
 
     #[inline(always)]
-    pub fn write_to_socket(&mut self, input: Vec<u8>) -> Fallible<TcpResult<usize>> {
+    pub fn write_to_socket(&mut self, input: Arc<[u8]>) -> Fallible<TcpResult<usize>> {
         if self.handshake_state == HandshakeState::Complete {
             let encrypted_chunks = self.encrypt(&input)?;
             for chunk in encrypted_chunks {

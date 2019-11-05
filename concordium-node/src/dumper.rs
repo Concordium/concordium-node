@@ -11,19 +11,25 @@ use chrono::prelude::{DateTime, Utc};
 use failure::Fallible;
 #[cfg(feature = "network_dump")]
 use std::io::Write;
-use std::net::IpAddr;
 #[cfg(feature = "network_dump")]
 use std::sync::mpsc::Receiver;
+
+use std::{net::IpAddr, sync::Arc};
 
 pub struct DumpItem {
     timestamp:   DateTime<Utc>,
     inbound:     bool,
     remote_addr: IpAddr,
-    msg:         Vec<u8>,
+    msg:         Arc<[u8]>,
 }
 
 impl DumpItem {
-    pub fn new(timestamp: DateTime<Utc>, inbound: bool, remote_addr: IpAddr, msg: Vec<u8>) -> Self {
+    pub fn new(
+        timestamp: DateTime<Utc>,
+        inbound: bool,
+        remote_addr: IpAddr,
+        msg: Arc<[u8]>,
+    ) -> Self {
         DumpItem {
             timestamp,
             inbound,

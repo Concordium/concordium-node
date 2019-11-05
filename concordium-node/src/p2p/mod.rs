@@ -3,7 +3,7 @@ pub mod fails;
 pub mod p2p_node;
 pub mod unreachable_nodes;
 
-pub use self::p2p_node::{Connections, Networks, P2PNode, Receivers};
+pub use self::p2p_node::{Connections, Networks, P2PNode};
 
 #[cfg(test)]
 mod tests {

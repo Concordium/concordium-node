@@ -82,7 +82,6 @@ impl Connection {
         );
 
         self.send_handshake_response(remote_node_id)?;
-        self.send_ping()?;
 
         if remote_peer.peer_type() != PeerType::Bootstrapper {
             write_or_die!(self.handler().connection_handler.buckets)
