@@ -7,7 +7,6 @@ use crate::configuration::APP_INFO;
 #[cfg(feature = "network_dump")]
 use app_dirs2::{get_app_root, AppDataType};
 use chrono::prelude::{DateTime, Utc};
-use concordium_common::hybrid_buf::HybridBuf;
 #[cfg(feature = "network_dump")]
 use failure::Fallible;
 #[cfg(feature = "network_dump")]
@@ -20,16 +19,11 @@ pub struct DumpItem {
     timestamp:   DateTime<Utc>,
     inbound:     bool,
     remote_addr: IpAddr,
-    msg:         HybridBuf,
+    msg:         Vec<u8>,
 }
 
 impl DumpItem {
-    pub fn new(
-        timestamp: DateTime<Utc>,
-        inbound: bool,
-        remote_addr: IpAddr,
-        msg: HybridBuf,
-    ) -> Self {
+    pub fn new(timestamp: DateTime<Utc>, inbound: bool, remote_addr: IpAddr, msg: Vec<u8>) -> Self {
         DumpItem {
             timestamp,
             inbound,
@@ -38,24 +32,15 @@ impl DumpItem {
         }
     }
 
-    pub fn into_pretty_dump(mut self) -> String {
-        let msg = NetworkMessage::deserialize(
-            &self
-                .msg
-                .remaining_bytes()
-                .expect("Can't dump network data!"),
-        );
+    pub fn into_pretty_dump(self) -> String {
+        let msg = NetworkMessage::deserialize(&self.msg).expect("Can't dump network data!");
 
         format!(
             "{} - {} - {} - {:?} - {:?}",
             self.timestamp,
             if self.inbound { "IN" } else { "OUT" },
             self.remote_addr,
-            if let Ok(cv) = self.msg.remaining_bytes() {
-                cv
-            } else {
-                (&[][..]).into()
-            },
+            self.msg,
             msg
         )
     }

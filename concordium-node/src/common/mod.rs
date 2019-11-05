@@ -3,8 +3,6 @@ pub mod fails;
 pub mod p2p_node_id;
 pub mod p2p_peer;
 
-use concordium_common::hybrid_buf::HybridBuf;
-
 use chrono::prelude::*;
 use mio::Token;
 
@@ -15,7 +13,7 @@ use std::net::{IpAddr, SocketAddr};
 /// *must be executed* inside MIO poll-loop thread.
 pub struct NetworkRawRequest {
     pub token: Token, // Identifies the connection.
-    pub data:  HybridBuf,
+    pub data:  Vec<u8>,
 }
 
 #[cfg(feature = "collector")]

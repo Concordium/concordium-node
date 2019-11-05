@@ -19,7 +19,7 @@ use concordium_common::hybrid_buf::HybridBuf;
 
 use std::{
     convert::TryFrom,
-    io::{self, Read, Seek, SeekFrom, Write},
+    io::{self, Read, Write},
     net::{IpAddr, SocketAddr},
     panic,
 };
@@ -33,7 +33,7 @@ impl NetworkMessage {
         }
     }
 
-    pub fn serialize<T: Write + Seek>(&mut self, target: &mut T) -> Fallible<()> {
+    pub fn serialize<T: Write>(&mut self, target: &mut T) -> Fallible<()> {
         let capacity = if let NetworkMessagePayload::NetworkPacket(ref packet) = self.payload {
             packet.message.len()? as usize + 64 // FIXME: fine-tune the overhead
         } else {
@@ -68,8 +68,6 @@ impl NetworkMessage {
         target
             .write_all(builder.finished_data())
             .map_err(Error::from)?;
-
-        target.seek(SeekFrom::Start(0))?;
 
         Ok(())
     }

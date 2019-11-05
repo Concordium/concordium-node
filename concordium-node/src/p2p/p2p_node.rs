@@ -213,11 +213,12 @@ macro_rules! send_to_all {
             };
             let filter = |_: &Connection| true;
 
-            if let Err(e) = HybridBuf::with_capacity(256)
-                .map_err(Error::from)
-                .and_then(|mut buf| message.serialize(&mut buf).map(|_| buf))
-                .and_then(|buf| self.send_over_all_connections(buf, &filter))
-            {
+            if let Err(e) = {
+                let mut buf = Vec::with_capacity(256);
+                message.serialize(&mut buf)
+                    .map(|_| buf)
+                    .and_then(|buf| self.send_over_all_connections(buf, &filter))
+            } {
                 error!("A network message couldn't be forwarded: {}", e);
             }
         }
@@ -452,7 +453,7 @@ impl P2PNode {
     /// # Returns number of messages sent to connections
     fn send_over_all_connections(
         &self,
-        data: HybridBuf,
+        data: Vec<u8>,
         conn_filter: &dyn Fn(&Connection) -> bool,
     ) -> Fallible<usize> {
         let mut sent_messages = 0usize;
@@ -1128,7 +1129,7 @@ impl P2PNode {
             let filter =
                 |conn: &Connection| read_or_die!(conn.remote_peer.id).unwrap() == target_id;
 
-            let mut serialized = HybridBuf::with_capacity(256)?;
+            let mut serialized = Vec::with_capacity(256);
             message.serialize(&mut serialized)?;
 
             self.send_over_all_connections(serialized, &filter)
@@ -1138,7 +1139,7 @@ impl P2PNode {
                 is_valid_connection_in_broadcast(conn, source_id, &peers_to_skip, network_id)
             };
 
-            let mut serialized = HybridBuf::with_capacity(256)?;
+            let mut serialized = Vec::with_capacity(256);
             message.serialize(&mut serialized)?;
 
             self.send_over_all_connections(serialized, &filter)
@@ -1272,11 +1273,7 @@ impl P2PNode {
     #[inline(always)]
     pub fn process_network_request(&self, request: NetworkRawRequest) {
         if let Some(ref conn) = self.find_connection_by_token(request.token) {
-            trace!(
-                "Attempting to send {}B to {}",
-                request.data.len().unwrap_or(0),
-                conn,
-            );
+            trace!("Attempting to send {}B to {}", request.data.len(), conn);
 
             if let Err(err) = conn.async_send_from_poll_loop(request.data) {
                 error!("Can't send a raw network request to {}: {}", conn, err);
@@ -1334,11 +1331,13 @@ impl P2PNode {
             };
             let filter = |_: &Connection| true;
 
-            if let Err(e) = HybridBuf::with_capacity(256)
-                .map_err(Error::from)
-                .and_then(|mut buf| message.serialize(&mut buf).map(|_| buf))
-                .and_then(|buf| self.send_over_all_connections(buf, &filter))
-            {
+            if let Err(e) = {
+                let mut buf = Vec::with_capacity(256);
+                message
+                    .serialize(&mut buf)
+                    .map(|_| buf)
+                    .and_then(|buf| self.send_over_all_connections(buf, &filter))
+            } {
                 error!("A network message couldn't be forwarded: {}", e);
             }
         }
@@ -1358,11 +1357,13 @@ impl P2PNode {
         };
         let filter = |_: &Connection| true;
 
-        if let Err(e) = HybridBuf::with_capacity(256)
-            .map_err(Error::from)
-            .and_then(|mut buf| message.serialize(&mut buf).map(|_| buf))
-            .and_then(|buf| self.send_over_all_connections(buf, &filter))
-        {
+        if let Err(e) = {
+            let mut buf = Vec::with_capacity(256);
+            message
+                .serialize(&mut buf)
+                .map(|_| buf)
+                .and_then(|buf| self.send_over_all_connections(buf, &filter))
+        } {
             error!("A network message couldn't be forwarded: {}", e);
         }
     }

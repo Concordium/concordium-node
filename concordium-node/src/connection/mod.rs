@@ -347,7 +347,7 @@ impl Connection {
 
     /// It queues a network request
     #[inline(always)]
-    pub fn async_send(&self, input: HybridBuf, priority: MessageSendingPriority) -> Fallible<()> {
+    pub fn async_send(&self, input: Vec<u8>, priority: MessageSendingPriority) -> Fallible<()> {
         let request = NetworkRawRequest {
             token: self.token,
             data:  input,
@@ -373,14 +373,14 @@ impl Connection {
     /// for real write. Function `ConnectionPrivate::ready` will make ensure to
     /// write chunks of the message
     #[inline(always)]
-    pub fn async_send_from_poll_loop(&self, input: HybridBuf) -> Fallible<TcpResult<usize>> {
+    pub fn async_send_from_poll_loop(&self, input: Vec<u8>) -> Fallible<TcpResult<usize>> {
         TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
         self.stats.messages_sent.fetch_add(1, Ordering::Relaxed);
         if let Some(ref stats) = self.handler().stats_export_service {
             stats.pkt_sent_inc();
         }
 
-        self.send_to_dump(&input, false);
+        self.send_to_dump(input.clone(), false);
 
         write_or_die!(self.low_level).write_to_socket(input)
     }
@@ -407,14 +407,9 @@ impl Connection {
         write_or_die!(self.remote_end_networks).remove(&network);
     }
 
-    fn send_to_dump(&self, buf: &HybridBuf, inbound: bool) {
+    fn send_to_dump(&self, buf: Vec<u8>, inbound: bool) {
         if let Some(ref sender) = self.handler().connection_handler.log_dumper {
-            let di = DumpItem::new(
-                Utc::now(),
-                inbound,
-                self.remote_peer().addr().ip(),
-                buf.clone(),
-            );
+            let di = DumpItem::new(Utc::now(), inbound, self.remote_peer().addr().ip(), buf);
             let _ = sender.send(di);
         }
     }
@@ -435,7 +430,7 @@ impl Connection {
                 vec![],
             )),
         };
-        let mut serialized = HybridBuf::with_capacity(128)?;
+        let mut serialized = Vec::with_capacity(128);
         handshake_request.serialize(&mut serialized)?;
 
         self.async_send(serialized, MessageSendingPriority::High)?;
@@ -458,7 +453,7 @@ impl Connection {
                 vec![],
             )),
         };
-        let mut serialized = HybridBuf::with_capacity(128)?;
+        let mut serialized = Vec::with_capacity(128);
         handshake_response.serialize(&mut serialized)?;
 
         self.async_send(serialized, MessageSendingPriority::High)
@@ -472,7 +467,7 @@ impl Connection {
             timestamp2: None,
             payload:    NetworkMessagePayload::NetworkRequest(NetworkRequest::Ping),
         };
-        let mut serialized = HybridBuf::with_capacity(64)?;
+        let mut serialized = Vec::with_capacity(64);
         ping.serialize(&mut serialized)?;
 
         self.async_send(serialized, MessageSendingPriority::High)?;
@@ -490,7 +485,7 @@ impl Connection {
             timestamp2: None,
             payload:    NetworkMessagePayload::NetworkResponse(NetworkResponse::Pong),
         };
-        let mut serialized = HybridBuf::with_capacity(64)?;
+        let mut serialized = Vec::with_capacity(64);
         pong.serialize(&mut serialized)?;
 
         self.async_send(serialized, MessageSendingPriority::High)
@@ -549,7 +544,7 @@ impl Connection {
         if let Some(mut resp) = peer_list_resp {
             debug!("Sending my PeerList to peer {}", requestor.id());
 
-            let mut serialized = HybridBuf::with_capacity(256)?;
+            let mut serialized = Vec::with_capacity(256);
             resp.serialize(&mut serialized)?;
 
             self.async_send(serialized, MessageSendingPriority::Normal)
@@ -563,7 +558,7 @@ impl Connection {
     }
 
     fn forward_network_message(&self, msg: &mut NetworkMessage) -> Fallible<()> {
-        let mut serialized = HybridBuf::with_capacity(256)?;
+        let mut serialized = Vec::with_capacity(256);
         msg.serialize(&mut serialized)?;
 
         let conn_filter = |conn: &Connection| match msg.payload {
