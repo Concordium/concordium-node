@@ -448,7 +448,7 @@ pub struct BootstrapperConfig {
     #[structopt(
         long = "bootstrapper-timeout-bucket-entry-period",
         help = "Timeout an entry in the buckets after a given period (in ms), 0 means never",
-        default_value = "2700000"
+        default_value = "7200000"
     )]
     pub bootstrapper_timeout_bucket_entry_period: u64,
 }
