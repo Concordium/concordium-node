@@ -16,10 +16,10 @@ import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
 
 import Concordium.GlobalState.Bakers
-import Concordium.GlobalState.Account as Acc
+import Concordium.GlobalState.Basic.BlockState.Account as Acc
 import Concordium.GlobalState.Modules as Mod
-import Concordium.GlobalState.Implementation.BlockState
-import Concordium.GlobalState.Implementation.Invariants
+import Concordium.GlobalState.Basic.BlockState
+import Concordium.GlobalState.Basic.BlockState.Invariants
 import qualified Concordium.GlobalState.Rewards as Rew
 
 import qualified Concordium.Crypto.BlockSignature as BlockSig

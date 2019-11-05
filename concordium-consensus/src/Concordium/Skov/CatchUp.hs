@@ -55,13 +55,13 @@ instance Serialize CatchUpStatus where
         return CatchUpStatus{..}
 
 makeCatchUpStatus :: (BlockPointerData bs b) => Bool -> b -> b -> [b] -> [b] -> CatchUpStatus
-makeCatchUpStatus cusIsRequest lfb bb fjs abs = CatchUpStatus{..}
+makeCatchUpStatus cusIsRequest lfb bb fjs adbs = CatchUpStatus{..}
     where
         cusLastFinalizedBlock = bpHash lfb
         cusLastFinalizedHeight = bpHeight lfb
         cusBestBlock = bpHash bb
         cusFinalizationJustifiers = bpHash <$> fjs
-        cusAdditionalBlocks = if cusIsRequest then bpHash <$> abs else []
+        cusAdditionalBlocks = if cusIsRequest then bpHash <$> adbs else []
 
 getCatchUpStatus :: (TreeStateMonad m, SkovQueryMonad m) => Bool -> m CatchUpStatus
 getCatchUpStatus cusIsRequest = do

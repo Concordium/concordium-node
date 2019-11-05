@@ -24,7 +24,7 @@ import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.Block
 import Concordium.Types.HashableTo
 import qualified Concordium.Types.Acorn.Core as Core
-import Concordium.GlobalState.Instances
+import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Finalization
 import qualified Concordium.Skov.CatchUp as CU
 

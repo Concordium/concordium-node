@@ -20,12 +20,12 @@ import Concordium.Scheduler.Runner
 import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
 
-import Concordium.GlobalState.Account as Acc
-import Concordium.GlobalState.Instances as Ins
+import Concordium.GlobalState.Basic.BlockState.Account as Acc
+import Concordium.GlobalState.Basic.BlockState.Instances as Ins
 import Concordium.GlobalState.Modules as Mod
 import qualified Concordium.GlobalState.Rewards as Rew
-import Concordium.GlobalState.Implementation.BlockState
-import Concordium.GlobalState.Implementation.Invariants
+import Concordium.GlobalState.Basic.BlockState
+import Concordium.GlobalState.Basic.BlockState.Invariants
 
 import qualified Data.Text.IO as TIO
 import Control.Monad.IO.Class

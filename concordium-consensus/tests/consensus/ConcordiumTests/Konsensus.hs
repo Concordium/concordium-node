@@ -1,5 +1,5 @@
 {-# LANGUAGE RecordWildCards, GeneralizedNewtypeDeriving, TupleSections, OverloadedStrings, InstanceSigs, FlexibleContexts, CPP, TemplateHaskell #-}
-{-# OPTIONS_GHC -Wno-orphans #-}
+{-# OPTIONS_GHC -Wno-orphans -Wno-deprecations #-}
 module ConcordiumTests.Konsensus where
 
 import qualified Data.Sequence as Seq
@@ -25,8 +25,6 @@ import Concordium.Types.HashableTo
 import qualified Concordium.GlobalState.TreeState as TreeState
 import qualified Concordium.GlobalState.Basic.TreeState as TS
 import qualified Concordium.GlobalState.Basic.Block as B
-import qualified Concordium.GlobalState
-import qualified Concordium.GlobalState.Basic.BlockState as BS
 import qualified Concordium.GlobalState.Basic.BlockPointer as BS
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Finalization
@@ -54,8 +52,6 @@ import Concordium.Startup(makeBakerAccount, dummyCryptographicParameters)
 import Test.QuickCheck
 import Test.QuickCheck.Monadic
 import Test.Hspec
-
-import Data.Maybe
 
 -- import Debug.Trace
 

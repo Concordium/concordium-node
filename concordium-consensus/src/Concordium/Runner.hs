@@ -14,7 +14,6 @@ import Data.IORef
 import Control.Monad.IO.Class
 
 import Concordium.GlobalState.Parameters
--- import Concordium.GlobalState.Implementation.Block (getBlock, PendingBlock)
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.BlockState(LogTransferMethod)
@@ -23,23 +22,12 @@ import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState
 import qualified Concordium.GlobalState.TreeState as TS
-{-
-import Concordium.GlobalState.Basic.Block
-import Concordium.GlobalState.Persistent.TreeState(PersistentBlockPointer, _bpBlock)
-import Concordium.GlobalState.Persistent.BlockState(emptyModuleCache)
-import Concordium.GlobalState.Persistent.BlobStore(createTempBlobStore,destroyTempBlobStore)
--}
-{-
-import Concordium.GlobalState.Implementation.BlockState(BlockPointer)
-import Concordium.GlobalState.Implementation.Block(Block(NormalBlock), makePendingBlock)
-import Concordium.GlobalState.Implementation
--}
+
 import Concordium.TimeMonad
 import Concordium.TimerMonad
 import Concordium.Birk.Bake
 import Concordium.Kontrol
 import Concordium.Skov
--- import Concordium.Skov.Update
 import Concordium.Skov.Hooks
 import Concordium.Afgjort.Finalize
 import Concordium.Afgjort.Buffer

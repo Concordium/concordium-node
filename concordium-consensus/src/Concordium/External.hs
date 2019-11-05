@@ -30,35 +30,24 @@ import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Block
-import qualified Concordium.GlobalState.Basic.Block as Basic
-{-import Concordium.GlobalState.Implementation.Block as BSB hiding (makePendingBlock)
-import Concordium.GlobalState.Implementation.BlockState as BSBS
-import Concordium.GlobalState.Implementation.Block as RSB-}
 import Concordium.GlobalState
-import Concordium.GlobalState.Finalization(FinalizationIndex(..),FinalizationRecord)
 import qualified Concordium.GlobalState.TreeState as TS
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
--- import Concordium.GlobalState.Implementation.TreeState
 import Concordium.Birk.Bake as Baker
 #ifdef RUST
 import qualified Concordium.GlobalState.Implementation as Rust
-import qualified Concordium.GlobalState.Implementation.TreeState as Rust
 #endif
-
 
 import Concordium.Runner
 import Concordium.Skov hiding (receiveTransaction, getBirkParameters)
-import Concordium.Afgjort.Finalize (FinalizationPseudoMessage(..),FinalizationInstance(..))
+import Concordium.Afgjort.Finalize (FinalizationInstance(..))
 import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.TimerMonad (ThreadTimer)
 import Concordium.Skov.CatchUp (CatchUpStatus,cusIsRequest)
 
 import qualified Concordium.Getters as Get
-
-import Control.Concurrent.MVar
-import Control.Monad.IO.Class
 
 #ifdef RUST
 type GlobalStatePtr = Ptr Rust.GlobalStateR
@@ -850,10 +839,10 @@ receiveCatchUpStatus ::
     -> Word64                           -- ^Limit to number of responses (0 = unlimited)
     -> FunPtr DirectMessageCallback     -- ^Callback to receive messages
     -> IO ReceiveResult
-receiveCatchUpStatus cptr src cstr l limit cbk = do
+receiveCatchUpStatus cptr src cstr len limit cbk = do
     c <- deRefStablePtr cptr
     let logm = consensusLogMethod c
-    bs <- BS.packCStringLen (cstr, fromIntegral l)
+    bs <- BS.packCStringLen (cstr, fromIntegral len)
     toReceiveResult <$> case decode bs :: Either String CatchUpStatus of
         Left _ -> do
             logm External LLDebug "Deserialization of catch-up status message failed."
