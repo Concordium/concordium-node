@@ -33,6 +33,7 @@ use mio::{
 };
 use nohash_hasher::BuildNoHashHasher;
 use rand::seq::IteratorRandom;
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use rkv::{Manager, Rkv, StoreOptions, Value};
 use snow::Keypair;
 
@@ -1216,11 +1217,13 @@ impl P2PNode {
 
     #[inline(always)]
     pub fn send_queued_messages(&self) {
-        for (&token, conn) in write_or_die!(self.connections()).iter() {
-            if conn.send_pending_messages().is_err() {
-                self.remove_connection(token);
-            }
-        }
+        write_or_die!(self.connections())
+            .par_iter()
+            .for_each(|(&token, conn)| {
+                if conn.send_pending_messages().is_err() {
+                    self.remove_connection(token);
+                }
+            })
     }
 
     pub fn close(&self) -> bool {
