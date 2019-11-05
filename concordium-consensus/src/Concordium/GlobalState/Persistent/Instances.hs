@@ -17,7 +17,8 @@ import Concordium.Types
 import Concordium.Types.HashableTo
 import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.Types.Acorn.Interfaces
-import qualified Concordium.GlobalState.Instances.Internal as Transient
+import qualified Concordium.GlobalState.Instance as Transient
+import qualified Concordium.GlobalState.Basic.BlockState.InstanceTable as Transient
 
 
 data CacheableInstanceParameters = CacheableInstanceParameters {
@@ -241,28 +242,28 @@ newContractInstanceIT mk t0 = (\(res, v) -> (res,) <$> membed v) =<< nci 0 t0 =<
             if branchHasVacancies projl then do
                 (res, projl') <- nci offset l projl
                 l' <- membed projl'
-                return $! (res, makeBranch h f projl' projr l' r)
+                return (res, makeBranch h f projl' projr l' r)
             else assert (branchHasVacancies projr) $ do
                 (res, projr') <- nci (setBit offset (fromIntegral h)) r projr
                 r' <- membed projr'
-                return $! (res, makeBranch h f projl projr' l r')
+                return (res, makeBranch h f projl projr' l r')
         -- Insert into full tree with no vacancies: create new branch at top level
         nci offset l projl@(Branch h True False _ _ _) = do
             (res, projr) <- leaf (setBit offset (fromIntegral $ h+1)) 0
             r <- membed projr
-            return $! (res, makeBranch (h+1) False projl projr l r)
+            return (res, makeBranch (h+1) False projl projr l r)
         -- Insert into non-full tree with no vacancies: insert on right subtree (invariant implies left is full, but can add to right)
         nci offset _ (Branch h False False _ l r) = do
             projl <- mproject l
             projr <- mproject r
             (res, projr') <- nci (setBit offset (fromIntegral h)) r projr
             r' <- membed projr'
-            return $! (res, makeBranch h (isFull projr' && nextHeight projr' == h) projl projr' l r')
+            return (res, makeBranch h (isFull projr' && nextHeight projr' == h) projl projr' l r')
         -- Insert at leaf: create a new branch
         nci offset l projl@Leaf{} = do
             (res, projr) <- leaf (setBit offset 0) 0
             r <- membed projr
-            return $! (res, makeBranch 0 True projl projr l r)
+            return (res, makeBranch 0 True projl projr l r)
         -- Insert at a vacant leaf: create leaf with next subindex
         nci offset _ (VacantLeaf si) = leaf offset (succ si)
         leaf ind subind = do

@@ -1,6 +1,6 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns, BangPatterns, RecordWildCards, MultiParamTypeClasses #-}
-module Concordium.GlobalState.Account where
+module Concordium.GlobalState.Basic.BlockState.Account where
 
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -8,8 +8,8 @@ import Lens.Micro.Platform
 import Lens.Micro.Internal (Ixed,Index,IxValue)
 
 import Concordium.Types
-import qualified Concordium.GlobalState.AccountTable as AT
-import Concordium.GlobalState.AccountTable (AccountIndex, AccountTable(Empty))
+import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as AT
+import Concordium.GlobalState.Basic.BlockState.AccountTable (AccountIndex, AccountTable(Empty))
 import Concordium.Types.HashableTo
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.ID.Types as ID

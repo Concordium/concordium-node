@@ -16,7 +16,6 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.Sequence as Seq
 import qualified Data.PQueue.Prio.Min as MPQ
 import qualified Data.Set as Set
-import qualified Data.ByteString as ByteString
 
 import Concordium.Types
 import Concordium.Types.HashableTo
@@ -28,7 +27,6 @@ import qualified Concordium.GlobalState.TreeState as TS
 import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.Statistics (ConsensusStatistics, initialConsensusStatistics)
 import Concordium.GlobalState.Transactions
-import qualified Concordium.GlobalState.Rewards as Rewards
 
 import Concordium.GlobalState.Basic.Block
 import Concordium.GlobalState.Basic.BlockPointer

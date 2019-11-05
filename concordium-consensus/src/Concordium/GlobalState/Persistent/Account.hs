@@ -18,7 +18,7 @@ import Concordium.GlobalState.Persistent.AccountTable (AccountIndex, AccountTabl
 import qualified Concordium.ID.Types as ID
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import Concordium.GlobalState.Persistent.BlobStore
-import qualified Concordium.GlobalState.Account as Transient
+import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
 
 instance (MonadBlobStore m ref) => BlobStorable m ref AccountIndex
 instance Trie.FixedTrieKey AccountAddress
@@ -119,7 +119,7 @@ putNewAccount !acct accts0 = do
         addr = acct ^. accountAddress
         acctIndex = AT.nextAccountIndex (accountTable accts0)
         addToAM Nothing = return (True, Trie.Insert acctIndex)
-        addToAM (Just v) = return (False, Trie.NoChange)
+        addToAM (Just _) = return (False, Trie.NoChange)
 
 
 exists :: (MonadBlobStore m BlobRef) => AccountAddress -> Accounts -> m Bool

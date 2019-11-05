@@ -36,8 +36,7 @@ import qualified Concordium.GlobalState.Persistent.Account as Account
 import qualified Concordium.GlobalState.Persistent.Instances as Instances
 import qualified Concordium.GlobalState.Transactions as Transactions
 import Concordium.GlobalState.Persistent.Instances(PersistentInstance(..), PersistentInstanceParameters(..), CacheableInstanceParameters(..))
-import Concordium.GlobalState.Instances (Instance(..),InstanceParameters(..))
-import Concordium.GlobalState.SeedState (SeedState)
+import Concordium.GlobalState.Instance (Instance(..),InstanceParameters(..))
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import qualified Concordium.GlobalState.Modules as TransientMods
 
