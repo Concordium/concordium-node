@@ -89,6 +89,8 @@ pub struct ConnectionStats {
     pub last_latency:      Arc<AtomicU64>,
 }
 
+type PendingPriority = (MessageSendingPriority, Instant);
+
 pub struct Connection {
     handler_ref:             Arc<P2PNode>,
     pub token:               Token,
@@ -97,7 +99,7 @@ pub struct Connection {
     pub remote_end_networks: Arc<RwLock<HashSet<NetworkId>>>,
     pub is_post_handshake:   AtomicBool,
     pub stats:               ConnectionStats,
-    pub pending_messages:    RwLock<PriorityQueue<Arc<[u8]>, (MessageSendingPriority, Instant)>>,
+    pub pending_messages:    RwLock<PriorityQueue<Arc<[u8]>, PendingPriority>>,
 }
 
 impl PartialEq for Connection {
@@ -445,8 +447,9 @@ impl Connection {
         };
         let mut serialized = Vec::with_capacity(128);
         handshake_response.serialize(&mut serialized)?;
+        self.async_send(Arc::from(serialized), MessageSendingPriority::High);
 
-        Ok(self.async_send(Arc::from(serialized), MessageSendingPriority::High))
+        Ok(())
     }
 
     pub fn send_ping(&self) -> Fallible<()> {
@@ -459,7 +462,6 @@ impl Connection {
         };
         let mut serialized = Vec::with_capacity(64);
         ping.serialize(&mut serialized)?;
-
         self.async_send(Arc::from(serialized), MessageSendingPriority::High);
 
         self.set_last_ping_sent();
@@ -477,8 +479,9 @@ impl Connection {
         };
         let mut serialized = Vec::with_capacity(64);
         pong.serialize(&mut serialized)?;
+        self.async_send(Arc::from(serialized), MessageSendingPriority::High);
 
-        Ok(self.async_send(Arc::from(serialized), MessageSendingPriority::High))
+        Ok(())
     }
 
     pub fn send_peer_list_resp(&self, nets: &HashSet<NetworkId>) -> Fallible<()> {
@@ -536,8 +539,9 @@ impl Connection {
 
             let mut serialized = Vec::with_capacity(256);
             resp.serialize(&mut serialized)?;
+            self.async_send(Arc::from(serialized), MessageSendingPriority::Normal);
 
-            Ok(self.async_send(Arc::from(serialized), MessageSendingPriority::Normal))
+            Ok(())
         } else {
             debug!(
                 "I don't have any peers to share with peer {}",

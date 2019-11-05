@@ -251,7 +251,7 @@ fn instantiate_node(
     let data_dir_path = app_prefs.get_user_app_dir();
 
     // Start the thread reading P2PEvents from P2PNode
-    let node = if conf.common.debug {
+    if conf.common.debug {
         let (sender, receiver) = mpsc::sync_channel(config::EVENT_LOG_QUEUE_DEPTH);
         let _guard = spawn_or_die!("Log loop", move || loop {
             if let Ok(Relay(msg)) = receiver.recv() {
@@ -277,9 +277,7 @@ fn instantiate_node(
             subscription_queue_in,
             Some(data_dir_path),
         )
-    };
-
-    node
+    }
 }
 
 fn establish_connections(conf: &config::Config, node: &P2PNode) {

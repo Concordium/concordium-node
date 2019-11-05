@@ -81,7 +81,7 @@ mod tests {
         setup_logger();
 
         let (rpc_tx, _) = std::sync::mpsc::sync_channel(64);
-        let (node, _) = P2PNode::new(
+        let node = P2PNode::new(
             None,
             &get_test_config(next_available_port(), vec![100]),
             None,

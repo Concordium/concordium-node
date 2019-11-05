@@ -638,7 +638,7 @@ fn partial_copy<W: Write>(
 ) -> Fallible<usize> {
     let mut total_written_bytes = 0;
 
-    while !(input.get_ref().len() == input.position() as usize) {
+    while input.get_ref().len() != input.position() as usize {
         let offset = input.position();
 
         let chunk_size = std::cmp::min(
