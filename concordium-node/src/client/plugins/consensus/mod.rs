@@ -467,18 +467,14 @@ fn update_peer_states(
     use PeerStatus::*;
 
     let source_peer = request.source_peer();
-
+    let mut peers = write_or_die!(peers_lock);
     if request.variant == CatchUpStatus {
         if consensus_result.is_successful() {
-            write_or_die!(peers_lock)
-                .peers
-                .push(source_peer, PeerState::new(UpToDate));
+            peers.peers.push(source_peer, PeerState::new(UpToDate));
         } else if consensus_result.is_pending() {
-            write_or_die!(peers_lock)
-                .peers
-                .push(source_peer, PeerState::new(Pending));
+            peers.peers.push(source_peer, PeerState::new(Pending));
         } else if consensus_result == ConsensusFfiResponse::ContinueCatchUp {
-            write_or_die!(peers_lock)
+            peers
                 .peers
                 .change_priority_by(&source_peer, |state| match state.status {
                     UpToDate => PeerState::new(Pending),
@@ -488,7 +484,7 @@ fn update_peer_states(
     } else if [Block, FinalizationRecord].contains(&request.variant) {
         match request.distribution_mode() {
             DistributionMode::Direct if consensus_result.is_successful() => {
-                let up_to_date_peers = read_or_die!(peers_lock)
+                let up_to_date_peers = peers
                     .peers
                     .iter()
                     .filter(|(_, &state)| state.status == UpToDate)
@@ -496,15 +492,13 @@ fn update_peer_states(
                     .collect::<Vec<_>>();
 
                 for up_to_date_peer in up_to_date_peers {
-                    write_or_die!(peers_lock)
+                    peers
                         .peers
                         .change_priority(&up_to_date_peer, PeerState::new(Pending));
                 }
             }
             DistributionMode::Broadcast if consensus_result.is_pending() => {
-                write_or_die!(peers_lock)
-                    .peers
-                    .push(source_peer, PeerState::new(Pending));
+                peers.peers.push(source_peer, PeerState::new(Pending));
             }
             _ => {}
         }
