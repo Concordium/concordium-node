@@ -14,8 +14,7 @@ use crate::common::*;
 
 #[derive(Debug)]
 pub struct TransactionHeader {
-    pub scheme_id:      SchemeId,
-    pub sender_key:     ByteString,
+    pub sender_key:     SignatureVerifyKey,
     pub nonce:          Nonce,
     pub gas_amount:     Energy,
     pub payload_size:   u32,
@@ -26,8 +25,7 @@ impl Serial for TransactionHeader {
     type Param = NoParam;
 
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
-        let scheme_id = SchemeId::try_from(u8::deserial(source)?)?;
-        let sender_key = read_bytestring_short_length(source)?;
+        let sender_key = SignatureVerifyKey::deserial(source)?;
 
         let nonce = Nonce::try_from(u64::deserial(source)?)?;
 
@@ -36,7 +34,6 @@ impl Serial for TransactionHeader {
         let sender_account = AccountAddress::from((&*sender_key, scheme_id));
 
         let transaction_header = TransactionHeader {
-            scheme_id,
             sender_key,
             nonce,
             gas_amount,
@@ -48,9 +45,7 @@ impl Serial for TransactionHeader {
     }
 
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
-        u8::serial(&(self.scheme_id as u8), target)?;
-        target.write_u16::<NetworkEndian>(self.sender_key.len() as u16)?;
-        target.write_all(&self.sender_key)?;
+        SignatureVerifyKey::serial(&self.sender_key, target)?;
         u64::serial(&self.nonce.0, target)?;
         Energy::serial(&self.gas_amount, target)?;
         target.write_u32::<NetworkEndian>(self.payload_size)?;
