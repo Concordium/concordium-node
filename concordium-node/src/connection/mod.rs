@@ -372,7 +372,9 @@ impl Connection {
             stats.pkt_sent_inc();
         }
 
-        self.send_to_dump(input.clone(), false);
+        if cfg!(feature = "network_dump") {
+            self.send_to_dump(input.clone(), false);
+        }
 
         write_or_die!(self.low_level).write_to_socket(input)
     }

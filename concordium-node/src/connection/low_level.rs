@@ -256,10 +256,13 @@ impl ConnectionLowLevel {
             match self.read_from_socket() {
                 Ok(read_result) => match read_result {
                     TcpResult::Complete(message) => {
-                        self.conn().send_to_dump(
-                            Arc::from(message.clone().remaining_bytes()?.to_vec()),
-                            true,
-                        );
+                        if cfg!(feature = "network_dump") {
+                            self.conn().send_to_dump(
+                                Arc::from(message.clone().remaining_bytes()?.to_vec()),
+                                true,
+                            );
+                        }
+
                         if let Err(e) = self.conn().process_message(message, deduplication_queues) {
                             bail!("can't process a message: {}", e);
                         }
