@@ -108,15 +108,6 @@ pub struct PeerList {
     pub catch_up_stamp: u64,
 }
 
-impl PeerList {
-    pub fn new() -> Self {
-        Self {
-            peers:          Default::default(),
-            catch_up_stamp: 0,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

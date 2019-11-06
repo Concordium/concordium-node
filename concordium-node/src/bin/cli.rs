@@ -20,10 +20,7 @@ use concordium_consensus::{
     consensus::{ConsensusContainer, ConsensusLogLevel, CALLBACK_QUEUE},
     ffi,
 };
-use concordium_global_state::{
-    catch_up::PeerList,
-    tree::{messaging::ConsensusMessage, GlobalState},
-};
+use concordium_global_state::tree::{messaging::ConsensusMessage, GlobalState};
 use p2p_client::{
     client::{
         plugins::{self, consensus::*},
@@ -41,7 +38,7 @@ use failure::Fallible;
 use rkv::{Manager, Rkv};
 
 use std::{
-    sync::{mpsc, Arc, RwLock},
+    sync::{mpsc, Arc},
     thread,
     time::Duration,
 };
@@ -323,7 +320,7 @@ fn start_consensus_message_threads(
     std::thread::JoinHandle<()>,
     std::thread::JoinHandle<()>,
 ) {
-    let peers = Arc::new(RwLock::new(PeerList::new()));
+    let peers = Default::default();
     let node_peers_ref = Arc::clone(node);
     let peers_thread_ref = Arc::clone(&peers);
     let nid_peers = NetworkId::from(conf.common.network_ids[0]); // defaulted so there's always first()
@@ -376,16 +373,21 @@ fn start_consensus_message_threads(
             thread::sleep(Duration::from_secs(1));
         }
 
-        let consensus_receiver_in_hi = CALLBACK_QUEUE.receiver_in_hi.lock().unwrap();
-        let consensus_receiver_in_lo = CALLBACK_QUEUE.receiver_in_lo.lock().unwrap();
-        let (lock, cvar) = &*CALLBACK_QUEUE.inbound_signaler;
+        let consensus_receiver_high_priority = CALLBACK_QUEUE
+            .inbound
+            .receiver_high_priority
+            .lock()
+            .unwrap();
+        let consensus_receiver_low_priority =
+            CALLBACK_QUEUE.inbound.receiver_low_priority.lock().unwrap();
+        let (lock, cvar) = &*CALLBACK_QUEUE.inbound.signaler;
         let mut lock_guard = lock.lock();
 
         #[allow(unused_assignments)]
         'outer_loop: loop {
             let mut exhausted = false;
             for _ in 0..10 {
-                if let Ok(message) = consensus_receiver_in_hi.try_recv() {
+                if let Ok(message) = consensus_receiver_high_priority.try_recv() {
                     let stop_loop = handle_inbound_message(message, |msg| {
                         handle_consensus_inbound_message(
                             &node_in_ref,
@@ -404,7 +406,7 @@ fn start_consensus_message_threads(
                 }
             }
 
-            if let Ok(message) = consensus_receiver_in_lo.try_recv() {
+            if let Ok(message) = consensus_receiver_low_priority.try_recv() {
                 exhausted = false;
                 let stop_loop = handle_inbound_message(message, |msg| {
                     handle_consensus_inbound_message(
@@ -436,16 +438,24 @@ fn start_consensus_message_threads(
             thread::sleep(Duration::from_secs(1));
         }
 
-        let consensus_receiver_out_hi = CALLBACK_QUEUE.receiver_out_hi.lock().unwrap();
-        let consensus_receiver_out_lo = CALLBACK_QUEUE.receiver_out_lo.lock().unwrap();
-        let (lock, cvar) = &*CALLBACK_QUEUE.outbound_signaler;
+        let consensus_receiver_high_priority = CALLBACK_QUEUE
+            .outbound
+            .receiver_high_priority
+            .lock()
+            .unwrap();
+        let consensus_receiver_low_priority = CALLBACK_QUEUE
+            .outbound
+            .receiver_low_priority
+            .lock()
+            .unwrap();
+        let (lock, cvar) = &*CALLBACK_QUEUE.outbound.signaler;
         let mut lock_guard = lock.lock();
 
         #[allow(unused_assignments)]
         'outer_loop: loop {
             let mut exhausted = false;
             for _ in 0..10 {
-                if let Ok(message) = consensus_receiver_out_hi.try_recv() {
+                if let Ok(message) = consensus_receiver_high_priority.try_recv() {
                     let stop_loop = handle_outbound_message(message, |msg| {
                         handle_consensus_outbound_message(&node_out_ref, nid_out, msg)
                     });
@@ -458,7 +468,7 @@ fn start_consensus_message_threads(
                 }
             }
 
-            if let Ok(message) = consensus_receiver_out_lo.try_recv() {
+            if let Ok(message) = consensus_receiver_low_priority.try_recv() {
                 exhausted = false;
                 let stop_loop = handle_outbound_message(message, |msg| {
                     handle_consensus_outbound_message(&node_out_ref, nid_out, msg)

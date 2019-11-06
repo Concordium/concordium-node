@@ -187,8 +187,6 @@ pub fn handle_pkt_out(
         dont_relay_to.into_iter().map(P2PNodeId::as_raw).collect(),
     );
 
-    // TODO @ij - instrument below so we can catch if this happens too much
-
     match if packet_type == PacketType::Transaction {
         CALLBACK_QUEUE.send_in_low_priority_message(request)
     } else {
@@ -200,13 +198,16 @@ pub fn handle_pkt_out(
                 if let Some(ref service) = &node.stats_export_service {
                     if packet_type == PacketType::Transaction {
                         service.inbound_low_priority_consensus_drops_inc();
+                        warn!("The low priority inbound consensus queue is full!")
                     } else {
                         service.inbound_high_priority_consensus_drops_inc();
+                        warn!("The high priority inbound consensus queue is full!")
                     }
                 };
-                warn!("The inbound global state queue is full!")
             }
-            TrySendError::Disconnected(_) => panic!("The inbound global state channel is down!"),
+            TrySendError::Disconnected(_) => {
+                panic!("One of the inbound consensus queues has been shutdown!")
+            }
         },
     }
 
