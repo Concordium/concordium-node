@@ -60,7 +60,7 @@ impl Serial for TransactionHeader {
 
         let gas_amount = Energy::deserial(source)?;
         let payload_size = source.read_u32::<Endianness>()?;
-        let sender_account = AccountAddress::from((&*sender_key, scheme_id));
+        let sender_account = AccountAddress::from((&*sender_key.verify_key, sender_key.scheme_id));
 
         let transaction_header = TransactionHeader {
             sender_key,
