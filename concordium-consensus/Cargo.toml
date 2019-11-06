@@ -28,6 +28,7 @@ pedersen_scheme = { path = "../deps/internal/crypto/rust-src/pedersen_scheme" }
 ps_sig = { path = "../deps/internal/crypto/rust-src/ps_sig" }
 sha_2 = { path = "../deps/internal/crypto/rust-src/sha_2" }
 libc = "0.2"
+parking_lot = "^0.9"
 log = "0.4"
 lazy_static = "^1.2"
 byteorder = "^1.3.2"

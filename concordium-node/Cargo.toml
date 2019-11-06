@@ -42,6 +42,7 @@ concordium_crypto_ec_vrf_ed25519_sha256 = { package = "ec_vrf_ed25519_sha256", p
 concordium_crypto_eddsa_ed25519 = { package = "eddsa_ed25519", path = "deps/internal/crypto/rust-src/eddsa_ed25519" }
 concordium-common = { path = "concordium-common" }
 # External dependencies
+parking_lot = "^0.9"
 structopt = "0.2"
 rand = "^0.6"
 hacl-star = "^0.1.0"
