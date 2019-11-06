@@ -38,10 +38,10 @@ type ContextState = (HashSet.HashSet AccountAddress, ChainMetadata)
 newtype BlockStateMonad state m a = BSM { _runBSM :: RWST ContextState () state m a}
     deriving (Functor, Applicative, Monad, MonadState state, MonadReader ContextState, MonadTrans)
 
-deriving via (BSOMonadWrapper ContextState state (RWST ContextState () state m))
+deriving via (BSOMonadWrapper ContextState state (MGSTrans (RWST ContextState () state) m))
     instance (UpdatableBlockState m ~ state, BlockStateOperations m) => StaticEnvironmentMonad Core.UA (BlockStateMonad state m)
 
-deriving via (BSOMonadWrapper ContextState state (RWST ContextState () state m))
+deriving via (BSOMonadWrapper ContextState state (MGSTrans (RWST ContextState () state) m))
     instance (UpdatableBlockState m ~ state, BlockStateOperations m) => SchedulerMonad (BlockStateMonad state m)
 
 runBSM :: Monad m => BlockStateMonad b m a -> ContextState -> b -> m (a, b)
@@ -106,7 +106,7 @@ executeFrom slotNumber blockParent lfPointer blockBaker bps txs =
     genBetaAccounts <- HashSet.fromList . map _accountAddress . genesisSpecialBetaAccounts <$> getGenesisData
     (res, bshandle2) <- runBSM (Sch.runTransactions txs) (genBetaAccounts, cm) bshandle1
     case res of
-        Left fk -> Left fk <$ (purgeBlockState =<< freezeBlockState bshandle2)
+        Left fk -> Left fk <$ (dropUpdatableBlockState bshandle2)
         Right (outcomes, usedEnergy) -> do
             -- Record the transaction outcomes
             bshandle3 <- bsoSetTransactionOutcomes bshandle2 ((\(tr, o) -> (transactionHash tr, o)) <$> outcomes)

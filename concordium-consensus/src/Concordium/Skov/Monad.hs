@@ -13,8 +13,8 @@ import Concordium.Types
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Transactions
-import Concordium.GlobalState.BlockState(BlockPointer, BlockPointerData, BlockState, BlockStateQuery, BSMTrans(..))
-import Concordium.GlobalState.TreeState(PendingBlock)
+import Concordium.GlobalState.BlockState (BlockStateQuery)
+import Concordium.GlobalState.TreeState (BlockPointer, BlockPointerData, BlockState, MGSTrans(..), PendingBlock)
 import Concordium.Logger
 import Concordium.TimeMonad
 
@@ -42,7 +42,7 @@ data UpdateResult
     | ResultContinueCatchUp
     -- ^The peer should be marked as pending unless catch up is already in progress
 
-class (Monad m, Eq (BlockPointer m), BlockPointerData (BlockPointer m), BlockStateQuery m) => SkovQueryMonad m where
+class (Monad m, Eq (BlockPointer m), BlockPointerData (BlockState m) (BlockPointer m), BlockStateQuery m) => SkovQueryMonad m where
     -- |Look up a block in the table given its hash
     resolveBlock :: BlockHash -> m (Maybe (BlockPointer m))
     -- |Determine if a block has been finalized.
@@ -86,7 +86,7 @@ class (SkovQueryMonad m, TimeMonad m, LoggerMonad m) => SkovMonad m where
     -- in a block being finalized.
     finalizeBlock :: FinalizationRecord -> m UpdateResult
 
-instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (BSMTrans t m) where
+instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (MGSTrans t m) where
     resolveBlock = lift . resolveBlock
     isFinalized = lift . isFinalized
     lastFinalizedBlock = lift lastFinalizedBlock
@@ -97,17 +97,17 @@ instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (BSMTra
     branchesFromTop = lift branchesFromTop
     getBlocksAtHeight = lift . getBlocksAtHeight
 
-instance (Monad (t m), MonadTrans t, SkovMonad m) => SkovMonad (BSMTrans t m) where
+instance (Monad (t m), MonadTrans t, SkovMonad m) => SkovMonad (MGSTrans t m) where
     storeBlock b = lift $ storeBlock b
     storeBakedBlock pb parent lastFin state energyUsed = lift $ storeBakedBlock pb parent lastFin state energyUsed
     receiveTransaction = lift . receiveTransaction
     finalizeBlock fr = lift $ finalizeBlock fr
 
-deriving via (BSMTrans MaybeT m) instance SkovQueryMonad m => SkovQueryMonad (MaybeT m)
-deriving via (BSMTrans MaybeT m) instance SkovMonad m => SkovMonad (MaybeT m)
+deriving via (MGSTrans MaybeT m) instance SkovQueryMonad m => SkovQueryMonad (MaybeT m)
+deriving via (MGSTrans MaybeT m) instance SkovMonad m => SkovMonad (MaybeT m)
 
-deriving via (BSMTrans (ExceptT e) m) instance SkovQueryMonad m => SkovQueryMonad (ExceptT e m)
-deriving via (BSMTrans (ExceptT e) m) instance SkovMonad m => SkovMonad (ExceptT e m)
+deriving via (MGSTrans (ExceptT e) m) instance SkovQueryMonad m => SkovQueryMonad (ExceptT e m)
+deriving via (MGSTrans (ExceptT e) m) instance SkovMonad m => SkovMonad (ExceptT e m)
 
 getGenesisTime :: (SkovQueryMonad m) => m Timestamp
 getGenesisTime = genesisTime <$> getGenesisData

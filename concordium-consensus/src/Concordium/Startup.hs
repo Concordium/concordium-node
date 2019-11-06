@@ -1,5 +1,8 @@
 {-# LANGUAGE RecordWildCards, OverloadedStrings, TemplateHaskell #-}
-module Concordium.Startup where
+{-# OPTIONS_GHC -Wno-deprecations #-}
+-- |This module provides functionality for generating startup data for
+-- testing purposes.  It should not be used in production.
+module Concordium.Startup {-# WARNING "This module should not be used in production code." #-} where
 
 import System.Random
 import qualified Data.ByteString.Lazy.Char8 as BSL

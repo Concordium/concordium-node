@@ -23,7 +23,7 @@ import qualified Concordium.ID.Account as AH
 import qualified Concordium.ID.Types as ID
 
 import Concordium.GlobalState.Bakers(bakerAccount)
-import qualified Concordium.GlobalState.Instances as Ins
+import qualified Concordium.GlobalState.Instance as Ins
 import qualified Concordium.Scheduler.Cost as Cost
 
 import Control.Applicative

@@ -8,8 +8,6 @@ import Data.Time
 import Data.Time.Clock.POSIX
 
 import Concordium.GlobalState.TreeState
-import Concordium.GlobalState.BlockState
-import Concordium.GlobalState.Block
 import Concordium.GlobalState.Statistics
 
 import Concordium.Skov.Monad

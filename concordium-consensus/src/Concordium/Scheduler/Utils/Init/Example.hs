@@ -6,6 +6,7 @@ module Concordium.Scheduler.Utils.Init.Example (initialState, makeTransaction, m
 
 import qualified Data.HashMap.Strict as Map
 import System.Random
+import Control.Monad.IO.Class
 
 import Concordium.Crypto.SignatureScheme(KeyPair(..))
 import qualified Concordium.Crypto.SignatureScheme as Sig
@@ -17,8 +18,8 @@ import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Concordium.Scheduler.Environment as Types
 
-import qualified Concordium.GlobalState.Implementation.BlockState as BlockState
-import qualified Concordium.GlobalState.Account as Acc
+import qualified Concordium.GlobalState.Basic.BlockState as BlockState
+import qualified Concordium.GlobalState.Basic.BlockState.Account as Acc
 import qualified Concordium.GlobalState.Modules as Mod
 import Concordium.GlobalState.Parameters(BirkParameters, CryptographicParameters)
 import qualified Concordium.Scheduler.Runner as Runner

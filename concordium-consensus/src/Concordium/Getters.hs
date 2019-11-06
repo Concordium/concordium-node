@@ -9,12 +9,11 @@ import Lens.Micro.Platform hiding ((.=))
 
 import Concordium.Kontrol.BestBlock
 import Concordium.Skov
-import Concordium.Skov.Update (isAncestorOf)
 
 import Control.Monad.State.Class
 
 import qualified Concordium.Scheduler.Types as AT
-import Concordium.GlobalState.BlockState(BlockPointerData(..))
+import Concordium.GlobalState.Classes
 import qualified Concordium.GlobalState.TreeState as TS
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Statistics as Stat
@@ -23,12 +22,9 @@ import Concordium.GlobalState.Information(jsonStorable)
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.Block
-import Concordium.GlobalState.Implementation.Block
-import Concordium.GlobalState.Implementation.BlockState
 import Concordium.Types.HashableTo
 import qualified Concordium.Types.Acorn.Core as Core
-import Concordium.GlobalState.Instances
-import Concordium.GlobalState.Modules(moduleSource)
+import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Finalization
 import qualified Concordium.Skov.CatchUp as CU
 
@@ -46,31 +42,24 @@ import Data.Vector (fromList)
 class SkovQueryMonad m => SkovStateQueryable z m | z -> m where
     runStateQuery :: z -> m a -> IO a
 
-instance SkovStateQueryable (IORef SkovActiveState) (SkovQueryM SkovActiveState IO) where
-    runStateQuery sfsRef a = readIORef sfsRef >>= evalSkovQueryM a
+instance (SkovConfiguration c, SkovQueryMonad (SkovT () c IO))
+        => SkovStateQueryable (SkovContext c, IORef (SkovState c)) (SkovT () c IO) where
+    runStateQuery (ctx, st) a = readIORef st >>= evalSkovT a () ctx
 
-instance SkovStateQueryable (MVar SkovBufferedState) (SkovQueryM SkovBufferedState IO) where
-    runStateQuery sfsRef a = readMVar sfsRef >>= evalSkovQueryM a
-
-instance SkovStateQueryable (MVar SkovBufferedHookedState) (SkovQueryM SkovBufferedHookedState IO) where
-    runStateQuery sfsRef a = readMVar sfsRef >>= evalSkovQueryM a
-
-instance SkovStateQueryable (MVar SkovPassiveState) (SkovQueryM SkovPassiveState IO) where
-    runStateQuery sfsRef a = readMVar sfsRef >>= evalSkovQueryM a
-
-instance SkovStateQueryable (MVar SkovPassiveHookedState) (SkovQueryM SkovPassiveHookedState IO) where
-    runStateQuery sfsRef a = readMVar sfsRef >>= evalSkovQueryM a
+instance (SkovConfiguration c, SkovQueryMonad (SkovT () c IO))
+        => SkovStateQueryable (SkovContext c, MVar (SkovState c)) (SkovT () c IO) where
+    runStateQuery (ctx, st) a = readMVar st >>= evalSkovT a () ctx
 
 hsh :: (HashableTo BlockHash a) => a -> String
 hsh x = show (getHash x :: BlockHash)
 
-getBestBlockState :: SkovQueryMonad m => m (BS.BlockState m)
+getBestBlockState :: SkovQueryMonad m => m (BlockState m)
 getBestBlockState = bpState <$> bestBlock
 
-getLastFinalState :: SkovQueryMonad m => m (BS.BlockState m)
+getLastFinalState :: SkovQueryMonad m => m (BlockState m)
 getLastFinalState = bpState <$> lastFinalizedBlock
 
-withBlockStateJSON :: SkovQueryMonad m => BlockHash -> (BS.BlockState m -> m Value) -> m Value
+withBlockStateJSON :: SkovQueryMonad m => BlockHash -> (BlockState m -> m Value) -> m Value
 withBlockStateJSON hash f =
   resolveBlock hash >>=
     \case Nothing -> return Null
@@ -148,7 +137,7 @@ getModuleSource hash sfsRef mhash = runStateQuery sfsRef $
     \case Nothing -> return Nothing
           Just bp -> do
             mmodul <- BS.getModule (bpState bp) mhash
-            return $ (moduleSource <$> mmodul)
+            return (BS.moduleSource <$> mmodul)
 
 getConsensusStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> IO Value
 getConsensusStatus sfsRef = runStateQuery sfsRef $ do
@@ -236,44 +225,12 @@ getBranches sfsRef = runStateQuery sfsRef $ do
     where
         up childrenMap = foldr (\b -> at (bpParent b) . non [] %~ (object ["blockHash" .= hsh b, "children" .= Map.findWithDefault [] b childrenMap] :)) Map.empty
 
-#ifdef RUST
-getBlockData :: (SkovStateQueryable z m, TS.TreeStateMonad m, BS.BlockPointer m ~ BlockPointer, TS.PendingBlock m ~ PendingBlock)
-    => z -> BlockHash -> IO (Maybe BlockContents)
-getBlockData sfsRef bh = runStateQuery sfsRef $
-            TS.getBlockStatus bh <&> \case
-                Just (TS.BlockAlive bp) -> Just (blockPointerExtractBlockContents bp)
-                Just (TS.BlockFinalized bp _) -> Just (blockPointerExtractBlockContents bp)
-                Just (TS.BlockPending pb) -> Just (pendingBlockExtractBlockContents pb)
-                Just (TS.BlockDead) -> Nothing
-                Nothing -> Nothing
-
-getBlockDescendant :: (SkovStateQueryable z m, BS.BlockPointer m ~ BlockPointer) => z -> BlockHash -> BlockHeight -> IO (Maybe BlockContents)
-getBlockDescendant sfsRef ancestor distance = runStateQuery sfsRef $
-            resolveBlock ancestor >>= \case
-                Nothing -> return Nothing
-                Just bp -> do
-                    candidates <- getBlocksAtHeight (bpHeight bp + distance)
-                    return $ blockPointerExtractBlockContents <$> candidates ^? each . filtered (bp `isAncestorOf`)
-#else
-getBlockData :: (SkovStateQueryable z m, TS.TreeStateMonad m, BS.BlockPointer m ~ BlockPointer, TS.PendingBlock m ~ PendingBlock)
-    => z -> BlockHash -> IO (Maybe Block)
-getBlockData sfsRef bh = runStateQuery sfsRef $
-            TS.getBlockStatus bh <&> \case
-                Just (TS.BlockAlive bp) -> Just (_bpBlock bp)
-                Just (TS.BlockFinalized bp _) -> Just (_bpBlock bp)
-                Just (TS.BlockPending pb) -> Just $ NormalBlock (pbBlock pb)
-                Just (TS.BlockDead) -> Nothing
-                Nothing -> Nothing
-
-getBlockDescendant :: (SkovStateQueryable z m, BS.BlockPointer m ~ BlockPointer) => z -> BlockHash -> BlockHeight -> IO (Maybe Block)
-getBlockDescendant sfsRef ancestor distance = runStateQuery sfsRef $
-            resolveBlock ancestor >>= \case
-                Nothing -> return Nothing
-                Just bp -> do
-                    candidates <- getBlocksAtHeight (bpHeight bp + distance)
-                    return $ _bpBlock <$> candidates ^? each . filtered (bp `isAncestorOf`)
-#endif
-
+getBlockFinalization :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> BlockHash -> IO (Maybe FinalizationRecord)
+getBlockFinalization sfsRef bh = runStateQuery sfsRef $ do
+            bs <- TS.getBlockStatus bh
+            case bs of
+                Just (TS.BlockFinalized _ fr) -> return $ Just fr
+                _ -> return Nothing
 
 -- |Check whether a keypair is part of the baking committee by a key pair in the current best block.
 -- Returns 0 if keypair is not added as a baker.
@@ -295,7 +252,7 @@ checkBakerExistsBestBlock key sfsRef = runStateQuery sfsRef $ do
 
 -- |Check whether a keypair is part of the finalization committee by a key pair in the current best block.
 -- checkFinalizerExistsBestBlock :: (SkovStateQueryable z m, FinalizationMonad s m) => z -> IO Bool
-checkFinalizerExistsBestBlock :: (SkovStateQueryable z m, MonadState s m, FinalizationStateLenses s) => z -> IO Bool
+checkFinalizerExistsBestBlock :: (SkovStateQueryable z m, MonadState s m, FinalizationStateLenses s t) => z -> IO Bool
 checkFinalizerExistsBestBlock sfsRef = runStateQuery sfsRef $ do
    fs <- use finState
    case fs ^. finCurrentRound of
@@ -305,5 +262,5 @@ checkFinalizerExistsBestBlock sfsRef = runStateQuery sfsRef $ do
 getCatchUpStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> IO CU.CatchUpStatus
 getCatchUpStatus sRef = runStateQuery sRef $ CU.getCatchUpStatus True
 
-handleCatchUpStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> CU.CatchUpStatus -> IO (Either String (Maybe ([Either FinalizationRecord (BS.BlockPointer m)], CU.CatchUpStatus), Bool))
+handleCatchUpStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> CU.CatchUpStatus -> IO (Either String (Maybe ([Either FinalizationRecord (BlockPointer m)], CU.CatchUpStatus), Bool))
 handleCatchUpStatus sRef cus = runStateQuery sRef $ CU.handleCatchUp cus
