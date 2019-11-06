@@ -3,9 +3,6 @@
     MultiParamTypeClasses #-}
 module Concordium.GlobalState.Instance where
 
-import Data.Word
-import Lens.Micro.Platform
-import Lens.Micro.Internal (Ixed,Index,IxValue)
 import Data.Serialize
 import Data.HashMap.Strict(HashMap)
 import Data.Void

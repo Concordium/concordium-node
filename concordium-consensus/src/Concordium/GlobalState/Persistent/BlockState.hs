@@ -40,12 +40,6 @@ import Concordium.GlobalState.Instance (Instance(..),InstanceParameters(..))
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import qualified Concordium.GlobalState.Modules as TransientMods
 
-
--- FIXME: relocate orphans
-instance (MonadBlobStore m ref) => BlobStorable m ref IPS.IdentityProviders
-
-instance (MonadBlobStore m ref) => BlobStorable m ref CryptographicParameters
-
 type PersistentBlockState = IORef (BufferedRef BlockStatePointers)
 
 data BlockStatePointers = BlockStatePointers {
