@@ -383,7 +383,7 @@ fn start_consensus_message_threads(
             exhausted = false;
             for _ in 0..10 {
                 if let Ok(message) = consensus_receiver_high_priority.try_recv() {
-                    let stop_loop = handle_inbound_message(message, |msg| {
+                    let stop_loop = !handle_inbound_message(message, |msg| {
                         handle_consensus_inbound_message(
                             &node_in_ref,
                             nid,
@@ -403,7 +403,7 @@ fn start_consensus_message_threads(
 
             if let Ok(message) = consensus_receiver_low_priority.try_recv() {
                 exhausted = false;
-                let stop_loop = handle_inbound_message(message, |msg| {
+                let stop_loop = !handle_inbound_message(message, |msg| {
                     handle_consensus_inbound_message(
                         &node_in_ref,
                         nid,
@@ -451,7 +451,7 @@ fn start_consensus_message_threads(
             exhausted = false;
             for _ in 0..10 {
                 if let Ok(message) = consensus_receiver_high_priority.try_recv() {
-                    let stop_loop = handle_outbound_message(message, |msg| {
+                    let stop_loop = !handle_outbound_message(message, |msg| {
                         handle_consensus_outbound_message(&node_out_ref, nid, msg)
                     });
                     if stop_loop {
@@ -465,7 +465,7 @@ fn start_consensus_message_threads(
 
             if let Ok(message) = consensus_receiver_low_priority.try_recv() {
                 exhausted = false;
-                let stop_loop = handle_outbound_message(message, |msg| {
+                let stop_loop = !handle_outbound_message(message, |msg| {
                     handle_consensus_outbound_message(&node_out_ref, nid, msg)
                 });
                 if stop_loop {
@@ -493,10 +493,10 @@ where
         }
         QueueMsg::Stop => {
             warn!("Closing the inbound consensus channel");
-            return true;
+            return false;
         }
     }
-    false
+    true
 }
 
 fn handle_outbound_message<F>(message: QueueMsg<ConsensusMessage>, f: F) -> bool
@@ -510,10 +510,10 @@ where
         }
         QueueMsg::Stop => {
             warn!("Closing the outbound consensus channel");
-            return true;
+            return false;
         }
     }
-    false
+    true
 }
 
 #[cfg(feature = "elastic_logging")]
