@@ -329,7 +329,7 @@ fn start_consensus_message_threads(
             let peer_stats_notifier_control_queue_receiver =
                 CALLBACK_QUEUE.receiver_peer_notifier.lock().unwrap();
             let mut last_peer_list_update = 0;
-            'outer_loop: loop {
+            loop {
                 if node_peers_ref.last_peer_update() > last_peer_list_update {
                     update_peer_list(&node_peers_ref, Arc::clone(&peers_thread_ref));
                     last_peer_list_update = get_current_stamp();
@@ -346,7 +346,7 @@ fn start_consensus_message_threads(
 
                 if let Ok(msg) = peer_stats_notifier_control_queue_receiver.try_recv() {
                     if let QueueMsg::Stop = msg {
-                        break 'outer_loop;
+                        break;
                     }
                 }
 
@@ -376,7 +376,6 @@ fn start_consensus_message_threads(
         let (lock, cvar) = &*CALLBACK_QUEUE.inbound.signaler;
         let mut lock_guard = lock.lock();
 
-        #[allow(unused_assignments)]
         'outer_loop: loop {
             let mut exhausted = false;
             for _ in 0..10 {
@@ -444,7 +443,6 @@ fn start_consensus_message_threads(
         let (lock, cvar) = &*CALLBACK_QUEUE.outbound.signaler;
         let mut lock_guard = lock.lock();
 
-        #[allow(unused_assignments)]
         'outer_loop: loop {
             let mut exhausted = false;
             for _ in 0..10 {
