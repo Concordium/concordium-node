@@ -30,12 +30,6 @@ module Concordium.Afgjort.Finalize (
     receiveFinalizationPseudoMessage,
     nextFinalizationJustifierHeight,
     finalizationCatchUpMessage,
-    -- * Passive mode
-    PassiveFinalizationState(..),
-    PassiveFinalizationStateLenses(..),
-    initialPassiveFinalizationState,
-    passiveNotifyBlockFinalized,
-    passiveReceiveFinalizationPseudoMessage,
     -- * For testing
     FinalizationRound(..)
 ) where
@@ -55,11 +49,9 @@ import Control.Monad
 import Data.Bits
 import Data.Time.Clock
 import qualified Data.OrdPSQ as PSQ
-import qualified Data.ByteString as BS
 
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
-import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Types
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Finalization
@@ -186,14 +178,6 @@ initialFinalizationState FinalizationInstance{..} genHash finParams = Finalizati
     }
     where
         com = makeFinalizationCommittee finParams
-
-{-
-data FinalizationOutputEvent
-    = BroadcastFinalizationMessage !FinalizationMessage
-    | BroadcastFinalizationRecord !FinalizationRecord
-    | StopCatchUpTimer
-    | StartCatchUpTimer !NominalDiffTime
--}
 
 class (SkovMonad m, MonadState s m, FinalizationStateLenses s (Timer m), MonadIO m, TimerMonad m) => FinalizationMonad s m where
     broadcastFinalizationMessage :: FinalizationMessage -> m ()
@@ -370,14 +354,6 @@ savePendingMessage finIx finDelta pmsg = do
                 else do
                     finPendingMessages .= Map.insert finIx (Map.insert finDelta (Set.insert pmsg s) ipmsgs) pmsgs
                     return False
-{-
-    msgs <- use $ finPendingMessages . at finIx . non Map.empty . at finDelta . non Set.empty
-    if pmsg `Set.member` msgs then
-        return True
-    else do
-        finPendingMessages . atStrict finIx . non Map.empty . atStrict finDelta ?= Set.insert pmsg msgs
-        return False
--}
 
 -- |Called when a finalization message is received.
 receiveFinalizationMessage :: (FinalizationMonad s m) => FinalizationMessage -> m UpdateResult
@@ -403,7 +379,6 @@ receiveFinalizationMessage msg@FinalizationMessage{msgHeader=FinalizationMessage
                 EQ -> -- handle the message now, since it's the current round
                     if checkMessage _finsCommittee msg then do
                         -- Save the message
-                        -- isDuplicate <- finPendingMessages . atStrict msgFinalizationIndex . non Map.empty . atStrict msgDelta . non Set.empty . members (PendingMessage msgSenderIndex msgBody msgSignature) <<.= True
                         isDuplicate <- savePendingMessage msgFinalizationIndex msgDelta (PendingMessage msgSenderIndex msgBody msgSignature)
                         if isDuplicate then
                             return ResultDuplicate
@@ -549,53 +524,7 @@ verifyFinalProof sid com@FinalizationCommittee{..} FinalizationRecord{..} = sum 
             then getPartyWeight com pid
             else 0
 
-{-
-data FinalizationPoint = FinalizationPoint !FinalizationSessionId !FinalizationIndex !BlockHeight
-  deriving(Show)
-
-instance S.Serialize FinalizationPoint where
-    put (FinalizationPoint session index delta) = do
-        S.put session
-        S.put index
-        S.put delta
-    get = FinalizationPoint <$> S.get <*> S.get <*> S.get
-
-class FinalizationQuery s where
-    -- |Get all of the finalization messages received for indexes beyond the last finalized index
-    -- and no sooner than the given finalization point.
-    getPendingFinalizationMessages :: s -> FinalizationPoint -> [FinalizationMessage]
-    -- |Get the current point in the finalization protocol.
-    getCurrentFinalizationPoint :: s -> FinalizationPoint
-
-newtype FinalizationStateQuery s = FinalizationStateQuery s
-
-doGetPendingFinalizationMessages :: FinalizationSessionId -> PendingMessageMap -> FinalizationPoint -> [FinalizationMessage]
-doGetPendingFinalizationMessages mySessionId myPendingMessages (FinalizationPoint sess lowIndex lowIndexDelta)
-        | sess == mySessionId = Map.foldrWithKey eachIndex [] (at lowIndex . non Map.empty %~ Map.dropWhileAntitone (<lowIndexDelta) $ Map.dropWhileAntitone (< lowIndex) myPendingMessages)
-        | otherwise = []
-    where
-        eachIndex ind m l = Map.foldrWithKey (eachDelta ind) l m
-        eachDelta ind delta msgs l = map (eachMsg ind delta) (Set.toList msgs) ++ l
-        eachMsg ind delta (PendingMessage senderIndex msgBody msgSignature) = FinalizationMessage{..}
-            where
-                msgHeader = FinalizationMessageHeader {
-                    msgSessionId = mySessionId,
-                    msgFinalizationIndex = ind,
-                    msgDelta = delta,
-                    msgSenderIndex = senderIndex
-                }
-
-instance (FinalizationStateLenses s) => FinalizationQuery (FinalizationStateQuery s) where
-    getPendingFinalizationMessages (FinalizationStateQuery fs) fp = doGetPendingFinalizationMessages (fs ^. finSessionId) (fs ^. finPendingMessages) fp
-    getCurrentFinalizationPoint (FinalizationStateQuery fs) = FinalizationPoint (fs ^. finSessionId) (fs ^. finIndex) delta
-        where
-            delta = case fs ^. finCurrentRound of
-                        Nothing -> 0
-                        Just r -> roundDelta r
-
-deriving via (FinalizationStateQuery FinalizationState) instance FinalizationQuery FinalizationState
--}
-
+-- |Produce a 'FinalizationSummary' based on the finalization state.
 finalizationSummary :: (FinalizationStateLenses s m) => SimpleGetter s FinalizationSummary
 finalizationSummary = to fs
     where
@@ -606,6 +535,7 @@ finalizationSummary = to fs
                     Nothing -> WMVBASummary Nothing Nothing Nothing
                     Just FinalizationRound{..} -> roundWMVBA ^. wmvbaSummary
 
+-- |Produce a 'FinalizationPseudoMessage' containing a catch up message based on the current finalization state.
 finalizationCatchUpMessage :: (FinalizationStateLenses s m) => FinalizationInstance -> s -> Maybe FinalizationPseudoMessage
 finalizationCatchUpMessage FinalizationInstance{..} s = _finsCurrentRound <&> \FinalizationRound{..} ->
         (FPMCatchUp $! signCatchUpMessage finMySignKey _finsSessionId _finsIndex roundMe (committeeMaxParty _finsCommittee) summary)
@@ -613,7 +543,8 @@ finalizationCatchUpMessage FinalizationInstance{..} s = _finsCurrentRound <&> \F
         FinalizationState{..} = s ^. finState
         summary = s ^. finalizationSummary
 
-
+-- |Process a 'FinalizationSummary', handling any new messages and returning a result indicating
+-- whether the summary is behind, and whether we should initiate Skov catch-up.
 processFinalizationSummary :: (FinalizationMonad s m) => FinalizationSummary -> m CatchUpResult
 processFinalizationSummary FinalizationSummary{..} =
         use finCurrentRound >>= \case
@@ -656,71 +587,3 @@ processFinalizationSummary FinalizationSummary{..} =
                             cur <- liftWMVBA $ processWMVBASummary summaryCurrentRound (checkSigDelta delta)
                             return (cur <> mempty {curBehind = or roundsBehind})
                         GT -> return (mempty {curBehind = or roundsBehind})
-
--- * Passive finalization
--- Passive finalization does minimal message validation and de-duplication.
-
-
-data PassiveFinalizationState = PassiveFinalizationState {
-    _pfinsSessionId :: !FinalizationSessionId,
-    _pfinsIndex :: !FinalizationIndex,
-    _pfinsMessageDeDup :: !(PSQ.OrdPSQ Hash.Hash UTCTime ())
-}
-makeLenses ''PassiveFinalizationState
-
-class PassiveFinalizationStateLenses s where
-    pfinState :: Lens' s PassiveFinalizationState
-    pfinSessionId :: Lens' s FinalizationSessionId
-    pfinSessionId = pfinState . pfinsSessionId
-    pfinIndex :: Lens' s FinalizationIndex
-    pfinIndex = pfinState . pfinsIndex
-    -- |All received finalization messages for the current and future finalization indexes, for catch-up.
-    pfinMessageDeDup :: Lens' s (PSQ.OrdPSQ Hash.Hash UTCTime ())
-    pfinMessageDeDup = pfinState . pfinsMessageDeDup
-
-instance PassiveFinalizationStateLenses PassiveFinalizationState where
-    pfinState = id
-
--- |Generate an initial 'PassiveFinalizationState' from the genesis 'BlockHash'.
-initialPassiveFinalizationState :: BlockHash -> PassiveFinalizationState
-initialPassiveFinalizationState genHash = PassiveFinalizationState {
-    _pfinsSessionId = FinalizationSessionId genHash 0,
-    _pfinsIndex = 1,
-    _pfinsMessageDeDup = PSQ.empty
-    }
-
-passiveReceiveFinalizationPseudoMessage :: (MonadState s m, PassiveFinalizationStateLenses s, TimeMonad m) => FinalizationPseudoMessage -> BS.ByteString -> m UpdateResult
-passiveReceiveFinalizationPseudoMessage pmsg msgBS = do
-        PassiveFinalizationState{..} <- use pfinState
-        let FinalizationMessageHeader{..} = fpmHeader pmsg
-        -- Check this is the right session
-        if (_pfinsSessionId == msgSessionId) then
-            -- Check the finalization index is not out of date
-            if msgFinalizationIndex < _pfinsIndex then
-                return ResultStale
-            else do
-                now <- currentTime
-                let
-                    (_,purgedDeDup) = PSQ.atMostView (addUTCTime (-60) now) _pfinsMessageDeDup
-                    alterfun Nothing = (False, Just (now, ()))
-                    alterfun (Just _) = (True, Just (now, ()))
-                    (isDup, newDeDup) = PSQ.alter alterfun (Hash.hash msgBS) purgedDeDup
-                pfinMessageDeDup .= newDeDup
-                return $!
-                    if isDup then
-                        ResultDuplicate
-                    else if msgFinalizationIndex == _pfinsIndex then
-                        ResultSuccess
-                    else
-                        ResultPendingFinalization
-        else
-            return ResultIncorrectFinalizationSession
-
--- |Called when a new block is finalized.
--- (NB: this should never be called with the genesis block.)
-passiveNotifyBlockFinalized :: (MonadState s m, PassiveFinalizationStateLenses s) => FinalizationRecord -> m ()
-passiveNotifyBlockFinalized FinalizationRecord{..} = do
-        pfinIndex .= finalizationIndex + 1
-        -- Flush the dedup buffer
-        -- Discard finalization messages from old round
-        pfinMessageDeDup .= PSQ.empty

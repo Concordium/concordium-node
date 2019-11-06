@@ -45,7 +45,6 @@ checkTicket :: BS.ByteString    -- ^Lottery identifier
         -> Ticket               -- ^Ticket to check
         -> Bool
 checkTicket lotteryid key Ticket{..} =
-        VRF.verifyKey key && -- TODO: possibly this is not necessary
         VRF.verify key ("AL" <> lotteryid) (theProof ticketProof)
 
 -- |Check a 'TicketProof' and generate a 'Ticket'.
@@ -56,5 +55,5 @@ checkTicketProof :: BS.ByteString    -- ^Lottery identifier
         -> VoterPower                  -- ^Total party weight
         -> Maybe Ticket
 checkTicketProof lotteryid key tp@TicketProof{..} weight totalWeight = do
-        guard (VRF.verifyKey key && VRF.verify key ("AL" <> lotteryid) theProof)
+        guard (VRF.verify key ("AL" <> lotteryid) theProof)
         return (proofToTicket tp weight totalWeight)

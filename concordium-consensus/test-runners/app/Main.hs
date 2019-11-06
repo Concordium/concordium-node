@@ -1,5 +1,6 @@
 {-# LANGUAGE TupleSections, LambdaCase, OverloadedStrings #-}
 {-# LANGUAGE LambdaCase, CPP #-}
+{-# OPTIONS_GHC -Wno-deprecations #-}
 module Main where
 
 import Control.Concurrent
@@ -17,7 +18,7 @@ import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
-import Concordium.GlobalState.Instances
+import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Basic.Block
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import Concordium.GlobalState.BlockState
