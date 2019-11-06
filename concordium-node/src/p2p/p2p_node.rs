@@ -555,7 +555,7 @@ impl P2PNode {
 
             let num_socket_threads = match self_clone.self_peer.peer_type {
                 PeerType::Bootstrapper => 1,
-                PeerType::Node => self_clone.config.desired_nodes_count as usize,
+                PeerType::Node => 1,
             };
             let pool = rayon::ThreadPoolBuilder::new()
                 .num_threads(num_socket_threads)
