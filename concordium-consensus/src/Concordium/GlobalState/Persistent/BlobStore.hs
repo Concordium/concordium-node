@@ -23,6 +23,10 @@ import GHC.Stack
 
 import Concordium.GlobalState.Persistent.MonadicRecursive
 
+-- Imports for providing instances
+import qualified Concordium.GlobalState.IdentityProviders as IPS
+import qualified Concordium.GlobalState.Parameters as Parameters
+
 newtype BlobRef a = BlobRef Word64
     deriving (Eq, Ord, Serialize)
 
@@ -358,3 +362,7 @@ instance (forall a. Show (ref a)) => FixShowable (CachedBlobbed ref) where
 instance (forall a. Show (ref a)) => FixShowable (BufferedBlobbed ref) where
     showFix sh (LBMemory v) = "{" ++ (sh (showFix sh <$> v)) ++ "}"
     showFix sh (LBCached r) = showFix sh r
+
+-- BlobStorable instances
+instance (MonadBlobStore m ref) => BlobStorable m ref IPS.IdentityProviders
+instance (MonadBlobStore m ref) => BlobStorable m ref Parameters.CryptographicParameters

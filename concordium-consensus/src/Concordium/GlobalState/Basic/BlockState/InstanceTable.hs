@@ -5,18 +5,12 @@ module Concordium.GlobalState.Basic.BlockState.InstanceTable where
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
 import Concordium.Types.HashableTo
-import qualified Concordium.Types.Acorn.Core as Core
-import Concordium.Types.Acorn.Interfaces
 import Concordium.GlobalState.Instance
 
 import Data.Word
 import Lens.Micro.Platform
 import Lens.Micro.Internal (Ixed,Index,IxValue)
 import Data.Serialize
-import Data.HashMap.Strict(HashMap)
-
-import Data.Void
-
 
 data InstanceTable
     -- |The empty instance table
