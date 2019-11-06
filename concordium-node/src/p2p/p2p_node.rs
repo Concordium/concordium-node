@@ -92,6 +92,7 @@ pub struct P2PNodeConfig {
     pub bucket_cleanup_interval: u64,
     #[cfg(feature = "beta")]
     pub beta_username: String,
+    thread_pool_size: usize,
 }
 
 #[derive(Default)]
@@ -352,6 +353,7 @@ impl P2PNode {
             bucket_cleanup_interval: conf.common.bucket_cleanup_interval,
             #[cfg(feature = "beta")]
             beta_username: conf.cli.beta_username.clone(),
+            thread_pool_size: conf.connection.thread_pool_size,
         };
 
         let connection_handler = ConnectionHandler::new(conf, server, event_log);
@@ -555,7 +557,7 @@ impl P2PNode {
 
             let num_socket_threads = match self_clone.self_peer.peer_type {
                 PeerType::Bootstrapper => 1,
-                PeerType::Node => 1,
+                PeerType::Node => self_clone.config.thread_pool_size,
             };
             let pool = rayon::ThreadPoolBuilder::new()
                 .num_threads(num_socket_threads)
