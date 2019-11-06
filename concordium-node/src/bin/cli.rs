@@ -17,7 +17,10 @@ use concordium_common::{
     QueueMsg::{self, Relay},
 };
 use concordium_consensus::{
-    consensus::{ConsensusContainer, ConsensusLogLevel, CALLBACK_QUEUE},
+    consensus::{
+        ConsensusContainer, ConsensusLogLevel, CALLBACK_QUEUE, CONSENSUS_QUEUE_DEPTH_IN_HI,
+        CONSENSUS_QUEUE_DEPTH_OUT_HI,
+    },
     ffi,
 };
 use concordium_global_state::tree::{messaging::ConsensusMessage, GlobalState};
@@ -381,7 +384,9 @@ fn start_consensus_message_threads(
 
         'outer_loop: loop {
             exhausted = false;
-            for _ in 0..10 {
+            // instead of using `try_iter()` we specifically only loop over the max amounts
+            // possible to ever be in the queue
+            for _ in 0..CONSENSUS_QUEUE_DEPTH_IN_HI {
                 if let Ok(message) = consensus_receiver_high_priority.try_recv() {
                     let stop_loop = !handle_inbound_message(message, |msg| {
                         handle_consensus_inbound_message(
@@ -449,7 +454,9 @@ fn start_consensus_message_threads(
 
         'outer_loop: loop {
             exhausted = false;
-            for _ in 0..10 {
+            // instead of using `try_iter()` we specifically only loop over the max amounts
+            // possible to ever be in the queue
+            for _ in 0..CONSENSUS_QUEUE_DEPTH_OUT_HI {
                 if let Ok(message) = consensus_receiver_high_priority.try_recv() {
                     let stop_loop = !handle_outbound_message(message, |msg| {
                         handle_consensus_outbound_message(&node_out_ref, nid, msg)

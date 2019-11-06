@@ -43,10 +43,10 @@ impl TryFrom<u8> for ConsensusLogLevel {
     }
 }
 
-const CONSENSUS_QUEUE_DEPTH_OUT_HI: usize = 8 * 1024;
-const CONSENSUS_QUEUE_DEPTH_OUT_LO: usize = 16 * 1024;
-const CONSENSUS_QUEUE_DEPTH_IN_HI: usize = 16 * 1024;
-const CONSENSUS_QUEUE_DEPTH_IN_LO: usize = 32 * 1024;
+pub const CONSENSUS_QUEUE_DEPTH_OUT_HI: usize = 8 * 1024;
+pub const CONSENSUS_QUEUE_DEPTH_OUT_LO: usize = 16 * 1024;
+pub const CONSENSUS_QUEUE_DEPTH_IN_HI: usize = 16 * 1024;
+pub const CONSENSUS_QUEUE_DEPTH_IN_LO: usize = 32 * 1024;
 
 pub struct ConsensusInboundQueues {
     pub receiver_high_priority: Mutex<QueueReceiver<ConsensusMessage>>,
