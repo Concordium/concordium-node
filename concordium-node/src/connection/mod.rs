@@ -5,7 +5,7 @@ pub mod message_handlers;
 mod low_level;
 
 pub use crate::p2p::{Networks, P2PNode};
-use low_level::{ConnectionLowLevel, TcpResult};
+use low_level::ConnectionLowLevel;
 pub use p2p_event::P2PEvent;
 
 mod p2p_event;
@@ -22,10 +22,8 @@ use twox_hash::XxHash64;
 
 use crate::{
     common::{
-        counter::{TOTAL_MESSAGES_RECEIVED_COUNTER, TOTAL_MESSAGES_SENT_COUNTER},
-        get_current_stamp,
-        p2p_peer::P2PPeer,
-        P2PNodeId, PeerStats, PeerType, RemotePeer,
+        counter::TOTAL_MESSAGES_RECEIVED_COUNTER, get_current_stamp, p2p_peer::P2PPeer, P2PNodeId,
+        PeerStats, PeerType, RemotePeer,
     },
     dumper::DumpItem,
     network::{
@@ -279,6 +277,10 @@ impl Connection {
             service.pkt_received_inc();
         };
 
+        if cfg!(feature = "network_dump") {
+            self.send_to_dump(Arc::from(message.clone().remaining_bytes()?.to_vec()), true);
+        }
+
         let message = NetworkMessage::deserialize(&message.remaining_bytes()?);
         if let Err(e) = message {
             self.handle_invalid_network_msg(e);
@@ -363,25 +365,6 @@ impl Connection {
     #[inline(always)]
     pub fn async_send(&self, message: Arc<[u8]>, priority: MessageSendingPriority) {
         write_or_die!(self.pending_messages).push(message, (priority, Instant::now()));
-    }
-
-    /// It sends `input` through `socket`.
-    /// This functions returns (almost) immediately, because it does NOT wait
-    /// for real write. Function `ConnectionPrivate::ready` will make ensure to
-    /// write chunks of the message
-    #[inline(always)]
-    pub fn async_send_from_poll_loop(&self, input: Arc<[u8]>) -> Fallible<TcpResult<usize>> {
-        TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
-        self.stats.messages_sent.fetch_add(1, Ordering::Relaxed);
-        if let Some(ref stats) = self.handler().stats_export_service {
-            stats.pkt_sent_inc();
-        }
-
-        if cfg!(feature = "network_dump") {
-            self.send_to_dump(input.clone(), false);
-        }
-
-        write_or_die!(self.low_level).write_to_socket(input)
     }
 
     pub fn update_last_seen(&self) {
@@ -585,22 +568,6 @@ impl Connection {
             .send_over_all_connections(serialized, &conn_filter)
             .map(|_| ())
     }
-
-    #[inline(always)]
-    pub fn send_pending_messages(&self) -> Fallible<()> {
-        let mut pending_messages = write_or_die!(self.pending_messages);
-
-        while let Some((msg, _)) = pending_messages.pop() {
-            trace!("Attempting to send {}B to {}", msg.len(), self);
-
-            if let Err(err) = self.async_send_from_poll_loop(msg) {
-                error!("Can't send a raw network request to {}: {}", self, err);
-                return Err(err);
-            }
-        }
-
-        Ok(())
-    }
 }
 
 impl Drop for Connection {
@@ -629,6 +596,29 @@ fn dedup_with(message: &mut HybridBuf, queue: &mut CircularQueue<[u8; 8]>) -> Fa
         trace!("Message {:?} is a duplicate", hash);
         Ok(true)
     }
+}
+
+#[inline(always)]
+pub fn send_pending_messages(
+    pending_messages: &RwLock<PriorityQueue<Arc<[u8]>, PendingPriority>>,
+    low_level: &mut ConnectionLowLevel,
+) -> Fallible<()> {
+    let mut pending_messages = write_or_die!(pending_messages);
+
+    while let Some((msg, _)) = pending_messages.pop() {
+        trace!("Attempting to send {}B to {}", msg.len(), low_level.conn());
+
+        if let Err(err) = low_level.write_to_socket(msg) {
+            error!(
+                "Can't send a raw network request to {}: {}",
+                low_level.conn(),
+                err
+            );
+            return Err(err);
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

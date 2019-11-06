@@ -424,33 +424,31 @@ pub fn check_peer_states(
 ) -> Fallible<()> {
     use PeerStatus::*;
 
-    {
-        let mut peers = write_or_die!(peers_lock);
-        // take advantage of the priority queue ordering
-        if let Some((id, state)) = peers.peers.peek().map(|(&i, s)| (i, s)) {
-            match state.status {
-                CatchingUp => {
-                    // don't send any catch-up statuses while
-                    // there are peers that are catching up
-                    if get_current_stamp() > peers.catch_up_stamp + MAX_CATCH_UP_TIME {
-                        debug!("Global state: peer {:016x} took too long to catch up", id);
-                        if let Some(token) = node
-                            .find_connection_by_id(P2PNodeId(id))
-                            .map(|conn| conn.token)
-                        {
-                            node.remove_connection(token);
-                        }
+    let mut peers = write_or_die!(peers_lock);
+    // take advantage of the priority queue ordering
+    if let Some((id, state)) = peers.peers.peek().map(|(&i, s)| (i, s)) {
+        match state.status {
+            CatchingUp => {
+                // don't send any catch-up statuses while
+                // there are peers that are catching up
+                if get_current_stamp() > peers.catch_up_stamp + MAX_CATCH_UP_TIME {
+                    debug!("Global state: peer {:016x} took too long to catch up", id);
+                    if let Some(token) = node
+                        .find_connection_by_id(P2PNodeId(id))
+                        .map(|conn| conn.token)
+                    {
+                        node.remove_connection(token);
                     }
                 }
-                Pending => {
-                    // send a catch-up message to the first Pending peer
-                    debug!("Global state: I need to catch up with peer {:016x}", id);
-                    send_catch_up_status(node, network_id, consensus, &mut peers, id)?;
-                }
-                UpToDate => {
-                    if !consensus.is_baking() && consensus.is_active() {
-                        consensus.start_baker();
-                    }
+            }
+            Pending => {
+                // send a catch-up message to the first Pending peer
+                debug!("Global state: I need to catch up with peer {:016x}", id);
+                send_catch_up_status(node, network_id, consensus, &mut peers, id)?;
+            }
+            UpToDate => {
+                if !consensus.is_baking() && consensus.is_active() {
+                    consensus.start_baker();
                 }
             }
         }

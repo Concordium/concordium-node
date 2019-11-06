@@ -3,7 +3,9 @@ use crate::dumper::create_dump_thread;
 use crate::{
     common::{get_current_stamp, P2PNodeId, P2PPeer, PeerStats, PeerType, RemotePeer},
     configuration::{self as config, Config},
-    connection::{Connection, DeduplicationQueues, MessageSendingPriority, P2PEvent},
+    connection::{
+        send_pending_messages, Connection, DeduplicationQueues, MessageSendingPriority, P2PEvent,
+    },
     crypto::generate_snow_config,
     dumper::DumpItem,
     network::{
@@ -565,15 +567,30 @@ impl P2PNode {
                 .unwrap();
 
             loop {
-                let _ = self_clone
-                    .receive_network_events(&mut events, &deduplication_queues)
-                    .map_err(|e| {
-                        if !self_clone.is_terminated.load(Ordering::Relaxed) {
-                            error!("{}", e)
-                        }
-                    });
+                // check for new events or wait
+                if let Err(e) = self_clone.poll.poll(
+                    &mut events,
+                    Some(Duration::from_millis(self_clone.config.poll_interval)),
+                ) {
+                    error!("{}", e);
+                    continue;
+                }
 
-                pool.install(|| self_clone.send_queued_messages());
+                // perform socket reads and writes in parallel across connections
+                if !events.is_empty() {
+                    // check for new connections
+                    for _ in events.iter().filter(|&event| event.token() == SERVER) {
+                        debug!("Got a new connection!");
+                        self_clone.accept().map_err(|e| error!("{}", e)).ok();
+                        if let Some(ref service) = &self_clone.stats_export_service {
+                            service.conn_received_inc();
+                        };
+                    }
+
+                    pool.install(|| {
+                        self_clone.process_network_events(&mut events, &deduplication_queues)
+                    });
+                }
 
                 // Run periodic tasks
                 let now = SystemTime::now();
@@ -864,6 +881,7 @@ impl P2PNode {
                 self.log_event(P2PEvent::ConnectEvent(addr));
 
                 if let Some(ref conn) = self.find_connection_by_token(token) {
+                    write_or_die!(conn.low_level).flush_socket()?;
                     conn.send_handshake_request()?;
                 }
 
@@ -1177,73 +1195,45 @@ impl P2PNode {
     pub fn internal_addr(&self) -> SocketAddr { self.self_peer.addr }
 
     #[inline(always)]
-    fn receive_network_events(
+    fn process_network_events(
         &self,
-        events: &mut Events,
+        events: &Events,
         deduplication_queues: &Arc<DeduplicationQueues>,
-    ) -> Fallible<()> {
-        events.clear();
-        self.poll.poll(
-            events,
-            Some(Duration::from_millis(self.config.poll_interval)),
-        )?;
-
-        if events.iter().any(|event| event.token() == SERVER) {
-            debug!("Got a new connection!");
-            self.accept().map_err(|e| error!("{}", e)).ok();
-            if let Some(ref service) = &self.stats_export_service {
-                service.conn_received_inc();
-            };
-        }
-
+    ) {
         read_or_die!(self.connections())
             .par_iter()
+            .filter(|(&token, _)| events.iter().any(|event| event.token() == token))
             .for_each(|(&token, conn)| {
                 let mut error_flag = false;
-                {
-                    let mut conn_lock = write_or_die!(conn.low_level);
-                    for event in events.iter().filter(|event| event.token() == token) {
-                        let readiness = event.readiness();
+                let mut low_level = write_or_die!(conn.low_level);
 
-                        if readiness.is_readable() || readiness.is_writable() {
-                            if readiness.is_readable() {
-                                if conn_lock.read_stream(deduplication_queues).is_err() {
-                                    error_flag = true;
-                                    break;
-                                }
-                            }
-                            if readiness.is_writable() {
-                                // TODO: we might want to close the connection
-                                // when specific write errors are detected
-                                let _ = conn_lock.flush_socket().map_err(|e| error!("{}", e));
-                            }
+                for event in events.iter().filter(|event| event.token() == token) {
+                    let readiness = event.readiness();
+
+                    if readiness.is_readable() {
+                        trace!("Got an R event");
+                        if low_level.read_stream(deduplication_queues).is_err() {
+                            error_flag = true;
+                            break;
                         }
+                        trace!("  - processed");
+                    }
+                    if readiness.is_writable() {
+                        trace!("Got a W event");
+                        low_level.flush_socket();
+
+                        if send_pending_messages(&conn.pending_messages, &mut low_level).is_err() {
+                            error_flag = true;
+                            break;
+                        }
+                        trace!("  - processed");
                     }
                 }
+
                 if error_flag {
                     self.remove_connection(token);
                 }
             });
-
-        Ok(())
-    }
-
-    #[inline(always)]
-    pub fn send_queued_messages(&self) {
-        let conns_to_remove = read_or_die!(self.connections())
-            .par_iter()
-            .filter_map(|(&token, conn)| {
-                if conn.send_pending_messages().is_err() {
-                    Some(token)
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
-
-        for token in conns_to_remove {
-            self.remove_connection(token);
-        }
     }
 
     pub fn close(&self) -> bool {
