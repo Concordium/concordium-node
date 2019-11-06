@@ -61,7 +61,7 @@ pub enum SchemeId {
 }
 
 impl SchemeId {
-    pub fn verify_key_length(&self) -> u32 {
+    pub fn verify_key_length(self) -> u32 {
         match self {
             SchemeId::Ed25519 => 32,
             SchemeId::PlaceHolder => 0,
