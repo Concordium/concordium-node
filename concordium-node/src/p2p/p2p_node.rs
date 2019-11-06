@@ -553,6 +553,15 @@ impl P2PNode {
 
             let mut deduplication_queues = DeduplicationQueues::default();
 
+            let num_socket_threads = match self_clone.self_peer.peer_type {
+                PeerType::Bootstrapper => 1,
+                PeerType::Node => self_clone.config.desired_nodes_count as usize,
+            };
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(num_socket_threads)
+                .build()
+                .unwrap();
+
             loop {
                 let _ = self_clone
                     .receive_network_events(&mut events, &mut deduplication_queues)
@@ -562,7 +571,7 @@ impl P2PNode {
                         }
                     });
 
-                self_clone.send_queued_messages();
+                pool.install(|| self_clone.send_queued_messages());
 
                 // Run periodic tasks
                 let now = SystemTime::now();
