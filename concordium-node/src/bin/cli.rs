@@ -14,14 +14,16 @@ static A: System = System;
 use concordium_common::{
     spawn_or_die,
     stats_export_service::{StatsExportService, StatsServiceMode},
-    PacketType,
     QueueMsg::{self, Relay},
 };
 use concordium_consensus::{
     consensus::{ConsensusContainer, ConsensusLogLevel, CALLBACK_QUEUE},
     ffi,
 };
-use concordium_global_state::{catch_up::PeerList, tree::GlobalState};
+use concordium_global_state::{
+    catch_up::PeerList,
+    tree::{messaging::ConsensusMessage, GlobalState},
+};
 use p2p_client::{
     client::{
         plugins::{self, consensus::*},
@@ -39,7 +41,7 @@ use failure::Fallible;
 use rkv::{Manager, Rkv};
 
 use std::{
-    sync::{mpsc, Arc},
+    sync::{mpsc, Arc, RwLock},
     thread,
     time::Duration,
 };
@@ -161,8 +163,8 @@ fn main() -> Fallible<()> {
     // Connect outgoing messages to be forwarded into the baker and RPC streams.
     //
     // Thread #3 (#4): read P2PNode output
-    let (consensus_inbound_thread, consensus_outbound_thread) =
-        start_consensus_message_threads(&node, &conf, consensus.clone(), PeerList::new());
+    let (consensus_peers_notifier_thread, consensus_inbound_thread, consensus_outbound_thread) =
+        start_consensus_message_threads(&node, &conf, consensus.clone());
 
     info!(
         "Concordium P2P layer. Network disabled: {}",
@@ -183,6 +185,10 @@ fn main() -> Fallible<()> {
     ffi::stop_haskell();
 
     // Wait for the global state threads to stop
+    consensus_peers_notifier_thread
+        .join()
+        .expect("Consensus peers notification thread panicked");
+
     consensus_inbound_thread
         .join()
         .expect("Consensus inbound process thread panicked");
@@ -312,9 +318,55 @@ fn start_consensus_message_threads(
     node: &Arc<P2PNode>,
     conf: &config::Config,
     consensus: ConsensusContainer,
-    mut gspeers: PeerList,
-) -> (std::thread::JoinHandle<()>, std::thread::JoinHandle<()>) {
+) -> (
+    std::thread::JoinHandle<()>,
+    std::thread::JoinHandle<()>,
+    std::thread::JoinHandle<()>,
+) {
+    let peers = Arc::new(RwLock::new(PeerList::new()));
+    let node_peers_ref = Arc::clone(node);
+    let peers_thread_ref = Arc::clone(&peers);
+    let nid_peers = NetworkId::from(conf.common.network_ids[0]); // defaulted so there's always first()
+    let mut consensus_peers_ref = consensus.clone();
+    let consensus_peer_notifier_thread =
+        spawn_or_die!("Peers status notifier thread for consensus", {
+            // don't do anything until the peer number is within the desired range
+            while node_peers_ref.get_node_peer_ids().len()
+                > node_peers_ref.config.max_allowed_nodes as usize
+            {
+                thread::sleep(Duration::from_secs(1));
+            }
+
+            let peer_stats_notifier_control_queue_receiver =
+                CALLBACK_QUEUE.receiver_peer_notifier.lock().unwrap();
+            let mut last_peer_list_update = 0;
+            'outer_loop: loop {
+                if node_peers_ref.last_peer_update() > last_peer_list_update {
+                    update_peer_list(&node_peers_ref, Arc::clone(&peers_thread_ref));
+                    last_peer_list_update = get_current_stamp();
+                }
+
+                if let Err(e) = check_peer_states(
+                    &node_peers_ref,
+                    nid_peers,
+                    &mut consensus_peers_ref,
+                    Arc::clone(&peers_thread_ref),
+                ) {
+                    error!("Couldn't update the catch-up peer list: {}", e);
+                }
+
+                if let Ok(msg) = peer_stats_notifier_control_queue_receiver.try_recv() {
+                    if let QueueMsg::Stop = msg {
+                        break 'outer_loop;
+                    }
+                }
+
+                thread::sleep(Duration::from_millis(200));
+            }
+        });
+
     let node_in_ref = Arc::clone(node);
+    let peers_in_ref = Arc::clone(&peers);
     let mut consensus_in_ref = consensus.clone();
     let nid_in = NetworkId::from(conf.common.network_ids[0]); // defaulted so there's always first()
     let consensus_inbound_thread = spawn_or_die!("Process inbound consensus requests", {
@@ -324,90 +376,53 @@ fn start_consensus_message_threads(
             thread::sleep(Duration::from_secs(1));
         }
 
-        let mut last_peer_list_update = 0;
-        let mut loop_interval_in: u64;
         let consensus_receiver_in_hi = CALLBACK_QUEUE.receiver_in_hi.lock().unwrap();
         let consensus_receiver_in_lo = CALLBACK_QUEUE.receiver_in_lo.lock().unwrap();
+        let (lock, cvar) = &*CALLBACK_QUEUE.inbound_signaler;
+        let mut lock_guard = lock.lock();
 
+        #[allow(unused_assignments)]
         'outer_loop: loop {
-            loop_interval_in = 200;
-
-            if node_in_ref.last_peer_update() > last_peer_list_update {
-                update_peer_list(&node_in_ref, &mut gspeers);
-                last_peer_list_update = get_current_stamp();
-            }
-
-            if let Err(e) =
-                check_peer_states(&node_in_ref, nid_in, &mut consensus_in_ref, &mut gspeers)
-            {
-                error!("Couldn't update the catch-up peer list: {}", e);
-            }
-
-            for message in consensus_receiver_in_hi.try_iter() {
-                match message {
-                    QueueMsg::Relay(msg) => {
-                        let msg_type = msg.variant;
-                        if let Err(e) = handle_consensus_inbound_message(
+            let mut exhausted = false;
+            for _ in 0..10 {
+                if let Ok(message) = consensus_receiver_in_hi.try_recv() {
+                    let stop_loop = handle_inbound_message(message, |msg| {
+                        handle_consensus_inbound_message(
                             &node_in_ref,
                             nid_in,
                             &mut consensus_in_ref,
                             msg,
-                            &mut gspeers,
-                        ) {
-                            error!("There's an issue with an inbound consensus request: {}", e);
-                        } else {
-                            loop_interval_in = match msg_type {
-                                PacketType::Block => loop_interval_in.saturating_sub(5),
-                                _ => loop_interval_in.saturating_sub(1),
-                            };
-                        }
-                    }
-                    QueueMsg::Stop => {
-                        warn!("Closing the consensus inbound channel");
+                            Arc::clone(&peers_in_ref),
+                        )
+                    });
+                    if stop_loop {
                         break 'outer_loop;
                     }
-                }
-            }
-
-            let queue_take_amount_inbound = match loop_interval_in {
-                176..=200 => 2048,
-                151..=175 => 1536,
-                126..=150 => 1024,
-                101..=125 => 768,
-                76..=100 => 576,
-                51..=75 => 432,
-                26..=50 => 324,
-                _ => 243,
-            };
-
-            for _ in 0..queue_take_amount_inbound {
-                if let Ok(message) = consensus_receiver_in_lo.try_recv() {
-                    match message {
-                        QueueMsg::Relay(msg) => {
-                            if let Err(e) = handle_consensus_inbound_message(
-                                &node_in_ref,
-                                nid_in,
-                                &mut consensus_in_ref,
-                                msg,
-                                &mut gspeers,
-                            ) {
-                                error!("There's an issue with an inbound consensus request: {}", e);
-                            }
-                        }
-                        QueueMsg::Stop => {
-                            warn!("Closing the inbound consensus channel");
-                            break 'outer_loop;
-                        }
-                    }
                 } else {
+                    exhausted = true;
                     break;
                 }
             }
 
-            if loop_interval_in != 200 {
-                trace!("Going to sleep for {} ms", loop_interval_in);
+            if let Ok(message) = consensus_receiver_in_lo.try_recv() {
+                exhausted = false;
+                let stop_loop = handle_inbound_message(message, |msg| {
+                    handle_consensus_inbound_message(
+                        &node_in_ref,
+                        nid_in,
+                        &mut consensus_in_ref,
+                        msg,
+                        Arc::clone(&peers_in_ref),
+                    )
+                });
+                if stop_loop {
+                    break 'outer_loop;
+                }
             }
-            thread::sleep(Duration::from_millis(loop_interval_in));
+
+            if exhausted {
+                cvar.wait(&mut lock_guard);
+            }
         }
     });
 
@@ -421,77 +436,83 @@ fn start_consensus_message_threads(
             thread::sleep(Duration::from_secs(1));
         }
 
-        let mut loop_interval_out: u64;
         let consensus_receiver_out_hi = CALLBACK_QUEUE.receiver_out_hi.lock().unwrap();
         let consensus_receiver_out_lo = CALLBACK_QUEUE.receiver_out_lo.lock().unwrap();
+        let (lock, cvar) = &*CALLBACK_QUEUE.outbound_signaler;
+        let mut lock_guard = lock.lock();
 
+        #[allow(unused_assignments)]
         'outer_loop: loop {
-            loop_interval_out = 200;
-
-            for message in consensus_receiver_out_hi.try_iter() {
-                match message {
-                    QueueMsg::Relay(msg) => {
-                        let msg_type = msg.variant;
-                        if let Err(e) =
-                            handle_consensus_outbound_message(&node_out_ref, nid_out, msg)
-                        {
-                            error!("There's an issue with an outbound consensus request: {}", e);
-                        } else {
-                            loop_interval_out = match msg_type {
-                                PacketType::Block => loop_interval_out.saturating_sub(5),
-                                _ => loop_interval_out.saturating_sub(1),
-                            };
-                        }
-                    }
-                    QueueMsg::Stop => {
-                        warn!("Closing the outbound consensus channel");
+            let mut exhausted = false;
+            for _ in 0..10 {
+                if let Ok(message) = consensus_receiver_out_hi.try_recv() {
+                    let stop_loop = handle_outbound_message(message, |msg| {
+                        handle_consensus_outbound_message(&node_out_ref, nid_out, msg)
+                    });
+                    if stop_loop {
                         break 'outer_loop;
                     }
-                }
-            }
-
-            let queue_take_amount_outbound = match loop_interval_out {
-                176..=200 => 2048,
-                151..=175 => 1536,
-                126..=150 => 1024,
-                101..=125 => 768,
-                76..=100 => 576,
-                51..=75 => 432,
-                26..=50 => 324,
-                _ => 243,
-            };
-
-            for _ in 0..queue_take_amount_outbound {
-                if let Ok(message) = consensus_receiver_out_lo.try_recv() {
-                    match message {
-                        QueueMsg::Relay(msg) => {
-                            if let Err(e) =
-                                handle_consensus_outbound_message(&node_out_ref, nid_out, msg)
-                            {
-                                error!(
-                                    "There's an issue with an outbound consensus request: {}",
-                                    e
-                                );
-                            }
-                        }
-                        QueueMsg::Stop => {
-                            warn!("Closing the outboudn consensus channel");
-                            break 'outer_loop;
-                        }
-                    }
                 } else {
+                    exhausted = true;
                     break;
                 }
             }
 
-            if loop_interval_out != 200 {
-                trace!("Going to sleep for {} ms", loop_interval_out);
+            if let Ok(message) = consensus_receiver_out_lo.try_recv() {
+                exhausted = false;
+                let stop_loop = handle_outbound_message(message, |msg| {
+                    handle_consensus_outbound_message(&node_out_ref, nid_out, msg)
+                });
+                if stop_loop {
+                    break 'outer_loop;
+                }
             }
-            thread::sleep(Duration::from_millis(loop_interval_out));
+
+            if exhausted {
+                cvar.wait(&mut lock_guard);
+            }
         }
     });
 
-    (consensus_inbound_thread, consensus_outbound_thread)
+    (
+        consensus_peer_notifier_thread,
+        consensus_inbound_thread,
+        consensus_outbound_thread,
+    )
+}
+
+fn handle_inbound_message<F>(message: QueueMsg<ConsensusMessage>, f: F) -> bool
+where
+    F: FnOnce(ConsensusMessage) -> Fallible<()>, {
+    match message {
+        QueueMsg::Relay(msg) => {
+            if let Err(e) = f(msg) {
+                error!("There's an issue with an inbound consensus request: {}", e);
+            }
+        }
+        QueueMsg::Stop => {
+            warn!("Closing the inbound consensus channel");
+            return true;
+        }
+    }
+    false
+}
+
+fn handle_outbound_message<F>(message: QueueMsg<ConsensusMessage>, f: F) -> bool
+where
+    F: FnOnce(ConsensusMessage) -> Fallible<()>, {
+    match message {
+        QueueMsg::Relay(msg) => {
+            if let Err(e) = f(msg) {
+                error!("There's an issue with an outbound consensus request: {}", e);
+            }
+        }
+        QueueMsg::Stop => {
+            warn!("Closing the outbound consensus channel");
+            return true;
+        }
+    }
+    false
 }
 
 #[cfg(feature = "elastic_logging")]

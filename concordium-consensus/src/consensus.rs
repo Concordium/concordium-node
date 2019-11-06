@@ -12,6 +12,8 @@ use std::{
     },
 };
 
+use parking_lot::{Condvar, Mutex as ParkingMutex};
+
 use crate::ffi::*;
 use concordium_global_state::tree::{messaging::ConsensusMessage, GlobalState};
 
@@ -47,14 +49,18 @@ const CONSENSUS_QUEUE_DEPTH_IN_HI: usize = 16 * 1024;
 const CONSENSUS_QUEUE_DEPTH_IN_LO: usize = 32 * 1024;
 
 pub struct ConsensusQueues {
-    pub receiver_out_hi: Mutex<QueueReceiver<ConsensusMessage>>,
-    pub sender_out_hi:   QueueSyncSender<ConsensusMessage>,
-    pub receiver_out_lo: Mutex<QueueReceiver<ConsensusMessage>>,
-    pub sender_out_lo:   QueueSyncSender<ConsensusMessage>,
-    pub receiver_in_hi:  Mutex<QueueReceiver<ConsensusMessage>>,
-    pub sender_in_hi:    QueueSyncSender<ConsensusMessage>,
-    pub receiver_in_lo:  Mutex<QueueReceiver<ConsensusMessage>>,
-    pub sender_in_lo:    QueueSyncSender<ConsensusMessage>,
+    pub receiver_out_hi:        Mutex<QueueReceiver<ConsensusMessage>>,
+    pub sender_out_hi:          QueueSyncSender<ConsensusMessage>,
+    pub receiver_out_lo:        Mutex<QueueReceiver<ConsensusMessage>>,
+    pub sender_out_lo:          QueueSyncSender<ConsensusMessage>,
+    pub receiver_in_hi:         Mutex<QueueReceiver<ConsensusMessage>>,
+    pub sender_in_hi:           QueueSyncSender<ConsensusMessage>,
+    pub receiver_in_lo:         Mutex<QueueReceiver<ConsensusMessage>>,
+    pub sender_in_lo:           QueueSyncSender<ConsensusMessage>,
+    pub receiver_peer_notifier: Mutex<QueueReceiver<()>>,
+    pub sender_peer_notifier:   QueueSyncSender<()>,
+    pub outbound_signaler:      Arc<(ParkingMutex<bool>, Condvar)>,
+    pub inbound_signaler:       Arc<(ParkingMutex<bool>, Condvar)>,
 }
 
 impl Default for ConsensusQueues {
@@ -63,6 +69,9 @@ impl Default for ConsensusQueues {
         let (sender_out_lo, receiver_out_lo) = mpsc::sync_channel(CONSENSUS_QUEUE_DEPTH_OUT_LO);
         let (sender_in_hi, receiver_in_hi) = mpsc::sync_channel(CONSENSUS_QUEUE_DEPTH_IN_HI);
         let (sender_in_lo, receiver_in_lo) = mpsc::sync_channel(CONSENSUS_QUEUE_DEPTH_IN_LO);
+        let (sender_peer_notifier, receiver_peer_notifier) = mpsc::sync_channel(100);
+        let inbound_signaler = Arc::new((ParkingMutex::new(false), Condvar::new()));
+        let outbound_signaler = Arc::new((ParkingMutex::new(false), Condvar::new()));
         Self {
             receiver_out_hi: Mutex::new(receiver_out_hi),
             sender_out_hi,
@@ -72,25 +81,63 @@ impl Default for ConsensusQueues {
             sender_in_hi,
             receiver_in_lo: Mutex::new(receiver_in_lo),
             sender_in_lo,
+            receiver_peer_notifier: Mutex::new(receiver_peer_notifier),
+            sender_peer_notifier,
+            inbound_signaler,
+            outbound_signaler,
         }
     }
 }
 
 impl ConsensusQueues {
     pub fn send_in_high_priority_message(&self, message: ConsensusMessage) -> Fallible<()> {
-        into_err!(self.sender_in_lo.send_msg(message))
+        match self.sender_in_lo.send_msg(message) {
+            Ok(()) => {
+                self.signal_inbound_queue();
+                Ok(())
+            }
+            e => into_err!(e),
+        }
     }
 
     pub fn send_in_low_priority_message(&self, message: ConsensusMessage) -> Fallible<()> {
-        into_err!(self.sender_in_hi.send_msg(message))
+        match self.sender_in_hi.send_msg(message) {
+            Ok(()) => {
+                self.signal_inbound_queue();
+                Ok(())
+            }
+            e => into_err!(e),
+        }
     }
 
     pub fn send_out_message(&self, message: ConsensusMessage) -> Fallible<()> {
-        into_err!(self.sender_out_lo.send_msg(message))
+        match self.sender_out_lo.send_msg(message) {
+            Ok(()) => {
+                self.signal_outbound_queue();
+                Ok(())
+            }
+            e => into_err!(e),
+        }
     }
 
     pub fn send_out_blocking_msg(&self, message: ConsensusMessage) -> Fallible<()> {
-        into_err!(self.sender_out_hi.send_blocking_msg(message))
+        match self.sender_out_hi.send_blocking_msg(message) {
+            Ok(()) => {
+                self.signal_outbound_queue();
+                Ok(())
+            }
+            e => into_err!(e),
+        }
+    }
+
+    fn signal_inbound_queue(&self) {
+        let (_, cvar) = &*self.inbound_signaler;
+        cvar.notify_one();
+    }
+
+    fn signal_outbound_queue(&self) {
+        let (_, cvar) = &*self.outbound_signaler;
+        cvar.notify_one();
     }
 
     pub fn clear(&self) {
@@ -118,6 +165,12 @@ impl ConsensusQueues {
                 q.try_iter().count()
             );
         }
+        if let Ok(ref mut q) = self.receiver_peer_notifier.try_lock() {
+            debug!(
+                "Drained the Consensus peers notification control queue for {} element(s)",
+                q.try_iter().count()
+            );
+        }
     }
 
     pub fn stop(&self) -> Fallible<()> {
@@ -125,6 +178,7 @@ impl ConsensusQueues {
         into_err!(self.sender_out_hi.send_stop())?;
         into_err!(self.sender_in_lo.send_stop())?;
         into_err!(self.sender_in_hi.send_stop())?;
+        into_err!(self.sender_peer_notifier.send_stop())?;
         Ok(())
     }
 }

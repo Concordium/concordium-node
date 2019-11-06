@@ -102,6 +102,7 @@ impl PartialOrd for PeerState {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> { Some(self.cmp(other)) }
 }
 
+#[derive(Default)]
 pub struct PeerList {
     pub peers:          PriorityQueue<PeerId, PeerState, BuildNoHashHasher<PeerId>>,
     pub catch_up_stamp: u64,
