@@ -13,6 +13,35 @@ use crate::common::*;
 // const PAYLOAD_MAX_LEN: u32 = 512 * 1024 * 1024; // 512MB
 
 #[derive(Debug)]
+pub struct SignatureVerifyKey {
+    pub scheme_id:  SchemeId,
+    pub verify_key: ByteString,
+}
+
+impl Serial for SignatureVerifyKey {
+    type Param = NoParam;
+
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
+        let scheme_id = SchemeId::try_from(u8::deserial(source)?)?;
+        let verify_key = Encoded::new(&read_sized!(source, scheme_id.verify_key_length()));
+
+        let signature_verify_key = SignatureVerifyKey {
+            scheme_id,
+            verify_key,
+        };
+
+        Ok(signature_verify_key)
+    }
+
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        u8::serial(&(self.scheme_id as u8), target)?;
+        target.write_all(&self.verify_key)?;
+
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
 pub struct TransactionHeader {
     pub sender_key:     SignatureVerifyKey,
     pub nonce:          Nonce,
