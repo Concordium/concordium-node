@@ -39,7 +39,7 @@ use rkv::{Manager, Rkv};
 
 use std::{
     sync::{mpsc, Arc},
-    thread,
+    thread::{self, JoinHandle},
     time::Duration,
 };
 
@@ -160,8 +160,7 @@ fn main() -> Fallible<()> {
     // Connect outgoing messages to be forwarded into the baker and RPC streams.
     //
     // Thread #3 (#4): read P2PNode output
-    let (consensus_peers_notifier_thread, consensus_inbound_thread, consensus_outbound_thread) =
-        start_consensus_message_threads(&node, &conf, consensus.clone());
+    let consensus_queue_threads = start_consensus_message_threads(&node, &conf, consensus.clone());
 
     info!(
         "Concordium P2P layer. Network disabled: {}",
@@ -181,18 +180,13 @@ fn main() -> Fallible<()> {
     consensus.stop();
     ffi::stop_haskell();
 
-    // Wait for the global state threads to stop
-    consensus_peers_notifier_thread
-        .join()
-        .expect("Consensus peers notification thread panicked");
+    // Wait for the consensus queue threads to stop
 
-    consensus_inbound_thread
-        .join()
-        .expect("Consensus inbound process thread panicked");
-
-    consensus_outbound_thread
-        .join()
-        .expect("Consensus outbound process thread panicked");
+    for consensus_queue_thread in consensus_queue_threads {
+        consensus_queue_thread
+            .join()
+            .expect("A consensus queue thread panicked");
+    }
 
     // Close the RPC server if present
     if let Some(ref mut serv) = rpc_serv {
@@ -315,18 +309,16 @@ fn start_consensus_message_threads(
     node: &Arc<P2PNode>,
     conf: &config::Config,
     consensus: ConsensusContainer,
-) -> (
-    std::thread::JoinHandle<()>,
-    std::thread::JoinHandle<()>,
-    std::thread::JoinHandle<()>,
-) {
+) -> (Vec<JoinHandle<()>>) {
+    let mut threads: Vec<JoinHandle<()>> = Default::default();
     let peers = Default::default();
     let node_peers_ref = Arc::clone(node);
     let peers_thread_ref = Arc::clone(&peers);
     let nid_peers = NetworkId::from(conf.common.network_ids[0]); // defaulted so there's always first()
     let mut consensus_peers_ref = consensus.clone();
-    let consensus_peer_notifier_thread =
-        spawn_or_die!("Peers status notifier thread for consensus", {
+    threads.push(spawn_or_die!(
+        "Peers status notifier thread for consensus",
+        {
             // don't do anything until the peer number is within the desired range
             while node_peers_ref.get_node_peer_ids().len()
                 > node_peers_ref.config.max_allowed_nodes as usize
@@ -360,13 +352,14 @@ fn start_consensus_message_threads(
 
                 thread::sleep(Duration::from_millis(200));
             }
-        });
+        }
+    ));
 
     let node_in_ref = Arc::clone(node);
     let peers_in_ref = Arc::clone(&peers);
     let mut consensus_in_ref = consensus.clone();
     let nid_in = NetworkId::from(conf.common.network_ids[0]); // defaulted so there's always first()
-    let consensus_inbound_thread = spawn_or_die!("Process inbound consensus requests", {
+    threads.push(spawn_or_die!("Process inbound consensus requests", {
         // don't do anything until the peer number is within the desired range
         while node_in_ref.get_node_peer_ids().len() > node_in_ref.config.max_allowed_nodes as usize
         {
@@ -426,11 +419,11 @@ fn start_consensus_message_threads(
                 cvar.wait(&mut lock_guard);
             }
         }
-    });
+    }));
 
     let node_out_ref = Arc::clone(node);
     let nid_out = NetworkId::from(conf.common.network_ids[0]); // defaulted so there's always first()
-    let consensus_outbound_thread = spawn_or_die!("Process outbound consensus requests", {
+    threads.push(spawn_or_die!("Process outbound consensus requests", {
         // don't do anything until the peer number is within the desired range
         while node_out_ref.get_node_peer_ids().len()
             > node_out_ref.config.max_allowed_nodes as usize
@@ -482,13 +475,9 @@ fn start_consensus_message_threads(
                 cvar.wait(&mut lock_guard);
             }
         }
-    });
+    }));
 
-    (
-        consensus_peer_notifier_thread,
-        consensus_inbound_thread,
-        consensus_outbound_thread,
-    )
+    threads
 }
 
 fn handle_inbound_message<F>(message: QueueMsg<ConsensusMessage>, f: F) -> bool
@@ -526,7 +515,7 @@ where
 }
 
 #[cfg(feature = "elastic_logging")]
-fn setup_transfer_log_thread(conf: &config::CliConfig) -> std::thread::JoinHandle<()> {
+fn setup_transfer_log_thread(conf: &config::CliConfig) -> JoinHandle<()> {
     let (enabled, url) = (
         conf.elastic_logging_enabled,
         conf.elastic_logging_url.clone(),
@@ -570,7 +559,7 @@ fn setup_transfer_log_thread(conf: &config::CliConfig) -> std::thread::JoinHandl
 }
 
 #[cfg(not(feature = "elastic_logging"))]
-fn setup_transfer_log_thread(_: &config::CliConfig) -> std::thread::JoinHandle<()> {
+fn setup_transfer_log_thread(_: &config::CliConfig) -> JoinHandle<()> {
     spawn_or_die!("Process transfer log messages", {
         let receiver = concordium_consensus::transferlog::TRANSACTION_LOG_QUEUE
             .receiver
