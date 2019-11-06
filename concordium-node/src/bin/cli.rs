@@ -377,9 +377,10 @@ fn start_consensus_message_threads(
         let cvar = &*CALLBACK_QUEUE.inbound.signaler;
         let lock = ParkingMutex::new(false);
         let mut lock_guard = lock.lock();
+        let mut exhausted: bool;
 
         'outer_loop: loop {
-            let mut exhausted = false;
+            exhausted = false;
             for _ in 0..10 {
                 if let Ok(message) = consensus_receiver_high_priority.try_recv() {
                     let stop_loop = handle_inbound_message(message, |msg| {
@@ -444,9 +445,10 @@ fn start_consensus_message_threads(
         let cvar = &*CALLBACK_QUEUE.outbound.signaler;
         let lock = ParkingMutex::new(false);
         let mut lock_guard = lock.lock();
+        let mut exhausted: bool;
 
         'outer_loop: loop {
-            let mut exhausted = false;
+            exhausted = false;
             for _ in 0..10 {
                 if let Ok(message) = consensus_receiver_high_priority.try_recv() {
                     let stop_loop = handle_outbound_message(message, |msg| {
