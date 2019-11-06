@@ -33,6 +33,7 @@ use p2p_client::{
     rpc::RpcServerImpl,
     utils::{self, get_config_and_logging_setup},
 };
+use parking_lot::Mutex as ParkingMutex;
 
 use failure::Fallible;
 use rkv::{Manager, Rkv};
@@ -311,10 +312,11 @@ fn start_consensus_message_threads(
     consensus: ConsensusContainer,
 ) -> (Vec<JoinHandle<()>>) {
     let mut threads: Vec<JoinHandle<()>> = Default::default();
+    let nid = NetworkId::from(conf.common.network_ids[0]); // defaulted so there's always first()
+
     let peers = Default::default();
     let node_peers_ref = Arc::clone(node);
     let peers_thread_ref = Arc::clone(&peers);
-    let nid_peers = NetworkId::from(conf.common.network_ids[0]); // defaulted so there's always first()
     let mut consensus_peers_ref = consensus.clone();
     threads.push(spawn_or_die!(
         "Peers status notifier thread for consensus",
@@ -337,7 +339,7 @@ fn start_consensus_message_threads(
 
                 if let Err(e) = check_peer_states(
                     &node_peers_ref,
-                    nid_peers,
+                    nid,
                     &mut consensus_peers_ref,
                     Arc::clone(&peers_thread_ref),
                 ) {
@@ -358,7 +360,6 @@ fn start_consensus_message_threads(
     let node_in_ref = Arc::clone(node);
     let peers_in_ref = Arc::clone(&peers);
     let mut consensus_in_ref = consensus.clone();
-    let nid_in = NetworkId::from(conf.common.network_ids[0]); // defaulted so there's always first()
     threads.push(spawn_or_die!("Process inbound consensus requests", {
         // don't do anything until the peer number is within the desired range
         while node_in_ref.get_node_peer_ids().len() > node_in_ref.config.max_allowed_nodes as usize
@@ -373,7 +374,8 @@ fn start_consensus_message_threads(
             .unwrap();
         let consensus_receiver_low_priority =
             CALLBACK_QUEUE.inbound.receiver_low_priority.lock().unwrap();
-        let (lock, cvar) = &*CALLBACK_QUEUE.inbound.signaler;
+        let cvar = &*CALLBACK_QUEUE.inbound.signaler;
+        let lock = ParkingMutex::new(false);
         let mut lock_guard = lock.lock();
 
         'outer_loop: loop {
@@ -383,7 +385,7 @@ fn start_consensus_message_threads(
                     let stop_loop = handle_inbound_message(message, |msg| {
                         handle_consensus_inbound_message(
                             &node_in_ref,
-                            nid_in,
+                            nid,
                             &mut consensus_in_ref,
                             msg,
                             Arc::clone(&peers_in_ref),
@@ -403,7 +405,7 @@ fn start_consensus_message_threads(
                 let stop_loop = handle_inbound_message(message, |msg| {
                     handle_consensus_inbound_message(
                         &node_in_ref,
-                        nid_in,
+                        nid,
                         &mut consensus_in_ref,
                         msg,
                         Arc::clone(&peers_in_ref),
@@ -421,7 +423,6 @@ fn start_consensus_message_threads(
     }));
 
     let node_out_ref = Arc::clone(node);
-    let nid_out = NetworkId::from(conf.common.network_ids[0]); // defaulted so there's always first()
     threads.push(spawn_or_die!("Process outbound consensus requests", {
         // don't do anything until the peer number is within the desired range
         while node_out_ref.get_node_peer_ids().len()
@@ -440,7 +441,8 @@ fn start_consensus_message_threads(
             .receiver_low_priority
             .lock()
             .unwrap();
-        let (lock, cvar) = &*CALLBACK_QUEUE.outbound.signaler;
+        let cvar = &*CALLBACK_QUEUE.outbound.signaler;
+        let lock = ParkingMutex::new(false);
         let mut lock_guard = lock.lock();
 
         'outer_loop: loop {
@@ -448,7 +450,7 @@ fn start_consensus_message_threads(
             for _ in 0..10 {
                 if let Ok(message) = consensus_receiver_high_priority.try_recv() {
                     let stop_loop = handle_outbound_message(message, |msg| {
-                        handle_consensus_outbound_message(&node_out_ref, nid_out, msg)
+                        handle_consensus_outbound_message(&node_out_ref, nid, msg)
                     });
                     if stop_loop {
                         break 'outer_loop;
@@ -462,7 +464,7 @@ fn start_consensus_message_threads(
             if let Ok(message) = consensus_receiver_low_priority.try_recv() {
                 exhausted = false;
                 let stop_loop = handle_outbound_message(message, |msg| {
-                    handle_consensus_outbound_message(&node_out_ref, nid_out, msg)
+                    handle_consensus_outbound_message(&node_out_ref, nid, msg)
                 });
                 if stop_loop {
                     break 'outer_loop;

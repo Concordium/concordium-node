@@ -12,7 +12,7 @@ use std::{
     },
 };
 
-use parking_lot::{Condvar, Mutex as ParkingMutex};
+use parking_lot::Condvar;
 
 use crate::ffi::*;
 use concordium_global_state::tree::{messaging::ConsensusMessage, GlobalState};
@@ -53,7 +53,7 @@ pub struct ConsensusInboundQueues {
     pub sender_high_priority:   QueueSyncSender<ConsensusMessage>,
     pub receiver_low_priority:  Mutex<QueueReceiver<ConsensusMessage>>,
     pub sender_low_priority:    QueueSyncSender<ConsensusMessage>,
-    pub signaler:               Arc<(ParkingMutex<bool>, Condvar)>,
+    pub signaler:               Arc<Condvar>,
 }
 
 impl Default for ConsensusInboundQueues {
@@ -62,13 +62,12 @@ impl Default for ConsensusInboundQueues {
             mpsc::sync_channel(CONSENSUS_QUEUE_DEPTH_IN_HI);
         let (sender_low_priority, receiver_low_priority) =
             mpsc::sync_channel(CONSENSUS_QUEUE_DEPTH_IN_LO);
-        let signaler = Arc::new((ParkingMutex::new(false), Condvar::new()));
         Self {
             receiver_high_priority: Mutex::new(receiver_high_priority),
             sender_high_priority,
             receiver_low_priority: Mutex::new(receiver_low_priority),
             sender_low_priority,
-            signaler,
+            signaler: Default::default(),
         }
     }
 }
@@ -78,7 +77,7 @@ pub struct ConsensusOutboundQueues {
     pub sender_high_priority:   QueueSyncSender<ConsensusMessage>,
     pub receiver_low_priority:  Mutex<QueueReceiver<ConsensusMessage>>,
     pub sender_low_priority:    QueueSyncSender<ConsensusMessage>,
-    pub signaler:               Arc<(ParkingMutex<bool>, Condvar)>,
+    pub signaler:               Arc<Condvar>,
 }
 
 impl Default for ConsensusOutboundQueues {
@@ -87,13 +86,12 @@ impl Default for ConsensusOutboundQueues {
             mpsc::sync_channel(CONSENSUS_QUEUE_DEPTH_OUT_HI);
         let (sender_low_priority, receiver_low_priority) =
             mpsc::sync_channel(CONSENSUS_QUEUE_DEPTH_OUT_LO);
-        let signaler = Arc::new((ParkingMutex::new(false), Condvar::new()));
         Self {
             receiver_high_priority: Mutex::new(receiver_high_priority),
             sender_high_priority,
             receiver_low_priority: Mutex::new(receiver_low_priority),
             sender_low_priority,
-            signaler,
+            signaler: Default::default(),
         }
     }
 }
@@ -121,7 +119,7 @@ impl ConsensusQueues {
     pub fn send_in_high_priority_message(&self, message: ConsensusMessage) -> Fallible<()> {
         match self.inbound.sender_high_priority.send_msg(message) {
             Ok(()) => {
-                self.signal_inbound_queue();
+                self.inbound.signaler.notify_one();
                 Ok(())
             }
             e => into_err!(e),
@@ -131,7 +129,7 @@ impl ConsensusQueues {
     pub fn send_in_low_priority_message(&self, message: ConsensusMessage) -> Fallible<()> {
         match self.inbound.sender_low_priority.send_msg(message) {
             Ok(()) => {
-                self.signal_inbound_queue();
+                self.inbound.signaler.notify_one();
                 Ok(())
             }
             e => into_err!(e),
@@ -141,7 +139,7 @@ impl ConsensusQueues {
     pub fn send_out_message(&self, message: ConsensusMessage) -> Fallible<()> {
         match self.outbound.sender_low_priority.send_msg(message) {
             Ok(()) => {
-                self.signal_outbound_queue();
+                self.outbound.signaler.notify_one();
                 Ok(())
             }
             e => into_err!(e),
@@ -155,21 +153,11 @@ impl ConsensusQueues {
             .send_blocking_msg(message)
         {
             Ok(()) => {
-                self.signal_outbound_queue();
+                self.outbound.signaler.notify_one();
                 Ok(())
             }
             e => into_err!(e),
         }
-    }
-
-    fn signal_inbound_queue(&self) {
-        let (_, cvar) = &*self.inbound.signaler;
-        cvar.notify_one();
-    }
-
-    fn signal_outbound_queue(&self) {
-        let (_, cvar) = &*self.outbound.signaler;
-        cvar.notify_one();
     }
 
     pub fn clear(&self) {
