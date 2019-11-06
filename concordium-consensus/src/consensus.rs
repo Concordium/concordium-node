@@ -117,47 +117,43 @@ impl Default for ConsensusQueues {
 
 impl ConsensusQueues {
     pub fn send_in_high_priority_message(&self, message: ConsensusMessage) -> Fallible<()> {
-        match self.inbound.sender_high_priority.send_msg(message) {
-            Ok(()) => {
+        self.inbound
+            .sender_high_priority
+            .send_msg(message)
+            .map(|_| {
                 self.inbound.signaler.notify_one();
-                Ok(())
-            }
-            e => into_err!(e),
-        }
+            })
+            .map_err(|e| e.into())
     }
 
     pub fn send_in_low_priority_message(&self, message: ConsensusMessage) -> Fallible<()> {
-        match self.inbound.sender_low_priority.send_msg(message) {
-            Ok(()) => {
+        self.inbound
+            .sender_low_priority
+            .send_msg(message)
+            .map(|_| {
                 self.inbound.signaler.notify_one();
-                Ok(())
-            }
-            e => into_err!(e),
-        }
+            })
+            .map_err(|e| e.into())
     }
 
     pub fn send_out_message(&self, message: ConsensusMessage) -> Fallible<()> {
-        match self.outbound.sender_low_priority.send_msg(message) {
-            Ok(()) => {
+        self.outbound
+            .sender_low_priority
+            .send_msg(message)
+            .map(|_| {
                 self.outbound.signaler.notify_one();
-                Ok(())
-            }
-            e => into_err!(e),
-        }
+            })
+            .map_err(|e| e.into())
     }
 
     pub fn send_out_blocking_msg(&self, message: ConsensusMessage) -> Fallible<()> {
-        match self
-            .outbound
+        self.outbound
             .sender_high_priority
             .send_blocking_msg(message)
-        {
-            Ok(()) => {
+            .map(|_| {
                 self.outbound.signaler.notify_one();
-                Ok(())
-            }
-            e => into_err!(e),
-        }
+            })
+            .map_err(|e| e.into())
     }
 
     pub fn clear(&self) {
