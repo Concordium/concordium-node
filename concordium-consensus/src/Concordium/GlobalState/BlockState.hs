@@ -30,7 +30,7 @@ import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.IdentityProviders
-import Concordium.GlobalState.Transactions
+import Concordium.Types.Transactions
 
 import Data.Void
 import Data.Maybe
