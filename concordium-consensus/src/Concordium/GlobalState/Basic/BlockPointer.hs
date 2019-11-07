@@ -18,7 +18,7 @@ import Concordium.Types.HashableTo
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Basic.Block
-import qualified Concordium.GlobalState.Transactions as Transactions
+import qualified Concordium.Types.Transactions as Transactions
 
 
 data BasicBlockPointer s = BasicBlockPointer {
