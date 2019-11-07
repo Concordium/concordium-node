@@ -59,7 +59,7 @@ impl Serial for TransactionHeader {
         let nonce = Nonce::try_from(u64::deserial(source)?)?;
 
         let gas_amount = Energy::deserial(source)?;
-        let payload_size = source.read_u32::<Endianness>()?;
+        let payload_size = source.read_u32::<NetworkEndian>()?;
         let sender_account = AccountAddress::from((&*sender_key.verify_key, sender_key.scheme_id));
 
         let transaction_header = TransactionHeader {
@@ -147,7 +147,7 @@ impl Serial for FullTransaction {
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let bare_transaction = BareTransaction::deserial(source)?;
 
-        let arrival = source.read_u64::<Endianness>()?;
+        let arrival = source.read_u64::<NetworkEndian>()?;
         let transaction = FullTransaction {
             bare_transaction,
             arrival,

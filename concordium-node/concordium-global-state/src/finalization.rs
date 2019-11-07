@@ -140,7 +140,7 @@ impl Serial for FinalizationRecord {
         let proof = read_multiple!(
             source,
             (
-                source.read_u32::<Endianness>()?,
+                source.read_u32::<NetworkEndian>()?,
                 read_bytestring_short_length(source)?
             ),
             4,
