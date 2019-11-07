@@ -507,7 +507,7 @@ impl ConnectionLowLevel {
                 self.output_queue.push_back(chunk);
             }
 
-            self.flush_socket()
+            Ok(TcpResult::Discarded)
         } else {
             unreachable!("write_to_socket should not be called before the low-level handshake");
         }

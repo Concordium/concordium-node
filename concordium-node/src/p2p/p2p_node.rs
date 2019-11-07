@@ -577,20 +577,18 @@ impl P2PNode {
                 }
 
                 // perform socket reads and writes in parallel across connections
-                if !events.is_empty() {
-                    // check for new connections
-                    for _ in events.iter().filter(|&event| event.token() == SERVER) {
-                        debug!("Got a new connection!");
-                        self_clone.accept().map_err(|e| error!("{}", e)).ok();
-                        if let Some(ref service) = &self_clone.stats_export_service {
-                            service.conn_received_inc();
-                        };
-                    }
-
-                    pool.install(|| {
-                        self_clone.process_network_events(&mut events, &deduplication_queues)
-                    });
+                // check for new connections
+                for _ in events.iter().filter(|&event| event.token() == SERVER) {
+                    debug!("Got a new connection!");
+                    self_clone.accept().map_err(|e| error!("{}", e)).ok();
+                    if let Some(ref service) = &self_clone.stats_export_service {
+                        service.conn_received_inc();
+                    };
                 }
+
+                pool.install(|| {
+                    self_clone.process_network_events(&mut events, &deduplication_queues)
+                });
 
                 // Run periodic tasks
                 let now = SystemTime::now();
@@ -1203,10 +1201,14 @@ impl P2PNode {
 
         let to_remove = conns
             .par_iter()
-            .filter(|(token, _)| events.iter().any(|event| event.token() == *token))
             .filter_map(|(token, conn)| {
                 let mut error_flag = false;
                 let mut low_level = write_or_die!(conn.low_level);
+
+                if let Err(e) = send_pending_messages(&conn.pending_messages, &mut low_level) {
+                    error!("{}", e);
+                }
+                low_level.flush_socket();
 
                 for event in events.iter().filter(|event| event.token() == *token) {
                     let readiness = event.readiness();
@@ -1218,7 +1220,7 @@ impl P2PNode {
                         }
                     }
                     if readiness.is_writable() {
-                        if send_pending_messages(&conn.pending_messages, &mut low_level).is_err() {
+                        if low_level.flush_socket().is_err() {
                             error_flag = true;
                             break;
                         }

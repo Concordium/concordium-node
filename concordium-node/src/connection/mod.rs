@@ -608,20 +608,16 @@ pub fn send_pending_messages(
 ) -> Fallible<()> {
     let mut pending_messages = write_or_die!(pending_messages);
 
-    if pending_messages.is_empty() {
-        low_level.flush_socket()?;
-    } else {
-        while let Some((msg, _)) = pending_messages.pop() {
-            trace!("Attempting to send {}B to {}", msg.len(), low_level.conn());
+    while let Some((msg, _)) = pending_messages.pop() {
+        trace!("Attempting to send {}B to {}", msg.len(), low_level.conn());
 
-            if let Err(err) = low_level.write_to_socket(msg) {
-                error!(
-                    "Can't send a raw network request to {}: {}",
-                    low_level.conn(),
-                    err
-                );
-                return Err(err);
-            }
+        if let Err(err) = low_level.write_to_socket(msg) {
+            error!(
+                "Can't send a raw network request to {}: {}",
+                low_level.conn(),
+                err
+            );
+            return Err(err);
         }
     }
 
