@@ -1226,13 +1226,20 @@ impl P2PNode {
 
     #[inline(always)]
     pub fn send_queued_messages(&self) {
-        write_or_die!(self.connections())
+        let conns_to_remove = read_or_die!(self.connections())
             .par_iter()
-            .for_each(|(&token, conn)| {
+            .filter_map(|(&token, conn)| {
                 if conn.send_pending_messages().is_err() {
-                    self.remove_connection(token);
+                    Some(token)
+                } else {
+                    None
                 }
             })
+            .collect::<Vec<_>>();
+
+        for token in conns_to_remove {
+            self.remove_connection(token);
+        }
     }
 
     pub fn close(&self) -> bool {
