@@ -77,7 +77,7 @@ impl Serial for Account {
         write_bytestring_short_length(target, &self.verification_key)?;
         target.write_u8(self.signature_scheme as u8)?;
         write_multiple!(target, self.credentials, write_bytestring);
-        
+
         if let Some(baker_id) = self.stake_delegate {
             target.write_u8(1)?;
             baker_id.serial(target)?;
@@ -117,9 +117,7 @@ impl Serial for Nonce {
         Nonce::try_from(nonce)
     }
 
-    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
-        self.0.serial(target)
-    }
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> { self.0.serial(target) }
 }
 
 impl fmt::Debug for Nonce {
