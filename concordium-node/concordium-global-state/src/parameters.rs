@@ -1,6 +1,6 @@
 // https://gitlab.com/Concordium/consensus/globalstate-mockup/blob/master/globalstate/src/Concordium/GlobalState/Parameters.hs
 
-use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{ByteOrder, ReadBytesExt, WriteBytesExt};
 
 use failure::Fallible;
 
@@ -17,7 +17,6 @@ pub type BakerSignVerifyKey = ByteString;
 pub type BakerSignPrivateKey = Encoded;
 pub type BakerElectionVerifyKey = Encoded;
 pub type BakerElectionPrivateKey = Encoded;
-pub type LotteryPower = f64;
 pub type ElectionDifficulty = f64;
 
 pub type VoterId = u64;
@@ -79,24 +78,24 @@ impl Serial for Bakers {
     }
 
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
-        target.write_u64::<NetworkEndian>(self.baker_map.len() as u64)?;
+        target.write_u64::<Endianness>(self.baker_map.len() as u64)?;
         for (id, info) in self.baker_map.iter() {
-            target.write_u64::<NetworkEndian>(*id)?;
+            id.serial(target)?;
             info.serial(target)?;
         }
 
-        target.write_u64::<NetworkEndian>(self.bakers_by_key.len() as u64)?;
+        target.write_u64::<Endianness>(self.bakers_by_key.len() as u64)?;
         for ((bsk, bvk), bakerids) in self.bakers_by_key.iter() {
             write_bytestring_short_length(target, bsk)?;
             target.write_all(bvk)?;
-            target.write_u64::<NetworkEndian>(bakerids.len() as u64)?;
+            target.write_u64::<Endianness>(bakerids.len() as u64)?;
             for id in bakerids.iter() {
-                target.write_u64::<NetworkEndian>(*id)?;
+                id.serial(target)?;
             }
         }
 
-        target.write_u64::<NetworkEndian>(self.baker_total_stake)?;
-        target.write_u64::<NetworkEndian>(self.next_baker_id)?;
+        self.baker_total_stake.serial(target)?;
+        self.next_baker_id.serial(target)?;
 
         Ok(())
     }
@@ -114,7 +113,7 @@ impl Serial for BirkParameters {
 
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let election_nonce = read_bytestring(source)?;
-        let election_difficulty = NetworkEndian::read_f64(&read_ty!(source, ElectionDifficulty));
+        let election_difficulty = Endianness::read_f64(&read_ty!(source, ElectionDifficulty));
         let bakers = Bakers::deserial(source)?;
 
         let params = BirkParameters {
@@ -128,7 +127,7 @@ impl Serial for BirkParameters {
 
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
         write_bytestring(target, &self.election_nonce)?;
-        target.write_f64::<NetworkEndian>(self.election_difficulty)?;
+        target.write_f64::<Endianness>(self.election_difficulty)?;
         self.bakers.serial(target)?;
 
         Ok(())
@@ -158,7 +157,7 @@ impl Serial for CryptographicParameters {
 
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
         target.write_all(&self.elgamal_generator)?;
-        target.write_u32::<NetworkEndian>(self.attribute_commitment_key.len() as u32)?;
+        target.write_u32::<Endianness>(self.attribute_commitment_key.len() as u32)?;
         target.write_all(&self.attribute_commitment_key)?;
 
         Ok(())
@@ -169,7 +168,7 @@ impl Serial for CryptographicParameters {
 pub struct BakerInfo {
     election_verify_key:  BakerElectionVerifyKey,
     signature_verify_key: BakerSignVerifyKey,
-    lottery_power:        LotteryPower,
+    stake:                Amount,
     account_address:      AccountAddress,
 }
 
@@ -179,13 +178,13 @@ impl Serial for BakerInfo {
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let election_verify_key = Encoded::new(&read_const_sized!(source, BAKER_VRF_KEY));
         let signature_verify_key = read_bytestring_short_length(source)?;
-        let lottery_power = NetworkEndian::read_f64(&read_ty!(source, LotteryPower));
+        let stake = Amount::deserial(source)?;
         let account_address = AccountAddress(read_ty!(source, AccountAddress));
 
         let info = BakerInfo {
             election_verify_key,
             signature_verify_key,
-            lottery_power,
+            stake,
             account_address,
         };
 
@@ -195,7 +194,7 @@ impl Serial for BakerInfo {
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
         target.write_all(&self.election_verify_key)?;
         write_bytestring_short_length(target, &self.signature_verify_key)?;
-        target.write_f64::<NetworkEndian>(self.lottery_power)?;
+        self.stake.serial(target)?;
         target.write_all(&self.account_address.0)?;
 
         Ok(())
@@ -229,7 +228,7 @@ impl Serial for VoterInfo {
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
         write_bytestring_short_length(target, &self.signature_verify_key)?;
         target.write_all(&self.election_verify_key)?;
-        target.write_u64::<NetworkEndian>(self.voting_power)?;
+        self.voting_power.serial(target)?;
 
         Ok(())
     }

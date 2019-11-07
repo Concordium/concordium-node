@@ -93,7 +93,7 @@ macro_rules! read_hashmap {
 /// the given write function.
 macro_rules! write_multiple {
     ($target:expr, $list:expr, $write_function:path) => {{
-        let _ = $target.write_u64::<NetworkEndian>($list.len() as u64);
+        let _ = $target.write_u64::<Endianness>($list.len() as u64);
         for elem in &*$list {
             $write_function($target, &*elem)?;
         }
@@ -130,11 +130,11 @@ macro_rules! write_maybe {
 macro_rules! safe_get_len {
     ($source:expr, $len_size:expr, $limit:expr) => {{
         let raw_len = if $len_size == 8 {
-            NetworkEndian::read_u64(&read_const_sized!($source, 8)) as usize
+            Endianness::read_u64(&read_const_sized!($source, 8)) as usize
         } else if $len_size == 4 {
-            NetworkEndian::read_u32(&read_const_sized!($source, 4)) as usize
+            Endianness::read_u32(&read_const_sized!($source, 4)) as usize
         } else if $len_size == 2 {
-            NetworkEndian::read_u16(&read_const_sized!($source, 2)) as usize
+            Endianness::read_u16(&read_const_sized!($source, 2)) as usize
         } else {
             panic!("Unexpected len size in safe_get_len!")
         };

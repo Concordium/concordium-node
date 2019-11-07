@@ -1,4 +1,4 @@
-use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{ByteOrder, ReadBytesExt, WriteBytesExt};
 use failure::Fallible;
 use nohash_hasher::BuildNoHashHasher;
 use priority_queue::PriorityQueue;
@@ -8,7 +8,7 @@ use crate::{block::BlockHeight, common::read_ty};
 use concordium_common::{
     blockchain_types::BlockHash,
     network_types::PeerId,
-    serial::{NoParam, Serial},
+    serial::{Endianness, NoParam, Serial},
 };
 
 use std::{cmp::Ordering, time::Instant};
@@ -55,7 +55,7 @@ impl Serial for CatchUpStatus {
         self.last_finalized_height.serial(target)?;
         target.write_all(&self.best_block)?;
 
-        target.write_u32::<NetworkEndian>(self.finalization_justifiers.len() as u32)?;
+        target.write_u32::<Endianness>(self.finalization_justifiers.len() as u32)?;
         for fj in &*self.finalization_justifiers {
             target.write_all(fj)?;
         }

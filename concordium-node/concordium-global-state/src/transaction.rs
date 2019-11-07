@@ -1,6 +1,6 @@
 // https://gitlab.com/Concordium/consensus/globalstate-mockup/blob/master/globalstate/src/Concordium/GlobalState/Transactions.hs
 
-use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{ReadBytesExt, WriteBytesExt};
 use failure::{format_err, Fallible};
 use hash_hasher::HashedMap;
 
@@ -59,7 +59,7 @@ impl Serial for TransactionHeader {
         let nonce = Nonce::try_from(u64::deserial(source)?)?;
 
         let gas_amount = Energy::deserial(source)?;
-        let payload_size = source.read_u32::<NetworkEndian>()?;
+        let payload_size = source.read_u32::<Endianness>()?;
         let sender_account = AccountAddress::from((&*sender_key.verify_key, sender_key.scheme_id));
 
         let transaction_header = TransactionHeader {
@@ -77,7 +77,7 @@ impl Serial for TransactionHeader {
         SignatureVerifyKey::serial(&self.sender_key, target)?;
         u64::serial(&self.nonce.0, target)?;
         Energy::serial(&self.gas_amount, target)?;
-        target.write_u32::<NetworkEndian>(self.payload_size)?;
+        target.write_u32::<Endianness>(self.payload_size)?;
 
         Ok(())
     }
@@ -109,7 +109,7 @@ impl Serial for BareTransaction {
             let mut target = create_serialization_cursor(
                 size_of::<u16>() + signature.len() + header_ser.len() + payload_ser.len(),
             );
-            target.write_u16::<NetworkEndian>(signature.len() as u16)?;
+            target.write_u16::<Endianness>(signature.len() as u16)?;
             target.write_all(&signature)?;
             target.write_all(&header_ser)?;
             target.write_all(&payload_ser)?;
@@ -126,7 +126,7 @@ impl Serial for BareTransaction {
     }
 
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
-        target.write_u16::<NetworkEndian>(self.signature.len() as u16)?;
+        target.write_u16::<Endianness>(self.signature.len() as u16)?;
         target.write_all(&self.signature)?;
         self.header.serial(target)?;
         self.payload.serial(target)?;
@@ -147,7 +147,7 @@ impl Serial for FullTransaction {
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let bare_transaction = BareTransaction::deserial(source)?;
 
-        let arrival = source.read_u64::<NetworkEndian>()?;
+        let arrival = source.read_u64::<Endianness>()?;
         let transaction = FullTransaction {
             bare_transaction,
             arrival,
@@ -158,7 +158,7 @@ impl Serial for FullTransaction {
 
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
         self.bare_transaction.serial(target)?;
-        target.write_u64::<NetworkEndian>(self.arrival as u64)?;
+        target.write_u64::<Endianness>(self.arrival as u64)?;
 
         Ok(())
     }

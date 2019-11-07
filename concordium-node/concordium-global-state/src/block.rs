@@ -1,6 +1,6 @@
 // https://gitlab.com/Concordium/consensus/globalstate-mockup/blob/master/globalstate/src/Concordium/GlobalState/Block.hs
 
-use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{ByteOrder, ReadBytesExt, WriteBytesExt};
 use failure::{bail, Fallible};
 
 use std::{
@@ -161,7 +161,7 @@ impl Serial for BlockData {
             }
             BlockData::Regular(ref data) => {
                 target.write_all(&data.fields.pointer)?;
-                target.write_u64::<NetworkEndian>(data.fields.baker_id)?;
+                data.fields.baker_id.serial(target)?;
                 target.write_all(&data.fields.proof)?;
                 target.write_all(&data.fields.nonce)?;
                 target.write_all(&data.fields.last_finalized)?;
@@ -218,7 +218,7 @@ pub struct PendingBlock {
 fn hash_without_timestamps(block: &Block) -> Fallible<BlockHash> {
     let mut target = Vec::new();
 
-    target.write_u64::<NetworkEndian>(block.slot)?;
+    block.slot.serial(&mut target)?;
 
     match block.data {
         BlockData::Regular(ref data) => {
@@ -244,7 +244,7 @@ fn hash_without_timestamps(block: &Block) -> Fallible<BlockHash> {
             let transactions = transform_txs(data.transactions.deref())?;
 
             target.write_all(&data.fields.pointer)?;
-            target.write_u64::<NetworkEndian>(data.fields.baker_id)?;
+            data.fields.baker_id.serial(&mut target)?;
             target.write_all(&data.fields.proof)?;
             target.write_all(&data.fields.nonce)?;
             target.write_all(&data.fields.last_finalized)?;
@@ -354,7 +354,7 @@ impl BlockPtr {
         let mut buffer = Vec::new();
 
         self.block.serial(&mut buffer)?;
-        buffer.write_u64::<NetworkEndian>(self.height)?;
+        buffer.write_u64::<Endianness>(self.height)?;
 
         Ok(buffer)
     }
