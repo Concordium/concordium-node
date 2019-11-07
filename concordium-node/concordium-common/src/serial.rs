@@ -1,4 +1,4 @@
-use byteorder::{ReadBytesExt, WriteBytesExt, NetworkEndian};
+use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use failure::{bail, Fallible};
 
 // desired endianness
