@@ -3,7 +3,7 @@ module Concordium.Scheduler.Types (module Concordium.Scheduler.Types,
                                    module Concordium.Types,
                                    module Concordium.Types.Execution,
                                    module Concordium.Types.Acorn.Interfaces,
-                                   module Concordium.GlobalState.Transactions,
+                                   module Concordium.Types.Transactions,
                                    module Concordium.GlobalState.Instance,
                                    module Concordium.GlobalState.Rewards,
                                    module Concordium.GlobalState.Parameters,
@@ -21,7 +21,7 @@ import qualified Concordium.Types.Acorn.Interfaces as Interfaces
 import Concordium.Types.Execution
 import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Rewards
-import Concordium.GlobalState.Transactions
+import Concordium.Types.Transactions
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.IdentityProviders
 

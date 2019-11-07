@@ -14,7 +14,7 @@ import Concordium.Types.HashableTo
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Finalization
-import Concordium.GlobalState.Transactions
+import Concordium.Types.Transactions
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Bakers
 

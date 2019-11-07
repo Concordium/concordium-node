@@ -7,3 +7,6 @@
 [submodule "globalstate-mockup"]
 	path = globalstate-mockup
 	url = ../globalstate-mockup.git
+[submodule "globalstate-types"]
+	path = globalstate-types
+	url = ./globalstate-types

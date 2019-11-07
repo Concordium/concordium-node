@@ -16,7 +16,7 @@ import Concordium.Logger
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Execution
-import Concordium.GlobalState.Transactions
+import Concordium.Types.Transactions
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.TreeState
