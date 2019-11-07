@@ -1,8 +1,8 @@
-use byteorder::{ReadBytesExt, WriteBytesExt, LE};
+use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use failure::{bail, Fallible};
 
 // desired endianness
-pub type Endianness = LE;
+pub type Endianness = NetworkEndian;
 
 // an empty struct used to indicate there is no serialization parameter
 pub struct NoParam;

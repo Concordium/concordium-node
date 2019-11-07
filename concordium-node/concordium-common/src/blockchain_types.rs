@@ -60,6 +60,15 @@ pub enum SchemeId {
     PlaceHolder,
 }
 
+impl SchemeId {
+    pub fn verify_key_length(self) -> u32 {
+        match self {
+            SchemeId::Ed25519 => 32,
+            SchemeId::PlaceHolder => unreachable!(),
+        }
+    }
+}
+
 impl TryFrom<u8> for SchemeId {
     type Error = failure::Error;
 

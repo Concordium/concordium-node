@@ -1,4 +1,4 @@
-use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{ByteOrder, ReadBytesExt, WriteBytesExt};
 use digest::Digest;
 use failure::{format_err, Fallible};
 
@@ -34,7 +34,7 @@ impl Serial for Account {
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let address = AccountAddress(read_ty!(source, AccountAddress));
 
-        let nonce = Nonce::try_from(u64::deserial(source)?)?;
+        let nonce = Nonce::deserial(source)?;
 
         let amount = Amount::deserial(source)?;
 
@@ -70,8 +70,8 @@ impl Serial for Account {
 
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
         target.write_all(&self.address.0)?;
-        target.write_u64::<NetworkEndian>(self.nonce.0)?;
-        target.write_u64::<NetworkEndian>(self.amount)?;
+        self.nonce.serial(target)?;
+        self.amount.serial(target)?;
         write_multiple!(target, self.encrypted_amounts, write_bytestring);
         write_maybe!(target, self.encryption_key, write_bytestring);
         write_bytestring_short_length(target, &self.verification_key)?;
@@ -80,12 +80,12 @@ impl Serial for Account {
 
         if let Some(baker_id) = self.stake_delegate {
             target.write_u8(1)?;
-            target.write_u64::<NetworkEndian>(baker_id)?;
+            baker_id.serial(target)?;
         } else {
             target.write_u8(0)?;
         }
 
-        target.write_u64::<NetworkEndian>(self.instances.len() as u64)?;
+        target.write_u64::<Endianness>(self.instances.len() as u64)?;
         for instance in &*self.instances {
             instance.serial(target)?;
         }
@@ -107,6 +107,17 @@ impl TryFrom<u64> for Nonce {
             Err(format_err!("A zero nonce was received!"))
         }
     }
+}
+
+impl Serial for Nonce {
+    type Param = NoParam;
+
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
+        let nonce = u64::deserial(source)?;
+        Nonce::try_from(nonce)
+    }
+
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> { self.0.serial(target) }
 }
 
 impl fmt::Debug for Nonce {
@@ -146,7 +157,7 @@ impl Serial for SessionId {
 
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
         target.write_all(&self.genesis_block)?;
-        target.write_u64::<NetworkEndian>(self.incarnation)?;
+        self.incarnation.serial(target)?;
 
         Ok(())
     }
@@ -199,14 +210,14 @@ pub fn read_bytestring<R: ReadBytesExt>(input: &mut R) -> Fallible<ByteString> {
 }
 
 pub fn write_bytestring_short_length<T: Write>(target: &mut T, bytes: &[u8]) -> Fallible<()> {
-    target.write_u16::<NetworkEndian>(bytes.len() as u16)?;
+    target.write_u16::<Endianness>(bytes.len() as u16)?;
     target.write_all(&bytes)?;
 
     Ok(())
 }
 
 pub fn write_bytestring<T: Write>(target: &mut T, bytes: &[u8]) -> Fallible<()> {
-    target.write_u64::<NetworkEndian>(bytes.len() as u64)?;
+    target.write_u64::<Endianness>(bytes.len() as u64)?;
     target.write_all(&bytes)?;
 
     Ok(())

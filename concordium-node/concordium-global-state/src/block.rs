@@ -1,6 +1,6 @@
 // https://gitlab.com/Concordium/consensus/globalstate-mockup/blob/master/globalstate/src/Concordium/GlobalState/Block.hs
 
-use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{ByteOrder, ReadBytesExt, WriteBytesExt};
 use failure::{bail, Fallible};
 
 use std::{
@@ -17,6 +17,7 @@ use crate::{common::*, parameters::*, transaction::*};
 
 const NONCE: u8 = PROOF_LENGTH as u8;
 const TX_ALLOC_LIMIT: usize = 256 * 1024;
+const BLOCK_SIGNATURE_LENGTH: u8 = 64;
 
 pub struct Block {
     pub slot: Slot,
@@ -133,7 +134,7 @@ impl Serial for BlockData {
                 8,
                 TX_ALLOC_LIMIT
             );
-            let signature = read_bytestring_short_length(source)?;
+            let signature = Encoded::new(&read_const_sized!(source, BLOCK_SIGNATURE_LENGTH));
             let txs = serialize_list(&transactions)?;
             let mut transactions = vec![];
             write_multiple!(&mut transactions, txs, Write::write_all);
@@ -160,12 +161,12 @@ impl Serial for BlockData {
             }
             BlockData::Regular(ref data) => {
                 target.write_all(&data.fields.pointer)?;
-                target.write_u64::<NetworkEndian>(data.fields.baker_id)?;
+                data.fields.baker_id.serial(target)?;
                 target.write_all(&data.fields.proof)?;
                 target.write_all(&data.fields.nonce)?;
                 target.write_all(&data.fields.last_finalized)?;
                 target.write_all(data.transactions.deref())?;
-                write_bytestring_short_length(target, &data.signature)?;
+                target.write_all(&data.signature)?;
             }
         }
         Ok(())
@@ -217,7 +218,7 @@ pub struct PendingBlock {
 fn hash_without_timestamps(block: &Block) -> Fallible<BlockHash> {
     let mut target = Vec::new();
 
-    target.write_u64::<NetworkEndian>(block.slot)?;
+    block.slot.serial(&mut target)?;
 
     match block.data {
         BlockData::Regular(ref data) => {
@@ -243,7 +244,7 @@ fn hash_without_timestamps(block: &Block) -> Fallible<BlockHash> {
             let transactions = transform_txs(data.transactions.deref())?;
 
             target.write_all(&data.fields.pointer)?;
-            target.write_u64::<NetworkEndian>(data.fields.baker_id)?;
+            data.fields.baker_id.serial(&mut target)?;
             target.write_all(&data.fields.proof)?;
             target.write_all(&data.fields.nonce)?;
             target.write_all(&data.fields.last_finalized)?;
@@ -353,7 +354,7 @@ impl BlockPtr {
         let mut buffer = Vec::new();
 
         self.block.serial(&mut buffer)?;
-        buffer.write_u64::<NetworkEndian>(self.height)?;
+        buffer.write_u64::<Endianness>(self.height)?;
 
         Ok(buffer)
     }

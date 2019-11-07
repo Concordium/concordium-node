@@ -1,4 +1,4 @@
-use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{ByteOrder, ReadBytesExt, WriteBytesExt};
 use failure::Fallible;
 
 use std::{cmp::Ordering, fmt, mem::size_of};
@@ -163,10 +163,10 @@ impl Serial for FinalizationRecord {
         FinalizationIndex::serial(&self.index, target)?;
         target.write_all(&self.block_pointer)?;
 
-        target.write_u32::<NetworkEndian>(self.proof.len() as u32)?;
+        target.write_u32::<Endianness>(self.proof.len() as u32)?;
         for (party, signature) in &*self.proof {
-            target.write_u32::<NetworkEndian>(*party)?;
-            target.write_u16::<NetworkEndian>(signature.len() as u16)?;
+            target.write_u32::<Endianness>(*party)?;
+            target.write_u16::<Endianness>(signature.len() as u16)?;
             target.write_all(signature)?;
         }
 
