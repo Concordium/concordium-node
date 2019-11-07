@@ -882,7 +882,6 @@ impl P2PNode {
 
                 if let Some(ref conn) = self.find_connection_by_token(token) {
                     write_or_die!(conn.low_level).flush_socket()?;
-                    conn.send_handshake_request()?;
                 }
 
                 if peer_type == PeerType::Bootstrapper {

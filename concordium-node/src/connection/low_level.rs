@@ -76,9 +76,6 @@ pub struct ConnectionLowLevel {
     incoming_msg: IncomingMessage,
     /// The current status of the noise handshake
     handshake_state: HandshakeState,
-    /// A container for the high-level handshake message in case we're the
-    /// initiator
-    high_lvl_handshake: Option<Arc<[u8]>>,
     /// A queue for messages waiting to be written to the socket
     output_queue: VecDeque<Cursor<Vec<u8>>>,
     /// A buffer for decrypted/unencrypted message chunks
@@ -136,7 +133,6 @@ impl ConnectionLowLevel {
             input_nonce: 0,
             output_nonce: 0,
             incoming_msg: IncomingMessage::default(),
-            high_lvl_handshake: None,
             output_queue,
             handshake_state,
             noise_msg_buffer: [0u8; NOISE_MAX_MESSAGE_LEN],
@@ -215,6 +211,9 @@ impl ConnectionLowLevel {
             self.noise_session = Some(session.into_stateless_transport_mode()?);
             self.handshake_state = HandshakeState::Complete;
 
+            // send a high-level handshake request
+            self.conn().send_handshake_request()?;
+
             Ok(())
         } else {
             unreachable!("Handshake logic error");
@@ -233,18 +232,6 @@ impl ConnectionLowLevel {
         }?;
 
         self.flush_socket()?;
-
-        // if we are the initiator, we need to send the high-level handshake
-        // message once the noise handshake is complete
-        if self.handshake_state == HandshakeState::Complete {
-            if let Some(handshake_msg) = self.high_lvl_handshake.take() {
-                let chunks = self.encrypt(&handshake_msg)?;
-                for chunk in chunks.into_iter().rev() {
-                    self.output_queue.push_front(chunk);
-                }
-                self.flush_socket()?;
-            }
-        }
 
         Ok(())
     }
@@ -524,10 +511,7 @@ impl ConnectionLowLevel {
 
             self.flush_socket()
         } else {
-            // in case we are the connection initiator, we need to queue the high-level
-            // handshake message until the noise handshake is complete
-            self.high_lvl_handshake = Some(input);
-            Ok(TcpResult::Discarded)
+            unreachable!("write_to_socket should not be called before the low-level handshake");
         }
     }
 
