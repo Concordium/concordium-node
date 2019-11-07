@@ -100,29 +100,27 @@ impl ConnectionLowLevel {
             );
         }
 
-        let noise_session = if is_initiator {
-            trace!("I'm the noise session initiator");
-            None
-        } else {
-            trace!("I'm the noise session responder");
-            Some(
-                snow::Builder::new(noise_params)
-                    .prologue(PROLOGUE)
-                    .psk(2, PRE_SHARED_KEY)
-                    .local_private_key(&keypair.private)
-                    .build_responder()
-                    .expect("Can't build a snow session!"),
-            )
-        };
-
         let mut output_queue = VecDeque::with_capacity(16);
-        let handshake_state = if is_initiator {
-            trace!("I'm sending my pre-shared static key");
+
+        let (noise_session, handshake_state) = if is_initiator {
+            trace!("I'm the noise session initiator; sending my pre-shared static key");
             output_queue.push_back(create_frame(&[]).unwrap()); // infallible
-            HandshakeState::AwaitingPublicKey
+
+            (None, HandshakeState::AwaitingPublicKey)
         } else {
-            trace!("I'm awaiting the pre-shared static key");
-            HandshakeState::AwaitingPreSharedKey
+            trace!("I'm the noise session responder; awaiting the pre-shared static key");
+
+            (
+                Some(
+                    snow::Builder::new(noise_params)
+                        .prologue(PROLOGUE)
+                        .psk(2, PRE_SHARED_KEY)
+                        .local_private_key(&keypair.private)
+                        .build_responder()
+                        .expect("Can't build a snow session!"),
+                ),
+                HandshakeState::AwaitingPreSharedKey,
+            )
         };
 
         ConnectionLowLevel {

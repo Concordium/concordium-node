@@ -644,7 +644,7 @@ impl P2PNode {
             // that the latency calculation is not invalid
             if conn.last_seen() > conn.get_last_ping_sent() {
                 if let Err(e) = conn.send_ping() {
-                    error!("Can't send a ping on {}: {}", conn, e);
+                    error!("Can't send a ping to {}: {}", conn, e);
                 }
             }
         }
@@ -1112,23 +1112,20 @@ impl P2PNode {
             payload:    NetworkMessagePayload::NetworkPacket(inner_pkt),
         };
 
+        let mut serialized = Vec::with_capacity(256);
+        message.serialize(&mut serialized)?;
+
         if let Some(target_id) = target {
             // direct messages
             let filter =
                 |conn: &Connection| read_or_die!(conn.remote_peer.id).unwrap() == target_id;
 
-            let mut serialized = Vec::with_capacity(256);
-            message.serialize(&mut serialized)?;
-
             self.send_over_all_connections(serialized, &filter)
         } else {
             // broadcast messages
             let filter = |conn: &Connection| {
-                is_valid_connection_in_broadcast(conn, source_id, &peers_to_skip, network_id)
+                is_valid_broadcast_target(conn, source_id, &peers_to_skip, network_id)
             };
-
-            let mut serialized = Vec::with_capacity(256);
-            message.serialize(&mut serialized)?;
 
             self.send_over_all_connections(serialized, &filter)
         }
@@ -1199,40 +1196,46 @@ impl P2PNode {
         events: &Events,
         deduplication_queues: &Arc<DeduplicationQueues>,
     ) {
-        read_or_die!(self.connections())
+        let conns = read_or_die!(self.connections())
+            .iter()
+            .map(|(token, conn)| (token.clone(), Arc::clone(&conn)))
+            .collect::<Vec<_>>();
+
+        let to_remove = conns
             .par_iter()
-            .filter(|(&token, _)| events.iter().any(|event| event.token() == token))
-            .for_each(|(&token, conn)| {
+            .filter(|(token, _)| events.iter().any(|event| event.token() == *token))
+            .filter_map(|(token, conn)| {
                 let mut error_flag = false;
                 let mut low_level = write_or_die!(conn.low_level);
 
-                for event in events.iter().filter(|event| event.token() == token) {
+                for event in events.iter().filter(|event| event.token() == *token) {
                     let readiness = event.readiness();
 
                     if readiness.is_readable() {
-                        trace!("Got an R event");
                         if low_level.read_stream(deduplication_queues).is_err() {
                             error_flag = true;
                             break;
                         }
-                        trace!("  - processed");
                     }
                     if readiness.is_writable() {
-                        trace!("Got a W event");
-                        low_level.flush_socket();
-
                         if send_pending_messages(&conn.pending_messages, &mut low_level).is_err() {
                             error_flag = true;
                             break;
                         }
-                        trace!("  - processed");
                     }
                 }
 
                 if error_flag {
-                    self.remove_connection(token);
+                    Some(*token)
+                } else {
+                    None
                 }
-            });
+            })
+            .collect::<Vec<_>>();
+
+        for token in to_remove.into_iter() {
+            self.remove_connection(token);
+        }
     }
 
     pub fn close(&self) -> bool {
@@ -1343,7 +1346,7 @@ impl Drop for P2PNode {
 /// Connetion is valid for a broadcast if sender is not target,
 /// network_id is owned by connection, and the remote peer is not
 /// a bootstrap node.
-fn is_valid_connection_in_broadcast(
+fn is_valid_broadcast_target(
     conn: &Connection,
     sender: P2PNodeId,
     peers_to_skip: &[P2PNodeId],

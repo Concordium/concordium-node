@@ -113,7 +113,7 @@ impl fmt::Display for Connection {
         } else {
             self.remote_addr().to_string()
         };
-        write!(f, "connection to {}", target)
+        write!(f, "{}", target)
     }
 }
 
@@ -443,7 +443,7 @@ impl Connection {
     }
 
     pub fn send_ping(&self) -> Fallible<()> {
-        trace!("Sending a ping on {}", self);
+        trace!("Sending a ping to {}", self);
 
         let mut ping = NetworkMessage {
             timestamp1: Some(get_current_stamp()),
@@ -460,7 +460,7 @@ impl Connection {
     }
 
     pub fn send_pong(&self) -> Fallible<()> {
-        trace!("Sending a pong on {}", self);
+        trace!("Sending a pong to {}", self);
 
         let mut pong = NetworkMessage {
             timestamp1: Some(get_current_stamp()),
@@ -572,7 +572,7 @@ impl Connection {
 
 impl Drop for Connection {
     fn drop(&mut self) {
-        debug!("Closing {}", self);
+        debug!("Closing the connection to {}", self);
 
         // Report number of peers to stats export engine
         if let Some(ref service) = self.handler().stats_export_service {
@@ -589,11 +589,14 @@ fn dedup_with(message: &mut HybridBuf, queue: &mut CircularQueue<[u8; 8]>) -> Fa
     hash.copy_from_slice(&XxHash64::digest(&message.remaining_bytes()?));
 
     if !queue.iter().any(|h| h == &hash) {
-        trace!("Message {:?} is unique, adding to dedup queue", hash);
+        trace!(
+            "Message {:x} is unique, adding to dedup queue",
+            u64::from_le_bytes(hash)
+        );
         queue.push(hash);
         Ok(false)
     } else {
-        trace!("Message {:?} is a duplicate", hash);
+        trace!("Message {:x} is a duplicate", u64::from_le_bytes(hash));
         Ok(true)
     }
 }
@@ -605,16 +608,20 @@ pub fn send_pending_messages(
 ) -> Fallible<()> {
     let mut pending_messages = write_or_die!(pending_messages);
 
-    while let Some((msg, _)) = pending_messages.pop() {
-        trace!("Attempting to send {}B to {}", msg.len(), low_level.conn());
+    if pending_messages.is_empty() {
+        low_level.flush_socket()?;
+    } else {
+        while let Some((msg, _)) = pending_messages.pop() {
+            trace!("Attempting to send {}B to {}", msg.len(), low_level.conn());
 
-        if let Err(err) = low_level.write_to_socket(msg) {
-            error!(
-                "Can't send a raw network request to {}: {}",
-                low_level.conn(),
-                err
-            );
-            return Err(err);
+            if let Err(err) = low_level.write_to_socket(msg) {
+                error!(
+                    "Can't send a raw network request to {}: {}",
+                    low_level.conn(),
+                    err
+                );
+                return Err(err);
+            }
         }
     }
 
