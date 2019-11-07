@@ -9,4 +9,4 @@
 	url = ../globalstate-mockup.git
 [submodule "globalstate-types"]
 	path = globalstate-types
-	url = ./globalstate-types
+	url = ../globalstate-types.git
