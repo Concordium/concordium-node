@@ -6,7 +6,7 @@ import Control.Monad.IO.Class
 import Data.Proxy
 import Data.Serialize
 
-import Test.QuickCheck
+-- import Test.QuickCheck
 import Test.Hspec
 
 import Concordium.GlobalState.Persistent.BlobStore

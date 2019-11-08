@@ -40,16 +40,13 @@ class (BlockStateTypes m, BlockPointerData (BlockState m) (BlockPointer m)) => G
 newtype TreeStateM s m a = TreeStateM {runTreeStateM :: m a}
     deriving (Functor, Applicative, Monad, MonadState s, MonadIO, BlockStateTypes)
 
-newtype BlockStateM r m a = BlockStateM {runBlockStateM :: m a}
-    deriving (Functor, Applicative, Monad, MonadReader r, MonadIO)
-
 newtype MGSTrans t (m :: * -> *) a = MGSTrans (t m a)
     deriving (Functor, Applicative, Monad, MonadTrans, MonadIO)
 
 deriving instance (MonadReader r (t m)) => MonadReader r (MGSTrans t m)
 deriving instance (MonadState s (t m)) => MonadState s (MGSTrans t m)
 
-instance (BlockStateTypes m) => BlockStateTypes (MGSTrans t m) where
+instance BlockStateTypes (MGSTrans t m) where
     type BlockState (MGSTrans t m) = BlockState m
     type UpdatableBlockState (MGSTrans t m) = UpdatableBlockState m
 
@@ -57,9 +54,9 @@ instance (GlobalStateTypes m) => GlobalStateTypes (MGSTrans t m) where
     type PendingBlock (MGSTrans t m) = PendingBlock m
     type BlockPointer (MGSTrans t m) = BlockPointer m
 
-deriving via (MGSTrans MaybeT m) instance (BlockStateTypes m) => BlockStateTypes (MaybeT m)
+deriving via (MGSTrans MaybeT m) instance BlockStateTypes (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance (GlobalStateTypes m) => GlobalStateTypes (MaybeT m)
-deriving via (MGSTrans (ExceptT e) m) instance (BlockStateTypes m) => BlockStateTypes (ExceptT e m)
+deriving via (MGSTrans (ExceptT e) m) instance BlockStateTypes (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance (GlobalStateTypes m) => GlobalStateTypes (ExceptT e m)
 
 class HasGlobalStateContext c r | r -> c where
