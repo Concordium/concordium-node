@@ -15,7 +15,7 @@ cache:
     - .stack-work
     - target
 
-build-and-test:
+"stack:test":
   stage: test
   script:
     - "apt-get update && apt-get install -y moreutils curl"
