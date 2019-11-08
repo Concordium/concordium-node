@@ -82,7 +82,7 @@ fn main() -> Fallible<()> {
         mpsc::sync_channel(config::RPC_QUEUE_DEPTH);
 
     // Thread #1: instantiate the P2PNode
-    let (node, receivers) = instantiate_node(
+    let node = instantiate_node(
         &conf,
         &mut app_prefs,
         stats_export_service.clone(),
@@ -100,7 +100,7 @@ fn main() -> Fallible<()> {
     // Start the P2PNode
     //
     // Thread #2 (#3): P2P event loop
-    node.spawn(receivers);
+    node.spawn();
 
     let is_baker = conf.cli.baker.baker_id.is_some();
 
@@ -210,7 +210,7 @@ fn instantiate_node(
     app_prefs: &mut config::AppPreferences,
     stats_export_service: Option<StatsExportService>,
     subscription_queue_in: mpsc::SyncSender<NetworkMessage>,
-) -> (Arc<P2PNode>, Receivers) {
+) -> Arc<P2PNode> {
     let node_id = match conf.common.id.clone() {
         None => match app_prefs.get_config(config::APP_PREFERENCES_PERSISTED_NODE_ID) {
             None => {
@@ -251,7 +251,7 @@ fn instantiate_node(
     let data_dir_path = app_prefs.get_user_app_dir();
 
     // Start the thread reading P2PEvents from P2PNode
-    let (node, receivers) = if conf.common.debug {
+    if conf.common.debug {
         let (sender, receiver) = mpsc::sync_channel(config::EVENT_LOG_QUEUE_DEPTH);
         let _guard = spawn_or_die!("Log loop", move || loop {
             if let Ok(Relay(msg)) = receiver.recv() {
@@ -277,9 +277,7 @@ fn instantiate_node(
             subscription_queue_in,
             Some(data_dir_path),
         )
-    };
-
-    (node, receivers)
+    }
 }
 
 fn establish_connections(conf: &config::Config, node: &P2PNode) {

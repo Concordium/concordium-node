@@ -16,6 +16,7 @@ use circular_queue::CircularQueue;
 use digest::Digest;
 use failure::Fallible;
 use mio::{tcp::TcpStream, Poll, PollOpt, Ready, Token};
+use priority_queue::PriorityQueue;
 use snow::Keypair;
 use twox_hash::XxHash64;
 
@@ -24,7 +25,7 @@ use crate::{
         counter::{TOTAL_MESSAGES_RECEIVED_COUNTER, TOTAL_MESSAGES_SENT_COUNTER},
         get_current_stamp,
         p2p_peer::P2PPeer,
-        NetworkRawRequest, P2PNodeId, PeerStats, PeerType, RemotePeer,
+        P2PNodeId, PeerStats, PeerType, RemotePeer,
     },
     dumper::DumpItem,
     network::{
@@ -45,14 +46,15 @@ use std::{
         atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         Arc, RwLock,
     },
+    time::Instant,
 };
 
 // If a message is labelled as having `High` priority it is always pushed to the
 // front of the queue in the sinks when sending, and otherwise to the back
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
 pub enum MessageSendingPriority {
-    High,
     Normal,
+    High,
 }
 
 pub struct DeduplicationQueues {
@@ -87,6 +89,8 @@ pub struct ConnectionStats {
     pub last_latency:      Arc<AtomicU64>,
 }
 
+type PendingPriority = (MessageSendingPriority, Instant);
+
 pub struct Connection {
     handler_ref:             Arc<P2PNode>,
     pub token:               Token,
@@ -95,6 +99,7 @@ pub struct Connection {
     pub remote_end_networks: Arc<RwLock<HashSet<NetworkId>>>,
     pub is_post_handshake:   AtomicBool,
     pub stats:               ConnectionStats,
+    pub pending_messages:    RwLock<PriorityQueue<Arc<[u8]>, PendingPriority>>,
 }
 
 impl PartialEq for Connection {
@@ -155,6 +160,7 @@ impl Connection {
             remote_end_networks: Default::default(),
             is_post_handshake: Default::default(),
             stats,
+            pending_messages: RwLock::new(PriorityQueue::with_capacity(1024)),
         });
 
         write_or_die!(conn.low_level).conn_ref = Some(Pin::new(Arc::clone(&conn)));
@@ -296,7 +302,10 @@ impl Connection {
         if is_msg_processable {
             self.handle_incoming_message(&message);
         } else {
-            bail!("Refusing to process or forward any incoming messages before a handshake");
+            bail!(
+                "Refusing to process or forward the incoming message ({:?}) before a handshake",
+                message,
+            );
         };
 
         let is_msg_forwardable = match message.payload {
@@ -347,25 +356,8 @@ impl Connection {
 
     /// It queues a network request
     #[inline(always)]
-    pub fn async_send(&self, input: HybridBuf, priority: MessageSendingPriority) -> Fallible<()> {
-        let request = NetworkRawRequest {
-            token: self.token,
-            data:  input,
-        };
-
-        if priority == MessageSendingPriority::High {
-            into_err!(self
-                .handler()
-                .connection_handler
-                .network_messages_hi
-                .send(request))
-        } else {
-            into_err!(self
-                .handler()
-                .connection_handler
-                .network_messages_lo
-                .send(request))
-        }
+    pub fn async_send(&self, message: Arc<[u8]>, priority: MessageSendingPriority) {
+        write_or_die!(self.pending_messages).push(message, (priority, Instant::now()));
     }
 
     /// It sends `input` through `socket`.
@@ -373,14 +365,16 @@ impl Connection {
     /// for real write. Function `ConnectionPrivate::ready` will make ensure to
     /// write chunks of the message
     #[inline(always)]
-    pub fn async_send_from_poll_loop(&self, input: HybridBuf) -> Fallible<TcpResult<usize>> {
+    pub fn async_send_from_poll_loop(&self, input: Arc<[u8]>) -> Fallible<TcpResult<usize>> {
         TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
         self.stats.messages_sent.fetch_add(1, Ordering::Relaxed);
         if let Some(ref stats) = self.handler().stats_export_service {
             stats.pkt_sent_inc();
         }
 
-        self.send_to_dump(&input, false);
+        if cfg!(feature = "network_dump") {
+            self.send_to_dump(input.clone(), false);
+        }
 
         write_or_die!(self.low_level).write_to_socket(input)
     }
@@ -407,14 +401,9 @@ impl Connection {
         write_or_die!(self.remote_end_networks).remove(&network);
     }
 
-    fn send_to_dump(&self, buf: &HybridBuf, inbound: bool) {
+    fn send_to_dump(&self, buf: Arc<[u8]>, inbound: bool) {
         if let Some(ref sender) = self.handler().connection_handler.log_dumper {
-            let di = DumpItem::new(
-                Utc::now(),
-                inbound,
-                self.remote_peer().addr().ip(),
-                buf.clone(),
-            );
+            let di = DumpItem::new(Utc::now(), inbound, self.remote_peer().addr().ip(), buf);
             let _ = sender.send(di);
         }
     }
@@ -435,10 +424,10 @@ impl Connection {
                 vec![],
             )),
         };
-        let mut serialized = HybridBuf::with_capacity(128)?;
+        let mut serialized = Vec::with_capacity(128);
         handshake_request.serialize(&mut serialized)?;
 
-        self.async_send(serialized, MessageSendingPriority::High)?;
+        self.async_send(Arc::from(serialized), MessageSendingPriority::High);
 
         self.set_sent_handshake();
 
@@ -458,10 +447,11 @@ impl Connection {
                 vec![],
             )),
         };
-        let mut serialized = HybridBuf::with_capacity(128)?;
+        let mut serialized = Vec::with_capacity(128);
         handshake_response.serialize(&mut serialized)?;
+        self.async_send(Arc::from(serialized), MessageSendingPriority::High);
 
-        self.async_send(serialized, MessageSendingPriority::High)
+        Ok(())
     }
 
     pub fn send_ping(&self) -> Fallible<()> {
@@ -472,10 +462,9 @@ impl Connection {
             timestamp2: None,
             payload:    NetworkMessagePayload::NetworkRequest(NetworkRequest::Ping),
         };
-        let mut serialized = HybridBuf::with_capacity(64)?;
+        let mut serialized = Vec::with_capacity(64);
         ping.serialize(&mut serialized)?;
-
-        self.async_send(serialized, MessageSendingPriority::High)?;
+        self.async_send(Arc::from(serialized), MessageSendingPriority::High);
 
         self.set_last_ping_sent();
 
@@ -490,10 +479,11 @@ impl Connection {
             timestamp2: None,
             payload:    NetworkMessagePayload::NetworkResponse(NetworkResponse::Pong),
         };
-        let mut serialized = HybridBuf::with_capacity(64)?;
+        let mut serialized = Vec::with_capacity(64);
         pong.serialize(&mut serialized)?;
+        self.async_send(Arc::from(serialized), MessageSendingPriority::High);
 
-        self.async_send(serialized, MessageSendingPriority::High)
+        Ok(())
     }
 
     pub fn send_peer_list_resp(&self, nets: &HashSet<NetworkId>) -> Fallible<()> {
@@ -549,10 +539,11 @@ impl Connection {
         if let Some(mut resp) = peer_list_resp {
             debug!("Sending my PeerList to peer {}", requestor.id());
 
-            let mut serialized = HybridBuf::with_capacity(256)?;
+            let mut serialized = Vec::with_capacity(256);
             resp.serialize(&mut serialized)?;
+            self.async_send(Arc::from(serialized), MessageSendingPriority::Normal);
 
-            self.async_send(serialized, MessageSendingPriority::Normal)
+            Ok(())
         } else {
             debug!(
                 "I don't have any peers to share with peer {}",
@@ -563,31 +554,43 @@ impl Connection {
     }
 
     fn forward_network_message(&self, msg: &mut NetworkMessage) -> Fallible<()> {
-        let mut serialized = HybridBuf::with_capacity(256)?;
+        let mut serialized = Vec::with_capacity(256);
         msg.serialize(&mut serialized)?;
 
         let conn_filter = |conn: &Connection| match msg.payload {
             NetworkMessagePayload::NetworkRequest(ref request, ..) => match request {
                 NetworkRequest::BanNode(peer_to_ban) => match peer_to_ban {
                     BannedNode::ById(id) => {
-                        conn.remote_peer().peer().map_or(true, |x| x.id() != *id)
+                        conn != self && conn.remote_peer().peer().map_or(true, |x| x.id() != *id)
                     }
-                    BannedNode::ByAddr(addr) => conn
-                        .remote_peer()
-                        .peer()
-                        .map_or(true, |peer| peer.ip() != *addr),
+                    BannedNode::ByAddr(addr) => {
+                        conn != self
+                            && conn
+                                .remote_peer()
+                                .peer()
+                                .map_or(true, |peer| peer.ip() != *addr)
+                    }
                 },
-                _ => true,
+                _ => conn != self,
             },
             _ => unreachable!("Only network requests are ever forwarded"),
         };
 
-        for conn in read_or_die!(self.handler().connections())
-            .values()
-            .filter(|&conn| conn.is_post_handshake() && conn.as_ref() != self && conn_filter(conn))
-        {
-            if let Err(e) = conn.async_send(serialized.clone(), MessageSendingPriority::Normal) {
-                error!("Can't forward a network message to {}: {}", conn, e);
+        self.handler()
+            .send_over_all_connections(serialized, &conn_filter)
+            .map(|_| ())
+    }
+
+    #[inline(always)]
+    pub fn send_pending_messages(&self) -> Fallible<()> {
+        let mut pending_messages = write_or_die!(self.pending_messages);
+
+        while let Some((msg, _)) = pending_messages.pop() {
+            trace!("Attempting to send {}B to {}", msg.len(), self);
+
+            if let Err(err) = self.async_send_from_poll_loop(msg) {
+                error!("Can't send a raw network request to {}: {}", self, err);
+                return Err(err);
             }
         }
 

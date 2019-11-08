@@ -3,20 +3,9 @@ pub mod fails;
 pub mod p2p_node_id;
 pub mod p2p_peer;
 
-use concordium_common::hybrid_buf::HybridBuf;
-
 use chrono::prelude::*;
-use mio::Token;
 
 use std::net::{IpAddr, SocketAddr};
-
-/// This data type is used to queue a request from any thread (like tests, RPC,
-/// Cli, etc.), into a node. Please note that any access to internal `socket`
-/// *must be executed* inside MIO poll-loop thread.
-pub struct NetworkRawRequest {
-    pub token: Token, // Identifies the connection.
-    pub data:  HybridBuf,
-}
 
 #[cfg(feature = "collector")]
 pub mod collector_utils;

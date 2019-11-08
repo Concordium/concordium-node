@@ -13,7 +13,7 @@ use concordium_common::hybrid_buf::HybridBuf;
 use std::{
     collections::VecDeque,
     convert::TryFrom,
-    io::{ErrorKind, Read, Seek, SeekFrom, Write},
+    io::{Cursor, ErrorKind, Read, Seek, SeekFrom, Write},
     mem,
     pin::Pin,
     sync::Arc,
@@ -78,9 +78,9 @@ pub struct ConnectionLowLevel {
     handshake_state: HandshakeState,
     /// A container for the high-level handshake message in case we're the
     /// initiator
-    high_lvl_handshake: Option<HybridBuf>,
+    high_lvl_handshake: Option<Arc<[u8]>>,
     /// A queue for messages waiting to be written to the socket
-    output_queue: VecDeque<HybridBuf>,
+    output_queue: VecDeque<Cursor<Vec<u8>>>,
     /// A buffer for decrypted/unencrypted message chunks
     plaintext_chunk_buffer: [u8; NOISE_MAX_PAYLOAD_LEN],
 }
@@ -256,7 +256,13 @@ impl ConnectionLowLevel {
             match self.read_from_socket() {
                 Ok(read_result) => match read_result {
                     TcpResult::Complete(message) => {
-                        self.conn().send_to_dump(&message, true);
+                        if cfg!(feature = "network_dump") {
+                            self.conn().send_to_dump(
+                                Arc::from(message.clone().remaining_bytes()?.to_vec()),
+                                true,
+                            );
+                        }
+
                         if let Err(e) = self.conn().process_message(message, deduplication_queues) {
                             bail!("can't process a message: {}", e);
                         }
@@ -501,10 +507,9 @@ impl ConnectionLowLevel {
     // output
 
     #[inline(always)]
-    pub fn write_to_socket(&mut self, input: HybridBuf) -> Fallible<TcpResult<usize>> {
+    pub fn write_to_socket(&mut self, input: Arc<[u8]>) -> Fallible<TcpResult<usize>> {
         if self.handshake_state == HandshakeState::Complete {
-            let len = input.len()? as usize;
-            let encrypted_chunks = self.encrypt(input, len)?;
+            let encrypted_chunks = self.encrypt(&input)?;
             for chunk in encrypted_chunks {
                 self.output_queue.push_back(chunk);
             }
@@ -524,17 +529,17 @@ impl ConnectionLowLevel {
         while let Some(mut message) = self.output_queue.pop_front() {
             trace!(
                 "Writing a {}B message to the socket",
-                message.remaining_len()?
+                message.get_ref().len() - message.position() as usize
             );
             written_bytes +=
                 partial_copy(&mut message, &mut self.noise_msg_buffer, &mut self.socket)?;
 
-            if message.is_eof()? {
+            if message.position() as usize == message.get_ref().len() {
                 trace!("Successfully written a message to the socket");
             } else {
                 trace!(
                     "Incomplete write ({}B remaining); requeuing",
-                    message.remaining_len()?
+                    message.get_ref().len() - message.position() as usize
                 );
                 self.output_queue.push_front(message);
                 return Ok(TcpResult::Incomplete);
@@ -549,7 +554,7 @@ impl ConnectionLowLevel {
     fn encrypt_chunks<R: Read + Seek>(
         &mut self,
         input: &mut R,
-        chunks: &mut Vec<HybridBuf>,
+        chunks: &mut Vec<Cursor<Vec<u8>>>,
     ) -> Fallible<usize> {
         let mut written = 0;
 
@@ -575,11 +580,10 @@ impl ConnectionLowLevel {
                     &mut self.noise_msg_buffer,
                 )?;
 
-            let mut chunk = HybridBuf::with_capacity(len)?;
+            let mut chunk = Vec::with_capacity(len);
             let wrote = chunk.write(&self.noise_msg_buffer[..len])?;
-            chunk.rewind()?;
 
-            chunks.push(chunk);
+            chunks.push(Cursor::new(chunk));
 
             // trace!("Encrypted a chunk of {} + 16B", wrote - 16);
 
@@ -594,35 +598,30 @@ impl ConnectionLowLevel {
 
     /// It encrypts `input` and returns the encrypted chunks preceded by the
     /// length
-    pub fn encrypt<R: Read + Seek>(
-        &mut self,
-        mut input: R,
-        len: usize,
-    ) -> Fallible<Vec<HybridBuf>> {
+    pub fn encrypt(&mut self, input: &[u8]) -> Fallible<Vec<Cursor<Vec<u8>>>> {
         trace!("Commencing encryption with nonce {:x}", self.output_nonce);
 
-        let last_chunk = if len % NOISE_MAX_MESSAGE_LEN == 0 {
+        let last_chunk = if input.len() % NOISE_MAX_MESSAGE_LEN == 0 {
             0
         } else {
             1
         };
 
-        let mut chunks = Vec::with_capacity(1 + len / NOISE_MAX_MESSAGE_LEN + last_chunk);
+        let mut chunks = Vec::with_capacity(1 + input.len() / NOISE_MAX_MESSAGE_LEN + last_chunk);
 
         // create the metadata chunk
-        let metadata = HybridBuf::with_capacity(4)?;
-        chunks.push(metadata);
+        let metadata = Vec::with_capacity(4);
+        chunks.push(Cursor::new(metadata));
 
-        let encrypted_len = self.encrypt_chunks(&mut input, &mut chunks)?;
+        let encrypted_len = self.encrypt_chunks(&mut Cursor::new(input), &mut chunks)?;
 
         // write the message size
         chunks[0].write_u32::<NetworkEndian>(encrypted_len as PayloadSize)?;
-
-        chunks[0].rewind()?;
+        chunks[0].seek(SeekFrom::Start(0))?;
 
         trace!(
             "Encrypted a frame of {}B",
-            mem::size_of::<PayloadSize>() + encrypted_len
+            mem::size_of::<PayloadSize>() + encrypted_len,
         );
 
         // increment the nonce
@@ -636,18 +635,18 @@ impl ConnectionLowLevel {
 /// streaming fashion. It is used with `socket` that blocks them when
 /// their output buffers are full. Written bytes are consumed from `input`.
 fn partial_copy<W: Write>(
-    input: &mut HybridBuf,
+    input: &mut Cursor<Vec<u8>>,
     buffer: &mut [u8],
     output: &mut W,
 ) -> Fallible<usize> {
     let mut total_written_bytes = 0;
 
-    while !input.is_eof()? {
-        let offset = input.position()?;
+    while input.get_ref().len() != input.position() as usize {
+        let offset = input.position();
 
         let chunk_size = std::cmp::min(
             NOISE_MAX_MESSAGE_LEN,
-            (input.len()? - input.position()?) as usize,
+            input.get_ref().len() - offset as usize,
         );
         input.read_exact(&mut buffer[..chunk_size])?;
 
@@ -673,10 +672,10 @@ fn partial_copy<W: Write>(
 }
 
 /// It prefixes `data` with its length, encoded as `u32` in `NetworkEndian`.
-fn create_frame(data: &[u8]) -> Fallible<HybridBuf> {
+fn create_frame(data: &[u8]) -> Fallible<Cursor<Vec<u8>>> {
     let mut frame = Vec::with_capacity(data.len() + std::mem::size_of::<PayloadSize>());
     frame.write_u32::<NetworkEndian>(data.len() as u32)?;
     frame.extend_from_slice(data);
 
-    into_err!(HybridBuf::try_from(frame))
+    Ok(Cursor::new(frame))
 }

@@ -116,7 +116,7 @@ pub fn make_node_and_sync(
     config.connection.housekeeping_interval = 10;
 
     let export_service = StatsExportService::new(StatsServiceMode::NodeMode).unwrap();
-    let (node, receivers) = P2PNode::new(
+    let node = P2PNode::new(
         None,
         &config,
         None,
@@ -126,7 +126,7 @@ pub fn make_node_and_sync(
         None,
     );
 
-    node.spawn(receivers);
+    node.spawn();
     Ok(node)
 }
 
@@ -150,7 +150,7 @@ pub fn make_node_and_sync_with_rpc(
     config.connection.housekeeping_interval = 10;
 
     let export_service = StatsExportService::new(StatsServiceMode::NodeMode).unwrap();
-    let (node, receivers) = P2PNode::new(
+    let node = P2PNode::new(
         None,
         &config,
         None,
@@ -160,7 +160,7 @@ pub fn make_node_and_sync_with_rpc(
         Some(data_dir_path),
     );
 
-    node.spawn(receivers);
+    node.spawn();
     Ok((node, msg_wait_rx, rpc_rx))
 }
 
