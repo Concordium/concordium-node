@@ -13,13 +13,14 @@ use std::alloc::System;
 #[global_allocator]
 static A: System = System;
 
-use concordium_common::{stats_export_service::StatsServiceMode, QueueMsg::Relay};
+use concordium_common::QueueMsg::Relay;
 use failure::Error;
 use p2p_client::{
     client::utils as client_utils,
     common::{P2PNodeId, PeerType},
     configuration as config,
     p2p::*,
+    stats_export_service::StatsServiceMode,
     utils::get_config_and_logging_setup,
 };
 use std::sync::mpsc;

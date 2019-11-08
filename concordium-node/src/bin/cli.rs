@@ -13,7 +13,6 @@ static A: System = System;
 
 use concordium_common::{
     spawn_or_die,
-    stats_export_service::{StatsExportService, StatsServiceMode},
     QueueMsg::{self, Relay},
 };
 use concordium_consensus::{
@@ -34,6 +33,7 @@ use p2p_client::{
     network::{NetworkId, NetworkMessage},
     p2p::*,
     rpc::RpcServerImpl,
+    stats_export_service::{StatsExportService, StatsServiceMode},
     utils::{self, get_config_and_logging_setup},
 };
 use parking_lot::Mutex as ParkingMutex;
