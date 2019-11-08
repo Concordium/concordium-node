@@ -124,23 +124,31 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r) => MonadBlobStore m BlobRe
     loadRaw r = do
         bs <- blobStore <$> ask
         liftIO $ readBlobBS bs r
-{-
-class (MonadBlobStore m ref) => Blobbable m ref a where
-    store :: a -> m (ref a)
-    default store :: (Serialize a) => a -> m (ref a)
-    store = storeBlob
-    load :: ref a -> m a
-    default load :: (Serialize a) => ref a -> m a
-    load = loadBlob
--}
 
+-- |The @BlobStorable m ref a@ class defines how a value
+-- of type @a@ may be stored as in a reference of type @ref a@
+-- in the monad @m@.
+--
+-- Where @a@ is an instance of 'Serialize', default implementations
+-- are provided for 'store' and 'load' that simply (de)serialize
+-- the value.  For a complex datatype that uses internal pointers,
+-- 'store' and 'load' are expected to translate between such pointers
+-- and references in the underlying store.
 class (MonadBlobStore m ref) => BlobStorable m ref a where
+    -- |Serialize a value of type @a@ for storage.
     store :: Proxy ref -> a -> m Put
     default store :: (Serialize a) => Proxy ref -> a -> m Put
     store _ = pure . put
+    -- |Deserialize a value of type @a@ from storage.
     load :: Proxy ref -> Get (m a)
     default load :: (Serialize a) => Proxy ref -> Get (m a)
     load _ = pure <$> get
+    -- |Store a value of type @a@, possibly updating its representation.
+    -- This is used when the value's representation includes pointers that
+    -- may be replaced or supplemented with blob references.
+    --
+    -- As an example, @storeUpdate@ on a @BufferedRef@ converts a @BRMemory@
+    -- to a @BRCached@.
     storeUpdate :: Proxy ref -> a -> m (Put, a)
     storeUpdate p v = (,v) <$> store p v
 
@@ -189,9 +197,13 @@ instance (MonadBlobStore m BlobRef) => BlobStorable m BlobRef (Nullable (CachedR
     store p v = store p (crRef <$> v)
     load p = fmap (fmap CRBlobbed) <$> load p
 
+-- |A value that may exists purely on disk ('BRBlobbed'), purely in memory ('BRMemory'), or both ('BRCached').
+-- When the value is cached, the cached value must match the value stored on disk.
 data BufferedRef a
     = BRBlobbed {brRef :: !(BlobRef a)}
+    -- ^Value stored on disk
     | BRCached {brRef :: !(BlobRef a), brValue :: !a}
+    -- ^Value stored on disk, but also cached.
     | BRMemory {brValue :: !a}
 
 instance Show a => Show (BufferedRef a) where
