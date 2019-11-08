@@ -61,15 +61,21 @@ struct IncomingMessage {
     message:       HybridBuf,
 }
 
+/// Sequential nonces used to encrypt and decrypt noise messages.
+#[derive(Default)]
+struct Nonces {
+    /// The decryption nonce
+    input: u64,
+    /// The encryption nonce
+    output: u64,
+}
+
 pub struct ConnectionLowLevel {
     pub conn_ref: Option<Pin<Arc<Connection>>>,
     pub socket: TcpStream,
     keypair: Keypair,
     noise_session: Option<Session>,
-    /// The input nonce
-    input_nonce: u64,
-    /// The output nonce
-    output_nonce: u64,
+    nonces: Nonces,
     /// The buffer for reading/writing raw noise messages
     noise_msg_buffer: [u8; NOISE_MAX_MESSAGE_LEN],
     /// The single message currently being read
@@ -128,8 +134,7 @@ impl ConnectionLowLevel {
             socket,
             keypair,
             noise_session,
-            input_nonce: 0,
-            output_nonce: 0,
+            nonces: Nonces::default(),
             incoming_msg: IncomingMessage::default(),
             output_queue,
             handshake_state,
@@ -430,7 +435,7 @@ impl ConnectionLowLevel {
         decrypted_msg.rewind()?;
 
         // increment the input nonce
-        self.input_nonce += 1;
+        self.nonces.input += 1;
 
         Ok(decrypted_msg)
     }
@@ -451,7 +456,7 @@ impl ConnectionLowLevel {
             .as_ref()
             .unwrap() // infallible
             .read_message_with_nonce(
-                self.input_nonce,
+                self.nonces.input,
                 &self.noise_msg_buffer[..chunk_size],
                 &mut self.plaintext_chunk_buffer[..(chunk_size - NOISE_AUTH_TAG_LEN)],
             ) {
@@ -549,7 +554,7 @@ impl ConnectionLowLevel {
                 .as_ref()
                 .unwrap() // infallible
                 .write_message_with_nonce(
-                    self.output_nonce,
+                    self.nonces.output,
                     &self.plaintext_chunk_buffer[..chunk_size],
                     &mut self.noise_msg_buffer,
                 )?;
@@ -570,7 +575,7 @@ impl ConnectionLowLevel {
     /// It encrypts `input` and returns the encrypted chunks preceded by the
     /// length
     pub fn encrypt(&mut self, input: &[u8]) -> Fallible<Vec<Cursor<Vec<u8>>>> {
-        trace!("Commencing encryption with nonce {:x}", self.output_nonce);
+        trace!("Commencing encryption with nonce {:x}", self.nonces.output);
 
         let num_full_chunks = input.len() / NOISE_MAX_MESSAGE_LEN;
         let num_incomplete_chunks = if input.len() % NOISE_MAX_MESSAGE_LEN == 0 {
@@ -599,7 +604,7 @@ impl ConnectionLowLevel {
         );
 
         // increment the nonce
-        self.output_nonce += 1;
+        self.nonces.output += 1;
 
         Ok(chunks)
     }
