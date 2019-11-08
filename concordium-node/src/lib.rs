@@ -19,6 +19,17 @@ cfg_if! {
     }
 }
 
+cfg_if! {
+    if #[cfg(feature = "instrumentation")] {
+        #[macro_use]
+        extern crate prometheus;
+        #[macro_use]
+        extern crate gotham_derive;
+        extern crate hyper;
+        extern crate mime;
+    }
+}
+
 #[macro_use]
 extern crate lazy_static;
 #[macro_use]
@@ -73,6 +84,7 @@ pub mod dumper;
 pub mod proto;
 pub mod rpc;
 pub mod stats_engine;
+pub mod stats_export_service;
 pub mod utils;
 
 pub mod test_utils;

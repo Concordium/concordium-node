@@ -14,6 +14,7 @@ use crate::{
     },
     p2p::{banned_nodes::BannedNode, fails, unreachable_nodes::UnreachableNodes},
     stats_engine::StatsEngine,
+    stats_export_service::StatsExportService,
     utils,
 };
 use chrono::prelude::*;
@@ -21,7 +22,6 @@ use concordium_common::{
     cache::Cache,
     hybrid_buf::HybridBuf,
     serial::Serial,
-    stats_export_service::StatsExportService,
     QueueMsg::{self, Relay},
 };
 use failure::{err_msg, Error, Fallible};

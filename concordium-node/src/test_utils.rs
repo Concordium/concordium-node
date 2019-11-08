@@ -11,13 +11,9 @@ use crate::{
         NetworkRequest, NetworkResponse,
     },
     p2p::p2p_node::P2PNode,
-};
-use concordium_common::{
-    hybrid_buf::HybridBuf,
-    serial::Endianness,
     stats_export_service::{StatsExportService, StatsServiceMode},
-    PacketType, QueueMsg,
 };
+use concordium_common::{hybrid_buf::HybridBuf, serial::Endianness, PacketType, QueueMsg};
 
 use std::{
     net::TcpListener,

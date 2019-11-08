@@ -19,7 +19,7 @@ s11n_capnp = ["capnp", "capnpc"]
 s11n_serde = ["concordium-common/s11n_serde", "serde", "serde_derive"]
 s11n_serde_cbor = ["s11n_serde", "serde_cbor"]
 s11n_serde_msgpack = ["s11n_serde", "rmp-serde"]
-instrumentation = ["concordium-common/instrumentation", "serde", "serde_derive", "gotham", "mime", "gotham_derive", "hyper", "reqwest"]
+instrumentation = ["serde", "serde_derive", "gotham", "mime", "gotham_derive", "prometheus", "hyper", "num_cpus", "reqwest", "tokio"]
 benchmark = []
 network_dump = []
 static = [ "concordium-consensus/static" ]
@@ -90,6 +90,15 @@ serde_json = { version = "1", optional = true }
 nohash-hasher = "^0.1"
 priority-queue = "^0.6.0"
 rayon = "^1.2.0"
+num_cpus = { version = "1.10.0", optional = true }
+tokio = { version = "0.1.19", optional = true }
+spin = { version = "0.5.2", optional = true }
+
+[dependencies.prometheus]
+git = "https://github.com/pingcap/rust-prometheus.git"
+default-features = false
+features = ["gen", "push", "protobuf"]
+optional = true
 
 [target.'cfg(windows)'.dependencies]
 ipconfig = { version = "^0.1.9" }

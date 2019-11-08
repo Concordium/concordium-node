@@ -1,5 +1,7 @@
-use crate::configuration;
-use concordium_common::stats_export_service::{StatsExportService, StatsServiceMode};
+use crate::{
+    configuration,
+    stats_export_service::{StatsExportService, StatsServiceMode},
+};
 use failure::Fallible;
 
 cfg_if! {
