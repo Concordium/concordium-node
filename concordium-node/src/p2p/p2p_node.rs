@@ -39,7 +39,7 @@ use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use rkv::{Manager, Rkv, StoreOptions, Value};
 use snow::Keypair;
 
-use concordium_consensus::{consensus::CALLBACK_QUEUE, transferlog::TRANSACTION_LOG_QUEUE};
+use consensus_rust::{consensus::CALLBACK_QUEUE, transferlog::TRANSACTION_LOG_QUEUE};
 use std::{
     cmp::Reverse,
     collections::{HashMap, HashSet},

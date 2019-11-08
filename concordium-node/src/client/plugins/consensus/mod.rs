@@ -26,12 +26,12 @@ use concordium_common::{
     QueueMsg,
 };
 
-use concordium_consensus::{
+use consensus_rust::{
     consensus::{self, PeerId, CALLBACK_QUEUE},
     ffi,
 };
 
-use concordium_global_state::{
+use globalstate_rust::{
     catch_up::{PeerList, PeerState, PeerStatus},
     common::sha256,
     tree::{

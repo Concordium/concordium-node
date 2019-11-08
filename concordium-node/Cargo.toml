@@ -22,12 +22,12 @@ s11n_serde_msgpack = ["s11n_serde", "rmp-serde"]
 instrumentation = ["serde", "serde_derive", "gotham", "mime", "gotham_derive", "prometheus", "hyper", "num_cpus", "reqwest", "tokio"]
 benchmark = []
 network_dump = []
-static = [ "concordium-consensus/static" ]
-profiling = [ "concordium-consensus/profiling" ]
+static = [ "consensus-rust/static" ]
+profiling = [ "consensus-rust/profiling" ]
 elastic_logging = [ "elastic", "elastic_derive", "serde_json", "serde/derive", "uuid/v4" ]
 collector = [ "reqwest/default-tls", "serde_json", "serde/derive", "gotham", "mime", "gotham_derive", "hyper" ]
 beta = [ "serde_json", "serde/derive", "reqwest/default-tls" ]
-no_rgs = [ "concordium-consensus/no_rgs" ]
+no_rgs = [ "consensus-rust/no_rgs" ]
 
 [profile.release]
 codegen-units = 1
@@ -35,12 +35,12 @@ codegen-units = 1
 
 [dependencies]
 # Internal dependencies
-concordium-global-state = { path = "concordium-global-state" }
-concordium-consensus = { path = "concordium-consensus" }
+globalstate-rust = { path = "deps/internal/consensus/globalstate-mockup/globalstate-rust" }
+consensus-rust = { path = "deps/internal/consensus/consensus-rust"  }
 concordium-dns = { git = "ssh://git@gitlab.com:22/Concordium/rust/concordium-dns.git", branch = "master" }
-concordium_crypto_ec_vrf_ed25519_sha256 = { package = "ec_vrf_ed25519_sha256", path = "deps/internal/crypto/rust-src/ec_vrf_ed25519_sha256" }
-concordium_crypto_eddsa_ed25519 = { package = "eddsa_ed25519", path = "deps/internal/crypto/rust-src/eddsa_ed25519" }
-concordium-common = { git = "ssh://git@gitlab.com:22/Concordium/rust/concordium-common.git", branch = "master" }
+concordium_crypto_ec_vrf_ed25519_sha256 = { package = "ec_vrf_ed25519_sha256", path = "deps/internal/consensus/globalstate-mockup/deps/crypto/rust-src/ec_vrf_ed25519_sha256" }
+concordium_crypto_eddsa_ed25519 = { package = "eddsa_ed25519", path = "deps/internal/consensus/globalstate-mockup/deps/crypto/rust-src/eddsa_ed25519" }
+concordium-common = { path = "deps/internal/consensus/globalstate-mockup/deps/concordium-common"  }
 # External dependencies
 parking_lot = "^0.9"
 structopt = "0.2"

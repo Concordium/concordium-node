@@ -5,7 +5,7 @@ use std::{
 };
 
 use concordium_common::serial::Serial;
-use concordium_global_state::block::{Block, BlockData};
+use globalstate_rust::block::{Block, BlockData};
 
 // for now it only reads genesis data, as only that is currently being dumped
 fn read_block_dump(bytes: &[u8]) {

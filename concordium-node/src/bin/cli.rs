@@ -15,14 +15,14 @@ use concordium_common::{
     spawn_or_die,
     QueueMsg::{self, Relay},
 };
-use concordium_consensus::{
+use consensus_rust::{
     consensus::{
         ConsensusContainer, ConsensusLogLevel, CALLBACK_QUEUE, CONSENSUS_QUEUE_DEPTH_IN_HI,
         CONSENSUS_QUEUE_DEPTH_OUT_HI,
     },
     ffi,
 };
-use concordium_global_state::tree::{messaging::ConsensusMessage, GlobalState};
+use globalstate_rust::tree::{messaging::ConsensusMessage, GlobalState};
 use p2p_client::{
     client::{
         plugins::{self, consensus::*},
@@ -533,7 +533,7 @@ fn setup_transfer_log_thread(conf: &config::CliConfig) -> JoinHandle<()> {
         }
     }
     spawn_or_die!("Process transfer log messages", {
-        let receiver = concordium_consensus::transferlog::TRANSACTION_LOG_QUEUE
+        let receiver = consensus_rust::transferlog::TRANSACTION_LOG_QUEUE
             .receiver
             .lock()
             .unwrap();
@@ -568,7 +568,7 @@ fn setup_transfer_log_thread(conf: &config::CliConfig) -> JoinHandle<()> {
 #[cfg(not(feature = "elastic_logging"))]
 fn setup_transfer_log_thread(_: &config::CliConfig) -> JoinHandle<()> {
     spawn_or_die!("Process transfer log messages", {
-        let receiver = concordium_consensus::transferlog::TRANSACTION_LOG_QUEUE
+        let receiver = consensus_rust::transferlog::TRANSACTION_LOG_QUEUE
             .receiver
             .lock()
             .unwrap();
