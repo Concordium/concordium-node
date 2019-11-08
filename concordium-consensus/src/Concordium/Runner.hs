@@ -4,23 +4,17 @@ module Concordium.Runner where
 import Control.Concurrent.Chan
 import Control.Concurrent.MVar
 import Control.Concurrent
-import Control.Monad.Trans.State hiding (get, put)
 import Control.Monad
 import Control.Exception
-import Data.Time.Clock
 import Data.ByteString as BS
 import Data.Serialize
 import Data.IORef
 import Control.Monad.IO.Class
 
-import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Classes
-import Concordium.GlobalState.BlockState(LogTransferMethod)
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Finalization
-import Concordium.GlobalState.TreeState
-import Concordium.GlobalState
 import qualified Concordium.GlobalState.TreeState as TS
 
 import Concordium.TimeMonad
@@ -30,7 +24,6 @@ import Concordium.Kontrol
 import Concordium.Skov
 import Concordium.Skov.Hooks
 import Concordium.Afgjort.Finalize
-import Concordium.Afgjort.Buffer
 import Concordium.Logger
 import Concordium.Getters
 

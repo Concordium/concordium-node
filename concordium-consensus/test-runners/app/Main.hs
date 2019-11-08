@@ -126,12 +126,13 @@ dummyIdentityProviders :: [IpInfo]
 dummyIdentityProviders = []
 
 genesisState :: GenesisData -> Basic.BlockState
-genesisState genData = Basic.initialState
+genesisState genData = Example.initialState
                        (genesisBirkParameters genData)
                        (genesisCryptographicParameters genData)
                        (genesisAccounts genData ++ genesisSpecialBetaAccounts genData)
                        (genesisIdentityProviders genData)
-                       (genesisMintPerSlot genData)
+                       2
+                       -- (genesisMintPerSlot genData)
 
 
 #ifdef RUST
@@ -153,7 +154,7 @@ main :: IO ()
 main = do
     let n = 5
     now <- truncate <$> getPOSIXTime
-    let (gen, bis) = makeGenesisData (now + 10) n 1 0.5 0 dummyCryptographicParameters dummyIdentityProviders []
+    let (gen, bis) = makeGenesisData now n 1 0.5 0 dummyCryptographicParameters dummyIdentityProviders []
     trans <- transactions <$> newStdGen
     chans <- mapM (\(bakerId, (bid, _)) -> do
         let logFile = "consensus-" ++ show now ++ "-" ++ show bakerId ++ ".log"
