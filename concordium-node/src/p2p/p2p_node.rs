@@ -566,6 +566,8 @@ impl P2PNode {
                 .build()
                 .unwrap();
 
+            let mut connections = Vec::with_capacity(8);
+
             loop {
                 // check for new events or wait
                 if let Err(e) = self_clone.poll.poll(
@@ -587,7 +589,11 @@ impl P2PNode {
                 }
 
                 pool.install(|| {
-                    self_clone.process_network_events(&mut events, &deduplication_queues)
+                    self_clone.process_network_events(
+                        &events,
+                        &deduplication_queues,
+                        &mut connections,
+                    )
                 });
 
                 // Run periodic tasks
@@ -1193,41 +1199,29 @@ impl P2PNode {
         &self,
         events: &Events,
         deduplication_queues: &Arc<DeduplicationQueues>,
+        connections: &mut Vec<(Token, Arc<Connection>)>,
     ) {
-        let conns = read_or_die!(self.connections())
-            .iter()
-            .map(|(token, conn)| (token.clone(), Arc::clone(&conn)))
-            .collect::<Vec<_>>();
+        connections.clear();
+        for (token, conn) in read_or_die!(self.connections()).iter() {
+            connections.push((*token, Arc::clone(&conn)));
+        }
 
-        let to_remove = conns
+        let to_remove = connections
             .par_iter()
             .filter_map(|(token, conn)| {
-                let mut error_flag = false;
                 let mut low_level = write_or_die!(conn.low_level);
 
-                if let Err(e) = send_pending_messages(&conn.pending_messages, &mut low_level) {
+                if let Err(e) = send_pending_messages(&conn.pending_messages, &mut low_level)
+                    .and_then(|_| low_level.flush_socket())
+                {
                     error!("{}", e);
                 }
-                low_level.flush_socket();
 
-                for event in events.iter().filter(|event| event.token() == *token) {
-                    let readiness = event.readiness();
-
-                    if readiness.is_readable() {
-                        if low_level.read_stream(deduplication_queues).is_err() {
-                            error_flag = true;
-                            break;
-                        }
-                    }
-                    if readiness.is_writable() {
-                        if low_level.flush_socket().is_err() {
-                            error_flag = true;
-                            break;
-                        }
-                    }
-                }
-
-                if error_flag {
+                if events
+                    .iter()
+                    .any(|event| event.token() == *token && event.readiness().is_readable())
+                    && low_level.read_stream(deduplication_queues).is_err()
+                {
                     Some(*token)
                 } else {
                     None
