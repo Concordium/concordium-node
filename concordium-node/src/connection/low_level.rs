@@ -366,10 +366,6 @@ impl ConnectionLowLevel {
     }
 
     fn read_intermediate(&mut self) -> Fallible<usize> {
-        trace!(
-            "Reading a message ({}B remaining)",
-            self.incoming_msg.pending_bytes
-        );
         let read_size = std::cmp::min(
             self.incoming_msg.pending_bytes as usize,
             NOISE_MAX_MESSAGE_LEN,
@@ -377,7 +373,6 @@ impl ConnectionLowLevel {
 
         match self.socket.read(&mut self.noise_msg_buffer[..read_size]) {
             Ok(read_bytes) => {
-                // trace!("Read {}B", read_bytes);
                 self.incoming_msg
                     .message
                     .extend_from_slice(&self.noise_msg_buffer[..read_bytes]);
@@ -399,34 +394,22 @@ impl ConnectionLowLevel {
     pub fn decrypt<R: Read + Seek>(&mut self, mut input: R, len: usize) -> Fallible<HybridBuf> {
         // calculate the number of full-sized chunks
         let num_full_chunks = len / NOISE_MAX_MESSAGE_LEN;
-        trace!("There are {} full chunks to decrypt", num_full_chunks);
-
-        // calculate the number of the incomplete chunk (if there is one)
+        // calculate the number of the last, incomplete chunk (if there is one)
         let last_chunk_size = len % NOISE_MAX_MESSAGE_LEN;
-        let num_all_chunks = if last_chunk_size > 0 {
-            trace!("The last chunk is {}B long", last_chunk_size);
-            num_full_chunks + 1
-        } else {
-            trace!("All the chunks are full");
-            num_full_chunks
-        };
+        let num_all_chunks = num_full_chunks + if last_chunk_size > 0 { 1 } else { 0 };
+
+        trace!("There are {} chunks to decrypt", num_all_chunks);
 
         let mut decrypted_msg =
             HybridBuf::with_capacity(NOISE_MAX_MESSAGE_LEN * num_full_chunks + last_chunk_size)?;
 
         // decrypt the full chunks
         for idx in 0..num_full_chunks {
-            trace!(
-                "Decrypting chunk {} ({} remaining)",
-                idx,
-                num_all_chunks - idx
-            );
             self.decrypt_chunk(idx, NOISE_MAX_MESSAGE_LEN, &mut input, &mut decrypted_msg)?;
         }
 
         // decrypt the incomplete chunk
         if last_chunk_size > 0 {
-            trace!("Decrypting the last chunk ({}B)", last_chunk_size);
             self.decrypt_chunk(
                 num_full_chunks,
                 last_chunk_size,
@@ -488,29 +471,25 @@ impl ConnectionLowLevel {
 
     #[inline(always)]
     pub fn write_to_socket(&mut self, input: Arc<[u8]>) -> Fallible<TcpResult<usize>> {
-        if self.handshake_state == HandshakeState::Complete {
-            TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
-            self.conn()
-                .stats
-                .messages_sent
-                .fetch_add(1, Ordering::Relaxed);
-            if let Some(ref stats) = self.conn().handler().stats_export_service {
-                stats.pkt_sent_inc();
-            }
-
-            if cfg!(feature = "network_dump") {
-                self.conn().send_to_dump(input.clone(), false);
-            }
-
-            let encrypted_chunks = self.encrypt(&input)?;
-            for chunk in encrypted_chunks {
-                self.output_queue.push_back(chunk);
-            }
-
-            Ok(TcpResult::Discarded)
-        } else {
-            unreachable!("write_to_socket should not be called before the low-level handshake");
+        TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
+        self.conn()
+            .stats
+            .messages_sent
+            .fetch_add(1, Ordering::Relaxed);
+        if let Some(ref stats) = self.conn().handler().stats_export_service {
+            stats.pkt_sent_inc();
         }
+
+        if cfg!(feature = "network_dump") {
+            self.conn().send_to_dump(input.clone(), false);
+        }
+
+        let encrypted_chunks = self.encrypt(&input)?;
+        for chunk in encrypted_chunks {
+            self.output_queue.push_back(chunk);
+        }
+
+        Ok(TcpResult::Discarded)
     }
 
     #[inline(always)]
@@ -553,11 +532,7 @@ impl ConnectionLowLevel {
         let eof = input.seek(SeekFrom::End(0))?;
         input.seek(SeekFrom::Start(curr_pos))?;
 
-        let mut idx: usize = 0;
-
         while curr_pos != eof {
-            trace!("Encrypting chunk {} ({}B remaining)", idx, eof - curr_pos);
-
             let chunk_size = std::cmp::min(NOISE_MAX_PAYLOAD_LEN, (eof - curr_pos) as usize);
             input.read_exact(&mut self.plaintext_chunk_buffer[..chunk_size])?;
 
@@ -576,12 +551,9 @@ impl ConnectionLowLevel {
 
             chunks.push(Cursor::new(chunk));
 
-            // trace!("Encrypted a chunk of {} + 16B", wrote - 16);
-
             written += wrote;
 
             curr_pos = input.seek(SeekFrom::Current(0))?;
-            idx += 1;
         }
 
         Ok(written)
@@ -592,16 +564,19 @@ impl ConnectionLowLevel {
     pub fn encrypt(&mut self, input: &[u8]) -> Fallible<Vec<Cursor<Vec<u8>>>> {
         trace!("Commencing encryption with nonce {:x}", self.output_nonce);
 
-        let last_chunk = if input.len() % NOISE_MAX_MESSAGE_LEN == 0 {
+        let num_full_chunks = input.len() / NOISE_MAX_MESSAGE_LEN;
+        let num_incomplete_chunks = if input.len() % NOISE_MAX_MESSAGE_LEN == 0 {
             0
         } else {
             1
         };
+        let num_chunks = num_full_chunks + num_incomplete_chunks;
 
-        let mut chunks = Vec::with_capacity(1 + input.len() / NOISE_MAX_MESSAGE_LEN + last_chunk);
+        // the extra 1 is for the message length
+        let mut chunks = Vec::with_capacity(1 + num_chunks);
 
         // create the metadata chunk
-        let metadata = Vec::with_capacity(4);
+        let metadata = Vec::with_capacity(mem::size_of::<PayloadSize>());
         chunks.push(Cursor::new(metadata));
 
         let encrypted_len = self.encrypt_chunks(&mut Cursor::new(input), &mut chunks)?;
