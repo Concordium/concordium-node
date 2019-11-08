@@ -15,7 +15,7 @@ use std::{
 use parking_lot::Condvar;
 
 use crate::ffi::*;
-use concordium_global_state::tree::{messaging::ConsensusMessage, GlobalState};
+use globalstate_rust::tree::{messaging::ConsensusMessage, GlobalState};
 
 pub type PeerId = u64;
 pub type PrivateData = HashMap<i64, Vec<u8>>;

@@ -18,7 +18,7 @@ use concordium_common::{
     hybrid_buf::HybridBuf, serial::Serial, ConsensusFfiResponse, ConsensusIsInCommitteeResponse,
     PacketType,
 };
-use concordium_global_state::{
+use globalstate_rust::{
     block::*,
     tree::{
         messaging::{ConsensusMessage, MessageType},
