@@ -25,7 +25,7 @@ RUN --mount=type=ssh ./build-binaries.sh "collector,beta" release && \
 
 FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.3 as haskell-build
 COPY ./src/proto/concordium_p2p_rpc.proto /concordium.proto
-COPY ./scripts/CONSENSUS_VERSION /CONSENSUS_VERSION
+COPY ./CONSENSUS_VERSION /CONSENSUS_VERSION
 # P2P client is now built
 RUN --mount=type=ssh pacman -Syy --noconfirm openssh && \
     mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts && \
