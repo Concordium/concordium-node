@@ -44,7 +44,7 @@ instance S.Serialize TransactionSignature where
 
 type PayloadSize = Word32
 
-type TransactionTime = Int64
+type TransactionTime = Word64
 
 -- |Get time in seconds since the unix epoch.
 getTransactionTime :: IO TransactionTime
