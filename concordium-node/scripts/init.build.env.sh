@@ -2,7 +2,7 @@
 
 set -e 
 
-CONSENSUS_VERSION=$(cat scripts/CONSENSUS_VERSION)
+CONSENSUS_VERSION=$( cd deps/internal/consensus && git rev-parse --verify HEAD )
 
 ln -s /usr/lib/libtinfo.so.6 /usr/lib/libtinfo.so.5
 
