@@ -612,12 +612,11 @@ pub fn send_pending_messages(
         trace!("Attempting to send {}B to {}", msg.len(), low_level.conn());
 
         if let Err(err) = low_level.write_to_socket(msg) {
-            error!(
+            bail!(
                 "Can't send a raw network request to {}: {}",
                 low_level.conn(),
                 err
             );
-            return Err(err);
         }
     }
 

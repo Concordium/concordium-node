@@ -1215,6 +1215,7 @@ impl P2PNode {
                     .and_then(|_| low_level.flush_socket())
                 {
                     error!("{}", e);
+                    return Some(*token);
                 }
 
                 if events
