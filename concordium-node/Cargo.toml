@@ -40,7 +40,7 @@ concordium-consensus = { path = "concordium-consensus" }
 concordium-dns = { git = "ssh://git@gitlab.com:22/Concordium/rust/concordium-dns.git", branch = "master" }
 concordium_crypto_ec_vrf_ed25519_sha256 = { package = "ec_vrf_ed25519_sha256", path = "deps/internal/crypto/rust-src/ec_vrf_ed25519_sha256" }
 concordium_crypto_eddsa_ed25519 = { package = "eddsa_ed25519", path = "deps/internal/crypto/rust-src/eddsa_ed25519" }
-concordium-common = { path = "concordium-common" }
+concordium-common = { git = "ssh://git@gitlab.com:22/Concordium/rust/concordium-common.git", branch = "master" }
 # External dependencies
 parking_lot = "^0.9"
 structopt = "0.2"

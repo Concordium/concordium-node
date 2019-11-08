@@ -17,7 +17,7 @@ profiling = ["static"]
 no_rgs = [] 
 
 [dependencies]
-concordium-common = { path = "../concordium-common" }
+concordium-common = { git = "ssh://git@gitlab.com:22/Concordium/rust/concordium-common.git", branch = "master" }
 concordium-global-state = { path = "../concordium-global-state" }
 # curve_arithmetic = { path = "../deps/internal/crypto/rust-src/curve_arithmetic" }
 dodis_yampolskiy_prf = { path = "../deps/internal/crypto/rust-src/dodis_yampolskiy_prf" }
