@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# OPTIONS_GHC -Wno-deprecations #-}
 module SchedulerTests.DummyData where
 
 import qualified Data.ByteString.Lazy as BSL

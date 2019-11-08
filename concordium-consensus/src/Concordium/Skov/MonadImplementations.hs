@@ -92,15 +92,15 @@ deriving via (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (Sk
     instance BlockStateTypes (SkovT h c m)
 
 deriving via (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m))
-    instance (Monad m, BlockStateQuery (GlobalStateM0 (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m)))
+    instance (Monad m, BlockStateQuery (BlockStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m)))
         => BlockStateQuery (SkovT h c m)
 
 deriving via (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m))
-    instance (Monad m, BlockStateOperations (GlobalStateM0 (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m)))
+    instance (Monad m, BlockStateOperations (BlockStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m)))
         => BlockStateOperations (SkovT h c m)
 
 deriving via (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m))
-    instance (Monad m, BlockStateStorage (GlobalStateM0 (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m)))
+    instance (Monad m, BlockStateStorage (BlockStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m)))
         => BlockStateStorage (SkovT h c m)
 
 deriving via (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m))
@@ -111,13 +111,13 @@ deriving via (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (Sk
     instance (
         Monad m,
         TreeStateMonad (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m)),
-        BlockStateStorage (GlobalStateM0 (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m))
+        BlockStateStorage (BlockStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m))
         ) => TreeStateMonad (SkovT h c m)
 
 instance (
         Monad m,
         TreeStateMonad (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m)),
-        BlockStateStorage (GlobalStateM0 (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m))
+        BlockStateStorage (BlockStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m))
         ) => SkovQueryMonad (SkovT h c m) where
     {-# INLINE resolveBlock #-}
     resolveBlock = doResolveBlock
@@ -144,7 +144,7 @@ instance (
         LoggerMonad m,
         OnSkov (SkovT h c m),
         TreeStateMonad (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m)),
-        BlockStateStorage (GlobalStateM0 (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m))
+        BlockStateStorage (BlockStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m))
         ) => SkovMonad (SkovT h c m) where
     {-# INLINE storeBlock #-}
     storeBlock = doStoreBlock
@@ -372,12 +372,12 @@ instance (MonadIO m,
 type SkovConfigMonad h c m = (SkovConfiguration c,
         OnSkov (SkovT h c m),
         TreeStateMonad (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m)),
-        BlockStateStorage (GlobalStateM0 (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m))
+        BlockStateStorage (BlockStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m))
     )
 
 type SkovQueryConfigMonad c m = 
     (TreeStateMonad (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT () c m)),
-    BlockStateStorage (GlobalStateM0 (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT () c m))
+    BlockStateStorage (BlockStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT () c m))
     )
 
 type SkovFinalizationConfigMonad h c m = (
