@@ -1,4 +1,4 @@
-use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
+use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use failure::{Error, Fallible};
 use mio::tcp::TcpStream;
 use snow::{Keypair, Session};
@@ -58,7 +58,7 @@ enum HandshakeState {
 #[derive(Default)]
 struct IncomingMessage {
     pending_bytes: PayloadSize,
-    message:       Vec<u8>,
+    message:       HybridBuf,
 }
 
 pub struct ConnectionLowLevel {
@@ -299,34 +299,32 @@ impl ConnectionLowLevel {
 
     /// Reads the number of bytes required to read the frame length
     #[inline]
-    fn pending_bytes_to_know_expected_size(&self) -> usize {
-        if self.incoming_msg.message.len() < std::mem::size_of::<PayloadSize>() {
-            std::mem::size_of::<PayloadSize>() - self.incoming_msg.message.len()
+    fn pending_bytes_to_know_expected_size(&self) -> Fallible<usize> {
+        let current_len = self.incoming_msg.message.len()? as usize;
+
+        if current_len < mem::size_of::<PayloadSize>() {
+            Ok(mem::size_of::<PayloadSize>() - current_len)
         } else {
-            0
+            Ok(0)
         }
     }
 
     /// It first reads the first 4 bytes of the message to determine its size.
     fn read_expected_size(&mut self) -> Fallible<TcpResult<HybridBuf>> {
         // only extract the bytes needed to know the size.
-        let min_bytes = self.pending_bytes_to_know_expected_size();
+        let min_bytes = self.pending_bytes_to_know_expected_size()?;
         let read_bytes =
             map_io_error_to_fail!(self.socket.read(&mut self.noise_msg_buffer[..min_bytes]))?;
 
         self.incoming_msg
             .message
-            .extend_from_slice(&self.noise_msg_buffer[..read_bytes]);
+            .write_all(&self.noise_msg_buffer[..read_bytes])?;
 
         // once the number of bytes needed to read the message size is known, continue
-        if self.incoming_msg.message.len() == std::mem::size_of::<PayloadSize>() {
-            let expected_size = NetworkEndian::read_u32(
-                &self.incoming_msg.message[..std::mem::size_of::<PayloadSize>()],
-            );
+        if self.incoming_msg.message.len()? == mem::size_of::<PayloadSize>() as u64 {
+            self.incoming_msg.message.rewind()?;
+            let expected_size = self.incoming_msg.message.read_u32::<NetworkEndian>()?;
             trace!("Expecting a message of {}B", expected_size);
-
-            // remove the length from the buffer
-            self.incoming_msg.message.clear();
 
             // check if the expected size doesn't exceed the protocol limit
             if expected_size > PROTOCOL_MAX_MESSAGE_SIZE as PayloadSize {
@@ -338,6 +336,12 @@ impl ConnectionLowLevel {
             } else {
                 self.incoming_msg.pending_bytes = expected_size;
             }
+
+            // remove the length from the buffer
+            mem::replace(
+                &mut self.incoming_msg.message,
+                HybridBuf::with_capacity(expected_size as usize)?,
+            );
 
             // Read data next...
             self.read_payload()
@@ -356,8 +360,12 @@ impl ConnectionLowLevel {
         }
 
         if self.incoming_msg.pending_bytes == 0 {
-            // Ready message
-            let new_data = std::mem::replace(&mut self.incoming_msg.message, Vec::new());
+            // The incoming message is complete and ready to be processed further
+            self.incoming_msg.message.rewind()?;
+            let new_data = std::mem::replace(
+                &mut self.incoming_msg.message,
+                HybridBuf::with_capacity(mem::size_of::<PayloadSize>())?,
+            );
 
             Ok(TcpResult::Complete(HybridBuf::try_from(new_data)?))
         } else {
@@ -375,7 +383,7 @@ impl ConnectionLowLevel {
             Ok(read_bytes) => {
                 self.incoming_msg
                     .message
-                    .extend_from_slice(&self.noise_msg_buffer[..read_bytes]);
+                    .write_all(&self.noise_msg_buffer[..read_bytes])?;
                 self.incoming_msg.pending_bytes -= read_bytes as PayloadSize;
 
                 Ok(read_bytes)
