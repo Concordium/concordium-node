@@ -16,7 +16,7 @@ valgrind = []
 [dependencies]
 chrono = "0.4.0"
 circular-queue = "0.2.0"
-concordium-common = { path = "../concordium-common" }
+concordium-common = { git = "ssh://git@gitlab.com:22/Concordium/rust/concordium-common.git", branch = "master" }
 ec_vrf_ed25519_sha256 = { path = "../deps/internal/crypto/rust-src/ec_vrf_ed25519_sha256" }
 eddsa_ed25519 = { path = "../deps/internal/crypto/rust-src/eddsa_ed25519" }
 hash_hasher = "^2.0"
