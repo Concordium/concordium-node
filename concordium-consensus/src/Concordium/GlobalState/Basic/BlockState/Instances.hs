@@ -21,9 +21,7 @@ module Concordium.GlobalState.Basic.BlockState.Instances(
 ) where
 
 import Concordium.Types
-import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.Types.Acorn.Interfaces
-import Concordium.GlobalState.Information (InstanceInfo(InstanceInfo))
 import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Basic.BlockState.InstanceTable
 

@@ -14,7 +14,6 @@ import Data.ByteString.Lazy as LBS
 import Concordium.Crypto.SHA256(Hash(..))
 import Concordium.Crypto.BlockSignature(Signature(..), signatureLength)
 import Data.FixedByteString as FBS
-import qualified Data.ByteString as BS
 import qualified Data.ByteString.Short as BSS
 
 import Concordium.Types
