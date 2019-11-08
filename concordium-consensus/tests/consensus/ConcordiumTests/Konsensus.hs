@@ -26,7 +26,7 @@ import qualified Concordium.GlobalState.TreeState as TreeState
 import qualified Concordium.GlobalState.Basic.TreeState as TS
 import qualified Concordium.GlobalState.Basic.Block as B
 import qualified Concordium.GlobalState.Basic.BlockPointer as BS
-import Concordium.GlobalState.Transactions
+import Concordium.Types.Transactions
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.IdentityProviders

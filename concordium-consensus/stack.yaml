@@ -38,7 +38,7 @@ packages:
 - crypto
 - acorn
 - scheduler
-- globalstate-mockup/globalstate-types
+- globalstate-types
 - globalstate-mockup/globalstate
 
 # Dependency packages to be pulled from upstream that are not in the resolver

@@ -13,7 +13,7 @@ import Control.Monad.IO.Class
 
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Classes
-import Concordium.GlobalState.Transactions
+import Concordium.Types.Transactions
 import Concordium.GlobalState.Finalization
 import qualified Concordium.GlobalState.TreeState as TS
 

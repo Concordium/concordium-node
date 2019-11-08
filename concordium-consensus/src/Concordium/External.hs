@@ -28,7 +28,7 @@ import Concordium.Types
 import Concordium.ID.Types
 import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Transactions
+import Concordium.Types.Transactions
 import Concordium.GlobalState.Block
 import Concordium.GlobalState
 import qualified Concordium.GlobalState.TreeState as TS

@@ -12,7 +12,7 @@ import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import Concordium.Types
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Transactions
+import Concordium.Types.Transactions
 import Concordium.GlobalState.BlockState (BlockStateQuery)
 import Concordium.GlobalState.TreeState (BlockPointer, BlockPointerData, BlockState, MGSTrans(..), PendingBlock)
 import Concordium.Logger
