@@ -293,6 +293,12 @@ pub struct ConnectionConfig {
         default_value = "50"
     )]
     pub catch_up_batch_limit: u64,
+    #[structopt(
+        long = "thread-pool-size",
+        help = "The size of the threadpool processing connection events in parallel",
+        default_value = "1"
+    )]
+    pub thread_pool_size: usize,
 }
 
 #[derive(StructOpt, Debug)]

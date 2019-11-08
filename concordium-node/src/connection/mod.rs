@@ -5,7 +5,7 @@ pub mod message_handlers;
 mod low_level;
 
 pub use crate::p2p::{Networks, P2PNode};
-use low_level::{ConnectionLowLevel, TcpResult};
+use low_level::ConnectionLowLevel;
 pub use p2p_event::P2PEvent;
 
 mod p2p_event;
@@ -22,10 +22,8 @@ use twox_hash::XxHash64;
 
 use crate::{
     common::{
-        counter::{TOTAL_MESSAGES_RECEIVED_COUNTER, TOTAL_MESSAGES_SENT_COUNTER},
-        get_current_stamp,
-        p2p_peer::P2PPeer,
-        P2PNodeId, PeerStats, PeerType, RemotePeer,
+        counter::TOTAL_MESSAGES_RECEIVED_COUNTER, get_current_stamp, p2p_peer::P2PPeer, P2PNodeId,
+        PeerStats, PeerType, RemotePeer,
     },
     dumper::DumpItem,
     network::{
@@ -58,23 +56,23 @@ pub enum MessageSendingPriority {
 }
 
 pub struct DeduplicationQueues {
-    pub finalizations: CircularQueue<[u8; 8]>,
-    pub transactions:  CircularQueue<[u8; 8]>,
-    pub blocks:        CircularQueue<[u8; 8]>,
-    pub fin_records:   CircularQueue<[u8; 8]>,
+    pub finalizations: RwLock<CircularQueue<[u8; 8]>>,
+    pub transactions:  RwLock<CircularQueue<[u8; 8]>>,
+    pub blocks:        RwLock<CircularQueue<[u8; 8]>>,
+    pub fin_records:   RwLock<CircularQueue<[u8; 8]>>,
 }
 
 impl DeduplicationQueues {
-    pub fn default() -> Self {
+    pub fn default() -> Arc<Self> {
         const SHORT_DEDUP_SIZE: usize = 64;
         const LONG_QUEUE_SIZE: usize = 32 * 1024;
 
-        Self {
-            finalizations: CircularQueue::with_capacity(LONG_QUEUE_SIZE),
-            transactions:  CircularQueue::with_capacity(LONG_QUEUE_SIZE),
-            blocks:        CircularQueue::with_capacity(SHORT_DEDUP_SIZE),
-            fin_records:   CircularQueue::with_capacity(SHORT_DEDUP_SIZE),
-        }
+        Arc::new(Self {
+            finalizations: RwLock::new(CircularQueue::with_capacity(LONG_QUEUE_SIZE)),
+            transactions:  RwLock::new(CircularQueue::with_capacity(LONG_QUEUE_SIZE)),
+            blocks:        RwLock::new(CircularQueue::with_capacity(SHORT_DEDUP_SIZE)),
+            fin_records:   RwLock::new(CircularQueue::with_capacity(SHORT_DEDUP_SIZE)),
+        })
     }
 }
 
@@ -115,7 +113,7 @@ impl fmt::Display for Connection {
         } else {
             self.remote_addr().to_string()
         };
-        write!(f, "connection to {}", target)
+        write!(f, "{}", target)
     }
 }
 
@@ -239,22 +237,27 @@ impl Connection {
     fn is_packet_duplicate(
         &self,
         packet: &mut NetworkPacket,
-        deduplication_queues: &mut DeduplicationQueues,
+        deduplication_queues: &DeduplicationQueues,
     ) -> Fallible<bool> {
         let message = &mut packet.message;
         let packet_type = PacketType::try_from(message.read_u16::<Endianness>()?);
 
         let is_duplicate = match packet_type {
-            Ok(PacketType::FinalizationMessage) => {
-                dedup_with(message, &mut deduplication_queues.finalizations)?
+            Ok(PacketType::FinalizationMessage) => dedup_with(
+                message,
+                &mut write_or_die!(deduplication_queues.finalizations),
+            )?,
+            Ok(PacketType::Transaction) => dedup_with(
+                message,
+                &mut write_or_die!(deduplication_queues.transactions),
+            )?,
+            Ok(PacketType::Block) => {
+                dedup_with(message, &mut write_or_die!(deduplication_queues.blocks))?
             }
-            Ok(PacketType::Transaction) => {
-                dedup_with(message, &mut deduplication_queues.transactions)?
-            }
-            Ok(PacketType::Block) => dedup_with(message, &mut deduplication_queues.blocks)?,
-            Ok(PacketType::FinalizationRecord) => {
-                dedup_with(message, &mut deduplication_queues.fin_records)?
-            }
+            Ok(PacketType::FinalizationRecord) => dedup_with(
+                message,
+                &mut write_or_die!(deduplication_queues.fin_records),
+            )?,
             _ => false,
         };
         message.rewind()?;
@@ -265,7 +268,7 @@ impl Connection {
     fn process_message(
         &self,
         mut message: HybridBuf,
-        deduplication_queues: &mut DeduplicationQueues,
+        deduplication_queues: &DeduplicationQueues,
     ) -> Fallible<()> {
         self.update_last_seen();
         self.stats.messages_received.fetch_add(1, Ordering::Relaxed);
@@ -273,6 +276,10 @@ impl Connection {
         if let Some(ref service) = self.handler().stats_export_service {
             service.pkt_received_inc();
         };
+
+        if cfg!(feature = "network_dump") {
+            self.send_to_dump(Arc::from(message.clone().remaining_bytes()?.to_vec()), true);
+        }
 
         let message = NetworkMessage::deserialize(&message.remaining_bytes()?);
         if let Err(e) = message {
@@ -360,25 +367,6 @@ impl Connection {
         write_or_die!(self.pending_messages).push(message, (priority, Instant::now()));
     }
 
-    /// It sends `input` through `socket`.
-    /// This functions returns (almost) immediately, because it does NOT wait
-    /// for real write. Function `ConnectionPrivate::ready` will make ensure to
-    /// write chunks of the message
-    #[inline(always)]
-    pub fn async_send_from_poll_loop(&self, input: Arc<[u8]>) -> Fallible<TcpResult<usize>> {
-        TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
-        self.stats.messages_sent.fetch_add(1, Ordering::Relaxed);
-        if let Some(ref stats) = self.handler().stats_export_service {
-            stats.pkt_sent_inc();
-        }
-
-        if cfg!(feature = "network_dump") {
-            self.send_to_dump(input.clone(), false);
-        }
-
-        write_or_die!(self.low_level).write_to_socket(input)
-    }
-
     pub fn update_last_seen(&self) {
         if self.handler().peer_type() != PeerType::Bootstrapper {
             self.stats
@@ -455,7 +443,7 @@ impl Connection {
     }
 
     pub fn send_ping(&self) -> Fallible<()> {
-        trace!("Sending a ping on {}", self);
+        trace!("Sending a ping to {}", self);
 
         let mut ping = NetworkMessage {
             timestamp1: Some(get_current_stamp()),
@@ -472,7 +460,7 @@ impl Connection {
     }
 
     pub fn send_pong(&self) -> Fallible<()> {
-        trace!("Sending a pong on {}", self);
+        trace!("Sending a pong to {}", self);
 
         let mut pong = NetworkMessage {
             timestamp1: Some(get_current_stamp()),
@@ -580,27 +568,11 @@ impl Connection {
             .send_over_all_connections(serialized, &conn_filter)
             .map(|_| ())
     }
-
-    #[inline(always)]
-    pub fn send_pending_messages(&self) -> Fallible<()> {
-        let mut pending_messages = write_or_die!(self.pending_messages);
-
-        while let Some((msg, _)) = pending_messages.pop() {
-            trace!("Attempting to send {}B to {}", msg.len(), self);
-
-            if let Err(err) = self.async_send_from_poll_loop(msg) {
-                error!("Can't send a raw network request to {}: {}", self, err);
-                return Err(err);
-            }
-        }
-
-        Ok(())
-    }
 }
 
 impl Drop for Connection {
     fn drop(&mut self) {
-        debug!("Closing {}", self);
+        debug!("Closing the connection to {}", self);
 
         // Report number of peers to stats export engine
         if let Some(ref service) = self.handler().stats_export_service {
@@ -617,13 +589,38 @@ fn dedup_with(message: &mut HybridBuf, queue: &mut CircularQueue<[u8; 8]>) -> Fa
     hash.copy_from_slice(&XxHash64::digest(&message.remaining_bytes()?));
 
     if !queue.iter().any(|h| h == &hash) {
-        trace!("Message {:?} is unique, adding to dedup queue", hash);
+        trace!(
+            "Message {:x} is unique, adding to dedup queue",
+            u64::from_le_bytes(hash)
+        );
         queue.push(hash);
         Ok(false)
     } else {
-        trace!("Message {:?} is a duplicate", hash);
+        trace!("Message {:x} is a duplicate", u64::from_le_bytes(hash));
         Ok(true)
     }
+}
+
+#[inline(always)]
+pub fn send_pending_messages(
+    pending_messages: &RwLock<PriorityQueue<Arc<[u8]>, PendingPriority>>,
+    low_level: &mut ConnectionLowLevel,
+) -> Fallible<()> {
+    let mut pending_messages = write_or_die!(pending_messages);
+
+    while let Some((msg, _)) = pending_messages.pop() {
+        trace!("Attempting to send {}B to {}", msg.len(), low_level.conn());
+
+        if let Err(err) = low_level.write_to_socket(msg) {
+            bail!(
+                "Can't send a raw network request to {}: {}",
+                low_level.conn(),
+                err
+            );
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

@@ -7,7 +7,7 @@ use super::{
     fails::{MessageTooBigError, StreamWouldBlock},
     Connection, DeduplicationQueues,
 };
-use crate::network::PROTOCOL_MAX_MESSAGE_SIZE;
+use crate::{common::counter::TOTAL_MESSAGES_SENT_COUNTER, network::PROTOCOL_MAX_MESSAGE_SIZE};
 use concordium_common::hybrid_buf::HybridBuf;
 
 use std::{
@@ -16,7 +16,7 @@ use std::{
     io::{Cursor, ErrorKind, Read, Seek, SeekFrom, Write},
     mem,
     pin::Pin,
-    sync::Arc,
+    sync::{atomic::Ordering, Arc},
 };
 
 type PayloadSize = u32;
@@ -76,9 +76,6 @@ pub struct ConnectionLowLevel {
     incoming_msg: IncomingMessage,
     /// The current status of the noise handshake
     handshake_state: HandshakeState,
-    /// A container for the high-level handshake message in case we're the
-    /// initiator
-    high_lvl_handshake: Option<Arc<[u8]>>,
     /// A queue for messages waiting to be written to the socket
     output_queue: VecDeque<Cursor<Vec<u8>>>,
     /// A buffer for decrypted/unencrypted message chunks
@@ -86,7 +83,7 @@ pub struct ConnectionLowLevel {
 }
 
 impl ConnectionLowLevel {
-    fn conn(&self) -> &Connection {
+    pub fn conn(&self) -> &Connection {
         &self.conn_ref.as_ref().unwrap() // safe; always available
     }
 
@@ -103,29 +100,27 @@ impl ConnectionLowLevel {
             );
         }
 
-        let noise_session = if is_initiator {
-            trace!("I'm the noise session initiator");
-            None
-        } else {
-            trace!("I'm the noise session responder");
-            Some(
-                snow::Builder::new(noise_params)
-                    .prologue(PROLOGUE)
-                    .psk(2, PRE_SHARED_KEY)
-                    .local_private_key(&keypair.private)
-                    .build_responder()
-                    .expect("Can't build a snow session!"),
-            )
-        };
-
         let mut output_queue = VecDeque::with_capacity(16);
-        let handshake_state = if is_initiator {
-            trace!("I'm sending my pre-shared static key");
+
+        let (noise_session, handshake_state) = if is_initiator {
+            trace!("I'm the noise session initiator; sending my pre-shared static key");
             output_queue.push_back(create_frame(&[]).unwrap()); // infallible
-            HandshakeState::AwaitingPublicKey
+
+            (None, HandshakeState::AwaitingPublicKey)
         } else {
-            trace!("I'm awaiting the pre-shared static key");
-            HandshakeState::AwaitingPreSharedKey
+            trace!("I'm the noise session responder; awaiting the pre-shared static key");
+
+            (
+                Some(
+                    snow::Builder::new(noise_params)
+                        .prologue(PROLOGUE)
+                        .psk(2, PRE_SHARED_KEY)
+                        .local_private_key(&keypair.private)
+                        .build_responder()
+                        .expect("Can't build a snow session!"),
+                ),
+                HandshakeState::AwaitingPreSharedKey,
+            )
         };
 
         ConnectionLowLevel {
@@ -136,7 +131,6 @@ impl ConnectionLowLevel {
             input_nonce: 0,
             output_nonce: 0,
             incoming_msg: IncomingMessage::default(),
-            high_lvl_handshake: None,
             output_queue,
             handshake_state,
             noise_msg_buffer: [0u8; NOISE_MAX_MESSAGE_LEN],
@@ -215,6 +209,9 @@ impl ConnectionLowLevel {
             self.noise_session = Some(session.into_stateless_transport_mode()?);
             self.handshake_state = HandshakeState::Complete;
 
+            // send a high-level handshake request
+            self.conn().send_handshake_request()?;
+
             Ok(())
         } else {
             unreachable!("Handshake logic error");
@@ -232,17 +229,7 @@ impl ConnectionLowLevel {
             Complete => unreachable!("Handshake logic error"),
         }?;
 
-        while !self.output_queue.is_empty() {
-            self.flush_socket()?;
-        }
-
-        // once the noise handshake is complete, send out any pending messages
-        // we might have queued during the process
-        if self.handshake_state == HandshakeState::Complete {
-            if let Some(handshake_msg) = self.high_lvl_handshake.take() {
-                self.write_to_socket(handshake_msg)?;
-            }
-        }
+        self.flush_socket()?;
 
         Ok(())
     }
@@ -251,18 +238,11 @@ impl ConnectionLowLevel {
 
     /// Keeps reading from the socket as long as there is data to be read.
     #[inline(always)]
-    pub fn read_stream(&mut self, deduplication_queues: &mut DeduplicationQueues) -> Fallible<()> {
+    pub fn read_stream(&mut self, deduplication_queues: &DeduplicationQueues) -> Fallible<()> {
         loop {
             match self.read_from_socket() {
                 Ok(read_result) => match read_result {
                     TcpResult::Complete(message) => {
-                        if cfg!(feature = "network_dump") {
-                            self.conn().send_to_dump(
-                                Arc::from(message.clone().remaining_bytes()?.to_vec()),
-                                true,
-                            );
-                        }
-
                         if let Err(e) = self.conn().process_message(message, deduplication_queues) {
                             bail!("can't process a message: {}", e);
                         }
@@ -509,16 +489,27 @@ impl ConnectionLowLevel {
     #[inline(always)]
     pub fn write_to_socket(&mut self, input: Arc<[u8]>) -> Fallible<TcpResult<usize>> {
         if self.handshake_state == HandshakeState::Complete {
+            TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
+            self.conn()
+                .stats
+                .messages_sent
+                .fetch_add(1, Ordering::Relaxed);
+            if let Some(ref stats) = self.conn().handler().stats_export_service {
+                stats.pkt_sent_inc();
+            }
+
+            if cfg!(feature = "network_dump") {
+                self.conn().send_to_dump(input.clone(), false);
+            }
+
             let encrypted_chunks = self.encrypt(&input)?;
             for chunk in encrypted_chunks {
                 self.output_queue.push_back(chunk);
             }
-            self.flush_socket()
-        } else {
-            // in case we are the connection initiator, we need to queue the high-level
-            // handshake message until the noise handshake is complete
-            self.high_lvl_handshake = Some(input);
+
             Ok(TcpResult::Discarded)
+        } else {
+            unreachable!("write_to_socket should not be called before the low-level handshake");
         }
     }
 

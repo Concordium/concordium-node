@@ -3,7 +3,9 @@ use crate::dumper::create_dump_thread;
 use crate::{
     common::{get_current_stamp, P2PNodeId, P2PPeer, PeerStats, PeerType, RemotePeer},
     configuration::{self as config, Config},
-    connection::{Connection, DeduplicationQueues, MessageSendingPriority, P2PEvent},
+    connection::{
+        send_pending_messages, Connection, DeduplicationQueues, MessageSendingPriority, P2PEvent,
+    },
     crypto::generate_snow_config,
     dumper::DumpItem,
     network::{
@@ -92,6 +94,7 @@ pub struct P2PNodeConfig {
     pub bucket_cleanup_interval: u64,
     #[cfg(feature = "beta")]
     pub beta_username: String,
+    thread_pool_size: usize,
 }
 
 #[derive(Default)]
@@ -352,6 +355,7 @@ impl P2PNode {
             bucket_cleanup_interval: conf.common.bucket_cleanup_interval,
             #[cfg(feature = "beta")]
             beta_username: conf.cli.beta_username.clone(),
+            thread_pool_size: conf.connection.thread_pool_size,
         };
 
         let connection_handler = ConnectionHandler::new(conf, server, event_log);
@@ -551,27 +555,46 @@ impl P2PNode {
             let mut log_time = SystemTime::now();
             let mut last_buckets_cleaned = SystemTime::now();
 
-            let mut deduplication_queues = DeduplicationQueues::default();
+            let deduplication_queues = DeduplicationQueues::default();
 
             let num_socket_threads = match self_clone.self_peer.peer_type {
                 PeerType::Bootstrapper => 1,
-                PeerType::Node => 1,
+                PeerType::Node => self_clone.config.thread_pool_size,
             };
             let pool = rayon::ThreadPoolBuilder::new()
                 .num_threads(num_socket_threads)
                 .build()
                 .unwrap();
 
-            loop {
-                let _ = self_clone
-                    .receive_network_events(&mut events, &mut deduplication_queues)
-                    .map_err(|e| {
-                        if !self_clone.is_terminated.load(Ordering::Relaxed) {
-                            error!("{}", e)
-                        }
-                    });
+            let mut connections = Vec::with_capacity(8);
 
-                pool.install(|| self_clone.send_queued_messages());
+            loop {
+                // check for new events or wait
+                if let Err(e) = self_clone.poll.poll(
+                    &mut events,
+                    Some(Duration::from_millis(self_clone.config.poll_interval)),
+                ) {
+                    error!("{}", e);
+                    continue;
+                }
+
+                // perform socket reads and writes in parallel across connections
+                // check for new connections
+                for _ in events.iter().filter(|&event| event.token() == SERVER) {
+                    debug!("Got a new connection!");
+                    self_clone.accept().map_err(|e| error!("{}", e)).ok();
+                    if let Some(ref service) = &self_clone.stats_export_service {
+                        service.conn_received_inc();
+                    };
+                }
+
+                pool.install(|| {
+                    self_clone.process_network_events(
+                        &events,
+                        &deduplication_queues,
+                        &mut connections,
+                    )
+                });
 
                 // Run periodic tasks
                 let now = SystemTime::now();
@@ -625,7 +648,7 @@ impl P2PNode {
             // that the latency calculation is not invalid
             if conn.last_seen() > conn.get_last_ping_sent() {
                 if let Err(e) = conn.send_ping() {
-                    error!("Can't send a ping on {}: {}", conn, e);
+                    error!("Can't send a ping to {}: {}", conn, e);
                 }
             }
         }
@@ -862,7 +885,7 @@ impl P2PNode {
                 self.log_event(P2PEvent::ConnectEvent(addr));
 
                 if let Some(ref conn) = self.find_connection_by_token(token) {
-                    conn.send_handshake_request()?;
+                    write_or_die!(conn.low_level).flush_socket()?;
                 }
 
                 if peer_type == PeerType::Bootstrapper {
@@ -1093,23 +1116,20 @@ impl P2PNode {
             payload:    NetworkMessagePayload::NetworkPacket(inner_pkt),
         };
 
+        let mut serialized = Vec::with_capacity(256);
+        message.serialize(&mut serialized)?;
+
         if let Some(target_id) = target {
             // direct messages
             let filter =
                 |conn: &Connection| read_or_die!(conn.remote_peer.id).unwrap() == target_id;
 
-            let mut serialized = Vec::with_capacity(256);
-            message.serialize(&mut serialized)?;
-
             self.send_over_all_connections(serialized, &filter)
         } else {
             // broadcast messages
             let filter = |conn: &Connection| {
-                is_valid_connection_in_broadcast(conn, source_id, &peers_to_skip, network_id)
+                is_valid_broadcast_target(conn, source_id, &peers_to_skip, network_id)
             };
-
-            let mut serialized = Vec::with_capacity(256);
-            message.serialize(&mut serialized)?;
 
             self.send_over_all_connections(serialized, &filter)
         }
@@ -1175,69 +1195,42 @@ impl P2PNode {
     pub fn internal_addr(&self) -> SocketAddr { self.self_peer.addr }
 
     #[inline(always)]
-    fn receive_network_events(
+    fn process_network_events(
         &self,
-        events: &mut Events,
-        deduplication_queues: &mut DeduplicationQueues,
-    ) -> Fallible<()> {
-        events.clear();
-        self.poll.poll(
-            events,
-            Some(Duration::from_millis(self.config.poll_interval)),
-        )?;
-
-        for event in events.iter() {
-            match event.token() {
-                SERVER => {
-                    debug!("Got a new connection!");
-                    self.accept().map_err(|e| error!("{}", e)).ok();
-                    if let Some(ref service) = &self.stats_export_service {
-                        service.conn_received_inc();
-                    };
-                }
-                _ => {
-                    let readiness = event.readiness();
-                    if readiness.is_readable() || readiness.is_writable() {
-                        if let Some(conn) = self.find_connection_by_token(event.token()) {
-                            let mut read_result = Ok(());
-                            {
-                                let mut conn_lock = write_or_die!(conn.low_level);
-                                if readiness.is_readable() {
-                                    read_result = conn_lock.read_stream(deduplication_queues);
-                                }
-                                if readiness.is_writable() {
-                                    // TODO: we might want to close the connection
-                                    // when specific write errors are detected
-                                    conn_lock.flush_socket()?;
-                                }
-                            }
-                            if let Err(e) = read_result {
-                                error!("Couldn't process a connection read event: {}", e);
-                                conn.handler().remove_connection(conn.token);
-                            }
-                        }
-                    }
-                }
-            }
+        events: &Events,
+        deduplication_queues: &Arc<DeduplicationQueues>,
+        connections: &mut Vec<(Token, Arc<Connection>)>,
+    ) {
+        connections.clear();
+        for (token, conn) in read_or_die!(self.connections()).iter() {
+            connections.push((*token, Arc::clone(&conn)));
         }
 
-        Ok(())
-    }
-
-    #[inline(always)]
-    pub fn send_queued_messages(&self) {
-        let conns_to_remove = read_or_die!(self.connections())
+        let to_remove = connections
             .par_iter()
-            .filter_map(|(&token, conn)| {
-                if conn.send_pending_messages().is_err() {
-                    Some(token)
+            .filter_map(|(token, conn)| {
+                let mut low_level = write_or_die!(conn.low_level);
+
+                if let Err(e) = send_pending_messages(&conn.pending_messages, &mut low_level)
+                    .and_then(|_| low_level.flush_socket())
+                {
+                    error!("{}", e);
+                    return Some(*token);
+                }
+
+                if events
+                    .iter()
+                    .any(|event| event.token() == *token && event.readiness().is_readable())
+                    && low_level.read_stream(deduplication_queues).is_err()
+                {
+                    Some(*token)
                 } else {
                     None
                 }
             })
             .collect::<Vec<_>>();
 
-        for token in conns_to_remove {
+        for token in to_remove.into_iter() {
             self.remove_connection(token);
         }
     }
@@ -1350,7 +1343,7 @@ impl Drop for P2PNode {
 /// Connetion is valid for a broadcast if sender is not target,
 /// network_id is owned by connection, and the remote peer is not
 /// a bootstrap node.
-fn is_valid_connection_in_broadcast(
+fn is_valid_broadcast_target(
     conn: &Connection,
     sender: P2PNodeId,
     peers_to_skip: &[P2PNodeId],
