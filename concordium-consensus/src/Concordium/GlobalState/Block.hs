@@ -7,7 +7,7 @@ import Data.Serialize
 
 import qualified Concordium.Crypto.BlockSignature as Sig
 import Concordium.Types
-import Concordium.GlobalState.Transactions
+import Concordium.Types.Transactions
 import Concordium.Types.HashableTo
 
 -- * Block type classes

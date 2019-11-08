@@ -26,7 +26,7 @@ import Concordium.GlobalState.Block
 import qualified Concordium.GlobalState.TreeState as TS
 import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.Statistics (ConsensusStatistics, initialConsensusStatistics)
-import Concordium.GlobalState.Transactions
+import Concordium.Types.Transactions
 
 import Concordium.GlobalState.Basic.Block
 import Concordium.GlobalState.Basic.BlockPointer
