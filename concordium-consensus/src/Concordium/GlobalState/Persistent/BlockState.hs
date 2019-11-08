@@ -34,7 +34,7 @@ import qualified Concordium.GlobalState.IdentityProviders as IPS
 import qualified Concordium.GlobalState.Rewards as Rewards
 import qualified Concordium.GlobalState.Persistent.Account as Account
 import qualified Concordium.GlobalState.Persistent.Instances as Instances
-import qualified Concordium.GlobalState.Transactions as Transactions
+import qualified Concordium.Types.Transactions as Transactions
 import Concordium.GlobalState.Persistent.Instances(PersistentInstance(..), PersistentInstanceParameters(..), CacheableInstanceParameters(..))
 import Concordium.GlobalState.Instance (Instance(..),InstanceParameters(..))
 import qualified Concordium.GlobalState.Basic.BlockState as Basic

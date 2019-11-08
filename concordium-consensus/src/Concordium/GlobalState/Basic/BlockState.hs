@@ -19,7 +19,7 @@ import qualified Concordium.GlobalState.Basic.BlockState.Account as Account
 import qualified Concordium.GlobalState.Basic.BlockState.Instances as Instances
 import qualified Concordium.GlobalState.Rewards as Rewards
 import qualified Concordium.GlobalState.IdentityProviders as IPS
-import qualified Concordium.GlobalState.Transactions as Transactions
+import qualified Concordium.Types.Transactions as Transactions
 
 import qualified Acorn.Utils.Init as Acorn
 

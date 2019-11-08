@@ -10,7 +10,7 @@ import qualified Concordium.Crypto.SHA256 as Hash
 
 import Concordium.GlobalState.Parameters
 import Concordium.Types
-import Concordium.GlobalState.Transactions
+import Concordium.Types.Transactions
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Block
 
