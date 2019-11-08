@@ -214,12 +214,13 @@ dummyIdentityProviders :: [IpInfo]
 dummyIdentityProviders = []
 
 genesisState :: GenesisData -> Basic.BlockState
-genesisState genData = Basic.initialState
+genesisState genData = Example.initialState
                        (genesisBirkParameters genData)
                        (genesisCryptographicParameters genData)
                        (genesisAccounts genData ++ genesisSpecialBetaAccounts genData)
                        (genesisIdentityProviders genData)
-                       (genesisMintPerSlot genData)
+                       2
+                       -- (genesisMintPerSlot genData)
 
 main :: IO ()
 main = do

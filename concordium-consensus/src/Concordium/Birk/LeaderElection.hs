@@ -84,5 +84,4 @@ verifyBlockNonce
   -> BlockNonce
   -> Bool
 verifyBlockNonce nonce slot verifKey prf =
-  VRF.verifyKey verifKey
-    && VRF.verify verifKey (blockNonceMessage nonce slot) prf
+  VRF.verify verifKey (blockNonceMessage nonce slot) prf
