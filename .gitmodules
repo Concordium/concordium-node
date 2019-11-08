@@ -1,6 +1,6 @@
-[submodule "deps/internal/crypto"]
-	path = deps/internal/crypto
-	url = ../crypto.git
 [submodule "deps/internal/grpc-api"]
 	path = deps/internal/grpc-api
 	url = ../grpc-api.git
+[submodule "deps/internal/consensus"]
+	path = deps/internal/consensus
+	url = ../consensus/prototype.git
