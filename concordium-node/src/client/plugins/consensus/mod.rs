@@ -53,7 +53,7 @@ pub fn start_consensus_layer(
     genesis_data: Vec<u8>,
     private_data: Option<Vec<u8>>,
     max_logging_level: consensus::ConsensusLogLevel,
-) -> consensus::ConsensusContainer {
+) -> Fallible<consensus::ConsensusContainer> {
     info!("Starting up the consensus thread");
 
     #[cfg(feature = "profiling")]

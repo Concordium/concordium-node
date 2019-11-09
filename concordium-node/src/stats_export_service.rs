@@ -511,9 +511,9 @@ impl StatsExportService {
         let _th = spawn_or_die!("Prometheus push", move || loop {
             debug!("Pushing data to push gateway");
             let username_pass = prometheus_push_username.clone().and_then(|username| {
-                prometheus_push_password.clone().and_then(|password| {
-                    Some(prometheus::BasicAuthentication { username, password })
-                })
+                prometheus_push_password
+                    .clone()
+                    .map(|password| prometheus::BasicAuthentication { username, password })
             });
             thread::sleep(time::Duration::from_secs(prometheus_push_interval));
             prometheus::push_metrics(

@@ -141,7 +141,7 @@ fn main() -> Fallible<()> {
         } else {
             ConsensusLogLevel::Warning
         },
-    );
+    )?;
 
     // Start the RPC server
     let mut rpc_serv = if !conf.cli.rpc.no_rpc_server {
