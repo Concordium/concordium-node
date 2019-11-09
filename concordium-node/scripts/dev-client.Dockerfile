@@ -14,7 +14,7 @@ COPY scripts/build-binaries.sh ./build-binaries.sh
 COPY scripts/genesis-data ./genesis-data
 
 # Build Environment: Hacl, ffi, Haskell (inherited from k8 build)
-RUN --mount=type=ssh ./init.build.env.sh
+RUN --mount=type=ssh sh -x ./init.build.env.sh
 
 ### Baker id gen
 RUN \
