@@ -8,7 +8,7 @@ then
   exit 1
 fi
 
-CONSENSUS_VERSION=$( cd deps/internal/consensus && git rev-parse --verify HEAD )
+CONSENSUS_VERSION=$( git submodule | grep consensus | head -n1 | awk '{print $1}' )
 
 echo "Consensus commit ID $CONSENSUS_VERSION with type $3"
 
