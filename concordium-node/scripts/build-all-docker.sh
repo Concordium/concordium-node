@@ -4,7 +4,7 @@ set -e
 
 if [ "$#" -lt 2 ]
 then
-  echo "Usage: ./build-all-docker.sh VERSION-TAG [debug|release] [default|no-rgs] [profiling:[true|false]]"
+  echo "Usage: ./build-all-docker.sh VERSION-TAG [debug|release] [default|rgs] [profiling:[true|false]]"
   exit 1
 fi
 

@@ -176,8 +176,8 @@ cd /build
 
 echo "Done!"
 
-tar czf static-consensus-$GHC_VERSION.tar.gz /target
-tar czf static-consensus-binaries-$GHC_VERSION.tar.gz /binaries
+tar czf static-consensus-$GHC_VERSION-rgs.tar.gz /target
+tar czf static-consensus-binaries-$GHC_VERSION-rgs.tar.gz /binaries
 
 rm -rf /target /binaries
 
@@ -291,5 +291,5 @@ cd /build
 
 echo "Done!"
 
-tar czf static-consensus-$GHC_VERSION-no-rgs.tar.gz /target
-tar czf static-consensus-binaries-$GHC_VERSION-no-rgs.tar.gz /binaries
+tar czf static-consensus-$GHC_VERSION.tar.gz /target
+tar czf static-consensus-binaries-$GHC_VERSION.tar.gz /binaries
