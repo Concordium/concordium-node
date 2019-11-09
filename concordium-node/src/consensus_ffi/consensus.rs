@@ -240,7 +240,7 @@ impl ConsensusContainer {
         baker_id: Option<BakerId>,
         gsptr: GlobalState,
         max_log_level: ConsensusLogLevel,
-    ) -> Self {
+    ) -> Fallible<Self> {
         info!("Starting up the consensus layer");
 
         let consensus_type = if private_data.is_some() {
@@ -249,22 +249,23 @@ impl ConsensusContainer {
             ConsensusType::Passive
         };
 
-        let consensus_ptr = get_consensus_ptr(
+        match get_consensus_ptr(
             max_block_size,
             enable_transfer_logging,
             genesis_data.clone(),
             private_data,
             gsptr,
             max_log_level,
-        );
-
-        Self {
-            max_block_size,
-            baker_id,
-            is_baking: Arc::new(AtomicBool::new(false)),
-            consensus: Arc::new(AtomicPtr::new(consensus_ptr)),
-            genesis: Arc::from(genesis_data),
-            consensus_type,
+        ) {
+            Ok(consensus_ptr) => Ok(Self {
+                max_block_size,
+                baker_id,
+                is_baking: Arc::new(AtomicBool::new(false)),
+                consensus: Arc::new(AtomicPtr::new(consensus_ptr)),
+                genesis: Arc::from(genesis_data),
+                consensus_type,
+            }),
+            Err(e) => Err(e),
         }
     }
 

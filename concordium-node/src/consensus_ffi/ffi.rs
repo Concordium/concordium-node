@@ -1,5 +1,5 @@
 use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt};
-use failure::{format_err, Fallible};
+use failure::{bail, format_err, Fallible};
 
 use std::{
     convert::TryFrom,
@@ -327,7 +327,7 @@ pub fn get_consensus_ptr(
     private_data: Option<Vec<u8>>,
     _gsptr: GlobalState,
     maximum_log_level: ConsensusLogLevel,
-) -> *mut consensus_runner {
+) -> Fallible<*mut consensus_runner> {
     let genesis_data_len = genesis_data.len();
 
     // private_data appears to (might be too early to deserialize yet) contain:
@@ -338,7 +338,7 @@ pub fn get_consensus_ptr(
 
     let c_string_genesis = unsafe { CString::from_vec_unchecked(genesis_data) };
 
-    match private_data {
+    let consensus_ptr = match private_data {
         Some(ref private_data_bytes) => {
             let private_data_len = private_data_bytes.len();
             unsafe {
@@ -390,6 +390,12 @@ pub fn get_consensus_ptr(
                 )
             }
         },
+    };
+
+    if consensus_ptr.is_null() {
+        bail!("Could not start consensus")
+    } else {
+        Ok(consensus_ptr)
     }
 }
 
