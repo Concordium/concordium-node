@@ -51,7 +51,7 @@ flags:
     default: True
   rust:
     manual: True
-    default: True
+    default: False
 
 library:
   source-dirs: src

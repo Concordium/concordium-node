@@ -345,10 +345,10 @@ pub fn get_consensus_ptr(
                 let c_string_private_data =
                     CString::from_vec_unchecked(private_data_bytes.to_owned());
 
-                #[cfg(not(feature = "no_rgs"))]
+                #[cfg(feature = "rgs")]
                 let gsptr = Box::into_raw(Box::new(_gsptr)) as *const GlobalState;
 
-                #[cfg(feature = "no_rgs")]
+                #[cfg(not(feature = "rgs"))]
                 let gsptr = std::ptr::null();
 
                 startConsensus(
@@ -367,7 +367,7 @@ pub fn get_consensus_ptr(
             }
         }
         None => unsafe {
-            #[cfg(not(feature = "no_rgs"))]
+            #[cfg(feature = "rgs"))]
             {
                 startConsensusPassive(
                     max_block_size,
@@ -378,7 +378,7 @@ pub fn get_consensus_ptr(
                     on_log_emited,
                 )
             }
-            #[cfg(feature = "no_rgs")]
+            #[cfg(not(feature = "rgs"))]
             {
                 startConsensusPassive(
                     max_block_size,
