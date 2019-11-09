@@ -367,7 +367,7 @@ pub fn get_consensus_ptr(
             }
         }
         None => unsafe {
-            #[cfg(feature = "rgs"))]
+            #[cfg(feature = "rgs")]
             {
                 startConsensusPassive(
                     max_block_size,
