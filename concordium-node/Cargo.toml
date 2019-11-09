@@ -38,8 +38,8 @@ codegen-units = 1
 globalstate-rust = { path = "deps/internal/consensus/globalstate-mockup/globalstate-rust" }
 consensus-rust = { path = "deps/internal/consensus/consensus-rust"  }
 concordium-dns = { git = "ssh://git@gitlab.com:22/Concordium/rust/concordium-dns.git", branch = "master" }
-concordium_crypto_ec_vrf_ed25519_sha256 = { package = "ec_vrf_ed25519_sha256", path = "deps/internal/consensus/globalstate-mockup/deps/crypto/rust-src/ec_vrf_ed25519_sha256" }
-concordium_crypto_eddsa_ed25519 = { package = "eddsa_ed25519", path = "deps/internal/consensus/globalstate-mockup/deps/crypto/rust-src/eddsa_ed25519" }
+concordium_crypto_ec_vrf_ed25519_sha256 = { package = "ec_vrf_ed25519_sha256", path = "deps/internal/consensus/crypto/rust-src/ec_vrf_ed25519_sha256" }
+concordium_crypto_eddsa_ed25519 = { package = "eddsa_ed25519", path = "deps/internal/consensus/crypto/rust-src/eddsa_ed25519" }
 concordium-common = { path = "deps/internal/consensus/globalstate-mockup/deps/concordium-common"  }
 # External dependencies
 parking_lot = "^0.9"
