@@ -17,7 +17,7 @@ cp /manifests/cabal.project           /build
 cp /manifests/cabal.project.local     /build
 
 rustup set profile minimal
-rustup default 1.38.0
+rustup default 1.39.0
 
 rm -rf $HOME/.cargo
 
