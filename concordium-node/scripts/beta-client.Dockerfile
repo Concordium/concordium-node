@@ -24,7 +24,6 @@ RUN --mount=type=ssh ./build-binaries.sh "collector,beta" release && \
     cp genesis.dat /build-project/
 
 FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.4 as haskell-build
-COPY ./src/proto/concordium_p2p_rpc.proto /concordium.proto
 COPY ./CONSENSUS_VERSION /CONSENSUS_VERSION
 # P2P client is now built
 RUN --mount=type=ssh pacman -Syy --noconfirm openssh && \
@@ -34,8 +33,6 @@ RUN --mount=type=ssh pacman -Syy --noconfirm openssh && \
     curl -s "https://s3-eu-west-1.amazonaws.com/static-libraries.concordium.com/static-consensus-binaries-$(cat /CONSENSUS_VERSION).tar.gz" -O && \
     tar -xf static-consensus-binaries-$(cat /CONSENSUS_VERSION).tar.gz && \
     mv binaries /genesis-binaries && \
-    rm proto/concordium.proto && \
-    cp /concordium.proto proto/concordium.proto && \
     ./build-deps.sh && \
     ./stack build --flag "simple-client:middleware" && \
     mkdir -p /libs && \
