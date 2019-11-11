@@ -25,6 +25,7 @@ import Concordium.Types.HashableTo
 import qualified Concordium.GlobalState.TreeState as TreeState
 import qualified Concordium.GlobalState.Basic.TreeState as TS
 import qualified Concordium.GlobalState.Basic.Block as B
+import qualified Concordium.GlobalState.Basic.BlockState as BSTATE
 import qualified Concordium.GlobalState.Basic.BlockPointer as BS
 import Concordium.Types.Transactions
 import Concordium.GlobalState.Finalization
@@ -47,6 +48,8 @@ import Concordium.Logger
 import Concordium.Birk.Bake
 import Concordium.TimeMonad
 
+import Concordium.Kontrol.UpdateLeaderElectionParameters(slotDependentBirkParameters)
+
 import Concordium.Startup(makeBakerAccount, dummyCryptographicParameters)
 
 import Test.QuickCheck
@@ -63,7 +66,7 @@ type ANFTS = HM.HashMap AccountAddress AccountNonFinalizedTransactions
 
 type Config t = SkovConfig MemoryTreeMemoryBlockConfig (ActiveFinalization t) NoHandler
 
-invariantSkovData :: TS.SkovData bs -> Either String ()
+invariantSkovData :: TS.SkovData BSTATE.BlockState -> Either String ()
 invariantSkovData TS.SkovData{..} = do
         -- Finalization list
         when (Seq.null _finalizationList) $ Left "Finalization list is empty"
@@ -90,6 +93,7 @@ invariantSkovData TS.SkovData{..} = do
         (pendingTrans, pendingNonces) <- walkTransactions lastFin _focusBlock nonFinTrans anftNonces
         let ptt = foldr (\(tr, _) -> checkedExtendPendingTransactionTable (pendingNonces ^. at (transactionSender tr) . non emptyANFT . anftNextNonce) tr) emptyPendingTransactionTable pendingTrans
         checkBinary (==) ptt _pendingTransactions "==" "expected pending transactions" "recorded pending transactions"
+        checkEpochs _focusBlock
     where
         checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
         checkFin (finMap, lastFin, i) (fr, bp) = do
@@ -149,6 +153,30 @@ invariantSkovData TS.SkovData{..} = do
         notDeadOrPending _ = True
         onlyPending (TreeState.BlockPending {}) = True
         onlyPending _ = False
+        checkEpochs :: (BS.BasicBlockPointer BSTATE.BlockState) -> Either String ()
+        checkEpochs bp = do
+            let params = BSTATE._blockBirkParameters (bpState bp)
+            let currentEpoch = epoch $ _birkSeedState params
+            let currentSlot = case BS._bpBlock bp of
+                    B.GenesisBlock _ -> 0
+                    B.NormalBlock block -> B.bbSlot block
+            -- The slot of the block should be in the epoch of its parameters:
+            if (currentEpoch == (theSlot $ currentSlot `div` (epochLength (_birkSeedState params))))
+               then return ()
+               else Left $ "Slot " ++ show currentSlot ++ " is not in epoch " ++ show currentEpoch
+            let parentParams = BSTATE._blockBirkParameters (bpState (bpParent bp))
+            let parentEpoch = epoch $ _birkSeedState parentParams
+            if currentEpoch == parentEpoch 
+                then return ()
+                else 
+                    -- The leadership election nonce should change every epoch
+                    checkBinary (/=) (currentSeed $ _birkSeedState params) (currentSeed $ _birkSeedState parentParams) "/=" 
+                ("Epoch " ++ show currentEpoch ++ " seed: " ) ("Epoch " ++ show parentEpoch ++ " seed: " )
+            let nextEpochParams = slotDependentBirkParameters (currentSlot + (epochLength (_birkSeedState params))) params
+            let prevEpochBakers = _birkPrevEpochBakers params
+            let futureLotteryBakers = _birkLotteryBakers nextEpochParams
+            -- This epoch's prevEpochBakers should be the next epoch's lotterybakers
+            checkBinary (==) prevEpochBakers futureLotteryBakers "==" "baker state of previous epoch " " lottery bakers in next epoch "
 
 invariantSkovFinalization :: SkovState (Config t) -> Either String ()
 invariantSkovFinalization (SkovState sd@TS.SkovData{..} FinalizationState{..} _) = do
@@ -283,9 +311,9 @@ runKonsensusTest steps g states es
                 EBake sl -> do
                     (mb, fs', es2) <- myRunSkovT (bakeForSlot bkr sl) handlers fi fs es1
                     case mb of
-                        Nothing -> continue fs' es2
+                        Nothing -> continue fs' (es2 & esEventPool %~ ((rcpt, EBake (sl + 1)) Seq.<|))
                         Just (BS.BasicBlockPointer {_bpBlock = B.NormalBlock b}) ->
-                            continue fs' (es2 & esEventPool %~ (<> Seq.fromList [(r, EBlock b) | r <- btargets]))
+                            continue fs' (es2 & esEventPool %~ (<> Seq.fromList ((rcpt, EBake (sl + 1)) : [(r, EBlock b) | r <- btargets])))
                         Just _ -> error "Baked genesis block"
 
                 EBlock block -> do
@@ -327,9 +355,9 @@ runKonsensusTestSimple steps g states es
                 EBake sl -> do
                     (mb, fs', es2) <- myRunSkovT (bakeForSlot bkr sl) handlers fi fs es1
                     case mb of
-                        Nothing -> continue fs' es2
+                        Nothing -> continue fs' (es2 & esEventPool %~ ((rcpt, EBake (sl + 1)) Seq.<|))
                         Just (BS.BasicBlockPointer {_bpBlock = B.NormalBlock b}) ->
-                            continue fs' (es2 & esEventPool %~ (<> Seq.fromList [(r, EBlock b) | r <- btargets]))
+                            continue fs' (es2 & esEventPool %~ (<> Seq.fromList ((rcpt, EBake (sl + 1)) : [(r, EBlock b) | r <- btargets])))
                         Just _ -> error "Baked genesis block"
 
                 EBlock block -> do
@@ -383,7 +411,7 @@ initialiseStates n = do
         let bns = [0..fromIntegral n - 1]
         bis <- mapM (\i -> (i,) <$> pick (makeBaker i 1)) bns
         let genesisBakers = fst . bakersFromList $ (^. _2 . _1) <$> bis
-        let bps = BirkParameters 0.5 genesisBakers genesisBakers genesisBakers (genesisSeedState (hash "LeadershipElectionNonce") 360)
+        let bps = BirkParameters 0.5 genesisBakers genesisBakers genesisBakers (genesisSeedState (hash "LeadershipElectionNonce") 10)
             fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _ _, _, _)) <- bis] 2
             bakerAccounts = map (\(_, (_, _, acc)) -> acc) bis
             gen = GenesisData 0 1 bps bakerAccounts [] fps dummyCryptographicParameters dummyIdentityProviders 10
@@ -437,12 +465,14 @@ withInitialStatesDoubleTransactions n trcount r = monadicIO $ do
 tests :: Word -> Spec
 tests lvl = parallel $ describe "Concordium.Konsensus" $ do
     -- it "catch up at end" $ withMaxSuccess 5 $ withInitialStates 2 $ runKonsensusTestSimple 100
+    {-
     it "2 parties, 100 steps, 20 transactions with duplicates, check at every step" $ withMaxSuccess (10^lvl) $ withInitialStatesDoubleTransactions 2 10 $ runKonsensusTest 100
     it "2 parties, 100 steps, 10 transactions, check at every step" $ withMaxSuccess (10*10^lvl) $ withInitialStatesTransactions 2 10 $ runKonsensusTest 100
     it "2 parties, 1000 steps, 50 transactions, check at every step" $ withMaxSuccess (10^lvl) $ withInitialStatesTransactions 2 50 $ runKonsensusTest 1000
     it "2 parties, 100 steps, check at every step" $ withMaxSuccess (10*10^lvl) $ withInitialStates 2 $ runKonsensusTest 100
+    -}
     --it "2 parties, 100 steps, check at end" $ withMaxSuccess 50000 $ withInitialStates 2 $ runKonsensusTestSimple 100
     --it "2 parties, 1000 steps, check at end" $ withMaxSuccess 100 $ withInitialStates 2 $ runKonsensusTestSimple 1000
-    it "2 parties, 1000 steps, check at every step" $ withMaxSuccess (10^lvl) $ withInitialStates 2 $ runKonsensusTest 1000
+    it "2 parties, 1000 steps, check at every step" $ withMaxSuccess (10^lvl) $ withInitialStates 2 $ runKonsensusTest 10000
     --it "2 parties, 10000 steps, check at end" $ withMaxSuccess 100 $ withInitialStates 2 $ runKonsensusTestSimple 10000
     it "4 parties, 10000 steps, check every step" $ withMaxSuccess (10^lvl `div` 20) $ withInitialStates 4 $ runKonsensusTest 10000
