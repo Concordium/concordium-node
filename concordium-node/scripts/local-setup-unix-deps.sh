@@ -1,12 +1,6 @@
 #!/usr/bin/env bash
 set -x
 
-if [ !-d "$CONCORDIUM_P2P_DIR/deps/internal/consensus" ];
-then
-    echo "Missing consensus checked out at $CONCORDIUM_P2P_DIR/deps/internal/consensus, which is needed for local developmenet of the Haskell parts"
-    exit 1
-fi
-
 if [[ "$OSTYPE" == "darwin"* ]]; then
 	LIBEXTENSION="dylib"
     PLATFORM="osx"
@@ -42,21 +36,18 @@ fi
 
 echo -e "packages: []\nresolver: $(cat deps/internal/consensus/stack.yaml | grep ^resolver: | awk '{ print $NF }')" > ~/.stack/global-project/stack.yaml
 
-( cd deps/internal/consensus/crypto/rust-src &&
+( cd deps/internal/consensus/globalstate-mockup/deps/crypto/rust-src &&
       LD_LIBRARY_PATH=/usr/local/lib cargo build &&
       cd target/debug &&
       for l in $(find . -maxdepth 1 -type f -name \*.so); do
           sudo cp $l /usr/local/lib;
       done
-  #rm -rf target/
 )
 
 ( cd deps/internal/consensus &&
-      git submodule update --init --recursive &&
-      ( cd globalstate-mockup/deps/concordium-global-state-sys &&
+      ( cd globalstate-mockup/globalstate-rust &&
             LD_LIBRARY_PATH=/usr/local/lib cargo build &&
-            sudo cp target/debug/libconcordium_global_state_sys.$LIBEXTENSION /usr/local/lib &&
-            #rm -rf target/ &&
+            sudo cp target/debug/libglobalstate_rust.$LIBEXTENSION /usr/local/lib &&
             sudo ldconfig) &&
   rm -rf .stack-work &&
   LD_LIBRARY_PATH=/usr/local/lib stack build --ghc-options '-dynamic' --force-dirty --flag "globalstate:rust" --flag "scheduler:rust" --flag "Concordium:rust" &&

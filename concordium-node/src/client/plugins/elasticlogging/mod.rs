@@ -1,4 +1,4 @@
-use concordium_consensus::transferlog::{TransactionLogMessage, TransferLogType};
+use consensus_rust::transferlog::{TransactionLogMessage, TransferLogType};
 use elastic::{client::Client, http::sender::SyncSender, prelude::*};
 use failure::Fallible;
 use serde::{Deserialize, Serialize};

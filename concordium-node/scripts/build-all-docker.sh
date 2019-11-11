@@ -4,11 +4,11 @@ set -e
 
 if [ "$#" -lt 2 ]
 then
-  echo "Usage: ./build-all-docker.sh VERSION-TAG [debug|release] [default|no-rgs] [profiling:[true|false]]"
+  echo "Usage: ./build-all-docker.sh VERSION-TAG [debug|release] [default|rgs] [profiling:[true|false]]"
   exit 1
 fi
 
-CONSENSUS_VERSION=$(cat scripts/CONSENSUS_VERSION)
+CONSENSUS_VERSION=$( git submodule | grep consensus | head -n1 | awk '{print $1}' )
 
 echo "Consensus commit ID $CONSENSUS_VERSION with type $3"
 

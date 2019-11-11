@@ -28,7 +28,7 @@ This repository uses git lfs for storing binary dependencies, and relies on git 
 * elastic_logging - enable ability to log transaction events to elastic search
 * collector - enables the build of the node-collector and backend
 * beta - enables special beta only features like client username/password validation
-* no_rgs - use consensus with haskell global state implementation (this must match the proper static libraries if compiled against them)
+* rgs - use consensus with rust global state implementation (this must match the proper static libraries if compiled against them)
 
 ## Setting up basic local build environment
 Install the needed dependencies from the list above (Windows build is special, for that see cross-compilation build environment setup script in [scripts/init.win.build.env.sh](/scripts/init.win.build.env.sh) for further details), and run the script (requires that the user executing is has sudo privileges) `scripts/local-setup-unix-deps.sh` and pay special attention to setting the right version of GHC (see [build scripts](/scripts/local-setup-unix-deps.sh#L25) for details).
@@ -60,7 +60,7 @@ $> nix-env -f . -i
 
 ## Docker-Compose
 ### Building docker images
-To build the stable image built in a Jenkins pipeline (it gets tagged `latest`, if not changed in the line shown below, so it matches the image hosted on docker-hub - and as the layers will have a newer version, it won't download from docker-hub unless the locally built image is removed via e.g. `docker image rmi ..`). It passes the local `ssh-agent` into the docker build environment for the needed stages to download internal crates with git directly. This image builds on `192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base` so make sure to have either built this locally (check [scripts/build-base.sh](/scripts/build-base.sh) for the syntax and current version, and do note performing this step requires [consensus](https://gitlab.com/Concordium/consensus/prototype) checked out under `deps/internal/consensus` at the version specified in `scripts/CONSENSUS_VERSION`).
+To build the stable image built in a Jenkins pipeline (it gets tagged `latest`, if not changed in the line shown below, so it matches the image hosted on docker-hub - and as the layers will have a newer version, it won't download from docker-hub unless the locally built image is removed via e.g. `docker image rmi ..`). It passes the local `ssh-agent` into the docker build environment for the needed stages to download internal crates with git directly. This image builds on `192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base` so make sure to have either built this locally (check [scripts/build-base.sh](/scripts/build-base.sh) for the syntax and current version).
 ```bash
 $> git clone -b master --single-branch git@gitlab.com:Concordium/tools/baker_id_gen.git baker_id_gen # Only needed once, as it's a vital component to scaling the bakers inside docker-compose
 $> DOCKER_BUILDKIT=1 docker build -f scripts/dev-client.Dockerfile -t concordium/dev-client:latest --ssh default . --no-cache

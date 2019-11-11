@@ -5,7 +5,7 @@ use std::{
 };
 
 use concordium_common::serial::Serial;
-use concordium_global_state::transaction::BareTransaction;
+use globalstate_rust::transaction::BareTransaction;
 
 fn read_transaction(bytes: &[u8]) {
     let mut cursor = Cursor::new(bytes);

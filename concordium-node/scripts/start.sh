@@ -128,6 +128,11 @@ then
     ARGS="$ARGS --max-allowed-nodes-percentage $MAX_NODES_PERCENTAGE"
 fi
 
+if [ -n "$THREAD_POOL_SIZE" ];
+then
+    ARGS="$ARGS --thread-pool-size $THREAD_POOL_SIZE"
+fi
+
 if [ -n "$EXTRA_ARGS" ];
 then
     ARGS="$ARGS $EXTRA_ARGS"

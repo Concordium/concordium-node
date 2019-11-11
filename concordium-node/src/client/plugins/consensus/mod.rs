@@ -26,12 +26,12 @@ use concordium_common::{
     QueueMsg,
 };
 
-use concordium_consensus::{
+use consensus_rust::{
     consensus::{self, PeerId, CALLBACK_QUEUE},
     ffi,
 };
 
-use concordium_global_state::{
+use globalstate_rust::{
     catch_up::{PeerList, PeerState, PeerStatus},
     common::sha256,
     tree::{
@@ -53,7 +53,7 @@ pub fn start_consensus_layer(
     genesis_data: Vec<u8>,
     private_data: Option<Vec<u8>>,
     max_logging_level: consensus::ConsensusLogLevel,
-) -> consensus::ConsensusContainer {
+) -> Fallible<consensus::ConsensusContainer> {
     info!("Starting up the consensus thread");
 
     #[cfg(feature = "profiling")]

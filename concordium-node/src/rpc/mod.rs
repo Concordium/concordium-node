@@ -24,9 +24,9 @@ use crate::{
 use concordium_common::{
     hybrid_buf::HybridBuf, ConsensusFfiResponse, ConsensusIsInCommitteeResponse, PacketType,
 };
-use concordium_consensus::consensus::{ConsensusContainer, CALLBACK_QUEUE};
-use concordium_global_state::tree::messaging::{ConsensusMessage, MessageType};
+use consensus_rust::consensus::{ConsensusContainer, CALLBACK_QUEUE};
 use futures::future::Future;
+use globalstate_rust::tree::messaging::{ConsensusMessage, MessageType};
 use grpcio::{self, Environment, ServerBuilder};
 
 use std::{

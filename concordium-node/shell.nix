@@ -18,7 +18,7 @@ let
   });
   nixpkgs = import <nixpkgs> { overlays = [ pkgs_overlay moz_overlay ]; };
   rustStableChannel =
-    (nixpkgs.rustChannelOf { channel = "1.38.0"; }).rust.override {
+    (nixpkgs.rustChannelOf { channel = "1.39.0"; }).rust.override {
       extensions =
         [ "rust-src" "rls-preview" "clippy-preview" "rustfmt-preview" ];
     };
