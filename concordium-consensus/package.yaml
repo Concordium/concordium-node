@@ -50,7 +50,7 @@ flags:
     manual: False
     default: True
   rust:
-    manual: True
+    manual: False
     default: True
 
 library:

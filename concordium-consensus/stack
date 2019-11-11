@@ -1,2 +1,2 @@
 #!/usr/bin/env bash
-LD_LIBRARY_PATH=$PWD/crypto/rust-src/target/release:$PWD/globalstate-mockup/deps/concordium-global-state-sys/target/release stack "$@"
+LD_LIBRARY_PATH=$PWD/crypto/rust-src/target/release:$PWD/globalstate-mockup/globalstate-rust/target/release stack "$@"

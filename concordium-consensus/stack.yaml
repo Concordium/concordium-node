@@ -49,7 +49,7 @@ extra-deps: []
 
 extra-lib-dirs:
 - ./crypto/rust-src/target/release
-- ./globalstate-mockup/deps/concordium-global-state-sys/target/release
+- ./globalstate-mockup/globalstate-rust/target/release
 
 # Override default flag values for local packages and extra-deps
 # flags: {}

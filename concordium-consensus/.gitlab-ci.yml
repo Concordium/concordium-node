@@ -1,8 +1,14 @@
+
 image: "haskell:8.6.5"
+
+# TODO @ij - redefine stages, so we can use the compiled dynamic libraries from haskell
+stages:
+  - lint
+  - test
 
 variables:
     STACK_ROOT: "${CI_PROJECT_DIR}/.stack"
-    LD_LIBRARY_PATH: "${CI_PROJECT_DIR}/crypto/rust-src/target/release:${CI_PROJECT_DIR}/globalstate-mockup/deps/concordium-global-state-sys/target/release:$LD_LIBRARY_PATH"
+    LD_LIBRARY_PATH: "${CI_PROJECT_DIR}/crypto/rust-src/target/release:${CI_PROJECT_DIR}/globalstate-mockup/globalstate-rust/target/release:$LD_LIBRARY_PATH"
     GIT_SUBMODULE_STRATEGY: recursive
 cache:
   paths:
@@ -10,7 +16,8 @@ cache:
     - .stack-work
     - target
 
-build-and-test:
+"stack:test":
+  stage: test
   script:
     - "apt-get update && apt-get install -y moreutils curl"
     - "git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/"
@@ -19,3 +26,45 @@ build-and-test:
     - "./build-deps.sh"
     - "stack build -v --ghc-options -j4 | ts '[%Y-%m-%d %H:%M:%.S]'"
     - "stack test -v | ts '[%Y-%m-%d %H:%M:%.S]'"
+
+.generic:
+  variables:
+    RUSTFLAGS: -Dwarnings
+    GIT_SUBMODULE_STRATEGY: recursive
+
+.generic-lint:
+  extends: .generic
+
+"lint:fmt":
+  extends: .generic-lint
+  stage: lint
+  image: rustlang/rust:nightly
+  before_script:
+    - rustup default nightly-2019-07-25
+    - rustup component add rustfmt
+  script:
+    - rustc --version && cargo --version
+    - ( cd consensus-rust && cargo fmt -- --color=always)
+    - test $(git ls-files --modified | grep -v ".dll$" | grep -v ".a$" | grep -v ".pc$" | grep -v ".def$" | grep -v "tar.gz" | wc -l) -eq 0 || (echo 'You have introduced some unformatted code:'; git ls-files --modified | grep -v ".dll$" | grep -v ".a$" | grep -v ".pc$" | grep -v ".def$" | grep -v "tar.gz" | sed 's/^/* /'; echo 'Please run `cargo fmt` and amend your MR.'; exit 1)
+
+# TODO @ij - needs compiled dynamic libraries from consensus tests
+#"cargo:test":
+#  extends: .generic
+#  image: "192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.4"
+#  stage: test
+#  script:
+#    - git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/
+#    - rustc --version && cargo --version
+#    - echo "Running tests without extra features"
+#    - ( cd consensus-rust && cargo test --all --color=always )
+#"lint:clippy":
+#  image: "192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.4"
+#  extends: .generic-lint
+#  stage: lint
+#  script:
+#    - git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/
+#    - rustc --version && cargo --version
+#    - rustup component add clippy
+#    - cargo clean
+#    - echo "Running clippy with without extra features"
+#    - ( cd consensus-rust && cargo clippy --color=always --all -- -Dclippy::all )
