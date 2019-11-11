@@ -30,7 +30,7 @@ cache:
     - "source $HOME/.cargo/env"
     - "./build-deps.sh"
     - "stack build -v --ghc-options -j4 | ts '[%Y-%m-%d %H:%M:%.S]'"
-    - "stack test -v | ts '[%Y-%m-%d %H:%M:%.S]'"
+    #- "stack test -v | ts '[%Y-%m-%d %H:%M:%.S]'"
     - consensus-rust/scripts/setup-ci.sh
 
 .generic:
@@ -62,10 +62,9 @@ cache:
     - "curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable"
     - git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/
     - "./build-deps.sh"
-    - "stack build -v --ghc-options -j4 | ts '[%Y-%m-%d %H:%M:%.S]'"
-    - consensus-rust/scripts/setup-ci.sh
     - rustc --version && cargo --version
     - echo "Running tests without extra features"
+    - ( cd globalstate-mockup/globalstate-rust && cargo test --all --color=always )
     - ( cd consensus-rust && cargo test --all --color=always )
 
 "lint:clippy":
@@ -76,9 +75,6 @@ cache:
     - "curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable"
     - git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/
     - "source $HOME/.cargo/env"
-    - "./build-deps.sh"
-    - "stack build -v --ghc-options -j4 | ts '[%Y-%m-%d %H:%M:%.S]'"
-    - consensus-rust/scripts/setup-ci.sh
     - rustc --version && cargo --version
     - rustup component add clippy
     - echo "Running clippy with without extra features"
