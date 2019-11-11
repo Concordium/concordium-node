@@ -17,7 +17,6 @@ use digest::Digest;
 use failure::Fallible;
 use mio::{tcp::TcpStream, Poll, PollOpt, Ready, Token};
 use priority_queue::PriorityQueue;
-use snow::Keypair;
 use twox_hash::XxHash64;
 
 use crate::{
@@ -95,6 +94,7 @@ pub struct Connection {
     pub remote_peer:         RemotePeer,
     pub low_level:           RwLock<ConnectionLowLevel>,
     pub remote_end_networks: Arc<RwLock<HashSet<NetworkId>>>,
+    pub is_initiator:        bool,
     pub is_post_handshake:   AtomicBool,
     pub stats:               ConnectionStats,
     pub pending_messages:    RwLock<PriorityQueue<Arc<[u8]>, PendingPriority>>,
@@ -126,18 +126,11 @@ impl Connection {
         socket: TcpStream,
         token: Token,
         remote_peer: RemotePeer,
-        key_pair: Keypair,
         is_initiator: bool,
-        noise_params: snow::params::NoiseParams,
     ) -> Arc<Self> {
         let curr_stamp = get_current_stamp();
 
-        let low_level = RwLock::new(ConnectionLowLevel::new(
-            socket,
-            key_pair,
-            is_initiator,
-            noise_params,
-        ));
+        let low_level = RwLock::new(ConnectionLowLevel::new(socket, is_initiator));
 
         let stats = ConnectionStats {
             messages_received: Default::default(),
@@ -156,6 +149,7 @@ impl Connection {
             remote_peer,
             low_level,
             remote_end_networks: Default::default(),
+            is_initiator,
             is_post_handshake: Default::default(),
             stats,
             pending_messages: RwLock::new(PriorityQueue::with_capacity(1024)),
