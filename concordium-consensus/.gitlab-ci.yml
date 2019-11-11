@@ -68,6 +68,7 @@ cache:
     - "apt-get update && apt-get install -y moreutils curl"
     - "curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable"
     - git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/
+    - "source $HOME/.cargo/env"
     - "./build-deps.sh"
     - "stack build -v --ghc-options -j4 | ts '[%Y-%m-%d %H:%M:%.S]'"
     - consensus-rust/scripts/setup-ci.sh
