@@ -19,7 +19,7 @@ cache:
   variables:
     RUSTFLAGS: -Dwarnings
     GIT_SUBMODULE_STRATEGY: recursive
-    LD_LIBRARY_PATH: "${CI_PROJECT_DIR}/external-libs:$LD_LIBRARY_PATH"
+    EXTRA_LIBS_PATH: "$CI_PROJECT_DIR/external-libs"
   cache: 
     policy: pull
 
@@ -40,17 +40,13 @@ cache:
     - "source $HOME/.cargo/env"
     - "./build-deps.sh"
     - "stack build -v --ghc-options -j4 | ts '[%Y-%m-%d %H:%M:%.S]'"
-    #- "stack test -v | ts '[%Y-%m-%d %H:%M:%.S]'"
     - consensus-rust/scripts/setup-ci.sh
 
 "stack:test":
   extends: .generic
   stage: test
   script:
-    - "apt-get update && apt-get install -y moreutils curl"
     - "git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/"
-    - "curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable"
-    - "source $HOME/.cargo/env"
     - "stack test -v | ts '[%Y-%m-%d %H:%M:%.S]'"
 
 "lint:fmt":
