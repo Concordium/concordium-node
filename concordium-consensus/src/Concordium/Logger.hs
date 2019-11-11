@@ -1,8 +1,8 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving, FlexibleInstances #-}
+{-# LANGUAGE
+    GeneralizedNewtypeDeriving #-}
 -- |Event logging monad.
 module Concordium.Logger where
 
-import Control.Monad.Trans.Reader
 import Control.Monad.Trans.Class (MonadTrans(..))
 import Control.Monad.Trans.State (StateT)
 import qualified Control.Monad.State.Strict as Strict
@@ -10,7 +10,7 @@ import Control.Monad.Trans.RWS (RWST)
 import qualified Control.Monad.RWS.Strict as Strict
 import Control.Monad.Trans.Maybe (MaybeT)
 import Control.Monad.Trans.Except (ExceptT)
-import Control.Monad.Trans.Reader (ReaderT)
+import Control.Monad.Trans.Reader
 import Control.Monad.IO.Class (MonadIO)
 import Data.Word
 

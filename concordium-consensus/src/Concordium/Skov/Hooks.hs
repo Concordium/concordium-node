@@ -1,4 +1,6 @@
-{-# LANGUAGE TemplateHaskell, RecordWildCards, LambdaCase, OverloadedStrings #-}
+{-# LANGUAGE
+    TemplateHaskell,
+    OverloadedStrings #-}
 module Concordium.Skov.Hooks where
 
 import Data.Time
@@ -83,7 +85,7 @@ instance AE.ToJSON HookResult where
             "results" AE..= (hookTransactionResults <&> encTR)
         ]
         where
-            encTR (bh, vr) = AE.object $ ["blockHash" AE..= pack (show bh)] ++ encVR vr
+            encTR (bh, vr) = AE.object $ ("blockHash" AE..= pack (show bh)) : encVR vr
             encVR (TxReject rej execCost energyCost) =
               ["result" AE..= AE.String "reject",
                "rejectReason" AE..= pack (show rej),

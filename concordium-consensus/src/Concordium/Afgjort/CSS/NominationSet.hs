@@ -1,10 +1,5 @@
-{-# LANGUAGE RecordWildCards, TupleSections, LambdaCase #-}
 module Concordium.Afgjort.CSS.NominationSet where
 
-{-
-import qualified Data.Set as Set
-import Data.Set (Set)
--}
 import qualified Concordium.Afgjort.CSS.BitSet as Set
 import Concordium.Afgjort.CSS.BitSet (BitSet)
 import qualified Data.Serialize as S
@@ -87,8 +82,7 @@ instance S.Serialize NominationSet where
         NSTop -> putWord8 1 >> putUntaggedNominationSet ns
         NSBot -> putWord8 2 >> putUntaggedNominationSet ns
         NSBoth -> putWord8 3 >> putUntaggedNominationSet ns
-    get = do
-        getWord8 >>= \case
+    get = getWord8 >>= \case
             0 -> return emptyNominationSet
             1 -> getUntaggedNominationSet NSTop
             2 -> getUntaggedNominationSet NSBot

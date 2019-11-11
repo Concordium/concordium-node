@@ -1,4 +1,6 @@
-{-# LANGUAGE RecordWildCards, OverloadedStrings, GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE
+    OverloadedStrings,
+    GeneralizedNewtypeDeriving #-}
 module Concordium.Afgjort.Lottery(
     TicketProof,
     Ticket(ticketValue, ticketProof),

@@ -1,8 +1,8 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE LambdaCase, CPP #-}
-{-# LANGUAGE MultiParamTypeClasses, FlexibleInstances, FunctionalDependencies, FlexibleContexts, TypeFamilies #-}
+{-# LANGUAGE
+    OverloadedStrings,
+    ScopedTypeVariables,
+    CPP,
+    MonoLocalBinds #-}
 module Concordium.Getters where
 
 import Lens.Micro.Platform hiding ((.=))
@@ -117,7 +117,7 @@ getBlockBirkParameters hash sfsRef = runStateQuery sfsRef $
     "electionDifficulty" .= _birkElectionDifficulty,
     "electionNonce" .= _birkLeadershipElectionNonce bps,
     "bakers" .= Array (fromList .
-                       map (\(bid, BakerInfo{..}) -> object ["bakerId" .= (toInteger bid)
+                       map (\(bid, BakerInfo{..}) -> object ["bakerId" .= toInteger bid
                                                             ,"bakerAccount" .= show _bakerAccount
                                                             ,"bakerLotteryPower" .= ((fromIntegral _bakerStake :: Double) / fromIntegral (_bakerTotalStake _birkLotteryBakers))
                                                             ]) .

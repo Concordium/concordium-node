@@ -20,7 +20,7 @@ import Concordium.GlobalState.BlockState (ATLoggerT)
 class Monad m => TimeMonad m where
     currentTime :: m UTCTime
     default currentTime :: MonadIO m => m UTCTime
-    currentTime = liftIO (getCurrentTime)
+    currentTime = liftIO getCurrentTime
 
 instance TimeMonad IO
 

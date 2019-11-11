@@ -16,7 +16,7 @@ import qualified Data.List as List
 import Control.Monad
 
 import Concordium.Types
-import Concordium.GlobalState.TreeState
+import Concordium.GlobalState.TreeState hiding (blockBaker)
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Parameters
@@ -54,7 +54,7 @@ runBSM m cm s = do
 -- of that block might need to be rewarded if they have not been already.
 -- Thus the argument is here for future use
 mintAndReward :: TreeStateMonad m => UpdatableBlockState m -> BlockPointer m -> BlockPointer m -> Slot -> BakerId -> m (UpdatableBlockState m)
-mintAndReward bshandle blockParent lfPointer slotNumber bid = do
+mintAndReward bshandle blockParent _lfPointer slotNumber bid = do
 
   -- First we mint new currency. This can be used in rewarding bakers. First get
   -- the inflation rate of the parent block (this might have changed in the

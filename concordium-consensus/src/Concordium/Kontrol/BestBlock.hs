@@ -1,4 +1,5 @@
-{-# LANGUAGE LambdaCase, TupleSections, ScopedTypeVariables #-}
+{-# LANGUAGE
+    ScopedTypeVariables #-}
 module Concordium.Kontrol.BestBlock(
     bestBlock,
     bestBlockBefore
@@ -45,7 +46,7 @@ bestBlockBranches [] = lastFinalizedBlock
 bestBlockBranches l = bb l
     where
         bb [] = lastFinalizedBlock
-        bb (blocks : branches) = do
+        bb (blocks : branches) =
             case blocks of
                 [] -> bb branches
                 (b : bs) -> fst <$> foldrM compareBlocks (b, Nothing) bs

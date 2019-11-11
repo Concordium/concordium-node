@@ -1,4 +1,8 @@
-{-# LANGUAGE RecordWildCards, GeneralizedNewtypeDeriving, TupleSections, OverloadedStrings, InstanceSigs, BangPatterns #-}
+{-# LANGUAGE
+    GeneralizedNewtypeDeriving,
+    OverloadedStrings,
+    InstanceSigs,
+    BangPatterns #-}
 module Main where
 
 import qualified Data.Sequence as Seq

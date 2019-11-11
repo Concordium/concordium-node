@@ -1,4 +1,5 @@
-{-# LANGUAGE RecordWildCards, DeriveGeneric #-}
+{-# LANGUAGE
+    DeriveGeneric #-}
 module Concordium.Birk.Bake where
 
 import GHC.Generics

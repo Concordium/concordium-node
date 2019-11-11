@@ -1,4 +1,9 @@
-{-# LANGUAGE ForeignFunctionInterface, LambdaCase, RecordWildCards, ScopedTypeVariables, OverloadedStrings, RankNTypes, TypeFamilies, CPP #-}
+{-# LANGUAGE
+    ForeignFunctionInterface,
+    ScopedTypeVariables,
+    OverloadedStrings,
+    RankNTypes,
+    CPP #-}
 module Concordium.External where
 
 import Foreign
@@ -86,7 +91,8 @@ blockReferenceToBlockHash src = Hash.Hash <$> FBS.create cp
 type GenesisDataCallback = CString -> Int64 -> IO ()
 foreign import ccall "dynamic" invokeGenesisDataCallback :: FunPtr GenesisDataCallback -> GenesisDataCallback
 callGenesisDataCallback :: FunPtr GenesisDataCallback -> BS.ByteString -> IO ()
-callGenesisDataCallback cb bs = BS.useAsCStringLen bs $ \(cdata, clen) -> (invokeGenesisDataCallback cb) cdata (fromIntegral clen)
+callGenesisDataCallback cb bs = BS.useAsCStringLen bs $
+        \(cdata, clen) -> invokeGenesisDataCallback cb cdata (fromIntegral clen)
 
 -- |Callback for handling a generated baker identity.
 -- The first argument is the identity of the baker (TODO: this should really by a 'Word64').
@@ -391,7 +397,7 @@ startBaker cptr = mask_ $
 
 -- |Stop a baker thread.
 stopBaker :: StablePtr ConsensusRunner -> IO ()
-stopBaker cptr = mask_ $ do
+stopBaker cptr = mask_ $
     deRefStablePtr cptr >>= \case
         BakerRunner{..} -> stopSyncRunner bakerSyncRunner
         c -> consensusLogMethod c External LLError "Attempted to stop baker thread, but consensus was started without baker credentials"
@@ -579,7 +585,7 @@ byteStringToCString bs = do
 
 withBlockHash :: CString -> (String -> IO ()) -> (BlockHash -> IO CString) -> IO CString
 withBlockHash blockcstr logm f =
-  readMaybe <$> (peekCString blockcstr) >>=
+  readMaybe <$> peekCString blockcstr >>=
     \case Nothing -> do
             logm "Block hash invalid. Returning error value."
             newCString "\"Invalid block hash.\""
@@ -610,7 +616,7 @@ getInstances cptr blockcstr = do
     logm External LLInfo "Received instance list request."
     withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
       istances <- runConsensusQuery c (Get.getInstances hash)
-      logm External LLTrace $ "Replying with the list: " ++ (show istances)
+      logm External LLTrace $ "Replying with the list: " ++ show istances
       jsonValueToCString istances
 
 

@@ -25,7 +25,6 @@ import Concordium.Scheduler.Types
 import Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.Basic.BlockState (BlockState, PureBlockStateMonad(..))
 import Concordium.GlobalState.TreeState hiding (BlockState)
-import Concordium.GlobalState
 import Concordium.GlobalState.Bakers as Bakers
 
 import qualified Acorn.Core as Core
