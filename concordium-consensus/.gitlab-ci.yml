@@ -46,6 +46,10 @@ cache:
   extends: .generic
   stage: test
   script:
+    - "apt-get update && apt-get install -y moreutils curl"
+    - "curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable"
+    - "source $HOME/.cargo/env"
+    - rustc --version && cargo --version
     - "git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/"
     - "stack test -v | ts '[%Y-%m-%d %H:%M:%.S]'"
 
