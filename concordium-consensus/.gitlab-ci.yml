@@ -53,7 +53,7 @@ cache:
     - "git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/"
     - "stack test -v | ts '[%Y-%m-%d %H:%M:%.S]'"
 
-"lint:fmt":
+"cargo:fmt":
   extends: .generic-lint
   stage: lint
   image: rustlang/rust:nightly
@@ -79,7 +79,7 @@ cache:
     - ( cd globalstate-mockup/globalstate-rust && cargo test --all --color=always )
     - ( cd consensus-rust && cargo test --all --color=always )
 
-"lint:clippy":
+"cargo:clippy":
   extends: .generic-lint
   stage: lint
   script:
