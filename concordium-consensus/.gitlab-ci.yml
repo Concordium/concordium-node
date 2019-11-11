@@ -1,8 +1,7 @@
-
 image: "haskell:8.6.5"
 
 stages:
-  - haskell
+  - haskell:test
   - rust:lint
   - rust:test
 
@@ -17,7 +16,7 @@ cache:
     - target
 
 "stack:test":
-  stage: haskell
+  stage: haskell:test
   artifacts:
     expire_in: 1 hour
     name: "$CI_JOB_STAGE-$CI_COMMIT_REF_NAME"
@@ -37,6 +36,9 @@ cache:
   variables:
     RUSTFLAGS: -Dwarnings
     GIT_SUBMODULE_STRATEGY: recursive
+    LD_LIBRARY_PATH: "${CI_PROJECT_DIR}/external-libs:$LD_LIBRARY_PATH"
+  cache: 
+    policy: pull
 
 .generic-lint:
   extends: .generic
@@ -59,8 +61,9 @@ cache:
   stage: rust:test
   script:
     - "apt-get update && apt-get install -y moreutils curl"
-    - "curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable"
     - git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/
+    - "curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable"
+    - "source $HOME/.cargo/env"
     - rustc --version && cargo --version
     - echo "Running tests without extra features"
     - ( cd globalstate-mockup/globalstate-rust && cargo test --all --color=always )
@@ -71,11 +74,11 @@ cache:
   stage: rust:lint
   script:
     - "apt-get update && apt-get install -y moreutils curl"
-    - "curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable"
     - git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/
+    - "curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable"
     - "source $HOME/.cargo/env"
     - rustc --version && cargo --version
     - rustup component add clippy
     - echo "Running clippy with without extra features"
-    - ( cd consensus-rust && LD_LIBRARY_PATH="../external-libs:$LD_LIBRARY_PATH" cargo clippy --color=always --all -- -Dclippy::all )
-    - ( cd globalstate-mockup/globalstate-rust && LD_LIBRARY_PATH="../external-libs:$LD_LIBRARY_PATH" cargo clippy --color=always --all -- -Dclippy::all )
+    - ( cd consensus-rust && cargo clippy --color=always --all -- -Dclippy::all )
+    - ( cd globalstate-mockup/globalstate-rust && cargo clippy --color=always --all -- -Dclippy::all )
