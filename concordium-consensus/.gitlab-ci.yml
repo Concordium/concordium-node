@@ -46,7 +46,7 @@ cache:
   extends: .generic-lint
   stage: rust:lint
   image: rustlang/rust:nightly
-  dependenciues: []
+  dependencies: []
   before_script:
     - rustup default nightly-2019-07-25
     - rustup component add rustfmt
