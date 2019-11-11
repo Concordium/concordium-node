@@ -76,5 +76,5 @@ cache:
     - rustup component add clippy
     - cargo clean
     - echo "Running clippy with without extra features"
-    - ( cd consensus-rust && LD_LIBRARY_PATH="$HOME/external-libs:$LD_LIBRARY_PATH cargo clippy --color=always --all -- -Dclippy::all )
-    - ( cd globalstate-mockup/globalstate-rust && LD_LIBRARY_PATH="$HOME/external-libs:$LD_LIBRARY_PATH cargo clippy --color=always --all -- -Dclippy::all )
+    - ( cd consensus-rust && LD_LIBRARY_PATH="../external-libs:$LD_LIBRARY_PATH cargo clippy --color=always --all -- -Dclippy::all )
+    - ( cd globalstate-mockup/globalstate-rust && LD_LIBRARY_PATH="../external-libs:$LD_LIBRARY_PATH cargo clippy --color=always --all -- -Dclippy::all )
