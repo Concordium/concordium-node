@@ -1,9 +1,9 @@
 image: "haskell:8.6.5"
 
 stages:
-  - haskell:test
-  - rust:lint
-  - rust:test
+  - build
+  - lint
+  - test
 
 variables:
     STACK_ROOT: "${CI_PROJECT_DIR}/.stack"
@@ -15,8 +15,19 @@ cache:
     - .stack-work
     - target
 
-"stack:test":
-  stage: haskell:test
+.generic:
+  variables:
+    RUSTFLAGS: -Dwarnings
+    GIT_SUBMODULE_STRATEGY: recursive
+    LD_LIBRARY_PATH: "${CI_PROJECT_DIR}/external-libs:$LD_LIBRARY_PATH"
+  cache: 
+    policy: pull
+
+.generic-lint:
+  extends: .generic
+
+"stack:build":
+  stage: build
   artifacts:
     expire_in: 1 hour
     name: "$CI_JOB_STAGE-$CI_COMMIT_REF_NAME"
@@ -32,20 +43,19 @@ cache:
     #- "stack test -v | ts '[%Y-%m-%d %H:%M:%.S]'"
     - consensus-rust/scripts/setup-ci.sh
 
-.generic:
-  variables:
-    RUSTFLAGS: -Dwarnings
-    GIT_SUBMODULE_STRATEGY: recursive
-    LD_LIBRARY_PATH: "${CI_PROJECT_DIR}/external-libs:$LD_LIBRARY_PATH"
-  cache: 
-    policy: pull
-
-.generic-lint:
+"stack:test":
   extends: .generic
+  stage: test
+  script:
+    - "apt-get update && apt-get install -y moreutils curl"
+    - "git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/"
+    - "curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable"
+    - "source $HOME/.cargo/env"
+    - "stack test -v | ts '[%Y-%m-%d %H:%M:%.S]'"
 
 "lint:fmt":
   extends: .generic-lint
-  stage: rust:lint
+  stage: lint
   image: rustlang/rust:nightly
   dependencies: []
   before_script:
@@ -58,7 +68,7 @@ cache:
 
 "cargo:test":
   extends: .generic
-  stage: rust:test
+  stage: test
   script:
     - "apt-get update && apt-get install -y moreutils curl"
     - git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/
@@ -71,7 +81,7 @@ cache:
 
 "lint:clippy":
   extends: .generic-lint
-  stage: rust:lint
+  stage: lint
   script:
     - "apt-get update && apt-get install -y moreutils curl"
     - git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/
