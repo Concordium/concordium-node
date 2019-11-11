@@ -1,6 +1,12 @@
 {-# LANGUAGE ScopedTypeVariables, OverloadedStrings #-}
 module GlobalStateTests.PersistentState where
 
+import Test.Hspec
+
+
+{-
+
+
 import Data.Word
 import Control.Monad.IO.Class
 import Control.Monad.RWS.Strict
@@ -12,7 +18,6 @@ import System.Random
 import Control.Monad
 
 import Test.QuickCheck
-import Test.Hspec
 
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
@@ -27,8 +32,6 @@ import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.SeedState
 import Concordium.Types
-
-{-
 
 data PersistentContext = PersistentContext {
     pcBlobStore :: !BlobStore,

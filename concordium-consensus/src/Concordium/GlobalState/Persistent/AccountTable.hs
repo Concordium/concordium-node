@@ -34,10 +34,6 @@ showATFString :: ATF String -> String
 showATFString (Branch lvl _ _ l r) = "Branch(" ++ show lvl ++ ", " ++ l ++ ", " ++ r ++ ")"
 showATFString (Leaf _ a) = show a
 
--- FIXME: This uses serialization of accounts for storing them.
--- This is potentially quite wasteful when only small changes are made.
-instance (MonadBlobStore m ref) => BlobStorable m ref Account
-
 instance (BlobStorable m ref r) => BlobStorable m ref (ATF r) where
     storeUpdate p (Branch lvl fll hsh cl cr) = do
         (pcl, cl') <- storeUpdate p cl

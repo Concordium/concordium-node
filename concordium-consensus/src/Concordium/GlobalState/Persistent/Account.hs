@@ -20,9 +20,6 @@ import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
 
-instance (MonadBlobStore m ref) => BlobStorable m ref AccountIndex
-instance Trie.FixedTrieKey AccountAddress
-
 data Accounts = Accounts {
     accountMap :: !(Trie.TrieN (BufferedBlobbed BlobRef) AccountAddress AccountIndex),
     accountTable :: !AccountTable,

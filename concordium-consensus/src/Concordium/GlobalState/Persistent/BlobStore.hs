@@ -26,6 +26,7 @@ import Concordium.GlobalState.Persistent.MonadicRecursive
 -- Imports for providing instances
 import qualified Concordium.GlobalState.IdentityProviders as IPS
 import qualified Concordium.GlobalState.Parameters as Parameters
+import Concordium.Types (Account)
 
 newtype BlobRef a = BlobRef Word64
     deriving (Eq, Ord, Serialize)
@@ -378,3 +379,8 @@ instance (forall a. Show (ref a)) => FixShowable (BufferedBlobbed ref) where
 -- BlobStorable instances
 instance (MonadBlobStore m ref) => BlobStorable m ref IPS.IdentityProviders
 instance (MonadBlobStore m ref) => BlobStorable m ref Parameters.CryptographicParameters
+-- FIXME: This uses serialization of accounts for storing them.
+-- This is potentially quite wasteful when only small changes are made.
+instance (MonadBlobStore m ref) => BlobStorable m ref Account
+instance (MonadBlobStore m ref) => BlobStorable m ref Word64
+
