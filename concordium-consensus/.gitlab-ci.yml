@@ -19,7 +19,7 @@ cache:
 "stack:test":
   stage: haskell
   artifacts:
-    expire_in: 15 mins
+    expire_in: 1 hour
     name: "$CI_JOB_STAGE-$CI_COMMIT_REF_NAME"
     paths:
       - external-libs/
@@ -61,7 +61,6 @@ cache:
     - "apt-get update && apt-get install -y moreutils curl"
     - "curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable"
     - git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/
-    - "./build-deps.sh"
     - rustc --version && cargo --version
     - echo "Running tests without extra features"
     - ( cd globalstate-mockup/globalstate-rust && cargo test --all --color=always )
