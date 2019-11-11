@@ -499,14 +499,15 @@ getPartyWeight com pid = case parties com ^? ix (fromIntegral pid) of
 -- FIXME: doesn't work properly. Suspected issue, toSign is not the actual string signed.
 verifyFinalProof :: FinalizationSessionId -> FinalizationCommittee -> FinalizationRecord -> Bool
 verifyFinalProof sid com@FinalizationCommittee{..} FinalizationRecord{..} =
+  -- if sigWeight parties > corruptWeight then checkProofSignature sig else False
   if sigWeight parties > corruptWeight then checkProofSignature sig else False
     where
         FinalizationProof (parties, sig) = finalizationProof
-        toSign = runPut $ S.put sid >> S.put finalizationIndex >> S.put finalizationDelay >> S.put finalizationBlockPointer
+        toSign = BS.append (runPut $ S.put sid >> S.put finalizationIndex >> S.put finalizationDelay) (runPut $ S.put finalizationBlockPointer)
         pks = foldl (\s pid -> case (toPartyInfo com pid) of Just info -> (partyBlsKey $ info) : s
                                                              Nothing -> s) [] parties
         checkProofSignature s = Bls.verifyAggregate toSign pks s
-        sigWeight ps = foldl (\s p -> getPartyWeight com p + s) (fromIntegral 0) ps
+        sigWeight ps = foldl (\s p -> s + (getPartyWeight com p)) (fromIntegral 0) ps
 
 {-
 data FinalizationPoint = FinalizationPoint !FinalizationSessionId !FinalizationIndex !BlockHeight

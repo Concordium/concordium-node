@@ -285,10 +285,11 @@ liftABBA a = do
                 wmvbaComplete Nothing
             handleEvents r
 
+-- TODO: doublecheck that the signature is produced on the correct bytestring
 makeWMVBAWitnessCreatorMessage :: BS.ByteString -> Val -> Bls.SecretKey -> WMVBAMessage
-makeWMVBAWitnessCreatorMessage baid v privateBlsKey = do
-  -- TODO: doublecheck that the signature is produced on the correct bytestring
-  WMVBAWitnessCreatorMessage (v, Bls.sign (runPut $ S.put baid >> S.put v) privateBlsKey)
+makeWMVBAWitnessCreatorMessage baid v privateBlsKey = WMVBAWitnessCreatorMessage (v, Bls.sign toSign privateBlsKey)
+  where
+    toSign = BS.append baid $ runPut $ S.put v
 
 -- |Record that an input is justified.
 justifyWMVBAInput :: forall sig m. (WMVBAMonad sig m) => Val -> m ()
@@ -314,8 +315,8 @@ receiveWMVBAMessage src sig (WMVBAWitnessCreatorMessage (v, blssig)) = do
           -- TODO: optimize, this is just a first draft
           let goodJustifications = extractNonBadJustifications newJV badJV
               blssig = makeBlsAggregateSig goodJustifications
-              toSign = runPut $ S.put baid >> S.put v -- this should probably be a call to some function
-                                                      -- to ensure consistency accross different functions
+              toSign = BS.append baid $ runPut $ S.put v -- this should probably be a call to some function
+                                                         -- to ensure consistency accross different functions
               keys = map (\(p, _) -> publicBlsKeys p) goodJustifications
           in
             if Bls.verifyAggregate toSign keys blssig then -- A correct finalization record was obtained, send it out
@@ -325,7 +326,6 @@ receiveWMVBAMessage src sig (WMVBAWitnessCreatorMessage (v, blssig)) = do
                   addCulprits [] = return ()
                   addCulprits (h : t) = badJustifications . at v . non PS.empty %= PS.insert h (partyWeight h)
               in addCulprits culprits
-
               -- TODO: check if finalization can still finish. If enough bad justifications has been seen,
               -- finalization may not be able to finish
       where
