@@ -1,6 +1,17 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving, TypeFamilies, DerivingStrategies, DerivingVia, FlexibleInstances, MultiParamTypeClasses, UndecidableInstances, StandaloneDeriving, FlexibleContexts, ScopedTypeVariables #-}
-{-# LANGUAGE LambdaCase, RecordWildCards, TupleSections, ConstraintKinds, FunctionalDependencies, PartialTypeSignatures, QuantifiedConstraints, RankNTypes #-}
-{-# LANGUAGE TemplateHaskell, CPP #-}
+{-# LANGUAGE
+    GeneralizedNewtypeDeriving,
+    TypeFamilies,
+    DerivingStrategies,
+    DerivingVia,
+    UndecidableInstances,
+    StandaloneDeriving,
+    ScopedTypeVariables,
+    ConstraintKinds,
+    PartialTypeSignatures,
+    QuantifiedConstraints,
+    RankNTypes,
+    TemplateHaskell,
+    CPP #-}
 module Concordium.Skov.MonadImplementations where
 
 import Control.Monad.State.Class

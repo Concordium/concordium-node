@@ -1,4 +1,9 @@
-{-# LANGUAGE RecordWildCards, TemplateHaskell, TupleSections, MultiParamTypeClasses, FlexibleContexts, RankNTypes, ScopedTypeVariables, LambdaCase, GeneralizedNewtypeDeriving, FlexibleInstances, BangPatterns #-}
+{-# LANGUAGE
+    TemplateHaskell,
+    RankNTypes,
+    ScopedTypeVariables,
+    GeneralizedNewtypeDeriving,
+    BangPatterns #-}
 -- |Core Set Selection algorithm
 module Concordium.Afgjort.CSS(
     CSSMessage(..),
@@ -55,7 +60,7 @@ import Concordium.Afgjort.PartyMap(PartyMap)
 import qualified Concordium.Afgjort.PartyMap as PM
 
 atStrict :: (Ord k) => k -> Lens' (Map k v) (Maybe v)
-atStrict k f m = f mv <&> \r -> case r of
+atStrict k f m = f mv <&> \case
         Nothing -> maybe m (const (Map.delete k m)) mv
         Just v' -> Map.insert k v' m
     where mv = Map.lookup k m
@@ -114,9 +119,9 @@ data CSSState sig = CSSState {
     -- |The parties that have nominated *bottom*
     _inputBot :: !(Map Party sig),
     -- |For each party, the total set of parties that report having seen a nomination of *top* by that party.
-    _sawTop :: !(Map Party (PartySet)),
+    _sawTop :: !(Map Party PartySet),
     -- |As above, for *bottom*
-    _sawBot :: !(Map Party (PartySet)),
+    _sawBot :: !(Map Party PartySet),
     -- |For each party, we record the Seen messages.
     -- We do not need to record every message; just enough to cover
     -- everything the party claims to have seen.  (When an honest
@@ -165,7 +170,7 @@ input :: Choice -> Lens' (CSSState sig) (Map Party sig)
 input True = inputTop
 input False = inputBot
 
-saw :: Choice -> Lens' (CSSState sig) (Map Party (PartySet))
+saw :: Choice -> Lens' (CSSState sig) (Map Party PartySet)
 saw True = sawTop
 saw False = sawBot
 
@@ -257,7 +262,7 @@ receiveCSSMessage src (Seen ns) sig = unlessComplete $ do
                 hdr <- unjustifiedDoneReporting . atStrict (sp, c) . nonEmpty . atStrict src <<.= Nothing
                 forM_ hdr $ handleDoneReporting src
         return alreadyPresent
-    unless (all id present) $
+    unless (and present) $
         -- This message includes some new observations, so add it to sawMessages.
         -- We filter out any Seen messages that are subsumed by the new message.
         sawMessages . at src . nonEmpty %= \l -> (ns, sig) : filter (\(ns', _) -> not $ ns' `subsumedBy` ns) l

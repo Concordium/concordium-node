@@ -1,4 +1,3 @@
-{-# LANGUAGE DefaultSignatures, RecordWildCards #-}
 module Concordium.Kontrol(
     module Concordium.Skov.Monad,
     module Concordium.Kontrol
@@ -20,10 +19,10 @@ timeUntilNextSlot :: (TimeMonad m, SkovQueryMonad m) => m NominalDiffTime
 timeUntilNextSlot = do
     gen <- getGenesisData
     now <- utcTimeToPOSIXSeconds <$> currentTime
-    return $ ((fromIntegral (genesisTime gen)) - now) `mod'` (fromIntegral $ genesisSlotDuration gen)
+    return $ (fromIntegral (genesisTime gen) - now) `mod'` fromIntegral (genesisSlotDuration gen)
 
 getCurrentSlot :: (TimeMonad m, SkovQueryMonad m) => m Slot
 getCurrentSlot = do
         GenesisData{..} <- getGenesisData
         ct <- currentTimestamp
-        return $ Slot $ if ct <= genesisTime then 0 else ((ct - genesisTime) `div` genesisSlotDuration)
+        return $ Slot $ if ct <= genesisTime then 0 else (ct - genesisTime) `div` genesisSlotDuration

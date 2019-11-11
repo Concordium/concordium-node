@@ -1,4 +1,3 @@
-{-# LANGUAGE RecordWildCards, LambdaCase #-}
 module Concordium.Afgjort.Buffer where
 
 import Data.Map (Map)
@@ -41,7 +40,7 @@ emptyFinalizationBuffer = Map.empty
 -- If the message is added to a buffer, then the time at which the buffer
 -- should be polled and an identifier for the buffer are returned.
 bufferFinalizationMessage :: (MonadState s m, FinalizationBufferLenses s, TimeMonad m, LoggerMonad m, TimerMonad m) => (FinalizationMessage -> m ()) -> FinalizationMessage -> m ()
-bufferFinalizationMessage handleMsg msg@(FinalizationMessage{msgBody = WMVBAABBAMessage (CSSSeen phase _) ,..}) = do
+bufferFinalizationMessage handleMsg msg@FinalizationMessage{msgBody = WMVBAABBAMessage (CSSSeen phase _) ,..} = do
         let bufId = (msgHeader, phase)
         now <- currentTime
         use (finBuffer . at bufId) >>= \case
@@ -60,7 +59,7 @@ bufferFinalizationMessage handleMsg msg@(FinalizationMessage{msgBody = WMVBAABBA
                     finBuffer . at bufId ?= (notifyTime, timeout, msg)
                     logEvent Runner LLTrace $ "Buffering finalization message until: " ++ show notifyTime
                     void $ onTimeout (DelayUntil notifyTime) $ notifyBuffer handleMsg bufId
-bufferFinalizationMessage handleMsg msg@(FinalizationMessage{msgBody = WMVBAABBAMessage (CSSDoneReporting phase _) ,..}) = do
+bufferFinalizationMessage handleMsg msg@FinalizationMessage{msgBody = WMVBAABBAMessage (CSSDoneReporting phase _) ,..} = do
         let bufId = (msgHeader, phase)
         (finBuffer . at bufId <<.= Nothing) >>= \case
             Nothing -> handleMsg msg
@@ -77,9 +76,7 @@ notifyBuffer handleMsg bufId = do
         use (finBuffer . at bufId) >>= \case
             Nothing -> return ()
             Just (expectedNotifyTime, _, msg) ->
-                if expectedNotifyTime <= notifyTime then do
+                when (expectedNotifyTime <= notifyTime) $ do
                     finBuffer . at bufId .= Nothing
                     logEvent Runner LLTrace $ "Flushing buffered message on notify. expectedNotifyTime=" ++ show expectedNotifyTime ++ " notifyTime=" ++ show notifyTime
                     handleMsg msg
-                else
-                    return ()

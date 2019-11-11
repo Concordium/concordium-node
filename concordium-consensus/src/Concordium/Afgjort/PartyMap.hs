@@ -1,4 +1,5 @@
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE
+    TypeFamilies #-}
 module Concordium.Afgjort.PartyMap where
 
 import qualified Data.Map.Strict as Map

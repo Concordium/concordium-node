@@ -1,4 +1,7 @@
-{-# LANGUAGE LambdaCase, FlexibleContexts, ScopedTypeVariables, RecordWildCards, FlexibleInstances, MultiParamTypeClasses, UndecidableInstances, CPP #-}
+{-# LANGUAGE
+    ScopedTypeVariables,
+    UndecidableInstances,
+    CPP #-}
 module Concordium.Runner where
 
 import Control.Concurrent.Chan
@@ -96,10 +99,14 @@ startSyncRunner sr@SyncRunner{..} = do
                 (mblock, sfs', curSlot) <- runWithStateLog syncState syncLogMethod (\sfs -> do
                         let bake = do
                                 curSlot <- getCurrentSlot
-                                mblock <- if (curSlot > lastSlot) then bakeForSlot syncBakerIdentity curSlot else return Nothing
+                                mblock <-
+                                        if curSlot > lastSlot then
+                                            bakeForSlot syncBakerIdentity curSlot
+                                        else
+                                            return Nothing
                                 return (mblock, curSlot)
                         ((mblock, curSlot), sfs') <-
-                          runSkovT bake (syncSkovHandlers sr) (syncContext) sfs
+                          runSkovT bake (syncSkovHandlers sr) syncContext sfs
                         return ((mblock, sfs', curSlot), sfs'))
                 forM_ mblock $ syncCallback . SOMsgNewBlock
                 delay <- evalSkovT (do

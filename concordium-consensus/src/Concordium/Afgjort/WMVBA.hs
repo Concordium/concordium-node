@@ -1,4 +1,7 @@
-{-# LANGUAGE TemplateHaskell, ScopedTypeVariables, RecordWildCards, MultiParamTypeClasses, FlexibleInstances, FlexibleContexts, GeneralizedNewtypeDeriving, LambdaCase, TupleSections #-}
+{-# LANGUAGE
+    TemplateHaskell,
+    ScopedTypeVariables,
+    GeneralizedNewtypeDeriving #-}
 module Concordium.Afgjort.WMVBA (
     WMVBAMessage(..),
     messageValues,
@@ -280,7 +283,7 @@ isJustifiedWMVBAInput val = liftFreeze $ isProposalJustified val
 -- |Handle an incoming 'WMVBAMessage'.
 receiveWMVBAMessage :: (WMVBAMonad sig m, Eq sig) => Party -> sig -> WMVBAMessage -> m ()
 receiveWMVBAMessage src sig (WMVBAFreezeMessage msg) = liftFreeze $ receiveFreezeMessage src msg sig
-receiveWMVBAMessage src sig (WMVBAABBAMessage msg) = do
+receiveWMVBAMessage src sig (WMVBAABBAMessage msg) =
         liftABBA $ receiveABBAMessage src msg sig
 receiveWMVBAMessage src sig (WMVBAWitnessCreatorMessage v) = do
         WMVBAInstance{..} <- ask

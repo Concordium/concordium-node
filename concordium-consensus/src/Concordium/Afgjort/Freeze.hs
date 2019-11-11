@@ -1,4 +1,9 @@
-{-# LANGUAGE TemplateHaskell, MultiParamTypeClasses, RecordWildCards, LambdaCase, FlexibleContexts, RankNTypes, ScopedTypeVariables, GeneralizedNewtypeDeriving, FlexibleInstances, ViewPatterns #-}
+{-# LANGUAGE
+    TemplateHaskell, 
+    RankNTypes,
+    ScopedTypeVariables,
+    GeneralizedNewtypeDeriving,
+    ViewPatterns #-}
 module Concordium.Afgjort.Freeze(
     FreezeMessage(..),
     FreezeState(..),
@@ -220,8 +225,7 @@ propose :: (FreezeMonad sig m) => Val -> m ()
 propose candidate = do
         FreezeInstance{..} <- ask
         pps <- use justifiedProposers
-        unless (me `PS.member` pps) $ do
-            -- addProposal me candidate
+        unless (me `PS.member` pps) $
             sendFreezeMessage (Proposal candidate)
 
 -- |Justify a value as a candidate.
@@ -277,7 +281,7 @@ freezeSummary = to fs
 -- |Process a freeze summary, handling the new messages, and determining when we have more to offer.
 processFreezeSummary :: (FreezeMonad sig m, Eq sig) => FreezeSummary sig -> (Party -> FreezeMessage -> sig -> Bool) -> m CatchUpResult
 processFreezeSummary FreezeSummary{..} checkSig = do
-        r1 <- mconcat <$> (forM (Map.toList summaryProposalsVotes) $ \(val, (props, vts)) -> do
+        r1 <- mconcat <$> forM (Map.toList summaryProposalsVotes) (\(val, (props, vts)) -> do
             let checkProposalSig party sig = checkSig party (Proposal val) sig
             r1props <- if null props then
                     return mempty

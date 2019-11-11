@@ -1,12 +1,12 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# OPTIONS_GHC -Wall #-}
-module Concordium.Scheduler.Utils.Init.Example (initialState, makeTransaction, mateuszAccount) where
+{-# OPTIONS_GHC -Wall -Wno-deprecations #-}
+module Concordium.Scheduler.Utils.Init.Example {-# WARNING "This module should not be used in production code" #-}
+    (initialState, makeTransaction, mateuszAccount) where
 
 import qualified Data.HashMap.Strict as Map
 import System.Random
-import Control.Monad.IO.Class
 
 import Concordium.Crypto.SignatureScheme(KeyPair(..))
 import qualified Concordium.Crypto.SignatureScheme as Sig

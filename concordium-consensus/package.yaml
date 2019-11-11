@@ -45,6 +45,15 @@ dependencies:
 - globalstate-types
 - globalstate
 
+default-extensions:
+- RecordWildCards
+- LambdaCase
+- TupleSections
+- MultiParamTypeClasses
+- FlexibleContexts
+- FlexibleInstances
+- FunctionalDependencies
+
 flags:
   dynamic:
     manual: False

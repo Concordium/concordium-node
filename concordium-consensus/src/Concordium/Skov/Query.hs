@@ -1,5 +1,3 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving, TypeFamilies, DerivingStrategies, DerivingVia, UndecidableInstances #-}
-{-# LANGUAGE LambdaCase #-}
 module Concordium.Skov.Query where
 
 import Control.Monad
@@ -54,7 +52,7 @@ doGetBlocksAtHeight h = do
             EQ -> return [lastFin]
             GT -> do
                 brs <- getBranches
-                case brs Seq.!? (fromIntegral $ h - bpHeight lastFin - 1) of
+                case brs Seq.!? fromIntegral (h - bpHeight lastFin - 1) of
                     Nothing -> return []
                     Just bs -> return bs
             LT -> return [findFrom (bpParent lastFin)] -- TODO: replace with more efficient search

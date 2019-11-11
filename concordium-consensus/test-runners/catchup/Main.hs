@@ -1,5 +1,7 @@
-{-# LANGUAGE TupleSections, LambdaCase, OverloadedStrings, TypeFamilies #-}
-{-# LANGUAGE LambdaCase, CPP #-}
+{-# LANGUAGE
+    OverloadedStrings,
+    TypeFamilies,
+    CPP #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 module Main where
 
@@ -56,8 +58,7 @@ makeGlobalStateConfig rt genData = return $ MTDBConfig rt genData (genesisState 
 type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) HookLogHandler
 
 
-data Peer = Peer {
-    -- peerState :: MVar SkovBufferedHookedState,
+newtype Peer = Peer {
     peerChan :: Chan (InMessage Peer)
 }
 
@@ -104,7 +105,7 @@ relayIn msgChan bakerChan sfsRef connectedRef = loop
 
 
 relay :: Peer -> Chan (OutMessage Peer) -> SyncRunner ActiveConfig -> IORef Bool -> Chan (Either (BlockHash, BakedBlock, [Instance]) FinalizationRecord) -> Chan (InMessage Peer) -> [Chan (InMessage Peer)] -> IO ()
-relay myPeer inp sr connectedRef monitor loopback outps = loop
+relay myPeer inp sr connectedRef monitor _loopback outps = loop
     where
         chooseDelay = do
             factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
@@ -152,7 +153,7 @@ relay myPeer inp sr connectedRef monitor loopback outps = loop
                 MsgDirectedCatchUpStatus target cu -> usually $ delayed $ writeChan (peerChan target) (MsgCatchUpStatusReceived myPeer cu)
             -- If we're not connected, don't relay, but still send to the monitor channel
             else case msg of
-                MsgNewBlock blockBS -> do
+                MsgNewBlock blockBS ->
                     case runGet (getBlock now) blockBS of
                         Right (NormalBlock block) -> do
                             let bh = getHash block :: BlockHash
@@ -171,7 +172,7 @@ relay myPeer inp sr connectedRef monitor loopback outps = loop
                 Just bs -> getContractInstanceList (bpState bs)
 
 toggleConnection :: LogMethod IO -> SyncRunner ActiveConfig -> IORef Bool -> Chan (InMessage Peer) -> [Chan (InMessage Peer)] -> IO ()
-toggleConnection logM sr connectedRef loopback outps = readIORef connectedRef >>= loop
+toggleConnection logM _sr connectedRef _loopback _outps = readIORef connectedRef >>= loop
     where
         loop connected = do
             delay <- (^(2::Int)) <$> randomRIO (if connected then (3200,7800) else (0,4500))
@@ -188,11 +189,6 @@ toggleConnection logM sr connectedRef loopback outps = readIORef connectedRef >>
                 logM External LLInfo $ "Reconnected"
                 writeIORef connectedRef True
                 -- TODO: could force catch up with peers here
-                {-
-                fp <- Get.getFinalizationPoint sfsRef
-                forM_ outps $ \outp -> writeChan outp (IECatchupFinalization (runPut $ put fp) True loopback)
-                -}
-                -- FIXME: here
                 loop True
 
 
@@ -256,12 +252,12 @@ main = do
         return (cin, cout, sr, connectedRef, logM)) (zip [0::Int ..] bis)
     monitorChan <- newChan
     forM_ (removeEach chans) $ \((cin, cout, sr, connectedRef, logM), cs) -> do
-        let cs' = ((\(c, _, _, _, _) -> c) <$> cs)
+        let cs' = (\(c, _, _, _, _) -> c) <$> cs
         when False $ do
             _ <- forkIO $ toggleConnection logM sr connectedRef cin cs'
             return ()
         forkIO $ relay (Peer cin) cout sr connectedRef monitorChan cin cs'
-    let loop = do
+    let loop =
             readChan monitorChan >>= \case
                 Left (bh, block, gs') -> do
                     let ts = blockTransactions block

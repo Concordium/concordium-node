@@ -67,7 +67,7 @@ import Concordium.TimeMonad
 import Concordium.TimerMonad
 
 atStrict :: (Ord k) => k -> Lens' (Map k v) (Maybe v)
-atStrict k f m = f mv <&> \r -> case r of
+atStrict k f m = f mv <&> \case
         Nothing -> maybe m (const (Map.delete k m)) mv
         Just v' -> Map.insert k v' m
     where mv = Map.lookup k m
@@ -310,7 +310,7 @@ liftWMVBA a = do
     FinalizationInstance{..} <- getFinalizationInstance
     case _finsCurrentRound of
         Nothing -> error "No current finalization round"
-        Just (fr@FinalizationRound{..}) -> do
+        Just fr@FinalizationRound{..} -> do
             let
                 baid = runPut $ S.put _finsSessionId >> S.put _finsIndex >> S.put roundDelta
                 pWeight party = partyWeight (parties _finsCommittee Vec.! fromIntegral party)
@@ -360,7 +360,7 @@ receiveFinalizationMessage :: (FinalizationMonad s m) => FinalizationMessage -> 
 receiveFinalizationMessage msg@FinalizationMessage{msgHeader=FinalizationMessageHeader{..},..} = do
         FinalizationState{..} <- use finState
         -- Check this is the right session
-        if (_finsSessionId == msgSessionId) then
+        if _finsSessionId == msgSessionId then
             -- Check the finalization index is not out of date
             case compare msgFinalizationIndex _finsIndex of
                 LT -> return ResultStale -- message is out of date
@@ -372,7 +372,7 @@ receiveFinalizationMessage msg@FinalizationMessage{msgHeader=FinalizationMessage
                             return ResultDuplicate
                         else do
                             -- Since we're behind, request the finalization record we're apparently missing
-                            logEvent Afgjort LLDebug $ "Missing finalization at index " ++ (show $ msgFinalizationIndex - 1)
+                            logEvent Afgjort LLDebug $ "Missing finalization at index " ++ show (msgFinalizationIndex - 1)
                             return ResultPendingFinalization
                     else
                         return ResultInvalid
@@ -406,7 +406,7 @@ receiveFinalizationPseudoMessage :: (FinalizationMonad s m) => FinalizationPseud
 receiveFinalizationPseudoMessage (FPMMessage msg) = receiveFinalizationMessage msg
 receiveFinalizationPseudoMessage (FPMCatchUp cu@CatchUpMessage{..}) = do
         FinalizationState{..} <- use finState
-        if (_finsSessionId == cuSessionId) then
+        if _finsSessionId == cuSessionId then
             case compare cuFinalizationIndex _finsIndex of
                 LT -> return ResultStale
                 GT -> return ResultUnverifiable
@@ -414,7 +414,7 @@ receiveFinalizationPseudoMessage (FPMCatchUp cu@CatchUpMessage{..}) = do
                         now <- currentTime
                         oldDeDup <- use finCatchUpDeDup
                         let
-                            (_,purgedDeDup) = PSQ.atMostView (addUTCTime (-60) now) oldDeDup
+                            (_, purgedDeDup) = PSQ.atMostView (addUTCTime (-60) now) oldDeDup
                             alterfun Nothing = (False, Just (now, ()))
                             alterfun (Just _) = (True, Just (now, ()))
                             (isDup, newDeDup) = PSQ.alter alterfun cuSignature purgedDeDup
@@ -538,7 +538,7 @@ finalizationSummary = to fs
 -- |Produce a 'FinalizationPseudoMessage' containing a catch up message based on the current finalization state.
 finalizationCatchUpMessage :: (FinalizationStateLenses s m) => FinalizationInstance -> s -> Maybe FinalizationPseudoMessage
 finalizationCatchUpMessage FinalizationInstance{..} s = _finsCurrentRound <&> \FinalizationRound{..} ->
-        (FPMCatchUp $! signCatchUpMessage finMySignKey _finsSessionId _finsIndex roundMe (committeeMaxParty _finsCommittee) summary)
+        FPMCatchUp $! signCatchUpMessage finMySignKey _finsSessionId _finsIndex roundMe (committeeMaxParty _finsCommittee) summary
     where
         FinalizationState{..} = s ^. finState
         summary = s ^. finalizationSummary
@@ -575,7 +575,7 @@ processFinalizationSummary FinalizationSummary{..} =
                                 -- We consider it behind if it doesn't include (n-t) valid signatures
                                 return $ sum (getPartyWeight committee <$> Map.keys cur') < totalWeight - corruptWeight
                             EQ -> -- This is our current round, so create a WMVBASummary and process that
-                                curBehind <$> (liftWMVBA $ processWMVBASummary (wmvbaFailedSummary m) (checkSigDelta delta))
+                                curBehind <$> liftWMVBA (processWMVBASummary (wmvbaFailedSummary m) (checkSigDelta delta))
                             GT -> -- This case shouldn't happen unless the message is corrupt.
                                 return False
                 let delta = BlockHeight (shiftL (theBlockHeight initDelta) (length summaryFailedRounds))

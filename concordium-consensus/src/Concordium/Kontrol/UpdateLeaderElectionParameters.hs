@@ -1,5 +1,3 @@
-{-# LANGUAGE RecordWildCards #-}
-
 module Concordium.Kontrol.UpdateLeaderElectionParameters where
 
 import Data.Serialize
@@ -13,8 +11,8 @@ import Concordium.Crypto.SHA256
 slotDependentBirkParameters :: Slot -> BirkParameters -> BirkParameters
 slotDependentBirkParameters slot bps@BirkParameters{..} = 
   let
-    currentEpoch = theSlot $ slot `div` (epochLength _birkSeedState)
-    isInSameEpoch = currentEpoch == (epoch _birkSeedState)
+    currentEpoch = theSlot $ slot `div` epochLength _birkSeedState
+    isInSameEpoch = currentEpoch == epoch _birkSeedState
   in
     if isInSameEpoch then
       -- if the slot is in the same epoch as the predecessor, nothing changes

@@ -1,6 +1,6 @@
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE KindSignatures, TypeFamilies, GeneralizedNewtypeDeriving, DerivingStrategies, DerivingVia, StandaloneDeriving #-}
+{-# LANGUAGE
+    DerivingVia,
+    StandaloneDeriving #-}
 module Concordium.Skov.Monad where
 
 import Control.Monad.Trans.Class

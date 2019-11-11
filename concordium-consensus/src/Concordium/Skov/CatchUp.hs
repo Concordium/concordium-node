@@ -1,4 +1,3 @@
-{-# LANGUAGE RecordWildCards, LambdaCase #-}
 module Concordium.Skov.CatchUp where
 
 import Control.Monad.Trans.Except
@@ -112,7 +111,7 @@ checkKnownBlock b kb = (b `Set.member` (m ^. at (bpHeight b) . non Set.empty), k
 
 handleCatchUp :: (TreeStateMonad m, SkovQueryMonad m) => CatchUpStatus -> m (Either String (Maybe ([Either FinalizationRecord (BlockPointer m)], CatchUpStatus), Bool))
 handleCatchUp peerCUS = runExceptT $ do
-        (lfb, lastFinRec) <- lift $ getLastFinalized
+        (lfb, lastFinRec) <- lift getLastFinalized
         if cusLastFinalizedHeight peerCUS > bpHeight lfb then do
             response <-
                 if cusIsRequest peerCUS then do
@@ -124,15 +123,15 @@ handleCatchUp peerCUS = runExceptT $ do
             return (response, True)
         else do
             (peerlfb, peerFinRec) <- getBlockStatus (cusLastFinalizedBlock peerCUS) >>= \case
-                Just (BlockFinalized peerlfb peerFinRec) -> do
+                Just (BlockFinalized peerlfb peerFinRec) ->
                     return (peerlfb, peerFinRec)
-                _ -> do
+                _ ->
                     throwE $ "Invalid catch up status: last finalized block not finalized." 
             peerbb <- lift $ resolveBlock (cusBestBlock peerCUS)
             let
                 fj Nothing (_, l) = (True, l)
                 fj (Just b) (j, l) = (j, b : l)
-            (pfjMissing, peerFinJustifiers) <- (foldr fj (False, [])) <$> mapM (lift . resolveBlock) (cusFinalizationJustifiers peerCUS) 
+            (pfjMissing, peerFinJustifiers) <- foldr fj (False, []) <$> mapM (lift . resolveBlock) (cusFinalizationJustifiers peerCUS) 
             -- We should mark the peer as pending if we don't recognise its best block
             let catchUpWithPeer = isNothing peerbb || pfjMissing
             if cusIsRequest peerCUS then do

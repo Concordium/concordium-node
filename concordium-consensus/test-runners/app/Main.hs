@@ -1,5 +1,6 @@
-{-# LANGUAGE TupleSections, LambdaCase, OverloadedStrings #-}
-{-# LANGUAGE LambdaCase, CPP #-}
+{-# LANGUAGE 
+    OverloadedStrings,
+    CPP #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 module Main where
 
@@ -157,15 +158,14 @@ main = do
     let (gen, bis) = makeGenesisData now n 1 0.5 0 dummyCryptographicParameters dummyIdentityProviders []
     trans <- transactions <$> newStdGen
     chans <- mapM (\(bakerId, (bid, _)) -> do
-        let logFile = "consensus-" ++ show now ++ "-" ++ show bakerId ++ ".log"
+        logFile <- openFile ("consensus-" ++ show now ++ "-" ++ show bakerId ++ ".log") WriteMode
 
         let logM src lvl msg = do
                                     timestamp <- getCurrentTime
-                                    appendFile logFile $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg ++ "\n"
-        let logTransferFile = "transfer-log-" ++ show now ++ "-" ++ show bakerId ++ ".transfers"
-        let logT bh slot reason = do
-              appendFile logTransferFile (show (bh, slot, reason))
-              appendFile logTransferFile "\n"
+                                    hPutStrLn logFile $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg
+        logTransferFile <- openFile ("transfer-log-" ++ show now ++ "-" ++ show bakerId ++ ".transfers") WriteMode
+        let logT bh slot reason =
+              hPrint logTransferFile (bh, slot, reason)
         gsconfig <- makeGlobalStateConfig defaultRuntimeParameters gen
         let
             finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid)) gen
@@ -176,7 +176,7 @@ main = do
         return (cin, cout, sr)) (zip [(0::Int) ..] bis)
     monitorChan <- newChan
     mapM_ (\((_,cout, sr), cs) -> forkIO $ relay cout sr monitorChan ((\(c, _, _) -> c) <$> cs)) (removeEach chans)
-    let loop = do
+    let loop =
             readChan monitorChan >>= \case
                 Left (bh, block, gs') -> do
                     let ts = blockTransactions block
