@@ -15,6 +15,7 @@ import Concordium.GlobalState.Persistent.MonadicRecursive
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.Types.Acorn.Core as Core (Name(..), ModuleRef(..))
 import qualified Concordium.Crypto.SHA256 as SHA256
+import Concordium.Types (AccountAddress)
 
 class FixedTrieKey a where
     -- |Unpack a key to a list of bytes.
@@ -32,6 +33,7 @@ instance FixedTrieKey Word32
 deriving via Word32 instance FixedTrieKey Core.Name
 instance FixedTrieKey SHA256.Hash
 deriving via SHA256.Hash instance FixedTrieKey Core.ModuleRef
+instance FixedTrieKey AccountAddress
 
 
 -- |Trie with keys all of same fixed length treated as lists of bytes.
