@@ -2,8 +2,9 @@
 image: "haskell:8.6.5"
 
 stages:
-  - lint
-  - test
+  - haskell
+  - rust:lint
+  - rust:test
 
 variables:
     STACK_ROOT: "${CI_PROJECT_DIR}/.stack"
@@ -16,7 +17,13 @@ cache:
     - target
 
 "stack:test":
-  stage: test
+  stage: haskell
+  artifacts:
+    expire_in: 15 mins
+    expose_as: consensus_external_libs
+    name: "$CI_JOB_STAGE-$CI_COMMIT_REF_NAME"
+    paths:
+      - external-libs/
   script:
     - "apt-get update && apt-get install -y moreutils curl"
     - "git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/"
@@ -25,6 +32,7 @@ cache:
     - "./build-deps.sh"
     - "stack build -v --ghc-options -j4 | ts '[%Y-%m-%d %H:%M:%.S]'"
     - "stack test -v | ts '[%Y-%m-%d %H:%M:%.S]'"
+    - consensus-rust/scripts/setup-ci.sh
 
 .generic:
   variables:
@@ -36,8 +44,9 @@ cache:
 
 "lint:fmt":
   extends: .generic-lint
-  stage: lint
+  stage: rust:lint
   image: rustlang/rust:nightly
+  dependenciues: []
   before_script:
     - rustup default nightly-2019-07-25
     - rustup component add rustfmt
@@ -48,7 +57,9 @@ cache:
 
 "cargo:test":
   extends: .generic
-  stage: test
+  stage: rust:test
+  dependencies:
+    - consensus_external_libs
   script:
     - "apt-get update && apt-get install -y moreutils curl"
     - "curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable"
@@ -62,7 +73,9 @@ cache:
 
 "lint:clippy":
   extends: .generic-lint
-  stage: lint
+  stage: rust:lint
+  dependencies: 
+    - consensus_external_libs
   script:
     - "apt-get update && apt-get install -y moreutils curl"
     - "curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable"
