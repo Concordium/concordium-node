@@ -50,8 +50,8 @@ flags:
     manual: False
     default: True
   rust:
-    manual: True
-    default: False
+    manual: False
+    default: True
 
 library:
   source-dirs: src
