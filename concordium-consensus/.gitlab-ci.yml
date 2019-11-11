@@ -1,7 +1,6 @@
 
 image: "haskell:8.6.5"
 
-# TODO @ij - redefine stages, so we can use the compiled dynamic libraries from haskell
 stages:
   - lint
   - test
