@@ -25,7 +25,7 @@ import Concordium.Types.HashableTo
 import qualified Concordium.GlobalState.TreeState as TreeState
 import qualified Concordium.GlobalState.Basic.TreeState as TS
 import qualified Concordium.GlobalState.Basic.Block as B
-import qualified Concordium.GlobalState.Basic.BlockState as BSTATE
+import qualified Concordium.GlobalState.Basic.BlockState as BState
 import qualified Concordium.GlobalState.Basic.BlockPointer as BS
 import Concordium.Types.Transactions
 import Concordium.GlobalState.Finalization
@@ -66,7 +66,7 @@ type ANFTS = HM.HashMap AccountAddress AccountNonFinalizedTransactions
 
 type Config t = SkovConfig MemoryTreeMemoryBlockConfig (ActiveFinalization t) NoHandler
 
-invariantSkovData :: TS.SkovData BSTATE.BlockState -> Either String ()
+invariantSkovData :: TS.SkovData BState.BlockState -> Either String ()
 invariantSkovData TS.SkovData{..} = do
         -- Finalization list
         when (Seq.null _finalizationList) $ Left "Finalization list is empty"
@@ -153,26 +153,23 @@ invariantSkovData TS.SkovData{..} = do
         notDeadOrPending _ = True
         onlyPending (TreeState.BlockPending {}) = True
         onlyPending _ = False
-        checkEpochs :: (BS.BasicBlockPointer BSTATE.BlockState) -> Either String ()
+        checkEpochs :: BS.BasicBlockPointer BState.BlockState -> Either String ()
         checkEpochs bp = do
-            let params = BSTATE._blockBirkParameters (bpState bp)
+            let params = BState._blockBirkParameters (bpState bp)
             let currentEpoch = epoch $ _birkSeedState params
             let currentSlot = case BS._bpBlock bp of
                     B.GenesisBlock _ -> 0
                     B.NormalBlock block -> B.bbSlot block
             -- The slot of the block should be in the epoch of its parameters:
-            if (currentEpoch == (theSlot $ currentSlot `div` (epochLength (_birkSeedState params))))
-               then return ()
-               else Left $ "Slot " ++ show currentSlot ++ " is not in epoch " ++ show currentEpoch
-            let parentParams = BSTATE._blockBirkParameters (bpState (bpParent bp))
+            unless (currentEpoch == theSlot (currentSlot `div` epochLength (_birkSeedState params))) $
+                Left $ "Slot " ++ show currentSlot ++ " is not in epoch " ++ show currentEpoch
+            let parentParams = BState._blockBirkParameters (bpState (bpParent bp))
             let parentEpoch = epoch $ _birkSeedState parentParams
-            if currentEpoch == parentEpoch 
-                then return ()
-                else 
+            unless (currentEpoch == parentEpoch) $
                     -- The leadership election nonce should change every epoch
-                    checkBinary (/=) (currentSeed $ _birkSeedState params) (currentSeed $ _birkSeedState parentParams) "/=" 
-                ("Epoch " ++ show currentEpoch ++ " seed: " ) ("Epoch " ++ show parentEpoch ++ " seed: " )
-            let nextEpochParams = slotDependentBirkParameters (currentSlot + (epochLength (_birkSeedState params))) params
+                    checkBinary (/=) (currentSeed $ _birkSeedState params) (currentSeed $ _birkSeedState parentParams)
+                            "/=" ("Epoch " ++ show currentEpoch ++ " seed: " ) ("Epoch " ++ show parentEpoch ++ " seed: " )
+            let nextEpochParams = slotDependentBirkParameters (currentSlot + epochLength (_birkSeedState params)) params
             let prevEpochBakers = _birkPrevEpochBakers params
             let futureLotteryBakers = _birkLotteryBakers nextEpochParams
             -- This epoch's prevEpochBakers should be the next epoch's lotterybakers
@@ -198,7 +195,7 @@ invariantSkovFinalization (SkovState sd@TS.SkovData{..} FinalizationState{..} _)
                 nthAncestor 0 b = b
                 nthAncestor n b = nthAncestor (n-1) (bpParent b)
             let eligibleBlocks = Set.fromList $ bpHash . nthAncestor roundDelta <$> descendants
-            let justifiedProposals = Map.keysSet $ Map.filter (\(b,_) -> b) $ _proposals $ _freezeState $ roundWMVBA
+            let justifiedProposals = Map.keysSet $ Map.filter fst $ _proposals $ _freezeState $ roundWMVBA
             checkBinary (==) justifiedProposals eligibleBlocks "==" "nominally justified finalization blocks" "actually justified finalization blocks"
             case roundInput of
                 Nothing -> unless (null eligibleBlocks) $ Left "There are eligible finalization blocks, but none has been nominated"
