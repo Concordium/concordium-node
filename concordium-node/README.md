@@ -1,4 +1,6 @@
 # P2P Layer implementation in Rust
+`master` [![master pipeline status](https://gitlab.com/Concordium/p2p-client/badges/master/pipeline.svg)](https://gitlab.com/Concordium/p2p-client/commits/master) `develop` [![develop pipeline status](https://gitlab.com/Concordium/p2p-client/badges/master/pipeline.svg)](https://gitlab.com/Concordium/p2p-client/commits/develop)
+
 ## General usage information
 This repository uses git lfs for storing binary dependencies, and relies on git submodules for internal component dependencies. Therefore the git lfs extension needs to be installed, and to update the code remember to pull submodules too recursively.
 
