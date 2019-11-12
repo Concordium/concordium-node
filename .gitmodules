@@ -10,3 +10,6 @@
 [submodule "deps/external/grpc-rs"]
 	path = deps/external/grpc-rs
 	url = ../rust/external/grpc-rs.git
+[submodule "deps/external/noiseexplorer_xx"]
+	path = deps/external/noiseexplorer_xx
+	url = ../rust/external/noiseexplorer_xx

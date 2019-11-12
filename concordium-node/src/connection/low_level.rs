@@ -116,7 +116,7 @@ impl ConnectionLowLevel {
     fn responder_got_message_a(&mut self, mut input: HybridBuf) -> Fallible<()> {
         trace!("I got message A");
         let mut msg_a = vec![0u8; input.len()? as usize];
-        input.read(&mut msg_a)?;
+        input.read_exact(&mut msg_a)?;
         self.noise_session.recv_message(&mut msg_a)?;
 
         trace!("I'm sending message B");
@@ -136,7 +136,7 @@ impl ConnectionLowLevel {
     fn initiator_got_message_b(&mut self, mut input: HybridBuf) -> Fallible<()> {
         trace!("I got message B");
         let mut msg_b = vec![0u8; input.len()? as usize];
-        input.read(&mut msg_b)?;
+        input.read_exact(&mut msg_b)?;
         self.noise_session.recv_message(&mut msg_b.clone())?;
 
         trace!("I'm sending message C");
@@ -155,7 +155,7 @@ impl ConnectionLowLevel {
     fn responder_got_message_c(&mut self, mut input: HybridBuf) -> Fallible<()> {
         trace!("I got message C");
         let mut msg_c = vec![0u8; input.len()? as usize];
-        input.read(&mut msg_c)?;
+        input.read_exact(&mut msg_c)?;
         self.noise_session.recv_message(&mut msg_c)?;
 
         self.conn().send_handshake_request()?;
