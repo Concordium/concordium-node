@@ -4,3 +4,9 @@
 [submodule "deps/internal/consensus"]
 	path = deps/internal/consensus
 	url = ../consensus/prototype.git
+[submodule "deps/internal/concordium-dns"]
+	path = deps/internal/concordium-dns
+	url = ../rust/concordium-dns.git
+[submodule "deps/external/grpc-rs"]
+	path = deps/external/grpc-rs
+	url = ../rust/external/grpc-rs.git
