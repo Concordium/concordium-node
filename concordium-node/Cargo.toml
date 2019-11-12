@@ -94,7 +94,8 @@ num_cpus = { version = "1.10.0", optional = true }
 tokio = { version = "0.1.19", optional = true }
 spin = { version = "0.5.2", optional = true }
 prometheus = { version = "0.7.0", default-features = false, features = [ "gen", "push", "protobuf" ], optional = true }
-noiseexplorer_xx = { path = "../noiseexplorer/implementations/rs/XX" }
+noiseexplorer_xx = { path = "deps/external/noiseexplorer_xx" }
+bytesize = "1.0.0"
 
 [target.'cfg(windows)'.dependencies]
 ipconfig = { version = "^0.1.9" }
