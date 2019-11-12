@@ -28,7 +28,7 @@ pub struct Claim {
     pub developer: bool,
 }
 
-const AUTH_URL: &str = "https://new-auth.eu.prod.concordium.com/auth";
+const AUTH_URL: &str = "https://auth.eu.prod.concordium.com/auth";
 
 pub fn get_username_from_jwt(token: &str) -> String {
     dangerous_unsafe_decode::<Claim>(token)
