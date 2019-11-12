@@ -19,11 +19,11 @@ impl Connection {
         if let Err(e) = match &full_msg.payload {
             NetworkMessagePayload::NetworkRequest(
                 NetworkRequest::Handshake(remote_node_id, remote_port, ref networks, _),
-                ..,
+                ..
             ) => self.handle_handshake_req(*remote_node_id, *remote_port, networks),
             NetworkMessagePayload::NetworkResponse(
                 NetworkResponse::Handshake(remote_node_id, remote_port, ref nets, _),
-                ..,
+                ..
             ) => self.handle_handshake_resp(*remote_node_id, *remote_port, nets),
             NetworkMessagePayload::NetworkRequest(NetworkRequest::Ping, ..) => self.send_pong(),
             NetworkMessagePayload::NetworkResponse(NetworkResponse::Pong, ..) => self.handle_pong(),
@@ -48,7 +48,7 @@ impl Connection {
             NetworkMessagePayload::NetworkPacket(pac, ..) => self.handle_incoming_packet(&pac),
             NetworkMessagePayload::NetworkRequest(
                 NetworkRequest::Retransmit(elem_type, since, nid),
-                ..,
+                ..
             ) => self.handle_retransmit_req(*elem_type, *since, *nid),
         } {
             if !self.handler_ref.is_terminated.load(Ordering::Relaxed) {
