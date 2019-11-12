@@ -95,7 +95,7 @@ appendF acct t = mproject t >>= \case
             enewLeaf <- membed newLeaf
             let hsh = branchHash h newHash
             b <- membed (Branch 0 True hsh t enewLeaf)
-            return (0, 1, True, hsh, b)
+            return (1, 1, True, hsh, b)
         (Branch lvl True hsh _ _) -> do
             enewLeaf <- membed newLeaf
             let newhsh = branchHash hsh newHash
@@ -118,7 +118,7 @@ updateF upd x t = mproject t >>= \case
             (res, acct') <- upd acct
             let hsh' = getHash acct'
             t' <- membed (Leaf hsh' acct')
-            return $! Just (res, hsh', t')
+            return $ Just (res, hsh', t')
         else return Nothing
     (Branch lvl fll _ l r) -> if testBit x (fromIntegral lvl) then
             updateF upd (clearBit x (fromIntegral lvl)) r >>= \case
