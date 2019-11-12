@@ -243,11 +243,6 @@ then
     ARGS="$ARGS --rpc-server-token $RPC_PASSWORD"
 fi
 
-if [ -n "$BETA_USERNAME" ];
-then
-    ARGS="$ARGS --beta-username $BETA_USERNAME"
-fi
-
 if [ -n "$BETA_TOKEN" ];
 then
     ARGS="$ARGS --beta-token $BETA_TOKEN"

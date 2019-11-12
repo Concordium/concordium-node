@@ -1,9 +1,9 @@
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use jsonwebtoken::dangerous_unsafe_decode;
 
 #[derive(Serialize, Deserialize)]
 struct ClientLogin {
-    username: String,
     token:    String,
     version:  String,
 }
@@ -20,12 +20,25 @@ struct ClientLoginResponse {
     status: ClientLoginReturnStatus,
 }
 
-const AUTH_URL: &str = "https://auth.eu.prod.concordium.com/auth";
+#[derive(Serialize, Deserialize)]
+pub struct Claim {
+    pub iss: String,
+    pub sub: String,
+    pub exp: i64,
+    pub developer: bool,
+}
 
-pub fn authenticate(username: &str, token: &str) -> bool {
+const AUTH_URL: &str = "https://new-auth.eu.prod.concordium.com/auth";
+
+pub fn get_username_from_jwt(token: &str) -> String {
+    dangerous_unsafe_decode::<Claim>(token).map(|s| {
+        s.claims.sub
+    }).expect("Could not validate JWT. Authentication would have failed anyway!")
+}
+
+pub fn authenticate(token: &str) -> bool {
     let client = Client::new();
     let login_details = ClientLogin {
-        username: username.to_owned(),
         token:    token.to_owned(),
         version:  crate::VERSION.to_owned(),
     };
