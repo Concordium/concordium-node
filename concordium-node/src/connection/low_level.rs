@@ -1,4 +1,5 @@
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
+use bytesize::ByteSize;
 use failure::{Error, Fallible};
 use mio::tcp::TcpStream;
 use noiseexplorer_xx::{
@@ -195,7 +196,10 @@ impl ConnectionLowLevel {
         match read_result {
             Ok(TcpResult::Complete(payload)) => {
                 let len = payload.len()?;
-                trace!("A {}B message was fully read", len);
+                trace!(
+                    "A {} message was fully read",
+                    ByteSize(len).to_string_as(true)
+                );
                 self.forward(payload, len as usize)?;
 
                 if self.is_post_handshake() {
@@ -269,7 +273,10 @@ impl ConnectionLowLevel {
                 };
                 return Err(Error::from(error));
             } else {
-                trace!("Expecting a {}B message", expected_size);
+                trace!(
+                    "Expecting a {} message",
+                    ByteSize(expected_size as u64).to_string_as(true)
+                );
                 self.incoming_msg.pending_bytes = expected_size;
             }
 
@@ -437,8 +444,8 @@ impl ConnectionLowLevel {
 
         while let Some(mut message) = self.output_queue.pop_front() {
             trace!(
-                "Writing a {}B message to the socket",
-                message.get_ref().len() - message.position() as usize
+                "Writing a {} message to the socket",
+                ByteSize(message.get_ref().len() as u64 - message.position()).to_string_as(true)
             );
             written_bytes += partial_copy(&mut message, &mut self.buffer, &mut self.socket)?;
 

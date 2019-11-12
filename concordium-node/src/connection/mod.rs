@@ -11,6 +11,7 @@ pub use p2p_event::P2PEvent;
 mod p2p_event;
 
 use byteorder::ReadBytesExt;
+use bytesize::ByteSize;
 use chrono::prelude::Utc;
 use circular_queue::CircularQueue;
 use digest::Digest;
@@ -603,7 +604,11 @@ pub fn send_pending_messages(
     let mut pending_messages = write_or_die!(pending_messages);
 
     while let Some((msg, _)) = pending_messages.pop() {
-        trace!("Attempting to send {}B to {}", msg.len(), low_level.conn());
+        trace!(
+            "Attempting to send {} to {}",
+            ByteSize(msg.len() as u64).to_string_as(true),
+            low_level.conn()
+        );
 
         if let Err(err) = low_level.write_to_socket(msg) {
             bail!(
