@@ -1,9 +1,11 @@
 # P2P Layer implementation in Rust
+`master` [![master pipeline status](https://gitlab.com/Concordium/p2p-client/badges/master/pipeline.svg)](https://gitlab.com/Concordium/p2p-client/commits/master) `develop` [![develop pipeline status](https://gitlab.com/Concordium/p2p-client/badges/master/pipeline.svg)](https://gitlab.com/Concordium/p2p-client/commits/develop)
+
 ## General usage information
-This repository uses git lfs for storing binary dependencies, and relies on git submodules for internal component dependencies. Therefore the git lfs extension needs to be installed, and to update the code remember to pull submodules too recursively.
+This repository relies on git submodules for internal component dependencies, so do remember to clone recursively or use `git submodule update --init --recursive` after having cloned it.
 
 ## Dependencies to build the project
-* Rust (stable 1.37+, and stable 1.37.0 (eae3437df 2019-08-13) for using static libraries)
+* Rust (stable 1.37+, and stable 1.39.0 (4560ea788 2019-11-04) for using static libraries)
 * binutils >= 2.22
 * cmake >= 3.8.0
 * flatc >= 1.11.0
@@ -31,7 +33,7 @@ This repository uses git lfs for storing binary dependencies, and relies on git 
 * rgs - use consensus with rust global state implementation (this must match the proper static libraries if compiled against them)
 
 ## Setting up basic local build environment
-Install the needed dependencies from the list above (Windows build is special, for that see cross-compilation build environment setup script in [scripts/init.win.build.env.sh](/scripts/init.win.build.env.sh) for further details), and run the script (requires that the user executing is has sudo privileges) `scripts/local-setup-unix-deps.sh` and pay special attention to setting the right version of GHC (see [build scripts](/scripts/local-setup-unix-deps.sh#L25) for details).
+Install the needed dependencies from the list above, and run the script (requires that the user executing is has sudo privileges) `scripts/local-setup-unix-deps.sh` and pay special attention to setting the right version of GHC (see [build scripts](/scripts/local-setup-unix-deps.sh#L28) for details).
 
 Alternatively use `--features=static` to build statically against the haskell dependencies (only available on Linux, and requries that you download them using [scripts/download-static-libs.sh](/scripts/download-static-libs.sh) before first compilation, and whenever the pointer to any internal dependencies are updated).
 
@@ -51,7 +53,7 @@ $> cargo test --all
 ## Nix
 Currently this project only sports support for Nix on Linux platforms.
 ### Development
-All `zsh` wrapper functions wraps around `nix-shell`, and if dropping into a `nix-shell` directly remember to use the cargo flag `--features=static` to build against the static libraries in LFS.
+All `zsh` wrapper functions wrap around `nix-shell`, and if dropping into a `nix-shell` directly remember to use the cargo flag `--features=static` to build against the static libraries (`nix-shell` will automatically pull these down from S3).
 ### Install binaries as a package
 ```bash
 $> scripts/download-static-libs.sh
@@ -60,9 +62,10 @@ $> nix-env -f . -i
 
 ## Docker-Compose
 ### Building docker images
-To build the stable image built in a Jenkins pipeline (it gets tagged `latest`, if not changed in the line shown below, so it matches the image hosted on docker-hub - and as the layers will have a newer version, it won't download from docker-hub unless the locally built image is removed via e.g. `docker image rmi ..`). It passes the local `ssh-agent` into the docker build environment for the needed stages to download internal crates with git directly. This image builds on `192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base` so make sure to have either built this locally (check [scripts/build-base.sh](/scripts/build-base.sh) for the syntax and current version).
+To build the stable image built in a Jenkins pipeline (it gets tagged `latest`, if not changed in the line shown below, so it matches the image hosted on docker-hub - and as the layers will have a newer version, it won't download from docker-hub unless the locally built image is removed via e.g. `docker image rmi ..`). It passes the local `ssh-agent` into the docker build environment for the needed stages to download internal crates with git directly. This image builds on `192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base` so make sure to have either built this locally (check [scripts/build-base.sh](/scripts/build-base-docker.sh) for the syntax and current version).
 ```bash
 $> git clone -b master --single-branch git@gitlab.com:Concordium/tools/baker_id_gen.git baker_id_gen # Only needed once, as it's a vital component to scaling the bakers inside docker-compose
+$> echo $(cd deps/internal/consensus && git rev-parse HEAD) > CONSENSUS_VERSION
 $> DOCKER_BUILDKIT=1 docker build -f scripts/dev-client.Dockerfile -t concordium/dev-client:latest --ssh default . --no-cache
 ```
 ### Latest stable from master branch
