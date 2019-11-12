@@ -220,8 +220,16 @@ pub fn handle_consensus_inbound_message(
     consensus: &mut consensus::ConsensusContainer,
     request: ConsensusMessage,
     peers: Arc<RwLock<PeerList>>,
+    no_rebroadcast_consensus_validation: bool,
 ) -> Fallible<()> {
-    process_external_gs_entry(node, network_id, consensus, request, peers)
+    process_external_gs_entry(
+        node,
+        network_id,
+        consensus,
+        request,
+        peers,
+        no_rebroadcast_consensus_validation,
+    )
 }
 
 pub fn handle_consensus_outbound_message(
@@ -255,29 +263,53 @@ fn process_external_gs_entry(
     consensus: &mut consensus::ConsensusContainer,
     mut request: ConsensusMessage,
     peers_lock: Arc<RwLock<PeerList>>,
+    no_rebroadcast_consensus_validation: bool,
 ) -> Fallible<()> {
     let source = P2PNodeId(request.source_peer());
 
-    // relay external messages to Consensus
-    let consensus_result = send_msg_to_consensus(node, source, consensus, &mut request)?;
+    if no_rebroadcast_consensus_validation {
+        let curr_pos = request.payload.position()?;
+        if request.distribution_mode() == DistributionMode::Broadcast {
+            send_consensus_msg_to_net(
+                &node,
+                request.dont_relay_to(),
+                source,
+                None,
+                network_id,
+                request.variant,
+                None,
+                &request.payload.remaining_bytes()?,
+            )?;
+        }
+        request.payload.seek(SeekFrom::Start(curr_pos))?;
 
-    // adjust the peer state(s) based on the feedback from Consensus
-    update_peer_states(peers_lock, &request, consensus_result);
+        // relay external messages to Consensus
+        let consensus_result = send_msg_to_consensus(node, source, consensus, &mut request)?;
 
-    // rebroadcast incoming broadcasts if applicable
-    if request.distribution_mode() == DistributionMode::Broadcast
-        && consensus_result.is_rebroadcastable()
-    {
-        send_consensus_msg_to_net(
-            &node,
-            request.dont_relay_to(),
-            source,
-            None,
-            network_id,
-            request.variant,
-            None,
-            &request.payload.remaining_bytes()?,
-        )?;
+        // adjust the peer state(s) based on the feedback from Consensus
+        update_peer_states(peers_lock, &request, consensus_result);
+    } else {
+        // relay external messages to Consensus
+        let consensus_result = send_msg_to_consensus(node, source, consensus, &mut request)?;
+
+        // adjust the peer state(s) based on the feedback from Consensus
+        update_peer_states(peers_lock, &request, consensus_result);
+
+        // rebroadcast incoming broadcasts if applicable
+        if request.distribution_mode() == DistributionMode::Broadcast
+            && consensus_result.is_rebroadcastable()
+        {
+            send_consensus_msg_to_net(
+                &node,
+                request.dont_relay_to(),
+                source,
+                None,
+                network_id,
+                request.variant,
+                None,
+                &request.payload.remaining_bytes()?,
+            )?;
+        }
     }
 
     Ok(())

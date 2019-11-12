@@ -428,6 +428,11 @@ pub struct CliConfig {
         default_value = "0"
     )]
     pub timeout_bucket_entry_period: u64,
+    #[structopt(
+        long = "no-rebroadcast-consensus-validation",
+        help = "Disable consensus controlling whether to rebroadcast or not"
+    )]
+    pub no_rebroadcast_consensus_validation: bool,
 }
 
 #[derive(StructOpt, Debug)]
