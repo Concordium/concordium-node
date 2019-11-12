@@ -26,7 +26,7 @@ static = [ "consensus-rust/static" ]
 profiling = [ "consensus-rust/profiling" ]
 elastic_logging = [ "elastic", "elastic_derive", "serde_json", "serde/derive", "uuid/v4" ]
 collector = [ "reqwest/default-tls", "serde_json", "serde/derive", "gotham", "mime", "gotham_derive", "hyper" ]
-beta = [ "serde_json", "serde/derive", "reqwest/default-tls" ]
+beta = [ "serde_json", "serde/derive", "reqwest/default-tls", "jsonwebtoken" ]
 rgs = [ "consensus-rust/rgs" ]
 
 [profile.release]
@@ -93,6 +93,7 @@ rayon = "^1.2.0"
 num_cpus = { version = "1.10.0", optional = true }
 tokio = { version = "0.1.19", optional = true }
 spin = { version = "0.5.2", optional = true }
+jsonwebtoken = { version = "6", optional = true }
 prometheus = { version = "0.7.0", default-features = false, features = [ "gen", "push", "protobuf" ], optional = true }
 
 [target.'cfg(windows)'.dependencies]

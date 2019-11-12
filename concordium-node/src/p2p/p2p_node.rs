@@ -1,3 +1,5 @@
+#[cfg(feature = "beta")]
+use crate::client::plugins::beta::get_username_from_jwt;
 #[cfg(feature = "network_dump")]
 use crate::dumper::create_dump_thread;
 use crate::{
@@ -354,7 +356,7 @@ impl P2PNode {
             },
             bucket_cleanup_interval: conf.common.bucket_cleanup_interval,
             #[cfg(feature = "beta")]
-            beta_username: conf.cli.beta_username.clone(),
+            beta_username: get_username_from_jwt(&conf.cli.beta_token),
             thread_pool_size: conf.connection.thread_pool_size,
         };
 
