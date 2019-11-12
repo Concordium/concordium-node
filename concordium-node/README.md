@@ -53,7 +53,7 @@ $> cargo test --all
 ## Nix
 Currently this project only sports support for Nix on Linux platforms.
 ### Development
-All `zsh` wrapper functions wraps around `nix-shell`, and if dropping into a `nix-shell` directly remember to use the cargo flag `--features=static` to build against the static libraries (`nix-shell` will automatically pull these down from S3).
+All `zsh` wrapper functions wrap around `nix-shell`, and if dropping into a `nix-shell` directly remember to use the cargo flag `--features=static` to build against the static libraries (`nix-shell` will automatically pull these down from S3).
 ### Install binaries as a package
 ```bash
 $> scripts/download-static-libs.sh
