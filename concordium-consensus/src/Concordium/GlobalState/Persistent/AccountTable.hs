@@ -8,6 +8,7 @@ import Data.Serialize
 import Data.Functor.Foldable hiding (Nil)
 import Control.Monad
 import Control.Exception
+import Data.Functor
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
@@ -105,7 +106,7 @@ appendF acct t = mproject t >>= \case
             (rx, nlvl, rfull, rhsh, r') <- appendF acct r
             lhsh <- getHash <$> mproject l
             let isFull = rfull && nlvl == lvl
-            let newhsh = (branchHash lhsh rhsh)
+            let newhsh = branchHash lhsh rhsh
             b <- membed (Branch lvl isFull newhsh l r')
             return (setBit rx (fromIntegral lvl), lvl + 1, isFull, newhsh, b)
     where
@@ -146,56 +147,67 @@ mapReduceF mfun = mr 0 <=< mproject
             ra <- mr (setBit lowIndex (fromIntegral lvl)) =<< mproject r
             return (la <> ra)
 
-data AccountTable = Empty | Tree !AccountIndex (BufferedBlobbed BlobRef ATF)
+data AccountTable = Empty | Tree !AccountIndex H.Hash (BufferedBlobbed BlobRef ATF)
 
 nextAccountIndex :: AccountTable -> AccountIndex
 nextAccountIndex Empty = 0
-nextAccountIndex (Tree nai _) = nai
+nextAccountIndex (Tree nai _ _) = nai
+
+instance HashableTo H.Hash AccountTable where
+    getHash Empty = minBound
+    getHash (Tree _ h _) = h
 
 instance Show AccountTable where
     show Empty = "Empty"
-    show (Tree _ t) = showFix showATFString t
+    show (Tree _ _ t) = showFix showATFString t
 
 instance (MonadBlobStore m BlobRef) => BlobStorable m BlobRef AccountTable where
     store _ Empty = return (put (0 :: AccountIndex))
-    store p (Tree nai t) = do
+    store p (Tree nai _ t) = do
         pt <- store p t
         return (put nai >> pt)
     storeUpdate _ v@Empty = return (put (0 :: AccountIndex), v)
-    storeUpdate p (Tree nai t) = do
+    storeUpdate p (Tree nai h t) = do
         (pt, t') <- storeUpdate p t
-        return (put nai >> pt, Tree nai t')
+        return (put nai >> pt, Tree nai h t')
     load p = do
         nai <- get
         if nai == 0 then
             return (return Empty)
         else
-            fmap (Tree nai) <$> load p
+            load p <&> (\mt -> do
+                t <- mt
+                tt <- mproject (t :: (BufferedBlobbed BlobRef ATF))
+                t' <- membed tt
+                return (Tree nai (getHash tt) t'))
 
 empty :: AccountTable
 empty = Empty
 
 lookup :: (MonadBlobStore m BlobRef) => AccountIndex -> AccountTable -> m (Maybe Account)
 lookup _ Empty = return Nothing
-lookup x (Tree _ t) = lookupF x t
+lookup x (Tree _ _ t) = lookupF x t
 
 append :: (MonadBlobStore m BlobRef) => Account -> AccountTable -> m (AccountIndex, AccountTable)
-append acct Empty = (0,) . (Tree 1) <$> membed (mkLeaf acct)
-append acct (Tree nai t) = do
-    (i, _, _, _, t') <- appendF acct t
-    assert (i == nai) $ return (i, Tree (nai + 1) t')
+append acct Empty = (0,) . (Tree 1 (getHash leaf)) <$> membed leaf
+    where
+        leaf = mkLeaf acct
+append acct (Tree nai _ t) = do
+    (i, _, _, hsh, t') <- appendF acct t
+    assert (i == nai) $ return (i, Tree (nai + 1) hsh t')
 
 update :: (MonadBlobStore m BlobRef) => (Account -> m (a, Account)) -> AccountIndex -> AccountTable -> m (Maybe (a, AccountTable))
 update _ _ Empty = return Nothing
-update upd i (Tree nai t) = fmap (\(res, _, t') -> (res, Tree nai t')) <$> updateF upd i t
+update upd i (Tree nai _ t) = fmap (\(res, h, t') -> (res, Tree nai h t')) <$> updateF upd i t
 
 toList :: (MonadBlobStore m BlobRef) => AccountTable -> m [(AccountIndex, Account)]
 toList Empty = return []
-toList (Tree _ t) = mapReduceF (\ai acct -> return [(ai, acct)]) t
+toList (Tree _ _ t) = mapReduceF (\ai acct -> return [(ai, acct)]) t
 
 makePersistent :: Transient.AccountTable -> AccountTable
 makePersistent Transient.Empty = Empty
-makePersistent (Transient.Tree t) = uncurry Tree (conv t)
+makePersistent (Transient.Tree t0) = tree (conv t0)
     where
-        conv (Transient.Branch lvl fll hsh l r) = let (nxtr, cr) = conv r in (nxtr + 2^lvl, LBMemory (Branch lvl fll hsh (snd $ conv l) cr))
-        conv (Transient.Leaf hsh acct) = (1, LBMemory (Leaf hsh acct))
+        conv (Transient.Branch lvl fll hsh l r) = let (nxtr, _, cr) = conv r in (nxtr + 2^lvl, hsh, LBMemory (Branch lvl fll hsh ((\(_, _, t) -> t) $ conv l) cr))
+        conv (Transient.Leaf hsh acct) = (1, hsh, LBMemory (Leaf hsh acct))
+        tree (ai, hsh, t) = Tree ai hsh t

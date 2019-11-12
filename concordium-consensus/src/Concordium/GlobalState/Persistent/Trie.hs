@@ -1,4 +1,10 @@
 {-# LANGUAGE DeriveFunctor, GeneralizedNewtypeDeriving, TypeFamilies, DerivingVia, DerivingStrategies, MultiParamTypeClasses, ViewPatterns, ScopedTypeVariables, LambdaCase, TupleSections, FlexibleContexts, DefaultSignatures, DeriveFoldable, DeriveTraversable, FlexibleInstances, QuantifiedConstraints, UndecidableInstances, StandaloneDeriving #-}
+-- |This module provides an implementation of indexes that may be persisted to
+-- disk.  Keys in the index are effectively fixed-length byte strings.  The
+-- index is implemented as a Trie, where each branching node has degree 256.
+--
+-- TODO: It is likely desirable to replace this with a B-Tree in many applications,
+-- especially where the keys are randomly distributed.
 module Concordium.GlobalState.Persistent.Trie where
 
 import qualified Data.Vector as V
@@ -10,6 +16,7 @@ import Control.Monad
 import Data.Serialize
 import qualified Data.ByteString as BS
 import Data.Either
+import qualified Data.Map.Strict as Map
 
 import Concordium.GlobalState.Persistent.MonadicRecursive
 import Concordium.GlobalState.Persistent.BlobStore
@@ -37,12 +44,22 @@ instance FixedTrieKey AccountAddress
 
 
 -- |Trie with keys all of same fixed length treated as lists of bytes.
+-- The first parameter of 'TrieF' is the type of keys, which should
+-- by an instance of 'FixedTrieKey'.
+-- The second parameter is the type of values.
+-- The third parameter is the recursive type argument: a type for Tries
+-- is obtained by applying a fixed-point combinator to @TrieF k v@.
 data TrieF k v r
     = Branch !(V.Vector (Nullable r))
+    -- ^Branch on the next byte of the key (256, possibly null children)
     | Stem [Word8] !r
+    -- ^The next bytes of the key are given
     | Tip !v
+    -- ^A value
     deriving (Show, Functor, Foldable, Traversable)
 
+-- |Render a 'TrieF', where the children have already been rendered
+-- as 'String's.
 showTrieFString :: Show v => TrieF k v String -> String
 showTrieFString (Branch vec) = "[ " ++ ss (0 :: Int) (V.toList vec) ++ "]"
     where
@@ -52,26 +69,11 @@ showTrieFString (Branch vec) = "[ " ++ ss (0 :: Int) (V.toList vec) ++ "]"
 showTrieFString (Stem l r) = intercalate ":" (show <$> l) ++ r
 showTrieFString (Tip v) = show v
 
-
-{-
-instance Functor (TrieF k v) where
-    fmap f (Branch vec) = Branch (fmap (fmap f) vec)
-    fmap f (Stem k r) = Stem k (f r)
-    fmap _ (Tip v) = Tip v
--}
 instance Bifunctor (TrieF k) where
     first _ (Branch vec) = Branch vec
     first _ (Stem pref r) = Stem pref r
     first f (Tip v) = Tip (f v)
     second = fmap
-
-{-
-instance Foldable (TrieF k v) where
-    foldr _ b (Tip _) = b
-    foldr f b (Stem _ z) = f z b
-    foldr f b (Branch vec) = foldr f b [z | Some z <- V.toList vec]
--}
-
 
 instance (Serialize r, Serialize (Nullable r), Serialize v) => Serialize (TrieF k v r) where
     put (Branch vec) = do
@@ -134,7 +136,7 @@ instance (BlobStorable m ref r, BlobStorable m ref (Nullable r), BlobStorable m 
             return (Stem l <$> r)
 
 
-
+-- |@Trie k v@ is defined as a simple fixed-point of @TrieF k v@.
 newtype Trie k v = Trie (TrieF k v (Trie k v)) deriving (Show)
 type instance Base (Trie k v) = TrieF k v
 instance Recursive (Trie k v) where
@@ -149,7 +151,15 @@ instance (Monad m) => MCorecursive m (Trie k v) where
 instance Functor (Trie k) where
     fmap f = hoist (first f)
 
+-- * Trie operations
+--
+-- These operations are defined on a type @t@ that can be unrolled/rolled in a monad
+-- @m@ to type @TrieF k v t@.  (Unrolling is provided by the 'mproject' operation of
+-- 'MRecursive', and rolling is provided by the 'membed' operation of 'MCorecursive'.)
+-- The rolling and unrolling can correspond to simply adding or removing constructors
+-- (as for 'Trie'), but also correspond to creating and traversing disk references.
 
+-- |Retrieve the value (if any) corresponding to a given key.
 lookupF :: (MRecursive m t, Base t ~ TrieF k v, FixedTrieKey k) => k -> t -> m (Maybe v)
 lookupF k = lu (unpackKey k) <=< mproject
     where
@@ -163,6 +173,9 @@ lookupF k = lu (unpackKey k) <=< mproject
             Null -> return Nothing
             Some r -> mproject r >>= lu key'
 
+-- |Traverse the trie, applying a function to each key value pair and concatenating the
+-- results monoidally.  Keys are traversed from lowest to highest in their byte-wise
+-- resepresation.
 mapReduceF :: (MRecursive m t, Base t ~ TrieF k v, FixedTrieKey k, Monoid a) => (k -> v -> m a) -> t -> m a
 mapReduceF mfun = mr [] <=< mproject
     where
@@ -174,6 +187,7 @@ mapReduceF mfun = mr [] <=< mproject
                 handleBranch i (Some r) = mr (keyPrefix ++ [fromIntegral i]) =<< mproject r
             mconcat . V.toList <$> V.imapM handleBranch vec
 
+-- |Compute the common prefix and distinct suffixes of two lists.
 commonPrefix :: (Eq a) => [a] -> [a] -> ([a], [a], [a])
 commonPrefix [] [] = ([], [], [])
 commonPrefix l1@(h1:t1) l2@(h2:t2)
@@ -181,8 +195,31 @@ commonPrefix l1@(h1:t1) l2@(h2:t2)
     | otherwise = ([], l1, l2)
 commonPrefix l1 l2 = ([], l1, l2)
 
-data Alteration v = NoChange | Remove | Insert v
+-- |Representation of an alteration to make in a map at some key.
+data Alteration v
+    = NoChange
+    -- ^Leave the value as it was
+    | Remove
+    -- ^Remove the entry
+    | Insert v
+    -- ^Insert or replace the old value with the given one
 
+-- |A generalised update function for updating the value of the map at a given key.
+-- 'alterM' takes the key to alter and an update function.  The return value is @Nothing@
+-- if the result would be an empty trie.
+--
+-- If the key is already present in the map, the update function is called with @Just v@;
+-- otherwise it is called with @Nothing@.  The return value of the update function determines
+-- whether the key is added, removed, or no change occurs.  The update operation is monadic,
+-- which can allow for values to be stored as references, which are written out as part of the
+-- update.  The update function can also return a value that is passed back to the caller.
+--
+-- Note that, while @NoChange@ is theoretically redundant it provides an important optimisation
+-- when the trie will be stored on disk: no writes are needed when no change is made.
+--
+-- The trie implementation is intended to be persistent in that the old trie will still be valid
+-- and represent the same map after an update is made.  Thus, there is no explicit reclamation of
+-- storage.
 alterM :: forall m t k v a. (MRecursive m t, MCorecursive m t, Base t ~ TrieF k v, FixedTrieKey k) => k -> (Maybe v -> m (a, Alteration v)) -> t -> m (a, Maybe t)
 alterM k upd pt0 = do
         t0 <- mproject pt0
@@ -247,10 +284,12 @@ alterM k upd pt0 = do
                         update res pref' branches
                     (res, _) -> nochange res
 
-
+-- |A trie constructed using the specified fixed-point combinator.
 data TrieN fix k v
     = EmptyTrieN
+    -- ^The empty trie
     | TrieN !Int !(fix (TrieF k v))
+    -- ^A non empty trie with its size
 
 instance (Show v, FixShowable fix) => Show (TrieN fix k v) where
     show EmptyTrieN = "EmptyTrieN"
@@ -273,13 +312,15 @@ instance (MonadBlobStore m ref, BlobStorable m ref (fix (TrieF k v)), BlobStorab
             mt <- load p
             return (TrieN size <$> mt)
 
-
+-- |The empty trie.
 empty :: TrieN fix k v
 empty = EmptyTrieN
 
+-- |A singleton trie.
 singleton :: (MCorecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) => k -> v -> m (TrieN fix k v)
 singleton k v = membed (Tip v) >>= membed . (Stem (unpackKey k)) >>= return . (TrieN 1)
 
+-- |Insert/update a given key.
 insert :: (MRecursive m (fix (TrieF k v)), MCorecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) =>
     k -> v -> TrieN fix k v -> m (TrieN fix k v)
 insert k v EmptyTrieN = singleton k v
@@ -292,6 +333,7 @@ insert k v (TrieN s t) = do
         Just t' -> return $! TrieN (if inc then s + 1 else s) t'
         Nothing -> return EmptyTrieN
 
+-- |Remove a given key.
 delete :: (MRecursive m (fix (TrieF k v)), MCorecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) =>
     k -> TrieN fix k v -> m (TrieN fix k v)
 delete _ EmptyTrieN = return EmptyTrieN
@@ -304,10 +346,12 @@ delete k (TrieN s t) = do
         Just t' -> return $! TrieN (if dec then s - 1 else s) t'
         Nothing -> return EmptyTrieN
 
+-- |Lookup the value at a given key.
 lookup :: (MRecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) => k -> TrieN fix k v -> m (Maybe v)
 lookup _ EmptyTrieN = return Nothing
 lookup k (TrieN _ t) = lookupF k t
 
+-- |
 adjust :: (MRecursive m (fix (TrieF k v)), MCorecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) =>
     (Maybe v -> m (a, Alteration v)) -> k -> TrieN fix k v -> m (a, TrieN fix k v)
 adjust adj k EmptyTrieN = do
@@ -347,28 +391,6 @@ fromList l = do
         t <- foldM (\tt (k,v) -> insert k v tt) empty l
         fromTrie t
 
--- data TrieN fix k v = TrieN {length :: Int, trie :: fix (TrieF k v)}
-
-{-
-lookupAlg :: Applicative m => TrieF k v ([Word8] -> m (Maybe v)) -> [Word8] -> m (Maybe v)
--- lookupAlg Nil _ = pure Nothing
-lookupAlg (Tip v) [] = pure $ Just v
-lookupAlg (Tip _) _ = pure Nothing
-lookupAlg (Stem pref r) key = case stripPrefix pref key of
-        Nothing -> pure Nothing
-        Just key' -> r key'
-lookupAlg (Branch _) [] = pure Nothing
-lookupAlg (Branch vec) (w:r) = (vec V.! fromIntegral w) r
-
-empty :: (Corecursive t, Base t ~ TrieF k v) => t
-empty = embed Nil
--}
-
-{-
-insert :: (FixedTrieKey k, Base trie ~ TrieF k v, Recursive trie, Corecursive trie) => k -> v -> t -> t
-insert k v = ins (unpackKey k) . project
-    where
-        ins k 
-insertAlg v [] Nil = Tip v
-insertAlg v k Nil = Stem k (Right [])
--}
+toMap :: (MRecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k, Ord k) => TrieN fix k v -> m (Map.Map k v)
+toMap EmptyTrieN = return Map.empty
+toMap (TrieN _ t) = mapReduceF (\k v -> return (Map.singleton k v)) t
