@@ -294,6 +294,11 @@ then
     ARGS="$ARGS --bootstrapper-timeout-bucket-entry-period $BOOTSTRAPPER_TIMEOUT_BUCKET_ENTRY_PERIOD"
 fi
 
+if [ -n "$NO_REBROADCAST_CONSENSUS_VALIDATION" ];
+then
+    ARGS="$ARGS --no-rebroadcast-consensus-validation"
+fi
+
 if [ "$MODE" == "tps_receiver" ]; then
     echo "Receiver!"
     /p2p_client-cli \
