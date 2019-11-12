@@ -20,6 +20,25 @@ import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
 
+-- |Representation of the set of accounts on the chain.
+-- Each account has an 'AccountIndex' which is the order
+-- in which it was created.
+--
+-- The operations on 'Accounts', when used correctly, maintain the following invariants:
+--
+-- * Every @(address, index)@ pair in 'accountMap' has a corresponding account
+--   in 'accountTable' with the gien index and address.
+-- * Every @(index, account)@ pair in 'accountTable' has a corresponding entry
+--   in 'accountMap', which maps the account address to @index@.
+-- * The 'accountMap' only ever increases: no accounts are removed, and account
+--   indexes do not change.
+-- * 'accountRegIds' only ever increases.
+--
+-- Note that the operations *do not* enforce a correspondence between 'accountRegIds'
+-- and the credentials used by the accounts in 'accountTable'.
+-- The data integrity of accounts is also not enforced by these operations.
+--
+-- This implementation uses disk-backed structures for implementation.
 data Accounts = Accounts {
     accountMap :: !(Trie.TrieN (BufferedBlobbed BlobRef) AccountAddress AccountIndex),
     accountTable :: !AccountTable,
