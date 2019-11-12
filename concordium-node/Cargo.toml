@@ -37,7 +37,7 @@ codegen-units = 1
 # Internal dependencies
 globalstate-rust = { path = "deps/internal/consensus/globalstate-mockup/globalstate-rust" }
 consensus-rust = { path = "deps/internal/consensus/consensus-rust"  }
-concordium-dns = { git = "ssh://git@gitlab.com:22/Concordium/rust/concordium-dns.git", branch = "master" }
+concordium-dns = { package = "concordium-dns", path = "deps/internal/concordium-dns" }
 concordium_crypto_ec_vrf_ed25519_sha256 = { package = "ec_vrf_ed25519_sha256", path = "deps/internal/consensus/crypto/rust-src/ec_vrf_ed25519_sha256" }
 concordium_crypto_eddsa_ed25519 = { package = "eddsa_ed25519", path = "deps/internal/consensus/crypto/rust-src/eddsa_ed25519" }
 concordium-common = { path = "deps/internal/consensus/globalstate-mockup/deps/concordium-common"  }
@@ -106,10 +106,9 @@ grpc = "0.6.1"
 
 [target.'cfg(unix)'.dependencies]
 get_if_addrs = { version = "0.5" }
-grpciounix = { package = "grpcio", git = "ssh://git@gitlab.com:22/Concordium/rust/external/grpc-rs.git", version = "0.4.4", rev = "dff66a519324661039a8cea919336c0c628d2409", default-features = false, features = [
+grpciounix = { package = "grpcio", path = "deps/external/grpc-rs", version = "0.4.4", default-features = false, features = [
   "protobuf-codec"
 ] }
-
 grpc = "0.6.1"
 uuid = { version = "0.7", default-features = false, optional = true }
 
