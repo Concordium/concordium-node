@@ -8,7 +8,6 @@ use crate::{
     connection::{
         send_pending_messages, Connection, DeduplicationQueues, MessageSendingPriority, P2PEvent,
     },
-    crypto::generate_snow_config,
     dumper::DumpItem,
     network::{
         request::RequestedElementType, Buckets, NetworkId, NetworkMessage, NetworkMessagePayload,
@@ -39,7 +38,6 @@ use nohash_hasher::BuildNoHashHasher;
 use rand::seq::IteratorRandom;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use rkv::{Manager, Rkv, StoreOptions, Value};
-use snow::Keypair;
 
 use consensus_rust::{consensus::CALLBACK_QUEUE, transferlog::TRANSACTION_LOG_QUEUE};
 use std::{
@@ -126,11 +124,9 @@ pub type Connections = HashMap<Token, Arc<Connection>, BuildNoHashHasher<usize>>
 pub struct ConnectionHandler {
     server:                TcpListener,
     next_id:               AtomicUsize,
-    key_pair:              Keypair,
     pub event_log:         Option<SyncSender<QueueMsg<P2PEvent>>>,
     pub buckets:           RwLock<Buckets>,
     pub log_dumper:        Option<SyncSender<DumpItem>>,
-    pub noise_params:      snow::params::NoiseParams,
     pub connections:       RwLock<Connections>,
     pub unreachable_nodes: UnreachableNodes,
     pub networks:          RwLock<Networks>,
@@ -151,19 +147,13 @@ impl ConnectionHandler {
             .cloned()
             .map(NetworkId::from)
             .collect();
-        let noise_params = generate_snow_config(&conf.crypto);
-        let key_pair = snow::Builder::new(noise_params.clone())
-            .generate_keypair()
-            .expect("Can't create a connection handler!");
 
         ConnectionHandler {
             server,
             next_id: AtomicUsize::new(1),
-            key_pair,
             event_log,
             buckets: RwLock::new(Buckets::new()),
             log_dumper: None,
-            noise_params,
             connections: Default::default(),
             unreachable_nodes: UnreachableNodes::new(),
             networks: RwLock::new(networks),
@@ -789,7 +779,6 @@ impl P2PNode {
                 .next_id
                 .fetch_add(1, Ordering::SeqCst),
         );
-        let key_pair = utils::clone_snow_keypair(&self.connection_handler.key_pair);
 
         let remote_peer = RemotePeer {
             id: Default::default(),
@@ -798,15 +787,7 @@ impl P2PNode {
             peer_type: PeerType::Node,
         };
 
-        let conn = Connection::new(
-            self,
-            socket,
-            token,
-            remote_peer,
-            key_pair,
-            false,
-            self.connection_handler.noise_params.clone(),
-        );
+        let conn = Connection::new(self, socket, token, remote_peer, false);
 
         let register_status = conn.register(&self.poll);
         self.add_connection(conn);
@@ -863,7 +844,6 @@ impl P2PNode {
                         .fetch_add(1, Ordering::SeqCst),
                 );
 
-                let keypair = utils::clone_snow_keypair(&self.connection_handler.key_pair);
                 let remote_peer = RemotePeer {
                     id: Default::default(),
                     addr,
@@ -871,15 +851,7 @@ impl P2PNode {
                     peer_type,
                 };
 
-                let conn = Connection::new(
-                    self,
-                    socket,
-                    token,
-                    remote_peer,
-                    keypair,
-                    true,
-                    self.connection_handler.noise_params.clone(),
-                );
+                let conn = Connection::new(self, socket, token, remote_peer, true);
 
                 conn.register(&self.poll)?;
 
@@ -887,7 +859,7 @@ impl P2PNode {
                 self.log_event(P2PEvent::ConnectEvent(addr));
 
                 if let Some(ref conn) = self.find_connection_by_token(token) {
-                    write_or_die!(conn.low_level).flush_socket()?;
+                    write_or_die!(conn.low_level).initiator_send_message_a()?;
                 }
 
                 if peer_type == PeerType::Bootstrapper {

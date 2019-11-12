@@ -1,7 +1,12 @@
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
+use bytesize::ByteSize;
 use failure::{Error, Fallible};
 use mio::tcp::TcpStream;
-use snow::{Keypair, Session};
+use noiseexplorer_xx::{
+    consts::{DHLEN, MAC_LENGTH},
+    noisesession::NoiseSession,
+    types::Keypair,
+};
 
 use super::{
     fails::{MessageTooBigError, StreamWouldBlock},
@@ -12,7 +17,6 @@ use concordium_common::hybrid_buf::HybridBuf;
 
 use std::{
     collections::VecDeque,
-    convert::TryFrom,
     io::{Cursor, ErrorKind, Read, Seek, SeekFrom, Write},
     mem,
     pin::Pin,
@@ -22,7 +26,6 @@ use std::{
 type PayloadSize = u32;
 
 const PROLOGUE: &[u8] = b"CP2P";
-const PRE_SHARED_KEY: &[u8; 32] = b"54686973206973206d79204175737472";
 const NOISE_MAX_MESSAGE_LEN: usize = 64 * 1024 - 1; // 65535
 const NOISE_AUTH_TAG_LEN: usize = 16;
 const NOISE_MAX_PAYLOAD_LEN: usize = NOISE_MAX_MESSAGE_LEN - NOISE_AUTH_TAG_LEN;
@@ -43,16 +46,6 @@ pub enum TcpResult<T> {
     Aborted,
 }
 
-/// The current state of the noise handshake (IKpsk2).
-#[derive(Debug, PartialEq)]
-enum HandshakeState {
-    AwaitingPreSharedKey,
-    AwaitingPublicKey,
-    AwaitingMessageA,
-    AwaitingMessageB,
-    Complete,
-}
-
 /// The single message currently being read from the socket along with its
 /// pending length.
 #[derive(Default)]
@@ -61,41 +54,12 @@ struct IncomingMessage {
     message:       HybridBuf,
 }
 
-/// Sequential nonces used to encrypt and decrypt noise messages.
-#[derive(Default)]
-struct Nonces {
-    /// The decryption nonce
-    input: u64,
-    /// The encryption nonce
-    output: u64,
-}
-
-/// The buffers used to handle noise messages.
-struct NoiseBuffers {
-    /// A buffer for encrypted inbound/outbound messages.
-    encrypted: [u8; NOISE_MAX_MESSAGE_LEN],
-    /// A buffer for decrypted inbound/outbound messages.
-    plaintext: [u8; NOISE_MAX_PAYLOAD_LEN],
-}
-
-impl Default for NoiseBuffers {
-    fn default() -> Self {
-        Self {
-            encrypted: [0; NOISE_MAX_MESSAGE_LEN],
-            plaintext: [0; NOISE_MAX_PAYLOAD_LEN],
-        }
-    }
-}
-
 pub struct ConnectionLowLevel {
     pub conn_ref: Option<Pin<Arc<Connection>>>,
     pub socket: TcpStream,
-    keypair: Keypair,
-    noise_session: Option<Session>,
-    buffers: NoiseBuffers,
-    nonces: Nonces,
+    noise_session: NoiseSession,
+    buffer: [u8; NOISE_MAX_MESSAGE_LEN],
     incoming_msg: IncomingMessage,
-    handshake_state: HandshakeState,
     /// A queue for messages waiting to be written to the socket
     output_queue: VecDeque<Cursor<Vec<u8>>>,
 }
@@ -105,12 +69,7 @@ impl ConnectionLowLevel {
         &self.conn_ref.as_ref().unwrap() // safe; always available
     }
 
-    pub fn new(
-        socket: TcpStream,
-        keypair: Keypair,
-        is_initiator: bool,
-        noise_params: snow::params::NoiseParams,
-    ) -> Self {
+    pub fn new(socket: TcpStream, is_initiator: bool) -> Self {
         if let Err(e) = socket.set_linger(Some(std::time::Duration::from_secs(0))) {
             error!(
                 "Can't set SOLINGER to 0 for socket {:?} due to {}",
@@ -118,136 +77,89 @@ impl ConnectionLowLevel {
             );
         }
 
-        let mut output_queue = VecDeque::with_capacity(16);
+        let keypair = Keypair::default();
+        let noise_session = NoiseSession::init_session(is_initiator, PROLOGUE, keypair);
 
-        let (noise_session, handshake_state) = if is_initiator {
-            trace!("I'm the noise session initiator; sending my pre-shared static key");
-            output_queue.push_back(create_frame(&[]).unwrap()); // infallible
-
-            (None, HandshakeState::AwaitingPublicKey)
-        } else {
-            trace!("I'm the noise session responder; awaiting the pre-shared static key");
-
-            (
-                Some(
-                    snow::Builder::new(noise_params)
-                        .prologue(PROLOGUE)
-                        .psk(2, PRE_SHARED_KEY)
-                        .local_private_key(&keypair.private)
-                        .build_responder()
-                        .expect("Can't build a snow session!"),
-                ),
-                HandshakeState::AwaitingPreSharedKey,
-            )
-        };
+        trace!(
+            "Starting a noise session as the {}; handshake mode: XX",
+            if is_initiator {
+                "initiator"
+            } else {
+                "responder"
+            }
+        );
 
         ConnectionLowLevel {
             conn_ref: None,
             socket,
-            keypair,
             noise_session,
-            buffers: NoiseBuffers::default(),
-            nonces: Nonces::default(),
+            buffer: [0; NOISE_MAX_MESSAGE_LEN],
             incoming_msg: IncomingMessage::default(),
-            output_queue,
-            handshake_state,
+            output_queue: VecDeque::with_capacity(16),
         }
     }
 
     // handshake
 
-    fn initiator_got_public_key(&mut self, mut input: HybridBuf) -> Fallible<()> {
-        trace!("I've received the peer's public key");
-        let remote_public_key_vw = input.remaining_bytes()?;
-
-        let mut session = snow::Builder::new(
-            self.conn()
-                .handler()
-                .connection_handler
-                .noise_params
-                .clone(),
-        )
-        .prologue(PROLOGUE)
-        .psk(2, PRE_SHARED_KEY)
-        .local_private_key(&self.keypair.private)
-        .remote_public_key(&remote_public_key_vw)
-        .build_initiator()?;
-
-        trace!("I'm sending Ikpsk2 message A");
-        let msg_len = session.write_message(&[], &mut self.buffers.encrypted)?;
-        self.output_queue
-            .push_back(create_frame(&self.buffers.encrypted[..msg_len])?);
-
-        self.handshake_state = HandshakeState::AwaitingMessageB;
-        self.noise_session = Some(session);
-
-        Ok(())
-    }
-
-    fn responder_got_psk(&mut self) -> Fallible<()> {
-        trace!("I've received the pre-shared static key");
-        trace!("I'm sending my public key");
-        self.output_queue
-            .push_back(create_frame(&self.keypair.public)?);
-
-        // Next state
-        self.handshake_state = HandshakeState::AwaitingMessageA;
-
-        Ok(())
-    }
-
-    fn responder_got_message_a(&mut self, mut input: HybridBuf) -> Fallible<()> {
-        trace!("I've received Ikpsk2 message A");
-        if let Some(mut session) = self.noise_session.take() {
-            let e_es_s_ss = input.remaining_bytes()?;
-            session.read_message(&e_es_s_ss, &mut self.buffers.encrypted)?;
-
-            trace!("I'm sending Ikpsk2 message B");
-            let msg_len = session.write_message(&[], &mut self.buffers.encrypted)?;
-            self.output_queue
-                .push_back(create_frame(&self.buffers.encrypted[..msg_len])?);
-
-            self.noise_session = Some(session.into_stateless_transport_mode()?);
-            self.handshake_state = HandshakeState::Complete;
-
-            Ok(())
-        } else {
-            unreachable!("Handshake logic error");
-        }
-    }
-
-    fn initiator_got_message_b(&mut self, mut input: HybridBuf) -> Fallible<()> {
-        trace!("I've received Ikpsk2 message B");
-        if let Some(mut session) = self.noise_session.take() {
-            let e_ee_se_psk = input.remaining_bytes()?;
-            session.read_message(&e_ee_se_psk, &mut self.buffers.encrypted)?;
-
-            self.noise_session = Some(session.into_stateless_transport_mode()?);
-            self.handshake_state = HandshakeState::Complete;
-
-            // send a high-level handshake request
-            self.conn().send_handshake_request()?;
-
-            Ok(())
-        } else {
-            unreachable!("Handshake logic error");
-        }
-    }
-
-    fn read_handshake_msg(&mut self, input: HybridBuf) -> Fallible<()> {
-        use HandshakeState::*;
-
-        match self.handshake_state {
-            AwaitingPreSharedKey => self.responder_got_psk(),
-            AwaitingPublicKey => self.initiator_got_public_key(input),
-            AwaitingMessageA => self.responder_got_message_a(input),
-            AwaitingMessageB => self.initiator_got_message_b(input),
-            Complete => unreachable!("Handshake logic error"),
-        }?;
-
+    pub fn initiator_send_message_a(&mut self) -> Fallible<()> {
+        trace!("I'm sending message A");
+        let mut msg_a = vec![0u8; DHLEN + 16]; // the extra 16B is necessary padding
+        self.noise_session.send_message(&mut msg_a)?;
+        self.output_queue.push_back(create_frame(&msg_a)?);
         self.flush_socket()?;
 
         Ok(())
+    }
+
+    fn process_msg_a(&mut self, mut input: HybridBuf) -> Fallible<()> {
+        trace!("I got message A");
+        let mut msg_a = vec![0u8; input.len()? as usize];
+        input.read_exact(&mut msg_a)?;
+        self.noise_session.recv_message(&mut msg_a)?;
+
+        trace!("I'm sending message B");
+        let mut msg_b = vec![0u8; DHLEN * 2 + MAC_LENGTH * 2];
+        self.noise_session.send_message(&mut msg_b)?;
+        self.output_queue.push_back(create_frame(&msg_b)?);
+        self.flush_socket()?;
+
+        Ok(())
+    }
+
+    fn process_msg_b(&mut self, mut input: HybridBuf) -> Fallible<()> {
+        trace!("I got message B");
+        let mut msg_b = vec![0u8; input.len()? as usize];
+        input.read_exact(&mut msg_b)?;
+        self.noise_session.recv_message(&mut msg_b.clone())?;
+
+        trace!("I'm sending message C");
+        let mut msg_c = vec![0u8; DHLEN + MAC_LENGTH * 2];
+        self.noise_session.send_message(&mut msg_c)?;
+        self.output_queue.push_back(create_frame(&msg_c)?);
+        self.flush_socket()?;
+
+        Ok(())
+    }
+
+    fn process_msg_c(&mut self, mut input: HybridBuf) -> Fallible<()> {
+        trace!("I got message C");
+        let mut msg_c = vec![0u8; input.len()? as usize];
+        input.read_exact(&mut msg_c)?;
+        self.noise_session.recv_message(&mut msg_c)?;
+
+        // send the high-level handshake request
+        self.conn().send_handshake_request()?;
+        self.flush_socket()?;
+
+        Ok(())
+    }
+
+    fn is_post_handshake(&self) -> bool {
+        if self.noise_session.is_initiator() {
+            self.noise_session.get_message_count() > 1
+        } else {
+            self.noise_session.get_message_count() > 2
+        }
     }
 
     // input
@@ -282,10 +194,18 @@ impl ConnectionLowLevel {
         };
 
         match read_result {
-            Ok(TcpResult::Complete(payload)) => {
-                let len = payload.len()?;
-                trace!("A {}B message was fully read", len);
-                self.forward(payload, len as usize)
+            Ok(TcpResult::Complete(msg)) => {
+                if !self.is_post_handshake() {
+                    match self.noise_session.get_message_count() {
+                        0 if !self.noise_session.is_initiator() => self.process_msg_a(msg),
+                        1 if self.noise_session.is_initiator() => self.process_msg_b(msg),
+                        2 if !self.noise_session.is_initiator() => self.process_msg_c(msg),
+                        _ => bail!("Invalid XX handshake"),
+                    }?;
+                    Ok(TcpResult::Discarded)
+                } else {
+                    Ok(TcpResult::Complete(self.decrypt(msg)?))
+                }
             }
             Ok(TcpResult::Incomplete) => {
                 trace!("The current message is incomplete");
@@ -300,16 +220,6 @@ impl ConnectionLowLevel {
                     Err(err)
                 }
             }
-        }
-    }
-
-    fn forward(&mut self, input: HybridBuf, len: usize) -> Fallible<TcpResult<HybridBuf>> {
-        if self.handshake_state == HandshakeState::Complete {
-            Ok(TcpResult::Complete(self.decrypt(input, len)?))
-        } else {
-            self.read_handshake_msg(input)?;
-
-            Ok(TcpResult::Discarded)
         }
     }
 
@@ -329,18 +239,16 @@ impl ConnectionLowLevel {
     fn read_expected_size(&mut self) -> Fallible<TcpResult<HybridBuf>> {
         // only extract the bytes needed to know the size.
         let min_bytes = self.pending_bytes_to_know_expected_size()?;
-        let read_bytes =
-            map_io_error_to_fail!(self.socket.read(&mut self.buffers.encrypted[..min_bytes]))?;
+        let read_bytes = map_io_error_to_fail!(self.socket.read(&mut self.buffer[..min_bytes]))?;
 
         self.incoming_msg
             .message
-            .write_all(&self.buffers.encrypted[..read_bytes])?;
+            .write_all(&self.buffer[..read_bytes])?;
 
         // once the number of bytes needed to read the message size is known, continue
         if self.incoming_msg.message.len()? == mem::size_of::<PayloadSize>() as u64 {
             self.incoming_msg.message.rewind()?;
             let expected_size = self.incoming_msg.message.read_u32::<NetworkEndian>()?;
-            trace!("Expecting a message of {}B", expected_size);
 
             // check if the expected size doesn't exceed the protocol limit
             if expected_size > PROTOCOL_MAX_MESSAGE_SIZE as PayloadSize {
@@ -350,6 +258,10 @@ impl ConnectionLowLevel {
                 };
                 return Err(Error::from(error));
             } else {
+                trace!(
+                    "Expecting a {} message",
+                    ByteSize(expected_size as u64).to_string_as(true)
+                );
                 self.incoming_msg.pending_bytes = expected_size;
             }
 
@@ -376,14 +288,14 @@ impl ConnectionLowLevel {
         }
 
         if self.incoming_msg.pending_bytes == 0 {
-            // The incoming message is complete and ready to be processed further
+            trace!("The message was fully read");
             self.incoming_msg.message.rewind()?;
             let new_data = std::mem::replace(
                 &mut self.incoming_msg.message,
                 HybridBuf::with_capacity(mem::size_of::<PayloadSize>())?,
             );
 
-            Ok(TcpResult::Complete(HybridBuf::try_from(new_data)?))
+            Ok(TcpResult::Complete(new_data))
         } else {
             Ok(TcpResult::Incomplete)
         }
@@ -395,11 +307,11 @@ impl ConnectionLowLevel {
             NOISE_MAX_MESSAGE_LEN,
         );
 
-        match self.socket.read(&mut self.buffers.encrypted[..read_size]) {
+        match self.socket.read(&mut self.buffer[..read_size]) {
             Ok(read_bytes) => {
                 self.incoming_msg
                     .message
-                    .write_all(&self.buffers.encrypted[..read_bytes])?;
+                    .write_all(&self.buffer[..read_bytes])?;
                 self.incoming_msg.pending_bytes -= read_bytes as PayloadSize;
 
                 Ok(read_bytes)
@@ -415,8 +327,9 @@ impl ConnectionLowLevel {
     }
 
     /// It reads the chunk table and decrypts the chunks.
-    pub fn decrypt<R: Read + Seek>(&mut self, mut input: R, len: usize) -> Fallible<HybridBuf> {
+    fn decrypt(&mut self, mut input: HybridBuf) -> Fallible<HybridBuf> {
         // calculate the number of full-sized chunks
+        let len = input.len()? as usize;
         let num_full_chunks = len / NOISE_MAX_MESSAGE_LEN;
         // calculate the number of the last, incomplete chunk (if there is one)
         let last_chunk_size = len % NOISE_MAX_MESSAGE_LEN;
@@ -445,9 +358,6 @@ impl ConnectionLowLevel {
         // rewind the decrypted message buffer
         decrypted_msg.rewind()?;
 
-        // increment the input nonce
-        self.nonces.input += 1;
-
         Ok(decrypted_msg)
     }
 
@@ -460,18 +370,15 @@ impl ConnectionLowLevel {
     ) -> Fallible<()> {
         debug_assert!(chunk_size <= NOISE_MAX_MESSAGE_LEN);
 
-        input.read_exact(&mut self.buffers.encrypted[..chunk_size])?;
+        input.read_exact(&mut self.buffer[..chunk_size])?;
 
         match self
             .noise_session
-            .as_ref()
-            .unwrap() // infallible
-            .read_message_with_nonce(
-                self.nonces.input,
-                &self.buffers.encrypted[..chunk_size],
-                &mut self.buffers.plaintext[..(chunk_size - NOISE_AUTH_TAG_LEN)],
-            ) {
-            Ok(len) => {
+            .recv_message(&mut self.buffer[..chunk_size])
+        {
+            Ok(()) => {
+                let len = chunk_size - MAC_LENGTH;
+
                 debug_assert!(
                     len <= chunk_size,
                     "Chunk {} bytes {} <= size {} fails",
@@ -479,9 +386,8 @@ impl ConnectionLowLevel {
                     len,
                     chunk_size
                 );
-                debug_assert!(len <= NOISE_MAX_PAYLOAD_LEN);
 
-                output.write_all(&self.buffers.plaintext[..len])?;
+                output.write_all(&self.buffer[..len])?;
                 Ok(())
             }
             Err(err) => {
@@ -522,11 +428,10 @@ impl ConnectionLowLevel {
 
         while let Some(mut message) = self.output_queue.pop_front() {
             trace!(
-                "Writing a {}B message to the socket",
-                message.get_ref().len() - message.position() as usize
+                "Writing a {} message to the socket",
+                ByteSize(message.get_ref().len() as u64 - message.position()).to_string_as(true)
             );
-            written_bytes +=
-                partial_copy(&mut message, &mut self.buffers.encrypted, &mut self.socket)?;
+            written_bytes += partial_copy(&mut message, &mut self.buffer, &mut self.socket)?;
 
             if message.position() as usize == message.get_ref().len() {
                 trace!("Successfully written a message to the socket");
@@ -558,20 +463,14 @@ impl ConnectionLowLevel {
 
         while curr_pos != eof {
             let chunk_size = std::cmp::min(NOISE_MAX_PAYLOAD_LEN, (eof - curr_pos) as usize);
-            input.read_exact(&mut self.buffers.plaintext[..chunk_size])?;
+            input.read_exact(&mut self.buffer[..chunk_size])?;
+            let encrypted_len = chunk_size + MAC_LENGTH;
 
-            let len = self
-                .noise_session
-                .as_ref()
-                .unwrap() // infallible
-                .write_message_with_nonce(
-                    self.nonces.output,
-                    &self.buffers.plaintext[..chunk_size],
-                    &mut self.buffers.encrypted,
-                )?;
+            self.noise_session
+                .send_message(&mut self.buffer[..encrypted_len])?;
 
-            let mut chunk = Vec::with_capacity(len);
-            let wrote = chunk.write(&self.buffers.encrypted[..len])?;
+            let mut chunk = Vec::with_capacity(encrypted_len);
+            let wrote = chunk.write(&self.buffer[..encrypted_len])?;
 
             chunks.push(Cursor::new(chunk));
 
@@ -585,8 +484,8 @@ impl ConnectionLowLevel {
 
     /// It encrypts `input` and returns the encrypted chunks preceded by the
     /// length
-    pub fn encrypt(&mut self, input: &[u8]) -> Fallible<Vec<Cursor<Vec<u8>>>> {
-        trace!("Commencing encryption with nonce {:x}", self.nonces.output);
+    fn encrypt(&mut self, input: &[u8]) -> Fallible<Vec<Cursor<Vec<u8>>>> {
+        trace!("Commencing encryption");
 
         let num_full_chunks = input.len() / NOISE_MAX_MESSAGE_LEN;
         let num_incomplete_chunks = if input.len() % NOISE_MAX_MESSAGE_LEN == 0 {
@@ -610,12 +509,9 @@ impl ConnectionLowLevel {
         chunks[0].seek(SeekFrom::Start(0))?;
 
         trace!(
-            "Encrypted a frame of {}B",
-            mem::size_of::<PayloadSize>() + encrypted_len,
+            "Encrypted a frame of {}",
+            ByteSize((mem::size_of::<PayloadSize>() + encrypted_len) as u64).to_string_as(true),
         );
-
-        // increment the nonce
-        self.nonces.output += 1;
 
         Ok(chunks)
     }

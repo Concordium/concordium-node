@@ -17,7 +17,6 @@ use hacl_star::{
 };
 use log::LevelFilter;
 use rand::rngs::OsRng;
-use snow::Keypair;
 #[cfg(feature = "benchmark")]
 use std::fs;
 #[cfg(not(target_os = "windows"))]
@@ -470,14 +469,6 @@ pub fn get_tps_test_messages(path: Option<String>) -> Vec<Vec<u8>> {
     }
 
     ret
-}
-
-/// It clones `kp`. `snow::Keypair` does not derive `Clone` in current version.
-pub fn clone_snow_keypair(kp: &Keypair) -> Keypair {
-    Keypair {
-        private: kp.private.clone(),
-        public:  kp.public.clone(),
-    }
 }
 
 pub fn get_config_and_logging_setup() -> Fallible<(config::Config, config::AppPreferences)> {

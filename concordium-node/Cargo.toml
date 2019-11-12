@@ -95,6 +95,8 @@ tokio = { version = "0.1.19", optional = true }
 spin = { version = "0.5.2", optional = true }
 jsonwebtoken = { version = "6", optional = true }
 prometheus = { version = "0.7.0", default-features = false, features = [ "gen", "push", "protobuf" ], optional = true }
+noiseexplorer_xx = { path = "deps/external/noiseexplorer_xx" }
+bytesize = "1.0.0"
 
 [target.'cfg(windows)'.dependencies]
 ipconfig = { version = "^0.1.9" }
@@ -105,6 +107,7 @@ get_if_addrs = { version = "0.5" }
 grpciounix = { package = "grpcio", path = "deps/external/grpc-rs", version = "0.4.4", default-features = false, features = [
   "protobuf-codec"
 ] }
+
 grpc = "0.6.1"
 uuid = { version = "0.7", default-features = false, optional = true }
 
