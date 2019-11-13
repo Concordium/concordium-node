@@ -5,30 +5,35 @@ stages:
   - lint
   - test
 
-variables:
+.generic:
+    GIT_SUBMODULE_STRATEGY: recursive
+    EXTRA_LIBS_PATH: "$CI_PROJECT_DIR/external-libs"
     STACK_ROOT: "${CI_PROJECT_DIR}/.stack"
     LD_LIBRARY_PATH: "${CI_PROJECT_DIR}/crypto/rust-src/target/release:${CI_PROJECT_DIR}/globalstate-mockup/globalstate-rust/target/release:$LD_LIBRARY_PATH"
     GIT_SUBMODULE_STRATEGY: recursive
-cache:
-  paths:
-    - .stack
-    - .stack-work
-    - target
-
-.generic:
-  variables:
     RUSTFLAGS: -Dwarnings
-    GIT_SUBMODULE_STRATEGY: recursive
     EXTRA_LIBS_PATH: "$CI_PROJECT_DIR/external-libs"
-  cache: 
-    policy: pull
+  cache:
+    paths:
+      - .stack
+      - .stack-work
+      - target
   before_script:
     - rustc --version && cargo --version
+    - "git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/"
+ 
+.generic-test:
+  extends: .generic
+  cache: 
+    policy: pull
 
 .generic-lint:
   extends: .generic
+  cache: 
+    policy: pull
 
 "stack:build":
+  extends: .generic
   stage: build
   artifacts:
     expire_in: 1 hour
@@ -36,41 +41,38 @@ cache:
     paths:
       - external-libs/
   script:
-    - "git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/"
     - "./build-deps.sh"
     - "stack build -v --ghc-options -j4 | ts '[%Y-%m-%d %H:%M:%.S]'"
     - consensus-rust/scripts/setup-ci.sh
 
-"stack:test":
-  extends: .generic
-  stage: test
-  script:
-    - "git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/"
-    - "stack test -v | ts '[%Y-%m-%d %H:%M:%.S]'"
-
 "cargo:fmt":
   extends: .generic-lint
   stage: lint
+  cache: {}
   image: 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base-rust-fmt:2019-11-13
   dependencies: []
   script:
     - ( cd consensus-rust && cargo fmt -- --color=always)
     - test $(git ls-files --modified | grep -v ".dll$" | grep -v ".a$" | grep -v ".pc$" | grep -v ".def$" | grep -v "tar.gz" | wc -l) -eq 0 || (echo 'You have introduced some unformatted code:'; git ls-files --modified | grep -v ".dll$" | grep -v ".a$" | grep -v ".pc$" | grep -v ".def$" | grep -v "tar.gz" | sed 's/^/* /'; echo 'Please run `cargo fmt` and amend your MR.'; exit 1)
 
-"cargo:test":
-  extends: .generic
-  stage: test
-  script:
-    - git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/
-    - echo "Running tests without extra features"
-    - ( cd globalstate-mockup/globalstate-rust && cargo test --all --color=always )
-    - ( cd consensus-rust && cargo test --all --color=always )
-
 "cargo:clippy":
   extends: .generic-lint
   stage: lint
   script:
-    - git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/
     - echo "Running clippy with without extra features"
     - ( cd consensus-rust && cargo clippy --color=always --all -- -Dclippy::all )
     - ( cd globalstate-mockup/globalstate-rust && cargo clippy --color=always --all -- -Dclippy::all )
+
+"cargo:test":
+  extends: .generic-test
+  stage: test
+  script:
+    - echo "Running tests without extra features"
+    - ( cd globalstate-mockup/globalstate-rust && cargo test --all --color=always )
+    - ( cd consensus-rust && cargo test --all --color=always )
+
+"stack:test":
+  extends: .generic-test
+  stage: test
+  script:
+    - "stack test -v | ts '[%Y-%m-%d %H:%M:%.S]'"
