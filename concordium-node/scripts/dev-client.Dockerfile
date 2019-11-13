@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:experimental
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.4 as build
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.5 as build
 
 ARG consensus_type
 ENV CONSENSUS_TYPE=$consensus_type
