@@ -73,5 +73,5 @@ findCulpritsTest = forAll genKeysByteStringCulprits $ \(keys, toSign, culpritixs
 
 tests :: Word -> Spec
 tests lvl = describe "Concordium.Afgjort.WMVBA" $ do
-    it "WMVBA_findCulpritsNoMaliciousTest" $ withMaxSuccess 100 findCulpritsNoMaliciousTest
-    it "WMVBA_findCulpritsTest" $ withMaxSuccess 100 findCulpritsTest
+    it "Finds no culprits when everyone signs correctly" $ withMaxSuccess 100 findCulpritsNoMaliciousTest
+    it "Finds the misbehaving signers" $ withMaxSuccess 100 findCulpritsTest
