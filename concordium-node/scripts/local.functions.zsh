@@ -54,7 +54,8 @@ else
   export LD_LIBRARY_PATH=/usr/local/lib:~/.stack/programs/x86_64-$CONCORDIUM_GHC_PLATFORM/ghc-tinfo6-$CONCORDIUM_GHC_VERSION/lib/ghc-$CONCORDIUM_GHC_VERSION/rts
 fi
 
-NIGHTLY_FMT_VERSION="nightly-2019-07-25"
+NIGHTLY_FMT_VERSION="nightly-2019-11-13"
+NIGHTLY_FMT_INSTALL_VERSION="nightly-2019-11-13"
 
 #####
 # testnet_bootstrap and testnet_node can be run with
@@ -188,12 +189,21 @@ function testnet_docker_compose() {
 alias clear_screen='printf "\033c"'
 
 #####
-# Run rustfmt on all modules in project
+# Run rustfmt on all modules in the current directory
 #
 #####
 lint_fmt() {
   echo "Formatting code with $NIGHTLY_FMT_VERSION"
-  ( cd $CONCORDIUM_P2P_DIR && cargo +$NIGHTLY_FMT_VERSION fmt)
+  cargo +$NIGHTLY_FMT_VERSION fmt
+}
+
+#####
+# Install the currently used nightly for formatting rust code
+#
+#####
+install_lint_fmt() {
+  rustup install $NIGHTLY_FMT_INSTALL_VERSION &&
+  rustup component add rustfmt --toolchain $NIGHTLY_FMT_INSTALL_VERSION
 }
 
 #####
