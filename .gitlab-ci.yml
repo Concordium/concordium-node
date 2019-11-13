@@ -10,12 +10,12 @@ stages:
     GIT_SUBMODULE_STRATEGY: recursive
   before_script:
     - rustc --version && cargo --version
+    - git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/
 
 "cargo:test":
   extends: .generic
   stage: test
   script:
-    - git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/
     - scripts/download-static-libs.sh
     - echo "Running tests without extra features"
     - cargo test --all --features=static --color=always
@@ -43,10 +43,7 @@ stages:
   extends: .generic-lint
   stage: lint
   script:
-    - git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/
     - scripts/download-static-libs.sh
-    - ( cd deps/internal/consensus/crypto/rust-src && cargo clean )
-    - cargo clean
     - echo "Running clippy with without extra features"
     - cargo clippy --color=always --all --features=static -- -Dclippy::all
     - echo "Running clippy with instrumentation, benchmark, elastic logging and collector features"
