@@ -9,6 +9,7 @@ RUN pacman -Sy && \
     pacman -Scc --noconfirm && \
     rustup set profile minimal && \
     rustup default 1.39.0 && \
+    rustup component add clippy && \
     git clone https://github.com/libffi/libffi.git && \
     cd libffi && ./autogen.sh && ./configure && make -j$(nproc) && make install && \
     rm -rf libffi && \
