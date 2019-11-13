@@ -23,18 +23,24 @@ stages:
     - rustc --version && cargo --version
     - git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/
  
-.generic-test:
+.generic-haskell-build:
+  extends: .generic
+
+.generic-haskell-test:
+  extends: .generic
+
+.generic-rust-test:
   extends: .generic
   cache: 
     policy: pull
 
-.generic-lint:
+.generic-rust-lint:
   extends: .generic
   cache: 
     policy: pull
 
 "stack:build":
-  extends: .generic
+  extends: .generic-haskell-build
   stage: build
   artifacts:
     expire_in: 1 hour
@@ -47,7 +53,7 @@ stages:
     - consensus-rust/scripts/setup-ci.sh
 
 "cargo:fmt":
-  extends: .generic-lint
+  extends: .generic-rust-lint
   stage: lint
   cache: {}
   dependencies: []
@@ -57,7 +63,7 @@ stages:
     - test $(git ls-files --modified | grep -v ".dll$" | grep -v ".a$" | grep -v ".pc$" | grep -v ".def$" | grep -v "tar.gz" | wc -l) -eq 0 || (echo 'You have introduced some unformatted code:'; git ls-files --modified | grep -v ".dll$" | grep -v ".a$" | grep -v ".pc$" | grep -v ".def$" | grep -v "tar.gz" | sed 's/^/* /'; echo 'Please run `cargo fmt` and amend your MR.'; exit 1)
 
 "cargo:clippy":
-  extends: .generic-lint
+  extends: .generic-rust-lint
   stage: lint
   script:
     - echo "Running clippy with without extra features"
@@ -65,7 +71,7 @@ stages:
     - ( cd globalstate-mockup/globalstate-rust && cargo clippy --color=always --all -- -Dclippy::all )
 
 "cargo:test":
-  extends: .generic-test
+  extends: .generic-rust-test
   stage: test
   script:
     - echo "Running tests without extra features"
@@ -73,7 +79,7 @@ stages:
     - ( cd consensus-rust && cargo test --all --color=always )
 
 "stack:test":
-  extends: .generic-test
+  extends: .generic-haskell-test
   stage: test
   script:
     - "stack test -v | ts '[%Y-%m-%d %H:%M:%.S]'"
