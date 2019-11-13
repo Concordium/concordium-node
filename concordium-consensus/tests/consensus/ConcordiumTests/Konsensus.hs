@@ -41,6 +41,7 @@ import Concordium.GlobalState.SeedState
 
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.BlockSignature as Sig
+import qualified Concordium.Crypto.BlsSignature as Bls
 import qualified Concordium.Scheduler.Utils.Init.Example as Example
 import Concordium.Skov
 import Concordium.Afgjort.Freeze
@@ -383,9 +384,11 @@ makeBaker :: BakerId -> Amount -> Gen (BakerInfo, BakerIdentity, Account)
 makeBaker bid lot = do
         ek@(VRF.KeyPair _ epk) <- arbitrary
         sk                     <- Sig.genKeyPair
+        blssk                  <- fst . Bls.randomSecretKey . mkStdGen <$> arbitrary
         let spk = Sig.verifyKey sk
+        let blspk = Bls.derivePublicKey blssk
         let account = makeBakerAccount bid
-        return (BakerInfo epk spk lot (_accountAddress account), BakerIdentity sk ek, account)
+        return (BakerInfo epk spk blspk lot (_accountAddress account), BakerIdentity sk ek blssk, account)
 
 dummyIdentityProviders :: [IpInfo]
 dummyIdentityProviders = []
@@ -396,19 +399,19 @@ initialiseStates n = do
         bis <- mapM (\i -> (i,) <$> pick (makeBaker i 1)) bns
         let genesisBakers = fst . bakersFromList $ (^. _2 . _1) <$> bis
         let bps = BirkParameters 0.5 genesisBakers genesisBakers genesisBakers (genesisSeedState (hash "LeadershipElectionNonce") 360)
-            fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _ _, _, _)) <- bis] 2
+            fps = FinalizationParameters [VoterInfo vvk vrfk 1 blspk | (_, (BakerInfo vrfk vvk blspk _ _, _, _)) <- bis] 2
             bakerAccounts = map (\(_, (_, _, acc)) -> acc) bis
             gen = GenesisData 0 1 bps bakerAccounts [] fps dummyCryptographicParameters dummyIdentityProviders 10
 #ifdef RUST
         bis2 <- liftIO $ mapM (\(a,b) -> I.makeEmptyGlobalState gen >>=  (return . ((a, b,)))) bis
         res <- liftIO $ mapM (\(_, (_, bid, _), gs) -> do
-                                let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid)
+                                let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                 initState <- liftIO $ initialSkovActiveState fininst defaultRuntimeParameters gen (Example.initialState bps dummyCryptographicParameters bakerAccounts [] nAccounts) gs
                                 return (bid, fininst, initState, gs)
                              ) bis2
 #else
         res <- liftIO $ mapM (\(_, (_, bid, _)) -> do
-                                let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid)
+                                let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                 initState <- liftIO $ initialSkovActiveState fininst defaultRuntimeParameters gen (Example.initialState bps dummyCryptographicParameters bakerAccounts [] nAccounts)
                                 return (bid, fininst, initState)
                              ) bis

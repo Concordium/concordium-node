@@ -24,7 +24,8 @@ module Concordium.Afgjort.WMVBA (
     wmvbaWADBot,
     wmvbaWADBotMessage,
     -- * For testing
-    _freezeState
+    _freezeState,
+    findCulprits
 ) where
 
 import Lens.Micro.Platform
@@ -329,24 +330,34 @@ receiveWMVBAMessage src sig (WMVBAWitnessCreatorMessage (v, blssig)) = do
               -- TODO: check if finalization can still finish. If enough bad justifications has been seen,
               -- finalization may not be able to finish
       where
-        makeBlsAggregateSig [(_, (_, blss))] = blss
-        makeBlsAggregateSig ((_, (_, blss)) : tl) = Bls.aggregate blss (makeBlsAggregateSig tl)
-        makeBlsAggregateSig [] = Bls.emptySignature -- WARNING: this should never happen! makeBlsAggregateSig should never be called
-                                                    -- on an empty list
         extractNonBadJustifications jv badjv = removeBadJustifications (PM.toList jv) badjv []
         removeBadJustifications [] badjv acc = acc
         removeBadJustifications ((p, s) : t) badjv acc = if PS.member p badjv
                                                          then removeBadJustifications t badjv acc
                                                          else removeBadJustifications t badjv ((p, s) : acc)
-        -- TODO: optimize, this is just a first draft
-        findCulprits lst toSign keys =
-          let (lst1, lst2) = splitAt ((length lst) `div` 2) lst
-              culprits ((p, (s, blss)) : []) = if Bls.verify toSign (keys p) blss then [] else [p]
-              culprits lst' = if Bls.verifyAggregate toSign (map (\(p, (s, blss)) -> keys p) lst') (makeBlsAggregateSig lst')
-                              then [] else findCulprits lst' toSign keys
-              culprits [] = []
-          in (culprits lst1) ++ (culprits lst2)
 
+makeBlsAggregateSig :: [(Party, (a0, Bls.Signature))] -> Bls.Signature
+makeBlsAggregateSig [(_, (_, blss))] = blss
+makeBlsAggregateSig ((_, (_, blss)) : tl) = Bls.aggregate blss (makeBlsAggregateSig tl)
+makeBlsAggregateSig [] = Bls.emptySignature -- WARNING: this should never happen! makeBlsAggregateSig should never be called
+                                            -- on an empty list
+
+-- TODO: optimize, this is just a first draft
+-- Internal function, this is only exported for testing purposes
+--
+-- First argument is a list of parties and their proposed signatures on the
+-- second argument, of which we are only interested in the Bls signature.
+-- The third argument is a lookup function from parties to their Bls publickey
+-- Returns the list of parties whose signature did not verify under their key.
+findCulprits :: [(Party, (a, Bls.Signature))] -> BS.ByteString -> (Party -> Bls.PublicKey) -> [Party]
+findCulprits lst toSign keys =
+  let (lst1, lst2) = splitAt ((length lst) `div` 2) lst
+      culprits :: [(Party, (a, Bls.Signature))] -> [Party]
+      culprits ((p, (_, blss)) : []) = if Bls.verify toSign (keys p) blss then [] else [p]
+      culprits [] = []
+      culprits lst' = if Bls.verifyAggregate toSign (map (\(p, (_, blss)) -> keys p) lst') (makeBlsAggregateSig lst')
+                      then [] else findCulprits lst' toSign keys
+  in (culprits lst1) ++ (culprits lst2)
 
 -- |Start the WMVBA for us with a given input.  This should only be called once
 -- per instance, and the input should already be justified.

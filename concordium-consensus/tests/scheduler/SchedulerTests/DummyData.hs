@@ -7,6 +7,7 @@ import Concordium.Crypto.SHA256(Hash(..), hash)
 import Concordium.Crypto.SignatureScheme as Sig
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.BlockSignature as BlockSig
+import qualified Concordium.Crypto.BlsSignature as Bls
 import Concordium.Types hiding (accountAddress)
 import Concordium.ID.Account
 import Concordium.ID.Types
@@ -53,7 +54,7 @@ accountAddressFrom :: Int -> AccountAddress
 accountAddressFrom n = accountAddress (accountVFKeyFrom n)
 
 accountVFKeyFrom :: Int -> VerifyKey
-accountVFKeyFrom = correspondingVerifyKey . uncurry Sig.KeyPairEd25519 . fst . Ed25519.randomKeyPair . mkStdGen 
+accountVFKeyFrom = correspondingVerifyKey . uncurry Sig.KeyPairEd25519 . fst . Ed25519.randomKeyPair . mkStdGen
 
 mkAccount ::AccountVerificationKey -> Amount -> Account
 mkAccount vfKey amnt = (newAccount vfKey) {_accountAmount = amnt}
@@ -73,20 +74,24 @@ bakerElectionKey n = fst (VRF.randomKeyPair (mkStdGen n))
 bakerSignKey :: Int -> BakerSignPrivateKey
 bakerSignKey n = fst (BlockSig.randomKeyPair (mkStdGen n))
 
+bakerAggregationKey :: Int -> BakerAggregationPrivateKey
+bakerAggregationKey n = fst (Bls.randomSecretKey (mkStdGen n))
 
 -- |Make a baker deterministically from a given seed and with the given reward account.
 -- Uses 'bakerElectionKey' and 'bakerSignKey' with the given seed to generate the keys.
 -- The baker has 0 lottery power.
 -- mkBaker :: Int -> AccountAddress -> (BakerInfo
-mkBaker :: Int -> AccountAddress -> (BakerInfo, VRF.SecretKey, BlockSig.SignKey)
+mkBaker :: Int -> AccountAddress -> (BakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
 mkBaker seed acc = (BakerInfo {
   _bakerElectionVerifyKey = VRF.publicKey electionKey,
   _bakerSignatureVerifyKey = BlockSig.verifyKey sk,
+  _bakerAggregationVerifyKey = Bls.derivePublicKey blssk,
   _bakerStake = 0,
   _bakerAccount = acc
-  }, VRF.privateKey electionKey, BlockSig.signKey sk)
+  }, VRF.privateKey electionKey, BlockSig.signKey sk, blssk)
   where electionKey = bakerElectionKey seed
         sk = bakerSignKey seed
+        blssk = bakerAggregationKey seed
 
 readCredential :: FilePath -> IO CredentialDeploymentInformation
 readCredential fp = do

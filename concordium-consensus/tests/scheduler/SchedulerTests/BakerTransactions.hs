@@ -24,6 +24,7 @@ import qualified Concordium.GlobalState.Rewards as Rew
 
 import qualified Concordium.Crypto.BlockSignature as BlockSig
 import qualified Concordium.Crypto.VRF as VRF
+import qualified Concordium.Crypto.BlsSignature as Bls
 
 import qualified Acorn.Core as Core
 
@@ -42,13 +43,13 @@ initialBlockState =
     (blockBank . Rew.totalGTU .~ 200000) .
     (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
 
-baker0 :: (BakerInfo, VRF.SecretKey, BlockSig.SignKey)
+baker0 :: (BakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
 baker0 = mkBaker 0 alesAccount
 
-baker1 :: (BakerInfo, VRF.SecretKey, BlockSig.SignKey)
+baker1 :: (BakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
 baker1 = mkBaker 1 alesAccount
 
-baker2 :: (BakerInfo, VRF.SecretKey, BlockSig.SignKey)
+baker2 :: (BakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
 baker2 = mkBaker 2 thomasAccount
 
 transactionsInput :: [TransactionJSON]
@@ -56,6 +57,7 @@ transactionsInput =
     [TJSON { payload = AddBaker (baker0 ^. _1 . bakerElectionVerifyKey)
                                 (baker0 ^. _2)
                                 (baker0 ^. _1 . bakerSignatureVerifyKey)
+                                (baker0 ^. _1 . bakerAggregationVerifyKey)
                                 (baker0 ^. _3)
                                 alesKP
            , metadata = makeHeader alesKP 1 10000
@@ -64,6 +66,7 @@ transactionsInput =
      TJSON { payload = AddBaker (baker1 ^. _1 . bakerElectionVerifyKey)
                                 (baker1 ^. _2)
                                 (baker1 ^. _1 . bakerSignatureVerifyKey)
+                                (baker1 ^. _1 . bakerAggregationVerifyKey)
                                 (baker1 ^. _3)
                                 alesKP
            , metadata = makeHeader alesKP 2 10000
@@ -72,6 +75,7 @@ transactionsInput =
      TJSON { payload = AddBaker (baker2 ^. _1 . bakerElectionVerifyKey)
                                 (baker2 ^. _2)
                                 (baker2 ^. _1 . bakerSignatureVerifyKey)
+                                (baker2 ^. _1 . bakerAggregationVerifyKey)
                                 (baker2 ^. _3)
                                 thomasKP
            , metadata = makeHeader alesKP 3 10000
