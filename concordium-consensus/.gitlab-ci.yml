@@ -1,4 +1,4 @@
-image: "haskell:8.6.5"
+image: "192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base-haskell:0.1"
 
 stages:
   - build
@@ -22,6 +22,8 @@ cache:
     EXTRA_LIBS_PATH: "$CI_PROJECT_DIR/external-libs"
   cache: 
     policy: pull
+  before_script:
+    - rustc --version && cargo --version
 
 .generic-lint:
   extends: .generic
@@ -34,10 +36,7 @@ cache:
     paths:
       - external-libs/
   script:
-    - "apt-get update && apt-get install -y moreutils curl"
     - "git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/"
-    - "curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable"
-    - "source $HOME/.cargo/env"
     - "./build-deps.sh"
     - "stack build -v --ghc-options -j4 | ts '[%Y-%m-%d %H:%M:%.S]'"
     - consensus-rust/scripts/setup-ci.sh
@@ -46,23 +45,15 @@ cache:
   extends: .generic
   stage: test
   script:
-    - "apt-get update && apt-get install -y moreutils curl"
-    - "curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable"
-    - "source $HOME/.cargo/env"
-    - rustc --version && cargo --version
     - "git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/"
     - "stack test -v | ts '[%Y-%m-%d %H:%M:%.S]'"
 
 "cargo:fmt":
   extends: .generic-lint
   stage: lint
-  image: rustlang/rust:nightly
+  image: 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base-rust-fmt:2019-11-13
   dependencies: []
-  before_script:
-    - rustup default nightly-2019-07-25
-    - rustup component add rustfmt
   script:
-    - rustc --version && cargo --version
     - ( cd consensus-rust && cargo fmt -- --color=always)
     - test $(git ls-files --modified | grep -v ".dll$" | grep -v ".a$" | grep -v ".pc$" | grep -v ".def$" | grep -v "tar.gz" | wc -l) -eq 0 || (echo 'You have introduced some unformatted code:'; git ls-files --modified | grep -v ".dll$" | grep -v ".a$" | grep -v ".pc$" | grep -v ".def$" | grep -v "tar.gz" | sed 's/^/* /'; echo 'Please run `cargo fmt` and amend your MR.'; exit 1)
 
@@ -70,11 +61,7 @@ cache:
   extends: .generic
   stage: test
   script:
-    - "apt-get update && apt-get install -y moreutils curl"
     - git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/
-    - "curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable"
-    - "source $HOME/.cargo/env"
-    - rustc --version && cargo --version
     - echo "Running tests without extra features"
     - ( cd globalstate-mockup/globalstate-rust && cargo test --all --color=always )
     - ( cd consensus-rust && cargo test --all --color=always )
@@ -83,12 +70,7 @@ cache:
   extends: .generic-lint
   stage: lint
   script:
-    - "apt-get update && apt-get install -y moreutils curl"
     - git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/
-    - "curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable"
-    - "source $HOME/.cargo/env"
-    - rustc --version && cargo --version
-    - rustup component add clippy
     - echo "Running clippy with without extra features"
     - ( cd consensus-rust && cargo clippy --color=always --all -- -Dclippy::all )
     - ( cd globalstate-mockup/globalstate-rust && cargo clippy --color=always --all -- -Dclippy::all )
