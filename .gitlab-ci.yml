@@ -8,13 +8,14 @@ stages:
   variables:
     RUSTFLAGS: -Dwarnings
     GIT_SUBMODULE_STRATEGY: recursive
+  before_script:
+    - rustc --version && cargo --version
 
 "cargo:test":
   extends: .generic
   stage: test
   script:
     - git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/
-    - rustc --version && cargo --version
     - scripts/download-static-libs.sh
     - echo "Running tests without extra features"
     - cargo test --all --features=static --color=always
@@ -33,7 +34,6 @@ stages:
   stage: lint
   image: 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base-rust-fmt:2019-11-13
   script:
-    - rustc --version && cargo --version
     - touch src/proto/concordium_p2p_rpc.rs
     - touch src/proto/concordium_p2p_rpc_grpc.rs
     - cargo fmt -- --color=always
@@ -44,9 +44,7 @@ stages:
   stage: lint
   script:
     - git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/
-    - rustc --version && cargo --version
     - scripts/download-static-libs.sh
-    - rustup component add clippy
     - ( cd deps/internal/consensus/crypto/rust-src && cargo clean )
     - cargo clean
     - echo "Running clippy with without extra features"
