@@ -11,7 +11,7 @@ WORKDIR /build-project
 COPY scripts/start.sh ./start.sh
 COPY scripts/init.build.env.sh ./init.build.env.sh
 COPY scripts/build-binaries.sh ./build-binaries.sh
-COPY scripts/genesis-data ./genesis-data
+COPY genesis-data /genesis-data
 
 # Build Environment: Hacl, ffi, Haskell (inherited from k8 build)
 RUN --mount=type=ssh ./init.build.env.sh
