@@ -62,7 +62,7 @@ $> nix-env -f . -i
 
 ## Docker-Compose
 ### Building docker images
-To build the stable image built in a Jenkins pipeline (it gets tagged `latest`, if not changed in the line shown below, so it matches the image hosted on docker-hub - and as the layers will have a newer version, it won't download from docker-hub unless the locally built image is removed via e.g. `docker image rmi ..`). It passes the local `ssh-agent` into the docker build environment for the needed stages to download internal crates with git directly. This image builds on `192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base` so make sure to have either built this locally (check [scripts/build-base.sh](/scripts/build-base-docker.sh) for the syntax and current version).
+To build the stable image built in a Jenkins pipeline (it gets tagged `latest`, if not changed in the line shown below, so it matches the image hosted on docker-hub - and as the layers will have a newer version, it won't download from docker-hub unless the locally built image is removed via e.g. `docker image rmi ..`). It passes the local `ssh-agent` into the docker build environment for the needed stages to download internal crates with git directly. This image builds on `192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base` so make sure to have either built this locally (check [devops:base-images/build-base.sh](../devops/base-images/build-base-docker.sh) for the syntax and current version).
 ```bash
 $> git clone -b master --single-branch git@gitlab.com:Concordium/tools/baker_id_gen.git baker_id_gen # Only needed once, as it's a vital component to scaling the bakers inside docker-compose
 $> echo $(cd deps/internal/consensus && git rev-parse HEAD) > CONSENSUS_VERSION
