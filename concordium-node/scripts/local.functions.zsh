@@ -172,7 +172,7 @@ function testnet_node() {
 function testnet_docker_compose() {
   if (( $# < 1 ))
   then
-    echo "Usage: testnet_docker_compose amount_of_bakers extra_args"
+    echo "Usage: testnet_docker_compose number_of_bakers extra_args"
     return 1
   fi
   baker_count=$1; shift
@@ -222,4 +222,27 @@ concordium_p2p_nix_shell() {
   else
     printf "Not a NixOS environment!\n"
   fi
+}
+
+#####
+# Copy local baker data for local testing
+#
+#####
+testnet_copy_baker_data() {
+  if (( $# < 1 ))
+  then
+    echo "Usage: testnet_copy_baker_data number_of_bakers"
+    return 1
+  fi
+  baker_count=$1; shift
+  (
+    rm -rf $HOME/.local/share/ConcordiumP2P &&
+    mkdir -p $HOME/.local/share/ConcordiumP2P &&
+    cd $HOME/.local/share/ConcordiumP2P &&
+    cp $CONCORDIUM_P2P_DIR/genesis-data/$baker_count-bakers.tar.gz . &&
+    tar xzf $baker_count-bakers.tar.gz &&
+    mv genesis_data/* . &&
+    rmdir genesis_data &&
+    rm $baker_count-bakers.tar.gz
+  )
 }
