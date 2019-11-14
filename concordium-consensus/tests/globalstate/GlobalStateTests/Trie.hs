@@ -14,8 +14,8 @@ import qualified Concordium.GlobalState.Persistent.Trie as Trie
 
 
 tests :: Spec
-tests = describe "GlobalStateTests.Trie" $ do
-    it "simple test" $ do
+tests = describe "GlobalStateTests.Trie" $
+    it "simple test" $
         runBlobStoreTemp "." $ do
             let e = Trie.empty :: Trie.TrieN (BufferedBlobbed BlobRef) Word64 (SerializeStorable String)
             e0 <- Trie.insert 27 (SerStore "Hello") e
@@ -23,12 +23,7 @@ tests = describe "GlobalStateTests.Trie" $ do
             (p, e2) <- storeUpdate (Proxy :: Proxy BlobRef) e1
             let (Right me2') = runGet (load (Proxy :: Proxy BlobRef)) (runPut p)
             (e2' :: Trie.TrieN (CachedBlobbed BlobRef) Word64 (SerializeStorable String)) <- me2'
-            liftIO $ do
-                print e0
-                print e1
-                print e2
-                print e2'
             r <- Trie.lookup 27 e2'
-            liftIO $ r `shouldBe` (Just (SerStore "Hello"))
+            liftIO $ r `shouldBe` Just (SerStore "Hello")
 
         
