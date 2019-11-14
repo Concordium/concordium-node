@@ -1,8 +1,8 @@
 #[macro_use]
 pub mod fails;
-pub mod message_handlers;
-
 mod low_level;
+pub mod message_handlers;
+mod noise_impl;
 
 pub use crate::p2p::{Networks, P2PNode};
 use low_level::ConnectionLowLevel;
@@ -95,7 +95,6 @@ pub struct Connection {
     pub remote_peer:         RemotePeer,
     pub low_level:           RwLock<ConnectionLowLevel>,
     pub remote_end_networks: Arc<RwLock<HashSet<NetworkId>>>,
-    pub is_initiator:        bool,
     pub is_post_handshake:   AtomicBool,
     pub stats:               ConnectionStats,
     pub pending_messages:    RwLock<PriorityQueue<Arc<[u8]>, PendingPriority>>,
@@ -150,7 +149,6 @@ impl Connection {
             remote_peer,
             low_level,
             remote_end_networks: Default::default(),
-            is_initiator,
             is_post_handshake: Default::default(),
             stats,
             pending_messages: RwLock::new(PriorityQueue::with_capacity(1024)),

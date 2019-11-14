@@ -2,14 +2,14 @@ use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use bytesize::ByteSize;
 use failure::{Error, Fallible};
 use mio::tcp::TcpStream;
-use noiseexplorer_xx::{
-    consts::{DHLEN, MAC_LENGTH},
-    noisesession::NoiseSession,
-    types::Keypair,
-};
+use noiseexplorer_xx::consts::{DHLEN, MAC_LENGTH};
 
 use super::{
     fails::{MessageTooBigError, StreamWouldBlock},
+    noise_impl::{
+        finalize_handshake, start_noise_session, NoiseSession, NOISE_MAX_MESSAGE_LEN,
+        NOISE_MAX_PAYLOAD_LEN,
+    },
     Connection, DeduplicationQueues,
 };
 use crate::{common::counter::TOTAL_MESSAGES_SENT_COUNTER, network::PROTOCOL_MAX_MESSAGE_SIZE};
@@ -26,12 +26,7 @@ use std::{
 };
 
 type PayloadSize = u32;
-
 const PAYLOAD_SIZE: usize = mem::size_of::<PayloadSize>();
-const PROLOGUE: &[u8] = b"CP2P";
-const NOISE_MAX_MESSAGE_LEN: usize = 64 * 1024 - 1; // 65535
-const NOISE_AUTH_TAG_LEN: usize = 16;
-const NOISE_MAX_PAYLOAD_LEN: usize = NOISE_MAX_MESSAGE_LEN - NOISE_AUTH_TAG_LEN;
 
 /// The result of a socket operation.
 #[derive(Debug, Clone)]
@@ -82,12 +77,12 @@ macro_rules! send_xx_msg {
         // prepend the plaintext message length
         msg.write_u32::<NetworkEndian>($size as u32)?;
         // provide buffer space for the handshake message
-        msg.extend_from_slice(&[0u8; $size]);
+        msg.append(&mut vec![0u8; $size]);
         // write the message into the buffer
         $self.noise_session.send_message(&mut msg[PAYLOAD_SIZE..])?;
         // queue and send the message
+        trace!("Sending message {}", $idx);
         $self.output_queue.push_back(Cursor::new(msg));
-        trace!("I'm sending message {}", $idx);
         $self.flush_socket()?;
     };
 }
@@ -105,9 +100,6 @@ impl ConnectionLowLevel {
             );
         }
 
-        let keypair = Keypair::default();
-        let noise_session = NoiseSession::init_session(is_initiator, PROLOGUE, keypair);
-
         trace!(
             "Starting a noise session as the {}; handshake mode: XX",
             if is_initiator {
@@ -120,7 +112,7 @@ impl ConnectionLowLevel {
         ConnectionLowLevel {
             conn_ref: None,
             socket,
-            noise_session,
+            noise_session: start_noise_session(is_initiator),
             buffer: [0; NOISE_MAX_MESSAGE_LEN],
             incoming_msg: IncomingMessage::default(),
             output_queue: VecDeque::with_capacity(16),
@@ -130,27 +122,31 @@ impl ConnectionLowLevel {
     // handshake
 
     pub fn initiator_send_message_a(&mut self) -> Fallible<()> {
-        send_xx_msg!(self, DHLEN + 16, "A"); // the 16B pad is necessary due to the single buffer
-
+        let pad = if cfg!(feature = "snow_noise") { 0 } else { 16 };
+        send_xx_msg!(self, DHLEN + pad, "A");
         Ok(())
     }
 
     fn process_msg_a(&mut self, mut data: HybridBuf) -> Fallible<()> {
         recv_xx_msg!(self, data, "A");
         send_xx_msg!(self, DHLEN * 2 + MAC_LENGTH * 2, "B");
-
         Ok(())
     }
 
     fn process_msg_b(&mut self, mut data: HybridBuf) -> Fallible<()> {
         recv_xx_msg!(self, data, "B");
         send_xx_msg!(self, DHLEN + MAC_LENGTH * 2, "C");
-
+        if cfg!(feature = "snow_noise") {
+            finalize_handshake(&mut self.noise_session)?;
+        }
         Ok(())
     }
 
     fn process_msg_c(&mut self, mut data: HybridBuf) -> Fallible<()> {
         recv_xx_msg!(self, data, "C");
+        if cfg!(feature = "snow_noise") {
+            finalize_handshake(&mut self.noise_session)?;
+        }
 
         // send the high-level handshake request
         self.conn().send_handshake_request()?;
@@ -371,7 +367,7 @@ impl ConnectionLowLevel {
             .recv_message(&mut self.buffer[..chunk_size])
         {
             error!("Decryption error: {}", err);
-            Err(failure::Error::from(err))
+            Err(err.into())
         } else {
             output.write_all(&self.buffer[..chunk_size - MAC_LENGTH])?;
             Ok(())
