@@ -8,7 +8,7 @@ COPY . /build-project
 WORKDIR /build-project
 COPY ./scripts/init.build.env.sh ./init.build.env.sh
 COPY ./scripts/start.sh ./start.sh
-COPY genesis-data /genesis-data
+COPY ./genesis-data ./genesis-data
 COPY ./scripts/build-binaries.sh ./build-binaries.sh
 ENV LD_LIBRARY_PATH=/usr/local/lib
 RUN --mount=type=ssh ./init.build.env.sh 
