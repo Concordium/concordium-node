@@ -38,4 +38,6 @@ if [ -z "$JENKINS_HOME" ]; then
   git checkout $CURRENT_BRANCH
 fi
 
-echo "Finished building production release with tag $VERSION with consensus $CONSENSUS_TYPE, and profiling $CONSENSUS_PROFILING"
+GENESIS_VERSION=$(cd genesis-data && git rev-parse --verify HEAD)
+
+echo "Finished building and pushing develop release with tag $VERSION with consensus $CONSENSUS_TYPE with profiling $CONSENSUS_PROFILING and genesis $GENESIS_VERSION"
