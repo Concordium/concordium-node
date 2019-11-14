@@ -1,5 +1,5 @@
 # P2P Layer implementation in Rust
-`master` [![master pipeline status](https://gitlab.com/Concordium/p2p-client/badges/master/pipeline.svg)](https://gitlab.com/Concordium/p2p-client/commits/master) `develop` [![develop pipeline status](https://gitlab.com/Concordium/p2p-client/badges/master/pipeline.svg)](https://gitlab.com/Concordium/p2p-client/commits/develop)
+`master` [![master pipeline status](https://gitlab.com/Concordium/p2p-client/badges/master/pipeline.svg)](https://gitlab.com/Concordium/p2p-client/commits/master) `develop` [![develop pipeline status](https://gitlab.com/Concordium/p2p-client/badges/develop/pipeline.svg)](https://gitlab.com/Concordium/p2p-client/commits/develop)
 
 ## General usage information
 This repository relies on git submodules for internal component dependencies, so do remember to clone recursively or use `git submodule update --init --recursive` after having cloned it.
