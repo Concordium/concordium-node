@@ -265,6 +265,11 @@ instance Monad m => BS.BlockStateStorage (PureBlockStateMonad m) where
     {-# INLINE archiveBlockState #-}
     archiveBlockState _ = return ()
 
+    {-# INLINE putBlockState #-}
+    putBlockState _ = return (return ())
+
+    {-# INLINE getBlockState #-}
+    getBlockState = fail "Basic block state cannot be deserialized"
 
 
 -- |Initial block state.

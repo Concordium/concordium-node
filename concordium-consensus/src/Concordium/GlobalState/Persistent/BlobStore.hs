@@ -268,6 +268,12 @@ flushBuffered (BRMemory v) = do
         return $ BRCached r v'
 flushBuffered b = return b
 
+flushBufferedRef :: (BlobStorable m BlobRef a) => BufferedRef a -> m (BufferedRef a, BlobRef a)
+flushBufferedRef (BRMemory v) = do
+        (r, v') <- storeUpdateRef v
+        return $ (BRCached r v', r)
+flushBufferedRef b = return (b, brRef b)
+
 uncacheBuffered :: (BlobStorable m BlobRef a) => BufferedRef a -> m (BufferedRef a)
 uncacheBuffered (BRMemory v) = do
         r <- storeRef v

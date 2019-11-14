@@ -17,6 +17,7 @@ import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
 import Control.Monad.Trans.RWS.Strict hiding (ask)
 import Data.Word
+import qualified Data.Serialize as S
 
 import Concordium.Types
 import Concordium.Types.Execution
@@ -304,17 +305,12 @@ class BlockStateOperations m => BlockStateStorage m where
     -- consensus (but could be required for historical queries).
     archiveBlockState :: BlockState m -> m ()
 
+    -- |Serialize a block state.
+    putBlockState :: BlockState m -> m S.Put
 
-{-
-newtype BSMTrans g t (m :: * -> *) a = BSMTrans (t m a)
-    deriving (Functor, Applicative, Monad, MonadTrans)
-instance (MonadGlobalState g m, Monad (t m)) => MonadGlobalState g (BSMTrans g t m)
--}
+    -- |Deserialize a block state.
+    getBlockState :: S.Get (m (BlockState m))
 
-{-
-type instance UpdatableBlockState (BSMTrans t m) = UpdatableBlockState m
-type instance BlockPointer (BSMTrans t m) = BlockPointer m
--}
 
 instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGSTrans t m) where
   getModule s = lift . getModule s
@@ -404,11 +400,15 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     dropUpdatableBlockState = lift . dropUpdatableBlockState
     purgeBlockState = lift . purgeBlockState
     archiveBlockState = lift . archiveBlockState
+    putBlockState = lift . putBlockState
+    getBlockState = fmap lift getBlockState
     {-# INLINE thawBlockState #-}
     {-# INLINE freezeBlockState #-}
     {-# INLINE dropUpdatableBlockState #-}
     {-# INLINE purgeBlockState #-}
     {-# INLINE archiveBlockState #-}
+    {-# INLINE putBlockState #-}
+    {-# INLINE getBlockState #-}
 
 
 deriving via (MGSTrans MaybeT m) instance BlockStateQuery m => BlockStateQuery (MaybeT m)
