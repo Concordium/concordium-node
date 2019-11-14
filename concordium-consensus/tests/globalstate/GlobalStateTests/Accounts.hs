@@ -3,6 +3,7 @@
     FlexibleContexts,
     MonoLocalBinds,
     ScopedTypeVariables #-}
+{-# OPTIONS_GHC -Wno-deprecations #-}
 module GlobalStateTests.Accounts where
 
 import Prelude hiding (fail)
@@ -15,6 +16,7 @@ import Data.Proxy
 import Data.Serialize as S
 import Data.Either
 
+import qualified Data.FixedByteString as FBS
 import Concordium.Types.HashableTo
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.Crypto.SignatureScheme as Sig
@@ -60,9 +62,10 @@ data AccountAction
     = PutAccount Account
     | Exists AccountAddress
     | GetAccount AccountAddress
-    | UpdateAccount 
+    -- | UpdateAccount 
     | UnsafeGetAccount AccountAddress
     | RegIdExists ID.CredentialRegistrationID
+    | RecordRegId ID.CredentialRegistrationID
     | FlushPersistent
     | ArchivePersistent
 
@@ -77,41 +80,64 @@ randomizeAccount _accountAddress _accountVerificationKey = do
         let _accountInstances = mempty
         return Account{..}
 
+randomCredential :: Gen ID.CredentialRegistrationID
+randomCredential = ID.RegIdCred . FBS.pack <$> vectorOf 42 arbitrary
+
+
 randomActions :: Gen [AccountAction]
-randomActions = sized (ra Set.empty)
+randomActions = sized (ra Set.empty Set.empty)
     where
         randAccount = do
             vk <- Sig.correspondingVerifyKey <$> Sig.genKeyPair
             return (vk, ID.accountAddress vk)
-        ra _ 0 = return []
-        ra s n = oneof $ [
+        ra _ _ 0 = return []
+        ra s rids n = oneof $ [
                 putRandAcc,
                 exRandAcc,
                 getRandAcc,
-                (FlushPersistent:) <$> ra s (n-1),
-                (ArchivePersistent:) <$> ra s (n-1)
-                ] ++ if null s then [] else [putExAcc, exExAcc, getExAcc]        
+                (FlushPersistent:) <$> ra s rids (n-1),
+                (ArchivePersistent:) <$> ra s rids (n-1),
+                exRandReg,
+                recRandReg
+                ] ++ if null s then [] else [putExAcc, exExAcc, getExAcc, unsafeGetExAcc]
+                ++ if null rids then [] else [exExReg, recExReg]
             where
                 putRandAcc = do
                     (vk, addr) <- randAccount
                     acct <- randomizeAccount addr vk
-                    (PutAccount acct:) <$> ra (Set.insert (vk, addr) s) (n-1)
+                    (PutAccount acct:) <$> ra (Set.insert (vk, addr) s) rids (n-1)
                 putExAcc = do
                     (vk, addr) <- elements (Set.toList s)
                     acct <- randomizeAccount addr vk
-                    (PutAccount acct:) <$> ra s (n-1)
+                    (PutAccount acct:) <$> ra s rids (n-1)
                 exRandAcc = do
                     (_, addr) <- randAccount
-                    (Exists addr:) <$> ra s (n-1)
+                    (Exists addr:) <$> ra s rids (n-1)
                 exExAcc = do
                     (_, addr) <- elements (Set.toList s)
-                    (Exists addr:) <$> ra s (n-1)
+                    (Exists addr:) <$> ra s rids (n-1)
                 getRandAcc = do
                     (_, addr) <- randAccount
-                    (GetAccount addr:) <$> ra s (n-1)
+                    (GetAccount addr:) <$> ra s rids (n-1)
                 getExAcc = do
                     (_, addr) <- elements (Set.toList s)
-                    (GetAccount addr:) <$> ra s (n-1)
+                    (GetAccount addr:) <$> ra s rids (n-1)
+                unsafeGetExAcc = do
+                    (_, addr) <- elements (Set.toList s)
+                    (UnsafeGetAccount addr:) <$> ra s rids (n-1)
+                exRandReg = do
+                    rid <- randomCredential
+                    (RegIdExists rid:) <$> ra s rids (n-1)
+                exExReg = do
+                    rid <- elements (Set.toList rids)
+                    (RegIdExists rid:) <$> ra s rids (n-1)
+                recRandReg = do
+                    rid <- randomCredential
+                    (RecordRegId rid:) <$> ra s (Set.insert rid rids) (n-1)
+                recExReg = do -- This is not an expected case in practice
+                    rid <- elements (Set.toList rids)
+                    (RecordRegId rid:) <$> ra s rids (n-1)
+
                 
 
 
@@ -130,6 +156,11 @@ runAccountAction (GetAccount addr) (ba, pa) = do
         pacct <- P.getAccount addr pa
         checkBinary (==) bacct pacct "==" "account in basic" "account in persistent"
         return (ba, pa)
+runAccountAction (UnsafeGetAccount addr) (ba, pa) = do
+        let bacct = B.unsafeGetAccount addr ba
+        pacct <- P.unsafeGetAccount addr pa
+        checkBinary (==) bacct pacct "==" "account in basic" "account in persistent"
+        return (ba, pa)
 runAccountAction FlushPersistent (ba, pa) = do
         (_, pa') <- storeUpdate (Proxy :: Proxy BlobRef) pa
         return (ba, pa')
@@ -137,7 +168,15 @@ runAccountAction ArchivePersistent (ba, pa) = do
         ppa <- store (Proxy :: Proxy BlobRef) pa
         pa' <- fromRight (error "deserializing blob failed") $ S.runGet (load (Proxy :: Proxy BlobRef)) (S.runPut ppa)
         return (ba, pa')
-runAccountAction _ (ba, pa) = return (ba, pa)
+runAccountAction (RegIdExists rid) (ba, pa) = do
+        let be = B.regIdExists rid ba
+        (pe, pa') <- P.regIdExists rid pa
+        checkBinary (==) be pe "<->" "regid exists in basic" "regid exists in persistent"
+        return (ba, pa')
+runAccountAction (RecordRegId rid) (ba, pa) = do
+        let ba' = B.recordRegId rid ba
+        pa' <- P.recordRegId rid pa
+        return (ba', pa')
 
 emptyTest :: SpecWith BlobStore
 emptyTest = it "empty" $ runReaderT
