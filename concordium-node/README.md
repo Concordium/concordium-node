@@ -38,7 +38,7 @@ Install the needed dependencies from the list above, and run the script (require
 Alternatively use `--features=static` to build statically against the haskell dependencies (only available on Linux, and requries that you download them using [scripts/download-static-libs.sh](/scripts/download-static-libs.sh) before first compilation, and whenever the pointer to any internal dependencies are updated).
 
 ## Installing genesis data
-Unpack the relevant set of genesis data and private baker data from [scripts/genesis-data/](/scripts/genesis-data) to the correct OS folder (e.g. on Linux this would be `$HOME/.local/share/ConcordiumP2P`). This determines how many bakers you need to run for the network to be able to work properly.
+Unpack the relevant set of genesis data and private baker data from [genesis-data/](/genesis-data) to the correct OS folder (e.g. on Linux this would be `$HOME/.local/share/ConcordiumP2P`). This determines how many bakers you need to run for the network to be able to work properly.
 
 ## Running the library as a binary (usable via gRPC)
 ```bash
