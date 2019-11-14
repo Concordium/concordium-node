@@ -32,7 +32,9 @@ import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
 --   in 'accountMap', which maps the account address to @index@.
 -- * The 'accountMap' only ever increases: no accounts are removed, and account
 --   indexes do not change.
--- * 'accountRegIds' only ever increases.
+-- * 'accountRegIds' is either @Null@ or a set that is equivalent to the set of
+--   registration ids represented by 'accountRegIdHistory'.
+-- * The set represented by 'accountRegIdHistory' only ever grows.
 --
 -- Note that the operations *do not* enforce a correspondence between 'accountRegIds'
 -- and the credentials used by the accounts in 'accountTable'.
@@ -40,12 +42,18 @@ import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
 --
 -- This implementation uses disk-backed structures for implementation.
 data Accounts = Accounts {
+    -- |Unique index of accounts by 'AccountAddress'
     accountMap :: !(Trie.TrieN (BufferedBlobbed BlobRef) AccountAddress AccountIndex),
+    -- |Hashed Markel-tree o fhte accounts
     accountTable :: !AccountTable,
+    -- |Optional cached set of used 'ID.CredentialRegistrationID's
     accountRegIds :: !(Nullable (Set.Set ID.CredentialRegistrationID)),
+    -- |Persisted representation of the set of used 'ID.CredentialRegistrationID's
     accountRegIdHistory :: !RegIdHistory
 }
 
+-- |Convert a (non-persistent) 'Transient.Accounts' to a (persistent) 'Accounts'.
+-- The new object is not yet stored on disk.
 makePersistent :: Transient.Accounts -> Accounts
 makePersistent (Transient.Accounts amap atbl aregids) = Accounts {..}
     where
@@ -68,6 +76,9 @@ instance Serialize RegIdHistory
 -- compromise.
 instance (MonadBlobStore m BlobRef) => BlobStorable m BlobRef RegIdHistory
 
+-- |Load the registration ids.  If 'accountRegIds' is @Null@, then 'accountRegIdHistory'
+-- is used (reading from disk as necessary) to determine it, in which case 'accountRegIds'
+-- is updated with the determined value.
 loadRegIds :: forall m. (MonadBlobStore m BlobRef) => Accounts -> m (Set.Set ID.CredentialRegistrationID, Accounts)
 loadRegIds a@Accounts{accountRegIds = Some regids} = return (regids, a)
 loadRegIds a@Accounts{accountRegIds = Null, ..} = do
@@ -105,9 +116,16 @@ instance (MonadBlobStore m BlobRef) => BlobStorable m BlobRef Accounts where
             rRIH <- mrRIH
             return $ Accounts {accountRegIds = Null, accountRegIdHistory = RegIdHistory [] rRIH, ..}
 
+-- |An 'Accounts' with no accounts.
 emptyAccounts :: Accounts
 emptyAccounts = Accounts Trie.empty AT.empty (Some Set.empty) (RegIdHistory [] Null)
 
+-- |Add or modify a given account.
+-- If an account matching the given account's address does not exist,
+-- the account is created, giving it the next available account index
+-- and recording it in 'accountMap'.
+-- If an account with the address already exists, 'accountTable' is updated
+-- to reflect the new state of the account.
 putAccount :: (MonadBlobStore m BlobRef) => Account -> Accounts -> m Accounts
 putAccount !acct accts0 = do
         (isFresh, newAccountMap) <- Trie.adjust addToAM addr (accountMap accts0)
@@ -123,6 +141,8 @@ putAccount !acct accts0 = do
         addToAM Nothing = return (Nothing, Trie.Insert acctIndex)
         addToAM (Just v) = return (Just v, Trie.NoChange)
 
+-- |Add a new account. Returns @False@ and leaves the accounts unchanged if
+-- there is already an account with the same address.
 putNewAccount :: (MonadBlobStore m BlobRef) => Account -> Accounts -> m (Bool, Accounts)
 putNewAccount !acct accts0 = do
         (isFresh, newAccountMap) <- Trie.adjust addToAM addr (accountMap accts0)
@@ -137,19 +157,23 @@ putNewAccount !acct accts0 = do
         addToAM Nothing = return (True, Trie.Insert acctIndex)
         addToAM (Just _) = return (False, Trie.NoChange)
 
-
+-- |Determine if an account with the given address exists.
 exists :: (MonadBlobStore m BlobRef) => AccountAddress -> Accounts -> m Bool
 exists addr Accounts{..} = isJust <$> Trie.lookup addr accountMap
 
+-- |Retrieve an account with the given address.
+-- Returns @Nothing@ if no such account exists.
 getAccount :: (MonadBlobStore m BlobRef) => AccountAddress -> Accounts -> m (Maybe Account)
 getAccount addr Accounts{..} = Trie.lookup addr accountMap >>= \case
         Nothing -> return Nothing
         Just ai -> AT.lookup ai accountTable
 
+-- |Retrieve an account with the given address.
+-- An account with the address is required to exist.
 unsafeGetAccount :: (MonadBlobStore m BlobRef) => AccountAddress -> Accounts -> m Account
 unsafeGetAccount addr accts = getAccount addr accts <&> \case
         Just acct -> acct
-        Nothing -> error $ "unsafeGetAccount : Account " ++ show addr ++ " does not exist."
+        Nothing -> error $ "unsafeGetAccount: Account " ++ show addr ++ " does not exist."
 
 -- |Check that an account registration ID is not already on the chain.
 -- See the foundation (Section 4.2) for why this is necessary.
@@ -159,6 +183,7 @@ regIdExists rid accts0 = do
         (regids, accts) <- loadRegIds accts0
         return (rid `Set.member` regids, accts)
 
+-- |Record an account registration ID as used.
 recordRegId :: (MonadBlobStore m BlobRef) => ID.CredentialRegistrationID -> Accounts -> m Accounts
 recordRegId rid accts0 = do
         (regids, accts1) <- loadRegIds accts0
@@ -168,6 +193,10 @@ recordRegId rid accts0 = do
                 accountRegIdHistory = RegIdHistory (rid:l) r
                 }
 
+-- |Perform an update to an account with the given address.
+-- Does nothing (returning @Nothing@) if the account does not exist.
+-- This should not be used to alter the address of an account (which is
+-- disallowed).
 updateAccount :: (MonadBlobStore m BlobRef) => (Account -> m (a, Account)) -> AccountAddress -> Accounts -> m (Maybe a, Accounts)
 updateAccount fupd addr a0@Accounts{..} = Trie.lookup addr accountMap >>= \case
         Nothing -> return (Nothing, a0)
@@ -175,5 +204,6 @@ updateAccount fupd addr a0@Accounts{..} = Trie.lookup addr accountMap >>= \case
             Nothing -> return (Nothing, a0)
             Just (res, at') -> return (Just res, a0 {accountTable = at'})
 
+-- |Get a list of all account addresses.
 accountAddresses :: (MonadBlobStore m BlobRef) => Accounts -> m [AccountAddress]
 accountAddresses = Trie.keys . accountMap

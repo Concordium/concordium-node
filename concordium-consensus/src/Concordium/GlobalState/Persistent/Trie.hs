@@ -1,4 +1,20 @@
-{-# LANGUAGE DeriveFunctor, GeneralizedNewtypeDeriving, TypeFamilies, DerivingVia, DerivingStrategies, MultiParamTypeClasses, ViewPatterns, ScopedTypeVariables, LambdaCase, TupleSections, FlexibleContexts, DefaultSignatures, DeriveFoldable, DeriveTraversable, FlexibleInstances, QuantifiedConstraints, UndecidableInstances, StandaloneDeriving #-}
+{-# LANGUAGE
+    DeriveFunctor,
+    TypeFamilies,
+    DerivingVia,
+    DerivingStrategies,
+    MultiParamTypeClasses,
+    ScopedTypeVariables,
+    LambdaCase,
+    TupleSections,
+    FlexibleContexts,
+    DefaultSignatures,
+    DeriveFoldable,
+    DeriveTraversable,
+    FlexibleInstances,
+    QuantifiedConstraints,
+    UndecidableInstances,
+    StandaloneDeriving #-}
 -- |This module provides an implementation of indexes that may be persisted to
 -- disk.  Keys in the index are effectively fixed-length byte strings.  The
 -- index is implemented as a Trie, where each branching node has degree 256.
@@ -94,7 +110,7 @@ instance (Serialize r, Serialize (Nullable r), Serialize v) => Serialize (TrieF 
         1 -> Branch . V.fromList <$> replicateM 256 get
         2 -> Tip <$> get
         v -> do
-            len <- if v == 255 then do
+            len <- if v == 255 then
                     fromIntegral <$> getWord64be
                 else
                     return (fromIntegral (v - 3))
@@ -127,7 +143,7 @@ instance (BlobStorable m ref r, BlobStorable m ref (Nullable r), BlobStorable m 
             return $ Branch . V.fromList <$> sequence branchms
         2 -> fmap Tip <$> load p
         v -> do
-            len <- if v == 255 then do
+            len <- if v == 255 then
                     fromIntegral <$> getWord64be
                 else
                     return (fromIntegral (v - 3))
@@ -351,7 +367,7 @@ lookup :: (MRecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, F
 lookup _ EmptyTrieN = return Nothing
 lookup k (TrieN _ t) = lookupF k t
 
--- |
+-- |Alter the value at a particular key.
 adjust :: (MRecursive m (fix (TrieF k v)), MCorecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) =>
     (Maybe v -> m (a, Alteration v)) -> k -> TrieN fix k v -> m (a, TrieN fix k v)
 adjust adj k EmptyTrieN = do
@@ -363,18 +379,20 @@ adjust adj k (TrieN s t) = do
     let
         ur Nothing (a, r@(Insert _)) = ((s+1, a), r)
         ur Nothing (a, r) = ((s, a), r)
-        ur (Just _) (a, r@(Remove)) = ((s-1, a), r)
+        ur (Just _) (a, r@Remove) = ((s-1, a), r)
         ur (Just _) (a, r) = ((s, a), r)
         adj' i = ur i <$> adj i
     ((s', res), mt') <- alterM k adj' t
     case mt' of
-        Just t' -> return $! (res, TrieN s' t')
-        Nothing -> return $! (res, EmptyTrieN)
+        Just t' -> return (res, TrieN s' t')
+        Nothing -> return (res, EmptyTrieN)
 
+-- |Get the list of keys of a trie.
 keys :: (MRecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) => TrieN fix k v -> m [k]
 keys EmptyTrieN = return []
 keys (TrieN _ t) = mapReduceF (\k _ -> pure [k]) t
 
+-- |Convert from a trie using 'Fix' (i.e. direct unrolling) to a trie using a different fixpoint combinator.
 fromTrie :: forall m fix k v. (MCorecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v) => TrieN Fix k v -> m (TrieN fix k v)
 fromTrie EmptyTrieN = return EmptyTrieN
 fromTrie (TrieN s t) = do
@@ -386,11 +404,13 @@ fromTrie (TrieN s t) = do
             t1 <- mapM conv (project t0)
             membed t1
 
+-- |Construct a trie from a list. (The order is not important.)
 fromList :: (MCorecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) => [(k,v)] -> m (TrieN fix k v)
 fromList l = do
         t <- foldM (\tt (k,v) -> insert k v tt) empty l
         fromTrie t
 
+-- |Convert a trie to a 'Map'.
 toMap :: (MRecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k, Ord k) => TrieN fix k v -> m (Map.Map k v)
 toMap EmptyTrieN = return Map.empty
 toMap (TrieN _ t) = mapReduceF (\k v -> return (Map.singleton k v)) t
