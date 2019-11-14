@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:experimental
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.5 as build
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.6 as build
 ARG consensus_type
 ENV CONSENSUS_TYPE=$consensus_type
 ARG consensus_profiling=false
@@ -22,14 +22,17 @@ RUN --mount=type=ssh ./build-binaries.sh "collector,beta" release && \
     tar -xf 20-bakers.tar.gz && \
     cd genesis_data && \
     cp genesis.dat /build-project/
-
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.5 as haskell-build
-COPY ./CONSENSUS_VERSION /CONSENSUS_VERSION
 # P2P client is now built
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.6 as haskell-build
+COPY ./CONSENSUS_VERSION /CONSENSUS_VERSION
+# Build middleware
 RUN --mount=type=ssh pacman -Syy --noconfirm openssh && \
     mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts && \
     git clone --recurse-submodules git@gitlab.com:Concordium/consensus/simple-client.git && \
     cd simple-client && \
+    mkdir -p ~/.stack/global-project/ && \
+    echo -e "packages: []\nresolver: $(cat stack.yaml | grep ^resolver: | awk '{ print $NF }')" > ~/.stack/global-project/stack.yaml && \
+    curl -sSL https://get.haskellstack.org/ | sh && \
     curl -s "https://s3-eu-west-1.amazonaws.com/static-libraries.concordium.com/static-consensus-binaries-$(cat /CONSENSUS_VERSION).tar.gz" -O && \
     tar -xf static-consensus-binaries-$(cat /CONSENSUS_VERSION).tar.gz && \
     mv binaries /genesis-binaries && \
@@ -38,6 +41,7 @@ RUN --mount=type=ssh pacman -Syy --noconfirm openssh && \
     mkdir -p /libs && \
     cp extra-libs/* /libs/ && \
     cp .stack-work/dist/*/*/build/middleware/middleware /middleware
+# Middleware is now built
 
 FROM node:11 as node-build
 WORKDIR /
@@ -45,13 +49,14 @@ RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
 RUN --mount=type=ssh git clone git@gitlab.com:Concordium/node-dashboard.git
 WORKDIR /node-dashboard
 ENV NODE_ENV=development
+# Building node dashboard
 RUN npm i
 RUN npm run build
+# Node dashbaord built
 
 FROM ubuntu:19.10
 EXPOSE 8888
 EXPOSE 10000
-
 ENV RPC_SERVER_ADDR=0.0.0.0
 ENV MODE=basic
 ENV BOOTSTRAP_FIRST_NODE=bootstrap.eu.test.concordium.com:8888
@@ -63,8 +68,6 @@ ENV COLLECTORD_URL=https://dashboard.eu.prod.concordium.com/nodes/post
 ENV GRPC_HOST=localhost:10000
 ENV DISTRIBUTION_CLIENT=true
 ENV BAKER_ID=node-0
-#ENV ES_URL=http://localhost:9200
-
 RUN apt-get update && apt-get install -y unbound curl netbase ca-certificates supervisor nginx
 COPY --from=build /build-project/p2p_client-cli /p2p_client-cli
 COPY --from=build /build-project/node-collector /node-collector
@@ -77,9 +80,7 @@ COPY --from=node-build /node-dashboard/dist/public /var/www/html/
 RUN mkdir /var/www/html/public
 RUN mv /var/www/html/*.js /var/www/html/public/
 RUN sed -i 's/try_files.*$/try_files \$uri \/index.html =404;/g' /etc/nginx/sites-available/default 
-
 COPY ./scripts/supervisord.conf /etc/supervisor/supervisord.conf
 COPY ./scripts/concordium.conf /etc/supervisor/conf.d/concordium.conf
 COPY ./scripts/beta-client.sh /beta-client.sh
-
 ENTRYPOINT [ "/beta-client.sh" ]
