@@ -23,7 +23,14 @@ sudo rm -f /usr/local/lib/libsha_2.$LIBEXTENSION
 sudo rm -f /usr/local/lib/libdodis_yampolskiy_prf.$LIBEXTENSION
 sudo rm -f /usr/local/lib/libpedersen_scheme.$LIBEXTENSION
 sudo rm -f /usr/local/lib/libelgamal.$LIBEXTENSION
-sudo rm -f /usr/local/lib/libconcordium_global_state_sys.$LIBEXTENSION
+sudo rm -f /usr/local/lib/libaggregate_sig.$LIBEXTENSION
+sudo rm -f /usr/local/lib/libcurve_arithmetic.$LIBEXTENSION
+sudo rm -f /usr/local/lib/libec_vrf_ed25519_sha256.$LIBEXTENSION
+sudo rm -f /usr/local/lib/libps_sig.$LIBEXTENSION
+sudo rm -f /usr/local/lib/libsecret_sharing.$LIBEXTENSION
+sudo rm -f /usr/local/lib/libsigma_protocols.$LIBEXTENSION
+sudo rm -f /usr/local/lib/libid.$LIBEXTENSION
+sudo rm -f /usr/local/lib/libglobalstate_rust.$LIBEXTENSION
 
 if [ -d ~/.stack/global-project/ ]; then
     if [ -f ~/.stack/global-project/stack.yaml ]; then
@@ -36,7 +43,7 @@ fi
 
 echo -e "packages: []\nresolver: $(cat deps/internal/consensus/stack.yaml | grep ^resolver: | awk '{ print $NF }')" > ~/.stack/global-project/stack.yaml
 
-( cd deps/internal/consensus/globalstate-mockup/deps/crypto/rust-src &&
+( cd deps/internal/consensus/crypto/rust-src &&
       LD_LIBRARY_PATH=/usr/local/lib cargo build &&
       cd target/debug &&
       for l in $(find . -maxdepth 1 -type f -name \*.so); do
@@ -50,7 +57,7 @@ echo -e "packages: []\nresolver: $(cat deps/internal/consensus/stack.yaml | grep
             sudo cp target/debug/libglobalstate_rust.$LIBEXTENSION /usr/local/lib &&
             sudo ldconfig) &&
   rm -rf .stack-work &&
-  LD_LIBRARY_PATH=/usr/local/lib stack build --ghc-options '-dynamic' --force-dirty --flag "globalstate:rust" --flag "scheduler:rust" --flag "Concordium:rust" &&
+  LD_LIBRARY_PATH=/usr/local/lib stack build --ghc-options '-dynamic' --force-dirty --flag "globalstate:rust" --flag "Concordium:rust" &&
   cd .stack-work &&
   for f in $(find . -type f -name libHS\*.so); do
       sudo cp $(pwd)/$f /usr/local/lib
