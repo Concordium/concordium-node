@@ -23,7 +23,7 @@ import qualified Data.List as List
 -- The operations on 'Accounts', when used correctly, maintain the following invariants:
 --
 -- * Every @(address, index)@ pair in 'accountMap' has a corresponding account
---   in 'accountTable' with the gien index and address.
+--   in 'accountTable' with the given index and address.
 -- * Every @(index, account)@ pair in 'accountTable' has a corresponding entry
 --   in 'accountMap', which maps the account address to @index@.
 -- * The 'accountMap' only ever increases: no accounts are removed, and account
