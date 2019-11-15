@@ -16,15 +16,18 @@ use crate::{common::counter::TOTAL_MESSAGES_SENT_COUNTER, network::PROTOCOL_MAX_
 use concordium_common::hybrid_buf::HybridBuf;
 
 use std::{
+    cmp,
     collections::VecDeque,
     io::{Cursor, ErrorKind, Read, Seek, SeekFrom, Write},
     mem,
     pin::Pin,
     sync::{atomic::Ordering, Arc},
+    time::Duration,
 };
 
 type PayloadSize = u32;
 
+const PAYLOAD_SIZE: usize = mem::size_of::<PayloadSize>();
 const PROLOGUE: &[u8] = b"CP2P";
 const NOISE_MAX_MESSAGE_LEN: usize = 64 * 1024 - 1; // 65535
 const NOISE_AUTH_TAG_LEN: usize = 16;
@@ -64,13 +67,38 @@ pub struct ConnectionLowLevel {
     output_queue: VecDeque<Cursor<Vec<u8>>>,
 }
 
+macro_rules! recv_xx_msg {
+    ($self:ident, $data:expr, $idx:expr) => {
+        let mut msg = vec![0u8; $data.len()? as usize];
+        $data.read_exact(&mut msg)?;
+        $self.noise_session.recv_message(&mut msg)?;
+        trace!("I got message {}", $idx);
+    };
+}
+
+macro_rules! send_xx_msg {
+    ($self:ident, $size:expr, $idx:expr) => {
+        let mut msg = vec![];
+        // prepend the plaintext message length
+        msg.write_u32::<NetworkEndian>($size as u32)?;
+        // provide buffer space for the handshake message
+        msg.extend_from_slice(&[0u8; $size]);
+        // write the message into the buffer
+        $self.noise_session.send_message(&mut msg[PAYLOAD_SIZE..])?;
+        // queue and send the message
+        $self.output_queue.push_back(Cursor::new(msg));
+        trace!("I'm sending message {}", $idx);
+        $self.flush_socket()?;
+    };
+}
+
 impl ConnectionLowLevel {
     pub fn conn(&self) -> &Connection {
         &self.conn_ref.as_ref().unwrap() // safe; always available
     }
 
     pub fn new(socket: TcpStream, is_initiator: bool) -> Self {
-        if let Err(e) = socket.set_linger(Some(std::time::Duration::from_secs(0))) {
+        if let Err(e) = socket.set_linger(Some(Duration::from_secs(0))) {
             error!(
                 "Can't set SOLINGER to 0 for socket {:?} due to {}",
                 socket, e
@@ -102,50 +130,27 @@ impl ConnectionLowLevel {
     // handshake
 
     pub fn initiator_send_message_a(&mut self) -> Fallible<()> {
-        trace!("I'm sending message A");
-        let mut msg_a = vec![0u8; DHLEN + 16]; // the extra 16B is necessary padding
-        self.noise_session.send_message(&mut msg_a)?;
-        self.output_queue.push_back(create_frame(&msg_a)?);
-        self.flush_socket()?;
+        send_xx_msg!(self, DHLEN + 16, "A"); // the 16B pad is necessary due to the single buffer
 
         Ok(())
     }
 
-    fn process_msg_a(&mut self, mut input: HybridBuf) -> Fallible<()> {
-        trace!("I got message A");
-        let mut msg_a = vec![0u8; input.len()? as usize];
-        input.read_exact(&mut msg_a)?;
-        self.noise_session.recv_message(&mut msg_a)?;
-
-        trace!("I'm sending message B");
-        let mut msg_b = vec![0u8; DHLEN * 2 + MAC_LENGTH * 2];
-        self.noise_session.send_message(&mut msg_b)?;
-        self.output_queue.push_back(create_frame(&msg_b)?);
-        self.flush_socket()?;
+    fn process_msg_a(&mut self, mut data: HybridBuf) -> Fallible<()> {
+        recv_xx_msg!(self, data, "A");
+        send_xx_msg!(self, DHLEN * 2 + MAC_LENGTH * 2, "B");
 
         Ok(())
     }
 
-    fn process_msg_b(&mut self, mut input: HybridBuf) -> Fallible<()> {
-        trace!("I got message B");
-        let mut msg_b = vec![0u8; input.len()? as usize];
-        input.read_exact(&mut msg_b)?;
-        self.noise_session.recv_message(&mut msg_b.clone())?;
-
-        trace!("I'm sending message C");
-        let mut msg_c = vec![0u8; DHLEN + MAC_LENGTH * 2];
-        self.noise_session.send_message(&mut msg_c)?;
-        self.output_queue.push_back(create_frame(&msg_c)?);
-        self.flush_socket()?;
+    fn process_msg_b(&mut self, mut data: HybridBuf) -> Fallible<()> {
+        recv_xx_msg!(self, data, "B");
+        send_xx_msg!(self, DHLEN + MAC_LENGTH * 2, "C");
 
         Ok(())
     }
 
-    fn process_msg_c(&mut self, mut input: HybridBuf) -> Fallible<()> {
-        trace!("I got message C");
-        let mut msg_c = vec![0u8; input.len()? as usize];
-        input.read_exact(&mut msg_c)?;
-        self.noise_session.recv_message(&mut msg_c)?;
+    fn process_msg_c(&mut self, mut data: HybridBuf) -> Fallible<()> {
+        recv_xx_msg!(self, data, "C");
 
         // send the high-level handshake request
         self.conn().send_handshake_request()?;
@@ -228,8 +233,8 @@ impl ConnectionLowLevel {
     fn pending_bytes_to_know_expected_size(&self) -> Fallible<usize> {
         let current_len = self.incoming_msg.message.len()? as usize;
 
-        if current_len < mem::size_of::<PayloadSize>() {
-            Ok(mem::size_of::<PayloadSize>() - current_len)
+        if current_len < PAYLOAD_SIZE {
+            Ok(PAYLOAD_SIZE - current_len)
         } else {
             Ok(0)
         }
@@ -246,7 +251,7 @@ impl ConnectionLowLevel {
             .write_all(&self.buffer[..read_bytes])?;
 
         // once the number of bytes needed to read the message size is known, continue
-        if self.incoming_msg.message.len()? == mem::size_of::<PayloadSize>() as u64 {
+        if self.incoming_msg.message.len()? == PAYLOAD_SIZE as u64 {
             self.incoming_msg.message.rewind()?;
             let expected_size = self.incoming_msg.message.read_u32::<NetworkEndian>()?;
 
@@ -290,9 +295,9 @@ impl ConnectionLowLevel {
         if self.incoming_msg.pending_bytes == 0 {
             trace!("The message was fully read");
             self.incoming_msg.message.rewind()?;
-            let new_data = std::mem::replace(
+            let new_data = mem::replace(
                 &mut self.incoming_msg.message,
-                HybridBuf::with_capacity(mem::size_of::<PayloadSize>())?,
+                HybridBuf::with_capacity(PAYLOAD_SIZE)?,
             );
 
             Ok(TcpResult::Complete(new_data))
@@ -302,7 +307,7 @@ impl ConnectionLowLevel {
     }
 
     fn read_intermediate(&mut self) -> Fallible<usize> {
-        let read_size = std::cmp::min(
+        let read_size = cmp::min(
             self.incoming_msg.pending_bytes as usize,
             NOISE_MAX_MESSAGE_LEN,
         );
@@ -326,36 +331,26 @@ impl ConnectionLowLevel {
         }
     }
 
-    /// It reads the chunk table and decrypts the chunks.
     fn decrypt(&mut self, mut input: HybridBuf) -> Fallible<HybridBuf> {
         // calculate the number of full-sized chunks
         let len = input.len()? as usize;
         let num_full_chunks = len / NOISE_MAX_MESSAGE_LEN;
         // calculate the number of the last, incomplete chunk (if there is one)
         let last_chunk_size = len % NOISE_MAX_MESSAGE_LEN;
-        let num_all_chunks = num_full_chunks + if last_chunk_size > 0 { 1 } else { 0 };
-
-        trace!("There are {} chunks to decrypt", num_all_chunks);
 
         let mut decrypted_msg =
             HybridBuf::with_capacity(NOISE_MAX_MESSAGE_LEN * num_full_chunks + last_chunk_size)?;
 
         // decrypt the full chunks
-        for idx in 0..num_full_chunks {
-            self.decrypt_chunk(idx, NOISE_MAX_MESSAGE_LEN, &mut input, &mut decrypted_msg)?;
+        for _ in 0..num_full_chunks {
+            self.decrypt_chunk(NOISE_MAX_MESSAGE_LEN, &mut input, &mut decrypted_msg)?;
         }
 
         // decrypt the incomplete chunk
         if last_chunk_size > 0 {
-            self.decrypt_chunk(
-                num_full_chunks,
-                last_chunk_size,
-                &mut input,
-                &mut decrypted_msg,
-            )?;
+            self.decrypt_chunk(last_chunk_size, &mut input, &mut decrypted_msg)?;
         }
 
-        // rewind the decrypted message buffer
         decrypted_msg.rewind()?;
 
         Ok(decrypted_msg)
@@ -363,7 +358,6 @@ impl ConnectionLowLevel {
 
     fn decrypt_chunk<R: Read + Seek, W: Write>(
         &mut self,
-        chunk_idx: usize,
         chunk_size: usize,
         input: &mut R,
         output: &mut W,
@@ -372,28 +366,15 @@ impl ConnectionLowLevel {
 
         input.read_exact(&mut self.buffer[..chunk_size])?;
 
-        match self
+        if let Err(err) = self
             .noise_session
             .recv_message(&mut self.buffer[..chunk_size])
         {
-            Ok(()) => {
-                let len = chunk_size - MAC_LENGTH;
-
-                debug_assert!(
-                    len <= chunk_size,
-                    "Chunk {} bytes {} <= size {} fails",
-                    chunk_idx,
-                    len,
-                    chunk_size
-                );
-
-                output.write_all(&self.buffer[..len])?;
-                Ok(())
-            }
-            Err(err) => {
-                error!("Decryption error: {}", err);
-                Err(failure::Error::from(err))
-            }
+            error!("Decryption error: {}", err);
+            Err(failure::Error::from(err))
+        } else {
+            output.write_all(&self.buffer[..chunk_size - MAC_LENGTH])?;
+            Ok(())
         }
     }
 
@@ -462,7 +443,7 @@ impl ConnectionLowLevel {
         input.seek(SeekFrom::Start(curr_pos))?;
 
         while curr_pos != eof {
-            let chunk_size = std::cmp::min(NOISE_MAX_PAYLOAD_LEN, (eof - curr_pos) as usize);
+            let chunk_size = cmp::min(NOISE_MAX_PAYLOAD_LEN, (eof - curr_pos) as usize);
             input.read_exact(&mut self.buffer[..chunk_size])?;
             let encrypted_len = chunk_size + MAC_LENGTH;
 
@@ -485,41 +466,28 @@ impl ConnectionLowLevel {
     /// It encrypts `input` and returns the encrypted chunks preceded by the
     /// length
     fn encrypt(&mut self, input: &[u8]) -> Fallible<Vec<Cursor<Vec<u8>>>> {
-        trace!("Commencing encryption");
+        let num_full_chunks = input.len() / NOISE_MAX_PAYLOAD_LEN;
+        let last_chunk_len = input.len() % NOISE_MAX_PAYLOAD_LEN + MAC_LENGTH;
+        let num_chunks = num_full_chunks + if last_chunk_len == MAC_LENGTH { 0 } else { 1 };
+        let full_msg_len = num_full_chunks * NOISE_MAX_MESSAGE_LEN + last_chunk_len;
 
-        let num_full_chunks = input.len() / NOISE_MAX_MESSAGE_LEN;
-        let num_incomplete_chunks = if input.len() % NOISE_MAX_MESSAGE_LEN == 0 {
-            0
-        } else {
-            1
-        };
-        let num_chunks = num_full_chunks + num_incomplete_chunks;
+        let mut chunks = Vec::with_capacity(num_chunks);
 
-        // the extra 1 is for the message length
-        let mut chunks = Vec::with_capacity(1 + num_chunks);
+        // write the length in plaintext
+        let mut len = Vec::with_capacity(PAYLOAD_SIZE);
+        len.write_u32::<NetworkEndian>(full_msg_len as PayloadSize)?;
 
-        // create the metadata chunk
-        let metadata = Vec::with_capacity(mem::size_of::<PayloadSize>());
-        chunks.push(Cursor::new(metadata));
+        chunks.push(Cursor::new(len));
 
-        let encrypted_len = self.encrypt_chunks(&mut Cursor::new(input), &mut chunks)?;
-
-        // write the message size
-        chunks[0].write_u32::<NetworkEndian>(encrypted_len as PayloadSize)?;
-        chunks[0].seek(SeekFrom::Start(0))?;
-
-        trace!(
-            "Encrypted a frame of {}",
-            ByteSize((mem::size_of::<PayloadSize>() + encrypted_len) as u64).to_string_as(true),
-        );
+        self.encrypt_chunks(&mut Cursor::new(input), &mut chunks)?;
 
         Ok(chunks)
     }
 }
 
-/// It tries to copy as much as possible from `input` to `output` in a
-/// streaming fashion. It is used with `socket` that blocks them when
-/// their output buffers are full. Written bytes are consumed from `input`.
+/// It tries to copy as much as possible from `input` to `output` in
+/// chunks. It is used with `socket` that blocks them when their
+/// output buffers are full. Written bytes are consumed from `input`.
 fn partial_copy<W: Write>(
     input: &mut Cursor<Vec<u8>>,
     buffer: &mut [u8],
@@ -530,7 +498,7 @@ fn partial_copy<W: Write>(
     while input.get_ref().len() != input.position() as usize {
         let offset = input.position();
 
-        let chunk_size = std::cmp::min(
+        let chunk_size = cmp::min(
             NOISE_MAX_MESSAGE_LEN,
             input.get_ref().len() - offset as usize,
         );
@@ -547,7 +515,7 @@ fn partial_copy<W: Write>(
             Err(io_err) => {
                 input.seek(SeekFrom::Start(offset))?;
                 match io_err.kind() {
-                    std::io::ErrorKind::WouldBlock => break,
+                    ErrorKind::WouldBlock => break,
                     _ => return Err(failure::Error::from(io_err)),
                 }
             }
@@ -555,13 +523,4 @@ fn partial_copy<W: Write>(
     }
 
     Ok(total_written_bytes)
-}
-
-/// It prefixes `data` with its length, encoded as `u32` in `NetworkEndian`.
-fn create_frame(data: &[u8]) -> Fallible<Cursor<Vec<u8>>> {
-    let mut frame = Vec::with_capacity(data.len() + std::mem::size_of::<PayloadSize>());
-    frame.write_u32::<NetworkEndian>(data.len() as u32)?;
-    frame.extend_from_slice(data);
-
-    Ok(Cursor::new(frame))
 }
