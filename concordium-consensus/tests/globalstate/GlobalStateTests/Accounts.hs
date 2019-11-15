@@ -1,5 +1,6 @@
 {-# LANGUAGE
     RecordWildCards,
+    TupleSections,
     FlexibleContexts,
     MonoLocalBinds,
     ScopedTypeVariables #-}
@@ -15,6 +16,7 @@ import qualified Data.Set as Set
 import Data.Proxy
 import Data.Serialize as S
 import Data.Either
+import Lens.Micro.Platform
 
 import qualified Data.FixedByteString as FBS
 import Concordium.Types.HashableTo
@@ -62,7 +64,7 @@ data AccountAction
     = PutAccount Account
     | Exists AccountAddress
     | GetAccount AccountAddress
-    -- | UpdateAccount 
+    | UpdateAccount AccountAddress (Account -> Account)
     | UnsafeGetAccount AccountAddress
     | RegIdExists ID.CredentialRegistrationID
     | RecordRegId ID.CredentialRegistrationID
@@ -98,8 +100,9 @@ randomActions = sized (ra Set.empty Set.empty)
                 (FlushPersistent:) <$> ra s rids (n-1),
                 (ArchivePersistent:) <$> ra s rids (n-1),
                 exRandReg,
-                recRandReg
-                ] ++ if null s then [] else [putExAcc, exExAcc, getExAcc, unsafeGetExAcc]
+                recRandReg,
+                updateRandAcc
+                ] ++ if null s then [] else [putExAcc, exExAcc, getExAcc, unsafeGetExAcc, updateExAcc]
                 ++ if null rids then [] else [exExReg, recExReg]
             where
                 putRandAcc = do
@@ -122,6 +125,23 @@ randomActions = sized (ra Set.empty Set.empty)
                 getExAcc = do
                     (_, addr) <- elements (Set.toList s)
                     (GetAccount addr:) <$> ra s rids (n-1)
+                updateExAcc = do
+                    (_, addr) <- elements (Set.toList s)
+                    newNonce <- Nonce <$> arbitrary
+                    newAmount <- Amount <$> arbitrary
+                    let upd acc = if _accountAddress acc == addr
+                            then
+                                acc {_accountAmount = newAmount, _accountNonce = newNonce}
+                            else
+                                error "address does not match expected value"
+                    (UpdateAccount addr upd:) <$> ra s rids (n-1)
+                updateRandAcc = do
+                    (vk, addr) <- randAccount
+                    let upd _ = error "account address should not exist"
+                    if (vk, addr) `Set.member` s then
+                        ra s rids n
+                    else
+                        (UpdateAccount addr upd:) <$> ra s rids (n-1)
                 unsafeGetExAcc = do
                     (_, addr) <- elements (Set.toList s)
                     (UnsafeGetAccount addr:) <$> ra s rids (n-1)
@@ -156,6 +176,10 @@ runAccountAction (GetAccount addr) (ba, pa) = do
         pacct <- P.getAccount addr pa
         checkBinary (==) bacct pacct "==" "account in basic" "account in persistent"
         return (ba, pa)
+runAccountAction (UpdateAccount addr upd) (ba, pa) = do
+        let ba' = ba & ix addr %~ upd
+        (_, pa') <- P.updateAccount (return . ((), ) . upd) addr pa
+        return (ba', pa')
 runAccountAction (UnsafeGetAccount addr) (ba, pa) = do
         let bacct = B.unsafeGetAccount addr ba
         pacct <- P.unsafeGetAccount addr pa

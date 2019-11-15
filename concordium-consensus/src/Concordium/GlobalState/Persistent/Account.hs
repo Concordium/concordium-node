@@ -27,7 +27,7 @@ import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
 -- The operations on 'Accounts', when used correctly, maintain the following invariants:
 --
 -- * Every @(address, index)@ pair in 'accountMap' has a corresponding account
---   in 'accountTable' with the gien index and address.
+--   in 'accountTable' with the given index and address.
 -- * Every @(index, account)@ pair in 'accountTable' has a corresponding entry
 --   in 'accountMap', which maps the account address to @index@.
 -- * The 'accountMap' only ever increases: no accounts are removed, and account
@@ -44,7 +44,7 @@ import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
 data Accounts = Accounts {
     -- |Unique index of accounts by 'AccountAddress'
     accountMap :: !(Trie.TrieN (BufferedBlobbed BlobRef) AccountAddress AccountIndex),
-    -- |Hashed Markel-tree o fhte accounts
+    -- |Hashed Markel-tree of the accounts
     accountTable :: !AccountTable,
     -- |Optional cached set of used 'ID.CredentialRegistrationID's
     accountRegIds :: !(Nullable (Set.Set ID.CredentialRegistrationID)),
