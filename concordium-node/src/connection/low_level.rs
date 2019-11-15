@@ -428,33 +428,47 @@ impl ConnectionLowLevel {
         let full_msg_len = num_full_chunks * NOISE_MAX_MESSAGE_LEN + last_chunk_len;
 
         // write the length in plaintext
-        let mut len = Vec::with_capacity(PAYLOAD_SIZE);
-        len.write_u32::<NetworkEndian>(full_msg_len as PayloadSize)?;
-        self.output_queue.push_back(Cursor::new(len));
+        let mut payload_len = Cursor::new(Vec::with_capacity(PAYLOAD_SIZE));
+        payload_len.write_u32::<NetworkEndian>(full_msg_len as PayloadSize)?;
+        self.output_queue.push_back(payload_len);
 
-        let input = &mut Cursor::new(input);
+        let mut input = Cursor::new(input);
+        let eof = input.get_ref().len() as u64;
 
-        let mut curr_pos = input.seek(SeekFrom::Current(0))?;
-        let eof = input.seek(SeekFrom::End(0))?;
-        input.seek(SeekFrom::Start(curr_pos))?;
-
-        while curr_pos != eof {
-            let chunk_size = cmp::min(NOISE_MAX_PAYLOAD_LEN, (eof - curr_pos) as usize);
-            input.read_exact(&mut self.buffer[..chunk_size])?;
-            let encrypted_len = chunk_size + MAC_LENGTH;
-
-            self.noise_session
-                .send_message(&mut self.buffer[..encrypted_len])?;
-
-            let mut chunk = Vec::with_capacity(encrypted_len);
-            chunk.write_all(&self.buffer[..encrypted_len])?;
-
-            self.output_queue.push_back(Cursor::new(chunk));
-
-            curr_pos = input.seek(SeekFrom::Current(0))?;
+        if full_msg_len <= NOISE_MAX_PAYLOAD_LEN - PAYLOAD_SIZE {
+            self.encrypt_chunk(&mut input, true)?;
+        } else {
+            while input.position() != eof {
+                self.encrypt_chunk(&mut input, false)?;
+            }
         }
 
         Ok(TcpResult::Discarded)
+    }
+
+    fn encrypt_chunk(&mut self, input: &mut Cursor<&[u8]>, squeeze: bool) -> Fallible<()> {
+        let remaining_len = input.get_ref().len() - input.position() as usize;
+        let chunk_size = cmp::min(NOISE_MAX_PAYLOAD_LEN, remaining_len);
+        input.read_exact(&mut self.buffer[..chunk_size])?;
+        let encrypted_len = chunk_size + MAC_LENGTH;
+
+        self.noise_session
+            .send_message(&mut self.buffer[..encrypted_len])?;
+
+        let mut chunk = if squeeze {
+            self.output_queue.pop_back().unwrap() // infallible
+        } else {
+            if let Some(ref mut len_chunk) = self.output_queue.back_mut() {
+                len_chunk.seek(SeekFrom::Start(0))?;
+            }
+            Cursor::new(Vec::with_capacity(encrypted_len))
+        };
+
+        chunk.write_all(&self.buffer[..encrypted_len])?;
+        chunk.seek(SeekFrom::Start(0))?;
+        self.output_queue.push_back(chunk);
+
+        Ok(())
     }
 }
 
