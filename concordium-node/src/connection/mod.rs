@@ -1,14 +1,11 @@
-#[macro_use]
-pub mod fails;
 mod low_level;
 pub mod message_handlers;
 mod noise_impl;
+mod p2p_event;
 
 pub use crate::p2p::{Networks, P2PNode};
 use low_level::ConnectionLowLevel;
 pub use p2p_event::P2PEvent;
-
-mod p2p_event;
 
 use byteorder::ReadBytesExt;
 use bytesize::ByteSize;

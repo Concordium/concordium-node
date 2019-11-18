@@ -1,11 +1,10 @@
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use bytesize::ByteSize;
-use failure::{Error, Fallible};
+use failure::Fallible;
 use mio::tcp::TcpStream;
 use noiseexplorer_xx::consts::{DHLEN, MAC_LENGTH};
 
 use super::{
-    fails::{MessageTooBigError, StreamWouldBlock},
     noise_impl::{
         finalize_handshake, start_noise_session, NoiseSession, NOISE_MAX_MESSAGE_LEN,
         NOISE_MAX_PAYLOAD_LEN,
@@ -68,6 +67,16 @@ macro_rules! send_xx_msg {
         trace!("Sending message {}", $idx);
         $self.output_queue.push_back(Cursor::new(msg));
         $self.flush_socket()?;
+    };
+}
+
+macro_rules! handle_io_read {
+    ($result:expr, $default:expr) => {
+        match $result {
+            Ok(res) => res,
+            Err(e) if e.kind() == ErrorKind::WouldBlock => return Ok($default),
+            Err(e) => return Err(e.into()),
+        }
     };
 }
 
@@ -166,13 +175,13 @@ impl ConnectionLowLevel {
     fn read_from_socket(&mut self) -> Fallible<Option<HybridBuf>> {
         trace!("Attempting to read from the socket");
         let read_result = if self.incoming_msg.pending_bytes == 0 {
-            self.read_expected_size()
+            self.read_expected_size()?
         } else {
-            self.read_payload()
+            self.read_payload()?
         };
 
         match read_result {
-            Ok(Some(msg)) => {
+            Some(msg) => {
                 if !self.is_post_handshake() {
                     match self.noise_session.get_message_count() {
                         0 if !self.noise_session.is_initiator() => self.process_msg_a(msg),
@@ -185,17 +194,9 @@ impl ConnectionLowLevel {
                     Ok(Some(self.decrypt(msg)?))
                 }
             }
-            Ok(None) => {
+            None => {
                 trace!("The current message is incomplete");
                 Ok(None)
-            }
-            Err(err) => {
-                if err.downcast_ref::<StreamWouldBlock>().is_some() {
-                    trace!("Further reads would be blocking; aborting");
-                    Ok(None)
-                } else {
-                    Err(err)
-                }
             }
         }
     }
@@ -216,7 +217,7 @@ impl ConnectionLowLevel {
     fn read_expected_size(&mut self) -> Fallible<Option<HybridBuf>> {
         // only extract the bytes needed to know the size.
         let min_bytes = self.pending_bytes_to_know_expected_size()?;
-        let read_bytes = map_io_error_to_fail!(self.socket.read(&mut self.buffer[..min_bytes]))?;
+        let read_bytes = handle_io_read!(self.socket.read(&mut self.buffer[..min_bytes]), None);
 
         self.incoming_msg
             .message
@@ -229,18 +230,18 @@ impl ConnectionLowLevel {
 
             // check if the expected size doesn't exceed the protocol limit
             if expected_size > PROTOCOL_MAX_MESSAGE_SIZE as PayloadSize {
-                let error = MessageTooBigError {
+                bail!(
+                    "Expected message size ({}B) exceeds the maximum protocol size ({}B)",
                     expected_size,
-                    protocol_size: PROTOCOL_MAX_MESSAGE_SIZE as PayloadSize,
-                };
-                return Err(Error::from(error));
-            } else {
-                trace!(
-                    "Expecting a {} message",
-                    ByteSize(expected_size as u64).to_string_as(true)
+                    PROTOCOL_MAX_MESSAGE_SIZE
                 );
-                self.incoming_msg.pending_bytes = expected_size;
             }
+
+            trace!(
+                "Expecting a {} message",
+                ByteSize(expected_size as u64).to_string_as(true)
+            );
+            self.incoming_msg.pending_bytes = expected_size;
 
             // remove the length from the buffer
             mem::replace(
@@ -284,23 +285,14 @@ impl ConnectionLowLevel {
             NOISE_MAX_MESSAGE_LEN,
         );
 
-        match self.socket.read(&mut self.buffer[..read_size]) {
-            Ok(read_bytes) => {
-                self.incoming_msg
-                    .message
-                    .write_all(&self.buffer[..read_bytes])?;
-                self.incoming_msg.pending_bytes -= read_bytes as PayloadSize;
+        let read_bytes = handle_io_read!(self.socket.read(&mut self.buffer[..read_size]), 0);
 
-                Ok(read_bytes)
-            }
-            Err(err) => match err.kind() {
-                ErrorKind::WouldBlock => {
-                    trace!("This read would be blocking; aborting");
-                    Ok(0)
-                }
-                _ => Err(Error::from(err)),
-            },
-        }
+        self.incoming_msg
+            .message
+            .write_all(&self.buffer[..read_bytes])?;
+        self.incoming_msg.pending_bytes -= read_bytes as PayloadSize;
+
+        Ok(read_bytes)
     }
 
     fn decrypt(&mut self, mut input: HybridBuf) -> Fallible<HybridBuf> {
