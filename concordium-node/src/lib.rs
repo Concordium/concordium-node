@@ -75,7 +75,6 @@ pub mod configuration;
 pub mod connection;
 
 pub mod client;
-pub mod crypto;
 #[macro_use]
 pub mod network;
 pub mod p2p;
