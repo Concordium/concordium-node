@@ -377,7 +377,7 @@ impl ConnectionLowLevel {
     // output
 
     #[inline(always)]
-    pub fn write_to_socket(&mut self, input: Arc<[u8]>) -> Fallible<TcpResult<usize>> {
+    pub fn write_to_socket(&mut self, input: Arc<[u8]>) -> Fallible<TcpResult<()>> {
         TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
         self.conn()
             .stats
@@ -391,12 +391,7 @@ impl ConnectionLowLevel {
             self.conn().send_to_dump(input.clone(), false);
         }
 
-        let encrypted_chunks = self.encrypt(&input)?;
-        for chunk in encrypted_chunks {
-            self.output_queue.push_back(chunk);
-        }
-
-        Ok(TcpResult::Discarded)
+        self.encrypt_and_enqueue(&input)
     }
 
     #[inline(always)]
@@ -425,14 +420,19 @@ impl ConnectionLowLevel {
         Ok(TcpResult::Complete(written_bytes))
     }
 
-    /// It splits `input` into chunks of `NOISE_MAX_PAYLOAD_LEN` and encrypts
-    /// each of them.
-    fn encrypt_chunks<R: Read + Seek>(
-        &mut self,
-        input: &mut R,
-        chunks: &mut Vec<Cursor<Vec<u8>>>,
-    ) -> Fallible<usize> {
-        let mut written = 0;
+    /// It encrypts `input` and enqueues the encrypted chunks preceded by the
+    /// length for later sending
+    fn encrypt_and_enqueue(&mut self, input: &[u8]) -> Fallible<TcpResult<()>> {
+        let num_full_chunks = input.len() / NOISE_MAX_PAYLOAD_LEN;
+        let last_chunk_len = input.len() % NOISE_MAX_PAYLOAD_LEN + MAC_LENGTH;
+        let full_msg_len = num_full_chunks * NOISE_MAX_MESSAGE_LEN + last_chunk_len;
+
+        // write the length in plaintext
+        let mut len = Vec::with_capacity(PAYLOAD_SIZE);
+        len.write_u32::<NetworkEndian>(full_msg_len as PayloadSize)?;
+        self.output_queue.push_back(Cursor::new(len));
+
+        let input = &mut Cursor::new(input);
 
         let mut curr_pos = input.seek(SeekFrom::Current(0))?;
         let eof = input.seek(SeekFrom::End(0))?;
@@ -447,37 +447,14 @@ impl ConnectionLowLevel {
                 .send_message(&mut self.buffer[..encrypted_len])?;
 
             let mut chunk = Vec::with_capacity(encrypted_len);
-            let wrote = chunk.write(&self.buffer[..encrypted_len])?;
+            chunk.write_all(&self.buffer[..encrypted_len])?;
 
-            chunks.push(Cursor::new(chunk));
-
-            written += wrote;
+            self.output_queue.push_back(Cursor::new(chunk));
 
             curr_pos = input.seek(SeekFrom::Current(0))?;
         }
 
-        Ok(written)
-    }
-
-    /// It encrypts `input` and returns the encrypted chunks preceded by the
-    /// length
-    fn encrypt(&mut self, input: &[u8]) -> Fallible<Vec<Cursor<Vec<u8>>>> {
-        let num_full_chunks = input.len() / NOISE_MAX_PAYLOAD_LEN;
-        let last_chunk_len = input.len() % NOISE_MAX_PAYLOAD_LEN + MAC_LENGTH;
-        let num_chunks = num_full_chunks + if last_chunk_len == MAC_LENGTH { 0 } else { 1 };
-        let full_msg_len = num_full_chunks * NOISE_MAX_MESSAGE_LEN + last_chunk_len;
-
-        let mut chunks = Vec::with_capacity(num_chunks);
-
-        // write the length in plaintext
-        let mut len = Vec::with_capacity(PAYLOAD_SIZE);
-        len.write_u32::<NetworkEndian>(full_msg_len as PayloadSize)?;
-
-        chunks.push(Cursor::new(len));
-
-        self.encrypt_chunks(&mut Cursor::new(input), &mut chunks)?;
-
-        Ok(chunks)
+        Ok(TcpResult::Discarded)
     }
 }
 
