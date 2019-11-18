@@ -68,8 +68,6 @@ const ENV_DNS_PUBLIC_KEY: Option<&str> = option_env!("CORCORDIUM_PUBLIC_DNS_KEY"
 pub fn get_dns_public_key() -> &'static str { ENV_DNS_PUBLIC_KEY.unwrap_or(DEFAULT_DNS_PUBLIC_KEY) }
 
 #[macro_use]
-pub mod fails;
-#[macro_use]
 pub mod common;
 pub mod configuration;
 pub mod connection;

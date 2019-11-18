@@ -1,16 +1,11 @@
 use concordium_dns::dns;
 
-use crate::{
-    self as p2p_client,
-    common::serialize_addr,
-    configuration as config,
-    fails::{HostPortParseError, NoDNSResolversAvailable},
-};
+use crate::{self as p2p_client, common::serialize_addr, configuration as config};
 
 use base64;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use env_logger::{Builder, Env};
-use failure::{Error, Fallible};
+use failure::Fallible;
 use hacl_star::{
     ed25519::{keypair, PublicKey, SecretKey, Signature},
     sha2,
@@ -139,11 +134,11 @@ pub fn parse_host_port(
             if let Ok(port) = port.parse::<u16>() {
                 Ok(vec![SocketAddr::new(ip, port)])
             } else {
-                Err(Error::from(HostPortParseError::new(input.to_owned())))
+                bail!("Can't parse <{}> as the host port", input.to_owned());
             }
         } else {
             match port.parse::<u16>() {
-                Err(_) => Err(Error::from(HostPortParseError::new(input.to_owned()))), /* couldn't parse port */
+                Err(_) => bail!("Can't parse <{}> as the host port", input.to_owned()),
                 Ok(port) => {
                     let resolver_addresses = resolvers
                         .iter()
@@ -179,13 +174,13 @@ pub fn parse_host_port(
                             .map(ToOwned::to_owned)
                             .collect::<Vec<_>>())
                     } else {
-                        Err(Error::from(NoDNSResolversAvailable))
+                        bail!("No DNS resolvers available");
                     }
                 }
             }
         }
     } else {
-        Err(Error::from(HostPortParseError::new(input.to_owned()))) // No colon in host:post
+        bail!("Can't parse <{}> as the host port", input.to_owned());
     }
 }
 
