@@ -345,6 +345,7 @@ impl ConnectionLowLevel {
     // output
 
     #[inline(always)]
+    /// Enqueue a message to be written to the socket.
     pub fn write_to_socket(&mut self, input: Arc<[u8]>) -> Fallible<()> {
         TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
         self.conn()
@@ -363,6 +364,8 @@ impl ConnectionLowLevel {
     }
 
     #[inline(always)]
+    /// Writes enequeued messages to the socket until the queue is exhausted
+    /// or the write would be blocking.
     pub fn flush_socket(&mut self) -> Fallible<()> {
         while let Some(mut message) = self.output_queue.pop_front() {
             trace!(
@@ -412,6 +415,9 @@ impl ConnectionLowLevel {
         Ok(())
     }
 
+    /// Produces and enqueues a single noise message from `input`. If the
+    /// `squeeze` option is enabled, it joins the message with the previous
+    /// chunk.
     fn encrypt_chunk(&mut self, input: &mut Cursor<&[u8]>, squeeze: bool) -> Fallible<()> {
         let remaining_len = input.get_ref().len() - input.position() as usize;
         let chunk_size = cmp::min(NOISE_MAX_PAYLOAD_LEN, remaining_len);
@@ -439,8 +445,7 @@ impl ConnectionLowLevel {
 }
 
 /// It tries to copy as much as possible from `input` to `output` in
-/// chunks. It is used with `socket` that blocks them when their
-/// output buffers are full. Written bytes are consumed from `input`.
+/// chunks.
 fn partial_copy<W: Write>(
     input: &mut Cursor<Vec<u8>>,
     buffer: &mut [u8],
