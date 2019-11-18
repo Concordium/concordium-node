@@ -195,10 +195,7 @@ impl ConnectionLowLevel {
                     Ok(Some(self.decrypt(msg)?))
                 }
             }
-            None => {
-                trace!("The current message is incomplete");
-                Ok(None)
-            }
+            None => Ok(None),
         }
     }
 
@@ -404,30 +401,39 @@ impl ConnectionLowLevel {
         let last_chunk_len = input.len() % NOISE_MAX_PAYLOAD_LEN + MAC_LENGTH;
         let full_msg_len = num_full_chunks * NOISE_MAX_MESSAGE_LEN + last_chunk_len;
 
+        let squeeze_len = if let Some(prev_chunk) = self.output_queue.back_mut() {
+            prev_chunk.get_ref().len() + PAYLOAD_SIZE <= NOISE_MAX_MESSAGE_LEN
+        } else {
+            false
+        };
+
         // write the length in plaintext
-        let mut payload_len = Cursor::new(Vec::with_capacity(PAYLOAD_SIZE));
-        payload_len.write_u32::<NetworkEndian>(full_msg_len as PayloadSize)?;
-        self.output_queue.push_back(payload_len);
+        if squeeze_len {
+            if let Some(prev_chunk) = self.output_queue.back_mut() {
+                prev_chunk.seek(SeekFrom::End(0))?;
+                prev_chunk.write_u32::<NetworkEndian>(full_msg_len as PayloadSize)?;
+                prev_chunk.seek(SeekFrom::Start(0))?;
+            }
+        } else {
+            let mut payload_len = Vec::with_capacity(PAYLOAD_SIZE);
+            payload_len.write_u32::<NetworkEndian>(full_msg_len as PayloadSize)?;
+            self.output_queue.push_back(Cursor::new(payload_len));
+        }
 
         let mut input = Cursor::new(input);
         let eof = input.get_ref().len() as u64;
 
-        if full_msg_len <= NOISE_MAX_PAYLOAD_LEN - PAYLOAD_SIZE {
-            self.encrypt_chunk(&mut input, true)?;
-        } else {
-            while input.position() != eof {
-                self.encrypt_chunk(&mut input, false)?;
-            }
+        while input.position() != eof {
+            self.encrypt_chunk(&mut input)?;
         }
 
         Ok(())
     }
 
     #[inline]
-    /// Produces and enqueues a single noise message from `input`. If the
-    /// `squeeze` option is enabled, it joins the message with the previous
-    /// chunk.
-    fn encrypt_chunk(&mut self, input: &mut Cursor<&[u8]>, squeeze: bool) -> Fallible<()> {
+    /// Produces and enqueues a single noise message from `input`, potentially
+    /// squeezing it with the previously enqueued chunk.
+    fn encrypt_chunk(&mut self, input: &mut Cursor<&[u8]>) -> Fallible<()> {
         let remaining_len = input.get_ref().len() - input.position() as usize;
         let chunk_size = cmp::min(NOISE_MAX_PAYLOAD_LEN, remaining_len);
         input.read_exact(&mut self.buffer[..chunk_size])?;
@@ -436,18 +442,23 @@ impl ConnectionLowLevel {
         self.noise_session
             .send_message(&mut self.buffer[..encrypted_len])?;
 
-        let mut chunk = if squeeze {
-            self.output_queue.pop_back().unwrap() // infallible
+        let squeeze_chunk = if let Some(prev_chunk) = self.output_queue.back_mut() {
+            prev_chunk.get_ref().len() + encrypted_len <= NOISE_MAX_MESSAGE_LEN
         } else {
-            if let Some(ref mut len_chunk) = self.output_queue.back_mut() {
-                len_chunk.seek(SeekFrom::Start(0))?;
-            }
-            Cursor::new(Vec::with_capacity(encrypted_len))
+            false
         };
 
-        chunk.write_all(&self.buffer[..encrypted_len])?;
-        chunk.seek(SeekFrom::Start(0))?;
-        self.output_queue.push_back(chunk);
+        if squeeze_chunk {
+            if let Some(prev_chunk) = self.output_queue.back_mut() {
+                prev_chunk.seek(SeekFrom::End(0))?;
+                prev_chunk.write_all(&self.buffer[..encrypted_len])?;
+                prev_chunk.seek(SeekFrom::Start(0))?;
+            }
+        } else {
+            let mut chunk = Vec::with_capacity(encrypted_len);
+            chunk.write_all(&self.buffer[..encrypted_len])?;
+            self.output_queue.push_back(Cursor::new(chunk));
+        };
 
         Ok(())
     }
