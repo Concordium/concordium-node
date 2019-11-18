@@ -43,6 +43,17 @@ RUN --mount=type=ssh pacman -Syy --noconfirm openssh && \
     cp .stack-work/dist/*/*/build/middleware/middleware /middleware
 # Middleware is now built
 
+# Build oak compiler
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base-haskell:0.2 as oak-build
+WORKDIR /
+RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
+
+RUN --mount=type=ssh git clone git@gitlab.com:Concordium/oak/oak-compiler.git
+WORKDIR /oak-compiler
+RUN git checkout cdb7eb0c08dac417e05e08714d5bb686e13e30c4
+RUN --mount=type=ssh ci/dynamic-deps.sh 
+RUN stack build --copy-bins --ghc-options -j4
+
 FROM node:11 as node-build
 WORKDIR /
 RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
@@ -77,6 +88,7 @@ COPY --from=haskell-build /libs/* /usr/lib/
 COPY --from=haskell-build /middleware /middleware
 COPY --from=haskell-build /genesis-binaries /genesis-binaries
 COPY --from=node-build /node-dashboard/dist/public /var/www/html/
+COPY --from=oak-build /oak-compiler/out/oak /oak 
 RUN mkdir /var/www/html/public
 RUN mv /var/www/html/*.js /var/www/html/public/
 RUN sed -i 's/try_files.*$/try_files \$uri \/index.html =404;/g' /etc/nginx/sites-available/default 
