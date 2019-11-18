@@ -28,22 +28,6 @@ use std::{
 type PayloadSize = u32;
 const PAYLOAD_SIZE: usize = mem::size_of::<PayloadSize>();
 
-/// The result of a socket operation.
-#[derive(Debug, Clone)]
-pub enum TcpResult<T> {
-    /// For socket reads, `T` is the complete read message; for writes it's the
-    /// number of written bytes
-    Complete(T),
-    /// Indicates that a read or write operation is incomplete and will be
-    /// requeued
-    Incomplete,
-    /// A status dedicated to operations whose read/write result is of no
-    /// interest or void
-    Discarded,
-    // The current read/write operation was aborted due to a `WouldBlock` error
-    Aborted,
-}
-
 /// The single message currently being read from the socket along with its
 /// pending length.
 #[derive(Default)]
@@ -170,15 +154,8 @@ impl ConnectionLowLevel {
     pub fn read_stream(&mut self, deduplication_queues: &DeduplicationQueues) -> Fallible<()> {
         loop {
             match self.read_from_socket() {
-                Ok(read_result) => match read_result {
-                    TcpResult::Complete(message) => {
-                        if let Err(e) = self.conn().process_message(message, deduplication_queues) {
-                            bail!("can't process a message: {}", e);
-                        }
-                    }
-                    TcpResult::Discarded => {}
-                    TcpResult::Incomplete | TcpResult::Aborted => return Ok(()),
-                },
+                Ok(Some(message)) => self.conn().process_message(message, deduplication_queues)?,
+                Ok(None) => return Ok(()),
                 Err(e) => bail!("can't read from the socket: {}", e),
             }
         }
@@ -186,7 +163,7 @@ impl ConnectionLowLevel {
 
     /// Attempts to read a complete message from the socket.
     #[inline(always)]
-    fn read_from_socket(&mut self) -> Fallible<TcpResult<HybridBuf>> {
+    fn read_from_socket(&mut self) -> Fallible<Option<HybridBuf>> {
         trace!("Attempting to read from the socket");
         let read_result = if self.incoming_msg.pending_bytes == 0 {
             self.read_expected_size()
@@ -195,7 +172,7 @@ impl ConnectionLowLevel {
         };
 
         match read_result {
-            Ok(TcpResult::Complete(msg)) => {
+            Ok(Some(msg)) => {
                 if !self.is_post_handshake() {
                     match self.noise_session.get_message_count() {
                         0 if !self.noise_session.is_initiator() => self.process_msg_a(msg),
@@ -203,20 +180,19 @@ impl ConnectionLowLevel {
                         2 if !self.noise_session.is_initiator() => self.process_msg_c(msg),
                         _ => bail!("Invalid XX handshake"),
                     }?;
-                    Ok(TcpResult::Discarded)
+                    Ok(None)
                 } else {
-                    Ok(TcpResult::Complete(self.decrypt(msg)?))
+                    Ok(Some(self.decrypt(msg)?))
                 }
             }
-            Ok(TcpResult::Incomplete) => {
+            Ok(None) => {
                 trace!("The current message is incomplete");
-                Ok(TcpResult::Incomplete)
+                Ok(None)
             }
-            Ok(_) => unreachable!(),
             Err(err) => {
                 if err.downcast_ref::<StreamWouldBlock>().is_some() {
                     trace!("Further reads would be blocking; aborting");
-                    Ok(TcpResult::Aborted)
+                    Ok(None)
                 } else {
                     Err(err)
                 }
@@ -237,7 +213,7 @@ impl ConnectionLowLevel {
     }
 
     /// It first reads the first 4 bytes of the message to determine its size.
-    fn read_expected_size(&mut self) -> Fallible<TcpResult<HybridBuf>> {
+    fn read_expected_size(&mut self) -> Fallible<Option<HybridBuf>> {
         // only extract the bytes needed to know the size.
         let min_bytes = self.pending_bytes_to_know_expected_size()?;
         let read_bytes = map_io_error_to_fail!(self.socket.read(&mut self.buffer[..min_bytes]))?;
@@ -276,12 +252,12 @@ impl ConnectionLowLevel {
             self.read_payload()
         } else {
             // We need more data to determine the message size.
-            Ok(TcpResult::Incomplete)
+            Ok(None)
         }
     }
 
     /// Once we know the message expected size, we can start to receive data.
-    fn read_payload(&mut self) -> Fallible<TcpResult<HybridBuf>> {
+    fn read_payload(&mut self) -> Fallible<Option<HybridBuf>> {
         while self.incoming_msg.pending_bytes > 0 {
             if self.read_intermediate()? == 0 {
                 break;
@@ -296,9 +272,9 @@ impl ConnectionLowLevel {
                 HybridBuf::with_capacity(PAYLOAD_SIZE)?,
             );
 
-            Ok(TcpResult::Complete(new_data))
+            Ok(Some(new_data))
         } else {
-            Ok(TcpResult::Incomplete)
+            Ok(None)
         }
     }
 
@@ -377,7 +353,7 @@ impl ConnectionLowLevel {
     // output
 
     #[inline(always)]
-    pub fn write_to_socket(&mut self, input: Arc<[u8]>) -> Fallible<TcpResult<()>> {
+    pub fn write_to_socket(&mut self, input: Arc<[u8]>) -> Fallible<()> {
         TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
         self.conn()
             .stats
@@ -395,15 +371,13 @@ impl ConnectionLowLevel {
     }
 
     #[inline(always)]
-    pub fn flush_socket(&mut self) -> Fallible<TcpResult<usize>> {
-        let mut written_bytes = 0;
-
+    pub fn flush_socket(&mut self) -> Fallible<()> {
         while let Some(mut message) = self.output_queue.pop_front() {
             trace!(
                 "Writing a {} message to the socket",
                 ByteSize(message.get_ref().len() as u64 - message.position()).to_string_as(true)
             );
-            written_bytes += partial_copy(&mut message, &mut self.buffer, &mut self.socket)?;
+            partial_copy(&mut message, &mut self.buffer, &mut self.socket)?;
 
             if message.position() as usize == message.get_ref().len() {
                 trace!("Successfully written a message to the socket");
@@ -413,16 +387,16 @@ impl ConnectionLowLevel {
                     message.get_ref().len() - message.position() as usize
                 );
                 self.output_queue.push_front(message);
-                return Ok(TcpResult::Incomplete);
+                break;
             }
         }
 
-        Ok(TcpResult::Complete(written_bytes))
+        Ok(())
     }
 
     /// It encrypts `input` and enqueues the encrypted chunks preceded by the
     /// length for later sending
-    fn encrypt_and_enqueue(&mut self, input: &[u8]) -> Fallible<TcpResult<()>> {
+    fn encrypt_and_enqueue(&mut self, input: &[u8]) -> Fallible<()> {
         let num_full_chunks = input.len() / NOISE_MAX_PAYLOAD_LEN;
         let last_chunk_len = input.len() % NOISE_MAX_PAYLOAD_LEN + MAC_LENGTH;
         let full_msg_len = num_full_chunks * NOISE_MAX_MESSAGE_LEN + last_chunk_len;
@@ -443,7 +417,7 @@ impl ConnectionLowLevel {
             }
         }
 
-        Ok(TcpResult::Discarded)
+        Ok(())
     }
 
     fn encrypt_chunk(&mut self, input: &mut Cursor<&[u8]>, squeeze: bool) -> Fallible<()> {
@@ -479,9 +453,7 @@ fn partial_copy<W: Write>(
     input: &mut Cursor<Vec<u8>>,
     buffer: &mut [u8],
     output: &mut W,
-) -> Fallible<usize> {
-    let mut total_written_bytes = 0;
-
+) -> Fallible<()> {
     while input.get_ref().len() != input.position() as usize {
         let offset = input.position();
 
@@ -493,7 +465,6 @@ fn partial_copy<W: Write>(
 
         match output.write(&buffer[..chunk_size]) {
             Ok(written_bytes) => {
-                total_written_bytes += written_bytes;
                 if written_bytes != chunk_size {
                     // Fix the offset because read data was not written completely.
                     input.seek(SeekFrom::Start(offset + written_bytes as u64))?;
@@ -509,5 +480,5 @@ fn partial_copy<W: Write>(
         }
     }
 
-    Ok(total_written_bytes)
+    Ok(())
 }
