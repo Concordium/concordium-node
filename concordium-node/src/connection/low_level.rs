@@ -28,17 +28,6 @@ use std::{
 type PayloadSize = u32;
 const PAYLOAD_SIZE: usize = mem::size_of::<PayloadSize>();
 
-/// The result of a socket read operation.
-#[derive(Debug)]
-pub enum SocketMsg {
-    /// A complete message read from the socket.
-    Complete(HybridBuf),
-    /// The current read operation is incomplete and will be resumed later.
-    Incomplete,
-    /// The contents of the message are of no interest.
-    Discarded,
-}
-
 /// The single message currently being read from the socket along with its
 /// pending length.
 #[derive(Default)]
@@ -165,15 +154,8 @@ impl ConnectionLowLevel {
     pub fn read_stream(&mut self, deduplication_queues: &DeduplicationQueues) -> Fallible<()> {
         loop {
             match self.read_from_socket() {
-                Ok(read_result) => match read_result {
-                    SocketMsg::Complete(message) => {
-                        if let Err(e) = self.conn().process_message(message, deduplication_queues) {
-                            bail!("can't process a message: {}", e);
-                        }
-                    }
-                    SocketMsg::Discarded => {}
-                    SocketMsg::Incomplete => return Ok(()),
-                },
+                Ok(Some(message)) => self.conn().process_message(message, deduplication_queues)?,
+                Ok(None) => return Ok(()),
                 Err(e) => bail!("can't read from the socket: {}", e),
             }
         }
@@ -181,7 +163,7 @@ impl ConnectionLowLevel {
 
     /// Attempts to read a complete message from the socket.
     #[inline(always)]
-    fn read_from_socket(&mut self) -> Fallible<SocketMsg> {
+    fn read_from_socket(&mut self) -> Fallible<Option<HybridBuf>> {
         trace!("Attempting to read from the socket");
         let read_result = if self.incoming_msg.pending_bytes == 0 {
             self.read_expected_size()
@@ -190,7 +172,7 @@ impl ConnectionLowLevel {
         };
 
         match read_result {
-            Ok(SocketMsg::Complete(msg)) => {
+            Ok(Some(msg)) => {
                 if !self.is_post_handshake() {
                     match self.noise_session.get_message_count() {
                         0 if !self.noise_session.is_initiator() => self.process_msg_a(msg),
@@ -198,20 +180,19 @@ impl ConnectionLowLevel {
                         2 if !self.noise_session.is_initiator() => self.process_msg_c(msg),
                         _ => bail!("Invalid XX handshake"),
                     }?;
-                    Ok(SocketMsg::Discarded)
+                    Ok(None)
                 } else {
-                    Ok(SocketMsg::Complete(self.decrypt(msg)?))
+                    Ok(Some(self.decrypt(msg)?))
                 }
             }
-            Ok(SocketMsg::Incomplete) => {
+            Ok(None) => {
                 trace!("The current message is incomplete");
-                Ok(SocketMsg::Incomplete)
+                Ok(None)
             }
-            Ok(_) => unreachable!(),
             Err(err) => {
                 if err.downcast_ref::<StreamWouldBlock>().is_some() {
                     trace!("Further reads would be blocking; aborting");
-                    Ok(SocketMsg::Incomplete)
+                    Ok(None)
                 } else {
                     Err(err)
                 }
@@ -232,7 +213,7 @@ impl ConnectionLowLevel {
     }
 
     /// It first reads the first 4 bytes of the message to determine its size.
-    fn read_expected_size(&mut self) -> Fallible<SocketMsg> {
+    fn read_expected_size(&mut self) -> Fallible<Option<HybridBuf>> {
         // only extract the bytes needed to know the size.
         let min_bytes = self.pending_bytes_to_know_expected_size()?;
         let read_bytes = map_io_error_to_fail!(self.socket.read(&mut self.buffer[..min_bytes]))?;
@@ -271,12 +252,12 @@ impl ConnectionLowLevel {
             self.read_payload()
         } else {
             // We need more data to determine the message size.
-            Ok(SocketMsg::Incomplete)
+            Ok(None)
         }
     }
 
     /// Once we know the message expected size, we can start to receive data.
-    fn read_payload(&mut self) -> Fallible<SocketMsg> {
+    fn read_payload(&mut self) -> Fallible<Option<HybridBuf>> {
         while self.incoming_msg.pending_bytes > 0 {
             if self.read_intermediate()? == 0 {
                 break;
@@ -291,9 +272,9 @@ impl ConnectionLowLevel {
                 HybridBuf::with_capacity(PAYLOAD_SIZE)?,
             );
 
-            Ok(SocketMsg::Complete(new_data))
+            Ok(Some(new_data))
         } else {
-            Ok(SocketMsg::Incomplete)
+            Ok(None)
         }
     }
 
