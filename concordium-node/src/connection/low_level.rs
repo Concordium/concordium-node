@@ -148,6 +148,7 @@ impl ConnectionLowLevel {
         Ok(())
     }
 
+    #[inline]
     fn is_post_handshake(&self) -> bool {
         if self.noise_session.is_initiator() {
             self.noise_session.get_message_count() > 1
@@ -159,7 +160,7 @@ impl ConnectionLowLevel {
     // input
 
     /// Keeps reading from the socket as long as there is data to be read.
-    #[inline(always)]
+    #[inline]
     pub fn read_stream(&mut self, deduplication_queues: &DeduplicationQueues) -> Fallible<()> {
         loop {
             match self.read_from_socket() {
@@ -171,7 +172,7 @@ impl ConnectionLowLevel {
     }
 
     /// Attempts to read a complete message from the socket.
-    #[inline(always)]
+    #[inline]
     fn read_from_socket(&mut self) -> Fallible<Option<HybridBuf>> {
         trace!("Attempting to read from the socket");
         let read_result = if self.incoming_msg.pending_bytes == 0 {
@@ -201,6 +202,7 @@ impl ConnectionLowLevel {
         }
     }
 
+    #[inline]
     /// Reads the number of bytes required to read the frame length
     #[inline]
     fn pending_bytes_to_know_expected_size(&self) -> Fallible<usize> {
@@ -213,6 +215,7 @@ impl ConnectionLowLevel {
         }
     }
 
+    #[inline]
     /// It first reads the first 4 bytes of the message to determine its size.
     fn read_expected_size(&mut self) -> Fallible<Option<HybridBuf>> {
         // only extract the bytes needed to know the size.
@@ -257,6 +260,7 @@ impl ConnectionLowLevel {
         }
     }
 
+    #[inline]
     /// Once we know the message expected size, we can start to receive data.
     fn read_payload(&mut self) -> Fallible<Option<HybridBuf>> {
         while self.incoming_msg.pending_bytes > 0 {
@@ -279,6 +283,7 @@ impl ConnectionLowLevel {
         }
     }
 
+    #[inline]
     fn read_intermediate(&mut self) -> Fallible<usize> {
         let read_size = cmp::min(
             self.incoming_msg.pending_bytes as usize,
@@ -295,6 +300,7 @@ impl ConnectionLowLevel {
         Ok(read_bytes)
     }
 
+    #[inline]
     fn decrypt(&mut self, mut input: HybridBuf) -> Fallible<HybridBuf> {
         // calculate the number of full-sized chunks
         let len = input.len()? as usize;
@@ -320,6 +326,7 @@ impl ConnectionLowLevel {
         Ok(decrypted_msg)
     }
 
+    #[inline]
     fn decrypt_chunk<R: Read + Seek, W: Write>(
         &mut self,
         chunk_size: usize,
@@ -344,7 +351,7 @@ impl ConnectionLowLevel {
 
     // output
 
-    #[inline(always)]
+    #[inline]
     /// Enqueue a message to be written to the socket.
     pub fn write_to_socket(&mut self, input: Arc<[u8]>) -> Fallible<()> {
         TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -363,7 +370,7 @@ impl ConnectionLowLevel {
         self.encrypt_and_enqueue(&input)
     }
 
-    #[inline(always)]
+    #[inline]
     /// Writes enequeued messages to the socket until the queue is exhausted
     /// or the write would be blocking.
     pub fn flush_socket(&mut self) -> Fallible<()> {
@@ -389,6 +396,7 @@ impl ConnectionLowLevel {
         Ok(())
     }
 
+    #[inline]
     /// It encrypts `input` and enqueues the encrypted chunks preceded by the
     /// length for later sending
     fn encrypt_and_enqueue(&mut self, input: &[u8]) -> Fallible<()> {
@@ -415,6 +423,7 @@ impl ConnectionLowLevel {
         Ok(())
     }
 
+    #[inline]
     /// Produces and enqueues a single noise message from `input`. If the
     /// `squeeze` option is enabled, it joins the message with the previous
     /// chunk.
@@ -444,6 +453,7 @@ impl ConnectionLowLevel {
     }
 }
 
+#[inline]
 /// It tries to copy as much as possible from `input` to `output` in
 /// chunks.
 fn partial_copy<W: Write>(
