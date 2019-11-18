@@ -1,5 +1,4 @@
 pub mod banned_nodes;
-pub mod fails;
 pub mod p2p_node;
 pub mod unreachable_nodes;
 

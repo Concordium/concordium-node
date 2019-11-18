@@ -13,7 +13,7 @@ use crate::{
         request::RequestedElementType, Buckets, NetworkId, NetworkMessage, NetworkMessagePayload,
         NetworkPacket, NetworkPacketType, NetworkRequest,
     },
-    p2p::{banned_nodes::BannedNode, fails, unreachable_nodes::UnreachableNodes},
+    p2p::{banned_nodes::BannedNode, unreachable_nodes::UnreachableNodes},
     stats_engine::StatsEngine,
     stats_export_service::StatsExportService,
     utils,
@@ -25,7 +25,7 @@ use concordium_common::{
     serial::Serial,
     QueueMsg::{self, Relay},
 };
-use failure::{err_msg, Error, Fallible};
+use failure::{err_msg, Fallible};
 #[cfg(not(target_os = "windows"))]
 use get_if_addrs;
 #[cfg(target_os = "windows")]
@@ -807,16 +807,17 @@ impl P2PNode {
         if peer_type == PeerType::Node {
             let current_peer_count = self.get_peer_stats(Some(PeerType::Node)).len() as u16;
             if current_peer_count > self.config.max_allowed_nodes {
-                return Err(Error::from(fails::MaxmimumAmountOfPeers {
-                    max_allowed_peers: self.config.max_allowed_nodes,
-                    number_of_peers:   current_peer_count,
-                }));
+                bail!(
+                    "Maximum number of peers reached {}/{}",
+                    current_peer_count,
+                    self.config.max_allowed_nodes
+                );
             }
         }
 
         // Don't connect to ourselves
         if self.self_peer.addr == addr || peer_id_opt == Some(self.id()) {
-            return Err(Error::from(fails::DuplicatePeerError { peer_id_opt, addr }));
+            bail!("Attempted to connect to myself");
         }
 
         // Don't connect to peers with a known P2PNodeId or IP+port
@@ -824,13 +825,19 @@ impl P2PNode {
             if conn.remote_addr() == addr
                 || (peer_id_opt.is_some() && conn.remote_id() == peer_id_opt)
             {
-                return Err(Error::from(fails::DuplicatePeerError { peer_id_opt, addr }));
+                bail!(
+                    "Already connected to {}",
+                    if let Some(id) = peer_id_opt {
+                        id.to_string()
+                    } else {
+                        addr.to_string()
+                    }
+                );
             }
         }
 
         if peer_type == PeerType::Node && self.is_unreachable(addr) {
-            error!("Node marked as unreachable, so not allowing the connection");
-            return Err(Error::from(fails::UnreachablePeerError));
+            bail!("Node marked as unreachable; not allowing the connection");
         }
 
         match TcpStream::connect(&addr) {
@@ -1022,12 +1029,9 @@ impl P2PNode {
             &mut write_or_die!(self.threads).join_handles,
             Default::default(),
         ) {
-            handle.join().map_err(|e| {
-                let join_error = format!("{:?}", e);
-                fails::JoinError {
-                    cause: err_msg(join_error),
-                }
-            })?;
+            if let Err(e) = handle.join() {
+                bail!("Thread join error: {:?}", e);
+            }
         }
         Ok(())
     }
