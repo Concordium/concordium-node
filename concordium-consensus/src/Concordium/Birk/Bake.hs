@@ -1,4 +1,5 @@
-{-# LANGUAGE RecordWildCards, DeriveGeneric #-}
+{-# LANGUAGE
+    DeriveGeneric #-}
 module Concordium.Birk.Bake where
 
 import GHC.Generics
@@ -12,12 +13,10 @@ import Concordium.Types
 
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
-import qualified Concordium.Crypto.BlsSignature as Bls
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block
-import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.TreeState
-import Concordium.GlobalState.Transactions
+import Concordium.Types.Transactions
 
 import Concordium.Skov.Monad
 import Concordium.Birk.LeaderElection

@@ -1,4 +1,7 @@
-{-# LANGUAGE TemplateHaskell, ScopedTypeVariables, RecordWildCards, MultiParamTypeClasses, FlexibleInstances, FlexibleContexts, GeneralizedNewtypeDeriving, LambdaCase, TupleSections #-}
+{-# LANGUAGE
+    TemplateHaskell,
+    ScopedTypeVariables,
+    GeneralizedNewtypeDeriving #-}
 module Concordium.Afgjort.WMVBA (
     WMVBAMessage(..),
     messageValues,
@@ -63,7 +66,6 @@ messageValues (WMVBAFreezeMessage (Proposal val)) = [val]
 messageValues (WMVBAFreezeMessage (Vote (Just val))) = [val]
 messageValues (WMVBAFreezeMessage (Vote Nothing)) = []
 messageValues (WMVBAABBAMessage _) = []
-messageValues (WMVBAABBAMessage _) = []
 messageValues (WMVBAWitnessCreatorMessage (val, _)) = [val]
 
 messageParties :: WMVBAMessage -> [Party]
@@ -72,11 +74,6 @@ messageParties (WMVBAABBAMessage (CSSSeen _ ns)) = fst <$> nominationSetToList n
 messageParties (WMVBAABBAMessage (CSSDoneReporting _ choices)) = fst <$> nominationSetToList choices
 messageParties (WMVBAABBAMessage _) = []
 messageParties (WMVBAWitnessCreatorMessage _) = []
-
-messageBlsSig :: WMVBAMessage -> Maybe Bls.Signature
-messageBlsSig (WMVBAFreezeMessage _) = Nothing
-messageBlsSig (WMVBAABBAMessage _) = Nothing
-messageBlsSig (WMVBAWitnessCreatorMessage (_, sig)) = Just sig
 
 instance Show WMVBAMessage where
     show (WMVBAFreezeMessage (Proposal val)) = "Propose " ++ show val
@@ -170,7 +167,7 @@ data WMVBAState sig = WMVBAState {
     _abbaState :: ABBAState sig,
     _justifiedDecision :: OutcomeState,
     _justifications :: Map Val (PartyMap (sig, Bls.Signature)),
-    _badJustifications :: Map Val (PartySet) -- TODO: make specific datatype (partymap Bool stores redundant information, the bool is meaningless)
+    _badJustifications :: Map Val (PartySet)
 } deriving (Show)
 makeLenses ''WMVBAState
 
@@ -232,7 +229,7 @@ instance WMVBAMonad sig (WMVBA sig) where
     sendWMVBAMessage = WMVBA . tell . Endo . (:) . SendWMVBAMessage
     wmvbaComplete = WMVBA . tell . Endo . (:) . WMVBAComplete
 
-liftFreeze :: (WMVBAMonad sig m) => Freeze sig a -> m a -- TODO: add BLS sig here (maybe)
+liftFreeze :: (WMVBAMonad sig m) => Freeze sig a -> m a
 liftFreeze a = do
         freezestate <- use freezeState
         freezecontext <- toFreezeInstance <$> ask
@@ -260,7 +257,7 @@ liftFreeze a = do
                     _ -> return ()
             handleEvents r
 
-liftABBA :: (WMVBAMonad sig m) => ABBA sig a -> m a -- TODO: add BLS sign here
+liftABBA :: (WMVBAMonad sig m) => ABBA sig a -> m a
 liftABBA a = do
         aBBAInstance <- asks toABBAInstance
         aBBAState <- use abbaState
@@ -286,7 +283,6 @@ liftABBA a = do
                 wmvbaComplete Nothing
             handleEvents r
 
--- TODO: doublecheck that the signature is produced on the correct bytestring
 makeWMVBAWitnessCreatorMessage :: BS.ByteString -> Val -> Bls.SecretKey -> WMVBAMessage
 makeWMVBAWitnessCreatorMessage baid v privateBlsKey = WMVBAWitnessCreatorMessage (v, Bls.sign toSign privateBlsKey)
   where
@@ -315,23 +311,25 @@ receiveWMVBAMessage src sig (WMVBAWitnessCreatorMessage (v, blssig)) = do
         when ((PM.weight newJV) - (PS.weight badJV) > corruptWeight) $
           -- TODO: optimize, this is just a first draft
           let goodJustifications = extractNonBadJustifications newJV badJV
-              blssig = makeBlsAggregateSig goodJustifications
+              aggregate = makeBlsAggregateSig goodJustifications
               toSign = BS.append baid $ runPut $ S.put v -- this should probably be a call to some function
                                                          -- to ensure consistency accross different functions
               keys = map (\(p, _) -> publicBlsKeys p) goodJustifications
           in
-            if Bls.verifyAggregate toSign keys blssig then -- A correct finalization record was obtained, send it out
-              wmvbaComplete (Just (v, (map (\(p, _) -> p) goodJustifications, blssig)))
+            if Bls.verifyAggregate toSign keys aggregate then -- A correct finalization record was obtained, send it out
+              wmvbaComplete (Just (v, (map (\(p, _) -> p) goodJustifications, aggregate)))
             else -- somebody sent an incorrect BlsSignature on v with a correct EDDSA signature on the message
               let culprits = findCulprits goodJustifications toSign publicBlsKeys
                   addCulprits [] = return ()
-                  addCulprits (h : t) = badJustifications . at v . non PS.empty %= PS.insert h (partyWeight h)
+                  addCulprits (h : t) = do
+                    badJustifications . at v . non PS.empty %= PS.insert h (partyWeight h)
+                    addCulprits t
               in addCulprits culprits
               -- TODO: check if finalization can still finish. If enough bad justifications has been seen,
               -- finalization may not be able to finish
       where
         extractNonBadJustifications jv badjv = removeBadJustifications (PM.toList jv) badjv []
-        removeBadJustifications [] badjv acc = acc
+        removeBadJustifications [] _ acc = acc
         removeBadJustifications ((p, s) : t) badjv acc = if PS.member p badjv
                                                          then removeBadJustifications t badjv acc
                                                          else removeBadJustifications t badjv ((p, s) : acc)
@@ -355,7 +353,7 @@ findCulprits lst toSign keys =
       culprits :: [(Party, (a, Bls.Signature))] -> [Party]
       culprits ((p, (_, blss)) : []) = if Bls.verify toSign (keys p) blss then [] else [p]
       culprits [] = []
-      culprits lst' = if Bls.verifyAggregate toSign (map (\(p, (_, blss)) -> keys p) lst') (makeBlsAggregateSig lst')
+      culprits lst' = if Bls.verifyAggregate toSign (map (\(p, _) -> keys p) lst') (makeBlsAggregateSig lst')
                       then [] else findCulprits lst' toSign keys
   in (culprits lst1) ++ (culprits lst2)
 

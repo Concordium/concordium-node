@@ -1,8 +1,9 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# OPTIONS_GHC -Wall #-}
-module Concordium.Scheduler.Utils.Init.Example (initialState, makeTransaction, mateuszAccount) where
+{-# OPTIONS_GHC -Wall -Wno-deprecations #-}
+module Concordium.Scheduler.Utils.Init.Example {-# WARNING "This module should not be used in production code" #-}
+    (initialState, makeTransaction, mateuszAccount) where
 
 import qualified Data.HashMap.Strict as Map
 import System.Random
@@ -17,8 +18,8 @@ import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Concordium.Scheduler.Environment as Types
 
-import qualified Concordium.GlobalState.Implementation.BlockState as BlockState
-import qualified Concordium.GlobalState.Account as Acc
+import qualified Concordium.GlobalState.Basic.BlockState as BlockState
+import qualified Concordium.GlobalState.Basic.BlockState.Account as Acc
 import qualified Concordium.GlobalState.Modules as Mod
 import Concordium.GlobalState.Parameters(BirkParameters, CryptographicParameters)
 import qualified Concordium.Scheduler.Runner as Runner

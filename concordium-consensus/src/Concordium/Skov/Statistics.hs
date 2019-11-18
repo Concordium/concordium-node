@@ -1,5 +1,3 @@
-{-# LANGUAGE ScopedTypeVariables #-}
-
 module Concordium.Skov.Statistics where
 
 import Lens.Micro.Platform
@@ -8,8 +6,6 @@ import Data.Time
 import Data.Time.Clock.POSIX
 
 import Concordium.GlobalState.TreeState
-import Concordium.GlobalState.BlockState
-import Concordium.GlobalState.Block
 import Concordium.GlobalState.Statistics
 
 import Concordium.Skov.Monad
@@ -17,7 +13,7 @@ import Concordium.Logger
 import Concordium.TimeMonad
 
 -- | Called when a block is fully validated (arrives) to update the statistics.
-updateArriveStatistics :: forall m. (LoggerMonad m, TreeStateMonad m, SkovQueryMonad m) => BlockPointer m -> m ()
+updateArriveStatistics :: (LoggerMonad m, TreeStateMonad m, SkovQueryMonad m) => BlockPointer m -> m ()
 updateArriveStatistics bp = do
         s0 <- getConsensusStatistics
         let s1 = s0 & blocksVerifiedCount +~ 1
@@ -66,7 +62,7 @@ updateArriveStatistics bp = do
                   & (transactionsPerBlockEMVar %~ \oldEMVar -> (1 - emaWeight) * (oldEMVar + emaWeight * delta * delta))
 
 -- | Called when a block is received to update the statistics.
-updateReceiveStatistics :: forall m. (TreeStateMonad m, LoggerMonad m, SkovQueryMonad m) => PendingBlock m -> m ()
+updateReceiveStatistics :: (TreeStateMonad m, LoggerMonad m, SkovQueryMonad m) => PendingBlock m -> m ()
 updateReceiveStatistics pb = do
         s0 <- getConsensusStatistics
         let s1 = s0 & blocksReceivedCount +~ 1
@@ -104,12 +100,12 @@ updateReceiveStatistics pb = do
                           & (blockReceivePeriodEMVar ?~ (1 - emaWeight) * (oldEMVar + emaWeight * delta * delta))
 
 -- | Called when a block has been finalized to update the statistics.        
-updateFinalizationStatistics :: forall m. (TreeStateMonad m, LoggerMonad m, TimeMonad m) => m ()
+updateFinalizationStatistics :: (TreeStateMonad m, LoggerMonad m, TimeMonad m) => m ()
 updateFinalizationStatistics = do
         s0 <- getConsensusStatistics
         let s1 = s0 & finalizationCount +~ 1
         curTime <- currentTime
-        let s = case (s1 ^. lastFinalizedTime) of
+        let s = case s1 ^. lastFinalizedTime of
                 Nothing -> s1 & lastFinalizedTime ?~ curTime
                 Just lastFinTime ->
                     let

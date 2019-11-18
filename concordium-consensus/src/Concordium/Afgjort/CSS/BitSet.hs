@@ -39,7 +39,7 @@ toAscList = go 0
     where
         go _ 0 = []
         go n s
-            | testBit s 0 = (toEnum n : r)
+            | testBit s 0 = toEnum n : r
             | otherwise = r
             where
                 r = go (n+1) (shiftR s 1)

@@ -1,4 +1,5 @@
-{-# LANGUAGE LambdaCase, TupleSections, ScopedTypeVariables #-}
+{-# LANGUAGE
+    ScopedTypeVariables #-}
 module Concordium.Kontrol.BestBlock(
     bestBlock,
     bestBlockBefore
@@ -13,7 +14,7 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.Parameters
 import Concordium.Skov.Monad
 import Concordium.Birk.LeaderElection
-import Concordium.GlobalState.BlockState(BlockPointer, BlockPointerData(..), bpParent)
+import Concordium.GlobalState.TreeState(BlockPointer, BlockPointerData(..), bpParent)
 
 blockLuck :: (SkovQueryMonad m) => BlockPointer m -> m BlockLuck
 blockLuck block = case blockFields block of
@@ -45,7 +46,7 @@ bestBlockBranches [] = lastFinalizedBlock
 bestBlockBranches l = bb l
     where
         bb [] = lastFinalizedBlock
-        bb (blocks : branches) = do
+        bb (blocks : branches) =
             case blocks of
                 [] -> bb branches
                 (b : bs) -> fst <$> foldrM compareBlocks (b, Nothing) bs

@@ -23,7 +23,7 @@ import qualified Concordium.ID.Account as AH
 import qualified Concordium.ID.Types as ID
 
 import Concordium.GlobalState.Bakers(bakerAccount)
-import qualified Concordium.GlobalState.Instances as Ins
+import qualified Concordium.GlobalState.Instance as Ins
 import qualified Concordium.Scheduler.Cost as Cost
 
 import Control.Applicative
@@ -196,8 +196,8 @@ handleModule _meta msize mod = do
   -- NB: The next line will reject the transaction in case there are not enough funds.
   tickEnergy (Cost.deployModule (fromIntegral msize))
   let mhash = Core.moduleHash mod
-  imod <- pure (runExcept (Core.makeInternal mhash (fromIntegral msize) mod)) `rejectingWith'` MissingImports
-  iface <- runExceptT (TC.typeModule imod) `rejectingWith'` ModuleNotWF
+  imod <- pure (runExcept (Core.makeInternal mhash (fromIntegral msize) mod)) `rejectingWith'` (const MissingImports)
+  iface <- typeHidingErrors (TC.typeModule imod) `rejectingWith` ModuleNotWF
   let viface = I.evalModule imod
   return (mhash, iface, viface)
 
@@ -231,7 +231,7 @@ handleInitContract senderAccount meta amount modref cname param paramSize =
             -- first typecheck the parameters, whether they have the expected type
             -- the cost of type-checking is dependent on the size of the term
             tickEnergy (Cost.initParamsTypecheck paramSize)
-            qparamExp <- runExceptT (TC.checkTyInCtx' iface param (paramTy ciface)) `rejectingWith'` ParamsTypeError
+            qparamExp <- typeHidingErrors (TC.checkTyInCtx' iface param (paramTy ciface)) `rejectingWith` ParamsTypeError
             -- NB: The unsafe Map.! is safe here because we do know the contract exists by the invariant on viface and iface
             linkedContract <- linkContract (uniqueName iface) cname (viContracts viface Map.! cname)
             let (initFun, _) = cvInitMethod linkedContract
@@ -300,7 +300,7 @@ handleUpdateContract senderAccount meta cref amount maybeMsg msgSize =
               model = Ins.instanceModel i
               -- we assume that gasAmount was available on the account due to the previous check (checkHeader)
           tickEnergy (Cost.updateMessageTypecheck msgSize)
-          qmsgExp <- runExceptT (TC.checkTyInCtx' iface maybeMsg msgType) `rejectingWith'` MessageTypeError
+          qmsgExp <- typeHidingErrors (TC.checkTyInCtx' iface maybeMsg msgType) `rejectingWith` MessageTypeError
           (qmsgExpLinked, _) <- linkExpr (uniqueName iface) (compile qmsgExp)
           handleTransaction senderAccount
                             i

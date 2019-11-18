@@ -22,9 +22,9 @@ import Control.Monad.Trans.RWS.Strict hiding (ask, get, put)
 import Control.Monad.State.Class
 
 import Concordium.Scheduler.Types
-import Concordium.GlobalState.BlockState hiding (BlockState)
-import Concordium.GlobalState.Implementation.BlockState (BlockState, PureBlockStateMonad(..))
-import qualified Concordium.GlobalState.Modules as Mod
+import Concordium.GlobalState.BlockState as BS
+import Concordium.GlobalState.Basic.BlockState (BlockState, PureBlockStateMonad(..))
+import Concordium.GlobalState.TreeState hiding (BlockState)
 import Concordium.GlobalState.Bakers as Bakers
 
 import qualified Acorn.Core as Core
@@ -49,7 +49,7 @@ instance (MonadReader ContextState m, UpdatableBlockState m ~ s, MonadState s m,
   getModuleInterfaces mref = do
     s <- get
     mmod <- lift (bsoGetModule s mref)
-    return $ mmod <&> \m -> (Mod.moduleInterface m, Mod.moduleValueInterface m)
+    return $ mmod <&> \m -> (BS.moduleInterface m, BS.moduleValueInterface m)
 
 instance (MonadReader ContextState m, UpdatableBlockState m ~ state, MonadState state m, BlockStateOperations m)
          => SchedulerMonad (BSOMonadWrapper ContextState state m) where
@@ -213,8 +213,8 @@ instance (MonadReader ContextState m, UpdatableBlockState m ~ state, MonadState 
 
 newtype SchedulerImplementation a = SchedulerImplementation { _runScheduler :: RWST ContextState () BlockState (PureBlockStateMonad Identity) a }
     deriving (Functor, Applicative, Monad, MonadReader ContextState, MonadState BlockState)
-    deriving (StaticEnvironmentMonad Core.UA) via (BSOMonadWrapper ContextState BlockState (RWST ContextState () BlockState (PureBlockStateMonad Identity)))
-    deriving SchedulerMonad via (BSOMonadWrapper ContextState BlockState (RWST ContextState () BlockState (PureBlockStateMonad Identity)))
+    deriving (StaticEnvironmentMonad Core.UA) via (BSOMonadWrapper ContextState BlockState (MGSTrans (RWST ContextState () BlockState) (PureBlockStateMonad Identity)))
+    deriving SchedulerMonad via (BSOMonadWrapper ContextState BlockState (MGSTrans (RWST ContextState () BlockState) (PureBlockStateMonad Identity)))
 
 runSI :: SchedulerImplementation a -> SpecialBetaAccounts -> ChainMetadata -> BlockState -> (a, BlockState)
 runSI sc gd cd gs = let (a, s, _) = runIdentity $ runPureBlockStateMonad $ runRWST (_runScheduler sc) (gd, cd) gs in (a, s)

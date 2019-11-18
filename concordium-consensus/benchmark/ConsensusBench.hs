@@ -1,4 +1,8 @@
-{-# LANGUAGE RecordWildCards, GeneralizedNewtypeDeriving, TupleSections, OverloadedStrings, InstanceSigs, BangPatterns #-}
+{-# LANGUAGE
+    GeneralizedNewtypeDeriving,
+    OverloadedStrings,
+    InstanceSigs,
+    BangPatterns #-}
 module Main where
 
 import qualified Data.Sequence as Seq
@@ -25,7 +29,7 @@ import Concordium.Types.HashableTo
 import Concordium.GlobalState.BlockState(BlockPointerData(..))
 import qualified Concordium.GlobalState.TreeState as TreeState
 import Concordium.GlobalState.Basic.TreeState
-import Concordium.GlobalState.Transactions
+import Concordium.Types.Transactions
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block

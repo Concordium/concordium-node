@@ -1,5 +1,7 @@
 {-# OPTIONS_GHC -fno-cse #-}
-{-# LANGUAGE DeriveDataTypeable, RecordWildCards, LambdaCase, OverloadedStrings #-}
+{-# LANGUAGE
+    DeriveDataTypeable,
+    OverloadedStrings #-}
 module Main where
 
 import System.Exit

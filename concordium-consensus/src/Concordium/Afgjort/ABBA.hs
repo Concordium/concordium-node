@@ -1,14 +1,9 @@
-{-# LANGUAGE TemplateHaskell, 
-    MultiParamTypeClasses, 
-    FlexibleContexts,
-    FlexibleInstances,
-    RecordWildCards,
+{-# LANGUAGE
+    TemplateHaskell, 
     ScopedTypeVariables,
     GeneralizedNewtypeDeriving,
     RankNTypes,
-    OverloadedStrings,
-    LambdaCase,
-    TupleSections #-}
+    OverloadedStrings #-}
 {- |Asynchronous Binary Byzantine Agreement algorithm -}
 module Concordium.Afgjort.ABBA(
     Phase,
@@ -58,7 +53,7 @@ import Concordium.Afgjort.PartyMap (PartyMap)
 import qualified Concordium.Afgjort.PartyMap as PM
 
 atStrict :: (Ord k) => k -> Lens' (Map k v) (Maybe v)
-atStrict k f m = f mv <&> \r -> case r of
+atStrict k f m = f mv <&> \case
         Nothing -> maybe m (const (Map.delete k m)) mv
         Just v' -> Map.insert k v' m
     where mv = Map.lookup k m
@@ -240,33 +235,36 @@ handleCoreSet :: (ABBAMonad sig m) => Phase -> CoreSet -> m ()
 handleCoreSet phase cs = do
         ABBAInstance{..} <- ask
         cp <- use currentPhase
-        if (phase /= cp) then
+        if phase /= cp then
             error $ "handleCoreSet on phase " ++ show phase ++ " but current phase is " ++ show cp
         else do
             let
                 csTop = nomTop cs
                 csBot = nomBot cs
-                csRes p = if p `BitSet.member` csTop then Just True else
-                            if p `BitSet.member` csBot then Just False else Nothing
+                csRes p 
+                    | p `BitSet.member` csTop = Just True 
+                    | p `BitSet.member` csBot = Just False
+                    | otherwise = Nothing
                 topWeight = sum $ partyWeight <$> BitSet.toList csTop
                 botWeight = sum $ partyWeight <$> BitSet.toList csBot
             tkts <- Map.toDescList <$> use (phaseState phase . lotteryTickets)
-            let (nextBit, newGrade) =
-                    if BitSet.null csBot then
-                        (True, 2)
-                    else if BitSet.null csTop then
-                        (False, 2)
-                    else if topWeight >= totalWeight - corruptWeight then
-                        (True, 1)
-                    else if botWeight >= totalWeight - corruptWeight then
-                        (False, 1)
-                    else if botWeight <= corruptWeight then -- In this case, topWeight > corruptWeight
-                        (True, 0)
-                    else if topWeight <= corruptWeight then -- In this case, botWeight > corruptWeight
-                        (False, 0)
-                    else case catMaybes $ (\((_,party), _) -> csRes party) <$> tkts of
-                        (res:_) -> (res, 0)
-                        [] -> error "Finalization failure: no lottery ticket could be verified" -- This should not be possible under standard assumptions
+            let (nextBit, newGrade)
+                    | BitSet.null csBot
+                        = (True, 2)
+                    | BitSet.null csTop
+                        = (False, 2)
+                    | topWeight >= totalWeight - corruptWeight
+                        = (True, 1)
+                    | botWeight >= totalWeight - corruptWeight
+                        = (False, 1)
+                    | botWeight <= corruptWeight -- In this case, topWeight > corruptWeight
+                        = (True, 0)
+                    | topWeight <= corruptWeight -- In this case, botWeight > corruptWeight
+                        = (False, 0)
+                    | otherwise
+                        = case catMaybes $ (\((_,party), _) -> csRes party) <$> tkts of
+                            (res:_) -> (res, 0)
+                            [] -> error "Finalization failure: no lottery ticket could be verified" -- This should not be possible under standard assumptions
             oldGrade <- currentGrade <<.= newGrade
             when (newGrade == 2 && oldGrade /= 2) $
                 sendABBAMessage (WeAreDone nextBit)
@@ -465,7 +463,7 @@ processABBASummary ABBASummary{..} checkSig = do
         checkWADWeight m = wadWeight m >= totalWeight - corruptWeight
         -- The summary is complete if it includes enough signed WeAreDone messages
         summaryComplete = checkWADWeight sWADTop || checkWADWeight sWADBot
-    if st ^. completed then do
+    if st ^. completed then
         -- We have completed, so they are behind unless they have at least totalWeight - corruptWeight reporting done
         -- with a consistent outcome.
         return $! not summaryComplete
@@ -480,12 +478,12 @@ processABBASummary ABBASummary{..} checkSig = do
             st' <- get
             let sWADBehind = wadWeight sWADTop < st' ^. topWeAreDone . to PM.weight ||
                             wadWeight sWADBot < st' ^. botWeAreDone . to PM.weight
-            cssBehind <- or <$> (forM (zip [0..] summaryPhases) $ \(phaseInd, PhaseSummary{..}) -> do
+            cssBehind <- or <$> forM (zip [0..] summaryPhases) (\(phaseInd, PhaseSummary{..}) -> do
                 ps <- fromMaybe initialPhaseState <$> use (phaseStates . at phaseInd)
                 lid <- view $ lotteryId phaseInd
                 let
                     myTickets :: Map Party Ticket
-                    myTickets = ps ^. lotteryTickets . to (Map.fromList . fmap (snd *** id) . Map.toList)
+                    myTickets = ps ^. lotteryTickets . to (Map.fromList . fmap (first snd) . Map.toList)
                     myCheckTicketProof party (tp, _) = (ticketProof <$> myTickets ^? ix party) == Just tp || isJust (checkTicketProof lid (pubKeys party) tp (partyWeight party) totalWeight)
                     cssState = case ps ^. phaseCSSState of
                         -- This case shouldn't occur, but if it does, it doesn't matter
@@ -526,7 +524,7 @@ processABBASummary ABBASummary{..} checkSig = do
                     forM_ (Map.toList sJTop) $ \(party, (ticket, sig)) -> handleJustified party phaseInd ticket True sig
                     forM_ (Map.toList sJBot) $ \(party, (ticket, sig)) -> handleJustified party phaseInd ticket False sig
                     forM_ (Map.toList sCS) $ \(party, l) -> forM_ l $ \(ns,sig) -> liftCSSReceiveMessage phaseInd party (Seen ns) sig
-                    forM_ (Map.toList sCDR) $ \(party, (DoneReportingDetails ns sig)) -> liftCSSReceiveMessage phaseInd party (DoneReporting ns) sig
+                    forM_ (Map.toList sCDR) $ \(party, DoneReportingDetails ns sig) -> liftCSSReceiveMessage phaseInd party (DoneReporting ns) sig
                     -- Check if we have (or had) any messages that were not in the catch-up
                     return $! cssSummaryIsBehind cssState (CSSSummary (snd <$> sJTop) (snd <$> sJBot) sCS sCDR))
             return $! sWADBehind || cssBehind

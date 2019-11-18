@@ -54,8 +54,7 @@ verifyProof
   -> BlockProof
   -> Bool
 verifyProof nonce diff slot verifKey lotPow proof =
-  VRF.verifyKey verifKey
-    && VRF.verify verifKey (leaderElectionMessage nonce slot) proof
+    VRF.verify verifKey (leaderElectionMessage nonce slot) proof
     && VRF.hashToDouble (VRF.proofToHash proof)
     <  electionProbability lotPow diff
 
@@ -85,5 +84,4 @@ verifyBlockNonce
   -> BlockNonce
   -> Bool
 verifyBlockNonce nonce slot verifKey prf =
-  VRF.verifyKey verifKey
-    && VRF.verify verifKey (blockNonceMessage nonce slot) prf
+  VRF.verify verifKey (blockNonceMessage nonce slot) prf

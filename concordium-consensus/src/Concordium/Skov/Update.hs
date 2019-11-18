@@ -1,5 +1,6 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving, TypeFamilies, DerivingStrategies, DerivingVia, UndecidableInstances, TemplateHaskell, StandaloneDeriving #-}
-{-# LANGUAGE LambdaCase, ScopedTypeVariables, ViewPatterns, RecordWildCards, FlexibleContexts, FlexibleInstances, MultiParamTypeClasses, TupleSections #-}
+{-# LANGUAGE
+    ScopedTypeVariables,
+    ViewPatterns #-}
 module Concordium.Skov.Update where
 
 import Control.Monad
@@ -13,9 +14,8 @@ import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.BlockState
-import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
-import Concordium.GlobalState.Transactions
+import Concordium.Types.Transactions
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Bakers
 
@@ -32,7 +32,7 @@ import Concordium.Skov.Statistics
 
 -- |Determine if one block is an ancestor of another.
 -- A block is considered to be an ancestor of itself.
-isAncestorOf :: BlockPointerData bp => bp -> bp -> Bool
+isAncestorOf :: BlockPointerData bs bp => bp -> bp -> Bool
 isAncestorOf b1 b2 = case compare (bpHeight b1) (bpHeight b2) of
         GT -> False
         EQ -> b1 == b2
@@ -54,20 +54,15 @@ updateFocusBlockTo newBB = do
                             updatePTs (bpParent oBB) (bpParent nBB) (nBB : forw) (reversePTT (blockTransactions oBB) pts)
                 GT -> updatePTs (bpParent oBB) nBB forw (reversePTT (blockTransactions oBB) pts)
 
-{-
--- |An instance of 'SkovListeners' defines callbacks for finalization.
--- The implementations of the basic Skov update operations are parametrised
--- by 'SkovListeners'.  This allows the events to be hooked for finalization
--- if a node is participating in finalization, or simply ignored if a node
--- is not participating.
-data SkovListeners m = SkovListeners {
-    onBlock :: BlockPointer m -> m (),
-    onFinalize :: FinalizationRecord -> BlockPointer m -> m ()
-}
--}
-
+-- |A monad implementing 'OnSkov' provides functions for responding to
+-- a block being added to the tree, and a finalization record being verified.
+-- It also provides a function for logging transfers at finalization time.
 class OnSkov m where
+    -- |Called when a block arrives.
     onBlock :: BlockPointer m -> m ()
+    -- |Called when a finalization record is validated.  This is
+    -- only called for the block that is explicitly finalized (i.e.
+    -- once per finalization record).
     onFinalize :: FinalizationRecord -> BlockPointer m -> m ()
     -- |A function to log transfers at finalization time. Since it is
     -- potentially expensive to even keep track of events we make it an
@@ -158,7 +153,7 @@ processFinalizationPool = do
                 goodFin finRec@FinalizationRecord{..} =
                     finalizationIndex == nextFinIx -- Should always be true
                     && verifyFinalProof finSessId (makeFinalizationCommittee finParams) finRec
-                checkFin finRec lp = getBlockStatus (finalizationBlockPointer finRec) >>= return . \case
+                checkFin finRec lp = getBlockStatus (finalizationBlockPointer finRec) <&> \case
                     -- If the block is not present, the finalization record is pending
                     Nothing -> (finRec :) <$> lp
                     -- If we've received the block, but it is pending, then the finalization record is also pending
@@ -175,11 +170,17 @@ processFinalizationPool = do
                     logEvent Skov LLInfo $ "Block " ++ show (bpHash newFinBlock) ++ " is finalized at height " ++ show (theBlockHeight $ bpHeight newFinBlock) ++ " with finalization delta=" ++ show (finalizationDelay finRec)
                     updateFinalizationStatistics
                     -- Check if the focus block is a descendent of the block we are finalizing
-                    focusBlockSurvives <- (isAncestorOf newFinBlock) <$> getFocusBlock
+                    focusBlockSurvives <- isAncestorOf newFinBlock <$> getFocusBlock
                     -- If not, update the focus to the new finalized block.
                     -- This is to ensure that the focus block is always a live (or finalized) block.
                     unless focusBlockSurvives $ updateFocusBlockTo newFinBlock
                     putFinalizationPoolAtIndex nextFinIx []
+                    -- Archive the states of blocks up to but not including the new finalized block
+                    let doArchive b = case compare (bpHeight b) lastFinHeight of
+                            LT -> return ()
+                            EQ -> archiveBlockState (bpState b)
+                            GT -> doArchive (bpParent b) >> archiveBlockState (bpState b)
+                    doArchive (bpParent newFinBlock)
                     addFinalization newFinBlock finRec
                     oldBranches <- getBranches
                     let pruneHeight = fromIntegral (bpHeight newFinBlock - lastFinHeight)
@@ -192,6 +193,7 @@ processFinalizationPool = do
                                                 logEvent Skov LLDebug $ "Block " ++ show bp ++ " marked finalized"
                                             else do
                                                 markDead (getHash bp)
+                                                purgeBlockState (bpState bp)
                                                 logEvent Skov LLDebug $ "Block " ++ show bp ++ " marked dead"
                             pruneTrunk (bpParent keeper) brs
                             finalizeTransactions (blockTransactions keeper)
@@ -207,6 +209,7 @@ processFinalizationPool = do
                                     return (bp:l)
                                 else do
                                     markDead (bpHash bp)
+                                    purgeBlockState (bpState bp)
                                     logEvent Skov LLDebug $ "Block " ++ show (bpHash bp) ++ " marked dead"
                                     return l)
                                 [] brs
@@ -217,7 +220,7 @@ processFinalizationPool = do
                     -- block not in the current best local branch
                     let 
                         trimBranches Seq.Empty = return Seq.Empty
-                        trimBranches prunedbrs@(xs Seq.:|> x) = do
+                        trimBranches prunedbrs@(xs Seq.:|> x) =
                             case x of
                                 [] -> trimBranches xs
                                 _ -> return prunedbrs
@@ -331,7 +334,7 @@ addBlock block = do
                                     check (verifyBlockSignature _bakerSignatureVerifyKey block) $ do
                                         let ts = blockTransactions block
                                         -- possibly add the block nonce in the seed state
-                                            bps' = bps{_birkSeedState = updateSeedState (blockSlot block) (blockNonce block) (_birkSeedState)}
+                                            bps' = bps{_birkSeedState = updateSeedState (blockSlot block) (blockNonce block) _birkSeedState}
                                         executeFrom (blockSlot block) parentP lfBlockP (blockBaker block) bps' ts >>= \case
                                             Left err -> do
                                                 logEvent Skov LLWarning ("Block execution failure: " ++ show err)
@@ -383,7 +386,7 @@ blockArrive block parentP lfBlockP gs energyUsed = do
         if insertIndex < branchLen then
             putBranches $ brs & ix (fromIntegral insertIndex) %~ (blockP:)
         else
-            if (insertIndex == branchLen) then
+            if insertIndex == branchLen then
                 putBranches $ brs Seq.|> [blockP]
             else do
                 -- This should not be possible, since the parent block should either be
@@ -406,7 +409,7 @@ doStoreBlock = \pb -> do
         Nothing -> do
             -- The block is new, so we have some work to do.
             logEvent Skov LLDebug $ "Received block " ++ show pb
-            txList <- sequence <$> (forM (blockTransactions pb) $ \tr -> fst <$> doReceiveTransactionInternal tr (blockSlot pb))
+            txList <- sequence <$> forM (blockTransactions pb) (\tr -> fst <$> doReceiveTransactionInternal tr (blockSlot pb))
             case txList of
               Nothing -> do
                 blockArriveDead cbp
@@ -483,19 +486,19 @@ doReceiveTransaction tr slot = snd <$> doReceiveTransactionInternal tr slot
 -- The difference from the above function is that this function returns an already existing
 -- transaction in case of a duplicate, ensuring more sharing of transaction data.
 doReceiveTransactionInternal :: (TreeStateMonad m) => Transaction -> Slot -> m (Maybe Transaction, UpdateResult)
-doReceiveTransactionInternal tr slot = do
+doReceiveTransactionInternal tr slot =
         addCommitTransaction tr slot >>= \case
           Added tx -> do
               ptrs <- getPendingTransactions
               focus <- getFocusBlock
-              macct <- getAccount (bpState focus) $! (transactionSender tr)
+              macct <- getAccount (bpState focus) $! transactionSender tr
               let nextNonce = maybe minNonce _accountNonce macct
               -- If a transaction with this nonce has already been run by
               -- the focus block, then we do not need to add it to the
               -- pending transactions.  Otherwise, we do.
               when (nextNonce <= transactionNonce tr) $
                   putPendingTransactions $! extendPendingTransactionTable nextNonce tx ptrs
-              return $ (Just tx, ResultSuccess)
+              return (Just tx, ResultSuccess)
           Duplicate tx -> return (Just tx, ResultDuplicate)
           InvalidSignature -> return (Nothing, ResultInvalid)
           ObsoleteNonce -> return (Nothing, ResultStale)

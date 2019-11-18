@@ -1,4 +1,8 @@
-{-# LANGUAGE RecordWildCards, ScopedTypeVariables, TemplateHaskell, LambdaCase, FlexibleContexts, MultiParamTypeClasses, RankNTypes, DerivingStrategies, DerivingVia, StandaloneDeriving #-}
+{-# LANGUAGE
+    ScopedTypeVariables,
+    RankNTypes,
+    DerivingStrategies,
+    DerivingVia #-}
 module Concordium.Afgjort.Finalize.Types where
 
 
@@ -49,7 +53,7 @@ committeeMaxParty :: FinalizationCommittee -> Party
 committeeMaxParty FinalizationCommittee{..} = fromIntegral (Vec.length parties)
 
 makeFinalizationCommittee :: FinalizationParameters -> FinalizationCommittee
-makeFinalizationCommittee (FinalizationParameters {..}) = FinalizationCommittee {..}
+makeFinalizationCommittee FinalizationParameters {..} = FinalizationCommittee {..}
     where
         parties = Vec.fromList $ zipWith makeParty [0..] finalizationCommittee
         makeParty pix (VoterInfo psk pvk pow pbls) = PartyInfo pix pow psk pvk pbls
@@ -95,7 +99,8 @@ data FinalizationMessage = FinalizationMessage {
 }
 
 instance Show FinalizationMessage where
-    show FinalizationMessage{msgHeader=FinalizationMessageHeader{..},..} = "[" ++ show msgFinalizationIndex ++ ":" ++ show msgDelta ++ "] " ++ show msgSenderIndex ++ "-> " ++ show msgBody
+    show FinalizationMessage{msgHeader=FinalizationMessageHeader{..},..}
+        = "[" ++ show msgFinalizationIndex ++ ":" ++ show msgDelta ++ "] " ++ show msgSenderIndex ++ "-> " ++ show msgBody
 
 instance S.Serialize FinalizationMessage where
     put FinalizationMessage{..} = do

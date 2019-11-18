@@ -25,7 +25,7 @@ import Test.QuickCheck
 import Test.QuickCheck.Monadic
 import Test.Hspec
 
-import Debug.Trace
+-- import Debug.Trace
 
 invariantABBAState :: ABBAInstance -> ABBAState sig -> Either String ()
 invariantABBAState (ABBAInstance _ tw cw pw _ _ _ _) ABBAState{..} = do
@@ -173,7 +173,9 @@ superCorruptKeys good bad ugly = loop
         lotteryId phase = Ser.runPut $ Ser.put baid >> Ser.put phase
         loop seed =
             let keys = Vec.fromList $ take (good + bad) $ unfoldr (Just . VRF.randomKeyPair) (mkStdGen seed) in
-                        if areSuperCorrupt ugly keys then trace ("Generated keys for " ++ show good ++ ":" ++ show bad ++ ":" ++ show ugly ++ " at seed " ++ show seed) keys else loop (seed + 1)
+                        if areSuperCorrupt ugly keys then 
+                            {- trace ("Generated keys for " ++ show good ++ ":" ++ show bad ++ ":" ++ show ugly ++ " at seed " ++ show seed) -} keys
+                        else loop (seed + 1)
 makeBegins :: Int -> Gen (Seq.Seq (Party, ABBAInput))
 makeBegins = fmap toBegins . vector
     where

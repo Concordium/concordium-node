@@ -1,8 +1,14 @@
-{-# LANGUAGE RecordWildCards, OverloadedStrings, TemplateHaskell #-}
-module Concordium.Startup where
+{-# LANGUAGE 
+    OverloadedStrings,
+    TemplateHaskell #-}
+{-# OPTIONS_GHC -Wno-deprecations #-}
+-- |This module provides functionality for generating startup data for
+-- testing purposes.  It should not be used in production.
+module Concordium.Startup {-# WARNING "This module should not be used in production code." #-} where
 
 import System.Random
 import qualified Data.ByteString.Lazy.Char8 as BSL
+import Data.Maybe
 
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.Crypto.Ed25519Signature as Ed25519
@@ -73,6 +79,5 @@ dummyCryptographicParametersFile = $(do
 
 dummyCryptographicParameters :: CryptographicParameters
 dummyCryptographicParameters =
-  case readCryptographicParameters (BSL.pack dummyCryptographicParametersFile) of
-    Nothing -> error "Could not read crypto params."
-    Just x -> x
+  fromMaybe (error "Could not read crypto params.") $
+    readCryptographicParameters (BSL.pack dummyCryptographicParametersFile)

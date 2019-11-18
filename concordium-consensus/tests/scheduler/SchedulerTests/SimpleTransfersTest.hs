@@ -18,11 +18,11 @@ import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
 import qualified Concordium.Scheduler.Cost as Cost
 
-import Concordium.GlobalState.Account as Acc
+import Concordium.GlobalState.Basic.BlockState.Account as Acc
 import Concordium.GlobalState.Modules as Mod
 import Concordium.GlobalState.Rewards as Rew
-import Concordium.GlobalState.Implementation.BlockState
-import Concordium.GlobalState.Implementation.Invariants
+import Concordium.GlobalState.Basic.BlockState
+import Concordium.GlobalState.Basic.BlockState.Invariants
 
 import qualified Acorn.Core as Core
 

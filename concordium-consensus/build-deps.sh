@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
 
-cd globalstate-mockup/
-./build-deps.sh
+set -e
+
+(
+    cd globalstate-mockup/
+    ./build-deps.sh
+)
