@@ -403,7 +403,7 @@ impl ConnectionLowLevel {
                 prev_chunk.seek(SeekFrom::Start(0))?;
             }
         } else {
-            let mut payload_len = Vec::with_capacity(PAYLOAD_SIZE);
+            let mut payload_len = Vec::with_capacity(PAYLOAD_SIZE + full_msg_len);
             payload_len.write_u32::<NetworkEndian>(full_msg_len as PayloadSize)?;
             self.output_queue.push_back(Cursor::new(payload_len));
         }
