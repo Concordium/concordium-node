@@ -301,18 +301,14 @@ impl ConnectionLowLevel {
         let num_full_chunks = len / NOISE_MAX_MESSAGE_LEN;
         // calculate the number of the last, incomplete chunk (if there is one)
         let last_chunk_size = len % NOISE_MAX_MESSAGE_LEN;
+        let num_all_chunks = num_full_chunks + if last_chunk_size > 0 { 1 } else { 0 };
 
         let mut decrypted_msg =
-            HybridBuf::with_capacity(NOISE_MAX_MESSAGE_LEN * num_full_chunks + last_chunk_size)?;
+            HybridBuf::with_capacity(NOISE_MAX_PAYLOAD_LEN * num_full_chunks + last_chunk_size)?;
 
-        // decrypt the full chunks
-        for _ in 0..num_full_chunks {
-            self.decrypt_chunk(NOISE_MAX_MESSAGE_LEN, &mut input, &mut decrypted_msg)?;
-        }
-
-        // decrypt the incomplete chunk
-        if last_chunk_size > 0 {
-            self.decrypt_chunk(last_chunk_size, &mut input, &mut decrypted_msg)?;
+        // decrypt the chunks
+        for _ in 0..num_all_chunks {
+            self.decrypt_chunk(&mut input, &mut decrypted_msg)?;
         }
 
         decrypted_msg.rewind()?;
@@ -322,24 +318,18 @@ impl ConnectionLowLevel {
 
     /// Decrypt a single chunk of the received encrypted message.
     #[inline]
-    fn decrypt_chunk<R: Read + Seek, W: Write>(
-        &mut self,
-        chunk_size: usize,
-        input: &mut R,
-        output: &mut W,
-    ) -> Fallible<()> {
-        debug_assert!(chunk_size <= NOISE_MAX_MESSAGE_LEN);
-
-        input.read_exact(&mut self.buffer[..chunk_size])?;
+    fn decrypt_chunk<W: Write>(&mut self, input: &mut HybridBuf, output: &mut W) -> Fallible<()> {
+        let read_size = cmp::min(NOISE_MAX_MESSAGE_LEN, input.remaining_len()? as usize);
+        input.read_exact(&mut self.buffer[..read_size])?;
 
         if let Err(err) = self
             .noise_session
-            .recv_message(&mut self.buffer[..chunk_size])
+            .recv_message(&mut self.buffer[..read_size])
         {
             error!("Decryption error: {}", err);
             Err(err.into())
         } else {
-            output.write_all(&self.buffer[..chunk_size - MAC_LENGTH])?;
+            output.write_all(&self.buffer[..read_size - MAC_LENGTH])?;
             Ok(())
         }
     }
