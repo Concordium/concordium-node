@@ -379,7 +379,7 @@ impl ConnectionLowLevel {
     }
 
     /// It encrypts `input` and enqueues the encrypted chunks preceded by the
-    /// length for later sending
+    /// length for later sending.
     #[inline]
     fn encrypt_and_enqueue(&mut self, input: &[u8]) -> Fallible<()> {
         let num_full_chunks = input.len() / NOISE_MAX_PAYLOAD_LEN;
@@ -392,7 +392,8 @@ impl ConnectionLowLevel {
             false
         };
 
-        // write the length in plaintext
+        // write the length in plaintext, possibly squeezing it into the
+        // previously enqueued chunk
         if squeeze_len {
             if let Some(prev_chunk) = self.output_queue.back_mut() {
                 prev_chunk.seek(SeekFrom::End(0))?;
