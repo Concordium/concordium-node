@@ -1,4 +1,4 @@
-use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{NetworkEndian, WriteBytesExt};
 use bytesize::ByteSize;
 use failure::Fallible;
 use mio::tcp::TcpStream;
@@ -17,6 +17,7 @@ use concordium_common::hybrid_buf::HybridBuf;
 use std::{
     cmp,
     collections::VecDeque,
+    convert::TryInto,
     io::{Cursor, ErrorKind, Read, Seek, SeekFrom, Write},
     mem,
     pin::Pin,
@@ -223,14 +224,10 @@ impl ConnectionLowLevel {
         let min_bytes = self.pending_bytes_to_know_expected_size()?;
         let read_bytes = handle_io_read!(self.socket.read(&mut self.buffer[..min_bytes]), None);
 
-        self.incoming_msg
-            .message
-            .write_all(&self.buffer[..read_bytes])?;
-
         // once the number of bytes needed to read the message size is known, continue
-        if self.incoming_msg.message.len()? == PAYLOAD_SIZE as u64 {
-            self.incoming_msg.message.rewind()?;
-            let expected_size = self.incoming_msg.message.read_u32::<NetworkEndian>()?;
+        if read_bytes == PAYLOAD_SIZE {
+            let expected_size =
+                PayloadSize::from_be_bytes((&self.buffer[..read_bytes]).try_into().unwrap()); // infallible
 
             // check if the expected size doesn't exceed the protocol limit
             if expected_size > PROTOCOL_MAX_MESSAGE_SIZE as PayloadSize {
@@ -246,12 +243,7 @@ impl ConnectionLowLevel {
                 ByteSize(expected_size as u64).to_string_as(true)
             );
             self.incoming_msg.pending_bytes = expected_size;
-
-            // remove the length from the buffer
-            mem::replace(
-                &mut self.incoming_msg.message,
-                HybridBuf::with_capacity(expected_size as usize)?,
-            );
+            self.incoming_msg.message = HybridBuf::with_capacity(expected_size as usize)?;
 
             // Read data next...
             self.read_payload()
@@ -274,12 +266,10 @@ impl ConnectionLowLevel {
         if self.incoming_msg.pending_bytes == 0 {
             trace!("The message was fully read");
             self.incoming_msg.message.rewind()?;
-            let new_data = mem::replace(
-                &mut self.incoming_msg.message,
-                HybridBuf::with_capacity(PAYLOAD_SIZE)?,
-            );
+            let message =
+                mem::replace(&mut self.incoming_msg.message, HybridBuf::with_capacity(0)?);
 
-            Ok(Some(new_data))
+            Ok(Some(message))
         } else {
             Ok(None)
         }
