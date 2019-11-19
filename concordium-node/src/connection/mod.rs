@@ -182,6 +182,7 @@ impl Connection {
 
     pub fn remote_peer_type(&self) -> PeerType { self.remote_peer.peer_type() }
 
+    #[inline]
     pub fn remote_peer_stats(&self) -> Fallible<PeerStats> {
         Ok(PeerStats::new(
             self.remote_id()
@@ -200,6 +201,7 @@ impl Connection {
         self.remote_peer.peer_external_port.load(Ordering::SeqCst)
     }
 
+    #[inline]
     pub fn is_post_handshake(&self) -> bool { self.is_post_handshake.load(Ordering::SeqCst) }
 
     pub fn last_seen(&self) -> u64 { self.stats.last_seen.load(Ordering::SeqCst) }
@@ -224,6 +226,7 @@ impl Connection {
         ))
     }
 
+    #[inline]
     fn is_packet_duplicate(
         &self,
         packet: &mut NetworkPacket,
@@ -255,6 +258,7 @@ impl Connection {
         Ok(is_duplicate)
     }
 
+    #[inline]
     fn process_message(
         &self,
         mut message: HybridBuf,
@@ -352,11 +356,12 @@ impl Connection {
     pub fn local_end_networks(&self) -> &RwLock<Networks> { self.handler().networks() }
 
     /// It queues a network request
-    #[inline(always)]
+    #[inline]
     pub fn async_send(&self, message: Arc<[u8]>, priority: MessageSendingPriority) {
         write_or_die!(self.pending_messages).push(message, (priority, Instant::now()));
     }
 
+    #[inline]
     pub fn update_last_seen(&self) {
         if self.handler().peer_type() != PeerType::Bootstrapper {
             self.stats
@@ -365,12 +370,10 @@ impl Connection {
         }
     }
 
-    #[inline]
     pub fn add_remote_end_network(&self, network: NetworkId) {
         write_or_die!(self.remote_end_networks).insert(network);
     }
 
-    #[inline]
     pub fn add_remote_end_networks(&self, networks: &HashSet<NetworkId>) {
         write_or_die!(self.remote_end_networks).extend(networks.iter())
     }
@@ -574,6 +577,7 @@ impl Drop for Connection {
 }
 
 // returns a bool indicating if the message is a duplicate
+#[inline]
 fn dedup_with(message: &mut HybridBuf, queue: &mut CircularQueue<[u8; 8]>) -> Fallible<bool> {
     let mut hash = [0u8; 8];
     hash.copy_from_slice(&XxHash64::digest(&message.remaining_bytes()?));
@@ -591,7 +595,7 @@ fn dedup_with(message: &mut HybridBuf, queue: &mut CircularQueue<[u8; 8]>) -> Fa
     }
 }
 
-#[inline(always)]
+#[inline]
 pub fn send_pending_messages(
     pending_messages: &RwLock<PriorityQueue<Arc<[u8]>, PendingPriority>>,
     low_level: &mut ConnectionLowLevel,

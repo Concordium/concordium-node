@@ -866,7 +866,7 @@ impl P2PNode {
                 self.log_event(P2PEvent::ConnectEvent(addr));
 
                 if let Some(ref conn) = self.find_connection_by_token(token) {
-                    write_or_die!(conn.low_level).initiator_send_message_a()?;
+                    write_or_die!(conn.low_level).send_handshake_message_a()?;
                 }
 
                 if peer_type == PeerType::Bootstrapper {

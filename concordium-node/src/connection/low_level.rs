@@ -112,9 +112,9 @@ impl ConnectionLowLevel {
         }
     }
 
-    // handshake
+    // the XX handshake
 
-    pub fn initiator_send_message_a(&mut self) -> Fallible<()> {
+    pub fn send_handshake_message_a(&mut self) -> Fallible<()> {
         let pad = if cfg!(feature = "snow_noise") { 0 } else { 16 };
         send_xx_msg!(self, DHLEN + pad, "A");
         Ok(())
@@ -148,6 +148,8 @@ impl ConnectionLowLevel {
         Ok(())
     }
 
+    #[inline]
+    /// Checks whether the low-level noise handshake is complete.
     fn is_post_handshake(&self) -> bool {
         if self.noise_session.is_initiator() {
             self.noise_session.get_message_count() > 1
@@ -158,20 +160,21 @@ impl ConnectionLowLevel {
 
     // input
 
-    /// Keeps reading from the socket as long as there is data to be read.
-    #[inline(always)]
+    /// Keeps reading from the socket as long as there is data to be read
+    /// and the operation is not blocking.
+    #[inline]
     pub fn read_stream(&mut self, deduplication_queues: &DeduplicationQueues) -> Fallible<()> {
         loop {
             match self.read_from_socket() {
                 Ok(Some(message)) => self.conn().process_message(message, deduplication_queues)?,
-                Ok(None) => return Ok(()),
+                Ok(None) => return Ok(()), // this read would be blocking or it was a handshake
                 Err(e) => bail!("can't read from the socket: {}", e),
             }
         }
     }
 
     /// Attempts to read a complete message from the socket.
-    #[inline(always)]
+    #[inline]
     fn read_from_socket(&mut self) -> Fallible<Option<HybridBuf>> {
         trace!("Attempting to read from the socket");
         let read_result = if self.incoming_msg.pending_bytes == 0 {
@@ -194,14 +197,12 @@ impl ConnectionLowLevel {
                     Ok(Some(self.decrypt(msg)?))
                 }
             }
-            None => {
-                trace!("The current message is incomplete");
-                Ok(None)
-            }
+            None => Ok(None),
         }
     }
 
-    /// Reads the number of bytes required to read the frame length
+    /// Reads the number of bytes required to parse the length of
+    /// the encrypted message.
     #[inline]
     fn pending_bytes_to_know_expected_size(&self) -> Fallible<usize> {
         let current_len = self.incoming_msg.message.len()? as usize;
@@ -213,7 +214,10 @@ impl ConnectionLowLevel {
         }
     }
 
-    /// It first reads the first 4 bytes of the message to determine its size.
+    /// It first reads `PayloadSize` bytes from the socket in order to
+    /// determine the incoming encrypted message's size; if it succeeds,
+    /// it follows up with a call to `read_payload`.
+    #[inline]
     fn read_expected_size(&mut self) -> Fallible<Option<HybridBuf>> {
         // only extract the bytes needed to know the size.
         let min_bytes = self.pending_bytes_to_know_expected_size()?;
@@ -257,7 +261,9 @@ impl ConnectionLowLevel {
         }
     }
 
-    /// Once we know the message expected size, we can start to receive data.
+    /// Read data from the socket until the expected incoming message
+    /// size is reached.
+    #[inline]
     fn read_payload(&mut self) -> Fallible<Option<HybridBuf>> {
         while self.incoming_msg.pending_bytes > 0 {
             if self.read_intermediate()? == 0 {
@@ -279,6 +285,8 @@ impl ConnectionLowLevel {
         }
     }
 
+    /// Collects at most `NOISE_MAX_MESSAGE_LEN` from the socket.
+    #[inline]
     fn read_intermediate(&mut self) -> Fallible<usize> {
         let read_size = cmp::min(
             self.incoming_msg.pending_bytes as usize,
@@ -295,6 +303,8 @@ impl ConnectionLowLevel {
         Ok(read_bytes)
     }
 
+    /// Decrypt a full message read from the socket.
+    #[inline]
     fn decrypt(&mut self, mut input: HybridBuf) -> Fallible<HybridBuf> {
         // calculate the number of full-sized chunks
         let len = input.len()? as usize;
@@ -320,6 +330,8 @@ impl ConnectionLowLevel {
         Ok(decrypted_msg)
     }
 
+    /// Decrypt a single chunk of the received encrypted message.
+    #[inline]
     fn decrypt_chunk<R: Read + Seek, W: Write>(
         &mut self,
         chunk_size: usize,
@@ -344,7 +356,8 @@ impl ConnectionLowLevel {
 
     // output
 
-    #[inline(always)]
+    /// Enqueue a message to be written to the socket.
+    #[inline]
     pub fn write_to_socket(&mut self, input: Arc<[u8]>) -> Fallible<()> {
         TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
         self.conn()
@@ -362,7 +375,9 @@ impl ConnectionLowLevel {
         self.encrypt_and_enqueue(&input)
     }
 
-    #[inline(always)]
+    /// Writes enequeued messages to the socket until the queue is exhausted
+    /// or the write would be blocking.
+    #[inline]
     pub fn flush_socket(&mut self) -> Fallible<()> {
         while let Some(mut message) = self.output_queue.pop_front() {
             trace!(
@@ -388,31 +403,45 @@ impl ConnectionLowLevel {
 
     /// It encrypts `input` and enqueues the encrypted chunks preceded by the
     /// length for later sending
+    #[inline]
     fn encrypt_and_enqueue(&mut self, input: &[u8]) -> Fallible<()> {
         let num_full_chunks = input.len() / NOISE_MAX_PAYLOAD_LEN;
         let last_chunk_len = input.len() % NOISE_MAX_PAYLOAD_LEN + MAC_LENGTH;
         let full_msg_len = num_full_chunks * NOISE_MAX_MESSAGE_LEN + last_chunk_len;
 
+        let squeeze_len = if let Some(prev_chunk) = self.output_queue.back_mut() {
+            prev_chunk.get_ref().len() + PAYLOAD_SIZE <= NOISE_MAX_MESSAGE_LEN
+        } else {
+            false
+        };
+
         // write the length in plaintext
-        let mut payload_len = Cursor::new(Vec::with_capacity(PAYLOAD_SIZE));
-        payload_len.write_u32::<NetworkEndian>(full_msg_len as PayloadSize)?;
-        self.output_queue.push_back(payload_len);
+        if squeeze_len {
+            if let Some(prev_chunk) = self.output_queue.back_mut() {
+                prev_chunk.seek(SeekFrom::End(0))?;
+                prev_chunk.write_u32::<NetworkEndian>(full_msg_len as PayloadSize)?;
+                prev_chunk.seek(SeekFrom::Start(0))?;
+            }
+        } else {
+            let mut payload_len = Vec::with_capacity(PAYLOAD_SIZE);
+            payload_len.write_u32::<NetworkEndian>(full_msg_len as PayloadSize)?;
+            self.output_queue.push_back(Cursor::new(payload_len));
+        }
 
         let mut input = Cursor::new(input);
         let eof = input.get_ref().len() as u64;
 
-        if full_msg_len <= NOISE_MAX_PAYLOAD_LEN - PAYLOAD_SIZE {
-            self.encrypt_chunk(&mut input, true)?;
-        } else {
-            while input.position() != eof {
-                self.encrypt_chunk(&mut input, false)?;
-            }
+        while input.position() != eof {
+            self.encrypt_chunk(&mut input)?;
         }
 
         Ok(())
     }
 
-    fn encrypt_chunk(&mut self, input: &mut Cursor<&[u8]>, squeeze: bool) -> Fallible<()> {
+    /// Produces and enqueues a single noise message from `input`, potentially
+    /// squeezing it with the previously enqueued chunk.
+    #[inline]
+    fn encrypt_chunk(&mut self, input: &mut Cursor<&[u8]>) -> Fallible<()> {
         let remaining_len = input.get_ref().len() - input.position() as usize;
         let chunk_size = cmp::min(NOISE_MAX_PAYLOAD_LEN, remaining_len);
         input.read_exact(&mut self.buffer[..chunk_size])?;
@@ -421,26 +450,31 @@ impl ConnectionLowLevel {
         self.noise_session
             .send_message(&mut self.buffer[..encrypted_len])?;
 
-        let mut chunk = if squeeze {
-            self.output_queue.pop_back().unwrap() // infallible
+        let squeeze_chunk = if let Some(prev_chunk) = self.output_queue.back_mut() {
+            prev_chunk.get_ref().len() + encrypted_len <= NOISE_MAX_MESSAGE_LEN
         } else {
-            if let Some(ref mut len_chunk) = self.output_queue.back_mut() {
-                len_chunk.seek(SeekFrom::Start(0))?;
-            }
-            Cursor::new(Vec::with_capacity(encrypted_len))
+            false
         };
 
-        chunk.write_all(&self.buffer[..encrypted_len])?;
-        chunk.seek(SeekFrom::Start(0))?;
-        self.output_queue.push_back(chunk);
+        if squeeze_chunk {
+            if let Some(prev_chunk) = self.output_queue.back_mut() {
+                prev_chunk.seek(SeekFrom::End(0))?;
+                prev_chunk.write_all(&self.buffer[..encrypted_len])?;
+                prev_chunk.seek(SeekFrom::Start(0))?;
+            }
+        } else {
+            let mut chunk = Vec::with_capacity(encrypted_len);
+            chunk.write_all(&self.buffer[..encrypted_len])?;
+            self.output_queue.push_back(Cursor::new(chunk));
+        };
 
         Ok(())
     }
 }
 
 /// It tries to copy as much as possible from `input` to `output` in
-/// chunks. It is used with `socket` that blocks them when their
-/// output buffers are full. Written bytes are consumed from `input`.
+/// chunks.
+#[inline]
 fn partial_copy<W: Write>(
     input: &mut Cursor<Vec<u8>>,
     buffer: &mut [u8],
