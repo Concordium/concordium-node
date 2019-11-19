@@ -18,7 +18,7 @@ use std::{
     cmp,
     collections::VecDeque,
     convert::TryInto,
-    io::{Cursor, ErrorKind, Read, Seek, SeekFrom, Write},
+    io::{Cursor, ErrorKind, Read, Write},
     mem,
     pin::Pin,
     sync::{atomic::Ordering, Arc},
@@ -27,6 +27,7 @@ use std::{
 
 type PayloadSize = u32;
 const PAYLOAD_SIZE: usize = mem::size_of::<PayloadSize>();
+const WRITE_QUEUE_ALLOC: usize = 4 * 1024 * 1024;
 
 /// The single message currently being read from the socket along with its
 /// pending length.
@@ -42,8 +43,8 @@ pub struct ConnectionLowLevel {
     noise_session: NoiseSession,
     buffer: [u8; NOISE_MAX_MESSAGE_LEN],
     incoming_msg: IncomingMessage,
-    /// A queue for messages waiting to be written to the socket
-    output_queue: VecDeque<Cursor<Vec<u8>>>,
+    /// A queue for bytes waiting to be written to the socket
+    output_queue: VecDeque<u8>,
 }
 
 macro_rules! recv_xx_msg {
@@ -66,7 +67,7 @@ macro_rules! send_xx_msg {
         $self.noise_session.send_message(&mut msg[PAYLOAD_SIZE..])?;
         // queue and send the message
         trace!("Sending message {}", $idx);
-        $self.output_queue.push_back(Cursor::new(msg));
+        $self.output_queue.extend(msg);
         $self.flush_socket()?;
     };
 }
@@ -106,7 +107,7 @@ impl ConnectionLowLevel {
             noise_session: start_noise_session(is_initiator),
             buffer: [0; NOISE_MAX_MESSAGE_LEN],
             incoming_msg: IncomingMessage::default(),
-            output_queue: VecDeque::with_capacity(16),
+            output_queue: VecDeque::with_capacity(WRITE_QUEUE_ALLOC),
         }
     }
 
@@ -174,7 +175,6 @@ impl ConnectionLowLevel {
     /// Attempts to read a complete message from the socket.
     #[inline]
     fn read_from_socket(&mut self) -> Fallible<Option<HybridBuf>> {
-        trace!("Attempting to read from the socket");
         let read_result = if self.incoming_msg.pending_bytes == 0 {
             self.read_expected_size()?
         } else {
@@ -220,6 +220,11 @@ impl ConnectionLowLevel {
         // only extract the bytes needed to know the size.
         let min_bytes = self.pending_bytes_to_know_expected_size()?;
         let read_bytes = handle_io_read!(self.socket.read(&mut self.buffer[..min_bytes]), None);
+
+        trace!(
+            "Read {} from the socket",
+            ByteSize(read_bytes as u64).to_string_as(true)
+        );
 
         // once the number of bytes needed to read the message size is known, continue
         if read_bytes == PAYLOAD_SIZE {
@@ -281,6 +286,11 @@ impl ConnectionLowLevel {
         );
 
         let read_bytes = handle_io_read!(self.socket.read(&mut self.buffer[..read_size]), 0);
+
+        trace!(
+            "Read {} from the socket",
+            ByteSize(read_bytes as u64).to_string_as(true)
+        );
 
         self.incoming_msg
             .message
@@ -356,21 +366,32 @@ impl ConnectionLowLevel {
     /// or the write would be blocking.
     #[inline]
     pub fn flush_socket(&mut self) -> Fallible<()> {
-        while let Some(mut message) = self.output_queue.pop_front() {
-            trace!(
-                "Writing a {} message to the socket",
-                ByteSize(message.get_ref().len() as u64 - message.position()).to_string_as(true)
-            );
-            partial_copy(&mut message, &mut self.buffer, &mut self.socket)?;
+        loop {
+            if self.output_queue.is_empty() {
+                break;
+            }
 
-            if message.position() as usize == message.get_ref().len() {
-                trace!("Successfully written a message to the socket");
+            let write_size = cmp::min(NOISE_MAX_MESSAGE_LEN, self.output_queue.len());
+
+            for (i, &byte) in self.output_queue.iter().take(write_size).enumerate() {
+                self.buffer[i] = byte;
+            }
+
+            let written = match self.socket.write(&self.buffer[..write_size]) {
+                Ok(num_bytes) => num_bytes,
+                Err(e) if e.kind() == ErrorKind::WouldBlock => break,
+                Err(e) => return Err(e.into()),
+            };
+
+            trace!(
+                "Written {} to the socket",
+                ByteSize(written as u64).to_string_as(true)
+            );
+
+            if written == write_size {
+                self.output_queue.drain(..write_size);
             } else {
-                trace!(
-                    "Incomplete write ({}B remaining); requeuing",
-                    message.get_ref().len() - message.position() as usize
-                );
-                self.output_queue.push_front(message);
+                self.output_queue.drain(..written);
                 break;
             }
         }
@@ -384,27 +405,9 @@ impl ConnectionLowLevel {
     fn encrypt_and_enqueue(&mut self, input: &[u8]) -> Fallible<()> {
         let num_full_chunks = input.len() / NOISE_MAX_PAYLOAD_LEN;
         let last_chunk_len = input.len() % NOISE_MAX_PAYLOAD_LEN + MAC_LENGTH;
-        let full_msg_len = num_full_chunks * NOISE_MAX_MESSAGE_LEN + last_chunk_len;
+        let full_msg_len = (num_full_chunks * NOISE_MAX_MESSAGE_LEN + last_chunk_len) as u32;
 
-        let squeeze_len = if let Some(prev_chunk) = self.output_queue.back_mut() {
-            prev_chunk.get_ref().len() + PAYLOAD_SIZE <= NOISE_MAX_MESSAGE_LEN
-        } else {
-            false
-        };
-
-        // write the length in plaintext, possibly squeezing it into the
-        // previously enqueued chunk
-        if squeeze_len {
-            if let Some(prev_chunk) = self.output_queue.back_mut() {
-                prev_chunk.seek(SeekFrom::End(0))?;
-                prev_chunk.write_u32::<NetworkEndian>(full_msg_len as PayloadSize)?;
-                prev_chunk.seek(SeekFrom::Start(0))?;
-            }
-        } else {
-            let mut payload_len = Vec::with_capacity(PAYLOAD_SIZE + full_msg_len);
-            payload_len.write_u32::<NetworkEndian>(full_msg_len as PayloadSize)?;
-            self.output_queue.push_back(Cursor::new(payload_len));
-        }
+        self.output_queue.extend(&full_msg_len.to_be_bytes());
 
         let mut input = Cursor::new(input);
         let eof = input.get_ref().len() as u64;
@@ -428,61 +431,8 @@ impl ConnectionLowLevel {
         self.noise_session
             .send_message(&mut self.buffer[..encrypted_len])?;
 
-        let squeeze_chunk = if let Some(prev_chunk) = self.output_queue.back_mut() {
-            prev_chunk.get_ref().len() + encrypted_len <= NOISE_MAX_MESSAGE_LEN
-        } else {
-            false
-        };
-
-        if squeeze_chunk {
-            if let Some(prev_chunk) = self.output_queue.back_mut() {
-                prev_chunk.seek(SeekFrom::End(0))?;
-                prev_chunk.write_all(&self.buffer[..encrypted_len])?;
-                prev_chunk.seek(SeekFrom::Start(0))?;
-            }
-        } else {
-            let mut chunk = Vec::with_capacity(encrypted_len);
-            chunk.write_all(&self.buffer[..encrypted_len])?;
-            self.output_queue.push_back(Cursor::new(chunk));
-        };
+        self.output_queue.extend(&self.buffer[..encrypted_len]);
 
         Ok(())
     }
-}
-
-/// It tries to copy as much as possible from `input` to `output` in
-/// chunks.
-#[inline]
-fn partial_copy<W: Write>(
-    input: &mut Cursor<Vec<u8>>,
-    buffer: &mut [u8],
-    output: &mut W,
-) -> Fallible<()> {
-    while input.get_ref().len() != input.position() as usize {
-        let offset = input.position();
-
-        let chunk_size = cmp::min(
-            NOISE_MAX_MESSAGE_LEN,
-            input.get_ref().len() - offset as usize,
-        );
-        input.read_exact(&mut buffer[..chunk_size])?;
-
-        match output.write(&buffer[..chunk_size]) {
-            Ok(written_bytes) => {
-                if written_bytes != chunk_size {
-                    // Fix the offset because read data was not written completely.
-                    input.seek(SeekFrom::Start(offset + written_bytes as u64))?;
-                }
-            }
-            Err(io_err) => {
-                input.seek(SeekFrom::Start(offset))?;
-                match io_err.kind() {
-                    ErrorKind::WouldBlock => break,
-                    _ => return Err(failure::Error::from(io_err)),
-                }
-            }
-        }
-    }
-
-    Ok(())
 }
