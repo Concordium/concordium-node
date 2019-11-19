@@ -18,7 +18,7 @@ RUN --mount=type=ssh ./build-binaries.sh "collector,beta" release && \
     strip /build-project/target/release/node-collector && \
     cp /build-project/target/release/p2p_client-cli /build-project/ && \
     cp /build-project/target/release/node-collector /build-project/ && \
-    cd /build-project/scripts/genesis-data && \
+    cd /build-project/genesis-data && \
     tar -xf 20-bakers.tar.gz && \
     cd genesis_data && \
     cp genesis.dat /build-project/
@@ -30,6 +30,7 @@ RUN --mount=type=ssh pacman -Syy --noconfirm openssh && \
     mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts && \
     git clone --recurse-submodules git@gitlab.com:Concordium/consensus/simple-client.git && \
     cd simple-client && \
+    git checkout middleware-updates-for-types && \
     mkdir -p ~/.stack/global-project/ && \
     echo -e "packages: []\nresolver: $(cat stack.yaml | grep ^resolver: | awk '{ print $NF }')" > ~/.stack/global-project/stack.yaml && \
     curl -sSL https://get.haskellstack.org/ | sh && \
@@ -48,10 +49,11 @@ FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base-haskell:0.2 as
 WORKDIR /
 RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
 
-RUN --mount=type=ssh git clone git@gitlab.com:Concordium/oak/oak-compiler.git
+RUN --mount=type=ssh git clone --recurse-submodules git@gitlab.com:Concordium/oak/oak-compiler.git
 WORKDIR /oak-compiler
 RUN git checkout cdb7eb0c08dac417e05e08714d5bb686e13e30c4
 RUN --mount=type=ssh ci/dynamic-deps.sh 
+ENV LD_LIBRARY_PATH=/oak-compiler/external_rust_crypto_libs
 RUN stack build --copy-bins --ghc-options -j4
 
 FROM node:11 as node-build
@@ -79,7 +81,7 @@ ENV COLLECTORD_URL=https://dashboard.eu.prod.concordium.com/nodes/post
 ENV GRPC_HOST=localhost:10000
 ENV DISTRIBUTION_CLIENT=true
 ENV BAKER_ID=node-0
-RUN apt-get update && apt-get install -y unbound curl netbase ca-certificates supervisor nginx
+RUN apt-get update && apt-get install -y unbound curl netbase ca-certificates supervisor nginx libtinfo6
 COPY --from=build /build-project/p2p_client-cli /p2p_client-cli
 COPY --from=build /build-project/node-collector /node-collector
 COPY --from=build /build-project/start.sh /start.sh
@@ -92,6 +94,7 @@ COPY --from=oak-build /oak-compiler/out/oak /oak
 RUN mkdir /var/www/html/public
 RUN mv /var/www/html/*.js /var/www/html/public/
 RUN sed -i 's/try_files.*$/try_files \$uri \/index.html =404;/g' /etc/nginx/sites-available/default 
+RUN ln -s /usr/lib/x86_64-linux-gnu/libtinfo.so.6.1 /usr/lib/x86_64-linux-gnu/libtinfo.so.5
 COPY ./scripts/supervisord.conf /etc/supervisor/supervisord.conf
 COPY ./scripts/concordium.conf /etc/supervisor/conf.d/concordium.conf
 COPY ./scripts/beta-client.sh /beta-client.sh
