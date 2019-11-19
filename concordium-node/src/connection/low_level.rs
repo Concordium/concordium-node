@@ -27,21 +27,54 @@ use std::{
 
 type PayloadSize = u32;
 const PAYLOAD_SIZE: usize = mem::size_of::<PayloadSize>();
+const MAX_MESSAGE_LEN: usize = PAYLOAD_SIZE + NOISE_MAX_MESSAGE_LEN;
 const WRITE_QUEUE_ALLOC: usize = 4 * 1024 * 1024;
 
 /// The single message currently being read from the socket along with its
 /// pending length.
 #[derive(Default)]
 struct IncomingMessage {
+    size_bytes:    Vec<u8>,
     pending_bytes: PayloadSize,
     message:       HybridBuf,
+}
+
+impl IncomingMessage {
+    fn is_size_known(&mut self) -> Fallible<bool> {
+        if self.pending_bytes != 0 {
+            Ok(true)
+        } else if self.size_bytes.len() == PAYLOAD_SIZE {
+            let ready_size = mem::replace(&mut self.size_bytes, Vec::with_capacity(PAYLOAD_SIZE));
+            let expected_size = PayloadSize::from_be_bytes((&ready_size[..]).try_into().unwrap());
+
+            // check if the expected size doesn't exceed the protocol limit
+            if expected_size > PROTOCOL_MAX_MESSAGE_SIZE as PayloadSize {
+                bail!(
+                    "expected message size ({}) exceeds the maximum protocol size ({})",
+                    ByteSize(expected_size as u64).to_string_as(true),
+                    ByteSize(PROTOCOL_MAX_MESSAGE_SIZE as u64).to_string_as(true)
+                );
+            }
+
+            trace!(
+                "Expecting a {} message",
+                ByteSize(expected_size as u64).to_string_as(true)
+            );
+            self.pending_bytes = expected_size;
+
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
 }
 
 pub struct ConnectionLowLevel {
     pub conn_ref: Option<Pin<Arc<Connection>>>,
     pub socket: TcpStream,
     noise_session: NoiseSession,
-    buffer: [u8; NOISE_MAX_MESSAGE_LEN],
+    buffer: [u8; MAX_MESSAGE_LEN],
+    backup_buffer: Option<Vec<u8>>, // FIXME: change to an array
     incoming_msg: IncomingMessage,
     /// A queue for bytes waiting to be written to the socket
     output_queue: VecDeque<u8>,
@@ -75,7 +108,13 @@ macro_rules! send_xx_msg {
 macro_rules! handle_io_read {
     ($result:expr, $default:expr) => {
         match $result {
-            Ok(res) => res,
+            Ok(num_bytes) => {
+                trace!(
+                    "Read {} from the socket",
+                    ByteSize(num_bytes as u64).to_string_as(true)
+                );
+                num_bytes
+            }
             Err(e) if e.kind() == ErrorKind::WouldBlock => return Ok($default),
             Err(e) => return Err(e.into()),
         }
@@ -105,7 +144,8 @@ impl ConnectionLowLevel {
             conn_ref: None,
             socket,
             noise_session: start_noise_session(is_initiator),
-            buffer: [0; NOISE_MAX_MESSAGE_LEN],
+            buffer: [0; MAX_MESSAGE_LEN],
+            backup_buffer: None,
             incoming_msg: IncomingMessage::default(),
             output_queue: VecDeque::with_capacity(WRITE_QUEUE_ALLOC),
         }
@@ -167,7 +207,7 @@ impl ConnectionLowLevel {
             match self.read_from_socket() {
                 Ok(Some(message)) => self.conn().process_message(message, deduplication_queues)?,
                 Ok(None) => return Ok(()), // this read would be blocking or it was a handshake
-                Err(e) => bail!("can't read from the socket: {}", e),
+                Err(e) => bail!("Can't read from the socket: {}", e),
             }
         }
     }
@@ -175,80 +215,60 @@ impl ConnectionLowLevel {
     /// Attempts to read a complete message from the socket.
     #[inline]
     fn read_from_socket(&mut self) -> Fallible<Option<HybridBuf>> {
-        let read_result = if self.incoming_msg.pending_bytes == 0 {
-            self.read_expected_size()?
+        let mut read_bytes = if let Some(backup_buffer) = self.backup_buffer.take() {
+            self.buffer[..backup_buffer.len()].copy_from_slice(&backup_buffer);
+            backup_buffer.len()
         } else {
-            self.read_payload()?
+            handle_io_read!(self.socket.read(&mut self.buffer[..MAX_MESSAGE_LEN]), None)
         };
 
-        match read_result {
-            Some(msg) => {
-                if !self.is_post_handshake() {
-                    match self.noise_session.get_message_count() {
-                        0 if !self.noise_session.is_initiator() => self.process_msg_a(msg),
-                        1 if self.noise_session.is_initiator() => self.process_msg_b(msg),
-                        2 if !self.noise_session.is_initiator() => self.process_msg_c(msg),
-                        _ => bail!("Invalid XX handshake"),
-                    }?;
-                    Ok(None)
-                } else {
-                    Ok(Some(self.decrypt(msg)?))
+        if !self.incoming_msg.is_size_known()? {
+            let offset = self.incoming_msg.size_bytes.len() as usize;
+            let read_size = cmp::min(read_bytes, PAYLOAD_SIZE - offset);
+            let written = self
+                .incoming_msg
+                .size_bytes
+                .write(&self.buffer[offset..][..read_size])?;
+            self.buffer.rotate_left(written);
+            read_bytes -= written;
+        }
+
+        // check if we can know the size of the message
+        if self.incoming_msg.is_size_known()? {
+            let expected_size = self.incoming_msg.pending_bytes;
+
+            // pre-allocate if we've not been reading the message yet
+            if self.incoming_msg.message.is_empty()? {
+                self.incoming_msg.message = HybridBuf::with_capacity(expected_size as usize)?;
+            }
+
+            let to_read = cmp::min(self.incoming_msg.pending_bytes as usize, read_bytes);
+            self.incoming_msg
+                .message
+                .write_all(&self.buffer[..to_read])?;
+            self.incoming_msg.pending_bytes -= to_read as PayloadSize;
+
+            if read_bytes > to_read {
+                self.backup_buffer = Some(self.buffer[to_read..][..read_bytes - to_read].to_vec());
+            }
+
+            // read the actual message
+            match self.read_payload()? {
+                Some(msg) => {
+                    if !self.is_post_handshake() {
+                        match self.noise_session.get_message_count() {
+                            0 if !self.noise_session.is_initiator() => self.process_msg_a(msg),
+                            1 if self.noise_session.is_initiator() => self.process_msg_b(msg),
+                            2 if !self.noise_session.is_initiator() => self.process_msg_c(msg),
+                            _ => bail!("invalid XX handshake"),
+                        }?;
+                        Ok(None)
+                    } else {
+                        Ok(Some(self.decrypt(msg)?))
+                    }
                 }
+                None => Ok(None),
             }
-            None => Ok(None),
-        }
-    }
-
-    /// Reads the number of bytes required to parse the length of
-    /// the encrypted message.
-    #[inline]
-    fn pending_bytes_to_know_expected_size(&self) -> Fallible<usize> {
-        let current_len = self.incoming_msg.message.len()? as usize;
-
-        if current_len < PAYLOAD_SIZE {
-            Ok(PAYLOAD_SIZE - current_len)
-        } else {
-            Ok(0)
-        }
-    }
-
-    /// It first reads `PayloadSize` bytes from the socket in order to
-    /// determine the incoming encrypted message's size; if it succeeds,
-    /// it follows up with a call to `read_payload`.
-    #[inline]
-    fn read_expected_size(&mut self) -> Fallible<Option<HybridBuf>> {
-        // only extract the bytes needed to know the size.
-        let min_bytes = self.pending_bytes_to_know_expected_size()?;
-        let read_bytes = handle_io_read!(self.socket.read(&mut self.buffer[..min_bytes]), None);
-
-        trace!(
-            "Read {} from the socket",
-            ByteSize(read_bytes as u64).to_string_as(true)
-        );
-
-        // once the number of bytes needed to read the message size is known, continue
-        if read_bytes == PAYLOAD_SIZE {
-            let expected_size =
-                PayloadSize::from_be_bytes((&self.buffer[..read_bytes]).try_into().unwrap()); // infallible
-
-            // check if the expected size doesn't exceed the protocol limit
-            if expected_size > PROTOCOL_MAX_MESSAGE_SIZE as PayloadSize {
-                bail!(
-                    "Expected message size ({}B) exceeds the maximum protocol size ({}B)",
-                    expected_size,
-                    PROTOCOL_MAX_MESSAGE_SIZE
-                );
-            }
-
-            trace!(
-                "Expecting a {} message",
-                ByteSize(expected_size as u64).to_string_as(true)
-            );
-            self.incoming_msg.pending_bytes = expected_size;
-            self.incoming_msg.message = HybridBuf::with_capacity(expected_size as usize)?;
-
-            // Read data next...
-            self.read_payload()
         } else {
             // We need more data to determine the message size.
             Ok(None)
@@ -259,9 +279,11 @@ impl ConnectionLowLevel {
     /// size is reached.
     #[inline]
     fn read_payload(&mut self) -> Fallible<Option<HybridBuf>> {
-        while self.incoming_msg.pending_bytes > 0 {
-            if self.read_intermediate()? == 0 {
-                break;
+        if self.backup_buffer.is_none() {
+            while self.incoming_msg.pending_bytes > 0 {
+                if self.read_intermediate()? == 0 {
+                    break;
+                }
             }
         }
 
@@ -286,11 +308,6 @@ impl ConnectionLowLevel {
         );
 
         let read_bytes = handle_io_read!(self.socket.read(&mut self.buffer[..read_size]), 0);
-
-        trace!(
-            "Read {} from the socket",
-            ByteSize(read_bytes as u64).to_string_as(true)
-        );
 
         self.incoming_msg
             .message
@@ -333,7 +350,7 @@ impl ConnectionLowLevel {
             .noise_session
             .recv_message(&mut self.buffer[..read_size])
         {
-            error!("Decryption error: {}", err);
+            error!("decryption error: {}", err);
             Err(err.into())
         } else {
             output.write_all(&self.buffer[..read_size - MAC_LENGTH])?;
