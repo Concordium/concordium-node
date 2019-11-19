@@ -88,10 +88,7 @@ impl ConnectionLowLevel {
 
     pub fn new(socket: TcpStream, is_initiator: bool) -> Self {
         if let Err(e) = socket.set_linger(Some(Duration::from_secs(0))) {
-            error!(
-                "Can't set SOLINGER to 0 for socket {:?} due to {}",
-                socket, e
-            );
+            error!("Can't set SOLINGER for socket {:?}: {}", socket, e);
         }
 
         trace!(
