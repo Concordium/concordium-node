@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use env_logger::{Builder, Env};
 use failure::Fallible;
 use log::LevelFilter;
@@ -14,7 +16,8 @@ use p2p_client::{
 
 use std::convert::TryFrom;
 
-const MB: usize = 1024 * 1024;
+const KIB: usize = 1024;
+const MIB: usize = 1024 * 1024;
 
 fn main() -> Fallible<()> {
     let env = Env::default().filter_or("LOG_LEVEL", "trace");
@@ -28,7 +31,7 @@ fn main() -> Fallible<()> {
     connect(&node_1, &node_2)?;
 
     for i in 0..1000 {
-        let msg_size: usize = thread_rng().gen_range(0, 20 * MB);
+        let msg_size: usize = thread_rng().gen_range(0, 128 * KIB);
         let msg = generate_random_data(msg_size);
 
         if i % 2 == 0 {
@@ -49,6 +52,8 @@ fn main() -> Fallible<()> {
             )?;
         }
     }
+
+    println!("\n*** stress test complete ***\n");
 
     Ok(())
 }
