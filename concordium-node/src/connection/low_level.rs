@@ -1,4 +1,4 @@
-use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{NetworkEndian, WriteBytesExt};
 use bytesize::ByteSize;
 use failure::Fallible;
 use mio::tcp::TcpStream;
@@ -17,6 +17,7 @@ use concordium_common::hybrid_buf::HybridBuf;
 use std::{
     cmp,
     collections::VecDeque,
+    convert::TryInto,
     io::{Cursor, ErrorKind, Read, Seek, SeekFrom, Write},
     mem,
     pin::Pin,
@@ -87,10 +88,7 @@ impl ConnectionLowLevel {
 
     pub fn new(socket: TcpStream, is_initiator: bool) -> Self {
         if let Err(e) = socket.set_linger(Some(Duration::from_secs(0))) {
-            error!(
-                "Can't set SOLINGER to 0 for socket {:?} due to {}",
-                socket, e
-            );
+            error!("Can't set SOLINGER for socket {:?}: {}", socket, e);
         }
 
         trace!(
@@ -223,14 +221,10 @@ impl ConnectionLowLevel {
         let min_bytes = self.pending_bytes_to_know_expected_size()?;
         let read_bytes = handle_io_read!(self.socket.read(&mut self.buffer[..min_bytes]), None);
 
-        self.incoming_msg
-            .message
-            .write_all(&self.buffer[..read_bytes])?;
-
         // once the number of bytes needed to read the message size is known, continue
-        if self.incoming_msg.message.len()? == PAYLOAD_SIZE as u64 {
-            self.incoming_msg.message.rewind()?;
-            let expected_size = self.incoming_msg.message.read_u32::<NetworkEndian>()?;
+        if read_bytes == PAYLOAD_SIZE {
+            let expected_size =
+                PayloadSize::from_be_bytes((&self.buffer[..read_bytes]).try_into().unwrap()); // infallible
 
             // check if the expected size doesn't exceed the protocol limit
             if expected_size > PROTOCOL_MAX_MESSAGE_SIZE as PayloadSize {
@@ -246,12 +240,7 @@ impl ConnectionLowLevel {
                 ByteSize(expected_size as u64).to_string_as(true)
             );
             self.incoming_msg.pending_bytes = expected_size;
-
-            // remove the length from the buffer
-            mem::replace(
-                &mut self.incoming_msg.message,
-                HybridBuf::with_capacity(expected_size as usize)?,
-            );
+            self.incoming_msg.message = HybridBuf::with_capacity(expected_size as usize)?;
 
             // Read data next...
             self.read_payload()
@@ -274,12 +263,10 @@ impl ConnectionLowLevel {
         if self.incoming_msg.pending_bytes == 0 {
             trace!("The message was fully read");
             self.incoming_msg.message.rewind()?;
-            let new_data = mem::replace(
-                &mut self.incoming_msg.message,
-                HybridBuf::with_capacity(PAYLOAD_SIZE)?,
-            );
+            let message =
+                mem::replace(&mut self.incoming_msg.message, HybridBuf::with_capacity(0)?);
 
-            Ok(Some(new_data))
+            Ok(Some(message))
         } else {
             Ok(None)
         }
@@ -311,18 +298,14 @@ impl ConnectionLowLevel {
         let num_full_chunks = len / NOISE_MAX_MESSAGE_LEN;
         // calculate the number of the last, incomplete chunk (if there is one)
         let last_chunk_size = len % NOISE_MAX_MESSAGE_LEN;
+        let num_all_chunks = num_full_chunks + if last_chunk_size > 0 { 1 } else { 0 };
 
         let mut decrypted_msg =
-            HybridBuf::with_capacity(NOISE_MAX_MESSAGE_LEN * num_full_chunks + last_chunk_size)?;
+            HybridBuf::with_capacity(NOISE_MAX_PAYLOAD_LEN * num_full_chunks + last_chunk_size)?;
 
-        // decrypt the full chunks
-        for _ in 0..num_full_chunks {
-            self.decrypt_chunk(NOISE_MAX_MESSAGE_LEN, &mut input, &mut decrypted_msg)?;
-        }
-
-        // decrypt the incomplete chunk
-        if last_chunk_size > 0 {
-            self.decrypt_chunk(last_chunk_size, &mut input, &mut decrypted_msg)?;
+        // decrypt the chunks
+        for _ in 0..num_all_chunks {
+            self.decrypt_chunk(&mut input, &mut decrypted_msg)?;
         }
 
         decrypted_msg.rewind()?;
@@ -332,24 +315,18 @@ impl ConnectionLowLevel {
 
     /// Decrypt a single chunk of the received encrypted message.
     #[inline]
-    fn decrypt_chunk<R: Read + Seek, W: Write>(
-        &mut self,
-        chunk_size: usize,
-        input: &mut R,
-        output: &mut W,
-    ) -> Fallible<()> {
-        debug_assert!(chunk_size <= NOISE_MAX_MESSAGE_LEN);
-
-        input.read_exact(&mut self.buffer[..chunk_size])?;
+    fn decrypt_chunk<W: Write>(&mut self, input: &mut HybridBuf, output: &mut W) -> Fallible<()> {
+        let read_size = cmp::min(NOISE_MAX_MESSAGE_LEN, input.remaining_len()? as usize);
+        input.read_exact(&mut self.buffer[..read_size])?;
 
         if let Err(err) = self
             .noise_session
-            .recv_message(&mut self.buffer[..chunk_size])
+            .recv_message(&mut self.buffer[..read_size])
         {
             error!("Decryption error: {}", err);
             Err(err.into())
         } else {
-            output.write_all(&self.buffer[..chunk_size - MAC_LENGTH])?;
+            output.write_all(&self.buffer[..read_size - MAC_LENGTH])?;
             Ok(())
         }
     }
@@ -402,7 +379,7 @@ impl ConnectionLowLevel {
     }
 
     /// It encrypts `input` and enqueues the encrypted chunks preceded by the
-    /// length for later sending
+    /// length for later sending.
     #[inline]
     fn encrypt_and_enqueue(&mut self, input: &[u8]) -> Fallible<()> {
         let num_full_chunks = input.len() / NOISE_MAX_PAYLOAD_LEN;
@@ -415,7 +392,8 @@ impl ConnectionLowLevel {
             false
         };
 
-        // write the length in plaintext
+        // write the length in plaintext, possibly squeezing it into the
+        // previously enqueued chunk
         if squeeze_len {
             if let Some(prev_chunk) = self.output_queue.back_mut() {
                 prev_chunk.seek(SeekFrom::End(0))?;
@@ -423,7 +401,7 @@ impl ConnectionLowLevel {
                 prev_chunk.seek(SeekFrom::Start(0))?;
             }
         } else {
-            let mut payload_len = Vec::with_capacity(PAYLOAD_SIZE);
+            let mut payload_len = Vec::with_capacity(PAYLOAD_SIZE + full_msg_len);
             payload_len.write_u32::<NetworkEndian>(full_msg_len as PayloadSize)?;
             self.output_queue.push_back(Cursor::new(payload_len));
         }
