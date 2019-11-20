@@ -97,13 +97,13 @@ invariantSkovData TS.SkovData{..} = do
         checkEpochs _focusBlock
     where
         checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
+        -- Notice: checkFin doesn't check that finalization records actually verify. This is only done after the test run
+        --         is finished using checkFinalizationRecordsVerify.
         checkFin (finMap, lastFin, i) (fr, bp) = do
             checkBinary (==) (finalizationIndex fr) i "==" "record finalization index" "index in sequence"
-            if i == 0 then
-                checkBinary (==) bp _genesisBlockPointer "==" "first finalized block" "genesis block"
-            -- TODO: Readd the lines below, with the change that you shouldn't verify every finalization proof at every step
-            else do
-              unless (True) $ Left $ "bla bla"
+            if i == 0 then checkBinary (==) bp _genesisBlockPointer "==" "first finalized block" "genesis block" else Right $ ()
+            -- If verifying finalization records at every step is desired, uncomment the two lines below
+            -- else do
             --     unless (verifyFinalProof finSes finCom fr) $ Left $ "Could not verify finalization record at index " ++ show i
             let overAncestors a m
                     | a == lastFin = return m
@@ -206,6 +206,22 @@ invariantSkovFinalization (SkovState sd@TS.SkovData{..} FinalizationState{..} _)
     where
         checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
 
+checkFinalizationRecordsVerify :: TS.SkovData BState.BlockState -> Either String ()
+checkFinalizationRecordsVerify TS.SkovData{..} =
+      let finSes = FinalizationSessionId (bpHash _genesisBlockPointer) 0
+          finCom = makeFinalizationCommittee (genesisFinalizationParameters _genesisData)
+          checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
+          f (prevRes, i) (fr, bp) = case prevRes of
+            Left err -> return (Left err, i+1)
+            Right _ ->
+              if i == 0 then
+                  return $ (checkBinary (==) bp _genesisBlockPointer "==" "first finalized block" "genesis block", i+1)
+              else
+                  return (unless (verifyFinalProof finSes finCom fr) $ Left $ "Could not verify finalization record at index " ++ show i, i+1)
+      in do
+        (res, _) <- foldM f (Right (), 0) _finalizationList
+        res
+
 data DummyM a = DummyM {runDummy :: a}
 
 instance Functor DummyM where
@@ -294,7 +310,14 @@ myRunSkovT a handlers ctx st es = liftIO $ flip runLoggerT doLog $ do
 
 runKonsensusTest :: RandomGen g => Int -> g -> States -> ExecState -> IO Property
 runKonsensusTest steps g states es
-        | steps <= 0 = return $ (label $ "fin length: " ++ (show $ maximum $ (\s -> s ^. _3 . to ssGSState . TS.finalizationList . to Seq.length) <$> states )) $ property True
+        | steps <= 0 =
+            (case forM_ states $ \s ->
+              let SkovState sd _ _ = (s ^. _3)
+              in checkFinalizationRecordsVerify sd of
+                Left err -> return $ counterexample ("Invariant failed: " ++ err) False
+                Right _ -> return $
+                            (label $ "fin length: " ++ (show $ maximum $ (\s -> s ^. _3 . to ssGSState . TS.finalizationList . to Seq.length) <$> states )) $
+                            property True)
         | null (es ^. esEventPool) = return $ property True
         | otherwise = do
             let ((rcpt, ev), events', g') = selectFromSeq g (es ^. esEventPool)
@@ -335,13 +358,16 @@ runKonsensusTest steps g states es
                         (_, fs', es') <- myRunSkovT timerEvent handlers fi fs es1
                         continue fs' es'
 
-
 runKonsensusTestSimple :: RandomGen g => Int -> g -> States -> ExecState -> IO Property
 runKonsensusTestSimple steps g states es
-        | steps <= 0 || null (es ^. esEventPool) = return
-            (case forM_ states $ \s -> invariantSkovFinalization (s ^. _3) of
-                Left err -> counterexample ("Invariant failed: " ++ err) False
-                Right _ -> property True)
+        | steps <= 0 || null (es ^. esEventPool) =
+            let checkInvariantAndFinalization s@(SkovState sd@TS.SkovData{..} FinalizationState{..} _) = do
+                  checkFinalizationRecordsVerify sd
+                  invariantSkovFinalization s
+            in return
+              (case forM_ states $ \s -> checkInvariantAndFinalization (s ^. _3) of
+                  Left err -> counterexample ("Invariant failed: " ++ err) False
+                  Right _ -> property True)
         | otherwise = do
             let ((rcpt, ev), events', g') = selectFromSeq g (es ^. esEventPool)
             let es1 = es & esEventPool .~ events'
