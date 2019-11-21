@@ -29,6 +29,7 @@ type PayloadSize = u32;
 const PAYLOAD_SIZE: usize = mem::size_of::<PayloadSize>();
 const MAX_MESSAGE_LEN: usize = PAYLOAD_SIZE + NOISE_MAX_MESSAGE_LEN;
 const WRITE_QUEUE_ALLOC: usize = 4 * 1024 * 1024;
+const SOCKET_WRITE_SIZE: usize = 16 * 1024;
 
 /// The single message currently being read from the socket along with its
 /// pending length.
@@ -298,11 +299,9 @@ impl ConnectionLowLevel {
     /// size is reached.
     #[inline]
     fn read_payload(&mut self) -> Fallible<Option<HybridBuf>> {
-        if self.buffers.secondary_len.is_none() {
-            while self.incoming_msg.pending_bytes > 0 {
-                if self.read_intermediate()? == 0 {
-                    break;
-                }
+        while self.incoming_msg.pending_bytes > 0 {
+            if self.read_intermediate()? == 0 {
+                break;
             }
         }
 
@@ -369,7 +368,13 @@ impl ConnectionLowLevel {
             .noise_session
             .recv_message(&mut self.buffers.main[..read_size])
         {
-            error!("decryption error: {}", err);
+            error!(
+                "{} Chunk size: {}B of {}B, exhausted: {}",
+                err,
+                read_size,
+                input.len()?,
+                input.remaining_len()? == 0
+            );
             Err(err.into())
         } else {
             output.write_all(&self.buffers.main[..read_size - MAC_LENGTH])?;
@@ -407,7 +412,7 @@ impl ConnectionLowLevel {
                 break;
             }
 
-            let write_size = cmp::min(NOISE_MAX_MESSAGE_LEN, self.output_queue.len());
+            let write_size = cmp::min(SOCKET_WRITE_SIZE, self.output_queue.len());
 
             for (i, &byte) in self.output_queue.iter().take(write_size).enumerate() {
                 self.buffers.main[i] = byte;
