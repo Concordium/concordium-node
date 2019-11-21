@@ -61,8 +61,9 @@ impl IncomingMessage {
         if self.pending_bytes != 0 {
             Ok(true)
         } else if self.size_bytes.len() == PAYLOAD_SIZE {
-            let ready_size = mem::replace(&mut self.size_bytes, Vec::with_capacity(PAYLOAD_SIZE));
-            let expected_size = PayloadSize::from_be_bytes((&ready_size[..]).try_into().unwrap());
+            let expected_size =
+                PayloadSize::from_be_bytes((&self.size_bytes[..]).try_into().unwrap());
+            self.size_bytes.clear();
 
             // check if the expected size doesn't exceed the protocol limit
             if expected_size > PROTOCOL_MAX_MESSAGE_SIZE as PayloadSize {
@@ -246,7 +247,7 @@ impl ConnectionLowLevel {
             let written = self
                 .incoming_msg
                 .size_bytes
-                .write(&self.buffers.main[offset..][..read_size])?;
+                .write(&self.buffers.main[..read_size])?;
             self.buffers.main.rotate_left(written);
             read_bytes -= written;
         }
@@ -369,7 +370,7 @@ impl ConnectionLowLevel {
             .recv_message(&mut self.buffers.main[..read_size])
         {
             error!(
-                "{} Chunk size: {}B of {}B, exhausted: {}",
+                "{} Chunk size: {}/{}B, exhausted: {}",
                 err,
                 read_size,
                 input.len()?,
@@ -407,11 +408,7 @@ impl ConnectionLowLevel {
     /// or the write would be blocking.
     #[inline]
     pub fn flush_socket(&mut self) -> Fallible<()> {
-        loop {
-            if self.output_queue.is_empty() {
-                break;
-            }
-
+        while !self.output_queue.is_empty() {
             let write_size = cmp::min(SOCKET_WRITE_SIZE, self.output_queue.len());
 
             for (i, &byte) in self.output_queue.iter().take(write_size).enumerate() {
@@ -429,12 +426,7 @@ impl ConnectionLowLevel {
                 ByteSize(written as u64).to_string_as(true)
             );
 
-            if written == write_size {
-                self.output_queue.drain(..write_size);
-            } else {
-                self.output_queue.drain(..written);
-                break;
-            }
+            self.output_queue.drain(..written);
         }
 
         Ok(())
