@@ -438,15 +438,20 @@ impl ConnectionLowLevel {
     fn encrypt_and_enqueue(&mut self, input: &[u8]) -> Fallible<()> {
         let num_full_chunks = input.len() / NOISE_MAX_PAYLOAD_LEN;
         let last_chunk_len = input.len() % NOISE_MAX_PAYLOAD_LEN + MAC_LENGTH;
-        let full_msg_len = (num_full_chunks * NOISE_MAX_MESSAGE_LEN + last_chunk_len) as u32;
+        let full_msg_len = num_full_chunks * NOISE_MAX_MESSAGE_LEN + last_chunk_len;
 
-        self.output_queue.extend(&full_msg_len.to_be_bytes());
+        self.output_queue
+            .extend(&(full_msg_len as PayloadSize).to_be_bytes());
 
         let mut input = Cursor::new(input);
         let eof = input.get_ref().len() as u64;
 
         while input.position() != eof {
             self.encrypt_chunk(&mut input)?;
+
+            if self.output_queue.len() >= SOCKET_WRITE_SIZE {
+                self.flush_socket()?;
+            }
         }
 
         Ok(())
