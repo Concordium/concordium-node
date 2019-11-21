@@ -39,6 +39,22 @@ struct IncomingMessage {
     message:       HybridBuf,
 }
 
+struct Buffers {
+    main:          [u8; MAX_MESSAGE_LEN],
+    secondary:     [u8; NOISE_MAX_MESSAGE_LEN],
+    secondary_len: Option<usize>,
+}
+
+impl Default for Buffers {
+    fn default() -> Self {
+        Self {
+            main:          [0u8; MAX_MESSAGE_LEN],
+            secondary:     [0u8; NOISE_MAX_MESSAGE_LEN],
+            secondary_len: None,
+        }
+    }
+}
+
 impl IncomingMessage {
     fn is_size_known(&mut self) -> Fallible<bool> {
         if self.pending_bytes != 0 {
@@ -73,8 +89,7 @@ pub struct ConnectionLowLevel {
     pub conn_ref: Option<Pin<Arc<Connection>>>,
     pub socket: TcpStream,
     noise_session: NoiseSession,
-    buffer: [u8; MAX_MESSAGE_LEN],
-    backup_buffer: Option<Vec<u8>>, // FIXME: change to an array
+    buffers: Buffers,
     incoming_msg: IncomingMessage,
     /// A queue for bytes waiting to be written to the socket
     output_queue: VecDeque<u8>,
@@ -144,8 +159,7 @@ impl ConnectionLowLevel {
             conn_ref: None,
             socket,
             noise_session: start_noise_session(is_initiator),
-            buffer: [0; MAX_MESSAGE_LEN],
-            backup_buffer: None,
+            buffers: Buffers::default(),
             incoming_msg: IncomingMessage::default(),
             output_queue: VecDeque::with_capacity(WRITE_QUEUE_ALLOC),
         }
@@ -215,11 +229,14 @@ impl ConnectionLowLevel {
     /// Attempts to read a complete message from the socket.
     #[inline]
     fn read_from_socket(&mut self) -> Fallible<Option<HybridBuf>> {
-        let mut read_bytes = if let Some(backup_buffer) = self.backup_buffer.take() {
-            self.buffer[..backup_buffer.len()].copy_from_slice(&backup_buffer);
-            backup_buffer.len()
+        let mut read_bytes = if let Some(len) = self.buffers.secondary_len.take() {
+            self.buffers.main[..len].copy_from_slice(&self.buffers.secondary[..len]);
+            len
         } else {
-            handle_io_read!(self.socket.read(&mut self.buffer[..MAX_MESSAGE_LEN]), None)
+            handle_io_read!(
+                self.socket.read(&mut self.buffers.main[..MAX_MESSAGE_LEN]),
+                None
+            )
         };
 
         if !self.incoming_msg.is_size_known()? {
@@ -228,8 +245,8 @@ impl ConnectionLowLevel {
             let written = self
                 .incoming_msg
                 .size_bytes
-                .write(&self.buffer[offset..][..read_size])?;
-            self.buffer.rotate_left(written);
+                .write(&self.buffers.main[offset..][..read_size])?;
+            self.buffers.main.rotate_left(written);
             read_bytes -= written;
         }
 
@@ -245,11 +262,13 @@ impl ConnectionLowLevel {
             let to_read = cmp::min(self.incoming_msg.pending_bytes as usize, read_bytes);
             self.incoming_msg
                 .message
-                .write_all(&self.buffer[..to_read])?;
+                .write_all(&self.buffers.main[..to_read])?;
             self.incoming_msg.pending_bytes -= to_read as PayloadSize;
 
             if read_bytes > to_read {
-                self.backup_buffer = Some(self.buffer[to_read..][..read_bytes - to_read].to_vec());
+                let len = read_bytes - to_read;
+                self.buffers.secondary[..len].copy_from_slice(&self.buffers.main[to_read..][..len]);
+                self.buffers.secondary_len = Some(len);
             }
 
             // read the actual message
@@ -279,7 +298,7 @@ impl ConnectionLowLevel {
     /// size is reached.
     #[inline]
     fn read_payload(&mut self) -> Fallible<Option<HybridBuf>> {
-        if self.backup_buffer.is_none() {
+        if self.buffers.secondary_len.is_none() {
             while self.incoming_msg.pending_bytes > 0 {
                 if self.read_intermediate()? == 0 {
                     break;
@@ -307,11 +326,11 @@ impl ConnectionLowLevel {
             NOISE_MAX_MESSAGE_LEN,
         );
 
-        let read_bytes = handle_io_read!(self.socket.read(&mut self.buffer[..read_size]), 0);
+        let read_bytes = handle_io_read!(self.socket.read(&mut self.buffers.main[..read_size]), 0);
 
         self.incoming_msg
             .message
-            .write_all(&self.buffer[..read_bytes])?;
+            .write_all(&self.buffers.main[..read_bytes])?;
         self.incoming_msg.pending_bytes -= read_bytes as PayloadSize;
 
         Ok(read_bytes)
@@ -344,16 +363,16 @@ impl ConnectionLowLevel {
     #[inline]
     fn decrypt_chunk<W: Write>(&mut self, input: &mut HybridBuf, output: &mut W) -> Fallible<()> {
         let read_size = cmp::min(NOISE_MAX_MESSAGE_LEN, input.remaining_len()? as usize);
-        input.read_exact(&mut self.buffer[..read_size])?;
+        input.read_exact(&mut self.buffers.main[..read_size])?;
 
         if let Err(err) = self
             .noise_session
-            .recv_message(&mut self.buffer[..read_size])
+            .recv_message(&mut self.buffers.main[..read_size])
         {
             error!("decryption error: {}", err);
             Err(err.into())
         } else {
-            output.write_all(&self.buffer[..read_size - MAC_LENGTH])?;
+            output.write_all(&self.buffers.main[..read_size - MAC_LENGTH])?;
             Ok(())
         }
     }
@@ -391,10 +410,10 @@ impl ConnectionLowLevel {
             let write_size = cmp::min(NOISE_MAX_MESSAGE_LEN, self.output_queue.len());
 
             for (i, &byte) in self.output_queue.iter().take(write_size).enumerate() {
-                self.buffer[i] = byte;
+                self.buffers.main[i] = byte;
             }
 
-            let written = match self.socket.write(&self.buffer[..write_size]) {
+            let written = match self.socket.write(&self.buffers.main[..write_size]) {
                 Ok(num_bytes) => num_bytes,
                 Err(e) if e.kind() == ErrorKind::WouldBlock => break,
                 Err(e) => return Err(e.into()),
@@ -442,13 +461,14 @@ impl ConnectionLowLevel {
     fn encrypt_chunk(&mut self, input: &mut Cursor<&[u8]>) -> Fallible<()> {
         let remaining_len = input.get_ref().len() - input.position() as usize;
         let chunk_size = cmp::min(NOISE_MAX_PAYLOAD_LEN, remaining_len);
-        input.read_exact(&mut self.buffer[..chunk_size])?;
+        input.read_exact(&mut self.buffers.main[..chunk_size])?;
         let encrypted_len = chunk_size + MAC_LENGTH;
 
         self.noise_session
-            .send_message(&mut self.buffer[..encrypted_len])?;
+            .send_message(&mut self.buffers.main[..encrypted_len])?;
 
-        self.output_queue.extend(&self.buffer[..encrypted_len]);
+        self.output_queue
+            .extend(&self.buffers.main[..encrypted_len]);
 
         Ok(())
     }
