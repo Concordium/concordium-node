@@ -183,7 +183,15 @@ pub fn handle_pkt_out(
     } else {
         CALLBACK_QUEUE.send_in_high_priority_message(request)
     } {
-        Ok(_) => {}
+        Ok(_) => {
+            if let Some(ref service) = &node.stats_export_service {
+                if packet_type == PacketType::Transaction {
+                    service.inbound_low_priority_consensus_inc();
+                } else {
+                    service.inbound_high_priority_consensus_inc();
+                }
+            }
+        }
         Err(e) => match e.downcast::<TrySendError<QueueMsg<ConsensusMessage>>>()? {
             TrySendError::Full(_) => {
                 if let Some(ref service) = &node.stats_export_service {
