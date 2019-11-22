@@ -61,8 +61,8 @@ pub struct DeduplicationQueues {
 
 impl DeduplicationQueues {
     pub fn default() -> Arc<Self> {
-        const SHORT_DEDUP_SIZE: usize = 256;
-        const LONG_QUEUE_SIZE: usize = 128 * 1024;
+        const SHORT_DEDUP_SIZE: usize = 1024;
+        const LONG_QUEUE_SIZE: usize = 64 * 1024;
 
         Arc::new(Self {
             finalizations: RwLock::new(CircularQueue::with_capacity(LONG_QUEUE_SIZE)),
