@@ -72,6 +72,7 @@ priority-queue = "^0.6.0"
 rayon = "^1.2.0"
 noiseexplorer_xx = { path = "deps/external/noiseexplorer_xx" }
 bytesize = "1.0.0"
+crossbeam-channel = "^0.4"
 
 # gRPC dependencies
 protobuf = "2.0.6"

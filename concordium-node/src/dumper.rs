@@ -8,11 +8,11 @@ use crate::configuration::APP_INFO;
 use app_dirs2::{get_app_root, AppDataType};
 use chrono::prelude::{DateTime, Utc};
 #[cfg(feature = "network_dump")]
+use crossbeam_channel;
+#[cfg(feature = "network_dump")]
 use failure::Fallible;
 #[cfg(feature = "network_dump")]
 use std::io::Write;
-#[cfg(feature = "network_dump")]
-use std::sync::mpsc::Receiver;
 
 use std::{net::IpAddr, sync::Arc};
 
