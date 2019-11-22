@@ -380,6 +380,15 @@ fn start_consensus_message_threads(
 
         'outer_loop: loop {
             exhausted = false;
+            // Update size of queues
+            if let Some(ref service) = &node_in_ref.stats_export_service {
+                service.set_inbound_low_priority_consensus_size(
+                    consensus_receiver_low_priority.len() as i64,
+                );
+                service.set_inbound_high_priority_consensus_size(
+                    consensus_receiver_high_priority.len() as i64,
+                );
+            }
             // instead of using `try_iter()` we specifically only loop over the max amounts
             // possible to ever be in the queue
             for _ in 0..CONSENSUS_QUEUE_DEPTH_IN_HI {
@@ -452,6 +461,15 @@ fn start_consensus_message_threads(
 
         'outer_loop: loop {
             exhausted = false;
+            // Update size of queues
+            if let Some(ref service) = &node_out_ref.stats_export_service {
+                service.set_outbound_low_priority_consensus_size(
+                    consensus_receiver_low_priority.len() as i64,
+                );
+                service.set_outbound_high_priority_consensus_size(
+                    consensus_receiver_high_priority.len() as i64,
+                );
+            }
             // instead of using `try_iter()` we specifically only loop over the max amounts
             // possible to ever be in the queue
             for _ in 0..CONSENSUS_QUEUE_DEPTH_OUT_HI {

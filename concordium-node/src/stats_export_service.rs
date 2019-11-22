@@ -84,6 +84,12 @@ cfg_if! {
             gs_finalization_query: IntGauge,
             inbound_high_priority_consensus_drops_counter: IntCounter,
             inbound_low_priority_consensus_drops_counter: IntCounter,
+            inbound_high_priority_consensus_counter: IntCounter,
+            inbound_low_priority_consensus_counter: IntCounter,
+            inbound_high_priority_consensus_size: IntGauge,
+            inbound_low_priority_consensus_size: IntGauge,
+            outbound_high_priority_consensus_size: IntGauge,
+            outbound_low_priority_consensus_size: IntGauge,
         }
     }
 }
@@ -110,6 +116,12 @@ pub struct StatsExportService {
     gs_finalization_query: Arc<AtomicUsize>,
     inbound_high_priority_consensus_drops_counter: Arc<AtomicUsize>,
     inbound_low_priority_consensus_drops_counter: Arc<AtomicUsize>,
+    inbound_high_priority_consensus_counter: Arc<AtomicUsize>,
+    inbound_low_priority_consensus_counter: Arc<AtomicUsize>,
+    inbound_high_priority_consensus_size: Arc<AtomicUsize>,
+    inbound_low_priority_consensus_size: Arc<AtomicUsize>,
+    outbound_high_priority_consensus_size: Arc<AtomicUsize>,
+    outbound_low_priority_consensus_size: Arc<AtomicUsize>,
 }
 
 impl StatsExportService {
@@ -226,6 +238,54 @@ impl StatsExportService {
             inbound_low_priority_consensus_drops_counter.clone(),
         ))?;
 
+        let inbound_high_priority_consensus_counter_opts = Opts::new(
+            "inbound_high_priority_consensus_counter",
+            "inbound high priority consensus messages received",
+        );
+        let inbound_high_priority_consensus_counter =
+            IntCounter::with_opts(inbound_high_priority_consensus_counter_opts)?;
+        registry.register(Box::new(inbound_high_priority_consensus_counter.clone()))?;
+
+        let inbound_low_priority_consensus_counter_opts = Opts::new(
+            "inbound_low_priority_consensus_counter",
+            "inbound low priority consensus messages received",
+        );
+        let inbound_low_priority_consensus_counter =
+            IntCounter::with_opts(inbound_low_priority_consensus_counter_opts)?;
+        registry.register(Box::new(inbound_low_priority_consensus_counter.clone()))?;
+
+        let inbound_high_priority_consensus_size_opts = Opts::new(
+            "inbound_high_priority_consensus_size",
+            "inbound high priority consensus queue size",
+        );
+        let inbound_high_priority_consensus_size =
+            IntGauge::with_opts(inbound_high_priority_consensus_size_opts)?;
+        registry.register(Box::new(inbound_high_priority_consensus_size.clone()))?;
+
+        let inbound_low_priority_consensus_size_opts = Opts::new(
+            "inbound_low_priority_consensus_size",
+            "inbound low priority consensus queue size",
+        );
+        let inbound_low_priority_consensus_size =
+            IntGauge::with_opts(inbound_low_priority_consensus_size_opts)?;
+        registry.register(Box::new(inbound_low_priority_consensus_size.clone()))?;
+
+        let outbound_high_priority_consensus_size_opts = Opts::new(
+            "outbound_high_priority_consensus_size",
+            "outbound high priority consensus queue size",
+        );
+        let outbound_high_priority_consensus_size =
+            IntGauge::with_opts(outbound_high_priority_consensus_size_opts)?;
+        registry.register(Box::new(outbound_high_priority_consensus_size.clone()))?;
+
+        let outbound_low_priority_consensus_size_opts = Opts::new(
+            "outbound_low_priority_consensus_size",
+            "outbound low priority consensus queue size",
+        );
+        let outbound_low_priority_consensus_size =
+            IntGauge::with_opts(outbound_low_priority_consensus_size_opts)?;
+        registry.register(Box::new(outbound_low_priority_consensus_size.clone()))?;
+
         Ok(StatsExportService {
             mode,
             registry,
@@ -248,6 +308,12 @@ impl StatsExportService {
             gs_finalization_query: sfq,
             inbound_high_priority_consensus_drops_counter,
             inbound_low_priority_consensus_drops_counter,
+            inbound_high_priority_consensus_counter,
+            inbound_low_priority_consensus_counter,
+            inbound_high_priority_consensus_size,
+            inbound_low_priority_consensus_size,
+            outbound_high_priority_consensus_size,
+            outbound_low_priority_consensus_size,
         })
     }
 
@@ -435,6 +501,54 @@ impl StatsExportService {
         #[cfg(not(feature = "instrumentation"))]
         self.inbound_low_priority_consensus_drops_counter
             .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn inbound_high_priority_consensus_inc(&self) {
+        #[cfg(feature = "instrumentation")]
+        self.inbound_high_priority_consensus_counter.inc();
+        #[cfg(not(feature = "instrumentation"))]
+        self.inbound_high_priority_consensus_counter
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn inbound_low_priority_consensus_inc(&self) {
+        #[cfg(feature = "instrumentation")]
+        self.inbound_low_priority_consensus_counter.inc();
+        #[cfg(not(feature = "instrumentation"))]
+        self.inbound_low_priority_consensus_counter
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn set_inbound_high_priority_consensus_size(&self, value: i64) {
+        #[cfg(feature = "instrumentation")]
+        self.inbound_high_priority_consensus_size.set(value);
+        #[cfg(not(feature = "instrumentation"))]
+        self.inbound_high_priority_consensus_size
+            .store(value as usize, Ordering::Relaxed);
+    }
+
+    pub fn set_inbound_low_priority_consensus_size(&self, value: i64) {
+        #[cfg(feature = "instrumentation")]
+        self.inbound_low_priority_consensus_size.set(value);
+        #[cfg(not(feature = "instrumentation"))]
+        self.inbound_low_priority_consensus_size
+            .store(value as usize, Ordering::Relaxed);
+    }
+
+    pub fn set_outbound_high_priority_consensus_size(&self, value: i64) {
+        #[cfg(feature = "instrumentation")]
+        self.outbound_high_priority_consensus_size.set(value);
+        #[cfg(not(feature = "instrumentation"))]
+        self.outbound_high_priority_consensus_size
+            .store(value as usize, Ordering::Relaxed);
+    }
+
+    pub fn set_outbound_low_priority_consensus_size(&self, value: i64) {
+        #[cfg(feature = "instrumentation")]
+        self.outbound_low_priority_consensus_size.set(value);
+        #[cfg(not(feature = "instrumentation"))]
+        self.outbound_low_priority_consensus_size
+            .store(value as usize, Ordering::Relaxed);
     }
 
     #[cfg(feature = "instrumentation")]
