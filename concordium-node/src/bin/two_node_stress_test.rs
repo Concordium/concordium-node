@@ -47,6 +47,7 @@ fn main() -> Fallible<()> {
                     .unwrap(),
             );
         }
+        node_2_ref.close_and_join().unwrap();
     });
 
     let node_2_id = node_2.id();
@@ -62,6 +63,7 @@ fn main() -> Fallible<()> {
                     .unwrap(),
             );
         }
+        node_1_ref.close_and_join().unwrap();
     });
 
     node_1.join().unwrap();
