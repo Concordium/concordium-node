@@ -95,6 +95,8 @@ pub struct P2PNodeConfig {
     #[cfg(feature = "beta")]
     pub beta_username: String,
     thread_pool_size: usize,
+    dedup_size_long: usize,
+    dedup_size_short: usize,
 }
 
 #[derive(Default)]
@@ -348,6 +350,8 @@ impl P2PNode {
             #[cfg(feature = "beta")]
             beta_username: get_username_from_jwt(&conf.cli.beta_token),
             thread_pool_size: conf.connection.thread_pool_size,
+            dedup_size_long: conf.connection.dedup_size_long,
+            dedup_size_short: conf.connection.dedup_size_short,
         };
 
         let connection_handler = ConnectionHandler::new(conf, server, event_log);
@@ -547,7 +551,10 @@ impl P2PNode {
             let mut log_time = SystemTime::now();
             let mut last_buckets_cleaned = SystemTime::now();
 
-            let deduplication_queues = DeduplicationQueues::default();
+            let deduplication_queues = DeduplicationQueues::new(
+                self_clone.config.dedup_size_long,
+                self_clone.config.dedup_size_short,
+            );
 
             let num_socket_threads = match self_clone.self_peer.peer_type {
                 PeerType::Bootstrapper => 1,

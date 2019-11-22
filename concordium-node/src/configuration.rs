@@ -298,6 +298,18 @@ pub struct ConnectionConfig {
         default_value = "1"
     )]
     pub thread_pool_size: usize,
+    #[structopt(
+        long = "dedup-size-long",
+        help = "The size of the long deduplication queues",
+        default_value = "65536"
+    )]
+    pub dedup_size_long: usize,
+    #[structopt(
+        long = "dedup-size-short",
+        help = "The size of the short deduplication queues",
+        default_value = "1024"
+    )]
+    pub dedup_size_short: usize,
 }
 
 #[derive(StructOpt, Debug)]
