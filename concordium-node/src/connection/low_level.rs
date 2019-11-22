@@ -27,9 +27,7 @@ use std::{
 
 type PayloadSize = u32;
 const PAYLOAD_SIZE: usize = mem::size_of::<PayloadSize>();
-const MAX_MESSAGE_LEN: usize = PAYLOAD_SIZE + NOISE_MAX_MESSAGE_LEN;
-const WRITE_QUEUE_ALLOC: usize = 4 * 1024 * 1024;
-const SOCKET_WRITE_SIZE: usize = 16 * 1024;
+const WRITE_QUEUE_ALLOC: usize = 1024 * 1024;
 
 /// The single message currently being read from the socket along with its
 /// pending length.
@@ -41,16 +39,16 @@ struct IncomingMessage {
 }
 
 struct Buffers {
-    main:          [u8; MAX_MESSAGE_LEN],
-    secondary:     [u8; NOISE_MAX_MESSAGE_LEN],
+    main:          Box<[u8]>,
+    secondary:     Box<[u8]>,
     secondary_len: Option<usize>,
 }
 
-impl Default for Buffers {
-    fn default() -> Self {
+impl Buffers {
+    fn new(socket_read_size: usize) -> Self {
         Self {
-            main:          [0u8; MAX_MESSAGE_LEN],
-            secondary:     [0u8; NOISE_MAX_MESSAGE_LEN],
+            main:          vec![0u8; socket_read_size].into_boxed_slice(),
+            secondary:     vec![0u8; socket_read_size].into_boxed_slice(),
             secondary_len: None,
         }
     }
@@ -143,7 +141,7 @@ impl ConnectionLowLevel {
         &self.conn_ref.as_ref().unwrap() // safe; always available
     }
 
-    pub fn new(socket: TcpStream, is_initiator: bool) -> Self {
+    pub fn new(socket: TcpStream, is_initiator: bool, socket_read_size: usize) -> Self {
         if let Err(e) = socket.set_linger(Some(Duration::from_secs(0))) {
             error!("Can't set SOLINGER for socket {:?}: {}", socket, e);
         }
@@ -161,7 +159,7 @@ impl ConnectionLowLevel {
             conn_ref: None,
             socket,
             noise_session: start_noise_session(is_initiator),
-            buffers: Buffers::default(),
+            buffers: Buffers::new(socket_read_size),
             incoming_msg: IncomingMessage::default(),
             output_queue: VecDeque::with_capacity(WRITE_QUEUE_ALLOC),
         }
@@ -235,10 +233,8 @@ impl ConnectionLowLevel {
             self.buffers.main[..len].copy_from_slice(&self.buffers.secondary[..len]);
             len
         } else {
-            handle_io_read!(
-                self.socket.read(&mut self.buffers.main[..MAX_MESSAGE_LEN]),
-                None
-            )
+            let len = self.buffers.main.len();
+            handle_io_read!(self.socket.read(&mut self.buffers.main[..len]), None)
         };
 
         if !self.incoming_msg.is_size_known()? {
@@ -323,7 +319,7 @@ impl ConnectionLowLevel {
     fn read_intermediate(&mut self) -> Fallible<usize> {
         let read_size = cmp::min(
             self.incoming_msg.pending_bytes as usize,
-            NOISE_MAX_MESSAGE_LEN,
+            self.buffers.main.len(),
         );
 
         let read_bytes = handle_io_read!(self.socket.read(&mut self.buffers.main[..read_size]), 0);
@@ -409,7 +405,7 @@ impl ConnectionLowLevel {
     #[inline]
     pub fn flush_socket(&mut self) -> Fallible<()> {
         while !self.output_queue.is_empty() {
-            let write_size = cmp::min(SOCKET_WRITE_SIZE, self.output_queue.len());
+            let write_size = cmp::min(self.write_size(), self.output_queue.len());
 
             for (i, &byte) in self.output_queue.iter().take(write_size).enumerate() {
                 self.buffers.main[i] = byte;
@@ -449,7 +445,7 @@ impl ConnectionLowLevel {
         while input.position() != eof {
             self.encrypt_chunk(&mut input)?;
 
-            if self.output_queue.len() >= SOCKET_WRITE_SIZE {
+            if self.output_queue.len() >= self.write_size() {
                 self.flush_socket()?;
             }
         }
@@ -474,4 +470,7 @@ impl ConnectionLowLevel {
 
         Ok(())
     }
+
+    #[inline]
+    fn write_size(&self) -> usize { self.conn().handler().config.socket_write_size }
 }

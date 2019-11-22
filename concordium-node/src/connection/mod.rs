@@ -124,7 +124,11 @@ impl Connection {
     ) -> Arc<Self> {
         let curr_stamp = get_current_stamp();
 
-        let low_level = RwLock::new(ConnectionLowLevel::new(socket, is_initiator));
+        let low_level = RwLock::new(ConnectionLowLevel::new(
+            socket,
+            is_initiator,
+            handler.config.socket_read_size,
+        ));
 
         let stats = ConnectionStats {
             messages_received: Default::default(),

@@ -97,6 +97,8 @@ pub struct P2PNodeConfig {
     thread_pool_size: usize,
     dedup_size_long: usize,
     dedup_size_short: usize,
+    pub socket_read_size: usize,
+    pub socket_write_size: usize,
 }
 
 #[derive(Default)]
@@ -352,6 +354,8 @@ impl P2PNode {
             thread_pool_size: conf.connection.thread_pool_size,
             dedup_size_long: conf.connection.dedup_size_long,
             dedup_size_short: conf.connection.dedup_size_short,
+            socket_read_size: conf.connection.socket_read_size,
+            socket_write_size: conf.connection.socket_write_size,
         };
 
         let connection_handler = ConnectionHandler::new(conf, server, event_log);
