@@ -407,8 +407,14 @@ impl ConnectionLowLevel {
         while !self.output_queue.is_empty() {
             let write_size = cmp::min(self.write_size(), self.output_queue.len());
 
-            for (i, &byte) in self.output_queue.iter().take(write_size).enumerate() {
-                self.buffers.main[i] = byte;
+            let (front, back) = self.output_queue.as_slices();
+
+            let front_len = cmp::min(front.len(), write_size);
+            self.buffers.main[..front_len].copy_from_slice(&front[..front_len]);
+
+            let back_len = write_size - front_len;
+            if back_len > 0 {
+                self.buffers.main[front_len..][..back_len].copy_from_slice(&back[..back_len]);
             }
 
             let written = match self.socket.write(&self.buffers.main[..write_size]) {
