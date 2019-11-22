@@ -6,10 +6,8 @@ use concordium_common::{
 };
 use failure::{format_err, Fallible};
 
-use std::{
-    convert::TryFrom,
-    sync::{mpsc, Mutex},
-};
+use crossbeam_channel;
+use std::{convert::TryFrom, sync::Mutex};
 
 const TRANSACTION_LOG_QUEUE_DEPTH: usize = 32 * 1024;
 
@@ -20,7 +18,7 @@ pub struct TransactionLogQueue {
 
 impl Default for TransactionLogQueue {
     fn default() -> Self {
-        let (sender, receiver) = mpsc::sync_channel(TRANSACTION_LOG_QUEUE_DEPTH);
+        let (sender, receiver) = crossbeam_channel::bounded(TRANSACTION_LOG_QUEUE_DEPTH);
         Self {
             receiver: Mutex::new(receiver),
             sender,
