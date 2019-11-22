@@ -19,9 +19,9 @@ use std::{convert::TryFrom, sync::Arc, thread};
 const KIB: usize = 1024;
 const MIB: usize = 1024 * 1024;
 
-const CNT: usize = 1_000_000;
-const MIN: usize = 2;
-const MAX: usize = 128 * KIB;
+const CNT: usize = 100_000;
+const MIN: usize = 2; // minimum packet size (packet type ID)
+const MAX: usize = 8 * MIB;
 
 fn main() -> Fallible<()> {
     let env = Env::default().filter_or("LOG_LEVEL", "trace");
