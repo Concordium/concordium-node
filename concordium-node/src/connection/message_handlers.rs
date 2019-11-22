@@ -3,12 +3,12 @@ use crate::{
     common::{get_current_stamp, P2PNodeId, P2PPeer, PeerType},
     connection::{Connection, P2PEvent},
     network::{
-        request::RequestedElementType, NetworkId, NetworkMessage, NetworkMessagePayload,
-        NetworkPacket, NetworkPacketType, NetworkRequest, NetworkResponse,
+        NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkPacketType,
+        NetworkRequest, NetworkResponse,
     },
     p2p::banned_nodes::BannedNode,
 };
-use concordium_common::{read_or_die, write_or_die, PacketType, QueueMsg::Relay};
+use concordium_common::{read_or_die, write_or_die, QueueMsg::Relay};
 
 use failure::{Error, Fallible};
 
@@ -46,10 +46,6 @@ impl Connection {
                 self.handle_unban(*peer_to_unban)
             }
             NetworkMessagePayload::NetworkPacket(pac, ..) => self.handle_incoming_packet(&pac),
-            NetworkMessagePayload::NetworkRequest(
-                NetworkRequest::Retransmit(elem_type, since, nid),
-                ..,
-            ) => self.handle_retransmit_req(*elem_type, *since, *nid),
         } {
             if !self.handler_ref.is_terminated.load(Ordering::Relaxed) {
                 // In other case we are closing the node so we won't output the possibly closed
@@ -243,41 +239,6 @@ impl Connection {
                 error!("Left Network Event cannot be sent to the P2PEvent log");
             }
         };
-
-        Ok(())
-    }
-
-    pub fn handle_retransmit_req(
-        &self,
-        element_type: RequestedElementType,
-        since: u64,
-        nid: NetworkId,
-    ) -> Fallible<()> {
-        let peer_id = self.remote_id().unwrap(); // safe, post-handshake
-
-        debug!("Received a Retransmit request");
-
-        if let RequestedElementType::Transaction = element_type {
-            read_or_die!(self.handler().transactions_cache)
-                .get_since(since)
-                .iter()
-                .for_each(|transaction| {
-                    if let Err(e) = send_consensus_msg_to_net(
-                        self.handler(),
-                        vec![],
-                        peer_id,
-                        Some(peer_id),
-                        nid,
-                        PacketType::Transaction,
-                        Some(format!("{:?}", transaction)),
-                        &transaction,
-                    ) {
-                        error!("Couldn't retransmit a transaction! ({:?})", e);
-                    }
-                })
-        } else {
-            bail!("Received a retransmit request for an unknown element type");
-        }
 
         Ok(())
     }

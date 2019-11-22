@@ -18,7 +18,6 @@ use std::{
 };
 
 use concordium_common::{
-    blockchain_types::TransactionHash,
     hybrid_buf::HybridBuf,
     serial::Endianness,
     ConsensusFfiResponse,
@@ -164,15 +163,6 @@ pub fn handle_pkt_out(
 
     let consensus_type = msg.read_u16::<Endianness>()?;
     let packet_type = PacketType::try_from(consensus_type)?;
-
-    if packet_type == PacketType::Transaction {
-        let curr_pos = msg.position()?;
-        let transaction = msg.remaining_bytes()?.into_owned();
-        let hash_offset = transaction.len() - mem::size_of::<TransactionHash>();
-        let hash = TransactionHash::new(&transaction[hash_offset..]);
-        write_or_die!(node.transactions_cache).insert(hash, transaction);
-        msg.seek(SeekFrom::Start(curr_pos))?;
-    }
 
     let distribution_mode = if is_broadcast {
         DistributionMode::Broadcast

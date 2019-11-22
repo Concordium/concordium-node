@@ -60,15 +60,12 @@ pub struct DeduplicationQueues {
 }
 
 impl DeduplicationQueues {
-    pub fn default() -> Arc<Self> {
-        const SHORT_DEDUP_SIZE: usize = 1024;
-        const LONG_QUEUE_SIZE: usize = 64 * 1024;
-
+    pub fn new(long_size: usize, short_size: usize) -> Arc<Self> {
         Arc::new(Self {
-            finalizations: RwLock::new(CircularQueue::with_capacity(LONG_QUEUE_SIZE)),
-            transactions:  RwLock::new(CircularQueue::with_capacity(LONG_QUEUE_SIZE)),
-            blocks:        RwLock::new(CircularQueue::with_capacity(SHORT_DEDUP_SIZE)),
-            fin_records:   RwLock::new(CircularQueue::with_capacity(SHORT_DEDUP_SIZE)),
+            finalizations: RwLock::new(CircularQueue::with_capacity(long_size)),
+            transactions:  RwLock::new(CircularQueue::with_capacity(long_size)),
+            blocks:        RwLock::new(CircularQueue::with_capacity(short_size)),
+            fin_records:   RwLock::new(CircularQueue::with_capacity(short_size)),
         })
     }
 }
@@ -127,7 +124,11 @@ impl Connection {
     ) -> Arc<Self> {
         let curr_stamp = get_current_stamp();
 
-        let low_level = RwLock::new(ConnectionLowLevel::new(socket, is_initiator));
+        let low_level = RwLock::new(ConnectionLowLevel::new(
+            socket,
+            is_initiator,
+            handler.config.socket_read_size,
+        ));
 
         let stats = ConnectionStats {
             messages_received: Default::default(),

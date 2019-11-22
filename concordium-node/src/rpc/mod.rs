@@ -9,10 +9,7 @@ use crate::{
     },
     configuration,
     failure::Fallible,
-    network::{
-        request::RequestedElementType, NetworkId, NetworkMessage, NetworkMessagePayload,
-        NetworkPacketType,
-    },
+    network::{NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacketType},
     p2p::{
         banned_nodes::BannedNode,
         p2p_node::{send_broadcast_message, send_direct_message},
@@ -1251,35 +1248,6 @@ impl P2P for RpcServerImpl {
                     grpcio::RpcStatusCode::ResourceExhausted,
                     Some("Node can't be locked".to_string()),
                 ))
-            };
-            let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-            ctx.spawn(f);
-        });
-    }
-
-    fn retransmit_request(
-        &self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: RetransmitRequestMessage,
-        sink: ::grpcio::UnarySink<SuccessResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            let f = {
-                if req.has_since() {
-                    let mut r: SuccessResponse = SuccessResponse::new();
-                    self.node.send_retransmit(
-                        RequestedElementType::from(req.get_element_type() as u8),
-                        req.get_since().get_value(),
-                        NetworkId::from(req.get_network_id() as u16),
-                    );
-                    r.set_value(true);
-                    sink.success(r)
-                } else {
-                    sink.fail(grpcio::RpcStatus::new(
-                        grpcio::RpcStatusCode::InvalidArgument,
-                        Some("`Since` argument can not be ommited".to_string()),
-                    ))
-                }
             };
             let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);

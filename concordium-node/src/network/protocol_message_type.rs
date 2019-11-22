@@ -43,7 +43,6 @@ pub enum ProtocolRequestType {
     UnbanNode,
     JoinNetwork,
     LeaveNetwork,
-    Retransmit,
 }
 
 pub trait AsProtocolRequestType {
@@ -62,7 +61,6 @@ impl TryFrom<u8> for ProtocolRequestType {
             4 => ProtocolRequestType::UnbanNode,
             5 => ProtocolRequestType::JoinNetwork,
             6 => ProtocolRequestType::LeaveNetwork,
-            7 => ProtocolRequestType::Retransmit,
             _ => bail!("Unsupported Protocol Request type '{}'", value),
         };
         Ok(prt)

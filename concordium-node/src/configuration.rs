@@ -298,6 +298,30 @@ pub struct ConnectionConfig {
         default_value = "1"
     )]
     pub thread_pool_size: usize,
+    #[structopt(
+        long = "dedup-size-long",
+        help = "The size of the long deduplication queues",
+        default_value = "65536"
+    )]
+    pub dedup_size_long: usize,
+    #[structopt(
+        long = "dedup-size-short",
+        help = "The size of the short deduplication queues",
+        default_value = "1024"
+    )]
+    pub dedup_size_short: usize,
+    #[structopt(
+        long = "socket_write_size",
+        help = "The desired size of single socket writes",
+        default_value = "16384"
+    )]
+    pub socket_write_size: usize,
+    #[structopt(
+        long = "socket_read_size",
+        help = "The desired size of single socket reads; must be >= 65535 (max noise message size)",
+        default_value = "131072"
+    )]
+    pub socket_read_size: usize,
 }
 
 #[derive(StructOpt, Debug)]
