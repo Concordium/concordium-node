@@ -311,13 +311,13 @@ pub struct ConnectionConfig {
     )]
     pub dedup_size_short: usize,
     #[structopt(
-        long = "socket_write_size",
-        help = "The desired size of single socket writes",
+        long = "socket-write-size",
+        help = "The desired size of single socket writes; must be no bigger than socket_read_size",
         default_value = "16384"
     )]
     pub socket_write_size: usize,
     #[structopt(
-        long = "socket_read_size",
+        long = "socket-read-size",
         help = "The desired size of single socket reads; must be >= 65535 (max noise message size)",
         default_value = "131072"
     )]
