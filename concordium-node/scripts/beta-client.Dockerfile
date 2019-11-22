@@ -25,7 +25,7 @@ RUN --mount=type=ssh ./build-binaries.sh "collector,beta" release && \
 # P2P client is now built
 FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.6 as haskell-build
 COPY ./CONSENSUS_VERSION /CONSENSUS_VERSION
-# Build middleware
+# Build middleware and simple-client
 RUN --mount=type=ssh pacman -Syy --noconfirm openssh && \
     mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts && \
     git clone --recurse-submodules git@gitlab.com:Concordium/consensus/simple-client.git && \
@@ -41,8 +41,9 @@ RUN --mount=type=ssh pacman -Syy --noconfirm openssh && \
     ./stack build --flag "simple-client:middleware" && \
     mkdir -p /libs && \
     cp extra-libs/* /libs/ && \
-    cp .stack-work/dist/*/*/build/middleware/middleware /middleware
-# Middleware is now built
+    cp .stack-work/dist/*/*/build/middleware/middleware /middleware && \
+    cp .stack-work/dist/*/*/build/simple-client/simple-client /simple-client
+# Middleware and simple-client is now built
 
 # Build oak compiler
 FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base-haskell:0.2 as oak-build
@@ -88,6 +89,7 @@ COPY --from=build /build-project/start.sh /start.sh
 COPY --from=build /build-project/genesis.dat /genesis.dat
 COPY --from=haskell-build /libs/* /usr/lib/
 COPY --from=haskell-build /middleware /middleware
+COPY --from=haskell-build /simple-client /simple-client
 COPY --from=haskell-build /genesis-binaries /genesis-binaries
 COPY --from=node-build /node-dashboard/dist/public /var/www/html/
 COPY --from=oak-build /oak-compiler/out/oak /oak 
