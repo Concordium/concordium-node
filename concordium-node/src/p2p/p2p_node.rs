@@ -10,8 +10,8 @@ use crate::{
     },
     dumper::DumpItem,
     network::{
-        request::RequestedElementType, Buckets, NetworkId, NetworkMessage, NetworkMessagePayload,
-        NetworkPacket, NetworkPacketType, NetworkRequest,
+        Buckets, NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket,
+        NetworkPacketType, NetworkRequest,
     },
     p2p::{banned_nodes::BannedNode, unreachable_nodes::UnreachableNodes},
     stats_engine::StatsEngine,
@@ -20,7 +20,6 @@ use crate::{
 };
 use chrono::prelude::*;
 use concordium_common::{
-    cache::Cache,
     hybrid_buf::HybridBuf,
     serial::Serial,
     QueueMsg::{self, Relay},
@@ -185,7 +184,6 @@ pub struct P2PNode {
     pub is_rpc_online:        AtomicBool,
     pub is_terminated:        AtomicBool,
     pub kvs:                  Arc<RwLock<Rkv>>,
-    pub transactions_cache:   RwLock<Cache<Vec<u8>>>,
     pub stats_engine:         RwLock<StatsEngine>,
 }
 // a convenience macro to send an object to all connections
@@ -367,7 +365,6 @@ impl P2PNode {
             .get_or_create(config.data_dir_path.as_path(), Rkv::new)
             .unwrap();
 
-        let transactions_cache = Default::default();
         let stats_engine = RwLock::new(StatsEngine::new(&conf.cli));
 
         let mut node = Arc::new(P2PNode {
@@ -385,7 +382,6 @@ impl P2PNode {
             stats_export_service,
             is_terminated: Default::default(),
             kvs,
-            transactions_cache,
             stats_engine,
         });
 
@@ -1280,31 +1276,6 @@ impl P2PNode {
             } {
                 error!("A network message couldn't be forwarded: {}", e);
             }
-        }
-    }
-
-    pub fn send_retransmit(
-        &self,
-        requested_type: RequestedElementType,
-        since: u64,
-        nid: NetworkId,
-    ) {
-        let request = NetworkRequest::Retransmit(requested_type, since, nid);
-        let mut message = NetworkMessage {
-            timestamp1: None,
-            timestamp2: None,
-            payload:    NetworkMessagePayload::NetworkRequest(request),
-        };
-        let filter = |_: &Connection| true;
-
-        if let Err(e) = {
-            let mut buf = Vec::with_capacity(256);
-            message
-                .serialize(&mut buf)
-                .map(|_| buf)
-                .and_then(|buf| self.send_over_all_connections(buf, &filter))
-        } {
-            error!("A network message couldn't be forwarded: {}", e);
         }
     }
 

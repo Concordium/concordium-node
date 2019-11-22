@@ -480,8 +480,6 @@ fn serialize_request(
                 Some(offset.as_union_value()),
             )
         }
-        // TODO: Retransmit
-        _ => unimplemented!(),
     };
 
     let request_offset = network::NetworkRequest::create(builder, &network::NetworkRequestArgs {
