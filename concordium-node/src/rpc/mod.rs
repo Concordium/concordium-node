@@ -29,11 +29,12 @@ use futures::future::Future;
 use globalstate_rust::tree::messaging::{ConsensusMessage, MessageType};
 use grpcio::{self, Environment, ServerBuilder};
 
+use crossbeam_channel;
 use std::{
     convert::TryFrom,
     net::{IpAddr, SocketAddr},
     str::FromStr,
-    sync::{atomic::Ordering, mpsc, Arc, Mutex},
+    sync::{atomic::Ordering, Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -45,7 +46,7 @@ pub struct RpcServerImpl {
     baker_private_data_json_file: Option<String>,
     consensus: Option<ConsensusContainer>,
     server: Arc<Mutex<Option<grpcio::Server>>>,
-    receiver: Option<mpsc::Receiver<NetworkMessage>>,
+    receiver: Option<crossbeam_channel::Receiver<NetworkMessage>>,
 }
 
 // a trick implementation so we can have a lockless Receiver
@@ -69,7 +70,7 @@ impl RpcServerImpl {
         node: Arc<P2PNode>,
         consensus: Option<ConsensusContainer>,
         conf: &configuration::RpcCliConfig,
-        subscription_queue_out: mpsc::Receiver<NetworkMessage>,
+        subscription_queue_out: crossbeam_channel::Receiver<NetworkMessage>,
         baker_private_data_json_file: Option<String>,
     ) -> Self {
         RpcServerImpl {

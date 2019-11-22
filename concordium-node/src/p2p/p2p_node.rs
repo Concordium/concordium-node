@@ -40,6 +40,7 @@ use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use rkv::{Manager, Rkv, StoreOptions, Value};
 
 use consensus_rust::{consensus::CALLBACK_QUEUE, transferlog::TRANSACTION_LOG_QUEUE};
+use crossbeam_channel::{self, Sender};
 use std::{
     cmp::Reverse,
     collections::{HashMap, HashSet},
@@ -52,7 +53,6 @@ use std::{
     str::FromStr,
     sync::{
         atomic::{AtomicBool, AtomicU16, AtomicU64, AtomicUsize, Ordering},
-        mpsc::SyncSender,
         Arc, RwLock,
     },
     thread::JoinHandle,
@@ -124,9 +124,9 @@ pub type Connections = HashMap<Token, Arc<Connection>, BuildNoHashHasher<usize>>
 pub struct ConnectionHandler {
     server:                TcpListener,
     next_id:               AtomicUsize,
-    pub event_log:         Option<SyncSender<QueueMsg<P2PEvent>>>,
+    pub event_log:         Option<Sender<QueueMsg<P2PEvent>>>,
     pub buckets:           RwLock<Buckets>,
-    pub log_dumper:        Option<SyncSender<DumpItem>>,
+    pub log_dumper:        Option<Sender<DumpItem>>,
     pub connections:       RwLock<Connections>,
     pub unreachable_nodes: UnreachableNodes,
     pub networks:          RwLock<Networks>,
@@ -138,7 +138,7 @@ impl ConnectionHandler {
     fn new(
         conf: &Config,
         server: TcpListener,
-        event_log: Option<SyncSender<QueueMsg<P2PEvent>>>,
+        event_log: Option<Sender<QueueMsg<P2PEvent>>>,
     ) -> Self {
         let networks = conf
             .common
@@ -172,9 +172,9 @@ pub struct P2PNode {
     threads:                  RwLock<P2PNodeThreads>,
     pub poll:                 Poll,
     pub connection_handler:   ConnectionHandler,
-    pub rpc_queue:            SyncSender<NetworkMessage>,
-    dump_switch:              SyncSender<(std::path::PathBuf, bool)>,
-    dump_tx:                  SyncSender<crate::dumper::DumpItem>,
+    pub rpc_queue:            Sender<NetworkMessage>,
+    dump_switch:              Sender<(std::path::PathBuf, bool)>,
+    dump_tx:                  Sender<crate::dumper::DumpItem>,
     pub stats_export_service: Option<StatsExportService>,
     pub config:               P2PNodeConfig,
     start_time:               DateTime<Utc>,
@@ -221,10 +221,10 @@ impl P2PNode {
     pub fn new(
         supplied_id: Option<String>,
         conf: &Config,
-        event_log: Option<SyncSender<QueueMsg<P2PEvent>>>,
+        event_log: Option<Sender<QueueMsg<P2PEvent>>>,
         peer_type: PeerType,
         stats_export_service: Option<StatsExportService>,
-        subscription_queue_in: SyncSender<NetworkMessage>,
+        subscription_queue_in: Sender<NetworkMessage>,
         data_dir_path: Option<PathBuf>,
     ) -> Arc<Self> {
         let addr = if let Some(ref addy) = conf.common.listen_address {
@@ -293,8 +293,8 @@ impl P2PNode {
 
         let self_peer = P2PPeer::from(peer_type, id, SocketAddr::new(ip, own_peer_port));
 
-        let (dump_tx, _dump_rx) = std::sync::mpsc::sync_channel(config::DUMP_QUEUE_DEPTH);
-        let (act_tx, _act_rx) = std::sync::mpsc::sync_channel(config::DUMP_SWITCH_QUEUE_DEPTH);
+        let (dump_tx, _dump_rx) = crossbeam_channel::bounded(config::DUMP_QUEUE_DEPTH);
+        let (act_tx, _act_rx) = crossbeam_channel::bounded(config::DUMP_SWITCH_QUEUE_DEPTH);
 
         #[cfg(feature = "network_dump")]
         create_dump_thread(ip, id, _dump_rx, _act_rx, &conf.common.data_dir);
@@ -884,7 +884,7 @@ impl P2PNode {
         }
     }
 
-    pub fn dump_start(&mut self, log_dumper: SyncSender<DumpItem>) {
+    pub fn dump_start(&mut self, log_dumper: Sender<DumpItem>) {
         self.connection_handler.log_dumper = Some(log_dumper);
     }
 

@@ -14,6 +14,7 @@ use std::alloc::System;
 static A: System = System;
 
 use concordium_common::QueueMsg::Relay;
+use crossbeam_channel;
 use failure::Error;
 use p2p_client::{
     client::utils as client_utils,
@@ -23,7 +24,6 @@ use p2p_client::{
     stats_export_service::StatsServiceMode,
     utils::get_config_and_logging_setup,
 };
-use std::sync::mpsc;
 
 fn main() -> Result<(), Error> {
     let (mut conf, app_prefs) = get_config_and_logging_setup()?;
@@ -67,10 +67,10 @@ fn main() -> Result<(), Error> {
         _ => format!("{}", P2PNodeId::default()),
     };
 
-    let (rpc_tx, _) = std::sync::mpsc::sync_channel(config::RPC_QUEUE_DEPTH);
+    let (rpc_tx, _) = crossbeam_channel::bounded(config::RPC_QUEUE_DEPTH);
 
     let node = if conf.common.debug {
-        let (sender, receiver) = mpsc::sync_channel(config::EVENT_LOG_QUEUE_DEPTH);
+        let (sender, receiver) = crossbeam_channel::bounded(config::EVENT_LOG_QUEUE_DEPTH);
         let _guard = spawn_or_die!("Log loop", move || loop {
             if let Ok(Relay(msg)) = receiver.recv() {
                 info!("{}", msg);

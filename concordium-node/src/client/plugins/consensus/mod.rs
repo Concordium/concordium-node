@@ -9,12 +9,13 @@ pub const FILE_NAME_SUFFIX_BAKER_PRIVATE_JSON: &str = "-credentials.json";
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use failure::Fallible;
 
+use crossbeam_channel::TrySendError;
 use std::{
     convert::TryFrom,
     fs::OpenOptions,
     io::{Read, Seek, SeekFrom, Write},
     mem,
-    sync::{mpsc::TrySendError, Arc, RwLock},
+    sync::{Arc, RwLock},
 };
 
 use concordium_common::{
