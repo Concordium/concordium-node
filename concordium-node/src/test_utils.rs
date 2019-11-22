@@ -15,12 +15,12 @@ use crate::{
 };
 use concordium_common::{hybrid_buf::HybridBuf, serial::Endianness, PacketType, QueueMsg};
 
+use crossbeam_channel::{self, Receiver};
 use std::{
     net::TcpListener,
     path::PathBuf,
     sync::{
         atomic::{AtomicUsize, Ordering},
-        mpsc::Receiver,
         Arc, Once,
     },
     thread,
@@ -103,7 +103,7 @@ pub fn make_node_and_sync(
     networks: Vec<u16>,
     node_type: PeerType,
 ) -> Fallible<(Arc<P2PNode>)> {
-    let (rpc_tx, _rpc_rx) = std::sync::mpsc::sync_channel(64);
+    let (rpc_tx, _rpc_rx) = crossbeam_channel::bounded(64);
 
     // locally-run tests and benches can be polled with a much greater frequency
     let mut config = get_test_config(port, networks);
@@ -136,8 +136,8 @@ pub fn make_node_and_sync_with_rpc(
     Receiver<NetworkMessage>,
     Receiver<NetworkMessage>,
 )> {
-    let (_, msg_wait_rx) = std::sync::mpsc::sync_channel(64);
-    let (rpc_tx, rpc_rx) = std::sync::mpsc::sync_channel(64);
+    let (_, msg_wait_rx) = crossbeam_channel::bounded(64);
+    let (rpc_tx, rpc_rx) = crossbeam_channel::bounded(64);
 
     // locally-run tests and benches can be polled with a much greater frequency
     let mut config = get_test_config(port, networks);

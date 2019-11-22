@@ -42,7 +42,7 @@ use failure::Fallible;
 use rkv::{Manager, Rkv};
 
 use std::{
-    sync::{mpsc, Arc},
+    sync::Arc,
     thread::{self, JoinHandle},
     time::Duration,
 };
@@ -76,7 +76,7 @@ fn main() -> Fallible<()> {
     info!("Debugging enabled: {}", conf.common.debug);
 
     let (subscription_queue_in, subscription_queue_out) =
-        mpsc::sync_channel(config::RPC_QUEUE_DEPTH);
+        crossbeam_channel::bounded(config::RPC_QUEUE_DEPTH);
 
     // Thread #1: instantiate the P2PNode
     let node = instantiate_node(
@@ -206,7 +206,7 @@ fn instantiate_node(
     conf: &config::Config,
     app_prefs: &mut config::AppPreferences,
     stats_export_service: Option<StatsExportService>,
-    subscription_queue_in: mpsc::SyncSender<NetworkMessage>,
+    subscription_queue_in: crossbeam_channel::Sender<NetworkMessage>,
 ) -> Arc<P2PNode> {
     let node_id = match conf.common.id.clone() {
         None => match app_prefs.get_config(config::APP_PREFERENCES_PERSISTED_NODE_ID) {
@@ -249,7 +249,7 @@ fn instantiate_node(
 
     // Start the thread reading P2PEvents from P2PNode
     if conf.common.debug {
-        let (sender, receiver) = mpsc::sync_channel(config::EVENT_LOG_QUEUE_DEPTH);
+        let (sender, receiver) = crossbeam_channel::bounded(config::EVENT_LOG_QUEUE_DEPTH);
         let _guard = spawn_or_die!("Log loop", move || loop {
             if let Ok(Relay(msg)) = receiver.recv() {
                 info!("{}", msg);
