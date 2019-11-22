@@ -14,6 +14,7 @@ mod tests {
         },
     };
 
+    use crossbeam_channel;
     use rand::{distributions::Standard, thread_rng, Rng};
     use std::{convert::TryFrom, thread, time};
 
@@ -80,7 +81,7 @@ mod tests {
     pub fn e2e_004_01_close_and_join_on_not_spawned_node() -> Fallible<()> {
         setup_logger();
 
-        let (rpc_tx, _) = std::sync::mpsc::sync_channel(64);
+        let (rpc_tx, _) = crossbeam_channel::bounded(64);
         let node = P2PNode::new(
             None,
             &get_test_config(next_available_port(), vec![100]),
