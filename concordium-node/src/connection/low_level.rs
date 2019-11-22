@@ -27,21 +27,71 @@ use std::{
 
 type PayloadSize = u32;
 const PAYLOAD_SIZE: usize = mem::size_of::<PayloadSize>();
+const MAX_MESSAGE_LEN: usize = PAYLOAD_SIZE + NOISE_MAX_MESSAGE_LEN;
 const WRITE_QUEUE_ALLOC: usize = 4 * 1024 * 1024;
+const SOCKET_WRITE_SIZE: usize = 16 * 1024;
 
 /// The single message currently being read from the socket along with its
 /// pending length.
 #[derive(Default)]
 struct IncomingMessage {
+    size_bytes:    Vec<u8>,
     pending_bytes: PayloadSize,
     message:       HybridBuf,
+}
+
+struct Buffers {
+    main:          [u8; MAX_MESSAGE_LEN],
+    secondary:     [u8; NOISE_MAX_MESSAGE_LEN],
+    secondary_len: Option<usize>,
+}
+
+impl Default for Buffers {
+    fn default() -> Self {
+        Self {
+            main:          [0u8; MAX_MESSAGE_LEN],
+            secondary:     [0u8; NOISE_MAX_MESSAGE_LEN],
+            secondary_len: None,
+        }
+    }
+}
+
+impl IncomingMessage {
+    fn is_size_known(&mut self) -> Fallible<bool> {
+        if self.pending_bytes != 0 {
+            Ok(true)
+        } else if self.size_bytes.len() == PAYLOAD_SIZE {
+            let expected_size =
+                PayloadSize::from_be_bytes((&self.size_bytes[..]).try_into().unwrap());
+            self.size_bytes.clear();
+
+            // check if the expected size doesn't exceed the protocol limit
+            if expected_size > PROTOCOL_MAX_MESSAGE_SIZE as PayloadSize {
+                bail!(
+                    "expected message size ({}) exceeds the maximum protocol size ({})",
+                    ByteSize(expected_size as u64).to_string_as(true),
+                    ByteSize(PROTOCOL_MAX_MESSAGE_SIZE as u64).to_string_as(true)
+                );
+            }
+
+            trace!(
+                "Expecting a {} message",
+                ByteSize(expected_size as u64).to_string_as(true)
+            );
+            self.pending_bytes = expected_size;
+
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
 }
 
 pub struct ConnectionLowLevel {
     pub conn_ref: Option<Pin<Arc<Connection>>>,
     pub socket: TcpStream,
     noise_session: NoiseSession,
-    buffer: [u8; NOISE_MAX_MESSAGE_LEN],
+    buffers: Buffers,
     incoming_msg: IncomingMessage,
     /// A queue for bytes waiting to be written to the socket
     output_queue: VecDeque<u8>,
@@ -75,7 +125,13 @@ macro_rules! send_xx_msg {
 macro_rules! handle_io_read {
     ($result:expr, $default:expr) => {
         match $result {
-            Ok(res) => res,
+            Ok(num_bytes) => {
+                trace!(
+                    "Read {} from the socket",
+                    ByteSize(num_bytes as u64).to_string_as(true)
+                );
+                num_bytes
+            }
             Err(e) if e.kind() == ErrorKind::WouldBlock => return Ok($default),
             Err(e) => return Err(e.into()),
         }
@@ -105,7 +161,7 @@ impl ConnectionLowLevel {
             conn_ref: None,
             socket,
             noise_session: start_noise_session(is_initiator),
-            buffer: [0; NOISE_MAX_MESSAGE_LEN],
+            buffers: Buffers::default(),
             incoming_msg: IncomingMessage::default(),
             output_queue: VecDeque::with_capacity(WRITE_QUEUE_ALLOC),
         }
@@ -167,7 +223,7 @@ impl ConnectionLowLevel {
             match self.read_from_socket() {
                 Ok(Some(message)) => self.conn().process_message(message, deduplication_queues)?,
                 Ok(None) => return Ok(()), // this read would be blocking or it was a handshake
-                Err(e) => bail!("can't read from the socket: {}", e),
+                Err(e) => bail!("Can't read from the socket: {}", e),
             }
         }
     }
@@ -175,80 +231,65 @@ impl ConnectionLowLevel {
     /// Attempts to read a complete message from the socket.
     #[inline]
     fn read_from_socket(&mut self) -> Fallible<Option<HybridBuf>> {
-        let read_result = if self.incoming_msg.pending_bytes == 0 {
-            self.read_expected_size()?
+        let mut read_bytes = if let Some(len) = self.buffers.secondary_len.take() {
+            self.buffers.main[..len].copy_from_slice(&self.buffers.secondary[..len]);
+            len
         } else {
-            self.read_payload()?
+            handle_io_read!(
+                self.socket.read(&mut self.buffers.main[..MAX_MESSAGE_LEN]),
+                None
+            )
         };
 
-        match read_result {
-            Some(msg) => {
-                if !self.is_post_handshake() {
-                    match self.noise_session.get_message_count() {
-                        0 if !self.noise_session.is_initiator() => self.process_msg_a(msg),
-                        1 if self.noise_session.is_initiator() => self.process_msg_b(msg),
-                        2 if !self.noise_session.is_initiator() => self.process_msg_c(msg),
-                        _ => bail!("Invalid XX handshake"),
-                    }?;
-                    Ok(None)
-                } else {
-                    Ok(Some(self.decrypt(msg)?))
+        if !self.incoming_msg.is_size_known()? {
+            let offset = self.incoming_msg.size_bytes.len() as usize;
+            let read_size = cmp::min(read_bytes, PAYLOAD_SIZE - offset);
+            let written = self
+                .incoming_msg
+                .size_bytes
+                .write(&self.buffers.main[..read_size])?;
+            self.buffers.main.rotate_left(written);
+            read_bytes -= written;
+        }
+
+        // check if we can know the size of the message
+        if self.incoming_msg.is_size_known()? {
+            let expected_size = self.incoming_msg.pending_bytes;
+
+            // pre-allocate if we've not been reading the message yet
+            if self.incoming_msg.message.is_empty()? {
+                self.incoming_msg.message = HybridBuf::with_capacity(expected_size as usize)?;
+            }
+
+            let to_read = cmp::min(self.incoming_msg.pending_bytes as usize, read_bytes);
+            self.incoming_msg
+                .message
+                .write_all(&self.buffers.main[..to_read])?;
+            self.incoming_msg.pending_bytes -= to_read as PayloadSize;
+
+            if read_bytes > to_read {
+                let len = read_bytes - to_read;
+                self.buffers.secondary[..len].copy_from_slice(&self.buffers.main[to_read..][..len]);
+                self.buffers.secondary_len = Some(len);
+            }
+
+            // read the actual message
+            match self.read_payload()? {
+                Some(msg) => {
+                    if !self.is_post_handshake() {
+                        match self.noise_session.get_message_count() {
+                            0 if !self.noise_session.is_initiator() => self.process_msg_a(msg),
+                            1 if self.noise_session.is_initiator() => self.process_msg_b(msg),
+                            2 if !self.noise_session.is_initiator() => self.process_msg_c(msg),
+                            _ => bail!("invalid XX handshake"),
+                        }?;
+                        Ok(None)
+                    } else {
+                        Ok(Some(self.decrypt(msg)?))
+                    }
                 }
+                None => Ok(None),
             }
-            None => Ok(None),
-        }
-    }
-
-    /// Reads the number of bytes required to parse the length of
-    /// the encrypted message.
-    #[inline]
-    fn pending_bytes_to_know_expected_size(&self) -> Fallible<usize> {
-        let current_len = self.incoming_msg.message.len()? as usize;
-
-        if current_len < PAYLOAD_SIZE {
-            Ok(PAYLOAD_SIZE - current_len)
-        } else {
-            Ok(0)
-        }
-    }
-
-    /// It first reads `PayloadSize` bytes from the socket in order to
-    /// determine the incoming encrypted message's size; if it succeeds,
-    /// it follows up with a call to `read_payload`.
-    #[inline]
-    fn read_expected_size(&mut self) -> Fallible<Option<HybridBuf>> {
-        // only extract the bytes needed to know the size.
-        let min_bytes = self.pending_bytes_to_know_expected_size()?;
-        let read_bytes = handle_io_read!(self.socket.read(&mut self.buffer[..min_bytes]), None);
-
-        trace!(
-            "Read {} from the socket",
-            ByteSize(read_bytes as u64).to_string_as(true)
-        );
-
-        // once the number of bytes needed to read the message size is known, continue
-        if read_bytes == PAYLOAD_SIZE {
-            let expected_size =
-                PayloadSize::from_be_bytes((&self.buffer[..read_bytes]).try_into().unwrap()); // infallible
-
-            // check if the expected size doesn't exceed the protocol limit
-            if expected_size > PROTOCOL_MAX_MESSAGE_SIZE as PayloadSize {
-                bail!(
-                    "Expected message size ({}B) exceeds the maximum protocol size ({}B)",
-                    expected_size,
-                    PROTOCOL_MAX_MESSAGE_SIZE
-                );
-            }
-
-            trace!(
-                "Expecting a {} message",
-                ByteSize(expected_size as u64).to_string_as(true)
-            );
-            self.incoming_msg.pending_bytes = expected_size;
-            self.incoming_msg.message = HybridBuf::with_capacity(expected_size as usize)?;
-
-            // Read data next...
-            self.read_payload()
         } else {
             // We need more data to determine the message size.
             Ok(None)
@@ -285,16 +326,11 @@ impl ConnectionLowLevel {
             NOISE_MAX_MESSAGE_LEN,
         );
 
-        let read_bytes = handle_io_read!(self.socket.read(&mut self.buffer[..read_size]), 0);
-
-        trace!(
-            "Read {} from the socket",
-            ByteSize(read_bytes as u64).to_string_as(true)
-        );
+        let read_bytes = handle_io_read!(self.socket.read(&mut self.buffers.main[..read_size]), 0);
 
         self.incoming_msg
             .message
-            .write_all(&self.buffer[..read_bytes])?;
+            .write_all(&self.buffers.main[..read_bytes])?;
         self.incoming_msg.pending_bytes -= read_bytes as PayloadSize;
 
         Ok(read_bytes)
@@ -327,16 +363,22 @@ impl ConnectionLowLevel {
     #[inline]
     fn decrypt_chunk<W: Write>(&mut self, input: &mut HybridBuf, output: &mut W) -> Fallible<()> {
         let read_size = cmp::min(NOISE_MAX_MESSAGE_LEN, input.remaining_len()? as usize);
-        input.read_exact(&mut self.buffer[..read_size])?;
+        input.read_exact(&mut self.buffers.main[..read_size])?;
 
         if let Err(err) = self
             .noise_session
-            .recv_message(&mut self.buffer[..read_size])
+            .recv_message(&mut self.buffers.main[..read_size])
         {
-            error!("Decryption error: {}", err);
+            error!(
+                "{} Chunk size: {}/{}B, exhausted: {}",
+                err,
+                read_size,
+                input.len()?,
+                input.remaining_len()? == 0
+            );
             Err(err.into())
         } else {
-            output.write_all(&self.buffer[..read_size - MAC_LENGTH])?;
+            output.write_all(&self.buffers.main[..read_size - MAC_LENGTH])?;
             Ok(())
         }
     }
@@ -366,18 +408,14 @@ impl ConnectionLowLevel {
     /// or the write would be blocking.
     #[inline]
     pub fn flush_socket(&mut self) -> Fallible<()> {
-        loop {
-            if self.output_queue.is_empty() {
-                break;
-            }
-
-            let write_size = cmp::min(NOISE_MAX_MESSAGE_LEN, self.output_queue.len());
+        while !self.output_queue.is_empty() {
+            let write_size = cmp::min(SOCKET_WRITE_SIZE, self.output_queue.len());
 
             for (i, &byte) in self.output_queue.iter().take(write_size).enumerate() {
-                self.buffer[i] = byte;
+                self.buffers.main[i] = byte;
             }
 
-            let written = match self.socket.write(&self.buffer[..write_size]) {
+            let written = match self.socket.write(&self.buffers.main[..write_size]) {
                 Ok(num_bytes) => num_bytes,
                 Err(e) if e.kind() == ErrorKind::WouldBlock => break,
                 Err(e) => return Err(e.into()),
@@ -388,12 +426,7 @@ impl ConnectionLowLevel {
                 ByteSize(written as u64).to_string_as(true)
             );
 
-            if written == write_size {
-                self.output_queue.drain(..write_size);
-            } else {
-                self.output_queue.drain(..written);
-                break;
-            }
+            self.output_queue.drain(..written);
         }
 
         Ok(())
@@ -425,13 +458,14 @@ impl ConnectionLowLevel {
     fn encrypt_chunk(&mut self, input: &mut Cursor<&[u8]>) -> Fallible<()> {
         let remaining_len = input.get_ref().len() - input.position() as usize;
         let chunk_size = cmp::min(NOISE_MAX_PAYLOAD_LEN, remaining_len);
-        input.read_exact(&mut self.buffer[..chunk_size])?;
+        input.read_exact(&mut self.buffers.main[..chunk_size])?;
         let encrypted_len = chunk_size + MAC_LENGTH;
 
         self.noise_session
-            .send_message(&mut self.buffer[..encrypted_len])?;
+            .send_message(&mut self.buffers.main[..encrypted_len])?;
 
-        self.output_queue.extend(&self.buffer[..encrypted_len]);
+        self.output_queue
+            .extend(&self.buffers.main[..encrypted_len]);
 
         Ok(())
     }

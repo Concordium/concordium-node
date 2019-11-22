@@ -1199,7 +1199,10 @@ impl P2PNode {
                 if events
                     .iter()
                     .any(|event| event.token() == *token && event.readiness().is_readable())
-                    && low_level.read_stream(deduplication_queues).is_err()
+                    && low_level
+                        .read_stream(deduplication_queues)
+                        .map_err(|e| error!("{}", e))
+                        .is_err()
                 {
                     Some(*token)
                 } else {
