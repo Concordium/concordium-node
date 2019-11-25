@@ -85,6 +85,12 @@ impl IncomingMessage {
     }
 }
 
+enum ReadResult {
+    Complete(HybridBuf),
+    Incomplete,
+    WouldBlock,
+}
+
 pub struct ConnectionLowLevel {
     pub conn_ref: Option<Pin<Arc<Connection>>>,
     pub socket: TcpStream,
@@ -117,22 +123,6 @@ macro_rules! send_xx_msg {
         trace!("Sending message {}", $idx);
         $self.output_queue.extend(msg);
         $self.flush_socket()?;
-    };
-}
-
-macro_rules! handle_io_read {
-    ($result:expr, $default:expr) => {
-        match $result {
-            Ok(num_bytes) => {
-                trace!(
-                    "Read {} from the socket",
-                    ByteSize(num_bytes as u64).to_string_as(true)
-                );
-                num_bytes
-            }
-            Err(e) if e.kind() == ErrorKind::WouldBlock => return Ok($default),
-            Err(e) => return Err(e.into()),
-        }
     };
 }
 
@@ -216,11 +206,12 @@ impl ConnectionLowLevel {
     /// Keeps reading from the socket as long as there is data to be read
     /// and the operation is not blocking.
     #[inline]
-    pub fn read_stream(&mut self, deduplication_queues: &DeduplicationQueues) -> Fallible<()> {
+    pub fn read_stream(&mut self, dedup_queues: &DeduplicationQueues) -> Fallible<()> {
         loop {
             match self.read_from_socket() {
-                Ok(Some(message)) => self.conn().process_message(message, deduplication_queues)?,
-                Ok(None) => return Ok(()), // this read would be blocking or it was a handshake
+                Ok(ReadResult::Complete(msg)) => self.conn().process_message(msg, dedup_queues)?,
+                Ok(ReadResult::Incomplete) => {} // continue reading from the socket
+                Ok(ReadResult::WouldBlock) => return Ok(()), // stop reading for now
                 Err(e) => bail!("Can't read from the socket: {}", e),
             }
         }
@@ -228,13 +219,23 @@ impl ConnectionLowLevel {
 
     /// Attempts to read a complete message from the socket.
     #[inline]
-    fn read_from_socket(&mut self) -> Fallible<Option<HybridBuf>> {
+    fn read_from_socket(&mut self) -> Fallible<ReadResult> {
         let mut read_bytes = if let Some(len) = self.buffers.secondary_len.take() {
             self.buffers.main[..len].copy_from_slice(&self.buffers.secondary[..len]);
             len
         } else {
             let len = self.buffers.main.len();
-            handle_io_read!(self.socket.read(&mut self.buffers.main[..len]), None)
+            match self.socket.read(&mut self.buffers.main[..len]) {
+                Ok(num_bytes) => {
+                    trace!(
+                        "Read {} from the socket",
+                        ByteSize(num_bytes as u64).to_string_as(true)
+                    );
+                    num_bytes
+                }
+                Err(e) if e.kind() == ErrorKind::WouldBlock => return Ok(ReadResult::WouldBlock),
+                Err(e) => return Err(e.into()),
+            }
         };
 
         if !self.incoming_msg.is_size_known()? {
@@ -269,67 +270,29 @@ impl ConnectionLowLevel {
                 self.buffers.secondary_len = Some(len);
             }
 
-            // read the actual message
-            match self.read_payload()? {
-                Some(msg) => {
-                    if !self.is_post_handshake() {
-                        match self.noise_session.get_message_count() {
-                            0 if !self.noise_session.is_initiator() => self.process_msg_a(msg),
-                            1 if self.noise_session.is_initiator() => self.process_msg_b(msg),
-                            2 if !self.noise_session.is_initiator() => self.process_msg_c(msg),
-                            _ => bail!("invalid XX handshake"),
-                        }?;
-                        Ok(None)
-                    } else {
-                        Ok(Some(self.decrypt(msg)?))
-                    }
+            if self.incoming_msg.pending_bytes == 0 {
+                trace!("The message was fully read");
+                self.incoming_msg.message.rewind()?;
+                let msg =
+                    mem::replace(&mut self.incoming_msg.message, HybridBuf::with_capacity(0)?);
+
+                if !self.is_post_handshake() {
+                    match self.noise_session.get_message_count() {
+                        0 if !self.noise_session.is_initiator() => self.process_msg_a(msg),
+                        1 if self.noise_session.is_initiator() => self.process_msg_b(msg),
+                        2 if !self.noise_session.is_initiator() => self.process_msg_c(msg),
+                        _ => bail!("invalid XX handshake"),
+                    }?;
+                    Ok(ReadResult::WouldBlock)
+                } else {
+                    Ok(ReadResult::Complete(self.decrypt(msg)?))
                 }
-                None => Ok(None),
+            } else {
+                Ok(ReadResult::Incomplete)
             }
         } else {
-            // We need more data to determine the message size.
-            Ok(None)
+            Ok(ReadResult::Incomplete)
         }
-    }
-
-    /// Read data from the socket until the expected incoming message
-    /// size is reached.
-    #[inline]
-    fn read_payload(&mut self) -> Fallible<Option<HybridBuf>> {
-        while self.incoming_msg.pending_bytes > 0 {
-            if self.read_intermediate()? == 0 {
-                break;
-            }
-        }
-
-        if self.incoming_msg.pending_bytes == 0 {
-            trace!("The message was fully read");
-            self.incoming_msg.message.rewind()?;
-            let message =
-                mem::replace(&mut self.incoming_msg.message, HybridBuf::with_capacity(0)?);
-
-            Ok(Some(message))
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// Collects at most `NOISE_MAX_MESSAGE_LEN` from the socket.
-    #[inline]
-    fn read_intermediate(&mut self) -> Fallible<usize> {
-        let read_size = cmp::min(
-            self.incoming_msg.pending_bytes as usize,
-            self.buffers.main.len(),
-        );
-
-        let read_bytes = handle_io_read!(self.socket.read(&mut self.buffers.main[..read_size]), 0);
-
-        self.incoming_msg
-            .message
-            .write_all(&self.buffers.main[..read_bytes])?;
-        self.incoming_msg.pending_bytes -= read_bytes as PayloadSize;
-
-        Ok(read_bytes)
     }
 
     /// Decrypt a full message read from the socket.
