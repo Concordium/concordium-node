@@ -2,7 +2,7 @@
 # Define an export for CONCORDIUM_P2P_DIR pointing to
 # the p2p-client checked out dir on your disk, and
 # include this file in your .zshrc or the like.
-# 
+#
 # For overrides such as feature gates et all, use the
 # environment variables CONCORDIUM_P2P_EXTRA_ARGS
 #
@@ -30,7 +30,7 @@ else
   CONCORDIUM_GHC_PLATFORM="linux"
 fi
 
-if (( ${+NIX_PATH} )); then
+if [[ -f "/etc/NIXOS" ]]; then
   NIXOS=1
   if (( ${+CONCORDIUM_P2P_EXTRA_ARGS} )); then
     CONCORDIUM_P2P_EXTRA_ARGS="$CONCORDIUM_P2P_EXTRA_ARGS --features=static"
@@ -98,7 +98,7 @@ function testnet_bootstrap() {
     if [ $# > 0 ] ; then
         cmd="$cmd $@"
     fi
-    if (( $NIXOS == 1 ))  && [[ "$IN_NIX_SHELL" == "" ]]  ; then 
+    if (( $NIXOS == 1 ))  && [[ "$IN_NIX_SHELL" == "" ]]  ; then
       cmd="nix-shell --run '$cmd'"
     fi
     cd $CONCORDIUM_P2P_DIR && eval "$cmd"
@@ -150,8 +150,8 @@ function testnet_node() {
     if [ $# > 0 ] ; then
         cmd="$cmd $@"
     fi
-    
-    if (( $NIXOS == 1 ))  && [[ "$IN_NIX_SHELL" == "" ]]  ; then 
+
+    if (( $NIXOS == 1 ))  && [[ "$IN_NIX_SHELL" == "" ]]  ; then
       cmd="nix-shell --run '$cmd'"
     fi
     ( cd $CONCORDIUM_P2P_DIR && eval "$cmd"  )
@@ -213,7 +213,7 @@ install_lint_fmt() {
 concordium_p2p_nix_shell() {
   if [[ "$IN_NIX_SHELL" != "" ]]  ; then
     echo "Already dropped into a nix-shell"
-  elif (( $NIXOS == 1 )) ; then 
+  elif (( $NIXOS == 1 )) ; then
     (
       cd $CONCORDIUM_P2P_DIR &&
       printf "Entering nix-shell environment for p2p-client\n"
