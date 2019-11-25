@@ -239,6 +239,8 @@ impl ConnectionLowLevel {
     /// Attempts to read a complete message from the socket.
     #[inline]
     fn read_from_socket(&mut self) -> Fallible<ReadResult> {
+        // if there's any bytes to be read from the secondary buffer, process them
+        // before reading from the socket again
         let mut read_bytes = if let Some(len) = self.buffers.secondary_len.take() {
             self.buffers.main[..len].copy_from_slice(&self.buffers.secondary[..len]);
             len
@@ -272,7 +274,7 @@ impl ConnectionLowLevel {
             0
         };
 
-        // check if we can know the size of the message
+        // check if we can know the size of the message now
         if self.incoming_msg.is_size_known()? {
             let expected_size = self.incoming_msg.pending_bytes;
 
@@ -287,6 +289,8 @@ impl ConnectionLowLevel {
                 .write_all(&self.buffers.main[offset..][..to_read])?;
             self.incoming_msg.pending_bytes -= to_read as PayloadSize;
 
+            // if the socket read was greater than the number of bytes remaining to read the
+            // current message, preserve those bytes in the secondary buffer
             if read_bytes > to_read {
                 let len = read_bytes - to_read;
                 self.buffers.secondary[..len]
