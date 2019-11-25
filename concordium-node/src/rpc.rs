@@ -1,5 +1,3 @@
-mod fails;
-
 #[cfg(feature = "benchmark")]
 use crate::utils;
 use crate::{
@@ -8,7 +6,7 @@ use crate::{
         P2PNodeId, PeerType,
     },
     configuration,
-    failure::Fallible,
+    failure::{Error, Fallible},
     network::{NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacketType},
     p2p::{
         banned_nodes::BannedNode,
@@ -99,7 +97,7 @@ impl RpcServerImpl {
             .register_service(service)
             .bind(listen_addr, listen_port)
             .build()
-            .map_err(|_| fails::ServerBuildError)?;
+            .map_err(|e| Error::from(e))?;
 
         server.start();
         self.set_server(server)?;
@@ -110,9 +108,7 @@ impl RpcServerImpl {
     #[inline]
     pub fn stop_server(&mut self) -> Fallible<()> {
         if let Some(ref mut srv) = *safe_lock!(self.server)? {
-            srv.shutdown()
-                .wait()
-                .map_err(fails::GeneralRpcError::from)?;
+            srv.shutdown().wait().map_err(|e| Error::from(e))?;
         }
         Ok(())
     }
