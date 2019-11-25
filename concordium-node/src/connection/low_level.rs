@@ -396,33 +396,44 @@ impl ConnectionLowLevel {
     #[inline]
     pub fn flush_socket(&mut self) -> Fallible<()> {
         while !self.output_queue.is_empty() {
-            let write_size = cmp::min(self.write_size(), self.output_queue.len());
-
-            let (front, back) = self.output_queue.as_slices();
-
-            let front_len = cmp::min(front.len(), write_size);
-            self.buffers.main[..front_len].copy_from_slice(&front[..front_len]);
-
-            let back_len = write_size - front_len;
-            if back_len > 0 {
-                self.buffers.main[front_len..][..back_len].copy_from_slice(&back[..back_len]);
-            }
-
-            let written = match self.socket.write(&self.buffers.main[..write_size]) {
-                Ok(num_bytes) => num_bytes,
-                Err(e) if e.kind() == ErrorKind::WouldBlock => break,
+            match self.flush_socket_once() {
+                Ok(0) => break,
+                Ok(_) => {}
                 Err(e) => return Err(e.into()),
-            };
-
-            trace!(
-                "Written {} to the socket",
-                ByteSize(written as u64).to_string_as(true)
-            );
-
-            self.output_queue.drain(..written);
+            }
         }
 
         Ok(())
+    }
+
+    #[inline]
+    fn flush_socket_once(&mut self) -> Fallible<usize> {
+        let write_size = cmp::min(self.write_size(), self.output_queue.len());
+
+        let (front, back) = self.output_queue.as_slices();
+
+        let front_len = cmp::min(front.len(), write_size);
+        self.buffers.main[..front_len].copy_from_slice(&front[..front_len]);
+
+        let back_len = write_size - front_len;
+        if back_len > 0 {
+            self.buffers.main[front_len..][..back_len].copy_from_slice(&back[..back_len]);
+        }
+
+        let written = match self.socket.write(&self.buffers.main[..write_size]) {
+            Ok(num_bytes) => num_bytes,
+            Err(e) if e.kind() == ErrorKind::WouldBlock => return Ok(0),
+            Err(e) => return Err(e.into()),
+        };
+
+        self.output_queue.drain(..written);
+
+        trace!(
+            "Written {} to the socket",
+            ByteSize(written as u64).to_string_as(true)
+        );
+
+        Ok(written)
     }
 
     /// It encrypts `input` and enqueues the encrypted chunks preceded by the
@@ -443,7 +454,7 @@ impl ConnectionLowLevel {
             self.encrypt_chunk(&mut input)?;
 
             if self.output_queue.len() >= self.write_size() {
-                self.flush_socket()?;
+                self.flush_socket_once()?;
             }
         }
 
