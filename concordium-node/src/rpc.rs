@@ -97,7 +97,7 @@ impl RpcServerImpl {
             .register_service(service)
             .bind(listen_addr, listen_port)
             .build()
-            .map_err(|e| Error::from(e))?;
+            .map_err(Error::from)?;
 
         server.start();
         self.set_server(server)?;
@@ -108,7 +108,7 @@ impl RpcServerImpl {
     #[inline]
     pub fn stop_server(&mut self) -> Fallible<()> {
         if let Some(ref mut srv) = *safe_lock!(self.server)? {
-            srv.shutdown().wait().map_err(|e| Error::from(e))?;
+            srv.shutdown().wait().map_err(Error::from)?;
         }
         Ok(())
     }
@@ -1540,22 +1540,17 @@ mod tests {
     #[test]
     fn test_peer_stats() -> Fallible<()> {
         let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
-        let req = crate::proto::PeersRequest::new();
-        let rcv = client
-            .peer_stats_opt(&req.clone(), callopts.clone())?
-            .get_peerstats()
-            .to_vec();
-        assert!(rcv.is_empty());
         let port = next_available_port();
         let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
         connect(&node2, &rpc_serv.node)?;
         await_handshake(&node2)?;
         let req = crate::proto::PeersRequest::new();
         let rcv = client
-            .peer_stats_opt(&req.clone(), callopts.clone())?
+            .peer_stats_opt(&req, callopts.clone())?
             .get_peerstats()
             .to_vec();
-        assert!(rcv.len() == 1);
+        assert_eq!(node2.get_peer_stats(None).len(), 1);
+        assert_eq!(rcv.len(), 1);
         assert_eq!(rcv[0].node_id, node2.id().to_string());
         Ok(())
     }
