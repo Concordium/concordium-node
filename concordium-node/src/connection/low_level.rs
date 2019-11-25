@@ -110,13 +110,15 @@ enum ReadResult {
     WouldBlock,
 }
 
+/// The `Connection`'s socket, noise session and some helper objects.
 pub struct ConnectionLowLevel {
+    /// The reference to the parent `Connection` object.
     pub conn_ref: Option<Pin<Arc<Connection>>>,
     pub socket: TcpStream,
     noise_session: NoiseSession,
     buffers: Buffers,
     incoming_msg: IncomingMessage,
-    /// A queue for bytes waiting to be written to the socket
+    /// A priority queue for bytes waiting to be written to the socket.
     output_queue: VecDeque<u8>,
 }
 
@@ -384,7 +386,7 @@ impl ConnectionLowLevel {
         self.encrypt_and_enqueue(&input)
     }
 
-    /// Writes enequeued messages to the socket until the queue is exhausted
+    /// Writes enequeued bytes to the socket until the queue is exhausted
     /// or the write would be blocking.
     #[inline]
     pub fn flush_socket(&mut self) -> Fallible<()> {
@@ -399,6 +401,7 @@ impl ConnectionLowLevel {
         Ok(())
     }
 
+    /// Writes a single batch of enqueued bytes to the socket.
     #[inline]
     fn flush_socket_once(&mut self) -> Fallible<usize> {
         let write_size = cmp::min(self.write_size(), self.output_queue.len());
@@ -472,6 +475,7 @@ impl ConnectionLowLevel {
         Ok(())
     }
 
+    /// Get the desired socket write size.
     #[inline]
     fn write_size(&self) -> usize { self.conn().handler().config.socket_write_size }
 }
