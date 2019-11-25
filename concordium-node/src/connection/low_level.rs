@@ -25,22 +25,35 @@ use std::{
     time::Duration,
 };
 
+/// The size of the noise message payload.
 type PayloadSize = u32;
 const PAYLOAD_SIZE: usize = mem::size_of::<PayloadSize>();
+/// The size of the initial socket write queue allocation.
 const WRITE_QUEUE_ALLOC: usize = 1024 * 1024;
 
-/// The single message currently being read from the socket along with its
-/// pending length.
+/// A single encrypted message currently being read from the socket.
 #[derive(Default)]
 struct IncomingMessage {
-    size_bytes:    Vec<u8>,
+    /// Contains bytes comprising the length of the message.
+    size_bytes: Vec<u8>,
+    /// The number of bytes remaining to be read in order to complete the
+    /// current message.
     pending_bytes: PayloadSize,
-    message:       HybridBuf,
+    /// The encrypted message currently being read.
+    message: HybridBuf,
 }
 
+/// The buffers used to encrypt/decrypt noise messages and contain reads from
+/// the socket.
 struct Buffers {
-    main:          Box<[u8]>,
-    secondary:     Box<[u8]>,
+    /// The default buffer.
+    main: Box<[u8]>,
+    /// A buffer used when we've read more data than needed for the currently
+    /// read message; it preserves that data so that the currenlt message
+    /// can be decrypted using the default buffer.
+    secondary: Box<[u8]>,
+    /// The length of the data in the secondary buffer (if there is any data of
+    /// interest).
     secondary_len: Option<usize>,
 }
 
@@ -55,6 +68,7 @@ impl Buffers {
 }
 
 impl IncomingMessage {
+    /// Checks whether the length of the currently read message is known.
     fn is_size_known(&mut self) -> Fallible<bool> {
         if self.pending_bytes != 0 {
             Ok(true)
@@ -85,9 +99,14 @@ impl IncomingMessage {
     }
 }
 
+/// A type used to indicate what the result of the current read from the socket
+/// is.
 enum ReadResult {
+    /// A single message was fully read.
     Complete(HybridBuf),
+    /// The currently read message is incomplete - further reads are needed.
     Incomplete,
+    /// The current attempt to read from the socket would be blocking.
     WouldBlock,
 }
 
@@ -238,6 +257,7 @@ impl ConnectionLowLevel {
             }
         };
 
+        // check if we've read enough bytes to know the message size
         if !self.incoming_msg.is_size_known()? {
             let offset = self.incoming_msg.size_bytes.len() as usize;
             let read_size = cmp::min(read_bytes, PAYLOAD_SIZE - offset);
