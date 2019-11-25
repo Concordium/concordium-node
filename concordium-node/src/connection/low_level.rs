@@ -25,22 +25,35 @@ use std::{
     time::Duration,
 };
 
+/// The size of the noise message payload.
 type PayloadSize = u32;
 const PAYLOAD_SIZE: usize = mem::size_of::<PayloadSize>();
+/// The size of the initial socket write queue allocation.
 const WRITE_QUEUE_ALLOC: usize = 1024 * 1024;
 
-/// The single message currently being read from the socket along with its
-/// pending length.
+/// A single encrypted message currently being read from the socket.
 #[derive(Default)]
 struct IncomingMessage {
-    size_bytes:    Vec<u8>,
+    /// Contains bytes comprising the length of the message.
+    size_bytes: Vec<u8>,
+    /// The number of bytes remaining to be read in order to complete the
+    /// current message.
     pending_bytes: PayloadSize,
-    message:       HybridBuf,
+    /// The encrypted message currently being read.
+    message: HybridBuf,
 }
 
+/// The buffers used to encrypt/decrypt noise messages and contain reads from
+/// the socket.
 struct Buffers {
-    main:          Box<[u8]>,
-    secondary:     Box<[u8]>,
+    /// The default buffer.
+    main: Box<[u8]>,
+    /// A buffer used when we've read more data than needed for the currently
+    /// read message; it preserves that data so that the currenlt message
+    /// can be decrypted using the default buffer.
+    secondary: Box<[u8]>,
+    /// The length of the data in the secondary buffer (if there is any data of
+    /// interest).
     secondary_len: Option<usize>,
 }
 
@@ -55,6 +68,7 @@ impl Buffers {
 }
 
 impl IncomingMessage {
+    /// Checks whether the length of the currently read message is known.
     fn is_size_known(&mut self) -> Fallible<bool> {
         if self.pending_bytes != 0 {
             Ok(true)
@@ -85,19 +99,26 @@ impl IncomingMessage {
     }
 }
 
+/// A type used to indicate what the result of the current read from the socket
+/// is.
 enum ReadResult {
+    /// A single message was fully read.
     Complete(HybridBuf),
+    /// The currently read message is incomplete - further reads are needed.
     Incomplete,
+    /// The current attempt to read from the socket would be blocking.
     WouldBlock,
 }
 
+/// The `Connection`'s socket, noise session and some helper objects.
 pub struct ConnectionLowLevel {
+    /// The reference to the parent `Connection` object.
     pub conn_ref: Option<Pin<Arc<Connection>>>,
     pub socket: TcpStream,
     noise_session: NoiseSession,
     buffers: Buffers,
     incoming_msg: IncomingMessage,
-    /// A queue for bytes waiting to be written to the socket
+    /// A priority queue for bytes waiting to be written to the socket.
     output_queue: VecDeque<u8>,
 }
 
@@ -220,6 +241,8 @@ impl ConnectionLowLevel {
     /// Attempts to read a complete message from the socket.
     #[inline]
     fn read_from_socket(&mut self) -> Fallible<ReadResult> {
+        // if there's any bytes to be read from the secondary buffer, process them
+        // before reading from the socket again
         let mut read_bytes = if let Some(len) = self.buffers.secondary_len.take() {
             self.buffers.main[..len].copy_from_slice(&self.buffers.secondary[..len]);
             len
@@ -238,18 +261,22 @@ impl ConnectionLowLevel {
             }
         };
 
-        if !self.incoming_msg.is_size_known()? {
-            let offset = self.incoming_msg.size_bytes.len() as usize;
-            let read_size = cmp::min(read_bytes, PAYLOAD_SIZE - offset);
+        // if we don't know the length of the incoming message, read it from the
+        // collected bytes; that number of bytes needs to be accounted for later
+        let offset = if !self.incoming_msg.is_size_known()? {
+            let curr_offset = self.incoming_msg.size_bytes.len() as usize;
+            let read_size = cmp::min(read_bytes, PAYLOAD_SIZE - curr_offset);
             let written = self
                 .incoming_msg
                 .size_bytes
                 .write(&self.buffers.main[..read_size])?;
-            self.buffers.main.rotate_left(written);
             read_bytes -= written;
-        }
+            curr_offset + written
+        } else {
+            0
+        };
 
-        // check if we can know the size of the message
+        // check if we can know the size of the message now
         if self.incoming_msg.is_size_known()? {
             let expected_size = self.incoming_msg.pending_bytes;
 
@@ -261,12 +288,15 @@ impl ConnectionLowLevel {
             let to_read = cmp::min(self.incoming_msg.pending_bytes as usize, read_bytes);
             self.incoming_msg
                 .message
-                .write_all(&self.buffers.main[..to_read])?;
+                .write_all(&self.buffers.main[offset..][..to_read])?;
             self.incoming_msg.pending_bytes -= to_read as PayloadSize;
 
+            // if the socket read was greater than the number of bytes remaining to read the
+            // current message, preserve those bytes in the secondary buffer
             if read_bytes > to_read {
                 let len = read_bytes - to_read;
-                self.buffers.secondary[..len].copy_from_slice(&self.buffers.main[to_read..][..len]);
+                self.buffers.secondary[..len]
+                    .copy_from_slice(&self.buffers.main[offset + to_read..][..len]);
                 self.buffers.secondary_len = Some(len);
             }
 
@@ -328,13 +358,6 @@ impl ConnectionLowLevel {
             .noise_session
             .recv_message(&mut self.buffers.main[..read_size])
         {
-            error!(
-                "{} Chunk size: {}/{}B, exhausted: {}",
-                err,
-                read_size,
-                input.len()?,
-                input.remaining_len()? == 0
-            );
             Err(err.into())
         } else {
             output.write_all(&self.buffers.main[..read_size - MAC_LENGTH])?;
@@ -363,38 +386,50 @@ impl ConnectionLowLevel {
         self.encrypt_and_enqueue(&input)
     }
 
-    /// Writes enequeued messages to the socket until the queue is exhausted
+    /// Writes enequeued bytes to the socket until the queue is exhausted
     /// or the write would be blocking.
     #[inline]
     pub fn flush_socket(&mut self) -> Fallible<()> {
         while !self.output_queue.is_empty() {
-            let write_size = cmp::min(self.write_size(), self.output_queue.len());
-
-            let (front, back) = self.output_queue.as_slices();
-
-            let front_len = cmp::min(front.len(), write_size);
-            self.buffers.main[..front_len].copy_from_slice(&front[..front_len]);
-
-            let back_len = write_size - front_len;
-            if back_len > 0 {
-                self.buffers.main[front_len..][..back_len].copy_from_slice(&back[..back_len]);
+            match self.flush_socket_once() {
+                Ok(0) => break,
+                Ok(_) => {}
+                Err(e) => return Err(e),
             }
-
-            let written = match self.socket.write(&self.buffers.main[..write_size]) {
-                Ok(num_bytes) => num_bytes,
-                Err(e) if e.kind() == ErrorKind::WouldBlock => break,
-                Err(e) => return Err(e.into()),
-            };
-
-            trace!(
-                "Written {} to the socket",
-                ByteSize(written as u64).to_string_as(true)
-            );
-
-            self.output_queue.drain(..written);
         }
 
         Ok(())
+    }
+
+    /// Writes a single batch of enqueued bytes to the socket.
+    #[inline]
+    fn flush_socket_once(&mut self) -> Fallible<usize> {
+        let write_size = cmp::min(self.write_size(), self.output_queue.len());
+
+        let (front, back) = self.output_queue.as_slices();
+
+        let front_len = cmp::min(front.len(), write_size);
+        self.buffers.main[..front_len].copy_from_slice(&front[..front_len]);
+
+        let back_len = write_size - front_len;
+        if back_len > 0 {
+            self.buffers.main[front_len..][..back_len].copy_from_slice(&back[..back_len]);
+        }
+
+        let written = match self.socket.write(&self.buffers.main[..write_size]) {
+            Ok(num_bytes) => num_bytes,
+            Err(e) if e.kind() == ErrorKind::WouldBlock => return Ok(0),
+            Err(e) => return Err(e.into()),
+        };
+
+        self.output_queue.drain(..written);
+
+        trace!(
+            "Written {} to the socket",
+            ByteSize(written as u64).to_string_as(true)
+        );
+
+        Ok(written)
     }
 
     /// It encrypts `input` and enqueues the encrypted chunks preceded by the
@@ -415,7 +450,7 @@ impl ConnectionLowLevel {
             self.encrypt_chunk(&mut input)?;
 
             if self.output_queue.len() >= self.write_size() {
-                self.flush_socket()?;
+                self.flush_socket_once()?;
             }
         }
 
@@ -440,6 +475,7 @@ impl ConnectionLowLevel {
         Ok(())
     }
 
+    /// Get the desired socket write size.
     #[inline]
     fn write_size(&self) -> usize { self.conn().handler().config.socket_write_size }
 }
