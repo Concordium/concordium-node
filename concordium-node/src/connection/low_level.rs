@@ -257,17 +257,20 @@ impl ConnectionLowLevel {
             }
         };
 
-        // check if we've read enough bytes to know the message size
-        if !self.incoming_msg.is_size_known()? {
-            let offset = self.incoming_msg.size_bytes.len() as usize;
-            let read_size = cmp::min(read_bytes, PAYLOAD_SIZE - offset);
+        // if we don't know the length of the incoming message, read it from the
+        // collected bytes; that number of bytes needs to be accounted for later
+        let offset = if !self.incoming_msg.is_size_known()? {
+            let curr_offset = self.incoming_msg.size_bytes.len() as usize;
+            let read_size = cmp::min(read_bytes, PAYLOAD_SIZE - curr_offset);
             let written = self
                 .incoming_msg
                 .size_bytes
                 .write(&self.buffers.main[..read_size])?;
-            self.buffers.main.rotate_left(written);
             read_bytes -= written;
-        }
+            curr_offset + written
+        } else {
+            0
+        };
 
         // check if we can know the size of the message
         if self.incoming_msg.is_size_known()? {
@@ -281,12 +284,13 @@ impl ConnectionLowLevel {
             let to_read = cmp::min(self.incoming_msg.pending_bytes as usize, read_bytes);
             self.incoming_msg
                 .message
-                .write_all(&self.buffers.main[..to_read])?;
+                .write_all(&self.buffers.main[offset..][..to_read])?;
             self.incoming_msg.pending_bytes -= to_read as PayloadSize;
 
             if read_bytes > to_read {
                 let len = read_bytes - to_read;
-                self.buffers.secondary[..len].copy_from_slice(&self.buffers.main[to_read..][..len]);
+                self.buffers.secondary[..len]
+                    .copy_from_slice(&self.buffers.main[offset + to_read..][..len]);
                 self.buffers.secondary_len = Some(len);
             }
 
