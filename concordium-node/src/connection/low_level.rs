@@ -394,7 +394,7 @@ impl ConnectionLowLevel {
             match self.flush_socket_once() {
                 Ok(0) => break,
                 Ok(_) => {}
-                Err(e) => return Err(e.into()),
+                Err(e) => return Err(e),
             }
         }
 
