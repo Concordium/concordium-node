@@ -356,13 +356,6 @@ impl ConnectionLowLevel {
             .noise_session
             .recv_message(&mut self.buffers.main[..read_size])
         {
-            error!(
-                "{} Chunk size: {}/{}B, exhausted: {}",
-                err,
-                read_size,
-                input.len()?,
-                input.remaining_len()? == 0
-            );
             Err(err.into())
         } else {
             output.write_all(&self.buffers.main[..read_size - MAC_LENGTH])?;
