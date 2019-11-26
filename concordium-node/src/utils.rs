@@ -6,10 +6,7 @@ use base64;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use env_logger::{Builder, Env};
 use failure::Fallible;
-use hacl_star::{
-    ed25519::{keypair, PublicKey, SecretKey, Signature},
-    sha2,
-};
+use hacl_star::ed25519::{keypair, PublicKey, SecretKey, Signature};
 use log::LevelFilter;
 use rand::rngs::OsRng;
 #[cfg(feature = "benchmark")]
@@ -22,27 +19,11 @@ use std::{
     str::{self, FromStr},
 };
 
-pub fn sha256(input: &str) -> [u8; 32] { sha256_bytes(input.as_bytes()) }
-
-pub fn sha256_bytes(input: &[u8]) -> [u8; 32] {
-    let mut output = [0; 32];
-    sha2::Sha256::hash(&mut output, input);
-    output
-}
-
 pub fn to_hex_string(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
-/// It transforms an hexadecimal string `hex` into binary data.
-pub fn from_hex_string(hex: &str) -> Result<Vec<u8>, std::num::ParseIntError> {
-    (0..hex.len())
-        .step_by(2)
-        .map(|idx| u8::from_str_radix(&hex[idx..idx + 2], 16))
-        .collect::<Result<Vec<u8>, _>>()
-}
-
-pub fn parse_ip_port(input: &str) -> Option<SocketAddr> {
+fn parse_ip_port(input: &str) -> Option<SocketAddr> {
     if let Some(n) = input.rfind(':') {
         let (ip, port) = input.split_at(n);
 
@@ -219,7 +200,7 @@ pub fn get_bootstrap_nodes(
     }
 }
 
-pub fn serialize_bootstrap_peers(peers: &[String]) -> Result<String, &'static str> {
+fn serialize_bootstrap_peers(peers: &[String]) -> Result<String, &'static str> {
     let mut buffer = format!("{:05}", peers.len());
 
     for peer in peers {
@@ -277,7 +258,7 @@ pub fn generate_bootstrap_dns(
         .collect())
 }
 
-pub fn read_peers_from_dns_entries(
+fn read_peers_from_dns_entries(
     entries: Vec<String>,
     public_key_str: &str,
 ) -> Result<Vec<SocketAddr>, &'static str> {
