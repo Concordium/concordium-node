@@ -2,7 +2,7 @@ cfg_if! {
     if #[cfg(feature = "instrumentation")] {
         use prometheus::{self, Encoder, IntCounter, IntGauge, Opts, Registry, TextEncoder};
         use crate::common::p2p_node_id::P2PNodeId;
-        use std::{net::SocketAddr, thread, time, sync::RwLock};
+        use std::{net::SocketAddr, thread, time, sync::{Arc, RwLock}};
         use gotham::{
             handler::IntoResponse,
             helpers::http::response::create_response,
@@ -19,7 +19,7 @@ cfg_if! {
 }
 use crate::configuration;
 use failure::Fallible;
-use std::{fmt, sync::Arc};
+use std::fmt;
 
 #[derive(Clone, Debug, PartialEq, Copy)]
 pub enum StatsServiceMode {
@@ -63,7 +63,6 @@ cfg_if! {
             }
         }
 
-        #[derive(Clone)]
         pub struct StatsExportService {
             pub mode: StatsServiceMode,
             registry: Registry,
@@ -77,7 +76,7 @@ cfg_if! {
             invalid_network_packets_received: IntCounter,
             queue_size: IntGauge,
             resend_queue_size: IntGauge,
-            tokio_runtime: Arc<RwLock<Option<Runtime>>>,
+            tokio_runtime: RwLock<Option<Runtime>>,
             gs_block_receipt: IntGauge,
             gs_block_entry: IntGauge,
             gs_block_query: IntGauge,
@@ -97,33 +96,33 @@ cfg_if! {
 }
 
 #[cfg(not(feature = "instrumentation"))]
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub struct StatsExportService {
     pub mode: StatsServiceMode,
-    pkts_received_counter: Arc<AtomicUsize>,
-    pkts_sent_counter: Arc<AtomicUsize>,
-    pkts_dropped_counter: Arc<AtomicUsize>,
-    pkts_resend_counter: Arc<AtomicUsize>,
-    peers_gauge: Arc<AtomicUsize>,
-    connections_received: Arc<AtomicUsize>,
-    invalid_packets_received: Arc<AtomicUsize>,
-    invalid_network_packets_received: Arc<AtomicUsize>,
-    queue_size: Arc<AtomicUsize>,
-    resend_queue_size: Arc<AtomicUsize>,
-    gs_block_receipt: Arc<AtomicUsize>,
-    gs_block_entry: Arc<AtomicUsize>,
-    gs_block_query: Arc<AtomicUsize>,
-    gs_finalization_receipt: Arc<AtomicUsize>,
-    gs_finalization_entry: Arc<AtomicUsize>,
-    gs_finalization_query: Arc<AtomicUsize>,
-    inbound_high_priority_consensus_drops_counter: Arc<AtomicUsize>,
-    inbound_low_priority_consensus_drops_counter: Arc<AtomicUsize>,
-    inbound_high_priority_consensus_counter: Arc<AtomicUsize>,
-    inbound_low_priority_consensus_counter: Arc<AtomicUsize>,
-    inbound_high_priority_consensus_size: Arc<AtomicUsize>,
-    inbound_low_priority_consensus_size: Arc<AtomicUsize>,
-    outbound_high_priority_consensus_size: Arc<AtomicUsize>,
-    outbound_low_priority_consensus_size: Arc<AtomicUsize>,
+    pkts_received_counter: AtomicUsize,
+    pkts_sent_counter: AtomicUsize,
+    pkts_dropped_counter: AtomicUsize,
+    pkts_resend_counter: AtomicUsize,
+    peers_gauge: AtomicUsize,
+    connections_received: AtomicUsize,
+    invalid_packets_received: AtomicUsize,
+    invalid_network_packets_received: AtomicUsize,
+    queue_size: AtomicUsize,
+    resend_queue_size: AtomicUsize,
+    gs_block_receipt: AtomicUsize,
+    gs_block_entry: AtomicUsize,
+    gs_block_query: AtomicUsize,
+    gs_finalization_receipt: AtomicUsize,
+    gs_finalization_entry: AtomicUsize,
+    gs_finalization_query: AtomicUsize,
+    inbound_high_priority_consensus_drops_counter: AtomicUsize,
+    inbound_low_priority_consensus_drops_counter: AtomicUsize,
+    inbound_high_priority_consensus_counter: AtomicUsize,
+    inbound_low_priority_consensus_counter: AtomicUsize,
+    inbound_high_priority_consensus_size: AtomicUsize,
+    inbound_low_priority_consensus_size: AtomicUsize,
+    outbound_high_priority_consensus_size: AtomicUsize,
+    outbound_low_priority_consensus_size: AtomicUsize,
 }
 
 impl StatsExportService {
@@ -301,7 +300,7 @@ impl StatsExportService {
             invalid_network_packets_received: inpr,
             queue_size: qs,
             resend_queue_size: rqs,
-            tokio_runtime: Arc::new(RwLock::new(None)),
+            tokio_runtime: RwLock::new(None),
             gs_block_receipt: sbr,
             gs_block_entry: sbe,
             gs_block_query: sbq,
@@ -590,13 +589,12 @@ impl StatsExportService {
 
     #[cfg(feature = "instrumentation")]
     pub fn start_server(&self, listen_addr: SocketAddr) {
-        let self_clone = self.clone();
         let runtime = runtime::Builder::new()
             .core_threads(num_cpus::get())
             .name_prefix("gotham-worker-")
             .build()
             .unwrap();
-        gotham::start_on_executor(listen_addr, self_clone.router(), runtime.executor());
+        gotham::start_on_executor(listen_addr, self.router(), runtime.executor());
         if let Ok(mut locked_tokio) = self.tokio_runtime.write() {
             *locked_tokio = Some(runtime);
         }
@@ -611,6 +609,9 @@ impl StatsExportService {
             }
         }
     }
+
+    #[cfg(not(feature = "instrumentation"))]
+    pub fn stop_server(&self) {}
 
     #[cfg(feature = "instrumentation")]
     pub fn start_push_to_gateway(

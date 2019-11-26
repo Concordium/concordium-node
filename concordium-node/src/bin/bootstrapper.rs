@@ -20,9 +20,7 @@ use p2p_client::{
     common::{P2PNodeId, PeerType},
     configuration as config,
     p2p::*,
-    stats_export_service::{
-        instantiate_stats_export_engine, stop_stats_export_engine, StatsServiceMode,
-    },
+    stats_export_service::{instantiate_stats_export_engine, StatsServiceMode},
     utils::get_config_and_logging_setup,
 };
 
@@ -86,7 +84,7 @@ fn main() -> Result<(), Error> {
             &conf,
             Some(sender),
             PeerType::Bootstrapper,
-            stats_export_service.clone(),
+            stats_export_service,
             rpc_tx,
             Some(data_dir_path),
         )
@@ -96,7 +94,7 @@ fn main() -> Result<(), Error> {
             &conf,
             None,
             PeerType::Bootstrapper,
-            stats_export_service.clone(),
+            stats_export_service,
             rpc_tx,
             Some(data_dir_path),
         )
@@ -104,7 +102,7 @@ fn main() -> Result<(), Error> {
 
     #[cfg(feature = "instrumentation")]
     // Start push gateway to prometheus
-    start_push_gateway(&conf.prometheus, &stats_export_service, node.id());
+    start_push_gateway(&conf.prometheus, &node.stats_export_service, node.id());
 
     info!(
         "Concordium P2P layer. Network disabled: {}",
@@ -114,9 +112,6 @@ fn main() -> Result<(), Error> {
     node.spawn();
 
     node.join().expect("Node thread panicked!");
-
-    // Close stats server export if present
-    stop_stats_export_engine(&conf, &stats_export_service);
 
     Ok(())
 }
