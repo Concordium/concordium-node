@@ -21,7 +21,7 @@ use crate::configuration;
 use failure::Fallible;
 use std::fmt;
 
-#[derive(Clone, Debug, PartialEq, Copy)]
+#[derive(Debug, PartialEq)]
 pub enum StatsServiceMode {
     BootstrapperMode,
     NodeMode,

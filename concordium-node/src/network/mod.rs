@@ -9,7 +9,7 @@ pub mod serialization;
 pub use self::{
     buckets::Buckets,
     message::{NetworkMessage, NetworkMessagePayload},
-    packet::{NetworkPacket, NetworkPacketBuilder, NetworkPacketType},
+    packet::{NetworkPacket, NetworkPacketType},
     protocol_message_type::{
         AsProtocolMessageType, AsProtocolPacketType, AsProtocolRequestType, AsProtocolResponseType,
         ProtocolMessageType, ProtocolPacketType, ProtocolRequestType, ProtocolResponseType,

@@ -1,13 +1,10 @@
 use failure::{Error, Fallible};
 
-use std::{
-    convert::TryFrom,
-    fmt::{Display, Formatter, Result},
-};
+use std::convert::TryFrom;
 
 // Utilities for NetworkMessage
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum ProtocolMessageType {
     Request = 0,
     Response,
@@ -34,7 +31,7 @@ impl TryFrom<u8> for ProtocolMessageType {
 
 // Utilities for NetworkRequest
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum ProtocolRequestType {
     Ping = 0,
     Handshake,
@@ -69,15 +66,11 @@ impl TryFrom<u8> for ProtocolRequestType {
 
 // Utilities for NetworkResponse
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum ProtocolResponseType {
     Pong = 0,
     PeerList,
     Handshake,
-}
-
-impl Display for ProtocolResponseType {
-    fn fmt(&self, f: &mut Formatter) -> Result { write!(f, "{:02x}", *self as u8) }
 }
 
 pub trait AsProtocolResponseType {
@@ -100,7 +93,7 @@ impl TryFrom<u8> for ProtocolResponseType {
 
 // Utilities for NetworkPacket
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum ProtocolPacketType {
     Direct = 0,
     Broadcast,

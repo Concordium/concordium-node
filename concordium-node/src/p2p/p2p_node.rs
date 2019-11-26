@@ -166,7 +166,6 @@ impl ConnectionHandler {
     }
 }
 
-#[allow(dead_code)] // caused by the dump_network feature; will fix in a follow-up
 #[repr(C)] // specifying this representation is needed for the pointer work done in the
            // last steps of `P2PNode::new`
 pub struct P2PNode {
