@@ -24,16 +24,16 @@ use consensus_rust::{
 };
 use globalstate_rust::tree::{messaging::ConsensusMessage, GlobalState};
 use p2p_client::{
-    client::{
-        plugins::{self, consensus::*},
-        utils as client_utils,
-    },
+    client::plugins::{self, consensus::*},
     common::{get_current_stamp, P2PNodeId, PeerType},
     configuration as config,
     network::{NetworkId, NetworkMessage},
     p2p::*,
     rpc::RpcServerImpl,
-    stats_export_service::{StatsExportService, StatsServiceMode},
+    stats_export_service::{
+        instantiate_stats_export_engine, stop_stats_export_engine, StatsExportService,
+        StatsServiceMode,
+    },
     utils::{self, get_config_and_logging_setup},
 };
 use parking_lot::Mutex as ParkingMutex;
@@ -63,15 +63,14 @@ fn main() -> Fallible<()> {
     }
 
     // Instantiate stats export engine
-    let stats_export_service =
-        client_utils::instantiate_stats_export_engine(&conf, StatsServiceMode::NodeMode)
-            .unwrap_or_else(|e| {
-                error!(
-                    "I was not able to instantiate the stats export service: {}",
-                    e
-                );
-                None
-            });
+    let stats_export_service = instantiate_stats_export_engine(&conf, StatsServiceMode::NodeMode)
+        .unwrap_or_else(|e| {
+            error!(
+                "I was not able to instantiate the stats export service: {}",
+                e
+            );
+            None
+        });
 
     info!("Debugging enabled: {}", conf.common.debug);
 
@@ -195,7 +194,7 @@ fn main() -> Fallible<()> {
     }
 
     // Close the stats server if present
-    client_utils::stop_stats_export_engine(&conf, &stats_export_service);
+    stop_stats_export_engine(&conf, &stats_export_service);
 
     info!("P2PNode gracefully closed.");
 
