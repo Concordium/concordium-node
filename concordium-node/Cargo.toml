@@ -60,7 +60,7 @@ cfg-if = "0.1"
 derive_builder = "0.7.1"
 tempfile = "^3.0.7"
 base64 = "^0.10.1"
-sha2 = "0"
+sha2 = "0.8"
 base58check = "^0.1"
 rkv = "^0.9"
 circular-queue = "^0.2"
@@ -75,10 +75,11 @@ bytesize = "1.0.0"
 crossbeam-channel = "^0.4"
 
 # gRPC dependencies
+grpc = "0.6.1"
 protobuf = "2.0.6"
 futures = "0.1"
 
-# Feature gated dependencies
+# Feature-gated dependencies
 gotham = { version = "0.4", optional = true }
 gotham_derive = { version = "0.4", optional = true }
 hyper = { version = "0.12", optional = true }
@@ -103,15 +104,12 @@ snow = { version = "0.5.2", features = ["hacl-star-accelerated"], optional = tru
 
 [target.'cfg(windows)'.dependencies]
 ipconfig = { version = "^0.1.9" }
-grpc = "0.6.1"
 
 [target.'cfg(unix)'.dependencies]
 get_if_addrs = { version = "0.5" }
 grpciounix = { package = "grpcio", path = "deps/external/grpc-rs", version = "0.4.4", default-features = false, features = [
   "protobuf-codec"
 ] }
-
-grpc = "0.6.1"
 uuid = { version = "0.7", default-features = false, optional = true }
 
 [build-dependencies]
