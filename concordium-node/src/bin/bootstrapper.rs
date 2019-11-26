@@ -26,6 +26,9 @@ use p2p_client::{
     utils::get_config_and_logging_setup,
 };
 
+#[cfg(feature = "instrumentation")]
+use p2p_client::stats_export_service::start_push_gateway;
+
 fn main() -> Result<(), Error> {
     let (mut conf, app_prefs) = get_config_and_logging_setup()?;
     conf.connection.max_allowed_nodes = Some(conf.bootstrapper.max_nodes);
@@ -101,7 +104,7 @@ fn main() -> Result<(), Error> {
 
     #[cfg(feature = "instrumentation")]
     // Start push gateway to prometheus
-    client_utils::start_push_gateway(&conf.prometheus, &stats_export_service, node.id());
+    start_push_gateway(&conf.prometheus, &stats_export_service, node.id());
 
     info!(
         "Concordium P2P layer. Network disabled: {}",

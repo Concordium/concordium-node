@@ -47,6 +47,9 @@ use std::{
     time::Duration,
 };
 
+#[cfg(feature = "instrumentation")]
+use p2p_client::stats_export_service::start_push_gateway;
+
 fn main() -> Fallible<()> {
     let (conf, mut app_prefs) = get_config_and_logging_setup()?;
     if conf.common.print_config {
@@ -91,7 +94,7 @@ fn main() -> Fallible<()> {
 
     #[cfg(feature = "instrumentation")]
     // Thread #2 (optional): the push gateway to Prometheus
-    client_utils::start_push_gateway(&conf.prometheus, &stats_export_service, node.id());
+    start_push_gateway(&conf.prometheus, &stats_export_service, node.id());
 
     // Start the P2PNode
     //
@@ -545,7 +548,7 @@ fn setup_transfer_log_thread(conf: &config::CliConfig) -> JoinHandle<()> {
         conf.elastic_logging_url.clone(),
     );
     if enabled {
-        if let Err(e) = p2p_client::client::plugins::elasticlogging::create_transfer_index(&url) {
+        if let Err(e) = p2p_client::plugins::elasticlogging::create_transfer_index(&url) {
             error!("{}", e);
         }
     }
@@ -560,9 +563,7 @@ fn setup_transfer_log_thread(conf: &config::CliConfig) -> JoinHandle<()> {
                     QueueMsg::Relay(msg) => {
                         if enabled {
                             if let Err(e) =
-                                p2p_client::client::plugins::elasticlogging::log_transfer_event(
-                                    &url, msg,
-                                )
+                                p2p_client::plugins::elasticlogging::log_transfer_event(&url, msg)
                             {
                                 error!("{}", e);
                             }
