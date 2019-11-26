@@ -17,13 +17,17 @@ use concordium_common::QueueMsg::Relay;
 use crossbeam_channel;
 use failure::Error;
 use p2p_client::{
-    client::utils as client_utils,
     common::{P2PNodeId, PeerType},
     configuration as config,
     p2p::*,
-    stats_export_service::StatsServiceMode,
+    stats_export_service::{
+        instantiate_stats_export_engine, stop_stats_export_engine, StatsServiceMode,
+    },
     utils::get_config_and_logging_setup,
 };
+
+#[cfg(feature = "instrumentation")]
+use p2p_client::stats_export_service::start_push_gateway;
 
 fn main() -> Result<(), Error> {
     let (mut conf, app_prefs) = get_config_and_logging_setup()?;
@@ -51,14 +55,15 @@ fn main() -> Result<(), Error> {
 
     // Instantiate stats export engine
     let stats_export_service =
-        client_utils::instantiate_stats_export_engine(&conf, StatsServiceMode::BootstrapperMode)
-            .unwrap_or_else(|e| {
+        instantiate_stats_export_engine(&conf, StatsServiceMode::BootstrapperMode).unwrap_or_else(
+            |e| {
                 error!(
                     "I was not able to instantiate an stats export service: {}",
                     e
                 );
                 None
-            });
+            },
+        );
 
     info!("Debugging enabled: {}", conf.common.debug);
 
@@ -99,7 +104,7 @@ fn main() -> Result<(), Error> {
 
     #[cfg(feature = "instrumentation")]
     // Start push gateway to prometheus
-    client_utils::start_push_gateway(&conf.prometheus, &stats_export_service, node.id());
+    start_push_gateway(&conf.prometheus, &stats_export_service, node.id());
 
     info!(
         "Concordium P2P layer. Network disabled: {}",
@@ -111,7 +116,7 @@ fn main() -> Result<(), Error> {
     node.join().expect("Node thread panicked!");
 
     // Close stats server export if present
-    client_utils::stop_stats_export_engine(&conf, &stats_export_service);
+    stop_stats_export_engine(&conf, &stats_export_service);
 
     Ok(())
 }

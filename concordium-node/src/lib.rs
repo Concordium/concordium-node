@@ -72,7 +72,7 @@ pub mod common;
 pub mod configuration;
 pub mod connection;
 
-pub mod client;
+pub mod plugins;
 #[macro_use]
 pub mod network;
 pub mod p2p;

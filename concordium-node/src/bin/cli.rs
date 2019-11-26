@@ -24,16 +24,16 @@ use consensus_rust::{
 };
 use globalstate_rust::tree::{messaging::ConsensusMessage, GlobalState};
 use p2p_client::{
-    client::{
-        plugins::{self, consensus::*},
-        utils as client_utils,
-    },
     common::{get_current_stamp, P2PNodeId, PeerType},
     configuration as config,
     network::{NetworkId, NetworkMessage},
     p2p::*,
+    plugins::{self, consensus::*},
     rpc::RpcServerImpl,
-    stats_export_service::{StatsExportService, StatsServiceMode},
+    stats_export_service::{
+        instantiate_stats_export_engine, stop_stats_export_engine, StatsExportService,
+        StatsServiceMode,
+    },
     utils::{self, get_config_and_logging_setup},
 };
 use parking_lot::Mutex as ParkingMutex;
@@ -46,6 +46,9 @@ use std::{
     thread::{self, JoinHandle},
     time::Duration,
 };
+
+#[cfg(feature = "instrumentation")]
+use p2p_client::stats_export_service::start_push_gateway;
 
 fn main() -> Fallible<()> {
     let (conf, mut app_prefs) = get_config_and_logging_setup()?;
@@ -63,15 +66,14 @@ fn main() -> Fallible<()> {
     }
 
     // Instantiate stats export engine
-    let stats_export_service =
-        client_utils::instantiate_stats_export_engine(&conf, StatsServiceMode::NodeMode)
-            .unwrap_or_else(|e| {
-                error!(
-                    "I was not able to instantiate the stats export service: {}",
-                    e
-                );
-                None
-            });
+    let stats_export_service = instantiate_stats_export_engine(&conf, StatsServiceMode::NodeMode)
+        .unwrap_or_else(|e| {
+            error!(
+                "I was not able to instantiate the stats export service: {}",
+                e
+            );
+            None
+        });
 
     info!("Debugging enabled: {}", conf.common.debug);
 
@@ -92,7 +94,7 @@ fn main() -> Fallible<()> {
 
     #[cfg(feature = "instrumentation")]
     // Thread #2 (optional): the push gateway to Prometheus
-    client_utils::start_push_gateway(&conf.prometheus, &stats_export_service, node.id());
+    start_push_gateway(&conf.prometheus, &stats_export_service, node.id());
 
     // Start the P2PNode
     //
@@ -195,7 +197,7 @@ fn main() -> Fallible<()> {
     }
 
     // Close the stats server if present
-    client_utils::stop_stats_export_engine(&conf, &stats_export_service);
+    stop_stats_export_engine(&conf, &stats_export_service);
 
     info!("P2PNode gracefully closed.");
 
@@ -546,7 +548,7 @@ fn setup_transfer_log_thread(conf: &config::CliConfig) -> JoinHandle<()> {
         conf.elastic_logging_url.clone(),
     );
     if enabled {
-        if let Err(e) = p2p_client::client::plugins::elasticlogging::create_transfer_index(&url) {
+        if let Err(e) = p2p_client::plugins::elasticlogging::create_transfer_index(&url) {
             error!("{}", e);
         }
     }
@@ -561,9 +563,7 @@ fn setup_transfer_log_thread(conf: &config::CliConfig) -> JoinHandle<()> {
                     QueueMsg::Relay(msg) => {
                         if enabled {
                             if let Err(e) =
-                                p2p_client::client::plugins::elasticlogging::log_transfer_event(
-                                    &url, msg,
-                                )
+                                p2p_client::plugins::elasticlogging::log_transfer_event(&url, msg)
                             {
                                 error!("{}", e);
                             }
