@@ -30,10 +30,7 @@ use p2p_client::{
     p2p::*,
     plugins::{self, consensus::*},
     rpc::RpcServerImpl,
-    stats_export_service::{
-        instantiate_stats_export_engine, stop_stats_export_engine, StatsExportService,
-        StatsServiceMode,
-    },
+    stats_export_service::{instantiate_stats_export_engine, StatsExportService, StatsServiceMode},
     utils::{self, get_config_and_logging_setup},
 };
 use parking_lot::Mutex as ParkingMutex;
@@ -84,7 +81,7 @@ fn main() -> Fallible<()> {
     let node = instantiate_node(
         &conf,
         &mut app_prefs,
-        stats_export_service.clone(),
+        stats_export_service,
         subscription_queue_in.clone(),
     );
 
@@ -94,7 +91,7 @@ fn main() -> Fallible<()> {
 
     #[cfg(feature = "instrumentation")]
     // Thread #2 (optional): the push gateway to Prometheus
-    start_push_gateway(&conf.prometheus, &stats_export_service, node.id());
+    start_push_gateway(&conf.prometheus, &node.stats_export_service, node.id());
 
     // Start the P2PNode
     //
@@ -195,9 +192,6 @@ fn main() -> Fallible<()> {
     if let Some(ref mut serv) = rpc_serv {
         serv.stop_server()?;
     }
-
-    // Close the stats server if present
-    stop_stats_export_engine(&conf, &stats_export_service);
 
     info!("P2PNode gracefully closed.");
 

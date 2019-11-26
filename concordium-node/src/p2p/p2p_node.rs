@@ -1230,6 +1230,13 @@ impl P2PNode {
     }
 
     pub fn close_and_join(&self) -> Fallible<()> {
+        if cfg!(feature = "instrumentation") {
+            if let Some(srv) = &self.stats_export_service {
+                info!("Stopping prometheus server");
+                srv.stop_server();
+            }
+        }
+
         self.close();
         self.join()
     }
