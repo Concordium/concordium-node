@@ -532,6 +532,14 @@ pub fn parse_config() -> Fallible<Config> {
         );
     }
 
+    if conf.connection.socket_read_size < 65535 {
+        bail!("Socket read size must be set to at least 65535");
+    }
+
+    if conf.connection.socket_read_size < conf.connection.socket_write_size {
+        bail!("Socket read size must be greater or equal to the write size");
+    }
+
     Ok(conf)
 }
 
