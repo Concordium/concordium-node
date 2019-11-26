@@ -1,5 +1,4 @@
 use crate::{
-    client::plugins::consensus::*,
     common::{get_current_stamp, P2PNodeId, P2PPeer, PeerType},
     connection::{Connection, P2PEvent},
     network::{
@@ -7,6 +6,7 @@ use crate::{
         NetworkRequest, NetworkResponse,
     },
     p2p::banned_nodes::BannedNode,
+    plugins::consensus::*,
 };
 use concordium_common::{read_or_die, write_or_die, QueueMsg::Relay};
 

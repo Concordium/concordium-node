@@ -24,11 +24,11 @@ use consensus_rust::{
 };
 use globalstate_rust::tree::{messaging::ConsensusMessage, GlobalState};
 use p2p_client::{
-    client::plugins::{self, consensus::*},
     common::{get_current_stamp, P2PNodeId, PeerType},
     configuration as config,
     network::{NetworkId, NetworkMessage},
     p2p::*,
+    plugins::{self, consensus::*},
     rpc::RpcServerImpl,
     stats_export_service::{
         instantiate_stats_export_engine, stop_stats_export_engine, StatsExportService,
