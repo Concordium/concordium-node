@@ -20,10 +20,7 @@ pub use self::{
 
 use std::fmt;
 
-pub const PROTOCOL_NAME: &str = "CP2P";
-pub const PROTOCOL_VERSION: u8 = 1;
-pub const PROTOCOL_HEADER_LEN: usize = 4 + 1 + 8; // name + version + timestamp; FIXME: shouldn't include the stamp
-pub const PROTOCOL_MAX_MESSAGE_SIZE: u32 = 20_971_520;
+pub const PROTOCOL_MAX_MESSAGE_SIZE: u32 = 20_971_520; // 20 MIB
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
