@@ -241,14 +241,18 @@ impl ConnectionLowLevel {
     /// Attempts to read a complete message from the socket.
     #[inline]
     fn read_from_socket(&mut self) -> Fallible<ReadResult> {
+        // if there are any pending bytes constituting the length of the incoming
+        // message, the writes to the buffer need to be offset by their number
+        let mut offset = self.incoming_msg.size_bytes.len();
+
         // if there's any bytes to be read from the secondary buffer, process them
         // before reading from the socket again
         let mut read_bytes = if let Some(len) = self.buffers.secondary_len.take() {
-            self.buffers.main[..len].copy_from_slice(&self.buffers.secondary[..len]);
+            self.buffers.main[offset..][..len].copy_from_slice(&self.buffers.secondary[..len]);
             len
         } else {
-            let len = self.buffers.main.len();
-            match self.socket.read(&mut self.buffers.main[..len]) {
+            let len = self.buffers.main.len() - offset;
+            match self.socket.read(&mut self.buffers.main[offset..][..len]) {
                 Ok(num_bytes) => {
                     trace!(
                         "Read {} from the socket",
@@ -263,18 +267,15 @@ impl ConnectionLowLevel {
 
         // if we don't know the length of the incoming message, read it from the
         // collected bytes; that number of bytes needs to be accounted for later
-        let offset = if !self.incoming_msg.is_size_known()? {
-            let curr_offset = self.incoming_msg.size_bytes.len() as usize;
-            let read_size = cmp::min(read_bytes, PAYLOAD_SIZE - curr_offset);
+        if !self.incoming_msg.is_size_known()? {
+            let read_size = cmp::min(read_bytes, PAYLOAD_SIZE - offset);
             let written = self
                 .incoming_msg
                 .size_bytes
-                .write(&self.buffers.main[..read_size])?;
+                .write(&self.buffers.main[offset..][..read_size])?;
             read_bytes -= written;
-            curr_offset + written
-        } else {
-            0
-        };
+            offset += written;
+        }
 
         // check if we can know the size of the message now
         if self.incoming_msg.is_size_known()? {
