@@ -243,48 +243,7 @@ impl ConnectionLowLevel {
 
         // check if we know the size of the message now
         if self.incoming_msg.pending_bytes != 0 {
-            let expected_size = self.incoming_msg.pending_bytes;
-
-            // pre-allocate if we've not been reading the message yet
-            if self.incoming_msg.message.is_empty()? {
-                self.incoming_msg.message = HybridBuf::with_capacity(expected_size as usize)?;
-            }
-
-            let to_read = cmp::min(self.incoming_msg.pending_bytes as usize, read_bytes);
-            self.incoming_msg
-                .message
-                .write_all(&self.buffers.main[offset..][..to_read])?;
-            self.incoming_msg.pending_bytes -= to_read as PayloadSize;
-
-            // if the socket read was greater than the number of bytes remaining to read the
-            // current message, preserve those bytes in the secondary buffer
-            if read_bytes > to_read {
-                let len = read_bytes - to_read;
-                self.buffers.secondary[..len]
-                    .copy_from_slice(&self.buffers.main[offset + to_read..][..len]);
-                self.buffers.secondary_len = Some(len);
-            }
-
-            if self.incoming_msg.pending_bytes == 0 {
-                trace!("The message was fully read");
-                self.incoming_msg.message.rewind()?;
-                let msg =
-                    mem::replace(&mut self.incoming_msg.message, HybridBuf::with_capacity(0)?);
-
-                if !self.is_post_handshake() {
-                    match self.noise_session.get_message_count() {
-                        0 if !self.noise_session.is_initiator() => self.process_msg_a(msg),
-                        1 if self.noise_session.is_initiator() => self.process_msg_b(msg),
-                        2 if !self.noise_session.is_initiator() => self.process_msg_c(msg),
-                        _ => bail!("invalid XX handshake"),
-                    }?;
-                    Ok(ReadResult::WouldBlock)
-                } else {
-                    Ok(ReadResult::Complete(self.decrypt(msg)?))
-                }
-            } else {
-                Ok(ReadResult::Incomplete)
-            }
+            self.process_incoming_msg(read_bytes, offset)
         } else {
             Ok(ReadResult::Incomplete)
         }
@@ -319,6 +278,51 @@ impl ConnectionLowLevel {
         }
 
         Ok(read_size)
+    }
+
+    #[inline]
+    fn process_incoming_msg(&mut self, read_bytes: usize, offset: usize) -> Fallible<ReadResult> {
+        let remaining_bytes = self.incoming_msg.pending_bytes;
+
+        // pre-allocate if we've not been reading the message yet
+        if self.incoming_msg.message.is_empty()? {
+            self.incoming_msg.message = HybridBuf::with_capacity(remaining_bytes as usize)?;
+        }
+
+        let to_read = cmp::min(remaining_bytes as usize, read_bytes);
+        self.incoming_msg
+            .message
+            .write_all(&self.buffers.main[offset..][..to_read])?;
+        self.incoming_msg.pending_bytes -= to_read as PayloadSize;
+
+        // if the socket read was greater than the number of bytes remaining to read the
+        // current message, preserve those bytes in the secondary buffer
+        if read_bytes > to_read {
+            let len = read_bytes - to_read;
+            self.buffers.secondary[..len]
+                .copy_from_slice(&self.buffers.main[offset + to_read..][..len]);
+            self.buffers.secondary_len = Some(len);
+        }
+
+        if self.incoming_msg.pending_bytes == 0 {
+            trace!("The message was fully read");
+            self.incoming_msg.message.rewind()?;
+            let msg = mem::replace(&mut self.incoming_msg.message, HybridBuf::with_capacity(0)?);
+
+            if !self.is_post_handshake() {
+                match self.noise_session.get_message_count() {
+                    0 if !self.noise_session.is_initiator() => self.process_msg_a(msg),
+                    1 if self.noise_session.is_initiator() => self.process_msg_b(msg),
+                    2 if !self.noise_session.is_initiator() => self.process_msg_c(msg),
+                    _ => bail!("invalid XX handshake"),
+                }?;
+                Ok(ReadResult::WouldBlock)
+            } else {
+                Ok(ReadResult::Complete(self.decrypt(msg)?))
+            }
+        } else {
+            Ok(ReadResult::Incomplete)
+        }
     }
 
     /// Decrypt a full message read from the socket.
