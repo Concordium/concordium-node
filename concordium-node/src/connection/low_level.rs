@@ -67,38 +67,6 @@ impl Buffers {
     }
 }
 
-impl IncomingMessage {
-    /// Checks whether the length of the currently read message is known.
-    fn is_size_known(&mut self) -> Fallible<bool> {
-        if self.pending_bytes != 0 {
-            Ok(true)
-        } else if self.size_bytes.len() == PAYLOAD_SIZE {
-            let expected_size =
-                PayloadSize::from_be_bytes((&self.size_bytes[..]).try_into().unwrap());
-            self.size_bytes.clear();
-
-            // check if the expected size doesn't exceed the protocol limit
-            if expected_size > PROTOCOL_MAX_MESSAGE_SIZE as PayloadSize {
-                bail!(
-                    "expected message size ({}) exceeds the maximum protocol size ({})",
-                    ByteSize(expected_size as u64).to_string_as(true),
-                    ByteSize(PROTOCOL_MAX_MESSAGE_SIZE as u64).to_string_as(true)
-                );
-            }
-
-            trace!(
-                "Expecting a {} message",
-                ByteSize(expected_size as u64).to_string_as(true)
-            );
-            self.pending_bytes = expected_size;
-
-            Ok(true)
-        } else {
-            Ok(false)
-        }
-    }
-}
-
 /// A type used to indicate what the result of the current read from the socket
 /// is.
 enum ReadResult {
@@ -267,18 +235,14 @@ impl ConnectionLowLevel {
 
         // if we don't know the length of the incoming message, read it from the
         // collected bytes; that number of bytes needs to be accounted for later
-        if !self.incoming_msg.is_size_known()? {
-            let read_size = cmp::min(read_bytes, PAYLOAD_SIZE - offset);
-            let written = self
-                .incoming_msg
-                .size_bytes
-                .write(&self.buffers.main[offset..][..read_size])?;
-            read_bytes -= written;
-            offset += written;
+        if self.incoming_msg.pending_bytes == 0 {
+            let len_bytes_read = self.attempt_to_read_length(read_bytes, offset)?;
+            read_bytes -= len_bytes_read;
+            offset += len_bytes_read;
         }
 
-        // check if we can know the size of the message now
-        if self.incoming_msg.is_size_known()? {
+        // check if we know the size of the message now
+        if self.incoming_msg.pending_bytes != 0 {
             let expected_size = self.incoming_msg.pending_bytes;
 
             // pre-allocate if we've not been reading the message yet
@@ -324,6 +288,37 @@ impl ConnectionLowLevel {
         } else {
             Ok(ReadResult::Incomplete)
         }
+    }
+
+    #[inline]
+    fn attempt_to_read_length(&mut self, read_bytes: usize, offset: usize) -> Fallible<usize> {
+        let read_size = cmp::min(read_bytes, PAYLOAD_SIZE - offset);
+        self.incoming_msg
+            .size_bytes
+            .write_all(&self.buffers.main[offset..][..read_size])?;
+
+        if self.incoming_msg.size_bytes.len() == PAYLOAD_SIZE {
+            let expected_size =
+                PayloadSize::from_be_bytes((&self.incoming_msg.size_bytes[..]).try_into().unwrap());
+            self.incoming_msg.size_bytes.clear();
+
+            // check if the expected size doesn't exceed the protocol limit
+            if expected_size > PROTOCOL_MAX_MESSAGE_SIZE as PayloadSize {
+                bail!(
+                    "expected message size ({}) exceeds the maximum protocol size ({})",
+                    ByteSize(expected_size as u64).to_string_as(true),
+                    ByteSize(PROTOCOL_MAX_MESSAGE_SIZE as u64).to_string_as(true)
+                );
+            }
+
+            trace!(
+                "Expecting a {} message",
+                ByteSize(expected_size as u64).to_string_as(true)
+            );
+            self.incoming_msg.pending_bytes = expected_size;
+        }
+
+        Ok(read_size)
     }
 
     /// Decrypt a full message read from the socket.
