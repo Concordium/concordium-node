@@ -543,7 +543,7 @@ pub fn parse_config() -> Fallible<Config> {
     Ok(conf)
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct AppPreferences {
     preferences_map:     Arc<RwLock<PreferencesMap<String>>>,
     override_data_dir:   Option<String>,
