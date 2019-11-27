@@ -28,6 +28,10 @@ fn main() -> Fallible<()> {
     let mut log_builder = Builder::from_env(env);
     // disregard invalid packet type errors
     log_builder.filter_module("p2p_client::connection::message_handlers", LevelFilter::Off);
+    // hide mnodule paths
+    log_builder.format_module_path(false);
+    // hide the timestamps
+    log_builder.format_timestamp(None);
     log_builder.init();
 
     let node_1 = make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
