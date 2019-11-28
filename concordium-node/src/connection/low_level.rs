@@ -67,38 +67,6 @@ impl Buffers {
     }
 }
 
-impl IncomingMessage {
-    /// Checks whether the length of the currently read message is known.
-    fn is_size_known(&mut self) -> Fallible<bool> {
-        if self.pending_bytes != 0 {
-            Ok(true)
-        } else if self.size_bytes.len() == PAYLOAD_SIZE {
-            let expected_size =
-                PayloadSize::from_be_bytes((&self.size_bytes[..]).try_into().unwrap());
-            self.size_bytes.clear();
-
-            // check if the expected size doesn't exceed the protocol limit
-            if expected_size > PROTOCOL_MAX_MESSAGE_SIZE as PayloadSize {
-                bail!(
-                    "expected message size ({}) exceeds the maximum protocol size ({})",
-                    ByteSize(expected_size as u64).to_string_as(true),
-                    ByteSize(PROTOCOL_MAX_MESSAGE_SIZE as u64).to_string_as(true)
-                );
-            }
-
-            trace!(
-                "Expecting a {} message",
-                ByteSize(expected_size as u64).to_string_as(true)
-            );
-            self.pending_bytes = expected_size;
-
-            Ok(true)
-        } else {
-            Ok(false)
-        }
-    }
-}
-
 /// A type used to indicate what the result of the current read from the socket
 /// is.
 enum ReadResult {
@@ -267,59 +235,90 @@ impl ConnectionLowLevel {
 
         // if we don't know the length of the incoming message, read it from the
         // collected bytes; that number of bytes needs to be accounted for later
-        if !self.incoming_msg.is_size_known()? {
-            let read_size = cmp::min(read_bytes, PAYLOAD_SIZE - offset);
-            let written = self
-                .incoming_msg
-                .size_bytes
-                .write(&self.buffers.main[offset..][..read_size])?;
-            read_bytes -= written;
-            offset += written;
+        if self.incoming_msg.pending_bytes == 0 {
+            let len_bytes_read = self.attempt_to_read_length(read_bytes, offset)?;
+            read_bytes -= len_bytes_read;
+            offset += len_bytes_read;
         }
 
-        // check if we can know the size of the message now
-        if self.incoming_msg.is_size_known()? {
-            let expected_size = self.incoming_msg.pending_bytes;
+        // check if we know the size of the message now
+        if self.incoming_msg.pending_bytes != 0 {
+            self.process_incoming_msg(read_bytes, offset)
+        } else {
+            Ok(ReadResult::Incomplete)
+        }
+    }
 
-            // pre-allocate if we've not been reading the message yet
-            if self.incoming_msg.message.is_empty()? {
-                self.incoming_msg.message = HybridBuf::with_capacity(expected_size as usize)?;
+    #[inline]
+    fn attempt_to_read_length(&mut self, read_bytes: usize, offset: usize) -> Fallible<usize> {
+        let read_size = cmp::min(read_bytes, PAYLOAD_SIZE - offset);
+        self.incoming_msg
+            .size_bytes
+            .write_all(&self.buffers.main[offset..][..read_size])?;
+
+        if self.incoming_msg.size_bytes.len() == PAYLOAD_SIZE {
+            let expected_size =
+                PayloadSize::from_be_bytes((&self.incoming_msg.size_bytes[..]).try_into().unwrap());
+            self.incoming_msg.size_bytes.clear();
+
+            // check if the expected size doesn't exceed the protocol limit
+            if expected_size > PROTOCOL_MAX_MESSAGE_SIZE as PayloadSize {
+                bail!(
+                    "expected message size ({}) exceeds the maximum protocol size ({})",
+                    ByteSize(expected_size as u64).to_string_as(true),
+                    ByteSize(PROTOCOL_MAX_MESSAGE_SIZE as u64).to_string_as(true)
+                );
             }
 
-            let to_read = cmp::min(self.incoming_msg.pending_bytes as usize, read_bytes);
-            self.incoming_msg
-                .message
-                .write_all(&self.buffers.main[offset..][..to_read])?;
-            self.incoming_msg.pending_bytes -= to_read as PayloadSize;
+            trace!(
+                "Expecting a {} message",
+                ByteSize(expected_size as u64).to_string_as(true)
+            );
+            self.incoming_msg.pending_bytes = expected_size;
+        }
 
-            // if the socket read was greater than the number of bytes remaining to read the
-            // current message, preserve those bytes in the secondary buffer
-            if read_bytes > to_read {
-                let len = read_bytes - to_read;
-                self.buffers.secondary[..len]
-                    .copy_from_slice(&self.buffers.main[offset + to_read..][..len]);
-                self.buffers.secondary_len = Some(len);
-            }
+        Ok(read_size)
+    }
 
-            if self.incoming_msg.pending_bytes == 0 {
-                trace!("The message was fully read");
-                self.incoming_msg.message.rewind()?;
-                let msg =
-                    mem::replace(&mut self.incoming_msg.message, HybridBuf::with_capacity(0)?);
+    #[inline]
+    fn process_incoming_msg(&mut self, read_bytes: usize, offset: usize) -> Fallible<ReadResult> {
+        let remaining_bytes = self.incoming_msg.pending_bytes;
 
-                if !self.is_post_handshake() {
-                    match self.noise_session.get_message_count() {
-                        0 if !self.noise_session.is_initiator() => self.process_msg_a(msg),
-                        1 if self.noise_session.is_initiator() => self.process_msg_b(msg),
-                        2 if !self.noise_session.is_initiator() => self.process_msg_c(msg),
-                        _ => bail!("invalid XX handshake"),
-                    }?;
-                    Ok(ReadResult::WouldBlock)
-                } else {
-                    Ok(ReadResult::Complete(self.decrypt(msg)?))
-                }
+        // pre-allocate if we've not been reading the message yet
+        if self.incoming_msg.message.is_empty()? {
+            self.incoming_msg.message = HybridBuf::with_capacity(remaining_bytes as usize)?;
+        }
+
+        let to_read = cmp::min(remaining_bytes as usize, read_bytes);
+        self.incoming_msg
+            .message
+            .write_all(&self.buffers.main[offset..][..to_read])?;
+        self.incoming_msg.pending_bytes -= to_read as PayloadSize;
+
+        // if the socket read was greater than the number of bytes remaining to read the
+        // current message, preserve those bytes in the secondary buffer
+        if read_bytes > to_read {
+            let len = read_bytes - to_read;
+            self.buffers.secondary[..len]
+                .copy_from_slice(&self.buffers.main[offset + to_read..][..len]);
+            self.buffers.secondary_len = Some(len);
+        }
+
+        if self.incoming_msg.pending_bytes == 0 {
+            trace!("The message was fully read");
+            self.incoming_msg.message.rewind()?;
+            let msg = mem::replace(&mut self.incoming_msg.message, HybridBuf::with_capacity(0)?);
+
+            if !self.is_post_handshake() {
+                match self.noise_session.get_message_count() {
+                    0 if !self.noise_session.is_initiator() => self.process_msg_a(msg),
+                    1 if self.noise_session.is_initiator() => self.process_msg_b(msg),
+                    2 if !self.noise_session.is_initiator() => self.process_msg_c(msg),
+                    _ => bail!("invalid XX handshake"),
+                }?;
+                Ok(ReadResult::WouldBlock)
             } else {
-                Ok(ReadResult::Incomplete)
+                Ok(ReadResult::Complete(self.decrypt(msg)?))
             }
         } else {
             Ok(ReadResult::Incomplete)
