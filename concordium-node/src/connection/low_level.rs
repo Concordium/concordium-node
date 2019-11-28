@@ -92,9 +92,7 @@ pub struct ConnectionLowLevel {
 
 macro_rules! recv_xx_msg {
     ($self:ident, $data:expr, $idx:expr) => {
-        let mut msg = vec![0u8; $data.len()? as usize];
-        $data.read_exact(&mut msg)?;
-        $self.noise_session.recv_message(&mut msg)?;
+        $self.noise_session.recv_message($data)?;
         trace!("I got message {}", $idx);
     };
 }
@@ -152,13 +150,13 @@ impl ConnectionLowLevel {
         Ok(())
     }
 
-    fn process_msg_a(&mut self, mut data: HybridBuf) -> Fallible<()> {
+    fn process_msg_a(&mut self, data: &mut [u8]) -> Fallible<()> {
         recv_xx_msg!(self, data, "A");
         send_xx_msg!(self, DHLEN * 2 + MAC_LENGTH * 2, "B");
         Ok(())
     }
 
-    fn process_msg_b(&mut self, mut data: HybridBuf) -> Fallible<()> {
+    fn process_msg_b(&mut self, data: &mut [u8]) -> Fallible<()> {
         recv_xx_msg!(self, data, "B");
         send_xx_msg!(self, DHLEN + MAC_LENGTH * 2, "C");
         if cfg!(feature = "snow_noise") {
@@ -167,7 +165,7 @@ impl ConnectionLowLevel {
         Ok(())
     }
 
-    fn process_msg_c(&mut self, mut data: HybridBuf) -> Fallible<()> {
+    fn process_msg_c(&mut self, data: &mut [u8]) -> Fallible<()> {
         recv_xx_msg!(self, data, "C");
         if cfg!(feature = "snow_noise") {
             finalize_handshake(&mut self.noise_session)?;
@@ -276,6 +274,7 @@ impl ConnectionLowLevel {
                 ByteSize(expected_size as u64).to_string_as(true)
             );
             self.incoming_msg.pending_bytes = expected_size;
+            self.incoming_msg.message = HybridBuf::with_capacity(expected_size as usize)?;
         }
 
         Ok(read_size)
@@ -286,14 +285,8 @@ impl ConnectionLowLevel {
     /// current message and decrypt it when all bytes have been read.
     #[inline]
     fn process_incoming_msg(&mut self, read_bytes: usize, offset: usize) -> Fallible<ReadResult> {
-        let remaining_bytes = self.incoming_msg.pending_bytes;
+        let to_read = cmp::min(self.incoming_msg.pending_bytes as usize, read_bytes);
 
-        // pre-allocate if we've not been reading the message yet
-        if self.incoming_msg.message.is_empty()? {
-            self.incoming_msg.message = HybridBuf::with_capacity(remaining_bytes as usize)?;
-        }
-
-        let to_read = cmp::min(remaining_bytes as usize, read_bytes);
         self.incoming_msg
             .message
             .write_all(&self.buffers.main[offset..][..to_read])?;
@@ -310,10 +303,9 @@ impl ConnectionLowLevel {
 
         if self.incoming_msg.pending_bytes == 0 {
             trace!("The message was fully read");
-            self.incoming_msg.message.rewind()?;
-            let msg = mem::replace(&mut self.incoming_msg.message, HybridBuf::with_capacity(0)?);
 
             if !self.is_post_handshake() {
+                let msg = &mut (&self.buffers.main[offset..][..to_read]).to_vec();
                 match self.noise_session.get_message_count() {
                     0 if !self.noise_session.is_initiator() => self.process_msg_a(msg),
                     1 if self.noise_session.is_initiator() => self.process_msg_b(msg),
@@ -322,6 +314,9 @@ impl ConnectionLowLevel {
                 }?;
                 Ok(ReadResult::WouldBlock)
             } else {
+                let mut msg =
+                    mem::replace(&mut self.incoming_msg.message, HybridBuf::with_capacity(0)?);
+                msg.rewind()?;
                 Ok(ReadResult::Complete(self.decrypt(msg)?))
             }
         } else {
