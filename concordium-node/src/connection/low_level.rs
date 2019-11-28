@@ -437,7 +437,14 @@ impl ConnectionLowLevel {
     #[inline]
     fn encrypt_and_enqueue(&mut self, input: &[u8]) -> Fallible<()> {
         let num_full_chunks = input.len() / NOISE_MAX_PAYLOAD_LEN;
-        let last_chunk_len = input.len() % NOISE_MAX_PAYLOAD_LEN + MAC_LENGTH;
+        let last_chunk_len = {
+            let rem = input.len() % NOISE_MAX_PAYLOAD_LEN;
+            if rem != 0 {
+                rem + MAC_LENGTH
+            } else {
+                0
+            }
+        };
         let full_msg_len = num_full_chunks * NOISE_MAX_MESSAGE_LEN + last_chunk_len;
 
         self.output_queue
