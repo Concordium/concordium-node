@@ -249,6 +249,7 @@ impl ConnectionLowLevel {
         }
     }
 
+    /// Attempt to discover the length of the incoming encrypted message.
     #[inline]
     fn attempt_to_read_length(&mut self, read_bytes: usize, offset: usize) -> Fallible<usize> {
         let read_size = cmp::min(read_bytes, PAYLOAD_SIZE - offset);
@@ -280,6 +281,9 @@ impl ConnectionLowLevel {
         Ok(read_size)
     }
 
+    /// As long as the length of the incoming message is already known and there
+    /// are bytes pending to be processed, register them as part of the
+    /// current message and decrypt it when all bytes have been read.
     #[inline]
     fn process_incoming_msg(&mut self, read_bytes: usize, offset: usize) -> Fallible<ReadResult> {
         let remaining_bytes = self.incoming_msg.pending_bytes;
@@ -437,7 +441,14 @@ impl ConnectionLowLevel {
     #[inline]
     fn encrypt_and_enqueue(&mut self, input: &[u8]) -> Fallible<()> {
         let num_full_chunks = input.len() / NOISE_MAX_PAYLOAD_LEN;
-        let last_chunk_len = input.len() % NOISE_MAX_PAYLOAD_LEN + MAC_LENGTH;
+        let last_chunk_len = {
+            let rem = input.len() % NOISE_MAX_PAYLOAD_LEN;
+            if rem != 0 {
+                rem + MAC_LENGTH
+            } else {
+                0
+            }
+        };
         let full_msg_len = num_full_chunks * NOISE_MAX_MESSAGE_LEN + last_chunk_len;
 
         self.output_queue
