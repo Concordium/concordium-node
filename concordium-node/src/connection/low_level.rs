@@ -46,10 +46,10 @@ struct IncomingMessage {
 /// The buffers used to encrypt/decrypt noise messages and contain reads from
 /// the socket.
 struct Buffers {
-    /// The socket read buffer.
-    main: Box<[u8]>,
+    /// The socket read/write buffer.
+    socket: Box<[u8]>,
     /// The encryption/decryption buffer.
-    secondary: Box<[u8]>,
+    noise: Box<[u8]>,
     /// Carryover offset and length, if there's any.
     carryover: Option<(usize, usize)>,
 }
@@ -57,8 +57,8 @@ struct Buffers {
 impl Buffers {
     fn new(socket_read_size: usize) -> Self {
         Self {
-            main:      vec![0u8; socket_read_size].into_boxed_slice(),
-            secondary: vec![0u8; NOISE_MAX_MESSAGE_LEN].into_boxed_slice(),
+            socket:    vec![0u8; socket_read_size].into_boxed_slice(),
+            noise:     vec![0u8; NOISE_MAX_MESSAGE_LEN].into_boxed_slice(),
             carryover: None,
         }
     }
@@ -208,14 +208,14 @@ impl ConnectionLowLevel {
         // message, the writes to the buffer need to be offset by their number
         let mut offset = self.incoming_msg.size_bytes.len();
 
-        // if there's any bytes to be read from the secondary buffer, process them
+        // if there's any bytes to be read from the noise buffer, process them
         // before reading from the socket again
         let mut read_bytes = if let Some((extra_offset, len)) = self.buffers.carryover.take() {
             offset += extra_offset;
             len
         } else {
-            let len = self.buffers.main.len() - offset;
-            match self.socket.read(&mut self.buffers.main[offset..][..len]) {
+            let len = self.buffers.socket.len() - offset;
+            match self.socket.read(&mut self.buffers.socket[offset..][..len]) {
                 Ok(num_bytes) => {
                     trace!(
                         "Read {} from the socket",
@@ -253,7 +253,7 @@ impl ConnectionLowLevel {
         );
         self.incoming_msg
             .size_bytes
-            .write_all(&self.buffers.main[offset..][..read_size])?;
+            .write_all(&self.buffers.socket[offset..][..read_size])?;
 
         if self.incoming_msg.size_bytes.len() == PAYLOAD_SIZE {
             let expected_size =
@@ -289,7 +289,7 @@ impl ConnectionLowLevel {
 
         self.incoming_msg
             .message
-            .write_all(&self.buffers.main[offset..][..to_read])?;
+            .write_all(&self.buffers.socket[offset..][..to_read])?;
         self.incoming_msg.pending_bytes -= to_read as PayloadSize;
 
         // if the socket read was greater than the number of bytes remaining to read the
@@ -304,7 +304,7 @@ impl ConnectionLowLevel {
             trace!("The message was fully read");
 
             if !self.is_post_handshake() {
-                let msg = &mut (&self.buffers.main[offset..][..to_read]).to_vec();
+                let msg = &mut (&self.buffers.socket[offset..][..to_read]).to_vec();
                 match self.noise_session.get_message_count() {
                     0 if !self.noise_session.is_initiator() => self.process_msg_a(msg),
                     1 if self.noise_session.is_initiator() => self.process_msg_b(msg),
@@ -350,15 +350,15 @@ impl ConnectionLowLevel {
     #[inline]
     fn decrypt_chunk<W: Write>(&mut self, input: &mut HybridBuf, output: &mut W) -> Fallible<()> {
         let read_size = cmp::min(NOISE_MAX_MESSAGE_LEN, input.remaining_len()? as usize);
-        input.read_exact(&mut self.buffers.secondary[..read_size])?;
+        input.read_exact(&mut self.buffers.noise[..read_size])?;
 
         if let Err(err) = self
             .noise_session
-            .recv_message(&mut self.buffers.secondary[..read_size])
+            .recv_message(&mut self.buffers.noise[..read_size])
         {
             Err(err.into())
         } else {
-            output.write_all(&self.buffers.secondary[..read_size - MAC_LENGTH])?;
+            output.write_all(&self.buffers.noise[..read_size - MAC_LENGTH])?;
             Ok(())
         }
     }
@@ -407,14 +407,14 @@ impl ConnectionLowLevel {
         let (front, back) = self.output_queue.as_slices();
 
         let front_len = cmp::min(front.len(), write_size);
-        self.buffers.main[..front_len].copy_from_slice(&front[..front_len]);
+        self.buffers.socket[..front_len].copy_from_slice(&front[..front_len]);
 
         let back_len = write_size - front_len;
         if back_len > 0 {
-            self.buffers.main[front_len..][..back_len].copy_from_slice(&back[..back_len]);
+            self.buffers.socket[front_len..][..back_len].copy_from_slice(&back[..back_len]);
         }
 
-        let written = match self.socket.write(&self.buffers.main[..write_size]) {
+        let written = match self.socket.write(&self.buffers.socket[..write_size]) {
             Ok(num_bytes) => num_bytes,
             Err(e) if e.kind() == ErrorKind::WouldBlock => return Ok(0),
             Err(e) => return Err(e.into()),
@@ -468,14 +468,14 @@ impl ConnectionLowLevel {
     fn encrypt_chunk(&mut self, input: &mut Cursor<&[u8]>) -> Fallible<()> {
         let remaining_len = input.get_ref().len() - input.position() as usize;
         let chunk_size = cmp::min(NOISE_MAX_PAYLOAD_LEN, remaining_len);
-        input.read_exact(&mut self.buffers.secondary[..chunk_size])?;
+        input.read_exact(&mut self.buffers.noise[..chunk_size])?;
         let encrypted_len = chunk_size + MAC_LENGTH;
 
         self.noise_session
-            .send_message(&mut self.buffers.secondary[..encrypted_len])?;
+            .send_message(&mut self.buffers.noise[..encrypted_len])?;
 
         self.output_queue
-            .extend(&self.buffers.secondary[..encrypted_len]);
+            .extend(&self.buffers.noise[..encrypted_len]);
 
         Ok(())
     }
