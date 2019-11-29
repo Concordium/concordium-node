@@ -38,7 +38,7 @@ struct IncomingMessage {
     size_bytes: Vec<u8>,
     /// The number of bytes remaining to be read in order to complete the
     /// current message.
-    pending_bytes: PayloadSize,
+    pending_bytes: usize,
     /// The encrypted message currently being read.
     message: HybridBuf,
 }
@@ -261,7 +261,7 @@ impl ConnectionLowLevel {
             self.incoming_msg.size_bytes.clear();
 
             // check if the expected size doesn't exceed the protocol limit
-            if expected_size > PROTOCOL_MAX_MESSAGE_SIZE as PayloadSize {
+            if expected_size > PROTOCOL_MAX_MESSAGE_SIZE {
                 bail!(
                     "expected message size ({}) exceeds the maximum protocol size ({})",
                     ByteSize(expected_size as u64).to_string_as(true),
@@ -273,7 +273,7 @@ impl ConnectionLowLevel {
                 "Expecting a {} message",
                 ByteSize(expected_size as u64).to_string_as(true)
             );
-            self.incoming_msg.pending_bytes = expected_size;
+            self.incoming_msg.pending_bytes = expected_size as usize;
             self.incoming_msg.message = HybridBuf::with_capacity(expected_size as usize)?;
         }
 
@@ -285,12 +285,12 @@ impl ConnectionLowLevel {
     /// current message and decrypt it when all bytes have been read.
     #[inline]
     fn process_incoming_msg(&mut self, read_bytes: usize, offset: usize) -> Fallible<ReadResult> {
-        let to_read = cmp::min(self.incoming_msg.pending_bytes as usize, read_bytes);
+        let to_read = cmp::min(self.incoming_msg.pending_bytes, read_bytes);
 
         self.incoming_msg
             .message
             .write_all(&self.buffers.socket[offset..][..to_read])?;
-        self.incoming_msg.pending_bytes -= to_read as PayloadSize;
+        self.incoming_msg.pending_bytes -= to_read;
 
         // if the socket read was greater than the number of bytes remaining to read the
         // current message, process those before reading from the socket again
