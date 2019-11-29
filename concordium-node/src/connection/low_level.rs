@@ -47,15 +47,18 @@ struct IncomingMessage {
 struct SocketBuffer {
     /// The socket read/write buffer.
     buf: Box<[u8]>,
-    /// Carryover offset and length, if there's any.
-    carryover: Option<(usize, usize)>,
+    /// The buffer's offset.
+    offset: usize,
+    /// The bytes remaining from the last read from the socket.
+    remaining: usize,
 }
 
 impl SocketBuffer {
     fn new(socket_read_size: usize) -> Self {
         Self {
             buf:       vec![0u8; socket_read_size].into_boxed_slice(),
-            carryover: None,
+            offset:    0,
+            remaining: 0,
         }
     }
 }
@@ -202,21 +205,18 @@ impl ConnectionLowLevel {
     /// Attempts to read a complete message from the socket.
     #[inline]
     fn read_from_socket(&mut self) -> Fallible<ReadResult> {
-        // if there are any pending bytes constituting the length of the incoming
-        // message, the writes to the buffer need to be offset by their number
-        let mut offset = self.incoming_msg.size_bytes.len();
-
-        // if there's any bytes to be read from the noise buffer, process them
-        // before reading from the socket again
-        let mut read_bytes = if let Some((extra_offset, len)) = self.socket_buffer.carryover.take()
-        {
-            offset += extra_offset;
-            len
+        if self.socket_buffer.offset == self.socket_buffer.buf.len() {
+            self.socket_buffer.offset = 0;
+        }
+        // if there's any carryover bytes to be read from the socket buffer,
+        // process them before reading from the socket again
+        self.socket_buffer.remaining = if self.socket_buffer.remaining > 0 {
+            self.socket_buffer.remaining
         } else {
-            let len = self.socket_buffer.buf.len() - offset;
+            let len = self.socket_buffer.buf.len() - self.socket_buffer.offset;
             match self
                 .socket
-                .read(&mut self.socket_buffer.buf[offset..][..len])
+                .read(&mut self.socket_buffer.buf[self.socket_buffer.offset..][..len])
             {
                 Ok(num_bytes) => {
                     trace!(
@@ -233,14 +233,12 @@ impl ConnectionLowLevel {
         // if we don't know the length of the incoming message, read it from the
         // collected bytes; that number of bytes needs to be accounted for later
         if self.incoming_msg.pending_bytes == 0 {
-            let len_bytes_read = self.attempt_to_read_length(read_bytes, offset)?;
-            read_bytes -= len_bytes_read;
-            offset += len_bytes_read;
+            self.attempt_to_read_length()?;
         }
 
         // check if we know the size of the message now
         if self.incoming_msg.pending_bytes != 0 {
-            self.process_incoming_msg(read_bytes, offset)
+            self.process_incoming_msg()
         } else {
             Ok(ReadResult::Incomplete)
         }
@@ -248,14 +246,16 @@ impl ConnectionLowLevel {
 
     /// Attempt to discover the length of the incoming encrypted message.
     #[inline]
-    fn attempt_to_read_length(&mut self, read_bytes: usize, offset: usize) -> Fallible<usize> {
+    fn attempt_to_read_length(&mut self) -> Fallible<()> {
         let read_size = cmp::min(
-            read_bytes,
+            self.socket_buffer.remaining,
             PAYLOAD_SIZE - self.incoming_msg.size_bytes.len(),
         );
         self.incoming_msg
             .size_bytes
-            .write_all(&self.socket_buffer.buf[offset..][..read_size])?;
+            .write_all(&self.socket_buffer.buf[self.socket_buffer.offset..][..read_size])?;
+        self.socket_buffer.offset += read_size;
+        self.socket_buffer.remaining -= read_size;
 
         if self.incoming_msg.size_bytes.len() == PAYLOAD_SIZE {
             let expected_size =
@@ -279,40 +279,43 @@ impl ConnectionLowLevel {
             self.incoming_msg.message = HybridBuf::with_capacity(expected_size as usize)?;
         }
 
-        Ok(read_size)
+        Ok(())
     }
 
     /// As long as the length of the incoming message is already known and there
     /// are bytes pending to be processed, register them as part of the
     /// current message and decrypt it when all bytes have been read.
     #[inline]
-    fn process_incoming_msg(&mut self, read_bytes: usize, offset: usize) -> Fallible<ReadResult> {
-        let to_read = cmp::min(self.incoming_msg.pending_bytes, read_bytes);
+    fn process_incoming_msg(&mut self) -> Fallible<ReadResult> {
+        let to_read = cmp::min(
+            self.incoming_msg.pending_bytes,
+            self.socket_buffer.remaining,
+        );
 
         self.incoming_msg
             .message
-            .write_all(&self.socket_buffer.buf[offset..][..to_read])?;
+            .write_all(&self.socket_buffer.buf[self.socket_buffer.offset..][..to_read])?;
         self.incoming_msg.pending_bytes -= to_read;
 
-        // if the socket read was greater than the number of bytes remaining to read the
-        // current message, process those before reading from the socket again
-        if read_bytes > to_read {
-            let carryover_offset = offset + to_read;
-            let carryover_len = read_bytes - to_read;
-            self.socket_buffer.carryover = Some((carryover_offset, carryover_len));
+        if self.is_post_handshake() {
+            self.socket_buffer.offset += to_read;
+            self.socket_buffer.remaining -= to_read;
         }
 
         if self.incoming_msg.pending_bytes == 0 {
             trace!("The message was fully read");
 
             if !self.is_post_handshake() {
-                let msg = &mut (&self.socket_buffer.buf[offset..][..to_read]).to_vec();
+                let msg =
+                    &mut (&self.socket_buffer.buf[self.socket_buffer.offset..][..to_read]).to_vec();
                 match self.noise_session.get_message_count() {
                     0 if !self.noise_session.is_initiator() => self.process_msg_a(msg),
                     1 if self.noise_session.is_initiator() => self.process_msg_b(msg),
                     2 if !self.noise_session.is_initiator() => self.process_msg_c(msg),
                     _ => bail!("invalid XX handshake"),
                 }?;
+                self.socket_buffer.offset = 0;
+                self.socket_buffer.remaining = 0;
                 Ok(ReadResult::WouldBlock)
             } else {
                 let mut msg =
