@@ -111,8 +111,9 @@ pub struct ConnectionLowLevel {
 }
 
 macro_rules! recv_xx_msg {
-    ($self:ident, $data:expr, $idx:expr) => {
-        $self.noise_session.recv_message($data)?;
+    ($self:ident, $len:expr, $idx:expr) => {
+        let msg = $self.socket_buffer.slice_mut($len);
+        $self.noise_session.recv_message(msg)?;
         trace!("I got message {}", $idx);
     };
 }
@@ -171,14 +172,14 @@ impl ConnectionLowLevel {
         Ok(())
     }
 
-    fn process_msg_a(&mut self, data: &mut [u8]) -> Fallible<()> {
-        recv_xx_msg!(self, data, "A");
+    fn process_msg_a(&mut self, len: usize) -> Fallible<()> {
+        recv_xx_msg!(self, len, "A");
         send_xx_msg!(self, DHLEN * 2 + MAC_LENGTH * 2, "B");
         Ok(())
     }
 
-    fn process_msg_b(&mut self, data: &mut [u8]) -> Fallible<()> {
-        recv_xx_msg!(self, data, "B");
+    fn process_msg_b(&mut self, len: usize) -> Fallible<()> {
+        recv_xx_msg!(self, len, "B");
         send_xx_msg!(self, DHLEN + MAC_LENGTH * 2, "C");
         if cfg!(feature = "snow_noise") {
             finalize_handshake(&mut self.noise_session)?;
@@ -186,8 +187,8 @@ impl ConnectionLowLevel {
         Ok(())
     }
 
-    fn process_msg_c(&mut self, data: &mut [u8]) -> Fallible<()> {
-        recv_xx_msg!(self, data, "C");
+    fn process_msg_c(&mut self, len: usize) -> Fallible<()> {
+        recv_xx_msg!(self, len, "C");
         if cfg!(feature = "snow_noise") {
             finalize_handshake(&mut self.noise_session)?;
         }
@@ -324,11 +325,10 @@ impl ConnectionLowLevel {
             trace!("The message was fully read");
 
             if !self.is_post_handshake() {
-                let msg = &mut self.socket_buffer.slice(to_read).to_vec();
                 match self.noise_session.get_message_count() {
-                    0 if !self.noise_session.is_initiator() => self.process_msg_a(msg),
-                    1 if self.noise_session.is_initiator() => self.process_msg_b(msg),
-                    2 if !self.noise_session.is_initiator() => self.process_msg_c(msg),
+                    0 if !self.noise_session.is_initiator() => self.process_msg_a(to_read),
+                    1 if self.noise_session.is_initiator() => self.process_msg_b(to_read),
+                    2 if !self.noise_session.is_initiator() => self.process_msg_c(to_read),
                     _ => bail!("invalid XX handshake"),
                 }?;
                 self.socket_buffer.reset();
