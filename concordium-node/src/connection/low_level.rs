@@ -63,6 +63,29 @@ impl SocketBuffer {
     }
 }
 
+impl SocketBuffer {
+    #[inline]
+    fn is_exhausted(&self) -> bool { self.offset == self.buf.len() }
+
+    #[inline]
+    fn slice(&self, len: usize) -> &[u8] { &self.buf[self.offset..][..len] }
+
+    #[inline]
+    fn slice_mut(&mut self, len: usize) -> &mut [u8] { &mut self.buf[self.offset..][..len] }
+
+    #[inline]
+    fn shift(&mut self, offset: usize) {
+        self.offset += offset;
+        self.remaining -= offset;
+    }
+
+    #[inline]
+    fn reset(&mut self) {
+        self.offset = 0;
+        self.remaining = 0;
+    }
+}
+
 /// A type used to indicate what the result of the current read from the socket
 /// is.
 enum ReadResult {
@@ -205,19 +228,16 @@ impl ConnectionLowLevel {
     /// Attempts to read a complete message from the socket.
     #[inline]
     fn read_from_socket(&mut self) -> Fallible<ReadResult> {
-        if self.socket_buffer.offset == self.socket_buffer.buf.len() {
-            self.socket_buffer.offset = 0;
+        if self.socket_buffer.is_exhausted() {
+            self.socket_buffer.reset();
         }
         // if there's any carryover bytes to be read from the socket buffer,
         // process them before reading from the socket again
         self.socket_buffer.remaining = if self.socket_buffer.remaining > 0 {
             self.socket_buffer.remaining
         } else {
-            let len = self.socket_buffer.buf.len() - self.socket_buffer.offset;
-            match self
-                .socket
-                .read(&mut self.socket_buffer.buf[self.socket_buffer.offset..][..len])
-            {
+            let len = self.read_size() - self.socket_buffer.offset;
+            match self.socket.read(self.socket_buffer.slice_mut(len)) {
                 Ok(num_bytes) => {
                     trace!(
                         "Read {} from the socket",
@@ -253,9 +273,8 @@ impl ConnectionLowLevel {
         );
         self.incoming_msg
             .size_bytes
-            .write_all(&self.socket_buffer.buf[self.socket_buffer.offset..][..read_size])?;
-        self.socket_buffer.offset += read_size;
-        self.socket_buffer.remaining -= read_size;
+            .write_all(self.socket_buffer.slice(read_size))?;
+        self.socket_buffer.shift(read_size);
 
         if self.incoming_msg.size_bytes.len() == PAYLOAD_SIZE {
             let expected_size =
@@ -294,28 +313,25 @@ impl ConnectionLowLevel {
 
         self.incoming_msg
             .message
-            .write_all(&self.socket_buffer.buf[self.socket_buffer.offset..][..to_read])?;
+            .write_all(self.socket_buffer.slice(to_read))?;
         self.incoming_msg.pending_bytes -= to_read;
 
         if self.is_post_handshake() {
-            self.socket_buffer.offset += to_read;
-            self.socket_buffer.remaining -= to_read;
+            self.socket_buffer.shift(to_read);
         }
 
         if self.incoming_msg.pending_bytes == 0 {
             trace!("The message was fully read");
 
             if !self.is_post_handshake() {
-                let msg =
-                    &mut (&self.socket_buffer.buf[self.socket_buffer.offset..][..to_read]).to_vec();
+                let msg = &mut self.socket_buffer.slice(to_read).to_vec();
                 match self.noise_session.get_message_count() {
                     0 if !self.noise_session.is_initiator() => self.process_msg_a(msg),
                     1 if self.noise_session.is_initiator() => self.process_msg_b(msg),
                     2 if !self.noise_session.is_initiator() => self.process_msg_c(msg),
                     _ => bail!("invalid XX handshake"),
                 }?;
-                self.socket_buffer.offset = 0;
-                self.socket_buffer.remaining = 0;
+                self.socket_buffer.reset();
                 Ok(ReadResult::WouldBlock)
             } else {
                 let mut msg =
@@ -484,6 +500,10 @@ impl ConnectionLowLevel {
 
         Ok(())
     }
+
+    /// Get the desired socket read size.
+    #[inline]
+    fn read_size(&self) -> usize { self.socket_buffer.buf.len() }
 
     /// Get the desired socket write size.
     #[inline]
