@@ -18,7 +18,7 @@ use std::{
     cmp,
     collections::VecDeque,
     convert::TryInto,
-    io::{Cursor, ErrorKind, Read, Write},
+    io::{Cursor, ErrorKind, Read, Seek, SeekFrom, Write},
     mem,
     pin::Pin,
     sync::{atomic::Ordering, Arc},
@@ -334,10 +334,7 @@ impl ConnectionLowLevel {
                 self.socket_buffer.reset();
                 Ok(ReadResult::WouldBlock)
             } else {
-                let mut msg =
-                    mem::replace(&mut self.incoming_msg.message, HybridBuf::with_capacity(0)?);
-                msg.rewind()?;
-                Ok(ReadResult::Complete(self.decrypt(msg)?))
+                Ok(ReadResult::Complete(self.decrypt()?))
             }
         } else {
             Ok(ReadResult::Incomplete)
@@ -346,32 +343,33 @@ impl ConnectionLowLevel {
 
     /// Decrypt a full message read from the socket.
     #[inline]
-    fn decrypt(&mut self, mut input: HybridBuf) -> Fallible<HybridBuf> {
+    fn decrypt(&mut self) -> Fallible<HybridBuf> {
+        let mut msg = mem::replace(&mut self.incoming_msg.message, HybridBuf::with_capacity(0)?);
         // calculate the number of full-sized chunks
-        let len = input.len()? as usize;
+        let len = msg.len()? as usize;
         let num_full_chunks = len / NOISE_MAX_MESSAGE_LEN;
         // calculate the number of the last, incomplete chunk (if there is one)
         let last_chunk_size = len % NOISE_MAX_MESSAGE_LEN;
         let num_all_chunks = num_full_chunks + if last_chunk_size > 0 { 1 } else { 0 };
 
-        let mut decrypted_msg =
-            HybridBuf::with_capacity(NOISE_MAX_PAYLOAD_LEN * num_full_chunks + last_chunk_size)?;
-
         // decrypt the chunks
-        for _ in 0..num_all_chunks {
-            self.decrypt_chunk(&mut input, &mut decrypted_msg)?;
+        for i in 0..num_all_chunks {
+            self.decrypt_chunk(&mut msg, i)?;
         }
 
-        decrypted_msg.rewind()?;
+        msg.truncate(len - num_all_chunks * MAC_LENGTH)?;
+        msg.rewind()?;
 
-        Ok(decrypted_msg)
+        Ok(msg)
     }
 
     /// Decrypt a single chunk of the received encrypted message.
     #[inline]
-    fn decrypt_chunk<W: Write>(&mut self, input: &mut HybridBuf, output: &mut W) -> Fallible<()> {
-        let read_size = cmp::min(NOISE_MAX_MESSAGE_LEN, input.remaining_len()? as usize);
-        input.read_exact(&mut self.noise_buffer[..read_size])?;
+    fn decrypt_chunk(&mut self, msg: &mut HybridBuf, offset_mul: usize) -> Fallible<()> {
+        msg.seek(SeekFrom::Start((offset_mul * NOISE_MAX_MESSAGE_LEN) as u64))?;
+        let read_size = cmp::min(NOISE_MAX_MESSAGE_LEN, msg.remaining_len()? as usize);
+        msg.read_exact(&mut self.noise_buffer[..read_size])?;
+        msg.seek(SeekFrom::Start((offset_mul * NOISE_MAX_PAYLOAD_LEN) as u64))?;
 
         if let Err(err) = self
             .noise_session
@@ -379,7 +377,7 @@ impl ConnectionLowLevel {
         {
             Err(err.into())
         } else {
-            output.write_all(&self.noise_buffer[..read_size - MAC_LENGTH])?;
+            msg.write_all(&self.noise_buffer[..read_size - MAC_LENGTH])?;
             Ok(())
         }
     }
