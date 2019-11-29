@@ -234,9 +234,7 @@ impl ConnectionLowLevel {
         }
         // if there's any carryover bytes to be read from the socket buffer,
         // process them before reading from the socket again
-        self.socket_buffer.remaining = if self.socket_buffer.remaining > 0 {
-            self.socket_buffer.remaining
-        } else {
+        if self.socket_buffer.remaining == 0 {
             let len = self.read_size() - self.socket_buffer.offset;
             match self.socket.read(self.socket_buffer.slice_mut(len)) {
                 Ok(num_bytes) => {
@@ -244,7 +242,7 @@ impl ConnectionLowLevel {
                         "Read {} from the socket",
                         ByteSize(num_bytes as u64).to_string_as(true)
                     );
-                    num_bytes
+                    self.socket_buffer.remaining = num_bytes;
                 }
                 Err(e) if e.kind() == ErrorKind::WouldBlock => return Ok(ReadResult::WouldBlock),
                 Err(e) => return Err(e.into()),
@@ -357,8 +355,8 @@ impl ConnectionLowLevel {
             self.decrypt_chunk(&mut msg, i)?;
         }
 
-        msg.truncate(len - num_all_chunks * MAC_LENGTH)?;
         msg.rewind()?;
+        msg.truncate(len - num_all_chunks * MAC_LENGTH)?;
 
         Ok(msg)
     }
