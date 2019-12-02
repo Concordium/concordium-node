@@ -226,6 +226,7 @@ class BlockStateQuery m => BlockStateOperations m where
 
 
   -- |Add a new baker to the baker pool. Assign a fresh baker identity to the
+
   -- new baker and return the assigned identity.
   -- This method should also update the next available baker id in the system.
   -- If a baker with the given signing key already exists do nothing and
