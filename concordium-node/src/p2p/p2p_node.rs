@@ -18,6 +18,7 @@ use crate::{
     stats_export_service::StatsExportService,
     utils,
 };
+use bytesize::ByteSize;
 use chrono::prelude::*;
 use concordium_common::{
     hybrid_buf::HybridBuf,
@@ -613,6 +614,12 @@ impl P2PNode {
                         let peer_stat_list = self_clone.get_peer_stats(None);
                         self_clone.check_peers(&peer_stat_list);
                         self_clone.print_stats(&peer_stat_list);
+                        let (throughput_in, throughput_out) = self_clone.measure_throughput();
+                        debug!(
+                            "throughput: {}/s in, {}/s out",
+                            ByteSize(throughput_in).to_string_as(true),
+                            ByteSize(throughput_out).to_string_as(true),
+                        );
 
                         log_time = now;
                     }
@@ -1133,6 +1140,24 @@ impl P2PNode {
             .into_iter()
             .map(|stats| stats.id)
             .collect()
+    }
+
+    pub fn measure_throughput(&self) -> (u64, u64) {
+        let (bytes_received, bytes_sent) = read_or_die!(self.connections())
+            .values()
+            .filter(|conn| conn.is_post_handshake())
+            .filter(|conn| Some(conn.remote_peer_type()) == Some(PeerType::Node))
+            .map(|conn| {
+                let ll = read_or_die!(conn.low_level);
+                (ll.bytes_received, ll.bytes_sent)
+            })
+            .fold((0, 0), |(acc_i, acc_o), (i, o)| (acc_i + i, acc_o + o));
+
+        let n = (Utc::now() - self.start_time).num_seconds() as f64;
+        (
+            (bytes_received as f64 / n).floor() as u64,
+            (bytes_sent as f64 / n).floor() as u64,
+        )
     }
 
     #[cfg(not(windows))]
