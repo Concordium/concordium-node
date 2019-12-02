@@ -34,8 +34,8 @@ genesisSeedState nonce epochLength =
   SeedState nonce epochLength 0 []
 
 -- |Get the seed state of the new epoch
-getNewEpochSeedState :: Slot -- |The slot we need parameters for
-                          -> SeedState -- |The seed state of the parent
+getNewEpochSeedState :: Slot -- ^The slot we need parameters for
+                          -> SeedState -- ^The seed state of the parent
                           -> SeedState
 getNewEpochSeedState slot SeedState{..} = 
   let

@@ -41,8 +41,8 @@ insertLookup party pWeight pset
         })
 
 union ::
-    -- ^Party weight function
     (Party -> VoterPower)
+    -- ^Party weight function
     -> PartySet
     -> PartySet
     -> PartySet

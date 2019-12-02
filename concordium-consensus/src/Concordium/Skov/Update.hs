@@ -297,6 +297,7 @@ addBlock block = do
                     -- add this block to the queue at the appropriate point
                     Just (BlockAlive lfBlockP) -> do
                         addAwaitingLastFinalized (bpHeight lfBlockP) block
+                        markPending block
                         logEvent Skov LLDebug $ "Block " ++ show block ++ " is pending finalization of block " ++ show (bpHash lfBlockP) ++ " at height " ++ show (theBlockHeight $ bpHeight lfBlockP)
                         return ResultPendingFinalization
                     -- If the block's last finalized block is finalized, we can proceed with validation.
