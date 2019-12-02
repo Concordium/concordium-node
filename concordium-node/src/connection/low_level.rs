@@ -18,7 +18,7 @@ use std::{
     cmp,
     collections::VecDeque,
     convert::TryInto,
-    io::{Cursor, ErrorKind, Read, Write},
+    io::{Cursor, ErrorKind, Read, Seek, SeekFrom, Write},
     mem,
     pin::Pin,
     sync::{atomic::Ordering, Arc},
@@ -111,8 +111,9 @@ pub struct ConnectionLowLevel {
 }
 
 macro_rules! recv_xx_msg {
-    ($self:ident, $data:expr, $idx:expr) => {
-        $self.noise_session.recv_message($data)?;
+    ($self:ident, $len:expr, $idx:expr) => {
+        let msg = $self.socket_buffer.slice_mut($len);
+        $self.noise_session.recv_message(msg)?;
         trace!("I got message {}", $idx);
     };
 }
@@ -171,14 +172,14 @@ impl ConnectionLowLevel {
         Ok(())
     }
 
-    fn process_msg_a(&mut self, data: &mut [u8]) -> Fallible<()> {
-        recv_xx_msg!(self, data, "A");
+    fn process_msg_a(&mut self, len: usize) -> Fallible<()> {
+        recv_xx_msg!(self, len, "A");
         send_xx_msg!(self, DHLEN * 2 + MAC_LENGTH * 2, "B");
         Ok(())
     }
 
-    fn process_msg_b(&mut self, data: &mut [u8]) -> Fallible<()> {
-        recv_xx_msg!(self, data, "B");
+    fn process_msg_b(&mut self, len: usize) -> Fallible<()> {
+        recv_xx_msg!(self, len, "B");
         send_xx_msg!(self, DHLEN + MAC_LENGTH * 2, "C");
         if cfg!(feature = "snow_noise") {
             finalize_handshake(&mut self.noise_session)?;
@@ -186,8 +187,8 @@ impl ConnectionLowLevel {
         Ok(())
     }
 
-    fn process_msg_c(&mut self, data: &mut [u8]) -> Fallible<()> {
-        recv_xx_msg!(self, data, "C");
+    fn process_msg_c(&mut self, len: usize) -> Fallible<()> {
+        recv_xx_msg!(self, len, "C");
         if cfg!(feature = "snow_noise") {
             finalize_handshake(&mut self.noise_session)?;
         }
@@ -233,9 +234,7 @@ impl ConnectionLowLevel {
         }
         // if there's any carryover bytes to be read from the socket buffer,
         // process them before reading from the socket again
-        self.socket_buffer.remaining = if self.socket_buffer.remaining > 0 {
-            self.socket_buffer.remaining
-        } else {
+        if self.socket_buffer.remaining == 0 {
             let len = self.read_size() - self.socket_buffer.offset;
             match self.socket.read(self.socket_buffer.slice_mut(len)) {
                 Ok(num_bytes) => {
@@ -243,7 +242,7 @@ impl ConnectionLowLevel {
                         "Read {} from the socket",
                         ByteSize(num_bytes as u64).to_string_as(true)
                     );
-                    num_bytes
+                    self.socket_buffer.remaining = num_bytes;
                 }
                 Err(e) if e.kind() == ErrorKind::WouldBlock => return Ok(ReadResult::WouldBlock),
                 Err(e) => return Err(e.into()),
@@ -324,20 +323,16 @@ impl ConnectionLowLevel {
             trace!("The message was fully read");
 
             if !self.is_post_handshake() {
-                let msg = &mut self.socket_buffer.slice(to_read).to_vec();
                 match self.noise_session.get_message_count() {
-                    0 if !self.noise_session.is_initiator() => self.process_msg_a(msg),
-                    1 if self.noise_session.is_initiator() => self.process_msg_b(msg),
-                    2 if !self.noise_session.is_initiator() => self.process_msg_c(msg),
+                    0 if !self.noise_session.is_initiator() => self.process_msg_a(to_read),
+                    1 if self.noise_session.is_initiator() => self.process_msg_b(to_read),
+                    2 if !self.noise_session.is_initiator() => self.process_msg_c(to_read),
                     _ => bail!("invalid XX handshake"),
                 }?;
                 self.socket_buffer.reset();
                 Ok(ReadResult::WouldBlock)
             } else {
-                let mut msg =
-                    mem::replace(&mut self.incoming_msg.message, HybridBuf::with_capacity(0)?);
-                msg.rewind()?;
-                Ok(ReadResult::Complete(self.decrypt(msg)?))
+                Ok(ReadResult::Complete(self.decrypt()?))
             }
         } else {
             Ok(ReadResult::Incomplete)
@@ -346,32 +341,33 @@ impl ConnectionLowLevel {
 
     /// Decrypt a full message read from the socket.
     #[inline]
-    fn decrypt(&mut self, mut input: HybridBuf) -> Fallible<HybridBuf> {
+    fn decrypt(&mut self) -> Fallible<HybridBuf> {
+        let mut msg = mem::replace(&mut self.incoming_msg.message, HybridBuf::with_capacity(0)?);
         // calculate the number of full-sized chunks
-        let len = input.len()? as usize;
+        let len = msg.len()? as usize;
         let num_full_chunks = len / NOISE_MAX_MESSAGE_LEN;
         // calculate the number of the last, incomplete chunk (if there is one)
         let last_chunk_size = len % NOISE_MAX_MESSAGE_LEN;
         let num_all_chunks = num_full_chunks + if last_chunk_size > 0 { 1 } else { 0 };
 
-        let mut decrypted_msg =
-            HybridBuf::with_capacity(NOISE_MAX_PAYLOAD_LEN * num_full_chunks + last_chunk_size)?;
-
         // decrypt the chunks
-        for _ in 0..num_all_chunks {
-            self.decrypt_chunk(&mut input, &mut decrypted_msg)?;
+        for i in 0..num_all_chunks {
+            self.decrypt_chunk(&mut msg, i)?;
         }
 
-        decrypted_msg.rewind()?;
+        msg.rewind()?;
+        msg.truncate(len - num_all_chunks * MAC_LENGTH)?;
 
-        Ok(decrypted_msg)
+        Ok(msg)
     }
 
     /// Decrypt a single chunk of the received encrypted message.
     #[inline]
-    fn decrypt_chunk<W: Write>(&mut self, input: &mut HybridBuf, output: &mut W) -> Fallible<()> {
-        let read_size = cmp::min(NOISE_MAX_MESSAGE_LEN, input.remaining_len()? as usize);
-        input.read_exact(&mut self.noise_buffer[..read_size])?;
+    fn decrypt_chunk(&mut self, msg: &mut HybridBuf, offset_mul: usize) -> Fallible<()> {
+        msg.seek(SeekFrom::Start((offset_mul * NOISE_MAX_MESSAGE_LEN) as u64))?;
+        let read_size = cmp::min(NOISE_MAX_MESSAGE_LEN, msg.remaining_len()? as usize);
+        msg.read_exact(&mut self.noise_buffer[..read_size])?;
+        msg.seek(SeekFrom::Start((offset_mul * NOISE_MAX_PAYLOAD_LEN) as u64))?;
 
         if let Err(err) = self
             .noise_session
@@ -379,7 +375,7 @@ impl ConnectionLowLevel {
         {
             Err(err.into())
         } else {
-            output.write_all(&self.noise_buffer[..read_size - MAC_LENGTH])?;
+            msg.write_all(&self.noise_buffer[..read_size - MAC_LENGTH])?;
             Ok(())
         }
     }
