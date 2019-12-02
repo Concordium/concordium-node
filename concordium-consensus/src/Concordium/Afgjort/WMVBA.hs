@@ -28,7 +28,8 @@ module Concordium.Afgjort.WMVBA (
     wmvbaWADBotMessage,
     -- * For testing
     _freezeState,
-    findCulprits
+    findCulprits,
+    makeWMVBAWitnessCreatorMessage
 ) where
 
 import Lens.Micro.Platform
@@ -202,11 +203,12 @@ toABBAInstance (WMVBAInstance baid totalWeight corruptWeight partyWeight maxPart
 
 class (MonadState (WMVBAState sig) m, MonadReader (WMVBAInstance sig) m, MonadIO m) => WMVBAMonad sig m where
     sendWMVBAMessage :: WMVBAMessage -> m ()
-    wmvbaComplete :: Maybe (Val, ([Party], Bls.Signature)) -> m () -- TODO: change to new finalproof
+    wmvbaComplete :: Maybe (Val, ([Party], Bls.Signature)) -> m ()
 
 data WMVBAOutputEvent sig
     = SendWMVBAMessage WMVBAMessage
-    | WMVBAComplete (Maybe (Val, ([Party], Bls.Signature))) -- TODO: change to new finalproof
+    | WMVBAComplete (Maybe (Val, ([Party], Bls.Signature)))
+    deriving (Show)
 
 newtype WMVBA sig a = WMVBA {
     runWMVBA' :: RWST (WMVBAInstance sig) (Endo [WMVBAOutputEvent sig]) (WMVBAState sig) IO a
