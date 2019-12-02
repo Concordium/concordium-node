@@ -37,27 +37,45 @@ import Concordium.TimerMonad
 import Concordium.Afgjort.Finalize
 import Concordium.Afgjort.Buffer
 
+-- |An instance @c@ of 'SkovConfiguration' defines a configuration for
+-- executing the 'SkovT' monad.
 class (
         HasGlobalStateContext (SkovGSContext c) (SkovContext c),
         HasGlobalState (SkovGSState c) (SkovState c)
         ) => SkovConfiguration c where
+    -- |The type of contexts (i.e. read only data) for the configuration type.
     data SkovContext c
+    -- |The type of states for the configuration type.
     data SkovState c
+    -- |A type representing the global state part of 'SkovState'.
+    -- We require 'HasGlobalState (SkovGSState c) (SkovState c)'.
     type SkovGSState c
+    -- |A type representing the global state context part of 'SkovContext'.
+    -- We require 'HasGlobalStateContext (SkovGSContext c) (SkovContext c)'.
     type SkovGSContext c
+    -- |Create an initial context and state from a given configuration.
     initialiseSkov :: c -> IO (SkovContext c, SkovState c)
+    -- |Free any resources when we are done with the context and state.
     shutdownSkov :: SkovContext c -> SkovState c -> IO ()
 
-
+-- |An instance of 'SkovTimerHandlers' provides a means for implementing
+-- a 'TimerMonad' instance for 'SkovT'.
 class SkovTimerHandlers h c m | h -> m c where
+    -- |Type to represent a timer
     type SkovHandlerTimer h
+    -- |Handler for creating a timer event
     handleOnTimeout :: h -> Timeout -> SkovT h c m a -> m (SkovHandlerTimer h)
+    -- |Handler for cancelling a timer
     handleCancelTimer :: h -> SkovHandlerTimer h -> m ()
 
+-- |An instance of 'SkovFinalizationHandlers' provides handlers for broadcasting
+-- finalization-related messages.
 class SkovFinalizationHandlers h m where
     handleBroadcastFinalizationMessage :: h -> FinalizationPseudoMessage -> m ()
     handleBroadcastFinalizationRecord :: h -> FinalizationRecord -> m ()
 
+-- |'SkovHandlers' provides an implementation of 'SkovTimerHandlers' and
+-- 'SkovFinalizationHandlers'.
 data SkovHandlers t c m = SkovHandlers {
     shBroadcastFinalizationMessage :: FinalizationPseudoMessage -> m (),
     shBroadcastFinalizationRecord :: FinalizationRecord -> m (),
@@ -74,6 +92,8 @@ instance SkovTimerHandlers (SkovHandlers t c m) c m where
     handleOnTimeout SkovHandlers{..} = shOnTimeout
     handleCancelTimer SkovHandlers{..} = shCancelTimer
 
+-- |The 'SkovT' monad transformer equips a monad with state, context and handlers for
+-- performing Skov operations.
 newtype SkovT h c m a = SkovT { runSkovT' :: h -> SkovContext c -> StateT (SkovState c) m a }
     deriving (Functor, Applicative, Monad, MonadState (SkovState c), MonadIO, LoggerMonad, TimeMonad)
         via (ReaderT h (ReaderT (SkovContext c) (StateT (SkovState c) m)))

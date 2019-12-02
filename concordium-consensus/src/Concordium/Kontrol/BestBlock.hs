@@ -2,10 +2,12 @@
     ScopedTypeVariables #-}
 module Concordium.Kontrol.BestBlock(
     bestBlock,
-    bestBlockBefore
+    bestBlockBefore,
+    bestBlockOf
 ) where
 
 import Data.Foldable
+import qualified Data.Sequence as Seq
 import Lens.Micro.Platform
 import Control.Exception (assert)
 
@@ -14,7 +16,7 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.Parameters
 import Concordium.Skov.Monad
 import Concordium.Birk.LeaderElection
-import Concordium.GlobalState.TreeState(BlockPointer, BlockPointerData(..), bpParent)
+import Concordium.GlobalState.TreeState(BlockPointer, BlockPointerData(..), bpParent, Branches)
 
 blockLuck :: (SkovQueryMonad m) => BlockPointer m -> m BlockLuck
 blockLuck block = case blockFields block of
@@ -60,3 +62,14 @@ bestBlock = bestBlockBranches =<< branchesFromTop
 -- If there is no such block, the last finalized block is returned.
 bestBlockBefore :: forall m. (SkovQueryMonad m) => Slot -> m (BlockPointer m)
 bestBlockBefore slotBound = bestBlockBranches . fmap (filter (\b -> blockSlot b < slotBound)) =<< branchesFromTop
+
+-- |Given some 'Branches', determine the best block.
+-- This will always be a block at the greatest height that is non-empty.
+bestBlockOf :: (SkovQueryMonad m) => Branches m -> m (Maybe (BlockPointer m))
+bestBlockOf Seq.Empty = return Nothing
+bestBlockOf (bs' Seq.:|> tbs) = case tbs of
+        [] -> bestBlockOf bs'
+        [b] -> return $ Just b
+        (b : tbs') -> do
+            bb <- fst <$> foldrM compareBlocks (b, Nothing) tbs'
+            return $ Just bb

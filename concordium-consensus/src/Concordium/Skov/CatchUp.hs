@@ -1,76 +1,98 @@
+{-# LANGUAGE
+    ViewPatterns,
+    ScopedTypeVariables #-}
 module Concordium.Skov.CatchUp where
 
 import Control.Monad.Trans.Except
 import Control.Monad.Trans.Class
-import Data.Maybe
 import Data.Serialize
 import qualified Data.Map as Map
 import qualified Data.Set as Set
+import qualified Data.Sequence as Seq
+import qualified Data.List as List
+import Data.Function
+import Data.Foldable
 import Lens.Micro.Platform
 import Control.Monad
 
 import Concordium.Types
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.TreeState hiding (getGenesisData)
-import Concordium.GlobalState.Parameters
 
-import Concordium.Afgjort.Finalize
 import Concordium.Skov.Monad
 import Concordium.Kontrol.BestBlock
 
 data CatchUpStatus = CatchUpStatus {
     -- |If this flag is set, the recipient is expected to send any
     -- blocks and finalization records the sender may be missing,
-    -- followed by a CatchUpStatus message.
+    -- followed by a CatchUpStatus message with the response flag
+    -- set.
     cusIsRequest :: Bool,
-    -- |Hash of the sender's last finalized block
+    -- |If this flag is set, this message concludes a catch-up
+    -- response. (The receiver should not expect to be sent
+    -- further catch-up blocks unless it sends a further catch-up
+    -- request.)
+    cusIsResponse :: Bool,
+    -- |Hash of the sender's last finalized block.
     cusLastFinalizedBlock :: BlockHash,
-    -- |Height of the sender's last finalized block
+    -- |Height of the sender's last finalized block.
     cusLastFinalizedHeight :: BlockHeight,
-    -- |Hash of the sender's best block
-    cusBestBlock :: BlockHash,
-    -- |List of blocks at the height which justifies a
-    -- block as a candidate for the next round of finalization
-    cusFinalizationJustifiers :: [BlockHash],
-    -- |List of live (non-finalized) blocks. This should
-    -- only be included in a request.
-    cusAdditionalBlocks :: [BlockHash]
+    -- |Hashes of all live non-finalized leaf blocks.
+    cusLeaves :: [BlockHash],
+    -- |Hashes of all live non-finalized non-leaf blocks, if the message
+    -- is a request.
+    cusBranches :: [BlockHash]
 } deriving (Show)
 instance Serialize CatchUpStatus where
     put CatchUpStatus{..} = do
-        put cusIsRequest
+        putWord8 $ case (cusIsRequest, cusIsResponse) of
+            (False, False) -> 0
+            (True, False) -> 1
+            (False, True) -> 2
+            (True, True) -> 3
         put cusLastFinalizedBlock
         put cusLastFinalizedHeight
-        put cusBestBlock
-        put cusFinalizationJustifiers
-        when cusIsRequest $ put cusAdditionalBlocks
+        put cusLeaves
+        when cusIsRequest $ put cusBranches
     get = do
-        cusIsRequest <- get
+        (cusIsRequest, cusIsResponse) <- getWord8 >>= \case
+            0 -> return (False, False)
+            1 -> return (True, False)
+            2 -> return (False, True)
+            3 -> return (True, True)
+            _ -> fail "Invalid flags"
         cusLastFinalizedBlock <- get
         cusLastFinalizedHeight <- get
-        cusBestBlock <- get
-        cusFinalizationJustifiers <- get
-        cusAdditionalBlocks <- if cusIsRequest then get else return []
+        cusLeaves <- get
+        cusBranches <- if cusIsRequest then get else return []
         return CatchUpStatus{..}
 
-makeCatchUpStatus :: (BlockPointerData bs b) => Bool -> b -> b -> [b] -> [b] -> CatchUpStatus
-makeCatchUpStatus cusIsRequest lfb bb fjs adbs = CatchUpStatus{..}
+makeCatchUpStatus :: (BlockPointerData bs b) => Bool -> Bool -> b -> [b] -> [b] -> CatchUpStatus
+makeCatchUpStatus cusIsRequest cusIsResponse lfb leaves branches = CatchUpStatus{..}
     where
         cusLastFinalizedBlock = bpHash lfb
         cusLastFinalizedHeight = bpHeight lfb
-        cusBestBlock = bpHash bb
-        cusFinalizationJustifiers = bpHash <$> fjs
-        cusAdditionalBlocks = if cusIsRequest then bpHash <$> adbs else []
+        cusLeaves = bpHash <$> leaves
+        cusBranches = bpHash <$> branches
+
+-- |Given a list of lists representing branches (ordered by height),
+-- produce a pair of lists @(leaves, branches)@, which partions
+-- those blocks that are leves (@leaves@) from those that are not
+-- (@branches@).
+leavesBranches :: (BlockPointerData bs b) => [[b]] -> ([b], [b])
+leavesBranches = lb ([], [])
+    where
+        lb lsbs [] = lsbs
+        lb (ls, bs) [ls'] = (ls ++ ls', bs)
+        lb (ls, bs) (s:r@(n:_))
+            = let (bs', ls') = List.partition (`elem` (bpParent <$> n)) s
+                in lb (ls ++ ls', bs ++ bs') r
 
 getCatchUpStatus :: (TreeStateMonad m, SkovQueryMonad m) => Bool -> m CatchUpStatus
 getCatchUpStatus cusIsRequest = do
-        (lfb, lastFinRec) <- getLastFinalized
-        finParams <- genesisFinalizationParameters <$> getGenesisData
-        let justHeight = nextFinalizationJustifierHeight finParams lastFinRec lfb
-        justifiers <- getBlocksAtHeight justHeight
-        bb <- bestBlock
-        branches <- getBranches
-        return $ makeCatchUpStatus cusIsRequest lfb bb justifiers (concat branches)
+        lfb <- lastFinalizedBlock
+        (leaves, branches) <- leavesBranches . toList <$> getBranches
+        return $ makeCatchUpStatus cusIsRequest False lfb leaves (if cusIsRequest then branches else [])
 
 data KnownBlocks b = KnownBlocks {
     -- |The known blocks indexed by height
@@ -109,10 +131,11 @@ checkKnownBlock b kb = (b `Set.member` (m ^. at (bpHeight b) . non Set.empty), k
         kb'@(KnownBlocks m _) = updateKnownBlocksToHeight (bpHeight b) kb
 
 
-handleCatchUp :: (TreeStateMonad m, SkovQueryMonad m) => CatchUpStatus -> m (Either String (Maybe ([Either FinalizationRecord (BlockPointer m)], CatchUpStatus), Bool))
+handleCatchUp :: forall m. (TreeStateMonad m, SkovQueryMonad m) => CatchUpStatus -> m (Either String (Maybe ([Either FinalizationRecord (BlockPointer m)], CatchUpStatus), Bool))
 handleCatchUp peerCUS = runExceptT $ do
-        (lfb, lastFinRec) <- lift getLastFinalized
+        lfb <- lift lastFinalizedBlock
         if cusLastFinalizedHeight peerCUS > bpHeight lfb then do
+            -- Our last finalized height is below the peer's last finalized height
             response <-
                 if cusIsRequest peerCUS then do
                     myCUS <- lift $ getCatchUpStatus False
@@ -122,49 +145,72 @@ handleCatchUp peerCUS = runExceptT $ do
             -- We are behind, so we mark the peer as pending.
             return (response, True)
         else do
+            -- Our last finalized height is at least the peer's last finalized height
+            -- Check if the peer's last finalized block is recognised
             (peerlfb, peerFinRec) <- getBlockStatus (cusLastFinalizedBlock peerCUS) >>= \case
                 Just (BlockFinalized peerlfb peerFinRec) ->
                     return (peerlfb, peerFinRec)
                 _ ->
+                    -- If the peer's last finalized block is not known to be finalized (to us)
+                    -- then we must effectively be on different finalized chains, so we should
+                    -- reject this peer.
                     throwE $ "Invalid catch up status: last finalized block not finalized." 
-            peerbb <- lift $ resolveBlock (cusBestBlock peerCUS)
+
+            -- Determine if we need to catch up: i.e. if the peer has some
+            -- leaf block we do not recognise.
             let
-                fj Nothing (_, l) = (True, l)
-                fj (Just b) (j, l) = (j, b : l)
-            (pfjMissing, peerFinJustifiers) <- foldr fj (False, []) <$> mapM (lift . resolveBlock) (cusFinalizationJustifiers peerCUS) 
-            -- We should mark the peer as pending if we don't recognise its best block
-            let catchUpWithPeer = isNothing peerbb || pfjMissing
+                testLeaves [] = return False
+                testLeaves (l:ls) = resolveBlock l >>= \case
+                    Nothing -> return True
+                    Just _ -> testLeaves ls
+            catchUpWithPeer <- testLeaves (cusLeaves peerCUS)
+
             if cusIsRequest peerCUS then do
-                -- Response required so determine finalization records and chain to send
                 frs <- getFinalizationFromIndex (finalizationIndex peerFinRec + 1)
-                bb <- bestBlock
-                finParams <- genesisFinalizationParameters <$> getGenesisData
-                let justHeight = nextFinalizationJustifierHeight finParams lastFinRec lfb
-                justifiers <- getBlocksAtHeight justHeight
-                -- We want our best chain up to the latest known common ancestor of the
-                -- peer's best block.  If we know that block, start there; otherwise, 
-                -- start with the peer's last finalized block.
-                peerBranches <- catMaybes <$> mapM (lift . resolveBlock) (cusAdditionalBlocks peerCUS)
-                let knownBlocks = makeKnownBlocks $ peerlfb : maybe id (:) peerbb peerFinJustifiers ++ peerBranches
+                let peerKnownBlocks = Set.insert (cusLastFinalizedBlock peerCUS) $
+                        Set.fromList (cusLeaves peerCUS) `Set.union` Set.fromList (cusBranches peerCUS)
                 let
-                    makeChain' kb b l = case checkKnownBlock b kb of
-                        (True, _) -> (kb, l)
-                        (False, kb') -> makeChain' kb' (bpParent b) (b : l)
-                    makeChain kb b = makeChain' kb b []
-                    (_, chain) = foldl (\(kbs, ch0) b -> let (kbs', ch1) = makeChain kbs b in (addKnownBlock b kbs', ch0 ++ ch1)) (knownBlocks, []) (bb : justifiers)
-                    myCUS = makeCatchUpStatus False lfb bb justifiers []
-                    -- Note: since the list can be truncated, we have to be careful about the
+                    extendBackBranches b bs
+                        | bpHash b `Set.member` peerKnownBlocks = bs
+                        | bpHeight b == 0 = bs -- Genesis block should always be known, so this case should be unreachable
+                        | otherwise = extendBackBranches (bpParent b) ([b] Seq.<| bs)
+                -- Take the branches; filter out all blocks that the client claims knowledge of; extend branches back
+                -- to include finalized blocks until the parent is known.
+                myBranches <- getBranches
+                let
+                    branches0 = extendBackBranches lfb . fmap (filter ((`Set.notMember` peerKnownBlocks) . bpHash)) $ myBranches
+                    takeOldest Seq.Empty = (Seq.Empty, Seq.Empty)
+                    takeOldest ([] Seq.:<| bs) = takeOldest bs
+                    takeOldest ([o] Seq.:<| bs) = (Seq.singleton o, bs)
+                    takeOldest (l Seq.:<| bs) = (Seq.singleton m, l' Seq.<| bs)
+                        where
+                            m = minimumBy (compare `on` bpArriveTime) l
+                            l' = List.delete m l
+                    (outBlocks1, branches1) = takeOldest branches0
+                    trim = Seq.dropWhileR null
+                    takeBranches :: Seq.Seq (BlockPointer m) -> Seq.Seq [BlockPointer m] -> ExceptT String m (Seq.Seq (BlockPointer m))
+                    takeBranches out (trim -> brs) = bestBlockOf brs >>= \case
+                        Nothing -> return out
+                        Just bb -> (out <>) <$> innerLoop Seq.empty brs Seq.empty bb
+                    innerLoop out Seq.Empty brs _ = takeBranches out brs
+                    innerLoop out brsL0@(brsL Seq.:|> bs) brsR bb
+                        | bb `elem` bs = innerLoop (bb Seq.<| out) brsL (List.delete bb bs Seq.<| brsR) (bpParent bb)
+                        | otherwise = takeBranches out (brsL0 <> brsR)
+                outBlocks2 <- takeBranches outBlocks1 branches1
+                let
+                    myCUS = makeCatchUpStatus False True lfb (fst $ leavesBranches $ toList myBranches) []
+                    -- Note: since the returned list can be truncated, we have to be careful about the
                     -- order that finalization records are interleaved with blocks.
                     -- Specifically, we send a finalization record as soon as possible after
                     -- the corresponding block; and where the block is not being sent, we
                     -- send the finalization record before all other blocks.  We also send
                     -- finalization records and blocks in order.
-                    merge [] bs = Right <$> bs
-                    merge fs [] = Left . fst <$> fs
-                    merge fs0@((f, fb) : fs1) bs0@(b : bs1)
+                    merge [] bs = Right <$> toList bs
+                    merge fs Seq.Empty = Left . fst <$> fs
+                    merge fs0@((f, fb) : fs1) bs0@(b Seq.:<| bs1)
                         | bpHeight fb < bpHeight b = Left f : merge fs1 bs0
                         | otherwise = Right b : merge fs0 bs1
-                return (Just (merge frs chain, myCUS), catchUpWithPeer)
+                return (Just (merge frs outBlocks2, myCUS), catchUpWithPeer)
             else
                 -- No response required
                 return (Nothing, catchUpWithPeer)
