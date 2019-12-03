@@ -9,12 +9,10 @@ mod tests {
         network::NetworkId,
         p2p::{banned_nodes::BannedNode, p2p_node::*},
         test_utils::{
-            await_handshake, connect, get_test_config, make_node_and_sync, next_available_port,
-            setup_logger,
+            await_handshake, connect, make_node_and_sync, next_available_port, setup_logger,
         },
     };
 
-    use crossbeam_channel;
     use rand::{distributions::Standard, thread_rng, Rng};
     use std::{convert::TryFrom, thread, time};
 
@@ -73,28 +71,6 @@ mod tests {
         //     Some(msg.to_vec())
         // );
 
-        Ok(())
-    }
-
-    #[test]
-    #[ignore]
-    pub fn e2e_004_01_close_and_join_on_not_spawned_node() -> Fallible<()> {
-        setup_logger();
-
-        let (rpc_tx, _) = crossbeam_channel::bounded(64);
-        let node = P2PNode::new(
-            None,
-            &get_test_config(next_available_port(), vec![100]),
-            None,
-            PeerType::Node,
-            None,
-            rpc_tx,
-            None,
-        );
-
-        assert_eq!(true, node.close_and_join().is_err());
-        assert_eq!(true, node.close_and_join().is_err());
-        assert_eq!(true, node.close_and_join().is_err());
         Ok(())
     }
 
