@@ -1258,10 +1258,10 @@ impl P2P for RpcServerImpl {
         sink: ::grpcio::UnarySink<SuccesfulStructResponse>,
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
-            let f = if let Some(stats) = &self.node.stats_export_service {
+            let f = {
                 let mut r: SuccesfulStructResponse = SuccesfulStructResponse::new();
                 let mut s = GRPCSkovStats::new();
-                let stat_values = stats.get_gs_stats();
+                let stat_values = self.node.stats.get_gs_stats();
                 s.set_gs_block_receipt(stat_values.0 as u32);
                 s.set_gs_block_entry(stat_values.1 as u32);
                 s.set_gs_block_query(stat_values.2 as u32);
@@ -1270,11 +1270,6 @@ impl P2P for RpcServerImpl {
                 s.set_gs_finalization_query(stat_values.5 as u32);
                 r.set_gs_stats(s);
                 sink.success(r)
-            } else {
-                sink.fail(grpcio::RpcStatus::new(
-                    grpcio::RpcStatusCode::ResourceExhausted,
-                    Some("Stats server can't be locked".to_string()),
-                ))
             };
             let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);

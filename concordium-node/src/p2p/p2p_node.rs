@@ -170,21 +170,21 @@ impl ConnectionHandler {
 #[repr(C)] // specifying this representation is needed for the pointer work done in the
            // last steps of `P2PNode::new`
 pub struct P2PNode {
-    pub self_ref:             Option<Arc<Self>>,
-    pub self_peer:            P2PPeer,
-    threads:                  RwLock<P2PNodeThreads>,
-    pub poll:                 Poll,
-    pub connection_handler:   ConnectionHandler,
-    pub rpc_queue:            Sender<NetworkMessage>,
-    dump_switch:              Sender<(std::path::PathBuf, bool)>,
-    dump_tx:                  Sender<crate::dumper::DumpItem>,
-    pub stats_export_service: Option<StatsExportService>,
-    pub config:               P2PNodeConfig,
-    start_time:               DateTime<Utc>,
-    pub is_rpc_online:        AtomicBool,
-    pub is_terminated:        AtomicBool,
-    pub kvs:                  Arc<RwLock<Rkv>>,
-    pub stats_engine:         RwLock<StatsEngine>,
+    pub self_ref:           Option<Arc<Self>>,
+    pub self_peer:          P2PPeer,
+    threads:                RwLock<P2PNodeThreads>,
+    pub poll:               Poll,
+    pub connection_handler: ConnectionHandler,
+    pub rpc_queue:          Sender<NetworkMessage>,
+    dump_switch:            Sender<(std::path::PathBuf, bool)>,
+    dump_tx:                Sender<crate::dumper::DumpItem>,
+    pub stats:              StatsExportService,
+    pub config:             P2PNodeConfig,
+    start_time:             DateTime<Utc>,
+    pub is_rpc_online:      AtomicBool,
+    pub is_terminated:      AtomicBool,
+    pub kvs:                Arc<RwLock<Rkv>>,
+    pub stats_engine:       RwLock<StatsEngine>,
 }
 // a convenience macro to send an object to all connections
 macro_rules! send_to_all {
@@ -225,7 +225,7 @@ impl P2PNode {
         conf: &Config,
         event_log: Option<Sender<QueueMsg<P2PEvent>>>,
         peer_type: PeerType,
-        stats_export_service: Option<StatsExportService>,
+        stats: StatsExportService,
         subscription_queue_in: Sender<NetworkMessage>,
         data_dir_path: Option<PathBuf>,
     ) -> Arc<Self> {
@@ -379,7 +379,7 @@ impl P2PNode {
             is_rpc_online: AtomicBool::new(false),
             connection_handler,
             self_peer,
-            stats_export_service,
+            stats,
             is_terminated: Default::default(),
             kvs,
             stats_engine,
@@ -582,9 +582,7 @@ impl P2PNode {
                 for _ in events.iter().filter(|&event| event.token() == SERVER) {
                     debug!("Got a new connection!");
                     self_clone.accept().map_err(|e| error!("{}", e)).ok();
-                    if let Some(ref service) = &self_clone.stats_export_service {
-                        service.conn_received_inc();
-                    };
+                    self_clone.stats.conn_received_inc();
                 }
 
                 pool.install(|| {
@@ -614,10 +612,7 @@ impl P2PNode {
                         let peer_stat_list = self_clone.get_peer_stats(None);
                         self_clone.check_peers(&peer_stat_list);
                         self_clone.print_stats(&peer_stat_list);
-
-                        if let Some(ref ses) = self_clone.stats_export_service {
-                            self_clone.measure_throughput(ses);
-                        }
+                        self_clone.measure_throughput();
 
                         log_time = now;
                     }
@@ -853,9 +848,8 @@ impl P2PNode {
 
         match TcpStream::connect(&addr) {
             Ok(socket) => {
-                if let Some(ref service) = self.stats_export_service {
-                    service.conn_received_inc();
-                };
+                self.stats.conn_received_inc();
+
                 let token = Token(
                     self.connection_handler
                         .next_id
@@ -1140,9 +1134,9 @@ impl P2PNode {
             .collect()
     }
 
-    pub fn measure_throughput(&self, ses: &StatsExportService) -> (u64, u64) {
-        let prev_bytes_received = ses.get_bytes_received();
-        let prev_bytes_sent = ses.get_bytes_sent();
+    pub fn measure_throughput(&self) -> (u64, u64) {
+        let prev_bytes_received = self.stats.get_bytes_received();
+        let prev_bytes_sent = self.stats.get_bytes_sent();
 
         let (bytes_received, bytes_sent) = read_or_die!(self.connections())
             .values()
@@ -1154,16 +1148,16 @@ impl P2PNode {
             })
             .fold((0, 0), |(acc_i, acc_o), (i, o)| (acc_i + i, acc_o + o));
 
-        ses.set_bytes_received(bytes_received);
-        ses.set_bytes_sent(bytes_sent);
+        self.stats.set_bytes_received(bytes_received);
+        self.stats.set_bytes_sent(bytes_sent);
 
         let time_diff = self.config.housekeeping_interval as f64;
 
         let avg_bps_in = ((bytes_received - prev_bytes_received) as f64 / time_diff) as u64;
         let avg_bps_out = ((bytes_sent - prev_bytes_sent) as f64 / time_diff) as u64;
 
-        ses.set_avg_bps_in(avg_bps_in);
-        ses.set_avg_bps_out(avg_bps_out);
+        self.stats.set_avg_bps_in(avg_bps_in);
+        self.stats.set_avg_bps_out(avg_bps_out);
 
         info!(
             "avg. throughput: {}/s in, {}/s out",
@@ -1269,10 +1263,8 @@ impl P2PNode {
 
     pub fn close_and_join(&self) -> Fallible<()> {
         if cfg!(feature = "instrumentation") {
-            if let Some(srv) = &self.stats_export_service {
-                info!("Stopping prometheus server");
-                srv.stop_server();
-            }
+            info!("Stopping stats services");
+            self.stats.stop_server();
         }
 
         self.close();

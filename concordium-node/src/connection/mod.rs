@@ -268,9 +268,7 @@ impl Connection {
         self.update_last_seen();
         self.stats.messages_received.fetch_add(1, Ordering::Relaxed);
         TOTAL_MESSAGES_RECEIVED_COUNTER.fetch_add(1, Ordering::Relaxed);
-        if let Some(ref service) = self.handler().stats_export_service {
-            service.pkt_received_inc();
-        };
+        self.handler().stats.pkt_received_inc();
 
         if cfg!(feature = "network_dump") {
             self.send_to_dump(Arc::from(message.clone().remaining_bytes()?.to_vec()), true);
@@ -569,10 +567,8 @@ impl Drop for Connection {
         debug!("Closing the connection to {}", self);
 
         // Report number of peers to stats export engine
-        if let Some(ref service) = self.handler().stats_export_service {
-            if self.is_post_handshake() {
-                service.peers_dec();
-            }
+        if self.is_post_handshake() {
+            self.handler().stats.peers_dec();
         }
     }
 }

@@ -395,9 +395,7 @@ impl ConnectionLowLevel {
             .stats
             .messages_sent
             .fetch_add(1, Ordering::Relaxed);
-        if let Some(ref stats) = self.conn().handler().stats_export_service {
-            stats.pkt_sent_inc();
-        }
+        self.conn().handler().stats.pkt_sent_inc();
 
         if cfg!(feature = "network_dump") {
             self.conn().send_to_dump(input.clone(), false);

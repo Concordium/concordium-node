@@ -184,25 +184,21 @@ pub fn handle_pkt_out(
         CALLBACK_QUEUE.send_in_high_priority_message(request)
     } {
         Ok(_) => {
-            if let Some(ref service) = &node.stats_export_service {
-                if packet_type == PacketType::Transaction {
-                    service.inbound_low_priority_consensus_inc();
-                } else {
-                    service.inbound_high_priority_consensus_inc();
-                }
+            if packet_type == PacketType::Transaction {
+                node.stats.inbound_low_priority_consensus_inc();
+            } else {
+                node.stats.inbound_high_priority_consensus_inc();
             }
         }
         Err(e) => match e.downcast::<TrySendError<QueueMsg<ConsensusMessage>>>()? {
             TrySendError::Full(_) => {
-                if let Some(ref service) = &node.stats_export_service {
-                    if packet_type == PacketType::Transaction {
-                        service.inbound_low_priority_consensus_drops_inc();
-                        warn!("The low priority inbound consensus queue is full!")
-                    } else {
-                        service.inbound_high_priority_consensus_drops_inc();
-                        warn!("The high priority inbound consensus queue is full!")
-                    }
-                };
+                if packet_type == PacketType::Transaction {
+                    node.stats.inbound_low_priority_consensus_drops_inc();
+                    warn!("The low priority inbound consensus queue is full!")
+                } else {
+                    node.stats.inbound_high_priority_consensus_drops_inc();
+                    warn!("The high priority inbound consensus queue is full!")
+                }
             }
             TrySendError::Disconnected(_) => {
                 panic!("One of the inbound consensus queues has been shutdown!")
