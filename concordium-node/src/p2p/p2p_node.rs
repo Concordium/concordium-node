@@ -614,12 +614,10 @@ impl P2PNode {
                         let peer_stat_list = self_clone.get_peer_stats(None);
                         self_clone.check_peers(&peer_stat_list);
                         self_clone.print_stats(&peer_stat_list);
-                        let (throughput_in, throughput_out) = self_clone.measure_throughput();
-                        debug!(
-                            "throughput: {}/s in, {}/s out",
-                            ByteSize(throughput_in).to_string_as(true),
-                            ByteSize(throughput_out).to_string_as(true),
-                        );
+
+                        if let Some(ref ses) = self_clone.stats_export_service {
+                            self_clone.measure_throughput(ses);
+                        }
 
                         log_time = now;
                     }
@@ -1142,7 +1140,10 @@ impl P2PNode {
             .collect()
     }
 
-    pub fn measure_throughput(&self) -> (u64, u64) {
+    pub fn measure_throughput(&self, ses: &StatsExportService) -> (u64, u64) {
+        let prev_bytes_received = ses.get_bytes_received();
+        let prev_bytes_sent = ses.get_bytes_sent();
+
         let (bytes_received, bytes_sent) = read_or_die!(self.connections())
             .values()
             .filter(|conn| conn.is_post_handshake())
@@ -1153,11 +1154,24 @@ impl P2PNode {
             })
             .fold((0, 0), |(acc_i, acc_o), (i, o)| (acc_i + i, acc_o + o));
 
-        let n = (Utc::now() - self.start_time).num_seconds() as f64;
-        (
-            (bytes_received as f64 / n).floor() as u64,
-            (bytes_sent as f64 / n).floor() as u64,
-        )
+        ses.set_bytes_received(bytes_received);
+        ses.set_bytes_sent(bytes_sent);
+
+        let time_diff = self.config.housekeeping_interval as f64;
+
+        let avg_bps_in = ((bytes_received - prev_bytes_received) as f64 / time_diff) as u64;
+        let avg_bps_out = ((bytes_sent - prev_bytes_sent) as f64 / time_diff) as u64;
+
+        ses.set_avg_bps_in(avg_bps_in);
+        ses.set_avg_bps_out(avg_bps_out);
+
+        info!(
+            "avg. throughput: {}/s in, {}/s out",
+            ByteSize(avg_bps_in).to_string_as(true),
+            ByteSize(avg_bps_out).to_string_as(true),
+        );
+
+        (avg_bps_in, avg_bps_out)
     }
 
     #[cfg(not(windows))]
