@@ -522,11 +522,11 @@ impl P2P for RpcServerImpl {
                     .map(|peer| {
                         let mut peer_resp = PeerStatsResponse_PeerStats::new();
                         peer_resp.set_node_id(format!("{:0>16x}", peer.id));
-                        peer_resp.set_packets_sent(peer.sent.load(Ordering::Relaxed));
-                        peer_resp.set_packets_received(peer.received.load(Ordering::Relaxed));
-                        peer_resp.set_valid_latency(peer.valid_latency.load(Ordering::Relaxed));
+                        peer_resp.set_packets_sent(peer.sent);
+                        peer_resp.set_packets_received(peer.received);
+                        peer_resp.set_valid_latency(peer.valid_latency);
 
-                        let latency = peer.measured_latency.load(Ordering::Relaxed);
+                        let latency = peer.measured_latency;
                         peer_resp.set_measured_latency(latency);
 
                         peer_resp

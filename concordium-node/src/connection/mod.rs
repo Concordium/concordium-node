@@ -75,10 +75,10 @@ pub struct ConnectionStats {
     pub sent_handshake:    AtomicU64,
     pub last_seen:         AtomicU64,
     pub failed_pkts:       AtomicU32,
-    pub messages_sent:     Arc<AtomicU64>,
-    pub messages_received: Arc<AtomicU64>,
-    pub valid_latency:     Arc<AtomicBool>,
-    pub last_latency:      Arc<AtomicU64>,
+    pub messages_sent:     AtomicU64,
+    pub messages_received: AtomicU64,
+    pub valid_latency:     AtomicBool,
+    pub last_latency:      AtomicU64,
 }
 
 type PendingPriority = (MessageSendingPriority, Instant);
