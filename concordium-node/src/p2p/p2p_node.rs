@@ -612,7 +612,7 @@ impl P2PNode {
                         let peer_stat_list = self_clone.get_peer_stats(None);
                         self_clone.check_peers(&peer_stat_list);
                         self_clone.print_stats(&peer_stat_list);
-                        self_clone.measure_throughput();
+                        self_clone.measure_throughput(&peer_stat_list);
 
                         log_time = now;
                     }
@@ -1134,18 +1134,14 @@ impl P2PNode {
             .collect()
     }
 
-    pub fn measure_throughput(&self) -> (u64, u64) {
+    pub fn measure_throughput(&self, peer_stats: &[PeerStats]) -> (u64, u64) {
         let prev_bytes_received = self.stats.get_bytes_received();
         let prev_bytes_sent = self.stats.get_bytes_sent();
 
-        let (bytes_received, bytes_sent) = read_or_die!(self.connections())
-            .values()
-            .filter(|conn| conn.is_post_handshake())
-            .filter(|conn| Some(conn.remote_peer_type()) == Some(PeerType::Node))
-            .map(|conn| {
-                let ll = read_or_die!(conn.low_level);
-                (ll.bytes_received, ll.bytes_sent)
-            })
+        let (bytes_received, bytes_sent) = peer_stats
+            .iter()
+            .filter(|ps| ps.peer_type == PeerType::Node)
+            .map(|ps| (ps.bytes_received, ps.bytes_sent))
             .fold((0, 0), |(acc_i, acc_o), (i, o)| (acc_i + i, acc_o + o));
 
         self.stats.set_bytes_received(bytes_received);

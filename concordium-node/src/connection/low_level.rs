@@ -108,8 +108,6 @@ pub struct ConnectionLowLevel {
     incoming_msg: IncomingMessage,
     /// A priority queue for bytes waiting to be written to the socket.
     output_queue: VecDeque<u8>,
-    pub bytes_sent: u64,
-    pub bytes_received: u64,
 }
 
 macro_rules! recv_xx_msg {
@@ -163,8 +161,6 @@ impl ConnectionLowLevel {
             socket_buffer: SocketBuffer::new(socket_read_size),
             incoming_msg: IncomingMessage::default(),
             output_queue: VecDeque::with_capacity(WRITE_QUEUE_ALLOC),
-            bytes_sent: 0,
-            bytes_received: 0,
         }
     }
 
@@ -246,7 +242,6 @@ impl ConnectionLowLevel {
                         "Read {} from the socket",
                         ByteSize(num_bytes as u64).to_string_as(true)
                     );
-                    self.bytes_received += num_bytes as u64;
                     self.socket_buffer.remaining = num_bytes;
                 }
                 Err(e) if e.kind() == ErrorKind::WouldBlock => return Ok(ReadResult::WouldBlock),
@@ -395,6 +390,10 @@ impl ConnectionLowLevel {
             .stats
             .messages_sent
             .fetch_add(1, Ordering::Relaxed);
+        self.conn()
+            .stats
+            .bytes_sent
+            .fetch_add(input.len() as u64, Ordering::Relaxed);
         self.conn().handler().stats.pkt_sent_inc();
 
         if cfg!(feature = "network_dump") {
@@ -440,7 +439,6 @@ impl ConnectionLowLevel {
             Err(e) => return Err(e.into()),
         };
 
-        self.bytes_sent += written as u64;
         self.output_queue.drain(..written);
 
         trace!(

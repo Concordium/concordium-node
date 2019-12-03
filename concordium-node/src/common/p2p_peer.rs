@@ -148,6 +148,8 @@ pub struct PeerStats {
     pub received:           u64,
     pub valid_latency:      bool,
     pub measured_latency:   u64,
+    pub bytes_sent:         u64,
+    pub bytes_received:     u64,
 }
 
 impl PeerStats {
@@ -167,6 +169,8 @@ impl PeerStats {
             received: conn_stats.messages_received.load(AtomicOrdering::Relaxed),
             valid_latency: conn_stats.valid_latency.load(AtomicOrdering::Relaxed),
             measured_latency: conn_stats.last_latency.load(AtomicOrdering::Relaxed),
+            bytes_sent: conn_stats.bytes_sent.load(AtomicOrdering::Relaxed),
+            bytes_received: conn_stats.bytes_received.load(AtomicOrdering::Relaxed),
         }
     }
 

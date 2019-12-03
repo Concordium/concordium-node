@@ -79,6 +79,8 @@ pub struct ConnectionStats {
     pub messages_received: AtomicU64,
     pub valid_latency:     AtomicBool,
     pub last_latency:      AtomicU64,
+    pub bytes_received:    AtomicU64,
+    pub bytes_sent:        AtomicU64,
 }
 
 type PendingPriority = (MessageSendingPriority, Instant);
@@ -139,6 +141,8 @@ impl Connection {
             failed_pkts:       Default::default(),
             last_ping_sent:    AtomicU64::new(curr_stamp),
             last_seen:         AtomicU64::new(curr_stamp),
+            bytes_received:    Default::default(),
+            bytes_sent:        Default::default(),
         };
 
         let conn = Arc::new(Self {
@@ -267,6 +271,9 @@ impl Connection {
     ) -> Fallible<()> {
         self.update_last_seen();
         self.stats.messages_received.fetch_add(1, Ordering::Relaxed);
+        self.stats
+            .bytes_received
+            .fetch_add(message.len()?, Ordering::Relaxed);
         TOTAL_MESSAGES_RECEIVED_COUNTER.fetch_add(1, Ordering::Relaxed);
         self.handler().stats.pkt_received_inc();
 
