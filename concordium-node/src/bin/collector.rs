@@ -11,6 +11,7 @@ use p2p_client::{
     common::collector_utils::NodeInfo, proto::concordium_p2p_rpc_grpc::P2PClient,
     utils::setup_logger_env,
 };
+use rmp_serde;
 use serde_json::Value;
 use std::{
     borrow::ToOwned,
@@ -168,11 +169,9 @@ pub fn main() -> Fallible<()> {
                             node_name,
                             grpc_host
                         );
-                        if let Ok(json_string) = serde_json::to_string(&node_info) {
-                            trace!("Posting JSON {}", json_string);
+                        if let Ok(msgpack) = rmp_serde::encode::to_vec(&node_info) {
                             let client = reqwest::Client::new();
-                            if let Err(e) = client.post(&conf.collector_url).json(&node_info).send()
-                            {
+                            if let Err(e) = client.post(&conf.collector_url).body(msgpack).send() {
                                 error!("Could not post to dashboard server due to error {}", e);
                             }
                         }
