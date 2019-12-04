@@ -21,10 +21,6 @@ impl Connection {
                 NetworkRequest::Handshake(remote_node_id, remote_port, ref networks, _),
                 ..,
             ) => self.handle_handshake_req(*remote_node_id, *remote_port, networks),
-            NetworkMessagePayload::NetworkResponse(
-                NetworkResponse::Handshake(remote_node_id, remote_port, ref nets, _),
-                ..,
-            ) => self.handle_handshake_resp(*remote_node_id, *remote_port, nets),
             NetworkMessagePayload::NetworkRequest(NetworkRequest::Ping, ..) => self.send_pong(),
             NetworkMessagePayload::NetworkResponse(NetworkResponse::Pong, ..) => self.handle_pong(),
             NetworkMessagePayload::NetworkRequest(NetworkRequest::GetPeers(ref networks), ..) => {
@@ -86,37 +82,6 @@ impl Connection {
             debug!("Running in bootstrapper mode; attempting to send a PeerList upon handshake");
             self.send_peer_list_resp(networks)?;
         }
-
-        Ok(())
-    }
-
-    fn handle_handshake_resp(
-        &self,
-        remote_node_id: P2PNodeId,
-        remote_port: u16,
-        networks: &HashSet<NetworkId>,
-    ) -> Fallible<()> {
-        debug!("Got a Handshake response from peer {}", remote_node_id);
-
-        self.promote_to_post_handshake(remote_node_id, remote_port)?;
-        self.add_remote_end_networks(networks);
-
-        self.stats
-            .sent_handshake
-            .store(get_current_stamp(), Ordering::SeqCst);
-
-        let remote_peer = P2PPeer::from(
-            self.remote_peer.peer_type(),
-            remote_node_id,
-            SocketAddr::new(self.remote_peer.addr().ip(), remote_port),
-        );
-
-        if remote_peer.peer_type() != PeerType::Bootstrapper {
-            write_or_die!(self.handler().connection_handler.buckets)
-                .insert_into_bucket(&remote_peer, networks.clone());
-        }
-
-        self.handler().stats.peers_inc();
 
         Ok(())
     }

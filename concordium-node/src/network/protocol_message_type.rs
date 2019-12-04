@@ -70,7 +70,6 @@ impl TryFrom<u8> for ProtocolRequestType {
 pub enum ProtocolResponseType {
     Pong = 0,
     PeerList,
-    Handshake,
 }
 
 pub trait AsProtocolResponseType {
@@ -84,7 +83,6 @@ impl TryFrom<u8> for ProtocolResponseType {
         let prt = match value {
             0 => ProtocolResponseType::Pong,
             1 => ProtocolResponseType::PeerList,
-            2 => ProtocolResponseType::Handshake,
             _ => bail!("Unsupported Protocol Response type '{}'", value),
         };
         Ok(prt)

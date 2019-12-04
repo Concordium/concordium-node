@@ -300,8 +300,7 @@ impl Connection {
         }
 
         let is_msg_processable = match message.payload {
-            NetworkMessagePayload::NetworkRequest(NetworkRequest::Handshake(..), ..)
-            | NetworkMessagePayload::NetworkResponse(NetworkResponse::Handshake(..), ..) => true,
+            NetworkMessagePayload::NetworkRequest(NetworkRequest::Handshake(..), ..) => true,
             _ => self.is_post_handshake(),
         };
 
@@ -411,26 +410,6 @@ impl Connection {
         };
         let mut serialized = Vec::with_capacity(128);
         handshake_request.serialize(&mut serialized)?;
-
-        Ok(serialized)
-    }
-
-    pub fn produce_handshake_response(&self) -> Fallible<Vec<u8>> {
-        let mut handshake_response = NetworkMessage {
-            timestamp1: Some(get_current_stamp()),
-            timestamp2: None,
-            payload:    NetworkMessagePayload::NetworkResponse(NetworkResponse::Handshake(
-                self.handler().self_peer.id(),
-                self.handler().self_peer.port(),
-                read_or_die!(self.handler().networks())
-                    .iter()
-                    .copied()
-                    .collect(),
-                vec![],
-            )),
-        };
-        let mut serialized = Vec::with_capacity(128);
-        handshake_response.serialize(&mut serialized)?;
 
         Ok(serialized)
     }

@@ -175,6 +175,7 @@ impl ConnectionLowLevel {
         let payload = Vec::new();
         send_xx_msg!(self, DHLEN, &payload, pad, "A");
         self.conn().set_sent_handshake();
+
         Ok(())
     }
 
@@ -184,6 +185,7 @@ impl ConnectionLowLevel {
         let payload_in = self.socket_buffer.slice(len)[DHLEN..][..len - DHLEN - pad].try_into()?;
         let payload_out = self.conn().produce_handshake_request()?;
         send_xx_msg!(self, DHLEN * 2 + MAC_LENGTH, &payload_out, MAC_LENGTH, "B");
+
         Ok(payload_in)
     }
 
@@ -192,11 +194,13 @@ impl ConnectionLowLevel {
         let payload_in = self.socket_buffer.slice(len)[DHLEN * 2 + MAC_LENGTH..]
             [..len - DHLEN * 2 - MAC_LENGTH * 2]
             .try_into()?;
-        let payload_out = self.conn().produce_handshake_response()?;
+        let payload_out = self.conn().produce_handshake_request()?;
         send_xx_msg!(self, DHLEN + MAC_LENGTH, &payload_out, MAC_LENGTH, "C");
         if cfg!(feature = "snow_noise") {
             finalize_handshake(&mut self.noise_session)?;
         }
+        self.conn().handler().stats.peers_inc();
+
         Ok(payload_in)
     }
 
@@ -208,6 +212,7 @@ impl ConnectionLowLevel {
         if cfg!(feature = "snow_noise") {
             finalize_handshake(&mut self.noise_session)?;
         }
+        self.conn().handler().stats.peers_inc();
 
         Ok(payload)
     }

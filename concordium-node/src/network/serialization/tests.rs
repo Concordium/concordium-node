@@ -116,20 +116,6 @@ test_s11n!(
     ))
 );
 
-test_s11n!(
-    s11n_resp_handshake,
-    NetworkMessagePayload::NetworkResponse(NetworkResponse::Handshake(
-        P2PNodeId(77),
-        1234,
-        [100u16, 1000, 1234, 9999]
-            .iter()
-            .copied()
-            .map(NetworkId::from)
-            .collect(),
-        Vec::new(),
-    ))
-);
-
 #[test]
 fn s11n_packet() {
     let mut msg = create_random_packet(8);
