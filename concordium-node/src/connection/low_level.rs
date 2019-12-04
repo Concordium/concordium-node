@@ -168,7 +168,7 @@ impl ConnectionLowLevel {
         }
     }
 
-    // the XX handshake
+    // the XX noise handshake
 
     pub fn send_handshake_message_a(&mut self) -> Fallible<()> {
         let pad = if cfg!(feature = "snow_noise") { 0 } else { 16 };
@@ -185,6 +185,7 @@ impl ConnectionLowLevel {
         let payload_in = self.socket_buffer.slice(len)[DHLEN..][..len - DHLEN - pad].try_into()?;
         let payload_out = self.conn().produce_handshake_request()?;
         send_xx_msg!(self, DHLEN * 2 + MAC_LENGTH, &payload_out, MAC_LENGTH, "B");
+        self.conn().set_sent_handshake();
 
         Ok(payload_in)
     }
