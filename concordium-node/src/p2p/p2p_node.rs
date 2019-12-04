@@ -18,7 +18,6 @@ use crate::{
     stats_export_service::StatsExportService,
     utils,
 };
-use bytesize::ByteSize;
 use chrono::prelude::*;
 use concordium_common::{
     hybrid_buf::HybridBuf,
@@ -1154,12 +1153,6 @@ impl P2PNode {
 
         self.stats.set_avg_bps_in(avg_bps_in);
         self.stats.set_avg_bps_out(avg_bps_out);
-
-        info!(
-            "avg. throughput: {}/s in, {}/s out",
-            ByteSize(avg_bps_in).to_string_as(true),
-            ByteSize(avg_bps_out).to_string_as(true),
-        );
 
         (avg_bps_in, avg_bps_out)
     }
