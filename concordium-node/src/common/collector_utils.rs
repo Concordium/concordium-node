@@ -49,8 +49,8 @@ pub struct NodeInfo {
     pub finalizationCount: Option<f64>,
     #[serde(skip)]
     pub last_updated: u64,
-    pub avgBpsIn: u64,
-    pub avgBpsOut: u64,
+    pub averageBytesPerSecondIn: u64,
+    pub averageBytesPerSecondOut: u64,
 }
 
 #[allow(non_snake_case)]
@@ -98,8 +98,8 @@ pub struct NodeInfoDashboard<'a> {
     pub blocksVerifiedCount: Option<f64>,
     pub genesisBlock: &'a str,
     pub finalizationCount: Option<f64>,
-    pub avg_bps_in: f64,
-    pub avg_bps_out: f64,
+    pub averageBytesPerSecondIn: f64,
+    pub averageBytesPerSecondOut: f64,
 }
 
 impl<'a> From<&'a NodeInfo> for NodeInfoDashboard<'a> {
@@ -147,8 +147,8 @@ impl<'a> From<&'a NodeInfo> for NodeInfoDashboard<'a> {
             blocksVerifiedCount: other.blocksVerifiedCount,
             genesisBlock: &other.genesisBlock,
             finalizationCount: other.finalizationCount,
-            avg_bps_in: other.avgBpsIn as f64,
-            avg_bps_out: other.avgBpsOut as f64,
+            averageBytesPerSecondIn: other.averageBytesPerSecondIn as f64,
+            averageBytesPerSecondOut: other.averageBytesPerSecondOut as f64,
         }
     }
 }
