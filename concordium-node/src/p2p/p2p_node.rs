@@ -1,5 +1,5 @@
 #[cfg(feature = "beta")]
-use crate::client::plugins::beta::get_username_from_jwt;
+use crate::plugins::beta::get_username_from_jwt;
 #[cfg(feature = "network_dump")]
 use crate::dumper::create_dump_thread;
 use crate::{
