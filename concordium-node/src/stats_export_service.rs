@@ -617,6 +617,24 @@ impl StatsExportService {
         self.bytes_sent.store(value, Ordering::Relaxed);
     }
 
+    pub fn get_avg_bps_in(&self) -> u64 {
+        #[cfg(feature = "instrumentation")]
+        {
+            self.avg_bps_in.get()
+        }
+        #[cfg(not(feature = "instrumentation"))]
+        self.avg_bps_in.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn get_avg_bps_out(&self) -> u64 {
+        #[cfg(feature = "instrumentation")]
+        {
+            self.avg_bps_out.get()
+        }
+        #[cfg(not(feature = "instrumentation"))]
+        self.avg_bps_out.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     pub fn set_avg_bps_in(&self, value: u64) {
         #[cfg(feature = "instrumentation")]
         self.avg_bps_in.set(value);
