@@ -243,8 +243,6 @@ fn deserialize_request(root: &network::NetworkMessage) -> Fallible<NetworkMessag
                 bail!("missing network id in a join/leave network request")
             }
         }
-        // TODO: network::RequestVariant::Retransmit => ,
-        _ => unimplemented!(),
     }
 }
 
@@ -308,29 +306,6 @@ fn deserialize_response(root: &network::NetworkMessage) -> Fallible<NetworkMessa
                 ))
             } else {
                 bail!("missing peers in a PeerList response")
-            }
-        }
-        network::ResponseVariant::Handshake => {
-            if let Some(handshake) = response.payload().map(network::Handshake::init_from_table) {
-                let node_id = P2PNodeId(handshake.nodeId());
-                let port = handshake.port();
-                let network_ids = if let Some(network_ids) = handshake.networkIds() {
-                    network_ids
-                        .safe_slice()
-                        .iter()
-                        .copied()
-                        .map(NetworkId::from)
-                        .collect()
-                } else {
-                    bail!("missing network ids in a Handshake")
-                };
-                // the zero-knowledge proof will be added in the future
-
-                Ok(NetworkMessagePayload::NetworkResponse(
-                    NetworkResponse::Handshake(node_id, port, network_ids, Vec::new()),
-                ))
-            } else {
-                bail!("missing handshake payload")
             }
         }
     }
@@ -543,27 +518,6 @@ fn serialize_response(
             (
                 network::ResponseVariant::PeerList,
                 network::ResponsePayload::PeerList,
-                offset,
-            )
-        }
-        NetworkResponse::Handshake(id, port, nets, _zk) => {
-            builder.start_vector::<u16>(nets.len());
-            for net in nets {
-                builder.push(net.id);
-            }
-            let nets_offset = Some(builder.end_vector(nets.len()));
-            let offset = Some(
-                network::Handshake::create(builder, &network::HandshakeArgs {
-                    nodeId:     id.as_raw(),
-                    port:       *port,
-                    networkIds: nets_offset,
-                    zk:         None,
-                })
-                .as_union_value(),
-            );
-            (
-                network::ResponseVariant::Handshake,
-                network::ResponsePayload::Handshake,
                 offset,
             )
         }

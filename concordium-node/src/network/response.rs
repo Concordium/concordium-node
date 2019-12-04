@@ -1,16 +1,13 @@
 use crate::{
-    common::{P2PNodeId, P2PPeer},
-    network::{AsProtocolResponseType, NetworkId, ProtocolResponseType},
+    common::P2PPeer,
+    network::{AsProtocolResponseType, ProtocolResponseType},
 };
-
-use std::collections::HashSet;
 
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum NetworkResponse {
     Pong,
     PeerList(Vec<P2PPeer>),
-    Handshake(P2PNodeId, u16, HashSet<NetworkId>, Vec<u8>),
 }
 
 impl AsProtocolResponseType for NetworkResponse {
@@ -18,7 +15,6 @@ impl AsProtocolResponseType for NetworkResponse {
         match self {
             NetworkResponse::Pong => ProtocolResponseType::Pong,
             NetworkResponse::PeerList(..) => ProtocolResponseType::PeerList,
-            NetworkResponse::Handshake(..) => ProtocolResponseType::Handshake,
         }
     }
 }

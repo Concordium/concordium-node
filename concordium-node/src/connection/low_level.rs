@@ -119,12 +119,16 @@ macro_rules! recv_xx_msg {
 }
 
 macro_rules! send_xx_msg {
-    ($self:ident, $size:expr, $idx:expr) => {
+    ($self:ident, $prefix_len:expr, $payload:expr, $suffix_len:expr, $idx:expr) => {
         let mut msg = vec![];
         // prepend the plaintext message length
-        msg.write_u32::<NetworkEndian>($size as u32)?;
-        // provide buffer space for the handshake message
-        msg.append(&mut vec![0u8; $size]);
+        msg.write_u32::<NetworkEndian>(($prefix_len + $payload.len() + $suffix_len) as u32)?;
+        // provide buffer space for the handshake prefix
+        msg.append(&mut vec![0u8; $prefix_len]);
+        // add a payload
+        msg.extend($payload);
+        // add room for handshake suffix
+        msg.append(&mut vec![0u8; $suffix_len]);
         // write the message into the buffer
         $self.noise_session.send_message(&mut msg[PAYLOAD_SIZE..])?;
         // queue and send the message
@@ -164,40 +168,54 @@ impl ConnectionLowLevel {
         }
     }
 
-    // the XX handshake
+    // the XX noise handshake
 
     pub fn send_handshake_message_a(&mut self) -> Fallible<()> {
         let pad = if cfg!(feature = "snow_noise") { 0 } else { 16 };
-        send_xx_msg!(self, DHLEN + pad, "A");
+        let payload = Vec::new();
+        send_xx_msg!(self, DHLEN, &payload, pad, "A");
+        self.conn().set_sent_handshake();
+
         Ok(())
     }
 
-    fn process_msg_a(&mut self, len: usize) -> Fallible<()> {
+    fn process_msg_a(&mut self, len: usize) -> Fallible<HybridBuf> {
         recv_xx_msg!(self, len, "A");
-        send_xx_msg!(self, DHLEN * 2 + MAC_LENGTH * 2, "B");
-        Ok(())
+        let pad = if cfg!(feature = "snow_noise") { 0 } else { 16 };
+        let payload_in = self.socket_buffer.slice(len)[DHLEN..][..len - DHLEN - pad].try_into()?;
+        let payload_out = self.conn().produce_handshake_request()?;
+        send_xx_msg!(self, DHLEN * 2 + MAC_LENGTH, &payload_out, MAC_LENGTH, "B");
+        self.conn().set_sent_handshake();
+
+        Ok(payload_in)
     }
 
-    fn process_msg_b(&mut self, len: usize) -> Fallible<()> {
+    fn process_msg_b(&mut self, len: usize) -> Fallible<HybridBuf> {
         recv_xx_msg!(self, len, "B");
-        send_xx_msg!(self, DHLEN + MAC_LENGTH * 2, "C");
+        let payload_in = self.socket_buffer.slice(len)[DHLEN * 2 + MAC_LENGTH..]
+            [..len - DHLEN * 2 - MAC_LENGTH * 2]
+            .try_into()?;
+        let payload_out = self.conn().produce_handshake_request()?;
+        send_xx_msg!(self, DHLEN + MAC_LENGTH, &payload_out, MAC_LENGTH, "C");
         if cfg!(feature = "snow_noise") {
             finalize_handshake(&mut self.noise_session)?;
         }
-        Ok(())
+        self.conn().handler().stats.peers_inc();
+
+        Ok(payload_in)
     }
 
-    fn process_msg_c(&mut self, len: usize) -> Fallible<()> {
+    fn process_msg_c(&mut self, len: usize) -> Fallible<HybridBuf> {
         recv_xx_msg!(self, len, "C");
+        let payload = self.socket_buffer.slice(len)[DHLEN + MAC_LENGTH..]
+            [..len - DHLEN - MAC_LENGTH * 2]
+            .try_into()?;
         if cfg!(feature = "snow_noise") {
             finalize_handshake(&mut self.noise_session)?;
         }
+        self.conn().handler().stats.peers_inc();
 
-        // send the high-level handshake request
-        self.conn().send_handshake_request()?;
-        self.flush_socket()?;
-
-        Ok(())
+        Ok(payload)
     }
 
     #[inline]
@@ -323,14 +341,14 @@ impl ConnectionLowLevel {
             trace!("The message was fully read");
 
             if !self.is_post_handshake() {
-                match self.noise_session.get_message_count() {
+                let payload = match self.noise_session.get_message_count() {
                     0 if !self.noise_session.is_initiator() => self.process_msg_a(to_read),
                     1 if self.noise_session.is_initiator() => self.process_msg_b(to_read),
                     2 if !self.noise_session.is_initiator() => self.process_msg_c(to_read),
                     _ => bail!("invalid XX handshake"),
                 }?;
                 self.socket_buffer.reset();
-                Ok(ReadResult::WouldBlock)
+                Ok(ReadResult::Complete(payload))
             } else {
                 Ok(ReadResult::Complete(self.decrypt()?))
             }

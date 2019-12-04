@@ -300,8 +300,7 @@ impl Connection {
         }
 
         let is_msg_processable = match message.payload {
-            NetworkMessagePayload::NetworkRequest(NetworkRequest::Handshake(..), ..)
-            | NetworkMessagePayload::NetworkResponse(NetworkResponse::Handshake(..), ..) => true,
+            NetworkMessagePayload::NetworkRequest(NetworkRequest::Handshake(..), ..) => true,
             _ => self.is_post_handshake(),
         };
 
@@ -395,9 +394,7 @@ impl Connection {
         }
     }
 
-    pub fn send_handshake_request(&self) -> Fallible<()> {
-        debug!("Sending a handshake request to {}", self.remote_addr());
-
+    pub fn produce_handshake_request(&self) -> Fallible<Vec<u8>> {
         let mut handshake_request = NetworkMessage {
             timestamp1: Some(get_current_stamp()),
             timestamp2: None,
@@ -414,31 +411,7 @@ impl Connection {
         let mut serialized = Vec::with_capacity(128);
         handshake_request.serialize(&mut serialized)?;
 
-        self.async_send(Arc::from(serialized), MessageSendingPriority::High);
-
-        self.set_sent_handshake();
-
-        Ok(())
-    }
-
-    pub fn send_handshake_response(&self, remote_node_id: P2PNodeId) -> Fallible<()> {
-        debug!("Sending a handshake response to peer {}", remote_node_id);
-
-        let mut handshake_response = NetworkMessage {
-            timestamp1: Some(get_current_stamp()),
-            timestamp2: None,
-            payload:    NetworkMessagePayload::NetworkResponse(NetworkResponse::Handshake(
-                self.handler().self_peer.id(),
-                self.handler().self_peer.port(),
-                read_or_die!(self.remote_end_networks).to_owned(),
-                vec![],
-            )),
-        };
-        let mut serialized = Vec::with_capacity(128);
-        handshake_response.serialize(&mut serialized)?;
-        self.async_send(Arc::from(serialized), MessageSendingPriority::High);
-
-        Ok(())
+        Ok(serialized)
     }
 
     pub fn send_ping(&self) -> Fallible<()> {
