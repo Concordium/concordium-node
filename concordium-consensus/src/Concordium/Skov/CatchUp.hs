@@ -6,13 +6,11 @@ module Concordium.Skov.CatchUp where
 import Control.Monad.Trans.Except
 import Control.Monad.Trans.Class
 import Data.Serialize
-import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Sequence as Seq
 import qualified Data.List as List
 import Data.Function
 import Data.Foldable
-import Lens.Micro.Platform
 import Control.Monad
 
 import Concordium.Types
@@ -94,43 +92,6 @@ getCatchUpStatus cusIsRequest = do
         (leaves, branches) <- leavesBranches . toList <$> getBranches
         return $ makeCatchUpStatus cusIsRequest False lfb leaves (if cusIsRequest then branches else [])
 
-data KnownBlocks b = KnownBlocks {
-    -- |The known blocks indexed by height
-    kbHeightMap :: Map.Map BlockHeight (Set.Set b),
-    -- |The map should contain all ancestors of all blocks in the map
-    -- with height at least 'kbAncestorsHeight'.
-    kbAncestorsHeight :: BlockHeight
-}
-
-emptyKnownBlocks :: KnownBlocks b
-emptyKnownBlocks = KnownBlocks Map.empty 0
-
-addKnownBlock :: (BlockPointerData bs b, Ord b) => b -> KnownBlocks b -> KnownBlocks b
-addKnownBlock b kb@(KnownBlocks m h) = if present then kb else KnownBlocks m' (max h (bpHeight b))
-    where
-        (present, m') = Map.alterF upd (bpHeight b) m
-        upd Nothing = (False, Just $! Set.singleton b)
-        upd (Just s) = if b `Set.member` s then (True, Just s) else (False, Just $! Set.insert b s)
-
-makeKnownBlocks :: (BlockPointerData bs b, Ord b) => [b] -> KnownBlocks b
-makeKnownBlocks = foldr addKnownBlock emptyKnownBlocks
-
-updateKnownBlocksToHeight :: (BlockPointerData bs b, Ord b) => BlockHeight -> KnownBlocks b -> KnownBlocks b
-updateKnownBlocksToHeight h kb@(KnownBlocks m hkb)
-        | h >= kbAncestorsHeight kb = kb
-        | otherwise = updateKnownBlocksToHeight h kb'
-    where
-        kb' = KnownBlocks m' (hkb - 1)
-        genhkb = Map.lookup hkb m
-        genhkb' = Set.fromList $ maybe [] (fmap bpParent . Set.toList) genhkb
-        m' = m & at (hkb - 1) . non Set.empty %~ Set.union genhkb'
-
-checkKnownBlock :: (BlockPointerData bs b, Ord b) => b -> KnownBlocks b -> (Bool, KnownBlocks b)
-checkKnownBlock b kb = (b `Set.member` (m ^. at (bpHeight b) . non Set.empty), kb')
-    where
-        kb'@(KnownBlocks m _) = updateKnownBlocksToHeight (bpHeight b) kb
-
-
 handleCatchUp :: forall m. (TreeStateMonad m, SkovQueryMonad m) => CatchUpStatus -> m (Either String (Maybe ([Either FinalizationRecord (BlockPointer m)], CatchUpStatus), Bool))
 handleCatchUp peerCUS = runExceptT $ do
         lfb <- lift lastFinalizedBlock
@@ -147,9 +108,8 @@ handleCatchUp peerCUS = runExceptT $ do
         else do
             -- Our last finalized height is at least the peer's last finalized height
             -- Check if the peer's last finalized block is recognised
-            (peerlfb, peerFinRec) <- getBlockStatus (cusLastFinalizedBlock peerCUS) >>= \case
-                Just (BlockFinalized peerlfb peerFinRec) ->
-                    return (peerlfb, peerFinRec)
+            peerFinRec <- getBlockStatus (cusLastFinalizedBlock peerCUS) >>= \case
+                Just (BlockFinalized _ peerFinRec) -> return peerFinRec
                 _ ->
                     -- If the peer's last finalized block is not known to be finalized (to us)
                     -- then we must effectively be on different finalized chains, so we should
@@ -173,20 +133,40 @@ handleCatchUp peerCUS = runExceptT $ do
                     extendBackBranches b bs
                         | bpHash b `Set.member` peerKnownBlocks = bs
                         | bpHeight b == 0 = bs -- Genesis block should always be known, so this case should be unreachable
-                        | otherwise = extendBackBranches (bpParent b) ([b] Seq.<| bs)
+                        | otherwise = extendBackBranches (bpParent b) (b Seq.<| bs)
+                    unknownFinTrunk = extendBackBranches lfb Seq.Empty
                 -- Take the branches; filter out all blocks that the client claims knowledge of; extend branches back
                 -- to include finalized blocks until the parent is known.
                 myBranches <- getBranches
                 let
-                    branches0 = extendBackBranches lfb . fmap (filter ((`Set.notMember` peerKnownBlocks) . bpHash)) $ myBranches
-                    takeOldest Seq.Empty = (Seq.Empty, Seq.Empty)
-                    takeOldest ([] Seq.:<| bs) = takeOldest bs
-                    takeOldest ([o] Seq.:<| bs) = (Seq.singleton o, bs)
-                    takeOldest (l Seq.:<| bs) = (Seq.singleton m, l' Seq.<| bs)
+                    -- Filter out blocks that are known to the peer
+                    filterUnknown :: [BlockPointer m] -> [BlockPointer m]
+                    filterUnknown = filter ((`Set.notMember` peerKnownBlocks) . bpHash)
+                    -- Given a branches structure, filter out the blocks known to the peer and split off
+                    -- the oldest block (not known to the peer).  These are returned as two sequences
+                    filterTakeOldest Seq.Empty = (Seq.Empty, Seq.Empty)
+                    filterTakeOldest (l Seq.:<| bs)
+                        | null l' = filterTakeOldest bs
+                        | otherwise = filterTakeOldest' m (Seq.singleton $ List.delete m l') (Seq.singleton l') bs
                         where
-                            m = minimumBy (compare `on` bpArriveTime) l
-                            l' = List.delete m l
-                    (outBlocks1, branches1) = takeOldest branches0
+                            l' = filterUnknown l
+                            m = minimumBy (compare `on` bpArriveTime) l'
+                    filterTakeOldest' oldest sansOldest _ Seq.Empty = (Seq.singleton oldest, sansOldest)
+                    filterTakeOldest' oldest sansOldest withOldest r@(l Seq.:<| bs)
+                        -- If all blocks at this level are no older than the oldest block so far,
+                        -- then that is the oldest block, and we can just filter the remaining blocks
+                        | all (\b -> bpArriveTime b >= bpArriveTime oldest) l = (Seq.singleton oldest, sansOldest <> fmap filterUnknown r)
+                        -- Otherwise, there could be an older block
+                        | otherwise = filterTakeOldest' newOldest newSansOldest (withOldest Seq.|> l') bs
+                            where
+                                l' = filterUnknown l
+                                m = minimumBy (compare `on` bpArriveTime) l'
+                                (newOldest, newSansOldest) = if null l' || bpArriveTime oldest <= bpArriveTime m
+                                    then (oldest, sansOldest Seq.|> l')
+                                    else (m, withOldest Seq.|> List.delete m l')
+                    (outBlocks1, branches1) = case unknownFinTrunk of
+                        (b Seq.:<| bs) -> (Seq.singleton b, fmap (:[]) bs <> fmap filterUnknown myBranches)
+                        Seq.Empty -> filterTakeOldest myBranches
                     trim = Seq.dropWhileR null
                     takeBranches :: Seq.Seq (BlockPointer m) -> Seq.Seq [BlockPointer m] -> ExceptT String m (Seq.Seq (BlockPointer m))
                     takeBranches out (trim -> brs) = bestBlockOf brs >>= \case

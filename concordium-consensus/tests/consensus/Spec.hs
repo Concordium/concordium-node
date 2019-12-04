@@ -11,6 +11,7 @@ import qualified ConcordiumTests.Afgjort.Lottery (tests)
 import qualified ConcordiumTests.Afgjort.ABBA (tests)
 import qualified ConcordiumTests.Afgjort.Types (tests)
 import qualified ConcordiumTests.Konsensus (tests)
+import qualified ConcordiumTests.CatchUp (tests)
 
 atLevel :: (Word -> IO ()) -> IO ()
 atLevel a = do
@@ -31,3 +32,4 @@ main = atLevel $ \lvl -> hspec $ do
     ConcordiumTests.Afgjort.Freeze.tests lvl
     ConcordiumTests.Afgjort.Lottery.tests lvl
     ConcordiumTests.Konsensus.tests lvl
+    ConcordiumTests.CatchUp.tests lvl

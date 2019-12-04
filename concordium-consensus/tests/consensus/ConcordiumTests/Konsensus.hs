@@ -290,6 +290,9 @@ myRunSkovT a handlers ctx st es = liftIO $ flip runLoggerT doLog $ do
         doLog src LLError msg = error $ show src ++ ": " ++ msg
         doLog _ _ _ = return ()
 
+myEvalSkovT :: (MonadIO m) => (SkovT () (Config DummyTimer) IO a) -> SkovContext (Config DummyTimer) -> SkovState (Config DummyTimer) -> m a
+myEvalSkovT a ctx st = liftIO $ evalSkovT a () ctx st
+
 runKonsensusTest :: RandomGen g => Int -> g -> States -> ExecState -> IO Property
 runKonsensusTest steps g states es
         | steps <= 0 = return $ label ("fin length: " ++ show (maximum $ (\s -> s ^. _3 . to ssGSState . TS.finalizationList . to Seq.length) <$> states )) $ property True
@@ -394,7 +397,7 @@ initialEvents :: States -> EventPool
 initialEvents states = Seq.fromList [(x, EBake 1) | x <- [0..length states -1]]
 
 makeBaker :: BakerId -> Amount -> Gen (BakerInfo, BakerIdentity, Account)
-makeBaker bid lot = do
+makeBaker bid lot = resize (2^29) $ do
         ek@(VRF.KeyPair _ epk) <- arbitrary
         sk                     <- Sig.genKeyPair
         let spk = Sig.verifyKey sk
@@ -438,13 +441,13 @@ instance Show SkovActiveState where
 
 withInitialStates :: Int -> (StdGen -> States -> ExecState -> IO Property) -> Property
 withInitialStates n r = monadicIO $ do
-        s0 <- initialiseStates $ n
+        s0 <- initialiseStates n
         gen <- pick $ mkStdGen <$> arbitrary
         liftIO $ r gen s0 (makeExecState $ initialEvents s0)
 
 withInitialStatesTransactions :: Int -> Int -> (StdGen -> States -> ExecState -> IO Property) -> Property
 withInitialStatesTransactions n trcount r = monadicIO $ do
-        s0 <- initialiseStates $ n
+        s0 <- initialiseStates n
         trs <- pick . genTransactions $ trcount
         gen <- pick $ mkStdGen <$> arbitrary
         now <- liftIO getTransactionTime
@@ -452,7 +455,7 @@ withInitialStatesTransactions n trcount r = monadicIO $ do
 
 withInitialStatesDoubleTransactions :: Int -> Int -> (StdGen -> States -> ExecState -> IO Property) -> Property
 withInitialStatesDoubleTransactions n trcount r = monadicIO $ do
-        s0 <- initialiseStates $ n
+        s0 <- initialiseStates n
         trs0 <- pick . genTransactions $ trcount
         trs <- (trs0 ++) <$> pick (genTransactions trcount)
         gen <- pick $ mkStdGen <$> arbitrary
