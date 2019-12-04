@@ -1,6 +1,6 @@
 cfg_if! {
     if #[cfg(feature = "instrumentation")] {
-        use prometheus::{self, Encoder, IntCounter, IntGauge, Opts, Registry, TextEncoder};
+        use prometheus::{self, Encoder, core::{AtomicU64, GenericGauge}, IntCounter, IntGauge, Opts, Registry, TextEncoder};
         use crate::common::p2p_node_id::P2PNodeId;
         use std::{net::SocketAddr, thread, time, sync::{Arc, RwLock}};
         use gotham::{
@@ -14,7 +14,7 @@ cfg_if! {
         use hyper::{Body, Response, StatusCode};
         use tokio::runtime::{self, Runtime};
     } else {
-        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
     }
 }
 use crate::configuration;
@@ -91,6 +91,10 @@ cfg_if! {
             inbound_low_priority_consensus_size: IntGauge,
             outbound_high_priority_consensus_size: IntGauge,
             outbound_low_priority_consensus_size: IntGauge,
+            bytes_received: GenericGauge<AtomicU64>,
+            bytes_sent: GenericGauge<AtomicU64>,
+            avg_bps_in: GenericGauge<AtomicU64>,
+            avg_bps_out: GenericGauge<AtomicU64>,
         }
     }
 }
@@ -123,6 +127,10 @@ pub struct StatsExportService {
     inbound_low_priority_consensus_size: AtomicUsize,
     outbound_high_priority_consensus_size: AtomicUsize,
     outbound_low_priority_consensus_size: AtomicUsize,
+    bytes_received: AtomicU64,
+    bytes_sent: AtomicU64,
+    avg_bps_in: AtomicU64,
+    avg_bps_out: AtomicU64,
 }
 
 impl StatsExportService {
@@ -287,6 +295,22 @@ impl StatsExportService {
             IntGauge::with_opts(outbound_low_priority_consensus_size_opts)?;
         registry.register(Box::new(outbound_low_priority_consensus_size.clone()))?;
 
+        let brc_opts = Opts::new("bytes_received", "bytes received");
+        let brc = GenericGauge::with_opts(brc_opts)?;
+        registry.register(Box::new(brc.clone()))?;
+
+        let bsc_opts = Opts::new("bytes_sent", "bytes sent");
+        let bsc = GenericGauge::with_opts(bsc_opts)?;
+        registry.register(Box::new(bsc.clone()))?;
+
+        let avg_bps_in_opts = Opts::new("avg_bps_in", "average inbound througput");
+        let avg_bps_in = GenericGauge::with_opts(avg_bps_in_opts)?;
+        registry.register(Box::new(avg_bps_in.clone()))?;
+
+        let avg_bps_out_opts = Opts::new("avg_bps_out", "average outbound througput");
+        let avg_bps_out = GenericGauge::with_opts(avg_bps_out_opts)?;
+        registry.register(Box::new(avg_bps_out.clone()))?;
+
         Ok(StatsExportService {
             mode,
             registry,
@@ -315,6 +339,10 @@ impl StatsExportService {
             inbound_low_priority_consensus_size,
             outbound_high_priority_consensus_size,
             outbound_low_priority_consensus_size,
+            bytes_received: brc,
+            bytes_sent: bsc,
+            avg_bps_in,
+            avg_bps_out,
         })
     }
 
@@ -552,6 +580,57 @@ impl StatsExportService {
             .store(value as usize, Ordering::Relaxed);
     }
 
+    pub fn get_bytes_received(&self) -> u64 {
+        #[cfg(feature = "instrumentation")]
+        {
+            self.bytes_received.get()
+        }
+        #[cfg(not(feature = "instrumentation"))]
+        {
+            self.bytes_received
+                .load(std::sync::atomic::Ordering::Relaxed)
+        }
+    }
+
+    pub fn get_bytes_sent(&self) -> u64 {
+        #[cfg(feature = "instrumentation")]
+        {
+            self.bytes_sent.get()
+        }
+        #[cfg(not(feature = "instrumentation"))]
+        {
+            self.bytes_sent.load(std::sync::atomic::Ordering::Relaxed)
+        }
+    }
+
+    pub fn set_bytes_received(&self, value: u64) {
+        #[cfg(feature = "instrumentation")]
+        self.bytes_received.set(value);
+        #[cfg(not(feature = "instrumentation"))]
+        self.bytes_received.store(value, Ordering::Relaxed);
+    }
+
+    pub fn set_bytes_sent(&self, value: u64) {
+        #[cfg(feature = "instrumentation")]
+        self.bytes_sent.set(value);
+        #[cfg(not(feature = "instrumentation"))]
+        self.bytes_sent.store(value, Ordering::Relaxed);
+    }
+
+    pub fn set_avg_bps_in(&self, value: u64) {
+        #[cfg(feature = "instrumentation")]
+        self.avg_bps_in.set(value);
+        #[cfg(not(feature = "instrumentation"))]
+        self.avg_bps_in.store(value, Ordering::Relaxed);
+    }
+
+    pub fn set_avg_bps_out(&self, value: u64) {
+        #[cfg(feature = "instrumentation")]
+        self.avg_bps_out.set(value);
+        #[cfg(not(feature = "instrumentation"))]
+        self.avg_bps_out.store(value, Ordering::Relaxed);
+    }
+
     #[cfg(feature = "instrumentation")]
     fn metrics(state: State) -> (State, String) {
         let state_data = PrometheusStateData::borrow_from(&state);
@@ -677,7 +756,7 @@ impl StatsExportService {
 pub fn instantiate_stats_export_engine(
     conf: &configuration::Config,
     mode: StatsServiceMode,
-) -> Fallible<Option<StatsExportService>> {
+) -> Fallible<StatsExportService> {
     let prom = if conf.prometheus.prometheus_server {
         info!("Enabling prometheus server");
         let srv = StatsExportService::new(mode)?;
@@ -685,13 +764,12 @@ pub fn instantiate_stats_export_engine(
             conf.prometheus.prometheus_listen_addr.parse()?,
             conf.prometheus.prometheus_listen_port,
         ));
-        Some(srv)
+        srv
     } else if let Some(ref push_gateway) = conf.prometheus.prometheus_push_gateway {
         info!("Enabling prometheus push gateway at {}", push_gateway);
-        let srv = StatsExportService::new(mode)?;
-        Some(srv)
+        StatsExportService::new(mode)?
     } else {
-        None
+        panic!("Couldn't instantiate prometheus");
     };
     Ok(prom)
 }
@@ -700,36 +778,34 @@ pub fn instantiate_stats_export_engine(
 pub fn instantiate_stats_export_engine(
     _: &configuration::Config,
     mode: StatsServiceMode,
-) -> Fallible<Option<StatsExportService>> {
-    Ok(Some(StatsExportService::new(mode)?))
+) -> Fallible<StatsExportService> {
+    Ok(StatsExportService::new(mode)?)
 }
 
 #[cfg(feature = "instrumentation")]
 pub fn start_push_gateway(
     conf: &configuration::PrometheusConfig,
-    stats_export_service: &Option<StatsExportService>,
+    service: &StatsExportService,
     id: P2PNodeId,
 ) {
-    stats_export_service.as_ref().and_then(|service| {
-        conf.prometheus_push_gateway
-            .as_ref()
-            .and_then(|prom_push_addy| {
-                let instance_name = if let Some(ref instance_id) = conf.prometheus_instance_name {
-                    instance_id.clone()
-                } else {
-                    id.to_string()
-                };
-                service.start_push_to_gateway(
-                    prom_push_addy.clone(),
-                    conf.prometheus_push_interval,
-                    conf.prometheus_job_name.clone(),
-                    instance_name,
-                    conf.prometheus_push_username.clone(),
-                    conf.prometheus_push_password.clone(),
-                );
-                Some(())
-            })
-    });
+    conf.prometheus_push_gateway
+        .as_ref()
+        .and_then(|prom_push_addy| {
+            let instance_name = if let Some(ref instance_id) = conf.prometheus_instance_name {
+                instance_id.clone()
+            } else {
+                id.to_string()
+            };
+            service.start_push_to_gateway(
+                prom_push_addy.clone(),
+                conf.prometheus_push_interval,
+                conf.prometheus_job_name.clone(),
+                instance_name,
+                conf.prometheus_push_username.clone(),
+                conf.prometheus_push_password.clone(),
+            );
+            Some(())
+        });
 }
 
 #[cfg(feature = "instrumentation")]

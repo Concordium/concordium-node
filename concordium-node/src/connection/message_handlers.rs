@@ -120,9 +120,7 @@ impl Connection {
                 .insert_into_bucket(&remote_peer, networks.clone());
         }
 
-        if let Some(ref service) = self.handler().stats_export_service {
-            service.peers_inc();
-        };
+        self.handler().stats.peers_inc();
 
         Ok(())
     }
@@ -308,9 +306,6 @@ impl Connection {
         }
 
         self.stats.failed_pkts.fetch_add(1, Ordering::Relaxed);
-
-        if let Some(ref service) = self.handler().stats_export_service {
-            service.invalid_pkts_received_inc();
-        }
+        self.handler().stats.invalid_pkts_received_inc();
     }
 }

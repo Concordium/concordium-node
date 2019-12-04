@@ -75,10 +75,12 @@ pub struct ConnectionStats {
     pub sent_handshake:    AtomicU64,
     pub last_seen:         AtomicU64,
     pub failed_pkts:       AtomicU32,
-    pub messages_sent:     Arc<AtomicU64>,
-    pub messages_received: Arc<AtomicU64>,
-    pub valid_latency:     Arc<AtomicBool>,
-    pub last_latency:      Arc<AtomicU64>,
+    pub messages_sent:     AtomicU64,
+    pub messages_received: AtomicU64,
+    pub valid_latency:     AtomicBool,
+    pub last_latency:      AtomicU64,
+    pub bytes_received:    AtomicU64,
+    pub bytes_sent:        AtomicU64,
 }
 
 type PendingPriority = (MessageSendingPriority, Instant);
@@ -139,6 +141,8 @@ impl Connection {
             failed_pkts:       Default::default(),
             last_ping_sent:    AtomicU64::new(curr_stamp),
             last_seen:         AtomicU64::new(curr_stamp),
+            bytes_received:    Default::default(),
+            bytes_sent:        Default::default(),
         };
 
         let conn = Arc::new(Self {
@@ -267,10 +271,11 @@ impl Connection {
     ) -> Fallible<()> {
         self.update_last_seen();
         self.stats.messages_received.fetch_add(1, Ordering::Relaxed);
+        self.stats
+            .bytes_received
+            .fetch_add(message.len()?, Ordering::Relaxed);
         TOTAL_MESSAGES_RECEIVED_COUNTER.fetch_add(1, Ordering::Relaxed);
-        if let Some(ref service) = self.handler().stats_export_service {
-            service.pkt_received_inc();
-        };
+        self.handler().stats.pkt_received_inc();
 
         if cfg!(feature = "network_dump") {
             self.send_to_dump(Arc::from(message.clone().remaining_bytes()?.to_vec()), true);
@@ -569,10 +574,8 @@ impl Drop for Connection {
         debug!("Closing the connection to {}", self);
 
         // Report number of peers to stats export engine
-        if let Some(ref service) = self.handler().stats_export_service {
-            if self.is_post_handshake() {
-                service.peers_dec();
-            }
+        if self.is_post_handshake() {
+            self.handler().stats.peers_dec();
         }
     }
 }

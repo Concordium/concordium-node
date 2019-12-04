@@ -53,15 +53,7 @@ fn main() -> Result<(), Error> {
 
     // Instantiate stats export engine
     let stats_export_service =
-        instantiate_stats_export_engine(&conf, StatsServiceMode::BootstrapperMode).unwrap_or_else(
-            |e| {
-                error!(
-                    "I was not able to instantiate an stats export service: {}",
-                    e
-                );
-                None
-            },
-        );
+        instantiate_stats_export_engine(&conf, StatsServiceMode::BootstrapperMode).unwrap();
 
     info!("Debugging enabled: {}", conf.common.debug);
 
@@ -102,7 +94,7 @@ fn main() -> Result<(), Error> {
 
     #[cfg(feature = "instrumentation")]
     // Start push gateway to prometheus
-    start_push_gateway(&conf.prometheus, &node.stats_export_service, node.id());
+    start_push_gateway(&conf.prometheus, &node.stats, node.id());
 
     info!(
         "Concordium P2P layer. Network disabled: {}",

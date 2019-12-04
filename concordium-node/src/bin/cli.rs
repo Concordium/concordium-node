@@ -63,14 +63,8 @@ fn main() -> Fallible<()> {
     }
 
     // Instantiate stats export engine
-    let stats_export_service = instantiate_stats_export_engine(&conf, StatsServiceMode::NodeMode)
-        .unwrap_or_else(|e| {
-            error!(
-                "I was not able to instantiate the stats export service: {}",
-                e
-            );
-            None
-        });
+    let stats_export_service =
+        instantiate_stats_export_engine(&conf, StatsServiceMode::NodeMode).unwrap();
 
     info!("Debugging enabled: {}", conf.common.debug);
 
@@ -91,7 +85,7 @@ fn main() -> Fallible<()> {
 
     #[cfg(feature = "instrumentation")]
     // Thread #2 (optional): the push gateway to Prometheus
-    start_push_gateway(&conf.prometheus, &node.stats_export_service, node.id());
+    start_push_gateway(&conf.prometheus, &node.stats, node.id());
 
     // Start the P2PNode
     //
@@ -201,7 +195,7 @@ fn main() -> Fallible<()> {
 fn instantiate_node(
     conf: &config::Config,
     app_prefs: &mut config::AppPreferences,
-    stats_export_service: Option<StatsExportService>,
+    stats_export_service: StatsExportService,
     subscription_queue_in: crossbeam_channel::Sender<NetworkMessage>,
 ) -> Arc<P2PNode> {
     let node_id = match conf.common.id.clone() {
@@ -377,14 +371,12 @@ fn start_consensus_message_threads(
         'outer_loop: loop {
             exhausted = false;
             // Update size of queues
-            if let Some(ref service) = &node_in_ref.stats_export_service {
-                service.set_inbound_low_priority_consensus_size(
-                    consensus_receiver_low_priority.len() as i64,
-                );
-                service.set_inbound_high_priority_consensus_size(
-                    consensus_receiver_high_priority.len() as i64,
-                );
-            }
+            node_in_ref.stats.set_inbound_low_priority_consensus_size(
+                consensus_receiver_low_priority.len() as i64,
+            );
+            node_in_ref.stats.set_inbound_high_priority_consensus_size(
+                consensus_receiver_high_priority.len() as i64,
+            );
             // instead of using `try_iter()` we specifically only loop over the max amounts
             // possible to ever be in the queue
             for _ in 0..CONSENSUS_QUEUE_DEPTH_IN_HI {
@@ -458,14 +450,14 @@ fn start_consensus_message_threads(
         'outer_loop: loop {
             exhausted = false;
             // Update size of queues
-            if let Some(ref service) = &node_out_ref.stats_export_service {
-                service.set_outbound_low_priority_consensus_size(
-                    consensus_receiver_low_priority.len() as i64,
+            node_out_ref.stats.set_outbound_low_priority_consensus_size(
+                consensus_receiver_low_priority.len() as i64,
+            );
+            node_out_ref
+                .stats
+                .set_outbound_high_priority_consensus_size(
+                    consensus_receiver_high_priority.len() as i64
                 );
-                service.set_outbound_high_priority_consensus_size(
-                    consensus_receiver_high_priority.len() as i64,
-                );
-            }
             // instead of using `try_iter()` we specifically only loop over the max amounts
             // possible to ever be in the queue
             for _ in 0..CONSENSUS_QUEUE_DEPTH_OUT_HI {

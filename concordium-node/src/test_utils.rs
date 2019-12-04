@@ -97,16 +97,8 @@ pub fn make_node_and_sync(
     config.cli.poll_interval = 1;
     config.connection.housekeeping_interval = 10;
 
-    let export_service = StatsExportService::new(StatsServiceMode::NodeMode).unwrap();
-    let node = P2PNode::new(
-        None,
-        &config,
-        None,
-        node_type,
-        Some(export_service),
-        rpc_tx,
-        None,
-    );
+    let stats = StatsExportService::new(StatsServiceMode::NodeMode).unwrap();
+    let node = P2PNode::new(None, &config, None, node_type, stats, rpc_tx, None);
 
     node.spawn();
     Ok(node)
@@ -131,13 +123,13 @@ pub fn make_node_and_sync_with_rpc(
     config.cli.poll_interval = 1;
     config.connection.housekeeping_interval = 10;
 
-    let export_service = StatsExportService::new(StatsServiceMode::NodeMode).unwrap();
+    let stats = StatsExportService::new(StatsServiceMode::NodeMode).unwrap();
     let node = P2PNode::new(
         None,
         &config,
         None,
         node_type,
-        Some(export_service),
+        stats,
         rpc_tx,
         Some(data_dir_path),
     );

@@ -275,6 +275,9 @@ fn collect_data(
         .filter(|element| element.get_valid_latency())
         .count();
 
+    let avg_bps_in = node_peer_stats_reply.get_avg_bps_in();
+    let avg_bps_out = node_peer_stats_reply.get_avg_bps_out();
+
     let average_ping = if peers_with_valid_latencies_count > 0 {
         Some(peers_summed_latency / peers_with_valid_latencies_count as f64)
     } else {
@@ -430,5 +433,7 @@ fn collect_data(
         blocksVerifiedCount: blocks_verified_count,
         finalizationCount: finalization_count,
         genesisBlock: genesis_block,
+        avgBpsIn: avg_bps_in,
+        avgBpsOut: avg_bps_out,
     })
 }
