@@ -77,8 +77,6 @@ impl Connection {
             SocketAddr::new(self.remote_peer.addr().ip(), remote_port),
         );
 
-        self.send_handshake_response(remote_node_id)?;
-
         if remote_peer.peer_type() != PeerType::Bootstrapper {
             write_or_die!(self.handler().connection_handler.buckets)
                 .insert_into_bucket(&remote_peer, networks.clone());
@@ -99,8 +97,6 @@ impl Connection {
         networks: &HashSet<NetworkId>,
     ) -> Fallible<()> {
         debug!("Got a Handshake response from peer {}", remote_node_id);
-
-        self.send_ping()?;
 
         self.promote_to_post_handshake(remote_node_id, remote_port)?;
         self.add_remote_end_networks(networks);
