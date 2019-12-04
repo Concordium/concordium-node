@@ -19,6 +19,17 @@ cfg_if! {
     }
 }
 
+cfg_if! {
+    if #[cfg(feature = "instrumentation")] {
+        #[macro_use]
+        extern crate prometheus;
+        #[macro_use]
+        extern crate gotham_derive;
+        extern crate hyper;
+        extern crate mime;
+    }
+}
+
 #[macro_use]
 extern crate lazy_static;
 #[macro_use]
@@ -57,14 +68,11 @@ const ENV_DNS_PUBLIC_KEY: Option<&str> = option_env!("CORCORDIUM_PUBLIC_DNS_KEY"
 pub fn get_dns_public_key() -> &'static str { ENV_DNS_PUBLIC_KEY.unwrap_or(DEFAULT_DNS_PUBLIC_KEY) }
 
 #[macro_use]
-pub mod fails;
-#[macro_use]
 pub mod common;
 pub mod configuration;
 pub mod connection;
 
-pub mod client;
-pub mod crypto;
+pub mod plugins;
 #[macro_use]
 pub mod network;
 pub mod p2p;
@@ -73,6 +81,7 @@ pub mod dumper;
 pub mod proto;
 pub mod rpc;
 pub mod stats_engine;
+pub mod stats_export_service;
 pub mod utils;
 
 pub mod test_utils;

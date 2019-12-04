@@ -2,21 +2,31 @@
 
 set -e 
 
-if [ "$#" -ne 2 ]
+if [ "$#" -lt 2 ]
 then
-  echo "Usage: ./build-all-docker.sh VERSION-TAG [debug|release]"
+  echo "Usage: ./build-all-docker.sh VERSION-TAG [debug|release] [default|rgs] [profiling:[true|false]]"
   exit 1
 fi
 
-CONSENSUS_VERSION=$(cat scripts/CONSENSUS_VERSION)
+CONSENSUS_VERSION=$( git submodule | grep consensus | head -n1 | awk '{print $1}' )
 
-echo "Consensus commit ID $CONSENSUS_VERSION"
+echo "Consensus commit ID $CONSENSUS_VERSION with type $3"
 
 echo $CONSENSUS_VERSION > CONSENSUS_VERSION
 
-scripts/build-universal-docker.sh $1
+VERSION_TAG="$1"
+BUILD_TYPE="$2"
+CONSENSUS_TYPE="$3"
+CONSENSUS_PROFILING="$4"
 
-scripts/build-bootstrapper-docker.sh $1 $2
-scripts/build-collector-docker.sh $1 $2
-scripts/build-collector-backend-docker.sh $1 $2
-scripts/build-client-docker.sh $1 $2
+echo "Building docker images for $VERSION_TAG as $BUILD_TYPE with $CONSENSUS_TYPE/$CONSENSUS_PROFILING"
+
+if [[ ! -z "$CONSENSUS_TYPE" && "$CONSENSUS_TYPE" != "default" ]]; then
+  VERSION_TAG="$VERSION_TAG-$CONSENSUS_TYPE"
+fi
+
+scripts/build-universal-docker.sh $VERSION_TAG $CONSENSUS_TYPE $CONSENSUS_PROFILING
+scripts/build-bootstrapper-docker.sh $VERSION_TAG $BUILD_TYPE
+scripts/build-collector-docker.sh $VERSION_TAG $BUILD_TYPE
+scripts/build-collector-backend-docker.sh $VERSION_TAG $BUILD_TYPE
+scripts/build-client-docker.sh $VERSION_TAG $BUILD_TYPE

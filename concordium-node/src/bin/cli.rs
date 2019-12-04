@@ -13,35 +13,39 @@ static A: System = System;
 
 use concordium_common::{
     spawn_or_die,
-    stats_export_service::{StatsExportService, StatsServiceMode},
-    QueueMsg,
+    QueueMsg::{self, Relay},
 };
-use concordium_consensus::{
-    consensus::{ConsensusContainer, ConsensusLogLevel, CALLBACK_QUEUE},
+use consensus_rust::{
+    consensus::{
+        ConsensusContainer, ConsensusLogLevel, CALLBACK_QUEUE, CONSENSUS_QUEUE_DEPTH_IN_HI,
+        CONSENSUS_QUEUE_DEPTH_OUT_HI,
+    },
     ffi,
 };
-use concordium_global_state::tree::GlobalState;
+use globalstate_rust::tree::{messaging::ConsensusMessage, GlobalState};
 use p2p_client::{
-    client::{
-        plugins::{self, consensus::*},
-        utils as client_utils,
-    },
     common::{get_current_stamp, P2PNodeId, PeerType},
     configuration as config,
     network::{NetworkId, NetworkMessage},
     p2p::*,
+    plugins::{self, consensus::*},
     rpc::RpcServerImpl,
+    stats_export_service::{instantiate_stats_export_engine, StatsExportService, StatsServiceMode},
     utils::{self, get_config_and_logging_setup},
 };
+use parking_lot::Mutex as ParkingMutex;
 
 use failure::Fallible;
 use rkv::{Manager, Rkv};
 
 use std::{
-    sync::{mpsc, Arc},
-    thread,
+    sync::Arc,
+    thread::{self, JoinHandle},
     time::Duration,
 };
+
+#[cfg(feature = "instrumentation")]
+use p2p_client::stats_export_service::start_push_gateway;
 
 fn main() -> Fallible<()> {
     let (conf, mut app_prefs) = get_config_and_logging_setup()?;
@@ -53,35 +57,25 @@ fn main() -> Fallible<()> {
     #[cfg(feature = "beta")]
     {
         use failure::bail;
-        if !p2p_client::client::plugins::beta::authenticate(
-            &conf.cli.beta_username,
-            &conf.cli.beta_token,
-        ) {
+        if !p2p_client::plugins::beta::authenticate(&conf.cli.beta_token) {
             bail!("Beta client authentication failed");
         }
     }
 
     // Instantiate stats export engine
     let stats_export_service =
-        client_utils::instantiate_stats_export_engine(&conf, StatsServiceMode::NodeMode)
-            .unwrap_or_else(|e| {
-                error!(
-                    "I was not able to instantiate the stats export service: {}",
-                    e
-                );
-                None
-            });
+        instantiate_stats_export_engine(&conf, StatsServiceMode::NodeMode).unwrap();
 
     info!("Debugging enabled: {}", conf.common.debug);
 
     let (subscription_queue_in, subscription_queue_out) =
-        mpsc::sync_channel(config::RPC_QUEUE_DEPTH);
+        crossbeam_channel::bounded(config::RPC_QUEUE_DEPTH);
 
     // Thread #1: instantiate the P2PNode
-    let (node, receivers) = instantiate_node(
+    let node = instantiate_node(
         &conf,
         &mut app_prefs,
-        stats_export_service.clone(),
+        stats_export_service,
         subscription_queue_in.clone(),
     );
 
@@ -91,12 +85,12 @@ fn main() -> Fallible<()> {
 
     #[cfg(feature = "instrumentation")]
     // Thread #2 (optional): the push gateway to Prometheus
-    client_utils::start_push_gateway(&conf.prometheus, &stats_export_service, node.id())?;
+    start_push_gateway(&conf.prometheus, &node.stats, node.id());
 
     // Start the P2PNode
     //
     // Thread #2 (#3): P2P event loop
-    node.spawn(receivers);
+    node.spawn();
 
     let is_baker = conf.cli.baker.baker_id.is_some();
 
@@ -125,7 +119,7 @@ fn main() -> Fallible<()> {
 
     let consensus = plugins::consensus::start_consensus_layer(
         &conf.cli.baker,
-        &global_state,
+        global_state,
         gen_data,
         prov_data,
         if conf.common.trace {
@@ -137,7 +131,7 @@ fn main() -> Fallible<()> {
         } else {
             ConsensusLogLevel::Warning
         },
-    );
+    )?;
 
     // Start the RPC server
     let mut rpc_serv = if !conf.cli.rpc.no_rpc_server {
@@ -160,8 +154,7 @@ fn main() -> Fallible<()> {
     // Connect outgoing messages to be forwarded into the baker and RPC streams.
     //
     // Thread #3 (#4): read P2PNode output
-    let global_state_thread =
-        start_global_state_thread(&node, &conf, consensus.clone(), global_state);
+    let consensus_queue_threads = start_consensus_message_threads(&node, &conf, consensus.clone());
 
     info!(
         "Concordium P2P layer. Network disabled: {}",
@@ -181,18 +174,20 @@ fn main() -> Fallible<()> {
     consensus.stop();
     ffi::stop_haskell();
 
-    // Wait for the global state thread to stop
-    global_state_thread
-        .join()
-        .expect("Higher process thread panicked");
+    // Wait for the consensus queue threads to stop
+
+    for consensus_queue_thread in consensus_queue_threads {
+        consensus_queue_thread
+            .join()
+            .expect("A consensus queue thread panicked");
+    }
 
     // Close the RPC server if present
     if let Some(ref mut serv) = rpc_serv {
         serv.stop_server()?;
     }
 
-    // Close the stats server if present
-    client_utils::stop_stats_export_engine(&conf, &stats_export_service);
+    info!("P2PNode gracefully closed.");
 
     Ok(())
 }
@@ -200,9 +195,9 @@ fn main() -> Fallible<()> {
 fn instantiate_node(
     conf: &config::Config,
     app_prefs: &mut config::AppPreferences,
-    stats_export_service: Option<StatsExportService>,
-    subscription_queue_in: mpsc::SyncSender<NetworkMessage>,
-) -> (Arc<P2PNode>, Receivers) {
+    stats_export_service: StatsExportService,
+    subscription_queue_in: crossbeam_channel::Sender<NetworkMessage>,
+) -> Arc<P2PNode> {
     let node_id = match conf.common.id.clone() {
         None => match app_prefs.get_config(config::APP_PREFERENCES_PERSISTED_NODE_ID) {
             None => {
@@ -243,10 +238,10 @@ fn instantiate_node(
     let data_dir_path = app_prefs.get_user_app_dir();
 
     // Start the thread reading P2PEvents from P2PNode
-    let (node, receivers) = if conf.common.debug {
-        let (sender, receiver) = mpsc::sync_channel(config::EVENT_LOG_QUEUE_DEPTH);
+    if conf.common.debug {
+        let (sender, receiver) = crossbeam_channel::bounded(config::EVENT_LOG_QUEUE_DEPTH);
         let _guard = spawn_or_die!("Log loop", move || loop {
-            if let Ok(msg) = receiver.recv() {
+            if let Ok(Relay(msg)) = receiver.recv() {
                 info!("{}", msg);
             }
         });
@@ -269,9 +264,7 @@ fn instantiate_node(
             subscription_queue_in,
             Some(data_dir_path),
         )
-    };
-
-    (node, receivers)
+    }
 }
 
 fn establish_connections(conf: &config::Config, node: &P2PNode) {
@@ -301,104 +294,252 @@ fn connect_to_config_nodes(conf: &config::ConnectionConfig, node: &P2PNode) {
     }
 }
 
-fn start_global_state_thread(
+fn start_consensus_message_threads(
     node: &Arc<P2PNode>,
     conf: &config::Config,
     consensus: ConsensusContainer,
-    mut gsptr: GlobalState,
-) -> std::thread::JoinHandle<()> {
-    let node_ref = Arc::clone(node);
-    let mut consensus_ref = consensus.clone();
+) -> (Vec<JoinHandle<()>>) {
+    let mut threads: Vec<JoinHandle<()>> = Default::default();
     let nid = NetworkId::from(conf.common.network_ids[0]); // defaulted so there's always first()
-    let global_state_thread = spawn_or_die!("Process global state requests", {
-        // don't do anything until the peer number is within the desired range
-        while node_ref.get_node_peer_ids().len() > node_ref.config.max_allowed_nodes as usize {
-            thread::sleep(Duration::from_secs(1));
-        }
 
-        let mut last_peer_list_update = 0;
-        let mut loop_interval: u64;
-        let consensus_receiver_hi = CALLBACK_QUEUE.receiver_hi.lock().unwrap();
-        let consensus_receiver_lo = CALLBACK_QUEUE.receiver_lo.lock().unwrap();
-
-        'outer_loop: loop {
-            loop_interval = 200;
-
-            if node_ref.last_peer_update() > last_peer_list_update {
-                update_peer_list(&node_ref, &mut gsptr);
-                last_peer_list_update = get_current_stamp();
+    let peers = Default::default();
+    let node_peers_ref = Arc::clone(node);
+    let peers_thread_ref = Arc::clone(&peers);
+    let mut consensus_peers_ref = consensus.clone();
+    threads.push(spawn_or_die!(
+        "Peers status notifier thread for consensus",
+        {
+            // don't do anything until the peer number is within the desired range
+            while node_peers_ref.get_node_peer_ids().len()
+                > node_peers_ref.config.max_allowed_nodes as usize
+            {
+                thread::sleep(Duration::from_secs(1));
             }
 
-            if let Err(e) = check_peer_states(&node_ref, nid, &mut consensus_ref, &mut gsptr) {
-                error!("Couldn't update the catch-up peer list: {}", e);
-            }
+            let peer_stats_notifier_control_queue_receiver =
+                CALLBACK_QUEUE.receiver_peer_notifier.lock().unwrap();
+            let mut last_peer_list_update = 0;
+            loop {
+                if node_peers_ref.last_peer_update() > last_peer_list_update {
+                    update_peer_list(&node_peers_ref, Arc::clone(&peers_thread_ref));
+                    last_peer_list_update = get_current_stamp();
+                }
 
-            for message in consensus_receiver_hi.try_iter() {
-                match message {
-                    QueueMsg::Relay(msg) => {
-                        if let Err(e) = handle_consensus_message(
-                            &node_ref,
-                            nid,
-                            &mut consensus_ref,
-                            msg,
-                            &mut gsptr,
-                        ) {
-                            error!("There's an issue with a global state request: {}", e);
-                        }
-                    }
-                    QueueMsg::Stop => {
-                        warn!("Closing the global state channel");
-                        break 'outer_loop;
+                if let Err(e) = check_peer_states(
+                    &node_peers_ref,
+                    nid,
+                    &mut consensus_peers_ref,
+                    Arc::clone(&peers_thread_ref),
+                ) {
+                    error!("Couldn't update the catch-up peer list: {}", e);
+                }
+
+                if let Ok(msg) = peer_stats_notifier_control_queue_receiver.try_recv() {
+                    if let QueueMsg::Stop = msg {
+                        break;
                     }
                 }
 
-                loop_interval = loop_interval.saturating_sub(1);
+                thread::sleep(Duration::from_millis(200));
             }
+        }
+    ));
 
-            for _ in 0..4096 {
-                if let Ok(message) = consensus_receiver_lo.try_recv() {
-                    match message {
-                        QueueMsg::Relay(msg) => {
-                            if let Err(e) = handle_consensus_message(
-                                &node_ref,
-                                nid,
-                                &mut consensus_ref,
-                                msg,
-                                &mut gsptr,
-                            ) {
-                                error!("There's an issue with a global state request: {}", e);
-                            }
-                        }
-                        QueueMsg::Stop => {
-                            warn!("Closing the global state channel");
-                            break 'outer_loop;
-                        }
+    let node_in_ref = Arc::clone(node);
+    let peers_in_ref = Arc::clone(&peers);
+    let mut consensus_in_ref = consensus.clone();
+    let no_rebroadcast_consensus_validation = conf.cli.no_rebroadcast_consensus_validation;
+    threads.push(spawn_or_die!("Process inbound consensus requests", {
+        // don't do anything until the peer number is within the desired range
+        while node_in_ref.get_node_peer_ids().len() > node_in_ref.config.max_allowed_nodes as usize
+        {
+            thread::sleep(Duration::from_secs(1));
+        }
+
+        let consensus_receiver_high_priority = CALLBACK_QUEUE
+            .inbound
+            .receiver_high_priority
+            .lock()
+            .unwrap();
+        let consensus_receiver_low_priority =
+            CALLBACK_QUEUE.inbound.receiver_low_priority.lock().unwrap();
+        let cvar = &*CALLBACK_QUEUE.inbound.signaler;
+        let lock = ParkingMutex::new(false);
+        let mut lock_guard = lock.lock();
+        let mut exhausted: bool;
+
+        'outer_loop: loop {
+            exhausted = false;
+            // Update size of queues
+            node_in_ref.stats.set_inbound_low_priority_consensus_size(
+                consensus_receiver_low_priority.len() as i64,
+            );
+            node_in_ref.stats.set_inbound_high_priority_consensus_size(
+                consensus_receiver_high_priority.len() as i64,
+            );
+            // instead of using `try_iter()` we specifically only loop over the max amounts
+            // possible to ever be in the queue
+            for _ in 0..CONSENSUS_QUEUE_DEPTH_IN_HI {
+                if let Ok(message) = consensus_receiver_high_priority.try_recv() {
+                    let stop_loop = !handle_inbound_message(message, |msg| {
+                        handle_consensus_inbound_message(
+                            &node_in_ref,
+                            nid,
+                            &mut consensus_in_ref,
+                            msg,
+                            Arc::clone(&peers_in_ref),
+                            no_rebroadcast_consensus_validation,
+                        )
+                    });
+                    if stop_loop {
+                        break 'outer_loop;
                     }
                 } else {
+                    exhausted = true;
                     break;
                 }
             }
 
-            thread::sleep(Duration::from_millis(loop_interval));
-        }
-    });
+            if let Ok(message) = consensus_receiver_low_priority.try_recv() {
+                exhausted = false;
+                let stop_loop = !handle_inbound_message(message, |msg| {
+                    handle_consensus_inbound_message(
+                        &node_in_ref,
+                        nid,
+                        &mut consensus_in_ref,
+                        msg,
+                        Arc::clone(&peers_in_ref),
+                        no_rebroadcast_consensus_validation,
+                    )
+                });
+                if stop_loop {
+                    break 'outer_loop;
+                }
+            }
 
-    global_state_thread
+            if exhausted {
+                cvar.wait(&mut lock_guard);
+            }
+        }
+    }));
+
+    let node_out_ref = Arc::clone(node);
+    threads.push(spawn_or_die!("Process outbound consensus requests", {
+        // don't do anything until the peer number is within the desired range
+        while node_out_ref.get_node_peer_ids().len()
+            > node_out_ref.config.max_allowed_nodes as usize
+        {
+            thread::sleep(Duration::from_secs(1));
+        }
+
+        let consensus_receiver_high_priority = CALLBACK_QUEUE
+            .outbound
+            .receiver_high_priority
+            .lock()
+            .unwrap();
+        let consensus_receiver_low_priority = CALLBACK_QUEUE
+            .outbound
+            .receiver_low_priority
+            .lock()
+            .unwrap();
+        let cvar = &*CALLBACK_QUEUE.outbound.signaler;
+        let lock = ParkingMutex::new(false);
+        let mut lock_guard = lock.lock();
+        let mut exhausted: bool;
+
+        'outer_loop: loop {
+            exhausted = false;
+            // Update size of queues
+            node_out_ref.stats.set_outbound_low_priority_consensus_size(
+                consensus_receiver_low_priority.len() as i64,
+            );
+            node_out_ref
+                .stats
+                .set_outbound_high_priority_consensus_size(
+                    consensus_receiver_high_priority.len() as i64
+                );
+            // instead of using `try_iter()` we specifically only loop over the max amounts
+            // possible to ever be in the queue
+            for _ in 0..CONSENSUS_QUEUE_DEPTH_OUT_HI {
+                if let Ok(message) = consensus_receiver_high_priority.try_recv() {
+                    let stop_loop = !handle_outbound_message(message, |msg| {
+                        handle_consensus_outbound_message(&node_out_ref, nid, msg)
+                    });
+                    if stop_loop {
+                        break 'outer_loop;
+                    }
+                } else {
+                    exhausted = true;
+                    break;
+                }
+            }
+
+            if let Ok(message) = consensus_receiver_low_priority.try_recv() {
+                exhausted = false;
+                let stop_loop = !handle_outbound_message(message, |msg| {
+                    handle_consensus_outbound_message(&node_out_ref, nid, msg)
+                });
+                if stop_loop {
+                    break 'outer_loop;
+                }
+            }
+
+            if exhausted {
+                cvar.wait(&mut lock_guard);
+            }
+        }
+    }));
+
+    threads
+}
+
+fn handle_inbound_message<F>(message: QueueMsg<ConsensusMessage>, f: F) -> bool
+where
+    F: FnOnce(ConsensusMessage) -> Fallible<()>, {
+    match message {
+        QueueMsg::Relay(msg) => {
+            if let Err(e) = f(msg) {
+                error!("There's an issue with an inbound consensus request: {}", e);
+            }
+        }
+        QueueMsg::Stop => {
+            warn!("Closing the inbound consensus channel");
+            return false;
+        }
+    }
+    true
+}
+
+fn handle_outbound_message<F>(message: QueueMsg<ConsensusMessage>, f: F) -> bool
+where
+    F: FnOnce(ConsensusMessage) -> Fallible<()>, {
+    match message {
+        QueueMsg::Relay(msg) => {
+            if let Err(e) = f(msg) {
+                error!("There's an issue with an outbound consensus request: {}", e);
+            }
+        }
+        QueueMsg::Stop => {
+            warn!("Closing the outbound consensus channel");
+            return false;
+        }
+    }
+    true
 }
 
 #[cfg(feature = "elastic_logging")]
-fn setup_transfer_log_thread(conf: &config::CliConfig) -> std::thread::JoinHandle<()> {
+fn setup_transfer_log_thread(conf: &config::CliConfig) -> JoinHandle<()> {
     let (enabled, url) = (
         conf.elastic_logging_enabled,
         conf.elastic_logging_url.clone(),
     );
     if enabled {
-        if let Err(e) = p2p_client::client::plugins::elasticlogging::create_transfer_index(&url) {
+        if let Err(e) = p2p_client::plugins::elasticlogging::create_transfer_index(&url) {
             error!("{}", e);
         }
     }
     spawn_or_die!("Process transfer log messages", {
-        let receiver = concordium_consensus::transferlog::TRANSACTION_LOG_QUEUE
+        let receiver = consensus_rust::transferlog::TRANSACTION_LOG_QUEUE
             .receiver
             .lock()
             .unwrap();
@@ -408,9 +549,7 @@ fn setup_transfer_log_thread(conf: &config::CliConfig) -> std::thread::JoinHandl
                     QueueMsg::Relay(msg) => {
                         if enabled {
                             if let Err(e) =
-                                p2p_client::client::plugins::elasticlogging::log_transfer_event(
-                                    &url, msg,
-                                )
+                                p2p_client::plugins::elasticlogging::log_transfer_event(&url, msg)
                             {
                                 error!("{}", e);
                             }
@@ -431,9 +570,9 @@ fn setup_transfer_log_thread(conf: &config::CliConfig) -> std::thread::JoinHandl
 }
 
 #[cfg(not(feature = "elastic_logging"))]
-fn setup_transfer_log_thread(_: &config::CliConfig) -> std::thread::JoinHandle<()> {
+fn setup_transfer_log_thread(_: &config::CliConfig) -> JoinHandle<()> {
     spawn_or_die!("Process transfer log messages", {
-        let receiver = concordium_consensus::transferlog::TRANSACTION_LOG_QUEUE
+        let receiver = consensus_rust::transferlog::TRANSACTION_LOG_QUEUE
             .receiver
             .lock()
             .unwrap();

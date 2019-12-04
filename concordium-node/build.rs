@@ -29,15 +29,16 @@ fn main() {
 
     // Build GRPC
     let cargo_dir = env!("CARGO_MANIFEST_DIR");
-    let proto_root = format!("{}/src/proto", cargo_dir);
+    let proto_root_output = format!("{}/src/proto", cargo_dir);
+    let proto_root_input = format!("{}/deps/internal/grpc-api", cargo_dir);
     println!(
         "cargo:rerun-if-changed={}",
-        format!("{}/concordium_p2p_rpc.proto", proto_root)
+        format!("{}/concordium_p2p_rpc.proto", proto_root_output)
     );
     protoc_grpcio::compile_grpc_protos(
         &["concordium_p2p_rpc.proto"],
-        &[proto_root.clone()],
-        &proto_root,
+        &[proto_root_input],
+        &proto_root_output,
     )
     .expect("Failed to compile gRPC definitions!");
 
@@ -47,7 +48,7 @@ fn main() {
     //
     // This can not be directly implemented into protobuf, see:
     // https://github.com/stepancheg/rust-protobuf/issues/331
-    let walker = walkdir::WalkDir::new(proto_root)
+    let walker = walkdir::WalkDir::new(proto_root_output)
         .into_iter()
         .filter_map(Result::ok);
     for entry in walker {

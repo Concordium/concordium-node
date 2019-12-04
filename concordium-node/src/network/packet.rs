@@ -4,7 +4,7 @@ use crate::{
 };
 use concordium_common::hybrid_buf::HybridBuf;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum NetworkPacketType {
     DirectMessage(P2PNodeId),
@@ -20,7 +20,7 @@ impl AsProtocolPacketType for NetworkPacketType {
     }
 }
 
-#[derive(Clone, Builder, Debug, PartialEq)]
+#[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub struct NetworkPacket {
     pub packet_type: NetworkPacketType,

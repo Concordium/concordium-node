@@ -1,4 +1,5 @@
 use byteorder::WriteBytesExt;
+use chrono::{offset::Utc, DateTime};
 use failure::Fallible;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use structopt::StructOpt;
@@ -6,29 +7,23 @@ use structopt::StructOpt;
 use crate::{
     common::{P2PNodeId, PeerType},
     configuration::Config,
-    network::{
-        NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkPacketType,
-        NetworkRequest, NetworkResponse,
-    },
+    network::{NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkPacketType},
     p2p::p2p_node::P2PNode,
-};
-use concordium_common::{
-    hybrid_buf::HybridBuf,
-    serial::Endianness,
     stats_export_service::{StatsExportService, StatsServiceMode},
-    PacketType, QueueMsg,
 };
+use concordium_common::{hybrid_buf::HybridBuf, serial::Endianness, PacketType, QueueMsg};
 
+use crossbeam_channel::{self, Receiver};
 use std::{
+    io::Write,
     net::TcpListener,
     path::PathBuf,
     sync::{
         atomic::{AtomicUsize, Ordering},
-        mpsc::Receiver,
         Arc, Once,
     },
     thread,
-    time::{self, Duration},
+    time::Duration,
 };
 
 static INIT: Once = Once::new();
@@ -49,9 +44,6 @@ pub fn next_available_port() -> u16 {
 
     available_port.unwrap()
 }
-
-use chrono::{offset::Utc, DateTime};
-use std::io::Write;
 
 pub fn get_test_config(port: u16, networks: Vec<u16>) -> Config {
     let mut config = Config::from_iter(TESTCONFIG.iter()).add_options(
@@ -89,16 +81,6 @@ pub fn setup_logger() {
     });
 }
 
-#[cfg(debug_assertions)]
-pub fn max_recv_timeout() -> std::time::Duration {
-    time::Duration::from_secs(5 * 60) // 5 minutes
-}
-
-#[cfg(not(debug_assertions))]
-pub fn max_recv_timeout() -> std::time::Duration {
-    time::Duration::from_secs(60) // 1 minutes
-}
-
 /// It creates a pair of `P2PNode` and a `Receiver` which can be used to
 /// wait for specific messages.
 /// Using this approach protocol tests will be easier and cleaner.
@@ -107,7 +89,7 @@ pub fn make_node_and_sync(
     networks: Vec<u16>,
     node_type: PeerType,
 ) -> Fallible<(Arc<P2PNode>)> {
-    let (rpc_tx, _rpc_rx) = std::sync::mpsc::sync_channel(64);
+    let (rpc_tx, _rpc_rx) = crossbeam_channel::bounded(64);
 
     // locally-run tests and benches can be polled with a much greater frequency
     let mut config = get_test_config(port, networks);
@@ -115,18 +97,10 @@ pub fn make_node_and_sync(
     config.cli.poll_interval = 1;
     config.connection.housekeeping_interval = 10;
 
-    let export_service = StatsExportService::new(StatsServiceMode::NodeMode).unwrap();
-    let (node, receivers) = P2PNode::new(
-        None,
-        &config,
-        None,
-        node_type,
-        Some(export_service),
-        rpc_tx,
-        None,
-    );
+    let stats = StatsExportService::new(StatsServiceMode::NodeMode).unwrap();
+    let node = P2PNode::new(None, &config, None, node_type, stats, rpc_tx, None);
 
-    node.spawn(receivers);
+    node.spawn();
     Ok(node)
 }
 
@@ -140,8 +114,8 @@ pub fn make_node_and_sync_with_rpc(
     Receiver<NetworkMessage>,
     Receiver<NetworkMessage>,
 )> {
-    let (_, msg_wait_rx) = std::sync::mpsc::sync_channel(64);
-    let (rpc_tx, rpc_rx) = std::sync::mpsc::sync_channel(64);
+    let (_, msg_wait_rx) = crossbeam_channel::bounded(64);
+    let (rpc_tx, rpc_rx) = crossbeam_channel::bounded(64);
 
     // locally-run tests and benches can be polled with a much greater frequency
     let mut config = get_test_config(port, networks);
@@ -149,18 +123,18 @@ pub fn make_node_and_sync_with_rpc(
     config.cli.poll_interval = 1;
     config.connection.housekeeping_interval = 10;
 
-    let export_service = StatsExportService::new(StatsServiceMode::NodeMode).unwrap();
-    let (node, receivers) = P2PNode::new(
+    let stats = StatsExportService::new(StatsServiceMode::NodeMode).unwrap();
+    let node = P2PNode::new(
         None,
         &config,
         None,
         node_type,
-        Some(export_service),
+        stats,
         rpc_tx,
         Some(data_dir_path),
     );
 
-    node.spawn(receivers);
+    node.spawn();
     Ok((node, msg_wait_rx, rpc_rx))
 }
 
@@ -181,36 +155,6 @@ pub fn await_handshake(node: &P2PNode) -> Fallible<()> {
     }
 
     Ok(())
-}
-
-/// Waits until
-/// `receiver` receive a `peerlist` response packet before timeout is reached.
-pub fn await_peerlist_with_timeout(
-    receiver: &Receiver<NetworkMessage>,
-    timeout: std::time::Duration,
-) -> Fallible<()> {
-    // Wait for Peerlist response
-    if let Ok(NetworkMessagePayload::NetworkResponse(NetworkResponse::PeerList(..))) =
-        receiver.recv_timeout(timeout).map(|msg| msg.payload)
-    {
-        return Ok(());
-    }
-    bail!("Didn't receive peerlist response message within the timeout period")
-}
-
-/// Waits until
-/// `receiver` receives a `ping` request packet before the timeout is reached.
-pub fn await_ping_with_timeout(
-    receiver: &Receiver<NetworkMessage>,
-    timeout: std::time::Duration,
-) -> Fallible<()> {
-    // Wait for Ping request
-    if let Ok(NetworkMessagePayload::NetworkRequest(NetworkRequest::Ping)) =
-        receiver.recv_timeout(timeout).map(|msg| msg.payload)
-    {
-        return Ok(());
-    }
-    bail!("Didn't receive ping request message within the timeout period")
 }
 
 pub fn await_broadcast_message(waiter: &Receiver<QueueMsg<NetworkMessage>>) -> Fallible<HybridBuf> {
@@ -243,34 +187,6 @@ pub fn await_direct_message(waiter: &Receiver<QueueMsg<NetworkMessage>>) -> Fall
     }
 }
 
-pub fn await_direct_message_with_timeout(
-    waiter: &Receiver<QueueMsg<NetworkMessage>>,
-    timeout: std::time::Duration,
-) -> Option<HybridBuf> {
-    while let Ok(msg) = waiter.recv_timeout(timeout) {
-        if let QueueMsg::Relay(NetworkMessage {
-            payload: NetworkMessagePayload::NetworkPacket(pac),
-            ..
-        }) = msg
-        {
-            if let NetworkPacketType::DirectMessage(..) = pac.packet_type {
-                return Some(pac.message.to_owned());
-            }
-        }
-    }
-
-    None
-}
-
-pub fn consume_pending_messages(waiter: &Receiver<QueueMsg<NetworkMessage>>) {
-    let max_wait_time = time::Duration::from_millis(250);
-    loop {
-        if waiter.recv_timeout(max_wait_time).is_err() {
-            break;
-        }
-    }
-}
-
 pub fn generate_random_data(size: usize) -> Vec<u8> {
     thread_rng()
         .sample_iter(&Alphanumeric)
@@ -279,7 +195,7 @@ pub fn generate_random_data(size: usize) -> Vec<u8> {
         .collect()
 }
 
-pub fn generate_fake_block(size: usize) -> Fallible<HybridBuf> {
+fn generate_fake_block(size: usize) -> Fallible<HybridBuf> {
     let mut buffer = HybridBuf::with_capacity(2 + size)?;
     buffer.write_u16::<Endianness>(PacketType::Block as u16)?;
     buffer.write_all(&generate_random_data(size))?;

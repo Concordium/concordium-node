@@ -1,3 +1,18 @@
-[submodule "deps/internal/crypto"]
-	path = deps/internal/crypto
-	url = ../crypto.git
+[submodule "deps/internal/grpc-api"]
+	path = deps/internal/grpc-api
+	url = ../grpc-api.git
+[submodule "deps/internal/consensus"]
+	path = deps/internal/consensus
+	url = ../consensus/prototype.git
+[submodule "deps/internal/concordium-dns"]
+	path = deps/internal/concordium-dns
+	url = ../rust/concordium-dns.git
+[submodule "deps/external/grpc-rs"]
+	path = deps/external/grpc-rs
+	url = ../rust/external/grpc-rs.git
+[submodule "deps/external/noiseexplorer_xx"]
+	path = deps/external/noiseexplorer_xx
+	url = ../rust/external/noiseexplorer_xx
+[submodule "genesis-data"]
+	path = genesis-data
+	url = ../genesis-data.git

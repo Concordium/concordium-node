@@ -5,7 +5,6 @@ use std::time::Duration;
 use std::time::SystemTime;
 
 #[cfg(feature = "benchmark")]
-#[derive(Clone, Copy)]
 pub struct DataPoint {
     size: u64,
     time: u64,
@@ -17,7 +16,6 @@ impl DataPoint {
 }
 
 #[cfg(not(feature = "benchmark"))]
-#[derive(Clone, Copy)]
 pub struct DataPoint;
 
 pub struct StatsEngine {
