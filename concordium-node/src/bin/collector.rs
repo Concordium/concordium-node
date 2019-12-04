@@ -433,7 +433,7 @@ fn collect_data(
         blocksVerifiedCount: blocks_verified_count,
         finalizationCount: finalization_count,
         genesisBlock: genesis_block,
-        avgBpsIn: avg_bps_in,
-        avgBpsOut: avg_bps_out,
+        averageBytesPerSecondIn: avg_bps_in,
+        averageBytesPerSecondOut: avg_bps_out,
     })
 }
