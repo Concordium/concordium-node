@@ -1,7 +1,7 @@
-#[cfg(feature = "beta")]
-use crate::plugins::beta::get_username_from_jwt;
 #[cfg(feature = "network_dump")]
 use crate::dumper::create_dump_thread;
+#[cfg(feature = "beta")]
+use crate::plugins::beta::get_username_from_jwt;
 use crate::{
     common::{get_current_stamp, P2PNodeId, P2PPeer, PeerStats, PeerType, RemotePeer},
     configuration::{self as config, Config},
