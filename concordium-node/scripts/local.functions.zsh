@@ -2,7 +2,7 @@
 # Define an export for CONCORDIUM_P2P_DIR pointing to
 # the p2p-client checked out dir on your disk, and
 # include this file in your .zshrc or the like.
-# 
+#
 # For overrides such as feature gates et all, use the
 # environment variables CONCORDIUM_P2P_EXTRA_ARGS
 #
@@ -30,7 +30,7 @@ else
   CONCORDIUM_GHC_PLATFORM="linux"
 fi
 
-if (( ${+NIX_PATH} )); then
+if [[ -f "/etc/NIXOS" ]]; then
   NIXOS=1
   if (( ${+CONCORDIUM_P2P_EXTRA_ARGS} )); then
     CONCORDIUM_P2P_EXTRA_ARGS="$CONCORDIUM_P2P_EXTRA_ARGS --features=static"
@@ -54,7 +54,8 @@ else
   export LD_LIBRARY_PATH=/usr/local/lib:~/.stack/programs/x86_64-$CONCORDIUM_GHC_PLATFORM/ghc-tinfo6-$CONCORDIUM_GHC_VERSION/lib/ghc-$CONCORDIUM_GHC_VERSION/rts
 fi
 
-NIGHTLY_FMT_VERSION="nightly-2019-07-25"
+NIGHTLY_FMT_VERSION="nightly-2019-11-13"
+NIGHTLY_FMT_INSTALL_VERSION="nightly-2019-11-13"
 
 #####
 # testnet_bootstrap and testnet_node can be run with
@@ -97,7 +98,7 @@ function testnet_bootstrap() {
     if [ $# > 0 ] ; then
         cmd="$cmd $@"
     fi
-    if (( $NIXOS == 1 ))  && [[ "$IN_NIX_SHELL" == "" ]]  ; then 
+    if (( $NIXOS == 1 ))  && [[ "$IN_NIX_SHELL" == "" ]]  ; then
       cmd="nix-shell --run '$cmd'"
     fi
     cd $CONCORDIUM_P2P_DIR && eval "$cmd"
@@ -149,8 +150,8 @@ function testnet_node() {
     if [ $# > 0 ] ; then
         cmd="$cmd $@"
     fi
-    
-    if (( $NIXOS == 1 ))  && [[ "$IN_NIX_SHELL" == "" ]]  ; then 
+
+    if (( $NIXOS == 1 ))  && [[ "$IN_NIX_SHELL" == "" ]]  ; then
       cmd="nix-shell --run '$cmd'"
     fi
     ( cd $CONCORDIUM_P2P_DIR && eval "$cmd"  )
@@ -171,7 +172,7 @@ function testnet_node() {
 function testnet_docker_compose() {
   if (( $# < 1 ))
   then
-    echo "Usage: testnet_docker_compose amount_of_bakers extra_args"
+    echo "Usage: testnet_docker_compose number_of_bakers extra_args"
     return 1
   fi
   baker_count=$1; shift
@@ -188,15 +189,21 @@ function testnet_docker_compose() {
 alias clear_screen='printf "\033c"'
 
 #####
-# Run rustfmt on all modules in project
+# Run rustfmt on all modules in the current directory
 #
 #####
 lint_fmt() {
   echo "Formatting code with $NIGHTLY_FMT_VERSION"
-  ( cd $CONCORDIUM_P2P_DIR && cargo +$NIGHTLY_FMT_VERSION fmt)
-  ( cd $CONCORDIUM_P2P_DIR/concordium-common && cargo +$NIGHTLY_FMT_VERSION fmt)
-  ( cd $CONCORDIUM_P2P_DIR/concordium-consensus && cargo +$NIGHTLY_FMT_VERSION fmt)
-  ( cd $CONCORDIUM_P2P_DIR/concordium-global-state && cargo +$NIGHTLY_FMT_VERSION fmt)
+  cargo +$NIGHTLY_FMT_VERSION fmt
+}
+
+#####
+# Install the currently used nightly for formatting rust code
+#
+#####
+install_lint_fmt() {
+  rustup install $NIGHTLY_FMT_INSTALL_VERSION &&
+  rustup component add rustfmt --toolchain $NIGHTLY_FMT_INSTALL_VERSION
 }
 
 #####
@@ -206,7 +213,7 @@ lint_fmt() {
 concordium_p2p_nix_shell() {
   if [[ "$IN_NIX_SHELL" != "" ]]  ; then
     echo "Already dropped into a nix-shell"
-  elif (( $NIXOS == 1 )) ; then 
+  elif (( $NIXOS == 1 )) ; then
     (
       cd $CONCORDIUM_P2P_DIR &&
       printf "Entering nix-shell environment for p2p-client\n"
@@ -215,4 +222,27 @@ concordium_p2p_nix_shell() {
   else
     printf "Not a NixOS environment!\n"
   fi
+}
+
+#####
+# Copy local baker data for local testing
+#
+#####
+testnet_copy_baker_data() {
+  if (( $# < 1 ))
+  then
+    echo "Usage: testnet_copy_baker_data number_of_bakers"
+    return 1
+  fi
+  baker_count=$1; shift
+  (
+    rm -rf $HOME/.local/share/ConcordiumP2P &&
+    mkdir -p $HOME/.local/share/ConcordiumP2P &&
+    cd $HOME/.local/share/ConcordiumP2P &&
+    cp $CONCORDIUM_P2P_DIR/genesis-data/$baker_count-bakers.tar.gz . &&
+    tar xzf $baker_count-bakers.tar.gz &&
+    mv genesis_data/* . &&
+    rmdir genesis_data &&
+    rm $baker_count-bakers.tar.gz
+  )
 }

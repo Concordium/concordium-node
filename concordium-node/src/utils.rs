@@ -1,22 +1,14 @@
 use concordium_dns::dns;
 
-use crate::{
-    self as p2p_client,
-    common::serialize_addr,
-    configuration as config,
-    fails::{HostPortParseError, NoDNSResolversAvailable},
-};
+use crate::{self as p2p_client, common::serialize_addr, configuration as config};
 
 use base64;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use env_logger::{Builder, Env};
-use failure::{Error, Fallible};
-use hacl_star::{
-    ed25519::{keypair, PublicKey, SecretKey, Signature},
-    sha2,
-};
+use failure::Fallible;
+use hacl_star::ed25519::{keypair, PublicKey, SecretKey, Signature};
+use log::LevelFilter;
 use rand::rngs::OsRng;
-use snow::Keypair;
 #[cfg(feature = "benchmark")]
 use std::fs;
 #[cfg(not(target_os = "windows"))]
@@ -27,27 +19,11 @@ use std::{
     str::{self, FromStr},
 };
 
-pub fn sha256(input: &str) -> [u8; 32] { sha256_bytes(input.as_bytes()) }
-
-pub fn sha256_bytes(input: &[u8]) -> [u8; 32] {
-    let mut output = [0; 32];
-    sha2::Sha256::hash(&mut output, input);
-    output
-}
-
 pub fn to_hex_string(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
-/// It transforms an hexadecimal string `hex` into binary data.
-pub fn from_hex_string(hex: &str) -> Result<Vec<u8>, std::num::ParseIntError> {
-    (0..hex.len())
-        .step_by(2)
-        .map(|idx| u8::from_str_radix(&hex[idx..idx + 2], 16))
-        .collect::<Result<Vec<u8>, _>>()
-}
-
-pub fn parse_ip_port(input: &str) -> Option<SocketAddr> {
+fn parse_ip_port(input: &str) -> Option<SocketAddr> {
     if let Some(n) = input.rfind(':') {
         let (ip, port) = input.split_at(n);
 
@@ -59,6 +35,18 @@ pub fn parse_ip_port(input: &str) -> Option<SocketAddr> {
     }
 
     None
+}
+
+pub fn setup_logger_env(env: Env, no_log_timestamp: bool) {
+    let mut log_builder = Builder::from_env(env);
+    if no_log_timestamp {
+        log_builder.format_timestamp(None);
+    }
+    log_builder.filter(Some(&"tokio_reactor"), LevelFilter::Error);
+    log_builder.filter(Some(&"hyper"), LevelFilter::Error);
+    log_builder.filter(Some(&"reqwest"), LevelFilter::Error);
+    log_builder.filter(Some(&"gotham"), LevelFilter::Error);
+    log_builder.init();
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -127,11 +115,11 @@ pub fn parse_host_port(
             if let Ok(port) = port.parse::<u16>() {
                 Ok(vec![SocketAddr::new(ip, port)])
             } else {
-                Err(Error::from(HostPortParseError::new(input.to_owned())))
+                bail!("Can't parse <{}> as the host port", input.to_owned());
             }
         } else {
             match port.parse::<u16>() {
-                Err(_) => Err(Error::from(HostPortParseError::new(input.to_owned()))), /* couldn't parse port */
+                Err(_) => bail!("Can't parse <{}> as the host port", input.to_owned()),
                 Ok(port) => {
                     let resolver_addresses = resolvers
                         .iter()
@@ -167,13 +155,13 @@ pub fn parse_host_port(
                             .map(ToOwned::to_owned)
                             .collect::<Vec<_>>())
                     } else {
-                        Err(Error::from(NoDNSResolversAvailable))
+                        bail!("No DNS resolvers available");
                     }
                 }
             }
         }
     } else {
-        Err(Error::from(HostPortParseError::new(input.to_owned()))) // No colon in host:post
+        bail!("Can't parse <{}> as the host port", input.to_owned());
     }
 }
 
@@ -212,7 +200,7 @@ pub fn get_bootstrap_nodes(
     }
 }
 
-pub fn serialize_bootstrap_peers(peers: &[String]) -> Result<String, &'static str> {
+fn serialize_bootstrap_peers(peers: &[String]) -> Result<String, &'static str> {
     let mut buffer = format!("{:05}", peers.len());
 
     for peer in peers {
@@ -270,7 +258,7 @@ pub fn generate_bootstrap_dns(
         .collect())
 }
 
-pub fn read_peers_from_dns_entries(
+fn read_peers_from_dns_entries(
     entries: Vec<String>,
     public_key_str: &str,
 ) -> Result<Vec<SocketAddr>, &'static str> {
@@ -459,14 +447,6 @@ pub fn get_tps_test_messages(path: Option<String>) -> Vec<Vec<u8>> {
     ret
 }
 
-/// It clones `kp`. `snow::Keypair` does not derive `Clone` in current version.
-pub fn clone_snow_keypair(kp: &Keypair) -> Keypair {
-    Keypair {
-        private: kp.private.clone(),
-        public:  kp.public.clone(),
-    }
-}
-
 pub fn get_config_and_logging_setup() -> Fallible<(config::Config, config::AppPreferences)> {
     // Get config and app preferences
     let conf = config::parse_config()?;
@@ -486,11 +466,7 @@ pub fn get_config_and_logging_setup() -> Fallible<(config::Config, config::AppPr
         Env::default().filter_or("LOG_LEVEL", "warn")
     };
 
-    let mut log_builder = Builder::from_env(env);
-    if conf.common.no_log_timestamp {
-        log_builder.default_format_timestamp(false);
-    }
-    log_builder.init();
+    setup_logger_env(env, conf.common.no_log_timestamp);
 
     info!(
         "Starting up {} version {}!",

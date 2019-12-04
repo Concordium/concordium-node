@@ -1,26 +1,30 @@
 #[cfg(feature = "network_dump")]
 use crate::dumper::create_dump_thread;
+#[cfg(feature = "beta")]
+use crate::plugins::beta::get_username_from_jwt;
 use crate::{
-    common::{
-        get_current_stamp, NetworkRawRequest, P2PNodeId, P2PPeer, PeerStats, PeerType, RemotePeer,
-    },
+    common::{get_current_stamp, P2PNodeId, P2PPeer, PeerStats, PeerType, RemotePeer},
     configuration::{self as config, Config},
-    connection::{Connection, DeduplicationQueues, MessageSendingPriority, P2PEvent},
-    crypto::generate_snow_config,
+    connection::{
+        send_pending_messages, Connection, DeduplicationQueues, MessageSendingPriority, P2PEvent,
+    },
     dumper::DumpItem,
     network::{
-        request::RequestedElementType, Buckets, NetworkId, NetworkMessage, NetworkMessagePayload,
-        NetworkPacket, NetworkPacketType, NetworkRequest,
+        Buckets, NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket,
+        NetworkPacketType, NetworkRequest,
     },
-    p2p::{banned_nodes::BannedNode, fails, unreachable_nodes::UnreachableNodes},
+    p2p::{banned_nodes::BannedNode, unreachable_nodes::UnreachableNodes},
     stats_engine::StatsEngine,
+    stats_export_service::StatsExportService,
     utils,
 };
 use chrono::prelude::*;
 use concordium_common::{
-    cache::Cache, hybrid_buf::HybridBuf, serial::Serial, stats_export_service::StatsExportService,
+    hybrid_buf::HybridBuf,
+    serial::Serial,
+    QueueMsg::{self, Relay},
 };
-use failure::{err_msg, Error, Fallible};
+use failure::{err_msg, Fallible};
 #[cfg(not(target_os = "windows"))]
 use get_if_addrs;
 #[cfg(target_os = "windows")]
@@ -31,9 +35,11 @@ use mio::{
 };
 use nohash_hasher::BuildNoHashHasher;
 use rand::seq::IteratorRandom;
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use rkv::{Manager, Rkv, StoreOptions, Value};
-use snow::Keypair;
 
+use consensus_rust::{consensus::CALLBACK_QUEUE, transferlog::TRANSACTION_LOG_QUEUE};
+use crossbeam_channel::{self, Sender};
 use std::{
     cmp::Reverse,
     collections::{HashMap, HashSet},
@@ -43,14 +49,12 @@ use std::{
         SocketAddr,
     },
     path::PathBuf,
-    pin::Pin,
     str::FromStr,
     sync::{
         atomic::{AtomicBool, AtomicU16, AtomicU64, AtomicUsize, Ordering},
-        mpsc::{sync_channel, Receiver, SyncSender},
         Arc, RwLock,
     },
-    thread::{self, JoinHandle},
+    thread::JoinHandle,
     time::{Duration, SystemTime},
 };
 
@@ -89,6 +93,11 @@ pub struct P2PNodeConfig {
     pub bucket_cleanup_interval: u64,
     #[cfg(feature = "beta")]
     pub beta_username: String,
+    thread_pool_size: usize,
+    dedup_size_long: usize,
+    dedup_size_short: usize,
+    pub socket_read_size: usize,
+    pub socket_write_size: usize,
 }
 
 #[derive(Default)]
@@ -116,29 +125,23 @@ pub type Networks = HashSet<NetworkId, BuildNoHashHasher<u16>>;
 pub type Connections = HashMap<Token, Arc<Connection>, BuildNoHashHasher<usize>>;
 
 pub struct ConnectionHandler {
-    server:                  TcpListener,
-    next_id:                 AtomicUsize,
-    key_pair:                Keypair,
-    pub event_log:           Option<SyncSender<P2PEvent>>,
-    pub buckets:             RwLock<Buckets>,
-    pub log_dumper:          Option<SyncSender<DumpItem>>,
-    noise_params:            snow::params::NoiseParams,
-    pub network_messages_hi: SyncSender<NetworkRawRequest>,
-    pub network_messages_lo: SyncSender<NetworkRawRequest>,
-    pub connections:         RwLock<Connections>,
-    pub unreachable_nodes:   UnreachableNodes,
-    pub networks:            RwLock<Networks>,
-    pub last_bootstrap:      AtomicU64,
-    pub last_peer_update:    AtomicU64,
+    server:                TcpListener,
+    next_id:               AtomicUsize,
+    pub event_log:         Option<Sender<QueueMsg<P2PEvent>>>,
+    pub buckets:           RwLock<Buckets>,
+    pub log_dumper:        Option<Sender<DumpItem>>,
+    pub connections:       RwLock<Connections>,
+    pub unreachable_nodes: UnreachableNodes,
+    pub networks:          RwLock<Networks>,
+    pub last_bootstrap:    AtomicU64,
+    pub last_peer_update:  AtomicU64,
 }
 
 impl ConnectionHandler {
     fn new(
         conf: &Config,
         server: TcpListener,
-        network_messages_hi: SyncSender<NetworkRawRequest>,
-        network_messages_lo: SyncSender<NetworkRawRequest>,
-        event_log: Option<SyncSender<P2PEvent>>,
+        event_log: Option<Sender<QueueMsg<P2PEvent>>>,
     ) -> Self {
         let networks = conf
             .common
@@ -147,21 +150,13 @@ impl ConnectionHandler {
             .cloned()
             .map(NetworkId::from)
             .collect();
-        let noise_params = generate_snow_config(&conf.crypto);
-        let key_pair = snow::Builder::new(noise_params.clone())
-            .generate_keypair()
-            .expect("Can't create a connection handler!");
 
         ConnectionHandler {
             server,
             next_id: AtomicUsize::new(1),
-            key_pair,
             event_log,
             buckets: RwLock::new(Buckets::new()),
             log_dumper: None,
-            noise_params,
-            network_messages_hi,
-            network_messages_lo,
             connections: Default::default(),
             unreachable_nodes: UnreachableNodes::new(),
             networks: RwLock::new(networks),
@@ -171,29 +166,24 @@ impl ConnectionHandler {
     }
 }
 
-pub struct Receivers {
-    pub network_messages_hi: Receiver<NetworkRawRequest>,
-    pub network_messages_lo: Receiver<NetworkRawRequest>,
-}
-
-#[allow(dead_code)] // caused by the dump_network feature; will fix in a follow-up
+#[repr(C)] // specifying this representation is needed for the pointer work done in the
+           // last steps of `P2PNode::new`
 pub struct P2PNode {
-    pub self_ref:             Option<Pin<Arc<Self>>>,
-    pub self_peer:            P2PPeer,
-    threads:                  RwLock<P2PNodeThreads>,
-    pub poll:                 Poll,
-    pub connection_handler:   ConnectionHandler,
-    pub rpc_queue:            SyncSender<NetworkMessage>,
-    dump_switch:              SyncSender<(std::path::PathBuf, bool)>,
-    dump_tx:                  SyncSender<crate::dumper::DumpItem>,
-    pub stats_export_service: Option<StatsExportService>,
-    pub config:               P2PNodeConfig,
-    start_time:               DateTime<Utc>,
-    pub is_rpc_online:        AtomicBool,
-    pub is_terminated:        AtomicBool,
-    pub kvs:                  Arc<RwLock<Rkv>>,
-    pub transactions_cache:   RwLock<Cache<Vec<u8>>>,
-    pub stats_engine:         RwLock<StatsEngine>,
+    pub self_ref:           Option<Arc<Self>>,
+    pub self_peer:          P2PPeer,
+    threads:                RwLock<P2PNodeThreads>,
+    pub poll:               Poll,
+    pub connection_handler: ConnectionHandler,
+    pub rpc_queue:          Sender<NetworkMessage>,
+    dump_switch:            Sender<(std::path::PathBuf, bool)>,
+    dump_tx:                Sender<crate::dumper::DumpItem>,
+    pub stats:              StatsExportService,
+    pub config:             P2PNodeConfig,
+    start_time:             DateTime<Utc>,
+    pub is_rpc_online:      AtomicBool,
+    pub is_terminated:      AtomicBool,
+    pub kvs:                Arc<RwLock<Rkv>>,
+    pub stats_engine:       RwLock<StatsEngine>,
 }
 // a convenience macro to send an object to all connections
 macro_rules! send_to_all {
@@ -207,11 +197,12 @@ macro_rules! send_to_all {
             };
             let filter = |_: &Connection| true;
 
-            if let Err(e) = HybridBuf::with_capacity(256)
-                .map_err(Error::from)
-                .and_then(|mut buf| message.serialize(&mut buf).map(|_| buf))
-                .and_then(|buf| self.send_over_all_connections(buf, &filter))
-            {
+            if let Err(e) = {
+                let mut buf = Vec::with_capacity(256);
+                message.serialize(&mut buf)
+                    .map(|_| buf)
+                    .and_then(|buf| self.send_over_all_connections(buf, &filter))
+            } {
                 error!("A network message couldn't be forwarded: {}", e);
             }
         }
@@ -231,12 +222,12 @@ impl P2PNode {
     pub fn new(
         supplied_id: Option<String>,
         conf: &Config,
-        event_log: Option<SyncSender<P2PEvent>>,
+        event_log: Option<Sender<QueueMsg<P2PEvent>>>,
         peer_type: PeerType,
-        stats_export_service: Option<StatsExportService>,
-        subscription_queue_in: SyncSender<NetworkMessage>,
+        stats: StatsExportService,
+        subscription_queue_in: Sender<NetworkMessage>,
         data_dir_path: Option<PathBuf>,
-    ) -> (Arc<Self>, Receivers) {
+    ) -> Arc<Self> {
         let addr = if let Some(ref addy) = conf.common.listen_address {
             format!("{}:{}", addy, conf.common.listen_port)
                 .parse()
@@ -303,8 +294,8 @@ impl P2PNode {
 
         let self_peer = P2PPeer::from(peer_type, id, SocketAddr::new(ip, own_peer_port));
 
-        let (dump_tx, _dump_rx) = std::sync::mpsc::sync_channel(config::DUMP_QUEUE_DEPTH);
-        let (act_tx, _act_rx) = std::sync::mpsc::sync_channel(config::DUMP_SWITCH_QUEUE_DEPTH);
+        let (dump_tx, _dump_rx) = crossbeam_channel::bounded(config::DUMP_QUEUE_DEPTH);
+        let (act_tx, _act_rx) = crossbeam_channel::bounded(config::DUMP_SWITCH_QUEUE_DEPTH);
 
         #[cfg(feature = "network_dump")]
         create_dump_thread(ip, id, _dump_rx, _act_rx, &conf.common.data_dir);
@@ -356,26 +347,15 @@ impl P2PNode {
             },
             bucket_cleanup_interval: conf.common.bucket_cleanup_interval,
             #[cfg(feature = "beta")]
-            beta_username: conf.cli.beta_username.clone(),
+            beta_username: get_username_from_jwt(&conf.cli.beta_token),
+            thread_pool_size: conf.connection.thread_pool_size,
+            dedup_size_long: conf.connection.dedup_size_long,
+            dedup_size_short: conf.connection.dedup_size_short,
+            socket_read_size: conf.connection.socket_read_size,
+            socket_write_size: conf.connection.socket_write_size,
         };
 
-        let (network_msgs_sender_hi, network_msgs_receiver_hi) =
-            sync_channel(config::RAW_NETWORK_MSG_QUEUE_DEPTH_HI);
-        let (network_msgs_sender_lo, network_msgs_receiver_lo) =
-            sync_channel(config::RAW_NETWORK_MSG_QUEUE_DEPTH_LO);
-
-        let receivers = Receivers {
-            network_messages_hi: network_msgs_receiver_hi,
-            network_messages_lo: network_msgs_receiver_lo,
-        };
-
-        let connection_handler = ConnectionHandler::new(
-            conf,
-            server,
-            network_msgs_sender_hi,
-            network_msgs_sender_lo,
-            event_log,
-        );
+        let connection_handler = ConnectionHandler::new(conf, server, event_log);
 
         // Create the node key-value store environment
         let kvs = Manager::singleton()
@@ -384,10 +364,9 @@ impl P2PNode {
             .get_or_create(config.data_dir_path.as_path(), Rkv::new)
             .unwrap();
 
-        let transactions_cache = Default::default();
         let stats_engine = RwLock::new(StatsEngine::new(&conf.cli));
 
-        let node = Arc::new(P2PNode {
+        let mut node = Arc::new(P2PNode {
             self_ref: None,
             poll,
             rpc_queue: subscription_queue_in,
@@ -399,25 +378,42 @@ impl P2PNode {
             is_rpc_online: AtomicBool::new(false),
             connection_handler,
             self_peer,
-            stats_export_service,
+            stats,
             is_terminated: Default::default(),
             kvs,
-            transactions_cache,
             stats_engine,
         });
 
-        // note: in order to avoid a lock over the self_ref, write to it as soon as it's
-        // available using the unsafe ptr::write
-        // this is safe, as at this point the node is not shared with any other object
-        // or thread
-        let self_ref =
-            &node.self_ref as *const Option<Pin<Arc<P2PNode>>> as *mut Option<Pin<Arc<P2PNode>>>;
-        unsafe { std::ptr::write(self_ref, Some(Pin::new(Arc::clone(&node)))) };
+        // note: in order to create the reference to the `Arc`'ed self, we need to do
+        // some raw pointer work. Some things to note:
+        // 1. `size_of::<Option<Arc<P2PNode>>>() == size_of::<Arc<P2PNode>>()`. There is
+        // no overhead when wrapping an `Arc` inside an `Option` as it is a `NonNull`
+        // pointer so it gets optimized away.
+        // 2. `get_mut` succeeds because at this point there is only one reference to
+        // the node.
+        // 3. We copy `1 * size_of::<Arc<P2PNode>>()` into the `self_ref` field, which
+        // is the ptr to the `NonNull<ArcInner<T>>` effectively creating a copy
+        // of the `Arc` in new place without increasing the ref_count. Cloning
+        // from either inside or outside of the node will have the same
+        // behaviour.
+        // 4. As the `self_ref` field is the first one and it is laid out
+        // in C representation, we do not need to do pointer arithmetics,
+        // just casting the pointer to the node as a pointer to the
+        // `Arc<P2PNode>`.
+        //
+        // This approach has been validated using Miri to check that it doesn't lead to
+        // UB
+        let inner_node = Arc::get_mut(&mut node).unwrap() as *mut P2PNode;
+        let data_to_copy = &node as *const Arc<P2PNode>;
+        let self_ref_ptr = inner_node as *mut Arc<P2PNode>;
+        unsafe {
+            self_ref_ptr.copy_from(data_to_copy, 1);
+        };
 
         node.clear_bans()
             .unwrap_or_else(|e| error!("Couldn't reset the ban list: {}", e));
 
-        (node, receivers)
+        node
     }
 
     /// It sends `data` message over all filtered connections.
@@ -425,23 +421,21 @@ impl P2PNode {
     /// # Arguments
     /// * `data` - Raw message.
     /// * `conn_filter` - A closure filtering the connections
-    /// # Returns number of messages sent to connections
-    fn send_over_all_connections(
+    /// # Returns the number of messages queued to be sent
+    pub fn send_over_all_connections(
         &self,
-        data: HybridBuf,
+        data: Vec<u8>,
         conn_filter: &dyn Fn(&Connection) -> bool,
     ) -> Fallible<usize> {
         let mut sent_messages = 0usize;
+        let data = Arc::from(data);
 
         for conn in read_or_die!(self.connections())
             .values()
             .filter(|conn| conn.is_post_handshake() && conn_filter(conn))
         {
-            if let Err(e) = conn.async_send(data.clone(), MessageSendingPriority::Normal) {
-                error!("Couldn't send a message to {}: {}", conn, e);
-            } else {
-                sent_messages += 1;
-            }
+            conn.async_send(Arc::clone(&data), MessageSendingPriority::Normal);
+            sent_messages += 1;
         }
 
         Ok(sent_messages)
@@ -549,19 +543,54 @@ impl P2PNode {
 
     fn is_bucket_cleanup_enabled(&self) -> bool { self.config.timeout_bucket_entry_period > 0 }
 
-    pub fn spawn(&self, receivers: Receivers) {
+    pub fn spawn(&self) {
         let self_clone = self.self_ref.clone().unwrap(); // safe, always available
-        let poll_thread = spawn_or_die!("Poll thread", move || {
+        let poll_thread = spawn_or_die!("Poll thread", {
             let mut events = Events::with_capacity(10);
             let mut log_time = SystemTime::now();
             let mut last_buckets_cleaned = SystemTime::now();
 
-            let mut deduplication_queues = DeduplicationQueues::default();
+            let deduplication_queues = DeduplicationQueues::new(
+                self_clone.config.dedup_size_long,
+                self_clone.config.dedup_size_short,
+            );
+
+            let num_socket_threads = match self_clone.self_peer.peer_type {
+                PeerType::Bootstrapper => 1,
+                PeerType::Node => self_clone.config.thread_pool_size,
+            };
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(num_socket_threads)
+                .build()
+                .unwrap();
+
+            let mut connections = Vec::with_capacity(8);
 
             loop {
-                let _ = self_clone
-                    .receive_network_events(&mut events, &mut deduplication_queues)
-                    .map_err(|e| error!("{}", e));
+                // check for new events or wait
+                if let Err(e) = self_clone.poll.poll(
+                    &mut events,
+                    Some(Duration::from_millis(self_clone.config.poll_interval)),
+                ) {
+                    error!("{}", e);
+                    continue;
+                }
+
+                // perform socket reads and writes in parallel across connections
+                // check for new connections
+                for _ in events.iter().filter(|&event| event.token() == SERVER) {
+                    debug!("Got a new connection!");
+                    self_clone.accept().map_err(|e| error!("{}", e)).ok();
+                    self_clone.stats.conn_received_inc();
+                }
+
+                pool.install(|| {
+                    self_clone.process_network_events(
+                        &events,
+                        &deduplication_queues,
+                        &mut connections,
+                    )
+                });
 
                 // Run periodic tasks
                 let now = SystemTime::now();
@@ -582,6 +611,7 @@ impl P2PNode {
                         let peer_stat_list = self_clone.get_peer_stats(None);
                         self_clone.check_peers(&peer_stat_list);
                         self_clone.print_stats(&peer_stat_list);
+                        self_clone.measure_throughput(&peer_stat_list);
 
                         log_time = now;
                     }
@@ -601,18 +631,9 @@ impl P2PNode {
             }
         });
 
-        let self_clone = self.self_ref.clone().unwrap(); // safe, always available
-        let send_thread = spawn_or_die!("Send thread", move || {
-            loop {
-                self_clone.send_queued_messages(&receivers);
-                thread::sleep(Duration::from_millis(self_clone.config.poll_interval));
-            }
-        });
-
         // Register info about thread into P2PNode.
         let mut locked_threads = write_or_die!(self.threads);
         locked_threads.join_handles.push(poll_thread);
-        locked_threads.join_handles.push(send_thread);
     }
 
     fn measure_connection_latencies(&self) {
@@ -624,7 +645,7 @@ impl P2PNode {
             // that the latency calculation is not invalid
             if conn.last_seen() > conn.get_last_ping_sent() {
                 if let Err(e) = conn.send_ping() {
-                    error!("Can't send a ping on {}: {}", conn, e);
+                    error!("Can't send a ping to {}: {}", conn, e);
                 }
             }
         }
@@ -763,7 +784,6 @@ impl P2PNode {
                 .next_id
                 .fetch_add(1, Ordering::SeqCst),
         );
-        let key_pair = utils::clone_snow_keypair(&self.connection_handler.key_pair);
 
         let remote_peer = RemotePeer {
             id: Default::default(),
@@ -772,16 +792,7 @@ impl P2PNode {
             peer_type: PeerType::Node,
         };
 
-        let conn = Connection::new(
-            self,
-            socket,
-            token,
-            remote_peer,
-            self_peer.peer_type(),
-            key_pair,
-            false,
-            self.connection_handler.noise_params.clone(),
-        );
+        let conn = Connection::new(self, socket, token, remote_peer, false);
 
         let register_status = conn.register(&self.poll);
         self.add_connection(conn);
@@ -798,20 +809,20 @@ impl P2PNode {
         debug!("Attempting to connect to {}", addr);
 
         self.log_event(P2PEvent::InitiatingConnection(addr));
-        let self_peer = self.self_peer;
         if peer_type == PeerType::Node {
             let current_peer_count = self.get_peer_stats(Some(PeerType::Node)).len() as u16;
             if current_peer_count > self.config.max_allowed_nodes {
-                return Err(Error::from(fails::MaxmimumAmountOfPeers {
-                    max_allowed_peers: self.config.max_allowed_nodes,
-                    number_of_peers:   current_peer_count,
-                }));
+                bail!(
+                    "Maximum number of peers reached {}/{}",
+                    current_peer_count,
+                    self.config.max_allowed_nodes
+                );
             }
         }
 
         // Don't connect to ourselves
         if self.self_peer.addr == addr || peer_id_opt == Some(self.id()) {
-            return Err(Error::from(fails::DuplicatePeerError { peer_id_opt, addr }));
+            bail!("Attempted to connect to myself");
         }
 
         // Don't connect to peers with a known P2PNodeId or IP+port
@@ -819,27 +830,31 @@ impl P2PNode {
             if conn.remote_addr() == addr
                 || (peer_id_opt.is_some() && conn.remote_id() == peer_id_opt)
             {
-                return Err(Error::from(fails::DuplicatePeerError { peer_id_opt, addr }));
+                bail!(
+                    "Already connected to {}",
+                    if let Some(id) = peer_id_opt {
+                        id.to_string()
+                    } else {
+                        addr.to_string()
+                    }
+                );
             }
         }
 
         if peer_type == PeerType::Node && self.is_unreachable(addr) {
-            error!("Node marked as unreachable, so not allowing the connection");
-            return Err(Error::from(fails::UnreachablePeerError));
+            bail!("Node marked as unreachable; not allowing the connection");
         }
 
         match TcpStream::connect(&addr) {
             Ok(socket) => {
-                if let Some(ref service) = self.stats_export_service {
-                    service.conn_received_inc();
-                };
+                self.stats.conn_received_inc();
+
                 let token = Token(
                     self.connection_handler
                         .next_id
                         .fetch_add(1, Ordering::SeqCst),
                 );
 
-                let keypair = utils::clone_snow_keypair(&self.connection_handler.key_pair);
                 let remote_peer = RemotePeer {
                     id: Default::default(),
                     addr,
@@ -847,16 +862,7 @@ impl P2PNode {
                     peer_type,
                 };
 
-                let conn = Connection::new(
-                    self,
-                    socket,
-                    token,
-                    remote_peer,
-                    self_peer.peer_type(),
-                    keypair,
-                    true,
-                    self.connection_handler.noise_params.clone(),
-                );
+                let conn = Connection::new(self, socket, token, remote_peer, true);
 
                 conn.register(&self.poll)?;
 
@@ -864,7 +870,7 @@ impl P2PNode {
                 self.log_event(P2PEvent::ConnectEvent(addr));
 
                 if let Some(ref conn) = self.find_connection_by_token(token) {
-                    conn.send_handshake_request()?;
+                    write_or_die!(conn.low_level).send_handshake_message_a()?;
                 }
 
                 if peer_type == PeerType::Bootstrapper {
@@ -882,7 +888,7 @@ impl P2PNode {
         }
     }
 
-    pub fn dump_start(&mut self, log_dumper: SyncSender<DumpItem>) {
+    pub fn dump_start(&mut self, log_dumper: Sender<DumpItem>) {
         self.connection_handler.log_dumper = Some(log_dumper);
     }
 
@@ -1027,12 +1033,9 @@ impl P2PNode {
             &mut write_or_die!(self.threads).join_handles,
             Default::default(),
         ) {
-            handle.join().map_err(|e| {
-                let join_error = format!("{:?}", e);
-                fails::JoinError {
-                    cause: err_msg(join_error),
-                }
-            })?;
+            if let Err(e) = handle.join() {
+                bail!("Thread join error: {:?}", e);
+            }
         }
         Ok(())
     }
@@ -1046,7 +1049,7 @@ impl P2PNode {
 
     fn log_event(&self, event: P2PEvent) {
         if let Some(ref log) = self.connection_handler.event_log {
-            if let Err(e) = log.send(event) {
+            if let Err(e) = log.send(Relay(event)) {
                 error!("Couldn't send error {:?}", e)
             }
         }
@@ -1095,23 +1098,20 @@ impl P2PNode {
             payload:    NetworkMessagePayload::NetworkPacket(inner_pkt),
         };
 
+        let mut serialized = Vec::with_capacity(256);
+        message.serialize(&mut serialized)?;
+
         if let Some(target_id) = target {
             // direct messages
             let filter =
                 |conn: &Connection| read_or_die!(conn.remote_peer.id).unwrap() == target_id;
 
-            let mut serialized = HybridBuf::with_capacity(256)?;
-            message.serialize(&mut serialized)?;
-
             self.send_over_all_connections(serialized, &filter)
         } else {
             // broadcast messages
             let filter = |conn: &Connection| {
-                is_valid_connection_in_broadcast(conn, source_id, &peers_to_skip, network_id)
+                is_valid_broadcast_target(conn, source_id, &peers_to_skip, network_id)
             };
-
-            let mut serialized = HybridBuf::with_capacity(256)?;
-            message.serialize(&mut serialized)?;
 
             self.send_over_all_connections(serialized, &filter)
         }
@@ -1131,6 +1131,30 @@ impl P2PNode {
             .into_iter()
             .map(|stats| stats.id)
             .collect()
+    }
+
+    pub fn measure_throughput(&self, peer_stats: &[PeerStats]) -> (u64, u64) {
+        let prev_bytes_received = self.stats.get_bytes_received();
+        let prev_bytes_sent = self.stats.get_bytes_sent();
+
+        let (bytes_received, bytes_sent) = peer_stats
+            .iter()
+            .filter(|ps| ps.peer_type == PeerType::Node)
+            .map(|ps| (ps.bytes_received, ps.bytes_sent))
+            .fold((0, 0), |(acc_i, acc_o), (i, o)| (acc_i + i, acc_o + o));
+
+        self.stats.set_bytes_received(bytes_received);
+        self.stats.set_bytes_sent(bytes_sent);
+
+        let time_diff = self.config.housekeeping_interval as f64;
+
+        let avg_bps_in = ((bytes_received - prev_bytes_received) as f64 / time_diff) as u64;
+        let avg_bps_out = ((bytes_sent - prev_bytes_sent) as f64 / time_diff) as u64;
+
+        self.stats.set_avg_bps_in(avg_bps_in);
+        self.stats.set_avg_bps_out(avg_bps_out);
+
+        (avg_bps_in, avg_bps_out)
     }
 
     #[cfg(not(windows))]
@@ -1177,98 +1201,61 @@ impl P2PNode {
     pub fn internal_addr(&self) -> SocketAddr { self.self_peer.addr }
 
     #[inline(always)]
-    fn receive_network_events(
+    fn process_network_events(
         &self,
-        events: &mut Events,
-        deduplication_queues: &mut DeduplicationQueues,
-    ) -> Fallible<()> {
-        events.clear();
-        self.poll.poll(
-            events,
-            Some(Duration::from_millis(self.config.poll_interval)),
-        )?;
+        events: &Events,
+        deduplication_queues: &Arc<DeduplicationQueues>,
+        connections: &mut Vec<(Token, Arc<Connection>)>,
+    ) {
+        connections.clear();
+        for (token, conn) in read_or_die!(self.connections()).iter() {
+            connections.push((*token, Arc::clone(&conn)));
+        }
 
-        for event in events.iter() {
-            match event.token() {
-                SERVER => {
-                    debug!("Got a new connection!");
-                    self.accept().map_err(|e| error!("{}", e)).ok();
-                    if let Some(ref service) = &self.stats_export_service {
-                        service.conn_received_inc();
-                    };
+        let to_remove = connections
+            .par_iter()
+            .filter_map(|(token, conn)| {
+                let mut low_level = write_or_die!(conn.low_level);
+
+                if let Err(e) = send_pending_messages(&conn.pending_messages, &mut low_level)
+                    .and_then(|_| low_level.flush_socket())
+                {
+                    error!("{}", e);
+                    return Some(*token);
                 }
-                _ => {
-                    let readiness = event.readiness();
-                    if readiness.is_readable() || readiness.is_writable() {
-                        if let Some(conn) = self.find_connection_by_token(event.token()) {
-                            let mut read_result = Ok(());
-                            {
-                                let mut conn_lock = write_or_die!(conn.low_level);
-                                if readiness.is_readable() {
-                                    read_result = conn_lock.read_stream(deduplication_queues);
-                                }
-                                if readiness.is_writable() {
-                                    // TODO: we might want to close the connection
-                                    // when specific write errors are detected
-                                    conn_lock.flush_sink()?;
-                                }
-                            }
-                            if let Err(e) = read_result {
-                                error!("Couldn't process a connection read event: {}", e);
-                                conn.handler().remove_connection(conn.token);
-                            }
-                        }
-                    }
+
+                if events
+                    .iter()
+                    .any(|event| event.token() == *token && event.readiness().is_readable())
+                    && low_level
+                        .read_stream(deduplication_queues)
+                        .map_err(|e| error!("{}", e))
+                        .is_err()
+                {
+                    Some(*token)
+                } else {
+                    None
                 }
-            }
-        }
+            })
+            .collect::<Vec<_>>();
 
-        Ok(())
-    }
-
-    #[inline(always)]
-    pub fn send_queued_messages(&self, receivers: &Receivers) {
-        for request in receivers.network_messages_hi.try_iter() {
-            self.process_network_request(request);
-        }
-
-        for _ in 0..512 {
-            if let Ok(request) = receivers.network_messages_lo.try_recv() {
-                self.process_network_request(request);
-            } else {
-                break;
-            }
-        }
-    }
-
-    #[inline(always)]
-    pub fn process_network_request(&self, request: NetworkRawRequest) {
-        if let Some(ref conn) = self.find_connection_by_token(request.token) {
-            trace!(
-                "Processing a raw {}B network request from {}",
-                request.data.len().unwrap_or(0),
-                conn,
-            );
-
-            if let Err(err) = conn.async_send_from_poll_loop(request.data) {
-                error!("Can't send a raw network request to {}: {}", conn, err);
-                conn.handler().remove_connection(conn.token);
-            }
-        } else {
-            debug!(
-                "Can't send a raw network request; connection {} is missing",
-                usize::from(request.token)
-            );
+        for token in to_remove.into_iter() {
+            self.remove_connection(token);
         }
     }
 
     pub fn close(&self) -> bool {
         info!("P2PNode shutting down.");
         self.is_terminated.store(true, Ordering::Relaxed);
-        true
+        CALLBACK_QUEUE.stop().is_ok() && TRANSACTION_LOG_QUEUE.stop().is_ok()
     }
 
     pub fn close_and_join(&self) -> Fallible<()> {
+        if cfg!(feature = "instrumentation") {
+            info!("Stopping stats services");
+            self.stats.stop_server();
+        }
+
         self.close();
         self.join()
     }
@@ -1306,36 +1293,15 @@ impl P2PNode {
             };
             let filter = |_: &Connection| true;
 
-            if let Err(e) = HybridBuf::with_capacity(256)
-                .map_err(Error::from)
-                .and_then(|mut buf| message.serialize(&mut buf).map(|_| buf))
-                .and_then(|buf| self.send_over_all_connections(buf, &filter))
-            {
+            if let Err(e) = {
+                let mut buf = Vec::with_capacity(256);
+                message
+                    .serialize(&mut buf)
+                    .map(|_| buf)
+                    .and_then(|buf| self.send_over_all_connections(buf, &filter))
+            } {
                 error!("A network message couldn't be forwarded: {}", e);
             }
-        }
-    }
-
-    pub fn send_retransmit(
-        &self,
-        requested_type: RequestedElementType,
-        since: u64,
-        nid: NetworkId,
-    ) {
-        let request = NetworkRequest::Retransmit(requested_type, since, nid);
-        let mut message = NetworkMessage {
-            timestamp1: None,
-            timestamp2: None,
-            payload:    NetworkMessagePayload::NetworkRequest(request),
-        };
-        let filter = |_: &Connection| true;
-
-        if let Err(e) = HybridBuf::with_capacity(256)
-            .map_err(Error::from)
-            .and_then(|mut buf| message.serialize(&mut buf).map(|_| buf))
-            .and_then(|buf| self.send_over_all_connections(buf, &filter))
-        {
-            error!("A network message couldn't be forwarded: {}", e);
         }
     }
 
@@ -1353,13 +1319,20 @@ impl P2PNode {
 }
 
 impl Drop for P2PNode {
-    fn drop(&mut self) { let _ = self.close_and_join(); }
+    fn drop(&mut self) {
+        // As we have two copies of the `Arc<P2PNode>` construct, we need to forget one
+        // of them in order to not double free so we just `take()` the value of the
+        // `self_ref` and forget about it using `Arc::into_raw`.
+        let node = self.self_ref.take();
+        Arc::into_raw(node.unwrap());
+        let _ = self.close_and_join();
+    }
 }
 
 /// Connetion is valid for a broadcast if sender is not target,
 /// network_id is owned by connection, and the remote peer is not
 /// a bootstrap node.
-fn is_valid_connection_in_broadcast(
+fn is_valid_broadcast_target(
     conn: &Connection,
     sender: P2PNodeId,
     peers_to_skip: &[P2PNodeId],
@@ -1421,8 +1394,6 @@ pub fn send_message_from_cursor(
     message: HybridBuf,
     broadcast: bool,
 ) -> Fallible<()> {
-    trace!("Queueing message!");
-
     let packet_type = if broadcast {
         NetworkPacketType::BroadcastedMessage(dont_relay_to)
     } else {
@@ -1440,7 +1411,9 @@ pub fn send_message_from_cursor(
     };
 
     if let Ok(sent_packets) = node.process_network_packet(packet, source_id) {
-        trace!("Send a packet to {} peers", sent_packets);
+        if sent_packets > 0 {
+            trace!("Sent a packet to {} peers", sent_packets);
+        }
     } else {
         error!("Couldn't send a packet");
     }

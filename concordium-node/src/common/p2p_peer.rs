@@ -6,7 +6,7 @@ use std::{
     hash::{Hash, Hasher},
     net::{IpAddr, SocketAddr},
     sync::{
-        atomic::{AtomicBool, AtomicU16, AtomicU64, Ordering as AtomicOrdering},
+        atomic::{AtomicU16, Ordering as AtomicOrdering},
         Arc, RwLock,
     },
 };
@@ -144,10 +144,12 @@ pub struct PeerStats {
     pub addr:               SocketAddr,
     pub peer_external_port: u16,
     pub peer_type:          PeerType,
-    pub sent:               Arc<AtomicU64>,
-    pub received:           Arc<AtomicU64>,
-    pub valid_latency:      Arc<AtomicBool>,
-    pub measured_latency:   Arc<AtomicU64>,
+    pub sent:               u64,
+    pub received:           u64,
+    pub valid_latency:      bool,
+    pub measured_latency:   u64,
+    pub bytes_sent:         u64,
+    pub bytes_received:     u64,
 }
 
 impl PeerStats {
@@ -163,10 +165,12 @@ impl PeerStats {
             addr,
             peer_external_port,
             peer_type,
-            sent: Arc::clone(&conn_stats.messages_sent),
-            received: Arc::clone(&conn_stats.messages_received),
-            valid_latency: Arc::clone(&conn_stats.valid_latency),
-            measured_latency: Arc::clone(&conn_stats.last_latency),
+            sent: conn_stats.messages_sent.load(AtomicOrdering::Relaxed),
+            received: conn_stats.messages_received.load(AtomicOrdering::Relaxed),
+            valid_latency: conn_stats.valid_latency.load(AtomicOrdering::Relaxed),
+            measured_latency: conn_stats.last_latency.load(AtomicOrdering::Relaxed),
+            bytes_sent: conn_stats.bytes_sent.load(AtomicOrdering::Relaxed),
+            bytes_received: conn_stats.bytes_received.load(AtomicOrdering::Relaxed),
         }
     }
 

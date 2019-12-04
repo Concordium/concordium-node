@@ -36,4 +36,3 @@ baker_id_gen
 *.tar
 *.mdb
 CONSENSUS_VERSION
-deps/internal/consensus

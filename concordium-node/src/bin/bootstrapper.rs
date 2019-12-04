@@ -5,7 +5,6 @@ extern crate grpciounix as grpcio;
 extern crate grpciowin as grpcio;
 #[macro_use]
 extern crate log;
-extern crate p2p_client;
 #[macro_use]
 extern crate concordium_common;
 
@@ -14,41 +13,24 @@ use std::alloc::System;
 #[global_allocator]
 static A: System = System;
 
-use concordium_common::stats_export_service::StatsServiceMode;
-use env_logger::{Builder, Env};
+use concordium_common::QueueMsg::Relay;
+use crossbeam_channel;
 use failure::Error;
 use p2p_client::{
-    client::utils as client_utils,
     common::{P2PNodeId, PeerType},
     configuration as config,
     p2p::*,
+    stats_export_service::{instantiate_stats_export_engine, StatsServiceMode},
+    utils::get_config_and_logging_setup,
 };
-use std::sync::mpsc;
+
+#[cfg(feature = "instrumentation")]
+use p2p_client::stats_export_service::start_push_gateway;
 
 fn main() -> Result<(), Error> {
-    let mut conf = config::parse_config()?;
-
+    let (mut conf, app_prefs) = get_config_and_logging_setup()?;
     conf.connection.max_allowed_nodes = Some(conf.bootstrapper.max_nodes);
-
-    let app_prefs = config::AppPreferences::new(
-        conf.common.config_dir.to_owned(),
-        conf.common.data_dir.to_owned(),
-    );
     let data_dir_path = app_prefs.get_user_app_dir();
-
-    let env = if conf.common.trace {
-        Env::default().filter_or("LOG_LEVEL", "trace")
-    } else if conf.common.debug {
-        Env::default().filter_or("LOG_LEVEL", "debug")
-    } else {
-        Env::default().filter_or("LOG_LEVEL", "info")
-    };
-
-    let mut log_builder = Builder::from_env(env);
-    if conf.common.no_log_timestamp {
-        log_builder.default_format_timestamp(false);
-    }
-    log_builder.init();
 
     if conf.common.print_config {
         // Print out the configuration
@@ -71,14 +53,7 @@ fn main() -> Result<(), Error> {
 
     // Instantiate stats export engine
     let stats_export_service =
-        client_utils::instantiate_stats_export_engine(&conf, StatsServiceMode::BootstrapperMode)
-            .unwrap_or_else(|e| {
-                error!(
-                    "I was not able to instantiate an stats export service: {}",
-                    e
-                );
-                None
-            });
+        instantiate_stats_export_engine(&conf, StatsServiceMode::BootstrapperMode).unwrap();
 
     info!("Debugging enabled: {}", conf.common.debug);
 
@@ -87,12 +62,12 @@ fn main() -> Result<(), Error> {
         _ => format!("{}", P2PNodeId::default()),
     };
 
-    let (rpc_tx, _) = std::sync::mpsc::sync_channel(config::RPC_QUEUE_DEPTH);
+    let (rpc_tx, _) = crossbeam_channel::bounded(config::RPC_QUEUE_DEPTH);
 
-    let (node, receivers) = if conf.common.debug {
-        let (sender, receiver) = mpsc::sync_channel(config::EVENT_LOG_QUEUE_DEPTH);
+    let node = if conf.common.debug {
+        let (sender, receiver) = crossbeam_channel::bounded(config::EVENT_LOG_QUEUE_DEPTH);
         let _guard = spawn_or_die!("Log loop", move || loop {
-            if let Ok(msg) = receiver.recv() {
+            if let Ok(Relay(msg)) = receiver.recv() {
                 info!("{}", msg);
             }
         });
@@ -101,7 +76,7 @@ fn main() -> Result<(), Error> {
             &conf,
             Some(sender),
             PeerType::Bootstrapper,
-            stats_export_service.clone(),
+            stats_export_service,
             rpc_tx,
             Some(data_dir_path),
         )
@@ -111,7 +86,7 @@ fn main() -> Result<(), Error> {
             &conf,
             None,
             PeerType::Bootstrapper,
-            stats_export_service.clone(),
+            stats_export_service,
             rpc_tx,
             Some(data_dir_path),
         )
@@ -119,19 +94,16 @@ fn main() -> Result<(), Error> {
 
     #[cfg(feature = "instrumentation")]
     // Start push gateway to prometheus
-    client_utils::start_push_gateway(&conf.prometheus, &stats_export_service, node.id())?;
+    start_push_gateway(&conf.prometheus, &node.stats, node.id());
 
     info!(
         "Concordium P2P layer. Network disabled: {}",
         conf.cli.no_network
     );
 
-    node.spawn(receivers);
+    node.spawn();
 
     node.join().expect("Node thread panicked!");
-
-    // Close stats server export if present
-    client_utils::stop_stats_export_engine(&conf, &stats_export_service);
 
     Ok(())
 }

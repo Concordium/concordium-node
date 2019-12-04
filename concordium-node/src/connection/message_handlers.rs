@@ -1,14 +1,14 @@
 use crate::{
-    client::plugins::consensus::*,
     common::{get_current_stamp, P2PNodeId, P2PPeer, PeerType},
     connection::{Connection, P2PEvent},
     network::{
-        request::RequestedElementType, NetworkId, NetworkMessage, NetworkMessagePayload,
-        NetworkPacket, NetworkPacketType, NetworkRequest, NetworkResponse,
+        NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkPacketType,
+        NetworkRequest, NetworkResponse,
     },
     p2p::banned_nodes::BannedNode,
+    plugins::consensus::*,
 };
-use concordium_common::{read_or_die, write_or_die, PacketType};
+use concordium_common::{read_or_die, write_or_die, QueueMsg::Relay};
 
 use failure::{Error, Fallible};
 
@@ -19,12 +19,8 @@ impl Connection {
         if let Err(e) = match &full_msg.payload {
             NetworkMessagePayload::NetworkRequest(
                 NetworkRequest::Handshake(remote_node_id, remote_port, ref networks, _),
-                ..
+                ..,
             ) => self.handle_handshake_req(*remote_node_id, *remote_port, networks),
-            NetworkMessagePayload::NetworkResponse(
-                NetworkResponse::Handshake(remote_node_id, remote_port, ref nets, _),
-                ..
-            ) => self.handle_handshake_resp(*remote_node_id, *remote_port, nets),
             NetworkMessagePayload::NetworkRequest(NetworkRequest::Ping, ..) => self.send_pong(),
             NetworkMessagePayload::NetworkResponse(NetworkResponse::Pong, ..) => self.handle_pong(),
             NetworkMessagePayload::NetworkRequest(NetworkRequest::GetPeers(ref networks), ..) => {
@@ -46,12 +42,12 @@ impl Connection {
                 self.handle_unban(*peer_to_unban)
             }
             NetworkMessagePayload::NetworkPacket(pac, ..) => self.handle_incoming_packet(&pac),
-            NetworkMessagePayload::NetworkRequest(
-                NetworkRequest::Retransmit(elem_type, since, nid),
-                ..
-            ) => self.handle_retransmit_req(*elem_type, *since, *nid),
         } {
-            error!("Couldn't handle the network message {:?}: {}", full_msg, e);
+            if !self.handler_ref.is_terminated.load(Ordering::Relaxed) {
+                // In other case we are closing the node so we won't output the possibly closed
+                // channels errors
+                error!("Couldn't handle the network message {:?}: {}", full_msg, e);
+            }
         }
     }
 
@@ -77,9 +73,6 @@ impl Connection {
             SocketAddr::new(self.remote_peer.addr().ip(), remote_port),
         );
 
-        self.send_handshake_response(remote_node_id)?;
-        self.send_ping()?;
-
         if remote_peer.peer_type() != PeerType::Bootstrapper {
             write_or_die!(self.handler().connection_handler.buckets)
                 .insert_into_bucket(&remote_peer, networks.clone());
@@ -89,41 +82,6 @@ impl Connection {
             debug!("Running in bootstrapper mode; attempting to send a PeerList upon handshake");
             self.send_peer_list_resp(networks)?;
         }
-
-        Ok(())
-    }
-
-    fn handle_handshake_resp(
-        &self,
-        remote_node_id: P2PNodeId,
-        remote_port: u16,
-        networks: &HashSet<NetworkId>,
-    ) -> Fallible<()> {
-        debug!("Got a Handshake response from peer {}", remote_node_id);
-
-        self.send_ping()?;
-
-        self.promote_to_post_handshake(remote_node_id, remote_port)?;
-        self.add_remote_end_networks(networks);
-
-        self.stats
-            .sent_handshake
-            .store(get_current_stamp(), Ordering::SeqCst);
-
-        let remote_peer = P2PPeer::from(
-            self.remote_peer.peer_type(),
-            remote_node_id,
-            SocketAddr::new(self.remote_peer.addr().ip(), remote_port),
-        );
-
-        if remote_peer.peer_type() != PeerType::Bootstrapper {
-            write_or_die!(self.handler().connection_handler.buckets)
-                .insert_into_bucket(&remote_peer, networks.clone());
-        }
-
-        if let Some(ref service) = self.handler().stats_export_service {
-            service.peers_inc();
-        };
 
         Ok(())
     }
@@ -208,7 +166,7 @@ impl Connection {
 
         if let Some(ref log) = self.handler().connection_handler.event_log {
             if log
-                .send(P2PEvent::JoinedNetwork(remote_peer, network))
+                .send(Relay(P2PEvent::JoinedNetwork(remote_peer, network)))
                 .is_err()
             {
                 error!("A JoinNetwork Event cannot be sent to the P2PEvent log");
@@ -234,47 +192,12 @@ impl Connection {
 
         if let Some(ref log) = self.handler().connection_handler.event_log {
             if log
-                .send(P2PEvent::LeftNetwork(remote_peer, network))
+                .send(Relay(P2PEvent::LeftNetwork(remote_peer, network)))
                 .is_err()
             {
                 error!("Left Network Event cannot be sent to the P2PEvent log");
             }
         };
-
-        Ok(())
-    }
-
-    pub fn handle_retransmit_req(
-        &self,
-        element_type: RequestedElementType,
-        since: u64,
-        nid: NetworkId,
-    ) -> Fallible<()> {
-        let peer_id = self.remote_id().unwrap(); // safe, post-handshake
-
-        debug!("Received a Retransmit request");
-
-        if let RequestedElementType::Transaction = element_type {
-            read_or_die!(self.handler().transactions_cache)
-                .get_since(since)
-                .iter()
-                .for_each(|transaction| {
-                    if let Err(e) = send_consensus_msg_to_net(
-                        self.handler(),
-                        vec![],
-                        peer_id,
-                        Some(peer_id),
-                        nid,
-                        PacketType::Transaction,
-                        Some(format!("{:?}", transaction)),
-                        &transaction,
-                    ) {
-                        error!("Couldn't retransmit a transaction! ({:?})", e);
-                    }
-                })
-        } else {
-            bail!("Received a retransmit request for an unknown element type");
-        }
 
         Ok(())
     }
@@ -344,9 +267,6 @@ impl Connection {
         }
 
         self.stats.failed_pkts.fetch_add(1, Ordering::Relaxed);
-
-        if let Some(ref service) = self.handler().stats_export_service {
-            service.invalid_pkts_received_inc();
-        }
+        self.handler().stats.invalid_pkts_received_inc();
     }
 }

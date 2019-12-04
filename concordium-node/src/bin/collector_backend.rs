@@ -5,9 +5,12 @@ extern crate grpciounix as grpcio;
 extern crate grpciowin as grpcio;
 #[macro_use]
 extern crate gotham_derive;
-use env_logger::{Builder, Env};
+use env_logger::Env;
 use failure::Fallible;
-use p2p_client::common::{collector_utils::*, get_current_stamp};
+use p2p_client::{
+    common::{collector_utils::*, get_current_stamp},
+    utils::setup_logger_env,
+};
 use std::hash::BuildHasherDefault;
 use structopt::StructOpt;
 use twox_hash::XxHash64;
@@ -120,14 +123,17 @@ pub fn main() -> Fallible<()> {
         Env::default().filter_or("LOG_LEVEL", "info")
     };
 
-    let mut log_builder = Builder::from_env(env);
-    if conf.no_log_timestamp {
-        log_builder.default_format_timestamp(false);
-    }
-    log_builder.init();
+    setup_logger_env(env, conf.no_log_timestamp);
+
     if conf.print_config {
         info!("{:?}", conf);
     }
+
+    info!(
+        "Starting up {}-node-collector-backend version {}!",
+        p2p_client::APPNAME,
+        p2p_client::VERSION
+    );
 
     let node_info_map: Arc<RwLock<HashMap<String, NodeInfo, BuildHasherDefault<XxHash64>>>> =
         Arc::new(RwLock::new(HashMap::with_capacity_and_hasher(
@@ -150,13 +156,14 @@ pub fn main() -> Fallible<()> {
     });
 
     let addr = format!("{}:{}", conf.host, conf.port).to_string();
-    println!("Listening for requests at http://{}", addr);
+    info!("Listening for requests at http://{}", addr);
 
     gotham::start(addr, router(node_info_map));
     Ok(())
 }
 
 fn index(state: State) -> (State, HTMLStringResponse) {
+    trace!("Processing an index request");
     let message = HTMLStringResponse(format!(
         "<html><body><h1>Collector backend for {} v{}</h1>Operational!</p></body></html>",
         p2p_client::APPNAME,
@@ -166,6 +173,7 @@ fn index(state: State) -> (State, HTMLStringResponse) {
 }
 
 fn nodes_summary(state: State) -> (State, JSONStringResponse) {
+    trace!("Processing an nodes summary request");
     let state_data = CollectorStateData::borrow_from(&state);
     let mut response = Vec::new();
     {
@@ -186,6 +194,7 @@ fn nodes_summary(state: State) -> (State, JSONStringResponse) {
 }
 
 fn nodes_block_info(state: State) -> (State, JSONStringResponse) {
+    trace!("Processing a nodes block info request");
     let state_data = CollectorStateData::borrow_from(&state);
     let mut response = Vec::new();
     {
@@ -206,6 +215,7 @@ fn nodes_block_info(state: State) -> (State, JSONStringResponse) {
 }
 
 fn nodes_beta_users_info(state: State) -> (State, JSONStringResponse) {
+    trace!("Processing a nodes beta users info request");
     let state_data = CollectorStateData::borrow_from(&state);
     let mut response = Vec::new();
     {
@@ -226,6 +236,7 @@ fn nodes_beta_users_info(state: State) -> (State, JSONStringResponse) {
 }
 
 fn nodes_post_handler(mut state: State) -> Box<HandlerFuture> {
+    trace!("Processing a post from a node-collector");
     let f = Body::take_from(&mut state)
         .concat2()
         .then(|full_body| match full_body {

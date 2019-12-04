@@ -6,25 +6,7 @@ use crate::{
 
 use std::collections::HashSet;
 
-#[derive(Debug, Clone, PartialEq, Eq, Copy)]
-#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
-pub enum RequestedElementType {
-    Transaction,
-    Unknown,
-}
-
-impl From<u8> for RequestedElementType {
-    fn from(elem: u8) -> Self {
-        match elem {
-            0 => RequestedElementType::Transaction,
-            _ => RequestedElementType::Unknown,
-        }
-    }
-}
-
-pub type RequestedSince = u64;
-
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum NetworkRequest {
     Ping,
@@ -34,7 +16,6 @@ pub enum NetworkRequest {
     UnbanNode(BannedNode),
     JoinNetwork(NetworkId),
     LeaveNetwork(NetworkId),
-    Retransmit(RequestedElementType, RequestedSince, NetworkId),
 }
 
 impl AsProtocolRequestType for NetworkRequest {
@@ -47,7 +28,6 @@ impl AsProtocolRequestType for NetworkRequest {
             NetworkRequest::UnbanNode(..) => ProtocolRequestType::UnbanNode,
             NetworkRequest::JoinNetwork(..) => ProtocolRequestType::JoinNetwork,
             NetworkRequest::LeaveNetwork(..) => ProtocolRequestType::LeaveNetwork,
-            NetworkRequest::Retransmit(..) => ProtocolRequestType::Retransmit,
         }
     }
 }

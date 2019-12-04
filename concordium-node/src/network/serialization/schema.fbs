@@ -33,7 +33,7 @@ table IpAddr {
 // network request
 
 enum RequestVariant: uint8 {
-    Ping, GetPeers, Handshake, BanNode, UnbanNode, JoinNetwork, LeaveNetwork, Retransmit
+    Ping, GetPeers, Handshake, BanNode, UnbanNode, JoinNetwork, LeaveNetwork
 }
 
 table NodeId { id: uint64; }
@@ -46,13 +46,7 @@ table NetworkId { id: uint16; }
 
 table NetworkIds { ids: [uint16]; }
 
-table Retransmit {
-    object: uint8;
-    since: uint64;
-    networkId: uint16;
-}
-
-union RequestPayload { NetworkIds, Handshake, BanUnban, NetworkId, Retransmit }
+union RequestPayload { NetworkIds, Handshake, BanUnban, NetworkId }
 
 table NetworkRequest {
     variant: RequestVariant;
@@ -61,7 +55,7 @@ table NetworkRequest {
 
 // network response
 
-enum ResponseVariant: uint8 { Pong, PeerList, Handshake }
+enum ResponseVariant: uint8 { Pong, PeerList }
 
 enum PeerVariant: uint8 { Node, Bootstrapper }
 

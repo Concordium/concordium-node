@@ -128,6 +128,11 @@ then
     ARGS="$ARGS --max-allowed-nodes-percentage $MAX_NODES_PERCENTAGE"
 fi
 
+if [ -n "$THREAD_POOL_SIZE" ];
+then
+    ARGS="$ARGS --thread-pool-size $THREAD_POOL_SIZE"
+fi
+
 if [ -n "$EXTRA_ARGS" ];
 then
     ARGS="$ARGS $EXTRA_ARGS"
@@ -223,19 +228,19 @@ then
     ARGS="$ARGS --grpc-host $COLLECTOR_GRPC_HOST"
 fi
 
-if [ -n "$COLLECTOR_GRPC_PORT" ];
+if [ -n "$COLLECTOR_ARTIFICIAL_START_DELAY" ];
 then
-    ARGS="$ARGS --grpc-port $COLLECTOR_GRPC_PORT"
+    ARGS="$ARGS --artificial-start-delay $COLLECTOR_ARTIFICIAL_START_DELAY"
+fi
+
+if [ -n "$COLLECTOR_MAX_GRPC_FAILURES_ALLOWED" ];
+then
+    ARGS="$ARGS --max-grpc-failures-allowed $COLLECTOR_MAX_GRPC_FAILURES_ALLOWED"
 fi
 
 if [ -n "$RPC_PASSWORD" ];
 then
     ARGS="$ARGS --rpc-server-token $RPC_PASSWORD"
-fi
-
-if [ -n "$BETA_USERNAME" ];
-then
-    ARGS="$ARGS --beta-username $BETA_USERNAME"
 fi
 
 if [ -n "$BETA_TOKEN" ];
@@ -289,6 +294,11 @@ then
     ARGS="$ARGS --bootstrapper-timeout-bucket-entry-period $BOOTSTRAPPER_TIMEOUT_BUCKET_ENTRY_PERIOD"
 fi
 
+if [ -n "$NO_REBROADCAST_CONSENSUS_VALIDATION" ];
+then
+    ARGS="$ARGS --no-rebroadcast-consensus-validation"
+fi
+
 if [ "$MODE" == "tps_receiver" ]; then
     echo "Receiver!"
     /p2p_client-cli \
@@ -324,6 +334,21 @@ elif [ "$MODE" == "collector" ]; then
     /node-collector $ARGS
 elif [ "$MODE" == "collector_backend" ]; then
     /node-collector-backend $ARGS
+elif [ "$MODE" == "local_collector_backend" ]; then
+    /node-collector-backend $ARGS
+elif [ "$MODE" == "local_collector" ]; then
+    if [ -n "$COLLECTOR_SLEEP" ];
+    then
+        echo "Sleeping for $COLLECTOR_SLEEP"
+        sleep $COLLECTOR_SLEEP
+    fi
+    COLLECTOR_NODE_URLS="--grpc-host p2p-client_baker_1:10000 --node-name baker_1"
+    for i in `seq 2 $NUM_BAKERS`
+    do
+        COLLECTOR_NODE_URLS="$COLLECTOR_NODE_URLS --grpc-host p2p-client_baker_$i:10000 --node-name baker_$i"
+    done
+    ARGS="$ARGS $COLLECTOR_NODE_URLS"
+    /node-collector $ARGS
 elif [ "$MODE" == "local_basic" ]; then
     export BAKER_ID=`curl http://baker_id_gen:8000/next_id`
     echo "Using BAKER_ID $BAKER_ID"
