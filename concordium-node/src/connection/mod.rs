@@ -161,24 +161,24 @@ impl Connection {
         conn
     }
 
-    pub fn get_last_latency(&self) -> u64 { self.stats.last_latency.load(Ordering::SeqCst) }
+    pub fn get_last_latency(&self) -> u64 { self.stats.last_latency.load(Ordering::Relaxed) }
 
     pub fn set_last_latency(&self, value: u64) {
-        self.stats.last_latency.store(value, Ordering::SeqCst);
+        self.stats.last_latency.store(value, Ordering::Relaxed);
     }
 
     pub fn set_sent_handshake(&self) {
         self.stats
             .sent_handshake
-            .store(get_current_stamp(), Ordering::SeqCst)
+            .store(get_current_stamp(), Ordering::Relaxed)
     }
 
-    pub fn get_last_ping_sent(&self) -> u64 { self.stats.last_ping_sent.load(Ordering::SeqCst) }
+    pub fn get_last_ping_sent(&self) -> u64 { self.stats.last_ping_sent.load(Ordering::Relaxed) }
 
-    pub fn set_last_ping_sent(&self) {
+    fn set_last_ping_sent(&self) {
         self.stats
             .last_ping_sent
-            .store(get_current_stamp(), Ordering::SeqCst);
+            .store(get_current_stamp(), Ordering::Relaxed);
     }
 
     pub fn remote_peer(&self) -> RemotePeer { self.remote_peer.clone() }
@@ -203,21 +203,21 @@ impl Connection {
     pub fn remote_addr(&self) -> SocketAddr { self.remote_peer.addr() }
 
     pub fn remote_peer_external_port(&self) -> u16 {
-        self.remote_peer.peer_external_port.load(Ordering::SeqCst)
+        self.remote_peer.peer_external_port.load(Ordering::Relaxed)
     }
 
     #[inline]
-    pub fn is_post_handshake(&self) -> bool { self.is_post_handshake.load(Ordering::SeqCst) }
+    pub fn is_post_handshake(&self) -> bool { self.is_post_handshake.load(Ordering::Relaxed) }
 
-    pub fn last_seen(&self) -> u64 { self.stats.last_seen.load(Ordering::SeqCst) }
+    pub fn last_seen(&self) -> u64 { self.stats.last_seen.load(Ordering::Relaxed) }
 
     pub fn get_messages_received(&self) -> u64 {
-        self.stats.messages_received.load(Ordering::SeqCst)
+        self.stats.messages_received.load(Ordering::Relaxed)
     }
 
-    pub fn get_messages_sent(&self) -> u64 { self.stats.messages_sent.load(Ordering::SeqCst) }
+    pub fn get_messages_sent(&self) -> u64 { self.stats.messages_sent.load(Ordering::Relaxed) }
 
-    pub fn failed_pkts(&self) -> u32 { self.stats.failed_pkts.load(Ordering::SeqCst) }
+    pub fn failed_pkts(&self) -> u32 { self.stats.failed_pkts.load(Ordering::Relaxed) }
 
     /// It registers the connection socket, for read and write ops using *edge*
     /// notifications.
@@ -350,8 +350,8 @@ impl Connection {
         *write_or_die!(self.remote_peer.id) = Some(id);
         self.remote_peer
             .peer_external_port
-            .store(peer_port, Ordering::SeqCst);
-        self.is_post_handshake.store(true, Ordering::SeqCst);
+            .store(peer_port, Ordering::Relaxed);
+        self.is_post_handshake.store(true, Ordering::Relaxed);
         self.handler().bump_last_peer_update();
         Ok(())
     }
@@ -371,7 +371,7 @@ impl Connection {
         if self.handler().peer_type() != PeerType::Bootstrapper {
             self.stats
                 .last_seen
-                .store(get_current_stamp(), Ordering::SeqCst);
+                .store(get_current_stamp(), Ordering::Relaxed);
         }
     }
 
