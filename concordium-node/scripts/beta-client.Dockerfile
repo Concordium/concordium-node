@@ -30,7 +30,7 @@ RUN --mount=type=ssh pacman -Syy --noconfirm openssh && \
     mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts && \
     git clone --recurse-submodules git@gitlab.com:Concordium/consensus/simple-client.git && \
     cd simple-client && \
-    git checkout middleware-updates-for-types && \
+    git checkout 844c0b2186e45accf7b2ddbf0e55b14cbc99046b && \
     mkdir -p ~/.stack/global-project/ && \
     echo -e "packages: []\nresolver: $(cat stack.yaml | grep ^resolver: | awk '{ print $NF }')" > ~/.stack/global-project/stack.yaml && \
     curl -sSL https://get.haskellstack.org/ | sh && \
