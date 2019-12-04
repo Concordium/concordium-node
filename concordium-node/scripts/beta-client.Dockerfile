@@ -89,10 +89,10 @@ COPY --from=build /build-project/start.sh /start.sh
 COPY --from=build /build-project/genesis.dat /genesis.dat
 COPY --from=haskell-build /libs/* /usr/lib/
 COPY --from=haskell-build /middleware /middleware
-COPY --from=haskell-build /simple-client /simple-client
+COPY --from=haskell-build /simple-client /usr/local/bin/simple-client
 COPY --from=haskell-build /genesis-binaries /genesis-binaries
 COPY --from=node-build /node-dashboard/dist/public /var/www/html/
-COPY --from=oak-build /oak-compiler/out/oak /oak 
+COPY --from=oak-build /oak-compiler/out/oak /usr/local/bin/oak
 RUN mkdir /var/www/html/public
 RUN mv /var/www/html/*.js /var/www/html/public/
 RUN sed -i 's/try_files.*$/try_files \$uri \/index.html =404;/g' /etc/nginx/sites-available/default 
