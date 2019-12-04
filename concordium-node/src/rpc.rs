@@ -534,6 +534,11 @@ impl P2P for RpcServerImpl {
                     .collect();
                 let mut resp = PeerStatsResponse::new();
                 resp.set_peerstats(::protobuf::RepeatedField::from_vec(data));
+
+                let (avg_bps_in, avg_bps_out) = self.node.measure_throughput(&peer_stats);
+                resp.set_avg_bps_in(avg_bps_in);
+                resp.set_avg_bps_out(avg_bps_out);
+
                 sink.success(resp)
             };
             let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
