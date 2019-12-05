@@ -1175,8 +1175,9 @@ impl P2PNode {
 
         let time_diff = self.config.housekeeping_interval as f64;
 
-        let avg_bps_in = ((bytes_received - prev_bytes_received) as f64 / time_diff) as u64;
-        let avg_bps_out = ((bytes_sent - prev_bytes_sent) as f64 / time_diff) as u64;
+        let avg_bps_in =
+            ((bytes_received.saturating_sub(prev_bytes_received)) as f64 / time_diff) as u64;
+        let avg_bps_out = ((bytes_sent.saturating_sub(prev_bytes_sent)) as f64 / time_diff) as u64;
 
         self.stats.set_avg_bps_in(avg_bps_in);
         self.stats.set_avg_bps_out(avg_bps_out);
