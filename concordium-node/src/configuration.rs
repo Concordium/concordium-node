@@ -33,6 +33,7 @@ pub const MAX_UNREACHABLE_MARK_TIME: u64 = 86_400_000;
 pub const MAX_BOOTSTRAPPER_KEEP_ALIVE: u64 = 300_000;
 pub const MAX_NORMAL_KEEP_ALIVE: u64 = 1_200_000;
 pub const MAX_PREHANDSHAKE_KEEP_ALIVE: u64 = 120_000;
+pub const SOFT_BAN_DURATION: u64 = 300;
 
 #[cfg(feature = "instrumentation")]
 #[derive(StructOpt, Debug)]
