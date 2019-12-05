@@ -7,7 +7,7 @@ use noiseexplorer_xx::consts::{DHLEN, MAC_LENGTH};
 use super::{
     noise_impl::{
         finalize_handshake, start_noise_session, NoiseSession, HANDSHAKE_SIZE_LIMIT,
-        NOISE_MAX_MESSAGE_LEN, NOISE_MAX_PAYLOAD_LEN,
+        NOISE_MAX_MESSAGE_LEN, NOISE_MAX_PAYLOAD_LEN, PSK,
     },
     Connection, DeduplicationQueues,
 };
@@ -172,8 +172,7 @@ impl ConnectionLowLevel {
 
     pub fn send_handshake_message_a(&mut self) -> Fallible<()> {
         let pad = if cfg!(feature = "snow_noise") { 0 } else { 16 };
-        let payload = Vec::new();
-        send_xx_msg!(self, DHLEN, &payload, pad, "A");
+        send_xx_msg!(self, DHLEN, PSK, pad, "A");
         self.conn().set_sent_handshake();
 
         Ok(())
@@ -298,6 +297,10 @@ impl ConnectionLowLevel {
                 PayloadSize::from_be_bytes((&self.incoming_msg.size_bytes[..]).try_into().unwrap());
             self.incoming_msg.size_bytes.clear();
 
+            if expected_size == 0 {
+                bail!("I got a zero-sized message");
+            }
+
             if !self.is_post_handshake() && expected_size >= HANDSHAKE_SIZE_LIMIT as u32 {
                 bail!(
                     "expected message size ({}) exceeds the handshake size limit ({})",
@@ -355,6 +358,14 @@ impl ConnectionLowLevel {
                     2 if !self.noise_session.is_initiator() => self.process_msg_c(to_read),
                     _ => bail!("invalid XX handshake"),
                 }?;
+
+                if !self.noise_session.is_initiator()
+                    && self.noise_session.get_message_count() == 1
+                    && payload != PSK.try_into()?
+                {
+                    bail!("Invalid PSK");
+                }
+
                 self.socket_buffer.reset();
                 Ok(ReadResult::Complete(payload))
             } else {
