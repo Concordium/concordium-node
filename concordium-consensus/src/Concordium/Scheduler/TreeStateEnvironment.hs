@@ -87,13 +87,14 @@ mintAndReward bshandle blockParent _lfPointer slotNumber bid = do
 executeFrom ::
   TreeStateMonad m
   => Slot -- ^Slot number of the block being executed.
+  -> Timestamp -- ^Unix timestamp of the beginning of the slot.
   -> BlockPointer m  -- ^Parent pointer from which to start executing
   -> BlockPointer m  -- ^Last finalized block pointer.
   -> BakerId -- ^Identity of the baker who should be rewarded.
   -> BirkParameters
   -> [Transaction] -- ^Transactions on this block.
   -> m (Either FailureKind (BlockState m, Energy))
-executeFrom slotNumber blockParent lfPointer blockBaker bps txs =
+executeFrom slotNumber slotTime blockParent lfPointer blockBaker bps txs =
   let cm = let blockHeight = bpHeight blockParent + 1
                finalizedHeight = bpHeight lfPointer
            in ChainMetadata{..}
@@ -127,12 +128,13 @@ executeFrom slotNumber blockParent lfPointer blockBaker bps txs =
 constructBlock ::
   TreeStateMonad m
   => Slot -- ^Slot number of the block to bake
+  -> Timestamp -- ^Unix timestamp of the beginning of the slot.
   -> BlockPointer m -- ^Parent pointer from which to start executing
   -> BlockPointer m -- ^Last finalized block pointer.
   -> BakerId -- ^The baker of the block.
   -> BirkParameters
   -> m ([Transaction], BlockState m, Energy)
-constructBlock slotNumber blockParent lfPointer blockBaker bps =
+constructBlock slotNumber slotTime blockParent lfPointer blockBaker bps =
   let cm = let blockHeight = bpHeight blockParent + 1
                finalizedHeight = bpHeight lfPointer
            in ChainMetadata{..}
