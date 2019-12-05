@@ -297,6 +297,10 @@ impl ConnectionLowLevel {
                 PayloadSize::from_be_bytes((&self.incoming_msg.size_bytes[..]).try_into().unwrap());
             self.incoming_msg.size_bytes.clear();
 
+            if expected_size == 0 {
+                bail!("I got a zero-sized message");
+            }
+
             if !self.is_post_handshake() && expected_size >= HANDSHAKE_SIZE_LIMIT as u32 {
                 bail!(
                     "expected message size ({}) exceeds the handshake size limit ({})",
