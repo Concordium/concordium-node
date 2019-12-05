@@ -6,8 +6,8 @@ use noiseexplorer_xx::consts::{DHLEN, MAC_LENGTH};
 
 use super::{
     noise_impl::{
-        finalize_handshake, start_noise_session, NoiseSession, NOISE_MAX_MESSAGE_LEN,
-        NOISE_MAX_PAYLOAD_LEN,
+        finalize_handshake, start_noise_session, NoiseSession, HANDSHAKE_SIZE_LIMIT,
+        NOISE_MAX_MESSAGE_LEN, NOISE_MAX_PAYLOAD_LEN,
     },
     Connection, DeduplicationQueues,
 };
@@ -297,6 +297,14 @@ impl ConnectionLowLevel {
             let expected_size =
                 PayloadSize::from_be_bytes((&self.incoming_msg.size_bytes[..]).try_into().unwrap());
             self.incoming_msg.size_bytes.clear();
+
+            if !self.is_post_handshake() && expected_size >= HANDSHAKE_SIZE_LIMIT as u32 {
+                bail!(
+                    "expected message size ({}) exceeds the handshake size limit ({})",
+                    ByteSize(expected_size as u64).to_string_as(true),
+                    ByteSize(HANDSHAKE_SIZE_LIMIT as u64).to_string_as(true),
+                );
+            }
 
             // check if the expected size doesn't exceed the protocol limit
             if expected_size > PROTOCOL_MAX_MESSAGE_SIZE {
