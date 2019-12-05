@@ -55,7 +55,7 @@ use std::{
         Arc, RwLock,
     },
     thread::JoinHandle,
-    time::{Duration, SystemTime},
+    time::{Duration, Instant},
 };
 
 const SERVER: Token = Token(0);
@@ -132,6 +132,7 @@ pub struct ConnectionHandler {
     pub log_dumper:        Option<Sender<DumpItem>>,
     pub connections:       RwLock<Connections>,
     pub unreachable_nodes: UnreachableNodes,
+    soft_bans:             RwLock<Vec<(IpAddr, Instant)>>,
     pub networks:          RwLock<Networks>,
     pub last_bootstrap:    AtomicU64,
     pub last_peer_update:  AtomicU64,
@@ -159,6 +160,7 @@ impl ConnectionHandler {
             log_dumper: None,
             connections: Default::default(),
             unreachable_nodes: UnreachableNodes::new(),
+            soft_bans: Default::default(),
             networks: RwLock::new(networks),
             last_bootstrap: Default::default(),
             last_peer_update: Default::default(),
@@ -547,8 +549,8 @@ impl P2PNode {
         let self_clone = self.self_ref.clone().unwrap(); // safe, always available
         let poll_thread = spawn_or_die!("Poll thread", {
             let mut events = Events::with_capacity(10);
-            let mut log_time = SystemTime::now();
-            let mut last_buckets_cleaned = SystemTime::now();
+            let mut log_time = Instant::now();
+            let mut last_buckets_cleaned = Instant::now();
 
             let deduplication_queues = DeduplicationQueues::new(
                 self_clone.config.dedup_size_long,
@@ -593,40 +595,37 @@ impl P2PNode {
                 });
 
                 // Run periodic tasks
-                let now = SystemTime::now();
-                if let Ok(difference) = now.duration_since(log_time) {
-                    if difference >= Duration::from_secs(self_clone.config.housekeeping_interval) {
-                        // Check the termination switch
-                        if self_clone.is_terminated.load(Ordering::Relaxed) {
-                            break;
-                        }
-
-                        if let Err(e) = self_clone.connection_housekeeping() {
-                            error!("Issue with connection cleanups: {:?}", e);
-                        }
-                        if self_clone.peer_type() != PeerType::Bootstrapper {
-                            self_clone.measure_connection_latencies();
-                        }
-
-                        let peer_stat_list = self_clone.get_peer_stats(None);
-                        self_clone.check_peers(&peer_stat_list);
-                        self_clone.print_stats(&peer_stat_list);
-                        self_clone.measure_throughput(&peer_stat_list);
-
-                        log_time = now;
+                let now = Instant::now();
+                if now.duration_since(log_time)
+                    >= Duration::from_secs(self_clone.config.housekeeping_interval)
+                {
+                    // Check the termination switch
+                    if self_clone.is_terminated.load(Ordering::Relaxed) {
+                        break;
                     }
+
+                    if let Err(e) = self_clone.connection_housekeeping() {
+                        error!("Issue with connection cleanups: {:?}", e);
+                    }
+                    if self_clone.peer_type() != PeerType::Bootstrapper {
+                        self_clone.measure_connection_latencies();
+                    }
+
+                    let peer_stat_list = self_clone.get_peer_stats(None);
+                    self_clone.check_peers(&peer_stat_list);
+                    self_clone.print_stats(&peer_stat_list);
+                    self_clone.measure_throughput(&peer_stat_list);
+
+                    log_time = now;
                 }
 
-                if self_clone.is_bucket_cleanup_enabled() {
-                    if let Ok(difference) = now.duration_since(last_buckets_cleaned) {
-                        if difference
-                            >= Duration::from_millis(self_clone.config.bucket_cleanup_interval)
-                        {
-                            write_or_die!(self_clone.connection_handler.buckets)
-                                .clean_buckets(self_clone.config.timeout_bucket_entry_period);
-                            last_buckets_cleaned = now;
-                        }
-                    }
+                if self_clone.is_bucket_cleanup_enabled()
+                    && now.duration_since(last_buckets_cleaned)
+                        >= Duration::from_millis(self_clone.config.bucket_cleanup_interval)
+                {
+                    write_or_die!(self_clone.connection_handler.buckets)
+                        .clean_buckets(self_clone.config.timeout_bucket_entry_period);
+                    last_buckets_cleaned = now;
                 }
             }
         });
@@ -721,6 +720,17 @@ impl P2PNode {
             }
         }
 
+        // periodically lift soft bans
+        {
+            let mut soft_bans = write_or_die!(self.connection_handler.soft_bans);
+            if !soft_bans.is_empty() {
+                let now = Instant::now();
+                soft_bans.retain(|(_, stamp)| {
+                    now.duration_since(*stamp).as_secs() < config::SOFT_BAN_DURATION
+                });
+            }
+        }
+
         // reconnect to bootstrappers after a specified amount of time
         if peer_type == PeerType::Node
             && curr_stamp >= self.get_last_bootstrap() + self.config.bootstrapping_interval * 1000
@@ -767,6 +777,16 @@ impl P2PNode {
                 .any(|conn| conn.remote_addr() == addr)
             {
                 bail!("Duplicate connection attempt from {:?}; rejecting", addr);
+            }
+
+            if read_or_die!(self.connection_handler.soft_bans)
+                .iter()
+                .any(|(ip, _)| *ip == addr.ip())
+            {
+                bail!(
+                    "Connection attempt from a soft-banned IP ({:?}); rejecting",
+                    addr.ip()
+                );
             }
         }
 
@@ -843,6 +863,13 @@ impl P2PNode {
 
         if peer_type == PeerType::Node && self.is_unreachable(addr) {
             bail!("Node marked as unreachable; not allowing the connection");
+        }
+
+        if read_or_die!(self.connection_handler.soft_bans)
+            .iter()
+            .any(|(ip, _)| *ip == addr.ip())
+        {
+            bail!("Refusing to connect to a soft-banned IP ({:?})", addr.ip());
         }
 
         match TcpStream::connect(&addr) {
@@ -1148,8 +1175,9 @@ impl P2PNode {
 
         let time_diff = self.config.housekeeping_interval as f64;
 
-        let avg_bps_in = ((bytes_received - prev_bytes_received) as f64 / time_diff) as u64;
-        let avg_bps_out = ((bytes_sent - prev_bytes_sent) as f64 / time_diff) as u64;
+        let avg_bps_in =
+            ((bytes_received.saturating_sub(prev_bytes_received)) as f64 / time_diff) as u64;
+        let avg_bps_out = ((bytes_sent.saturating_sub(prev_bytes_sent)) as f64 / time_diff) as u64;
 
         self.stats.set_avg_bps_in(avg_bps_in);
         self.stats.set_avg_bps_out(avg_bps_out);
@@ -1221,7 +1249,7 @@ impl P2PNode {
                     .and_then(|_| low_level.flush_socket())
                 {
                     error!("{}", e);
-                    return Some(*token);
+                    return Some((*token, conn.remote_addr().ip()));
                 }
 
                 if events
@@ -1232,15 +1260,19 @@ impl P2PNode {
                         .map_err(|e| error!("{}", e))
                         .is_err()
                 {
-                    Some(*token)
+                    Some((*token, conn.remote_addr().ip()))
                 } else {
                     None
                 }
             })
             .collect::<Vec<_>>();
 
-        for token in to_remove.into_iter() {
-            self.remove_connection(token);
+        if !to_remove.is_empty() {
+            let mut soft_bans = write_or_die!(self.connection_handler.soft_bans);
+            for (token, ip) in to_remove.into_iter() {
+                self.remove_connection(token);
+                soft_bans.push((ip, Instant::now()));
+            }
         }
     }
 
