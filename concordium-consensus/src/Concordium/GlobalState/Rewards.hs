@@ -1,5 +1,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE DerivingVia #-}
 module Concordium.GlobalState.Rewards where
 
 import Concordium.Types
@@ -101,3 +103,36 @@ makeGenesisBankStatus _totalGTU _mintedGTUPerSlot = BankStatus{..}
         _identityIssuersRewards = HM.empty
         _finalizationReward = 0
         _executionCost = 0
+
+-- newtype AmountPercentage = AmountPercentage Amount
+--     deriving(Eq, Ord, Enum, Bounded, Num, Integral, Real, Hashable)
+--     deriving Serialize via Amount
+
+-- -- |Parameters controlling the rewards for bakers, finalizers, other parties.
+-- data RewardParameters = RewardParameters
+--     {
+--       -- |How many tokens are created per second.
+--       -- Called @GTUSEC@ in the whitepaper.
+--       _mintedGTUPerSecond :: !Amount,
+--       -- |The percentage of newly generated tokens that go into the treasury
+--       -- account.
+--       -- Called @MINTTAX@ in the whitepaper.
+--       _mintTax :: !AmountPercentage,
+--       -- |Conversion rate from GTU to Energy that is used to pay for execution.
+--       -- Called @GTU2NRG@ in the whitepaper.
+--       _gtuToEnergyRate :: !Word64,
+--       -- |The fraction of transaction fees that go to the treasury account.
+--       -- Called @TRANSTAX@ in the whitepaper.
+--       _transactionTax :: !AmountPercentage,
+--       -- |The fraction of transaction fees that go to the finalization
+--       -- committee.
+--       -- Called @FINFEE@ in the whitepaper.
+--       _finalizationFee :: !AmountPercentage,
+--       -- |Finalization reward (independent of whether any transactions were in blocks or not).
+--       -- Called @FINREWARD@ in the whitepaper.
+--       _finalizationReward :: !Amount,
+--       -- |Block reward (in addition to transaction fees).
+--       -- Called @BLOCKREWARD@.
+--       _blockReward :: !Amount,
+      
+--     }

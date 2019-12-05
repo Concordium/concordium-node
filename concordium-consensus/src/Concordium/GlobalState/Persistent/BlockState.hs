@@ -4,7 +4,6 @@
 
 module Concordium.GlobalState.Persistent.BlockState where
 
-import Data.Void
 import Data.Serialize
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
@@ -96,7 +95,7 @@ instance (MonadBlobStore m BlobRef) => BlobStorable m BlobRef BlockStatePointers
 
 data PersistentModule = PersistentModule {
     pmInterface :: !(Interface Core.UA),
-    pmValueInterface :: !(UnlinkedValueInterface Void),
+    pmValueInterface :: !(UnlinkedValueInterface Core.NoAnnot),
     pmIndex :: !ModuleIndex,
     pmSource :: !(Core.Module Core.UA)
 }
@@ -154,8 +153,8 @@ makePersistentModules (TransientMods.Modules m nmi rh) = Modules m' nmi rh
             })
 
 data ModuleCache = ModuleCache {
-    _cachedLinkedDefs :: HM.HashMap (Core.ModuleRef, Core.Name) (LinkedExprWithDeps Void),
-    _cachedLinkedContracts :: HM.HashMap (Core.ModuleRef, Core.TyName) (LinkedContractValue Void)
+    _cachedLinkedDefs :: HM.HashMap (Core.ModuleRef, Core.Name) (LinkedExprWithDeps Core.NoAnnot),
+    _cachedLinkedContracts :: HM.HashMap (Core.ModuleRef, Core.TyName) (LinkedContractValue Core.NoAnnot)
 }
 makeLenses ''ModuleCache
 
@@ -189,7 +188,7 @@ initialPersistentState bps cps accts ips amt = makePersistent $ Basic.initialSta
 newtype LinkerWrapper r m a = LinkerWrapper { runLinkerWrapper :: ReaderT PersistentBlockState m a }
     deriving (Functor, Applicative, Monad, MonadReader PersistentBlockState, MonadTrans)
 
-instance (MonadBlobStore m BlobRef, MonadIO m, MonadReader r m, HasModuleCache r) => LinkerMonad Void (LinkerWrapper r m) where
+instance (MonadBlobStore m BlobRef, MonadIO m, MonadReader r m, HasModuleCache r) => LinkerMonad Core.NoAnnot (LinkerWrapper r m) where
     getExprInModule modRef name = do
         blockState <- ask
         mmod <- lift $ doGetModule blockState modRef
@@ -221,7 +220,7 @@ emptyBlockState bspBirkParameters cryptParams = liftIO $ newIORef $! BRMemory Bl
 
 
 doLinkContract :: (MonadBlobStore m BlobRef, MonadIO m, MonadReader r m, HasModuleCache r) =>
-    PersistentBlockState -> Core.ModuleRef -> Module -> Core.TyName -> m (LinkedContractValue Void)
+    PersistentBlockState -> Core.ModuleRef -> Module -> Core.TyName -> m (LinkedContractValue Core.NoAnnot)
 doLinkContract pbs mref m cname = do
     mcontract <- doTryGetLinkedContract pbs mref cname
     case mcontract of
@@ -310,7 +309,7 @@ doGetModuleList s = do
 doPutNewModule :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState
     -> Core.ModuleRef
     -> Interface Core.UA
-    -> UnlinkedValueInterface Void
+    -> UnlinkedValueInterface Core.NoAnnot
     -> Core.Module Core.UA
     -> m (Bool, PersistentBlockState)
 doPutNewModule pbs mref pmInterface pmValueInterface pmSource = do
@@ -328,23 +327,23 @@ doPutNewModule pbs mref pmInterface pmValueInterface pmSource = do
         else
             return (False, pbs)
 
-doTryGetLinkedExpr :: (MonadIO m, MonadReader r m, HasModuleCache r) => PersistentBlockState -> Core.ModuleRef -> Core.Name -> m (Maybe (LinkedExprWithDeps Void))
+doTryGetLinkedExpr :: (MonadIO m, MonadReader r m, HasModuleCache r) => PersistentBlockState -> Core.ModuleRef -> Core.Name -> m (Maybe (LinkedExprWithDeps Core.NoAnnot))
 doTryGetLinkedExpr _ modRef n = do
         cache <- asks moduleCache >>= liftIO . readIORef
         return $! HM.lookup (modRef, n) (_cachedLinkedDefs cache)
 
-doPutLinkedExpr :: (MonadIO m, MonadReader r m, HasModuleCache r) => PersistentBlockState -> Core.ModuleRef -> Core.Name -> LinkedExprWithDeps Void -> m PersistentBlockState
+doPutLinkedExpr :: (MonadIO m, MonadReader r m, HasModuleCache r) => PersistentBlockState -> Core.ModuleRef -> Core.Name -> LinkedExprWithDeps Core.NoAnnot -> m PersistentBlockState
 doPutLinkedExpr pbs modRef n !le = do
         cacheRef <- asks moduleCache
         liftIO $ modifyIORef' cacheRef (cachedLinkedDefs %~ HM.insert (modRef, n) le)
         return pbs
 
-doTryGetLinkedContract :: (MonadIO m, MonadReader r m, HasModuleCache r) => PersistentBlockState -> Core.ModuleRef -> Core.TyName -> m (Maybe (LinkedContractValue Void))
+doTryGetLinkedContract :: (MonadIO m, MonadReader r m, HasModuleCache r) => PersistentBlockState -> Core.ModuleRef -> Core.TyName -> m (Maybe (LinkedContractValue Core.NoAnnot))
 doTryGetLinkedContract _ modRef n = do
         cache <- asks moduleCache >>= liftIO . readIORef
         return $! HM.lookup (modRef, n) (_cachedLinkedContracts cache)
 
-doPutLinkedContract :: (MonadIO m, MonadReader r m, HasModuleCache r) => PersistentBlockState -> Core.ModuleRef -> Core.TyName -> LinkedContractValue Void -> m PersistentBlockState
+doPutLinkedContract :: (MonadIO m, MonadReader r m, HasModuleCache r) => PersistentBlockState -> Core.ModuleRef -> Core.TyName -> LinkedContractValue Core.NoAnnot -> m PersistentBlockState
 doPutLinkedContract pbs modRef n !lc = do
         cacheRef <- asks moduleCache
         liftIO $ modifyIORef' cacheRef (cachedLinkedContracts %~ HM.insert (modRef, n) lc)
@@ -483,7 +482,7 @@ doPutNewInstance pbs fnew = do
                 pinstanceHash = instanceHash
             })
 
-doModifyInstance :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> ContractAddress -> AmountDelta -> Value Void -> m PersistentBlockState
+doModifyInstance :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> ContractAddress -> AmountDelta -> Value Core.NoAnnot -> m PersistentBlockState
 doModifyInstance pbs caddr deltaAmnt val = do
         bsp <- loadPBS pbs
         -- Update the instance

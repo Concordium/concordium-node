@@ -23,14 +23,12 @@ import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as EL
 import Data.Foldable(toList)
 
-import Data.Void
-
 -- *Summary of global state to be sent over the network.
 
 data InstanceInfo = InstanceInfo
     {
      messageType :: !(Core.Type Core.UA Core.ModuleRef)
-    ,localState :: !(Value Void)  -- must be storable
+    ,localState :: !(Value Core.NoAnnot)  -- must be storable
     ,instanceAmount :: !Amount
     } deriving(Show)
 
@@ -67,12 +65,12 @@ jsonLiteral l = case l of
 -- |The serialization instances for values are only for storable values. If you
 -- try to serialize with a value which is not storable the methods will fail
 -- raising an exception.
-jsonStorable :: Value Void -> JSON.Value
+jsonStorable :: Value Core.NoAnnot -> JSON.Value
 jsonStorable (VLiteral l) = jsonLiteral l
 jsonStorable (VConstructor n vals) =
   JSON.object $ ["name" .= (fromIntegral n :: Word32)] ++
                   zipWith (\i v -> ("child-" <> fromString (show i)) .= jsonStorable v) [(0::Int)..] (toList vals)
 jsonStorable _ = error "FATAL: Trying to serialize a non-storable value. This should not happen."
 
-valueToJSONString :: Value Void -> String
+valueToJSONString :: Value Core.NoAnnot -> String
 valueToJSONString = TL.unpack . AET.encodeToLazyText . jsonStorable

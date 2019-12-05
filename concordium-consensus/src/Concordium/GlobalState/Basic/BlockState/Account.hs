@@ -13,6 +13,7 @@ import Concordium.GlobalState.Basic.BlockState.AccountTable (AccountIndex, Accou
 import Concordium.Types.HashableTo
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.ID.Types as ID
+import qualified Data.PQueue.Prio.Max as Queue
 
 import qualified Data.List as List
 
@@ -65,7 +66,7 @@ putAccount !acct Accounts{..} =
     Just i -> Accounts accountMap (accountTable & ix i .~ acct) accountRegIds'
 
   where addr = acct ^. accountAddress
-        accountRegIds' = List.foldl' (flip Set.insert) accountRegIds (map ID.cdvRegId (acct ^. accountCredentials))
+        accountRegIds' = List.foldl' (flip Set.insert) accountRegIds (map ID.cdvRegId . Queue.elemsU $ (acct ^. accountCredentials))
 
 -- |Determine if an account with the given address exists.
 exists :: AccountAddress -> Accounts -> Bool
