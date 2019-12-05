@@ -18,8 +18,6 @@ import Concordium.GlobalState.Basic.BlockState.Instances
 
 import qualified Data.FixedByteString as FBS
 
-import Data.Void
-
 import Test.QuickCheck
 import Test.Hspec
 
@@ -76,7 +74,7 @@ makeDummyInstance (InstanceData model amount) =
         messageType = Core.TBase Core.TInt32
         owner = AccountAddress . FBS.pack . replicate 21 $ 0
 
-data InstanceData = InstanceData (Value Void) Amount
+data InstanceData = InstanceData (Value Core.NoAnnot) Amount
     deriving (Eq, Show)
 
 instance Arbitrary InstanceData where
@@ -106,7 +104,7 @@ modelGetInstanceData (ContractAddress ci csi) m = do
         guard $ csi == csi'
         return idata
     
-modelUpdateInstanceAt :: ContractAddress -> Amount -> Value Void -> Model -> Model
+modelUpdateInstanceAt :: ContractAddress -> Amount -> Value Core.NoAnnot -> Model -> Model
 modelUpdateInstanceAt (ContractAddress ci csi) amt val m = m {modelInstances = Map.adjust upd ci (modelInstances m)}
     where
         upd o@(csi', _)

@@ -5,7 +5,6 @@ import Data.Word
 import Data.Functor.Foldable hiding (Nil)
 import Control.Monad
 import Data.Serialize
-import Data.Void
 import Data.HashMap.Strict(HashMap)
 import Data.Bits
 import Control.Exception
@@ -23,17 +22,17 @@ import qualified Concordium.GlobalState.Basic.BlockState.InstanceTable as Transi
 
 data CacheableInstanceParameters = CacheableInstanceParameters {
     -- |The contract's receive function
-    pinstanceReceiveFun :: !(LinkedExpr Void),
+    pinstanceReceiveFun :: !(LinkedExpr Core.NoAnnot),
     -- |The interface of 'instanceContractModule'
     pinstanceModuleInterface :: !(Interface Core.UA),
     -- |The value interface of 'instanceContractModule'
-    pinstanceModuleValueInterface :: !(UnlinkedValueInterface Void),
+    pinstanceModuleValueInterface :: !(UnlinkedValueInterface Core.NoAnnot),
     -- |The type of messages the contract receive function supports
     pinstanceMessageType :: !(Core.Type Core.UA Core.ModuleRef),
     -- |Implementation of the given class sender method. This can also be looked
     -- up through the contract, and we should probably do that, but having it here
     -- simplifies things.
-    pinstanceImplements :: !(HashMap (Core.ModuleRef, Core.TyName) (LinkedImplementsValue Void))
+    pinstanceImplements :: !(HashMap (Core.ModuleRef, Core.TyName) (LinkedImplementsValue Core.NoAnnot))
 }
 
 -- |The fixed parameters associated with a smart contract instance
@@ -80,7 +79,7 @@ data PersistentInstance = PersistentInstance {
     -- |The fixed parameters that might be cached
     pinstanceCachedParameters :: !(Nullable CacheableInstanceParameters),
     -- |The current local state of the instance
-    pinstanceModel :: !(Value Void),
+    pinstanceModel :: !(Value Core.NoAnnot),
     -- |The current amount of GTU owned by the instance
     pinstanceAmount :: !Amount,
     -- |Hash of the smart contract instance
@@ -122,7 +121,7 @@ makeInstanceParameterHash ca aa modRef conName = H.hashLazy $ runPutLazy $ do
         put modRef
         put conName
 
-makeInstanceHash :: PersistentInstanceParameters -> Value Void -> Amount -> H.Hash
+makeInstanceHash :: PersistentInstanceParameters -> Value Core.NoAnnot -> Amount -> H.Hash
 makeInstanceHash params v a = H.hashLazy $ runPutLazy $ do
         put (pinstanceParameterHash params)
         putStorable v

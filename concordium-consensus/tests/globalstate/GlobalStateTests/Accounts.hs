@@ -17,6 +17,7 @@ import Data.Proxy
 import Data.Serialize as S
 import Data.Either
 import Lens.Micro.Platform
+import qualified Data.PQueue.Prio.Max as Queue
 
 import qualified Data.FixedByteString as FBS
 import Concordium.Types.HashableTo
@@ -77,7 +78,7 @@ randomizeAccount _accountAddress _accountVerificationKey = do
         _accountAmount <- Amount <$> arbitrary
         let _accountEncryptedAmount = []
         let _accountEncryptionKey = Nothing
-        let _accountCredentials = []
+        let _accountCredentials = Queue.empty
         let _accountStakeDelegate = Nothing
         let _accountInstances = mempty
         return Account{..}

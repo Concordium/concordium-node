@@ -21,15 +21,13 @@ module Concordium.GlobalState.Basic.BlockState.Instances(
 ) where
 
 import Concordium.Types
+import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.Types.Acorn.Interfaces
 import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Basic.BlockState.InstanceTable
 
 import Data.Word
 import Lens.Micro.Platform
-
-import Data.Void
-
 
 -- |The empty set of smart contract instances.
 emptyInstances :: Instances
@@ -41,12 +39,12 @@ getInstance addr (Instances iss) = iss ^? ix addr
 
 -- |Update the instance at the specified address with an amount delta and value.
 -- If there is no instance with the given address, this does nothing.
-updateInstanceAt :: ContractAddress -> AmountDelta -> Value Void -> Instances -> Instances
+updateInstanceAt :: ContractAddress -> AmountDelta -> Value Core.NoAnnot -> Instances -> Instances
 updateInstanceAt ca amt val (Instances iss) = Instances (iss & ix ca %~ updateInstance amt val)
 
 -- |Update the instance at the specified address with a __new amount__ and value.
 -- If there is no instance with the given address, this does nothing.
-updateInstanceAt' :: ContractAddress -> Amount -> Value Void -> Instances -> Instances
+updateInstanceAt' :: ContractAddress -> Amount -> Value Core.NoAnnot -> Instances -> Instances
 updateInstanceAt' ca amt val (Instances iss) = Instances (iss & ix ca %~ updateInstance' amt val)
 
 -- |Create a new smart contract instance.

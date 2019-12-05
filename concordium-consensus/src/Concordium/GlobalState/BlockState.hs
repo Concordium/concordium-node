@@ -32,8 +32,8 @@ import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.IdentityProviders
 import Concordium.Types.Transactions
+import qualified Data.PQueue.Prio.Max as Queue
 
-import Data.Void
 import Data.Maybe
 
 import qualified Concordium.ID.Types as ID
@@ -43,7 +43,7 @@ type ModuleIndex = Word64
 
 data Module = Module {
     moduleInterface :: Interface Core.UA,
-    moduleValueInterface :: UnlinkedValueInterface Void,
+    moduleValueInterface :: UnlinkedValueInterface Core.NoAnnot,
     moduleIndex :: !ModuleIndex,
     moduleSource :: Core.Module Core.UA
 }
@@ -114,7 +114,7 @@ updateAccount !upd !acc =
        _accountCredentials =
           case upd ^. auCredential of
             Nothing -> acc ^. accountCredentials
-            Just c -> c : (acc ^. accountCredentials),
+            Just c -> Queue.insert (ID.pExpiry (ID.cdvPolicy c)) c (acc ^. accountCredentials),
        _accountEncryptionKey =
           case upd ^. auEncryptionKey of
             Nothing -> acc ^. accountEncryptionKey
@@ -155,29 +155,29 @@ class BlockStateQuery m => BlockStateOperations m where
   bsoPutNewModule :: UpdatableBlockState m
                   -> ModuleRef
                   -> Interface Core.UA
-                  -> UnlinkedValueInterface Void
+                  -> UnlinkedValueInterface Core.NoAnnot
                   -> Core.Module Core.UA
                   -> m (Bool, UpdatableBlockState m)
 
   -- |Consult the linked expression cache for whether this definitionn is already linked.
-  bsoTryGetLinkedExpr :: UpdatableBlockState m -> Core.ModuleRef -> Core.Name -> m (Maybe (LinkedExprWithDeps Void))
+  bsoTryGetLinkedExpr :: UpdatableBlockState m -> Core.ModuleRef -> Core.Name -> m (Maybe (LinkedExprWithDeps Core.NoAnnot))
 
   -- |Put a new linked expression to the cache.
   -- This method may assume that the module with given reference is already in the state (i.e., putNewModule was called before).
-  bsoPutLinkedExpr :: UpdatableBlockState m -> Core.ModuleRef -> Core.Name -> LinkedExprWithDeps Void -> m (UpdatableBlockState m)
+  bsoPutLinkedExpr :: UpdatableBlockState m -> Core.ModuleRef -> Core.Name -> LinkedExprWithDeps Core.NoAnnot -> m (UpdatableBlockState m)
 
   -- |Try to get linked contract code from the cache.
   bsoTryGetLinkedContract :: UpdatableBlockState m
                           -> Core.ModuleRef
                           -> Core.TyName
-                          -> m (Maybe (LinkedContractValue Void))
+                          -> m (Maybe (LinkedContractValue Core.NoAnnot))
 
   -- |Store the linked contract code in the linked code cache.
   -- This method may assume that the module with given reference is already in the state (i.e., putNewModule was called before).
   bsoPutLinkedContract :: UpdatableBlockState m
                        -> Core.ModuleRef
                        -> Core.TyName
-                       -> LinkedContractValue Void
+                       -> LinkedContractValue Core.NoAnnot
                        -> m (UpdatableBlockState m)
 
   -- |Modify an existing account with given data (which includes the address of the account).
@@ -190,7 +190,7 @@ class BlockStateQuery m => BlockStateOperations m where
   bsoModifyInstance :: UpdatableBlockState m
                     -> ContractAddress
                     -> AmountDelta
-                    -> Value Void
+                    -> Value Core.NoAnnot
                     -> m (UpdatableBlockState m)
 
   -- |Notify the block state that the given amount was spent on execution.

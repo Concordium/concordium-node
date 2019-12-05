@@ -14,7 +14,6 @@ module Concordium.GlobalState.Parameters(
 
 import Prelude hiding (fail)
 import GHC.Generics
-import Data.Word
 import Data.Serialize
 import Lens.Micro.Platform
 import Control.Monad.Fail
@@ -76,11 +75,6 @@ data FinalizationParameters = FinalizationParameters {
     finalizationMinimumSkip :: BlockHeight
 } deriving (Eq, Generic, Show)
 instance Serialize FinalizationParameters where
-
--- | Time in seconds since the epoch
-type Timestamp = Word64
--- | Time duration in seconds
-type Duration = Word64
 
 data GenesisData = GenesisData {
     genesisTime :: Timestamp,

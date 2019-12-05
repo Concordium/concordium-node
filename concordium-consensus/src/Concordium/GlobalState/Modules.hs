@@ -17,17 +17,15 @@ import Data.Serialize
 
 import Lens.Micro.Platform
 
-import Data.Void
-
 -- |Module for storage in block state.
 -- TODO: in future, we should probably also store the module source, which can
 -- be used to recover the interfaces, and should be what is sent over the
 -- network.
 data MemModule = MemModule {
     mmoduleInterface :: !(Interface Core.UA),
-    mmoduleValueInterface :: !(UnlinkedValueInterface Void),
-    mmoduleLinkedDefs :: Map.HashMap Core.Name (LinkedExprWithDeps Void),
-    mmoduleLinkedContracts :: Map.HashMap Core.TyName (LinkedContractValue Void),
+    mmoduleValueInterface :: !(UnlinkedValueInterface Core.NoAnnot),
+    mmoduleLinkedDefs :: Map.HashMap Core.Name (LinkedExprWithDeps Core.NoAnnot),
+    mmoduleLinkedContracts :: Map.HashMap Core.TyName (LinkedContractValue Core.NoAnnot),
     mmoduleIndex :: !ModuleIndex,
     mmoduleSource :: Core.Module Core.UA
 }
@@ -62,13 +60,13 @@ emptyModules :: Modules
 emptyModules = Modules Map.empty 0 (H.hash "")
 
 -- |Create a collection of modules from a list in reverse order of creation.
-fromModuleList :: [(Core.ModuleRef, Interface Core.UA, UnlinkedValueInterface Void, Core.Module Core.UA)] -> Modules
+fromModuleList :: [(Core.ModuleRef, Interface Core.UA, UnlinkedValueInterface Core.NoAnnot, Core.Module Core.UA)] -> Modules
 fromModuleList = foldr safePut emptyModules
     where
         safePut (mref, iface, viface, source) m = fromMaybe m $ putInterfaces mref iface viface source m
 
 -- |Get the interfaces for a given module by 'Core.ModuleRef'.
-getInterfaces :: Core.ModuleRef -> Modules -> Maybe (Interface Core.UA, UnlinkedValueInterface Void)
+getInterfaces :: Core.ModuleRef -> Modules -> Maybe (Interface Core.UA, UnlinkedValueInterface Core.NoAnnot)
 getInterfaces mref m = do
         MemModule {..} <- Map.lookup mref (_modules m)
         return (mmoduleInterface, mmoduleValueInterface)
@@ -76,7 +74,7 @@ getInterfaces mref m = do
 
 -- |Try to add interfaces to the module table. If a module with the given
 -- reference exists returns @Nothing@.
-putInterfaces :: Core.ModuleRef -> Interface Core.UA -> UnlinkedValueInterface Void -> Core.Module Core.UA -> Modules -> Maybe Modules
+putInterfaces :: Core.ModuleRef -> Interface Core.UA -> UnlinkedValueInterface Core.NoAnnot -> Core.Module Core.UA -> Modules -> Maybe Modules
 putInterfaces mref iface viface source m =
   if Map.member mref (_modules m) then Nothing
   else Just (Modules {
@@ -92,7 +90,7 @@ putInterfaces mref iface viface source m =
 unsafePutInterfaces
     :: Core.ModuleRef
     -> Interface Core.UA
-    -> UnlinkedValueInterface Void
+    -> UnlinkedValueInterface Core.NoAnnot
     -> Core.Module Core.UA
     -> Modules
     -> Modules
@@ -106,11 +104,11 @@ unsafePutInterfaces mref iface viface source m =
 -- |NB: This method assumes the module with given reference is already in the
 -- database, and also that linked code does not affect the hash of the global
 -- state.
-putLinkedExpr :: Core.ModuleRef -> Core.Name -> LinkedExprWithDeps Void -> Modules -> Modules
+putLinkedExpr :: Core.ModuleRef -> Core.Name -> LinkedExprWithDeps Core.NoAnnot -> Modules -> Modules
 putLinkedExpr mref n linked mods =
   mods & modules %~ flip Map.adjust mref (\MemModule{..} -> MemModule{mmoduleLinkedDefs=Map.insert n linked mmoduleLinkedDefs,..})
 
-getLinkedExpr :: Core.ModuleRef -> Core.Name -> Modules -> Maybe (LinkedExprWithDeps Void)
+getLinkedExpr :: Core.ModuleRef -> Core.Name -> Modules -> Maybe (LinkedExprWithDeps Core.NoAnnot)
 getLinkedExpr mref n mods = do
   MemModule{..} <- mods ^. modules . at mref
   Map.lookup n mmoduleLinkedDefs
@@ -118,11 +116,11 @@ getLinkedExpr mref n mods = do
 -- |NB: This method assumes the module with given reference is already in the
 -- database, and also that linked code does not affect the hash of the global
 -- state.
-putLinkedContract :: Core.ModuleRef -> Core.TyName -> LinkedContractValue Void -> Modules -> Modules
+putLinkedContract :: Core.ModuleRef -> Core.TyName -> LinkedContractValue Core.NoAnnot -> Modules -> Modules
 putLinkedContract mref n linked mods =
   mods & modules %~ flip Map.adjust mref (\MemModule{..} -> MemModule{mmoduleLinkedContracts=Map.insert n linked mmoduleLinkedContracts,..})
 
-getLinkedContract :: Core.ModuleRef -> Core.TyName -> Modules -> Maybe (LinkedContractValue Void)
+getLinkedContract :: Core.ModuleRef -> Core.TyName -> Modules -> Maybe (LinkedContractValue Core.NoAnnot)
 getLinkedContract mref n mods = do
   MemModule{..} <- mods ^. modules . at mref
   Map.lookup n mmoduleLinkedContracts
