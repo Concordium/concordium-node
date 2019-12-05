@@ -55,7 +55,7 @@ use std::{
         Arc, RwLock,
     },
     thread::JoinHandle,
-    time::{Duration, SystemTime},
+    time::{Duration, Instant},
 };
 
 const SERVER: Token = Token(0);
@@ -547,8 +547,8 @@ impl P2PNode {
         let self_clone = self.self_ref.clone().unwrap(); // safe, always available
         let poll_thread = spawn_or_die!("Poll thread", {
             let mut events = Events::with_capacity(10);
-            let mut log_time = SystemTime::now();
-            let mut last_buckets_cleaned = SystemTime::now();
+            let mut log_time = Instant::now();
+            let mut last_buckets_cleaned = Instant::now();
 
             let deduplication_queues = DeduplicationQueues::new(
                 self_clone.config.dedup_size_long,
@@ -593,39 +593,37 @@ impl P2PNode {
                 });
 
                 // Run periodic tasks
-                let now = SystemTime::now();
-                if let Ok(difference) = now.duration_since(log_time) {
-                    if difference >= Duration::from_secs(self_clone.config.housekeeping_interval) {
-                        // Check the termination switch
-                        if self_clone.is_terminated.load(Ordering::Relaxed) {
-                            break;
-                        }
-
-                        if let Err(e) = self_clone.connection_housekeeping() {
-                            error!("Issue with connection cleanups: {:?}", e);
-                        }
-                        if self_clone.peer_type() != PeerType::Bootstrapper {
-                            self_clone.measure_connection_latencies();
-                        }
-
-                        let peer_stat_list = self_clone.get_peer_stats(None);
-                        self_clone.check_peers(&peer_stat_list);
-                        self_clone.print_stats(&peer_stat_list);
-                        self_clone.measure_throughput(&peer_stat_list);
-
-                        log_time = now;
+                let now = Instant::now();
+                if now.duration_since(log_time)
+                    >= Duration::from_secs(self_clone.config.housekeeping_interval)
+                {
+                    // Check the termination switch
+                    if self_clone.is_terminated.load(Ordering::Relaxed) {
+                        break;
                     }
+
+                    if let Err(e) = self_clone.connection_housekeeping() {
+                        error!("Issue with connection cleanups: {:?}", e);
+                    }
+                    if self_clone.peer_type() != PeerType::Bootstrapper {
+                        self_clone.measure_connection_latencies();
+                    }
+
+                    let peer_stat_list = self_clone.get_peer_stats(None);
+                    self_clone.check_peers(&peer_stat_list);
+                    self_clone.print_stats(&peer_stat_list);
+                    self_clone.measure_throughput(&peer_stat_list);
+
+                    log_time = now;
                 }
 
                 if self_clone.is_bucket_cleanup_enabled() {
-                    if let Ok(difference) = now.duration_since(last_buckets_cleaned) {
-                        if difference
-                            >= Duration::from_millis(self_clone.config.bucket_cleanup_interval)
-                        {
-                            write_or_die!(self_clone.connection_handler.buckets)
-                                .clean_buckets(self_clone.config.timeout_bucket_entry_period);
-                            last_buckets_cleaned = now;
-                        }
+                    if now.duration_since(last_buckets_cleaned)
+                        >= Duration::from_millis(self_clone.config.bucket_cleanup_interval)
+                    {
+                        write_or_die!(self_clone.connection_handler.buckets)
+                            .clean_buckets(self_clone.config.timeout_bucket_entry_period);
+                        last_buckets_cleaned = now;
                     }
                 }
             }
