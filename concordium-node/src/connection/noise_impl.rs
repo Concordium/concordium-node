@@ -10,6 +10,8 @@ const PROTOCOL_NAME: &str = "Noise_XX_25519_ChaChaPoly_BLAKE2s";
 pub const NOISE_MAX_MESSAGE_LEN: usize = 64 * 1024 - 1; // 65535
 const NOISE_AUTH_TAG_LEN: usize = 16;
 pub const NOISE_MAX_PAYLOAD_LEN: usize = NOISE_MAX_MESSAGE_LEN - NOISE_AUTH_TAG_LEN;
+pub const HANDSHAKE_SIZE_LIMIT: usize = 1024;
+pub const PSK: &[u8] = b"b6461bd246843f70ac1328401405b2b4e725994d7d144a75bff1a04a247d64b7";
 
 #[cfg(feature = "snow_noise")]
 pub struct NoiseSession {
