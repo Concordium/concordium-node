@@ -27,10 +27,10 @@ use gotham::{
     state::{FromState, State},
 };
 use hyper::{Body, Response, StatusCode};
-use serde_json::error::Error;
+use rmp_serde;
 use std::{
     collections::HashMap,
-    str,
+    io::Cursor,
     sync::{Arc, RwLock},
     thread,
     time::Duration,
@@ -240,31 +240,28 @@ fn nodes_post_handler(mut state: State) -> Box<HandlerFuture> {
     let f = Body::take_from(&mut state)
         .concat2()
         .then(|full_body| match full_body {
-            Ok(valid_body) => match str::from_utf8(&valid_body) {
-                Ok(body_content) => {
-                    let nodes_info_json: Result<NodeInfo, Error> =
-                        serde_json::from_str(body_content);
-                    match nodes_info_json {
-                        Ok(mut nodes_info) => {
-                            if !nodes_info.nodeName.is_empty() && !nodes_info.nodeId.is_empty() {
-                                let state_data = CollectorStateData::borrow_from(&state);
-                                nodes_info.last_updated = get_current_stamp();
-                                write_or_die!(state_data.nodes)
-                                    .insert(nodes_info.nodeId.clone(), nodes_info);
-                            } else {
-                                error!("Client submitted JSON without nodeName and nodeId");
-                            }
-                            let res = create_empty_response(&state, StatusCode::OK);
-                            future::ok((state, res))
+            Ok(body_content) => {
+                let decoded: Result<NodeInfo, _> =
+                    rmp_serde::decode::from_read(Cursor::new(&body_content.into_bytes()));
+                match decoded {
+                    Ok(mut nodes_info) => {
+                        if !nodes_info.nodeName.is_empty() && !nodes_info.nodeId.is_empty() {
+                            let state_data = CollectorStateData::borrow_from(&state);
+                            nodes_info.last_updated = get_current_stamp();
+                            write_or_die!(state_data.nodes)
+                                .insert(nodes_info.nodeId.clone(), nodes_info);
+                        } else {
+                            error!("Client submitted data without nodeName and nodeId");
                         }
-                        Err(e) => {
-                            error!("Can't parse JSON as valid due to {}", e);
-                            future::err((state, e.into_handler_error()))
-                        }
+                        let res = create_empty_response(&state, StatusCode::OK);
+                        future::ok((state, res))
+                    }
+                    Err(e) => {
+                        error!("Can't parse client data: {}", e);
+                        future::err((state, e.into_handler_error()))
                     }
                 }
-                Err(e) => future::err((state, e.into_handler_error())),
-            },
+            }
             Err(e) => future::err((state, e.into_handler_error())),
         });
     Box::new(f)
