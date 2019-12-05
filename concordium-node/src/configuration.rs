@@ -296,7 +296,7 @@ pub struct ConnectionConfig {
     #[structopt(
         long = "thread-pool-size",
         help = "The size of the threadpool processing connection events in parallel",
-        default_value = "1"
+        default_value = "4"
     )]
     pub thread_pool_size: usize,
     #[structopt(
