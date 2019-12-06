@@ -72,12 +72,16 @@ class (Eq (BlockPointer m),
        Ord (BlockPointer m),
        HashableTo BlockHash (BlockPointer m),
        BlockData (BlockPointer m),
-       BlockPointerData (BlockState m) (BlockPointer m),
+       BlockPointerData (BlockPointer m),
        BlockPendingData (PendingBlock m),
        BlockStateStorage m,
        Monad m)
       => TreeStateMonad m where
 
+    -- |Get the 'BlockState' of a 'BlockPointer'.
+    blockState :: BlockPointer m -> m (BlockState m)
+
+    -- * 'PendingBlock' operations
     -- |Create and sign a 'PendingBlock`.
     makePendingBlock ::
         BakerSignPrivateKey -- ^Key for signing the new block
@@ -270,6 +274,7 @@ class (Eq (BlockPointer m),
     getRuntimeParameters :: m RuntimeParameters
 
 instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTrans t m) where
+    blockState = lift . blockState
     makePendingBlock key slot parent bid pf n lastFin trs time = lift $ makePendingBlock key slot parent bid pf n lastFin trs time
     importPendingBlock bdata rectime = lift $ importPendingBlock bdata rectime
     getBlockStatus = lift . getBlockStatus
@@ -312,6 +317,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     putConsensusStatistics = lift . putConsensusStatistics
     getRuntimeParameters = lift getRuntimeParameters
 
+    {-# INLINE blockState #-}
     {-# INLINE makePendingBlock #-}
     {-# INLINE importPendingBlock #-}
     {-# INLINE getBlockStatus #-}
