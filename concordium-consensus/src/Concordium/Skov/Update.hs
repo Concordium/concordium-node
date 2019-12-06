@@ -22,7 +22,7 @@ import Concordium.GlobalState.Bakers
 import Concordium.Scheduler.TreeStateEnvironment(executeFrom)
 
 
-import Concordium.Skov.Monad
+import Concordium.Kontrol
 import Concordium.Birk.LeaderElection
 import Concordium.Kontrol.UpdateLeaderElectionParameters
 import Concordium.Afgjort.Finalize
@@ -336,7 +336,8 @@ addBlock block = do
                                         let ts = blockTransactions block
                                         -- possibly add the block nonce in the seed state
                                             bps' = bps{_birkSeedState = updateSeedState (blockSlot block) (blockNonce block) _birkSeedState}
-                                        executeFrom (blockSlot block) parentP lfBlockP (blockBaker block) bps' ts >>= \case
+                                        slotTime <- getSlotTimestamp (blockSlot block)
+                                        executeFrom (blockSlot block) slotTime parentP lfBlockP (blockBaker block) bps' ts >>= \case
                                             Left err -> do
                                                 logEvent Skov LLWarning ("Block execution failure: " ++ show err)
                                                 invalidBlock

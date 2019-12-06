@@ -18,7 +18,7 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.TreeState
 import Concordium.Types.Transactions
 
-import Concordium.Skov.Monad
+import Concordium.Kontrol
 import Concordium.Birk.LeaderElection
 import Concordium.Kontrol.BestBlock
 import Concordium.Kontrol.UpdateLeaderElectionParameters
@@ -45,7 +45,8 @@ bakerElectionPublicKey ident = VRF.publicKey (bakerElectionKey ident)
 instance Serialize BakerIdentity where
 
 processTransactions
-    :: TreeStateMonad m
+    :: (TreeStateMonad m,
+        SkovMonad m)
     => Slot
     -> BirkParameters
     -> BlockPointer m
@@ -57,7 +58,8 @@ processTransactions slot ss bh finalizedP bid = do
   updateFocusBlockTo bh
   -- at this point we can contruct the block. The function 'constructBlock' also
   -- updates the pending table and purges any transactions deemed invalid
-  constructBlock slot bh finalizedP bid ss
+  slotTime <- getSlotTimestamp slot
+  constructBlock slot slotTime bh finalizedP bid ss
   -- NB: what remains is to update the focus block to the newly constructed one.
   -- This is done in the method below once a block pointer is constructed.
 
