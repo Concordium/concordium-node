@@ -65,7 +65,7 @@ blockBody b = do
         put (map trBareTransaction $ blockTransactions b)
 
 
-class (Eq bp, Show bp, BlockData bp) => BlockPointerData bs bp | bp -> bs where
+class (Eq bp, Show bp, BlockData bp) => BlockPointerData bp where
     -- |Hash of the block
     bpHash :: bp -> BlockHash
     -- |Pointer to the parent (circular reference for genesis block)
@@ -74,8 +74,6 @@ class (Eq bp, Show bp, BlockData bp) => BlockPointerData bs bp | bp -> bs where
     bpLastFinalized :: bp -> bp
     -- |Height of the block in the tree
     bpHeight :: bp -> BlockHeight
-    -- |The handle for accessing the state (of accounts, contracts, etc.) at the end of the block.
-    bpState :: bp -> bs
     -- |Time at which the block was first received
     bpReceiveTime :: bp -> UTCTime
     -- |Time at which the block was first considered part of the tree (validated)
