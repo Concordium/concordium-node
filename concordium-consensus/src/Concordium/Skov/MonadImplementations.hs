@@ -168,6 +168,8 @@ instance (
     branchesFromTop = doBranchesFromTop
     {-# INLINE getBlocksAtHeight #-}
     getBlocksAtHeight = doGetBlocksAtHeight
+    {-# INLINE queryBlockState #-}
+    queryBlockState = blockState
 
 instance (
         Monad m,
@@ -198,8 +200,8 @@ class FinalizationConfig c where
     initialiseFinalization :: c -> (FCContext c, FCState c)
 
 class (FinalizationConfig c, Monad m) => FinalizationConfigHandlers c m | m -> c where
-    finalizationOnBlock :: (BlockPointerData bs bp) => bp -> m ()
-    finalizationOnFinalize :: (BlockPointerData bs bp) => FinalizationRecord -> bp -> m ()
+    finalizationOnBlock :: (BlockPointerData bp) => bp -> m ()
+    finalizationOnFinalize :: (BlockPointerData bp) => FinalizationRecord -> bp -> m ()
     proxyFinalizationMessage :: (FinalizationMessage -> m ()) -> FinalizationMessage -> m ()
 
 instance (

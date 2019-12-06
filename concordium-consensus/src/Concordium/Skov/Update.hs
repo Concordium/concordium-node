@@ -32,7 +32,7 @@ import Concordium.Skov.Statistics
 
 -- |Determine if one block is an ancestor of another.
 -- A block is considered to be an ancestor of itself.
-isAncestorOf :: BlockPointerData bs bp => bp -> bp -> Bool
+isAncestorOf :: BlockPointerData bp => bp -> bp -> Bool
 isAncestorOf b1 b2 = case compare (bpHeight b1) (bpHeight b2) of
         GT -> False
         EQ -> b1 == b2
@@ -75,7 +75,7 @@ logTransfers :: (TreeStateMonad m, OnSkov m, LoggerMonad m) => BlockPointer m ->
 logTransfers bp = logTransfer >>= \case
   Nothing -> return ()
   Just logger -> do
-    let state = bpState bp
+    state <- blockState bp
     case blockFields bp of
       Nothing -> return ()  -- don't do anything for the genesis block
       Just fields -> do
@@ -178,8 +178,8 @@ processFinalizationPool = do
                     -- Archive the states of blocks up to but not including the new finalized block
                     let doArchive b = case compare (bpHeight b) lastFinHeight of
                             LT -> return ()
-                            EQ -> archiveBlockState (bpState b)
-                            GT -> doArchive (bpParent b) >> archiveBlockState (bpState b)
+                            EQ -> archiveBlockState =<< blockState b
+                            GT -> doArchive (bpParent b) >> blockState b >>= archiveBlockState
                     doArchive (bpParent newFinBlock)
                     addFinalization newFinBlock finRec
                     oldBranches <- getBranches
@@ -193,7 +193,7 @@ processFinalizationPool = do
                                                 logEvent Skov LLDebug $ "Block " ++ show bp ++ " marked finalized"
                                             else do
                                                 markDead (getHash bp)
-                                                purgeBlockState (bpState bp)
+                                                purgeBlockState =<< blockState bp
                                                 logEvent Skov LLDebug $ "Block " ++ show bp ++ " marked dead"
                             pruneTrunk (bpParent keeper) brs
                             finalizeTransactions (blockTransactions keeper)
@@ -209,7 +209,7 @@ processFinalizationPool = do
                                     return (bp:l)
                                 else do
                                     markDead (bpHash bp)
-                                    purgeBlockState (bpState bp)
+                                    purgeBlockState =<< blockState bp
                                     logEvent Skov LLDebug $ "Block " ++ show (bpHash bp) ++ " marked dead"
                                     return l)
                                 [] brs
@@ -492,7 +492,8 @@ doReceiveTransactionInternal tr slot =
           Added tx -> do
               ptrs <- getPendingTransactions
               focus <- getFocusBlock
-              macct <- getAccount (bpState focus) $! transactionSender tr
+              st <- blockState focus
+              macct <- getAccount st $! transactionSender tr
               let nextNonce = maybe minNonce _accountNonce macct
               -- If a transaction with this nonce has already been run by
               -- the focus block, then we do not need to add it to the

@@ -156,7 +156,7 @@ invariantSkovData TS.SkovData{..} = do
         onlyPending _ = False
         checkEpochs :: BS.BasicBlockPointer BState.BlockState -> Either String ()
         checkEpochs bp = do
-            let params = BState._blockBirkParameters (bpState bp)
+            let params = BState._blockBirkParameters (BS._bpState bp)
             let currentEpoch = epoch $ _birkSeedState params
             let currentSlot = case BS._bpBlock bp of
                     B.GenesisBlock _ -> 0
@@ -164,7 +164,7 @@ invariantSkovData TS.SkovData{..} = do
             -- The slot of the block should be in the epoch of its parameters:
             unless (currentEpoch == theSlot (currentSlot `div` epochLength (_birkSeedState params))) $
                 Left $ "Slot " ++ show currentSlot ++ " is not in epoch " ++ show currentEpoch
-            let parentParams = BState._blockBirkParameters (bpState (bpParent bp))
+            let parentParams = BState._blockBirkParameters (BS._bpState (bpParent bp))
             let parentEpoch = epoch $ _birkSeedState parentParams
             unless (currentEpoch == parentEpoch) $
                     -- The leadership election nonce should change every epoch

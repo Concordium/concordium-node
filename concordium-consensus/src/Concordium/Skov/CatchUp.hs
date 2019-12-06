@@ -65,7 +65,7 @@ instance Serialize CatchUpStatus where
         cusBranches <- if cusIsRequest then get else return []
         return CatchUpStatus{..}
 
-makeCatchUpStatus :: (BlockPointerData bs b) => Bool -> Bool -> b -> [b] -> [b] -> CatchUpStatus
+makeCatchUpStatus :: (BlockPointerData b) => Bool -> Bool -> b -> [b] -> [b] -> CatchUpStatus
 makeCatchUpStatus cusIsRequest cusIsResponse lfb leaves branches = CatchUpStatus{..}
     where
         cusLastFinalizedBlock = bpHash lfb
@@ -77,7 +77,7 @@ makeCatchUpStatus cusIsRequest cusIsResponse lfb leaves branches = CatchUpStatus
 -- produce a pair of lists @(leaves, branches)@, which partions
 -- those blocks that are leves (@leaves@) from those that are not
 -- (@branches@).
-leavesBranches :: (BlockPointerData bs b) => [[b]] -> ([b], [b])
+leavesBranches :: (BlockPointerData b) => [[b]] -> ([b], [b])
 leavesBranches = lb ([], [])
     where
         lb lsbs [] = lsbs
@@ -100,7 +100,7 @@ handleCatchUp peerCUS = runExceptT $ do
             response <-
                 if cusIsRequest peerCUS then do
                     myCUS <- lift $ getCatchUpStatus False
-                    return $ Just ([], myCUS)
+                    return $ Just ([], myCUS {cusIsResponse = True})
                 else
                     return Nothing
             -- We are behind, so we mark the peer as pending.

@@ -59,7 +59,7 @@ mintAndReward bshandle blockParent _lfPointer slotNumber bid = do
   -- First we mint new currency. This can be used in rewarding bakers. First get
   -- the inflation rate of the parent block (this might have changed in the
   -- current block), and compute how much to mint based on elapsed time.
-  rewardStatus <- getRewardStatus (bpState blockParent)
+  rewardStatus <- getRewardStatus =<< blockState blockParent
   let inflationRate = rewardStatus ^. mintedGTUPerSlot
   let mintedAmount = fromIntegral (slotNumber - blockSlot blockParent) * inflationRate
   (cbamount, bshandleMinted) <- bsoMint bshandle mintedAmount
@@ -98,7 +98,7 @@ executeFrom slotNumber blockParent lfPointer blockBaker bps txs =
                finalizedHeight = bpHeight lfPointer
            in ChainMetadata{..}
   in do
-    bshandle0 <- thawBlockState (bpState blockParent)
+    bshandle0 <- thawBlockState =<< blockState blockParent
     -- update the block states parameters according to the slot of this block
     -- if the block is in a new epoch, the bakers are shifted and a new leadership election nonce is computed
     -- in most cases the block nonce is added to the seed state
@@ -137,7 +137,7 @@ constructBlock slotNumber blockParent lfPointer blockBaker bps =
                finalizedHeight = bpHeight lfPointer
            in ChainMetadata{..}
   in do
-    bshandle0 <- thawBlockState (bpState blockParent)
+    bshandle0 <- thawBlockState =<< blockState blockParent
     -- update the block states parameters according to the slot of this block
     -- if the block is in a new epoch, the bakers are shifted and a new leadership election nonce is computed
     -- in most cases the block nonce is added to the seed state

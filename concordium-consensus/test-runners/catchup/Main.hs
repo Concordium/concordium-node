@@ -169,7 +169,7 @@ relay myPeer inp sr connectedRef monitor _loopback outps = loop
             bst <- resolveBlock bh
             case bst of
                 Nothing -> return []
-                Just bs -> getContractInstanceList (bpState bs)
+                Just bs -> getContractInstanceList =<< queryBlockState bs
 
 toggleConnection :: LogMethod IO -> SyncRunner ActiveConfig -> IORef Bool -> Chan (InMessage Peer) -> [Chan (InMessage Peer)] -> IO ()
 toggleConnection logM _sr connectedRef _loopback _outps = readIORef connectedRef >>= loop
