@@ -113,6 +113,7 @@ catchUpCheck (_, c1, s1) (_, c2, s2) = do
             Left err -> fail $ "Catch-up failed: " ++ err
             Right (Nothing, _) -> fail "Response expected (to catch-up request), but none given"
             Right (Just (l, rstatus), cuwp) -> do
+                unless (cusIsResponse rstatus) $ fail "Response flag not set"
                 lfh1 <- myEvalSkovT (bpHeight <$> lastFinalizedBlock) c1 s1
                 checkBinary (==) (cusLastFinalizedHeight request) lfh1 "==" "catch-up status last fin height" "actual last fin height"
                 lfh2 <- myEvalSkovT (bpHeight <$> lastFinalizedBlock) c2 s2
