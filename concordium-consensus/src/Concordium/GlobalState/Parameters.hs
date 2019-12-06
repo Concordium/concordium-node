@@ -24,8 +24,10 @@ import Concordium.ID.Parameters(GlobalContext)
 import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.SeedState
+import qualified Concordium.ID.Types as ID
 import qualified Concordium.ID.Account as ID
 
+import qualified Data.PQueue.Prio.Max as Queue
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Aeson as AE
 import Data.Aeson.Types (FromJSON(..), (.:), (.:?), (.!=), withObject)
@@ -113,6 +115,8 @@ data GenesisBaker = GenesisBaker {
     gbAccountSignatureKey :: AccountVerificationKey,
     -- |The baker's initial balance
     gbAccountBalance :: Amount,
+    -- |Credential associated with the baker account.
+    gbAccountCredential :: ID.CredentialDeploymentInformation,
     -- |Whether the baker should be included in the initial
     -- finalization committee.
     gbFinalizer :: Bool
@@ -123,10 +127,11 @@ instance FromJSON GenesisBaker where
             gbElectionVerifyKey <- v .: "electionVerifyKey"
             gbSignatureVerifyKey <- v .: "signatureVerifyKey"
             acct <- v .: "account"
-            (gbAccountSignatureKey, gbAccountBalance) <- flip (withObject "GenesisBakerAccount") acct $ \v' -> do
+            (gbAccountSignatureKey, gbAccountBalance, gbAccountCredential) <- flip (withObject "GenesisBakerAccount") acct $ \v' -> do
                 sk <- parseJSON acct
                 ab <- Amount <$> v' .: "balance"
-                return (sk, ab)
+                credential <- v' .: "credential"
+                return (sk, ab, credential)
             gbFinalizer <- v .: "finalizer"
             return GenesisBaker{..}
 
@@ -228,7 +233,10 @@ parametersToGenesisData GenesisParameters{..} = GenesisData{..}
             | GenesisAccount{..} <- gpBetaAccounts]
         -- Baker accounts will have no special privileges.
         genesisAccounts = [(newAccount gbAccountSignatureKey) {_accountAmount = gbAccountBalance,
-                                                               _accountStakeDelegate = Just bid}
+                                                               _accountStakeDelegate = Just bid,
+                                                               _accountCredentials =
+                                                               let cdv = ID.cdiValues gbAccountCredential
+                                                               in Queue.singleton (ID.pExpiry (ID.cdvPolicy cdv)) cdv }
                           | (GenesisBaker{..}, bid) <- zip gpBakers [0..]]
         genesisFinalizationParameters =
             FinalizationParameters
