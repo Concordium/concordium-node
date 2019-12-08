@@ -3,7 +3,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -Wall -Wno-deprecations #-}
 module Concordium.Scheduler.Utils.Init.Example {-# WARNING "This module should not be used in production code" #-}
-    (initialState, makeTransaction, mateuszAccount) where
+    (initialState, makeTransaction, mateuszAccount, dummyCredential, dummyExpiryTime) where
 
 import qualified Data.HashMap.Strict as Map
 import System.Random
@@ -11,6 +11,13 @@ import System.Random
 import Concordium.Crypto.SignatureScheme(KeyPair(..))
 import qualified Concordium.Crypto.SignatureScheme as Sig
 import Concordium.Crypto.Ed25519Signature(randomKeyPair)
+
+import qualified Data.PQueue.Prio.Max as Queue
+import qualified Data.Hashable as IntHash
+import qualified Data.FixedByteString as FBS
+
+import qualified Concordium.ID.Types as ID
+import qualified Concordium.ID.Account as ID
 
 import Concordium.Types
 import qualified Concordium.ID.Account as AH
@@ -41,12 +48,44 @@ import Prelude hiding(mod)
 
 -- * The rest of this module is an example global state with the simple account and simple counter modules loaded.
 
+-- This credential value is invalid and does not satisfy the invariants normally expected of credentials.
+-- Should only be used when only the existence of a credential is needed in testing, but the credential
+-- will neither be serialized, nor inspected.
+{-# WARNING dummyCredential "Invalid credential, only for testing." #-}
+dummyCredential :: ID.AccountVerificationKey -> ID.CredentialExpiryTime -> ID.CredentialDeploymentValues
+dummyCredential cdvVerifyKey pExpiry  = ID.CredentialDeploymentValues
+    {
+      cdvRegId = dummyRegId cdvVerifyKey,
+      cdvIpId = ID.IP_ID 0,
+      cdvThreshold = ID.Threshold 2,
+      cdvArData = [],
+      cdvPolicy = ID.Policy {
+        pAttributeListVariant = 0,
+        pItems = [],
+        ..
+        },
+      ..
+    }
+
+{-# WARNING dummyExpiryTime "Invalid expiry time, only for testing." #-}
+dummyExpiryTime :: ID.CredentialExpiryTime
+dummyExpiryTime = maxBound
+
+-- Derive a dummy registration id from a verification key. This hashes the
+-- account address derived from the verification key, and uses it as a seed of a
+-- random number generator.
+dummyRegId :: ID.AccountVerificationKey -> ID.CredentialRegistrationID
+dummyRegId vfKey = ID.RegIdCred . FBS.pack $ bytes
+  where bytes = take (FBS.fixedLength (undefined :: ID.RegIdSize)) . randoms . mkStdGen $ IntHash.hash (ID.accountAddress vfKey)
+
+
+
 -- |Global state with the core modules and the example counter modules loaded.
 baseStateWithCounter :: (Parser.Env, Core.ModuleName, ProcessedModules)
 baseStateWithCounter = foldl handleFile
                              baseState
                              $(embedFiles [Left  "test/contracts/SimpleAccount.acorn"
-                                           ,Left  "test/contracts/SimpleCounter.acorn"]
+                                          ,Left  "test/contracts/SimpleCounter.acorn"]
                                           )
 
 first :: (a, b, c) -> a
@@ -75,9 +114,6 @@ mateuszAccount = AH.accountAddress (Sig.correspondingVerifyKey mateuszKP)
 
 mateuszKP :: KeyPair
 mateuszKP = uncurry Sig.KeyPairEd25519 . fst $ randomKeyPair (mkStdGen 0)
-
-mateuszKP' :: KeyPair
-mateuszKP' = uncurry Sig.KeyPairEd25519 . fst $ randomKeyPair (mkStdGen 1)
 
 initSimpleCounter :: Int -> Types.BareTransaction
 initSimpleCounter n = Runner.signTx
@@ -124,8 +160,9 @@ initialState birkParams cryptoParams bakerAccounts ips n =
                                         ,Left "test/contracts/SimpleCounter.acorn"]
                             )
         initialAmount = 2 ^ (62 :: Int)
-        customAccounts = [newAccount (Sig.correspondingVerifyKey mateuszKP) & accountAmount .~ initialAmount,
-                          newAccount (Sig.correspondingVerifyKey mateuszKP') & accountAmount .~ initialAmount]
+        customAccounts = [newAccount (Sig.correspondingVerifyKey mateuszKP)
+                          & (accountAmount .~ initialAmount)
+                          . (accountCredentials .~ Queue.singleton dummyExpiryTime (dummyCredential (Sig.correspondingVerifyKey mateuszKP) dummyExpiryTime))]
         initAccount = foldl (flip Acc.putAccount)
                             Acc.emptyAccounts
                             (customAccounts ++ bakerAccounts)

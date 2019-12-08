@@ -1,7 +1,10 @@
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 module SchedulerTests.DummyData where
 
+import qualified Data.Hashable as IntHash
+import qualified Data.PQueue.Prio.Max as Queue
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.FixedByteString as FBS
 import Concordium.Crypto.SHA256(Hash(..), hash)
@@ -22,6 +25,8 @@ import qualified Concordium.Scheduler.Environment as Types
 
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Aeson as AE
+
+import Lens.Micro.Platform
 
 import System.IO.Unsafe
 import System.Random
@@ -56,8 +61,43 @@ accountAddressFrom n = accountAddress (accountVFKeyFrom n)
 accountVFKeyFrom :: Int -> VerifyKey
 accountVFKeyFrom = correspondingVerifyKey . uncurry Sig.KeyPairEd25519 . fst . Ed25519.randomKeyPair . mkStdGen 
 
-mkAccount ::AccountVerificationKey -> Amount -> Account
-mkAccount vfKey amnt = (newAccount vfKey) {_accountAmount = amnt}
+-- This credential value is invalid and does not satisfy the invariants normally expected of credentials.
+-- Should only be used when only the existence of a credential is needed in testing, but the credential
+-- will neither be serialized, nor inspected.
+dummyCredential :: AccountVerificationKey -> CredentialExpiryTime -> CredentialDeploymentValues
+dummyCredential cdvVerifyKey pExpiry  = CredentialDeploymentValues
+    {
+      cdvRegId = dummyRegId cdvVerifyKey,
+      cdvIpId = IP_ID 0,
+      cdvThreshold = Threshold 2,
+      cdvArData = [],
+      cdvPolicy = Policy {
+        pAttributeListVariant = 0,
+        pItems = [],
+        ..
+        },
+      ..
+    }
+
+-- Derive a dummy registration id from a verification key. This hashes the
+-- account address derived from the verification key, and uses it as a seed of a
+-- random number generator.
+dummyRegId :: AccountVerificationKey -> CredentialRegistrationID
+dummyRegId vfKey = RegIdCred . FBS.pack $ bytes
+  where bytes = take (FBS.fixedLength (undefined :: RegIdSize)) . randoms . mkStdGen $ IntHash.hash (accountAddress vfKey)
+
+-- This generates an account with a single credential, which has sufficiently
+-- late expiry date, but is otherwise not well-formed.
+mkAccount :: AccountVerificationKey -> Amount -> Account
+mkAccount vfKey amnt = newAccount vfKey &
+                        (accountAmount .~ amnt) .
+                        (accountCredentials .~ (Queue.singleton dummyExpiryTime (dummyCredential vfKey dummyExpiryTime)))
+
+dummyExpiryTime :: CredentialExpiryTime
+dummyExpiryTime = 1
+
+dummySlotTime :: Timestamp
+dummySlotTime = 0
 
 emptyBirkParameters :: BirkParameters
 emptyBirkParameters = BirkParameters {

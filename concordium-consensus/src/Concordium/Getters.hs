@@ -27,6 +27,7 @@ import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Finalization
 import qualified Concordium.Skov.CatchUp as CU
+import qualified Data.PQueue.Prio.Max as Queue
 
 import Concordium.Afgjort.Finalize(FinalizationStateLenses(..))
 
@@ -84,7 +85,7 @@ getAccountInfo hash sfsRef addr = runStateQuery sfsRef $
       \case Nothing -> return Null
             Just acc -> return $ object ["accountNonce" .= let Nonce n = (acc ^. T.accountNonce) in n
                                         ,"accountAmount" .= toInteger (acc ^. T.accountAmount)
-                                        ,"accountCredentials" .= (acc ^. accountCredentials)
+                                        ,"accountCredentials" .= Queue.toList (acc ^. accountCredentials)
                                         ,"accountDelegation" .= (toInteger <$> (acc ^. T.accountStakeDelegate))
                                         ]
 

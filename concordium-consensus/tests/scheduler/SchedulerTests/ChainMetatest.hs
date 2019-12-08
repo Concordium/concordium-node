@@ -46,6 +46,7 @@ chainMeta = Types.ChainMetadata{..}
   where slotNumber = 8
         blockHeight = 13
         finalizedHeight = 10
+        slotTime = dummySlotTime
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =

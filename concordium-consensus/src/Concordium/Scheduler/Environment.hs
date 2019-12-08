@@ -19,7 +19,6 @@ import qualified Data.HashSet as Set
 import Control.Monad.RWS.Strict
 import Control.Monad.Cont hiding (cont)
 
-import Data.Void
 import Data.Word
 import Lens.Micro.Platform
 
@@ -70,21 +69,21 @@ class StaticEnvironmentMonad Core.UA m => SchedulerMonad m where
   -- |Check whehter we already cache the expression in a linked format.
   -- It is valid for the implementation to always return 'Nothing', although this
   -- will affect memory use since linked expressions will not be shared.
-  smTryGetLinkedExpr :: Core.ModuleRef -> Core.Name -> m (Maybe (LinkedExprWithDeps Void))
+  smTryGetLinkedExpr :: Core.ModuleRef -> Core.Name -> m (Maybe (LinkedExprWithDeps NoAnnot))
 
   -- |Store the linked expression in the linked expresssion cache.
   -- It is valid for this to be a no-op.
-  smPutLinkedExpr :: Core.ModuleRef -> Core.Name -> LinkedExprWithDeps Void -> m ()
+  smPutLinkedExpr :: Core.ModuleRef -> Core.Name -> LinkedExprWithDeps NoAnnot -> m ()
 
   -- |Try to get a linked contract init and receive methods.
   -- It is valid for the implementation to always return 'Nothing', although this
   -- will affect memory use since each contract instance will have a different
   -- in-memory linked code.
-  smTryGetLinkedContract :: Core.ModuleRef -> Core.TyName -> m (Maybe (LinkedContractValue Void))
+  smTryGetLinkedContract :: Core.ModuleRef -> Core.TyName -> m (Maybe (LinkedContractValue NoAnnot))
 
   -- |Store a fully linked contract in the linked contracts cache.
   -- It is valid for the implementation to be a no-op.
-  smPutLinkedContract :: Core.ModuleRef -> Core.TyName -> LinkedContractValue Void -> m ()
+  smPutLinkedContract :: Core.ModuleRef -> Core.TyName -> LinkedContractValue NoAnnot -> m ()
 
   -- |Create new instance in the global state.
   -- The instance is parametrised by the address, and the return value is the
@@ -203,10 +202,10 @@ class StaticEnvironmentMonad Core.UA m => TransactionMonad m where
 
   -- |Link an expression into an expression ready to run.
   -- The expression is part of the given module
-  linkExpr :: Core.ModuleRef -> (UnlinkedExpr Void, Word64) -> m (LinkedExpr Void, Word64)
+  linkExpr :: Core.ModuleRef -> (UnlinkedExpr NoAnnot, Word64) -> m (LinkedExpr NoAnnot, Word64)
 
   -- |Link a contract's init, receive methods and implemented constraints.
-  linkContract :: Core.ModuleRef -> Core.TyName -> UnlinkedContractValue Void -> m (LinkedContractValue Void)
+  linkContract :: Core.ModuleRef -> Core.TyName -> UnlinkedContractValue NoAnnot -> m (LinkedContractValue NoAnnot)
 
   {-# INLINE getCurrentAmount #-}
   getCurrentAmount :: Either Instance Account -> m Amount
@@ -447,7 +446,7 @@ instance StaticEnvironmentMonad Core.UA m => StaticEnvironmentMonad Core.UA (Loc
   {-# INLINE getModuleInterfaces #-}
   getModuleInterfaces = liftLocal . getModuleInterfaces
 
-instance SchedulerMonad m => LinkerMonad Void (LocalT r m) where
+instance SchedulerMonad m => LinkerMonad NoAnnot (LocalT r m) where
   {-# INLINE getExprInModule #-}
   getExprInModule mref n = liftLocal $
     getModuleInterfaces mref >>= \case

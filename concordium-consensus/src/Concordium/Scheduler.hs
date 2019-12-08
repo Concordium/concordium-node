@@ -32,6 +32,7 @@ import qualified Data.HashMap.Strict as Map
 import Data.Maybe(fromJust)
 import qualified Data.Set as Set
 import qualified Data.HashSet as HashSet
+import qualified Data.PQueue.Prio.Max as Queue
 
 import qualified Concordium.Crypto.Proofs as Proofs
 
@@ -41,33 +42,53 @@ import Lens.Micro.Platform
 
 import Prelude hiding (exp, mod)
 
+-- |Check that there exists a valid credential in the context of the given chain
+-- metadata.
+existsValidCredential :: ChainMetadata -> Account -> Bool
+existsValidCredential cm acc = do
+  let credentials = acc ^. accountCredentials
+  -- check that the sender has at least one still valid credential.
+  case Queue.getMax credentials of
+    Nothing -> False
+    -- Note that the below relies on the invariant that the key is
+    -- the same as the expiry date of the credential.
+    -- If the credential is still valid at the beginning of this slot then
+    -- we consider it valid. Otherwise we fail the transaction.
+    Just (expiry, _) -> expiry >= slotTime cm
+
+
 -- |Check that the transaction has a valid sender, and that the amount they have
 -- deposited is on their account.
--- Return the sender account as well as the deposited amount converted from the dedicated gas amount.
-checkHeader :: (TransactionData msg, SchedulerMonad m) => msg -> m (Either FailureKind Account)
-checkHeader meta =
-  if transactionGasAmount meta < Cost.minimumDeposit then return (Left DepositInsufficient)
-  else do
-    macc <- getAccount (transactionSender meta)
-    case macc of
-      Nothing -> return (Left (UnknownAccount (transactionSender meta)))
-      Just acc ->
-        let amnt = acc ^. accountAmount
-            nextNonce = acc ^. accountNonce
-            txnonce = transactionNonce meta
-        -- NB: checking txnonce = nextNonce should also make sure that the nonce >= minNonce
-        in do depositedAmount <- energyToGtu (transactionGasAmount meta)
-              return (runExcept $! do
-                       -- check they have enough funds to cover the deposit
-                       unless (depositedAmount <= amnt) (throwError InsufficientFunds)
-                       unless (txnonce == nextNonce) (throwError (NonSequentialNonce nextNonce))
-                       let sigCheck = verifyTransactionSignature meta
-                       assert sigCheck (return acc)) -- only use assert because we rely on the signature being valid in the transaction table
-                       -- unless sigCheck (throwError IncorrectSignature))
-        -- TODO: If we are going to check that the signature is correct before adding the transaction to the table then this check can be removed,
-        -- but only for transactions for which this was done.
-        -- One issue is that if we don't include the public key with the transaction then we cannot do this, which is especially problematic for transactions
-        -- which come as part of blocks.
+-- The valid sender means that the sender account has at least one valid credential,
+-- where currently valid means non-expired.
+checkHeader :: (TransactionData msg, SchedulerMonad m) => msg -> ExceptT FailureKind m Account
+checkHeader meta = do
+  when (transactionGasAmount meta < Cost.minimumDeposit) $ throwError DepositInsufficient
+  macc <- lift (getAccount (transactionSender meta))
+  case macc of
+    Nothing -> throwError (UnknownAccount (transactionSender meta))
+    Just acc -> do
+      let amnt = acc ^. accountAmount
+      let nextNonce = acc ^. accountNonce
+      let txnonce = transactionNonce meta
+
+      cm <- lift getChainMetadata
+      unless (existsValidCredential cm acc) $ throwError NoValidCredential
+      
+      -- after the credential check is done we check the amount
+      depositedAmount <- lift (energyToGtu (transactionGasAmount meta))
+
+      -- check they have enough funds to cover the deposit
+      unless (depositedAmount <= amnt) (throwError InsufficientFunds)
+      unless (txnonce == nextNonce) (throwError (NonSequentialNonce nextNonce))
+      let sigCheck = verifyTransactionSignature meta
+      assert sigCheck $ return acc
+      -- only use assert because we rely on the signature being valid in the transaction table
+      -- unless sigCheck (throwError IncorrectSignature))
+      -- TODO: If we are going to check that the signature is correct before adding the transaction to the table then this check can be removed,
+      -- but only for transactions for which this was done.
+      -- One issue is that if we don't include the public key with the transaction then we cannot do this, which is especially problematic for transactions
+      -- which come as part of blocks.
 
 
 -- TODO: When we have policies checking one sensible approach to rewarding
@@ -91,7 +112,7 @@ checkHeader meta =
 dispatch :: (TransactionData msg, SchedulerMonad m) => msg -> m TxResult
 dispatch msg = do
   let meta = transactionHeader msg
-  validMeta <- checkHeader msg
+  validMeta <- runExceptT (checkHeader msg)
   case validMeta of
     Left fk -> return $ TxInvalid fk
     Right senderAccount -> do
@@ -330,8 +351,18 @@ handleTransaction origin istance receivefun txsender transferamount maybeMsg mod
 
   unless (senderamount >= transferamount) $ rejectTransaction (AmountTooLarge txsenderAddr transferamount)
 
+  let iParams = instanceParameters istance
+  let cref = instanceAddress iParams
+
+  -- Now we also check that the owner account of the receiver instance has at least one valid credential.
+  let ownerAccountAddress = instanceOwner iParams
+  -- The invariants maintained by global state should ensure that an owner account always exists.
+  -- However we are defensive here and reject the transaction, acting as if there is no credential.
+  ownerAccount <- getCurrentAccount ownerAccountAddress `rejectingWith` (ReceiverContractNoCredential cref)
   cm <- getChainMetadata
-  let cref = instanceAddress (instanceParameters istance)
+  unless (existsValidCredential cm ownerAccount) $ rejectTransaction (ReceiverContractNoCredential cref)
+  -- we have established that the credential exists.
+
   let originAddr = origin ^. accountAddress
   let receiveCtx = ReceiveContext { invoker = originAddr, selfAddress = cref }
   result <- case maybeMsg of
@@ -411,9 +442,12 @@ handleTransferAccount _origin accAddr txsender transferamount = do
 
   -- check if target account exists and get it
   targetAccount <- getCurrentAccount accAddr `rejectingWith` InvalidAccountReference accAddr
+  -- and check that the account has a valid credential
+  cm <- getChainMetadata
+  -- Cannot send funds to accounts which have no valid credentials.
+  unless (existsValidCredential cm targetAccount) $ rejectTransaction (ReceiverAccountNoCredential accAddr)
   
   -- FIXME: Should pay for execution here as well.
-
   withToAccountAmount txsender targetAccount transferamount $
       return [Transferred (mkSenderAddr txsender) transferamount (AddressAccount accAddr)]
 
@@ -495,23 +529,21 @@ handleDeployEncryptionKey senderAccount meta encKey =
             Just encKey' -> return $ TxReject (AccountEncryptionKeyAlreadyExists (senderAccount ^. accountAddress) encKey') energyCost usedEnergy
 
 
--- FIXME: The baker handling is purely proof-of-concept.
--- In particular there is no checking of proofs that the baker holds relevant
--- private keys, etc, and the precise logic for when a baker can be added and removed 
--- should be analyzed from a security perspective.
+-- FIXME: The baker handling is purely proof-of-concept. In particular the
+-- precise logic for when a baker can be added and removed should be analyzed
+-- from a security perspective.
 
-
--- |The following functions are placeholders until we have sigma protocols and
--- can check these proofs.
+-- |A simple sigma protocol to check knowledge of secret key.
 checkElectionKeyProof :: BS.ByteString -> BakerElectionVerifyKey -> Proofs.Dlog25519Proof -> Bool             
 checkElectionKeyProof = Proofs.checkDlog25519ProofVRF
 
+-- |A simple sigma protocol to check knowledge of secret key.
 checkSignatureVerifyKeyProof :: BS.ByteString -> BakerSignVerifyKey -> Proofs.Dlog25519Proof -> Bool             
 checkSignatureVerifyKeyProof = Proofs.checkDlog25519ProofBlock
 
+-- |A simple sigma protocol to check knowledge of secret key.
 checkAccountOwnership :: BS.ByteString -> ID.AccountVerificationKey -> Proofs.Dlog25519Proof -> Bool             
-checkAccountOwnership challenge vfkey proof =
-  Proofs.checkDlog25519ProofSig challenge vfkey proof
+checkAccountOwnership = Proofs.checkDlog25519ProofSig
 
 -- |Add a baker to the baker pool. The current logic for when this is allowed is as follows.
 --
@@ -553,7 +585,7 @@ handleAddBaker senderAccount meta abElectionVerifyKey abSignatureVerifyKey abAcc
           specialBetaAccounts <- getSpecialBetaAccounts
           if not (HashSet.member (senderAccount ^. accountAddress) specialBetaAccounts) then
             return $! TxReject (NotAllowedToManipulateBakers (senderAccount ^. accountAddress)) energyCost usedEnergy
-          else  do
+          else
             getAccount abAccount >>=
                 \case Nothing -> return $! TxReject (NonExistentRewardAccount abAccount) energyCost usedEnergy
                       Just Account{..} ->
