@@ -77,7 +77,7 @@ module Concordium.Scheduler.FootprintImplementation where
 --     let instances' = Map.foldlWithKey' (\acc addr (amnt, val) -> Ins.updateInstanceAt addr amnt val acc)
 --                                                        (s ^. blockInstances)
 --                                                        (cs ^. newContractStates)
---     let accounts' = Map.foldl' (flip Acc.putAccount) (s ^. blockAccounts) (cs ^. newAccounts)
+--     let accounts' = Map.foldl' (flip Acc.putAccountWithRegIds) (s ^. blockAccounts) (cs ^. newAccounts)
 --     blockInstances .= instances'
 --     blockAccounts .= accounts'
 
@@ -112,7 +112,7 @@ module Concordium.Scheduler.FootprintImplementation where
 --     tellAccount addr
 
 --     if addr `Acc.exists` accs then return False
---     else True <$ (blockAccounts .= Acc.putAccount acc accs)
+--     else True <$ (blockAccounts .= Acc.putAccountWithRegId acc accs)
 
 --   {-# INLINE payForExecution #-}
 --   -- INVARIANT: should only be called when there are enough funds available, and thus it does not check the amounts.
