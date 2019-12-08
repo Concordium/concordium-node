@@ -117,12 +117,11 @@ makeGenesisBlockPointer genData _bpState = theBlockPointer
         _bpTransactionsSize = 0
 
 
-instance BlockPointerData s (BasicBlockPointer s) where
+instance BlockPointerData (BasicBlockPointer s) where
     bpHash = _bpHash
     bpParent = _bpParent
     bpLastFinalized = _bpLastFinalized
     bpHeight = _bpHeight
-    bpState = _bpState
     bpReceiveTime = _bpReceiveTime
     bpArriveTime = _bpArriveTime
     bpTransactionCount = _bpTransactionCount
