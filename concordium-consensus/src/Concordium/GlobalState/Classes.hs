@@ -39,7 +39,7 @@ class BlockStateTypes (m :: * -> *) where
 
 -- |The basic types associated with a monad providing an
 -- implementation of the global state. 
-class (BlockStateTypes m, BlockPointerData (BlockState m) (BlockPointer m)) => GlobalStateTypes m where
+class (BlockStateTypes m, BlockPointerData (BlockPointer m)) => GlobalStateTypes m where
     type PendingBlock m :: *
     type BlockPointer m :: *
 
