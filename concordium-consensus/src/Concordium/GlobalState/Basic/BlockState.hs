@@ -281,7 +281,7 @@ initialState :: BirkParameters
              -> BlockState
 initialState _blockBirkParameters _blockCryptographicParameters genesisAccounts ips mintPerSlot = BlockState{..}
   where
-    _blockAccounts = List.foldl' (flip Account.putAccount) Account.emptyAccounts genesisAccounts
+    _blockAccounts = List.foldl' (flip Account.putAccountWithRegIds) Account.emptyAccounts genesisAccounts
     _blockInstances = Instances.emptyInstances
     _blockModules = Modules.fromModuleList (Acorn.moduleList (let (_, _, pm) = Acorn.baseState in pm))
     _blockBank = Rewards.makeGenesisBankStatus initialAmount mintPerSlot

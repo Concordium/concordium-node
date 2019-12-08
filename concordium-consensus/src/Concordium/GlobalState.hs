@@ -111,7 +111,7 @@ deriving via (BlockStateM c r g s m)
         => BlockStateStorage (GlobalStateM c r g s m)
 
 deriving via (TreeStateM (Basic.SkovData bs) (BlockStateM c r (Basic.SkovData bs) s m))
-    instance (bs ~ BlockState (BlockStateM c r (Basic.SkovData bs) s m), BlockStateTypes (GlobalStateM c r (Basic.SkovData bs) s m))
+    instance (bs ~ BlockState (BlockStateM c r (Basic.SkovData bs) s m))
         => GlobalStateTypes (GlobalStateM c r (Basic.SkovData bs) s m)
 deriving via (TreeStateM (Basic.SkovData bs) (BlockStateM c r (Basic.SkovData bs) s m))
     instance (bs ~ BlockState (BlockStateM c r (Basic.SkovData bs) s m), BlockStateStorage (BlockStateM c r (Basic.SkovData bs) s m), MonadState s m, HasGlobalState (Basic.SkovData bs) s)
@@ -120,7 +120,7 @@ deriving via (TreeStateM (Basic.SkovData bs) (BlockStateM c r (Basic.SkovData bs
 #ifdef RUST
 
 deriving via (TreeStateM (Rust.SkovData bs) (BlockStateM c r (Rust.SkovData bs) s m))
-    instance (bs ~ BlockState (BlockStateM c r (Rust.SkovData bs) s m), BlockStateTypes (GlobalStateM c r (Rust.SkovData bs) s m))
+    instance (bs ~ BlockState (BlockStateM c r (Rust.SkovData bs) s m))
         => GlobalStateTypes (GlobalStateM c r (Rust.SkovData bs) s m)
 deriving via (TreeStateM (Rust.SkovData bs) (BlockStateM c r (Rust.SkovData bs) s m))
     instance (bs ~ BlockState (BlockStateM c r (Rust.SkovData bs) s m), BlockStateStorage (BlockStateM c r (Rust.SkovData bs) s m), MonadState s m, HasGlobalState (Rust.SkovData bs) s, MonadIO m)

@@ -15,8 +15,6 @@ import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.ID.Types as ID
 import qualified Data.PQueue.Prio.Max as Queue
 
-import qualified Data.List as List
-
 -- |Representation of the set of accounts on the chain.
 -- Each account has an 'AccountIndex' which is the order
 -- in which it was created.
@@ -62,11 +60,15 @@ putAccount :: Account -> Accounts -> Accounts
 putAccount !acct Accounts{..} =
   case Map.lookup addr accountMap of
     Nothing -> let (i, newAccountTable) = AT.append acct accountTable
-               in Accounts (Map.insert addr i accountMap) newAccountTable accountRegIds'
-    Just i -> Accounts accountMap (accountTable & ix i .~ acct) accountRegIds'
+               in Accounts (Map.insert addr i accountMap) newAccountTable accountRegIds
+    Just i -> Accounts accountMap (accountTable & ix i .~ acct) accountRegIds
 
   where addr = acct ^. accountAddress
-        accountRegIds' = List.foldl' (flip Set.insert) accountRegIds (map ID.cdvRegId . Queue.elemsU $ (acct ^. accountCredentials))
+
+-- |Equivalent to calling putAccount and recordRegId in sequence.
+putAccountWithRegIds :: Account -> Accounts -> Accounts
+putAccountWithRegIds !acct accts =
+  Queue.foldlU (\accs currentAcc -> recordRegId (ID.cdvRegId currentAcc) accs) (putAccount acct accts) (acct ^. accountCredentials)
 
 -- |Determine if an account with the given address exists.
 exists :: AccountAddress -> Accounts -> Bool
