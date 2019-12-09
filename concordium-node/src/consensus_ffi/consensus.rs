@@ -8,9 +8,11 @@ use std::{
     convert::TryFrom,
     sync::{
         atomic::{AtomicBool, AtomicPtr, Ordering},
-        mpsc, Arc, Mutex,
+        Arc, Mutex,
     },
 };
+
+use crossbeam_channel;
 
 use parking_lot::Condvar;
 
@@ -59,9 +61,9 @@ pub struct ConsensusInboundQueues {
 impl Default for ConsensusInboundQueues {
     fn default() -> Self {
         let (sender_high_priority, receiver_high_priority) =
-            mpsc::sync_channel(CONSENSUS_QUEUE_DEPTH_IN_HI);
+            crossbeam_channel::bounded(CONSENSUS_QUEUE_DEPTH_IN_HI);
         let (sender_low_priority, receiver_low_priority) =
-            mpsc::sync_channel(CONSENSUS_QUEUE_DEPTH_IN_LO);
+            crossbeam_channel::bounded(CONSENSUS_QUEUE_DEPTH_IN_LO);
         Self {
             receiver_high_priority: Mutex::new(receiver_high_priority),
             sender_high_priority,
@@ -83,9 +85,9 @@ pub struct ConsensusOutboundQueues {
 impl Default for ConsensusOutboundQueues {
     fn default() -> Self {
         let (sender_high_priority, receiver_high_priority) =
-            mpsc::sync_channel(CONSENSUS_QUEUE_DEPTH_OUT_HI);
+            crossbeam_channel::bounded(CONSENSUS_QUEUE_DEPTH_OUT_HI);
         let (sender_low_priority, receiver_low_priority) =
-            mpsc::sync_channel(CONSENSUS_QUEUE_DEPTH_OUT_LO);
+            crossbeam_channel::bounded(CONSENSUS_QUEUE_DEPTH_OUT_LO);
         Self {
             receiver_high_priority: Mutex::new(receiver_high_priority),
             sender_high_priority,
@@ -105,7 +107,7 @@ pub struct ConsensusQueues {
 
 impl Default for ConsensusQueues {
     fn default() -> Self {
-        let (sender_peer_notifier, receiver_peer_notifier) = mpsc::sync_channel(100);
+        let (sender_peer_notifier, receiver_peer_notifier) = crossbeam_channel::bounded(100);
         Self {
             inbound: Default::default(),
             outbound: Default::default(),

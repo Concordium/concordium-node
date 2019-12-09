@@ -43,7 +43,7 @@ data UpdateResult
     -- ^The peer should be marked as pending unless catch up is already in progress
     deriving (Show)
 
-class (Monad m, Eq (BlockPointer m), BlockPointerData (BlockState m) (BlockPointer m), BlockStateQuery m) => SkovQueryMonad m where
+class (Monad m, Eq (BlockPointer m), BlockPointerData (BlockPointer m), BlockStateQuery m) => SkovQueryMonad m where
     -- |Look up a block in the table given its hash
     resolveBlock :: BlockHash -> m (Maybe (BlockPointer m))
     -- |Determine if a block has been finalized.
@@ -66,6 +66,8 @@ class (Monad m, Eq (BlockPointer m), BlockPointerData (BlockState m) (BlockPoint
     branchesFromTop :: m [[BlockPointer m]]
     -- |Get a list of all the blocks at a given height in the tree.
     getBlocksAtHeight :: BlockHeight -> m [BlockPointer m]
+    -- |Get a block's state.
+    queryBlockState :: BlockPointer m -> m (BlockState m)
 
 class (SkovQueryMonad m, TimeMonad m, LoggerMonad m) => SkovMonad m where
     -- |Store a block in the block table and add it to the tree
@@ -97,6 +99,7 @@ instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (MGSTra
     getCurrentHeight = lift getCurrentHeight
     branchesFromTop = lift branchesFromTop
     getBlocksAtHeight = lift . getBlocksAtHeight
+    queryBlockState = lift . queryBlockState
 
 instance (Monad (t m), MonadTrans t, SkovMonad m) => SkovMonad (MGSTrans t m) where
     storeBlock b = lift $ storeBlock b

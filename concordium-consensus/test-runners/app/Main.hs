@@ -103,7 +103,7 @@ relay inp sr monitor outps = loop
             bst <- resolveBlock bh
             case bst of
                 Nothing -> return []
-                Just bs -> getContractInstanceList (bpState bs)
+                Just bs -> getContractInstanceList =<< queryBlockState bs
 
 removeEach :: [a] -> [(a,[a])]
 removeEach = re []

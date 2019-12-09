@@ -82,6 +82,7 @@ invariantSkovData TS.SkovData{..} = do
         checkBinary (Set.isSubsetOf) queue pendingSet "is a subset of" "pending blocks" "pending queue"
         let allPossiblyPending = Set.fromList ((fst <$> MPQ.elemsU _possiblyPendingQueue) ++ (getHash <$> MPQ.elemsU _blocksAwaitingLastFinalized))
         checkBinary Set.isSubsetOf (Set.fromList $ HM.keys $ HM.filter onlyPending _blockTable) allPossiblyPending "is a subset of" "blocks marked pending" "pending queues"
+        checkBinary Set.isSubsetOf allPossiblyPending (Set.fromList $ HM.keys _blockTable) "is a subset of" "pending queues" "blocks in block table"
         -- Finalization pool
         forM_ (Map.toList _finalizationPool) $ \(fi, frs) -> do
             checkBinary (>=) fi (fromIntegral (Seq.length _finalizationList)) ">=" "pending finalization record index" "length of finalization list"
@@ -158,7 +159,7 @@ invariantSkovData TS.SkovData{..} = do
         onlyPending _ = False
         checkEpochs :: BS.BasicBlockPointer BState.BlockState -> Either String ()
         checkEpochs bp = do
-            let params = BState._blockBirkParameters (bpState bp)
+            let params = BState._blockBirkParameters (BS._bpState bp)
             let currentEpoch = epoch $ _birkSeedState params
             let currentSlot = case BS._bpBlock bp of
                     B.GenesisBlock _ -> 0
@@ -166,7 +167,7 @@ invariantSkovData TS.SkovData{..} = do
             -- The slot of the block should be in the epoch of its parameters:
             unless (currentEpoch == theSlot (currentSlot `div` epochLength (_birkSeedState params))) $
                 Left $ "Slot " ++ show currentSlot ++ " is not in epoch " ++ show currentEpoch
-            let parentParams = BState._blockBirkParameters (bpState (bpParent bp))
+            let parentParams = BState._blockBirkParameters (BS._bpState (bpParent bp))
             let parentEpoch = epoch $ _birkSeedState parentParams
             unless (currentEpoch == parentEpoch) $
                     -- The leadership election nonce should change every epoch
@@ -308,16 +309,12 @@ myRunSkovT a handlers ctx st es = liftIO $ flip runLoggerT doLog $ do
         doLog src LLError msg = error $ show src ++ ": " ++ msg
         doLog _ _ _ = return ()
 
+myEvalSkovT :: (MonadIO m) => (SkovT () (Config DummyTimer) IO a) -> SkovContext (Config DummyTimer) -> SkovState (Config DummyTimer) -> m a
+myEvalSkovT a ctx st = liftIO $ evalSkovT a () ctx st
+
 runKonsensusTest :: RandomGen g => Int -> g -> States -> ExecState -> IO Property
 runKonsensusTest steps g states es
-        | steps <= 0 =
-            (case forM_ states $ \s ->
-              let SkovState sd _ _ = (s ^. _3)
-              in checkFinalizationRecordsVerify sd of
-                Left err -> return $ counterexample ("Invariant failed: " ++ err) False
-                Right _ -> return $
-                            (label $ "fin length: " ++ (show $ maximum $ (\s -> s ^. _3 . to ssGSState . TS.finalizationList . to Seq.length) <$> states )) $
-                            property True)
+        | steps <= 0 = return $ label ("fin length: " ++ show (maximum $ (\s -> s ^. _3 . to ssGSState . TS.finalizationList . to Seq.length) <$> states )) $ property True
         | null (es ^. esEventPool) = return $ property True
         | otherwise = do
             let ((rcpt, ev), events', g') = selectFromSeq g (es ^. esEventPool)
@@ -422,7 +419,7 @@ initialEvents :: States -> EventPool
 initialEvents states = Seq.fromList [(x, EBake 1) | x <- [0..length states -1]]
 
 makeBaker :: BakerId -> Amount -> Gen (BakerInfo, BakerIdentity, Account)
-makeBaker bid lot = do
+makeBaker bid lot = resize (2^29) $ do
         ek@(VRF.KeyPair _ epk) <- arbitrary
         sk                     <- Sig.genKeyPair
         blssk                  <- fst . Bls.randomSecretKey . mkStdGen <$> arbitrary
@@ -468,13 +465,13 @@ instance Show SkovActiveState where
 
 withInitialStates :: Int -> (StdGen -> States -> ExecState -> IO Property) -> Property
 withInitialStates n r = monadicIO $ do
-        s0 <- initialiseStates $ n
+        s0 <- initialiseStates n
         gen <- pick $ mkStdGen <$> arbitrary
         liftIO $ r gen s0 (makeExecState $ initialEvents s0)
 
 withInitialStatesTransactions :: Int -> Int -> (StdGen -> States -> ExecState -> IO Property) -> Property
 withInitialStatesTransactions n trcount r = monadicIO $ do
-        s0 <- initialiseStates $ n
+        s0 <- initialiseStates n
         trs <- pick . genTransactions $ trcount
         gen <- pick $ mkStdGen <$> arbitrary
         now <- liftIO getTransactionTime
@@ -482,7 +479,7 @@ withInitialStatesTransactions n trcount r = monadicIO $ do
 
 withInitialStatesDoubleTransactions :: Int -> Int -> (StdGen -> States -> ExecState -> IO Property) -> Property
 withInitialStatesDoubleTransactions n trcount r = monadicIO $ do
-        s0 <- initialiseStates $ n
+        s0 <- initialiseStates n
         trs0 <- pick . genTransactions $ trcount
         trs <- (trs0 ++) <$> pick (genTransactions trcount)
         gen <- pick $ mkStdGen <$> arbitrary
@@ -493,12 +490,10 @@ withInitialStatesDoubleTransactions n trcount r = monadicIO $ do
 tests :: Word -> Spec
 tests lvl = parallel $ describe "Concordium.Konsensus" $ do
     -- it "catch up at end" $ withMaxSuccess 5 $ withInitialStates 2 $ runKonsensusTestSimple 100
-    {-
     it "2 parties, 100 steps, 20 transactions with duplicates, check at every step" $ withMaxSuccess (10^lvl) $ withInitialStatesDoubleTransactions 2 10 $ runKonsensusTest 100
     it "2 parties, 100 steps, 10 transactions, check at every step" $ withMaxSuccess (10*10^lvl) $ withInitialStatesTransactions 2 10 $ runKonsensusTest 100
     it "2 parties, 1000 steps, 50 transactions, check at every step" $ withMaxSuccess (10^lvl) $ withInitialStatesTransactions 2 50 $ runKonsensusTest 1000
     it "2 parties, 100 steps, check at every step" $ withMaxSuccess (10*10^lvl) $ withInitialStates 2 $ runKonsensusTest 100
-    -}
     --it "2 parties, 100 steps, check at end" $ withMaxSuccess 50000 $ withInitialStates 2 $ runKonsensusTestSimple 100
     --it "2 parties, 1000 steps, check at end" $ withMaxSuccess 100 $ withInitialStates 2 $ runKonsensusTestSimple 1000
     it "2 parties, 1000 steps, check at every step" $ withMaxSuccess (10^lvl) $ withInitialStates 2 $ runKonsensusTest 10000

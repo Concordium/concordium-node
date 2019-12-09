@@ -87,7 +87,7 @@ instance Show FinalizationRound where
 
 
 
-ancestorAtHeight :: BlockPointerData bs bp => BlockHeight -> bp -> bp
+ancestorAtHeight :: BlockPointerData bp => BlockHeight -> bp -> bp
 ancestorAtHeight h bp
     | h == bpHeight bp = bp
     | h < bpHeight bp = ancestorAtHeight h (bpParent bp)
@@ -439,7 +439,7 @@ receiveFinalizationPseudoMessage (FPMCatchUp cu@CatchUpMessage{..}) = do
 
 
 -- |Called to notify the finalization routine when a new block arrives.
-notifyBlockArrival :: (FinalizationMonad s m, BlockPointerData bs bp) => bp -> m ()
+notifyBlockArrival :: (FinalizationMonad s m, BlockPointerData bp) => bp -> m ()
 notifyBlockArrival b = do
     FinalizationState{..} <- use finState
     forM_ _finsCurrentRound $ \FinalizationRound{..} -> do
@@ -463,7 +463,7 @@ getMyParty = do
 
 -- |Called to notify the finalization routine when a new block is finalized.
 -- (NB: this should never be called with the genesis block.)
-notifyBlockFinalized :: (FinalizationMonad s m, BlockPointerData bs bp) => FinalizationRecord -> bp -> m ()
+notifyBlockFinalized :: (FinalizationMonad s m, BlockPointerData bp) => FinalizationRecord -> bp -> m ()
 notifyBlockFinalized fr@FinalizationRecord{..} bp = do
         -- Reset catch-up timer
         oldTimer <- finCatchUpTimer <<.= Nothing
@@ -492,7 +492,7 @@ nextFinalizationDelay FinalizationRecord{..} = if finalizationDelay > 2 then fin
 
 -- |Given the finalization minimum skip and an explicitly finalized block, compute
 -- the height of the next finalized block.
-nextFinalizationHeight :: (BlockPointerData bs bp)
+nextFinalizationHeight :: (BlockPointerData bp)
     => BlockHeight -- ^Finalization minimum skip
     -> bp -- ^Last finalized block
     -> BlockHeight
@@ -500,7 +500,7 @@ nextFinalizationHeight fs bp = bpHeight bp + max (1 + fs) ((bpHeight bp - bpHeig
 
 -- |The height that a chain must be for a block to be eligible for finalization.
 -- This is the next finalization height + the next finalization delay.
-nextFinalizationJustifierHeight :: (BlockPointerData bs bp)
+nextFinalizationJustifierHeight :: (BlockPointerData bp)
     => FinalizationParameters
     -> FinalizationRecord -- ^Last finalization record
     -> bp -- ^Last finalized block

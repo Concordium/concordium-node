@@ -26,3 +26,10 @@ getCurrentSlot = do
         GenesisData{..} <- getGenesisData
         ct <- currentTimestamp
         return $ Slot $ if ct <= genesisTime then 0 else (ct - genesisTime) `div` genesisSlotDuration
+
+-- |Get the timestamp at the beginning of the given slot.
+getSlotTimestamp :: (SkovQueryMonad m) => Slot -> m Timestamp
+getSlotTimestamp slot = do
+  GenesisData{..} <- getGenesisData
+  -- We should be safe with respect to any overflow issues here since Timestamp is Word64
+  return (genesisSlotDuration * fromIntegral slot + genesisTime)

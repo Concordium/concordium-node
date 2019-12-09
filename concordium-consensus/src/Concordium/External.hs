@@ -50,7 +50,7 @@ import Concordium.Afgjort.Finalize (FinalizationInstance(..))
 import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.TimerMonad (ThreadTimer)
-import Concordium.Skov.CatchUp (CatchUpStatus,cusIsRequest)
+import Concordium.Skov.CatchUp (CatchUpStatus,cusIsResponse)
 
 import qualified Concordium.Getters as Get
 
@@ -870,11 +870,14 @@ receiveCatchUpStatus cptr src cstr len limit cbk = do
                         logm Skov LLDebug $ "Catch-up response status message: " ++ show rcus
                         sendMsg MTCatchUpStatus $ encode rcus
                     return $! if flag then
-                                if cusIsRequest cus then
-                                    ResultContinueCatchUp
-                                else
+                                if cusIsResponse cus then
+                                    -- Mark the peer pending
                                     ResultPendingBlock
+                                else
+                                    -- Mark the peer pending if it is up-to-date, otherwise no change
+                                    ResultContinueCatchUp
                             else
+                                -- Mark the peer up-to-date
                                 ResultSuccess
 
 foreign export ccall startConsensus :: Word64 -> CString -> Int64 -> CString -> Int64 -> GlobalStatePtr -> FunPtr BroadcastCallback -> Word8 -> FunPtr LogCallback -> Word8 -> FunPtr LogTransferCallback -> IO (StablePtr ConsensusRunner)

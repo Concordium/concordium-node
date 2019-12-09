@@ -57,7 +57,7 @@ initialBlockState =
         (blockBank . Rew.totalGTU .~ fromIntegral (numAccounts + 2) * initBal) .
         (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
     where
-        addAcc kp = Acc.putAccount (mkAccount (correspondingVerifyKey kp) initBal )
+        addAcc kp = Acc.putAccountWithRegIds (mkAccount (correspondingVerifyKey kp) initBal )
         initBal = 10^(12::Int) :: Amount
 
 data Model = Model {

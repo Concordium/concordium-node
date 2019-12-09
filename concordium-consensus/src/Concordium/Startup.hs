@@ -9,6 +9,8 @@ module Concordium.Startup {-# WARNING "This module should not be used in product
 import System.Random
 import qualified Data.ByteString.Lazy.Char8 as BSL
 import Data.Maybe
+import qualified Data.PQueue.Prio.Max as Queue
+
 
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.Crypto.Ed25519Signature as Ed25519
@@ -23,6 +25,8 @@ import Concordium.GlobalState.SeedState
 import Concordium.GlobalState.IdentityProviders
 import Concordium.Birk.Bake
 import Concordium.Types
+
+import Concordium.Scheduler.Utils.Init.Example(dummyCredential, dummyExpiryTime)
 
 import TH.RelativePaths
 
@@ -40,10 +44,16 @@ makeBakers nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17) 0
                 stake = _accountAmount account
                 account = makeBakerAccount bid
 
+-- Note that the credentials on the baker account are not valid, apart from their expiry is the maximum possible.
 makeBakerAccount :: BakerId -> Account
-makeBakerAccount bid = acct {_accountAmount = 1000000000000, _accountStakeDelegate = Just bid}
+makeBakerAccount bid =
+    acct {_accountAmount = 1000000000000,
+          _accountStakeDelegate = Just bid,
+          _accountCredentials = credentialList}
   where
-    acct = newAccount (SigScheme.correspondingVerifyKey kp)
+    vfKey = SigScheme.correspondingVerifyKey kp
+    credentialList = Queue.singleton dummyExpiryTime (dummyCredential vfKey dummyExpiryTime)
+    acct = newAccount vfKey
     -- NB the negation makes it not conflict with other fake accounts we create elsewhere.
     kp = uncurry SigScheme.KeyPairEd25519 $ fst (Ed25519.randomKeyPair (mkStdGen (- (fromIntegral bid) - 1)))
 

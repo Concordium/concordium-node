@@ -27,6 +27,7 @@ import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Finalization
 import qualified Concordium.Skov.CatchUp as CU
+import qualified Data.PQueue.Prio.Max as Queue
 
 import Concordium.Afgjort.Finalize(FinalizationStateLenses(..))
 
@@ -54,16 +55,16 @@ hsh :: (HashableTo BlockHash a) => a -> String
 hsh x = show (getHash x :: BlockHash)
 
 getBestBlockState :: SkovQueryMonad m => m (BlockState m)
-getBestBlockState = bpState <$> bestBlock
+getBestBlockState = queryBlockState =<< bestBlock
 
 getLastFinalState :: SkovQueryMonad m => m (BlockState m)
-getLastFinalState = bpState <$> lastFinalizedBlock
+getLastFinalState = queryBlockState =<< lastFinalizedBlock
 
 withBlockStateJSON :: SkovQueryMonad m => BlockHash -> (BlockState m -> m Value) -> m Value
 withBlockStateJSON hash f =
   resolveBlock hash >>=
     \case Nothing -> return Null
-          Just bp -> f (bpState bp)
+          Just bp -> f =<< queryBlockState bp
 
 getAccountList :: SkovStateQueryable z m => BlockHash -> z -> IO Value
 getAccountList hash sfsRef = runStateQuery sfsRef $
@@ -84,7 +85,7 @@ getAccountInfo hash sfsRef addr = runStateQuery sfsRef $
       \case Nothing -> return Null
             Just acc -> return $ object ["accountNonce" .= let Nonce n = (acc ^. T.accountNonce) in n
                                         ,"accountAmount" .= toInteger (acc ^. T.accountAmount)
-                                        ,"accountCredentials" .= (acc ^. accountCredentials)
+                                        ,"accountCredentials" .= Queue.toList (acc ^. accountCredentials)
                                         ,"accountDelegation" .= (toInteger <$> (acc ^. T.accountStakeDelegate))
                                         ]
 
@@ -136,7 +137,8 @@ getModuleSource hash sfsRef mhash = runStateQuery sfsRef $
   resolveBlock hash >>=
     \case Nothing -> return Nothing
           Just bp -> do
-            mmodul <- BS.getModule (bpState bp) mhash
+            st <- queryBlockState bp
+            mmodul <- BS.getModule st mhash
             return (BS.moduleSource <$> mmodul)
 
 getConsensusStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> IO Value
@@ -179,7 +181,8 @@ getBlockInfo sfsRef blockHash = case readMaybe blockHash of
                     Nothing -> return Null
                     Just bp -> do
                         let slot = blockSlot bp
-                        reward <- BS.getRewardStatus (bpState bp)
+                        st <- queryBlockState bp
+                        reward <- BS.getRewardStatus st
                         slotTime <- getSlotTime slot
                         bfin <- isFinalized bh
                         return $ object [
@@ -242,7 +245,7 @@ checkBakerExistsBestBlock :: (SkovStateQueryable z m)
     -> IO Word8
 checkBakerExistsBestBlock key sfsRef = runStateQuery sfsRef $ do
   bb <- bestBlock
-  bps <- BS.getBlockBirkParameters (bpState bb)
+  bps <- BS.getBlockBirkParameters =<< queryBlockState bb
   case bps ^. birkLotteryBakers . bakersByKey . at key of
     Just _ -> return 2
     Nothing -> 

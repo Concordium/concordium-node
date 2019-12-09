@@ -9,18 +9,10 @@ import System.Console.CmdArgs
 import qualified Data.ByteString.Lazy as LBS
 import Data.Aeson
 import qualified Data.Serialize as S
-import Control.Monad
-import System.FilePath
 
 import Data.Text
 import qualified Data.HashMap.Strict as Map
 import Concordium.GlobalState.Parameters
-import Concordium.Birk.Bake
-import qualified Concordium.Crypto.SignatureScheme as SigScheme
-import qualified Concordium.Crypto.BlockSignature as Sig
-import qualified Concordium.Crypto.BlsSignature as Bls
-import qualified Concordium.Crypto.VRF as VRF
-import qualified Concordium.ID.Account as ID
 
 data Genesis
     = GenerateGenesisData {gdSource :: FilePath,
@@ -29,11 +21,6 @@ data Genesis
                            gdCryptoParams :: Maybe FilePath,
                            gdBetaAccounts :: Maybe FilePath,
                            gdBakers :: Maybe FilePath}
-    | GenerateBakers {number :: Int,
-                      numFinalizers :: Maybe Int,
-                      gdOutput :: FilePath}
-    | GenerateBetaAccounts {number :: Int,
-                            gdOutput :: FilePath}
     deriving (Typeable, Data)
 
 generateGenesisData :: Genesis
@@ -67,36 +54,8 @@ generateGenesisData = GenerateGenesisData {
  } &= help "Parse JSON genesis parameters from INFILE and write serialized genesis data to OUTFILE"
   &= explicit &= name "make-genesis"
 
-generateBakerData :: Genesis
-generateBakerData = GenerateBakers {
-    number = def &= typ "NUM" &= argPos 0,
-    numFinalizers = def &=
-                    explicit &=
-                    name "num-finalizers" &=
-                    opt (Nothing :: Maybe Int) &=
-                    typ "NUM" &=
-                    help "Number of bakers which are finalizers.",
-    gdOutput = def &= typDir &= opt ("." :: FilePath) &= argPos 1
-} &= help "Generate baker data"
-    &= details ["This generates the following files:",
-        " bakers.json: JSON encoding of the public identities of the generated bakers",
-        " baker-0.dat .. : baker credentials for running consensus",
-        " baker-0-acct.json .. : baker account keys"]
-    &= explicit &= name "make-bakers"
-
-
-generateBetaAccounts :: Genesis
-generateBetaAccounts = GenerateBetaAccounts {
-    number = def &= typ "NUM" &= argPos 0,
-    gdOutput = def &= typDir &= opt ("." :: FilePath) &= argPos 1
-} &= help "Generate beta accounts"
-    &= details ["This generates the following files:",
-        " beta-accounts.json: JSON encoding of the public identities of the generated accounts.",
-        " beta-account-0-acct.json .. : beta account private account keys"]
-    &= explicit &= name "make-beta-accounts"
-
 mode :: Mode (CmdArgs Genesis)
-mode = cmdArgsMode $ modes [generateGenesisData, generateBakerData, generateBetaAccounts]
+mode = cmdArgsMode $ modes [generateGenesisData]
     &= summary "Concordium genesis v1"
     &= help "Generate genesis data"
 
@@ -142,46 +101,3 @@ main = cmdArgsRun mode >>=
                       LBS.writeFile gdOutput (S.encodeLazy $ parametersToGenesisData params)
                       putStrLn $ "Wrote genesis data to file " ++ show gdOutput
                       exitSuccess
-
-        GenerateBakers{..} ->
-            if number <= 0 || number > 1000000 then do
-                putStrLn "Error: NUM must be between 1 and 1000000"
-                exitFailure
-            else do
-                let finalizerP n =
-                      case numFinalizers of
-                        Nothing -> True
-                        Just num -> n < num
-                bakers <- forM [0..number - 1] $ \n -> do
-                    skp <- Sig.newKeyPair
-                    vrfkp <- VRF.newKeyPair
-                    acctkp <- SigScheme.newKeyPair SigScheme.Ed25519
-                    blssk <- Bls.generateSecretKey
-                    -- blspk <- Bls.derivePublicKey blssk
-                    LBS.writeFile (gdOutput </> "baker-" ++ show n ++ ".dat") $ S.encodeLazy $
-                        BakerIdentity skp vrfkp blssk
-                    encodeFile (gdOutput </> "baker-" ++ show n ++ "-account.json") $
-                        object $ SigScheme.keyPairToJSONPairs acctkp ++
-                               ["address" .= ID.accountAddress (SigScheme.correspondingVerifyKey acctkp)]
-                    encodeFile (gdOutput </> "baker-" ++ show n ++ "-credentials.json") $
-                        object [
-                          "electionPrivateKey" .= VRF.privateKey vrfkp,
-                          "electionVerifyKey" .= VRF.publicKey vrfkp,
-                          "signatureSignKey" .= Sig.signKey skp,
-                          "signatureVerifyKey" .= Sig.verifyKey skp
-                          ]
-                    return $ object [
-                        "electionVerifyKey" .= VRF.publicKey vrfkp,
-                        "signatureVerifyKey" .= Sig.verifyKey skp,
-                        "finalizer" .= finalizerP n,
-                        "account" .= (object $ SigScheme.verifyKeyToJSONPairs (SigScheme.correspondingVerifyKey acctkp) ++
-                          ["balance" .= (1000000000000 :: Integer)])
-                        ]
-                encodeFile (gdOutput </> "bakers.json") bakers
-        GenerateBetaAccounts{..} -> do
-          accounts <- forM [0..number-1] $ \n -> do
-            acctkp <- SigScheme.newKeyPair SigScheme.Ed25519
-            encodeFile (gdOutput </> "beta-account-" ++ show n ++ ".json") $
-                object $ SigScheme.keyPairToJSONPairs acctkp ++ ["address" .= ID.accountAddress (SigScheme.correspondingVerifyKey acctkp)]
-            return $ object $ SigScheme.verifyKeyToJSONPairs (SigScheme.correspondingVerifyKey acctkp) ++ ["balance" .= (1000000000000 :: Integer)]
-          encodeFile (gdOutput </> "beta-accounts.json") accounts

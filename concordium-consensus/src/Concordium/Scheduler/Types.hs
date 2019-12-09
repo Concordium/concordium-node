@@ -11,7 +11,8 @@ module Concordium.Scheduler.Types (module Concordium.Scheduler.Types,
                                    IdentityProviderIdentity,
                                    ReceiveContext(..),
                                    InitContext(..),
-                                   linkWithMaxSize) where
+                                   linkWithMaxSize,
+                                   Core.NoAnnot) where
 
 import Prelude hiding(fail)
 
@@ -30,9 +31,9 @@ import Concordium.ID.Types(IdentityProviderIdentity)
 import Acorn.Types(ReceiveContext(..), InitContext(..), linkWithMaxSize)
 import qualified Acorn.Core as Core
 
-type Value = Interfaces.Value NoAnnot
-type ContractValue = Interfaces.LinkedContractValue NoAnnot
-type ValueInterface = Interfaces.UnlinkedValueInterface NoAnnot
+type Value = Interfaces.Value Core.NoAnnot
+type ContractValue = Interfaces.LinkedContractValue Core.NoAnnot
+type ValueInterface = Interfaces.UnlinkedValueInterface Core.NoAnnot
 type Interface = Interfaces.Interface Core.UA
 
 type Module = Core.Module Core.UA
@@ -40,7 +41,9 @@ type Module = Core.Module Core.UA
 dummyChainMeta :: ChainMetadata
 dummyChainMeta = ChainMetadata { slotNumber = 0
                                , blockHeight = 0
-                               , finalizedHeight = 0}
+                               , finalizedHeight = 0
+                               , slotTime = 0
+                               }
 
 
 -- |Result type when constructing a block.

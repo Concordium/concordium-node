@@ -34,8 +34,8 @@ shouldReturnP action f = action >>= (`shouldSatisfy` f)
 initialBlockState :: BlockState
 initialBlockState =
   emptyBlockState emptyBirkParameters dummyCryptographicParameters &
-    (blockAccounts .~ Acc.putAccount (mkAccount alesVK 100000)
-                      (Acc.putAccount (mkAccount thomasVK 100000) Acc.emptyAccounts)) .
+    (blockAccounts .~ Acc.putAccountWithRegIds (mkAccount alesVK 100000)
+                      (Acc.putAccountWithRegIds (mkAccount thomasVK 100000) Acc.emptyAccounts)) .
     (blockBank . Rew.totalGTU .~ 200000) .
     (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
 
