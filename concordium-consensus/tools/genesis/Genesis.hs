@@ -9,14 +9,10 @@ import System.Console.CmdArgs
 import qualified Data.ByteString.Lazy as LBS
 import Data.Aeson
 import qualified Data.Serialize as S
-import Control.Monad
-import System.FilePath
 
 import Data.Text
 import qualified Data.HashMap.Strict as Map
 import Concordium.GlobalState.Parameters
-import qualified Concordium.Crypto.SignatureScheme as SigScheme
-import qualified Concordium.ID.Account as ID
 
 data Genesis
     = GenerateGenesisData {gdSource :: FilePath,
@@ -25,8 +21,6 @@ data Genesis
                            gdCryptoParams :: Maybe FilePath,
                            gdBetaAccounts :: Maybe FilePath,
                            gdBakers :: Maybe FilePath}
-    | GenerateBetaAccounts {number :: Int,
-                            gdOutput :: FilePath}
     deriving (Typeable, Data)
 
 generateGenesisData :: Genesis
@@ -60,18 +54,8 @@ generateGenesisData = GenerateGenesisData {
  } &= help "Parse JSON genesis parameters from INFILE and write serialized genesis data to OUTFILE"
   &= explicit &= name "make-genesis"
 
-generateBetaAccounts :: Genesis
-generateBetaAccounts = GenerateBetaAccounts {
-    number = def &= typ "NUM" &= argPos 0,
-    gdOutput = def &= typDir &= opt ("." :: FilePath) &= argPos 1
-} &= help "Generate beta accounts"
-    &= details ["This generates the following files:", 
-        " beta-accounts.json: JSON encoding of the public identities of the generated accounts.",
-        " beta-account-0-acct.json .. : beta account private account keys"]
-    &= explicit &= name "make-beta-accounts"
-
 mode :: Mode (CmdArgs Genesis)
-mode = cmdArgsMode $ modes [generateGenesisData, generateBetaAccounts]
+mode = cmdArgsMode $ modes [generateGenesisData]
     &= summary "Concordium genesis v1"
     &= help "Generate genesis data"
 
@@ -117,11 +101,3 @@ main = cmdArgsRun mode >>=
                       LBS.writeFile gdOutput (S.encodeLazy $ parametersToGenesisData params)
                       putStrLn $ "Wrote genesis data to file " ++ show gdOutput
                       exitSuccess
-
-        GenerateBetaAccounts{..} -> do
-          accounts <- forM [0..number-1] $ \n -> do
-            acctkp <- SigScheme.newKeyPair SigScheme.Ed25519
-            encodeFile (gdOutput </> "beta-account-" ++ show n ++ ".json") $
-                object $ SigScheme.keyPairToJSONPairs acctkp ++ ["address" .= ID.accountAddress (SigScheme.correspondingVerifyKey acctkp)]
-            return $ object $ SigScheme.verifyKeyToJSONPairs (SigScheme.correspondingVerifyKey acctkp) ++ ["balance" .= (1000000000000 :: Integer)]
-          encodeFile (gdOutput </> "beta-accounts.json") accounts
