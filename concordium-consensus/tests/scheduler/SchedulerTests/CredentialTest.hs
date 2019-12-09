@@ -28,7 +28,6 @@ import qualified Acorn.Core as Core
 import SchedulerTests.DummyData
 
 -- Test that sending to and from an account without credentials fails.
--- Also test that the same holds for smart contracts.
 
 -- Create initial state where alesAccount has a credential, but thomasAccount does not.
 initialBlockState :: BlockState
