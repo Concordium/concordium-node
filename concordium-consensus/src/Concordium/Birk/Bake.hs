@@ -1,5 +1,5 @@
 {-# LANGUAGE
-    DeriveGeneric #-}
+    DeriveGeneric, OverloadedStrings #-}
 module Concordium.Birk.Bake where
 
 import GHC.Generics
@@ -8,6 +8,8 @@ import Control.Monad
 import Control.Monad.IO.Class
 
 import Data.Serialize
+import Data.Aeson(FromJSON, parseJSON)
+import Data.Aeson.Types(modifyFailure)
 
 import Concordium.Types
 
@@ -44,6 +46,12 @@ bakerElectionPublicKey :: BakerIdentity -> BakerElectionVerifyKey
 bakerElectionPublicKey ident = VRF.publicKey (bakerElectionKey ident)
 
 instance Serialize BakerIdentity where
+
+instance FromJSON BakerIdentity where
+  parseJSON v = modifyFailure ("Baker identity:" ++)  $ do
+    bakerSignKey <- parseJSON v
+    bakerElectionKey <- parseJSON v
+    return BakerIdentity{..}
 
 processTransactions
     :: (TreeStateMonad m,
