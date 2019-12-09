@@ -15,7 +15,6 @@ import Control.Monad.Trans
 import Concordium.Afgjort.Types
 import Concordium.Afgjort.WMVBA
 import qualified Concordium.Crypto.BlsSignature as Bls
-import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Crypto.BlockSignature as Sig
 import Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.SHA256 as H
