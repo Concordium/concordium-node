@@ -5,13 +5,12 @@ import Data.Serialize.Put
 import Data.Serialize
 import Data.Time.Clock
 
-
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.SHA256 as Hash
 
 import Concordium.GlobalState.Parameters
 import Concordium.Types
-import Concordium.GlobalState.Transactions
+import Concordium.Types.Transactions
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Block
 
@@ -139,7 +138,7 @@ instance BlockData Block where
     {-# INLINE verifyBlockSignature #-}
     {-# INLINE putBlock #-}
 
-getBlock :: UTCTime -> Get Block
+getBlock :: TransactionTime -> Get Block
 getBlock arrivalTime = do
   sl <- get
   if sl == 0 then do

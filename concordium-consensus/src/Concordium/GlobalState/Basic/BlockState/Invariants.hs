@@ -2,7 +2,7 @@
 -- |This module defines global state invariants.
 -- These are intended for testing purposes, but could also be used for
 -- auditing.
-module Concordium.GlobalState.Basic.Invariants where
+module Concordium.GlobalState.Basic.BlockState.Invariants where
 
 import qualified Data.Set as Set
 import qualified Data.Map as Map
@@ -14,9 +14,9 @@ import Concordium.Types
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Bakers
-import qualified Concordium.GlobalState.Account as Account
-import qualified Concordium.GlobalState.AccountTable as AT
-import Concordium.GlobalState.Instances as Instances
+import qualified Concordium.GlobalState.Basic.BlockState.Account as Account
+import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as AT
+import Concordium.GlobalState.Basic.BlockState.Instances as Instances
 import qualified Concordium.GlobalState.Rewards as Rewards
 
 checkBinary :: (Show a, Show b) => (a -> b -> Bool) -> a -> b -> String -> String -> String -> Either String ()
@@ -26,21 +26,21 @@ invariantBlockState :: BlockState -> Either String ()
 invariantBlockState bs = do
         (creds, amp, totalBalance, delegationMap, ninstances) <- foldM checkAccount (Set.empty, Map.empty, 0, Map.empty, 0) (AT.toList $ Account.accountTable $ bs ^. blockAccounts)
         checkBinary (==) ninstances (instanceCount $ bs ^. blockInstances) "==" "accounted for instances" "all instances"
-        totalStake <- foldM (checkBaker delegationMap) 0 (Map.toList $ bs ^. blockBirkParameters . birkBakers . bakerMap)
-        checkBinary (==) totalStake (bs ^. blockBirkParameters . birkBakers . bakerTotalStake) "==" "total baker stake" "recorded amount"
+        totalStake <- foldM (checkBaker delegationMap) 0 (Map.toList $ bs ^. blockBirkParameters . birkCurrentBakers . bakerMap)
+        checkBinary (==) totalStake (bs ^. blockBirkParameters . birkCurrentBakers . bakerTotalStake) "==" "total baker stake" "recorded amount"
         let untrackedRegIds = Set.difference creds (bs ^. blockAccounts . to Account.accountRegIds)
         unless (null untrackedRegIds) $ Left $ "Untracked account reg ids: " ++ show untrackedRegIds
         let
             tenc = bs ^. blockBank . Rewards.totalEncryptedGTU
             tcb = bs ^. blockBank . Rewards.centralBankGTU
             txc = bs ^. blockBank . Rewards.executionCost
-        checkBinary (==) 
-            (totalBalance + tenc + tcb + txc) 
-            (bs ^. blockBank . Rewards.totalGTU) 
-            "==" 
+        checkBinary (==)
+            (totalBalance + tenc + tcb + txc)
+            (bs ^. blockBank . Rewards.totalGTU)
+            "=="
             ("Total account balances (" ++ show totalBalance ++
                 ") + total encrypted (" ++ show tenc ++
-                ") + central bank (" ++ show tcb ++ 
+                ") + central bank (" ++ show tcb ++
                 ") + execution cost (" ++ show txc ++ ")")
             "Total GTU"
         checkBinary (==) amp (bs ^. blockAccounts . to Account.accountMap) "==" "computed account map" "recorded account map"
@@ -64,4 +64,3 @@ invariantBlockState bs = do
         checkBaker deleg stake (bid, binfo) = do
             checkBinary (==) (binfo ^. bakerStake) (deleg ^. at bid . non 0) "==" "baker's stake" "amount delegated to baker"
             return $ stake + (binfo ^. bakerStake)
-

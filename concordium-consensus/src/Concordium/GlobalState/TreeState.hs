@@ -7,7 +7,11 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE StandaloneDeriving, DerivingVia #-}
-module Concordium.GlobalState.TreeState where
+module Concordium.GlobalState.TreeState(
+    module Concordium.GlobalState.Classes,
+    module Concordium.GlobalState.Block,
+    module Concordium.GlobalState.TreeState
+) where
 
 import qualified Data.Sequence as Seq
 import Data.Time
@@ -15,18 +19,17 @@ import qualified Data.Set as Set
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
-import Control.Monad.Trans.RWS.Strict
+import qualified Data.ByteString as ByteString
 
 import Concordium.Types
 import Concordium.Types.HashableTo
+import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Transactions
+import Concordium.Types.Transactions
 import Concordium.GlobalState.Statistics
 import Concordium.GlobalState.BlockState
-
-
 
 data BlockStatus bp pb =
     BlockAlive !bp
@@ -48,7 +51,19 @@ instance Show (BlockStatus bp pb) where
 -- in the branches at the level below.
 type Branches m = Seq.Seq [BlockPointer m]
 
-type family PendingBlock (m :: * -> *) :: *
+-- |Result of trying to add a transaction to the transaction table.
+data AddTransactionResult =
+  -- |Transaction is a duplicate of the given transaction.
+  Duplicate !Transaction |
+  -- |The transaction was newly added.
+  Added !Transaction |
+  -- |Transaction was new (according to the hash), but its signature was incorrect.
+  -- The transaction is not added to the table.
+  InvalidSignature |
+  -- |The nonce of the transaction is not later than the last finalized transaction for the sender.
+  -- The transaction is not added to the table.
+  ObsoleteNonce
+  deriving(Eq, Show)
 
 -- |Monad that provides operations for working with the low-level tree state.
 -- These operations are abstracted where possible to allow for a range of implementation
@@ -59,10 +74,14 @@ class (Eq (BlockPointer m),
        BlockData (BlockPointer m),
        BlockPointerData (BlockPointer m),
        BlockPendingData (PendingBlock m),
-       BlockStateOperations m,
+       BlockStateStorage m,
        Monad m)
       => TreeStateMonad m where
 
+    -- |Get the 'BlockState' of a 'BlockPointer'.
+    blockState :: BlockPointer m -> m (BlockState m)
+
+    -- * 'PendingBlock' operations
     -- |Create and sign a 'PendingBlock`.
     makePendingBlock ::
         BakerSignPrivateKey -- ^Key for signing the new block
@@ -75,6 +94,14 @@ class (Eq (BlockPointer m),
         -> [Transaction]    -- ^List of transactions
         -> UTCTime          -- ^Block receive time
         -> m (PendingBlock m)
+    -- |Create a 'PendingBlock' from the raw block data.
+    -- If deserialisation fails, it returns an error.
+    -- Otherwise, it returns the block.
+    importPendingBlock ::
+        ByteString.ByteString
+                            -- ^Block data
+        -> UTCTime          -- ^Block received time
+        -> m (Either String (PendingBlock m))
 
     -- * Operations on the block table
     -- |Get the current status of a block.
@@ -119,10 +146,10 @@ class (Eq (BlockPointer m),
     -- The block must be the one finalized by the record, and the finalization
     -- index must be the next finalization index.  These are not checked.
     addFinalization :: BlockPointer m -> FinalizationRecord -> m ()
-    -- |Get the finalization record for a particular finalization index (if available).
-    getFinalizationAtIndex :: FinalizationIndex -> m (Maybe FinalizationRecord)
-    -- |Get a list of all (validated) finalization records from the given index
-    getFinalizationFromIndex :: FinalizationIndex -> m [FinalizationRecord]
+    -- |Get the finalization record for a particular finalization index (if available), with the finalized block.
+    getFinalizationAtIndex :: FinalizationIndex -> m (Maybe (FinalizationRecord, BlockPointer m))
+    -- |Get a list of all (validated) finalization records with blocks from the given index
+    getFinalizationFromIndex :: FinalizationIndex -> m [(FinalizationRecord, BlockPointer m)]
     getFinalizationFromIndex i = getFinalizationAtIndex i >>= \case
             Nothing -> return []
             Just f -> (f :) <$> getFinalizationFromIndex (i+1)
@@ -142,7 +169,7 @@ class (Eq (BlockPointer m),
     -- When a block is finalized, all pending blocks with a lower or equal slot
     -- number can be handled (they will become dead, since they can no longer
     -- join the tree).  This uses 'takeNextPendingUntil'.
-    -- 
+    --
     -- |Return a list of the blocks that are pending the given parent block,
     -- removing them from the pending table.
     takePendingChildren :: BlockHash -> m [PendingBlock m]
@@ -181,7 +208,7 @@ class (Eq (BlockPointer m),
     --
     -- $pendingTransactions
     -- We maintain a 'PendingTransactionTable' for a particular block that is
-    -- the focus block.  (Ideally, this should be the best block, however, it 
+    -- the focus block.  (Ideally, this should be the best block, however, it
     -- shouldn't be a problem if it's not.)
     -- |Return the focus block.
     getFocusBlock :: m (BlockPointer m)
@@ -207,7 +234,9 @@ class (Eq (BlockPointer m),
     -- present).  A return value of @False@ indicates that the transaction was not added,
     -- either because it was already present or the nonce has already been finalized.
     addTransaction :: Transaction -> m Bool
-    addTransaction tr = maybe False snd <$> addCommitTransaction tr 0
+    addTransaction tr = process <$> addCommitTransaction tr 0
+      where process (Added _) = True
+            process _ = False
     -- |Finalize a list of transactions.  Per account, the transactions must be in
     -- continuous sequence by nonce, starting from the next available non-finalized
     -- nonce.
@@ -218,12 +247,8 @@ class (Eq (BlockPointer m),
     commitTransaction :: Slot -> Transaction -> m ()
     -- |@addCommitTransaction tr slot@ adds a transaction and marks it committed
     -- for the given slot number.
-    -- Returns
-    --   * @(Just tx, False)@ if @tr@ is a duplicate of the transaction @tx@
-    --   * @(Just tr, True)@ if the transaction is newly added.
-    --   * @Nothing@ if its nonce is not later than the last finalized transaction for the sender.
-    --     In this case the transaction is not added to the table.
-    addCommitTransaction :: Transaction -> Slot -> m (Maybe (Transaction, Bool))
+    -- See documentation of 'AddTransactionResult' for meaning of the return value.
+    addCommitTransaction :: Transaction -> Slot -> m AddTransactionResult
     -- |Purge a transaction from the transaction table if its last committed slot
     -- number does not exceed the slot number of the last finalized block.
     -- (A transaction that has been committed to a finalized block should not be purged.)
@@ -238,27 +263,6 @@ class (Eq (BlockPointer m),
     -- Ideally, this should be handled better.
     updateBlockTransactions :: [Transaction] -> PendingBlock m -> m (PendingBlock m)
 
-    -- * Operations on block state
-
-    -- |Derive a mutable state instance from a block state instance. The mutable
-    -- state instance supports all the operations needed by the scheduler for
-    -- block execution. Semantically the 'UpdatableBlockState' must be a copy,
-    -- changes to it must not affect 'BlockState', but an efficient
-    -- implementation should expect that only a small subset of the state will
-    -- change, and thus a variant of copy-on-write should be used.
-    thawBlockState :: BlockState m -> m (UpdatableBlockState m)
-
-    -- |Freeze a mutable block state instance. The mutable state instance will
-    -- not be used afterwards and the implementation can thus avoid copying
-    -- data.
-    freezeBlockState :: UpdatableBlockState m -> m (BlockState m)
-
-    -- |Mark the given state instance as no longer needed and eventually
-    -- discharge it. This can happen, for instance, when a block becomes dead
-    -- due to finalization. The block state instance will not be accessed after
-    -- this method is called.
-    purgeBlockState :: BlockState m -> m ()
-
     -- * Operations on statistics
     -- |Get the current consensus statistics.
     getConsensusStatistics :: m ConsensusStatistics
@@ -269,10 +273,10 @@ class (Eq (BlockPointer m),
     -- not belong to genesis data.
     getRuntimeParameters :: m RuntimeParameters
 
-type instance PendingBlock (BSMTrans t m) = PendingBlock m
-
-instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (BSMTrans t m) where
+instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTrans t m) where
+    blockState = lift . blockState
     makePendingBlock key slot parent bid pf n lastFin trs time = lift $ makePendingBlock key slot parent bid pf n lastFin trs time
+    importPendingBlock bdata rectime = lift $ importPendingBlock bdata rectime
     getBlockStatus = lift . getBlockStatus
     makeLiveBlock b parent lastFin st time energy = lift $ makeLiveBlock b parent lastFin st time energy
     markDead = lift . markDead
@@ -309,14 +313,13 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (BSMTra
     purgeTransaction = lift . purgeTransaction
     lookupTransaction = lift . lookupTransaction
     updateBlockTransactions trs b = lift $ updateBlockTransactions trs b
-    thawBlockState = lift . thawBlockState
-    freezeBlockState = lift . freezeBlockState
-    purgeBlockState = lift . purgeBlockState
     getConsensusStatistics = lift getConsensusStatistics
     putConsensusStatistics = lift . putConsensusStatistics
     getRuntimeParameters = lift getRuntimeParameters
 
+    {-# INLINE blockState #-}
     {-# INLINE makePendingBlock #-}
+    {-# INLINE importPendingBlock #-}
     {-# INLINE getBlockStatus #-}
     {-# INLINE makeLiveBlock #-}
     {-# INLINE markDead #-}
@@ -353,16 +356,10 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (BSMTra
     {-# INLINE purgeTransaction #-}
     {-# INLINE lookupTransaction #-}
     {-# INLINE updateBlockTransactions #-}
-    {-# INLINE thawBlockState #-}
-    {-# INLINE freezeBlockState #-}
-    {-# INLINE purgeBlockState #-}
     {-# INLINE getConsensusStatistics #-}
     {-# INLINE putConsensusStatistics #-}
     {-# INLINE getRuntimeParameters #-}
 
-type instance PendingBlock (MaybeT m) = PendingBlock m
-deriving via (BSMTrans MaybeT m) instance TreeStateMonad m => TreeStateMonad (MaybeT m)
-type instance PendingBlock (RWST r w s m) = PendingBlock m
-deriving via (BSMTrans (RWST r w s) m) instance (TreeStateMonad m, Monoid w) => TreeStateMonad (RWST r w s m)
-type instance PendingBlock (ExceptT e m) = PendingBlock m
-deriving via (BSMTrans (ExceptT e) m) instance TreeStateMonad m => TreeStateMonad (ExceptT e m)
+deriving via (MGSTrans MaybeT m) instance TreeStateMonad m => TreeStateMonad (MaybeT m)
+-- deriving via (MGSTrans (RWST r w s) m) instance (TreeStateMonad m, Monoid w) => TreeStateMonad (RWST r w s m)
+deriving via (MGSTrans (ExceptT e) m) instance TreeStateMonad m => TreeStateMonad (ExceptT e m)
