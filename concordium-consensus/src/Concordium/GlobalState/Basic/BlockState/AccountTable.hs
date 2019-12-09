@@ -1,5 +1,5 @@
 {-# LANGUAGE ViewPatterns, MultiParamTypeClasses, TypeFamilies #-}
-module Concordium.GlobalState.AccountTable where
+module Concordium.GlobalState.Basic.BlockState.AccountTable where
 
 import Prelude hiding (lookup)
 import Data.Word

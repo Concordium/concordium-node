@@ -1,85 +1,18 @@
 {-# LANGUAGE RecordWildCards, MultiParamTypeClasses, TypeFamilies, FlexibleInstances, FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings, TemplateHaskell #-}
-module Concordium.GlobalState.Instances.Internal where
+module Concordium.GlobalState.Basic.BlockState.InstanceTable where
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
 import Concordium.Types.HashableTo
-import qualified Concordium.Types.Acorn.Core as Core
-import Concordium.Types.Acorn.Interfaces
+import Concordium.GlobalState.Instance
 
 import Data.Word
 import Lens.Micro.Platform
 import Lens.Micro.Internal (Ixed,Index,IxValue)
 import Data.Serialize
-import Data.HashMap.Strict(HashMap)
 
-import Data.Void
-
--- |The fixed parameters associated with a smart contract instance
-data InstanceParameters = InstanceParameters {
-    -- |Address of the instance
-    instanceAddress :: !ContractAddress,
-    -- |Address of this contract instance owner, i.e., the creator account.
-    instanceOwner :: !AccountAddress,
-    -- |The module that the contract is defined in
-    instanceContractModule :: !Core.ModuleRef,
-    -- |The name of the contract
-    instanceContract :: !Core.TyName,
-    -- |The contract's receive function
-    instanceReceiveFun :: !(LinkedExpr Void),
-    -- |The interface of 'instanceContractModule'
-    instanceModuleInterface :: !(Interface Core.UA),
-    -- |The value interface of 'instanceContractModule'
-    instanceModuleValueInterface :: !(UnlinkedValueInterface Void),
-    -- |The type of messages the contract receive function supports
-    instanceMessageType :: !(Core.Type Core.UA Core.ModuleRef),
-    -- |Implementation of the given class sender method. This can also be looked
-    -- up through the contract, and we should probably do that, but having it here
-    -- simplifies things.
-    instanceImplements :: !(HashMap (Core.ModuleRef, Core.TyName) (LinkedImplementsValue Void)),
-    -- |Hash of the fixed parameters
-    instanceParameterHash :: !H.Hash
-}
-
-instance Show InstanceParameters where
-    show InstanceParameters{..} = show instanceAddress ++ " :: " ++ show instanceContractModule ++ "." ++ show instanceContract
-
-instance HashableTo H.Hash InstanceParameters where
-    getHash = instanceParameterHash
-
--- |An instance of a smart contract.
-data Instance = Instance {
-    -- |The fixed parameters of the instance
-    instanceParameters :: !InstanceParameters,
-    -- |The current local state of the instance
-    instanceModel :: !(Value Void),
-    -- |The current amount of GTU owned by the instance
-    instanceAmount :: !Amount,
-    -- |Hash of the smart contract instance
-    instanceHash :: H.Hash
-}
-
-instance Show Instance where
-    show Instance{..} = show instanceParameters ++ " {balance=" ++ show instanceAmount ++ ", model=" ++ show instanceModel ++ "}"
-
-instance HashableTo H.Hash Instance where
-    getHash = instanceHash
-
-makeInstanceParameterHash :: ContractAddress -> AccountAddress -> Core.ModuleRef -> Core.TyName -> H.Hash
-makeInstanceParameterHash ca aa modRef conName = H.hashLazy $ runPutLazy $ do
-        put ca
-        put aa
-        put modRef
-        put conName
-
-makeInstanceHash :: InstanceParameters -> Value Void -> Amount -> H.Hash
-makeInstanceHash params v a = H.hashLazy $ runPutLazy $ do
-        put (instanceParameterHash params)
-        putStorable v
-        put a
-
-data InstanceTable 
+data InstanceTable
     -- |The empty instance table
     = Empty
     -- |A non-empty instance table (recording the size)
@@ -170,7 +103,7 @@ newContractInstance mk (Tree s0 t0) = Tree (s0 + 1) <$> nci 0 t0
     where
         -- Insert into a tree with vacancies: insert in left if it has vacancies, otherwise right
         nci offset (Branch h f True _ l r)
-            | hasVacancies l = let newBranch l' = mkBranch h f (hasVacancies l' || hasVacancies r) l' r in newBranch <$> nci offset l 
+            | hasVacancies l = let newBranch l' = mkBranch h f (hasVacancies l' || hasVacancies r) l' r in newBranch <$> nci offset l
             | hasVacancies r = let newBranch r' = mkBranch h f (hasVacancies r') l r' in newBranch <$> nci (offset + 2^h) r
             | otherwise = error "newContractInstance: branch has vacancies, but children do not"
         -- Insert into full tree with no vacancies: create new branch at top level

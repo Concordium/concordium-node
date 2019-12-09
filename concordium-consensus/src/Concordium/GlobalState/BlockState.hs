@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -9,68 +10,49 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving, StandaloneDeriving, DerivingVia #-}
 module Concordium.GlobalState.BlockState where
 
-import Data.Time
 import Lens.Micro.Platform
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
 import Control.Monad.Trans.RWS.Strict hiding (ask)
+import Data.Word
+import qualified Data.Serialize as S
 
 import Concordium.Types
 import Concordium.Types.Execution
+import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Block
 import Concordium.Types.Acorn.Core(ModuleRef)
 import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.Types.Acorn.Interfaces
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.SeedState
 import Concordium.GlobalState.Rewards
-import Concordium.GlobalState.Instances
-import Concordium.GlobalState.Modules hiding (getModule)
+import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.IdentityProviders
-import Concordium.GlobalState.Transactions
+import Concordium.Types.Transactions
+import qualified Data.PQueue.Prio.Max as Queue
 
-import Data.Void
 import Data.Maybe
 
 import qualified Concordium.ID.Types as ID
 import qualified Concordium.ID.Account as ID
 
+type ModuleIndex = Word64
 
-class (Eq bp, Show bp, BlockData bp) => BlockPointerData bp where
-    type BlockState' bp :: *
-    -- |Hash of the block
-    bpHash :: bp -> BlockHash
-    -- |Pointer to the parent (circular reference for genesis block)
-    bpParent :: bp -> bp
-    -- |Pointer to the last finalized block (circular for genesis)
-    bpLastFinalized :: bp -> bp
-    -- |Height of the block in the tree
-    bpHeight :: bp -> BlockHeight
-    -- |The handle for accessing the state (of accounts, contracts, etc.) at the end of the block.
-    bpState :: bp -> BlockState' bp
-    -- |Time at which the block was first received
-    bpReceiveTime :: bp -> UTCTime
-    -- |Time at which the block was first considered part of the tree (validated)
-    bpArriveTime :: bp -> UTCTime
-    -- |Number of transactions in a block
-    bpTransactionCount :: bp -> Int
-    -- |Energy cost of all transactions in the block.
-    bpTransactionsEnergyCost :: bp -> Energy
-    -- |Size of the transaction data in bytes.
-    bpTransactionsSize :: bp -> Int
-
-type family BlockPointer (m :: * -> *) :: *
-
-type BlockState (m :: * -> *) = BlockState' (BlockPointer m)
+data Module = Module {
+    moduleInterface :: Interface Core.UA,
+    moduleValueInterface :: UnlinkedValueInterface Core.NoAnnot,
+    moduleIndex :: !ModuleIndex,
+    moduleSource :: Core.Module Core.UA
+}
 
 
 -- |The block query methods can query block state. They are needed by
 -- consensus itself to compute stake, get a list of and information about
 -- bakers, finalization committee, etc.
-class Monad m => BlockStateQuery m where
+class (Monad m, BlockStateTypes m) => BlockStateQuery m where
     -- |Get the module from the module table of the state instance.
     getModule :: BlockState m -> ModuleRef -> m (Maybe Module)
     -- |Get the account state from the account table of the state instance.
@@ -98,8 +80,6 @@ class Monad m => BlockStateQuery m where
 
     -- |Get special transactions outcomes (for administrative transactions, e.g., baker reward)
     getSpecialOutcomes :: BlockState m -> m [SpecialTransactionOutcome]
-
-type family UpdatableBlockState (m :: * -> *) :: *
 
 data EncryptedAmountUpdate = Replace !EncryptedAmount -- ^Replace the encrypted amount, such as when compressing.
                            | Add !EncryptedAmount     -- ^Add an encrypted amount to the list of encrypted amounts.
@@ -134,7 +114,7 @@ updateAccount !upd !acc =
        _accountCredentials =
           case upd ^. auCredential of
             Nothing -> acc ^. accountCredentials
-            Just c -> c : (acc ^. accountCredentials),
+            Just c -> Queue.insert (ID.pExpiry (ID.cdvPolicy c)) c (acc ^. accountCredentials),
        _accountEncryptionKey =
           case upd ^. auEncryptionKey of
             Nothing -> acc ^. accountEncryptionKey
@@ -145,7 +125,7 @@ updateAccount !upd !acc =
             Add ea -> ea:(acc ^. accountEncryptedAmount)
             Replace ea -> [ea]
     }
-  
+
   where setMaybe (Just x) _ = x
         setMaybe Nothing y = y
 
@@ -175,29 +155,29 @@ class BlockStateQuery m => BlockStateOperations m where
   bsoPutNewModule :: UpdatableBlockState m
                   -> ModuleRef
                   -> Interface Core.UA
-                  -> UnlinkedValueInterface Void
+                  -> UnlinkedValueInterface Core.NoAnnot
                   -> Core.Module Core.UA
                   -> m (Bool, UpdatableBlockState m)
 
   -- |Consult the linked expression cache for whether this definitionn is already linked.
-  bsoTryGetLinkedExpr :: UpdatableBlockState m -> Core.ModuleRef -> Core.Name -> m (Maybe (LinkedExprWithDeps Void))
+  bsoTryGetLinkedExpr :: UpdatableBlockState m -> Core.ModuleRef -> Core.Name -> m (Maybe (LinkedExprWithDeps Core.NoAnnot))
 
   -- |Put a new linked expression to the cache.
   -- This method may assume that the module with given reference is already in the state (i.e., putNewModule was called before).
-  bsoPutLinkedExpr :: UpdatableBlockState m -> Core.ModuleRef -> Core.Name -> LinkedExprWithDeps Void -> m (UpdatableBlockState m)
+  bsoPutLinkedExpr :: UpdatableBlockState m -> Core.ModuleRef -> Core.Name -> LinkedExprWithDeps Core.NoAnnot -> m (UpdatableBlockState m)
 
   -- |Try to get linked contract code from the cache.
   bsoTryGetLinkedContract :: UpdatableBlockState m
                           -> Core.ModuleRef
                           -> Core.TyName
-                          -> m (Maybe (LinkedContractValue Void))
+                          -> m (Maybe (LinkedContractValue Core.NoAnnot))
 
   -- |Store the linked contract code in the linked code cache.
   -- This method may assume that the module with given reference is already in the state (i.e., putNewModule was called before).
   bsoPutLinkedContract :: UpdatableBlockState m
                        -> Core.ModuleRef
                        -> Core.TyName
-                       -> LinkedContractValue Void
+                       -> LinkedContractValue Core.NoAnnot
                        -> m (UpdatableBlockState m)
 
   -- |Modify an existing account with given data (which includes the address of the account).
@@ -210,7 +190,7 @@ class BlockStateQuery m => BlockStateOperations m where
   bsoModifyInstance :: UpdatableBlockState m
                     -> ContractAddress
                     -> AmountDelta
-                    -> Value Void
+                    -> Value Core.NoAnnot
                     -> m (UpdatableBlockState m)
 
   -- |Notify the block state that the given amount was spent on execution.
@@ -237,21 +217,28 @@ class BlockStateQuery m => BlockStateOperations m where
     bps <- bsoGetBlockBirkParameters s
     return $! fst <$> birkBaker bid bps
 
-  -- |Get the account of the given baker.
-  bsoGetBakerAccount :: UpdatableBlockState m -> BakerId -> m (Maybe Account)
-  bsoGetBakerAccount s bid = do
-    binfo <- bsoGetBakerInfo s bid
+  -- |Get the reward account of the given baker.
+  bsoGetEpochBakerAccount :: UpdatableBlockState m -> BakerId -> m (Maybe Account)
+  bsoGetEpochBakerAccount s bid = do
+    bps <- bsoGetBlockBirkParameters s
+    let binfo = fst <$> (birkEpochBaker bid bps)
     join <$> mapM (bsoGetAccount s . _bakerAccount) binfo
 
 
-  -- |Add a new baker to the baker pool. Assign a fresh baker identity to the 
+  -- |Add a new baker to the baker pool. Assign a fresh baker identity to the
+
   -- new baker and return the assigned identity.
   -- This method should also update the next available baker id in the system.
-  bsoAddBaker :: UpdatableBlockState m -> BakerCreationInfo -> m (BakerId, UpdatableBlockState m)
+  -- If a baker with the given signing key already exists do nothing and
+  -- return 'Nothing'
+  bsoAddBaker :: UpdatableBlockState m -> BakerCreationInfo -> m (Maybe BakerId, UpdatableBlockState m)
   
   -- |Update an existing baker's information. The method may assume that the baker with 
   -- the given Id exists.
-  bsoUpdateBaker :: UpdatableBlockState m -> BakerUpdate -> m (UpdatableBlockState m)
+  -- If a baker with a given signing key already exists return 'False', and if the baker
+  -- was successfully updated return 'True'.
+  -- If updating the account the precondition of this method is that the reward account exists.
+  bsoUpdateBaker :: UpdatableBlockState m -> BakerUpdate -> m (Bool, UpdatableBlockState m)
 
   -- |Remove a baker from the list of allowed bakers. Return 'True' if a baker
   -- with given 'BakerId' existed, and 'False' otherwise.
@@ -269,12 +256,13 @@ class BlockStateQuery m => BlockStateOperations m where
   bsoDecrementCentralBankGTU :: UpdatableBlockState m -> Amount -> m (Amount, UpdatableBlockState m)
 
   -- |Change the given account's stake delegation. Return 'False' if the target
-  --  is an invalid baker (and delegation is unchanged), and 'True' otherwise.
+  -- is an invalid baker (and delegation is unchanged), and 'True' otherwise.
+  -- The method requires that the account already exists.
   bsoDelegateStake :: UpdatableBlockState m -> AccountAddress -> Maybe BakerId -> m (Bool, UpdatableBlockState m)
 
   -- |Get the identity provider data for the given identity provider, or Nothing if
   -- the identity provider with given ID does not exist.
-  bsoGetIdentityProvider :: UpdatableBlockState m -> ID.IdentityProviderIdentity -> m (Maybe IdentityProviderData)
+  bsoGetIdentityProvider :: UpdatableBlockState m -> ID.IdentityProviderIdentity -> m (Maybe IpInfo)
 
   -- |Get the current cryptographic parameters. The idea is that these will be
   -- periodically updated and so they must be part of the block state.
@@ -286,16 +274,46 @@ class BlockStateQuery m => BlockStateOperations m where
   -- |Add a special transaction outcome.
   bsoAddSpecialTransactionOutcome :: UpdatableBlockState m -> SpecialTransactionOutcome -> m (UpdatableBlockState m)
 
-  -- |Update the information used to construct the next leadership election nonce
-  bsoUpdateSeedState :: UpdatableBlockState m -> SeedState -> m (UpdatableBlockState m)
+  -- |Update the birk parameters of a block state
+  bsoUpdateBirkParameters :: UpdatableBlockState m -> BirkParameters -> m (UpdatableBlockState m)
+
+-- | Block state storage operations
+class BlockStateOperations m => BlockStateStorage m where
+    -- |Derive a mutable state instance from a block state instance. The mutable
+    -- state instance supports all the operations needed by the scheduler for
+    -- block execution. Semantically the 'UpdatableBlockState' must be a copy,
+    -- changes to it must not affect 'BlockState', but an efficient
+    -- implementation should expect that only a small subset of the state will
+    -- change, and thus a variant of copy-on-write should be used.
+    thawBlockState :: BlockState m -> m (UpdatableBlockState m)
+
+    -- |Freeze a mutable block state instance. The mutable state instance will
+    -- not be used afterwards and the implementation can thus avoid copying
+    -- data.
+    freezeBlockState :: UpdatableBlockState m -> m (BlockState m)
+
+    -- |Discard a mutable block state instance.  The mutable state instance will
+    -- not be used afterwards.
+    dropUpdatableBlockState :: UpdatableBlockState m -> m ()
+
+    -- |Mark the given state instance as no longer needed and eventually
+    -- discharge it. This can happen, for instance, when a block becomes dead
+    -- due to finalization. The block state instance will not be accessed after
+    -- this method is called.
+    purgeBlockState :: BlockState m -> m ()
+
+    -- |Mark a block state for archive: i.e. it will no longer be needed by
+    -- consensus (but could be required for historical queries).
+    archiveBlockState :: BlockState m -> m ()
+
+    -- |Serialize a block state.
+    putBlockState :: BlockState m -> m S.Put
+
+    -- |Deserialize a block state.
+    getBlockState :: S.Get (m (BlockState m))
 
 
-newtype BSMTrans t (m :: * -> *) a = BSMTrans (t m a)
-    deriving (Functor, Applicative, Monad, MonadTrans)
-type instance UpdatableBlockState (BSMTrans t m) = UpdatableBlockState m
-type instance BlockPointer (BSMTrans t m) = BlockPointer m
-
-instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (BSMTrans t m) where
+instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGSTrans t m) where
   getModule s = lift . getModule s
   getAccount s = lift . getAccount s
   getContractInstance s = lift . getContractInstance s
@@ -317,7 +335,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (BSMT
   {-# INLINE getTransactionOutcome #-}
   {-# INLINE getSpecialOutcomes #-}
 
-instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperations (BSMTrans t m) where
+instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperations (MGSTrans t m) where
   bsoGetModule s = lift . bsoGetModule s
   bsoGetAccount s = lift . bsoGetAccount s
   bsoGetInstance s = lift . bsoGetInstance s
@@ -346,7 +364,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoGetCryptoParams s = lift $ bsoGetCryptoParams s
   bsoSetTransactionOutcomes s = lift . bsoSetTransactionOutcomes s
   bsoAddSpecialTransactionOutcome s = lift . bsoAddSpecialTransactionOutcome s
-  bsoUpdateSeedState ss = lift . bsoUpdateSeedState ss
+  bsoUpdateBirkParameters bps = lift . bsoUpdateBirkParameters bps
   {-# INLINE bsoGetModule #-}
   {-# INLINE bsoGetAccount #-}
   {-# INLINE bsoGetInstance #-}
@@ -375,23 +393,39 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoGetCryptoParams #-}
   {-# INLINE bsoSetTransactionOutcomes #-}
   {-# INLINE bsoAddSpecialTransactionOutcome #-}
-  {-# INLINE bsoUpdateSeedState #-}
+  {-# INLINE bsoUpdateBirkParameters #-}
 
-type instance BlockPointer (MaybeT m) = BlockPointer m
-type instance UpdatableBlockState (MaybeT m) = UpdatableBlockState m
-deriving via (BSMTrans MaybeT m) instance BlockStateQuery m => BlockStateQuery (MaybeT m)
-deriving via (BSMTrans MaybeT m) instance BlockStateOperations m => BlockStateOperations (MaybeT m)
+instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (MGSTrans t m) where
+    thawBlockState = lift . thawBlockState
+    freezeBlockState = lift . freezeBlockState
+    dropUpdatableBlockState = lift . dropUpdatableBlockState
+    purgeBlockState = lift . purgeBlockState
+    archiveBlockState = lift . archiveBlockState
+    putBlockState = lift . putBlockState
+    getBlockState = fmap lift getBlockState
+    {-# INLINE thawBlockState #-}
+    {-# INLINE freezeBlockState #-}
+    {-# INLINE dropUpdatableBlockState #-}
+    {-# INLINE purgeBlockState #-}
+    {-# INLINE archiveBlockState #-}
+    {-# INLINE putBlockState #-}
+    {-# INLINE getBlockState #-}
 
-type instance BlockPointer (ExceptT e m) = BlockPointer m
-type instance UpdatableBlockState (ExceptT e m) = UpdatableBlockState m
-deriving via (BSMTrans (ExceptT e) m) instance BlockStateQuery m => BlockStateQuery (ExceptT e m)
-deriving via (BSMTrans (ExceptT e) m) instance BlockStateOperations m => BlockStateOperations (ExceptT e m)
 
-type instance BlockPointer (RWST r w s m) = BlockPointer m
-type instance UpdatableBlockState (RWST r w s m) = UpdatableBlockState m
-deriving via (BSMTrans (RWST r w s) m) instance (BlockStateQuery m, Monoid w) => BlockStateQuery (RWST r w s m)
-deriving via (BSMTrans (RWST r w s) m) instance (BlockStateOperations m, Monoid w) => BlockStateOperations (RWST r w s m)
+deriving via (MGSTrans MaybeT m) instance BlockStateQuery m => BlockStateQuery (MaybeT m)
+deriving via (MGSTrans MaybeT m) instance BlockStateOperations m => BlockStateOperations (MaybeT m)
+deriving via (MGSTrans MaybeT m) instance BlockStateStorage m => BlockStateStorage (MaybeT m)
 
+deriving via (MGSTrans (ExceptT e) m) instance BlockStateQuery m => BlockStateQuery (ExceptT e m)
+deriving via (MGSTrans (ExceptT e) m) instance BlockStateOperations m => BlockStateOperations (ExceptT e m)
+deriving via (MGSTrans (ExceptT e) m) instance BlockStateStorage m => BlockStateStorage (ExceptT e m)
+
+-- deriving via (BSMTrans g (RWST r w s) m) instance (BlockStateQuery g m, Monoid w) => BlockStateQuery g (RWST r w s m)
+-- deriving via (BSMTrans g (RWST r w s) m) instance (BlockStateOperations g m, Monoid w) => BlockStateOperations g (RWST r w s m)
+
+deriving instance BlockStateQuery m => BlockStateQuery (TreeStateM s m)
+deriving instance BlockStateOperations m => BlockStateOperations (TreeStateM s m)
+deriving instance BlockStateStorage m => BlockStateStorage (TreeStateM s m)
 
 data TransferReason =
   -- |Transfer because of a top-level transaction recorded on a block.
@@ -487,7 +521,7 @@ resultToReasons bp tx res =
         extractReason (Updated (AddressContract source) target amount _) =
           Just (ContractToContractTransfer trId source amount target)
         extractReason (CredentialDeployed cdv) =
-          let caaddr = ID.accountAddress (ID.cdvVerifyKey cdv) (ID.cdvSigScheme cdv)
+          let caaddr = ID.accountAddress (ID.cdvVerifyKey cdv)
           in Just (CredentialDeployment trId sender caaddr cdv)
         extractReason _ = Nothing
         
@@ -545,5 +579,5 @@ instance ATLMonad m => ATLMonad (MaybeT m) where
 instance ATLMonad m => ATLMonad (ExceptT e m) where
     atlLogTransfer src lvl msg = lift (atlLogTransfer src lvl msg)
 
-instance (Monad (t m), MonadTrans t, ATLMonad m) => ATLMonad (BSMTrans t m) where
+instance (Monad (t m), MonadTrans t, ATLMonad m) => ATLMonad (MGSTrans t m) where
     atlLogTransfer src lvl msg = lift (atlLogTransfer src lvl msg)

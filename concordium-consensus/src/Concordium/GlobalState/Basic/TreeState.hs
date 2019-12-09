@@ -1,7 +1,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE RecordWildCards, MultiParamTypeClasses, FlexibleInstances, GeneralizedNewtypeDeriving, LambdaCase #-}
-{-# LANGUAGE DerivingStrategies, DerivingVia #-}
+{-# LANGUAGE RecordWildCards, MultiParamTypeClasses, FlexibleInstances, GeneralizedNewtypeDeriving, LambdaCase, FlexibleContexts #-}
+{-# LANGUAGE DerivingStrategies, DerivingVia, StandaloneDeriving #-}
 module Concordium.GlobalState.Basic.TreeState where
 
 import Lens.Micro.Platform
@@ -9,6 +9,7 @@ import Data.List as List
 import Data.Foldable
 import Control.Monad.State
 import Control.Exception
+import Data.Serialize (runGet)
 
 import qualified Data.Map.Strict as Map
 import qualified Data.HashMap.Strict as HM
@@ -18,115 +19,95 @@ import qualified Data.Set as Set
 
 import Concordium.Types
 import Concordium.Types.HashableTo
+import qualified Concordium.GlobalState.Classes as GS
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Block
 import qualified Concordium.GlobalState.TreeState as TS
 import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.Statistics (ConsensusStatistics, initialConsensusStatistics)
-import Concordium.GlobalState.Transactions
-import qualified Concordium.GlobalState.Rewards as Rewards
+import Concordium.Types.Transactions
 
 import Concordium.GlobalState.Basic.Block
-import Concordium.GlobalState.Basic.BlockState
+import Concordium.GlobalState.Basic.BlockPointer
 
-data SkovData = SkovData {
+data SkovData bs = SkovData {
     -- |Map of all received blocks by hash.
-    _skovBlockTable :: !(HM.HashMap BlockHash (TS.BlockStatus BlockPointer PendingBlock)),
-    _skovPossiblyPendingTable :: !(HM.HashMap BlockHash [PendingBlock]),
-    _skovPossiblyPendingQueue :: !(MPQ.MinPQueue Slot (BlockHash, BlockHash)),
-    _skovBlocksAwaitingLastFinalized :: !(MPQ.MinPQueue BlockHeight PendingBlock),
-    _skovFinalizationList :: !(Seq.Seq (FinalizationRecord, BlockPointer)),
-    _skovFinalizationPool :: !(Map.Map FinalizationIndex [FinalizationRecord]),
-    _skovBranches :: !(Seq.Seq [BlockPointer]),
-    _skovGenesisData :: !GenesisData,
-    _skovGenesisBlockPointer :: !BlockPointer,
-    _skovFocusBlock :: !BlockPointer,
-    _skovPendingTransactions :: !PendingTransactionTable,
-    _skovTransactionTable :: !TransactionTable,
-    _skovStatistics :: !ConsensusStatistics,
-    _skovRuntimeParameters :: !RuntimeParameters
+    _blockTable :: !(HM.HashMap BlockHash (TS.BlockStatus (BasicBlockPointer bs) PendingBlock)),
+    -- |Map of (possibly) pending blocks by hash
+    _possiblyPendingTable :: !(HM.HashMap BlockHash [PendingBlock]),
+    -- |Priority queue of pairs of (block, parent) hashes where the block is (possibly) pending its parent, by block slot
+    _possiblyPendingQueue :: !(MPQ.MinPQueue Slot (BlockHash, BlockHash)),
+    -- |Priority queue of blocks waiting for their last finalized block to be finalized, ordered by height of the last finalized block
+    _blocksAwaitingLastFinalized :: !(MPQ.MinPQueue BlockHeight PendingBlock),
+    -- |List of finalization records with the blocks that they finalize, starting from genesis
+    _finalizationList :: !(Seq.Seq (FinalizationRecord, BasicBlockPointer bs)),
+    -- |Pending finalization records by finalization index
+    _finalizationPool :: !(Map.Map FinalizationIndex [FinalizationRecord]),
+    -- |Branches of the tree by height above the last finalized block
+    _branches :: !(Seq.Seq [BasicBlockPointer bs]),
+    -- |Genesis data
+    _genesisData :: !GenesisData,
+    -- |Block pointer to genesis block
+    _genesisBlockPointer :: !(BasicBlockPointer bs),
+    -- |Current focus block
+    _focusBlock :: !(BasicBlockPointer bs),
+    -- |Pending transaction table
+    _pendingTransactions :: !PendingTransactionTable,
+    -- |Transaction table
+    _transactionTable :: !TransactionTable,
+    -- |Consensus statistics
+    _statistics :: !ConsensusStatistics,
+    -- |Runtime parameters
+    _runtimeParameters :: !RuntimeParameters
 }
 makeLenses ''SkovData
 
-instance Show SkovData where
-    show SkovData{..} = "Finalized: " ++ intercalate "," (take 6 . show . _bpHash . snd <$> toList _skovFinalizationList) ++ "\n" ++
-        "Branches: " ++ intercalate "," ( (('[':) . (++"]") . intercalate "," . map (take 6 . show . _bpHash)) <$> toList _skovBranches)
-
-class SkovLenses s where
-    skov :: Lens' s SkovData
-    blockTable :: Lens' s (HM.HashMap BlockHash (TS.BlockStatus BlockPointer PendingBlock))
-    blockTable = skov . skovBlockTable
-    possiblyPendingTable :: Lens' s (HM.HashMap BlockHash [PendingBlock])
-    possiblyPendingTable = skov . skovPossiblyPendingTable
-    possiblyPendingQueue :: Lens' s (MPQ.MinPQueue Slot (BlockHash, BlockHash))
-    possiblyPendingQueue = skov . skovPossiblyPendingQueue
-    blocksAwaitingLastFinalized :: Lens' s (MPQ.MinPQueue BlockHeight PendingBlock)
-    blocksAwaitingLastFinalized = skov . skovBlocksAwaitingLastFinalized
-    finalizationList :: Lens' s (Seq.Seq (FinalizationRecord, BlockPointer))
-    finalizationList = skov . skovFinalizationList
-    finalizationPool :: Lens' s (Map.Map FinalizationIndex [FinalizationRecord])
-    finalizationPool = skov . skovFinalizationPool
-    branches :: Lens' s (Seq.Seq [BlockPointer])
-    branches = skov . skovBranches
-    genesisData :: Lens' s GenesisData
-    genesisData = skov . skovGenesisData
-    genesisBlockPointer :: Lens' s BlockPointer
-    genesisBlockPointer = skov . skovGenesisBlockPointer
-    focusBlock :: Lens' s BlockPointer
-    focusBlock = skov . skovFocusBlock
-    pendingTransactions :: Lens' s PendingTransactionTable
-    pendingTransactions = skov . skovPendingTransactions
-    transactionTable :: Lens' s TransactionTable
-    transactionTable = skov . skovTransactionTable
-    statistics :: Lens' s ConsensusStatistics
-    statistics = skov . skovStatistics
-    runtimeParameters :: Lens' s RuntimeParameters
-    runtimeParameters = skov . skovRuntimeParameters
-
-instance SkovLenses SkovData where
-    skov = id
+instance Show (SkovData bs) where
+    show SkovData{..} = "Finalized: " ++ intercalate "," (take 6 . show . _bpHash . snd <$> toList _finalizationList) ++ "\n" ++
+        "Branches: " ++ intercalate "," ( (('[':) . (++"]") . intercalate "," . map (take 6 . show . _bpHash)) <$> toList _branches)
 
 -- |Initial skov data with default runtime parameters (block size = 10MB).
-initialSkovDataDefault :: GenesisData -> BlockState -> SkovData
+initialSkovDataDefault :: GenesisData -> bs -> (SkovData bs)
 initialSkovDataDefault = initialSkovData defaultRuntimeParameters
 
-initialSkovData :: RuntimeParameters -> GenesisData -> BlockState -> SkovData
+initialSkovData :: RuntimeParameters -> GenesisData -> bs -> (SkovData bs)
 initialSkovData rp gd genState = SkovData {
-            _skovBlockTable = HM.singleton gbh (TS.BlockFinalized gb gbfin),
-            _skovPossiblyPendingTable = HM.empty,
-            _skovPossiblyPendingQueue = MPQ.empty,
-            _skovBlocksAwaitingLastFinalized = MPQ.empty,
-            _skovFinalizationList = Seq.singleton (gbfin, gb),
-            _skovFinalizationPool = Map.empty,
-            _skovBranches = Seq.empty,
-            _skovGenesisData = gd,
-            _skovGenesisBlockPointer = gb,
-            _skovFocusBlock = gb,
-            _skovPendingTransactions = emptyPendingTransactionTable,
-            _skovTransactionTable = emptyTransactionTable,
-            _skovStatistics = initialConsensusStatistics,
-            _skovRuntimeParameters = rp
+            _blockTable = HM.singleton gbh (TS.BlockFinalized gb gbfin),
+            _possiblyPendingTable = HM.empty,
+            _possiblyPendingQueue = MPQ.empty,
+            _blocksAwaitingLastFinalized = MPQ.empty,
+            _finalizationList = Seq.singleton (gbfin, gb),
+            _finalizationPool = Map.empty,
+            _branches = Seq.empty,
+            _genesisData = gd,
+            _genesisBlockPointer = gb,
+            _focusBlock = gb,
+            _pendingTransactions = emptyPendingTransactionTable,
+            _transactionTable = emptyTransactionTable,
+            _statistics = initialConsensusStatistics,
+            _runtimeParameters = rp
         }
     where
         gb = makeGenesisBlockPointer gd genState
         gbh = _bpHash gb
         gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
 
-newtype SkovTreeState s m a = SkovTreeState {runSkovTreeState :: m a}
-    deriving (Functor, Monad, Applicative, MonadState s)
-    deriving (BS.BlockStateQuery) via (PureBlockStateMonad m)
-    deriving (BS.BlockStateOperations) via (PureBlockStateMonad m)
+instance (bs ~ GS.BlockState m) => GS.GlobalStateTypes (GS.TreeStateM (SkovData bs) m) where
+    type PendingBlock (GS.TreeStateM (SkovData bs) m) = PendingBlock
+    type BlockPointer (GS.TreeStateM (SkovData bs) m) = BasicBlockPointer bs
 
-type instance TS.PendingBlock (SkovTreeState s m) = PendingBlock
-type instance BS.BlockPointer (SkovTreeState s m) = BlockPointer
-type instance BS.UpdatableBlockState (SkovTreeState s m) = BlockState
-
-instance (SkovLenses s, Monad m, MonadState s m) => TS.TreeStateMonad (SkovTreeState s m) where
+instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadState (SkovData bs) m) => TS.TreeStateMonad (GS.TreeStateM (SkovData bs) m) where
+    blockState = return . _bpState
     makePendingBlock key slot parent bid pf n lastFin trs time = return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
+    importPendingBlock blockBS rectime =
+        case runGet (getBlock $ utcTimeToTransactionTime rectime) blockBS of
+            Left err -> return $ Left $ "Block deserialization failed: " ++ err
+            Right (GenesisBlock {}) -> return $ Left $ "Block desrialization failed: unexpected genesis block"
+            Right (NormalBlock block0) -> return $ Right $ makePendingBlock block0 rectime
     getBlockStatus bh = use (blockTable . at bh)
     makeLiveBlock block parent lastFin st arrTime energy = do
-            let blockP = makeBlockPointer block parent lastFin st arrTime energy
+            let blockP = makeBasicBlockPointer block parent lastFin st arrTime energy
             blockTable . at (getHash block) ?= TS.BlockAlive blockP
             return blockP
     markDead bh = blockTable . at bh ?= TS.BlockDead
@@ -141,8 +122,8 @@ instance (SkovLenses s, Monad m, MonadState s m) => TS.TreeStateMonad (SkovTreeS
             _ -> error "empty finalization list"
     getNextFinalizationIndex = FinalizationIndex . fromIntegral . Seq.length <$> use finalizationList
     addFinalization newFinBlock finRec = finalizationList %= (Seq.:|> (finRec, newFinBlock))
-    getFinalizationAtIndex finIndex = fmap fst . Seq.lookup (fromIntegral finIndex) <$> use finalizationList
-    getFinalizationFromIndex finIndex = toList . fmap fst . Seq.drop (fromIntegral finIndex) <$> use finalizationList
+    getFinalizationAtIndex finIndex = Seq.lookup (fromIntegral finIndex) <$> use finalizationList
+    getFinalizationFromIndex finIndex = toList . Seq.drop (fromIntegral finIndex) <$> use finalizationList
     getBranches = use branches
     putBranches brs = branches .= brs
     takePendingChildren bh = possiblyPendingTable . at bh . non [] <<.= []
@@ -191,18 +172,22 @@ instance (SkovLenses s, Monad m, MonadState s m) => TS.TreeStateMonad (SkovTreeS
                     in return $ case atnnce of
                         Nothing -> Map.toAscList beyond
                         Just s -> (nnce, s) : Map.toAscList beyond
-    addCommitTransaction tr slot = do 
+    addCommitTransaction tr slot = do
             tt <- use transactionTable
             let trHash = getHash tr
             case tt ^. ttHashMap . at trHash of
-                Nothing -> if (tt ^. ttNonFinalizedTransactions . at sender . non emptyANFT . anftNextNonce) <= nonce then do
-                                transactionTable .= (tt & (ttNonFinalizedTransactions . at sender . non emptyANFT . anftMap . at nonce . non Set.empty %~ Set.insert tr)
-                                                        & (ttHashMap . at (getHash tr) ?~ (tr, slot)))
-                                return $ Just (tr, True)
-                            else return Nothing
+                Nothing ->
+                  if (tt ^. ttNonFinalizedTransactions . at sender . non emptyANFT . anftNextNonce) <= nonce then do
+                    -- transaction should be added, provided its signature checks out.
+                    if verifyTransactionSignature tr then do
+                      transactionTable .= (tt & (ttNonFinalizedTransactions . at sender . non emptyANFT . anftMap . at nonce . non Set.empty %~ Set.insert tr)
+                                              & (ttHashMap . at (getHash tr) ?~ (tr, slot)))
+                      return (TS.Added tr)
+                    else return TS.InvalidSignature
+                  else return TS.ObsoleteNonce
                 Just (tr', slot') -> do
                                 when (slot > slot') $ transactionTable .= (tt & ttHashMap . at trHash ?~ (tr', slot))
-                                return $ Just (tr', False)
+                                return $ TS.Duplicate tr'
         where
             sender = transactionSender tr
             nonce = transactionNonce tr
@@ -240,17 +225,6 @@ instance (SkovLenses s, Monad m, MonadState s m) => TS.TreeStateMonad (SkovTreeS
                 nn <- use (transactionTable . ttNonFinalizedTransactions . at (transactionSender tr) . non emptyANFT . anftNextNonce)
                 return $ Just (tr, transactionNonce tr < nn)
     updateBlockTransactions trs pb = return $ pb {pbBlock = (pbBlock pb) {bbTransactions = BlockTransactions trs}}
-
-    {-# INLINE thawBlockState #-}
-    thawBlockState bs = return $ bs & (blockBank . Rewards.executionCost .~ 0) .
-                                      (blockBank . Rewards.identityIssuersRewards .~ HM.empty)
-
-
-    {-# INLINE freezeBlockState #-}
-    freezeBlockState = return
-
-    {-# INLINE purgeBlockState #-}
-    purgeBlockState _ = return ()
 
     getConsensusStatistics = use statistics
     putConsensusStatistics stats = statistics .= stats
