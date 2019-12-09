@@ -328,7 +328,7 @@ receiveWMVBAMessage src sig (WMVBAWitnessCreatorMessage (v, blssig)) = do
                     addCulprits t
               in addCulprits culprits
               -- TODO: check if finalization can still finish. If enough bad justifications has been seen,
-              -- finalization may not be able to finish
+              -- finalization may not be able to finish.
       where
         extractNonBadJustifications jv badjv = removeBadJustifications (PM.toList jv) badjv []
         removeBadJustifications [] _ acc = acc
@@ -339,14 +339,14 @@ receiveWMVBAMessage src sig (WMVBAWitnessCreatorMessage (v, blssig)) = do
 makeBlsAggregateSig :: [(Party, (a0, Bls.Signature))] -> Bls.Signature
 makeBlsAggregateSig [(_, (_, blss))] = blss
 makeBlsAggregateSig ((_, (_, blss)) : tl) = Bls.aggregate blss (makeBlsAggregateSig tl)
-makeBlsAggregateSig [] = Bls.emptySignature -- WARNING: this should never happen! makeBlsAggregateSig should never be called
+makeBlsAggregateSig [] = Bls.emptySignature -- This should never happen! makeBlsAggregateSig should never be called
                                             -- on an empty list
 
 -- TODO: optimize, this is just a first draft
 -- Internal function, this is only exported for testing purposes
 --
--- First argument is a list of parties and their proposed signatures on the
--- second argument, of which we are only interested in the Bls signature.
+-- First argument is a list of parties and their signatures
+-- Second argument is the bytestring that each party supposedly signed
 -- The third argument is a lookup function from parties to their Bls publickey
 -- Returns the list of parties whose signature did not verify under their key.
 findCulprits :: [(Party, (a, Bls.Signature))] -> BS.ByteString -> (Party -> Bls.PublicKey) -> [Party]
