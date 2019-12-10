@@ -15,7 +15,7 @@ use p2p_client::{
     test_utils::{connect, generate_random_data, make_node_and_sync, next_available_port},
 };
 
-use std::{convert::TryFrom, sync::Arc, thread};
+use std::{convert::TryFrom, sync::Arc, thread, time::Duration};
 
 const KIB: usize = 1024;
 const MIB: usize = 1024 * 1024;
@@ -26,7 +26,7 @@ const MIN_PKT_SIZE: usize = 2; // current minimum possible packet size
 const MAX: usize = 6 * MIB;
 
 fn main() -> Fallible<()> {
-    let env = Env::default().filter_or("LOG_LEVEL", "warn");
+    let env = Env::default().filter_or("LOG_LEVEL", "trace");
     let mut log_builder = Builder::from_env(env);
     // disregard invalid packet type errors
     log_builder.filter_module("p2p_client::connection::message_handlers", LevelFilter::Off);

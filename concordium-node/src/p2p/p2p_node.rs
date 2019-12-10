@@ -1050,7 +1050,9 @@ impl P2PNode {
     }
 
     pub fn add_connection(&self, conn: Arc<Connection>) {
+        let addr = conn.remote_addr();
         write_or_die!(self.connections()).insert(conn.token, conn);
+        trace!("Added a connection to {:?}", addr);
     }
 
     /// Waits for P2PNode termination. Use `P2PNode::close` to notify the
