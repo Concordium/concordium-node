@@ -714,9 +714,7 @@ impl P2PNode {
                     .copied()
                     .choose_multiple(&mut rng, (peer_count - max_allowed_nodes) as usize);
 
-                for token in to_drop {
-                    self.remove_connection(token);
-                }
+                self.remove_connections(&to_drop);
             }
         }
 
@@ -1049,6 +1047,21 @@ impl P2PNode {
         }
     }
 
+    pub fn remove_connections(&self, tokens: &[Token]) -> bool {
+        let connections = &mut write_or_die!(self.connections());
+
+        let mut removed = 0;
+        for token in tokens {
+            if let Some(conn) = connections.remove(&token) {
+                write_or_die!(conn.low_level).conn_ref = None; // necessary in order for Drop to kick in
+                removed += 1;
+            }
+        }
+        self.bump_last_peer_update();
+
+        removed == tokens.len()
+    }
+
     pub fn add_connection(&self, conn: Arc<Connection>) {
         let addr = conn.remote_addr();
         write_or_die!(self.connections()).insert(conn.token, conn);
@@ -1242,7 +1255,8 @@ impl P2PNode {
             connections.push((*token, Arc::clone(&conn)));
         }
 
-        let to_remove = connections
+        // collect tokens to remove and ips to soft ban, if any
+        let (tokens, ips): (Vec<_>, Vec<_>) = connections
             .par_iter()
             .filter_map(|(token, conn)| {
                 let mut low_level = write_or_die!(conn.low_level);
@@ -1267,12 +1281,12 @@ impl P2PNode {
                     None
                 }
             })
-            .collect::<Vec<_>>();
+            .unzip();
 
-        if !to_remove.is_empty() {
+        if !tokens.is_empty() {
+            self.remove_connections(&tokens);
             let mut soft_bans = write_or_die!(self.connection_handler.soft_bans);
-            for (token, ip) in to_remove.into_iter() {
-                self.remove_connection(token);
+            for ip in ips.into_iter() {
                 soft_bans.push((ip, Instant::now()));
             }
         }
