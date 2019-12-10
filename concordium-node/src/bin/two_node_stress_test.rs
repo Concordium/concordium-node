@@ -8,10 +8,10 @@ use rand::{thread_rng, Rng};
 use concordium_common::hybrid_buf::HybridBuf;
 
 use p2p_client::{
-    common::{P2PNodeId, PeerType},
+    common::PeerType,
     connection::Connection,
     network::NetworkId,
-    p2p::p2p_node::{send_direct_message, P2PNode},
+    p2p::p2p_node::{send_broadcast_message, P2PNode},
     test_utils::{connect, generate_random_data, make_node_and_sync, next_available_port},
 };
 
@@ -43,7 +43,7 @@ fn main() -> Fallible<()> {
     let node_2_ref = Arc::clone(&node_2);
     thread::spawn(move || {
         for _ in 0..CNT {
-            send_fuzzed_packet(&node_2_ref, None, MIN_PKT_SIZE, MAX)
+            send_fuzzed_packet(&node_2_ref, MIN_PKT_SIZE, MAX)
         }
         node_2_ref.close_and_join().unwrap();
     });
@@ -51,7 +51,7 @@ fn main() -> Fallible<()> {
     let node_1_ref = Arc::clone(&node_1);
     thread::spawn(move || {
         for _ in 0..CNT {
-            send_fuzzed_packet(&node_1_ref, None, MIN_PKT_SIZE, MAX)
+            send_fuzzed_packet(&node_1_ref, MIN_PKT_SIZE, MAX)
         }
         node_1_ref.close_and_join().unwrap();
     });
@@ -64,11 +64,11 @@ fn main() -> Fallible<()> {
     Ok(())
 }
 
-fn send_fuzzed_packet(source: &P2PNode, target: Option<P2PNodeId>, min: usize, max: usize) {
-    send_direct_message(
+fn send_fuzzed_packet(source: &P2PNode, min: usize, max: usize) {
+    send_broadcast_message(
         &source,
         source.self_peer.id,
-        target,
+        vec![],
         NetworkId::from(100),
         HybridBuf::try_from(generate_random_data(thread_rng().gen_range(min, max))).unwrap(),
     )
