@@ -586,13 +586,21 @@ impl P2PNode {
                     self_clone.stats.conn_received_inc();
                 }
 
-                pool.install(|| {
+                let (bad_tokens, bad_ips) = pool.install(|| {
                     self_clone.process_network_events(
                         &events,
                         &deduplication_queues,
                         &mut connections,
                     )
                 });
+
+                if !bad_tokens.is_empty() {
+                    self_clone.remove_connections(&bad_tokens);
+                    let mut soft_bans = write_or_die!(self_clone.connection_handler.soft_bans);
+                    for ip in bad_ips.into_iter() {
+                        soft_bans.push((ip, Instant::now()));
+                    }
+                }
 
                 // Run periodic tasks
                 let now = Instant::now();
@@ -1249,14 +1257,14 @@ impl P2PNode {
         events: &Events,
         deduplication_queues: &Arc<DeduplicationQueues>,
         connections: &mut Vec<(Token, Arc<Connection>)>,
-    ) {
+    ) -> (Vec<Token>, Vec<IpAddr>) {
         connections.clear();
         for (token, conn) in read_or_die!(self.connections()).iter() {
             connections.push((*token, Arc::clone(&conn)));
         }
 
         // collect tokens to remove and ips to soft ban, if any
-        let (tokens, ips): (Vec<_>, Vec<_>) = connections
+        connections
             .par_iter()
             .filter_map(|(token, conn)| {
                 let mut low_level = write_or_die!(conn.low_level);
@@ -1281,15 +1289,7 @@ impl P2PNode {
                     None
                 }
             })
-            .unzip();
-
-        if !tokens.is_empty() {
-            self.remove_connections(&tokens);
-            let mut soft_bans = write_or_die!(self.connection_handler.soft_bans);
-            for ip in ips.into_iter() {
-                soft_bans.push((ip, Instant::now()));
-            }
-        }
+            .unzip()
     }
 
     pub fn close(&self) -> bool {
