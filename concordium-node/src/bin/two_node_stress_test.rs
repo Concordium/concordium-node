@@ -56,6 +56,32 @@ fn main() -> Fallible<()> {
         node_1_ref.close_and_join().unwrap();
     });
 
+    thread::sleep(Duration::from_secs(5));
+
+    let node_1_ref = Arc::clone(&node_1);
+    let node_2_ref = Arc::clone(&node_2);
+    thread::spawn(move || {
+        let mut faultybois = vec![];
+
+        for i in 0..5 {
+            let faultyboi =
+                make_node_and_sync(next_available_port(), vec![100], PeerType::Node).unwrap();
+            if i % 2 == 0 {
+                connect(&node_1_ref, &faultyboi).unwrap();
+            } else {
+                connect(&node_2_ref, &faultyboi).unwrap();
+            }
+            faultybois.push(faultyboi);
+        }
+        thread::sleep(Duration::from_secs(5));
+
+        for faultyboi in faultybois {
+            send_zeroes(&faultyboi);
+            thread::sleep(Duration::from_secs(1));
+            faultyboi.close_and_join().unwrap();
+        }
+    });
+
     node_1.join().unwrap();
     node_2.join().unwrap();
 
@@ -83,4 +109,9 @@ fn send_fuzzed_message(source: &P2PNode, min: usize, max: usize) {
             &filter,
         )
         .unwrap();
+}
+
+fn send_zeroes(source: &P2PNode) {
+    let filter = |_: &Connection| true;
+    source.send_over_all_connections(vec![], &filter).unwrap();
 }
