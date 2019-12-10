@@ -1259,6 +1259,7 @@ impl P2PNode {
         connections: &mut Vec<(Token, Arc<Connection>)>,
     ) -> (Vec<Token>, Vec<IpAddr>) {
         connections.clear();
+        // FIXME: it would be cool if we were able to remove this intermediate vector
         for (token, conn) in read_or_die!(self.connections()).iter() {
             connections.push((*token, Arc::clone(&conn)));
         }
