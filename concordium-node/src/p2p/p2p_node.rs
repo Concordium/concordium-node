@@ -594,16 +594,17 @@ impl P2PNode {
                     )
                 });
 
+                let now = Instant::now();
+
                 if !bad_tokens.is_empty() {
                     self_clone.remove_connections(&bad_tokens);
                     let mut soft_bans = write_or_die!(self_clone.connection_handler.soft_bans);
                     for ip in bad_ips.into_iter() {
-                        soft_bans.push((ip, Instant::now()));
+                        soft_bans.push((ip, now));
                     }
                 }
 
                 // Run periodic tasks
-                let now = Instant::now();
                 if now.duration_since(log_time)
                     >= Duration::from_secs(self_clone.config.housekeeping_interval)
                 {
