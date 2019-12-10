@@ -15,7 +15,7 @@ use std::{
     fs::OpenOptions,
     io::{Read, Seek, SeekFrom, Write},
     mem,
-    sync::{Arc, RwLock},
+    sync::RwLock,
 };
 
 use concordium_common::{
@@ -214,7 +214,7 @@ pub fn handle_consensus_inbound_message(
     network_id: NetworkId,
     consensus: &mut consensus::ConsensusContainer,
     request: ConsensusMessage,
-    peers: Arc<RwLock<PeerList>>,
+    peers: &RwLock<PeerList>,
     no_rebroadcast_consensus_validation: bool,
 ) -> Fallible<()> {
     process_external_gs_entry(
@@ -257,7 +257,7 @@ fn process_external_gs_entry(
     network_id: NetworkId,
     consensus: &mut consensus::ConsensusContainer,
     mut request: ConsensusMessage,
-    peers_lock: Arc<RwLock<PeerList>>,
+    peers_lock: &RwLock<PeerList>,
     no_rebroadcast_consensus_validation: bool,
 ) -> Fallible<()> {
     let source = P2PNodeId(request.source_peer());
@@ -418,27 +418,25 @@ fn send_catch_up_status(
     )
 }
 
-pub fn update_peer_list(node: &P2PNode, peers_lock: Arc<RwLock<PeerList>>) {
+pub fn update_peer_list(node: &P2PNode, peers_lock: &RwLock<PeerList>) {
     debug!("The peers have changed; updating the catch-up peer list");
 
     let peer_ids = node.get_node_peer_ids();
 
+    let mut peers = write_or_die!(peers_lock);
+    // remove global state peers whose connections were dropped
+    for (live_peer, state) in mem::replace(&mut peers.peers, Default::default())
+        .into_iter()
+        .filter(|(id, _)| peer_ids.contains(&id))
     {
-        let mut peers = write_or_die!(peers_lock);
-        // remove global state peers whose connections were dropped
-        for (live_peer, state) in mem::replace(&mut peers.peers, Default::default())
-            .into_iter()
-            .filter(|(id, _)| peer_ids.contains(&id))
-        {
-            peers.peers.push(live_peer, state);
-        }
+        peers.peers.push(live_peer, state);
+    }
 
-        // include newly added peers
-        peers.peers.reserve(peer_ids.len());
-        for id in peer_ids {
-            if peers.peers.get(&id).is_none() {
-                peers.peers.push(id, PeerState::new(PeerStatus::Pending));
-            }
+    // include newly added peers
+    peers.peers.reserve(peer_ids.len());
+    for id in peer_ids {
+        if peers.peers.get(&id).is_none() {
+            peers.peers.push(id, PeerState::new(PeerStatus::Pending));
         }
     }
 }
@@ -447,7 +445,7 @@ pub fn check_peer_states(
     node: &P2PNode,
     network_id: NetworkId,
     consensus: &mut consensus::ConsensusContainer,
-    peers_lock: Arc<RwLock<PeerList>>,
+    peers_lock: &RwLock<PeerList>,
 ) -> Fallible<()> {
     use PeerStatus::*;
 
@@ -485,7 +483,7 @@ pub fn check_peer_states(
 }
 
 fn update_peer_states(
-    peers_lock: Arc<RwLock<PeerList>>,
+    peers_lock: &RwLock<PeerList>,
     request: &ConsensusMessage,
     consensus_result: ConsensusFfiResponse,
 ) {

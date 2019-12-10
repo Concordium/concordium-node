@@ -321,7 +321,7 @@ fn start_consensus_message_threads(
             let mut last_peer_list_update = 0;
             loop {
                 if node_peers_ref.last_peer_update() > last_peer_list_update {
-                    update_peer_list(&node_peers_ref, Arc::clone(&peers_thread_ref));
+                    update_peer_list(&node_peers_ref, &peers_thread_ref);
                     last_peer_list_update = get_current_stamp();
                 }
 
@@ -329,7 +329,7 @@ fn start_consensus_message_threads(
                     &node_peers_ref,
                     nid,
                     &mut consensus_peers_ref,
-                    Arc::clone(&peers_thread_ref),
+                    &peers_thread_ref,
                 ) {
                     error!("Couldn't update the catch-up peer list: {}", e);
                 }
@@ -387,7 +387,7 @@ fn start_consensus_message_threads(
                             nid,
                             &mut consensus_in_ref,
                             msg,
-                            Arc::clone(&peers_in_ref),
+                            &peers_in_ref,
                             no_rebroadcast_consensus_validation,
                         )
                     });
@@ -408,7 +408,7 @@ fn start_consensus_message_threads(
                         nid,
                         &mut consensus_in_ref,
                         msg,
-                        Arc::clone(&peers_in_ref),
+                        &peers_in_ref,
                         no_rebroadcast_consensus_validation,
                     )
                 });
