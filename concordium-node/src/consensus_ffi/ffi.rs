@@ -9,13 +9,13 @@ use std::{
     slice,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Once,
+        Arc, Once,
     },
 };
 
 use crate::consensus::*;
 use concordium_common::{
-    hybrid_buf::HybridBuf, serial::Serial, ConsensusFfiResponse, ConsensusIsInCommitteeResponse,
+    serial::Serial, ConsensusFfiResponse, ConsensusIsInCommitteeResponse,
     PacketType,
 };
 use globalstate_rust::{
@@ -598,7 +598,7 @@ pub extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *co
     unsafe {
         let msg_variant = PacketType::FinalizationMessage;
         let payload =
-            HybridBuf::try_from(slice::from_raw_parts(data as *const u8, len as usize)).unwrap();
+            Arc::from(slice::from_raw_parts(data as *const u8, len as usize));
 
         let msg = ConsensusMessage::new(
             MessageType::Outbound(Some(peer_id)),
@@ -632,11 +632,10 @@ macro_rules! sending_callback {
                 CallbackType::CatchUpStatus => PacketType::CatchUpStatus,
             };
 
-            let payload = HybridBuf::try_from(slice::from_raw_parts(
+            let payload = Arc::from(slice::from_raw_parts(
                 $msg as *const u8,
                 $msg_length as usize,
-            ))
-            .unwrap();
+            ));
             let target = $target;
 
             let msg =
