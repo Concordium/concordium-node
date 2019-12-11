@@ -266,22 +266,22 @@ impl Connection {
     #[inline]
     fn process_message(
         &self,
-        mut message: HybridBuf,
+        message: Arc<[u8]>,
         deduplication_queues: &DeduplicationQueues,
     ) -> Fallible<()> {
         self.update_last_seen();
         self.stats.messages_received.fetch_add(1, Ordering::Relaxed);
         self.stats
             .bytes_received
-            .fetch_add(message.len()?, Ordering::Relaxed);
+            .fetch_add(message.len() as u64, Ordering::Relaxed);
         TOTAL_MESSAGES_RECEIVED_COUNTER.fetch_add(1, Ordering::Relaxed);
         self.handler().stats.pkt_received_inc();
 
         if cfg!(feature = "network_dump") {
-            self.send_to_dump(Arc::from(message.clone().remaining_bytes()?.to_vec()), true);
+            self.send_to_dump(message.clone(), true);
         }
 
-        let message = NetworkMessage::deserialize(&message.remaining_bytes()?);
+        let message = NetworkMessage::deserialize(&message);
         if let Err(e) = message {
             self.handle_invalid_network_msg(e);
             return Ok(());
