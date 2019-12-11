@@ -78,37 +78,37 @@ stages:
     - ( cd globalstate-mockup/globalstate-rust && cargo test --all --color=always )
     - ( cd consensus-rust && cargo test --all --color=always )
 
-"stack:test:crypto"
+"stack:test:crypto":
   extends: .generic-haskell-test
   stage: test
   script:
     - "stack test concordium-crypto | ts '[%Y-%m-%d %H:%M:%.S]'"
 
-"stack:test:acorn"
+"stack:test:acorn":
   extends: .generic-haskell-test
   stage: test
   script:
     - "stack test acorn | ts '[%Y-%m-%d %H:%M:%.S]'"
 
-"stack:test:globalstatetypes"
+"stack:test:globalstate-types":
   extends: .generic-haskell-test
   stage: test
   script:
     - "stack test globalstate-types | ts '[%Y-%m-%d %H:%M:%.S]'"
 
-"stack:test:globalstate"
+"stack:test:globalstate":
   extends: .generic-haskell-test
   stage: test
   script:
     - "stack test globalstate | ts '[%Y-%m-%d %H:%M:%.S]'"
 
-"stack:test:scheduler"
+"stack:test:scheduler":
   extends: .generic-haskell-test
   stage: test
   script:
     - "stack test scheduler | ts '[%Y-%m-%d %H:%M:%.S]'"
 
-"stack:test:consensus"
+"stack:test:consensus":
   extends: .generic-haskell-test
   stage: test
   script:
