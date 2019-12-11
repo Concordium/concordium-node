@@ -16,9 +16,7 @@ use crate::{
     proto::*,
 };
 
-use concordium_common::{
-    hybrid_buf::HybridBuf, ConsensusFfiResponse, ConsensusIsInCommitteeResponse, PacketType,
-};
+use concordium_common::{ConsensusFfiResponse, ConsensusIsInCommitteeResponse, PacketType};
 use consensus_rust::consensus::{ConsensusContainer, CALLBACK_QUEUE};
 use futures::future::Future;
 use globalstate_rust::tree::messaging::{ConsensusMessage, MessageType};
@@ -26,7 +24,6 @@ use grpcio::{self, Environment, ServerBuilder};
 
 use crossbeam_channel;
 use std::{
-    convert::TryFrom,
     net::{IpAddr, SocketAddr},
     str::FromStr,
     sync::{atomic::Ordering, Arc, Mutex},
@@ -118,7 +115,7 @@ impl RpcServerImpl {
 
         if req.has_message() && req.has_broadcast() {
             // TODO avoid double-copy
-            let msg = HybridBuf::try_from(req.get_message().get_value())?;
+            let msg = Arc::from(req.get_message().get_value());
             let network_id = NetworkId::from(req.get_network_id().get_value() as u16);
 
             if req.has_node_id() && !req.get_broadcast().get_value() && req.has_network_id() {
@@ -382,7 +379,7 @@ impl P2P for RpcServerImpl {
                         CALLBACK_QUEUE.send_out_message(ConsensusMessage::new(
                             MessageType::Outbound(None),
                             PacketType::Transaction,
-                            HybridBuf::try_from(payload).unwrap_or_default(),
+                            Arc::from(payload),
                             vec![],
                         ))
                     } else {
@@ -693,27 +690,22 @@ impl P2P for RpcServerImpl {
             let f = {
                 if let Some(network_msg) = self.receive_network_msg() {
                     if let NetworkMessagePayload::NetworkPacket(ref packet) = network_msg.payload {
-                        let mut inner_msg = packet.message.to_owned();
-                        if let Ok(view_inner_msg) = inner_msg.remaining_bytes() {
-                            let msg = view_inner_msg.into_owned();
+                        let msg = packet.message.to_vec();
 
-                            match packet.packet_type {
-                                NetworkPacketType::DirectMessage(..) => {
-                                    let mut i_msg = MessageDirect::new();
-                                    i_msg.set_data(msg);
-                                    r.set_message_direct(i_msg);
-                                }
-                                NetworkPacketType::BroadcastedMessage(..) => {
-                                    let mut i_msg = MessageBroadcast::new();
-                                    i_msg.set_data(msg);
-                                    r.set_message_broadcast(i_msg);
-                                }
-                            };
+                        match packet.packet_type {
+                            NetworkPacketType::DirectMessage(..) => {
+                                let mut i_msg = MessageDirect::new();
+                                i_msg.set_data(msg);
+                                r.set_message_direct(i_msg);
+                            }
+                            NetworkPacketType::BroadcastedMessage(..) => {
+                                let mut i_msg = MessageBroadcast::new();
+                                i_msg.set_data(msg);
+                                r.set_message_broadcast(i_msg);
+                            }
+                        };
 
-                            r.set_network_id(u32::from(packet.network_id.id));
-                        } else {
-                            r.set_message_none(MessageNone::new());
-                        }
+                        r.set_network_id(u32::from(packet.network_id.id));
                     }
                 } else {
                     r.set_message_none(MessageNone::new());
@@ -1125,7 +1117,7 @@ impl P2P for RpcServerImpl {
                             self.node.self_peer.id,
                             to_send,
                             network_id,
-                            HybridBuf::try_from(message).unwrap(),
+                            Arc::from(message),
                         ) {
                             Ok(_) => {
                                 info!("Sent TPS test bytes of len {}", out_bytes_len);
@@ -1310,10 +1302,9 @@ mod tests {
         },
     };
     use chrono::prelude::Utc;
-    use concordium_common::hybrid_buf::HybridBuf;
     use failure::Fallible;
     use grpcio::{ChannelBuilder, EnvBuilder};
-    use std::{convert::TryFrom, sync::Arc};
+    use std::sync::Arc;
 
     // Same as create_node_rpc_call_option but also outputs the Message receiver
     fn create_node_rpc_call_option_waiter(
@@ -1661,7 +1652,7 @@ mod tests {
             node2.self_peer.id,
             vec![],
             crate::network::NetworkId::from(100),
-            HybridBuf::try_from(&b"Hey"[..])?,
+            Arc::from(&b"Hey"[..]),
         )?;
         // await_broadcast_message(&wt1).expect("Message sender disconnected");
         let ans = client.subscription_poll_opt(&crate::proto::Empty::new(), callopts.clone())?;

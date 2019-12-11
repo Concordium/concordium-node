@@ -12,13 +12,12 @@ use crossbeam_channel::TrySendError;
 use std::{
     convert::TryFrom,
     fs::OpenOptions,
-    io::{Read, Seek, SeekFrom, Write},
+    io::{Read, Write},
     mem,
-    sync::RwLock,
+    sync::{Arc, RwLock},
 };
 
 use concordium_common::{
-    hybrid_buf::HybridBuf,
     serial::Endianness,
     ConsensusFfiResponse,
     PacketType::{self, *},
@@ -152,16 +151,14 @@ pub fn handle_pkt_out(
     node: &P2PNode,
     dont_relay_to: Vec<P2PNodeId>,
     peer_id: P2PNodeId,
-    mut msg: HybridBuf,
+    msg: Arc<[u8]>,
     is_broadcast: bool,
 ) -> Fallible<()> {
     ensure!(
-        msg.len()? >= msg.position()? + PAYLOAD_TYPE_LENGTH,
-        "Message needs at least {} bytes",
-        PAYLOAD_TYPE_LENGTH
+        msg.len() >= 2,
+        "Packet payload can't be smaller than 2 bytes"
     );
-
-    let consensus_type = msg.read_u16::<Endianness>()?;
+    let consensus_type = (&msg[..2]).read_u16::<Endianness>()?;
     let packet_type = PacketType::try_from(consensus_type)?;
 
     let distribution_mode = if is_broadcast {
@@ -237,7 +234,7 @@ pub fn handle_consensus_outbound_message(
 fn process_internal_gs_entry(
     node: &P2PNode,
     network_id: NetworkId,
-    mut request: ConsensusMessage,
+    request: ConsensusMessage,
 ) -> Fallible<()> {
     send_consensus_msg_to_net(
         node,
@@ -247,7 +244,7 @@ fn process_internal_gs_entry(
         network_id,
         request.variant,
         None,
-        &request.payload.remaining_bytes()?,
+        &request.payload[2..],
     )
 }
 
@@ -255,14 +252,13 @@ fn process_external_gs_entry(
     node: &P2PNode,
     network_id: NetworkId,
     consensus: &mut consensus::ConsensusContainer,
-    mut request: ConsensusMessage,
+    request: ConsensusMessage,
     peers_lock: &RwLock<PeerList>,
     no_rebroadcast_consensus_validation: bool,
 ) -> Fallible<()> {
     let source = P2PNodeId(request.source_peer());
 
     if no_rebroadcast_consensus_validation {
-        let curr_pos = request.payload.position()?;
         if request.distribution_mode() == DistributionMode::Broadcast {
             send_consensus_msg_to_net(
                 &node,
@@ -272,19 +268,18 @@ fn process_external_gs_entry(
                 network_id,
                 request.variant,
                 None,
-                &request.payload.remaining_bytes()?,
+                &request.payload[2..],
             )?;
         }
-        request.payload.seek(SeekFrom::Start(curr_pos))?;
 
         // relay external messages to Consensus
-        let consensus_result = send_msg_to_consensus(node, source, consensus, &mut request)?;
+        let consensus_result = send_msg_to_consensus(node, source, consensus, &request)?;
 
         // adjust the peer state(s) based on the feedback from Consensus
         update_peer_states(peers_lock, &request, consensus_result);
     } else {
         // relay external messages to Consensus
-        let consensus_result = send_msg_to_consensus(node, source, consensus, &mut request)?;
+        let consensus_result = send_msg_to_consensus(node, source, consensus, &request)?;
 
         // adjust the peer state(s) based on the feedback from Consensus
         update_peer_states(peers_lock, &request, consensus_result);
@@ -301,7 +296,7 @@ fn process_external_gs_entry(
                 network_id,
                 request.variant,
                 None,
-                &request.payload.remaining_bytes()?,
+                &request.payload[2..],
             )?;
         }
     }
@@ -313,11 +308,10 @@ fn send_msg_to_consensus(
     node: &P2PNode,
     source_id: P2PNodeId,
     consensus: &mut consensus::ConsensusContainer,
-    request: &mut ConsensusMessage,
+    request: &ConsensusMessage,
 ) -> Fallible<ConsensusFfiResponse> {
     let raw_id = source_id.as_raw();
-    let payload_offset = request.payload.position()?;
-    let payload = request.payload.remaining_bytes()?;
+    let payload = &request.payload;
 
     let consensus_response = match request.variant {
         Block => consensus.send_block(&payload),
@@ -328,8 +322,6 @@ fn send_msg_to_consensus(
             consensus.receive_catch_up_status(&payload, raw_id, node.config.catch_up_batch_limit)
         }
     };
-
-    request.payload.seek(SeekFrom::Start(payload_offset))?;
 
     if consensus_response.is_acceptable() {
         info!("Processed a {} from {}", request.variant, source_id);
@@ -354,12 +346,12 @@ pub fn send_consensus_msg_to_net(
     payload_desc: Option<String>,
     payload: &[u8],
 ) -> Fallible<()> {
-    let mut packet_buffer = HybridBuf::with_capacity(PAYLOAD_TYPE_LENGTH as usize + payload.len())?;
+    let mut packet_buffer = Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + payload.len());
     packet_buffer
         .write_u16::<Endianness>(payload_type as u16)
         .expect("Can't write a packet payload to buffer");
     packet_buffer.write_all(payload)?;
-    packet_buffer.rewind()?;
+    let packet_buffer = Arc::from(packet_buffer);
 
     let result = if target_id.is_some() {
         send_direct_message(node, source_id, target_id, network_id, packet_buffer)

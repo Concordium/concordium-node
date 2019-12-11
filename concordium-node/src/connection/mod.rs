@@ -29,7 +29,7 @@ use crate::{
     },
     p2p::banned_nodes::BannedNode,
 };
-use concordium_common::{hybrid_buf::HybridBuf, serial::Endianness, PacketType};
+use concordium_common::{serial::Endianness, PacketType};
 
 use std::{
     collections::HashSet,
@@ -237,28 +237,27 @@ impl Connection {
         packet: &mut NetworkPacket,
         deduplication_queues: &DeduplicationQueues,
     ) -> Fallible<bool> {
-        let message = &mut packet.message;
-        let packet_type = PacketType::try_from(message.read_u16::<Endianness>()?);
+        let packet_type = PacketType::try_from((&packet.message[..16]).read_u16::<Endianness>()?);
 
         let is_duplicate = match packet_type {
             Ok(PacketType::FinalizationMessage) => dedup_with(
-                message,
+                &packet.message,
                 &mut write_or_die!(deduplication_queues.finalizations),
             )?,
             Ok(PacketType::Transaction) => dedup_with(
-                message,
+                &packet.message,
                 &mut write_or_die!(deduplication_queues.transactions),
             )?,
-            Ok(PacketType::Block) => {
-                dedup_with(message, &mut write_or_die!(deduplication_queues.blocks))?
-            }
+            Ok(PacketType::Block) => dedup_with(
+                &packet.message,
+                &mut write_or_die!(deduplication_queues.blocks),
+            )?,
             Ok(PacketType::FinalizationRecord) => dedup_with(
-                message,
+                &packet.message,
                 &mut write_or_die!(deduplication_queues.fin_records),
             )?,
             _ => false,
         };
-        message.rewind()?;
 
         Ok(is_duplicate)
     }
@@ -555,9 +554,9 @@ impl Drop for Connection {
 
 // returns a bool indicating if the message is a duplicate
 #[inline]
-fn dedup_with(message: &mut HybridBuf, queue: &mut CircularQueue<[u8; 8]>) -> Fallible<bool> {
+fn dedup_with(message: &[u8], queue: &mut CircularQueue<[u8; 8]>) -> Fallible<bool> {
     let mut hash = [0u8; 8];
-    hash.copy_from_slice(&XxHash64::digest(&message.remaining_bytes()?));
+    hash.copy_from_slice(&XxHash64::digest(message));
 
     if !queue.iter().any(|h| h == &hash) {
         trace!(

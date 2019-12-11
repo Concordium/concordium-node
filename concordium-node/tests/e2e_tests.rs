@@ -2,7 +2,6 @@ extern crate p2p_client;
 
 #[cfg(test)]
 mod tests {
-    use concordium_common::hybrid_buf::HybridBuf;
     use failure::{bail, Fallible};
     use p2p_client::{
         common::PeerType,
@@ -14,7 +13,7 @@ mod tests {
     };
 
     use rand::{distributions::Standard, thread_rng, Rng};
-    use std::{convert::TryFrom, thread, time};
+    use std::{sync::Arc, thread, time};
 
     #[test]
     #[ignore] // FIXME: count packets and other messages separately
@@ -35,7 +34,7 @@ mod tests {
             node_2.self_peer.id,
             Some(node_1.id()),
             NetworkId::from(100),
-            HybridBuf::try_from(&msg[..])?,
+            Arc::from(&msg[..]),
         )?;
         // let mut msg_recv = await_direct_message(&msg_waiter_1)?;
         // assert_eq!(&msg[..], &msg_recv.remaining_bytes()?[..]);
@@ -63,7 +62,7 @@ mod tests {
             node_2.self_peer.id,
             Some(node_1.id()),
             NetworkId::from(100),
-            HybridBuf::try_from(&msg[..])?,
+            Arc::from(&msg[..]),
         )?;
         // let received_msg = await_direct_message_with_timeout(&msg_waiter_1,
         // max_recv_timeout()); assert_eq!(
@@ -90,7 +89,7 @@ mod tests {
             node_1.self_peer.id,
             Some(node_2.id()),
             NetworkId::from(100),
-            HybridBuf::try_from(&msg[..])?,
+            Arc::from(&msg[..]),
         )?;
         node_1.close_and_join()?;
 
@@ -165,7 +164,7 @@ mod tests {
             node_1.self_peer.id,
             Some(node_2.id()),
             net_id,
-            HybridBuf::try_from(msg.clone()).unwrap(),
+            Arc::from(msg.clone()),
         )
         .unwrap();
         // let mut msg_recv = await_direct_message(&msg_waiter_2).unwrap();

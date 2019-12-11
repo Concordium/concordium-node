@@ -2,7 +2,7 @@ use crate::{
     common::P2PNodeId,
     network::{AsProtocolPacketType, NetworkId, ProtocolPacketType},
 };
-use concordium_common::hybrid_buf::HybridBuf;
+use std::sync::Arc;
 
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
@@ -25,5 +25,5 @@ impl AsProtocolPacketType for NetworkPacketType {
 pub struct NetworkPacket {
     pub packet_type: NetworkPacketType,
     pub network_id:  NetworkId,
-    pub message:     HybridBuf,
+    pub message:     Arc<[u8]>,
 }

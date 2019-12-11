@@ -11,7 +11,7 @@ use crate::{
     p2p::p2p_node::P2PNode,
     stats_export_service::{StatsExportService, StatsServiceMode},
 };
-use concordium_common::{hybrid_buf::HybridBuf, serial::Endianness, PacketType, QueueMsg};
+use concordium_common::{serial::Endianness, PacketType, QueueMsg};
 
 use crossbeam_channel::{self, Receiver};
 use std::{
@@ -157,7 +157,7 @@ pub fn await_handshake(node: &P2PNode) -> Fallible<()> {
     Ok(())
 }
 
-pub fn await_broadcast_message(waiter: &Receiver<QueueMsg<NetworkMessage>>) -> Fallible<HybridBuf> {
+pub fn await_broadcast_message(waiter: &Receiver<QueueMsg<NetworkMessage>>) -> Fallible<Arc<[u8]>> {
     loop {
         let msg = waiter.recv()?;
         if let QueueMsg::Relay(NetworkMessage {
@@ -166,13 +166,13 @@ pub fn await_broadcast_message(waiter: &Receiver<QueueMsg<NetworkMessage>>) -> F
         }) = msg
         {
             if let NetworkPacketType::BroadcastedMessage(..) = pac.packet_type {
-                return Ok(pac.message.to_owned());
+                return Ok(pac.message.clone());
             }
         }
     }
 }
 
-pub fn await_direct_message(waiter: &Receiver<QueueMsg<NetworkMessage>>) -> Fallible<HybridBuf> {
+pub fn await_direct_message(waiter: &Receiver<QueueMsg<NetworkMessage>>) -> Fallible<Arc<[u8]>> {
     loop {
         let msg = waiter.recv()?;
         if let QueueMsg::Relay(NetworkMessage {
@@ -181,7 +181,7 @@ pub fn await_direct_message(waiter: &Receiver<QueueMsg<NetworkMessage>>) -> Fall
         }) = msg
         {
             if let NetworkPacketType::DirectMessage(..) = pac.packet_type {
-                return Ok(pac.message.to_owned());
+                return Ok(pac.message.clone());
             }
         }
     }
@@ -195,11 +195,10 @@ pub fn generate_random_data(size: usize) -> Vec<u8> {
         .collect()
 }
 
-fn generate_fake_block(size: usize) -> Fallible<HybridBuf> {
-    let mut buffer = HybridBuf::with_capacity(2 + size)?;
+fn generate_fake_block(size: usize) -> Fallible<Vec<u8>> {
+    let mut buffer = Vec::with_capacity(2 + size);
     buffer.write_u16::<Endianness>(PacketType::Block as u16)?;
     buffer.write_all(&generate_random_data(size))?;
-    buffer.rewind()?;
     Ok(buffer)
 }
 
@@ -210,7 +209,7 @@ pub fn create_random_packet(size: usize) -> NetworkMessage {
         payload:    NetworkMessagePayload::NetworkPacket(NetworkPacket {
             packet_type: NetworkPacketType::DirectMessage(P2PNodeId::default()),
             network_id:  NetworkId::from(thread_rng().gen::<u16>()),
-            message:     generate_fake_block(size).unwrap(),
+            message:     Arc::from(generate_fake_block(size).unwrap()),
         }),
     }
 }

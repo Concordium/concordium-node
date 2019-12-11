@@ -10,17 +10,6 @@ pub struct NetworkMessage {
     pub payload:    NetworkMessagePayload,
 }
 
-impl NetworkMessage {
-    // this function is for benchmark purposes only
-    pub fn rewind_packet(&mut self) {
-        if let NetworkMessagePayload::NetworkPacket(ref mut packet) = self.payload {
-            packet.message.rewind().unwrap()
-        } else {
-            unreachable!();
-        }
-    }
-}
-
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum NetworkMessagePayload {

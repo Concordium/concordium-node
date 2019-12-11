@@ -15,13 +15,12 @@ use crate::{
     },
     p2p::banned_nodes::BannedNode,
 };
-use concordium_common::hybrid_buf::HybridBuf;
 
 use std::{
-    convert::TryFrom,
     io::{self, Read, Write},
     net::{IpAddr, SocketAddr},
     panic,
+    sync::Arc,
 };
 
 impl NetworkMessage {
@@ -35,7 +34,7 @@ impl NetworkMessage {
 
     pub fn serialize<T: Write>(&mut self, target: &mut T) -> Fallible<()> {
         let capacity = if let NetworkMessagePayload::NetworkPacket(ref packet) = self.payload {
-            packet.message.len()? as usize + 64 // FIXME: fine-tune the overhead
+            packet.message.len() + 64 // FIXME: fine-tune the overhead
         } else {
             256
         };
@@ -125,7 +124,7 @@ fn deserialize_packet(root: &network::NetworkMessage) -> Fallible<NetworkMessage
     let network_id = NetworkId::from(packet.networkId());
 
     let payload = if let Some(payload) = packet.payload() {
-        HybridBuf::try_from(payload)?
+        Arc::from(payload)
     } else {
         bail!("missing packet payload")
     };
@@ -339,7 +338,7 @@ fn serialize_packet(
         }
     };
 
-    let payload_offset = builder.create_vector_direct::<u8>(&packet.message.remaining_bytes()?);
+    let payload_offset = builder.create_vector_direct::<u8>(&packet.message);
 
     let packet_offset = network::NetworkPacket::create(builder, &network::NetworkPacketArgs {
         destination_type,

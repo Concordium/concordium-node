@@ -20,7 +20,6 @@ use crate::{
 };
 use chrono::prelude::*;
 use concordium_common::{
-    hybrid_buf::HybridBuf,
     serial::Serial,
     QueueMsg::{self, Relay},
 };
@@ -1452,7 +1451,7 @@ pub fn send_direct_message(
     source_id: P2PNodeId,
     target_id: Option<P2PNodeId>,
     network_id: NetworkId,
-    msg: HybridBuf,
+    msg: Arc<[u8]>,
 ) -> Fallible<()> {
     send_message_from_cursor(node, source_id, target_id, vec![], network_id, msg, false)
 }
@@ -1463,7 +1462,7 @@ pub fn send_broadcast_message(
     source_id: P2PNodeId,
     dont_relay_to: Vec<P2PNodeId>,
     network_id: NetworkId,
-    msg: HybridBuf,
+    msg: Arc<[u8]>,
 ) -> Fallible<()> {
     send_message_from_cursor(node, source_id, None, dont_relay_to, network_id, msg, true)
 }
@@ -1474,7 +1473,7 @@ pub fn send_message_from_cursor(
     target_id: Option<P2PNodeId>,
     dont_relay_to: Vec<P2PNodeId>,
     network_id: NetworkId,
-    message: HybridBuf,
+    message: Arc<[u8]>,
     broadcast: bool,
 ) -> Fallible<()> {
     let packet_type = if broadcast {
