@@ -56,7 +56,7 @@ getNewEpochSeedState slot SeedState{..} =
 updateSeedState :: Slot -> BlockNonce -> SeedState -> SeedState
 updateSeedState slot bn state@SeedState{..} =
   let 
-    shouldContributeBlockNonce = slot `rem` epochLength <= (2 * epochLength) `div` 3
+    shouldContributeBlockNonce = 3 * (slot `rem` epochLength) < 2 * epochLength
   in
     if shouldContributeBlockNonce then
       -- less than 2/3 slots into the epoch, add the new block nonce
