@@ -78,7 +78,7 @@ stages:
     - ( cd globalstate-mockup/globalstate-rust && cargo test --all --color=always )
     - ( cd consensus-rust && cargo test --all --color=always )
 
-"stack:test:concordium-crypto"
+"stack:test:crypto"
   extends: .generic-haskell-test
   stage: test
   script:
@@ -90,7 +90,7 @@ stages:
   script:
     - "stack test acorn | ts '[%Y-%m-%d %H:%M:%.S]'"
 
-"stack:test:globalstate-types"
+"stack:test:globalstatetypes"
   extends: .generic-haskell-test
   stage: test
   script:
