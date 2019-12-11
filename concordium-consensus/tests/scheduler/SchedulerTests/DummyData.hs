@@ -87,12 +87,16 @@ dummyRegId :: AccountVerificationKey -> CredentialRegistrationID
 dummyRegId vfKey = RegIdCred . FBS.pack $ bytes
   where bytes = take (FBS.fixedLength (undefined :: RegIdSize)) . randoms . mkStdGen $ IntHash.hash (accountAddress vfKey)
 
+-- This generates an account without any credentials
+-- late expiry date, but is otherwise not well-formed.
+mkAccountNoCredentials :: AccountVerificationKey -> Amount -> Account
+mkAccountNoCredentials vfKey amnt = newAccount vfKey & (accountAmount .~ amnt)
+
 -- This generates an account with a single credential, which has sufficiently
 -- late expiry date, but is otherwise not well-formed.
 mkAccount :: AccountVerificationKey -> Amount -> Account
-mkAccount vfKey amnt = newAccount vfKey &
-                        (accountAmount .~ amnt) .
-                        (accountCredentials .~ (Queue.singleton dummyExpiryTime (dummyCredential vfKey dummyExpiryTime)))
+mkAccount vfKey amnt = mkAccountNoCredentials vfKey amnt &
+                       (accountCredentials .~ (Queue.singleton dummyExpiryTime (dummyCredential vfKey dummyExpiryTime)))
 
 dummyExpiryTime :: CredentialExpiryTime
 dummyExpiryTime = 1

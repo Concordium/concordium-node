@@ -8,6 +8,7 @@ import qualified SchedulerTests.AccountTransactionSpecs(tests)
 import qualified SchedulerTests.BakerTransactions(tests)
 import qualified SchedulerTests.Delegation(tests)
 import qualified SchedulerTests.ContractSimpleTransfersSpec(tests)
+import qualified SchedulerTests.CredentialTest(tests)
 
 import Test.Hspec
 
@@ -21,3 +22,4 @@ main = hspec $ do
          SchedulerTests.BakerTransactions.tests
          SchedulerTests.Delegation.tests
          SchedulerTests.ContractSimpleTransfersSpec.tests
+         SchedulerTests.CredentialTest.tests

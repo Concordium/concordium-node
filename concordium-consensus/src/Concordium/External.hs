@@ -315,7 +315,7 @@ startConsensus ::
 startConsensus maxBlock gdataC gdataLenC bidC bidLenC gsptr bcbk maxLogLevel lcbk enableTransferLogging ltcbk = do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
-        case (decode gdata, decode bdata) of
+        case (decode gdata, AE.eitherDecodeStrict bdata) of
             (Right genData, Right bid) -> do
 #ifdef RUST
                 foreignGSPtr <- newForeignPtr_ gsptr
