@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -e 
+set -e
 GHC_BUILDER_VERSION="8.6.5"
 CABAL_BUILDER_VERSION="3.0.0.0"
 pacman -Sy
@@ -67,6 +67,10 @@ wget https://github.com/sol/hpack/releases/download/0.32.0/hpack_linux.gz
 gzip -d hpack_linux.gz
 chmod +x hpack_linux
 mv hpack_linux $HOME/.cabal/bin/hpack
+
+for f in $(find /build -type f -name package.yaml); do
+   sed -i -e 's/[\s]*ld-options://g' -e 's/[\s]*- -static//g' $f
+done
 
 (cd /build/acorn
  hpack
@@ -209,7 +213,7 @@ for l in /target/profiling/ghc/libHSrts_p.a \
     rm $l;
 done
 
-cabal clean 
+cabal clean
 
 LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release cabal build all \
                --constraint="Concordium -dynamic"\
