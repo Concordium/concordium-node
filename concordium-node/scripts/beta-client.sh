@@ -18,7 +18,7 @@ else
 fi
 
 groupadd -g $GROUP_ID docker
-useradd -g $GROUP_ID -l -M -s /bin/false -u $USER_ID docker
+useradd -g $GROUP_ID -l -m -s /bin/false -u $USER_ID docker
 
 mkdir -p /var/lib/concordium
 chown -R $USER_ID:$GROUP_ID /var/lib/concordium
