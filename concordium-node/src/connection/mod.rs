@@ -237,7 +237,8 @@ impl Connection {
         packet: &mut NetworkPacket,
         deduplication_queues: &DeduplicationQueues,
     ) -> Fallible<bool> {
-        let packet_type = PacketType::try_from((&packet.message[..16]).read_u16::<Endianness>()?);
+        ensure!(packet.message.len() >= 2);
+        let packet_type = PacketType::try_from((&packet.message[..2]).read_u16::<Endianness>()?);
 
         let is_duplicate = match packet_type {
             Ok(PacketType::FinalizationMessage) => dedup_with(

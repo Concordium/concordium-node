@@ -242,7 +242,7 @@ fn process_internal_gs_entry(
         node.self_peer.id,
         request.target_peer().map(P2PNodeId),
         network_id,
-        NetworkPayload::Full(request.payload, request.variant.to_string()),
+        NetworkPayload::Split(request.payload.to_vec(), request.variant),
     )
 }
 
@@ -305,15 +305,15 @@ fn send_msg_to_consensus(
     request: &ConsensusMessage,
 ) -> Fallible<ConsensusFfiResponse> {
     let raw_id = source_id.as_raw();
-    let payload = &request.payload;
+    let payload = &request.payload[2..];
 
     let consensus_response = match request.variant {
-        Block => consensus.send_block(&payload),
-        Transaction => consensus.send_transaction(&payload),
-        FinalizationMessage => consensus.send_finalization(&payload),
-        FinalizationRecord => consensus.send_finalization_record(&payload),
+        Block => consensus.send_block(payload),
+        Transaction => consensus.send_transaction(payload),
+        FinalizationMessage => consensus.send_finalization(payload),
+        FinalizationRecord => consensus.send_finalization_record(payload),
         CatchUpStatus => {
-            consensus.receive_catch_up_status(&payload, raw_id, node.config.catch_up_batch_limit)
+            consensus.receive_catch_up_status(payload, raw_id, node.config.catch_up_batch_limit)
         }
     };
 
