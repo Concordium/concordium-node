@@ -51,7 +51,7 @@ stages:
       - external-libs/
   script:
     - "./build-deps.sh"
-    - "stack build --test --no-run-tests --bench --no-run-benchmarks --ghc-options -j4 | ts '[%Y-%m-%d %H:%M:%.S]'"
+    - "stack build --test -v --no-run-tests --bench --no-run-benchmarks --ghc-options -j4 | ts '[%Y-%m-%d %H:%M:%.S]'"
     - consensus-rust/scripts/setup-ci.sh
 
 "cargo:fmt":
