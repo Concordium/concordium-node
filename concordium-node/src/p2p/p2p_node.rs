@@ -24,7 +24,7 @@ use concordium_common::{
     serial::Serial,
     QueueMsg::{self, Relay},
 };
-use failure::{err_msg, Fallible};
+use failure::{err_msg, Error, Fallible};
 #[cfg(not(target_os = "windows"))]
 use get_if_addrs;
 #[cfg(target_os = "windows")]
@@ -43,6 +43,7 @@ use crossbeam_channel::{self, Sender};
 use std::{
     cmp::Reverse,
     collections::{HashMap, HashSet},
+    io::{self, ErrorKind},
     mem,
     net::{
         IpAddr::{self, V4, V6},
@@ -132,7 +133,7 @@ pub struct ConnectionHandler {
     pub log_dumper:        Option<Sender<DumpItem>>,
     pub connections:       RwLock<Connections>,
     pub unreachable_nodes: UnreachableNodes,
-    soft_bans:             RwLock<Vec<(IpAddr, Instant)>>,
+    soft_bans:             RwLock<HashMap<IpAddr, Instant>>,
     pub networks:          RwLock<Networks>,
     pub last_bootstrap:    AtomicU64,
     pub last_peer_update:  AtomicU64,
@@ -599,8 +600,21 @@ impl P2PNode {
                 if !bad_tokens.is_empty() {
                     self_clone.remove_connections(&bad_tokens);
                     let mut soft_bans = write_or_die!(self_clone.connection_handler.soft_bans);
-                    for ip in bad_ips.into_iter() {
-                        soft_bans.push((ip, now));
+                    for (ip, e) in bad_ips.into_iter() {
+                        if let Ok(io_err) = e.downcast::<io::Error>() {
+                            if ![
+                                ErrorKind::BrokenPipe,
+                                ErrorKind::ConnectionReset,
+                                ErrorKind::PermissionDenied,
+                                ErrorKind::AlreadyExists,
+                                ErrorKind::NotFound,
+                                ErrorKind::UnexpectedEof,
+                            ]
+                            .contains(&io_err.kind())
+                            {
+                                soft_bans.insert(ip, Instant::now());
+                            }
+                        }
                     }
                 }
 
@@ -732,7 +746,7 @@ impl P2PNode {
             let mut soft_bans = write_or_die!(self.connection_handler.soft_bans);
             if !soft_bans.is_empty() {
                 let now = Instant::now();
-                soft_bans.retain(|(_, stamp)| {
+                soft_bans.retain(|_, stamp| {
                     now.duration_since(*stamp).as_secs() < config::SOFT_BAN_DURATION
                 });
             }
@@ -1258,7 +1272,7 @@ impl P2PNode {
         events: &Events,
         deduplication_queues: &Arc<DeduplicationQueues>,
         connections: &mut Vec<(Token, Arc<Connection>)>,
-    ) -> (Vec<Token>, Vec<IpAddr>) {
+    ) -> (Vec<Token>, Vec<(IpAddr, Error)>) {
         connections.clear();
         // FIXME: it would be cool if we were able to remove this intermediate vector
         for (token, conn) in read_or_die!(self.connections()).iter() {
@@ -1275,18 +1289,19 @@ impl P2PNode {
                     .and_then(|_| low_level.flush_socket())
                 {
                     error!("{}", e);
-                    return Some((*token, conn.remote_addr().ip()));
+                    return Some((*token, (conn.remote_addr().ip(), e)));
                 }
 
                 if events
                     .iter()
                     .any(|event| event.token() == *token && event.readiness().is_readable())
-                    && low_level
-                        .read_stream(deduplication_queues)
-                        .map_err(|e| error!("{}", e))
-                        .is_err()
                 {
-                    Some((*token, conn.remote_addr().ip()))
+                    if let Err(e) = low_level.read_stream(deduplication_queues) {
+                        error!("{}", e);
+                        Some((*token, (conn.remote_addr().ip(), e)))
+                    } else {
+                        None
+                    }
                 } else {
                     None
                 }
