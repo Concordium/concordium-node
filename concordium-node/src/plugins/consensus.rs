@@ -242,9 +242,7 @@ fn process_internal_gs_entry(
         node.self_peer.id,
         request.target_peer().map(P2PNodeId),
         network_id,
-        request.variant,
-        None,
-        &request.payload[2..],
+        NetworkPayload::Full(request.payload, request.variant.to_string()),
     )
 }
 
@@ -266,9 +264,7 @@ fn process_external_gs_entry(
                 source,
                 None,
                 network_id,
-                request.variant,
-                None,
-                &request.payload[2..],
+                NetworkPayload::Full(request.payload.clone(), request.variant.to_string()),
             )?;
         }
 
@@ -294,9 +290,7 @@ fn process_external_gs_entry(
                 source,
                 None,
                 network_id,
-                request.variant,
-                None,
-                &request.payload[2..],
+                NetworkPayload::Full(request.payload, request.variant.to_string()),
             )?;
         }
     }
@@ -335,33 +329,40 @@ fn send_msg_to_consensus(
     Ok(consensus_response)
 }
 
-#[allow(clippy::too_many_arguments)]
-pub fn send_consensus_msg_to_net(
+enum NetworkPayload {
+    Full(Arc<[u8]>, String), // a payload prepended with the PacketType and a packet description
+    Split(Vec<u8>, PacketType), // split packet type and the payload; the description is not needed
+}
+
+fn send_consensus_msg_to_net(
     node: &P2PNode,
     dont_relay_to: Vec<u64>,
     source_id: P2PNodeId,
     target_id: Option<P2PNodeId>,
     network_id: NetworkId,
-    payload_type: PacketType,
-    payload_desc: Option<String>,
-    payload: &[u8],
+    payload: NetworkPayload,
 ) -> Fallible<()> {
-    let mut packet_buffer = Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + payload.len());
-    packet_buffer
-        .write_u16::<Endianness>(payload_type as u16)
-        .expect("Can't write a packet payload to buffer");
-    packet_buffer.write_all(payload)?;
-    let packet_buffer = Arc::from(packet_buffer);
+    let (payload, msg_desc) = match payload {
+        NetworkPayload::Full(payload, desc) => (payload, desc),
+        NetworkPayload::Split(payload, packet_type) => {
+            let mut buffer = Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + payload.len());
+            buffer
+                .write_u16::<Endianness>(packet_type as u16)
+                .expect("Can't write a packet payload to buffer");
+            buffer.write_all(&payload)?;
+            (Arc::from(buffer), packet_type.to_string())
+        }
+    };
 
     let result = if target_id.is_some() {
-        send_direct_message(node, source_id, target_id, network_id, packet_buffer)
+        send_direct_message(node, source_id, target_id, network_id, payload)
     } else {
         send_broadcast_message(
             node,
             source_id,
             dont_relay_to.into_iter().map(P2PNodeId).collect(),
             network_id,
-            packet_buffer,
+            payload,
         )
     };
 
@@ -370,14 +371,10 @@ pub fn send_consensus_msg_to_net(
     } else {
         "broadcast".to_string()
     };
-    let message_desc = payload_desc.unwrap_or_else(|| payload_type.to_string());
 
     match result {
-        Ok(_) => info!("Sent a {} containing a {}", target_desc, message_desc,),
-        Err(_) => error!(
-            "Couldn't send a {} containing a {}!",
-            target_desc, message_desc,
-        ),
+        Ok(_) => info!("Sent a {} containing a {}", target_desc, msg_desc),
+        Err(_) => error!("Couldn't send a {} containing a {}!", target_desc, msg_desc,),
     }
     Ok(())
 }
@@ -405,9 +402,7 @@ fn send_catch_up_status(
         node.self_peer.id,
         Some(P2PNodeId(target)),
         network_id,
-        PacketType::CatchUpStatus,
-        Some("catch-up status message".to_owned()),
-        &consensus.get_catch_up_status(),
+        NetworkPayload::Split(consensus.get_catch_up_status(), PacketType::CatchUpStatus),
     )
 }
 
