@@ -397,7 +397,7 @@ initialEvents :: States -> EventPool
 initialEvents states = Seq.fromList [(x, EBake 1) | x <- [0..length states -1]]
 
 makeBaker :: BakerId -> Amount -> Gen (BakerInfo, BakerIdentity, Account)
-makeBaker bid lot = resize (2^29) $ do
+makeBaker bid lot = resize 0x20000000 $ do
         ek@(VRF.KeyPair _ epk) <- arbitrary
         sk                     <- Sig.genKeyPair
         let spk = Sig.verifyKey sk

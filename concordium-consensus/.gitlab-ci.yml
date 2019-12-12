@@ -18,7 +18,9 @@ stages:
     paths:
       - .stack
       - .stack-work
-      - target
+      - consensus-rust/target
+      - globalstate-mockup/globalstate-rust/target
+      - crypto/rust-src/target
   before_script:
     - rustc --version && cargo --version
     - git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/
@@ -49,7 +51,7 @@ stages:
       - external-libs/
   script:
     - "./build-deps.sh"
-    - "stack build -v --ghc-options -j4 | ts '[%Y-%m-%d %H:%M:%.S]'"
+    - "stack build --test --no-run-tests --bench --no-run-benchmarks --ghc-options -j4 | ts '[%Y-%m-%d %H:%M:%.S]'"
     - consensus-rust/scripts/setup-ci.sh
 
 "cargo:fmt":
