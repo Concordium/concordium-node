@@ -8,14 +8,14 @@ use rand::{thread_rng, Rng};
 use concordium_common::hybrid_buf::HybridBuf;
 
 use p2p_client::{
-    common::{P2PNodeId, PeerType},
+    common::PeerType,
     connection::Connection,
     network::NetworkId,
-    p2p::p2p_node::{send_direct_message, P2PNode},
+    p2p::p2p_node::{send_broadcast_message, P2PNode},
     test_utils::{connect, generate_random_data, make_node_and_sync, next_available_port},
 };
 
-use std::{convert::TryFrom, sync::Arc, thread};
+use std::{convert::TryFrom, sync::Arc, thread, time::Duration};
 
 const KIB: usize = 1024;
 const MIB: usize = 1024 * 1024;
@@ -26,7 +26,7 @@ const MIN_PKT_SIZE: usize = 2; // current minimum possible packet size
 const MAX: usize = 6 * MIB;
 
 fn main() -> Fallible<()> {
-    let env = Env::default().filter_or("LOG_LEVEL", "warn");
+    let env = Env::default().filter_or("LOG_LEVEL", "trace");
     let mut log_builder = Builder::from_env(env);
     // disregard invalid packet type errors
     log_builder.filter_module("p2p_client::connection::message_handlers", LevelFilter::Off);
@@ -43,7 +43,7 @@ fn main() -> Fallible<()> {
     let node_2_ref = Arc::clone(&node_2);
     thread::spawn(move || {
         for _ in 0..CNT {
-            send_fuzzed_packet(&node_2_ref, None, MIN_PKT_SIZE, MAX)
+            send_fuzzed_packet(&node_2_ref, MIN_PKT_SIZE, MAX)
         }
         node_2_ref.close_and_join().unwrap();
     });
@@ -51,9 +51,35 @@ fn main() -> Fallible<()> {
     let node_1_ref = Arc::clone(&node_1);
     thread::spawn(move || {
         for _ in 0..CNT {
-            send_fuzzed_packet(&node_1_ref, None, MIN_PKT_SIZE, MAX)
+            send_fuzzed_packet(&node_1_ref, MIN_PKT_SIZE, MAX)
         }
         node_1_ref.close_and_join().unwrap();
+    });
+
+    thread::sleep(Duration::from_secs(5));
+
+    let node_1_ref = Arc::clone(&node_1);
+    let node_2_ref = Arc::clone(&node_2);
+    thread::spawn(move || {
+        let mut faultybois = vec![];
+
+        for i in 0..5 {
+            let faultyboi =
+                make_node_and_sync(next_available_port(), vec![100], PeerType::Node).unwrap();
+            if i % 2 == 0 {
+                connect(&node_1_ref, &faultyboi).unwrap();
+            } else {
+                connect(&node_2_ref, &faultyboi).unwrap();
+            }
+            faultybois.push(faultyboi);
+        }
+        thread::sleep(Duration::from_secs(5));
+
+        for faultyboi in faultybois {
+            send_zeroes(&faultyboi);
+            thread::sleep(Duration::from_secs(1));
+            faultyboi.close_and_join().unwrap();
+        }
     });
 
     node_1.join().unwrap();
@@ -64,11 +90,11 @@ fn main() -> Fallible<()> {
     Ok(())
 }
 
-fn send_fuzzed_packet(source: &P2PNode, target: Option<P2PNodeId>, min: usize, max: usize) {
-    send_direct_message(
+fn send_fuzzed_packet(source: &P2PNode, min: usize, max: usize) {
+    send_broadcast_message(
         &source,
         source.self_peer.id,
-        target,
+        vec![],
         NetworkId::from(100),
         HybridBuf::try_from(generate_random_data(thread_rng().gen_range(min, max))).unwrap(),
     )
@@ -83,4 +109,9 @@ fn send_fuzzed_message(source: &P2PNode, min: usize, max: usize) {
             &filter,
         )
         .unwrap();
+}
+
+fn send_zeroes(source: &P2PNode) {
+    let filter = |_: &Connection| true;
+    source.send_over_all_connections(vec![], &filter).unwrap();
 }
