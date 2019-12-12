@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -e 
+set -e
 GHC_BUILDER_VERSION="8.6.5"
 CABAL_BUILDER_VERSION="3.0.0.0"
 pacman -Sy
@@ -68,6 +68,10 @@ gzip -d hpack_linux.gz
 chmod +x hpack_linux
 mv hpack_linux $HOME/.cabal/bin/hpack
 
+for f in $(find /build -type f -name package.yaml); do
+   sed -i -e 's/[\s]*ld-options://g' -e 's/[\s]*- -static//g' $f
+done
+
 (cd /build/acorn
  hpack
  cd /build/Concordium
@@ -90,6 +94,7 @@ LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release:$(pwd)/globalstate-mockup/
 echo "Let's copy the binaries and their dependent libraries"
 cp dist-newstyle/build/x86_64-linux/ghc-$GHC_BUILDER_VERSION/Concordium-0.1.0.0/x/genesis/build/genesis/genesis /binaries/bin/
 cp $(pwd)/crypto/rust-src/target/release/*.so /binaries/lib/
+cp $(pwd)/crypto/rust-src/target/release/{client,genesis_tool} /binaries/bin/
 cp $(pwd)/globalstate-mockup/globalstate-rust/target/release/*.so /binaries/lib/
 
 echo "Let's copy the needed concordium libraries"
@@ -209,7 +214,7 @@ for l in /target/profiling/ghc/libHSrts_p.a \
     rm $l;
 done
 
-cabal clean 
+cabal clean
 
 LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release cabal build all \
                --constraint="Concordium -dynamic"\
@@ -219,6 +224,7 @@ LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release cabal build all \
 
 echo "Let's copy the binaries and their dependent libraries"
 cp dist-newstyle/build/x86_64-linux/ghc-$GHC_BUILDER_VERSION/Concordium-0.1.0.0/x/genesis/build/genesis/genesis /binaries/bin/
+cp $(pwd)/crypto/rust-src/target/release/{client,genesis_tool} /binaries/bin/
 cp $(pwd)/crypto/rust-src/target/release/*.so /binaries/lib/
 
 echo "Let's copy the needed concordium libraries"

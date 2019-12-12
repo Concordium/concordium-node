@@ -255,10 +255,10 @@ impl ConnectionLowLevel {
             let len = self.read_size() - self.socket_buffer.offset;
             match self.socket.read(self.socket_buffer.slice_mut(len)) {
                 Ok(num_bytes) => {
-                    trace!(
-                        "Read {} from the socket",
-                        ByteSize(num_bytes as u64).to_string_as(true)
-                    );
+                    // trace!(
+                    //     "Read {} from the socket",
+                    //     ByteSize(num_bytes as u64).to_string_as(true)
+                    // );
                     self.socket_buffer.remaining = num_bytes;
                 }
                 Err(e) if e.kind() == ErrorKind::WouldBlock => return Ok(ReadResult::WouldBlock),
@@ -478,10 +478,10 @@ impl ConnectionLowLevel {
 
         self.output_queue.drain(..written);
 
-        trace!(
-            "Written {} to the socket",
-            ByteSize(written as u64).to_string_as(true)
-        );
+        // trace!(
+        //     "Written {} to the socket",
+        //     ByteSize(written as u64).to_string_as(true)
+        // );
 
         Ok(written)
     }
