@@ -3,8 +3,7 @@ pub const FILE_NAME_GENESIS_DATA: &str = "genesis.dat";
 pub const FILE_NAME_CRYPTO_PROV_DATA: &str = "crypto_providers.json";
 pub const FILE_NAME_ID_PROV_DATA: &str = "identity_providers.json";
 pub const FILE_NAME_PREFIX_BAKER_PRIVATE: &str = "baker-";
-pub const FILE_NAME_SUFFIX_BAKER_PRIVATE: &str = ".dat";
-pub const FILE_NAME_SUFFIX_BAKER_PRIVATE_JSON: &str = "-credentials.json";
+pub const FILE_NAME_SUFFIX_BAKER_PRIVATE: &str = "-credentials.json";
 
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use failure::Fallible;
@@ -86,7 +85,7 @@ pub fn get_baker_private_data_json_file(
         let mut private_loc = app_prefs.get_user_app_dir();
         private_loc.push(format!(
             "{}{}{}",
-            FILE_NAME_PREFIX_BAKER_PRIVATE, baker_id, FILE_NAME_SUFFIX_BAKER_PRIVATE_JSON
+            FILE_NAME_PREFIX_BAKER_PRIVATE, baker_id, FILE_NAME_SUFFIX_BAKER_PRIVATE
         ));
         if let Some(path) = private_loc.to_str() {
             Some(path.to_owned())
