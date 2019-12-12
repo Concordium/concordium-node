@@ -94,6 +94,7 @@ LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release:$(pwd)/globalstate-mockup/
 echo "Let's copy the binaries and their dependent libraries"
 cp dist-newstyle/build/x86_64-linux/ghc-$GHC_BUILDER_VERSION/Concordium-0.1.0.0/x/genesis/build/genesis/genesis /binaries/bin/
 cp $(pwd)/crypto/rust-src/target/release/*.so /binaries/lib/
+cp $(pwd)/crypto/rust-src/target/release/{client,genesis_tool} /binaries/bin/
 cp $(pwd)/globalstate-mockup/globalstate-rust/target/release/*.so /binaries/lib/
 
 echo "Let's copy the needed concordium libraries"
@@ -223,6 +224,7 @@ LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release cabal build all \
 
 echo "Let's copy the binaries and their dependent libraries"
 cp dist-newstyle/build/x86_64-linux/ghc-$GHC_BUILDER_VERSION/Concordium-0.1.0.0/x/genesis/build/genesis/genesis /binaries/bin/
+cp $(pwd)/crypto/rust-src/target/release/{client,genesis_tool} /binaries/bin/
 cp $(pwd)/crypto/rust-src/target/release/*.so /binaries/lib/
 
 echo "Let's copy the needed concordium libraries"
