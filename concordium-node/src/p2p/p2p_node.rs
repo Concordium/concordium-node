@@ -1283,7 +1283,7 @@ impl P2PNode {
 
     pub fn internal_addr(&self) -> SocketAddr { self.self_peer.addr }
 
-    #[inline(always)]
+    #[inline]
     fn process_network_events(
         &self,
         events: &Events,
@@ -1453,7 +1453,7 @@ pub fn send_direct_message(
     network_id: NetworkId,
     msg: Arc<[u8]>,
 ) -> Fallible<()> {
-    send_message_from_cursor(node, source_id, target_id, vec![], network_id, msg, false)
+    send_message_over_network(node, source_id, target_id, vec![], network_id, msg, false)
 }
 
 #[inline]
@@ -1464,10 +1464,11 @@ pub fn send_broadcast_message(
     network_id: NetworkId,
     msg: Arc<[u8]>,
 ) -> Fallible<()> {
-    send_message_from_cursor(node, source_id, None, dont_relay_to, network_id, msg, true)
+    send_message_over_network(node, source_id, None, dont_relay_to, network_id, msg, true)
 }
 
-pub fn send_message_from_cursor(
+#[inline]
+fn send_message_over_network(
     node: &P2PNode,
     source_id: P2PNodeId,
     target_id: Option<P2PNodeId>,
