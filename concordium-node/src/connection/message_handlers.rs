@@ -124,7 +124,6 @@ impl Connection {
                 .any(|id| id == candidate.id.as_raw())
         });
 
-        let mut locked_buckets = safe_write!(self.handler().connection_handler.buckets)?;
         for peer in applicable_candidates {
             trace!(
                 "Got info for peer {}/{}/{}",
@@ -139,7 +138,8 @@ impl Connection {
                 .is_ok()
             {
                 new_peers += 1;
-                locked_buckets.insert_into_bucket(peer, HashSet::new());
+                safe_write!(self.handler().connection_handler.buckets)?
+                    .insert_into_bucket(peer, HashSet::new());
             }
 
             if new_peers + curr_peer_count >= self.handler().config.desired_nodes_count as usize {
