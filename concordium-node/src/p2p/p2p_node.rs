@@ -853,7 +853,6 @@ impl P2PNode {
     ) -> Fallible<()> {
         debug!("Attempting to connect to {}", addr);
 
-        self.log_event(P2PEvent::InitiatingConnection(addr));
         if peer_type == PeerType::Node {
             let current_peer_count = self.get_peer_stats(Some(PeerType::Node)).len() as u16;
             if current_peer_count > self.config.max_allowed_nodes {
@@ -897,6 +896,7 @@ impl P2PNode {
             bail!("Refusing to connect to a soft-banned IP ({:?})", addr.ip());
         }
 
+        self.log_event(P2PEvent::InitiatingConnection(addr));
         match TcpStream::connect(&addr) {
             Ok(socket) => {
                 self.stats.conn_received_inc();
