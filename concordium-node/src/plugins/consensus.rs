@@ -471,9 +471,7 @@ pub fn check_peer_states(
                 send_catch_up_status(node, network_id, consensus, &mut peers, id)?;
             }
             UpToDate => {
-                if !consensus.is_baking() && consensus.is_active() {
-                    consensus.start_baker();
-                }
+                consensus.start_baker();
             }
         }
     }
