@@ -120,8 +120,7 @@ impl Connection {
         let applicable_candidates = peers.iter().filter(|candidate| {
             !current_peers
                 .iter()
-                .map(|peer| peer.id)
-                .any(|id| id == candidate.id.as_raw())
+                .any(|peer| peer.id == candidate.id.as_raw() || peer.addr == candidate.addr)
         });
 
         for peer in applicable_candidates {
@@ -134,7 +133,6 @@ impl Connection {
             if self
                 .handler()
                 .connect(PeerType::Node, peer.addr, Some(peer.id()))
-                .map_err(|e| trace!("{}", e))
                 .is_ok()
             {
                 new_peers += 1;
