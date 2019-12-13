@@ -611,9 +611,12 @@ impl P2PNode {
                             ]
                             .contains(&io_err.kind())
                             {
-                                warn!("Soft-banning {:?} due to a breach of protocol", ip);
+                                warn!("Soft-banning {:?} due to a fatal IO error", ip);
                                 soft_bans.insert(ip, Instant::now());
                             }
+                        } else {
+                            warn!("Soft-banning {:?} due to a breach of protocol", ip);
+                            soft_bans.insert(ip, Instant::now());
                         }
                     }
                     self_clone.remove_connections(&bad_tokens);
