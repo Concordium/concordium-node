@@ -451,7 +451,12 @@ pub fn check_peer_states(
     use PeerStatus::*;
 
     // take advantage of the priority queue ordering
-    if let Some((id, state)) = read_or_die!(peers_lock).peers.peek().map(|(&i, s)| (i, s)) {
+    let priority_peer = read_or_die!(peers_lock)
+        .peers
+        .peek()
+        .map(|(&i, s)| (i.to_owned(), s.clone()));
+
+    if let Some((id, state)) = priority_peer {
         match state.status {
             CatchingUp => {
                 // don't send any catch-up statuses while
