@@ -242,7 +242,7 @@ fn process_internal_gs_entry(
         node.self_peer.id,
         request.target_peer().map(P2PNodeId),
         network_id,
-        NetworkPayload::Split(request.payload.to_vec(), request.variant),
+        NetworkPayload::Full(request.payload, request.variant.to_string()),
     )
 }
 
@@ -346,9 +346,7 @@ fn send_consensus_msg_to_net(
         NetworkPayload::Full(payload, desc) => (payload, desc),
         NetworkPayload::Split(payload, packet_type) => {
             let mut buffer = Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + payload.len());
-            buffer
-                .write_u16::<Endianness>(packet_type as u16)
-                .expect("Can't write a packet payload to buffer");
+            buffer.write_u16::<Endianness>(packet_type as u16).unwrap(); // infallible
             buffer.write_all(&payload)?;
             (Arc::from(buffer), packet_type.to_string())
         }
