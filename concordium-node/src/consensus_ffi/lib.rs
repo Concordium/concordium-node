@@ -53,6 +53,27 @@ macro_rules! wrap_c_call_bytes {
     }};
 }
 
+macro_rules! wrap_c_call_payload {
+    ($self:ident, $c_call:expr, $prefix:expr) => {{
+        let consensus = $self.consensus.load(Ordering::SeqCst);
+
+        unsafe {
+            let res = $c_call(consensus) as *const u8;
+            let raw_size = slice::from_raw_parts(res, 4);
+            let mut raw_len_buf = Cursor::new(&raw_size[0..4]);
+            let slice = match raw_len_buf.read_u32::<NetworkEndian>() {
+                Ok(size) => &slice::from_raw_parts(res, 4 + size as usize)[4..],
+                _ => &[],
+            };
+            let mut ret = Vec::with_capacity($prefix.len() + slice.len());
+            ret.extend_from_slice($prefix);
+            ret.extend_from_slice(slice);
+            freeCStr(res as *const i8);
+            Arc::from(ret)
+        }
+    }};
+}
+
 macro_rules! wrap_c_call {
     ($self:ident, $c_call:expr) => {{
         let consensus = $self.consensus.load(Ordering::SeqCst);

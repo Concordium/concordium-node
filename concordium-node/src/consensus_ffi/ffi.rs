@@ -544,8 +544,12 @@ impl ConsensusContainer {
         ))
     }
 
-    pub fn get_catch_up_status(&self) -> Vec<u8> {
-        wrap_c_call_bytes!(self, |consensus| getCatchUpStatus(consensus))
+    pub fn get_catch_up_status(&self) -> Arc<[u8]> {
+        wrap_c_call_payload!(
+            self,
+            |consensus| getCatchUpStatus(consensus),
+            &(PacketType::CatchUpStatus as u16).to_be_bytes()
+        )
     }
 
     pub fn receive_catch_up_status(
