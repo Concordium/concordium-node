@@ -1062,8 +1062,10 @@ impl P2PNode {
 
     pub fn remove_connection(&self, token: Token) -> bool {
         if let Some(conn) = write_or_die!(self.connections()).remove(&token) {
+            if conn.is_post_handshake() {
+                self.bump_last_peer_update();
+            }
             write_or_die!(conn.low_level).conn_ref = None; // necessary in order for Drop to kick in
-            self.bump_last_peer_update();
             true
         } else {
             false
@@ -1074,13 +1076,19 @@ impl P2PNode {
         let connections = &mut write_or_die!(self.connections());
 
         let mut removed = 0;
+        let mut update_peer_list = false;
         for token in tokens {
             if let Some(conn) = connections.remove(&token) {
+                if conn.is_post_handshake() {
+                    update_peer_list = true;
+                }
                 write_or_die!(conn.low_level).conn_ref = None; // necessary in order for Drop to kick in
                 removed += 1;
             }
         }
-        self.bump_last_peer_update();
+        if update_peer_list {
+            self.bump_last_peer_update();
+        }
 
         removed == tokens.len()
     }
