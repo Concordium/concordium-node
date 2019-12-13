@@ -5,14 +5,14 @@ pub const FILE_NAME_ID_PROV_DATA: &str = "identity_providers.json";
 pub const FILE_NAME_PREFIX_BAKER_PRIVATE: &str = "baker-";
 pub const FILE_NAME_SUFFIX_BAKER_PRIVATE: &str = "-credentials.json";
 
-use byteorder::{ReadBytesExt, WriteBytesExt};
+use byteorder::ReadBytesExt;
 use failure::Fallible;
 
 use crossbeam_channel::TrySendError;
 use std::{
     convert::TryFrom,
     fs::OpenOptions,
-    io::{Read, Write},
+    io::Read,
     mem,
     sync::{Arc, RwLock},
 };
@@ -242,7 +242,7 @@ fn process_internal_gs_entry(
         node.self_peer.id,
         request.target_peer().map(P2PNodeId),
         network_id,
-        NetworkPayload::Full(request.payload, request.variant.to_string()),
+        (request.payload, request.variant),
     )
 }
 
@@ -264,7 +264,7 @@ fn process_external_gs_entry(
                 source,
                 None,
                 network_id,
-                NetworkPayload::Full(request.payload.clone(), request.variant.to_string()),
+                (request.payload.clone(), request.variant),
             )?;
         }
 
@@ -290,7 +290,7 @@ fn process_external_gs_entry(
                 source,
                 None,
                 network_id,
-                NetworkPayload::Full(request.payload, request.variant.to_string()),
+                (request.payload, request.variant),
             )?;
         }
     }
@@ -329,29 +329,14 @@ fn send_msg_to_consensus(
     Ok(consensus_response)
 }
 
-enum NetworkPayload {
-    Full(Arc<[u8]>, String), // a payload prepended with the PacketType and a packet description
-    Split(Vec<u8>, PacketType), // split packet type and the payload; the description is not needed
-}
-
 fn send_consensus_msg_to_net(
     node: &P2PNode,
     dont_relay_to: Vec<u64>,
     source_id: P2PNodeId,
     target_id: Option<P2PNodeId>,
     network_id: NetworkId,
-    payload: NetworkPayload,
+    (payload, msg_desc): (Arc<[u8]>, PacketType),
 ) -> Fallible<()> {
-    let (payload, msg_desc) = match payload {
-        NetworkPayload::Full(payload, desc) => (payload, desc),
-        NetworkPayload::Split(payload, packet_type) => {
-            let mut buffer = Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + payload.len());
-            buffer.write_u16::<Endianness>(packet_type as u16).unwrap(); // infallible
-            buffer.write_all(&payload)?;
-            (Arc::from(buffer), packet_type.to_string())
-        }
-    };
-
     let result = if target_id.is_some() {
         send_direct_message(node, source_id, target_id, network_id, payload)
     } else {
@@ -400,7 +385,7 @@ fn send_catch_up_status(
         node.self_peer.id,
         Some(P2PNodeId(target)),
         network_id,
-        NetworkPayload::Split(consensus.get_catch_up_status(), PacketType::CatchUpStatus),
+        (consensus.get_catch_up_status(), PacketType::CatchUpStatus),
     )
 }
 
