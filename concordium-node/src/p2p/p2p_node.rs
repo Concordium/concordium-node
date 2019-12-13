@@ -851,7 +851,15 @@ impl P2PNode {
         addr: SocketAddr,
         peer_id_opt: Option<P2PNodeId>,
     ) -> Fallible<()> {
-        debug!("Attempting to connect to {}", addr);
+        debug!(
+            "Attempting to connect to {}{}",
+            addr,
+            if let Some(id) = peer_id_opt {
+                format!(" ({})", id)
+            } else {
+                "".to_owned()
+            }
+        );
 
         if peer_type == PeerType::Node {
             let current_peer_count = self.get_peer_stats(Some(PeerType::Node)).len() as u16;
