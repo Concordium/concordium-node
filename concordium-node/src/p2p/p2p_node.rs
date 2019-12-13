@@ -598,7 +598,6 @@ impl P2PNode {
                 let now = Instant::now();
 
                 if !bad_tokens.is_empty() {
-                    self_clone.remove_connections(&bad_tokens);
                     let mut soft_bans = write_or_die!(self_clone.connection_handler.soft_bans);
                     for (ip, e) in bad_ips.into_iter() {
                         if let Ok(io_err) = e.downcast::<io::Error>() {
@@ -612,10 +611,12 @@ impl P2PNode {
                             ]
                             .contains(&io_err.kind())
                             {
+                                warn!("Soft-banning {:?} due to a breach of protocol", ip);
                                 soft_bans.insert(ip, Instant::now());
                             }
                         }
                     }
+                    self_clone.remove_connections(&bad_tokens);
                 }
 
                 // Run periodic tasks
