@@ -581,7 +581,7 @@ impl P2PNode {
 
                 // perform socket reads and writes in parallel across connections
                 // check for new connections
-                for _ in events.iter().filter(|&event| event.token() == SERVER) {
+                if events.iter().any(|event| event.token() == SERVER) {
                     debug!("Got a new connection!");
                     self_clone.accept().map_err(|e| error!("{}", e)).ok();
                     self_clone.stats.conn_received_inc();
