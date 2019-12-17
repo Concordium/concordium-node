@@ -581,23 +581,26 @@ impl P2PNode {
 
                 // perform socket reads and writes in parallel across connections
                 // check for new connections
-                if events.iter().any(|event| event.token() == SERVER) {
+                let new_conn = if events.iter().any(|event| event.token() == SERVER) {
                     debug!("Got a new connection!");
-                    self_clone.accept().map_err(|e| error!("{}", e)).ok();
-                    self_clone.stats.conn_received_inc();
-                }
+                    self_clone.accept().map_err(|e| error!("{}", e)).ok()
+                } else {
+                    None
+                };
 
                 let (bad_tokens, bad_ips) = pool.install(|| {
                     self_clone.process_network_events(
                         &events,
                         &deduplication_queues,
                         &mut connections,
+                        new_conn,
                     )
                 });
 
                 let now = Instant::now();
 
                 if !bad_tokens.is_empty() {
+                    warn!("Some connections have issues");
                     let mut soft_bans = write_or_die!(self_clone.connection_handler.soft_bans);
                     for (ip, e) in bad_ips.into_iter() {
                         if let Ok(io_err) = e.downcast::<io::Error>() {
@@ -622,10 +625,18 @@ impl P2PNode {
                     self_clone.remove_connections(&bad_tokens);
                 }
 
+                if new_conn.is_some() {
+                    debug!("[poll debug] the poll loop was successful");
+                }
+
                 // Run periodic tasks
                 if now.duration_since(log_time)
                     >= Duration::from_secs(self_clone.config.housekeeping_interval)
                 {
+                    if new_conn.is_some() {
+                        debug!("[poll debug] running housekeeping");
+                    }
+
                     // Check the termination switch
                     if self_clone.is_terminated.load(Ordering::Relaxed) {
                         break;
@@ -658,8 +669,7 @@ impl P2PNode {
         });
 
         // Register info about thread into P2PNode.
-        let mut locked_threads = write_or_die!(self.threads);
-        locked_threads.join_handles.push(poll_thread);
+        write_or_die!(self.threads).join_handles.push(poll_thread);
     }
 
     fn measure_connection_latencies(&self) {
@@ -782,9 +792,10 @@ impl P2PNode {
         self.connection_handler.unreachable_nodes.insert(addr)
     }
 
-    fn accept(&self) -> Fallible<()> {
+    fn accept(&self) -> Fallible<Token> {
         let self_peer = self.self_peer;
         let (socket, addr) = self.connection_handler.server.accept()?;
+        self.stats.conn_received_inc();
 
         {
             let conn_read_lock = read_or_die!(self.connections());
@@ -822,8 +833,6 @@ impl P2PNode {
             self_peer.port()
         );
 
-        self.log_event(P2PEvent::ConnectEvent(addr));
-
         let token = Token(
             self.connection_handler
                 .next_id
@@ -839,10 +848,11 @@ impl P2PNode {
 
         let conn = Connection::new(self, socket, token, remote_peer, false);
 
-        let register_status = conn.register(&self.poll);
+        conn.register(&self.poll)?;
         self.add_connection(conn);
+        self.log_event(P2PEvent::ConnectEvent(addr));
 
-        register_status
+        Ok(token)
     }
 
     pub fn connect(
@@ -1106,9 +1116,7 @@ impl P2PNode {
     }
 
     pub fn add_connection(&self, conn: Arc<Connection>) {
-        let addr = conn.remote_addr();
         write_or_die!(self.connections()).insert(conn.token, conn);
-        trace!("Added a connection to {:?}", addr);
     }
 
     /// Waits for P2PNode termination. Use `P2PNode::close` to notify the
@@ -1292,6 +1300,7 @@ impl P2PNode {
         events: &Events,
         deduplication_queues: &Arc<DeduplicationQueues>,
         connections: &mut Vec<(Token, Arc<Connection>)>,
+        new_conn: Option<Token>,
     ) -> (Vec<Token>, Vec<(IpAddr, Error)>) {
         connections.clear();
         // FIXME: it would be cool if we were able to remove this intermediate vector
@@ -1305,6 +1314,10 @@ impl P2PNode {
             .filter_map(|(token, conn)| {
                 let mut low_level = write_or_die!(conn.low_level);
 
+                if new_conn.is_some() {
+                    debug!("[poll debug] entering the poll loop for debug");
+                }
+
                 if let Err(e) = send_pending_messages(&conn.pending_messages, &mut low_level)
                     .and_then(|_| low_level.flush_socket())
                 {
@@ -1312,10 +1325,18 @@ impl P2PNode {
                     return Some((*token, (conn.remote_addr().ip(), e)));
                 }
 
+                if new_conn.is_some() {
+                    debug!("[poll debug] pending messages sent");
+                }
+
                 if events
                     .iter()
                     .any(|event| event.token() == *token && event.readiness().is_readable())
                 {
+                    if new_conn.is_some() {
+                        debug!("[poll debug] there's readable events");
+                    }
+
                     if let Err(e) = low_level.read_stream(deduplication_queues) {
                         error!("{}", e);
                         Some((*token, (conn.remote_addr().ip(), e)))
