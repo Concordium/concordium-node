@@ -1314,7 +1314,7 @@ impl P2PNode {
             .filter_map(|(token, conn)| {
                 let mut low_level = write_or_die!(conn.low_level);
 
-                if new_conn.is_some() {
+                if new_conn == Some(*token) {
                     debug!("[poll debug] entering the poll loop for debug");
                 }
 
@@ -1325,7 +1325,7 @@ impl P2PNode {
                     return Some((*token, (conn.remote_addr().ip(), e)));
                 }
 
-                if new_conn.is_some() {
+                if new_conn == Some(*token) {
                     debug!("[poll debug] pending messages sent");
                 }
 
@@ -1333,7 +1333,7 @@ impl P2PNode {
                     .iter()
                     .any(|event| event.token() == *token && event.readiness().is_readable())
                 {
-                    if new_conn.is_some() {
+                    if new_conn == Some(*token) {
                         debug!("[poll debug] there's readable events");
                     }
 
