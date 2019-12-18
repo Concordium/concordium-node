@@ -454,7 +454,7 @@ pub fn check_peer_states(
     let priority_peer = read_or_die!(peers_lock)
         .peers
         .peek()
-        .map(|(&i, s)| (i.to_owned(), s.clone()));
+        .map(|(&i, s)| (i.to_owned(), *s));
 
     if let Some((id, state)) = priority_peer {
         match state.status {

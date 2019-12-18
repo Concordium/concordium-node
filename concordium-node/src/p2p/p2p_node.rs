@@ -581,7 +581,7 @@ impl P2PNode {
 
                 // perform socket reads and writes in parallel across connections
                 // check for new connections
-                let new_conn = if events.iter().any(|event| event.token() == SERVER) {
+                let _new_conn = if events.iter().any(|event| event.token() == SERVER) {
                     debug!("Got a new connection!");
                     self_clone.accept().map_err(|e| error!("{}", e)).ok()
                 } else {
@@ -593,14 +593,12 @@ impl P2PNode {
                         &events,
                         &deduplication_queues,
                         &mut connections,
-                        new_conn,
                     )
                 });
 
                 let now = Instant::now();
 
                 if !bad_tokens.is_empty() {
-                    warn!("Some connections have issues");
                     let mut soft_bans = write_or_die!(self_clone.connection_handler.soft_bans);
                     for (ip, e) in bad_ips.into_iter() {
                         if let Ok(io_err) = e.downcast::<io::Error>() {
@@ -625,18 +623,10 @@ impl P2PNode {
                     self_clone.remove_connections(&bad_tokens);
                 }
 
-                if new_conn.is_some() {
-                    debug!("[poll debug] the poll loop was successful");
-                }
-
                 // Run periodic tasks
                 if now.duration_since(log_time)
                     >= Duration::from_secs(self_clone.config.housekeeping_interval)
                 {
-                    if new_conn.is_some() {
-                        debug!("[poll debug] running housekeeping");
-                    }
-
                     // Check the termination switch
                     if self_clone.is_terminated.load(Ordering::Relaxed) {
                         break;
@@ -1300,7 +1290,6 @@ impl P2PNode {
         events: &Events,
         deduplication_queues: &Arc<DeduplicationQueues>,
         connections: &mut Vec<(Token, Arc<Connection>)>,
-        new_conn: Option<Token>,
     ) -> (Vec<Token>, Vec<(IpAddr, Error)>) {
         connections.clear();
         // FIXME: it would be cool if we were able to remove this intermediate vector
@@ -1314,10 +1303,6 @@ impl P2PNode {
             .filter_map(|(token, conn)| {
                 let mut low_level = write_or_die!(conn.low_level);
 
-                if new_conn == Some(*token) {
-                    debug!("[poll debug] entering the poll loop for debug");
-                }
-
                 if let Err(e) = send_pending_messages(&conn.pending_messages, &mut low_level)
                     .and_then(|_| low_level.flush_socket())
                 {
@@ -1325,18 +1310,10 @@ impl P2PNode {
                     return Some((*token, (conn.remote_addr().ip(), e)));
                 }
 
-                if new_conn == Some(*token) {
-                    debug!("[poll debug] pending messages sent");
-                }
-
                 if events
                     .iter()
                     .any(|event| event.token() == *token && event.readiness().is_readable())
                 {
-                    if new_conn == Some(*token) {
-                        debug!("[poll debug] there's readable events");
-                    }
-
                     if let Err(e) = low_level.read_stream(deduplication_queues) {
                         error!("{}", e);
                         Some((*token, (conn.remote_addr().ip(), e)))
