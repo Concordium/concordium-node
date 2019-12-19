@@ -59,7 +59,7 @@ data BankStatus = BankStatus {
   -- GTU, this value can be adjusted to correspond to the desired inflation
   -- rate.
   _mintedGTUPerSlot :: !Amount
-  } deriving(Show)
+  } deriving(Show, Eq)
 
 instance Serialize BankStatus where
     put BankStatus{..} = do
