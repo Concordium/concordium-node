@@ -23,4 +23,9 @@ useradd -g $GROUP_ID -l -m -s /bin/false -u $USER_ID docker
 mkdir -p /var/lib/concordium
 chown -R $USER_ID:$GROUP_ID /var/lib/concordium
 
+if [ -f /var/lib/concordium/data/baker-0-account.json ] && [ -f /var/lib/concordium/data/baker-0-credentials.json ];
+then
+  export BAKER_ID=node-0
+fi
+
 /usr/bin/supervisord -c /etc/supervisor/supervisord.conf
