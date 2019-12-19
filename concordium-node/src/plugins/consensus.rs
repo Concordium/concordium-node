@@ -394,10 +394,12 @@ fn send_catch_up_status(
     node: &P2PNode,
     network_id: NetworkId,
     consensus: &mut consensus::ConsensusContainer,
-    peers: &mut PeerList,
+    peers_lock: &RwLock<PeerList>,
     target: PeerId,
 ) -> Fallible<()> {
     debug!("Global state: I'm catching up with peer {:016x}", target);
+
+    let peers = &mut write_or_die!(peers_lock);
 
     peers
         .peers
@@ -448,14 +450,19 @@ pub fn check_peer_states(
 ) -> Fallible<()> {
     use PeerStatus::*;
 
-    let mut peers = write_or_die!(peers_lock);
     // take advantage of the priority queue ordering
-    if let Some((id, state)) = peers.peers.peek().map(|(&i, s)| (i, s)) {
+    let priority_peer = read_or_die!(peers_lock)
+        .peers
+        .peek()
+        .map(|(&i, s)| (i.to_owned(), *s));
+
+    if let Some((id, state)) = priority_peer {
         match state.status {
             CatchingUp => {
                 // don't send any catch-up statuses while
                 // there are peers that are catching up
-                if get_current_stamp() > peers.catch_up_stamp + MAX_CATCH_UP_TIME {
+                if get_current_stamp() > read_or_die!(peers_lock).catch_up_stamp + MAX_CATCH_UP_TIME
+                {
                     debug!("Global state: peer {:016x} took too long to catch up", id);
                     if let Some(token) = node
                         .find_connection_by_id(P2PNodeId(id))
@@ -468,12 +475,10 @@ pub fn check_peer_states(
             Pending => {
                 // send a catch-up message to the first Pending peer
                 debug!("Global state: I need to catch up with peer {:016x}", id);
-                send_catch_up_status(node, network_id, consensus, &mut peers, id)?;
+                send_catch_up_status(node, network_id, consensus, &peers_lock, id)?;
             }
             UpToDate => {
-                if !consensus.is_baking() && consensus.is_active() {
-                    consensus.start_baker();
-                }
+                consensus.start_baker();
             }
         }
     }

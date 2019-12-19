@@ -236,8 +236,7 @@ impl ConnectionLowLevel {
         loop {
             match self.read_from_socket() {
                 Ok(ReadResult::Complete(msg)) => self.conn().process_message(msg, dedup_queues)?,
-                Ok(ReadResult::Incomplete) => {} // continue reading from the socket
-                Ok(ReadResult::WouldBlock) => return Ok(()), // stop reading for now
+                Ok(ReadResult::Incomplete) | Ok(ReadResult::WouldBlock) => return Ok(()),
                 Err(e) => bail!("Can't read from the socket: {}", e),
             }
         }

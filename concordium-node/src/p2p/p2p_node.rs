@@ -581,11 +581,12 @@ impl P2PNode {
 
                 // perform socket reads and writes in parallel across connections
                 // check for new connections
-                for _ in events.iter().filter(|&event| event.token() == SERVER) {
+                let _new_conn = if events.iter().any(|event| event.token() == SERVER) {
                     debug!("Got a new connection!");
-                    self_clone.accept().map_err(|e| error!("{}", e)).ok();
-                    self_clone.stats.conn_received_inc();
-                }
+                    self_clone.accept().map_err(|e| error!("{}", e)).ok()
+                } else {
+                    None
+                };
 
                 let (bad_tokens, bad_ips) = pool.install(|| {
                     self_clone.process_network_events(
@@ -598,7 +599,6 @@ impl P2PNode {
                 let now = Instant::now();
 
                 if !bad_tokens.is_empty() {
-                    self_clone.remove_connections(&bad_tokens);
                     let mut soft_bans = write_or_die!(self_clone.connection_handler.soft_bans);
                     for (ip, e) in bad_ips.into_iter() {
                         if let Ok(io_err) = e.downcast::<io::Error>() {
@@ -612,10 +612,15 @@ impl P2PNode {
                             ]
                             .contains(&io_err.kind())
                             {
+                                warn!("Soft-banning {:?} due to a fatal IO error", ip);
                                 soft_bans.insert(ip, Instant::now());
                             }
+                        } else {
+                            warn!("Soft-banning {:?} due to a breach of protocol", ip);
+                            soft_bans.insert(ip, Instant::now());
                         }
                     }
+                    self_clone.remove_connections(&bad_tokens);
                 }
 
                 // Run periodic tasks
@@ -654,8 +659,7 @@ impl P2PNode {
         });
 
         // Register info about thread into P2PNode.
-        let mut locked_threads = write_or_die!(self.threads);
-        locked_threads.join_handles.push(poll_thread);
+        write_or_die!(self.threads).join_handles.push(poll_thread);
     }
 
     fn measure_connection_latencies(&self) {
@@ -778,9 +782,10 @@ impl P2PNode {
         self.connection_handler.unreachable_nodes.insert(addr)
     }
 
-    fn accept(&self) -> Fallible<()> {
+    fn accept(&self) -> Fallible<Token> {
         let self_peer = self.self_peer;
         let (socket, addr) = self.connection_handler.server.accept()?;
+        self.stats.conn_received_inc();
 
         {
             let conn_read_lock = read_or_die!(self.connections());
@@ -818,8 +823,6 @@ impl P2PNode {
             self_peer.port()
         );
 
-        self.log_event(P2PEvent::ConnectEvent(addr));
-
         let token = Token(
             self.connection_handler
                 .next_id
@@ -835,10 +838,11 @@ impl P2PNode {
 
         let conn = Connection::new(self, socket, token, remote_peer, false);
 
-        let register_status = conn.register(&self.poll);
+        conn.register(&self.poll)?;
         self.add_connection(conn);
+        self.log_event(P2PEvent::ConnectEvent(addr));
 
-        register_status
+        Ok(token)
     }
 
     pub fn connect(
@@ -847,9 +851,16 @@ impl P2PNode {
         addr: SocketAddr,
         peer_id_opt: Option<P2PNodeId>,
     ) -> Fallible<()> {
-        debug!("Attempting to connect to {}", addr);
+        debug!(
+            "Attempting to connect to {}{}",
+            addr,
+            if let Some(id) = peer_id_opt {
+                format!(" ({})", id)
+            } else {
+                "".to_owned()
+            }
+        );
 
-        self.log_event(P2PEvent::InitiatingConnection(addr));
         if peer_type == PeerType::Node {
             let current_peer_count = self.get_peer_stats(Some(PeerType::Node)).len() as u16;
             if current_peer_count > self.config.max_allowed_nodes {
@@ -893,6 +904,7 @@ impl P2PNode {
             bail!("Refusing to connect to a soft-banned IP ({:?})", addr.ip());
         }
 
+        self.log_event(P2PEvent::InitiatingConnection(addr));
         match TcpStream::connect(&addr) {
             Ok(socket) => {
                 self.stats.conn_received_inc();
@@ -1062,8 +1074,10 @@ impl P2PNode {
 
     pub fn remove_connection(&self, token: Token) -> bool {
         if let Some(conn) = write_or_die!(self.connections()).remove(&token) {
+            if conn.is_post_handshake() {
+                self.bump_last_peer_update();
+            }
             write_or_die!(conn.low_level).conn_ref = None; // necessary in order for Drop to kick in
-            self.bump_last_peer_update();
             true
         } else {
             false
@@ -1074,21 +1088,25 @@ impl P2PNode {
         let connections = &mut write_or_die!(self.connections());
 
         let mut removed = 0;
+        let mut update_peer_list = false;
         for token in tokens {
             if let Some(conn) = connections.remove(&token) {
+                if conn.is_post_handshake() {
+                    update_peer_list = true;
+                }
                 write_or_die!(conn.low_level).conn_ref = None; // necessary in order for Drop to kick in
                 removed += 1;
             }
         }
-        self.bump_last_peer_update();
+        if update_peer_list {
+            self.bump_last_peer_update();
+        }
 
         removed == tokens.len()
     }
 
     pub fn add_connection(&self, conn: Arc<Connection>) {
-        let addr = conn.remote_addr();
         write_or_die!(self.connections()).insert(conn.token, conn);
-        trace!("Added a connection to {:?}", addr);
     }
 
     /// Waits for P2PNode termination. Use `P2PNode::close` to notify the
