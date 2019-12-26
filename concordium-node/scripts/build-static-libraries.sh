@@ -25,7 +25,11 @@ sed -i 's/git-fetch-with-cli = true/git-fetch-with-cli = false/' /build/crypto/r
 
 (
     cd /build/crypto/rust-src &&
-    cargo check
+        cargo update &&
+        cargo check &&
+        cd /build/globalstate-mockup/globalstate-rust &&
+        cargo update &&
+        cargo check
 )
 
 mkdir -p /target/{profiling,vanilla}/{ghc,cabal,concordium}
