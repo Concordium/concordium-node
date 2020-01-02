@@ -13,7 +13,7 @@ use p2p_client::{
     test_utils::{connect, generate_random_data, make_node_and_sync, next_available_port},
 };
 
-use std::{convert::TryFrom, sync::Arc, thread, time::Duration};
+use std::{sync::Arc, thread, time::Duration};
 
 const KIB: usize = 1024;
 const MIB: usize = 1024 * 1024;
