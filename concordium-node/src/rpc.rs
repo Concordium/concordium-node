@@ -16,6 +16,7 @@ use crate::{
     proto::*,
 };
 
+use byteorder::{BigEndian, WriteBytesExt};
 use concordium_common::{ConsensusFfiResponse, ConsensusIsInCommitteeResponse, PacketType};
 use consensus_rust::consensus::{ConsensusContainer, CALLBACK_QUEUE};
 use futures::future::Future;
@@ -24,6 +25,7 @@ use grpcio::{self, Environment, ServerBuilder};
 
 use crossbeam_channel;
 use std::{
+    io::Write,
     net::{IpAddr, SocketAddr},
     str::FromStr,
     sync::{atomic::Ordering, Arc, Mutex},
@@ -373,8 +375,14 @@ impl P2P for RpcServerImpl {
         authenticate!(ctx, req, sink, self.access_token, {
             match self.consensus {
                 Some(ref consensus) => {
-                    let payload = req.get_payload();
-                    let consensus_result = consensus.send_transaction(payload);
+                    let transaction = req.get_payload();
+                    let mut payload = Vec::with_capacity(2 + transaction.len());
+                    payload
+                        .write_u16::<BigEndian>(PacketType::Transaction as u16)
+                        .unwrap(); // safe
+                    payload.write_all(&transaction).unwrap(); // also infallible
+
+                    let consensus_result = consensus.send_transaction(&payload);
                     let gs_result = if consensus_result == ConsensusFfiResponse::Success {
                         CALLBACK_QUEUE.send_out_message(ConsensusMessage::new(
                             MessageType::Outbound(None),
