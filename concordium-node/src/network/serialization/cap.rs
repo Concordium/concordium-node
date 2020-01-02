@@ -1,8 +1,6 @@
 use capnp;
 use failure::Fallible;
 
-use concordium_common::hybrid_buf::HybridBuf;
-
 use crate::{
     common::{get_current_stamp, P2PNodeId},
     network::{
@@ -61,7 +59,7 @@ fn load_packet_type(
 fn load_network_packet(packet: &p2p_capnp::network_packet::Reader) -> capnp::Result<NetworkPacket> {
     let packet_type = load_packet_type(&packet.get_packet_type()?)?;
     let network_id = NetworkId::from(packet.get_network_id());
-    let message = HybridBuf::try_from(packet.get_message()?)?;
+    let message = Arc::from(packet.get_message()?);
 
     Ok(NetworkPacket {
         packet_type,
@@ -231,7 +229,6 @@ fn write_network_message(
 #[cfg(test)]
 mod unit_test {
     use super::*;
-    use concordium_common::hybrid_buf::HybridBuf;
     use std::{
         convert::TryFrom,
         io::{Cursor, SeekFrom},
@@ -271,7 +268,7 @@ mod unit_test {
                         P2PNodeId::from_str(&"2A").unwrap(),
                     ),
                     network_id:  NetworkId::from(111u16),
-                    message:     HybridBuf::try_from(b"Hello world!".to_vec()).unwrap(),
+                    message:     Arc::from(b"Hello world!".to_vec()),
                 }),
             },
         ];

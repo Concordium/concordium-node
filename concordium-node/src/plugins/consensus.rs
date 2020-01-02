@@ -5,20 +5,19 @@ pub const FILE_NAME_ID_PROV_DATA: &str = "identity_providers.json";
 pub const FILE_NAME_PREFIX_BAKER_PRIVATE: &str = "baker-";
 pub const FILE_NAME_SUFFIX_BAKER_PRIVATE: &str = "-credentials.json";
 
-use byteorder::{ReadBytesExt, WriteBytesExt};
+use byteorder::ReadBytesExt;
 use failure::Fallible;
 
 use crossbeam_channel::TrySendError;
 use std::{
     convert::TryFrom,
     fs::OpenOptions,
-    io::{Read, Seek, SeekFrom, Write},
+    io::Read,
     mem,
-    sync::RwLock,
+    sync::{Arc, RwLock},
 };
 
 use concordium_common::{
-    hybrid_buf::HybridBuf,
     serial::Endianness,
     ConsensusFfiResponse,
     PacketType::{self, *},
@@ -152,16 +151,14 @@ pub fn handle_pkt_out(
     node: &P2PNode,
     dont_relay_to: Vec<P2PNodeId>,
     peer_id: P2PNodeId,
-    mut msg: HybridBuf,
+    msg: Arc<[u8]>,
     is_broadcast: bool,
 ) -> Fallible<()> {
     ensure!(
-        msg.len()? >= msg.position()? + PAYLOAD_TYPE_LENGTH,
-        "Message needs at least {} bytes",
-        PAYLOAD_TYPE_LENGTH
+        msg.len() >= 2,
+        "Packet payload can't be smaller than 2 bytes"
     );
-
-    let consensus_type = msg.read_u16::<Endianness>()?;
+    let consensus_type = (&msg[..2]).read_u16::<Endianness>()?;
     let packet_type = PacketType::try_from(consensus_type)?;
 
     let distribution_mode = if is_broadcast {
@@ -237,7 +234,7 @@ pub fn handle_consensus_outbound_message(
 fn process_internal_gs_entry(
     node: &P2PNode,
     network_id: NetworkId,
-    mut request: ConsensusMessage,
+    request: ConsensusMessage,
 ) -> Fallible<()> {
     send_consensus_msg_to_net(
         node,
@@ -245,9 +242,7 @@ fn process_internal_gs_entry(
         node.self_peer.id,
         request.target_peer().map(P2PNodeId),
         network_id,
-        request.variant,
-        None,
-        &request.payload.remaining_bytes()?,
+        (request.payload, request.variant),
     )
 }
 
@@ -255,14 +250,13 @@ fn process_external_gs_entry(
     node: &P2PNode,
     network_id: NetworkId,
     consensus: &mut consensus::ConsensusContainer,
-    mut request: ConsensusMessage,
+    request: ConsensusMessage,
     peers_lock: &RwLock<PeerList>,
     no_rebroadcast_consensus_validation: bool,
 ) -> Fallible<()> {
     let source = P2PNodeId(request.source_peer());
 
     if no_rebroadcast_consensus_validation {
-        let curr_pos = request.payload.position()?;
         if request.distribution_mode() == DistributionMode::Broadcast {
             send_consensus_msg_to_net(
                 &node,
@@ -270,21 +264,18 @@ fn process_external_gs_entry(
                 source,
                 None,
                 network_id,
-                request.variant,
-                None,
-                &request.payload.remaining_bytes()?,
+                (request.payload.clone(), request.variant),
             )?;
         }
-        request.payload.seek(SeekFrom::Start(curr_pos))?;
 
         // relay external messages to Consensus
-        let consensus_result = send_msg_to_consensus(node, source, consensus, &mut request)?;
+        let consensus_result = send_msg_to_consensus(node, source, consensus, &request)?;
 
         // adjust the peer state(s) based on the feedback from Consensus
         update_peer_states(peers_lock, &request, consensus_result);
     } else {
         // relay external messages to Consensus
-        let consensus_result = send_msg_to_consensus(node, source, consensus, &mut request)?;
+        let consensus_result = send_msg_to_consensus(node, source, consensus, &request)?;
 
         // adjust the peer state(s) based on the feedback from Consensus
         update_peer_states(peers_lock, &request, consensus_result);
@@ -299,9 +290,7 @@ fn process_external_gs_entry(
                 source,
                 None,
                 network_id,
-                request.variant,
-                None,
-                &request.payload.remaining_bytes()?,
+                (request.payload, request.variant),
             )?;
         }
     }
@@ -313,23 +302,20 @@ fn send_msg_to_consensus(
     node: &P2PNode,
     source_id: P2PNodeId,
     consensus: &mut consensus::ConsensusContainer,
-    request: &mut ConsensusMessage,
+    request: &ConsensusMessage,
 ) -> Fallible<ConsensusFfiResponse> {
     let raw_id = source_id.as_raw();
-    let payload_offset = request.payload.position()?;
-    let payload = request.payload.remaining_bytes()?;
+    let payload = &request.payload[2..];
 
     let consensus_response = match request.variant {
-        Block => consensus.send_block(&payload),
-        Transaction => consensus.send_transaction(&payload),
-        FinalizationMessage => consensus.send_finalization(&payload),
-        FinalizationRecord => consensus.send_finalization_record(&payload),
+        Block => consensus.send_block(payload),
+        Transaction => consensus.send_transaction(payload),
+        FinalizationMessage => consensus.send_finalization(payload),
+        FinalizationRecord => consensus.send_finalization_record(payload),
         CatchUpStatus => {
-            consensus.receive_catch_up_status(&payload, raw_id, node.config.catch_up_batch_limit)
+            consensus.receive_catch_up_status(payload, raw_id, node.config.catch_up_batch_limit)
         }
     };
-
-    request.payload.seek(SeekFrom::Start(payload_offset))?;
 
     if consensus_response.is_acceptable() {
         info!("Processed a {} from {}", request.variant, source_id);
@@ -343,33 +329,23 @@ fn send_msg_to_consensus(
     Ok(consensus_response)
 }
 
-#[allow(clippy::too_many_arguments)]
-pub fn send_consensus_msg_to_net(
+fn send_consensus_msg_to_net(
     node: &P2PNode,
     dont_relay_to: Vec<u64>,
     source_id: P2PNodeId,
     target_id: Option<P2PNodeId>,
     network_id: NetworkId,
-    payload_type: PacketType,
-    payload_desc: Option<String>,
-    payload: &[u8],
+    (payload, msg_desc): (Arc<[u8]>, PacketType),
 ) -> Fallible<()> {
-    let mut packet_buffer = HybridBuf::with_capacity(PAYLOAD_TYPE_LENGTH as usize + payload.len())?;
-    packet_buffer
-        .write_u16::<Endianness>(payload_type as u16)
-        .expect("Can't write a packet payload to buffer");
-    packet_buffer.write_all(payload)?;
-    packet_buffer.rewind()?;
-
     let result = if target_id.is_some() {
-        send_direct_message(node, source_id, target_id, network_id, packet_buffer)
+        send_direct_message(node, source_id, target_id, network_id, payload)
     } else {
         send_broadcast_message(
             node,
             source_id,
             dont_relay_to.into_iter().map(P2PNodeId).collect(),
             network_id,
-            packet_buffer,
+            payload,
         )
     };
 
@@ -378,14 +354,10 @@ pub fn send_consensus_msg_to_net(
     } else {
         "broadcast".to_string()
     };
-    let message_desc = payload_desc.unwrap_or_else(|| payload_type.to_string());
 
     match result {
-        Ok(_) => info!("Sent a {} containing a {}", target_desc, message_desc,),
-        Err(_) => error!(
-            "Couldn't send a {} containing a {}!",
-            target_desc, message_desc,
-        ),
+        Ok(_) => info!("Sent a {} containing a {}", target_desc, msg_desc),
+        Err(_) => error!("Couldn't send a {} containing a {}!", target_desc, msg_desc,),
     }
     Ok(())
 }
@@ -413,9 +385,7 @@ fn send_catch_up_status(
         node.self_peer.id,
         Some(P2PNodeId(target)),
         network_id,
-        PacketType::CatchUpStatus,
-        Some("catch-up status message".to_owned()),
-        &consensus.get_catch_up_status(),
+        (consensus.get_catch_up_status(), PacketType::CatchUpStatus),
     )
 }
 

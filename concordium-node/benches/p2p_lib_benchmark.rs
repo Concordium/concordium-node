@@ -39,7 +39,6 @@ macro_rules! bench_s11n {
                 group.throughput(Throughput::Bytes(size as u64));
                 group.bench_function(BenchmarkId::from_parameter(size), |b| {
                     b.iter(|| {
-                        msg.rewind_packet();
                         msg.serialize(&mut buffer).unwrap();
                         NetworkMessage::deserialize(&buffer.get_ref()).unwrap();
                         buffer.seek(SeekFrom::Start(0)).unwrap();

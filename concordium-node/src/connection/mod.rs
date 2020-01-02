@@ -29,7 +29,7 @@ use crate::{
     },
     p2p::banned_nodes::BannedNode,
 };
-use concordium_common::{hybrid_buf::HybridBuf, serial::Endianness, PacketType};
+use concordium_common::{serial::Endianness, PacketType};
 
 use std::{
     collections::HashSet,
@@ -237,28 +237,28 @@ impl Connection {
         packet: &mut NetworkPacket,
         deduplication_queues: &DeduplicationQueues,
     ) -> Fallible<bool> {
-        let message = &mut packet.message;
-        let packet_type = PacketType::try_from(message.read_u16::<Endianness>()?);
+        ensure!(packet.message.len() >= 2);
+        let packet_type = PacketType::try_from((&packet.message[..2]).read_u16::<Endianness>()?);
 
         let is_duplicate = match packet_type {
             Ok(PacketType::FinalizationMessage) => dedup_with(
-                message,
+                &packet.message,
                 &mut write_or_die!(deduplication_queues.finalizations),
             )?,
             Ok(PacketType::Transaction) => dedup_with(
-                message,
+                &packet.message,
                 &mut write_or_die!(deduplication_queues.transactions),
             )?,
-            Ok(PacketType::Block) => {
-                dedup_with(message, &mut write_or_die!(deduplication_queues.blocks))?
-            }
+            Ok(PacketType::Block) => dedup_with(
+                &packet.message,
+                &mut write_or_die!(deduplication_queues.blocks),
+            )?,
             Ok(PacketType::FinalizationRecord) => dedup_with(
-                message,
+                &packet.message,
                 &mut write_or_die!(deduplication_queues.fin_records),
             )?,
             _ => false,
         };
-        message.rewind()?;
 
         Ok(is_duplicate)
     }
@@ -266,22 +266,22 @@ impl Connection {
     #[inline]
     fn process_message(
         &self,
-        mut message: HybridBuf,
+        message: Arc<[u8]>,
         deduplication_queues: &DeduplicationQueues,
     ) -> Fallible<()> {
         self.update_last_seen();
         self.stats.messages_received.fetch_add(1, Ordering::Relaxed);
         self.stats
             .bytes_received
-            .fetch_add(message.len()?, Ordering::Relaxed);
+            .fetch_add(message.len() as u64, Ordering::Relaxed);
         TOTAL_MESSAGES_RECEIVED_COUNTER.fetch_add(1, Ordering::Relaxed);
         self.handler().stats.pkt_received_inc();
 
         if cfg!(feature = "network_dump") {
-            self.send_to_dump(Arc::from(message.clone().remaining_bytes()?.to_vec()), true);
+            self.send_to_dump(message.clone(), true);
         }
 
-        let message = NetworkMessage::deserialize(&message.remaining_bytes()?);
+        let message = NetworkMessage::deserialize(&message);
         if let Err(e) = message {
             self.handle_invalid_network_msg(e);
             return Ok(());
@@ -555,9 +555,9 @@ impl Drop for Connection {
 
 // returns a bool indicating if the message is a duplicate
 #[inline]
-fn dedup_with(message: &mut HybridBuf, queue: &mut CircularQueue<[u8; 8]>) -> Fallible<bool> {
+fn dedup_with(message: &[u8], queue: &mut CircularQueue<[u8; 8]>) -> Fallible<bool> {
     let mut hash = [0u8; 8];
-    hash.copy_from_slice(&XxHash64::digest(&message.remaining_bytes()?));
+    hash.copy_from_slice(&XxHash64::digest(message));
 
     if !queue.iter().any(|h| h == &hash) {
         trace!(

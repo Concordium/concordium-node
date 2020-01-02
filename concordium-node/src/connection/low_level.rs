@@ -12,7 +12,6 @@ use super::{
     Connection, DeduplicationQueues,
 };
 use crate::{common::counter::TOTAL_MESSAGES_SENT_COUNTER, network::PROTOCOL_MAX_MESSAGE_SIZE};
-use concordium_common::hybrid_buf::HybridBuf;
 
 use std::{
     cmp,
@@ -40,7 +39,7 @@ struct IncomingMessage {
     /// current message.
     pending_bytes: usize,
     /// The encrypted message currently being read.
-    message: HybridBuf,
+    message: Vec<u8>,
 }
 
 /// A buffer used to handle reads/writes to the socket.
@@ -90,7 +89,7 @@ impl SocketBuffer {
 /// is.
 enum ReadResult {
     /// A single message was fully read.
-    Complete(HybridBuf),
+    Complete(Vec<u8>),
     /// The currently read message is incomplete - further reads are needed.
     Incomplete,
     /// The current attempt to read from the socket would be blocking.
@@ -178,7 +177,7 @@ impl ConnectionLowLevel {
         Ok(())
     }
 
-    fn process_msg_a(&mut self, len: usize) -> Fallible<HybridBuf> {
+    fn process_msg_a(&mut self, len: usize) -> Fallible<Vec<u8>> {
         recv_xx_msg!(self, len, "A");
         let pad = if cfg!(feature = "snow_noise") { 0 } else { 16 };
         let payload_in = self.socket_buffer.slice(len)[DHLEN..][..len - DHLEN - pad].try_into()?;
@@ -189,7 +188,7 @@ impl ConnectionLowLevel {
         Ok(payload_in)
     }
 
-    fn process_msg_b(&mut self, len: usize) -> Fallible<HybridBuf> {
+    fn process_msg_b(&mut self, len: usize) -> Fallible<Vec<u8>> {
         recv_xx_msg!(self, len, "B");
         let payload_in = self.socket_buffer.slice(len)[DHLEN * 2 + MAC_LENGTH..]
             [..len - DHLEN * 2 - MAC_LENGTH * 2]
@@ -204,7 +203,7 @@ impl ConnectionLowLevel {
         Ok(payload_in)
     }
 
-    fn process_msg_c(&mut self, len: usize) -> Fallible<HybridBuf> {
+    fn process_msg_c(&mut self, len: usize) -> Fallible<Vec<u8>> {
         recv_xx_msg!(self, len, "C");
         let payload = self.socket_buffer.slice(len)[DHLEN + MAC_LENGTH..]
             [..len - DHLEN - MAC_LENGTH * 2]
@@ -235,7 +234,9 @@ impl ConnectionLowLevel {
     pub fn read_stream(&mut self, dedup_queues: &DeduplicationQueues) -> Fallible<()> {
         loop {
             match self.read_from_socket() {
-                Ok(ReadResult::Complete(msg)) => self.conn().process_message(msg, dedup_queues)?,
+                Ok(ReadResult::Complete(msg)) => {
+                    self.conn().process_message(Arc::from(msg), dedup_queues)?
+                }
                 Ok(ReadResult::Incomplete) | Ok(ReadResult::WouldBlock) => return Ok(()),
                 Err(e) => bail!("Can't read from the socket: {}", e),
             }
@@ -322,7 +323,7 @@ impl ConnectionLowLevel {
                 ByteSize(expected_size as u64).to_string_as(true)
             );
             self.incoming_msg.pending_bytes = expected_size as usize;
-            self.incoming_msg.message = HybridBuf::with_capacity(expected_size as usize)?;
+            self.incoming_msg.message = Vec::with_capacity(expected_size as usize);
         }
 
         Ok(())
@@ -360,7 +361,7 @@ impl ConnectionLowLevel {
 
                 if !self.noise_session.is_initiator()
                     && self.noise_session.get_message_count() == 1
-                    && payload != PSK.try_into()?
+                    && payload != PSK
                 {
                     bail!("Invalid PSK");
                 }
@@ -377,10 +378,10 @@ impl ConnectionLowLevel {
 
     /// Decrypt a full message read from the socket.
     #[inline]
-    fn decrypt(&mut self) -> Fallible<HybridBuf> {
-        let mut msg = mem::replace(&mut self.incoming_msg.message, HybridBuf::with_capacity(0)?);
+    fn decrypt(&mut self) -> Fallible<Vec<u8>> {
+        let mut msg = Cursor::new(mem::replace(&mut self.incoming_msg.message, Vec::new()));
         // calculate the number of full-sized chunks
-        let len = msg.len()? as usize;
+        let len = msg.get_ref().len();
         let num_full_chunks = len / NOISE_MAX_MESSAGE_LEN;
         // calculate the number of the last, incomplete chunk (if there is one)
         let last_chunk_size = len % NOISE_MAX_MESSAGE_LEN;
@@ -391,17 +392,20 @@ impl ConnectionLowLevel {
             self.decrypt_chunk(&mut msg, i)?;
         }
 
-        msg.rewind()?;
-        msg.truncate(len - num_all_chunks * MAC_LENGTH)?;
+        let mut msg = msg.into_inner();
+        msg.truncate(len - num_all_chunks * MAC_LENGTH);
 
         Ok(msg)
     }
 
     /// Decrypt a single chunk of the received encrypted message.
     #[inline]
-    fn decrypt_chunk(&mut self, msg: &mut HybridBuf, offset_mul: usize) -> Fallible<()> {
+    fn decrypt_chunk(&mut self, msg: &mut Cursor<Vec<u8>>, offset_mul: usize) -> Fallible<()> {
         msg.seek(SeekFrom::Start((offset_mul * NOISE_MAX_MESSAGE_LEN) as u64))?;
-        let read_size = cmp::min(NOISE_MAX_MESSAGE_LEN, msg.remaining_len()? as usize);
+        let read_size = cmp::min(
+            NOISE_MAX_MESSAGE_LEN,
+            msg.get_ref().len() - msg.position() as usize,
+        );
         msg.read_exact(&mut self.noise_buffer[..read_size])?;
         msg.seek(SeekFrom::Start((offset_mul * NOISE_MAX_PAYLOAD_LEN) as u64))?;
 

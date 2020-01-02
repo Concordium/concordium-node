@@ -226,17 +226,15 @@ impl Connection {
         {
             if !is_broadcast && self.handler().config.enable_tps_test {
                 let mut stats_engine = write_or_die!(self.handler().stats_engine);
-                if let Ok(len) = pac.message.len() {
-                    stats_engine.add_stat(len);
+                stats_engine.add_stat(pac.message.len() as u64);
 
-                    if stats_engine.msg_count == self.handler().config.tps_message_count {
-                        info!(
-                            "TPS over {} messages is {}",
-                            self.handler().config.tps_message_count,
-                            stats_engine.calculate_total_tps_average()
-                        );
-                        stats_engine.clear();
-                    }
+                if stats_engine.msg_count == self.handler().config.tps_message_count {
+                    info!(
+                        "TPS over {} messages is {}",
+                        self.handler().config.tps_message_count,
+                        stats_engine.calculate_total_tps_average()
+                    );
+                    stats_engine.clear();
                 }
             }
         }

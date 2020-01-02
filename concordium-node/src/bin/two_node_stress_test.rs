@@ -5,8 +5,6 @@ use failure::Fallible;
 use log::LevelFilter;
 use rand::{thread_rng, Rng};
 
-use concordium_common::hybrid_buf::HybridBuf;
-
 use p2p_client::{
     common::PeerType,
     connection::Connection,
@@ -15,7 +13,7 @@ use p2p_client::{
     test_utils::{connect, generate_random_data, make_node_and_sync, next_available_port},
 };
 
-use std::{convert::TryFrom, sync::Arc, thread, time::Duration};
+use std::{sync::Arc, thread, time::Duration};
 
 const KIB: usize = 1024;
 const MIB: usize = 1024 * 1024;
@@ -96,7 +94,7 @@ fn send_fuzzed_packet(source: &P2PNode, min: usize, max: usize) {
         source.self_peer.id,
         vec![],
         NetworkId::from(100),
-        HybridBuf::try_from(generate_random_data(thread_rng().gen_range(min, max))).unwrap(),
+        Arc::from(generate_random_data(thread_rng().gen_range(min, max))),
     )
     .unwrap()
 }
