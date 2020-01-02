@@ -1,8 +1,4 @@
-use crate::{
-    common::P2PNodeId,
-    network::{AsProtocolRequestType, NetworkId, ProtocolRequestType},
-    p2p::banned_nodes::BannedNode,
-};
+use crate::{common::P2PNodeId, network::NetworkId, p2p::banned_nodes::BannedNode};
 
 use std::collections::HashSet;
 
@@ -16,18 +12,4 @@ pub enum NetworkRequest {
     UnbanNode(BannedNode),
     JoinNetwork(NetworkId),
     LeaveNetwork(NetworkId),
-}
-
-impl AsProtocolRequestType for NetworkRequest {
-    fn protocol_request_type(&self) -> ProtocolRequestType {
-        match self {
-            NetworkRequest::Ping => ProtocolRequestType::Ping,
-            NetworkRequest::BanNode(..) => ProtocolRequestType::BanNode,
-            NetworkRequest::Handshake(..) => ProtocolRequestType::Handshake,
-            NetworkRequest::GetPeers(..) => ProtocolRequestType::GetPeers,
-            NetworkRequest::UnbanNode(..) => ProtocolRequestType::UnbanNode,
-            NetworkRequest::JoinNetwork(..) => ProtocolRequestType::JoinNetwork,
-            NetworkRequest::LeaveNetwork(..) => ProtocolRequestType::LeaveNetwork,
-        }
-    }
 }

@@ -1,7 +1,6 @@
 pub mod buckets;
 pub mod message;
 pub mod packet;
-pub mod protocol_message_type;
 pub mod request;
 pub mod response;
 pub mod serialization;
@@ -10,10 +9,6 @@ pub use self::{
     buckets::Buckets,
     message::{NetworkMessage, NetworkMessagePayload},
     packet::{NetworkPacket, NetworkPacketType},
-    protocol_message_type::{
-        AsProtocolMessageType, AsProtocolPacketType, AsProtocolRequestType, AsProtocolResponseType,
-        ProtocolMessageType, ProtocolPacketType, ProtocolRequestType, ProtocolResponseType,
-    },
     request::NetworkRequest,
     response::NetworkResponse,
 };

@@ -1,7 +1,4 @@
-use crate::{
-    common::P2PNodeId,
-    network::{AsProtocolPacketType, NetworkId, ProtocolPacketType},
-};
+use crate::{common::P2PNodeId, network::NetworkId};
 use std::sync::Arc;
 
 #[derive(Debug, PartialEq)]
@@ -9,15 +6,6 @@ use std::sync::Arc;
 pub enum NetworkPacketType {
     DirectMessage(P2PNodeId),
     BroadcastedMessage(Vec<P2PNodeId>),
-}
-
-impl AsProtocolPacketType for NetworkPacketType {
-    fn protocol_packet_type(&self) -> ProtocolPacketType {
-        match self {
-            NetworkPacketType::DirectMessage(..) => ProtocolPacketType::Direct,
-            NetworkPacketType::BroadcastedMessage(..) => ProtocolPacketType::Broadcast,
-        }
-    }
 }
 
 #[derive(Debug, PartialEq)]
