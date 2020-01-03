@@ -87,10 +87,7 @@ pub fn authenticate(token: &str) -> bool {
         .and_then(|mut s| {
             s.json::<ClientLoginResponse>()
                 .map_err(|s| {
-                    error!(
-                        "Failed to deserialize response from authentication server {}",
-                        s
-                    );
+                    error!("Failed to deserialize response from authentication server {}", s);
                 })
                 .ok()
         });

@@ -12,7 +12,12 @@ pub struct DataPoint {
 
 #[cfg(feature = "benchmark")]
 impl DataPoint {
-    pub fn new(size: u64, time: u64) -> Self { DataPoint { size, time } }
+    pub fn new(size: u64, time: u64) -> Self {
+        DataPoint {
+            size,
+            time,
+        }
+    }
 }
 
 #[cfg(not(feature = "benchmark"))]
@@ -51,10 +56,8 @@ impl StatsEngine {
         // We add the data point with the current amount of milliseconds since epoch.
         // Since Rust doesn't have a method to return millis in u64, we have to manually
         // calculate that
-        self.datapoints.push(DataPoint::new(
-            size,
-            (_dur.as_secs() * 1000) + u64::from(_dur.subsec_millis()),
-        ));
+        self.datapoints
+            .push(DataPoint::new(size, (_dur.as_secs() * 1000) + u64::from(_dur.subsec_millis())));
     }
 
     #[cfg(not(feature = "benchmark"))]
@@ -91,9 +94,8 @@ impl StatsEngine {
         let now = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .expect("can't happen before epoch");
-        let minusfive = now
-            .checked_sub(Duration::from_secs(300))
-            .expect("less than 5 minutes spent");
+        let minusfive =
+            now.checked_sub(Duration::from_secs(300)).expect("less than 5 minutes spent");
 
         for point in self.datapoints.iter() {
             if Duration::from_millis(point.time) > minusfive {

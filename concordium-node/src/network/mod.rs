@@ -19,7 +19,11 @@ pub struct NetworkId {
 }
 
 impl From<u16> for NetworkId {
-    fn from(id: u16) -> Self { NetworkId { id } }
+    fn from(id: u16) -> Self {
+        NetworkId {
+            id,
+        }
+    }
 }
 
 impl fmt::Display for NetworkId {

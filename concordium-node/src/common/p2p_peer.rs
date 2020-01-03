@@ -120,10 +120,7 @@ impl RemotePeer {
     pub fn peer_external_port(&self) -> u16 { self.peer_external_port.load(AtomicOrdering::SeqCst) }
 
     pub fn peer_external_addr(&self) -> SocketAddr {
-        SocketAddr::new(
-            self.addr.ip(),
-            self.peer_external_port.load(AtomicOrdering::SeqCst),
-        )
+        SocketAddr::new(self.addr.ip(), self.peer_external_port.load(AtomicOrdering::SeqCst))
     }
 }
 

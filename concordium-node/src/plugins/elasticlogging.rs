@@ -177,34 +177,20 @@ pub fn log_transfer_event(url: &str, msg: TransactionLogMessage) -> Fallible<()>
         }
     };
     if let Err(e) = client.document::<TransferLogEvent>().put_mapping().send() {
-        bail!(
-            "Elastic Search could not update mappings in document due to {}",
-            e
-        );
+        bail!("Elastic Search could not update mappings in document due to {}", e);
     }
     if let Err(e) = client.document().index(doc).send() {
-        bail!(
-            "Elastic Search could not insert document into index due to {}",
-            e
-        );
+        bail!("Elastic Search could not insert document into index due to {}", e);
     }
     Ok(())
 }
 
 pub fn create_transfer_index(url: &str) -> Fallible<()> {
     let client = create_client(url)?;
-    match client
-        .index(TransferLogEvent::static_index())
-        .exists()
-        .send()
-    {
+    match client.index(TransferLogEvent::static_index()).exists().send() {
         Ok(res) => {
             if !res.exists() {
-                if let Err(e) = client
-                    .index(TransferLogEvent::static_index())
-                    .create()
-                    .send()
-                {
+                if let Err(e) = client.index(TransferLogEvent::static_index()).create().send() {
                     bail!("Elastic Search could not create needed index due to {}", e);
                 }
             } else {

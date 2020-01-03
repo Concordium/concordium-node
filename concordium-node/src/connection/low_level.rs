@@ -170,7 +170,11 @@ impl ConnectionLowLevel {
     // the XX noise handshake
 
     pub fn send_handshake_message_a(&mut self) -> Fallible<()> {
-        let pad = if cfg!(feature = "snow_noise") { 0 } else { 16 };
+        let pad = if cfg!(feature = "snow_noise") {
+            0
+        } else {
+            16
+        };
         send_xx_msg!(self, DHLEN, PSK, pad, "A");
         self.conn().set_sent_handshake();
 
@@ -179,7 +183,11 @@ impl ConnectionLowLevel {
 
     fn process_msg_a(&mut self, len: usize) -> Fallible<Vec<u8>> {
         recv_xx_msg!(self, len, "A");
-        let pad = if cfg!(feature = "snow_noise") { 0 } else { 16 };
+        let pad = if cfg!(feature = "snow_noise") {
+            0
+        } else {
+            16
+        };
         let payload_in = self.socket_buffer.slice(len)[DHLEN..][..len - DHLEN - pad].try_into()?;
         let payload_out = self.conn().produce_handshake_request()?;
         send_xx_msg!(self, DHLEN * 2 + MAC_LENGTH, &payload_out, MAC_LENGTH, "B");
@@ -287,9 +295,7 @@ impl ConnectionLowLevel {
             self.socket_buffer.remaining,
             PAYLOAD_SIZE - self.incoming_msg.size_bytes.len(),
         );
-        self.incoming_msg
-            .size_bytes
-            .write_all(self.socket_buffer.slice(read_size))?;
+        self.incoming_msg.size_bytes.write_all(self.socket_buffer.slice(read_size))?;
         self.socket_buffer.shift(read_size);
 
         if self.incoming_msg.size_bytes.len() == PAYLOAD_SIZE {
@@ -318,10 +324,7 @@ impl ConnectionLowLevel {
                 );
             }
 
-            trace!(
-                "Expecting a {} message",
-                ByteSize(expected_size as u64).to_string_as(true)
-            );
+            trace!("Expecting a {} message", ByteSize(expected_size as u64).to_string_as(true));
             self.incoming_msg.pending_bytes = expected_size as usize;
             self.incoming_msg.message = Vec::with_capacity(expected_size as usize);
         }
@@ -334,14 +337,9 @@ impl ConnectionLowLevel {
     /// current message and decrypt it when all bytes have been read.
     #[inline]
     fn process_incoming_msg(&mut self) -> Fallible<ReadResult> {
-        let to_read = cmp::min(
-            self.incoming_msg.pending_bytes,
-            self.socket_buffer.remaining,
-        );
+        let to_read = cmp::min(self.incoming_msg.pending_bytes, self.socket_buffer.remaining);
 
-        self.incoming_msg
-            .message
-            .write_all(self.socket_buffer.slice(to_read))?;
+        self.incoming_msg.message.write_all(self.socket_buffer.slice(to_read))?;
         self.incoming_msg.pending_bytes -= to_read;
 
         if self.is_post_handshake() {
@@ -385,7 +383,12 @@ impl ConnectionLowLevel {
         let num_full_chunks = len / NOISE_MAX_MESSAGE_LEN;
         // calculate the number of the last, incomplete chunk (if there is one)
         let last_chunk_size = len % NOISE_MAX_MESSAGE_LEN;
-        let num_all_chunks = num_full_chunks + if last_chunk_size > 0 { 1 } else { 0 };
+        let num_all_chunks = num_full_chunks
+            + if last_chunk_size > 0 {
+                1
+            } else {
+                0
+            };
 
         // decrypt the chunks
         for i in 0..num_all_chunks {
@@ -402,17 +405,12 @@ impl ConnectionLowLevel {
     #[inline]
     fn decrypt_chunk(&mut self, msg: &mut Cursor<Vec<u8>>, offset_mul: usize) -> Fallible<()> {
         msg.seek(SeekFrom::Start((offset_mul * NOISE_MAX_MESSAGE_LEN) as u64))?;
-        let read_size = cmp::min(
-            NOISE_MAX_MESSAGE_LEN,
-            msg.get_ref().len() - msg.position() as usize,
-        );
+        let read_size =
+            cmp::min(NOISE_MAX_MESSAGE_LEN, msg.get_ref().len() - msg.position() as usize);
         msg.read_exact(&mut self.noise_buffer[..read_size])?;
         msg.seek(SeekFrom::Start((offset_mul * NOISE_MAX_PAYLOAD_LEN) as u64))?;
 
-        if let Err(err) = self
-            .noise_session
-            .recv_message(&mut self.noise_buffer[..read_size])
-        {
+        if let Err(err) = self.noise_session.recv_message(&mut self.noise_buffer[..read_size]) {
             Err(err.into())
         } else {
             msg.write_all(&self.noise_buffer[..read_size - MAC_LENGTH])?;
@@ -426,14 +424,8 @@ impl ConnectionLowLevel {
     #[inline]
     pub fn write_to_socket(&mut self, input: Arc<[u8]>) -> Fallible<()> {
         TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
-        self.conn()
-            .stats
-            .messages_sent
-            .fetch_add(1, Ordering::Relaxed);
-        self.conn()
-            .stats
-            .bytes_sent
-            .fetch_add(input.len() as u64, Ordering::Relaxed);
+        self.conn().stats.messages_sent.fetch_add(1, Ordering::Relaxed);
+        self.conn().stats.bytes_sent.fetch_add(input.len() as u64, Ordering::Relaxed);
         self.conn().handler().stats.pkt_sent_inc();
 
         if cfg!(feature = "network_dump") {
@@ -504,8 +496,7 @@ impl ConnectionLowLevel {
         };
         let full_msg_len = num_full_chunks * NOISE_MAX_MESSAGE_LEN + last_chunk_len;
 
-        self.output_queue
-            .extend(&(full_msg_len as PayloadSize).to_be_bytes());
+        self.output_queue.extend(&(full_msg_len as PayloadSize).to_be_bytes());
 
         let mut input = Cursor::new(input);
         let eof = input.get_ref().len() as u64;
@@ -530,11 +521,9 @@ impl ConnectionLowLevel {
         input.read_exact(&mut self.noise_buffer[..chunk_size])?;
         let encrypted_len = chunk_size + MAC_LENGTH;
 
-        self.noise_session
-            .send_message(&mut self.noise_buffer[..encrypted_len])?;
+        self.noise_session.send_message(&mut self.noise_buffer[..encrypted_len])?;
 
-        self.output_queue
-            .extend(&self.noise_buffer[..encrypted_len]);
+        self.output_queue.extend(&self.noise_buffer[..encrypted_len]);
 
         Ok(())
     }

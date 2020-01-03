@@ -29,9 +29,7 @@ fn read_block_dump(bytes: &[u8]) {
 fn main() -> io::Result<()> {
     let mut args = env::args();
     let _ = args.next();
-    let filename = args
-        .next()
-        .expect("No arguments provided (expected a filename)!");
+    let filename = args.next().expect("No arguments provided (expected a filename)!");
     let mut file = File::open(filename)?;
     let mut buffer = Vec::new();
 

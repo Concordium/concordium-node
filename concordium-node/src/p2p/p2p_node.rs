@@ -98,6 +98,7 @@ pub struct P2PNodeConfig {
     dedup_size_short: usize,
     pub socket_read_size: usize,
     pub socket_write_size: usize,
+    pub no_rebroadcast_consensus_validation: bool,
 }
 
 #[derive(Default)]
@@ -144,13 +145,7 @@ impl ConnectionHandler {
         server: TcpListener,
         event_log: Option<Sender<QueueMsg<P2PEvent>>>,
     ) -> Self {
-        let networks = conf
-            .common
-            .network_ids
-            .iter()
-            .cloned()
-            .map(NetworkId::from)
-            .collect();
+        let networks = conf.common.network_ids.iter().cloned().map(NetworkId::from).collect();
 
         ConnectionHandler {
             server,
@@ -231,14 +226,12 @@ impl P2PNode {
         data_dir_path: Option<PathBuf>,
     ) -> Arc<Self> {
         let addr = if let Some(ref addy) = conf.common.listen_address {
-            format!("{}:{}", addy, conf.common.listen_port)
-                .parse()
-                .unwrap_or_else(|_| {
-                    warn!("Supplied listen address coulnd't be parsed");
-                    format!("0.0.0.0:{}", conf.common.listen_port)
-                        .parse()
-                        .expect("Port not properly formatted. Crashing.")
-                })
+            format!("{}:{}", addy, conf.common.listen_port).parse().unwrap_or_else(|_| {
+                warn!("Supplied listen address coulnd't be parsed");
+                format!("0.0.0.0:{}", conf.common.listen_port)
+                    .parse()
+                    .expect("Port not properly formatted. Crashing.")
+            })
         } else {
             format!("0.0.0.0:{}", conf.common.listen_port)
                 .parse()
@@ -255,11 +248,7 @@ impl P2PNode {
             P2PNode::get_ip().expect("Couldn't retrieve my own ip")
         };
 
-        debug!(
-            "Listening on {}:{}",
-            ip.to_string(),
-            conf.common.listen_port
-        );
+        debug!("Listening on {}:{}", ip.to_string(), conf.common.listen_port);
 
         let id = if let Some(s) = supplied_id {
             if s.chars().count() != 16 {
@@ -281,10 +270,7 @@ impl P2PNode {
         let server =
             TcpListener::bind(&addr).unwrap_or_else(|_| panic!("Couldn't listen on port!"));
 
-        if poll
-            .register(&server, SERVER, Ready::readable(), PollOpt::level())
-            .is_err()
-        {
+        if poll.register(&server, SERVER, Ready::readable(), PollOpt::level()).is_err() {
             panic!("Couldn't register server with poll!")
         };
 
@@ -355,6 +341,7 @@ impl P2PNode {
             dedup_size_short: conf.connection.dedup_size_short,
             socket_read_size: conf.connection.socket_read_size,
             socket_write_size: conf.connection.socket_write_size,
+            no_rebroadcast_consensus_validation: conf.cli.no_rebroadcast_consensus_validation,
         };
 
         let connection_handler = ConnectionHandler::new(conf, server, event_log);
@@ -412,8 +399,7 @@ impl P2PNode {
             self_ref_ptr.copy_from(data_to_copy, 1);
         };
 
-        node.clear_bans()
-            .unwrap_or_else(|e| error!("Couldn't reset the ban list: {}", e));
+        node.clear_bans().unwrap_or_else(|e| error!("Couldn't reset the ban list: {}", e));
 
         node
     }
@@ -444,15 +430,11 @@ impl P2PNode {
     }
 
     pub fn get_last_bootstrap(&self) -> u64 {
-        self.connection_handler
-            .last_bootstrap
-            .load(Ordering::Relaxed)
+        self.connection_handler.last_bootstrap.load(Ordering::Relaxed)
     }
 
     pub fn update_last_bootstrap(&self) {
-        self.connection_handler
-            .last_bootstrap
-            .store(get_current_stamp(), Ordering::SeqCst);
+        self.connection_handler.last_bootstrap.store(get_current_stamp(), Ordering::SeqCst);
     }
 
     pub fn forward_network_packet(&self, msg: NetworkMessage) -> Fallible<()> {
@@ -467,22 +449,12 @@ impl P2PNode {
     /// nodes.
     fn print_stats(&self, peer_stat_list: &[PeerStats]) {
         trace!("Printing out stats");
-        debug!(
-            "I currently have {}/{} peers",
-            peer_stat_list.len(),
-            self.config.max_allowed_nodes,
-        );
+        debug!("I currently have {}/{} peers", peer_stat_list.len(), self.config.max_allowed_nodes,);
 
         // Print nodes
         if self.config.print_peers {
             for (i, peer) in peer_stat_list.iter().enumerate() {
-                trace!(
-                    "Peer {}: {}/{}/{}",
-                    i,
-                    P2PNodeId(peer.id),
-                    peer.addr,
-                    peer.peer_type
-                );
+                trace!("Peer {}: {}/{}/{}", i, P2PNodeId(peer.id), peer.addr, peer.peer_type);
             }
         }
     }
@@ -561,19 +533,17 @@ impl P2PNode {
                 PeerType::Bootstrapper => 1,
                 PeerType::Node => self_clone.config.thread_pool_size,
             };
-            let pool = rayon::ThreadPoolBuilder::new()
-                .num_threads(num_socket_threads)
-                .build()
-                .unwrap();
+            let pool =
+                rayon::ThreadPoolBuilder::new().num_threads(num_socket_threads).build().unwrap();
 
             let mut connections = Vec::with_capacity(8);
 
             loop {
                 // check for new events or wait
-                if let Err(e) = self_clone.poll.poll(
-                    &mut events,
-                    Some(Duration::from_millis(self_clone.config.poll_interval)),
-                ) {
+                if let Err(e) = self_clone
+                    .poll
+                    .poll(&mut events, Some(Duration::from_millis(self_clone.config.poll_interval)))
+                {
                     error!("{}", e);
                     continue;
                 }
@@ -685,10 +655,8 @@ impl P2PNode {
         // deduplicate by P2PNodeId
         {
             let conns = read_or_die!(self.connections()).clone();
-            let mut conns = conns
-                .values()
-                .filter(|conn| conn.is_post_handshake())
-                .collect::<Vec<_>>();
+            let mut conns =
+                conns.values().filter(|conn| conn.is_post_handshake()).collect::<Vec<_>>();
             conns.sort_by_key(|conn| (conn.remote_id(), Reverse(conn.token)));
             conns.dedup_by_key(|conn| conn.remote_id());
             write_or_die!(self.connections())
@@ -797,10 +765,7 @@ impl P2PNode {
                 bail!("Too many connections, rejecting attempt from {:?}", addr);
             }
 
-            if conn_read_lock
-                .values()
-                .any(|conn| conn.remote_addr() == addr)
-            {
+            if conn_read_lock.values().any(|conn| conn.remote_addr() == addr) {
                 bail!("Duplicate connection attempt from {:?}; rejecting", addr);
             }
 
@@ -808,10 +773,7 @@ impl P2PNode {
                 .iter()
                 .any(|(ip, _)| *ip == addr.ip())
             {
-                bail!(
-                    "Connection attempt from a soft-banned IP ({:?}); rejecting",
-                    addr.ip()
-                );
+                bail!("Connection attempt from a soft-banned IP ({:?}); rejecting", addr.ip());
             }
         }
 
@@ -822,11 +784,7 @@ impl P2PNode {
             self_peer.port()
         );
 
-        let token = Token(
-            self.connection_handler
-                .next_id
-                .fetch_add(1, Ordering::SeqCst),
-        );
+        let token = Token(self.connection_handler.next_id.fetch_add(1, Ordering::SeqCst));
 
         let remote_peer = RemotePeer {
             id: Default::default(),
@@ -896,10 +854,7 @@ impl P2PNode {
             bail!("Node marked as unreachable; not allowing the connection");
         }
 
-        if read_or_die!(self.connection_handler.soft_bans)
-            .iter()
-            .any(|(ip, _)| *ip == addr.ip())
-        {
+        if read_or_die!(self.connection_handler.soft_bans).iter().any(|(ip, _)| *ip == addr.ip()) {
             bail!("Refusing to connect to a soft-banned IP ({:?})", addr.ip());
         }
 
@@ -908,11 +863,7 @@ impl P2PNode {
             Ok(socket) => {
                 self.stats.conn_received_inc();
 
-                let token = Token(
-                    self.connection_handler
-                        .next_id
-                        .fetch_add(1, Ordering::SeqCst),
-                );
+                let token = Token(self.connection_handler.next_id.fetch_add(1, Ordering::SeqCst));
 
                 let remote_peer = RemotePeer {
                     id: Default::default(),
@@ -1051,9 +1002,7 @@ impl P2PNode {
     }
 
     pub fn find_connection_by_token(&self, token: Token) -> Option<Arc<Connection>> {
-        read_or_die!(self.connections())
-            .get(&token)
-            .map(|conn| Arc::clone(conn))
+        read_or_die!(self.connections()).get(&token).map(|conn| Arc::clone(conn))
     }
 
     pub fn find_connection_by_ip_addr(&self, addr: SocketAddr) -> Option<Arc<Connection>> {
@@ -1111,10 +1060,9 @@ impl P2PNode {
     /// Waits for P2PNode termination. Use `P2PNode::close` to notify the
     /// termination.
     pub fn join(&self) -> Fallible<()> {
-        for handle in mem::replace(
-            &mut write_or_die!(self.threads).join_handles,
-            Default::default(),
-        ) {
+        for handle in
+            mem::replace(&mut write_or_die!(self.threads).join_handles, Default::default())
+        {
             if let Err(e) = handle.join() {
                 bail!("Thread join error: {:?}", e);
             }
@@ -1209,10 +1157,7 @@ impl P2PNode {
     }
 
     pub fn get_node_peer_ids(&self) -> Vec<u64> {
-        self.get_peer_stats(Some(PeerType::Node))
-            .into_iter()
-            .map(|stats| stats.id)
-            .collect()
+        self.get_peer_stats(Some(PeerType::Node)).into_iter().map(|stats| stats.id).collect()
     }
 
     pub fn measure_throughput(&self, peer_stats: &[PeerStats]) -> (u64, u64) {
@@ -1388,15 +1333,11 @@ impl P2PNode {
     }
 
     pub fn bump_last_peer_update(&self) {
-        self.connection_handler
-            .last_peer_update
-            .store(get_current_stamp(), Ordering::SeqCst)
+        self.connection_handler.last_peer_update.store(get_current_stamp(), Ordering::SeqCst)
     }
 
     pub fn last_peer_update(&self) -> u64 {
-        self.connection_handler
-            .last_peer_update
-            .load(Ordering::SeqCst)
+        self.connection_handler.last_peer_update.load(Ordering::SeqCst)
     }
 }
 

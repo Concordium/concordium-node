@@ -109,11 +109,7 @@ pub fn make_node_and_sync_with_rpc(
     networks: Vec<u16>,
     node_type: PeerType,
     data_dir_path: PathBuf,
-) -> Fallible<(
-    Arc<P2PNode>,
-    Receiver<NetworkMessage>,
-    Receiver<NetworkMessage>,
-)> {
+) -> Fallible<(Arc<P2PNode>, Receiver<NetworkMessage>, Receiver<NetworkMessage>)> {
     let (_, msg_wait_rx) = crossbeam_channel::bounded(64);
     let (rpc_tx, rpc_rx) = crossbeam_channel::bounded(64);
 
@@ -124,15 +120,7 @@ pub fn make_node_and_sync_with_rpc(
     config.connection.housekeeping_interval = 10;
 
     let stats = StatsExportService::new(StatsServiceMode::NodeMode).unwrap();
-    let node = P2PNode::new(
-        None,
-        &config,
-        None,
-        node_type,
-        stats,
-        rpc_tx,
-        Some(data_dir_path),
-    );
+    let node = P2PNode::new(None, &config, None, node_type, stats, rpc_tx, Some(data_dir_path));
 
     node.spawn();
     Ok((node, msg_wait_rx, rpc_rx))
@@ -188,11 +176,7 @@ pub fn await_direct_message(waiter: &Receiver<QueueMsg<NetworkMessage>>) -> Fall
 }
 
 pub fn generate_random_data(size: usize) -> Vec<u8> {
-    thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(size)
-        .map(|c| c as u32 as u8)
-        .collect()
+    thread_rng().sample_iter(&Alphanumeric).take(size).map(|c| c as u32 as u8).collect()
 }
 
 fn generate_fake_block(size: usize) -> Fallible<Vec<u8>> {

@@ -28,18 +28,11 @@ macro_rules! test_s11n {
     };
 }
 
-test_s11n!(
-    s11n_req_ping,
-    NetworkMessagePayload::NetworkRequest(NetworkRequest::Ping)
-);
+test_s11n!(s11n_req_ping, NetworkMessagePayload::NetworkRequest(NetworkRequest::Ping));
 test_s11n!(
     s11n_req_get_peers,
     NetworkMessagePayload::NetworkRequest(NetworkRequest::GetPeers(
-        [100u16, 1000, 1234, 9999]
-            .iter()
-            .copied()
-            .map(NetworkId::from)
-            .collect(),
+        [100u16, 1000, 1234, 9999].iter().copied().map(NetworkId::from).collect(),
     ))
 );
 test_s11n!(
@@ -47,11 +40,7 @@ test_s11n!(
     NetworkMessagePayload::NetworkRequest(NetworkRequest::Handshake(
         P2PNodeId(77),
         1234,
-        [100u16, 1000, 1234, 9999]
-            .iter()
-            .copied()
-            .map(NetworkId::from)
-            .collect(),
+        [100u16, 1000, 1234, 9999].iter().copied().map(NetworkId::from).collect(),
         Vec::new(),
     ))
 );
@@ -90,10 +79,7 @@ test_s11n!(
 
 // TODO: Retransmit (Requests)
 
-test_s11n!(
-    s11n_resp_pong,
-    NetworkMessagePayload::NetworkResponse(NetworkResponse::Pong)
-);
+test_s11n!(s11n_resp_pong, NetworkMessagePayload::NetworkResponse(NetworkResponse::Pong));
 
 test_s11n!(
     s11n_resp_peer_list,

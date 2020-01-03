@@ -185,10 +185,8 @@ impl StatsExportService {
             registry.register(Box::new(upr.clone()))?;
         }
 
-        let inpr_opts = Opts::new(
-            "invalid_network_packets_received",
-            "invalid network packets received",
-        );
+        let inpr_opts =
+            Opts::new("invalid_network_packets_received", "invalid network packets received");
         let inpr = IntCounter::with_opts(inpr_opts)?;
         if mode == StatsServiceMode::NodeMode || mode == StatsServiceMode::BootstrapperMode {
             registry.register(Box::new(inpr.clone()))?;
@@ -212,10 +210,7 @@ impl StatsExportService {
         let sbq = IntGauge::with_opts(sbq_opts)?;
         registry.register(Box::new(sbq.clone()))?;
 
-        let sfr_opts = Opts::new(
-            "gs_finalization_receipt",
-            "global state finalization receipt",
-        );
+        let sfr_opts = Opts::new("gs_finalization_receipt", "global state finalization receipt");
         let sfr = IntGauge::with_opts(sfr_opts)?;
         registry.register(Box::new(sfr.clone()))?;
 
@@ -233,9 +228,7 @@ impl StatsExportService {
         );
         let inbound_high_priority_consensus_drops_counter =
             IntCounter::with_opts(inbound_high_priority_consensus_drops_opts)?;
-        registry.register(Box::new(
-            inbound_high_priority_consensus_drops_counter.clone(),
-        ))?;
+        registry.register(Box::new(inbound_high_priority_consensus_drops_counter.clone()))?;
 
         let inbound_low_priority_consensus_drops_opts = Opts::new(
             "inbound_low_priority_consensus_drops",
@@ -243,9 +236,7 @@ impl StatsExportService {
         );
         let inbound_low_priority_consensus_drops_counter =
             IntCounter::with_opts(inbound_low_priority_consensus_drops_opts)?;
-        registry.register(Box::new(
-            inbound_low_priority_consensus_drops_counter.clone(),
-        ))?;
+        registry.register(Box::new(inbound_low_priority_consensus_drops_counter.clone()))?;
 
         let inbound_high_priority_consensus_counter_opts = Opts::new(
             "inbound_high_priority_consensus_counter",
@@ -393,8 +384,7 @@ impl StatsExportService {
         #[cfg(feature = "instrumentation")]
         self.pkts_sent_counter.inc_by(to_add);
         #[cfg(not(feature = "instrumentation"))]
-        self.pkts_sent_counter
-            .fetch_add(to_add as usize, Ordering::Relaxed);
+        self.pkts_sent_counter.fetch_add(to_add as usize, Ordering::Relaxed);
     }
 
     pub fn conn_received_inc(&self) {
@@ -408,16 +398,14 @@ impl StatsExportService {
         #[cfg(feature = "instrumentation")]
         self.invalid_packets_received.inc();
         #[cfg(not(feature = "instrumentation"))]
-        self.invalid_packets_received
-            .fetch_add(1, Ordering::Relaxed);
+        self.invalid_packets_received.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn invalid_network_pkts_received_inc(&self) {
         #[cfg(feature = "instrumentation")]
         self.invalid_network_packets_received.inc();
         #[cfg(not(feature = "instrumentation"))]
-        self.invalid_network_packets_received
-            .fetch_add(1, Ordering::Relaxed);
+        self.invalid_network_packets_received.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn queue_size_inc(&self) {
@@ -452,8 +440,7 @@ impl StatsExportService {
         #[cfg(feature = "instrumentation")]
         self.queue_size.add(to_add);
         #[cfg(not(feature = "instrumentation"))]
-        self.queue_size
-            .fetch_add(to_add as usize, Ordering::Relaxed);
+        self.queue_size.fetch_add(to_add as usize, Ordering::Relaxed);
     }
 
     pub fn pkt_resend_inc(&self) {
@@ -474,8 +461,7 @@ impl StatsExportService {
         #[cfg(feature = "instrumentation")]
         return self.gs_block_receipt.set(value);
         #[cfg(not(feature = "instrumentation"))]
-        self.gs_block_receipt
-            .store(value as usize, Ordering::Relaxed);
+        self.gs_block_receipt.store(value as usize, Ordering::Relaxed);
     }
 
     pub fn set_gs_block_entry(&self, value: i64) {
@@ -496,88 +482,77 @@ impl StatsExportService {
         #[cfg(feature = "instrumentation")]
         return self.gs_finalization_receipt.set(value);
         #[cfg(not(feature = "instrumentation"))]
-        self.gs_finalization_receipt
-            .store(value as usize, Ordering::Relaxed);
+        self.gs_finalization_receipt.store(value as usize, Ordering::Relaxed);
     }
 
     pub fn set_gs_finalization_entry(&self, value: i64) {
         #[cfg(feature = "instrumentation")]
         return self.gs_finalization_entry.set(value);
         #[cfg(not(feature = "instrumentation"))]
-        self.gs_finalization_entry
-            .store(value as usize, Ordering::Relaxed);
+        self.gs_finalization_entry.store(value as usize, Ordering::Relaxed);
     }
 
     pub fn set_gs_finalization_query(&self, value: i64) {
         #[cfg(feature = "instrumentation")]
         return self.gs_finalization_query.set(value);
         #[cfg(not(feature = "instrumentation"))]
-        self.gs_finalization_query
-            .store(value as usize, Ordering::Relaxed);
+        self.gs_finalization_query.store(value as usize, Ordering::Relaxed);
     }
 
     pub fn inbound_high_priority_consensus_drops_inc(&self) {
         #[cfg(feature = "instrumentation")]
         self.inbound_high_priority_consensus_drops_counter.inc();
         #[cfg(not(feature = "instrumentation"))]
-        self.inbound_high_priority_consensus_drops_counter
-            .fetch_add(1, Ordering::Relaxed);
+        self.inbound_high_priority_consensus_drops_counter.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn inbound_low_priority_consensus_drops_inc(&self) {
         #[cfg(feature = "instrumentation")]
         self.inbound_low_priority_consensus_drops_counter.inc();
         #[cfg(not(feature = "instrumentation"))]
-        self.inbound_low_priority_consensus_drops_counter
-            .fetch_add(1, Ordering::Relaxed);
+        self.inbound_low_priority_consensus_drops_counter.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn inbound_high_priority_consensus_inc(&self) {
         #[cfg(feature = "instrumentation")]
         self.inbound_high_priority_consensus_counter.inc();
         #[cfg(not(feature = "instrumentation"))]
-        self.inbound_high_priority_consensus_counter
-            .fetch_add(1, Ordering::Relaxed);
+        self.inbound_high_priority_consensus_counter.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn inbound_low_priority_consensus_inc(&self) {
         #[cfg(feature = "instrumentation")]
         self.inbound_low_priority_consensus_counter.inc();
         #[cfg(not(feature = "instrumentation"))]
-        self.inbound_low_priority_consensus_counter
-            .fetch_add(1, Ordering::Relaxed);
+        self.inbound_low_priority_consensus_counter.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn set_inbound_high_priority_consensus_size(&self, value: i64) {
         #[cfg(feature = "instrumentation")]
         self.inbound_high_priority_consensus_size.set(value);
         #[cfg(not(feature = "instrumentation"))]
-        self.inbound_high_priority_consensus_size
-            .store(value as usize, Ordering::Relaxed);
+        self.inbound_high_priority_consensus_size.store(value as usize, Ordering::Relaxed);
     }
 
     pub fn set_inbound_low_priority_consensus_size(&self, value: i64) {
         #[cfg(feature = "instrumentation")]
         self.inbound_low_priority_consensus_size.set(value);
         #[cfg(not(feature = "instrumentation"))]
-        self.inbound_low_priority_consensus_size
-            .store(value as usize, Ordering::Relaxed);
+        self.inbound_low_priority_consensus_size.store(value as usize, Ordering::Relaxed);
     }
 
     pub fn set_outbound_high_priority_consensus_size(&self, value: i64) {
         #[cfg(feature = "instrumentation")]
         self.outbound_high_priority_consensus_size.set(value);
         #[cfg(not(feature = "instrumentation"))]
-        self.outbound_high_priority_consensus_size
-            .store(value as usize, Ordering::Relaxed);
+        self.outbound_high_priority_consensus_size.store(value as usize, Ordering::Relaxed);
     }
 
     pub fn set_outbound_low_priority_consensus_size(&self, value: i64) {
         #[cfg(feature = "instrumentation")]
         self.outbound_low_priority_consensus_size.set(value);
         #[cfg(not(feature = "instrumentation"))]
-        self.outbound_low_priority_consensus_size
-            .store(value as usize, Ordering::Relaxed);
+        self.outbound_low_priority_consensus_size.store(value as usize, Ordering::Relaxed);
     }
 
     pub fn get_bytes_received(&self) -> u64 {
@@ -587,8 +562,7 @@ impl StatsExportService {
         }
         #[cfg(not(feature = "instrumentation"))]
         {
-            self.bytes_received
-                .load(std::sync::atomic::Ordering::Relaxed)
+            self.bytes_received.load(std::sync::atomic::Ordering::Relaxed)
         }
     }
 
@@ -725,9 +699,10 @@ impl StatsExportService {
         let _th = spawn_or_die!("Prometheus push", move || loop {
             debug!("Pushing data to push gateway");
             let username_pass = prometheus_push_username.clone().and_then(|username| {
-                prometheus_push_password
-                    .clone()
-                    .map(|password| prometheus::BasicAuthentication { username, password })
+                prometheus_push_password.clone().map(|password| prometheus::BasicAuthentication {
+                    username,
+                    password,
+                })
             });
             thread::sleep(time::Duration::from_secs(prometheus_push_interval));
             prometheus::push_metrics(
@@ -806,24 +781,22 @@ pub fn start_push_gateway(
     service: &StatsExportService,
     id: P2PNodeId,
 ) {
-    conf.prometheus_push_gateway
-        .as_ref()
-        .and_then(|prom_push_addy| {
-            let instance_name = if let Some(ref instance_id) = conf.prometheus_instance_name {
-                instance_id.clone()
-            } else {
-                id.to_string()
-            };
-            service.start_push_to_gateway(
-                prom_push_addy.clone(),
-                conf.prometheus_push_interval,
-                conf.prometheus_job_name.clone(),
-                instance_name,
-                conf.prometheus_push_username.clone(),
-                conf.prometheus_push_password.clone(),
-            );
-            Some(())
-        });
+    conf.prometheus_push_gateway.as_ref().and_then(|prom_push_addy| {
+        let instance_name = if let Some(ref instance_id) = conf.prometheus_instance_name {
+            instance_id.clone()
+        } else {
+            id.to_string()
+        };
+        service.start_push_to_gateway(
+            prom_push_addy.clone(),
+            conf.prometheus_push_interval,
+            conf.prometheus_job_name.clone(),
+            instance_name,
+            conf.prometheus_push_username.clone(),
+            conf.prometheus_push_password.clone(),
+        );
+        Some(())
+    });
 }
 
 #[cfg(feature = "instrumentation")]

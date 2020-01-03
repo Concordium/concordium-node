@@ -124,17 +124,8 @@ impl Connection {
         });
 
         for peer in applicable_candidates {
-            trace!(
-                "Got info for peer {}/{}/{}",
-                peer.id(),
-                peer.ip(),
-                peer.port()
-            );
-            if self
-                .handler()
-                .connect(PeerType::Node, peer.addr, Some(peer.id()))
-                .is_ok()
-            {
+            trace!("Got info for peer {}/{}/{}", peer.id(), peer.ip(), peer.port());
+            if self.handler().connect(PeerType::Node, peer.addr, Some(peer.id())).is_ok() {
                 new_peers += 1;
                 safe_write!(self.handler().connection_handler.buckets)?
                     .insert_into_bucket(peer, HashSet::new());
@@ -151,22 +142,14 @@ impl Connection {
     fn handle_join_network_req(&self, network: NetworkId) -> Fallible<()> {
         let remote_peer = self.remote_peer().peer().unwrap(); // safe, post-handshake
 
-        debug!(
-            "Received a JoinNetwork request from peer {}",
-            remote_peer.id
-        );
+        debug!("Received a JoinNetwork request from peer {}", remote_peer.id);
 
         self.add_remote_end_network(network);
-        safe_write!(self.handler().connection_handler.buckets)?.update_network_ids(
-            &remote_peer,
-            read_or_die!(self.remote_end_networks).to_owned(),
-        );
+        safe_write!(self.handler().connection_handler.buckets)?
+            .update_network_ids(&remote_peer, read_or_die!(self.remote_end_networks).to_owned());
 
         if let Some(ref log) = self.handler().connection_handler.event_log {
-            if log
-                .send(Relay(P2PEvent::JoinedNetwork(remote_peer, network)))
-                .is_err()
-            {
+            if log.send(Relay(P2PEvent::JoinedNetwork(remote_peer, network))).is_err() {
                 error!("A JoinNetwork Event cannot be sent to the P2PEvent log");
             }
         }
@@ -177,22 +160,14 @@ impl Connection {
     fn handle_leave_network_req(&self, network: NetworkId) -> Fallible<()> {
         let remote_peer = self.remote_peer().peer().unwrap(); // safe, post-handshake
 
-        debug!(
-            "Received a LeaveNetwork request from peer {}",
-            remote_peer.id
-        );
+        debug!("Received a LeaveNetwork request from peer {}", remote_peer.id);
 
         self.remove_remote_end_network(network);
-        safe_write!(self.handler().connection_handler.buckets)?.update_network_ids(
-            &remote_peer,
-            read_or_die!(self.remote_end_networks).to_owned(),
-        );
+        safe_write!(self.handler().connection_handler.buckets)?
+            .update_network_ids(&remote_peer, read_or_die!(self.remote_end_networks).to_owned());
 
         if let Some(ref log) = self.handler().connection_handler.event_log {
-            if log
-                .send(Relay(P2PEvent::LeftNetwork(remote_peer, network)))
-                .is_err()
-            {
+            if log.send(Relay(P2PEvent::LeftNetwork(remote_peer, network))).is_err() {
                 error!("Left Network Event cannot be sent to the P2PEvent log");
             }
         };
@@ -248,13 +223,7 @@ impl Connection {
                 vec![]
             };
 
-        handle_pkt_out(
-            self.handler(),
-            dont_relay_to,
-            peer_id,
-            pac.message.clone(),
-            is_broadcast,
-        )
+        handle_pkt_out(self.handler(), dont_relay_to, peer_id, pac.message.clone(), is_broadcast)
     }
 
     pub fn handle_invalid_network_msg(&self, err: Error) {

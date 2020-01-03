@@ -48,9 +48,7 @@ fn main() {
     //
     // This can not be directly implemented into protobuf, see:
     // https://github.com/stepancheg/rust-protobuf/issues/331
-    let walker = walkdir::WalkDir::new(proto_root_output)
-        .into_iter()
-        .filter_map(Result::ok);
+    let walker = walkdir::WalkDir::new(proto_root_output).into_iter().filter_map(Result::ok);
     for entry in walker {
         if !entry.file_type().is_dir() {
             let contents =
