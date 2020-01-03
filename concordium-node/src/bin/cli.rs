@@ -462,35 +462,32 @@ where
 
 #[cfg(feature = "elastic_logging")]
 fn setup_transfer_log_thread(conf: &config::CliConfig) -> JoinHandle<()> {
+    use p2p_client::plugins::elasticlogging;
+
     let (enabled, url) = (conf.elastic_logging_enabled, conf.elastic_logging_url.clone());
     if enabled {
-        if let Err(e) = p2p_client::plugins::elasticlogging::create_transfer_index(&url) {
+        if let Err(e) = elasticlogging::create_transfer_index(&url) {
             error!("{}", e);
         }
     }
     spawn_or_die!("Process transfer log messages", {
         let receiver = consensus_rust::transferlog::TRANSACTION_LOG_QUEUE.receiver.lock().unwrap();
         loop {
-            if let Ok(msg) = receiver.recv() {
-                match msg {
-                    QueueMsg::Relay(msg) => {
-                        if enabled {
-                            if let Err(e) =
-                                p2p_client::plugins::elasticlogging::log_transfer_event(&url, msg)
-                            {
-                                error!("{}", e);
-                            }
-                        } else {
-                            info!("{}", msg);
+            match receiver.recv() {
+                Ok(QueueMsg::Relay(msg)) => {
+                    if enabled {
+                        if let Err(e) = elasticlogging::log_transfer_event(&url, msg) {
+                            error!("{}", e);
                         }
-                    }
-                    QueueMsg::Stop => {
-                        debug!("Shutting down transfer log queues");
-                        break;
+                    } else {
+                        info!("{}", msg);
                     }
                 }
-            } else {
-                error!("Error receiving a transfer log message from the consensus layer");
+                Ok(QueueMsg::Stop) => {
+                    debug!("Shutting down transfer log queues");
+                    break;
+                }
+                Err(_) => error!("Error receiving a transfer log message from the consensus layer"),
             }
         }
     })
@@ -501,18 +498,13 @@ fn setup_transfer_log_thread(_: &config::CliConfig) -> JoinHandle<()> {
     spawn_or_die!("Process transfer log messages", {
         let receiver = consensus_rust::transferlog::TRANSACTION_LOG_QUEUE.receiver.lock().unwrap();
         loop {
-            if let Ok(msg) = receiver.recv() {
-                match msg {
-                    QueueMsg::Relay(msg) => {
-                        info!("{}", msg);
-                    }
-                    QueueMsg::Stop => {
-                        debug!("Shutting down transfer log queues");
-                        break;
-                    }
+            match receiver.recv() {
+                Ok(QueueMsg::Relay(msg)) => info!("{}", msg),
+                Ok(QueueMsg::Stop) => {
+                    debug!("Shutting down transfer log queues");
+                    break;
                 }
-            } else {
-                error!("Error receiving a transfer log message from the consensus layer");
+                Err(_) => error!("Error receiving a transfer log message from the consensus layer"),
             }
         }
     })
