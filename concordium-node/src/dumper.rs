@@ -44,7 +44,11 @@ impl DumpItem {
         format!(
             "{} - {} - {} - {:?} - {:?}",
             self.timestamp,
-            if self.inbound { "IN" } else { "OUT" },
+            if self.inbound {
+                "IN"
+            } else {
+                "OUT"
+            },
             self.remote_addr,
             self.msg,
             msg
@@ -144,11 +148,10 @@ pub fn create_dump_thread(
 
                 // Pretty dump
                 if let Some(ref mut pd) = pretty_dump {
-                    pd.write_fmt(format_args!("{}\n\n", msg.into_pretty_dump()))
-                        .map_err(|e| {
-                            error!("Aborting dump due to error: {}", e);
-                            e
-                        })?;
+                    pd.write_fmt(format_args!("{}\n\n", msg.into_pretty_dump())).map_err(|e| {
+                        error!("Aborting dump due to error: {}", e);
+                        e
+                    })?;
                 };
             };
             std::thread::yield_now();

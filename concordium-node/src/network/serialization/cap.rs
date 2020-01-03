@@ -74,9 +74,7 @@ fn load_network_request(
 ) -> capnp::Result<NetworkRequest> {
     match request.which()? {
         p2p_capnp::network_request::Which::Ping(_) => Ok(NetworkRequest::Ping),
-        _ => Err(capnp::Error::unimplemented(
-            "Network request type not implemented".to_owned(),
-        )),
+        _ => Err(capnp::Error::unimplemented("Network request type not implemented".to_owned())),
     }
 }
 
@@ -86,9 +84,7 @@ fn load_network_response(
 ) -> capnp::Result<NetworkResponse> {
     match response.which()? {
         p2p_capnp::network_response::Which::Pong(_) => Ok(NetworkResponse::Pong),
-        _ => Err(capnp::Error::unimplemented(
-            "Network response type not implemented".to_owned(),
-        )),
+        _ => Err(capnp::Error::unimplemented("Network response type not implemented".to_owned())),
     }
 }
 
@@ -150,9 +146,7 @@ fn write_packet_type(
             builder.set_id(target_id.as_raw());
         }
         NetworkPacketType::BroadcastedMessage(ids_to_exclude) => {
-            let mut builder = builder
-                .reborrow()
-                .init_broadcast(ids_to_exclude.len() as u32);
+            let mut builder = builder.reborrow().init_broadcast(ids_to_exclude.len() as u32);
             for (i, id) in ids_to_exclude.iter().enumerate() {
                 builder.reborrow().get(i as u32).set_id(id.as_raw());
             }
@@ -167,10 +161,7 @@ fn write_network_packet(
 ) -> Fallible<()> {
     let message = packet.message.remaining_bytes()?;
 
-    write_packet_type(
-        &mut builder.reborrow().init_packet_type(),
-        &packet.packet_type,
-    );
+    write_packet_type(&mut builder.reborrow().init_packet_type(), &packet.packet_type);
     builder.set_network_id(packet.network_id.id);
     builder.set_message(&message);
 

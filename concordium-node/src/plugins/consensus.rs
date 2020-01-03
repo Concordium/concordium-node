@@ -139,10 +139,7 @@ pub fn get_baker_data(
         None
     };
 
-    debug!(
-        "Obtained genesis data {:?}",
-        sha256(&[&[0u8; 8], genesis_data.as_slice()].concat())
-    );
+    debug!("Obtained genesis data {:?}", sha256(&[&[0u8; 8], genesis_data.as_slice()].concat()));
     Ok((genesis_data, private_data))
 }
 
@@ -154,10 +151,7 @@ pub fn handle_pkt_out(
     msg: Arc<[u8]>,
     is_broadcast: bool,
 ) -> Fallible<()> {
-    ensure!(
-        msg.len() >= 2,
-        "Packet payload can't be smaller than 2 bytes"
-    );
+    ensure!(msg.len() >= 2, "Packet payload can't be smaller than 2 bytes");
     let consensus_type = (&msg[..2]).read_u16::<Endianness>()?;
     let packet_type = PacketType::try_from(consensus_type)?;
 
@@ -294,10 +288,7 @@ fn send_msg_to_consensus(
     if consensus_response.is_acceptable() {
         info!("Processed a {} from {}", request.variant, source_id);
     } else {
-        debug!(
-            "Couldn't process a {} due to error code {:?}",
-            request, consensus_response,
-        );
+        debug!("Couldn't process a {} due to error code {:?}", request, consensus_response,);
     }
 
     Ok(consensus_response)
@@ -347,9 +338,7 @@ fn send_catch_up_status(
 
     let peers = &mut write_or_die!(peers_lock);
 
-    peers
-        .peers
-        .change_priority(&target, PeerState::new(PeerStatus::CatchingUp));
+    peers.peers.change_priority(&target, PeerState::new(PeerStatus::CatchingUp));
 
     peers.catch_up_stamp = get_current_stamp();
 
@@ -395,10 +384,7 @@ pub fn check_peer_states(
     use PeerStatus::*;
 
     // take advantage of the priority queue ordering
-    let priority_peer = read_or_die!(peers_lock)
-        .peers
-        .peek()
-        .map(|(&i, s)| (i.to_owned(), *s));
+    let priority_peer = read_or_die!(peers_lock).peers.peek().map(|(&i, s)| (i.to_owned(), *s));
 
     if let Some((id, state)) = priority_peer {
         match state.status {
@@ -408,9 +394,8 @@ pub fn check_peer_states(
                 if get_current_stamp() > read_or_die!(peers_lock).catch_up_stamp + MAX_CATCH_UP_TIME
                 {
                     debug!("Global state: peer {:016x} took too long to catch up", id);
-                    if let Some(token) = node
-                        .find_connection_by_id(P2PNodeId(id))
-                        .map(|conn| conn.token)
+                    if let Some(token) =
+                        node.find_connection_by_id(P2PNodeId(id)).map(|conn| conn.token)
                     {
                         node.remove_connection(token);
                     }
@@ -445,12 +430,10 @@ fn update_peer_states(
         } else if consensus_result.is_pending() {
             peers.peers.push(source_peer, PeerState::new(Pending));
         } else if consensus_result == ConsensusFfiResponse::ContinueCatchUp {
-            peers
-                .peers
-                .change_priority_by(&source_peer, |state| match state.status {
-                    UpToDate => PeerState::new(Pending),
-                    _ => state,
-                });
+            peers.peers.change_priority_by(&source_peer, |state| match state.status {
+                UpToDate => PeerState::new(Pending),
+                _ => state,
+            });
         }
     } else if [Block, FinalizationRecord].contains(&request.variant) {
         match request.distribution_mode() {
@@ -463,9 +446,7 @@ fn update_peer_states(
                     .collect::<Vec<_>>();
 
                 for up_to_date_peer in up_to_date_peers {
-                    peers
-                        .peers
-                        .change_priority(&up_to_date_peer, PeerState::new(Pending));
+                    peers.peers.change_priority(&up_to_date_peer, PeerState::new(Pending));
                 }
             }
             DistributionMode::Broadcast if consensus_result.is_pending() => {

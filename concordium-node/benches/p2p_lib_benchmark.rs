@@ -5,11 +5,7 @@ use p2p_client::test_utils::{create_random_packet, generate_random_data};
 
 use std::io::{Cursor, Seek, SeekFrom};
 
-#[cfg(any(
-    not(feature = "s11n_fbs"),
-    not(feature = "s11n_capnp"),
-    not(feature = "s11n_serde")
-))]
+#[cfg(any(not(feature = "s11n_fbs"), not(feature = "s11n_capnp"), not(feature = "s11n_serde")))]
 mod nop {
     use criterion::Criterion;
     pub fn nop_bench(_c: &mut Criterion) {}
@@ -24,15 +20,7 @@ macro_rules! bench_s11n {
         pub fn bench_s11n(c: &mut Criterion) {
             let mut group = c.benchmark_group($name);
 
-            for &size in &[
-                256,
-                1024,
-                4096,
-                64 * 1024,
-                256 * 1024,
-                1024 * 1024,
-                4 * 1024 * 1024,
-            ] {
+            for &size in &[256, 1024, 4096, 64 * 1024, 256 * 1024, 1024 * 1024, 4 * 1024 * 1024] {
                 let mut msg = create_random_packet(size);
                 let mut buffer = Cursor::new(Vec::with_capacity(size));
 

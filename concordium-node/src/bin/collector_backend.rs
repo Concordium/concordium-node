@@ -44,17 +44,9 @@ static A: System = System;
 #[derive(StructOpt, Debug)]
 #[structopt(name = "Node Collector Backend")]
 struct ConfigCli {
-    #[structopt(
-        long = "listen-address",
-        help = "IP to listen on",
-        default_value = "0.0.0.0"
-    )]
+    #[structopt(long = "listen-address", help = "IP to listen on", default_value = "0.0.0.0")]
     pub host: String,
-    #[structopt(
-        long = "listen-port",
-        help = "Port to listen on",
-        default_value = "8080"
-    )]
+    #[structopt(long = "listen-port", help = "Port to listen on", default_value = "8080")]
     pub port: u16,
     #[structopt(
         long = "stale-time-allowed",
@@ -74,10 +66,7 @@ struct ConfigCli {
     pub debug: bool,
     #[structopt(long = "trace", help = "Trace mode")]
     pub trace: bool,
-    #[structopt(
-        long = "no-log-timestamp",
-        help = "Do not output timestamp in log output"
-    )]
+    #[structopt(long = "no-log-timestamp", help = "Do not output timestamp in log output")]
     pub no_log_timestamp: bool,
 }
 
@@ -94,8 +83,7 @@ pub struct JSONStringResponse(pub String);
 impl IntoResponse for JSONStringResponse {
     fn into_response(self, state: &State) -> Response<Body> {
         let mut res = create_response(state, StatusCode::OK, mime::APPLICATION_JSON, self.0);
-        res.headers_mut()
-            .insert("Access-Control-Allow-Origin", "*".parse().unwrap());
+        res.headers_mut().insert("Access-Control-Allow-Origin", "*".parse().unwrap());
         res
     }
 }
@@ -107,7 +95,9 @@ struct CollectorStateData {
 
 impl CollectorStateData {
     fn new(nodes: Arc<RwLock<HashMap<String, NodeInfo, BuildHasherDefault<XxHash64>>>>) -> Self {
-        Self { nodes }
+        Self {
+            nodes,
+        }
     }
 }
 
@@ -136,10 +126,7 @@ pub fn main() -> Fallible<()> {
     );
 
     let node_info_map: Arc<RwLock<HashMap<String, NodeInfo, BuildHasherDefault<XxHash64>>>> =
-        Arc::new(RwLock::new(HashMap::with_capacity_and_hasher(
-            1500,
-            Default::default(),
-        )));
+        Arc::new(RwLock::new(HashMap::with_capacity_and_hasher(1500, Default::default())));
 
     let _allowed_stale_time = conf.stale_time_allowed;
     let _node_info_map_clone = Arc::clone(&node_info_map);
@@ -187,10 +174,7 @@ fn nodes_summary(state: State) -> (State, JSONStringResponse) {
         }
         response.extend(b"]");
     }
-    (
-        state,
-        JSONStringResponse(String::from_utf8(response).unwrap()),
-    )
+    (state, JSONStringResponse(String::from_utf8(response).unwrap()))
 }
 
 fn nodes_block_info(state: State) -> (State, JSONStringResponse) {
@@ -208,10 +192,7 @@ fn nodes_block_info(state: State) -> (State, JSONStringResponse) {
         }
         response.extend(b"]");
     }
-    (
-        state,
-        JSONStringResponse(String::from_utf8(response).unwrap()),
-    )
+    (state, JSONStringResponse(String::from_utf8(response).unwrap()))
 }
 
 fn nodes_beta_users_info(state: State) -> (State, JSONStringResponse) {
@@ -229,41 +210,36 @@ fn nodes_beta_users_info(state: State) -> (State, JSONStringResponse) {
         }
         response.extend(b"]");
     }
-    (
-        state,
-        JSONStringResponse(String::from_utf8(response).unwrap()),
-    )
+    (state, JSONStringResponse(String::from_utf8(response).unwrap()))
 }
 
 fn nodes_post_handler(mut state: State) -> Box<HandlerFuture> {
     trace!("Processing a post from a node-collector");
-    let f = Body::take_from(&mut state)
-        .concat2()
-        .then(|full_body| match full_body {
-            Ok(body_content) => {
-                let decoded: Result<NodeInfo, _> =
-                    rmp_serde::decode::from_read(Cursor::new(&body_content.into_bytes()));
-                match decoded {
-                    Ok(mut nodes_info) => {
-                        if !nodes_info.nodeName.is_empty() && !nodes_info.nodeId.is_empty() {
-                            let state_data = CollectorStateData::borrow_from(&state);
-                            nodes_info.last_updated = get_current_stamp();
-                            write_or_die!(state_data.nodes)
-                                .insert(nodes_info.nodeId.clone(), nodes_info);
-                        } else {
-                            error!("Client submitted data without nodeName and nodeId");
-                        }
-                        let res = create_empty_response(&state, StatusCode::OK);
-                        future::ok((state, res))
+    let f = Body::take_from(&mut state).concat2().then(|full_body| match full_body {
+        Ok(body_content) => {
+            let decoded: Result<NodeInfo, _> =
+                rmp_serde::decode::from_read(Cursor::new(&body_content.into_bytes()));
+            match decoded {
+                Ok(mut nodes_info) => {
+                    if !nodes_info.nodeName.is_empty() && !nodes_info.nodeId.is_empty() {
+                        let state_data = CollectorStateData::borrow_from(&state);
+                        nodes_info.last_updated = get_current_stamp();
+                        write_or_die!(state_data.nodes)
+                            .insert(nodes_info.nodeId.clone(), nodes_info);
+                    } else {
+                        error!("Client submitted data without nodeName and nodeId");
                     }
-                    Err(e) => {
-                        error!("Can't parse client data: {}", e);
-                        future::err((state, e.into_handler_error()))
-                    }
+                    let res = create_empty_response(&state, StatusCode::OK);
+                    future::ok((state, res))
+                }
+                Err(e) => {
+                    error!("Can't parse client data: {}", e);
+                    future::err((state, e.into_handler_error()))
                 }
             }
-            Err(e) => future::err((state, e.into_handler_error())),
-        });
+        }
+        Err(e) => future::err((state, e.into_handler_error())),
+    });
     Box::new(f)
 }
 

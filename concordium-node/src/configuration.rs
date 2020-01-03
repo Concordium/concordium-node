@@ -51,15 +51,9 @@ pub struct PrometheusConfig {
         default_value = "9090"
     )]
     pub prometheus_listen_port: u16,
-    #[structopt(
-        long = "prometheus-server",
-        help = "Enable prometheus server for metrics"
-    )]
+    #[structopt(long = "prometheus-server", help = "Enable prometheus server for metrics")]
     pub prometheus_server: bool,
-    #[structopt(
-        long = "prometheus-push-gateway",
-        help = "Enable prometheus via push gateway"
-    )]
+    #[structopt(long = "prometheus-push-gateway", help = "Enable prometheus via push gateway")]
     pub prometheus_push_gateway: Option<String>,
     #[structopt(
         long = "prometheus-job-name",
@@ -67,10 +61,7 @@ pub struct PrometheusConfig {
         default_value = "p2p_node_push"
     )]
     pub prometheus_job_name: String,
-    #[structopt(
-        long = "prometheus-instance-name",
-        help = "If not present node_id will be used"
-    )]
+    #[structopt(long = "prometheus-instance-name", help = "If not present node_id will be used")]
     pub prometheus_instance_name: Option<String>,
     #[structopt(
         long = "prometheus-push-gateway-username",
@@ -128,10 +119,7 @@ pub struct BakerConfig {
     )]
     pub heap_profiling: String,
     #[cfg(feature = "profiling")]
-    #[structopt(
-        long = "time-profiling",
-        help = "Profile the time in the Haskell subsystem"
-    )]
+    #[structopt(long = "time-profiling", help = "Profile the time in the Haskell subsystem")]
     pub time_profiling: bool,
     #[cfg(feature = "profiling")]
     #[structopt(
@@ -146,15 +134,9 @@ pub struct BakerConfig {
         default_value = "0.1"
     )]
     pub profiling_sampling_interval: f64,
-    #[structopt(
-        long = "haskell-gc-logging",
-        help = "Enable Haskell garbage collection logging"
-    )]
+    #[structopt(long = "haskell-gc-logging", help = "Enable Haskell garbage collection logging")]
     pub gc_logging: Option<String>,
-    #[structopt(
-        long = "persist-global-state",
-        help = "Persist the the global state store"
-    )]
+    #[structopt(long = "persist-global-state", help = "Persist the the global state store")]
     pub persist_global_state: bool,
     #[structopt(
         long = "maximum-block-size",
@@ -174,11 +156,7 @@ pub struct BakerConfig {
 pub struct RpcCliConfig {
     #[structopt(long = "no-rpc-server", help = "Disable the built-in RPC server")]
     pub no_rpc_server: bool,
-    #[structopt(
-        long = "rpc-server-port",
-        help = "RPC server port",
-        default_value = "10000"
-    )]
+    #[structopt(long = "rpc-server-port", help = "RPC server port", default_value = "10000")]
     pub rpc_server_port: u16,
     #[structopt(
         long = "rpc-server-addr",
@@ -209,10 +187,7 @@ pub struct ConnectionConfig {
         default_value = "5"
     )]
     pub max_resend_attempts: u8,
-    #[structopt(
-        long = "max-allowed-nodes",
-        help = "Maximum nodes to allow a connection to"
-    )]
+    #[structopt(long = "max-allowed-nodes", help = "Maximum nodes to allow a connection to")]
     pub max_allowed_nodes: Option<u16>,
     #[structopt(
         long = "max-allowed-nodes-percentage",
@@ -277,10 +252,7 @@ pub struct ConnectionConfig {
         default_value = "7200"
     )]
     pub bootstrapping_interval: u64,
-    #[structopt(
-        long = "max-latency",
-        help = "The maximum allowed connection latency in ms"
-    )]
+    #[structopt(long = "max-latency", help = "The maximum allowed connection latency in ms")]
     pub max_latency: Option<u64>,
     #[structopt(
         long = "hard-connection-limit",
@@ -361,22 +333,13 @@ pub struct CommonConfig {
         default_value = "1000"
     )]
     pub network_ids: Vec<u16>,
-    #[structopt(
-        long = "override-config-dir",
-        help = "Override location of configuration files"
-    )]
+    #[structopt(long = "override-config-dir", help = "Override location of configuration files")]
     pub config_dir: Option<String>,
     #[structopt(long = "override-data-dir", help = "Override location of data files")]
     pub data_dir: Option<String>,
-    #[structopt(
-        long = "no-log-timestamp",
-        help = "Do not output timestamp in log output"
-    )]
+    #[structopt(long = "no-log-timestamp", help = "Do not output timestamp in log output")]
     pub no_log_timestamp: bool,
-    #[structopt(
-        long = "no-trust-bans",
-        help = "Don't blindly trust ban/unban requests"
-    )]
+    #[structopt(long = "no-trust-bans", help = "Don't blindly trust ban/unban requests")]
     pub no_trust_bans: bool,
     #[structopt(
         long = "minimum-peers-bucket",
@@ -585,10 +548,7 @@ impl AppPreferences {
                 _ => panic!("Can't write to config file!"),
             },
         };
-        new_prefs.set_config(
-            APP_PREFERENCES_KEY_VERSION,
-            Some(super::VERSION.to_string()),
-        );
+        new_prefs.set_config(APP_PREFERENCES_KEY_VERSION, Some(super::VERSION.to_string()));
         new_prefs
     }
 

@@ -103,19 +103,12 @@ fn main() -> Fallible<()> {
         .get_or_create(data_dir_path.as_ref(), Rkv::new)
         .expect("Can't load the GlobalState kvs environment!");
 
-    if let Err(e) = gs_kvs_handle
-        .write()
-        .unwrap()
-        .set_map_size(1024 * 1024 * 256)
-    {
+    if let Err(e) = gs_kvs_handle.write().unwrap().set_map_size(1024 * 1024 * 256) {
         error!("Can't set up the desired RKV map size: {}", e);
     }
 
-    let global_state = GlobalState::new(
-        &gen_data,
-        gs_kvs_handle,
-        conf.cli.baker.persist_global_state,
-    );
+    let global_state =
+        GlobalState::new(&gen_data, gs_kvs_handle, conf.cli.baker.persist_global_state);
 
     let consensus = plugins::consensus::start_consensus_layer(
         &conf.cli.baker,
@@ -156,10 +149,7 @@ fn main() -> Fallible<()> {
     // Thread #3 (#4): read P2PNode output
     let consensus_queue_threads = start_consensus_message_threads(&node, &conf, consensus.clone());
 
-    info!(
-        "Concordium P2P layer. Network disabled: {}",
-        conf.cli.no_network
-    );
+    info!("Concordium P2P layer. Network disabled: {}", conf.cli.no_network);
 
     // Connect to nodes (args and bootstrap)
     if !conf.cli.no_network {
@@ -177,9 +167,7 @@ fn main() -> Fallible<()> {
     // Wait for the consensus queue threads to stop
 
     for consensus_queue_thread in consensus_queue_threads {
-        consensus_queue_thread
-            .join()
-            .expect("A consensus queue thread panicked");
+        consensus_queue_thread.join().expect("A consensus queue thread panicked");
     }
 
     // Close the RPC server if present
@@ -225,10 +213,9 @@ fn instantiate_node(
         Some(id) => Some(id),
         None => {
             let new_id: P2PNodeId = Default::default();
-            if !app_prefs.set_config(
-                config::APP_PREFERENCES_PERSISTED_NODE_ID,
-                Some(new_id.to_string()),
-            ) {
+            if !app_prefs
+                .set_config(config::APP_PREFERENCES_PERSISTED_NODE_ID, Some(new_id.to_string()))
+            {
                 error!("Failed to persist own node id");
             };
             Some(new_id.to_string())
@@ -277,16 +264,12 @@ fn establish_connections(conf: &config::Config, node: &P2PNode) {
 
 fn connect_to_config_nodes(conf: &config::ConnectionConfig, node: &P2PNode) {
     for connect_to in &conf.connect_to {
-        match utils::parse_host_port(
-            &connect_to,
-            &node.config.dns_resolvers,
-            conf.dnssec_disabled,
-        ) {
+        match utils::parse_host_port(&connect_to, &node.config.dns_resolvers, conf.dnssec_disabled)
+        {
             Ok(addrs) => {
                 for addr in addrs {
                     info!("Connecting to peer {}", &connect_to);
-                    node.connect(PeerType::Node, addr, None)
-                        .unwrap_or_else(|e| debug!("{}", e));
+                    node.connect(PeerType::Node, addr, None).unwrap_or_else(|e| debug!("{}", e));
                 }
             }
             Err(err) => error!("Can't parse data for node to connect to {}", err),
@@ -306,44 +289,38 @@ fn start_consensus_message_threads(
     let node_peers_ref = Arc::clone(node);
     let peers_thread_ref = Arc::clone(&peers);
     let mut consensus_peers_ref = consensus.clone();
-    threads.push(spawn_or_die!(
-        "Peers status notifier thread for consensus",
+    threads.push(spawn_or_die!("Peers status notifier thread for consensus", {
+        // don't do anything until the peer number is within the desired range
+        while node_peers_ref.get_node_peer_ids().len()
+            > node_peers_ref.config.max_allowed_nodes as usize
         {
-            // don't do anything until the peer number is within the desired range
-            while node_peers_ref.get_node_peer_ids().len()
-                > node_peers_ref.config.max_allowed_nodes as usize
-            {
-                thread::sleep(Duration::from_secs(1));
-            }
-
-            let peer_stats_notifier_control_queue_receiver =
-                CALLBACK_QUEUE.receiver_peer_notifier.lock().unwrap();
-            let mut last_peer_list_update = 0;
-            loop {
-                if node_peers_ref.last_peer_update() > last_peer_list_update {
-                    update_peer_list(&node_peers_ref, &peers_thread_ref);
-                    last_peer_list_update = get_current_stamp();
-                }
-
-                if let Err(e) = check_peer_states(
-                    &node_peers_ref,
-                    nid,
-                    &mut consensus_peers_ref,
-                    &peers_thread_ref,
-                ) {
-                    error!("Couldn't update the catch-up peer list: {}", e);
-                }
-
-                if let Ok(msg) = peer_stats_notifier_control_queue_receiver.try_recv() {
-                    if let QueueMsg::Stop = msg {
-                        break;
-                    }
-                }
-
-                thread::sleep(Duration::from_millis(200));
-            }
+            thread::sleep(Duration::from_secs(1));
         }
-    ));
+
+        let peer_stats_notifier_control_queue_receiver =
+            CALLBACK_QUEUE.receiver_peer_notifier.lock().unwrap();
+        let mut last_peer_list_update = 0;
+        loop {
+            if node_peers_ref.last_peer_update() > last_peer_list_update {
+                update_peer_list(&node_peers_ref, &peers_thread_ref);
+                last_peer_list_update = get_current_stamp();
+            }
+
+            if let Err(e) =
+                check_peer_states(&node_peers_ref, nid, &mut consensus_peers_ref, &peers_thread_ref)
+            {
+                error!("Couldn't update the catch-up peer list: {}", e);
+            }
+
+            if let Ok(msg) = peer_stats_notifier_control_queue_receiver.try_recv() {
+                if let QueueMsg::Stop = msg {
+                    break;
+                }
+            }
+
+            thread::sleep(Duration::from_millis(200));
+        }
+    }));
 
     let node_in_ref = Arc::clone(node);
     let peers_in_ref = Arc::clone(&peers);
@@ -356,11 +333,8 @@ fn start_consensus_message_threads(
             thread::sleep(Duration::from_secs(1));
         }
 
-        let consensus_receiver_high_priority = CALLBACK_QUEUE
-            .inbound
-            .receiver_high_priority
-            .lock()
-            .unwrap();
+        let consensus_receiver_high_priority =
+            CALLBACK_QUEUE.inbound.receiver_high_priority.lock().unwrap();
         let consensus_receiver_low_priority =
             CALLBACK_QUEUE.inbound.receiver_low_priority.lock().unwrap();
         let cvar = &*CALLBACK_QUEUE.inbound.signaler;
@@ -432,16 +406,10 @@ fn start_consensus_message_threads(
             thread::sleep(Duration::from_secs(1));
         }
 
-        let consensus_receiver_high_priority = CALLBACK_QUEUE
-            .outbound
-            .receiver_high_priority
-            .lock()
-            .unwrap();
-        let consensus_receiver_low_priority = CALLBACK_QUEUE
-            .outbound
-            .receiver_low_priority
-            .lock()
-            .unwrap();
+        let consensus_receiver_high_priority =
+            CALLBACK_QUEUE.outbound.receiver_high_priority.lock().unwrap();
+        let consensus_receiver_low_priority =
+            CALLBACK_QUEUE.outbound.receiver_low_priority.lock().unwrap();
         let cvar = &*CALLBACK_QUEUE.outbound.signaler;
         let lock = ParkingMutex::new(false);
         let mut lock_guard = lock.lock();
@@ -453,11 +421,9 @@ fn start_consensus_message_threads(
             node_out_ref.stats.set_outbound_low_priority_consensus_size(
                 consensus_receiver_low_priority.len() as i64,
             );
-            node_out_ref
-                .stats
-                .set_outbound_high_priority_consensus_size(
-                    consensus_receiver_high_priority.len() as i64
-                );
+            node_out_ref.stats.set_outbound_high_priority_consensus_size(
+                consensus_receiver_high_priority.len() as i64,
+            );
             // instead of using `try_iter()` we specifically only loop over the max amounts
             // possible to ever be in the queue
             for _ in 0..CONSENSUS_QUEUE_DEPTH_OUT_HI {
@@ -516,20 +482,14 @@ where
 
 #[cfg(feature = "elastic_logging")]
 fn setup_transfer_log_thread(conf: &config::CliConfig) -> JoinHandle<()> {
-    let (enabled, url) = (
-        conf.elastic_logging_enabled,
-        conf.elastic_logging_url.clone(),
-    );
+    let (enabled, url) = (conf.elastic_logging_enabled, conf.elastic_logging_url.clone());
     if enabled {
         if let Err(e) = p2p_client::plugins::elasticlogging::create_transfer_index(&url) {
             error!("{}", e);
         }
     }
     spawn_or_die!("Process transfer log messages", {
-        let receiver = consensus_rust::transferlog::TRANSACTION_LOG_QUEUE
-            .receiver
-            .lock()
-            .unwrap();
+        let receiver = consensus_rust::transferlog::TRANSACTION_LOG_QUEUE.receiver.lock().unwrap();
         loop {
             if let Ok(msg) = receiver.recv() {
                 match msg {
@@ -559,10 +519,7 @@ fn setup_transfer_log_thread(conf: &config::CliConfig) -> JoinHandle<()> {
 #[cfg(not(feature = "elastic_logging"))]
 fn setup_transfer_log_thread(_: &config::CliConfig) -> JoinHandle<()> {
     spawn_or_die!("Process transfer log messages", {
-        let receiver = consensus_rust::transferlog::TRANSACTION_LOG_QUEUE
-            .receiver
-            .lock()
-            .unwrap();
+        let receiver = consensus_rust::transferlog::TRANSACTION_LOG_QUEUE.receiver.lock().unwrap();
         loop {
             if let Ok(msg) = receiver.recv() {
                 match msg {

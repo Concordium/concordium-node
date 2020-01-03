@@ -102,10 +102,7 @@ fn send_fuzzed_packet(source: &P2PNode, min: usize, max: usize) {
 fn send_fuzzed_message(source: &P2PNode, min: usize, max: usize) {
     let filter = |_: &Connection| true;
     source
-        .send_over_all_connections(
-            generate_random_data(thread_rng().gen_range(min, max)),
-            &filter,
-        )
+        .send_over_all_connections(generate_random_data(thread_rng().gen_range(min, max)), &filter)
         .unwrap();
 }
 

@@ -49,11 +49,8 @@ impl NoiseSession {
             _ => buf.len() - 16,
         };
 
-        let read = self
-            .session
-            .as_mut()
-            .unwrap()
-            .read_message(&buf, &mut self.buf[..decrypted_len])?;
+        let read =
+            self.session.as_mut().unwrap().read_message(&buf, &mut self.buf[..decrypted_len])?;
         self.mc += 1;
         buf[..read].copy_from_slice(&self.buf[..read]);
         Ok(())

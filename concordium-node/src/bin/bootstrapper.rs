@@ -37,19 +37,9 @@ fn main() -> Result<(), Error> {
         info!("Config {:?}", conf);
     }
 
-    info!(
-        "Starting up {}-bootstrapper version {}!",
-        p2p_client::APPNAME,
-        p2p_client::VERSION
-    );
-    info!(
-        "Application data directory: {:?}",
-        app_prefs.get_user_app_dir()
-    );
-    info!(
-        "Application config directory: {:?}",
-        app_prefs.get_user_config_dir()
-    );
+    info!("Starting up {}-bootstrapper version {}!", p2p_client::APPNAME, p2p_client::VERSION);
+    info!("Application data directory: {:?}", app_prefs.get_user_app_dir());
+    info!("Application config directory: {:?}", app_prefs.get_user_config_dir());
 
     // Instantiate stats export engine
     let stats_export_service =
@@ -96,10 +86,7 @@ fn main() -> Result<(), Error> {
     // Start push gateway to prometheus
     start_push_gateway(&conf.prometheus, &node.stats, node.id());
 
-    info!(
-        "Concordium P2P layer. Network disabled: {}",
-        conf.cli.no_network
-    );
+    info!("Concordium P2P layer. Network disabled: {}", conf.cli.no_network);
 
     node.spawn();
 

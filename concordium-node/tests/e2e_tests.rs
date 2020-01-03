@@ -152,10 +152,7 @@ mod tests {
         connect(&mut node_1, &node_2).unwrap();
         await_handshake(&node_1).unwrap();
 
-        let msg = thread_rng()
-            .sample_iter(&Standard)
-            .take(size)
-            .collect::<Vec<u8>>();
+        let msg = thread_rng().sample_iter(&Standard).take(size).collect::<Vec<u8>>();
         let net_id = NetworkId::from(100);
 
         // Send.

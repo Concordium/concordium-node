@@ -13,10 +13,7 @@ struct ConfigCli {
     keyfile: String,
     #[structopt(long = "print-key", short = "p", help = "Print key as HEX when done")]
     print_key: bool,
-    #[structopt(
-        long = "force-overwrite",
-        help = "Force overwrite if file already exists"
-    )]
+    #[structopt(long = "force-overwrite", help = "Force overwrite if file already exists")]
     force_overwrite: bool,
     #[structopt(long = "print-config", help = "Print out config struct")]
     pub print_config: bool,
@@ -31,12 +28,7 @@ pub fn main() -> Fallible<()> {
     }
 
     if !std::path::Path::new(&conf.keyfile).exists() || conf.force_overwrite {
-        match OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .open(&conf.keyfile)
-        {
+        match OpenOptions::new().read(true).write(true).create(true).open(&conf.keyfile) {
             Ok(mut file) => {
                 let key: [u8; 32] = generate_ed25519_key();
                 let secret_key = SecretKey(key);
