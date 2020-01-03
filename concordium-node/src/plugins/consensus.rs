@@ -220,11 +220,10 @@ pub fn handle_consensus_inbound_message(
     consensus: &ConsensusContainer,
     request: ConsensusMessage,
     peers_lock: &RwLock<PeerList>,
-    no_rebroadcast_consensus_validation: bool,
 ) -> Fallible<()> {
     let source = P2PNodeId(request.source_peer());
 
-    if no_rebroadcast_consensus_validation {
+    if node.config.no_rebroadcast_consensus_validation {
         if request.distribution_mode() == DistributionMode::Broadcast {
             send_consensus_msg_to_net(
                 &node,

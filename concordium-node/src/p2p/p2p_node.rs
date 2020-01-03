@@ -98,6 +98,7 @@ pub struct P2PNodeConfig {
     dedup_size_short: usize,
     pub socket_read_size: usize,
     pub socket_write_size: usize,
+    pub no_rebroadcast_consensus_validation: bool,
 }
 
 #[derive(Default)]
@@ -340,6 +341,7 @@ impl P2PNode {
             dedup_size_short: conf.connection.dedup_size_short,
             socket_read_size: conf.connection.socket_read_size,
             socket_write_size: conf.connection.socket_write_size,
+            no_rebroadcast_consensus_validation: conf.cli.no_rebroadcast_consensus_validation,
         };
 
         let connection_handler = ConnectionHandler::new(conf, server, event_log);
