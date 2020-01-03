@@ -286,14 +286,12 @@ fn start_consensus_message_threads(
     let nid = NetworkId::from(conf.common.network_ids[0]); // defaulted so there's always first()
 
     let peers = Default::default();
-    let node_peers_ref = Arc::clone(node);
-    let peers_thread_ref = Arc::clone(&peers);
-    let mut consensus_peers_ref = consensus.clone();
+    let node_ref = Arc::clone(node);
+    let peers_ref = Arc::clone(&peers);
+    let consensus_ref = consensus.clone();
     threads.push(spawn_or_die!("Peers status notifier thread for consensus", {
         // don't do anything until the peer number is within the desired range
-        while node_peers_ref.get_node_peer_ids().len()
-            > node_peers_ref.config.max_allowed_nodes as usize
-        {
+        while node_ref.get_node_peer_ids().len() > node_ref.config.max_allowed_nodes as usize {
             thread::sleep(Duration::from_secs(1));
         }
 
@@ -301,14 +299,12 @@ fn start_consensus_message_threads(
             CALLBACK_QUEUE.receiver_peer_notifier.lock().unwrap();
         let mut last_peer_list_update = 0;
         loop {
-            if node_peers_ref.last_peer_update() > last_peer_list_update {
-                update_peer_list(&node_peers_ref, &peers_thread_ref);
+            if node_ref.last_peer_update() > last_peer_list_update {
+                update_peer_list(&node_ref, &peers_ref);
                 last_peer_list_update = get_current_stamp();
             }
 
-            if let Err(e) =
-                check_peer_states(&node_peers_ref, nid, &mut consensus_peers_ref, &peers_thread_ref)
-            {
+            if let Err(e) = check_peer_states(&node_ref, nid, &consensus_ref, &peers_ref) {
                 error!("Couldn't update the catch-up peer list: {}", e);
             }
 
@@ -353,7 +349,7 @@ fn start_consensus_message_threads(
             // possible to ever be in the queue
             for _ in 0..CONSENSUS_QUEUE_DEPTH_IN_HI {
                 if let Ok(message) = consensus_receiver_high_priority.try_recv() {
-                    let stop_loop = !handle_consensus_message(message, "inbound", |msg| {
+                    let stop_loop = !handle_queue_stop(message, "inbound", |msg| {
                         handle_consensus_inbound_msg(
                             &node_ref,
                             nid,
@@ -373,7 +369,7 @@ fn start_consensus_message_threads(
 
             if let Ok(message) = consensus_receiver_low_priority.try_recv() {
                 exhausted = false;
-                let stop_loop = !handle_consensus_message(message, "inbound", |msg| {
+                let stop_loop = !handle_queue_stop(message, "inbound", |msg| {
                     handle_consensus_inbound_msg(&node_ref, nid, &consensus_ref, msg, &peers_ref)
                 });
                 if stop_loop {
@@ -416,7 +412,7 @@ fn start_consensus_message_threads(
             // possible to ever be in the queue
             for _ in 0..CONSENSUS_QUEUE_DEPTH_OUT_HI {
                 if let Ok(message) = consensus_receiver_high_priority.try_recv() {
-                    let stop_loop = !handle_consensus_message(message, "outbound", |msg| {
+                    let stop_loop = !handle_queue_stop(message, "outbound", |msg| {
                         handle_consensus_outbound_msg(&node_ref, nid, msg)
                     });
                     if stop_loop {
@@ -430,7 +426,7 @@ fn start_consensus_message_threads(
 
             if let Ok(message) = consensus_receiver_low_priority.try_recv() {
                 exhausted = false;
-                let stop_loop = !handle_consensus_message(message, "outbound", |msg| {
+                let stop_loop = !handle_queue_stop(message, "outbound", |msg| {
                     handle_consensus_outbound_msg(&node_ref, nid, msg)
                 });
                 if stop_loop {
@@ -447,14 +443,10 @@ fn start_consensus_message_threads(
     threads
 }
 
-fn handle_consensus_message<F>(
-    message: QueueMsg<ConsensusMessage>,
-    dir: &'static str,
-    f: F,
-) -> bool
+fn handle_queue_stop<F>(msg: QueueMsg<ConsensusMessage>, dir: &'static str, f: F) -> bool
 where
     F: FnOnce(ConsensusMessage) -> Fallible<()>, {
-    match message {
+    match msg {
         QueueMsg::Relay(msg) => {
             if let Err(e) = f(msg) {
                 error!("There's an issue with an {} consensus request: {}", dir, e);
