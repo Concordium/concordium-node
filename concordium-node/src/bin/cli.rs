@@ -225,33 +225,28 @@ fn instantiate_node(
     let data_dir_path = app_prefs.get_user_app_dir();
 
     // Start the thread reading P2PEvents from P2PNode
-    if conf.common.debug {
+    let event_sender = if conf.common.debug {
         let (sender, receiver) = crossbeam_channel::bounded(config::EVENT_LOG_QUEUE_DEPTH);
         let _guard = spawn_or_die!("Log loop", move || loop {
             if let Ok(Relay(msg)) = receiver.recv() {
                 info!("{}", msg);
             }
         });
-        P2PNode::new(
-            node_id,
-            &conf,
-            Some(sender),
-            PeerType::Node,
-            stats_export_service,
-            subscription_queue_in,
-            Some(data_dir_path),
-        )
+
+        Some(sender)
     } else {
-        P2PNode::new(
-            node_id,
-            &conf,
-            None,
-            PeerType::Node,
-            stats_export_service,
-            subscription_queue_in,
-            Some(data_dir_path),
-        )
-    }
+        None
+    };
+
+    P2PNode::new(
+        node_id,
+        &conf,
+        event_sender,
+        PeerType::Node,
+        stats_export_service,
+        subscription_queue_in,
+        Some(data_dir_path),
+    )
 }
 
 fn establish_connections(conf: &config::Config, node: &P2PNode) {
