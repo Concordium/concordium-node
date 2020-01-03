@@ -205,33 +205,7 @@ pub fn handle_pkt_out(
     Ok(())
 }
 
-pub fn handle_consensus_inbound_message(
-    node: &P2PNode,
-    network_id: NetworkId,
-    consensus: &mut consensus::ConsensusContainer,
-    request: ConsensusMessage,
-    peers: &RwLock<PeerList>,
-    no_rebroadcast_consensus_validation: bool,
-) -> Fallible<()> {
-    process_external_gs_entry(
-        node,
-        network_id,
-        consensus,
-        request,
-        peers,
-        no_rebroadcast_consensus_validation,
-    )
-}
-
 pub fn handle_consensus_outbound_message(
-    node: &P2PNode,
-    network_id: NetworkId,
-    request: ConsensusMessage,
-) -> Fallible<()> {
-    process_internal_gs_entry(node, network_id, request)
-}
-
-fn process_internal_gs_entry(
     node: &P2PNode,
     network_id: NetworkId,
     request: ConsensusMessage,
@@ -246,7 +220,7 @@ fn process_internal_gs_entry(
     )
 }
 
-fn process_external_gs_entry(
+pub fn handle_consensus_inbound_message(
     node: &P2PNode,
     network_id: NetworkId,
     consensus: &mut consensus::ConsensusContainer,
