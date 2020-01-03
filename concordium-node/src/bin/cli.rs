@@ -315,7 +315,6 @@ fn start_consensus_message_threads(
 
     let node_ref = Arc::clone(node);
     let peers_ref = Arc::clone(&peers);
-    let consensus_ref = consensus.clone();
     threads.push(spawn_or_die!("Process inbound consensus requests", {
         // don't do anything until the peer number is within the desired range
         while node_ref.get_node_peer_ids().len() > node_ref.config.max_allowed_nodes as usize {
@@ -345,13 +344,7 @@ fn start_consensus_message_threads(
             for _ in 0..CONSENSUS_QUEUE_DEPTH_IN_HI {
                 if let Ok(message) = consensus_receiver_high_priority.try_recv() {
                     let stop_loop = !handle_queue_stop(message, "inbound", |msg| {
-                        handle_consensus_inbound_msg(
-                            &node_ref,
-                            nid,
-                            &consensus_ref,
-                            msg,
-                            &peers_ref,
-                        )
+                        handle_consensus_inbound_msg(&node_ref, nid, &consensus, msg, &peers_ref)
                     });
                     if stop_loop {
                         break 'outer_loop;
@@ -365,7 +358,7 @@ fn start_consensus_message_threads(
             if let Ok(message) = consensus_receiver_low_priority.try_recv() {
                 exhausted = false;
                 let stop_loop = !handle_queue_stop(message, "inbound", |msg| {
-                    handle_consensus_inbound_msg(&node_ref, nid, &consensus_ref, msg, &peers_ref)
+                    handle_consensus_inbound_msg(&node_ref, nid, &consensus, msg, &peers_ref)
                 });
                 if stop_loop {
                     break 'outer_loop;
