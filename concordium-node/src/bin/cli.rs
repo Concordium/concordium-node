@@ -354,7 +354,7 @@ fn start_consensus_message_threads(
             for _ in 0..CONSENSUS_QUEUE_DEPTH_IN_HI {
                 if let Ok(message) = consensus_receiver_high_priority.try_recv() {
                     let stop_loop = !handle_consensus_message(message, "inbound", |msg| {
-                        handle_consensus_inbound_message(
+                        handle_consensus_inbound_msg(
                             &node_ref,
                             nid,
                             &consensus_ref,
@@ -374,13 +374,7 @@ fn start_consensus_message_threads(
             if let Ok(message) = consensus_receiver_low_priority.try_recv() {
                 exhausted = false;
                 let stop_loop = !handle_consensus_message(message, "inbound", |msg| {
-                    handle_consensus_inbound_message(
-                        &node_ref,
-                        nid,
-                        &consensus_ref,
-                        msg,
-                        &peers_ref,
-                    )
+                    handle_consensus_inbound_msg(&node_ref, nid, &consensus_ref, msg, &peers_ref)
                 });
                 if stop_loop {
                     break 'outer_loop;
@@ -423,7 +417,7 @@ fn start_consensus_message_threads(
             for _ in 0..CONSENSUS_QUEUE_DEPTH_OUT_HI {
                 if let Ok(message) = consensus_receiver_high_priority.try_recv() {
                     let stop_loop = !handle_consensus_message(message, "outbound", |msg| {
-                        handle_consensus_outbound_message(&node_ref, nid, msg)
+                        handle_consensus_outbound_msg(&node_ref, nid, msg)
                     });
                     if stop_loop {
                         break 'outer_loop;
@@ -437,7 +431,7 @@ fn start_consensus_message_threads(
             if let Ok(message) = consensus_receiver_low_priority.try_recv() {
                 exhausted = false;
                 let stop_loop = !handle_consensus_message(message, "outbound", |msg| {
-                    handle_consensus_outbound_message(&node_ref, nid, msg)
+                    handle_consensus_outbound_msg(&node_ref, nid, msg)
                 });
                 if stop_loop {
                     break 'outer_loop;

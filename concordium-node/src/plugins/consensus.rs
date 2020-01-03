@@ -199,7 +199,7 @@ pub fn handle_pkt_out(
     Ok(())
 }
 
-pub fn handle_consensus_outbound_message(
+pub fn handle_consensus_outbound_msg(
     node: &P2PNode,
     network_id: NetworkId,
     request: ConsensusMessage,
@@ -214,7 +214,7 @@ pub fn handle_consensus_outbound_message(
     )
 }
 
-pub fn handle_consensus_inbound_message(
+pub fn handle_consensus_inbound_msg(
     node: &P2PNode,
     network_id: NetworkId,
     consensus: &ConsensusContainer,
