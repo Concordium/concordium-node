@@ -381,7 +381,7 @@ fn start_consensus_message_threads(
             // possible to ever be in the queue
             for _ in 0..CONSENSUS_QUEUE_DEPTH_IN_HI {
                 if let Ok(message) = consensus_receiver_high_priority.try_recv() {
-                    let stop_loop = !handle_inbound_message(message, |msg| {
+                    let stop_loop = !handle_consensus_message(message, "inbound", |msg| {
                         handle_consensus_inbound_message(
                             &node_in_ref,
                             nid,
@@ -402,7 +402,7 @@ fn start_consensus_message_threads(
 
             if let Ok(message) = consensus_receiver_low_priority.try_recv() {
                 exhausted = false;
-                let stop_loop = !handle_inbound_message(message, |msg| {
+                let stop_loop = !handle_consensus_message(message, "inbound", |msg| {
                     handle_consensus_inbound_message(
                         &node_in_ref,
                         nid,
@@ -462,7 +462,7 @@ fn start_consensus_message_threads(
             // possible to ever be in the queue
             for _ in 0..CONSENSUS_QUEUE_DEPTH_OUT_HI {
                 if let Ok(message) = consensus_receiver_high_priority.try_recv() {
-                    let stop_loop = !handle_outbound_message(message, |msg| {
+                    let stop_loop = !handle_consensus_message(message, "outbound", |msg| {
                         handle_consensus_outbound_message(&node_out_ref, nid, msg)
                     });
                     if stop_loop {
@@ -476,7 +476,7 @@ fn start_consensus_message_threads(
 
             if let Ok(message) = consensus_receiver_low_priority.try_recv() {
                 exhausted = false;
-                let stop_loop = !handle_outbound_message(message, |msg| {
+                let stop_loop = !handle_consensus_message(message, "outbound", |msg| {
                     handle_consensus_outbound_message(&node_out_ref, nid, msg)
                 });
                 if stop_loop {
@@ -493,34 +493,21 @@ fn start_consensus_message_threads(
     threads
 }
 
-fn handle_inbound_message<F>(message: QueueMsg<ConsensusMessage>, f: F) -> bool
+fn handle_consensus_message<F>(
+    message: QueueMsg<ConsensusMessage>,
+    dir: &'static str,
+    f: F,
+) -> bool
 where
     F: FnOnce(ConsensusMessage) -> Fallible<()>, {
     match message {
         QueueMsg::Relay(msg) => {
             if let Err(e) = f(msg) {
-                error!("There's an issue with an inbound consensus request: {}", e);
+                error!("There's an issue with an {} consensus request: {}", dir, e);
             }
         }
         QueueMsg::Stop => {
-            warn!("Closing the inbound consensus channel");
-            return false;
-        }
-    }
-    true
-}
-
-fn handle_outbound_message<F>(message: QueueMsg<ConsensusMessage>, f: F) -> bool
-where
-    F: FnOnce(ConsensusMessage) -> Fallible<()>, {
-    match message {
-        QueueMsg::Relay(msg) => {
-            if let Err(e) = f(msg) {
-                error!("There's an issue with an outbound consensus request: {}", e);
-            }
-        }
-        QueueMsg::Stop => {
-            warn!("Closing the outbound consensus channel");
+            warn!("Closing the {} consensus channel", dir);
             return false;
         }
     }
