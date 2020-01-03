@@ -324,7 +324,7 @@ fn start_consensus_message_threads(
 
     let node_in_ref = Arc::clone(node);
     let peers_in_ref = Arc::clone(&peers);
-    let mut consensus_in_ref = consensus.clone();
+    let consensus_in_ref = consensus.clone();
     let no_rebroadcast_consensus_validation = conf.cli.no_rebroadcast_consensus_validation;
     threads.push(spawn_or_die!("Process inbound consensus requests", {
         // don't do anything until the peer number is within the desired range
@@ -359,7 +359,7 @@ fn start_consensus_message_threads(
                         handle_consensus_inbound_message(
                             &node_in_ref,
                             nid,
-                            &mut consensus_in_ref,
+                            &consensus_in_ref,
                             msg,
                             &peers_in_ref,
                             no_rebroadcast_consensus_validation,
@@ -380,7 +380,7 @@ fn start_consensus_message_threads(
                     handle_consensus_inbound_message(
                         &node_in_ref,
                         nid,
-                        &mut consensus_in_ref,
+                        &consensus_in_ref,
                         msg,
                         &peers_in_ref,
                         no_rebroadcast_consensus_validation,

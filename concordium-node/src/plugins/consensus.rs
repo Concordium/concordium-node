@@ -25,7 +25,7 @@ use concordium_common::{
 };
 
 use consensus_rust::{
-    consensus::{self, PeerId, CALLBACK_QUEUE},
+    consensus::{self, ConsensusContainer, PeerId, CALLBACK_QUEUE},
     ffi,
 };
 
@@ -51,7 +51,7 @@ pub fn start_consensus_layer(
     genesis_data: Vec<u8>,
     private_data: Option<Vec<u8>>,
     max_logging_level: consensus::ConsensusLogLevel,
-) -> Fallible<consensus::ConsensusContainer> {
+) -> Fallible<ConsensusContainer> {
     info!("Starting up the consensus thread");
 
     #[cfg(feature = "profiling")]
@@ -65,7 +65,7 @@ pub fn start_consensus_layer(
     #[cfg(not(feature = "profiling"))]
     ffi::start_haskell();
 
-    consensus::ConsensusContainer::new(
+    ConsensusContainer::new(
         u64::from(conf.maximum_block_size),
         conf.scheduler_outcome_logging,
         genesis_data,
@@ -217,7 +217,7 @@ pub fn handle_consensus_outbound_message(
 pub fn handle_consensus_inbound_message(
     node: &P2PNode,
     network_id: NetworkId,
-    consensus: &mut consensus::ConsensusContainer,
+    consensus: &ConsensusContainer,
     request: ConsensusMessage,
     peers_lock: &RwLock<PeerList>,
     no_rebroadcast_consensus_validation: bool,
@@ -269,7 +269,7 @@ pub fn handle_consensus_inbound_message(
 fn send_msg_to_consensus(
     node: &P2PNode,
     source_id: P2PNodeId,
-    consensus: &mut consensus::ConsensusContainer,
+    consensus: &ConsensusContainer,
     request: &ConsensusMessage,
 ) -> Fallible<ConsensusFfiResponse> {
     let raw_id = source_id.as_raw();
@@ -330,7 +330,7 @@ fn send_consensus_msg_to_net(
 fn send_catch_up_status(
     node: &P2PNode,
     network_id: NetworkId,
-    consensus: &mut consensus::ConsensusContainer,
+    consensus: &ConsensusContainer,
     peers_lock: &RwLock<PeerList>,
     target: PeerId,
 ) -> Fallible<()> {
@@ -378,7 +378,7 @@ pub fn update_peer_list(node: &P2PNode, peers_lock: &RwLock<PeerList>) {
 pub fn check_peer_states(
     node: &P2PNode,
     network_id: NetworkId,
-    consensus: &mut consensus::ConsensusContainer,
+    consensus: &ConsensusContainer,
     peers_lock: &RwLock<PeerList>,
 ) -> Fallible<()> {
     use PeerStatus::*;
