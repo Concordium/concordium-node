@@ -322,13 +322,12 @@ fn start_consensus_message_threads(
         }
     }));
 
-    let node_in_ref = Arc::clone(node);
-    let peers_in_ref = Arc::clone(&peers);
-    let consensus_in_ref = consensus.clone();
+    let node_ref = Arc::clone(node);
+    let peers_ref = Arc::clone(&peers);
+    let consensus_ref = consensus.clone();
     threads.push(spawn_or_die!("Process inbound consensus requests", {
         // don't do anything until the peer number is within the desired range
-        while node_in_ref.get_node_peer_ids().len() > node_in_ref.config.max_allowed_nodes as usize
-        {
+        while node_ref.get_node_peer_ids().len() > node_ref.config.max_allowed_nodes as usize {
             thread::sleep(Duration::from_secs(1));
         }
 
@@ -344,10 +343,10 @@ fn start_consensus_message_threads(
         'outer_loop: loop {
             exhausted = false;
             // Update size of queues
-            node_in_ref.stats.set_inbound_low_priority_consensus_size(
+            node_ref.stats.set_inbound_low_priority_consensus_size(
                 consensus_receiver_low_priority.len() as i64,
             );
-            node_in_ref.stats.set_inbound_high_priority_consensus_size(
+            node_ref.stats.set_inbound_high_priority_consensus_size(
                 consensus_receiver_high_priority.len() as i64,
             );
             // instead of using `try_iter()` we specifically only loop over the max amounts
@@ -356,11 +355,11 @@ fn start_consensus_message_threads(
                 if let Ok(message) = consensus_receiver_high_priority.try_recv() {
                     let stop_loop = !handle_consensus_message(message, "inbound", |msg| {
                         handle_consensus_inbound_message(
-                            &node_in_ref,
+                            &node_ref,
                             nid,
-                            &consensus_in_ref,
+                            &consensus_ref,
                             msg,
-                            &peers_in_ref,
+                            &peers_ref,
                         )
                     });
                     if stop_loop {
@@ -376,11 +375,11 @@ fn start_consensus_message_threads(
                 exhausted = false;
                 let stop_loop = !handle_consensus_message(message, "inbound", |msg| {
                     handle_consensus_inbound_message(
-                        &node_in_ref,
+                        &node_ref,
                         nid,
-                        &consensus_in_ref,
+                        &consensus_ref,
                         msg,
-                        &peers_in_ref,
+                        &peers_ref,
                     )
                 });
                 if stop_loop {
@@ -394,12 +393,10 @@ fn start_consensus_message_threads(
         }
     }));
 
-    let node_out_ref = Arc::clone(node);
+    let node_ref = Arc::clone(node);
     threads.push(spawn_or_die!("Process outbound consensus requests", {
         // don't do anything until the peer number is within the desired range
-        while node_out_ref.get_node_peer_ids().len()
-            > node_out_ref.config.max_allowed_nodes as usize
-        {
+        while node_ref.get_node_peer_ids().len() > node_ref.config.max_allowed_nodes as usize {
             thread::sleep(Duration::from_secs(1));
         }
 
@@ -415,10 +412,10 @@ fn start_consensus_message_threads(
         'outer_loop: loop {
             exhausted = false;
             // Update size of queues
-            node_out_ref.stats.set_outbound_low_priority_consensus_size(
+            node_ref.stats.set_outbound_low_priority_consensus_size(
                 consensus_receiver_low_priority.len() as i64,
             );
-            node_out_ref.stats.set_outbound_high_priority_consensus_size(
+            node_ref.stats.set_outbound_high_priority_consensus_size(
                 consensus_receiver_high_priority.len() as i64,
             );
             // instead of using `try_iter()` we specifically only loop over the max amounts
@@ -426,7 +423,7 @@ fn start_consensus_message_threads(
             for _ in 0..CONSENSUS_QUEUE_DEPTH_OUT_HI {
                 if let Ok(message) = consensus_receiver_high_priority.try_recv() {
                     let stop_loop = !handle_consensus_message(message, "outbound", |msg| {
-                        handle_consensus_outbound_message(&node_out_ref, nid, msg)
+                        handle_consensus_outbound_message(&node_ref, nid, msg)
                     });
                     if stop_loop {
                         break 'outer_loop;
@@ -440,7 +437,7 @@ fn start_consensus_message_threads(
             if let Ok(message) = consensus_receiver_low_priority.try_recv() {
                 exhausted = false;
                 let stop_loop = !handle_consensus_message(message, "outbound", |msg| {
-                    handle_consensus_outbound_message(&node_out_ref, nid, msg)
+                    handle_consensus_outbound_message(&node_ref, nid, msg)
                 });
                 if stop_loop {
                     break 'outer_loop;
