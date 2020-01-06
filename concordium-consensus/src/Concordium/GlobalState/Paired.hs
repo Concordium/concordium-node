@@ -12,6 +12,7 @@
 -- for testing purposes.
 module Concordium.GlobalState.Paired where
 
+{-
 import Lens.Micro.Platform
 import Control.Exception
 import Control.Monad.Reader.Class
