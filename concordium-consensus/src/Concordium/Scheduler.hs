@@ -31,7 +31,6 @@ import Control.Monad.Except
 import qualified Data.HashMap.Strict as Map
 import Data.Maybe(fromJust)
 import qualified Data.Set as Set
-import qualified Data.HashSet as HashSet
 import qualified Data.PQueue.Prio.Max as Queue
 
 import qualified Concordium.Crypto.Proofs as Proofs
@@ -580,29 +579,23 @@ handleAddBaker senderAccount meta abElectionVerifyKey abSignatureVerifyKey abAcc
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost senderAccount energyCost
 
-          -- TODO:NB: during beta we have special accounts which can add and remove bakers.
-          -- in the future the logic will be different. Thus this branching here is temporary.
-          specialBetaAccounts <- getSpecialBetaAccounts
-          if not (HashSet.member (senderAccount ^. accountAddress) specialBetaAccounts) then
-            return $! TxReject (NotAllowedToManipulateBakers (senderAccount ^. accountAddress)) energyCost usedEnergy
-          else
-            getAccount abAccount >>=
-                \case Nothing -> return $! TxReject (NonExistentRewardAccount abAccount) energyCost usedEnergy
-                      Just Account{..} ->
-                        let challenge = S.runPut (S.put abElectionVerifyKey <> S.put abSignatureVerifyKey <> S.put abAccount)
-                            electionP = checkElectionKeyProof challenge abElectionVerifyKey abProofElection
-                            signP = checkSignatureVerifyKeyProof challenge abSignatureVerifyKey abProofSig
-                            accountP = checkAccountOwnership challenge _accountVerificationKey abProofAccount
-                        in if electionP && signP && accountP then do
-                          -- the proof validates that the baker owns all the private keys.
-                          -- Moreover at this point we know the reward account exists and belongs
-                          -- to the baker.
-                          -- Thus we can create the baker, starting it off with 0 lottery power.
-                          mbid <- addBaker (BakerCreationInfo abElectionVerifyKey abSignatureVerifyKey abAccount)
-                          case mbid of
-                            Nothing -> return $! TxReject (DuplicateSignKey abSignatureVerifyKey) energyCost usedEnergy
-                            Just bid -> return $! TxSuccess [BakerAdded bid] energyCost usedEnergy
-                        else return $ TxReject InvalidProof energyCost usedEnergy
+          getAccount abAccount >>=
+              \case Nothing -> return $! TxReject (NonExistentRewardAccount abAccount) energyCost usedEnergy
+                    Just Account{..} ->
+                      let challenge = S.runPut (S.put abElectionVerifyKey <> S.put abSignatureVerifyKey <> S.put abAccount)
+                          electionP = checkElectionKeyProof challenge abElectionVerifyKey abProofElection
+                          signP = checkSignatureVerifyKeyProof challenge abSignatureVerifyKey abProofSig
+                          accountP = checkAccountOwnership challenge _accountVerificationKey abProofAccount
+                      in if electionP && signP && accountP then do
+                        -- the proof validates that the baker owns all the private keys.
+                        -- Moreover at this point we know the reward account exists and belongs
+                        -- to the baker.
+                        -- Thus we can create the baker, starting it off with 0 lottery power.
+                        mbid <- addBaker (BakerCreationInfo abElectionVerifyKey abSignatureVerifyKey abAccount)
+                        case mbid of
+                          Nothing -> return $! TxReject (DuplicateSignKey abSignatureVerifyKey) energyCost usedEnergy
+                          Just bid -> return $! TxSuccess [BakerAdded bid] energyCost usedEnergy
+                      else return $ TxReject InvalidProof energyCost usedEnergy
 
 -- |Remove a baker from the baker pool.
 -- The current logic is that if the proof validates that the sender of the
