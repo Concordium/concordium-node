@@ -482,10 +482,11 @@ handleDeployCredential senderAccount meta cdiBytes cdi =
           regIdEx <- accountRegIdExists (ID.cdvRegId cdv)
           if regIdEx then
             return $! TxReject (DuplicateAccountRegistrationID (ID.cdvRegId cdv)) energyCost usedEnergy
-          else
+          else do
             -- We now look up the identity provider this credential is derived from.
             -- Of course if it does not exist we reject the transaction.
-            getIPInfo (ID.cdvIpId cdv) >>= \case
+            let credentialIP = ID.cdvIpId cdv
+            getIPInfo credentialIP >>= \case
               Nothing -> return $! TxReject (NonExistentIdentityProvider (ID.cdvIpId cdv)) energyCost usedEnergy
               Just ipInfo -> do
                 cryptoParams <- getCrypoParams
@@ -501,8 +502,15 @@ handleDeployCredential senderAccount meta cdiBytes cdi =
                              return $! TxSuccess [AccountCreated aaddr, CredentialDeployed cdv] energyCost usedEnergy
                        else return $! TxReject AccountCredentialInvalid energyCost usedEnergy
      
-                  Just account -> -- otherwise we just try to add a credential to the account
-                            if AH.verifyCredential cryptoParams ipInfo cdiBytes then do
+                  Just account -> do
+                            -- otherwise we just try to add a credential to the account
+                            -- but only if the credential is from the same identity provider
+                            -- as the existing ones on the account.
+                            -- Since we always maintain this invariant it is sufficient to check
+                            -- for one credential only.
+                            let credentials = account ^. accountCredentials
+                            let sameIP = maybe True (\(_, cred) -> ID.cdvIpId cred == credentialIP) (Queue.getMax credentials)
+                            if sameIP && AH.verifyCredential cryptoParams ipInfo cdiBytes then do
                               addAccountCredential account cdv
                               return $! TxSuccess [CredentialDeployed cdv] energyCost usedEnergy
                             else
