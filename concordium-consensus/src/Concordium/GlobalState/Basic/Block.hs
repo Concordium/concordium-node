@@ -138,6 +138,8 @@ instance BlockData Block where
     {-# INLINE verifyBlockSignature #-}
     {-# INLINE putBlock #-}
 
+-- |Deserialize a block.
+-- NB: This does not check transaction signatures.
 getBlock :: TransactionTime -> Get Block
 getBlock arrivalTime = do
   sl <- get
@@ -150,7 +152,7 @@ getBlock arrivalTime = do
     bfBlockProof <- get
     bfBlockNonce <- get
     bfBlockLastFinalized <- get
-    bbTransactions <- BlockTransactions <$> getListOf (getVerifiedTransaction arrivalTime)
+    bbTransactions <- BlockTransactions <$> getListOf (getUnverifiedTransaction arrivalTime)
     bbSignature <- get
     return $ NormalBlock (BakedBlock{bbSlot = sl, bbFields = BlockFields{..}, ..})
 
