@@ -17,7 +17,7 @@ cp /manifests/cabal.project           /build
 cp /manifests/cabal.project.local     /build
 
 rustup set profile minimal
-rustup default 1.39.0
+rustup default 1.40.0
 
 rm -rf $HOME/.cargo
 
@@ -121,14 +121,14 @@ cp -r $(pwd)/globalstate-mockup/globalstate-rust/target/release/*.a /target/rust
 
 echo "Removing debug symbols because certain distros can't update their stuff to be compliant with the spec"
 strip --strip-debug /target/vanilla/cabal/libHS* \
-		    /target/vanilla/concordium/libHS* \
-	            /target/profiling/cabal/libHS* \
-	            /target/profiling/concordium/libHS* \
-	            /target/vanilla/ghc/lib* \
-	            /target/profiling/ghc/lib*
+            /target/vanilla/concordium/libHS* \
+                /target/profiling/cabal/libHS* \
+                /target/profiling/concordium/libHS* \
+                /target/vanilla/ghc/lib* \
+                /target/profiling/ghc/lib*
 
 strip --strip-debug /binaries/bin/* \
-		    /binaries/lib/*
+            /binaries/lib/*
 
 echo "Removing object files"
 echo "Expanding libraries"
@@ -250,14 +250,14 @@ cp -r $(pwd)/crypto/rust-src/target/release/*.a /target/rust/
 
 echo "Removing debug symbols because certain distros can't update their stuff to be compliant with the spec"
 strip --strip-debug /target/vanilla/cabal/libHS* \
-		    /target/vanilla/concordium/libHS* \
-	            /target/profiling/cabal/libHS* \
-	            /target/profiling/concordium/libHS* \
-	            /target/vanilla/ghc/lib* \
-	            /target/profiling/ghc/lib*
+            /target/vanilla/concordium/libHS* \
+                /target/profiling/cabal/libHS* \
+                /target/profiling/concordium/libHS* \
+                /target/vanilla/ghc/lib* \
+                /target/profiling/ghc/lib*
 
 strip --strip-debug /binaries/bin/* \
-		    /binaries/lib/*
+            /binaries/lib/*
 
 echo "Removing object files"
 echo "Expanding libraries"
