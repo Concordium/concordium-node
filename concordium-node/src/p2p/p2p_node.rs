@@ -133,7 +133,7 @@ pub struct ConnectionHandler {
     pub log_dumper:        Option<Sender<DumpItem>>,
     pub connections:       RwLock<Connections>,
     pub unreachable_nodes: UnreachableNodes,
-    soft_bans:             RwLock<HashMap<IpAddr, Instant>>,
+    soft_bans:             RwLock<HashMap<IpAddr, Instant>>, // (IP, expiry)
     pub networks:          RwLock<Networks>,
     pub last_bootstrap:    AtomicU64,
     pub last_peer_update:  AtomicU64,
@@ -582,11 +582,19 @@ impl P2PNode {
                             .contains(&io_err.kind())
                             {
                                 warn!("Soft-banning {:?} due to a fatal IO error", ip);
-                                soft_bans.insert(ip, Instant::now());
+                                soft_bans.insert(
+                                    ip,
+                                    Instant::now()
+                                        + Duration::from_secs(config::SOFT_BAN_DURATION_SECS),
+                                );
                             }
                         } else {
                             warn!("Soft-banning {:?} due to a breach of protocol", ip);
-                            soft_bans.insert(ip, Instant::now());
+                            soft_bans.insert(
+                                ip,
+                                Instant::now()
+                                    + Duration::from_secs(config::SOFT_BAN_DURATION_SECS),
+                            );
                         }
                     }
                     self_clone.remove_connections(&bad_tokens);
@@ -717,9 +725,7 @@ impl P2PNode {
             let mut soft_bans = write_or_die!(self.connection_handler.soft_bans);
             if !soft_bans.is_empty() {
                 let now = Instant::now();
-                soft_bans.retain(|_, stamp| {
-                    now.duration_since(*stamp).as_secs() < config::SOFT_BAN_DURATION
-                });
+                soft_bans.retain(|_, expiry| *expiry > now);
             }
         }
 
