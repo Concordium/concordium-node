@@ -13,7 +13,7 @@ use crate::{
         Buckets, NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket,
         NetworkPacketType, NetworkRequest,
     },
-    p2p::{banned_nodes::BannedNode, unreachable_nodes::UnreachableNodes},
+    p2p::banned_nodes::BannedNode,
     stats_engine::StatsEngine,
     stats_export_service::StatsExportService,
     utils,
@@ -125,18 +125,23 @@ impl ResendQueueEntry {
 pub type Networks = HashSet<NetworkId, BuildNoHashHasher<u16>>;
 pub type Connections = HashMap<Token, Arc<Connection>, BuildNoHashHasher<usize>>;
 
+#[derive(Debug, PartialEq, Eq, Hash)]
+enum Addr {
+    Ip(IpAddr),
+    Socket(SocketAddr),
+}
+
 pub struct ConnectionHandler {
-    server:                TcpListener,
-    next_id:               AtomicUsize,
-    pub event_log:         Option<Sender<QueueMsg<P2PEvent>>>,
-    pub buckets:           RwLock<Buckets>,
-    pub log_dumper:        Option<Sender<DumpItem>>,
-    pub connections:       RwLock<Connections>,
-    pub unreachable_nodes: UnreachableNodes,
-    soft_bans:             RwLock<HashMap<IpAddr, Instant>>, // (IP, expiry)
-    pub networks:          RwLock<Networks>,
-    pub last_bootstrap:    AtomicU64,
-    pub last_peer_update:  AtomicU64,
+    server:               TcpListener,
+    next_id:              AtomicUsize,
+    pub event_log:        Option<Sender<QueueMsg<P2PEvent>>>,
+    pub buckets:          RwLock<Buckets>,
+    pub log_dumper:       Option<Sender<DumpItem>>,
+    pub connections:      RwLock<Connections>,
+    soft_bans:            RwLock<HashMap<Addr, Instant>>, // (addr, expiry)
+    pub networks:         RwLock<Networks>,
+    pub last_bootstrap:   AtomicU64,
+    pub last_peer_update: AtomicU64,
 }
 
 impl ConnectionHandler {
@@ -154,7 +159,6 @@ impl ConnectionHandler {
             buckets: RwLock::new(Buckets::new()),
             log_dumper: None,
             connections: Default::default(),
-            unreachable_nodes: UnreachableNodes::new(),
             soft_bans: Default::default(),
             networks: RwLock::new(networks),
             last_bootstrap: Default::default(),
@@ -583,7 +587,7 @@ impl P2PNode {
                             {
                                 warn!("Soft-banning {:?} due to a fatal IO error", ip);
                                 soft_bans.insert(
-                                    ip,
+                                    Addr::Ip(ip),
                                     Instant::now()
                                         + Duration::from_secs(config::SOFT_BAN_DURATION_SECS),
                                 );
@@ -591,7 +595,7 @@ impl P2PNode {
                         } else {
                             warn!("Soft-banning {:?} due to a breach of protocol", ip);
                             soft_bans.insert(
-                                ip,
+                                Addr::Ip(ip),
                                 Instant::now()
                                     + Duration::from_secs(config::SOFT_BAN_DURATION_SECS),
                             );
@@ -698,12 +702,6 @@ impl P2PNode {
             !(is_conn_faulty(&conn) || is_conn_inactive(&conn) || is_conn_without_handshake(&conn))
         });
 
-        if peer_type != PeerType::Bootstrapper {
-            self.connection_handler
-                .unreachable_nodes
-                .cleanup(curr_stamp - config::MAX_UNREACHABLE_MARK_TIME);
-        }
-
         // If the number of peers exceeds the desired value, close a random selection of
         // post-handshake connections to lower it
         if peer_type == PeerType::Node {
@@ -745,16 +743,6 @@ impl P2PNode {
     #[inline]
     pub fn networks(&self) -> &RwLock<Networks> { &self.connection_handler.networks }
 
-    /// Returns true if `addr` is in the `unreachable_nodes` list.
-    pub fn is_unreachable(&self, addr: SocketAddr) -> bool {
-        self.connection_handler.unreachable_nodes.contains(addr)
-    }
-
-    /// Adds the `addr` to the `unreachable_nodes` list.
-    pub fn add_unreachable(&self, addr: SocketAddr) -> bool {
-        self.connection_handler.unreachable_nodes.insert(addr)
-    }
-
     fn accept(&self) -> Fallible<Token> {
         let self_peer = self.self_peer;
         let (socket, addr) = self.connection_handler.server.accept()?;
@@ -777,7 +765,7 @@ impl P2PNode {
 
             if read_or_die!(self.connection_handler.soft_bans)
                 .iter()
-                .any(|(ip, _)| *ip == addr.ip())
+                .any(|(ip, _)| *ip == Addr::Ip(addr.ip()))
             {
                 bail!("Connection attempt from a soft-banned IP ({:?}); rejecting", addr.ip());
             }
@@ -856,11 +844,10 @@ impl P2PNode {
             }
         }
 
-        if peer_type == PeerType::Node && self.is_unreachable(addr) {
-            bail!("Node marked as unreachable; not allowing the connection");
-        }
-
-        if read_or_die!(self.connection_handler.soft_bans).iter().any(|(ip, _)| *ip == addr.ip()) {
+        if read_or_die!(self.connection_handler.soft_bans)
+            .iter()
+            .any(|(ip, _)| *ip == Addr::Ip(addr.ip()) || *ip == Addr::Socket(addr))
+        {
             bail!("Refusing to connect to a soft-banned IP ({:?})", addr.ip());
         }
 
@@ -896,8 +883,11 @@ impl P2PNode {
                 Ok(())
             }
             Err(e) => {
-                if peer_type == PeerType::Node && !self.add_unreachable(addr) {
-                    error!("Can't insert unreachable peer!");
+                if peer_type == PeerType::Node {
+                    write_or_die!(self.connection_handler.soft_bans).insert(
+                        Addr::Socket(addr),
+                        Instant::now() + Duration::from_secs(config::UNREACHABLE_EXPIRATION_SECS),
+                    );
                 }
                 into_err!(Err(e))
             }
