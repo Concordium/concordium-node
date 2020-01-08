@@ -243,6 +243,15 @@ loadBufferedRef (BRBlobbed ref) = loadRef ref
 loadBufferedRef (BRCached _ v) = return v
 loadBufferedRef (BRMemory v) = return v
 
+-- |Load a 'BufferedRef' and cache it if it wasn't already in memory
+cacheBufferedRef :: (HasCallStack, BlobStorable m BlobRef a) => BufferedRef a -> m (a, BufferedRef a)
+cacheBufferedRef (BRBlobbed ref) = do
+        v <- loadRef ref
+        return (v, BRCached ref v)
+cacheBufferedRef r@(BRCached _ v) = return (v, r)
+cacheBufferedRef r@(BRMemory v) = return (v, r)
+
+
 {-
 class RefStorable ref m x where
     makeRef :: (forall a. ref a -> m Put) -> x -> m (ref x)
