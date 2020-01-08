@@ -18,6 +18,12 @@ stages:
     paths:
       - .stack
       - .stack-work
+      - crypto/.stack-work
+      - acorn/.stack-work
+      - Concordium/.stack-work
+      - globalstate-mockup/globalstate/.stack-work
+      - globalstate-types/.stack-work
+      - scheduler/.stack-work
       - consensus-rust/target
       - globalstate-mockup/globalstate-rust/target
       - crypto/rust-src/target
