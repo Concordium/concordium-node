@@ -1,4 +1,3 @@
-pub mod counter;
 pub mod p2p_node_id;
 pub mod p2p_peer;
 

@@ -1,10 +1,7 @@
 #[cfg(feature = "benchmark")]
 use crate::utils;
 use crate::{
-    common::{
-        counter::{TOTAL_MESSAGES_RECEIVED_COUNTER, TOTAL_MESSAGES_SENT_COUNTER},
-        P2PNodeId, PeerType,
-    },
+    common::{P2PNodeId, PeerType},
     configuration,
     failure::{Error, Fallible},
     network::{NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacketType},
@@ -310,7 +307,7 @@ impl P2P for RpcServerImpl {
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
             let mut r: NumberResponse = NumberResponse::new();
-            r.set_value(TOTAL_MESSAGES_RECEIVED_COUNTER.load(Ordering::Relaxed) as u64);
+            r.set_value(self.node.total_received.load(Ordering::Relaxed));
             let f = sink.success(r).map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);
         });
@@ -324,7 +321,7 @@ impl P2P for RpcServerImpl {
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
             let mut r: NumberResponse = NumberResponse::new();
-            r.set_value(TOTAL_MESSAGES_SENT_COUNTER.load(Ordering::Relaxed) as u64);
+            r.set_value(self.node.total_sent.load(Ordering::Relaxed));
             let f = sink.success(r).map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);
         });

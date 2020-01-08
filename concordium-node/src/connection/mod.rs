@@ -18,10 +18,7 @@ use priority_queue::PriorityQueue;
 use twox_hash::XxHash64;
 
 use crate::{
-    common::{
-        counter::TOTAL_MESSAGES_RECEIVED_COUNTER, get_current_stamp, p2p_peer::P2PPeer, P2PNodeId,
-        PeerStats, PeerType, RemotePeer,
-    },
+    common::{get_current_stamp, p2p_peer::P2PPeer, P2PNodeId, PeerStats, PeerType, RemotePeer},
     dumper::DumpItem,
     network::{
         Buckets, NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkRequest,
@@ -263,7 +260,7 @@ impl Connection {
         self.update_last_seen();
         self.stats.messages_received.fetch_add(1, Ordering::Relaxed);
         self.stats.bytes_received.fetch_add(message.len() as u64, Ordering::Relaxed);
-        TOTAL_MESSAGES_RECEIVED_COUNTER.fetch_add(1, Ordering::Relaxed);
+        self.handler().total_received.fetch_add(1, Ordering::Relaxed);
         self.handler().stats.pkt_received_inc();
 
         if cfg!(feature = "network_dump") {

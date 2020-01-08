@@ -185,6 +185,8 @@ pub struct P2PNode {
     pub is_terminated:      AtomicBool,
     pub kvs:                Arc<RwLock<Rkv>>,
     pub stats_engine:       RwLock<StatsEngine>,
+    pub total_received:     AtomicU64,
+    pub total_sent:         AtomicU64,
 }
 // a convenience macro to send an object to all connections
 macro_rules! send_to_all {
@@ -375,6 +377,8 @@ impl P2PNode {
             is_terminated: Default::default(),
             kvs,
             stats_engine,
+            total_received: Default::default(),
+            total_sent: Default::default(),
         });
 
         // note: in order to create the reference to the `Arc`'ed self, we need to do
@@ -1228,7 +1232,7 @@ impl P2PNode {
     fn process_network_events(
         &self,
         events: &Events,
-        deduplication_queues: &Arc<DeduplicationQueues>,
+        deduplication_queues: &DeduplicationQueues,
         connections: &mut Vec<(Token, Arc<Connection>)>,
     ) -> (Vec<Token>, Vec<(IpAddr, Error)>) {
         connections.clear();

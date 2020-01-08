@@ -11,7 +11,7 @@ use super::{
     },
     Connection, DeduplicationQueues,
 };
-use crate::{common::counter::TOTAL_MESSAGES_SENT_COUNTER, network::PROTOCOL_MAX_MESSAGE_SIZE};
+use crate::network::PROTOCOL_MAX_MESSAGE_SIZE;
 
 use std::{
     cmp,
@@ -422,7 +422,7 @@ impl ConnectionLowLevel {
     /// Enqueue a message to be written to the socket.
     #[inline]
     pub fn write_to_socket(&mut self, input: Arc<[u8]>) -> Fallible<()> {
-        TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
+        self.conn().handler().total_sent.fetch_add(1, Ordering::Relaxed);
         self.conn().stats.messages_sent.fetch_add(1, Ordering::Relaxed);
         self.conn().stats.bytes_sent.fetch_add(input.len() as u64, Ordering::Relaxed);
         self.conn().handler().stats.pkt_sent_inc();
