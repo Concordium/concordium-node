@@ -3,8 +3,6 @@
 
 #[macro_use]
 extern crate log;
-#[macro_use]
-extern crate derive_builder;
 #[cfg(not(target_os = "windows"))]
 extern crate get_if_addrs;
 #[cfg(not(target_os = "windows"))]

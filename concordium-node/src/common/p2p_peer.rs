@@ -27,7 +27,7 @@ impl fmt::Display for PeerType {
     }
 }
 
-#[derive(Debug, Clone, Copy, Builder)]
+#[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub struct P2PPeer {
     pub id:        P2PNodeId,
@@ -135,7 +135,7 @@ impl From<P2PPeer> for RemotePeer {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct PeerStats {
     pub id:                 u64,
     pub addr:               SocketAddr,
