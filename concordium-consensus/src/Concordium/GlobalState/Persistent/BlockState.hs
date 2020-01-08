@@ -35,7 +35,7 @@ import qualified Concordium.GlobalState.Persistent.Account as Account
 import qualified Concordium.GlobalState.Persistent.Instances as Instances
 import qualified Concordium.Types.Transactions as Transactions
 import Concordium.GlobalState.Persistent.Instances(PersistentInstance(..), PersistentInstanceParameters(..), CacheableInstanceParameters(..))
-import Concordium.GlobalState.Instance (Instance(..),InstanceParameters(..))
+import Concordium.GlobalState.Instance (Instance(..),InstanceParameters(..),makeInstanceHash')
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import qualified Concordium.GlobalState.Modules as TransientMods
 
@@ -500,11 +500,13 @@ doModifyInstance pbs caddr deltaAmnt val = do
                         }
     where
         upd oldInst = do
+            (piParams, newParamsRef) <- cacheBufferedRef (pinstanceParameters oldInst)
             if deltaAmnt == 0 then
-                return (Nothing, oldInst {pinstanceModel = val})
+                return (Nothing, rehash (pinstanceParameterHash piParams) $ oldInst {pinstanceParameters = newParamsRef, pinstanceModel = val})
             else do
                 acct <- pinstanceOwner <$> loadBufferedRef (pinstanceParameters oldInst)
-                return (Just acct, oldInst {pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst), pinstanceModel = val})
+                return (Just acct, rehash (pinstanceParameterHash piParams) $ oldInst {pinstanceParameters = newParamsRef, pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst), pinstanceModel = val})
+        rehash iph inst@(PersistentInstance {..}) = inst {pinstanceHash = makeInstanceHash' iph pinstanceModel pinstanceAmount}
 
 doDelegateStake :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> AccountAddress -> Maybe BakerId -> m (Bool, PersistentBlockState)
 doDelegateStake pbs aaddr target = do

@@ -90,7 +90,7 @@ data GenesisData = GenesisData {
     genesisCryptographicParameters :: CryptographicParameters,
     genesisIdentityProviders :: [IpInfo],
     genesisMintPerSlot :: Amount
-} deriving (Generic, Show)
+} deriving (Generic, Show, Eq)
 
 instance Serialize GenesisData where
 
