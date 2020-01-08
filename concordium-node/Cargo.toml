@@ -74,7 +74,7 @@ bytesize = "1.0.0"
 crossbeam-channel = "^0.4"
 
 # gRPC dependencies
-protobuf = "2.0.6"
+protobuf = "2.10.0"
 futures = "0.1"
 
 # Feature-gated dependencies
@@ -111,9 +111,7 @@ grpciounix = { package = "grpcio", path = "deps/external/grpc-rs", version = "0.
 uuid = { version = "0.7", default-features = false, optional = true }
 
 [build-dependencies]
-walkdir = "2"
-regex = "1"
-protoc-grpcio = "0.2.0"
+protoc-grpcio = "1.1.0"
 capnpc = { version = "^0.9", optional = true }
 flatc-rust = "^0.1"
 
