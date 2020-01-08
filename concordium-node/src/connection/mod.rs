@@ -52,10 +52,10 @@ pub enum MessageSendingPriority {
 }
 
 pub struct DeduplicationQueues {
-    pub finalizations: RwLock<CircularQueue<[u8; 8]>>,
-    pub transactions:  RwLock<CircularQueue<[u8; 8]>>,
-    pub blocks:        RwLock<CircularQueue<[u8; 8]>>,
-    pub fin_records:   RwLock<CircularQueue<[u8; 8]>>,
+    pub finalizations: RwLock<CircularQueue<u64>>,
+    pub transactions:  RwLock<CircularQueue<u64>>,
+    pub blocks:        RwLock<CircularQueue<u64>>,
+    pub fin_records:   RwLock<CircularQueue<u64>>,
 }
 
 impl DeduplicationQueues {
@@ -529,16 +529,17 @@ impl Drop for Connection {
 
 // returns a bool indicating if the message is a duplicate
 #[inline]
-fn dedup_with(message: &[u8], queue: &mut CircularQueue<[u8; 8]>) -> Fallible<bool> {
+fn dedup_with(message: &[u8], queue: &mut CircularQueue<u64>) -> Fallible<bool> {
     let mut hash = [0u8; 8];
     hash.copy_from_slice(&XxHash64::digest(message));
+    let num = u64::from_le_bytes(hash);
 
-    if !queue.iter().any(|h| h == &hash) {
-        trace!("Message {:x} is unique, adding to dedup queue", u64::from_le_bytes(hash));
-        queue.push(hash);
+    if !queue.iter().any(|n| n == &num) {
+        trace!("Message {:x} is unique, adding to dedup queue", num);
+        queue.push(num);
         Ok(false)
     } else {
-        trace!("Message {:x} is a duplicate", u64::from_le_bytes(hash));
+        trace!("Message {:x} is a duplicate", num);
         Ok(true)
     }
 }
