@@ -438,7 +438,7 @@ impl P2PNode {
     }
 
     pub fn update_last_bootstrap(&self) {
-        self.connection_handler.last_bootstrap.store(get_current_stamp(), Ordering::SeqCst);
+        self.connection_handler.last_bootstrap.store(get_current_stamp(), Ordering::Relaxed);
     }
 
     pub fn forward_network_packet(&self, msg: NetworkMessage) -> Fallible<()> {
@@ -453,7 +453,7 @@ impl P2PNode {
     /// nodes.
     fn print_stats(&self, peer_stat_list: &[PeerStats]) {
         trace!("Printing out stats");
-        debug!("I currently have {}/{} peers", peer_stat_list.len(), self.config.max_allowed_nodes,);
+        debug!("I currently have {}/{} peers", peer_stat_list.len(), self.config.max_allowed_nodes);
 
         // Print nodes
         if self.config.print_peers {
