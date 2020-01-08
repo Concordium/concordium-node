@@ -176,7 +176,7 @@ impl Connection {
         self.stats.last_ping_sent.store(get_current_stamp(), Ordering::Relaxed);
     }
 
-    pub fn remote_peer(&self) -> RemotePeer { self.remote_peer.clone() }
+    pub fn remote_peer(&self) -> &RemotePeer { &self.remote_peer }
 
     pub fn remote_id(&self) -> Option<P2PNodeId> { *read_or_die!(self.remote_peer.id) }
 

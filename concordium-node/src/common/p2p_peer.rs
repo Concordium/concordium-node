@@ -7,7 +7,7 @@ use std::{
     net::{IpAddr, SocketAddr},
     sync::{
         atomic::{AtomicU16, Ordering as AtomicOrdering},
-        Arc, RwLock,
+        RwLock,
     },
 };
 
@@ -77,16 +77,16 @@ impl Display for P2PPeer {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct RemotePeer {
-    pub id:                 Arc<RwLock<Option<P2PNodeId>>>,
+    pub id:                 RwLock<Option<P2PNodeId>>,
     pub addr:               SocketAddr,
-    pub peer_external_port: Arc<AtomicU16>,
+    pub peer_external_port: AtomicU16,
     pub peer_type:          PeerType,
 }
 
 impl RemotePeer {
-    pub fn peer(self) -> Option<P2PPeer> {
+    pub fn peer(&self) -> Option<P2PPeer> {
         if let Some(id) = &*read_or_die!(self.id) {
             Some(P2PPeer {
                 id:        *id,
@@ -127,9 +127,9 @@ impl RemotePeer {
 impl From<P2PPeer> for RemotePeer {
     fn from(peer: P2PPeer) -> Self {
         Self {
-            id:                 Arc::new(RwLock::new(Some(peer.id))),
+            id:                 RwLock::new(Some(peer.id)),
             addr:               peer.addr,
-            peer_external_port: Arc::new(AtomicU16::new(peer.addr.port())),
+            peer_external_port: AtomicU16::new(peer.addr.port()),
             peer_type:          peer.peer_type,
         }
     }
