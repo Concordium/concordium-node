@@ -1,6 +1,5 @@
 pub mod banned_nodes;
 pub mod p2p_node;
-pub mod unreachable_nodes;
 
 pub use self::p2p_node::{Connections, Networks, P2PNode};
 
