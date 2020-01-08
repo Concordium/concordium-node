@@ -498,16 +498,16 @@ impl Connection {
 
         let conn_filter = |conn: &Connection| match msg.payload {
             NetworkMessagePayload::NetworkRequest(ref request, ..) => match request {
-                NetworkRequest::BanNode(peer_to_ban) => match peer_to_ban {
-                    BannedNode::ById(id) => {
-                        conn != self && conn.remote_peer().peer().map_or(true, |x| x.id() != *id)
-                    }
-                    BannedNode::ByAddr(addr) => {
-                        conn != self
-                            && conn.remote_peer().peer().map_or(true, |peer| peer.ip() != *addr)
-                    }
-                },
-                _ => conn != self,
+                NetworkRequest::BanNode(peer_to_ban) => {
+                    conn != self
+                        && match peer_to_ban {
+                            BannedNode::ById(id) => {
+                                conn.remote_peer().peer().map_or(true, |x| x.id() != *id)
+                            }
+                            BannedNode::ByAddr(addr) => conn.remote_peer().addr().ip() != *addr,
+                        }
+                }
+                _ => true,
             },
             _ => unreachable!("Only network requests are ever forwarded"),
         };

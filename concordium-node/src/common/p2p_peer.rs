@@ -98,21 +98,6 @@ impl RemotePeer {
         }
     }
 
-    pub fn peer_external(self) -> Option<P2PPeer> {
-        if let Some(id) = &*read_or_die!(self.id) {
-            Some(P2PPeer {
-                id:        *id,
-                addr:      SocketAddr::new(
-                    self.addr.ip(),
-                    self.peer_external_port.load(AtomicOrdering::SeqCst),
-                ),
-                peer_type: self.peer_type,
-            })
-        } else {
-            None
-        }
-    }
-
     pub fn addr(&self) -> SocketAddr { self.addr }
 
     pub fn peer_type(&self) -> PeerType { self.peer_type }
