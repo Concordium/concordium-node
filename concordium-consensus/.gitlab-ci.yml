@@ -84,35 +84,35 @@ stages:
   extends: .generic-haskell-test
   stage: test
   script:
-    - "stack test concordium-crypto | ts '[%Y-%m-%d %H:%M:%.S]'"
+    - "stack test concordium-crypto --bench --no-run-benchmarks | ts '[%Y-%m-%d %H:%M:%.S]'"
 
 "stack:test:acorn":
   extends: .generic-haskell-test
   stage: test
   script:
-    - "stack test acorn | ts '[%Y-%m-%d %H:%M:%.S]'"
+    - "stack test acorn --bench --no-run-benchmarks | ts '[%Y-%m-%d %H:%M:%.S]'"
 
 "stack:test:globalstate-types":
   extends: .generic-haskell-test
   stage: test
   script:
-    - "stack test globalstate-types | ts '[%Y-%m-%d %H:%M:%.S]'"
+    - "stack test globalstate-types --bench --no-run-benchmarks | ts '[%Y-%m-%d %H:%M:%.S]'"
 
 "stack:test:globalstate":
   extends: .generic-haskell-test
   stage: test
   script:
-    - "stack test globalstate | ts '[%Y-%m-%d %H:%M:%.S]'"
+    - "stack test globalstate --bench --no-run-benchmarks | ts '[%Y-%m-%d %H:%M:%.S]'"
 
 "stack:test:scheduler":
   extends: .generic-haskell-test
   stage: test
   script:
-    - "stack test scheduler | ts '[%Y-%m-%d %H:%M:%.S]'"
+    - "stack test scheduler --bench --no-run-benchmarks | ts '[%Y-%m-%d %H:%M:%.S]'"
 
 "stack:test:consensus":
   extends: .generic-haskell-test
   stage: test
   script:
-    - "stack test Concordium --ta --level=2 | ts '[%Y-%m-%d %H:%M:%.S]'"
+    - "stack test Concordium --bench --no-run-benchmarks --ta --level=2 | ts '[%Y-%m-%d %H:%M:%.S]'"
 
