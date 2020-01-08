@@ -74,7 +74,6 @@ bytesize = "1.0.0"
 crossbeam-channel = "^0.4"
 
 # gRPC dependencies
-grpc = "0.6.1"
 protobuf = "2.0.6"
 futures = "0.1"
 
