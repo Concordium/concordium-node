@@ -170,7 +170,7 @@ accountAddressFromCred cdi = accountAddress (cdvVerifyKey (cdiValues cdi))
 {-# NOINLINE dummyIdentityProviders #-}
 dummyIdentityProviders :: IdentityProviders
 dummyIdentityProviders =
-  case unsafePerformIO (eitherReadIdentityProviders <$> BSL.readFile "testdata/identity-providers.json") of
+  case unsafePerformIO (eitherReadIdentityProviders <$> BSL.readFile "testdata/identity_providers.json") of
     Left err -> error $ "Could not load identity provider test data: " ++ err
     Right ips -> IdentityProviders (HM.fromList (map (\r -> (ipIdentity r, r)) ips))
 

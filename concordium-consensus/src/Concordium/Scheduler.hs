@@ -31,7 +31,6 @@ import Control.Monad.Except
 import qualified Data.HashMap.Strict as Map
 import Data.Maybe(fromJust)
 import qualified Data.Set as Set
-import qualified Data.HashSet as HashSet
 import qualified Data.PQueue.Prio.Max as Queue
 
 import qualified Concordium.Crypto.Proofs as Proofs
@@ -483,10 +482,11 @@ handleDeployCredential senderAccount meta cdiBytes cdi =
           regIdEx <- accountRegIdExists (ID.cdvRegId cdv)
           if regIdEx then
             return $! TxReject (DuplicateAccountRegistrationID (ID.cdvRegId cdv)) energyCost usedEnergy
-          else
+          else do
             -- We now look up the identity provider this credential is derived from.
             -- Of course if it does not exist we reject the transaction.
-            getIPInfo (ID.cdvIpId cdv) >>= \case
+            let credentialIP = ID.cdvIpId cdv
+            getIPInfo credentialIP >>= \case
               Nothing -> return $! TxReject (NonExistentIdentityProvider (ID.cdvIpId cdv)) energyCost usedEnergy
               Just ipInfo -> do
                 cryptoParams <- getCrypoParams
@@ -502,8 +502,15 @@ handleDeployCredential senderAccount meta cdiBytes cdi =
                              return $! TxSuccess [AccountCreated aaddr, CredentialDeployed cdv] energyCost usedEnergy
                        else return $! TxReject AccountCredentialInvalid energyCost usedEnergy
      
-                  Just account -> -- otherwise we just try to add a credential to the account
-                            if AH.verifyCredential cryptoParams ipInfo cdiBytes then do
+                  Just account -> do
+                            -- otherwise we just try to add a credential to the account
+                            -- but only if the credential is from the same identity provider
+                            -- as the existing ones on the account.
+                            -- Since we always maintain this invariant it is sufficient to check
+                            -- for one credential only.
+                            let credentials = account ^. accountCredentials
+                            let sameIP = maybe True (\(_, cred) -> ID.cdvIpId cred == credentialIP) (Queue.getMax credentials)
+                            if sameIP && AH.verifyCredential cryptoParams ipInfo cdiBytes then do
                               addAccountCredential account cdv
                               return $! TxSuccess [CredentialDeployed cdv] energyCost usedEnergy
                             else
@@ -580,29 +587,23 @@ handleAddBaker senderAccount meta abElectionVerifyKey abSignatureVerifyKey abAcc
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost senderAccount energyCost
 
-          -- TODO:NB: during beta we have special accounts which can add and remove bakers.
-          -- in the future the logic will be different. Thus this branching here is temporary.
-          specialBetaAccounts <- getSpecialBetaAccounts
-          if not (HashSet.member (senderAccount ^. accountAddress) specialBetaAccounts) then
-            return $! TxReject (NotAllowedToManipulateBakers (senderAccount ^. accountAddress)) energyCost usedEnergy
-          else
-            getAccount abAccount >>=
-                \case Nothing -> return $! TxReject (NonExistentRewardAccount abAccount) energyCost usedEnergy
-                      Just Account{..} ->
-                        let challenge = S.runPut (S.put abElectionVerifyKey <> S.put abSignatureVerifyKey <> S.put abAccount)
-                            electionP = checkElectionKeyProof challenge abElectionVerifyKey abProofElection
-                            signP = checkSignatureVerifyKeyProof challenge abSignatureVerifyKey abProofSig
-                            accountP = checkAccountOwnership challenge _accountVerificationKey abProofAccount
-                        in if electionP && signP && accountP then do
-                          -- the proof validates that the baker owns all the private keys.
-                          -- Moreover at this point we know the reward account exists and belongs
-                          -- to the baker.
-                          -- Thus we can create the baker, starting it off with 0 lottery power.
-                          mbid <- addBaker (BakerCreationInfo abElectionVerifyKey abSignatureVerifyKey abAccount)
-                          case mbid of
-                            Nothing -> return $! TxReject (DuplicateSignKey abSignatureVerifyKey) energyCost usedEnergy
-                            Just bid -> return $! TxSuccess [BakerAdded bid] energyCost usedEnergy
-                        else return $ TxReject InvalidProof energyCost usedEnergy
+          getAccount abAccount >>=
+              \case Nothing -> return $! TxReject (NonExistentRewardAccount abAccount) energyCost usedEnergy
+                    Just Account{..} ->
+                      let challenge = S.runPut (S.put abElectionVerifyKey <> S.put abSignatureVerifyKey <> S.put abAccount)
+                          electionP = checkElectionKeyProof challenge abElectionVerifyKey abProofElection
+                          signP = checkSignatureVerifyKeyProof challenge abSignatureVerifyKey abProofSig
+                          accountP = checkAccountOwnership challenge _accountVerificationKey abProofAccount
+                      in if electionP && signP && accountP then do
+                        -- the proof validates that the baker owns all the private keys.
+                        -- Moreover at this point we know the reward account exists and belongs
+                        -- to the baker.
+                        -- Thus we can create the baker, starting it off with 0 lottery power.
+                        mbid <- addBaker (BakerCreationInfo abElectionVerifyKey abSignatureVerifyKey abAccount)
+                        case mbid of
+                          Nothing -> return $! TxReject (DuplicateSignKey abSignatureVerifyKey) energyCost usedEnergy
+                          Just bid -> return $! TxSuccess [BakerAdded bid] energyCost usedEnergy
+                      else return $ TxReject InvalidProof energyCost usedEnergy
 
 -- |Remove a baker from the baker pool.
 -- The current logic is that if the proof validates that the sender of the

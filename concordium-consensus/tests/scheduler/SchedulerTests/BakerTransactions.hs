@@ -102,7 +102,7 @@ runWithIntermediateStates = do
                             let ((Sch.FilteredTransactions{..}, _), st') =
                                   Types.runSI
                                     (Sch.filterTransactions blockSize [tx])
-                                    (Set.singleton alesAccount)
+                                    Set.empty -- special beta accounts
                                     Types.dummyChainMeta
                                     st
                             in (acc ++ [(ftAdded, ftFailed, st' ^. blockBirkParameters)], st'))
