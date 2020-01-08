@@ -36,7 +36,6 @@ use std::{
     convert::TryFrom,
     fmt,
     net::SocketAddr,
-    pin::Pin,
     sync::{
         atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         Arc, RwLock,
@@ -156,7 +155,7 @@ impl Connection {
             pending_messages: RwLock::new(PriorityQueue::with_capacity(1024)),
         });
 
-        write_or_die!(conn.low_level).conn_ref = Some(Pin::new(Arc::clone(&conn)));
+        write_or_die!(conn.low_level).conn_ref = Some(Arc::clone(&conn));
 
         conn
     }

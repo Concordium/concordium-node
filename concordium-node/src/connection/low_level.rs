@@ -19,7 +19,6 @@ use std::{
     convert::TryInto,
     io::{Cursor, ErrorKind, Read, Seek, SeekFrom, Write},
     mem,
-    pin::Pin,
     sync::{atomic::Ordering, Arc},
     time::Duration,
 };
@@ -99,7 +98,7 @@ enum ReadResult {
 /// The `Connection`'s socket, noise session and some helper objects.
 pub struct ConnectionLowLevel {
     /// The reference to the parent `Connection` object.
-    pub conn_ref: Option<Pin<Arc<Connection>>>,
+    pub conn_ref: Option<Arc<Connection>>,
     pub socket: TcpStream,
     noise_session: NoiseSession,
     noise_buffer: Box<[u8]>,
