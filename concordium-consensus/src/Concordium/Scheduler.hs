@@ -35,8 +35,6 @@ import qualified Data.PQueue.Prio.Max as Queue
 
 import qualified Concordium.Crypto.Proofs as Proofs
 
-import Control.Exception(assert)
-
 import Lens.Micro.Platform
 
 import Prelude hiding (exp, mod)
@@ -80,8 +78,9 @@ checkHeader meta = do
       -- check they have enough funds to cover the deposit
       unless (depositedAmount <= amnt) (throwError InsufficientFunds)
       unless (txnonce == nextNonce) (throwError (NonSequentialNonce nextNonce))
-      let sigCheck = verifyTransactionSignature meta
-      assert sigCheck $ return acc
+      let sigCheck = verifyTransaction (acc ^. accountVerificationKeys) meta
+      unless sigCheck (throwError IncorrectSignature)
+      return acc
       -- only use assert because we rely on the signature being valid in the transaction table
       -- unless sigCheck (throwError IncorrectSignature))
       -- TODO: If we are going to check that the signature is correct before adding the transaction to the table then this check can be removed,
@@ -479,7 +478,8 @@ handleDeployCredential senderAccount meta cdiBytes cdi =
           chargeExecutionCost senderAccount energyCost
           let cdv = ID.cdiValues cdi
           -- check that a registration id does not yet exist
-          regIdEx <- accountRegIdExists (ID.cdvRegId cdv)
+          let regId = ID.cdvRegId cdv
+          regIdEx <- accountRegIdExists regId
           if regIdEx then
             return $! TxReject (DuplicateAccountRegistrationID (ID.cdvRegId cdv)) energyCost usedEnergy
           else do
@@ -490,19 +490,14 @@ handleDeployCredential senderAccount meta cdiBytes cdi =
               Nothing -> return $! TxReject (NonExistentIdentityProvider (ID.cdvIpId cdv)) energyCost usedEnergy
               Just ipInfo -> do
                 cryptoParams <- getCrypoParams
-                -- first check whether an account with the address exists in the global store
-                let aaddr = AH.accountAddress (ID.cdvVerifyKey cdv)
-                getAccount aaddr >>= \case
-                  Nothing ->  -- account does not yet exist, so create it, but we need to be careful
-                    let account = newAccount (ID.cdvVerifyKey cdv)
-                    in if AH.verifyCredential cryptoParams ipInfo cdiBytes then do
-                             _ <- putNewAccount account -- first create new account, but only if credential was valid.
-                                                        -- We know the address does not yet exist.
-                             addAccountCredential account cdv  -- and then add the credentials
-                             return $! TxSuccess [AccountCreated aaddr, CredentialDeployed cdv] energyCost usedEnergy
-                       else return $! TxReject AccountCredentialInvalid energyCost usedEnergy
-     
-                  Just account -> do
+                -- we have two options. One is that we are deploying a credential on an existing account.
+                case ID.cdvAccount cdv of
+                  ID.ExistingAccount aaddr ->
+                    -- first check whether an account with the address exists in the global store
+                    -- if it does not we cannot deploy the credential.
+                    getAccount aaddr >>= \case
+                      Nothing -> return $! TxReject (InvalidAccountReference aaddr) energyCost usedEnergy
+                      Just account -> do
                             -- otherwise we just try to add a credential to the account
                             -- but only if the credential is from the same identity provider
                             -- as the existing ones on the account.
@@ -515,6 +510,23 @@ handleDeployCredential senderAccount meta cdiBytes cdi =
                               return $! TxSuccess [CredentialDeployed cdv] energyCost usedEnergy
                             else
                               return $! TxReject AccountCredentialInvalid energyCost usedEnergy
+                  ID.NewAccount keys threshold ->
+                    -- account does not yet exist, so create it, but we need to be careful
+                    if null keys || length keys > 255 then
+                      return $! TxReject AccountCredentialInvalid energyCost usedEnergy
+                    else do
+                      let accountKeys = makeAccountKeys keys threshold
+                      let aaddr = ID.addressFromRegId regId
+                      let account = newAccount accountKeys aaddr
+                      -- this check is extremely unlikely to fail (it would amount to a hash collision since
+                      -- we checked regIdEx above already.
+                      accExistsAlready <- maybe True (const False) <$> getAccount aaddr
+                      if not accExistsAlready && AH.verifyCredential cryptoParams ipInfo cdiBytes then do
+                        _ <- putNewAccount account -- first create new account, but only if credential was valid.
+                                                   -- We know the address does not yet exist.
+                        addAccountCredential account cdv  -- and then add the credentials
+                        return $! TxSuccess [AccountCreated aaddr, CredentialDeployed cdv] energyCost usedEnergy
+                      else return $! TxReject AccountCredentialInvalid energyCost usedEnergy
 
 handleDeployEncryptionKey ::
   SchedulerMonad m
@@ -549,8 +561,17 @@ checkSignatureVerifyKeyProof :: BS.ByteString -> BakerSignVerifyKey -> Proofs.Dl
 checkSignatureVerifyKeyProof = Proofs.checkDlog25519ProofBlock
 
 -- |A simple sigma protocol to check knowledge of secret key.
-checkAccountOwnership :: BS.ByteString -> ID.AccountVerificationKey -> Proofs.Dlog25519Proof -> Bool             
-checkAccountOwnership = Proofs.checkDlog25519ProofSig
+checkAccountOwnership :: BS.ByteString -> AccountKeys -> AccountOwnershipProof -> Bool             
+checkAccountOwnership challenge keys (AccountOwnershipProof proofs) =
+    enoughProofs && allProofsValid
+  where -- the invariant on akThreshold should also guarantee there is at least one
+        enoughProofs = length proofs >= fromIntegral (akThreshold keys)
+        -- this is not necessary (we only need the threshold), but safe
+        allProofsValid = all checkProof proofs
+        checkProof (idx, proof) =
+          case getAccountKey idx keys of
+            Nothing -> False
+            Just key -> Proofs.checkDlog25519ProofSig challenge key proof
 
 -- |Add a baker to the baker pool. The current logic for when this is allowed is as follows.
 --
@@ -578,7 +599,7 @@ handleAddBaker ::
     -> AccountAddress
     -> Proofs.Dlog25519Proof
     -> Proofs.Dlog25519Proof
-    -> Proofs.Dlog25519Proof
+    -> AccountOwnershipProof
     -> m TxResult
 handleAddBaker senderAccount meta abElectionVerifyKey abSignatureVerifyKey abAccount abProofSig abProofElection abProofAccount =
   withDeposit senderAccount meta c k
@@ -593,7 +614,7 @@ handleAddBaker senderAccount meta abElectionVerifyKey abSignatureVerifyKey abAcc
                       let challenge = S.runPut (S.put abElectionVerifyKey <> S.put abSignatureVerifyKey <> S.put abAccount)
                           electionP = checkElectionKeyProof challenge abElectionVerifyKey abProofElection
                           signP = checkSignatureVerifyKeyProof challenge abSignatureVerifyKey abProofSig
-                          accountP = checkAccountOwnership challenge _accountVerificationKey abProofAccount
+                          accountP = checkAccountOwnership challenge _accountVerificationKeys abProofAccount
                       in if electionP && signP && accountP then do
                         -- the proof validates that the baker owns all the private keys.
                         -- Moreover at this point we know the reward account exists and belongs
@@ -648,7 +669,7 @@ handleUpdateBakerAccount ::
     -> TransactionHeader
     -> BakerId
     -> AccountAddress
-    -> Proofs.Dlog25519Proof
+    -> AccountOwnershipProof
     -> m TxResult
 handleUpdateBakerAccount senderAccount meta ubaId ubaAddress ubaProof =
   withDeposit senderAccount meta c k
@@ -668,7 +689,7 @@ handleUpdateBakerAccount senderAccount meta ubaId ubaAddress ubaProof =
                     Nothing -> return $! TxReject (NonExistentRewardAccount ubaAddress) energyCost usedEnergy
                     Just Account{..} ->
                       let challenge = S.runPut (S.put ubaId <> S.put ubaAddress)
-                          accountP = checkAccountOwnership challenge _accountVerificationKey ubaProof
+                          accountP = checkAccountOwnership challenge _accountVerificationKeys ubaProof
                       in if accountP then do
                         _ <- updateBakerAccount ubaId ubaAddress
                         return $ TxSuccess [BakerAccountUpdated ubaId ubaAddress] energyCost usedEnergy

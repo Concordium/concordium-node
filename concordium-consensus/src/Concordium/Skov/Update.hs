@@ -503,5 +503,4 @@ doReceiveTransactionInternal tr slot =
                   putPendingTransactions $! extendPendingTransactionTable nextNonce tx ptrs
               return (Just tx, ResultSuccess)
           Duplicate tx -> return (Just tx, ResultDuplicate)
-          InvalidSignature -> return (Nothing, ResultInvalid)
           ObsoleteNonce -> return (Nothing, ResultStale)

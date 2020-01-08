@@ -24,6 +24,7 @@ import Concordium.GlobalState.SeedState
 import Concordium.GlobalState.IdentityProviders
 import Concordium.Birk.Bake
 import Concordium.Types
+import Concordium.ID.Types(randomAccountAddress)
 
 import Concordium.Scheduler.Utils.Init.Example(dummyCredential, dummyExpiryTime)
 
@@ -49,10 +50,12 @@ makeBakerAccount bid =
           _accountCredentials = credentialList}
   where
     vfKey = SigScheme.correspondingVerifyKey kp
-    credentialList = Queue.singleton dummyExpiryTime (dummyCredential vfKey dummyExpiryTime)
-    acct = newAccount vfKey
+    credentialList = Queue.singleton dummyExpiryTime (dummyCredential address dummyExpiryTime)
+    acct = newAccount (makeSingletonAC vfKey) address
     -- NB the negation makes it not conflict with other fake accounts we create elsewhere.
-    kp = uncurry SigScheme.KeyPairEd25519 $ fst (Ed25519.randomKeyPair (mkStdGen (- (fromIntegral bid) - 1)))
+    seed = - (fromIntegral bid) - 1
+    (address, seed') = randomAccountAddress (mkStdGen seed)
+    kp = uncurry SigScheme.KeyPairEd25519 $ fst (Ed25519.randomKeyPair seed')
     
 makeGenesisData :: 
     Timestamp -- ^Genesis time
