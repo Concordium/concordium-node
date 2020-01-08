@@ -20,6 +20,7 @@ import Control.Monad.Fail
 import Control.Monad hiding (fail)
 
 import Concordium.Types
+import Concordium.ID.Types(SignatureThreshold)
 import Concordium.ID.Parameters(GlobalContext)
 import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.IdentityProviders
@@ -131,7 +132,7 @@ instance FromJSON GenesisBaker where
 data GenesisAccount = GenesisAccount {
   gaAddress :: !AccountAddress,
   gaVerifyKeys :: ![AccountVerificationKey],
-  gaThreshold :: Threshold,
+  gaThreshold :: SignatureThreshold,
   gaBalance :: !Amount,
   gaDelegate :: !(Maybe BakerId),
   gaCredential :: !ID.CredentialDeploymentInformation
@@ -141,9 +142,7 @@ instance FromJSON GenesisAccount where
   parseJSON = withObject "GenesisAccount" $ \obj -> do
     gaAddress <- obj .: "accountAddress"
     gaVerifyKeys <- obj .: "accountKeys"
-    threshold <- obj .: "threshold"
-    unless (threshold >= (1::Word) || threshold <= 255) $ fail "Threshold out of bounds."
-    let gaThreshold = fromIntegral gaThreshold
+    gaThreshold <- obj .: "threshold"
     gaBalance <- Amount <$> obj .: "balance"
     gaDelegate <- fmap BakerId <$> obj .:? "delegate"
     gaCredential <- obj .: "credential"

@@ -92,7 +92,7 @@ randomActions :: Gen [AccountAction]
 randomActions = sized (ra Set.empty Set.empty)
     where
         randAccount = do
-            address <- ID.accountAddress . Sig.correspondingVerifyKey <$> Sig.genKeyPair
+            address <- ID.AccountAddress . FBS.pack <$> vector ID.accountAddressSize
             n <- choose (1,255)
             akKeys <- HM.fromList . zip [0..] . map Sig.correspondingVerifyKey <$> replicateM n Sig.genKeyPair
             akThreshold <- fromIntegral <$> choose (1,n)
