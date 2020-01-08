@@ -36,6 +36,8 @@ stages:
 
 .generic-haskell-test:
   extends: .generic
+  cache:
+    policy: pull
 
 .generic-rust-test:
   extends: .generic
@@ -57,7 +59,7 @@ stages:
       - external-libs/
   script:
     - "./build-deps.sh"
-    - "stack build --test --no-run-tests --bench --no-run-benchmarks --ghc-options -j4 | ts '[%Y-%m-%d %H:%M:%.S]'"
+    - "stack build --test --no-run-tests --bench --no-run-benchmarks --ghc-options -j4"
     - consensus-rust/scripts/setup-ci.sh
 
 "cargo:fmt":
@@ -90,35 +92,35 @@ stages:
   extends: .generic-haskell-test
   stage: test
   script:
-    - "stack test concordium-crypto --bench --no-run-benchmarks | ts '[%Y-%m-%d %H:%M:%.S]'"
+    - "stack test concordium-crypto --bench --no-run-benchmarks"
 
 "stack:test:acorn":
   extends: .generic-haskell-test
   stage: test
   script:
-    - "stack test acorn --bench --no-run-benchmarks | ts '[%Y-%m-%d %H:%M:%.S]'"
+    - "stack test acorn --bench --no-run-benchmarks"
 
 "stack:test:globalstate-types":
   extends: .generic-haskell-test
   stage: test
   script:
-    - "stack test globalstate-types --bench --no-run-benchmarks | ts '[%Y-%m-%d %H:%M:%.S]'"
+    - "stack test globalstate-types --bench --no-run-benchmarks"
 
 "stack:test:globalstate":
   extends: .generic-haskell-test
   stage: test
   script:
-    - "stack test globalstate --bench --no-run-benchmarks | ts '[%Y-%m-%d %H:%M:%.S]'"
+    - "stack test globalstate --bench --no-run-benchmarks"
 
 "stack:test:scheduler":
   extends: .generic-haskell-test
   stage: test
   script:
-    - "stack test scheduler --bench --no-run-benchmarks | ts '[%Y-%m-%d %H:%M:%.S]'"
+    - "stack test scheduler --bench --no-run-benchmarks"
 
 "stack:test:consensus":
   extends: .generic-haskell-test
   stage: test
   script:
-    - "stack test Concordium --bench --no-run-benchmarks --ta --level=2 | ts '[%Y-%m-%d %H:%M:%.S]'"
+    - "stack test Concordium --bench --no-run-benchmarks --ta --level=2"
 
