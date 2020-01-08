@@ -36,7 +36,6 @@ use std::{
     convert::TryFrom,
     fmt,
     net::SocketAddr,
-    pin::Pin,
     sync::{
         atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         Arc, RwLock,
@@ -53,10 +52,10 @@ pub enum MessageSendingPriority {
 }
 
 pub struct DeduplicationQueues {
-    pub finalizations: RwLock<CircularQueue<[u8; 8]>>,
-    pub transactions:  RwLock<CircularQueue<[u8; 8]>>,
-    pub blocks:        RwLock<CircularQueue<[u8; 8]>>,
-    pub fin_records:   RwLock<CircularQueue<[u8; 8]>>,
+    pub finalizations: RwLock<CircularQueue<u64>>,
+    pub transactions:  RwLock<CircularQueue<u64>>,
+    pub blocks:        RwLock<CircularQueue<u64>>,
+    pub fin_records:   RwLock<CircularQueue<u64>>,
 }
 
 impl DeduplicationQueues {
@@ -156,7 +155,7 @@ impl Connection {
             pending_messages: RwLock::new(PriorityQueue::with_capacity(1024)),
         });
 
-        write_or_die!(conn.low_level).conn_ref = Some(Pin::new(Arc::clone(&conn)));
+        write_or_die!(conn.low_level).conn_ref = Some(Arc::clone(&conn));
 
         conn
     }
@@ -177,7 +176,7 @@ impl Connection {
         self.stats.last_ping_sent.store(get_current_stamp(), Ordering::Relaxed);
     }
 
-    pub fn remote_peer(&self) -> RemotePeer { self.remote_peer.clone() }
+    pub fn remote_peer(&self) -> &RemotePeer { &self.remote_peer }
 
     pub fn remote_id(&self) -> Option<P2PNodeId> { *read_or_die!(self.remote_peer.id) }
 
@@ -499,16 +498,16 @@ impl Connection {
 
         let conn_filter = |conn: &Connection| match msg.payload {
             NetworkMessagePayload::NetworkRequest(ref request, ..) => match request {
-                NetworkRequest::BanNode(peer_to_ban) => match peer_to_ban {
-                    BannedNode::ById(id) => {
-                        conn != self && conn.remote_peer().peer().map_or(true, |x| x.id() != *id)
-                    }
-                    BannedNode::ByAddr(addr) => {
-                        conn != self
-                            && conn.remote_peer().peer().map_or(true, |peer| peer.ip() != *addr)
-                    }
-                },
-                _ => conn != self,
+                NetworkRequest::BanNode(peer_to_ban) => {
+                    conn != self
+                        && match peer_to_ban {
+                            BannedNode::ById(id) => {
+                                conn.remote_peer().peer().map_or(true, |x| x.id() != *id)
+                            }
+                            BannedNode::ByAddr(addr) => conn.remote_peer().addr().ip() != *addr,
+                        }
+                }
+                _ => true,
             },
             _ => unreachable!("Only network requests are ever forwarded"),
         };
@@ -530,16 +529,17 @@ impl Drop for Connection {
 
 // returns a bool indicating if the message is a duplicate
 #[inline]
-fn dedup_with(message: &[u8], queue: &mut CircularQueue<[u8; 8]>) -> Fallible<bool> {
+fn dedup_with(message: &[u8], queue: &mut CircularQueue<u64>) -> Fallible<bool> {
     let mut hash = [0u8; 8];
     hash.copy_from_slice(&XxHash64::digest(message));
+    let num = u64::from_le_bytes(hash);
 
-    if !queue.iter().any(|h| h == &hash) {
-        trace!("Message {:x} is unique, adding to dedup queue", u64::from_le_bytes(hash));
-        queue.push(hash);
+    if !queue.iter().any(|n| n == &num) {
+        trace!("Message {:x} is unique, adding to dedup queue", num);
+        queue.push(num);
         Ok(false)
     } else {
-        trace!("Message {:x} is a duplicate", u64::from_le_bytes(hash));
+        trace!("Message {:x} is a duplicate", num);
         Ok(true)
     }
 }

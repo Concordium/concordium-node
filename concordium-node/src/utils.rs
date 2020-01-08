@@ -1,6 +1,6 @@
 use concordium_dns::dns;
 
-use crate::{self as p2p_client, common::serialize_addr, configuration as config};
+use crate::{self as p2p_client, configuration as config};
 
 use base64;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
@@ -18,6 +18,42 @@ use std::{
     net::{IpAddr, SocketAddr},
     str::{self, FromStr},
 };
+
+fn serialize_ip(ip: IpAddr) -> String {
+    match ip {
+        IpAddr::V4(ip4) => format!(
+            "IP4{:03}{:03}{:03}{:03}",
+            ip4.octets()[0],
+            ip4.octets()[1],
+            ip4.octets()[2],
+            ip4.octets()[3],
+        ),
+        IpAddr::V6(ip6) => format!(
+            "IP6{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:\
+             02x}{:02x}{:02x}",
+            ip6.octets()[0],
+            ip6.octets()[1],
+            ip6.octets()[2],
+            ip6.octets()[3],
+            ip6.octets()[4],
+            ip6.octets()[5],
+            ip6.octets()[6],
+            ip6.octets()[7],
+            ip6.octets()[8],
+            ip6.octets()[9],
+            ip6.octets()[10],
+            ip6.octets()[11],
+            ip6.octets()[12],
+            ip6.octets()[13],
+            ip6.octets()[14],
+            ip6.octets()[15],
+        ),
+    }
+}
+
+fn serialize_addr(addr: SocketAddr) -> String {
+    format!("{}{:05}", serialize_ip(addr.ip()), addr.port())
+}
 
 pub fn to_hex_string(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{:02x}", b)).collect()

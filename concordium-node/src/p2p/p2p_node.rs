@@ -783,7 +783,7 @@ impl P2PNode {
         let remote_peer = RemotePeer {
             id: Default::default(),
             addr,
-            peer_external_port: Arc::new(AtomicU16::new(addr.port())),
+            peer_external_port: AtomicU16::new(addr.port()),
             peer_type: PeerType::Node,
         };
 
@@ -861,7 +861,7 @@ impl P2PNode {
                 let remote_peer = RemotePeer {
                     id: Default::default(),
                     addr,
-                    peer_external_port: Arc::new(AtomicU16::new(addr.port())),
+                    peer_external_port: AtomicU16::new(addr.port()),
                     peer_type,
                 };
 

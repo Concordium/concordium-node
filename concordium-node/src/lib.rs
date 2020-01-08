@@ -3,8 +3,6 @@
 
 #[macro_use]
 extern crate log;
-#[macro_use]
-extern crate derive_builder;
 #[cfg(not(target_os = "windows"))]
 extern crate get_if_addrs;
 #[cfg(not(target_os = "windows"))]
@@ -67,15 +65,13 @@ const DEFAULT_DNS_PUBLIC_KEY: &str =
 const ENV_DNS_PUBLIC_KEY: Option<&str> = option_env!("CORCORDIUM_PUBLIC_DNS_KEY");
 pub fn get_dns_public_key() -> &'static str { ENV_DNS_PUBLIC_KEY.unwrap_or(DEFAULT_DNS_PUBLIC_KEY) }
 
-#[macro_use]
 pub mod common;
 pub mod configuration;
 pub mod connection;
 
-pub mod plugins;
-#[macro_use]
 pub mod network;
 pub mod p2p;
+pub mod plugins;
 
 pub mod dumper;
 pub mod proto;
