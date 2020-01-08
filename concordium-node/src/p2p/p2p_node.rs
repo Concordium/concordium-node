@@ -1130,7 +1130,7 @@ impl P2PNode {
         if let Some(target_id) = target {
             // direct messages
             let filter =
-                |conn: &Connection| read_or_die!(conn.remote_peer.id).unwrap() == target_id;
+                |conn: &Connection| conn.remote_peer.peer().map(|p| p.id) == Some(target_id);
 
             self.send_over_all_connections(serialized, &filter)
         } else {
@@ -1358,7 +1358,7 @@ fn is_valid_broadcast_target(
     network_id: NetworkId,
 ) -> bool {
     // safe, used only in a post-handshake context
-    let peer_id = read_or_die!(conn.remote_peer.id).unwrap();
+    let peer_id = conn.remote_peer.peer().unwrap().id;
 
     conn.remote_peer.peer_type() != PeerType::Bootstrapper
         && peer_id != sender
