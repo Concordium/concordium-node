@@ -69,9 +69,9 @@ pub mod common;
 pub mod configuration;
 pub mod connection;
 
-pub mod plugins;
 pub mod network;
 pub mod p2p;
+pub mod plugins;
 
 pub mod dumper;
 pub mod proto;
