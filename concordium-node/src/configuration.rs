@@ -521,19 +521,12 @@ impl AppPreferences {
             Ok(file) => {
                 let mut reader = BufReader::new(&file);
                 let load_result = PreferencesMap::<String>::load_from(&mut reader);
-                if let Ok(prefs) = load_result {
-                    AppPreferences {
-                        preferences_map:     Arc::new(RwLock::new(prefs)),
-                        override_data_dir:   override_data,
-                        override_config_dir: override_conf,
-                    }
-                } else {
-                    let prefs = PreferencesMap::<String>::new();
-                    AppPreferences {
-                        preferences_map:     Arc::new(RwLock::new(prefs)),
-                        override_data_dir:   override_data,
-                        override_config_dir: override_conf,
-                    }
+                let prefs = load_result.unwrap_or_else(|_| PreferencesMap::<String>::new());
+
+                AppPreferences {
+                    preferences_map:     Arc::new(RwLock::new(prefs)),
+                    override_data_dir:   override_data,
+                    override_config_dir: override_conf,
                 }
             }
             _ => match File::create(&file_path) {
@@ -556,8 +549,7 @@ impl AppPreferences {
         match override_path {
             Some(ref path) => PathBuf::from(path),
             None => app_root(AppDataType::UserConfig, &APP_INFO)
-                .map_err(|e| panic!("Filesystem error encountered when creating app_root: {}", e))
-                .unwrap(),
+                .expect("Filesystem error encountered when creating app_root"),
         }
     }
 
@@ -565,8 +557,7 @@ impl AppPreferences {
         match override_path {
             Some(ref path) => PathBuf::from(path),
             None => app_root(AppDataType::UserData, &APP_INFO)
-                .map_err(|e| panic!("Filesystem error encountered when creating app_root: {}", e))
-                .unwrap(),
+                .expect("Filesystem error encountered when creating app_root"),
         }
     }
 
