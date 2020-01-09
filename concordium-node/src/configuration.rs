@@ -5,7 +5,6 @@ use std::{
     fs::{File, OpenOptions},
     io::{BufReader, BufWriter, Write},
     path::PathBuf,
-    sync::{Arc, RwLock},
 };
 use structopt::StructOpt;
 
@@ -509,7 +508,7 @@ pub fn parse_config() -> Fallible<Config> {
 
 #[derive(Debug)]
 pub struct AppPreferences {
-    preferences_map:     Arc<RwLock<PreferencesMap<String>>>,
+    preferences_map:     PreferencesMap<String>,
     override_data_dir:   Option<String>,
     override_config_dir: Option<String>,
 }
@@ -524,7 +523,7 @@ impl AppPreferences {
                 let prefs = load_result.unwrap_or_else(|_| PreferencesMap::<String>::new());
 
                 AppPreferences {
-                    preferences_map:     Arc::new(RwLock::new(prefs)),
+                    preferences_map:     prefs,
                     override_data_dir:   override_data,
                     override_config_dir: override_conf,
                 }
@@ -533,7 +532,7 @@ impl AppPreferences {
                 Ok(_) => {
                     let prefs = PreferencesMap::<String>::new();
                     AppPreferences {
-                        preferences_map:     Arc::new(RwLock::new(prefs)),
+                        preferences_map:     prefs,
                         override_data_dir:   override_data,
                         override_config_dir: override_conf,
                     }
@@ -577,44 +576,37 @@ impl AppPreferences {
     }
 
     pub fn set_config(&mut self, key: &str, value: Option<String>) -> bool {
-        if let Ok(ref mut store) = safe_write!(self.preferences_map) {
-            match value {
-                Some(val) => {
-                    store.insert(key.to_string(), val);
-                }
-                _ => {
-                    store.remove(&key.to_string());
-                }
+        match value {
+            Some(val) => {
+                self.preferences_map.insert(key.to_string(), val);
             }
-            let file_path =
-                Self::calculate_config_file_path(&self.override_config_dir, APP_PREFERENCES_MAIN);
-            match OpenOptions::new().read(true).write(true).open(&file_path) {
-                Ok(ref mut file) => {
-                    let mut writer = BufWriter::new(file);
-                    if store.save_to(&mut writer).is_err() {
-                        error!("Couldn't save config file changes");
-                        return false;
-                    }
-                    writer.flush().ok();
-                    true
-                }
-                _ => {
+            _ => {
+                self.preferences_map.remove(&key.to_string());
+            }
+        }
+        let file_path =
+            Self::calculate_config_file_path(&self.override_config_dir, APP_PREFERENCES_MAIN);
+        match OpenOptions::new().read(true).write(true).open(&file_path) {
+            Ok(ref mut file) => {
+                let mut writer = BufWriter::new(file);
+                if self.preferences_map.save_to(&mut writer).is_err() {
                     error!("Couldn't save config file changes");
-                    false
+                    return false;
                 }
+                writer.flush().ok();
+                true
             }
-        } else {
-            false
+            _ => {
+                error!("Couldn't save config file changes");
+                false
+            }
         }
     }
 
     pub fn get_config(&self, key: &str) -> Option<String> {
-        match safe_read!(self.preferences_map) {
-            Ok(pm) => match pm.get(key) {
-                Some(res) => Some(res.to_owned()),
-                _ => None,
-            },
-            Err(_) => None,
+        match self.preferences_map.get(key) {
+            Some(res) => Some(res.to_owned()),
+            _ => None,
         }
     }
 
