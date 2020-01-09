@@ -142,7 +142,7 @@ pub fn main() -> Fallible<()> {
         }
     });
 
-    let addr = format!("{}:{}", conf.host, conf.port).to_string();
+    let addr = format!("{}:{}", conf.host, conf.port);
     info!("Listening for requests at http://{}", addr);
 
     gotham::start(addr, router(node_info_map));

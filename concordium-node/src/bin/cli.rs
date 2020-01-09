@@ -72,12 +72,7 @@ fn main() -> Fallible<()> {
         crossbeam_channel::bounded(config::RPC_QUEUE_DEPTH);
 
     // Thread #1: instantiate the P2PNode
-    let node = instantiate_node(
-        &conf,
-        &mut app_prefs,
-        stats_export_service,
-        subscription_queue_in.clone(),
-    );
+    let node = instantiate_node(&conf, &mut app_prefs, stats_export_service, subscription_queue_in);
 
     for resolver in &node.config.dns_resolvers {
         debug!("Using resolver: {}", resolver);
@@ -276,7 +271,7 @@ fn start_consensus_message_threads(
     node: &Arc<P2PNode>,
     conf: &config::Config,
     consensus: ConsensusContainer,
-) -> (Vec<JoinHandle<()>>) {
+) -> Vec<JoinHandle<()>> {
     let mut threads: Vec<JoinHandle<()>> = Default::default();
     let nid = NetworkId::from(conf.common.network_ids[0]); // defaulted so there's always first()
 

@@ -216,7 +216,7 @@ impl Connection {
 
         let dont_relay_to =
             if let NetworkPacketType::BroadcastedMessage(ref peers) = pac.packet_type {
-                let mut list = peers.clone().to_owned();
+                let mut list = peers.clone();
                 list.push(peer_id);
                 list
             } else {
