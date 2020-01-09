@@ -35,14 +35,14 @@ shouldReturnP action f = action >>= (`shouldSatisfy` f)
 initialBlockState :: BlockState
 initialBlockState =
   emptyBlockState emptyBirkParameters dummyCryptographicParameters &
-    (blockAccounts .~ Acc.putAccountWithRegIds (mkAccount alesVK 1000000) Acc.emptyAccounts) .
+    (blockAccounts .~ Acc.putAccountWithRegIds (mkAccount alesVK alesAccount 1000000) Acc.emptyAccounts) .
     (blockBank . Rew.totalGTU .~ 1000000) .
     (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =
   [TJSON { payload = DeployModule "SimpleTransfers"
-         , metadata = makeHeader alesKP 1 100000
+         , metadata = makeHeader alesAccount 1 100000
          , keypair = alesKP
          }
   -- create three contracts with addresses 0, 1, 2
@@ -51,7 +51,7 @@ transactionsInput =
                                   ,moduleName = "SimpleTransfers"
                                   ,parameter = "Unit.Unit"
                                   }
-         , metadata = makeHeader alesKP 2 100000
+         , metadata = makeHeader alesAccount 2 100000
          , keypair = alesKP
          }
   ,TJSON { payload = InitContract {amount = 100
@@ -59,7 +59,7 @@ transactionsInput =
                                   ,moduleName = "SimpleTransfers"
                                   ,parameter = "Unit.Unit"
                                   }
-         , metadata = makeHeader alesKP 3 100000
+         , metadata = makeHeader alesAccount 3 100000
          , keypair = alesKP
          }
   ,TJSON { payload = InitContract {amount = 100
@@ -67,7 +67,7 @@ transactionsInput =
                                   ,moduleName = "SimpleTransfers"
                                   ,parameter = "Unit.Unit"
                                   }
-         , metadata = makeHeader alesKP 4 100000
+         , metadata = makeHeader alesAccount 4 100000
          , keypair = alesKP
          }
   -- and then invoke the first to send a message to the last two,
@@ -79,7 +79,7 @@ transactionsInput =
                                         \let two :: ListBase.List Blockchain.Caller = consC <2,0> one in \
                                         \consC <1,0> two"
                             }
-         , metadata = makeHeader alesKP 5 10000
+         , metadata = makeHeader alesAccount 5 10000
          , keypair = alesKP
          }
   ]
