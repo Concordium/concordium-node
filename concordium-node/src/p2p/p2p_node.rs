@@ -185,6 +185,8 @@ pub struct P2PNode {
     pub is_terminated:      AtomicBool,
     pub kvs:                Arc<RwLock<Rkv>>,
     pub stats_engine:       RwLock<StatsEngine>,
+    pub total_received:     AtomicU64,
+    pub total_sent:         AtomicU64,
 }
 // a convenience macro to send an object to all connections
 macro_rules! send_to_all {
@@ -375,6 +377,8 @@ impl P2PNode {
             is_terminated: Default::default(),
             kvs,
             stats_engine,
+            total_received: Default::default(),
+            total_sent: Default::default(),
         });
 
         // note: in order to create the reference to the `Arc`'ed self, we need to do
@@ -438,7 +442,7 @@ impl P2PNode {
     }
 
     pub fn update_last_bootstrap(&self) {
-        self.connection_handler.last_bootstrap.store(get_current_stamp(), Ordering::SeqCst);
+        self.connection_handler.last_bootstrap.store(get_current_stamp(), Ordering::Relaxed);
     }
 
     pub fn forward_network_packet(&self, msg: NetworkMessage) -> Fallible<()> {
@@ -453,7 +457,7 @@ impl P2PNode {
     /// nodes.
     fn print_stats(&self, peer_stat_list: &[PeerStats]) {
         trace!("Printing out stats");
-        debug!("I currently have {}/{} peers", peer_stat_list.len(), self.config.max_allowed_nodes,);
+        debug!("I currently have {}/{} peers", peer_stat_list.len(), self.config.max_allowed_nodes);
 
         // Print nodes
         if self.config.print_peers {
@@ -1130,7 +1134,7 @@ impl P2PNode {
         if let Some(target_id) = target {
             // direct messages
             let filter =
-                |conn: &Connection| read_or_die!(conn.remote_peer.id).unwrap() == target_id;
+                |conn: &Connection| conn.remote_peer.peer().map(|p| p.id) == Some(target_id);
 
             self.send_over_all_connections(serialized, &filter)
         } else {
@@ -1228,7 +1232,7 @@ impl P2PNode {
     fn process_network_events(
         &self,
         events: &Events,
-        deduplication_queues: &Arc<DeduplicationQueues>,
+        deduplication_queues: &DeduplicationQueues,
         connections: &mut Vec<(Token, Arc<Connection>)>,
     ) -> (Vec<Token>, Vec<(IpAddr, Error)>) {
         connections.clear();
@@ -1358,7 +1362,7 @@ fn is_valid_broadcast_target(
     network_id: NetworkId,
 ) -> bool {
     // safe, used only in a post-handshake context
-    let peer_id = read_or_die!(conn.remote_peer.id).unwrap();
+    let peer_id = conn.remote_peer.peer().unwrap().id;
 
     conn.remote_peer.peer_type() != PeerType::Bootstrapper
         && peer_id != sender

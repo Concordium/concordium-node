@@ -18,10 +18,7 @@ use priority_queue::PriorityQueue;
 use twox_hash::XxHash64;
 
 use crate::{
-    common::{
-        counter::TOTAL_MESSAGES_RECEIVED_COUNTER, get_current_stamp, p2p_peer::P2PPeer, P2PNodeId,
-        PeerStats, PeerType, RemotePeer,
-    },
+    common::{get_current_stamp, p2p_peer::P2PPeer, P2PNodeId, PeerStats, PeerType, RemotePeer},
     dumper::DumpItem,
     network::{
         Buckets, NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkRequest,
@@ -178,7 +175,7 @@ impl Connection {
 
     pub fn remote_peer(&self) -> &RemotePeer { &self.remote_peer }
 
-    pub fn remote_id(&self) -> Option<P2PNodeId> { *read_or_die!(self.remote_peer.id) }
+    pub fn remote_id(&self) -> Option<P2PNodeId> { self.remote_peer.peer().map(|p| p.id) }
 
     pub fn remote_peer_type(&self) -> PeerType { self.remote_peer.peer_type() }
 
@@ -263,7 +260,7 @@ impl Connection {
         self.update_last_seen();
         self.stats.messages_received.fetch_add(1, Ordering::Relaxed);
         self.stats.bytes_received.fetch_add(message.len() as u64, Ordering::Relaxed);
-        TOTAL_MESSAGES_RECEIVED_COUNTER.fetch_add(1, Ordering::Relaxed);
+        self.handler().total_received.fetch_add(1, Ordering::Relaxed);
         self.handler().stats.pkt_received_inc();
 
         if cfg!(feature = "network_dump") {
@@ -336,7 +333,7 @@ impl Connection {
     pub fn buckets(&self) -> &RwLock<Buckets> { &self.handler().connection_handler.buckets }
 
     pub fn promote_to_post_handshake(&self, id: P2PNodeId, peer_port: u16) -> Fallible<()> {
-        *write_or_die!(self.remote_peer.id) = Some(id);
+        self.remote_peer.id.store(id.0, Ordering::Relaxed);
         self.remote_peer.peer_external_port.store(peer_port, Ordering::Relaxed);
         self.is_post_handshake.store(true, Ordering::Relaxed);
         self.handler().bump_last_peer_update();

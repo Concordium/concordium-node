@@ -1,10 +1,7 @@
 #[cfg(feature = "benchmark")]
 use crate::utils;
 use crate::{
-    common::{
-        counter::{TOTAL_MESSAGES_RECEIVED_COUNTER, TOTAL_MESSAGES_SENT_COUNTER},
-        P2PNodeId, PeerType,
-    },
+    common::{P2PNodeId, PeerType},
     configuration,
     failure::{Error, Fallible},
     network::{NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacketType},
@@ -243,7 +240,7 @@ macro_rules! successful_byte_response {
 
 impl P2P for RpcServerImpl {
     fn peer_connect(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: PeerConnectRequest,
         sink: ::grpcio::UnarySink<SuccessResponse>,
@@ -271,7 +268,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn peer_version(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: Empty,
         sink: ::grpcio::UnarySink<StringResponse>,
@@ -285,7 +282,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn peer_uptime(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: Empty,
         sink: ::grpcio::UnarySink<NumberResponse>,
@@ -303,35 +300,35 @@ impl P2P for RpcServerImpl {
     }
 
     fn peer_total_received(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: Empty,
         sink: ::grpcio::UnarySink<NumberResponse>,
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
             let mut r: NumberResponse = NumberResponse::new();
-            r.set_value(TOTAL_MESSAGES_RECEIVED_COUNTER.load(Ordering::Relaxed) as u64);
+            r.set_value(self.node.total_received.load(Ordering::Relaxed));
             let f = sink.success(r).map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);
         });
     }
 
     fn peer_total_sent(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: Empty,
         sink: ::grpcio::UnarySink<NumberResponse>,
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
             let mut r: NumberResponse = NumberResponse::new();
-            r.set_value(TOTAL_MESSAGES_SENT_COUNTER.load(Ordering::Relaxed) as u64);
+            r.set_value(self.node.total_sent.load(Ordering::Relaxed));
             let f = sink.success(r).map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);
         });
     }
 
     fn send_message(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: SendMessageRequest,
         sink: ::grpcio::UnarySink<SuccessResponse>,
@@ -350,7 +347,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn send_transaction(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: SendTransactionRequest,
         sink: ::grpcio::UnarySink<SuccessResponse>,
@@ -426,7 +423,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn join_network(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: NetworkChangeRequest,
         sink: ::grpcio::UnarySink<SuccessResponse>,
@@ -452,7 +449,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn leave_network(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: NetworkChangeRequest,
         sink: ::grpcio::UnarySink<SuccessResponse>,
@@ -478,7 +475,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn peer_stats(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: PeersRequest,
         sink: ::grpcio::UnarySink<PeerStatsResponse>,
@@ -522,7 +519,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn peer_list(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: PeersRequest,
         sink: ::grpcio::UnarySink<PeerListResponse>,
@@ -568,7 +565,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn node_info(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: Empty,
         sink: ::grpcio::UnarySink<NodeInfoResponse>,
@@ -621,7 +618,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn subscription_start(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: Empty,
         sink: ::grpcio::UnarySink<SuccessResponse>,
@@ -639,7 +636,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn subscription_stop(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: Empty,
         sink: ::grpcio::UnarySink<SuccessResponse>,
@@ -656,7 +653,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn subscription_poll(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: Empty,
         sink: ::grpcio::UnarySink<P2PNetworkMessage>,
@@ -695,7 +692,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn ban_node(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: PeerElement,
         sink: ::grpcio::UnarySink<SuccessResponse>,
@@ -741,7 +738,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn unban_node(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: PeerElement,
         sink: ::grpcio::UnarySink<SuccessResponse>,
@@ -786,7 +783,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn get_consensus_status(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: Empty,
         sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
@@ -799,7 +796,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn start_baker(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: Empty,
         sink: ::grpcio::UnarySink<SuccessResponse>,
@@ -812,7 +809,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn stop_baker(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: Empty,
         sink: ::grpcio::UnarySink<SuccessResponse>,
@@ -825,7 +822,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn get_branches(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: Empty,
         sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
@@ -838,7 +835,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn get_block_info(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: BlockHash,
         sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
@@ -851,7 +848,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn get_ancestors(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: BlockHashAndAmount,
         sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
@@ -864,7 +861,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn get_account_list(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: BlockHash,
         sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
@@ -877,7 +874,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn get_instances(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: BlockHash,
         sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
@@ -890,7 +887,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn get_account_info(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: GetAddressInfoRequest,
         sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
@@ -903,7 +900,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn get_instance_info(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: GetAddressInfoRequest,
         sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
@@ -916,7 +913,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn get_reward_status(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: BlockHash,
         sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
@@ -929,7 +926,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn get_baker_private_data(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: Empty,
         sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
@@ -959,7 +956,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn get_birk_parameters(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: BlockHash,
         sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
@@ -972,7 +969,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn get_module_list(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: BlockHash,
         sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
@@ -985,7 +982,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn get_module_source(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: GetModuleSourceRequest,
         sink: ::grpcio::UnarySink<SuccessfulBytePayloadResponse>,
@@ -998,7 +995,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn get_banned_peers(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: Empty,
         sink: ::grpcio::UnarySink<PeerListResponse>,
@@ -1040,7 +1037,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn shutdown(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: Empty,
         sink: ::grpcio::UnarySink<SuccessResponse>,
@@ -1058,7 +1055,7 @@ impl P2P for RpcServerImpl {
 
     #[cfg(feature = "benchmark")]
     fn tps_test(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: TpsRequest,
         sink: ::grpcio::UnarySink<SuccessResponse>,
@@ -1108,7 +1105,7 @@ impl P2P for RpcServerImpl {
 
     #[cfg(not(feature = "benchmark"))]
     fn tps_test(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: TpsRequest,
         sink: ::grpcio::UnarySink<SuccessResponse>,
@@ -1124,7 +1121,7 @@ impl P2P for RpcServerImpl {
 
     #[cfg(not(feature = "network_dump"))]
     fn dump_start(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: DumpRequest,
         sink: ::grpcio::UnarySink<SuccessResponse>,
@@ -1140,7 +1137,7 @@ impl P2P for RpcServerImpl {
 
     #[cfg(feature = "network_dump")]
     fn dump_start(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: DumpRequest,
         sink: ::grpcio::UnarySink<SuccessResponse>,
@@ -1178,7 +1175,7 @@ impl P2P for RpcServerImpl {
 
     #[cfg(not(feature = "network_dump"))]
     fn dump_stop(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: Empty,
         sink: ::grpcio::UnarySink<SuccessResponse>,
@@ -1194,7 +1191,7 @@ impl P2P for RpcServerImpl {
 
     #[cfg(feature = "network_dump")]
     fn dump_stop(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: Empty,
         sink: ::grpcio::UnarySink<SuccessResponse>,
@@ -1217,7 +1214,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn get_skov_stats(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: Empty,
         sink: ::grpcio::UnarySink<SuccesfulStructResponse>,
@@ -1242,7 +1239,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn hook_transaction(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: TransactionHash,
         sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,

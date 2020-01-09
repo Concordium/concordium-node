@@ -29,8 +29,6 @@ cfg_if! {
 }
 
 #[macro_use]
-extern crate lazy_static;
-#[macro_use]
 extern crate cfg_if;
 #[cfg(target_os = "windows")]
 extern crate ipconfig;

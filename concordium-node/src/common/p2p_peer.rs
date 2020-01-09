@@ -5,10 +5,7 @@ use std::{
     fmt::{self, Display},
     hash::{Hash, Hasher},
     net::{IpAddr, SocketAddr},
-    sync::{
-        atomic::{AtomicU16, Ordering as AtomicOrdering},
-        RwLock,
-    },
+    sync::atomic::{AtomicU16, AtomicU64, Ordering as AtomicOrdering},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -79,7 +76,7 @@ impl Display for P2PPeer {
 
 #[derive(Debug)]
 pub struct RemotePeer {
-    pub id:                 RwLock<Option<P2PNodeId>>,
+    pub id:                 AtomicU64,
     pub addr:               SocketAddr,
     pub peer_external_port: AtomicU16,
     pub peer_type:          PeerType,
@@ -87,9 +84,11 @@ pub struct RemotePeer {
 
 impl RemotePeer {
     pub fn peer(&self) -> Option<P2PPeer> {
-        if let Some(id) = &*read_or_die!(self.id) {
+        let id = self.id.load(AtomicOrdering::Relaxed);
+
+        if id != 0 {
             Some(P2PPeer {
-                id:        *id,
+                id:        P2PNodeId(id),
                 addr:      self.addr,
                 peer_type: self.peer_type,
             })
@@ -102,17 +101,19 @@ impl RemotePeer {
 
     pub fn peer_type(&self) -> PeerType { self.peer_type }
 
-    pub fn peer_external_port(&self) -> u16 { self.peer_external_port.load(AtomicOrdering::SeqCst) }
+    pub fn peer_external_port(&self) -> u16 {
+        self.peer_external_port.load(AtomicOrdering::Relaxed)
+    }
 
     pub fn peer_external_addr(&self) -> SocketAddr {
-        SocketAddr::new(self.addr.ip(), self.peer_external_port.load(AtomicOrdering::SeqCst))
+        SocketAddr::new(self.addr.ip(), self.peer_external_port.load(AtomicOrdering::Relaxed))
     }
 }
 
 impl From<P2PPeer> for RemotePeer {
     fn from(peer: P2PPeer) -> Self {
         Self {
-            id:                 RwLock::new(Some(peer.id)),
+            id:                 AtomicU64::new(peer.id.0),
             addr:               peer.addr,
             peer_external_port: AtomicU16::new(peer.addr.port()),
             peer_type:          peer.peer_type,

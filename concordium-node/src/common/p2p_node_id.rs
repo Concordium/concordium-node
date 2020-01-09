@@ -16,7 +16,7 @@ pub struct P2PNodeId(pub PeerId);
 impl Default for P2PNodeId {
     fn default() -> Self {
         let mut rng = rand::thread_rng();
-        let n = Uniform::from(0..PeerId::max_value()).sample(&mut rng);
+        let n = Uniform::from(1..PeerId::max_value()).sample(&mut rng); // 0 is assigned pre-handshake
         P2PNodeId(n)
     }
 }
