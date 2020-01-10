@@ -1,5 +1,5 @@
 use app_dirs2::*;
-use failure::{bail, Fallible};
+use failure::Fallible;
 use preferences::{Preferences, PreferencesMap};
 use std::{
     fs::{File, OpenOptions},
@@ -457,51 +457,50 @@ impl Config {
 pub fn parse_config() -> Fallible<Config> {
     use crate::network::PROTOCOL_MAX_MESSAGE_SIZE;
     let conf = Config::from_args();
-    if conf.connection.max_allowed_nodes_percentage < 100 {
-        bail!(
-            "Can't provide a lower percentage than 100, as that would limit the maximum amount of \
-             nodes to less than the desired nodes is set to"
-        );
-    }
+    ensure!(
+        conf.connection.max_allowed_nodes_percentage >= 100,
+        "Can't provide a lower percentage than 100, as that would limit the maximum amount of \
+         nodes to less than the desired nodes is set to"
+    );
 
     if let Some(max_allowed_nodes) = conf.connection.max_allowed_nodes {
-        if max_allowed_nodes < conf.connection.desired_nodes {
-            bail!(
-                "Desired nodes set to {}, but max allowed nodes is set to {}. Max allowed nodes \
-                 must be greater or equal to desired amounnt of nodes"
-            );
-        }
+        ensure!(
+            max_allowed_nodes >= conf.connection.desired_nodes,
+            "Desired nodes set to {}, but max allowed nodes is set to {}. Max allowed nodes must \
+             be greater or equal to desired amounnt of nodes"
+        );
     }
 
     if let Some(hard_connection_limit) = conf.connection.hard_connection_limit {
-        if hard_connection_limit < conf.connection.desired_nodes {
-            bail!("Hard connection limit can't be less than what desired nodes is set to");
-        }
-    }
-
-    if conf.connection.relay_broadcast_percentage < 0.0
-        || conf.connection.relay_broadcast_percentage > 1.0
-    {
-        bail!("Percentage of peers to relay broadcasted packets to, must be between 0.0 and 1.0");
-    }
-
-    if conf.cli.baker.maximum_block_size > 4_000_000_000
-        || ((f64::from(conf.cli.baker.maximum_block_size) * 0.9).ceil()) as u32
-            > PROTOCOL_MAX_MESSAGE_SIZE
-    {
-        bail!(
-            "Maximum block size set higher than 90% of network protocol max size ({})",
-            PROTOCOL_MAX_MESSAGE_SIZE
+        ensure!(
+            hard_connection_limit >= conf.connection.desired_nodes,
+            "Hard connection limit can't be less than what desired nodes is set to"
         );
     }
 
-    if conf.connection.socket_read_size < 65535 {
-        bail!("Socket read size must be set to at least 65535");
-    }
+    ensure!(
+        conf.connection.relay_broadcast_percentage >= 0.0
+            && conf.connection.relay_broadcast_percentage <= 1.0,
+        "Percentage of peers to relay broadcasted packets to, must be between 0.0 and 1.0"
+    );
 
-    if conf.connection.socket_read_size < conf.connection.socket_write_size {
-        bail!("Socket read size must be greater or equal to the write size");
-    }
+    ensure!(
+        conf.cli.baker.maximum_block_size <= 4_000_000_000
+            && ((f64::from(conf.cli.baker.maximum_block_size) * 0.9).ceil()) as u32
+                <= PROTOCOL_MAX_MESSAGE_SIZE,
+        "Maximum block size set higher than 90% of network protocol max size ({})",
+        PROTOCOL_MAX_MESSAGE_SIZE
+    );
+
+    ensure!(
+        conf.connection.socket_read_size >= 65535,
+        "Socket read size must be set to at least 65535"
+    );
+
+    ensure!(
+        conf.connection.socket_read_size >= conf.connection.socket_write_size,
+        "Socket read size must be greater or equal to the write size"
+    );
 
     Ok(conf)
 }
