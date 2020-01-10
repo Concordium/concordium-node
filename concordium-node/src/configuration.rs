@@ -457,6 +457,7 @@ impl Config {
 pub fn parse_config() -> Fallible<Config> {
     use crate::network::PROTOCOL_MAX_MESSAGE_SIZE;
     let conf = Config::from_args();
+
     ensure!(
         conf.connection.max_allowed_nodes_percentage >= 100,
         "Can't provide a lower percentage than 100, as that would limit the maximum amount of \
@@ -576,13 +577,9 @@ impl AppPreferences {
 
     pub fn set_config(&mut self, key: &str, value: Option<String>) -> bool {
         match value {
-            Some(val) => {
-                self.preferences_map.insert(key.to_string(), val);
-            }
-            _ => {
-                self.preferences_map.remove(&key.to_string());
-            }
-        }
+            Some(val) => self.preferences_map.insert(key.to_string(), val),
+            _ => self.preferences_map.remove(&key.to_string()),
+        };
         let file_path =
             Self::calculate_config_file_path(&self.override_config_dir, APP_PREFERENCES_MAIN);
         match OpenOptions::new().read(true).write(true).open(&file_path) {
@@ -602,12 +599,7 @@ impl AppPreferences {
         }
     }
 
-    pub fn get_config(&self, key: &str) -> Option<String> {
-        match self.preferences_map.get(key) {
-            Some(res) => Some(res.to_owned()),
-            _ => None,
-        }
-    }
+    pub fn get_config(&self, key: &str) -> Option<String> { self.preferences_map.get(key).cloned() }
 
     pub fn get_user_app_dir(&self) -> PathBuf { Self::calculate_data_path(&self.override_data_dir) }
 
