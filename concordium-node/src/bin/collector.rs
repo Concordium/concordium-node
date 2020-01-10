@@ -321,7 +321,7 @@ fn collect_data(
 
     let block_req = &mut p2p_client::proto::BlockHash::new();
     block_req.set_block_hash(best_block.clone());
-    let node_block_info_reply = client.get_block_info_opt(block_req, call_options.clone())?;
+    let node_block_info_reply = client.get_block_info_opt(block_req, call_options)?;
     let json_block_info_value: Value = serde_json::from_str(&node_block_info_reply.json_value)?;
     let best_block_total_encrypted_amount = json_block_info_value["totalEncryptedAmount"].as_f64();
     let best_block_transactions_size = json_block_info_value["transactionsSize"].as_f64();

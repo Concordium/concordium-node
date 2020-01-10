@@ -88,7 +88,7 @@ pub fn make_node_and_sync(
     port: u16,
     networks: Vec<u16>,
     node_type: PeerType,
-) -> Fallible<(Arc<P2PNode>)> {
+) -> Fallible<Arc<P2PNode>> {
     let (rpc_tx, _rpc_rx) = crossbeam_channel::bounded(64);
 
     // locally-run tests and benches can be polled with a much greater frequency
@@ -154,7 +154,7 @@ pub fn await_broadcast_message(waiter: &Receiver<QueueMsg<NetworkMessage>>) -> F
         }) = msg
         {
             if let NetworkPacketType::BroadcastedMessage(..) = pac.packet_type {
-                return Ok(pac.message.clone());
+                return Ok(pac.message);
             }
         }
     }
@@ -169,7 +169,7 @@ pub fn await_direct_message(waiter: &Receiver<QueueMsg<NetworkMessage>>) -> Fall
         }) = msg
         {
             if let NetworkPacketType::DirectMessage(..) = pac.packet_type {
-                return Ok(pac.message.clone());
+                return Ok(pac.message);
             }
         }
     }

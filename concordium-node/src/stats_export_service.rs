@@ -182,7 +182,7 @@ impl StatsExportService {
         let upr_opts = Opts::new("unknown_packets_received", "unknown packets received");
         let upr = IntCounter::with_opts(upr_opts)?;
         if mode == StatsServiceMode::NodeMode || mode == StatsServiceMode::BootstrapperMode {
-            registry.register(Box::new(upr.clone()))?;
+            registry.register(Box::new(upr))?;
         }
 
         let inpr_opts =
