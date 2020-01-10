@@ -10,6 +10,8 @@ use chrono::prelude::{DateTime, Utc};
 #[cfg(feature = "network_dump")]
 use crossbeam_channel;
 #[cfg(feature = "network_dump")]
+use crossbeam_channel::Receiver;
+#[cfg(feature = "network_dump")]
 use failure::Fallible;
 #[cfg(feature = "network_dump")]
 use std::io::Write;
@@ -116,7 +118,7 @@ pub fn create_dump_thread(
                 dir = Some(new_path);
             };
             if let Some(ref dir) = dir {
-                let mut msg = rx.recv()?;
+                let msg = rx.recv()?;
                 // Raw dump
                 if count > 0 {
                     // Create file
@@ -130,18 +132,10 @@ pub fn create_dump_thread(
                     raw_dump.replace(file);
                     // Write message
                     if let Some(ref mut rd) = raw_dump {
-                        let _ = rd
-                            .write(
-                                if let Ok(ref container) = msg.msg.read_all_into_view() {
-                                    container.as_slice()
-                                } else {
-                                    &[]
-                                },
-                            )
-                            .map_err(|e| {
-                                error!("Aborting dump due to error: {}", e);
-                                e
-                            })?;
+                        let _ = rd.write(&msg.msg).map_err(|e| {
+                            error!("Aborting dump due to error: {}", e);
+                            e
+                        })?;
                         count += 1;
                     }
                 };

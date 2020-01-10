@@ -133,7 +133,7 @@ pub struct ConnectionHandler {
     next_id:              AtomicUsize,
     pub event_log:        Option<Sender<QueueMsg<P2PEvent>>>,
     pub buckets:          RwLock<Buckets>,
-    pub log_dumper:       Option<Sender<DumpItem>>,
+    pub log_dumper:       RwLock<Option<Sender<DumpItem>>>,
     pub connections:      RwLock<Connections>,
     soft_bans:            RwLock<HashMap<Addr, Instant>>, // (addr, expiry)
     pub networks:         RwLock<Networks>,
@@ -154,7 +154,7 @@ impl ConnectionHandler {
             next_id: AtomicUsize::new(1),
             event_log,
             buckets: RwLock::new(Buckets::new()),
-            log_dumper: None,
+            log_dumper: Default::default(),
             connections: Default::default(),
             soft_bans: Default::default(),
             networks: RwLock::new(networks),
@@ -893,11 +893,11 @@ impl P2PNode {
         }
     }
 
-    pub fn dump_start(&mut self, log_dumper: Sender<DumpItem>) {
-        self.connection_handler.log_dumper = Some(log_dumper);
+    pub fn dump_start(&self, log_dumper: Sender<DumpItem>) {
+        *write_or_die!(self.connection_handler.log_dumper) = Some(log_dumper);
     }
 
-    pub fn dump_stop(&mut self) { self.connection_handler.log_dumper = None; }
+    pub fn dump_stop(&self) { *write_or_die!(self.connection_handler.log_dumper) = None; }
 
     /// Adds a new node to the banned list and marks its connection for closure
     pub fn ban_node(&self, peer: BannedNode) -> Fallible<()> {

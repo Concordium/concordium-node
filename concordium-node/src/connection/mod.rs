@@ -370,7 +370,7 @@ impl Connection {
     }
 
     fn send_to_dump(&self, buf: Arc<[u8]>, inbound: bool) {
-        if let Some(ref sender) = self.handler().connection_handler.log_dumper {
+        if let Some(ref sender) = &*read_or_die!(self.handler().connection_handler.log_dumper) {
             let di = DumpItem::new(Utc::now(), inbound, self.remote_peer().addr().ip(), buf);
             let _ = sender.send(di);
         }
