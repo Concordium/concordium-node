@@ -61,7 +61,6 @@ use std::{
 const SERVER: Token = Token(0);
 const BAN_STORE_NAME: &str = "bans";
 
-#[derive(Clone)]
 pub struct P2PNodeConfig {
     pub no_net: bool,
     pub desired_nodes_count: u16,
@@ -70,9 +69,7 @@ pub struct P2PNodeConfig {
     pub dns_resolvers: Vec<String>,
     dnssec_disabled: bool,
     bootstrap_nodes: Vec<String>,
-    minimum_per_bucket: usize,
     pub max_allowed_nodes: u16,
-    max_resend_attempts: u8,
     relay_broadcast_percentage: f64,
     pub global_state_catch_up_requests: bool,
     pub poll_interval: u64,
@@ -305,7 +302,6 @@ impl P2PNode {
             ),
             dnssec_disabled: conf.connection.dnssec_disabled,
             bootstrap_nodes: conf.connection.bootstrap_nodes.clone(),
-            minimum_per_bucket: conf.common.min_peers_bucket,
             max_allowed_nodes: if let Some(max) = conf.connection.max_allowed_nodes {
                 max
             } else {
@@ -314,7 +310,6 @@ impl P2PNode {
                         * (f64::from(conf.connection.max_allowed_nodes_percentage) / 100f64),
                 ) as u16
             },
-            max_resend_attempts: conf.connection.max_resend_attempts,
             relay_broadcast_percentage: conf.connection.relay_broadcast_percentage,
             global_state_catch_up_requests: conf.connection.global_state_catch_up_requests,
             poll_interval: conf.cli.poll_interval,

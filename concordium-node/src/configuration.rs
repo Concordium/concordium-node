@@ -1,11 +1,10 @@
 use app_dirs2::*;
-use failure::{bail, Fallible};
+use failure::Fallible;
 use preferences::{Preferences, PreferencesMap};
 use std::{
     fs::{File, OpenOptions},
     io::{BufReader, BufWriter, Write},
     path::PathBuf,
-    sync::{Arc, RwLock},
 };
 use structopt::StructOpt;
 
@@ -458,58 +457,58 @@ impl Config {
 pub fn parse_config() -> Fallible<Config> {
     use crate::network::PROTOCOL_MAX_MESSAGE_SIZE;
     let conf = Config::from_args();
-    if conf.connection.max_allowed_nodes_percentage < 100 {
-        bail!(
-            "Can't provide a lower percentage than 100, as that would limit the maximum amount of \
-             nodes to less than the desired nodes is set to"
-        );
-    }
+
+    ensure!(
+        conf.connection.max_allowed_nodes_percentage >= 100,
+        "Can't provide a lower percentage than 100, as that would limit the maximum amount of \
+         nodes to less than the desired nodes is set to"
+    );
 
     if let Some(max_allowed_nodes) = conf.connection.max_allowed_nodes {
-        if max_allowed_nodes < conf.connection.desired_nodes {
-            bail!(
-                "Desired nodes set to {}, but max allowed nodes is set to {}. Max allowed nodes \
-                 must be greater or equal to desired amounnt of nodes"
-            );
-        }
+        ensure!(
+            max_allowed_nodes >= conf.connection.desired_nodes,
+            "Desired nodes set to {}, but max allowed nodes is set to {}. Max allowed nodes must \
+             be greater or equal to desired amounnt of nodes"
+        );
     }
 
     if let Some(hard_connection_limit) = conf.connection.hard_connection_limit {
-        if hard_connection_limit < conf.connection.desired_nodes {
-            bail!("Hard connection limit can't be less than what desired nodes is set to");
-        }
-    }
-
-    if conf.connection.relay_broadcast_percentage < 0.0
-        || conf.connection.relay_broadcast_percentage > 1.0
-    {
-        bail!("Percentage of peers to relay broadcasted packets to, must be between 0.0 and 1.0");
-    }
-
-    if conf.cli.baker.maximum_block_size > 4_000_000_000
-        || ((f64::from(conf.cli.baker.maximum_block_size) * 0.9).ceil()) as u32
-            > PROTOCOL_MAX_MESSAGE_SIZE
-    {
-        bail!(
-            "Maximum block size set higher than 90% of network protocol max size ({})",
-            PROTOCOL_MAX_MESSAGE_SIZE
+        ensure!(
+            hard_connection_limit >= conf.connection.desired_nodes,
+            "Hard connection limit can't be less than what desired nodes is set to"
         );
     }
 
-    if conf.connection.socket_read_size < 65535 {
-        bail!("Socket read size must be set to at least 65535");
-    }
+    ensure!(
+        conf.connection.relay_broadcast_percentage >= 0.0
+            && conf.connection.relay_broadcast_percentage <= 1.0,
+        "Percentage of peers to relay broadcasted packets to, must be between 0.0 and 1.0"
+    );
 
-    if conf.connection.socket_read_size < conf.connection.socket_write_size {
-        bail!("Socket read size must be greater or equal to the write size");
-    }
+    ensure!(
+        conf.cli.baker.maximum_block_size <= 4_000_000_000
+            && ((f64::from(conf.cli.baker.maximum_block_size) * 0.9).ceil()) as u32
+                <= PROTOCOL_MAX_MESSAGE_SIZE,
+        "Maximum block size set higher than 90% of network protocol max size ({})",
+        PROTOCOL_MAX_MESSAGE_SIZE
+    );
+
+    ensure!(
+        conf.connection.socket_read_size >= 65535,
+        "Socket read size must be set to at least 65535"
+    );
+
+    ensure!(
+        conf.connection.socket_read_size >= conf.connection.socket_write_size,
+        "Socket read size must be greater or equal to the write size"
+    );
 
     Ok(conf)
 }
 
 #[derive(Debug)]
 pub struct AppPreferences {
-    preferences_map:     Arc<RwLock<PreferencesMap<String>>>,
+    preferences_map:     PreferencesMap<String>,
     override_data_dir:   Option<String>,
     override_config_dir: Option<String>,
 }
@@ -521,26 +520,19 @@ impl AppPreferences {
             Ok(file) => {
                 let mut reader = BufReader::new(&file);
                 let load_result = PreferencesMap::<String>::load_from(&mut reader);
-                if let Ok(prefs) = load_result {
-                    AppPreferences {
-                        preferences_map:     Arc::new(RwLock::new(prefs)),
-                        override_data_dir:   override_data,
-                        override_config_dir: override_conf,
-                    }
-                } else {
-                    let prefs = PreferencesMap::<String>::new();
-                    AppPreferences {
-                        preferences_map:     Arc::new(RwLock::new(prefs)),
-                        override_data_dir:   override_data,
-                        override_config_dir: override_conf,
-                    }
+                let prefs = load_result.unwrap_or_else(|_| PreferencesMap::<String>::new());
+
+                AppPreferences {
+                    preferences_map:     prefs,
+                    override_data_dir:   override_data,
+                    override_config_dir: override_conf,
                 }
             }
             _ => match File::create(&file_path) {
                 Ok(_) => {
                     let prefs = PreferencesMap::<String>::new();
                     AppPreferences {
-                        preferences_map:     Arc::new(RwLock::new(prefs)),
+                        preferences_map:     prefs,
                         override_data_dir:   override_data,
                         override_config_dir: override_conf,
                     }
@@ -556,8 +548,7 @@ impl AppPreferences {
         match override_path {
             Some(ref path) => PathBuf::from(path),
             None => app_root(AppDataType::UserConfig, &APP_INFO)
-                .map_err(|e| panic!("Filesystem error encountered when creating app_root: {}", e))
-                .unwrap(),
+                .expect("Filesystem error encountered when creating app_root"),
         }
     }
 
@@ -565,8 +556,7 @@ impl AppPreferences {
         match override_path {
             Some(ref path) => PathBuf::from(path),
             None => app_root(AppDataType::UserData, &APP_INFO)
-                .map_err(|e| panic!("Filesystem error encountered when creating app_root: {}", e))
-                .unwrap(),
+                .expect("Filesystem error encountered when creating app_root"),
         }
     }
 
@@ -586,46 +576,30 @@ impl AppPreferences {
     }
 
     pub fn set_config(&mut self, key: &str, value: Option<String>) -> bool {
-        if let Ok(ref mut store) = safe_write!(self.preferences_map) {
-            match value {
-                Some(val) => {
-                    store.insert(key.to_string(), val);
-                }
-                _ => {
-                    store.remove(&key.to_string());
-                }
-            }
-            let file_path =
-                Self::calculate_config_file_path(&self.override_config_dir, APP_PREFERENCES_MAIN);
-            match OpenOptions::new().read(true).write(true).open(&file_path) {
-                Ok(ref mut file) => {
-                    let mut writer = BufWriter::new(file);
-                    if store.save_to(&mut writer).is_err() {
-                        error!("Couldn't save config file changes");
-                        return false;
-                    }
-                    writer.flush().ok();
-                    true
-                }
-                _ => {
+        match value {
+            Some(val) => self.preferences_map.insert(key.to_string(), val),
+            _ => self.preferences_map.remove(&key.to_string()),
+        };
+        let file_path =
+            Self::calculate_config_file_path(&self.override_config_dir, APP_PREFERENCES_MAIN);
+        match OpenOptions::new().read(true).write(true).open(&file_path) {
+            Ok(ref mut file) => {
+                let mut writer = BufWriter::new(file);
+                if self.preferences_map.save_to(&mut writer).is_err() {
                     error!("Couldn't save config file changes");
-                    false
+                    return false;
                 }
+                writer.flush().ok();
+                true
             }
-        } else {
-            false
+            _ => {
+                error!("Couldn't save config file changes");
+                false
+            }
         }
     }
 
-    pub fn get_config(&self, key: &str) -> Option<String> {
-        match safe_read!(self.preferences_map) {
-            Ok(pm) => match pm.get(key) {
-                Some(res) => Some(res.to_owned()),
-                _ => None,
-            },
-            Err(_) => None,
-        }
-    }
+    pub fn get_config(&self, key: &str) -> Option<String> { self.preferences_map.get(key).cloned() }
 
     pub fn get_user_app_dir(&self) -> PathBuf { Self::calculate_data_path(&self.override_data_dir) }
 
