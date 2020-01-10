@@ -1143,10 +1143,11 @@ impl P2P for RpcServerImpl {
         sink: ::grpcio::UnarySink<SuccessResponse>,
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
-            let f = if let Ok(locked_node) = self.node.lock() {
+            let f = {
                 let mut r = SuccessResponse::new();
                 let file_path = req.get_file().to_owned();
-                if locked_node
+                if self
+                    .node
                     .activate_dump(
                         if file_path.is_empty() {
                             "dump"
@@ -1162,11 +1163,6 @@ impl P2P for RpcServerImpl {
                     r.set_value(false);
                 }
                 sink.success(r)
-            } else {
-                sink.fail(grpcio::RpcStatus::new(
-                    grpcio::RpcStatusCode::ResourceExhausted,
-                    Some("Node can't be locked".to_string()),
-                ))
             };
             let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);
@@ -1197,16 +1193,11 @@ impl P2P for RpcServerImpl {
         sink: ::grpcio::UnarySink<SuccessResponse>,
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
-            let f = if let Ok(locked_node) = self.node.lock() {
+            let f = {
                 let mut r = SuccessResponse::new();
-                r.set_value(locked_node.stop_dump().is_ok());
+                r.set_value(self.node.stop_dump().is_ok());
 
                 sink.success(r)
-            } else {
-                sink.fail(grpcio::RpcStatus::new(
-                    grpcio::RpcStatusCode::ResourceExhausted,
-                    Some("Node can't be locked".to_string()),
-                ))
             };
             let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);
