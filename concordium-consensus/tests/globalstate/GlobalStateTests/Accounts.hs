@@ -73,7 +73,7 @@ data AccountAction
     | FlushPersistent
     | ArchivePersistent
 
-randomizeAccount :: AccountAddress -> AccountKeys -> Gen Account
+randomizeAccount :: AccountAddress -> ID.AccountKeys -> Gen Account
 randomizeAccount _accountAddress _accountVerificationKeys = do
         _accountNonce <- Nonce <$> arbitrary
         _accountAmount <- Amount <$> arbitrary
@@ -96,7 +96,7 @@ randomActions = sized (ra Set.empty Set.empty)
             n <- choose (1,255)
             akKeys <- HM.fromList . zip [0..] . map Sig.correspondingVerifyKey <$> replicateM n Sig.genKeyPair
             akThreshold <- fromIntegral <$> choose (1,n)
-            return (AccountKeys{..}, address)
+            return (ID.AccountKeys{..}, address)
         ra _ _ 0 = return []
         ra s rids n = oneof $ [
                 putRandAcc,
