@@ -158,7 +158,7 @@ initialState birkParams cryptoParams bakerAccounts ips n =
                                         ,Left "test/contracts/SimpleCounter.acorn"]
                             )
         initialAmount = 2 ^ (62 :: Int)
-        customAccounts = [newAccount (makeSingletonAC (Sig.correspondingVerifyKey mateuszKP)) mateuszAccount
+        customAccounts = [newAccount (ID.makeSingletonAC (Sig.correspondingVerifyKey mateuszKP)) mateuszAccount
                           & (accountAmount .~ initialAmount)
                           . (accountCredentials .~ Queue.singleton dummyExpiryTime (dummyCredential mateuszAccount dummyExpiryTime))]
         initAccount = foldl (flip Acc.putAccountWithRegIds)

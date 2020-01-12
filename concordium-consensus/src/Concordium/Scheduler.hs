@@ -505,7 +505,7 @@ handleDeployCredential senderAccount meta cdiBytes cdi =
                             -- for one credential only.
                             let credentials = account ^. accountCredentials
                             let sameIP = maybe True (\(_, cred) -> ID.cdvIpId cred == credentialIP) (Queue.getMax credentials)
-                            if sameIP && AH.verifyCredential cryptoParams ipInfo cdiBytes then do
+                            if sameIP && AH.verifyCredential cryptoParams ipInfo (Just (account ^. accountVerificationKeys)) cdiBytes then do
                               addAccountCredential account cdv
                               return $! TxSuccess [CredentialDeployed cdv] energyCost usedEnergy
                             else
@@ -515,13 +515,13 @@ handleDeployCredential senderAccount meta cdiBytes cdi =
                     if null keys || length keys > 255 then
                       return $! TxReject AccountCredentialInvalid energyCost usedEnergy
                     else do
-                      let accountKeys = makeAccountKeys keys threshold
+                      let accountKeys = ID.makeAccountKeys keys threshold
                       let aaddr = ID.addressFromRegId regId
                       let account = newAccount accountKeys aaddr
                       -- this check is extremely unlikely to fail (it would amount to a hash collision since
                       -- we checked regIdEx above already.
                       accExistsAlready <- maybe True (const False) <$> getAccount aaddr
-                      if not accExistsAlready && AH.verifyCredential cryptoParams ipInfo cdiBytes then do
+                      if not accExistsAlready && AH.verifyCredential cryptoParams ipInfo Nothing cdiBytes then do
                         _ <- putNewAccount account -- first create new account, but only if credential was valid.
                                                    -- We know the address does not yet exist.
                         addAccountCredential account cdv  -- and then add the credentials
@@ -561,15 +561,15 @@ checkSignatureVerifyKeyProof :: BS.ByteString -> BakerSignVerifyKey -> Proofs.Dl
 checkSignatureVerifyKeyProof = Proofs.checkDlog25519ProofBlock
 
 -- |A simple sigma protocol to check knowledge of secret key.
-checkAccountOwnership :: BS.ByteString -> AccountKeys -> AccountOwnershipProof -> Bool             
+checkAccountOwnership :: BS.ByteString -> ID.AccountKeys -> AccountOwnershipProof -> Bool             
 checkAccountOwnership challenge keys (AccountOwnershipProof proofs) =
     enoughProofs && allProofsValid
   where -- the invariant on akThreshold should also guarantee there is at least one
-        enoughProofs = length proofs >= fromIntegral (akThreshold keys)
+        enoughProofs = length proofs >= fromIntegral (ID.akThreshold keys)
         -- this is not necessary (we only need the threshold), but safe
         allProofsValid = all checkProof proofs
         checkProof (idx, proof) =
-          case getAccountKey idx keys of
+          case ID.getAccountKey idx keys of
             Nothing -> False
             Just key -> Proofs.checkDlog25519ProofSig challenge key proof
 
