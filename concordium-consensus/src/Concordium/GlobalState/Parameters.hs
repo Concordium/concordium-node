@@ -225,7 +225,7 @@ parametersToGenesisData GenesisParameters{..} = GenesisData{..}
                 (gaAddress gbAccount)
 
         mkAccount GenesisAccount{..} =
-          let keys = AccountKeys{
+          let keys = ID.AccountKeys{
                 akThreshold = gaThreshold,
                 akKeys = HM.fromList $ zip [0..] gaVerifyKeys
                 }
