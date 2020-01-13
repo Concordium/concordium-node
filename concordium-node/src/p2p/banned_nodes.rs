@@ -4,7 +4,7 @@ use failure::{self, Fallible};
 use crate::common::P2PNodeId;
 use concordium_common::serial::{NoParam, Serial};
 
-use std::{collections::HashSet, net::IpAddr};
+use std::net::IpAddr;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
@@ -15,45 +15,6 @@ use std::{collections::HashSet, net::IpAddr};
 pub enum BannedNode {
     ById(P2PNodeId),
     ByAddr(IpAddr),
-}
-
-/// Combination of nodes banned by id and banned by address
-pub struct BannedNodes {
-    pub by_id:   HashSet<P2PNodeId>,
-    pub by_addr: HashSet<IpAddr>,
-}
-
-impl Default for BannedNodes {
-    fn default() -> Self { BannedNodes::new() }
-}
-
-impl BannedNodes {
-    pub fn new() -> BannedNodes {
-        BannedNodes {
-            by_id:   HashSet::new(),
-            by_addr: HashSet::new(),
-        }
-    }
-
-    /// Inserts a `BannedNode`
-    ///
-    /// Returns `true` if it was inserted in either sub-sets.
-    pub fn insert(&mut self, b: BannedNode) -> bool {
-        match b {
-            BannedNode::ById(id) => self.by_id.insert(id),
-            BannedNode::ByAddr(addr) => self.by_addr.insert(addr),
-        }
-    }
-
-    /// Removes a `BannedNode`
-    ///
-    /// Returns `true` if it was removed in either sub-sets.
-    pub fn remove(&mut self, b: &BannedNode) -> bool {
-        match b {
-            BannedNode::ById(id) => self.by_id.remove(id),
-            BannedNode::ByAddr(addr) => self.by_addr.remove(addr),
-        }
-    }
 }
 
 impl Serial for BannedNode {
@@ -79,21 +40,6 @@ impl Serial for BannedNode {
                 target.write_u8(1)?;
                 addr.serial(target)
             }
-        }
-    }
-}
-
-#[cfg(test)]
-pub mod tests {
-    use super::BannedNode;
-    use crate::common::P2PNodeId;
-    use std::{net::IpAddr, str::FromStr};
-
-    pub fn dummy_ban_node(addr: Option<IpAddr>) -> BannedNode {
-        if let Some(addr) = addr {
-            BannedNode::ByAddr(addr)
-        } else {
-            BannedNode::ById(P2PNodeId::from_str("2A").unwrap())
         }
     }
 }
