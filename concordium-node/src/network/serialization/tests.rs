@@ -1,7 +1,7 @@
 use crate::{
     common::{p2p_peer::P2PPeer, P2PNodeId, PeerType},
     network::{NetworkId, NetworkMessage, NetworkMessagePayload, NetworkRequest, NetworkResponse},
-    p2p::banned_nodes::BannedNode,
+    p2p::bans::BanId,
     test_utils::create_random_packet,
 };
 
@@ -46,25 +46,25 @@ test_s11n!(
 );
 test_s11n!(
     s11n_req_ban_id,
-    NetworkMessagePayload::NetworkRequest(NetworkRequest::BanNode(BannedNode::ById(P2PNodeId(
+    NetworkMessagePayload::NetworkRequest(NetworkRequest::BanNode(BanId::ById(P2PNodeId(
         1337
     )),))
 );
 test_s11n!(
     s11n_req_unban_id,
-    NetworkMessagePayload::NetworkRequest(NetworkRequest::UnbanNode(BannedNode::ById(P2PNodeId(
+    NetworkMessagePayload::NetworkRequest(NetworkRequest::UnbanNode(BanId::ById(P2PNodeId(
         1337
     )),))
 );
 test_s11n!(
     s11n_req_ban_ip_v4,
-    NetworkMessagePayload::NetworkRequest(NetworkRequest::BanNode(BannedNode::ByAddr(
+    NetworkMessagePayload::NetworkRequest(NetworkRequest::BanNode(BanId::ByAddr(
         IpAddr::from([4, 3, 2, 1])
     ),))
 );
 test_s11n!(
     s11n_req_ban_ip_v6,
-    NetworkMessagePayload::NetworkRequest(NetworkRequest::BanNode(BannedNode::ByAddr(
+    NetworkMessagePayload::NetworkRequest(NetworkRequest::BanNode(BanId::ByAddr(
         IpAddr::from([1, 2, 3, 4, 5, 6, 7, 8])
     ),))
 );

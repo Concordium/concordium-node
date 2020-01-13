@@ -6,7 +6,7 @@ use crate::{
     failure::{Error, Fallible},
     network::{NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacketType},
     p2p::{
-        banned_nodes::BannedNode,
+        bans::BanId,
         p2p_node::{send_broadcast_message, send_direct_message},
         P2PNode,
     },
@@ -703,9 +703,9 @@ impl P2P for RpcServerImpl {
             let banned_node = if req.has_node_id() && !req.has_ip() {
                 P2PNodeId::from_str(&req.get_node_id().get_value().to_string())
                     .ok()
-                    .map(BannedNode::ById)
+                    .map(BanId::ById)
             } else if req.has_ip() && !req.has_node_id() {
-                IpAddr::from_str(&req.get_ip().get_value().to_string()).ok().map(BannedNode::ByAddr)
+                IpAddr::from_str(&req.get_ip().get_value().to_string()).ok().map(BanId::ByAddr)
             } else {
                 None
             };
@@ -749,9 +749,9 @@ impl P2P for RpcServerImpl {
             let banned_node = if req.has_node_id() && !req.has_ip() {
                 P2PNodeId::from_str(&req.get_node_id().get_value().to_string())
                     .ok()
-                    .map(BannedNode::ById)
+                    .map(BanId::ById)
             } else if req.has_ip() && !req.has_node_id() {
-                IpAddr::from_str(&req.get_ip().get_value().to_string()).ok().map(BannedNode::ByAddr)
+                IpAddr::from_str(&req.get_ip().get_value().to_string()).ok().map(BanId::ByAddr)
             } else {
                 None
             };
@@ -1011,13 +1011,13 @@ impl P2P for RpcServerImpl {
                                 let mut pe = PeerElement::new();
                                 let mut node_id = ::protobuf::well_known_types::StringValue::new();
                                 node_id.set_value(match banned_node {
-                                    BannedNode::ById(id) => id.to_string(),
+                                    BanId::ById(id) => id.to_string(),
                                     _ => "*".to_owned(),
                                 });
                                 pe.set_node_id(node_id);
                                 let mut ip = ::protobuf::well_known_types::StringValue::new();
                                 ip.set_value(match banned_node {
-                                    BannedNode::ByAddr(addr) => addr.to_string(),
+                                    BanId::ByAddr(addr) => addr.to_string(),
                                     _ => "*".to_owned(),
                                 });
                                 pe.set_ip(ip);

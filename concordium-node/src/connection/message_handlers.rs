@@ -5,7 +5,7 @@ use crate::{
         NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkPacketType,
         NetworkRequest, NetworkResponse,
     },
-    p2p::banned_nodes::BannedNode,
+    p2p::bans::BanId,
     plugins::consensus::*,
 };
 use concordium_common::{read_or_die, write_or_die, QueueMsg::Relay};
@@ -59,7 +59,7 @@ impl Connection {
     ) -> Fallible<()> {
         debug!("Got a Handshake request from peer {}", remote_node_id);
 
-        if self.handler().is_banned(BannedNode::ById(remote_node_id))? {
+        if self.handler().is_banned(BanId::ById(remote_node_id))? {
             self.handler().remove_connection(self.token);
             bail!("Rejected a handshake request from a banned node");
         }
@@ -175,10 +175,10 @@ impl Connection {
         Ok(())
     }
 
-    fn handle_unban(&self, peer: BannedNode) -> Fallible<()> {
+    fn handle_unban(&self, peer: BanId) -> Fallible<()> {
         let is_self_unban = match peer {
-            BannedNode::ById(id) => Some(id) == self.remote_id(),
-            BannedNode::ByAddr(addr) => addr == self.remote_addr().ip(),
+            BanId::ById(id) => Some(id) == self.remote_id(),
+            BanId::ByAddr(addr) => addr == self.remote_addr().ip(),
         };
         if is_self_unban {
             bail!("Rejecting a self-unban attempt");
