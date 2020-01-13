@@ -498,10 +498,11 @@ impl Connection {
                 NetworkRequest::BanNode(peer_to_ban) => {
                     conn != self
                         && match peer_to_ban {
-                            BanId::ById(id) => {
+                            BanId::NodeId(id) => {
                                 conn.remote_peer().peer().map_or(true, |x| x.id() != *id)
                             }
-                            BanId::ByAddr(addr) => conn.remote_peer().addr().ip() != *addr,
+                            BanId::Ip(addr) => conn.remote_peer().addr().ip() != *addr,
+                            _ => unimplemented!("Socket address bans don't propagate"),
                         }
                 }
                 _ => true,

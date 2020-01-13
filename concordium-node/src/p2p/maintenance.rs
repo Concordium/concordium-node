@@ -1,14 +1,11 @@
 use chrono::prelude::*;
 use crossbeam_channel::{self, Sender};
+use failure::Fallible;
 #[cfg(not(target_os = "windows"))]
 use get_if_addrs;
 #[cfg(target_os = "windows")]
 use ipconfig;
-use failure::Fallible;
-use mio::{
-    net::TcpListener,
-    Events, Poll, PollOpt, Ready, Token
-};
+use mio::{net::TcpListener, Events, Poll, PollOpt, Ready, Token};
 use nohash_hasher::BuildNoHashHasher;
 use rkv::{Manager, Rkv};
 
@@ -22,7 +19,7 @@ use crate::{
     connection::{Connection, DeduplicationQueues, P2PEvent},
     dumper::DumpItem,
     network::{Buckets, NetworkId, NetworkMessage},
-    p2p::connectivity::SERVER,
+    p2p::{bans::BanId, connectivity::SERVER},
     stats_engine::StatsEngine,
     stats_export_service::StatsExportService,
     utils,
@@ -88,12 +85,6 @@ pub struct P2PNodeConfig {
 pub type Networks = HashSet<NetworkId, BuildNoHashHasher<u16>>;
 pub type Connections = HashMap<Token, Arc<Connection>, BuildNoHashHasher<usize>>;
 
-#[derive(Debug, PartialEq, Eq, Hash)]
-pub enum Addr {
-    Ip(IpAddr),
-    Socket(SocketAddr),
-}
-
 pub struct ConnectionHandler {
     pub server:           TcpListener,
     pub next_id:          AtomicUsize,
@@ -101,7 +92,7 @@ pub struct ConnectionHandler {
     pub buckets:          RwLock<Buckets>,
     pub log_dumper:       RwLock<Option<Sender<DumpItem>>>,
     pub connections:      RwLock<Connections>,
-    pub soft_bans:        RwLock<HashMap<Addr, Instant>>, // (addr, expiry)
+    pub soft_bans:        RwLock<HashMap<BanId, Instant>>, // (id, expiry)
     pub networks:         RwLock<Networks>,
     pub last_bootstrap:   AtomicU64,
     pub last_peer_update: AtomicU64,
@@ -574,7 +565,7 @@ impl P2PNode {
                             {
                                 warn!("Soft-banning {:?} due to a fatal IO error", ip);
                                 soft_bans.insert(
-                                    Addr::Ip(ip),
+                                    BanId::Ip(ip),
                                     Instant::now()
                                         + Duration::from_secs(config::SOFT_BAN_DURATION_SECS),
                                 );
@@ -582,7 +573,7 @@ impl P2PNode {
                         } else {
                             warn!("Soft-banning {:?} due to a breach of protocol", ip);
                             soft_bans.insert(
-                                Addr::Ip(ip),
+                                BanId::Ip(ip),
                                 Instant::now()
                                     + Duration::from_secs(config::SOFT_BAN_DURATION_SECS),
                             );

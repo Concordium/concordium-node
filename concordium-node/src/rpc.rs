@@ -703,9 +703,9 @@ impl P2P for RpcServerImpl {
             let banned_node = if req.has_node_id() && !req.has_ip() {
                 P2PNodeId::from_str(&req.get_node_id().get_value().to_string())
                     .ok()
-                    .map(BanId::ById)
+                    .map(BanId::NodeId)
             } else if req.has_ip() && !req.has_node_id() {
-                IpAddr::from_str(&req.get_ip().get_value().to_string()).ok().map(BanId::ByAddr)
+                IpAddr::from_str(&req.get_ip().get_value().to_string()).ok().map(BanId::Ip)
             } else {
                 None
             };
@@ -749,9 +749,9 @@ impl P2P for RpcServerImpl {
             let banned_node = if req.has_node_id() && !req.has_ip() {
                 P2PNodeId::from_str(&req.get_node_id().get_value().to_string())
                     .ok()
-                    .map(BanId::ById)
+                    .map(BanId::NodeId)
             } else if req.has_ip() && !req.has_node_id() {
-                IpAddr::from_str(&req.get_ip().get_value().to_string()).ok().map(BanId::ByAddr)
+                IpAddr::from_str(&req.get_ip().get_value().to_string()).ok().map(BanId::Ip)
             } else {
                 None
             };
@@ -1011,13 +1011,13 @@ impl P2P for RpcServerImpl {
                                 let mut pe = PeerElement::new();
                                 let mut node_id = ::protobuf::well_known_types::StringValue::new();
                                 node_id.set_value(match banned_node {
-                                    BanId::ById(id) => id.to_string(),
+                                    BanId::NodeId(id) => id.to_string(),
                                     _ => "*".to_owned(),
                                 });
                                 pe.set_node_id(node_id);
                                 let mut ip = ::protobuf::well_known_types::StringValue::new();
                                 ip.set_value(match banned_node {
-                                    BanId::ByAddr(addr) => addr.to_string(),
+                                    BanId::Ip(addr) => addr.to_string(),
                                     _ => "*".to_owned(),
                                 });
                                 pe.set_ip(ip);
@@ -1248,7 +1248,7 @@ mod tests {
     use crate::{
         common::{P2PNodeId, PeerType},
         configuration,
-        p2p::p2p_node::send_broadcast_message,
+        p2p::connectivity::send_broadcast_message,
         proto::concordium_p2p_rpc_grpc::P2PClient,
         rpc::RpcServerImpl,
         test_utils::{

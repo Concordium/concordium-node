@@ -42,7 +42,10 @@ use crate::{
     common::{get_current_stamp, P2PNodeId},
     configuration::{self, MAX_CATCH_UP_TIME},
     network::NetworkId,
-    p2p::{P2PNode, connectivity::{send_broadcast_message, send_direct_message}},
+    p2p::{
+        connectivity::{send_broadcast_message, send_direct_message},
+        P2PNode,
+    },
 };
 
 pub fn start_consensus_layer(

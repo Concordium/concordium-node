@@ -59,7 +59,7 @@ impl Connection {
     ) -> Fallible<()> {
         debug!("Got a Handshake request from peer {}", remote_node_id);
 
-        if self.handler().is_banned(BanId::ById(remote_node_id))? {
+        if self.handler().is_banned(BanId::NodeId(remote_node_id))? {
             self.handler().remove_connection(self.token);
             bail!("Rejected a handshake request from a banned node");
         }
@@ -177,8 +177,9 @@ impl Connection {
 
     fn handle_unban(&self, peer: BanId) -> Fallible<()> {
         let is_self_unban = match peer {
-            BanId::ById(id) => Some(id) == self.remote_id(),
-            BanId::ByAddr(addr) => addr == self.remote_addr().ip(),
+            BanId::NodeId(id) => Some(id) == self.remote_id(),
+            BanId::Ip(addr) => addr == self.remote_addr().ip(),
+            _ => unimplemented!("Socket address bans don't propagate"),
         };
         if is_self_unban {
             bail!("Rejecting a self-unban attempt");

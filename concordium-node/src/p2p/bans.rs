@@ -5,19 +5,20 @@ use rkv::{StoreOptions, Value};
 use crate::{common::P2PNodeId, p2p::P2PNode};
 use concordium_common::serial::{NoParam, Serial};
 
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 
 const BAN_STORE_NAME: &str = "bans";
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 /// Represents a structure used to manage a ban
 ///
 /// A node can either be banned by its id or
 /// by its address.
 pub enum BanId {
-    ById(P2PNodeId),
-    ByAddr(IpAddr),
+    NodeId(P2PNodeId),
+    Ip(IpAddr),
+    Socket(SocketAddr),
 }
 
 impl Serial for BanId {
@@ -25,8 +26,8 @@ impl Serial for BanId {
 
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let bn = match source.read_u8()? {
-            0 => BanId::ById(P2PNodeId::deserial(source)?),
-            1 => BanId::ByAddr(IpAddr::deserial(source)?),
+            0 => BanId::NodeId(P2PNodeId::deserial(source)?),
+            1 => BanId::Ip(IpAddr::deserial(source)?),
             _ => bail!("Unsupported type of `BanNode`"),
         };
 
@@ -35,14 +36,15 @@ impl Serial for BanId {
 
     fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
         match self {
-            BanId::ById(id) => {
+            BanId::NodeId(id) => {
                 target.write_u8(0)?;
                 id.serial(target)
             }
-            BanId::ByAddr(addr) => {
+            BanId::Ip(addr) => {
                 target.write_u8(1)?;
                 addr.serial(target)
             }
+            _ => unimplemented!("Serializing a socket address ban is unsupported"),
         }
     }
 }
@@ -64,16 +66,17 @@ impl P2PNode {
         }
 
         match peer {
-            BanId::ById(id) => {
+            BanId::NodeId(id) => {
                 if let Some(conn) = self.find_connection_by_id(id) {
                     self.remove_connection(conn.token);
                 }
             }
-            BanId::ByAddr(addr) => {
+            BanId::Ip(addr) => {
                 for conn in self.find_connections_by_ip(addr) {
                     self.remove_connection(conn.token);
                 }
             }
+            _ => unimplemented!("Socket address bans don't persist"),
         }
 
         Ok(())

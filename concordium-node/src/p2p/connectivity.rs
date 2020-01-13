@@ -1,8 +1,5 @@
 use failure::{err_msg, Error, Fallible};
-use mio::{
-    net::TcpStream,
-    Events, Token,
-};
+use mio::{net::TcpStream, Events, Token};
 use rand::seq::IteratorRandom;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
@@ -17,10 +14,10 @@ use crate::{
         send_pending_messages, Connection, DeduplicationQueues, MessageSendingPriority, P2PEvent,
     },
     network::{
-        NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket,
-        NetworkPacketType, NetworkRequest,
+        NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkPacketType,
+        NetworkRequest,
     },
-    p2p::{bans::BanId, P2PNode, maintenance::Addr},
+    p2p::{bans::BanId, P2PNode},
 };
 
 use std::{
@@ -217,7 +214,7 @@ impl P2PNode {
 
             if read_or_die!(self.connection_handler.soft_bans)
                 .iter()
-                .any(|(ip, _)| *ip == Addr::Ip(addr.ip()))
+                .any(|(ip, _)| *ip == BanId::Ip(addr.ip()))
             {
                 bail!("Connection attempt from a soft-banned IP ({:?}); rejecting", addr.ip());
             }
@@ -298,7 +295,7 @@ impl P2PNode {
 
         if read_or_die!(self.connection_handler.soft_bans)
             .iter()
-            .any(|(ip, _)| *ip == Addr::Ip(addr.ip()) || *ip == Addr::Socket(addr))
+            .any(|(ip, _)| *ip == BanId::Ip(addr.ip()) || *ip == BanId::Socket(addr))
         {
             bail!("Refusing to connect to a soft-banned IP ({:?})", addr.ip());
         }
@@ -337,7 +334,7 @@ impl P2PNode {
             Err(e) => {
                 if peer_type == PeerType::Node {
                     write_or_die!(self.connection_handler.soft_bans).insert(
-                        Addr::Socket(addr),
+                        BanId::Socket(addr),
                         Instant::now() + Duration::from_secs(config::UNREACHABLE_EXPIRATION_SECS),
                     );
                 }

@@ -26,7 +26,7 @@ mod tests {
         let reply = node.get_banlist()?;
         assert!(reply.is_empty());
 
-        let to_ban1 = BanId::ById(P2PNodeId::from_str("0000000000000022")?);
+        let to_ban1 = BanId::NodeId(P2PNodeId::from_str("0000000000000022")?);
 
         // Insertion by id
         node.ban_node(to_ban1)?;
@@ -45,7 +45,7 @@ mod tests {
         let reply = node.get_banlist()?;
         assert!(reply.is_empty());
 
-        let to_ban2 = BanId::ByAddr("127.0.0.1".parse()?);
+        let to_ban2 = BanId::Ip("127.0.0.1".parse()?);
 
         // Insertion by ip
         node.ban_node(to_ban2)?;
