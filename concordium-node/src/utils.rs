@@ -550,7 +550,7 @@ mod tests {
     #[test]
     pub fn test_dns_generated() {
         let peers: Vec<String> =
-            vec!["10.10.10.10:8888".to_string(), "dead:beaf:::9999".to_string()];
+            vec!["10.10.10.10:8888".to_string(), "dead:beef:::9999".to_string()];
         let secret_key = SecretKey {
             0: PRIVATE_TEST_KEY,
         };
@@ -567,32 +567,12 @@ mod tests {
                     assert!(peers
                         .iter()
                         .find(|&x| x
-                            == &SocketAddr::new(IpAddr::from_str("dead:beaf::").unwrap(), 9999))
+                            == &SocketAddr::new(IpAddr::from_str("dead:beef::").unwrap(), 9999))
                         .is_some());
                 }
                 Err(e) => panic!("Can't read peers from generated records {}", e),
             },
             Err(e) => panic!("Can't generate DNS records {}", e),
         }
-    }
-
-    #[test]
-    pub fn test_read_resolv_conf() {
-        assert_eq!(get_resolvers("tests/resolv.conf-linux", &vec![]), vec![
-            "2001:4860:4860::8888",
-            "2001:4860:4860::8844",
-            "8.8.8.8",
-            "8.8.4.4"
-        ]);
-    }
-
-    #[test]
-    pub fn test_read_resolv_conf_with_default() {
-        assert_ne!(get_resolvers("tests/resolv.conf-linux", &vec!["9.9.9.9".to_string()]), vec![
-            "2001:4860:4860::8888",
-            "2001:4860:4860::8844",
-            "8.8.8.8",
-            "8.8.4.4"
-        ]);
     }
 }
