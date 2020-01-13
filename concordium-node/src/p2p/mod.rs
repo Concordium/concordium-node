@@ -1,7 +1,8 @@
 pub mod bans;
+pub mod maintenance;
 pub mod p2p_node;
 
-pub use self::p2p_node::{Connections, Networks, P2PNode};
+pub use self::maintenance::{Connections, Networks, P2PNode};
 
 #[cfg(test)]
 mod tests {

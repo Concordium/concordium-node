@@ -9,7 +9,7 @@ use p2p_client::{
     common::PeerType,
     connection::Connection,
     network::NetworkId,
-    p2p::p2p_node::{send_broadcast_message, P2PNode},
+    p2p::{p2p_node::send_broadcast_message, P2PNode},
     test_utils::{connect, generate_random_data, make_node_and_sync, next_available_port},
 };
 
