@@ -1,6 +1,7 @@
 pub mod bans;
 pub mod connectivity;
 pub mod maintenance;
+pub mod peers;
 
 pub use self::maintenance::{Connections, Networks, P2PNode};
 
