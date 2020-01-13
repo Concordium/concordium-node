@@ -3,8 +3,6 @@ use mio::{net::TcpStream, Events, Token};
 use rand::seq::IteratorRandom;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
-#[cfg(feature = "network_dump")]
-use crate::dumper::create_dump_thread;
 #[cfg(feature = "beta")]
 use crate::plugins::beta::get_username_from_jwt;
 use crate::{
