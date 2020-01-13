@@ -8,7 +8,7 @@ use crate::{
     common::{P2PNodeId, PeerType},
     configuration::Config,
     network::{NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkPacketType},
-    p2p::p2p_node::P2PNode,
+    p2p::P2PNode,
     stats_export_service::{StatsExportService, StatsServiceMode},
 };
 use concordium_common::{serial::Endianness, PacketType};

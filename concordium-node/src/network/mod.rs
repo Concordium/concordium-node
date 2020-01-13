@@ -5,7 +5,7 @@ pub use self::buckets::Buckets;
 
 use crate::{
     common::{p2p_peer::P2PPeer, P2PNodeId},
-    p2p::banned_nodes::BannedNode,
+    p2p::bans::BanId,
 };
 
 use std::{collections::HashSet, fmt, sync::Arc};
@@ -52,8 +52,8 @@ pub enum NetworkRequest {
     Ping,
     GetPeers(HashSet<NetworkId>),
     Handshake(P2PNodeId, u16, HashSet<NetworkId>, Vec<u8>),
-    BanNode(BannedNode),
-    UnbanNode(BannedNode),
+    BanNode(BanId),
+    UnbanNode(BanId),
     JoinNetwork(NetworkId),
     LeaveNetwork(NetworkId),
 }

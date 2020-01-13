@@ -13,7 +13,7 @@ use crate::{
         NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkPacketType,
         NetworkRequest, NetworkResponse,
     },
-    p2p::banned_nodes::BannedNode,
+    p2p::bans::BanId,
 };
 
 use std::{
@@ -182,19 +182,19 @@ fn deserialize_request(root: &network::NetworkMessage) -> Fallible<NetworkMessag
         network::RequestVariant::BanNode | network::RequestVariant::UnbanNode => {
             if let Some(id) = request.payload().map(network::BanUnban::init_from_table) {
                 let tgt = if let Some(id) = id.id_as_node_id().map(|id| id.id()) {
-                    BannedNode::ById(P2PNodeId(id))
+                    BanId::NodeId(P2PNodeId(id))
                 } else if let Some(ip) = id.id_as_ip_addr() {
                     if let Some(mut octets) = ip.octets() {
                         match ip.variant() {
                             network::IpVariant::V4 => {
                                 let mut addr = [0u8; 4];
                                 octets.read_exact(&mut addr)?;
-                                BannedNode::ByAddr(IpAddr::from(addr))
+                                BanId::Ip(IpAddr::from(addr))
                             }
                             network::IpVariant::V6 => {
                                 let mut addr = [0u8; 16];
                                 octets.read_exact(&mut addr)?;
-                                BannedNode::ByAddr(IpAddr::from(addr))
+                                BanId::Ip(IpAddr::from(addr))
                             }
                         }
                     } else {
@@ -381,7 +381,7 @@ fn serialize_request(
             };
 
             let (id_type, id_offset) = match id {
-                BannedNode::ById(id) => {
+                BanId::NodeId(id) => {
                     let offset = network::NodeId::create(builder, &network::NodeIdArgs {
                         id: id.as_raw(),
                     })
@@ -389,7 +389,7 @@ fn serialize_request(
 
                     (network::BanId::NodeId, offset)
                 }
-                BannedNode::ByAddr(ip) => {
+                BanId::Ip(ip) => {
                     let (variant, octets) = match ip {
                         IpAddr::V4(ip) => (network::IpVariant::V4, ip.octets().to_vec()),
                         IpAddr::V6(ip) => (network::IpVariant::V6, ip.octets().to_vec()),
@@ -409,6 +409,7 @@ fn serialize_request(
 
                     (network::BanId::IpAddr, ip_offset.as_union_value())
                 }
+                _ => unimplemented!("Socket address bans don't propagate"),
             };
             let offset = network::BanUnban::create(builder, &network::BanUnbanArgs {
                 id_type,
