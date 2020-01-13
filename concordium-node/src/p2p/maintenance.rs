@@ -22,7 +22,7 @@ use crate::{
     connection::{Connection, DeduplicationQueues, P2PEvent},
     dumper::DumpItem,
     network::{Buckets, NetworkId, NetworkMessage},
-    p2p::{p2p_node::SERVER},
+    p2p::connectivity::SERVER,
     stats_engine::StatsEngine,
     stats_export_service::StatsExportService,
     utils,

@@ -7,7 +7,7 @@ use crate::{
     network::{NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacketType},
     p2p::{
         bans::BanId,
-        p2p_node::{send_broadcast_message, send_direct_message},
+        connectivity::{send_broadcast_message, send_direct_message},
         P2PNode,
     },
     proto::*,
