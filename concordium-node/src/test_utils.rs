@@ -11,7 +11,7 @@ use crate::{
     p2p::p2p_node::P2PNode,
     stats_export_service::{StatsExportService, StatsServiceMode},
 };
-use concordium_common::{serial::Endianness, PacketType, QueueMsg};
+use concordium_common::{serial::Endianness, PacketType};
 
 use crossbeam_channel::{self, Receiver};
 use std::{
@@ -143,36 +143,6 @@ pub fn await_handshake(node: &P2PNode) -> Fallible<()> {
     }
 
     Ok(())
-}
-
-pub fn await_broadcast_message(waiter: &Receiver<QueueMsg<NetworkMessage>>) -> Fallible<Arc<[u8]>> {
-    loop {
-        let msg = waiter.recv()?;
-        if let QueueMsg::Relay(NetworkMessage {
-            payload: NetworkMessagePayload::NetworkPacket(pac),
-            ..
-        }) = msg
-        {
-            if let NetworkPacketType::BroadcastedMessage(..) = pac.packet_type {
-                return Ok(pac.message);
-            }
-        }
-    }
-}
-
-pub fn await_direct_message(waiter: &Receiver<QueueMsg<NetworkMessage>>) -> Fallible<Arc<[u8]>> {
-    loop {
-        let msg = waiter.recv()?;
-        if let QueueMsg::Relay(NetworkMessage {
-            payload: NetworkMessagePayload::NetworkPacket(pac),
-            ..
-        }) = msg
-        {
-            if let NetworkPacketType::DirectMessage(..) = pac.packet_type {
-                return Ok(pac.message);
-            }
-        }
-    }
 }
 
 pub fn generate_random_data(size: usize) -> Vec<u8> {
