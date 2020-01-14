@@ -1,8 +1,4 @@
 #![recursion_limit = "1024"]
-#[cfg(not(target_os = "windows"))]
-extern crate grpciounix as grpcio;
-#[cfg(target_os = "windows")]
-extern crate grpciowin as grpcio;
 #[macro_use]
 extern crate log;
 
@@ -47,7 +43,8 @@ use std::{
 #[cfg(feature = "instrumentation")]
 use p2p_client::stats_export_service::start_push_gateway;
 
-fn main() -> Fallible<()> {
+#[tokio::main]
+async fn main() -> Fallible<()> {
     let (conf, mut app_prefs) = get_config_and_logging_setup()?;
     if conf.common.print_config {
         // Print out the configuration
@@ -68,7 +65,7 @@ fn main() -> Fallible<()> {
 
     info!("Debugging enabled: {}", conf.common.debug);
 
-    let (subscription_queue_in, subscription_queue_out) =
+    let (subscription_queue_in, _subscription_queue_out) =
         crossbeam_channel::bounded(config::RPC_QUEUE_DEPTH);
 
     // Thread #1: instantiate the P2PNode
@@ -123,10 +120,9 @@ fn main() -> Fallible<()> {
             node.clone(),
             Some(consensus.clone()),
             &conf.cli.rpc,
-            subscription_queue_out,
             get_baker_private_data_json_file(&app_prefs, &conf.cli.baker),
         );
-        serv.start_server()?;
+        serv.start_server().await?;
         Some(serv)
     } else {
         None
