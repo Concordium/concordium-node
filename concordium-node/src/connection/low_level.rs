@@ -2,15 +2,13 @@ use byteorder::{NetworkEndian, WriteBytesExt};
 use bytesize::ByteSize;
 use failure::Fallible;
 use mio::tcp::TcpStream;
-use noiseexplorer_xx::consts::{DHLEN, MAC_LENGTH};
-
-use super::{
-    noise_impl::{
-        finalize_handshake, start_noise_session, NoiseSession, HANDSHAKE_SIZE_LIMIT,
-        NOISE_MAX_MESSAGE_LEN, NOISE_MAX_PAYLOAD_LEN, PSK,
-    },
-    Connection, DeduplicationQueues,
+use noiseexplorer_xx::{
+    consts::{DHLEN, MAC_LENGTH},
+    noisesession::NoiseSession,
+    types::Keypair,
 };
+
+use super::{Connection, DeduplicationQueues};
 use crate::network::PROTOCOL_MAX_MESSAGE_SIZE;
 
 use std::{
@@ -26,6 +24,13 @@ use std::{
 /// The size of the noise message payload.
 type PayloadSize = u32;
 const PAYLOAD_SIZE: usize = mem::size_of::<PayloadSize>();
+const PROLOGUE: &[u8] = b"CP2P";
+pub const NOISE_MAX_MESSAGE_LEN: usize = 64 * 1024 - 1; // 65535
+const NOISE_AUTH_TAG_LEN: usize = 16;
+pub const NOISE_MAX_PAYLOAD_LEN: usize = NOISE_MAX_MESSAGE_LEN - NOISE_AUTH_TAG_LEN;
+pub const HANDSHAKE_SIZE_LIMIT: usize = 1024;
+/// Not really a PSK, but serves a PSK-like function
+pub const PSK: &[u8] = b"b6461bd246843f70ac1328401405b2b4e725994d7d144a75bff1a04a247d64b7";
 /// The size of the initial socket write queue allocation.
 const WRITE_QUEUE_ALLOC: usize = 1024 * 1024;
 
@@ -158,7 +163,7 @@ impl ConnectionLowLevel {
         ConnectionLowLevel {
             conn_ref: None,
             socket,
-            noise_session: start_noise_session(is_initiator),
+            noise_session: NoiseSession::init_session(is_initiator, PROLOGUE, Keypair::default()),
             noise_buffer: vec![0u8; NOISE_MAX_MESSAGE_LEN].into_boxed_slice(),
             socket_buffer: SocketBuffer::new(socket_read_size),
             incoming_msg: IncomingMessage::default(),
@@ -169,11 +174,7 @@ impl ConnectionLowLevel {
     // the XX noise handshake
 
     pub fn send_handshake_message_a(&mut self) -> Fallible<()> {
-        let pad = if cfg!(feature = "snow_noise") {
-            0
-        } else {
-            16
-        };
+        let pad = 16;
         send_xx_msg!(self, DHLEN, PSK, pad, "A");
         self.conn().set_sent_handshake();
 
@@ -182,11 +183,7 @@ impl ConnectionLowLevel {
 
     fn process_msg_a(&mut self, len: usize) -> Fallible<Vec<u8>> {
         recv_xx_msg!(self, len, "A");
-        let pad = if cfg!(feature = "snow_noise") {
-            0
-        } else {
-            16
-        };
+        let pad = 16;
         let payload_in = self.socket_buffer.slice(len)[DHLEN..][..len - DHLEN - pad].try_into()?;
         let payload_out = self.conn().produce_handshake_request()?;
         send_xx_msg!(self, DHLEN * 2 + MAC_LENGTH, &payload_out, MAC_LENGTH, "B");
@@ -202,9 +199,6 @@ impl ConnectionLowLevel {
             .try_into()?;
         let payload_out = self.conn().produce_handshake_request()?;
         send_xx_msg!(self, DHLEN + MAC_LENGTH, &payload_out, MAC_LENGTH, "C");
-        if cfg!(feature = "snow_noise") {
-            finalize_handshake(&mut self.noise_session)?;
-        }
         self.conn().handler().stats.peers_inc();
 
         Ok(payload_in)
@@ -215,9 +209,6 @@ impl ConnectionLowLevel {
         let payload = self.socket_buffer.slice(len)[DHLEN + MAC_LENGTH..]
             [..len - DHLEN - MAC_LENGTH * 2]
             .try_into()?;
-        if cfg!(feature = "snow_noise") {
-            finalize_handshake(&mut self.noise_session)?;
-        }
         self.conn().handler().stats.peers_inc();
 
         Ok(payload)
