@@ -240,12 +240,11 @@ impl ConnectionLowLevel {
     #[inline]
     pub fn read_stream(&mut self, dedup_queues: &DeduplicationQueues) -> Fallible<()> {
         loop {
-            match self.read_from_socket() {
-                Ok(ReadResult::Complete(msg)) => {
+            match self.read_from_socket()? {
+                ReadResult::Complete(msg) => {
                     self.conn().process_message(Arc::from(msg), dedup_queues)?
                 }
-                Ok(ReadResult::Incomplete) | Ok(ReadResult::WouldBlock) => return Ok(()),
-                Err(e) => bail!("Can't read from the socket: {}", e),
+                ReadResult::Incomplete | ReadResult::WouldBlock => return Ok(()),
             }
         }
     }

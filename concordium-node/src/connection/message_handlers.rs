@@ -100,7 +100,7 @@ impl Connection {
     }
 
     fn handle_get_peers_req(&self, networks: &HashSet<NetworkId>) -> Fallible<()> {
-        let peer_id = self.remote_id().unwrap(); // safe, post-handshake
+        let peer_id = self.remote_id().ok_or_else(|| format_err!("handshake not concluded yet"))?;
 
         debug!("Got a GetPeers request from peer {}", peer_id);
 
@@ -108,7 +108,7 @@ impl Connection {
     }
 
     fn handle_peer_list_resp(&self, peers: &[P2PPeer]) -> Fallible<()> {
-        let peer_id = self.remote_id().unwrap(); // safe, post-handshake
+        let peer_id = self.remote_id().ok_or_else(|| format_err!("handshake not concluded yet"))?;
 
         debug!("Received a PeerList response from peer {}", peer_id);
 
@@ -140,7 +140,8 @@ impl Connection {
     }
 
     fn handle_join_network_req(&self, network: NetworkId) -> Fallible<()> {
-        let remote_peer = self.remote_peer().peer().unwrap(); // safe, post-handshake
+        let remote_peer =
+            self.remote_peer().peer().ok_or_else(|| format_err!("handshake not concluded yet"))?;
 
         debug!("Received a JoinNetwork request from peer {}", remote_peer.id);
 
@@ -158,7 +159,8 @@ impl Connection {
     }
 
     fn handle_leave_network_req(&self, network: NetworkId) -> Fallible<()> {
-        let remote_peer = self.remote_peer().peer().unwrap(); // safe, post-handshake
+        let remote_peer =
+            self.remote_peer().peer().ok_or_else(|| format_err!("handshake not concluded yet"))?;
 
         debug!("Received a LeaveNetwork request from peer {}", remote_peer.id);
 
@@ -189,7 +191,7 @@ impl Connection {
     }
 
     pub fn handle_incoming_packet(&self, pac: &NetworkPacket) -> Fallible<()> {
-        let peer_id = self.remote_id().unwrap(); // safe, post-handshake
+        let peer_id = self.remote_id().ok_or_else(|| format_err!("handshake not concluded yet"))?;
 
         trace!("Received a Packet from peer {}", peer_id);
 

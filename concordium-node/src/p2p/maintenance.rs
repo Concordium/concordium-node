@@ -29,8 +29,7 @@ use consensus_rust::{consensus::CALLBACK_QUEUE, transferlog::TRANSACTION_LOG_QUE
 
 use std::{
     collections::{HashMap, HashSet},
-    io::{self, ErrorKind},
-    mem,
+    io, mem,
     net::{
         IpAddr::{self, V4, V6},
         SocketAddr,
@@ -552,24 +551,8 @@ impl P2PNode {
                 if !bad_tokens.is_empty() {
                     let mut soft_bans = write_or_die!(self_clone.connection_handler.soft_bans);
                     for (ip, e) in bad_ips.into_iter() {
-                        if let Ok(io_err) = e.downcast::<io::Error>() {
-                            if ![
-                                ErrorKind::BrokenPipe,
-                                ErrorKind::ConnectionReset,
-                                ErrorKind::PermissionDenied,
-                                ErrorKind::AlreadyExists,
-                                ErrorKind::NotFound,
-                                ErrorKind::UnexpectedEof,
-                            ]
-                            .contains(&io_err.kind())
-                            {
-                                warn!("Soft-banning {:?} due to a fatal IO error", ip);
-                                soft_bans.insert(
-                                    BanId::Ip(ip),
-                                    Instant::now()
-                                        + Duration::from_secs(config::SOFT_BAN_DURATION_SECS),
-                                );
-                            }
+                        if let Ok(_io_err) = e.downcast::<io::Error>() {
+                            // potentially ban on IO errors we consider fatal
                         } else {
                             warn!("Soft-banning {:?} due to a breach of protocol", ip);
                             soft_bans.insert(

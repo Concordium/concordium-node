@@ -521,7 +521,7 @@ fn is_valid_broadcast_target(
     network_id: NetworkId,
 ) -> bool {
     // safe, used only in a post-handshake context
-    let peer_id = conn.remote_peer.peer().unwrap().id;
+    let peer_id = read_or_die!(conn.remote_peer.id).unwrap();
 
     conn.remote_peer.peer_type() != PeerType::Bootstrapper
         && peer_id != sender
