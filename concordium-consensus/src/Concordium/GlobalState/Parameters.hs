@@ -20,14 +20,12 @@ import Control.Monad.Fail
 import Control.Monad hiding (fail)
 
 import Concordium.Types
-import Concordium.ID.Types(SignatureThreshold)
 import Concordium.ID.Parameters(GlobalContext)
 import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.SeedState
 import qualified Concordium.ID.Types as ID
 
-import qualified Data.HashMap.Strict as HM
 import qualified Data.PQueue.Prio.Max as Queue
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Aeson as AE
@@ -131,8 +129,7 @@ instance FromJSON GenesisBaker where
 -- addition to baker accounts which are defined by the 'GenesisBaker' structure.
 data GenesisAccount = GenesisAccount {
   gaAddress :: !AccountAddress,
-  gaVerifyKeys :: ![AccountVerificationKey],
-  gaThreshold :: SignatureThreshold,
+  gaVerifyKeys :: !ID.AccountKeys,
   gaBalance :: !Amount,
   gaDelegate :: !(Maybe BakerId),
   gaCredential :: !ID.CredentialDeploymentInformation
@@ -142,7 +139,6 @@ instance FromJSON GenesisAccount where
   parseJSON = withObject "GenesisAccount" $ \obj -> do
     gaAddress <- obj .: "accountAddress"
     gaVerifyKeys <- obj .: "accountKeys"
-    gaThreshold <- obj .: "threshold"
     gaBalance <- Amount <$> obj .: "balance"
     gaDelegate <- fmap BakerId <$> obj .:? "delegate"
     gaCredential <- obj .: "credential"
@@ -225,16 +221,12 @@ parametersToGenesisData GenesisParameters{..} = GenesisData{..}
                 (gaAddress gbAccount)
 
         mkAccount GenesisAccount{..} =
-          let keys = ID.AccountKeys{
-                akThreshold = gaThreshold,
-                akKeys = HM.fromList $ zip [0..] gaVerifyKeys
-                }
-           in (newAccount keys gaAddress) {_accountAmount = gaBalance,
-                                           _accountStakeDelegate = gaDelegate,
-                                           _accountCredentials =
-                                               let cdv = ID.cdiValues gaCredential
-                                               in Queue.singleton (ID.pExpiry (ID.cdvPolicy cdv)) cdv
-                                          }
+          (newAccount gaVerifyKeys gaAddress) {_accountAmount = gaBalance,
+                                               _accountStakeDelegate = gaDelegate,
+                                               _accountCredentials =
+                                                 let cdv = ID.cdiValues gaCredential
+                                                 in Queue.singleton (ID.pExpiry (ID.cdvPolicy cdv)) cdv
+                                              }
         -- special accounts will have some special privileges during beta.
         genesisSpecialBetaAccounts = map mkAccount gpBetaAccounts
         -- Baker accounts will have no special privileges.
