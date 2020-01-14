@@ -1,6 +1,5 @@
 mod low_level;
 pub mod message_handlers;
-mod noise_impl;
 mod p2p_event;
 
 pub use crate::p2p::{Networks, P2PNode};
