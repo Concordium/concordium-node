@@ -37,7 +37,6 @@ import qualified Data.PQueue.Prio.Max as Queue
 import Data.Maybe
 
 import qualified Concordium.ID.Types as ID
-import qualified Concordium.ID.Account as ID
 
 type ModuleIndex = Word64
 
@@ -521,7 +520,7 @@ resultToReasons bp tx res =
         extractReason (Updated (AddressContract source) target amount _) =
           Just (ContractToContractTransfer trId source amount target)
         extractReason (CredentialDeployed cdv) =
-          let caaddr = ID.accountAddress (ID.cdvVerifyKey cdv)
+          let caaddr = ID.credentialAccountAddress cdv
           in Just (CredentialDeployment trId sender caaddr cdv)
         extractReason _ = Nothing
         
