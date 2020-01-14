@@ -25,6 +25,7 @@ import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState
 #ifdef RUST
+import Concordium.GlobalState.Paired
 import qualified Concordium.GlobalState.Implementation as Rust
 #endif
 
@@ -99,6 +100,7 @@ relay inp sr monitor outps = loop
                         writeChan outp (MsgFinalizationRecordReceived () fr)
                 _ -> return ()
             loop
+        bInsts :: BlockHash -> SkovT () ActiveConfig IO [Instance]
         bInsts bh = do
             bst <- resolveBlock bh
             case bst of
@@ -137,11 +139,21 @@ genesisState genData = Example.initialState
 
 
 #ifdef RUST
+{-
 type TreeConfig = DiskTreeDiskBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
 makeGlobalStateConfig rt genData = do
     gsptr <- Rust.makeEmptyGlobalState genData
     return $ DTDBConfig rt genData (genesisState genData) gsptr
+-}
+type TreeConfig = PairGSConfig DiskTreeDiskBlockConfig MemoryTreeMemoryBlockConfig
+makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
+makeGlobalStateConfig rt genData = do
+    gsptr <- Rust.makeEmptyGlobalState genData
+    let
+        c1 = DTDBConfig rt genData (genesisState genData) gsptr
+        c2 = MTMBConfig rt genData (genesisState genData)
+    return $ PairGSConfig (c1, c2)
 #else
 type TreeConfig = MemoryTreeDiskBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
@@ -163,6 +175,7 @@ main = do
         let logM src lvl msg = do
                                     timestamp <- getCurrentTime
                                     hPutStrLn logFile $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg
+                                    hFlush logFile
         logTransferFile <- openFile ("transfer-log-" ++ show now ++ "-" ++ show bakerId ++ ".transfers") WriteMode
         let logT bh slot reason =
               hPrint logTransferFile (bh, slot, reason)
