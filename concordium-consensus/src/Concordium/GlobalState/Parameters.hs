@@ -25,7 +25,6 @@ import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.SeedState
 import qualified Concordium.ID.Types as ID
-import qualified Concordium.ID.Account as ID
 
 import qualified Data.PQueue.Prio.Max as Queue
 import qualified Data.ByteString.Lazy as BSL
@@ -111,12 +110,8 @@ data GenesisBaker = GenesisBaker {
     gbElectionVerifyKey :: BakerElectionVerifyKey,
     -- |The baker's public signature key
     gbSignatureVerifyKey :: BakerSignVerifyKey,
-    -- |The baker's account public signature key
-    gbAccountSignatureKey :: AccountVerificationKey,
-    -- |The baker's initial balance
-    gbAccountBalance :: Amount,
-    -- |Credential associated with the baker account.
-    gbAccountCredential :: ID.CredentialDeploymentInformation,
+    -- |Address of the baker's account.
+    gbAccount :: GenesisAccount,
     -- |Whether the baker should be included in the initial
     -- finalization committee.
     gbFinalizer :: Bool
@@ -126,29 +121,27 @@ instance FromJSON GenesisBaker where
     parseJSON = withObject "GenesisBaker" $ \v -> do
             gbElectionVerifyKey <- v .: "electionVerifyKey"
             gbSignatureVerifyKey <- v .: "signatureVerifyKey"
-            acct <- v .: "account"
-            (gbAccountSignatureKey, gbAccountBalance, gbAccountCredential) <- flip (withObject "GenesisBakerAccount") acct $ \v' -> do
-                sk <- parseJSON acct
-                ab <- Amount <$> v' .: "balance"
-                credential <- v' .: "credential"
-                return (sk, ab, credential)
+            gbAccount <- v .: "account"
             gbFinalizer <- v .: "finalizer"
             return GenesisBaker{..}
 
 -- |'GenesisAccount' are special account existing in the genesis block, in
 -- addition to baker accounts which are defined by the 'GenesisBaker' structure.
 data GenesisAccount = GenesisAccount {
-  gaAccountVerifyKey :: !AccountVerificationKey,
-  gaAccountBalance :: !Amount,
-  gaDelegate :: !(Maybe BakerId)
-  -- TODO: credentials
+  gaAddress :: !AccountAddress,
+  gaVerifyKeys :: !ID.AccountKeys,
+  gaBalance :: !Amount,
+  gaDelegate :: !(Maybe BakerId),
+  gaCredential :: !ID.CredentialDeploymentInformation
 }
 
 instance FromJSON GenesisAccount where
-  parseJSON v = flip (withObject "GenesisAccount") v $ \obj -> do
-    gaAccountVerifyKey <- parseJSON v
-    gaAccountBalance <- Amount <$> obj .: "balance"
+  parseJSON = withObject "GenesisAccount" $ \obj -> do
+    gaAddress <- obj .: "accountAddress"
+    gaVerifyKeys <- obj .: "accountKeys"
+    gaBalance <- Amount <$> obj .: "balance"
     gaDelegate <- fmap BakerId <$> obj .:? "delegate"
+    gaCredential <- obj .: "credential"
     return GenesisAccount{..}
 
 -- 'GenesisParameters' provides a convenient abstraction for
@@ -224,19 +217,21 @@ parametersToGenesisData GenesisParameters{..} = GenesisData{..}
         mkBaker GenesisBaker{..} = BakerInfo 
                 gbElectionVerifyKey
                 gbSignatureVerifyKey
-                gbAccountBalance 
-                (ID.accountAddress gbAccountSignatureKey)
+                (gaBalance gbAccount)
+                (gaAddress gbAccount)
+
+        mkAccount GenesisAccount{..} =
+          (newAccount gaVerifyKeys gaAddress) {_accountAmount = gaBalance,
+                                               _accountStakeDelegate = gaDelegate,
+                                               _accountCredentials =
+                                                 let cdv = ID.cdiValues gaCredential
+                                                 in Queue.singleton (ID.pExpiry (ID.cdvPolicy cdv)) cdv
+                                              }
         -- special accounts will have some special privileges during beta.
-        genesisSpecialBetaAccounts =
-          [(newAccount gaAccountVerifyKey) {_accountAmount = gaAccountBalance,
-                                                                     _accountStakeDelegate = gaDelegate}
-            | GenesisAccount{..} <- gpBetaAccounts]
+        genesisSpecialBetaAccounts = map mkAccount gpBetaAccounts
         -- Baker accounts will have no special privileges.
-        genesisAccounts = [(newAccount gbAccountSignatureKey) {_accountAmount = gbAccountBalance,
-                                                               _accountStakeDelegate = Just bid,
-                                                               _accountCredentials =
-                                                               let cdv = ID.cdiValues gbAccountCredential
-                                                               in Queue.singleton (ID.pExpiry (ID.cdvPolicy cdv)) cdv }
+        -- We ignore any specified delegation target.
+        genesisAccounts = [(mkAccount gbAccount) {_accountStakeDelegate = Just bid }
                           | (GenesisBaker{..}, bid) <- zip gpBakers [0..]]
         genesisFinalizationParameters =
             FinalizationParameters

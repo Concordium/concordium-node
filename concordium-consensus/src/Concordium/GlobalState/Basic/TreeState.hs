@@ -178,12 +178,9 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadState (Sko
             case tt ^. ttHashMap . at trHash of
                 Nothing ->
                   if (tt ^. ttNonFinalizedTransactions . at sender . non emptyANFT . anftNextNonce) <= nonce then do
-                    -- transaction should be added, provided its signature checks out.
-                    if verifyTransactionSignature tr then do
-                      transactionTable .= (tt & (ttNonFinalizedTransactions . at sender . non emptyANFT . anftMap . at nonce . non Set.empty %~ Set.insert tr)
-                                              & (ttHashMap . at (getHash tr) ?~ (tr, slot)))
-                      return (TS.Added tr)
-                    else return TS.InvalidSignature
+                    transactionTable .= (tt & (ttNonFinalizedTransactions . at sender . non emptyANFT . anftMap . at nonce . non Set.empty %~ Set.insert tr)
+                                            & (ttHashMap . at (getHash tr) ?~ (tr, slot)))
+                    return (TS.Added tr)
                   else return TS.ObsoleteNonce
                 Just (tr', slot') -> do
                                 when (slot > slot') $ transactionTable .= (tt & ttHashMap . at trHash ?~ (tr', slot))

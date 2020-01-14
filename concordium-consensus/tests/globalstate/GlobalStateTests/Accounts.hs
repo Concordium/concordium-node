@@ -18,6 +18,7 @@ import Data.Serialize as S
 import Data.Either
 import Lens.Micro.Platform
 import qualified Data.PQueue.Prio.Max as Queue
+import qualified Data.HashMap.Strict as HM
 
 import qualified Data.FixedByteString as FBS
 import Concordium.Types.HashableTo
@@ -72,8 +73,8 @@ data AccountAction
     | FlushPersistent
     | ArchivePersistent
 
-randomizeAccount :: AccountAddress -> AccountVerificationKey -> Gen Account
-randomizeAccount _accountAddress _accountVerificationKey = do
+randomizeAccount :: AccountAddress -> ID.AccountKeys -> Gen Account
+randomizeAccount _accountAddress _accountVerificationKeys = do
         _accountNonce <- Nonce <$> arbitrary
         _accountAmount <- Amount <$> arbitrary
         let _accountEncryptedAmount = []
@@ -91,8 +92,11 @@ randomActions :: Gen [AccountAction]
 randomActions = sized (ra Set.empty Set.empty)
     where
         randAccount = do
-            vk <- Sig.correspondingVerifyKey <$> Sig.genKeyPair
-            return (vk, ID.accountAddress vk)
+            address <- ID.AccountAddress . FBS.pack <$> vector ID.accountAddressSize
+            n <- choose (1,255)
+            akKeys <- HM.fromList . zip [0..] . map Sig.correspondingVerifyKey <$> replicateM n Sig.genKeyPair
+            akThreshold <- fromIntegral <$> choose (1,n)
+            return (ID.AccountKeys{..}, address)
         ra _ _ 0 = return []
         ra s rids n = oneof $ [
                 putRandAcc,
