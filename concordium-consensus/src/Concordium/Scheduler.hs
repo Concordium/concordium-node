@@ -510,9 +510,9 @@ handleDeployCredential senderAccount meta cdiBytes cdi =
                               return $! TxSuccess [CredentialDeployed cdv] energyCost usedEnergy
                             else
                               return $! TxReject AccountCredentialInvalid energyCost usedEnergy
-                  ID.NewAccount keys threshold ->
+                  ID.NewAccount keys threshold -> do
                     -- account does not yet exist, so create it, but we need to be careful
-                    if null keys || length keys > 255 then
+                    if null keys || length keys > 255 then do
                       return $! TxReject AccountCredentialInvalid energyCost usedEnergy
                     else do
                       let accountKeys = ID.makeAccountKeys keys threshold
@@ -520,8 +520,9 @@ handleDeployCredential senderAccount meta cdiBytes cdi =
                       let account = newAccount accountKeys aaddr
                       -- this check is extremely unlikely to fail (it would amount to a hash collision since
                       -- we checked regIdEx above already.
-                      accExistsAlready <- maybe True (const False) <$> getAccount aaddr
-                      if not accExistsAlready && AH.verifyCredential cryptoParams ipInfo Nothing cdiBytes then do
+                      accExistsAlready <- maybe False (const True) <$> getAccount aaddr
+                      let check = AH.verifyCredential cryptoParams ipInfo Nothing cdiBytes
+                      if not accExistsAlready && check then do
                         _ <- putNewAccount account -- first create new account, but only if credential was valid.
                                                    -- We know the address does not yet exist.
                         addAccountCredential account cdv  -- and then add the credentials

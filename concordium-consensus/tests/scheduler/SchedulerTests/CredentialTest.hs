@@ -104,6 +104,6 @@ checkCredentialCheckResult (suc, fails, transactions) =
 
 tests :: Spec
 tests =
-  xdescribe "Credential check test:" $
+  describe "Credential check test:" $
     specify "one successful, one rejected, one failed transaction" $
       PR.evalContext Init.initialContextData testCredentialCheck >>= checkCredentialCheckResult

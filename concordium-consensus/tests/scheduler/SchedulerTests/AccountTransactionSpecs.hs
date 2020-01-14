@@ -94,7 +94,7 @@ testAccountCreation = do
             Types.dummyChainMeta
             initialBlockState
     let accounts = state ^. blockAccounts
-    let accAddrs = map accountAddressFromCred [cdi1,cdi2,cdi3,cdi4,cdi5,cdi7]
+    let accAddrs = map accountAddressFromCred [cdi1,cdi2,cdi3,cdi5,cdi7]
     case invariantBlockState state of
         Left f -> liftIO $ assertFailure $ f ++ "\n" ++ show state
         _ -> return ()
@@ -123,9 +123,8 @@ checkAccountCreationResult (suc, fails, stateAccs, stateAles, bankState) =
             Types.TxReject Types.OutOfEnergy _ _ <- a17 -> True
           _ -> False
         txstateAccs = case stateAccs of
-                        -- account for cdi4 was not created because of duplicate registration id
                         -- account for cdi7 was not created because of out of gas
-                        [Just _, Just _, Just _, Nothing, Just _, Nothing] -> True
+                        [Just _, Just _, Just _, Just _, Nothing] -> True
                         _ -> False
         stateInvariant = stateAles ^. Types.accountAmount + bankState ^. Types.executionCost == initialAmount
 

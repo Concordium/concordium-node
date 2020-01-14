@@ -24,7 +24,7 @@ import Concordium.GlobalState.SeedState
 import Concordium.GlobalState.IdentityProviders
 import Concordium.Birk.Bake
 import Concordium.Types
-import Concordium.ID.Types(randomAccountAddress)
+import Concordium.ID.Types(randomAccountAddress, makeSingletonAC)
 
 import Concordium.Scheduler.Utils.Init.Example(dummyCredential, dummyExpiryTime)
 
