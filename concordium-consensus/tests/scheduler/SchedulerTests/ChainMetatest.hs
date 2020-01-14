@@ -37,7 +37,7 @@ shouldReturnP action f = action >>= (`shouldSatisfy` f)
 initialBlockState :: BlockState
 initialBlockState =
   emptyBlockState emptyBirkParameters dummyCryptographicParameters &
-    (blockAccounts .~ Acc.putAccountWithRegIds (mkAccount alesVK 100000) Acc.emptyAccounts) .
+    (blockAccounts .~ Acc.putAccountWithRegIds (mkAccount alesVK alesAccount 100000) Acc.emptyAccounts) .
     (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs))) .
     (blockBank . Rew.totalGTU .~ 100000)
 
@@ -51,7 +51,7 @@ chainMeta = Types.ChainMetadata{..}
 transactionsInput :: [TransactionJSON]
 transactionsInput =
     [TJSON { payload = DeployModule "ChainMetaTest"
-           , metadata = makeHeader alesKP 1 1000
+           , metadata = makeHeader alesAccount 1 1000
            , keypair = alesKP
            }
     ,TJSON { payload = InitContract {amount = 123
@@ -59,7 +59,7 @@ transactionsInput =
                                     ,moduleName = "ChainMetaTest"
                                     ,parameter = "Unit.Unit"
                                     }
-           , metadata = makeHeader alesKP 2 10000
+           , metadata = makeHeader alesAccount 2 10000
            , keypair = alesKP
            }
     ]

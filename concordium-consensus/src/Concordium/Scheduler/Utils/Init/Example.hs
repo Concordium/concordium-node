@@ -17,10 +17,8 @@ import qualified Data.Hashable as IntHash
 import qualified Data.FixedByteString as FBS
 
 import qualified Concordium.ID.Types as ID
-import qualified Concordium.ID.Account as ID
 
 import Concordium.Types
-import qualified Concordium.ID.Account as AH
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Concordium.Scheduler.Environment as Types
@@ -52,10 +50,11 @@ import Prelude hiding(mod)
 -- Should only be used when only the existence of a credential is needed in testing, but the credential
 -- will neither be serialized, nor inspected.
 {-# WARNING dummyCredential "Invalid credential, only for testing." #-}
-dummyCredential :: ID.AccountVerificationKey -> ID.CredentialExpiryTime -> ID.CredentialDeploymentValues
-dummyCredential cdvVerifyKey pExpiry  = ID.CredentialDeploymentValues
+dummyCredential :: ID.AccountAddress -> ID.CredentialExpiryTime -> ID.CredentialDeploymentValues
+dummyCredential address pExpiry  = ID.CredentialDeploymentValues
     {
-      cdvRegId = dummyRegId cdvVerifyKey,
+      cdvAccount = ID.ExistingAccount address,
+      cdvRegId = dummyRegId address,
       cdvIpId = ID.IP_ID 0,
       cdvThreshold = ID.Threshold 2,
       cdvArData = [],
@@ -72,11 +71,10 @@ dummyExpiryTime :: ID.CredentialExpiryTime
 dummyExpiryTime = maxBound
 
 -- Derive a dummy registration id from a verification key. This hashes the
--- account address derived from the verification key, and uses it as a seed of a
--- random number generator.
-dummyRegId :: ID.AccountVerificationKey -> ID.CredentialRegistrationID
-dummyRegId vfKey = ID.RegIdCred . FBS.pack $ bytes
-  where bytes = take (FBS.fixedLength (undefined :: ID.RegIdSize)) . randoms . mkStdGen $ IntHash.hash (ID.accountAddress vfKey)
+-- account address, and uses it as a seed of a random number generator.
+dummyRegId :: ID.AccountAddress -> ID.CredentialRegistrationID
+dummyRegId addr = ID.RegIdCred . FBS.pack $ bytes
+  where bytes = take (FBS.fixedLength (undefined :: ID.RegIdSize)) . randoms . mkStdGen $ IntHash.hash addr
 
 
 
@@ -110,7 +108,7 @@ initialTrans :: Int -> [Types.BareTransaction]
 initialTrans n = map initSimpleCounter $ enumFromTo 1 n
 
 mateuszAccount :: AccountAddress
-mateuszAccount = AH.accountAddress (Sig.correspondingVerifyKey mateuszKP)
+mateuszAccount = AccountAddress (FBS.pack (take ID.accountAddressSize (randoms (mkStdGen 0))))
 
 mateuszKP :: KeyPair
 mateuszKP = uncurry Sig.KeyPairEd25519 . fst $ randomKeyPair (mkStdGen 0)
@@ -127,8 +125,8 @@ initSimpleCounter n = Runner.signTx
                                         )
           header = Runner.TransactionHeader{
             thNonce = fromIntegral n,
-            thSenderKey = Sig.correspondingVerifyKey mateuszKP,
-            thGasAmount = 100000
+            thSender = mateuszAccount,
+            thEnergyAmount = 100000
             }
 
 
@@ -137,8 +135,8 @@ makeTransaction inc ca n = Runner.signTx mateuszKP header payload
     where
         header = Runner.TransactionHeader{
             thNonce = n,
-            thSenderKey = Sig.correspondingVerifyKey mateuszKP,
-            thGasAmount = 1000000
+            thSender = mateuszAccount,
+            thEnergyAmount = 1000000
             }
         payload = Types.encodePayload (Types.Update 0
                                                     ca
@@ -160,9 +158,9 @@ initialState birkParams cryptoParams bakerAccounts ips n =
                                         ,Left "test/contracts/SimpleCounter.acorn"]
                             )
         initialAmount = 2 ^ (62 :: Int)
-        customAccounts = [newAccount (Sig.correspondingVerifyKey mateuszKP)
+        customAccounts = [newAccount (ID.makeSingletonAC (Sig.correspondingVerifyKey mateuszKP)) mateuszAccount
                           & (accountAmount .~ initialAmount)
-                          . (accountCredentials .~ Queue.singleton dummyExpiryTime (dummyCredential (Sig.correspondingVerifyKey mateuszKP) dummyExpiryTime))]
+                          . (accountCredentials .~ Queue.singleton dummyExpiryTime (dummyCredential mateuszAccount dummyExpiryTime))]
         initAccount = foldl (flip Acc.putAccountWithRegIds)
                             Acc.emptyAccounts
                             (customAccounts ++ bakerAccounts)

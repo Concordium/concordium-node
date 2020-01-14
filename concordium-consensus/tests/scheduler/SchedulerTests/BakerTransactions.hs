@@ -37,8 +37,8 @@ shouldReturnP action f = action >>= (`shouldSatisfy` f)
 initialBlockState :: BlockState
 initialBlockState =
   emptyBlockState emptyBirkParameters dummyCryptographicParameters &
-    (blockAccounts .~ Acc.putAccountWithRegIds (mkAccount alesVK 100000)
-                      (Acc.putAccountWithRegIds (mkAccount thomasVK 100000) Acc.emptyAccounts)) .
+    (blockAccounts .~ Acc.putAccountWithRegIds (mkAccount alesVK alesAccount 100000)
+                      (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 100000) Acc.emptyAccounts)) .
     (blockBank . Rew.totalGTU .~ 200000) .
     (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
 
@@ -57,37 +57,40 @@ transactionsInput =
                                 (baker0 ^. _2)
                                 (baker0 ^. _1 . bakerSignatureVerifyKey)
                                 (baker0 ^. _3)
+                                alesAccount
                                 alesKP
-           , metadata = makeHeader alesKP 1 10000
+           , metadata = makeHeader alesAccount 1 10000
            , keypair = alesKP
            },
      TJSON { payload = AddBaker (baker1 ^. _1 . bakerElectionVerifyKey)
                                 (baker1 ^. _2)
                                 (baker1 ^. _1 . bakerSignatureVerifyKey)
                                 (baker1 ^. _3)
+                                alesAccount
                                 alesKP
-           , metadata = makeHeader alesKP 2 10000
+           , metadata = makeHeader alesAccount 2 10000
            , keypair = alesKP
            },
      TJSON { payload = AddBaker (baker2 ^. _1 . bakerElectionVerifyKey)
                                 (baker2 ^. _2)
                                 (baker2 ^. _1 . bakerSignatureVerifyKey)
                                 (baker2 ^. _3)
+                                thomasAccount
                                 thomasKP
-           , metadata = makeHeader alesKP 3 10000
+           , metadata = makeHeader alesAccount 3 10000
            , keypair = alesKP
            },
      TJSON { payload = RemoveBaker 1 "<dummy proof>"
-           , metadata = makeHeader alesKP 4 10000
+           , metadata = makeHeader alesAccount 4 10000
            , keypair = alesKP
            },
-     TJSON { payload = UpdateBakerAccount 2 alesKP
-           , metadata = makeHeader thomasKP 1 10000
+     TJSON { payload = UpdateBakerAccount 2 alesAccount alesKP
+           , metadata = makeHeader thomasAccount 1 10000
            , keypair = thomasKP
            -- baker 2's account is Thomas account, so only it can update it
            },
      TJSON { payload = UpdateBakerSignKey 0 (BlockSig.verifyKey (bakerSignKey 3)) (BlockSig.signKey (bakerSignKey 3))
-           , metadata = makeHeader alesKP 5 10000
+           , metadata = makeHeader alesAccount 5 10000
            , keypair = alesKP
            -- baker 0's account is Thomas account, so only it can update it
            }

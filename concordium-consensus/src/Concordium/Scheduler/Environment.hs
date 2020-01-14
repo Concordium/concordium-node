@@ -343,7 +343,7 @@ runLocalT (LocalT st) _tcDepositedAmount _tcTxSender energy = do
 -- |Compute how much energy was used from the upper bound in the header of a
 -- transaction and the amount left.
 energyUsed :: TransactionHeader -> Energy -> Energy
-energyUsed meta energy = thGasAmount meta - energy
+energyUsed meta energy = thEnergyAmount meta - energy
 
 -- |Given the deposited amount and the remaining amount of gas compute how much
 -- the sender of the transaction should be charged, as well as how much energy was used
@@ -394,7 +394,7 @@ withDeposit ::
   -- remaining energy and the ChangeSet.
   -> m TxResult
 withDeposit acc txHeader comp k = do
-  let totalEnergyToUse = thGasAmount txHeader
+  let totalEnergyToUse = thEnergyAmount txHeader
   -- we assume we have already checked the header, so we have a bit less left over
   let energy = totalEnergyToUse - Cost.checkHeader
   -- record how much we have deposited. This cannot be touched during execution.

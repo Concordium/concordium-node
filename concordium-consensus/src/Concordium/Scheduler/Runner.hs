@@ -20,9 +20,7 @@ import qualified Concordium.Crypto.Proofs as Proofs
 import Concordium.Types
 import Concordium.Types.Execution(Proof)
 import Concordium.ID.Types
-import qualified Concordium.ID.Account as AH
 import qualified Concordium.Scheduler.Types as Types
-import qualified Concordium.ID.Types as IDTypes
 
 import Data.Serialize
 
@@ -31,9 +29,11 @@ import qualified Acorn.Core as Core
 
 import Prelude hiding(mod, exp)
 
+-- |Sign a transaction with a single keypair, assuming the account has only one
+-- key, with index 0.
 signTx :: KeyPair -> TransactionHeader -> EncodedPayload -> Types.BareTransaction
-signTx kp th encPayload = Types.signTransaction kp header encPayload
-    where header = Types.makeTransactionHeader (thSenderKey th) (Types.payloadSize encPayload) (thNonce th) (thGasAmount th)
+signTx kp TransactionHeader{..} encPayload = Types.signTransactionSingle kp header encPayload
+    where header = Types.TransactionHeader{thPayloadSize=Types.payloadSize encPayload,..}
 
 transactionHelper :: (MonadFail m, MonadIO m) => TransactionJSON -> Context Core.UA m Types.BareTransaction
 transactionHelper t =
@@ -57,20 +57,21 @@ transactionHelper t =
     (TJSON meta AddBaker{..} keys) ->
       let abElectionVerifyKey = bvfkey
           abSignatureVerifyKey = bsigvfkey
-          abAccount = AH.accountAddress (Sig.correspondingVerifyKey baccountKeyPair)
+          abAccount = baccountAddress
           challenge = runPut (put abElectionVerifyKey <> put abSignatureVerifyKey <> put abAccount)
       in do
         Just abProofElection <- liftIO $ Proofs.proveDlog25519VRF challenge (VRF.KeyPair bvfSecretKey abElectionVerifyKey)
         Just abProofSig <- liftIO $ Proofs.proveDlog25519KP challenge (Sig.KeyPairEd25519 bsigkey bsigvfkey)
-        Just abProofAccount <- liftIO $ Proofs.proveDlog25519KP challenge baccountKeyPair
+        Just abProofAccount' <- liftIO $ Proofs.proveDlog25519KP challenge baccountKeyPair
+        let abProofAccount = Types.singletonAOP abProofAccount' -- FIXME: This only works for simple accounts.
         return $ signTx keys meta (Types.encodePayload Types.AddBaker{..})
     (TJSON meta (RemoveBaker bid proof) keys) ->
       return $ signTx keys meta (Types.encodePayload (Types.RemoveBaker bid proof))
-    (TJSON meta (UpdateBakerAccount bid kp) keys) ->
-      let ubaAddress = AH.accountAddress (Sig.correspondingVerifyKey kp)
-          challenge = runPut (put bid <> put ubaAddress)
+    (TJSON meta (UpdateBakerAccount bid ubaAddress kp) keys) ->
+      let challenge = runPut (put bid <> put ubaAddress)
       in do
-        Just ubaProof <- liftIO $ Proofs.proveDlog25519KP challenge kp
+        Just ubaProof' <- liftIO $ Proofs.proveDlog25519KP challenge kp
+        let ubaProof = Types.singletonAOP ubaProof' -- FIXME: This only works for simple accounts.
         return $ signTx keys meta (Types.encodePayload (Types.UpdateBakerAccount bid ubaAddress ubaProof))
     (TJSON meta (UpdateBakerSignKey bid ubsKey signkey) keys) ->
       let challenge = runPut (put bid <> put ubsKey)
@@ -99,19 +100,24 @@ data PayloadJSON = DeployModule { moduleName :: Text }
                             , amount :: Amount
                             }
                  | DeployCredential {cdi :: CredentialDeploymentInformation}
+                 -- FIXME: These should be updated to support more than one keypair for the account.
+                 -- Need to demonstrate knowledge of all the relevant keys.
                  | AddBaker {
                      bvfkey :: BakerElectionVerifyKey,
                      bvfSecretKey :: VRF.SecretKey,
                      bsigvfkey :: BakerSignVerifyKey,
                      bsigkey :: BlockSig.SignKey,
+                     baccountAddress :: AccountAddress,
                      baccountKeyPair :: Sig.KeyPair
                  }
                  | RemoveBaker {
                      rbId :: !BakerId,
                      rbProof :: !Proof
-                     } 
+                     }
+                 -- FIXME: These should be updated to support more than one keypair.
                  | UpdateBakerAccount {
                      ubaId :: !BakerId,
+                     ubaAddress :: !AccountAddress,
                      ubaKeyPair :: !Sig.KeyPair
                      }
                  | UpdateBakerSignKey {
@@ -126,12 +132,12 @@ data PayloadJSON = DeployModule { moduleName :: Text }
                  deriving(Show, Generic)
 
 data TransactionHeader = TransactionHeader {
-    -- |Verification key of the sender.
-    thSenderKey :: !IDTypes.AccountVerificationKey,
+    -- |Sender account address.
+    thSender :: !AccountAddress,
     -- |Per account nonce, strictly increasing, no gaps.
     thNonce :: !Nonce,
     -- |Amount of gas dedicated for the execution of this transaction.
-    thGasAmount :: !Energy
+    thEnergyAmount :: !Energy
     } deriving (Show)
 
 data TransactionJSON = TJSON { metadata :: TransactionHeader

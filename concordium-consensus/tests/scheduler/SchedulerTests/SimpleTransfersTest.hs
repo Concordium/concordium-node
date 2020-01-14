@@ -34,33 +34,33 @@ shouldReturnP action f = action >>= (`shouldSatisfy` f)
 initialBlockState :: BlockState
 initialBlockState =
   emptyBlockState emptyBirkParameters dummyCryptographicParameters &
-    (blockAccounts .~ Acc.putAccountWithRegIds (mkAccount alesVK 100000)
-                      (Acc.putAccountWithRegIds (mkAccount thomasVK 100000) Acc.emptyAccounts)) .
+    (blockAccounts .~ Acc.putAccountWithRegIds (mkAccount alesVK alesAccount 100000)
+                      (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 100000) Acc.emptyAccounts)) .
     (blockBank . Rew.totalGTU .~ 200000) .
     (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =
   [TJSON { payload = Transfer {toaddress = Types.AddressAccount alesAccount, amount = 100 }
-         , metadata = makeHeader alesKP 1 1000
+         , metadata = makeHeader alesAccount 1 1000
          , keypair = alesKP
          }
   ,TJSON { payload = Transfer {toaddress = Types.AddressAccount thomasAccount, amount = 88 }
-         , metadata = makeHeader alesKP 2 1000
+         , metadata = makeHeader alesAccount 2 1000
          , keypair = alesKP
          }
   ,TJSON { payload = Transfer {toaddress = Types.AddressAccount thomasAccount, amount = 98700 }
-         , metadata = makeHeader alesKP 3 1000
+         , metadata = makeHeader alesAccount 3 1000
          , keypair = alesKP
          }
   ,TJSON { payload = Transfer {toaddress = Types.AddressAccount alesAccount, amount = 100 }
-         , metadata = makeHeader thomasKP 1 500
+         , metadata = makeHeader thomasAccount 1 500
          , keypair = thomasKP
          }
     -- the next transaction should fail because the balance on alesAccount is now 1282, which is
     -- less than 600 + 700
   ,TJSON { payload = Transfer {toaddress = Types.AddressAccount thomasAccount, amount = 600 }
-         , metadata = makeHeader alesKP 4 700
+         , metadata = makeHeader alesAccount 4 700
          , keypair = alesKP
          }
   ]
