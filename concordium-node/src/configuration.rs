@@ -279,7 +279,7 @@ pub struct ConnectionConfig {
     #[structopt(
         long = "dedup-size-short",
         help = "The size of the short deduplication queues",
-        default_value = "1024"
+        default_value = "4096"
     )]
     pub dedup_size_short: usize,
     #[structopt(
