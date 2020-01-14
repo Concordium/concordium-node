@@ -356,12 +356,13 @@ impl P2P for RpcServerImpl {
             match self.consensus {
                 Some(ref consensus) => {
                     let transaction = req.get_payload();
-                    let mut payload = Vec::with_capacity(2 + transaction.len());
-                    payload.write_u16::<BigEndian>(PacketType::Transaction as u16).unwrap(); // safe
-                    payload.write_all(&transaction).unwrap(); // also infallible
+                    let consensus_result = consensus.send_transaction(&transaction);
 
-                    let consensus_result = consensus.send_transaction(&payload);
                     let gs_result = if consensus_result == ConsensusFfiResponse::Success {
+                        let mut payload = Vec::with_capacity(2 + transaction.len());
+                        payload.write_u16::<BigEndian>(PacketType::Transaction as u16).unwrap(); // safe
+                        payload.write_all(&transaction).unwrap(); // also infallible
+
                         CALLBACK_QUEUE.send_out_message(ConsensusMessage::new(
                             MessageType::Outbound(None),
                             PacketType::Transaction,

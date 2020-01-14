@@ -175,7 +175,7 @@ impl Connection {
 
     pub fn remote_peer(&self) -> &RemotePeer { &self.remote_peer }
 
-    pub fn remote_id(&self) -> Option<P2PNodeId> { self.remote_peer.peer().map(|p| p.id) }
+    pub fn remote_id(&self) -> Option<P2PNodeId> { *read_or_die!(self.remote_peer.id) }
 
     pub fn remote_peer_type(&self) -> PeerType { self.remote_peer.peer_type() }
 
@@ -333,9 +333,9 @@ impl Connection {
     pub fn buckets(&self) -> &RwLock<Buckets> { &self.handler().connection_handler.buckets }
 
     pub fn promote_to_post_handshake(&self, id: P2PNodeId, peer_port: u16) -> Fallible<()> {
-        self.remote_peer.id.store(id.0, Ordering::Relaxed);
-        self.remote_peer.peer_external_port.store(peer_port, Ordering::Relaxed);
-        self.is_post_handshake.store(true, Ordering::Relaxed);
+        *write_or_die!(self.remote_peer.id) = Some(id);
+        self.remote_peer.peer_external_port.store(peer_port, Ordering::SeqCst);
+        self.is_post_handshake.store(true, Ordering::SeqCst);
         self.handler().bump_last_peer_update();
         Ok(())
     }
@@ -426,7 +426,8 @@ impl Connection {
     }
 
     pub fn send_peer_list_resp(&self, nets: &HashSet<NetworkId>) -> Fallible<()> {
-        let requestor = self.remote_peer().peer().unwrap();
+        let requestor =
+            self.remote_peer().peer().ok_or_else(|| format_err!("handshake not concluded yet"))?;
 
         let peer_list_resp = match self.handler().peer_type() {
             PeerType::Bootstrapper => {
