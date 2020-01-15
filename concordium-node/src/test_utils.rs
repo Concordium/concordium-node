@@ -8,10 +8,10 @@ use crate::{
     common::{P2PNodeId, PeerType},
     configuration::Config,
     network::{NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkPacketType},
-    p2p::p2p_node::P2PNode,
+    p2p::P2PNode,
     stats_export_service::{StatsExportService, StatsServiceMode},
 };
-use concordium_common::{hybrid_buf::HybridBuf, serial::Endianness, PacketType, QueueMsg};
+use concordium_common::{serial::Endianness, PacketType};
 
 use crossbeam_channel::{self, Receiver};
 use std::{
@@ -88,7 +88,7 @@ pub fn make_node_and_sync(
     port: u16,
     networks: Vec<u16>,
     node_type: PeerType,
-) -> Fallible<(Arc<P2PNode>)> {
+) -> Fallible<Arc<P2PNode>> {
     let (rpc_tx, _rpc_rx) = crossbeam_channel::bounded(64);
 
     // locally-run tests and benches can be polled with a much greater frequency
@@ -109,11 +109,7 @@ pub fn make_node_and_sync_with_rpc(
     networks: Vec<u16>,
     node_type: PeerType,
     data_dir_path: PathBuf,
-) -> Fallible<(
-    Arc<P2PNode>,
-    Receiver<NetworkMessage>,
-    Receiver<NetworkMessage>,
-)> {
+) -> Fallible<(Arc<P2PNode>, Receiver<NetworkMessage>, Receiver<NetworkMessage>)> {
     let (_, msg_wait_rx) = crossbeam_channel::bounded(64);
     let (rpc_tx, rpc_rx) = crossbeam_channel::bounded(64);
 
@@ -124,15 +120,7 @@ pub fn make_node_and_sync_with_rpc(
     config.connection.housekeeping_interval = 10;
 
     let stats = StatsExportService::new(StatsServiceMode::NodeMode).unwrap();
-    let node = P2PNode::new(
-        None,
-        &config,
-        None,
-        node_type,
-        stats,
-        rpc_tx,
-        Some(data_dir_path),
-    );
+    let node = P2PNode::new(None, &config, None, node_type, stats, rpc_tx, Some(data_dir_path));
 
     node.spawn();
     Ok((node, msg_wait_rx, rpc_rx))
@@ -157,49 +145,14 @@ pub fn await_handshake(node: &P2PNode) -> Fallible<()> {
     Ok(())
 }
 
-pub fn await_broadcast_message(waiter: &Receiver<QueueMsg<NetworkMessage>>) -> Fallible<HybridBuf> {
-    loop {
-        let msg = waiter.recv()?;
-        if let QueueMsg::Relay(NetworkMessage {
-            payload: NetworkMessagePayload::NetworkPacket(pac),
-            ..
-        }) = msg
-        {
-            if let NetworkPacketType::BroadcastedMessage(..) = pac.packet_type {
-                return Ok(pac.message.to_owned());
-            }
-        }
-    }
-}
-
-pub fn await_direct_message(waiter: &Receiver<QueueMsg<NetworkMessage>>) -> Fallible<HybridBuf> {
-    loop {
-        let msg = waiter.recv()?;
-        if let QueueMsg::Relay(NetworkMessage {
-            payload: NetworkMessagePayload::NetworkPacket(pac),
-            ..
-        }) = msg
-        {
-            if let NetworkPacketType::DirectMessage(..) = pac.packet_type {
-                return Ok(pac.message.to_owned());
-            }
-        }
-    }
-}
-
 pub fn generate_random_data(size: usize) -> Vec<u8> {
-    thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(size)
-        .map(|c| c as u32 as u8)
-        .collect()
+    thread_rng().sample_iter(&Alphanumeric).take(size).map(|c| c as u32 as u8).collect()
 }
 
-fn generate_fake_block(size: usize) -> Fallible<HybridBuf> {
-    let mut buffer = HybridBuf::with_capacity(2 + size)?;
+fn generate_fake_block(size: usize) -> Fallible<Vec<u8>> {
+    let mut buffer = Vec::with_capacity(2 + size);
     buffer.write_u16::<Endianness>(PacketType::Block as u16)?;
     buffer.write_all(&generate_random_data(size))?;
-    buffer.rewind()?;
     Ok(buffer)
 }
 
@@ -210,7 +163,7 @@ pub fn create_random_packet(size: usize) -> NetworkMessage {
         payload:    NetworkMessagePayload::NetworkPacket(NetworkPacket {
             packet_type: NetworkPacketType::DirectMessage(P2PNodeId::default()),
             network_id:  NetworkId::from(thread_rng().gen::<u16>()),
-            message:     generate_fake_block(size).unwrap(),
+            message:     Arc::from(generate_fake_block(size).unwrap()),
         }),
     }
 }

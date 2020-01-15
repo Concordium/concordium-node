@@ -42,12 +42,7 @@ impl FromStr for NodeName {
     type Err = failure::Error;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
-        Ok(Self(
-            input
-                .split_whitespace()
-                .map(ToOwned::to_owned)
-                .collect::<Vec<String>>(),
-        ))
+        Ok(Self(input.split_whitespace().map(ToOwned::to_owned).collect::<Vec<String>>()))
     }
 }
 
@@ -86,10 +81,7 @@ struct ConfigCli {
     pub debug: bool,
     #[structopt(long = "trace", help = "Trace mode")]
     pub trace: bool,
-    #[structopt(
-        long = "no-log-timestamp",
-        help = "Do not output timestamp in log output"
-    )]
+    #[structopt(long = "no-log-timestamp", help = "Do not output timestamp in log output")]
     pub no_log_timestamp: bool,
     #[structopt(
         long = "collect-interval",
@@ -129,11 +121,7 @@ pub fn main() -> Fallible<()> {
         info!("{:?}", conf);
     }
 
-    info!(
-        "Starting up {}-node-collector version {}!",
-        p2p_client::APPNAME,
-        p2p_client::VERSION
-    );
+    info!("Starting up {}-node-collector version {}!", p2p_client::APPNAME, p2p_client::VERSION);
 
     if conf.node_names.len() != conf.grpc_hosts.len() {
         error!("Amount of node-names and grpc-hosts must be equal!");
@@ -141,10 +129,7 @@ pub fn main() -> Fallible<()> {
     }
 
     if conf.artificial_start_delay > 0 {
-        info!(
-            "Delaying first collection from the node for {} ms",
-            conf.artificial_start_delay
-        );
+        info!("Delaying first collection from the node for {} ms", conf.artificial_start_delay);
         thread::sleep(Duration::from_millis(conf.artificial_start_delay));
     }
 
@@ -153,22 +138,14 @@ pub fn main() -> Fallible<()> {
         let atomic_counter: AtomicUsize = Default::default();
         loop {
             let grpc_failure_count = atomic_counter.load(AtomicOrdering::Relaxed);
-            trace!(
-                "Failure count is {}/{}",
-                grpc_failure_count,
-                conf.max_grpc_failures_allowed
-            );
+            trace!("Failure count is {}/{}", grpc_failure_count, conf.max_grpc_failures_allowed);
             conf.node_names.iter().zip(conf.grpc_hosts.iter()).for_each(
                 |(node_name, grpc_host)| {
                     trace!("Processing node {}/{}", node_name, grpc_host);
                     if let Ok(node_info) =
                         collect_data(&node_name, &grpc_host, &conf.grpc_auth_token)
                     {
-                        trace!(
-                            "Node data collected successfully from {}/{}",
-                            node_name,
-                            grpc_host
-                        );
+                        trace!("Node data collected successfully from {}/{}", node_name, grpc_host);
                         if let Ok(msgpack) = rmp_serde::encode::to_vec(&node_info) {
                             let client = reqwest::Client::new();
                             if let Err(e) = client.post(&conf.collector_url).body(msgpack).send() {
@@ -213,9 +190,7 @@ fn collect_data(
     let client = P2PClient::new(ch);
 
     let mut req_meta_builder = ::grpcio::MetadataBuilder::new();
-    req_meta_builder
-        .add_str("Authentication", grpc_auth_token)
-        .unwrap();
+    req_meta_builder.add_str("Authentication", grpc_auth_token).unwrap();
     let meta_data = req_meta_builder.build();
     let call_options = ::grpcio::CallOption::default().headers(meta_data);
 
@@ -236,10 +211,8 @@ fn collect_data(
         client.get_consensus_status_opt(&p2p_client::proto::Empty::new(), call_options.clone())?;
 
     trace!("Requesting node peer stats info via gRPC");
-    let node_peer_stats_reply = client.peer_stats_opt(
-        &p2p_client::proto::PeersRequest::new(),
-        call_options.clone(),
-    )?;
+    let node_peer_stats_reply =
+        client.peer_stats_opt(&p2p_client::proto::PeersRequest::new(), call_options.clone())?;
 
     trace!("Requesting node total sent message count info via gRPC");
     let node_total_sent_reply =
@@ -265,14 +238,10 @@ fn collect_data(
     let packets_received = node_total_received_reply.get_value() as f64;
 
     let peer_stats = node_peer_stats_reply.get_peerstats();
-    let peers_summed_latency = peer_stats
-        .iter()
-        .map(|element| element.get_measured_latency())
-        .sum::<u64>() as f64;
-    let peers_with_valid_latencies_count = peer_stats
-        .iter()
-        .filter(|element| element.get_valid_latency())
-        .count();
+    let peers_summed_latency =
+        peer_stats.iter().map(|element| element.get_measured_latency()).sum::<u64>() as f64;
+    let peers_with_valid_latencies_count =
+        peer_stats.iter().filter(|element| element.get_valid_latency()).count();
 
     let avg_bps_in = node_peer_stats_reply.get_avg_bps_in();
     let avg_bps_out = node_peer_stats_reply.get_avg_bps_out();
@@ -283,27 +252,17 @@ fn collect_data(
         None
     };
     let peers_count = peer_stats.len() as f64;
-    let peers_list = peer_stats
-        .iter()
-        .map(|element| element.node_id.clone())
-        .collect::<Vec<String>>();
+    let peers_list =
+        peer_stats.iter().map(|element| element.node_id.clone()).collect::<Vec<String>>();
 
     trace!("Parsing consensus JSON status response");
     let json_consensus_value: Value =
         serde_json::from_str(&node_consensus_status_reply.json_value)?;
 
-    let best_block = json_consensus_value["bestBlock"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    let best_block = json_consensus_value["bestBlock"].as_str().unwrap().to_owned();
     let best_block_height = json_consensus_value["bestBlockHeight"].as_f64().unwrap();
     let best_arrived_time = if json_consensus_value["blockLastArrivedTime"].is_string() {
-        Some(
-            json_consensus_value["blockLastArrivedTime"]
-                .as_str()
-                .unwrap()
-                .to_owned(),
-        )
+        Some(json_consensus_value["blockLastArrivedTime"].as_str().unwrap().to_owned())
     } else {
         None
     };
@@ -319,25 +278,12 @@ fn collect_data(
     let blocks_verified_count = json_consensus_value["blocksVerifiedCount"].as_f64();
     let blocks_received_count = json_consensus_value["blocksReceivedCount"].as_f64();
     let finalization_count = json_consensus_value["finalizationCount"].as_f64();
-    let genesis_block = json_consensus_value["genesisBlock"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    let genesis_block = json_consensus_value["genesisBlock"].as_str().unwrap().to_owned();
 
-    let finalized_block = json_consensus_value["lastFinalizedBlock"]
-        .as_str()
-        .unwrap()
-        .to_owned();
-    let finalized_block_height = json_consensus_value["lastFinalizedBlockHeight"]
-        .as_f64()
-        .unwrap();
+    let finalized_block = json_consensus_value["lastFinalizedBlock"].as_str().unwrap().to_owned();
+    let finalized_block_height = json_consensus_value["lastFinalizedBlockHeight"].as_f64().unwrap();
     let finalized_time = if json_consensus_value["lastFinalizedTime"].is_string() {
-        Some(
-            json_consensus_value["lastFinalizedTime"]
-                .as_str()
-                .unwrap()
-                .to_owned(),
-        )
+        Some(json_consensus_value["lastFinalizedTime"].as_str().unwrap().to_owned())
     } else {
         None
     };
@@ -375,7 +321,7 @@ fn collect_data(
 
     let block_req = &mut p2p_client::proto::BlockHash::new();
     block_req.set_block_hash(best_block.clone());
-    let node_block_info_reply = client.get_block_info_opt(block_req, call_options.clone())?;
+    let node_block_info_reply = client.get_block_info_opt(block_req, call_options)?;
     let json_block_info_value: Value = serde_json::from_str(&node_block_info_reply.json_value)?;
     let best_block_total_encrypted_amount = json_block_info_value["totalEncryptedAmount"].as_f64();
     let best_block_transactions_size = json_block_info_value["transactionsSize"].as_f64();

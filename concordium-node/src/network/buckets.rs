@@ -79,23 +79,14 @@ impl Buckets {
         };
 
         for bucket in &self.buckets {
-            nodes.extend(
-                bucket
-                    .iter()
-                    .filter(filter_criteria)
-                    .map(|node| node.peer.to_owned()),
-            )
+            nodes.extend(bucket.iter().filter(filter_criteria).map(|node| node.peer.to_owned()))
         }
 
         nodes
     }
 
     pub fn len(&self) -> usize {
-        self.buckets
-            .iter()
-            .flat_map(HashSet::iter)
-            .map(|node| node.networks.len())
-            .sum()
+        self.buckets.iter().flat_map(HashSet::iter).map(|node| node.networks.len()).sum()
     }
 
     pub fn is_empty(&self) -> bool { self.len() == 0 }
@@ -107,9 +98,7 @@ impl Buckets {
         networks: &HashSet<NetworkId>,
     ) -> Vec<P2PPeer> {
         let mut rng = rand::thread_rng();
-        self.get_all_nodes(Some(sender), networks)
-            .into_iter()
-            .choose_multiple(&mut rng, amount)
+        self.get_all_nodes(Some(sender), networks).into_iter().choose_multiple(&mut rng, amount)
     }
 
     pub fn clean_buckets(&mut self, timeout_bucket_entry_period: u64) {

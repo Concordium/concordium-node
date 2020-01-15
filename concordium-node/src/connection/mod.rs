@@ -1,6 +1,5 @@
 mod low_level;
 pub mod message_handlers;
-mod noise_impl;
 mod p2p_event;
 
 pub use crate::p2p::{Networks, P2PNode};
@@ -18,25 +17,21 @@ use priority_queue::PriorityQueue;
 use twox_hash::XxHash64;
 
 use crate::{
-    common::{
-        counter::TOTAL_MESSAGES_RECEIVED_COUNTER, get_current_stamp, p2p_peer::P2PPeer, P2PNodeId,
-        PeerStats, PeerType, RemotePeer,
-    },
+    common::{get_current_stamp, p2p_peer::P2PPeer, P2PNodeId, PeerStats, PeerType, RemotePeer},
     dumper::DumpItem,
     network::{
         Buckets, NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkRequest,
         NetworkResponse,
     },
-    p2p::banned_nodes::BannedNode,
+    p2p::bans::BanId,
 };
-use concordium_common::{hybrid_buf::HybridBuf, serial::Endianness, PacketType};
+use concordium_common::{serial::Endianness, PacketType};
 
 use std::{
     collections::HashSet,
     convert::TryFrom,
     fmt,
     net::SocketAddr,
-    pin::Pin,
     sync::{
         atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         Arc, RwLock,
@@ -53,10 +48,10 @@ pub enum MessageSendingPriority {
 }
 
 pub struct DeduplicationQueues {
-    pub finalizations: RwLock<CircularQueue<[u8; 8]>>,
-    pub transactions:  RwLock<CircularQueue<[u8; 8]>>,
-    pub blocks:        RwLock<CircularQueue<[u8; 8]>>,
-    pub fin_records:   RwLock<CircularQueue<[u8; 8]>>,
+    pub finalizations: RwLock<CircularQueue<u64>>,
+    pub transactions:  RwLock<CircularQueue<u64>>,
+    pub blocks:        RwLock<CircularQueue<u64>>,
+    pub fin_records:   RwLock<CircularQueue<u64>>,
 }
 
 impl DeduplicationQueues {
@@ -156,7 +151,7 @@ impl Connection {
             pending_messages: RwLock::new(PriorityQueue::with_capacity(1024)),
         });
 
-        write_or_die!(conn.low_level).conn_ref = Some(Pin::new(Arc::clone(&conn)));
+        write_or_die!(conn.low_level).conn_ref = Some(Arc::clone(&conn));
 
         conn
     }
@@ -168,20 +163,16 @@ impl Connection {
     }
 
     pub fn set_sent_handshake(&self) {
-        self.stats
-            .sent_handshake
-            .store(get_current_stamp(), Ordering::Relaxed)
+        self.stats.sent_handshake.store(get_current_stamp(), Ordering::Relaxed)
     }
 
     pub fn get_last_ping_sent(&self) -> u64 { self.stats.last_ping_sent.load(Ordering::Relaxed) }
 
     fn set_last_ping_sent(&self) {
-        self.stats
-            .last_ping_sent
-            .store(get_current_stamp(), Ordering::Relaxed);
+        self.stats.last_ping_sent.store(get_current_stamp(), Ordering::Relaxed);
     }
 
-    pub fn remote_peer(&self) -> RemotePeer { self.remote_peer.clone() }
+    pub fn remote_peer(&self) -> &RemotePeer { &self.remote_peer }
 
     pub fn remote_id(&self) -> Option<P2PNodeId> { *read_or_die!(self.remote_peer.id) }
 
@@ -237,28 +228,24 @@ impl Connection {
         packet: &mut NetworkPacket,
         deduplication_queues: &DeduplicationQueues,
     ) -> Fallible<bool> {
-        let message = &mut packet.message;
-        let packet_type = PacketType::try_from(message.read_u16::<Endianness>()?);
+        ensure!(packet.message.len() >= 2);
+        let packet_type = PacketType::try_from((&packet.message[..2]).read_u16::<Endianness>()?);
 
         let is_duplicate = match packet_type {
-            Ok(PacketType::FinalizationMessage) => dedup_with(
-                message,
-                &mut write_or_die!(deduplication_queues.finalizations),
-            )?,
-            Ok(PacketType::Transaction) => dedup_with(
-                message,
-                &mut write_or_die!(deduplication_queues.transactions),
-            )?,
-            Ok(PacketType::Block) => {
-                dedup_with(message, &mut write_or_die!(deduplication_queues.blocks))?
+            Ok(PacketType::FinalizationMessage) => {
+                dedup_with(&packet.message, &mut write_or_die!(deduplication_queues.finalizations))?
             }
-            Ok(PacketType::FinalizationRecord) => dedup_with(
-                message,
-                &mut write_or_die!(deduplication_queues.fin_records),
-            )?,
+            Ok(PacketType::Transaction) => {
+                dedup_with(&packet.message, &mut write_or_die!(deduplication_queues.transactions))?
+            }
+            Ok(PacketType::Block) => {
+                dedup_with(&packet.message, &mut write_or_die!(deduplication_queues.blocks))?
+            }
+            Ok(PacketType::FinalizationRecord) => {
+                dedup_with(&packet.message, &mut write_or_die!(deduplication_queues.fin_records))?
+            }
             _ => false,
         };
-        message.rewind()?;
 
         Ok(is_duplicate)
     }
@@ -266,22 +253,20 @@ impl Connection {
     #[inline]
     fn process_message(
         &self,
-        mut message: HybridBuf,
+        message: Arc<[u8]>,
         deduplication_queues: &DeduplicationQueues,
     ) -> Fallible<()> {
         self.update_last_seen();
         self.stats.messages_received.fetch_add(1, Ordering::Relaxed);
-        self.stats
-            .bytes_received
-            .fetch_add(message.len()?, Ordering::Relaxed);
-        TOTAL_MESSAGES_RECEIVED_COUNTER.fetch_add(1, Ordering::Relaxed);
+        self.stats.bytes_received.fetch_add(message.len() as u64, Ordering::Relaxed);
+        self.handler().total_received.fetch_add(1, Ordering::Relaxed);
         self.handler().stats.pkt_received_inc();
 
         if cfg!(feature = "network_dump") {
-            self.send_to_dump(Arc::from(message.clone().remaining_bytes()?.to_vec()), true);
+            self.send_to_dump(message.clone(), true);
         }
 
-        let message = NetworkMessage::deserialize(&message.remaining_bytes()?);
+        let message = NetworkMessage::deserialize(&message);
         if let Err(e) = message {
             self.handle_invalid_network_msg(e);
             return Ok(());
@@ -348,10 +333,8 @@ impl Connection {
 
     pub fn promote_to_post_handshake(&self, id: P2PNodeId, peer_port: u16) -> Fallible<()> {
         *write_or_die!(self.remote_peer.id) = Some(id);
-        self.remote_peer
-            .peer_external_port
-            .store(peer_port, Ordering::Relaxed);
-        self.is_post_handshake.store(true, Ordering::Relaxed);
+        self.remote_peer.peer_external_port.store(peer_port, Ordering::SeqCst);
+        self.is_post_handshake.store(true, Ordering::SeqCst);
         self.handler().bump_last_peer_update();
         Ok(())
     }
@@ -369,9 +352,7 @@ impl Connection {
     #[inline]
     pub fn update_last_seen(&self) {
         if self.handler().peer_type() != PeerType::Bootstrapper {
-            self.stats
-                .last_seen
-                .store(get_current_stamp(), Ordering::Relaxed);
+            self.stats.last_seen.store(get_current_stamp(), Ordering::Relaxed);
         }
     }
 
@@ -388,7 +369,7 @@ impl Connection {
     }
 
     fn send_to_dump(&self, buf: Arc<[u8]>, inbound: bool) {
-        if let Some(ref sender) = self.handler().connection_handler.log_dumper {
+        if let Some(ref sender) = &*read_or_die!(self.handler().connection_handler.log_dumper) {
             let di = DumpItem::new(Utc::now(), inbound, self.remote_peer().addr().ip(), buf);
             let _ = sender.send(di);
         }
@@ -401,10 +382,7 @@ impl Connection {
             payload:    NetworkMessagePayload::NetworkRequest(NetworkRequest::Handshake(
                 self.handler().self_peer.id(),
                 self.handler().self_peer.port(),
-                read_or_die!(self.handler().networks())
-                    .iter()
-                    .copied()
-                    .collect(),
+                read_or_die!(self.handler().networks()).iter().copied().collect(),
                 vec![],
             )),
         };
@@ -447,7 +425,8 @@ impl Connection {
     }
 
     pub fn send_peer_list_resp(&self, nets: &HashSet<NetworkId>) -> Fallible<()> {
-        let requestor = self.remote_peer().peer().unwrap();
+        let requestor =
+            self.remote_peer().peer().ok_or_else(|| format_err!("handshake not concluded yet"))?;
 
         let peer_list_resp = match self.handler().peer_type() {
             PeerType::Bootstrapper => {
@@ -505,10 +484,7 @@ impl Connection {
 
             Ok(())
         } else {
-            debug!(
-                "I don't have any peers to share with peer {}",
-                requestor.id()
-            );
+            debug!("I don't have any peers to share with peer {}", requestor.id());
             Ok(())
         }
     }
@@ -519,26 +495,22 @@ impl Connection {
 
         let conn_filter = |conn: &Connection| match msg.payload {
             NetworkMessagePayload::NetworkRequest(ref request, ..) => match request {
-                NetworkRequest::BanNode(peer_to_ban) => match peer_to_ban {
-                    BannedNode::ById(id) => {
-                        conn != self && conn.remote_peer().peer().map_or(true, |x| x.id() != *id)
-                    }
-                    BannedNode::ByAddr(addr) => {
-                        conn != self
-                            && conn
-                                .remote_peer()
-                                .peer()
-                                .map_or(true, |peer| peer.ip() != *addr)
-                    }
-                },
-                _ => conn != self,
+                NetworkRequest::BanNode(peer_to_ban) => {
+                    conn != self
+                        && match peer_to_ban {
+                            BanId::NodeId(id) => {
+                                conn.remote_peer().peer().map_or(true, |x| x.id() != *id)
+                            }
+                            BanId::Ip(addr) => conn.remote_peer().addr().ip() != *addr,
+                            _ => unimplemented!("Socket address bans don't propagate"),
+                        }
+                }
+                _ => true,
             },
             _ => unreachable!("Only network requests are ever forwarded"),
         };
 
-        self.handler()
-            .send_over_all_connections(serialized, &conn_filter)
-            .map(|_| ())
+        self.handler().send_over_all_connections(serialized, &conn_filter).map(|_| ())
     }
 }
 
@@ -555,19 +527,17 @@ impl Drop for Connection {
 
 // returns a bool indicating if the message is a duplicate
 #[inline]
-fn dedup_with(message: &mut HybridBuf, queue: &mut CircularQueue<[u8; 8]>) -> Fallible<bool> {
+fn dedup_with(message: &[u8], queue: &mut CircularQueue<u64>) -> Fallible<bool> {
     let mut hash = [0u8; 8];
-    hash.copy_from_slice(&XxHash64::digest(&message.remaining_bytes()?));
+    hash.copy_from_slice(&XxHash64::digest(message));
+    let num = u64::from_le_bytes(hash);
 
-    if !queue.iter().any(|h| h == &hash) {
-        trace!(
-            "Message {:x} is unique, adding to dedup queue",
-            u64::from_le_bytes(hash)
-        );
-        queue.push(hash);
+    if !queue.iter().any(|n| n == &num) {
+        trace!("Message {:x} is unique, adding to dedup queue", num);
+        queue.push(num);
         Ok(false)
     } else {
-        trace!("Message {:x} is a duplicate", u64::from_le_bytes(hash));
+        trace!("Message {:x} is a duplicate", num);
         Ok(true)
     }
 }
@@ -587,11 +557,7 @@ pub fn send_pending_messages(
         );
 
         if let Err(err) = low_level.write_to_socket(msg) {
-            bail!(
-                "Can't send a raw network request to {}: {}",
-                low_level.conn(),
-                err
-            );
+            bail!("Can't send a raw network request to {}: {}", low_level.conn(), err);
         }
     }
 

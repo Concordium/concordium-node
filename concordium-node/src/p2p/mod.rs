@@ -1,14 +1,15 @@
-pub mod banned_nodes;
-pub mod p2p_node;
-pub mod unreachable_nodes;
+pub mod bans;
+pub mod connectivity;
+pub mod maintenance;
+pub mod peers;
 
-pub use self::p2p_node::{Connections, Networks, P2PNode};
+pub use self::maintenance::{Connections, Networks, P2PNode};
 
 #[cfg(test)]
 mod tests {
     use crate::{
         common::{P2PNodeId, PeerType},
-        p2p::banned_nodes::BannedNode,
+        p2p::bans::BanId,
         test_utils::*,
     };
     use failure::Fallible;
@@ -26,7 +27,7 @@ mod tests {
         let reply = node.get_banlist()?;
         assert!(reply.is_empty());
 
-        let to_ban1 = BannedNode::ById(P2PNodeId::from_str("0000000000000022")?);
+        let to_ban1 = BanId::NodeId(P2PNodeId::from_str("0000000000000022")?);
 
         // Insertion by id
         node.ban_node(to_ban1)?;
@@ -45,7 +46,7 @@ mod tests {
         let reply = node.get_banlist()?;
         assert!(reply.is_empty());
 
-        let to_ban2 = BannedNode::ByAddr("127.0.0.1".parse()?);
+        let to_ban2 = BanId::Ip("127.0.0.1".parse()?);
 
         // Insertion by ip
         node.ban_node(to_ban2)?;
@@ -71,10 +72,7 @@ mod tests {
     fn test_node_self_ref() -> Fallible<()> {
         let node = make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
 
-        assert!(std::ptr::eq(
-            &*node,
-            &*node.self_ref.as_ref().unwrap().as_ref()
-        ));
+        assert!(std::ptr::eq(&*node, &*node.self_ref.as_ref().unwrap().as_ref()));
 
         Ok(())
     }
