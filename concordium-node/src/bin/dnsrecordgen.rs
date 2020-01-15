@@ -13,17 +13,9 @@ struct ConfigCli {
         help = "Peer in format IP:PORT, multiple allowed"
     )]
     peers: Vec<String>,
-    #[structopt(
-        help = "Read private key from file",
-        long = "keyfile",
-        raw(required = "true")
-    )]
+    #[structopt(help = "Read private key from file", long = "keyfile", raw(required = "true"))]
     keyfile: String,
-    #[structopt(
-        long = "record-length",
-        help = "DNS record length",
-        default_value = "250"
-    )]
+    #[structopt(long = "record-length", help = "DNS record length", default_value = "250")]
     dns_record_length: usize,
     #[structopt(long = "print-config", help = "Print out config struct")]
     pub print_config: bool,
@@ -38,10 +30,7 @@ pub fn main() -> Fallible<()> {
     }
 
     if !std::path::Path::new(&conf.keyfile).exists() {
-        println!(
-            "Key {} doesn't exist, please specify valid file",
-            conf.keyfile
-        );
+        println!("Key {} doesn't exist, please specify valid file", conf.keyfile);
         exit(1);
     }
 

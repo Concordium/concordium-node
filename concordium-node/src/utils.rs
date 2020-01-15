@@ -1,6 +1,6 @@
 use concordium_dns::dns;
 
-use crate::{self as p2p_client, common::serialize_addr, configuration as config};
+use crate::{self as p2p_client, configuration as config};
 
 use base64;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
@@ -18,6 +18,42 @@ use std::{
     net::{IpAddr, SocketAddr},
     str::{self, FromStr},
 };
+
+fn serialize_ip(ip: IpAddr) -> String {
+    match ip {
+        IpAddr::V4(ip4) => format!(
+            "IP4{:03}{:03}{:03}{:03}",
+            ip4.octets()[0],
+            ip4.octets()[1],
+            ip4.octets()[2],
+            ip4.octets()[3],
+        ),
+        IpAddr::V6(ip6) => format!(
+            "IP6{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:\
+             02x}{:02x}{:02x}",
+            ip6.octets()[0],
+            ip6.octets()[1],
+            ip6.octets()[2],
+            ip6.octets()[3],
+            ip6.octets()[4],
+            ip6.octets()[5],
+            ip6.octets()[6],
+            ip6.octets()[7],
+            ip6.octets()[8],
+            ip6.octets()[9],
+            ip6.octets()[10],
+            ip6.octets()[11],
+            ip6.octets()[12],
+            ip6.octets()[13],
+            ip6.octets()[14],
+            ip6.octets()[15],
+        ),
+    }
+}
+
+fn serialize_addr(addr: SocketAddr) -> String {
+    format!("{}{:05}", serialize_ip(addr.ip()), addr.port())
+}
 
 pub fn to_hex_string(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{:02x}", b)).collect()
@@ -121,11 +157,8 @@ pub fn parse_host_port(
             match port.parse::<u16>() {
                 Err(_) => bail!("Can't parse <{}> as the host port", input.to_owned()),
                 Ok(port) => {
-                    let resolver_addresses = resolvers
-                        .iter()
-                        .map(|x| IpAddr::from_str(x))
-                        .flatten()
-                        .collect::<Vec<_>>();
+                    let resolver_addresses =
+                        resolvers.iter().map(|x| IpAddr::from_str(x)).flatten().collect::<Vec<_>>();
                     if !resolver_addresses.is_empty() {
                         let a_record_resolver = if let Ok(res) =
                             dns::resolve_dns_a_record(&ip, &resolver_addresses, dnssec_fail)
@@ -185,11 +218,8 @@ pub fn get_bootstrap_nodes(
         Ok(bootstrap_nodes)
     } else {
         debug!("No bootstrap nodes given; attempting DNS");
-        let resolver_addresses = resolvers
-            .iter()
-            .map(|x| IpAddr::from_str(x))
-            .flatten()
-            .collect::<Vec<_>>();
+        let resolver_addresses =
+            resolvers.iter().map(|x| IpAddr::from_str(x)).flatten().collect::<Vec<_>>();
         if resolver_addresses.is_empty() {
             return Err("No valid resolvers given");
         }
@@ -236,9 +266,7 @@ pub fn generate_bootstrap_dns(
     let mut ret = String::new();
 
     let mut return_size = vec![];
-    assert!(return_size
-        .write_u16::<NetworkEndian>(return_buffer.len() as u16)
-        .is_ok());
+    assert!(return_size.write_u16::<NetworkEndian>(return_buffer.len() as u16).is_ok());
     ret.push_str(&base64::encode(&return_size));
     ret.push_str(&return_buffer);
 
@@ -267,7 +295,13 @@ fn read_peers_from_dns_entries(
     let mut ret: Vec<SocketAddr> = vec![];
     let buffer: String = internal_entries
         .iter()
-        .map(|x| if x.len() > 3 { &x[3..] } else { &x })
+        .map(|x| {
+            if x.len() > 3 {
+                &x[3..]
+            } else {
+                &x
+            }
+        })
         .collect::<String>();
     if buffer.len() > 4 {
         match base64::decode(&buffer[..4]) {
@@ -468,19 +502,9 @@ pub fn get_config_and_logging_setup() -> Fallible<(config::Config, config::AppPr
 
     setup_logger_env(env, conf.common.no_log_timestamp);
 
-    info!(
-        "Starting up {} version {}!",
-        p2p_client::APPNAME,
-        p2p_client::VERSION
-    );
-    info!(
-        "Application data directory: {:?}",
-        app_prefs.get_user_app_dir()
-    );
-    info!(
-        "Application config directory: {:?}",
-        app_prefs.get_user_config_dir()
-    );
+    info!("Starting up {} version {}!", p2p_client::APPNAME, p2p_client::VERSION);
+    info!("Application data directory: {:?}", app_prefs.get_user_app_dir());
+    info!("Application config directory: {:?}", app_prefs.get_user_config_dir());
 
     Ok((conf, app_prefs))
 }
@@ -518,19 +542,15 @@ mod tests {
         for i in 0..64 {
             decoded_signature[i] = signature_unhexed[i];
         }
-        assert!(secret_key
-            .get_public()
-            .verify(INPUT.as_bytes(), &Signature {
-                0: decoded_signature,
-            }));
+        assert!(secret_key.get_public().verify(INPUT.as_bytes(), &Signature {
+            0: decoded_signature,
+        }));
     }
 
     #[test]
     pub fn test_dns_generated() {
-        let peers: Vec<String> = vec![
-            "10.10.10.10:8888".to_string(),
-            "dead:beaf:::9999".to_string(),
-        ];
+        let peers: Vec<String> =
+            vec!["10.10.10.10:8888".to_string(), "dead:beef:::9999".to_string()];
         let secret_key = SecretKey {
             0: PRIVATE_TEST_KEY,
         };
@@ -547,35 +567,12 @@ mod tests {
                     assert!(peers
                         .iter()
                         .find(|&x| x
-                            == &SocketAddr::new(IpAddr::from_str("dead:beaf::").unwrap(), 9999))
+                            == &SocketAddr::new(IpAddr::from_str("dead:beef::").unwrap(), 9999))
                         .is_some());
                 }
                 Err(e) => panic!("Can't read peers from generated records {}", e),
             },
             Err(e) => panic!("Can't generate DNS records {}", e),
         }
-    }
-
-    #[test]
-    pub fn test_read_resolv_conf() {
-        assert_eq!(get_resolvers("tests/resolv.conf-linux", &vec![]), vec![
-            "2001:4860:4860::8888",
-            "2001:4860:4860::8844",
-            "8.8.8.8",
-            "8.8.4.4"
-        ]);
-    }
-
-    #[test]
-    pub fn test_read_resolv_conf_with_default() {
-        assert_ne!(
-            get_resolvers("tests/resolv.conf-linux", &vec!["9.9.9.9".to_string()]),
-            vec![
-                "2001:4860:4860::8888",
-                "2001:4860:4860::8844",
-                "8.8.8.8",
-                "8.8.4.4"
-            ]
-        );
     }
 }

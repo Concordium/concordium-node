@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:experimental
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.6 as build
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.7 as build
 ARG consensus_type
 ENV CONSENSUS_TYPE=$consensus_type
 ARG consensus_profiling=false
@@ -23,14 +23,15 @@ RUN --mount=type=ssh ./build-binaries.sh "collector,beta" release && \
     cd genesis_data && \
     cp genesis.dat /build-project/
 # P2P client is now built
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.6 as haskell-build
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.7 as haskell-build
 COPY ./CONSENSUS_VERSION /CONSENSUS_VERSION
 # Build middleware and simple-client
 RUN --mount=type=ssh pacman -Syy --noconfirm openssh && \
     mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts && \
-    git clone --recurse-submodules git@gitlab.com:Concordium/consensus/simple-client.git && \
+    git clone git@gitlab.com:Concordium/consensus/simple-client.git && \
     cd simple-client && \
-    git checkout 844c0b2186e45accf7b2ddbf0e55b14cbc99046b && \
+    git checkout 2fd629913d34c86a21d0dbcd5cf8f364ecd7a46b && \
+    git submodule update --init --recursive && \
     mkdir -p ~/.stack/global-project/ && \
     echo -e "packages: []\nresolver: $(cat stack.yaml | grep ^resolver: | awk '{ print $NF }')" > ~/.stack/global-project/stack.yaml && \
     curl -sSL https://get.haskellstack.org/ | sh && \
@@ -38,15 +39,18 @@ RUN --mount=type=ssh pacman -Syy --noconfirm openssh && \
     tar -xf static-consensus-binaries-$(cat /CONSENSUS_VERSION).tar.gz && \
     mv binaries /genesis-binaries && \
     ./build-deps.sh && \
+    for f in $(find . -type f -name package.yaml); do sed -i -e 's/[\s]*ld-options://g' -e 's/[\s]*- -static//g' $f; done && \
     ./stack build --flag "simple-client:middleware" && \
     mkdir -p /libs && \
     cp extra-libs/* /libs/ && \
     cp .stack-work/dist/*/*/build/middleware/middleware /middleware && \
-    cp .stack-work/dist/*/*/build/simple-client/simple-client /simple-client
+    cp .stack-work/dist/*/*/build/simple-client/simple-client /simple-client-bin && \
+    strip /middleware && \
+    strip /simple-client-bin
 # Middleware and simple-client is now built
 
 # Build oak compiler
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base-haskell:0.2 as oak-build
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base-haskell:0.5 as oak-build
 WORKDIR /
 RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
 
@@ -81,7 +85,6 @@ ENV NODE_URL=localhost:10000
 ENV COLLECTORD_URL=https://dashboard.eu.prod.concordium.com/nodes/post
 ENV GRPC_HOST=localhost:10000
 ENV DISTRIBUTION_CLIENT=true
-ENV BAKER_ID=node-0
 RUN apt-get update && apt-get install -y unbound curl netbase ca-certificates supervisor nginx libtinfo6
 COPY --from=build /build-project/p2p_client-cli /p2p_client-cli
 COPY --from=build /build-project/node-collector /node-collector
@@ -89,7 +92,7 @@ COPY --from=build /build-project/start.sh /start.sh
 COPY --from=build /build-project/genesis.dat /genesis.dat
 COPY --from=haskell-build /libs/* /usr/lib/
 COPY --from=haskell-build /middleware /middleware
-COPY --from=haskell-build /simple-client /usr/local/bin/simple-client
+COPY --from=haskell-build /simple-client-bin /usr/local/bin/simple-client
 COPY --from=haskell-build /genesis-binaries /genesis-binaries
 COPY --from=node-build /node-dashboard/dist/public /var/www/html/
 COPY --from=oak-build /oak-compiler/out/oak /usr/local/bin/oak

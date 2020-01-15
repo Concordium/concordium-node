@@ -1,11 +1,10 @@
 use app_dirs2::*;
-use failure::{bail, Fallible};
+use failure::Fallible;
 use preferences::{Preferences, PreferencesMap};
 use std::{
     fs::{File, OpenOptions},
     io::{BufReader, BufWriter, Write},
     path::PathBuf,
-    sync::{Arc, RwLock},
 };
 use structopt::StructOpt;
 
@@ -29,11 +28,11 @@ pub const DUMP_SWITCH_QUEUE_DEPTH: usize = 0;
 
 // connection-related consts
 pub const MAX_FAILED_PACKETS_ALLOWED: u32 = 50;
-pub const MAX_UNREACHABLE_MARK_TIME: u64 = 86_400_000;
+pub const UNREACHABLE_EXPIRATION_SECS: u64 = 86_400;
 pub const MAX_BOOTSTRAPPER_KEEP_ALIVE: u64 = 300_000;
 pub const MAX_NORMAL_KEEP_ALIVE: u64 = 1_200_000;
 pub const MAX_PREHANDSHAKE_KEEP_ALIVE: u64 = 120_000;
-pub const SOFT_BAN_DURATION: u64 = 300;
+pub const SOFT_BAN_DURATION_SECS: u64 = 300;
 
 #[cfg(feature = "instrumentation")]
 #[derive(StructOpt, Debug)]
@@ -51,15 +50,9 @@ pub struct PrometheusConfig {
         default_value = "9090"
     )]
     pub prometheus_listen_port: u16,
-    #[structopt(
-        long = "prometheus-server",
-        help = "Enable prometheus server for metrics"
-    )]
+    #[structopt(long = "prometheus-server", help = "Enable prometheus server for metrics")]
     pub prometheus_server: bool,
-    #[structopt(
-        long = "prometheus-push-gateway",
-        help = "Enable prometheus via push gateway"
-    )]
+    #[structopt(long = "prometheus-push-gateway", help = "Enable prometheus via push gateway")]
     pub prometheus_push_gateway: Option<String>,
     #[structopt(
         long = "prometheus-job-name",
@@ -67,10 +60,7 @@ pub struct PrometheusConfig {
         default_value = "p2p_node_push"
     )]
     pub prometheus_job_name: String,
-    #[structopt(
-        long = "prometheus-instance-name",
-        help = "If not present node_id will be used"
-    )]
+    #[structopt(long = "prometheus-instance-name", help = "If not present node_id will be used")]
     pub prometheus_instance_name: Option<String>,
     #[structopt(
         long = "prometheus-push-gateway-username",
@@ -128,10 +118,7 @@ pub struct BakerConfig {
     )]
     pub heap_profiling: String,
     #[cfg(feature = "profiling")]
-    #[structopt(
-        long = "time-profiling",
-        help = "Profile the time in the Haskell subsystem"
-    )]
+    #[structopt(long = "time-profiling", help = "Profile the time in the Haskell subsystem")]
     pub time_profiling: bool,
     #[cfg(feature = "profiling")]
     #[structopt(
@@ -146,15 +133,9 @@ pub struct BakerConfig {
         default_value = "0.1"
     )]
     pub profiling_sampling_interval: f64,
-    #[structopt(
-        long = "haskell-gc-logging",
-        help = "Enable Haskell garbage collection logging"
-    )]
+    #[structopt(long = "haskell-gc-logging", help = "Enable Haskell garbage collection logging")]
     pub gc_logging: Option<String>,
-    #[structopt(
-        long = "persist-global-state",
-        help = "Persist the the global state store"
-    )]
+    #[structopt(long = "persist-global-state", help = "Persist the the global state store")]
     pub persist_global_state: bool,
     #[structopt(
         long = "maximum-block-size",
@@ -174,11 +155,7 @@ pub struct BakerConfig {
 pub struct RpcCliConfig {
     #[structopt(long = "no-rpc-server", help = "Disable the built-in RPC server")]
     pub no_rpc_server: bool,
-    #[structopt(
-        long = "rpc-server-port",
-        help = "RPC server port",
-        default_value = "10000"
-    )]
+    #[structopt(long = "rpc-server-port", help = "RPC server port", default_value = "10000")]
     pub rpc_server_port: u16,
     #[structopt(
         long = "rpc-server-addr",
@@ -209,10 +186,7 @@ pub struct ConnectionConfig {
         default_value = "5"
     )]
     pub max_resend_attempts: u8,
-    #[structopt(
-        long = "max-allowed-nodes",
-        help = "Maximum nodes to allow a connection to"
-    )]
+    #[structopt(long = "max-allowed-nodes", help = "Maximum nodes to allow a connection to")]
     pub max_allowed_nodes: Option<u16>,
     #[structopt(
         long = "max-allowed-nodes-percentage",
@@ -277,10 +251,7 @@ pub struct ConnectionConfig {
         default_value = "7200"
     )]
     pub bootstrapping_interval: u64,
-    #[structopt(
-        long = "max-latency",
-        help = "The maximum allowed connection latency in ms"
-    )]
+    #[structopt(long = "max-latency", help = "The maximum allowed connection latency in ms")]
     pub max_latency: Option<u64>,
     #[structopt(
         long = "hard-connection-limit",
@@ -308,7 +279,7 @@ pub struct ConnectionConfig {
     #[structopt(
         long = "dedup-size-short",
         help = "The size of the short deduplication queues",
-        default_value = "1024"
+        default_value = "4096"
     )]
     pub dedup_size_short: usize,
     #[structopt(
@@ -361,22 +332,13 @@ pub struct CommonConfig {
         default_value = "1000"
     )]
     pub network_ids: Vec<u16>,
-    #[structopt(
-        long = "override-config-dir",
-        help = "Override location of configuration files"
-    )]
+    #[structopt(long = "override-config-dir", help = "Override location of configuration files")]
     pub config_dir: Option<String>,
     #[structopt(long = "override-data-dir", help = "Override location of data files")]
     pub data_dir: Option<String>,
-    #[structopt(
-        long = "no-log-timestamp",
-        help = "Do not output timestamp in log output"
-    )]
+    #[structopt(long = "no-log-timestamp", help = "Do not output timestamp in log output")]
     pub no_log_timestamp: bool,
-    #[structopt(
-        long = "no-trust-bans",
-        help = "Don't blindly trust ban/unban requests"
-    )]
+    #[structopt(long = "no-trust-bans", help = "Don't blindly trust ban/unban requests")]
     pub no_trust_bans: bool,
     #[structopt(
         long = "minimum-peers-bucket",
@@ -495,58 +457,58 @@ impl Config {
 pub fn parse_config() -> Fallible<Config> {
     use crate::network::PROTOCOL_MAX_MESSAGE_SIZE;
     let conf = Config::from_args();
-    if conf.connection.max_allowed_nodes_percentage < 100 {
-        bail!(
-            "Can't provide a lower percentage than 100, as that would limit the maximum amount of \
-             nodes to less than the desired nodes is set to"
-        );
-    }
+
+    ensure!(
+        conf.connection.max_allowed_nodes_percentage >= 100,
+        "Can't provide a lower percentage than 100, as that would limit the maximum amount of \
+         nodes to less than the desired nodes is set to"
+    );
 
     if let Some(max_allowed_nodes) = conf.connection.max_allowed_nodes {
-        if max_allowed_nodes < conf.connection.desired_nodes {
-            bail!(
-                "Desired nodes set to {}, but max allowed nodes is set to {}. Max allowed nodes \
-                 must be greater or equal to desired amounnt of nodes"
-            );
-        }
+        ensure!(
+            max_allowed_nodes >= conf.connection.desired_nodes,
+            "Desired nodes set to {}, but max allowed nodes is set to {}. Max allowed nodes must \
+             be greater or equal to desired amounnt of nodes"
+        );
     }
 
     if let Some(hard_connection_limit) = conf.connection.hard_connection_limit {
-        if hard_connection_limit < conf.connection.desired_nodes {
-            bail!("Hard connection limit can't be less than what desired nodes is set to");
-        }
-    }
-
-    if conf.connection.relay_broadcast_percentage < 0.0
-        || conf.connection.relay_broadcast_percentage > 1.0
-    {
-        bail!("Percentage of peers to relay broadcasted packets to, must be between 0.0 and 1.0");
-    }
-
-    if conf.cli.baker.maximum_block_size > 4_000_000_000
-        || ((f64::from(conf.cli.baker.maximum_block_size) * 0.9).ceil()) as u32
-            > PROTOCOL_MAX_MESSAGE_SIZE
-    {
-        bail!(
-            "Maximum block size set higher than 90% of network protocol max size ({})",
-            PROTOCOL_MAX_MESSAGE_SIZE
+        ensure!(
+            hard_connection_limit >= conf.connection.desired_nodes,
+            "Hard connection limit can't be less than what desired nodes is set to"
         );
     }
 
-    if conf.connection.socket_read_size < 65535 {
-        bail!("Socket read size must be set to at least 65535");
-    }
+    ensure!(
+        conf.connection.relay_broadcast_percentage >= 0.0
+            && conf.connection.relay_broadcast_percentage <= 1.0,
+        "Percentage of peers to relay broadcasted packets to, must be between 0.0 and 1.0"
+    );
 
-    if conf.connection.socket_read_size < conf.connection.socket_write_size {
-        bail!("Socket read size must be greater or equal to the write size");
-    }
+    ensure!(
+        conf.cli.baker.maximum_block_size <= 4_000_000_000
+            && ((f64::from(conf.cli.baker.maximum_block_size) * 0.9).ceil()) as u32
+                <= PROTOCOL_MAX_MESSAGE_SIZE,
+        "Maximum block size set higher than 90% of network protocol max size ({})",
+        PROTOCOL_MAX_MESSAGE_SIZE
+    );
+
+    ensure!(
+        conf.connection.socket_read_size >= 65535,
+        "Socket read size must be set to at least 65535"
+    );
+
+    ensure!(
+        conf.connection.socket_read_size >= conf.connection.socket_write_size,
+        "Socket read size must be greater or equal to the write size"
+    );
 
     Ok(conf)
 }
 
 #[derive(Debug)]
 pub struct AppPreferences {
-    preferences_map:     Arc<RwLock<PreferencesMap<String>>>,
+    preferences_map:     PreferencesMap<String>,
     override_data_dir:   Option<String>,
     override_config_dir: Option<String>,
 }
@@ -558,26 +520,19 @@ impl AppPreferences {
             Ok(file) => {
                 let mut reader = BufReader::new(&file);
                 let load_result = PreferencesMap::<String>::load_from(&mut reader);
-                if let Ok(prefs) = load_result {
-                    AppPreferences {
-                        preferences_map:     Arc::new(RwLock::new(prefs)),
-                        override_data_dir:   override_data,
-                        override_config_dir: override_conf,
-                    }
-                } else {
-                    let prefs = PreferencesMap::<String>::new();
-                    AppPreferences {
-                        preferences_map:     Arc::new(RwLock::new(prefs)),
-                        override_data_dir:   override_data,
-                        override_config_dir: override_conf,
-                    }
+                let prefs = load_result.unwrap_or_else(|_| PreferencesMap::<String>::new());
+
+                AppPreferences {
+                    preferences_map:     prefs,
+                    override_data_dir:   override_data,
+                    override_config_dir: override_conf,
                 }
             }
             _ => match File::create(&file_path) {
                 Ok(_) => {
                     let prefs = PreferencesMap::<String>::new();
                     AppPreferences {
-                        preferences_map:     Arc::new(RwLock::new(prefs)),
+                        preferences_map:     prefs,
                         override_data_dir:   override_data,
                         override_config_dir: override_conf,
                     }
@@ -585,10 +540,7 @@ impl AppPreferences {
                 _ => panic!("Can't write to config file!"),
             },
         };
-        new_prefs.set_config(
-            APP_PREFERENCES_KEY_VERSION,
-            Some(super::VERSION.to_string()),
-        );
+        new_prefs.set_config(APP_PREFERENCES_KEY_VERSION, Some(super::VERSION.to_string()));
         new_prefs
     }
 
@@ -596,8 +548,7 @@ impl AppPreferences {
         match override_path {
             Some(ref path) => PathBuf::from(path),
             None => app_root(AppDataType::UserConfig, &APP_INFO)
-                .map_err(|e| panic!("Filesystem error encountered when creating app_root: {}", e))
-                .unwrap(),
+                .expect("Filesystem error encountered when creating app_root"),
         }
     }
 
@@ -605,8 +556,7 @@ impl AppPreferences {
         match override_path {
             Some(ref path) => PathBuf::from(path),
             None => app_root(AppDataType::UserData, &APP_INFO)
-                .map_err(|e| panic!("Filesystem error encountered when creating app_root: {}", e))
-                .unwrap(),
+                .expect("Filesystem error encountered when creating app_root"),
         }
     }
 
@@ -626,46 +576,30 @@ impl AppPreferences {
     }
 
     pub fn set_config(&mut self, key: &str, value: Option<String>) -> bool {
-        if let Ok(ref mut store) = safe_write!(self.preferences_map) {
-            match value {
-                Some(val) => {
-                    store.insert(key.to_string(), val);
-                }
-                _ => {
-                    store.remove(&key.to_string());
-                }
-            }
-            let file_path =
-                Self::calculate_config_file_path(&self.override_config_dir, APP_PREFERENCES_MAIN);
-            match OpenOptions::new().read(true).write(true).open(&file_path) {
-                Ok(ref mut file) => {
-                    let mut writer = BufWriter::new(file);
-                    if store.save_to(&mut writer).is_err() {
-                        error!("Couldn't save config file changes");
-                        return false;
-                    }
-                    writer.flush().ok();
-                    true
-                }
-                _ => {
+        match value {
+            Some(val) => self.preferences_map.insert(key.to_string(), val),
+            _ => self.preferences_map.remove(&key.to_string()),
+        };
+        let file_path =
+            Self::calculate_config_file_path(&self.override_config_dir, APP_PREFERENCES_MAIN);
+        match OpenOptions::new().read(true).write(true).open(&file_path) {
+            Ok(ref mut file) => {
+                let mut writer = BufWriter::new(file);
+                if self.preferences_map.save_to(&mut writer).is_err() {
                     error!("Couldn't save config file changes");
-                    false
+                    return false;
                 }
+                writer.flush().ok();
+                true
             }
-        } else {
-            false
+            _ => {
+                error!("Couldn't save config file changes");
+                false
+            }
         }
     }
 
-    pub fn get_config(&self, key: &str) -> Option<String> {
-        match safe_read!(self.preferences_map) {
-            Ok(pm) => match pm.get(key) {
-                Some(res) => Some(res.to_owned()),
-                _ => None,
-            },
-            Err(_) => None,
-        }
-    }
+    pub fn get_config(&self, key: &str) -> Option<String> { self.preferences_map.get(key).cloned() }
 
     pub fn get_user_app_dir(&self) -> PathBuf { Self::calculate_data_path(&self.override_data_dir) }
 

@@ -18,3 +18,4 @@ use_try_shorthand = true
 format_code_in_doc_comments = true
 overflow_delimited_expr = true
 normalize_doc_attributes = true
+use_small_heuristics = "Off"

@@ -1,24 +1,20 @@
 #[cfg(feature = "benchmark")]
 use crate::utils;
 use crate::{
-    common::{
-        counter::{TOTAL_MESSAGES_RECEIVED_COUNTER, TOTAL_MESSAGES_SENT_COUNTER},
-        P2PNodeId, PeerType,
-    },
+    common::{P2PNodeId, PeerType},
     configuration,
     failure::{Error, Fallible},
     network::{NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacketType},
     p2p::{
-        banned_nodes::BannedNode,
-        p2p_node::{send_broadcast_message, send_direct_message},
+        bans::BanId,
+        connectivity::{send_broadcast_message, send_direct_message},
         P2PNode,
     },
     proto::*,
 };
 
-use concordium_common::{
-    hybrid_buf::HybridBuf, ConsensusFfiResponse, ConsensusIsInCommitteeResponse, PacketType,
-};
+use byteorder::{BigEndian, WriteBytesExt};
+use concordium_common::{ConsensusFfiResponse, ConsensusIsInCommitteeResponse, PacketType};
 use consensus_rust::consensus::{ConsensusContainer, CALLBACK_QUEUE};
 use futures::future::Future;
 use globalstate_rust::tree::messaging::{ConsensusMessage, MessageType};
@@ -26,7 +22,7 @@ use grpcio::{self, Environment, ServerBuilder};
 
 use crossbeam_channel;
 use std::{
-    convert::TryFrom,
+    io::Write,
     net::{IpAddr, SocketAddr},
     str::FromStr,
     sync::{atomic::Ordering, Arc, Mutex},
@@ -118,7 +114,7 @@ impl RpcServerImpl {
 
         if req.has_message() && req.has_broadcast() {
             // TODO avoid double-copy
-            let msg = HybridBuf::try_from(req.get_message().get_value())?;
+            let msg = Arc::from(req.get_message().get_value());
             let network_id = NetworkId::from(req.get_network_id().get_value() as u16);
 
             if req.has_node_id() && !req.get_broadcast().get_value() && req.has_network_id() {
@@ -163,11 +159,7 @@ impl RpcServerImpl {
 
 macro_rules! authenticate {
     ($ctx:expr, $req:expr, $sink:expr, $access_token:expr, $inner:block) => {
-        match $ctx
-            .request_headers()
-            .iter()
-            .find(|&val| val.0 == "authentication")
-        {
+        match $ctx.request_headers().iter().find(|&val| val.0 == "authentication") {
             Some(val) => {
                 match String::from_utf8(val.1.to_vec()) {
                     Ok(at) => {
@@ -213,9 +205,8 @@ macro_rules! successful_json_response {
             let res = $inner_match(consensus);
             let mut r: SuccessfulJsonPayloadResponse = SuccessfulJsonPayloadResponse::new();
             r.set_json_value(res.to_owned());
-            let f = $sink
-                .success(r)
-                .map_err(move |e| error!("failed to reply {:?}: {:?}", $req, e));
+            let f =
+                $sink.success(r).map_err(move |e| error!("failed to reply {:?}: {:?}", $req, e));
             $ctx.spawn(f);
         }
     };
@@ -227,9 +218,8 @@ macro_rules! successful_bool_response {
             let res = $inner_match(consensus);
             let mut r: SuccessResponse = SuccessResponse::new();
             r.set_value(res.to_owned());
-            let f = $sink
-                .success(r)
-                .map_err(move |e| error!("failed to reply {:?}: {:?}", $req, e));
+            let f =
+                $sink.success(r).map_err(move |e| error!("failed to reply {:?}: {:?}", $req, e));
             $ctx.spawn(f);
         }
     };
@@ -241,9 +231,8 @@ macro_rules! successful_byte_response {
             let res = $inner_match(consensus);
             let mut r: SuccessfulBytePayloadResponse = SuccessfulBytePayloadResponse::new();
             r.set_payload(res);
-            let f = $sink
-                .success(r)
-                .map_err(move |e| error!("failed to reply {:?}: {:?}", $req, e));
+            let f =
+                $sink.success(r).map_err(move |e| error!("failed to reply {:?}: {:?}", $req, e));
             $ctx.spawn(f);
         }
     };
@@ -251,7 +240,7 @@ macro_rules! successful_byte_response {
 
 impl P2P for RpcServerImpl {
     fn peer_connect(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: PeerConnectRequest,
         sink: ::grpcio::UnarySink<SuccessResponse>,
@@ -279,7 +268,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn peer_version(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: Empty,
         sink: ::grpcio::UnarySink<StringResponse>,
@@ -287,15 +276,13 @@ impl P2P for RpcServerImpl {
         authenticate!(ctx, req, sink, self.access_token, {
             let mut r: StringResponse = StringResponse::new();
             r.set_value(crate::VERSION.to_owned());
-            let f = sink
-                .success(r)
-                .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+            let f = sink.success(r).map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);
         });
     }
 
     fn peer_uptime(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: Empty,
         sink: ::grpcio::UnarySink<NumberResponse>,
@@ -313,39 +300,35 @@ impl P2P for RpcServerImpl {
     }
 
     fn peer_total_received(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: Empty,
         sink: ::grpcio::UnarySink<NumberResponse>,
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
             let mut r: NumberResponse = NumberResponse::new();
-            r.set_value(TOTAL_MESSAGES_RECEIVED_COUNTER.load(Ordering::Relaxed) as u64);
-            let f = sink
-                .success(r)
-                .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+            r.set_value(self.node.total_received.load(Ordering::Relaxed));
+            let f = sink.success(r).map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);
         });
     }
 
     fn peer_total_sent(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: Empty,
         sink: ::grpcio::UnarySink<NumberResponse>,
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
             let mut r: NumberResponse = NumberResponse::new();
-            r.set_value(TOTAL_MESSAGES_SENT_COUNTER.load(Ordering::Relaxed) as u64);
-            let f = sink
-                .success(r)
-                .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+            r.set_value(self.node.total_sent.load(Ordering::Relaxed));
+            let f = sink.success(r).map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);
         });
     }
 
     fn send_message(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: SendMessageRequest,
         sink: ::grpcio::UnarySink<SuccessResponse>,
@@ -355,11 +338,7 @@ impl P2P for RpcServerImpl {
                 Ok(r) => sink.success(r),
                 Err(e) => sink.fail(grpcio::RpcStatus::new(
                     grpcio::RpcStatusCode::InvalidArgument,
-                    Some(
-                        e.name()
-                            .expect("Unwrapping of an error name failed")
-                            .to_string(),
-                    ),
+                    Some(e.name().expect("Unwrapping of an error name failed").to_string()),
                 )),
             };
             let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
@@ -368,7 +347,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn send_transaction(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: SendTransactionRequest,
         sink: ::grpcio::UnarySink<SuccessResponse>,
@@ -376,13 +355,18 @@ impl P2P for RpcServerImpl {
         authenticate!(ctx, req, sink, self.access_token, {
             match self.consensus {
                 Some(ref consensus) => {
-                    let payload = req.get_payload();
-                    let consensus_result = consensus.send_transaction(payload);
+                    let transaction = req.get_payload();
+                    let consensus_result = consensus.send_transaction(&transaction);
+
                     let gs_result = if consensus_result == ConsensusFfiResponse::Success {
+                        let mut payload = Vec::with_capacity(2 + transaction.len());
+                        payload.write_u16::<BigEndian>(PacketType::Transaction as u16).unwrap(); // safe
+                        payload.write_all(&transaction).unwrap(); // also infallible
+
                         CALLBACK_QUEUE.send_out_message(ConsensusMessage::new(
                             MessageType::Outbound(None),
                             PacketType::Transaction,
-                            HybridBuf::try_from(payload).unwrap_or_default(),
+                            Arc::from(payload),
                             vec![],
                         ))
                     } else {
@@ -408,10 +392,7 @@ impl P2P for RpcServerImpl {
                                     )),
                                 ))
                                 .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-                            error!(
-                                "Couldn't put transaction into outbound queue due to {:?}",
-                                e
-                            );
+                            error!("Couldn't put transaction into outbound queue due to {:?}", e);
                             ctx.spawn(f);
                         }
                         (_, e) => {
@@ -424,10 +405,7 @@ impl P2P for RpcServerImpl {
                                     )),
                                 ))
                                 .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-                            error!(
-                                "Consensus didn't accept transaction via gRPC due to {:?}",
-                                e
-                            );
+                            error!("Consensus didn't accept transaction via gRPC due to {:?}", e);
                             ctx.spawn(f);
                         }
                     }
@@ -446,7 +424,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn join_network(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: NetworkChangeRequest,
         sink: ::grpcio::UnarySink<SuccessResponse>,
@@ -457,10 +435,7 @@ impl P2P for RpcServerImpl {
                 && req.get_network_id().get_value() > 0
                 && req.get_network_id().get_value() < 100_000
             {
-                info!(
-                    "Attempting to join network {}",
-                    req.get_network_id().get_value()
-                );
+                info!("Attempting to join network {}", req.get_network_id().get_value());
                 let network_id = NetworkId::from(req.get_network_id().get_value() as u16);
                 self.node.send_joinnetwork(network_id);
                 r.set_value(true);
@@ -475,7 +450,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn leave_network(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: NetworkChangeRequest,
         sink: ::grpcio::UnarySink<SuccessResponse>,
@@ -486,10 +461,7 @@ impl P2P for RpcServerImpl {
                 && req.get_network_id().get_value() > 0
                 && req.get_network_id().get_value() < 100_000
             {
-                info!(
-                    "Attempting to leave network {}",
-                    req.get_network_id().get_value()
-                );
+                info!("Attempting to leave network {}", req.get_network_id().get_value());
                 let network_id = NetworkId::from(req.get_network_id().get_value() as u16);
                 self.node.send_leavenetwork(network_id);
                 r.set_value(true);
@@ -504,7 +476,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn peer_stats(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: PeersRequest,
         sink: ::grpcio::UnarySink<PeerStatsResponse>,
@@ -548,7 +520,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn peer_list(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: PeersRequest,
         sink: ::grpcio::UnarySink<PeerListResponse>,
@@ -594,7 +566,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn node_info(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: Empty,
         sink: ::grpcio::UnarySink<NodeInfoResponse>,
@@ -647,7 +619,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn subscription_start(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: Empty,
         sink: ::grpcio::UnarySink<SuccessResponse>,
@@ -665,7 +637,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn subscription_stop(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: Empty,
         sink: ::grpcio::UnarySink<SuccessResponse>,
@@ -682,7 +654,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn subscription_poll(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: Empty,
         sink: ::grpcio::UnarySink<P2PNetworkMessage>,
@@ -693,27 +665,22 @@ impl P2P for RpcServerImpl {
             let f = {
                 if let Some(network_msg) = self.receive_network_msg() {
                     if let NetworkMessagePayload::NetworkPacket(ref packet) = network_msg.payload {
-                        let mut inner_msg = packet.message.to_owned();
-                        if let Ok(view_inner_msg) = inner_msg.remaining_bytes() {
-                            let msg = view_inner_msg.into_owned();
+                        let msg = packet.message.to_vec();
 
-                            match packet.packet_type {
-                                NetworkPacketType::DirectMessage(..) => {
-                                    let mut i_msg = MessageDirect::new();
-                                    i_msg.set_data(msg);
-                                    r.set_message_direct(i_msg);
-                                }
-                                NetworkPacketType::BroadcastedMessage(..) => {
-                                    let mut i_msg = MessageBroadcast::new();
-                                    i_msg.set_data(msg);
-                                    r.set_message_broadcast(i_msg);
-                                }
-                            };
+                        match packet.packet_type {
+                            NetworkPacketType::DirectMessage(..) => {
+                                let mut i_msg = MessageDirect::new();
+                                i_msg.set_data(msg);
+                                r.set_message_direct(i_msg);
+                            }
+                            NetworkPacketType::BroadcastedMessage(..) => {
+                                let mut i_msg = MessageBroadcast::new();
+                                i_msg.set_data(msg);
+                                r.set_message_broadcast(i_msg);
+                            }
+                        };
 
-                            r.set_network_id(u32::from(packet.network_id.id));
-                        } else {
-                            r.set_message_none(MessageNone::new());
-                        }
+                        r.set_network_id(u32::from(packet.network_id.id));
                     }
                 } else {
                     r.set_message_none(MessageNone::new());
@@ -726,7 +693,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn ban_node(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: PeerElement,
         sink: ::grpcio::UnarySink<SuccessResponse>,
@@ -737,11 +704,9 @@ impl P2P for RpcServerImpl {
             let banned_node = if req.has_node_id() && !req.has_ip() {
                 P2PNodeId::from_str(&req.get_node_id().get_value().to_string())
                     .ok()
-                    .map(BannedNode::ById)
+                    .map(BanId::NodeId)
             } else if req.has_ip() && !req.has_node_id() {
-                IpAddr::from_str(&req.get_ip().get_value().to_string())
-                    .ok()
-                    .map(BannedNode::ByAddr)
+                IpAddr::from_str(&req.get_ip().get_value().to_string()).ok().map(BanId::Ip)
             } else {
                 None
             };
@@ -774,7 +739,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn unban_node(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: PeerElement,
         sink: ::grpcio::UnarySink<SuccessResponse>,
@@ -785,11 +750,9 @@ impl P2P for RpcServerImpl {
             let banned_node = if req.has_node_id() && !req.has_ip() {
                 P2PNodeId::from_str(&req.get_node_id().get_value().to_string())
                     .ok()
-                    .map(BannedNode::ById)
+                    .map(BanId::NodeId)
             } else if req.has_ip() && !req.has_node_id() {
-                IpAddr::from_str(&req.get_ip().get_value().to_string())
-                    .ok()
-                    .map(BannedNode::ByAddr)
+                IpAddr::from_str(&req.get_ip().get_value().to_string()).ok().map(BanId::Ip)
             } else {
                 None
             };
@@ -821,7 +784,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn get_consensus_status(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: Empty,
         sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
@@ -834,7 +797,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn start_baker(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: Empty,
         sink: ::grpcio::UnarySink<SuccessResponse>,
@@ -847,7 +810,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn stop_baker(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: Empty,
         sink: ::grpcio::UnarySink<SuccessResponse>,
@@ -860,7 +823,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn get_branches(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: Empty,
         sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
@@ -873,7 +836,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn get_block_info(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: BlockHash,
         sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
@@ -886,7 +849,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn get_ancestors(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: BlockHashAndAmount,
         sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
@@ -899,7 +862,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn get_account_list(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: BlockHash,
         sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
@@ -912,7 +875,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn get_instances(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: BlockHash,
         sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
@@ -925,7 +888,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn get_account_info(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: GetAddressInfoRequest,
         sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
@@ -938,7 +901,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn get_instance_info(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: GetAddressInfoRequest,
         sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
@@ -951,7 +914,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn get_reward_status(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: BlockHash,
         sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
@@ -964,7 +927,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn get_baker_private_data(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: Empty,
         sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
@@ -994,7 +957,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn get_birk_parameters(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: BlockHash,
         sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
@@ -1007,7 +970,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn get_module_list(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: BlockHash,
         sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
@@ -1020,7 +983,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn get_module_source(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: GetModuleSourceRequest,
         sink: ::grpcio::UnarySink<SuccessfulBytePayloadResponse>,
@@ -1033,7 +996,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn get_banned_peers(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: Empty,
         sink: ::grpcio::UnarySink<PeerListResponse>,
@@ -1049,13 +1012,13 @@ impl P2P for RpcServerImpl {
                                 let mut pe = PeerElement::new();
                                 let mut node_id = ::protobuf::well_known_types::StringValue::new();
                                 node_id.set_value(match banned_node {
-                                    BannedNode::ById(id) => id.to_string(),
+                                    BanId::NodeId(id) => id.to_string(),
                                     _ => "*".to_owned(),
                                 });
                                 pe.set_node_id(node_id);
                                 let mut ip = ::protobuf::well_known_types::StringValue::new();
                                 ip.set_value(match banned_node {
-                                    BannedNode::ByAddr(addr) => addr.to_string(),
+                                    BanId::Ip(addr) => addr.to_string(),
                                     _ => "*".to_owned(),
                                 });
                                 pe.set_ip(ip);
@@ -1075,7 +1038,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn shutdown(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: Empty,
         sink: ::grpcio::UnarySink<SuccessResponse>,
@@ -1093,23 +1056,17 @@ impl P2P for RpcServerImpl {
 
     #[cfg(feature = "benchmark")]
     fn tps_test(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: TpsRequest,
         sink: ::grpcio::UnarySink<SuccessResponse>,
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
             let f = {
-                let (network_id, id, dir) = (
-                    NetworkId::from(req.network_id as u16),
-                    req.id.clone(),
-                    req.directory.clone(),
-                );
+                let (network_id, id, dir) =
+                    (NetworkId::from(req.network_id as u16), req.id.clone(), req.directory.clone());
                 let _node_list = self.node.get_peer_stats(None);
-                if !_node_list
-                    .into_iter()
-                    .any(|s| P2PNodeId(s.id).to_string() == id)
-                {
+                if !_node_list.into_iter().any(|s| P2PNodeId(s.id).to_string() == id) {
                     sink.fail(grpcio::RpcStatus::new(
                         grpcio::RpcStatusCode::FailedPrecondition,
                         Some("I don't have the required peers!".to_string()),
@@ -1125,7 +1082,7 @@ impl P2P for RpcServerImpl {
                             self.node.self_peer.id,
                             to_send,
                             network_id,
-                            HybridBuf::try_from(message).unwrap(),
+                            Arc::from(message),
                         ) {
                             Ok(_) => {
                                 info!("Sent TPS test bytes of len {}", out_bytes_len);
@@ -1149,7 +1106,7 @@ impl P2P for RpcServerImpl {
 
     #[cfg(not(feature = "benchmark"))]
     fn tps_test(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: TpsRequest,
         sink: ::grpcio::UnarySink<SuccessResponse>,
@@ -1165,7 +1122,7 @@ impl P2P for RpcServerImpl {
 
     #[cfg(not(feature = "network_dump"))]
     fn dump_start(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: DumpRequest,
         sink: ::grpcio::UnarySink<SuccessResponse>,
@@ -1181,16 +1138,17 @@ impl P2P for RpcServerImpl {
 
     #[cfg(feature = "network_dump")]
     fn dump_start(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: DumpRequest,
         sink: ::grpcio::UnarySink<SuccessResponse>,
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
-            let f = if let Ok(locked_node) = self.node.lock() {
+            let f = {
                 let mut r = SuccessResponse::new();
                 let file_path = req.get_file().to_owned();
-                if locked_node
+                if self
+                    .node
                     .activate_dump(
                         if file_path.is_empty() {
                             "dump"
@@ -1206,11 +1164,6 @@ impl P2P for RpcServerImpl {
                     r.set_value(false);
                 }
                 sink.success(r)
-            } else {
-                sink.fail(grpcio::RpcStatus::new(
-                    grpcio::RpcStatusCode::ResourceExhausted,
-                    Some("Node can't be locked".to_string()),
-                ))
             };
             let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);
@@ -1219,7 +1172,7 @@ impl P2P for RpcServerImpl {
 
     #[cfg(not(feature = "network_dump"))]
     fn dump_stop(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: Empty,
         sink: ::grpcio::UnarySink<SuccessResponse>,
@@ -1235,22 +1188,17 @@ impl P2P for RpcServerImpl {
 
     #[cfg(feature = "network_dump")]
     fn dump_stop(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: Empty,
         sink: ::grpcio::UnarySink<SuccessResponse>,
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
-            let f = if let Ok(locked_node) = self.node.lock() {
+            let f = {
                 let mut r = SuccessResponse::new();
-                r.set_value(locked_node.stop_dump().is_ok());
+                r.set_value(self.node.stop_dump().is_ok());
 
                 sink.success(r)
-            } else {
-                sink.fail(grpcio::RpcStatus::new(
-                    grpcio::RpcStatusCode::ResourceExhausted,
-                    Some("Node can't be locked".to_string()),
-                ))
             };
             let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);
@@ -1258,7 +1206,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn get_skov_stats(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: Empty,
         sink: ::grpcio::UnarySink<SuccesfulStructResponse>,
@@ -1283,7 +1231,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn hook_transaction(
-        &self,
+        &mut self,
         ctx: ::grpcio::RpcContext<'_>,
         req: TransactionHash,
         sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
@@ -1301,7 +1249,7 @@ mod tests {
     use crate::{
         common::{P2PNodeId, PeerType},
         configuration,
-        p2p::p2p_node::send_broadcast_message,
+        p2p::connectivity::send_broadcast_message,
         proto::concordium_p2p_rpc_grpc::P2PClient,
         rpc::RpcServerImpl,
         test_utils::{
@@ -1310,10 +1258,9 @@ mod tests {
         },
     };
     use chrono::prelude::Utc;
-    use concordium_common::hybrid_buf::HybridBuf;
     use failure::Fallible;
     use grpcio::{ChannelBuilder, EnvBuilder};
-    use std::{convert::TryFrom, sync::Arc};
+    use std::sync::Arc;
 
     // Same as create_node_rpc_call_option but also outputs the Message receiver
     fn create_node_rpc_call_option_waiter(
@@ -1347,9 +1294,7 @@ mod tests {
         let client = P2PClient::new(ch);
 
         let mut req_meta_builder = ::grpcio::MetadataBuilder::new();
-        req_meta_builder
-            .add_str("Authentication", "rpcadmin")
-            .unwrap();
+        req_meta_builder.add_str("Authentication", "rpcadmin").unwrap();
         let meta_data = req_meta_builder.build();
 
         let call_options = ::grpcio::CallOption::default().headers(meta_data);
@@ -1391,10 +1336,7 @@ mod tests {
         pcr.set_ip(ip.clone());
         pcr.set_port(port_pb);
         // test it can not connect to inexistent peer
-        assert!(!client
-            .peer_connect_opt(&pcr, callopts.clone())
-            .unwrap()
-            .get_value());
+        assert!(!client.peer_connect_opt(&pcr, callopts.clone()).unwrap().get_value());
 
         let port = next_available_port();
 
@@ -1427,9 +1369,7 @@ mod tests {
         let (client, _, callopts) = create_node_rpc_call_option(PeerType::Node);
         let emp = crate::proto::Empty::new();
         let t1 = Utc::now().timestamp_millis() as u64;
-        let nt1 = client
-            .peer_uptime_opt(&emp.clone(), callopts.clone())?
-            .get_value();
+        let nt1 = client.peer_uptime_opt(&emp.clone(), callopts.clone())?.get_value();
         let t2 = Utc::now().timestamp_millis() as u64;
         let nt2 = client.peer_uptime_opt(&emp, callopts)?.get_value();
         let t3 = Utc::now().timestamp_millis() as u64;
@@ -1544,10 +1484,7 @@ mod tests {
         await_handshake(&node2)?;
         await_handshake(&rpc_serv.node)?;
         let req = crate::proto::PeersRequest::new();
-        let rcv = client
-            .peer_stats_opt(&req, callopts)?
-            .get_peerstats()
-            .to_vec();
+        let rcv = client.peer_stats_opt(&req, callopts)?.get_peerstats().to_vec();
         assert_eq!(node2.get_peer_stats(None).len(), 1);
         assert_eq!(rcv.len(), 1);
         assert_eq!(rcv[0].node_id, node2.id().to_string());
@@ -1575,10 +1512,7 @@ mod tests {
                 .to_string(),
             node2.id().to_string()
         );
-        assert_eq!(
-            elem.ip.unwrap().get_value(),
-            node2.internal_addr().ip().to_string()
-        );
+        assert_eq!(elem.ip.unwrap().get_value(), node2.internal_addr().ip().to_string());
         Ok(())
     }
 
@@ -1595,9 +1529,8 @@ mod tests {
 
     fn grpc_peer_list_node_type_str(peer_type: PeerType) -> Fallible<()> {
         let (client, _, callopts) = create_node_rpc_call_option(peer_type);
-        let reply = client
-            .peer_list_opt(&crate::proto::PeersRequest::new(), callopts)
-            .expect("rpc");
+        let reply =
+            client.peer_list_opt(&crate::proto::PeersRequest::new(), callopts).expect("rpc");
         assert_eq!(reply.peer_type, peer_type.to_string());
         Ok(())
     }
@@ -1606,16 +1539,11 @@ mod tests {
     fn test_node_info() -> Fallible<()> {
         let instant1 = (Utc::now().timestamp_millis() as u64) / 1000;
         let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
-        let reply = client
-            .node_info_opt(&crate::proto::Empty::new(), callopts)
-            .expect("rpc");
+        let reply = client.node_info_opt(&crate::proto::Empty::new(), callopts).expect("rpc");
         let instant2 = (Utc::now().timestamp_millis() as u64) / 1000;
         assert!((reply.current_localtime >= instant1) && (reply.current_localtime <= instant2));
         assert_eq!(reply.peer_type, "Node");
-        assert_eq!(
-            reply.node_id.unwrap().get_value(),
-            rpc_serv.node.id().to_string()
-        );
+        assert_eq!(reply.node_id.unwrap().get_value(), rpc_serv.node.id().to_string());
         Ok(())
     }
 
@@ -1636,9 +1564,7 @@ mod tests {
         // .subscription_stop_opt(&crate::proto::Empty::new(), callopts.clone())
         // .unwrap()
         // .get_value());
-        client
-            .subscription_start_opt(&crate::proto::Empty::new(), callopts.clone())
-            .unwrap();
+        client.subscription_start_opt(&crate::proto::Empty::new(), callopts.clone()).unwrap();
         assert!(client
             .subscription_stop_opt(&crate::proto::Empty::new(), callopts)
             .unwrap()
@@ -1661,7 +1587,7 @@ mod tests {
             node2.self_peer.id,
             vec![],
             crate::network::NetworkId::from(100),
-            HybridBuf::try_from(&b"Hey"[..])?,
+            Arc::from(&b"Hey"[..]),
         )?;
         // await_broadcast_message(&wt1).expect("Message sender disconnected");
         let ans = client.subscription_poll_opt(&crate::proto::Empty::new(), callopts.clone())?;
