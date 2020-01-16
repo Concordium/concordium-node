@@ -99,7 +99,7 @@ get_if_addrs = { version = "0.5" }
 uuid = { version = "0.7", default-features = false, optional = true }
 
 [build-dependencies]
-tonic-build = "0.1"
+tonic-build = { version = "0.1", default-features = false, features = ["transport"] }
 capnpc = { version = "^0.9", optional = true }
 flatc-rust = "^0.1"
 

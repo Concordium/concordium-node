@@ -1,4 +1,6 @@
 #[cfg(feature = "benchmark")]
+use crate::p2p::connectivity::send_direct_message;
+#[cfg(feature = "benchmark")]
 use crate::utils;
 use crate::{
     common::{P2PNodeId, PeerType},
@@ -776,6 +778,20 @@ impl P2p for RpcServerImpl {
         successful_json_response!(self, "HookTransaction", |consensus: &ConsensusContainer| {
             consensus.hook_transaction(&req.get_ref().transaction_hash)
         })
+    }
+
+    async fn send_message(
+        &self,
+        _req: Request<SendMessageRequest>,
+    ) -> Result<Response<SuccessResponse>, Status> {
+        unimplemented!();
+    }
+
+    async fn subscription_poll(
+        &self,
+        _req: Request<Empty>,
+    ) -> Result<Response<P2pNetworkMessage>, Status> {
+        unimplemented!();
     }
 }
 
