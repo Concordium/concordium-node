@@ -242,13 +242,13 @@ pub fn handle_consensus_inbound_msg(
         let consensus_result = send_msg_to_consensus(node, source, consensus, &request)?;
 
         // adjust the peer state(s) based on the feedback from Consensus
-        update_peer_states(peers_lock, &request, consensus_result);
+        update_peer_states(node, network_id, peers_lock, &request, consensus_result);
     } else {
         // relay external messages to Consensus
         let consensus_result = send_msg_to_consensus(node, source, consensus, &request)?;
 
         // adjust the peer state(s) based on the feedback from Consensus
-        update_peer_states(peers_lock, &request, consensus_result);
+        update_peer_states(node, network_id, peers_lock, &request, consensus_result);
 
         // rebroadcast incoming broadcasts if applicable
         if request.distribution_mode() == DistributionMode::Broadcast
@@ -418,6 +418,8 @@ pub fn check_peer_states(
 }
 
 fn update_peer_states(
+    node: &P2PNode,
+    network_id: NetworkId,
     peers_lock: &RwLock<PeerList>,
     request: &ConsensusMessage,
     consensus_result: ConsensusFfiResponse,
@@ -449,6 +451,23 @@ fn update_peer_states(
 
                 for up_to_date_peer in up_to_date_peers {
                     peers.peers.change_priority(&up_to_date_peer, PeerState::new(Pending));
+                }
+
+                // relay rebroadcastable direct messages to non-pending peers
+                for non_pending_peer in peers
+                    .peers
+                    .iter()
+                    .filter(|(_, &state)| state.status != Pending)
+                    .map(|(&id, _)| id)
+                {
+                    let _ = send_consensus_msg_to_net(
+                        node,
+                        Vec::new(),
+                        node.self_peer.id,
+                        Some(P2PNodeId(non_pending_peer)),
+                        network_id,
+                        (request.payload.clone(), request.variant),
+                    );
                 }
             }
             DistributionMode::Broadcast if consensus_result.is_pending() => {
