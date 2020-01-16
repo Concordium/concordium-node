@@ -13,7 +13,7 @@ use concordium_common::{ConsensusFfiResponse, ConsensusIsInCommitteeResponse, Pa
 use consensus_rust::consensus::{ConsensusContainer, CALLBACK_QUEUE};
 use futures::future::Future;
 use globalstate_rust::tree::messaging::{ConsensusMessage, MessageType};
-use tonic::{transport::Server, Request, Response, Status, Code};
+use tonic::{transport::Server, Code, Request, Response, Status};
 
 use std::{
     fs,
@@ -73,18 +73,12 @@ macro_rules! authenticate {
                 Ok(at) if at == $access_token => {}
                 _ => {
                     error!("failed to reply to {:?}: invalid authentication token", $req);
-                    return Err(Status::new(
-                        Code::Unauthenticated,
-                        "invalid authentication token",
-                    ));
+                    return Err(Status::new(Code::Unauthenticated, "invalid authentication token"));
                 }
             }
         } else {
             error!("failed to reply to {:?}: missing authentication token", $req);
-            return Err(Status::new(
-                Code::Unauthenticated,
-                "missing authentication token",
-            ));
+            return Err(Status::new(Code::Unauthenticated, "missing authentication token"));
         }
     };
 }
@@ -92,7 +86,9 @@ macro_rules! authenticate {
 macro_rules! successful_json_response {
     ($self:ident, $req_name:expr, $foo:expr) => {
         if let Some(ref consensus) = $self.consensus {
-            Ok(Response::new(SuccessfulJsonPayloadResponse { json_value: $foo(consensus) }))
+            Ok(Response::new(SuccessfulJsonPayloadResponse {
+                json_value: $foo(consensus),
+            }))
         } else {
             warn!("Can't respond to a {} request due to stopped Consensus", $req_name);
             Err(Status::new(Code::Internal, "Consensus container is not initialized!"))
@@ -103,7 +99,9 @@ macro_rules! successful_json_response {
 macro_rules! successful_bool_response {
     ($self:ident, $req_name:expr, $foo:expr) => {
         if let Some(ref consensus) = $self.consensus {
-            Ok(Response::new(SuccessResponse { value: $foo(consensus) }))
+            Ok(Response::new(SuccessResponse {
+                value: $foo(consensus),
+            }))
         } else {
             warn!("Can't respond to a {} request due to stopped Consensus", $req_name);
             Err(Status::new(Code::Internal, "Consensus container is not initialized!"))
@@ -114,7 +112,9 @@ macro_rules! successful_bool_response {
 macro_rules! successful_byte_response {
     ($self:ident, $req_name:expr, $foo:expr) => {
         if let Some(ref consensus) = $self.consensus {
-            Ok(Response::new(SuccessfulBytePayloadResponse { payload: $foo(consensus) }))
+            Ok(Response::new(SuccessfulBytePayloadResponse {
+                payload: $foo(consensus),
+            }))
         } else {
             warn!("Can't respond to a {} request due to stopped Consensus", $req_name);
             Err(Status::new(Code::Internal, "Consensus container is not initialized!"))
@@ -130,7 +130,9 @@ impl P2p for RpcServerImpl {
     ) -> Result<Response<SuccessResponse>, Status> {
         authenticate!(req, self.access_token);
         self.node.rpc_subscription_start();
-        Ok(Response::new(SuccessResponse { value: true }))
+        Ok(Response::new(SuccessResponse {
+            value: true,
+        }))
     }
 
     async fn subscription_stop(
@@ -139,7 +141,9 @@ impl P2p for RpcServerImpl {
     ) -> Result<Response<SuccessResponse>, Status> {
         authenticate!(req, self.access_token);
         self.node.rpc_subscription_stop();
-        Ok(Response::new(SuccessResponse { value: true }))
+        Ok(Response::new(SuccessResponse {
+            value: true,
+        }))
     }
 
     async fn peer_connect(
@@ -153,26 +157,26 @@ impl P2p for RpcServerImpl {
                 ip
             } else {
                 warn!("Invalid IP address in a PeerConnect request");
-                return Err(Status::new(
-                    Code::InvalidArgument,
-                    "Invalid IP address",
-                ))
+                return Err(Status::new(Code::InvalidArgument, "Invalid IP address"));
             };
             let port = req.port.unwrap() as u16;
             let addr = SocketAddr::new(ip, port);
             let status = self.node.connect(PeerType::Node, addr, None).is_ok();
-            Ok(Response::new(SuccessResponse { value: status }))
+            Ok(Response::new(SuccessResponse {
+                value: status,
+            }))
         } else {
-            Ok(Response::new(SuccessResponse { value: false }))
+            Ok(Response::new(SuccessResponse {
+                value: false,
+            }))
         }
     }
 
-    async fn peer_version(
-        &self,
-        req: Request<Empty>,
-    ) -> Result<Response<StringResponse>, Status> {
+    async fn peer_version(&self, req: Request<Empty>) -> Result<Response<StringResponse>, Status> {
         authenticate!(req, self.access_token);
-        let resp = StringResponse { value: crate::VERSION.to_owned() };
+        let resp = StringResponse {
+            value: crate::VERSION.to_owned(),
+        };
         Ok(Response::new(resp))
     }
 
@@ -181,7 +185,9 @@ impl P2p for RpcServerImpl {
         req: Request<Empty>,
     ) -> Result<tonic::Response<NumberResponse>, Status> {
         authenticate!(req, self.access_token);
-        Ok(Response::new(NumberResponse { value: self.node.get_uptime() as u64 }))
+        Ok(Response::new(NumberResponse {
+            value: self.node.get_uptime() as u64,
+        }))
     }
 
     async fn peer_total_received(
@@ -190,7 +196,9 @@ impl P2p for RpcServerImpl {
     ) -> Result<Response<NumberResponse>, Status> {
         authenticate!(req, self.access_token);
         let value = self.node.total_received.load(Ordering::Relaxed);
-        Ok(Response::new(NumberResponse { value }))
+        Ok(Response::new(NumberResponse {
+            value,
+        }))
     }
 
     async fn peer_total_sent(
@@ -199,7 +207,9 @@ impl P2p for RpcServerImpl {
     ) -> Result<Response<NumberResponse>, Status> {
         authenticate!(req, self.access_token);
         let value = self.node.total_sent.load(Ordering::Relaxed);
-        Ok(Response::new(NumberResponse { value }))
+        Ok(Response::new(NumberResponse {
+            value,
+        }))
     }
 
     async fn send_transaction(
@@ -227,9 +237,9 @@ impl P2p for RpcServerImpl {
                 Ok(())
             };
             match (result, consensus_result) {
-                (Ok(_), ConsensusFfiResponse::Success) => {
-                    Ok(Response::new(SuccessResponse { value: true }))
-                }
+                (Ok(_), ConsensusFfiResponse::Success) => Ok(Response::new(SuccessResponse {
+                    value: true,
+                })),
                 (Err(e), ConsensusFfiResponse::Success) => {
                     warn!("Couldn't put a transaction in the outbound queue due to {:?}", e);
                     Err(Status::new(
@@ -247,10 +257,7 @@ impl P2p for RpcServerImpl {
             }
         } else {
             warn!("Can't respond to a SendTransaction request due to stopped Consensus");
-            Err(Status::new(
-                Code::Internal,
-                "Consensus container is not initialized!",
-            ))
+            Err(Status::new(Code::Internal, "Consensus container is not initialized!"))
         }
     }
 
@@ -260,13 +267,20 @@ impl P2p for RpcServerImpl {
     ) -> Result<Response<SuccessResponse>, Status> {
         authenticate!(req, self.access_token);
         let req = req.get_ref();
-        if req.network_id.is_some() && req.network_id.unwrap() > 0 && req.network_id.unwrap() < 100_000 {
+        if req.network_id.is_some()
+            && req.network_id.unwrap() > 0
+            && req.network_id.unwrap() < 100_000
+        {
             info!("Attempting to join network {}", req.network_id.unwrap());
             let network_id = NetworkId::from(req.network_id.unwrap() as u16);
             self.node.send_joinnetwork(network_id);
-            Ok(Response::new(SuccessResponse { value: true }))
+            Ok(Response::new(SuccessResponse {
+                value: true,
+            }))
         } else {
-            Ok(Response::new(SuccessResponse { value: false }))
+            Ok(Response::new(SuccessResponse {
+                value: false,
+            }))
         }
     }
 
@@ -276,13 +290,20 @@ impl P2p for RpcServerImpl {
     ) -> Result<Response<SuccessResponse>, Status> {
         authenticate!(req, self.access_token);
         let req = req.get_ref();
-        if req.network_id.is_some() && req.network_id.unwrap() > 0 && req.network_id.unwrap() < 100_000 {
+        if req.network_id.is_some()
+            && req.network_id.unwrap() > 0
+            && req.network_id.unwrap() < 100_000
+        {
             info!("Attempting to leave network {}", req.network_id.unwrap());
             let network_id = NetworkId::from(req.network_id.unwrap() as u16);
             self.node.send_leavenetwork(network_id);
-            Ok(Response::new(SuccessResponse { value: true }))
+            Ok(Response::new(SuccessResponse {
+                value: true,
+            }))
         } else {
-            Ok(Response::new(SuccessResponse { value: false }))
+            Ok(Response::new(SuccessResponse {
+                value: false,
+            }))
         }
     }
 
@@ -298,15 +319,13 @@ impl P2p for RpcServerImpl {
                 PeerType::Node => true,
                 PeerType::Bootstrapper => req.get_ref().include_bootstrappers,
             })
-            .map(|peer|
-                peer_stats_response::PeerStats {
-                    node_id: format!("{:0>16x}", peer.id),
-                    packets_sent: peer.sent,
-                    packets_received: peer.received,
-                    valid_latency: peer.valid_latency,
-                    measured_latency: peer.measured_latency,
-                }
-            )
+            .map(|peer| peer_stats_response::PeerStats {
+                node_id:          format!("{:0>16x}", peer.id),
+                packets_sent:     peer.sent,
+                packets_received: peer.received,
+                valid_latency:    peer.valid_latency,
+                measured_latency: peer.measured_latency,
+            })
             .collect();
 
         Ok(Response::new(PeerStatsResponse {
@@ -329,69 +348,59 @@ impl P2p for RpcServerImpl {
                 PeerType::Node => true,
                 PeerType::Bootstrapper => req.get_ref().include_bootstrappers,
             })
-            .map(|peer| {
-                PeerElement {
-                    node_id: Some(format!("{:0>16x}", peer.id)),
-                    ip: Some(peer.addr.ip().to_string()),
-                    port: Some(peer.addr.port() as u32),
-                }
+            .map(|peer| PeerElement {
+                node_id: Some(format!("{:0>16x}", peer.id)),
+                ip:      Some(peer.addr.ip().to_string()),
+                port:    Some(peer.addr.port() as u32),
             })
             .collect();
 
         Ok(Response::new(PeerListResponse {
             peer_type: self.node.peer_type().to_string(),
-            peer: list,
+            peer:      list,
         }))
     }
 
-    async fn node_info(
-        &self,
-        req: Request<Empty>,
-    ) -> Result<Response<NodeInfoResponse>, Status> {
+    async fn node_info(&self, req: Request<Empty>) -> Result<Response<NodeInfoResponse>, Status> {
         authenticate!(req, self.access_token);
         let node_id = Some(self.node.id().to_string());
         let peer_type = self.node.peer_type().to_string();
-        let current_localtime = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards")
-            .as_secs();
+        let current_localtime =
+            SystemTime::now().duration_since(UNIX_EPOCH).expect("Time went backwards").as_secs();
         let beta_username = {
-            #[cfg(feature = "beta")] {
+            #[cfg(feature = "beta")]
+            {
                 Some(self.node.config.beta_username.clone())
             }
-            #[cfg(not(feature = "beta"))] {
+            #[cfg(not(feature = "beta"))]
+            {
                 None
             }
         };
         Ok(Response::new(match self.consensus {
-            Some(ref consensus) => {
-                NodeInfoResponse {
-                    node_id,
-                    current_localtime,
-                    peer_type,
-                    consensus_baker_running: consensus.is_baking(),
-                    consensus_running: true,
-                    consensus_type: consensus.consensus_type.to_string(),
-                    consensus_baker_committee:
-                        consensus.in_baking_committee()
-                            == ConsensusIsInCommitteeResponse::ActiveInCommittee,
-                    consensus_finalizer_committee: consensus.in_finalization_committee(),
-                    beta_username,
-                }
-            }
-            None => {
-                NodeInfoResponse {
-                    node_id,
-                    current_localtime,
-                    peer_type,
-                    consensus_baker_running: false,
-                    consensus_running: false,
-                    consensus_type: "Inactive".to_owned(),
-                    consensus_baker_committee: false,
-                    consensus_finalizer_committee: false,
-                    beta_username,
-                }
-            }
+            Some(ref consensus) => NodeInfoResponse {
+                node_id,
+                current_localtime,
+                peer_type,
+                consensus_baker_running: consensus.is_baking(),
+                consensus_running: true,
+                consensus_type: consensus.consensus_type.to_string(),
+                consensus_baker_committee: consensus.in_baking_committee()
+                    == ConsensusIsInCommitteeResponse::ActiveInCommittee,
+                consensus_finalizer_committee: consensus.in_finalization_committee(),
+                beta_username,
+            },
+            None => NodeInfoResponse {
+                node_id,
+                current_localtime,
+                peer_type,
+                consensus_baker_running: false,
+                consensus_running: false,
+                consensus_type: "Inactive".to_owned(),
+                consensus_baker_committee: false,
+                consensus_finalizer_committee: false,
+                beta_username,
+            },
         }))
     }
 
@@ -411,9 +420,9 @@ impl P2p for RpcServerImpl {
 
         if let Some(to_ban) = banned_node {
             match self.node.ban_node(to_ban) {
-                Ok(_) => {
-                    Ok(Response::new(SuccessResponse { value: true }))
-                }
+                Ok(_) => Ok(Response::new(SuccessResponse {
+                    value: true,
+                })),
                 Err(e) => {
                     warn!("couldn't fulfill a BanNode request: {}", e);
                     Err(Status::new(
@@ -423,10 +432,7 @@ impl P2p for RpcServerImpl {
                 }
             }
         } else {
-            Err(Status::new(
-                Code::InvalidArgument,
-                "Missing IP or address to ban",
-            ))
+            Err(Status::new(Code::InvalidArgument, "Missing IP or address to ban"))
         }
     }
 
@@ -446,9 +452,9 @@ impl P2p for RpcServerImpl {
 
         if let Some(to_unban) = banned_node {
             match self.node.unban_node(to_unban) {
-                Ok(_) => {
-                    Ok(Response::new(SuccessResponse { value: true }))
-                }
+                Ok(_) => Ok(Response::new(SuccessResponse {
+                    value: true,
+                })),
                 Err(e) => {
                     warn!("couldn't fulfill an UnbanNode request: {}", e);
                     Err(Status::new(
@@ -458,10 +464,7 @@ impl P2p for RpcServerImpl {
                 }
             }
         } else {
-            Err(Status::new(
-                Code::InvalidArgument,
-                "Missing IP or address to unban",
-            ))
+            Err(Status::new(Code::InvalidArgument, "Missing IP or address to unban"))
         }
     }
 
@@ -475,20 +478,14 @@ impl P2p for RpcServerImpl {
         })
     }
 
-    async fn start_baker(
-        &self,
-        req: Request<Empty>,
-    ) -> Result<Response<SuccessResponse>, Status> {
+    async fn start_baker(&self, req: Request<Empty>) -> Result<Response<SuccessResponse>, Status> {
         authenticate!(req, self.access_token);
         successful_bool_response!(self, "StartBaker", |consensus: &ConsensusContainer| {
             consensus.start_baker()
         })
     }
 
-    async fn stop_baker(
-        &self,
-        req: Request<Empty>,
-    ) -> Result<Response<SuccessResponse>, Status> {
+    async fn stop_baker(&self, req: Request<Empty>) -> Result<Response<SuccessResponse>, Status> {
         authenticate!(req, self.access_token);
         successful_bool_response!(self, "StopBaker", |consensus: &ConsensusContainer| {
             consensus.stop_baker()
@@ -582,7 +579,9 @@ impl P2p for RpcServerImpl {
         authenticate!(req, self.access_token);
         if let Some(file) = &self.baker_private_data_json_file {
             if let Ok(data) = fs::read_to_string(file) {
-                Ok(Response::new(SuccessfulJsonPayloadResponse { json_value: data }))
+                Ok(Response::new(SuccessfulJsonPayloadResponse {
+                    json_value: data,
+                }))
             } else {
                 Err(Status::new(
                     Code::FailedPrecondition,
@@ -663,12 +662,11 @@ impl P2p for RpcServerImpl {
         }))
     }
 
-    async fn shutdown(
-        &self,
-        req: Request<Empty>,
-    ) -> Result<Response<SuccessResponse>, Status> {
+    async fn shutdown(&self, req: Request<Empty>) -> Result<Response<SuccessResponse>, Status> {
         authenticate!(req, self.access_token);
-        Ok(Response::new(SuccessResponse { value: self.node.close() }))
+        Ok(Response::new(SuccessResponse {
+            value: self.node.close(),
+        }))
     }
 
     #[cfg(feature = "benchmark")]
@@ -709,7 +707,9 @@ impl P2p for RpcServerImpl {
                 }
             }))
             .any(|res| res.is_err());
-            Ok(Response::new(SuccessResponse { value: result }))
+            Ok(Response::new(SuccessResponse {
+                value: result,
+            }))
         }
     }
 
@@ -719,10 +719,7 @@ impl P2p for RpcServerImpl {
         _req: Request<TpsRequest>,
     ) -> Result<Response<SuccessResponse>, Status> {
         warn!("TpsTest RPC request received, but the \"benchmark\" feature is not active");
-        Err(Status::new(
-            Code::Unavailable,
-            "Feature \"benchmark\" is not active",
-        ))
+        Err(Status::new(Code::Unavailable, "Feature \"benchmark\" is not active"))
     }
 
     #[cfg(not(feature = "network_dump"))]
@@ -731,10 +728,7 @@ impl P2p for RpcServerImpl {
         _req: Request<DumpRequest>,
     ) -> Result<Response<SuccessResponse>, Status> {
         warn!("DumpStart RPC request received, but the \"network_dump\" feature is not active");
-        Err(Status::new(
-            Code::Unavailable,
-            "Feature \"network_dump\" is not active",
-        ))
+        Err(Status::new(Code::Unavailable, "Feature \"network_dump\" is not active"))
     }
 
     #[cfg(feature = "network_dump")]
@@ -755,28 +749,23 @@ impl P2p for RpcServerImpl {
                 req.get_ref().raw,
             )
             .is_ok();
-        Ok(Response::new(SuccessResponse { value: result }))
+        Ok(Response::new(SuccessResponse {
+            value: result,
+        }))
     }
 
     #[cfg(not(feature = "network_dump"))]
-    async fn dump_stop(
-        &self,
-        _req: Request<Empty>,
-    ) -> Result<Response<SuccessResponse>, Status> {
+    async fn dump_stop(&self, _req: Request<Empty>) -> Result<Response<SuccessResponse>, Status> {
         warn!("DumpStop RPC request received, but the \"network_dump\" feature is not active");
-        Err(Status::new(
-            Code::Unavailable,
-            "Feature \"network_dump\" is not active",
-        ))
+        Err(Status::new(Code::Unavailable, "Feature \"network_dump\" is not active"))
     }
 
     #[cfg(feature = "network_dump")]
-    async fn dump_stop(
-        &self,
-        req: Request<Empty>,
-    ) -> Result<Response<SuccessResponse>, Status> {
+    async fn dump_stop(&self, req: Request<Empty>) -> Result<Response<SuccessResponse>, Status> {
         authenticate!(req, self.access_token);
-        Ok(Response::new(SuccessResponse { value: self.node.stop_dump().is_ok() }))
+        Ok(Response::new(SuccessResponse {
+            value: self.node.stop_dump().is_ok(),
+        }))
     }
 
     async fn hook_transaction(
@@ -859,9 +848,7 @@ mod tests {
     pub fn test_grpc_noauth() -> Fallible<()> {
         let (client, _, _) = create_node_rpc_call_option(PeerType::Node);
         match client.peer_version(&crate::proto::Empty::new()) {
-            Err(::grpcio::Error::RpcFailure(ref x)) => {
-                assert_eq!(x.status, Code::Unauthenticated)
-            }
+            Err(::grpcio::Error::RpcFailure(ref x)) => assert_eq!(x.status, Code::Unauthenticated),
             _ => panic!("Wrong rejection"),
         }
 
@@ -1180,9 +1167,7 @@ mod tests {
         req.set_id(node2.id().to_string());
         req.set_directory("/tmp/blobs".to_string());
         if let Err(grpcio::Error::RpcFailure(s)) = client.tps_test_opt(&req, callopts) {
-            if Code::Unavailable == s.status
-                && s.details.unwrap() == "Feature not activated"
-            {
+            if Code::Unavailable == s.status && s.details.unwrap() == "Feature not activated" {
                 return Ok(());
             }
         }
