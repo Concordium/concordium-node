@@ -1,6 +1,6 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE NumericUnderscores, ScopedTypeVariables, DataKinds #-}
 {-# LANGUAGE RecordWildCards, MultiParamTypeClasses, FlexibleInstances, GeneralizedNewtypeDeriving, LambdaCase, FlexibleContexts #-}
 {-# LANGUAGE DerivingStrategies, DerivingVia, StandaloneDeriving #-}
 module Concordium.GlobalState.Basic.TreeState where
@@ -10,7 +10,7 @@ import Data.List as List
 import Data.Foldable
 import Control.Monad.State
 import Control.Exception
-import Data.Serialize (runGet)
+import Data.Serialize (Serialize, runGet, runPut)
 
 import qualified Data.Map.Strict as Map
 import qualified Data.HashMap.Strict as HM
@@ -32,8 +32,10 @@ import Concordium.Types.Transactions
 import Concordium.GlobalState.Basic.Block
 import Concordium.GlobalState.Basic.BlockPointer
 
-import Database.LMDB.Simple
+import Database.LMDB.Simple as LMDB
 import System.Directory
+import Data.ByteString (ByteString, append)
+import Database.LMDB.Raw (LMDB_Error(..), MDB_ErrCode(MDB_MAP_FULL))
 
 data SkovData bs = SkovData {
     -- |Map of all received blocks by hash.
@@ -45,7 +47,10 @@ data SkovData bs = SkovData {
     -- |Priority queue of blocks waiting for their last finalized block to be finalized, ordered by height of the last finalized block
     _blocksAwaitingLastFinalized :: !(MPQ.MinPQueue BlockHeight PendingBlock),
 
+    _limits :: Limits,
     _storeEnv :: Environment ReadWrite,
+    _blockStore :: Database BlockHash ByteString,
+    _finalizationRecordStore :: Database FinalizationIndex FinalizationRecord,
 
     -- |List of finalization records with the blocks that they finalize, starting from genesis
     _finalizationList :: !(Seq.Seq (FinalizationRecord, BasicBlockPointer bs)),
@@ -82,20 +87,48 @@ instance Show (SkovData bs) where
     show SkovData{..} = "Finalized: " ++ intercalate "," (take 6 . show . _bpHash . snd <$> toList _finalizationList) ++ "\n" ++
         "Branches: " ++ intercalate "," ( (('[':) . (++"]") . intercalate "," . map (take 6 . show . _bpHash)) <$> toList _branches)
 
+putOrResize :: (SubMode emode ReadWrite, Serialize k, Serialize v) => Limits -> String -> Environment emode -> Database k v -> k -> v -> IO (Maybe (Limits, Environment emode, Database k v))
+putOrResize lim name env db k v =
+  catch (do
+            transaction env $ LMDB.put db k (Just v)
+            return $ Just (lim, env, db))
+  (\(e :: LMDB_Error) -> case e of
+      LMDB_Error _ _ (Right MDB_MAP_FULL) -> do
+        dir <- defaultLocation
+        let lim' = lim { mapSize = mapSize lim + 64_000_000 }
+        env' <- openEnvironment dir lim'
+        db' <- transaction env' $ (getDatabase (Just name) :: LMDB.Transaction ReadWrite (Database k v))
+        transaction env' $ LMDB.put db' k (Just v)
+        return $ Just (lim', env', db')
+      _ -> error $ show e
+  )
+
+
+
 -- |Initial skov data with default runtime parameters (block size = 10MB).
-initialSkovDataDefault :: GenesisData -> bs -> IO (SkovData bs)
+initialSkovDataDefault :: GenesisData -> bs -> ByteString -> IO (SkovData bs)
 initialSkovDataDefault = initialSkovData defaultRuntimeParameters
 
-initialSkovData :: RuntimeParameters -> GenesisData -> bs -> IO (SkovData bs)
-initialSkovData rp gd genState = do
+initialSkovData :: RuntimeParameters -> GenesisData -> bs -> ByteString -> IO (SkovData bs)
+initialSkovData rp gd genState serState = do
   dir <- defaultLocation
-  env <- openEnvironment dir limits
+  env <- openEnvironment dir lim
+  dbB <- transaction env $
+    (getDatabase (Just "blocks") :: LMDB.Transaction ReadWrite (Database BlockHash ByteString))
+  dbF <- transaction env $
+    (getDatabase (Just "finalization") :: LMDB.Transaction ReadWrite (Database FinalizationIndex FinalizationRecord))
+  -- Add genesis block and finalization record to the database
+  transaction env $ LMDB.put dbB gbh (Just $ append (runPut (putBlock gb)) serState)
+  transaction env $ LMDB.put dbF 0 (Just gbfin)
   return SkovData {
-            _blockTable = HM.singleton gbh (TS.BlockFinalized),
+            _blockTable = HM.singleton gbh (TS.BlockFinalized 0),
             _possiblyPendingTable = HM.empty,
             _possiblyPendingQueue = MPQ.empty,
             _blocksAwaitingLastFinalized = MPQ.empty,
+            _limits = lim,
             _storeEnv = env,
+            _blockStore = dbB,
+            _finalizationRecordStore = dbF,
             _finalizationList = Seq.singleton (gbfin, gb),
             _finalizationPool = Map.empty,
             _branches = Seq.empty,
@@ -110,7 +143,7 @@ initialSkovData rp gd genState = do
   where gb = makeGenesisBlockPointer gd genState
         gbh = _bpHash gb
         gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
-        limits = defaultLimits { mapSize = 64_000_000 } --64MB
+        lim = defaultLimits { mapSize = 64_000_000, maxDatabases = 2 } --64MB
 
 defaultLocation :: IO FilePath
 defaultLocation = do
@@ -122,13 +155,40 @@ instance (bs ~ GS.BlockState m) => GS.GlobalStateTypes (GS.TreeStateM (SkovData 
     type PendingBlock (GS.TreeStateM (SkovData bs) m) = PendingBlock
     type BlockPointer (GS.TreeStateM (SkovData bs) m) = BasicBlockPointer bs
 
-instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadState (SkovData bs) m) => TS.TreeStateMonad (GS.TreeStateM (SkovData bs) m) where
+storeBlock :: (bs ~ GS.BlockState m, BS.BlockStateStorage m, MonadIO m, MonadState (SkovData bs) m) => BasicBlockPointer (TS.BlockState m) -> m ()
+storeBlock bp = do
+  lim <- use limits
+  env <- use storeEnv
+  dbB <- use blockStore
+  bs <- BS.putBlockState (_bpState bp)
+  retB <- liftIO $ putOrResize lim "blocks" env dbB (getHash bp) $ runPut (putBlock bp >> bs)
+  case retB of
+    Just (l, e, d) -> do
+      limits .= l
+      storeEnv .= e
+      blockStore .= d
+    _ -> return ()
+
+storeFinalizationRecord :: (BS.BlockStateStorage m, MonadIO m, MonadState (SkovData bs) m) => FinalizationRecord -> m ()
+storeFinalizationRecord fr = do
+  lim <- use limits
+  env <- use storeEnv
+  dbF <- use finalizationRecordStore
+  retF <- liftIO $ putOrResize lim "finalization" env dbF (finalizationIndex fr) fr
+  case retF of
+    Just (l, e, d) -> do
+      limits .= l
+      storeEnv .= e
+      finalizationRecordStore .= d
+    _ -> return ()
+
+instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovData bs) m) => TS.TreeStateMonad (GS.TreeStateM (SkovData bs) m) where
     blockState = return . _bpState
     makePendingBlock key slot parent bid pf n lastFin trs time = return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
     importPendingBlock blockBS rectime =
         case runGet (getBlock $ utcTimeToTransactionTime rectime) blockBS of
             Left err -> return $ Left $ "Block deserialization failed: " ++ err
-            Right (GenesisBlock {}) -> return $ Left $ "Block desrialization failed: unexpected genesis block"
+            Right (GenesisBlock {}) -> return $ Left $ "Block deserialization failed: unexpected genesis block"
             Right (NormalBlock block0) -> return $ Right $ makePendingBlock block0 rectime
     getBlockStatus bh = use (blockTable . at bh)
     makeLiveBlock block parent lastFin st arrTime energy = do
@@ -136,8 +196,10 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadState (Sko
             blockTable . at (getHash block) ?= TS.BlockAlive blockP
             return blockP
     markDead bh = blockTable . at bh ?= TS.BlockDead
-    markFinalized bh _ = use (blockTable . at bh) >>= \case
-            Just (TS.BlockAlive _) -> blockTable . at bh ?= TS.BlockFinalized
+    markFinalized bh fr = use (blockTable . at bh) >>= \case
+            Just (TS.BlockAlive bp) -> do
+              storeBlock bp
+              blockTable . at bh ?= TS.BlockFinalized (finalizationIndex fr)
             _ -> return ()
     markPending pb = blockTable . at (getHash pb) ?= TS.BlockPending pb
     getGenesisBlockPointer = use genesisBlockPointer
@@ -146,7 +208,9 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadState (Sko
             _ Seq.:|> (finRec,lf) -> return (lf, finRec)
             _ -> error "empty finalization list"
     getNextFinalizationIndex = FinalizationIndex . fromIntegral . Seq.length <$> use finalizationList
-    addFinalization newFinBlock finRec = finalizationList %= (Seq.:|> (finRec, newFinBlock))
+    addFinalization newFinBlock finRec = do
+      storeFinalizationRecord finRec
+      finalizationList %= (Seq.:|> (finRec, newFinBlock))
     getFinalizationAtIndex finIndex = Seq.lookup (fromIntegral finIndex) <$> use finalizationList
     getFinalizationFromIndex finIndex = toList . Seq.drop (fromIntegral finIndex) <$> use finalizationList
     getBranches = use branches

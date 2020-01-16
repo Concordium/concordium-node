@@ -400,8 +400,8 @@ instance (HasGlobalStateContext (PairGSContext lc rc) r,
             (Nothing, Nothing) -> return Nothing
             (Just (BlockAlive bp1), Just (BlockAlive bp2)) -> return $ Just (BlockAlive (PairBlockData (bp1, bp2)))
             (Just BlockDead, Just BlockDead) -> return $ Just BlockDead
-            (Just (BlockFinalized), Just (BlockFinalized)) ->
-                return $ Just $ BlockFinalized
+            (Just (BlockFinalized f), Just (BlockFinalized g)) ->
+                assert (f == g) $ return $ Just $ BlockFinalized f
             (Just (BlockPending pb1), Just (BlockPending pb2)) -> return $ Just (BlockPending (PairBlockData (pb1, pb2)))
             _ -> error $ "getBlockStatus (Paired): block statuses do not match: " ++ show bs1 ++ ", " ++ show bs2
     makeLiveBlock (PairBlockData (pb1, pb2)) (PairBlockData (parent1, parent2)) (PairBlockData (lf1, lf2)) (bs1, bs2) t e = do
