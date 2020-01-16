@@ -3,13 +3,9 @@ use crate::utils;
 use crate::{
     common::{P2PNodeId, PeerType},
     configuration,
-    failure::{Error, Fallible},
-    network::{NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacketType},
-    p2p::{
-        bans::BanId,
-        connectivity::{send_broadcast_message, send_direct_message},
-        P2PNode,
-    },
+    failure::Fallible,
+    network::NetworkId,
+    p2p::{bans::BanId, P2PNode},
 };
 
 use byteorder::{BigEndian, WriteBytesExt};
@@ -20,7 +16,7 @@ use globalstate_rust::tree::messaging::{ConsensusMessage, MessageType};
 use tonic::{self, transport::{server::{Router, Unimplemented}, Server}, Request, Response, Status, Code};
 
 use std::{
-    convert::TryInto,
+    fs,
     io::Write,
     net::{IpAddr, SocketAddr},
     str::FromStr,
@@ -122,20 +118,18 @@ macro_rules! successful_bool_response {
         }
     };
 }
-/*
+
 macro_rules! successful_byte_response {
-    ($self:ident, $ctx:ident, $req:ident, $sink:ident, $inner_match:expr) => {
+    ($self:ident, $req_name:expr, $foo:expr) => {
         if let Some(ref consensus) = $self.consensus {
-            let res = $inner_match(consensus);
-            let mut r: SuccessfulBytePayloadResponse = SuccessfulBytePayloadResponse::new();
-            r.set_payload(res);
-            let f =
-                $sink.success(r).map_err(move |e| error!("failed to reply {:?}: {:?}", $req, e));
-            $ctx.spawn(f);
+            Ok(Response::new(SuccessfulBytePayloadResponse { payload: $foo(consensus) }))
+        } else {
+            warn!("Can't respond to a {} request due to stopped Consensus", $req_name);
+            Err(Status::new(Code::Internal, "Consensus container is not initialized!"))
         }
     };
 }
-*/
+
 #[tonic::async_trait]
 impl P2p for RpcServerImpl {
     async fn subscription_start(
@@ -588,262 +582,220 @@ impl P2p for RpcServerImpl {
             consensus.get_reward_status(&req.get_ref().block_hash)
         })
     }
-/*
-    fn get_baker_private_data(
+
+    async fn get_baker_private_data(
         &self,
         req: Request<Empty>,
     ) -> Result<Response<SuccessfulJsonPayloadResponse>, Status> {
-        use std::fs;
         authenticate!(req, self.access_token);
-        let f = if let Some(file) = &self.baker_private_data_json_file {
+        if let Some(file) = &self.baker_private_data_json_file {
             if let Ok(data) = fs::read_to_string(file) {
-                let mut r: SuccessfulJsonPayloadResponse = SuccessfulJsonPayloadResponse::new();
-                r.set_json_value(data);
-                sink.success(r)
+                Ok(Response::new(SuccessfulJsonPayloadResponse { json_value: data }))
             } else {
-                sink.fail(grpcio::RpcStatus::new(
+                Err(Status::new(
                     Code::FailedPrecondition,
-                    Some("Could not read baker private data file".to_string()),
+                    "Can't fulfill the request: could not read the baker private data file",
                 ))
             }
         } else {
-            sink.fail(grpcio::RpcStatus::new(
+            Err(Status::new(
                 Code::FailedPrecondition,
-                Some("Running in passive consensus mode".to_string()),
+                "Can't fulfill the request: running in passive consensus mode",
             ))
-        };
-        let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-        ctx.spawn(f);
+        }
     }
 
-    fn get_birk_parameters(
+    async fn get_birk_parameters(
         &self,
-        req: Request<BlockHash,
-    ) {
+        req: Request<BlockHash>,
+    ) -> Result<Response<SuccessfulJsonPayloadResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_json_response!(self, "", |consensus: &ConsensusContainer| {
+        successful_json_response!(self, "GetBirkParameters", |consensus: &ConsensusContainer| {
             consensus.get_birk_parameters(&req.get_ref().block_hash)
         })
     }
 
-    fn get_module_list(
+    async fn get_module_list(
         &self,
-        req: Request<BlockHash,
+        req: Request<BlockHash>,
     ) -> Result<Response<SuccessfulJsonPayloadResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_json_response!(self, "", |consensus: &ConsensusContainer| {
+        successful_json_response!(self, "GetModuleList", |consensus: &ConsensusContainer| {
             consensus.get_module_list(&req.get_ref().block_hash)
         })
     }
 
-    fn get_module_source(
+    async fn get_module_source(
         &self,
-        req: Request<GetModuleSourceRequest,
-    ) {
+        req: Request<GetModuleSourceRequest>,
+    ) -> Result<Response<SuccessfulBytePayloadResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_byte_response!(self, "", |consensus: &ConsensusContainer| {
+        successful_byte_response!(self, "GetModuleSource", |consensus: &ConsensusContainer| {
             consensus.get_module_source(&req.get_ref().block_hash, &req.get_ref().module_ref)
         })
     }
 
-    fn get_banned_peers(
+    async fn get_banned_peers(
         &self,
         req: Request<Empty>,
-    ) {
+    ) -> Result<Response<PeerListResponse>, Status> {
         authenticate!(req, self.access_token);
-        let mut r: PeerListResponse = PeerListResponse::new();
-        let f = {
-            r.set_peer(::protobuf::RepeatedField::from_vec(
-                if let Ok(banlist) = self.node.get_banlist() {
-                    banlist
-                        .into_iter()
-                        .map(|banned_node| {
-                            let mut pe = PeerElement::new();
-                            let mut node_id = ::protobuf::well_known_types::StringValue::new();
-                            node_id.set_value(match banned_node {
-                                BanId::NodeId(id) => id.to_string(),
-                                _ => "*".to_owned(),
-                            });
-                            pe.set_node_id(node_id);
-                            let mut ip = ::protobuf::well_known_types::StringValue::new();
-                            ip.set_value(match banned_node {
-                                BanId::Ip(addr) => addr.to_string(),
-                                _ => "*".to_owned(),
-                            });
-                            pe.set_ip(ip);
-                            pe
-                        })
-                        .collect::<Vec<PeerElement>>()
-                } else {
-                    error!("Can't load the banlist");
-                    Vec::new()
-                },
-            ));
-            sink.success(r)
+        let peer = if let Ok(banlist) = self.node.get_banlist() {
+            banlist
+                .into_iter()
+                .map(|banned_node| {
+                    let node_id = Some(match banned_node {
+                        BanId::NodeId(id) => id.to_string(),
+                        _ => "*".to_owned(),
+                    });
+                    let ip = Some(match banned_node {
+                        BanId::Ip(addr) => addr.to_string(),
+                        _ => "*".to_owned(),
+                    });
+
+                    PeerElement {
+                        node_id,
+                        ip,
+                        port: None,
+                    }
+                })
+                .collect::<Vec<_>>()
+        } else {
+            warn!("Can't load the banlist in response to a GetBannedPeers request");
+            Vec::new()
         };
-        let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-        ctx.spawn(f);
+
+        Ok(Response::new(PeerListResponse {
+            peer,
+            peer_type: "Node".to_owned(),
+        }))
     }
 
-    fn shutdown(
+    async fn shutdown(
         &self,
         req: Request<Empty>,
-    ) {
+    ) -> Result<Response<SuccessResponse>, Status> {
         authenticate!(req, self.access_token);
-        let f = {
-            let mut r: SuccessResponse = SuccessResponse::new();
-            r.set_value(self.node.close());
-            sink.success(r)
-        };
-        let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-        ctx.spawn(f);
+        Ok(Response::new(SuccessResponse { value: self.node.close() }))
     }
 
     #[cfg(feature = "benchmark")]
-    fn tps_test(
+    async fn tps_test(
         &self,
-        req: Request<TpsRequest,
-    ) {
+        req: Request<TpsRequest>,
+    ) -> Result<Response<SuccessResponse>, Status> {
         authenticate!(req, self.access_token);
-        let f = {
-            let (network_id, id, dir) =
-                (NetworkId::from(req.network_id as u16), req.id.clone(), req.directory.clone());
-            let _node_list = self.node.get_peer_stats(None);
-            if !_node_list.into_iter().any(|s| P2PNodeId(s.id).to_string() == id) {
-                sink.fail(grpcio::RpcStatus::new(
-                    Code::FailedPrecondition,
-                    Some("I don't have the required peers!".to_string()),
-                ))
-            } else {
-                let test_messages = utils::get_tps_test_messages(Some(dir));
-                let mut r: SuccessResponse = SuccessResponse::new();
-                let result = !(test_messages.into_iter().map(|message| {
-                    let out_bytes_len = message.len();
-                    let to_send = P2PNodeId::from_str(&id).ok();
-                    match send_direct_message(
-                        &self.node,
-                        self.node.self_peer.id,
-                        to_send,
-                        network_id,
-                        Arc::from(message),
-                    ) {
-                        Ok(_) => {
-                            info!("Sent TPS test bytes of len {}", out_bytes_len);
-                            Ok(())
-                        }
-                        Err(_) => {
-                            error!("Couldn't send TPS test message!");
-                            Err(())
-                        }
+        let req = req.get_ref();
+        let (network_id, id, dir) =
+            (NetworkId::from(req.network_id as u16), req.id.clone(), req.directory.clone());
+        let node_list = self.node.get_peer_stats(None);
+        if !node_list.into_iter().any(|s| P2PNodeId(s.id).to_string() == id) {
+            Err(Status::new(
+                Code::FailedPrecondition,
+                "I don't have the peers needed to fulfill the TpsTest request!",
+            ))
+        } else {
+            let test_messages = utils::get_tps_test_messages(Some(dir));
+            let result = !(test_messages.into_iter().map(|message| {
+                let out_bytes_len = message.len();
+                let to_send = P2PNodeId::from_str(&id).ok();
+                match send_direct_message(
+                    &self.node,
+                    self.node.self_peer.id,
+                    to_send,
+                    network_id,
+                    Arc::from(message),
+                ) {
+                    Ok(_) => {
+                        info!("Sent TPS test bytes of len {}", out_bytes_len);
+                        Ok(())
                     }
-                }))
-                .any(|res| res.is_err());
-                r.set_value(result);
-                sink.success(r)
-            }
-        };
-        let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-        ctx.spawn(f);
+                    Err(_) => {
+                        error!("Couldn't send TPS test message!");
+                        Err(())
+                    }
+                }
+            }))
+            .any(|res| res.is_err());
+            Ok(Response::new(SuccessResponse { value: result }))
+        }
     }
 
     #[cfg(not(feature = "benchmark"))]
-    fn tps_test(
+    async fn tps_test(
         &self,
-        req: Request<TpsRequest,
-    ) {
-        let f = sink
-            .fail(grpcio::RpcStatus::new(
-                Code::Unavailable,
-                Some("Feature not activated".to_string()),
-            ))
-            .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-        ctx.spawn(f);
+        _req: Request<TpsRequest>,
+    ) -> Result<Response<SuccessResponse>, Status> {
+        warn!("TpsTest RPC request received, but the \"benchmark\" feature is not active");
+        Err(Status::new(
+            Code::Unavailable,
+            "Feature \"benchmark\" is not active",
+        ))
     }
 
     #[cfg(not(feature = "network_dump"))]
-    fn dump_start(
+    async fn dump_start(
         &self,
-        req: Request<DumpRequest,
-    ) {
-        let f = sink
-            .fail(grpcio::RpcStatus::new(
-                Code::Unavailable,
-                Some("Feature not activated".to_string()),
-            ))
-            .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-        ctx.spawn(f);
+        _req: Request<DumpRequest>,
+    ) -> Result<Response<SuccessResponse>, Status> {
+        warn!("DumpStart RPC request received, but the \"network_dump\" feature is not active");
+        Err(Status::new(
+            Code::Unavailable,
+            "Feature \"network_dump\" is not active",
+        ))
     }
 
     #[cfg(feature = "network_dump")]
-    fn dump_start(
+    async fn dump_start(
         &self,
-        req: Request<DumpRequest,
-    ) {
+        req: Request<DumpRequest>,
+    ) -> Result<Response<SuccessResponse>, Status> {
         authenticate!(req, self.access_token);
-        let f = {
-            let mut r = SuccessResponse::new();
-            let file_path = req.get_ref().file().to_owned();
-            if self
-                .node
-                .activate_dump(
-                    if file_path.is_empty() {
-                        "dump"
-                    } else {
-                        &file_path
-                    },
-                    req.get_ref().raw(),
-                )
-                .is_ok()
-            {
-                r.set_value(true);
-            } else {
-                r.set_value(false);
-            }
-            sink.success(r)
-        };
-        let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-        ctx.spawn(f);
+        let file_path = req.get_ref().file.to_owned();
+        let result = self
+            .node
+            .activate_dump(
+                if file_path.is_empty() {
+                    "dump"
+                } else {
+                    &file_path
+                },
+                req.get_ref().raw,
+            )
+            .is_ok();
+        Ok(Response::new(SuccessResponse { value: result }))
     }
 
     #[cfg(not(feature = "network_dump"))]
-    fn dump_stop(
+    async fn dump_stop(
         &self,
-        req: Request<Empty>,
-    ) {
-        let f = sink
-            .fail(grpcio::RpcStatus::new(
-                Code::Unavailable,
-                Some("Feature not activated".to_string()),
-            ))
-            .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-        ctx.spawn(f);
+        _req: Request<Empty>,
+    ) -> Result<Response<SuccessResponse>, Status> {
+        warn!("DumpStop RPC request received, but the \"network_dump\" feature is not active");
+        Err(Status::new(
+            Code::Unavailable,
+            "Feature \"network_dump\" is not active",
+        ))
     }
 
     #[cfg(feature = "network_dump")]
-    fn dump_stop(
+    async fn dump_stop(
         &self,
         req: Request<Empty>,
-    ) {
+    ) -> Result<Response<SuccessResponse>, Status> {
         authenticate!(req, self.access_token);
-        let f = {
-            let mut r = SuccessResponse::new();
-            r.set_value(self.node.stop_dump().is_ok());
-
-            sink.success(r)
-        };
-        let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-        ctx.spawn(f);
+        Ok(Response::new(SuccessResponse { value: self.node.stop_dump().is_ok() }))
     }
 
-    fn hook_transaction(
+    async fn hook_transaction(
         &self,
-        req: Request<TransactionHash,
+        req: Request<TransactionHash>,
     ) -> Result<Response<SuccessfulJsonPayloadResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_json_response!(self, "", |consensus: &ConsensusContainer| {
+        successful_json_response!(self, "HookTransaction", |consensus: &ConsensusContainer| {
             consensus.hook_transaction(&req.get_ref().transaction_hash)
         })
-    }*/
+    }
 }
 
 #[cfg(test)]
