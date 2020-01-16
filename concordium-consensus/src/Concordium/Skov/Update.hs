@@ -64,6 +64,9 @@ class OnSkov m where
     -- only called for the block that is explicitly finalized (i.e.
     -- once per finalization record).
     onFinalize :: FinalizationRecord -> BlockPointer m -> m ()
+    -- |Called when a block or finalization record that was previously
+    -- pending becomes live.
+    onPendingLive :: m ()
     -- |A function to log transfers at finalization time. Since it is
     -- potentially expensive to even keep track of events we make it an
     -- explicitly optional value to short-circuit evaluation.
@@ -139,8 +142,8 @@ processAwaitingLastFinalized = do
 -- If finalization is sucessful, then progress finalization.
 -- If not, any remaining finalization records at the current next finalization index
 -- will be valid proofs, but their blocks have not yet arrived.
-processFinalizationPool :: forall m. (HasCallStack, TreeStateMonad m, SkovMonad m, OnSkov m) => m ()
-processFinalizationPool = do
+processFinalizationPool :: forall m. (HasCallStack, TreeStateMonad m, SkovMonad m, OnSkov m) => (FinalizationRecord -> Bool) -> m ()
+processFinalizationPool checkPending = do
         nextFinIx <- getNextFinalizationIndex
         frs <- getFinalizationPoolAtIndex nextFinIx
         unless (null frs) $ do
@@ -229,9 +232,11 @@ processFinalizationPool = do
                     -- purge pending blocks with slot numbers predating the last finalized slot
                     purgePending
                     onFinalize finRec newFinBlock
+                    -- If the finalization record was pending, notify that it became live
+                    when (checkPending finRec) onPendingLive
                     -- handle blocks in skovBlocksAwaitingLastFinalized
                     processAwaitingLastFinalized
-                    processFinalizationPool
+                    processFinalizationPool (const True)
                 Right frs' -> do
                     -- In this case, we have a list of finalization records that are missing
                     -- their blocks.  We filter these down to only valid records, and only
@@ -347,7 +352,7 @@ addBlock block = do
                                                 -- Notify of the block arrival (for finalization)
                                                 onBlock blockP
                                                 -- Process finalization records
-                                                processFinalizationPool
+                                                processFinalizationPool (const True)
                                                 -- Handle any blocks that are waiting for this one
                                                 children <- takePendingChildren (getHash block)
                                                 forM_ children $ \childpb -> do
@@ -356,7 +361,9 @@ addBlock block = do
                                                         isPending Nothing = True
                                                         isPending (Just (BlockPending _)) = True
                                                         isPending _ = False
-                                                    when (isPending childStatus) $ void $ addBlock childpb
+                                                    when (isPending childStatus) $ addBlock childpb >>= \case
+                                                        ResultSuccess -> onPendingLive
+                                                        _ -> return ()
                                                 return ResultSuccess
                     -- If the block's last finalized block is dead, then the block arrives dead.
                     -- If the block's last finalized block is pending then it can't be an ancestor,
@@ -447,7 +454,7 @@ doFinalizeBlock = \finRec -> do
         LT -> return ResultStale -- Already finalized at that index
         EQ -> do 
                 addFinalizationRecordToPool finRec
-                processFinalizationPool
+                processFinalizationPool (finRec /=)
                 newFinIx <- getNextFinalizationIndex
                 if newFinIx == nextFinIx then do
                     -- Finalization did not complete, which suggests

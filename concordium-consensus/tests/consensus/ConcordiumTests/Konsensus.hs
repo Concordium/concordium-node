@@ -281,6 +281,7 @@ dummyHandlers src btargets = SkovHandlers {..}
             return $ DummyTimer t
         shCancelTimer (DummyTimer t) =
             esCancelledTimers %= Set.insert t
+        shPendingLive = return ()
 
 myRunSkovT :: (MonadIO m) => (SkovT MyHandlers (Config DummyTimer) (StateT ExecState LogIO) a) -> MyHandlers -> SkovContext (Config DummyTimer) -> SkovState (Config DummyTimer) -> ExecState -> m (a, SkovState (Config DummyTimer), ExecState)
 myRunSkovT a handlers ctx st es = liftIO $ flip runLoggerT doLog $ do
