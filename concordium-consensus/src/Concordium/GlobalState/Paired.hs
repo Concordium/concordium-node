@@ -326,7 +326,7 @@ instance (Monad m, HasGlobalStateContext (PairGSContext lc rc) r, BlockStateOper
         bs2' <- coerceBSMR $ bsoUpdateBirkParameters bs2 bps
         return (bs1', bs2')
 
-    
+
 instance (Monad m,
     HasGlobalStateContext (PairGSContext lc rc) r,
     BlockStateStorage (BSML lc r ls s m),
@@ -383,7 +383,7 @@ instance (HasGlobalStateContext (PairGSContext lc rc) r,
         bs2 <- coerceGSMR $ blockState bp2
         return (bs1, bs2)
     makePendingBlock sk sl parent bid bp bn lf trs brtime = do
-        pb1 <- coerceGSML $ makePendingBlock sk sl parent bid bp bn lf trs brtime 
+        pb1 <- coerceGSML $ makePendingBlock sk sl parent bid bp bn lf trs brtime
         pb2 <- coerceGSMR $ makePendingBlock sk sl parent bid bp bn lf trs brtime
         return $ PairBlockData (pb1, pb2)
     importPendingBlock bs t = do
@@ -400,8 +400,8 @@ instance (HasGlobalStateContext (PairGSContext lc rc) r,
             (Nothing, Nothing) -> return Nothing
             (Just (BlockAlive bp1), Just (BlockAlive bp2)) -> return $ Just (BlockAlive (PairBlockData (bp1, bp2)))
             (Just BlockDead, Just BlockDead) -> return $ Just BlockDead
-            (Just (BlockFinalized bp1 fr1), Just (BlockFinalized bp2 fr2)) ->
-                assert (fr1 == fr2) $ return $ Just $ BlockFinalized (PairBlockData (bp1, bp2)) fr1
+            (Just (BlockFinalized), Just (BlockFinalized)) ->
+                return $ Just $ BlockFinalized
             (Just (BlockPending pb1), Just (BlockPending pb2)) -> return $ Just (BlockPending (PairBlockData (pb1, pb2)))
             _ -> error $ "getBlockStatus (Paired): block statuses do not match: " ++ show bs1 ++ ", " ++ show bs2
     makeLiveBlock (PairBlockData (pb1, pb2)) (PairBlockData (parent1, parent2)) (PairBlockData (lf1, lf2)) (bs1, bs2) t e = do
