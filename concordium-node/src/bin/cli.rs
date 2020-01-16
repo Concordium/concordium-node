@@ -114,17 +114,6 @@ async fn main() -> Fallible<()> {
         },
     )?;
 
-    // Start the RPC server
-    if !conf.cli.rpc.no_rpc_server {
-        let mut serv = RpcServerImpl::new(
-            node.clone(),
-            Some(consensus.clone()),
-            &conf.cli.rpc,
-            get_baker_private_data_json_file(&app_prefs, &conf.cli.baker),
-        );
-        serv.start_server().await?;
-    };
-
     // Start the transaction logging thread
     setup_transfer_log_thread(&conf.cli);
 
@@ -139,6 +128,17 @@ async fn main() -> Fallible<()> {
     if !conf.cli.no_network {
         establish_connections(&conf, &node);
     }
+
+    // Start the RPC server
+    if !conf.cli.rpc.no_rpc_server {
+        let mut serv = RpcServerImpl::new(
+            node.clone(),
+            Some(consensus.clone()),
+            &conf.cli.rpc,
+            get_baker_private_data_json_file(&app_prefs, &conf.cli.baker),
+        );
+        serv.start_server().await?;
+    };
 
     // Wait for the P2PNode to close
     node.join().expect("The node thread panicked!");
