@@ -169,6 +169,7 @@ pub fn handle_pkt_out(
         packet_type,
         msg,
         dont_relay_to.into_iter().map(P2PNodeId::as_raw).collect(),
+        None,
     );
 
     match if packet_type == PacketType::Transaction {
@@ -206,15 +207,35 @@ pub fn handle_consensus_outbound_msg(
     node: &P2PNode,
     network_id: NetworkId,
     request: ConsensusMessage,
+    peers_lock: &RwLock<PeerList>,
 ) -> Fallible<()> {
-    send_consensus_msg_to_net(
-        node,
-        request.dont_relay_to(),
-        node.self_peer.id,
-        request.target_peer().map(P2PNodeId),
-        network_id,
-        (request.payload, request.variant),
-    )
+    if let Some(status) = request.omit_status {
+        for peer in read_or_die!(peers_lock)
+            .peers
+            .iter()
+            .filter(|(_, &state)| state.status != status)
+            .map(|(&id, _)| id)
+        {
+            let _ = send_consensus_msg_to_net(
+                node,
+                Vec::new(),
+                node.self_peer.id,
+                Some(P2PNodeId(peer)),
+                network_id,
+                (request.payload.clone(), request.variant),
+            );
+        }
+        Ok(())
+    } else {
+        send_consensus_msg_to_net(
+            node,
+            request.dont_relay_to(),
+            node.self_peer.id,
+            request.target_peer().map(P2PNodeId),
+            network_id,
+            (request.payload, request.variant),
+        )
+    }
 }
 
 pub fn handle_consensus_inbound_msg(
