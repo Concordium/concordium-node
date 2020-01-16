@@ -169,6 +169,20 @@ storeBlock bp = do
       blockStore .= d
     _ -> return ()
 
+getStoredBlock :: (BS.BlockStateStorage m, MonadIO m, MonadState (SkovData bs) m) =>
+                 BlockHash -> m (Maybe ByteString)
+getStoredBlock bh = do
+  env <- use storeEnv
+  dbB <- use blockStore
+  liftIO $ transaction env $ (LMDB.get dbB bh :: LMDB.Transaction ReadOnly (Maybe ByteString))
+
+getStoredFinalizationRecord :: (BS.BlockStateStorage m, MonadIO m, MonadState (SkovData bs) m) =>
+                              FinalizationIndex -> m (Maybe FinalizationRecord)
+getStoredFinalizationRecord bh = do
+  env <- use storeEnv
+  dbB <- use finalizationRecordStore
+  liftIO $ transaction env $ (LMDB.get dbB bh :: LMDB.Transaction ReadOnly (Maybe FinalizationRecord))
+
 storeFinalizationRecord :: (BS.BlockStateStorage m, MonadIO m, MonadState (SkovData bs) m) => FinalizationRecord -> m ()
 storeFinalizationRecord fr = do
   lim <- use limits
