@@ -115,7 +115,7 @@ async fn main() -> Fallible<()> {
     )?;
 
     // Start the RPC server
-    let mut rpc_serv = if !conf.cli.rpc.no_rpc_server {
+    if !conf.cli.rpc.no_rpc_server {
         let mut serv = RpcServerImpl::new(
             node.clone(),
             Some(consensus.clone()),
@@ -123,9 +123,6 @@ async fn main() -> Fallible<()> {
             get_baker_private_data_json_file(&app_prefs, &conf.cli.baker),
         );
         serv.start_server().await?;
-        Some(serv)
-    } else {
-        None
     };
 
     // Start the transaction logging thread
@@ -155,11 +152,6 @@ async fn main() -> Fallible<()> {
 
     for consensus_queue_thread in consensus_queue_threads {
         consensus_queue_thread.join().expect("A consensus queue thread panicked");
-    }
-
-    // Close the RPC server if present
-    if let Some(ref mut serv) = rpc_serv {
-        serv.stop_server()?;
     }
 
     info!("P2PNode gracefully closed.");

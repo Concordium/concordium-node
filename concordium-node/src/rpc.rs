@@ -13,14 +13,14 @@ use concordium_common::{ConsensusFfiResponse, ConsensusIsInCommitteeResponse, Pa
 use consensus_rust::consensus::{ConsensusContainer, CALLBACK_QUEUE};
 use futures::future::Future;
 use globalstate_rust::tree::messaging::{ConsensusMessage, MessageType};
-use tonic::{self, transport::{server::{Router, Unimplemented}, Server}, Request, Response, Status, Code};
+use tonic::{transport::Server, Request, Response, Status, Code};
 
 use std::{
     fs,
     io::Write,
     net::{IpAddr, SocketAddr},
     str::FromStr,
-    sync::{atomic::Ordering, Arc, Mutex},
+    sync::{atomic::Ordering, Arc},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -35,7 +35,6 @@ pub struct RpcServerImpl {
     access_token: String,
     baker_private_data_json_file: Option<String>,
     consensus: Option<ConsensusContainer>,
-    server: Arc<Mutex<Option<Router<P2pServer<RpcServerImpl>, Unimplemented>>>>,
 }
 
 impl RpcServerImpl {
@@ -52,7 +51,6 @@ impl RpcServerImpl {
             access_token: conf.rpc_server_token.clone(),
             baker_private_data_json_file,
             consensus,
-            server: Default::default(),
         }
     }
 
@@ -64,12 +62,6 @@ impl RpcServerImpl {
 
         server.serve(addr).await?;
 
-        Ok(())
-    }
-
-    #[inline]
-    pub fn stop_server(&mut self) -> Fallible<()> {
-        safe_lock!(self.server)?.take();
         Ok(())
     }
 }
