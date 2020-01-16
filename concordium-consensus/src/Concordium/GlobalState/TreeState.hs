@@ -34,14 +34,14 @@ import Concordium.GlobalState.BlockState
 data BlockStatus bp pb =
     BlockAlive !bp
     | BlockDead
-    | BlockFinalized
+    | BlockFinalized !FinalizationIndex
     | BlockPending !pb
   deriving(Eq)
 
 instance Show (BlockStatus bp pb) where
     show (BlockAlive _) = "Alive"
     show (BlockDead) = "Dead"
-    show (BlockFinalized) = "Finalized"
+    show (BlockFinalized _) = "Finalized"
     show (BlockPending _) = "Pending"
 
 -- |Branches of a tree represented as a sequence, ordered by height above the last

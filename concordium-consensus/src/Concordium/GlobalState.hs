@@ -23,6 +23,8 @@ import Data.Proxy
 import Data.Functor.Identity
 import Data.IORef (newIORef,writeIORef)
 import Control.Monad.Trans.RWS.Strict
+import Control.Monad.Trans.Reader
+import Data.Serialize.Put (runPut)
 
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Classes
@@ -114,7 +116,7 @@ deriving via (TreeStateM (Basic.SkovData bs) (BlockStateM c r (Basic.SkovData bs
     instance (bs ~ BlockState (BlockStateM c r (Basic.SkovData bs) s m))
         => GlobalStateTypes (GlobalStateM c r (Basic.SkovData bs) s m)
 deriving via (TreeStateM (Basic.SkovData bs) (BlockStateM c r (Basic.SkovData bs) s m))
-    instance (bs ~ BlockState (BlockStateM c r (Basic.SkovData bs) s m), BlockStateStorage (BlockStateM c r (Basic.SkovData bs) s m), MonadState s m, HasGlobalState (Basic.SkovData bs) s)
+    instance (bs ~ BlockState (BlockStateM c r (Basic.SkovData bs) s m), BlockStateStorage (BlockStateM c r (Basic.SkovData bs) s m), MonadState s m, MonadIO m, HasGlobalState (Basic.SkovData bs) s)
         => TreeStateMonad (GlobalStateM c r (Basic.SkovData bs) s m)
 
 #ifdef RUST
@@ -155,7 +157,8 @@ instance GlobalStateConfig MemoryTreeMemoryBlockConfig where
     type GSContext MemoryTreeMemoryBlockConfig = ()
     type GSState MemoryTreeMemoryBlockConfig = Basic.SkovData Basic.BlockState
     initialiseGlobalState (MTMBConfig rtparams gendata bs) = do
-      skov <- Basic.initialSkovData rtparams gendata bs
+      serbs <- runPut <$> Basic.runPureBlockStateMonad (putBlockState bs)
+      skov <- Basic.initialSkovData rtparams gendata bs serbs
       return ((), skov)
     shutdownGlobalState _ _ _ = return ()
 
@@ -171,9 +174,11 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
     initialiseGlobalState (MTDBConfig rtparams gendata bs) = do
         pbscBlobStore <- createTempBlobStore
         pbscModuleCache <- newIORef Persistent.emptyModuleCache
+        let pbsc = PersistentBlockStateContext{..}
         pbs <- Persistent.makePersistent bs
-        skov <- Basic.initialSkovData rtparams gendata pbs
-        return ((PersistentBlockStateContext{..}), skov)
+        serbs <- runPut <$> runReaderT (Persistent.runPersistentBlockStateMonad (putBlockState pbs)) pbsc
+        skov <- Basic.initialSkovData rtparams gendata pbs serbs
+        return (pbsc, skov)
     shutdownGlobalState _ (PersistentBlockStateContext{..}) _ = do
         destroyTempBlobStore pbscBlobStore
         writeIORef pbscModuleCache Persistent.emptyModuleCache
