@@ -1,5 +1,6 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE RecordWildCards, MultiParamTypeClasses, FlexibleInstances, GeneralizedNewtypeDeriving, LambdaCase, FlexibleContexts #-}
 {-# LANGUAGE DerivingStrategies, DerivingVia, StandaloneDeriving #-}
 module Concordium.GlobalState.Basic.TreeState where
@@ -31,6 +32,9 @@ import Concordium.Types.Transactions
 import Concordium.GlobalState.Basic.Block
 import Concordium.GlobalState.Basic.BlockPointer
 
+import Database.LMDB.Simple
+import System.Directory
+
 data SkovData bs = SkovData {
     -- |Map of all received blocks by hash.
     _blockTable :: !(HM.HashMap BlockHash (TS.BlockStatus (BasicBlockPointer bs) PendingBlock)),
@@ -40,22 +44,33 @@ data SkovData bs = SkovData {
     _possiblyPendingQueue :: !(MPQ.MinPQueue Slot (BlockHash, BlockHash)),
     -- |Priority queue of blocks waiting for their last finalized block to be finalized, ordered by height of the last finalized block
     _blocksAwaitingLastFinalized :: !(MPQ.MinPQueue BlockHeight PendingBlock),
+
+    _storeEnv :: Environment ReadWrite,
+
     -- |List of finalization records with the blocks that they finalize, starting from genesis
     _finalizationList :: !(Seq.Seq (FinalizationRecord, BasicBlockPointer bs)),
     -- |Pending finalization records by finalization index
     _finalizationPool :: !(Map.Map FinalizationIndex [FinalizationRecord]),
+
+
     -- |Branches of the tree by height above the last finalized block
     _branches :: !(Seq.Seq [BasicBlockPointer bs]),
+
+
     -- |Genesis data
     _genesisData :: !GenesisData,
     -- |Block pointer to genesis block
     _genesisBlockPointer :: !(BasicBlockPointer bs),
     -- |Current focus block
     _focusBlock :: !(BasicBlockPointer bs),
+
+
     -- |Pending transaction table
     _pendingTransactions :: !PendingTransactionTable,
     -- |Transaction table
     _transactionTable :: !TransactionTable,
+
+
     -- |Consensus statistics
     _statistics :: !ConsensusStatistics,
     -- |Runtime parameters
@@ -68,15 +83,19 @@ instance Show (SkovData bs) where
         "Branches: " ++ intercalate "," ( (('[':) . (++"]") . intercalate "," . map (take 6 . show . _bpHash)) <$> toList _branches)
 
 -- |Initial skov data with default runtime parameters (block size = 10MB).
-initialSkovDataDefault :: GenesisData -> bs -> (SkovData bs)
+initialSkovDataDefault :: GenesisData -> bs -> IO (SkovData bs)
 initialSkovDataDefault = initialSkovData defaultRuntimeParameters
 
-initialSkovData :: RuntimeParameters -> GenesisData -> bs -> (SkovData bs)
-initialSkovData rp gd genState = SkovData {
-            _blockTable = HM.singleton gbh (TS.BlockFinalized gb gbfin),
+initialSkovData :: RuntimeParameters -> GenesisData -> bs -> IO (SkovData bs)
+initialSkovData rp gd genState = do
+  dir <- defaultLocation
+  env <- openEnvironment dir limits
+  return SkovData {
+            _blockTable = HM.singleton gbh (TS.BlockFinalized),
             _possiblyPendingTable = HM.empty,
             _possiblyPendingQueue = MPQ.empty,
             _blocksAwaitingLastFinalized = MPQ.empty,
+            _storeEnv = env,
             _finalizationList = Seq.singleton (gbfin, gb),
             _finalizationPool = Map.empty,
             _branches = Seq.empty,
@@ -88,10 +107,16 @@ initialSkovData rp gd genState = SkovData {
             _statistics = initialConsensusStatistics,
             _runtimeParameters = rp
         }
-    where
-        gb = makeGenesisBlockPointer gd genState
+  where gb = makeGenesisBlockPointer gd genState
         gbh = _bpHash gb
         gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
+        limits = defaultLimits { mapSize = 64_000_000 } --64MB
+
+defaultLocation :: IO FilePath
+defaultLocation = do
+  dir <- (++ "/treestate") <$> getCurrentDirectory
+  createDirectoryIfMissing False dir
+  return dir
 
 instance (bs ~ GS.BlockState m) => GS.GlobalStateTypes (GS.TreeStateM (SkovData bs) m) where
     type PendingBlock (GS.TreeStateM (SkovData bs) m) = PendingBlock
@@ -111,8 +136,8 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadState (Sko
             blockTable . at (getHash block) ?= TS.BlockAlive blockP
             return blockP
     markDead bh = blockTable . at bh ?= TS.BlockDead
-    markFinalized bh fr = use (blockTable . at bh) >>= \case
-            Just (TS.BlockAlive bp) -> blockTable . at bh ?= TS.BlockFinalized bp fr
+    markFinalized bh _ = use (blockTable . at bh) >>= \case
+            Just (TS.BlockAlive _) -> blockTable . at bh ?= TS.BlockFinalized
             _ -> return ()
     markPending pb = blockTable . at (getHash pb) ?= TS.BlockPending pb
     getGenesisBlockPointer = use genesisBlockPointer

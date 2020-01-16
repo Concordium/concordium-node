@@ -98,7 +98,7 @@ deriving via (PersistentBlockStateMonad PersistentBlockStateContext (FocusGlobal
 -- * If @g@ is 'Rust.SkovData', then the Rust tree state is used.
 newtype GlobalStateM c r g s m a = GlobalStateM {runGlobalStateM :: m a}
     deriving (Functor, Applicative, Monad, MonadReader r, MonadState s, MonadIO)
-    deriving (BlockStateTypes) via (BlockStateM c r g s m) 
+    deriving (BlockStateTypes) via (BlockStateM c r g s m)
 
 deriving via (BlockStateM c r g s m)
     instance (Monad m, BlockStateQuery (BlockStateM c r g s m))
@@ -154,7 +154,9 @@ data MemoryTreeMemoryBlockConfig = MTMBConfig RuntimeParameters GenesisData Basi
 instance GlobalStateConfig MemoryTreeMemoryBlockConfig where
     type GSContext MemoryTreeMemoryBlockConfig = ()
     type GSState MemoryTreeMemoryBlockConfig = Basic.SkovData Basic.BlockState
-    initialiseGlobalState (MTMBConfig rtparams gendata bs) = return ((), Basic.initialSkovData rtparams gendata bs)
+    initialiseGlobalState (MTMBConfig rtparams gendata bs) = do
+      skov <- Basic.initialSkovData rtparams gendata bs
+      return ((), skov)
     shutdownGlobalState _ _ _ = return ()
 
 -- |Configuration that uses the in-memory, Haskell implementation of tree state and the
@@ -170,7 +172,8 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
         pbscBlobStore <- createTempBlobStore
         pbscModuleCache <- newIORef Persistent.emptyModuleCache
         pbs <- Persistent.makePersistent bs
-        return ((PersistentBlockStateContext{..}), Basic.initialSkovData rtparams gendata pbs)
+        skov <- Basic.initialSkovData rtparams gendata pbs
+        return ((PersistentBlockStateContext{..}), skov)
     shutdownGlobalState _ (PersistentBlockStateContext{..}) _ = do
         destroyTempBlobStore pbscBlobStore
         writeIORef pbscModuleCache Persistent.emptyModuleCache
