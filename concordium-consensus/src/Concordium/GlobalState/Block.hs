@@ -69,9 +69,9 @@ class (Eq bp, Show bp, BlockData bp) => BlockPointerData bp where
     -- |Hash of the block
     bpHash :: bp -> BlockHash
     -- |Pointer to the parent (circular reference for genesis block)
-    bpParent :: bp -> bp
+    bpParent :: bp -> IO bp
     -- |Pointer to the last finalized block (circular for genesis)
-    bpLastFinalized :: bp -> bp
+    bpLastFinalized :: bp -> IO bp
     -- |Height of the block in the tree
     bpHeight :: bp -> BlockHeight
     -- |Time at which the block was first received
