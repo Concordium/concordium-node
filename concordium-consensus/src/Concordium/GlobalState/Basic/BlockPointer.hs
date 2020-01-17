@@ -2,7 +2,8 @@
         RecordWildCards,
         MultiParamTypeClasses,
         TypeFamilies,
-        FlexibleInstances
+        FlexibleInstances,
+        RecursiveDo
         #-}
 module Concordium.GlobalState.Basic.BlockPointer where
 
@@ -19,7 +20,7 @@ import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Basic.Block
 import qualified Concordium.Types.Transactions as Transactions
-
+import System.Mem.Weak
 
 data BasicBlockPointer s = BasicBlockPointer {
     -- |Hash of the block
@@ -27,9 +28,9 @@ data BasicBlockPointer s = BasicBlockPointer {
     -- |The block itself
     _bpBlock :: !Block,
     -- |Pointer to the parent (circular reference for genesis block)
-    _bpParent :: BasicBlockPointer s,
+    _bpParent :: Weak (BasicBlockPointer s),
     -- |Pointer to the last finalized block (circular for genesis)
-    _bpLastFinalized :: BasicBlockPointer s,
+    _bpLastFinalized :: Weak (BasicBlockPointer s),
     -- |Height of the block in the tree
     _bpHeight :: !BlockHeight,
     -- |The handle for accessing the state (of accounts, contracts, etc.) after execution of the block.
@@ -76,6 +77,23 @@ instance BlockData (BasicBlockPointer s) where
     {-# INLINE verifyBlockSignature #-}
     {-# INLINE putBlock #-}
 
+makeBlockPointer ::
+    Block        -- ^Pending block
+    -> BlockHeight
+    -> Weak (BasicBlockPointer s)    -- ^Parent block pointer
+    -> Weak (BasicBlockPointer s)    -- ^Last finalized block pointer
+    -> s       -- ^Block state
+    -> UTCTime          -- ^Block arrival time
+    -> UTCTime          -- ^Receive time
+    -> Energy           -- ^Energy cost of all transactions in the block
+    -> BasicBlockPointer s
+makeBlockPointer pb _bpHeight _bpParent _bpLastFinalized _bpState _bpArriveTime _bpReceiveTime _bpTransactionsEnergyCost
+        = BasicBlockPointer {
+                    _bpHash = getHash pb,
+                    _bpBlock = pb,
+                    ..}
+    where
+        (_bpTransactionCount, _bpTransactionsSize) = List.foldl' (\(clen, csize) tx -> (clen + 1, Transactions.trSize tx + csize)) (0, 0) (blockTransactions pb)
 
 -- |Make a 'BasicBlockPointer' from a 'PendingBlock'.
 -- The parent and last finalized block pointers must match the block data.
@@ -86,41 +104,29 @@ makeBasicBlockPointer ::
     -> s       -- ^Block state
     -> UTCTime          -- ^Block arrival time
     -> Energy           -- ^Energy cost of all transactions in the block
-    -> BasicBlockPointer s
-makeBasicBlockPointer pb _bpParent _bpLastFinalized _bpState _bpArriveTime _bpTransactionsEnergyCost
-        = assert (getHash _bpParent == blockPointer bf) $
-            assert (getHash _bpLastFinalized == blockLastFinalized bf) $
-                BasicBlockPointer {
-                    _bpHash = getHash pb,
-                    _bpBlock = NormalBlock (pbBlock pb),
-                    _bpHeight = _bpHeight _bpParent + 1,
-                    _bpReceiveTime = pbReceiveTime pb,
-                    ..}
-    where
-        bf = bbFields $ pbBlock pb
-        (_bpTransactionCount, _bpTransactionsSize) = List.foldl' (\(clen, csize) tx -> (clen + 1, Transactions.trSize tx + csize)) (0, 0) (blockTransactions pb)
+    -> IO (BasicBlockPointer s)
+makeBasicBlockPointer pb parent lfin st arr ene = do
+  parentW <- mkWeakPtr parent Nothing
+  lfinW <- mkWeakPtr lfin Nothing
+  return $ assert (getHash parent == blockPointer bf) $
+    assert (getHash lfin == blockLastFinalized bf) $
+    makeBlockPointer (NormalBlock (pbBlock pb)) (bpHeight parent + 1) parentW lfinW st arr (pbReceiveTime pb) ene
+ where bf = bbFields $ pbBlock pb
 
 
-makeGenesisBlockPointer :: GenesisData -> s -> BasicBlockPointer s
-makeGenesisBlockPointer genData _bpState = theBlockPointer
-    where
-        theBlockPointer = BasicBlockPointer {..}
-        _bpBlock = makeGenesisBlock genData
-        _bpHash = getHash _bpBlock
-        _bpParent = theBlockPointer
-        _bpLastFinalized = theBlockPointer
-        _bpHeight = 0
-        _bpReceiveTime = posixSecondsToUTCTime (fromIntegral (genesisTime genData))
-        _bpArriveTime = _bpReceiveTime
-        _bpTransactionCount = 0
-        _bpTransactionsEnergyCost = 0
-        _bpTransactionsSize = 0
+makeGenesisBlockPointer :: GenesisData -> s -> IO (BasicBlockPointer s)
+makeGenesisBlockPointer genData state = mdo
+  let tm = posixSecondsToUTCTime (fromIntegral (genesisTime genData))
+  bp <- mkWeakPtr bp Nothing >>= (\parent ->
+         mkWeakPtr bp Nothing >>= (\lfin ->
+           return $ makeBlockPointer (makeGenesisBlock genData) 0 parent lfin state tm tm 0))
+  return bp
 
 
 instance BlockPointerData (BasicBlockPointer s) where
     bpHash = _bpHash
-    bpParent = _bpParent
-    bpLastFinalized = _bpLastFinalized
+    bpParent p = (\(Just x) -> return x) =<< (deRefWeak $ _bpParent p) --FIXME: This should read from the disk
+    bpLastFinalized p = (\(Just x) -> return x) =<< (deRefWeak $ _bpLastFinalized p) --FIXME: This should read from the disk
     bpHeight = _bpHeight
     bpReceiveTime = _bpReceiveTime
     bpArriveTime = _bpArriveTime
