@@ -247,8 +247,18 @@ pub fn handle_consensus_inbound_msg(
 ) -> Fallible<()> {
     let source = P2PNodeId(request.source_peer());
 
+    // If we have a probability to drop messages specific per config
+    //   rebroadcasing the packet out the network
+    let drop_message = match node.config.drop_rebroadcast_probability {
+        Some(probability) => {
+            use rand::distributions::{Bernoulli, Distribution};
+            Bernoulli::new(probability).sample(&mut rand::thread_rng())
+        }
+        _ => false,
+    };
+
     if node.config.no_rebroadcast_consensus_validation {
-        if request.distribution_mode() == DistributionMode::Broadcast {
+        if !drop_message && request.distribution_mode() == DistributionMode::Broadcast {
             send_consensus_msg_to_net(
                 &node,
                 request.dont_relay_to(),
@@ -272,7 +282,8 @@ pub fn handle_consensus_inbound_msg(
         update_peer_states(node, network_id, peers_lock, &request, consensus_result);
 
         // rebroadcast incoming broadcasts if applicable
-        if request.distribution_mode() == DistributionMode::Broadcast
+        if !drop_message
+            && request.distribution_mode() == DistributionMode::Broadcast
             && consensus_result.is_rebroadcastable()
         {
             send_consensus_msg_to_net(

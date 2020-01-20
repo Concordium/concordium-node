@@ -96,9 +96,23 @@ impl Buckets {
         sender: &P2PPeer,
         amount: usize,
         networks: &HashSet<NetworkId>,
+        partition: bool,
     ) -> Vec<P2PPeer> {
         let mut rng = rand::thread_rng();
-        self.get_all_nodes(Some(sender), networks).into_iter().choose_multiple(&mut rng, amount)
+        if partition {
+            self.get_all_nodes(Some(sender), networks)
+                .into_iter()
+                .filter(|peer| {
+                    if sender.id.0 % 2 == 0 {
+                        peer.id.0 % 2 == 0
+                    } else {
+                        peer.id.0 % 2 != 0
+                    }
+                })
+                .choose_multiple(&mut rng, amount)
+        } else {
+            self.get_all_nodes(Some(sender), networks).into_iter().choose_multiple(&mut rng, amount)
+        }
     }
 
     pub fn clean_buckets(&mut self, timeout_bucket_entry_period: u64) {

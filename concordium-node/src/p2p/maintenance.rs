@@ -79,6 +79,8 @@ pub struct P2PNodeConfig {
     pub socket_read_size: usize,
     pub socket_write_size: usize,
     pub no_rebroadcast_consensus_validation: bool,
+    pub drop_rebroadcast_probability: Option<f64>,
+    pub partition_network_for_time: Option<usize>,
 }
 
 pub type Networks = HashSet<NetworkId, BuildNoHashHasher<u16>>;
@@ -273,6 +275,14 @@ impl P2PNode {
             socket_read_size: conf.connection.socket_read_size,
             socket_write_size: conf.connection.socket_write_size,
             no_rebroadcast_consensus_validation: conf.cli.no_rebroadcast_consensus_validation,
+            drop_rebroadcast_probability: match peer_type {
+                PeerType::Node => conf.cli.drop_rebroadcast_probability,
+                _ => None,
+            },
+            partition_network_for_time: match peer_type {
+                PeerType::Bootstrapper => conf.bootstrapper.partition_network_for_time,
+                _ => None,
+            },
         };
 
         let connection_handler = ConnectionHandler::new(conf, server, event_log);

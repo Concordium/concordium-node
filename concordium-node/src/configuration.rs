@@ -397,6 +397,11 @@ pub struct CliConfig {
         help = "Disable consensus controlling whether to rebroadcast or not"
     )]
     pub no_rebroadcast_consensus_validation: bool,
+    #[structopt(
+        long = "drop-rebroadcast-probability",
+        help = "Drop a message from being rebroadcasted by a certain probability"
+    )]
+    pub drop_rebroadcast_probability: Option<f64>,
 }
 
 #[derive(StructOpt, Debug)]
@@ -421,6 +426,11 @@ pub struct BootstrapperConfig {
         default_value = "7200000"
     )]
     pub bootstrapper_timeout_bucket_entry_period: u64,
+    #[structopt(
+        long = "partition-network-for-time",
+        help = "Partition the network for a set amount of time since startup"
+    )]
+    pub partition_network_for_time: Option<usize>,
 }
 
 #[derive(StructOpt, Debug)]
