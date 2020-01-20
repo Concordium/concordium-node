@@ -85,19 +85,27 @@ makeBlockPointer ::
     -> s       -- ^Block state
     -> UTCTime          -- ^Block arrival time
     -> UTCTime          -- ^Receive time
-    -> Energy           -- ^Energy cost of all transactions in the block
+    -> Maybe Energy           -- ^Energy cost of all transactions in the block
     -> BasicBlockPointer s
-makeBlockPointer pb _bpHeight _bpParent _bpLastFinalized _bpState _bpArriveTime _bpReceiveTime _bpTransactionsEnergyCost
-        = BasicBlockPointer {
-                    _bpHash = getHash pb,
-                    _bpBlock = pb,
-                    ..}
-    where
-        (_bpTransactionCount, _bpTransactionsSize) = List.foldl' (\(clen, csize) tx -> (clen + 1, Transactions.trSize tx + csize)) (0, 0) (blockTransactions pb)
+makeBlockPointer b _bpHeight _bpParent _bpLastFinalized _bpState _bpArriveTime _bpReceiveTime ene =
+  BasicBlockPointer {
+    _bpHash = getHash b,
+    _bpBlock = b,
+    ..}
+ where (_bpTransactionCount, _bpTransactionsSize) = List.foldl' (\(clen, csize) tx -> (clen + 1, Transactions.trSize tx + csize)) (0, 0) (blockTransactions b)
+       _bpTransactionsEnergyCost = case ene of
+         Just v -> v
+         Nothing -> List.foldl' (\(en) tx -> Transactions.transactionGasAmount tx + en) 0 (blockTransactions b)
 
--- |Make a 'BasicBlockPointer' from a 'PendingBlock'.
--- The parent and last finalized block pointers must match the block data.
-makeBasicBlockPointer ::
+makeGenesisBlockPointer :: GenesisData -> s -> IO (BasicBlockPointer s)
+makeGenesisBlockPointer genData state = mdo
+  let tm = posixSecondsToUTCTime (fromIntegral (genesisTime genData))
+  bp <- mkWeakPtr bp Nothing >>= (\parent ->
+         mkWeakPtr bp Nothing >>= (\lfin ->
+           return $ makeBlockPointer (makeGenesisBlock genData) 0 parent lfin state tm tm (Just 0)))
+  return bp
+
+makeBlockPointerFromPendingBlock ::
     PendingBlock        -- ^Pending block
     -> BasicBlockPointer s    -- ^Parent block pointer
     -> BasicBlockPointer s    -- ^Last finalized block pointer
@@ -105,23 +113,22 @@ makeBasicBlockPointer ::
     -> UTCTime          -- ^Block arrival time
     -> Energy           -- ^Energy cost of all transactions in the block
     -> IO (BasicBlockPointer s)
-makeBasicBlockPointer pb parent lfin st arr ene = do
+makeBlockPointerFromPendingBlock pb parent lfin st arr ene = do
   parentW <- mkWeakPtr parent Nothing
   lfinW <- mkWeakPtr lfin Nothing
   return $ assert (getHash parent == blockPointer bf) $
     assert (getHash lfin == blockLastFinalized bf) $
-    makeBlockPointer (NormalBlock (pbBlock pb)) (bpHeight parent + 1) parentW lfinW st arr (pbReceiveTime pb) ene
+    makeBlockPointer (NormalBlock (pbBlock pb)) (bpHeight parent + 1) parentW lfinW st arr (pbReceiveTime pb) (Just ene)
  where bf = bbFields $ pbBlock pb
 
-
-makeGenesisBlockPointer :: GenesisData -> s -> IO (BasicBlockPointer s)
-makeGenesisBlockPointer genData state = mdo
-  let tm = posixSecondsToUTCTime (fromIntegral (genesisTime genData))
-  bp <- mkWeakPtr bp Nothing >>= (\parent ->
-         mkWeakPtr bp Nothing >>= (\lfin ->
-           return $ makeBlockPointer (makeGenesisBlock genData) 0 parent lfin state tm tm 0))
-  return bp
-
+makeBlockPointerFromBlock :: Block -> s -> BlockHeight -> IO (BasicBlockPointer s)
+makeBlockPointerFromBlock b s bh = do
+  parentW <- mkWeakPtr undefined Nothing
+  finalize parentW
+  lfinW <- mkWeakPtr undefined Nothing
+  finalize lfinW
+  tm <- getCurrentTime
+  return $ makeBlockPointer b bh parentW lfinW s tm tm Nothing
 
 instance BlockPointerData (BasicBlockPointer s) where
     bpHash = _bpHash

@@ -231,8 +231,8 @@ class BlockStateQuery m => BlockStateOperations m where
   -- If a baker with the given signing key already exists do nothing and
   -- return 'Nothing'
   bsoAddBaker :: UpdatableBlockState m -> BakerCreationInfo -> m (Maybe BakerId, UpdatableBlockState m)
-  
-  -- |Update an existing baker's information. The method may assume that the baker with 
+
+  -- |Update an existing baker's information. The method may assume that the baker with
   -- the given Id exists.
   -- If a baker with a given signing key already exists return 'False', and if the baker
   -- was successfully updated return 'True'.
@@ -419,13 +419,6 @@ deriving via (MGSTrans (ExceptT e) m) instance BlockStateQuery m => BlockStateQu
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateOperations m => BlockStateOperations (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateStorage m => BlockStateStorage (ExceptT e m)
 
--- deriving via (BSMTrans g (RWST r w s) m) instance (BlockStateQuery g m, Monoid w) => BlockStateQuery g (RWST r w s m)
--- deriving via (BSMTrans g (RWST r w s) m) instance (BlockStateOperations g m, Monoid w) => BlockStateOperations g (RWST r w s m)
-
-deriving instance BlockStateQuery m => BlockStateQuery (TreeStateM s m)
-deriving instance BlockStateOperations m => BlockStateOperations (TreeStateM s m)
-deriving instance BlockStateStorage m => BlockStateStorage (TreeStateM s m)
-
 data TransferReason =
   -- |Transfer because of a top-level transaction recorded on a block.
   DirectTransfer {
@@ -523,7 +516,7 @@ resultToReasons bp tx res =
           let caaddr = ID.credentialAccountAddress cdv
           in Just (CredentialDeployment trId sender caaddr cdv)
         extractReason _ = Nothing
-        
+
         trId = transactionHash tx
         sender = thSender (transactionHeader tx)
         baker = blockBaker bp

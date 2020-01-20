@@ -38,16 +38,10 @@ class BlockStateTypes (m :: * -> *) where
     type UpdatableBlockState m :: *
 
 -- |The basic types associated with a monad providing an
--- implementation of the global state. 
+-- implementation of the global state.
 class (BlockStateTypes m, BlockPointerData (BlockPointer m)) => GlobalStateTypes m where
     type PendingBlock m :: *
     type BlockPointer m :: *
-
--- |@TreeStateM s m@ is a newtype wrapper around a monad for
--- implementing tree state monads.  The parameter @s@ should
--- be the state type of the underlying monad @m@.
-newtype TreeStateM s m a = TreeStateM {runTreeStateM :: m a}
-    deriving (Functor, Applicative, Monad, MonadState s, MonadIO, BlockStateTypes)
 
 -- |@MGSTrans t m@ is a newtype wrapper for a monad transformer @t@ applied
 -- to a monad @m@.  This wrapper exists to support lifting various monad
