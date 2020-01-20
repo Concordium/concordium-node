@@ -137,7 +137,7 @@ data GenesisAccount = GenesisAccount {
 
 instance FromJSON GenesisAccount where
   parseJSON = withObject "GenesisAccount" $ \obj -> do
-    gaAddress <- obj .: "accountAddress"
+    gaAddress <- obj .: "address"
     gaVerifyKeys <- obj .: "accountKeys"
     gaBalance <- Amount <$> obj .: "balance"
     gaDelegate <- fmap BakerId <$> obj .:? "delegate"
