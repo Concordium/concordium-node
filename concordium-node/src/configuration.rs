@@ -428,7 +428,7 @@ pub struct BootstrapperConfig {
     pub bootstrapper_timeout_bucket_entry_period: u64,
     #[structopt(
         long = "partition-network-for-time",
-        help = "Partition the network for a set amount of time since startup"
+        help = "Partition the network for a set amount of time since startup (in ms)"
     )]
     pub partition_network_for_time: Option<usize>,
 }
