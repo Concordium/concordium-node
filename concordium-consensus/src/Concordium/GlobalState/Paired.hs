@@ -133,8 +133,8 @@ instance (Ord l, Ord r) => Ord (PairBlockData l r) where
 
 instance (BlockPointerData l, BlockPointerData r) => BlockPointerData (PairBlockData l r) where
     bpHash (PairBlockData (l, r)) = assert (bpHash l == bpHash r) $ bpHash l
-    bpParent (PairBlockData (l, r)) = undefined -- FIXME: PairBlockData (bpParent l, bpParent r)
-    bpLastFinalized (PairBlockData (l, r)) = undefined -- FIXME: PairBlockData (bpLastFinalized l, bpLastFinalized r)
+    bpParent (PairBlockData (_, _)) = undefined -- FIXME: PairBlockData (bpParent l, bpParent r)
+    bpLastFinalized (PairBlockData (_, _)) = undefined -- FIXME: PairBlockData (bpLastFinalized l, bpLastFinalized r)
     bpHeight (PairBlockData (l, r)) = assert (bpHeight l == bpHeight r) $ bpHeight l
     bpReceiveTime (PairBlockData (l, r)) = assert (bpReceiveTime l == bpReceiveTime r) $ bpReceiveTime l
     bpArriveTime (PairBlockData (l, r)) = assert (bpArriveTime l == bpArriveTime r) $ bpArriveTime l

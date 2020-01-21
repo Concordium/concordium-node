@@ -1,4 +1,4 @@
-{-# LANGUAGE TypeFamilies, TemplateHaskell, NumericUnderscores, ScopedTypeVariables, DataKinds, RecordWildCards, MultiParamTypeClasses, FlexibleInstances, GeneralizedNewtypeDeriving, LambdaCase, FlexibleContexts, DerivingStrategies, DerivingVia, StandaloneDeriving #-}
+{-# LANGUAGE TypeFamilies, TemplateHaskell, NumericUnderscores, ScopedTypeVariables, DataKinds, RecordWildCards, MultiParamTypeClasses, FlexibleInstances, GeneralizedNewtypeDeriving, LambdaCase, FlexibleContexts, DerivingStrategies, DerivingVia, StandaloneDeriving, UndecidableInstances #-}
 module Concordium.GlobalState.Basic.TreeState where
 
 import Lens.Micro.Platform
@@ -90,16 +90,28 @@ initialSkovData rp gd genState = do
             _runtimeParameters = rp
         }
 
-newtype PureTreeStateMonad s m a = PureTreeStateMonad { runPureTreeStateMonad :: m a }
-  deriving (Functor, Applicative, Monad, MonadState s, MonadIO, GS.BlockStateTypes,
+-- |Newtype wrapper that provides an implementation of the TreeStateMonad using a non-persistent tree state.
+-- The underlying Monad must provide instances for:
+--
+-- * `BlockStateTypes`
+-- * `BlockStateQuery`
+-- * `BlockStateOperations`
+-- * `BlockStateStorage`
+-- * `MonadState (SkovData bs)`
+--
+-- This newtype establishes types for the @GlobalStateTypes@. The type variable @bs@ stands for the BlockState
+-- type used in the implementation.
+newtype PureTreeStateMonad bs m a = PureTreeStateMonad { runPureTreeStateMonad :: m a }
+  deriving (Functor, Applicative, Monad, MonadIO, GS.BlockStateTypes,
             BS.BlockStateQuery, BS.BlockStateOperations, BS.BlockStateStorage)
+deriving instance (Monad m, MonadState (SkovData bs) m) => MonadState (SkovData bs) (PureTreeStateMonad bs m)
 
-instance (bs ~ GS.BlockState m) => GS.GlobalStateTypes (PureTreeStateMonad (SkovData bs) m) where
-    type PendingBlock (PureTreeStateMonad (SkovData bs) m) = PendingBlock
-    type BlockPointer (PureTreeStateMonad (SkovData bs) m) = BasicBlockPointer bs
+instance (bs ~ GS.BlockState m) => GS.GlobalStateTypes (PureTreeStateMonad bs m) where
+    type PendingBlock (PureTreeStateMonad bs m) = PendingBlock
+    type BlockPointer (PureTreeStateMonad bs m) = BasicBlockPointer bs
 
 instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovData bs) m)
-          => TS.TreeStateMonad (PureTreeStateMonad (SkovData bs) m) where
+          => TS.TreeStateMonad (PureTreeStateMonad bs m) where
     blockState = return . _bpState
     makePendingBlock key slot parent bid pf n lastFin trs time = return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
     importPendingBlock blockBS rectime =

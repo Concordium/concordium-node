@@ -1,35 +1,39 @@
-{-# LANGUAGE TypeFamilies, TemplateHaskell, NumericUnderscores, ScopedTypeVariables, DataKinds, RecordWildCards, MultiParamTypeClasses, FlexibleInstances, GeneralizedNewtypeDeriving, LambdaCase, FlexibleContexts, DerivingStrategies, DerivingVia, StandaloneDeriving #-}
+{-# LANGUAGE TypeFamilies, TemplateHaskell, NumericUnderscores, ScopedTypeVariables, DataKinds, RecordWildCards, MultiParamTypeClasses, FlexibleInstances, GeneralizedNewtypeDeriving, LambdaCase, FlexibleContexts, DerivingStrategies, DerivingVia, StandaloneDeriving, UndecidableInstances #-}
 module Concordium.GlobalState.Persistent.TreeState where
-
-import Lens.Micro.Platform
-import Data.List as List
-import Data.Foldable
-import Control.Monad.State
-import Control.Exception
-import Data.Serialize (runGet)
-
-import qualified Data.Map.Strict as Map
-import qualified Data.Sequence as Seq
-import qualified Data.PQueue.Prio.Min as MPQ
-import qualified Data.Set as Set
-
-import Concordium.Types.HashableTo
-import qualified Concordium.GlobalState.Classes as GS
-import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Finalization
-import Concordium.GlobalState.Block
-import qualified Concordium.GlobalState.TreeState as TS
-import qualified Concordium.GlobalState.BlockState as BS
-import Concordium.Types.Transactions
 
 import Concordium.GlobalState.Basic.Block
 import Concordium.GlobalState.Basic.BlockPointer
 import Concordium.GlobalState.Basic.TreeState
+import Concordium.GlobalState.Block
+import qualified Concordium.GlobalState.BlockState as BS
+import qualified Concordium.GlobalState.Classes as GS
+import Concordium.GlobalState.Finalization
+import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.LMDB
+import qualified Concordium.GlobalState.TreeState as TS
+import Concordium.Types.HashableTo
+import Concordium.Types.Transactions
+import Control.Exception
+import Control.Monad.State
 import Data.ByteString (ByteString)
+import Data.Foldable
+import Data.List as List
+import qualified Data.Map.Strict as Map
+import qualified Data.PQueue.Prio.Min as MPQ
+import qualified Data.Sequence as Seq
+import Data.Serialize as S (runGet, put, get, runPut, runGet, runGetState, decode)
+import qualified Data.Set as Set
+import Lens.Micro.Platform
+import Database.LMDB.Simple as L
+import Concordium.GlobalState.Basic.Block as B
+import Data.Time.Clock
+import Concordium.Types.Transactions (utcTimeToTransactionTime)
 
+-- |Skov data for the persistent tree state version that also holds the database handlers
 data SkovPersistentData bs = SkovPersistentData {
+    -- |TreeState structures
     _skov :: SkovData bs,
+    -- | Database handlers
     _db :: DatabaseHandlers bs
 }
 makeLenses ''SkovPersistentData
@@ -48,16 +52,72 @@ initialSkovPersistentData rp gd genState serState = do
             _db = initialDb
         }
 
-newtype PersistentTreeStateMonad s m a = PersistentTreeStateMonad { runPureTreeStateMonad :: m a }
-  deriving (Functor, Applicative, Monad, MonadState s, MonadIO, GS.BlockStateTypes,
+-- |Newtype wrapper that provides an implementation of the TreeStateMonad using a persistent tree state.
+-- The underlying Monad must provide instances for:
+--
+-- * `BlockStateTypes`
+-- * `BlockStateQuery`
+-- * `BlockStateOperations`
+-- * `BlockStateStorage`
+-- * `MonadState (SkovPersistentData bs)`
+--
+-- This newtype establishes types for the @GlobalStateTypes@. The type variable @bs@ stands for the BlockState
+-- type used in the implementation.
+newtype PersistentTreeStateMonad bs m a = PersistentTreeStateMonad { runPureTreeStateMonad :: m a }
+  deriving (Functor, Applicative, Monad, MonadIO, GS.BlockStateTypes,
             BS.BlockStateQuery, BS.BlockStateOperations, BS.BlockStateStorage)
+deriving instance (Monad m, MonadState (SkovPersistentData bs) m) => MonadState (SkovPersistentData bs) (PersistentTreeStateMonad bs m)
 
-instance (bs ~ GS.BlockState m) => GS.GlobalStateTypes (PersistentTreeStateMonad (SkovPersistentData bs) m) where
-    type PendingBlock (PersistentTreeStateMonad (SkovPersistentData bs) m) = PendingBlock
-    type BlockPointer (PersistentTreeStateMonad (SkovPersistentData bs) m) = BasicBlockPointer bs
+instance (bs ~ GS.BlockState m) => GS.GlobalStateTypes (PersistentTreeStateMonad bs m) where
+    type PendingBlock (PersistentTreeStateMonad bs m) = PendingBlock
+    type BlockPointer (PersistentTreeStateMonad bs m) = BasicBlockPointer bs
+
+instance (bs ~ GS.BlockState m, MonadIO m, BS.BlockStateStorage m, MonadState (SkovPersistentData bs) m) => LMDBStoreMonad (PersistentTreeStateMonad bs m) where
+  writeBlock bp = do
+    lim <- use (db . limits)
+    env <- use (db . storeEnv)
+    dbB <- use (db . blockStore)
+    bs <- BS.putBlockState (_bpState bp)
+    (l, e, d) <- putOrResize lim "blocks" env dbB (getHash bp) $ runPut (putBlock bp >> bs >> S.put (bpHeight bp))
+    db . limits  .= l
+    db . storeEnv .= e
+    db . blockStore .= d
+  readBlock bh = do
+    env <- use (db . storeEnv)
+    dbB <- use (db . blockStore)
+    bytes <- liftIO $ transaction env $ (L.get dbB bh :: L.Transaction ReadOnly (Maybe ByteString))
+    case bytes of
+      Just b -> do
+        tm <- liftIO $ getCurrentTime
+        case runGetState (B.getBlock (utcTimeToTransactionTime tm)) b 0 of
+          Right (newBlock, rest) ->
+           case runGetState S.get rest 0 of
+             Right (bs, rest') -> do
+              case runGet BS.getBlockState bs of
+                Right state' -> do
+                  st <- state'
+                  case decode rest' of
+                    Right height' -> liftIO $ Just <$> makeBlockPointerFromBlock newBlock st height'
+                    Left _ -> return Nothing
+                Left _ -> return Nothing
+             Left _ -> return Nothing
+          Left _ -> return Nothing
+      Nothing -> return Nothing
+  readFinalizationRecord bh = do
+    env <- use (db . storeEnv)
+    dbF <- use (db . finalizationRecordStore)
+    liftIO $ transaction env $ (L.get dbF bh :: L.Transaction ReadOnly (Maybe FinalizationRecord))
+  writeFinalizationRecord fr = do
+    lim <- use (db . limits)
+    env <- use (db . storeEnv)
+    dbF <- use (db . finalizationRecordStore)
+    (l, e, d) <- putOrResize lim "finalization" env dbF (finalizationIndex fr) fr
+    db . limits .= l
+    db . storeEnv .= e
+    db . finalizationRecordStore .= d
 
 instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovPersistentData bs) m)
-          => TS.TreeStateMonad (PersistentTreeStateMonad (SkovPersistentData bs) m) where
+          => TS.TreeStateMonad (PersistentTreeStateMonad bs m) where
     blockState = return . _bpState
     makePendingBlock key slot parent bid pf n lastFin trs time = return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
     importPendingBlock blockBS rectime =
