@@ -31,17 +31,17 @@ import Concordium.Types.Transactions
 import Concordium.GlobalState.Statistics
 import Concordium.GlobalState.BlockState
 
-data BlockStatus bp pb =
+data BlockStatus bp pb  =
     BlockAlive !bp
     | BlockDead
-    | BlockFinalized !FinalizationIndex
+    | BlockFinalized !bp !FinalizationRecord
     | BlockPending !pb
   deriving(Eq)
 
 instance Show (BlockStatus bp pb) where
     show (BlockAlive _) = "Alive"
     show (BlockDead) = "Dead"
-    show (BlockFinalized _) = "Finalized"
+    show (BlockFinalized _ _) = "Finalized"
     show (BlockPending _) = "Pending"
 
 -- |Branches of a tree represented as a sequence, ordered by height above the last
@@ -77,6 +77,12 @@ class (Eq (BlockPointer m),
 
     -- |Get the 'BlockState' of a 'BlockPointer'.
     blockState :: BlockPointer m -> m (BlockState m)
+
+    -- |Get the parent of a 'BlockPointer'
+    bpParent :: BlockPointer m -> m (BlockPointer m)
+
+    -- |Get the last finalized of a 'BlockPointer'
+    bpLastFinalized :: BlockPointer m -> m (BlockPointer m)
 
     -- * 'PendingBlock' operations
     -- |Create and sign a 'PendingBlock`.
@@ -272,6 +278,8 @@ class (Eq (BlockPointer m),
 
 instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTrans t m) where
     blockState = lift . blockState
+    bpParent = lift . bpParent
+    bpLastFinalized = lift . bpLastFinalized
     makePendingBlock key slot parent bid pf n lastFin trs time = lift $ makePendingBlock key slot parent bid pf n lastFin trs time
     importPendingBlock bdata rectime = lift $ importPendingBlock bdata rectime
     getBlockStatus = lift . getBlockStatus

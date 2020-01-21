@@ -2,7 +2,6 @@
 -- |This module provides a monad that is an instance of both `LMDBStoreMonad` and `TreeStateMonad` effectively adding persistence to the tree state.
 module Concordium.GlobalState.Persistent.TreeState where
 
-import Concordium.GlobalState.Basic.Block
 import Concordium.GlobalState.Basic.Block as B
 import Concordium.GlobalState.Block
 import qualified Concordium.GlobalState.BlockState as BS
@@ -16,7 +15,6 @@ import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
-import Concordium.Types.Transactions (utcTimeToTransactionTime)
 import Control.Exception
 import Control.Monad.State
 import Data.ByteString (ByteString)
@@ -24,6 +22,7 @@ import Data.Foldable
 import Data.HashMap.Strict as HM hiding (toList)
 import Data.List as List
 import qualified Data.Map.Strict as Map
+import Data.Maybe
 import qualified Data.PQueue.Prio.Min as MPQ
 import qualified Data.Sequence as Seq
 import Data.Serialize as S (runGet, put, get, runPut, runGet, runGetState, decode)
@@ -31,11 +30,19 @@ import qualified Data.Set as Set
 import Data.Time.Clock
 import Database.LMDB.Simple as L
 import Lens.Micro.Platform
+import System.Mem.Weak
+
+data PersistenBlockStatus bs =
+    BlockAlive !(PersistentBlockPointer bs)
+    | BlockDead
+    | BlockFinalized !FinalizationIndex
+    | BlockPending !PendingBlock
+  deriving(Eq)
 
 -- |Skov data for the persistent tree state version that also holds the database handlers
 data SkovPersistentData bs = SkovPersistentData {
     -- |Map of all received blocks by hash.
-    _blockTable :: !(HM.HashMap BlockHash (TS.BlockStatus (PersistentBlockPointer bs) PendingBlock)),
+    _blockTable :: !(HM.HashMap BlockHash (PersistenBlockStatus bs)),
     -- |Map of (possibly) pending blocks by hash
     _possiblyPendingTable :: !(HM.HashMap BlockHash [PendingBlock]),
     -- |Priority queue of pairs of (block, parent) hashes where the block is (possibly) pending its parent, by block slot
@@ -78,7 +85,7 @@ initialSkovPersistentData rp gd genState serState = do
       gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
   initialDb <- initialDatabaseHandlers gb serState
   return SkovPersistentData {
-            _blockTable = HM.singleton gbh (TS.BlockFinalized 0),
+            _blockTable = HM.singleton gbh (BlockFinalized 0),
             _possiblyPendingTable = HM.empty,
             _possiblyPendingQueue = MPQ.empty,
             _blocksAwaitingLastFinalized = MPQ.empty,
@@ -114,6 +121,7 @@ deriving instance (Monad m, MonadState (SkovPersistentData bs) m) => MonadState 
 instance (bs ~ GS.BlockState m) => GS.GlobalStateTypes (PersistentTreeStateMonad bs m) where
     type PendingBlock (PersistentTreeStateMonad bs m) = PendingBlock
     type BlockPointer (PersistentTreeStateMonad bs m) = PersistentBlockPointer bs
+    type FinalizationValue (PersistentTreeStateMonad bs m) = FinalizationIndex
 
 instance (bs ~ GS.BlockState m, MonadIO m, BS.BlockStateStorage m, MonadState (SkovPersistentData bs) m) => LMDBStoreMonad (PersistentTreeStateMonad bs m) where
   writeBlock bp = do
@@ -128,14 +136,14 @@ instance (bs ~ GS.BlockState m, MonadIO m, BS.BlockStateStorage m, MonadState (S
   readBlock bh = do
     env <- use (db . storeEnv)
     dbB <- use (db . blockStore)
-    bytes <- liftIO $ transaction env $ (L.get dbB bh :: L.Transaction ReadOnly (Maybe ByteString))
+    bytes <- liftIO $ transaction env (L.get dbB bh :: L.Transaction ReadOnly (Maybe ByteString))
     case bytes of
       Just b -> do
-        tm <- liftIO $ getCurrentTime
+        tm <- liftIO getCurrentTime
         case runGetState (B.getBlock (utcTimeToTransactionTime tm)) b 0 of
           Right (newBlock, rest) ->
            case runGetState S.get rest 0 of
-             Right (bs, rest') -> do
+             Right (bs, rest') ->
               case runGet BS.getBlockState bs of
                 Right state' -> do
                   st <- state'
@@ -149,7 +157,7 @@ instance (bs ~ GS.BlockState m, MonadIO m, BS.BlockStateStorage m, MonadState (S
   readFinalizationRecord bh = do
     env <- use (db . storeEnv)
     dbF <- use (db . finalizationRecordStore)
-    liftIO $ transaction env $ (L.get dbF bh :: L.Transaction ReadOnly (Maybe FinalizationRecord))
+    liftIO $ transaction env (L.get dbF bh :: L.Transaction ReadOnly (Maybe FinalizationRecord))
   writeFinalizationRecord fr = do
     lim <- use (db . limits)
     env <- use (db . storeEnv)
@@ -162,42 +170,70 @@ instance (bs ~ GS.BlockState m, MonadIO m, BS.BlockStateStorage m, MonadState (S
 instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovPersistentData bs) m)
           => TS.TreeStateMonad (PersistentTreeStateMonad bs m) where
     blockState = return . _bpState
+    bpParent b = do
+      d <- liftIO $ deRefWeak (_bpParent b)
+      case d of
+        Just v -> return v
+        Nothing -> do
+          nb <- readBlock (_bpHash b)
+          return $ fromMaybe (error "Couldn't find parent block in disk") nb
+    bpLastFinalized b = do
+      d <- liftIO $ deRefWeak (_bpParent b)
+      case d of
+        Just v -> return v
+        Nothing -> do
+          nb <- readBlock (_bpHash b)
+          return $ fromMaybe (error "Couldn't find last finalized block in disk") nb
     makePendingBlock key slot parent bid pf n lastFin trs time = return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
     importPendingBlock blockBS rectime =
         case runGet (getBlock $ utcTimeToTransactionTime rectime) blockBS of
             Left err -> return $ Left $ "Block deserialization failed: " ++ err
-            Right (GenesisBlock {}) -> return $ Left $ "Block deserialization failed: unexpected genesis block"
+            Right GenesisBlock {} -> return $ Left "Block deserialization failed: unexpected genesis block"
             Right (NormalBlock block0) -> return $ Right $ makePendingBlock block0 rectime
-    getBlockStatus bh = use (blockTable . at bh)
+    getBlockStatus bh = do
+      st <- (^. at bh) <$> (use blockTable)
+      case st of
+        Just (BlockAlive bp) -> return $ Just $ TS.BlockAlive bp
+        Just (BlockPending bp) -> return $ Just $ TS.BlockPending bp
+        Just (BlockDead) -> return $ Just $ TS.BlockDead
+        Just (BlockFinalized fidx) -> do
+          b <- readBlock bh
+          fr <- readFinalizationRecord fidx
+          case (b, fr) of
+            (Just block, Just finr) -> return $ Just (TS.BlockFinalized block finr)
+            (Just _, Nothing) -> error $ "Lost finalization record that was stored" ++ show bh
+            (Nothing, Just _) -> error $ "Lost block that was stored as finalized" ++ show bh
+            _ -> error $ "Lost block and finalization record" ++ show bh
+        _ -> return Nothing
     makeLiveBlock block parent lastFin st arrTime energy = do
             blockP <- liftIO $ makeBlockPointerFromPendingBlock block parent lastFin st arrTime energy
-            blockTable . at (getHash block) ?= TS.BlockAlive blockP
+            blockTable . at (getHash block) ?= BlockAlive blockP
             return blockP
-    markDead bh = blockTable . at bh ?= TS.BlockDead
+    markDead bh = blockTable . at bh ?= BlockDead
     markFinalized bh fr = use (blockTable . at bh) >>= \case
-            Just (TS.BlockAlive bp) -> do
+            Just (BlockAlive bp) -> do
               writeBlock bp
-              blockTable . at bh ?= TS.BlockFinalized (finalizationIndex fr)
+              writeFinalizationRecord fr
+              blockTable . at bh ?= BlockFinalized (finalizationIndex fr)
             _ -> return ()
-    markPending pb = blockTable . at (getHash pb) ?= TS.BlockPending pb
-    getGenesisBlockPointer = use (genesisBlockPointer)
-    getGenesisData = use (genesisData)
-    getLastFinalized = use (finalizationList) >>= \case
+    markPending pb = blockTable . at (getHash pb) ?= BlockPending pb
+    getGenesisBlockPointer = use genesisBlockPointer
+    getGenesisData = use genesisData
+    getLastFinalized = use finalizationList >>= \case
             _ Seq.:|> (finRec,lf) -> return (lf, finRec)
             _ -> error "empty finalization list"
-    getNextFinalizationIndex = FinalizationIndex . fromIntegral . Seq.length <$> use (finalizationList)
-    addFinalization newFinBlock finRec = do
-      (finalizationList) %= (Seq.:|> (finRec, newFinBlock))
-    getFinalizationAtIndex finIndex = Seq.lookup (fromIntegral finIndex) <$> use (finalizationList)
-    getFinalizationFromIndex finIndex = toList . Seq.drop (fromIntegral finIndex) <$> use (finalizationList)
-    getBranches = use (branches)
+    getNextFinalizationIndex = FinalizationIndex . fromIntegral . Seq.length <$> use finalizationList
+    addFinalization newFinBlock finRec = finalizationList %= (Seq.:|> (finRec, newFinBlock))
+    getFinalizationAtIndex finIndex = Seq.lookup (fromIntegral finIndex) <$> use finalizationList
+    getFinalizationFromIndex finIndex = toList . Seq.drop (fromIntegral finIndex) <$> use finalizationList
+    getBranches = use branches
     putBranches brs = branches .= brs
     takePendingChildren bh = possiblyPendingTable . at bh . non [] <<.= []
     addPendingBlock pb = do
         let parent = blockPointer (bbFields (pbBlock pb))
         possiblyPendingTable . at parent . non [] %= (pb:)
         possiblyPendingQueue %= MPQ.insert (blockSlot (pbBlock pb)) (getHash pb, parent)
-    takeNextPendingUntil slot = tnpu =<< use (possiblyPendingQueue)
+    takeNextPendingUntil slot = tnpu =<< use possiblyPendingQueue
         where
             tnpu ppq = case MPQ.minViewWithKey ppq of
                 Just ((sl, (pbh, parenth)), ppq') ->
@@ -217,18 +253,18 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
                     return Nothing
     addAwaitingLastFinalized bh pb = blocksAwaitingLastFinalized %= MPQ.insert bh pb
     takeAwaitingLastFinalizedUntil bh =
-            (MPQ.minViewWithKey <$> use (blocksAwaitingLastFinalized)) >>= \case
+            (MPQ.minViewWithKey <$> use blocksAwaitingLastFinalized) >>= \case
                 Nothing -> return Nothing
-                Just ((h, pb), balf') -> if (h <= bh) then do
+                Just ((h, pb), balf') -> if h <= bh then do
                                             blocksAwaitingLastFinalized .= balf'
                                             return (Just pb)
                                         else return Nothing
     getFinalizationPoolAtIndex fi = use (finalizationPool . at fi . non [])
     putFinalizationPoolAtIndex fi frs = finalizationPool . at fi . non [] .= frs
     addFinalizationRecordToPool fr = finalizationPool . at (finalizationIndex fr) . non [] %= (fr :)
-    getFocusBlock = use (focusBlock)
+    getFocusBlock = use focusBlock
     putFocusBlock bb = focusBlock .= bb
-    getPendingTransactions = use (pendingTransactions)
+    getPendingTransactions = use pendingTransactions
     putPendingTransactions pts = pendingTransactions .= pts
     getAccountNonFinalized addr nnce =
             use (transactionTable . ttNonFinalizedTransactions . at addr) >>= \case
@@ -239,7 +275,7 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
                         Nothing -> Map.toAscList beyond
                         Just s -> (nnce, s) : Map.toAscList beyond
     addCommitTransaction tr slot = do
-            tt <- use (transactionTable)
+            tt <- use transactionTable
             let trHash = getHash tr
             case tt ^. ttHashMap . at trHash of
                 Nothing ->
@@ -274,7 +310,7 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
             Nothing -> return True
             Just (_, slot) -> do
                 lastFinSlot <- blockSlot . _bpBlock . fst <$> TS.getLastFinalized
-                if (lastFinSlot >= slot) then do
+                if lastFinSlot >= slot then do
                     let nonce = transactionNonce tr
                         sender = transactionSender tr
                     transactionTable . ttHashMap . at (getHash tr) .= Nothing
@@ -289,8 +325,8 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
                 return $ Just (tr, transactionNonce tr < nn)
     updateBlockTransactions trs pb = return $ pb {pbBlock = (pbBlock pb) {bbTransactions = BlockTransactions trs}}
 
-    getConsensusStatistics = use (statistics)
+    getConsensusStatistics = use statistics
     putConsensusStatistics stats = statistics .= stats
 
     {-# INLINE getRuntimeParameters #-}
-    getRuntimeParameters = use (runtimeParameters)
+    getRuntimeParameters = use runtimeParameters

@@ -133,8 +133,6 @@ instance (Ord l, Ord r) => Ord (PairBlockData l r) where
 
 instance (BlockPointerData l, BlockPointerData r) => BlockPointerData (PairBlockData l r) where
     bpHash (PairBlockData (l, r)) = assert (bpHash l == bpHash r) $ bpHash l
-    bpParent (PairBlockData (_, _)) = undefined -- FIXME: PairBlockData (bpParent l, bpParent r)
-    bpLastFinalized (PairBlockData (_, _)) = undefined -- FIXME: PairBlockData (bpLastFinalized l, bpLastFinalized r)
     bpHeight (PairBlockData (l, r)) = assert (bpHeight l == bpHeight r) $ bpHeight l
     bpReceiveTime (PairBlockData (l, r)) = assert (bpReceiveTime l == bpReceiveTime r) $ bpReceiveTime l
     bpArriveTime (PairBlockData (l, r)) = assert (bpArriveTime l == bpArriveTime r) $ bpArriveTime l
@@ -149,6 +147,7 @@ instance (GlobalStateTypes (GSML lc r ls s m), GlobalStateTypes (GSMR rc r rs s 
         => GlobalStateTypes (GlobalStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
     type PendingBlock (GlobalStateM (PairGSContext lc rc) r (PairGState ls rs) s m) = PairBlockData (PendingBlock (GSML lc r ls s m)) (PendingBlock (GSMR rc r rs s m))
     type BlockPointer (GlobalStateM (PairGSContext lc rc) r (PairGState ls rs) s m) = PairBlockData (BlockPointer (GSML lc r ls s m)) (BlockPointer (GSMR rc r rs s m))
+    type FinalizationValue (GlobalStateM (PairGSContext lc rc) r (PairGState ls rs) s m) = PairBlockData (FinalizationValue (GSML lc r ls s m)) (FinalizationValue (GSMR rc r rs s m))
 
 {-# INLINE coerceBSML #-}
 coerceBSML :: BSML lc r ls s m a -> BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m a
@@ -382,6 +381,14 @@ instance (HasGlobalStateContext (PairGSContext lc rc) r,
         bs1 <- coerceGSML $ blockState bp1
         bs2 <- coerceGSMR $ blockState bp2
         return (bs1, bs2)
+    bpParent (PairBlockData (bp1, bp2)) = do
+        bs1 <- coerceGSML $ bpParent bp1
+        bs2 <- coerceGSMR $ bpParent bp2
+        return $ PairBlockData (bs1, bs2)
+    bpLastFinalized (PairBlockData (bp1, bp2)) = do
+        bs1 <- coerceGSML $ bpLastFinalized bp1
+        bs2 <- coerceGSMR $ bpLastFinalized bp2
+        return $ PairBlockData (bs1, bs2)
     makePendingBlock sk sl parent bid bp bn lf trs brtime = do
         pb1 <- coerceGSML $ makePendingBlock sk sl parent bid bp bn lf trs brtime
         pb2 <- coerceGSMR $ makePendingBlock sk sl parent bid bp bn lf trs brtime
@@ -400,8 +407,8 @@ instance (HasGlobalStateContext (PairGSContext lc rc) r,
             (Nothing, Nothing) -> return Nothing
             (Just (BlockAlive bp1), Just (BlockAlive bp2)) -> return $ Just (BlockAlive (PairBlockData (bp1, bp2)))
             (Just BlockDead, Just BlockDead) -> return $ Just BlockDead
-            (Just (BlockFinalized f), Just (BlockFinalized g)) ->
-                assert (f == g) $ return $ Just $ BlockFinalized f
+            (Just (BlockFinalized b f), Just (BlockFinalized c g)) ->
+                assert (f == g) $ return $ Just $ BlockFinalized (PairBlockData (b,c)) f
             (Just (BlockPending pb1), Just (BlockPending pb2)) -> return $ Just (BlockPending (PairBlockData (pb1, pb2)))
             _ -> error $ "getBlockStatus (Paired): block statuses do not match: " ++ show bs1 ++ ", " ++ show bs2
     makeLiveBlock (PairBlockData (pb1, pb2)) (PairBlockData (parent1, parent2)) (PairBlockData (lf1, lf2)) (bs1, bs2) t e = do

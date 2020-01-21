@@ -74,7 +74,7 @@ initialSkovData rp gd genState = do
       gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
       gb = makeGenesisBlockPointer gd genState
   return SkovData {
-            _blockTable = HM.singleton gbh (TS.BlockFinalized 0),
+            _blockTable = HM.singleton gbh (TS.BlockFinalized gb gbfin),
             _possiblyPendingTable = HM.empty,
             _possiblyPendingQueue = MPQ.empty,
             _blocksAwaitingLastFinalized = MPQ.empty,
@@ -109,10 +109,13 @@ deriving instance (Monad m, MonadState (SkovData bs) m) => MonadState (SkovData 
 instance (bs ~ GS.BlockState m) => GS.GlobalStateTypes (PureTreeStateMonad bs m) where
     type PendingBlock (PureTreeStateMonad bs m) = PendingBlock
     type BlockPointer (PureTreeStateMonad bs m) = BasicBlockPointer bs
+    type FinalizationValue (PureTreeStateMonad bs m) = (FinalizationRecord, BasicBlockPointer bs)
 
 instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovData bs) m)
           => TS.TreeStateMonad (PureTreeStateMonad bs m) where
     blockState = return . _bpState
+    bpParent = return . _bpParent
+    bpLastFinalized = return . _bpLastFinalized
     makePendingBlock key slot parent bid pf n lastFin trs time = return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
     importPendingBlock blockBS rectime =
         case runGet (getBlock $ utcTimeToTransactionTime rectime) blockBS of
@@ -126,8 +129,8 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
             return blockP
     markDead bh = blockTable . at bh ?= TS.BlockDead
     markFinalized bh fr = use (blockTable . at bh) >>= \case
-            Just (TS.BlockAlive _) -> do
-              blockTable . at bh ?= TS.BlockFinalized (finalizationIndex fr)
+            Just (TS.BlockAlive bp) -> do
+              blockTable . at bh ?= TS.BlockFinalized bp fr
             _ -> return ()
     markPending pb = blockTable . at (getHash pb) ?= TS.BlockPending pb
     getGenesisBlockPointer = use genesisBlockPointer

@@ -9,19 +9,19 @@
 
 module Concordium.GlobalState.Persistent.BlockPointer where
 
-import Data.Hashable (Hashable, hashWithSalt, hash)
-import Data.Time
-import Data.Time.Clock.POSIX
-import qualified Data.List as List
-import Control.Exception
-
 import qualified Concordium.Crypto.SHA256 as Hash
+import Concordium.GlobalState.Basic.Block
+import Concordium.GlobalState.Block
+import Concordium.GlobalState.Parameters
 import Concordium.Types
 import Concordium.Types.HashableTo
-import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Block
-import Concordium.GlobalState.Basic.Block
 import qualified Concordium.Types.Transactions as Transactions
+import Control.Exception
+import Data.Hashable (Hashable, hashWithSalt, hash)
+import qualified Data.List as List
+import Data.Maybe
+import Data.Time
+import Data.Time.Clock.POSIX
 import System.Mem.Weak
 
 -- |A Block Pointer that doesn't retain the values for its Parent and Last finalized block
@@ -99,9 +99,7 @@ makeBlockPointer b _bpHeight _bpParent _bpLastFinalized _bpState _bpArriveTime _
     _bpBlock = b,
     ..}
  where (_bpTransactionCount, _bpTransactionsSize) = List.foldl' (\(clen, csize) tx -> (clen + 1, Transactions.trSize tx + csize)) (0, 0) (blockTransactions b)
-       _bpTransactionsEnergyCost = case ene of
-         Just v -> v
-         Nothing -> List.foldl' (\(en) tx -> Transactions.transactionGasAmount tx + en) 0 (blockTransactions b)
+       _bpTransactionsEnergyCost = fromMaybe (List.foldl' (\en tx -> Transactions.transactionGasAmount tx + en) 0 (blockTransactions b)) ene
 
 -- |Creates the genesis block pointer that has circular references to itself.
 makeGenesisBlockPointer :: GenesisData -> s -> IO (PersistentBlockPointer s)
@@ -129,7 +127,8 @@ makeBlockPointerFromPendingBlock pb parent lfin st arr ene = do
     makeBlockPointer (NormalBlock (pbBlock pb)) (bpHeight parent + 1) parentW lfinW st arr (pbReceiveTime pb) (Just ene)
  where bf = bbFields $ pbBlock pb
 
--- |Creates a Block Pointer from a Block using a state and a height. This version results into an unlinked Block Pointer and is intended to be used when we deserialize a specific block from the disk as we don't want to deserialize its parent or last finalized block.
+-- |Creates a Block Pointer from a Block using a state and a height. This version results into an unlinked Block Pointer and is
+-- intended to be used when we deserialize a specific block from the disk as we don't want to deserialize its parent or last finalized block.
 makeBlockPointerFromBlock :: Block -> s -> BlockHeight -> IO (PersistentBlockPointer s)
 makeBlockPointerFromBlock b s bh = do
   parentW <- mkWeakPtr undefined Nothing
@@ -141,8 +140,6 @@ makeBlockPointerFromBlock b s bh = do
 
 instance BlockPointerData (PersistentBlockPointer s) where
     bpHash = _bpHash
-    bpParent p = (\(Just x) -> return x) =<< (deRefWeak $ _bpParent p) --FIXME: This should read from the disk
-    bpLastFinalized p = (\(Just x) -> return x) =<< (deRefWeak $ _bpLastFinalized p) --FIXME: This should read from the disk
     bpHeight = _bpHeight
     bpReceiveTime = _bpReceiveTime
     bpArriveTime = _bpArriveTime

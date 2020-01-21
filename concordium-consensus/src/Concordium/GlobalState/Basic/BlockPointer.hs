@@ -119,8 +119,6 @@ makeGenesisBlockPointer genData _bpState = theBlockPointer
 
 instance BlockPointerData (BasicBlockPointer s) where
     bpHash = _bpHash
-    bpParent = return . _bpParent
-    bpLastFinalized = return . _bpLastFinalized
     bpHeight = _bpHeight
     bpReceiveTime = _bpReceiveTime
     bpArriveTime = _bpArriveTime
