@@ -57,9 +57,6 @@ data AddTransactionResult =
   Duplicate !Transaction |
   -- |The transaction was newly added.
   Added !Transaction |
-  -- |Transaction was new (according to the hash), but its signature was incorrect.
-  -- The transaction is not added to the table.
-  InvalidSignature |
   -- |The nonce of the transaction is not later than the last finalized transaction for the sender.
   -- The transaction is not added to the table.
   ObsoleteNonce

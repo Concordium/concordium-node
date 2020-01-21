@@ -59,7 +59,7 @@ data Instance = Instance {
 }
 
 instance Show Instance where
-    show Instance{..} = show instanceParameters ++ " {balance=" ++ show instanceAmount ++ ", model=" ++ show instanceModel ++ "}"
+    show Instance{..} = show instanceParameters ++ " {balance=" ++ show instanceAmount ++ ", model=" ++ show instanceModel ++ ", hash=" ++ show instanceHash ++ "}"
 
 instance HashableTo H.Hash Instance where
     getHash = instanceHash
@@ -71,11 +71,14 @@ makeInstanceParameterHash ca aa modRef conName = H.hashLazy $ runPutLazy $ do
         put modRef
         put conName
 
-makeInstanceHash :: InstanceParameters -> Value Core.NoAnnot -> Amount -> H.Hash
-makeInstanceHash params v a = H.hashLazy $ runPutLazy $ do
-        put (instanceParameterHash params)
+makeInstanceHash' :: H.Hash -> Value Core.NoAnnot -> Amount -> H.Hash
+makeInstanceHash' paramHash v a = H.hashLazy $ runPutLazy $ do
+        put paramHash
         putStorable v
         put a
+
+makeInstanceHash :: InstanceParameters -> Value Core.NoAnnot -> Amount -> H.Hash
+makeInstanceHash params = makeInstanceHash' (instanceParameterHash params)
 
 -- |Get the 'InstanceInfo' summary of an 'Instance'.
 instanceInfo :: Instance -> InstanceInfo
