@@ -12,8 +12,7 @@
     UndecidableInstances,
     CPP,
     RankNTypes,
-    ScopedTypeVariables,
-    ConstraintKinds
+    ScopedTypeVariables
     #-}
 module Concordium.GlobalState where
 
@@ -36,10 +35,6 @@ import Concordium.GlobalState.Basic.TreeState
 import Concordium.GlobalState.Persistent.BlockState
 import Concordium.GlobalState.Persistent.TreeState
 import Concordium.GlobalState.Persistent.BlobStore (createTempBlobStore, destroyTempBlobStore)
--- #ifdef RUST
--- import qualified Concordium.GlobalState.Implementation.FFI as Rust
--- import qualified Concordium.GlobalState.Implementation.TreeState as Rust
--- #endif
 
 -- |A newtype wrapper for providing instances of the block state related monads:
 -- 'BlockStateTypes', 'BlockStateQuery', 'BlockStateOperations' and 'BlockStateStorage'.

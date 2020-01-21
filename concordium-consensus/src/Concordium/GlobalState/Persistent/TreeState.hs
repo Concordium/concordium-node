@@ -121,7 +121,6 @@ deriving instance (Monad m, MonadState (SkovPersistentData bs) m) => MonadState 
 instance (bs ~ GS.BlockState m) => GS.GlobalStateTypes (PersistentTreeStateMonad bs m) where
     type PendingBlock (PersistentTreeStateMonad bs m) = PendingBlock
     type BlockPointer (PersistentTreeStateMonad bs m) = PersistentBlockPointer bs
-    type FinalizationValue (PersistentTreeStateMonad bs m) = FinalizationIndex
 
 instance (bs ~ GS.BlockState m, MonadIO m, BS.BlockStateStorage m, MonadState (SkovPersistentData bs) m) => LMDBStoreMonad (PersistentTreeStateMonad bs m) where
   writeBlock bp = do

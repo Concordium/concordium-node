@@ -70,7 +70,6 @@ class BlockStateTypes (m :: * -> *) where
 class (BlockStateTypes m, BlockPendingData (PendingBlock m), BlockPointerData (BlockPointer m)) => GlobalStateTypes m where
     type PendingBlock m :: *
     type BlockPointer m :: *
-    type FinalizationValue m :: *
 
 -- |@MGSTrans t m@ is a newtype wrapper for a monad transformer @t@ applied
 -- to a monad @m@.  This wrapper exists to support lifting various monad
@@ -91,7 +90,6 @@ instance BlockStateTypes (MGSTrans t m) where
 instance (GlobalStateTypes m) => GlobalStateTypes (MGSTrans t m) where
     type PendingBlock (MGSTrans t m) = PendingBlock m
     type BlockPointer (MGSTrans t m) = BlockPointer m
-    type FinalizationValue (MGSTrans t m) = FinalizationValue m
 
 deriving via (MGSTrans MaybeT m) instance BlockStateTypes (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance (GlobalStateTypes m) => GlobalStateTypes (MaybeT m)

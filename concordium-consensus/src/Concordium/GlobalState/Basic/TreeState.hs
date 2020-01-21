@@ -109,7 +109,6 @@ deriving instance (Monad m, MonadState (SkovData bs) m) => MonadState (SkovData 
 instance (bs ~ GS.BlockState m) => GS.GlobalStateTypes (PureTreeStateMonad bs m) where
     type PendingBlock (PureTreeStateMonad bs m) = PendingBlock
     type BlockPointer (PureTreeStateMonad bs m) = BasicBlockPointer bs
-    type FinalizationValue (PureTreeStateMonad bs m) = (FinalizationRecord, BasicBlockPointer bs)
 
 instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovData bs) m)
           => TS.TreeStateMonad (PureTreeStateMonad bs m) where
@@ -129,8 +128,7 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
             return blockP
     markDead bh = blockTable . at bh ?= TS.BlockDead
     markFinalized bh fr = use (blockTable . at bh) >>= \case
-            Just (TS.BlockAlive bp) -> do
-              blockTable . at bh ?= TS.BlockFinalized bp fr
+            Just (TS.BlockAlive bp) -> blockTable . at bh ?= TS.BlockFinalized bp fr
             _ -> return ()
     markPending pb = blockTable . at (getHash pb) ?= TS.BlockPending pb
     getGenesisBlockPointer = use genesisBlockPointer
@@ -139,8 +137,7 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
             _ Seq.:|> (finRec,lf) -> return (lf, finRec)
             _ -> error "empty finalization list"
     getNextFinalizationIndex = FinalizationIndex . fromIntegral . Seq.length <$> use finalizationList
-    addFinalization newFinBlock finRec = do
-      finalizationList %= (Seq.:|> (finRec, newFinBlock))
+    addFinalization newFinBlock finRec = finalizationList %= (Seq.:|> (finRec, newFinBlock))
     getFinalizationAtIndex finIndex = Seq.lookup (fromIntegral finIndex) <$> use finalizationList
     getFinalizationFromIndex finIndex = toList . Seq.drop (fromIntegral finIndex) <$> use finalizationList
     getBranches = use branches
