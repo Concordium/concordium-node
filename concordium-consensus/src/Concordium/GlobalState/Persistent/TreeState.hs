@@ -15,10 +15,10 @@ import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
+import Control.Applicative
 import Control.Exception
 import Control.Monad.State
 import Data.ByteString (ByteString)
-import Data.Foldable
 import Data.HashMap.Strict as HM hiding (toList)
 import Data.List as List
 import qualified Data.Map.Strict as Map
@@ -49,8 +49,10 @@ data SkovPersistentData bs = SkovPersistentData {
     _possiblyPendingQueue :: !(MPQ.MinPQueue Slot (BlockHash, BlockHash)),
     -- |Priority queue of blocks waiting for their last finalized block to be finalized, ordered by height of the last finalized block
     _blocksAwaitingLastFinalized :: !(MPQ.MinPQueue BlockHeight PendingBlock),
-    -- |List of finalization records with the blocks that they finalize, starting from genesis
-    _finalizationList :: !(Seq.Seq (FinalizationRecord, PersistentBlockPointer bs)),
+    -- |Pointer to the last finalized block
+    _lastFinalized :: !(PersistentBlockPointer bs),
+    -- |Pointer to the last finalization record
+    _lastFinalizationRecord :: !FinalizationRecord,
     -- |Pending finalization records by finalization index
     _finalizationPool :: !(Map.Map FinalizationIndex [FinalizationRecord]),
     -- |Branches of the tree by height above the last finalized block
@@ -89,7 +91,8 @@ initialSkovPersistentData rp gd genState serState = do
             _possiblyPendingTable = HM.empty,
             _possiblyPendingQueue = MPQ.empty,
             _blocksAwaitingLastFinalized = MPQ.empty,
-            _finalizationList = Seq.singleton (gbfin, gb),
+            _lastFinalized = gb,
+            _lastFinalizationRecord = gbfin,
             _finalizationPool = Map.empty,
             _branches = Seq.empty,
             _genesisData = gd,
@@ -218,13 +221,26 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
     markPending pb = blockTable . at (getHash pb) ?= BlockPending pb
     getGenesisBlockPointer = use genesisBlockPointer
     getGenesisData = use genesisData
-    getLastFinalized = use finalizationList >>= \case
-            _ Seq.:|> (finRec,lf) -> return (lf, finRec)
-            _ -> error "empty finalization list"
-    getNextFinalizationIndex = FinalizationIndex . fromIntegral . Seq.length <$> use finalizationList
-    addFinalization newFinBlock finRec = finalizationList %= (Seq.:|> (finRec, newFinBlock))
-    getFinalizationAtIndex finIndex = Seq.lookup (fromIntegral finIndex) <$> use finalizationList
-    getFinalizationFromIndex finIndex = toList . Seq.drop (fromIntegral finIndex) <$> use finalizationList
+    getLastFinalized = liftA2 (,) (use lastFinalized) (use lastFinalizationRecord)
+    getNextFinalizationIndex = (+1) <$> finalizationIndex <$> (use lastFinalizationRecord)
+    addFinalization newFinBlock finRec = do
+      writeFinalizationRecord finRec
+      lastFinalized .= newFinBlock
+      lastFinalizationRecord .= finRec
+    getFinalizationAtIndex finIndex = do
+      lfr <- use lastFinalizationRecord
+      if finIndex == finalizationIndex lfr then do
+        b <- use lastFinalized
+        return $ Just (lfr, b)
+      else do
+        dfr <- readFinalizationRecord finIndex
+        case dfr of
+          Just diskFinRec -> do
+             diskb <- readBlock (finalizationBlockPointer diskFinRec)
+             case diskb of
+                Just diskBlock -> return $ Just (diskFinRec, diskBlock)
+                _ -> return Nothing
+          _ -> return Nothing
     getBranches = use branches
     putBranches brs = branches .= brs
     takePendingChildren bh = possiblyPendingTable . at bh . non [] <<.= []
