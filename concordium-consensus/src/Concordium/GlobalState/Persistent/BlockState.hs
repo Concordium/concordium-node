@@ -175,7 +175,7 @@ makePersistent Basic.BlockState{..} = liftIO $ newIORef $! BRMemory BlockStatePo
         , bspCryptographicParameters = BRMemory $! _blockCryptographicParameters
         , bspTransactionOutcomes = _blockTransactionOutcomes
         }
-
+    
 initialPersistentState :: MonadIO m => BirkParameters
              -> CryptographicParameters
              -> [Account]
@@ -408,11 +408,11 @@ doRegIdExists pbs regid = do
         fst <$> Account.regIdExists regid (bspAccounts bsp)
 
 doPutNewAccount :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> Account -> m (Bool, PersistentBlockState)
-doPutNewAccount pbs acct = do
+doPutNewAccount pbs acct = do 
         bsp <- loadPBS pbs
         (res, accts') <- Account.putNewAccount acct (bspAccounts bsp)
         (res,) <$> storePBS pbs (bsp {bspAccounts = accts'})
-
+    
 doModifyAccount :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> AccountUpdate -> m PersistentBlockState
 doModifyAccount pbs aUpd@AccountUpdate{..} = do
         bsp <- loadPBS pbs
@@ -588,7 +588,7 @@ instance HasModuleCache PersistentBlockStateContext where
 instance HasBlobStore PersistentBlockStateContext where
     blobStore = pbscBlobStore
 
-newtype PersistentBlockStateMonad r m a = PersistentBlockStateMonad {runPersistentBlockStateMonad :: m a}
+newtype PersistentBlockStateMonad r m a = PersistentBlockStateMonad (m a)
     deriving (Functor, Applicative, Monad, MonadIO, MonadReader r)
 
 instance BlockStateTypes (PersistentBlockStateMonad r m) where
@@ -705,5 +705,5 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => Block
         (inner', ref) <- flushBufferedRef inner
         liftIO $ writeIORef pbs inner'
         return (put ref)
-
+    
     getBlockState = liftIO . newIORef . BRBlobbed <$> get

@@ -193,11 +193,11 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
             Right GenesisBlock {} -> return $ Left "Block deserialization failed: unexpected genesis block"
             Right (NormalBlock block0) -> return $ Right $ makePendingBlock block0 rectime
     getBlockStatus bh = do
-      st <- (^. at bh) <$> (use blockTable)
+      st <- (^. at bh) <$> use blockTable
       case st of
         Just (BlockAlive bp) -> return $ Just $ TS.BlockAlive bp
         Just (BlockPending bp) -> return $ Just $ TS.BlockPending bp
-        Just (BlockDead) -> return $ Just $ TS.BlockDead
+        Just BlockDead -> return $ Just TS.BlockDead
         Just (BlockFinalized fidx) -> do
           b <- readBlock bh
           fr <- readFinalizationRecord fidx
@@ -222,7 +222,7 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
     getGenesisBlockPointer = use genesisBlockPointer
     getGenesisData = use genesisData
     getLastFinalized = liftA2 (,) (use lastFinalized) (use lastFinalizationRecord)
-    getNextFinalizationIndex = (+1) <$> finalizationIndex <$> (use lastFinalizationRecord)
+    getNextFinalizationIndex = (+1) . finalizationIndex <$> use lastFinalizationRecord
     addFinalization newFinBlock finRec = do
       writeFinalizationRecord finRec
       lastFinalized .= newFinBlock
