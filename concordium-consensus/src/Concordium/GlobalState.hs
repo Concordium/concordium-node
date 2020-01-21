@@ -129,9 +129,7 @@ deriving via (TreeStateM (Rust.SkovData bs) (BlockStateM c r (Rust.SkovData bs) 
 #endif
 
 -- |This class is implemented by types that determine configurations for the global state.
-class (
-        forall m r s. (HasGlobalStateContext (GSContext c) r, MonadReader r m, HasGlobalState (GSState c) s, MonadState s m, MonadIO m) => TreeStateMonad (GlobalStateM (GSContext c) r (GSState c) s m)
-    ) => GlobalStateConfig c where
+class GlobalStateConfig c where
     -- TODO: making these data families could give better error messages
     type GSContext c :: *
     type GSState c :: *
