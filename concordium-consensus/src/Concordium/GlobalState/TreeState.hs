@@ -31,7 +31,7 @@ import Concordium.Types.Transactions
 import Concordium.GlobalState.Statistics
 import Concordium.GlobalState.BlockState
 
-data BlockStatus bp pb  =
+data BlockStatus bp pb =
     BlockAlive !bp
     | BlockDead
     | BlockFinalized !bp !FinalizationRecord

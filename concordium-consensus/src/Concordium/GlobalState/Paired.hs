@@ -147,7 +147,6 @@ instance (GlobalStateTypes (GSML lc r ls s m), GlobalStateTypes (GSMR rc r rs s 
         => GlobalStateTypes (GlobalStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
     type PendingBlock (GlobalStateM (PairGSContext lc rc) r (PairGState ls rs) s m) = PairBlockData (PendingBlock (GSML lc r ls s m)) (PendingBlock (GSMR rc r rs s m))
     type BlockPointer (GlobalStateM (PairGSContext lc rc) r (PairGState ls rs) s m) = PairBlockData (BlockPointer (GSML lc r ls s m)) (BlockPointer (GSMR rc r rs s m))
-    type FinalizationValue (GlobalStateM (PairGSContext lc rc) r (PairGState ls rs) s m) = PairBlockData (FinalizationValue (GSML lc r ls s m)) (FinalizationValue (GSMR rc r rs s m))
 
 {-# INLINE coerceBSML #-}
 coerceBSML :: BSML lc r ls s m a -> BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m a
@@ -407,8 +406,8 @@ instance (HasGlobalStateContext (PairGSContext lc rc) r,
             (Nothing, Nothing) -> return Nothing
             (Just (BlockAlive bp1), Just (BlockAlive bp2)) -> return $ Just (BlockAlive (PairBlockData (bp1, bp2)))
             (Just BlockDead, Just BlockDead) -> return $ Just BlockDead
-            (Just (BlockFinalized b f), Just (BlockFinalized c g)) ->
-                assert (f == g) $ return $ Just $ BlockFinalized (PairBlockData (b,c)) f
+            (Just (BlockFinalized bp1 fr1), Just (BlockFinalized bp2 fr2)) ->
+                assert (fr1 == fr2) $ return $ Just $ BlockFinalized (PairBlockData (bp1, bp2)) fr1
             (Just (BlockPending pb1), Just (BlockPending pb2)) -> return $ Just (BlockPending (PairBlockData (pb1, pb2)))
             _ -> error $ "getBlockStatus (Paired): block statuses do not match: " ++ show bs1 ++ ", " ++ show bs2
     makeLiveBlock (PairBlockData (pb1, pb2)) (PairBlockData (parent1, parent2)) (PairBlockData (lf1, lf2)) (bs1, bs2) t e = do
