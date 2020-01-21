@@ -29,7 +29,8 @@ module Concordium.Afgjort.WMVBA (
     -- * For testing
     _freezeState,
     findCulprits,
-    makeWMVBAWitnessCreatorMessage
+    makeWMVBAWitnessCreatorMessage,
+    WMVBAState(WMVBAState)
 ) where
 
 import Lens.Micro.Platform

@@ -58,20 +58,25 @@ makeInput :: WMVBAInput -> WMVBA () ()
 makeInput (ReceiveWMVBAMessage p m) = receiveWMVBAMessage p () m
 makeInput (StartWMVBA v) = startWMVBA v
 
+invariantWMVBAState :: WMVBAInstance () -> WMVBAState () -> Either String ()
+invariantWMVBAState inst WMVBAState{..} = return ()
+  -- TODO: check invariant here. Invariant after every step should be:
+  -- 1. Output isn't WMVBAComplete
+  -- 2. badJV total weight doesn't exceept corruptWeight (NOT YET IMPLEMENTED)
+  -- 3. Justifications weight for each existing blockvalue doesnt exceep corrupted weight
+
 runWMVBATest :: Int -> BS.ByteString -> Int -> Vec.Vector (VRF.KeyPair, Bls.SecretKey) -> [WMVBAInput] -> IO Property
 runWMVBATest me baid nparties keys = go (inst 0) initialWMVBAState
     where
-        corruptWeight = nparties `div` 3
+        corruptWeight  = nparties `div` 3
         inst i = WMVBAInstance baid (fromIntegral nparties) (fromIntegral corruptWeight) (const 1) (fromIntegral nparties) vrfKeyMap i myVRFKeypair blsPublicKeyMap myBlsKey
+        myInstance = inst (fromIntegral me)
         go _ins st [] = return $ label ("Done processing input stream") $ checkFinalState st
         go ins st (e : es) = do
           (_, st', output) <- runWMVBA (makeInput e) ins st
-          traceShowM output
-          -- TODO: check invariant here. Invariant after every step should be:
-          -- 1. Output isn't WMVBAComplete
-          -- 2. badJV total weight doesn't exceept corruptWeight (NOT YET IMPLEMENTED)
-          -- 3. Justifications weight for each existing blockvalue doesnt exceep corrupted weight
-          go ins st' es
+          case invariantWMVBAState myInstance st' of
+            Left err -> return $ counterexample "something went wrong" False
+            Right _ -> go ins st' es
         vrfKeyMap = VRF.publicKey . fst . (keys Vec.!) . fromIntegral
         blsPublicKeys = Vec.map (\(_, blssk) -> Bls.derivePublicKey blssk) keys
         blsPublicKeyMap = (blsPublicKeys Vec.!) . fromIntegral
@@ -84,14 +89,10 @@ blockA :: Val
 blockA = H.hash "A"
 
 testData1 :: Int -> BS.ByteString -> Val -> Vec.Vector (VRF.KeyPair, Bls.SecretKey) -> [WMVBAInput]
-testData1 me baid v keys = inputs
+testData1 me baid v keys = StartWMVBA blockA : inputs
   where
-    -- withoutMe = let (l1, l2) = Vec.splitAt me keys in l1 Vec.++ (Vec.tail l2)
     inputs = let (inps, _) = Vec.foldl f ([], 0) keys in inps
     f (inps, i) (_, blssk) = (ReceiveWMVBAMessage (fromIntegral i) (makeWMVBAWitnessCreatorMessage baid v blssk) : inps, i+1)
-
-genbla :: Gen (Vec.Vector (VRF.KeyPair, Bls.SecretKey), BS.ByteString)
-genbla = liftM2 (,) (genKeys 10) genByteString
 
 runTest1 :: Property
 runTest1 = monadicIO $ do
@@ -152,4 +153,4 @@ tests :: Word -> Spec
 tests _lvl = describe "Concordium.Afgjort.WMVBA" $ do
     it "Finds no culprits when everyone signs correctly" $ withMaxSuccess 100 findCulpritsNoMaliciousTest
     it "Finds the misbehaving signers" $ withMaxSuccess 100 findCulpritsTest
-    it "bla" $ withMaxSuccess 1 runTest1
+    it "wip" $ withMaxSuccess 1 runTest1
