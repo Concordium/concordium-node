@@ -20,6 +20,7 @@ use concordium_common::{
 };
 use globalstate_rust::{
     block::*,
+    catch_up::PeerStatus,
     tree::{
         messaging::{ConsensusMessage, MessageType},
         GlobalState,
@@ -206,6 +207,7 @@ type LogCallback = extern "C" fn(c_char, c_char, *const u8);
 type TransferLogCallback =
     unsafe extern "C" fn(c_char, *const u8, u64, *const u8, u64, u64, *const u8);
 type BroadcastCallback = extern "C" fn(i64, *const u8, i64);
+type CatchUpStatusCallback = extern "C" fn(*const u8, i64);
 type DirectMessageCallback =
     extern "C" fn(peer_id: PeerId, message_type: i64, msg: *const c_char, msg_len: i64);
 
@@ -219,6 +221,7 @@ extern "C" {
         private_data_len: i64,
         gsptr: *const GlobalState,
         broadcast_callback: BroadcastCallback,
+        catchup_status_callback: CatchUpStatusCallback,
         maximum_log_level: u8,
         log_callback: LogCallback,
         transfer_log_enabled: u8,
@@ -229,6 +232,7 @@ extern "C" {
         genesis_data: *const u8,
         genesis_data_len: i64,
         gsptr: *const GlobalState,
+        catchup_status_callback: CatchUpStatusCallback,
         maximum_log_level: u8,
         log_callback: LogCallback,
     ) -> *mut consensus_runner;
@@ -359,6 +363,7 @@ pub fn get_consensus_ptr(
                     private_data_len as i64,
                     gsptr,
                     broadcast_callback,
+                    catchup_status_callback,
                     maximum_log_level as u8,
                     on_log_emited,
                     if enable_transfer_logging { 1 } else { 0 },
@@ -374,6 +379,7 @@ pub fn get_consensus_ptr(
                     c_string_genesis.as_ptr() as *const u8,
                     genesis_data_len as i64,
                     Box::into_raw(Box::new(_gsptr)) as *const GlobalState,
+                    catchup_status_callback,
                     maximum_log_level as u8,
                     on_log_emited,
                 )
@@ -385,6 +391,7 @@ pub fn get_consensus_ptr(
                     c_string_genesis.as_ptr() as *const u8,
                     genesis_data_len as i64,
                     std::ptr::null(),
+                    catchup_status_callback,
                     maximum_log_level as u8,
                     on_log_emited,
                 )
@@ -614,6 +621,7 @@ pub extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *co
             PacketType::FinalizationMessage,
             full_payload,
             vec![],
+            None,
         );
 
         match CALLBACK_QUEUE.send_out_blocking_msg(msg) {
@@ -624,7 +632,7 @@ pub extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *co
 }
 
 macro_rules! sending_callback {
-    ($target:expr, $msg_type:expr, $msg:expr, $msg_length:expr) => {
+    ($target:expr, $msg_type:expr, $msg:expr, $msg_length:expr, $omit_status:expr) => {
         unsafe {
             let callback_type = match CallbackType::try_from($msg_type as u8) {
                 Ok(ct) => ct,
@@ -654,6 +662,7 @@ macro_rules! sending_callback {
                 msg_variant,
                 full_payload,
                 vec![],
+                $omit_status,
             );
 
             match CALLBACK_QUEUE.send_out_blocking_msg(msg) {
@@ -666,11 +675,9 @@ macro_rules! sending_callback {
 
 pub extern "C" fn broadcast_callback(msg_type: i64, msg: *const u8, msg_length: i64) {
     trace!("Broadcast callback hit - queueing message");
-    sending_callback!(None, msg_type, msg, msg_length);
+    sending_callback!(None, msg_type, msg, msg_length, None);
 }
 
-// This is almost the same function as broadcast_callback, just for direct
-// messages TODO: macroize or merge on Haskell side
 pub extern "C" fn direct_callback(
     peer_id: PeerId,
     msg_type: i64,
@@ -678,7 +685,18 @@ pub extern "C" fn direct_callback(
     msg_length: i64,
 ) {
     trace!("Direct callback hit - queueing message");
-    sending_callback!(Some(peer_id), msg_type, msg, msg_length);
+    sending_callback!(Some(peer_id), msg_type, msg, msg_length, None);
+}
+
+pub extern "C" fn catchup_status_callback(msg: *const u8, msg_length: i64) {
+    trace!("Catch-up status callback hit - queueing message");
+    sending_callback!(
+        None,
+        CallbackType::CatchUpStatus,
+        msg,
+        msg_length,
+        Some(PeerStatus::Pending)
+    );
 }
 
 /// Following the implementation of the log crate, error = 1, warning = 2, info
