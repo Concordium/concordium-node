@@ -40,9 +40,9 @@ initialDatabaseHandlers gb serState = liftIO $ do
   let _limits = defaultLimits { mapSize = 64_000_000, maxDatabases = 2 } -- 64MB
   dir <- defaultLocation
   _storeEnv <- openEnvironment dir _limits
-  _blockStore <- transaction _storeEnv $
+  _blockStore <- transaction _storeEnv
     (getDatabase (Just "blocks") :: L.Transaction ReadWrite (Database BlockHash ByteString))
-  _finalizationRecordStore <- transaction _storeEnv $
+  _finalizationRecordStore <- transaction _storeEnv
     (getDatabase (Just "finalization") :: L.Transaction ReadWrite (Database FinalizationIndex FinalizationRecord))
   let gbh = getHash gb
       gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
@@ -58,19 +58,19 @@ class (MonadIO m) => LMDBStoreMonad m where
    putOrResize :: (Serialize k, Serialize v) => Limits -> String -> Environment ReadWrite -> Database k v -> k -> v -> m (Limits, Environment ReadWrite, Database k v)
    putOrResize lim name env db k v = liftIO $ catch (do
                                               transaction env $ L.put db k (Just v)
-                                              return $ (lim, env, db))
+                                              return (lim, env, db))
                                     (\(e :: LMDB_Error) -> case e of
                                         LMDB_Error _ _ (Right MDB_MAP_FULL) -> do
                                           dir <- defaultLocation
                                           let lim' = lim { mapSize = mapSize lim + 64_000_000 }
                                           env' <- openEnvironment dir lim'
-                                          db' <- transaction env' $ (getDatabase (Just name) :: Transaction ReadWrite (Database k v))
+                                          db' <- transaction env' (getDatabase (Just name) :: Transaction ReadWrite (Database k v))
                                           transaction env' $ L.put db' k (Just v)
-                                          return $ (lim', env', db')
+                                          return (lim', env', db')
                                         _ -> error $ show e
                                     )
 
-   writeBlock :: (BlockPointer m) -> m ()
+   writeBlock :: BlockPointer m -> m ()
 
    readBlock :: BlockHash -> m (Maybe (BlockPointer m))
 
