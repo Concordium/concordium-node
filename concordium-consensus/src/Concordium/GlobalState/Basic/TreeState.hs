@@ -65,15 +65,12 @@ instance Show (SkovData bs) where
         "Branches: " ++ intercalate "," ( (('[':) . (++"]") . intercalate "," . map (take 6 . show . _bpHash)) <$> toList _branches)
 
 -- |Initial skov data with default runtime parameters (block size = 10MB).
-initialSkovDataDefault :: GenesisData -> bs -> IO (SkovData bs)
+initialSkovDataDefault :: GenesisData -> bs -> SkovData bs
 initialSkovDataDefault = initialSkovData defaultRuntimeParameters
 
-initialSkovData :: RuntimeParameters -> GenesisData -> bs -> IO (SkovData bs)
-initialSkovData rp gd genState = do
-  let gbh = _bpHash gb
-      gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
-      gb = makeGenesisBlockPointer gd genState
-  return SkovData {
+initialSkovData :: RuntimeParameters -> GenesisData -> bs -> SkovData bs
+initialSkovData rp gd genState =
+  SkovData {
             _blockTable = HM.singleton gbh (TS.BlockFinalized gb gbfin),
             _possiblyPendingTable = HM.empty,
             _possiblyPendingQueue = MPQ.empty,
@@ -89,6 +86,9 @@ initialSkovData rp gd genState = do
             _statistics = initialConsensusStatistics,
             _runtimeParameters = rp
         }
+  where gbh = _bpHash gb
+        gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
+        gb = makeGenesisBlockPointer gd genState
 
 -- |Newtype wrapper that provides an implementation of the TreeStateMonad using a non-persistent tree state.
 -- The underlying Monad must provide instances for:
