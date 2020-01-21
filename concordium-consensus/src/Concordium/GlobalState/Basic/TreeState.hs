@@ -70,9 +70,9 @@ initialSkovDataDefault = initialSkovData defaultRuntimeParameters
 
 initialSkovData :: RuntimeParameters -> GenesisData -> bs -> IO (SkovData bs)
 initialSkovData rp gd genState = do
-  gb <- makeGenesisBlockPointer gd genState
   let gbh = _bpHash gb
       gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
+      gb = makeGenesisBlockPointer gd genState
   return SkovData {
             _blockTable = HM.singleton gbh (TS.BlockFinalized 0),
             _possiblyPendingTable = HM.empty,
@@ -121,7 +121,7 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
             Right (NormalBlock block0) -> return $ Right $ makePendingBlock block0 rectime
     getBlockStatus bh = use (blockTable . at bh)
     makeLiveBlock block parent lastFin st arrTime energy = do
-            blockP <- liftIO $ makeBlockPointerFromPendingBlock block parent lastFin st arrTime energy
+            let blockP = makeBasicBlockPointer block parent lastFin st arrTime energy
             blockTable . at (getHash block) ?= TS.BlockAlive blockP
             return blockP
     markDead bh = blockTable . at bh ?= TS.BlockDead
