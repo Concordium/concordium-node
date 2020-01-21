@@ -45,7 +45,8 @@ packages:
 # using the same syntax as the packages field.
 # (e.g., acme-missiles-0.3)
 # extra-deps: []
-extra-deps: []
+extra-deps:
+- globalstate-mockup/deps/lmdb-simple-cereal
 
 extra-lib-dirs:
 - ./crypto/rust-src/target/release

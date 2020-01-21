@@ -78,20 +78,24 @@ makeCatchUpStatus cusIsRequest cusIsResponse lfb leaves branches = CatchUpStatus
 -- produce a pair of lists @(leaves, branches)@, which partions
 -- those blocks that are leves (@leaves@) from those that are not
 -- (@branches@).
-leavesBranches :: (BlockPointerData b) => [[b]] -> ([b], [b])
+leavesBranches :: forall m. (TreeStateMonad m) => [[BlockPointer m]] -> m ([BlockPointer m], [BlockPointer m])
 leavesBranches = lb ([], [])
     where
-        lb lsbs [] = lsbs
-        lb (ls, bs) [ls'] = (ls ++ ls', bs)
-        lb (ls, bs) (s:r@(n:_))
-            = let (bs', ls') = List.partition (`elem` (bpParent <$> n)) s
-                in lb (ls ++ ls', bs ++ bs') r
+        lb :: ([BlockPointer m], [BlockPointer m]) -> [[BlockPointer m]] -> m ([BlockPointer m], [BlockPointer m])
+        lb lsbs [] = return lsbs
+        lb (ls, bs) [ls'] = return (ls ++ ls', bs)
+        lb (ls, bs) (s:r@(n:_)) = do
+          parent <- mapM bpParent n
+          let (bs', ls') = List.partition (`elem` parent) s
+          lb (ls ++ ls', bs ++ bs') r
 
 getCatchUpStatus :: (TreeStateMonad m, SkovQueryMonad m, LoggerMonad m) => Bool -> m CatchUpStatus
 getCatchUpStatus cusIsRequest = do
         logEvent Skov LLTrace "Getting catch-up status"
         lfb <- lastFinalizedBlock
-        (leaves, branches) <- leavesBranches . toList <$> getBranches
+        (leaves, branches) <- return $ do
+          v <- leavesBranches . toList <$> getBranches
+          return v
         return $ makeCatchUpStatus cusIsRequest False lfb leaves (if cusIsRequest then branches else [])
 
 handleCatchUp :: forall m. (TreeStateMonad m, SkovQueryMonad m, LoggerMonad m) => CatchUpStatus -> m (Either String (Maybe ([Either FinalizationRecord (BlockPointer m)], CatchUpStatus), Bool))
@@ -116,7 +120,7 @@ handleCatchUp peerCUS = runExceptT $ do
                     -- If the peer's last finalized block is not known to be finalized (to us)
                     -- then we must effectively be on different finalized chains, so we should
                     -- reject this peer.
-                    throwE $ "Invalid catch up status: last finalized block not finalized." 
+                    throwE $ "Invalid catch up status: last finalized block not finalized."
 
             -- Determine if we need to catch up: i.e. if the peer has some
             -- leaf block we do not recognise.
@@ -132,10 +136,14 @@ handleCatchUp peerCUS = runExceptT $ do
                 let peerKnownBlocks = Set.insert (cusLastFinalizedBlock peerCUS) $
                         Set.fromList (cusLeaves peerCUS) `Set.union` Set.fromList (cusBranches peerCUS)
                 let
+                    extendBackBranches :: BlockPointer m -> Seq.Seq (BlockPointer m) -> m (Seq.Seq (BlockPointer m))
                     extendBackBranches b bs
-                        | bpHash b `Set.member` peerKnownBlocks = bs
-                        | bpHeight b == 0 = bs -- Genesis block should always be known, so this case should be unreachable
-                        | otherwise = extendBackBranches (bpParent b) (b Seq.<| bs)
+                        | bpHash b `Set.member` peerKnownBlocks = return bs
+                        | bpHeight b == 0 = return bs -- Genesis block should always be known, so this case should be unreachable
+                        | otherwise = do
+                                 parent <- bpParent b
+                                 extendBackBranches parent (b Seq.<| bs)
+                    unknownFinTrunk :: m (Seq.Seq (BlockPointer m))
                     unknownFinTrunk = extendBackBranches lfb Seq.Empty
                 -- Take the branches; filter out all blocks that the client claims knowledge of; extend branches back
                 -- to include finalized blocks until the parent is known.
@@ -166,17 +174,22 @@ handleCatchUp peerCUS = runExceptT $ do
                                 (newOldest, newSansOldest) = if null l' || bpArriveTime oldest <= bpArriveTime m
                                     then (oldest, sansOldest Seq.|> l')
                                     else (m, withOldest Seq.|> List.delete m l')
-                    (outBlocks1, branches1) = case unknownFinTrunk of
-                        (b Seq.:<| bs) -> (Seq.singleton b, fmap (:[]) bs <> fmap filterUnknown myBranches)
-                        Seq.Empty -> filterTakeOldest myBranches
-                    trim = Seq.dropWhileR null
+                (outBlocks1, branches1) :: (Seq.Seq (BlockPointer m), Seq.Seq [BlockPointer m]) <- do
+                       unk <- unknownFinTrunk
+                       case unk of
+                        (b Seq.:<| bs) -> return (Seq.singleton b, fmap (:[]) bs <> fmap filterUnknown myBranches)
+                        Seq.Empty -> return $ filterTakeOldest myBranches
+                let trim = Seq.dropWhileR null
                     takeBranches :: Seq.Seq (BlockPointer m) -> Seq.Seq [BlockPointer m] -> ExceptT String m (Seq.Seq (BlockPointer m))
                     takeBranches out (trim -> brs) = bestBlockOf brs >>= \case
                         Nothing -> return out
                         Just bb -> (out <>) <$> innerLoop Seq.empty brs Seq.empty bb
+                    innerLoop :: Seq.Seq (m (BlockPointer m)) -> Seq.Seq [m (BlockPointer m)] -> Seq.Seq [m (BlockPointer m)] -> m (BlockPointer m) -> ExceptT String m (Seq.Seq (m (BlockPointer m)))
                     innerLoop out Seq.Empty brs _ = takeBranches out brs
                     innerLoop out brsL0@(brsL Seq.:|> bs) brsR bb
-                        | bb `elem` bs = innerLoop (bb Seq.<| out) brsL (List.delete bb bs Seq.<| brsR) (bpParent bb)
+                        | bb `elem` bs = do
+                              parent <- bpParent bb
+                              innerLoop (bb Seq.<| out) brsL (List.delete bb bs Seq.<| brsR) parent
                         | otherwise = takeBranches out (brsL0 <> brsR)
                 outBlocks2 <- takeBranches outBlocks1 branches1
                 let

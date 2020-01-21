@@ -55,8 +55,14 @@ doGetBlocksAtHeight h = do
                 case brs Seq.!? fromIntegral (h - bpHeight lastFin - 1) of
                     Nothing -> return []
                     Just bs -> return bs
-            LT -> return [findFrom (bpParent lastFin)] -- TODO: replace with more efficient search
+            LT -> do
+              par <- bpParent lastFin
+              parPar <- findFrom par
+              return [parPar] -- TODO: replace with more efficient search
     where
+        findFrom :: (TreeStateMonad m) => BlockPointer m -> m (BlockPointer m)
         findFrom bp
-            | bpHeight bp == h = bp
-            | otherwise = findFrom (bpParent bp)
+            | bpHeight bp == h = return bp
+            | otherwise = do
+                par <- bpParent bp
+                findFrom par
