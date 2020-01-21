@@ -1,6 +1,7 @@
 {-# LANGUAGE 
     OverloadedStrings,
-    CPP #-}
+    CPP,
+    ScopedTypeVariables #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 module Main where
 
@@ -10,6 +11,7 @@ import System.Random
 import Data.Time.Clock.POSIX
 import System.IO
 import Data.Serialize
+import Control.Exception
 
 import Concordium.TimerMonad
 import Concordium.Types.HashableTo
@@ -29,6 +31,7 @@ import Concordium.GlobalState.Paired
 import qualified Concordium.GlobalState.Implementation as Rust
 #endif
 
+import Concordium.Logger
 import Concordium.Types
 import Concordium.Runner
 import Concordium.Skov
@@ -59,7 +62,7 @@ sendTransactions chan (t : ts) = do
 sendTransactions _ _ = return ()
 
 relay :: Chan (OutMessage src) -> SyncRunner ActiveConfig -> Chan (Either (BlockHash, BakedBlock, [Instance]) FinalizationRecord) -> [Chan (InMessage ())] -> IO ()
-relay inp sr monitor outps = loop
+relay inp sr monitor outps = loop `catch` (\(e :: SomeException) -> putStrLn $ "// *** relay thread exited on exception: " ++ show e)
     where
         loop = do
             msg <- readChan inp
@@ -100,7 +103,7 @@ relay inp sr monitor outps = loop
                         writeChan outp (MsgFinalizationRecordReceived () fr)
                 _ -> return ()
             loop
-        bInsts :: BlockHash -> SkovT () ActiveConfig IO [Instance]
+        bInsts :: BlockHash -> SkovT () ActiveConfig LogIO [Instance]
         bInsts bh = do
             bst <- resolveBlock bh
             case bst of
