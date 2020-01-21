@@ -1,22 +1,22 @@
-use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt};
+use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
 use failure::{bail, format_err, Fallible};
 
 use std::{
     convert::TryFrom,
     ffi::{CStr, CString},
-    io::Cursor,
+    io::{Cursor, Write},
     os::raw::{c_char, c_int},
     slice,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Once,
+        Arc, Once,
     },
 };
 
 use crate::consensus::*;
 use concordium_common::{
-    hybrid_buf::HybridBuf, serial::Serial, ConsensusFfiResponse, ConsensusIsInCommitteeResponse,
-    PacketType,
+    serial::{Endianness, Serial},
+    ConsensusFfiResponse, ConsensusIsInCommitteeResponse, PacketType,
 };
 use globalstate_rust::{
     block::*,
@@ -544,8 +544,12 @@ impl ConsensusContainer {
         ))
     }
 
-    pub fn get_catch_up_status(&self) -> Vec<u8> {
-        wrap_c_call_bytes!(self, |consensus| getCatchUpStatus(consensus))
+    pub fn get_catch_up_status(&self) -> Arc<[u8]> {
+        wrap_c_call_payload!(
+            self,
+            |consensus| getCatchUpStatus(consensus),
+            &(PacketType::CatchUpStatus as u16).to_be_bytes()
+        )
     }
 
     pub fn receive_catch_up_status(
@@ -597,13 +601,18 @@ impl TryFrom<u8> for CallbackType {
 pub extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *const u8, len: i64) {
     unsafe {
         let msg_variant = PacketType::FinalizationMessage;
-        let payload =
-            HybridBuf::try_from(slice::from_raw_parts(data as *const u8, len as usize)).unwrap();
+        let payload = slice::from_raw_parts(data as *const u8, len as usize);
+        let mut full_payload = Vec::with_capacity(2 + payload.len());
+        full_payload
+            .write_u16::<Endianness>(msg_variant as u16)
+            .unwrap(); // infallible
+        full_payload.write_all(&payload).unwrap(); // infallible
+        let full_payload = Arc::from(full_payload);
 
         let msg = ConsensusMessage::new(
             MessageType::Outbound(Some(peer_id)),
             PacketType::FinalizationMessage,
-            payload,
+            full_payload,
             vec![],
         );
 
@@ -632,15 +641,20 @@ macro_rules! sending_callback {
                 CallbackType::CatchUpStatus => PacketType::CatchUpStatus,
             };
 
-            let payload = HybridBuf::try_from(slice::from_raw_parts(
-                $msg as *const u8,
-                $msg_length as usize,
-            ))
-            .unwrap();
-            let target = $target;
+            let payload = slice::from_raw_parts($msg as *const u8, $msg_length as usize);
+            let mut full_payload = Vec::with_capacity(2 + payload.len());
+            full_payload
+                .write_u16::<Endianness>(msg_variant as u16)
+                .unwrap(); // infallible
+            full_payload.write_all(&payload).unwrap(); // infallible
+            let full_payload = Arc::from(full_payload);
 
-            let msg =
-                ConsensusMessage::new(MessageType::Outbound(target), msg_variant, payload, vec![]);
+            let msg = ConsensusMessage::new(
+                MessageType::Outbound($target),
+                msg_variant,
+                full_payload,
+                vec![],
+            );
 
             match CALLBACK_QUEUE.send_out_blocking_msg(msg) {
                 Ok(_) => trace!("Queueing a {} of {} bytes", msg_variant, $msg_length),

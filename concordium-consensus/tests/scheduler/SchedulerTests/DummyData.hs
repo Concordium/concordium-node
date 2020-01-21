@@ -35,8 +35,9 @@ import System.Random
 blockPointer :: BlockHash
 blockPointer = Hash (FBS.pack (replicate 32 (fromIntegral (0 :: Word))))
 
-makeHeader :: KeyPair -> Nonce -> Energy -> Runner.TransactionHeader
-makeHeader kp = Runner.TransactionHeader (Sig.correspondingVerifyKey kp)
+-- Make a header assuming there is only one key on the account, its index is 0
+makeHeader :: AccountAddress -> Nonce -> Energy -> Runner.TransactionHeader
+makeHeader = Runner.TransactionHeader
 
 alesKP :: KeyPair
 alesKP = uncurry Sig.KeyPairEd25519 . fst $ Ed25519.randomKeyPair (mkStdGen 1)
@@ -45,7 +46,7 @@ alesVK :: VerifyKey
 alesVK = correspondingVerifyKey alesKP
 
 alesAccount :: AccountAddress
-alesAccount = accountAddress alesVK
+alesAccount = accountAddressFrom 1
 
 thomasKP :: KeyPair
 thomasKP = uncurry Sig.KeyPairEd25519 . fst $ Ed25519.randomKeyPair (mkStdGen 2)
@@ -54,10 +55,10 @@ thomasVK :: VerifyKey
 thomasVK = correspondingVerifyKey thomasKP
 
 thomasAccount :: AccountAddress
-thomasAccount = accountAddress thomasVK
+thomasAccount = accountAddressFrom 2
 
 accountAddressFrom :: Int -> AccountAddress
-accountAddressFrom n = accountAddress (accountVFKeyFrom n)
+accountAddressFrom n = fst (randomAccountAddress (mkStdGen n))
 
 accountVFKeyFrom :: Int -> VerifyKey
 accountVFKeyFrom = correspondingVerifyKey . uncurry Sig.KeyPairEd25519 . fst . Ed25519.randomKeyPair . mkStdGen
@@ -65,10 +66,11 @@ accountVFKeyFrom = correspondingVerifyKey . uncurry Sig.KeyPairEd25519 . fst . E
 -- This credential value is invalid and does not satisfy the invariants normally expected of credentials.
 -- Should only be used when only the existence of a credential is needed in testing, but the credential
 -- will neither be serialized, nor inspected.
-dummyCredential :: AccountVerificationKey -> CredentialExpiryTime -> CredentialDeploymentValues
-dummyCredential cdvVerifyKey pExpiry  = CredentialDeploymentValues
+dummyCredential :: AccountAddress -> CredentialExpiryTime -> CredentialDeploymentValues
+dummyCredential aaddr pExpiry  = CredentialDeploymentValues
     {
-      cdvRegId = dummyRegId cdvVerifyKey,
+      cdvAccount = ExistingAccount aaddr,
+      cdvRegId = dummyRegId aaddr,
       cdvIpId = IP_ID 0,
       cdvThreshold = Threshold 2,
       cdvArData = [],
@@ -80,23 +82,23 @@ dummyCredential cdvVerifyKey pExpiry  = CredentialDeploymentValues
       ..
     }
 
--- Derive a dummy registration id from a verification key. This hashes the
+-- Derive a dummy registration id from an account address. This hashes the
 -- account address derived from the verification key, and uses it as a seed of a
 -- random number generator.
-dummyRegId :: AccountVerificationKey -> CredentialRegistrationID
-dummyRegId vfKey = RegIdCred . FBS.pack $ bytes
-  where bytes = take (FBS.fixedLength (undefined :: RegIdSize)) . randoms . mkStdGen $ IntHash.hash (accountAddress vfKey)
+dummyRegId :: AccountAddress -> CredentialRegistrationID
+dummyRegId addr = RegIdCred . FBS.pack $ bytes
+  where bytes = take (FBS.fixedLength (undefined :: RegIdSize)) . randoms . mkStdGen $ IntHash.hash addr
 
 -- This generates an account without any credentials
 -- late expiry date, but is otherwise not well-formed.
-mkAccountNoCredentials :: AccountVerificationKey -> Amount -> Account
-mkAccountNoCredentials vfKey amnt = newAccount vfKey & (accountAmount .~ amnt)
+mkAccountNoCredentials :: VerifyKey -> AccountAddress -> Amount -> Account
+mkAccountNoCredentials key addr amnt = newAccount (makeSingletonAC key) addr & (accountAmount .~ amnt)
 
--- This generates an account with a single credential, which has sufficiently
+-- This generates an account with a single credential and single keypair, which has sufficiently
 -- late expiry date, but is otherwise not well-formed.
-mkAccount :: AccountVerificationKey -> Amount -> Account
-mkAccount vfKey amnt = mkAccountNoCredentials vfKey amnt &
-                       (accountCredentials .~ (Queue.singleton dummyExpiryTime (dummyCredential vfKey dummyExpiryTime)))
+mkAccount :: VerifyKey -> AccountAddress -> Amount -> Account
+mkAccount key addr amnt = mkAccountNoCredentials key addr amnt &
+                           (accountCredentials .~ (Queue.singleton dummyExpiryTime (dummyCredential addr dummyExpiryTime)))
 
 dummyExpiryTime :: CredentialExpiryTime
 dummyExpiryTime = 1
@@ -170,12 +172,12 @@ cdi7 :: CredentialDeploymentInformation
 cdi7 = unsafePerformIO (readCredential "testdata/credential-7.json")
 
 accountAddressFromCred :: CredentialDeploymentInformation -> AccountAddress
-accountAddressFromCred cdi = accountAddress (cdvVerifyKey (cdiValues cdi))
+accountAddressFromCred = credentialAccountAddress . cdiValues
 
 {-# NOINLINE dummyIdentityProviders #-}
 dummyIdentityProviders :: IdentityProviders
 dummyIdentityProviders =
-  case unsafePerformIO (eitherReadIdentityProviders <$> BSL.readFile "testdata/identity-providers.json") of
+  case unsafePerformIO (eitherReadIdentityProviders <$> BSL.readFile "testdata/identity_providers.json") of
     Left err -> error $ "Could not load identity provider test data: " ++ err
     Right ips -> IdentityProviders (HM.fromList (map (\r -> (ipIdentity r, r)) ips))
 

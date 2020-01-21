@@ -36,14 +36,14 @@ shouldReturnP action f = action >>= (`shouldSatisfy` f)
 initialBlockState :: BlockState
 initialBlockState =
   emptyBlockState emptyBirkParameters dummyCryptographicParameters &
-    (blockAccounts .~ Acc.putAccountWithRegIds (mkAccount alesVK 1000000) Acc.emptyAccounts) .
+    (blockAccounts .~ Acc.putAccountWithRegIds (mkAccount alesVK alesAccount 1000000) Acc.emptyAccounts) .
     (blockBank . Rew.totalGTU .~ 1000000) .
     (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =
   [TJSON { payload = DeployModule "CommCounter"
-         , metadata = makeHeader alesKP 1 100000
+         , metadata = makeHeader alesAccount 1 100000
          , keypair = alesKP
          }
   ,TJSON { payload = InitContract {amount = 100
@@ -51,7 +51,7 @@ transactionsInput =
                                   ,moduleName = "CommCounter"
                                   ,parameter = "Unit.Unit"
                                   }
-         , metadata = makeHeader alesKP 2 100000
+         , metadata = makeHeader alesAccount 2 100000
          , keypair = alesKP
          }
   ,TJSON { payload = InitContract {amount = 100
@@ -59,7 +59,7 @@ transactionsInput =
                                   ,moduleName = "CommCounter"
                                   ,parameter = "let pair :: Int64 -> <address> -> Prod.Pair Int64 <address> = Prod.Pair [Int64, <address>] in pair 0 <0, 0>"
                                   }
-         , metadata = makeHeader alesKP 3 100000
+         , metadata = makeHeader alesAccount 3 100000
          , keypair = alesKP
          }
   ,TJSON { payload = Update {amount = 101
@@ -67,7 +67,7 @@ transactionsInput =
                             ,moduleName = "CommCounter"
                             ,message = "Inc 100"
                             }
-         , metadata = makeHeader alesKP 4 100000
+         , metadata = makeHeader alesAccount 4 100000
          , keypair = alesKP
          }
   ,TJSON { payload = Update {amount = 100
@@ -75,7 +75,7 @@ transactionsInput =
                             ,moduleName = "CommCounter"
                             ,message = "Dec 50"
                             }
-         , metadata = makeHeader alesKP 5 100000
+         , metadata = makeHeader alesAccount 5 100000
          , keypair = alesKP
          }
   ,TJSON { payload = Update {amount = 100
@@ -83,7 +83,7 @@ transactionsInput =
                             ,moduleName = "CommCounter"
                             ,message = "Dec 50"
                             }
-         , metadata = makeHeader alesKP 6 120000
+         , metadata = makeHeader alesAccount 6 120000
          , keypair = alesKP
          }
   ,TJSON { payload = Update {amount = 100
@@ -91,7 +91,7 @@ transactionsInput =
                             ,moduleName = "CommCounter"
                             ,message = "Dec 1"
                             }
-         , metadata = makeHeader alesKP 7 120000
+         , metadata = makeHeader alesAccount 7 120000
          , keypair = alesKP
          }
   ]

@@ -38,7 +38,7 @@ initialBlockState =
   -- NB: We need 6 * deploy account since we still charge the cost even if an
   -- account already exists (case 4 in the tests).
   emptyBlockState emptyBirkParameters dummyCryptographicParameters &
-    (blockAccounts .~ Acc.putAccountWithRegIds (mkAccount alesVK initialAmount) Acc.emptyAccounts) .
+    (blockAccounts .~ Acc.putAccountWithRegIds (mkAccount alesVK alesAccount initialAmount) Acc.emptyAccounts) .
     (blockBank . Rew.totalGTU .~ initialAmount) .
     (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs))) .
     (blockIdentityProviders .~ dummyIdentityProviders)
@@ -49,31 +49,31 @@ deployAccountCost = Cost.deployCredential + Cost.checkHeader
 transactionsInput :: [TransactionJSON]
 transactionsInput =
   [TJSON { payload = DeployCredential cdi1
-         , metadata = makeHeader alesKP 1 deployAccountCost
+         , metadata = makeHeader alesAccount 1 deployAccountCost
          , keypair = alesKP
          }
   ,TJSON { payload = DeployCredential cdi2
-         , metadata = makeHeader alesKP 2 deployAccountCost
+         , metadata = makeHeader alesAccount 2 deployAccountCost
          , keypair = alesKP
          }
   ,TJSON { payload = DeployCredential cdi3
-         , metadata = makeHeader alesKP 3 deployAccountCost
+         , metadata = makeHeader alesAccount 3 deployAccountCost
          , keypair = alesKP
          }
   ,TJSON { payload = DeployCredential cdi4 -- should fail because repeated credential ID
-         , metadata = makeHeader alesKP 4 deployAccountCost
+         , metadata = makeHeader alesAccount 4 deployAccountCost
          , keypair = alesKP
          }
   ,TJSON { payload = DeployCredential cdi5
-         , metadata = makeHeader alesKP 5 deployAccountCost
+         , metadata = makeHeader alesAccount 5 deployAccountCost
          , keypair = alesKP
          }
   ,TJSON { payload = DeployCredential cdi6 -- deploy just a new predicate
-         , metadata = makeHeader alesKP 6 deployAccountCost
+         , metadata = makeHeader alesAccount 6 deployAccountCost
          , keypair = alesKP
          }
   ,TJSON { payload = DeployCredential cdi7  -- should run out of gas (see initial amount on the sender account)
-         , metadata = makeHeader alesKP 7 Cost.checkHeader
+         , metadata = makeHeader alesAccount 7 Cost.checkHeader
          , keypair = alesKP
          }
   ]
@@ -94,7 +94,7 @@ testAccountCreation = do
             Types.dummyChainMeta
             initialBlockState
     let accounts = state ^. blockAccounts
-    let accAddrs = map accountAddressFromCred [cdi1,cdi2,cdi3,cdi4,cdi5,cdi7]
+    let accAddrs = map accountAddressFromCred [cdi1,cdi2,cdi3,cdi5,cdi7]
     case invariantBlockState state of
         Left f -> liftIO $ assertFailure $ f ++ "\n" ++ show state
         _ -> return ()
@@ -123,9 +123,8 @@ checkAccountCreationResult (suc, fails, stateAccs, stateAles, bankState) =
             Types.TxReject Types.OutOfEnergy _ _ <- a17 -> True
           _ -> False
         txstateAccs = case stateAccs of
-                        -- account for cdi4 was not created because of duplicate registration id
                         -- account for cdi7 was not created because of out of gas
-                        [Just _, Just _, Just _, Nothing, Just _, Nothing] -> True
+                        [Just _, Just _, Just _, Just _, Nothing] -> True
                         _ -> False
         stateInvariant = stateAles ^. Types.accountAmount + bankState ^. Types.executionCost == initialAmount
 

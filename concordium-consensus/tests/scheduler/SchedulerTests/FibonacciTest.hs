@@ -40,14 +40,14 @@ shouldReturnP action f = action >>= (`shouldSatisfy` f)
 initialBlockState :: BlockState
 initialBlockState =
   emptyBlockState emptyBirkParameters dummyCryptographicParameters &
-    (blockAccounts .~ Acc.putAccountWithRegIds (mkAccount alesVK 1000000000) Acc.emptyAccounts) .
+    (blockAccounts .~ Acc.putAccountWithRegIds (mkAccount alesVK alesAccount 1000000000) Acc.emptyAccounts) .
     (blockBank . Rew.totalGTU .~ 1000000000) .
     (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =
   [TJSON { payload = DeployModule "FibContract"
-         , metadata = makeHeader alesKP 1 10000
+         , metadata = makeHeader alesAccount 1 10000
          , keypair = alesKP
          }
 
@@ -56,7 +56,7 @@ transactionsInput =
                                   , parameter = "Unit.Unit"
                                   , contractName = "Fibonacci"
                                   }
-        , metadata = makeHeader alesKP 2 100000
+        , metadata = makeHeader alesAccount 2 100000
         , keypair = alesKP
         }
   ,TJSON { payload = Update { amount = 0
@@ -64,7 +64,7 @@ transactionsInput =
                             , message = "Fib 30"
                             , address = Types.ContractAddress { contractIndex = 0, contractSubindex = 0}
                             }
-        , metadata = makeHeader alesKP 3 1000000
+        , metadata = makeHeader alesAccount 3 1000000
         , keypair = alesKP
         }
   ]

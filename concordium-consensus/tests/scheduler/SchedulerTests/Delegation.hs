@@ -27,6 +27,7 @@ import Concordium.GlobalState.Rewards as Rew
 
 import Concordium.Crypto.SignatureScheme as Sig
 import Concordium.ID.Account
+import Concordium.ID.Types(randomAccountAddress)
 import Concordium.Crypto.Ed25519Signature as EdSig
 import qualified Concordium.Crypto.BlsSignature as Bls
 
@@ -38,63 +39,59 @@ import Lens.Micro.Platform
 
 import SchedulerTests.DummyData
 
-staticKeys :: [KeyPair]
+staticKeys :: [(KeyPair, AccountAddress)]
 staticKeys = ks (mkStdGen 1333)
     where
-        ks g = let (k, g') = EdSig.randomKeyPair g in uncurry KeyPairEd25519 k : ks g'
+        ks g = let (k, g') = EdSig.randomKeyPair g
+                   (addr, g'') = randomAccountAddress g'
+               in (uncurry KeyPairEd25519 k, addr) : ks g'
 
 numAccounts :: Int
 numAccounts = 10
 
--- NB: we add two special admin accounts that will have the ability to add and remove
--- bakers.
--- This is the logic that will likely be changed after the beta, or in its later stages,
--- but at the moment we need it since we lack an alternative governance specification.
 initialBlockState :: BlockState
 initialBlockState =
     emptyBlockState emptyBirkParameters dummyCryptographicParameters &
-        (blockAccounts .~ foldr addAcc Acc.emptyAccounts (take numAccounts staticKeys ++ [alesKP, thomasKP])) .
-        (blockBank . Rew.totalGTU .~ fromIntegral (numAccounts + 2) * initBal) .
+        (blockAccounts .~ foldr addAcc Acc.emptyAccounts (take numAccounts staticKeys)) .
+        (blockBank . Rew.totalGTU .~ fromIntegral numAccounts * initBal) .
         (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
     where
-        addAcc kp = Acc.putAccountWithRegIds (mkAccount (correspondingVerifyKey kp) initBal )
+        addAcc (kp, addr) = Acc.putAccountWithRegIds (mkAccount (correspondingVerifyKey kp) addr initBal )
         initBal = 10^(12::Int) :: Amount
 
 data Model = Model {
     _mAccounts :: Map.Map AccountAddress (KeyPair, Nonce),
     _mBakers :: [BakerId],
     _mNextBaker :: BakerId,
-    _mAdminAccounts :: Map.Map AccountAddress (KeyPair, Nonce),
     _mNextSeed :: Int,
-    _mBakerMap :: Map.Map BakerId KeyPair -- mapping of baker ids to their associated account keypairs
+    _mBakerMap :: Map.Map BakerId (AccountAddress, KeyPair) -- mapping of baker ids to their associated account keypairs
 }
 makeLenses ''Model
 
 initialModel :: Model
 initialModel = Model {
-    _mAccounts = Map.fromList [(accountAddress (correspondingVerifyKey kp), (kp, minNonce)) | kp <- take numAccounts staticKeys],
+    _mAccounts = Map.fromList [(addr, (kp, minNonce)) | (kp, addr) <- take numAccounts staticKeys],
     _mBakers = [],
     _mNextBaker = minBound,
-    _mAdminAccounts = Map.fromList [(alesAccount, (alesKP, minNonce)), (thomasAccount, (thomasKP, minNonce))],
     _mNextSeed = 0,
     _mBakerMap = Map.empty
 }
 
 addBaker :: Model -> Gen (TransactionJSON, Model)
 addBaker m0 = do
-        (bkrAcct, (kp, _)) <- elements (Map.toList $ _mAccounts m0)
+        (bkrAcct, (kp, nonce)) <- elements (Map.toList $ _mAccounts m0)
         let (bkr, electionSecretKey, signKey, aggregationKey) = mkBaker (m0 ^. mNextSeed) bkrAcct
-        (srcAcct, (srcKp, srcN)) <- elements (Map.toList $ _mAdminAccounts m0)
         return (TJSON {
-            payload = AddBaker (bkr ^. bakerElectionVerifyKey) electionSecretKey (bkr ^. bakerSignatureVerifyKey) (bkr ^. bakerAggregationVerifyKey) signKey kp,
-            metadata = makeHeader srcKp srcN (Cost.checkHeader + Cost.addBaker),
-            keypair = srcKp
+
+            payload = AddBaker (bkr ^. bakerElectionVerifyKey) electionSecretKey (bkr ^. bakerSignatureVerifyKey) (bkr ^. bakerAggregationVerifyKey) signKey bkrAcct kp,
+            metadata = makeHeader bkrAcct nonce (Cost.checkHeader + Cost.addBaker),
+            keypair = kp
         }, m0
-            & mAdminAccounts . ix srcAcct . _2 %~ (+1)
+            & mAccounts . ix bkrAcct . _2 %~ (+1)
             & mBakers %~ (_mNextBaker m0 :)
             & mNextBaker %~ (+1)
             & mNextSeed +~ 1
-            & mBakerMap %~ (Map.insert (m0 ^. mNextBaker) kp)
+            & mBakerMap %~ (Map.insert (m0 ^. mNextBaker) (bkrAcct, kp))
                )
 
 takeOne :: [a] -> Gen (a, [a])
@@ -105,12 +102,11 @@ takeOne l = do
 removeBaker :: Model -> Gen (TransactionJSON, Model)
 removeBaker m0 = do
         (bkr, bkrs') <- takeOne (_mBakers m0)
-        let srcKp = m0 ^. mBakerMap . singular (ix bkr)
-        let address = accountAddress (correspondingVerifyKey srcKp)
+        let (address, srcKp) = m0 ^. mBakerMap . singular (ix bkr)
         let (_, srcN) = m0 ^. mAccounts . singular (ix address)
         return (TJSON {
             payload = RemoveBaker bkr "<dummy proof>",
-            metadata = makeHeader srcKp srcN (Cost.checkHeader + Cost.removeBaker),
+            metadata = makeHeader address srcN (Cost.checkHeader + Cost.removeBaker),
             keypair = srcKp
         }, m0
             & mAccounts . ix address . _2 %~ (+1)
@@ -123,7 +119,7 @@ delegateStake m0 = do
         bkr <- elements (_mBakers m0)
         return (TJSON {
             payload = DelegateStake bkr,
-            metadata = makeHeader srcKp srcN (Cost.checkHeader + Cost.updateStakeDelegate 0),
+            metadata = makeHeader srcAcct srcN (Cost.checkHeader + Cost.updateStakeDelegate 0),
             keypair = srcKp
         }, m0 & mAccounts . ix srcAcct . _2 %~ (+1))
 
@@ -132,7 +128,7 @@ undelegateStake m0 = do
         (srcAcct, (srcKp, srcN)) <- elements (Map.toList $ _mAccounts m0)
         return (TJSON {
             payload = UndelegateStake,
-            metadata = makeHeader srcKp srcN (Cost.checkHeader + Cost.updateStakeDelegate 0),
+            metadata = makeHeader srcAcct srcN (Cost.checkHeader + Cost.updateStakeDelegate 0),
             keypair = srcKp
         }, m0 & mAccounts . ix srcAcct . _2 %~ (+1))
 
@@ -143,7 +139,7 @@ simpleTransfer m0 = do
         amt <- fromIntegral <$> choose (0, 1000 :: Word)
         return (TJSON {
             payload = Transfer {toaddress = AddressAccount destAcct, amount = amt},
-            metadata = makeHeader srcKp srcN Cost.checkHeader,
+            metadata = makeHeader srcAcct srcN Cost.checkHeader,
             keypair = srcKp
         }, m0 & mAccounts . ix srcAcct . _2 %~ (+1))
 

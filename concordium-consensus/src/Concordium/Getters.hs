@@ -215,9 +215,8 @@ getAncestors sfsRef blockHash count = case readMaybe blockHash of
         Just bh -> runStateQuery sfsRef $
                 resolveBlock bh >>= \case
                     Nothing -> return Null
-                    Just bp -> do
-                        let heightLim = if count > bpHeight bp then 0 else bpHeight bp - count + 1
-                        return $ toJSONList $ map hsh $ takeWhile (\b -> bpHeight b >= heightLim) $ iterate bpParent bp
+                    Just bp ->
+                        return $ toJSONList $ map hsh $ take (fromIntegral $ min count (1 + bpHeight bp)) $ iterate bpParent bp
 
 getBranches :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> IO Value
 getBranches sfsRef = runStateQuery sfsRef $ do
