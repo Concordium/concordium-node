@@ -16,25 +16,26 @@
     #-}
 module Concordium.GlobalState where
 
+import Control.Monad.IO.Class
 import Control.Monad.Reader.Class
 import Control.Monad.State.Class
-import Control.Monad.IO.Class
-import Data.Proxy
-import Data.Functor.Identity
-import Data.IORef (newIORef,writeIORef)
 import Control.Monad.Trans.RWS.Strict
 import Control.Monad.Trans.Reader
+import Data.ByteString (empty)
+import Data.Functor.Identity
+import Data.IORef (newIORef,writeIORef)
+import Data.Proxy
 import Data.Serialize.Put (runPut)
 
-import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Classes as GS
-import Concordium.GlobalState.BlockState
-import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.Basic.BlockState as BS
 import Concordium.GlobalState.Basic.TreeState
+import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.Classes as GS
+import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Persistent.BlobStore (createTempBlobStore, destroyTempBlobStore)
 import Concordium.GlobalState.Persistent.BlockState
 import Concordium.GlobalState.Persistent.TreeState
-import Concordium.GlobalState.Persistent.BlobStore (createTempBlobStore, destroyTempBlobStore)
+import Concordium.GlobalState.TreeState
 
 -- |A newtype wrapper for providing instances of the block state related monads:
 -- 'BlockStateTypes', 'BlockStateQuery', 'BlockStateOperations' and 'BlockStateStorage'.
@@ -187,8 +188,7 @@ instance GlobalStateConfig MemoryTreeMemoryBlockConfig where
     type GSContext MemoryTreeMemoryBlockConfig = ()
     type GSState MemoryTreeMemoryBlockConfig = SkovData BS.BlockState
     initialiseGlobalState (MTMBConfig rtparams gendata bs) = do
-      sk <- initialSkovData rtparams gendata bs
-      return ((), sk)
+      return ((), initialSkovData rtparams gendata bs)
     shutdownGlobalState _ _ _ = return ()
 
 -- |Configuration that uses the in-memory, Haskell implementation of tree state and the
@@ -204,22 +204,21 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
         let pbsc = PersistentBlockStateContext{..}
         pbs <- makePersistent bs
         _ <- runPut <$> runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc
-        sk <- initialSkovData rtparams gendata pbs
-        return (pbsc, sk)
+        return (pbsc, initialSkovData rtparams gendata pbs)
     shutdownGlobalState _ (PersistentBlockStateContext{..}) _ = do
         destroyTempBlobStore pbscBlobStore
         writeIORef pbscModuleCache emptyModuleCache
 
 -- |Configuration that uses the disk tree state and the memory block state
--- data DiskTreeMemoryBlockConfig = DTMBConfig RuntimeParameters GenesisData BS.BlockState
+data DiskTreeMemoryBlockConfig = DTMBConfig RuntimeParameters GenesisData BS.BlockState
 
--- instance GlobalStateConfig DiskTreeMemoryBlockConfig where
---     type GSContext DiskTreeMemoryBlockConfig = ()
---     type GSState DiskTreeMemoryBlockConfig = SkovPersistentData BS.BlockState
---     initialiseGlobalState (DTMBConfig rtparams gendata bs) = do
---         isd <- initialSkovPersistentData rtparams gendata bs
---         return ((), isd)
---     shutdownGlobalState _ _ _ = return ()
+instance GlobalStateConfig DiskTreeMemoryBlockConfig where
+    type GSContext DiskTreeMemoryBlockConfig = ()
+    type GSState DiskTreeMemoryBlockConfig = SkovPersistentData BS.BlockState
+    initialiseGlobalState (DTMBConfig rtparams gendata bs) = do
+        isd <- initialSkovPersistentData rtparams gendata bs empty
+        return ((), isd)
+    shutdownGlobalState _ _ _ = return ()
 
 -- |Configuration that uses the disk implementation for both the tree state
 -- and the block state
