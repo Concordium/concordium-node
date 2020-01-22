@@ -32,27 +32,37 @@ import Concordium.Skov.Statistics
 
 -- |Determine if one block is an ancestor of another.
 -- A block is considered to be an ancestor of itself.
-isAncestorOf :: BlockPointerData bp => bp -> bp -> Bool
+isAncestorOf :: TreeStateMonad m => BlockPointer m -> BlockPointer m -> m Bool
 isAncestorOf b1 b2 = case compare (bpHeight b1) (bpHeight b2) of
-        GT -> False
-        EQ -> b1 == b2
-        LT -> isAncestorOf b1 (bpParent b2)
+        GT -> return False
+        EQ -> return (b1 == b2)
+        LT -> do
+          parent <- bpParent b2
+          isAncestorOf b1 parent
 
 -- |Update the focus block, together with the pending transaction table.
 updateFocusBlockTo :: (TreeStateMonad m) => BlockPointer m -> m ()
 updateFocusBlockTo newBB = do
         oldBB <- getFocusBlock
         pts <- getPendingTransactions
-        putPendingTransactions (updatePTs oldBB newBB [] pts)
+        upts <- updatePTs oldBB newBB [] pts
+        putPendingTransactions upts
         putFocusBlock newBB
     where
+        updatePTs :: (TreeStateMonad m) => BlockPointer m -> BlockPointer m -> [BlockPointer m] -> PendingTransactionTable -> m PendingTransactionTable
         updatePTs oBB nBB forw pts = case compare (bpHeight oBB) (bpHeight nBB) of
-                LT -> updatePTs oBB (bpParent nBB) (nBB : forw) pts
+                LT -> do
+                  parent <- (bpParent nBB)
+                  updatePTs oBB parent (nBB : forw) pts
                 EQ -> if oBB == nBB then
-                            foldl (flip (forwardPTT . blockTransactions)) pts forw
-                        else
-                            updatePTs (bpParent oBB) (bpParent nBB) (nBB : forw) (reversePTT (blockTransactions oBB) pts)
-                GT -> updatePTs (bpParent oBB) nBB forw (reversePTT (blockTransactions oBB) pts)
+                            return $ foldl (flip (forwardPTT . blockTransactions)) pts forw
+                        else do
+                            parent1 <- (bpParent oBB)
+                            parent2 <- (bpParent nBB)
+                            updatePTs parent1 parent2 (nBB : forw) (reversePTT (blockTransactions oBB) pts)
+                GT -> do
+                  parent <- bpParent oBB
+                  updatePTs parent nBB forw (reversePTT (blockTransactions oBB) pts)
 
 -- |A monad implementing 'OnSkov' provides functions for responding to
 -- a block being added to the tree, and a finalization record being verified.
@@ -173,17 +183,20 @@ processFinalizationPool checkPending = do
                     logEvent Skov LLInfo $ "Block " ++ show (bpHash newFinBlock) ++ " is finalized at height " ++ show (theBlockHeight $ bpHeight newFinBlock) ++ " with finalization delta=" ++ show (finalizationDelay finRec)
                     updateFinalizationStatistics
                     -- Check if the focus block is a descendent of the block we are finalizing
-                    focusBlockSurvives <- isAncestorOf newFinBlock <$> getFocusBlock
+                    fb <- getFocusBlock
+                    focusBlockSurvives <- isAncestorOf newFinBlock fb
                     -- If not, update the focus to the new finalized block.
                     -- This is to ensure that the focus block is always a live (or finalized) block.
                     unless focusBlockSurvives $ updateFocusBlockTo newFinBlock
                     putFinalizationPoolAtIndex nextFinIx []
                     -- Archive the states of blocks up to but not including the new finalized block
-                    let doArchive b = case compare (bpHeight b) lastFinHeight of
+                    let doArchive :: BlockPointer m -> m ()
+                        doArchive b = case compare (bpHeight b) lastFinHeight of
                             LT -> return ()
                             EQ -> archiveBlockState =<< blockState b
-                            GT -> doArchive (bpParent b) >> blockState b >>= archiveBlockState
-                    doArchive (bpParent newFinBlock)
+                            GT -> do
+                              (doArchive =<< bpParent b) >> blockState b >>= archiveBlockState
+                    doArchive =<< bpParent newFinBlock
                     addFinalization newFinBlock finRec
                     oldBranches <- getBranches
                     let pruneHeight = fromIntegral (bpHeight newFinBlock - lastFinHeight)
@@ -198,17 +211,19 @@ processFinalizationPool checkPending = do
                                                 markDead (getHash bp)
                                                 purgeBlockState =<< blockState bp
                                                 logEvent Skov LLDebug $ "Block " ++ show bp ++ " marked dead"
-                            pruneTrunk (bpParent keeper) brs
+                            parent <- bpParent keeper
+                            pruneTrunk parent brs
                             finalizeTransactions (blockTransactions keeper)
                             logTransfers keeper
-                            
+
                     pruneTrunk newFinBlock (Seq.take pruneHeight oldBranches)
                     -- Prune the branches
                     let
                         pruneBranches _ Seq.Empty = return Seq.empty
                         pruneBranches parents (brs Seq.:<| rest) = do
-                            survivors <- foldrM (\bp l ->
-                                if bpParent bp `elem` parents then
+                            survivors <- foldrM (\bp l -> do
+                                parent <- bpParent bp
+                                if parent `elem` parents then
                                     return (bp:l)
                                 else do
                                     markDead (bpHash bp)
@@ -221,7 +236,7 @@ processFinalizationPool checkPending = do
                     unTrimmedBranches <- pruneBranches [newFinBlock] (Seq.drop pruneHeight oldBranches)
                     -- This removes empty lists at the end of branches which can result in finalizing on a
                     -- block not in the current best local branch
-                    let 
+                    let
                         trimBranches Seq.Empty = return Seq.Empty
                         trimBranches prunedbrs@(xs Seq.:|> x) =
                             case x of
@@ -311,11 +326,12 @@ addBlock block = do
                     Just (BlockFinalized lfBlockP finRec) ->
                         -- The last finalized pointer must be to the block that was actually finalized.
                         -- (Blocks can be implicitly finalized when a descendent is finalized.)
-                        check (finalizationBlockPointer finRec == lf) $
+                        check (finalizationBlockPointer finRec == lf) $ do
                         -- We need to know that the slot numbers of the last finalized blocks are ordered.
                         -- If the parent block is the genesis block then its last finalized pointer is to
                         -- itself and so the test will pass.
-                        check (blockSlot lfBlockP >= blockSlot (bpLastFinalized parentP)) $ do
+                        laf <- bpLastFinalized parentP
+                        check (blockSlot lfBlockP >= blockSlot laf) $ do
                             -- get Birk parameters from the __parent__ block. The baker must have existed in that
                             -- block's state in order that the current block is valid
                             bps@BirkParameters{..} <- getBirkParameters (blockSlot block) parentP
@@ -373,7 +389,7 @@ addBlock block = do
 -- |Add a valid, live block to the tree.
 -- This is used by 'addBlock' and 'doStoreBakedBlock', and should not
 -- be called directly otherwise.
-blockArrive :: (HasCallStack, TreeStateMonad m, SkovMonad m) 
+blockArrive :: (HasCallStack, TreeStateMonad m, SkovMonad m)
         => PendingBlock m    -- ^Block to add
         -> BlockPointer m     -- ^Parent pointer
         -> BlockPointer m    -- ^Last finalized pointer
@@ -452,7 +468,7 @@ doFinalizeBlock = \finRec -> do
     nextFinIx <- getNextFinalizationIndex
     case compare thisFinIx nextFinIx of
         LT -> return ResultStale -- Already finalized at that index
-        EQ -> do 
+        EQ -> do
                 addFinalizationRecordToPool finRec
                 processFinalizationPool (finRec /=)
                 newFinIx <- getNextFinalizationIndex
