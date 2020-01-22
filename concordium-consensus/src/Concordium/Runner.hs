@@ -59,7 +59,7 @@ instance (SkovQueryConfigMonad c LogIO) => SkovStateQueryable (SyncRunner c) (Sk
 bufferedHandlePendingLive :: IO () -> MVar (Maybe (UTCTime, UTCTime)) -> IO ()
 bufferedHandlePendingLive hpl bufferMVar = do
         now <- currentTime
-        readMVar bufferMVar >>= \case
+        takeMVar bufferMVar >>= \case
             Nothing -> do
                 putMVar bufferMVar $ Just (addUTCTime 5 now, addUTCTime 30 now)
                 void $ forkIO $ waitLoop (addUTCTime 5 now)
@@ -69,7 +69,7 @@ bufferedHandlePendingLive hpl bufferMVar = do
             now <- currentTime
             let waitDurationMicros = truncate (diffUTCTime till now * 1e6)
             when (waitDurationMicros > 0) $ threadDelay waitDurationMicros
-            readMVar bufferMVar >>= \case
+            takeMVar bufferMVar >>= \case
                 Nothing -> putMVar bufferMVar Nothing
                 v@(Just (lower, _)) -> do
                     now' <- currentTime
@@ -131,7 +131,8 @@ startSyncRunner :: (SkovConfigMonad (SkovHandlers ThreadTimer c LogIO) c LogIO,
     ) => SyncRunner c -> IO ()
 startSyncRunner sr@SyncRunner{..} = do
         let
-            runBaker = bakeLoop 0 `finally` syncLogMethod Runner LLInfo "Exiting baker thread"
+            runBaker = (bakeLoop 0 `catch` \(e :: SomeException) -> (syncLogMethod Runner LLError ("Message loop exited with exception: " ++ show e)))
+                            `finally` syncLogMethod Runner LLInfo "Exiting baker thread"
             bakeLoop lastSlot = do
                 (mblock, sfs', curSlot) <- runWithStateLog syncState syncLogMethod (\sfs -> do
                         let bake = do
@@ -142,6 +143,7 @@ startSyncRunner sr@SyncRunner{..} = do
                                         else
                                             return Nothing
                                 return (mblock, curSlot)
+                        -- TODO: modify handlers to send out finalization messages AFTER any generated block
                         ((mblock, curSlot), sfs') <-
                           runSkovT bake (syncSkovHandlers sr) syncContext sfs
                         return ((mblock, sfs', curSlot), sfs'))
