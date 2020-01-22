@@ -1,0 +1,62 @@
+   Compiling p2p_client v0   Compiling p2p_client v0.2.1 (/home/ij/git/concordium/p2p-client)
+.2.1 (/home/ij/git/concordium/p2p-client)
+    Finished dev [unoptimized + debuginfo] target(s) in 8.90s
+    Finished dev [unoptimized + debuginfo] target(s) in 8.90s
+     Running      Running `target/debug/p2p_client-cli --listen-port 10801 --id 0000000000000001 --rpc-server-port 10001 --bootstrap-node '127.0.0.1:10901' --trace --baker-id 0 --desired-nodes 3`
+`target/debug/p2p_client-cli --listen-port 10801 --id 0000000000000001 --rpc-server-port 10001 --bootstrap-node '127.0.0.1:10901' --trace --baker-id 0 --desired-nodes 3`
+[2020-01-21T11:18:30Z INFO  p2p_client::utils] Starting up p2p_client version 0.2.1!
+[2020-01-21T11:18:30Z INFO  p2p_client::utils] Starting up p2p_client version 0.2.1!
+[2020-01-21T11:18:30Z INFO  p2p_client::utils] Application data directory: "/home/ij/.local/share/ConcordiumP2P"
+[2020-01-21T11:18:30Z INFO  p2p_client::utils] Application data directory: "/home/ij/.local/share/ConcordiumP2P"
+[2020-01-21T11:18:30Z INFO  p2p_client::utils] Application config directory: "/home/ij/.config/ConcordiumP2P"
+[2020-01-21T11:18:30Z INFO  p2p_client::utils] Application config directory: "/home/ij/.config/ConcordiumP2P"
+[2020-01-21T11:18:30Z INFO  p2p_client_cli] Debugging enabled: false
+[2020-01-21T11:18:30Z INFO  p2p_client_cli] Debugging enabled: false
+[2020-01-21T11:18:30Z TRACE p2p_client::p2p::maintenance] Creating new P2PNode
+[2020-01-21T11:18:30Z TRACE p2p_client::p2p::maintenance] Creating new P2PNode
+[2020-01-21T11:18:30Z DEBUG p2p_client::p2p::maintenance] Listening on 172.18.0.1:10801
+[2020-01-21T11:18:30Z DEBUG p2p_client::p2p::maintenance] Listening on 172.18.0.1:10801
+[2020-01-21T11:18:30Z INFO  p2p_client::p2p::maintenance] My Node ID is 0000000000000001
+[2020-01-21T11:18:30Z INFO  p2p_client::p2p::maintenance] My Node ID is 0000000000000001
+[2020-01-21T11:18:30Z TRACE mio::poll] registering with poller
+[2020-01-21T11:18:30Z TRACE mio::poll] registering with poller
+[2020-01-21T11:18:30Z DEBUG p2p_client_cli] Using resolver: 10.34.101.254
+[2020-01-21T11:18:30Z DEBUG p2p_client_cli] Using resolver: 10.34.101.254
+[2020-01-21T11:18:30Z DEBUG p2p_client::plugins::consensus] Obtained genesis data 6dddb647
+[2020-01-21T11:18:30Z DEBUG p2p_client::plugins::consensus] Obtained genesis data 6dddb647
+[2020-01-21T11:18:30Z INFO  p2p_client::plugins::consensus] Starting up the consensus thread
+[2020-01-21T11:18:30Z INFO  p2p_client::plugins::consensus] Starting up the consensus thread
+[2020-01-21T11:18:30Z INFO  consensus_rust::consensus] Starting up the consensus layer
+[2020-01-21T11:18:30Z INFO  consensus_rust::consensus] Starting up the consensus layer
+[2020-01-21T11:18:31Z INFO  p2p_client::rpc] RPC started on 127.0.0.1:10001
+[2020-01-21T11:18:31Z INFO  p2p_client::rpc] RPC started on 127.0.0.1:10001
+[2020-01-21T11:18:31Z INFO  p2p_client_cli] Concordium P2P layer. Network disabled: false
+[2020-01-21T11:18:31Z INFO  p2p_client_cli] Concordium P2P layer. Network disabled: false
+[2020-01-21T11:18:31Z INFO  p2p_client_cli] Starting the P2P layer
+[2020-01-21T11:18:31Z INFO  p2p_client_cli] Starting the P2P layer
+[2020-01-21T11:18:31Z INFO  p2p_client::p2p::maintenance] Attempting to bootstrap
+[2020-01-21T11:18:31Z INFO  p2p_client::p2p::maintenance] Attempting to bootstrap
+[2020-01-21T11:18:31Z DEBUG p2p_client::utils] Not using DNS for bootstrapping, we have nodes specified
+[2020-01-21T11:18:31Z DEBUG p2p_client::utils] Not using DNS for bootstrapping, we have nodes specified
+[2020-01-21T11:18:31Z INFO  p2p_client::p2p::maintenance] Found a bootstrap node: 127.0.0.1:10901
+[2020-01-21T11:18:31Z INFO  p2p_client::p2p::maintenance] Found a bootstrap node: 127.0.0.1:10901
+[2020-01-21T11:18:31Z DEBUG p2p_client::p2p::connectivity] Attempting to connect to 127.0.0.1:10901
+[2020-01-21T11:18:31Z DEBUG p2p_client::p2p::connectivity] Attempting to connect to 127.0.0.1:10901
+[2020-01-21T11:18:31Z TRACE p2p_client::connection::low_level] Starting a noise session as the initiator; handshake mode: XX
+[2020-01-21T11:18:31Z TRACE p2p_client::connection::low_level] Starting a noise session as the initiator; handshake mode: XX
+[2020-01-21T11:18:31Z TRACE mio::poll] registering with poller
+[2020-01-21T11:18:31Z TRACE mio::poll] registering with poller
+[2020-01-21T11:18:31Z TRACE p2p_client::connection::low_level] Sending message A
+[2020-01-21T11:18:31Z TRACE p2p_client::connection::low_level] Sending message A
+[2020-01-21T11:18:31Z TRACE p2p_client::connection::low_level] Expecting a 208 B message
+[2020-01-21T11:18:31Z TRACE p2p_client::connection::low_level] Expecting a 208 B message
+[2020-01-21T11:18:31Z TRACE p2p_client::connection::low_level] The message was fully read
+[2020-01-21T11:18:31Z TRACE p2p_client::connection::low_level] The message was fully read
+[2020-01-21T11:18:31Z TRACE p2p_client::connection::low_level] I got message B
+[2020-01-21T11:18:31Z TRACE p2p_client::connection::low_level] I got message B
+[2020-01-21T11:18:31Z TRACE p2p_client::connection::low_level] Sending message C
+[2020-01-21T11:18:31Z TRACE p2p_client::connection::low_level] Sending message C
+[2020-01-21T11:18:31Z DEBUG p2p_client::connection::message_handlers] Got a Handshake request from peer 0000000001000001
+[2020-01-21T11:18:31Z DEBUG p2p_client::connection::message_handlers] Got a Handshake request from peer 0000000001000001
+[2020-01-21T11:18:31Z DEBUG p2p_client::plugins::consensus] The peers have changed; updating the catch-up peer list
+[2020-01-21T11:18:31Z DEBUG p2p_client::plugins::consensus] The peers have changed; updating the catch-up peer list

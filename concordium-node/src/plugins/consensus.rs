@@ -485,11 +485,11 @@ fn update_peer_states(
                     peers.peers.change_priority(&up_to_date_peer, PeerState::new(Pending));
                 }
 
-                // relay rebroadcastable direct messages to non-pending peers
+                // relay rebroadcastable direct messages to non-pending peers, but originator
                 for non_pending_peer in peers
                     .peers
                     .iter()
-                    .filter(|(_, &state)| state.status != Pending)
+                    .filter(|(&id, &state)| id != source_peer && state.status != Pending)
                     .map(|(&id, _)| id)
                 {
                     let _ = send_consensus_msg_to_net(
