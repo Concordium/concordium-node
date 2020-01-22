@@ -139,23 +139,17 @@ instance (bs ~ GS.BlockState m, MonadIO m, BS.BlockStateStorage m, MonadState (S
     env <- use (db . storeEnv)
     dbB <- use (db . blockStore)
     bytes <- liftIO $ transaction env (L.get dbB bh :: L.Transaction ReadOnly (Maybe ByteString))
-    case bytes of
-      Just b -> do
+    mapJust bytes (\b -> do
         tm <- liftIO getCurrentTime
-        case runGetState (B.getBlock (utcTimeToTransactionTime tm)) b 0 of
-          Right (newBlock, rest) ->
-           case runGetState S.get rest 0 of
-             Right (bs, rest') ->
-              case runGet BS.getBlockState bs of
-                Right state' -> do
+        mapRight (runGetState (B.getBlock (utcTimeToTransactionTime tm)) b 0) (\(newBlock, rest) ->
+           mapRight (runGetState S.get rest 0) (\(bs, rest') ->
+              mapRight (runGet BS.getBlockState bs) (\state' -> do
                   st <- state'
-                  case decode rest' of
-                    Right height' -> liftIO $ Just <$> makeBlockPointerFromBlock newBlock st height'
-                    Left _ -> return Nothing
-                Left _ -> return Nothing
-             Left _ -> return Nothing
-          Left _ -> return Nothing
-      Nothing -> return Nothing
+                  mapRight (decode rest') (\height' ->
+                      liftIO $ Just <$> makeBlockPointerFromBlock newBlock st height')))))
+    where
+      mapJust v f = maybe (return Nothing) f v
+      mapRight v f = either (\_ -> return Nothing) f v
   readFinalizationRecord bh = do
     env <- use (db . storeEnv)
     dbF <- use (db . finalizationRecordStore)
