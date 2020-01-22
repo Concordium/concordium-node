@@ -588,7 +588,7 @@ instance HasModuleCache PersistentBlockStateContext where
 instance HasBlobStore PersistentBlockStateContext where
     blobStore = pbscBlobStore
 
-newtype PersistentBlockStateMonad r m a = PersistentBlockStateMonad (m a)
+newtype PersistentBlockStateMonad r m a = PersistentBlockStateMonad { runPersistentBlockStateMonad :: m a }
     deriving (Functor, Applicative, Monad, MonadIO, MonadReader r)
 
 instance BlockStateTypes (PersistentBlockStateMonad r m) where
