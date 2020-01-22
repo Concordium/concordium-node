@@ -228,18 +228,17 @@ getAncestors sfsRef blockHash count = case readMaybe blockHash of
            x' <- f x
            (x':) `liftM` iterateM f x'
 
-getBranches :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> IO Value
+getBranches :: forall z m. (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> IO Value
 getBranches sfsRef = runStateQuery sfsRef $ do
             brs <- branchesFromTop :: m [[BlockPointer m]]
-            brt <- foldM up Map.empty brs :: m (Map.Map (BlockPointer m) [Object])
+            brt <- foldM up Map.empty brs :: m (Map.Map (BlockPointer m) [Value])
             lastFin <- lastFinalizedBlock :: m (BlockPointer m)
             return $ object ["blockHash" .= hsh lastFin, "children" .= Map.findWithDefault [] lastFin brt]
     where
-        up :: (TS.TreeStateMonad m) => Map.Map (BlockPointer m) [Object] -> [BlockPointer m] -> m (Map.Map (BlockPointer m) [Object])
-        up childrenMap = foldrM (\b ma -> do
-                                    parent <- TS.bpParent b
-                                    atp <- ma ^. at parent . non []
-                                    return $ object ["blockHash" .= hsh b, "children" .= Map.findWithDefault [] b childrenMap] : atp) Map.empty
+        up :: Map.Map (BlockPointer m) [Value] -> [BlockPointer m] -> m (Map.Map (BlockPointer m) [Value])
+        up childrenMap = foldrM (\(b :: BlockPointer m) (ma :: Map.Map (BlockPointer m) [Value]) -> do
+                                    parent <- TS.bpParent b :: m (BlockPointer m)
+                                    return $ (at parent . non [] %~ (object ["blockHash" .= hsh b, "children" .= (Map.findWithDefault [] b childrenMap :: [Value])] :)) ma) Map.empty
 
 getBlockFinalization :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> BlockHash -> IO (Maybe FinalizationRecord)
 getBlockFinalization sfsRef bh = runStateQuery sfsRef $ do
