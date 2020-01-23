@@ -14,7 +14,7 @@ use std::fs;
 #[cfg(not(target_os = "windows"))]
 use std::fs::File;
 use std::{
-    io::Cursor,
+    io::{Cursor, Write},
     net::{IpAddr, SocketAddr},
     str::{self, FromStr},
 };
@@ -77,6 +77,11 @@ pub fn setup_logger_env(env: Env, no_log_timestamp: bool) {
     let mut log_builder = Builder::from_env(env);
     if no_log_timestamp {
         log_builder.format_timestamp(None);
+    } else {
+        log_builder.format(|buf, record| {
+            let ts = buf.timestamp_nanos();
+            writeln!(buf, "{}: {}: {}", ts, record.level(), record.args())
+        });
     }
     log_builder.filter(Some(&"tokio_reactor"), LevelFilter::Error);
     log_builder.filter(Some(&"hyper"), LevelFilter::Error);
