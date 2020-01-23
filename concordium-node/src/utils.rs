@@ -79,8 +79,7 @@ pub fn setup_logger_env(env: Env, no_log_timestamp: bool) {
         log_builder.format_timestamp(None);
     } else {
         log_builder.format(|buf, record| {
-            let ts = buf.timestamp_nanos();
-            writeln!(buf, "{}: {}: {}", ts, record.level(), record.args())
+            writeln!(buf, "{}: {}: {}", buf.timestamp_nanos(), record.level(), record.args())
         });
     }
     log_builder.filter(Some(&"tokio_reactor"), LevelFilter::Error);
