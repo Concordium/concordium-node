@@ -19,6 +19,7 @@ import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.TreeState
 import Concordium.Types.Transactions
+import Concordium.GlobalState.BlockPointer
 
 import Concordium.Kontrol
 import Concordium.Birk.LeaderElection
@@ -54,6 +55,7 @@ instance FromJSON BakerIdentity where
 
 processTransactions
     :: (TreeStateMonad m,
+        BlockPointerMonad m,
         SkovMonad m)
     => Slot
     -> BirkParameters
@@ -72,7 +74,7 @@ processTransactions slot ss bh finalizedP bid = do
   -- This is done in the method below once a block pointer is constructed.
 
 
-bakeForSlot :: (SkovMonad m, TreeStateMonad m, MonadIO m) => BakerIdentity -> Slot -> m (Maybe (BlockPointer m))
+bakeForSlot :: (BlockPointerMonad m, SkovMonad m, TreeStateMonad m, MonadIO m) => BakerIdentity -> Slot -> m (Maybe (BlockPointer m))
 bakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     bb <- bestBlockBefore slot
     guard (blockSlot bb < slot)

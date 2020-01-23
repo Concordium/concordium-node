@@ -5,6 +5,7 @@ import Data.Functor
 import qualified Data.Sequence as Seq
 
 import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.TreeState
 import Concordium.Types
 import Concordium.Kontrol.UpdateLeaderElectionParameters
@@ -23,7 +24,7 @@ doIsFinalized = getBlockStatus >=> \case
         Just (BlockFinalized _ _) -> return True
         _ -> return False
 
-doGetBirkParameters :: TreeStateMonad m => Slot -> BlockPointer m -> m Param.BirkParameters
+doGetBirkParameters :: (BlockPointerMonad m, BlockStateQuery m) => Slot -> BlockPointer m -> m Param.BirkParameters
 {-# INLINE doGetBirkParameters #-}
 doGetBirkParameters slot bp = do
         params <- getBlockBirkParameters =<< blockState bp
@@ -44,7 +45,7 @@ doBranchesFromTop = revSeqToList <$> getBranches
         revSeqToList (r Seq.:|> t) = t : revSeqToList r
 
 
-doGetBlocksAtHeight :: TreeStateMonad m => BlockHeight -> m [BlockPointer m]
+doGetBlocksAtHeight :: (BlockPointerMonad m, TreeStateMonad m) => BlockHeight -> m [BlockPointer m]
 {-# INLINE doGetBlocksAtHeight #-}
 doGetBlocksAtHeight h = do
         lastFin <- fst <$> getLastFinalized
@@ -60,7 +61,7 @@ doGetBlocksAtHeight h = do
               parPar <- findFrom par
               return [parPar] -- TODO: replace with more efficient search
     where
-        findFrom :: (TreeStateMonad m) => BlockPointer m -> m (BlockPointer m)
+        findFrom :: (BlockPointerMonad m, TreeStateMonad m) => BlockPointer m -> m (BlockPointer m)
         findFrom bp
             | bpHeight bp == h = return bp
             | otherwise = do

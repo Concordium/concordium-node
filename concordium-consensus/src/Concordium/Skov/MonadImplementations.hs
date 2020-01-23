@@ -22,6 +22,7 @@ import Data.Proxy
 
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState
@@ -158,6 +159,10 @@ deriving via (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (Sk
 deriving via (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m))
     instance (GlobalStateTypes (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m)))
         => GlobalStateTypes (SkovT h c m)
+
+deriving via (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m))
+    instance (Monad m, GlobalStateTypes (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m)))
+        => BlockPointerMonad (SkovT h c m)
 
 deriving via (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m))
     instance (

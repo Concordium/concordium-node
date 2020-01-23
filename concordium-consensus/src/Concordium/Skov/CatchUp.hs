@@ -14,6 +14,7 @@ import Data.Foldable
 import Control.Monad
 
 import Concordium.Types
+import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.TreeState hiding (getGenesisData)
 
@@ -78,7 +79,7 @@ makeCatchUpStatus cusIsRequest cusIsResponse lfb leaves branches = return CatchU
 -- produce a pair of lists @(leaves, branches)@, which partions
 -- those blocks that are leaves (@leaves@) from those that are not
 -- (@branches@).
-leavesBranches :: forall m. (TreeStateMonad m) => [[BlockPointer m]] -> m ([BlockPointer m], [BlockPointer m])
+leavesBranches :: forall m. (BlockPointerMonad m) => [[BlockPointer m]] -> m ([BlockPointer m], [BlockPointer m])
 leavesBranches = lb ([], [])
     where
         lb :: ([BlockPointer m], [BlockPointer m]) -> [[BlockPointer m]] -> m ([BlockPointer m], [BlockPointer m])
@@ -89,7 +90,7 @@ leavesBranches = lb ([], [])
           let (bs', ls') = List.partition (`elem` parent) s
           lb (ls ++ ls', bs ++ bs') r
 
-getCatchUpStatus :: (TreeStateMonad m, SkovQueryMonad m, LoggerMonad m) => Bool -> m CatchUpStatus
+getCatchUpStatus :: (BlockPointerMonad mTreeStateMonad m, SkovQueryMonad m, LoggerMonad m) => Bool -> m CatchUpStatus
 getCatchUpStatus cusIsRequest = do
         logEvent Skov LLTrace "Getting catch-up status"
         lfb <- lastFinalizedBlock
@@ -98,7 +99,7 @@ getCatchUpStatus cusIsRequest = do
           return v
         return $ makeCatchUpStatus cusIsRequest False lfb leaves (if cusIsRequest then branches else [])
 
-handleCatchUp :: forall m. (TreeStateMonad m, SkovQueryMonad m, LoggerMonad m) => CatchUpStatus -> m (Either String (Maybe ([Either FinalizationRecord (BlockPointer m)], CatchUpStatus), Bool))
+handleCatchUp :: forall m. (BlockPointerMonad m, TreeStateMonad m, SkovQueryMonad m, LoggerMonad m) => CatchUpStatus -> m (Either String (Maybe ([Either FinalizationRecord (BlockPointer m)], CatchUpStatus), Bool))
 handleCatchUp peerCUS = runExceptT $ do
         lfb <- lift lastFinalizedBlock
         if cusLastFinalizedHeight peerCUS > bpHeight lfb then do
