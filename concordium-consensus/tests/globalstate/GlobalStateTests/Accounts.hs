@@ -19,6 +19,7 @@ import Data.Either
 import Lens.Micro.Platform
 import qualified Data.PQueue.Prio.Max as Queue
 import qualified Data.HashMap.Strict as HM
+import qualified Data.Map.Strict as OrdMap
 
 import qualified Data.FixedByteString as FBS
 import Concordium.Types.HashableTo
@@ -94,7 +95,7 @@ randomActions = sized (ra Set.empty Set.empty)
         randAccount = do
             address <- ID.AccountAddress . FBS.pack <$> vector ID.accountAddressSize
             n <- choose (1,255)
-            akKeys <- HM.fromList . zip [0..] . map Sig.correspondingVerifyKey <$> replicateM n Sig.genKeyPair
+            akKeys <- OrdMap.fromList . zip [0..] . map Sig.correspondingVerifyKey <$> replicateM n Sig.genKeyPair
             akThreshold <- fromIntegral <$> choose (1,n)
             return (ID.AccountKeys{..}, address)
         ra _ _ 0 = return []
