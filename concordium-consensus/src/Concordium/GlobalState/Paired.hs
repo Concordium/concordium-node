@@ -32,6 +32,7 @@ import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState
 
@@ -368,14 +369,13 @@ coerceGSMR :: GSMR rc r rs s m a -> GlobalStateM (PairGSContext lc rc) r (PairGS
 coerceGSMR = coerce
 
 instance (HasGlobalStateContext (PairGSContext lc rc) r,
-        MonadReader r m,
-        HasGlobalState (PairGState ls rs) s,
-        MonadState s m,
-        MonadIO m,
-        BlockStateStorage (GlobalStateM (PairGSContext lc rc) r (PairGState ls rs) s m),
-        TreeStateMonad (GSML lc r ls s m),
-        TreeStateMonad (GSMR rc r rs s m))
-        => TreeStateMonad (GlobalStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
+          MonadReader r m,
+          HasGlobalState (PairGState ls rs) s,
+          MonadState s m,
+          MonadIO m,
+          BlockPointerMonad (GSML lc r ls s m),
+          BlockPointerMonad (GSMR rc r rs s m))
+          => BlockPointerMonad (GlobalStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
     blockState (PairBlockData (bp1, bp2)) = do
         bs1 <- coerceGSML $ blockState bp1
         bs2 <- coerceGSMR $ blockState bp2
@@ -388,6 +388,16 @@ instance (HasGlobalStateContext (PairGSContext lc rc) r,
         bs1 <- coerceGSML $ bpLastFinalized bp1
         bs2 <- coerceGSMR $ bpLastFinalized bp2
         return $ PairBlockData (bs1, bs2)
+
+instance (HasGlobalStateContext (PairGSContext lc rc) r,
+        MonadReader r m,
+        HasGlobalState (PairGState ls rs) s,
+        MonadState s m,
+        MonadIO m,
+        BlockStateStorage (GlobalStateM (PairGSContext lc rc) r (PairGState ls rs) s m),
+        TreeStateMonad (GSML lc r ls s m),
+        TreeStateMonad (GSMR rc r rs s m))
+        => TreeStateMonad (GlobalStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
     makePendingBlock sk sl parent bid bp bn lf trs brtime = do
         pb1 <- coerceGSML $ makePendingBlock sk sl parent bid bp bn lf trs brtime
         pb2 <- coerceGSMR $ makePendingBlock sk sl parent bid bp bn lf trs brtime

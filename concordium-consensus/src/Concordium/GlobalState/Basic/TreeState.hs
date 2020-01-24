@@ -24,6 +24,7 @@ import qualified Concordium.GlobalState.TreeState as TS
 import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.Statistics (ConsensusStatistics, initialConsensusStatistics)
 import Concordium.Types.Transactions
+import Concordium.GlobalState.BlockPointer
 
 import Concordium.GlobalState.Basic.Block
 import Concordium.GlobalState.Basic.BlockPointer
@@ -110,11 +111,13 @@ instance (bs ~ GS.BlockState m) => GS.GlobalStateTypes (PureTreeStateMonad bs m)
     type PendingBlock (PureTreeStateMonad bs m) = PendingBlock
     type BlockPointer (PureTreeStateMonad bs m) = BasicBlockPointer bs
 
-instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovData bs) m)
-          => TS.TreeStateMonad (PureTreeStateMonad bs m) where
+instance (bs ~ GS.BlockState m, Monad m, MonadState (SkovData bs) m) => BlockPointerMonad (PureTreeStateMonad bs m) where
     blockState = return . _bpState
     bpParent = return . _bpParent
     bpLastFinalized = return . _bpLastFinalized
+
+instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovData bs) m)
+          => TS.TreeStateMonad (PureTreeStateMonad bs m) where
     makePendingBlock key slot parent bid pf n lastFin trs time = return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
     importPendingBlock blockBS rectime =
         case runGet (getBlock $ utcTimeToTransactionTime rectime) blockBS of

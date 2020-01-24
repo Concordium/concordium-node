@@ -11,6 +11,7 @@ import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.BlockPointer
 import Concordium.GlobalState.Persistent.LMDB
 import Concordium.GlobalState.Statistics
+import Concordium.GlobalState.BlockPointer
 import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.Types
 import Concordium.Types.HashableTo
@@ -163,8 +164,7 @@ instance (bs ~ GS.BlockState m, MonadIO m, BS.BlockStateStorage m, MonadState (S
     db . storeEnv .= e
     db . finalizationRecordStore .= d
 
-instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovPersistentData bs) m)
-          => TS.TreeStateMonad (PersistentTreeStateMonad bs m) where
+instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovPersistentData bs) m) => BlockPointerMonad (PersistentTreeStateMonad bs m) where
     blockState = return . _bpState
     bpParent b = do
       d <- liftIO $ deRefWeak (_bpParent b)
@@ -180,6 +180,9 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
         Nothing -> do
           nb <- readBlock (_bpHash b)
           return $ fromMaybe (error "Couldn't find last finalized block in disk") nb
+
+instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovPersistentData bs) m)
+          => TS.TreeStateMonad (PersistentTreeStateMonad bs m) where
     makePendingBlock key slot parent bid pf n lastFin trs time = return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
     importPendingBlock blockBS rectime =
         case runGet (getBlock $ utcTimeToTransactionTime rectime) blockBS of
