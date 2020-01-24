@@ -16,6 +16,7 @@ import Control.Monad.State.Class
 import qualified Concordium.Scheduler.Types as AT
 import Concordium.GlobalState.Classes
 import qualified Concordium.GlobalState.TreeState as TS
+import Concordium.GlobalState.BlockPointer
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Statistics as Stat
 import Concordium.Types as T
@@ -58,7 +59,7 @@ instance (SkovConfiguration c, SkovQueryMonad (SkovT () c IO))
 hsh :: (HashableTo BlockHash a) => a -> String
 hsh x = show (getHash x :: BlockHash)
 
-getBestBlockState :: (TS.TreeStateMonad m, SkovQueryMonad m) => m (BlockState m)
+getBestBlockState :: (BlockPointerMonad m, SkovQueryMonad m) => m (BlockState m)
 getBestBlockState = queryBlockState =<< bestBlock
 
 getLastFinalState :: SkovQueryMonad m => m (BlockState m)
@@ -145,7 +146,7 @@ getModuleSource hash sfsRef mhash = runStateQuery sfsRef $
             mmodul <- BS.getModule st mhash
             return (BS.moduleSource <$> mmodul)
 
-getConsensusStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> IO Value
+getConsensusStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m, BlockPointerMonad m) => z -> IO Value
 getConsensusStatus sfsRef = runStateQuery sfsRef $ do
         bb <- bestBlock
         lfb <- lastFinalizedBlock
@@ -177,7 +178,7 @@ getConsensusStatus sfsRef = runStateQuery sfsRef $ do
                 "finalizationPeriodEMSD" .= (sqrt <$> (stats ^. Stat.finalizationPeriodEMVar))
             ]
 
-getBlockInfo :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> String -> IO Value
+getBlockInfo :: (SkovStateQueryable z m, HashableTo BlockHash (BlockPointer m), BlockPointerMonad m) => z -> String -> IO Value
 getBlockInfo sfsRef blockHash = case readMaybe blockHash of
         Nothing -> return Null
         Just bh -> runStateQuery sfsRef $
@@ -189,8 +190,8 @@ getBlockInfo sfsRef blockHash = case readMaybe blockHash of
                         reward <- BS.getRewardStatus st
                         slotTime <- getSlotTime slot
                         bfin <- isFinalized bh
-                        parent <- TS.bpParent bp
-                        lfin <- TS.bpLastFinalized bp
+                        parent <- bpParent bp
+                        lfin <- bpLastFinalized bp
                         return $ object [
                             "blockHash" .= hsh bp,
                             "blockParent" .= hsh parent,
@@ -215,20 +216,20 @@ getBlockInfo sfsRef blockHash = case readMaybe blockHash of
                             "executionCost" .= toInteger (reward ^. AT.executionCost)
                             ]
 
-getAncestors :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> String -> BlockHeight -> IO Value
+getAncestors :: (SkovStateQueryable z m, HashableTo BlockHash (BlockPointer m), BlockPointerMonad m) => z -> String -> BlockHeight -> IO Value
 getAncestors sfsRef blockHash count = case readMaybe blockHash of
         Nothing -> return Null
         Just bh -> runStateQuery sfsRef $
                 resolveBlock bh >>= \case
                     Nothing -> return Null
                     Just bp -> do
-                      parents <- iterateM TS.bpParent bp
+                      parents <- iterateM bpParent bp
                       return $ toJSONList $ map hsh $ take (fromIntegral $ min count (1 + bpHeight bp)) $ parents
    where iterateM f x = do
            x' <- f x
            (x':) `liftM` iterateM f x'
 
-getBranches :: forall z m. (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> IO Value
+getBranches :: forall z m. (SkovStateQueryable z m, Ord (BlockPointer m), HashableTo BlockHash (BlockPointer m), BlockPointerMonad m) => z -> IO Value
 getBranches sfsRef = runStateQuery sfsRef $ do
             brs <- branchesFromTop :: m [[BlockPointer m]]
             brt <- foldM up Map.empty brs :: m (Map.Map (BlockPointer m) [Value])
@@ -237,7 +238,7 @@ getBranches sfsRef = runStateQuery sfsRef $ do
     where
         up :: Map.Map (BlockPointer m) [Value] -> [BlockPointer m] -> m (Map.Map (BlockPointer m) [Value])
         up childrenMap = foldrM (\(b :: BlockPointer m) (ma :: Map.Map (BlockPointer m) [Value]) -> do
-                                    parent <- TS.bpParent b :: m (BlockPointer m)
+                                    parent <- bpParent b :: m (BlockPointer m)
                                     return $ (at parent . non [] %~ (object ["blockHash" .= hsh b, "children" .= (Map.findWithDefault [] b childrenMap :: [Value])] :)) ma) Map.empty
 
 getBlockFinalization :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> BlockHash -> IO (Maybe FinalizationRecord)
@@ -251,7 +252,7 @@ getBlockFinalization sfsRef bh = runStateQuery sfsRef $ do
 -- Returns 0 if keypair is not added as a baker.
 -- Returns 1 if keypair is added as a baker, but not part of the baking committee yet.
 -- Returns 2 if keypair is part of the baking committee.
-checkBakerExistsBestBlock :: (TS.TreeStateMonad m, SkovStateQueryable z m)
+checkBakerExistsBestBlock :: (BlockPointerMonad m, SkovStateQueryable z m)
     => BakerSignVerifyKey
     -> z
     -> IO Word8
@@ -274,8 +275,8 @@ checkFinalizerExistsBestBlock sfsRef = runStateQuery sfsRef $ do
      Nothing -> return False
      Just _ -> return True
 
-getCatchUpStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m, LoggerMonad m) => z -> Bool -> IO CU.CatchUpStatus
+getCatchUpStatus :: (SkovStateQueryable z m, BlockPointerMonad m, TS.TreeStateMonad m, LoggerMonad m) => z -> Bool -> IO CU.CatchUpStatus
 getCatchUpStatus sRef isRequest = runStateQuery sRef $ CU.getCatchUpStatus isRequest
 
-handleCatchUpStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m, LoggerMonad m) => z -> CU.CatchUpStatus -> IO (Either String (Maybe ([Either FinalizationRecord (BlockPointer m)], CU.CatchUpStatus), Bool))
+handleCatchUpStatus :: (SkovStateQueryable z m, BlockPointerMonad m, TS.TreeStateMonad m, LoggerMonad m) => z -> CU.CatchUpStatus -> IO (Either String (Maybe ([Either FinalizationRecord (BlockPointer m)], CU.CatchUpStatus), Bool))
 handleCatchUpStatus sRef cus = runStateQuery sRef $ CU.handleCatchUp cus
