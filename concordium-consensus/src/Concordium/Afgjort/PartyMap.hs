@@ -63,3 +63,6 @@ keys = Map.keys . partyMap
 
 toList :: PartyMap a -> [(Party, a)]
 toList = Map.toList . partyMap
+
+fromList :: (Party -> VoterPower) -> [(Party, a)] -> PartyMap a
+fromList power l = PartyMap (sum $ (power . fst) <$> l) (Map.fromList l)

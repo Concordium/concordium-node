@@ -306,6 +306,12 @@ handleWMVBAOutputEvents evs = do
                 handleEvs True (WMVBAComplete _ : evs') = handleEvs True evs'
             handleEvs False evs
 
+roundBaid :: FinalizationSessionId -> FinalizationIndex -> BlockHeight -> BS.ByteString
+roundBaid finSessId finIx finDelta = runPut $ do
+        S.put finSessId
+        S.put finIx
+        S.put finDelta
+
 liftWMVBA :: (FinalizationMonad s m) => WMVBA Sig.Signature a -> m a
 liftWMVBA a = do
     FinalizationState{..} <- use finState
@@ -314,7 +320,7 @@ liftWMVBA a = do
         Nothing -> error "No current finalization round"
         Just fr@FinalizationRound{..} -> do
             let
-                baid = runPut $ S.put _finsSessionId >> S.put _finsIndex >> S.put roundDelta
+                baid = roundBaid _finsSessionId _finsIndex roundDelta
                 pWeight party = partyWeight (parties _finsCommittee Vec.! fromIntegral party)
                 pVRFKey party = partyVRFKey (parties _finsCommittee Vec.! fromIntegral party)
                 pBlsKey party = partyBlsKey (parties _finsCommittee Vec.! fromIntegral party)
@@ -515,14 +521,15 @@ getPartyWeight com pid = case parties com ^? ix (fromIntegral pid) of
 -- |Check that a finalization record has a valid proof
 verifyFinalProof :: FinalizationSessionId -> FinalizationCommittee -> FinalizationRecord -> Bool
 verifyFinalProof sid com@FinalizationCommittee{..} FinalizationRecord{..} =
-  if sigWeight finParties > corruptWeight then checkProofSignature sig else False
+        sigWeight finParties > corruptWeight && checkProofSignature
     where
         FinalizationProof (finParties, sig) = finalizationProof
-        toSign = BS.append (runPut $ S.put sid >> S.put finalizationIndex >> S.put finalizationDelay) (runPut $ S.put finalizationBlockPointer)
-        pks = foldl (\s pid -> case (toPartyInfo com pid) of Just info -> (partyBlsKey $ info) : s
-                                                             Nothing -> s) [] finParties
-        checkProofSignature s = Bls.verifyAggregate toSign pks s
-        sigWeight ps = foldl (\s p -> s + (getPartyWeight com p)) 0 ps
+        toSign = witnessMessage (roundBaid sid finalizationIndex finalizationDelay) finalizationBlockPointer
+        mpks = sequence ((fmap partyBlsKey . toPartyInfo com) <$> finParties)
+        checkProofSignature = case mpks of
+            Nothing -> False -- If any parties are invalid, reject the proof
+            Just pks -> Bls.verifyAggregate toSign pks sig
+        sigWeight ps = sum (getPartyWeight com <$> ps)
 
 -- |Produce a 'FinalizationSummary' based on the finalization state.
 finalizationSummary :: (FinalizationStateLenses s m) => SimpleGetter s FinalizationSummary

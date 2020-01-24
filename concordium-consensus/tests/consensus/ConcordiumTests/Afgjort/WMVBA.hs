@@ -1,4 +1,5 @@
 {-# LANGUAGE RecordWildCards, OverloadedStrings, ScopedTypeVariables, RankNTypes, BangPatterns #-}
+{-# OPTIONS_GHC -Wno-deprecations #-}
 module ConcordiumTests.Afgjort.WMVBA where
 
 import Test.QuickCheck
@@ -12,6 +13,8 @@ import qualified Data.Vector as Vec
 import Control.Monad
 import Control.Monad.Trans
 
+import qualified Concordium.Afgjort.PartyMap as PM
+import qualified Concordium.Afgjort.PartySet as PS
 import Concordium.Afgjort.Types
 import Concordium.Afgjort.WMVBA
 import qualified Concordium.Crypto.BlsSignature as Bls
@@ -28,7 +31,7 @@ genBlsKeyPair :: Gen (Bls.SecretKey, Bls.PublicKey)
 genBlsKeyPair = fmap (\sk -> (sk, Bls.derivePublicKey sk)) $ genBlsSecretKey
 
 genVRFKeyPair :: Gen (VRF.KeyPair)
-genVRFKeyPair = resize (2^30) $ do fst . VRF.randomKeyPair . mkStdGen <$> arbitrary
+genVRFKeyPair = resize (2^(30::Int)) $ do fst . VRF.randomKeyPair . mkStdGen <$> arbitrary
 
 genKey :: Gen (VRF.KeyPair, Bls.SecretKey)
 genKey = liftM2 (,) genVRFKeyPair genBlsSecretKey
@@ -110,24 +113,24 @@ runTest1 = monadicIO $ do
 ------------------------------------------------------------------------------------------
 -- Unittests for findCulprits
 
-genKeysByteStringCulprits :: Int -> Gen ([(Bls.SecretKey, Bls.PublicKey)], BS.ByteString, [Int])
+genKeysByteStringCulprits :: Int -> Gen ([(Bls.SecretKey, Bls.PublicKey)], BS.ByteString, [Party])
 genKeysByteStringCulprits n = do
   keys <- genBlsKeys n
   tosign <- genByteString
   nculprits <- choose (1, 3)
-  culprits <- suchThat (vectorOf nculprits $ choose (0, length keys - 1)) noDuplicates
+  culprits <- suchThat (vectorOf nculprits $ choose (0, fromIntegral $ length keys - 1)) noDuplicates
   return (keys, tosign, culprits)
     where
       noDuplicates lst = length (List.nub lst) == length lst
 
-makePartiesAndSignatures :: [(Bls.SecretKey, Bls.PublicKey)] -> BS.ByteString -> [Int] -> ([(Party, (Bls.SecretKey, Bls.PublicKey))], [(Party, (Int, Bls.Signature))])
+makePartiesAndSignatures :: [(Bls.SecretKey, Bls.PublicKey)] -> BS.ByteString -> [Party] -> ([(Party, (Bls.SecretKey, Bls.PublicKey))], [(Party, Bls.Signature)])
 makePartiesAndSignatures keys toSign culpritixs =
   let (parties, sigs, _) = foldl f ([], [], 0) keys
   in (parties, sigs)
   where
     f (parties, sigs, i) (sk, pk) =
       ((fromIntegral i, (sk, pk)) : parties, (fromIntegral i, g i sk) : sigs, i+1)
-    g i sk = if elem i culpritixs then (0, Bls.emptySignature) else (0, Bls.sign toSign sk)
+    g i sk = if elem i culpritixs then Bls.emptySignature else Bls.sign toSign sk
 
 -- Tests that no parties are returned when there are no malicious signatures
 findCulpritsNoMaliciousTest :: Property
@@ -149,8 +152,24 @@ findCulpritsTest = forAll (genKeysByteStringCulprits 17) $ \(keys, toSign, culpr
       correctCulprits = List.sort $ map fromIntegral culpritixs
   in List.sort culprits === correctCulprits
 
+createAggSigTest :: Gen Property
+createAggSigTest = do
+    (keys, baid, culpritIxs) <- genKeysByteStringCulprits 17
+    let
+        pWeight p = if p < 17 then 1 else 0
+        pubKeys = (snd . (keys List.!!) . fromIntegral)
+        wi = WMVBAInstance baid 17 5 pWeight 16 undefined 0 undefined pubKeys undefined
+    val <- H.hash . BS.pack <$> arbitrary
+    let
+        toSign = (witnessMessage baid val)
+        (_, signatures) = makePartiesAndSignatures keys toSign culpritIxs
+        culprits = PS.fromList pWeight culpritIxs
+        ((good, sig), bad) = createAggregateSig wi val (PM.fromList pWeight signatures) PS.empty
+    return $ (bad === culprits .&&. Bls.verifyAggregate toSign (pubKeys <$> good) sig)
+
 tests :: Word -> Spec
 tests _lvl = describe "Concordium.Afgjort.WMVBA" $ do
     it "Finds no culprits when everyone signs correctly" $ withMaxSuccess 100 findCulpritsNoMaliciousTest
     it "Finds the misbehaving signers" $ withMaxSuccess 100 findCulpritsTest
+    it "Test createAggregateSig" $ withMaxSuccess 100 createAggSigTest
     it "wip" $ withMaxSuccess 1 runTest1

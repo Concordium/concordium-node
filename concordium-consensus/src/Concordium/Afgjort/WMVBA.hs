@@ -2,6 +2,7 @@
     TemplateHaskell,
     ScopedTypeVariables,
     GeneralizedNewtypeDeriving #-}
+{-# OPTIONS_GHC -Wno-duplicate-exports #-}
 module Concordium.Afgjort.WMVBA (
     WMVBAMessage(..),
     messageValues,
@@ -26,6 +27,8 @@ module Concordium.Afgjort.WMVBA (
     wmvbaFailedSummary,
     wmvbaWADBot,
     wmvbaWADBotMessage,
+    witnessMessage,
+    createAggregateSig,
     -- * For testing
     _freezeState,
     findCulprits,
@@ -286,10 +289,11 @@ liftABBA a = do
                 wmvbaComplete Nothing
             handleEvents r
 
+witnessMessage :: BS.ByteString -> Val -> BS.ByteString
+witnessMessage baid v = baid <> S.encode v
+
 makeWMVBAWitnessCreatorMessage :: BS.ByteString -> Val -> Bls.SecretKey -> WMVBAMessage
-makeWMVBAWitnessCreatorMessage baid v privateBlsKey = WMVBAWitnessCreatorMessage (v, Bls.sign toSign privateBlsKey)
-  where
-    toSign = BS.append baid $ runPut $ S.put v
+makeWMVBAWitnessCreatorMessage baid v privateBlsKey = WMVBAWitnessCreatorMessage (v, Bls.sign (witnessMessage baid v) privateBlsKey)
 
 -- |Record that an input is justified.
 justifyWMVBAInput :: forall sig m. (WMVBAMonad sig m) => Val -> m ()
@@ -305,43 +309,53 @@ receiveWMVBAMessage src sig (WMVBAFreezeMessage msg) = liftFreeze $ receiveFreez
 receiveWMVBAMessage src sig (WMVBAABBAMessage msg) = do
         liftABBA $ receiveABBAMessage src msg sig
 receiveWMVBAMessage src sig (WMVBAWitnessCreatorMessage (v, blssig)) = do
-        WMVBAInstance{..} <- ask
+        wi@WMVBAInstance{..} <- ask
         -- add the (v, (sig, blssig)) to the list of justifications under key src
         newJV <- justifications . at v . non PM.empty <%= PM.insert src (partyWeight src) (sig, blssig)
         badJV <- use $ badJustifications . at v . non PS.empty
         -- When justifications combined weight minus the weight of the bad justifications exceeds corruptWeight,
         -- we can attempt to create the bls aggregate signature
-        when ((PM.weight newJV) - (PS.weight badJV) > corruptWeight) $
+        when ((PM.weight newJV) - (PS.weight badJV) > corruptWeight) $ do
           -- TODO: optimize, this is just a first draft
-          let goodJustifications = extractNonBadJustifications newJV badJV
-              aggregate = makeBlsAggregateSig goodJustifications
-              toSign = BS.append baid $ runPut $ S.put v -- this should probably be a call to some function
-                                                         -- to ensure consistency accross different functions
-              keys = map (\(p, _) -> publicBlsKeys p) goodJustifications
-          in
-            if Bls.verifyAggregate toSign keys aggregate then -- A correct finalization record was obtained, send it out
-              wmvbaComplete (Just (v, (map (\(p, _) -> p) goodJustifications, aggregate)))
-            else -- somebody sent an incorrect BlsSignature on v with a correct EDDSA signature on the message
-              let culprits = findCulprits goodJustifications toSign publicBlsKeys
-                  addCulprits [] = return ()
-                  addCulprits (h : t) = do
-                    badJustifications . at v . non PS.empty %= PS.insert h (partyWeight h)
-                    addCulprits t
-              in addCulprits culprits
+          let (aggSig, newBadJV) = createAggregateSig wi v (snd <$> newJV) badJV
+          let noNewBad = newBadJV == badJV
+          unless noNewBad $ badJustifications . at v . non PS.empty .= newBadJV
+          when (noNewBad || PM.weight newJV - PS.weight badJV > corruptWeight) $
+            wmvbaComplete (Just (v, aggSig))
               -- TODO: check if finalization can still finish. If enough bad justifications has been seen,
               -- finalization may not be able to finish.
-      where
-        extractNonBadJustifications jv badjv = removeBadJustifications (PM.toList jv) badjv []
-        removeBadJustifications [] _ acc = acc
-        removeBadJustifications ((p, s) : t) badjv acc = if PS.member p badjv
-                                                         then removeBadJustifications t badjv acc
-                                                         else removeBadJustifications t badjv ((p, s) : acc)
 
-makeBlsAggregateSig :: [(Party, (a0, Bls.Signature))] -> Bls.Signature
-makeBlsAggregateSig [(_, (_, blss))] = blss
-makeBlsAggregateSig ((_, (_, blss)) : tl) = Bls.aggregate blss (makeBlsAggregateSig tl)
-makeBlsAggregateSig [] = Bls.emptySignature -- This should never happen! makeBlsAggregateSig should never be called
-                                            -- on an empty list
+-- |Construct an aggregate signature. This aggregates all of the
+-- valid signatures (except those already marked as bad).  It returns
+-- the aggregated signature and an updated set of bad parties.
+-- If all signatures are invalid, the aggregate signature will not
+-- be valid.
+createAggregateSig :: 
+    WMVBAInstance sig
+    -> Val
+    -- ^Value chosen
+    -> PartyMap Bls.Signature
+    -- ^Parties' BLS signatures
+    -> PartySet
+    -- ^Parties with known bad signatures
+    -> (([Party], Bls.Signature), PartySet)
+createAggregateSig w@WMVBAInstance{..} v allJV badJV =
+        if Bls.verifyAggregate toSign keys aggSig then
+            ((fst <$> goodJustifications, aggSig), badJV)
+        else
+            -- TODO: we can optimise this since the verifyAggregate check
+            -- in the recursive call must succeed.
+            createAggregateSig w v allJV newBadJV
+    where
+        toSign = witnessMessage baid v
+        filterJustifications
+            | PS.null badJV = id
+            | otherwise = filter (\(p,_) -> not (PS.member p badJV))
+        goodJustifications = filterJustifications (PM.toList allJV)
+        keys = (publicBlsKeys . fst) <$> goodJustifications
+        aggSig = Bls.aggregateMany (snd <$> goodJustifications)
+        culprits = findCulprits goodJustifications toSign publicBlsKeys
+        newBadJV = foldr (\c -> PS.insert c (partyWeight c)) badJV culprits
 
 -- TODO: optimize, this is just a first draft
 -- Internal function, this is only exported for testing purposes
@@ -350,15 +364,16 @@ makeBlsAggregateSig [] = Bls.emptySignature -- This should never happen! makeBls
 -- Second argument is the bytestring that each party supposedly signed
 -- The third argument is a lookup function from parties to their Bls publickey
 -- Returns the list of parties whose signature did not verify under their key.
-findCulprits :: [(Party, (a, Bls.Signature))] -> BS.ByteString -> (Party -> Bls.PublicKey) -> [Party]
-findCulprits lst toSign keys =
-  let (lst1, lst2) = splitAt ((length lst) `div` 2) lst
-      culprits :: [(Party, (a, Bls.Signature))] -> [Party]
-      culprits ((p, (_, blss)) : []) = if Bls.verify toSign (keys p) blss then [] else [p]
-      culprits [] = []
-      culprits lst' = if Bls.verifyAggregate toSign (map (\(p, _) -> keys p) lst') (makeBlsAggregateSig lst')
-                      then [] else findCulprits lst' toSign keys
-  in (culprits lst1) ++ (culprits lst2)
+findCulprits :: [(Party, Bls.Signature)] -> BS.ByteString -> (Party -> Bls.PublicKey) -> [Party]
+findCulprits lst toSign keys = culprits lst1 <> culprits lst2
+    where
+        splitup = foldr (\x ~(l, r) -> (x:r, l)) ([], [])
+        (lst1, lst2) = splitup lst
+        culprits [] = []
+        culprits [(p, blss)] = [p | not (Bls.verify toSign (keys p) blss)]
+        culprits lst'
+            | Bls.verifyAggregate toSign  (keys . fst <$> lst') (Bls.aggregateMany (snd <$> lst')) = []
+            | otherwise = findCulprits lst' toSign keys
 
 -- |Start the WMVBA for us with a given input.  This should only be called once
 -- per instance, and the input should already be justified.
