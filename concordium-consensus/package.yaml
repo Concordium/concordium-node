@@ -58,9 +58,6 @@ flags:
   dynamic:
     manual: False
     default: True
-  rust:
-    manual: False
-    default: True
 
 library:
   source-dirs: src
@@ -84,8 +81,6 @@ library:
               ghc-options: -shared -dynamic
             else:
               ghc-options: -static
-    - condition: flag(rust)
-      ghc-options: "-optP-DRUST"
 
 # Other options might be needed, such has -dynamic -lHSrts or -lHSrts-ghc8.4.3
 # Possibly this depends on the platform
@@ -139,8 +134,6 @@ executables:
                 ghc-options: -dynamic
               else:
                 ghc-options: -static
-      - condition: flag(rust)
-        ghc-options: "-optP-DRUST"
     dependencies:
     - Concordium
 
@@ -189,8 +182,6 @@ tests:
                 ghc-options: -dynamic
               else:
                 ghc-options: -static
-      - condition: flag(rust)
-        ghc-options: "-optP-DRUST"
     dependencies:
     - Concordium
     - hspec >= 2.5
