@@ -30,6 +30,7 @@ import Data.Serialize.Put (runPut)
 import Concordium.GlobalState.Basic.BlockState as BS
 import Concordium.GlobalState.Basic.TreeState
 import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.Classes as GS
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.BlobStore (createTempBlobStore, destroyTempBlobStore)
@@ -92,12 +93,20 @@ deriving via (PersistentBlockStateMonad PersistentBlockStateContext (FocusGlobal
 -- |@TreeStateM s m@ is a newtype wrapper around a monad for
 -- implementing tree state monads.  The parameter @s@ should
 -- be the state type of the underlying monad @m@.
+--
+-- For the monad @TreeStateM s m@, the underlying monad @m@ should satisfy
+-- @MonadState s m@.
+--
+-- * If @s@ is 'SkovData bs', then the in-memory, Haskell tree state is used.
+-- * If @s@ is 'SkovPersistentData bs', then the persistent Haskell tree state is used.
 newtype TreeStateM s m a = TreeStateM {runTreeStateM :: m a}
     deriving (Functor, Applicative, Monad, MonadState s, MonadIO,
               BlockStateTypes, BlockStateQuery, BlockStateOperations, BlockStateStorage)
 
+-- |Global State types for the memory Tree State implementation
 deriving via (PureTreeStateMonad bs m)
     instance GlobalStateTypes (TreeStateM (SkovData bs) m)
+-- |TreeStateMonad instance for the memory Tree State implementation
 deriving via (PureTreeStateMonad bs m)
     instance (bs ~ GS.BlockState m,
               BlockStateStorage m,
@@ -105,8 +114,11 @@ deriving via (PureTreeStateMonad bs m)
               MonadState (SkovData bs) m,
               Monad m)
               => TreeStateMonad (TreeStateM (SkovData bs) m)
+
+-- |Global State types for the disk Tree State implementation
 deriving via (PersistentTreeStateMonad bs m)
     instance GlobalStateTypes (TreeStateM (SkovPersistentData bs) m)
+-- |TreeStateMonad instance for the disk Tree State implementation
 deriving via (PersistentTreeStateMonad bs m)
     instance (bs ~ GS.BlockState m,
               BlockStateStorage m,
@@ -115,12 +127,23 @@ deriving via (PersistentTreeStateMonad bs m)
               Monad m)
               => TreeStateMonad (TreeStateM (SkovPersistentData bs) m)
 
+deriving via (PureTreeStateMonad bs m)
+    instance (bs ~ GS.BlockState m,
+              Monad m,
+              MonadState (SkovData bs) m)
+              => BlockPointerMonad (TreeStateM (SkovData bs) m)
+
+deriving via (PersistentTreeStateMonad bs m)
+    instance (bs ~ GS.BlockState m,
+              Monad m,
+              MonadState (SkovPersistentData bs) m,
+              MonadIO m,
+              BlockStateStorage m)
+              => BlockPointerMonad (TreeStateM (SkovPersistentData bs) m)
+
 -- |A newtype wrapper for providing instances of global state monad classes.
 -- The block state monad instances are derived directly from 'BlockStateM'.
--- The tree state is determined by the @g@ parameter (the global state type).
---
--- * If @g@ is 'Basic.SkovData', then the in-memory, Haskell tree state is used.
--- * If @g@ is 'Rust.SkovData', then the Rust tree state is used.
+-- The tree state monad instances are derived directly from 'TreeStateM'.
 newtype GlobalStateM c r g s m a = GlobalStateM {runGlobalStateM :: m a}
     deriving (Functor, Applicative, Monad, MonadReader r, MonadState s, MonadIO)
     deriving (BlockStateTypes) via (BlockStateM c r g s m)
@@ -135,9 +158,16 @@ deriving via (BlockStateM c r g s m)
     instance (Monad m, BlockStateStorage (BlockStateM c r g s m))
         => BlockStateStorage (GlobalStateM c r g s m)
 
+-- Deriving the global state types depending on the tree state implementation
 deriving via (TreeStateM (SkovData bs) m)
      instance (bs ~ GS.BlockState (BlockStateM c r (SkovData bs) s m))
         => GlobalStateTypes (GlobalStateM c r (SkovData bs) s m)
+-- Deriving the persistent implementation of the tree state monad
+deriving via (TreeStateM (SkovPersistentData bs) m)
+    instance (bs ~ GS.BlockState (BlockStateM c r (SkovPersistentData bs) s m))
+        => GlobalStateTypes (GlobalStateM c r (SkovPersistentData bs) s m)
+
+-- |Memory Tree & Memory Block instance
 deriving via (TreeStateM (SkovData bs) (BlockStateM () r (SkovData bs) s m))
     instance (Monad m,
               bs ~ GS.BlockState (BlockStateM () r (SkovData bs) s m),
@@ -147,15 +177,21 @@ deriving via (TreeStateM (SkovData bs) (BlockStateM () r (SkovData bs) s m))
               MonadReader r m,
               HasGlobalStateContext () r,
               MonadIO m)
-              -- MonadState (SkovData bs) (BlockStateM () r (SkovData bs) s m),
-              -- MonadIO (BlockStateM () r (SkovData bs) s m),
-              -- HasGlobalStateContext () r,
-              -- MonadReader r (BlockStateM () r (SkovData bs) s m))
         => TreeStateMonad (GlobalStateM () r (SkovData bs) s m)
 
-deriving via (TreeStateM (SkovPersistentData bs) m)
-    instance (bs ~ GS.BlockState (BlockStateM c r (SkovData bs) s m))
-        => GlobalStateTypes (GlobalStateM c r (SkovPersistentData bs) s m)
+-- |Memory Tree & Disk Block instance
+deriving via (TreeStateM (SkovData bs) (BlockStateM PersistentBlockStateContext r (SkovData bs) s m))
+    instance (Monad m,
+              bs ~ GS.BlockState (BlockStateM PersistentBlockStateContext r (SkovData bs) s m),
+              BlockStateStorage (BlockStateM PersistentBlockStateContext r (SkovData bs) s m),
+              MonadState s m,
+              HasGlobalState (SkovData bs) s,
+              MonadReader r m,
+              HasGlobalStateContext PersistentBlockStateContext r,
+              MonadIO m)
+        => TreeStateMonad (GlobalStateM PersistentBlockStateContext r (SkovData bs) s m)
+
+-- |Disk Tree & Disk Block instance
 deriving via (TreeStateM (SkovPersistentData bs) (BlockStateM PersistentBlockStateContext r (SkovPersistentData bs) s m))
     instance (Monad m,
               bs ~ GS.BlockState (BlockStateM PersistentBlockStateContext r (SkovPersistentData bs) s m),
@@ -165,11 +201,59 @@ deriving via (TreeStateM (SkovPersistentData bs) (BlockStateM PersistentBlockSta
               MonadReader r m,
               HasGlobalStateContext PersistentBlockStateContext r,
               MonadIO m)
-              -- MonadState (SkovPersistentData bs) (BlockStateM PersistentBlockStateContext r (SkovPersistentData bs) s m),
-              -- MonadIO (BlockStateM PersistentBlockStateContext r (SkovPersistentData bs) s m),
-              -- HasGlobalStateContext PersistentBlockStateContext r,
-              -- MonadReader r (BlockStateM PersistentBlockStateContext r (SkovPersistentData bs) s m))
         => TreeStateMonad (GlobalStateM PersistentBlockStateContext r (SkovPersistentData bs) s m)
+
+-- |Disk Tree & Memory Block instance
+deriving via (TreeStateM (SkovPersistentData bs) (BlockStateM () r (SkovPersistentData bs) s m))
+    instance (Monad m,
+              bs ~ GS.BlockState (BlockStateM () r (SkovPersistentData bs) s m),
+              MonadState s m,
+              HasGlobalState (SkovPersistentData bs) s,
+              HasGlobalStateContext () r,
+              MonadIO m)
+        => TreeStateMonad (GlobalStateM () r (SkovPersistentData bs) s m)
+
+-- |Memory Tree & Memory Block instance
+deriving via (TreeStateM (SkovData bs) (BlockStateM () r (SkovData bs) s m))
+    instance (Monad m,
+              bs ~ GS.BlockState (BlockStateM () r (SkovData bs) s m),
+              MonadState s m,
+              HasGlobalState (SkovData bs) s,
+              MonadReader r m,
+              HasGlobalStateContext () r)
+        => BlockPointerMonad (GlobalStateM () r (SkovData bs) s m)
+
+-- |Memory Tree & Disk Block instance
+deriving via (TreeStateM (SkovData bs) (BlockStateM PersistentBlockStateContext r (SkovData bs) s m))
+    instance (Monad m,
+              bs ~ GS.BlockState (BlockStateM PersistentBlockStateContext r (SkovData bs) s m),
+              MonadState s m,
+              HasGlobalState (SkovData bs) s,
+              MonadReader r m,
+              HasGlobalStateContext PersistentBlockStateContext r)
+        => BlockPointerMonad (GlobalStateM PersistentBlockStateContext r (SkovData bs) s m)
+
+-- |Disk Tree & Disk Block instance
+deriving via (TreeStateM (SkovPersistentData bs) (BlockStateM PersistentBlockStateContext r (SkovPersistentData bs) s m))
+    instance (Monad m,
+              bs ~ GS.BlockState (BlockStateM PersistentBlockStateContext r (SkovPersistentData bs) s m),
+              MonadState s m,
+              HasGlobalState (SkovPersistentData bs) s,
+              MonadReader r m,
+              HasGlobalStateContext PersistentBlockStateContext r,
+              MonadIO m)
+        => BlockPointerMonad (GlobalStateM PersistentBlockStateContext r (SkovPersistentData bs) s m)
+
+-- |Disk Tree & Memory Block instance
+deriving via (TreeStateM (SkovPersistentData bs) (BlockStateM () r (SkovPersistentData bs) s m))
+    instance (Monad m,
+              bs ~ GS.BlockState (BlockStateM () r (SkovPersistentData bs) s m),
+              MonadState s m,
+              HasGlobalState (SkovPersistentData bs) s,
+              MonadReader r m,
+              HasGlobalStateContext () r,
+              MonadIO m)
+        => BlockPointerMonad (GlobalStateM () r (SkovPersistentData bs) s m)
 
 -- |This class is implemented by types that determine configurations for the global state.
 class GlobalStateConfig c where
