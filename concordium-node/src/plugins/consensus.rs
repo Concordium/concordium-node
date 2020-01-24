@@ -169,6 +169,7 @@ pub fn handle_pkt_out(
         packet_type,
         msg,
         dont_relay_to.into_iter().map(P2PNodeId::as_raw).collect(),
+        None,
     );
 
     match if packet_type == PacketType::Transaction {
@@ -206,15 +207,35 @@ pub fn handle_consensus_outbound_msg(
     node: &P2PNode,
     network_id: NetworkId,
     request: ConsensusMessage,
+    peers_lock: &RwLock<PeerList>,
 ) -> Fallible<()> {
-    send_consensus_msg_to_net(
-        node,
-        request.dont_relay_to(),
-        node.self_peer.id,
-        request.target_peer().map(P2PNodeId),
-        network_id,
-        (request.payload, request.variant),
-    )
+    if let Some(status) = request.omit_status {
+        for peer in read_or_die!(peers_lock)
+            .peers
+            .iter()
+            .filter(|(_, &state)| state.status != status)
+            .map(|(&id, _)| id)
+        {
+            let _ = send_consensus_msg_to_net(
+                node,
+                Vec::new(),
+                node.self_peer.id,
+                Some(P2PNodeId(peer)),
+                network_id,
+                (request.payload.clone(), request.variant),
+            );
+        }
+        Ok(())
+    } else {
+        send_consensus_msg_to_net(
+            node,
+            request.dont_relay_to(),
+            node.self_peer.id,
+            request.target_peer().map(P2PNodeId),
+            network_id,
+            (request.payload, request.variant),
+        )
+    }
 }
 
 pub fn handle_consensus_inbound_msg(
@@ -226,8 +247,24 @@ pub fn handle_consensus_inbound_msg(
 ) -> Fallible<()> {
     let source = P2PNodeId(request.source_peer());
 
+    // If we have a probability to drop messages specific per config
+    //   rebroadcasing the packet out the network
+    let drop_message = match node.config.drop_rebroadcast_probability {
+        Some(probability) => {
+            use rand::distributions::{Bernoulli, Distribution};
+            if Bernoulli::new(probability).sample(&mut rand::thread_rng()) {
+                trace!("Will not rebroadcast this packet");
+                true
+            } else {
+                trace!("Will rebroadcast this packet");
+                false
+            }
+        }
+        _ => false,
+    };
+
     if node.config.no_rebroadcast_consensus_validation {
-        if request.distribution_mode() == DistributionMode::Broadcast {
+        if !drop_message && request.distribution_mode() == DistributionMode::Broadcast {
             send_consensus_msg_to_net(
                 &node,
                 request.dont_relay_to(),
@@ -242,16 +279,17 @@ pub fn handle_consensus_inbound_msg(
         let consensus_result = send_msg_to_consensus(node, source, consensus, &request)?;
 
         // adjust the peer state(s) based on the feedback from Consensus
-        update_peer_states(peers_lock, &request, consensus_result);
+        update_peer_states(node, network_id, peers_lock, &request, consensus_result);
     } else {
         // relay external messages to Consensus
         let consensus_result = send_msg_to_consensus(node, source, consensus, &request)?;
 
         // adjust the peer state(s) based on the feedback from Consensus
-        update_peer_states(peers_lock, &request, consensus_result);
+        update_peer_states(node, network_id, peers_lock, &request, consensus_result);
 
         // rebroadcast incoming broadcasts if applicable
-        if request.distribution_mode() == DistributionMode::Broadcast
+        if !drop_message
+            && request.distribution_mode() == DistributionMode::Broadcast
             && consensus_result.is_rebroadcastable()
         {
             send_consensus_msg_to_net(
@@ -418,6 +456,8 @@ pub fn check_peer_states(
 }
 
 fn update_peer_states(
+    node: &P2PNode,
+    network_id: NetworkId,
     peers_lock: &RwLock<PeerList>,
     request: &ConsensusMessage,
     consensus_result: ConsensusFfiResponse,
@@ -449,6 +489,23 @@ fn update_peer_states(
 
                 for up_to_date_peer in up_to_date_peers {
                     peers.peers.change_priority(&up_to_date_peer, PeerState::new(Pending));
+                }
+
+                // relay rebroadcastable direct messages to non-pending peers, but originator
+                for non_pending_peer in peers
+                    .peers
+                    .iter()
+                    .filter(|(&id, &state)| id != source_peer && state.status != Pending)
+                    .map(|(&id, _)| id)
+                {
+                    let _ = send_consensus_msg_to_net(
+                        node,
+                        Vec::new(),
+                        node.self_peer.id,
+                        Some(P2PNodeId(non_pending_peer)),
+                        network_id,
+                        (request.payload.clone(), request.variant),
+                    );
                 }
             }
             DistributionMode::Broadcast if consensus_result.is_pending() => {

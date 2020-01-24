@@ -28,6 +28,7 @@ use crate::{
 use concordium_common::{serial::Endianness, PacketType};
 
 use std::{
+    cmp::Reverse,
     collections::HashSet,
     convert::TryFrom,
     fmt,
@@ -78,7 +79,7 @@ pub struct ConnectionStats {
     pub bytes_sent:        AtomicU64,
 }
 
-type PendingPriority = (MessageSendingPriority, Instant);
+type PendingPriority = (MessageSendingPriority, Reverse<Instant>);
 
 pub struct Connection {
     handler_ref:             Arc<P2PNode>,
@@ -346,7 +347,7 @@ impl Connection {
     /// It queues a network request
     #[inline]
     pub fn async_send(&self, message: Arc<[u8]>, priority: MessageSendingPriority) {
-        write_or_die!(self.pending_messages).push(message, (priority, Instant::now()));
+        write_or_die!(self.pending_messages).push(message, (priority, Reverse(Instant::now())));
     }
 
     #[inline]
@@ -431,9 +432,24 @@ impl Connection {
         let peer_list_resp = match self.handler().peer_type() {
             PeerType::Bootstrapper => {
                 const BOOTSTRAP_PEER_COUNT: usize = 100;
-
-                let random_nodes = safe_read!(self.handler().connection_handler.buckets)?
-                    .get_random_nodes(&requestor, BOOTSTRAP_PEER_COUNT, nets);
+                let random_nodes =
+                    match self.handler().config.partition_network_for_time {
+                        Some(time) => {
+                            if (Utc::now().timestamp_millis()
+                                - self.handler().start_time.timestamp_millis())
+                                as usize
+                                >= time
+                            {
+                                safe_read!(self.handler().connection_handler.buckets)?
+                                    .get_random_nodes(&requestor, BOOTSTRAP_PEER_COUNT, nets, false)
+                            } else {
+                                safe_read!(self.handler().connection_handler.buckets)?
+                                    .get_random_nodes(&requestor, BOOTSTRAP_PEER_COUNT, nets, true)
+                            }
+                        }
+                        _ => safe_read!(self.handler().connection_handler.buckets)?
+                            .get_random_nodes(&requestor, BOOTSTRAP_PEER_COUNT, nets, false),
+                    };
 
                 if !random_nodes.is_empty()
                     && random_nodes.len()

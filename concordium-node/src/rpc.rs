@@ -368,6 +368,7 @@ impl P2P for RpcServerImpl {
                             PacketType::Transaction,
                             Arc::from(payload),
                             vec![],
+                            None,
                         ))
                     } else {
                         Ok(())
