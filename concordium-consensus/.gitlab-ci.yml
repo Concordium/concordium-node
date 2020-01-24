@@ -10,7 +10,7 @@ stages:
     GIT_SUBMODULE_STRATEGY: recursive
     EXTRA_LIBS_PATH: "$CI_PROJECT_DIR/external-libs"
     STACK_ROOT: "${CI_PROJECT_DIR}/.stack"
-    LD_LIBRARY_PATH: "${CI_PROJECT_DIR}/crypto/rust-src/target/release:${CI_PROJECT_DIR}/globalstate-mockup/globalstate-rust/target/release:$LD_LIBRARY_PATH"
+    LD_LIBRARY_PATH: "${CI_PROJECT_DIR}/crypto/rust-src/target/release:$LD_LIBRARY_PATH"
     GIT_SUBMODULE_STRATEGY: recursive
     RUSTFLAGS: -Dwarnings
     EXTRA_LIBS_PATH: "$CI_PROJECT_DIR/external-libs"
@@ -25,12 +25,11 @@ stages:
       - globalstate-types/.stack-work
       - scheduler/.stack-work
       - consensus-rust/target
-      - globalstate-mockup/globalstate-rust/target
       - crypto/rust-src/target
   before_script:
     - rustc --version && cargo --version
     - git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/
- 
+
 .generic-haskell-build:
   extends: .generic
 
@@ -41,12 +40,12 @@ stages:
 
 .generic-rust-test:
   extends: .generic
-  cache: 
+  cache:
     policy: pull
 
 .generic-rust-lint:
   extends: .generic
-  cache: 
+  cache:
     policy: pull
 
 "stack:build":
@@ -78,14 +77,12 @@ stages:
   script:
     - echo "Running clippy with without extra features"
     - ( cd consensus-rust && cargo clippy --color=always --all -- -Dclippy::all )
-    - ( cd globalstate-mockup/globalstate-rust && cargo clippy --color=always --all -- -Dclippy::all )
 
 "cargo:test":
   extends: .generic-rust-test
   stage: test
   script:
     - echo "Running tests without extra features"
-    - ( cd globalstate-mockup/globalstate-rust && cargo test --all --color=always )
     - ( cd consensus-rust && cargo test --all --color=always )
 
 "stack:test:crypto":
@@ -123,4 +120,3 @@ stages:
   stage: test
   script:
     - "stack test Concordium --bench --no-run-benchmarks --ta --level=2"
-

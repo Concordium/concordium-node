@@ -1,4 +1,4 @@
-{-# LANGUAGE 
+{-# LANGUAGE
     OverloadedStrings,
     CPP,
     ScopedTypeVariables #-}
@@ -26,10 +26,6 @@ import Concordium.GlobalState.Basic.Block
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState
-#ifdef RUST
-import Concordium.GlobalState.Paired
-import qualified Concordium.GlobalState.Implementation as Rust
-#endif
 
 import Concordium.Logger
 import Concordium.Types
@@ -141,27 +137,9 @@ genesisState genData = Example.initialState
                        -- (genesisMintPerSlot genData)
 
 
-#ifdef RUST
-{-
-type TreeConfig = DiskTreeDiskBlockConfig
-makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
-makeGlobalStateConfig rt genData = do
-    gsptr <- Rust.makeEmptyGlobalState genData
-    return $ DTDBConfig rt genData (genesisState genData) gsptr
--}
-type TreeConfig = PairGSConfig DiskTreeDiskBlockConfig MemoryTreeMemoryBlockConfig
-makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
-makeGlobalStateConfig rt genData = do
-    gsptr <- Rust.makeEmptyGlobalState genData
-    let
-        c1 = DTDBConfig rt genData (genesisState genData) gsptr
-        c2 = MTMBConfig rt genData (genesisState genData)
-    return $ PairGSConfig (c1, c2)
-#else
 type TreeConfig = MemoryTreeDiskBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
 makeGlobalStateConfig rt genData = return $ MTDBConfig rt genData (genesisState genData)
-#endif
 
 type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) HookLogHandler
 
