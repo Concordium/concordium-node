@@ -107,8 +107,6 @@ executables:
                 ghc-options: -dynamic
               else:
                 ghc-options: -static
-      - condition: flag(rust)
-        ghc-options: "-optP-DRUST"
     dependencies:
       - Concordium
 
