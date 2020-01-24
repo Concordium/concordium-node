@@ -56,7 +56,7 @@ RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
 
 RUN --mount=type=ssh git clone --recurse-submodules git@gitlab.com:Concordium/oak/oak-compiler.git
 WORKDIR /oak-compiler
-RUN git checkout 512c8a4720691219b667efb2f4c11353da7dc920
+RUN git checkout 4a6e05f83cd9b4d54f1cdfc65dcd1550a7e3e6db
 RUN --mount=type=ssh ci/dynamic-deps.sh 
 ENV LD_LIBRARY_PATH=/oak-compiler/external_rust_crypto_libs
 RUN stack build --copy-bins --ghc-options -j4
