@@ -28,6 +28,7 @@ import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Finalization
 import qualified Concordium.Skov.CatchUp as CU
 import qualified Data.PQueue.Prio.Max as Queue
+import Concordium.Logger
 
 import Concordium.Afgjort.Finalize(FinalizationStateLenses(..))
 
@@ -261,8 +262,8 @@ checkFinalizerExistsBestBlock sfsRef = runStateQuery sfsRef $ do
      Nothing -> return False
      Just _ -> return True
 
-getCatchUpStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> IO CU.CatchUpStatus
-getCatchUpStatus sRef = runStateQuery sRef $ CU.getCatchUpStatus True
+getCatchUpStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m, LoggerMonad m) => z -> Bool -> IO CU.CatchUpStatus
+getCatchUpStatus sRef isRequest = runStateQuery sRef $ CU.getCatchUpStatus isRequest
 
-handleCatchUpStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> CU.CatchUpStatus -> IO (Either String (Maybe ([Either FinalizationRecord (BlockPointer m)], CU.CatchUpStatus), Bool))
+handleCatchUpStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m, LoggerMonad m) => z -> CU.CatchUpStatus -> IO (Either String (Maybe ([Either FinalizationRecord (BlockPointer m)], CU.CatchUpStatus), Bool))
 handleCatchUpStatus sRef cus = runStateQuery sRef $ CU.handleCatchUp cus
