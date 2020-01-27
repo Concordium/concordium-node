@@ -37,6 +37,11 @@ import Concordium.GlobalState.Persistent.BlobStore (createTempBlobStore, destroy
 import Concordium.GlobalState.Persistent.BlockState
 import Concordium.GlobalState.Persistent.TreeState
 import Concordium.GlobalState.TreeState
+import qualified Concordium.GlobalState.Basic.BlockState as Basic
+import qualified Concordium.GlobalState.Basic.TreeState as Basic
+import qualified Concordium.GlobalState.Persistent.BlockState as Persistent
+import Concordium.GlobalState.Persistent.BlobStore (createTempBlobStore,destroyTempBlobStore)
+import Concordium.GlobalState.Persistent.BlockState (PersistentBlockStateContext(..), PersistentBlockStateMonad, PersistentBlockState)
 
 -- |A newtype wrapper for providing instances of the block state related monads:
 -- 'BlockStateTypes', 'BlockStateQuery', 'BlockStateOperations' and 'BlockStateStorage'.
@@ -289,6 +294,8 @@ instance GlobalStateConfig MemoryTreeMemoryBlockConfig where
 -- persistent Haskell implementation of block state.
 data MemoryTreeDiskBlockConfig = MTDBConfig RuntimeParameters GenesisData BS.BlockState
 
+-- |Configuration that uses the Haskell implementation of tree state and the
+-- in-memory, Haskell implmentation of the block state.
 instance GlobalStateConfig MemoryTreeDiskBlockConfig where
     type GSContext MemoryTreeDiskBlockConfig = PersistentBlockStateContext
     type GSState MemoryTreeDiskBlockConfig = SkovData PersistentBlockState
@@ -301,7 +308,7 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
         return (pbsc, initialSkovData rtparams gendata pbs)
     shutdownGlobalState _ (PersistentBlockStateContext{..}) _ = do
         destroyTempBlobStore pbscBlobStore
-        writeIORef pbscModuleCache emptyModuleCache
+        writeIORef pbscModuleCache Persistent.emptyModuleCache
 
 -- |Configuration that uses the disk tree state and the memory block state
 data DiskTreeMemoryBlockConfig = DTMBConfig RuntimeParameters GenesisData BS.BlockState
@@ -331,4 +338,4 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
         return (pbsc, isd)
     shutdownGlobalState _ (PersistentBlockStateContext{..}) _ = do
         destroyTempBlobStore pbscBlobStore
-        writeIORef pbscModuleCache emptyModuleCache
+        writeIORef pbscModuleCache Persistent.emptyModuleCache
