@@ -25,6 +25,7 @@ import qualified Concordium.Scheduler.Runner as Runner
 import qualified Concordium.Scheduler.Environment as Types
 
 import qualified Data.HashMap.Strict as HM
+import qualified Data.Map.Strict as OrdMap
 import qualified Data.Aeson as AE
 
 import Lens.Micro.Platform
@@ -76,7 +77,7 @@ dummyCredential aaddr pExpiry  = CredentialDeploymentValues
       cdvArData = [],
       cdvPolicy = Policy {
         pAttributeListVariant = 0,
-        pItems = [],
+        pItems = OrdMap.empty,
         ..
         },
       ..

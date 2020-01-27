@@ -6,6 +6,7 @@ module Concordium.Scheduler.Utils.Init.Example {-# WARNING "This module should n
     (initialState, makeTransaction, mateuszAccount, dummyCredential, dummyExpiryTime) where
 
 import qualified Data.HashMap.Strict as Map
+import qualified Data.Map.Strict as OrdMap
 import System.Random
 
 import Concordium.Crypto.SignatureScheme(KeyPair(..))
@@ -60,7 +61,7 @@ dummyCredential address pExpiry  = ID.CredentialDeploymentValues
       cdvArData = [],
       cdvPolicy = ID.Policy {
         pAttributeListVariant = 0,
-        pItems = [],
+        pItems = OrdMap.empty,
         ..
         },
       ..

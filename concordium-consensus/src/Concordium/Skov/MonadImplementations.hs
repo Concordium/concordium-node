@@ -74,13 +74,24 @@ class SkovFinalizationHandlers h m where
     handleBroadcastFinalizationMessage :: h -> FinalizationPseudoMessage -> m ()
     handleBroadcastFinalizationRecord :: h -> FinalizationRecord -> m ()
 
+-- |An instance of 'SkovPendingLiveHandlers' provides handlers for dealing with
+-- pending blocks or records becoming live by notifying peers that this is the
+-- case.
+class SkovPendingLiveHandlers h m where
+    -- |Called to notify that a block or finalization record that was previously
+    -- pending is now live. An implementation should cause a catch-up status
+    -- message to be sent to each peer within a bounded time (which alerts them
+    -- to the newly live block/fin-rec).
+    handlePendingLive :: h -> m ()
+
 -- |'SkovHandlers' provides an implementation of 'SkovTimerHandlers' and
 -- 'SkovFinalizationHandlers'.
 data SkovHandlers t c m = SkovHandlers {
     shBroadcastFinalizationMessage :: FinalizationPseudoMessage -> m (),
     shBroadcastFinalizationRecord :: FinalizationRecord -> m (),
     shOnTimeout :: forall a. Timeout -> SkovT (SkovHandlers t c m) c m a -> m t,
-    shCancelTimer :: t -> m ()
+    shCancelTimer :: t -> m (),
+    shPendingLive :: m ()
 }
 
 instance SkovFinalizationHandlers (SkovHandlers t c m) m where
@@ -91,6 +102,16 @@ instance SkovTimerHandlers (SkovHandlers t c m) c m where
     type SkovHandlerTimer (SkovHandlers t c m) = t
     handleOnTimeout SkovHandlers{..} = shOnTimeout
     handleCancelTimer SkovHandlers{..} = shCancelTimer
+
+instance SkovPendingLiveHandlers (SkovHandlers t c m) m where
+    handlePendingLive = shPendingLive
+
+data SkovPassiveHandlers m = SkovPassiveHandlers {
+    sphPendingLive :: m ()
+}
+
+instance SkovPendingLiveHandlers (SkovPassiveHandlers m) m where
+    handlePendingLive = sphPendingLive
 
 -- |The 'SkovT' monad transformer equips a monad with state, context and handlers for
 -- performing Skov operations.
@@ -389,12 +410,14 @@ instance (g ~ GSState gsconf) => HasGlobalState g (SkovState (SkovConfig gsconf 
 instance (MonadIO m,
         FinalizationConfigHandlers (SkovConfig gsconf finconf hconf) (SkovT h (SkovConfig gsconf finconf hconf) m),
         HandlerConfigHandlers (SkovConfig gsconf finconf hconf) (SkovT h (SkovConfig gsconf finconf hconf) m),
+        SkovPendingLiveHandlers h m,
         GlobalStateTypes (SkovT h (SkovConfig gsconf finconf hconf) m),
         SkovMonad (SkovT h (SkovConfig gsconf finconf hconf) m),
         TreeStateMonad (SkovT h (SkovConfig gsconf finconf hconf) m))
         => OnSkov (SkovT h (SkovConfig gsconf finconf hconf) m) where
     onBlock bp = finalizationOnBlock bp >> handleBlock bp
     onFinalize fr bp = finalizationOnFinalize fr bp >> handleFinalize fr bp
+    onPendingLive = SkovT $ \h _ -> lift $ handlePendingLive h
     logTransfer = fmap liftLM . handlerLogTransfer (Proxy :: Proxy (SkovConfig gsconf finconf hconf)) <$> asks scHandlerContext
         where
             liftLM lm bh slot reason = liftIO $ lm bh slot reason

@@ -146,7 +146,7 @@ relay myPeer inp sr connectedRef monitor _loopback outps = loop
                     forM_ outps $ \outp -> usually $ delayed $
                         writeChan outp (MsgFinalizationRecordReceived myPeer fr)
                 MsgCatchUpRequired target -> do
-                    cur <- getCatchUpStatus sr
+                    cur <- getCatchUpStatus sr True
                     delayed $ writeChan (peerChan target) (MsgCatchUpStatusReceived myPeer (encode cur))
                 MsgDirectedBlock target b -> usually $ delayed $ writeChan (peerChan target) (MsgBlockReceived myPeer b)
                 MsgDirectedFinalizationRecord target fr -> usually $ delayed $ writeChan (peerChan target) (MsgFinalizationReceived myPeer fr)

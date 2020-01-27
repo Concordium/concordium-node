@@ -25,6 +25,7 @@ import Concordium.GlobalState
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 
+import Concordium.Logger
 import qualified Concordium.Scheduler.Utils.Init.Example as Example
 import Concordium.Skov.Monad
 import Concordium.Skov.MonadImplementations
@@ -37,7 +38,7 @@ import Test.QuickCheck
 import Test.QuickCheck.Monadic
 import Test.Hspec
 
-import ConcordiumTests.Konsensus hiding (tests)
+import ConcordiumTests.Konsensus hiding (tests, myEvalSkovT)
 
 runKonsensus :: RandomGen g => Int -> g -> States -> ExecState -> IO States
 runKonsensus steps g states es
@@ -103,6 +104,9 @@ initialiseStatesDictator n = do
 simpleCatchUpCheck :: States -> Property
 simpleCatchUpCheck ss =
         conjoin [monadicIO $ catchUpCheck s1 s2 | s1 <- toList ss, s2 <- toList ss ]
+
+myEvalSkovT :: (MonadIO m) => (SkovT () (Config DummyTimer) LogIO a) -> SkovContext (Config DummyTimer) -> SkovState (Config DummyTimer) -> m a
+myEvalSkovT a ctx st = liftIO $ runSilentLogger $ evalSkovT a () ctx st
 
 catchUpCheck :: (BakerIdentity, SkovContext (Config DummyTimer), SkovState (Config DummyTimer)) -> (BakerIdentity, SkovContext (Config DummyTimer), SkovState (Config DummyTimer)) -> PropertyM IO Bool
 catchUpCheck (_, c1, s1) (_, c2, s2) = do

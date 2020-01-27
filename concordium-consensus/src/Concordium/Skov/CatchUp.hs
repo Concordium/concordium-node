@@ -17,6 +17,7 @@ import Concordium.Types
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.TreeState hiding (getGenesisData)
 
+import Concordium.Logger
 import Concordium.Skov.Monad
 import Concordium.Kontrol.BestBlock
 
@@ -86,13 +87,14 @@ leavesBranches = lb ([], [])
             = let (bs', ls') = List.partition (`elem` (bpParent <$> n)) s
                 in lb (ls ++ ls', bs ++ bs') r
 
-getCatchUpStatus :: (TreeStateMonad m, SkovQueryMonad m) => Bool -> m CatchUpStatus
+getCatchUpStatus :: (TreeStateMonad m, SkovQueryMonad m, LoggerMonad m) => Bool -> m CatchUpStatus
 getCatchUpStatus cusIsRequest = do
+        logEvent Skov LLTrace "Getting catch-up status"
         lfb <- lastFinalizedBlock
         (leaves, branches) <- leavesBranches . toList <$> getBranches
         return $ makeCatchUpStatus cusIsRequest False lfb leaves (if cusIsRequest then branches else [])
 
-handleCatchUp :: forall m. (TreeStateMonad m, SkovQueryMonad m) => CatchUpStatus -> m (Either String (Maybe ([Either FinalizationRecord (BlockPointer m)], CatchUpStatus), Bool))
+handleCatchUp :: forall m. (TreeStateMonad m, SkovQueryMonad m, LoggerMonad m) => CatchUpStatus -> m (Either String (Maybe ([Either FinalizationRecord (BlockPointer m)], CatchUpStatus), Bool))
 handleCatchUp peerCUS = runExceptT $ do
         lfb <- lift lastFinalizedBlock
         if cusLastFinalizedHeight peerCUS > bpHeight lfb then do
