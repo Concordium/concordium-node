@@ -10,9 +10,10 @@ import Control.Monad
 
 import qualified Data.Serialize.Put as P
 import qualified Data.Serialize.Get as G
-import Data.ByteString.Lazy as LBS    
+import Data.ByteString.Lazy as LBS
 import Concordium.Crypto.SHA256(Hash(..))
 import Concordium.Crypto.BlockSignature(Signature(..), signatureLength)
+import Concordium.Crypto.BlsSignature as Bls
 import Data.FixedByteString as FBS
 import qualified Data.ByteString.Short as BSS
 
@@ -20,7 +21,7 @@ import Concordium.Types
 import Concordium.GlobalState.Finalization
 
 groupIntoSize :: (Show a, Integral a) => a -> String
-groupIntoSize s = 
+groupIntoSize s =
   let kb = s
       nd = if kb > 0 then truncate (logBase 10 (fromIntegral kb) :: Double) else 0 :: Int
   in if nd == 0 then show kb ++ "B"
@@ -34,12 +35,18 @@ genFinalizationRecord = do
   finalizationBlockPointer <- Hash . FBS.pack <$> vector 32
   finalizationProof <- FinalizationProof <$> do
     l <- choose (0,200) -- between 0 and 200 parties, inclusive
-    replicateM l $ do
+    parties <- replicateM l $ do
       party <- arbitrary
       bs <- BSS.pack <$> vector signatureLength
-      return (party, Signature bs)
+      return party
+    return (parties, makesig l)
   finalizationDelay <- BlockHeight <$> arbitrary
   return FinalizationRecord{..}
+    where
+      -- TODO: simplistic way of generating some different signatures for different amount of signers.
+      --       Note that they are not generated randomly based on the seed.
+      makesig 0 = Bls.emptySignature
+      makesig n = Bls.aggregate Bls.emptySignature $ makesig (n-1)
 
 
 checkFinalizationRecord :: FinalizationRecord -> Property
