@@ -25,7 +25,7 @@ import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.SeedState
 import qualified Concordium.ID.Types as ID
-
+import qualified Concordium.Crypto.BlsSignature as Bls
 import qualified Data.PQueue.Prio.Max as Queue
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Aeson as AE
@@ -40,7 +40,7 @@ data BirkParameters = BirkParameters {
     -- |The state of bakers at the end of the previous epoch,
     -- will be used as lottery bakers in next epoch.
     _birkPrevEpochBakers :: !Bakers,
-    -- |The state of the bakers fixed before previous epoch, 
+    -- |The state of the bakers fixed before previous epoch,
     -- the lottery power and reward account is used in leader election.
     _birkLotteryBakers :: !Bakers,
     _birkSeedState :: !SeedState
@@ -66,7 +66,8 @@ birkEpochBakerByKeys sigKey bps = case bps ^? birkLotteryBakers . bakersByKey . 
 data VoterInfo = VoterInfo {
     voterVerificationKey :: VoterVerificationKey,
     voterVRFKey :: VoterVRFPublicKey,
-    voterPower :: VoterPower
+    voterPower :: VoterPower,
+    voterBlsKey :: Bls.PublicKey
 } deriving (Eq, Generic, Show)
 instance Serialize VoterInfo where
 
@@ -103,13 +104,15 @@ readCryptographicParameters :: BSL.ByteString -> Maybe CryptographicParameters
 readCryptographicParameters = AE.decode
 
 -- 'GenesisBaker' is an abstraction of a baker at genesis.
--- It includes the minimal information for generating a 
+-- It includes the minimal information for generating a
 -- baker and its account.
 data GenesisBaker = GenesisBaker {
     -- |The baker's public VRF key
     gbElectionVerifyKey :: BakerElectionVerifyKey,
     -- |The baker's public signature key
     gbSignatureVerifyKey :: BakerSignVerifyKey,
+    -- |The baker's public key for aggregate signatures
+    gbAggregationVerifyKey :: BakerAggregationVerifyKey,
     -- |Address of the baker's account.
     gbAccount :: GenesisAccount,
     -- |Whether the baker should be included in the initial
@@ -121,6 +124,7 @@ instance FromJSON GenesisBaker where
     parseJSON = withObject "GenesisBaker" $ \v -> do
             gbElectionVerifyKey <- v .: "electionVerifyKey"
             gbSignatureVerifyKey <- v .: "signatureVerifyKey"
+            gbAggregationVerifyKey <- v .: "aggregationVerifyKey"
             gbAccount <- v .: "account"
             gbFinalizer <- v .: "finalizer"
             return GenesisBaker{..}
@@ -146,7 +150,7 @@ instance FromJSON GenesisAccount where
 
 -- 'GenesisParameters' provides a convenient abstraction for
 -- constructing 'GenesisData'.
-data GenesisParameters = GenesisParameters { 
+data GenesisParameters = GenesisParameters {
     gpGenesisTime :: Timestamp,
     gpSlotDuration :: Duration,
     gpLeadershipElectionNonce :: LeadershipElectionNonce,
@@ -214,9 +218,10 @@ parametersToGenesisData GenesisParameters{..} = GenesisData{..}
             _birkLotteryBakers = genesisBakers,
             _birkSeedState = genesisSeedState gpLeadershipElectionNonce gpEpochLength
         }
-        mkBaker GenesisBaker{..} = BakerInfo 
+        mkBaker GenesisBaker{..} = BakerInfo
                 gbElectionVerifyKey
                 gbSignatureVerifyKey
+                gbAggregationVerifyKey
                 (gaBalance gbAccount)
                 (gaAddress gbAccount)
 
@@ -235,7 +240,7 @@ parametersToGenesisData GenesisParameters{..} = GenesisData{..}
                           | (GenesisBaker{..}, bid) <- zip gpBakers [0..]]
         genesisFinalizationParameters =
             FinalizationParameters
-                [VoterInfo {voterVerificationKey = gbSignatureVerifyKey, voterVRFKey = gbElectionVerifyKey, voterPower = 1} 
+                [VoterInfo {voterVerificationKey = gbSignatureVerifyKey, voterVRFKey = gbElectionVerifyKey, voterPower = 1, voterBlsKey = gbAggregationVerifyKey}
                     | GenesisBaker{..} <- gpBakers, gbFinalizer]
                 gpFinalizationMinimumSkip
         genesisCryptographicParameters = gpCryptographicParameters
