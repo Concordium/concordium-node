@@ -12,13 +12,15 @@ import Lens.Micro.Platform
 
 import Concordium.Types
 
-data BakerCreationInfo = BakerCreationInfo !BakerElectionVerifyKey !BakerSignVerifyKey !AccountAddress
+data BakerCreationInfo = BakerCreationInfo !BakerElectionVerifyKey !BakerSignVerifyKey !BakerAggregationVerifyKey !AccountAddress
 
 data BakerInfo = BakerInfo {
     -- |The baker's public VRF key
     _bakerElectionVerifyKey :: !BakerElectionVerifyKey,
     -- |The baker's public signature key
     _bakerSignatureVerifyKey :: !BakerSignVerifyKey,
+    -- |The baker's public key for finalization record aggregation
+    _bakerAggregationVerifyKey :: !BakerAggregationVerifyKey,
     -- |The stake delegated to the baker
     _bakerStake :: !Amount,
     -- |The account associated with the baker
@@ -51,7 +53,7 @@ instance Serialize Bakers where
             (_bakersByKey, _bakerTotalStake) = Map.foldrWithKey deriv (Map.empty, 0) _bakerMap
             deriv bid BakerInfo{..} (m, t) = (m & at (_bakerSignatureVerifyKey) ?~ bid,
                                                 t + _bakerStake)
-        return Bakers{..}    
+        return Bakers{..}
 
 emptyBakers :: Bakers
 emptyBakers = Bakers Map.empty Map.empty 0 0
@@ -78,7 +80,7 @@ bakersFromList bkrs = (
                     )
                     (Map.empty, [], [], 0, 0)
                     bkrs
-                                      
+
 bakerData :: BakerId -> Bakers -> Maybe (BakerInfo, LotteryPower)
 bakerData bid bkrs = (bkrs ^. bakerMap . at bid) <&>
                         \bkr -> (bkr, (bkr ^. bakerStake) % (bkrs ^. bakerTotalStake))
@@ -86,10 +88,10 @@ bakerData bid bkrs = (bkrs ^. bakerMap . at bid) <&>
 -- |Add a baker to the set of known bakers. If a baker with the given signing
 -- key already exists then return 'Nothing', otherwise assign it a fresh id and add it to the set of known bakers.
 createBaker :: BakerCreationInfo -> Bakers -> Maybe (BakerId, Bakers)
-createBaker (BakerCreationInfo _bakerElectionVerifyKey _bakerSignatureVerifyKey _bakerAccount) bkrs =
+createBaker (BakerCreationInfo _bakerElectionVerifyKey _bakerSignatureVerifyKey _bakerAggregationVerifyKey _bakerAccount) bkrs =
   case bkrs ^. bakersByKey . at _bakerSignatureVerifyKey of
     Nothing -> -- key does not yet exist, insert it
-        Just (bid, bkrs 
+        Just (bid, bkrs
                    & bakerMap . at bid ?~ BakerInfo{..}
                    & bakersByKey . at _bakerSignatureVerifyKey ?~ bid
                    & nextBakerId .~ bid + 1)
