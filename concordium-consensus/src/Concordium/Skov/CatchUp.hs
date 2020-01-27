@@ -90,14 +90,13 @@ leavesBranches = lb ([], [])
           let (bs', ls') = List.partition (`elem` parent) s
           lb (ls ++ ls', bs ++ bs') r
 
-getCatchUpStatus :: (BlockPointerMonad mTreeStateMonad m, SkovQueryMonad m, LoggerMonad m) => Bool -> m CatchUpStatus
+getCatchUpStatus :: (BlockPointerMonad m, TreeStateMonad m, SkovQueryMonad m, LoggerMonad m) => Bool -> m CatchUpStatus
 getCatchUpStatus cusIsRequest = do
         logEvent Skov LLTrace "Getting catch-up status"
         lfb <- lastFinalizedBlock
-        (leaves, branches) <- return $ do
-          v <- leavesBranches . toList <$> getBranches
-          return v
-        return $ makeCatchUpStatus cusIsRequest False lfb leaves (if cusIsRequest then branches else [])
+        br <- toList <$> getBranches
+        (leaves, branches) <- leavesBranches br
+        makeCatchUpStatus cusIsRequest False lfb leaves (if cusIsRequest then branches else [])
 
 handleCatchUp :: forall m. (BlockPointerMonad m, TreeStateMonad m, SkovQueryMonad m, LoggerMonad m) => CatchUpStatus -> m (Either String (Maybe ([Either FinalizationRecord (BlockPointer m)], CatchUpStatus), Bool))
 handleCatchUp peerCUS = runExceptT $ do

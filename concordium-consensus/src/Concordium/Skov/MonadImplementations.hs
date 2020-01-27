@@ -421,7 +421,6 @@ instance (MonadIO m,
         FinalizationConfigHandlers (SkovConfig gsconf finconf hconf) (SkovT h (SkovConfig gsconf finconf hconf) m),
         HandlerConfigHandlers (SkovConfig gsconf finconf hconf) (SkovT h (SkovConfig gsconf finconf hconf) m),
         SkovPendingLiveHandlers h m,
-        GlobalStateTypes (SkovT h (SkovConfig gsconf finconf hconf) m),
         SkovMonad (SkovT h (SkovConfig gsconf finconf hconf) m),
         TreeStateMonad (SkovT h (SkovConfig gsconf finconf hconf) m))
         => OnSkov (SkovT h (SkovConfig gsconf finconf hconf) m) where
