@@ -191,8 +191,7 @@ processFinalizationPool checkPending = do
                     unless focusBlockSurvives $ updateFocusBlockTo newFinBlock
                     putFinalizationPoolAtIndex nextFinIx []
                     -- Archive the states of blocks up to but not including the new finalized block
-                    let doArchive :: BlockPointer m -> m ()
-                        doArchive b = case compare (bpHeight b) lastFinHeight of
+                    let doArchive b = case compare (bpHeight b) lastFinHeight of
                             LT -> return ()
                             EQ -> archiveBlockState =<< blockState b
                             GT -> do

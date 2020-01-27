@@ -67,7 +67,7 @@ instance Serialize CatchUpStatus where
         cusBranches <- if cusIsRequest then get else return []
         return CatchUpStatus{..}
 
-makeCatchUpStatus :: forall m. (TreeStateMonad m) => Bool -> Bool -> (BlockPointer m) -> [BlockPointer m] -> [BlockPointer m] -> m CatchUpStatus
+makeCatchUpStatus :: (BlockPointerMonad m) => Bool -> Bool -> (BlockPointer m) -> [BlockPointer m] -> [BlockPointer m] -> m CatchUpStatus
 makeCatchUpStatus cusIsRequest cusIsResponse lfb leaves branches = return CatchUpStatus{..}
     where
         cusLastFinalizedBlock = bpHash lfb
@@ -136,18 +136,16 @@ handleCatchUp peerCUS = runExceptT $ do
                 let peerKnownBlocks = Set.insert (cusLastFinalizedBlock peerCUS) $
                         Set.fromList (cusLeaves peerCUS) `Set.union` Set.fromList (cusBranches peerCUS)
                 let
-                    extendBackBranches :: BlockPointer m -> Seq.Seq (BlockPointer m) -> m (Seq.Seq (BlockPointer m))
                     extendBackBranches b bs
                         | bpHash b `Set.member` peerKnownBlocks = return bs
                         | bpHeight b == 0 = return bs -- Genesis block should always be known, so this case should be unreachable
                         | otherwise = do
                                  parent <- bpParent b
                                  extendBackBranches parent (b Seq.<| bs)
-                    unknownFinTrunk :: m (Seq.Seq (BlockPointer m))
                     unknownFinTrunk = extendBackBranches lfb Seq.Empty
                 -- Take the branches; filter out all blocks that the client claims knowledge of; extend branches back
                 -- to include finalized blocks until the parent is known.
-                myBranches <- lift getBranches :: ExceptT [Char] m (Branches m)
+                myBranches <- lift getBranches
                 let
                     -- Filter out blocks that are known to the peer
                     filterUnknown :: [BlockPointer m] -> [BlockPointer m]
@@ -175,7 +173,7 @@ handleCatchUp peerCUS = runExceptT $ do
                                     then (oldest, sansOldest Seq.|> l')
                                     else (m, withOldest Seq.|> List.delete m l')
                 unk <- lift unknownFinTrunk
-                let (outBlocks1, branches1) :: (Seq.Seq (BlockPointer m), Seq.Seq [BlockPointer m]) =
+                let (outBlocks1, branches1) =
                        case unk of
                         (b Seq.:<| bs) -> (Seq.singleton b, fmap (:[]) bs <> fmap filterUnknown myBranches)
                         Seq.Empty -> filterTakeOldest myBranches
@@ -184,7 +182,6 @@ handleCatchUp peerCUS = runExceptT $ do
                     takeBranches out (trim -> brs) = bestBlockOf brs >>= \case
                         Nothing -> return out
                         Just bb -> (out <>) <$> innerLoop Seq.empty brs Seq.empty bb
-                    innerLoop :: Seq.Seq (BlockPointer m) -> Seq.Seq [BlockPointer m] -> Seq.Seq [BlockPointer m] -> BlockPointer m -> ExceptT String m (Seq.Seq (BlockPointer m))
                     innerLoop out Seq.Empty brs _ = takeBranches out brs
                     innerLoop out brsL0@(brsL Seq.:|> bs) brsR bb
                         | bb `elem` bs = do
@@ -192,7 +189,7 @@ handleCatchUp peerCUS = runExceptT $ do
                               innerLoop (bb Seq.<| out) brsL (List.delete bb bs Seq.<| brsR) parent
                         | otherwise = takeBranches out (brsL0 <> brsR)
                 outBlocks2 <- takeBranches outBlocks1 branches1
-                lvs <- (leavesBranches :: ([[BlockPointer m]] -> ExceptT String m ([BlockPointer m], [BlockPointer m]))) $ toList myBranches
+                lvs <- leavesBranches $ toList myBranches
                 myCUS <- makeCatchUpStatus False True lfb (fst lvs) []
                     -- Note: since the returned list can be truncated, we have to be careful about the
                     -- order that finalization records are interleaved with blocks.

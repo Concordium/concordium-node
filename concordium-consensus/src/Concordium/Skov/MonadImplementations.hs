@@ -228,7 +228,7 @@ class FinalizationConfig c where
     type FCState c
     initialiseFinalization :: c -> (FCContext c, FCState c)
 
-class (FinalizationConfig c, Monad m, TreeStateMonad m) => FinalizationConfigHandlers c m | m -> c where
+class (FinalizationConfig c, Monad m, BlockPointerMonad m) => FinalizationConfigHandlers c m | m -> c where
     finalizationOnBlock :: BlockPointer m -> m ()
     finalizationOnFinalize :: FinalizationRecord -> BlockPointer m  -> m ()
     proxyFinalizationMessage :: (FinalizationMessage -> m ()) -> FinalizationMessage -> m ()
@@ -267,7 +267,7 @@ instance FinalizationConfig (SkovConfig gsconf NoFinalization hconf) where
     initialiseFinalization _ = ((), ())
     {-# INLINE initialiseFinalization #-}
 
-instance (TreeStateMonad (SkovT h (SkovConfig gsconf NoFinalization hconf) m)) => FinalizationConfigHandlers (SkovConfig gsconf NoFinalization hconf) (SkovT h (SkovConfig gsconf NoFinalization hconf) m) where
+instance (BlockPointerMonad (SkovT h (SkovConfig gsconf NoFinalization hconf) m)) => FinalizationConfigHandlers (SkovConfig gsconf NoFinalization hconf) (SkovT h (SkovConfig gsconf NoFinalization hconf) m) where
     finalizationOnBlock = \_ -> return ()
     finalizationOnFinalize = \_ _ -> return ()
     proxyFinalizationMessage = \_ _ -> return ()

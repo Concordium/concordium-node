@@ -56,7 +56,7 @@ import Concordium.Types
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.Finalization
-import Concordium.GlobalState.TreeState(TreeStateMonad(..), BlockPointerData(..))
+import Concordium.GlobalState.TreeState(BlockPointerData(..))
 import Concordium.GlobalState.Classes(GlobalStateTypes(..))
 import Concordium.Kontrol
 import Concordium.Afgjort.Types
@@ -209,7 +209,7 @@ doResetTimer = do
                     finCatchUpTimer ?= timer
             in spawnTimer
 
-tryNominateBlock :: (BlockPointerMonad m, TreeStateMonad m, FinalizationMonad s m) => m ()
+tryNominateBlock :: (BlockPointerMonad m, FinalizationMonad s m) => m ()
 tryNominateBlock = do
     currRound <- use finCurrentRound
     forM_ currRound $ \r@FinalizationRound{..} ->
@@ -222,7 +222,7 @@ tryNominateBlock = do
                 finCurrentRound ?= r {roundInput = Just nomBlock}
                 liftWMVBA $ startWMVBA nomBlock
 
-nextRound :: (BlockPointerMonad m, TreeStateMonad m, FinalizationMonad s m) => FinalizationIndex -> BlockHeight -> m ()
+nextRound :: (BlockPointerMonad m, FinalizationMonad s m) => FinalizationIndex -> BlockHeight -> m ()
 nextRound oldFinIndex oldDelta = do
     curFinIndex <- use finIndex
     when (curFinIndex == oldFinIndex) $ do
@@ -233,7 +233,7 @@ nextRound oldFinIndex oldDelta = do
                 newRound (2 * oldDelta) (roundMe r)
 
 
-newRound :: (TreeStateMonad m, BlockPointerMonad m, FinalizationMonad s m) => BlockHeight -> Party -> m ()
+newRound :: (BlockPointerMonad m, FinalizationMonad s m) => BlockHeight -> Party -> m ()
 newRound newDelta me = do
         finCurrentRound ?= FinalizationRound {
             roundInput = Nothing,
@@ -269,7 +269,7 @@ newRound newDelta me = do
         tryNominateBlock
 
 
-handleWMVBAOutputEvents :: (BlockPointerMonad m, TreeStateMonad m, FinalizationMonad s m) => [WMVBAOutputEvent Sig.Signature] -> m ()
+handleWMVBAOutputEvents :: (BlockPointerMonad m, FinalizationMonad s m) => [WMVBAOutputEvent Sig.Signature] -> m ()
 handleWMVBAOutputEvents evs = do
         FinalizationState{..} <- use finState
         FinalizationInstance{..} <- getFinalizationInstance
@@ -310,7 +310,7 @@ handleWMVBAOutputEvents evs = do
                 handleEvs True (WMVBAComplete _ : evs') = handleEvs True evs'
             handleEvs False evs
 
-liftWMVBA :: (BlockPointerMonad m, TreeStateMonad m, FinalizationMonad s m) => WMVBA Sig.Signature a -> m a
+liftWMVBA :: (BlockPointerMonad m, FinalizationMonad s m) => WMVBA Sig.Signature a -> m a
 liftWMVBA a = do
     FinalizationState{..} <- use finState
     FinalizationInstance{..} <- getFinalizationInstance
@@ -330,7 +330,7 @@ liftWMVBA a = do
             return r
 
 -- |Determine if a message references blocks requiring Skov to catch up.
-messageRequiresCatchUp :: (BlockPointerMonad m, TreeStateMonad m, FinalizationMonad s m) => WMVBAMessage -> m Bool
+messageRequiresCatchUp :: (BlockPointerMonad m, FinalizationMonad s m) => WMVBAMessage -> m Bool
 messageRequiresCatchUp msg = rcu (messageValues msg)
     where
         rcu [] = return False
@@ -362,7 +362,7 @@ savePendingMessage finIx finDelta pmsg = do
                     return False
 
 -- |Called when a finalization message is received.
-receiveFinalizationMessage :: (BlockPointerMonad m, TreeStateMonad m, FinalizationMonad s m) => FinalizationMessage -> m UpdateResult
+receiveFinalizationMessage :: (BlockPointerMonad m, FinalizationMonad s m) => FinalizationMessage -> m UpdateResult
 receiveFinalizationMessage msg@FinalizationMessage{msgHeader=FinalizationMessageHeader{..},..} = do
         FinalizationState{..} <- use finState
         -- Check this is the right session
@@ -408,7 +408,7 @@ receiveFinalizationMessage msg@FinalizationMessage{msgHeader=FinalizationMessage
                 return ResultIncorrectFinalizationSession
 
 -- |Called when a finalization pseudo-message is received.
-receiveFinalizationPseudoMessage :: (BlockPointerMonad m, TreeStateMonad m, FinalizationMonad s m) => FinalizationPseudoMessage -> m UpdateResult
+receiveFinalizationPseudoMessage :: (BlockPointerMonad m, FinalizationMonad s m) => FinalizationPseudoMessage -> m UpdateResult
 receiveFinalizationPseudoMessage (FPMMessage msg) = receiveFinalizationMessage msg
 receiveFinalizationPseudoMessage (FPMCatchUp cu@CatchUpMessage{..}) = do
         FinalizationState{..} <- use finState
@@ -442,7 +442,7 @@ receiveFinalizationPseudoMessage (FPMCatchUp cu@CatchUpMessage{..}) = do
 
 
 -- |Called to notify the finalization routine when a new block arrives.
-notifyBlockArrival :: (BlockPointerMonad m, TreeStateMonad m, FinalizationMonad s m) => BlockPointer m -> m ()
+notifyBlockArrival :: (BlockPointerMonad m, FinalizationMonad s m) => BlockPointer m -> m ()
 notifyBlockArrival b = do
     FinalizationState{..} <- use finState
     forM_ _finsCurrentRound $ \FinalizationRound{..} -> do
@@ -467,7 +467,7 @@ getMyParty = do
 
 -- |Called to notify the finalization routine when a new block is finalized.
 -- (NB: this should never be called with the genesis block.)
-notifyBlockFinalized :: (BlockPointerMonad m, TreeStateMonad m, FinalizationMonad s m) => FinalizationRecord -> BlockPointer m -> m ()
+notifyBlockFinalized :: (BlockPointerMonad m, FinalizationMonad s m) => FinalizationRecord -> BlockPointer m -> m ()
 notifyBlockFinalized fr@FinalizationRecord{..} bp = do
         -- Reset catch-up timer
         oldTimer <- finCatchUpTimer <<.= Nothing
@@ -555,7 +555,7 @@ finalizationCatchUpMessage FinalizationInstance{..} s = _finsCurrentRound <&> \F
 
 -- |Process a 'FinalizationSummary', handling any new messages and returning a result indicating
 -- whether the summary is behind, and whether we should initiate Skov catch-up.
-processFinalizationSummary :: (BlockPointerMonad m, TreeStateMonad m, FinalizationMonad s m) => FinalizationSummary -> m CatchUpResult
+processFinalizationSummary :: (BlockPointerMonad m, FinalizationMonad s m) => FinalizationSummary -> m CatchUpResult
 processFinalizationSummary FinalizationSummary{..} =
         use finCurrentRound >>= \case
             Nothing -> return mempty

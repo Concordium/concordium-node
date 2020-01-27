@@ -61,7 +61,6 @@ doGetBlocksAtHeight h = do
               parPar <- findFrom par
               return [parPar] -- TODO: replace with more efficient search
     where
-        findFrom :: (BlockPointerMonad m, TreeStateMonad m) => BlockPointer m -> m (BlockPointer m)
         findFrom bp
             | bpHeight bp == h = return bp
             | otherwise = do
