@@ -26,9 +26,6 @@ import Concordium.GlobalState.Basic.Block
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState
-#ifdef RUST
-import qualified Concordium.GlobalState.Implementation as Rust
-#endif
 
 import Concordium.Scheduler.Utils.Init.Example as Example
 
@@ -43,17 +40,9 @@ import Concordium.Birk.Bake
 
 import Concordium.Startup
 
-#ifdef RUST
-type TreeConfig = DiskTreeDiskBlockConfig
-makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
-makeGlobalStateConfig rt genData = do
-    gsptr <- Rust.makeEmptyGlobalState genData
-    return $ DTDBConfig rt genData (genesisState genData) gsptr
-#else
 type TreeConfig = MemoryTreeDiskBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
 makeGlobalStateConfig rt genData = return $ MTDBConfig rt genData (genesisState genData)
-#endif
 
 type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) HookLogHandler
 

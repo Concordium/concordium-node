@@ -13,20 +13,11 @@ use std::{
     },
 };
 
-use crate::consensus::*;
+use crate::{catch_up::*, consensus::*, messaging::*};
 use concordium_common::{
     serial::{Endianness, Serial},
     ConsensusFfiResponse, ConsensusIsInCommitteeResponse, PacketType,
 };
-use globalstate_rust::{
-    block::*,
-    catch_up::PeerStatus,
-    tree::{
-        messaging::{ConsensusMessage, MessageType},
-        GlobalState,
-    },
-};
-
 extern "C" {
     pub fn hs_init(argc: *mut c_int, argv: *mut *mut *mut c_char);
     pub fn hs_init_with_rtsopts(argc: &c_int, argv: *const *const *const c_char);
@@ -36,6 +27,7 @@ extern "C" {
 static START_ONCE: Once = Once::new();
 static STOP_ONCE: Once = Once::new();
 static STOPPED: AtomicBool = AtomicBool::new(false);
+pub type Delta = u64;
 
 /// Initialize the Haskell runtime. This function is safe to call more than
 /// once, and will do nothing on subsequent calls.
@@ -219,7 +211,6 @@ extern "C" {
         genesis_data_len: i64,
         private_data: *const u8,
         private_data_len: i64,
-        gsptr: *const GlobalState,
         broadcast_callback: BroadcastCallback,
         catchup_status_callback: CatchUpStatusCallback,
         maximum_log_level: u8,
@@ -231,7 +222,6 @@ extern "C" {
         max_block_size: u64,
         genesis_data: *const u8,
         genesis_data_len: i64,
-        gsptr: *const GlobalState,
         catchup_status_callback: CatchUpStatusCallback,
         maximum_log_level: u8,
         log_callback: LogCallback,
@@ -260,7 +250,6 @@ extern "C" {
     ) -> i64;
     pub fn stopBaker(consensus: *mut consensus_runner);
     pub fn stopConsensus(consensus: *mut consensus_runner);
-    pub fn sendGlobalStatePtr(consensus: *mut consensus_runner, gs_ptr: *const u8);
 
     // Consensus queries
     pub fn getConsensusStatus(consensus: *mut consensus_runner) -> *const c_char;
@@ -329,7 +318,6 @@ pub fn get_consensus_ptr(
     enable_transfer_logging: bool,
     genesis_data: Vec<u8>,
     private_data: Option<Vec<u8>>,
-    _gsptr: GlobalState,
     maximum_log_level: ConsensusLogLevel,
 ) -> Fallible<*mut consensus_runner> {
     let genesis_data_len = genesis_data.len();
@@ -349,19 +337,12 @@ pub fn get_consensus_ptr(
                 let c_string_private_data =
                     CString::from_vec_unchecked(private_data_bytes.to_owned());
 
-                #[cfg(feature = "rgs")]
-                let gsptr = Box::into_raw(Box::new(_gsptr)) as *const GlobalState;
-
-                #[cfg(not(feature = "rgs"))]
-                let gsptr = std::ptr::null();
-
                 startConsensus(
                     max_block_size,
                     c_string_genesis.as_ptr() as *const u8,
                     genesis_data_len as i64,
                     c_string_private_data.as_ptr() as *const u8,
                     private_data_len as i64,
-                    gsptr,
                     broadcast_callback,
                     catchup_status_callback,
                     maximum_log_level as u8,
@@ -372,25 +353,11 @@ pub fn get_consensus_ptr(
             }
         }
         None => unsafe {
-            #[cfg(feature = "rgs")]
             {
                 startConsensusPassive(
                     max_block_size,
                     c_string_genesis.as_ptr() as *const u8,
                     genesis_data_len as i64,
-                    Box::into_raw(Box::new(_gsptr)) as *const GlobalState,
-                    catchup_status_callback,
-                    maximum_log_level as u8,
-                    on_log_emited,
-                )
-            }
-            #[cfg(not(feature = "rgs"))]
-            {
-                startConsensusPassive(
-                    max_block_size,
-                    c_string_genesis.as_ptr() as *const u8,
-                    genesis_data_len as i64,
-                    std::ptr::null(),
                     catchup_status_callback,
                     maximum_log_level as u8,
                     on_log_emited,
