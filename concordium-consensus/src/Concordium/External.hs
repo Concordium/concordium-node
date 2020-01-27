@@ -314,7 +314,7 @@ startConsensus maxBlock gdataC gdataLenC bidC bidLenC bcbk cucbk maxLogLevel lcb
                     gsconfig = makeGlobalStateConfig
                         (RuntimeParameters (fromIntegral maxBlock))
                         genData
-                    finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid)) genData
+                    finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)) genData
                     hconfig = HookLogHandler logT
                     config = SkovConfig gsconfig finconfig hconfig
                 bakerSyncRunner <- makeSyncRunner logM bid config bakerBroadcast catchUpCallback
