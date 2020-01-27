@@ -14,6 +14,9 @@ instance Show PartySet where
 empty :: PartySet
 empty = PartySet 0 BitSet.empty
 
+null :: PartySet -> Bool
+null = BitSet.null . parties
+
 insert ::
     Party -- ^Party to add
     -> VoterPower -- ^Weight of party to add
@@ -62,3 +65,6 @@ singleton p vp = PartySet vp (BitSet.singleton p)
 
 toList :: PartySet -> [Party]
 toList = BitSet.toList . parties
+
+fromList :: (Party -> VoterPower) -> [Party] -> PartySet
+fromList w l = PartySet (sum $ w <$> l) (BitSet.fromList l)

@@ -57,6 +57,7 @@ transactionHelper t =
     (TJSON meta AddBaker{..} keys) ->
       let abElectionVerifyKey = bvfkey
           abSignatureVerifyKey = bsigvfkey
+          abAggregationVerifyKey = baggvfkey
           abAccount = baccountAddress
           challenge = runPut (put abElectionVerifyKey <> put abSignatureVerifyKey <> put abAccount)
       in do
@@ -106,6 +107,7 @@ data PayloadJSON = DeployModule { moduleName :: Text }
                      bvfkey :: BakerElectionVerifyKey,
                      bvfSecretKey :: VRF.SecretKey,
                      bsigvfkey :: BakerSignVerifyKey,
+                     baggvfkey :: BakerAggregationVerifyKey,
                      bsigkey :: BlockSig.SignKey,
                      baccountAddress :: AccountAddress,
                      baccountKeyPair :: Sig.KeyPair

@@ -178,13 +178,13 @@ shutdownSyncRunner sr@SyncRunner{..} = do
         takeMVar syncState >>= shutdownSkov syncContext
 
 
-syncReceiveBlock :: (SkovConfigMonad (SkovHandlers ThreadTimer c LogIO) c LogIO) 
+syncReceiveBlock :: (SkovConfigMonad (SkovHandlers ThreadTimer c LogIO) c LogIO)
     => SyncRunner c
     -> PendingBlock (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO)
     -> IO UpdateResult
 syncReceiveBlock syncRunner block = runSkovTransaction syncRunner (storeBlock block)
 
-syncReceiveTransaction :: (SkovConfigMonad (SkovHandlers ThreadTimer c LogIO) c LogIO) 
+syncReceiveTransaction :: (SkovConfigMonad (SkovHandlers ThreadTimer c LogIO) c LogIO)
     => SyncRunner c -> Transaction -> IO UpdateResult
 syncReceiveTransaction syncRunner trans = runSkovTransaction syncRunner (receiveTransaction trans)
 

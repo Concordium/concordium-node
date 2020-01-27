@@ -162,7 +162,7 @@ main = do
               hPrint logTransferFile (bh, slot, reason)
         gsconfig <- makeGlobalStateConfig defaultRuntimeParameters gen
         let
-            finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid)) gen
+            finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)) gen
             hconfig = HookLogHandler (Just logT)
             config = SkovConfig gsconfig finconfig hconfig
         (cin, cout, sr) <- makeAsyncRunner logM bid config

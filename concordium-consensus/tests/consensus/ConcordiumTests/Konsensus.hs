@@ -38,6 +38,7 @@ import Concordium.GlobalState
 
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.BlockSignature as Sig
+import qualified Concordium.Crypto.BlsSignature as Bls
 import qualified Concordium.Scheduler.Utils.Init.Example as Example
 import Concordium.Skov.Monad
 import Concordium.Skov.MonadImplementations
@@ -97,12 +98,14 @@ invariantSkovData TS.SkovData{..} = do
         checkEpochs _focusBlock
     where
         checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
+        -- Notice: checkFin doesn't check that finalization records actually verify. This is only done after the test run
+        --         is finished using checkFinalizationRecordsVerify.
         checkFin (finMap, lastFin, i) (fr, bp) = do
             checkBinary (==) (finalizationIndex fr) i "==" "record finalization index" "index in sequence"
-            if i == 0 then
-                checkBinary (==) bp _genesisBlockPointer "==" "first finalized block" "genesis block"
-            else do
-                unless (verifyFinalProof finSes finCom fr) $ Left $ "Could not verify finalization record at index " ++ show i
+            if i == 0 then checkBinary (==) bp _genesisBlockPointer "==" "first finalized block" "genesis block" else Right $ ()
+            -- If verifying finalization records at every step is desired, uncomment the two lines below
+            -- else do
+            --     unless (verifyFinalProof finSes finCom fr) $ Left $ "Could not verify finalization record at index " ++ show i
             let overAncestors a m
                     | a == lastFin = return m
                     | a == _genesisBlockPointer = Left $ "Finalized block" ++ show bp ++ "does not descend from previous finalized block " ++ show lastFin
@@ -203,6 +206,22 @@ invariantSkovFinalization (SkovState sd@TS.SkovData{..} FinalizationState{..} _)
                 Just nom -> checkBinary Set.member nom eligibleBlocks "is an element of" "the nominated final block" "the set of eligible blocks"
     where
         checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
+
+checkFinalizationRecordsVerify :: TS.SkovData BState.BlockState -> Either String ()
+checkFinalizationRecordsVerify TS.SkovData{..} =
+      let finSes = FinalizationSessionId (bpHash _genesisBlockPointer) 0
+          finCom = makeFinalizationCommittee (genesisFinalizationParameters _genesisData)
+          checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
+          f (prevRes, i) (fr, bp) = case prevRes of
+            Left err -> return (Left err, i+1)
+            Right _ ->
+              if i == 0 then
+                  return $ (checkBinary (==) bp _genesisBlockPointer "==" "first finalized block" "genesis block", i+1)
+              else
+                  return (unless (verifyFinalProof finSes finCom fr) $ Left $ "Could not verify finalization record at index " ++ show i, i+1)
+      in do
+        (res, _) <- foldM f (Right (), 0) _finalizationList
+        res
 
 data DummyM a = DummyM {runDummy :: a}
 
@@ -337,13 +356,16 @@ runKonsensusTest steps g states es
                         (_, fs', es') <- myRunSkovT timerEvent handlers fi fs es1
                         continue fs' es'
 
-
 runKonsensusTestSimple :: RandomGen g => Int -> g -> States -> ExecState -> IO Property
 runKonsensusTestSimple steps g states es
-        | steps <= 0 || null (es ^. esEventPool) = return
-            (case forM_ states $ \s -> invariantSkovFinalization (s ^. _3) of
-                Left err -> counterexample ("Invariant failed: " ++ err) False
-                Right _ -> property True)
+        | steps <= 0 || null (es ^. esEventPool) =
+            let checkInvariantAndFinalization s@(SkovState sd@TS.SkovData{..} FinalizationState{..} _) = do
+                  checkFinalizationRecordsVerify sd
+                  invariantSkovFinalization s
+            in return
+              (case forM_ states $ \s -> checkInvariantAndFinalization (s ^. _3) of
+                  Left err -> counterexample ("Invariant failed: " ++ err) False
+                  Right _ -> property True)
         | otherwise = do
             let ((rcpt, ev), events', g') = selectFromSeq g (es ^. esEventPool)
             let es1 = es & esEventPool .~ events'
@@ -401,9 +423,11 @@ makeBaker :: BakerId -> Amount -> Gen (BakerInfo, BakerIdentity, Account)
 makeBaker bid lot = resize 0x20000000 $ do
         ek@(VRF.KeyPair _ epk) <- arbitrary
         sk                     <- Sig.genKeyPair
+        blssk                  <- fst . Bls.randomSecretKey . mkStdGen <$> arbitrary
         let spk = Sig.verifyKey sk
+        let blspk = Bls.derivePublicKey blssk
         let account = makeBakerAccount bid
-        return (BakerInfo epk spk lot (_accountAddress account), BakerIdentity sk ek, account)
+        return (BakerInfo epk spk blspk lot (_accountAddress account), BakerIdentity sk ek blssk, account)
 
 dummyIdentityProviders :: [IpInfo]
 dummyIdentityProviders = []
@@ -414,12 +438,12 @@ initialiseStates n = do
         bis <- mapM (\i -> (i,) <$> pick (makeBaker i 1)) bns
         let genesisBakers = fst . bakersFromList $ (^. _2 . _1) <$> bis
         let bps = BirkParameters 0.5 genesisBakers genesisBakers genesisBakers (genesisSeedState (hash "LeadershipElectionNonce") 10)
-            fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _ _, _, _)) <- bis] 2
+            fps = FinalizationParameters [VoterInfo vvk vrfk 1 blspk | (_, (BakerInfo vrfk vvk blspk _ _, _, _)) <- bis] 2
             bakerAccounts = map (\(_, (_, _, acc)) -> acc) bis
             gen = GenesisData 0 1 bps bakerAccounts [] fps dummyCryptographicParameters dummyIdentityProviders 10
         res <- liftIO $ mapM (\(_, (_, bid, _)) -> do
-                                let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid)
-                                let config = SkovConfig 
+                                let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
+                                let config = SkovConfig
                                         (MTMBConfig defaultRuntimeParameters gen (Example.initialState bps dummyCryptographicParameters bakerAccounts [] nAccounts))
                                         (ActiveFinalization fininst gen)
                                         NoHandler

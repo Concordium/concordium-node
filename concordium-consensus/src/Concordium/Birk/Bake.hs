@@ -8,8 +8,7 @@ import Control.Monad
 import Control.Monad.IO.Class
 
 import Data.Serialize
-import Data.Aeson(FromJSON, parseJSON)
-import Data.Aeson.Types(modifyFailure)
+import Data.Aeson(FromJSON, parseJSON, withObject, (.:))
 
 import Concordium.Types
 
@@ -36,7 +35,8 @@ import Concordium.TimeMonad
 
 data BakerIdentity = BakerIdentity {
     bakerSignKey :: BakerSignPrivateKey,
-    bakerElectionKey :: BakerElectionPrivateKey
+    bakerElectionKey :: BakerElectionPrivateKey,
+    bakerAggregationKey :: BakerAggregationPrivateKey
 } deriving (Eq, Generic)
 
 bakerSignPublicKey :: BakerIdentity -> BakerSignVerifyKey
@@ -48,9 +48,10 @@ bakerElectionPublicKey ident = VRF.publicKey (bakerElectionKey ident)
 instance Serialize BakerIdentity where
 
 instance FromJSON BakerIdentity where
-  parseJSON v = modifyFailure ("Baker identity:" ++)  $ do
+  parseJSON v = flip (withObject "Baker identity:") v $ \obj -> do
     bakerSignKey <- parseJSON v
     bakerElectionKey <- parseJSON v
+    bakerAggregationKey <- obj .: "aggregationSignKey"
     return BakerIdentity{..}
 
 processTransactions
