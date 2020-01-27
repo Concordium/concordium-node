@@ -37,8 +37,11 @@ blockPointer :: BlockHash
 blockPointer = Hash (FBS.pack (replicate 32 (fromIntegral (0 :: Word))))
 
 -- Make a header assuming there is only one key on the account, its index is 0
+makeHeaderWithExpiry :: AccountAddress -> Nonce -> Energy -> TransactionExpiryTime -> Runner.TransactionHeader
+makeHeaderWithExpiry = Runner.TransactionHeader
+
 makeHeader :: AccountAddress -> Nonce -> Energy -> Runner.TransactionHeader
-makeHeader = Runner.TransactionHeader
+makeHeader a n e = makeHeaderWithExpiry a n e dummyTransactionExpiryTime
 
 alesKP :: KeyPair
 alesKP = uncurry Sig.KeyPairEd25519 . fst $ Ed25519.randomKeyPair (mkStdGen 1)
@@ -103,6 +106,9 @@ mkAccount key addr amnt = mkAccountNoCredentials key addr amnt &
 
 dummyExpiryTime :: CredentialExpiryTime
 dummyExpiryTime = 1
+
+dummyTransactionExpiryTime :: TransactionExpiryTime
+dummyTransactionExpiryTime = 0
 
 dummySlotTime :: Timestamp
 dummySlotTime = 0
