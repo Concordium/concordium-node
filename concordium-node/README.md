@@ -30,7 +30,6 @@ This repository relies on git submodules for internal component dependencies, so
 * elastic_logging - enable ability to log transaction events to elastic search
 * collector - enables the build of the node-collector and backend
 * beta - enables special beta only features like client username/password validation
-* rgs - use consensus with rust global state implementation (this must match the proper static libraries if compiled against them)
 
 ## Setting up basic local build environment
 Install the needed dependencies from the list above, and run the script (requires that the user executing is has sudo privileges) `scripts/local-setup-unix-deps.sh` and pay special attention to setting the right version of GHC (see [build scripts](/scripts/local-setup-unix-deps.sh#L28) for details).

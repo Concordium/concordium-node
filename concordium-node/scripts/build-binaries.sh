@@ -2,10 +2,6 @@
 
 FEATURES=$1
 
-if [[ -n "$CONSENSUS_TYPE" && "$CONSENSUS_TYPE" == "rgs" ]]; then
-    FEATURES="$FEATURES,rgs"
-fi
-
 if [[ -n "$CONSENSUS_PROFILING" && "$CONSENSUS_PROFILING" == "true" ]]; then
     FEATURES="$FEATURES,profiling"
 else

@@ -15,9 +15,11 @@ use crate::{
 
 use byteorder::{BigEndian, WriteBytesExt};
 use concordium_common::{ConsensusFfiResponse, ConsensusIsInCommitteeResponse, PacketType};
-use consensus_rust::consensus::{ConsensusContainer, CALLBACK_QUEUE};
+use consensus_rust::{
+    consensus::{ConsensusContainer, CALLBACK_QUEUE},
+    messaging::{ConsensusMessage, MessageType},
+};
 use futures::future::Future;
-use globalstate_rust::tree::messaging::{ConsensusMessage, MessageType};
 use grpcio::{self, Environment, ServerBuilder};
 
 use crossbeam_channel;
@@ -1199,31 +1201,6 @@ impl P2P for RpcServerImpl {
                 let mut r = SuccessResponse::new();
                 r.set_value(self.node.stop_dump().is_ok());
 
-                sink.success(r)
-            };
-            let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-            ctx.spawn(f);
-        });
-    }
-
-    fn get_skov_stats(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: Empty,
-        sink: ::grpcio::UnarySink<SuccesfulStructResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            let f = {
-                let mut r: SuccesfulStructResponse = SuccesfulStructResponse::new();
-                let mut s = GRPCSkovStats::new();
-                let stat_values = self.node.stats.get_gs_stats();
-                s.set_gs_block_receipt(stat_values.0 as u32);
-                s.set_gs_block_entry(stat_values.1 as u32);
-                s.set_gs_block_query(stat_values.2 as u32);
-                s.set_gs_finalization_receipt(stat_values.3 as u32);
-                s.set_gs_finalization_entry(stat_values.4 as u32);
-                s.set_gs_finalization_query(stat_values.5 as u32);
-                r.set_gs_stats(s);
                 sink.success(r)
             };
             let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
