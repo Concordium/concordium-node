@@ -109,13 +109,13 @@ invariantSkovData TS.SkovData{..} = do
             let overAncestors a m
                     | a == lastFin = return m
                     | a == _genesisBlockPointer = Left $ "Finalized block" ++ show bp ++ "does not descend from previous finalized block " ++ show lastFin
-                    | otherwise = overAncestors (bpParent a) (HM.insert (bpHash a) (TreeState.BlockFinalized a fr) m)
-            finMap' <- overAncestors (bpParent bp) (HM.insert (bpHash bp) (TreeState.BlockFinalized bp fr) finMap)
+                    | otherwise = overAncestors (BS._bpParent a) (HM.insert (bpHash a) (TreeState.BlockFinalized a fr) m)
+            finMap' <- overAncestors (BS._bpParent bp) (HM.insert (bpHash bp) (TreeState.BlockFinalized bp fr) finMap)
             return (finMap', bp, i+1)
         checkLive (liveMap, parents) l = do
             forM_ l $ \b -> do
-                unless (bpParent b `elem` parents) $ Left $ "Block in branches with invalid parent: " ++ show b
-                checkBinary (==) (bpHeight b) (bpHeight (bpParent b) + 1) "==" "block height" "1 + parent height"
+                unless (BS._bpParent b `elem` parents) $ Left $ "Block in branches with invalid parent: " ++ show b
+                checkBinary (==) (bpHeight b) (bpHeight (BS._bpParent b) + 1) "==" "block height" "1 + parent height"
             let liveMap' = foldr (\b -> HM.insert (bpHash b) (TreeState.BlockAlive b)) liveMap l
             return (liveMap', l)
         checkLastNonEmpty Seq.Empty = True -- catches cases where branches is empty
@@ -140,7 +140,7 @@ invariantSkovData TS.SkovData{..} = do
         walkTransactions src dest trMap anfts
             | src == dest = return (trMap, anfts)
             | otherwise = do
-                (trMap', anfts') <- walkTransactions src (bpParent dest) trMap anfts
+                (trMap', anfts') <- walkTransactions src (BS._bpParent dest) trMap anfts
                 foldM checkTransaction (trMap', anfts') (blockTransactions dest)
         checkTransaction :: (Trs, ANFTS) -> Transaction -> Either String (Trs, ANFTS)
         checkTransaction (trMap, anfts) tr = do
@@ -167,7 +167,7 @@ invariantSkovData TS.SkovData{..} = do
             -- The slot of the block should be in the epoch of its parameters:
             unless (currentEpoch == theSlot (currentSlot `div` epochLength (_birkSeedState params))) $
                 Left $ "Slot " ++ show currentSlot ++ " is not in epoch " ++ show currentEpoch
-            let parentParams = BState._blockBirkParameters (BS._bpState (bpParent bp))
+            let parentParams = BState._blockBirkParameters (BS._bpState (BS._bpParent bp))
             let parentEpoch = epoch $ _birkSeedState parentParams
             unless (currentEpoch == parentEpoch) $
                     -- The leadership election nonce should change every epoch
@@ -184,7 +184,7 @@ invariantSkovFinalization (SkovState sd@TS.SkovData{..} FinalizationState{..} _)
         invariantSkovData sd
         let (_ Seq.:|> (lfr, lfb)) = _finalizationList
         checkBinary (==) _finsIndex (succ $ finalizationIndex lfr) "==" "current finalization index" "successor of last finalized index"
-        checkBinary (==) _finsHeight (bpHeight lfb + max (1 + _finsMinSkip) ((bpHeight lfb - bpHeight (bpLastFinalized lfb)) `div` 2)) "==" "finalization height"  "calculated finalization height"
+        checkBinary (==) _finsHeight (bpHeight lfb + max (1 + _finsMinSkip) ((bpHeight lfb - bpHeight (BS._bpLastFinalized lfb)) `div` 2)) "==" "finalization height"  "calculated finalization height"
         -- This test assumes that this party should be a member of the finalization committee
         when (null _finsCurrentRound) $ Left "No current finalization round"
         forM_ _finsCurrentRound $ \FinalizationRound{..} -> do
@@ -197,7 +197,7 @@ invariantSkovFinalization (SkovState sd@TS.SkovData{..} FinalizationState{..} _)
                                     Just bs -> bs
             let
                 nthAncestor 0 b = b
-                nthAncestor n b = nthAncestor (n-1) (bpParent b)
+                nthAncestor n b = nthAncestor (n-1) (BS._bpParent b)
             let eligibleBlocks = Set.fromList $ bpHash . nthAncestor roundDelta <$> descendants
             let justifiedProposals = Map.keysSet $ Map.filter fst $ _proposals $ _freezeState $ roundWMVBA
             checkBinary (==) justifiedProposals eligibleBlocks "==" "nominally justified finalization blocks" "actually justified finalization blocks"
