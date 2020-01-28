@@ -33,6 +33,7 @@ import qualified Data.Hashable as IntHash
 import Concordium.GlobalState.IdentityProviders
 import Concordium.Types
 import Data.Time.Clock.POSIX
+import qualified Concordium.Crypto.BlsSignature as Bls
 import System.IO.Unsafe
 import qualified Concordium.ID.Types as ID
 import Concordium.Types.Transactions
@@ -71,9 +72,6 @@ genesisState genData = Basic.initialState
                        (genesisAccounts genData ++ genesisSpecialBetaAccounts genData)
                        (genesisIdentityProviders genData)
                        (genesisMintPerSlot genData)
-
-mateuszKP :: SigScheme.KeyPair
-mateuszKP = (\((Sig.KeyPair a b),_) -> SigScheme.KeyPairEd25519 a b) $ Sig.randomKeyPair (mkStdGen 0)
 
 kp :: Int -> Sig.KeyPair
 kp n = fst (Sig.randomKeyPair (mkStdGen n))
@@ -146,3 +144,5 @@ makeGenesisData genesisTime nBakers genesisSlotDuration elecDiff finMinSkip gene
 successTest = True `shouldBe` True
 
 failTest = False `shouldBe` True
+
+should v = v `shouldBe` True

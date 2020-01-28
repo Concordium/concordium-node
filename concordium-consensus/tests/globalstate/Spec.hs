@@ -9,8 +9,8 @@ import qualified GlobalStateTests.Accounts(tests)
 
 main :: IO ()
 main = hspec $ do
---  GlobalStateTests.Accounts.tests
---  GlobalStateTests.Trie.tests
+  GlobalStateTests.Accounts.tests
+  GlobalStateTests.Trie.tests
   GlobalStateTests.PersistentTreeState.tests
---  GlobalStateTests.FinalizationSerializationSpec.tests
---  GlobalStateTests.Instances.tests
+  GlobalStateTests.FinalizationSerializationSpec.tests
+  GlobalStateTests.Instances.tests
