@@ -167,19 +167,27 @@ instance (bs ~ GS.BlockState m, MonadIO m, BS.BlockStateStorage m, MonadState (S
 instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovPersistentData bs) m) => BlockPointerMonad (PersistentTreeStateMonad bs m) where
     blockState = return . _bpState
     bpParent b = do
-      d <- liftIO $ deRefWeak (_bpParent b)
-      case d of
-        Just v -> return v
-        Nothing -> do
-          nb <- readBlock (_bpHash b)
-          return $ fromMaybe (error "Couldn't find parent block in disk") nb
+      gb <- use genesisBlockPointer
+      if gb == b then
+        return gb
+      else do
+        d <- liftIO $ deRefWeak (_bpParent b)
+        case d of
+          Just v -> return v
+          Nothing -> do
+            nb <- readBlock (_bpHash b)
+            return $ fromMaybe (error "Couldn't find parent block in disk") nb
     bpLastFinalized b = do
-      d <- liftIO $ deRefWeak (_bpParent b)
-      case d of
-        Just v -> return v
-        Nothing -> do
-          nb <- readBlock (_bpHash b)
-          return $ fromMaybe (error "Couldn't find last finalized block in disk") nb
+      gb <- use genesisBlockPointer
+      if gb == b then
+        return gb
+      else do
+        d <- liftIO $ deRefWeak (_bpParent b)
+        case d of
+          Just v -> return v
+          Nothing -> do
+            nb <- readBlock (_bpHash b)
+            return $ fromMaybe (error "Couldn't find last finalized block in disk") nb
 
 instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovPersistentData bs) m)
           => TS.TreeStateMonad (PersistentTreeStateMonad bs m) where
