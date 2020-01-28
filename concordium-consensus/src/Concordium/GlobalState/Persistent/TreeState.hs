@@ -38,7 +38,7 @@ data PersistenBlockStatus bs =
     | BlockDead
     | BlockFinalized !FinalizationIndex
     | BlockPending !PendingBlock
-  deriving(Eq)
+  deriving(Eq, Show)
 
 -- |Skov data for the persistent tree state version that also holds the database handlers
 data SkovPersistentData bs = SkovPersistentData {
@@ -126,6 +126,20 @@ instance (bs ~ GS.BlockState m) => GS.GlobalStateTypes (PersistentTreeStateMonad
     type PendingBlock (PersistentTreeStateMonad bs m) = PendingBlock
     type BlockPointer (PersistentTreeStateMonad bs m) = PersistentBlockPointer bs
 
+constructBlock :: (MonadIO m, BS.BlockStateStorage m) => Maybe ByteString -> m (Maybe (PersistentBlockPointer (TS.BlockState m)))
+constructBlock bytes = do
+  mapJust bytes (\b -> do
+        tm <- liftIO getCurrentTime
+        mapRight (runGetState (B.getBlock (utcTimeToTransactionTime tm)) b 0) (\(newBlock, rest) ->
+           mapRight (runGetState S.get rest 0) (\(bs, rest') ->
+              mapRight (runGet BS.getBlockState bs) (\state' -> do
+                  st <- state'
+                  mapRight (decode rest') (\height' ->
+                      liftIO $ Just <$> makeBlockPointerFromBlock newBlock st height')))))
+    where
+      mapJust v f = maybe (return Nothing) f v
+      mapRight v f = either (\_ -> return Nothing) f v
+
 instance (bs ~ GS.BlockState m, MonadIO m, BS.BlockStateStorage m, MonadState (SkovPersistentData bs) m) => LMDBStoreMonad (PersistentTreeStateMonad bs m) where
   writeBlock bp = do
     lim <- use (db . limits)
@@ -140,17 +154,7 @@ instance (bs ~ GS.BlockState m, MonadIO m, BS.BlockStateStorage m, MonadState (S
     env <- use (db . storeEnv)
     dbB <- use (db . blockStore)
     bytes <- liftIO $ transaction env (L.get dbB bh :: L.Transaction ReadOnly (Maybe ByteString))
-    mapJust bytes (\b -> do
-        tm <- liftIO getCurrentTime
-        mapRight (runGetState (B.getBlock (utcTimeToTransactionTime tm)) b 0) (\(newBlock, rest) ->
-           mapRight (runGetState S.get rest 0) (\(bs, rest') ->
-              mapRight (runGet BS.getBlockState bs) (\state' -> do
-                  st <- state'
-                  mapRight (decode rest') (\height' ->
-                      liftIO $ Just <$> makeBlockPointerFromBlock newBlock st height')))))
-    where
-      mapJust v f = maybe (return Nothing) f v
-      mapRight v f = either (\_ -> return Nothing) f v
+    constructBlock bytes
   readFinalizationRecord bh = do
     env <- use (db . storeEnv)
     dbF <- use (db . finalizationRecordStore)
