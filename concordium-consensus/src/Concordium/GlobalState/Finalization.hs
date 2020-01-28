@@ -7,7 +7,6 @@ import Data.Word
 
 import Control.Monad
 
-import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.BlsSignature as Bls
 
 import Concordium.Types
