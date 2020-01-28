@@ -21,8 +21,8 @@ use consensus_rust::{
         CONSENSUS_QUEUE_DEPTH_OUT_HI,
     },
     ffi,
+    messaging::ConsensusMessage,
 };
-use globalstate_rust::tree::{messaging::ConsensusMessage, GlobalState};
 use p2p_client::{
     common::{get_current_stamp, P2PNodeId, PeerType},
     configuration as config,
@@ -102,12 +102,8 @@ fn main() -> Fallible<()> {
         error!("Can't set up the desired RKV map size: {}", e);
     }
 
-    let global_state =
-        GlobalState::new(&gen_data, gs_kvs_handle, conf.cli.baker.persist_global_state);
-
     let consensus = plugins::consensus::start_consensus_layer(
         &conf.cli.baker,
-        global_state,
         gen_data,
         prov_data,
         if conf.common.trace {

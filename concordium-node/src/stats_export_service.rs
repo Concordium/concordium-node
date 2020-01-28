@@ -77,12 +77,6 @@ cfg_if! {
             queue_size: IntGauge,
             resend_queue_size: IntGauge,
             tokio_runtime: RwLock<Option<Runtime>>,
-            gs_block_receipt: IntGauge,
-            gs_block_entry: IntGauge,
-            gs_block_query: IntGauge,
-            gs_finalization_receipt: IntGauge,
-            gs_finalization_entry: IntGauge,
-            gs_finalization_query: IntGauge,
             inbound_high_priority_consensus_drops_counter: IntCounter,
             inbound_low_priority_consensus_drops_counter: IntCounter,
             inbound_high_priority_consensus_counter: IntCounter,
@@ -113,12 +107,6 @@ pub struct StatsExportService {
     invalid_network_packets_received: AtomicUsize,
     queue_size: AtomicUsize,
     resend_queue_size: AtomicUsize,
-    gs_block_receipt: AtomicUsize,
-    gs_block_entry: AtomicUsize,
-    gs_block_query: AtomicUsize,
-    gs_finalization_receipt: AtomicUsize,
-    gs_finalization_entry: AtomicUsize,
-    gs_finalization_query: AtomicUsize,
     inbound_high_priority_consensus_drops_counter: AtomicUsize,
     inbound_low_priority_consensus_drops_counter: AtomicUsize,
     inbound_high_priority_consensus_counter: AtomicUsize,
@@ -197,30 +185,6 @@ impl StatsExportService {
         if mode == StatsServiceMode::NodeMode || mode == StatsServiceMode::BootstrapperMode {
             registry.register(Box::new(rs.clone()))?;
         }
-
-        let sbr_opts = Opts::new("gs_block_receipt", "global state block receipt");
-        let sbr = IntGauge::with_opts(sbr_opts)?;
-        registry.register(Box::new(sbr.clone()))?;
-
-        let sbe_opts = Opts::new("gs_block_entry", "global state block entry");
-        let sbe = IntGauge::with_opts(sbe_opts)?;
-        registry.register(Box::new(sbe.clone()))?;
-
-        let sbq_opts = Opts::new("gs_block_query", "global state block query");
-        let sbq = IntGauge::with_opts(sbq_opts)?;
-        registry.register(Box::new(sbq.clone()))?;
-
-        let sfr_opts = Opts::new("gs_finalization_receipt", "global state finalization receipt");
-        let sfr = IntGauge::with_opts(sfr_opts)?;
-        registry.register(Box::new(sfr.clone()))?;
-
-        let sfe_opts = Opts::new("gs_finalization_entry", "global state finalization receipt");
-        let sfe = IntGauge::with_opts(sfe_opts)?;
-        registry.register(Box::new(sfe.clone()))?;
-
-        let sfq_opts = Opts::new("gs_finalization_query", "global state finalization receipt");
-        let sfq = IntGauge::with_opts(sfq_opts)?;
-        registry.register(Box::new(sfq.clone()))?;
 
         let inbound_high_priority_consensus_drops_opts = Opts::new(
             "inbound_high_priority_consensus_drops",
@@ -316,12 +280,6 @@ impl StatsExportService {
             queue_size: qs,
             resend_queue_size: rqs,
             tokio_runtime: RwLock::new(None),
-            gs_block_receipt: sbr,
-            gs_block_entry: sbe,
-            gs_block_query: sbq,
-            gs_finalization_receipt: sfr,
-            gs_finalization_entry: sfe,
-            gs_finalization_query: sfq,
             inbound_high_priority_consensus_drops_counter,
             inbound_low_priority_consensus_drops_counter,
             inbound_high_priority_consensus_counter,
@@ -455,48 +413,6 @@ impl StatsExportService {
         return self.queue_size.get();
         #[cfg(not(feature = "instrumentation"))]
         return self.queue_size.load(Ordering::Relaxed) as i64;
-    }
-
-    pub fn set_gs_block_receipt(&self, value: i64) {
-        #[cfg(feature = "instrumentation")]
-        return self.gs_block_receipt.set(value);
-        #[cfg(not(feature = "instrumentation"))]
-        self.gs_block_receipt.store(value as usize, Ordering::Relaxed);
-    }
-
-    pub fn set_gs_block_entry(&self, value: i64) {
-        #[cfg(feature = "instrumentation")]
-        return self.gs_block_entry.set(value);
-        #[cfg(not(feature = "instrumentation"))]
-        self.gs_block_entry.store(value as usize, Ordering::Relaxed);
-    }
-
-    pub fn set_gs_block_query(&self, value: i64) {
-        #[cfg(feature = "instrumentation")]
-        return self.gs_block_query.set(value);
-        #[cfg(not(feature = "instrumentation"))]
-        self.gs_block_query.store(value as usize, Ordering::Relaxed);
-    }
-
-    pub fn set_gs_finalization_receipt(&self, value: i64) {
-        #[cfg(feature = "instrumentation")]
-        return self.gs_finalization_receipt.set(value);
-        #[cfg(not(feature = "instrumentation"))]
-        self.gs_finalization_receipt.store(value as usize, Ordering::Relaxed);
-    }
-
-    pub fn set_gs_finalization_entry(&self, value: i64) {
-        #[cfg(feature = "instrumentation")]
-        return self.gs_finalization_entry.set(value);
-        #[cfg(not(feature = "instrumentation"))]
-        self.gs_finalization_entry.store(value as usize, Ordering::Relaxed);
-    }
-
-    pub fn set_gs_finalization_query(&self, value: i64) {
-        #[cfg(feature = "instrumentation")]
-        return self.gs_finalization_query.set(value);
-        #[cfg(not(feature = "instrumentation"))]
-        self.gs_finalization_query.store(value as usize, Ordering::Relaxed);
     }
 
     pub fn inbound_high_priority_consensus_drops_inc(&self) {
@@ -718,30 +634,6 @@ impl StatsExportService {
             .map_err(|e| error!("Can't push to prometheus push gateway {}", e))
             .ok();
         });
-    }
-
-    #[cfg(feature = "instrumentation")]
-    pub fn get_gs_stats(&self) -> (u32, u32, u32, u32, u32, u32) {
-        (
-            self.gs_block_receipt.get() as u32,
-            self.gs_block_query.get() as u32,
-            self.gs_block_entry.get() as u32,
-            self.gs_finalization_receipt.get() as u32,
-            self.gs_finalization_query.get() as u32,
-            self.gs_finalization_entry.get() as u32,
-        )
-    }
-
-    #[cfg(not(feature = "instrumentation"))]
-    pub fn get_gs_stats(&self) -> (u32, u32, u32, u32, u32, u32) {
-        (
-            self.gs_block_receipt.load(Ordering::Relaxed) as u32,
-            self.gs_block_query.load(Ordering::Relaxed) as u32,
-            self.gs_block_entry.load(Ordering::Relaxed) as u32,
-            self.gs_finalization_receipt.load(Ordering::Relaxed) as u32,
-            self.gs_finalization_query.load(Ordering::Relaxed) as u32,
-            self.gs_finalization_entry.load(Ordering::Relaxed) as u32,
-        )
     }
 }
 

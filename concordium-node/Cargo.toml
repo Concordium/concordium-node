@@ -26,7 +26,6 @@ profiling = [ "consensus-rust/profiling" ]
 elastic_logging = [ "elastic", "elastic_derive", "serde_json", "serde/derive", "uuid/v4" ]
 collector = [ "reqwest/default-tls", "serde_json", "serde/derive", "rmp-serde", "gotham", "mime", "gotham_derive", "hyper" ]
 beta = [ "serde_json", "serde/derive", "reqwest/default-tls", "jsonwebtoken" ]
-rgs = [ "consensus-rust/rgs" ]
 
 [profile.release]
 codegen-units = 1
@@ -34,11 +33,9 @@ codegen-units = 1
 
 [dependencies]
 # Internal dependencies
-globalstate-rust = { path = "deps/internal/consensus/globalstate-mockup/globalstate-rust" }
 consensus-rust = { path = "deps/internal/consensus/consensus-rust"  }
 concordium-dns = { package = "concordium-dns", path = "deps/internal/concordium-dns" }
-concordium_crypto_ec_vrf_ed25519_sha256 = { package = "ec_vrf_ed25519_sha256", path = "deps/internal/consensus/crypto/rust-src/ec_vrf_ed25519_sha256" }
-concordium_crypto_eddsa_ed25519 = { package = "eddsa_ed25519", path = "deps/internal/consensus/crypto/rust-src/eddsa_ed25519" }
+ec_vrf_ed25519_sha256 = { package = "ec_vrf_ed25519_sha256", path = "deps/internal/consensus/crypto/rust-src/ec_vrf_ed25519_sha256" }
 concordium-common = { path = "deps/internal/consensus/globalstate-mockup/deps/concordium-common"  }
 
 # External dependencies
@@ -115,14 +112,6 @@ quickcheck = "^0.9"
 [lib]
 path = "src/lib.rs"
 name = "p2p_client"
-
-[[bin]]
-path = "src/bin/block_dump_reader.rs"
-name = "read_block_dump"
-
-[[bin]]
-path = "src/bin/transaction_reader.rs"
-name = "read_transaction"
 
 [[bin]]
 path = "src/bin/cli.rs"

@@ -9,6 +9,8 @@ use byteorder::ReadBytesExt;
 use failure::Fallible;
 
 use crossbeam_channel::TrySendError;
+use digest::Digest;
+use ec_vrf_ed25519_sha256::Sha256;
 use std::{
     convert::TryFrom,
     fs::OpenOptions,
@@ -19,23 +21,16 @@ use std::{
 
 use concordium_common::{
     serial::Endianness,
-    ConsensusFfiResponse,
+    ConsensusFfiResponse, HashBytes,
     PacketType::{self, *},
     QueueMsg,
 };
 
 use consensus_rust::{
+    catch_up::{PeerList, PeerState, PeerStatus},
     consensus::{self, ConsensusContainer, PeerId, CALLBACK_QUEUE},
     ffi,
-};
-
-use globalstate_rust::{
-    catch_up::{PeerList, PeerState, PeerStatus},
-    common::sha256,
-    tree::{
-        messaging::{ConsensusMessage, DistributionMode, MessageType},
-        GlobalState,
-    },
+    messaging::{ConsensusMessage, DistributionMode, MessageType},
 };
 
 use crate::{
@@ -48,9 +43,10 @@ use crate::{
     },
 };
 
+pub fn sha256(bytes: &[u8]) -> HashBytes { HashBytes::new(&Sha256::digest(bytes)) }
+
 pub fn start_consensus_layer(
     conf: &configuration::BakerConfig,
-    gsptr: GlobalState,
     genesis_data: Vec<u8>,
     private_data: Option<Vec<u8>>,
     max_logging_level: consensus::ConsensusLogLevel,
@@ -74,7 +70,6 @@ pub fn start_consensus_layer(
         genesis_data,
         private_data,
         conf.baker_id,
-        gsptr,
         max_logging_level,
     )
 }
