@@ -16,7 +16,10 @@ use crossbeam_channel;
 
 use parking_lot::Condvar;
 
-use crate::{ffi::*, messaging::ConsensusMessage};
+use crate::{
+    ffi::{consensus_runner, get_consensus_ptr, startBaker, stopBaker, stopConsensus},
+    messaging::ConsensusMessage,
+};
 
 pub type PeerId = u64;
 pub type PrivateData = HashMap<i64, Vec<u8>>;

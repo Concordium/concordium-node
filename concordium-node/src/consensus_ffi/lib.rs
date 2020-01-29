@@ -104,53 +104,6 @@ macro_rules! wrap_c_committee_call {
     }};
 }
 
-/// Reads multiple objects from into a boxed slice, checking if the target
-/// length is not suspiciously long in the process.
-macro_rules! read_multiple {
-    ($source:expr, $elem:expr, $len_size:expr, $limit:expr) => {{
-        let count = safe_get_len!($source, $len_size, $limit);
-        let mut list = Vec::with_capacity(count as usize);
-        for _ in 0..count {
-            let elem = $elem;
-            list.push(elem);
-        }
-
-        list.into_boxed_slice()
-    }};
-}
-
-/// Checks whether an object intended to be used as a length is not too big
-/// in order to avoid OOMs.
-macro_rules! safe_get_len {
-    ($source:expr, $len_size:expr, $limit:expr) => {{
-        let raw_len = if $len_size == 8 {
-            Endianness::read_u64(&read_const_sized!($source, 8)) as usize
-        } else if $len_size == 4 {
-            Endianness::read_u32(&read_const_sized!($source, 4)) as usize
-        } else if $len_size == 2 {
-            Endianness::read_u16(&read_const_sized!($source, 2)) as usize
-        } else {
-            panic!("Unexpected len size in safe_get_len!")
-        };
-
-        if raw_len <= $limit {
-            raw_len
-        } else {
-            0
-        }
-    }};
-}
-
-/// Reads a const-sized number of bytes into an array.
-macro_rules! read_const_sized {
-    ($source:expr, $size:expr) => {{
-        let mut buf = [0u8; $size as usize];
-        $source.read_exact(&mut buf)?;
-
-        buf
-    }};
-}
-
 #[macro_use]
 mod fails;
 pub mod catch_up;

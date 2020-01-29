@@ -1,6 +1,8 @@
-use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
+use crate::{catch_up::*, consensus::*, messaging::*};
+use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt};
+use concordium_common::{ConsensusFfiResponse, ConsensusIsInCommitteeResponse, PacketType};
+use crypto_common::{Deserial, Serial};
 use failure::{bail, format_err, Fallible};
-
 use std::{
     convert::TryFrom,
     ffi::{CStr, CString},
@@ -11,12 +13,6 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc, Once,
     },
-};
-
-use crate::{catch_up::*, consensus::*, messaging::*};
-use concordium_common::{
-    serial::{Endianness, Serial},
-    ConsensusFfiResponse, ConsensusIsInCommitteeResponse, PacketType,
 };
 extern "C" {
     pub fn hs_init(argc: *mut c_int, argv: *mut *mut *mut c_char);
@@ -577,9 +573,8 @@ pub extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *co
         let msg_variant = PacketType::FinalizationMessage;
         let payload = slice::from_raw_parts(data as *const u8, len as usize);
         let mut full_payload = Vec::with_capacity(2 + payload.len());
-        full_payload
-            .write_u16::<Endianness>(msg_variant as u16)
-            .unwrap(); // infallible
+        (msg_variant as u16).serial(&mut full_payload);
+
         full_payload.write_all(&payload).unwrap(); // infallible
         let full_payload = Arc::from(full_payload);
 
@@ -618,9 +613,7 @@ macro_rules! sending_callback {
 
             let payload = slice::from_raw_parts($msg as *const u8, $msg_length as usize);
             let mut full_payload = Vec::with_capacity(2 + payload.len());
-            full_payload
-                .write_u16::<Endianness>(msg_variant as u16)
-                .unwrap(); // infallible
+            (msg_variant as u16).serial(&mut full_payload);
             full_payload.write_all(&payload).unwrap(); // infallible
             let full_payload = Arc::from(full_payload);
 
