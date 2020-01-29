@@ -97,7 +97,9 @@ impl fmt::Display for AccountAddress {
 
 impl Serial for AccountAddress {
     fn serial<W: WriteBytesExt>(&self, target: &mut W) {
-        target.write(&self.0).expect("Writing to buffer is safe.");
+        target
+            .write_all(&self.0)
+            .expect("Writing to buffer is safe.");
     }
 }
 
