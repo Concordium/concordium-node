@@ -1,8 +1,6 @@
-use concordium_common::{
-    blockchain_types::BakerId, into_err, QueueReceiver, QueueSyncSender, RelayOrStopSenderHelper,
-};
+use crate::blockchain_types::BakerId;
+use concordium_common::{into_err, QueueReceiver, QueueSyncSender, RelayOrStopSenderHelper};
 use failure::Fallible;
-
 use std::{
     collections::HashMap,
     convert::TryFrom,

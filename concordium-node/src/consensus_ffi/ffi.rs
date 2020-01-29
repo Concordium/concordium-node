@@ -702,9 +702,9 @@ pub unsafe extern "C" fn on_transfer_log_emitted(
     remaining_data_len: u64,
     remaining_data_ptr: *const u8,
 ) {
-    use crate::transferlog::{TransactionLogMessage, TransferLogType, TRANSACTION_LOG_QUEUE};
-    use concordium_common::blockchain_types::{
-        AccountAddress, BakerId, BlockHash, ContractAddress, TransactionHash,
+    use crate::{
+        blockchain_types::{AccountAddress, BakerId, BlockHash, ContractAddress, TransactionHash},
+        transferlog::{TransactionLogMessage, TransferLogType, TRANSACTION_LOG_QUEUE},
     };
     use std::mem::size_of;
     let transfer_event_type = match TransferLogType::try_from(transfer_type as u8) {
