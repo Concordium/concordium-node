@@ -73,7 +73,7 @@ dummyExpiryTime = maxBound
 
 {-# WARNING dummyTransactionExpiryTime "Invalid transaction expiry time, only for testing." #-}
 dummyTransactionExpiryTime :: TransactionExpiryTime
-dummyTransactionExpiryTime = maxBound
+dummyTransactionExpiryTime = TransactionExpiryTime maxBound
 
 -- Derive a dummy registration id from a verification key. This hashes the
 -- account address, and uses it as a seed of a random number generator.

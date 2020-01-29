@@ -70,9 +70,10 @@ checkHeader meta = do
       let amnt = acc ^. accountAmount
       let nextNonce = acc ^. accountNonce
       let txnonce = transactionNonce meta
+      let expiry = thExpiry $ transactionHeader meta
 
       cm <- lift getChainMetadata
-      when (transactionExpired cm $ transactionHeader meta) $ throwError ExpiredTransaction
+      when (transactionExpired expiry $ slotTime cm) $ throwError ExpiredTransaction
       unless (existsValidCredential cm acc) $ throwError NoValidCredential
 
       -- after the credential check is done we check the amount
@@ -90,10 +91,6 @@ checkHeader meta = do
       -- but only for transactions for which this was done.
       -- One issue is that if we don't include the public key with the transaction then we cannot do this, which is especially problematic for transactions
       -- which come as part of blocks.
-
--- |Checks if a transaction is expired
-transactionExpired :: ChainMetadata -> TransactionHeader -> Bool
-transactionExpired cm th = thExpiry th < slotTime cm
 
 -- TODO: When we have policies checking one sensible approach to rewarding
 -- identity providers would be as follows.

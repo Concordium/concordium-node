@@ -40,6 +40,9 @@ blockPointer = Hash (FBS.pack (replicate 32 (fromIntegral (0 :: Word))))
 makeHeaderWithExpiry :: AccountAddress -> Nonce -> Energy -> TransactionExpiryTime -> Runner.TransactionHeader
 makeHeaderWithExpiry = Runner.TransactionHeader
 
+-- NB: In order for tests to work, the slot time (currently set to 0)
+-- must be <= than transaction expiry time (currently also set to 0
+-- in `dummyTransactionExpiryTime`)
 makeHeader :: AccountAddress -> Nonce -> Energy -> Runner.TransactionHeader
 makeHeader a n e = makeHeaderWithExpiry a n e dummyTransactionExpiryTime
 
@@ -107,6 +110,8 @@ mkAccount key addr amnt = mkAccountNoCredentials key addr amnt &
 dummyExpiryTime :: CredentialExpiryTime
 dummyExpiryTime = 1
 
+-- The expiry time is set to the same time as slot time, which is currently also 0.
+-- If slot time increases, in order for tests to pass transaction expiry must also increase.
 dummyTransactionExpiryTime :: TransactionExpiryTime
 dummyTransactionExpiryTime = 0
 
