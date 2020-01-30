@@ -37,6 +37,8 @@ stages:
   extends: .generic
   cache:
     policy: pull
+  variables:
+    TEST_LEVEL: 1
 
 .generic-rust-test:
   extends: .generic
@@ -85,12 +87,6 @@ stages:
     - echo "Running tests without extra features"
     - ( cd consensus-rust && cargo test --all --color=always )
 
-"stack:test:crypto":
-  extends: .generic-haskell-test
-  stage: test
-  script:
-    - "stack test concordium-crypto --bench --no-run-benchmarks"
-
 "stack:test:acorn":
   extends: .generic-haskell-test
   stage: test
@@ -107,7 +103,7 @@ stages:
   extends: .generic-haskell-test
   stage: test
   script:
-    - "stack test globalstate --bench --no-run-benchmarks"
+    - "stack test globalstate --bench --no-run-benchmarks --ta --level=${TEST_LEVEL}"
 
 "stack:test:scheduler":
   extends: .generic-haskell-test
@@ -119,4 +115,4 @@ stages:
   extends: .generic-haskell-test
   stage: test
   script:
-    - "stack test Concordium --bench --no-run-benchmarks --ta --level=2"
+    - "stack test Concordium --bench --no-run-benchmarks --ta --level=${TEST_LEVEL}"
