@@ -17,6 +17,7 @@ import Database.LMDB.Raw
 import Database.LMDB.Simple as L
 import Lens.Micro.Platform
 import System.Directory
+import System.FilePath ((</>))
 
 -- |Values used by the LMDBStoreMonad to manage the database
 data DatabaseHandlers bs = DatabaseHandlers {
@@ -30,7 +31,7 @@ makeLenses ''DatabaseHandlers
 -- |A standard location for the database
 defaultLocation :: IO FilePath
 defaultLocation = do
-  dir <- (++ "/treestate") <$> getCurrentDirectory
+  dir <- (</> "treestate") <$> getCurrentDirectory
   createDirectoryIfMissing False dir
   return dir
 
