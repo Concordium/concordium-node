@@ -212,16 +212,16 @@ emptyTest :: SpecWith BlobStore
 emptyTest = it "empty" $ runReaderT
         (checkEquivalent B.emptyAccounts P.emptyAccounts :: ReaderT BlobStore IO ())
         
-actionTest :: SpecWith BlobStore
-actionTest = it "account actions" $ \bs -> withMaxSuccess 10000 $ property $ do
+actionTest :: Word -> SpecWith BlobStore
+actionTest lvl = it "account actions" $ \bs -> withMaxSuccess (100 * fromIntegral lvl) $ property $ do
         acts <- randomActions
         return $ ioProperty $ flip runReaderT bs $ do
             (ba, pa) <- foldM (flip runAccountAction) (B.emptyAccounts, P.emptyAccounts) acts
             checkEquivalent ba pa
 
 
-tests :: Spec
-tests = describe "GlobalStateTests.Accounts" $
+tests :: Word -> Spec
+tests lvl = describe "GlobalStateTests.Accounts" $
     around (bracket createTempBlobStore destroyTempBlobStore) $ do
         emptyTest
-        actionTest
+        actionTest lvl
