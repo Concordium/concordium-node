@@ -30,6 +30,7 @@ import Database.LMDB.Simple.Extra
 import System.Directory
 import Concordium.Crypto.VRF as VRF
 import Data.ByteString (ByteString)
+import System.FilePath ((</>))
 
 newtype MyTreeStateMonad c g s a = MyTreeStateMonad { runMTSM :: RWST c () s IO a }
   deriving (Functor, Applicative, Monad, MonadIO, MonadState s)
@@ -141,9 +142,49 @@ testFinalizeABlock = do
   frecs <- liftIO $ transaction env $ (elems dbF :: Transaction ReadWrite [FinalizationRecord])
   mapM_ (\b -> liftIO $ should $ elem b [blockPtr, genesisBlock]) (catMaybes blocks)
   mapM_ (\b -> liftIO $ should $ elem b [frec, genesisFr]) frecs
-
+  -- check the blocktable
   bs <- use (blockTable . at (bpHash blockPtr))
   liftIO $ bs `shouldBe` Just (Concordium.GlobalState.Persistent.TreeState.BlockFinalized 1)
+
+  -- check that the parent and last finalized are the proper ones
+  parent <- bpParent blockPtr
+  liftIO $ parent `shouldBe` genesisBlock
+  lfin <- bpLastFinalized blockPtr
+  liftIO $ lfin `shouldBe` genesisBlock
+
+  -- add another block with different lfin and parent
+  now <- liftIO $ getCurrentTime
+  pb2 <- makePendingBlock (kp 1) 2 (bpHash blockPtr) 0 proof1 proof2 (bpHash genesisBlock) [] now
+  now <- liftIO $ getCurrentTime
+  blockPtr2 :: BlockPointer TestM <- makeLiveBlock pb2 blockPtr genesisBlock state now 0
+  let frec2 = FinalizationRecord 2 (bpHash blockPtr2) (FinalizationProof ([1], sign "Hello" sk)) 0
+
+  -- Add the finalization to the tree state
+  markFinalized (bpHash blockPtr2) frec2
+  addFinalization blockPtr2 frec2
+
+  --- The database should now contain 3 items, check them
+  env <- use (db . storeEnv)
+  dbB <- use (db . blockStore)
+  sB <- liftIO $ transaction env $ (size dbB :: Transaction ReadWrite Int)
+  liftIO $ sB `shouldBe` 3
+  dbF <- use (db . finalizationRecordStore)
+  sF <- liftIO $ transaction env $ (size dbF :: Transaction ReadWrite Int)
+  liftIO $ sF `shouldBe` 3
+  blocksBytes <-  liftIO $ transaction env $ (elems dbB :: Transaction ReadWrite [ByteString])
+  blocks <- mapM (constructBlock . Just) blocksBytes
+  frecs <- liftIO $ transaction env $ (elems dbF :: Transaction ReadWrite [FinalizationRecord])
+  mapM_ (\b -> liftIO $ should $ elem b [blockPtr2, blockPtr, genesisBlock]) (catMaybes blocks)
+  mapM_ (\b -> liftIO $ should $ elem b [frec2, frec, genesisFr]) frecs
+  -- check the blocktable
+  bs <- use (blockTable . at (bpHash blockPtr2))
+  liftIO $ bs `shouldBe` Just (Concordium.GlobalState.Persistent.TreeState.BlockFinalized 2)
+
+  -- check that the parent and last finalized are the proper ones
+  parent <- bpParent blockPtr2
+  liftIO $ parent `shouldBe` blockPtr
+  lfin <- bpLastFinalized blockPtr2
+  liftIO $ lfin `shouldBe` genesisBlock
 
 testEmptyGS :: Test
 testEmptyGS = do
@@ -171,8 +212,8 @@ tests :: Spec
 tests = do
   around (
     bracket
-      (getCurrentDirectory >>= createDirectoryIfMissing False . (++ "/treestate"))
-      (\_ -> getCurrentDirectory >>= removePathForcibly . (++ "/treestate"))) $
+      (getCurrentDirectory >>= createDirectoryIfMissing False . (</> "treestate"))
+      (\_ -> getCurrentDirectory >>= removePathForcibly . (</> "treestate"))) $
    describe "GlobalState:PersistentTreeState" $ do
     specifyWithGS "empty gs wrote the genesis to disk" testEmptyGS
     specifyWithGS "finalize a block" testFinalizeABlock

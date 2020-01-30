@@ -186,7 +186,7 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
       if gb == b then
         return gb
       else do
-        d <- liftIO $ deRefWeak (_bpParent b)
+        d <- liftIO $ deRefWeak (_bpLastFinalized b)
         case d of
           Just v -> return v
           Nothing -> do
@@ -202,7 +202,7 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
             Right GenesisBlock {} -> return $ Left "Block deserialization failed: unexpected genesis block"
             Right (NormalBlock block0) -> return $ Right $ makePendingBlock block0 rectime
     getBlockStatus bh = do
-      st <- (^. at bh) <$> use blockTable
+      st <- use (blockTable . at bh)
       case st of
         Just (BlockAlive bp) -> return $ Just $ TS.BlockAlive bp
         Just (BlockPending bp) -> return $ Just $ TS.BlockPending bp
