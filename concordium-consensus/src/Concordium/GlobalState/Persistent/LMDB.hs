@@ -17,10 +17,10 @@ import Database.LMDB.Raw
 import Database.LMDB.Simple as L
 import Lens.Micro.Platform
 import System.Directory
-import System.FilePath ((</>))
 
 -- |Values used by the LMDBStoreMonad to manage the database
 data DatabaseHandlers bs = DatabaseHandlers {
+    _path :: FilePath,
     _limits :: Limits,
     _storeEnv :: Environment ReadWrite,
     _blockStore :: Database BlockHash ByteString,
@@ -28,18 +28,11 @@ data DatabaseHandlers bs = DatabaseHandlers {
 }
 makeLenses ''DatabaseHandlers
 
--- |A standard location for the database
-defaultLocation :: IO FilePath
-defaultLocation = do
-  dir <- (</> "treestate") <$> getCurrentDirectory
-  createDirectoryIfMissing False dir
-  return dir
-
 -- |Initialize the database handlers creating the databases if needed and writing the genesis block and its finalization record into the disk
-initialDatabaseHandlers :: PersistentBlockPointer bs -> ByteString -> IO (DatabaseHandlers bs)
-initialDatabaseHandlers gb serState = liftIO $ do
+initialDatabaseHandlers :: PersistentBlockPointer bs -> ByteString -> FilePath -> IO (DatabaseHandlers bs)
+initialDatabaseHandlers gb serState dir = liftIO $ do
   let _limits = defaultLimits { mapSize = 64_000_000, maxDatabases = 2 } -- 64MB
-  dir <- defaultLocation
+  createDirectoryIfMissing False dir
   _storeEnv <- openEnvironment dir _limits
   _blockStore <- transaction _storeEnv
     (getDatabase (Just "blocks") :: L.Transaction ReadWrite (Database BlockHash ByteString))
@@ -49,6 +42,7 @@ initialDatabaseHandlers gb serState = liftIO $ do
       gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
   transaction _storeEnv $ L.put _blockStore (getHash gb) (Just $ runPut (putBlock gb >> S.put serState >> S.put (BlockHeight 0)))
   transaction _storeEnv $ L.put _finalizationRecordStore 0 (Just gbfin)
+  let _path = dir
   return $ DatabaseHandlers {..}
 
 -- |Monad to abstract over the operations for reading and writing from a LMDB database. It provides functions for reading and writing Blocks and FinalizationRecords.
@@ -56,13 +50,12 @@ initialDatabaseHandlers gb serState = liftIO $ do
 class (MonadIO m) => LMDBStoreMonad m where
    -- |Provided default function that tries to perform an insertion in a given database of a given value,
    -- altering the environment if needed when the database grows.
-   putOrResize :: (Serialize k, Serialize v) => Limits -> String -> Environment ReadWrite -> Database k v -> k -> v -> m (Limits, Environment ReadWrite, Database k v)
-   putOrResize lim name env db k v = liftIO $ catch (do
+   putOrResize :: (Serialize k, Serialize v) => Limits -> String -> Environment ReadWrite -> FilePath -> Database k v -> k -> v -> m (Limits, Environment ReadWrite, Database k v)
+   putOrResize lim name env dir db k v = liftIO $ catch (do
                                               transaction env $ L.put db k (Just v)
                                               return (lim, env, db))
                                     (\(e :: LMDB_Error) -> case e of
                                         LMDB_Error _ _ (Right MDB_MAP_FULL) -> do
-                                          dir <- defaultLocation
                                           let lim' = lim { mapSize = mapSize lim + 64_000_000 }
                                           env' <- openEnvironment dir lim'
                                           db' <- transaction env' (getDatabase (Just name) :: Transaction ReadWrite (Database k v))

@@ -179,7 +179,7 @@ deriving via (TreeStateM (SkovPersistentData bs) m)
 -- * bs - The type of block state.
 -- * s - The state type which can support the block state type.
 -- * m The underlying monad.
-type TSMStateConstraints ctx r (skovData :: * -> *) bs s m = 
+type TSMStateConstraints ctx r (skovData :: * -> *) bs s m =
   (Monad m,
    MonadState s m,
    HasGlobalState (skovData bs) s,
@@ -294,30 +294,30 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
         writeIORef pbscModuleCache Persistent.emptyModuleCache
 
 -- |Configuration that uses the disk tree state and the memory block state
-data DiskTreeMemoryBlockConfig = DTMBConfig RuntimeParameters GenesisData BS.BlockState
+data DiskTreeMemoryBlockConfig = DTMBConfig RuntimeParameters GenesisData BS.BlockState FilePath
 
 instance GlobalStateConfig DiskTreeMemoryBlockConfig where
     type GSContext DiskTreeMemoryBlockConfig = ()
     type GSState DiskTreeMemoryBlockConfig = SkovPersistentData BS.BlockState
-    initialiseGlobalState (DTMBConfig rtparams gendata bs) = do
-        isd <- initialSkovPersistentData rtparams gendata bs empty
+    initialiseGlobalState (DTMBConfig rtparams gendata bs dir) = do
+        isd <- initialSkovPersistentData rtparams gendata bs empty dir
         return ((), isd)
     shutdownGlobalState _ _ _ = return ()
 
 -- |Configuration that uses the disk implementation for both the tree state
 -- and the block state
-data DiskTreeDiskBlockConfig = DTDBConfig RuntimeParameters GenesisData BS.BlockState
+data DiskTreeDiskBlockConfig = DTDBConfig RuntimeParameters GenesisData BS.BlockState FilePath
 
 instance GlobalStateConfig DiskTreeDiskBlockConfig where
     type GSContext DiskTreeDiskBlockConfig = PersistentBlockStateContext
     type GSState DiskTreeDiskBlockConfig = SkovPersistentData PersistentBlockState
-    initialiseGlobalState (DTDBConfig rtparams gendata bs) = do
+    initialiseGlobalState (DTDBConfig rtparams gendata bs dir) = do
         pbscBlobStore <- createTempBlobStore
         pbscModuleCache <- newIORef emptyModuleCache
         pbs <- makePersistent bs
         let pbsc = PersistentBlockStateContext{..}
         serBS <- runPut <$> runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc
-        isd <- initialSkovPersistentData rtparams gendata pbs serBS
+        isd <- initialSkovPersistentData rtparams gendata pbs serBS dir
         return (pbsc, isd)
     shutdownGlobalState _ (PersistentBlockStateContext{..}) _ = do
         destroyTempBlobStore pbscBlobStore
