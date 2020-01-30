@@ -7,7 +7,6 @@ import Data.Word
 
 import Control.Monad
 
-import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.BlsSignature as Bls
 
 import Concordium.Types
@@ -29,12 +28,11 @@ putLength = putWord32be . fromIntegral
 getLength :: Get Int
 getLength = fromIntegral <$> getWord32be
 
--- TODO: is this correct?
 instance Serialize FinalizationProof where
   put (FinalizationProof (parties, sig)) =
     putLength (length parties) <>
-      mapM_ (\party -> putWord32be party) parties <>
-      put sig
+    mapM_ putWord32be parties <>
+    put sig
 
   get = do
     l <- getLength
