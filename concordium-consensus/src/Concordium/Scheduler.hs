@@ -54,8 +54,10 @@ existsValidCredential cm acc = do
     Just (expiry, _) -> expiry >= slotTime cm
 
 
--- |Check that the transaction has a valid sender, and that the amount they have
--- deposited is on their account.
+-- |Check that 
+--  * the transaction has a valid sender,
+--  * the amount they have deposited is on their account,
+--  * the transaction is not expired.
 -- The valid sender means that the sender account has at least one valid credential,
 -- where currently valid means non-expired.
 checkHeader :: (TransactionData msg, SchedulerMonad m) => msg -> ExceptT FailureKind m Account
@@ -68,8 +70,10 @@ checkHeader meta = do
       let amnt = acc ^. accountAmount
       let nextNonce = acc ^. accountNonce
       let txnonce = transactionNonce meta
+      let expiry = thExpiry $ transactionHeader meta
 
       cm <- lift getChainMetadata
+      when (transactionExpired expiry $ slotTime cm) $ throwError ExpiredTransaction
       unless (existsValidCredential cm acc) $ throwError NoValidCredential
 
       -- after the credential check is done we check the amount
@@ -87,7 +91,6 @@ checkHeader meta = do
       -- but only for transactions for which this was done.
       -- One issue is that if we don't include the public key with the transaction then we cannot do this, which is especially problematic for transactions
       -- which come as part of blocks.
-
 
 -- TODO: When we have policies checking one sensible approach to rewarding
 -- identity providers would be as follows.

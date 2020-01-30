@@ -139,7 +139,9 @@ data TransactionHeader = TransactionHeader {
     -- |Per account nonce, strictly increasing, no gaps.
     thNonce :: !Nonce,
     -- |Amount of gas dedicated for the execution of this transaction.
-    thEnergyAmount :: !Energy
+    thEnergyAmount :: !Energy,
+    -- |Expiration time after which transaction will not be executed
+    thExpiry :: TransactionExpiryTime
     } deriving (Show)
 
 data TransactionJSON = TJSON { metadata :: TransactionHeader
