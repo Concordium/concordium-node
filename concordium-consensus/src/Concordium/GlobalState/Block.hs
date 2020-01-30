@@ -2,13 +2,16 @@
 
 module Concordium.GlobalState.Block where
 
-import Data.Time.Clock
+import Data.Hashable (Hashable, hashWithSalt, hash)
+import Data.Time
 import Data.Serialize
 
 import qualified Concordium.Crypto.BlockSignature as Sig
+import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Types
 import Concordium.Types.Transactions
 import Concordium.Types.HashableTo
+
 
 -- * Block type classes
 
@@ -80,3 +83,46 @@ class (Eq bp, Show bp, BlockData bp) => BlockPointerData bp where
     bpTransactionsEnergyCost :: bp -> Energy
     -- |Size of the transaction data in bytes.
     bpTransactionsSize :: bp -> Int
+
+
+-- |Block pointer data. The minimal data that should be the same among all
+-- block pointer instantiations.
+data BasicBlockPointerData = BasicBlockPointerData {
+    -- |Hash of the block
+    _bpHash :: !BlockHash,
+    -- |Height of the block in the tree
+    _bpHeight :: !BlockHeight,
+    -- |Time at which the block was first received
+    _bpReceiveTime :: !UTCTime,
+    -- |Time at which the block was first considered part of the tree (validated)
+    _bpArriveTime :: !UTCTime,
+    -- |Number of transactions in a block
+    _bpTransactionCount :: !Int,
+    -- |Energy cost of all transactions in the block.
+    _bpTransactionsEnergyCost :: !Energy,
+    -- |Size of the transaction data in bytes.
+    _bpTransactionsSize :: !Int
+}
+
+instance Eq BasicBlockPointerData where
+    {-# INLINE (==) #-}
+    bp1 == bp2 = _bpHash bp1 == _bpHash bp2
+
+instance Ord BasicBlockPointerData where
+    {-# INLINE compare #-}
+    compare bp1 bp2 = compare (_bpHash bp1) (_bpHash bp2)
+
+instance Hashable BasicBlockPointerData where
+    {-# INLINE hashWithSalt #-}
+    hashWithSalt s = hashWithSalt s . _bpHash
+    {-# INLINE hash #-}
+    hash = hash . _bpHash
+
+instance Show BasicBlockPointerData where
+    show = show . _bpHash
+
+instance HashableTo Hash.Hash BasicBlockPointerData where
+    {-# INLINE getHash #-}
+    getHash = _bpHash
+
+

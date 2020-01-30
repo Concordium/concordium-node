@@ -62,8 +62,8 @@ data SkovData bs = SkovData {
 makeLenses ''SkovData
 
 instance Show (SkovData bs) where
-    show SkovData{..} = "Finalized: " ++ intercalate "," (take 6 . show . _bpHash . snd <$> toList _finalizationList) ++ "\n" ++
-        "Branches: " ++ intercalate "," ( (('[':) . (++"]") . intercalate "," . map (take 6 . show . _bpHash)) <$> toList _branches)
+    show SkovData{..} = "Finalized: " ++ intercalate "," (take 6 . show . bpHash . snd <$> toList _finalizationList) ++ "\n" ++
+        "Branches: " ++ intercalate "," ( (('[':) . (++"]") . intercalate "," . map (take 6 . show . bpHash)) <$> toList _branches)
 
 -- |Initial skov data with default runtime parameters (block size = 10MB).
 initialSkovDataDefault :: GenesisData -> bs -> SkovData bs
@@ -87,7 +87,7 @@ initialSkovData rp gd genState =
             _statistics = initialConsensusStatistics,
             _runtimeParameters = rp
         }
-  where gbh = _bpHash gb
+  where gbh = bpHash gb
         gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
         gb = makeGenesisBlockPointer gd genState
 

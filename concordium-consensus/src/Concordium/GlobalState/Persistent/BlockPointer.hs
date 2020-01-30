@@ -37,45 +37,31 @@ emptyWeak = do
 
 -- |A Block Pointer that doesn't retain the values for its Parent and Last finalized block
 data PersistentBlockPointer s = PersistentBlockPointer {
-    -- |Hash of the block
-    _bpHash :: !BlockHash,
-    -- |The block itself
-    _bpBlock :: !Block,
-    -- |Pointer to the parent (circular reference for genesis block)
+    -- |Information about the block, e.g., height, transactions, ...
+    _bpInfo :: !BasicBlockPointerData,
     _bpParent :: Weak (PersistentBlockPointer s),
     -- |Pointer to the last finalized block (circular for genesis)
     _bpLastFinalized :: Weak (PersistentBlockPointer s),
-    -- |Height of the block in the tree
-    _bpHeight :: !BlockHeight,
+    _bpBlock:: !Block,
     -- |The handle for accessing the state (of accounts, contracts, etc.) after execution of the block.
-    _bpState :: !s,
-    -- |Time at which the block was first received
-    _bpReceiveTime :: UTCTime,
-    -- |Time at which the block was first considered part of the tree (validated)
-    _bpArriveTime :: UTCTime,
-    -- |Number of transactions in a block
-    _bpTransactionCount :: !Int,
-    -- |Energy cost of all transactions in the block.
-    _bpTransactionsEnergyCost :: !Energy,
-    -- |Size of the transaction data in bytes.
-    _bpTransactionsSize :: !Int
+    _bpState :: !s
 }
 
 instance Eq (PersistentBlockPointer s) where
-    bp1 == bp2 = _bpHash bp1 == _bpHash bp2
+    bp1 == bp2 = _bpInfo bp1 == _bpInfo bp2
 
 instance Ord (PersistentBlockPointer s) where
-    compare bp1 bp2 = compare (_bpHash bp1) (_bpHash bp2)
+    compare bp1 bp2 = compare (_bpInfo bp1) (_bpInfo bp2)
 
 instance Hashable (PersistentBlockPointer s) where
-    hashWithSalt s = hashWithSalt s . _bpHash
-    hash = hash . _bpHash
+    hashWithSalt s = hashWithSalt s . _bpInfo
+    hash = hash . _bpInfo
 
 instance Show (PersistentBlockPointer s) where
-    show = show . _bpHash
+    show = show . _bpInfo
 
 instance HashableTo Hash.Hash (PersistentBlockPointer s) where
-    getHash = _bpHash
+    getHash = getHash . _bpInfo
 
 type instance BlockFieldType (PersistentBlockPointer s) = BlockFields
 
@@ -106,9 +92,11 @@ makeBlockPointer ::
     -> PersistentBlockPointer s
 makeBlockPointer b _bpHeight _bpParent _bpLastFinalized _bpState _bpArriveTime _bpReceiveTime ene =
   PersistentBlockPointer {
-    _bpHash = getHash b,
-    _bpBlock = b,
-    ..}
+    _bpInfo = BasicBlockPointerData{
+      _bpHash = getHash b,
+      ..},
+      _bpBlock = b,
+      ..}
  where (_bpTransactionCount, _bpTransactionsSize) = List.foldl' (\(clen, csize) tx -> (clen + 1, Transactions.trSize tx + csize)) (0, 0) (blockTransactions b)
        _bpTransactionsEnergyCost = fromMaybe (List.foldl' (\en tx -> Transactions.transactionGasAmount tx + en) 0 (blockTransactions b)) ene
 
@@ -148,10 +136,10 @@ makeBlockPointerFromBlock b s bh = do
   return $ makeBlockPointer b bh parentW lfinW s tm tm Nothing
 
 instance BlockPointerData (PersistentBlockPointer s) where
-    bpHash = _bpHash
-    bpHeight = _bpHeight
-    bpReceiveTime = _bpReceiveTime
-    bpArriveTime = _bpArriveTime
-    bpTransactionCount = _bpTransactionCount
-    bpTransactionsEnergyCost = _bpTransactionsEnergyCost
-    bpTransactionsSize = _bpTransactionsSize
+    bpHash = _bpHash . _bpInfo
+    bpHeight = _bpHeight . _bpInfo
+    bpReceiveTime = _bpReceiveTime . _bpInfo
+    bpArriveTime = _bpArriveTime . _bpInfo
+    bpTransactionCount = _bpTransactionCount . _bpInfo
+    bpTransactionsEnergyCost = _bpTransactionsEnergyCost . _bpInfo
+    bpTransactionsSize = _bpTransactionsSize . _bpInfo

@@ -84,7 +84,7 @@ initialSkovPersistentDataDefault = initialSkovPersistentData defaultRuntimeParam
 initialSkovPersistentData :: RuntimeParameters -> GenesisData -> bs -> ByteString -> FilePath -> IO (SkovPersistentData bs)
 initialSkovPersistentData rp gd genState serState dir = do
   gb <- makeGenesisBlockPointer gd genState
-  let gbh = _bpHash gb
+  let gbh = bpHash gb
       gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
   initialDb <- initialDatabaseHandlers gb serState dir
   return SkovPersistentData {
@@ -146,7 +146,7 @@ instance (bs ~ GS.BlockState m, MonadIO m, BS.BlockStateStorage m, MonadState (S
     env <- use (db . storeEnv)
     dbB <- use (db . blockStore)
     dir <- use (db . path)
-    bs <- BS.putBlockState (_bpState bp)
+    bs <- BS.putBlockState (_bpState $ bp)
     (l, e, d) <- putOrResize lim "blocks" env dir dbB (getHash bp) $ runPut (putBlock bp >> bs >> S.put (bpHeight bp))
     db . limits  .= l
     db . storeEnv .= e
@@ -170,7 +170,11 @@ instance (bs ~ GS.BlockState m, MonadIO m, BS.BlockStateStorage m, MonadState (S
     db . storeEnv .= e
     db . finalizationRecordStore .= d
 
-instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovPersistentData bs) m) => BlockPointerMonad (PersistentTreeStateMonad bs m) where
+instance (bs ~ GS.BlockState m,
+          BS.BlockStateStorage m,
+          Monad m,
+          MonadIO m,
+          MonadState (SkovPersistentData bs) m) => BlockPointerMonad (PersistentTreeStateMonad bs m) where
     blockState = return . _bpState
     bpParent b = do
       gb <- use genesisBlockPointer
@@ -181,7 +185,7 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
         case d of
           Just v -> return v
           Nothing -> do
-            nb <- readBlock (_bpHash b)
+            nb <- readBlock (bpHash b)
             return $ fromMaybe (error "Couldn't find parent block in disk") nb
     bpLastFinalized b = do
       gb <- use genesisBlockPointer
@@ -192,7 +196,7 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
         case d of
           Just v -> return v
           Nothing -> do
-            nb <- readBlock (_bpHash b)
+            nb <- readBlock (bpHash b)
             return $ fromMaybe (error "Couldn't find last finalized block in disk") nb
 
 instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovPersistentData bs) m)
