@@ -38,7 +38,7 @@ stages:
   cache:
     policy: pull
   variables:
-    TEST_LEVEL=1
+    TEST_LEVEL: 1
 
 .generic-rust-test:
   extends: .generic
