@@ -223,14 +223,15 @@ getAncestors sfsRef blockHash count = case readMaybe blockHash of
                 resolveBlock bh >>= \case
                     Nothing -> return Null
                     Just bp -> do
-                      parents <- iterateForM bpParent bp (fromIntegral $ min count (1 + bpHeight bp))
+                      parents <- iterateForM bpParent (fromIntegral $ min count (1 + bpHeight bp)) bp
                       return $ toJSONList $ map hsh parents
    where
-     iterateForM :: (Monad m) => (a -> m a) -> a -> Int -> m [a]
-     iterateForM _ _ 0 = return []
-     iterateForM f x n = do
-       x' <- f x
-       fmap (x:) $ iterateForM f x' (n - 1)
+     iterateForM :: (Monad m) => (a -> m a) -> Int -> a -> m [a]
+     iterateForM f steps initial = reverse <$> (go [] steps initial)
+       where go acc n a | n <= 0 = return acc
+                        | otherwise = do
+                         a' <- f a
+                         go (a:acc) (n-1) a'
 
 getBranches :: forall z m. (SkovStateQueryable z m, Ord (BlockPointer m), HashableTo BlockHash (BlockPointer m), BlockPointerMonad m) => z -> IO Value
 getBranches sfsRef = runStateQuery sfsRef $ do
