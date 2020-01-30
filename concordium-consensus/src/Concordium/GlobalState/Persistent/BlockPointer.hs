@@ -24,6 +24,17 @@ import Data.Time
 import Data.Time.Clock.POSIX
 import System.Mem.Weak
 
+-- |Create an empty weak pointer
+--
+-- Creating a pointer that points to `undefined` with no finalizers and finalizing it
+-- immediately, results in an empty pointer that always return `Nothing`
+-- when dereferenced.
+emptyWeak :: IO (Weak a)
+emptyWeak = do
+  pointer <- mkWeakPtr undefined Nothing
+  finalize pointer
+  return pointer
+
 -- |A Block Pointer that doesn't retain the values for its Parent and Last finalized block
 data PersistentBlockPointer s = PersistentBlockPointer {
     -- |Hash of the block
@@ -131,10 +142,8 @@ makeBlockPointerFromPendingBlock pb parent lfin st arr ene = do
 -- intended to be used when we deserialize a specific block from the disk as we don't want to deserialize its parent or last finalized block.
 makeBlockPointerFromBlock :: Block -> s -> BlockHeight -> IO (PersistentBlockPointer s)
 makeBlockPointerFromBlock b s bh = do
-  parentW <- mkWeakPtr undefined Nothing
-  finalize parentW
-  lfinW <- mkWeakPtr undefined Nothing
-  finalize lfinW
+  parentW <- emptyWeak
+  lfinW <- emptyWeak
   tm <- getCurrentTime
   return $ makeBlockPointer b bh parentW lfinW s tm tm Nothing
 
