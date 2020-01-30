@@ -275,8 +275,21 @@ impl P2PNode {
             bail!("Attempted to connect to myself");
         }
 
+        if read_or_die!(self.connection_handler.soft_bans)
+            .iter()
+            .any(|(ip, _)| *ip == BanId::Ip(addr.ip()) || *ip == BanId::Socket(addr))
+        {
+            bail!("Refusing to connect to a soft-banned IP ({:?})", addr.ip());
+        }
+
+        // We purposely take a write lock to ensure that we will block all the way until
+        // the connection has been either established or failed, as otherwise we can't
+        // be certain the duplicate check can't pass erroneously because two or more
+        // calls happen in too rapid succession.
+        let mut write_lock_connections = write_or_die!(self.connections());
+
         // Don't connect to peers with a known P2PNodeId or IP+port
-        for conn in read_or_die!(self.connections()).values() {
+        for conn in write_lock_connections.values() {
             if conn.remote_addr() == addr
                 || (peer_id_opt.is_some() && conn.remote_id() == peer_id_opt)
             {
@@ -289,13 +302,6 @@ impl P2PNode {
                     }
                 );
             }
-        }
-
-        if read_or_die!(self.connection_handler.soft_bans)
-            .iter()
-            .any(|(ip, _)| *ip == BanId::Ip(addr.ip()) || *ip == BanId::Socket(addr))
-        {
-            bail!("Refusing to connect to a soft-banned IP ({:?})", addr.ip());
         }
 
         self.log_event(P2PEvent::InitiatingConnection(addr));
@@ -316,10 +322,13 @@ impl P2PNode {
 
                 conn.register(&self.poll)?;
 
-                self.add_connection(conn);
+                write_lock_connections.insert(conn.token, conn);
+
                 self.log_event(P2PEvent::ConnectEvent(addr));
 
-                if let Some(ref conn) = self.find_connection_by_token(token) {
+                if let Some(ref conn) =
+                    write_lock_connections.get(&token).map(|conn| Arc::clone(conn))
+                {
                     write_or_die!(conn.low_level).send_handshake_message_a()?;
                 }
 
