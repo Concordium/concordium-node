@@ -5,10 +5,11 @@
 -- the implementation would need to make use of the underlying database.
 module Concordium.GlobalState.BlockPointer where
 
-import Concordium.GlobalState.Classes
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
+
+import Concordium.GlobalState.Classes
 
 class (Monad m, GlobalStateTypes m) => BlockPointerMonad m where
     -- |Get the 'BlockState' of a 'BlockPointer'.
@@ -21,8 +22,11 @@ class (Monad m, GlobalStateTypes m) => BlockPointerMonad m where
     bpLastFinalized :: BlockPointer m -> m (BlockPointer m)
 
 instance (Monad (t m), MonadTrans t, BlockPointerMonad m) => BlockPointerMonad (MGSTrans t m) where
+  {-# INLINE blockState #-}
   blockState = lift . blockState
+  {-# INLINE bpParent #-}
   bpParent = lift . bpParent
+  {-# INLINE bpLastFinalized #-}
   bpLastFinalized = lift . bpLastFinalized
 
 deriving via (MGSTrans MaybeT m) instance BlockPointerMonad m => BlockPointerMonad (MaybeT m)

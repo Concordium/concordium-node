@@ -22,45 +22,33 @@ import qualified Concordium.Types.Transactions as Transactions
 
 
 data BasicBlockPointer s = BasicBlockPointer {
-    -- |Hash of the block
-    _bpHash :: !BlockHash,
-    -- |The block itself
-    _bpBlock :: !Block,
+    -- |Information about the block, e.g., height, transactions, ...
+    _bpInfo :: !BasicBlockPointerData,
     -- |Pointer to the parent (circular reference for genesis block)
     _bpParent :: BasicBlockPointer s,
     -- |Pointer to the last finalized block (circular for genesis)
     _bpLastFinalized :: BasicBlockPointer s,
-    -- |Height of the block in the tree
-    _bpHeight :: !BlockHeight,
-    -- |The handle for accessing the state (of accounts, contracts, etc.) after execution of the block.
-    _bpState :: !s,
-    -- |Time at which the block was first received
-    _bpReceiveTime :: UTCTime,
-    -- |Time at which the block was first considered part of the tree (validated)
-    _bpArriveTime :: UTCTime,
-    -- |Number of transactions in a block
-    _bpTransactionCount :: !Int,
-    -- |Energy cost of all transactions in the block.
-    _bpTransactionsEnergyCost :: !Energy,
-    -- |Size of the transaction data in bytes.
-    _bpTransactionsSize :: !Int
+      -- |The block itself
+    _bpBlock :: !Block,
+      -- |The handle for accessing the state (of accounts, contracts, etc.) after execution of the block.
+    _bpState :: !s
 }
 
 instance Eq (BasicBlockPointer s) where
-    bp1 == bp2 = _bpHash bp1 == _bpHash bp2
+    bp1 == bp2 = _bpInfo bp1 == _bpInfo bp2
 
 instance Ord (BasicBlockPointer s) where
-    compare bp1 bp2 = compare (_bpHash bp1) (_bpHash bp2)
+    compare bp1 bp2 = compare (_bpInfo bp1) (_bpInfo bp2)
 
 instance Hashable (BasicBlockPointer s) where
-    hashWithSalt s = hashWithSalt s . _bpHash
-    hash = hash . _bpHash
+    hashWithSalt s = hashWithSalt s . _bpInfo
+    hash = hash . _bpInfo
 
 instance Show (BasicBlockPointer s) where
-    show = show . _bpHash
+    show = show . _bpInfo
 
 instance HashableTo Hash.Hash (BasicBlockPointer s) where
-    getHash = _bpHash
+    getHash = getHash . _bpInfo
 
 type instance BlockFieldType (BasicBlockPointer s) = BlockFields
 
@@ -91,10 +79,12 @@ makeBasicBlockPointer pb _bpParent _bpLastFinalized _bpState _bpArriveTime _bpTr
         = assert (getHash _bpParent == blockPointer bf) $
             assert (getHash _bpLastFinalized == blockLastFinalized bf) $
                 BasicBlockPointer {
-                    _bpHash = getHash pb,
-                    _bpBlock = NormalBlock (pbBlock pb),
-                    _bpHeight = _bpHeight _bpParent + 1,
-                    _bpReceiveTime = pbReceiveTime pb,
+                    _bpInfo = BasicBlockPointerData{
+                      _bpHash = getHash pb,
+                      _bpHeight = bpHeight _bpParent + 1,
+                      _bpReceiveTime = pbReceiveTime pb,
+                      ..},
+                      _bpBlock = NormalBlock (pbBlock pb),
                     ..}
     where
         bf = bbFields $ pbBlock pb
@@ -104,7 +94,7 @@ makeBasicBlockPointer pb _bpParent _bpLastFinalized _bpState _bpArriveTime _bpTr
 makeGenesisBlockPointer :: GenesisData -> s -> BasicBlockPointer s
 makeGenesisBlockPointer genData _bpState = theBlockPointer
     where
-        theBlockPointer = BasicBlockPointer {..}
+        theBlockPointer = BasicBlockPointer {_bpInfo=BasicBlockPointerData{..},..}
         _bpBlock = makeGenesisBlock genData
         _bpHash = getHash _bpBlock
         _bpParent = theBlockPointer
@@ -118,10 +108,10 @@ makeGenesisBlockPointer genData _bpState = theBlockPointer
 
 
 instance BlockPointerData (BasicBlockPointer s) where
-    bpHash = _bpHash
-    bpHeight = _bpHeight
-    bpReceiveTime = _bpReceiveTime
-    bpArriveTime = _bpArriveTime
-    bpTransactionCount = _bpTransactionCount
-    bpTransactionsEnergyCost = _bpTransactionsEnergyCost
-    bpTransactionsSize = _bpTransactionsSize
+    bpHash = _bpHash . _bpInfo
+    bpHeight = _bpHeight . _bpInfo
+    bpReceiveTime = _bpReceiveTime . _bpInfo
+    bpArriveTime = _bpArriveTime . _bpInfo
+    bpTransactionCount = _bpTransactionCount . _bpInfo
+    bpTransactionsEnergyCost = _bpTransactionsEnergyCost . _bpInfo
+    bpTransactionsSize = _bpTransactionsSize . _bpInfo
