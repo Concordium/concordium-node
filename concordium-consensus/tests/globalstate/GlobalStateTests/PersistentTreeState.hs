@@ -83,24 +83,24 @@ deriving via (GlobalStateM c (Identity c) g (Identity g) (RWST (Identity c) () (
 type TestM = MyTreeStateMonad PBS.PersistentBlockStateContext (SkovPersistentData PBS.PersistentBlockState) (SkovPersistentData PBS.PersistentBlockState)
 type Test = TestM ()
 
-createGlobalState :: IO (PBS.PersistentBlockStateContext, SkovPersistentData PBS.PersistentBlockState)
-createGlobalState = do
+createGlobalState :: FilePath -> IO (PBS.PersistentBlockStateContext, SkovPersistentData PBS.PersistentBlockState)
+createGlobalState dbDir = do
   now <- truncate <$> getPOSIXTime
   let
     n = 3
     genesis = makeGenesisData now n 1 0.5 1 dummyCryptographicParameters dummyIdentityProviders []
     state = genesisState genesis
-    config = DTDBConfig defaultRuntimeParameters genesis state
+    config = DTDBConfig defaultRuntimeParameters genesis state dbDir
   initialiseGlobalState config
 
 destroyGlobalState :: (PBS.PersistentBlockStateContext, SkovPersistentData PBS.PersistentBlockState) -> IO ()
-destroyGlobalState (c, s) = do
+destroyGlobalState (c, s) = 
   shutdownGlobalState (Proxy :: Proxy DiskTreeDiskBlockConfig) c s
 
-specifyWithGS :: String -> Test -> SpecWith (Arg (IO ()))
-specifyWithGS s f = specify s $
+specifyWithGS :: String -> FilePath -> Test -> SpecWith (Arg (IO ()))
+specifyWithGS s dbDir f = specify s $
                     bracket
-                      createGlobalState
+                      (createGlobalState dbDir)
                       destroyGlobalState
                       (\(c, d) -> do
                           (ret, _, _) <- runRWST (runMTSM f) c d
@@ -210,10 +210,11 @@ testEmptyGS = do
 
 tests :: Spec
 tests = do
+  dbPath <- runIO $ (</> "databases") `fmap` getCurrentDirectory 
   around (
     bracket
-      (getCurrentDirectory >>= createDirectoryIfMissing False . (</> "treestate"))
-      (\_ -> getCurrentDirectory >>= removePathForcibly . (</> "treestate"))) $
+      (createDirectoryIfMissing False dbPath)
+      (\_ -> removePathForcibly dbPath)) $
    describe "GlobalState:PersistentTreeState" $ do
-    specifyWithGS "empty gs wrote the genesis to disk" testEmptyGS
-    specifyWithGS "finalize a block" testFinalizeABlock
+    specifyWithGS "empty gs wrote the genesis to disk" dbPath testEmptyGS
+    specifyWithGS "finalize a block" dbPath testFinalizeABlock
