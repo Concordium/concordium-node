@@ -146,8 +146,9 @@ instance (bs ~ GS.BlockState m, MonadIO m, BS.BlockStateStorage m, MonadState (S
     env <- use (db . storeEnv)
     dbB <- use (db . blockStore)
     dir <- use (db . path)
-    bs <- BS.putBlockState (_bpState $ bp)
-    (l, e, d) <- putOrResize lim "blocks" env dir dbB (getHash bp) $ runPut (putBlock bp >> bs >> S.put (bpHeight bp))
+    bs <- BS.putBlockState (_bpState bp)
+    let bs' = runPut bs
+    (l, e, d) <- putOrResize lim "blocks" env dir dbB (getHash bp) $ runPut (putBlock bp >> S.put bs' >> S.put (bpHeight bp))
     db . limits  .= l
     db . storeEnv .= e
     db . blockStore .= d
@@ -185,7 +186,7 @@ instance (bs ~ GS.BlockState m,
         case d of
           Just v -> return v
           Nothing -> do
-            nb <- readBlock (bpHash b)
+            nb <- maybe (return $ Just gb) (\f -> readBlock (blockPointer f)) (blockFields $ _bpBlock b)
             return $ fromMaybe (error "Couldn't find parent block in disk") nb
     bpLastFinalized b = do
       gb <- use genesisBlockPointer
@@ -196,7 +197,7 @@ instance (bs ~ GS.BlockState m,
         case d of
           Just v -> return v
           Nothing -> do
-            nb <- readBlock (bpHash b)
+            nb <-  maybe (return $ Just gb) (\f -> readBlock (blockLastFinalized f)) (blockFields $ _bpBlock b)
             return $ fromMaybe (error "Couldn't find last finalized block in disk") nb
 
 instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovPersistentData bs) m)
