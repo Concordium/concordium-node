@@ -71,6 +71,10 @@ dummyCredential address pExpiry  = ID.CredentialDeploymentValues
 dummyExpiryTime :: ID.CredentialExpiryTime
 dummyExpiryTime = maxBound
 
+{-# WARNING dummyTransactionExpiryTime "Invalid transaction expiry time, only for testing." #-}
+dummyTransactionExpiryTime :: TransactionExpiryTime
+dummyTransactionExpiryTime = TransactionExpiryTime maxBound
+
 -- Derive a dummy registration id from a verification key. This hashes the
 -- account address, and uses it as a seed of a random number generator.
 dummyRegId :: ID.AccountAddress -> ID.CredentialRegistrationID
@@ -127,7 +131,8 @@ initSimpleCounter n = Runner.signTx
           header = Runner.TransactionHeader{
             thNonce = fromIntegral n,
             thSender = mateuszAccount,
-            thEnergyAmount = 100000
+            thEnergyAmount = 100000,
+            thExpiry = dummyTransactionExpiryTime
             }
 
 
@@ -137,7 +142,8 @@ makeTransaction inc ca n = Runner.signTx mateuszKP header payload
         header = Runner.TransactionHeader{
             thNonce = n,
             thSender = mateuszAccount,
-            thEnergyAmount = 1000000
+            thEnergyAmount = 1000000,
+            thExpiry = dummyTransactionExpiryTime
             }
         payload = Types.encodePayload (Types.Update 0
                                                     ca
