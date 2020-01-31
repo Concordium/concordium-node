@@ -91,8 +91,9 @@ makeTestingGenesisData ::
     -> CryptographicParameters -- ^Initial cryptographic parameters.
     -> [IpInfo]   -- ^List of initial identity providers.
     -> [Account]  -- ^List of starting genesis special accounts (in addition to baker accounts).
+    -> Energy  -- ^Maximum limit on the total stated energy of the transactions in a block
     -> GenesisData
-makeTestingGenesisData genesisTime nBakers genesisSlotDuration elecDiff finMinSkip genesisCryptographicParameters genesisIdentityProviders genesisSpecialBetaAccounts
+makeTestingGenesisData genesisTime nBakers genesisSlotDuration elecDiff finMinSkip genesisCryptographicParameters genesisIdentityProviders genesisSpecialBetaAccounts genesisMaxBlockEnergy
     = GenesisData{..}
     where
         genesisMintPerSlot = 10 -- default value, OK for testing.
