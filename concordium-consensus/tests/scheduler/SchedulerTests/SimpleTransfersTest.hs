@@ -74,7 +74,7 @@ testSimpleTransfer
 testSimpleTransfer = do
     transactions <- processTransactions transactionsInput
     let ((Sch.FilteredTransactions{..}, _), gstate) =
-          Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
+          Types.runSI (Sch.filterTransactions dummyBlockSize (Types.Energy maxBound) transactions)
             dummySpecialBetaAccounts
             Types.dummyChainMeta
             initialBlockState

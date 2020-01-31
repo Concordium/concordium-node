@@ -109,7 +109,7 @@ runWithIntermediateStates = do
   let (res, state) = foldl (\(acc, st) tx ->
                             let ((Sch.FilteredTransactions{..}, _), st') =
                                   Types.runSI
-                                    (Sch.filterTransactions dummyBlockSize [tx])
+                                    (Sch.filterTransactions dummyBlockSize (Types.Energy maxBound) [tx])
                                     Set.empty -- special beta accounts
                                     Types.dummyChainMeta
                                     st

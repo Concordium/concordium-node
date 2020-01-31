@@ -81,7 +81,7 @@ testFibonacci = do
     (_, _) <- PR.processModule source -- execute only for effect on global state, i.e., load into cache
     transactions <- processTransactions transactionsInput
     let ((Sch.FilteredTransactions{..}, _), gs) =
-          Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
+          Types.runSI (Sch.filterTransactions dummyBlockSize (Types.Energy maxBound) transactions)
             dummySpecialBetaAccounts
             Types.dummyChainMeta
             initialBlockState

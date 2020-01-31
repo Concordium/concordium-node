@@ -15,6 +15,7 @@ import Concordium.Scheduler.Runner
 import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
 import qualified Concordium.Scheduler.Cost as Cost
+import qualified Concordium.Scheduler.Types as Types
 
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
@@ -165,7 +166,7 @@ testTransactions = forAll makeTransactions (ioProperty . PR.evalContext Init.ini
             transactions <- processTransactions tl
             let ((Sch.FilteredTransactions{..}, _), gs) =
                   EI.runSI
-                    (Sch.filterTransactions dummyBlockSize transactions)
+                    (Sch.filterTransactions dummyBlockSize (Types.Energy maxBound) transactions)
                     (Set.fromList [alesAccount, thomasAccount])
                     dummyChainMeta
                     initialBlockState

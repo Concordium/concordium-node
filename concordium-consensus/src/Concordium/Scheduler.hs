@@ -759,7 +759,7 @@ handleDelegateStake senderAccount meta targetBaker =
 
 -- *Exposed methods.
 -- |Make a valid block out of a list of transactions, respecting the given
--- maximum block size. The list of input transactions is traversed from left to
+-- maximum block size and block energy limit. The list of input transactions is traversed from left to
 -- right and any invalid transactions are not included in the block. The return
 -- value is a FilteredTransactions object where
 --
@@ -771,13 +771,24 @@ handleDelegateStake senderAccount meta targetBaker =
 --   * @ftUnprocessed@ is a list of transactions which were not
 --     processed due to size restrictions.
 filterTransactions :: (TransactionData msg, SchedulerMonad m)
-                      => Integer -> [msg] -> m (FilteredTransactions msg, Energy)
-filterTransactions maxSize = go 0 0 [] [] []
+                      => Integer -> Energy -> [msg] -> m (FilteredTransactions msg, Energy)
+filterTransactions maxSize maxEnergy = go 0 0 [] [] []
   where go !totalEnergyUsed size valid invalid unprocessed (t:ts) = do
           let csize = size + fromIntegral (transactionSize t)
           if csize <= maxSize then -- if the next transaction can fit into a block then add it.
              dispatch t >>= \case
-               TxValid reason -> go (totalEnergyUsed + vrEnergyCost reason) csize ((t, reason):valid) invalid unprocessed ts
+               TxValid reason -> do
+                 let transactionEnergyUsed = vrEnergyCost reason
+                     cenergy = totalEnergyUsed + transactionEnergyUsed
+                 if transactionEnergyUsed > maxEnergy
+                   -- The transaction's used energy exceeds the maximum block energy limit,
+                   -- so the transaction will not be added to a block.
+                   then go totalEnergyUsed size valid ((t, ExceedsMaxBlockEnergy):invalid) unprocessed ts
+                   -- The total energy exceeds the maximum block energy limit,
+                   -- so we postpone processing the transaction to the next block.
+                   else if cenergy > maxEnergy
+                   then go totalEnergyUsed csize valid invalid (t:unprocessed) ts
+                   else go cenergy csize ((t, reason):valid) invalid unprocessed ts
                TxInvalid reason -> go totalEnergyUsed csize valid ((t, reason):invalid) unprocessed ts
           else -- otherwise still try the remaining transactions to avoid deadlocks from
                -- one single too-big transaction.

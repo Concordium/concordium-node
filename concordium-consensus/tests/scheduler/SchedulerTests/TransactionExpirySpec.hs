@@ -123,7 +123,7 @@ testExpiryTime expiry = do
     (_, _) <- PR.processModule source
     ts <- processTransactions $ transactions expiry
     let ((Sch.FilteredTransactions{..}, _), gstate) =
-          Types.runSI (Sch.filterTransactions dummyBlockSize ts)
+          Types.runSI (Sch.filterTransactions dummyBlockSize (Types.Energy maxBound) ts)
             dummySpecialBetaAccounts
             Types.dummyChainMeta { Types.slotTime = slotTime }
             initialBlockState
