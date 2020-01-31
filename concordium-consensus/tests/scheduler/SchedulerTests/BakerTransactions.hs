@@ -14,10 +14,8 @@ import qualified Concordium.Scheduler as Sch
 
 import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.Basic.BlockState.Account as Acc
-import Concordium.GlobalState.Modules as Mod
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
-import qualified Concordium.GlobalState.Rewards as Rew
 
 import qualified Concordium.Crypto.BlockSignature as BlockSig
 import qualified Concordium.Crypto.VRF as VRF
@@ -37,12 +35,10 @@ shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState
-initialBlockState =
-  emptyBlockState emptyBirkParameters dummyCryptographicParameters &
-    (blockAccounts .~ Acc.putAccountWithRegIds (mkAccount alesVK alesAccount 100000)
-                      (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 100000) Acc.emptyAccounts)) .
-    (blockBank . Rew.totalGTU .~ 200000) .
-    (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
+initialBlockState = blockStateWithAlesAccount
+    100000
+    (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 100000) Acc.emptyAccounts)
+    200000
 
 baker0 :: (BakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
 baker0 = mkFullBaker 0 alesAccount

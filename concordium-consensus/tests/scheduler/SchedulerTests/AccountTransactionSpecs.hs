@@ -13,10 +13,8 @@ import qualified Concordium.Scheduler as Sch
 import qualified Concordium.Scheduler.Cost as Cost
 
 import Concordium.GlobalState.Basic.BlockState.Account as Acc
-import Concordium.GlobalState.Modules as Mod
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
-import qualified Concordium.GlobalState.Rewards as Rew
 import Lens.Micro.Platform
 import Control.Monad.IO.Class
 
@@ -34,14 +32,7 @@ initialAmount :: Types.Amount
 initialAmount = fromIntegral (6 * Cost.deployCredential + 7 * Cost.checkHeader)
 
 initialBlockState :: BlockState
-initialBlockState =
-  -- NB: We need 6 * deploy account since we still charge the cost even if an
-  -- account already exists (case 4 in the tests).
-  emptyBlockState emptyBirkParameters dummyCryptographicParameters &
-    (blockAccounts .~ Acc.putAccountWithRegIds (mkAccount alesVK alesAccount initialAmount) Acc.emptyAccounts) .
-    (blockBank . Rew.totalGTU .~ initialAmount) .
-    (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs))) .
-    (blockIdentityProviders .~ dummyIdentityProviders)
+initialBlockState = blockStateWithAlesAccount initialAmount Acc.emptyAccounts initialAmount
 
 deployAccountCost :: Types.Energy
 deployAccountCost = Cost.deployCredential + Cost.checkHeader

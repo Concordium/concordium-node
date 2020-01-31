@@ -20,8 +20,6 @@ import qualified Concordium.Scheduler.Types as Types
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
 import Concordium.GlobalState.Basic.BlockState.Account as Acc
-import Concordium.GlobalState.Modules as Mod
-import Concordium.GlobalState.Rewards as Rew
 
 import Concordium.Crypto.SignatureScheme as Sig
 import Concordium.ID.Types(randomAccountAddress)
@@ -48,11 +46,9 @@ numAccounts :: Int
 numAccounts = 10
 
 initialBlockState :: BlockState
-initialBlockState =
-    emptyBlockState emptyBirkParameters dummyCryptographicParameters &
-        (blockAccounts .~ foldr addAcc Acc.emptyAccounts (take numAccounts staticKeys)) .
-        (blockBank . Rew.totalGTU .~ fromIntegral numAccounts * initBal) .
-        (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
+initialBlockState = createBlockState
+    (foldr addAcc Acc.emptyAccounts (take numAccounts staticKeys))
+    (fromIntegral numAccounts * initBal)
     where
         addAcc (kp, addr) = Acc.putAccountWithRegIds (mkAccount (correspondingVerifyKey kp) addr initBal )
         initBal = 10^(12::Int) :: Amount
