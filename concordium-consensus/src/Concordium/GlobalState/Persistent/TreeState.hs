@@ -26,7 +26,7 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe
 import qualified Data.PQueue.Prio.Min as MPQ
 import qualified Data.Sequence as Seq
-import Data.Serialize as S (runGet, put, get, runPut, runGet, runGetState, decode)
+import Data.Serialize as S (runGet, put, get, runPut, runGet, Put)
 import qualified Data.Set as Set
 import Data.Time.Clock
 import Database.LMDB.Simple as L
@@ -78,10 +78,10 @@ data SkovPersistentData bs = SkovPersistentData {
 makeLenses ''SkovPersistentData
 
 -- |Initial skov data with default runtime parameters (block size = 10MB).
-initialSkovPersistentDataDefault :: GenesisData -> bs -> ByteString -> FilePath -> IO (SkovPersistentData bs)
+initialSkovPersistentDataDefault :: GenesisData -> bs -> S.Put -> FilePath -> IO (SkovPersistentData bs)
 initialSkovPersistentDataDefault = initialSkovPersistentData defaultRuntimeParameters
 
-initialSkovPersistentData :: RuntimeParameters -> GenesisData -> bs -> ByteString -> FilePath -> IO (SkovPersistentData bs)
+initialSkovPersistentData :: RuntimeParameters -> GenesisData -> bs -> S.Put -> FilePath -> IO (SkovPersistentData bs)
 initialSkovPersistentData rp gd genState serState dir = do
   gb <- makeGenesisBlockPointer gd genState
   let gbh = bpHash gb
@@ -117,7 +117,7 @@ initialSkovPersistentData rp gd genState serState dir = do
 --
 -- This newtype establishes types for the @GlobalStateTypes@. The type variable @bs@ stands for the BlockState
 -- type used in the implementation.
-newtype PersistentTreeStateMonad bs m a = PersistentTreeStateMonad { runPureTreeStateMonad :: m a }
+newtype PersistentTreeStateMonad bs m a = PersistentTreeStateMonad { runPersistentTreeStateMonad :: m a }
   deriving (Functor, Applicative, Monad, MonadIO, GS.BlockStateTypes,
             BS.BlockStateQuery, BS.BlockStateOperations, BS.BlockStateStorage)
 deriving instance (Monad m, MonadState (SkovPersistentData bs) m) => MonadState (SkovPersistentData bs) (PersistentTreeStateMonad bs m)
@@ -127,18 +127,20 @@ instance (bs ~ GS.BlockState m) => GS.GlobalStateTypes (PersistentTreeStateMonad
     type BlockPointer (PersistentTreeStateMonad bs m) = PersistentBlockPointer bs
 
 constructBlock :: (MonadIO m, BS.BlockStateStorage m) => Maybe ByteString -> m (Maybe (PersistentBlockPointer (TS.BlockState m)))
-constructBlock bytes = do
-  mapJust bytes (\b -> do
-        tm <- liftIO getCurrentTime
-        mapRight (runGetState (B.getBlock (utcTimeToTransactionTime tm)) b 0) (\(newBlock, rest) ->
-           mapRight (runGetState S.get rest 0) (\(bs, rest') ->
-              mapRight (runGet BS.getBlockState bs) (\state' -> do
-                  st <- state'
-                  mapRight (decode rest') (\height' ->
-                      liftIO $ Just <$> makeBlockPointerFromBlock newBlock st height')))))
-    where
-      mapJust v f = maybe (return Nothing) f v
-      mapRight v f = either (\_ -> return Nothing) f v
+constructBlock Nothing = return Nothing
+constructBlock (Just bytes) = do
+  tm <- liftIO getCurrentTime
+  case runGet (getTriple tm) bytes of
+    Left err -> fail $ "Could not deserialize block: " ++ err
+    Right (newBlock, state', height') -> do
+      st <- state'
+      liftIO $! Just <$> (makeBlockPointerFromBlock newBlock st height')
+  where getTriple tm = do
+          newBlock <- B.getBlock (utcTimeToTransactionTime tm)
+          state' <- BS.getBlockState
+          height' <- S.get
+          return (newBlock, state', height')
+
 
 instance (bs ~ GS.BlockState m, MonadIO m, BS.BlockStateStorage m, MonadState (SkovPersistentData bs) m) => LMDBStoreMonad (PersistentTreeStateMonad bs m) where
   writeBlock bp = do

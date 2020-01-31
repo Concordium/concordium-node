@@ -12,7 +12,7 @@ import Concordium.Types.HashableTo
 import Control.Exception
 import Control.Monad.IO.Class
 import Data.ByteString
-import Data.Serialize as S (Serialize, put, runPut)
+import Data.Serialize as S (Serialize, put, runPut, Put)
 import Database.LMDB.Raw
 import Database.LMDB.Simple as L
 import Lens.Micro.Platform
@@ -29,7 +29,7 @@ data DatabaseHandlers bs = DatabaseHandlers {
 makeLenses ''DatabaseHandlers
 
 -- |Initialize the database handlers creating the databases if needed and writing the genesis block and its finalization record into the disk
-initialDatabaseHandlers :: PersistentBlockPointer bs -> ByteString -> FilePath -> IO (DatabaseHandlers bs)
+initialDatabaseHandlers :: PersistentBlockPointer bs -> S.Put -> FilePath -> IO (DatabaseHandlers bs)
 initialDatabaseHandlers gb serState dir = liftIO $ do
   let _limits = defaultLimits { mapSize = 64_000_000, maxDatabases = 2 } -- 64MB
   createDirectoryIfMissing False dir
@@ -40,7 +40,7 @@ initialDatabaseHandlers gb serState dir = liftIO $ do
     (getDatabase (Just "finalization") :: L.Transaction ReadWrite (Database FinalizationIndex FinalizationRecord))
   let gbh = getHash gb
       gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
-  transaction _storeEnv $ L.put _blockStore (getHash gb) (Just $ runPut (putBlock gb >> S.put serState >> S.put (BlockHeight 0)))
+  transaction _storeEnv $ L.put _blockStore (getHash gb) (Just $ runPut (putBlock gb <> serState <> S.put (BlockHeight 0)))
   transaction _storeEnv $ L.put _finalizationRecordStore 0 (Just gbfin)
   let _path = dir
   return $ DatabaseHandlers {..}

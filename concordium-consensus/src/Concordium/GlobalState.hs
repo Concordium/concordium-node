@@ -22,7 +22,6 @@ import Control.Monad.Reader.Class
 import Control.Monad.State.Class
 import Control.Monad.Trans.RWS.Strict
 import Control.Monad.Trans.Reader
-import Data.ByteString (empty)
 import Data.Functor.Identity
 import Data.IORef (newIORef,writeIORef)
 import Data.Proxy
@@ -300,7 +299,7 @@ instance GlobalStateConfig DiskTreeMemoryBlockConfig where
     type GSContext DiskTreeMemoryBlockConfig = ()
     type GSState DiskTreeMemoryBlockConfig = SkovPersistentData BS.BlockState
     initialiseGlobalState (DTMBConfig rtparams gendata bs dir) = do
-        isd <- initialSkovPersistentData rtparams gendata bs empty dir
+        isd <- initialSkovPersistentData rtparams gendata bs mempty dir
         return ((), isd)
     shutdownGlobalState _ _ _ = return ()
 
@@ -316,7 +315,7 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
         pbscModuleCache <- newIORef emptyModuleCache
         pbs <- makePersistent bs
         let pbsc = PersistentBlockStateContext{..}
-        serBS <- runPut <$> runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc
+        serBS <- runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc
         isd <- initialSkovPersistentData rtparams gendata pbs serBS dir
         return (pbsc, isd)
     shutdownGlobalState _ (PersistentBlockStateContext{..}) _ = do
