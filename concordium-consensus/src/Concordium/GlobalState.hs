@@ -293,17 +293,6 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
         destroyTempBlobStore pbscBlobStore
         writeIORef pbscModuleCache Persistent.emptyModuleCache
 
--- |Configuration that uses the disk tree state and the memory block state
-data DiskTreeMemoryBlockConfig = DTMBConfig RuntimeParameters GenesisData BS.BlockState FilePath
-
-instance GlobalStateConfig DiskTreeMemoryBlockConfig where
-    type GSContext DiskTreeMemoryBlockConfig = ()
-    type GSState DiskTreeMemoryBlockConfig = SkovPersistentData BS.BlockState
-    initialiseGlobalState (DTMBConfig rtparams gendata bs dir) = do
-        isd <- initialSkovPersistentData rtparams gendata bs empty dir
-        return ((), isd)
-    shutdownGlobalState _ _ _ = return ()
-
 -- |Configuration that uses the disk implementation for both the tree state
 -- and the block state
 data DiskTreeDiskBlockConfig = DTDBConfig RuntimeParameters GenesisData BS.BlockState FilePath
