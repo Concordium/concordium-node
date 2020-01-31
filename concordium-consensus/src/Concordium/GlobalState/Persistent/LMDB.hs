@@ -12,7 +12,7 @@ import Concordium.Types.HashableTo
 import Control.Exception
 import Control.Monad.IO.Class
 import Data.ByteString
-import Data.Serialize as S (Serialize, put, runPut)
+import Data.Serialize as S (Serialize, put, runPut, putByteString)
 import Database.LMDB.Raw
 import Database.LMDB.Simple as L
 import Lens.Micro.Platform
@@ -40,7 +40,7 @@ initialDatabaseHandlers gb serState dir = liftIO $ do
     (getDatabase (Just "finalization") :: L.Transaction ReadWrite (Database FinalizationIndex FinalizationRecord))
   let gbh = getHash gb
       gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
-  transaction _storeEnv $ L.put _blockStore (getHash gb) (Just $ runPut (putBlock gb >> S.put serState >> S.put (BlockHeight 0)))
+  transaction _storeEnv $ L.put _blockStore (getHash gb) (Just $ runPut (putBlock gb >> S.putByteString serState >> S.put (BlockHeight 0)))
   transaction _storeEnv $ L.put _finalizationRecordStore 0 (Just gbfin)
   let _path = dir
   return $ DatabaseHandlers {..}
