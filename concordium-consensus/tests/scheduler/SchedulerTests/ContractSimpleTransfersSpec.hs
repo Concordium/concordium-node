@@ -1,7 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE LambdaCase #-}
-
 module SchedulerTests.ContractSimpleTransfersSpec where
 
 import Test.Hspec
@@ -110,15 +107,15 @@ testSimpleTransfers = do
 checkSimpleTransfersResult :: ([(a, Types.ValidResult)], [b], BlockState) -> Bool
 checkSimpleTransfersResult (suc, fails, gs) =
   null fails && -- should be no failed transactions
-  length reject == 0 &&
+  null reject &&
   length nonreject == 5 &&
   stateCheck
   where
-    nonreject = filter (\case (_, Types.TxSuccess _ _ _) -> True
-                              (_, Types.TxReject _ _ _) -> False)
+    nonreject = filter (\case (_, Types.TxSuccess{}) -> True
+                              (_, Types.TxReject{}) -> False)
                         suc
-    reject = filter (\case (_, Types.TxSuccess _ _ _) -> False
-                           (_, Types.TxReject _ _ _) -> True
+    reject = filter (\case (_, Types.TxSuccess{}) -> False
+                           (_, Types.TxReject{}) -> True
                     )
                         suc
 

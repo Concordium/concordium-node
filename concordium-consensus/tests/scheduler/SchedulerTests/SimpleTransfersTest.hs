@@ -1,7 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE LambdaCase #-}
-
 module SchedulerTests.SimpleTransfersTest where
 
 import Test.Hspec
@@ -97,8 +94,8 @@ checkSimpleTransferResult (suc, fails, alesamount, thomasamount) =
   alesamount == (100000 - 4 * fromIntegral Cost.checkHeader - 88 - 98700 + 100) &&
   thomasamount == (100000 - fromIntegral Cost.checkHeader + 88 + 98700 - 100)
   where
-    nonreject = all (\case (_, Types.TxSuccess _ _ _) -> True
-                           (_, Types.TxReject _ _ _) -> False)
+    nonreject = all (\case (_, Types.TxSuccess{}) -> True
+                           (_, Types.TxReject{}) -> False)
                     (init suc)
     reject = case last suc of
                (_, Types.TxReject (Types.AmountTooLarge _ _) _ _) -> True
@@ -106,6 +103,6 @@ checkSimpleTransferResult (suc, fails, alesamount, thomasamount) =
 
 tests :: SpecWith ()
 tests =
-  describe "Simple transfers test:" $ do
-    specify "3 successful and 1 failed transaction" $ do
+  describe "Simple transfers test:" $
+    specify "3 successful and 1 failed transaction" $
       PR.evalContext Init.initialContextData testSimpleTransfer `shouldReturnP` checkSimpleTransferResult

@@ -1,7 +1,4 @@
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE LambdaCase #-}
-
 module SchedulerTests.FibonacciTest where
 
 import Test.Hspec
@@ -100,16 +97,16 @@ checkFibonacciResult ::
   ([(a, Types.ValidResult)], [b], [(Types.ContractAddress, Types.Instance)]) -> Bool
 checkFibonacciResult (suc, fails, instances) =
   null fails && -- should be no failed transactions
-  length reject == 0 && -- no rejected transactions either
+  null reject && -- no rejected transactions either
   length instances == 1 && -- only a single contract instance should be created
   checkLocalState (snd (head instances)) -- and the local state should match the actual list of fibonacci numbers
   where
-    reject = filter (\case (_, Types.TxSuccess _ _ _) -> False
-                           (_, Types.TxReject _ _ _) -> True
+    reject = filter (\case (_, Types.TxSuccess{}) -> False
+                           (_, Types.TxReject{}) -> True
                     )
                         suc
     checkLocalState inst =
-      let results = List.sort . map snd $ (extractMap (Types.instanceModel inst))
+      let results = List.sort . map snd $ extractMap (Types.instanceModel inst)
       in results == take 31 fib
     extractMap (Types.VConstructor _ (Types.VLiteral (Core.Int64 k) Seq.:<|
                                       Types.VLiteral (Core.Int64 v) Seq.:<|
@@ -118,6 +115,6 @@ checkFibonacciResult (suc, fails, instances) =
 
 tests :: Spec
 tests =
-  describe "Fibonacci with self reference." $ do
-    specify "Check first 31 fibonacci are correct." $ do
+  describe "Fibonacci with self reference." $
+    specify "Check first 31 fibonacci are correct." $
       PR.evalContext Init.initialContextData testFibonacci `shouldReturnP` checkFibonacciResult

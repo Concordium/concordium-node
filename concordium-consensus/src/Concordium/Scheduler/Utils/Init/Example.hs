@@ -1,8 +1,7 @@
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -Wall -Wno-deprecations #-}
-module Concordium.Scheduler.Utils.Init.Example {-# WARNING "This module should not be used in production code" #-}
+module Concordium.Scheduler.Utils.Init.Example
     (initialState, makeTransaction, mateuszAccount, dummyCredential, dummyMaxExpiryTime) where
 
 import qualified Data.HashMap.Strict as Map
@@ -92,6 +91,7 @@ initSimpleCounter n = Runner.signTx
             }
 
 
+{-# WARNING makeTransaction "Dummy transaction, only use for testing." #-}
 makeTransaction :: Bool -> ContractAddress -> Nonce -> Types.BareTransaction
 makeTransaction inc ca n = Runner.signTx mateuszKP header payload
     where
@@ -108,6 +108,7 @@ makeTransaction inc ca n = Runner.signTx mateuszKP header payload
                                                     )
 
 -- |State with the given number of contract instances of the counter contract specified.
+{-# WARNING initialState "Dummy initial state, only use for testing." #-}
 initialState :: BirkParameters
              -> CryptographicParameters
              -> [Account]

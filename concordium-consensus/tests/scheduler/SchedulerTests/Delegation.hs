@@ -1,8 +1,5 @@
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE CPP #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 module SchedulerTests.Delegation where
 
@@ -80,10 +77,18 @@ initialModel = Model {
 addBaker :: Model -> Gen (TransactionJSON, Model)
 addBaker m0 = do
         (bkrAcct, (kp, nonce)) <- elements (Map.toList $ _mAccounts m0)
+        -- FIXME: Once we require proof of knowledge of this key the last secret aggregation key
+        -- will be needed.
         let (bkr, electionSecretKey, signKey, _aggregationKey) = mkFullBaker (m0 ^. mNextSeed) bkrAcct
         return (TJSON {
-
-            payload = AddBaker (bkr ^. bakerElectionVerifyKey) electionSecretKey (bkr ^. bakerSignatureVerifyKey) (bkr ^. bakerAggregationVerifyKey) signKey bkrAcct kp,
+            payload = AddBaker
+                      (bkr ^. bakerElectionVerifyKey)
+                      electionSecretKey
+                      (bkr ^. bakerSignatureVerifyKey)
+                      (bkr ^. bakerAggregationVerifyKey)
+                      signKey
+                      bkrAcct
+                      kp,
             metadata = makeDummyHeader bkrAcct nonce (Cost.checkHeader + Cost.addBaker),
             keypair = kp
         }, m0
@@ -171,5 +176,5 @@ testTransactions = forAll makeTransactions (ioProperty . PR.evalContext Init.ini
                 Right _ -> return $ property True
 
 tests :: Spec
-tests = describe "SchedulerTests.Delegation" $ do
-    it "Delegation" $ withMaxSuccess 1000 $ testTransactions
+tests = describe "SchedulerTests.Delegation" $
+    it "Delegation" $ withMaxSuccess 1000 testTransactions

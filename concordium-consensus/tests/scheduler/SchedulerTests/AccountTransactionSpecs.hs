@@ -1,7 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE LambdaCase #-}
-
 module SchedulerTests.AccountTransactionSpecs where
 
 import Test.Hspec
@@ -133,6 +130,6 @@ checkAccountCreationResult (suc, fails, stateAccs, stateAles, bankState) =
 
 tests :: Spec
 tests =
-  describe "Account creation" $ do
-    specify "3 accounts created, fourth rejected, one more created, a credential deployed, and out of gas " $ do
+  describe "Account creation" $
+    specify "3 accounts created, fourth rejected, one more created, a credential deployed, and out of gas " $
       PR.evalContext Init.initialContextData testAccountCreation `shouldReturnP` checkAccountCreationResult

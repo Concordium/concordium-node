@@ -1,8 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE CPP #-}
-
 module SchedulerTests.ContractCommSpec where
 
 import Test.Hspec
@@ -124,16 +120,16 @@ checkCommCounterResult (suc, fails) =
   length reject == 1 &&  -- one rejected (which is also the last one)
   length nonreject == 6  -- and 6 successful ones
   where
-    nonreject = filter (\case (_, Types.TxSuccess _ _ _) -> True
-                              (_, Types.TxReject _ _ _) -> False)
+    nonreject = filter (\case (_, Types.TxSuccess{}) -> True
+                              (_, Types.TxReject{}) -> False)
                         suc
-    reject = filter (\case (_, Types.TxSuccess _ _ _) -> False
-                           (_, Types.TxReject _ _ _) -> True
+    reject = filter (\case (_, Types.TxSuccess{}) -> False
+                           (_, Types.TxReject{}) -> True
                     )
                         suc
 
 tests :: SpecWith ()
 tests =
-  describe "Communicating counter." $ do
-    specify "6 successful and 1 failed transaction" $ do
+  describe "Communicating counter." $
+    specify "6 successful and 1 failed transaction" $
       PR.evalContext Init.initialContextData testCommCounter `shouldReturnP` checkCommCounterResult
