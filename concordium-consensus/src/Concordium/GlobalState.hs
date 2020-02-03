@@ -294,18 +294,18 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
 
 -- |Configuration that uses the disk implementation for both the tree state
 -- and the block state
-data DiskTreeDiskBlockConfig = DTDBConfig RuntimeParameters GenesisData BS.BlockState FilePath
+data DiskTreeDiskBlockConfig = DTDBConfig RuntimeParameters GenesisData BS.BlockState
 
 instance GlobalStateConfig DiskTreeDiskBlockConfig where
     type GSContext DiskTreeDiskBlockConfig = PersistentBlockStateContext
     type GSState DiskTreeDiskBlockConfig = SkovPersistentData PersistentBlockState
-    initialiseGlobalState (DTDBConfig rtparams gendata bs dir) = do
+    initialiseGlobalState (DTDBConfig rtparams gendata bs) = do
         pbscBlobStore <- createTempBlobStore
         pbscModuleCache <- newIORef emptyModuleCache
         pbs <- makePersistent bs
         let pbsc = PersistentBlockStateContext{..}
         serBS <- runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc
-        isd <- initialSkovPersistentData rtparams gendata pbs serBS dir
+        isd <- initialSkovPersistentData rtparams gendata pbs serBS
         return (pbsc, isd)
     shutdownGlobalState _ (PersistentBlockStateContext{..}) _ = do
         destroyTempBlobStore pbscBlobStore

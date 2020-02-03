@@ -3,6 +3,7 @@
 
 module Concordium.GlobalState.Persistent.LMDB where
 
+import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Finalization
@@ -20,7 +21,6 @@ import System.Directory
 
 -- |Values used by the LMDBStoreMonad to manage the database
 data DatabaseHandlers bs = DatabaseHandlers {
-    _path :: FilePath,
     _limits :: Limits,
     _storeEnv :: Environment ReadWrite,
     _blockStore :: Database BlockHash ByteString,
@@ -29,11 +29,11 @@ data DatabaseHandlers bs = DatabaseHandlers {
 makeLenses ''DatabaseHandlers
 
 -- |Initialize the database handlers creating the databases if needed and writing the genesis block and its finalization record into the disk
-initialDatabaseHandlers :: PersistentBlockPointer bs -> S.Put -> FilePath -> IO (DatabaseHandlers bs)
-initialDatabaseHandlers gb serState dir = liftIO $ do
+initialDatabaseHandlers :: PersistentBlockPointer bs -> S.Put -> RuntimeParameters -> IO (DatabaseHandlers bs)
+initialDatabaseHandlers gb serState RuntimeParameters{..} = liftIO $ do
   let _limits = defaultLimits { mapSize = 64_000_000, maxDatabases = 2 } -- 64MB
-  createDirectoryIfMissing False dir
-  _storeEnv <- openEnvironment dir _limits
+  createDirectoryIfMissing False rpTreeStateDir
+  _storeEnv <- openEnvironment rpTreeStateDir _limits
   _blockStore <- transaction _storeEnv
     (getDatabase (Just "blocks") :: L.Transaction ReadWrite (Database BlockHash ByteString))
   _finalizationRecordStore <- transaction _storeEnv
@@ -42,7 +42,6 @@ initialDatabaseHandlers gb serState dir = liftIO $ do
       gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
   transaction _storeEnv $ L.put _blockStore (getHash gb) (Just $ runPut (putBlock gb <> serState <> S.put (BlockHeight 0)))
   transaction _storeEnv $ L.put _finalizationRecordStore 0 (Just gbfin)
-  let _path = dir
   return $ DatabaseHandlers {..}
 
 -- |Monad to abstract over the operations for reading and writing from a LMDB database. It provides functions for reading and writing Blocks and FinalizationRecords.
