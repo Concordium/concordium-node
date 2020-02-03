@@ -159,7 +159,7 @@ testTransactions :: Property
 testTransactions = forAll makeTransactions (ioProperty . PR.evalContext Init.initialContextData . tt)
     where
         tt tl = do
-            transactions <- processTransactions tl
+            transactions <- processUngroupedTransactions tl
             let ((Sch.FilteredTransactions{..}, _), gs) =
                   EI.runSI
                     (Sch.filterTransactions dummyBlockSize (Types.Energy maxBound) transactions)

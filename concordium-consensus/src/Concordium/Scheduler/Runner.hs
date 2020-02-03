@@ -86,6 +86,19 @@ transactionHelper t =
 processTransactions :: (MonadFail m, MonadIO m) => [TransactionJSON]  -> Context Core.UA m [Types.BareTransaction]
 processTransactions = mapM transactionHelper
 
+-- |For testing purposes: process transactions without grouping them by accounts
+-- (i.e. creating one "group" per transaction)
+processUngroupedTransactions :: (MonadFail m, MonadIO m) =>
+                       [TransactionJSON] ->
+                       Context Core.UA m (Types.GroupedTransactions Types.BareTransaction)
+processUngroupedTransactions = (fmap . fmap) (:[]) . processTransactions
+
+-- |For testing purposes: process transactions in the groups in which they came
+processGroupedTransactions :: (MonadFail m, MonadIO m) =>
+                              [[TransactionJSON]] ->
+                              Context Core.UA m (Types.GroupedTransactions Types.BareTransaction)
+processGroupedTransactions = mapM processTransactions
+
 data PayloadJSON = DeployModule { moduleName :: Text }
                  | InitContract { amount :: Amount
                                 , moduleName :: Text

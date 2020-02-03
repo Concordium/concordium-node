@@ -68,7 +68,7 @@ testSimpleTransfer
        ([(Types.BareTransaction, Types.ValidResult)],
         [(Types.BareTransaction, Types.FailureKind)], Types.Amount, Types.Amount)
 testSimpleTransfer = do
-    transactions <- processTransactions transactionsInput
+    transactions <- processUngroupedTransactions transactionsInput
     let ((Sch.FilteredTransactions{..}, _), gstate) =
           Types.runSI (Sch.filterTransactions dummyBlockSize (Types.Energy maxBound) transactions)
             dummySpecialBetaAccounts

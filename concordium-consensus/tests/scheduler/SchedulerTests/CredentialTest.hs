@@ -61,7 +61,7 @@ testCredentialCheck
         [(Types.BareTransaction, Types.FailureKind)],
         [Types.BareTransaction])
 testCredentialCheck = do
-    transactions <- processTransactions transactionsInput
+    transactions <- processUngroupedTransactions transactionsInput
     let ((Sch.FilteredTransactions{..}, _), gstate) =
           Types.runSI (Sch.filterTransactions dummyBlockSize (Types.Energy maxBound) transactions)
             dummySpecialBetaAccounts
@@ -70,7 +70,7 @@ testCredentialCheck = do
     case invariantBlockState gstate of
         Left f -> liftIO $ assertFailure f
         Right _ -> return ()
-    return (ftAdded, ftFailed, transactions)
+    return (ftAdded, ftFailed, concat transactions)
 
 checkCredentialCheckResult :: ([(Types.BareTransaction, Types.ValidResult)],
                                [(Types.BareTransaction, Types.FailureKind)],

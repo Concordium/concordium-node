@@ -10,6 +10,7 @@ import qualified SchedulerTests.Delegation(tests)
 import qualified SchedulerTests.ContractSimpleTransfersSpec(tests)
 import qualified SchedulerTests.CredentialTest(tests)
 import qualified SchedulerTests.TransactionExpirySpec(tests)
+import qualified SchedulerTests.BlockEnergyLimitSpec(tests)
 
 import Test.Hspec
 
@@ -25,3 +26,4 @@ main = hspec $ do
          SchedulerTests.ContractSimpleTransfersSpec.tests
          SchedulerTests.CredentialTest.tests
          SchedulerTests.TransactionExpirySpec.tests
+         SchedulerTests.BlockEnergyLimitSpec.tests

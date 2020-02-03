@@ -87,7 +87,7 @@ testSimpleTransfers ::
 testSimpleTransfers = do
     source <- liftIO $ TIO.readFile "test/contracts/SimpleContractTransfers.acorn"
     (_, _) <- PR.processModule source -- execute only for effect on global state
-    transactions <- processTransactions transactionsInput
+    transactions <- processUngroupedTransactions transactionsInput
     let ((Sch.FilteredTransactions{..}, _), endState) =
             Types.runSI (Sch.filterTransactions dummyBlockSize (Types.Energy maxBound) transactions)
               dummySpecialBetaAccounts

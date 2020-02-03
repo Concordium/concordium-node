@@ -101,7 +101,7 @@ runWithIntermediateStates :: PR.Context Core.UA IO ([([(Types.BareTransaction, T
                                                      [(Types.BareTransaction, Types.FailureKind)],
                                                      Types.BirkParameters)], BlockState)
 runWithIntermediateStates = do
-  txs <- processTransactions transactionsInput
+  txs <- processUngroupedTransactions transactionsInput
   let (res, state) = foldl (\(acc, st) tx ->
                             let ((Sch.FilteredTransactions{..}, _), st') =
                                   Types.runSI

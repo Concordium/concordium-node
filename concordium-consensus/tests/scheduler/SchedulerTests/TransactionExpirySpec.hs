@@ -114,7 +114,7 @@ testExpiryTime ::
 testExpiryTime expiry = do
     source <- liftIO $ TIO.readFile "test/contracts/FibContract.acorn"
     (_, _) <- PR.processModule source
-    ts <- processTransactions $ transactions expiry
+    ts <- processUngroupedTransactions $ transactions expiry
     let ((Sch.FilteredTransactions{..}, _), gstate) =
           Types.runSI (Sch.filterTransactions dummyBlockSize (Types.Energy maxBound) ts)
             dummySpecialBetaAccounts

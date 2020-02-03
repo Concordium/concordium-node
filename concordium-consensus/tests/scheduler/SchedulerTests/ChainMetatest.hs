@@ -68,7 +68,7 @@ testChainMeta ::
 testChainMeta = do
     source <- liftIO $ TIO.readFile "test/contracts/ChainMetaTest.acorn"
     (_, _) <- PR.processModule source -- execute only for effect on global state, i.e., load into cache
-    transactions <- processTransactions transactionsInput
+    transactions <- processUngroupedTransactions transactionsInput
     let ((Sch.FilteredTransactions{..}, _), gs) =
           Types.runSI (Sch.filterTransactions dummyBlockSize (Types.Energy maxBound) transactions)
             dummySpecialBetaAccounts
