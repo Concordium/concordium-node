@@ -317,20 +317,20 @@ receiveWMVBAMessage src sig (WMVBAWitnessCreatorMessage (v, blssig)) = do
         -- we can attempt to create the bls aggregate signature
         when ((PM.weight newJV) - (PS.weight badJV) > corruptWeight) $ do
           -- TODO: optimize, this is just a first draft
-          let (aggSig, newBadJV) = createAggregateSig wi v (snd <$> newJV) badJV
-          let noNewBad = newBadJV == badJV
-          unless noNewBad $ badJustifications . at v . non PS.empty .= newBadJV
-          when (noNewBad || PM.weight newJV - PS.weight badJV > corruptWeight) $
-            wmvbaComplete (Just (v, aggSig))
-              -- TODO: check if finalization can still finish. If enough bad justifications has been seen,
-              -- finalization may not be able to finish.
+          let (proofdata, newBadJV) = createAggregateSig wi v (snd <$> newJV) badJV
+          badJustifications . at v . non PS.empty .= newBadJV
+          case proofdata of
+            Just (good, blssig') -> wmvbaComplete $ Just (v, (good, blssig'))
+            Nothing -> return ()
+          -- TODO: check if finalization can still finish. If enough bad justifications has been seen,
+          -- finalization may not be able to finish.
 
 -- |Construct an aggregate signature. This aggregates all of the
--- valid signatures (except those already marked as bad).  It returns
--- the aggregated signature and an updated set of bad parties.
--- If all signatures are invalid, the aggregate signature will not
--- be valid.
-createAggregateSig :: 
+-- valid signatures (except those already marked as bad). It returns
+-- the aggregated signature and an updated set of bad parties. No signature
+-- is returned if enough bad justifications are found that the good ones no
+-- longer exceed the corruption threshold
+createAggregateSig ::
     WMVBAInstance sig
     -> Val
     -- ^Value chosen
@@ -338,24 +338,27 @@ createAggregateSig ::
     -- ^Parties' BLS signatures
     -> PartySet
     -- ^Parties with known bad signatures
-    -> (([Party], Bls.Signature), PartySet)
-createAggregateSig w@WMVBAInstance{..} v allJV badJV =
+    -> (Maybe ([Party], Bls.Signature), PartySet)
+createAggregateSig WMVBAInstance{..} v allJV badJV =
         if Bls.verifyAggregate toSign keys aggSig then
-            ((fst <$> goodJustifications, aggSig), badJV)
-        else
-            -- TODO: we can optimise this since the verifyAggregate check
-            -- in the recursive call must succeed.
-            createAggregateSig w v allJV newBadJV
+            (Just (fst <$> goodJustifications, aggSig), badJV)
+        -- check that we still exceed the corruptWeight after removing culprits
+        -- and if not return only the newBadJV
+        else if PM.weight allJV - PS.weight newBadJV > corruptWeight then
+            (Just (fst <$> newGoodJustifications, newAggSig), newBadJV)
+        else (Nothing, newBadJV)
     where
         toSign = witnessMessage baid v
-        filterJustifications
-            | PS.null badJV = id
-            | otherwise = filter (\(p,_) -> not (PS.member p badJV))
-        goodJustifications = filterJustifications (PM.toList allJV)
+        filterJustifications badJV'
+            | PS.null badJV' = id
+            | otherwise = filter (\(p,_) -> not (PS.member p badJV'))
+        goodJustifications = filterJustifications badJV (PM.toList allJV)
         keys = (publicBlsKeys . fst) <$> goodJustifications
         aggSig = Bls.aggregateMany (snd <$> goodJustifications)
         culprits = findCulprits goodJustifications toSign publicBlsKeys
         newBadJV = foldr (\c -> PS.insert c (partyWeight c)) badJV culprits
+        newGoodJustifications = filterJustifications newBadJV goodJustifications
+        newAggSig = Bls.aggregateMany (snd <$> newGoodJustifications)
 
 -- TODO: optimize, this is just a first draft
 -- Internal function, this is only exported for testing purposes
