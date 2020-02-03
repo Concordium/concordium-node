@@ -138,8 +138,8 @@ genesisState genData = Example.initialState
 
 
 type TreeConfig = DiskTreeDiskBlockConfig
-makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> Int -> IO TreeConfig
-makeGlobalStateConfig rt genData bid = return $ DTDBConfig rt genData (genesisState genData) ("database-" ++ show bid)
+makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
+makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData (genesisState genData)
 
 type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) HookLogHandler
 
@@ -160,7 +160,7 @@ main = do
         logTransferFile <- openFile ("transfer-log-" ++ show now ++ "-" ++ show bakerId ++ ".transfers") WriteMode
         let logT bh slot reason =
               hPrint logTransferFile (bh, slot, reason)
-        gsconfig <- makeGlobalStateConfig defaultRuntimeParameters gen bakerId
+        gsconfig <- makeGlobalStateConfig (defaultRuntimeParameters { rpTreeStateDir = "database-" ++ show bakerId }) gen
         let
             finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)) gen
             hconfig = HookLogHandler (Just logT)
