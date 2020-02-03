@@ -90,11 +90,11 @@ createGlobalState dbDir = do
     n = 3
     genesis = makeGenesisData now n 1 0.5 1 dummyCryptographicParameters dummyIdentityProviders []
     state = genesisState genesis
-    config = DTDBConfig defaultRuntimeParameters genesis state dbDir
+    config = DTDBConfig (defaultRuntimeParameters { rpTreeStateDir = dbDir }) genesis state
   initialiseGlobalState config
 
 destroyGlobalState :: (PBS.PersistentBlockStateContext, SkovPersistentData PBS.PersistentBlockState) -> IO ()
-destroyGlobalState (c, s) = 
+destroyGlobalState (c, s) =
   shutdownGlobalState (Proxy :: Proxy DiskTreeDiskBlockConfig) c s
 
 specifyWithGS :: String -> FilePath -> Test -> SpecWith (Arg (IO ()))
@@ -210,7 +210,7 @@ testEmptyGS = do
 
 tests :: Spec
 tests = do
-  dbPath <- runIO $ (</> "databases") `fmap` getCurrentDirectory 
+  dbPath <- runIO $ (</> "databases") `fmap` getCurrentDirectory
   around (
     bracket
       (createDirectoryIfMissing False dbPath)
