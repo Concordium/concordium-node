@@ -262,8 +262,8 @@ callCatchUpStatusCallback :: FunPtr CatchUpStatusCallback -> BS.ByteString -> IO
 callCatchUpStatusCallback cbk bs = BS.useAsCStringLen bs $ \(cdata, clen) -> invokeCatchUpStatusCallback cbk cdata (fromIntegral clen)
 
 type TreeConfig = DiskTreeDiskBlockConfig
-makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> FilePath -> TreeConfig
-makeGlobalStateConfig rt genData dir = DTDBConfig rt genData (genesisState genData) dir
+makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> TreeConfig
+makeGlobalStateConfig rt genData = DTDBConfig rt genData (genesisState genData)
 
 type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) HookLogHandler
 type PassiveConfig = SkovConfig TreeConfig NoFinalization HookLogHandler
@@ -316,9 +316,8 @@ startConsensus maxBlock gdataC gdataLenC bidC bidLenC bcbk cucbk maxLogLevel lcb
             (Right genData, Right bid) -> do
                 let
                     gsconfig = makeGlobalStateConfig
-                        (RuntimeParameters (fromIntegral maxBlock))
+                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate"))
                         genData
-                        (appData </> "treestate")
                     finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)) genData
                     hconfig = HookLogHandler logT
                     config = SkovConfig gsconfig finconfig hconfig
@@ -355,9 +354,8 @@ startConsensusPassive maxBlock gdataC gdataLenC cucbk maxLogLevel lcbk appDataC 
             Right genData -> do
                 let
                     gsconfig = makeGlobalStateConfig
-                        (RuntimeParameters (fromIntegral maxBlock))
+                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate"))
                         genData
-                        (appData </> "treestate")
                     finconfig = NoFinalization
                     hconfig = HookLogHandler Nothing
                     config = SkovConfig gsconfig finconfig hconfig
