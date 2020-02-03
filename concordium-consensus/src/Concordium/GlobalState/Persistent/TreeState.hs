@@ -78,15 +78,15 @@ data SkovPersistentData bs = SkovPersistentData {
 makeLenses ''SkovPersistentData
 
 -- |Initial skov data with default runtime parameters (block size = 10MB).
-initialSkovPersistentDataDefault :: GenesisData -> bs -> S.Put -> FilePath -> IO (SkovPersistentData bs)
-initialSkovPersistentDataDefault = initialSkovPersistentData defaultRuntimeParameters
+initialSkovPersistentDataDefault ::  FilePath -> GenesisData -> bs -> S.Put -> IO (SkovPersistentData bs)
+initialSkovPersistentDataDefault dir = initialSkovPersistentData (defaultRuntimeParameters { rpTreeStateDir = dir })
 
-initialSkovPersistentData :: RuntimeParameters -> GenesisData -> bs -> S.Put -> FilePath -> IO (SkovPersistentData bs)
-initialSkovPersistentData rp gd genState serState dir = do
+initialSkovPersistentData :: RuntimeParameters -> GenesisData -> bs -> S.Put -> IO (SkovPersistentData bs)
+initialSkovPersistentData rp gd genState serState = do
   gb <- makeGenesisBlockPointer gd genState
   let gbh = bpHash gb
       gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
-  initialDb <- initialDatabaseHandlers gb serState dir
+  initialDb <- initialDatabaseHandlers gb serState rp
   return SkovPersistentData {
             _blockTable = HM.singleton gbh (BlockFinalized 0),
             _possiblyPendingTable = HM.empty,
@@ -141,16 +141,14 @@ constructBlock (Just bytes) = do
           height' <- S.get
           return (newBlock, state', height')
 
-
 instance (bs ~ GS.BlockState m, MonadIO m, BS.BlockStateStorage m, MonadState (SkovPersistentData bs) m) => LMDBStoreMonad (PersistentTreeStateMonad bs m) where
   writeBlock bp = do
     lim <- use (db . limits)
     env <- use (db . storeEnv)
     dbB <- use (db . blockStore)
-    dir <- use (db . path)
+    dir <- rpTreeStateDir <$> use runtimeParameters
     bs <- BS.putBlockState (_bpState bp)
-    let bs' = runPut bs
-    (l, e, d) <- putOrResize lim "blocks" env dir dbB (getHash bp) $ runPut (putBlock bp >> S.put bs' >> S.put (bpHeight bp))
+    (l, e, d) <- putOrResize lim "blocks" env dir dbB (getHash bp) $ runPut (putBlock bp >> bs >> S.put (bpHeight bp))
     db . limits  .= l
     db . storeEnv .= e
     db . blockStore .= d
@@ -167,7 +165,7 @@ instance (bs ~ GS.BlockState m, MonadIO m, BS.BlockStateStorage m, MonadState (S
     lim <- use (db . limits)
     env <- use (db . storeEnv)
     dbF <- use (db . finalizationRecordStore)
-    dir <- use (db . path)
+    dir <- rpTreeStateDir <$> use runtimeParameters
     (l, e, d) <- putOrResize lim "finalization" env dir dbF (finalizationIndex fr) fr
     db . limits .= l
     db . storeEnv .= e
