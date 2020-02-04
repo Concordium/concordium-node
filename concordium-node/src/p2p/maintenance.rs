@@ -492,11 +492,6 @@ impl P2PNode {
     }
 
     pub fn close_and_join(&self) -> Fallible<()> {
-        if cfg!(feature = "instrumentation") {
-            info!("Stopping stats services");
-            self.stats.stop_server();
-        }
-
         self.close();
         self.join()
     }

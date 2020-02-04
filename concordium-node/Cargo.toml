@@ -18,7 +18,7 @@ s11n_capnp = ["capnp", "capnpc"]
 s11n_serde = ["concordium-common/s11n_serde", "serde", "serde_derive"]
 s11n_serde_cbor = ["s11n_serde", "serde_cbor"]
 s11n_serde_msgpack = ["s11n_serde", "rmp-serde"]
-instrumentation = ["serde", "serde_derive", "gotham", "mime", "gotham_derive", "prometheus", "hyper", "num_cpus", "reqwest"]
+instrumentation = ["serde", "serde_derive", "gotham", "mime", "gotham_derive", "prometheus", "hyper", "num_cpus", "reqwest", "http"]
 benchmark = []
 network_dump = []
 static = [ "consensus-rust/static" ]
@@ -71,9 +71,10 @@ prost = "0.6"
 tokio = { version = "0.2", features = ["macros"] }
 
 # Feature-gated dependencies
-gotham = { version = "0.4", optional = true }
+gotham = { git = "https://github.com/gotham-rs/gotham", rev = "aa64e50442defb4c92bc45ceee6a0ed33e8aef4c", optional = true }
 gotham_derive = { version = "0.4", optional = true }
-hyper = { version = "0.12", optional = true }
+http = { version = "0.2", optional = true }
+hyper = { version = "0.13", optional = true }
 reqwest = { version = "^0.9", default-features = false, optional = true }
 mime = { version = "0.3", optional = true }
 flatbuffers = { version = "^0.6", optional = true }
@@ -88,7 +89,7 @@ elastic_derive = { version = "0.21.0-pre.5", optional = true }
 serde_json = { version = "1", optional = true }
 num_cpus = { version = "1.10.0", optional = true }
 #tokio = { version = "0.1.19", optional = true }
-jsonwebtoken = { version = "6", optional = true }
+jsonwebtoken = { version = "7", optional = true }
 prometheus = { version = "0.7.0", default-features = false, features = [ "gen", "push", "protobuf" ], optional = true }
 
 [target.'cfg(windows)'.dependencies]

@@ -11,8 +11,8 @@ cfg_if! {
             router::{builder::*, Router},
             state::{FromState, State},
         };
-        use hyper::{Body, Response, StatusCode};
-        use tokio::runtime::{self, Runtime};
+        use http::{status::StatusCode, Response};
+        use hyper::Body;
     } else {
         use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
     }
@@ -76,7 +76,6 @@ cfg_if! {
             invalid_network_packets_received: IntCounter,
             queue_size: IntGauge,
             resend_queue_size: IntGauge,
-            tokio_runtime: RwLock<Option<Runtime>>,
             inbound_high_priority_consensus_drops_counter: IntCounter,
             inbound_low_priority_consensus_drops_counter: IntCounter,
             inbound_high_priority_consensus_counter: IntCounter,
@@ -279,7 +278,6 @@ impl StatsExportService {
             invalid_network_packets_received: inpr,
             queue_size: qs,
             resend_queue_size: rqs,
-            tokio_runtime: RwLock::new(None),
             inbound_high_priority_consensus_drops_counter,
             inbound_low_priority_consensus_drops_counter,
             inbound_high_priority_consensus_counter,
@@ -576,25 +574,7 @@ impl StatsExportService {
 
     #[cfg(feature = "instrumentation")]
     pub fn start_server(&self, listen_addr: SocketAddr) {
-        let runtime = runtime::Builder::new()
-            .core_threads(num_cpus::get())
-            .name_prefix("gotham-worker-")
-            .build()
-            .unwrap();
-        gotham::start_on_executor(listen_addr, self.router(), runtime.executor());
-        if let Ok(mut locked_tokio) = self.tokio_runtime.write() {
-            *locked_tokio = Some(runtime);
-        }
-    }
-
-    #[cfg(feature = "instrumentation")]
-    pub fn stop_server(&self) {
-        if let Ok(mut locked_tokio) = self.tokio_runtime.write() {
-            if (&*locked_tokio).is_some() {
-                let old_v = std::mem::replace(&mut *locked_tokio, None);
-                old_v.map(tokio::runtime::Runtime::shutdown_now);
-            }
-        }
+        gotham::start_with_num_threads(listen_addr, self.router(), num_cpus::get());
     }
 
     #[cfg(not(feature = "instrumentation"))]
@@ -691,19 +671,6 @@ pub fn start_push_gateway(
         Some(())
     });
 }
-
-#[cfg(feature = "instrumentation")]
-pub fn stop_stats_export_engine(conf: &configuration::Config, srv: &Option<StatsExportService>) {
-    if conf.prometheus.prometheus_server {
-        if let Some(srv) = srv {
-            info!("Stopping prometheus server");
-            srv.stop_server();
-        }
-    }
-}
-
-#[cfg(not(feature = "instrumentation"))]
-pub fn stop_stats_export_engine(_: &configuration::Config, _: &Option<StatsExportService>) {}
 
 #[cfg(test)]
 mod tests {
