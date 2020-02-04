@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:experimental
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.8 as build
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.9 as build
 ARG consensus_type
 ENV CONSENSUS_TYPE=$consensus_type
 ARG consensus_profiling=false
@@ -23,7 +23,7 @@ RUN --mount=type=ssh ./build-binaries.sh "collector,beta" release && \
     cd genesis_data && \
     cp genesis.dat /build-project/
 # P2P client is now built
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.8 as haskell-build
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.9 as haskell-build
 COPY ./CONSENSUS_VERSION /CONSENSUS_VERSION
 # Build middleware and simple-client
 RUN --mount=type=ssh pacman -Syy --noconfirm openssh && \
