@@ -12,9 +12,10 @@ use crate::{
 
 use byteorder::{BigEndian, WriteBytesExt};
 use concordium_common::{ConsensusFfiResponse, ConsensusIsInCommitteeResponse, PacketType};
-use consensus_rust::consensus::{ConsensusContainer, CALLBACK_QUEUE};
-use futures::future::Future;
-use globalstate_rust::tree::messaging::{ConsensusMessage, MessageType};
+use consensus_rust::{
+    consensus::{ConsensusContainer, CALLBACK_QUEUE},
+    messaging::{ConsensusMessage, MessageType},
+};
 use tonic::{transport::Server, Code, Request, Response, Status};
 
 use std::{
@@ -234,6 +235,7 @@ impl P2p for RpcServerImpl {
                     PacketType::Transaction,
                     Arc::from(payload),
                     vec![],
+                    None,
                 ))
             } else {
                 Ok(())
