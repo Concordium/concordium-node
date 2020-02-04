@@ -32,7 +32,8 @@ fn main() {
     println!("cargo:rerun-if-changed={}", proto);
 
     tonic_build::configure()
-        .build_client(false)
+        .build_server(true)
+        .build_client(true)
         .compile(&[&proto], &[&proto_root_input])
         .expect("Failed to compile gRPC definitions!");
 }
