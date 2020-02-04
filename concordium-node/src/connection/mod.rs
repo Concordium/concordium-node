@@ -6,6 +6,7 @@ pub use crate::p2p::{Networks, P2PNode};
 use low_level::ConnectionLowLevel;
 pub use p2p_event::P2PEvent;
 
+use byteorder::ReadBytesExt;
 use bytesize::ByteSize;
 use chrono::prelude::Utc;
 use circular_queue::CircularQueue;
@@ -24,14 +25,13 @@ use crate::{
     },
     p2p::bans::BanId,
 };
-use concordium_common::PacketType;
-use crypto_common::Deserial;
+use concordium_common::{serial::Endianness, PacketType};
+
 use std::{
     cmp::Reverse,
     collections::HashSet,
     convert::TryFrom,
     fmt,
-    io::Cursor,
     net::SocketAddr,
     sync::{
         atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
@@ -230,10 +230,7 @@ impl Connection {
         deduplication_queues: &DeduplicationQueues,
     ) -> Fallible<bool> {
         ensure!(packet.message.len() >= 2);
-        let packet_type = PacketType::try_from(
-            u16::deserial(&mut Cursor::new(&packet.message[..2]))
-                .expect("Writing to buffer is safe."),
-        );
+        let packet_type = PacketType::try_from((&packet.message[..2]).read_u16::<Endianness>()?);
 
         let is_duplicate = match packet_type {
             Ok(PacketType::FinalizationMessage) => {

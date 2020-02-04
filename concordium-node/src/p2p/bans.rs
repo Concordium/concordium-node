@@ -3,7 +3,7 @@ use failure::{self, Fallible};
 use rkv::{StoreOptions, Value};
 
 use crate::{common::P2PNodeId, p2p::P2PNode};
-use crypto_common::{Buffer, Deserial, Serial};
+use concordium_common::serial::{NoParam, Serial};
 
 use std::net::{IpAddr, SocketAddr};
 
@@ -22,22 +22,8 @@ pub enum BanId {
 }
 
 impl Serial for BanId {
-    fn serial<W: Buffer + WriteBytesExt>(&self, target: &mut W) {
-        match self {
-            BanId::NodeId(id) => {
-                target.write_u8(0).expect("Writing to buffer is safe.");
-                id.serial(target);
-            }
-            BanId::Ip(addr) => {
-                target.write_u8(1).expect("Writing to buffer is safe.");
-                addr.serial(target);
-            }
-            _ => unimplemented!("Serializing a socket address ban is unsupported"),
-        }
-    }
-}
+    type Param = NoParam;
 
-impl Deserial for BanId {
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let bn = match source.read_u8()? {
             0 => BanId::NodeId(P2PNodeId::deserial(source)?),
@@ -47,6 +33,20 @@ impl Deserial for BanId {
 
         Ok(bn)
     }
+
+    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
+        match self {
+            BanId::NodeId(id) => {
+                target.write_u8(0)?;
+                id.serial(target)
+            }
+            BanId::Ip(addr) => {
+                target.write_u8(1)?;
+                addr.serial(target)
+            }
+            _ => unimplemented!("Serializing a socket address ban is unsupported"),
+        }
+    }
 }
 
 impl P2PNode {
@@ -55,7 +55,7 @@ impl P2PNode {
         info!("Banning node {:?}", peer);
 
         let mut store_key = Vec::new();
-        peer.serial(&mut store_key);
+        peer.serial(&mut store_key)?;
         {
             let ban_kvs_env = safe_read!(self.kvs)?;
             let ban_store = ban_kvs_env.open_single(BAN_STORE_NAME, StoreOptions::create())?;
@@ -87,7 +87,7 @@ impl P2PNode {
         info!("Unbanning node {:?}", peer);
 
         let mut store_key = Vec::new();
-        peer.serial(&mut store_key);
+        peer.serial(&mut store_key)?;
         {
             let ban_kvs_env = safe_read!(self.kvs)?;
             let ban_store = ban_kvs_env.open_single(BAN_STORE_NAME, StoreOptions::create())?;
@@ -106,7 +106,7 @@ impl P2PNode {
 
         let ban_reader = ban_kvs_env.read()?;
         let mut store_key = Vec::new();
-        peer.serial(&mut store_key);
+        peer.serial(&mut store_key)?;
 
         Ok(ban_store.get(&ban_reader, store_key)?.is_some())
     }

@@ -1,3 +1,4 @@
+use byteorder::WriteBytesExt;
 use chrono::{offset::Utc, DateTime};
 use failure::Fallible;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
@@ -10,8 +11,7 @@ use crate::{
     p2p::P2PNode,
     stats_export_service::{StatsExportService, StatsServiceMode},
 };
-use concordium_common::PacketType;
-use crypto_common::Serial;
+use concordium_common::{serial::Endianness, PacketType};
 
 use crossbeam_channel::{self, Receiver};
 use std::{
@@ -151,7 +151,7 @@ pub fn generate_random_data(size: usize) -> Vec<u8> {
 
 fn generate_fake_block(size: usize) -> Fallible<Vec<u8>> {
     let mut buffer = Vec::with_capacity(2 + size);
-    (PacketType::Block as u16).serial(&mut buffer);
+    buffer.write_u16::<Endianness>(PacketType::Block as u16)?;
     buffer.write_all(&generate_random_data(size))?;
     Ok(buffer)
 }

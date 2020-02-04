@@ -1497,10 +1497,7 @@ mod tests {
     #[test]
     pub fn test_grpc_peer_list_node_type() -> Fallible<()> {
         let types = [PeerType::Node, PeerType::Bootstrapper];
-        types
-            .into_iter()
-            .map(|m| grpc_peer_list_node_type_str(*m))
-            .collect::<Fallible<Vec<()>>>()?;
+        types.iter().map(|m| grpc_peer_list_node_type_str(*m)).collect::<Fallible<Vec<()>>>()?;
 
         Ok(())
     }
