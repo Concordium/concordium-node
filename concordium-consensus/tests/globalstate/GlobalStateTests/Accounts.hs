@@ -164,7 +164,7 @@ randomActions = sized (ra Set.empty Set.empty)
                     rid <- elements (Set.toList rids)
                     (RecordRegId rid:) <$> ra s rids (n-1)
 
-                
+
 
 
 runAccountAction :: (MonadBlobStore m BlobRef, MonadFail m) => AccountAction -> (B.Accounts, P.Accounts) -> m (B.Accounts, P.Accounts)
@@ -211,7 +211,7 @@ runAccountAction (RecordRegId rid) (ba, pa) = do
 emptyTest :: SpecWith BlobStore
 emptyTest = it "empty" $ runReaderT
         (checkEquivalent B.emptyAccounts P.emptyAccounts :: ReaderT BlobStore IO ())
-        
+
 actionTest :: Word -> SpecWith BlobStore
 actionTest lvl = it "account actions" $ \bs -> withMaxSuccess (100 * fromIntegral lvl) $ property $ do
         acts <- randomActions
@@ -222,6 +222,6 @@ actionTest lvl = it "account actions" $ \bs -> withMaxSuccess (100 * fromIntegra
 
 tests :: Word -> Spec
 tests lvl = describe "GlobalStateTests.Accounts" $
-    around (bracket createTempBlobStore destroyTempBlobStore) $ do
+    around (bracket (createTempBlobStore "blockstate.dat") destroyTempBlobStore) $ do
         emptyTest
         actionTest lvl
