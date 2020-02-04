@@ -18,13 +18,13 @@ s11n_capnp = ["capnp", "capnpc"]
 s11n_serde = ["concordium-common/s11n_serde", "serde", "serde_derive"]
 s11n_serde_cbor = ["s11n_serde", "serde_cbor"]
 s11n_serde_msgpack = ["s11n_serde", "rmp-serde"]
-instrumentation = ["serde", "serde_derive", "gotham", "mime", "gotham_derive", "prometheus", "hyper", "num_cpus", "reqwest", "http"]
+instrumentation = ["serde", "serde_derive", "gotham", "mime", "gotham_derive", "prometheus", "hyper", "num_cpus", "reqwest", "http" ]
 benchmark = []
 network_dump = []
 static = [ "consensus-rust/static" ]
 profiling = [ "consensus-rust/profiling" ]
 elastic_logging = [ "elastic", "elastic_derive", "serde_json", "serde/derive", "uuid/v4" ]
-collector = [ "reqwest/default-tls", "serde_json", "serde/derive", "rmp-serde", "gotham", "mime", "gotham_derive", "hyper" ]
+collector = [ "serde_json", "serde/derive", "rmp-serde", "gotham", "mime", "gotham_derive", "hyper", "futures" ]
 beta = [ "serde_json", "serde/derive", "reqwest/default-tls", "jsonwebtoken" ]
 
 [profile.release]
@@ -75,10 +75,11 @@ gotham = { git = "https://github.com/gotham-rs/gotham", rev = "aa64e50442defb4c9
 gotham_derive = { version = "0.4", optional = true }
 http = { version = "0.2", optional = true }
 hyper = { version = "0.13", optional = true }
-reqwest = { version = "^0.9", default-features = false, optional = true }
+reqwest = { version = "0.10", default-features = false, optional = true, features = [ "default-tls", "stream" ] }
 mime = { version = "0.3", optional = true }
 flatbuffers = { version = "^0.6", optional = true }
 flatc-rust = { version = "^0.1", optional = true }
+futures = { version = "0.3", optional = true }
 serde = { version = "1.0", features = ["rc"], optional = true }
 serde_derive = { version = "1.0", optional = true }
 capnp = { version = "^0.9", optional = true }
