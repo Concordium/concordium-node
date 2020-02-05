@@ -1,9 +1,7 @@
-use concordium_common::{
-    blockchain_types::{
-        AccountAddress, Amount, BakerId, BlockHash, ContractAddress, Slot, TransactionHash,
-    },
-    into_err, QueueReceiver, QueueSyncSender, RelayOrStopSenderHelper,
+use crate::blockchain_types::{
+    AccountAddress, Amount, BakerId, BlockHash, ContractAddress, Slot, TransactionHash,
 };
+use concordium_common::{into_err, QueueReceiver, QueueSyncSender, RelayOrStopSenderHelper};
 use failure::{format_err, Fallible};
 
 use crossbeam_channel;

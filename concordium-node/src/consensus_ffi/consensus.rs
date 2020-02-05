@@ -1,6 +1,5 @@
-use concordium_common::{
-    blockchain_types::BakerId, into_err, QueueReceiver, QueueSyncSender, RelayOrStopSenderHelper,
-};
+use crate::blockchain_types::BakerId;
+use concordium_common::{into_err, QueueReceiver, QueueSyncSender, RelayOrStopSenderHelper};
 use failure::Fallible;
 use std::{
     collections::HashMap,
@@ -16,7 +15,10 @@ use crossbeam_channel;
 
 use parking_lot::Condvar;
 
-use crate::{ffi::*, messaging::ConsensusMessage};
+use crate::{
+    ffi::{consensus_runner, get_consensus_ptr, startBaker, stopBaker, stopConsensus},
+    messaging::ConsensusMessage,
+};
 
 pub type PeerId = u64;
 pub type PrivateData = HashMap<i64, Vec<u8>>;
