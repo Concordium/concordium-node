@@ -24,7 +24,7 @@ network_dump = []
 static = [ "consensus-rust/static" ]
 profiling = [ "consensus-rust/profiling" ]
 elastic_logging = [ "elastic", "elastic_derive", "serde_json", "serde/derive", "uuid/v4" ]
-collector = [ "serde_json", "serde/derive", "rmp-serde", "gotham", "mime", "gotham_derive", "hyper", "futures" ]
+collector = [ "reqwest/default-tls", "serde_json", "serde/derive", "rmp-serde", "gotham", "mime", "gotham_derive", "hyper", "futures" ]
 beta = [ "serde_json", "serde/derive", "reqwest/default-tls", "jsonwebtoken" ]
 
 [profile.release]
@@ -108,6 +108,7 @@ flatc-rust = "^0.1"
 [dev-dependencies]
 criterion = "0.3"
 quickcheck = "^0.9"
+futures = "0.3"
 
 [lib]
 path = "src/lib.rs"

@@ -15,7 +15,7 @@ use std::{
     time::Duration,
 };
 use structopt::StructOpt;
-use tonic::{metadata::MetadataValue, transport::channel::Channel};
+use tonic::{metadata::MetadataValue, transport::channel::Channel, Request};
 #[macro_use]
 extern crate log;
 
@@ -57,7 +57,7 @@ struct ConfigCli {
     #[structopt(
         long = "grpc-host",
         help = "gRPC host to collect from",
-        default_value = "127.0.0.1:10000"
+        default_value = "http://127.0.0.1:10000"
     )]
     pub grpc_hosts: Vec<String>,
     #[structopt(long = "node-name", help = "Node name")]
@@ -118,7 +118,7 @@ async fn main() {
     info!("Starting up {}-node-collector version {}!", p2p_client::APPNAME, p2p_client::VERSION);
 
     if conf.node_names.len() != conf.grpc_hosts.len() {
-        error!("Amount of node-names and grpc-hosts must be equal!");
+        error!("The number of node-names and grpc-hosts must be equal!");
         exit(1);
     }
 
@@ -134,20 +134,22 @@ async fn main() {
         trace!("Failure count is {}/{}", grpc_failure_count, conf.max_grpc_failures_allowed);
         for (node_name, grpc_host) in conf.node_names.iter().zip(conf.grpc_hosts.iter()) {
             trace!("Processing node {}/{}", node_name, grpc_host);
-            if let Ok(node_info) =
-                collect_data(node_name.clone(), grpc_host.to_owned(), &conf.grpc_auth_token).await
+            match collect_data(node_name.clone(), grpc_host.to_owned(), &conf.grpc_auth_token).await
             {
-                trace!("Node data collected successfully from {}/{}", node_name, grpc_host);
-                if let Ok(msgpack) = rmp_serde::encode::to_vec(&node_info) {
-                    let client = reqwest::Client::new();
-                    let _ = client.post(&conf.collector_url).body(msgpack).send().await;
+                Ok(node_info) => {
+                    trace!("Node data collected successfully from {}/{}", node_name, grpc_host);
+                    if let Ok(msgpack) = rmp_serde::encode::to_vec(&node_info) {
+                        let client = reqwest::Client::new();
+                        let _ = client.post(&conf.collector_url).body(msgpack).send().await;
+                    }
                 }
-            } else {
-                let _ = atomic_counter.fetch_add(1, AtomicOrdering::SeqCst);
-                error!(
-                    "gRPC failed for {}, sleeping for {} ms",
-                    &grpc_host, conf.collector_interval
-                );
+                Err(e) => {
+                    let _ = atomic_counter.fetch_add(1, AtomicOrdering::SeqCst);
+                    error!(
+                        "gRPC failed with \"{}\" for {}, sleeping for {} ms",
+                        e, &grpc_host, conf.collector_interval
+                    );
+                }
             }
 
             if grpc_failure_count + 1 >= conf.max_grpc_failures_allowed as usize {
@@ -160,13 +162,21 @@ async fn main() {
     }
 }
 
+macro_rules! req_with_auth {
+    ($req:expr, $token:expr) => {{
+        let mut req = Request::new($req);
+        req.metadata_mut().insert("authentication", MetadataValue::from_str($token).unwrap());
+        req
+    }}
+}
+
 #[allow(clippy::cognitive_complexity)]
 async fn collect_data<'a>(
     node_name: NodeName,
     grpc_host: String,
     grpc_auth_token: &str,
 ) -> Fallible<NodeInfo> {
-    trace!(
+    info!(
         "Collecting node information via gRPC from {}/{}/{}",
         node_name,
         grpc_host,
@@ -176,33 +186,32 @@ async fn collect_data<'a>(
     let channel = Channel::from_shared(grpc_host).unwrap().connect().await?;
     let mut client = proto::p2p_client::P2pClient::new(channel);
 
-    let mut metadata = tonic::metadata::MetadataMap::new();
-    metadata.insert("Authentication", MetadataValue::from_str(grpc_auth_token)?).unwrap();
+    let empty_req = || req_with_auth!(proto::Empty {}, grpc_auth_token);
 
     trace!("Requesting basic node info via gRPC");
-    let node_info_reply = client.node_info(proto::Empty {}).await?;
+    let node_info_reply = client.node_info(empty_req()).await?;
 
     trace!("Requesting node uptime info via gRPC");
-    let node_uptime_reply = client.peer_uptime(proto::Empty {}).await?;
+    let node_uptime_reply = client.peer_uptime(empty_req()).await?;
 
     trace!("Requesting node version info via gRPC");
-    let node_version_reply = client.peer_version(proto::Empty {}).await?;
+    let node_version_reply = client.peer_version(empty_req()).await?;
 
-    trace!("Requesting consensus statuc info via gRPC");
-    let node_consensus_status_reply = client.get_consensus_status(proto::Empty {}).await?;
+    trace!("Requesting consensus status info via gRPC");
+    let node_consensus_status_reply = client.get_consensus_status(empty_req()).await?;
 
     trace!("Requesting node peer stats info via gRPC");
     let node_peer_stats_reply = client
-        .peer_stats(proto::PeersRequest {
+        .peer_stats(req_with_auth!(proto::PeersRequest {
             include_bootstrappers: true,
-        })
+        }, grpc_auth_token))
         .await?;
 
     trace!("Requesting node total sent message count info via gRPC");
-    let node_total_sent_reply = client.peer_total_sent(proto::Empty {}).await?;
+    let node_total_sent_reply = client.peer_total_sent(empty_req()).await?;
 
     trace!(" Requesting node total received message count via gRPC");
-    let node_total_received_reply = client.peer_total_received(proto::Empty {}).await?;
+    let node_total_received_reply = client.peer_total_received(empty_req()).await?;
 
     let node_info_reply = node_info_reply.get_ref();
     let node_id = node_info_reply.node_id.to_owned().unwrap();
@@ -274,10 +283,10 @@ async fn collect_data<'a>(
 
     let ancestors_since_best_block = if best_block_height > finalized_block_height {
         trace!("Requesting further consensus status via gRPC");
-        let block_and_height_req = proto::BlockHashAndAmount {
+        let block_and_height_req = req_with_auth!(proto::BlockHashAndAmount {
             block_hash: best_block.clone(),
             amount:     best_block_height as u64 - finalized_block_height as u64,
-        };
+        }, grpc_auth_token);
         let node_ancestors_reply = client.get_ancestors(block_and_height_req).await?;
         let json_consensus_ancestors_value: Value =
             serde_json::from_str(&node_ancestors_reply.get_ref().json_value)?;
@@ -299,9 +308,10 @@ async fn collect_data<'a>(
         None
     };
 
-    let block_req = proto::BlockHash {
+    let block_req = req_with_auth!(proto::BlockHash {
         block_hash: best_block.clone(),
-    };
+    }, grpc_auth_token);
+
     let node_block_info_reply = client.get_block_info(block_req).await?;
     let json_block_info_value: Value =
         serde_json::from_str(&node_block_info_reply.get_ref().json_value)?;

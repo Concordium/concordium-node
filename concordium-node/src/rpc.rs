@@ -811,15 +811,16 @@ mod tests {
     };
     use chrono::prelude::Utc;
     use failure::Fallible;
-    use tonic::{metadata::MetadataValue, transport::channel::Channel};
+    use futures;
+    use tonic::{metadata::MetadataValue, transport::channel::Channel, Code};
 
     pub mod proto {
         tonic::include_proto!("concordium");
     }
     use proto::p2p_client::P2pClient;
 
-    // Same as create_node_rpc_call_option but also outputs the Message receiver
-    async fn create_node_rpc_call_option_waiter(
+    // The intended use is for spawning nodes for testing gRPC api.
+    async fn create_node_rpc_call_option(
         nt: PeerType,
     ) -> Fallible<(P2pClient<Channel>, RpcServerImpl)> {
         let conf = configuration::parse_config().expect("Can't parse the config file!");
@@ -854,24 +855,19 @@ mod tests {
         Ok((client, rpc_server))
     }
 
-    // Creates P2pClient, RpcServImpl and CallOption instances.
-    // The intended use is for spawning nodes for testing gRPC api.
-    // The port number is safe as it uses a AtomicUsize for respecting the order.
-    async fn create_node_rpc_call_option(nt: PeerType) -> Fallible<(P2pClient<Channel>, RpcServerImpl)> {
-        create_node_rpc_call_option_waiter(nt).await
-    }
-/*
     #[test]
-    pub fn test_grpc_noauth() -> Fallible<()> {
-        let (client, _, _) = create_node_rpc_call_option(PeerType::Node);
-        match client.peer_version(&crate::proto::Empty::new()) {
-            Err(::grpcio::Error::RpcFailure(ref x)) => assert_eq!(x.status, Code::Unauthenticated),
-            _ => panic!("Wrong rejection"),
-        }
+    fn test_grpc_noauth() -> Fallible<()> {
+        futures::executor::block_on(async {
+            let (mut client, _) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
+            match client.peer_version(proto::Empty {}).await {
+                Err(status) => assert_eq!(status.code(), Code::Unauthenticated),
+                _ => panic!("Wrong rejection"),
+            }
+        });
 
         Ok(())
     }
-
+/*
     /// Ignore this test for now, because `conn.async_send` only enqueues the
     /// send request. That new request will be processed inside poll-event.
     #[ignore]
