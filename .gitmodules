@@ -13,6 +13,3 @@
 [submodule "deps/external/noiseexplorer_xx"]
 	path = deps/external/noiseexplorer_xx
 	url = ../rust/external/noiseexplorer_xx
-[submodule "genesis-data"]
-	path = genesis-data
-	url = ../genesis-data.git
