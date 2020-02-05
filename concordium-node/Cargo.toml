@@ -68,7 +68,7 @@ crossbeam-channel = "^0.4"
 # gRPC dependencies
 tonic = "0.1"
 prost = "0.6"
-tokio = { version = "0.2", features = ["macros"] }
+tokio = { version = "0.2", features = ["macros", "rt-threaded"] }
 
 # Feature-gated dependencies
 gotham = { git = "https://github.com/gotham-rs/gotham", rev = "aa64e50442defb4c92bc45ceee6a0ed33e8aef4c", optional = true }

@@ -1,7 +1,7 @@
 #![recursion_limit = "1024"]
 use env_logger::Env;
 use failure::Fallible;
-use p2p_client::{common::collector_utils::NodeInfo, utils::setup_logger_env};
+use p2p_client::{common::collector_utils::NodeInfo, req_with_auth, utils::setup_logger_env};
 use rmp_serde;
 use serde_json::Value;
 use std::{
@@ -160,14 +160,6 @@ async fn main() {
         trace!("Sleeping for {} ms", conf.collector_interval);
         thread::sleep(Duration::from_millis(conf.collector_interval));
     }
-}
-
-macro_rules! req_with_auth {
-    ($req:expr, $token:expr) => {{
-        let mut req = Request::new($req);
-        req.metadata_mut().insert("authentication", MetadataValue::from_str($token).unwrap());
-        req
-    }}
 }
 
 #[allow(clippy::cognitive_complexity)]

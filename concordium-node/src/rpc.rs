@@ -62,10 +62,7 @@ impl RpcServerImpl {
         let self_clone = self.clone();
 
         let server = Server::builder().add_service(P2pServer::new(self_clone));
-
-        server.serve(addr).await?;
-
-        Ok(())
+        server.serve(addr).await.map_err(|e| e.into())
     }
 }
 
@@ -123,6 +120,15 @@ macro_rules! successful_byte_response {
             Err(Status::new(Code::Internal, "Consensus container is not initialized!"))
         }
     };
+}
+
+#[macro_export]
+macro_rules! req_with_auth {
+    ($req:expr, $token:expr) => {{
+        let mut req = Request::new($req);
+        req.metadata_mut().insert("authentication", MetadataValue::from_str($token).unwrap());
+        req
+    }}
 }
 
 #[tonic::async_trait]
@@ -802,7 +808,7 @@ mod tests {
     use crate::{
         common::{P2PNodeId, PeerType},
         configuration,
-        p2p::connectivity::send_broadcast_message,
+        p2p::{connectivity::send_broadcast_message, P2PNode},
         rpc::RpcServerImpl,
         test_utils::{
             await_handshake, connect, get_test_config, make_node_and_sync,
@@ -811,18 +817,21 @@ mod tests {
     };
     use chrono::prelude::Utc;
     use failure::Fallible;
-    use futures;
-    use tonic::{metadata::MetadataValue, transport::channel::Channel, Code};
+    use tonic::{metadata::MetadataValue, transport::channel::Channel, Code, Request};
 
     pub mod proto {
         tonic::include_proto!("concordium");
     }
     use proto::p2p_client::P2pClient;
 
+    use std::sync::Arc;
+
+    const TOKEN: &str = "rpcadmin";
+
     // The intended use is for spawning nodes for testing gRPC api.
     async fn create_node_rpc_call_option(
         nt: PeerType,
-    ) -> Fallible<(P2pClient<Channel>, RpcServerImpl)> {
+    ) -> Fallible<(P2pClient<Channel>, Arc<P2PNode>)> {
         let conf = configuration::parse_config().expect("Can't parse the config file!");
         let app_prefs = configuration::AppPreferences::new(
             conf.common.config_dir.to_owned(),
@@ -841,29 +850,26 @@ mod tests {
         let mut config = get_test_config(8888, vec![100]);
         config.cli.rpc.rpc_server_port = rpc_port;
         config.cli.rpc.rpc_server_addr = "127.0.0.1".to_owned();
-        config.cli.rpc.rpc_server_token = "rpcadmin".to_owned();
-        let mut rpc_server = RpcServerImpl::new(node, None, &config.cli.rpc, None);
-        rpc_server.start_server().await?;
+        config.cli.rpc.rpc_server_token = TOKEN.to_owned();
+        let mut rpc_server = RpcServerImpl::new(node.clone(), None, &config.cli.rpc, None);
+        tokio::spawn(async move { rpc_server.start_server().await } );
+        tokio::task::yield_now().await;
 
-        let addr: &'static str = Box::leak(format!("127.0.0.1:{}", rpc_port).into_boxed_str());
-        let channel = Channel::from_shared(addr).unwrap().connect().await?;
+        let addr: &'static str = Box::leak(format!("http://127.0.0.1:{}", rpc_port).into_boxed_str());
+        let channel = Channel::from_static(addr).connect().await?;
         let client = proto::p2p_client::P2pClient::new(channel);
 
-        let mut req_meta_builder = tonic::metadata::MetadataMap::new();
-        req_meta_builder.insert("Authentication", MetadataValue::from_str("rpcadmin").unwrap()).unwrap();
-
-        Ok((client, rpc_server))
+        Ok((client, node))
     }
 
-    #[test]
-    fn test_grpc_noauth() -> Fallible<()> {
-        futures::executor::block_on(async {
-            let (mut client, _) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
-            match client.peer_version(proto::Empty {}).await {
-                Err(status) => assert_eq!(status.code(), Code::Unauthenticated),
-                _ => panic!("Wrong rejection"),
-            }
-        });
+    #[tokio::test]
+    async fn test_grpc_noauth() -> Fallible<()> {
+        let (mut client, _) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
+
+        match client.peer_version(req_with_auth!(proto::Empty {}, "derp")).await {
+            Err(status) => assert_eq!(status.code(), Code::Unauthenticated),
+            _ => panic!("Wrong rejection"),
+        };
 
         Ok(())
     }
@@ -897,27 +903,28 @@ mod tests {
 
         Ok(())
     }
-
-    #[test]
-    fn test_peer_version() -> Fallible<()> {
-        let (client, _, callopts) = create_node_rpc_call_option(PeerType::Node);
-        let emp = crate::proto::Empty::new();
+*/
+    #[tokio::test]
+    async fn test_peer_version() -> Fallible<()> {
+        let (mut client, _) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
         assert_eq!(
-            client.peer_version_opt(&emp, callopts).unwrap().get_value(),
+            client.peer_version(req_with_auth!(proto::Empty {}, TOKEN)).await.unwrap().get_ref().value,
             crate::VERSION.to_owned()
         );
         Ok(())
     }
 
-    #[test]
-    fn test_peer_uptime() -> Fallible<()> {
+    #[tokio::test]
+    async fn test_peer_uptime() -> Fallible<()> {
         let t0 = Utc::now().timestamp_millis() as u64;
-        let (client, _, callopts) = create_node_rpc_call_option(PeerType::Node);
-        let emp = crate::proto::Empty::new();
+        let (mut client, _) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
+
+        let req = || req_with_auth!(proto::Empty {}, TOKEN);
+
         let t1 = Utc::now().timestamp_millis() as u64;
-        let nt1 = client.peer_uptime_opt(&emp.clone(), callopts.clone())?.get_value();
+        let nt1 = client.peer_uptime(req()).await.unwrap().get_ref().value;
         let t2 = Utc::now().timestamp_millis() as u64;
-        let nt2 = client.peer_uptime_opt(&emp, callopts)?.get_value();
+        let nt2 = client.peer_uptime(req()).await.unwrap().get_ref().value;
         let t3 = Utc::now().timestamp_millis() as u64;
         // t0 - n0 - t1 - n1 - t2 - n2 - t3
         // nt{n} := n{n} - n0
@@ -927,38 +934,36 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_peer_total_received() -> Fallible<()> {
-        let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
+    #[tokio::test]
+    async fn test_peer_total_received() -> Fallible<()> {
+        let (mut client, node) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
         let port = next_available_port();
         let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&node2, &rpc_serv.node)?;
+        connect(&node2, &node)?;
         await_handshake(&node2)?;
-        await_handshake(&rpc_serv.node)?;
-        let emp = crate::proto::Empty::new();
-        let _rcv = client.peer_total_received_opt(&emp, callopts)?.get_value();
+        await_handshake(&node)?;
+        let _rcv = client.peer_total_received(req_with_auth!(proto::Empty {}, TOKEN)).await.unwrap().get_ref().value;
         Ok(())
     }
 
-    #[test]
-    fn test_peer_total_sent() -> Fallible<()> {
-        let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
+    #[tokio::test]
+    async fn test_peer_total_sent() -> Fallible<()> {
+        let (mut client, node) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
         let port = next_available_port();
         let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&node2, &rpc_serv.node)?;
+        connect(&node2, &node)?;
         await_handshake(&node2)?;
-        await_handshake(&rpc_serv.node)?;
-        let emp = crate::proto::Empty::new();
-        let _snt = client.peer_total_sent_opt(&emp, callopts)?.get_value();
+        await_handshake(&node)?;
+        let _sent = client.peer_total_sent(req_with_auth!(proto::Empty {}, TOKEN)).await.unwrap().get_ref().value;
         Ok(())
     }
-
+/*
     #[test]
     #[ignore]
     fn test_send_message() -> Fallible<()> {
         setup_logger();
 
-        let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
+        let mut client = create_node_rpc_call_option(PeerType::Node).await.unwrap();
         let port = next_available_port();
         let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
         connect(&node2, &rpc_serv.node)?;
@@ -984,134 +989,134 @@ mod tests {
         // );
         Ok(())
     }
-
+*/
     // test_send_transaction is not implemented as it is more of an integration test
     // rather that a unit test. The corresponding flow test is in
     // `tests/consensus-tests.rs`
 
-    #[test]
-    fn test_join_network() -> Fallible<()> {
-        let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
+    #[tokio::test]
+    async fn test_join_network() -> Fallible<()> {
+        let (mut client, node) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
         let port = next_available_port();
         let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&node2, &rpc_serv.node)?;
+        connect(&node2, &node)?;
         await_handshake(&node2)?;
-        await_handshake(&rpc_serv.node)?;
-        let mut net = protobuf::well_known_types::Int32Value::new();
-        net.set_value(10);
-        let mut ncr = crate::proto::NetworkChangeRequest::new();
-        ncr.set_network_id(net);
-        assert!(client.join_network_opt(&ncr, callopts)?.get_value());
+        await_handshake(&node)?;
+        let ncr = req_with_auth!(proto::NetworkChangeRequest {
+            network_id: Some(10),
+        }, TOKEN);
+        assert!(client.join_network(ncr).await.unwrap().get_ref().value);
         Ok(())
     }
 
-    #[test]
-    fn test_leave_network() -> Fallible<()> {
-        let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
+    #[tokio::test]
+    async fn test_leave_network() -> Fallible<()> {
+        let (mut client, node) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
         let port = next_available_port();
         let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&node2, &rpc_serv.node)?;
+        connect(&node2, &node)?;
         await_handshake(&node2)?;
-        await_handshake(&rpc_serv.node)?;
-        let mut net = protobuf::well_known_types::Int32Value::new();
-        net.set_value(100);
-        let mut ncr = crate::proto::NetworkChangeRequest::new();
-        ncr.set_network_id(net);
-        assert!(client.leave_network_opt(&ncr, callopts)?.get_value());
+        await_handshake(&node)?;
+        let ncr = req_with_auth!(proto::NetworkChangeRequest {
+            network_id: Some(100),
+        }, TOKEN);
+        assert!(client.leave_network(ncr).await.unwrap().get_ref().value);
         Ok(())
     }
 
-    #[test]
-    fn test_peer_stats() -> Fallible<()> {
-        let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
+    #[tokio::test]
+    async fn test_peer_stats() -> Fallible<()> {
+        let (mut client, node) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
         let port = next_available_port();
         let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&node2, &rpc_serv.node)?;
+        connect(&node2, &node)?;
         await_handshake(&node2)?;
-        await_handshake(&rpc_serv.node)?;
-        let req = crate::proto::PeersRequest::new();
-        let rcv = client.peer_stats_opt(&req, callopts)?.get_peerstats().to_vec();
+        await_handshake(&node)?;
+        let req = req_with_auth!(proto::PeersRequest {
+            include_bootstrappers: false,
+        }, TOKEN);
+        let rcv = client.peer_stats(req).await.unwrap().get_ref().peerstats.clone();
         assert_eq!(node2.get_peer_stats(None).len(), 1);
         assert_eq!(rcv.len(), 1);
         assert_eq!(rcv[0].node_id, node2.id().to_string());
         Ok(())
     }
 
-    #[test]
-    fn test_peer_list() -> Fallible<()> {
-        let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
-        let req = crate::proto::PeersRequest::new();
-        let rcv = client.peer_list_opt(&req.clone(), callopts.clone())?;
-        assert!(rcv.get_peer().to_vec().is_empty());
-        assert_eq!(rcv.get_peer_type(), "Node");
+    #[tokio::test]
+    async fn test_peer_list() -> Fallible<()> {
+        let (mut client, node) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
+        let req = || req_with_auth!(proto::PeersRequest {
+            include_bootstrappers: false,
+        }, TOKEN);
+        let rcv = client.peer_list(req()).await.unwrap();
+        let rcv = rcv.get_ref();
+        assert!(rcv.peer.to_vec().is_empty());
+        assert_eq!(rcv.peer_type, "Node");
         let port = next_available_port();
         let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&node2, &rpc_serv.node)?;
+        connect(&node2, &node)?;
         await_handshake(&node2)?;
-        await_handshake(&rpc_serv.node)?;
-        let req = crate::proto::PeersRequest::new();
-        let rcv = client.peer_list_opt(&req, callopts)?.get_peer().to_vec();
+        await_handshake(&node)?;
+        let rcv = client.peer_list(req()).await.unwrap().get_ref().peer.clone();
         assert_eq!(rcv.len(), 1);
         let elem = rcv[0].clone();
         assert_eq!(
-            P2PNodeId(u64::from_str_radix(elem.node_id.unwrap().get_value(), 16).unwrap())
+            P2PNodeId(u64::from_str_radix(&elem.node_id.unwrap(), 16).unwrap())
                 .to_string(),
             node2.id().to_string()
         );
-        assert_eq!(elem.ip.unwrap().get_value(), node2.internal_addr().ip().to_string());
+        assert_eq!(elem.ip.unwrap(), node2.internal_addr().ip().to_string());
         Ok(())
     }
 
-    #[test]
-    pub fn test_grpc_peer_list_node_type() -> Fallible<()> {
-        let types = [PeerType::Node, PeerType::Bootstrapper];
-        types.iter().map(|m| grpc_peer_list_node_type_str(*m)).collect::<Fallible<Vec<()>>>()?;
-
+    #[tokio::test]
+    async fn test_grpc_peer_list_bootstrapper() -> Fallible<()> {
+        let (mut client, _) = create_node_rpc_call_option(PeerType::Bootstrapper).await.unwrap();
+        let req = req_with_auth!(proto::PeersRequest {
+            include_bootstrappers: true,
+        }, TOKEN);
+        let reply = client.peer_list(req).await.unwrap();
+        assert_eq!(reply.get_ref().peer_type, PeerType::Bootstrapper.to_string());
         Ok(())
     }
 
-    fn grpc_peer_list_node_type_str(peer_type: PeerType) -> Fallible<()> {
-        let (client, _, callopts) = create_node_rpc_call_option(peer_type);
-        let reply =
-            client.peer_list_opt(&crate::proto::PeersRequest::new(), callopts).expect("rpc");
-        assert_eq!(reply.peer_type, peer_type.to_string());
-        Ok(())
-    }
-
-    #[test]
-    fn test_node_info() -> Fallible<()> {
+    #[tokio::test]
+    async fn test_node_info() -> Fallible<()> {
         let instant1 = (Utc::now().timestamp_millis() as u64) / 1000;
-        let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
-        let reply = client.node_info_opt(&crate::proto::Empty::new(), callopts).expect("rpc");
+        let (mut client, node) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
+        let reply = client.node_info(req_with_auth!(proto::Empty {}, TOKEN)).await.unwrap();
+        let reply = reply.get_ref();
         let instant2 = (Utc::now().timestamp_millis() as u64) / 1000;
         assert!((reply.current_localtime >= instant1) && (reply.current_localtime <= instant2));
         assert_eq!(reply.peer_type, "Node");
-        assert_eq!(reply.node_id.unwrap().get_value(), rpc_serv.node.id().to_string());
+        assert_eq!(reply.node_id.as_ref().unwrap(), &node.id().to_string());
         Ok(())
     }
 
-    #[test]
-    fn test_subscription_start() -> Fallible<()> {
-        let (client, _, callopts) = create_node_rpc_call_option(PeerType::Node);
+    #[tokio::test]
+    async fn test_subscription_start() -> Fallible<()> {
+        let (mut client, _) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
         assert!(client
-            .subscription_start_opt(&crate::proto::Empty::new(), callopts)
+            .subscription_start(req_with_auth!(proto::Empty {}, TOKEN))
+            .await
             .unwrap()
-            .get_value());
+            .get_ref()
+            .value
+        );
         Ok(())
     }
 
-    #[test]
-    fn test_subscription_stop() -> Fallible<()> {
-        let (client, _, callopts) = create_node_rpc_call_option(PeerType::Node);
-        // assert!(!client
-        // .subscription_stop_opt(&crate::proto::Empty::new(), callopts.clone())
-        // .unwrap()
-        // .get_value());
-        client.subscription_start_opt(&crate::proto::Empty::new(), callopts.clone()).unwrap();
+    #[tokio::test]
+    async fn test_subscription_stop() -> Fallible<()> {
+        let (mut client, _) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
+        let req = || req_with_auth!(proto::Empty {}, TOKEN);
+        client.subscription_start(req()).await.unwrap();
         assert!(client
-            .subscription_stop_opt(&crate::proto::Empty::new(), callopts)
+            .subscription_stop(req())
+            .await
             .unwrap()
-            .get_value());
+            .get_ref()
+            .value);
         Ok(())
     }
 
@@ -1131,16 +1136,18 @@ mod tests {
     // - Get last final account info
     // - Get last final instance info
 
-    #[test]
-    fn test_shutdown() -> Fallible<()> {
-        let (client, _, callopts) = create_node_rpc_call_option(PeerType::Node);
+    #[tokio::test]
+    async fn test_shutdown() -> Fallible<()> {
+        let (mut client, _) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
         assert!(client
-            .shutdown_opt(&crate::proto::Empty::new(), callopts)
-            .expect("rpc")
-            .get_value());
+            .shutdown(req_with_auth!(proto::Empty {}, TOKEN))
+            .await
+            .unwrap()
+            .get_ref()
+            .value);
         Ok(())
     }
-
+/*
     #[test]
     #[cfg(feature = "benchmark")]
     #[ignore] // TODO: decide how to handle this one
@@ -1148,7 +1155,7 @@ mod tests {
         let data = "Hey";
         std::fs::create_dir_all("/tmp/blobs")?;
         std::fs::write("/tmp/blobs/test", data)?;
-        let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
+        let mut client = create_node_rpc_call_option(PeerType::Node).await.unwrap();
         let port = next_available_port();
         let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
         connect(&node2, &rpc_serv.node)?;
@@ -1169,7 +1176,7 @@ mod tests {
         let data = "Hey";
         std::fs::create_dir_all("/tmp/blobs")?;
         std::fs::write("/tmp/blobs/test", data)?;
-        let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
+        let mut client = create_node_rpc_call_option(PeerType::Node).await.unwrap();
         let port = next_available_port();
         let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
         connect(&node2, &rpc_serv.node)?;
@@ -1185,5 +1192,6 @@ mod tests {
             }
         }
         bail!("grpc: TPS test should have been deactivated but doesn't answer with the propererror")
-    }*/
+    }
+*/
 }
