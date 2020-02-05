@@ -141,6 +141,14 @@ type TreeConfig = DiskTreeDiskBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
 makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData (genesisState genData)
 
+-- type TreeConfig = MemoryTreeDiskBlockConfig
+-- makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
+-- makeGlobalStateConfig rt genData = return $ MTDBConfig rt genData (genesisState genData)
+
+-- type TreeConfig = MemoryTreeMemoryBlockConfig
+-- makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
+-- makeGlobalStateConfig rt genData = return $ MTMBConfig rt genData (genesisState genData)
+
 type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) HookLogHandler
 
 
@@ -163,7 +171,7 @@ main = do
         gsconfig <- makeGlobalStateConfig (defaultRuntimeParameters { rpTreeStateDir = "database-" ++ show bakerId }) gen
         let
             finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)) gen
-            hconfig = HookLogHandler (Just logT)
+            hconfig = HookLogHandler Nothing --(Just logT)
             config = SkovConfig gsconfig finconfig hconfig
         (cin, cout, sr) <- makeAsyncRunner logM bid config
         _ <- forkIO $ sendTransactions cin trans
