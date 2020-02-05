@@ -1,69 +1,7 @@
-use byteorder::{ByteOrder, ReadBytesExt, WriteBytesExt};
-use failure::Fallible;
+use concordium_common::network_types::PeerId;
 use nohash_hasher::BuildNoHashHasher;
 use priority_queue::PriorityQueue;
-
-use concordium_common::{
-    blockchain_types::BlockHash,
-    network_types::PeerId,
-    read_ty,
-    serial::{Endianness, NoParam, Serial},
-};
-
 use std::{cmp::Ordering, time::Instant};
-
-type BlockHeight = u64;
-
-#[derive(Debug)]
-pub struct CatchUpStatus {
-    is_request:              bool,
-    last_finalized_block:    BlockHash,
-    last_finalized_height:   BlockHeight,
-    best_block:              BlockHash,
-    finalization_justifiers: Box<[BlockHash]>,
-}
-
-impl Serial for CatchUpStatus {
-    type Param = NoParam;
-
-    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
-        let is_request = read_ty!(source, bool)[0] != 0;
-        let last_finalized_block = BlockHash::from(read_ty!(source, BlockHash));
-        let last_finalized_height = BlockHeight::deserial(source)?;
-        let best_block = BlockHash::from(read_ty!(source, BlockHash));
-
-        let finalization_justifiers = read_multiple!(
-            source,
-            BlockHash::from(read_ty!(source, BlockHash)),
-            4,
-            1024
-        );
-
-        let status = CatchUpStatus {
-            is_request,
-            last_finalized_block,
-            last_finalized_height,
-            best_block,
-            finalization_justifiers,
-        };
-
-        Ok(status)
-    }
-
-    fn serial<W: WriteBytesExt>(&self, target: &mut W) -> Fallible<()> {
-        target.write_u8(self.is_request as u8)?;
-        target.write_all(&self.last_finalized_block)?;
-        self.last_finalized_height.serial(target)?;
-        target.write_all(&self.best_block)?;
-
-        target.write_u32::<Endianness>(self.finalization_justifiers.len() as u32)?;
-        for fj in &*self.finalization_justifiers {
-            target.write_all(fj)?;
-        }
-
-        Ok(())
-    }
-}
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct PeerState {
@@ -82,13 +20,6 @@ impl PeerState {
     pub fn is_catching_up(&self) -> bool { PeerStatus::CatchingUp == self.status }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
-pub enum PeerStatus {
-    CatchingUp = 2,
-    Pending    = 1,
-    UpToDate   = 0,
-}
-
 impl Ord for PeerState {
     fn cmp(&self, other: &Self) -> Ordering {
         if self.status != other.status {
@@ -101,6 +32,13 @@ impl Ord for PeerState {
 
 impl PartialOrd for PeerState {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> { Some(self.cmp(other)) }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
+pub enum PeerStatus {
+    CatchingUp = 2,
+    Pending    = 1,
+    UpToDate   = 0,
 }
 
 #[derive(Default)]
