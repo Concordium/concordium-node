@@ -16,7 +16,6 @@ import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
-import Control.Applicative
 import Control.Exception
 import Control.Monad.State
 import Data.ByteString (ByteString)
@@ -171,34 +170,33 @@ instance (bs ~ GS.BlockState m, MonadIO m, BS.BlockStateStorage m, MonadState (S
     db . storeEnv .= e
     db . finalizationRecordStore .= d
 
+getWeakPointer :: (MonadState (SkovPersistentData s) m,
+                  LMDBStoreMonad m, TS.BlockPointer m ~ PersistentBlockPointer s) =>
+                 PersistentBlockPointer s
+               -> (PersistentBlockPointer s -> Weak (PersistentBlockPointer s))
+               -> (BlockFields -> BlockHash)
+               -> String
+               -> m (PersistentBlockPointer s)
+getWeakPointer block field pointer name = do
+      gb <- use genesisBlockPointer
+      if gb == block then
+        return gb
+      else do
+        d <- liftIO $ deRefWeak (field block)
+        case d of
+          Just v -> return v
+          Nothing -> do
+            nb <- maybe (return $ Just gb) (\f -> readBlock (pointer f)) (blockFields $ _bpBlock block)
+            return $ fromMaybe (error ("Couldn't find " ++ name ++ " block in disk")) nb
+
 instance (bs ~ GS.BlockState m,
           BS.BlockStateStorage m,
           Monad m,
           MonadIO m,
           MonadState (SkovPersistentData bs) m) => BlockPointerMonad (PersistentTreeStateMonad bs m) where
     blockState = return . _bpState
-    bpParent b = do
-      gb <- use genesisBlockPointer
-      if gb == b then
-        return gb
-      else do
-        d <- liftIO $ deRefWeak (_bpParent b)
-        case d of
-          Just v -> return v
-          Nothing -> do
-            nb <- maybe (return $ Just gb) (\f -> readBlock (blockPointer f)) (blockFields $ _bpBlock b)
-            return $ fromMaybe (error "Couldn't find parent block in disk") nb
-    bpLastFinalized b = do
-      gb <- use genesisBlockPointer
-      if gb == b then
-        return gb
-      else do
-        d <- liftIO $ deRefWeak (_bpLastFinalized b)
-        case d of
-          Just v -> return v
-          Nothing -> do
-            nb <-  maybe (return $ Just gb) (\f -> readBlock (blockLastFinalized f)) (blockFields $ _bpBlock b)
-            return $ fromMaybe (error "Couldn't find last finalized block in disk") nb
+    bpParent block = getWeakPointer block _bpParent blockPointer "parent"
+    bpLastFinalized block = getWeakPointer block _bpLastFinalized blockLastFinalized "last finalized"
 
 instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovPersistentData bs) m)
           => TS.TreeStateMonad (PersistentTreeStateMonad bs m) where
@@ -214,15 +212,25 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
         Just (BlockAlive bp) -> return $ Just $ TS.BlockAlive bp
         Just (BlockPending bp) -> return $ Just $ TS.BlockPending bp
         Just BlockDead -> return $ Just TS.BlockDead
-        Just (BlockFinalized fidx) -> do
-          b <- readBlock bh
-          fr <- readFinalizationRecord fidx
-          case (b, fr) of
-            (Just block, Just finr) -> return $ Just (TS.BlockFinalized block finr)
-            (Just _, Nothing) -> error $ "Lost finalization record that was stored" ++ show bh
-            (Nothing, Just _) -> error $ "Lost block that was stored as finalized" ++ show bh
-            _ -> error $ "Lost block and finalization record" ++ show bh
+        Just (BlockFinalized fidx) -> getFinalizedBlockAndFR fidx
         _ -> return Nothing
+     where getFinalizedBlockAndFR fidx = do
+            gb <- use genesisBlockPointer
+            if bh == bpHash gb then
+              return $ Just (TS.BlockFinalized gb (FinalizationRecord 0 (bpHash gb) emptyFinalizationProof 0))
+            else do
+              lf <- use lastFinalized
+              if bh == bpHash lf then do
+                lfr <- use lastFinalizationRecord
+                return $ Just (TS.BlockFinalized lf lfr)
+              else do
+                b <- readBlock bh
+                fr <- readFinalizationRecord fidx
+                case (b, fr) of
+                  (Just block, Just finr) -> return $ Just (TS.BlockFinalized block finr)
+                  (Just _, Nothing) -> error $ "Lost finalization record that was stored" ++ show bh
+                  (Nothing, Just _) -> error $ "Lost block that was stored as finalized" ++ show bh
+                  _ -> error $ "Lost block and finalization record" ++ show bh
     makeLiveBlock block parent lastFin st arrTime energy = do
             blockP <- liftIO $ makeBlockPointerFromPendingBlock block parent lastFin st arrTime energy
             blockTable . at (getHash block) ?= BlockAlive blockP
@@ -231,13 +239,15 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
     markFinalized bh fr = use (blockTable . at bh) >>= \case
             Just (BlockAlive bp) -> do
               writeBlock bp
-              writeFinalizationRecord fr
               blockTable . at bh ?= BlockFinalized (finalizationIndex fr)
             _ -> return ()
     markPending pb = blockTable . at (getHash pb) ?= BlockPending pb
     getGenesisBlockPointer = use genesisBlockPointer
     getGenesisData = use genesisData
-    getLastFinalized = liftA2 (,) (use lastFinalized) (use lastFinalizationRecord)
+    getLastFinalized = do
+      lf <- use lastFinalized
+      lfr <- use lastFinalizationRecord
+      return $! (lf, lfr)
     getNextFinalizationIndex = (+1) . finalizationIndex <$> use lastFinalizationRecord
     addFinalization newFinBlock finRec = do
       writeFinalizationRecord finRec
