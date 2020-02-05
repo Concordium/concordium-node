@@ -12,6 +12,7 @@ import Data.Time.Clock.POSIX
 import System.IO
 import Data.Serialize
 import Control.Exception
+import System.Directory
 
 import Concordium.TimerMonad
 import Concordium.Types.HashableTo
@@ -158,6 +159,7 @@ main = do
     now <- truncate <$> getPOSIXTime
     let (gen, bis) = makeGenesisData now n 1 0.5 0 dummyCryptographicParameters dummyIdentityProviders []
     trans <- transactions <$> newStdGen
+    createDirectoryIfMissing True "data"
     chans <- mapM (\(bakerId, (bid, _)) -> do
         logFile <- openFile ("consensus-" ++ show now ++ "-" ++ show bakerId ++ ".log") WriteMode
 
@@ -168,7 +170,7 @@ main = do
         logTransferFile <- openFile ("transfer-log-" ++ show now ++ "-" ++ show bakerId ++ ".transfers") WriteMode
         let logT bh slot reason =
               hPrint logTransferFile (bh, slot, reason)
-        gsconfig <- makeGlobalStateConfig (defaultRuntimeParameters { rpTreeStateDir = "database-" ++ show bakerId }) gen
+        gsconfig <- makeGlobalStateConfig (defaultRuntimeParameters { rpTreeStateDir = "data/treestate-" ++ show now ++ "-" ++ show bakerId }) gen
         let
             finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)) gen
             hconfig = HookLogHandler Nothing --(Just logT)
