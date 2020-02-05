@@ -173,7 +173,7 @@ main = do
         gsconfig <- makeGlobalStateConfig (defaultRuntimeParameters { rpTreeStateDir = "data/treestate-" ++ show now ++ "-" ++ show bakerId }) gen
         let
             finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)) gen
-            hconfig = HookLogHandler Nothing --(Just logT)
+            hconfig = HookLogHandler (Just logT)
             config = SkovConfig gsconfig finconfig hconfig
         (cin, cout, sr) <- makeAsyncRunner logM bid config
         _ <- forkIO $ sendTransactions cin trans
