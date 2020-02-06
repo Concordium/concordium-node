@@ -30,7 +30,7 @@ data BlockFields = BlockFields {
     -- |The block nonce
     bfBlockNonce :: !BlockNonce,
     -- |The 'BlockHash' of the last finalized block when the block was baked
-    bfBlockLastFinalized :: !BlockHash
+    bfBlockFinalizationData :: !BlockFinalizationData
 } deriving (Show)
 
 instance BlockMetadata BlockFields where
@@ -42,8 +42,8 @@ instance BlockMetadata BlockFields where
     {-# INLINE blockProof #-}
     blockNonce = bfBlockNonce
     {-# INLINE blockNonce #-}
-    blockLastFinalized = bfBlockLastFinalized
-    {-# INLINE blockLastFinalized #-}
+    blockFinalizationData = bfBlockFinalizationData
+    {-# INLINE blockFinalizationData #-}
 
 -- |A baked (i.e. non-genesis) block.
 data BakedBlock = BakedBlock {
@@ -68,8 +68,8 @@ instance BlockMetadata BakedBlock where
     {-# INLINE blockProof #-}
     blockNonce = bfBlockNonce . bbFields
     {-# INLINE blockNonce #-}
-    blockLastFinalized = bfBlockLastFinalized . bbFields
-    {-# INLINE blockLastFinalized #-}
+    blockFinalizationData = bfBlockFinalizationData . bbFields
+    {-# INLINE blockFinalizationData #-}
 
 instance BlockData BakedBlock where
     blockSlot = bbSlot
@@ -94,15 +94,16 @@ signBlock ::
     -> BakerId          -- ^Identifier of block baker
     -> BlockProof       -- ^Block proof
     -> BlockNonce       -- ^Block nonce
-    -> BlockHash        -- ^Hash of last finalized block
+    -> BlockFinalizationData
+                        -- ^Finalization data
     -> [Transaction]    -- ^List of transactions
     -> BakedBlock
-signBlock key slot parent baker proof bnonce lastFin transactions
+signBlock key slot parent baker proof bnonce finData transactions
     | slot == 0 = error "Only the genesis block may have slot 0"
     | otherwise = block
     where
         trs = BlockTransactions transactions
-        preBlock = BakedBlock slot (BlockFields parent baker proof bnonce lastFin) trs
+        preBlock = BakedBlock slot (BlockFields parent baker proof bnonce finData) trs
         sig = Sig.sign key $ runPut $ blockBody (preBlock undefined)
         block = preBlock sig
 
@@ -151,7 +152,7 @@ getBlock arrivalTime = do
     bfBlockBaker <- get
     bfBlockProof <- get
     bfBlockNonce <- get
-    bfBlockLastFinalized <- get
+    bfBlockFinalizationData <- get
     bbTransactions <- BlockTransactions <$> getListOf (getUnverifiedTransaction arrivalTime)
     bbSignature <- get
     return $ NormalBlock (BakedBlock{bbSlot = sl, bbFields = BlockFields{..}, ..})
@@ -197,8 +198,8 @@ instance BlockMetadata PendingBlock where
     {-# INLINE blockProof #-}
     blockNonce = bfBlockNonce . bbFields . pbBlock
     {-# INLINE blockNonce #-}
-    blockLastFinalized = bfBlockLastFinalized . bbFields . pbBlock
-    {-# INLINE blockLastFinalized #-}
+    blockFinalizationData = bfBlockFinalizationData . bbFields . pbBlock
+    {-# INLINE blockFinalizationData #-}
 
 instance BlockPendingData PendingBlock where
     blockReceiveTime = pbReceiveTime

@@ -16,6 +16,7 @@ import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Basic.Block
 import qualified Concordium.Types.Transactions as Transactions
@@ -89,7 +90,7 @@ makeBasicBlockPointer ::
     -> BasicBlockPointer s
 makeBasicBlockPointer pb _bpParent _bpLastFinalized _bpState _bpArriveTime _bpTransactionsEnergyCost
         = assert (getHash _bpParent == blockPointer bf) $
-            assert (getHash _bpLastFinalized == blockLastFinalized bf) $
+            assert checkLastFin $
                 BasicBlockPointer {
                     _bpHash = getHash pb,
                     _bpBlock = NormalBlock (pbBlock pb),
@@ -99,6 +100,9 @@ makeBasicBlockPointer pb _bpParent _bpLastFinalized _bpState _bpArriveTime _bpTr
     where
         bf = bbFields $ pbBlock pb
         (_bpTransactionCount, _bpTransactionsSize) = List.foldl' (\(clen, csize) tx -> (clen + 1, Transactions.trSize tx + csize)) (0, 0) (blockTransactions pb)
+        checkLastFin = case blockFinalizationData bf of
+            NoFinalizationData -> _bpLastFinalized == bpLastFinalized _bpParent
+            BlockFinalizationData r -> getHash _bpLastFinalized == finalizationBlockPointer r
 
 
 makeGenesisBlockPointer :: GenesisData -> s -> BasicBlockPointer s
