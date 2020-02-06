@@ -213,8 +213,8 @@ processFinalizationPool checkPending = do
                     let doArchive b = case compare (bpHeight b) lastFinHeight of
                             LT -> return ()
                             EQ -> archiveBlockState =<< blockState b
-                            GT -> do
-                              (doArchive =<< bpParent b) >> blockState b >>= archiveBlockState
+                            GT -> do doArchive =<< bpParent b
+                                     archiveBlockState =<< blockState b
                     doArchive =<< bpParent newFinBlock
                     -- Prune the branches
                     let
