@@ -18,7 +18,7 @@ use crate::{
     configuration::{self as config, Config},
     connection::{Connection, DeduplicationQueues, P2PEvent},
     dumper::DumpItem,
-    network::{Buckets, NetworkId, NetworkMessage},
+    network::{Buckets, NetworkId},
     p2p::{bans::BanId, connectivity::SERVER},
     stats_engine::StatsEngine,
     stats_export_service::StatsExportService,
@@ -135,7 +135,6 @@ pub struct P2PNode {
     pub threads:            RwLock<P2PNodeThreads>,
     pub poll:               Poll,
     pub connection_handler: ConnectionHandler,
-    pub rpc_queue:          Sender<NetworkMessage>,
     pub dump_switch:        Sender<(std::path::PathBuf, bool)>,
     pub dump_tx:            Sender<crate::dumper::DumpItem>,
     pub stats:              Arc<StatsExportService>,
@@ -157,7 +156,6 @@ impl P2PNode {
         event_log: Option<Sender<QueueMsg<P2PEvent>>>,
         peer_type: PeerType,
         stats: Arc<StatsExportService>,
-        subscription_queue_in: Sender<NetworkMessage>,
         data_dir_path: Option<PathBuf>,
     ) -> Arc<Self> {
         let addr = if let Some(ref addy) = conf.common.listen_address {
@@ -299,7 +297,6 @@ impl P2PNode {
         let mut node = Arc::new(P2PNode {
             self_ref: None,
             poll,
-            rpc_queue: subscription_queue_in,
             start_time: Utc::now(),
             threads: RwLock::new(P2PNodeThreads::default()),
             config,

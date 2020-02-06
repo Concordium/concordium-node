@@ -88,14 +88,6 @@ impl P2PNode {
         Ok(sent_messages)
     }
 
-    pub fn forward_network_packet(&self, msg: NetworkMessage) -> Fallible<()> {
-        if let Err(e) = self.rpc_queue.send(msg) {
-            error!("Can't relay a message to the RPC outbound queue: {}", e);
-        }
-
-        Ok(())
-    }
-
     pub fn measure_connection_latencies(&self) {
         debug!("Measuring connection latencies");
 
