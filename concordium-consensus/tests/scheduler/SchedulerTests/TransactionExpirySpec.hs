@@ -28,7 +28,10 @@ import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import Concordium.Scheduler.Runner
 import qualified Concordium.Scheduler as Sch
 
-import SchedulerTests.DummyData
+import Concordium.Scheduler.DummyData
+import Concordium.GlobalState.DummyData
+import Concordium.Types.DummyData
+import Concordium.Crypto.DummyData
 
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
@@ -42,7 +45,7 @@ initialBlockState =
     (blockIdentityProviders .~ dummyIdentityProviders)
 
 baker :: (BakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
-baker = mkBaker 1 alesAccount
+baker = mkFullBaker 1 alesAccount
 
 -- A list of transactions all of which are valid unless they are expired.
 -- This list includes all payload types to ensure that expiry is handled for
@@ -123,7 +126,7 @@ testExpiryTime expiry = do
     (_, _) <- PR.processModule source
     ts <- processTransactions $ transactions expiry
     let ((Sch.FilteredTransactions{..}, _), gstate) =
-          Types.runSI (Sch.filterTransactions blockSize ts)
+          Types.runSI (Sch.filterTransactions dummyBlockSize ts)
             dummySpecialBetaAccounts
             Types.dummyChainMeta { Types.slotTime = slotTime }
             initialBlockState
@@ -136,9 +139,9 @@ checkExpiryTimeResult :: Types.TransactionExpiryTime ->
                           [(Types.BareTransaction, Types.FailureKind)],
                           [Types.BareTransaction]) ->
                          Bool
-checkExpiryTimeResult (Types.TransactionExpiryTime exp) (added, fails, unprocs) =
+checkExpiryTimeResult (Types.TransactionExpiryTime expiry) (added, fails, unprocs) =
     null unprocs &&
-        if slotTime <= exp
+        if slotTime <= expiry
         -- transactions haven't expired, so they should all succeed
         then check fails added (\case (_, Types.TxSuccess{}) -> True
                                       _ -> False)

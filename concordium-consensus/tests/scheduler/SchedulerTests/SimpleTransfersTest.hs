@@ -26,7 +26,10 @@ import Concordium.GlobalState.Basic.BlockState.Invariants
 
 import qualified Acorn.Core as Core
 
-import SchedulerTests.DummyData
+import Concordium.Scheduler.DummyData
+import Concordium.GlobalState.DummyData
+import Concordium.Types.DummyData
+import Concordium.Crypto.DummyData
 
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
@@ -42,25 +45,25 @@ initialBlockState =
 transactionsInput :: [TransactionJSON]
 transactionsInput =
   [TJSON { payload = Transfer {toaddress = Types.AddressAccount alesAccount, amount = 100 }
-         , metadata = makeHeader alesAccount 1 1000
+         , metadata = makeDummyHeader alesAccount 1 1000
          , keypair = alesKP
          }
   ,TJSON { payload = Transfer {toaddress = Types.AddressAccount thomasAccount, amount = 88 }
-         , metadata = makeHeader alesAccount 2 1000
+         , metadata = makeDummyHeader alesAccount 2 1000
          , keypair = alesKP
          }
   ,TJSON { payload = Transfer {toaddress = Types.AddressAccount thomasAccount, amount = 98700 }
-         , metadata = makeHeader alesAccount 3 1000
+         , metadata = makeDummyHeader alesAccount 3 1000
          , keypair = alesKP
          }
   ,TJSON { payload = Transfer {toaddress = Types.AddressAccount alesAccount, amount = 100 }
-         , metadata = makeHeader thomasAccount 1 500
+         , metadata = makeDummyHeader thomasAccount 1 500
          , keypair = thomasKP
          }
     -- the next transaction should fail because the balance on alesAccount is now 1282, which is
     -- less than 600 + 700
   ,TJSON { payload = Transfer {toaddress = Types.AddressAccount thomasAccount, amount = 600 }
-         , metadata = makeHeader alesAccount 4 700
+         , metadata = makeDummyHeader alesAccount 4 700
          , keypair = alesKP
          }
   ]
@@ -74,7 +77,7 @@ testSimpleTransfer
 testSimpleTransfer = do
     transactions <- processTransactions transactionsInput
     let ((Sch.FilteredTransactions{..}, _), gstate) =
-          Types.runSI (Sch.filterTransactions blockSize transactions)
+          Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
             dummySpecialBetaAccounts
             Types.dummyChainMeta
             initialBlockState

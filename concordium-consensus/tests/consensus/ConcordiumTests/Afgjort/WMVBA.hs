@@ -18,14 +18,15 @@ import qualified Concordium.Afgjort.PartySet as PS
 import Concordium.Afgjort.Types
 import Concordium.Afgjort.WMVBA
 import qualified Concordium.Crypto.BlsSignature as Bls
-import Concordium.Crypto.BlockSignature as Sig
 import Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.SHA256 as H
 
 import Debug.Trace
 
+import Concordium.Crypto.DummyData
+
 genBlsSecretKey :: Gen Bls.SecretKey
-genBlsSecretKey =  Bls.secretKeyGen
+genBlsSecretKey =  secretBlsKeyGen
 
 genBlsKeyPair :: Gen (Bls.SecretKey, Bls.PublicKey)
 genBlsKeyPair = fmap (\sk -> (sk, Bls.derivePublicKey sk)) $ genBlsSecretKey

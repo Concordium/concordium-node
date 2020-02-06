@@ -27,7 +27,10 @@ import Lens.Micro.Platform
 import Control.Monad.IO.Class
 
 import qualified Acorn.Core as Core
-import SchedulerTests.DummyData
+import Concordium.Scheduler.DummyData
+import Concordium.GlobalState.DummyData
+import Concordium.Types.DummyData
+import Concordium.Crypto.DummyData
 
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
@@ -42,7 +45,7 @@ initialBlockState =
 transactionsInput :: [TransactionJSON]
 transactionsInput =
   [TJSON { payload = DeployModule "SimpleTransfers"
-         , metadata = makeHeader alesAccount 1 100000
+         , metadata = makeDummyHeader alesAccount 1 100000
          , keypair = alesKP
          }
   -- create three contracts with addresses 0, 1, 2
@@ -51,7 +54,7 @@ transactionsInput =
                                   ,moduleName = "SimpleTransfers"
                                   ,parameter = "Unit.Unit"
                                   }
-         , metadata = makeHeader alesAccount 2 100000
+         , metadata = makeDummyHeader alesAccount 2 100000
          , keypair = alesKP
          }
   ,TJSON { payload = InitContract {amount = 100
@@ -59,7 +62,7 @@ transactionsInput =
                                   ,moduleName = "SimpleTransfers"
                                   ,parameter = "Unit.Unit"
                                   }
-         , metadata = makeHeader alesAccount 3 100000
+         , metadata = makeDummyHeader alesAccount 3 100000
          , keypair = alesKP
          }
   ,TJSON { payload = InitContract {amount = 100
@@ -67,7 +70,7 @@ transactionsInput =
                                   ,moduleName = "SimpleTransfers"
                                   ,parameter = "Unit.Unit"
                                   }
-         , metadata = makeHeader alesAccount 4 100000
+         , metadata = makeDummyHeader alesAccount 4 100000
          , keypair = alesKP
          }
   -- and then invoke the first to send a message to the last two,
@@ -79,7 +82,7 @@ transactionsInput =
                                         \let two :: ListBase.List Blockchain.Caller = consC <2,0> one in \
                                         \consC <1,0> two"
                             }
-         , metadata = makeHeader alesAccount 5 10000
+         , metadata = makeDummyHeader alesAccount 5 10000
          , keypair = alesKP
          }
   ]
@@ -95,7 +98,7 @@ testSimpleTransfers = do
     (_, _) <- PR.processModule source -- execute only for effect on global state
     transactions <- processTransactions transactionsInput
     let ((Sch.FilteredTransactions{..}, _), endState) =
-            Types.runSI (Sch.filterTransactions blockSize transactions)
+            Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
               dummySpecialBetaAccounts
               Types.dummyChainMeta
               initialBlockState

@@ -32,7 +32,10 @@ import Control.Monad.IO.Class
 
 import Lens.Micro.Platform
 
-import SchedulerTests.DummyData
+import Concordium.Scheduler.DummyData
+import Concordium.GlobalState.DummyData
+import Concordium.Types.DummyData
+import Concordium.Crypto.DummyData
 
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
@@ -47,7 +50,7 @@ initialBlockState =
 transactionsInput :: [TransactionJSON]
 transactionsInput =
   [TJSON { payload = DeployModule "FibContract"
-         , metadata = makeHeader alesAccount 1 10000
+         , metadata = makeDummyHeader alesAccount 1 10000
          , keypair = alesKP
          }
 
@@ -56,7 +59,7 @@ transactionsInput =
                                   , parameter = "Unit.Unit"
                                   , contractName = "Fibonacci"
                                   }
-        , metadata = makeHeader alesAccount 2 100000
+        , metadata = makeDummyHeader alesAccount 2 100000
         , keypair = alesKP
         }
   ,TJSON { payload = Update { amount = 0
@@ -64,7 +67,7 @@ transactionsInput =
                             , message = "Fib 30"
                             , address = Types.ContractAddress { contractIndex = 0, contractSubindex = 0}
                             }
-        , metadata = makeHeader alesAccount 3 1000000
+        , metadata = makeDummyHeader alesAccount 3 1000000
         , keypair = alesKP
         }
   ]
@@ -81,7 +84,7 @@ testFibonacci = do
     (_, _) <- PR.processModule source -- execute only for effect on global state, i.e., load into cache
     transactions <- processTransactions transactionsInput
     let ((Sch.FilteredTransactions{..}, _), gs) =
-          Types.runSI (Sch.filterTransactions blockSize transactions)
+          Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
             dummySpecialBetaAccounts
             Types.dummyChainMeta
             initialBlockState

@@ -29,7 +29,10 @@ import qualified Data.Sequence as Seq
 
 import Control.Monad.IO.Class
 
-import SchedulerTests.DummyData
+import Concordium.Scheduler.DummyData
+import Concordium.GlobalState.DummyData
+import Concordium.Types.DummyData
+import Concordium.Crypto.DummyData
 
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
@@ -51,7 +54,7 @@ chainMeta = Types.ChainMetadata{..}
 transactionsInput :: [TransactionJSON]
 transactionsInput =
     [TJSON { payload = DeployModule "ChainMetaTest"
-           , metadata = makeHeader alesAccount 1 1000
+           , metadata = makeDummyHeader alesAccount 1 1000
            , keypair = alesKP
            }
     ,TJSON { payload = InitContract {amount = 123
@@ -59,7 +62,7 @@ transactionsInput =
                                     ,moduleName = "ChainMetaTest"
                                     ,parameter = "Unit.Unit"
                                     }
-           , metadata = makeHeader alesAccount 2 10000
+           , metadata = makeDummyHeader alesAccount 2 10000
            , keypair = alesKP
            }
     ]
@@ -76,7 +79,7 @@ testChainMeta = do
     (_, _) <- PR.processModule source -- execute only for effect on global state, i.e., load into cache
     transactions <- processTransactions transactionsInput
     let ((Sch.FilteredTransactions{..}, _), gs) =
-          Types.runSI (Sch.filterTransactions blockSize transactions)
+          Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
             dummySpecialBetaAccounts
             chainMeta
             initialBlockState

@@ -23,7 +23,10 @@ import qualified Concordium.GlobalState.Rewards as Rew
 import Lens.Micro.Platform
 import Control.Monad.IO.Class
 
-import SchedulerTests.DummyData
+import Concordium.Scheduler.DummyData
+import Concordium.GlobalState.DummyData
+import Concordium.Types.DummyData
+import Concordium.Crypto.DummyData
 
 import qualified Acorn.Core as Core
 
@@ -49,31 +52,31 @@ deployAccountCost = Cost.deployCredential + Cost.checkHeader
 transactionsInput :: [TransactionJSON]
 transactionsInput =
   [TJSON { payload = DeployCredential cdi1
-         , metadata = makeHeader alesAccount 1 deployAccountCost
+         , metadata = makeDummyHeader alesAccount 1 deployAccountCost
          , keypair = alesKP
          }
   ,TJSON { payload = DeployCredential cdi2
-         , metadata = makeHeader alesAccount 2 deployAccountCost
+         , metadata = makeDummyHeader alesAccount 2 deployAccountCost
          , keypair = alesKP
          }
   ,TJSON { payload = DeployCredential cdi3
-         , metadata = makeHeader alesAccount 3 deployAccountCost
+         , metadata = makeDummyHeader alesAccount 3 deployAccountCost
          , keypair = alesKP
          }
   ,TJSON { payload = DeployCredential cdi4 -- should fail because repeated credential ID
-         , metadata = makeHeader alesAccount 4 deployAccountCost
+         , metadata = makeDummyHeader alesAccount 4 deployAccountCost
          , keypair = alesKP
          }
   ,TJSON { payload = DeployCredential cdi5
-         , metadata = makeHeader alesAccount 5 deployAccountCost
+         , metadata = makeDummyHeader alesAccount 5 deployAccountCost
          , keypair = alesKP
          }
   ,TJSON { payload = DeployCredential cdi6 -- deploy just a new predicate
-         , metadata = makeHeader alesAccount 6 deployAccountCost
+         , metadata = makeDummyHeader alesAccount 6 deployAccountCost
          , keypair = alesKP
          }
   ,TJSON { payload = DeployCredential cdi7  -- should run out of gas (see initial amount on the sender account)
-         , metadata = makeHeader alesAccount 7 Cost.checkHeader
+         , metadata = makeDummyHeader alesAccount 7 Cost.checkHeader
          , keypair = alesKP
          }
   ]
@@ -89,7 +92,7 @@ testAccountCreation ::
 testAccountCreation = do
     transactions <- processTransactions transactionsInput
     let ((Sch.FilteredTransactions{..}, _), state) =
-          Types.runSI (Sch.filterTransactions blockSize transactions)
+          Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
             dummySpecialBetaAccounts
             Types.dummyChainMeta
             initialBlockState

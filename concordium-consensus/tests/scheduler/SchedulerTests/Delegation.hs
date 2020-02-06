@@ -37,12 +37,15 @@ import Concordium.Scheduler.Types hiding (accountAddress, Payload(..))
 import System.Random
 import Lens.Micro.Platform
 
-import SchedulerTests.DummyData
+import Concordium.Scheduler.DummyData
+import Concordium.GlobalState.DummyData
+import Concordium.Types.DummyData
+import Concordium.Crypto.DummyData
 
 staticKeys :: [(KeyPair, AccountAddress)]
 staticKeys = ks (mkStdGen 1333)
     where
-        ks g = let (k, g') = EdSig.randomKeyPair g
+        ks g = let (k, g') = randomEd25519KeyPair g
                    (addr, g'') = randomAccountAddress g'
                in (uncurry KeyPairEd25519 k, addr) : ks g'
 
@@ -80,11 +83,11 @@ initialModel = Model {
 addBaker :: Model -> Gen (TransactionJSON, Model)
 addBaker m0 = do
         (bkrAcct, (kp, nonce)) <- elements (Map.toList $ _mAccounts m0)
-        let (bkr, electionSecretKey, signKey, aggregationKey) = mkBaker (m0 ^. mNextSeed) bkrAcct
+        let (bkr, electionSecretKey, signKey, aggregationKey) = mkFullBaker (m0 ^. mNextSeed) bkrAcct
         return (TJSON {
 
             payload = AddBaker (bkr ^. bakerElectionVerifyKey) electionSecretKey (bkr ^. bakerSignatureVerifyKey) (bkr ^. bakerAggregationVerifyKey) signKey bkrAcct kp,
-            metadata = makeHeader bkrAcct nonce (Cost.checkHeader + Cost.addBaker),
+            metadata = makeDummyHeader bkrAcct nonce (Cost.checkHeader + Cost.addBaker),
             keypair = kp
         }, m0
             & mAccounts . ix bkrAcct . _2 %~ (+1)
@@ -106,7 +109,7 @@ removeBaker m0 = do
         let (_, srcN) = m0 ^. mAccounts . singular (ix address)
         return (TJSON {
             payload = RemoveBaker bkr "<dummy proof>",
-            metadata = makeHeader address srcN (Cost.checkHeader + Cost.removeBaker),
+            metadata = makeDummyHeader address srcN (Cost.checkHeader + Cost.removeBaker),
             keypair = srcKp
         }, m0
             & mAccounts . ix address . _2 %~ (+1)
@@ -119,7 +122,7 @@ delegateStake m0 = do
         bkr <- elements (_mBakers m0)
         return (TJSON {
             payload = DelegateStake bkr,
-            metadata = makeHeader srcAcct srcN (Cost.checkHeader + Cost.updateStakeDelegate 0),
+            metadata = makeDummyHeader srcAcct srcN (Cost.checkHeader + Cost.updateStakeDelegate 0),
             keypair = srcKp
         }, m0 & mAccounts . ix srcAcct . _2 %~ (+1))
 
@@ -128,7 +131,7 @@ undelegateStake m0 = do
         (srcAcct, (srcKp, srcN)) <- elements (Map.toList $ _mAccounts m0)
         return (TJSON {
             payload = UndelegateStake,
-            metadata = makeHeader srcAcct srcN (Cost.checkHeader + Cost.updateStakeDelegate 0),
+            metadata = makeDummyHeader srcAcct srcN (Cost.checkHeader + Cost.updateStakeDelegate 0),
             keypair = srcKp
         }, m0 & mAccounts . ix srcAcct . _2 %~ (+1))
 
@@ -139,7 +142,7 @@ simpleTransfer m0 = do
         amt <- fromIntegral <$> choose (0, 1000 :: Word)
         return (TJSON {
             payload = Transfer {toaddress = AddressAccount destAcct, amount = amt},
-            metadata = makeHeader srcAcct srcN Cost.checkHeader,
+            metadata = makeDummyHeader srcAcct srcN Cost.checkHeader,
             keypair = srcKp
         }, m0 & mAccounts . ix srcAcct . _2 %~ (+1))
 
@@ -160,7 +163,7 @@ testTransactions = forAll makeTransactions (ioProperty . PR.evalContext Init.ini
             transactions <- processTransactions tl
             let ((Sch.FilteredTransactions{..}, _), gs) =
                   EI.runSI
-                    (Sch.filterTransactions blockSize transactions)
+                    (Sch.filterTransactions dummyBlockSize transactions)
                     (Set.fromList [alesAccount, thomasAccount])
                     dummyChainMeta
                     initialBlockState
