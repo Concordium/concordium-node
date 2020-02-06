@@ -146,7 +146,7 @@ relay myPeer inp sr connectedRef monitor _loopback outps = loop
                     forM_ outps $ \outp -> usually $ delayed $
                         writeChan outp (MsgFinalizationRecordReceived myPeer fr)
                 MsgCatchUpRequired target -> do
-                    cur <- getCatchUpStatus sr
+                    cur <- runStateQuery sr (getCatchUpStatus True)
                     delayed $ writeChan (peerChan target) (MsgCatchUpStatusReceived myPeer (encode cur))
                 MsgDirectedBlock target b -> usually $ delayed $ writeChan (peerChan target) (MsgBlockReceived myPeer b)
                 MsgDirectedFinalizationRecord target fr -> usually $ delayed $ writeChan (peerChan target) (MsgFinalizationReceived myPeer fr)
@@ -266,7 +266,10 @@ main = do
                                     Just gs -> gsToString gs -}
                     putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker $ bbFields block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]\\l" ++ stateStr ++ "\\l\"];"
                     putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockPointer $ bbFields block) ++ ";"
-                    putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockLastFinalized $ bbFields block) ++ " [style=dotted];"
+                    case (blockFinalizationData block) of
+                        NoFinalizationData -> return ()
+                        BlockFinalizationData fr ->
+                            putStrLn $ " n" ++ show bh ++ " -> n" ++ show (finalizationBlockPointer fr) ++ " [style=dotted];"
                     hFlush stdout
                     loop
                 Right fr -> do

@@ -26,7 +26,6 @@ import Concordium.Types.HashableTo
 import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Finalization
-import qualified Concordium.Skov.CatchUp as CU
 import qualified Data.PQueue.Prio.Max as Queue
 
 import Concordium.Afgjort.Finalize(FinalizationStateLenses(..))
@@ -260,9 +259,3 @@ checkFinalizerExistsBestBlock sfsRef = runStateQuery sfsRef $ do
    case fs ^. finCurrentRound of
      Nothing -> return False
      Just _ -> return True
-
-getCatchUpStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> IO CU.CatchUpStatus
-getCatchUpStatus sRef = runStateQuery sRef $ CU.getCatchUpStatus True
-
-handleCatchUpStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> CU.CatchUpStatus -> IO (Either String (Maybe ([Either FinalizationRecord (BlockPointer m)], CU.CatchUpStatus), Bool))
-handleCatchUpStatus sRef cus = runStateQuery sRef $ CU.handleCatchUp cus

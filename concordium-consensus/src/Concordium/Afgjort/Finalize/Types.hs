@@ -30,6 +30,12 @@ data FinalizationInstance = FinalizationInstance {
     finMyVRFKey :: !VRF.KeyPair
 }
 
+class HasFinalizationInstance f where
+    finalizationInstance :: f -> FinalizationInstance
+instance HasFinalizationInstance FinalizationInstance where
+    finalizationInstance = id
+    {-# INLINE finalizationInstance #-}
+
 data PartyInfo = PartyInfo {
     partyIndex :: !Party,
     partyWeight :: !VoterPower,

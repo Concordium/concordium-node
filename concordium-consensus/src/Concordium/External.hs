@@ -19,8 +19,6 @@ import Data.Foldable(forM_)
 import Text.Read(readMaybe)
 import Control.Exception
 import Control.Monad.State.Class(MonadState)
-import Data.Functor
-import Control.Arrow
 
 import qualified Data.Text.Lazy as LT
 import qualified Data.Aeson.Text as AET
@@ -45,12 +43,12 @@ import qualified Concordium.GlobalState.Implementation as Rust
 #endif
 
 import Concordium.Runner
-import Concordium.Skov hiding (receiveTransaction, getBirkParameters)
+import Concordium.Skov hiding (receiveTransaction, getBirkParameters, getCatchUpStatus, receiveBlock, MessageType)
+import qualified Concordium.Skov as Skov
 import Concordium.Afgjort.Finalize (FinalizationInstance(..))
 import Concordium.Logger
-import Concordium.TimeMonad
 import Concordium.TimerMonad (ThreadTimer)
-import Concordium.Skov.CatchUp (CatchUpStatus,cusIsResponse)
+-- import Concordium.Skov.CatchUp (CatchUpStatus,cusIsResponse)
 
 import qualified Concordium.Getters as Get
 
@@ -458,15 +456,10 @@ receiveBlock bptr cstr l = do
     let logm = consensusLogMethod c
     logm External LLDebug $ "Received block data size = " ++ show l ++ ". Decoding ..."
     blockBS <- BS.packCStringLen (cstr, fromIntegral l)
-    now <- currentTime
-    toReceiveResult <$> do
-        runWithConsensus c (TS.importPendingBlock blockBS now) >>= \case
-            Left err -> do
-                logm External LLDebug err
-                return ResultSerializationFail
-            Right block -> case c of
-                            BakerRunner{..} -> syncReceiveBlock bakerSyncRunner block
-                            PassiveRunner{..} -> syncPassiveReceiveBlock passiveSyncRunner block
+    -- FIXME: this may be sub-optimal because deserialization now happens under the consensus lock
+    toReceiveResult <$> case c of
+                            BakerRunner{..} -> syncReceiveBlock bakerSyncRunner blockBS
+                            PassiveRunner{..} -> syncPassiveReceiveBlock passiveSyncRunner blockBS
 
 
 -- |Handle receipt of a finalization message.
@@ -808,7 +801,7 @@ getCatchUpStatus cptr = do
         c <- deRefStablePtr cptr
         let logm = consensusLogMethod c
         logm External LLInfo $ "Received request for catch-up status"
-        cus <- runConsensusQuery c Get.getCatchUpStatus
+        cus <- runWithConsensus c (Skov.getCatchUpStatus True)
         logm External LLTrace $ "Replying with catch-up status = " ++ show cus
         byteStringToCString $ encode (cus :: CatchUpStatus)
 
@@ -856,29 +849,20 @@ receiveCatchUpStatus cptr src cstr len limit cbk = do
         Right cus -> do
             logm External LLDebug $ "Catch-up status message deserialized: " ++ show cus
             let
-                toMsg (Left finRec) = (MTFinalizationRecord, encode finRec)
-                toMsg (Right block) = (MTBlock, runPut $ putBlock block)
-            runConsensusQuery c (\z -> Get.handleCatchUpStatus z cus <&> fmap (first (fmap $ \(l, rcus) -> (toMsg <$> l, rcus)))) >>= \case
-                Left emsg -> logm Skov LLWarning emsg >> return ResultInvalid
-                Right (d, flag) -> do
-                    let
-                        sendMsg = callDirectMessageCallback cbk src
-                    forM_ d $ \(frbs, rcus) -> do
-                        let limFrbs = if limit == 0 then frbs else take (fromIntegral limit) frbs
+                toMsg (MessageBlock, bs) = (MTBlock, bs)
+                toMsg (MessageFinalizationRecord, bs) = (MTFinalizationRecord, bs)
+            (response, result) <- case c of
+                BakerRunner{..} -> syncReceiveCatchUp bakerSyncRunner cus
+                PassiveRunner{..} -> syncPassiveReceiveCatchUp passiveSyncRunner cus
+            forM_ response $ \(frbs, rcus) -> do
+                        let
+                            limFrbs = if limit == 0 then frbs else take (fromIntegral limit) frbs
+                            sendMsg = callDirectMessageCallback cbk src
                         logm Skov LLTrace $ "Sending " ++ show (length limFrbs) ++ " blocks/finalization records"
-                        mapM_ (uncurry sendMsg) limFrbs
+                        mapM_ (uncurry sendMsg . toMsg) limFrbs
                         logm Skov LLDebug $ "Catch-up response status message: " ++ show rcus
                         sendMsg MTCatchUpStatus $ encode rcus
-                    return $! if flag then
-                                if cusIsResponse cus then
-                                    -- Mark the peer pending
-                                    ResultPendingBlock
-                                else
-                                    -- Mark the peer pending if it is up-to-date, otherwise no change
-                                    ResultContinueCatchUp
-                            else
-                                -- Mark the peer up-to-date
-                                ResultSuccess
+            return $! result
 
 foreign export ccall startConsensus :: Word64 -> CString -> Int64 -> CString -> Int64 -> GlobalStatePtr -> FunPtr BroadcastCallback -> Word8 -> FunPtr LogCallback -> Word8 -> FunPtr LogTransferCallback -> IO (StablePtr ConsensusRunner)
 foreign export ccall startConsensusPassive :: Word64 -> CString -> Int64 -> GlobalStatePtr -> Word8 -> FunPtr LogCallback -> IO (StablePtr ConsensusRunner)

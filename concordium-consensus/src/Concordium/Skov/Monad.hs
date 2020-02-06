@@ -1,13 +1,17 @@
 {-# LANGUAGE
     DerivingVia,
     StandaloneDeriving #-}
-module Concordium.Skov.Monad where
+module Concordium.Skov.Monad(
+    module Concordium.Skov.CatchUp.Types,
+    module Concordium.Skov.Monad
+) where
 
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
 import Data.Time
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
+import Data.ByteString (ByteString)
 
 import Concordium.Types
 import Concordium.GlobalState.Finalization
@@ -17,6 +21,7 @@ import Concordium.GlobalState.BlockState (BlockStateQuery)
 import Concordium.GlobalState.TreeState (BlockPointer, BlockPointerData, BlockState, MGSTrans(..), PendingBlock)
 import Concordium.Logger
 import Concordium.TimeMonad
+import Concordium.Skov.CatchUp.Types
 
 data UpdateResult
     = ResultSuccess
@@ -41,7 +46,7 @@ data UpdateResult
     -- ^The message could not be validated with the current state
     | ResultContinueCatchUp
     -- ^The peer should be marked as pending unless catch up is already in progress
-    deriving (Show)
+    deriving (Eq, Show)
 
 class (Monad m, Eq (BlockPointer m), BlockPointerData (BlockPointer m), BlockStateQuery m) => SkovQueryMonad m where
     -- |Look up a block in the table given its hash
@@ -50,6 +55,8 @@ class (Monad m, Eq (BlockPointer m), BlockPointerData (BlockPointer m), BlockSta
     isFinalized :: BlockHash -> m Bool
     -- |Determine the last finalized block.
     lastFinalizedBlock :: m (BlockPointer m)
+    -- |Determine the next index for finalization.
+    nextFinalizationIndex :: m FinalizationIndex
     -- |Retrieves the birk parameters for a slot, given a branch (in the form of a block pointer.)
     --  Retrieves AdvanceTime and StableTime directly from genesis block
     getBirkParameters :: Slot -> BlockPointer m -> m BirkParameters
@@ -68,8 +75,18 @@ class (Monad m, Eq (BlockPointer m), BlockPointerData (BlockPointer m), BlockSta
     getBlocksAtHeight :: BlockHeight -> m [BlockPointer m]
     -- |Get a block's state.
     queryBlockState :: BlockPointer m -> m (BlockState m)
+    -- |Get the finalization index of a block's last finalized block.
+    blockLastFinalizedIndex :: BlockPointer m -> m FinalizationIndex
+    -- |Get a catch-up status message. The flag indicates if the
+    -- message should be a catch-up request.
+    getCatchUpStatus :: Bool -> m CatchUpStatus
+
+data MessageType = MessageBlock | MessageFinalizationRecord
+    deriving (Eq, Show)
 
 class (SkovQueryMonad m, TimeMonad m, LoggerMonad m) => SkovMonad m where
+    -- |Parse a 'ByteString' into a 'PendingBlock'.
+    deserializeBlock :: ByteString -> UTCTime -> m (Either String (PendingBlock m))
     -- |Store a block in the block table and add it to the tree
     -- if possible.
     storeBlock :: PendingBlock m -> m UpdateResult
@@ -85,14 +102,25 @@ class (SkovQueryMonad m, TimeMonad m, LoggerMonad m) => SkovMonad m where
         -> m (BlockPointer m)
     -- |Add a transaction to the transaction table.
     receiveTransaction :: Transaction -> m UpdateResult
-    -- |Add a finalization record.  This should (eventually) result
-    -- in a block being finalized.
-    finalizeBlock :: FinalizationRecord -> m UpdateResult
+    -- |Try to finalize given a finalization record.  The finalization record
+    -- should be for the next finalization index.
+    --   * If the record is valid and for a known block, that block is finalized
+    --     and 'ResultSuccess' returned.
+    --   * If the record is invalid, 'ResultInvalid' is returned.
+    --   * If the block is unknown, then 'ResultUnverifiable' is returned.
+    tryFinalize :: FinalizationRecord -> m UpdateResult
+    -- |Finalize a block where the finalization record is known to be good
+    -- for the given block.
+    trustedFinalize :: BlockPointer m -> FinalizationRecord -> m ()
+    -- TODO: change signature - logging can be used instead of returning a string; could return UpdateResult
+    -- receiveCatchUpStatus :: CatchUpStatus -> m (Either String (Maybe ([Either FinalizationRecord (BlockPointer m)], CatchUpStatus), Bool))
+    handleCatchUpStatus :: CatchUpStatus -> m (Maybe ([(MessageType, ByteString)], CatchUpStatus), UpdateResult)
 
 instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (MGSTrans t m) where
     resolveBlock = lift . resolveBlock
     isFinalized = lift . isFinalized
     lastFinalizedBlock = lift lastFinalizedBlock
+    nextFinalizationIndex = lift nextFinalizationIndex
     getBirkParameters slot bp = lift $ getBirkParameters slot bp
     getGenesisData = lift getGenesisData
     genesisBlock = lift genesisBlock
@@ -100,12 +128,37 @@ instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (MGSTra
     branchesFromTop = lift branchesFromTop
     getBlocksAtHeight = lift . getBlocksAtHeight
     queryBlockState = lift . queryBlockState
+    blockLastFinalizedIndex = lift . blockLastFinalizedIndex
+    getCatchUpStatus = lift . getCatchUpStatus
+    {-# INLINE resolveBlock #-}
+    {-# INLINE isFinalized #-}
+    {-# INLINE lastFinalizedBlock #-}
+    {-# INLINE nextFinalizationIndex #-}
+    {-# INLINE getBirkParameters #-}
+    {-# INLINE getGenesisData #-}
+    {-# INLINE genesisBlock #-}
+    {-# INLINE getCurrentHeight #-}
+    {-# INLINE branchesFromTop #-}
+    {-# INLINE getBlocksAtHeight #-}
+    {-# INLINE queryBlockState #-}
+    {-# INLINE blockLastFinalizedIndex #-}
+    {-# INLINE getCatchUpStatus #-}
 
 instance (Monad (t m), MonadTrans t, SkovMonad m) => SkovMonad (MGSTrans t m) where
+    deserializeBlock b t = lift $ deserializeBlock b t
     storeBlock b = lift $ storeBlock b
     storeBakedBlock pb parent lastFin state energyUsed = lift $ storeBakedBlock pb parent lastFin state energyUsed
     receiveTransaction = lift . receiveTransaction
-    finalizeBlock fr = lift $ finalizeBlock fr
+    tryFinalize = lift . tryFinalize
+    trustedFinalize b fr = lift $ trustedFinalize b fr
+    handleCatchUpStatus = lift . handleCatchUpStatus
+    {-# INLINE deserializeBlock #-}
+    {-# INLINE storeBlock #-}
+    {-# INLINE storeBakedBlock #-}
+    {-# INLINE receiveTransaction #-}
+    {-# INLINE tryFinalize #-}
+    {-# INLINE trustedFinalize #-}
+    {-# INLINE handleCatchUpStatus #-}
 
 deriving via (MGSTrans MaybeT m) instance SkovQueryMonad m => SkovQueryMonad (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance SkovMonad m => SkovMonad (MaybeT m)
@@ -123,3 +176,13 @@ getSlotTime :: (SkovQueryMonad m) => Slot -> m UTCTime
 getSlotTime s = do
         genData <- getGenesisData
         return $ posixSecondsToUTCTime (fromIntegral (genesisTime genData + genesisSlotDuration genData * fromIntegral s))
+
+receiveBlock :: (SkovMonad m) => ByteString -> m UpdateResult
+receiveBlock blockBS = do
+        now <- currentTime
+        deserializeBlock blockBS now >>= \case
+            Left err -> do
+                logEvent External LLDebug err
+                return ResultSerializationFail
+            Right pb -> storeBlock pb
+

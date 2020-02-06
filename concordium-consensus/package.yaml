@@ -60,7 +60,7 @@ flags:
     default: True
   rust:
     manual: False
-    default: True
+    default: False
 
 library:
   source-dirs: src

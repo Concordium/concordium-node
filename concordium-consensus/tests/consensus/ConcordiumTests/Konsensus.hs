@@ -79,14 +79,9 @@ invariantSkovData TS.SkovData{..} = do
         queue <- foldM (checkPending (blockSlot lastFin)) (Set.empty) (HM.toList _possiblyPendingTable)
         let pendingSet = Set.fromList (MPQ.toListU _possiblyPendingQueue)
         checkBinary (Set.isSubsetOf) queue pendingSet "is a subset of" "pending blocks" "pending queue"
-        let allPossiblyPending = Set.fromList ((fst <$> MPQ.elemsU _possiblyPendingQueue) ++ (getHash <$> MPQ.elemsU _blocksAwaitingLastFinalized))
+        let allPossiblyPending = Set.fromList (fst <$> MPQ.elemsU _possiblyPendingQueue)
         checkBinary Set.isSubsetOf (Set.fromList $ HM.keys $ HM.filter onlyPending _blockTable) allPossiblyPending "is a subset of" "blocks marked pending" "pending queues"
         checkBinary Set.isSubsetOf allPossiblyPending (Set.fromList $ HM.keys _blockTable) "is a subset of" "pending queues" "blocks in block table"
-        -- Finalization pool
-        forM_ (Map.toList _finalizationPool) $ \(fi, frs) -> do
-            checkBinary (>=) fi (fromIntegral (Seq.length _finalizationList)) ">=" "pending finalization record index" "length of finalization list"
-            forM_ frs $ \fr -> do
-                checkBinary (==) fi (finalizationIndex fr) "==" "key in finalization pool" "finalization index"
         -- Transactions
         (nonFinTrans, anftNonces) <- walkTransactions _genesisBlockPointer lastFin (_ttHashMap _transactionTable) (HM.empty)
         let anft' = foldr (\(tr, _) nft -> nft & at (transactionSender tr) . non emptyANFT . anftMap . at (transactionNonce tr) . non Set.empty %~ Set.insert tr) anftNonces nonFinTrans
@@ -327,7 +322,7 @@ runKonsensusTest steps g states es
                     (_, fs', es') <- myRunSkovT (receiveFinalizationPseudoMessage fmsg) handlers fi fs es1
                     continue fs' es'
                 EFinalizationRecord frec -> do
-                    (_, fs', es') <- myRunSkovT (finalizeBlock frec) handlers fi fs es1
+                    (_, fs', es') <- myRunSkovT (receiveFinalizationRecord frec) handlers fi fs es1
                     continue fs' es'
                 ETimer t timerEvent -> do
                     if t `Set.member` (es ^. esCancelledTimers) then
@@ -371,7 +366,7 @@ runKonsensusTestSimple steps g states es
                     (_, fs', es') <- myRunSkovT (receiveFinalizationPseudoMessage fmsg) handlers fi fs es1
                     continue fs' es'
                 EFinalizationRecord frec -> do
-                    (_, fs', es') <- myRunSkovT (finalizeBlock frec) handlers fi fs es1
+                    (_, fs', es') <- myRunSkovT (receiveFinalizationRecord frec) handlers fi fs es1
                     continue fs' es'
                 ETimer t timerEvent -> do
                     if t `Set.member` (es ^. esCancelledTimers) then
