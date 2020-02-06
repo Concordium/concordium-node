@@ -155,32 +155,6 @@ impl P2p for RpcServerImpl {
         }))
     }
 
-    async fn peer_connect(
-        &self,
-        req: Request<PeerConnectRequest>,
-    ) -> Result<Response<SuccessResponse>, Status> {
-        authenticate!(req, self.access_token);
-        let req = req.get_ref();
-        if req.ip.is_some() && req.port.is_some() {
-            let ip = if let Ok(ip) = IpAddr::from_str(&req.ip.as_ref().unwrap()) {
-                ip
-            } else {
-                warn!("Invalid IP address in a PeerConnect request");
-                return Err(Status::new(Code::InvalidArgument, "Invalid IP address"));
-            };
-            let port = req.port.unwrap() as u16;
-            let addr = SocketAddr::new(ip, port);
-            let status = self.node.connect(PeerType::Node, addr, None).is_ok();
-            Ok(Response::new(SuccessResponse {
-                value: status,
-            }))
-        } else {
-            Ok(Response::new(SuccessResponse {
-                value: false,
-            }))
-        }
-    }
-
     async fn peer_version(&self, req: Request<Empty>) -> Result<Response<StringResponse>, Status> {
         authenticate!(req, self.access_token);
         let resp = StringResponse {
@@ -786,20 +760,6 @@ impl P2p for RpcServerImpl {
         successful_json_response!(self, "HookTransaction", |consensus: &ConsensusContainer| {
             consensus.hook_transaction(&req.get_ref().transaction_hash)
         })
-    }
-
-    async fn send_message(
-        &self,
-        _req: Request<SendMessageRequest>,
-    ) -> Result<Response<SuccessResponse>, Status> {
-        unimplemented!();
-    }
-
-    async fn subscription_poll(
-        &self,
-        _req: Request<Empty>,
-    ) -> Result<Response<P2pNetworkMessage>, Status> {
-        unimplemented!();
     }
 }
 
