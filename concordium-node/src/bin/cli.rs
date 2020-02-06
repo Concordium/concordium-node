@@ -145,7 +145,9 @@ async fn main() -> Fallible<()> {
             &conf.cli.rpc,
             get_baker_private_data_json_file(&app_prefs, &conf.cli.baker),
         );
-        tokio::spawn(async move { serv.start_server().await.expect("Invalid RPC configuration"); });
+        tokio::spawn(async move {
+            serv.start_server().await.expect("Invalid RPC configuration");
+        });
         info!("RPC server started");
     };
 

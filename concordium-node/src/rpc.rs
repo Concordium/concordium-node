@@ -770,8 +770,7 @@ mod tests {
         p2p::P2PNode,
         rpc::RpcServerImpl,
         test_utils::{
-            await_handshake, connect, get_test_config, make_node_and_sync,
-            next_available_port,
+            await_handshake, connect, get_test_config, make_node_and_sync, next_available_port,
         },
     };
     use chrono::prelude::Utc;
@@ -791,12 +790,7 @@ mod tests {
     async fn create_node_rpc_call_option(
         nt: PeerType,
     ) -> Fallible<(P2pClient<Channel>, Arc<P2PNode>)> {
-        let node = make_node_and_sync(
-            next_available_port(),
-            vec![100],
-            nt,
-        )
-        .unwrap();
+        let node = make_node_and_sync(next_available_port(), vec![100], nt).unwrap();
 
         let rpc_port = next_available_port();
         let mut config = get_test_config(8888, vec![100]);
