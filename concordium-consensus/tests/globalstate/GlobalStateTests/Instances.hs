@@ -295,10 +295,11 @@ testFoldInstances insts model = allInsts === modInsts
         allInsts = (\i -> (instanceAddress (instanceParameters i), instanceData i)) <$> (insts ^.. foldInstances)
         modInsts = (\(ci, (csi, d)) -> (ContractAddress ci csi, d)) <$> Map.toAscList (modelInstances model)
 
-tests :: Spec
-tests = parallel $ describe "GlobalStateTests.Instances" $ do
-    it "getInstance" $ withMaxSuccess 1000 $ forAllBlind (generateFromUpdates 5000) $ \(i,m) -> withMaxSuccess 100 $ testGetInstance i m
+tests :: Word -> Spec
+tests lvl = describe "GlobalStateTests.Instances" $ do
+    it "getInstance" $ withMaxSuccess (100 * fromIntegral lvl)
+        $ forAllBlind (generateFromUpdates 5000) $ \(i,m) -> withMaxSuccess 100 $ testGetInstance i m
     it "foldInstances" $ withMaxSuccess 100 $ forAllBlind (generateFromUpdates 5000) $ uncurry testFoldInstances
     it "50000 create/delete - check at end" $ withMaxSuccess 10 $ testCreateDelete 50000
-    it "500 instance updates - check every step" $ withMaxSuccess 10000 $ testUpdates 500
+    it "500 instance updates - check every step" $ withMaxSuccess (100 * fromIntegral lvl) $ testUpdates 500
     

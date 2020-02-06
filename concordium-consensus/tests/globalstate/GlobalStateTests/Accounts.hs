@@ -19,6 +19,7 @@ import Data.Either
 import Lens.Micro.Platform
 import qualified Data.PQueue.Prio.Max as Queue
 import qualified Data.HashMap.Strict as HM
+import qualified Data.Map.Strict as OrdMap
 
 import qualified Data.FixedByteString as FBS
 import Concordium.Types.HashableTo
@@ -94,7 +95,7 @@ randomActions = sized (ra Set.empty Set.empty)
         randAccount = do
             address <- ID.AccountAddress . FBS.pack <$> vector ID.accountAddressSize
             n <- choose (1,255)
-            akKeys <- HM.fromList . zip [0..] . map Sig.correspondingVerifyKey <$> replicateM n Sig.genKeyPair
+            akKeys <- OrdMap.fromList . zip [0..] . map Sig.correspondingVerifyKey <$> replicateM n Sig.genKeyPair
             akThreshold <- fromIntegral <$> choose (1,n)
             return (ID.AccountKeys{..}, address)
         ra _ _ 0 = return []
@@ -211,16 +212,16 @@ emptyTest :: SpecWith BlobStore
 emptyTest = it "empty" $ runReaderT
         (checkEquivalent B.emptyAccounts P.emptyAccounts :: ReaderT BlobStore IO ())
         
-actionTest :: SpecWith BlobStore
-actionTest = it "account actions" $ \bs -> withMaxSuccess 10000 $ property $ do
+actionTest :: Word -> SpecWith BlobStore
+actionTest lvl = it "account actions" $ \bs -> withMaxSuccess (100 * fromIntegral lvl) $ property $ do
         acts <- randomActions
         return $ ioProperty $ flip runReaderT bs $ do
             (ba, pa) <- foldM (flip runAccountAction) (B.emptyAccounts, P.emptyAccounts) acts
             checkEquivalent ba pa
 
 
-tests :: Spec
-tests = describe "GlobalStateTests.Accounts" $
+tests :: Word -> Spec
+tests lvl = describe "GlobalStateTests.Accounts" $
     around (bracket createTempBlobStore destroyTempBlobStore) $ do
         emptyTest
-        actionTest
+        actionTest lvl
