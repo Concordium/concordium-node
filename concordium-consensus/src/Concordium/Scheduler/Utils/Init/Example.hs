@@ -6,6 +6,7 @@ module Concordium.Scheduler.Utils.Init.Example {-# WARNING "This module should n
     (initialState, makeTransaction, mateuszAccount, dummyCredential, dummyExpiryTime) where
 
 import qualified Data.HashMap.Strict as Map
+import qualified Data.Map.Strict as OrdMap
 import System.Random
 
 import Concordium.Crypto.SignatureScheme(KeyPair(..))
@@ -60,7 +61,7 @@ dummyCredential address pExpiry  = ID.CredentialDeploymentValues
       cdvArData = [],
       cdvPolicy = ID.Policy {
         pAttributeListVariant = 0,
-        pItems = [],
+        pItems = OrdMap.empty,
         ..
         },
       ..
@@ -69,6 +70,10 @@ dummyCredential address pExpiry  = ID.CredentialDeploymentValues
 {-# WARNING dummyExpiryTime "Invalid expiry time, only for testing." #-}
 dummyExpiryTime :: ID.CredentialExpiryTime
 dummyExpiryTime = maxBound
+
+{-# WARNING dummyTransactionExpiryTime "Invalid transaction expiry time, only for testing." #-}
+dummyTransactionExpiryTime :: TransactionExpiryTime
+dummyTransactionExpiryTime = TransactionExpiryTime maxBound
 
 -- Derive a dummy registration id from a verification key. This hashes the
 -- account address, and uses it as a seed of a random number generator.
@@ -126,7 +131,8 @@ initSimpleCounter n = Runner.signTx
           header = Runner.TransactionHeader{
             thNonce = fromIntegral n,
             thSender = mateuszAccount,
-            thEnergyAmount = 100000
+            thEnergyAmount = 100000,
+            thExpiry = dummyTransactionExpiryTime
             }
 
 
@@ -136,7 +142,8 @@ makeTransaction inc ca n = Runner.signTx mateuszKP header payload
         header = Runner.TransactionHeader{
             thNonce = n,
             thSender = mateuszAccount,
-            thEnergyAmount = 1000000
+            thEnergyAmount = 1000000,
+            thExpiry = dummyTransactionExpiryTime
             }
         payload = Types.encodePayload (Types.Update 0
                                                     ca

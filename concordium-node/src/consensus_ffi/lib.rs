@@ -106,6 +106,9 @@ macro_rules! wrap_c_committee_call {
 
 #[macro_use]
 mod fails;
+pub mod blockchain_types;
+pub mod catch_up;
 pub mod consensus;
 pub mod ffi;
+pub mod messaging;
 pub mod transferlog;

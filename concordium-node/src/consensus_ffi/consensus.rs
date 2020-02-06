@@ -1,8 +1,6 @@
-use concordium_common::{
-    blockchain_types::BakerId, into_err, QueueReceiver, QueueSyncSender, RelayOrStopSenderHelper,
-};
+use crate::blockchain_types::BakerId;
+use concordium_common::{into_err, QueueReceiver, QueueSyncSender, RelayOrStopSenderHelper};
 use failure::Fallible;
-
 use std::{
     collections::HashMap,
     convert::TryFrom,
@@ -16,8 +14,10 @@ use crossbeam_channel;
 
 use parking_lot::Condvar;
 
-use crate::ffi::*;
-use globalstate_rust::tree::{messaging::ConsensusMessage, GlobalState};
+use crate::{
+    ffi::{consensus_runner, get_consensus_ptr, startBaker, stopBaker, stopConsensus},
+    messaging::ConsensusMessage,
+};
 
 pub type PeerId = u64;
 pub type PrivateData = HashMap<i64, Vec<u8>>;
@@ -240,7 +240,6 @@ impl ConsensusContainer {
         genesis_data: Vec<u8>,
         private_data: Option<Vec<u8>>,
         baker_id: Option<BakerId>,
-        gsptr: GlobalState,
         max_log_level: ConsensusLogLevel,
     ) -> Fallible<Self> {
         info!("Starting up the consensus layer");
@@ -256,7 +255,6 @@ impl ConsensusContainer {
             enable_transfer_logging,
             genesis_data.clone(),
             private_data,
-            gsptr,
             max_log_level,
         ) {
             Ok(consensus_ptr) => Ok(Self {

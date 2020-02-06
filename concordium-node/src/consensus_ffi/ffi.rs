@@ -1,6 +1,8 @@
-use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
+use crate::{catch_up::*, consensus::*, messaging::*};
+use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt};
+use concordium_common::{ConsensusFfiResponse, ConsensusIsInCommitteeResponse, PacketType};
+use crypto_common::{Deserial, Serial};
 use failure::{bail, format_err, Fallible};
-
 use std::{
     convert::TryFrom,
     ffi::{CStr, CString},
@@ -12,20 +14,6 @@ use std::{
         Arc, Once,
     },
 };
-
-use crate::consensus::*;
-use concordium_common::{
-    serial::{Endianness, Serial},
-    ConsensusFfiResponse, ConsensusIsInCommitteeResponse, PacketType,
-};
-use globalstate_rust::{
-    block::*,
-    tree::{
-        messaging::{ConsensusMessage, MessageType},
-        GlobalState,
-    },
-};
-
 extern "C" {
     pub fn hs_init(argc: *mut c_int, argv: *mut *mut *mut c_char);
     pub fn hs_init_with_rtsopts(argc: &c_int, argv: *const *const *const c_char);
@@ -35,6 +23,7 @@ extern "C" {
 static START_ONCE: Once = Once::new();
 static STOP_ONCE: Once = Once::new();
 static STOPPED: AtomicBool = AtomicBool::new(false);
+pub type Delta = u64;
 
 /// Initialize the Haskell runtime. This function is safe to call more than
 /// once, and will do nothing on subsequent calls.
@@ -206,6 +195,7 @@ type LogCallback = extern "C" fn(c_char, c_char, *const u8);
 type TransferLogCallback =
     unsafe extern "C" fn(c_char, *const u8, u64, *const u8, u64, u64, *const u8);
 type BroadcastCallback = extern "C" fn(i64, *const u8, i64);
+type CatchUpStatusCallback = extern "C" fn(*const u8, i64);
 type DirectMessageCallback =
     extern "C" fn(peer_id: PeerId, message_type: i64, msg: *const c_char, msg_len: i64);
 
@@ -217,8 +207,8 @@ extern "C" {
         genesis_data_len: i64,
         private_data: *const u8,
         private_data_len: i64,
-        gsptr: *const GlobalState,
         broadcast_callback: BroadcastCallback,
+        catchup_status_callback: CatchUpStatusCallback,
         maximum_log_level: u8,
         log_callback: LogCallback,
         transfer_log_enabled: u8,
@@ -228,7 +218,7 @@ extern "C" {
         max_block_size: u64,
         genesis_data: *const u8,
         genesis_data_len: i64,
-        gsptr: *const GlobalState,
+        catchup_status_callback: CatchUpStatusCallback,
         maximum_log_level: u8,
         log_callback: LogCallback,
     ) -> *mut consensus_runner;
@@ -256,7 +246,6 @@ extern "C" {
     ) -> i64;
     pub fn stopBaker(consensus: *mut consensus_runner);
     pub fn stopConsensus(consensus: *mut consensus_runner);
-    pub fn sendGlobalStatePtr(consensus: *mut consensus_runner, gs_ptr: *const u8);
 
     // Consensus queries
     pub fn getConsensusStatus(consensus: *mut consensus_runner) -> *const c_char;
@@ -325,7 +314,6 @@ pub fn get_consensus_ptr(
     enable_transfer_logging: bool,
     genesis_data: Vec<u8>,
     private_data: Option<Vec<u8>>,
-    _gsptr: GlobalState,
     maximum_log_level: ConsensusLogLevel,
 ) -> Fallible<*mut consensus_runner> {
     let genesis_data_len = genesis_data.len();
@@ -345,20 +333,14 @@ pub fn get_consensus_ptr(
                 let c_string_private_data =
                     CString::from_vec_unchecked(private_data_bytes.to_owned());
 
-                #[cfg(feature = "rgs")]
-                let gsptr = Box::into_raw(Box::new(_gsptr)) as *const GlobalState;
-
-                #[cfg(not(feature = "rgs"))]
-                let gsptr = std::ptr::null();
-
                 startConsensus(
                     max_block_size,
                     c_string_genesis.as_ptr() as *const u8,
                     genesis_data_len as i64,
                     c_string_private_data.as_ptr() as *const u8,
                     private_data_len as i64,
-                    gsptr,
                     broadcast_callback,
+                    catchup_status_callback,
                     maximum_log_level as u8,
                     on_log_emited,
                     if enable_transfer_logging { 1 } else { 0 },
@@ -367,24 +349,12 @@ pub fn get_consensus_ptr(
             }
         }
         None => unsafe {
-            #[cfg(feature = "rgs")]
             {
                 startConsensusPassive(
                     max_block_size,
                     c_string_genesis.as_ptr() as *const u8,
                     genesis_data_len as i64,
-                    Box::into_raw(Box::new(_gsptr)) as *const GlobalState,
-                    maximum_log_level as u8,
-                    on_log_emited,
-                )
-            }
-            #[cfg(not(feature = "rgs"))]
-            {
-                startConsensusPassive(
-                    max_block_size,
-                    c_string_genesis.as_ptr() as *const u8,
-                    genesis_data_len as i64,
-                    std::ptr::null(),
+                    catchup_status_callback,
                     maximum_log_level as u8,
                     on_log_emited,
                 )
@@ -603,9 +573,8 @@ pub extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *co
         let msg_variant = PacketType::FinalizationMessage;
         let payload = slice::from_raw_parts(data as *const u8, len as usize);
         let mut full_payload = Vec::with_capacity(2 + payload.len());
-        full_payload
-            .write_u16::<Endianness>(msg_variant as u16)
-            .unwrap(); // infallible
+        (msg_variant as u16).serial(&mut full_payload);
+
         full_payload.write_all(&payload).unwrap(); // infallible
         let full_payload = Arc::from(full_payload);
 
@@ -614,6 +583,7 @@ pub extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *co
             PacketType::FinalizationMessage,
             full_payload,
             vec![],
+            None,
         );
 
         match CALLBACK_QUEUE.send_out_blocking_msg(msg) {
@@ -624,7 +594,7 @@ pub extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *co
 }
 
 macro_rules! sending_callback {
-    ($target:expr, $msg_type:expr, $msg:expr, $msg_length:expr) => {
+    ($target:expr, $msg_type:expr, $msg:expr, $msg_length:expr, $omit_status:expr) => {
         unsafe {
             let callback_type = match CallbackType::try_from($msg_type as u8) {
                 Ok(ct) => ct,
@@ -643,9 +613,7 @@ macro_rules! sending_callback {
 
             let payload = slice::from_raw_parts($msg as *const u8, $msg_length as usize);
             let mut full_payload = Vec::with_capacity(2 + payload.len());
-            full_payload
-                .write_u16::<Endianness>(msg_variant as u16)
-                .unwrap(); // infallible
+            (msg_variant as u16).serial(&mut full_payload);
             full_payload.write_all(&payload).unwrap(); // infallible
             let full_payload = Arc::from(full_payload);
 
@@ -654,6 +622,7 @@ macro_rules! sending_callback {
                 msg_variant,
                 full_payload,
                 vec![],
+                $omit_status,
             );
 
             match CALLBACK_QUEUE.send_out_blocking_msg(msg) {
@@ -666,11 +635,9 @@ macro_rules! sending_callback {
 
 pub extern "C" fn broadcast_callback(msg_type: i64, msg: *const u8, msg_length: i64) {
     trace!("Broadcast callback hit - queueing message");
-    sending_callback!(None, msg_type, msg, msg_length);
+    sending_callback!(None, msg_type, msg, msg_length, None);
 }
 
-// This is almost the same function as broadcast_callback, just for direct
-// messages TODO: macroize or merge on Haskell side
 pub extern "C" fn direct_callback(
     peer_id: PeerId,
     msg_type: i64,
@@ -678,7 +645,18 @@ pub extern "C" fn direct_callback(
     msg_length: i64,
 ) {
     trace!("Direct callback hit - queueing message");
-    sending_callback!(Some(peer_id), msg_type, msg, msg_length);
+    sending_callback!(Some(peer_id), msg_type, msg, msg_length, None);
+}
+
+pub extern "C" fn catchup_status_callback(msg: *const u8, msg_length: i64) {
+    trace!("Catch-up status callback hit - queueing message");
+    sending_callback!(
+        None,
+        CallbackType::CatchUpStatus,
+        msg,
+        msg_length,
+        Some(PeerStatus::Pending)
+    );
 }
 
 /// Following the implementation of the log crate, error = 1, warning = 2, info
@@ -724,9 +702,9 @@ pub unsafe extern "C" fn on_transfer_log_emitted(
     remaining_data_len: u64,
     remaining_data_ptr: *const u8,
 ) {
-    use crate::transferlog::{TransactionLogMessage, TransferLogType, TRANSACTION_LOG_QUEUE};
-    use concordium_common::blockchain_types::{
-        AccountAddress, BakerId, BlockHash, ContractAddress, TransactionHash,
+    use crate::{
+        blockchain_types::{AccountAddress, BakerId, BlockHash, ContractAddress, TransactionHash},
+        transferlog::{TransactionLogMessage, TransferLogType, TRANSACTION_LOG_QUEUE},
     };
     use std::mem::size_of;
     let transfer_event_type = match TransferLogType::try_from(transfer_type as u8) {

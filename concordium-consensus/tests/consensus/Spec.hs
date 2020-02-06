@@ -9,6 +9,7 @@ import qualified ConcordiumTests.Afgjort.CSS.NominationSet (tests)
 import qualified ConcordiumTests.Afgjort.CSS (tests)
 import qualified ConcordiumTests.Afgjort.Lottery (tests)
 import qualified ConcordiumTests.Afgjort.ABBA (tests)
+import qualified ConcordiumTests.Afgjort.WMVBA (tests)
 import qualified ConcordiumTests.Afgjort.Types (tests)
 import qualified ConcordiumTests.Konsensus (tests)
 import qualified ConcordiumTests.CatchUp (tests)
@@ -17,7 +18,7 @@ atLevel :: (Word -> IO ()) -> IO ()
 atLevel a = do
         args0 <- getArgs
         let (args1, mlevel) = mconcat $ map lvlArg args0
-        withArgs args1 $ a $! (maybe 1 getLast mlevel) 
+        withArgs args1 $ a $! (maybe 1 getLast mlevel)
     where
         lvlArg s = case stripPrefix "--level=" s of
             Nothing -> ([s], Nothing)
@@ -30,6 +31,7 @@ main = atLevel $ \lvl -> hspec $ do
     ConcordiumTests.Afgjort.CSS.NominationSet.tests lvl
     ConcordiumTests.Afgjort.ABBA.tests lvl
     ConcordiumTests.Afgjort.Freeze.tests lvl
+    ConcordiumTests.Afgjort.WMVBA.tests lvl
     ConcordiumTests.Afgjort.Lottery.tests lvl
     ConcordiumTests.Konsensus.tests lvl
     ConcordiumTests.CatchUp.tests lvl

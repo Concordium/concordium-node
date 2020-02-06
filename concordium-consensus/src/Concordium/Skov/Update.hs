@@ -65,6 +65,9 @@ class OnSkov m where
     -- only called for the block that is explicitly finalized (i.e.
     -- once per finalization record).
     onFinalize :: FinalizationRecord -> BlockPointer m -> m ()
+    -- |Called when a block or finalization record that was previously
+    -- pending becomes live.
+    onPendingLive :: m ()
     -- |A function to log transfers at finalization time. Since it is
     -- potentially expensive to even keep track of events we make it an
     -- explicitly optional value to short-circuit evaluation.
@@ -375,7 +378,9 @@ addBlock block = do
                                             isPending Nothing = True
                                             isPending (Just (BlockPending _)) = True
                                             isPending _ = False
-                                        when (isPending childStatus) $ void $ addBlock childpb
+										when (isPending childStatus) $ addBlock childpb >>= \case
+                                                        ResultSuccess -> onPendingLive
+                                                        _ -> return ()
                                     return ResultSuccess
 
 -- |Add a valid, live block to the tree.

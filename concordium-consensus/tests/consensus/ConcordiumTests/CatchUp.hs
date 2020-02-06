@@ -40,7 +40,7 @@ import Test.QuickCheck
 import Test.QuickCheck.Monadic
 import Test.Hspec
 
-import ConcordiumTests.Konsensus hiding (tests)
+import ConcordiumTests.Konsensus hiding (tests, myEvalSkovT)
 
 runKonsensus :: RandomGen g => Int -> g -> States -> ExecState -> IO States
 runKonsensus steps g states es
@@ -89,12 +89,12 @@ initialiseStatesDictator n = do
         bis <- mapM (\i -> (i,) <$> pick (makeBaker i 1)) bns
         let genesisBakers = fst . bakersFromList $ (^. _2 . _1) <$> bis
         let bps = BirkParameters 0.5 genesisBakers genesisBakers genesisBakers (genesisSeedState (hash "LeadershipElectionNonce") 10)
-            fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _ _, _, _)) <- take 1 bis] 2
+            fps = FinalizationParameters [VoterInfo vvk vrfk 1 vblspk | (_, (BakerInfo vrfk vvk vblspk _ _, _, _)) <- take 1 bis] 2
             bakerAccounts = map (\(_, (_, _, acc)) -> acc) bis
             gen = GenesisData 0 1 bps bakerAccounts [] fps dummyCryptographicParameters dummyIdentityProviders 10
         res <- liftIO $ mapM (\(_, (_, bid, _)) -> do
-                                let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid)
-                                let config = SkovConfig 
+                                let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
+                                let config = SkovConfig
                                         (MTMBConfig defaultRuntimeParameters gen (Example.initialState bps dummyCryptographicParameters bakerAccounts [] nAccounts))
                                         (ActiveFinalization fininst gen)
                                         NoHandler
@@ -104,7 +104,7 @@ initialiseStatesDictator n = do
         return $ Vec.fromList res
 
 simpleCatchUpCheck :: States -> Property
-simpleCatchUpCheck ss = 
+simpleCatchUpCheck ss =
         conjoin [monadicIO $ catchUpCheck s1 s2 | s1 <- toList ss, s2 <- toList ss ]
 
 type TrivialHandlers = SkovHandlers DummyTimer (Config DummyTimer) LogIO
@@ -155,7 +155,7 @@ catchUpCheck (_, c1, s1) (_, c2, s2) = do
                     let recBHs = [getHash bp | (MessageBlock, runGet (B.getBlock 0) -> Right bp) <- l]
                     let recBlocks = Set.fromList recBHs
                     -- Check that the requestor's live blocks + received blocks include all live blocks for respondent
-                    checkBinary Set.isSubsetOf respLive (reqLive `Set.union` recBlocks) "is a subset of" "respondent live blocks" "requestor live blocks + received blocks" 
+                    checkBinary Set.isSubsetOf respLive (reqLive `Set.union` recBlocks) "is a subset of" "respondent live blocks" "requestor live blocks + received blocks"
                     let reqFin = Set.fromList $ finalizationBlockPointer . fst <$> toList (ssGSState s1 ^. BTS.finalizationList)
                     let respFin = Set.fromList $ finalizationBlockPointer . fst <$> toList (ssGSState s2 ^. BTS.finalizationList)
                     let

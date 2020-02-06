@@ -38,9 +38,6 @@ import qualified Concordium.GlobalState.TreeState as TS
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import Concordium.Birk.Bake as Baker
-#ifdef RUST
-import qualified Concordium.GlobalState.Implementation as Rust
-#endif
 
 import Concordium.Runner
 import Concordium.Skov hiding (receiveTransaction, getBirkParameters, getCatchUpStatus, receiveBlock, MessageType)
@@ -51,12 +48,6 @@ import Concordium.TimerMonad (ThreadTimer)
 -- import Concordium.Skov.CatchUp (CatchUpStatus,cusIsResponse)
 
 import qualified Concordium.Getters as Get
-
-#ifdef RUST
-type GlobalStatePtr = Ptr Rust.GlobalStateR
-#else
-type GlobalStatePtr = Ptr ()
-#endif
 
 -- |A 'PeerID' identifies peer at the p2p layer.
 type PeerID = Word64
@@ -258,15 +249,17 @@ broadcastCallback logM bcbk = handleB
             logM External LLDebug $ "Broadcasting finalization record [size=" ++ show (BS.length msgbs) ++ "]: " ++ show finRec
             callBroadcastCallback bcbk MTFinalizationRecord msgbs
 
-#ifdef RUST
-type TreeConfig = DiskTreeDiskBlockConfig
-makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> Rust.GlobalStatePtr -> TreeConfig
-makeGlobalStateConfig rt genData = DTDBConfig rt genData (genesisState genData)
-#else
+-- |Callback for direct-sending a catch-up status message to all (non-pending) peers.
+-- The first argument is a pointer to the data, which must be a catch-up
+-- status message. The second argument is the length of the data in bytes.
+type CatchUpStatusCallback = CString -> Int64 -> IO ()
+foreign import ccall "dynamic" invokeCatchUpStatusCallback :: FunPtr CatchUpStatusCallback -> CatchUpStatusCallback
+callCatchUpStatusCallback :: FunPtr CatchUpStatusCallback -> BS.ByteString -> IO ()
+callCatchUpStatusCallback cbk bs = BS.useAsCStringLen bs $ \(cdata, clen) -> invokeCatchUpStatusCallback cbk cdata (fromIntegral clen)
+
 type TreeConfig = MemoryTreeDiskBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> TreeConfig
 makeGlobalStateConfig rt genData = MTDBConfig rt genData (genesisState genData)
-#endif
 
 type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) HookLogHandler
 type PassiveConfig = SkovConfig TreeConfig NoFinalization HookLogHandler
@@ -303,32 +296,26 @@ startConsensus ::
            Word64 -- ^Maximum block size.
            -> CString -> Int64 -- ^Serialized genesis data (c string + len)
            -> CString -> Int64 -- ^Serialized baker identity (c string + len)
-           -> GlobalStatePtr    -- ^Pointer to global state (if compiled with RUST flag)
            -> FunPtr BroadcastCallback -- ^Handler for generated messages
+           -> FunPtr CatchUpStatusCallback -- ^Handler for sending catch-up status to peers
            -> Word8 -- ^Maximum log level (inclusive) (0 to disable logging).
            -> FunPtr LogCallback -- ^Handler for log events
            -> Word8 -- ^Whether to enable logging of transfer events (/= 0) or not (value 0).
            -> FunPtr LogTransferCallback -- ^Handler for logging transfer events
            -> IO (StablePtr ConsensusRunner)
-startConsensus maxBlock gdataC gdataLenC bidC bidLenC gsptr bcbk maxLogLevel lcbk enableTransferLogging ltcbk = do
+startConsensus maxBlock gdataC gdataLenC bidC bidLenC bcbk cucbk maxLogLevel lcbk enableTransferLogging ltcbk = do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
         case (decode gdata, AE.eitherDecodeStrict bdata) of
             (Right genData, Right bid) -> do
-#ifdef RUST
-                foreignGSPtr <- newForeignPtr_ gsptr
-#endif
                 let
                     gsconfig = makeGlobalStateConfig
                         (RuntimeParameters (fromIntegral maxBlock))
                         genData
-#ifdef RUST
-                        foreignGSPtr
-#endif
-                    finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid)) genData
+                    finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)) genData
                     hconfig = HookLogHandler logT
                     config = SkovConfig gsconfig finconfig hconfig
-                bakerSyncRunner <- makeSyncRunner logM bid config bakerBroadcast
+                bakerSyncRunner <- makeSyncRunner logM bid config bakerBroadcast catchUpCallback
                 newStablePtr BakerRunner{..}
             (Left err, _) -> do
                 logM External LLError $ "Failed to decode genesis data: " ++ err
@@ -340,6 +327,8 @@ startConsensus maxBlock gdataC gdataLenC bidC bidLenC gsptr bcbk maxLogLevel lcb
         logM = toLogMethod maxLogLevel lcbk
         logT = if enableTransferLogging /= 0 then Just (toLogTransferMethod ltcbk) else Nothing
         bakerBroadcast = broadcastCallback logM bcbk
+        catchUpCallback = callCatchUpStatusCallback cucbk . encode
+
 
 -- |Start consensus without a baker identity.
 -- If an error occurs starting Skov, the error will be logged and
@@ -347,34 +336,29 @@ startConsensus maxBlock gdataC gdataLenC bidC bidLenC gsptr bcbk maxLogLevel lcb
 startConsensusPassive ::
            Word64 -- ^Maximum block size.
            -> CString -> Int64 -- ^Serialized genesis data (c string + len)
-           -> GlobalStatePtr    -- ^Pointer to global state (if compiled with RUST flag)
+           -> FunPtr CatchUpStatusCallback -- ^Handler for sending catch-up status to peers
            -> Word8 -- ^Maximum log level (inclusive) (0 to disable logging).
            -> FunPtr LogCallback -- ^Handler for log events
             -> IO (StablePtr ConsensusRunner)
-startConsensusPassive maxBlock gdataC gdataLenC gsptr maxLogLevel lcbk = do
+startConsensusPassive maxBlock gdataC gdataLenC cucbk maxLogLevel lcbk = do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         case decode gdata of
             Right genData -> do
-#ifdef RUST
-                foreignGSPtr <- newForeignPtr_ gsptr
-#endif
                 let
                     gsconfig = makeGlobalStateConfig
                         (RuntimeParameters (fromIntegral maxBlock))
                         genData
-#ifdef RUST
-                        foreignGSPtr
-#endif
                     finconfig = NoFinalization
                     hconfig = HookLogHandler Nothing
                     config = SkovConfig gsconfig finconfig hconfig
-                passiveSyncRunner <- makeSyncPassiveRunner logM config
+                passiveSyncRunner <- makeSyncPassiveRunner logM config catchUpCallback
                 newStablePtr PassiveRunner{..}
             Left err -> do
                 logM External LLError $ "Failed to decode genesis data: " ++ err
                 return $ castPtrToStablePtr nullPtr
     where
         logM = toLogMethod maxLogLevel lcbk
+        catchUpCallback = callCatchUpStatusCallback cucbk . encode
 
 -- |Shuts down consensus, stopping any baker thread if necessary.
 -- The pointer is not valid after this function returns.
@@ -527,7 +511,7 @@ receiveTransaction bptr tdata len = do
                 BakerRunner{..} -> syncReceiveTransaction bakerSyncRunner tr
                 PassiveRunner{..} -> syncPassiveReceiveTransaction passiveSyncRunner tr
 
-runConsensusQuery :: ConsensusRunner -> (forall z m s. (Get.SkovStateQueryable z m, TS.TreeStateMonad m, MonadState s m) => z -> a) -> a
+runConsensusQuery :: ConsensusRunner -> (forall z m s. (Get.SkovStateQueryable z m, TS.TreeStateMonad m, MonadState s m, LoggerMonad m) => z -> a) -> a
 runConsensusQuery BakerRunner{..} f = f bakerSyncRunner
 runConsensusQuery PassiveRunner{..} f = f passiveSyncRunner
 
@@ -626,10 +610,10 @@ getAccountInfo cptr blockcstr cstr = do
     logm External LLInfo "Received account info request."
     bs <- BS.packCString cstr
     case addressFromBytes bs of
-      Nothing -> do
-        logm External LLInfo "Could not decode address."
+      Left err -> do
+        logm External LLInfo $ "Could not decode address: " ++ err
         jsonValueToCString Null
-      Just acc -> do
+      Right acc -> do
         logm External LLInfo $ "Decoded address to: " ++ show acc
         withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
           ainfo <- runConsensusQuery c (Get.getAccountInfo hash) acc
@@ -864,8 +848,8 @@ receiveCatchUpStatus cptr src cstr len limit cbk = do
                         sendMsg MTCatchUpStatus $ encode rcus
             return $! result
 
-foreign export ccall startConsensus :: Word64 -> CString -> Int64 -> CString -> Int64 -> GlobalStatePtr -> FunPtr BroadcastCallback -> Word8 -> FunPtr LogCallback -> Word8 -> FunPtr LogTransferCallback -> IO (StablePtr ConsensusRunner)
-foreign export ccall startConsensusPassive :: Word64 -> CString -> Int64 -> GlobalStatePtr -> Word8 -> FunPtr LogCallback -> IO (StablePtr ConsensusRunner)
+foreign export ccall startConsensus :: Word64 -> CString -> Int64 -> CString -> Int64 -> FunPtr BroadcastCallback -> FunPtr CatchUpStatusCallback -> Word8 -> FunPtr LogCallback -> Word8 -> FunPtr LogTransferCallback -> IO (StablePtr ConsensusRunner)
+foreign export ccall startConsensusPassive :: Word64 -> CString -> Int64 -> FunPtr CatchUpStatusCallback -> Word8 -> FunPtr LogCallback -> IO (StablePtr ConsensusRunner)
 foreign export ccall stopConsensus :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall startBaker :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall stopBaker :: StablePtr ConsensusRunner -> IO ()

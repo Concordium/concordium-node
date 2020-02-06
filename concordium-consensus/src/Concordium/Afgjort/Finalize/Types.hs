@@ -19,6 +19,7 @@ import Data.Map.Strict (Map)
 
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
+import qualified Concordium.Crypto.BlsSignature as Bls
 import Concordium.Types
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Finalization
@@ -27,7 +28,8 @@ import Concordium.Afgjort.WMVBA
 
 data FinalizationInstance = FinalizationInstance {
     finMySignKey :: !Sig.KeyPair,
-    finMyVRFKey :: !VRF.KeyPair
+    finMyVRFKey :: !VRF.KeyPair,
+    finMyBlsKey :: !Bls.SecretKey
 }
 
 class HasFinalizationInstance f where
@@ -40,7 +42,8 @@ data PartyInfo = PartyInfo {
     partyIndex :: !Party,
     partyWeight :: !VoterPower,
     partySignKey :: !Sig.VerifyKey,
-    partyVRFKey :: !VRF.PublicKey
+    partyVRFKey :: !VRF.PublicKey,
+    partyBlsKey :: !Bls.PublicKey
 } deriving (Eq, Ord)
 
 instance Show PartyInfo where
@@ -59,7 +62,7 @@ makeFinalizationCommittee :: FinalizationParameters -> FinalizationCommittee
 makeFinalizationCommittee FinalizationParameters {..} = FinalizationCommittee {..}
     where
         parties = Vec.fromList $ zipWith makeParty [0..] finalizationCommittee
-        makeParty pix (VoterInfo psk pvk pow) = PartyInfo pix pow psk pvk
+        makeParty pix (VoterInfo psk pvk pow pbls) = PartyInfo pix pow psk pvk pbls
         totalWeight = sum (partyWeight <$> parties)
         corruptWeight = (totalWeight - 1) `div` 3
 

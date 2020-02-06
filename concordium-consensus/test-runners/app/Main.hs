@@ -1,6 +1,7 @@
-{-# LANGUAGE 
+{-# LANGUAGE
     OverloadedStrings,
-    CPP #-}
+    CPP,
+    ScopedTypeVariables #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 module Main where
 
@@ -10,6 +11,7 @@ import System.Random
 import Data.Time.Clock.POSIX
 import System.IO
 import Data.Serialize
+import Control.Exception
 
 import Concordium.TimerMonad
 import Concordium.Types.HashableTo
@@ -24,11 +26,8 @@ import Concordium.GlobalState.Basic.Block
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState
-#ifdef RUST
-import Concordium.GlobalState.Paired
-import qualified Concordium.GlobalState.Implementation as Rust
-#endif
 
+import Concordium.Logger
 import Concordium.Types
 import Concordium.Runner
 import Concordium.Skov
@@ -59,7 +58,7 @@ sendTransactions chan (t : ts) = do
 sendTransactions _ _ = return ()
 
 relay :: Chan (OutMessage src) -> SyncRunner ActiveConfig -> Chan (Either (BlockHash, BakedBlock, [Instance]) FinalizationRecord) -> [Chan (InMessage ())] -> IO ()
-relay inp sr monitor outps = loop
+relay inp sr monitor outps = loop `catch` (\(e :: SomeException) -> putStrLn $ "// *** relay thread exited on exception: " ++ show e)
     where
         loop = do
             msg <- readChan inp
@@ -74,7 +73,7 @@ relay inp sr monitor outps = loop
                         _ -> return ()
                     forM_ outps $ \outp -> forkIO $ do
                         --factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
-                        let factor = 0.1 :: Double
+                        let factor = 1 :: Double
                         r <- truncate . (*factor) . fromInteger . (`div` 10) . (^(2::Int)) <$> randomRIO (0, 7800)
                         threadDelay r
                         --putStrLn $ "Delay: " ++ show r
@@ -100,7 +99,7 @@ relay inp sr monitor outps = loop
                         writeChan outp (MsgFinalizationRecordReceived () fr)
                 _ -> return ()
             loop
-        bInsts :: BlockHash -> SkovT () ActiveConfig IO [Instance]
+        bInsts :: BlockHash -> SkovT () ActiveConfig LogIO [Instance]
         bInsts bh = do
             bst <- resolveBlock bh
             case bst of
@@ -138,27 +137,9 @@ genesisState genData = Example.initialState
                        -- (genesisMintPerSlot genData)
 
 
-#ifdef RUST
-{-
-type TreeConfig = DiskTreeDiskBlockConfig
-makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
-makeGlobalStateConfig rt genData = do
-    gsptr <- Rust.makeEmptyGlobalState genData
-    return $ DTDBConfig rt genData (genesisState genData) gsptr
--}
-type TreeConfig = PairGSConfig DiskTreeDiskBlockConfig MemoryTreeMemoryBlockConfig
-makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
-makeGlobalStateConfig rt genData = do
-    gsptr <- Rust.makeEmptyGlobalState genData
-    let
-        c1 = DTDBConfig rt genData (genesisState genData) gsptr
-        c2 = MTMBConfig rt genData (genesisState genData)
-    return $ PairGSConfig (c1, c2)
-#else
 type TreeConfig = MemoryTreeDiskBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
 makeGlobalStateConfig rt genData = return $ MTDBConfig rt genData (genesisState genData)
-#endif
 
 type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) HookLogHandler
 
@@ -181,7 +162,7 @@ main = do
               hPrint logTransferFile (bh, slot, reason)
         gsconfig <- makeGlobalStateConfig defaultRuntimeParameters gen
         let
-            finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid)) gen
+            finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)) gen
             hconfig = HookLogHandler (Just logT)
             config = SkovConfig gsconfig finconfig hconfig
         (cin, cout, sr) <- makeAsyncRunner logM bid config

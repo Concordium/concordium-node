@@ -57,6 +57,7 @@ transactionHelper t =
     (TJSON meta AddBaker{..} keys) ->
       let abElectionVerifyKey = bvfkey
           abSignatureVerifyKey = bsigvfkey
+          abAggregationVerifyKey = baggvfkey
           abAccount = baccountAddress
           challenge = runPut (put abElectionVerifyKey <> put abSignatureVerifyKey <> put abAccount)
       in do
@@ -106,6 +107,7 @@ data PayloadJSON = DeployModule { moduleName :: Text }
                      bvfkey :: BakerElectionVerifyKey,
                      bvfSecretKey :: VRF.SecretKey,
                      bsigvfkey :: BakerSignVerifyKey,
+                     baggvfkey :: BakerAggregationVerifyKey,
                      bsigkey :: BlockSig.SignKey,
                      baccountAddress :: AccountAddress,
                      baccountKeyPair :: Sig.KeyPair
@@ -137,7 +139,9 @@ data TransactionHeader = TransactionHeader {
     -- |Per account nonce, strictly increasing, no gaps.
     thNonce :: !Nonce,
     -- |Amount of gas dedicated for the execution of this transaction.
-    thEnergyAmount :: !Energy
+    thEnergyAmount :: !Energy,
+    -- |Expiration time after which transaction will not be executed
+    thExpiry :: TransactionExpiryTime
     } deriving (Show)
 
 data TransactionJSON = TJSON { metadata :: TransactionHeader

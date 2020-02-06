@@ -29,6 +29,7 @@ import Concordium.Crypto.SignatureScheme as Sig
 import Concordium.ID.Account
 import Concordium.ID.Types(randomAccountAddress)
 import Concordium.Crypto.Ed25519Signature as EdSig
+import qualified Concordium.Crypto.BlsSignature as Bls
 
 import Concordium.GlobalState.Bakers
 import Concordium.Scheduler.Types hiding (accountAddress, Payload(..))
@@ -79,9 +80,10 @@ initialModel = Model {
 addBaker :: Model -> Gen (TransactionJSON, Model)
 addBaker m0 = do
         (bkrAcct, (kp, nonce)) <- elements (Map.toList $ _mAccounts m0)
-        let (bkr, electionSecretKey, signKey) = mkBaker (m0 ^. mNextSeed) bkrAcct
+        let (bkr, electionSecretKey, signKey, aggregationKey) = mkBaker (m0 ^. mNextSeed) bkrAcct
         return (TJSON {
-            payload = AddBaker (bkr ^. bakerElectionVerifyKey) electionSecretKey (bkr ^. bakerSignatureVerifyKey) signKey bkrAcct kp,
+
+            payload = AddBaker (bkr ^. bakerElectionVerifyKey) electionSecretKey (bkr ^. bakerSignatureVerifyKey) (bkr ^. bakerAggregationVerifyKey) signKey bkrAcct kp,
             metadata = makeHeader bkrAcct nonce (Cost.checkHeader + Cost.addBaker),
             keypair = kp
         }, m0

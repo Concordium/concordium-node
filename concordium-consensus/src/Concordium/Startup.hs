@@ -1,4 +1,4 @@
-{-# LANGUAGE 
+{-# LANGUAGE
     OverloadedStrings,
     TemplateHaskell #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
@@ -17,6 +17,7 @@ import qualified Concordium.Crypto.Ed25519Signature as Ed25519
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.SHA256 as Hash
+import qualified Concordium.Crypto.BlsSignature as Bls
 
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Bakers
@@ -33,11 +34,13 @@ import TH.RelativePaths
 makeBakers :: Word -> [((BakerIdentity,BakerInfo), Account)]
 makeBakers nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17) 0
     where
-        mbs gen bid = ((BakerIdentity sk ek, BakerInfo epk spk stake accAddress), account):mbs gen'' (bid+1)
+        mbs gen bid = ((BakerIdentity sk ek blssk, BakerInfo epk spk blspk stake accAddress), account):mbs gen''' (bid+1)
             where
                 (ek@(VRF.KeyPair _ epk), gen') = VRF.randomKeyPair gen
                 (sk, gen'') = Sig.randomKeyPair gen'
                 spk = Sig.verifyKey sk
+                (blssk, gen''') = Bls.randomSecretKey gen''
+                blspk = Bls.derivePublicKey blssk
                 accAddress = _accountAddress account
                 stake = _accountAmount account
                 account = makeBakerAccount bid
@@ -56,8 +59,8 @@ makeBakerAccount bid =
     seed = - (fromIntegral bid) - 1
     (address, seed') = randomAccountAddress (mkStdGen seed)
     kp = uncurry SigScheme.KeyPairEd25519 $ fst (Ed25519.randomKeyPair seed')
-    
-makeGenesisData :: 
+
+makeGenesisData ::
     Timestamp -- ^Genesis time
     -> Word  -- ^Initial number of bakers.
     -> Duration  -- ^Slot duration in seconds.
@@ -78,7 +81,7 @@ makeGenesisData genesisTime nBakers genesisSlotDuration elecDiff finMinSkip gene
                           genesisBakers
                           genesisBakers
                           (genesisSeedState (Hash.hash "LeadershipElectionNonce") 10) -- todo hardcoded epoch length (and initial seed)
-        genesisFinalizationParameters = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, BakerInfo vrfk vvk _ _) <- bakers] finMinSkip
+        genesisFinalizationParameters = FinalizationParameters [VoterInfo vvk vrfk 1 vblsk | (_, BakerInfo vrfk vvk vblsk _ _) <- bakers] finMinSkip
         (bakers, genesisAccounts) = unzip (makeBakers nBakers)
 
 -- Need to return string because Bytestring does not implement Lift
