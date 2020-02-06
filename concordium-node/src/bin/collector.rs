@@ -170,9 +170,7 @@ async fn collect_data<'a>(
 ) -> Fallible<NodeInfo> {
     info!(
         "Collecting node information via gRPC from {}/{}/{}",
-        node_name,
-        grpc_host,
-        grpc_auth_token
+        node_name, grpc_host, grpc_auth_token
     );
 
     let channel = Channel::from_shared(grpc_host).unwrap().connect().await?;
@@ -194,9 +192,12 @@ async fn collect_data<'a>(
 
     trace!("Requesting node peer stats info via gRPC");
     let node_peer_stats_reply = client
-        .peer_stats(req_with_auth!(proto::PeersRequest {
-            include_bootstrappers: true,
-        }, grpc_auth_token))
+        .peer_stats(req_with_auth!(
+            proto::PeersRequest {
+                include_bootstrappers: true,
+            },
+            grpc_auth_token
+        ))
         .await?;
 
     trace!("Requesting node total sent message count info via gRPC");
@@ -275,10 +276,13 @@ async fn collect_data<'a>(
 
     let ancestors_since_best_block = if best_block_height > finalized_block_height {
         trace!("Requesting further consensus status via gRPC");
-        let block_and_height_req = req_with_auth!(proto::BlockHashAndAmount {
-            block_hash: best_block.clone(),
-            amount:     best_block_height as u64 - finalized_block_height as u64,
-        }, grpc_auth_token);
+        let block_and_height_req = req_with_auth!(
+            proto::BlockHashAndAmount {
+                block_hash: best_block.clone(),
+                amount:     best_block_height as u64 - finalized_block_height as u64,
+            },
+            grpc_auth_token
+        );
         let node_ancestors_reply = client.get_ancestors(block_and_height_req).await?;
         let json_consensus_ancestors_value: Value =
             serde_json::from_str(&node_ancestors_reply.get_ref().json_value)?;
@@ -300,9 +304,12 @@ async fn collect_data<'a>(
         None
     };
 
-    let block_req = req_with_auth!(proto::BlockHash {
-        block_hash: best_block.clone(),
-    }, grpc_auth_token);
+    let block_req = req_with_auth!(
+        proto::BlockHash {
+            block_hash: best_block.clone(),
+        },
+        grpc_auth_token
+    );
 
     let node_block_info_reply = client.get_block_info(block_req).await?;
     let json_block_info_value: Value =
