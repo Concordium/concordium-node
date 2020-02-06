@@ -22,7 +22,6 @@ import Concordium.GlobalState.Bakers
 
 import Concordium.Scheduler.TreeStateEnvironment(executeFrom)
 
-
 import Concordium.Kontrol
 import Concordium.Birk.LeaderElection
 import Concordium.Kontrol.UpdateLeaderElectionParameters
@@ -190,13 +189,6 @@ processFinalizationPool checkPending = do
                     -- This is to ensure that the focus block is always a live (or finalized) block.
                     unless focusBlockSurvives $ updateFocusBlockTo newFinBlock
                     putFinalizationPoolAtIndex nextFinIx []
-                    -- Archive the states of blocks up to but not including the new finalized block
-                    let doArchive b = case compare (bpHeight b) lastFinHeight of
-                            LT -> return ()
-                            EQ -> archiveBlockState =<< blockState b
-                            GT -> do
-                              (doArchive =<< bpParent b) >> blockState b >>= archiveBlockState
-                    doArchive =<< bpParent newFinBlock
                     addFinalization newFinBlock finRec
                     oldBranches <- getBranches
                     let pruneHeight = fromIntegral (bpHeight newFinBlock - lastFinHeight)
@@ -217,6 +209,13 @@ processFinalizationPool checkPending = do
                             logTransfers keeper
 
                     pruneTrunk newFinBlock (Seq.take pruneHeight oldBranches)
+                    -- Archive the states of blocks up to but not including the new finalized block
+                    let doArchive b = case compare (bpHeight b) lastFinHeight of
+                            LT -> return ()
+                            EQ -> archiveBlockState =<< blockState b
+                            GT -> do doArchive =<< bpParent b
+                                     archiveBlockState =<< blockState b
+                    doArchive =<< bpParent newFinBlock
                     -- Prune the branches
                     let
                         pruneBranches _ Seq.Empty = return Seq.empty
