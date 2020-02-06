@@ -654,7 +654,8 @@ pub fn instantiate_stats_export_engine(
         info!("Enabling prometheus push gateway at {}", push_gateway);
         StatsExportService::new(mode)?
     } else {
-        panic!("Couldn't instantiate prometheus");
+        warn!("Couldn't instantiate prometheus due to lacking config flags");
+        StatsExportService::new(mode)?
     };
     Ok(prom)
 }
