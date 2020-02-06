@@ -148,7 +148,8 @@ async fn main() -> Fallible<()> {
             &conf.cli.rpc,
             get_baker_private_data_json_file(&app_prefs, &conf.cli.baker),
         );
-        serv.start_server().await?;
+        tokio::spawn(async move { serv.start_server().await.expect("Invalid RPC configuration"); });
+        info!("RPC server started");
     };
 
     // Wait for the P2PNode to close
