@@ -97,7 +97,7 @@ instance (BlockMetadata l, BlockMetadata r) => BlockMetadata (PairBlockMetadata 
     blockBaker (PairBlockMetadata (l, r)) = assert (blockBaker l == blockBaker r) $ blockBaker l
     blockProof (PairBlockMetadata (l, r)) = assert (blockProof l == blockProof r) $ blockProof l
     blockNonce (PairBlockMetadata (l, r)) = assert (blockNonce l == blockNonce r) $ blockNonce l
-    blockLastFinalized (PairBlockMetadata (l, r)) = assert (blockLastFinalized l == blockLastFinalized r) $ blockLastFinalized l
+    blockFinalizationData (PairBlockMetadata (l, r)) = assert (blockFinalizationData l == blockFinalizationData r) $ blockFinalizationData l
 
 newtype PairBlockData l r = PairBlockData (l, r)
     deriving (BlockMetadata) via (PairBlockMetadata l r)
@@ -444,14 +444,13 @@ instance (HasGlobalStateContext (PairGSContext lc rc) r,
     addFinalization (PairBlockData (bp1, bp2)) fr = do
         coerceGSML $ addFinalization bp1 fr
         coerceGSMR $ addFinalization bp2 fr
-    getFinalizationAtIndex fi = do
-        r1 <- coerceGSML $ getFinalizationAtIndex fi
-        r2 <- coerceGSMR $ getFinalizationAtIndex fi
+    getFinalizedAtIndex fi = do
+        r1 <- coerceGSML $ getFinalizedAtIndex fi
+        r2 <- coerceGSMR $ getFinalizedAtIndex fi
         case (r1, r2) of
             (Nothing, Nothing) -> return Nothing
-            (Just (fr1, bp1), Just (fr2, bp2)) -> assert (fr1 == fr2) $ return $ Just (fr1, PairBlockData (bp1, bp2))
+            (Just bp1, Just bp2) -> return $ Just (PairBlockData (bp1, bp2))
             _ -> error $ "getFinalizationAtindex (Paired): no match " ++ show r1 ++ ", " ++ show r2
-    -- getFinalizationFromIndex by default implementation
     getBranches = do
         r1 <- coerceGSML getBranches
         r2 <- coerceGSMR getBranches
@@ -480,31 +479,6 @@ instance (HasGlobalStateContext (PairGSContext lc rc) r,
             (Nothing, Nothing) -> return Nothing
             (Just pb1, Just pb2) -> return $ Just $ PairBlockData (pb1, pb2)
             _ -> error "takeNextPendingUntil (Paired): implementations returned different results"
-    addAwaitingLastFinalized bh (PairBlockData (pb1, pb2)) = do
-        coerceGSML $ addAwaitingLastFinalized bh pb1
-        coerceGSMR $ addAwaitingLastFinalized bh pb2
-    takeAwaitingLastFinalizedUntil bh = do
-        r1 <- coerceGSML $ takeAwaitingLastFinalizedUntil bh
-        r2 <- coerceGSMR $ takeAwaitingLastFinalizedUntil bh
-        case (r1, r2) of
-            (Nothing, Nothing) -> return Nothing
-            (Just pb1, Just pb2) -> return $ Just $ PairBlockData (pb1, pb2)
-            _ -> error "takeAwaitingLastFinalizedUntil (Paired): implementations returned different results"
-    getFinalizationPoolAtIndex fi = do
-        p1 <- coerceGSML $ getFinalizationPoolAtIndex fi
-        p2 <- coerceGSMR $ getFinalizationPoolAtIndex fi
-        -- Potentially, implementation could diverge on the ordering of
-        -- the finalization pool. Currently they do not, and we rely on
-        -- this. Bottom line: if the following assert generates an error,
-        -- it is probably because implementations have diverged and a
-        -- different check may be appropriate.
-        assert (p1 == p2) $ return p1
-    putFinalizationPoolAtIndex fi frs = do
-        coerceGSML $ putFinalizationPoolAtIndex fi frs
-        coerceGSMR $ putFinalizationPoolAtIndex fi frs
-    addFinalizationRecordToPool fr = do
-        coerceGSML $ addFinalizationRecordToPool fr
-        coerceGSMR $ addFinalizationRecordToPool fr
     getFocusBlock = do
         fb1 <- coerceGSML $ getFocusBlock
         fb2 <- coerceGSMR $ getFocusBlock

@@ -1,6 +1,9 @@
 {-# LANGUAGE MultiParamTypeClasses, RecordWildCards, TypeFamilies, FlexibleContexts, TypeSynonymInstances, FunctionalDependencies #-}
 
-module Concordium.GlobalState.Block where
+module Concordium.GlobalState.Block(
+    BlockFinalizationData,
+    module Concordium.GlobalState.Block
+) where
 
 import Data.Time.Clock
 import Data.Serialize
@@ -9,6 +12,8 @@ import qualified Concordium.Crypto.BlockSignature as Sig
 import Concordium.Types
 import Concordium.Types.Transactions
 import Concordium.Types.HashableTo
+
+import Concordium.GlobalState.Finalization
 
 -- * Block type classes
 
@@ -22,8 +27,8 @@ class BlockMetadata d where
     blockProof :: d -> BlockProof
     -- |The block nonce
     blockNonce :: d -> BlockNonce
-    -- |The hash of the last finalized block when this block was baked
-    blockLastFinalized :: d -> BlockHash
+    -- |A finalization proof, where given
+    blockFinalizationData :: d -> BlockFinalizationData
 
 -- |For a type @b@ representing a block, the type @BlockFieldType b@
 -- represents the block metadata associated with a block.  Typically,
@@ -61,7 +66,7 @@ blockBody b = do
         put (blockBaker b)
         put (blockProof b)
         put (blockNonce b)
-        put (blockLastFinalized b)
+        put (blockFinalizationData b)
         put (map trBareTransaction $ blockTransactions b)
 
 

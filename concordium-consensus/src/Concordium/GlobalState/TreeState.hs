@@ -87,7 +87,8 @@ class (Eq (BlockPointer m),
         -> BakerId          -- ^Identifier of block baker
         -> BlockProof       -- ^Block proof
         -> BlockNonce       -- ^Block nonce
-        -> BlockHash        -- ^Hash of last finalized block
+        -> BlockFinalizationData
+                            -- ^Finalization data
         -> [Transaction]    -- ^List of transactions
         -> UTCTime          -- ^Block receive time
         -> m (PendingBlock m)
@@ -119,8 +120,7 @@ class (Eq (BlockPointer m),
     --
     -- Precondition: The block must be alive.
     markFinalized :: BlockHash -> FinalizationRecord -> m ()
-    -- |Mark a block as pending (i.e. awaiting parent or finalization of
-    --  last finalized block)
+    -- |Mark a block as pending (i.e. awaiting parent)
     markPending :: PendingBlock m -> m ()
     -- * Queries on genesis block
     -- |Get the genesis 'BlockPointer'.
@@ -143,13 +143,8 @@ class (Eq (BlockPointer m),
     -- The block must be the one finalized by the record, and the finalization
     -- index must be the next finalization index.  These are not checked.
     addFinalization :: BlockPointer m -> FinalizationRecord -> m ()
-    -- |Get the finalization record for a particular finalization index (if available), with the finalized block.
-    getFinalizationAtIndex :: FinalizationIndex -> m (Maybe (FinalizationRecord, BlockPointer m))
-    -- |Get a list of all (validated) finalization records with blocks from the given index
-    getFinalizationFromIndex :: FinalizationIndex -> m [(FinalizationRecord, BlockPointer m)]
-    getFinalizationFromIndex i = getFinalizationAtIndex i >>= \case
-            Nothing -> return []
-            Just f -> (f :) <$> getFinalizationFromIndex (i+1)
+    -- |Get the block that is finalized at the given index, if any.
+    getFinalizedAtIndex :: FinalizationIndex -> m (Maybe (BlockPointer m))
     -- * Operations on branches
     -- |Get the branches.
     getBranches :: m (Branches m)
@@ -176,31 +171,7 @@ class (Eq (BlockPointer m),
     -- less than or equal to the given value, removing it from the pending
     -- table.  Returns 'Nothing' if there is no such pending block.
     takeNextPendingUntil :: Slot -> m (Maybe (PendingBlock m))
-    -- * Operations on blocks that are pending the finalization of their
-    -- last finalized block
-    --
-    -- $awaitingLastFinalized
-    -- The blocks awaiting their last finalized block to become finalized are
-    -- conceptually stored in a min priority queue, where the priority is the
-    -- height of the block's indicated last finalized block.
-    -- When a block is finalized, all of the blocks that are awaiting last
-    -- finalized blocks of at most that height can be processed.
-    --
-    -- |Add a block that is awaiting finalization of its last finalized block.
-    addAwaitingLastFinalized :: BlockHeight         -- ^Height of block's last finalized block
-                                -> PendingBlock m   -- ^Block that is pending
-                                -> m ()
-    -- |Take the next awaiting-last-finalized block where the height of the
-    -- block that is awaiting finalization is less than or equal to the given
-    -- value.
-    takeAwaitingLastFinalizedUntil :: BlockHeight -> m (Maybe (PendingBlock m))
-    -- * Operations on the finalization pool
-    -- |Get the finalization pool at the given finalization index.
-    getFinalizationPoolAtIndex :: FinalizationIndex -> m [FinalizationRecord]
-    -- |Set the finalization pool at the given finalization index.
-    putFinalizationPoolAtIndex :: FinalizationIndex -> [FinalizationRecord] -> m ()
-    -- |Add a finalization record to the finalization pool.
-    addFinalizationRecordToPool :: FinalizationRecord -> m ()
+
     -- * Operations on the pending transaction table
     --
     -- $pendingTransactions
@@ -286,18 +257,12 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     getLastFinalizedHeight = lift getLastFinalizedHeight
     getNextFinalizationIndex = lift getNextFinalizationIndex
     addFinalization bp fr = lift $ addFinalization bp fr
-    getFinalizationAtIndex fi = lift $ getFinalizationAtIndex fi
-    getFinalizationFromIndex fi = lift $ getFinalizationFromIndex fi
+    getFinalizedAtIndex = lift . getFinalizedAtIndex
     getBranches = lift getBranches
     putBranches = lift . putBranches
     takePendingChildren = lift . takePendingChildren
     addPendingBlock = lift . addPendingBlock
     takeNextPendingUntil = lift . takeNextPendingUntil
-    addAwaitingLastFinalized bh pb = lift $ addAwaitingLastFinalized bh pb
-    takeAwaitingLastFinalizedUntil = lift . takeAwaitingLastFinalizedUntil
-    getFinalizationPoolAtIndex = lift . getFinalizationPoolAtIndex
-    putFinalizationPoolAtIndex fi frs = lift $ putFinalizationPoolAtIndex fi frs
-    addFinalizationRecordToPool = lift . addFinalizationRecordToPool
     getFocusBlock = lift getFocusBlock
     putFocusBlock = lift . putFocusBlock
     getPendingTransactions = lift getPendingTransactions
@@ -329,18 +294,12 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     {-# INLINE getLastFinalizedHeight #-}
     {-# INLINE getNextFinalizationIndex #-}
     {-# INLINE addFinalization #-}
-    {-# INLINE getFinalizationAtIndex #-}
-    {-# INLINE getFinalizationFromIndex #-}
+    {-# INLINE getFinalizedAtIndex #-}
     {-# INLINE getBranches #-}
     {-# INLINE putBranches #-}
     {-# INLINE takePendingChildren #-}
     {-# INLINE addPendingBlock #-}
     {-# INLINE takeNextPendingUntil #-}
-    {-# INLINE addAwaitingLastFinalized #-}
-    {-# INLINE takeAwaitingLastFinalizedUntil #-}
-    {-# INLINE getFinalizationPoolAtIndex #-}
-    {-# INLINE putFinalizationPoolAtIndex #-}
-    {-# INLINE addFinalizationRecordToPool #-}
     {-# INLINE getFocusBlock #-}
     {-# INLINE putFocusBlock #-}
     {-# INLINE getPendingTransactions #-}

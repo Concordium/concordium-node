@@ -38,12 +38,8 @@ data SkovData bs = SkovData {
     _possiblyPendingTable :: !(HM.HashMap BlockHash [PendingBlock]),
     -- |Priority queue of pairs of (block, parent) hashes where the block is (possibly) pending its parent, by block slot
     _possiblyPendingQueue :: !(MPQ.MinPQueue Slot (BlockHash, BlockHash)),
-    -- |Priority queue of blocks waiting for their last finalized block to be finalized, ordered by height of the last finalized block
-    _blocksAwaitingLastFinalized :: !(MPQ.MinPQueue BlockHeight PendingBlock),
     -- |List of finalization records with the blocks that they finalize, starting from genesis
     _finalizationList :: !(Seq.Seq (FinalizationRecord, BasicBlockPointer bs)),
-    -- |Pending finalization records by finalization index
-    _finalizationPool :: !(Map.Map FinalizationIndex [FinalizationRecord]),
     -- |Branches of the tree by height above the last finalized block
     _branches :: !(Seq.Seq [BasicBlockPointer bs]),
     -- |Genesis data
@@ -76,9 +72,7 @@ initialSkovData rp gd genState = SkovData {
             _blockTable = HM.singleton gbh (TS.BlockFinalized gb gbfin),
             _possiblyPendingTable = HM.empty,
             _possiblyPendingQueue = MPQ.empty,
-            _blocksAwaitingLastFinalized = MPQ.empty,
             _finalizationList = Seq.singleton (gbfin, gb),
-            _finalizationPool = Map.empty,
             _branches = Seq.empty,
             _genesisData = gd,
             _genesisBlockPointer = gb,
@@ -122,8 +116,7 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadState (Sko
             _ -> error "empty finalization list"
     getNextFinalizationIndex = FinalizationIndex . fromIntegral . Seq.length <$> use finalizationList
     addFinalization newFinBlock finRec = finalizationList %= (Seq.:|> (finRec, newFinBlock))
-    getFinalizationAtIndex finIndex = Seq.lookup (fromIntegral finIndex) <$> use finalizationList
-    getFinalizationFromIndex finIndex = toList . Seq.drop (fromIntegral finIndex) <$> use finalizationList
+    getFinalizedAtIndex finIndex = fmap snd . Seq.lookup (fromIntegral finIndex) <$> use finalizationList
     getBranches = use branches
     putBranches brs = branches .= brs
     takePendingChildren bh = possiblyPendingTable . at bh . non [] <<.= []
@@ -149,17 +142,6 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadState (Sko
                 Nothing -> do
                     possiblyPendingQueue .= ppq
                     return Nothing
-    addAwaitingLastFinalized bh pb = blocksAwaitingLastFinalized %= MPQ.insert bh pb
-    takeAwaitingLastFinalizedUntil bh =
-            (MPQ.minViewWithKey <$> use blocksAwaitingLastFinalized) >>= \case
-                Nothing -> return Nothing
-                Just ((h, pb), balf') -> if (h <= bh) then do
-                                            blocksAwaitingLastFinalized .= balf'
-                                            return (Just pb)
-                                        else return Nothing
-    getFinalizationPoolAtIndex fi = use (finalizationPool . at fi . non [])
-    putFinalizationPoolAtIndex fi frs = finalizationPool . at fi . non [] .= frs
-    addFinalizationRecordToPool fr = finalizationPool . at (finalizationIndex fr) . non [] %= (fr :)
     getFocusBlock = use focusBlock
     putFocusBlock bb = focusBlock .= bb
     getPendingTransactions = use pendingTransactions
