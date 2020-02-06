@@ -767,12 +767,11 @@ impl P2p for RpcServerImpl {
 mod tests {
     use crate::{
         common::{P2PNodeId, PeerType},
-        configuration,
         p2p::P2PNode,
         rpc::RpcServerImpl,
         test_utils::{
             await_handshake, connect, get_test_config, make_node_and_sync,
-            make_node_and_sync_with_rpc, next_available_port,
+            next_available_port,
         },
     };
     use chrono::prelude::Utc;
@@ -792,17 +791,10 @@ mod tests {
     async fn create_node_rpc_call_option(
         nt: PeerType,
     ) -> Fallible<(P2pClient<Channel>, Arc<P2PNode>)> {
-        let conf = configuration::parse_config().expect("Can't parse the config file!");
-        let app_prefs = configuration::AppPreferences::new(
-            conf.common.config_dir.to_owned(),
-            conf.common.data_dir.to_owned(),
-        );
-
-        let (node, _, _rpc_rx) = make_node_and_sync_with_rpc(
+        let node = make_node_and_sync(
             next_available_port(),
             vec![100],
             nt,
-            app_prefs.get_user_app_dir(),
         )
         .unwrap();
 
