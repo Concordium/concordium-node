@@ -808,11 +808,11 @@ mod tests {
     use crate::{
         common::{P2PNodeId, PeerType},
         configuration,
-        p2p::{connectivity::send_broadcast_message, P2PNode},
+        p2p::P2PNode,
         rpc::RpcServerImpl,
         test_utils::{
             await_handshake, connect, get_test_config, make_node_and_sync,
-            make_node_and_sync_with_rpc, next_available_port, setup_logger,
+            make_node_and_sync_with_rpc, next_available_port,
         },
     };
     use chrono::prelude::Utc;
