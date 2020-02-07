@@ -2,7 +2,7 @@ cfg_if! {
     if #[cfg(feature = "instrumentation")] {
         use prometheus::{self, Encoder, core::{AtomicU64, GenericGauge}, IntCounter, IntGauge, Opts, Registry, TextEncoder};
         use crate::common::p2p_node_id::P2PNodeId;
-        use std::{net::SocketAddr, thread, time, sync::{Arc, RwLock}};
+        use std::{net::SocketAddr, thread, time, sync::RwLock};
         use gotham::{
             handler::IntoResponse,
             helpers::http::response::create_response,
@@ -11,15 +11,15 @@ cfg_if! {
             router::{builder::*, Router},
             state::{FromState, State},
         };
-        use hyper::{Body, Response, StatusCode};
-        use tokio::runtime::{self, Runtime};
+        use http::{status::StatusCode, Response};
+        use hyper::Body;
     } else {
         use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
     }
 }
 use crate::configuration;
 use failure::Fallible;
-use std::fmt;
+use std::{fmt, sync::Arc};
 
 #[derive(Debug, PartialEq)]
 pub enum StatsServiceMode {
@@ -76,7 +76,6 @@ cfg_if! {
             invalid_network_packets_received: IntCounter,
             queue_size: IntGauge,
             resend_queue_size: IntGauge,
-            tokio_runtime: RwLock<Option<Runtime>>,
             inbound_high_priority_consensus_drops_counter: IntCounter,
             inbound_low_priority_consensus_drops_counter: IntCounter,
             inbound_high_priority_consensus_counter: IntCounter,
@@ -279,7 +278,6 @@ impl StatsExportService {
             invalid_network_packets_received: inpr,
             queue_size: qs,
             resend_queue_size: rqs,
-            tokio_runtime: RwLock::new(None),
             inbound_high_priority_consensus_drops_counter,
             inbound_low_priority_consensus_drops_counter,
             inbound_high_priority_consensus_counter,
@@ -575,26 +573,8 @@ impl StatsExportService {
     }
 
     #[cfg(feature = "instrumentation")]
-    pub fn start_server(&self, listen_addr: SocketAddr) {
-        let runtime = runtime::Builder::new()
-            .core_threads(num_cpus::get())
-            .name_prefix("gotham-worker-")
-            .build()
-            .unwrap();
-        gotham::start_on_executor(listen_addr, self.router(), runtime.executor());
-        if let Ok(mut locked_tokio) = self.tokio_runtime.write() {
-            *locked_tokio = Some(runtime);
-        }
-    }
-
-    #[cfg(feature = "instrumentation")]
-    pub fn stop_server(&self) {
-        if let Ok(mut locked_tokio) = self.tokio_runtime.write() {
-            if (&*locked_tokio).is_some() {
-                let old_v = std::mem::replace(&mut *locked_tokio, None);
-                old_v.map(tokio::runtime::Runtime::shutdown_now);
-            }
-        }
+    pub async fn start_server(&self, listen_addr: SocketAddr) -> impl std::future::Future {
+        gotham::plain::init_server(listen_addr, self.router())
     }
 
     #[cfg(not(feature = "instrumentation"))]
@@ -641,15 +621,10 @@ impl StatsExportService {
 pub fn instantiate_stats_export_engine(
     conf: &configuration::Config,
     mode: StatsServiceMode,
-) -> Fallible<StatsExportService> {
+) -> Fallible<Arc<StatsExportService>> {
     let prom = if conf.prometheus.prometheus_server {
         info!("Enabling prometheus server");
-        let srv = StatsExportService::new(mode)?;
-        srv.start_server(SocketAddr::new(
-            conf.prometheus.prometheus_listen_addr.parse()?,
-            conf.prometheus.prometheus_listen_port,
-        ));
-        srv
+        StatsExportService::new(mode)?
     } else if let Some(ref push_gateway) = conf.prometheus.prometheus_push_gateway {
         info!("Enabling prometheus push gateway at {}", push_gateway);
         StatsExportService::new(mode)?
@@ -657,15 +632,15 @@ pub fn instantiate_stats_export_engine(
         warn!("Couldn't instantiate prometheus due to lacking config flags");
         StatsExportService::new(mode)?
     };
-    Ok(prom)
+    Ok(Arc::new(prom))
 }
 
 #[cfg(not(feature = "instrumentation"))]
 pub fn instantiate_stats_export_engine(
     _: &configuration::Config,
     mode: StatsServiceMode,
-) -> Fallible<StatsExportService> {
-    Ok(StatsExportService::new(mode)?)
+) -> Fallible<Arc<StatsExportService>> {
+    Ok(Arc::new(StatsExportService::new(mode)?))
 }
 
 #[cfg(feature = "instrumentation")]
@@ -691,19 +666,6 @@ pub fn start_push_gateway(
         Some(())
     });
 }
-
-#[cfg(feature = "instrumentation")]
-pub fn stop_stats_export_engine(conf: &configuration::Config, srv: &Option<StatsExportService>) {
-    if conf.prometheus.prometheus_server {
-        if let Some(srv) = srv {
-            info!("Stopping prometheus server");
-            srv.stop_server();
-        }
-    }
-}
-
-#[cfg(not(feature = "instrumentation"))]
-pub fn stop_stats_export_engine(_: &configuration::Config, _: &Option<StatsExportService>) {}
 
 #[cfg(test)]
 mod tests {

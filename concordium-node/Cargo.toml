@@ -18,13 +18,13 @@ s11n_capnp = ["capnp", "capnpc"]
 s11n_serde = ["concordium-common/s11n_serde", "serde", "serde_derive"]
 s11n_serde_cbor = ["s11n_serde", "serde_cbor"]
 s11n_serde_msgpack = ["s11n_serde", "rmp-serde"]
-instrumentation = ["serde", "serde_derive", "gotham", "mime", "gotham_derive", "prometheus", "hyper", "num_cpus", "reqwest", "tokio"]
+instrumentation = ["serde", "serde_derive", "gotham", "mime", "gotham_derive", "prometheus", "hyper", "num_cpus", "reqwest", "http" ]
 benchmark = []
 network_dump = []
 static = [ "consensus-rust/static" ]
 profiling = [ "consensus-rust/profiling" ]
 elastic_logging = [ "elastic", "elastic_derive", "serde_json", "serde/derive", "uuid/v4" ]
-collector = [ "reqwest/default-tls", "serde_json", "serde/derive", "rmp-serde", "gotham", "mime", "gotham_derive", "hyper" ]
+collector = [ "reqwest/default-tls", "serde_json", "serde/derive", "rmp-serde", "gotham", "mime", "gotham_derive", "hyper", "futures" ]
 beta = [ "serde_json", "serde/derive", "reqwest/default-tls", "jsonwebtoken" ]
 
 [profile.release]
@@ -66,17 +66,20 @@ bytesize = "1.0.0"
 crossbeam-channel = "^0.4"
 
 # gRPC dependencies
-protobuf = "2.10.0"
-futures = "0.1"
+tonic = "0.1"
+prost = "0.6"
+tokio = { version = "0.2", features = ["macros", "rt-threaded"] }
 
 # Feature-gated dependencies
-gotham = { version = "0.4", optional = true }
+gotham = { git = "https://github.com/gotham-rs/gotham", rev = "aa64e50442defb4c92bc45ceee6a0ed33e8aef4c", optional = true }
 gotham_derive = { version = "0.4", optional = true }
-hyper = { version = "0.12", optional = true }
-reqwest = { version = "^0.9", default-features = false, optional = true }
+http = { version = "0.2", optional = true }
+hyper = { version = "0.13", optional = true }
+reqwest = { version = "0.10", default-features = false, optional = true, features = [ "default-tls", "stream" ] }
 mime = { version = "0.3", optional = true }
 flatbuffers = { version = "^0.6", optional = true }
 flatc-rust = { version = "^0.1", optional = true }
+futures = { version = "0.3", optional = true }
 serde = { version = "1.0", features = ["rc"], optional = true }
 serde_derive = { version = "1.0", optional = true }
 capnp = { version = "^0.9", optional = true }
@@ -86,8 +89,8 @@ elastic = { version = "0.21.0-pre.5", features = [ "default-tls" ], optional = t
 elastic_derive = { version = "0.21.0-pre.5", optional = true }
 serde_json = { version = "1", optional = true }
 num_cpus = { version = "1.10.0", optional = true }
-tokio = { version = "0.1.19", optional = true }
-jsonwebtoken = { version = "6", optional = true }
+#tokio = { version = "0.1.19", optional = true }
+jsonwebtoken = { version = "7", optional = true }
 prometheus = { version = "0.7.0", default-features = false, features = [ "gen", "push", "protobuf" ], optional = true }
 
 [target.'cfg(windows)'.dependencies]
@@ -95,19 +98,17 @@ ipconfig = { version = "^0.1.9" }
 
 [target.'cfg(unix)'.dependencies]
 get_if_addrs = { version = "0.5" }
-grpciounix = { package = "grpcio", path = "deps/external/grpc-rs", version = "0.4.4", default-features = false, features = [
-  "protobuf-codec"
-] }
 uuid = { version = "0.7", default-features = false, optional = true }
 
 [build-dependencies]
-protoc-grpcio = "1.1.0"
+tonic-build = { version = "0.1", default-features = false, features = ["transport"] }
 capnpc = { version = "^0.9", optional = true }
 flatc-rust = "^0.1"
 
 [dev-dependencies]
 criterion = "0.3"
 quickcheck = "^0.9"
+futures = "0.3"
 
 [lib]
 path = "src/lib.rs"

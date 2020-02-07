@@ -79,6 +79,10 @@ impl P2PNode {
             _ => unimplemented!("Socket address bans don't persist"),
         }
 
+        if !self.config.no_trust_bans {
+            self.send_ban(peer);
+        }
+
         Ok(())
     }
 
@@ -95,6 +99,10 @@ impl P2PNode {
             // TODO: insert ban expiry timestamp as the Value
             ban_store.delete(&mut writer, store_key)?;
             writer.commit().unwrap();
+        }
+
+        if !self.config.no_trust_bans {
+            self.send_unban(peer);
         }
 
         Ok(())

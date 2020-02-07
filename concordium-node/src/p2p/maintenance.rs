@@ -138,7 +138,7 @@ pub struct P2PNode {
     pub rpc_queue:          Sender<NetworkMessage>,
     pub dump_switch:        Sender<(std::path::PathBuf, bool)>,
     pub dump_tx:            Sender<crate::dumper::DumpItem>,
-    pub stats:              StatsExportService,
+    pub stats:              Arc<StatsExportService>,
     pub config:             P2PNodeConfig,
     pub start_time:         DateTime<Utc>,
     pub is_rpc_online:      AtomicBool,
@@ -156,7 +156,7 @@ impl P2PNode {
         conf: &Config,
         event_log: Option<Sender<QueueMsg<P2PEvent>>>,
         peer_type: PeerType,
-        stats: StatsExportService,
+        stats: Arc<StatsExportService>,
         subscription_queue_in: Sender<NetworkMessage>,
         data_dir_path: Option<PathBuf>,
     ) -> Arc<Self> {
@@ -492,11 +492,6 @@ impl P2PNode {
     }
 
     pub fn close_and_join(&self) -> Fallible<()> {
-        if cfg!(feature = "instrumentation") {
-            info!("Stopping stats services");
-            self.stats.stop_server();
-        }
-
         self.close();
         self.join()
     }

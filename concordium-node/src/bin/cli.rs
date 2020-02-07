@@ -1,8 +1,4 @@
 #![recursion_limit = "1024"]
-#[cfg(not(target_os = "windows"))]
-extern crate grpciounix as grpcio;
-#[cfg(target_os = "windows")]
-extern crate grpciowin as grpcio;
 #[macro_use]
 extern crate log;
 
@@ -46,8 +42,11 @@ use std::{
 
 #[cfg(feature = "instrumentation")]
 use p2p_client::stats_export_service::start_push_gateway;
+#[cfg(feature = "instrumentation")]
+use std::net::SocketAddr;
 
-fn main() -> Fallible<()> {
+#[tokio::main]
+async fn main() -> Fallible<()> {
     let (conf, mut app_prefs) = get_config_and_logging_setup()?;
     if conf.common.print_config {
         // Print out the configuration
@@ -68,11 +67,20 @@ fn main() -> Fallible<()> {
 
     info!("Debugging enabled: {}", conf.common.debug);
 
-    let (subscription_queue_in, subscription_queue_out) =
+    let (subscription_queue_in, _subscription_queue_out) =
         crossbeam_channel::bounded(config::RPC_QUEUE_DEPTH);
 
     // Thread #1: instantiate the P2PNode
     let node = instantiate_node(&conf, &mut app_prefs, stats_export_service, subscription_queue_in);
+
+    #[cfg(feature = "instrumentation")]
+    {
+        let stats = node.stats.clone();
+        let pla =
+            conf.prometheus.prometheus_listen_addr.parse().expect("Invalid Prometheus address");
+        let plp = conf.prometheus.prometheus_listen_port;
+        tokio::spawn(async move { stats.start_server(SocketAddr::new(pla, plp)).await });
+    }
 
     for resolver in &node.config.dns_resolvers {
         debug!("Using resolver: {}", resolver);
@@ -117,21 +125,6 @@ fn main() -> Fallible<()> {
         },
     )?;
 
-    // Start the RPC server
-    let mut rpc_serv = if !conf.cli.rpc.no_rpc_server {
-        let mut serv = RpcServerImpl::new(
-            node.clone(),
-            Some(consensus.clone()),
-            &conf.cli.rpc,
-            subscription_queue_out,
-            get_baker_private_data_json_file(&app_prefs, &conf.cli.baker),
-        );
-        serv.start_server()?;
-        Some(serv)
-    } else {
-        None
-    };
-
     // Start the transaction logging thread
     setup_transfer_log_thread(&conf.cli);
 
@@ -147,6 +140,17 @@ fn main() -> Fallible<()> {
         establish_connections(&conf, &node);
     }
 
+    // Start the RPC server
+    if !conf.cli.rpc.no_rpc_server {
+        let mut serv = RpcServerImpl::new(
+            node.clone(),
+            Some(consensus.clone()),
+            &conf.cli.rpc,
+            get_baker_private_data_json_file(&app_prefs, &conf.cli.baker),
+        );
+        serv.start_server().await?;
+    };
+
     // Wait for the P2PNode to close
     node.join().expect("The node thread panicked!");
 
@@ -161,11 +165,6 @@ fn main() -> Fallible<()> {
         consensus_queue_thread.join().expect("A consensus queue thread panicked");
     }
 
-    // Close the RPC server if present
-    if let Some(ref mut serv) = rpc_serv {
-        serv.stop_server()?;
-    }
-
     info!("P2PNode gracefully closed.");
 
     Ok(())
@@ -174,7 +173,7 @@ fn main() -> Fallible<()> {
 fn instantiate_node(
     conf: &config::Config,
     app_prefs: &mut config::AppPreferences,
-    stats_export_service: StatsExportService,
+    stats_export_service: Arc<StatsExportService>,
     subscription_queue_in: crossbeam_channel::Sender<NetworkMessage>,
 ) -> Arc<P2PNode> {
     let node_id = match conf.common.id.clone() {

@@ -1,14 +1,9 @@
 #![recursion_limit = "1024"]
-#![allow(bare_trait_objects)] // until grpc updates to Rust 2018
 
 #[macro_use]
 extern crate log;
 #[cfg(not(target_os = "windows"))]
 extern crate get_if_addrs;
-#[cfg(not(target_os = "windows"))]
-extern crate grpciounix as grpcio;
-#[cfg(target_os = "windows")]
-extern crate grpciowin as grpcio;
 
 cfg_if! {
     if #[cfg(feature = "elastic_logging")] {
@@ -72,7 +67,6 @@ pub mod p2p;
 pub mod plugins;
 
 pub mod dumper;
-pub mod proto;
 pub mod rpc;
 pub mod stats_engine;
 pub mod stats_export_service;

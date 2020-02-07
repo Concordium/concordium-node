@@ -10,7 +10,6 @@ tags
 path
 .vscode
 .so
-src/proto/concordium_p2p*.rs
 .stack-work
 dist
 .cabal-sandbox
@@ -18,7 +17,6 @@ cabal.sandbox.config
 workdir
 win_build
 deps/internal/crypto/build
-src/proto/concordium_p2p_rpc*.rs
 *.hp
 *.prof
 *.svg
