@@ -48,8 +48,6 @@ fn main() -> Result<(), Error> {
         _ => format!("{}", P2PNodeId::default()),
     };
 
-    let (rpc_tx, _) = crossbeam_channel::bounded(config::RPC_QUEUE_DEPTH);
-
     let node = if conf.common.debug {
         let (sender, receiver) = crossbeam_channel::bounded(config::EVENT_LOG_QUEUE_DEPTH);
         let _guard = spawn_or_die!("Log loop", move || loop {
@@ -63,7 +61,6 @@ fn main() -> Result<(), Error> {
             Some(sender),
             PeerType::Bootstrapper,
             stats_export_service,
-            rpc_tx,
             Some(data_dir_path),
         )
     } else {
@@ -73,7 +70,6 @@ fn main() -> Result<(), Error> {
             None,
             PeerType::Bootstrapper,
             stats_export_service,
-            rpc_tx,
             Some(data_dir_path),
         )
     };

@@ -22,7 +22,7 @@ use consensus_rust::{
 use p2p_client::{
     common::{get_current_stamp, P2PNodeId, PeerType},
     configuration as config,
-    network::{NetworkId, NetworkMessage},
+    network::NetworkId,
     p2p::*,
     plugins::{self, consensus::*},
     rpc::RpcServerImpl,
@@ -67,11 +67,8 @@ async fn main() -> Fallible<()> {
 
     info!("Debugging enabled: {}", conf.common.debug);
 
-    let (subscription_queue_in, _subscription_queue_out) =
-        crossbeam_channel::bounded(config::RPC_QUEUE_DEPTH);
-
     // Thread #1: instantiate the P2PNode
-    let node = instantiate_node(&conf, &mut app_prefs, stats_export_service, subscription_queue_in);
+    let node = instantiate_node(&conf, &mut app_prefs, stats_export_service);
 
     #[cfg(feature = "instrumentation")]
     {
@@ -148,7 +145,10 @@ async fn main() -> Fallible<()> {
             &conf.cli.rpc,
             get_baker_private_data_json_file(&app_prefs, &conf.cli.baker),
         );
-        serv.start_server().await?;
+        tokio::spawn(async move {
+            serv.start_server().await.expect("Invalid RPC configuration");
+        });
+        info!("RPC server started");
     };
 
     // Wait for the P2PNode to close
@@ -174,7 +174,6 @@ fn instantiate_node(
     conf: &config::Config,
     app_prefs: &mut config::AppPreferences,
     stats_export_service: Arc<StatsExportService>,
-    subscription_queue_in: crossbeam_channel::Sender<NetworkMessage>,
 ) -> Arc<P2PNode> {
     let node_id = match conf.common.id.clone() {
         None => match app_prefs.get_config(config::APP_PREFERENCES_PERSISTED_NODE_ID) {
@@ -234,7 +233,6 @@ fn instantiate_node(
         event_sender,
         PeerType::Node,
         stats_export_service,
-        subscription_queue_in,
         Some(data_dir_path),
     )
 }

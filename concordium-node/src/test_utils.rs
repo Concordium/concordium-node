@@ -13,11 +13,9 @@ use crate::{
 };
 use concordium_common::{serial::Endianness, PacketType};
 
-use crossbeam_channel::{self, Receiver};
 use std::{
     io::Write,
     net::TcpListener,
-    path::PathBuf,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc, Once,
@@ -81,16 +79,12 @@ pub fn setup_logger() {
     });
 }
 
-/// It creates a pair of `P2PNode` and a `Receiver` which can be used to
-/// wait for specific messages.
-/// Using this approach protocol tests will be easier and cleaner.
+/// Creates a `P2PNode` for test purposes
 pub fn make_node_and_sync(
     port: u16,
     networks: Vec<u16>,
     node_type: PeerType,
 ) -> Fallible<Arc<P2PNode>> {
-    let (rpc_tx, _rpc_rx) = crossbeam_channel::bounded(64);
-
     // locally-run tests and benches can be polled with a much greater frequency
     let mut config = get_test_config(port, networks);
     config.cli.no_network = true;
@@ -98,32 +92,10 @@ pub fn make_node_and_sync(
     config.connection.housekeeping_interval = 10;
 
     let stats = Arc::new(StatsExportService::new(StatsServiceMode::NodeMode).unwrap());
-    let node = P2PNode::new(None, &config, None, node_type, stats, rpc_tx, None);
+    let node = P2PNode::new(None, &config, None, node_type, stats, None);
 
     node.spawn();
     Ok(node)
-}
-
-pub fn make_node_and_sync_with_rpc(
-    port: u16,
-    networks: Vec<u16>,
-    node_type: PeerType,
-    data_dir_path: PathBuf,
-) -> Fallible<(Arc<P2PNode>, Receiver<NetworkMessage>, Receiver<NetworkMessage>)> {
-    let (_, msg_wait_rx) = crossbeam_channel::bounded(64);
-    let (rpc_tx, rpc_rx) = crossbeam_channel::bounded(64);
-
-    // locally-run tests and benches can be polled with a much greater frequency
-    let mut config = get_test_config(port, networks);
-    config.cli.no_network = true;
-    config.cli.poll_interval = 1;
-    config.connection.housekeeping_interval = 10;
-
-    let stats = Arc::new(StatsExportService::new(StatsServiceMode::NodeMode).unwrap());
-    let node = P2PNode::new(None, &config, None, node_type, stats, rpc_tx, Some(data_dir_path));
-
-    node.spawn();
-    Ok((node, msg_wait_rx, rpc_rx))
 }
 
 /// Connects `source` and `target` nodes

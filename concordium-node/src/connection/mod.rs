@@ -313,10 +313,11 @@ impl Connection {
             }
         };
 
-        // forward applicable messages to other connections or RPC
+        // forward applicable messages to other connections
         if is_msg_forwardable {
             if let Err(e) = if let NetworkMessagePayload::NetworkPacket(..) = message.payload {
-                self.handler().forward_network_packet(message)
+                // don't forward packets
+                Ok(())
             } else {
                 self.forward_network_message(&mut message)
             } {
