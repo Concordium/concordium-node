@@ -40,7 +40,7 @@ import Test.QuickCheck
 import Test.QuickCheck.Monadic
 import Test.Hspec
 
-import ConcordiumTests.Konsensus hiding (tests, myEvalSkovT)
+import ConcordiumTests.Konsensus hiding (tests)
 
 runKonsensus :: RandomGen g => Int -> g -> States -> ExecState -> IO States
 runKonsensus steps g states es
@@ -116,6 +116,7 @@ trivialHandlers = SkovHandlers {..}
         shBroadcastFinalizationRecord _ = error "Unimplemented"
         shOnTimeout _ _ = error "Unimplemented"
         shCancelTimer _ = error "Unimplemented"
+        shPendingLive = error "Unimplemented"
 
 trivialEvalSkovT :: (MonadIO m) => SkovT TrivialHandlers (Config DummyTimer) LogIO a -> SkovContext (Config DummyTimer) -> SkovState (Config DummyTimer) -> m a
 trivialEvalSkovT a ctx st = liftIO $ flip runLoggerT doLog $ evalSkovT a trivialHandlers ctx st
@@ -175,7 +176,7 @@ catchUpCheck (_, c1, s1) (_, c2, s2) = do
                     -- Furthermore, check that the finalization records + the requestor's finalized blocks
                     -- add up to the respondent's finalized blocks.
                     testList reqLive reqFin l
-                    recBPs <- myEvalSkovT (forM recBHs (\bh -> fromJust <$> resolveBlock bh)) c1 s1
+                    recBPs <- myEvalSkovT (forM recBHs (\bh -> fromJust <$> resolveBlock bh)) c2 s2
                     case recBPs of
                         [] -> return ()
                         (hbp : bps) -> forM_ bps $ \bp -> checkBinary (<=) (bpArriveTime hbp) (bpArriveTime bp) "<=" "first block time" "other block time"

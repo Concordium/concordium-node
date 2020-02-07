@@ -21,13 +21,14 @@ import Concordium.GlobalState.Classes
 import Concordium.Types.Transactions
 import Concordium.GlobalState.Finalization
 import Concordium.Types
+import Concordium.GlobalState.TreeState
 
+import Concordium.TimeMonad
 import Concordium.TimerMonad
 import Concordium.Birk.Bake
 import Concordium.Kontrol
 import Concordium.Skov
 import Concordium.Skov.Hooks
-import Concordium.Skov.CatchUp (CatchUpStatus)
 import Concordium.Afgjort.Finalize
 import Concordium.Logger
 import Concordium.Getters
@@ -51,7 +52,7 @@ data SyncRunner c = SyncRunner {
     syncHandlePendingLive :: IO ()
 }
 
-instance (SkovQueryConfigMonad c LogIO) => SkovStateQueryable (SyncRunner c) (SkovT () c LogIO) where
+instance (SkovQueryMonad (SkovT () c LogIO)) => SkovStateQueryable (SyncRunner c) (SkovT () c LogIO) where
     runStateQuery sr a = do
         s <- readMVar (syncState sr)
         runLoggerT (evalSkovT a () (syncContext sr) s) (syncLogMethod sr)
@@ -80,7 +81,7 @@ bufferedHandlePendingLive hpl bufferMVar = do
                         putMVar bufferMVar v
                         waitLoop lower
 -- |Make a 'SyncRunner' without starting a baker thread.
-makeSyncRunner :: (SkovConfiguration c, SkovQueryConfigMonad c LogIO) => LogMethod IO ->
+makeSyncRunner :: (SkovConfiguration c, SkovQueryMonad (SkovT () c LogIO)) => LogMethod IO ->
                   BakerIdentity ->
                   c ->
                   (SimpleOutMessage c -> IO ()) ->
@@ -93,7 +94,7 @@ makeSyncRunner syncLogMethod syncBakerIdentity config syncCallback cusCallback =
         syncFinalizationCatchUpActive <- newMVar Nothing
         pendingLiveMVar <- newMVar Nothing
         let
-            syncHandlePendingLive = bufferedHandlePendingLive (getCatchUpStatus sr False >>= cusCallback) pendingLiveMVar
+            syncHandlePendingLive = bufferedHandlePendingLive (runStateQuery sr (getCatchUpStatus False) >>= cusCallback) pendingLiveMVar
             sr = SyncRunner{..}
         return sr
 
@@ -119,14 +120,14 @@ syncSkovHandlers sr@SyncRunner{..} = SkovHandlers{
         shBroadcastFinalizationMessage = liftIO . syncCallback . SOMsgFinalization,
         shBroadcastFinalizationRecord = liftIO . syncCallback . SOMsgFinalizationRecord,
         shOnTimeout = \timeout a -> liftIO $ makeThreadTimer timeout $ void $ runSkovTransaction sr a,
-        shCancelTimer = liftIO . cancelThreadTimer
+        shCancelTimer = liftIO . cancelThreadTimer,
         shPendingLive = liftIO syncHandlePendingLive
     }
 
 -- |Start the baker thread for a 'SyncRunner'.
 startSyncRunner :: forall c. (
-    (SkovQueryMonad (SkovT () c IO)),
-    (BakerMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c (LoggerT IO)))
+    (SkovQueryMonad (SkovT () c LogIO)),
+    (BakerMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO))
     ) => SyncRunner c -> IO ()
 startSyncRunner sr@SyncRunner{..} = do
         let
@@ -179,31 +180,31 @@ shutdownSyncRunner sr@SyncRunner{..} = do
         takeMVar syncState >>= shutdownSkov syncContext
 
 
-syncReceiveBlock :: (SkovMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c (LoggerT IO))) 
+syncReceiveBlock :: (SkovMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO)) 
     => SyncRunner c
     -> ByteString
     -> IO UpdateResult
 syncReceiveBlock syncRunner block = runSkovTransaction syncRunner (receiveBlock block)
 
-syncReceiveTransaction :: (SkovMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c (LoggerT IO)))
+syncReceiveTransaction :: (SkovMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO))
     => SyncRunner c -> Transaction -> IO UpdateResult
 syncReceiveTransaction syncRunner trans = runSkovTransaction syncRunner (receiveTransaction trans)
 
-syncReceiveFinalizationMessage :: (FinalizationMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c (LoggerT IO)))
+syncReceiveFinalizationMessage :: (FinalizationMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO))
     => SyncRunner c -> FinalizationPseudoMessage -> IO UpdateResult
 syncReceiveFinalizationMessage syncRunner finMsg = runSkovTransaction syncRunner (finalizationReceiveMessage finMsg)
 
-syncReceiveFinalizationRecord :: (FinalizationMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c (LoggerT IO))) 
+syncReceiveFinalizationRecord :: (FinalizationMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO)) 
     => SyncRunner c -> FinalizationRecord -> IO UpdateResult
 syncReceiveFinalizationRecord syncRunner finRec = runSkovTransaction syncRunner (finalizationReceiveRecord finRec)
 
-syncReceiveCatchUp :: (SkovMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c (LoggerT IO))) 
+syncReceiveCatchUp :: (SkovMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO)) 
     => SyncRunner c
     -> CatchUpStatus
     -> IO (Maybe ([(MessageType, ByteString)], CatchUpStatus), UpdateResult)
 syncReceiveCatchUp syncRunner c = runSkovTransaction syncRunner (handleCatchUpStatus c)
 
-syncHookTransaction :: (SkovConfigMonad (SkovHandlers ThreadTimer c LogIO) c LogIO, TransactionHookLenses (SkovState c))
+syncHookTransaction :: (TreeStateMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO), SkovQueryMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO), {-SkovConfigMonad (SkovHandlers ThreadTimer c LogIO) c LogIO,-} TransactionHookLenses (SkovState c))
     => SyncRunner c -> TransactionHash -> IO HookResult
 syncHookTransaction syncRunner th = runSkovTransaction syncRunner (hookQueryTransaction th)
 
@@ -215,7 +216,7 @@ data SyncPassiveRunner c = SyncPassiveRunner {
     syncPHandlers :: !(SkovPassiveHandlers LogIO)
 }
 
-instance (SkovQueryConfigMonad c LogIO) => SkovStateQueryable (SyncPassiveRunner c) (SkovT () c LogIO) where
+instance (SkovQueryMonad (SkovT () c LogIO)) => SkovStateQueryable (SyncPassiveRunner c) (SkovT () c LogIO) where
     runStateQuery sr a = do
         s <- readMVar (syncPState sr)
         runLoggerT (evalSkovT a () (syncPContext sr) s) (syncPLogMethod sr)
@@ -227,7 +228,7 @@ runSkovPassive SyncPassiveRunner{..} a = runWithStateLog syncPState syncPLogMeth
 
 
 -- |Make a 'SyncPassiveRunner', which does not support a baker thread.
-makeSyncPassiveRunner :: (SkovConfiguration c, SkovQueryConfigMonad c LogIO) => LogMethod IO ->
+makeSyncPassiveRunner :: (SkovConfiguration c, SkovQueryMonad (SkovT () c LogIO)) => LogMethod IO ->
                         c ->
                         (CatchUpStatus -> IO ()) ->
                         IO (SyncPassiveRunner c)
@@ -236,7 +237,7 @@ makeSyncPassiveRunner syncPLogMethod config cusCallback = do
         syncPState <- newMVar st0
         pendingLiveMVar <- newMVar Nothing
         let 
-            sphPendingLive = liftIO $ bufferedHandlePendingLive (getCatchUpStatus spr False >>= cusCallback) pendingLiveMVar
+            sphPendingLive = liftIO $ bufferedHandlePendingLive (runStateQuery spr (getCatchUpStatus False) >>= cusCallback) pendingLiveMVar
             syncPHandlers = SkovPassiveHandlers {..}
             spr = SyncPassiveRunner{..}
         return spr
@@ -244,22 +245,22 @@ makeSyncPassiveRunner syncPLogMethod config cusCallback = do
 shutdownSyncPassiveRunner :: SkovConfiguration c => SyncPassiveRunner c -> IO ()
 shutdownSyncPassiveRunner SyncPassiveRunner{..} = takeMVar syncPState >>= shutdownSkov syncPContext
 
-syncPassiveReceiveBlock :: (SkovMonad (SkovT () c (LoggerT IO))) => SyncPassiveRunner c -> ByteString -> IO UpdateResult
+syncPassiveReceiveBlock :: (SkovMonad (SkovT (SkovPassiveHandlers LogIO) c LogIO)) => SyncPassiveRunner c -> ByteString -> IO UpdateResult
 syncPassiveReceiveBlock spr block = runSkovPassive spr (receiveBlock block)
 
-syncPassiveReceiveTransaction :: (SkovMonad (SkovT () c (LoggerT IO))) => SyncPassiveRunner c -> Transaction -> IO UpdateResult
+syncPassiveReceiveTransaction :: (SkovMonad (SkovT (SkovPassiveHandlers LogIO) c LogIO)) => SyncPassiveRunner c -> Transaction -> IO UpdateResult
 syncPassiveReceiveTransaction spr trans = runSkovPassive spr (receiveTransaction trans)
 
-syncPassiveReceiveFinalizationRecord :: (FinalizationMonad (SkovT () c (LoggerT IO))) => SyncPassiveRunner c -> FinalizationRecord -> IO UpdateResult
+syncPassiveReceiveFinalizationRecord :: (FinalizationMonad (SkovT (SkovPassiveHandlers LogIO) c LogIO)) => SyncPassiveRunner c -> FinalizationRecord -> IO UpdateResult
 syncPassiveReceiveFinalizationRecord spr finRec = runSkovPassive spr (finalizationReceiveRecord finRec)
 
-syncPassiveReceiveCatchUp :: (SkovMonad (SkovT () c (LoggerT IO))) 
+syncPassiveReceiveCatchUp :: (SkovMonad (SkovT (SkovPassiveHandlers LogIO) c LogIO)) 
     => SyncPassiveRunner c
     -> CatchUpStatus
     -> IO (Maybe ([(MessageType, ByteString)], CatchUpStatus), UpdateResult)
 syncPassiveReceiveCatchUp spr c = runSkovPassive spr (handleCatchUpStatus c)
 
-syncPassiveHookTransaction :: (SkovConfigMonad () c LogIO, TransactionHookLenses (SkovState c)) => SyncPassiveRunner c -> TransactionHash -> IO HookResult
+syncPassiveHookTransaction :: (SkovMonad (SkovT (SkovPassiveHandlers LogIO) c LogIO), TreeStateMonad (SkovT (SkovPassiveHandlers LogIO) c LogIO), TransactionHookLenses (SkovState c)) => SyncPassiveRunner c -> TransactionHash -> IO HookResult
 syncPassiveHookTransaction syncRunner th = runSkovPassive syncRunner (hookQueryTransaction th)
 
 
@@ -286,8 +287,8 @@ data OutMessage peer =
 -- should typically trigger sending a catch-up message to peers.
 makeAsyncRunner :: forall c source.
     (SkovConfiguration c,
-    (SkovQueryMonad (SkovT () c IO)),
-    (BakerMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c (LoggerT IO)))
+    (SkovQueryMonad (SkovT () c LogIO)),
+    (BakerMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO))
         )
     => LogMethod IO
     -> BakerIdentity

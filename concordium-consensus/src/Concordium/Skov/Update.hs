@@ -205,6 +205,8 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
                     _ -> return prunedbrs
         newBranches <- trimBranches unTrimmedBranches
         putBranches newBranches
+        -- purge pending blocks with slot numbers predating the last finalized slot
+        purgePending
         finalizationBlockFinal finRec newFinBlock
         onFinalize finRec newFinBlock
 
@@ -378,9 +380,9 @@ addBlock block = do
                                             isPending Nothing = True
                                             isPending (Just (BlockPending _)) = True
                                             isPending _ = False
-										when (isPending childStatus) $ addBlock childpb >>= \case
-                                                        ResultSuccess -> onPendingLive
-                                                        _ -> return ()
+                                        when (isPending childStatus) $ addBlock childpb >>= \case
+                                            ResultSuccess -> onPendingLive
+                                            _ -> return ()
                                     return ResultSuccess
 
 -- |Add a valid, live block to the tree.

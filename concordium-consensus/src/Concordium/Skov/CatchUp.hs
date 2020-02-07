@@ -42,9 +42,8 @@ leavesBranches = lb ([], [])
             = let (bs', ls') = List.partition (`elem` (bpParent <$> n)) s
                 in lb (ls ++ ls', bs ++ bs') r
 
-doGetCatchUpStatus :: (TreeStateMonad m, SkovQueryMonad m, LoggerMonad m) => Bool -> m CatchUpStatus
+doGetCatchUpStatus :: (TreeStateMonad m, SkovQueryMonad m) => Bool -> m CatchUpStatus
 doGetCatchUpStatus cusIsRequest = do
-        logEvent Skov LLTrace "Getting catch-up status"
         lfb <- lastFinalizedBlock
         (leaves, branches) <- leavesBranches . toList <$> getBranches
         return $ makeCatchUpStatus cusIsRequest False lfb leaves (if cusIsRequest then branches else [])

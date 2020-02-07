@@ -392,6 +392,7 @@ instance (MonadIO m,
     {-# INLINE onFinalize #-}
     {-# INLINE logTransfer #-}
 
+{-
 type SkovConfigMonad h c m = (SkovConfiguration c,
         OnSkov (SkovT h c m),
         TreeStateMonad (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m)),
@@ -408,6 +409,7 @@ type SkovFinalizationConfigMonad h c m = (
     FinalizationStateLenses (SkovState c) (Timer (SkovT h c m)),
     HasFinalizationInstance (SkovContext c)
     )
+-}
 
 deriving via (PassiveFinalizationM (SkovState (SkovConfig gc NoFinalization hc)) (SkovT h (SkovConfig gc NoFinalization hc) m))
     instance (Monad m, SkovMonad (SkovT h (SkovConfig gc NoFinalization hc) m))
