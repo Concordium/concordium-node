@@ -97,7 +97,7 @@ pub fn make_node_and_sync(
     config.cli.poll_interval = 1;
     config.connection.housekeeping_interval = 10;
 
-    let stats = StatsExportService::new(StatsServiceMode::NodeMode).unwrap();
+    let stats = Arc::new(StatsExportService::new(StatsServiceMode::NodeMode).unwrap());
     let node = P2PNode::new(None, &config, None, node_type, stats, rpc_tx, None);
 
     node.spawn();
@@ -119,7 +119,7 @@ pub fn make_node_and_sync_with_rpc(
     config.cli.poll_interval = 1;
     config.connection.housekeeping_interval = 10;
 
-    let stats = StatsExportService::new(StatsServiceMode::NodeMode).unwrap();
+    let stats = Arc::new(StatsExportService::new(StatsServiceMode::NodeMode).unwrap());
     let node = P2PNode::new(None, &config, None, node_type, stats, rpc_tx, Some(data_dir_path));
 
     node.spawn();

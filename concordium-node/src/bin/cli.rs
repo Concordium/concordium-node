@@ -42,6 +42,8 @@ use std::{
 
 #[cfg(feature = "instrumentation")]
 use p2p_client::stats_export_service::start_push_gateway;
+#[cfg(feature = "instrumentation")]
+use std::net::SocketAddr;
 
 #[tokio::main]
 async fn main() -> Fallible<()> {
@@ -70,6 +72,15 @@ async fn main() -> Fallible<()> {
 
     // Thread #1: instantiate the P2PNode
     let node = instantiate_node(&conf, &mut app_prefs, stats_export_service, subscription_queue_in);
+
+    #[cfg(feature = "instrumentation")]
+    {
+        let stats = node.stats.clone();
+        let pla =
+            conf.prometheus.prometheus_listen_addr.parse().expect("Invalid Prometheus address");
+        let plp = conf.prometheus.prometheus_listen_port;
+        tokio::spawn(async move { stats.start_server(SocketAddr::new(pla, plp)).await });
+    }
 
     for resolver in &node.config.dns_resolvers {
         debug!("Using resolver: {}", resolver);
@@ -162,7 +173,7 @@ async fn main() -> Fallible<()> {
 fn instantiate_node(
     conf: &config::Config,
     app_prefs: &mut config::AppPreferences,
-    stats_export_service: StatsExportService,
+    stats_export_service: Arc<StatsExportService>,
     subscription_queue_in: crossbeam_channel::Sender<NetworkMessage>,
 ) -> Arc<P2PNode> {
     let node_id = match conf.common.id.clone() {

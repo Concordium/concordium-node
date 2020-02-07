@@ -2,7 +2,7 @@ cfg_if! {
     if #[cfg(feature = "instrumentation")] {
         use prometheus::{self, Encoder, core::{AtomicU64, GenericGauge}, IntCounter, IntGauge, Opts, Registry, TextEncoder};
         use crate::common::p2p_node_id::P2PNodeId;
-        use std::{net::SocketAddr, thread, time, sync::{Arc, RwLock}};
+        use std::{net::SocketAddr, thread, time, sync::RwLock};
         use gotham::{
             handler::IntoResponse,
             helpers::http::response::create_response,
@@ -19,7 +19,7 @@ cfg_if! {
 }
 use crate::configuration;
 use failure::Fallible;
-use std::fmt;
+use std::{fmt, sync::Arc};
 
 #[derive(Debug, PartialEq)]
 pub enum StatsServiceMode {
@@ -573,8 +573,8 @@ impl StatsExportService {
     }
 
     #[cfg(feature = "instrumentation")]
-    pub fn start_server(&self, listen_addr: SocketAddr) {
-        gotham::start_with_num_threads(listen_addr, self.router(), num_cpus::get());
+    pub async fn start_server(&self, listen_addr: SocketAddr) -> impl std::future::Future {
+        gotham::plain::init_server(listen_addr, self.router())
     }
 
     #[cfg(not(feature = "instrumentation"))]
@@ -621,15 +621,10 @@ impl StatsExportService {
 pub fn instantiate_stats_export_engine(
     conf: &configuration::Config,
     mode: StatsServiceMode,
-) -> Fallible<StatsExportService> {
+) -> Fallible<Arc<StatsExportService>> {
     let prom = if conf.prometheus.prometheus_server {
         info!("Enabling prometheus server");
-        let srv = StatsExportService::new(mode)?;
-        srv.start_server(SocketAddr::new(
-            conf.prometheus.prometheus_listen_addr.parse()?,
-            conf.prometheus.prometheus_listen_port,
-        ));
-        srv
+        StatsExportService::new(mode)?
     } else if let Some(ref push_gateway) = conf.prometheus.prometheus_push_gateway {
         info!("Enabling prometheus push gateway at {}", push_gateway);
         StatsExportService::new(mode)?
@@ -637,15 +632,15 @@ pub fn instantiate_stats_export_engine(
         warn!("Couldn't instantiate prometheus due to lacking config flags");
         StatsExportService::new(mode)?
     };
-    Ok(prom)
+    Ok(Arc::new(prom))
 }
 
 #[cfg(not(feature = "instrumentation"))]
 pub fn instantiate_stats_export_engine(
     _: &configuration::Config,
     mode: StatsServiceMode,
-) -> Fallible<StatsExportService> {
-    Ok(StatsExportService::new(mode)?)
+) -> Fallible<Arc<StatsExportService>> {
+    Ok(Arc::new(StatsExportService::new(mode)?))
 }
 
 #[cfg(feature = "instrumentation")]
