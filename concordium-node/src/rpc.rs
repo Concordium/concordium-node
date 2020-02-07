@@ -133,26 +133,30 @@ macro_rules! req_with_auth {
 
 #[tonic::async_trait]
 impl P2p for RpcServerImpl {
-    async fn subscription_start(
+    async fn peer_connect(
         &self,
-        req: Request<Empty>,
+        req: Request<PeerConnectRequest>,
     ) -> Result<Response<SuccessResponse>, Status> {
         authenticate!(req, self.access_token);
-        self.node.rpc_subscription_start();
-        Ok(Response::new(SuccessResponse {
-            value: true,
-        }))
-    }
-
-    async fn subscription_stop(
-        &self,
-        req: Request<Empty>,
-    ) -> Result<Response<SuccessResponse>, Status> {
-        authenticate!(req, self.access_token);
-        self.node.rpc_subscription_stop();
-        Ok(Response::new(SuccessResponse {
-            value: true,
-        }))
+        let req = req.get_ref();
+        if req.ip.is_some() && req.port.is_some() {
+            let ip = if let Ok(ip) = IpAddr::from_str(&req.ip.as_ref().unwrap()) {
+                ip
+            } else {
+                warn!("Invalid IP address in a PeerConnect request");
+                return Err(Status::new(Code::InvalidArgument, "Invalid IP address"));
+            };
+            let port = req.port.unwrap() as u16;
+            let addr = SocketAddr::new(ip, port);
+            let status = self.node.connect(PeerType::Node, addr, None).is_ok();
+            Ok(Response::new(SuccessResponse {
+                value: status,
+            }))
+        } else {
+            Ok(Response::new(SuccessResponse {
+                value: false,
+            }))
+        }
     }
 
     async fn peer_version(&self, req: Request<Empty>) -> Result<Response<StringResponse>, Status> {
@@ -1006,29 +1010,6 @@ mod tests {
         assert!((reply.current_localtime >= instant1) && (reply.current_localtime <= instant2));
         assert_eq!(reply.peer_type, "Node");
         assert_eq!(reply.node_id.as_ref().unwrap(), &node.id().to_string());
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_subscription_start() -> Fallible<()> {
-        let (mut client, _) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
-        assert!(
-            client
-                .subscription_start(req_with_auth!(proto::Empty {}, TOKEN))
-                .await
-                .unwrap()
-                .get_ref()
-                .value
-        );
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_subscription_stop() -> Fallible<()> {
-        let (mut client, _) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
-        let req = || req_with_auth!(proto::Empty {}, TOKEN);
-        client.subscription_start(req()).await.unwrap();
-        assert!(client.subscription_stop(req()).await.unwrap().get_ref().value);
         Ok(())
     }
 
