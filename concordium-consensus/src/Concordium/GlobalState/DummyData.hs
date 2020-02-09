@@ -12,7 +12,6 @@ import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.SeedState
 import Concordium.GlobalState.IdentityProviders
 import Concordium.Types
-import Test.Hspec
 import System.Random
 import qualified Data.ByteString.Lazy.Char8 as BSL
 import System.IO.Unsafe
