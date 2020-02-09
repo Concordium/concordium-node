@@ -1,6 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
-{-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE LambdaCase #-}
 module SchedulerTests.TransactionExpirySpec where
 

@@ -2,7 +2,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE CPP #-}
-{-# OPTIONS_GHC -Wall #-}
+
 module SchedulerTests.ContractCommSpec where
 
 import Test.Hspec

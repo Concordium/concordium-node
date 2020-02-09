@@ -26,10 +26,7 @@ import Concordium.GlobalState.Modules as Mod
 import Concordium.GlobalState.Rewards as Rew
 
 import Concordium.Crypto.SignatureScheme as Sig
-import Concordium.ID.Account
 import Concordium.ID.Types(randomAccountAddress)
-import Concordium.Crypto.Ed25519Signature as EdSig
-import qualified Concordium.Crypto.BlsSignature as Bls
 
 import Concordium.GlobalState.Bakers
 import Concordium.Scheduler.Types hiding (accountAddress, Payload(..))
@@ -47,7 +44,7 @@ staticKeys = ks (mkStdGen 1333)
     where
         ks g = let (k, g') = randomEd25519KeyPair g
                    (addr, g'') = randomAccountAddress g'
-               in (uncurry KeyPairEd25519 k, addr) : ks g'
+               in (uncurry KeyPairEd25519 k, addr) : ks g''
 
 numAccounts :: Int
 numAccounts = 10
@@ -83,7 +80,7 @@ initialModel = Model {
 addBaker :: Model -> Gen (TransactionJSON, Model)
 addBaker m0 = do
         (bkrAcct, (kp, nonce)) <- elements (Map.toList $ _mAccounts m0)
-        let (bkr, electionSecretKey, signKey, aggregationKey) = mkFullBaker (m0 ^. mNextSeed) bkrAcct
+        let (bkr, electionSecretKey, signKey, _aggregationKey) = mkFullBaker (m0 ^. mNextSeed) bkrAcct
         return (TJSON {
 
             payload = AddBaker (bkr ^. bakerElectionVerifyKey) electionSecretKey (bkr ^. bakerSignatureVerifyKey) (bkr ^. bakerAggregationVerifyKey) signKey bkrAcct kp,
