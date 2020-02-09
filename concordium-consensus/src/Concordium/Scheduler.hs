@@ -1,7 +1,4 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE LambdaCase #-}
 {-# OPTIONS_GHC -Wall #-}
 module Concordium.Scheduler
   (filterTransactions
@@ -29,7 +26,7 @@ import qualified Concordium.Scheduler.Cost as Cost
 import Control.Applicative
 import Control.Monad.Except
 import qualified Data.HashMap.Strict as Map
-import Data.Maybe(fromJust)
+import Data.Maybe(fromJust, isJust)
 import qualified Data.Set as Set
 import qualified Data.PQueue.Prio.Max as Queue
 
@@ -513,9 +510,9 @@ handleDeployCredential senderAccount meta cdiBytes cdi =
                               return $! TxSuccess [CredentialDeployed cdv] energyCost usedEnergy
                             else
                               return $! TxReject AccountCredentialInvalid energyCost usedEnergy
-                  ID.NewAccount keys threshold -> do
+                  ID.NewAccount keys threshold ->
                     -- account does not yet exist, so create it, but we need to be careful
-                    if null keys || length keys > 255 then do
+                    if null keys || length keys > 255 then
                       return $! TxReject AccountCredentialInvalid energyCost usedEnergy
                     else do
                       let accountKeys = ID.makeAccountKeys keys threshold
@@ -523,7 +520,7 @@ handleDeployCredential senderAccount meta cdiBytes cdi =
                       let account = newAccount accountKeys aaddr
                       -- this check is extremely unlikely to fail (it would amount to a hash collision since
                       -- we checked regIdEx above already.
-                      accExistsAlready <- maybe False (const True) <$> getAccount aaddr
+                      accExistsAlready <- isJust <$> getAccount aaddr
                       let check = AH.verifyCredential cryptoParams ipInfo Nothing cdiBytes
                       if not accExistsAlready && check then do
                         _ <- putNewAccount account -- first create new account, but only if credential was valid.

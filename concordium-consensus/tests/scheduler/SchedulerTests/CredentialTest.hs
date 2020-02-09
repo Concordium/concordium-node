@@ -1,7 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE LambdaCase #-}
-{-# OPTIONS_GHC -Wall #-}
 module SchedulerTests.CredentialTest where
 
 import Test.Hspec
@@ -25,7 +22,10 @@ import Concordium.GlobalState.Basic.BlockState.Invariants
 
 import qualified Acorn.Core as Core
 
-import SchedulerTests.DummyData
+import Concordium.Scheduler.DummyData
+import Concordium.GlobalState.DummyData
+import Concordium.Types.DummyData
+import Concordium.Crypto.DummyData
 
 -- Test that sending to and from an account without credentials fails.
 
@@ -41,19 +41,19 @@ initialBlockState =
 transactionsInput :: [TransactionJSON]
 transactionsInput =
   [TJSON { payload = Transfer {toaddress = Types.AddressAccount alesAccount, amount = 0 }
-         , metadata = makeHeader alesAccount 1 1000
+         , metadata = makeDummyHeader alesAccount 1 1000
          , keypair = alesKP
          }
    -- The next one should fail because the recepient account is not valid.
    -- The transaction should be in a block, but rejected.
   ,TJSON { payload = Transfer {toaddress = Types.AddressAccount thomasAccount, amount = 0 }
-         , metadata = makeHeader alesAccount 2 1000
+         , metadata = makeDummyHeader alesAccount 2 1000
          , keypair = alesKP
          }
    -- The next transaction should not be part of a block since it is being sent by an account
    -- without a credential
   ,TJSON { payload = Transfer {toaddress = Types.AddressAccount thomasAccount, amount = 0 }
-         , metadata = makeHeader thomasAccount 1 1000
+         , metadata = makeDummyHeader thomasAccount 1 1000
          , keypair = thomasKP
          }
   ]
@@ -68,7 +68,7 @@ testCredentialCheck
 testCredentialCheck = do
     transactions <- processTransactions transactionsInput
     let ((Sch.FilteredTransactions{..}, _), gstate) =
-          Types.runSI (Sch.filterTransactions blockSize transactions)
+          Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
             dummySpecialBetaAccounts
             Types.dummyChainMeta
             initialBlockState
@@ -100,7 +100,7 @@ checkCredentialCheckResult (suc, fails, transactions) =
         (tx, Types.TxSuccess{}) ->
           assertEqual "The first transaction should be successful." tx (transactions !! 0)
         other -> assertFailure $ "First recorded transaction should be successful: " ++ show other
-    
+
 
 tests :: Spec
 tests =
