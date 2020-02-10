@@ -317,11 +317,9 @@ receiveWMVBAMessage src sig (WMVBAWitnessCreatorMessage (v, blssig)) = do
         -- we can attempt to create the bls aggregate signature
         when ((PM.weight newJV) - (PS.weight badJV) > corruptWeight) $ do
           -- TODO: optimize, this is just a first draft
-          let (proofdata, newBadJV) = createAggregateSig wi v (snd <$> newJV) badJV
+          let (proofData, newBadJV) = createAggregateSig wi v (snd <$> newJV) badJV
           badJustifications . at v . non PS.empty .= newBadJV
-          case proofdata of
-            Just (good, blssig') -> wmvbaComplete $ Just (v, (good, blssig'))
-            Nothing -> return ()
+          forM_ proofData $ \proof -> wmvbaComplete (Just (v, proof))
           -- TODO: check if finalization can still finish. If enough bad justifications has been seen,
           -- finalization may not be able to finish.
 
@@ -339,25 +337,26 @@ createAggregateSig ::
     -> PartySet
     -- ^Parties with known bad signatures
     -> (Maybe ([Party], Bls.Signature), PartySet)
-createAggregateSig WMVBAInstance{..} v allJV badJV =
-        if Bls.verifyAggregate toSign keys aggSig then
+createAggregateSig WMVBAInstance{..} v allJV badJV
+        | Bls.verifyAggregate toSign keys aggSig =
             (Just (fst <$> goodJustifications, aggSig), badJV)
-        -- check that we still exceed the corruptWeight after removing culprits
-        -- and if not return only the newBadJV
-        else if PM.weight allJV - PS.weight newBadJV > corruptWeight then
+        -- Assuming the function was called while the goodjustifications weight
+        -- did indeed exceed the corrupted threshold, there will be at least one
+        -- bad signer. After finding the bad signers, check that we can still
+        -- produce a proof with enough weight.
+        | PM.weight allJV - PS.weight newBadJV > corruptWeight =
             (Just (fst <$> newGoodJustifications, newAggSig), newBadJV)
-        else (Nothing, newBadJV)
+        | otherwise = (Nothing, newBadJV)
     where
         toSign = witnessMessage baid v
-        filterJustifications badJV'
-            | PS.null badJV' = id
-            | otherwise = filter (\(p,_) -> not (PS.member p badJV'))
-        goodJustifications = filterJustifications badJV (PM.toList allJV)
+        goodJustifications
+            | PS.null badJV = PM.toList allJV
+            | otherwise = filter (\(p,_) -> not (PS.member p badJV)) (PM.toList allJV)
         keys = (publicBlsKeys . fst) <$> goodJustifications
         aggSig = Bls.aggregateMany (snd <$> goodJustifications)
         culprits = findCulprits goodJustifications toSign publicBlsKeys
         newBadJV = foldr (\c -> PS.insert c (partyWeight c)) badJV culprits
-        newGoodJustifications = filterJustifications newBadJV goodJustifications
+        newGoodJustifications = filter (\(p,_) -> not (PS.member p newBadJV)) goodJustifications
         newAggSig = Bls.aggregateMany (snd <$> newGoodJustifications)
 
 -- TODO: optimize, this is just a first draft
