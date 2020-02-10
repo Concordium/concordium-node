@@ -852,8 +852,6 @@ mod tests {
         let t2 = Utc::now().timestamp_millis() as u64;
         let nt2 = client.peer_uptime(req()).await.unwrap().get_ref().value;
         let t3 = Utc::now().timestamp_millis() as u64;
-        // t0 - n0 - t1 - n1 - t2 - n2 - t3
-        // nt{n} := n{n} - n0
         assert!(nt1 <= (t2 - t0));
         assert!((nt2 - nt1) <= (t3 - t1));
         assert!(nt2 <= (t3 - t0));

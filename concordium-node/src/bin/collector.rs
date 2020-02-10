@@ -23,7 +23,7 @@ pub mod proto {
     tonic::include_proto!("concordium");
 }
 
-// Explicitly defining allocator to avoid future reintroduction of jemalloc
+// Force the system allocator on every platform
 use std::alloc::System;
 #[global_allocator]
 static A: System = System;
