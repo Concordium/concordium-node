@@ -92,7 +92,13 @@ LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release cabal build all \
 echo "Let's copy the binaries and their dependent libraries"
 cp dist-newstyle/build/x86_64-linux/ghc-$GHC_BUILDER_VERSION/Concordium-0.1.0.0/x/genesis/build/genesis/genesis /binaries/bin/
 cp $(pwd)/crypto/rust-src/target/release/*.so /binaries/lib/
-cp $(pwd)/crypto/rust-src/target/release/{client,genesis_tool} /binaries/bin/
+
+echo "Build the rust utility binaries"
+(
+    cd crypto/rust-bins &&
+    cargo build --release 
+)
+cp $(pwd)/crypto/rust-bins/target/release/{client,genesis_tool,generate_testdata,server,wallet_server} /binaries/bin/
 
 echo "Let's copy the needed concordium libraries"
 for lib in $(find . -type f -name "*inplace.a"); do
