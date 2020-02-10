@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE TupleSections #-}
 {-# OPTIONS_GHC -Wall #-}
 module Concordium.Scheduler
   (filterTransactions
@@ -813,7 +814,7 @@ filterTransactions maxSize maxEnergy = go 0 0 [] [] []
           in return (txs, totalEnergyUsed)         
         -- Maps an invalid transaction t to its failure reason and appends the remaining transactions in the group
         -- with a SuccessorOfInvalidTransaction failure
-        invalidTs t failure ts = (++) ((t, failure) : zip ts (repeat SuccessorOfInvalidTransaction))
+        invalidTs t failure ts = (++) ((t, failure) : map (, SuccessorOfInvalidTransaction) ts)
 
 -- |Execute transactions in sequence. Return 'Nothing' if one of the transactions
 -- fails, and otherwise return a list of transactions with their outcomes.
