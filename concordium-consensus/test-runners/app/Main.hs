@@ -163,7 +163,7 @@ main = do
     chans <- mapM (\(bakerId, (bid, _)) -> do
         logFile <- openFile ("consensus-" ++ show now ++ "-" ++ show bakerId ++ ".log") WriteMode
 
-        let logM src lvl msg = do
+        let logM src lvl msg = unless (lvl == LLTrace) $ do
                                     timestamp <- getCurrentTime
                                     hPutStrLn logFile $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg
                                     hFlush logFile
