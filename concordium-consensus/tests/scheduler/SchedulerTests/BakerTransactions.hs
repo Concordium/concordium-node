@@ -1,7 +1,4 @@
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE LambdaCase #-}
-{-# OPTIONS_GHC -Wall #-}
 module SchedulerTests.BakerTransactions where
 
 import Test.Hspec
@@ -30,7 +27,11 @@ import qualified Acorn.Core as Core
 
 import Lens.Micro.Platform
 
-import SchedulerTests.DummyData
+import Concordium.Scheduler.DummyData
+import Concordium.GlobalState.DummyData
+import Concordium.Types.DummyData
+import Concordium.Crypto.DummyData
+
 
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
@@ -44,13 +45,13 @@ initialBlockState =
     (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
 
 baker0 :: (BakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
-baker0 = mkBaker 0 alesAccount
+baker0 = mkFullBaker 0 alesAccount
 
 baker1 :: (BakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
-baker1 = mkBaker 1 alesAccount
+baker1 = mkFullBaker 1 alesAccount
 
 baker2 :: (BakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
-baker2 = mkBaker 2 thomasAccount
+baker2 = mkFullBaker 2 thomasAccount
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =
@@ -61,7 +62,7 @@ transactionsInput =
                                 (baker0 ^. _3)
                                 alesAccount
                                 alesKP
-           , metadata = makeHeader alesAccount 1 10000
+           , metadata = makeDummyHeader alesAccount 1 10000
            , keypair = alesKP
            },
      TJSON { payload = AddBaker (baker1 ^. _1 . bakerElectionVerifyKey)
@@ -71,7 +72,7 @@ transactionsInput =
                                 (baker1 ^. _3)
                                 alesAccount
                                 alesKP
-           , metadata = makeHeader alesAccount 2 10000
+           , metadata = makeDummyHeader alesAccount 2 10000
            , keypair = alesKP
            },
      TJSON { payload = AddBaker (baker2 ^. _1 . bakerElectionVerifyKey)
@@ -81,20 +82,20 @@ transactionsInput =
                                 (baker2 ^. _3)
                                 thomasAccount
                                 thomasKP
-           , metadata = makeHeader alesAccount 3 10000
+           , metadata = makeDummyHeader alesAccount 3 10000
            , keypair = alesKP
            },
      TJSON { payload = RemoveBaker 1 "<dummy proof>"
-           , metadata = makeHeader alesAccount 4 10000
+           , metadata = makeDummyHeader alesAccount 4 10000
            , keypair = alesKP
            },
      TJSON { payload = UpdateBakerAccount 2 alesAccount alesKP
-           , metadata = makeHeader thomasAccount 1 10000
+           , metadata = makeDummyHeader thomasAccount 1 10000
            , keypair = thomasKP
            -- baker 2's account is Thomas account, so only it can update it
            },
      TJSON { payload = UpdateBakerSignKey 0 (BlockSig.verifyKey (bakerSignKey 3)) (BlockSig.signKey (bakerSignKey 3))
-           , metadata = makeHeader alesAccount 5 10000
+           , metadata = makeDummyHeader alesAccount 5 10000
            , keypair = alesKP
            -- baker 0's account is Thomas account, so only it can update it
            }
@@ -108,7 +109,7 @@ runWithIntermediateStates = do
   let (res, state) = foldl (\(acc, st) tx ->
                             let ((Sch.FilteredTransactions{..}, _), st') =
                                   Types.runSI
-                                    (Sch.filterTransactions blockSize [tx])
+                                    (Sch.filterTransactions dummyBlockSize [tx])
                                     Set.empty -- special beta accounts
                                     Types.dummyChainMeta
                                     st

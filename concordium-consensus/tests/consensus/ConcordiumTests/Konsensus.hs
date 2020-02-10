@@ -53,6 +53,8 @@ import Concordium.Kontrol.UpdateLeaderElectionParameters(slotDependentBirkParame
 
 import Concordium.Startup(makeBakerAccount, dummyCryptographicParameters)
 
+import Concordium.Crypto.DummyData
+
 import Test.QuickCheck
 import Test.QuickCheck.Monadic
 import Test.Hspec
@@ -417,8 +419,8 @@ initialEvents states = Seq.fromList [(x, EBake 1) | x <- [0..length states -1]]
 makeBaker :: BakerId -> Amount -> Gen (BakerInfo, BakerIdentity, Account)
 makeBaker bid lot = resize 0x20000000 $ do
         ek@(VRF.KeyPair _ epk) <- arbitrary
-        sk                     <- Sig.genKeyPair
-        blssk                  <- fst . Bls.randomSecretKey . mkStdGen <$> arbitrary
+        sk                     <- genBlockKeyPair
+        blssk                  <- fst . randomBlsSecretKey . mkStdGen <$> arbitrary
         let spk = Sig.verifyKey sk
         let blspk = Bls.derivePublicKey blssk
         let account = makeBakerAccount bid

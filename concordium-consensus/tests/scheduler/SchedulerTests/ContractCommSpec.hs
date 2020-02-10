@@ -1,8 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE CPP #-}
-{-# OPTIONS_GHC -Wall #-}
 module SchedulerTests.ContractCommSpec where
 
 import Test.Hspec
@@ -28,7 +24,10 @@ import Lens.Micro.Platform
 import Control.Monad.IO.Class
 
 import qualified Acorn.Core as Core
-import SchedulerTests.DummyData
+import Concordium.Scheduler.DummyData
+import Concordium.GlobalState.DummyData
+import Concordium.Types.DummyData
+import Concordium.Crypto.DummyData
 
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
@@ -43,7 +42,7 @@ initialBlockState =
 transactionsInput :: [TransactionJSON]
 transactionsInput =
   [TJSON { payload = DeployModule "CommCounter"
-         , metadata = makeHeader alesAccount 1 100000
+         , metadata = makeDummyHeader alesAccount 1 100000
          , keypair = alesKP
          }
   ,TJSON { payload = InitContract {amount = 100
@@ -51,7 +50,7 @@ transactionsInput =
                                   ,moduleName = "CommCounter"
                                   ,parameter = "Unit.Unit"
                                   }
-         , metadata = makeHeader alesAccount 2 100000
+         , metadata = makeDummyHeader alesAccount 2 100000
          , keypair = alesKP
          }
   ,TJSON { payload = InitContract {amount = 100
@@ -59,7 +58,7 @@ transactionsInput =
                                   ,moduleName = "CommCounter"
                                   ,parameter = "let pair :: Int64 -> <address> -> Prod.Pair Int64 <address> = Prod.Pair [Int64, <address>] in pair 0 <0, 0>"
                                   }
-         , metadata = makeHeader alesAccount 3 100000
+         , metadata = makeDummyHeader alesAccount 3 100000
          , keypair = alesKP
          }
   ,TJSON { payload = Update {amount = 101
@@ -67,7 +66,7 @@ transactionsInput =
                             ,moduleName = "CommCounter"
                             ,message = "Inc 100"
                             }
-         , metadata = makeHeader alesAccount 4 100000
+         , metadata = makeDummyHeader alesAccount 4 100000
          , keypair = alesKP
          }
   ,TJSON { payload = Update {amount = 100
@@ -75,7 +74,7 @@ transactionsInput =
                             ,moduleName = "CommCounter"
                             ,message = "Dec 50"
                             }
-         , metadata = makeHeader alesAccount 5 100000
+         , metadata = makeDummyHeader alesAccount 5 100000
          , keypair = alesKP
          }
   ,TJSON { payload = Update {amount = 100
@@ -83,7 +82,7 @@ transactionsInput =
                             ,moduleName = "CommCounter"
                             ,message = "Dec 50"
                             }
-         , metadata = makeHeader alesAccount 6 120000
+         , metadata = makeDummyHeader alesAccount 6 120000
          , keypair = alesKP
          }
   ,TJSON { payload = Update {amount = 100
@@ -91,7 +90,7 @@ transactionsInput =
                             ,moduleName = "CommCounter"
                             ,message = "Dec 1"
                             }
-         , metadata = makeHeader alesAccount 7 120000
+         , metadata = makeDummyHeader alesAccount 7 120000
          , keypair = alesKP
          }
   ]
@@ -106,7 +105,7 @@ testCommCounter = do
     (_, _) <- PR.processModule source -- execute only for effect on global state
     transactions <- processTransactions transactionsInput
     let ((Sch.FilteredTransactions{..}, _), endState) =
-            Types.runSI (Sch.filterTransactions blockSize transactions)
+            Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
               dummySpecialBetaAccounts
               Types.dummyChainMeta
               initialBlockState
@@ -121,16 +120,16 @@ checkCommCounterResult (suc, fails) =
   length reject == 1 &&  -- one rejected (which is also the last one)
   length nonreject == 6  -- and 6 successful ones
   where
-    nonreject = filter (\case (_, Types.TxSuccess _ _ _) -> True
-                              (_, Types.TxReject _ _ _) -> False)
+    nonreject = filter (\case (_, Types.TxSuccess{}) -> True
+                              (_, Types.TxReject{}) -> False)
                         suc
-    reject = filter (\case (_, Types.TxSuccess _ _ _) -> False
-                           (_, Types.TxReject _ _ _) -> True
+    reject = filter (\case (_, Types.TxSuccess{}) -> False
+                           (_, Types.TxReject{}) -> True
                     )
                         suc
 
 tests :: SpecWith ()
 tests =
-  describe "Communicating counter." $ do
-    specify "6 successful and 1 failed transaction" $ do
+  describe "Communicating counter." $
+    specify "6 successful and 1 failed transaction" $
       PR.evalContext Init.initialContextData testCommCounter `shouldReturnP` checkCommCounterResult

@@ -1,7 +1,4 @@
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE LambdaCase #-}
-{-# OPTIONS_GHC -Wall #-}
 module SchedulerTests.ChainMetatest where
 
 import Test.Hspec
@@ -29,7 +26,10 @@ import qualified Data.Sequence as Seq
 
 import Control.Monad.IO.Class
 
-import SchedulerTests.DummyData
+import Concordium.Scheduler.DummyData
+import Concordium.GlobalState.DummyData
+import Concordium.Types.DummyData
+import Concordium.Crypto.DummyData
 
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
@@ -51,7 +51,7 @@ chainMeta = Types.ChainMetadata{..}
 transactionsInput :: [TransactionJSON]
 transactionsInput =
     [TJSON { payload = DeployModule "ChainMetaTest"
-           , metadata = makeHeader alesAccount 1 1000
+           , metadata = makeDummyHeader alesAccount 1 1000
            , keypair = alesKP
            }
     ,TJSON { payload = InitContract {amount = 123
@@ -59,7 +59,7 @@ transactionsInput =
                                     ,moduleName = "ChainMetaTest"
                                     ,parameter = "Unit.Unit"
                                     }
-           , metadata = makeHeader alesAccount 2 10000
+           , metadata = makeDummyHeader alesAccount 2 10000
            , keypair = alesKP
            }
     ]
@@ -76,7 +76,7 @@ testChainMeta = do
     (_, _) <- PR.processModule source -- execute only for effect on global state, i.e., load into cache
     transactions <- processTransactions transactionsInput
     let ((Sch.FilteredTransactions{..}, _), gs) =
-          Types.runSI (Sch.filterTransactions blockSize transactions)
+          Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
             dummySpecialBetaAccounts
             chainMeta
             initialBlockState
@@ -88,15 +88,15 @@ testChainMeta = do
 checkChainMetaResult :: ([(a1, Types.ValidResult)], [b], [(a3, Instance)]) -> Bool
 checkChainMetaResult (suc, fails, instances) =
   null fails && -- should be no failed transactions
-  length reject == 0 && -- no rejected transactions either
+  null reject && -- no rejected transactions either
   length instances == 1 && -- only a single contract instance should be created
   checkLocalState (snd (head instances)) -- and the local state should match the
   where
-    reject = filter (\case (_, Types.TxSuccess _ _ _) -> False
-                           (_, Types.TxReject _ _ _) -> True
+    reject = filter (\case (_, Types.TxSuccess{}) -> False
+                           (_, Types.TxReject{}) -> True
                     )
                         suc
-    checkLocalState inst = do
+    checkLocalState inst =
       case Types.instanceModel inst of
         Types.VConstructor _ (Types.VLiteral (Core.Word64 8) Seq.:<|  -- NB: These should match those in chainMeta
                               Types.VLiteral (Core.Word64 13) Seq.:<|
@@ -105,6 +105,6 @@ checkChainMetaResult (suc, fails, instances) =
 
 tests :: SpecWith ()
 tests =
-  describe "Chain metadata in transactions." $ do
-    specify "Reading chain metadata." $ do
+  describe "Chain metadata in transactions." $
+    specify "Reading chain metadata." $
       PR.evalContext Init.initialContextData testChainMeta `shouldReturnP` checkChainMetaResult

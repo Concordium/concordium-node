@@ -1,12 +1,6 @@
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE DerivingStrategies, DerivingVia, StandaloneDeriving #-}
+{-# LANGUAGE DerivingVia #-}
 module Concordium.Scheduler.EnvironmentImplementation where
 
 import Concordium.Scheduler.Environment
@@ -34,7 +28,7 @@ newtype BSOMonadWrapper r s m a = BSOMonadWrapper (m a)
 
 instance MonadTrans (BSOMonadWrapper r s) where
     {-# INLINE lift #-}
-    lift a = BSOMonadWrapper a
+    lift = BSOMonadWrapper
 
 -- |Chain metadata together with a set of special accounts which have special
 -- rights during the beta phase.
