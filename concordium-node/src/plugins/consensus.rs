@@ -5,25 +5,23 @@ pub const FILE_NAME_ID_PROV_DATA: &str = "identity_providers.json";
 pub const FILE_NAME_PREFIX_BAKER_PRIVATE: &str = "baker-";
 pub const FILE_NAME_SUFFIX_BAKER_PRIVATE: &str = "-credentials.json";
 
-use byteorder::ReadBytesExt;
 use failure::Fallible;
 
+use concordium_common::{
+    ConsensusFfiResponse, HashBytes,
+    PacketType::{self, *},
+    QueueMsg,
+};
 use crossbeam_channel::TrySendError;
+use crypto_common::Deserial;
 use digest::Digest;
 use ec_vrf_ed25519_sha256::Sha256;
 use std::{
     convert::TryFrom,
     fs::OpenOptions,
-    io::Read,
+    io::{Cursor, Read},
     mem,
     sync::{Arc, RwLock},
-};
-
-use concordium_common::{
-    serial::Endianness,
-    ConsensusFfiResponse, HashBytes,
-    PacketType::{self, *},
-    QueueMsg,
 };
 
 use consensus_rust::{
@@ -150,7 +148,7 @@ pub fn handle_pkt_out(
     is_broadcast: bool,
 ) -> Fallible<()> {
     ensure!(msg.len() >= 2, "Packet payload can't be smaller than 2 bytes");
-    let consensus_type = (&msg[..2]).read_u16::<Endianness>()?;
+    let consensus_type = u16::deserial(&mut Cursor::new(&msg[..2]))?;
     let packet_type = PacketType::try_from(consensus_type)?;
 
     let distribution_mode = if is_broadcast {
