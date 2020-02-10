@@ -2,15 +2,10 @@
 
 #[macro_use]
 extern crate log;
-#[cfg(not(target_os = "windows"))]
-extern crate get_if_addrs;
 
-cfg_if! {
-    if #[cfg(feature = "elastic_logging")] {
-        #[macro_use]
-        extern crate elastic_derive;
-    }
-}
+#[cfg(feature = "elastic_logging")]
+#[macro_use]
+extern crate elastic_derive;
 
 cfg_if! {
     if #[cfg(feature = "instrumentation")] {
@@ -18,21 +13,17 @@ cfg_if! {
         extern crate prometheus;
         #[macro_use]
         extern crate gotham_derive;
-        extern crate hyper;
-        extern crate mime;
     }
 }
 
 #[macro_use]
 extern crate cfg_if;
-#[cfg(target_os = "windows")]
-extern crate ipconfig;
 
 #[macro_use]
 extern crate failure;
 
-#[macro_use]
 #[cfg(all(test, not(feature = "s11n_capnp")))]
+#[macro_use]
 extern crate quickcheck;
 
 #[macro_use]
@@ -41,15 +32,6 @@ extern crate concordium_common;
 #[cfg(feature = "s11n_serde")]
 #[macro_use]
 extern crate serde_derive;
-
-#[cfg(feature = "s11n_serde_cbor")]
-extern crate serde_cbor;
-
-#[cfg(feature = "s11n_capnp")]
-extern crate capnp;
-
-#[cfg(feature = "s11n_fbs")]
-extern crate flatbuffers;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const APPNAME: &str = env!("CARGO_PKG_NAME");
