@@ -34,12 +34,9 @@ import Data.Serialize as S (runGet, put, get, runPut, runGet, Put)
 import qualified Data.Set as Set
 import Data.Time.Clock
 import Database.LMDB.Simple as L
-import Database.LMDB.Simple.Extra as L
 import Debug.Trace
 import Lens.Micro.Platform
 import System.Mem.Weak
-import System.Random
-import Control.Concurrent.MVar
 
 data PersistenBlockStatus bs =
     BlockAlive !(PersistentBlockPointer bs)

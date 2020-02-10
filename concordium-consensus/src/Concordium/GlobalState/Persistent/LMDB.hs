@@ -29,9 +29,9 @@ import Database.LMDB.Raw
 import Database.LMDB.Simple as L
 import Lens.Micro.Platform
 import System.Directory
-import Debug.Trace
 import Control.Concurrent.ReadWriteLock (RWLock)
 import qualified Control.Concurrent.ReadWriteLock as RWL
+import Debug.Trace
 
 -- |Values used by the LMDBStoreMonad to manage the database
 data DatabaseHandlers bs = DatabaseHandlers {
@@ -60,21 +60,23 @@ initialDatabaseHandlers gb serState RuntimeParameters{..} = liftIO $ do
     (getDatabase (Just "finalization") :: L.Transaction ReadWrite (Database FinalizationIndex FinalizationRecord))
   let gbh = getHash gb
       gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
-  transaction _storeEnv $ L.put _blockStore (getHash gb) (Just $ runPut (putBlock gb <> serState <> S.put (BlockHeight 0)))
-  transaction _storeEnv $ L.put _finalizationRecordStore 0 (Just gbfin)
+  transaction _storeEnv (L.put _blockStore (getHash gb) (Just $ runPut (putBlock gb <> serState <> S.put (BlockHeight 0))))
+  transaction _storeEnv (L.put _finalizationRecordStore 0 (Just gbfin))
   _storeLock <- RWL.new
   return $ DatabaseHandlers {..}
 
+readTransaction :: (SubMode emode tmode, Mode tmode) => RWLock -> Environment emode -> Transaction tmode a -> IO a
 readTransaction l e t = RWL.withRead l (transaction e t)
 
 resizeDatabaseHandlers :: DatabaseHandlers bs -> IO (DatabaseHandlers bs)
 resizeDatabaseHandlers dbh = do
-  let _limits = dbh ^. limits
-      newSize = mapSize _limits + 16 * 4096
-      dbB = dbh ^. blockStore
-      dbF = dbh ^. finalizationRecordStore
+  let lim = (dbh ^. limits)
+      newSize = mapSize lim + 16 * 4096
+      _limits = lim { mapSize = newSize }
       _storeEnv = dbh ^. storeEnv
       _storeLock = dbh ^. storeLock
+      dbB = dbh ^. blockStore
+      dbF = dbh ^. finalizationRecordStore
   closeDatabase dbB
   closeDatabase dbF
   RWL.withWrite _storeLock (resizeEnvironment _storeEnv newSize)
@@ -107,17 +109,7 @@ putOrResize dbh tup = liftIO $ catch (do
                                          return dbh)
                                     (\(e :: LMDB_Error) -> case e of
                                         LMDB_Error _ _ (Right MDB_MAP_FULL) -> do
-
-                                          traceM . ("Before " ++) =<< do
-                                            let L.Env e = dbh ^. storeEnv
-                                            show . me_mapsize <$> mdb_env_info e
-
                                           dbh' <- resizeDatabaseHandlers dbh
-
-                                          traceM . ("After " ++) =<< do
-                                            let L.Env e = dbh ^. storeEnv
-                                            show . me_mapsize <$> mdb_env_info e
-
                                           putOrResize dbh' tup
                                         _ -> error $ show e)
 
