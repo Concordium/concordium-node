@@ -3,8 +3,6 @@ use mio::{net::TcpStream, Events, Token};
 use rand::seq::IteratorRandom;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
-#[cfg(feature = "beta")]
-use crate::plugins::beta::get_username_from_jwt;
 use crate::{
     common::{get_current_stamp, P2PNodeId, PeerType, RemotePeer},
     configuration as config,
