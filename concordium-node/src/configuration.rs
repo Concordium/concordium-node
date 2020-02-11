@@ -131,7 +131,7 @@ pub struct BakerConfig {
         help = "Profile sampling interval in seconds",
         default_value = "0.1"
     )]
-    pub profiling_sampling_interval: f64,
+    pub profiling_sampling_interval: String,
     #[structopt(long = "haskell-gc-logging", help = "Enable Haskell garbage collection logging")]
     pub gc_logging: Option<String>,
     #[structopt(long = "persist-global-state", help = "Persist the the global state store")]

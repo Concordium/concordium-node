@@ -40,7 +40,7 @@ concordium-common = { path = "deps/internal/consensus/globalstate-mockup/deps/co
 crypto_common = { path = "deps/internal/consensus/crypto/rust-src/crypto_common" }
 
 # External dependencies
-parking_lot = "^0.9"
+parking_lot = "0.10"
 structopt = "0.2"
 rand = "^0.6"
 hacl-star = "^0.1.0"
