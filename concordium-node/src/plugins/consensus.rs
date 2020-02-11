@@ -57,7 +57,7 @@ pub fn start_consensus_layer(
         conf.time_profiling,
         conf.backtraces_profiling,
         conf.gc_logging.clone(),
-        conf.profiling_sampling_interval,
+        &conf.profiling_sampling_interval,
     );
     #[cfg(not(feature = "profiling"))]
     ffi::start_haskell();
