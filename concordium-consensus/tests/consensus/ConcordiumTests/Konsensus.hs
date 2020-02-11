@@ -442,7 +442,7 @@ initialiseStates n = do
         let bps = BirkParameters 0.5 genesisBakers genesisBakers genesisBakers (genesisSeedState (hash "LeadershipElectionNonce") 10)
             fps = FinalizationParameters [VoterInfo vvk vrfk 1 blspk | (_, (BakerInfo vrfk vvk blspk _ _, _, _)) <- bis] 2
             bakerAccounts = map (\(_, (_, _, acc)) -> acc) bis
-            gen = GenesisData 0 1 bps bakerAccounts [] fps dummyCryptographicParameters dummyIdentityProviders 10
+            gen = GenesisData 0 1 bps bakerAccounts [] fps dummyCryptographicParameters dummyIdentityProviders 10 $ Energy maxBound
         res <- liftIO $ mapM (\(_, (_, bid, _)) -> do
                                 let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                 let config = SkovConfig

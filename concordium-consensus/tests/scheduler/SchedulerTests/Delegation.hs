@@ -15,12 +15,11 @@ import Concordium.Scheduler.Runner
 import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
 import qualified Concordium.Scheduler.Cost as Cost
+import qualified Concordium.Scheduler.Types as Types
 
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
 import Concordium.GlobalState.Basic.BlockState.Account as Acc
-import Concordium.GlobalState.Modules as Mod
-import Concordium.GlobalState.Rewards as Rew
 
 import Concordium.Crypto.SignatureScheme as Sig
 import Concordium.ID.Types(randomAccountAddress)
@@ -47,11 +46,9 @@ numAccounts :: Int
 numAccounts = 10
 
 initialBlockState :: BlockState
-initialBlockState =
-    emptyBlockState emptyBirkParameters dummyCryptographicParameters &
-        (blockAccounts .~ foldr addAcc Acc.emptyAccounts (take numAccounts staticKeys)) .
-        (blockBank . Rew.totalGTU .~ fromIntegral numAccounts * initBal) .
-        (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
+initialBlockState = createBlockState
+    (foldr addAcc Acc.emptyAccounts (take numAccounts staticKeys))
+    (fromIntegral numAccounts * initBal)
     where
         addAcc (kp, addr) = Acc.putAccountWithRegIds (mkAccount (correspondingVerifyKey kp) addr initBal )
         initBal = 10^(12::Int) :: Amount
@@ -162,10 +159,10 @@ testTransactions :: Property
 testTransactions = forAll makeTransactions (ioProperty . PR.evalContext Init.initialContextData . tt)
     where
         tt tl = do
-            transactions <- processTransactions tl
+            transactions <- processUngroupedTransactions tl
             let ((Sch.FilteredTransactions{..}, _), gs) =
                   EI.runSI
-                    (Sch.filterTransactions dummyBlockSize transactions)
+                    (Sch.filterTransactions dummyBlockSize (Types.Energy maxBound) transactions)
                     (Set.fromList [alesAccount, thomasAccount])
                     dummyChainMeta
                     initialBlockState

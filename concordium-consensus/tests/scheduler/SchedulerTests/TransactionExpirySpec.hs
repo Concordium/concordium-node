@@ -14,10 +14,8 @@ import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.BlockSignature as BlockSig
 import qualified Concordium.Crypto.BlsSignature as Bls
-import Concordium.GlobalState.Basic.BlockState.Account as Acc
-import Concordium.GlobalState.Modules as Mod
-import Concordium.GlobalState.Rewards as Rew
 import Concordium.GlobalState.Basic.BlockState
+import Concordium.GlobalState.Basic.BlockState.Account as Acc
 import Concordium.GlobalState.Basic.BlockState.Invariants
 import Concordium.GlobalState.Bakers
 import qualified Concordium.Scheduler.Types as Types
@@ -34,12 +32,7 @@ shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState
-initialBlockState =
-  emptyBlockState emptyBirkParameters dummyCryptographicParameters &
-    (blockAccounts .~ Acc.putAccountWithRegIds (mkAccount alesVK alesAccount 200000) Acc.emptyAccounts) .
-    (blockBank . Rew.totalGTU .~ 200000) .
-    (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs))) .
-    (blockIdentityProviders .~ dummyIdentityProviders)
+initialBlockState = blockStateWithAlesAccount 200000 Acc.emptyAccounts 200000
 
 baker :: (BakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
 baker = mkFullBaker 1 alesAccount
@@ -121,9 +114,9 @@ testExpiryTime ::
 testExpiryTime expiry = do
     source <- liftIO $ TIO.readFile "test/contracts/FibContract.acorn"
     (_, _) <- PR.processModule source
-    ts <- processTransactions $ transactions expiry
+    ts <- processUngroupedTransactions $ transactions expiry
     let ((Sch.FilteredTransactions{..}, _), gstate) =
-          Types.runSI (Sch.filterTransactions dummyBlockSize ts)
+          Types.runSI (Sch.filterTransactions dummyBlockSize (Types.Energy maxBound) ts)
             dummySpecialBetaAccounts
             Types.dummyChainMeta { Types.slotTime = slotTime }
             initialBlockState

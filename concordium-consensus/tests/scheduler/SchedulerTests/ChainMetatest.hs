@@ -16,8 +16,6 @@ import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
 import Concordium.GlobalState.Basic.BlockState.Instances as Ins
 import Concordium.GlobalState.Basic.BlockState.Account as Acc
-import Concordium.GlobalState.Modules as Mod
-import Concordium.GlobalState.Rewards as Rew
 
 import Lens.Micro.Platform
 
@@ -35,11 +33,7 @@ shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState
-initialBlockState =
-  emptyBlockState emptyBirkParameters dummyCryptographicParameters &
-    (blockAccounts .~ Acc.putAccountWithRegIds (mkAccount alesVK alesAccount 100000) Acc.emptyAccounts) .
-    (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs))) .
-    (blockBank . Rew.totalGTU .~ 100000)
+initialBlockState = blockStateWithAlesAccount 100000 Acc.emptyAccounts 100000
 
 chainMeta :: Types.ChainMetadata
 chainMeta = Types.ChainMetadata{..}
@@ -74,9 +68,9 @@ testChainMeta ::
 testChainMeta = do
     source <- liftIO $ TIO.readFile "test/contracts/ChainMetaTest.acorn"
     (_, _) <- PR.processModule source -- execute only for effect on global state, i.e., load into cache
-    transactions <- processTransactions transactionsInput
+    transactions <- processUngroupedTransactions transactionsInput
     let ((Sch.FilteredTransactions{..}, _), gs) =
-          Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
+          Types.runSI (Sch.filterTransactions dummyBlockSize (Types.Energy maxBound) transactions)
             dummySpecialBetaAccounts
             chainMeta
             initialBlockState

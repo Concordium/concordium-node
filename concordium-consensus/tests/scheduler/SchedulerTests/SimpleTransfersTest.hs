@@ -16,8 +16,6 @@ import qualified Concordium.Scheduler as Sch
 import qualified Concordium.Scheduler.Cost as Cost
 
 import Concordium.GlobalState.Basic.BlockState.Account as Acc
-import Concordium.GlobalState.Modules as Mod
-import Concordium.GlobalState.Rewards as Rew
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
 
@@ -32,12 +30,10 @@ shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState
-initialBlockState =
-  emptyBlockState emptyBirkParameters dummyCryptographicParameters &
-    (blockAccounts .~ Acc.putAccountWithRegIds (mkAccount alesVK alesAccount 100000)
-                      (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 100000) Acc.emptyAccounts)) .
-    (blockBank . Rew.totalGTU .~ 200000) .
-    (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
+initialBlockState = blockStateWithAlesAccount
+    100000
+    (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 100000) Acc.emptyAccounts)
+    200000
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =
@@ -72,9 +68,9 @@ testSimpleTransfer
        ([(Types.BareTransaction, Types.ValidResult)],
         [(Types.BareTransaction, Types.FailureKind)], Types.Amount, Types.Amount)
 testSimpleTransfer = do
-    transactions <- processTransactions transactionsInput
+    transactions <- processUngroupedTransactions transactionsInput
     let ((Sch.FilteredTransactions{..}, _), gstate) =
-          Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
+          Types.runSI (Sch.filterTransactions dummyBlockSize (Types.Energy maxBound) transactions)
             dummySpecialBetaAccounts
             Types.dummyChainMeta
             initialBlockState

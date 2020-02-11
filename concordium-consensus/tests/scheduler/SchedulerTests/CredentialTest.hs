@@ -4,7 +4,6 @@ module SchedulerTests.CredentialTest where
 import Test.Hspec
 import Test.HUnit
 
-import Lens.Micro.Platform
 import Control.Monad.IO.Class
 
 import qualified Concordium.Scheduler.Types as Types
@@ -15,8 +14,6 @@ import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
 
 import Concordium.GlobalState.Basic.BlockState.Account as Acc
-import Concordium.GlobalState.Modules as Mod
-import Concordium.GlobalState.Rewards as Rew
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
 
@@ -31,12 +28,10 @@ import Concordium.Crypto.DummyData
 
 -- Create initial state where alesAccount has a credential, but thomasAccount does not.
 initialBlockState :: BlockState
-initialBlockState =
-  emptyBlockState emptyBirkParameters dummyCryptographicParameters &
-    (blockAccounts .~ Acc.putAccountWithRegIds (mkAccount alesVK alesAccount 100000)
-                      (Acc.putAccountWithRegIds (mkAccountNoCredentials thomasVK thomasAccount 100000) Acc.emptyAccounts)) .
-    (blockBank . Rew.totalGTU .~ 200000) .
-    (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
+initialBlockState = blockStateWithAlesAccount
+    100000
+    (Acc.putAccountWithRegIds (mkAccountNoCredentials thomasVK thomasAccount 100000) Acc.emptyAccounts)
+    200000
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =
@@ -66,16 +61,16 @@ testCredentialCheck
         [(Types.BareTransaction, Types.FailureKind)],
         [Types.BareTransaction])
 testCredentialCheck = do
-    transactions <- processTransactions transactionsInput
+    transactions <- processUngroupedTransactions transactionsInput
     let ((Sch.FilteredTransactions{..}, _), gstate) =
-          Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
+          Types.runSI (Sch.filterTransactions dummyBlockSize (Types.Energy maxBound) transactions)
             dummySpecialBetaAccounts
             Types.dummyChainMeta
             initialBlockState
     case invariantBlockState gstate of
         Left f -> liftIO $ assertFailure f
         Right _ -> return ()
-    return (ftAdded, ftFailed, transactions)
+    return (ftAdded, ftFailed, concat transactions)
 
 checkCredentialCheckResult :: ([(Types.BareTransaction, Types.ValidResult)],
                                [(Types.BareTransaction, Types.FailureKind)],

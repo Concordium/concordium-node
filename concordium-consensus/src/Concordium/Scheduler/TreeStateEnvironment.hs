@@ -154,12 +154,11 @@ constructBlock slotNumber slotTime blockParent lfPointer blockBaker bps =
 
     -- FIXME: This is inefficient and should be changed. Doing it only to get the integration working.
     -- Order the accounts by the arrival time of the earliest transaction.
-    -- In the future we do not want to do concatMap since we gain advantage from grouping transactions
-    -- by account (e.g., we only need to look up the account once).
-    let orderedTxs = concatMap fst $ List.sortOn snd txs
+    let orderedTxs = fst . unzip $ List.sortOn snd txs
     genBetaAccounts <- HashSet.fromList . map _accountAddress . genesisSpecialBetaAccounts <$> getGenesisData
+    maxBlockEnergy <- genesisMaxBlockEnergy <$> getGenesisData
     ((Sch.FilteredTransactions{..}, usedEnergy), bshandle2) <-
-        runBSM (Sch.filterTransactions (fromIntegral maxSize) orderedTxs) (genBetaAccounts, cm) bshandle1
+        runBSM (Sch.filterTransactions (fromIntegral maxSize) maxBlockEnergy orderedTxs) (genBetaAccounts, cm) bshandle1
     -- FIXME: At some point we should log things here using the same logging infrastructure as in consensus.
 
     bshandle3 <- bsoSetTransactionOutcomes bshandle2 ((\(tr,res) -> (transactionHash tr, res)) <$> ftAdded)
