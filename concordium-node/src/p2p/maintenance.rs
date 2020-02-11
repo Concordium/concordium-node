@@ -149,7 +149,6 @@ pub struct P2PNode {
 }
 
 impl P2PNode {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         supplied_id: Option<String>,
         conf: &Config,

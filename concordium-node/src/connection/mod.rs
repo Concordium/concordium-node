@@ -113,7 +113,6 @@ impl fmt::Display for Connection {
 impl Connection {
     pub fn handler(&self) -> &P2PNode { &self.handler_ref }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         handler: &P2PNode,
         socket: TcpStream,
