@@ -155,14 +155,12 @@ instance (bs ~ GS.BlockState m, MonadIO m, BS.BlockStateStorage m, MonadState (S
   readBlock bh = do
     env <- use (db . storeEnv)
     dbB <- use (db . blockStore)
-    l <- use (db . storeLock)
-    bytes <- liftIO $ readTransaction l env (L.get dbB bh :: L.Transaction ReadOnly (Maybe ByteString))
+    bytes <- liftIO $ transaction env (L.get dbB bh :: L.Transaction ReadOnly (Maybe ByteString))
     constructBlock bytes
   readFinalizationRecord bh = do
     env <- use (db . storeEnv)
     dbF <- use (db . finalizationRecordStore)
-    l <- use (db . storeLock)
-    liftIO $ readTransaction l env (L.get dbF bh :: L.Transaction ReadOnly (Maybe FinalizationRecord))
+    liftIO $ transaction env (L.get dbF bh :: L.Transaction ReadOnly (Maybe FinalizationRecord))
   writeFinalizationRecord fr = do
     dbh <- use db
     dbh' <- putOrResize dbh (Finalization (finalizationIndex fr, fr))
