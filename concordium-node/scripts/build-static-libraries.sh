@@ -3,8 +3,9 @@
 set -e
 GHC_BUILDER_VERSION="8.6.5"
 CABAL_BUILDER_VERSION="3.0.0.0"
-pacman-mirrors -g
 pacman -Sy
+pacman -S reflector --noconfirm
+reflector --latest 20 --protocol http --protocol https --sort rate --save /etc/pacman.d/mirrorlist
 pacman -S wget tar make m4 pkgconf autoconf automake grep python clang libtool ncurses which rustup binutils --noconfirm
 ln -s /usr/lib/libtinfo.so.6 /usr/lib/libtinfo.so.5
 
