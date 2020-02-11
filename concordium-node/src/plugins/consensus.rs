@@ -1,4 +1,3 @@
-pub const PAYLOAD_TYPE_LENGTH: u64 = 2;
 pub const FILE_NAME_GENESIS_DATA: &str = "genesis.dat";
 pub const FILE_NAME_CRYPTO_PROV_DATA: &str = "crypto_providers.json";
 pub const FILE_NAME_ID_PROV_DATA: &str = "identity_providers.json";
@@ -147,8 +146,8 @@ pub fn handle_pkt_out(
     msg: Arc<[u8]>,
     is_broadcast: bool,
 ) -> Fallible<()> {
-    ensure!(msg.len() >= 2, "Packet payload can't be smaller than 2 bytes");
-    let consensus_type = u16::deserial(&mut Cursor::new(&msg[..2]))?;
+    ensure!(msg.len() >= 1, "Packet payload can't be smaller than 1 byte");
+    let consensus_type = u8::deserial(&mut Cursor::new(&msg[..1]))?;
     let packet_type = PacketType::try_from(consensus_type)?;
 
     let distribution_mode = if is_broadcast {
@@ -306,7 +305,7 @@ fn send_msg_to_consensus(
     request: &ConsensusMessage,
 ) -> Fallible<ConsensusFfiResponse> {
     let raw_id = source_id.as_raw();
-    let payload = &request.payload[2..];
+    let payload = &request.payload[1..]; // ship payload type
 
     let consensus_response = match request.variant {
         Block => consensus.send_block(payload),

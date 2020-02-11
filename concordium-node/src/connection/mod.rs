@@ -229,9 +229,9 @@ impl Connection {
         packet: &mut NetworkPacket,
         deduplication_queues: &DeduplicationQueues,
     ) -> Fallible<bool> {
-        ensure!(packet.message.len() >= 2);
+        ensure!(packet.message.len() >= 1);
         let packet_type = PacketType::try_from(
-            u16::deserial(&mut Cursor::new(&packet.message[..2]))
+            u8::deserial(&mut Cursor::new(&packet.message[..1]))
                 .expect("Writing to buffer is safe."),
         );
 

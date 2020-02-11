@@ -10,7 +10,7 @@ use crate::{
     p2p::{bans::BanId, P2PNode},
 };
 
-use byteorder::{BigEndian, WriteBytesExt};
+use byteorder::WriteBytesExt;
 use concordium_common::{ConsensusFfiResponse, ConsensusIsInCommitteeResponse, PacketType};
 use consensus_rust::{
     consensus::{ConsensusContainer, CALLBACK_QUEUE},
@@ -210,8 +210,8 @@ impl P2p for RpcServerImpl {
             let consensus_result = consensus.send_transaction(transaction);
 
             let result = if consensus_result == ConsensusFfiResponse::Success {
-                let mut payload = Vec::with_capacity(2 + transaction.len());
-                payload.write_u16::<BigEndian>(PacketType::Transaction as u16).unwrap(); // safe
+                let mut payload = Vec::with_capacity(1 + transaction.len());
+                payload.write_u8(PacketType::Transaction as u8).unwrap(); // safe
                 payload.write_all(&transaction).unwrap(); // also infallible
 
                 CALLBACK_QUEUE.send_out_message(ConsensusMessage::new(
