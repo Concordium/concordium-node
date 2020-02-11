@@ -41,8 +41,8 @@ crypto_common = { path = "deps/internal/consensus/crypto/rust-src/crypto_common"
 # External dependencies
 parking_lot = "0.10"
 structopt = "0.3"
-rand = "^0.6"
-hacl-star = "^0.1.0"
+rand = "0.7"
+hacl-star = { git = "https://github.com/quininer/rust-hacl-star", rev = "3680bccbf75e86276a9a00bcfa3b40460ac26073" }
 mio = "^0.6.19"
 log = "0.4"
 env_logger = "0.7"

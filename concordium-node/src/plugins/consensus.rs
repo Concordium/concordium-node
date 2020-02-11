@@ -245,7 +245,7 @@ pub fn handle_consensus_inbound_msg(
     let drop_message = match node.config.drop_rebroadcast_probability {
         Some(probability) => {
             use rand::distributions::{Bernoulli, Distribution};
-            if Bernoulli::new(probability).sample(&mut rand::thread_rng()) {
+            if Bernoulli::new(probability)?.sample(&mut rand::thread_rng()) {
                 trace!("Will not rebroadcast this packet");
                 true
             } else {
