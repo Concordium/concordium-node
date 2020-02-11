@@ -518,7 +518,7 @@ impl ConsensusContainer {
         wrap_c_call_payload!(
             self,
             |consensus| getCatchUpStatus(consensus),
-            &(PacketType::CatchUpStatus as u16).to_be_bytes()
+            &(PacketType::CatchUpStatus as u8).to_be_bytes()
         )
     }
 
@@ -572,8 +572,8 @@ pub extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *co
     unsafe {
         let msg_variant = PacketType::FinalizationMessage;
         let payload = slice::from_raw_parts(data as *const u8, len as usize);
-        let mut full_payload = Vec::with_capacity(2 + payload.len());
-        (msg_variant as u16).serial(&mut full_payload);
+        let mut full_payload = Vec::with_capacity(1 + payload.len());
+        (msg_variant as u8).serial(&mut full_payload);
 
         full_payload.write_all(&payload).unwrap(); // infallible
         let full_payload = Arc::from(full_payload);
@@ -612,8 +612,8 @@ macro_rules! sending_callback {
             };
 
             let payload = slice::from_raw_parts($msg as *const u8, $msg_length as usize);
-            let mut full_payload = Vec::with_capacity(2 + payload.len());
-            (msg_variant as u16).serial(&mut full_payload);
+            let mut full_payload = Vec::with_capacity(1 + payload.len());
+            (msg_variant as u8).serial(&mut full_payload);
             full_payload.write_all(&payload).unwrap(); // infallible
             let full_payload = Arc::from(full_payload);
 
