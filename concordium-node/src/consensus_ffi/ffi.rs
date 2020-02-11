@@ -36,7 +36,7 @@ pub fn start_haskell(
     time: bool,
     exceptions: bool,
     gc_log: Option<String>,
-    profile_sampling_interval: f64,
+    profile_sampling_interval: &str,
 ) {
     START_ONCE.call_once(|| {
         start_haskell_init(heap, time, exceptions, gc_log, profile_sampling_interval);
@@ -62,12 +62,12 @@ fn start_haskell_init(
     time: bool,
     exceptions: bool,
     gc_log: Option<String>,
-    profile_sampling_interval: f64,
+    profile_sampling_interval: &str,
 ) {
     let program_name = std::env::args().take(1).next().unwrap();
-    let mut args = vec![program_name.to_owned()];
+    let mut args = vec![program_name];
 
-    if heap != "none" || time || gc_log.is_some() || profile_sampling_interval != 0.1 {
+    if heap != "none" || time || gc_log.is_some() || profile_sampling_interval != "0.1" {
         args.push("+RTS".to_owned());
         args.push("-L100".to_owned());
     }
@@ -91,7 +91,7 @@ fn start_haskell_init(
         }
     }
 
-    if profile_sampling_interval != 0.1 {
+    if profile_sampling_interval != "0.1" {
         args.push(format!("-i{}", profile_sampling_interval));
     }
 
@@ -99,8 +99,8 @@ fn start_haskell_init(
         args.push("-p".to_owned());
     }
 
-    if gc_log.is_some() {
-        args.push(format!("-S{}", gc_log.unwrap()));
+    if let Some(log) = gc_log {
+        args.push(format!("-S{}", log));
     }
 
     if exceptions {
