@@ -4,14 +4,12 @@
 module Concordium.GlobalState.Persistent.LMDB (
   DatabaseHandlers (..)
   , storeEnv
-  , storeLock
   , blockStore
   , finalizationRecordStore
   , initialDatabaseHandlers
   , LMDBStoreType (..)
   , LMDBStoreMonad (..)
   , putOrResize
-  , readTransaction
   ) where
 
 import Concordium.GlobalState.Parameters
@@ -30,13 +28,11 @@ import Database.LMDB.Simple as L
 import Lens.Micro.Platform
 import System.Directory
 import Control.Concurrent.ReadWriteLock (RWLock)
-import qualified Control.Concurrent.ReadWriteLock as RWL
 import Debug.Trace
 
 -- |Values used by the LMDBStoreMonad to manage the database
 data DatabaseHandlers bs = DatabaseHandlers {
     _limits :: Limits,
-    _storeLock :: RWLock,
     _storeEnv :: Environment ReadWrite,
     _blockStore :: Database BlockHash ByteString,
     _finalizationRecordStore :: Database FinalizationIndex FinalizationRecord
@@ -62,11 +58,7 @@ initialDatabaseHandlers gb serState RuntimeParameters{..} = liftIO $ do
       gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
   transaction _storeEnv (L.put _blockStore (getHash gb) (Just $ runPut (putBlock gb <> serState <> S.put (BlockHeight 0))))
   transaction _storeEnv (L.put _finalizationRecordStore 0 (Just gbfin))
-  _storeLock <- RWL.new
   return $ DatabaseHandlers {..}
-
-readTransaction :: (SubMode emode tmode, Mode tmode) => RWLock -> Environment emode -> Transaction tmode a -> IO a
-readTransaction l e t = RWL.withRead l (transaction e t)
 
 resizeDatabaseHandlers :: DatabaseHandlers bs -> IO (DatabaseHandlers bs)
 resizeDatabaseHandlers dbh = do
@@ -74,14 +66,13 @@ resizeDatabaseHandlers dbh = do
       newSize = mapSize lim + 16 * 4096
       _limits = lim { mapSize = newSize }
       _storeEnv = dbh ^. storeEnv
-      _storeLock = dbh ^. storeLock
       dbB = dbh ^. blockStore
       dbF = dbh ^. finalizationRecordStore
   closeDatabase dbB
   closeDatabase dbF
-  RWL.withWrite _storeLock (resizeEnvironment _storeEnv newSize)
-  _blockStore <- readTransaction _storeLock _storeEnv (getDatabase (Just blockStoreName) :: Transaction ReadWrite (Database BlockHash ByteString))
-  _finalizationRecordStore <- readTransaction _storeLock _storeEnv (getDatabase (Just finalizationRecordStoreName) :: Transaction ReadWrite (Database FinalizationIndex FinalizationRecord))
+  resizeEnvironment _storeEnv newSize
+  _blockStore <- transaction _storeEnv (getDatabase (Just blockStoreName) :: Transaction ReadWrite (Database BlockHash ByteString))
+  _finalizationRecordStore <- transaction _storeEnv (getDatabase (Just finalizationRecordStoreName) :: Transaction ReadWrite (Database FinalizationIndex FinalizationRecord))
   return DatabaseHandlers {..}
 
 -- |For now the database only supports two stores: blocks and finalization records.
@@ -94,12 +85,10 @@ data LMDBStoreType = Block (BlockHash, ByteString) -- ^The Blockhash and the ser
 putInProperDB :: LMDBStoreType -> DatabaseHandlers bs -> IO ()
 putInProperDB (Block (key, value)) dbh = do
   let env = dbh ^. storeEnv
-      l = dbh ^. storeLock
-  readTransaction l env $ L.put (dbh ^. blockStore) key (Just value)
+  transaction env $ L.put (dbh ^. blockStore) key (Just value)
 putInProperDB (Finalization (key, value)) dbh =  do
   let env = dbh ^. storeEnv
-      l = dbh ^. storeLock
-  readTransaction l env $ L.put (dbh ^. finalizationRecordStore) key (Just value)
+  transaction env $ L.put (dbh ^. finalizationRecordStore) key (Just value)
 
 -- |Provided default function that tries to perform an insertion in a given database of a given value,
 -- altering the environment if needed when the database grows.
