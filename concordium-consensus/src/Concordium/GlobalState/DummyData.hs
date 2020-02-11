@@ -3,14 +3,20 @@
 module Concordium.GlobalState.DummyData where
 
 import qualified Data.HashMap.Strict as HM
+import Lens.Micro.Platform
+import qualified Acorn.Utils.Init as Acorn
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.BlsSignature as Bls
-import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Bakers
-import Concordium.GlobalState.SeedState
+import Concordium.GlobalState.Basic.BlockState
+import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.IdentityProviders
+import Concordium.GlobalState.Modules as Modules
+import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Rewards as Rewards
+import Concordium.GlobalState.SeedState
 import Concordium.Types
 import System.Random
 import qualified Data.ByteString.Lazy.Char8 as BSL
@@ -91,8 +97,9 @@ makeTestingGenesisData ::
     -> CryptographicParameters -- ^Initial cryptographic parameters.
     -> [IpInfo]   -- ^List of initial identity providers.
     -> [Account]  -- ^List of starting genesis special accounts (in addition to baker accounts).
+    -> Energy  -- ^Maximum limit on the total stated energy of the transactions in a block
     -> GenesisData
-makeTestingGenesisData genesisTime nBakers genesisSlotDuration elecDiff finMinSkip genesisCryptographicParameters genesisIdentityProviders genesisSpecialBetaAccounts
+makeTestingGenesisData genesisTime nBakers genesisSlotDuration elecDiff finMinSkip genesisCryptographicParameters genesisIdentityProviders genesisSpecialBetaAccounts genesisMaxBlockEnergy
     = GenesisData{..}
     where
         genesisMintPerSlot = 10 -- default value, OK for testing.
@@ -115,3 +122,17 @@ emptyBirkParameters = BirkParameters {
   _birkLotteryBakers = emptyBakers,
   _birkSeedState = genesisSeedState (Hash.hash "NONCE") 360
   }
+
+{-# WARNING createBlockState "Do not use in production" #-}
+createBlockState :: Accounts -> Amount -> BlockState
+createBlockState accounts gtuAmount =
+    emptyBlockState emptyBirkParameters dummyCryptographicParameters &
+      (blockAccounts .~ accounts) .
+      (blockBank . Rewards.totalGTU .~ gtuAmount) .
+      (blockModules .~ (let (_, _, gs) = Acorn.baseState in Modules.fromModuleList (Acorn.moduleList gs))) .
+      (blockIdentityProviders .~ dummyIdentityProviders)
+
+{-# WARNING blockStateWithAlesAccount "Do not use in production" #-}
+blockStateWithAlesAccount :: Amount -> Accounts -> Amount -> BlockState
+blockStateWithAlesAccount alesAmount otherAccounts =
+    createBlockState $ putAccountWithRegIds (mkAccount alesVK alesAccount alesAmount) otherAccounts
