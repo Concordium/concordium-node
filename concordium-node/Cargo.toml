@@ -29,7 +29,6 @@ beta = [ "serde_json", "serde/derive", "reqwest/default-tls", "jsonwebtoken" ]
 
 [profile.release]
 codegen-units = 1
-#panic = 'abort'
 
 [dependencies]
 # Internal dependencies
@@ -41,9 +40,9 @@ crypto_common = { path = "deps/internal/consensus/crypto/rust-src/crypto_common"
 
 # External dependencies
 parking_lot = "0.10"
-structopt = "0.2"
-rand = "^0.6"
-hacl-star = "^0.1.0"
+structopt = "0.3"
+rand = "0.7"
+hacl-star = { git = "https://github.com/quininer/rust-hacl-star", rev = "3680bccbf75e86276a9a00bcfa3b40460ac26073" }
 mio = "^0.6.19"
 log = "0.4"
 env_logger = "0.7"
@@ -53,14 +52,13 @@ app_dirs2 = "^2.0"
 chrono = "0.4"
 failure = "^0.1.5"
 cfg-if = "0.1"
-tempfile = "^3.0.7"
-base64 = "^0.10.1"
-rkv = "^0.9"
+base64 = "0.11"
+rkv = "0.10"
 circular-queue = "^0.2"
 digest = "0.8.0"
 twox-hash = { version = "^1.5.0", features = ["digest"] }
 nohash-hasher = "^0.1"
-priority-queue = "^0.6.0"
+priority-queue = "0.7"
 rayon = "^1.2.0"
 noiseexplorer_xx = { path = "deps/external/noiseexplorer_xx" }
 bytesize = "1.0.0"
@@ -83,8 +81,8 @@ flatc-rust = { version = "^0.1", optional = true }
 futures = { version = "0.3", optional = true }
 serde = { version = "1.0", features = ["rc"], optional = true }
 serde_derive = { version = "1.0", optional = true }
-capnp = { version = "^0.9", optional = true }
-serde_cbor = { version = "0.9.0", optional = true }
+capnp = { version = "0.12", optional = true }
+serde_cbor = { version = "0.11", optional = true }
 rmp-serde = { version = "0.14.0", optional = true }
 elastic = { version = "0.21.0-pre.5", features = [ "default-tls" ], optional = true }
 elastic_derive = { version = "0.21.0-pre.5", optional = true }
@@ -94,15 +92,15 @@ jsonwebtoken = { version = "7", optional = true }
 prometheus = { version = "0.7.0", default-features = false, features = [ "gen", "push", "protobuf" ], optional = true }
 
 [target.'cfg(windows)'.dependencies]
-ipconfig = { version = "^0.1.9" }
+ipconfig = { version = "0.2" }
 
 [target.'cfg(unix)'.dependencies]
 get_if_addrs = { version = "0.5" }
-uuid = { version = "0.7", default-features = false, optional = true }
+uuid = { version = "0.8", default-features = false, optional = true }
 
 [build-dependencies]
 tonic-build = { version = "0.1", default-features = false, features = ["transport"] }
-capnpc = { version = "^0.9", optional = true }
+capnpc = { version = "0.12", optional = true }
 flatc-rust = "^0.1"
 
 [dev-dependencies]

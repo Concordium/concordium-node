@@ -2,7 +2,7 @@
 #[macro_use]
 extern crate log;
 
-// Explicitly defining allocator to avoid future reintroduction of jemalloc
+// Force the system allocator on every platform
 use std::alloc::System;
 #[global_allocator]
 static A: System = System;
@@ -49,7 +49,6 @@ use std::net::SocketAddr;
 async fn main() -> Fallible<()> {
     let (conf, mut app_prefs) = get_config_and_logging_setup()?;
     if conf.common.print_config {
-        // Print out the configuration
         info!("{:?}", conf);
     }
 
@@ -61,13 +60,12 @@ async fn main() -> Fallible<()> {
         }
     }
 
-    // Instantiate stats export engine
     let stats_export_service =
         instantiate_stats_export_engine(&conf, StatsServiceMode::NodeMode).unwrap();
 
     info!("Debugging enabled: {}", conf.common.debug);
 
-    // Thread #1: instantiate the P2PNode
+    // The P2PNode thread
     let node = instantiate_node(&conf, &mut app_prefs, stats_export_service);
 
     #[cfg(feature = "instrumentation")]
@@ -84,12 +82,10 @@ async fn main() -> Fallible<()> {
     }
 
     #[cfg(feature = "instrumentation")]
-    // Thread #2 (optional): the push gateway to Prometheus
+    // The push gateway to Prometheus thread
     start_push_gateway(&conf.prometheus, &node.stats, node.id());
 
-    // Start the P2PNode
-    //
-    // Thread #2 (#3): P2P event loop
+    // The P2P node event loop thread
     node.spawn();
 
     let is_baker = conf.cli.baker.baker_id.is_some();
@@ -125,9 +121,7 @@ async fn main() -> Fallible<()> {
     // Start the transaction logging thread
     setup_transfer_log_thread(&conf.cli);
 
-    // Connect outgoing messages to be forwarded into the baker and RPC streams.
-    //
-    // Thread #3 (#4): read P2PNode output
+    // Consensus queue threads
     let consensus_queue_threads = start_consensus_message_threads(&node, &conf, consensus.clone());
 
     info!("Concordium P2P layer. Network disabled: {}", conf.cli.no_network);
@@ -155,12 +149,10 @@ async fn main() -> Fallible<()> {
     node.join().expect("The node thread panicked!");
 
     // Shut down the consensus layer
-
     consensus.stop();
     ffi::stop_haskell();
 
     // Wait for the consensus queue threads to stop
-
     for consensus_queue_thread in consensus_queue_threads {
         consensus_queue_thread.join().expect("A consensus queue thread panicked");
     }
@@ -327,7 +319,7 @@ fn start_consensus_message_threads(
             node_ref.stats.set_inbound_high_priority_consensus_size(
                 consensus_receiver_high_priority.len() as i64,
             );
-            // instead of using `try_iter()` we specifically only loop over the max amounts
+            // instead of using `try_iter()` we specifically only loop over the max numbers
             // possible to ever be in the queue
             for _ in 0..CONSENSUS_QUEUE_DEPTH_IN_HI {
                 if let Ok(message) = consensus_receiver_high_priority.try_recv() {
@@ -385,7 +377,7 @@ fn start_consensus_message_threads(
             node_ref.stats.set_outbound_high_priority_consensus_size(
                 consensus_receiver_high_priority.len() as i64,
             );
-            // instead of using `try_iter()` we specifically only loop over the max amounts
+            // instead of using `try_iter()` we specifically only loop over the max numbers
             // possible to ever be in the queue
             for _ in 0..CONSENSUS_QUEUE_DEPTH_OUT_HI {
                 if let Ok(message) = consensus_receiver_high_priority.try_recv() {

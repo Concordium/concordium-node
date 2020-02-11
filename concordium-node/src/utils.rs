@@ -466,7 +466,7 @@ fn read_peers_from_dns_entries(
     }
 }
 
-pub fn generate_ed25519_key() -> [u8; 32] { (keypair(OsRng::new().unwrap()).0).0 }
+pub fn generate_ed25519_key() -> [u8; 32] { (keypair(OsRng).0).0 }
 
 #[cfg(feature = "benchmark")]
 pub fn get_tps_test_messages(path: Option<String>) -> Vec<Vec<u8>> {

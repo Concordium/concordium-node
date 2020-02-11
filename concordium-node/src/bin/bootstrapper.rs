@@ -4,7 +4,7 @@ extern crate log;
 #[macro_use]
 extern crate concordium_common;
 
-// Explicitly defining allocator to avoid future reintroduction of jemalloc
+// Force the system allocator on every platform
 use std::alloc::System;
 #[global_allocator]
 static A: System = System;
@@ -29,7 +29,6 @@ fn main() -> Result<(), Error> {
     let data_dir_path = app_prefs.get_user_app_dir();
 
     if conf.common.print_config {
-        // Print out the configuration
         info!("Config {:?}", conf);
     }
 
@@ -37,7 +36,6 @@ fn main() -> Result<(), Error> {
     info!("Application data directory: {:?}", app_prefs.get_user_app_dir());
     info!("Application config directory: {:?}", app_prefs.get_user_config_dir());
 
-    // Instantiate stats export engine
     let stats_export_service =
         instantiate_stats_export_engine(&conf, StatsServiceMode::BootstrapperMode).unwrap();
 
@@ -75,7 +73,6 @@ fn main() -> Result<(), Error> {
     };
 
     #[cfg(feature = "instrumentation")]
-    // Start push gateway to prometheus
     start_push_gateway(&conf.prometheus, &node.stats, node.id());
 
     info!("Concordium P2P layer. Network disabled: {}", conf.cli.no_network);

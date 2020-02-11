@@ -10,7 +10,6 @@ fn main() {
     // Compile the Cap'n'Proto schema
     #[cfg(feature = "s11n_capnp")]
     capnpc::CompilerCommand::new()
-        .edition(::capnpc::RustEdition::Rust2018)
         .src_prefix("src/network/serialization")
         .file("src/network/serialization/p2p.capnp")
         .run()
