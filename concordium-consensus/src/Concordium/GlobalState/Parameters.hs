@@ -89,7 +89,8 @@ data GenesisData = GenesisData {
     genesisFinalizationParameters :: FinalizationParameters,
     genesisCryptographicParameters :: CryptographicParameters,
     genesisIdentityProviders :: [IpInfo],
-    genesisMintPerSlot :: Amount
+    genesisMintPerSlot :: Amount,
+    genesisMaxBlockEnergy :: Energy
 } deriving (Generic, Show, Eq)
 
 instance Serialize GenesisData where
@@ -161,7 +162,9 @@ data GenesisParameters = GenesisParameters {
     gpCryptographicParameters :: CryptographicParameters,
     gpIdentityProviders :: [IpInfo],
     gpBetaAccounts :: [GenesisAccount],
-    gpMintPerSlot :: Amount
+    gpMintPerSlot :: Amount,
+    -- Maximum total energy that can be consumed by the transactions in a block 
+    gpMaxBlockEnergy :: Energy
 }
 
 instance FromJSON GenesisParameters where
@@ -179,6 +182,7 @@ instance FromJSON GenesisParameters where
         gpIdentityProviders <- v .:? "identityProviders" .!= []
         gpBetaAccounts <- v .:? "betaAccounts" .!= []
         gpMintPerSlot <- Amount <$> v .: "mintPerSlot"
+        gpMaxBlockEnergy <- v .: "maxBlockEnergy"
         return GenesisParameters{..}
 
 -- |Implementation-defined parameters, such as block size. They are not
@@ -245,3 +249,4 @@ parametersToGenesisData GenesisParameters{..} = GenesisData{..}
                 gpFinalizationMinimumSkip
         genesisCryptographicParameters = gpCryptographicParameters
         genesisIdentityProviders = gpIdentityProviders
+        genesisMaxBlockEnergy = gpMaxBlockEnergy
