@@ -122,8 +122,8 @@ pub fn generate_random_data(size: usize) -> Vec<u8> {
 }
 
 fn generate_fake_block(size: usize) -> Fallible<Vec<u8>> {
-    let mut buffer = Vec::with_capacity(2 + size);
-    (PacketType::Block as u16).serial(&mut buffer);
+    let mut buffer = Vec::with_capacity(1 + size);
+    (PacketType::Block as u8).serial(&mut buffer);
     buffer.write_all(&generate_random_data(size))?;
     Ok(buffer)
 }
