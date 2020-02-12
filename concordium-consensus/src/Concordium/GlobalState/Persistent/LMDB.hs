@@ -27,8 +27,6 @@ import Database.LMDB.Raw
 import Database.LMDB.Simple as L
 import Lens.Micro.Platform
 import System.Directory
-import Control.Concurrent.ReadWriteLock (RWLock)
-import Debug.Trace
 
 -- |Values used by the LMDBStoreMonad to manage the database
 data DatabaseHandlers bs = DatabaseHandlers {
