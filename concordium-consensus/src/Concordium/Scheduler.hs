@@ -131,14 +131,14 @@ dispatch msg = do
       let psize = payloadSize (transactionPayload msg)
       -- TODO: Charge a small amount based just on transaction size.
       case decodePayload (transactionPayload msg) of
-        Left err -> do
+        Left _ -> do
           -- in case of serialization failure we charge the sender for checking
           -- the header and reject the transaction
           -- FIXME: Add charge based on transaction size.
           let cost = Cost.checkHeader
           payment <- energyToGtu cost
           chargeExecutionCost senderAccount payment
-          return $ TxValid $ TxReject (SerializationFailure err) payment cost
+          return $ TxValid $ TxReject SerializationFailure payment cost
         Right payload ->
           case payload of
             DeployModule mod ->
@@ -272,7 +272,7 @@ handleInitContract senderAccount meta amount modref cname param paramSize =
             commitChanges (addAmountToCS senderAccount (amountDiff 0 amount) (ls ^. changeSet))
             let ins = makeInstance modref cname contract msgty iface viface model initamount (thSender meta)
             addr <- putNewInstance ins
-            return $ TxSuccess [ContractInitialized modref cname addr] energyCost usedEnergy
+            return $ TxSuccess [ContractInitialized{ecRef=modref,ecName=cname,ecAddress=addr,ecAmount=amount}] energyCost usedEnergy
 
 handleSimpleTransfer ::
   SchedulerMonad m
@@ -411,7 +411,7 @@ handleTransaction origin istance receivefun txsender transferamount maybeMsg mod
                             -- FIXME: This is temporary until accounts have their own functions
                             handleTransferAccount origin acc (Left istance) transferamount'
                             )
-                  [Updated txsenderAddr cref transferamount maybeMsg] txout
+                  [Updated{euAddress=cref,euInstigator=txsenderAddr,euAmount=transferamount,euMessage=maybeMsg}] txout
 
 combineTx :: Monad m => [Event] -> m [Event] -> m [Event]
 combineTx x ma = (x ++) <$> ma
@@ -508,7 +508,7 @@ handleDeployCredential senderAccount meta cdiBytes cdi =
                             let sameIP = maybe True (\(_, cred) -> ID.cdvIpId cred == credentialIP) (Queue.getMax credentials)
                             if sameIP && AH.verifyCredential cryptoParams ipInfo (Just (account ^. accountVerificationKeys)) cdiBytes then do
                               addAccountCredential account cdv
-                              return $! TxSuccess [CredentialDeployed cdv] energyCost usedEnergy
+                              return $! TxSuccess [CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}] energyCost usedEnergy
                             else
                               return $! TxReject AccountCredentialInvalid energyCost usedEnergy
                   ID.NewAccount keys threshold ->
@@ -527,7 +527,7 @@ handleDeployCredential senderAccount meta cdiBytes cdi =
                         _ <- putNewAccount account -- first create new account, but only if credential was valid.
                                                    -- We know the address does not yet exist.
                         addAccountCredential account cdv  -- and then add the credentials
-                        return $! TxSuccess [AccountCreated aaddr, CredentialDeployed cdv] energyCost usedEnergy
+                        return $! TxSuccess [AccountCreated aaddr, CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}] energyCost usedEnergy
                       else return $! TxReject AccountCredentialInvalid energyCost usedEnergy
 
 handleDeployEncryptionKey ::
@@ -546,7 +546,7 @@ handleDeployEncryptionKey senderAccount meta encKey =
             Nothing -> do
               let aaddr = senderAccount ^. accountAddress
               addAccountEncryptionKey senderAccount encKey
-              return $ TxSuccess [AccountEncryptionKeyDeployed aaddr encKey] energyCost usedEnergy
+              return $ TxSuccess [AccountEncryptionKeyDeployed encKey aaddr] energyCost usedEnergy
             Just encKey' -> return $ TxReject (AccountEncryptionKeyAlreadyExists (senderAccount ^. accountAddress) encKey') energyCost usedEnergy
 
 
@@ -753,7 +753,8 @@ handleDelegateStake senderAccount meta targetBaker =
           res <- delegateStake (thSender meta) targetBaker
           if res then
             let addr = senderAccount ^. accountAddress
-            in return $! TxSuccess [maybe (StakeUndelegated addr) (StakeDelegated addr) targetBaker] energyCost usedEnergy
+                currentDelegate = senderAccount ^. accountStakeDelegate
+            in return $! TxSuccess [maybe (StakeUndelegated addr currentDelegate) (StakeDelegated addr) targetBaker] energyCost usedEnergy
           else
             return $! TxReject (InvalidStakeDelegationTarget $! fromJust targetBaker) energyCost usedEnergy
         delegateCost = Cost.updateStakeDelegate (Set.size $! senderAccount ^. accountInstances)
