@@ -5,6 +5,12 @@ module Concordium.GlobalState.Persistent.TreeState (
   , initialSkovPersistentDataDefault
   , initialSkovPersistentData
   , PersistentTreeStateMonad (..)
+  -- For testing purposes
+  , PersistenBlockStatus(..)
+  , db
+  , genesisBlockPointer
+  , blockTable
+  , constructBlock
   ) where
 
 import Concordium.GlobalState.Basic.Block as B
