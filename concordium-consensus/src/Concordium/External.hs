@@ -9,7 +9,6 @@ module Concordium.External where
 import Foreign
 import Foreign.C
 
-import qualified Data.ByteString.Lazy as BSL
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Unsafe as BS
 import Data.Serialize
@@ -174,7 +173,7 @@ unsafeWithBSLen bs f = BS.unsafeUseAsCStringLen bs $ \(ptr, len) -> f (fromInteg
 -- |      3 | source account, target baker id | Execution cost of transaction                          |
 -- |      4 | baker id, baker account         | Total block reward, transaction hash is a NUll pointer |
 -- |      5 | source contract, target contract| Transfer from contract to contract                     |
--- |      6 | from acc, to acc, JSON object   | Credential deployed, amount field is a dummy value     |
+-- |      6 | from acc, to acc, RegId         | Credential deployed, amount field is a dummy value     |
 -- |--------+---------------------------------+--------------------------------------------------------|
 
 -- * Account address serialiation is 21 bytes in length
@@ -212,7 +211,7 @@ toLogTransferMethod logtCallBackPtr = logTransfer
                     in unsafeWithBSLen rest $ logit 5 block slot txRef trcctAmount
                 BS.CredentialDeployment{..} ->
                   withTxReference trcdId $ \txRef ->
-                    let rest = runPut (put trcdSource <> put trcdAccount) <> BSL.toStrict (AE.encode trcdCredentialValues)
+                    let rest = runPut (put trcdSource <> put trcdAccount <> put trcdCredentialRegId)
                     in unsafeWithBSLen rest $ logit 6 block slot txRef 0
 
 -- |Callback for broadcasting a message to the network.
