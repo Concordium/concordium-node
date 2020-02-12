@@ -218,11 +218,11 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
                            ((blockBank . Rewards.centralBankGTU) +~ amount)
         in (updated ^. blockBank . Rewards.centralBankGTU, updated)
 
-    bsoDecrementCentralBankGTU bs amount = return $
+    bsoDecrementCentralBankGTU bs amount = return $!
         let updated = bs & ((blockBank . Rewards.centralBankGTU) -~ amount)
         in (updated ^. blockBank . Rewards.centralBankGTU, updated)
 
-    bsoDelegateStake bs aaddr target = return $ if targetValid then (True, bs') else (False, bs)
+    bsoDelegateStake bs aaddr target = return $! if targetValid then (True, bs') else (False, bs)
         where
             targetValid = case target of
                 Nothing -> True

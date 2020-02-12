@@ -18,7 +18,6 @@ import Data.Serialize as S
 import Data.Either
 import Lens.Micro.Platform
 import qualified Data.PQueue.Prio.Max as Queue
-import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as OrdMap
 
 import qualified Data.FixedByteString as FBS
@@ -27,7 +26,6 @@ import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.Crypto.SignatureScheme as Sig
 import Concordium.Crypto.DummyData
 import qualified Concordium.ID.Types as ID
-import qualified Concordium.ID.Account as ID
 
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Basic.BlockState.Account as B

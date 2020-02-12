@@ -478,8 +478,8 @@ data TransferReason =
     trcdSource :: !AccountAddress,
     -- |To which account was the credential deployed.
     trcdAccount :: !AccountAddress,
-    -- |Credential values which were deployed deployed.
-    trcdCredentialValues :: !ID.CredentialDeploymentValues
+    -- |Credential registration ID.values which were deployed deployed.
+    trcdCredentialRegId :: !ID.CredentialRegistrationID
     } |
   -- |Baking reward (here meaning the actual block reward + execution reward for block transactions).
   BakingRewardTransfer {
@@ -515,13 +515,12 @@ resultToReasons bp tx res =
           Just (AccountToContractTransfer trId source amount target)
         extractReason (Transferred (AddressContract source) amount (AddressContract target)) =
           Just (ContractToContractTransfer trId source amount target)
-        extractReason (Updated (AddressAccount source) target amount _) =
+        extractReason (Updated target (AddressAccount source) amount _) =
           Just (AccountToContractTransfer trId source amount target)
-        extractReason (Updated (AddressContract source) target amount _) =
+        extractReason (Updated target (AddressContract source) amount _) =
           Just (ContractToContractTransfer trId source amount target)
-        extractReason (CredentialDeployed cdv) =
-          let caaddr = ID.credentialAccountAddress cdv
-          in Just (CredentialDeployment trId sender caaddr cdv)
+        extractReason (CredentialDeployed regid address) =
+          Just (CredentialDeployment trId sender address regid)
         extractReason _ = Nothing
         
         trId = transactionHash tx
