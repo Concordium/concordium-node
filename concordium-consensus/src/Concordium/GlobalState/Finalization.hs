@@ -22,6 +22,11 @@ instance Serialize FinalizationIndex where
 data FinalizationProof = FinalizationProof ([Word32], Bls.Signature)
     deriving (Eq)
 
+finalizationProofParties :: FinalizationProof -> [Word32]
+finalizationProofParties (FinalizationProof (parties, _)) = parties
+
+finalizationProofSignature :: FinalizationProof -> Bls.Signature
+finalizationProofSignature (FinalizationProof (_, sig)) = sig
 
 putLength :: Putter Int
 putLength = putWord32be . fromIntegral
