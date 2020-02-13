@@ -1,6 +1,17 @@
 {-# LANGUAGE TypeFamilies, TemplateHaskell, NumericUnderscores, ScopedTypeVariables, DataKinds, RecordWildCards, MultiParamTypeClasses, FlexibleInstances, GeneralizedNewtypeDeriving, LambdaCase, FlexibleContexts, DerivingStrategies, DerivingVia, StandaloneDeriving, UndecidableInstances #-}
 -- |This module provides a monad that is an instance of both `LMDBStoreMonad` and `TreeStateMonad` effectively adding persistence to the tree state.
-module Concordium.GlobalState.Persistent.TreeState where
+module Concordium.GlobalState.Persistent.TreeState (
+  SkovPersistentData
+  , initialSkovPersistentDataDefault
+  , initialSkovPersistentData
+  , PersistentTreeStateMonad (..)
+  -- For testing purposes
+  , PersistenBlockStatus(..)
+  , db
+  , genesisBlockPointer
+  , blockTable
+  , constructBlock
+  ) where
 
 import Concordium.GlobalState.Basic.Block as B
 import Concordium.GlobalState.Block
@@ -142,15 +153,10 @@ constructBlock (Just bytes) = do
 
 instance (bs ~ GS.BlockState m, MonadIO m, BS.BlockStateStorage m, MonadState (SkovPersistentData bs) m) => LMDBStoreMonad (PersistentTreeStateMonad bs m) where
   writeBlock bp = do
-    lim <- use (db . limits)
-    env <- use (db . storeEnv)
-    dbB <- use (db . blockStore)
-    dir <- rpTreeStateDir <$> use runtimeParameters
+    dbh <- use db
     bs <- BS.putBlockState (_bpState bp)
-    (l, e, d) <- putOrResize lim "blocks" env dir dbB (getHash bp) $ runPut (putBlock bp >> bs >> S.put (bpHeight bp))
-    db . limits  .= l
-    db . storeEnv .= e
-    db . blockStore .= d
+    dbh' <- putOrResize dbh (Block (getHash bp, runPut (putBlock bp >> bs >> S.put (bpHeight bp))))
+    db .= dbh'
   readBlock bh = do
     env <- use (db . storeEnv)
     dbB <- use (db . blockStore)
@@ -161,14 +167,9 @@ instance (bs ~ GS.BlockState m, MonadIO m, BS.BlockStateStorage m, MonadState (S
     dbF <- use (db . finalizationRecordStore)
     liftIO $ transaction env (L.get dbF bh :: L.Transaction ReadOnly (Maybe FinalizationRecord))
   writeFinalizationRecord fr = do
-    lim <- use (db . limits)
-    env <- use (db . storeEnv)
-    dbF <- use (db . finalizationRecordStore)
-    dir <- rpTreeStateDir <$> use runtimeParameters
-    (l, e, d) <- putOrResize lim "finalization" env dir dbF (finalizationIndex fr) fr
-    db . limits .= l
-    db . storeEnv .= e
-    db . finalizationRecordStore .= d
+    dbh <- use db
+    dbh' <- putOrResize dbh (Finalization (finalizationIndex fr, fr))
+    db .= dbh'
 
 getWeakPointer :: (MonadState (SkovPersistentData s) m,
                   LMDBStoreMonad m, TS.BlockPointer m ~ PersistentBlockPointer s) =>
