@@ -1,7 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE LambdaCase #-}
-{-# OPTIONS_GHC -Wall #-}
 module SchedulerTests.ContractSimpleTransfersSpec where
 
 import Test.Hspec
@@ -15,8 +12,6 @@ import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
 
 import Concordium.GlobalState.Basic.BlockState.Account as Acc
-import Concordium.GlobalState.Modules as Mod
-import Concordium.GlobalState.Rewards as Rew
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
 
@@ -27,22 +22,21 @@ import Lens.Micro.Platform
 import Control.Monad.IO.Class
 
 import qualified Acorn.Core as Core
-import SchedulerTests.DummyData
+import Concordium.Scheduler.DummyData
+import Concordium.GlobalState.DummyData
+import Concordium.Types.DummyData
+import Concordium.Crypto.DummyData
 
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState
-initialBlockState =
-  emptyBlockState emptyBirkParameters dummyCryptographicParameters &
-    (blockAccounts .~ Acc.putAccountWithRegIds (mkAccount alesVK alesAccount 1000000) Acc.emptyAccounts) .
-    (blockBank . Rew.totalGTU .~ 1000000) .
-    (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
+initialBlockState = blockStateWithAlesAccount 1000000 Acc.emptyAccounts 1000000
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =
   [TJSON { payload = DeployModule "SimpleTransfers"
-         , metadata = makeHeader alesAccount 1 100000
+         , metadata = makeDummyHeader alesAccount 1 100000
          , keypair = alesKP
          }
   -- create three contracts with addresses 0, 1, 2
@@ -51,7 +45,7 @@ transactionsInput =
                                   ,moduleName = "SimpleTransfers"
                                   ,parameter = "Unit.Unit"
                                   }
-         , metadata = makeHeader alesAccount 2 100000
+         , metadata = makeDummyHeader alesAccount 2 100000
          , keypair = alesKP
          }
   ,TJSON { payload = InitContract {amount = 100
@@ -59,7 +53,7 @@ transactionsInput =
                                   ,moduleName = "SimpleTransfers"
                                   ,parameter = "Unit.Unit"
                                   }
-         , metadata = makeHeader alesAccount 3 100000
+         , metadata = makeDummyHeader alesAccount 3 100000
          , keypair = alesKP
          }
   ,TJSON { payload = InitContract {amount = 100
@@ -67,7 +61,7 @@ transactionsInput =
                                   ,moduleName = "SimpleTransfers"
                                   ,parameter = "Unit.Unit"
                                   }
-         , metadata = makeHeader alesAccount 4 100000
+         , metadata = makeDummyHeader alesAccount 4 100000
          , keypair = alesKP
          }
   -- and then invoke the first to send a message to the last two,
@@ -79,7 +73,7 @@ transactionsInput =
                                         \let two :: ListBase.List Blockchain.Caller = consC <2,0> one in \
                                         \consC <1,0> two"
                             }
-         , metadata = makeHeader alesAccount 5 10000
+         , metadata = makeDummyHeader alesAccount 5 10000
          , keypair = alesKP
          }
   ]
@@ -93,9 +87,9 @@ testSimpleTransfers ::
 testSimpleTransfers = do
     source <- liftIO $ TIO.readFile "test/contracts/SimpleContractTransfers.acorn"
     (_, _) <- PR.processModule source -- execute only for effect on global state
-    transactions <- processTransactions transactionsInput
+    transactions <- processUngroupedTransactions transactionsInput
     let ((Sch.FilteredTransactions{..}, _), endState) =
-            Types.runSI (Sch.filterTransactions blockSize transactions)
+            Types.runSI (Sch.filterTransactions dummyBlockSize (Types.Energy maxBound) transactions)
               dummySpecialBetaAccounts
               Types.dummyChainMeta
               initialBlockState
@@ -107,15 +101,15 @@ testSimpleTransfers = do
 checkSimpleTransfersResult :: ([(a, Types.ValidResult)], [b], BlockState) -> Bool
 checkSimpleTransfersResult (suc, fails, gs) =
   null fails && -- should be no failed transactions
-  length reject == 0 &&
+  null reject &&
   length nonreject == 5 &&
   stateCheck
   where
-    nonreject = filter (\case (_, Types.TxSuccess _ _ _) -> True
-                              (_, Types.TxReject _ _ _) -> False)
+    nonreject = filter (\case (_, Types.TxSuccess{}) -> True
+                              (_, Types.TxReject{}) -> False)
                         suc
-    reject = filter (\case (_, Types.TxSuccess _ _ _) -> False
-                           (_, Types.TxReject _ _ _) -> True
+    reject = filter (\case (_, Types.TxSuccess{}) -> False
+                           (_, Types.TxReject{}) -> True
                     )
                         suc
 

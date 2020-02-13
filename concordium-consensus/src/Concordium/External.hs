@@ -623,10 +623,10 @@ getAccountInfo cptr blockcstr cstr = do
     logm External LLInfo "Received account info request."
     bs <- BS.packCString cstr
     case addressFromBytes bs of
-      Nothing -> do
-        logm External LLInfo "Could not decode address."
+      Left err -> do
+        logm External LLInfo $ "Could not decode address: " ++ err
         jsonValueToCString Null
-      Just acc -> do
+      Right acc -> do
         logm External LLInfo $ "Decoded address to: " ++ show acc
         withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
           ainfo <- runConsensusQuery c (Get.getAccountInfo hash) acc

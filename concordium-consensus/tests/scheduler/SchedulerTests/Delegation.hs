@@ -1,8 +1,5 @@
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE CPP #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 module SchedulerTests.Delegation where
 
@@ -18,18 +15,14 @@ import Concordium.Scheduler.Runner
 import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
 import qualified Concordium.Scheduler.Cost as Cost
+import qualified Concordium.Scheduler.Types as Types
 
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
 import Concordium.GlobalState.Basic.BlockState.Account as Acc
-import Concordium.GlobalState.Modules as Mod
-import Concordium.GlobalState.Rewards as Rew
 
 import Concordium.Crypto.SignatureScheme as Sig
-import Concordium.ID.Account
 import Concordium.ID.Types(randomAccountAddress)
-import Concordium.Crypto.Ed25519Signature as EdSig
-import qualified Concordium.Crypto.BlsSignature as Bls
 
 import Concordium.GlobalState.Bakers
 import Concordium.Scheduler.Types hiding (accountAddress, Payload(..))
@@ -37,24 +30,25 @@ import Concordium.Scheduler.Types hiding (accountAddress, Payload(..))
 import System.Random
 import Lens.Micro.Platform
 
-import SchedulerTests.DummyData
+import Concordium.Scheduler.DummyData
+import Concordium.GlobalState.DummyData
+import Concordium.Types.DummyData
+import Concordium.Crypto.DummyData
 
 staticKeys :: [(KeyPair, AccountAddress)]
 staticKeys = ks (mkStdGen 1333)
     where
-        ks g = let (k, g') = EdSig.randomKeyPair g
+        ks g = let (k, g') = randomEd25519KeyPair g
                    (addr, g'') = randomAccountAddress g'
-               in (uncurry KeyPairEd25519 k, addr) : ks g'
+               in (uncurry KeyPairEd25519 k, addr) : ks g''
 
 numAccounts :: Int
 numAccounts = 10
 
 initialBlockState :: BlockState
-initialBlockState =
-    emptyBlockState emptyBirkParameters dummyCryptographicParameters &
-        (blockAccounts .~ foldr addAcc Acc.emptyAccounts (take numAccounts staticKeys)) .
-        (blockBank . Rew.totalGTU .~ fromIntegral numAccounts * initBal) .
-        (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
+initialBlockState = createBlockState
+    (foldr addAcc Acc.emptyAccounts (take numAccounts staticKeys))
+    (fromIntegral numAccounts * initBal)
     where
         addAcc (kp, addr) = Acc.putAccountWithRegIds (mkAccount (correspondingVerifyKey kp) addr initBal )
         initBal = 10^(12::Int) :: Amount
@@ -80,11 +74,19 @@ initialModel = Model {
 addBaker :: Model -> Gen (TransactionJSON, Model)
 addBaker m0 = do
         (bkrAcct, (kp, nonce)) <- elements (Map.toList $ _mAccounts m0)
-        let (bkr, electionSecretKey, signKey, aggregationKey) = mkBaker (m0 ^. mNextSeed) bkrAcct
+        -- FIXME: Once we require proof of knowledge of this key the last secret aggregation key
+        -- will be needed.
+        let (bkr, electionSecretKey, signKey, _aggregationKey) = mkFullBaker (m0 ^. mNextSeed) bkrAcct
         return (TJSON {
-
-            payload = AddBaker (bkr ^. bakerElectionVerifyKey) electionSecretKey (bkr ^. bakerSignatureVerifyKey) (bkr ^. bakerAggregationVerifyKey) signKey bkrAcct kp,
-            metadata = makeHeader bkrAcct nonce (Cost.checkHeader + Cost.addBaker),
+            payload = AddBaker
+                      (bkr ^. bakerElectionVerifyKey)
+                      electionSecretKey
+                      (bkr ^. bakerSignatureVerifyKey)
+                      (bkr ^. bakerAggregationVerifyKey)
+                      signKey
+                      bkrAcct
+                      kp,
+            metadata = makeDummyHeader bkrAcct nonce (Cost.checkHeader + Cost.addBaker),
             keypair = kp
         }, m0
             & mAccounts . ix bkrAcct . _2 %~ (+1)
@@ -106,7 +108,7 @@ removeBaker m0 = do
         let (_, srcN) = m0 ^. mAccounts . singular (ix address)
         return (TJSON {
             payload = RemoveBaker bkr "<dummy proof>",
-            metadata = makeHeader address srcN (Cost.checkHeader + Cost.removeBaker),
+            metadata = makeDummyHeader address srcN (Cost.checkHeader + Cost.removeBaker),
             keypair = srcKp
         }, m0
             & mAccounts . ix address . _2 %~ (+1)
@@ -119,7 +121,7 @@ delegateStake m0 = do
         bkr <- elements (_mBakers m0)
         return (TJSON {
             payload = DelegateStake bkr,
-            metadata = makeHeader srcAcct srcN (Cost.checkHeader + Cost.updateStakeDelegate 0),
+            metadata = makeDummyHeader srcAcct srcN (Cost.checkHeader + Cost.updateStakeDelegate 0),
             keypair = srcKp
         }, m0 & mAccounts . ix srcAcct . _2 %~ (+1))
 
@@ -128,7 +130,7 @@ undelegateStake m0 = do
         (srcAcct, (srcKp, srcN)) <- elements (Map.toList $ _mAccounts m0)
         return (TJSON {
             payload = UndelegateStake,
-            metadata = makeHeader srcAcct srcN (Cost.checkHeader + Cost.updateStakeDelegate 0),
+            metadata = makeDummyHeader srcAcct srcN (Cost.checkHeader + Cost.updateStakeDelegate 0),
             keypair = srcKp
         }, m0 & mAccounts . ix srcAcct . _2 %~ (+1))
 
@@ -139,7 +141,7 @@ simpleTransfer m0 = do
         amt <- fromIntegral <$> choose (0, 1000 :: Word)
         return (TJSON {
             payload = Transfer {toaddress = AddressAccount destAcct, amount = amt},
-            metadata = makeHeader srcAcct srcN Cost.checkHeader,
+            metadata = makeDummyHeader srcAcct srcN Cost.checkHeader,
             keypair = srcKp
         }, m0 & mAccounts . ix srcAcct . _2 %~ (+1))
 
@@ -157,10 +159,10 @@ testTransactions :: Property
 testTransactions = forAll makeTransactions (ioProperty . PR.evalContext Init.initialContextData . tt)
     where
         tt tl = do
-            transactions <- processTransactions tl
+            transactions <- processUngroupedTransactions tl
             let ((Sch.FilteredTransactions{..}, _), gs) =
                   EI.runSI
-                    (Sch.filterTransactions blockSize transactions)
+                    (Sch.filterTransactions dummyBlockSize (Types.Energy maxBound) transactions)
                     (Set.fromList [alesAccount, thomasAccount])
                     dummyChainMeta
                     initialBlockState
@@ -171,5 +173,5 @@ testTransactions = forAll makeTransactions (ioProperty . PR.evalContext Init.ini
                 Right _ -> return $ property True
 
 tests :: Spec
-tests = describe "SchedulerTests.Delegation" $ do
-    it "Delegation" $ withMaxSuccess 1000 $ testTransactions
+tests = describe "SchedulerTests.Delegation" $
+    it "Delegation" $ withMaxSuccess 1000 testTransactions

@@ -10,6 +10,7 @@ import qualified Data.Map as Map
 import qualified Data.List as List
 import qualified Data.ByteString as BS
 import qualified Data.Vector as Vec
+import qualified Data.Maybe as Mb
 import Control.Monad
 import Control.Monad.Trans
 
@@ -18,14 +19,15 @@ import qualified Concordium.Afgjort.PartySet as PS
 import Concordium.Afgjort.Types
 import Concordium.Afgjort.WMVBA
 import qualified Concordium.Crypto.BlsSignature as Bls
-import Concordium.Crypto.BlockSignature as Sig
 import Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.SHA256 as H
 
 import Debug.Trace
 
+import Concordium.Crypto.DummyData
+
 genBlsSecretKey :: Gen Bls.SecretKey
-genBlsSecretKey =  Bls.secretKeyGen
+genBlsSecretKey =  secretBlsKeyGen
 
 genBlsKeyPair :: Gen (Bls.SecretKey, Bls.PublicKey)
 genBlsKeyPair = fmap (\sk -> (sk, Bls.derivePublicKey sk)) $ genBlsSecretKey
@@ -61,51 +63,93 @@ makeInput :: WMVBAInput -> WMVBA () ()
 makeInput (ReceiveWMVBAMessage p m) = receiveWMVBAMessage p () m
 makeInput (StartWMVBA v) = startWMVBA v
 
-invariantWMVBAState :: WMVBAInstance () -> WMVBAState () -> Either String ()
-invariantWMVBAState inst WMVBAState{..} = return ()
-  -- TODO: check invariant here. Invariant after every step should be:
-  -- 1. Output isn't WMVBAComplete
-  -- 2. badJV total weight doesn't exceept corruptWeight (NOT YET IMPLEMENTED)
-  -- 3. Justifications weight for each existing blockvalue doesnt exceep corrupted weight
+invariantWMVBAState :: WMVBAInstance () -> WMVBAState () -> [WMVBAOutputEvent ()] -> Either String ()
+invariantWMVBAState (WMVBAInstance baid _totalWeight corruptWeight _partyWeight _maxParty
+                                   _publicKeys _me _privateKey publicBlsKeys _privateBlsKey)
+                    (WMVBAState _ _ _ justifications badJustifications)
+                    outputs = do
+    -- For each bad party checks that their blssignature doesn't verify
+    checkBadJustificationsActuallyBad $ PS.toList badjstfc
+    -- If the weight of the good justifiers exceeds the threshold, a finalizationproof should have been outputted
+    when (PM.weight jstfc - PS.weight badjstfc > corruptWeight) $ containsFinalizationProof outputs
+    -- If the weight of the good justifiers does NOT exceed the threshold, a finalizationproof should NOT have been outputted
+    when (PM.weight jstfc - PS.weight badjstfc <= corruptWeight) $ containsNoFinalizationProof outputs
+        where
+          containsNoFinalizationProof [] = Right ()
+          containsNoFinalizationProof (x : xs) = case x of
+            WMVBAComplete p -> Left $ "a finalizationproof was produced before its weight could exceed the corrupted weight. Proof:\n" ++ (show p)
+            _ -> containsNoFinalizationProof xs
+          containsFinalizationProof [] = Left "outputs contains no finalization proof while it should"
+          containsFinalizationProof (x : xs) = case x of
+            WMVBAComplete (Just (v, (parties, sig))) -> checkFinalizationProof v sig parties
+            _ -> containsFinalizationProof xs
+          checkFinalizationProof v sig parties = unless (Bls.verifyAggregate (witnessMessage baid v) (map publicBlsKeys parties) sig) $ Left "finalizationproof does not verify"
+          checkBadJustificationsActuallyBad [] = Right ()
+          checkBadJustificationsActuallyBad (p : ps) =
+            case Map.lookup p (PM.partyMap jstfc) of
+                Just (_, blssig) -> if Bls.verify (witnessMessage baid blockA) (publicBlsKeys p) blssig
+                                    then Left $ "party " ++ show p ++ " is marked as bad for block " ++ show blockA ++ " but its blssignature verifies"
+                                    else checkBadJustificationsActuallyBad ps
+                _ -> Left $ "party " ++ (show p) ++ " is marked as bad for block " ++ show blockA ++ " but its justification isn't found in justifications"
+          jstfc = Mb.fromMaybe PM.empty $ Map.lookup blockA justifications
+          badjstfc = Mb.fromMaybe PS.empty $ Map.lookup blockA badJustifications
+
 
 runWMVBATest :: Int -> BS.ByteString -> Int -> Vec.Vector (VRF.KeyPair, Bls.SecretKey) -> [WMVBAInput] -> IO Property
-runWMVBATest me baid nparties keys = go (inst 0) initialWMVBAState
+runWMVBATest me baid nparties keys = go myInstance initialWMVBAState
     where
         corruptWeight  = nparties `div` 3
         inst i = WMVBAInstance baid (fromIntegral nparties) (fromIntegral corruptWeight) (const 1) (fromIntegral nparties) vrfKeyMap i myVRFKeypair blsPublicKeyMap myBlsKey
         myInstance = inst (fromIntegral me)
-        go _ins st [] = return $ label ("Done processing input stream") $ checkFinalState st
+        go _ins _st [] = return (1 === 1)
         go ins st (e : es) = do
-          (_, st', output) <- runWMVBA (makeInput e) ins st
-          case invariantWMVBAState myInstance st' of
-            Left err -> return $ counterexample "something went wrong" False
+          (_, st', outputs) <- runWMVBA (makeInput e) ins st
+          case invariantWMVBAState myInstance st' outputs of
+            Left err -> return $ counterexample err False
             Right _ -> go ins st' es
         vrfKeyMap = VRF.publicKey . fst . (keys Vec.!) . fromIntegral
         blsPublicKeys = Vec.map (\(_, blssk) -> Bls.derivePublicKey blssk) keys
         blsPublicKeyMap = (blsPublicKeys Vec.!) . fromIntegral
         myVRFKeypair = fst $ keys Vec.! fromIntegral me
         myBlsKey = snd $ keys Vec.! fromIntegral me
-        checkFinalState :: WMVBAState () -> Property
-        checkFinalState st = traceShow st $ 1 === 1 -- TODO: add proper check
+
 
 blockA :: Val
 blockA = H.hash "A"
 
-testData1 :: Int -> BS.ByteString -> Val -> Vec.Vector (VRF.KeyPair, Bls.SecretKey) -> [WMVBAInput]
-testData1 me baid v keys = StartWMVBA blockA : inputs
+testData1 :: BS.ByteString -> Val -> Vec.Vector (VRF.KeyPair, Bls.SecretKey) -> [WMVBAInput]
+testData1 baid v keys = inputs
   where
     inputs = let (inps, _) = Vec.foldl f ([], 0) keys in inps
     f (inps, i) (_, blssk) = (ReceiveWMVBAMessage (fromIntegral i) (makeWMVBAWitnessCreatorMessage baid v blssk) : inps, i+1)
 
-runTest1 :: Property
-runTest1 = monadicIO $ do
+testData2 :: BS.ByteString -> Val -> Vec.Vector (VRF.KeyPair, Bls.SecretKey) -> Int -> Bls.SecretKey -> [WMVBAInput]
+testData2 baid v keys corrupted wrongkey = inputs
+  where
+    inputs = let (inps, _) = Vec.foldl f ([], 0) keys in inps
+    f (inps, i) (_, blssk) =
+      if i < corrupted then
+        (ReceiveWMVBAMessage (fromIntegral i) (makeWMVBAWitnessCreatorMessage baid v wrongkey) : inps, i+1)
+      else
+        (ReceiveWMVBAMessage (fromIntegral i) (makeWMVBAWitnessCreatorMessage baid v blssk) : inps, i+1)
+
+runNonCorruptedTest :: Property
+runNonCorruptedTest = monadicIO $ do
   keys <- pick $ genKeys nparties
   baid <- pick $ genByteString
-  let stream = StartWMVBA blockA : (testData1 me baid blockA keys)
-  traceShowM keys
-  traceShowM stream
-  return (1 === 1)
-  liftIO $ runWMVBATest me baid nparties keys stream
+  stream <- pick $ shuffle $ testData1 baid blockA keys
+  liftIO $ runWMVBATest me baid nparties keys (StartWMVBA blockA : stream)
+    where
+      nparties = 10
+      me = 0
+
+runCorruptedTest :: Int -> Property
+runCorruptedTest corrupted = monadicIO $ do
+  keys <- pick $ genKeys nparties
+  baid <- pick $ genByteString
+  wrongkey <- pick $ genBlsSecretKey
+  stream <- pick $ shuffle $ testData2 baid blockA keys corrupted wrongkey
+  liftIO $ runWMVBATest me baid nparties keys (StartWMVBA blockA : stream)
     where
       nparties = 10
       me = 0
@@ -164,12 +208,16 @@ createAggSigTest = do
         toSign = (witnessMessage baid val)
         (_, signatures) = makePartiesAndSignatures keys toSign culpritIxs
         culprits = PS.fromList pWeight culpritIxs
-        ((good, sig), bad) = createAggregateSig wi val (PM.fromList pWeight signatures) PS.empty
-    return $ (bad === culprits .&&. Bls.verifyAggregate toSign (pubKeys <$> good) sig)
+        (proof, bad) = createAggregateSig wi val (PM.fromList pWeight signatures) PS.empty
+    case proof of
+      Just (good, sig) -> return $ (bad === culprits .&&. Bls.verifyAggregate toSign (pubKeys <$> good) sig)
+      Nothing -> return $ 1 === 3
 
 tests :: Word -> Spec
-tests _lvl = describe "Concordium.Afgjort.WMVBA" $ do
-    it "Finds no culprits when everyone signs correctly" $ withMaxSuccess 100 findCulpritsNoMaliciousTest
-    it "Finds the misbehaving signers" $ withMaxSuccess 100 findCulpritsTest
-    it "Test createAggregateSig" $ withMaxSuccess 100 createAggSigTest
-    it "wip" $ withMaxSuccess 1 runTest1
+tests lvl = describe "Concordium.Afgjort.WMVBA" $ do
+    it "Finds no culprits when everyone signs correctly" $ withMaxSuccess (10 * (10^lvl)) findCulpritsNoMaliciousTest
+    it "Finds the misbehaving signers" $ withMaxSuccess (10 * (10^lvl)) findCulpritsTest
+    it "Test createAggregateSig" $ withMaxSuccess (10 * (10^lvl)) createAggSigTest
+    it "Test WMVBA with no culprits" $ withMaxSuccess (10 * (10^lvl)) runNonCorruptedTest
+    it "Test WMVBA with 3/10 culprits" $ withMaxSuccess (10 * (10^lvl)) $ runCorruptedTest 3
+    it "Test WMVBA with 7/10 culprits" $ withMaxSuccess (10 * (10^lvl)) $ runCorruptedTest 7

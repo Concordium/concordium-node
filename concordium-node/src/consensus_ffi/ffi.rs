@@ -37,7 +37,7 @@ pub fn start_haskell(
     time: bool,
     exceptions: bool,
     gc_log: Option<String>,
-    profile_sampling_interval: f64,
+    profile_sampling_interval: &str,
 ) {
     START_ONCE.call_once(|| {
         start_haskell_init(heap, time, exceptions, gc_log, profile_sampling_interval);
@@ -63,12 +63,12 @@ fn start_haskell_init(
     time: bool,
     exceptions: bool,
     gc_log: Option<String>,
-    profile_sampling_interval: f64,
+    profile_sampling_interval: &str,
 ) {
     let program_name = std::env::args().take(1).next().unwrap();
-    let mut args = vec![program_name.to_owned()];
+    let mut args = vec![program_name];
 
-    if heap != "none" || time || gc_log.is_some() || profile_sampling_interval != 0.1 {
+    if heap != "none" || time || gc_log.is_some() || profile_sampling_interval != "0.1" {
         args.push("+RTS".to_owned());
         args.push("-L100".to_owned());
     }
@@ -92,7 +92,7 @@ fn start_haskell_init(
         }
     }
 
-    if profile_sampling_interval != 0.1 {
+    if profile_sampling_interval != "0.1" {
         args.push(format!("-i{}", profile_sampling_interval));
     }
 
@@ -100,8 +100,8 @@ fn start_haskell_init(
         args.push("-p".to_owned());
     }
 
-    if gc_log.is_some() {
-        args.push(format!("-S{}", gc_log.unwrap()));
+    if let Some(log) = gc_log {
+        args.push(format!("-S{}", log));
     }
 
     if exceptions {
@@ -526,7 +526,7 @@ impl ConsensusContainer {
         wrap_c_call_payload!(
             self,
             |consensus| getCatchUpStatus(consensus),
-            &(PacketType::CatchUpStatus as u16).to_be_bytes()
+            &(PacketType::CatchUpStatus as u8).to_be_bytes()
         )
     }
 
@@ -580,8 +580,8 @@ pub extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *co
     unsafe {
         let msg_variant = PacketType::FinalizationMessage;
         let payload = slice::from_raw_parts(data as *const u8, len as usize);
-        let mut full_payload = Vec::with_capacity(2 + payload.len());
-        (msg_variant as u16).serial(&mut full_payload);
+        let mut full_payload = Vec::with_capacity(1 + payload.len());
+        (msg_variant as u8).serial(&mut full_payload);
 
         full_payload.write_all(&payload).unwrap(); // infallible
         let full_payload = Arc::from(full_payload);
@@ -620,8 +620,8 @@ macro_rules! sending_callback {
             };
 
             let payload = slice::from_raw_parts($msg as *const u8, $msg_length as usize);
-            let mut full_payload = Vec::with_capacity(2 + payload.len());
-            (msg_variant as u16).serial(&mut full_payload);
+            let mut full_payload = Vec::with_capacity(1 + payload.len());
+            (msg_variant as u8).serial(&mut full_payload);
             full_payload.write_all(&payload).unwrap(); // infallible
             let full_payload = Arc::from(full_payload);
 

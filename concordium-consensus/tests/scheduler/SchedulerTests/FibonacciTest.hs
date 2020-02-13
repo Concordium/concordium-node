@@ -1,7 +1,4 @@
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE LambdaCase #-}
-{-# OPTIONS_GHC -Wall #-}
 module SchedulerTests.FibonacciTest where
 
 import Test.Hspec
@@ -22,8 +19,6 @@ import qualified Concordium.Scheduler as Sch
 
 import Concordium.GlobalState.Basic.BlockState.Account as Acc
 import Concordium.GlobalState.Basic.BlockState.Instances as Ins
-import Concordium.GlobalState.Modules as Mod
-import qualified Concordium.GlobalState.Rewards as Rew
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
 
@@ -32,22 +27,21 @@ import Control.Monad.IO.Class
 
 import Lens.Micro.Platform
 
-import SchedulerTests.DummyData
+import Concordium.Scheduler.DummyData
+import Concordium.GlobalState.DummyData
+import Concordium.Types.DummyData
+import Concordium.Crypto.DummyData
 
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState
-initialBlockState =
-  emptyBlockState emptyBirkParameters dummyCryptographicParameters &
-    (blockAccounts .~ Acc.putAccountWithRegIds (mkAccount alesVK alesAccount 1000000000) Acc.emptyAccounts) .
-    (blockBank . Rew.totalGTU .~ 1000000000) .
-    (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
+initialBlockState = blockStateWithAlesAccount 1000000000 Acc.emptyAccounts 1000000000
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =
   [TJSON { payload = DeployModule "FibContract"
-         , metadata = makeHeader alesAccount 1 10000
+         , metadata = makeDummyHeader alesAccount 1 10000
          , keypair = alesKP
          }
 
@@ -56,7 +50,7 @@ transactionsInput =
                                   , parameter = "Unit.Unit"
                                   , contractName = "Fibonacci"
                                   }
-        , metadata = makeHeader alesAccount 2 100000
+        , metadata = makeDummyHeader alesAccount 2 100000
         , keypair = alesKP
         }
   ,TJSON { payload = Update { amount = 0
@@ -64,7 +58,7 @@ transactionsInput =
                             , message = "Fib 30"
                             , address = Types.ContractAddress { contractIndex = 0, contractSubindex = 0}
                             }
-        , metadata = makeHeader alesAccount 3 1000000
+        , metadata = makeDummyHeader alesAccount 3 1000000
         , keypair = alesKP
         }
   ]
@@ -79,9 +73,9 @@ testFibonacci ::
 testFibonacci = do
     source <- liftIO $ TIO.readFile "test/contracts/FibContract.acorn"
     (_, _) <- PR.processModule source -- execute only for effect on global state, i.e., load into cache
-    transactions <- processTransactions transactionsInput
+    transactions <- processUngroupedTransactions transactionsInput
     let ((Sch.FilteredTransactions{..}, _), gs) =
-          Types.runSI (Sch.filterTransactions blockSize transactions)
+          Types.runSI (Sch.filterTransactions dummyBlockSize (Types.Energy maxBound) transactions)
             dummySpecialBetaAccounts
             Types.dummyChainMeta
             initialBlockState
@@ -97,16 +91,16 @@ checkFibonacciResult ::
   ([(a, Types.ValidResult)], [b], [(Types.ContractAddress, Types.Instance)]) -> Bool
 checkFibonacciResult (suc, fails, instances) =
   null fails && -- should be no failed transactions
-  length reject == 0 && -- no rejected transactions either
+  null reject && -- no rejected transactions either
   length instances == 1 && -- only a single contract instance should be created
   checkLocalState (snd (head instances)) -- and the local state should match the actual list of fibonacci numbers
   where
-    reject = filter (\case (_, Types.TxSuccess _ _ _) -> False
-                           (_, Types.TxReject _ _ _) -> True
+    reject = filter (\case (_, Types.TxSuccess{}) -> False
+                           (_, Types.TxReject{}) -> True
                     )
                         suc
     checkLocalState inst =
-      let results = List.sort . map snd $ (extractMap (Types.instanceModel inst))
+      let results = List.sort . map snd $ extractMap (Types.instanceModel inst)
       in results == take 31 fib
     extractMap (Types.VConstructor _ (Types.VLiteral (Core.Int64 k) Seq.:<|
                                       Types.VLiteral (Core.Int64 v) Seq.:<|
@@ -115,6 +109,6 @@ checkFibonacciResult (suc, fails, instances) =
 
 tests :: Spec
 tests =
-  describe "Fibonacci with self reference." $ do
-    specify "Check first 31 fibonacci are correct." $ do
+  describe "Fibonacci with self reference." $
+    specify "Check first 31 fibonacci are correct." $
       PR.evalContext Init.initialContextData testFibonacci `shouldReturnP` checkFibonacciResult
