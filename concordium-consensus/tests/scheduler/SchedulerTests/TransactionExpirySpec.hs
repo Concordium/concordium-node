@@ -1,7 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# OPTIONS_GHC -Wall #-}
-{-# LANGUAGE LambdaCase #-}
 module SchedulerTests.TransactionExpirySpec where
 
 import Test.Hspec
@@ -17,10 +14,8 @@ import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.BlockSignature as BlockSig
 import qualified Concordium.Crypto.BlsSignature as Bls
-import Concordium.GlobalState.Basic.BlockState.Account as Acc
-import Concordium.GlobalState.Modules as Mod
-import Concordium.GlobalState.Rewards as Rew
 import Concordium.GlobalState.Basic.BlockState
+import Concordium.GlobalState.Basic.BlockState.Account as Acc
 import Concordium.GlobalState.Basic.BlockState.Invariants
 import Concordium.GlobalState.Bakers
 import qualified Concordium.Scheduler.Types as Types
@@ -28,21 +23,19 @@ import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import Concordium.Scheduler.Runner
 import qualified Concordium.Scheduler as Sch
 
-import SchedulerTests.DummyData
+import Concordium.Scheduler.DummyData
+import Concordium.GlobalState.DummyData
+import Concordium.Types.DummyData
+import Concordium.Crypto.DummyData
 
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState
-initialBlockState =
-  emptyBlockState emptyBirkParameters dummyCryptographicParameters &
-    (blockAccounts .~ Acc.putAccountWithRegIds (mkAccount alesVK alesAccount 200000) Acc.emptyAccounts) .
-    (blockBank . Rew.totalGTU .~ 200000) .
-    (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs))) .
-    (blockIdentityProviders .~ dummyIdentityProviders)
+initialBlockState = blockStateWithAlesAccount 200000 Acc.emptyAccounts 200000
 
 baker :: (BakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
-baker = mkBaker 1 alesAccount
+baker = mkFullBaker 1 alesAccount
 
 -- A list of transactions all of which are valid unless they are expired.
 -- This list includes all payload types to ensure that expiry is handled for
@@ -121,9 +114,9 @@ testExpiryTime ::
 testExpiryTime expiry = do
     source <- liftIO $ TIO.readFile "test/contracts/FibContract.acorn"
     (_, _) <- PR.processModule source
-    ts <- processTransactions $ transactions expiry
+    ts <- processUngroupedTransactions $ transactions expiry
     let ((Sch.FilteredTransactions{..}, _), gstate) =
-          Types.runSI (Sch.filterTransactions blockSize ts)
+          Types.runSI (Sch.filterTransactions dummyBlockSize (Types.Energy maxBound) ts)
             dummySpecialBetaAccounts
             Types.dummyChainMeta { Types.slotTime = slotTime }
             initialBlockState
@@ -136,9 +129,9 @@ checkExpiryTimeResult :: Types.TransactionExpiryTime ->
                           [(Types.BareTransaction, Types.FailureKind)],
                           [Types.BareTransaction]) ->
                          Bool
-checkExpiryTimeResult (Types.TransactionExpiryTime exp) (added, fails, unprocs) =
+checkExpiryTimeResult (Types.TransactionExpiryTime expiry) (added, fails, unprocs) =
     null unprocs &&
-        if slotTime <= exp
+        if slotTime <= expiry
         -- transactions haven't expired, so they should all succeed
         then check fails added (\case (_, Types.TxSuccess{}) -> True
                                       _ -> False)

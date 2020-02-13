@@ -1,7 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TupleSections #-}
 {-# OPTIONS_GHC -Wall #-}
 module Concordium.Scheduler
   (filterTransactions
@@ -29,7 +27,7 @@ import qualified Concordium.Scheduler.Cost as Cost
 import Control.Applicative
 import Control.Monad.Except
 import qualified Data.HashMap.Strict as Map
-import Data.Maybe(fromJust)
+import Data.Maybe(fromJust, isJust)
 import qualified Data.Set as Set
 import qualified Data.PQueue.Prio.Max as Queue
 
@@ -513,9 +511,9 @@ handleDeployCredential senderAccount meta cdiBytes cdi =
                               return $! TxSuccess [CredentialDeployed cdv] energyCost usedEnergy
                             else
                               return $! TxReject AccountCredentialInvalid energyCost usedEnergy
-                  ID.NewAccount keys threshold -> do
+                  ID.NewAccount keys threshold ->
                     -- account does not yet exist, so create it, but we need to be careful
-                    if null keys || length keys > 255 then do
+                    if null keys || length keys > 255 then
                       return $! TxReject AccountCredentialInvalid energyCost usedEnergy
                     else do
                       let accountKeys = ID.makeAccountKeys keys threshold
@@ -523,7 +521,7 @@ handleDeployCredential senderAccount meta cdiBytes cdi =
                       let account = newAccount accountKeys aaddr
                       -- this check is extremely unlikely to fail (it would amount to a hash collision since
                       -- we checked regIdEx above already.
-                      accExistsAlready <- maybe False (const True) <$> getAccount aaddr
+                      accExistsAlready <- isJust <$> getAccount aaddr
                       let check = AH.verifyCredential cryptoParams ipInfo Nothing cdiBytes
                       if not accExistsAlready && check then do
                         _ <- putNewAccount account -- first create new account, but only if credential was valid.
@@ -762,9 +760,22 @@ handleDelegateStake senderAccount meta targetBaker =
 
 -- *Exposed methods.
 -- |Make a valid block out of a list of transactions, respecting the given
--- maximum block size. The list of input transactions is traversed from left to
--- right and any invalid transactions are not included in the block. The return
--- value is a FilteredTransactions object where
+-- maximum block size and block energy limit. The list of input transactions is traversed from left to
+-- right and any invalid transactions are not included in the block.
+-- This function assumes that the transactions appear grouped by their associated account address,
+-- and that each transaction group is ordered by transaction nonce.
+-- In particular, given a transaction group [T1, T2, ..., T_n], once a transaction T_i gets rejected,
+-- all following transactions T_i+1, ..., T_n are also rejected with a SuccessorOfInvalidTransaction failure.
+-- It will not be checked whether
+-- 1. the accounts of the rejected transactions are the same as of T_i,
+-- 2. the nonces of the rejected transactions are greater than T_i's nonce, or
+-- 3. there is a single group for each account.
+-- If there are multiple transaction groups G1 and G2 that are associated with the same account,
+-- and there is an invalid transaction in the first group G1, the transactions in G2 will still be processed
+-- and will not automatically fail with a SuccessorOfInvalidTransaction reason.
+-- It is the task of the caller to ensure that the above properties hold if it is important to reject successors
+-- of transactions. However, this might not be important for testing purposes.
+-- The return value is a FilteredTransactions object where
 --
 --   * @ftAdded@ is the list of transactions that should appear on the block in
 --     the order they should appear
@@ -774,24 +785,36 @@ handleDelegateStake senderAccount meta targetBaker =
 --   * @ftUnprocessed@ is a list of transactions which were not
 --     processed due to size restrictions.
 filterTransactions :: (TransactionData msg, SchedulerMonad m)
-                      => Integer -> [msg] -> m (FilteredTransactions msg, Energy)
-filterTransactions maxSize = go 0 0 [] [] []
-  where go !totalEnergyUsed size valid invalid unprocessed (t:ts) = do
+                      => Integer -> Energy -> GroupedTransactions msg -> m (FilteredTransactions msg, Energy)
+filterTransactions maxSize maxEnergy = go 0 0 [] [] []
+  where go !totalEnergyUsed size valid invalid unprocessed ((t:ts) : rest) = do
           let csize = size + fromIntegral (transactionSize t)
-          if csize <= maxSize then -- if the next transaction can fit into a block then add it.
+              tenergy = transactionGasAmount t
+              cenergy = totalEnergyUsed + tenergy
+          if csize <= maxSize && cenergy <= maxEnergy then -- if the next transaction can fit into a block then add it.
              dispatch t >>= \case
-               TxValid reason -> go (totalEnergyUsed + vrEnergyCost reason) csize ((t, reason):valid) invalid unprocessed ts
-               TxInvalid reason -> go totalEnergyUsed csize valid ((t, reason):invalid) unprocessed ts
+               TxValid reason ->
+                 go (totalEnergyUsed + vrEnergyCost reason) csize ((t, reason):valid) invalid unprocessed (ts : rest)
+               TxInvalid reason ->
+                 go totalEnergyUsed csize valid (invalidTs t reason ts invalid) unprocessed rest
+          -- if the stated energy of a single transaction exceeds the block energy limit the transaction is invalid
+          else if tenergy > maxEnergy then
+             go totalEnergyUsed size valid (invalidTs t ExceedsMaxBlockEnergy ts invalid) unprocessed rest
           else -- otherwise still try the remaining transactions to avoid deadlocks from
                -- one single too-big transaction.
-             go totalEnergyUsed size valid invalid (t:unprocessed) ts
+             go totalEnergyUsed size valid invalid (t:unprocessed) (ts:rest)
+        go !totalEnergyUsed size valid invalid unprocessed ([] : rest) =
+          go totalEnergyUsed size valid invalid unprocessed rest
         go !totalEnergyUsed _ valid invalid unprocessed [] =
           let txs = FilteredTransactions{
                       ftAdded = reverse valid,
                       ftFailed = invalid,
                       ftUnprocessed = unprocessed
                     }
-          in return (txs, totalEnergyUsed)
+          in return (txs, totalEnergyUsed)         
+        -- Maps an invalid transaction t to its failure reason and appends the remaining transactions in the group
+        -- with a SuccessorOfInvalidTransaction failure
+        invalidTs t failure ts = (++) ((t, failure) : map (, SuccessorOfInvalidTransaction) ts)
 
 -- |Execute transactions in sequence. Return 'Nothing' if one of the transactions
 -- fails, and otherwise return a list of transactions with their outcomes.

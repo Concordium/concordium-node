@@ -1,7 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE LambdaCase #-}
-{-# OPTIONS_GHC -Wall #-}
 module SchedulerTests.AccountTransactionSpecs where
 
 import Test.Hspec
@@ -16,14 +13,15 @@ import qualified Concordium.Scheduler as Sch
 import qualified Concordium.Scheduler.Cost as Cost
 
 import Concordium.GlobalState.Basic.BlockState.Account as Acc
-import Concordium.GlobalState.Modules as Mod
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
-import qualified Concordium.GlobalState.Rewards as Rew
 import Lens.Micro.Platform
 import Control.Monad.IO.Class
 
-import SchedulerTests.DummyData
+import Concordium.Scheduler.DummyData
+import Concordium.GlobalState.DummyData
+import Concordium.Types.DummyData
+import Concordium.Crypto.DummyData
 
 import qualified Acorn.Core as Core
 
@@ -34,14 +32,7 @@ initialAmount :: Types.Amount
 initialAmount = fromIntegral (6 * Cost.deployCredential + 7 * Cost.checkHeader)
 
 initialBlockState :: BlockState
-initialBlockState =
-  -- NB: We need 6 * deploy account since we still charge the cost even if an
-  -- account already exists (case 4 in the tests).
-  emptyBlockState emptyBirkParameters dummyCryptographicParameters &
-    (blockAccounts .~ Acc.putAccountWithRegIds (mkAccount alesVK alesAccount initialAmount) Acc.emptyAccounts) .
-    (blockBank . Rew.totalGTU .~ initialAmount) .
-    (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs))) .
-    (blockIdentityProviders .~ dummyIdentityProviders)
+initialBlockState = blockStateWithAlesAccount initialAmount Acc.emptyAccounts initialAmount
 
 deployAccountCost :: Types.Energy
 deployAccountCost = Cost.deployCredential + Cost.checkHeader
@@ -49,31 +40,31 @@ deployAccountCost = Cost.deployCredential + Cost.checkHeader
 transactionsInput :: [TransactionJSON]
 transactionsInput =
   [TJSON { payload = DeployCredential cdi1
-         , metadata = makeHeader alesAccount 1 deployAccountCost
+         , metadata = makeDummyHeader alesAccount 1 deployAccountCost
          , keypair = alesKP
          }
   ,TJSON { payload = DeployCredential cdi2
-         , metadata = makeHeader alesAccount 2 deployAccountCost
+         , metadata = makeDummyHeader alesAccount 2 deployAccountCost
          , keypair = alesKP
          }
   ,TJSON { payload = DeployCredential cdi3
-         , metadata = makeHeader alesAccount 3 deployAccountCost
+         , metadata = makeDummyHeader alesAccount 3 deployAccountCost
          , keypair = alesKP
          }
   ,TJSON { payload = DeployCredential cdi4 -- should fail because repeated credential ID
-         , metadata = makeHeader alesAccount 4 deployAccountCost
+         , metadata = makeDummyHeader alesAccount 4 deployAccountCost
          , keypair = alesKP
          }
   ,TJSON { payload = DeployCredential cdi5
-         , metadata = makeHeader alesAccount 5 deployAccountCost
+         , metadata = makeDummyHeader alesAccount 5 deployAccountCost
          , keypair = alesKP
          }
   ,TJSON { payload = DeployCredential cdi6 -- deploy just a new predicate
-         , metadata = makeHeader alesAccount 6 deployAccountCost
+         , metadata = makeDummyHeader alesAccount 6 deployAccountCost
          , keypair = alesKP
          }
   ,TJSON { payload = DeployCredential cdi7  -- should run out of gas (see initial amount on the sender account)
-         , metadata = makeHeader alesAccount 7 Cost.checkHeader
+         , metadata = makeDummyHeader alesAccount 7 Cost.checkHeader
          , keypair = alesKP
          }
   ]
@@ -87,9 +78,9 @@ testAccountCreation ::
      Types.Account,
      Types.BankStatus)
 testAccountCreation = do
-    transactions <- processTransactions transactionsInput
+    transactions <- processUngroupedTransactions transactionsInput
     let ((Sch.FilteredTransactions{..}, _), state) =
-          Types.runSI (Sch.filterTransactions blockSize transactions)
+          Types.runSI (Sch.filterTransactions dummyBlockSize (Types.Energy maxBound) transactions)
             dummySpecialBetaAccounts
             Types.dummyChainMeta
             initialBlockState
@@ -130,6 +121,6 @@ checkAccountCreationResult (suc, fails, stateAccs, stateAles, bankState) =
 
 tests :: Spec
 tests =
-  describe "Account creation" $ do
-    specify "3 accounts created, fourth rejected, one more created, a credential deployed, and out of gas " $ do
+  describe "Account creation" $
+    specify "3 accounts created, fourth rejected, one more created, a credential deployed, and out of gas " $
       PR.evalContext Init.initialContextData testAccountCreation `shouldReturnP` checkAccountCreationResult

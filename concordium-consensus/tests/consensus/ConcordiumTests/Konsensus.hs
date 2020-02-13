@@ -53,6 +53,8 @@ import Concordium.Kontrol.UpdateLeaderElectionParameters(slotDependentBirkParame
 
 import Concordium.Startup(makeBakerAccount, dummyCryptographicParameters)
 
+import Concordium.Crypto.DummyData
+
 import Test.QuickCheck
 import Test.QuickCheck.Monadic
 import Test.Hspec
@@ -422,8 +424,8 @@ initialEvents states = Seq.fromList [(x, EBake 1) | x <- [0..length states -1]]
 makeBaker :: BakerId -> Amount -> Gen (BakerInfo, BakerIdentity, Account)
 makeBaker bid lot = resize 0x20000000 $ do
         ek@(VRF.KeyPair _ epk) <- arbitrary
-        sk                     <- Sig.genKeyPair
-        blssk                  <- fst . Bls.randomSecretKey . mkStdGen <$> arbitrary
+        sk                     <- genBlockKeyPair
+        blssk                  <- fst . randomBlsSecretKey . mkStdGen <$> arbitrary
         let spk = Sig.verifyKey sk
         let blspk = Bls.derivePublicKey blssk
         let account = makeBakerAccount bid
@@ -440,7 +442,7 @@ initialiseStates n = do
         let bps = BirkParameters 0.5 genesisBakers genesisBakers genesisBakers (genesisSeedState (hash "LeadershipElectionNonce") 10)
             fps = FinalizationParameters [VoterInfo vvk vrfk 1 blspk | (_, (BakerInfo vrfk vvk blspk _ _, _, _)) <- bis] 2
             bakerAccounts = map (\(_, (_, _, acc)) -> acc) bis
-            gen = GenesisData 0 1 bps bakerAccounts [] fps dummyCryptographicParameters dummyIdentityProviders 10
+            gen = GenesisData 0 1 bps bakerAccounts [] fps dummyCryptographicParameters dummyIdentityProviders 10 $ Energy maxBound
         res <- liftIO $ mapM (\(_, (_, bid, _)) -> do
                                 let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                 let config = SkovConfig

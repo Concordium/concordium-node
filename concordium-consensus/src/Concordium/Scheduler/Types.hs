@@ -57,3 +57,8 @@ data FilteredTransactions msg = FilteredTransactions {
   ftUnprocessed :: [msg]
   }
 
+-- |Transactions grouped by accounts.
+-- For example, if T1 and T2 are transactions from account A,
+-- and T3, T4, and T5 are transactions from account B, then
+-- we group the transactions as [[T1, T2], [T3, T4, T5]].
+type GroupedTransactions msg = [[msg]]
