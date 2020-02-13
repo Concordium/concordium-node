@@ -18,6 +18,8 @@ import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Persistent.BlockPointer
 import Concordium.Types
+import Concordium.Crypto.SHA256
+import Concordium.Crypto.BlsSignature
 import Concordium.Types.HashableTo
 import Control.Exception
 import Control.Monad.IO.Class
@@ -45,7 +47,10 @@ finalizationRecordStoreName = "finalization"
 -- |Initialize the database handlers creating the databases if needed and writing the genesis block and its finalization record into the disk
 initialDatabaseHandlers :: PersistentBlockPointer bs -> S.Put -> RuntimeParameters -> IO (DatabaseHandlers bs)
 initialDatabaseHandlers gb serState RuntimeParameters{..} = liftIO $ do
-  let _limits = defaultLimits { mapSize = 16 * 4096, maxDatabases = 2 } -- 64MB
+  -- The initial mapsize needs to be high enough to allocate the genesis block and its finalization record or
+  -- initialization would fail. It also needs to be a multiple of the OS page size. We considered keeping 4096 as a typical
+  -- OS page size and setting the initial mapsize to 64MB which is very unlikely to be reached just by the genesis block.
+  let _limits = defaultLimits { mapSize = 2^(26 :: Int), maxDatabases = 2 } -- 64MB
   createDirectoryIfMissing False rpTreeStateDir
   _storeEnv <- openEnvironment rpTreeStateDir _limits
   _blockStore <- transaction _storeEnv
@@ -58,16 +63,14 @@ initialDatabaseHandlers gb serState RuntimeParameters{..} = liftIO $ do
   transaction _storeEnv (L.put _finalizationRecordStore 0 (Just gbfin))
   return $ DatabaseHandlers {..}
 
-resizeDatabaseHandlers :: DatabaseHandlers bs -> IO (DatabaseHandlers bs)
-resizeDatabaseHandlers dbh = do
-  let lim = (dbh ^. limits)
-      newSize = mapSize lim + 16 * 4096
+resizeDatabaseHandlers :: DatabaseHandlers bs -> Int -> IO (DatabaseHandlers bs)
+resizeDatabaseHandlers dbh size = do
+  let step = 2^(26 :: Int)
+      delta = size + (step - size `mod` step)
+      lim = (dbh ^. limits)
+      newSize = mapSize lim + delta
       _limits = lim { mapSize = newSize }
       _storeEnv = dbh ^. storeEnv
-      dbB = dbh ^. blockStore
-      dbF = dbh ^. finalizationRecordStore
-  closeDatabase dbB
-  closeDatabase dbF
   resizeEnvironment _storeEnv newSize
   _blockStore <- transaction _storeEnv (getDatabase (Just blockStoreName) :: Transaction ReadWrite (Database BlockHash ByteString))
   _finalizationRecordStore <- transaction _storeEnv (getDatabase (Just finalizationRecordStoreName) :: Transaction ReadWrite (Database FinalizationIndex FinalizationRecord))
@@ -80,6 +83,14 @@ data LMDBStoreType = Block (BlockHash, ByteString) -- ^The Blockhash and the ser
                | Finalization (FinalizationIndex, FinalizationRecord) -- ^The finalization index and the associated finalization record
                deriving (Show)
 
+lmdbStoreTypeSize :: LMDBStoreType -> Int
+lmdbStoreTypeSize (Block (_, v)) = digestSize + Data.ByteString.length v
+lmdbStoreTypeSize (Finalization (_, v)) = let FinalizationProof (vs, _)  = finalizationProof v in
+  -- key + finIndex + finBlockPointer + finProof (list of Word32s + BlsSignature.signatureSize) + finDelay
+  64 + 64 + digestSize + (32 * Prelude.length vs) + 48 + 64
+
+-- | Depending on the variant of the provided tuple, this function will perform a `put` transaction in the
+-- correct database.
 putInProperDB :: LMDBStoreType -> DatabaseHandlers bs -> IO ()
 putInProperDB (Block (key, value)) dbh = do
   let env = dbh ^. storeEnv
@@ -96,8 +107,9 @@ putOrResize dbh tup = liftIO $ catch (do
                                          return dbh)
                                     (\(e :: LMDB_Error) -> case e of
                                         LMDB_Error _ _ (Right MDB_MAP_FULL) -> do
-                                          dbh' <- resizeDatabaseHandlers dbh
-                                          putOrResize dbh' tup
+                                          dbh' <- resizeDatabaseHandlers dbh (lmdbStoreTypeSize tup)
+                                          putInProperDB tup dbh'
+                                          return dbh'
                                         _ -> error $ show e)
 
 
