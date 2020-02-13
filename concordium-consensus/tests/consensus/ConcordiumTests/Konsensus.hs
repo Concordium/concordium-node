@@ -147,8 +147,6 @@ invariantSkovData TS.SkovData{..} = do
             let updNonce n = if n == transactionNonce tr then Right (n + 1) else Left $ "Expected " ++ show (transactionNonce tr) ++ " but found " ++ show n ++ " for account " ++ show (transactionSender tr)
             anfts' <- (at (transactionSender tr) . non emptyANFT . anftNextNonce) updNonce anfts
             return (trMap', anfts')
-        finSes = FinalizationSessionId (bpHash _genesisBlockPointer) 0
-        finCom = makeFinalizationCommittee (genesisFinalizationParameters _genesisData)
         notDeadOrPending TreeState.BlockDead = False
         notDeadOrPending (TreeState.BlockPending {}) = False
         notDeadOrPending _ = True
@@ -212,7 +210,7 @@ checkFinalizationRecordsVerify TS.SkovData{..} =
           f (prevRes, i) (fr, bp) = case prevRes of
             Left err -> return (Left err, i+1)
             Right _ ->
-              if i == 0 then
+              if i == (0 :: Int) then
                   return $ (checkBinary (==) bp _genesisBlockPointer "==" "first finalized block" "genesis block", i+1)
               else
                   return (unless (verifyFinalProof finSes finCom fr) $ Left $ "Could not verify finalization record at index " ++ show i, i+1)
@@ -341,10 +339,10 @@ runKonsensusTest steps g states es
                     (_, fs', es') <- myRunSkovT (receiveTransaction tr) handlers fi fs es1
                     continue fs' es'
                 EFinalization fmsg -> do
-                    (_, fs', es') <- myRunSkovT (receiveFinalizationPseudoMessage fmsg) handlers fi fs es1
+                    (_, fs', es') <- myRunSkovT (finalizationReceiveMessage fmsg) handlers fi fs es1
                     continue fs' es'
                 EFinalizationRecord frec -> do
-                    (_, fs', es') <- myRunSkovT (receiveFinalizationRecord frec) handlers fi fs es1
+                    (_, fs', es') <- myRunSkovT (finalizationReceiveRecord False frec) handlers fi fs es1
                     continue fs' es'
                 ETimer t timerEvent -> do
                     if t `Set.member` (es ^. esCancelledTimers) then
@@ -388,10 +386,10 @@ runKonsensusTestSimple steps g states es
                     (_, fs', es') <- myRunSkovT (receiveTransaction tr) handlers fi fs es1
                     continue fs' es'
                 EFinalization fmsg -> do
-                    (_, fs', es') <- myRunSkovT (receiveFinalizationPseudoMessage fmsg) handlers fi fs es1
+                    (_, fs', es') <- myRunSkovT (finalizationReceiveMessage fmsg) handlers fi fs es1
                     continue fs' es'
                 EFinalizationRecord frec -> do
-                    (_, fs', es') <- myRunSkovT (receiveFinalizationRecord frec) handlers fi fs es1
+                    (_, fs', es') <- myRunSkovT (finalizationReceiveRecord False frec) handlers fi fs es1
                     continue fs' es'
                 ETimer t timerEvent -> do
                     if t `Set.member` (es ^. esCancelledTimers) then

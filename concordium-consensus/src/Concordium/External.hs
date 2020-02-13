@@ -833,8 +833,8 @@ receiveCatchUpStatus cptr src cstr len limit cbk = do
         Right cus -> do
             logm External LLDebug $ "Catch-up status message deserialized: " ++ show cus
             let
-                toMsg (MessageBlock, bs) = (MTBlock, bs)
-                toMsg (MessageFinalizationRecord, bs) = (MTFinalizationRecord, bs)
+                toMsg (MessageBlock, mbs) = (MTBlock, mbs)
+                toMsg (MessageFinalizationRecord, mbs) = (MTFinalizationRecord, mbs)
             (response, result) <- case c of
                 BakerRunner{..} -> syncReceiveCatchUp bakerSyncRunner cus
                 PassiveRunner{..} -> syncPassiveReceiveCatchUp passiveSyncRunner cus

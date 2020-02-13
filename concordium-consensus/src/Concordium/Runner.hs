@@ -196,7 +196,7 @@ syncReceiveFinalizationMessage syncRunner finMsg = runSkovTransaction syncRunner
 
 syncReceiveFinalizationRecord :: (FinalizationMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO)) 
     => SyncRunner c -> FinalizationRecord -> IO UpdateResult
-syncReceiveFinalizationRecord syncRunner finRec = runSkovTransaction syncRunner (finalizationReceiveRecord finRec)
+syncReceiveFinalizationRecord syncRunner finRec = runSkovTransaction syncRunner (finalizationReceiveRecord False finRec)
 
 syncReceiveCatchUp :: (SkovMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO)) 
     => SyncRunner c
@@ -252,7 +252,7 @@ syncPassiveReceiveTransaction :: (SkovMonad (SkovT (SkovPassiveHandlers LogIO) c
 syncPassiveReceiveTransaction spr trans = runSkovPassive spr (receiveTransaction trans)
 
 syncPassiveReceiveFinalizationRecord :: (FinalizationMonad (SkovT (SkovPassiveHandlers LogIO) c LogIO)) => SyncPassiveRunner c -> FinalizationRecord -> IO UpdateResult
-syncPassiveReceiveFinalizationRecord spr finRec = runSkovPassive spr (finalizationReceiveRecord finRec)
+syncPassiveReceiveFinalizationRecord spr finRec = runSkovPassive spr (finalizationReceiveRecord False finRec)
 
 syncPassiveReceiveCatchUp :: (SkovMonad (SkovT (SkovPassiveHandlers LogIO) c LogIO)) 
     => SyncPassiveRunner c

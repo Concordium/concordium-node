@@ -219,10 +219,8 @@ instance (
     storeBakedBlock = doStoreBakedBlock
     {-# INLINE receiveTransaction #-}
     receiveTransaction tr = doReceiveTransaction tr 0
-    {-# INLINE tryFinalize #-}
-    tryFinalize = doTryFinalize
     {-# INLINE trustedFinalize #-}
-    trustedFinalize = processFinalization
+    trustedFinalize = doTrustedFinalize
     {-# INLINE handleCatchUpStatus #-}
     handleCatchUpStatus = doHandleCatchUp
 

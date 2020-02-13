@@ -245,3 +245,9 @@ fpmHeader (FPMCatchUp CatchUpMessage{..}) = FinalizationMessageHeader {
             msgDelta = 0,
             msgSenderIndex = cuSenderIndex
         }
+
+roundBaid :: FinalizationSessionId -> FinalizationIndex -> BlockHeight -> ByteString
+roundBaid finSessId finIx finDelta = runPut $ do
+        S.put finSessId
+        S.put finIx
+        S.put finDelta

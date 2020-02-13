@@ -27,7 +27,6 @@ import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Finalization
 import qualified Data.PQueue.Prio.Max as Queue
-import Concordium.Logger
 
 import Concordium.Afgjort.Finalize(FinalizationStateLenses(..))
 

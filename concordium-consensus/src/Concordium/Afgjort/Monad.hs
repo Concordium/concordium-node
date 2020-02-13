@@ -47,7 +47,7 @@ class (Monad m) => FinalizationMonad m where
     --
     --   * If the record is invalid, returns 'ResultInvalid'.
     --   * If the record is valid and contains new signatures, stores the record and returns 'ResultSuccess'.
-    --   * Returns 'ResultDuplicate'.
+    --   * If @validateDuplicate@ is not set or the record is valid, returns 'ResultDuplicate'.
     --
     -- When more than one case could apply, it is unspecified which is chosen. It is intended that
     -- 'ResultSuccess' should be used wherever possible, but 'ResultDuplicate' can be returned in any
@@ -61,7 +61,10 @@ class (Monad m) => FinalizationMonad m where
     --
     -- If the record is for a future finalization index (that is not next), 'ResultUnverifiable' is returned
     -- and the record is discarded.
-    finalizationReceiveRecord :: FinalizationRecord -> m UpdateResult
+    finalizationReceiveRecord ::
+        Bool -- ^ @validateDuplicate@
+        -> FinalizationRecord
+         -> m UpdateResult
     -- |Get the (best available) finalization record for a given finalization index
     -- that is not settled.
     finalizationUnsettledRecordAt :: FinalizationIndex -> m (Maybe FinalizationRecord)

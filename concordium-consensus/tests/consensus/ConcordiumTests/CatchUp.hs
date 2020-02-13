@@ -70,10 +70,10 @@ runKonsensus steps g states es
                     (_, fs', es') <- myRunSkovT (receiveTransaction tr) handlers fi fs es1
                     continue fs' es'
                 EFinalization fmsg -> do
-                    (_, fs', es') <- myRunSkovT (receiveFinalizationPseudoMessage fmsg) handlers fi fs es1
+                    (_, fs', es') <- myRunSkovT (finalizationReceiveMessage fmsg) handlers fi fs es1
                     continue fs' es'
                 EFinalizationRecord frec -> do
-                    (_, fs', es') <- myRunSkovT (receiveFinalizationRecord frec) handlers fi fs es1
+                    (_, fs', es') <- myRunSkovT (finalizationReceiveRecord False frec) handlers fi fs es1
                     continue fs' es'
                 ETimer t timerEvent ->
                     if t `Set.member` (es ^. esCancelledTimers) then

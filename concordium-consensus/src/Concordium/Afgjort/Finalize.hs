@@ -28,19 +28,13 @@ module Concordium.Afgjort.Finalize (
     initialFinalizationState,
     verifyFinalProof,
     makeFinalizationCommittee,
-    notifyBlockArrival,
-    notifyBlockFinalized,
-    receiveFinalizationMessage,
-    receiveFinalizationPseudoMessage,
-    nextFinalizationJustifierHeight,
-    finalizationCatchUpMessage,
     nextFinalizationRecord,
-    receiveFinalizationRecord,
-    unsettledFinalizationRecords,
     PassiveFinalizationM(..),
     ActiveFinalizationM(..),
     -- * For testing
-    FinalizationRound(..)
+    FinalizationRound(..),
+    -- * TODO: Remove if unneeded
+    nextFinalizationJustifierHeight
 ) where
 
 import qualified Data.Vector as Vec
@@ -48,9 +42,6 @@ import qualified Data.Map.Strict as Map
 import Data.Map.Strict(Map)
 import qualified Data.Set as Set
 import Data.Set(Set)
-import qualified Data.Sequence as Seq
-import qualified Data.Serialize as S
-import Data.Serialize.Put
 import Data.Maybe
 import Lens.Micro.Platform
 import Control.Monad.State.Class
@@ -60,7 +51,6 @@ import Control.Monad
 import Data.Bits
 import Data.Time.Clock
 import qualified Data.OrdPSQ as PSQ
-import qualified Data.ByteString as BS
 
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.BlsSignature as Bls
@@ -204,6 +194,15 @@ type FinalizationStateMonad r s m = (MonadState s m, FinalizationStateLenses s (
 
 type FinalizationBaseMonad r s m = (SkovMonad m, FinalizationStateMonad r s m, MonadIO m, TimerMonad m, FinalizationOutputMonad m)
 
+-- |This sets the base time for triggering finalization replay.
+finalizationReplayBaseDelay :: NominalDiffTime
+finalizationReplayBaseDelay = 30
+
+-- |This sets the per-party additional delay for finalization replay.
+-- 
+finalizationReplayStaggerDelay :: NominalDiffTime
+finalizationReplayStaggerDelay = 5
+
 doResetTimer :: (FinalizationBaseMonad r s m) => m ()
 doResetTimer = do
         oldTimer <- finCatchUpTimer <<.= Nothing
@@ -212,9 +211,11 @@ doResetTimer = do
         forM_ curRound $ \FinalizationRound{..} ->
             let spawnTimer = do
                     attempts <- use finCatchUpAttempts
-                    timer <- onTimeout (DelayFor $ fromIntegral (attempts + 1) * (300 + 5 * fromIntegral roundMe)) $ do
+                    logEvent Afgjort LLTrace $ "Setting replay timer (attempts: " ++ show attempts ++ ")"
+                    timer <- onTimeout (DelayFor $ fromIntegral (attempts + 1) * (finalizationReplayBaseDelay + finalizationReplayStaggerDelay * fromIntegral roundMe)) $ do
                         finInst <- getFinalizationInstance
                         finSt <- get
+                        logEvent Afgjort LLTrace $ "Sending finalization summary (attempt " ++ show (attempts + 1) ++ ")"
                         mapM_ broadcastFinalizationPseudoMessage (finalizationCatchUpMessage finInst finSt)
                         finCatchUpAttempts %= (+1)
                         spawnTimer
@@ -314,22 +315,11 @@ handleWMVBAOutputEvents evs = do
                         finalizationProof = FinalizationProof (parties, sig),
                         finalizationDelay = roundDelta
                     }
-                    {-
-                    _ <- finalizeBlock finRec
-                    broadcastFinalizationRecord finRec
-                    -}
-                    b <- resolveBlock finBlock
-                    forM_ b $ \finBP -> trustedFinalize finBP finRec
-                    -- finQueue %= addFinalization finRec
+                    _ <- trustedFinalize finRec
+                    addQueuedFinalization _finsSessionId _finsCommittee finRec
                     handleEvs True evs'
                 handleEvs True (WMVBAComplete _ : evs') = handleEvs True evs'
             handleEvs False evs
-
-roundBaid :: FinalizationSessionId -> FinalizationIndex -> BlockHeight -> BS.ByteString
-roundBaid finSessId finIx finDelta = runPut $ do
-        S.put finSessId
-        S.put finIx
-        S.put finDelta
 
 liftWMVBA :: (FinalizationBaseMonad r s m) => WMVBA Sig.Signature a -> m a
 liftWMVBA a = do
@@ -450,8 +440,10 @@ receiveFinalizationPseudoMessage (FPMCatchUp cu@CatchUpMessage{..}) = do
                         if isDup then
                             return ResultDuplicate
                         else do
-                            logEvent Afgjort LLTrace $ "Processing finalization summary"
+                            logEvent Afgjort LLTrace $ "Processing finalization summary from " ++ show cuSenderIndex
                             CatchUpResult{..} <- processFinalizationSummary cuFinalizationSummary
+                            logEvent Afgjort LLTrace $ "Finalization summary was " ++ (if curBehind then "behind" else "not behind")
+                                        ++ " and " ++ (if curSkovCatchUp then "requires Skov catch-up." else "does not require Skov catch-up.")
                             unless curBehind doResetTimer
                             if curSkovCatchUp then
                                 return ResultPendingBlock
@@ -472,7 +464,7 @@ receiveFinalizationPseudoMessage (FPMCatchUp cu@CatchUpMessage{..}) = do
 --
 --   * If the record is invalid, returns 'ResultInvalid'.
 --   * If the record is valid and contains new signatures, stores the record and returns 'ResultSuccess'.
---   * Returns 'ResultDuplicate'.
+--   * If @validateDuplicate@ is not set or the record is valid, returns 'ResultDuplicate'.
 --
 -- When more than one case could apply, it is unspecified which is chosen. It is intended that
 -- 'ResultSuccess' should be used wherever possible, but 'ResultDuplicate' can be returned in any
@@ -486,19 +478,28 @@ receiveFinalizationPseudoMessage (FPMCatchUp cu@CatchUpMessage{..}) = do
 --
 -- If the record is for a future finalization index (that is not next), 'ResultUnverifiable' is returned
 -- and the record is discarded.
-receiveFinalizationRecord :: (SkovMonad m, MonadState s m, FinalizationQueueLenses s) => FinalizationRecord -> m UpdateResult
-receiveFinalizationRecord finRec@FinalizationRecord{..} = do
+receiveFinalizationRecord :: (SkovMonad m, MonadState s m, FinalizationQueueLenses s) => Bool -> FinalizationRecord -> m UpdateResult
+receiveFinalizationRecord validateDuplicate finRec@FinalizationRecord{..} = do
         nextFinIx <- nextFinalizationIndex
         case compare finalizationIndex nextFinIx of
             LT -> do
-                fi <- use (finQueue . to fqFirstIndex)
+                fi <- use (finQueue . fqFirstIndex)
                 if fi < fi then
                     return ResultStale
+                else if validateDuplicate then
+                    checkFinalizationProof finRec >>= \case
+                        Nothing -> return ResultInvalid
+                        Just (finSessId, finCom) -> do
+                            addQueuedFinalization finSessId finCom finRec
+                            return ResultDuplicate
                 else
-                    -- TODO: Add logic here to make use of the finalization record
-                    -- if appropriate.
                     return ResultDuplicate
-            EQ -> tryFinalize finRec
+            EQ -> checkFinalizationProof finRec >>= \case
+                Nothing -> return ResultInvalid
+                Just (finSessId, finCom) -> do
+                    res <- trustedFinalize finRec
+                    addQueuedFinalization finSessId finCom finRec
+                    return res
             GT -> return ResultUnverifiable
 
 -- |Called to notify the finalization routine when a new block arrives.
@@ -549,8 +550,6 @@ notifyBlockFinalized fr@FinalizationRecord{..} bp = do
         forM_ mMyParty $ \myParty -> do
             finFailedRounds .= []
             newRound newFinDelay myParty
-        -- Update the FinalizationQueue
-        finQueue %= addFinalization fr
 
 nextFinalizationDelay :: FinalizationRecord -> BlockHeight
 nextFinalizationDelay FinalizationRecord{..} = if finalizationDelay > 2 then finalizationDelay `div` 2 else 1
@@ -589,6 +588,13 @@ verifyFinalProof sid com@FinalizationCommittee{..} FinalizationRecord{..} =
             Nothing -> False -- If any parties are invalid, reject the proof
             Just pks -> Bls.verifyAggregate toSign pks sig
         sigWeight ps = sum (getPartyWeight com <$> ps)
+
+-- |Check a finalization proof, returning the session id and finalization committee if
+-- successful.
+checkFinalizationProof :: (SkovQueryMonad m) => FinalizationRecord -> m (Maybe (FinalizationSessionId, FinalizationCommittee))
+checkFinalizationProof finRec = getFinalizationContext (finalizationIndex finRec) <&> \case
+        Nothing -> Nothing
+        Just (finSessId, finCom) -> if verifyFinalProof finSessId finCom finRec then Just (finSessId, finCom) else Nothing
 
 -- |Produce a 'FinalizationSummary' based on the finalization state.
 finalizationSummary :: (FinalizationStateLenses s m) => SimpleGetter s FinalizationSummary
@@ -662,14 +668,6 @@ nextFinalizationRecord parentBlock = do
     lfi <- blockLastFinalizedIndex parentBlock
     finalizationUnsettledRecordAt (lfi + 1)
 
-unsettledFinalizationRecordAt :: (MonadState s m, FinalizationQueueLenses s) => FinalizationIndex -> m (Maybe FinalizationRecord)
-unsettledFinalizationRecordAt fi = getFinalization fi <$> use finQueue
-
--- |Return the finalization records for the unsettled finalized blocks with
--- finalization index greater than the specified value.
-unsettledFinalizationRecords :: (MonadState s m, FinalizationQueueLenses s) => FinalizationIndex -> m (Seq.Seq FinalizationRecord)
-unsettledFinalizationRecords fi = use (finQueue . to (getFinalizationsBeyond fi))
-
 -- |'ActiveFinalizationM' provides an implementation of 'FinalizationMonad' that
 -- actively participates in finalization.
 newtype ActiveFinalizationM r s m a = ActiveFinalizationM {runActiveFinalizationM :: m a}
@@ -679,9 +677,9 @@ instance (FinalizationBaseMonad r s m) => FinalizationMonad (ActiveFinalizationM
     finalizationBlockArrival = ActiveFinalizationM . notifyBlockArrival
     finalizationBlockFinal fr b = ActiveFinalizationM (notifyBlockFinalized fr b)
     finalizationReceiveMessage = ActiveFinalizationM . receiveFinalizationPseudoMessage
-    finalizationReceiveRecord = ActiveFinalizationM . receiveFinalizationRecord
-    finalizationUnsettledRecordAt = ActiveFinalizationM . unsettledFinalizationRecordAt
-    finalizationUnsettledRecords = ActiveFinalizationM . unsettledFinalizationRecords
+    finalizationReceiveRecord b fr = ActiveFinalizationM (receiveFinalizationRecord b fr)
+    finalizationUnsettledRecordAt = ActiveFinalizationM . getQueuedFinalization
+    finalizationUnsettledRecords = ActiveFinalizationM . getQueuedFinalizationsBeyond
 
 
 -- |'PassiveFinalizationM' provides an implementation of 'FinalizationMonad' that
@@ -691,8 +689,8 @@ newtype PassiveFinalizationM s m a = PassiveFinalizationM {runPassiveFinalizatio
 
 instance (MonadState s m, FinalizationQueueLenses s, SkovMonad m) => FinalizationMonad (PassiveFinalizationM s m) where
     finalizationBlockArrival _ = return ()
-    finalizationBlockFinal fr _ = PassiveFinalizationM (finQueue %= addFinalization fr)
+    finalizationBlockFinal _ _ = return ()
     finalizationReceiveMessage _ = return ResultSuccess
-    finalizationReceiveRecord = PassiveFinalizationM . receiveFinalizationRecord
-    finalizationUnsettledRecordAt = PassiveFinalizationM . unsettledFinalizationRecordAt
-    finalizationUnsettledRecords = PassiveFinalizationM . unsettledFinalizationRecords
+    finalizationReceiveRecord b fr = PassiveFinalizationM (receiveFinalizationRecord b fr)
+    finalizationUnsettledRecordAt = PassiveFinalizationM . getQueuedFinalization
+    finalizationUnsettledRecords = PassiveFinalizationM . getQueuedFinalizationsBeyond

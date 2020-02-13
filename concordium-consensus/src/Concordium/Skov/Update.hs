@@ -123,6 +123,15 @@ purgePending = do
                                 purgeLoop
         purgeLoop
 
+doTrustedFinalize :: (TreeStateMonad m, SkovMonad m, FinalizationMonad m, OnSkov m) => FinalizationRecord -> m UpdateResult
+doTrustedFinalize finRec =
+    getBlockStatus (finalizationBlockPointer finRec) >>= \case
+        Just (BlockAlive bp) -> ResultSuccess <$ processFinalization bp finRec
+        Just BlockDead -> return ResultInvalid
+        Just BlockFinalized{} -> return ResultInvalid
+        Just BlockPending{} -> return ResultUnverifiable
+        Nothing -> return ResultInvalid
+
 -- |Process the finalization of a block.  The following are assumed:
 --
 -- * The block is either live or finalized.
@@ -210,42 +219,6 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
         finalizationBlockFinal finRec newFinBlock
         onFinalize finRec newFinBlock
 
-checkFinalizationProof :: (TreeStateMonad m, SkovQueryMonad m) => FinalizationRecord -> m Bool
-checkFinalizationProof finRec = do
-        finParams <- getFinalizationParameters
-        genHash <- getHash <$> getGenesisBlockPointer
-        let finSessId = FinalizationSessionId genHash 0 -- FIXME: Don't hard-code this!
-        return $ verifyFinalProof finSessId (makeFinalizationCommittee finParams) finRec
-
--- |Try to finalize given a finalization record.  The finalization record
--- should be for the next finalization index.
---   * If the record is valid and for a known block, that block is finalized
---     and 'ResultSuccess' returned.
---   * If the record is invalid, 'ResultInvalid' is returned.
---   * If the block is unknown, then 'ResultUnverifiable' is returned.
-doTryFinalize :: forall m. (TreeStateMonad m, SkovMonad m, FinalizationMonad m, OnSkov m) => FinalizationRecord -> m UpdateResult
-doTryFinalize finRec = do
-        (_, lfr) <- getLastFinalized
-        if finalizationIndex lfr + 1 /= finalizationIndex finRec then do
-            logEvent Skov LLError $ "Attempted to finalize at level " ++ show (finalizationIndex finRec) ++ " when the next finalization index is " ++ show (finalizationIndex lfr + 1)
-            return ResultInvalid
-        else do
-            isProofValid <- checkFinalizationProof finRec
-            -- check the status of the block being finalized
-            getBlockStatus (finalizationBlockPointer finRec) >>= \case
-                Just (BlockAlive newFinBlock) -> do
-                    if isProofValid then do
-                        processFinalization newFinBlock finRec
-                        return ResultSuccess
-                    else
-                        return ResultInvalid
-                Just BlockDead -> return ResultInvalid
-                Just BlockFinalized{} -> return ResultInvalid
-                Just BlockPending{} -> return ResultUnverifiable
-                Nothing -> return ResultUnverifiable
-            
-
-
 -- |Try to add a block to the tree.  There are three possible outcomes:
 --
 -- 1. The block is determined to be invalid in the current tree.
@@ -301,7 +274,7 @@ addBlock block = do
                 -- If the block contains a finalization record...
                 BlockFinalizationData finRec@FinalizationRecord{..} -> do
                     -- send it to for finalization processing
-                    finOK <- finalizationReceiveRecord finRec >>= \case
+                    finOK <- finalizationReceiveRecord True finRec >>= \case
                         ResultSuccess ->
                             -- In this event, we can be sure that the finalization record
                             -- was used to finalize a block; so in particular, the block it
@@ -310,11 +283,7 @@ addBlock block = do
                             -- block might not be descended from the one it has a finalization
                             -- record for.
                             isJust <$> resolveBlock (bpHash parentP)
-                        ResultDuplicate ->
-                            -- In this event, no new finalization will have taken place, so
-                            -- we can assume that the parent block is still live.
-                            -- Check that the proof is actually valid.
-                            checkFinalizationProof finRec
+                        ResultDuplicate -> return True
                         _ -> return False
                     check finOK $ do
                         -- check that the finalized block at the previous index

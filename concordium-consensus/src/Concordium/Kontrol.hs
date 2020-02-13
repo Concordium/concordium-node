@@ -9,8 +9,11 @@ import Data.Fixed
 
 import Concordium.Types
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Finalization
+import Concordium.GlobalState.Block
 import Concordium.Skov.Monad
 import Concordium.TimeMonad
+import Concordium.Afgjort.Finalize.Types
 
 currentTimestamp :: (TimeMonad m) => m Timestamp
 currentTimestamp = truncate . utcTimeToPOSIXSeconds <$> currentTime
@@ -33,3 +36,13 @@ getSlotTimestamp slot = do
   GenesisData{..} <- getGenesisData
   -- We should be safe with respect to any overflow issues here since Timestamp is Word64
   return (genesisSlotDuration * fromIntegral slot + genesisTime)
+
+-- |Determine the finalization session ID and finalization committee used for finalizing
+-- at the given index.
+getFinalizationContext :: (SkovQueryMonad m) => FinalizationIndex -> m (Maybe (FinalizationSessionId, FinalizationCommittee))
+getFinalizationContext _ = do
+        genHash <- bpHash <$> genesisBlock
+        let finSessId = FinalizationSessionId genHash 0 -- FIXME: Don't hard-code this!
+        -- TODO: Finalization committee determined by block
+        finCom <- makeFinalizationCommittee <$> getFinalizationParameters
+        return $ Just (finSessId, finCom)
