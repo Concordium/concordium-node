@@ -157,7 +157,7 @@ main :: IO ()
 main = do
     let n = 5
     now <- truncate <$> getPOSIXTime
-    let (gen, bis) = makeGenesisData now n 1 0.5 0 dummyCryptographicParameters dummyIdentityProviders []
+    let (gen, bis) = makeGenesisData now n 1 0.5 0 dummyCryptographicParameters dummyIdentityProviders [] (Energy maxBound)
     trans <- transactions <$> newStdGen
     createDirectoryIfMissing True "data"
     chans <- mapM (\(bakerId, (bid, _)) -> do

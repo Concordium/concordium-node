@@ -13,7 +13,6 @@ import qualified Data.PQueue.Prio.Max as Queue
 
 
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
-import qualified Concordium.Crypto.Ed25519Signature as Ed25519
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.SHA256 as Hash
@@ -26,8 +25,8 @@ import Concordium.GlobalState.IdentityProviders
 import Concordium.Birk.Bake
 import Concordium.Types
 import Concordium.ID.Types(randomAccountAddress, makeSingletonAC)
-
-import Concordium.Scheduler.Utils.Init.Example(dummyCredential, dummyExpiryTime)
+import Concordium.Crypto.DummyData
+import Concordium.Scheduler.Utils.Init.Example(dummyCredential, dummyMaxExpiryTime)
 
 import TH.RelativePaths
 
@@ -37,9 +36,9 @@ makeBakers nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17) 0
         mbs gen bid = ((BakerIdentity sk ek blssk, BakerInfo epk spk blspk stake accAddress), account):mbs gen''' (bid+1)
             where
                 (ek@(VRF.KeyPair _ epk), gen') = VRF.randomKeyPair gen
-                (sk, gen'') = Sig.randomKeyPair gen'
+                (sk, gen'') = randomBlockKeyPair gen'
                 spk = Sig.verifyKey sk
-                (blssk, gen''') = Bls.randomSecretKey gen''
+                (blssk, gen''') = randomBlsSecretKey gen''
                 blspk = Bls.derivePublicKey blssk
                 accAddress = _accountAddress account
                 stake = _accountAmount account
@@ -53,12 +52,12 @@ makeBakerAccount bid =
           _accountCredentials = credentialList}
   where
     vfKey = SigScheme.correspondingVerifyKey kp
-    credentialList = Queue.singleton dummyExpiryTime (dummyCredential address dummyExpiryTime)
+    credentialList = Queue.singleton dummyMaxExpiryTime (dummyCredential address dummyMaxExpiryTime)
     acct = newAccount (makeSingletonAC vfKey) address
     -- NB the negation makes it not conflict with other fake accounts we create elsewhere.
     seed = - (fromIntegral bid) - 1
     (address, seed') = randomAccountAddress (mkStdGen seed)
-    kp = uncurry SigScheme.KeyPairEd25519 $ fst (Ed25519.randomKeyPair seed')
+    kp = uncurry SigScheme.KeyPairEd25519 $ fst (randomEd25519KeyPair seed')
 
 makeGenesisData ::
     Timestamp -- ^Genesis time
@@ -69,8 +68,18 @@ makeGenesisData ::
     -> CryptographicParameters -- ^Initial cryptographic parameters.
     -> [IpInfo]   -- ^List of initial identity providers.
     -> [Account]  -- ^List of starting genesis special accounts (in addition to baker accounts).
+    -> Energy -- ^Maximum energy allowed to be consumed by the transactions in a block
     -> (GenesisData, [(BakerIdentity,BakerInfo)])
-makeGenesisData genesisTime nBakers genesisSlotDuration elecDiff finMinSkip genesisCryptographicParameters genesisIdentityProviders genesisSpecialBetaAccounts
+makeGenesisData
+        genesisTime
+        nBakers
+        genesisSlotDuration
+        elecDiff
+        finMinSkip
+        genesisCryptographicParameters
+        genesisIdentityProviders
+        genesisSpecialBetaAccounts
+        genesisMaxBlockEnergy
     = (GenesisData{..}, bakers)
     where
         genesisMintPerSlot = 10 -- default value, OK for testing.
