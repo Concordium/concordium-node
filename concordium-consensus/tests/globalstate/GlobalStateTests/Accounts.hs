@@ -25,6 +25,7 @@ import qualified Data.FixedByteString as FBS
 import Concordium.Types.HashableTo
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.Crypto.SignatureScheme as Sig
+import Concordium.Crypto.DummyData
 import qualified Concordium.ID.Types as ID
 import qualified Concordium.ID.Account as ID
 
@@ -95,7 +96,7 @@ randomActions = sized (ra Set.empty Set.empty)
         randAccount = do
             address <- ID.AccountAddress . FBS.pack <$> vector ID.accountAddressSize
             n <- choose (1,255)
-            akKeys <- OrdMap.fromList . zip [0..] . map Sig.correspondingVerifyKey <$> replicateM n Sig.genKeyPair
+            akKeys <- OrdMap.fromList . zip [0..] . map Sig.correspondingVerifyKey <$> replicateM n genSigSchemeKeyPair
             akThreshold <- fromIntegral <$> choose (1,n)
             return (ID.AccountKeys{..}, address)
         ra _ _ 0 = return []
@@ -164,7 +165,7 @@ randomActions = sized (ra Set.empty Set.empty)
                     rid <- elements (Set.toList rids)
                     (RecordRegId rid:) <$> ra s rids (n-1)
 
-                
+
 
 
 runAccountAction :: (MonadBlobStore m BlobRef, MonadFail m) => AccountAction -> (B.Accounts, P.Accounts) -> m (B.Accounts, P.Accounts)
@@ -211,7 +212,7 @@ runAccountAction (RecordRegId rid) (ba, pa) = do
 emptyTest :: SpecWith BlobStore
 emptyTest = it "empty" $ runReaderT
         (checkEquivalent B.emptyAccounts P.emptyAccounts :: ReaderT BlobStore IO ())
-        
+
 actionTest :: Word -> SpecWith BlobStore
 actionTest lvl = it "account actions" $ \bs -> withMaxSuccess (100 * fromIntegral lvl) $ property $ do
         acts <- randomActions
