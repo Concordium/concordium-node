@@ -13,7 +13,9 @@ import Concordium.GlobalState.Persistent.LMDB
 import Control.Monad.State
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState
-import GlobalStateTests.DummyData
+import Concordium.GlobalState.DummyData
+import Concordium.ID.DummyData
+import Concordium.Crypto.DummyData
 import Control.Monad.RWS.Strict hiding (state)
 import Control.Monad.IO.Class
 import Data.Time.Clock.POSIX
@@ -31,6 +33,7 @@ import System.Directory
 import Concordium.Crypto.VRF as VRF
 import Data.ByteString (ByteString)
 import System.FilePath ((</>))
+import System.Random
 
 newtype MyTreeStateMonad c g s a = MyTreeStateMonad { runMTSM :: RWST c () s IO a }
   deriving (Functor, Applicative, Monad, MonadIO, MonadState s)
@@ -88,8 +91,8 @@ createGlobalState dbDir = do
   now <- truncate <$> getPOSIXTime
   let
     n = 3
-    genesis = makeGenesisData now n 1 0.5 1 dummyCryptographicParameters dummyIdentityProviders []
-    state = genesisState genesis
+    genesis = makeTestingGenesisData now n 1 0.5 1 dummyCryptographicParameters dummyEmptyIdentityProviders [] maxBound
+    state = basicGenesisState genesis
     config = DTDBConfig (defaultRuntimeParameters { rpTreeStateDir = dbDir }) genesis state
   initialiseGlobalState config
 
@@ -112,10 +115,10 @@ testFinalizeABlock = do
   sk <- liftIO $ generateSecretKey
   state <- blockState genesisBlock
   -- Create the block and finrec
-  proof1 <- liftIO $ VRF.prove (proofKP 1) "proof1"
-  proof2 <- liftIO $ VRF.prove (proofKP 1) "proof2"
+  proof1 <- liftIO $ VRF.prove (fst $ randomKeyPair (mkStdGen 1)) "proof1"
+  proof2 <- liftIO $ VRF.prove (fst $ randomKeyPair (mkStdGen 1)) "proof2"
   now <- liftIO $ getCurrentTime
-  pb <- makePendingBlock (kp 1) 1 (bpHash genesisBlock) 0 proof1 proof2 (bpHash genesisBlock) [] now
+  pb <- makePendingBlock (fst $ randomBlockKeyPair (mkStdGen 1)) 1 (bpHash genesisBlock) 0 proof1 proof2 (bpHash genesisBlock) [] now
   now <- liftIO $ getCurrentTime
   blockPtr :: BlockPointer TestM <- makeLiveBlock pb genesisBlock genesisBlock state now 0
   let frec = FinalizationRecord 1 (bpHash blockPtr) (FinalizationProof ([1], sign "Hello" sk)) 0
@@ -140,8 +143,8 @@ testFinalizeABlock = do
   blocksBytes <-  liftIO $ transaction env $ (elems dbB :: Transaction ReadWrite [ByteString])
   blocks <- mapM (constructBlock . Just) blocksBytes
   frecs <- liftIO $ transaction env $ (elems dbF :: Transaction ReadWrite [FinalizationRecord])
-  mapM_ (\b -> liftIO $ should $ elem b [blockPtr, genesisBlock]) (catMaybes blocks)
-  mapM_ (\b -> liftIO $ should $ elem b [frec, genesisFr]) frecs
+  mapM_ (\b -> liftIO $ b `shouldSatisfy` (flip elem [blockPtr, genesisBlock])) (catMaybes blocks)
+  mapM_ (\b -> liftIO $ b `shouldSatisfy` (flip elem [frec, genesisFr])) frecs
   -- check the blocktable
   bs <- use (blockTable . at (bpHash blockPtr))
   liftIO $ bs `shouldBe` Just (Concordium.GlobalState.Persistent.TreeState.BlockFinalized 1)
@@ -154,7 +157,7 @@ testFinalizeABlock = do
 
   -- add another block with different lfin and parent
   now <- liftIO $ getCurrentTime
-  pb2 <- makePendingBlock (kp 1) 2 (bpHash blockPtr) 0 proof1 proof2 (bpHash genesisBlock) [] now
+  pb2 <- makePendingBlock (fst $ randomBlockKeyPair (mkStdGen 1)) 2 (bpHash blockPtr) 0 proof1 proof2 (bpHash genesisBlock) [] now
   now <- liftIO $ getCurrentTime
   blockPtr2 :: BlockPointer TestM <- makeLiveBlock pb2 blockPtr genesisBlock state now 0
   let frec2 = FinalizationRecord 2 (bpHash blockPtr2) (FinalizationProof ([1], sign "Hello" sk)) 0
@@ -174,8 +177,8 @@ testFinalizeABlock = do
   blocksBytes <-  liftIO $ transaction env $ (elems dbB :: Transaction ReadWrite [ByteString])
   blocks <- mapM (constructBlock . Just) blocksBytes
   frecs <- liftIO $ transaction env $ (elems dbF :: Transaction ReadWrite [FinalizationRecord])
-  mapM_ (\b -> liftIO $ should $ elem b [blockPtr2, blockPtr, genesisBlock]) (catMaybes blocks)
-  mapM_ (\b -> liftIO $ should $ elem b [frec2, frec, genesisFr]) frecs
+  mapM_ (\b -> liftIO $ b `shouldSatisfy` (flip elem [blockPtr2, blockPtr, genesisBlock])) (catMaybes blocks)
+  mapM_ (\b -> liftIO $ b `shouldSatisfy` (flip elem [frec2, frec, genesisFr])) frecs
   -- check the blocktable
   bs <- use (blockTable . at (bpHash blockPtr2))
   liftIO $ bs `shouldBe` Just (Concordium.GlobalState.Persistent.TreeState.BlockFinalized 2)
@@ -198,15 +201,17 @@ testEmptyGS = do
   sF <- liftIO $ transaction env $ (size dbF :: Transaction ReadWrite Int)
   liftIO $ sF `shouldBe` 1
   b <- readBlock gbh
+  liftIO $ b `shouldNotBe` Nothing
   case b of
     Just b ->
       liftIO $ bpHash b `shouldBe` gbh
-    _ -> liftIO $ failTest
+    _ -> undefined
   fr <- readFinalizationRecord 0
+  liftIO $ fr `shouldNotBe` Nothing
   case fr of
     Just fr ->
       liftIO $ finalizationBlockPointer fr `shouldBe` gbh
-    _ -> liftIO $ failTest
+    _ -> undefined
 
 tests :: Spec
 tests = do
