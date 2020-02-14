@@ -403,13 +403,14 @@ pub struct CliConfig {
     pub drop_rebroadcast_probability: Option<f64>,
     #[structopt(
         long = "breakage-type",
-        help = "Break for test purposes; spam - send duplicate messages / fuzz - mangle messages"
+        help = "Break for test purposes; spam - send duplicate messages / fuzz - mangle messages \
+                [fuzz|spam]"
     )]
     pub breakage_type: Option<String>,
     #[structopt(
         long = "breakage-target",
         help = "Used together with breakage-type; 0/1/2/3/4/99 - blocks/txs/fin msgs/fin \
-                recs/catch-up msgs/everything"
+                recs/catch-up msgs/everything [0|1|2|3|4|99]"
     )]
     pub breakage_target: Option<u8>,
     #[structopt(
@@ -535,18 +536,17 @@ pub fn parse_config() -> Fallible<Config> {
             && conf.cli.breakage_level.is_some()
             || conf.cli.breakage_type.is_none()
                 && conf.cli.breakage_target.is_none()
-                && conf.cli.breakage_level.is_none()
+                && conf.cli.breakage_level.is_none(),
+        "The 3 breakage options (breakage-type, breakage-target, breakage-level) must be enabled \
+         or disabled together"
     );
 
-    ensure!({
-        if let Some(ref breakage_type) = conf.cli.breakage_type {
-            assert!(["spam", "fuzz"].contains(&breakage_type.as_str()));
-            if let Some(breakage_target) = conf.cli.breakage_target {
-                assert!([0, 1, 2, 3, 4, 99].contains(&breakage_target));
-            }
+    if let Some(ref breakage_type) = conf.cli.breakage_type {
+        ensure!(["spam", "fuzz"].contains(&breakage_type.as_str()), "Unsupported breakage-type");
+        if let Some(breakage_target) = conf.cli.breakage_target {
+            ensure!([0, 1, 2, 3, 4, 99].contains(&breakage_target), "Unsupported breakage-target");
         }
-        true
-    });
+    }
 
     Ok(conf)
 }
