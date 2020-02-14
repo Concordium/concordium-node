@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleContexts, NumericUnderscores, ScopedTypeVariables, TypeFamilies, FlexibleInstances, GeneralizedNewtypeDeriving, TemplateHaskell, UndecidableInstances, StandaloneDeriving, DerivingVia, RecordWildCards #-}
+{-# LANGUAGE FlexibleContexts, NumericUnderscores, ScopedTypeVariables, TypeFamilies, FlexibleInstances, GeneralizedNewtypeDeriving, TemplateHaskell, UndecidableInstances, StandaloneDeriving, DerivingVia, RecordWildCards, LambdaCase #-}
 -- |This module provides an abstraction over the operations done in the LMDB database that serves as a backend for storing blocks and finalization records.
 
 module Concordium.GlobalState.Persistent.LMDB (
@@ -101,16 +101,16 @@ putInProperDB (Finalization (key, value)) dbh =  do
 -- |Provided default function that tries to perform an insertion in a given database of a given value,
 -- altering the environment if needed when the database grows.
 putOrResize :: MonadIO m => DatabaseHandlers bs -> LMDBStoreType -> m (DatabaseHandlers bs)
-putOrResize dbh tup = liftIO $ catch (do
-                                         putInProperDB tup dbh
-                                         return dbh)
-                                    (\(e :: LMDB_Error) -> case e of
-                                        LMDB_Error _ _ (Right MDB_MAP_FULL) -> do
-                                          dbh' <- resizeDatabaseHandlers dbh (lmdbStoreTypeSize tup)
-                                          putInProperDB tup dbh'
-                                          return dbh'
-                                        _ -> error $ show e)
-
+putOrResize dbh tup = liftIO $ handleJust selectDBFullError handleResize tryResizeDB
+    where tryResizeDB = dbh <$ putInProperDB tup dbh
+          -- only handle the db full error and propagate other exceptions.
+          selectDBFullError = \case (LMDB_Error _ _ (Right MDB_MAP_FULL)) -> Just ()
+                                    _ -> Nothing
+          -- Resize the database handlers, and try to add again in case the size estimate
+          -- given by lmdbStoreTypeSize is off.
+          handleResize () = do
+            dbh' <- resizeDatabaseHandlers dbh (lmdbStoreTypeSize tup)
+            putOrResize dbh' tup
 
 -- |Monad to abstract over the operations for reading and writing from a LMDB database. It provides functions for reading and writing Blocks and FinalizationRecords.
 -- The databases should be indexed by the @BlockHash@ and the @FinalizationIndex@ in each case.
