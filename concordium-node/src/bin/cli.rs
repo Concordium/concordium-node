@@ -116,6 +116,7 @@ async fn main() -> Fallible<()> {
         } else {
             ConsensusLogLevel::Warning
         },
+        &data_dir_path,
     )?;
 
     // Start the transaction logging thread

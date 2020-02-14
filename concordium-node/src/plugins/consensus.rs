@@ -20,6 +20,7 @@ use std::{
     fs::OpenOptions,
     io::{Cursor, Read},
     mem,
+    path::PathBuf,
     sync::{Arc, RwLock},
 };
 
@@ -47,6 +48,7 @@ pub fn start_consensus_layer(
     genesis_data: Vec<u8>,
     private_data: Option<Vec<u8>>,
     max_logging_level: consensus::ConsensusLogLevel,
+    appdata_dir: &PathBuf,
 ) -> Fallible<ConsensusContainer> {
     info!("Starting up the consensus thread");
 
@@ -68,6 +70,7 @@ pub fn start_consensus_layer(
         private_data,
         conf.baker_id,
         max_logging_level,
+        appdata_dir,
     )
 }
 
