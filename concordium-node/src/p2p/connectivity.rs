@@ -1,6 +1,9 @@
 use failure::{err_msg, Error, Fallible};
 use mio::{net::TcpStream, Events, Token};
-use rand::seq::IteratorRandom;
+use rand::{
+    seq::{index::sample, IteratorRandom},
+    Rng,
+};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 use crate::{
@@ -17,7 +20,7 @@ use crate::{
 };
 
 use std::{
-    cmp::Reverse,
+    cmp::{self, Reverse},
     net::{IpAddr, SocketAddr},
     sync::{
         atomic::{AtomicU16, Ordering},
@@ -569,11 +572,19 @@ fn send_message_over_network(
         NetworkPacketType::DirectMessage(receiver)
     };
 
+    let mut message = message.to_vec();
+
+    if let Some((btype, btgt, blvl)) = &node.config.breakage {
+        if btype == "fuzz" && message[0] == *btgt {
+            fuzz_packet(&mut message[1..], *blvl);
+        }
+    }
+
     // Create packet.
     let packet = NetworkPacket {
         packet_type,
         network_id,
-        message: message.to_vec(),
+        message,
     };
 
     if let Ok(sent_packets) = node.process_network_packet(packet, source_id) {
@@ -585,4 +596,14 @@ fn send_message_over_network(
     }
 
     Ok(())
+}
+
+fn fuzz_packet(payload: &mut [u8], level: usize) {
+    let rng = &mut rand::thread_rng();
+
+    let level = cmp::min(payload.len(), level);
+
+    for i in sample(rng, payload.len(), level).into_iter() {
+        payload[i] = rng.gen();
+    }
 }
