@@ -8,7 +8,7 @@ use crate::{
     p2p::bans::BanId,
 };
 
-use std::{collections::HashSet, fmt, sync::Arc};
+use std::{collections::HashSet, fmt};
 
 pub const PROTOCOL_MAX_MESSAGE_SIZE: u32 = 20_971_520; // 20 MIB
 
@@ -70,7 +70,7 @@ pub enum NetworkResponse {
 pub struct NetworkPacket {
     pub packet_type: NetworkPacketType,
     pub network_id:  NetworkId,
-    pub message:     Arc<[u8]>,
+    pub message:     Vec<u8>,
 }
 
 #[derive(Debug, PartialEq)]

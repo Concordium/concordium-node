@@ -20,7 +20,6 @@ use std::{
     io::{self, Read, Write},
     net::{IpAddr, SocketAddr},
     panic,
-    sync::Arc,
 };
 
 impl NetworkMessage {
@@ -32,7 +31,7 @@ impl NetworkMessage {
         }
     }
 
-    pub fn serialize<T: Write>(&mut self, target: &mut T) -> Fallible<()> {
+    pub fn serialize<T: Write>(&self, target: &mut T) -> Fallible<()> {
         let capacity = if let NetworkMessagePayload::NetworkPacket(ref packet) = self.payload {
             packet.message.len() + 64 // FIXME: fine-tune the overhead
         } else {
@@ -41,7 +40,7 @@ impl NetworkMessage {
         let mut builder = FlatBufferBuilder::new_with_capacity(capacity);
 
         let (payload_type, payload_offset) = match self.payload {
-            NetworkMessagePayload::NetworkPacket(ref mut packet) => (
+            NetworkMessagePayload::NetworkPacket(ref packet) => (
                 network::NetworkMessagePayload::NetworkPacket,
                 serialize_packet(&mut builder, packet)?,
             ),
@@ -122,7 +121,7 @@ fn deserialize_packet(root: &network::NetworkMessage) -> Fallible<NetworkMessage
     let network_id = NetworkId::from(packet.networkId());
 
     let payload = if let Some(payload) = packet.payload() {
-        Arc::from(payload)
+        payload.to_vec()
     } else {
         bail!("missing packet payload")
     };
@@ -295,7 +294,7 @@ fn deserialize_response(root: &network::NetworkMessage) -> Fallible<NetworkMessa
 
 fn serialize_packet(
     builder: &mut FlatBufferBuilder,
-    packet: &mut NetworkPacket,
+    packet: &NetworkPacket,
 ) -> io::Result<flatbuffers::WIPOffset<flatbuffers::UnionWIPOffset>> {
     let (destination_offset, destination_type) = match packet.packet_type {
         NetworkPacketType::DirectMessage(target_id) => {

@@ -135,7 +135,7 @@ pub fn create_random_packet(size: usize) -> NetworkMessage {
         payload:    NetworkMessagePayload::NetworkPacket(NetworkPacket {
             packet_type: NetworkPacketType::DirectMessage(P2PNodeId::default()),
             network_id:  NetworkId::from(thread_rng().gen::<u16>()),
-            message:     Arc::from(generate_fake_block(size).unwrap()),
+            message:     generate_fake_block(size).unwrap(),
         }),
     }
 }

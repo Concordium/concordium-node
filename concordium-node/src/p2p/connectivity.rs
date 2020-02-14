@@ -33,7 +33,7 @@ macro_rules! send_to_all {
     ($foo_name:ident, $object_type:ty, $req_type:ident) => {
         pub fn $foo_name(&self, object: $object_type) {
             let request = NetworkRequest::$req_type(object);
-            let mut message = NetworkMessage {
+            let message = NetworkMessage {
                 timestamp1: None,
                 timestamp2: None,
                 payload: NetworkMessagePayload::NetworkRequest(request)
@@ -441,7 +441,7 @@ impl P2PNode {
         };
         let network_id = inner_pkt.network_id;
 
-        let mut message = NetworkMessage {
+        let message = NetworkMessage {
             timestamp1: Some(get_current_stamp()),
             timestamp2: None,
             payload:    NetworkMessagePayload::NetworkPacket(inner_pkt),
@@ -573,7 +573,7 @@ fn send_message_over_network(
     let packet = NetworkPacket {
         packet_type,
         network_id,
-        message,
+        message: message.to_vec(),
     };
 
     if let Ok(sent_packets) = node.process_network_packet(packet, source_id) {

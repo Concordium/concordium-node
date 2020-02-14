@@ -94,7 +94,7 @@ impl P2PNode {
     fn send_get_peers(&self) {
         if let Ok(nids) = safe_read!(self.networks()) {
             let request = NetworkRequest::GetPeers(nids.iter().copied().collect());
-            let mut message = NetworkMessage {
+            let message = NetworkMessage {
                 timestamp1: None,
                 timestamp2: None,
                 payload:    NetworkMessagePayload::NetworkRequest(request),

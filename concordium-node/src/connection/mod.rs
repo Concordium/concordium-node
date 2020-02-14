@@ -293,16 +293,6 @@ impl Connection {
             _ => self.is_post_handshake(),
         };
 
-        // process the incoming message if applicable
-        if is_msg_processable {
-            self.handle_incoming_message(&message);
-        } else {
-            bail!(
-                "Refusing to process or forward the incoming message ({:?}) before a handshake",
-                message,
-            );
-        };
-
         let is_msg_forwardable = match message.payload {
             NetworkMessagePayload::NetworkRequest(ref request, ..) => match request {
                 NetworkRequest::BanNode(..) | NetworkRequest::UnbanNode(..) => {
@@ -318,20 +308,24 @@ impl Connection {
 
         // forward applicable messages to other connections
         if is_msg_forwardable {
-            if let Err(e) = if let NetworkMessagePayload::NetworkPacket(..) = message.payload {
-                // don't forward packets
-                Ok(())
-            } else {
-                self.forward_network_message(&mut message)
-            } {
-                error!("Couldn't forward a network message: {}", e);
-                Ok(())
-            } else {
-                Ok(())
+            if let NetworkMessagePayload::NetworkRequest(..) = message.payload {
+                if let Err(e) = self.forward_network_message(&message) {
+                    error!("Couldn't forward a network message: {}", e);
+                }
             }
-        } else {
-            Ok(())
         }
+
+        // process the incoming message if applicable
+        if is_msg_processable {
+            self.handle_incoming_message(message);
+        } else {
+            bail!(
+                "Refusing to process or forward the incoming message ({:?}) before a handshake",
+                message,
+            );
+        };
+
+        Ok(())
     }
 
     pub fn buckets(&self) -> &RwLock<Buckets> { &self.handler().connection_handler.buckets }
@@ -381,7 +375,7 @@ impl Connection {
     }
 
     pub fn produce_handshake_request(&self) -> Fallible<Vec<u8>> {
-        let mut handshake_request = NetworkMessage {
+        let handshake_request = NetworkMessage {
             timestamp1: Some(get_current_stamp()),
             timestamp2: None,
             payload:    NetworkMessagePayload::NetworkRequest(NetworkRequest::Handshake(
@@ -400,7 +394,7 @@ impl Connection {
     pub fn send_ping(&self) -> Fallible<()> {
         trace!("Sending a ping to {}", self);
 
-        let mut ping = NetworkMessage {
+        let ping = NetworkMessage {
             timestamp1: Some(get_current_stamp()),
             timestamp2: None,
             payload:    NetworkMessagePayload::NetworkRequest(NetworkRequest::Ping),
@@ -417,7 +411,7 @@ impl Connection {
     pub fn send_pong(&self) -> Fallible<()> {
         trace!("Sending a pong to {}", self);
 
-        let mut pong = NetworkMessage {
+        let pong = NetworkMessage {
             timestamp1: Some(get_current_stamp()),
             timestamp2: None,
             payload:    NetworkMessagePayload::NetworkResponse(NetworkResponse::Pong),
@@ -495,7 +489,7 @@ impl Connection {
             }
         };
 
-        if let Some(mut resp) = peer_list_resp {
+        if let Some(resp) = peer_list_resp {
             debug!("Sending my PeerList to peer {}", requestor.id());
 
             let mut serialized = Vec::with_capacity(256);
@@ -509,7 +503,7 @@ impl Connection {
         }
     }
 
-    fn forward_network_message(&self, msg: &mut NetworkMessage) -> Fallible<()> {
+    fn forward_network_message(&self, msg: &NetworkMessage) -> Fallible<()> {
         let mut serialized = Vec::with_capacity(256);
         msg.serialize(&mut serialized)?;
 

@@ -143,7 +143,7 @@ pub fn handle_pkt_out(
     node: &P2PNode,
     dont_relay_to: Vec<P2PNodeId>,
     peer_id: P2PNodeId,
-    msg: Arc<[u8]>,
+    msg: Vec<u8>,
     is_broadcast: bool,
 ) -> Fallible<()> {
     ensure!(msg.len() >= 1, "Packet payload can't be smaller than 1 byte");
@@ -159,7 +159,7 @@ pub fn handle_pkt_out(
     let request = ConsensusMessage::new(
         MessageType::Inbound(peer_id.0, distribution_mode),
         packet_type,
-        msg,
+        Arc::from(msg),
         dont_relay_to.into_iter().map(P2PNodeId::as_raw).collect(),
         None,
     );

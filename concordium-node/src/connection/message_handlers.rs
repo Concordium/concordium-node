@@ -15,12 +15,12 @@ use failure::{Error, Fallible};
 use std::{collections::HashSet, net::SocketAddr, sync::atomic::Ordering};
 
 impl Connection {
-    pub fn handle_incoming_message(&self, full_msg: &NetworkMessage) {
-        if let Err(e) = match &full_msg.payload {
+    pub fn handle_incoming_message(&self, full_msg: NetworkMessage) {
+        if let Err(e) = match full_msg.payload {
             NetworkMessagePayload::NetworkRequest(
                 NetworkRequest::Handshake(remote_node_id, remote_port, ref networks, _),
                 ..,
-            ) => self.handle_handshake_req(*remote_node_id, *remote_port, networks),
+            ) => self.handle_handshake_req(remote_node_id, remote_port, networks),
             NetworkMessagePayload::NetworkRequest(NetworkRequest::Ping, ..) => self.send_pong(),
             NetworkMessagePayload::NetworkResponse(NetworkResponse::Pong, ..) => self.handle_pong(),
             NetworkMessagePayload::NetworkRequest(NetworkRequest::GetPeers(ref networks), ..) => {
@@ -30,23 +30,23 @@ impl Connection {
                 self.handle_peer_list_resp(peers)
             }
             NetworkMessagePayload::NetworkRequest(NetworkRequest::JoinNetwork(network), ..) => {
-                self.handle_join_network_req(*network)
+                self.handle_join_network_req(network)
             }
             NetworkMessagePayload::NetworkRequest(NetworkRequest::LeaveNetwork(network), ..) => {
-                self.handle_leave_network_req(*network)
+                self.handle_leave_network_req(network)
             }
             NetworkMessagePayload::NetworkRequest(NetworkRequest::BanNode(peer_to_ban), ..) => {
-                self.handler().ban_node(*peer_to_ban)
+                self.handler().ban_node(peer_to_ban)
             }
             NetworkMessagePayload::NetworkRequest(NetworkRequest::UnbanNode(peer_to_unban), ..) => {
-                self.handle_unban(*peer_to_unban)
+                self.handle_unban(peer_to_unban)
             }
-            NetworkMessagePayload::NetworkPacket(pac, ..) => self.handle_incoming_packet(&pac),
+            NetworkMessagePayload::NetworkPacket(pac, ..) => self.handle_incoming_packet(pac),
         } {
             if !self.handler_ref.is_terminated.load(Ordering::Relaxed) {
                 // In other case we are closing the node so we won't output the possibly closed
                 // channels errors
-                error!("Couldn't handle the network message {:?}: {}", full_msg, e);
+                error!("Couldn't handle a network message: {}", e);
             }
         }
     }
@@ -190,7 +190,7 @@ impl Connection {
         self.handler().unban_node(peer)
     }
 
-    pub fn handle_incoming_packet(&self, pac: &NetworkPacket) -> Fallible<()> {
+    pub fn handle_incoming_packet(&self, pac: NetworkPacket) -> Fallible<()> {
         let peer_id = self.remote_id().ok_or_else(|| format_err!("handshake not concluded yet"))?;
 
         trace!("Received a Packet from peer {}", peer_id);
@@ -226,7 +226,7 @@ impl Connection {
                 vec![]
             };
 
-        handle_pkt_out(self.handler(), dont_relay_to, peer_id, pac.message.clone(), is_broadcast)
+        handle_pkt_out(self.handler(), dont_relay_to, peer_id, pac.message, is_broadcast)
     }
 
     pub fn handle_invalid_network_msg(&self, err: Error) {
