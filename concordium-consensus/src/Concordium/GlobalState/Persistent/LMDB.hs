@@ -19,7 +19,6 @@ import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Persistent.BlockPointer
 import Concordium.Types
 import Concordium.Crypto.SHA256
-import Concordium.Crypto.BlsSignature
 import Concordium.Types.HashableTo
 import Control.Exception
 import Control.Monad.IO.Class
