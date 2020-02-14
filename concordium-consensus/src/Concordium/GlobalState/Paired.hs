@@ -530,9 +530,9 @@ instance (HasGlobalStateContext (PairGSContext lc rc) r,
     finalizeTransactions trs = do
         coerceGSML $ finalizeTransactions trs
         coerceGSMR $ finalizeTransactions trs
-    commitTransaction slot transaction = do
-        coerceGSML $ commitTransaction slot transaction
-        coerceGSMR $ commitTransaction slot transaction
+    commitTransaction slot bh transaction res = do
+        coerceGSML $ commitTransaction slot bh transaction res
+        coerceGSMR $ commitTransaction slot bh transaction res
     addCommitTransaction tr sl = do
         r1 <- coerceGSML $ addCommitTransaction tr sl
         r2 <- coerceGSMR $ addCommitTransaction tr sl

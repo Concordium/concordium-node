@@ -173,18 +173,18 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadState (Sko
                         Nothing -> Map.toAscList beyond
                         Just s -> (nnce, s) : Map.toAscList beyond
     addCommitTransaction tr slot = do
-            tt <- use transactionTable
             let trHash = getHash tr
+            tt <- use transactionTable
             case tt ^. ttHashMap . at trHash of
                 Nothing ->
                   if (tt ^. ttNonFinalizedTransactions . at sender . non emptyANFT . anftNextNonce) <= nonce then do
                     transactionTable .= (tt & (ttNonFinalizedTransactions . at sender . non emptyANFT . anftMap . at nonce . non Set.empty %~ Set.insert tr)
-                                            & (ttHashMap . at (getHash tr) ?~ (tr, slot)))
+                                            & (ttHashMap . at (getHash tr) ?~ (tr, Received slot)))
                     return (TS.Added tr)
                   else return TS.ObsoleteNonce
-                Just (tr', slot') -> do
-                                when (slot > slot') $ transactionTable .= (tt & ttHashMap . at trHash ?~ (tr', slot))
-                                return $ TS.Duplicate tr'
+                Just (tr', results) -> do
+                  when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at trHash . mapped . _2 . tsSlot .=  slot
+                  return $ TS.Duplicate tr'
         where
             sender = transactionSender tr
             nonce = transactionNonce tr
@@ -201,14 +201,14 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadState (Sko
                         forM_ (Set.delete tr nfn) $ \deadTransaction -> transactionTable . ttHashMap . at (getHash deadTransaction) .= Nothing
                         -- Update the non-finalized transactions for the sender
                         transactionTable . ttNonFinalizedTransactions . at sender ?= (anft & (anftMap . at nonce .~ Nothing) & (anftNextNonce .~ nonce + 1))
-    commitTransaction slot tr =
-        transactionTable . ttHashMap . at (getHash tr) %= fmap (_2 %~ max slot)
+    commitTransaction slot bh tr result =
+        transactionTable . ttHashMap . at (getHash tr) %= fmap (_2 %~ addResult bh slot result)
     purgeTransaction tr =
         use (transactionTable . ttHashMap . at (getHash tr)) >>= \case
             Nothing -> return True
-            Just (_, slot) -> do
+            Just (_, results) -> do
                 lastFinSlot <- blockSlot . _bpBlock . fst <$> TS.getLastFinalized
-                if (lastFinSlot >= slot) then do
+                if (lastFinSlot >= results ^. tsSlot) then do
                     let nonce = transactionNonce tr
                         sender = transactionSender tr
                     transactionTable . ttHashMap . at (getHash tr) .= Nothing
