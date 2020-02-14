@@ -7,7 +7,13 @@
         #-}
 -- |An implementation of a BlockPointer that doesn't retain the parent or last finalized block so that they can be written into the disk and dropped from the memory.
 
-module Concordium.GlobalState.Persistent.BlockPointer where
+module Concordium.GlobalState.Persistent.BlockPointer(
+  PersistentBlockPointer(..),
+  makeBlockPointerFromPendingBlock,
+  makeBlockPointerFromBlock,
+  makeGenesisBlockPointer
+  )
+  where
 
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.GlobalState.Basic.Block

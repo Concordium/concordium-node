@@ -181,8 +181,10 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
     bsoNotifyExecutionCost bs amnt =
       return . snd $ bs & blockBank . Rewards.executionCost <%~ (+ amnt)
 
-    bsoNotifyIdentityIssuerCredential bs idk =
-      return . snd $ bs & blockBank . Rewards.identityIssuersRewards . at idk . non 0 <%~ (+ 1)
+    bsoNotifyIdentityIssuerCredential BlockState{..} idk =
+      let Rewards.BankStatus{..} = _blockBank in
+        let _identityIssuersRewards = HashMap.alter (Just . maybe 1 (+1)) idk _identityIssuersRewards in
+            return $ BlockState { _blockBank = Rewards.BankStatus { .. }, ..}
 
     {-# INLINE bsoGetExecutionCost #-}
     bsoGetExecutionCost bs =
