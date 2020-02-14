@@ -26,6 +26,7 @@ import Data.Functor.Identity
 import Data.IORef (newIORef,writeIORef)
 import Data.Proxy
 import Data.Serialize.Put (runPut)
+import System.FilePath
 
 import Concordium.GlobalState.Basic.BlockState as BS
 import Concordium.GlobalState.Basic.TreeState
@@ -282,7 +283,7 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
     type GSContext MemoryTreeDiskBlockConfig = PersistentBlockStateContext
     type GSState MemoryTreeDiskBlockConfig = SkovData PersistentBlockState
     initialiseGlobalState (MTDBConfig rtparams gendata bs) = do
-        pbscBlobStore <- createTempBlobStore
+        pbscBlobStore <- createTempBlobStore . (<.> "dat") . rpBlockStateFile $ rtparams
         pbscModuleCache <- newIORef emptyModuleCache
         let pbsc = PersistentBlockStateContext{..}
         pbs <- makePersistent bs
@@ -300,7 +301,7 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
     type GSContext DiskTreeDiskBlockConfig = PersistentBlockStateContext
     type GSState DiskTreeDiskBlockConfig = SkovPersistentData PersistentBlockState
     initialiseGlobalState (DTDBConfig rtparams gendata bs) = do
-        pbscBlobStore <- createTempBlobStore
+        pbscBlobStore <- createTempBlobStore . (<.> "dat") . rpBlockStateFile $ rtparams
         pbscModuleCache <- newIORef emptyModuleCache
         pbs <- makePersistent bs
         let pbsc = PersistentBlockStateContext{..}
