@@ -193,20 +193,24 @@ data RuntimeParameters = RuntimeParameters {
   -- of arbitrary size from other bakers.
   rpBlockSize :: !Int,
   -- |Treestate storage directory.
-  rpTreeStateDir :: !FilePath
+  rpTreeStateDir :: !FilePath,
+  -- |BlockState storage file.
+  rpBlockStateFile :: !FilePath
   }
 
 -- |Default runtime parameters, block size = 10MB.
 defaultRuntimeParameters :: RuntimeParameters
 defaultRuntimeParameters = RuntimeParameters {
   rpBlockSize = 10 * 10^(6 :: Int), -- 10MB
-  rpTreeStateDir = "treestate"
+  rpTreeStateDir = "treestate",
+  rpBlockStateFile = "blockstate"
   }
 
 instance FromJSON RuntimeParameters where
   parseJSON = withObject "RuntimeParameters" $ \v -> do
     rpBlockSize <- v .: "blockSize"
-    rpTreeStateDir <- v .: "treestateDir"
+    rpTreeStateDir <- v .: "treeStateDir"
+    rpBlockStateFile <- v .: "blockStateFile"
     when (rpBlockSize <= 0) $
       fail "Block size must be a positive integer."
     return RuntimeParameters{..}

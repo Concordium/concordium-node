@@ -223,6 +223,6 @@ actionTest lvl = it "account actions" $ \bs -> withMaxSuccess (100 * fromIntegra
 
 tests :: Word -> Spec
 tests lvl = describe "GlobalStateTests.Accounts" $
-    around (bracket createTempBlobStore destroyTempBlobStore) $ do
+    around (bracket (createTempBlobStore "blockstate.dat") destroyTempBlobStore) $ do
         emptyTest
         actionTest lvl
