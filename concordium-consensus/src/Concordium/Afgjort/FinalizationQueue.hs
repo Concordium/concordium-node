@@ -15,6 +15,7 @@ import qualified Concordium.Crypto.BlsSignature as Bls
 import Concordium.Types
 import Concordium.GlobalState.Finalization
 
+import Concordium.Skov.Monad (UpdateResult(..))
 import Concordium.Afgjort.Types
 import Concordium.Afgjort.Finalize.Types
 import qualified Concordium.Afgjort.CSS.BitSet as BitSet
@@ -236,7 +237,7 @@ updateQueuedFinalizationIndex fi = do
 -- |Get all finalization records in the queue with finalization index greater than
 -- the specified value. The records are returned in ascending order of finalization
 -- index.
-getQueuedFinalizationsBeyond :: (MonadState s m , FinalizationQueueLenses s) => FinalizationIndex -> m (Seq.Seq FinalizationRecord)
+getQueuedFinalizationsBeyond :: (MonadState s m, FinalizationQueueLenses s) => FinalizationIndex -> m (Seq.Seq FinalizationRecord)
 getQueuedFinalizationsBeyond fi = do
         firsti <- use (finQueue . fqFirstIndex)
         let
@@ -246,8 +247,26 @@ getQueuedFinalizationsBeyond fi = do
                 finQueue . fqProofs . ix (i + offset) .= fp'
                 return fr
         use (finQueue . fqProofs) >>= (Seq.traverseWithIndex trav . Seq.drop offset)
-    
 
+-- |This function determines if a witness signature for a party could usefully be added
+-- to a queued finalization proof.
+tryAddQueuedWitness :: (MonadState s m, FinalizationQueueLenses s) => FinalizationMessage -> m UpdateResult
+tryAddQueuedWitness msg@FinalizationMessage{msgHeader=FinalizationMessageHeader{..}, msgBody=WMVBAWitnessCreatorMessage (val, blssig)} =
+        use finQueue >>= \case
+            FinalizationQueue{..}
+                | msgFinalizationIndex >= _fqFirstIndex
+                , let fqIndex = fromIntegral (msgFinalizationIndex - _fqFirstIndex)
+                , Just FinalizationProven{..} <- _fqProofs Seq.!? fqIndex
+                , val == fpBlock ->
+                    if msgSenderIndex `BitSet.member` (fpCheckedSignatureSet `BitSet.union` fpUncheckedSignatureSet `BitSet.union` fpBadSignatureSet) then
+                        return ResultDuplicate
+                    else if checkMessage fpCommittee msg then do
+                        finQueue . fqProofs . ix fqIndex %= fpAddUncheckedSignature msgSenderIndex blssig
+                        return ResultSuccess
+                    else
+                        return ResultStale
+                | otherwise -> return ResultStale
+tryAddQueuedWitness _ = return ResultStale
 
     ----
 {-

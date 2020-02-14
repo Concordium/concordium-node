@@ -175,8 +175,10 @@ main = do
                 Left (bh, block, gs') -> do
                     let ts = blockTransactions block
                     -- let stateStr = show gs'
-
-                    putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]\"];"
+                    let finInfo = case bfBlockFinalizationData (bbFields block) of
+                            NoFinalizationData -> ""
+                            BlockFinalizationData fr -> "\\lfin.wits:" ++ show (finalizationProofParties $ finalizationProof fr)
+                    putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]" ++ finInfo ++  "\"];"
                     putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockPointer block) ++ ";"
                     case (blockFinalizationData block) of
                         NoFinalizationData -> return ()

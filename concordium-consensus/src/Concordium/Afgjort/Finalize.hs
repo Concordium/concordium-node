@@ -33,7 +33,7 @@ module Concordium.Afgjort.Finalize (
     ActiveFinalizationM(..),
     -- * For testing
     FinalizationRound(..),
-    -- * TODO: Remove if unneeded
+    -- TODO: Remove if unneeded
     nextFinalizationJustifierHeight
 ) where
 
@@ -381,7 +381,7 @@ receiveFinalizationMessage msg@FinalizationMessage{msgHeader=FinalizationMessage
         if _finsSessionId == msgSessionId then
             -- Check the finalization index is not out of date
             case compare msgFinalizationIndex _finsIndex of
-                LT -> return ResultStale -- message is out of date
+                LT -> tryAddQueuedWitness msg
                 GT -> -- Message is from the future; consider it invalid if it's not the index after the current one.
                     if msgFinalizationIndex - _finsIndex < 2 then do
                         -- Save the message for a later finalization index
