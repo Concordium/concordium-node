@@ -6,8 +6,18 @@ CABAL_BUILDER_VERSION="3.0.0.0"
 pacman -Sy
 pacman -S reflector --noconfirm
 reflector --latest 20 --protocol http --protocol https --sort rate --save /etc/pacman.d/mirrorlist
-pacman -S wget tar make m4 pkgconf autoconf automake grep python clang libtool ncurses which rustup binutils --noconfirm
+pacman -S wget tar make m4 pkgconf autoconf automake grep python clang libtool ncurses which rustup binutils git --noconfirm
 ln -s /usr/lib/libtinfo.so.6 /usr/lib/libtinfo.so.5
+
+# Compile lmdb
+git clone https://github.com/LMDB/lmdb
+(
+    cd lmdb/libraries/liblmdb
+    make install
+    mv /usr/local/lib/liblmdb* /usr/lib/
+    mv /usr/local/include/lmdb.h /usr/include/
+)
+
 
 wget https://s3-eu-west-1.amazonaws.com/static-libraries.concordium.com/fpic-ghc-$GHC_VERSION.tar.gz
 
