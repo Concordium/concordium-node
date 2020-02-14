@@ -146,7 +146,7 @@ pub fn handle_pkt_out(
     msg: Vec<u8>,
     is_broadcast: bool,
 ) -> Fallible<()> {
-    ensure!(msg.len() >= 1, "Packet payload can't be smaller than 1 byte");
+    ensure!(!msg.is_empty(), "Packet payload can't be smaller than 1 byte");
     let consensus_type = u8::deserial(&mut Cursor::new(&msg[..1]))?;
     let packet_type = PacketType::try_from(consensus_type)?;
 

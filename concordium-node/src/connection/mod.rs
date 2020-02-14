@@ -229,7 +229,7 @@ impl Connection {
         packet: &mut NetworkPacket,
         deduplication_queues: &DeduplicationQueues,
     ) -> Fallible<bool> {
-        ensure!(packet.message.len() >= 1);
+        ensure!(!packet.message.is_empty());
         let packet_type = PacketType::try_from(
             u8::deserial(&mut Cursor::new(&packet.message[..1]))
                 .expect("Writing to buffer is safe."),

@@ -519,7 +519,7 @@ mod tests {
         use crate::test_utils::create_random_packet;
 
         let payload_size = 1000;
-        let mut msg = create_random_packet(payload_size);
+        let msg = create_random_packet(payload_size);
         let mut buffer = std::io::Cursor::new(Vec::with_capacity(payload_size));
 
         msg.serialize(&mut buffer).unwrap();
