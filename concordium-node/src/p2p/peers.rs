@@ -94,7 +94,7 @@ impl P2PNode {
     fn send_get_peers(&self) {
         if let Ok(nids) = safe_read!(self.networks()) {
             let request = NetworkRequest::GetPeers(nids.iter().copied().collect());
-            let mut message = NetworkMessage {
+            let message = NetworkMessage {
                 timestamp1: None,
                 timestamp2: None,
                 payload:    NetworkMessagePayload::NetworkRequest(request),
@@ -106,7 +106,7 @@ impl P2PNode {
                 message
                     .serialize(&mut buf)
                     .map(|_| buf)
-                    .and_then(|buf| self.send_over_all_connections(buf, &filter))
+                    .and_then(|buf| self.send_over_all_connections(&buf, &filter))
             } {
                 error!("A network message couldn't be forwarded: {}", e);
             }

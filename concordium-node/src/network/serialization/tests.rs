@@ -14,7 +14,7 @@ macro_rules! test_s11n {
     ($name:ident, $payload:expr) => {
         #[test]
         fn $name() {
-            let mut msg = NetworkMessage {
+            let msg = NetworkMessage {
                 timestamp1: None,
                 timestamp2: None,
                 payload:    $payload,
@@ -100,7 +100,7 @@ test_s11n!(
 
 #[test]
 fn s11n_packet() {
-    let mut msg = create_random_packet(8);
+    let msg = create_random_packet(8);
     let mut buffer = Cursor::new(Vec::new());
 
     msg.serialize(&mut buffer).unwrap();

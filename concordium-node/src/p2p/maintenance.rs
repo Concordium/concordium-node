@@ -81,6 +81,7 @@ pub struct P2PNodeConfig {
     pub no_rebroadcast_consensus_validation: bool,
     pub drop_rebroadcast_probability: Option<f64>,
     pub partition_network_for_time: Option<usize>,
+    pub breakage: Option<(String, u8, usize)>,
 }
 
 pub type Networks = HashSet<NetworkId, BuildNoHashHasher<u16>>;
@@ -220,6 +221,16 @@ impl P2PNode {
         #[cfg(feature = "network_dump")]
         create_dump_thread(ip, id, _dump_rx, _act_rx, &conf.common.data_dir);
 
+        let breakage = if let Some(breakage_type) = &conf.cli.breakage_type {
+            Some((
+                breakage_type.to_owned(),
+                conf.cli.breakage_target.unwrap(), // safe, ensured in config
+                conf.cli.breakage_level.unwrap(),  // ditto
+            ))
+        } else {
+            None
+        };
+
         let config = P2PNodeConfig {
             no_net: conf.cli.no_network,
             desired_nodes_count: conf.connection.desired_nodes,
@@ -280,6 +291,7 @@ impl P2PNode {
                 PeerType::Bootstrapper => conf.bootstrapper.partition_network_for_time,
                 _ => None,
             },
+            breakage,
         };
 
         let connection_handler = ConnectionHandler::new(conf, server, event_log);
