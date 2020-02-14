@@ -31,7 +31,7 @@ import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.IdentityProviders
-import Concordium.Types.Transactions
+import Concordium.Types.Transactions hiding (getTransactionOutcome)
 import qualified Data.PQueue.Prio.Max as Queue
 
 import Data.Maybe

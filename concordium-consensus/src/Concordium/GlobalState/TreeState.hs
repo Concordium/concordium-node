@@ -22,6 +22,7 @@ import Control.Monad.Trans.Except
 import qualified Data.ByteString as ByteString
 
 import Concordium.Types
+import Concordium.Types.Execution(ValidResult)
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Block
@@ -238,18 +239,20 @@ class (Eq (BlockPointer m),
     -- continuous sequence by nonce, starting from the next available non-finalized
     -- nonce.
     finalizeTransactions :: [Transaction] -> m ()
-    -- |Mark a transaction as committed on a block with the given slot number.
+    -- |Mark a transaction as committed on a block with the given slot number,
+    -- as well as add any additional outcomes for the given glock.
     -- This will prevent it from being purged while the slot number exceeds
     -- that of the last finalized block.
-    commitTransaction :: Slot -> Transaction -> m ()
+    commitTransaction :: Slot -> BlockHash -> Transaction -> ValidResult -> m ()
     -- |@addCommitTransaction tr slot@ adds a transaction and marks it committed
-    -- for the given slot number.
+    -- for the given slot number. By default the transaction is created in the 'Received' state,
+    -- but if the transaction is already in the table the outcomes are retained.
     -- See documentation of 'AddTransactionResult' for meaning of the return value.
     addCommitTransaction :: Transaction -> Slot -> m AddTransactionResult
     -- |Purge a transaction from the transaction table if its last committed slot
     -- number does not exceed the slot number of the last finalized block.
     -- (A transaction that has been committed to a finalized block should not be purged.)
-    -- Returns @True@ if the transaction is purged.
+    -- Returns @True@ if and only if the transaction is purged.
     purgeTransaction :: Transaction -> m Bool
     -- |Lookup a transaction by its hash.  As well as the transaction, returns
     -- a @Bool@ indicating whether the transaction is already finalized.
@@ -305,7 +308,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     getAccountNonFinalized acc = lift . getAccountNonFinalized acc
     addTransaction  = lift . addTransaction
     finalizeTransactions = lift . finalizeTransactions
-    commitTransaction slot tr = lift $ commitTransaction slot tr
+    commitTransaction slot bh tr = lift . commitTransaction slot bh tr
     addCommitTransaction tr slot = lift $ addCommitTransaction tr slot
     purgeTransaction = lift . purgeTransaction
     lookupTransaction = lift . lookupTransaction
