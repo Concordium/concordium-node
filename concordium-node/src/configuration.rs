@@ -408,12 +408,14 @@ pub struct CliConfig {
     pub breakage_type: Option<String>,
     #[structopt(
         long = "breakage-target",
-        help = "Used together with breakage-type; 0/1/2/3/4 - blocks/txs/fin msgs/fin recs/catch-up msgs"
+        help = "Used together with breakage-type; 0/1/2/3/4/99 - blocks/txs/fin msgs/fin \
+                recs/catch-up msgs/everything"
     )]
     pub breakage_target: Option<u8>,
     #[structopt(
         long = "breakage-level",
-        help = "Used together with breakage-type; either the number of spammed duplicates or mangled bytes"
+        help = "Used together with breakage-type; either the number of spammed duplicates or \
+                mangled bytes"
     )]
     pub breakage_level: Option<usize>,
 }
@@ -528,15 +530,19 @@ pub fn parse_config() -> Fallible<Config> {
     );
 
     ensure!(
-        conf.cli.breakage_type.is_some() && conf.cli.breakage_target.is_some() && conf.cli.breakage_level.is_some() ||
-        conf.cli.breakage_type.is_none() && conf.cli.breakage_target.is_none() && conf.cli.breakage_level.is_none()
+        conf.cli.breakage_type.is_some()
+            && conf.cli.breakage_target.is_some()
+            && conf.cli.breakage_level.is_some()
+            || conf.cli.breakage_type.is_none()
+                && conf.cli.breakage_target.is_none()
+                && conf.cli.breakage_level.is_none()
     );
 
     ensure!({
         if let Some(ref breakage_type) = conf.cli.breakage_type {
             assert!(["spam", "fuzz"].contains(&breakage_type.as_str()));
             if let Some(breakage_target) = conf.cli.breakage_target {
-                assert!([0,1,2,3,4].contains(&breakage_target));
+                assert!([0, 1, 2, 3, 4, 99].contains(&breakage_target));
             }
         }
         true

@@ -524,7 +524,7 @@ impl Connection {
             _ => unreachable!("Only network requests are ever forwarded"),
         };
 
-        self.handler().send_over_all_connections(serialized, &conn_filter).map(|_| ())
+        self.handler().send_over_all_connections(&serialized, &conn_filter).map(|_| ())
     }
 }
 

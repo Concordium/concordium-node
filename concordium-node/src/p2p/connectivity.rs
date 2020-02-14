@@ -47,7 +47,7 @@ macro_rules! send_to_all {
                 let mut buf = Vec::with_capacity(256);
                 message.serialize(&mut buf)
                     .map(|_| buf)
-                    .and_then(|buf| self.send_over_all_connections(buf, &filter))
+                    .and_then(|buf| self.send_over_all_connections(&buf, &filter))
             } {
                 error!("A network message couldn't be forwarded: {}", e);
             }
@@ -72,7 +72,7 @@ impl P2PNode {
     /// # Returns the number of messages queued to be sent
     pub fn send_over_all_connections(
         &self,
-        data: Vec<u8>,
+        data: &[u8],
         conn_filter: &dyn Fn(&Connection) -> bool,
     ) -> Fallible<usize> {
         let mut sent_messages = 0usize;
@@ -444,6 +444,16 @@ impl P2PNode {
         };
         let network_id = inner_pkt.network_id;
 
+        let copies = if let Some((btype, btgt, blvl)) = &self.config.breakage {
+            if btype == "spam" && (inner_pkt.message[0] == *btgt || *btgt == 99) {
+                1 + *blvl
+            } else {
+                1
+            }
+        } else {
+            1
+        };
+
         let message = NetworkMessage {
             timestamp1: Some(get_current_stamp()),
             timestamp2: None,
@@ -453,20 +463,27 @@ impl P2PNode {
         let mut serialized = Vec::with_capacity(256);
         message.serialize(&mut serialized)?;
 
+        let mut sent = 0;
         if let Some(target_id) = target {
             // direct messages
             let filter =
                 |conn: &Connection| conn.remote_peer.peer().map(|p| p.id) == Some(target_id);
 
-            self.send_over_all_connections(serialized, &filter)
+            for _ in 0..copies {
+                sent += self.send_over_all_connections(&serialized, &filter)?;
+            }
         } else {
             // broadcast messages
             let filter = |conn: &Connection| {
                 is_valid_broadcast_target(conn, source_id, &peers_to_skip, network_id)
             };
 
-            self.send_over_all_connections(serialized, &filter)
+            for _ in 0..copies {
+                sent += self.send_over_all_connections(&serialized, &filter)?;
+            }
         }
+
+        Ok(sent)
     }
 
     #[inline]
@@ -575,7 +592,7 @@ fn send_message_over_network(
     let mut message = message.to_vec();
 
     if let Some((btype, btgt, blvl)) = &node.config.breakage {
-        if btype == "fuzz" && message[0] == *btgt {
+        if btype == "fuzz" && (message[0] == *btgt || *btgt == 99) {
             fuzz_packet(&mut message[1..], *blvl);
         }
     }
