@@ -316,7 +316,7 @@ startConsensus maxBlock gdataC gdataLenC bidC bidLenC bcbk cucbk maxLogLevel lcb
             (Right genData, Right bid) -> do
                 let
                     gsconfig = makeGlobalStateConfig
-                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate"))
+                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate"))
                         genData
                     finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)) genData
                     hconfig = HookLogHandler logT
@@ -354,7 +354,7 @@ startConsensusPassive maxBlock gdataC gdataLenC cucbk maxLogLevel lcbk appDataC 
             Right genData -> do
                 let
                     gsconfig = makeGlobalStateConfig
-                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate"))
+                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate"))
                         genData
                     finconfig = NoFinalization
                     hconfig = HookLogHandler Nothing
