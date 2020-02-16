@@ -226,12 +226,8 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadState (Sko
       -- We only need to update the outcomes. The anf table nor the pending table need be updated
       -- here since a transaction should not be marked dead in a finalized block.
       transactionTable . ttHashMap . at (getHash tr) . mapped . _2 %= markDeadResult bh
-    lookupTransaction th =
-        use (transactionTable . ttHashMap . at th) >>= \case
-            Nothing -> return Nothing
-            Just (tr, _) -> do
-                nn <- use (transactionTable . ttNonFinalizedTransactions . at (transactionSender tr) . non emptyANFT . anftNextNonce)
-                return $ Just (tr, transactionNonce tr < nn)
+    lookupTransaction th = use (transactionTable . ttHashMap . at th)
+
     updateBlockTransactions trs pb = return $ pb {pbBlock = (pbBlock pb) {bbTransactions = BlockTransactions trs}}
 
     getConsensusStatistics = use statistics

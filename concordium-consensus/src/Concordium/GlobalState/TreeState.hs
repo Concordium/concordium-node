@@ -274,9 +274,9 @@ class (Eq (BlockPointer m),
     -- |Mark a transaction as no longer on a given block. This is used when a block is
     -- marked as dead.
     markDeadTransaction :: BlockHash -> Transaction -> m ()
-    -- |Lookup a transaction by its hash.  As well as the transaction, returns
-    -- a @Bool@ indicating whether the transaction is already finalized.
-    lookupTransaction :: TransactionHash -> m (Maybe (Transaction, Bool))
+    -- |Lookup a transaction by its hash.  As well as the transaction, return its current
+    -- status as indicated in the transaction table.
+    lookupTransaction :: TransactionHash -> m (Maybe (Transaction, TransactionStatus))
     -- |Replace the transactions in a pending block with an identical set of
     -- transactions.  (If the transactions are not identical, the hash will
     -- not be correct.)  This is intended for de-duplicating transactions.
