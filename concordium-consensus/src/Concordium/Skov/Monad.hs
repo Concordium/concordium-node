@@ -68,6 +68,8 @@ class (Monad m, Eq (BlockPointer m), BlockPointerData (BlockPointer m), BlockSta
     getBlocksAtHeight :: BlockHeight -> m [BlockPointer m]
     -- |Get a block's state.
     queryBlockState :: BlockPointer m -> m (BlockState m)
+    -- |Get the outcomes of a transaction.
+    queryTransactionStatus :: TransactionHash -> m (Maybe TransactionStatus)
 
 class (SkovQueryMonad m, TimeMonad m, LoggerMonad m) => SkovMonad m where
     -- |Store a block in the block table and add it to the tree
@@ -100,6 +102,18 @@ instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (MGSTra
     branchesFromTop = lift branchesFromTop
     getBlocksAtHeight = lift . getBlocksAtHeight
     queryBlockState = lift . queryBlockState
+    queryTransactionStatus = lift . queryTransactionStatus
+    {-# INLINE resolveBlock #-}
+    {-# INLINE isFinalized #-}
+    {-# INLINE lastFinalizedBlock #-}
+    {-# INLINE getBirkParameters #-}
+    {-# INLINE getGenesisData #-}
+    {-# INLINE genesisBlock #-}
+    {-# INLINE getCurrentHeight #-}
+    {-# INLINE branchesFromTop #-}
+    {-# INLINE getBlocksAtHeight #-}
+    {-# INLINE queryBlockState #-}
+    {-# INLINE queryTransactionStatus #-}
 
 instance (Monad (t m), MonadTrans t, SkovMonad m) => SkovMonad (MGSTrans t m) where
     storeBlock b = lift $ storeBlock b

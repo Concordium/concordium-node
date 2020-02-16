@@ -574,6 +574,14 @@ withBlockHash blockcstr logm f =
             newCString "\"Invalid block hash.\""
           Just hash -> f hash
 
+withTransactionHash :: CString -> (String -> IO ()) -> (TransactionHash -> IO CString) -> IO CString
+withTransactionHash trcstr logm f =
+  readMaybe <$> peekCString trcstr >>=
+    \case Nothing -> do
+            logm "Transaction hash invalid. Returning error value."
+            newCString "\"Invalid transaction hash.\""
+          Just hash -> f hash
+
 -- |Get the list of account addresses in the given block. The block must be
 -- given as a null-terminated base16 encoding of the block hash. The return
 -- value is a null-terminated JSON-encoded list of addresses.
@@ -781,6 +789,17 @@ hookTransaction cptr trcstr = do
         jsonValueToCString v
 -}
 
+getTransactionStatus :: StablePtr ConsensusRunner -> CString -> IO CString
+getTransactionStatus cptr trcstr = do
+    c <- deRefStablePtr cptr
+    let logm = consensusLogMethod c
+    logm External LLInfo "Received transaction status request."
+    withBlockHash trcstr (logm External LLDebug) $ \hash -> do
+      status <- runConsensusQuery c (Get.getTransactionStatus hash)
+      let v = AE.toJSON status
+      logm External LLTrace $ "Replying with: " ++ show v
+      jsonValueToCString v
+
 freeCStr :: CString -> IO ()
 freeCStr = free
 
@@ -894,7 +913,7 @@ foreign export ccall getRewardStatus :: StablePtr ConsensusRunner -> CString -> 
 foreign export ccall getBirkParameters :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getModuleList :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getModuleSource :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
--- foreign export ccall hookTransaction :: StablePtr ConsensusRunner -> CString -> IO CString
+foreign export ccall getTransactionStatus :: StablePtr ConsensusRunner -> CString -> IO CString
 
 -- baker status checking
 foreign export ccall checkIfWeAreBaker :: StablePtr ConsensusRunner -> IO Word8

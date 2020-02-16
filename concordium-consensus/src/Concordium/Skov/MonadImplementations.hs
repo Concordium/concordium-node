@@ -190,6 +190,8 @@ instance (
     getBlocksAtHeight = doGetBlocksAtHeight
     {-# INLINE queryBlockState #-}
     queryBlockState = blockState
+    {-# INLINE queryTransactionStatus #-}
+    queryTransactionStatus trHash = fmap snd <$> lookupTransaction trHash
 
 instance (
         Monad m,

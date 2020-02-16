@@ -9,7 +9,9 @@ import Lens.Micro.Platform hiding ((.=))
 
 import Concordium.Kontrol.BestBlock
 import Concordium.Skov
+import qualified Data.HashMap.Strict as HM
 
+import Control.Monad
 import Control.Monad.State.Class
 
 import qualified Concordium.Scheduler.Types as AT
@@ -61,6 +63,35 @@ getBestBlockState = queryBlockState =<< bestBlock
 getLastFinalState :: SkovQueryMonad m => m (BlockState m)
 getLastFinalState = queryBlockState =<< lastFinalizedBlock
 
+getTransactionStatus :: SkovStateQueryable z m => AT.TransactionHash -> z -> IO Value
+getTransactionStatus hash sfsRef = runStateQuery sfsRef $
+  queryTransactionStatus hash >>= \case
+    Nothing -> return Null
+    Just AT.Received{} ->
+      return $ object ["status" .= String "Received"]
+    Just AT.Finalized{..} -> 
+      withBlockStateJSON tsBlockHash $ \bs -> do
+        outcome <- BS.getTransactionOutcome bs tsResult
+        return $ object ["status" .= String "Finalized",
+                         "blockHash" .= tsBlockHash,
+                         "result" .= outcome
+                        ]
+    Just AT.Committed{..} -> do
+      outcomes <- forM (HM.toList tsResults) $ \(bh, idx) ->
+        resolveBlock bh >>= \case
+          Nothing -> return (T.pack (show bh) .= Null) -- should not happen
+          Just bp -> do
+            outcome <- flip BS.getTransactionOutcome idx =<< queryBlockState bp
+            return (T.pack (show bh) .= outcome)
+      return $ object (("status" .= String "Committed"):outcomes)
+                       
+
+withBlockState :: SkovQueryMonad m => BlockHash -> (BlockState m -> m a) -> m (Maybe a)
+withBlockState hash f =
+  resolveBlock hash >>=
+    \case Nothing -> return Nothing
+          Just bp -> fmap Just . f =<< queryBlockState bp
+
 withBlockStateJSON :: SkovQueryMonad m => BlockHash -> (BlockState m -> m Value) -> m Value
 withBlockStateJSON hash f =
   resolveBlock hash >>=
@@ -86,8 +117,9 @@ getAccountInfo hash sfsRef addr = runStateQuery sfsRef $
       \case Nothing -> return Null
             Just acc -> return $ object ["accountNonce" .= let Nonce n = (acc ^. T.accountNonce) in n
                                         ,"accountAmount" .= toInteger (acc ^. T.accountAmount)
-                                        ,"accountCredentials" .= Queue.toList (acc ^. accountCredentials)
-                                        ,"accountDelegation" .= (toInteger <$> (acc ^. T.accountStakeDelegate))
+                                        -- credentials in descending order
+                                        ,"accountCredentials" .= Queue.elems (acc ^. accountCredentials)
+                                        ,"accountDelegation" .= (acc ^. T.accountStakeDelegate)
                                         ]
 
 getContractInfo :: (SkovStateQueryable z m) => BlockHash -> z -> AT.ContractAddress -> IO Value
@@ -97,8 +129,8 @@ getContractInfo hash sfsRef addr = runStateQuery sfsRef $
       \case Nothing -> return Null
             Just istance -> let params = instanceParameters istance
                             in return $ object ["model" .= jsonStorable (instanceModel istance)
-                                               ,"owner" .= String (T.pack (show (instanceOwner params))) -- account address show instance is base58
-                                               ,"amount" .= toInteger (instanceAmount istance)]
+                                               ,"owner" .= instanceOwner params
+                                               ,"amount" .= instanceAmount istance]
 
 getRewardStatus :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
 getRewardStatus hash sfsRef = runStateQuery sfsRef $
