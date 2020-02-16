@@ -541,7 +541,7 @@ doGetCryptoParams pbs = do
         bsp <- loadPBS pbs
         loadBufferedRef (bspCryptographicParameters bsp)
 
-doGetTransactionOutcome :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> Transactions.TransactionHash -> m (Maybe ValidResult)
+doGetTransactionOutcome :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> Transactions.TransactionIndex -> m (Maybe ValidResult)
 doGetTransactionOutcome pbs transHash = do
         bsp <- loadPBS pbs
         return $! (bspTransactionOutcomes bsp) ^? ix transHash

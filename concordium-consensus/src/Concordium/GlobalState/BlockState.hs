@@ -31,7 +31,7 @@ import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.IdentityProviders
-import Concordium.Types.Transactions hiding (getTransactionOutcome)
+import Concordium.Types.Transactions
 import qualified Data.PQueue.Prio.Max as Queue
 
 import Data.Maybe
@@ -75,7 +75,7 @@ class (Monad m, BlockStateTypes m) => BlockStateQuery m where
     getRewardStatus :: BlockState m -> m BankStatus
 
     -- |Get the outcome of a transaction in the given block.
-    getTransactionOutcome :: BlockState m -> TransactionHash -> m (Maybe ValidResult)
+    getTransactionOutcome :: BlockState m -> TransactionIndex -> m (Maybe ValidResult)
 
     -- |Get special transactions outcomes (for administrative transactions, e.g., baker reward)
     getSpecialOutcomes :: BlockState m -> m [SpecialTransactionOutcome]

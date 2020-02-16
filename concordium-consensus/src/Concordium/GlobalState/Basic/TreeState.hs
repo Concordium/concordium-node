@@ -101,7 +101,7 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadState (Sko
     blockState = return . _bpState
     makePendingBlock key slot parent bid pf n lastFin trs time = return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
     importPendingBlock blockBS rectime =
-        case runGet (getBlock $ utcTimeToTransactionTime rectime) blockBS of
+        case runGet (getBlock (utcTimeToTransactionTime rectime)) blockBS of
             Left err -> return $ Left $ "Block deserialization failed: " ++ err
             Right (GenesisBlock {}) -> return $ Left $ "Block desrialization failed: unexpected genesis block"
             Right (NormalBlock block0) -> return $ Right $ makePendingBlock block0 rectime
@@ -188,7 +188,7 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadState (Sko
         where
             sender = transactionSender tr
             nonce = transactionNonce tr
-    finalizeTransactions = mapM_ finTrans
+    finalizeTransactions bh slot = mapM_ finTrans
         where
             finTrans tr = do
                 let nonce = transactionNonce tr
@@ -197,12 +197,19 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadState (Sko
                 assert (anft ^. anftNextNonce == nonce) $ do
                     let nfn = anft ^. anftMap . at nonce . non Set.empty
                     assert (Set.member tr nfn) $ do
-                        -- Remove any other transactions with this nonce from the transaction table
+                        -- Remove any other transactions with this nonce from the transaction table.
+                        -- They can never be part of any other block after this point.
                         forM_ (Set.delete tr nfn) $ \deadTransaction -> transactionTable . ttHashMap . at (getHash deadTransaction) .= Nothing
+                        -- Mark the status of the transaction as finalized.
+                        -- Singular here is safe due to the precondition (and assertion) that all transactions
+                        -- which are part of live blocks are in the transaction table.
+                        transactionTable . ttHashMap . singular (ix (getHash tr)) . _2 %=
+                            \case Committed{..} -> Finalized{_tsSlot=slot,tsBlockHash=bh,tsResult=tsResults HM.! bh,..}
+                                  _ -> error "Transaction should be in committed state when finalized."
                         -- Update the non-finalized transactions for the sender
                         transactionTable . ttNonFinalizedTransactions . at sender ?= (anft & (anftMap . at nonce .~ Nothing) & (anftNextNonce .~ nonce + 1))
-    commitTransaction slot bh tr result =
-        transactionTable . ttHashMap . at (getHash tr) %= fmap (_2 %~ addResult bh slot result)
+    commitTransaction slot bh tr idx =
+        transactionTable . ttHashMap . at (getHash tr) %= fmap (_2 %~ addResult bh slot idx)
     purgeTransaction tr =
         use (transactionTable . ttHashMap . at (getHash tr)) >>= \case
             Nothing -> return True
@@ -215,6 +222,10 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadState (Sko
                     transactionTable . ttNonFinalizedTransactions . at sender . non emptyANFT . anftMap . at nonce . non Set.empty %= Set.delete tr
                     return True
                 else return False
+    markDeadTransaction bh tr =
+      -- We only need to update the outcomes. The anf table nor the pending table need be updated
+      -- here since a transaction should not be marked dead in a finalized block.
+      transactionTable . ttHashMap . at (getHash tr) . mapped . _2 %= markDeadResult bh
     lookupTransaction th =
         use (transactionTable . ttHashMap . at th) >>= \case
             Nothing -> return Nothing
