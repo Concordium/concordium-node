@@ -527,9 +527,9 @@ instance (HasGlobalStateContext (PairGSContext lc rc) r,
         r1 <- coerceGSML $ addTransaction tr
         r2 <- coerceGSMR $ addTransaction tr
         assert (r1 == r2) $ return r1
-    finalizeTransactions trs = do
-        coerceGSML $ finalizeTransactions trs
-        coerceGSMR $ finalizeTransactions trs
+    finalizeTransactions bh slot trs = do
+        coerceGSML $ finalizeTransactions bh slot trs
+        coerceGSMR $ finalizeTransactions bh slot trs
     commitTransaction slot bh transaction res = do
         coerceGSML $ commitTransaction slot bh transaction res
         coerceGSMR $ commitTransaction slot bh transaction res
@@ -545,6 +545,9 @@ instance (HasGlobalStateContext (PairGSContext lc rc) r,
         r1 <- coerceGSML $ lookupTransaction h
         r2 <- coerceGSMR $ lookupTransaction h
         assert (r1 == r2) $ return r1
+    markDeadTransaction bh tr = do
+      coerceGSML $ markDeadTransaction bh tr
+      coerceGSMR $ markDeadTransaction bh tr
     updateBlockTransactions trs (PairBlockData (pb1, pb2)) = do
         r1 <- coerceGSML $ updateBlockTransactions trs pb1
         r2 <- coerceGSMR $ updateBlockTransactions trs pb2
