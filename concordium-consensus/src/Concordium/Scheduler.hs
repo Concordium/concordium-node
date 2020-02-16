@@ -123,6 +123,7 @@ dispatch msg = do
       -- TODO: Check for existence of valid identity provider.
       -- TODO: Alternative design would be to only reward them if the transaction is successful/committed, or
       -- to add additional parameters (such as deposited amount)
+      -- FIXME: Only consider non-expired credentials.
       mapM_ (notifyIdentityProviderCredential . ID.cdvIpId) (senderAccount ^. accountCredentials)
 
       -- available for execution remaining amount available on the sender's

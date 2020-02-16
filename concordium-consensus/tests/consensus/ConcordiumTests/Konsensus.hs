@@ -64,7 +64,7 @@ import Test.Hspec
 dummyTime :: UTCTime
 dummyTime = posixSecondsToUTCTime 0
 
-type Trs = HM.HashMap TransactionHash (Transaction, Slot)
+type Trs = HM.HashMap TransactionHash (Transaction, TransactionStatus)
 type ANFTS = HM.HashMap AccountAddress AccountNonFinalizedTransactions
 
 type Config t = SkovConfig MemoryTreeMemoryBlockConfig (ActiveFinalization t) NoHandler

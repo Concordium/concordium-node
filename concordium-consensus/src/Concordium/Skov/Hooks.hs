@@ -2,7 +2,7 @@
     TemplateHaskell,
     OverloadedStrings #-}
 module Concordium.Skov.Hooks where
-
+{-
 import Data.Time
 import Lens.Micro.Platform
 import qualified Data.HashPSQ as PSQ
@@ -18,7 +18,7 @@ import Concordium.Logger
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Execution
-import Concordium.Types.Transactions
+import Concordium.Types.Transactions hiding (TransactionStatus)
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.TreeState
@@ -132,3 +132,4 @@ hookQueryTransaction th = do
             logEvent Skov LLTrace $ "Installed hook for transaction " ++ show th ++ " (expires " ++ show hookExpires ++ ")"
         let hookTransactionResults = bps
         return HookResult{..}
+-}

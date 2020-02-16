@@ -1,5 +1,4 @@
 {-# LANGUAGE
-    GeneralizedNewtypeDeriving,
     TypeFamilies,
     DerivingStrategies,
     DerivingVia,
@@ -10,8 +9,8 @@
     PartialTypeSignatures,
     QuantifiedConstraints,
     RankNTypes,
-    TemplateHaskell,
-    CPP #-}
+    TemplateHaskell
+    #-}
 module Concordium.Skov.MonadImplementations where
 
 import Control.Monad.State.Class
@@ -30,7 +29,7 @@ import Concordium.GlobalState.Basic.Block (Block(GenesisBlock))
 import Concordium.Skov.Monad
 import Concordium.Skov.Query
 import Concordium.Skov.Update
-import Concordium.Skov.Hooks
+-- import Concordium.Skov.Hooks
 import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.TimerMonad
@@ -355,12 +354,13 @@ data HookLogHandler = HookLogHandler (Maybe (LogTransferMethod IO))
 instance HandlerConfig (SkovConfig gc fc HookLogHandler) where
     handlerLogTransfer = \_ -> id
     type HCContext (SkovConfig gc fc HookLogHandler) = Maybe (LogTransferMethod IO)
-    type HCState (SkovConfig gc fc HookLogHandler) = TransactionHooks
-    initialiseHandler (SkovConfig _ _ (HookLogHandler logH)) = (logH, emptyHooks)
+    type HCState (SkovConfig gc fc HookLogHandler) = ()
+    initialiseHandler (SkovConfig _ _ (HookLogHandler logH)) = (logH, ())
+
 
 instance Monad m => HandlerConfigHandlers (SkovConfig gc fc HookLogHandler) (SkovT h (SkovConfig gc fc HookLogHandler) m) where
-    handleBlock = hookOnBlock
-    handleFinalize = hookOnFinalize
+    handleBlock = \_ -> return ()
+    handleFinalize = \_ _ -> return ()
 
 instance (GlobalStateConfig gsconf,
         FinalizationConfig (SkovConfig gsconf finconf hconf),
@@ -399,8 +399,10 @@ instance (HasFinalizationInstance (FCContext (SkovConfig gsconf finconf hconf)))
         => HasFinalizationInstance (SkovContext (SkovConfig gsconf finconf hconf)) where
     finalizationInstance = finalizationInstance . scFinContext
 
+{- 
 instance TransactionHookLenses (SkovState (SkovConfig gc fc HookLogHandler)) where
     hooks = lens ssHandlerState (\s v -> s {ssHandlerState = v})
+-}
 
 instance (c ~ GSContext gsconf) => HasGlobalStateContext c (SkovContext (SkovConfig gsconf finconf hconf)) where
     globalStateContext = lens (scGSContext) (\sc v -> sc{scGSContext = v})

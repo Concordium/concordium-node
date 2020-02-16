@@ -761,6 +761,7 @@ getModuleSource cptr blockcstr cstr = do
                 logm External LLTrace $ "Replying with data size = " ++ show (BS.length reply)
                 byteStringToCString reply
 
+{-
 -- |Query consensus about a specific transaction, installing a hook to
 -- observe when the transaction is added to a block.
 -- The transaction hash is passed as a null-terminated base-16 encoded string.
@@ -778,6 +779,7 @@ hookTransaction cptr trcstr = do
         let v = AE.toJSON hookRes
         logm External LLTrace $ "Replying with: " ++ show v
         jsonValueToCString v
+-}
 
 freeCStr :: CString -> IO ()
 freeCStr = free
@@ -892,7 +894,7 @@ foreign export ccall getRewardStatus :: StablePtr ConsensusRunner -> CString -> 
 foreign export ccall getBirkParameters :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getModuleList :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getModuleSource :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
-foreign export ccall hookTransaction :: StablePtr ConsensusRunner -> CString -> IO CString
+-- foreign export ccall hookTransaction :: StablePtr ConsensusRunner -> CString -> IO CString
 
 -- baker status checking
 foreign export ccall checkIfWeAreBaker :: StablePtr ConsensusRunner -> IO Word8

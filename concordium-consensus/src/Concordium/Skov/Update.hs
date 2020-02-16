@@ -82,15 +82,16 @@ logTransfers bp = logTransfer >>= \case
     case blockFields bp of
       Nothing -> return ()  -- don't do anything for the genesis block
       Just fields -> do
-        forM_ (blockTransactions bp) $ \tx ->
-          getTransactionOutcome state (trHash tx) >>= \case
-            Nothing ->
-              logEvent Skov LLDebug $ "Could not retrieve transaction outcome in block " ++
-                                      show (bpHash bp) ++
-                                      " for transaction " ++
-                                      show (trHash tx)
-            Just outcome ->
-              mapM_ (logger (bpHash bp) (blockSlot bp)) (resultToReasons fields tx outcome)
+        let note tx idx = getTransactionOutcome state idx >>= \case
+              Nothing ->
+                logEvent Skov LLDebug $ "Could not retrieve transaction outcome in block " ++
+                                        show (bpHash bp) ++
+                                        " for transaction " ++
+                                        show (trHash tx)
+              Just outcome ->
+                mapM_ (logger (bpHash bp) (blockSlot bp)) (resultToReasons fields tx outcome)
+
+        zipWithM_ note (blockTransactions bp) [0..]
         special <- getSpecialOutcomes state
         mapM_ (logger (bpHash bp) (blockSlot bp) . specialToReason fields) special
 
@@ -195,11 +196,10 @@ processFinalizationPool checkPending = do
                                                 markFinalized (getHash bp) finRec
                                                 logEvent Skov LLDebug $ "Block " ++ show bp ++ " marked finalized"
                                             else do
-                                                markDead (getHash bp)
-                                                purgeBlockState =<< blockState bp
+                                                markLiveBlockDead bp
                                                 logEvent Skov LLDebug $ "Block " ++ show bp ++ " marked dead"
                             pruneTrunk (bpParent keeper) brs
-                            finalizeTransactions (blockTransactions keeper)
+                            finalizeTransactions (getHash keeper) (blockSlot keeper) (blockTransactions keeper)
                             logTransfers keeper
                             
                     pruneTrunk newFinBlock (Seq.take pruneHeight oldBranches)
@@ -211,8 +211,7 @@ processFinalizationPool checkPending = do
                                 if bpParent bp `elem` parents then
                                     return (bp:l)
                                 else do
-                                    markDead (bpHash bp)
-                                    purgeBlockState =<< blockState bp
+                                    markLiveBlockDead bp
                                     logEvent Skov LLDebug $ "Block " ++ show (bpHash bp) ++ " marked dead"
                                     return l)
                                 [] brs
@@ -342,7 +341,7 @@ addBlock block = do
                                         -- possibly add the block nonce in the seed state
                                             bps' = bps{_birkSeedState = updateSeedState (blockSlot block) (blockNonce block) _birkSeedState}
                                         slotTime <- getSlotTimestamp (blockSlot block)
-                                        executeFrom (blockSlot block) slotTime parentP lfBlockP (blockBaker block) bps' ts >>= \case
+                                        executeFrom (getHash block) (blockSlot block) slotTime parentP lfBlockP (blockBaker block) bps' ts >>= \case
                                             Left err -> do
                                                 logEvent Skov LLWarning ("Block execution failure: " ++ show err)
                                                 invalidBlock
