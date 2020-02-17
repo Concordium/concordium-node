@@ -69,11 +69,11 @@ getTransactionStatus hash sfsRef = runStateQuery sfsRef $
   queryTransactionStatus hash >>= \case
     Nothing -> return Null
     Just AT.Received{} ->
-      return $ object ["status" .= String "Received"]
+      return $ object ["status" .= String "received"]
     Just AT.Finalized{..} -> 
       withBlockStateJSON tsBlockHash $ \bs -> do
         outcome <- BS.getTransactionOutcome bs tsResult
-        return $ object ["status" .= String "Finalized",
+        return $ object ["status" .= String "finalized",
                          fromString (show tsBlockHash) .= outcome
                         ]
     Just AT.Committed{..} -> do
@@ -83,19 +83,19 @@ getTransactionStatus hash sfsRef = runStateQuery sfsRef $
           Just bp -> do
             outcome <- flip BS.getTransactionOutcome idx =<< queryBlockState bp
             return (T.pack (show bh) .= outcome)
-      return $ object (("status" .= String "Committed"):outcomes)
+      return $ object (("status" .= String "committed"):outcomes)
 
 getTransactionStatusInBlock :: SkovStateQueryable z m => AT.TransactionHash -> BlockHash -> z -> IO Value
 getTransactionStatusInBlock txHash blockHash sfsRef = runStateQuery sfsRef $
   queryTransactionStatus txHash >>= \case
     Nothing -> return Null
     Just AT.Received{} ->
-      return $ object ["status" .= String "Received"]
+      return $ object ["status" .= String "received"]
     Just AT.Finalized{..} ->
       if tsBlockHash == blockHash then
         withBlockStateJSON tsBlockHash $ \bs -> do
           outcome <- BS.getTransactionOutcome bs tsResult
-          return $ object ["status" .= String "Finalized",
+          return $ object ["status" .= String "finalized",
                            "result" .= outcome
                           ]
       else
@@ -106,7 +106,7 @@ getTransactionStatusInBlock txHash blockHash sfsRef = runStateQuery sfsRef $
         Just idx ->
           withBlockStateJSON blockHash $ \bs -> do
             outcome <- BS.getTransactionOutcome bs idx
-            return $ object ["status" .= String "Committed",
+            return $ object ["status" .= String "committed",
                              "result" .= outcome
                             ]
                        
