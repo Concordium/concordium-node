@@ -40,6 +40,7 @@ import Text.Read hiding (get, String)
 import qualified Data.Map as Map
 import Data.Aeson
 import qualified Data.Text as T
+import Data.String(fromString)
 import Data.Word
 import Data.Vector (fromList)
 
@@ -73,8 +74,7 @@ getTransactionStatus hash sfsRef = runStateQuery sfsRef $
       withBlockStateJSON tsBlockHash $ \bs -> do
         outcome <- BS.getTransactionOutcome bs tsResult
         return $ object ["status" .= String "Finalized",
-                         "blockHash" .= tsBlockHash,
-                         "result" .= outcome
+                         fromString (show tsBlockHash) .= outcome
                         ]
     Just AT.Committed{..} -> do
       outcomes <- forM (HM.toList tsResults) $ \(bh, idx) ->
@@ -84,6 +84,31 @@ getTransactionStatus hash sfsRef = runStateQuery sfsRef $
             outcome <- flip BS.getTransactionOutcome idx =<< queryBlockState bp
             return (T.pack (show bh) .= outcome)
       return $ object (("status" .= String "Committed"):outcomes)
+
+getTransactionStatusInBlock :: SkovStateQueryable z m => AT.TransactionHash -> BlockHash -> z -> IO Value
+getTransactionStatusInBlock txHash blockHash sfsRef = runStateQuery sfsRef $
+  queryTransactionStatus txHash >>= \case
+    Nothing -> return Null
+    Just AT.Received{} ->
+      return $ object ["status" .= String "Received"]
+    Just AT.Finalized{..} ->
+      if tsBlockHash == blockHash then
+        withBlockStateJSON tsBlockHash $ \bs -> do
+          outcome <- BS.getTransactionOutcome bs tsResult
+          return $ object ["status" .= String "Finalized",
+                           "result" .= outcome
+                          ]
+      else
+        return Null
+    Just AT.Committed{..} ->
+      case HM.lookup blockHash tsResults of
+        Nothing -> return Null
+        Just idx ->
+          withBlockStateJSON blockHash $ \bs -> do
+            outcome <- BS.getTransactionOutcome bs idx
+            return $ object ["status" .= String "Committed",
+                             "result" .= outcome
+                            ]
                        
 
 withBlockState :: SkovQueryMonad m => BlockHash -> (BlockState m -> m a) -> m (Maybe a)

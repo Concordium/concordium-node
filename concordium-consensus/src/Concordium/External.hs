@@ -789,16 +789,35 @@ hookTransaction cptr trcstr = do
         jsonValueToCString v
 -}
 
+-- |Get the status of a transaction. The input is a base16-encoded null-terminated string
+-- denoting a transaction hash. The return value is a NUL-terminated JSON string encoding a
+-- JSON value.
 getTransactionStatus :: StablePtr ConsensusRunner -> CString -> IO CString
 getTransactionStatus cptr trcstr = do
     c <- deRefStablePtr cptr
     let logm = consensusLogMethod c
     logm External LLInfo "Received transaction status request."
-    withBlockHash trcstr (logm External LLDebug) $ \hash -> do
+    withTransactionHash trcstr (logm External LLDebug) $ \hash -> do
       status <- runConsensusQuery c (Get.getTransactionStatus hash)
       let v = AE.toJSON status
       logm External LLTrace $ "Replying with: " ++ show v
       jsonValueToCString v
+
+-- |Get the status of a transaction. The first input is a base16-encoded null-terminated string
+-- denoting a transaction hash, the second input is the hash of the block.
+-- The return value is a NUL-terminated JSON string encoding a JSON value.
+getTransactionStatusInBlock :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
+getTransactionStatusInBlock cptr trcstr bhcstr = do
+    c <- deRefStablePtr cptr
+    let logm = consensusLogMethod c
+    logm External LLInfo "Received transaction status request."
+    withTransactionHash trcstr (logm External LLDebug) $ \txHash -> 
+      withBlockHash bhcstr (logm External LLDebug) $ \blockHash -> do
+        status <- runConsensusQuery c (Get.getTransactionStatusInBlock txHash blockHash)
+        let v = AE.toJSON status
+        logm External LLTrace $ "Replying with: " ++ show v
+        jsonValueToCString v
+
 
 freeCStr :: CString -> IO ()
 freeCStr = free
@@ -914,6 +933,7 @@ foreign export ccall getBirkParameters :: StablePtr ConsensusRunner -> CString -
 foreign export ccall getModuleList :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getModuleSource :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
 foreign export ccall getTransactionStatus :: StablePtr ConsensusRunner -> CString -> IO CString
+foreign export ccall getTransactionStatusInBlock :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
 
 -- baker status checking
 foreign export ccall checkIfWeAreBaker :: StablePtr ConsensusRunner -> IO Word8
