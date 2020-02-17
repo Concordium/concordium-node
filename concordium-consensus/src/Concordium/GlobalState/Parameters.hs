@@ -72,9 +72,8 @@ data VoterInfo = VoterInfo {
 instance Serialize VoterInfo where
 
 data FinalizationParameters = FinalizationParameters {
-    finalizationCommittee :: [VoterInfo],
-    -- |The minimum interval between finalizations will be @1 + finalizationMinimumSkip@
-    finalizationMinimumSkip :: BlockHeight
+    finalizationMinimumSkip :: BlockHeight,
+    finalizationStakeFraction :: StakeFraction
 } deriving (Eq, Generic, Show)
 instance Serialize FinalizationParameters where
 
@@ -157,6 +156,7 @@ data GenesisParameters = GenesisParameters {
     gpEpochLength :: EpochLength,
     gpElectionDifficulty :: ElectionDifficulty,
     gpFinalizationMinimumSkip :: BlockHeight,
+    gpFinalizationStakeFraction :: StakeFraction,
     gpBakers :: [GenesisBaker],
     gpCryptographicParameters :: CryptographicParameters,
     gpIdentityProviders :: [IpInfo],
@@ -173,6 +173,7 @@ instance FromJSON GenesisParameters where
         when(gpEpochLength == 0) $ fail "Epoch length should be non-zero"
         gpElectionDifficulty <- v .: "electionDifficulty"
         gpFinalizationMinimumSkip <- BlockHeight <$> v .: "finalizationMinimumSkip"
+        gpFinalizationStakeFraction <- v .: "finalizationStakeFraction"
         gpBakers <- v .: "bakers"
         when (null gpBakers) $ fail "There should be at least one baker."
         gpCryptographicParameters <- v .: "cryptographicParameters"
@@ -238,10 +239,6 @@ parametersToGenesisData GenesisParameters{..} = GenesisData{..}
         -- We ignore any specified delegation target.
         genesisAccounts = [(mkAccount gbAccount) {_accountStakeDelegate = Just bid }
                           | (GenesisBaker{..}, bid) <- zip gpBakers [0..]]
-        genesisFinalizationParameters =
-            FinalizationParameters
-                [VoterInfo {voterVerificationKey = gbSignatureVerifyKey, voterVRFKey = gbElectionVerifyKey, voterPower = 1, voterBlsKey = gbAggregationVerifyKey}
-                    | GenesisBaker{..} <- gpBakers, gbFinalizer]
-                gpFinalizationMinimumSkip
+        genesisFinalizationParameters = FinalizationParameters gpFinalizationMinimumSkip gpFinalizationStakeFraction
         genesisCryptographicParameters = gpCryptographicParameters
         genesisIdentityProviders = gpIdentityProviders
