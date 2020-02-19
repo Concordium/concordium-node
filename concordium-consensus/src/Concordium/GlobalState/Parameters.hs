@@ -73,7 +73,8 @@ instance Serialize VoterInfo where
 
 data FinalizationParameters = FinalizationParameters {
     finalizationMinimumSkip :: BlockHeight,
-    finalizationStakeFraction :: StakeFraction
+    finalizationStakeFraction :: StakeFraction,
+    finalizationCommitteeMaxSize :: FinalizationCommitteeSize
 } deriving (Eq, Generic, Show)
 instance Serialize FinalizationParameters where
 
@@ -157,6 +158,7 @@ data GenesisParameters = GenesisParameters {
     gpElectionDifficulty :: ElectionDifficulty,
     gpFinalizationMinimumSkip :: BlockHeight,
     gpFinalizationStakeFraction :: StakeFraction,
+    gpFinalizationCommitteeMaxSize :: FinalizationCommitteeSize,
     gpBakers :: [GenesisBaker],
     gpCryptographicParameters :: CryptographicParameters,
     gpIdentityProviders :: [IpInfo],
@@ -174,6 +176,7 @@ instance FromJSON GenesisParameters where
         gpElectionDifficulty <- v .: "electionDifficulty"
         gpFinalizationMinimumSkip <- BlockHeight <$> v .: "finalizationMinimumSkip"
         gpFinalizationStakeFraction <- v .: "finalizationStakeFraction"
+        gpFinalizationCommitteeMaxSize <- v .: "finalizationCommitteeMaxSize"
         gpBakers <- v .: "bakers"
         when (null gpBakers) $ fail "There should be at least one baker."
         gpCryptographicParameters <- v .: "cryptographicParameters"
@@ -239,6 +242,9 @@ parametersToGenesisData GenesisParameters{..} = GenesisData{..}
         -- We ignore any specified delegation target.
         genesisAccounts = [(mkAccount gbAccount) {_accountStakeDelegate = Just bid }
                           | (GenesisBaker{..}, bid) <- zip gpBakers [0..]]
-        genesisFinalizationParameters = FinalizationParameters gpFinalizationMinimumSkip gpFinalizationStakeFraction
+        genesisFinalizationParameters = FinalizationParameters
+                                          gpFinalizationMinimumSkip
+                                          gpFinalizationStakeFraction
+                                          gpFinalizationCommitteeMaxSize
         genesisCryptographicParameters = gpCryptographicParameters
         genesisIdentityProviders = gpIdentityProviders
