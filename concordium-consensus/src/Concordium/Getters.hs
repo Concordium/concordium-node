@@ -72,7 +72,7 @@ getTransactionStatus hash sfsRef = runStateQuery sfsRef $
       return $ object ["status" .= String "received"]
     Just AT.Finalized{..} -> 
       withBlockStateJSON tsBlockHash $ \bs -> do
-        outcome <- BS.getTransactionOutcome bs tsResult
+        outcome <- BS.getTransactionOutcome bs tsFinResult
         return $ object ["status" .= String "finalized",
                          fromString (show tsBlockHash) .= outcome
                         ]
@@ -94,7 +94,7 @@ getTransactionStatusInBlock txHash blockHash sfsRef = runStateQuery sfsRef $
     Just AT.Finalized{..} ->
       if tsBlockHash == blockHash then
         withBlockStateJSON tsBlockHash $ \bs -> do
-          outcome <- BS.getTransactionOutcome bs tsResult
+          outcome <- BS.getTransactionOutcome bs tsFinResult
           return $ object ["status" .= String "finalized",
                            "result" .= outcome
                           ]
@@ -109,7 +109,16 @@ getTransactionStatusInBlock txHash blockHash sfsRef = runStateQuery sfsRef $
             return $ object ["status" .= String "committed",
                              "result" .= outcome
                             ]
-                       
+
+-- |Return a block with given hash and outcomes.
+getBlockSummary :: SkovStateQueryable z m => BlockHash -> z -> IO Value
+getBlockSummary hash sfsRef = runStateQuery sfsRef $
+  resolveBlock hash >>= \case
+    Nothing -> return Null
+    Just bp -> do
+      bs <- queryBlockState bp
+      outcomes <- BS.getOutcomes bs
+      return $ toJSON outcomes
 
 withBlockState :: SkovQueryMonad m => BlockHash -> (BlockState m -> m a) -> m (Maybe a)
 withBlockState hash f =

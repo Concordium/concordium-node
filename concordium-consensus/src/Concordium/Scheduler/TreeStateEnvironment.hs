@@ -106,7 +106,7 @@ executeFrom blockHash slotNumber slotTime blockParent lfPointer blockBaker bps t
         Left fk -> Left fk <$ (dropUpdatableBlockState bshandle2)
         Right (outcomes, usedEnergy) -> do
             -- Record the transaction outcomes
-            bshandle3 <- bsoSetTransactionOutcomes bshandle2 ((\(tr, o) -> (transactionHash tr, o)) <$> outcomes)
+            bshandle3 <- bsoSetTransactionOutcomes bshandle2 (map snd outcomes)
             -- Record transaction outcomes in the transaction table as well.
             zipWithM_ (commitTransaction slotNumber blockHash) txs [0..]
             -- the main execution is now done. At this point we must mint new currency
@@ -162,7 +162,7 @@ constructBlock slotNumber slotTime blockParent lfPointer blockBaker bps =
         runBSM (Sch.filterTransactions (fromIntegral maxSize) maxBlockEnergy orderedTxs) (genBetaAccounts, cm) bshandle1
     -- FIXME: At some point we should log things here using the same logging infrastructure as in consensus.
 
-    bshandle3 <- bsoSetTransactionOutcomes bshandle2 ((\(tr,res) -> (transactionHash tr, res)) <$> ftAdded)
+    bshandle3 <- bsoSetTransactionOutcomes bshandle2 (map snd ftAdded)
     bshandle4 <- mintAndReward bshandle3 blockParent lfPointer slotNumber blockBaker
 
     bshandleFinal <- freezeBlockState bshandle4

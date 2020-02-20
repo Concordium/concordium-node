@@ -89,7 +89,7 @@ logTransfers bp = logTransfer >>= \case
                                         " for transaction " ++
                                         show (trHash tx)
               Just outcome ->
-                mapM_ (logger (bpHash bp) (blockSlot bp)) (resultToReasons fields tx outcome)
+                mapM_ (logger (bpHash bp) (blockSlot bp)) (resultToReasons fields outcome)
 
         zipWithM_ note (blockTransactions bp) [0..]
         special <- getSpecialOutcomes state

@@ -377,16 +377,21 @@ withDeposit ::
   SchedulerMonad m =>
   Account
   -- ^Address of the account initiating the transaction.
+  -> TransactionType
+  -- ^Type of the top-level transaction.
+  -> TransactionHash
+  -- ^Hash of the top-level transaction.
   -> TransactionHeader
   -- ^Header of the transaction we are running.
   -> LocalT a m a
   -- ^The computation to run in the modified environment with reduced amount on the initial account.
-  -> (LocalState -> a -> m ValidResult)
+  -> (LocalState -> a -> m (ValidResult, Amount, Energy))
   -- ^Continuation for the successful branch of the computation.
   -- It gets the result of the previous computation as input, in particular the
-  -- remaining energy and the ChangeSet.
-  -> m TxResult
-withDeposit acc txHeader comp k = do
+  -- remaining energy and the ChangeSet. It should return the result, and the amount that was charged
+  -- for the execution.
+  -> m TransactionSummary
+withDeposit acc tsType' tsHash txHeader comp k = do
   let totalEnergyToUse = thEnergyAmount txHeader
   -- we assume we have already checked the header, so we have a bit less left over
   let energy = totalEnergyToUse - Cost.checkHeader
@@ -399,10 +404,22 @@ withDeposit acc txHeader comp k = do
       -- compute how much we must charge and reject the transaction
       (usedEnergy, payment) <- computeExecutionCharge txHeader (ls ^. energyLeft)
       chargeExecutionCost acc payment
-      return $! TxValid (TxReject reason payment usedEnergy)
-    Right a ->
+      return $! TransactionSummary{
+        tsSender = thSender txHeader,
+        tsCost = payment,
+        tsEnergyCost = usedEnergy,
+        tsResult = TxReject reason,
+        tsType = Just tsType',
+        ..
+        }
+    Right a -> do
       -- in this case we invoke the continuation
-      TxValid <$!> k ls a
+      (tsResult, tsCost, tsEnergyCost) <- k ls a
+      return $! TransactionSummary{
+        tsSender = thSender txHeader,
+        tsType = Just tsType',
+        ..
+        }
 
 {-# INLINE defaultSuccess #-}
 -- |Default continuation to use with 'withDeposit'. It records events and charges for the energy
@@ -410,12 +427,12 @@ withDeposit acc txHeader comp k = do
 defaultSuccess ::
   SchedulerMonad m =>
   TransactionHeader
-  -> Account -> LocalState -> [Event] -> m ValidResult
+  -> Account -> LocalState -> [Event] -> m (ValidResult, Amount, Energy)
 defaultSuccess meta senderAccount = \ls events -> do
   (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
   chargeExecutionCost senderAccount energyCost
   commitChanges (ls ^. changeSet)
-  return $ TxSuccess events energyCost usedEnergy
+  return $ (TxSuccess events, energyCost, usedEnergy)
 
 -- {-# INLINE evalLocalT #-}
 -- evalLocalT :: Monad m => LocalT a m a -> Energy -> m (Either RejectReason a)

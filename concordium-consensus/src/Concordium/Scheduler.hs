@@ -114,7 +114,7 @@ dispatch msg = do
   validMeta <- runExceptT (checkHeader msg)
   case validMeta of
     Left fk -> return $ TxInvalid fk
-    Right senderAccount -> do
+    Right senderAccount -> TxValid <$> do
       -- at this point the transaction is going to be commited to the block. Hence we can increase the
       -- account nonce of the sender account.
       increaseAccountNonce senderAccount
@@ -139,74 +139,83 @@ dispatch msg = do
           let cost = Cost.checkHeader
           payment <- energyToGtu cost
           chargeExecutionCost senderAccount payment
-          return $ TxValid $ TxReject SerializationFailure payment cost
+          return $ TransactionSummary{
+            tsEnergyCost = cost,
+            tsCost = payment,
+            tsSender = senderAccount ^. accountAddress,
+            tsResult = TxReject SerializationFailure,
+            tsHash = transactionHash msg,
+            tsType = Nothing
+            }
         Right payload ->
           case payload of
             DeployModule mod ->
-              handleDeployModule senderAccount meta psize mod
+              handleDeployModule senderAccount TTDeployModule (transactionHash msg) meta psize mod
 
             InitContract amount modref cname param ->
               -- the payload size includes amount + address of module + name of
               -- contract + parameters, but since the first three fields are
               -- fixed size this is OK.
               let paramSize = fromIntegral (thPayloadSize meta)
-              in handleInitContract senderAccount meta amount modref cname param paramSize
+              in handleInitContract senderAccount TTInitContract (transactionHash msg) meta amount modref cname param paramSize
             -- FIXME: This is only temporary for now.
             -- Later on accounts will have policies, and also will be able to execute non-trivial code themselves.
             Transfer toaddr amount ->
-              handleSimpleTransfer senderAccount meta toaddr amount
+              handleSimpleTransfer senderAccount TTTransfer (transactionHash msg) meta toaddr amount
 
             Update amount cref maybeMsg ->
               -- the payload size includes amount + address + message, but since the first two fields are
               -- fixed size this is OK.
               let msgSize = fromIntegral (thPayloadSize meta)
-              in handleUpdateContract senderAccount meta cref amount maybeMsg msgSize
+              in handleUpdateContract senderAccount TTUpdate (transactionHash msg) meta cref amount maybeMsg msgSize
 
             DeployCredential cdi ->
-              handleDeployCredential senderAccount meta (payloadBodyBytes (transactionPayload msg)) cdi
+              handleDeployCredential senderAccount TTDeployCredential (transactionHash msg) meta (payloadBodyBytes (transactionPayload msg)) cdi
 
             DeployEncryptionKey encKey ->
-              handleDeployEncryptionKey senderAccount meta encKey
+              handleDeployEncryptionKey senderAccount TTDeployEncryptionKey (transactionHash msg) meta encKey
 
             AddBaker{..} ->
-              handleAddBaker senderAccount meta abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abAccount abProofSig abProofElection abProofAccount
+              handleAddBaker senderAccount TTAddBaker (transactionHash msg) meta abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abAccount abProofSig abProofElection abProofAccount
 
             RemoveBaker{..} ->
-              handleRemoveBaker senderAccount meta rbId rbProof
+              handleRemoveBaker senderAccount TTRemoveBaker (transactionHash msg) meta rbId rbProof
 
             UpdateBakerAccount{..} ->
-              handleUpdateBakerAccount senderAccount meta ubaId ubaAddress ubaProof
+              handleUpdateBakerAccount senderAccount TTUpdateBakerAccount (transactionHash msg) meta ubaId ubaAddress ubaProof
 
             UpdateBakerSignKey{..} ->
-              handleUpdateBakerSignKey senderAccount meta ubsId ubsKey ubsProof
+              handleUpdateBakerSignKey senderAccount TTUpdateBakerSignKey (transactionHash msg) meta ubsId ubsKey ubsProof
 
             DelegateStake{..} ->
-              handleDelegateStake senderAccount meta (Just dsID)
+              handleDelegateStake senderAccount TTDelegateStake (transactionHash msg) meta (Just dsID)
 
             UndelegateStake ->
-              handleDelegateStake senderAccount meta Nothing
+              handleDelegateStake senderAccount TTUndelegateStake (transactionHash msg) meta Nothing
 
 -- |Process the deploy module transaction.
 handleDeployModule ::
   SchedulerMonad m
   => Account
+  -> TransactionType -- ^Type of the top-level transaction.
+  -> TransactionHash -- ^Hash of the top-level transaction.
   -> TransactionHeader -- ^Header of the transaction.
   -> PayloadSize -- ^Serialized size of the module. Used for charging execution cost.
   -> Module -- ^The module to deploy
-  -> m TxResult
-handleDeployModule senderAccount meta psize mod =
-  withDeposit senderAccount meta (handleModule meta psize mod) $ \ls (mhash, iface, viface) -> do
+  -> m TransactionSummary
+handleDeployModule senderAccount txType txHash meta psize mod =
+  withDeposit senderAccount txType txHash meta (handleModule meta psize mod) $ \ls (mhash, iface, viface) -> do
     (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
     chargeExecutionCost senderAccount energyCost
     b <- commitModule mhash iface viface mod
     if b then
-      return $! TxSuccess [ModuleDeployed mhash] energyCost usedEnergy
+      return $! (TxSuccess [ModuleDeployed mhash], energyCost, usedEnergy)
     else
       -- FIXME:
       -- we should reject the transaction immediately if we figure out that the module with the hash already exists.
       -- otherwise we can waste some effort in checking before reaching this point.
       -- This could be chedked immediately even before we reach the dispatch since module hash is the hash of module serialization.
-      return $! TxReject (ModuleHashAlreadyExists mhash) energyCost usedEnergy
+      return $! (TxReject (ModuleHashAlreadyExists mhash), energyCost, usedEnergy)
 
 
 -- |TODO: Figure out whether we need the metadata or not here.
@@ -226,15 +235,17 @@ handleModule _meta msize mod = do
 handleInitContract ::
   SchedulerMonad m
     => Account -- ^Account which is initializing the contract.
+    -> TransactionType -- ^Type of the top-level transaction.
+    -> TransactionHash -- ^Hash of the top-level transaction.
     -> TransactionHeader -- ^Header of the transaction.
     -> Amount   -- ^The amount to initialize the contract with.
     -> ModuleRef  -- ^Module reference of the contract to initialize.
     -> Core.TyName  -- ^Name of the contract in a module.
     -> Core.Expr Core.UA Core.ModuleName  -- ^Parameters of the contract.
     -> Int -- ^Serialized size of the parameters. Used for computing typechecking cost.
-    -> m TxResult
-handleInitContract senderAccount meta amount modref cname param paramSize =
-  withDeposit senderAccount meta c k
+    -> m TransactionSummary
+handleInitContract senderAccount txType txHash meta amount modref cname param paramSize =
+  withDeposit senderAccount txType txHash meta c k
     where c = do
             -- decrease available energy and start processing. This will reject the transaction if not enough is available.
             tickEnergy Cost.initPreprocess
@@ -273,17 +284,19 @@ handleInitContract senderAccount meta amount modref cname param paramSize =
             commitChanges (addAmountToCS senderAccount (amountDiff 0 amount) (ls ^. changeSet))
             let ins = makeInstance modref cname contract msgty iface viface model initamount (thSender meta)
             addr <- putNewInstance ins
-            return $ TxSuccess [ContractInitialized{ecRef=modref,ecName=cname,ecAddress=addr,ecAmount=amount}] energyCost usedEnergy
+            return $! (TxSuccess [ContractInitialized{ecRef=modref,ecName=cname,ecAddress=addr,ecAmount=amount}], energyCost, usedEnergy)
 
 handleSimpleTransfer ::
   SchedulerMonad m
     => Account -- ^Sender account of the transaction
+    -> TransactionType -- ^Type of the top-level transaction.
+    -> TransactionHash -- ^Hash of the top-level transaction.
     -> TransactionHeader -- ^Header of the transaction.
     -> Address -- ^Address to send the amount to, either account or contract.
     -> Amount -- ^The amount to transfer.
-    -> m TxResult
-handleSimpleTransfer senderAccount meta toaddr amount =
-  withDeposit senderAccount meta c (defaultSuccess meta senderAccount)
+    -> m TransactionSummary
+handleSimpleTransfer senderAccount txType txHash meta toaddr amount =
+  withDeposit senderAccount txType txHash meta c (defaultSuccess meta senderAccount)
     where c = case toaddr of
                 AddressContract cref -> do
                   i <- getCurrentContractInstance cref `rejectingWith` InvalidContractAddress cref
@@ -304,14 +317,16 @@ handleSimpleTransfer senderAccount meta toaddr amount =
 handleUpdateContract ::
   SchedulerMonad m
     => Account -- ^Sender account of the transaction.
+    -> TransactionType -- ^Type of the top-level transaction.
+    -> TransactionHash -- ^Hash of the top-level transaction.
     -> TransactionHeader -- ^Header of the transaction.
     -> ContractAddress -- ^Address of the contract to invoke.
     -> Amount -- ^Amount to invoke the contract's receive method with.
     -> Core.Expr Core.UA Core.ModuleName -- ^Message to send to the receive method.
     -> Int  -- ^Serialized size of the message.
-    -> m TxResult
-handleUpdateContract senderAccount meta cref amount maybeMsg msgSize =
-  withDeposit senderAccount meta c (defaultSuccess meta senderAccount)
+    -> m TransactionSummary
+handleUpdateContract senderAccount txType txHash meta cref amount maybeMsg msgSize =
+  withDeposit senderAccount txType txHash meta c (defaultSuccess meta senderAccount)
   where c = do
           tickEnergy Cost.updatePreprocess
           i <- getCurrentContractInstance cref `rejectingWith` InvalidContractAddress cref
@@ -465,15 +480,19 @@ handleDeployCredential ::
     =>
     -- |Sender account of the transaction.
     Account ->
+    -- |Type of the top-level transaction.
+    TransactionType ->
+    -- |Hash of the top-level transaction.
+    TransactionHash ->
     -- |Header of the transaction.
     TransactionHeader ->
     -- |Credentials to deploy in serialized form. We pass these to the verify function.
     AH.CredentialDeploymentInformationBytes ->
     -- |Credentials to deploy.
     ID.CredentialDeploymentInformation ->
-    m TxResult
-handleDeployCredential senderAccount meta cdiBytes cdi =
-  withDeposit senderAccount meta c k
+    m TransactionSummary
+handleDeployCredential senderAccount txType txHash meta cdiBytes cdi =
+  withDeposit senderAccount txType txHash meta c k
   where c = tickEnergy Cost.deployCredential
         k ls _ = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
@@ -483,13 +502,13 @@ handleDeployCredential senderAccount meta cdiBytes cdi =
           let regId = ID.cdvRegId cdv
           regIdEx <- accountRegIdExists regId
           if regIdEx then
-            return $! TxReject (DuplicateAccountRegistrationID (ID.cdvRegId cdv)) energyCost usedEnergy
+            return $! (TxReject (DuplicateAccountRegistrationID (ID.cdvRegId cdv)), energyCost, usedEnergy)
           else do
             -- We now look up the identity provider this credential is derived from.
             -- Of course if it does not exist we reject the transaction.
             let credentialIP = ID.cdvIpId cdv
             getIPInfo credentialIP >>= \case
-              Nothing -> return $! TxReject (NonExistentIdentityProvider (ID.cdvIpId cdv)) energyCost usedEnergy
+              Nothing -> return $! (TxReject (NonExistentIdentityProvider (ID.cdvIpId cdv)), energyCost, usedEnergy)
               Just ipInfo -> do
                 cryptoParams <- getCrypoParams
                 -- we have two options. One is that we are deploying a credential on an existing account.
@@ -498,7 +517,7 @@ handleDeployCredential senderAccount meta cdiBytes cdi =
                     -- first check whether an account with the address exists in the global store
                     -- if it does not we cannot deploy the credential.
                     getAccount aaddr >>= \case
-                      Nothing -> return $! TxReject (InvalidAccountReference aaddr) energyCost usedEnergy
+                      Nothing -> return $! (TxReject (InvalidAccountReference aaddr), energyCost, usedEnergy)
                       Just account -> do
                             -- otherwise we just try to add a credential to the account
                             -- but only if the credential is from the same identity provider
@@ -509,13 +528,13 @@ handleDeployCredential senderAccount meta cdiBytes cdi =
                             let sameIP = maybe True (\(_, cred) -> ID.cdvIpId cred == credentialIP) (Queue.getMax credentials)
                             if sameIP && AH.verifyCredential cryptoParams ipInfo (Just (account ^. accountVerificationKeys)) cdiBytes then do
                               addAccountCredential account cdv
-                              return $! TxSuccess [CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}] energyCost usedEnergy
+                              return $! (TxSuccess [CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}], energyCost, usedEnergy)
                             else
-                              return $! TxReject AccountCredentialInvalid energyCost usedEnergy
+                              return $! (TxReject AccountCredentialInvalid, energyCost, usedEnergy)
                   ID.NewAccount keys threshold ->
                     -- account does not yet exist, so create it, but we need to be careful
                     if null keys || length keys > 255 then
-                      return $! TxReject AccountCredentialInvalid energyCost usedEnergy
+                      return $! (TxReject AccountCredentialInvalid, energyCost, usedEnergy)
                     else do
                       let accountKeys = ID.makeAccountKeys keys threshold
                       let aaddr = ID.addressFromRegId regId
@@ -528,17 +547,19 @@ handleDeployCredential senderAccount meta cdiBytes cdi =
                         _ <- putNewAccount account -- first create new account, but only if credential was valid.
                                                    -- We know the address does not yet exist.
                         addAccountCredential account cdv  -- and then add the credentials
-                        return $! TxSuccess [AccountCreated aaddr, CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}] energyCost usedEnergy
-                      else return $! TxReject AccountCredentialInvalid energyCost usedEnergy
+                        return $! (TxSuccess [AccountCreated aaddr, CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}], energyCost, usedEnergy)
+                      else return $! (TxReject AccountCredentialInvalid, energyCost, usedEnergy)
 
 handleDeployEncryptionKey ::
   SchedulerMonad m
     => Account -- ^Account onto which the encryption key should be deployed.
+    -> TransactionType -- ^Type of the top-level transaction.
+    -> TransactionHash -- ^Hash of the top-level transaction.
     -> TransactionHeader -- ^Header of the transaction.
     -> ID.AccountEncryptionKey -- ^The encryption key.
-    -> m TxResult
-handleDeployEncryptionKey senderAccount meta encKey =
-  withDeposit senderAccount meta c k
+    -> m TransactionSummary
+handleDeployEncryptionKey senderAccount txType txHash meta encKey =
+  withDeposit senderAccount txType txHash meta c k
   where c = tickEnergy Cost.deployEncryptionKey
         k ls _ = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
@@ -547,8 +568,8 @@ handleDeployEncryptionKey senderAccount meta encKey =
             Nothing -> do
               let aaddr = senderAccount ^. accountAddress
               addAccountEncryptionKey senderAccount encKey
-              return $ TxSuccess [AccountEncryptionKeyDeployed encKey aaddr] energyCost usedEnergy
-            Just encKey' -> return $ TxReject (AccountEncryptionKeyAlreadyExists (senderAccount ^. accountAddress) encKey') energyCost usedEnergy
+              return $ (TxSuccess [AccountEncryptionKeyDeployed encKey aaddr], energyCost, usedEnergy)
+            Just encKey' -> return $! (TxReject (AccountEncryptionKeyAlreadyExists (senderAccount ^. accountAddress) encKey'), energyCost, usedEnergy)
 
 
 -- FIXME: The baker handling is purely proof-of-concept. In particular the
@@ -596,6 +617,8 @@ checkAccountOwnership challenge keys (AccountOwnershipProof proofs) =
 handleAddBaker ::
   SchedulerMonad m
     => Account
+    -> TransactionType -- ^Type of the top-level transaction.
+    -> TransactionHash -- ^Hash of the top-level transaction.
     -> TransactionHeader
     -> BakerElectionVerifyKey
     -> BakerSignVerifyKey
@@ -604,16 +627,16 @@ handleAddBaker ::
     -> Proofs.Dlog25519Proof
     -> Proofs.Dlog25519Proof
     -> AccountOwnershipProof
-    -> m TxResult
-handleAddBaker senderAccount meta abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abAccount abProofSig abProofElection abProofAccount =
-  withDeposit senderAccount meta c k
+    -> m TransactionSummary
+handleAddBaker senderAccount txType txHash meta abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abAccount abProofSig abProofElection abProofAccount =
+  withDeposit senderAccount txType txHash meta c k
   where c = tickEnergy Cost.addBaker
         k ls _ = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost senderAccount energyCost
 
           getAccount abAccount >>=
-              \case Nothing -> return $! TxReject (NonExistentRewardAccount abAccount) energyCost usedEnergy
+              \case Nothing -> return $! (TxReject (NonExistentRewardAccount abAccount), energyCost, usedEnergy)
                     Just Account{..} ->
                       let challenge = S.runPut (S.put abElectionVerifyKey <> S.put abSignatureVerifyKey <> S.put abAccount)
                           electionP = checkElectionKeyProof challenge abElectionVerifyKey abProofElection
@@ -626,9 +649,9 @@ handleAddBaker senderAccount meta abElectionVerifyKey abSignatureVerifyKey abAgg
                         -- Thus we can create the baker, starting it off with 0 lottery power.
                         mbid <- addBaker (BakerCreationInfo abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abAccount)
                         case mbid of
-                          Nothing -> return $! TxReject (DuplicateSignKey abSignatureVerifyKey) energyCost usedEnergy
-                          Just bid -> return $! TxSuccess [BakerAdded bid] energyCost usedEnergy
-                      else return $ TxReject InvalidProof energyCost usedEnergy
+                          Nothing -> return $! (TxReject (DuplicateSignKey abSignatureVerifyKey), energyCost, usedEnergy)
+                          Just bid -> return $! (TxSuccess [BakerAdded bid], energyCost, usedEnergy)
+                      else return $ (TxReject InvalidProof, energyCost, usedEnergy)
 
 -- |Remove a baker from the baker pool.
 -- The current logic is that if the proof validates that the sender of the
@@ -637,12 +660,14 @@ handleAddBaker senderAccount meta abElectionVerifyKey abSignatureVerifyKey abAgg
 handleRemoveBaker ::
   SchedulerMonad m
     => Account
+    -> TransactionType -- ^Type of the top-level transaction.
+    -> TransactionHash -- ^Hash of the top-level transaction.
     -> TransactionHeader
     -> BakerId
     -> Proof
-    -> m TxResult
-handleRemoveBaker senderAccount meta rbId _rbProof =
-  withDeposit senderAccount meta c k
+    -> m TransactionSummary
+handleRemoveBaker senderAccount txType txHash meta rbId _rbProof =
+  withDeposit senderAccount txType txHash meta c k
   where c = tickEnergy Cost.removeBaker
         k ls _ = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
@@ -650,14 +675,14 @@ handleRemoveBaker senderAccount meta rbId _rbProof =
 
           getBakerInfo rbId >>=
               \case Nothing ->
-                      return $ TxReject (RemovingNonExistentBaker rbId) energyCost usedEnergy
+                      return $ (TxReject (RemovingNonExistentBaker rbId), energyCost, usedEnergy)
                     Just binfo ->
                       if senderAccount ^. accountAddress == binfo ^. bakerAccount then do
                         -- only the baker itself can remove themselves from the pool
                         removeBaker rbId
-                        return $ TxSuccess [BakerRemoved rbId] energyCost usedEnergy
+                        return $ (TxSuccess [BakerRemoved rbId], energyCost, usedEnergy)
                       else
-                        return $ TxReject (InvalidBakerRemoveSource (senderAccount ^. accountAddress)) energyCost usedEnergy
+                        return $ (TxReject (InvalidBakerRemoveSource (senderAccount ^. accountAddress)), energyCost, usedEnergy)
 
 -- |Update the baker's reward account. The transaction is considered valid if
 --
@@ -670,13 +695,15 @@ handleRemoveBaker senderAccount meta rbId _rbProof =
 handleUpdateBakerAccount ::
   SchedulerMonad m
     => Account
+    -> TransactionType -- ^Type of the top-level transaction.
+    -> TransactionHash -- ^Hash of the top-level transaction.
     -> TransactionHeader
     -> BakerId
     -> AccountAddress
     -> AccountOwnershipProof
-    -> m TxResult
-handleUpdateBakerAccount senderAccount meta ubaId ubaAddress ubaProof =
-  withDeposit senderAccount meta c k
+    -> m TransactionSummary
+handleUpdateBakerAccount senderAccount txType txHash meta ubaId ubaAddress ubaProof =
+  withDeposit senderAccount txType txHash meta c k
   where c = tickEnergy Cost.updateBakerAccount
         k ls _ = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
@@ -684,22 +711,22 @@ handleUpdateBakerAccount senderAccount meta ubaId ubaAddress ubaProof =
 
           getBakerInfo ubaId >>= \case
             Nothing ->
-                return $ TxReject (UpdatingNonExistentBaker ubaId) energyCost usedEnergy
+                return $ (TxReject (UpdatingNonExistentBaker ubaId), energyCost, usedEnergy)
             Just binfo ->
               if binfo ^. bakerAccount == senderAccount ^. accountAddress then
                   -- the transaction is coming from the current baker's account.
                   -- now check the account exists and the baker owns it
                   getAccount ubaAddress >>= \case
-                    Nothing -> return $! TxReject (NonExistentRewardAccount ubaAddress) energyCost usedEnergy
+                    Nothing -> return $! (TxReject (NonExistentRewardAccount ubaAddress), energyCost, usedEnergy)
                     Just Account{..} ->
                       let challenge = S.runPut (S.put ubaId <> S.put ubaAddress)
                           accountP = checkAccountOwnership challenge _accountVerificationKeys ubaProof
                       in if accountP then do
                         _ <- updateBakerAccount ubaId ubaAddress
-                        return $ TxSuccess [BakerAccountUpdated ubaId ubaAddress] energyCost usedEnergy
-                      else return $ TxReject InvalidProof energyCost usedEnergy
+                        return $ (TxSuccess [BakerAccountUpdated ubaId ubaAddress], energyCost, usedEnergy)
+                      else return $ (TxReject InvalidProof, energyCost, usedEnergy)
                 else
-                  return $ TxReject (NotFromBakerAccount (senderAccount ^. accountAddress) (binfo ^. bakerAccount)) energyCost usedEnergy
+                  return $ (TxReject (NotFromBakerAccount (senderAccount ^. accountAddress) (binfo ^. bakerAccount)), energyCost, usedEnergy)
 
 -- |Update the baker's public signature key. The transaction is considered valid if
 --
@@ -709,20 +736,22 @@ handleUpdateBakerAccount senderAccount meta ubaId ubaAddress ubaProof =
 handleUpdateBakerSignKey ::
   SchedulerMonad m
     => Account
+    -> TransactionType -- ^Type of the top-level transaction.
+    -> TransactionHash -- ^Hash of the top-level transaction.
     -> TransactionHeader
     -> BakerId
     -> BakerSignVerifyKey
     -> Proofs.Dlog25519Proof
-    -> m TxResult
-handleUpdateBakerSignKey senderAccount meta ubsId ubsKey ubsProof =
-  withDeposit senderAccount meta c k
+    -> m TransactionSummary
+handleUpdateBakerSignKey senderAccount txType txHash meta ubsId ubsKey ubsProof =
+  withDeposit senderAccount txType txHash meta c k
   where c = tickEnergy Cost.updateBakerKey
         k ls _ = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost senderAccount energyCost
           getBakerInfo ubsId >>= \case
             Nothing ->
-              return $ TxReject (UpdatingNonExistentBaker ubsId) energyCost usedEnergy
+              return $! (TxReject (UpdatingNonExistentBaker ubsId), energyCost, usedEnergy)
             Just binfo ->
               if binfo ^. bakerAccount == senderAccount ^. accountAddress then
                 -- only the baker itself can update its own keys
@@ -732,21 +761,23 @@ handleUpdateBakerSignKey senderAccount meta ubsId ubsKey ubsProof =
                 in if signP then do
                      success <- updateBakerSignKey ubsId ubsKey
                      if success then
-                       return $ TxSuccess [BakerKeyUpdated ubsId ubsKey] energyCost usedEnergy
-                     else return $! TxReject (DuplicateSignKey ubsKey) energyCost usedEnergy
-                   else return $ TxReject InvalidProof energyCost usedEnergy
+                       return $! (TxSuccess [BakerKeyUpdated ubsId ubsKey], energyCost, usedEnergy)
+                     else return $! (TxReject (DuplicateSignKey ubsKey), energyCost, usedEnergy)
+                   else return $ (TxReject InvalidProof, energyCost, usedEnergy)
               else
-                return $ TxReject (NotFromBakerAccount (senderAccount ^. accountAddress) (binfo ^. bakerAccount)) energyCost usedEnergy
+                return $! (TxReject (NotFromBakerAccount (senderAccount ^. accountAddress) (binfo ^. bakerAccount)), energyCost, usedEnergy)
 
 -- |Update an account's stake delegate.
 handleDelegateStake ::
   SchedulerMonad m
     => Account
+    -> TransactionType -- ^Type of the top-level transaction.
+    -> TransactionHash -- ^Hash of the top-level transaction.
     -> TransactionHeader
     -> Maybe BakerId
-    -> m TxResult
-handleDelegateStake senderAccount meta targetBaker =
-  withDeposit senderAccount meta c k
+    -> m TransactionSummary
+handleDelegateStake senderAccount txType txHash meta targetBaker =
+  withDeposit senderAccount txType txHash meta c k
   where c = tickEnergy delegateCost
         k ls _ = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
@@ -755,9 +786,9 @@ handleDelegateStake senderAccount meta targetBaker =
           if res then
             let addr = senderAccount ^. accountAddress
                 currentDelegate = senderAccount ^. accountStakeDelegate
-            in return $! TxSuccess [maybe (StakeUndelegated addr currentDelegate) (StakeDelegated addr) targetBaker] energyCost usedEnergy
+            in return $! (TxSuccess [maybe (StakeUndelegated addr currentDelegate) (StakeDelegated addr) targetBaker], energyCost, usedEnergy)
           else
-            return $! TxReject (InvalidStakeDelegationTarget $! fromJust targetBaker) energyCost usedEnergy
+            return $! (TxReject (InvalidStakeDelegationTarget $! fromJust targetBaker), energyCost, usedEnergy)
         delegateCost = Cost.updateStakeDelegate (Set.size $! senderAccount ^. accountInstances)
 
 -- *Exposed methods.
@@ -795,8 +826,8 @@ filterTransactions maxSize maxEnergy = go 0 0 [] [] []
               cenergy = totalEnergyUsed + tenergy
           if csize <= maxSize && cenergy <= maxEnergy then -- if the next transaction can fit into a block then add it.
              dispatch t >>= \case
-               TxValid reason ->
-                 go (totalEnergyUsed + vrEnergyCost reason) csize ((t, reason):valid) invalid unprocessed (ts : rest)
+               TxValid summary ->
+                 go (totalEnergyUsed + tsEnergyCost summary) csize ((t, summary):valid) invalid unprocessed (ts : rest)
                TxInvalid reason ->
                  go totalEnergyUsed csize valid (invalidTs t reason ts invalid) unprocessed rest
           -- if the stated energy of a single transaction exceeds the block energy limit the transaction is invalid
@@ -821,11 +852,11 @@ filterTransactions maxSize maxEnergy = go 0 0 [] [] []
 -- |Execute transactions in sequence. Return 'Nothing' if one of the transactions
 -- fails, and otherwise return a list of transactions with their outcomes.
 runTransactions :: (TransactionData msg, SchedulerMonad m)
-                   => [msg] -> m (Either FailureKind ([(msg, ValidResult)], Energy))
+                   => [msg] -> m (Either FailureKind ([(msg, TransactionSummary)], Energy))
 runTransactions = go 0 []
   where go !totalEnergyUsed valid (t:ts) =
           dispatch t >>= \case
-            TxValid reason -> go (totalEnergyUsed + vrEnergyCost reason) ((t, reason):valid) ts
+            TxValid summary -> go (totalEnergyUsed + tsEnergyCost summary) ((t, summary):valid) ts
             TxInvalid reason -> return (Left reason)
         go !totalEnergyUsed valid [] = return (Right (reverse valid, totalEnergyUsed))
 
@@ -837,6 +868,6 @@ execTransactions :: (TransactionData msg, SchedulerMonad m) => [msg] -> m (Eithe
 execTransactions = go 0
   where go !totalEnergyUsed (t:ts) =
           dispatch t >>= \case
-            TxValid reason -> go (totalEnergyUsed + vrEnergyCost reason) ts
+            TxValid summary -> go (totalEnergyUsed + tsEnergyCost summary) ts
             TxInvalid reason -> return (Left reason)
         go !totalEnergyUsed [] = return (Right totalEnergyUsed)
