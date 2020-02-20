@@ -90,6 +90,10 @@ instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
     getTransactionOutcome bs trh =
         return $ bs ^? blockTransactionOutcomes . ix trh
 
+    {-# INLINE getOutcomes #-}
+    getOutcomes bs =
+        return $ bs ^. blockTransactionOutcomes . to Transactions.outcomeValues
+
     {-# INLINE getSpecialOutcomes #-}
     getSpecialOutcomes bs =
         return $ bs ^. blockTransactionOutcomes . Transactions.outcomeSpecial
