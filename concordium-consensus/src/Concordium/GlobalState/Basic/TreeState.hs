@@ -204,7 +204,7 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadState (Sko
                         -- Singular here is safe due to the precondition (and assertion) that all transactions
                         -- which are part of live blocks are in the transaction table.
                         transactionTable . ttHashMap . singular (ix (getHash tr)) . _2 %=
-                            \case Committed{..} -> Finalized{_tsSlot=slot,tsBlockHash=bh,tsResult=tsResults HM.! bh,..}
+                            \case Committed{..} -> Finalized{_tsSlot=slot,tsBlockHash=bh,tsFinResult=tsResults HM.! bh,..}
                                   _ -> error "Transaction should be in committed state when finalized."
                         -- Update the non-finalized transactions for the sender
                         transactionTable . ttNonFinalizedTransactions . at sender ?= (anft & (anftMap . at nonce .~ Nothing) & (anftNextNonce .~ nonce + 1))

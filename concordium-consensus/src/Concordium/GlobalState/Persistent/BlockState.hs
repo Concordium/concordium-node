@@ -15,13 +15,15 @@ import Lens.Micro.Platform
 import qualified Data.Set as Set
 import Data.Maybe
 import Data.Functor.Identity
+import qualified Data.Vector as Vec
 
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.Types.Acorn.Interfaces
 import Concordium.Types
+import Concordium.Types.Execution
 import qualified Concordium.ID.Types as ID
-import Acorn.Types (linkWithMaxSize, ValidResult)
+import Acorn.Types (linkWithMaxSize)
 
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Persistent.BlobStore
@@ -541,12 +543,12 @@ doGetCryptoParams pbs = do
         bsp <- loadPBS pbs
         loadBufferedRef (bspCryptographicParameters bsp)
 
-doGetTransactionOutcome :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> Transactions.TransactionIndex -> m (Maybe ValidResult)
+doGetTransactionOutcome :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> Transactions.TransactionIndex -> m (Maybe TransactionSummary)
 doGetTransactionOutcome pbs transHash = do
         bsp <- loadPBS pbs
         return $! (bspTransactionOutcomes bsp) ^? ix transHash
 
-doSetTransactionOutcomes :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> [(Transactions.TransactionHash, ValidResult)] -> m PersistentBlockState
+doSetTransactionOutcomes :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> [TransactionSummary] -> m PersistentBlockState
 doSetTransactionOutcomes pbs transList = do
         bsp <- loadPBS pbs
         storePBS pbs bsp{bspTransactionOutcomes = Transactions.transactionOutcomesFromList transList}
@@ -566,6 +568,10 @@ doGetExecutionCost pbs = (^. Rewards.executionCost) . bspBank <$> loadPBS pbs
 
 doGetSpecialOutcomes :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> m [Transactions.SpecialTransactionOutcome]
 doGetSpecialOutcomes pbs = (^. to bspTransactionOutcomes . Transactions.outcomeSpecial) <$> loadPBS pbs
+
+doGetOutcomes :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> m (Vec.Vector TransactionSummary)
+doGetOutcomes pbs = (^. to bspTransactionOutcomes . to Transactions.outcomeValues) <$> loadPBS pbs
+
 
 doAddSpecialTransactionOutcome :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> Transactions.SpecialTransactionOutcome -> m PersistentBlockState
 doAddSpecialTransactionOutcome pbs o = do
@@ -606,6 +612,7 @@ instance (MonadIO m, HasModuleCache r, HasBlobStore r, MonadReader r m) => Block
     getRewardStatus = doGetRewardStatus
     getTransactionOutcome = doGetTransactionOutcome
     getSpecialOutcomes = doGetSpecialOutcomes
+    getOutcomes = doGetOutcomes
     {-# INLINE getModule #-}
     {-# INLINE getAccount #-}
     {-# INLINE getContractInstance #-}
@@ -615,6 +622,7 @@ instance (MonadIO m, HasModuleCache r, HasBlobStore r, MonadReader r m) => Block
     {-# INLINE getBlockBirkParameters #-}
     {-# INLINE getRewardStatus #-}
     {-# INLINE getTransactionOutcome #-}
+    {-# INLINE getOutcomes #-}
     {-# INLINE getSpecialOutcomes #-}
 
 instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => BlockStateOperations (PersistentBlockStateMonad r m) where

@@ -17,6 +17,7 @@ import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
 import Control.Monad.Trans.RWS.Strict hiding (ask)
 import Data.Word
+import qualified Data.Vector as Vec
 import qualified Data.Serialize as S
 
 import Concordium.Types
@@ -75,7 +76,10 @@ class (Monad m, BlockStateTypes m) => BlockStateQuery m where
     getRewardStatus :: BlockState m -> m BankStatus
 
     -- |Get the outcome of a transaction in the given block.
-    getTransactionOutcome :: BlockState m -> TransactionIndex -> m (Maybe ValidResult)
+    getTransactionOutcome :: BlockState m -> TransactionIndex -> m (Maybe TransactionSummary)
+
+    -- |Get all transaction outcomes for this block.
+    getOutcomes :: BlockState m -> m (Vec.Vector TransactionSummary)
 
     -- |Get special transactions outcomes (for administrative transactions, e.g., baker reward)
     getSpecialOutcomes :: BlockState m -> m [SpecialTransactionOutcome]
@@ -268,7 +272,7 @@ class BlockStateQuery m => BlockStateOperations m where
   bsoGetCryptoParams :: UpdatableBlockState m -> m CryptographicParameters
 
   -- |Set the list of transaction outcomes for the block.
-  bsoSetTransactionOutcomes :: UpdatableBlockState m -> [(TransactionHash, ValidResult)] -> m (UpdatableBlockState m)
+  bsoSetTransactionOutcomes :: UpdatableBlockState m -> [TransactionSummary] -> m (UpdatableBlockState m)
 
   -- |Add a special transaction outcome.
   bsoAddSpecialTransactionOutcome :: UpdatableBlockState m -> SpecialTransactionOutcome -> m (UpdatableBlockState m)
@@ -322,6 +326,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getBlockBirkParameters = lift . getBlockBirkParameters
   getRewardStatus = lift . getRewardStatus
   getTransactionOutcome s = lift . getTransactionOutcome s
+  getOutcomes = lift . getOutcomes
   getSpecialOutcomes = lift . getSpecialOutcomes
   {-# INLINE getModule #-}
   {-# INLINE getAccount #-}
@@ -331,6 +336,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   {-# INLINE getContractInstanceList #-}
   {-# INLINE getBlockBirkParameters #-}
   {-# INLINE getRewardStatus #-}
+  {-# INLINE getOutcomes #-}
   {-# INLINE getTransactionOutcome #-}
   {-# INLINE getSpecialOutcomes #-}
 
@@ -502,29 +508,27 @@ data TransferReason =
     }
   deriving(Show)
 
-resultToReasons :: (BlockMetadata bp, TransactionData tx) => bp -> tx -> ValidResult -> [TransferReason]
-resultToReasons bp tx res =
-  case res of
-       TxReject _ a _ -> [ExecutionCost trId sender a baker]
-       TxSuccess events a _ -> mapMaybe extractReason events ++ [ExecutionCost trId sender a baker]
+resultToReasons :: (BlockMetadata bp) => bp -> TransactionSummary -> [TransferReason]
+resultToReasons bp TransactionSummary{..} =
+  case tsResult of
+       TxReject{} -> [ExecutionCost tsHash tsSender tsCost baker]
+       TxSuccess{..} -> mapMaybe extractReason vrEvents ++ [ExecutionCost tsHash tsSender tsCost baker]
   where extractReason (Transferred (AddressAccount source) amount (AddressAccount target)) =
-          Just (DirectTransfer trId source amount target)
+          Just (DirectTransfer tsHash source amount target)
         extractReason (Transferred (AddressContract source) amount (AddressAccount target)) =
-          Just (ContractToAccountTransfer trId source amount target)
+          Just (ContractToAccountTransfer tsHash source amount target)
         extractReason (Transferred (AddressAccount source) amount (AddressContract target)) =
-          Just (AccountToContractTransfer trId source amount target)
+          Just (AccountToContractTransfer tsHash source amount target)
         extractReason (Transferred (AddressContract source) amount (AddressContract target)) =
-          Just (ContractToContractTransfer trId source amount target)
+          Just (ContractToContractTransfer tsHash source amount target)
         extractReason (Updated target (AddressAccount source) amount _) =
-          Just (AccountToContractTransfer trId source amount target)
+          Just (AccountToContractTransfer tsHash source amount target)
         extractReason (Updated target (AddressContract source) amount _) =
-          Just (ContractToContractTransfer trId source amount target)
+          Just (ContractToContractTransfer tsHash source amount target)
         extractReason (CredentialDeployed regid address) =
-          Just (CredentialDeployment trId sender address regid)
+          Just (CredentialDeployment tsHash tsSender address regid)
         extractReason _ = Nothing
         
-        trId = transactionHash tx
-        sender = thSender (transactionHeader tx)
         baker = blockBaker bp
 
 specialToReason :: BlockMetadata bp => bp -> SpecialTransactionOutcome -> TransferReason
