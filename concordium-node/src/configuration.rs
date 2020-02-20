@@ -13,6 +13,8 @@ pub const APP_INFO: AppInfo = AppInfo {
     author: "Concordium",
 };
 
+pub const COMPATIBLE_CLIENT_VERSIONS: [&str; 1] = [env!("CARGO_PKG_VERSION")];
+
 const APP_PREFERENCES_MAIN: &str = "main.config";
 pub const APP_PREFERENCES_KEY_VERSION: &str = "VERSION";
 pub const APP_PREFERENCES_PERSISTED_NODE_ID: &str = "PERSISTED_NODE_ID";

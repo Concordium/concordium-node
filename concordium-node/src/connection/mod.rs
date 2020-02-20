@@ -2,7 +2,6 @@ mod low_level;
 pub mod message_handlers;
 mod p2p_event;
 
-pub use crate::p2p::{Networks, P2PNode};
 use low_level::ConnectionLowLevel;
 pub use p2p_event::P2PEvent;
 
@@ -13,16 +12,17 @@ use digest::Digest;
 use failure::Fallible;
 use mio::{tcp::TcpStream, Poll, PollOpt, Ready, Token};
 use priority_queue::PriorityQueue;
+use semver::Version;
 use twox_hash::XxHash64;
 
 use crate::{
     common::{get_current_stamp, p2p_peer::P2PPeer, P2PNodeId, PeerStats, PeerType, RemotePeer},
     dumper::DumpItem,
     network::{
-        Buckets, NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkRequest,
-        NetworkResponse,
+        Buckets, Handshake, NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket,
+        NetworkRequest, NetworkResponse,
     },
-    p2p::bans::BanId,
+    p2p::{bans::BanId, Networks, P2PNode},
 };
 use concordium_common::PacketType;
 use crypto_common::Deserial;
@@ -379,10 +379,13 @@ impl Connection {
             timestamp1: Some(get_current_stamp()),
             timestamp2: None,
             payload:    NetworkMessagePayload::NetworkRequest(NetworkRequest::Handshake(
-                self.handler().self_peer.id(),
-                self.handler().self_peer.port(),
-                read_or_die!(self.handler().networks()).iter().copied().collect(),
-                vec![],
+                Handshake {
+                    remote_id:   self.handler().self_peer.id(),
+                    remote_port: self.handler().self_peer.port(),
+                    networks:    read_or_die!(self.handler().networks()).iter().copied().collect(),
+                    version:     Version::parse(env!("CARGO_PKG_VERSION"))?,
+                    proof:       vec![],
+                },
             )),
         };
         let mut serialized = Vec::with_capacity(128);

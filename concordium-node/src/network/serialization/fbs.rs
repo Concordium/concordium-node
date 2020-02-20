@@ -1,5 +1,6 @@
 use failure::{Error, Fallible};
 use flatbuffers::FlatBufferBuilder;
+use semver::Version;
 
 use crate::flatbuffers_shim::network;
 
@@ -10,8 +11,8 @@ use crate::{
         P2PNodeId,
     },
     network::{
-        NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkPacketType,
-        NetworkRequest, NetworkResponse,
+        Handshake, NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket,
+        NetworkPacketType, NetworkRequest, NetworkResponse,
     },
     p2p::bans::BanId,
 };
@@ -159,21 +160,27 @@ fn deserialize_request(root: &network::NetworkMessage) -> Fallible<NetworkMessag
         }
         network::RequestVariant::Handshake => {
             if let Some(handshake) = request.payload().map(network::Handshake::init_from_table) {
-                let node_id = P2PNodeId(handshake.nodeId());
-                let port = handshake.port();
-                let network_ids = if let Some(network_ids) = handshake.networkIds() {
-                    network_ids.safe_slice().iter().copied().map(NetworkId::from).collect()
+                let remote_id = P2PNodeId(handshake.nodeId());
+                let remote_port = handshake.port();
+                let networks = if let Some(networks) = handshake.networkIds() {
+                    networks.safe_slice().iter().copied().map(NetworkId::from).collect()
                 } else {
                     bail!("missing network ids in a Handshake")
                 };
-                // the zero-knowledge proof will be added in the future
 
-                Ok(NetworkMessagePayload::NetworkRequest(NetworkRequest::Handshake(
-                    node_id,
-                    port,
-                    network_ids,
-                    Vec::new(),
-                )))
+                let version = if let Some(version) = handshake.version() {
+                    Version::parse(std::str::from_utf8(version)?)?
+                } else {
+                    bail!("missing network ids in a Handshake")
+                };
+
+                Ok(NetworkMessagePayload::NetworkRequest(NetworkRequest::Handshake(Handshake {
+                    remote_id,
+                    remote_port,
+                    networks,
+                    version,
+                    proof: Vec::new(),
+                })))
             } else {
                 bail!("missing handshake payload")
             }
@@ -354,16 +361,25 @@ fn serialize_request(
                 Some(offset.as_union_value()),
             )
         }
-        NetworkRequest::Handshake(id, port, nets, _zk) => {
-            builder.start_vector::<u16>(nets.len());
-            for net in nets {
+        NetworkRequest::Handshake(handshake) => {
+            builder.start_vector::<u16>(handshake.networks.len());
+            for net in &handshake.networks {
                 builder.push(net.id);
             }
-            let nets_offset = Some(builder.end_vector(nets.len()));
+            let nets_offset = Some(builder.end_vector(handshake.networks.len()));
+
+            let version = handshake.version.to_string().into_bytes();
+            builder.start_vector::<u8>(version.len());
+            for byte in version.iter().rev() {
+                builder.push(*byte);
+            }
+            let version_offset = Some(builder.end_vector(version.len()));
+
             let offset = network::Handshake::create(builder, &network::HandshakeArgs {
-                nodeId:     id.as_raw(),
-                port:       *port,
+                nodeId:     handshake.remote_id.as_raw(),
+                port:       handshake.remote_port,
                 networkIds: nets_offset,
+                version:    version_offset,
                 zk:         None,
             });
             (
