@@ -337,10 +337,9 @@ elif [ "$MODE" == "local_collector" ]; then
         echo "Sleeping for $COLLECTOR_SLEEP"
         sleep $COLLECTOR_SLEEP
     fi
-    COLLECTOR_NODE_URLS="--grpc-host p2p-client_baker_1:10000 --node-name baker_1"
-    for i in `seq 2 $NUM_BAKERS`
+    for i in `seq 1 $NUM_BAKERS`
     do
-        COLLECTOR_NODE_URLS="$COLLECTOR_NODE_URLS --grpc-host p2p-client_baker_$i:10000 --node-name baker_$i"
+        COLLECTOR_NODE_URLS="$COLLECTOR_NODE_URLS --grpc-host http://p2p-client_baker_$i:10000 --node-name baker_$i"
     done
     ARGS="$ARGS $COLLECTOR_NODE_URLS"
     /node-collector $ARGS
