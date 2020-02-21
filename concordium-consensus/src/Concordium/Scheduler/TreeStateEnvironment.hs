@@ -73,7 +73,7 @@ mintAndReward bshandle blockParent _lfPointer slotNumber bid = do
       bshandle2 <- bsoModifyAccount bshandle1
          (emptyAccountUpdate (acc ^. accountAddress) & auAmount ?~ (amountToDelta (executionReward + bakingReward)))
       -- record the block reward transaction in the transaction outcomes for this block
-      bsoAddSpecialTransactionOutcome bshandle2 (BakingReward (acc ^. accountAddress) (executionReward + bakingReward))
+      bsoAddSpecialTransactionOutcome bshandle2 (BakingReward bid (acc ^. accountAddress) (executionReward + bakingReward))
 
 
 -- |Execute a block from a given starting state.

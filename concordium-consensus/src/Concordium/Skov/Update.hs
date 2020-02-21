@@ -93,7 +93,7 @@ logTransfers bp = logTransfer >>= \case
 
         zipWithM_ note (blockTransactions bp) [0..]
         special <- getSpecialOutcomes state
-        mapM_ (logger (bpHash bp) (blockSlot bp) . specialToReason fields) special
+        mapM_ (logger (bpHash bp) (blockSlot bp) . specialToReason) special
 
 
 -- |Handle a block arriving that is dead.  That is, the block has never

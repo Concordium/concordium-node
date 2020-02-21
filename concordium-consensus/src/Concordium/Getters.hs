@@ -118,7 +118,11 @@ getBlockSummary hash sfsRef = runStateQuery sfsRef $
     Just bp -> do
       bs <- queryBlockState bp
       outcomes <- BS.getOutcomes bs
-      return $ toJSON outcomes
+      specialOutcomes <- BS.getSpecialOutcomes bs
+      return $ object [
+        "transactionSummaries" .= outcomes,
+        "specialEvents" .= specialOutcomes
+        ]
 
 withBlockState :: SkovQueryMonad m => BlockHash -> (BlockState m -> m a) -> m (Maybe a)
 withBlockState hash f =
