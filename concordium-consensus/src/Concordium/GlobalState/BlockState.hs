@@ -531,8 +531,8 @@ resultToReasons bp TransactionSummary{..} =
         
         baker = blockBaker bp
 
-specialToReason :: BlockMetadata bp => bp -> SpecialTransactionOutcome -> TransferReason
-specialToReason bp (BakingReward acc amount) = BakingRewardTransfer (blockBaker bp) acc amount
+specialToReason :: SpecialTransactionOutcome -> TransferReason
+specialToReason (BakingReward bid acc amount) = BakingRewardTransfer bid acc amount
 
 type LogTransferMethod m = BlockHash -> Slot -> TransferReason -> m ()
 
