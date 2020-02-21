@@ -2,7 +2,7 @@
 name = "p2p_client"
 version = "0.2.1"
 description = "Concordium P2P Client"
-authors = ["Concordium AG <info@concordium.com>"]
+authors = ["Concordium AG <contact@concordium.com>"]
 exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*","**/**/.gitignore","**/**/.gitlab-ci.yml"]
 publish = false
 build = "build.rs"
