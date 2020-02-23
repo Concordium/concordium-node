@@ -1,4 +1,5 @@
 {-# LANGUAGE DerivingVia, StandaloneDeriving, MultiParamTypeClasses, GeneralizedNewtypeDeriving, UndecidableInstances, FlexibleInstances, OverloadedStrings, ScopedTypeVariables #-}
+{-# OPTIONS_GHC -Wno-deprecations #-}
 module GlobalStateTests.PersistentTreeState where
 
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
@@ -9,6 +10,7 @@ import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.Finalization
+import Concordium.GlobalState.TransactionLogs
 import Concordium.GlobalState.Persistent.LMDB
 import Control.Monad.State
 import Concordium.GlobalState.BlockState
@@ -37,6 +39,11 @@ import System.Random
 
 newtype MyTreeStateMonad c g s a = MyTreeStateMonad { runMTSM :: RWST c () s IO a }
   deriving (Functor, Applicative, Monad, MonadIO, MonadState s)
+
+-- FIXME: Instance that does no logging.
+instance TransactionLogger (MyTreeStateMonad c g s) where
+  {-# INLINE tlNotifyAccountEffect #-}
+  tlNotifyAccountEffect = \_ _ -> return ()
 
 deriving via (GlobalStateM c (Identity c) g (Identity g) (RWST (Identity c) () (Identity s) IO))
   instance BlockStateTypes (MyTreeStateMonad c g s)
