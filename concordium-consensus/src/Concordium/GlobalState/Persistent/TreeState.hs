@@ -23,6 +23,7 @@ import Concordium.GlobalState.Persistent.BlockPointer
 import Concordium.GlobalState.Persistent.LMDB
 import Concordium.GlobalState.Statistics
 import Concordium.GlobalState.BlockPointer
+import Concordium.GlobalState.TransactionLogs
 import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.Types
 import Concordium.Types.HashableTo
@@ -132,6 +133,11 @@ newtype PersistentTreeStateMonad bs m a = PersistentTreeStateMonad { runPersiste
             BS.BlockStateQuery, BS.BlockStateOperations, BS.BlockStateStorage)
 deriving instance (Monad m, MonadState (SkovPersistentData bs) m) => MonadState (SkovPersistentData bs) (PersistentTreeStateMonad bs m)
 
+-- FIXME: Temporary instance to get the integration rolling.
+instance TransactionLogger m => TransactionLogger (PersistentTreeStateMonad bs m) where
+  {-# INLINE tlNotifyAccountEffect #-}
+  tlNotifyAccountEffect x y = PersistentTreeStateMonad (tlNotifyAccountEffect x y)
+
 instance (bs ~ GS.BlockState m) => GS.GlobalStateTypes (PersistentTreeStateMonad bs m) where
     type PendingBlock (PersistentTreeStateMonad bs m) = PendingBlock
     type BlockPointer (PersistentTreeStateMonad bs m) = PersistentBlockPointer bs
@@ -199,7 +205,7 @@ instance (bs ~ GS.BlockState m,
     bpParent block = getWeakPointer block _bpParent blockPointer "parent"
     bpLastFinalized block = getWeakPointer block _bpLastFinalized blockLastFinalized "last finalized"
 
-instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovPersistentData bs) m)
+instance (TransactionLogger m, bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovPersistentData bs) m)
           => TS.TreeStateMonad (PersistentTreeStateMonad bs m) where
     makePendingBlock key slot parent bid pf n lastFin trs time = return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
     importPendingBlock blockBS rectime =
@@ -317,22 +323,22 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
                         Nothing -> Map.toAscList beyond
                         Just s -> (nnce, s) : Map.toAscList beyond
     addCommitTransaction tr slot = do
-            tt <- use transactionTable
             let trHash = getHash tr
+            tt <- use transactionTable
             case tt ^. ttHashMap . at trHash of
                 Nothing ->
                   if (tt ^. ttNonFinalizedTransactions . at sender . non emptyANFT . anftNextNonce) <= nonce then do
                     transactionTable .= (tt & (ttNonFinalizedTransactions . at sender . non emptyANFT . anftMap . at nonce . non Set.empty %~ Set.insert tr)
-                                                   & (ttHashMap . at (getHash tr) ?~ (tr, slot)))
+                                            & (ttHashMap . at (getHash tr) ?~ (tr, Received slot)))
                     return (TS.Added tr)
                   else return TS.ObsoleteNonce
-                Just (tr', slot') -> do
-                                when (slot > slot') $ transactionTable .= (tt & ttHashMap . at trHash ?~ (tr', slot))
-                                return $ TS.Duplicate tr'
+                Just (tr', results) -> do
+                  when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at trHash . mapped . _2 . tsSlot .=  slot
+                  return $ TS.Duplicate tr'
         where
             sender = transactionSender tr
             nonce = transactionNonce tr
-    finalizeTransactions = mapM_ finTrans
+    finalizeTransactions bh slot = mapM_ finTrans
         where
             finTrans tr = do
                 let nonce = transactionNonce tr
@@ -341,30 +347,40 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
                 assert (anft ^. anftNextNonce == nonce) $ do
                     let nfn = anft ^. anftMap . at nonce . non Set.empty
                     assert (Set.member tr nfn) $ do
-                        -- Remove any other transactions with this nonce from the transaction table
+                        -- Remove any other transactions with this nonce from the transaction table.
+                        -- They can never be part of any other block after this point.
                         forM_ (Set.delete tr nfn) $ \deadTransaction -> transactionTable . ttHashMap . at (getHash deadTransaction) .= Nothing
+                        -- Mark the status of the transaction as finalized.
+                        -- Singular here is safe due to the precondition (and assertion) that all transactions
+                        -- which are part of live blocks are in the transaction table.
+                        transactionTable . ttHashMap . singular (ix (getHash tr)) . _2 %=
+                            \case Committed{..} -> Finalized{_tsSlot=slot,tsBlockHash=bh,tsFinResult=tsResults HM.! bh,..}
+                                  _ -> error "Transaction should be in committed state when finalized."
                         -- Update the non-finalized transactions for the sender
                         transactionTable . ttNonFinalizedTransactions . at sender ?= (anft & (anftMap . at nonce .~ Nothing) & (anftNextNonce .~ nonce + 1))
-    commitTransaction slot tr =
-        transactionTable . ttHashMap . at (getHash tr) %= fmap (_2 %~ max slot)
+
+    commitTransaction slot bh tr idx =
+        transactionTable . ttHashMap . at (getHash tr) %= fmap (_2 %~ addResult bh slot idx)
     purgeTransaction tr =
         use (transactionTable . ttHashMap . at (getHash tr)) >>= \case
             Nothing -> return True
-            Just (_, slot) -> do
+            Just (_, results) -> do
                 lastFinSlot <- blockSlot . _bpBlock . fst <$> TS.getLastFinalized
-                if lastFinSlot >= slot then do
+                if (lastFinSlot >= results ^. tsSlot) then do
                     let nonce = transactionNonce tr
                         sender = transactionSender tr
                     transactionTable . ttHashMap . at (getHash tr) .= Nothing
                     transactionTable . ttNonFinalizedTransactions . at sender . non emptyANFT . anftMap . at nonce . non Set.empty %= Set.delete tr
                     return True
                 else return False
-    lookupTransaction th =
-        use (transactionTable . ttHashMap . at th) >>= \case
-            Nothing -> return Nothing
-            Just (tr, _) -> do
-                nn <- use (transactionTable . ttNonFinalizedTransactions . at (transactionSender tr) . non emptyANFT . anftNextNonce)
-                return $ Just (tr, transactionNonce tr < nn)
+
+    markDeadTransaction bh tr =
+      -- We only need to update the outcomes. The anf table nor the pending table need be updated
+      -- here since a transaction should not be marked dead in a finalized block.
+      transactionTable . ttHashMap . at (getHash tr) . mapped . _2 %= markDeadResult bh
+
+    lookupTransaction th = use (transactionTable . ttHashMap . at th)
+
     updateBlockTransactions trs pb = return $ pb {pbBlock = (pbBlock pb) {bbTransactions = BlockTransactions trs}}
 
     getConsensusStatistics = use statistics

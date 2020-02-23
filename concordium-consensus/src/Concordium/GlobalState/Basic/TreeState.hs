@@ -20,6 +20,7 @@ import qualified Concordium.GlobalState.Classes as GS
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Block
+import Concordium.GlobalState.TransactionLogs
 import qualified Concordium.GlobalState.TreeState as TS
 import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.Statistics (ConsensusStatistics, initialConsensusStatistics)
@@ -111,12 +112,17 @@ instance (bs ~ GS.BlockState m) => GS.GlobalStateTypes (PureTreeStateMonad bs m)
     type PendingBlock (PureTreeStateMonad bs m) = PendingBlock
     type BlockPointer (PureTreeStateMonad bs m) = BasicBlockPointer bs
 
+-- FIXME: Temporary instance to get the integration rolling.
+instance TransactionLogger m => TransactionLogger (PureTreeStateMonad bs m) where
+  {-# INLINE tlNotifyAccountEffect #-}
+  tlNotifyAccountEffect x y = PureTreeStateMonad (tlNotifyAccountEffect x y)
+
 instance (bs ~ GS.BlockState m, Monad m, MonadState (SkovData bs) m) => BlockPointerMonad (PureTreeStateMonad bs m) where
     blockState = return . _bpState
     bpParent = return . _bpParent
     bpLastFinalized = return . _bpLastFinalized
 
-instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovData bs) m)
+instance (TransactionLogger m, bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovData bs) m)
           => TS.TreeStateMonad (PureTreeStateMonad bs m) where
     makePendingBlock key slot parent bid pf n lastFin trs time = return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
     importPendingBlock blockBS rectime =
