@@ -98,7 +98,6 @@ instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
     getSpecialOutcomes bs =
         return $ bs ^. blockTransactionOutcomes . Transactions.outcomeSpecial
 
-
 instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
 
     {-# INLINE bsoGetModule #-}
@@ -238,9 +237,11 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
             bs' = bs & blockBirkParameters . birkCurrentBakers %~ removeStake (acct ^. accountStakeDelegate) stake . addStake target stake
                     & blockAccounts . ix aaddr %~ (accountStakeDelegate .~ target)
 
+    {-# INLINE bsoGetIdentityProvider #-}
     bsoGetIdentityProvider bs ipId =
       return $! bs ^? blockIdentityProviders . to IPS.idProviders . ix ipId
 
+    {-# INLINE bsoGetCryptoParams #-}
     bsoGetCryptoParams bs =
       return $! bs ^. blockCryptographicParameters
 
@@ -249,8 +250,13 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
 
     bsoAddSpecialTransactionOutcome bs o =
       return $! bs & blockTransactionOutcomes . Transactions.outcomeSpecial %~ (o:)
-      
-    bsoUpdateBirkParameters bs bps = return $ bs & blockBirkParameters .~ bps
+
+    {-# INLINE bsoUpdateBirkParameters #-}
+    bsoUpdateBirkParameters bs bps = return $! bs & blockBirkParameters .~ bps
+
+    {-# INLINE bsoNotifyAccountEffect #-}
+    bsoNotifyAccountEffect s _ _ = return s
+
 
 instance Monad m => BS.BlockStateStorage (PureBlockStateMonad m) where
     {-# INLINE thawBlockState #-}
