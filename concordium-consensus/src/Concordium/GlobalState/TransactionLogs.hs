@@ -27,6 +27,3 @@ deriving via NoTransactionLogger Identity instance TransactionLogger Identity
 
 deriving via (MGSTrans MaybeT m) instance TransactionLogger m => TransactionLogger (MaybeT m)
 deriving via (MGSTrans (ExceptT e) m) instance TransactionLogger m => TransactionLogger (ExceptT e m)
-
--- FIXME: Temporary instance to get things working.
-deriving via NoTransactionLogger m instance Monad m => TransactionLogger (TreeStateM s m)

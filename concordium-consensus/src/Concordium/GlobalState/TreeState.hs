@@ -30,6 +30,7 @@ import Concordium.GlobalState.Parameters
 import Concordium.Types.Transactions
 import Concordium.GlobalState.Statistics
 import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.TransactionLogs
 
 data BlockStatus bp pb =
@@ -73,6 +74,7 @@ class (Eq (BlockPointer m),
        BlockPointerData (BlockPointer m),
        BlockPendingData (PendingBlock m),
        BlockStateStorage m,
+       BlockPointerMonad m,
        TransactionLogger m,
        Monad m)
       => TreeStateMonad m where
