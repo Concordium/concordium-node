@@ -1,7 +1,4 @@
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE RecordWildCards, MultiParamTypeClasses, FlexibleInstances, GeneralizedNewtypeDeriving, LambdaCase, FlexibleContexts #-}
-{-# LANGUAGE DerivingStrategies, DerivingVia, StandaloneDeriving #-}
+{-# LANGUAGE TypeFamilies, TemplateHaskell, NumericUnderscores, ScopedTypeVariables, DataKinds, RecordWildCards, MultiParamTypeClasses, FlexibleInstances, GeneralizedNewtypeDeriving, LambdaCase, FlexibleContexts, DerivingStrategies, DerivingVia, StandaloneDeriving, UndecidableInstances #-}
 module Concordium.GlobalState.Basic.TreeState where
 
 import Lens.Micro.Platform
@@ -27,6 +24,7 @@ import qualified Concordium.GlobalState.TreeState as TS
 import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.Statistics (ConsensusStatistics, initialConsensusStatistics)
 import Concordium.Types.Transactions
+import Concordium.GlobalState.BlockPointer
 
 import Concordium.GlobalState.Basic.Block
 import Concordium.GlobalState.Basic.BlockPointer
@@ -64,15 +62,16 @@ data SkovData bs = SkovData {
 makeLenses ''SkovData
 
 instance Show (SkovData bs) where
-    show SkovData{..} = "Finalized: " ++ intercalate "," (take 6 . show . _bpHash . snd <$> toList _finalizationList) ++ "\n" ++
-        "Branches: " ++ intercalate "," ( (('[':) . (++"]") . intercalate "," . map (take 6 . show . _bpHash)) <$> toList _branches)
+    show SkovData{..} = "Finalized: " ++ intercalate "," (take 6 . show . bpHash . snd <$> toList _finalizationList) ++ "\n" ++
+        "Branches: " ++ intercalate "," ( (('[':) . (++"]") . intercalate "," . map (take 6 . show . bpHash)) <$> toList _branches)
 
 -- |Initial skov data with default runtime parameters (block size = 10MB).
-initialSkovDataDefault :: GenesisData -> bs -> (SkovData bs)
+initialSkovDataDefault :: GenesisData -> bs -> SkovData bs
 initialSkovDataDefault = initialSkovData defaultRuntimeParameters
 
-initialSkovData :: RuntimeParameters -> GenesisData -> bs -> (SkovData bs)
-initialSkovData rp gd genState = SkovData {
+initialSkovData :: RuntimeParameters -> GenesisData -> bs -> SkovData bs
+initialSkovData rp gd genState =
+  SkovData {
             _blockTable = HM.singleton gbh (TS.BlockFinalized gb gbfin),
             _possiblyPendingTable = HM.empty,
             _possiblyPendingQueue = MPQ.empty,
@@ -88,22 +87,42 @@ initialSkovData rp gd genState = SkovData {
             _statistics = initialConsensusStatistics,
             _runtimeParameters = rp
         }
-    where
-        gb = makeGenesisBlockPointer gd genState
-        gbh = _bpHash gb
+  where gbh = bpHash gb
         gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
+        gb = makeGenesisBlockPointer gd genState
 
-instance (bs ~ GS.BlockState m) => GS.GlobalStateTypes (GS.TreeStateM (SkovData bs) m) where
-    type PendingBlock (GS.TreeStateM (SkovData bs) m) = PendingBlock
-    type BlockPointer (GS.TreeStateM (SkovData bs) m) = BasicBlockPointer bs
+-- |Newtype wrapper that provides an implementation of the TreeStateMonad using a non-persistent tree state.
+-- The underlying Monad must provide instances for:
+--
+-- * `BlockStateTypes`
+-- * `BlockStateQuery`
+-- * `BlockStateOperations`
+-- * `BlockStateStorage`
+-- * `MonadState (SkovData bs)`
+--
+-- This newtype establishes types for the @GlobalStateTypes@. The type variable @bs@ stands for the BlockState
+-- type used in the implementation.
+newtype PureTreeStateMonad bs m a = PureTreeStateMonad { runPureTreeStateMonad :: m a }
+  deriving (Functor, Applicative, Monad, MonadIO, GS.BlockStateTypes,
+            BS.BlockStateQuery, BS.BlockStateOperations, BS.BlockStateStorage)
+deriving instance (Monad m, MonadState (SkovData bs) m) => MonadState (SkovData bs) (PureTreeStateMonad bs m)
 
-instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadState (SkovData bs) m) => TS.TreeStateMonad (GS.TreeStateM (SkovData bs) m) where
+instance (bs ~ GS.BlockState m) => GS.GlobalStateTypes (PureTreeStateMonad bs m) where
+    type PendingBlock (PureTreeStateMonad bs m) = PendingBlock
+    type BlockPointer (PureTreeStateMonad bs m) = BasicBlockPointer bs
+
+instance (bs ~ GS.BlockState m, Monad m, MonadState (SkovData bs) m) => BlockPointerMonad (PureTreeStateMonad bs m) where
     blockState = return . _bpState
+    bpParent = return . _bpParent
+    bpLastFinalized = return . _bpLastFinalized
+
+instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovData bs) m)
+          => TS.TreeStateMonad (PureTreeStateMonad bs m) where
     makePendingBlock key slot parent bid pf n lastFin trs time = return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
     importPendingBlock blockBS rectime =
         case runGet (getBlock (utcTimeToTransactionTime rectime)) blockBS of
             Left err -> return $ Left $ "Block deserialization failed: " ++ err
-            Right (GenesisBlock {}) -> return $ Left $ "Block desrialization failed: unexpected genesis block"
+            Right (GenesisBlock {}) -> return $ Left $ "Block deserialization failed: unexpected genesis block"
             Right (NormalBlock block0) -> return $ Right $ makePendingBlock block0 rectime
     getBlockStatus bh = use (blockTable . at bh)
     makeLiveBlock block parent lastFin st arrTime energy = do
