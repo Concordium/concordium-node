@@ -7,7 +7,7 @@ import Test.Hspec
 import qualified GlobalStateTests.Instances(tests)
 import qualified GlobalStateTests.FinalizationSerializationSpec(tests)
 import qualified GlobalStateTests.Trie(tests)
--- import qualified GlobalStateTests.PersistentState(tests)
+import qualified GlobalStateTests.PersistentTreeState(tests)
 import qualified GlobalStateTests.Accounts(tests)
 
 atLevel :: (Word -> IO ()) -> IO ()
@@ -24,7 +24,7 @@ main :: IO ()
 main = atLevel $ \lvl -> hspec $ do
   GlobalStateTests.Accounts.tests lvl
   GlobalStateTests.Trie.tests
-  --GlobalStateTests.PersistentState.tests
+  GlobalStateTests.PersistentTreeState.tests
   GlobalStateTests.FinalizationSerializationSpec.tests
   GlobalStateTests.Instances.tests lvl
 

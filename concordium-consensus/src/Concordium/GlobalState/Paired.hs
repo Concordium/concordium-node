@@ -32,6 +32,7 @@ import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState
 
@@ -133,8 +134,6 @@ instance (Ord l, Ord r) => Ord (PairBlockData l r) where
 
 instance (BlockPointerData l, BlockPointerData r) => BlockPointerData (PairBlockData l r) where
     bpHash (PairBlockData (l, r)) = assert (bpHash l == bpHash r) $ bpHash l
-    bpParent (PairBlockData (l, r)) = PairBlockData (bpParent l, bpParent r)
-    bpLastFinalized (PairBlockData (l, r)) = PairBlockData (bpLastFinalized l, bpLastFinalized r)
     bpHeight (PairBlockData (l, r)) = assert (bpHeight l == bpHeight r) $ bpHeight l
     bpReceiveTime (PairBlockData (l, r)) = assert (bpReceiveTime l == bpReceiveTime r) $ bpReceiveTime l
     bpArriveTime (PairBlockData (l, r)) = assert (bpArriveTime l == bpArriveTime r) $ bpArriveTime l
@@ -373,6 +372,27 @@ coerceGSMR :: GSMR rc r rs s m a -> GlobalStateM (PairGSContext lc rc) r (PairGS
 coerceGSMR = coerce
 
 instance (HasGlobalStateContext (PairGSContext lc rc) r,
+          MonadReader r m,
+          HasGlobalState (PairGState ls rs) s,
+          MonadState s m,
+          MonadIO m,
+          BlockPointerMonad (GSML lc r ls s m),
+          BlockPointerMonad (GSMR rc r rs s m))
+          => BlockPointerMonad (GlobalStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
+    blockState (PairBlockData (bp1, bp2)) = do
+        bs1 <- coerceGSML $ blockState bp1
+        bs2 <- coerceGSMR $ blockState bp2
+        return (bs1, bs2)
+    bpParent (PairBlockData (bp1, bp2)) = do
+        bs1 <- coerceGSML $ bpParent bp1
+        bs2 <- coerceGSMR $ bpParent bp2
+        return $ PairBlockData (bs1, bs2)
+    bpLastFinalized (PairBlockData (bp1, bp2)) = do
+        bs1 <- coerceGSML $ bpLastFinalized bp1
+        bs2 <- coerceGSMR $ bpLastFinalized bp2
+        return $ PairBlockData (bs1, bs2)
+
+instance (HasGlobalStateContext (PairGSContext lc rc) r,
         MonadReader r m,
         HasGlobalState (PairGState ls rs) s,
         MonadState s m,
@@ -381,12 +401,8 @@ instance (HasGlobalStateContext (PairGSContext lc rc) r,
         TreeStateMonad (GSML lc r ls s m),
         TreeStateMonad (GSMR rc r rs s m))
         => TreeStateMonad (GlobalStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
-    blockState (PairBlockData (bp1, bp2)) = do
-        bs1 <- coerceGSML $ blockState bp1
-        bs2 <- coerceGSMR $ blockState bp2
-        return (bs1, bs2)
     makePendingBlock sk sl parent bid bp bn lf trs brtime = do
-        pb1 <- coerceGSML $ makePendingBlock sk sl parent bid bp bn lf trs brtime 
+        pb1 <- coerceGSML $ makePendingBlock sk sl parent bid bp bn lf trs brtime
         pb2 <- coerceGSMR $ makePendingBlock sk sl parent bid bp bn lf trs brtime
         return $ PairBlockData (pb1, pb2)
     importPendingBlock bs t = do
