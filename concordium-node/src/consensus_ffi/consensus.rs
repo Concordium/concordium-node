@@ -4,6 +4,7 @@ use failure::Fallible;
 use std::{
     collections::HashMap,
     convert::TryFrom,
+    path::PathBuf,
     sync::{
         atomic::{AtomicBool, AtomicPtr, Ordering},
         Arc, Mutex,
@@ -241,6 +242,7 @@ impl ConsensusContainer {
         private_data: Option<Vec<u8>>,
         baker_id: Option<BakerId>,
         max_log_level: ConsensusLogLevel,
+        appdata_dir: &PathBuf,
     ) -> Fallible<Self> {
         info!("Starting up the consensus layer");
 
@@ -256,6 +258,7 @@ impl ConsensusContainer {
             genesis_data.clone(),
             private_data,
             max_log_level,
+            appdata_dir,
         ) {
             Ok(consensus_ptr) => Ok(Self {
                 max_block_size,

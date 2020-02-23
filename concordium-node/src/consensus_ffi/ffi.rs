@@ -8,6 +8,7 @@ use std::{
     ffi::{CStr, CString},
     io::{Cursor, Write},
     os::raw::{c_char, c_int},
+    path::PathBuf,
     slice,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -213,6 +214,8 @@ extern "C" {
         log_callback: LogCallback,
         transfer_log_enabled: u8,
         transfer_log_callback: TransferLogCallback,
+        appdata_dir: *const u8,
+        appdata_dir_len: i64,
     ) -> *mut consensus_runner;
     pub fn startConsensusPassive(
         max_block_size: u64,
@@ -221,6 +224,8 @@ extern "C" {
         catchup_status_callback: CatchUpStatusCallback,
         maximum_log_level: u8,
         log_callback: LogCallback,
+        appdata_dir: *const u8,
+        appdata_dir_len: i64,
     ) -> *mut consensus_runner;
     #[allow(improper_ctypes)]
     pub fn startBaker(consensus: *mut consensus_runner);
@@ -315,20 +320,16 @@ pub fn get_consensus_ptr(
     genesis_data: Vec<u8>,
     private_data: Option<Vec<u8>>,
     maximum_log_level: ConsensusLogLevel,
+    appdata_dir: &PathBuf,
 ) -> Fallible<*mut consensus_runner> {
     let genesis_data_len = genesis_data.len();
-
-    // private_data appears to (might be too early to deserialize yet) contain:
-    // a u64 BakerId
-    // 3 32B-long ByteStrings (with u64 length prefixes), the latter 2 of which are
-    // 32B of unknown content
-    // 2x identical 32B-long byte sequences
 
     let c_string_genesis = unsafe { CString::from_vec_unchecked(genesis_data) };
 
     let consensus_ptr = match private_data {
         Some(ref private_data_bytes) => {
             let private_data_len = private_data_bytes.len();
+            let appdata_buf = appdata_dir.as_path().to_str().unwrap();
             unsafe {
                 let c_string_private_data =
                     CString::from_vec_unchecked(private_data_bytes.to_owned());
@@ -345,21 +346,28 @@ pub fn get_consensus_ptr(
                     on_log_emited,
                     if enable_transfer_logging { 1 } else { 0 },
                     on_transfer_log_emitted,
+                    appdata_buf.as_ptr() as *const u8,
+                    appdata_buf.len() as i64,
                 )
             }
         }
-        None => unsafe {
-            {
-                startConsensusPassive(
-                    max_block_size,
-                    c_string_genesis.as_ptr() as *const u8,
-                    genesis_data_len as i64,
-                    catchup_status_callback,
-                    maximum_log_level as u8,
-                    on_log_emited,
-                )
+        None => {
+            let appdata_buf = appdata_dir.as_path().to_str().unwrap();
+            unsafe {
+                {
+                    startConsensusPassive(
+                        max_block_size,
+                        c_string_genesis.as_ptr() as *const u8,
+                        genesis_data_len as i64,
+                        catchup_status_callback,
+                        maximum_log_level as u8,
+                        on_log_emited,
+                        appdata_buf.as_ptr() as *const u8,
+                        appdata_buf.len() as i64,
+                    )
+                }
             }
-        },
+        }
     };
 
     if consensus_ptr.is_null() {
@@ -518,7 +526,7 @@ impl ConsensusContainer {
         wrap_c_call_payload!(
             self,
             |consensus| getCatchUpStatus(consensus),
-            &(PacketType::CatchUpStatus as u16).to_be_bytes()
+            &(PacketType::CatchUpStatus as u8).to_be_bytes()
         )
     }
 
@@ -572,8 +580,8 @@ pub extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *co
     unsafe {
         let msg_variant = PacketType::FinalizationMessage;
         let payload = slice::from_raw_parts(data as *const u8, len as usize);
-        let mut full_payload = Vec::with_capacity(2 + payload.len());
-        (msg_variant as u16).serial(&mut full_payload);
+        let mut full_payload = Vec::with_capacity(1 + payload.len());
+        (msg_variant as u8).serial(&mut full_payload);
 
         full_payload.write_all(&payload).unwrap(); // infallible
         let full_payload = Arc::from(full_payload);
@@ -612,8 +620,8 @@ macro_rules! sending_callback {
             };
 
             let payload = slice::from_raw_parts($msg as *const u8, $msg_length as usize);
-            let mut full_payload = Vec::with_capacity(2 + payload.len());
-            (msg_variant as u16).serial(&mut full_payload);
+            let mut full_payload = Vec::with_capacity(1 + payload.len());
+            (msg_variant as u8).serial(&mut full_payload);
             full_payload.write_all(&payload).unwrap(); // infallible
             let full_payload = Arc::from(full_payload);
 

@@ -14,6 +14,7 @@ import Data.Foldable
 import Control.Monad
 
 import Concordium.Types
+import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.TreeState hiding (getGenesisData)
 
@@ -66,8 +67,8 @@ instance Serialize CatchUpStatus where
         cusBranches <- if cusIsRequest then get else return []
         return CatchUpStatus{..}
 
-makeCatchUpStatus :: (BlockPointerData b) => Bool -> Bool -> b -> [b] -> [b] -> CatchUpStatus
-makeCatchUpStatus cusIsRequest cusIsResponse lfb leaves branches = CatchUpStatus{..}
+makeCatchUpStatus :: (BlockPointerMonad m) => Bool -> Bool -> (BlockPointer m) -> [BlockPointer m] -> [BlockPointer m] -> m CatchUpStatus
+makeCatchUpStatus cusIsRequest cusIsResponse lfb leaves branches = return CatchUpStatus{..}
     where
         cusLastFinalizedBlock = bpHash lfb
         cusLastFinalizedHeight = bpHeight lfb
@@ -76,25 +77,28 @@ makeCatchUpStatus cusIsRequest cusIsResponse lfb leaves branches = CatchUpStatus
 
 -- |Given a list of lists representing branches (ordered by height),
 -- produce a pair of lists @(leaves, branches)@, which partions
--- those blocks that are leves (@leaves@) from those that are not
+-- those blocks that are leaves (@leaves@) from those that are not
 -- (@branches@).
-leavesBranches :: (BlockPointerData b) => [[b]] -> ([b], [b])
+leavesBranches :: forall m. (BlockPointerMonad m) => [[BlockPointer m]] -> m ([BlockPointer m], [BlockPointer m])
 leavesBranches = lb ([], [])
     where
-        lb lsbs [] = lsbs
-        lb (ls, bs) [ls'] = (ls ++ ls', bs)
-        lb (ls, bs) (s:r@(n:_))
-            = let (bs', ls') = List.partition (`elem` (bpParent <$> n)) s
-                in lb (ls ++ ls', bs ++ bs') r
+        lb :: ([BlockPointer m], [BlockPointer m]) -> [[BlockPointer m]] -> m ([BlockPointer m], [BlockPointer m])
+        lb lsbs [] = return lsbs
+        lb (ls, bs) [ls'] = return (ls ++ ls', bs)
+        lb (ls, bs) (s:r@(n:_)) = do
+          parent <- mapM bpParent n
+          let (bs', ls') = List.partition (`elem` parent) s
+          lb (ls ++ ls', bs ++ bs') r
 
-getCatchUpStatus :: (TreeStateMonad m, SkovQueryMonad m, LoggerMonad m) => Bool -> m CatchUpStatus
+getCatchUpStatus :: (BlockPointerMonad m, TreeStateMonad m, SkovQueryMonad m, LoggerMonad m) => Bool -> m CatchUpStatus
 getCatchUpStatus cusIsRequest = do
         logEvent Skov LLTrace "Getting catch-up status"
         lfb <- lastFinalizedBlock
-        (leaves, branches) <- leavesBranches . toList <$> getBranches
-        return $ makeCatchUpStatus cusIsRequest False lfb leaves (if cusIsRequest then branches else [])
+        br <- toList <$> getBranches
+        (leaves, branches) <- leavesBranches br
+        makeCatchUpStatus cusIsRequest False lfb leaves (if cusIsRequest then branches else [])
 
-handleCatchUp :: forall m. (TreeStateMonad m, SkovQueryMonad m, LoggerMonad m) => CatchUpStatus -> m (Either String (Maybe ([Either FinalizationRecord (BlockPointer m)], CatchUpStatus), Bool))
+handleCatchUp :: forall m. (BlockPointerMonad m, TreeStateMonad m, SkovQueryMonad m, LoggerMonad m) => CatchUpStatus -> m (Either String (Maybe ([Either FinalizationRecord (BlockPointer m)], CatchUpStatus), Bool))
 handleCatchUp peerCUS = runExceptT $ do
         lfb <- lift lastFinalizedBlock
         if cusLastFinalizedHeight peerCUS > bpHeight lfb then do
@@ -116,7 +120,7 @@ handleCatchUp peerCUS = runExceptT $ do
                     -- If the peer's last finalized block is not known to be finalized (to us)
                     -- then we must effectively be on different finalized chains, so we should
                     -- reject this peer.
-                    throwE $ "Invalid catch up status: last finalized block not finalized." 
+                    throwE $ "Invalid catch up status: last finalized block not finalized."
 
             -- Determine if we need to catch up: i.e. if the peer has some
             -- leaf block we do not recognise.
@@ -133,13 +137,15 @@ handleCatchUp peerCUS = runExceptT $ do
                         Set.fromList (cusLeaves peerCUS) `Set.union` Set.fromList (cusBranches peerCUS)
                 let
                     extendBackBranches b bs
-                        | bpHash b `Set.member` peerKnownBlocks = bs
-                        | bpHeight b == 0 = bs -- Genesis block should always be known, so this case should be unreachable
-                        | otherwise = extendBackBranches (bpParent b) (b Seq.<| bs)
+                        | bpHash b `Set.member` peerKnownBlocks = return bs
+                        | bpHeight b == 0 = return bs -- Genesis block should always be known, so this case should be unreachable
+                        | otherwise = do
+                                 parent <- bpParent b
+                                 extendBackBranches parent (b Seq.<| bs)
                     unknownFinTrunk = extendBackBranches lfb Seq.Empty
                 -- Take the branches; filter out all blocks that the client claims knowledge of; extend branches back
                 -- to include finalized blocks until the parent is known.
-                myBranches <- getBranches
+                myBranches <- lift getBranches
                 let
                     -- Filter out blocks that are known to the peer
                     filterUnknown :: [BlockPointer m] -> [BlockPointer m]
@@ -166,28 +172,32 @@ handleCatchUp peerCUS = runExceptT $ do
                                 (newOldest, newSansOldest) = if null l' || bpArriveTime oldest <= bpArriveTime m
                                     then (oldest, sansOldest Seq.|> l')
                                     else (m, withOldest Seq.|> List.delete m l')
-                    (outBlocks1, branches1) = case unknownFinTrunk of
+                unk <- lift unknownFinTrunk
+                let (outBlocks1, branches1) =
+                       case unk of
                         (b Seq.:<| bs) -> (Seq.singleton b, fmap (:[]) bs <> fmap filterUnknown myBranches)
                         Seq.Empty -> filterTakeOldest myBranches
-                    trim = Seq.dropWhileR null
+                let trim = Seq.dropWhileR null
                     takeBranches :: Seq.Seq (BlockPointer m) -> Seq.Seq [BlockPointer m] -> ExceptT String m (Seq.Seq (BlockPointer m))
                     takeBranches out (trim -> brs) = bestBlockOf brs >>= \case
                         Nothing -> return out
                         Just bb -> (out <>) <$> innerLoop Seq.empty brs Seq.empty bb
                     innerLoop out Seq.Empty brs _ = takeBranches out brs
                     innerLoop out brsL0@(brsL Seq.:|> bs) brsR bb
-                        | bb `elem` bs = innerLoop (bb Seq.<| out) brsL (List.delete bb bs Seq.<| brsR) (bpParent bb)
+                        | bb `elem` bs = do
+                              parent <- bpParent bb
+                              innerLoop (bb Seq.<| out) brsL (List.delete bb bs Seq.<| brsR) parent
                         | otherwise = takeBranches out (brsL0 <> brsR)
                 outBlocks2 <- takeBranches outBlocks1 branches1
-                let
-                    myCUS = makeCatchUpStatus False True lfb (fst $ leavesBranches $ toList myBranches) []
+                lvs <- leavesBranches $ toList myBranches
+                myCUS <- makeCatchUpStatus False True lfb (fst lvs) []
                     -- Note: since the returned list can be truncated, we have to be careful about the
                     -- order that finalization records are interleaved with blocks.
                     -- Specifically, we send a finalization record as soon as possible after
                     -- the corresponding block; and where the block is not being sent, we
                     -- send the finalization record before all other blocks.  We also send
                     -- finalization records and blocks in order.
-                    merge [] bs = Right <$> toList bs
+                let merge [] bs = Right <$> toList bs
                     merge fs Seq.Empty = Left . fst <$> fs
                     merge fs0@((f, fb) : fs1) bs0@(b Seq.:<| bs1)
                         | bpHeight fb < bpHeight b = Left f : merge fs1 bs0

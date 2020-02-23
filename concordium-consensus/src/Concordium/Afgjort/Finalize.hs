@@ -56,8 +56,10 @@ import qualified Concordium.Crypto.BlsSignature as Bls
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Types
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.TreeState(BlockPointerData(..))
+import Concordium.GlobalState.Classes(GlobalStateTypes(..))
 import Concordium.Kontrol
 import Concordium.Afgjort.Types
 import Concordium.Afgjort.WMVBA
@@ -87,10 +89,12 @@ instance Show FinalizationRound where
 
 
 
-ancestorAtHeight :: BlockPointerData bp => BlockHeight -> bp -> bp
+ancestorAtHeight :: (GlobalStateTypes m, BlockPointerMonad m) => BlockHeight -> BlockPointer m -> m (BlockPointer m)
 ancestorAtHeight h bp
-    | h == bpHeight bp = bp
-    | h < bpHeight bp = ancestorAtHeight h (bpParent bp)
+    | h == bpHeight bp = return bp
+    | h < bpHeight bp = do
+        parent <- bpParent bp
+        ancestorAtHeight h parent
     | otherwise = error "ancestorAtHeight: block is below required height"
 
 -- TODO: Only store pending messages for at most one round in the future.
@@ -207,7 +211,7 @@ doResetTimer = do
                     finCatchUpTimer ?= timer
             in spawnTimer
 
-tryNominateBlock :: (FinalizationMonad s m) => m ()
+tryNominateBlock :: (BlockPointerMonad m, FinalizationMonad s m) => m ()
 tryNominateBlock = do
     currRound <- use finCurrentRound
     forM_ currRound $ \r@FinalizationRound{..} ->
@@ -215,11 +219,12 @@ tryNominateBlock = do
             h <- use finHeight
             bBlock <- bestBlock
             when (bpHeight bBlock >= h + roundDelta) $ do
-                let nomBlock = bpHash $ ancestorAtHeight h bBlock
+                ancestor <- ancestorAtHeight h bBlock
+                let nomBlock = bpHash ancestor
                 finCurrentRound ?= r {roundInput = Just nomBlock}
                 liftWMVBA $ startWMVBA nomBlock
 
-nextRound :: (FinalizationMonad s m) => FinalizationIndex -> BlockHeight -> m ()
+nextRound :: (BlockPointerMonad m, FinalizationMonad s m) => FinalizationIndex -> BlockHeight -> m ()
 nextRound oldFinIndex oldDelta = do
     curFinIndex <- use finIndex
     when (curFinIndex == oldFinIndex) $ do
@@ -230,7 +235,7 @@ nextRound oldFinIndex oldDelta = do
                 newRound (2 * oldDelta) (roundMe r)
 
 
-newRound :: (FinalizationMonad s m) => BlockHeight -> Party -> m ()
+newRound :: (BlockPointerMonad m, FinalizationMonad s m) => BlockHeight -> Party -> m ()
 newRound newDelta me = do
         finCurrentRound ?= FinalizationRound {
             roundInput = Nothing,
@@ -240,7 +245,8 @@ newRound newDelta me = do
         }
         h <- use finHeight
         logEvent Afgjort LLDebug $ "Starting finalization round: height=" ++ show (theBlockHeight h) ++ " delta=" ++ show (theBlockHeight newDelta)
-        justifiedInputs <- fmap (ancestorAtHeight h) <$> getBlocksAtHeight (h + newDelta)
+        blocksAtHeight <- getBlocksAtHeight (h + newDelta)
+        justifiedInputs <- mapM (ancestorAtHeight h) blocksAtHeight
         finIx <- use finIndex
         committee <- use finCommittee
         sessId <- use finSessionId
@@ -265,7 +271,7 @@ newRound newDelta me = do
         tryNominateBlock
 
 
-handleWMVBAOutputEvents :: (FinalizationMonad s m) => [WMVBAOutputEvent Sig.Signature] -> m ()
+handleWMVBAOutputEvents :: (BlockPointerMonad m, FinalizationMonad s m) => [WMVBAOutputEvent Sig.Signature] -> m ()
 handleWMVBAOutputEvents evs = do
         FinalizationState{..} <- use finState
         FinalizationInstance{..} <- getFinalizationInstance
@@ -312,7 +318,7 @@ roundBaid finSessId finIx finDelta = runPut $ do
         S.put finIx
         S.put finDelta
 
-liftWMVBA :: (FinalizationMonad s m) => WMVBA Sig.Signature a -> m a
+liftWMVBA :: (BlockPointerMonad m, FinalizationMonad s m) => WMVBA Sig.Signature a -> m a
 liftWMVBA a = do
     FinalizationState{..} <- use finState
     FinalizationInstance{..} <- getFinalizationInstance
@@ -333,7 +339,7 @@ liftWMVBA a = do
             return r
 
 -- |Determine if a message references blocks requiring Skov to catch up.
-messageRequiresCatchUp :: (FinalizationMonad s m) => WMVBAMessage -> m Bool
+messageRequiresCatchUp :: (BlockPointerMonad m, FinalizationMonad s m) => WMVBAMessage -> m Bool
 messageRequiresCatchUp msg = rcu (messageValues msg)
     where
         rcu [] = return False
@@ -365,7 +371,7 @@ savePendingMessage finIx finDelta pmsg = do
                     return False
 
 -- |Called when a finalization message is received.
-receiveFinalizationMessage :: (FinalizationMonad s m) => FinalizationMessage -> m UpdateResult
+receiveFinalizationMessage :: (BlockPointerMonad m, FinalizationMonad s m) => FinalizationMessage -> m UpdateResult
 receiveFinalizationMessage msg@FinalizationMessage{msgHeader=FinalizationMessageHeader{..},..} = do
         FinalizationState{..} <- use finState
         -- Check this is the right session
@@ -411,7 +417,7 @@ receiveFinalizationMessage msg@FinalizationMessage{msgHeader=FinalizationMessage
                 return ResultIncorrectFinalizationSession
 
 -- |Called when a finalization pseudo-message is received.
-receiveFinalizationPseudoMessage :: (FinalizationMonad s m) => FinalizationPseudoMessage -> m UpdateResult
+receiveFinalizationPseudoMessage :: (BlockPointerMonad m, FinalizationMonad s m) => FinalizationPseudoMessage -> m UpdateResult
 receiveFinalizationPseudoMessage (FPMMessage msg) = receiveFinalizationMessage msg
 receiveFinalizationPseudoMessage (FPMCatchUp cu@CatchUpMessage{..}) = do
         FinalizationState{..} <- use finState
@@ -445,13 +451,14 @@ receiveFinalizationPseudoMessage (FPMCatchUp cu@CatchUpMessage{..}) = do
 
 
 -- |Called to notify the finalization routine when a new block arrives.
-notifyBlockArrival :: (FinalizationMonad s m, BlockPointerData bp) => bp -> m ()
+notifyBlockArrival :: (BlockPointerMonad m, FinalizationMonad s m) => BlockPointer m -> m ()
 notifyBlockArrival b = do
     FinalizationState{..} <- use finState
     forM_ _finsCurrentRound $ \FinalizationRound{..} -> do
         when (bpHeight b == _finsHeight + roundDelta) $ do
-            logEvent Afgjort LLTrace $ "Justified input at " ++ show _finsIndex ++ ": " ++ show (bpHash (ancestorAtHeight _finsHeight b))
-            liftWMVBA $ justifyWMVBAInput (bpHash (ancestorAtHeight _finsHeight b))
+            ancestor <- ancestorAtHeight _finsHeight b
+            logEvent Afgjort LLTrace $ "Justified input at " ++ show _finsIndex ++ ": " ++ show (bpHash ancestor)
+            liftWMVBA $ justifyWMVBAInput (bpHash ancestor)
         tryNominateBlock
 
 
@@ -469,7 +476,7 @@ getMyParty = do
 
 -- |Called to notify the finalization routine when a new block is finalized.
 -- (NB: this should never be called with the genesis block.)
-notifyBlockFinalized :: (FinalizationMonad s m, BlockPointerData bp) => FinalizationRecord -> bp -> m ()
+notifyBlockFinalized :: (BlockPointerMonad m, FinalizationMonad s m) => FinalizationRecord -> BlockPointer m -> m ()
 notifyBlockFinalized fr@FinalizationRecord{..} bp = do
         -- Reset catch-up timer
         oldTimer <- finCatchUpTimer <<.= Nothing
@@ -485,7 +492,8 @@ notifyBlockFinalized fr@FinalizationRecord{..} bp = do
         logEvent Afgjort LLTrace $ "Finalization complete. Pending messages: " ++ show pms
         let newFinDelay = nextFinalizationDelay fr
         fs <- use finMinSkip
-        finHeight .= nextFinalizationHeight fs bp
+        nfh <- nextFinalizationHeight fs bp
+        finHeight .= nfh
         finIndexInitialDelta .= newFinDelay
         -- Determine if we're in the committee
         mMyParty <- getMyParty
@@ -498,20 +506,22 @@ nextFinalizationDelay FinalizationRecord{..} = if finalizationDelay > 2 then fin
 
 -- |Given the finalization minimum skip and an explicitly finalized block, compute
 -- the height of the next finalized block.
-nextFinalizationHeight :: (BlockPointerData bp)
+nextFinalizationHeight :: (BlockPointerMonad m)
     => BlockHeight -- ^Finalization minimum skip
-    -> bp -- ^Last finalized block
-    -> BlockHeight
-nextFinalizationHeight fs bp = bpHeight bp + max (1 + fs) ((bpHeight bp - bpHeight (bpLastFinalized bp)) `div` 2)
+    -> BlockPointer m -- ^Last finalized block
+    -> m BlockHeight
+nextFinalizationHeight fs bp = do
+  lf <- bpLastFinalized bp
+  return $ bpHeight bp + max (1 + fs) ((bpHeight bp - bpHeight lf) `div` 2)
 
 -- |The height that a chain must be for a block to be eligible for finalization.
 -- This is the next finalization height + the next finalization delay.
-nextFinalizationJustifierHeight :: (BlockPointerData bp)
+nextFinalizationJustifierHeight :: (BlockPointerMonad m)
     => FinalizationParameters
     -> FinalizationRecord -- ^Last finalization record
-    -> bp -- ^Last finalized block
-    -> BlockHeight
-nextFinalizationJustifierHeight fp fr bp = nextFinalizationHeight (finalizationMinimumSkip fp) bp + nextFinalizationDelay fr
+    -> BlockPointer m -- ^Last finalized block
+    -> m BlockHeight
+nextFinalizationJustifierHeight fp fr bp = (+ nextFinalizationDelay fr) <$> nextFinalizationHeight (finalizationMinimumSkip fp) bp
 
 getPartyWeight :: FinalizationCommittee -> Party -> VoterPower
 getPartyWeight com pid = case parties com ^? ix (fromIntegral pid) of
@@ -552,7 +562,7 @@ finalizationCatchUpMessage FinalizationInstance{..} s = _finsCurrentRound <&> \F
 
 -- |Process a 'FinalizationSummary', handling any new messages and returning a result indicating
 -- whether the summary is behind, and whether we should initiate Skov catch-up.
-processFinalizationSummary :: (FinalizationMonad s m) => FinalizationSummary -> m CatchUpResult
+processFinalizationSummary :: (BlockPointerMonad m, FinalizationMonad s m) => FinalizationSummary -> m CatchUpResult
 processFinalizationSummary FinalizationSummary{..} =
         use finCurrentRound >>= \case
             Nothing -> return mempty

@@ -13,6 +13,7 @@ import Control.Monad
 import Concordium.Types
 import Concordium.GlobalState.TreeState hiding (blockBaker)
 import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block(blockSlot)
@@ -52,7 +53,8 @@ runBSM m cm s = do
 -- TODO: Currently the finalized pointer is not used. But the finalization committee
 -- of that block might need to be rewarded if they have not been already.
 -- Thus the argument is here for future use
-mintAndReward :: TreeStateMonad m => UpdatableBlockState m -> BlockPointer m -> BlockPointer m -> Slot -> BakerId -> m (UpdatableBlockState m)
+mintAndReward :: (GlobalStateTypes m, BlockStateOperations m, BlockPointerMonad m)
+                => UpdatableBlockState m -> BlockPointer m -> BlockPointer m -> Slot -> BakerId -> m (UpdatableBlockState m)
 mintAndReward bshandle blockParent _lfPointer slotNumber bid = do
 
   -- First we mint new currency. This can be used in rewarding bakers. First get
@@ -84,7 +86,7 @@ mintAndReward bshandle blockParent _lfPointer slotNumber bid = do
 -- Fail if any of the transactions fails, otherwise return the new 'BlockState' and the amount of energy used
 -- during this block execution.
 executeFrom ::
-  TreeStateMonad m
+  (GlobalStateTypes m, BlockPointerMonad m, TreeStateMonad m)
   => BlockHash -- ^Hash of the block we are executing. Used only for commiting transactions.
   -> Slot -- ^Slot number of the block being executed.
   -> Timestamp -- ^Unix timestamp of the beginning of the slot.
@@ -126,7 +128,7 @@ executeFrom blockHash slotNumber slotTime blockParent lfPointer blockBaker bps t
 -- POSTCONDITION: The function always returns a list of transactions which make a valid block in `ftAdded`,
 -- and also returns a list of transactions which failed, and a list of those which were not processed.
 constructBlock ::
-  TreeStateMonad m
+  (GlobalStateTypes m, BlockPointerMonad m, TreeStateMonad m)
   => Slot -- ^Slot number of the block to bake
   -> Timestamp -- ^Unix timestamp of the beginning of the slot.
   -> BlockPointer m -- ^Parent pointer from which to start executing

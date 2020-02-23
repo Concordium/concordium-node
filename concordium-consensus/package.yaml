@@ -44,6 +44,8 @@ dependencies:
 - scheduler
 - globalstate-types
 - globalstate
+- filepath >= 1.4
+- directory >= 1.3
 
 default-extensions:
 - RecordWildCards

@@ -144,8 +144,8 @@ catchUpCheck (_, c1, s1) (_, c2, s2) = do
                             checkBinary Set.member (finalizationBlockPointer finRec) knownBlocks "in" "finalized block" "known blocks"
                             testList knownBlocks (Set.insert (finalizationBlockPointer finRec) knownFin) rs
                         testList knownBlocks knownFin (Right bp : rs) = do
-                            checkBinary Set.member (bpHash (bpParent bp)) knownBlocks "in" "block parent" "known blocks"
-                            checkBinary Set.member (bpHash (bpLastFinalized bp)) knownFin "in" "block parent" "known finalized blocks"
+                            checkBinary Set.member (bpHash (BS._bpParent bp)) knownBlocks "in" "block parent" "known blocks"
+                            checkBinary Set.member (bpHash (BS._bpLastFinalized bp)) knownFin "in" "block parent" "known finalized blocks"
                             testList (Set.insert (bpHash bp) knownBlocks) knownFin rs
                     -- Check that blocks and finalization records are ordered correctly in the following sense:
                     -- * A block is not sent before its parent
