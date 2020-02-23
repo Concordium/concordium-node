@@ -18,7 +18,7 @@ import Lens.Micro.Platform
 import qualified Acorn.Core as Core
 import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Cost as Cost
-import Concordium.GlobalState.BlockState(AccountUpdate(..), auAmount, emptyAccountUpdate)
+import Concordium.GlobalState.BlockState(AccountUpdate(..), auAmount, emptyAccountUpdate, auEncryptionKey)
 import qualified Concordium.Types.Acorn.Interfaces as Interfaces
 
 import Control.Exception(assert)
@@ -86,11 +86,9 @@ class StaticEnvironmentMonad Core.UA m => SchedulerMonad m where
   -- |Bump the next available transaction nonce of the account. The account is assumed to exist.
   increaseAccountNonce :: Account -> m ()
 
+  -- FIXME: This method should not be here, but rather in the transaction monad.
   -- |Add account credential to an account address. The account with this address is assumed to exist.
   addAccountCredential :: Account -> ID.CredentialDeploymentValues -> m ()
-
-  -- |Add account encryption key to account address. The account with this address is assumed to exist.
-  addAccountEncryptionKey :: Account -> ID.AccountEncryptionKey -> m ()
 
   -- |Create new account in the global state. Return @True@ if the account was
   --  successfully created and @False@ if the account address already existed.
@@ -150,7 +148,6 @@ class StaticEnvironmentMonad Core.UA m => SchedulerMonad m where
   -- |Get cryptographic parameters for the current state.
   getCrypoParams :: m CryptographicParameters
 
-
 -- |This is a derived notion that is used inside a transaction to keep track of
 -- the state of the world during execution. Local state of contracts and amounts
 -- on contracts might need to be rolled back for various reasons, so we do not
@@ -162,6 +159,10 @@ class StaticEnvironmentMonad Core.UA m => TransactionMonad m where
   -- Instance keeps track of its own address hence we need not provide it
   -- separately.
   withInstanceState :: Instance -> Value -> m a -> m a
+
+  -- |Add account encryption key to account address. The account with this
+  -- address is assumed to exist.
+  addAccountEncryptionKey :: Account -> ID.AccountEncryptionKey -> m ()
 
   -- |Transfer amount from the first address to the second and run the
   -- computation in the modified environment.
@@ -243,7 +244,8 @@ class StaticEnvironmentMonad Core.UA m => TransactionMonad m where
 
 -- |The set of changes to be commited on a successful transaction.
 data ChangeSet = ChangeSet
-    {_accountUpdates :: !(Map.HashMap AccountAddress AccountUpdate) -- ^Accounts whose states changed.
+    {_affectedTx :: !TransactionHash, -- transaction affected by this changeset
+     _accountUpdates :: !(Map.HashMap AccountAddress AccountUpdate) -- ^Accounts whose states changed.
     ,_instanceUpdates :: !(Map.HashMap ContractAddress (AmountDelta, Value)) -- ^Contracts whose states changed.
     ,_linkedExprs :: !(Map.HashMap (Core.ModuleRef, Core.Name) (LinkedExprWithDeps NoAnnot)) -- ^Newly linked expressions.
     ,_linkedContracts :: !(Map.HashMap (Core.ModuleRef, Core.TyName) (LinkedContractValue NoAnnot))
@@ -251,12 +253,12 @@ data ChangeSet = ChangeSet
 
 makeLenses ''ChangeSet
 
-emptyCS :: ChangeSet
-emptyCS = ChangeSet Map.empty Map.empty Map.empty Map.empty
+emptyCS :: TransactionHash -> ChangeSet
+emptyCS txHash = ChangeSet txHash Map.empty Map.empty Map.empty Map.empty
 
-csWithAccountDelta :: AccountAddress -> AmountDelta -> ChangeSet
-csWithAccountDelta addr !amnt =
-  emptyCS & accountUpdates . at addr ?~ (emptyAccountUpdate addr & auAmount ?~ amnt)
+csWithAccountDelta :: TransactionHash -> AccountAddress -> AmountDelta -> ChangeSet
+csWithAccountDelta txHash addr !amnt =
+  (emptyCS txHash) & accountUpdates . at addr ?~ (emptyAccountUpdate addr & auAmount ?~ amnt)
 
 -- |Record an update for the given account in the changeset. If the account is
 -- not yet in the changeset it is created.
@@ -269,6 +271,15 @@ addAmountToCS acc !amnt !cs =
                                           Nothing -> Just (emptyAccountUpdate addr & auAmount ?~ amnt))
 
   where addr = acc ^. accountAddress
+
+{-# INLINE addEncKeyToCS #-}
+addEncKeyToCS :: Account -> ID.AccountEncryptionKey -> ChangeSet -> ChangeSet
+addEncKeyToCS acc !encKey !cs =
+  cs & accountUpdates . at addr %~ (\case Just upd -> Just (upd & auEncryptionKey ?~ encKey)
+                                          Nothing -> Just (emptyAccountUpdate addr & auEncryptionKey ?~ encKey))
+
+  where addr = acc ^. accountAddress
+
 
 -- |Modify the amount on the given account in the changeset by a given delta.
 -- It is assumed that the account is already in the changeset and that its balance
@@ -324,9 +335,9 @@ makeLenses ''TransactionContext
 newtype LocalT r m a = LocalT { _runLocalT :: ContT (Either RejectReason r) (RWST TransactionContext () LocalState m) a }
   deriving(Functor, Applicative, Monad, MonadState LocalState, MonadReader TransactionContext)
 
-runLocalT :: SchedulerMonad m => LocalT a m a -> Amount -> AccountAddress -> Energy -> m (Either RejectReason a, LocalState)
-runLocalT (LocalT st) _tcDepositedAmount _tcTxSender energy = do
-  let s = LocalState energy emptyCS
+runLocalT :: SchedulerMonad m => LocalT a m a -> TransactionHash -> Amount -> AccountAddress -> Energy -> m (Either RejectReason a, LocalState)
+runLocalT (LocalT st) txHash _tcDepositedAmount _tcTxSender energy = do
+  let s = LocalState energy (emptyCS txHash)
   (a, s', ()) <- runRWST (runContT st (return . Right)) ctx s
   return (a, s')
 
@@ -356,11 +367,13 @@ computeExecutionCharge meta energy =
 -- is the only one affected by the transaction, either because a transaction was
 -- rejected, or because it was a transaction which only affects one account's
 -- balance such as DeployCredential, or DeployModule.
-chargeExecutionCost :: SchedulerMonad m => Account -> Amount -> m ()
-chargeExecutionCost acc amnt =
+-- NB: This method should also ensure that it records that the given transaction
+-- affected the given account, using the same mechanism that commitChanges does.
+chargeExecutionCost :: SchedulerMonad m => TransactionHash -> Account -> Amount -> m ()
+chargeExecutionCost txHash acc amnt =
     let balance = acc ^. accountAmount
     in do assert (balance >= amnt) $
-              commitChanges (csWithAccountDelta (acc ^. accountAddress) (amountDiff 0 amnt))
+              commitChanges (csWithAccountDelta txHash (acc ^. accountAddress) (amountDiff 0 amnt))
           notifyExecutionCost amnt
 
 -- |Given an account which is initiating the top-level transaction and the
@@ -397,13 +410,13 @@ withDeposit acc tsType' tsHash txHeader comp k = do
   let energy = totalEnergyToUse - Cost.checkHeader
   -- record how much we have deposited. This cannot be touched during execution.
   depositedAmount <- energyToGtu totalEnergyToUse
-  (res, ls) <- runLocalT comp depositedAmount (thSender txHeader) energy
+  (res, ls) <- runLocalT comp tsHash depositedAmount (thSender txHeader) energy
   case res of
     Left reason -> do
       -- the only effect of this transaction is reduced balance
       -- compute how much we must charge and reject the transaction
       (usedEnergy, payment) <- computeExecutionCharge txHeader (ls ^. energyLeft)
-      chargeExecutionCost acc payment
+      chargeExecutionCost tsHash acc payment
       return $! TransactionSummary{
         tsSender = thSender txHeader,
         tsCost = payment,
@@ -426,11 +439,12 @@ withDeposit acc tsType' tsHash txHeader comp k = do
 -- used, and nothing else.
 defaultSuccess ::
   SchedulerMonad m =>
-  TransactionHeader
+  TransactionHash
+  -> TransactionHeader
   -> Account -> LocalState -> [Event] -> m (ValidResult, Amount, Energy)
-defaultSuccess meta senderAccount = \ls events -> do
+defaultSuccess txHash meta senderAccount = \ls events -> do
   (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-  chargeExecutionCost senderAccount energyCost
+  chargeExecutionCost txHash senderAccount energyCost
   commitChanges (ls ^. changeSet)
   return $ (TxSuccess events, energyCost, usedEnergy)
 
@@ -497,6 +511,9 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
     changeSet %= addContractAmountToCS toAcc (amountToDelta amount)
     changeSet %= addContractAmountToCS fromAcc (amountDiff 0 amount)
     cont
+
+  addAccountEncryptionKey acc encKey = do
+    changeSet %= addEncKeyToCS acc encKey
 
   getCurrentAccount addr =
     liftLocal (getAccount addr) >>= \case

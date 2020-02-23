@@ -60,7 +60,7 @@ existsValidCredential cm acc = do
 -- where currently valid means non-expired.
 checkHeader :: (TransactionData msg, SchedulerMonad m) => msg -> ExceptT FailureKind m Account
 checkHeader meta = do
-  when (transactionGasAmount meta < Cost.minimumDeposit) $ throwError DepositInsufficient
+  unless (transactionGasAmount meta >= Cost.minimumDeposit) $ throwError DepositInsufficient
   macc <- lift (getAccount (transactionSender meta))
   case macc of
     Nothing -> throwError (UnknownAccount (transactionSender meta))
@@ -138,7 +138,7 @@ dispatch msg = do
           -- FIXME: Add charge based on transaction size.
           let cost = Cost.checkHeader
           payment <- energyToGtu cost
-          chargeExecutionCost senderAccount payment
+          chargeExecutionCost (transactionHash msg) senderAccount payment
           return $ TransactionSummary{
             tsEnergyCost = cost,
             tsCost = payment,
@@ -204,32 +204,28 @@ handleDeployModule ::
   -> Module -- ^The module to deploy
   -> m TransactionSummary
 handleDeployModule senderAccount txType txHash meta psize mod =
-  withDeposit senderAccount txType txHash meta (handleModule meta psize mod) $ \ls (mhash, iface, viface) -> do
-    (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-    chargeExecutionCost senderAccount energyCost
-    b <- commitModule mhash iface viface mod
-    if b then
-      return $! (TxSuccess [ModuleDeployed mhash], energyCost, usedEnergy)
-    else
-      -- FIXME:
-      -- we should reject the transaction immediately if we figure out that the module with the hash already exists.
-      -- otherwise we can waste some effort in checking before reaching this point.
-      -- This could be chedked immediately even before we reach the dispatch since module hash is the hash of module serialization.
-      return $! (TxReject (ModuleHashAlreadyExists mhash), energyCost, usedEnergy)
+  withDeposit senderAccount txType txHash meta c k
+  where 
+    c = do
+      tickEnergy (Cost.deployModule (fromIntegral psize))
+      let mhash = Core.moduleHash mod
+      imod <- pure (runExcept (Core.makeInternal mhash (fromIntegral psize) mod)) `rejectingWith'` (const MissingImports)
+      iface <- typeHidingErrors (TC.typeModule imod) `rejectingWith` ModuleNotWF
+      let viface = I.evalModule imod
+      return (mhash, iface, viface)
 
-
--- |TODO: Figure out whether we need the metadata or not here.
-handleModule :: TransactionMonad m => TransactionHeader -> PayloadSize -> Module -> m (Core.ModuleRef, Interface, ValueInterface)
-handleModule _meta msize mod = do
-  -- Consume the gas amount required for processing.
-  -- This is done even if the transaction is rejected in the end.
-  -- NB: The next line will reject the transaction in case there are not enough funds.
-  tickEnergy (Cost.deployModule (fromIntegral msize))
-  let mhash = Core.moduleHash mod
-  imod <- pure (runExcept (Core.makeInternal mhash (fromIntegral msize) mod)) `rejectingWith'` (const MissingImports)
-  iface <- typeHidingErrors (TC.typeModule imod) `rejectingWith` ModuleNotWF
-  let viface = I.evalModule imod
-  return (mhash, iface, viface)
+    k ls (mhash, iface, viface) = do
+      (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+      chargeExecutionCost txHash senderAccount energyCost
+      b <- commitModule mhash iface viface mod
+      if b then
+        return $! (TxSuccess [ModuleDeployed mhash], energyCost, usedEnergy)
+          else
+        -- FIXME:
+        -- we should reject the transaction immediately if we figure out that the module with the hash already exists.
+        -- otherwise we can waste some effort in checking before reaching this point.
+        -- This could be chedked immediately even before we reach the dispatch since module hash is the hash of module serialization.
+        return $! (TxReject (ModuleHashAlreadyExists mhash), energyCost, usedEnergy)
 
 -- |Handle the top-level initialize contract.
 handleInitContract ::
@@ -276,7 +272,7 @@ handleInitContract senderAccount txType txHash meta amount modref cname param pa
 
           k ls (contract, iface, viface, msgty, model, initamount) = do
             (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-            chargeExecutionCost senderAccount energyCost
+            chargeExecutionCost txHash senderAccount energyCost
 
             -- we make a new changeset that also withdraws the amount from the sender's account
             -- this way of doing it means that if the contract observes current balance it will observe
@@ -296,7 +292,7 @@ handleSimpleTransfer ::
     -> Amount -- ^The amount to transfer.
     -> m TransactionSummary
 handleSimpleTransfer senderAccount txType txHash meta toaddr amount =
-  withDeposit senderAccount txType txHash meta c (defaultSuccess meta senderAccount)
+  withDeposit senderAccount txType txHash meta c (defaultSuccess txHash meta senderAccount)
     where c = case toaddr of
                 AddressContract cref -> do
                   i <- getCurrentContractInstance cref `rejectingWith` InvalidContractAddress cref
@@ -326,7 +322,7 @@ handleUpdateContract ::
     -> Int  -- ^Serialized size of the message.
     -> m TransactionSummary
 handleUpdateContract senderAccount txType txHash meta cref amount maybeMsg msgSize =
-  withDeposit senderAccount txType txHash meta c (defaultSuccess meta senderAccount)
+  withDeposit senderAccount txType txHash meta c (defaultSuccess txHash meta senderAccount)
   where c = do
           tickEnergy Cost.updatePreprocess
           i <- getCurrentContractInstance cref `rejectingWith` InvalidContractAddress cref
@@ -496,7 +492,7 @@ handleDeployCredential senderAccount txType txHash meta cdiBytes cdi =
   where c = tickEnergy Cost.deployCredential
         k ls _ = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-          chargeExecutionCost senderAccount energyCost
+          chargeExecutionCost txHash senderAccount energyCost
           let cdv = ID.cdiValues cdi
           -- check that a registration id does not yet exist
           let regId = ID.cdvRegId cdv
@@ -559,17 +555,15 @@ handleDeployEncryptionKey ::
     -> ID.AccountEncryptionKey -- ^The encryption key.
     -> m TransactionSummary
 handleDeployEncryptionKey senderAccount txType txHash meta encKey =
-  withDeposit senderAccount txType txHash meta c k
-  where c = tickEnergy Cost.deployEncryptionKey
-        k ls _ = do
-          (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-          chargeExecutionCost senderAccount energyCost
+  withDeposit senderAccount txType txHash meta c (defaultSuccess txHash meta senderAccount)
+  where c = do
+          tickEnergy Cost.deployEncryptionKey
+          let aaddr = senderAccount ^. accountAddress
           case senderAccount ^. accountEncryptionKey of
             Nothing -> do
-              let aaddr = senderAccount ^. accountAddress
               addAccountEncryptionKey senderAccount encKey
-              return $ (TxSuccess [AccountEncryptionKeyDeployed encKey aaddr], energyCost, usedEnergy)
-            Just encKey' -> return $! (TxReject (AccountEncryptionKeyAlreadyExists (senderAccount ^. accountAddress) encKey'), energyCost, usedEnergy)
+              return [AccountEncryptionKeyDeployed encKey aaddr]
+            Just encKey' -> rejectTransaction (AccountEncryptionKeyAlreadyExists aaddr encKey')
 
 
 -- FIXME: The baker handling is purely proof-of-concept. In particular the
@@ -633,7 +627,7 @@ handleAddBaker senderAccount txType txHash meta abElectionVerifyKey abSignatureV
   where c = tickEnergy Cost.addBaker
         k ls _ = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-          chargeExecutionCost senderAccount energyCost
+          chargeExecutionCost txHash senderAccount energyCost
 
           getAccount abAccount >>=
               \case Nothing -> return $! (TxReject (NonExistentRewardAccount abAccount), energyCost, usedEnergy)
@@ -671,7 +665,7 @@ handleRemoveBaker senderAccount txType txHash meta rbId _rbProof =
   where c = tickEnergy Cost.removeBaker
         k ls _ = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-          chargeExecutionCost senderAccount energyCost
+          chargeExecutionCost txHash senderAccount energyCost
 
           getBakerInfo rbId >>=
               \case Nothing ->
@@ -707,7 +701,7 @@ handleUpdateBakerAccount senderAccount txType txHash meta ubaId ubaAddress ubaPr
   where c = tickEnergy Cost.updateBakerAccount
         k ls _ = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-          chargeExecutionCost senderAccount energyCost
+          chargeExecutionCost txHash senderAccount energyCost
 
           getBakerInfo ubaId >>= \case
             Nothing ->
@@ -748,7 +742,7 @@ handleUpdateBakerSignKey senderAccount txType txHash meta ubsId ubsKey ubsProof 
   where c = tickEnergy Cost.updateBakerKey
         k ls _ = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-          chargeExecutionCost senderAccount energyCost
+          chargeExecutionCost txHash senderAccount energyCost
           getBakerInfo ubsId >>= \case
             Nothing ->
               return $! (TxReject (UpdatingNonExistentBaker ubsId), energyCost, usedEnergy)
@@ -781,7 +775,7 @@ handleDelegateStake senderAccount txType txHash meta targetBaker =
   where c = tickEnergy delegateCost
         k ls _ = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-          chargeExecutionCost senderAccount energyCost
+          chargeExecutionCost txHash senderAccount energyCost
           res <- delegateStake (thSender meta) targetBaker
           if res then
             let addr = senderAccount ^. accountAddress

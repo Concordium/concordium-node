@@ -25,6 +25,8 @@ EXPORTS
  getBirkParameters
  getModuleList
  getModuleSource
- hookTransaction
+ getTransactionStatus
+ getTransactionStatusInBlock
+ getBlockSummary
  checkIfWeAreBaker
  checkIfWeAreFinalizer

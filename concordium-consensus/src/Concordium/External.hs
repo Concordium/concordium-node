@@ -931,7 +931,6 @@ foreign export ccall getConsensusStatus :: StablePtr ConsensusRunner -> IO CStri
 foreign export ccall getBlockInfo :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getAncestors :: StablePtr ConsensusRunner -> CString -> Word64 -> IO CString
 foreign export ccall getBranches :: StablePtr ConsensusRunner -> IO CString
-foreign export ccall freeCStr :: CString -> IO ()
 
 foreign export ccall getCatchUpStatus :: StablePtr ConsensusRunner -> IO CString
 foreign export ccall receiveCatchUpStatus :: StablePtr ConsensusRunner -> PeerID -> CString -> Int64 -> Word64 -> FunPtr DirectMessageCallback -> IO ReceiveResult
@@ -948,7 +947,11 @@ foreign export ccall getModuleList :: StablePtr ConsensusRunner -> CString -> IO
 foreign export ccall getModuleSource :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
 foreign export ccall getTransactionStatus :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getTransactionStatusInBlock :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
+foreign export ccall getBlockSummary :: StablePtr ConsensusRunner -> CString -> IO CString
 
 -- baker status checking
 foreign export ccall checkIfWeAreBaker :: StablePtr ConsensusRunner -> IO Word8
 foreign export ccall checkIfWeAreFinalizer :: StablePtr ConsensusRunner -> IO Word8
+
+-- maintenance
+foreign export ccall freeCStr :: CString -> IO ()

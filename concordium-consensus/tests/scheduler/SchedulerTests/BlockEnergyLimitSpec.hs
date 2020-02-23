@@ -26,6 +26,8 @@ import Concordium.GlobalState.DummyData
 import Concordium.Types.DummyData
 import Concordium.Crypto.DummyData
 
+import SchedulerTests.Helpers
+
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
@@ -82,7 +84,7 @@ testMaxBlockEnergy = do
             initialBlockState
     case invariantBlockState gstate of
         Left f -> liftIO $ assertFailure f
-        Right _ -> return (ftAdded, ftFailed, ftUnprocessed, concat ts)
+        Right _ -> return (getResults ftAdded, ftFailed, ftUnprocessed, concat ts)
 
 checkResult :: ([(Types.BareTransaction, Types.ValidResult)],
                 [(Types.BareTransaction, Types.FailureKind)],

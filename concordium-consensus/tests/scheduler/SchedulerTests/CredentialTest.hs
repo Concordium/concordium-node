@@ -24,6 +24,8 @@ import Concordium.GlobalState.DummyData
 import Concordium.Types.DummyData
 import Concordium.Crypto.DummyData
 
+import SchedulerTests.Helpers
+
 -- Test that sending to and from an account without credentials fails.
 
 -- Create initial state where alesAccount has a credential, but thomasAccount does not.
@@ -70,7 +72,7 @@ testCredentialCheck = do
     case invariantBlockState gstate of
         Left f -> liftIO $ assertFailure f
         Right _ -> return ()
-    return (ftAdded, ftFailed, concat transactions)
+    return (getResults ftAdded, ftFailed, concat transactions)
 
 checkCredentialCheckResult :: ([(Types.BareTransaction, Types.ValidResult)],
                                [(Types.BareTransaction, Types.FailureKind)],
@@ -87,7 +89,7 @@ checkCredentialCheckResult (suc, fails, transactions) =
         xs -> assertFailure $ "List should be a singleton:" ++ show xs
     rejectCheck =
       case last suc of
-        (tx, Types.TxReject (Types.ReceiverAccountNoCredential _) _ _) ->
+        (tx, Types.TxReject (Types.ReceiverAccountNoCredential _)) ->
           assertEqual "The second transaction should be rejected." tx (transactions !! 1)
         other -> assertFailure $ "Last recorded transaction should fail with no account credential: " ++ show other
     nonrejectCheck =

@@ -25,6 +25,8 @@ import Concordium.GlobalState.DummyData
 import Concordium.Types.DummyData
 import Concordium.Crypto.DummyData
 
+import SchedulerTests.Helpers
+
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
@@ -104,7 +106,7 @@ testCommCounter = do
     case invariantBlockState endState of
         Left f -> liftIO $ assertFailure $ f ++ "\n" ++ show endState
         _ -> return ()
-    return (ftAdded, ftFailed)
+    return (getResults ftAdded, ftFailed)
 
 checkCommCounterResult :: ([(a, Types.ValidResult)], [b]) -> Bool
 checkCommCounterResult (suc, fails) =

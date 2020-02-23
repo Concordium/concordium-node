@@ -34,8 +34,8 @@ instance MonadTrans (BSOMonadWrapper r s) where
 -- rights during the beta phase.
 type ContextState = (Set.HashSet AccountAddress, ChainMetadata)
 
-instance (MonadReader ContextState m, UpdatableBlockState m ~ s, MonadState s m, BlockStateOperations m)
-    => StaticEnvironmentMonad Core.UA (BSOMonadWrapper ContextState s m) where
+instance (MonadReader ContextState m, UpdatableBlockState m ~ state, MonadState state m, BlockStateOperations m)
+    => StaticEnvironmentMonad Core.UA (BSOMonadWrapper ContextState state m) where
   {-# INLINE getChainMetadata #-}
   getChainMetadata = view _2
 
@@ -43,7 +43,7 @@ instance (MonadReader ContextState m, UpdatableBlockState m ~ s, MonadState s m,
   getModuleInterfaces mref = do
     s <- get
     mmod <- lift (bsoGetModule s mref)
-    return $ mmod <&> \m -> (BS.moduleInterface m, BS.moduleValueInterface m)
+    return $! mmod <&> \m -> (BS.moduleInterface m, BS.moduleValueInterface m)
 
 instance (MonadReader ContextState m, UpdatableBlockState m ~ state, MonadState state m, BlockStateOperations m)
          => SchedulerMonad (BSOMonadWrapper ContextState state m) where
@@ -118,23 +118,23 @@ instance (MonadReader ContextState m, UpdatableBlockState m ~ state, MonadState 
 
    where addr = acc ^. accountAddress
 
-  {-# INLINE addAccountEncryptionKey #-}
-  addAccountEncryptionKey !acc !encKey = do
-    s <- get
-    s' <- lift (bsoModifyAccount s (emptyAccountUpdate addr & auEncryptionKey ?~ encKey))
-    put s'
-   where addr = acc ^. accountAddress
-
   {-# INLINE commitChanges #-}
   commitChanges !cs = do
+    let txHash = cs ^. affectedTx
     s <- get
-    -- INVARIANT: the invariant which should hold at this point is that any
+    -- ASSUMPTION: the property which should hold at this point is that any
     -- changed instance must exist in the global state moreover all instances
     -- are distinct by the virtue of a HashMap being a function
     s' <- lift (foldM (\s' (addr, (amnt, val)) -> bsoModifyInstance s' addr amnt val)
                       s
                       (Map.toList (cs ^. instanceUpdates)))
-    s'' <- lift (foldM bsoModifyAccount s' (cs ^. accountUpdates))
+    -- Notify account transfers, but also 
+    s'' <- lift (foldM (\curState accUpdate -> do
+                           interState <- bsoNotifyAccountEffect curState txHash (accUpdate ^. auAddress)
+                           bsoModifyAccount interState accUpdate
+                       )
+                  s'
+                  (cs ^. accountUpdates))
     -- store linked expressions into the cache, but only from successful transactions.
     -- if contract initialization failed, or if the receive function rejected the transaction
     -- we ignore the linked cache.
@@ -142,7 +142,7 @@ instance (MonadReader ContextState m, UpdatableBlockState m ~ state, MonadState 
     s'''' <- lift (foldM (\curs ((mref, n), linked) -> bsoPutLinkedContract curs mref n linked) s''' (Map.toList (cs ^. linkedContracts)))
     put s''''
 
-  -- FIXME: Make this variable base on block state
+  -- FIXME: Make this variable based on block state
   {-# INLINE energyToGtu #-}
   energyToGtu = return . fromIntegral
 

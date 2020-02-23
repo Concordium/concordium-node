@@ -27,6 +27,8 @@ import Concordium.GlobalState.DummyData
 import Concordium.Types.DummyData
 import Concordium.Crypto.DummyData
 
+import SchedulerTests.Helpers
+
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
@@ -96,7 +98,7 @@ testSimpleTransfers = do
     case invariantBlockState endState of
         Left f -> liftIO $ assertFailure $ f ++ "\n" ++ show endState
         _ -> return ()
-    return (ftAdded, ftFailed, endState)
+    return (getResults ftAdded, ftFailed, endState)
 
 checkSimpleTransfersResult :: ([(a, Types.ValidResult)], [b], BlockState) -> Bool
 checkSimpleTransfersResult (suc, fails, gs) =
