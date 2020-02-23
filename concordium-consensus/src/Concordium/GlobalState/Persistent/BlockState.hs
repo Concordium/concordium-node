@@ -51,6 +51,7 @@ data BlockStatePointers = BlockStatePointers {
     bspIdentityProviders :: BufferedRef IPS.IdentityProviders,
     bspBirkParameters :: !BirkParameters, -- TODO: Possibly store BirkParameters allowing for sharing
     bspCryptographicParameters :: BufferedRef CryptographicParameters,
+    -- FIXME: Store transaction outcomes in a way that allows for individual indexing.
     bspTransactionOutcomes :: !Transactions.TransactionOutcomes
 }
 
@@ -655,6 +656,7 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => Block
     bsoSetTransactionOutcomes = doSetTransactionOutcomes
     bsoAddSpecialTransactionOutcome = doAddSpecialTransactionOutcome
     bsoUpdateBirkParameters = doUpdateBirkParameters
+    bsoNotifyAccountEffect = \s _ _ -> return s
     {-# INLINE bsoGetModule #-}
     {-# INLINE bsoGetAccount #-}
     {-# INLINE bsoGetInstance #-}
@@ -684,6 +686,7 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => Block
     {-# INLINE bsoSetTransactionOutcomes #-}
     {-# INLINE bsoAddSpecialTransactionOutcome #-}
     {-# INLINE bsoUpdateBirkParameters #-}
+    {-# INLINE bsoNotifyAccountEffect #-}
 
 instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => BlockStateStorage (PersistentBlockStateMonad r m) where
     {-# INLINE thawBlockState #-}
