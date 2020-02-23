@@ -279,9 +279,6 @@ class BlockStateQuery m => BlockStateOperations m where
   -- |Update the birk parameters of a block state
   bsoUpdateBirkParameters :: UpdatableBlockState m -> BirkParameters -> m (UpdatableBlockState m)
 
-  -- |Record that a given account is affected by the given transaction.
-  bsoNotifyAccountEffect :: UpdatableBlockState m -> TransactionHash -> AccountAddress -> m (UpdatableBlockState m)
-
 -- | Block state storage operations
 class BlockStateOperations m => BlockStateStorage m where
     -- |Derive a mutable state instance from a block state instance. The mutable
@@ -372,7 +369,6 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoSetTransactionOutcomes s = lift . bsoSetTransactionOutcomes s
   bsoAddSpecialTransactionOutcome s = lift . bsoAddSpecialTransactionOutcome s
   bsoUpdateBirkParameters bps = lift . bsoUpdateBirkParameters bps
-  bsoNotifyAccountEffect s txHash = lift . bsoNotifyAccountEffect s txHash
   {-# INLINE bsoGetModule #-}
   {-# INLINE bsoGetAccount #-}
   {-# INLINE bsoGetInstance #-}
@@ -402,7 +398,6 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoSetTransactionOutcomes #-}
   {-# INLINE bsoAddSpecialTransactionOutcome #-}
   {-# INLINE bsoUpdateBirkParameters #-}
-  {-# INLINE bsoNotifyAccountEffect #-}
 
 instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (MGSTrans t m) where
     thawBlockState = lift . thawBlockState
