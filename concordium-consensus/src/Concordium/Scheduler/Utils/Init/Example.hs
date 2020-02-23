@@ -2,7 +2,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -Wall -Wno-deprecations #-}
 module Concordium.Scheduler.Utils.Init.Example
-    (initialState, makeTransaction, mateuszAccount, dummyCredential, dummyMaxExpiryTime) where
+    (initialState, makeTransaction, makeTransferTransaction, mateuszAccount, dummyCredential, dummyMaxExpiryTime) where
 
 import qualified Data.HashMap.Strict as Map
 
@@ -106,6 +106,18 @@ makeTransaction inc ca n = Runner.signTx mateuszKP header payload
                                                     (Core.App (if inc then (inCtxTm "Inc") else (inCtxTm "Dec"))
                                                               [Core.Literal (Core.Int64 10)])
                                                     )
+
+{-# WARNING makeTransferTransaction "Dummy transaction, only use for testing." #-}
+makeTransferTransaction :: Nonce -> Types.BareTransaction
+makeTransferTransaction n = Runner.signTx mateuszKP header payload
+    where
+        header = Runner.TransactionHeader{
+            thNonce = n,
+            thSender = mateuszAccount,
+            thEnergyAmount = 1000000,
+            thExpiry = dummyMaxTransactionExpiryTime
+            }
+        payload = Types.encodePayload (Types.Transfer (AddressAccount mateuszAccount) 123)
 
 -- |State with the given number of contract instances of the counter contract specified.
 {-# WARNING initialState "Dummy initial state, only use for testing." #-}

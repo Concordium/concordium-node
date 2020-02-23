@@ -799,13 +799,17 @@ getTransactionStatus cptr trcstr = do
     logm External LLInfo "Received transaction status request."
     withTransactionHash trcstr (logm External LLDebug) $ \hash -> do
       status <- runConsensusQuery c (Get.getTransactionStatus hash)
-      let v = AE.toJSON status
-      logm External LLTrace $ "Replying with: " ++ show v
-      jsonValueToCString v
+      logm External LLTrace $ "Replying with: " ++ show status
+      jsonValueToCString status
 
 -- |Get the status of a transaction. The first input is a base16-encoded null-terminated string
 -- denoting a transaction hash, the second input is the hash of the block.
--- The return value is a NUL-terminated JSON string encoding a JSON value.
+-- The return value is a NUL-terminated string encoding a JSON value.
+-- The arguments are
+--
+--   * pointer to the consensus runner
+--   * NUL-terminated C string with a base16 encoded transaction hash
+--   * NUL-terminated C string with base16 encoded block hash
 getTransactionStatusInBlock :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
 getTransactionStatusInBlock cptr trcstr bhcstr = do
     c <- deRefStablePtr cptr
@@ -814,10 +818,20 @@ getTransactionStatusInBlock cptr trcstr bhcstr = do
     withTransactionHash trcstr (logm External LLDebug) $ \txHash -> 
       withBlockHash bhcstr (logm External LLDebug) $ \blockHash -> do
         status <- runConsensusQuery c (Get.getTransactionStatusInBlock txHash blockHash)
-        let v = AE.toJSON status
-        logm External LLTrace $ "Replying with: " ++ show v
-        jsonValueToCString v
+        logm External LLTrace $ "Replying with: " ++ show status
+        jsonValueToCString status
 
+-- |Get the list of transactions in a block with short summaries of their effects.
+-- Returns a NUL-termianated string encoding a JSON value.
+getBlockSummary :: StablePtr ConsensusRunner -> CString -> IO CString
+getBlockSummary cptr bhcstr = do
+  c <- deRefStablePtr cptr
+  let logm = consensusLogMethod c
+  logm External LLInfo "Received block summary request."
+  withBlockHash bhcstr (logm External LLDebug) $ \blockHash -> do
+    summary <- runConsensusQuery c (Get.getBlockSummary blockHash)
+    logm External LLTrace $ "Replying with: " ++ show summary
+    jsonValueToCString summary
 
 freeCStr :: CString -> IO ()
 freeCStr = free
