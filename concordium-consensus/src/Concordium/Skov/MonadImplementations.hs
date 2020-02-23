@@ -23,6 +23,7 @@ import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.TransactionLogs
 import Concordium.GlobalState
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Basic.Block (Block(GenesisBlock))
@@ -143,6 +144,9 @@ deriving via (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (Sk
     instance BlockStateTypes (SkovT h c m)
 
 deriving via (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m))
+    instance Monad m => TransactionLogger (SkovT h c m)
+
+deriving via (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m))
     instance (Monad m, BlockStateQuery (BlockStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m)))
         => BlockStateQuery (SkovT h c m)
 
@@ -198,6 +202,7 @@ instance (
         TimeMonad m,
         LoggerMonad m,
         OnSkov (SkovT h c m),
+        TransactionLogger (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m)),
         TreeStateMonad (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m)),
         BlockStateStorage (BlockStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m))
         ) => SkovMonad (SkovT h c m) where

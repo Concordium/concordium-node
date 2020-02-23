@@ -19,6 +19,7 @@ import qualified Acorn.Core as Core
 import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Cost as Cost
 import Concordium.GlobalState.BlockState(AccountUpdate(..), auAmount, emptyAccountUpdate, auEncryptionKey)
+import Concordium.GlobalState.TransactionLogs
 import qualified Concordium.Types.Acorn.Interfaces as Interfaces
 
 import Control.Exception(assert)
@@ -33,7 +34,7 @@ emptySpecialBetaAccounts = Set.empty
 -- * Scheduler monad
 
 -- |Information needed to execute transactions in the form that is easy to use.
-class StaticEnvironmentMonad Core.UA m => SchedulerMonad m where
+class (TransactionLogger m, StaticEnvironmentMonad Core.UA m) => SchedulerMonad m where
   -- |Get adddresses of special beta accounts which during the beta phase will
   -- have special privileges.
   getSpecialBetaAccounts :: m SpecialBetaAccounts

@@ -17,6 +17,7 @@ import Control.Monad.State.Class
 
 import Concordium.Scheduler.Types
 import Concordium.GlobalState.BlockState as BS
+import Concordium.GlobalState.TransactionLogs
 import Concordium.GlobalState.Basic.BlockState (BlockState, PureBlockStateMonad(..))
 import Concordium.GlobalState.TreeState hiding (BlockState)
 import Concordium.GlobalState.Bakers as Bakers
@@ -34,6 +35,10 @@ instance MonadTrans (BSOMonadWrapper r s) where
 -- rights during the beta phase.
 type ContextState = (Set.HashSet AccountAddress, ChainMetadata)
 
+instance TransactionLogger m => TransactionLogger (BSOMonadWrapper r s m) where
+  {-# INLINE tlNotifyAccountEffect #-}
+  tlNotifyAccountEffect txHash = lift . tlNotifyAccountEffect txHash
+
 instance (MonadReader ContextState m, UpdatableBlockState m ~ state, MonadState state m, BlockStateOperations m)
     => StaticEnvironmentMonad Core.UA (BSOMonadWrapper ContextState state m) where
   {-# INLINE getChainMetadata #-}
@@ -45,7 +50,7 @@ instance (MonadReader ContextState m, UpdatableBlockState m ~ state, MonadState 
     mmod <- lift (bsoGetModule s mref)
     return $! mmod <&> \m -> (BS.moduleInterface m, BS.moduleValueInterface m)
 
-instance (MonadReader ContextState m, UpdatableBlockState m ~ state, MonadState state m, BlockStateOperations m)
+instance (TransactionLogger m, MonadReader ContextState m, UpdatableBlockState m ~ state, MonadState state m, BlockStateOperations m)
          => SchedulerMonad (BSOMonadWrapper ContextState state m) where
 
   {-# INLINE getSpecialBetaAccounts #-}
@@ -130,8 +135,8 @@ instance (MonadReader ContextState m, UpdatableBlockState m ~ state, MonadState 
                       (Map.toList (cs ^. instanceUpdates)))
     -- Notify account transfers, but also 
     s'' <- lift (foldM (\curState accUpdate -> do
-                           interState <- bsoNotifyAccountEffect curState txHash (accUpdate ^. auAddress)
-                           bsoModifyAccount interState accUpdate
+                           tlNotifyAccountEffect txHash (accUpdate ^. auAddress)
+                           bsoModifyAccount curState accUpdate
                        )
                   s'
                   (cs ^. accountUpdates))
@@ -205,10 +210,12 @@ instance (MonadReader ContextState m, UpdatableBlockState m ~ state, MonadState 
   {-# INLINE getCrypoParams #-}
   getCrypoParams = lift . bsoGetCryptoParams =<< get
 
+-- |Basic implementation of the scheduler that does no transaction logging.
 newtype SchedulerImplementation a = SchedulerImplementation { _runScheduler :: RWST ContextState () BlockState (PureBlockStateMonad Identity) a }
     deriving (Functor, Applicative, Monad, MonadReader ContextState, MonadState BlockState)
     deriving (StaticEnvironmentMonad Core.UA) via (BSOMonadWrapper ContextState BlockState (MGSTrans (RWST ContextState () BlockState) (PureBlockStateMonad Identity)))
     deriving SchedulerMonad via (BSOMonadWrapper ContextState BlockState (MGSTrans (RWST ContextState () BlockState) (PureBlockStateMonad Identity)))
+    deriving TransactionLogger via NoTransactionLogger (RWST ContextState () BlockState (PureBlockStateMonad Identity))
 
 runSI :: SchedulerImplementation a -> SpecialBetaAccounts -> ChainMetadata -> BlockState -> (a, BlockState)
 runSI sc gd cd gs = let (a, s, _) = runIdentity $ runPureBlockStateMonad $ runRWST (_runScheduler sc) (gd, cd) gs in (a, s)

@@ -16,6 +16,8 @@ import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block(blockSlot)
+import Concordium.GlobalState.TransactionLogs
+import Concordium.GlobalState.Classes(MGSTrans)
 import Concordium.Scheduler.Types
 import Concordium.Scheduler.Environment
 import Concordium.Scheduler.EnvironmentImplementation (BSOMonadWrapper(..))
@@ -33,11 +35,13 @@ type ContextState = (HashSet.HashSet AccountAddress, ChainMetadata)
 newtype BlockStateMonad state m a = BSM { _runBSM :: RWST ContextState () state m a}
     deriving (Functor, Applicative, Monad, MonadState state, MonadReader ContextState, MonadTrans)
 
+deriving via MGSTrans (RWST ContextState () state) m instance TransactionLogger m => TransactionLogger (BlockStateMonad state m)
+
 deriving via (BSOMonadWrapper ContextState state (MGSTrans (RWST ContextState () state) m))
     instance (UpdatableBlockState m ~ state, BlockStateOperations m) => StaticEnvironmentMonad Core.UA (BlockStateMonad state m)
 
 deriving via (BSOMonadWrapper ContextState state (MGSTrans (RWST ContextState () state) m))
-    instance (UpdatableBlockState m ~ state, BlockStateOperations m) => SchedulerMonad (BlockStateMonad state m)
+    instance (TransactionLogger m, UpdatableBlockState m ~ state, BlockStateOperations m) => SchedulerMonad (BlockStateMonad state m)
 
 runBSM :: Monad m => BlockStateMonad b m a -> ContextState -> b -> m (a, b)
 runBSM m cm s = do
