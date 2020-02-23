@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell, RecordWildCards, MultiParamTypeClasses, TypeFamilies, GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE TemplateHaskell, RecordWildCards, MultiParamTypeClasses, TypeFamilies, GeneralizedNewtypeDeriving, StandaloneDeriving, DerivingVia #-}
 module Concordium.GlobalState.Basic.BlockState where
 
 import Lens.Micro.Platform
@@ -11,6 +11,7 @@ import Data.Maybe
 import Concordium.ID.Types(cdvRegId)
 import Concordium.Types
 import qualified Concordium.GlobalState.Classes as GS
+import Concordium.GlobalState.TransactionLogs
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Bakers
 import qualified Concordium.GlobalState.BlockState as BS
@@ -53,6 +54,10 @@ emptyBlockState _blockBirkParameters _blockCryptographicParameters = BlockState 
 
 newtype PureBlockStateMonad m a = PureBlockStateMonad {runPureBlockStateMonad :: m a}
     deriving (Functor, Applicative, Monad)
+
+instance TransactionLogger m => TransactionLogger (PureBlockStateMonad m) where
+  {-# INLINE tlNotifyAccountEffect #-}
+  tlNotifyAccountEffect x y = PureBlockStateMonad (tlNotifyAccountEffect x y)
 
 instance GS.BlockStateTypes (PureBlockStateMonad m) where
     type BlockState (PureBlockStateMonad m) = BlockState
@@ -253,10 +258,6 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
 
     {-# INLINE bsoUpdateBirkParameters #-}
     bsoUpdateBirkParameters bs bps = return $! bs & blockBirkParameters .~ bps
-
-    {-# INLINE bsoNotifyAccountEffect #-}
-    bsoNotifyAccountEffect s _ _ = return s
-
 
 instance Monad m => BS.BlockStateStorage (PureBlockStateMonad m) where
     {-# INLINE thawBlockState #-}

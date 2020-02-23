@@ -26,6 +26,7 @@ import Control.Monad.Trans.RWS.Strict
 
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Classes
+import Concordium.GlobalState.TransactionLogs
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.TreeState
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
@@ -104,6 +105,10 @@ deriving via (BlockStateM c r g s m)
 deriving via (BlockStateM c r g s m)
     instance (Monad m, BlockStateStorage (BlockStateM c r g s m))
         => BlockStateStorage (GlobalStateM c r g s m)
+
+-- FIXME: Temporary instance to get things working
+deriving via NoTransactionLogger m
+   instance Monad m => TransactionLogger (GlobalStateM c r g s m)
 
 deriving via (TreeStateM (Basic.SkovData bs) (BlockStateM c r (Basic.SkovData bs) s m))
     instance (bs ~ BlockState (BlockStateM c r (Basic.SkovData bs) s m))

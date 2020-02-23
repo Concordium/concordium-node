@@ -329,12 +329,6 @@ instance (Monad m, HasGlobalStateContext (PairGSContext lc rc) r, BlockStateOper
         bs1' <- coerceBSML $ bsoUpdateBirkParameters bs1 bps
         bs2' <- coerceBSMR $ bsoUpdateBirkParameters bs2 bps
         return (bs1', bs2')
-    bsoNotifyAccountEffect (bs1, bs2) txHash address = do
-        bs1' <- coerceBSML $ bsoNotifyAccountEffect bs1 txHash address
-        bs2' <- coerceBSMR $ bsoNotifyAccountEffect bs2 txHash address
-        return (bs1', bs2')
-      
-
     
 instance (Monad m,
     HasGlobalStateContext (PairGSContext lc rc) r,
