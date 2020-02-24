@@ -7,7 +7,7 @@ use crate::{
     configuration,
     failure::Fallible,
     network::NetworkId,
-    p2p::{bans::BanId, P2PNode},
+    p2p::{bans::BanId, connectivity::connect, P2PNode},
 };
 
 use byteorder::WriteBytesExt;
@@ -152,7 +152,7 @@ impl P2p for RpcServerImpl {
             return Err(Status::new(Code::InvalidArgument, "Missing port"));
         };
         let addr = SocketAddr::new(ip, port);
-        let status = self.node.connect(PeerType::Node, addr, None).is_ok();
+        let status = connect(&self.node, PeerType::Node, addr, None).is_ok();
         Ok(Response::new(SuccessResponse {
             value: status,
         }))

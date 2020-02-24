@@ -2,10 +2,10 @@ use crate::{
     common::{get_current_stamp, P2PNodeId, PeerStats, PeerType},
     connection::Connection,
     network::{NetworkMessage, NetworkMessagePayload, NetworkRequest},
-    p2p::P2PNode,
+    p2p::{maintenance::attempt_bootstrap, P2PNode},
 };
 
-use std::sync::atomic::Ordering;
+use std::sync::{atomic::Ordering, Arc};
 
 impl P2PNode {
     pub fn get_peer_stats(&self, peer_type: Option<PeerType>) -> Vec<PeerStats> {
@@ -27,37 +27,6 @@ impl P2PNode {
         if self.config.print_peers {
             for (i, peer) in peer_stat_list.iter().enumerate() {
                 trace!("Peer {}: {}/{}/{}", i, P2PNodeId(peer.id), peer.addr, peer.peer_type);
-            }
-        }
-    }
-
-    pub fn check_peers(&self, peer_stat_list: &[PeerStats]) {
-        trace!("Checking for needed peers");
-        if self.peer_type() != PeerType::Bootstrapper
-            && !self.config.no_net
-            && self.config.desired_nodes_count
-                > peer_stat_list
-                    .iter()
-                    .filter(|peer| peer.peer_type != PeerType::Bootstrapper)
-                    .count() as u16
-        {
-            if peer_stat_list.is_empty() {
-                info!("Sending out GetPeers to any bootstrappers we may still be connected to");
-                {
-                    self.send_get_peers();
-                }
-                if !self.config.no_bootstrap_dns {
-                    info!("No peers at all - retrying bootstrapping");
-                    self.attempt_bootstrap();
-                } else {
-                    info!(
-                        "No nodes at all - Not retrying bootstrapping using DNS since \
-                         --no-bootstrap is specified"
-                    );
-                }
-            } else {
-                info!("Not enough peers, sending GetPeers requests");
-                self.send_get_peers();
             }
         }
     }
@@ -119,5 +88,34 @@ impl P2PNode {
 
     pub fn last_peer_update(&self) -> u64 {
         self.connection_handler.last_peer_update.load(Ordering::SeqCst)
+    }
+}
+
+pub fn check_peers(node: &Arc<P2PNode>, peer_stat_list: &[PeerStats]) {
+    trace!("Checking for needed peers");
+    if node.peer_type() != PeerType::Bootstrapper
+        && !node.config.no_net
+        && node.config.desired_nodes_count
+            > peer_stat_list.iter().filter(|peer| peer.peer_type != PeerType::Bootstrapper).count()
+                as u16
+    {
+        if peer_stat_list.is_empty() {
+            info!("Sending out GetPeers to any bootstrappers we may still be connected to");
+            {
+                node.send_get_peers();
+            }
+            if !node.config.no_bootstrap_dns {
+                info!("No peers at all - retrying bootstrapping");
+                attempt_bootstrap(node);
+            } else {
+                info!(
+                    "No nodes at all - Not retrying bootstrapping using DNS since --no-bootstrap \
+                     is specified"
+                );
+            }
+        } else {
+            info!("Not enough peers, sending GetPeers requests");
+            node.send_get_peers();
+        }
     }
 }

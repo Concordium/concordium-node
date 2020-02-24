@@ -16,7 +16,7 @@ use crate::{
         NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkPacketType,
         NetworkRequest,
     },
-    p2p::{bans::BanId, P2PNode},
+    p2p::{bans::BanId, maintenance::attempt_bootstrap, P2PNode},
 };
 
 use std::{
@@ -100,245 +100,6 @@ impl P2PNode {
                 if let Err(e) = conn.send_ping() {
                     error!("Can't send a ping to {}: {}", conn, e);
                 }
-            }
-        }
-    }
-
-    pub fn connection_housekeeping(&self) -> Fallible<()> {
-        debug!("Running connection housekeeping");
-
-        let curr_stamp = get_current_stamp();
-        let peer_type = self.peer_type();
-
-        // deduplicate by P2PNodeId
-        {
-            let conns = read_or_die!(self.connections()).clone();
-            let mut conns =
-                conns.values().filter(|conn| conn.is_post_handshake()).collect::<Vec<_>>();
-            conns.sort_by_key(|conn| (conn.remote_id(), Reverse(conn.token)));
-            conns.dedup_by_key(|conn| conn.remote_id());
-            write_or_die!(self.connections())
-                .retain(|_, conn| conns.iter().map(|c| c.token).any(|t| conn.token == t));
-        }
-
-        let is_conn_faulty = |conn: &Connection| -> bool {
-            conn.failed_pkts() >= config::MAX_FAILED_PACKETS_ALLOWED
-                || if let Some(max_latency) = self.config.max_latency {
-                    conn.get_last_latency() >= max_latency
-                } else {
-                    false
-                }
-        };
-
-        let is_conn_inactive = |conn: &Connection| -> bool {
-            conn.is_post_handshake()
-                && ((peer_type == PeerType::Node
-                    && conn.last_seen() + config::MAX_NORMAL_KEEP_ALIVE < curr_stamp)
-                    || (peer_type == PeerType::Bootstrapper
-                        && conn.last_seen() + config::MAX_BOOTSTRAPPER_KEEP_ALIVE < curr_stamp))
-        };
-
-        let is_conn_without_handshake = |conn: &Connection| -> bool {
-            !conn.is_post_handshake()
-                && conn.last_seen() + config::MAX_PREHANDSHAKE_KEEP_ALIVE < curr_stamp
-        };
-
-        // Kill faulty and inactive connections
-        write_or_die!(self.connections()).retain(|_, conn| {
-            !(is_conn_faulty(&conn) || is_conn_inactive(&conn) || is_conn_without_handshake(&conn))
-        });
-
-        // If the number of peers exceeds the desired value, close a random selection of
-        // post-handshake connections to lower it
-        if peer_type == PeerType::Node {
-            let max_allowed_nodes = self.config.max_allowed_nodes;
-            let peer_count = self.get_peer_stats(Some(PeerType::Node)).len() as u16;
-            if peer_count > max_allowed_nodes {
-                let mut rng = rand::thread_rng();
-                let to_drop = read_or_die!(self.connections())
-                    .keys()
-                    .copied()
-                    .choose_multiple(&mut rng, (peer_count - max_allowed_nodes) as usize);
-
-                self.remove_connections(&to_drop);
-            }
-        }
-
-        // periodically lift soft bans
-        {
-            let mut soft_bans = write_or_die!(self.connection_handler.soft_bans);
-            if !soft_bans.is_empty() {
-                let now = Instant::now();
-                soft_bans.retain(|_, expiry| *expiry > now);
-            }
-        }
-
-        // reconnect to bootstrappers after a specified amount of time
-        if peer_type == PeerType::Node
-            && curr_stamp >= self.get_last_bootstrap() + self.config.bootstrapping_interval * 1000
-        {
-            self.attempt_bootstrap();
-        }
-
-        Ok(())
-    }
-
-    pub fn accept(&self) -> Fallible<Token> {
-        let self_peer = self.self_peer;
-        let (socket, addr) = self.connection_handler.server.accept()?;
-        self.stats.conn_received_inc();
-
-        {
-            let conn_read_lock = read_or_die!(self.connections());
-
-            if self.self_peer.peer_type() == PeerType::Node
-                && self.config.hard_connection_limit.is_some()
-                && conn_read_lock.values().len()
-                    >= self.config.hard_connection_limit.unwrap() as usize
-            {
-                bail!("Too many connections, rejecting attempt from {:?}", addr);
-            }
-
-            if conn_read_lock.values().any(|conn| conn.remote_addr() == addr) {
-                bail!("Duplicate connection attempt from {:?}; rejecting", addr);
-            }
-
-            if read_or_die!(self.connection_handler.soft_bans)
-                .iter()
-                .any(|(ip, _)| *ip == BanId::Ip(addr.ip()))
-            {
-                bail!("Connection attempt from a soft-banned IP ({:?}); rejecting", addr.ip());
-            }
-        }
-
-        debug!(
-            "Accepting new connection from {:?} to {:?}:{}",
-            addr,
-            self_peer.ip(),
-            self_peer.port()
-        );
-
-        let token = Token(self.connection_handler.next_id.fetch_add(1, Ordering::SeqCst));
-
-        let remote_peer = RemotePeer {
-            id: Default::default(),
-            addr,
-            peer_external_port: AtomicU16::new(addr.port()),
-            peer_type: PeerType::Node,
-        };
-
-        let conn = Connection::new(self, socket, token, remote_peer, false);
-
-        conn.register(&self.poll)?;
-        self.add_connection(conn);
-        self.log_event(P2PEvent::ConnectEvent(addr));
-
-        Ok(token)
-    }
-
-    pub fn connect(
-        &self,
-        peer_type: PeerType,
-        addr: SocketAddr,
-        peer_id_opt: Option<P2PNodeId>,
-    ) -> Fallible<()> {
-        debug!(
-            "Attempting to connect to {}{}",
-            addr,
-            if let Some(id) = peer_id_opt {
-                format!(" ({})", id)
-            } else {
-                "".to_owned()
-            }
-        );
-
-        if peer_type == PeerType::Node {
-            let current_peer_count = self.get_peer_stats(Some(PeerType::Node)).len() as u16;
-            if current_peer_count > self.config.max_allowed_nodes {
-                bail!(
-                    "Maximum number of peers reached {}/{}",
-                    current_peer_count,
-                    self.config.max_allowed_nodes
-                );
-            }
-        }
-
-        // Don't connect to ourselves
-        if self.self_peer.addr == addr || peer_id_opt == Some(self.id()) {
-            bail!("Attempted to connect to myself");
-        }
-
-        if read_or_die!(self.connection_handler.soft_bans)
-            .iter()
-            .any(|(ip, _)| *ip == BanId::Ip(addr.ip()) || *ip == BanId::Socket(addr))
-        {
-            bail!("Refusing to connect to a soft-banned IP ({:?})", addr.ip());
-        }
-
-        // We purposely take a write lock to ensure that we will block all the way until
-        // the connection has been either established or failed, as otherwise we can't
-        // be certain the duplicate check can't pass erroneously because two or more
-        // calls happen in too rapid succession.
-        let mut write_lock_connections = write_or_die!(self.connections());
-
-        // Don't connect to peers with a known P2PNodeId or IP+port
-        for conn in write_lock_connections.values() {
-            if conn.remote_addr() == addr
-                || (peer_id_opt.is_some() && conn.remote_id() == peer_id_opt)
-            {
-                bail!(
-                    "Already connected to {}",
-                    if let Some(id) = peer_id_opt {
-                        id.to_string()
-                    } else {
-                        addr.to_string()
-                    }
-                );
-            }
-        }
-
-        self.log_event(P2PEvent::InitiatingConnection(addr));
-        match TcpStream::connect(&addr) {
-            Ok(socket) => {
-                self.stats.conn_received_inc();
-
-                let token = Token(self.connection_handler.next_id.fetch_add(1, Ordering::SeqCst));
-
-                let remote_peer = RemotePeer {
-                    id: Default::default(),
-                    addr,
-                    peer_external_port: AtomicU16::new(addr.port()),
-                    peer_type,
-                };
-
-                let conn = Connection::new(self, socket, token, remote_peer, true);
-
-                conn.register(&self.poll)?;
-
-                write_lock_connections.insert(conn.token, conn);
-
-                self.log_event(P2PEvent::ConnectEvent(addr));
-
-                if let Some(ref conn) =
-                    write_lock_connections.get(&token).map(|conn| Arc::clone(conn))
-                {
-                    write_or_die!(conn.low_level).send_handshake_message_a()?;
-                }
-
-                if peer_type == PeerType::Bootstrapper {
-                    self.update_last_bootstrap();
-                }
-
-                Ok(())
-            }
-            Err(e) => {
-                if peer_type == PeerType::Node {
-                    write_or_die!(self.connection_handler.soft_bans).insert(
-                        BanId::Socket(addr),
-                        Instant::now() + Duration::from_secs(config::UNREACHABLE_EXPIRATION_SECS),
-                    );
-                }
-                into_err!(Err(e))
             }
         }
     }
@@ -528,6 +289,236 @@ impl P2PNode {
             })
             .unzip()
     }
+}
+
+pub fn accept(node: &Arc<P2PNode>) -> Fallible<Token> {
+    let self_peer = node.self_peer;
+    let (socket, addr) = node.connection_handler.server.accept()?;
+    node.stats.conn_received_inc();
+
+    {
+        let conn_read_lock = read_or_die!(node.connections());
+
+        if node.self_peer.peer_type() == PeerType::Node
+            && node.config.hard_connection_limit.is_some()
+            && conn_read_lock.values().len() >= node.config.hard_connection_limit.unwrap() as usize
+        {
+            bail!("Too many connections, rejecting attempt from {:?}", addr);
+        }
+
+        if conn_read_lock.values().any(|conn| conn.remote_addr() == addr) {
+            bail!("Duplicate connection attempt from {:?}; rejecting", addr);
+        }
+
+        if read_or_die!(node.connection_handler.soft_bans)
+            .iter()
+            .any(|(ip, _)| *ip == BanId::Ip(addr.ip()))
+        {
+            bail!("Connection attempt from a soft-banned IP ({:?}); rejecting", addr.ip());
+        }
+    }
+
+    debug!("Accepting new connection from {:?} to {:?}:{}", addr, self_peer.ip(), self_peer.port());
+
+    let token = Token(node.connection_handler.next_id.fetch_add(1, Ordering::SeqCst));
+
+    let remote_peer = RemotePeer {
+        id: Default::default(),
+        addr,
+        peer_external_port: AtomicU16::new(addr.port()),
+        peer_type: PeerType::Node,
+    };
+
+    let conn = Connection::new(node, socket, token, remote_peer, false);
+
+    conn.register(&node.poll)?;
+    node.add_connection(conn);
+    node.log_event(P2PEvent::ConnectEvent(addr));
+
+    Ok(token)
+}
+
+pub fn connect(
+    node: &Arc<P2PNode>,
+    peer_type: PeerType,
+    addr: SocketAddr,
+    peer_id_opt: Option<P2PNodeId>,
+) -> Fallible<()> {
+    debug!(
+        "Attempting to connect to {}{}",
+        addr,
+        if let Some(id) = peer_id_opt {
+            format!(" ({})", id)
+        } else {
+            "".to_owned()
+        }
+    );
+
+    if peer_type == PeerType::Node {
+        let current_peer_count = node.get_peer_stats(Some(PeerType::Node)).len() as u16;
+        if current_peer_count > node.config.max_allowed_nodes {
+            bail!(
+                "Maximum number of peers reached {}/{}",
+                current_peer_count,
+                node.config.max_allowed_nodes
+            );
+        }
+    }
+
+    // Don't connect to ourselves
+    if node.self_peer.addr == addr || peer_id_opt == Some(node.id()) {
+        bail!("Attempted to connect to myself");
+    }
+
+    if read_or_die!(node.connection_handler.soft_bans)
+        .iter()
+        .any(|(ip, _)| *ip == BanId::Ip(addr.ip()) || *ip == BanId::Socket(addr))
+    {
+        bail!("Refusing to connect to a soft-banned IP ({:?})", addr.ip());
+    }
+
+    // We purposely take a write lock to ensure that we will block all the way until
+    // the connection has been either established or failed, as otherwise we can't
+    // be certain the duplicate check can't pass erroneously because two or more
+    // calls happen in too rapid succession.
+    let mut write_lock_connections = write_or_die!(node.connections());
+
+    // Don't connect to peers with a known P2PNodeId or IP+port
+    for conn in write_lock_connections.values() {
+        if conn.remote_addr() == addr || (peer_id_opt.is_some() && conn.remote_id() == peer_id_opt)
+        {
+            bail!(
+                "Already connected to {}",
+                if let Some(id) = peer_id_opt {
+                    id.to_string()
+                } else {
+                    addr.to_string()
+                }
+            );
+        }
+    }
+
+    node.log_event(P2PEvent::InitiatingConnection(addr));
+    match TcpStream::connect(&addr) {
+        Ok(socket) => {
+            node.stats.conn_received_inc();
+
+            let token = Token(node.connection_handler.next_id.fetch_add(1, Ordering::SeqCst));
+
+            let remote_peer = RemotePeer {
+                id: Default::default(),
+                addr,
+                peer_external_port: AtomicU16::new(addr.port()),
+                peer_type,
+            };
+
+            let conn = Connection::new(node, socket, token, remote_peer, true);
+
+            conn.register(&node.poll)?;
+
+            write_lock_connections.insert(conn.token, conn);
+
+            node.log_event(P2PEvent::ConnectEvent(addr));
+
+            if let Some(ref conn) = write_lock_connections.get(&token).map(|conn| Arc::clone(conn))
+            {
+                write_or_die!(conn.low_level).send_handshake_message_a()?;
+            }
+
+            if peer_type == PeerType::Bootstrapper {
+                node.update_last_bootstrap();
+            }
+
+            Ok(())
+        }
+        Err(e) => {
+            if peer_type == PeerType::Node {
+                write_or_die!(node.connection_handler.soft_bans).insert(
+                    BanId::Socket(addr),
+                    Instant::now() + Duration::from_secs(config::UNREACHABLE_EXPIRATION_SECS),
+                );
+            }
+            into_err!(Err(e))
+        }
+    }
+}
+
+pub fn connection_housekeeping(node: &Arc<P2PNode>) -> Fallible<()> {
+    debug!("Running connection housekeeping");
+
+    let curr_stamp = get_current_stamp();
+    let peer_type = node.peer_type();
+
+    // deduplicate by P2PNodeId
+    {
+        let conns = read_or_die!(node.connections()).clone();
+        let mut conns = conns.values().filter(|conn| conn.is_post_handshake()).collect::<Vec<_>>();
+        conns.sort_by_key(|conn| (conn.remote_id(), Reverse(conn.token)));
+        conns.dedup_by_key(|conn| conn.remote_id());
+        write_or_die!(node.connections())
+            .retain(|_, conn| conns.iter().map(|c| c.token).any(|t| conn.token == t));
+    }
+
+    let is_conn_faulty = |conn: &Connection| -> bool {
+        conn.failed_pkts() >= config::MAX_FAILED_PACKETS_ALLOWED
+            || if let Some(max_latency) = node.config.max_latency {
+                conn.get_last_latency() >= max_latency
+            } else {
+                false
+            }
+    };
+
+    let is_conn_inactive = |conn: &Connection| -> bool {
+        conn.is_post_handshake()
+            && ((peer_type == PeerType::Node
+                && conn.last_seen() + config::MAX_NORMAL_KEEP_ALIVE < curr_stamp)
+                || (peer_type == PeerType::Bootstrapper
+                    && conn.last_seen() + config::MAX_BOOTSTRAPPER_KEEP_ALIVE < curr_stamp))
+    };
+
+    let is_conn_without_handshake = |conn: &Connection| -> bool {
+        !conn.is_post_handshake()
+            && conn.last_seen() + config::MAX_PREHANDSHAKE_KEEP_ALIVE < curr_stamp
+    };
+
+    // Kill faulty and inactive connections
+    write_or_die!(node.connections()).retain(|_, conn| {
+        !(is_conn_faulty(&conn) || is_conn_inactive(&conn) || is_conn_without_handshake(&conn))
+    });
+
+    // If the number of peers exceeds the desired value, close a random selection of
+    // post-handshake connections to lower it
+    if peer_type == PeerType::Node {
+        let max_allowed_nodes = node.config.max_allowed_nodes;
+        let peer_count = node.get_peer_stats(Some(PeerType::Node)).len() as u16;
+        if peer_count > max_allowed_nodes {
+            let mut rng = rand::thread_rng();
+            let to_drop = read_or_die!(node.connections())
+                .keys()
+                .copied()
+                .choose_multiple(&mut rng, (peer_count - max_allowed_nodes) as usize);
+
+            node.remove_connections(&to_drop);
+        }
+    }
+
+    // periodically lift soft bans
+    {
+        let mut soft_bans = write_or_die!(node.connection_handler.soft_bans);
+        if !soft_bans.is_empty() {
+            let now = Instant::now();
+            soft_bans.retain(|_, expiry| *expiry > now);
+        }
+    }
+
+    // reconnect to bootstrappers after a specified amount of time
+    if peer_type == PeerType::Node
+        && curr_stamp >= node.get_last_bootstrap() + node.config.bootstrapping_interval * 1000
+    {
+        attempt_bootstrap(node);
+    }
+
+    Ok(())
 }
 
 /// Connetion is valid for a broadcast if sender is not target,

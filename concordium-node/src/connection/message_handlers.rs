@@ -6,7 +6,7 @@ use crate::{
         Handshake, NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket,
         NetworkPacketType, NetworkRequest, NetworkResponse,
     },
-    p2p::bans::BanId,
+    p2p::{bans::BanId, connectivity::connect},
     plugins::consensus::*,
 };
 use concordium_common::{read_or_die, write_or_die, QueueMsg::Relay};
@@ -124,7 +124,7 @@ impl Connection {
 
         for peer in applicable_candidates {
             trace!("Got info for peer {}/{}/{}", peer.id(), peer.ip(), peer.port());
-            if self.handler().connect(PeerType::Node, peer.addr, Some(peer.id())).is_ok() {
+            if connect(&self.handler_ref, PeerType::Node, peer.addr, Some(peer.id())).is_ok() {
                 new_peers += 1;
                 safe_write!(self.handler().connection_handler.buckets)?
                     .insert_into_bucket(peer, HashSet::new());
