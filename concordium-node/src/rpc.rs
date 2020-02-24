@@ -33,8 +33,7 @@ use p2p_server::*;
 #[derive(Clone)]
 pub struct RpcServerImpl {
     node: Arc<P2PNode>,
-    listen_port: u16,
-    listen_addr: String,
+    listen_addr: SocketAddr,
     access_token: String,
     baker_private_data_json_file: Option<String>,
     consensus: Option<ConsensusContainer>,
@@ -46,23 +45,24 @@ impl RpcServerImpl {
         consensus: Option<ConsensusContainer>,
         conf: &configuration::RpcCliConfig,
         baker_private_data_json_file: Option<String>,
-    ) -> Self {
-        RpcServerImpl {
+    ) -> Fallible<Self> {
+        let listen_addr =
+            SocketAddr::from((IpAddr::from_str(&conf.rpc_server_addr)?, conf.rpc_server_port));
+
+        Ok(RpcServerImpl {
             node: Arc::clone(&node),
-            listen_addr: conf.rpc_server_addr.clone(),
-            listen_port: conf.rpc_server_port,
+            listen_addr,
             access_token: conf.rpc_server_token.clone(),
             baker_private_data_json_file,
             consensus,
-        }
+        })
     }
 
     pub async fn start_server(&mut self) -> Fallible<()> {
-        let addr = SocketAddr::from((IpAddr::from_str(&self.listen_addr)?, self.listen_port));
         let self_clone = self.clone();
-
         let server = Server::builder().add_service(P2pServer::new(self_clone));
-        server.serve(addr).await.map_err(|e| e.into())
+
+        server.serve(self.listen_addr).await.map_err(|e| e.into())
     }
 }
 
@@ -798,7 +798,7 @@ mod tests {
         config.cli.rpc.rpc_server_port = rpc_port;
         config.cli.rpc.rpc_server_addr = "127.0.0.1".to_owned();
         config.cli.rpc.rpc_server_token = TOKEN.to_owned();
-        let mut rpc_server = RpcServerImpl::new(node.clone(), None, &config.cli.rpc, None);
+        let mut rpc_server = RpcServerImpl::new(node.clone(), None, &config.cli.rpc, None)?;
         tokio::spawn(async move { rpc_server.start_server().await });
         tokio::task::yield_now().await;
 
