@@ -289,7 +289,7 @@ impl ConnectionLowLevel {
 
         if self.incoming_msg.size_bytes.len() == PAYLOAD_SIZE {
             let expected_size =
-                PayloadSize::from_be_bytes((&self.incoming_msg.size_bytes[..]).try_into().unwrap());
+                PayloadSize::from_be_bytes((&self.incoming_msg.size_bytes[..]).try_into()?);
             self.incoming_msg.size_bytes.clear();
 
             if expected_size == 0 {

@@ -24,7 +24,7 @@ impl NetworkMessage {
         let mut message = capnp::message::Builder::new_default();
 
         let mut builder = message.init_root::<p2p_capnp::network_message::Builder>();
-        write_network_message(&mut builder, self);
+        write_network_message(&mut builder, self)?;
 
         capnp::serialize::write_message(target, &message).map_err(|e| e.into())
     }
@@ -166,7 +166,7 @@ fn write_network_packet(
     builder.set_message(&message);
 
     if cfg!(test) {
-        packet.message.rewind().unwrap();
+        packet.message.rewind()?;
     }
 
     Ok(())
@@ -198,13 +198,13 @@ fn write_network_response(
 fn write_network_message(
     builder: &mut p2p_capnp::network_message::Builder,
     message: &mut NetworkMessage,
-) {
+) -> Fallible<()> {
     builder.set_timestamp(message.timestamp1.unwrap_or(0));
 
     match message.payload {
         NetworkMessagePayload::NetworkPacket(ref mut packet) => {
             let mut packet_builder = builder.reborrow().init_packet();
-            write_network_packet(&mut packet_builder, packet).unwrap(); // FIXME
+            write_network_packet(&mut packet_builder, packet)?;
         }
         NetworkMessagePayload::NetworkRequest(ref request) => {
             let mut request_builder = builder.reborrow().init_request();
@@ -215,6 +215,7 @@ fn write_network_message(
             write_network_response(&mut response_builder, response);
         }
     }
+    Ok(())
 }
 
 #[cfg(test)]

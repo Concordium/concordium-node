@@ -85,8 +85,8 @@ fn main() -> Fallible<()> {
         }
     });
 
-    node_1.join().unwrap();
-    node_2.join().unwrap();
+    node_1.join()?;
+    node_2.join()?;
 
     println!("\n*** stress test complete ***\n");
 

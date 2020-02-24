@@ -62,7 +62,7 @@ impl P2PNode {
             let mut writer = ban_kvs_env.write()?;
             // TODO: insert ban expiry timestamp as the Value
             ban_store.put(&mut writer, store_key, &Value::U64(0))?;
-            writer.commit().unwrap();
+            writer.commit()?;
         }
 
         match peer {
@@ -98,7 +98,7 @@ impl P2PNode {
             let mut writer = ban_kvs_env.write()?;
             // TODO: insert ban expiry timestamp as the Value
             ban_store.delete(&mut writer, store_key)?;
-            writer.commit().unwrap();
+            writer.commit()?;
         }
 
         if !self.config.no_trust_bans {

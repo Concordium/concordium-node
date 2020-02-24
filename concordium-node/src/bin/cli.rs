@@ -64,8 +64,7 @@ async fn main() -> Fallible<()> {
         }
     }
 
-    let stats_export_service =
-        instantiate_stats_export_engine(&conf, StatsServiceMode::NodeMode).unwrap();
+    let stats_export_service = instantiate_stats_export_engine(&conf, StatsServiceMode::NodeMode)?;
 
     info!("Debugging enabled: {}", conf.common.debug);
 

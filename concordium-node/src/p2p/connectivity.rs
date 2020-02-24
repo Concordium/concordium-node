@@ -530,8 +530,7 @@ fn is_valid_broadcast_target(
     peers_to_skip: &[P2PNodeId],
     network_id: NetworkId,
 ) -> bool {
-    // safe, used only in a post-handshake context
-    let peer_id = read_or_die!(conn.remote_peer.id).unwrap();
+    let peer_id = read_or_die!(conn.remote_peer.id).unwrap(); // safe, post-handshake
 
     conn.remote_peer.peer_type() != PeerType::Bootstrapper
         && peer_id != sender
