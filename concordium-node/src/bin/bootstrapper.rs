@@ -15,7 +15,7 @@ use failure::Error;
 use p2p_client::{
     common::{P2PNodeId, PeerType},
     configuration as config,
-    p2p::*,
+    p2p::{maintenance::spawn, *},
     stats_export_service::{instantiate_stats_export_engine, StatsServiceMode},
     utils::get_config_and_logging_setup,
 };
@@ -77,7 +77,7 @@ fn main() -> Result<(), Error> {
 
     info!("Concordium P2P layer. Network disabled: {}", conf.cli.no_network);
 
-    node.spawn();
+    spawn(&node);
 
     node.join().expect("Node thread panicked!");
 

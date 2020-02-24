@@ -7,7 +7,7 @@ use crate::{
     common::{P2PNodeId, PeerType},
     configuration::Config,
     network::{NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkPacketType},
-    p2p::P2PNode,
+    p2p::{connectivity, maintenance::spawn, P2PNode},
     stats_export_service::{StatsExportService, StatsServiceMode},
 };
 use concordium_common::PacketType;
@@ -94,13 +94,13 @@ pub fn make_node_and_sync(
     let stats = Arc::new(StatsExportService::new(StatsServiceMode::NodeMode).unwrap());
     let node = P2PNode::new(None, &config, None, node_type, stats, None);
 
-    node.spawn();
+    spawn(&node);
     Ok(node)
 }
 
 /// Connects `source` and `target` nodes
-pub fn connect(source: &P2PNode, target: &P2PNode) -> Fallible<()> {
-    source.connect(target.self_peer.peer_type, target.internal_addr(), None)
+pub fn connect(source: &Arc<P2PNode>, target: &P2PNode) -> Fallible<()> {
+    connectivity::connect(source, target.self_peer.peer_type, target.internal_addr(), None)
 }
 
 pub fn await_handshake(node: &P2PNode) -> Fallible<()> {

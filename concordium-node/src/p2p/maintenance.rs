@@ -19,7 +19,11 @@ use crate::{
     connection::{Connection, DeduplicationQueues, P2PEvent},
     dumper::DumpItem,
     network::{Buckets, NetworkId},
-    p2p::{bans::BanId, connectivity::SERVER},
+    p2p::{
+        bans::BanId,
+        connectivity::{accept, connect, connection_housekeeping, SERVER},
+        peers::check_peers,
+    },
     stats_engine::StatsEngine,
     stats_export_service::StatsExportService,
     utils,
@@ -128,10 +132,7 @@ pub struct P2PNodeThreads {
     pub join_handles: Vec<JoinHandle<()>>,
 }
 
-#[repr(C)] // specifying this representation is needed for the pointer work done in the
-           // last steps of `P2PNode::new`
 pub struct P2PNode {
-    pub self_ref:           Option<Arc<Self>>,
     pub self_peer:          P2PPeer,
     pub threads:            RwLock<P2PNodeThreads>,
     pub poll:               Poll,
@@ -305,8 +306,7 @@ impl P2PNode {
 
         let stats_engine = RwLock::new(StatsEngine::new(&conf.cli));
 
-        let mut node = Arc::new(P2PNode {
-            self_ref: None,
+        let node = Arc::new(P2PNode {
             poll,
             start_time: Utc::now(),
             threads: RwLock::new(P2PNodeThreads::default()),
@@ -324,32 +324,6 @@ impl P2PNode {
             total_sent: Default::default(),
         });
 
-        // note: in order to create the reference to the `Arc`'ed self, we need to do
-        // some raw pointer work. Some things to note:
-        // 1. `size_of::<Option<Arc<P2PNode>>>() == size_of::<Arc<P2PNode>>()`. There is
-        // no overhead when wrapping an `Arc` inside an `Option` as it is a `NonNull`
-        // pointer so it gets optimized away.
-        // 2. `get_mut` succeeds because at this point there is only one reference to
-        // the node.
-        // 3. We copy `1 * size_of::<Arc<P2PNode>>()` into the `self_ref` field, which
-        // is the ptr to the `NonNull<ArcInner<T>>` effectively creating a copy
-        // of the `Arc` in new place without increasing the ref_count. Cloning
-        // from either inside or outside of the node will have the same
-        // behaviour.
-        // 4. As the `self_ref` field is the first one and it is laid out
-        // in C representation, we do not need to do pointer arithmetics,
-        // just casting the pointer to the node as a pointer to the
-        // `Arc<P2PNode>`.
-        //
-        // This approach has been validated using Miri to check that it doesn't lead to
-        // UB
-        let inner_node = Arc::get_mut(&mut node).unwrap() as *mut P2PNode;
-        let data_to_copy = &node as *const Arc<P2PNode>;
-        let self_ref_ptr = inner_node as *mut Arc<P2PNode>;
-        unsafe {
-            self_ref_ptr.copy_from(data_to_copy, 1);
-        };
-
         node.clear_bans().unwrap_or_else(|e| error!("Couldn't reset the ban list: {}", e));
 
         node
@@ -361,31 +335,6 @@ impl P2PNode {
 
     pub fn update_last_bootstrap(&self) {
         self.connection_handler.last_bootstrap.store(get_current_stamp(), Ordering::Relaxed);
-    }
-
-    pub fn attempt_bootstrap(&self) {
-        if !self.config.no_net {
-            info!("Attempting to bootstrap");
-
-            let bootstrap_nodes = utils::get_bootstrap_nodes(
-                &self.config.bootstrap_server,
-                &self.config.dns_resolvers,
-                self.config.dnssec_disabled,
-                &self.config.bootstrap_nodes,
-            );
-
-            match bootstrap_nodes {
-                Ok(nodes) => {
-                    for addr in nodes {
-                        info!("Found a bootstrap node: {}", addr);
-                        let _ = self
-                            .connect(PeerType::Bootstrapper, addr, None)
-                            .map_err(|e| error!("{}", e));
-                    }
-                }
-                Err(e) => error!("Can't bootstrap: {:?}", e),
-            }
-        }
     }
 
     fn is_bucket_cleanup_enabled(&self) -> bool { self.config.timeout_bucket_entry_period > 0 }
@@ -510,123 +459,134 @@ impl P2PNode {
         self.is_rpc_online.store(false, Ordering::Relaxed);
         true
     }
+}
 
-    pub fn spawn(&self) {
-        let self_clone = self.self_ref.clone().unwrap(); // safe, always available
-        let poll_thread = spawn_or_die!("Poll thread", {
-            let mut events = Events::with_capacity(10);
-            let mut log_time = Instant::now();
-            let mut last_buckets_cleaned = Instant::now();
+pub fn spawn(node: &Arc<P2PNode>) {
+    let self_clone = Arc::clone(node);
+    let poll_thread = spawn_or_die!("Poll thread", {
+        let mut events = Events::with_capacity(10);
+        let mut log_time = Instant::now();
+        let mut last_buckets_cleaned = Instant::now();
 
-            let deduplication_queues = DeduplicationQueues::new(
-                self_clone.config.dedup_size_long,
-                self_clone.config.dedup_size_short,
-            );
+        let deduplication_queues = DeduplicationQueues::new(
+            self_clone.config.dedup_size_long,
+            self_clone.config.dedup_size_short,
+        );
 
-            let num_socket_threads = match self_clone.self_peer.peer_type {
-                PeerType::Bootstrapper => 1,
-                PeerType::Node => self_clone.config.thread_pool_size,
+        let num_socket_threads = match self_clone.self_peer.peer_type {
+            PeerType::Bootstrapper => 1,
+            PeerType::Node => self_clone.config.thread_pool_size,
+        };
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(num_socket_threads).build().unwrap();
+
+        let mut connections = Vec::with_capacity(8);
+
+        loop {
+            // check for new events or wait
+            if let Err(e) = self_clone
+                .poll
+                .poll(&mut events, Some(Duration::from_millis(self_clone.config.poll_interval)))
+            {
+                error!("{}", e);
+                continue;
+            }
+
+            // perform socket reads and writes in parallel across connections
+            // check for new connections
+            let _new_conn = if events.iter().any(|event| event.token() == SERVER) {
+                debug!("Got a new connection!");
+                accept(&self_clone).map_err(|e| error!("{}", e)).ok()
+            } else {
+                None
             };
-            let pool =
-                rayon::ThreadPoolBuilder::new().num_threads(num_socket_threads).build().unwrap();
 
-            let mut connections = Vec::with_capacity(8);
+            let (bad_tokens, bad_ips) = pool.install(|| {
+                self_clone.process_network_events(&events, &deduplication_queues, &mut connections)
+            });
 
-            loop {
-                // check for new events or wait
-                if let Err(e) = self_clone
-                    .poll
-                    .poll(&mut events, Some(Duration::from_millis(self_clone.config.poll_interval)))
-                {
-                    error!("{}", e);
-                    continue;
+            let now = Instant::now();
+
+            if !bad_tokens.is_empty() {
+                let mut soft_bans = write_or_die!(self_clone.connection_handler.soft_bans);
+                for (ip, e) in bad_ips.into_iter() {
+                    if let Ok(_io_err) = e.downcast::<io::Error>() {
+                        // potentially ban on IO errors we consider fatal
+                    } else {
+                        warn!("Soft-banning {:?} due to a breach of protocol", ip);
+                        soft_bans.insert(
+                            BanId::Ip(ip),
+                            Instant::now() + Duration::from_secs(config::SOFT_BAN_DURATION_SECS),
+                        );
+                    }
+                }
+                self_clone.remove_connections(&bad_tokens);
+            }
+
+            // Run periodic tasks
+            if now.duration_since(log_time)
+                >= Duration::from_secs(self_clone.config.housekeeping_interval)
+            {
+                // Check the termination switch
+                if self_clone.is_terminated.load(Ordering::Relaxed) {
+                    break;
                 }
 
-                // perform socket reads and writes in parallel across connections
-                // check for new connections
-                let _new_conn = if events.iter().any(|event| event.token() == SERVER) {
-                    debug!("Got a new connection!");
-                    self_clone.accept().map_err(|e| error!("{}", e)).ok()
-                } else {
-                    None
-                };
-
-                let (bad_tokens, bad_ips) = pool.install(|| {
-                    self_clone.process_network_events(
-                        &events,
-                        &deduplication_queues,
-                        &mut connections,
-                    )
-                });
-
-                let now = Instant::now();
-
-                if !bad_tokens.is_empty() {
-                    let mut soft_bans = write_or_die!(self_clone.connection_handler.soft_bans);
-                    for (ip, e) in bad_ips.into_iter() {
-                        if let Ok(_io_err) = e.downcast::<io::Error>() {
-                            // potentially ban on IO errors we consider fatal
-                        } else {
-                            warn!("Soft-banning {:?} due to a breach of protocol", ip);
-                            soft_bans.insert(
-                                BanId::Ip(ip),
-                                Instant::now()
-                                    + Duration::from_secs(config::SOFT_BAN_DURATION_SECS),
-                            );
-                        }
-                    }
-                    self_clone.remove_connections(&bad_tokens);
+                if let Err(e) = connection_housekeeping(&self_clone) {
+                    error!("Issue with connection cleanups: {:?}", e);
+                }
+                if self_clone.peer_type() != PeerType::Bootstrapper {
+                    self_clone.measure_connection_latencies();
                 }
 
-                // Run periodic tasks
-                if now.duration_since(log_time)
-                    >= Duration::from_secs(self_clone.config.housekeeping_interval)
-                {
-                    // Check the termination switch
-                    if self_clone.is_terminated.load(Ordering::Relaxed) {
-                        break;
-                    }
+                let peer_stat_list = self_clone.get_peer_stats(None);
+                check_peers(&self_clone, &peer_stat_list);
+                self_clone.print_stats(&peer_stat_list);
+                self_clone.measure_throughput(&peer_stat_list);
 
-                    if let Err(e) = self_clone.connection_housekeeping() {
-                        error!("Issue with connection cleanups: {:?}", e);
-                    }
-                    if self_clone.peer_type() != PeerType::Bootstrapper {
-                        self_clone.measure_connection_latencies();
-                    }
+                log_time = now;
+            }
 
-                    let peer_stat_list = self_clone.get_peer_stats(None);
-                    self_clone.check_peers(&peer_stat_list);
-                    self_clone.print_stats(&peer_stat_list);
-                    self_clone.measure_throughput(&peer_stat_list);
+            if self_clone.is_bucket_cleanup_enabled()
+                && now.duration_since(last_buckets_cleaned)
+                    >= Duration::from_millis(self_clone.config.bucket_cleanup_interval)
+            {
+                write_or_die!(self_clone.connection_handler.buckets)
+                    .clean_buckets(self_clone.config.timeout_bucket_entry_period);
+                last_buckets_cleaned = now;
+            }
+        }
+    });
 
-                    log_time = now;
-                }
+    // Register info about thread into P2PNode.
+    write_or_die!(node.threads).join_handles.push(poll_thread);
+}
 
-                if self_clone.is_bucket_cleanup_enabled()
-                    && now.duration_since(last_buckets_cleaned)
-                        >= Duration::from_millis(self_clone.config.bucket_cleanup_interval)
-                {
-                    write_or_die!(self_clone.connection_handler.buckets)
-                        .clean_buckets(self_clone.config.timeout_bucket_entry_period);
-                    last_buckets_cleaned = now;
+pub fn attempt_bootstrap(node: &Arc<P2PNode>) {
+    if !node.config.no_net {
+        info!("Attempting to bootstrap");
+
+        let bootstrap_nodes = utils::get_bootstrap_nodes(
+            &node.config.bootstrap_server,
+            &node.config.dns_resolvers,
+            node.config.dnssec_disabled,
+            &node.config.bootstrap_nodes,
+        );
+
+        match bootstrap_nodes {
+            Ok(nodes) => {
+                for addr in nodes {
+                    info!("Found a bootstrap node: {}", addr);
+                    let _ = connect(node, PeerType::Bootstrapper, addr, None)
+                        .map_err(|e| error!("{}", e));
                 }
             }
-        });
-
-        // Register info about thread into P2PNode.
-        write_or_die!(self.threads).join_handles.push(poll_thread);
+            Err(e) => error!("Can't bootstrap: {:?}", e),
+        }
     }
 }
 
 impl Drop for P2PNode {
-    fn drop(&mut self) {
-        // As we have two copies of the `Arc<P2PNode>` construct, we need to forget one
-        // of them in order to not double free so we just `take()` the value of the
-        // `self_ref` and forget about it using `Arc::into_raw`.
-        let node = self.self_ref.take();
-        Arc::into_raw(node.unwrap());
-        let _ = self.close_and_join();
-    }
+    fn drop(&mut self) { let _ = self.close_and_join(); }
 }
 
 fn get_ip_if_suitable(addr: &IpAddr) -> Option<IpAddr> {

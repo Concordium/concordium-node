@@ -67,13 +67,4 @@ mod tests {
 
         Ok(())
     }
-
-    #[test]
-    fn test_node_self_ref() -> Fallible<()> {
-        let node = make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
-
-        assert!(std::ptr::eq(&*node, &*node.self_ref.as_ref().unwrap().as_ref()));
-
-        Ok(())
-    }
 }

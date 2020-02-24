@@ -114,7 +114,7 @@ impl Connection {
     pub fn handler(&self) -> &P2PNode { &self.handler_ref }
 
     pub fn new(
-        handler: &P2PNode,
+        handler: &Arc<P2PNode>,
         socket: TcpStream,
         token: Token,
         remote_peer: RemotePeer,
@@ -142,7 +142,7 @@ impl Connection {
         };
 
         let conn = Arc::new(Self {
-            handler_ref: handler.self_ref.clone().unwrap(), // safe, always available
+            handler_ref: Arc::clone(handler),
             token,
             remote_peer,
             low_level,

@@ -23,7 +23,11 @@ use p2p_client::{
     common::{get_current_stamp, P2PNodeId, PeerType},
     configuration as config,
     network::NetworkId,
-    p2p::*,
+    p2p::{
+        connectivity::connect,
+        maintenance::{attempt_bootstrap, spawn},
+        *,
+    },
     plugins::{self, consensus::*},
     rpc::RpcServerImpl,
     stats_export_service::{instantiate_stats_export_engine, StatsExportService, StatsServiceMode},
@@ -86,7 +90,7 @@ async fn main() -> Fallible<()> {
     start_push_gateway(&conf.prometheus, &node.stats, node.id());
 
     // The P2P node event loop thread
-    node.spawn();
+    spawn(&node);
 
     let is_baker = conf.cli.baker.baker_id.is_some();
 
@@ -231,22 +235,22 @@ fn instantiate_node(
     )
 }
 
-fn establish_connections(conf: &config::Config, node: &P2PNode) {
+fn establish_connections(conf: &config::Config, node: &Arc<P2PNode>) {
     info!("Starting the P2P layer");
     connect_to_config_nodes(&conf.connection, node);
     if !conf.connection.no_bootstrap_dns {
-        node.attempt_bootstrap();
+        attempt_bootstrap(node);
     }
 }
 
-fn connect_to_config_nodes(conf: &config::ConnectionConfig, node: &P2PNode) {
+fn connect_to_config_nodes(conf: &config::ConnectionConfig, node: &Arc<P2PNode>) {
     for connect_to in &conf.connect_to {
         match utils::parse_host_port(&connect_to, &node.config.dns_resolvers, conf.dnssec_disabled)
         {
             Ok(addrs) => {
                 for addr in addrs {
                     info!("Connecting to peer {}", &connect_to);
-                    node.connect(PeerType::Node, addr, None).unwrap_or_else(|e| debug!("{}", e));
+                    connect(node, PeerType::Node, addr, None).unwrap_or_else(|e| debug!("{}", e));
                 }
             }
             Err(err) => error!("Can't parse data for node to connect to {}", err),
