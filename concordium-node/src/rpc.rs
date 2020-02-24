@@ -139,24 +139,23 @@ impl P2p for RpcServerImpl {
     ) -> Result<Response<SuccessResponse>, Status> {
         authenticate!(req, self.access_token);
         let req = req.get_ref();
-        if req.ip.is_some() && req.port.is_some() {
-            let ip = if let Ok(ip) = IpAddr::from_str(&req.ip.as_ref().unwrap()) {
-                ip
-            } else {
-                warn!("Invalid IP address in a PeerConnect request");
-                return Err(Status::new(Code::InvalidArgument, "Invalid IP address"));
-            };
-            let port = req.port.unwrap() as u16;
-            let addr = SocketAddr::new(ip, port);
-            let status = self.node.connect(PeerType::Node, addr, None).is_ok();
-            Ok(Response::new(SuccessResponse {
-                value: status,
-            }))
+
+        let ip = if let Some(ref ip) = req.ip {
+            IpAddr::from_str(ip)
+                .map_err(|_| Status::new(Code::InvalidArgument, "Invalid IP address"))
         } else {
-            Ok(Response::new(SuccessResponse {
-                value: false,
-            }))
-        }
+            Err(Status::new(Code::InvalidArgument, "Missing IP address"))
+        }?;
+        let port = if let Some(port) = req.port {
+            port as u16
+        } else {
+            return Err(Status::new(Code::InvalidArgument, "Missing port"));
+        };
+        let addr = SocketAddr::new(ip, port);
+        let status = self.node.connect(PeerType::Node, addr, None).is_ok();
+        Ok(Response::new(SuccessResponse {
+            value: status,
+        }))
     }
 
     async fn peer_version(&self, req: Request<Empty>) -> Result<Response<StringResponse>, Status> {
@@ -211,8 +210,8 @@ impl P2p for RpcServerImpl {
 
             let result = if consensus_result == ConsensusFfiResponse::Success {
                 let mut payload = Vec::with_capacity(1 + transaction.len());
-                payload.write_u8(PacketType::Transaction as u8).unwrap(); // safe
-                payload.write_all(&transaction).unwrap(); // also infallible
+                payload.write_u8(PacketType::Transaction as u8)?;
+                payload.write_all(&transaction)?;
 
                 CALLBACK_QUEUE.send_out_message(ConsensusMessage::new(
                     MessageType::Outbound(None),
@@ -255,20 +254,19 @@ impl P2p for RpcServerImpl {
     ) -> Result<Response<SuccessResponse>, Status> {
         authenticate!(req, self.access_token);
         let req = req.get_ref();
-        if req.network_id.is_some()
-            && req.network_id.unwrap() > 0
-            && req.network_id.unwrap() < 100_000
-        {
-            info!("Attempting to join network {}", req.network_id.unwrap());
-            let network_id = NetworkId::from(req.network_id.unwrap() as u16);
-            self.node.send_joinnetwork(network_id);
-            Ok(Response::new(SuccessResponse {
-                value: true,
-            }))
+        if let Some(id) = req.network_id {
+            if id > 0 && id < 100_000 {
+                info!("Attempting to join network {}", id);
+                let network_id = NetworkId::from(id as u16);
+                self.node.send_joinnetwork(network_id);
+                Ok(Response::new(SuccessResponse {
+                    value: true,
+                }))
+            } else {
+                Err(Status::new(Code::InvalidArgument, "Invalid network id"))
+            }
         } else {
-            Ok(Response::new(SuccessResponse {
-                value: false,
-            }))
+            Err(Status::new(Code::InvalidArgument, "Missing network id"))
         }
     }
 
@@ -278,20 +276,19 @@ impl P2p for RpcServerImpl {
     ) -> Result<Response<SuccessResponse>, Status> {
         authenticate!(req, self.access_token);
         let req = req.get_ref();
-        if req.network_id.is_some()
-            && req.network_id.unwrap() > 0
-            && req.network_id.unwrap() < 100_000
-        {
-            info!("Attempting to leave network {}", req.network_id.unwrap());
-            let network_id = NetworkId::from(req.network_id.unwrap() as u16);
-            self.node.send_leavenetwork(network_id);
-            Ok(Response::new(SuccessResponse {
-                value: true,
-            }))
+        if let Some(id) = req.network_id {
+            if id > 0 && id < 100_000 {
+                info!("Attempting to leave network {}", id);
+                let network_id = NetworkId::from(id as u16);
+                self.node.send_leavenetwork(network_id);
+                Ok(Response::new(SuccessResponse {
+                    value: true,
+                }))
+            } else {
+                Err(Status::new(Code::InvalidArgument, "Invalid network id"))
+            }
         } else {
-            Ok(Response::new(SuccessResponse {
-                value: false,
-            }))
+            Err(Status::new(Code::InvalidArgument, "Missing network id"))
         }
     }
 
@@ -398,12 +395,12 @@ impl P2p for RpcServerImpl {
     ) -> Result<Response<SuccessResponse>, Status> {
         authenticate!(req, self.access_token);
         let req = req.get_ref();
-        let banned_node = if req.node_id.is_some() && req.ip.is_none() {
-            P2PNodeId::from_str(&req.node_id.as_ref().unwrap().to_string()).ok().map(BanId::NodeId)
-        } else if req.ip.is_some() && req.node_id.is_none() {
-            IpAddr::from_str(&req.ip.as_ref().unwrap().to_string()).ok().map(BanId::Ip)
-        } else {
-            None
+        let banned_node = match (&req.node_id, &req.ip) {
+            (Some(node_id), None) => {
+                P2PNodeId::from_str(&node_id.to_string()).ok().map(BanId::NodeId)
+            }
+            (None, Some(ip)) => IpAddr::from_str(&ip.to_string()).ok().map(BanId::Ip),
+            _ => None,
         };
 
         if let Some(to_ban) = banned_node {
@@ -430,12 +427,12 @@ impl P2p for RpcServerImpl {
     ) -> Result<Response<SuccessResponse>, Status> {
         authenticate!(req, self.access_token);
         let req = req.get_ref();
-        let banned_node = if req.node_id.is_some() && req.ip.is_none() {
-            P2PNodeId::from_str(&req.node_id.as_ref().unwrap().to_string()).ok().map(BanId::NodeId)
-        } else if req.ip.is_some() && req.node_id.is_none() {
-            IpAddr::from_str(&req.ip.as_ref().unwrap().to_string()).ok().map(BanId::Ip)
-        } else {
-            None
+        let banned_node = match (&req.node_id, &req.ip) {
+            (Some(node_id), None) => {
+                P2PNodeId::from_str(&node_id.to_string()).ok().map(BanId::NodeId)
+            }
+            (None, Some(ip)) => IpAddr::from_str(&ip.to_string()).ok().map(BanId::Ip),
+            _ => None,
         };
 
         if let Some(to_unban) = banned_node {
