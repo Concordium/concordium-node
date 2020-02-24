@@ -20,6 +20,7 @@ table Handshake {
     nodeId: uint64;
     port: uint16;
     networkIds: [uint16];
+    version: [uint8];
     zk: [uint8];
 }
 

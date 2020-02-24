@@ -1,6 +1,11 @@
+use semver::Version;
+
 use crate::{
     common::{p2p_peer::P2PPeer, P2PNodeId, PeerType},
-    network::{NetworkId, NetworkMessage, NetworkMessagePayload, NetworkRequest, NetworkResponse},
+    network::{
+        Handshake, NetworkId, NetworkMessage, NetworkMessagePayload, NetworkRequest,
+        NetworkResponse,
+    },
     p2p::bans::BanId,
     test_utils::create_random_packet,
 };
@@ -37,12 +42,13 @@ test_s11n!(
 );
 test_s11n!(
     s11n_req_handshake,
-    NetworkMessagePayload::NetworkRequest(NetworkRequest::Handshake(
-        P2PNodeId(77),
-        1234,
-        [100u16, 1000, 1234, 9999].iter().copied().map(NetworkId::from).collect(),
-        Vec::new(),
-    ))
+    NetworkMessagePayload::NetworkRequest(NetworkRequest::Handshake(Handshake {
+        remote_id:   P2PNodeId(77),
+        remote_port: 1234,
+        networks:    [100u16, 1000, 1234, 9999].iter().copied().map(NetworkId::from).collect(),
+        version:     Version::parse(env!("CARGO_PKG_VERSION")).unwrap(),
+        proof:       Vec::new(),
+    }))
 );
 test_s11n!(
     s11n_req_ban_id,

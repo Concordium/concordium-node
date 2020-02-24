@@ -1,6 +1,8 @@
 pub mod buckets;
 pub mod serialization;
 
+use semver::Version;
+
 pub use self::buckets::Buckets;
 
 use crate::{
@@ -48,10 +50,20 @@ pub enum NetworkMessagePayload {
 
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
+pub struct Handshake {
+    pub remote_id:   P2PNodeId,
+    pub remote_port: u16,
+    pub networks:    HashSet<NetworkId>,
+    pub version:     Version,
+    pub proof:       Vec<u8>,
+}
+
+#[derive(Debug, PartialEq)]
+#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum NetworkRequest {
     Ping,
     GetPeers(HashSet<NetworkId>),
-    Handshake(P2PNodeId, u16, HashSet<NetworkId>, Vec<u8>),
+    Handshake(Handshake),
     BanNode(BanId),
     UnbanNode(BanId),
     JoinNetwork(NetworkId),

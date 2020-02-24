@@ -1,9 +1,10 @@
 use crate::{
-    common::{get_current_stamp, P2PNodeId, P2PPeer, PeerType},
+    common::{get_current_stamp, P2PPeer, PeerType},
+    configuration::COMPATIBLE_CLIENT_VERSIONS,
     connection::{Connection, P2PEvent},
     network::{
-        NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkPacketType,
-        NetworkRequest, NetworkResponse,
+        Handshake, NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket,
+        NetworkPacketType, NetworkRequest, NetworkResponse,
     },
     p2p::bans::BanId,
     plugins::consensus::*,
@@ -17,10 +18,9 @@ use std::{collections::HashSet, net::SocketAddr, sync::atomic::Ordering};
 impl Connection {
     pub fn handle_incoming_message(&self, full_msg: NetworkMessage) {
         if let Err(e) = match full_msg.payload {
-            NetworkMessagePayload::NetworkRequest(
-                NetworkRequest::Handshake(remote_node_id, remote_port, ref networks, _),
-                ..,
-            ) => self.handle_handshake_req(remote_node_id, remote_port, networks),
+            NetworkMessagePayload::NetworkRequest(NetworkRequest::Handshake(handshake), ..) => {
+                self.handle_handshake_req(handshake)
+            }
             NetworkMessagePayload::NetworkRequest(NetworkRequest::Ping, ..) => self.send_pong(),
             NetworkMessagePayload::NetworkResponse(NetworkResponse::Pong, ..) => self.handle_pong(),
             NetworkMessagePayload::NetworkRequest(NetworkRequest::GetPeers(ref networks), ..) => {
@@ -51,36 +51,35 @@ impl Connection {
         }
     }
 
-    fn handle_handshake_req(
-        &self,
-        remote_node_id: P2PNodeId,
-        remote_port: u16,
-        networks: &HashSet<NetworkId>,
-    ) -> Fallible<()> {
-        debug!("Got a Handshake request from peer {}", remote_node_id);
+    fn handle_handshake_req(&self, handshake: Handshake) -> Fallible<()> {
+        debug!("Got a Handshake request from peer {}", handshake.remote_id);
 
-        if self.handler().is_banned(BanId::NodeId(remote_node_id))? {
+        if self.handler().is_banned(BanId::NodeId(handshake.remote_id))? {
             self.handler().remove_connection(self.token);
             bail!("Rejected a handshake request from a banned node");
         }
 
-        self.promote_to_post_handshake(remote_node_id, remote_port)?;
-        self.add_remote_end_networks(networks);
+        if !COMPATIBLE_CLIENT_VERSIONS.contains(&handshake.version.to_string().as_str()) {
+            bail!("Rejecting an incompatible client");
+        }
+
+        self.promote_to_post_handshake(handshake.remote_id, handshake.remote_port)?;
+        self.add_remote_end_networks(&handshake.networks);
 
         let remote_peer = P2PPeer::from(
             self.remote_peer.peer_type(),
-            remote_node_id,
-            SocketAddr::new(self.remote_peer.addr().ip(), remote_port),
+            handshake.remote_id,
+            SocketAddr::new(self.remote_peer.addr().ip(), handshake.remote_port),
         );
 
         if remote_peer.peer_type() != PeerType::Bootstrapper {
             write_or_die!(self.handler().connection_handler.buckets)
-                .insert_into_bucket(&remote_peer, networks.clone());
+                .insert_into_bucket(&remote_peer, handshake.networks.clone());
         }
 
         if self.handler().peer_type() == PeerType::Bootstrapper {
             debug!("Running in bootstrapper mode; attempting to send a PeerList upon handshake");
-            self.send_peer_list_resp(networks)?;
+            self.send_peer_list_resp(&handshake.networks)?;
         }
 
         Ok(())

@@ -13,6 +13,11 @@ pub const APP_INFO: AppInfo = AppInfo {
     author: "Concordium",
 };
 
+// a list of peer client versions applicable for connections; it doesn't
+// contain CARGO_PKG_VERSION (or any other dynamic components) so that
+// it is impossible to omit manual inspection upon future updates
+pub const COMPATIBLE_CLIENT_VERSIONS: [&str; 2] = ["0.2.1", "0.2.0"];
+
 const APP_PREFERENCES_MAIN: &str = "main.config";
 pub const APP_PREFERENCES_KEY_VERSION: &str = "VERSION";
 pub const APP_PREFERENCES_PERSISTED_NODE_ID: &str = "PERSISTED_NODE_ID";
