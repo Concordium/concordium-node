@@ -140,8 +140,8 @@ path = "src/bin/collector_backend.rs"
 required-features = [ "collector" ]
 
 [[bin]]
-name = "tnst"
-path = "src/bin/two_node_stress_test.rs"
+name = "network_stress_test"
+path = "src/bin/network_stress_test.rs"
 
 [[bench]]
 name = "p2p_lib_benchmark"
