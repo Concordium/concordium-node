@@ -45,27 +45,30 @@ instance TransactionLogger (MyTreeStateMonad c g s) where
   {-# INLINE tlNotifyAccountEffect #-}
   tlNotifyAccountEffect = \_ _ -> return ()
 
-deriving via (GlobalStateM c (Identity c) g (Identity g) (RWST (Identity c) () (Identity s) IO))
+type GlobalStateIO c g s = GlobalStateM c (Identity c) g (Identity g) (RWST (Identity c) () (Identity s) IO)
+type BlockStateIO c g s = BlockStateM c (Identity c) g (Identity g) (RWST (Identity c) () (Identity s) IO)
+
+deriving via (GlobalStateIO c g s)
   instance BlockStateTypes (MyTreeStateMonad c g s)
 
-deriving via (GlobalStateM c (Identity c) g (Identity g) (RWST (Identity c) () (Identity s) IO))
-  instance (BlockStateQuery (BlockStateM c (Identity c) g (Identity g) (RWST (Identity c) () (Identity s) IO))) =>
+deriving via (GlobalStateIO c g s)
+  instance (BlockStateQuery (BlockStateIO c g s)) =>
     BlockStateQuery (MyTreeStateMonad c g s)
 
-deriving via (GlobalStateM c (Identity c) g (Identity g) (RWST (Identity c) () (Identity s) IO))
-  instance (BlockStateOperations (BlockStateM c (Identity c) g (Identity g) (RWST (Identity c) () (Identity s) IO))) =>
+deriving via (GlobalStateIO c g s)
+  instance (BlockStateOperations (BlockStateIO c g s)) =>
     BlockStateOperations (MyTreeStateMonad c g s)
 
-deriving via (GlobalStateM c (Identity c) g (Identity g) (RWST (Identity c) () (Identity s) IO))
-  instance (BlockStateStorage (BlockStateM c (Identity c) g (Identity g) (RWST (Identity c) () (Identity s) IO))) =>
+deriving via (GlobalStateIO c g s)
+  instance (BlockStateStorage (BlockStateIO c g s)) =>
     BlockStateStorage (MyTreeStateMonad c g s)
 
-deriving via (GlobalStateM c (Identity c) g (Identity g) (RWST (Identity c) () (Identity s) IO))
-  instance (GlobalStateTypes (GlobalStateM c (Identity c) g (Identity g) (RWST (Identity c) () (Identity s) IO))) =>
+deriving via (GlobalStateIO c g s)
+  instance (GlobalStateTypes (GlobalStateIO c g s)) =>
     GlobalStateTypes (MyTreeStateMonad c g s)
 
-deriving via (GlobalStateM c (Identity c) g (Identity g) (RWST (Identity c) () (Identity s) IO))
-  instance (BlockPointerMonad (GlobalStateM c (Identity c) g (Identity g) (RWST (Identity c) () (Identity s) IO))) =>
+deriving via (GlobalStateIO c g s)
+  instance (BlockPointerMonad (GlobalStateIO c g s)) =>
     BlockPointerMonad (MyTreeStateMonad c g s)
 
 deriving via (PersistentTreeStateMonad
@@ -85,9 +88,9 @@ deriving via (PersistentTreeStateMonad
                     (SkovPersistentData PBS.PersistentBlockState)
                     (SkovPersistentData PBS.PersistentBlockState))
 
-deriving via (GlobalStateM c (Identity c) g (Identity g) (RWST (Identity c) () (Identity s) IO))
-  instance (TreeStateMonad (GlobalStateM c (Identity c) g (Identity g) (RWST (Identity c) () (Identity s) IO)),
-            BlockStateStorage (BlockStateM c (Identity c) g (Identity g) (RWST (Identity c) () (Identity s) IO))) =>
+deriving via (GlobalStateIO c g s)
+  instance (TreeStateMonad (GlobalStateIO c g s),
+            BlockStateStorage (BlockStateIO c g s)) =>
     TreeStateMonad (MyTreeStateMonad c g s)
 
 type TestM = MyTreeStateMonad PBS.PersistentBlockStateContext (SkovPersistentData PBS.PersistentBlockState) (SkovPersistentData PBS.PersistentBlockState)
