@@ -28,7 +28,7 @@ module Concordium.Afgjort.Finalize (
     notifyBlockFinalized,
     receiveFinalizationMessage,
     receiveFinalizationPseudoMessage,
-    nextFinalizationJustifierHeight,
+    -- nextFinalizationJustifierHeight,
     finalizationCatchUpMessage,
     -- * For testing
     FinalizationRound(..)
@@ -50,6 +50,7 @@ import Data.Bits
 import Data.Time.Clock
 import qualified Data.OrdPSQ as PSQ
 import qualified Data.ByteString as BS
+import Data.Ratio
 
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.BlsSignature as Bls
@@ -111,6 +112,7 @@ data FinalizationState timer = FinalizationState {
     _finsIndexInitialDelta :: !BlockHeight,
     _finsCommittee :: !FinalizationCommittee,
     _finsMinSkip :: !BlockHeight,
+    _finsGap :: !BlockHeight,
     _finsPendingMessages :: !PendingMessageMap,
     _finsCurrentRound :: !(Maybe FinalizationRound),
     _finsFailedRounds :: [Map Party Sig.Signature],
@@ -140,6 +142,8 @@ class FinalizationStateLenses s timer | s -> timer where
     -- |The minimum distance between finalized blocks will be @1 + finMinSkip@.
     finMinSkip :: Lens' s BlockHeight
     finMinSkip = finState . finsMinSkip
+    finGap :: Lens' s BlockHeight
+    finGap = finState . finsGap
     -- |All received finalization messages for the current and future finalization indexes.
     -- (Previously, this was just future messages, but now we store all of them for catch-up purposes.)
     finPendingMessages :: Lens' s PendingMessageMap
@@ -164,10 +168,11 @@ initialFinalizationState :: FinalizationInstance -> BlockHash -> FinalizationPar
 initialFinalizationState FinalizationInstance{..} genHash finParams = FinalizationState {
     _finsSessionId = FinalizationSessionId genHash 0,
     _finsIndex = 1,
-    _finsHeight = 1 + finalizationMinimumSkip finParams,
+    _finsHeight = initialGap,
     _finsIndexInitialDelta = 1,
     _finsCommittee = com,
     _finsMinSkip = finalizationMinimumSkip finParams,
+    _finsGap = initialGap,
     _finsPendingMessages = Map.empty,
     _finsCurrentRound = case filter (\p -> partySignKey p == Sig.verifyKey finMySignKey && partyVRFKey p == VRF.publicKey finMyVRFKey) (Vec.toList (parties com)) of
         [] -> Nothing
@@ -184,6 +189,8 @@ initialFinalizationState FinalizationInstance{..} genHash finParams = Finalizati
     }
     where
         com = makeFinalizationCommittee finParams
+        -- FIXME: 5 is based on the paper. Probably this should be a parameter.
+        initialGap = max (1 + finalizationMinimumSkip finParams) 5
 
 class (SkovMonad m, MonadState s m, FinalizationStateLenses s (Timer m), MonadIO m, TimerMonad m) => FinalizationMonad s m where
     broadcastFinalizationMessage :: FinalizationMessage -> m ()
@@ -490,10 +497,13 @@ notifyBlockFinalized fr@FinalizationRecord{..} bp = do
         finPendingMessages . atStrict finalizationIndex .= Nothing
         pms <- use finPendingMessages
         logEvent Afgjort LLTrace $ "Finalization complete. Pending messages: " ++ show pms
-        let newFinDelay = nextFinalizationDelay fr
         fs <- use finMinSkip
-        nfh <- nextFinalizationHeight fs bp
-        finHeight .= nfh
+        -- Compute the next finalization height
+        oldFinalizationGap <- use finGap
+        newFinalizationGap <- nextFinalizationGap bp fs oldFinalizationGap
+        finGap .= newFinalizationGap
+        finHeight += newFinalizationGap
+        let newFinDelay = nextFinalizationDelay fr
         finIndexInitialDelta .= newFinDelay
         -- Determine if we're in the committee
         mMyParty <- getMyParty
@@ -502,7 +512,24 @@ notifyBlockFinalized fr@FinalizationRecord{..} bp = do
             newRound newFinDelay myParty
 
 nextFinalizationDelay :: FinalizationRecord -> BlockHeight
-nextFinalizationDelay FinalizationRecord{..} = if finalizationDelay > 2 then finalizationDelay `div` 2 else 1
+-- nextFinalizationDelay FinalizationRecord{..} = if finalizationDelay > 2 then finalizationDelay `div` 2 else 1
+nextFinalizationDelay FinalizationRecord{..} = ceiling ((finalizationDelay * 4) % 5)
+
+nextFinalizationGap :: (BlockPointerMonad m)
+    => BlockPointer m
+    -- ^Last finalized block
+    -> BlockHeight
+    -- ^Finalization minimum skip
+    -> BlockHeight
+    -- ^Previous finalization gap
+    -> m BlockHeight
+nextFinalizationGap bp minSkip oldGap = do
+    lf <- bpLastFinalized bp
+    return $ max (1 + minSkip) $ if bpHeight bp - bpHeight lf == oldGap then
+                ceiling ((oldGap * 4) % 5)
+            else
+                2 * oldGap
+
 
 -- |Given the finalization minimum skip and an explicitly finalized block, compute
 -- the height of the next finalized block.
