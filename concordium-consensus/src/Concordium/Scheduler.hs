@@ -52,18 +52,20 @@ existsValidCredential cm acc = do
     Just (expiry, _) -> expiry >= slotTime cm
 
 
--- |Check that 
+-- |Check that
 --  * the transaction has a valid sender,
 --  * the amount they have deposited is on their account,
 --  * the transaction is not expired.
 -- The valid sender means that the sender account has at least one valid credential,
 -- where currently valid means non-expired.
-checkHeader :: (TransactionData msg, SchedulerMonad m) => msg -> ExceptT FailureKind m Account
+checkHeader :: (TransactionData msg, SchedulerMonad m) => msg -> ExceptT (Maybe FailureKind) m Account
 checkHeader meta = do
-  unless (transactionGasAmount meta >= Cost.minimumDeposit) $ throwError DepositInsufficient
+  unless (transactionGasAmount meta >= Cost.minimumDeposit) $ throwError (Just DepositInsufficient)
+  remainingBlockEnergy <- lift getRemainingEnergy
+  unless (remainingBlockEnergy >= Cost.minimumDeposit) $ throwError Nothing
   macc <- lift (getAccount (transactionSender meta))
   case macc of
-    Nothing -> throwError (UnknownAccount (transactionSender meta))
+    Nothing -> throwError . Just $ (UnknownAccount (transactionSender meta))
     Just acc -> do
       let amnt = acc ^. accountAmount
       let nextNonce = acc ^. accountNonce
@@ -71,24 +73,18 @@ checkHeader meta = do
       let expiry = thExpiry $ transactionHeader meta
 
       cm <- lift getChainMetadata
-      when (transactionExpired expiry $ slotTime cm) $ throwError ExpiredTransaction
-      unless (existsValidCredential cm acc) $ throwError NoValidCredential
+      when (transactionExpired expiry $ slotTime cm) $ throwError . Just $ ExpiredTransaction
+      unless (existsValidCredential cm acc) $ throwError . Just $ NoValidCredential
 
       -- after the credential check is done we check the amount
       depositedAmount <- lift (energyToGtu (transactionGasAmount meta))
 
       -- check they have enough funds to cover the deposit
-      unless (depositedAmount <= amnt) (throwError InsufficientFunds)
-      unless (txnonce == nextNonce) (throwError (NonSequentialNonce nextNonce))
+      unless (depositedAmount <= amnt) (throwError . Just $ InsufficientFunds)
+      unless (txnonce == nextNonce) (throwError . Just $ (NonSequentialNonce nextNonce))
       let sigCheck = verifyTransaction (acc ^. accountVerificationKeys) meta
-      unless sigCheck (throwError IncorrectSignature)
+      unless sigCheck (throwError . Just $ IncorrectSignature)
       return acc
-      -- only use assert because we rely on the signature being valid in the transaction table
-      -- unless sigCheck (throwError IncorrectSignature))
-      -- TODO: If we are going to check that the signature is correct before adding the transaction to the table then this check can be removed,
-      -- but only for transactions for which this was done.
-      -- One issue is that if we don't include the public key with the transaction then we cannot do this, which is especially problematic for transactions
-      -- which come as part of blocks.
 
 -- TODO: When we have policies checking one sensible approach to rewarding
 -- identity providers would be as follows.
@@ -108,13 +104,17 @@ checkHeader meta = do
 -- not be. In particular when a transaction is rejected based on transaction
 -- logic that is unrelated to identities.
 
-dispatch :: (TransactionData msg, SchedulerMonad m) => msg -> m TxResult
+-- This method returns either a Just TxResult if transaction either failed, or
+-- was successfully commited to a block, or Nothing, in case the transaction
+-- would have pushed the block execution over the limit.
+dispatch :: (TransactionData msg, SchedulerMonad m) => msg -> m (Maybe TxResult)
 dispatch msg = do
   let meta = transactionHeader msg
   validMeta <- runExceptT (checkHeader msg)
   case validMeta of
-    Left fk -> return $ TxInvalid fk
-    Right senderAccount -> TxValid <$> do
+    Left (Just fk) -> return $ Just (TxInvalid fk)
+    Left Nothing -> return Nothing
+    Right senderAccount -> do
       -- at this point the transaction is going to be commited to the block. Hence we can increase the
       -- account nonce of the sender account.
       increaseAccountNonce senderAccount
@@ -139,7 +139,7 @@ dispatch msg = do
           let cost = Cost.checkHeader
           payment <- energyToGtu cost
           chargeExecutionCost (transactionHash msg) senderAccount payment
-          return $ TransactionSummary{
+          return $! Just $! TxValid $! TransactionSummary{
             tsEnergyCost = cost,
             tsCost = payment,
             tsSender = senderAccount ^. accountAddress,
@@ -147,65 +147,78 @@ dispatch msg = do
             tsHash = transactionHash msg,
             tsType = Nothing
             }
-        Right payload ->
-          case payload of
-            DeployModule mod ->
-              handleDeployModule senderAccount TTDeployModule (transactionHash msg) meta psize mod
+        Right payload -> do
+          usedBlockEnergy <- getUsedEnergy
+          let mkWTC _wtcTransactionType = WithDepositContext{
+                _wtcSenderAccount = senderAccount,
+                _wtcTransactionHash = transactionHash msg,
+                _wtcTransactionHeader = meta,
+                -- NB: We already account for the cost we used here.
+                _wtcCurrentlyUsedBlockEnergy = usedBlockEnergy + Cost.checkHeader,
+                ..}
+          res <- case payload of
+                   DeployModule mod ->
+                     handleDeployModule (mkWTC TTDeployModule) psize mod
 
-            InitContract amount modref cname param ->
-              -- the payload size includes amount + address of module + name of
-              -- contract + parameters, but since the first three fields are
-              -- fixed size this is OK.
-              let paramSize = fromIntegral (thPayloadSize meta)
-              in handleInitContract senderAccount TTInitContract (transactionHash msg) meta amount modref cname param paramSize
-            -- FIXME: This is only temporary for now.
-            -- Later on accounts will have policies, and also will be able to execute non-trivial code themselves.
-            Transfer toaddr amount ->
-              handleSimpleTransfer senderAccount TTTransfer (transactionHash msg) meta toaddr amount
-
-            Update amount cref maybeMsg ->
-              -- the payload size includes amount + address + message, but since the first two fields are
-              -- fixed size this is OK.
-              let msgSize = fromIntegral (thPayloadSize meta)
-              in handleUpdateContract senderAccount TTUpdate (transactionHash msg) meta cref amount maybeMsg msgSize
-
-            DeployCredential cdi ->
-              handleDeployCredential senderAccount TTDeployCredential (transactionHash msg) meta (payloadBodyBytes (transactionPayload msg)) cdi
-
-            DeployEncryptionKey encKey ->
-              handleDeployEncryptionKey senderAccount TTDeployEncryptionKey (transactionHash msg) meta encKey
-
-            AddBaker{..} ->
-              handleAddBaker senderAccount TTAddBaker (transactionHash msg) meta abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abAccount abProofSig abProofElection abProofAccount
-
-            RemoveBaker{..} ->
-              handleRemoveBaker senderAccount TTRemoveBaker (transactionHash msg) meta rbId rbProof
-
-            UpdateBakerAccount{..} ->
-              handleUpdateBakerAccount senderAccount TTUpdateBakerAccount (transactionHash msg) meta ubaId ubaAddress ubaProof
-
-            UpdateBakerSignKey{..} ->
-              handleUpdateBakerSignKey senderAccount TTUpdateBakerSignKey (transactionHash msg) meta ubsId ubsKey ubsProof
-
-            DelegateStake{..} ->
-              handleDelegateStake senderAccount TTDelegateStake (transactionHash msg) meta (Just dsID)
-
-            UndelegateStake ->
-              handleDelegateStake senderAccount TTUndelegateStake (transactionHash msg) meta Nothing
+                   InitContract amount modref cname param ->
+                     -- the payload size includes amount + address of module + name of
+                     -- contract + parameters, but since the first three fields are
+                     -- fixed size this is OK.
+                     let paramSize = fromIntegral (thPayloadSize meta)
+                     in handleInitContract (mkWTC TTInitContract) amount modref cname param paramSize
+                   -- FIXME: This is only temporary for now.
+                   -- Later on accounts will have policies, and also will be able to execute non-trivial code themselves.
+                   Transfer toaddr amount ->
+                     handleSimpleTransfer (mkWTC TTTransfer) toaddr amount
+       
+                   Update amount cref maybeMsg ->
+                     -- the payload size includes amount + address + message, but since the first two fields are
+                     -- fixed size this is OK.
+                     let msgSize = fromIntegral (thPayloadSize meta)
+                     in handleUpdateContract (mkWTC TTUpdate) cref amount maybeMsg msgSize
+       
+                   DeployCredential cdi ->
+                     handleDeployCredential (mkWTC TTDeployCredential) (payloadBodyBytes (transactionPayload msg)) cdi
+       
+                   DeployEncryptionKey encKey ->
+                     handleDeployEncryptionKey (mkWTC TTDeployEncryptionKey) encKey
+       
+                   AddBaker{..} ->
+                     handleAddBaker (mkWTC TTAddBaker) abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abAccount abProofSig abProofElection abProofAccount
+       
+                   RemoveBaker{..} ->
+                     handleRemoveBaker (mkWTC TTRemoveBaker) rbId rbProof
+       
+                   UpdateBakerAccount{..} ->
+                     handleUpdateBakerAccount (mkWTC TTUpdateBakerAccount) ubaId ubaAddress ubaProof
+       
+                   UpdateBakerSignKey{..} ->
+                     handleUpdateBakerSignKey (mkWTC TTUpdateBakerSignKey) ubsId ubsKey ubsProof
+       
+                   DelegateStake{..} ->
+                     handleDelegateStake (mkWTC TTDelegateStake) (Just dsID)
+       
+                   UndelegateStake ->
+                     handleDelegateStake (mkWTC TTUndelegateStake) Nothing
+          
+          case res of
+            Nothing -> return Nothing
+            Just summary -> return $! Just $! TxValid summary
 
 -- |Process the deploy module transaction.
 handleDeployModule ::
   SchedulerMonad m
-  => Account
-  -> TransactionType -- ^Type of the top-level transaction.
-  -> TransactionHash -- ^Hash of the top-level transaction.
-  -> TransactionHeader -- ^Header of the transaction.
+  => WithDepositContext
   -> PayloadSize -- ^Serialized size of the module. Used for charging execution cost.
   -> Module -- ^The module to deploy
-  -> m TransactionSummary
-handleDeployModule senderAccount txType txHash meta psize mod =
-  withDeposit senderAccount txType txHash meta c k
+  -> m (Maybe TransactionSummary)
+handleDeployModule wtc psize mod =
+  withDeposit wtc c k
   where 
+    senderAccount = wtc ^. wtcSenderAccount
+    txHash = wtc ^. wtcTransactionHash
+    meta = wtc ^. wtcTransactionHeader
+
     c = do
       tickEnergy (Cost.deployModule (fromIntegral psize))
       let mhash = Core.moduleHash mod
@@ -224,25 +237,25 @@ handleDeployModule senderAccount txType txHash meta psize mod =
         -- FIXME:
         -- we should reject the transaction immediately if we figure out that the module with the hash already exists.
         -- otherwise we can waste some effort in checking before reaching this point.
-        -- This could be chedked immediately even before we reach the dispatch since module hash is the hash of module serialization.
+        -- This could be checked immediately even before we reach the dispatch since module hash is the hash of module serialization.
         return $! (TxReject (ModuleHashAlreadyExists mhash), energyCost, usedEnergy)
 
 -- |Handle the top-level initialize contract.
 handleInitContract ::
   SchedulerMonad m
-    => Account -- ^Account which is initializing the contract.
-    -> TransactionType -- ^Type of the top-level transaction.
-    -> TransactionHash -- ^Hash of the top-level transaction.
-    -> TransactionHeader -- ^Header of the transaction.
+    => WithDepositContext
     -> Amount   -- ^The amount to initialize the contract with.
     -> ModuleRef  -- ^Module reference of the contract to initialize.
     -> Core.TyName  -- ^Name of the contract in a module.
     -> Core.Expr Core.UA Core.ModuleName  -- ^Parameters of the contract.
     -> Int -- ^Serialized size of the parameters. Used for computing typechecking cost.
-    -> m TransactionSummary
-handleInitContract senderAccount txType txHash meta amount modref cname param paramSize =
-  withDeposit senderAccount txType txHash meta c k
-    where c = do
+    -> m (Maybe TransactionSummary)
+handleInitContract wtc amount modref cname param paramSize =
+  withDeposit wtc c k
+    where senderAccount = wtc ^. wtcSenderAccount
+          txHash = wtc ^. wtcTransactionHash
+          meta = wtc ^. wtcTransactionHeader
+          c = do
             -- decrease available energy and start processing. This will reject the transaction if not enough is available.
             tickEnergy Cost.initPreprocess
 
@@ -284,16 +297,14 @@ handleInitContract senderAccount txType txHash meta amount modref cname param pa
 
 handleSimpleTransfer ::
   SchedulerMonad m
-    => Account -- ^Sender account of the transaction
-    -> TransactionType -- ^Type of the top-level transaction.
-    -> TransactionHash -- ^Hash of the top-level transaction.
-    -> TransactionHeader -- ^Header of the transaction.
+    => WithDepositContext
     -> Address -- ^Address to send the amount to, either account or contract.
     -> Amount -- ^The amount to transfer.
-    -> m TransactionSummary
-handleSimpleTransfer senderAccount txType txHash meta toaddr amount =
-  withDeposit senderAccount txType txHash meta c (defaultSuccess txHash meta senderAccount)
-    where c = case toaddr of
+    -> m (Maybe TransactionSummary)
+handleSimpleTransfer wtc toaddr amount =
+  withDeposit wtc c (defaultSuccess wtc)
+    where senderAccount = wtc ^. wtcSenderAccount
+          c = case toaddr of
                 AddressContract cref -> do
                   i <- getCurrentContractInstance cref `rejectingWith` InvalidContractAddress cref
                   let rf = Ins.ireceiveFun i
@@ -312,18 +323,16 @@ handleSimpleTransfer senderAccount txType txHash meta toaddr amount =
 
 handleUpdateContract ::
   SchedulerMonad m
-    => Account -- ^Sender account of the transaction.
-    -> TransactionType -- ^Type of the top-level transaction.
-    -> TransactionHash -- ^Hash of the top-level transaction.
-    -> TransactionHeader -- ^Header of the transaction.
+    => WithDepositContext
     -> ContractAddress -- ^Address of the contract to invoke.
     -> Amount -- ^Amount to invoke the contract's receive method with.
     -> Core.Expr Core.UA Core.ModuleName -- ^Message to send to the receive method.
     -> Int  -- ^Serialized size of the message.
-    -> m TransactionSummary
-handleUpdateContract senderAccount txType txHash meta cref amount maybeMsg msgSize =
-  withDeposit senderAccount txType txHash meta c (defaultSuccess txHash meta senderAccount)
-  where c = do
+    -> m (Maybe TransactionSummary)
+handleUpdateContract wtc cref amount maybeMsg msgSize =
+  withDeposit wtc c (defaultSuccess wtc)
+  where senderAccount = wtc ^. wtcSenderAccount
+        c = do
           tickEnergy Cost.updatePreprocess
           i <- getCurrentContractInstance cref `rejectingWith` InvalidContractAddress cref
           let rf = Ins.ireceiveFun i
@@ -473,23 +482,18 @@ runInterpreter f =
 
 handleDeployCredential ::
   SchedulerMonad m
-    =>
-    -- |Sender account of the transaction.
-    Account ->
-    -- |Type of the top-level transaction.
-    TransactionType ->
-    -- |Hash of the top-level transaction.
-    TransactionHash ->
-    -- |Header of the transaction.
-    TransactionHeader ->
+    => WithDepositContext ->
     -- |Credentials to deploy in serialized form. We pass these to the verify function.
     AH.CredentialDeploymentInformationBytes ->
     -- |Credentials to deploy.
     ID.CredentialDeploymentInformation ->
-    m TransactionSummary
-handleDeployCredential senderAccount txType txHash meta cdiBytes cdi =
-  withDeposit senderAccount txType txHash meta c k
-  where c = tickEnergy Cost.deployCredential
+    m (Maybe TransactionSummary)
+handleDeployCredential wtc cdiBytes cdi =
+  withDeposit wtc c k
+  where senderAccount = wtc ^. wtcSenderAccount
+        txHash = wtc ^. wtcTransactionHash
+        meta = wtc ^. wtcTransactionHeader
+        c = tickEnergy Cost.deployCredential
         k ls _ = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost txHash senderAccount energyCost
@@ -548,15 +552,13 @@ handleDeployCredential senderAccount txType txHash meta cdiBytes cdi =
 
 handleDeployEncryptionKey ::
   SchedulerMonad m
-    => Account -- ^Account onto which the encryption key should be deployed.
-    -> TransactionType -- ^Type of the top-level transaction.
-    -> TransactionHash -- ^Hash of the top-level transaction.
-    -> TransactionHeader -- ^Header of the transaction.
+    => WithDepositContext
     -> ID.AccountEncryptionKey -- ^The encryption key.
-    -> m TransactionSummary
-handleDeployEncryptionKey senderAccount txType txHash meta encKey =
-  withDeposit senderAccount txType txHash meta c (defaultSuccess txHash meta senderAccount)
-  where c = do
+    -> m (Maybe TransactionSummary)
+handleDeployEncryptionKey wtc encKey =
+  withDeposit wtc c (defaultSuccess wtc)
+  where senderAccount = wtc ^. wtcSenderAccount
+        c = do
           tickEnergy Cost.deployEncryptionKey
           let aaddr = senderAccount ^. accountAddress
           case senderAccount ^. accountEncryptionKey of
@@ -610,10 +612,7 @@ checkAccountOwnership challenge keys (AccountOwnershipProof proofs) =
 -- We might use it in checking validity of the proofs.
 handleAddBaker ::
   SchedulerMonad m
-    => Account
-    -> TransactionType -- ^Type of the top-level transaction.
-    -> TransactionHash -- ^Hash of the top-level transaction.
-    -> TransactionHeader
+    => WithDepositContext
     -> BakerElectionVerifyKey
     -> BakerSignVerifyKey
     -> BakerAggregationVerifyKey
@@ -621,10 +620,13 @@ handleAddBaker ::
     -> Proofs.Dlog25519Proof
     -> Proofs.Dlog25519Proof
     -> AccountOwnershipProof
-    -> m TransactionSummary
-handleAddBaker senderAccount txType txHash meta abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abAccount abProofSig abProofElection abProofAccount =
-  withDeposit senderAccount txType txHash meta c k
-  where c = tickEnergy Cost.addBaker
+    -> m (Maybe TransactionSummary)
+handleAddBaker wtc abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abAccount abProofSig abProofElection abProofAccount =
+  withDeposit wtc c k
+  where senderAccount = wtc ^. wtcSenderAccount
+        txHash = wtc ^. wtcTransactionHash
+        meta = wtc ^. wtcTransactionHeader
+        c = tickEnergy Cost.addBaker
         k ls _ = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost txHash senderAccount energyCost
@@ -653,16 +655,16 @@ handleAddBaker senderAccount txType txHash meta abElectionVerifyKey abSignatureV
 -- TODO: Need to make sure that this proof is not duplicable (via the challenge prefix I suppose).
 handleRemoveBaker ::
   SchedulerMonad m
-    => Account
-    -> TransactionType -- ^Type of the top-level transaction.
-    -> TransactionHash -- ^Hash of the top-level transaction.
-    -> TransactionHeader
+    => WithDepositContext
     -> BakerId
     -> Proof
-    -> m TransactionSummary
-handleRemoveBaker senderAccount txType txHash meta rbId _rbProof =
-  withDeposit senderAccount txType txHash meta c k
-  where c = tickEnergy Cost.removeBaker
+    -> m (Maybe TransactionSummary)
+handleRemoveBaker wtc rbId _rbProof =
+  withDeposit wtc c k
+  where senderAccount = wtc ^. wtcSenderAccount
+        txHash = wtc ^. wtcTransactionHash
+        meta = wtc ^. wtcTransactionHeader
+        c = tickEnergy Cost.removeBaker
         k ls _ = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost txHash senderAccount energyCost
@@ -688,17 +690,17 @@ handleRemoveBaker senderAccount txType txHash meta rbId _rbProof =
 -- to validate the transaction.
 handleUpdateBakerAccount ::
   SchedulerMonad m
-    => Account
-    -> TransactionType -- ^Type of the top-level transaction.
-    -> TransactionHash -- ^Hash of the top-level transaction.
-    -> TransactionHeader
+    => WithDepositContext
     -> BakerId
     -> AccountAddress
     -> AccountOwnershipProof
-    -> m TransactionSummary
-handleUpdateBakerAccount senderAccount txType txHash meta ubaId ubaAddress ubaProof =
-  withDeposit senderAccount txType txHash meta c k
-  where c = tickEnergy Cost.updateBakerAccount
+    -> m (Maybe TransactionSummary)
+handleUpdateBakerAccount wtc ubaId ubaAddress ubaProof =
+  withDeposit wtc c k
+  where senderAccount = wtc ^. wtcSenderAccount
+        txHash = wtc ^. wtcTransactionHash
+        meta = wtc ^. wtcTransactionHeader
+        c = tickEnergy Cost.updateBakerAccount
         k ls _ = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost txHash senderAccount energyCost
@@ -729,17 +731,17 @@ handleUpdateBakerAccount senderAccount txType txHash meta ubaId ubaAddress ubaPr
 --    signature verification key.
 handleUpdateBakerSignKey ::
   SchedulerMonad m
-    => Account
-    -> TransactionType -- ^Type of the top-level transaction.
-    -> TransactionHash -- ^Hash of the top-level transaction.
-    -> TransactionHeader
+    => WithDepositContext
     -> BakerId
     -> BakerSignVerifyKey
     -> Proofs.Dlog25519Proof
-    -> m TransactionSummary
-handleUpdateBakerSignKey senderAccount txType txHash meta ubsId ubsKey ubsProof =
-  withDeposit senderAccount txType txHash meta c k
-  where c = tickEnergy Cost.updateBakerKey
+    -> m (Maybe TransactionSummary)
+handleUpdateBakerSignKey wtc ubsId ubsKey ubsProof =
+  withDeposit wtc c k
+  where senderAccount = wtc ^. wtcSenderAccount
+        txHash = wtc ^. wtcTransactionHash
+        meta = wtc ^. wtcTransactionHeader
+        c = tickEnergy Cost.updateBakerKey
         k ls _ = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost txHash senderAccount energyCost
@@ -764,15 +766,15 @@ handleUpdateBakerSignKey senderAccount txType txHash meta ubsId ubsKey ubsProof 
 -- |Update an account's stake delegate.
 handleDelegateStake ::
   SchedulerMonad m
-    => Account
-    -> TransactionType -- ^Type of the top-level transaction.
-    -> TransactionHash -- ^Hash of the top-level transaction.
-    -> TransactionHeader
+    => WithDepositContext
     -> Maybe BakerId
-    -> m TransactionSummary
-handleDelegateStake senderAccount txType txHash meta targetBaker =
-  withDeposit senderAccount txType txHash meta c k
-  where c = tickEnergy delegateCost
+    -> m (Maybe TransactionSummary)
+handleDelegateStake wtc targetBaker =
+  withDeposit wtc c k
+  where senderAccount = wtc ^. wtcSenderAccount
+        txHash = wtc ^. wtcTransactionHash
+        meta = wtc ^. wtcTransactionHeader
+        c = tickEnergy delegateCost
         k ls _ = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost txHash senderAccount energyCost
@@ -812,56 +814,67 @@ handleDelegateStake senderAccount txType txHash meta targetBaker =
 --   * @ftUnprocessed@ is a list of transactions which were not
 --     processed due to size restrictions.
 filterTransactions :: (TransactionData msg, SchedulerMonad m)
-                      => Integer -> Energy -> GroupedTransactions msg -> m (FilteredTransactions msg, Energy)
-filterTransactions maxSize maxEnergy = go 0 0 [] [] []
-  where go !totalEnergyUsed size valid invalid unprocessed ((t:ts) : rest) = do
-          let csize = size + fromIntegral (transactionSize t)
-              tenergy = transactionGasAmount t
-              cenergy = totalEnergyUsed + tenergy
-          if csize <= maxSize && cenergy <= maxEnergy then -- if the next transaction can fit into a block then add it.
-             dispatch t >>= \case
-               TxValid summary ->
-                 go (totalEnergyUsed + tsEnergyCost summary) csize ((t, summary):valid) invalid unprocessed (ts : rest)
-               TxInvalid reason ->
-                 go totalEnergyUsed csize valid (invalidTs t reason ts invalid) unprocessed rest
-          -- if the stated energy of a single transaction exceeds the block energy limit the transaction is invalid
-          else if tenergy > maxEnergy then
-             go totalEnergyUsed size valid (invalidTs t ExceedsMaxBlockEnergy ts invalid) unprocessed rest
-          else -- otherwise still try the remaining transactions to avoid deadlocks from
-               -- one single too-big transaction.
-             go totalEnergyUsed size valid invalid (t:unprocessed) (ts:rest)
-        go !totalEnergyUsed size valid invalid unprocessed ([] : rest) =
-          go totalEnergyUsed size valid invalid unprocessed rest
-        go !totalEnergyUsed _ valid invalid unprocessed [] =
-          let txs = FilteredTransactions{
-                      ftAdded = reverse valid,
-                      ftFailed = invalid,
-                      ftUnprocessed = unprocessed
-                    }
-          in return (txs, totalEnergyUsed)         
-        -- Maps an invalid transaction t to its failure reason and appends the remaining transactions in the group
-        -- with a SuccessorOfInvalidTransaction failure
-        invalidTs t failure ts = (++) ((t, failure) : map (, SuccessorOfInvalidTransaction) ts)
+                      => Integer -> GroupedTransactions msg -> m (FilteredTransactions msg)
+filterTransactions maxSize inputTxs = getMaxBlockEnergy >>= flip run inputTxs
+  where run maxEnergy = go 0 [] [] []
+          where go size valid invalid unprocessed ((t:ts) : rest) = do
+                  totalEnergyUsed <- getUsedEnergy
+                  let csize = size + fromIntegral (transactionSize t)
+                      tenergy = transactionGasAmount t
+                      cenergy = totalEnergyUsed + tenergy
+                  if csize <= maxSize && cenergy <= maxEnergy then -- if the next transaction can fit into a block then add it.
+                     dispatch t >>= \case
+                       Just (TxValid summary) -> do
+                         markEnergyUsed (tsEnergyCost summary)
+                         go csize ((t, summary):valid) invalid unprocessed (ts : rest)
+                       Just (TxInvalid reason) ->
+                         go csize valid (invalidTs t reason ts invalid) unprocessed rest
+                       Nothing -> error "Unreachable. Dispatch honors maximum transaction energy."
+                  -- if the stated energy of a single transaction exceeds the block energy limit the transaction is invalid
+                  else if tenergy > maxEnergy then
+                     go size valid (invalidTs t ExceedsMaxBlockEnergy ts invalid) unprocessed rest
+                  else -- otherwise still try the remaining transactions to avoid deadlocks from
+                       -- one single too-big transaction.
+                     go size valid invalid (t:unprocessed) (ts:rest)
+                go size valid invalid unprocessed ([] : rest) =
+                  go size valid invalid unprocessed rest
+                go _ valid invalid unprocessed [] =
+                  let txs = FilteredTransactions{
+                              ftAdded = reverse valid,
+                              ftFailed = invalid,
+                              ftUnprocessed = unprocessed
+                            }
+                  in return txs         
+                -- Maps an invalid transaction t to its failure reason and appends the remaining transactions in the group
+                -- with a SuccessorOfInvalidTransaction failure
+                invalidTs t failure ts = (++) ((t, failure) : map (, SuccessorOfInvalidTransaction) ts)
 
--- |Execute transactions in sequence. Return 'Nothing' if one of the transactions
--- fails, and otherwise return a list of transactions with their outcomes.
+-- |Execute transactions in sequence. Return 'Left fk' if one of the transactions
+-- fails, and otherwise return a list of transactions with their outcomes, as well as used energy.
 runTransactions :: (TransactionData msg, SchedulerMonad m)
-                   => [msg] -> m (Either FailureKind ([(msg, TransactionSummary)], Energy))
-runTransactions = go 0 []
-  where go !totalEnergyUsed valid (t:ts) =
-          dispatch t >>= \case
-            TxValid summary -> go (totalEnergyUsed + tsEnergyCost summary) ((t, summary):valid) ts
-            TxInvalid reason -> return (Left reason)
-        go !totalEnergyUsed valid [] = return (Right (reverse valid, totalEnergyUsed))
+                   => [msg] -> m (Either (Maybe FailureKind) [(msg, TransactionSummary)])
+runTransactions = go []
+    where go valid (t:ts) = dispatch t >>= \case
+            Just (TxValid summary) -> do
+              markEnergyUsed (tsEnergyCost summary)
+              go ((t, summary):valid) ts
+            Just (TxInvalid reason) -> return (Left (Just reason))
+            Nothing -> return (Left Nothing)
+          
+          go valid [] = return (Right (reverse valid))
 
 -- |Execute transactions in sequence only for sideffects on global state.
--- Returns 'Right' '()' if block executed successfully, and 'Left' 'FailureKind' at
--- first failed transaction. This is more efficient than 'runTransactions' since it
--- does not have to build a list of results.
-execTransactions :: (TransactionData msg, SchedulerMonad m) => [msg] -> m (Either FailureKind Energy)
-execTransactions = go 0
-  where go !totalEnergyUsed (t:ts) =
+-- Returns @Right energy@ if block executed successfully (where energy is the
+-- used energy), and 'Left' 'FailureKind' at first failed transaction. This is
+-- more efficient than 'runTransactions' since it does not have to build a list
+-- of results.
+execTransactions :: (TransactionData msg, SchedulerMonad m) => [msg] -> m (Either (Maybe FailureKind) ())
+execTransactions = go
+  where go (t:ts) =
           dispatch t >>= \case
-            TxValid summary -> go (totalEnergyUsed + tsEnergyCost summary) ts
-            TxInvalid reason -> return (Left reason)
-        go !totalEnergyUsed [] = return (Right totalEnergyUsed)
+            Nothing -> return (Left Nothing)
+            Just (TxValid summary) -> do
+              markEnergyUsed (tsEnergyCost summary)
+              go ts
+            Just (TxInvalid reason) -> return (Left (Just reason))
+        go [] = return (Right ())

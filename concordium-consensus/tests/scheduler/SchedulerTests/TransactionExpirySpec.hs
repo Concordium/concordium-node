@@ -117,11 +117,13 @@ testExpiryTime expiry = do
     source <- liftIO $ TIO.readFile "test/contracts/FibContract.acorn"
     (_, _) <- PR.processModule source
     ts <- processUngroupedTransactions $ transactions expiry
-    let ((Sch.FilteredTransactions{..}, _), gstate) =
-          Types.runSI (Sch.filterTransactions dummyBlockSize (Types.Energy maxBound) ts)
+    let (Sch.FilteredTransactions{..}, finState) =
+          Types.runSI (Sch.filterTransactions dummyBlockSize ts)
             dummySpecialBetaAccounts
             Types.dummyChainMeta { Types.slotTime = slotTime }
+            maxBound
             initialBlockState
+    let gstate = finState ^. Types.ssBlockState
     case invariantBlockState gstate of
         Left f -> liftIO $ assertFailure f
         Right _ -> return (getResults ftAdded, ftFailed, ftUnprocessed)

@@ -1,4 +1,5 @@
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DerivingVia, StandaloneDeriving #-}
 {-# OPTIONS_GHC -Wall #-}
 module Concordium.Scheduler.TreeStateEnvironment where
@@ -21,7 +22,12 @@ import Concordium.GlobalState.TransactionLogs
 import Concordium.GlobalState.Classes(MGSTrans)
 import Concordium.Scheduler.Types
 import Concordium.Scheduler.Environment
-import Concordium.Scheduler.EnvironmentImplementation (BSOMonadWrapper(..))
+import Concordium.Scheduler.EnvironmentImplementation
+    (BSOMonadWrapper(..),
+     ContextState(..),
+     HasSchedulerState(SS),
+     SchedulerState, ssBlockState, ssSchedulerEnergyUsed,
+     mkInitialSS)
 
 import Control.Monad.RWS.Strict
 
@@ -31,18 +37,20 @@ import qualified Acorn.Core as Core
 
 import qualified Concordium.Scheduler as Sch
 
-type ContextState = (HashSet.HashSet AccountAddress, ChainMetadata)
-
 newtype BlockStateMonad state m a = BSM { _runBSM :: RWST ContextState () state m a}
     deriving (Functor, Applicative, Monad, MonadState state, MonadReader ContextState, MonadTrans)
 
 deriving via MGSTrans (RWST ContextState () state) m instance TransactionLogger m => TransactionLogger (BlockStateMonad state m)
 
 deriving via (BSOMonadWrapper ContextState state (MGSTrans (RWST ContextState () state) m))
-    instance (UpdatableBlockState m ~ state, BlockStateOperations m) => StaticEnvironmentMonad Core.UA (BlockStateMonad state m)
+    instance (SS state ~ UpdatableBlockState m, HasSchedulerState state, BlockStateOperations m)
+             => StaticEnvironmentMonad Core.UA (BlockStateMonad state m)
 
 deriving via (BSOMonadWrapper ContextState state (MGSTrans (RWST ContextState () state) m))
-    instance (TransactionLogger m, UpdatableBlockState m ~ state, BlockStateOperations m) => SchedulerMonad (BlockStateMonad state m)
+    instance (TransactionLogger m,
+              SS state ~ UpdatableBlockState m,
+              HasSchedulerState state,
+              BlockStateOperations m) => SchedulerMonad (BlockStateMonad state m)
 
 runBSM :: Monad m => BlockStateMonad b m a -> ContextState -> b -> m (a, b)
 runBSM m cm s = do
@@ -85,7 +93,7 @@ mintAndReward bshandle blockParent _lfPointer slotNumber bid = do
 -- |Execute a block from a given starting state.
 -- Fail if any of the transactions fails, otherwise return the new 'BlockState' and the amount of energy used
 -- during this block execution.
-executeFrom ::
+executeFrom :: forall m .
   (GlobalStateTypes m, BlockPointerMonad m, TreeStateMonad m)
   => BlockHash -- ^Hash of the block we are executing. Used only for commiting transactions.
   -> Slot -- ^Slot number of the block being executed.
@@ -95,7 +103,7 @@ executeFrom ::
   -> BakerId -- ^Identity of the baker who should be rewarded.
   -> BirkParameters
   -> [Transaction] -- ^Transactions on this block.
-  -> m (Either FailureKind (BlockState m, Energy))
+  -> m (Either (Maybe FailureKind) (BlockState m, Energy))
 executeFrom blockHash slotNumber slotTime blockParent lfPointer blockBaker bps txs =
   let cm = let blockHeight = bpHeight blockParent + 1
                finalizedHeight = bpHeight lfPointer
@@ -107,10 +115,19 @@ executeFrom blockHash slotNumber slotTime blockParent lfPointer blockBaker bps t
     -- in most cases the block nonce is added to the seed state
     bshandle1 <- bsoUpdateBirkParameters bshandle0 bps
     genBetaAccounts <- HashSet.fromList . map _accountAddress . genesisSpecialBetaAccounts <$> getGenesisData
-    (res, bshandle2) <- runBSM (Sch.runTransactions txs) (genBetaAccounts, cm) bshandle1
+    maxBlockEnergy <- genesisMaxBlockEnergy <$> getGenesisData
+    let context = ContextState{
+          _specialBetaAccounts = genBetaAccounts,
+          _chainMetadata = cm,
+          _maxBlockEnergy = maxBlockEnergy
+          }
+    (res, finState) <- runBSM (Sch.runTransactions txs) context (mkInitialSS bshandle1 :: SchedulerState m)
+    let usedEnergy = finState ^. ssSchedulerEnergyUsed
+    let bshandle2 = finState ^. ssBlockState
     case res of
         Left fk -> Left fk <$ (dropUpdatableBlockState bshandle2)
-        Right (outcomes, usedEnergy) -> do
+        Right outcomes -> do
+
             -- Record the transaction outcomes
             bshandle3 <- bsoSetTransactionOutcomes bshandle2 (map snd outcomes)
             -- Record transaction outcomes in the transaction table as well.
@@ -127,7 +144,7 @@ executeFrom blockHash slotNumber slotTime blockParent lfPointer blockBaker bps t
 -- EFFECTS: This function only updates the block state. It has no effects on the transaction table.
 -- POSTCONDITION: The function always returns a list of transactions which make a valid block in `ftAdded`,
 -- and also returns a list of transactions which failed, and a list of those which were not processed.
-constructBlock ::
+constructBlock :: forall m .
   (GlobalStateTypes m, BlockPointerMonad m, TreeStateMonad m)
   => Slot -- ^Slot number of the block to bake
   -> Timestamp -- ^Unix timestamp of the beginning of the slot.
@@ -164,9 +181,17 @@ constructBlock slotNumber slotTime blockParent lfPointer blockBaker bps =
     let orderedTxs = fst . unzip $ List.sortOn snd txs
     genBetaAccounts <- HashSet.fromList . map _accountAddress . genesisSpecialBetaAccounts <$> getGenesisData
     maxBlockEnergy <- genesisMaxBlockEnergy <$> getGenesisData
-    ((ft@Sch.FilteredTransactions{..}, usedEnergy), bshandle2) <-
-        runBSM (Sch.filterTransactions (fromIntegral maxSize) maxBlockEnergy orderedTxs) (genBetaAccounts, cm) bshandle1
+    let context = ContextState{
+          _specialBetaAccounts = genBetaAccounts,
+          _chainMetadata = cm,
+          _maxBlockEnergy = maxBlockEnergy
+          }
+    (ft@Sch.FilteredTransactions{..}, finState) <-
+        runBSM (Sch.filterTransactions (fromIntegral maxSize) orderedTxs) context (mkInitialSS bshandle1 :: SchedulerState m)
     -- FIXME: At some point we should log things here using the same logging infrastructure as in consensus.
+
+    let usedEnergy = finState ^. ssSchedulerEnergyUsed
+    let bshandle2 = finState ^. ssBlockState
 
     bshandle3 <- bsoSetTransactionOutcomes bshandle2 (map snd ftAdded)
     bshandle4 <- mintAndReward bshandle3 blockParent lfPointer slotNumber blockBaker

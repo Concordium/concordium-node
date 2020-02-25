@@ -9,6 +9,8 @@ import Test.HUnit
 
 import Control.Monad.IO.Class
 
+import Lens.Micro.Platform
+
 import Acorn.Core
 import qualified Acorn.Utils.Init as Init
 import qualified Acorn.Parser.Runner as PR
@@ -77,11 +79,13 @@ testMaxBlockEnergy ::
         [Types.BareTransaction])
 testMaxBlockEnergy = do
     ts <- processUngroupedTransactions transactions
-    let ((Sch.FilteredTransactions{..}, _), gstate) =
-          Types.runSI (Sch.filterTransactions dummyBlockSize maxBlockEnergy ts)
+    let (Sch.FilteredTransactions{..}, finState) =
+          Types.runSI (Sch.filterTransactions dummyBlockSize ts)
             dummySpecialBetaAccounts
             Types.dummyChainMeta
+            maxBlockEnergy
             initialBlockState
+    let gstate = finState ^. Types.ssBlockState
     case invariantBlockState gstate of
         Left f -> liftIO $ assertFailure f
         Right _ -> return (getResults ftAdded, ftFailed, ftUnprocessed, concat ts)

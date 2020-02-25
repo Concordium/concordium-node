@@ -104,13 +104,14 @@ runWithIntermediateStates :: PR.Context Core.UA IO ([([(Types.BareTransaction, T
 runWithIntermediateStates = do
   txs <- processUngroupedTransactions transactionsInput
   let (res, state) = foldl (\(acc, st) tx ->
-                            let ((Sch.FilteredTransactions{..}, _), st') =
+                            let (Sch.FilteredTransactions{..}, st') =
                                   Types.runSI
-                                    (Sch.filterTransactions dummyBlockSize (Types.Energy maxBound) [tx])
+                                    (Sch.filterTransactions dummyBlockSize [tx])
                                     Set.empty -- special beta accounts
                                     Types.dummyChainMeta
+                                    maxBound
                                     st
-                            in (acc ++ [(getResults ftAdded, ftFailed, st' ^. blockBirkParameters)], st'))
+                            in (acc ++ [(getResults ftAdded, ftFailed, st' ^. Types.ssBlockState . blockBirkParameters)], st' ^. Types.blockState))
                          ([], initialBlockState)
                          txs
   return (res, state)

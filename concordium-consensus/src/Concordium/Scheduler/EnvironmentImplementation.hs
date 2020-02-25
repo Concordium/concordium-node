@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DerivingVia #-}
 module Concordium.Scheduler.EnvironmentImplementation where
 
@@ -24,109 +25,155 @@ import Concordium.GlobalState.Bakers as Bakers
 
 import qualified Acorn.Core as Core
 
-newtype BSOMonadWrapper r s m a = BSOMonadWrapper (m a)
-    deriving (Functor, Applicative, Monad, MonadReader r, MonadState s)
+-- |Chain metadata together with a set of special accounts which have special
+-- rights during the beta phase, as well as 
+data ContextState = ContextState{
+  _specialBetaAccounts :: !(Set.HashSet AccountAddress),
+  _chainMetadata :: !ChainMetadata,
+  _maxBlockEnergy :: !Energy
+  }
+
+makeLenses ''ContextState
+
+-- Doing it manually because otherwise the generated instance definition
+-- seems to be wrong (m has kind *).
+class HasSchedulerState a where
+  type SS a
+  blockState :: Lens' a (SS a)
+  schedulerEnergyUsed :: Lens' a Energy
+
+data SchedulerState (m :: * -> *)= SchedulerState {
+  _ssBlockState :: !(UpdatableBlockState m),
+  _ssSchedulerEnergyUsed :: !Energy
+  }
+
+mkInitialSS :: UpdatableBlockState m -> SchedulerState m
+mkInitialSS _ssBlockState = SchedulerState{_ssSchedulerEnergyUsed = 0,..}
+
+makeLenses ''SchedulerState
+
+instance HasSchedulerState (SchedulerState m) where
+  type SS (SchedulerState m) = UpdatableBlockState m
+  blockState = ssBlockState
+  schedulerEnergyUsed = ssSchedulerEnergyUsed
+
+newtype BSOMonadWrapper r state m a = BSOMonadWrapper (m a)
+    deriving (Functor, Applicative, Monad, MonadReader r, MonadState state)
 
 instance MonadTrans (BSOMonadWrapper r s) where
     {-# INLINE lift #-}
     lift = BSOMonadWrapper
 
--- |Chain metadata together with a set of special accounts which have special
--- rights during the beta phase.
-type ContextState = (Set.HashSet AccountAddress, ChainMetadata)
-
 instance TransactionLogger m => TransactionLogger (BSOMonadWrapper r s m) where
   {-# INLINE tlNotifyAccountEffect #-}
   tlNotifyAccountEffect txHash = lift . tlNotifyAccountEffect txHash
 
-instance (MonadReader ContextState m, UpdatableBlockState m ~ state, MonadState state m, BlockStateOperations m)
+instance (MonadReader ContextState m,
+          SS state ~ UpdatableBlockState m,
+          HasSchedulerState state,
+          MonadState state m,
+          BlockStateOperations m)
     => StaticEnvironmentMonad Core.UA (BSOMonadWrapper ContextState state m) where
   {-# INLINE getChainMetadata #-}
-  getChainMetadata = view _2
+  getChainMetadata = view chainMetadata
 
   {-# INLINE getModuleInterfaces #-}
   getModuleInterfaces mref = do
-    s <- get
+    s <- use blockState
     mmod <- lift (bsoGetModule s mref)
     return $! mmod <&> \m -> (BS.moduleInterface m, BS.moduleValueInterface m)
 
-instance (TransactionLogger m, MonadReader ContextState m, UpdatableBlockState m ~ state, MonadState state m, BlockStateOperations m)
+instance (MonadReader ContextState m,
+          SS state ~ UpdatableBlockState m,
+          HasSchedulerState state,
+          MonadState state m,
+          BlockStateOperations m,
+          TransactionLogger m)
          => SchedulerMonad (BSOMonadWrapper ContextState state m) where
 
+  {-# INLINE markEnergyUsed #-}
+  markEnergyUsed energy = schedulerEnergyUsed += energy
+
+  {-# INLINE getUsedEnergy #-}
+  getUsedEnergy = use schedulerEnergyUsed
+
+  {-# INLINE getMaxBlockEnergy #-}
+  getMaxBlockEnergy = view maxBlockEnergy
+
   {-# INLINE getSpecialBetaAccounts #-}
-  getSpecialBetaAccounts = view _1
+  getSpecialBetaAccounts = view specialBetaAccounts
 
   {-# INLINE getContractInstance #-}
-  getContractInstance addr = lift . flip bsoGetInstance addr =<< get
+  getContractInstance addr = lift . flip bsoGetInstance addr =<< use blockState
 
   {-# INLINE getAccount #-}
-  getAccount !addr = lift . flip bsoGetAccount addr =<< get
+  getAccount !addr = lift . flip bsoGetAccount addr =<< use blockState
 
   {-# INLINE putNewInstance #-}
   putNewInstance !mkInstance = do
-    (caddr, s') <- lift . flip bsoPutNewInstance mkInstance =<< get
-    put s'
+    (caddr, s') <- lift . flip bsoPutNewInstance mkInstance =<< use blockState
+    blockState .= s'
     return caddr
 
   {-# INLINE putNewAccount #-}
   putNewAccount !account = do
-    (res, s') <- lift . flip bsoPutNewAccount account =<< get
-    put s'
+    (res, s') <- lift . flip bsoPutNewAccount account =<< use blockState
+    blockState .= s'
     return res
 
   {-# INLINE accountRegIdExists #-}
   accountRegIdExists !regid =
-    lift . flip bsoRegIdExists regid =<< get
+    lift . flip bsoRegIdExists regid =<< use blockState
 
   {-# INLINE commitModule #-}
   commitModule !mhash !iface !viface !source = do
-    (res, s') <- lift . (\s -> bsoPutNewModule s mhash iface viface source) =<< get
-    put s'
+    (res, s') <- lift . (\s -> bsoPutNewModule s mhash iface viface source) =<< use blockState
+    blockState .= s'
     return res
 
   {-# INLINE smTryGetLinkedExpr #-}
   smTryGetLinkedExpr mref n = do
-    s <- get
+    s <- use blockState
     lift (bsoTryGetLinkedExpr s mref n)
 
   {-# INLINE smPutLinkedExpr #-}
   smPutLinkedExpr mref n linked = do
-    s <- get
+    s <- use blockState
     s' <- lift (bsoPutLinkedExpr s mref n linked)
-    put s'
+    blockState .= s'
 
   {-# INLINE smTryGetLinkedContract #-}
   smTryGetLinkedContract mref n = do
-    s <- get
+    s <- use blockState
     lift (bsoTryGetLinkedContract s mref n)
 
   {-# INLINE smPutLinkedContract #-}
   smPutLinkedContract mref n linked = do
-    s <- get
+    s <- use blockState
     s' <- lift (bsoPutLinkedContract s mref n linked)
-    put s'
+    blockState .= s'
 
   {-# INLINE increaseAccountNonce #-}
   increaseAccountNonce acc = do
-    s <- get
+    s <- use blockState
     let nonce = acc ^. accountNonce
     s' <- lift (bsoModifyAccount s (emptyAccountUpdate addr & auNonce ?~ (nonce + 1)))
-    put s'
+    blockState .= s'
 
     where addr = acc ^. accountAddress
 
   {-# INLINE addAccountCredential #-}
   addAccountCredential !acc !cdi = do
-    s <- get
+    s <- use blockState
     s' <- lift (bsoModifyAccount s (emptyAccountUpdate addr & auCredential ?~ cdi))
-    put s'
+    blockState .= s'
 
    where addr = acc ^. accountAddress
 
   {-# INLINE commitChanges #-}
   commitChanges !cs = do
     let txHash = cs ^. affectedTx
-    s <- get
+    s <- use blockState
     -- ASSUMPTION: the property which should hold at this point is that any
     -- changed instance must exist in the global state moreover all instances
     -- are distinct by the virtue of a HashMap being a function
@@ -145,7 +192,7 @@ instance (TransactionLogger m, MonadReader ContextState m, UpdatableBlockState m
     -- we ignore the linked cache.
     s''' <- lift (foldM (\curs ((mref, n), linked) -> bsoPutLinkedExpr curs mref n linked) s'' (Map.toList (cs ^. linkedExprs)))
     s'''' <- lift (foldM (\curs ((mref, n), linked) -> bsoPutLinkedContract curs mref n linked) s''' (Map.toList (cs ^. linkedContracts)))
-    put s''''
+    blockState .= s''''
 
   -- FIXME: Make this variable based on block state
   {-# INLINE energyToGtu #-}
@@ -153,75 +200,81 @@ instance (TransactionLogger m, MonadReader ContextState m, UpdatableBlockState m
 
   {-# INLINE notifyExecutionCost #-}
   notifyExecutionCost !amnt = do
-    s <- get
+    s <- use blockState
     s' <- lift (bsoNotifyExecutionCost s amnt)
-    put s'
+    blockState .= s'
 
   {-# INLINE notifyIdentityProviderCredential #-}
   notifyIdentityProviderCredential !idk = do
-    s <- get
+    s <- use blockState
     s' <- lift (bsoNotifyIdentityIssuerCredential s idk)
-    put s'
+    blockState .= s'
 
   {-# INLINE getBakerInfo #-}
   getBakerInfo bid = do
-    s <- get
+    s <- use blockState
     lift (bsoGetBakerInfo s bid)
 
   {-# INLINE addBaker #-}
   addBaker binfo = do
-    s <- get
+    s <- use blockState
     (bid, s') <- lift (bsoAddBaker s binfo)
-    put s'
+    blockState .= s'
     return bid
 
   {-# INLINE removeBaker #-}
   removeBaker bid = do
-    s <- get
+    s <- use blockState
     (_, s') <- lift (bsoRemoveBaker s bid)
-    put s'
+    blockState .= s'
 
   {-# INLINE updateBakerSignKey #-}
   updateBakerSignKey bid signKey = do
-    s <- get
+    s <- use blockState
     (r, s') <- lift (bsoUpdateBaker s (emptyBakerUpdate bid & buSignKey ?~ signKey))
-    put s'
+    blockState .= s'
     return r
 
   {-# INLINE updateBakerAccount #-}
   updateBakerAccount bid bacc = do
-    s <- get
+    s <- use blockState
     (_, s') <- lift (bsoUpdateBaker s (emptyBakerUpdate bid & buAccount ?~ bacc))
     -- updating the account cannot fail, so we ignore the return value.
-    put s'
+    blockState .= s'
 
   {-# INLINE delegateStake #-}
   delegateStake acc bid = do
-    s <- get
+    s <- use blockState
     (r, s') <- lift (bsoDelegateStake s acc bid)
-    put s'
+    blockState .= s'
     return r
 
   {-# INLINE getIPInfo #-}
   getIPInfo ipId = do
-    s <- get
+    s <- use blockState
     lift (bsoGetIdentityProvider s ipId)
 
   {-# INLINE getCrypoParams #-}
-  getCrypoParams = lift . bsoGetCryptoParams =<< get
+  getCrypoParams = lift . bsoGetCryptoParams =<< use blockState
+
+-- Pure block state scheduler state
+type PBSSS = SchedulerState (PureBlockStateMonad Identity)
+type RWSTBS m a = RWST ContextState () PBSSS m a
 
 -- |Basic implementation of the scheduler that does no transaction logging.
-newtype SchedulerImplementation a = SchedulerImplementation { _runScheduler :: RWST ContextState () BlockState (PureBlockStateMonad Identity) a }
-    deriving (Functor, Applicative, Monad, MonadReader ContextState, MonadState BlockState)
-    deriving (StaticEnvironmentMonad Core.UA) via (BSOMonadWrapper ContextState BlockState (MGSTrans (RWST ContextState () BlockState) (PureBlockStateMonad Identity)))
-    deriving SchedulerMonad via (BSOMonadWrapper ContextState BlockState (MGSTrans (RWST ContextState () BlockState) (PureBlockStateMonad Identity)))
-    deriving TransactionLogger via NoTransactionLogger (RWST ContextState () BlockState (PureBlockStateMonad Identity))
+newtype SchedulerImplementation a = SchedulerImplementation { _runScheduler :: RWSTBS (PureBlockStateMonad Identity) a }
+    deriving (Functor, Applicative, Monad, MonadReader ContextState, MonadState PBSSS)
+    deriving TransactionLogger via NoTransactionLogger (RWST ContextState () PBSSS (PureBlockStateMonad Identity))
+    deriving (StaticEnvironmentMonad Core.UA)
+      via (BSOMonadWrapper ContextState PBSSS (MGSTrans (RWST ContextState () PBSSS) (PureBlockStateMonad Identity)))
+    deriving SchedulerMonad via (BSOMonadWrapper ContextState PBSSS (MGSTrans (RWST ContextState () PBSSS) (PureBlockStateMonad Identity)))
 
-runSI :: SchedulerImplementation a -> SpecialBetaAccounts -> ChainMetadata -> BlockState -> (a, BlockState)
-runSI sc gd cd gs = let (a, s, _) = runIdentity $ runPureBlockStateMonad $ runRWST (_runScheduler sc) (gd, cd) gs in (a, s)
+runSI :: SchedulerImplementation a -> SpecialBetaAccounts -> ChainMetadata -> Energy -> BlockState -> (a, PBSSS)
+runSI sc gd cd energy gs =
+  let (a, s, _) = runIdentity $ runPureBlockStateMonad $ runRWST (_runScheduler sc) (ContextState gd cd energy) (SchedulerState gs 0) in (a, s)
 
-execSI :: SchedulerImplementation a -> SpecialBetaAccounts -> ChainMetadata -> BlockState -> BlockState
-execSI sc gd cd gs = fst (runIdentity $ runPureBlockStateMonad $ execRWST (_runScheduler sc) (gd, cd) gs)
+execSI :: SchedulerImplementation a -> SpecialBetaAccounts -> ChainMetadata -> Energy -> BlockState -> PBSSS
+execSI sc gd cd energy gs = fst (runIdentity $ runPureBlockStateMonad $ execRWST (_runScheduler sc) (ContextState gd cd energy) (SchedulerState gs 0))
 
-evalSI :: SchedulerImplementation a -> SpecialBetaAccounts -> ChainMetadata -> BlockState -> a
-evalSI sc gd cd gs = fst (runIdentity $ runPureBlockStateMonad $ evalRWST (_runScheduler sc) (gd, cd) gs)
+evalSI :: SchedulerImplementation a -> SpecialBetaAccounts -> ChainMetadata -> Energy -> BlockState -> a
+evalSI sc gd cd energy gs = fst (runIdentity $ runPureBlockStateMonad $ evalRWST (_runScheduler sc) (ContextState gd cd energy) (SchedulerState gs 0))

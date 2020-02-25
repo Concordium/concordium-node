@@ -6,6 +6,8 @@ import Test.HUnit
 
 import Control.Monad.IO.Class
 
+import Lens.Micro.Platform
+
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Acorn.Utils.Init as Init
@@ -64,11 +66,13 @@ testCredentialCheck
         [Types.BareTransaction])
 testCredentialCheck = do
     transactions <- processUngroupedTransactions transactionsInput
-    let ((Sch.FilteredTransactions{..}, _), gstate) =
-          Types.runSI (Sch.filterTransactions dummyBlockSize (Types.Energy maxBound) transactions)
+    let (Sch.FilteredTransactions{..}, finState) =
+          Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
             dummySpecialBetaAccounts
             Types.dummyChainMeta
+            maxBound
             initialBlockState
+    let gstate = finState ^. Types.ssBlockState
     case invariantBlockState gstate of
         Left f -> liftIO $ assertFailure f
         Right _ -> return ()

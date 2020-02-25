@@ -76,11 +76,13 @@ testFibonacci = do
     source <- liftIO $ TIO.readFile "test/contracts/FibContract.acorn"
     (_, _) <- PR.processModule source -- execute only for effect on global state, i.e., load into cache
     transactions <- processUngroupedTransactions transactionsInput
-    let ((Sch.FilteredTransactions{..}, _), gs) =
-          Types.runSI (Sch.filterTransactions dummyBlockSize (Types.Energy maxBound) transactions)
+    let (Sch.FilteredTransactions{..}, finState) =
+          Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
             dummySpecialBetaAccounts
             Types.dummyChainMeta
+            maxBound
             initialBlockState
+    let gs = finState ^. Types.ssBlockState
     case invariantBlockState gs of
         Left f -> liftIO $ assertFailure f
         Right _ -> return ()

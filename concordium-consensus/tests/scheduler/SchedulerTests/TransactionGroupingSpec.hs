@@ -137,11 +137,13 @@ testGrouping = do
     source <- liftIO $ TIO.readFile "test/contracts/FibContract.acorn"
     (_, _) <- PR.processModule source
     ts <- processGroupedTransactions transactions
-    let ((Sch.FilteredTransactions{..}, _), gstate) =
-          Types.runSI (Sch.filterTransactions dummyBlockSize maxEnergy ts)
+    let (Sch.FilteredTransactions{..}, finState) =
+          Types.runSI (Sch.filterTransactions dummyBlockSize ts)
             dummySpecialBetaAccounts
             Types.dummyChainMeta
+            maxEnergy
             initialBlockState
+    let gstate = finState ^. Types.ssBlockState
     case invariantBlockState gstate of
         Left f -> liftIO $ assertFailure f
         Right _ -> return (getResults ftAdded, ftFailed, ftUnprocessed, concat ts)

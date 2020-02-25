@@ -15,7 +15,6 @@ import Concordium.Scheduler.Runner
 import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
 import qualified Concordium.Scheduler.Cost as Cost
-import qualified Concordium.Scheduler.Types as Types
 
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
@@ -162,12 +161,14 @@ testTransactions = forAll makeTransactions (ioProperty . PR.evalContext Init.ini
     where
         tt tl = do
             transactions <- processUngroupedTransactions tl
-            let ((Sch.FilteredTransactions{..}, _), gs) =
+            let (Sch.FilteredTransactions{..}, finState) =
                   EI.runSI
-                    (Sch.filterTransactions dummyBlockSize (Types.Energy maxBound) transactions)
+                    (Sch.filterTransactions dummyBlockSize transactions)
                     (Set.fromList [alesAccount, thomasAccount])
                     dummyChainMeta
+                    maxBound
                     initialBlockState
+            let gs = finState ^. EI.ssBlockState
             let rejs = [(z, decodePayload (btrPayload z), rr) | (z, TxReject rr) <- getResults ftAdded]
             case invariantBlockState gs >> (if null ftFailed then Right () else Left ("some transactions failed: " ++ show ftFailed))
                 >> (if null rejs then Right () else Left ("some transactions rejected: " ++ show rejs)) of

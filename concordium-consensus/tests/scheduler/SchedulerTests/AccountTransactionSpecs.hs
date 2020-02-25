@@ -81,11 +81,13 @@ testAccountCreation ::
      Types.BankStatus)
 testAccountCreation = do
     transactions <- processUngroupedTransactions transactionsInput
-    let ((Sch.FilteredTransactions{..}, _), state) =
-          Types.runSI (Sch.filterTransactions dummyBlockSize (Types.Energy maxBound) transactions)
+    let (Sch.FilteredTransactions{..}, finState) =
+          Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
             dummySpecialBetaAccounts
             Types.dummyChainMeta
+            maxBound
             initialBlockState
+    let state = finState ^. Types.ssBlockState
     let accounts = state ^. blockAccounts
     let accAddrs = map accountAddressFromCred [cdi1,cdi2,cdi3,cdi5,cdi7]
     case invariantBlockState state of

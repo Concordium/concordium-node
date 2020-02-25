@@ -35,6 +35,9 @@ emptySpecialBetaAccounts = Set.empty
 
 -- |Information needed to execute transactions in the form that is easy to use.
 class (TransactionLogger m, StaticEnvironmentMonad Core.UA m) => SchedulerMonad m where
+  -- |Get maximum allowed block energy.
+  getMaxBlockEnergy :: m Energy
+
   -- |Get adddresses of special beta accounts which during the beta phase will
   -- have special privileges.
   getSpecialBetaAccounts :: m SpecialBetaAccounts
@@ -94,6 +97,19 @@ class (TransactionLogger m, StaticEnvironmentMonad Core.UA m) => SchedulerMonad 
   -- |Create new account in the global state. Return @True@ if the account was
   --  successfully created and @False@ if the account address already existed.
   putNewAccount :: Account -> m Bool
+
+  -- |Notify energy used by the current execution.
+  -- Add to the current running total of energy used.
+  markEnergyUsed :: Energy -> m ()
+
+  -- |Get the currently used amount of block energy.
+  getUsedEnergy :: m Energy
+
+  getRemainingEnergy :: m Energy
+  getRemainingEnergy = do
+    maxEnergy <- getMaxBlockEnergy
+    usedEnergy <- getUsedEnergy
+    return $! if usedEnergy <= maxEnergy then maxEnergy - usedEnergy else 0
 
   -- |Notify the global state that the amount was charged for execution. This
   -- can be then reimbursed to the baker, or some other logic can be implemented
@@ -227,6 +243,9 @@ class StaticEnvironmentMonad Core.UA m => TransactionMonad m where
   -- |Reject a transaction with a given reason, terminating processing of this transaction.
   rejectTransaction :: RejectReason -> m a
 
+  -- |Fail transaction processing because we would have exceeded maximum block energy limit.
+  outOfBlockEnergy :: m a
+
   -- |If the computation yields a @Just a@ result return it, otherwise fail the
   -- transaction with the given reason.
   {-# INLINE rejectingWith #-}
@@ -311,11 +330,16 @@ addContractAmountToCS istance amnt cs =
   where addr = instanceAddress . instanceParameters $ istance
         model = instanceModel istance
 
+-- |Whether the transaction energy limit is reached because of transaction max energy limit,
+-- or because of block energy limit
+data LimitReason = TransactionHeader | BlockEnergyLimit
+
 data LocalState = LocalState{
   -- |Energy left for the computation.
   _energyLeft :: !Energy,
   -- |Changes accumulated thus far.
-  _changeSet :: !ChangeSet
+  _changeSet :: !ChangeSet,
+  _blockEnergyLeft :: !Energy
   }
 
 makeLenses ''LocalState
@@ -333,12 +357,19 @@ makeLenses ''TransactionContext
 -- order to avoid expensive bind operation of the latter. The bind operation is
 -- expensive because it needs to check at each step whether the result is @Left@
 -- or @Right@.
-newtype LocalT r m a = LocalT { _runLocalT :: ContT (Either RejectReason r) (RWST TransactionContext () LocalState m) a }
+newtype LocalT r m a = LocalT { _runLocalT :: ContT (Either (Maybe RejectReason) r) (RWST TransactionContext () LocalState m) a }
   deriving(Functor, Applicative, Monad, MonadState LocalState, MonadReader TransactionContext)
 
-runLocalT :: SchedulerMonad m => LocalT a m a -> TransactionHash -> Amount -> AccountAddress -> Energy -> m (Either RejectReason a, LocalState)
-runLocalT (LocalT st) txHash _tcDepositedAmount _tcTxSender energy = do
-  let s = LocalState energy (emptyCS txHash)
+runLocalT :: SchedulerMonad m
+          => LocalT a m a
+          -> TransactionHash
+          -> Amount
+          -> AccountAddress
+          -> Energy -- Energy limit by the transaction header.
+          -> Energy -- remaining block energy
+          -> m (Either (Maybe RejectReason) a, LocalState)
+runLocalT (LocalT st) txHash _tcDepositedAmount _tcTxSender _energyLeft _blockEnergyLeft = do
+  let s = LocalState{_changeSet = emptyCS txHash,..}
   (a, s', ()) <- runRWST (runContT st (return . Right)) ctx s
   return (a, s')
 
@@ -377,6 +408,21 @@ chargeExecutionCost txHash acc amnt =
               commitChanges (csWithAccountDelta txHash (acc ^. accountAddress) (amountDiff 0 amnt))
           notifyExecutionCost amnt
 
+data WithDepositContext = WithDepositContext{
+  _wtcSenderAccount :: !Account,
+  -- ^Address of the account initiating the transaction.
+  _wtcTransactionType :: !TransactionType,
+  -- ^Type of the top-level transaction.
+  _wtcTransactionHash :: !TransactionHash,
+  -- ^Hash of the top-level transaction.
+  _wtcTransactionHeader :: !TransactionHeader,
+  -- ^Header of the transaction we are running.
+  _wtcCurrentlyUsedBlockEnergy :: !Energy
+  -- ^Energy currently used by the block.
+  }
+
+makeLenses ''WithDepositContext
+
 -- |Given an account which is initiating the top-level transaction and the
 -- deposited amount, run the given computation in the modified environment where
 -- the balance on the account is decreased by the deposited amount. Return the
@@ -388,15 +434,8 @@ chargeExecutionCost txHash acc amnt =
 --   * The deposited amount exists in the public account value.
 --   * The deposited amount is __at least__ Cost.checkHeader (i.e., minimum transaction cost).
 withDeposit ::
-  SchedulerMonad m =>
-  Account
-  -- ^Address of the account initiating the transaction.
-  -> TransactionType
-  -- ^Type of the top-level transaction.
-  -> TransactionHash
-  -- ^Hash of the top-level transaction.
-  -> TransactionHeader
-  -- ^Header of the transaction we are running.
+  SchedulerMonad m
+  => WithDepositContext
   -> LocalT a m a
   -- ^The computation to run in the modified environment with reduced amount on the initial account.
   -> (LocalState -> a -> m (ValidResult, Amount, Energy))
@@ -404,34 +443,40 @@ withDeposit ::
   -- It gets the result of the previous computation as input, in particular the
   -- remaining energy and the ChangeSet. It should return the result, and the amount that was charged
   -- for the execution.
-  -> m TransactionSummary
-withDeposit acc tsType' tsHash txHeader comp k = do
+  -> m (Maybe TransactionSummary)
+withDeposit wtc comp k = do
+  let txHeader = wtc ^. wtcTransactionHeader
+  let tsHash = wtc ^. wtcTransactionHash
   let totalEnergyToUse = thEnergyAmount txHeader
+  maxEnergy <- getMaxBlockEnergy
+  -- - here is safe due to precondition that currently used energy is less than the maximum block energy
+  let beLeft = maxEnergy - wtc ^. wtcCurrentlyUsedBlockEnergy
   -- we assume we have already checked the header, so we have a bit less left over
   let energy = totalEnergyToUse - Cost.checkHeader
   -- record how much we have deposited. This cannot be touched during execution.
   depositedAmount <- energyToGtu totalEnergyToUse
-  (res, ls) <- runLocalT comp tsHash depositedAmount (thSender txHeader) energy
+  (res, ls) <- runLocalT comp tsHash depositedAmount (thSender txHeader) energy beLeft
   case res of
-    Left reason -> do
+    Left Nothing -> return Nothing
+    Left (Just reason) -> do
       -- the only effect of this transaction is reduced balance
       -- compute how much we must charge and reject the transaction
       (usedEnergy, payment) <- computeExecutionCharge txHeader (ls ^. energyLeft)
-      chargeExecutionCost tsHash acc payment
-      return $! TransactionSummary{
+      chargeExecutionCost tsHash (wtc ^. wtcSenderAccount) payment
+      return $! Just $! TransactionSummary{
         tsSender = thSender txHeader,
         tsCost = payment,
         tsEnergyCost = usedEnergy,
         tsResult = TxReject reason,
-        tsType = Just tsType',
+        tsType = Just (wtc ^. wtcTransactionType),
         ..
         }
     Right a -> do
       -- in this case we invoke the continuation
       (tsResult, tsCost, tsEnergyCost) <- k ls a
-      return $! TransactionSummary{
+      return $! Just $! TransactionSummary{
         tsSender = thSender txHeader,
-        tsType = Just tsType',
+        tsType = Just (wtc ^. wtcTransactionType),
         ..
         }
 
@@ -439,11 +484,11 @@ withDeposit acc tsType' tsHash txHeader comp k = do
 -- |Default continuation to use with 'withDeposit'. It records events and charges for the energy
 -- used, and nothing else.
 defaultSuccess ::
-  SchedulerMonad m =>
-  TransactionHash
-  -> TransactionHeader
-  -> Account -> LocalState -> [Event] -> m (ValidResult, Amount, Energy)
-defaultSuccess txHash meta senderAccount = \ls events -> do
+  SchedulerMonad m => WithDepositContext -> LocalState -> [Event] -> m (ValidResult, Amount, Energy)
+defaultSuccess wtc = \ls events -> do
+  let txHash = wtc ^. wtcTransactionHash
+      meta = wtc ^. wtcTransactionHeader
+      senderAccount = wtc ^. wtcSenderAccount
   (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
   chargeExecutionCost txHash senderAccount energyCost
   commitChanges (ls ^. changeSet)
@@ -597,14 +642,21 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
   {-# INLINE tickEnergy #-}
   tickEnergy !tick = do
     energy <- getEnergy
-    if tick > energy then energyLeft .= 0 >> rejectTransaction OutOfEnergy  -- set remaining to 0
-    else modify' (\ls -> ls { _energyLeft = energy - tick})
+    beLeft <- use blockEnergyLeft
+    if tick > energy then energyLeft .= 0 >> rejectTransaction OutOfEnergy  -- NB: set remaining to 0
+    else if tick > beLeft then outOfBlockEnergy
+         else do
+           energyLeft -= tick
+           blockEnergyLeft -= tick
 
   {-# INLINE putEnergy #-}
   putEnergy en = energyLeft .= en
 
   {-# INLINE rejectTransaction #-}
-  rejectTransaction reason = LocalT (ContT (\_ -> return (Left reason)))
+  rejectTransaction reason = LocalT (ContT (\_ -> return (Left (Just reason))))
+
+  {-# INLINE outOfBlockEnergy #-}
+  outOfBlockEnergy = LocalT (ContT (\_ -> return (Left Nothing)))
 
 
 instance SchedulerMonad m => InterpreterMonad NoAnnot (LocalT r m) where

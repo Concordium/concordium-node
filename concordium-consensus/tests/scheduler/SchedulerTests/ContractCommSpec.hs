@@ -4,6 +4,8 @@ module SchedulerTests.ContractCommSpec where
 import Test.Hspec
 import Test.HUnit
 
+import Lens.Micro.Platform
+
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Acorn.Utils.Init as Init
@@ -98,11 +100,13 @@ testCommCounter = do
     source <- liftIO $ TIO.readFile "test/contracts/CommCounter.acorn"
     (_, _) <- PR.processModule source -- execute only for effect on global state
     transactions <- processUngroupedTransactions transactionsInput
-    let ((Sch.FilteredTransactions{..}, _), endState) =
-            Types.runSI (Sch.filterTransactions dummyBlockSize (Types.Energy maxBound) transactions)
+    let (Sch.FilteredTransactions{..}, finState) =
+            Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
               dummySpecialBetaAccounts
               Types.dummyChainMeta
+              maxBound
               initialBlockState
+    let endState = finState ^. Types.ssBlockState
     case invariantBlockState endState of
         Left f -> liftIO $ assertFailure $ f ++ "\n" ++ show endState
         _ -> return ()
