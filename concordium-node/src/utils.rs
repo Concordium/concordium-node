@@ -9,8 +9,6 @@ use failure::Fallible;
 use hacl_star::ed25519::{keypair, PublicKey, SecretKey, Signature};
 use log::LevelFilter;
 use rand::rngs::OsRng;
-#[cfg(feature = "benchmark")]
-use std::fs;
 #[cfg(not(target_os = "windows"))]
 use std::fs::File;
 use std::{
@@ -467,23 +465,6 @@ fn read_peers_from_dns_entries(
 }
 
 pub fn generate_ed25519_key() -> [u8; 32] { (keypair(OsRng).0).0 }
-
-#[cfg(feature = "benchmark")]
-pub fn get_tps_test_messages(path: Option<String>) -> Vec<Vec<u8>> {
-    let mut ret = Vec::new();
-
-    if let Some(ref _path) = path {
-        info!("Trying path to find TPS test messages: {}", _path);
-        if let Ok(files) = fs::read_dir(_path) {
-            for file in files.filter_map(Result::ok).filter(|f| !f.path().is_dir()) {
-                let data = fs::read(file.path()).expect("Unable to read file!");
-                ret.push(data);
-            }
-        }
-    }
-
-    ret
-}
 
 pub fn get_config_and_logging_setup() -> Fallible<(config::Config, config::AppPreferences)> {
     // Get config and app preferences

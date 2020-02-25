@@ -24,7 +24,6 @@ use crate::{
         connectivity::{accept, connect, connection_housekeeping, SERVER},
         peers::check_peers,
     },
-    stats_engine::StatsEngine,
     stats_export_service::StatsExportService,
     utils,
 };
@@ -68,10 +67,6 @@ pub struct P2PNodeConfig {
     pub data_dir_path: PathBuf,
     pub max_latency: Option<u64>,
     pub hard_connection_limit: Option<u16>,
-    #[cfg(feature = "benchmark")]
-    pub enable_tps_test: bool,
-    #[cfg(feature = "benchmark")]
-    pub tps_message_count: u64,
     pub catch_up_batch_limit: u64,
     pub timeout_bucket_entry_period: u64,
     pub bucket_cleanup_interval: u64,
@@ -145,7 +140,6 @@ pub struct P2PNode {
     pub is_rpc_online:      AtomicBool,
     pub is_terminated:      AtomicBool,
     pub kvs:                Arc<RwLock<Rkv>>,
-    pub stats_engine:       RwLock<StatsEngine>,
     pub total_received:     AtomicU64,
     pub total_sent:         AtomicU64,
 }
@@ -263,10 +257,6 @@ impl P2PNode {
             data_dir_path: data_dir_path.unwrap_or_else(|| ".".into()),
             max_latency: conf.connection.max_latency,
             hard_connection_limit: conf.connection.hard_connection_limit,
-            #[cfg(feature = "benchmark")]
-            enable_tps_test: conf.cli.tps.enable_tps_test,
-            #[cfg(feature = "benchmark")]
-            tps_message_count: conf.cli.tps.tps_message_count,
             catch_up_batch_limit: conf.connection.catch_up_batch_limit,
             timeout_bucket_entry_period: if peer_type == PeerType::Bootstrapper {
                 conf.bootstrapper.bootstrapper_timeout_bucket_entry_period
@@ -302,8 +292,6 @@ impl P2PNode {
             .get_or_create(config.data_dir_path.as_path(), Rkv::new)
             .unwrap();
 
-        let stats_engine = RwLock::new(StatsEngine::new(&conf.cli));
-
         let node = Arc::new(P2PNode {
             poll,
             start_time: Utc::now(),
@@ -317,7 +305,6 @@ impl P2PNode {
             stats,
             is_terminated: Default::default(),
             kvs,
-            stats_engine,
             total_received: Default::default(),
             total_sent: Default::default(),
         });
