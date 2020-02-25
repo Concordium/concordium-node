@@ -239,7 +239,7 @@ async fn collect_data<'a>(
 
     trace!("Parsing consensus JSON status response");
     let json_consensus_value: Value =
-        serde_json::from_str(&node_consensus_status_reply.get_ref().json_value)?;
+        serde_json::from_str(&node_consensus_status_reply.get_ref().value)?;
 
     let best_block = json_consensus_value["bestBlock"].as_str().unwrap().to_owned();
     let best_block_height = json_consensus_value["bestBlockHeight"].as_f64().unwrap();
@@ -285,7 +285,7 @@ async fn collect_data<'a>(
         );
         let node_ancestors_reply = client.get_ancestors(block_and_height_req).await?;
         let json_consensus_ancestors_value: Value =
-            serde_json::from_str(&node_ancestors_reply.get_ref().json_value)?;
+            serde_json::from_str(&node_ancestors_reply.get_ref().value)?;
         if json_consensus_ancestors_value.is_array() {
             if let Some(ancestors_arr) = json_consensus_ancestors_value.as_array() {
                 Some(
@@ -313,7 +313,7 @@ async fn collect_data<'a>(
 
     let node_block_info_reply = client.get_block_info(block_req).await?;
     let json_block_info_value: Value =
-        serde_json::from_str(&node_block_info_reply.get_ref().json_value)?;
+        serde_json::from_str(&node_block_info_reply.get_ref().value)?;
     let best_block_total_encrypted_amount = json_block_info_value["totalEncryptedAmount"].as_f64();
     let best_block_transactions_size = json_block_info_value["transactionsSize"].as_f64();
     let best_block_total_amount = json_block_info_value["totalAmount"].as_f64();

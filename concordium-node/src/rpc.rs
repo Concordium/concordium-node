@@ -84,37 +84,11 @@ macro_rules! authenticate {
     };
 }
 
-macro_rules! successful_json_response {
-    ($self:ident, $req_name:expr, $foo:expr) => {
+macro_rules! successful_response {
+    ($self:ident, $req_name:expr, $resp_type:ident, $consensus_call:expr) => {
         if let Some(ref consensus) = $self.consensus {
-            Ok(Response::new(SuccessfulJsonPayloadResponse {
-                json_value: $foo(consensus),
-            }))
-        } else {
-            warn!("Can't respond to a {} request due to stopped Consensus", $req_name);
-            Err(Status::new(Code::Internal, "Consensus container is not initialized!"))
-        }
-    };
-}
-
-macro_rules! successful_bool_response {
-    ($self:ident, $req_name:expr, $foo:expr) => {
-        if let Some(ref consensus) = $self.consensus {
-            Ok(Response::new(SuccessResponse {
-                value: $foo(consensus),
-            }))
-        } else {
-            warn!("Can't respond to a {} request due to stopped Consensus", $req_name);
-            Err(Status::new(Code::Internal, "Consensus container is not initialized!"))
-        }
-    };
-}
-
-macro_rules! successful_byte_response {
-    ($self:ident, $req_name:expr, $foo:expr) => {
-        if let Some(ref consensus) = $self.consensus {
-            Ok(Response::new(SuccessfulBytePayloadResponse {
-                payload: $foo(consensus),
+            Ok(Response::new($resp_type {
+                value: $consensus_call(consensus),
             }))
         } else {
             warn!("Can't respond to a {} request due to stopped Consensus", $req_name);
@@ -137,7 +111,7 @@ impl P2p for RpcServerImpl {
     async fn peer_connect(
         &self,
         req: Request<PeerConnectRequest>,
-    ) -> Result<Response<SuccessResponse>, Status> {
+    ) -> Result<Response<BoolResponse>, Status> {
         authenticate!(req, self.access_token);
         let req = req.get_ref();
 
@@ -154,7 +128,7 @@ impl P2p for RpcServerImpl {
         };
         let addr = SocketAddr::new(ip, port);
         let status = connect(&self.node, PeerType::Node, addr, None).is_ok();
-        Ok(Response::new(SuccessResponse {
+        Ok(Response::new(BoolResponse {
             value: status,
         }))
     }
@@ -202,7 +176,7 @@ impl P2p for RpcServerImpl {
     async fn send_transaction(
         &self,
         req: Request<SendTransactionRequest>,
-    ) -> Result<Response<SuccessResponse>, Status> {
+    ) -> Result<Response<BoolResponse>, Status> {
         authenticate!(req, self.access_token);
         if let Some(ref consensus) = self.consensus {
             let req = req.get_ref();
@@ -225,7 +199,7 @@ impl P2p for RpcServerImpl {
                 Ok(())
             };
             match (result, consensus_result) {
-                (Ok(_), ConsensusFfiResponse::Success) => Ok(Response::new(SuccessResponse {
+                (Ok(_), ConsensusFfiResponse::Success) => Ok(Response::new(BoolResponse {
                     value: true,
                 })),
                 (Err(e), ConsensusFfiResponse::Success) => {
@@ -252,7 +226,7 @@ impl P2p for RpcServerImpl {
     async fn join_network(
         &self,
         req: Request<NetworkChangeRequest>,
-    ) -> Result<Response<SuccessResponse>, Status> {
+    ) -> Result<Response<BoolResponse>, Status> {
         authenticate!(req, self.access_token);
         let req = req.get_ref();
         if let Some(id) = req.network_id {
@@ -260,7 +234,7 @@ impl P2p for RpcServerImpl {
                 info!("Attempting to join network {}", id);
                 let network_id = NetworkId::from(id as u16);
                 self.node.send_joinnetwork(network_id);
-                Ok(Response::new(SuccessResponse {
+                Ok(Response::new(BoolResponse {
                     value: true,
                 }))
             } else {
@@ -274,7 +248,7 @@ impl P2p for RpcServerImpl {
     async fn leave_network(
         &self,
         req: Request<NetworkChangeRequest>,
-    ) -> Result<Response<SuccessResponse>, Status> {
+    ) -> Result<Response<BoolResponse>, Status> {
         authenticate!(req, self.access_token);
         let req = req.get_ref();
         if let Some(id) = req.network_id {
@@ -282,7 +256,7 @@ impl P2p for RpcServerImpl {
                 info!("Attempting to leave network {}", id);
                 let network_id = NetworkId::from(id as u16);
                 self.node.send_leavenetwork(network_id);
-                Ok(Response::new(SuccessResponse {
+                Ok(Response::new(BoolResponse {
                     value: true,
                 }))
             } else {
@@ -390,10 +364,7 @@ impl P2p for RpcServerImpl {
         }))
     }
 
-    async fn ban_node(
-        &self,
-        req: Request<PeerElement>,
-    ) -> Result<Response<SuccessResponse>, Status> {
+    async fn ban_node(&self, req: Request<PeerElement>) -> Result<Response<BoolResponse>, Status> {
         authenticate!(req, self.access_token);
         let req = req.get_ref();
         let banned_node = match (&req.node_id, &req.ip) {
@@ -406,7 +377,7 @@ impl P2p for RpcServerImpl {
 
         if let Some(to_ban) = banned_node {
             match self.node.ban_node(to_ban) {
-                Ok(_) => Ok(Response::new(SuccessResponse {
+                Ok(_) => Ok(Response::new(BoolResponse {
                     value: true,
                 })),
                 Err(e) => {
@@ -425,7 +396,7 @@ impl P2p for RpcServerImpl {
     async fn unban_node(
         &self,
         req: Request<PeerElement>,
-    ) -> Result<Response<SuccessResponse>, Status> {
+    ) -> Result<Response<BoolResponse>, Status> {
         authenticate!(req, self.access_token);
         let req = req.get_ref();
         let banned_node = match (&req.node_id, &req.ip) {
@@ -438,7 +409,7 @@ impl P2p for RpcServerImpl {
 
         if let Some(to_unban) = banned_node {
             match self.node.unban_node(to_unban) {
-                Ok(_) => Ok(Response::new(SuccessResponse {
+                Ok(_) => Ok(Response::new(BoolResponse {
                     value: true,
                 })),
                 Err(e) => {
@@ -457,116 +428,113 @@ impl P2p for RpcServerImpl {
     async fn get_consensus_status(
         &self,
         req: Request<Empty>,
-    ) -> Result<Response<SuccessfulJsonPayloadResponse>, Status> {
+    ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_json_response!(self, "GetConsensusStatus", |consensus: &ConsensusContainer| {
-            consensus.get_consensus_status()
+        successful_response!(self, "GetConsensusStatus", JsonResponse, |cc: &ConsensusContainer| {
+            cc.get_consensus_status()
         })
     }
 
-    async fn start_baker(&self, req: Request<Empty>) -> Result<Response<SuccessResponse>, Status> {
+    async fn start_baker(&self, req: Request<Empty>) -> Result<Response<BoolResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_bool_response!(self, "StartBaker", |consensus: &ConsensusContainer| {
-            consensus.start_baker()
+        successful_response!(self, "StartBaker", BoolResponse, |cc: &ConsensusContainer| {
+            cc.start_baker()
         })
     }
 
-    async fn stop_baker(&self, req: Request<Empty>) -> Result<Response<SuccessResponse>, Status> {
+    async fn stop_baker(&self, req: Request<Empty>) -> Result<Response<BoolResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_bool_response!(self, "StopBaker", |consensus: &ConsensusContainer| {
-            consensus.stop_baker()
+        successful_response!(self, "StopBaker", BoolResponse, |cc: &ConsensusContainer| {
+            cc.stop_baker()
         })
     }
 
-    async fn get_branches(
-        &self,
-        req: Request<Empty>,
-    ) -> Result<Response<SuccessfulJsonPayloadResponse>, Status> {
+    async fn get_branches(&self, req: Request<Empty>) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_json_response!(self, "GetBranches", |consensus: &ConsensusContainer| {
-            consensus.get_branches()
+        successful_response!(self, "GetBranches", JsonResponse, |cc: &ConsensusContainer| {
+            cc.get_branches()
         })
     }
 
     async fn get_block_info(
         &self,
         req: Request<BlockHash>,
-    ) -> Result<Response<SuccessfulJsonPayloadResponse>, Status> {
+    ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_json_response!(self, "GetBlockInfo", |consensus: &ConsensusContainer| {
-            consensus.get_block_info(&req.get_ref().block_hash)
+        successful_response!(self, "GetBlockInfo", JsonResponse, |cc: &ConsensusContainer| {
+            cc.get_block_info(&req.get_ref().block_hash)
         })
     }
 
     async fn get_ancestors(
         &self,
         req: Request<BlockHashAndAmount>,
-    ) -> Result<Response<SuccessfulJsonPayloadResponse>, Status> {
+    ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_json_response!(self, "GetAncestors", |consensus: &ConsensusContainer| {
-            consensus.get_ancestors(&req.get_ref().block_hash, req.get_ref().amount)
+        successful_response!(self, "GetAncestors", JsonResponse, |cc: &ConsensusContainer| {
+            cc.get_ancestors(&req.get_ref().block_hash, req.get_ref().amount)
         })
     }
 
     async fn get_account_list(
         &self,
         req: Request<BlockHash>,
-    ) -> Result<Response<SuccessfulJsonPayloadResponse>, Status> {
+    ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_json_response!(self, "GetAccountList", |consensus: &ConsensusContainer| {
-            consensus.get_account_list(&req.get_ref().block_hash)
+        successful_response!(self, "GetAccountList", JsonResponse, |cc: &ConsensusContainer| {
+            cc.get_account_list(&req.get_ref().block_hash)
         })
     }
 
     async fn get_instances(
         &self,
         req: Request<BlockHash>,
-    ) -> Result<Response<SuccessfulJsonPayloadResponse>, Status> {
+    ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_json_response!(self, "GetInstances", |consensus: &ConsensusContainer| {
-            consensus.get_instances(&req.get_ref().block_hash)
+        successful_response!(self, "GetInstances", JsonResponse, |cc: &ConsensusContainer| {
+            cc.get_instances(&req.get_ref().block_hash)
         })
     }
 
     async fn get_account_info(
         &self,
         req: Request<GetAddressInfoRequest>,
-    ) -> Result<Response<SuccessfulJsonPayloadResponse>, Status> {
+    ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_json_response!(self, "GetAccountInfo", |consensus: &ConsensusContainer| {
-            consensus.get_account_info(&req.get_ref().block_hash, &req.get_ref().address)
+        successful_response!(self, "GetAccountInfo", JsonResponse, |cc: &ConsensusContainer| {
+            cc.get_account_info(&req.get_ref().block_hash, &req.get_ref().address)
         })
     }
 
     async fn get_instance_info(
         &self,
         req: Request<GetAddressInfoRequest>,
-    ) -> Result<Response<SuccessfulJsonPayloadResponse>, Status> {
+    ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_json_response!(self, "GetInstanceInfo", |consensus: &ConsensusContainer| {
-            consensus.get_instance_info(&req.get_ref().block_hash, &req.get_ref().address)
+        successful_response!(self, "GetInstanceInfo", JsonResponse, |cc: &ConsensusContainer| {
+            cc.get_instance_info(&req.get_ref().block_hash, &req.get_ref().address)
         })
     }
 
     async fn get_reward_status(
         &self,
         req: Request<BlockHash>,
-    ) -> Result<Response<SuccessfulJsonPayloadResponse>, Status> {
+    ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_json_response!(self, "GetRewardStatus", |consensus: &ConsensusContainer| {
-            consensus.get_reward_status(&req.get_ref().block_hash)
+        successful_response!(self, "GetRewardStatus", JsonResponse, |cc: &ConsensusContainer| {
+            cc.get_reward_status(&req.get_ref().block_hash)
         })
     }
 
     async fn get_baker_private_data(
         &self,
         req: Request<Empty>,
-    ) -> Result<Response<SuccessfulJsonPayloadResponse>, Status> {
+    ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
         if let Some(file) = &self.baker_private_data_json_file {
             if let Ok(data) = fs::read_to_string(file) {
-                Ok(Response::new(SuccessfulJsonPayloadResponse {
-                    json_value: data,
+                Ok(Response::new(JsonResponse {
+                    value: data,
                 }))
             } else {
                 Err(Status::new(
@@ -585,30 +553,30 @@ impl P2p for RpcServerImpl {
     async fn get_birk_parameters(
         &self,
         req: Request<BlockHash>,
-    ) -> Result<Response<SuccessfulJsonPayloadResponse>, Status> {
+    ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_json_response!(self, "GetBirkParameters", |consensus: &ConsensusContainer| {
-            consensus.get_birk_parameters(&req.get_ref().block_hash)
+        successful_response!(self, "GetBirkParameters", JsonResponse, |cc: &ConsensusContainer| {
+            cc.get_birk_parameters(&req.get_ref().block_hash)
         })
     }
 
     async fn get_module_list(
         &self,
         req: Request<BlockHash>,
-    ) -> Result<Response<SuccessfulJsonPayloadResponse>, Status> {
+    ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_json_response!(self, "GetModuleList", |consensus: &ConsensusContainer| {
-            consensus.get_module_list(&req.get_ref().block_hash)
+        successful_response!(self, "GetModuleList", JsonResponse, |cc: &ConsensusContainer| {
+            cc.get_module_list(&req.get_ref().block_hash)
         })
     }
 
     async fn get_module_source(
         &self,
         req: Request<GetModuleSourceRequest>,
-    ) -> Result<Response<SuccessfulBytePayloadResponse>, Status> {
+    ) -> Result<Response<BytesResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_byte_response!(self, "GetModuleSource", |consensus: &ConsensusContainer| {
-            consensus.get_module_source(&req.get_ref().block_hash, &req.get_ref().module_ref)
+        successful_response!(self, "GetModuleSource", BytesResponse, |cc: &ConsensusContainer| {
+            cc.get_module_source(&req.get_ref().block_hash, &req.get_ref().module_ref)
         })
     }
 
@@ -648,18 +616,15 @@ impl P2p for RpcServerImpl {
         }))
     }
 
-    async fn shutdown(&self, req: Request<Empty>) -> Result<Response<SuccessResponse>, Status> {
+    async fn shutdown(&self, req: Request<Empty>) -> Result<Response<BoolResponse>, Status> {
         authenticate!(req, self.access_token);
-        Ok(Response::new(SuccessResponse {
+        Ok(Response::new(BoolResponse {
             value: self.node.close(),
         }))
     }
 
     #[cfg(feature = "benchmark")]
-    async fn tps_test(
-        &self,
-        req: Request<TpsRequest>,
-    ) -> Result<Response<SuccessResponse>, Status> {
+    async fn tps_test(&self, req: Request<TpsRequest>) -> Result<Response<BoolResponse>, Status> {
         authenticate!(req, self.access_token);
         let req = req.get_ref();
         let (network_id, id, dir) =
@@ -693,17 +658,14 @@ impl P2p for RpcServerImpl {
                 }
             }))
             .any(|res| res.is_err());
-            Ok(Response::new(SuccessResponse {
+            Ok(Response::new(BoolResponse {
                 value: result,
             }))
         }
     }
 
     #[cfg(not(feature = "benchmark"))]
-    async fn tps_test(
-        &self,
-        _req: Request<TpsRequest>,
-    ) -> Result<Response<SuccessResponse>, Status> {
+    async fn tps_test(&self, _req: Request<TpsRequest>) -> Result<Response<BoolResponse>, Status> {
         warn!("TpsTest RPC request received, but the \"benchmark\" feature is not active");
         Err(Status::new(Code::Unavailable, "Feature \"benchmark\" is not active"))
     }
@@ -712,7 +674,7 @@ impl P2p for RpcServerImpl {
     async fn dump_start(
         &self,
         _req: Request<DumpRequest>,
-    ) -> Result<Response<SuccessResponse>, Status> {
+    ) -> Result<Response<BoolResponse>, Status> {
         warn!("DumpStart RPC request received, but the \"network_dump\" feature is not active");
         Err(Status::new(Code::Unavailable, "Feature \"network_dump\" is not active"))
     }
@@ -721,7 +683,7 @@ impl P2p for RpcServerImpl {
     async fn dump_start(
         &self,
         req: Request<DumpRequest>,
-    ) -> Result<Response<SuccessResponse>, Status> {
+    ) -> Result<Response<BoolResponse>, Status> {
         authenticate!(req, self.access_token);
         let file_path = req.get_ref().file.to_owned();
         let result = self
@@ -735,21 +697,21 @@ impl P2p for RpcServerImpl {
                 req.get_ref().raw,
             )
             .is_ok();
-        Ok(Response::new(SuccessResponse {
+        Ok(Response::new(BoolResponse {
             value: result,
         }))
     }
 
     #[cfg(not(feature = "network_dump"))]
-    async fn dump_stop(&self, _req: Request<Empty>) -> Result<Response<SuccessResponse>, Status> {
+    async fn dump_stop(&self, _req: Request<Empty>) -> Result<Response<BoolResponse>, Status> {
         warn!("DumpStop RPC request received, but the \"network_dump\" feature is not active");
         Err(Status::new(Code::Unavailable, "Feature \"network_dump\" is not active"))
     }
 
     #[cfg(feature = "network_dump")]
-    async fn dump_stop(&self, req: Request<Empty>) -> Result<Response<SuccessResponse>, Status> {
+    async fn dump_stop(&self, req: Request<Empty>) -> Result<Response<BoolResponse>, Status> {
         authenticate!(req, self.access_token);
-        Ok(Response::new(SuccessResponse {
+        Ok(Response::new(BoolResponse {
             value: self.node.stop_dump().is_ok(),
         }))
     }
@@ -757,10 +719,10 @@ impl P2p for RpcServerImpl {
     async fn hook_transaction(
         &self,
         req: Request<TransactionHash>,
-    ) -> Result<Response<SuccessfulJsonPayloadResponse>, Status> {
+    ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_json_response!(self, "HookTransaction", |consensus: &ConsensusContainer| {
-            consensus.hook_transaction(&req.get_ref().transaction_hash)
+        successful_response!(self, "HookTransaction", JsonResponse, |cc: &ConsensusContainer| {
+            cc.hook_transaction(&req.get_ref().transaction_hash)
         })
     }
 }
