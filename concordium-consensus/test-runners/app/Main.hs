@@ -82,7 +82,7 @@ relay inp sr monitor outps = loop `catch` (\(e :: SomeException) -> putStrLn $ "
                 MsgFinalization bs ->
                     forM_ outps $ \outp -> forkIO $ do
                         -- factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
-                        let factor = 0.1 :: Double
+                        let factor = 1 :: Double
                         r <- truncate . (*factor) . fromInteger . (`div` 10) . (^(2::Int)) <$> randomRIO (0, 7800)
                         threadDelay r
                         --putStrLn $ "Delay: " ++ show r
@@ -93,7 +93,7 @@ relay inp sr monitor outps = loop `catch` (\(e :: SomeException) -> putStrLn $ "
                         _ -> return ()
                     forM_ outps $ \outp -> forkIO $ do
                         -- factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
-                        let factor = 0.1 :: Double
+                        let factor = 1 :: Double
                         r <- truncate . (*factor) . fromInteger . (`div` 10) . (^(2::Int)) <$> randomRIO (0, 7800)
                         threadDelay r
                         --putStrLn $ "Delay: " ++ show r
