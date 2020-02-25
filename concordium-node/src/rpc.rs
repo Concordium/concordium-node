@@ -85,10 +85,10 @@ macro_rules! authenticate {
 }
 
 macro_rules! successful_response {
-    ($self:ident, $req_name:expr, $resp_type:ident, $foo:expr) => {
+    ($self:ident, $req_name:expr, $resp_type:ident, $consensus_call:expr) => {
         if let Some(ref consensus) = $self.consensus {
             Ok(Response::new($resp_type {
-                value: $foo(consensus),
+                value: $consensus_call(consensus),
             }))
         } else {
             warn!("Can't respond to a {} request due to stopped Consensus", $req_name);
