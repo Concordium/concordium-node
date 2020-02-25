@@ -167,7 +167,6 @@ impl P2PNode {
 
         trace!("Creating new P2PNode");
 
-        // Retrieve IP address octets, format to IP and SHA256 hash it
         let ip = if let Some(ref addy) = conf.common.listen_address {
             IpAddr::from_str(addy)
                 .unwrap_or_else(|_| P2PNode::get_ip().expect("Couldn't retrieve my own ip"))
@@ -312,22 +311,27 @@ impl P2PNode {
         node
     }
 
+    /// Get the timestamp of the node's last bootstrap attempt.
     pub fn get_last_bootstrap(&self) -> u64 {
         self.connection_handler.last_bootstrap.load(Ordering::Relaxed)
     }
 
+    /// Update the timestamp of the last bootstrap attempt.
     pub fn update_last_bootstrap(&self) {
         self.connection_handler.last_bootstrap.store(get_current_stamp(), Ordering::Relaxed);
     }
 
     fn is_bucket_cleanup_enabled(&self) -> bool { self.config.timeout_bucket_entry_period > 0 }
 
+    /// A convenience method for accessing the collection of node's connections.
     #[inline]
     pub fn connections(&self) -> &RwLock<Connections> { &self.connection_handler.connections }
 
+    /// A convenience method for accessing the collection of  node's networks.
     #[inline]
     pub fn networks(&self) -> &RwLock<Networks> { &self.connection_handler.networks }
 
+    /// Activate the network dump feature.
     #[cfg(feature = "network_dump")]
     pub fn activate_dump(&self, path: &str, raw: bool) -> Fallible<()> {
         let path = std::path::PathBuf::from(path);
@@ -336,6 +340,7 @@ impl P2PNode {
         Ok(())
     }
 
+    /// Deactivate the network dump feature.
     #[cfg(feature = "network_dump")]
     pub fn stop_dump(&self) -> Fallible<()> {
         let path = std::path::PathBuf::new();
@@ -344,29 +349,33 @@ impl P2PNode {
         Ok(())
     }
 
+    /// Start dumping network data to the disk.
     pub fn dump_start(&self, log_dumper: Sender<DumpItem>) {
         *write_or_die!(self.connection_handler.log_dumper) = Some(log_dumper);
     }
 
+    /// Stop dumping network data to the disk.
     pub fn dump_stop(&self) { *write_or_die!(self.connection_handler.log_dumper) = None; }
 
-    /// Waits for P2PNode termination. Use `P2PNode::close` to notify the
-    /// termination.
+    /// Waits for `P2PNode` termination (`P2PNode::close` shuts it down).
     pub fn join(&self) -> Fallible<()> {
         for handle in
             mem::replace(&mut write_or_die!(self.threads).join_handles, Default::default())
         {
             if let Err(e) = handle.join() {
-                bail!("Thread join error: {:?}", e);
+                error!("Can't join a node thread: {:?}", e);
             }
         }
         Ok(())
     }
 
+    /// Get the node's client version.
     pub fn get_version(&self) -> String { crate::VERSION.to_string() }
 
+    /// Get the node's identifier.
     pub fn id(&self) -> P2PNodeId { self.self_peer.id }
 
+    /// Get the node's `PeerType`.
     #[inline]
     pub fn peer_type(&self) -> PeerType { self.self_peer.peer_type }
 
@@ -378,12 +387,14 @@ impl P2PNode {
         }
     }
 
+    /// Get the node's uptime in milliseconds.
     pub fn get_uptime(&self) -> i64 {
         Utc::now().timestamp_millis() - self.start_time.timestamp_millis()
     }
 
+    /// Procure an IP address for the node.
     #[cfg(not(windows))]
-    pub fn get_ip() -> Option<IpAddr> {
+    fn get_ip() -> Option<IpAddr> {
         let localhost = Ipv4Addr::LOCALHOST;
         let mut ip: IpAddr = IpAddr::V4(localhost);
 
@@ -401,6 +412,7 @@ impl P2PNode {
         }
     }
 
+    /// Procure an IP address for the node.
     #[cfg(windows)]
     pub fn get_ip() -> Option<IpAddr> {
         let localhost = Ipv4Addr::LOCALHOST;
@@ -423,14 +435,17 @@ impl P2PNode {
         }
     }
 
+    /// Get the IP of the node.
     pub fn internal_addr(&self) -> SocketAddr { self.self_peer.addr }
 
+    /// Shut the node down gracefully without terminating its threads.
     pub fn close(&self) -> bool {
         info!("P2PNode shutting down.");
         self.is_terminated.store(true, Ordering::Relaxed);
         CALLBACK_QUEUE.stop().is_ok() && TRANSACTION_LOG_QUEUE.stop().is_ok()
     }
 
+    /// Shut the node down gracefully and terminate its threads.
     pub fn close_and_join(&self) -> Fallible<()> {
         self.close();
         self.join()
@@ -444,6 +459,7 @@ impl P2PNode {
     }
 }
 
+/// Spawn the node's poll thread.
 pub fn spawn(node: &Arc<P2PNode>) {
     let self_clone = Arc::clone(node);
     let poll_thread = spawn_or_die!("Poll thread", {
@@ -544,6 +560,7 @@ pub fn spawn(node: &Arc<P2PNode>) {
     write_or_die!(node.threads).join_handles.push(poll_thread);
 }
 
+/// Try to bootstrap the node based on the addresses in the config.
 pub fn attempt_bootstrap(node: &Arc<P2PNode>) {
     if !node.config.no_net {
         info!("Attempting to bootstrap");
