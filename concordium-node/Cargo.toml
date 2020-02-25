@@ -107,6 +107,7 @@ flatc-rust = "^0.1"
 criterion = "0.3"
 quickcheck = "^0.9"
 futures = "0.3"
+itertools = "0.8"
 
 [lib]
 path = "src/lib.rs"
