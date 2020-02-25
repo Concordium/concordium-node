@@ -28,16 +28,18 @@ fn main() -> Fallible<()> {
     let mut log_builder = Builder::from_env(env);
     // disregard invalid packet type errors
     log_builder.filter_module("p2p_client::connection::message_handlers", LevelFilter::Off);
-    // hide mnodule paths
+    // hide module paths
     log_builder.format_module_path(false);
     // hide the timestamps
     log_builder.format_timestamp(None);
     log_builder.init();
 
+    // create 2 nodes and connect them as peers
     let node_1 = make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
     let node_2 = make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
     connect(&node_1, &node_2)?;
 
+    // send fuzzed packets from node 2
     let node_2_ref = Arc::clone(&node_2);
     thread::spawn(move || {
         for _ in 0..CNT {
@@ -46,6 +48,7 @@ fn main() -> Fallible<()> {
         node_2_ref.close_and_join().unwrap();
     });
 
+    // send fuzzed packets from node 1
     let node_1_ref = Arc::clone(&node_1);
     thread::spawn(move || {
         for _ in 0..CNT {
@@ -54,8 +57,10 @@ fn main() -> Fallible<()> {
         node_1_ref.close_and_join().unwrap();
     });
 
+    // wait until the handshakes are done
     thread::sleep(Duration::from_secs(5));
 
+    // send a few invalid network messages from 5 faulty nodes
     let node_1_ref = Arc::clone(&node_1);
     let node_2_ref = Arc::clone(&node_2);
     thread::spawn(move || {
@@ -80,14 +85,16 @@ fn main() -> Fallible<()> {
         }
     });
 
-    node_1.join().unwrap();
-    node_2.join().unwrap();
+    node_1.join()?;
+    node_2.join()?;
 
     println!("\n*** stress test complete ***\n");
 
     Ok(())
 }
 
+/// Sends a broadcast with a `NetworkPacket` containing between `min` and `max`
+/// random bytes as its payload.
 fn send_fuzzed_packet(source: &P2PNode, min: usize, max: usize) {
     send_broadcast_message(
         &source,
@@ -99,6 +106,7 @@ fn send_fuzzed_packet(source: &P2PNode, min: usize, max: usize) {
     .unwrap()
 }
 
+/// Sends a broadcast with between `min` and `max` random raw bytes.
 fn send_fuzzed_message(source: &P2PNode, min: usize, max: usize) {
     let filter = |_: &Connection| true;
     source
@@ -106,6 +114,8 @@ fn send_fuzzed_message(source: &P2PNode, min: usize, max: usize) {
         .unwrap();
 }
 
+/// Sends a broadcast with an empty payload (which the low-level network layer
+/// prepends with a zero as the buffer size).
 fn send_zeroes(source: &P2PNode) {
     let filter = |_: &Connection| true;
     source.send_over_all_connections(&[], &filter).unwrap();

@@ -270,12 +270,13 @@ impl Connection {
             self.send_to_dump(message.clone(), true);
         }
 
-        let message = NetworkMessage::deserialize(&message);
-        if let Err(e) = message {
-            self.handle_invalid_network_msg(e);
-            return Ok(());
-        }
-        let mut message = message.unwrap(); // safe, checked right above
+        let mut message = match NetworkMessage::deserialize(&message) {
+            Ok(msg) => msg,
+            Err(e) => {
+                self.handle_invalid_network_msg(e);
+                return Ok(());
+            }
+        };
 
         if let NetworkMessagePayload::NetworkPacket(ref mut packet) = message.payload {
             // disregard packets when in bootstrapper mode

@@ -36,6 +36,7 @@ pub struct RpcServerImpl {
     listen_addr: SocketAddr,
     access_token: String,
     baker_private_data_json_file: Option<String>,
+    // this field is optional only for test purposes
     consensus: Option<ConsensusContainer>,
 }
 
@@ -69,7 +70,7 @@ impl RpcServerImpl {
 macro_rules! authenticate {
     ($req:expr, $access_token:expr) => {
         if let Some(val) = $req.metadata().get("authentication") {
-            match String::from_utf8(val.as_bytes().to_owned()) {
+            match std::str::from_utf8(val.as_bytes()) {
                 Ok(at) if at == $access_token => {}
                 _ => {
                     error!("failed to reply to {:?}: invalid authentication token", $req);

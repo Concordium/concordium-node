@@ -37,7 +37,7 @@ fn main() -> Result<(), Error> {
     info!("Application config directory: {:?}", app_prefs.get_user_config_dir());
 
     let stats_export_service =
-        instantiate_stats_export_engine(&conf, StatsServiceMode::BootstrapperMode).unwrap();
+        instantiate_stats_export_engine(&conf, StatsServiceMode::BootstrapperMode)?;
 
     info!("Debugging enabled: {}", conf.common.debug);
 

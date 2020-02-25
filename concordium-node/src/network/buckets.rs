@@ -127,8 +127,7 @@ mod tests {
     use crate::common::P2PNodeId;
     use std::{
         collections::HashSet,
-        net::{IpAddr, SocketAddr},
-        str::FromStr,
+        net::{IpAddr, Ipv4Addr, SocketAddr},
     };
 
     #[test]
@@ -140,12 +139,12 @@ mod tests {
         let p2p_peer = P2PPeer::from(
             PeerType::Node,
             p2p_node_id,
-            SocketAddr::new(IpAddr::from_str("127.0.0.1").unwrap(), 8888),
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8888),
         );
         let p2p_duplicate_peer = P2PPeer::from(
             PeerType::Node,
             p2p_node_id,
-            SocketAddr::new(IpAddr::from_str("127.0.0.1").unwrap(), 8889),
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8889),
         );
         buckets.insert_into_bucket(&p2p_peer, HashSet::new());
         buckets.insert_into_bucket(&p2p_duplicate_peer, HashSet::new());

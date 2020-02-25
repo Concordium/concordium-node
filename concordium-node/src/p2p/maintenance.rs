@@ -36,7 +36,7 @@ use std::{
     io, mem,
     net::{
         IpAddr::{self, V4, V6},
-        SocketAddr,
+        Ipv4Addr, SocketAddr,
     },
     path::PathBuf,
     str::FromStr,
@@ -222,12 +222,10 @@ impl P2PNode {
         #[cfg(feature = "network_dump")]
         create_dump_thread(ip, id, _dump_rx, _act_rx, &conf.common.data_dir);
 
-        let breakage = if let Some(breakage_type) = &conf.cli.breakage_type {
-            Some((
-                breakage_type.to_owned(),
-                conf.cli.breakage_target.unwrap(), // safe, ensured in config
-                conf.cli.breakage_level.unwrap(),  // ditto
-            ))
+        let breakage = if let (Some(ty), Some(tgt), Some(lvl)) =
+            (&conf.cli.breakage_type, conf.cli.breakage_target, conf.cli.breakage_level)
+        {
+            Some((ty.to_owned(), tgt, lvl))
         } else {
             None
         };
@@ -401,8 +399,8 @@ impl P2PNode {
 
     #[cfg(not(windows))]
     pub fn get_ip() -> Option<IpAddr> {
-        let localhost = IpAddr::from_str("127.0.0.1").unwrap();
-        let mut ip: IpAddr = localhost;
+        let localhost = Ipv4Addr::LOCALHOST;
+        let mut ip: IpAddr = IpAddr::V4(localhost);
 
         if let Ok(addresses) = get_if_addrs::get_if_addrs() {
             for adapter in addresses {
@@ -420,8 +418,8 @@ impl P2PNode {
 
     #[cfg(windows)]
     pub fn get_ip() -> Option<IpAddr> {
-        let localhost = IpAddr::from_str("127.0.0.1").unwrap();
-        let mut ip: IpAddr = localhost;
+        let localhost = Ipv4Addr::LOCALHOST;
+        let mut ip: IpAddr = IpAddr::V4(localhost);
 
         if let Ok(adapters) = ipconfig::get_adapters() {
             for adapter in adapters {
