@@ -1,20 +1,15 @@
 #![recursion_limit = "1024"]
 #[macro_use]
 extern crate log;
-#[macro_use]
-extern crate concordium_common;
 
 // Force the system allocator on every platform
 use std::alloc::System;
 #[global_allocator]
 static A: System = System;
 
-use concordium_common::QueueMsg::Relay;
-use crossbeam_channel;
 use failure::Error;
 use p2p_client::{
     common::{P2PNodeId, PeerType},
-    configuration as config,
     p2p::{maintenance::spawn, *},
     stats_export_service::{instantiate_stats_export_engine, StatsServiceMode},
     utils::get_config_and_logging_setup,
@@ -46,31 +41,13 @@ fn main() -> Result<(), Error> {
         _ => format!("{}", P2PNodeId::default()),
     };
 
-    let node = if conf.common.debug {
-        let (sender, receiver) = crossbeam_channel::bounded(config::EVENT_LOG_QUEUE_DEPTH);
-        let _guard = spawn_or_die!("Log loop", move || loop {
-            if let Ok(Relay(msg)) = receiver.recv() {
-                info!("{}", msg);
-            }
-        });
-        P2PNode::new(
-            Some(id),
-            &conf,
-            Some(sender),
-            PeerType::Bootstrapper,
-            stats_export_service,
-            Some(data_dir_path),
-        )
-    } else {
-        P2PNode::new(
-            Some(id),
-            &conf,
-            None,
-            PeerType::Bootstrapper,
-            stats_export_service,
-            Some(data_dir_path),
-        )
-    };
+    let node = P2PNode::new(
+        Some(id),
+        &conf,
+        PeerType::Bootstrapper,
+        stats_export_service,
+        Some(data_dir_path),
+    );
 
     #[cfg(feature = "instrumentation")]
     start_push_gateway(&conf.prometheus, &node.stats, node.id());

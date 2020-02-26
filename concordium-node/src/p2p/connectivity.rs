@@ -9,9 +9,7 @@ use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use crate::{
     common::{get_current_stamp, P2PNodeId, PeerType, RemotePeer},
     configuration as config,
-    connection::{
-        send_pending_messages, Connection, DeduplicationQueues, MessageSendingPriority, P2PEvent,
-    },
+    connection::{send_pending_messages, Connection, DeduplicationQueues, MessageSendingPriority},
     network::{
         NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkPacketType,
         NetworkRequest,
@@ -333,7 +331,6 @@ pub fn accept(node: &Arc<P2PNode>) -> Fallible<Token> {
 
     conn.register(&node.poll)?;
     node.add_connection(conn);
-    node.log_event(P2PEvent::ConnectEvent(addr));
 
     Ok(token)
 }
@@ -398,7 +395,6 @@ pub fn connect(
         }
     }
 
-    node.log_event(P2PEvent::InitiatingConnection(addr));
     match TcpStream::connect(&addr) {
         Ok(socket) => {
             node.stats.conn_received_inc();
@@ -417,8 +413,6 @@ pub fn connect(
             conn.register(&node.poll)?;
 
             write_lock_connections.insert(conn.token, conn);
-
-            node.log_event(P2PEvent::ConnectEvent(addr));
 
             if let Some(ref conn) = write_lock_connections.get(&token).map(|conn| Arc::clone(conn))
             {

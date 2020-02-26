@@ -16,7 +16,7 @@ use crate::plugins::beta::get_username_from_jwt;
 use crate::{
     common::{get_current_stamp, P2PNodeId, P2PPeer, PeerType},
     configuration::{self as config, Config},
-    connection::{Connection, DeduplicationQueues, P2PEvent},
+    connection::{Connection, DeduplicationQueues},
     dumper::DumpItem,
     network::{Buckets, NetworkId},
     p2p::{
@@ -27,7 +27,6 @@ use crate::{
     stats_export_service::StatsExportService,
     utils,
 };
-use concordium_common::QueueMsg::{self, Relay};
 use consensus_rust::{consensus::CALLBACK_QUEUE, transferlog::TRANSACTION_LOG_QUEUE};
 
 use std::{
@@ -88,7 +87,6 @@ pub type Connections = HashMap<Token, Arc<Connection>, BuildNoHashHasher<usize>>
 pub struct ConnectionHandler {
     pub server:           TcpListener,
     pub next_id:          AtomicUsize,
-    pub event_log:        Option<Sender<QueueMsg<P2PEvent>>>,
     pub buckets:          RwLock<Buckets>,
     pub log_dumper:       RwLock<Option<Sender<DumpItem>>>,
     pub connections:      RwLock<Connections>,
@@ -99,17 +97,12 @@ pub struct ConnectionHandler {
 }
 
 impl ConnectionHandler {
-    pub fn new(
-        conf: &Config,
-        server: TcpListener,
-        event_log: Option<Sender<QueueMsg<P2PEvent>>>,
-    ) -> Self {
+    pub fn new(conf: &Config, server: TcpListener) -> Self {
         let networks = conf.common.network_ids.iter().cloned().map(NetworkId::from).collect();
 
         ConnectionHandler {
             server,
             next_id: AtomicUsize::new(1),
-            event_log,
             buckets: RwLock::new(Buckets::new()),
             log_dumper: Default::default(),
             connections: Default::default(),
@@ -147,7 +140,6 @@ impl P2PNode {
     pub fn new(
         supplied_id: Option<String>,
         conf: &Config,
-        event_log: Option<Sender<QueueMsg<P2PEvent>>>,
         peer_type: PeerType,
         stats: Arc<StatsExportService>,
         data_dir_path: Option<PathBuf>,
@@ -280,7 +272,7 @@ impl P2PNode {
             breakage,
         };
 
-        let connection_handler = ConnectionHandler::new(conf, server, event_log);
+        let connection_handler = ConnectionHandler::new(conf, server);
 
         // Create the node key-value store environment
         let kvs = Manager::singleton()
@@ -378,14 +370,6 @@ impl P2PNode {
     /// Get the node's `PeerType`.
     #[inline]
     pub fn peer_type(&self) -> PeerType { self.self_peer.peer_type }
-
-    pub fn log_event(&self, event: P2PEvent) {
-        if let Some(ref log) = self.connection_handler.event_log {
-            if let Err(e) = log.send(Relay(event)) {
-                error!("Couldn't send error {:?}", e)
-            }
-        }
-    }
 
     /// Get the node's uptime in milliseconds.
     pub fn get_uptime(&self) -> i64 {
