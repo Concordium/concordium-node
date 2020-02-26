@@ -80,15 +80,20 @@ macro_rules! authenticate {
     };
 }
 
-macro_rules! successful_response {
+macro_rules! call_consensus {
     ($self:ident, $req_name:expr, $resp_type:ident, $consensus_call:expr) => {
-        if let Some(ref consensus) = $self.consensus {
-            Ok(Response::new($resp_type {
-                value: $consensus_call(consensus),
-            }))
+        if let Some(ref container) = $self.consensus {
+            if !container.consensus.load(Ordering::Relaxed).is_null() {
+                Ok(Response::new($resp_type {
+                    value: $consensus_call(container),
+                }))
+            } else {
+                warn!("Can't respond to a {} request due to uninitialized Consensus", $req_name);
+                Err(Status::new(Code::Internal, "The consensus layer has not been initialized!"))
+            }
         } else {
-            warn!("Can't respond to a {} request due to stopped Consensus", $req_name);
-            Err(Status::new(Code::Internal, "Consensus container is not initialized!"))
+            error!("Consensus container not supplied; is this a gRPC unit test?");
+            Err(Status::new(Code::FailedPrecondition, "The consensus container is missing!"))
         }
     };
 }
@@ -426,28 +431,28 @@ impl P2p for RpcServerImpl {
         req: Request<Empty>,
     ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_response!(self, "GetConsensusStatus", JsonResponse, |cc: &ConsensusContainer| {
+        call_consensus!(self, "GetConsensusStatus", JsonResponse, |cc: &ConsensusContainer| {
             cc.get_consensus_status()
         })
     }
 
     async fn start_baker(&self, req: Request<Empty>) -> Result<Response<BoolResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_response!(self, "StartBaker", BoolResponse, |cc: &ConsensusContainer| {
+        call_consensus!(self, "StartBaker", BoolResponse, |cc: &ConsensusContainer| {
             cc.start_baker()
         })
     }
 
     async fn stop_baker(&self, req: Request<Empty>) -> Result<Response<BoolResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_response!(self, "StopBaker", BoolResponse, |cc: &ConsensusContainer| {
+        call_consensus!(self, "StopBaker", BoolResponse, |cc: &ConsensusContainer| {
             cc.stop_baker()
         })
     }
 
     async fn get_branches(&self, req: Request<Empty>) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_response!(self, "GetBranches", JsonResponse, |cc: &ConsensusContainer| {
+        call_consensus!(self, "GetBranches", JsonResponse, |cc: &ConsensusContainer| {
             cc.get_branches()
         })
     }
@@ -457,7 +462,7 @@ impl P2p for RpcServerImpl {
         req: Request<BlockHash>,
     ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_response!(self, "GetBlockInfo", JsonResponse, |cc: &ConsensusContainer| {
+        call_consensus!(self, "GetBlockInfo", JsonResponse, |cc: &ConsensusContainer| {
             cc.get_block_info(&req.get_ref().block_hash)
         })
     }
@@ -467,7 +472,7 @@ impl P2p for RpcServerImpl {
         req: Request<BlockHashAndAmount>,
     ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_response!(self, "GetAncestors", JsonResponse, |cc: &ConsensusContainer| {
+        call_consensus!(self, "GetAncestors", JsonResponse, |cc: &ConsensusContainer| {
             cc.get_ancestors(&req.get_ref().block_hash, req.get_ref().amount)
         })
     }
@@ -477,7 +482,7 @@ impl P2p for RpcServerImpl {
         req: Request<BlockHash>,
     ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_response!(self, "GetAccountList", JsonResponse, |cc: &ConsensusContainer| {
+        call_consensus!(self, "GetAccountList", JsonResponse, |cc: &ConsensusContainer| {
             cc.get_account_list(&req.get_ref().block_hash)
         })
     }
@@ -487,7 +492,7 @@ impl P2p for RpcServerImpl {
         req: Request<BlockHash>,
     ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_response!(self, "GetInstances", JsonResponse, |cc: &ConsensusContainer| {
+        call_consensus!(self, "GetInstances", JsonResponse, |cc: &ConsensusContainer| {
             cc.get_instances(&req.get_ref().block_hash)
         })
     }
@@ -497,7 +502,7 @@ impl P2p for RpcServerImpl {
         req: Request<GetAddressInfoRequest>,
     ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_response!(self, "GetAccountInfo", JsonResponse, |cc: &ConsensusContainer| {
+        call_consensus!(self, "GetAccountInfo", JsonResponse, |cc: &ConsensusContainer| {
             cc.get_account_info(&req.get_ref().block_hash, &req.get_ref().address)
         })
     }
@@ -507,7 +512,7 @@ impl P2p for RpcServerImpl {
         req: Request<GetAddressInfoRequest>,
     ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_response!(self, "GetInstanceInfo", JsonResponse, |cc: &ConsensusContainer| {
+        call_consensus!(self, "GetInstanceInfo", JsonResponse, |cc: &ConsensusContainer| {
             cc.get_instance_info(&req.get_ref().block_hash, &req.get_ref().address)
         })
     }
@@ -517,7 +522,7 @@ impl P2p for RpcServerImpl {
         req: Request<BlockHash>,
     ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_response!(self, "GetRewardStatus", JsonResponse, |cc: &ConsensusContainer| {
+        call_consensus!(self, "GetRewardStatus", JsonResponse, |cc: &ConsensusContainer| {
             cc.get_reward_status(&req.get_ref().block_hash)
         })
     }
@@ -551,7 +556,7 @@ impl P2p for RpcServerImpl {
         req: Request<BlockHash>,
     ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_response!(self, "GetBirkParameters", JsonResponse, |cc: &ConsensusContainer| {
+        call_consensus!(self, "GetBirkParameters", JsonResponse, |cc: &ConsensusContainer| {
             cc.get_birk_parameters(&req.get_ref().block_hash)
         })
     }
@@ -561,7 +566,7 @@ impl P2p for RpcServerImpl {
         req: Request<BlockHash>,
     ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_response!(self, "GetModuleList", JsonResponse, |cc: &ConsensusContainer| {
+        call_consensus!(self, "GetModuleList", JsonResponse, |cc: &ConsensusContainer| {
             cc.get_module_list(&req.get_ref().block_hash)
         })
     }
@@ -571,7 +576,7 @@ impl P2p for RpcServerImpl {
         req: Request<GetModuleSourceRequest>,
     ) -> Result<Response<BytesResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_response!(self, "GetModuleSource", BytesResponse, |cc: &ConsensusContainer| {
+        call_consensus!(self, "GetModuleSource", BytesResponse, |cc: &ConsensusContainer| {
             cc.get_module_source(&req.get_ref().block_hash, &req.get_ref().module_ref)
         })
     }
@@ -670,7 +675,7 @@ impl P2p for RpcServerImpl {
         req: Request<TransactionHash>,
     ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_response!(self, "HookTransaction", JsonResponse, |cc: &ConsensusContainer| {
+        call_consensus!(self, "HookTransaction", JsonResponse, |cc: &ConsensusContainer| {
             cc.hook_transaction(&req.get_ref().transaction_hash)
         })
     }
