@@ -301,10 +301,7 @@ impl Connection {
                 }
                 _ => false,
             },
-            NetworkMessagePayload::NetworkResponse(..) => false,
-            NetworkMessagePayload::NetworkPacket(..) => {
-                self.handler().is_rpc_online.load(Ordering::Relaxed)
-            }
+            _ => false,
         };
 
         // forward applicable messages to other connections

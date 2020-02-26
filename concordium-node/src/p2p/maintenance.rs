@@ -129,7 +129,6 @@ pub struct P2PNode {
     pub stats:              Arc<StatsExportService>,
     pub config:             NodeConfig,
     pub start_time:         DateTime<Utc>,
-    pub is_rpc_online:      AtomicBool,
     pub is_terminated:      AtomicBool,
     pub kvs:                Arc<RwLock<Rkv>>,
     pub total_received:     AtomicU64,
@@ -288,7 +287,6 @@ impl P2PNode {
             config,
             dump_switch: act_tx,
             dump_tx,
-            is_rpc_online: AtomicBool::new(false),
             connection_handler,
             self_peer,
             stats,
@@ -433,13 +431,6 @@ impl P2PNode {
     pub fn close_and_join(&self) -> Fallible<()> {
         self.close();
         self.join()
-    }
-
-    pub fn rpc_subscription_start(&self) { self.is_rpc_online.store(true, Ordering::Relaxed); }
-
-    pub fn rpc_subscription_stop(&self) -> bool {
-        self.is_rpc_online.store(false, Ordering::Relaxed);
-        true
     }
 }
 
