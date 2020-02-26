@@ -80,15 +80,20 @@ macro_rules! authenticate {
     };
 }
 
-macro_rules! successful_response {
+macro_rules! call_consensus {
     ($self:ident, $req_name:expr, $resp_type:ident, $consensus_call:expr) => {
-        if let Some(ref consensus) = $self.consensus {
-            Ok(Response::new($resp_type {
-                value: $consensus_call(consensus),
-            }))
+        if let Some(ref container) = $self.consensus {
+            if !container.consensus.load(Ordering::Relaxed).is_null() {
+                Ok(Response::new($resp_type {
+                    value: $consensus_call(container),
+                }))
+            } else {
+                warn!("Can't respond to a {} request due to uninitialized Consensus", $req_name);
+                Err(Status::new(Code::Internal, "The consensus layer has not been initialized!"))
+            }
         } else {
-            warn!("Can't respond to a {} request due to stopped Consensus", $req_name);
-            Err(Status::new(Code::Internal, "Consensus container is not initialized!"))
+            error!("Consensus container not supplied; is this a gRPC unit test?");
+            Err(Status::new(Code::FailedPrecondition, "The consensus container is missing!"))
         }
     };
 }
@@ -426,28 +431,28 @@ impl P2p for RpcServerImpl {
         req: Request<Empty>,
     ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_response!(self, "GetConsensusStatus", JsonResponse, |cc: &ConsensusContainer| {
+        call_consensus!(self, "GetConsensusStatus", JsonResponse, |cc: &ConsensusContainer| {
             cc.get_consensus_status()
         })
     }
 
     async fn start_baker(&self, req: Request<Empty>) -> Result<Response<BoolResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_response!(self, "StartBaker", BoolResponse, |cc: &ConsensusContainer| {
+        call_consensus!(self, "StartBaker", BoolResponse, |cc: &ConsensusContainer| {
             cc.start_baker()
         })
     }
 
     async fn stop_baker(&self, req: Request<Empty>) -> Result<Response<BoolResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_response!(self, "StopBaker", BoolResponse, |cc: &ConsensusContainer| {
+        call_consensus!(self, "StopBaker", BoolResponse, |cc: &ConsensusContainer| {
             cc.stop_baker()
         })
     }
 
     async fn get_branches(&self, req: Request<Empty>) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_response!(self, "GetBranches", JsonResponse, |cc: &ConsensusContainer| {
+        call_consensus!(self, "GetBranches", JsonResponse, |cc: &ConsensusContainer| {
             cc.get_branches()
         })
     }
@@ -457,7 +462,7 @@ impl P2p for RpcServerImpl {
         req: Request<BlockHash>,
     ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_response!(self, "GetBlockInfo", JsonResponse, |cc: &ConsensusContainer| {
+        call_consensus!(self, "GetBlockInfo", JsonResponse, |cc: &ConsensusContainer| {
             cc.get_block_info(&req.get_ref().block_hash)
         })
     }
@@ -467,7 +472,7 @@ impl P2p for RpcServerImpl {
         req: Request<BlockHashAndAmount>,
     ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_response!(self, "GetAncestors", JsonResponse, |cc: &ConsensusContainer| {
+        call_consensus!(self, "GetAncestors", JsonResponse, |cc: &ConsensusContainer| {
             cc.get_ancestors(&req.get_ref().block_hash, req.get_ref().amount)
         })
     }
@@ -477,7 +482,7 @@ impl P2p for RpcServerImpl {
         req: Request<BlockHash>,
     ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_response!(self, "GetAccountList", JsonResponse, |cc: &ConsensusContainer| {
+        call_consensus!(self, "GetAccountList", JsonResponse, |cc: &ConsensusContainer| {
             cc.get_account_list(&req.get_ref().block_hash)
         })
     }
@@ -487,7 +492,7 @@ impl P2p for RpcServerImpl {
         req: Request<BlockHash>,
     ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_response!(self, "GetInstances", JsonResponse, |cc: &ConsensusContainer| {
+        call_consensus!(self, "GetInstances", JsonResponse, |cc: &ConsensusContainer| {
             cc.get_instances(&req.get_ref().block_hash)
         })
     }
@@ -497,7 +502,7 @@ impl P2p for RpcServerImpl {
         req: Request<GetAddressInfoRequest>,
     ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_response!(self, "GetAccountInfo", JsonResponse, |cc: &ConsensusContainer| {
+        call_consensus!(self, "GetAccountInfo", JsonResponse, |cc: &ConsensusContainer| {
             cc.get_account_info(&req.get_ref().block_hash, &req.get_ref().address)
         })
     }
@@ -507,7 +512,7 @@ impl P2p for RpcServerImpl {
         req: Request<GetAddressInfoRequest>,
     ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_response!(self, "GetInstanceInfo", JsonResponse, |cc: &ConsensusContainer| {
+        call_consensus!(self, "GetInstanceInfo", JsonResponse, |cc: &ConsensusContainer| {
             cc.get_instance_info(&req.get_ref().block_hash, &req.get_ref().address)
         })
     }
@@ -517,7 +522,7 @@ impl P2p for RpcServerImpl {
         req: Request<BlockHash>,
     ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_response!(self, "GetRewardStatus", JsonResponse, |cc: &ConsensusContainer| {
+        call_consensus!(self, "GetRewardStatus", JsonResponse, |cc: &ConsensusContainer| {
             cc.get_reward_status(&req.get_ref().block_hash)
         })
     }
@@ -551,7 +556,7 @@ impl P2p for RpcServerImpl {
         req: Request<BlockHash>,
     ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_response!(self, "GetBirkParameters", JsonResponse, |cc: &ConsensusContainer| {
+        call_consensus!(self, "GetBirkParameters", JsonResponse, |cc: &ConsensusContainer| {
             cc.get_birk_parameters(&req.get_ref().block_hash)
         })
     }
@@ -561,7 +566,7 @@ impl P2p for RpcServerImpl {
         req: Request<BlockHash>,
     ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_response!(self, "GetModuleList", JsonResponse, |cc: &ConsensusContainer| {
+        call_consensus!(self, "GetModuleList", JsonResponse, |cc: &ConsensusContainer| {
             cc.get_module_list(&req.get_ref().block_hash)
         })
     }
@@ -571,7 +576,7 @@ impl P2p for RpcServerImpl {
         req: Request<GetModuleSourceRequest>,
     ) -> Result<Response<BytesResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_response!(self, "GetModuleSource", BytesResponse, |cc: &ConsensusContainer| {
+        call_consensus!(self, "GetModuleSource", BytesResponse, |cc: &ConsensusContainer| {
             cc.get_module_source(&req.get_ref().block_hash, &req.get_ref().module_ref)
         })
     }
@@ -670,7 +675,7 @@ impl P2p for RpcServerImpl {
         req: Request<TransactionHash>,
     ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
-        successful_response!(self, "HookTransaction", JsonResponse, |cc: &ConsensusContainer| {
+        call_consensus!(self, "HookTransaction", JsonResponse, |cc: &ConsensusContainer| {
             cc.hook_transaction(&req.get_ref().transaction_hash)
         })
     }
@@ -700,9 +705,7 @@ mod tests {
     const TOKEN: &str = "rpcadmin";
 
     // The intended use is for spawning nodes for testing gRPC api.
-    async fn create_node_rpc_call_option(
-        nt: PeerType,
-    ) -> Fallible<(P2pClient<Channel>, Arc<P2PNode>)> {
+    async fn create_test_rpc_node(nt: PeerType) -> Fallible<(P2pClient<Channel>, Arc<P2PNode>)> {
         let node = make_node_and_sync(next_available_port(), vec![100], nt).unwrap();
 
         let rpc_port = next_available_port();
@@ -724,7 +727,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_grpc_noauth() -> Fallible<()> {
-        let (mut client, _) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
+        let (mut client, _) = create_test_rpc_node(PeerType::Node).await.unwrap();
 
         match client.peer_version(req_with_auth!(proto::Empty {}, "derp")).await {
             Err(status) => assert_eq!(status.code(), Code::Unauthenticated),
@@ -736,7 +739,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_peer_version() -> Fallible<()> {
-        let (mut client, _) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
+        let (mut client, _) = create_test_rpc_node(PeerType::Node).await.unwrap();
         assert_eq!(
             client
                 .peer_version(req_with_auth!(proto::Empty {}, TOKEN))
@@ -752,7 +755,7 @@ mod tests {
     #[tokio::test]
     async fn test_peer_uptime() -> Fallible<()> {
         let t0 = Utc::now().timestamp_millis() as u64;
-        let (mut client, _) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
+        let (mut client, _) = create_test_rpc_node(PeerType::Node).await.unwrap();
 
         let req = || req_with_auth!(proto::Empty {}, TOKEN);
 
@@ -769,7 +772,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_peer_total_received() -> Fallible<()> {
-        let (mut client, node) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
+        let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let port = next_available_port();
         let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
         connect(&node2, &node)?;
@@ -786,7 +789,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_peer_total_sent() -> Fallible<()> {
-        let (mut client, node) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
+        let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let port = next_available_port();
         let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
         connect(&node2, &node)?;
@@ -801,13 +804,33 @@ mod tests {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn test_peer_connect() -> Fallible<()> {
+        let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
+        let port = next_available_port();
+        let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
+        let _sent = client
+            .peer_connect(req_with_auth!(
+                proto::PeerConnectRequest {
+                    ip:   Some(node2.internal_addr().ip().to_string()),
+                    port: Some(node2.internal_addr().port() as i32),
+                },
+                TOKEN
+            ))
+            .await
+            .unwrap();
+        await_handshake(&node2)?;
+        await_handshake(&node)?;
+        Ok(())
+    }
+
     // test_send_transaction is not implemented as it is more of an integration test
     // rather that a unit test. The corresponding flow test is in
     // `tests/consensus-tests.rs`
 
     #[tokio::test]
     async fn test_join_network() -> Fallible<()> {
-        let (mut client, node) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
+        let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let port = next_available_port();
         let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
         connect(&node2, &node)?;
@@ -825,7 +848,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_leave_network() -> Fallible<()> {
-        let (mut client, node) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
+        let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let port = next_available_port();
         let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
         connect(&node2, &node)?;
@@ -843,7 +866,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_peer_stats() -> Fallible<()> {
-        let (mut client, node) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
+        let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let port = next_available_port();
         let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
         connect(&node2, &node)?;
@@ -864,7 +887,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_peer_list() -> Fallible<()> {
-        let (mut client, node) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
+        let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let req = || {
             req_with_auth!(
                 proto::PeersRequest {
@@ -895,7 +918,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_grpc_peer_list_bootstrapper() -> Fallible<()> {
-        let (mut client, _) = create_node_rpc_call_option(PeerType::Bootstrapper).await.unwrap();
+        let (mut client, _) = create_test_rpc_node(PeerType::Bootstrapper).await.unwrap();
         let req = req_with_auth!(
             proto::PeersRequest {
                 include_bootstrappers: true,
@@ -910,7 +933,7 @@ mod tests {
     #[tokio::test]
     async fn test_node_info() -> Fallible<()> {
         let instant1 = (Utc::now().timestamp_millis() as u64) / 1000;
-        let (mut client, node) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
+        let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let reply = client.node_info(req_with_auth!(proto::Empty {}, TOKEN)).await.unwrap();
         let reply = reply.get_ref();
         let instant2 = (Utc::now().timestamp_millis() as u64) / 1000;
@@ -938,7 +961,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_shutdown() -> Fallible<()> {
-        let (mut client, _) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
+        let (mut client, _) = create_test_rpc_node(PeerType::Node).await.unwrap();
         assert!(
             client.shutdown(req_with_auth!(proto::Empty {}, TOKEN)).await.unwrap().get_ref().value
         );
