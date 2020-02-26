@@ -1,11 +1,9 @@
 mod low_level;
 pub mod message_handlers;
-mod p2p_event;
 #[cfg(test)]
 mod tests;
 
 use low_level::ConnectionLowLevel;
-pub use p2p_event::P2PEvent;
 
 use bytesize::ByteSize;
 use chrono::prelude::Utc;

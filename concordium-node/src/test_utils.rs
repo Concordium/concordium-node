@@ -92,7 +92,7 @@ pub fn make_node_and_sync(
     config.connection.housekeeping_interval = 10;
 
     let stats = Arc::new(StatsExportService::new(StatsServiceMode::NodeMode).unwrap());
-    let node = P2PNode::new(None, &config, None, node_type, stats, None);
+    let node = P2PNode::new(None, &config, node_type, stats, None);
 
     spawn(&node);
     Ok(node)

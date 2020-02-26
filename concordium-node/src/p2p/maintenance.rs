@@ -16,18 +16,17 @@ use crate::plugins::beta::get_username_from_jwt;
 use crate::{
     common::{get_current_stamp, P2PNodeId, P2PPeer, PeerType},
     configuration::{self as config, Config},
-    connection::{Connection, DeduplicationQueues, P2PEvent},
+    connection::{Connection, DeduplicationQueues},
     dumper::DumpItem,
     network::{Buckets, NetworkId},
     p2p::{
         bans::BanId,
-        connectivity::{accept, connect, connection_housekeeping, SERVER},
+        connectivity::{accept, connect, connection_housekeeping, SELF_TOKEN},
         peers::check_peers,
     },
     stats_export_service::StatsExportService,
     utils,
 };
-use concordium_common::QueueMsg::{self, Relay};
 use consensus_rust::{consensus::CALLBACK_QUEUE, transferlog::TRANSACTION_LOG_QUEUE};
 
 use std::{
@@ -47,7 +46,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub struct P2PNodeConfig {
+pub struct NodeConfig {
     pub no_net: bool,
     pub desired_nodes_count: u16,
     pub no_bootstrap_dns: bool,
@@ -86,9 +85,8 @@ pub type Networks = HashSet<NetworkId, BuildNoHashHasher<u16>>;
 pub type Connections = HashMap<Token, Arc<Connection>, BuildNoHashHasher<usize>>;
 
 pub struct ConnectionHandler {
-    pub server:           TcpListener,
-    pub next_id:          AtomicUsize,
-    pub event_log:        Option<Sender<QueueMsg<P2PEvent>>>,
+    pub socket_server:    TcpListener,
+    pub next_token:       AtomicUsize,
     pub buckets:          RwLock<Buckets>,
     pub log_dumper:       RwLock<Option<Sender<DumpItem>>>,
     pub connections:      RwLock<Connections>,
@@ -99,17 +97,12 @@ pub struct ConnectionHandler {
 }
 
 impl ConnectionHandler {
-    pub fn new(
-        conf: &Config,
-        server: TcpListener,
-        event_log: Option<Sender<QueueMsg<P2PEvent>>>,
-    ) -> Self {
+    pub fn new(conf: &Config, socket_server: TcpListener) -> Self {
         let networks = conf.common.network_ids.iter().cloned().map(NetworkId::from).collect();
 
         ConnectionHandler {
-            server,
-            next_id: AtomicUsize::new(1),
-            event_log,
+            socket_server,
+            next_token: AtomicUsize::new(1),
             buckets: RwLock::new(Buckets::new()),
             log_dumper: Default::default(),
             connections: Default::default(),
@@ -134,7 +127,7 @@ pub struct P2PNode {
     pub dump_switch:        Sender<(std::path::PathBuf, bool)>,
     pub dump_tx:            Sender<crate::dumper::DumpItem>,
     pub stats:              Arc<StatsExportService>,
-    pub config:             P2PNodeConfig,
+    pub config:             NodeConfig,
     pub start_time:         DateTime<Utc>,
     pub is_rpc_online:      AtomicBool,
     pub is_terminated:      AtomicBool,
@@ -147,7 +140,6 @@ impl P2PNode {
     pub fn new(
         supplied_id: Option<String>,
         conf: &Config,
-        event_log: Option<Sender<QueueMsg<P2PEvent>>>,
         peer_type: PeerType,
         stats: Arc<StatsExportService>,
         data_dir_path: Option<PathBuf>,
@@ -167,7 +159,6 @@ impl P2PNode {
 
         trace!("Creating new P2PNode");
 
-        // Retrieve IP address octets, format to IP and SHA256 hash it
         let ip = if let Some(ref addy) = conf.common.listen_address {
             IpAddr::from_str(addy)
                 .unwrap_or_else(|_| P2PNode::get_ip().expect("Couldn't retrieve my own ip"))
@@ -197,7 +188,7 @@ impl P2PNode {
         let server =
             TcpListener::bind(&addr).unwrap_or_else(|_| panic!("Couldn't listen on port!"));
 
-        if poll.register(&server, SERVER, Ready::readable(), PollOpt::level()).is_err() {
+        if poll.register(&server, SELF_TOKEN, Ready::readable(), PollOpt::level()).is_err() {
             panic!("Couldn't register server with poll!")
         };
 
@@ -223,7 +214,7 @@ impl P2PNode {
             None
         };
 
-        let config = P2PNodeConfig {
+        let config = NodeConfig {
             no_net: conf.cli.no_network,
             desired_nodes_count: conf.connection.desired_nodes,
             no_bootstrap_dns: conf.connection.no_bootstrap_dns,
@@ -281,7 +272,7 @@ impl P2PNode {
             breakage,
         };
 
-        let connection_handler = ConnectionHandler::new(conf, server, event_log);
+        let connection_handler = ConnectionHandler::new(conf, server);
 
         // Create the node key-value store environment
         let kvs = Manager::singleton()
@@ -312,22 +303,27 @@ impl P2PNode {
         node
     }
 
+    /// Get the timestamp of the node's last bootstrap attempt.
     pub fn get_last_bootstrap(&self) -> u64 {
         self.connection_handler.last_bootstrap.load(Ordering::Relaxed)
     }
 
+    /// Update the timestamp of the last bootstrap attempt.
     pub fn update_last_bootstrap(&self) {
         self.connection_handler.last_bootstrap.store(get_current_stamp(), Ordering::Relaxed);
     }
 
     fn is_bucket_cleanup_enabled(&self) -> bool { self.config.timeout_bucket_entry_period > 0 }
 
+    /// A convenience method for accessing the collection of node's connections.
     #[inline]
     pub fn connections(&self) -> &RwLock<Connections> { &self.connection_handler.connections }
 
+    /// A convenience method for accessing the collection of  node's networks.
     #[inline]
     pub fn networks(&self) -> &RwLock<Networks> { &self.connection_handler.networks }
 
+    /// Activate the network dump feature.
     #[cfg(feature = "network_dump")]
     pub fn activate_dump(&self, path: &str, raw: bool) -> Fallible<()> {
         let path = std::path::PathBuf::from(path);
@@ -336,6 +332,7 @@ impl P2PNode {
         Ok(())
     }
 
+    /// Deactivate the network dump feature.
     #[cfg(feature = "network_dump")]
     pub fn stop_dump(&self) -> Fallible<()> {
         let path = std::path::PathBuf::new();
@@ -344,46 +341,44 @@ impl P2PNode {
         Ok(())
     }
 
+    /// Start dumping network data to the disk.
     pub fn dump_start(&self, log_dumper: Sender<DumpItem>) {
         *write_or_die!(self.connection_handler.log_dumper) = Some(log_dumper);
     }
 
+    /// Stop dumping network data to the disk.
     pub fn dump_stop(&self) { *write_or_die!(self.connection_handler.log_dumper) = None; }
 
-    /// Waits for P2PNode termination. Use `P2PNode::close` to notify the
-    /// termination.
+    /// Waits for `P2PNode` termination (`P2PNode::close` shuts it down).
     pub fn join(&self) -> Fallible<()> {
         for handle in
             mem::replace(&mut write_or_die!(self.threads).join_handles, Default::default())
         {
             if let Err(e) = handle.join() {
-                bail!("Thread join error: {:?}", e);
+                error!("Can't join a node thread: {:?}", e);
             }
         }
         Ok(())
     }
 
+    /// Get the node's client version.
     pub fn get_version(&self) -> String { crate::VERSION.to_string() }
 
+    /// Get the node's identifier.
     pub fn id(&self) -> P2PNodeId { self.self_peer.id }
 
+    /// Get the node's `PeerType`.
     #[inline]
     pub fn peer_type(&self) -> PeerType { self.self_peer.peer_type }
 
-    pub fn log_event(&self, event: P2PEvent) {
-        if let Some(ref log) = self.connection_handler.event_log {
-            if let Err(e) = log.send(Relay(event)) {
-                error!("Couldn't send error {:?}", e)
-            }
-        }
-    }
-
+    /// Get the node's uptime in milliseconds.
     pub fn get_uptime(&self) -> i64 {
         Utc::now().timestamp_millis() - self.start_time.timestamp_millis()
     }
 
+    /// Procure an IP address for the node.
     #[cfg(not(windows))]
-    pub fn get_ip() -> Option<IpAddr> {
+    fn get_ip() -> Option<IpAddr> {
         let localhost = Ipv4Addr::LOCALHOST;
         let mut ip: IpAddr = IpAddr::V4(localhost);
 
@@ -401,6 +396,7 @@ impl P2PNode {
         }
     }
 
+    /// Procure an IP address for the node.
     #[cfg(windows)]
     pub fn get_ip() -> Option<IpAddr> {
         let localhost = Ipv4Addr::LOCALHOST;
@@ -423,14 +419,17 @@ impl P2PNode {
         }
     }
 
+    /// Get the IP of the node.
     pub fn internal_addr(&self) -> SocketAddr { self.self_peer.addr }
 
+    /// Shut the node down gracefully without terminating its threads.
     pub fn close(&self) -> bool {
         info!("P2PNode shutting down.");
         self.is_terminated.store(true, Ordering::Relaxed);
         CALLBACK_QUEUE.stop().is_ok() && TRANSACTION_LOG_QUEUE.stop().is_ok()
     }
 
+    /// Shut the node down gracefully and terminate its threads.
     pub fn close_and_join(&self) -> Fallible<()> {
         self.close();
         self.join()
@@ -444,6 +443,7 @@ impl P2PNode {
     }
 }
 
+/// Spawn the node's poll thread.
 pub fn spawn(node: &Arc<P2PNode>) {
     let self_clone = Arc::clone(node);
     let poll_thread = spawn_or_die!("Poll thread", {
@@ -476,7 +476,7 @@ pub fn spawn(node: &Arc<P2PNode>) {
 
             // perform socket reads and writes in parallel across connections
             // check for new connections
-            let _new_conn = if events.iter().any(|event| event.token() == SERVER) {
+            let _new_conn = if events.iter().any(|event| event.token() == SELF_TOKEN) {
                 debug!("Got a new connection!");
                 accept(&self_clone).map_err(|e| error!("{}", e)).ok()
             } else {
@@ -544,6 +544,7 @@ pub fn spawn(node: &Arc<P2PNode>) {
     write_or_die!(node.threads).join_handles.push(poll_thread);
 }
 
+/// Try to bootstrap the node based on the addresses in the config.
 pub fn attempt_bootstrap(node: &Arc<P2PNode>) {
     if !node.config.no_net {
         info!("Attempting to bootstrap");

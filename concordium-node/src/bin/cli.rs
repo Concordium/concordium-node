@@ -7,10 +7,7 @@ use std::alloc::System;
 #[global_allocator]
 static A: System = System;
 
-use concordium_common::{
-    spawn_or_die,
-    QueueMsg::{self, Relay},
-};
+use concordium_common::{spawn_or_die, QueueMsg};
 use consensus_rust::{
     consensus::{
         ConsensusContainer, ConsensusLogLevel, CALLBACK_QUEUE, CONSENSUS_QUEUE_DEPTH_IN_HI,
@@ -210,28 +207,7 @@ fn instantiate_node(
 
     let data_dir_path = app_prefs.get_user_app_dir();
 
-    // Start the thread reading P2PEvents from P2PNode
-    let event_sender = if conf.common.debug {
-        let (sender, receiver) = crossbeam_channel::bounded(config::EVENT_LOG_QUEUE_DEPTH);
-        let _guard = spawn_or_die!("Log loop", move || loop {
-            if let Ok(Relay(msg)) = receiver.recv() {
-                info!("{}", msg);
-            }
-        });
-
-        Some(sender)
-    } else {
-        None
-    };
-
-    P2PNode::new(
-        node_id,
-        &conf,
-        event_sender,
-        PeerType::Node,
-        stats_export_service,
-        Some(data_dir_path),
-    )
+    P2PNode::new(node_id, &conf, PeerType::Node, stats_export_service, Some(data_dir_path))
 }
 
 fn establish_connections(conf: &config::Config, node: &Arc<P2PNode>) {

@@ -9,9 +9,7 @@ use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use crate::{
     common::{get_current_stamp, P2PNodeId, PeerType, RemotePeer},
     configuration as config,
-    connection::{
-        send_pending_messages, Connection, DeduplicationQueues, MessageSendingPriority, P2PEvent,
-    },
+    connection::{send_pending_messages, Connection, DeduplicationQueues, MessageSendingPriority},
     network::{
         NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkPacketType,
         NetworkRequest,
@@ -29,7 +27,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub const SERVER: Token = Token(0);
+/// The poll token of the node.
+pub const SELF_TOKEN: Token = Token(0);
 
 // a convenience macro to send an object to all connections
 macro_rules! send_to_all {
@@ -293,7 +292,7 @@ impl P2PNode {
 
 pub fn accept(node: &Arc<P2PNode>) -> Fallible<Token> {
     let self_peer = node.self_peer;
-    let (socket, addr) = node.connection_handler.server.accept()?;
+    let (socket, addr) = node.connection_handler.socket_server.accept()?;
     node.stats.conn_received_inc();
 
     {
@@ -320,7 +319,7 @@ pub fn accept(node: &Arc<P2PNode>) -> Fallible<Token> {
 
     debug!("Accepting new connection from {:?} to {:?}:{}", addr, self_peer.ip(), self_peer.port());
 
-    let token = Token(node.connection_handler.next_id.fetch_add(1, Ordering::SeqCst));
+    let token = Token(node.connection_handler.next_token.fetch_add(1, Ordering::SeqCst));
 
     let remote_peer = RemotePeer {
         id: Default::default(),
@@ -333,7 +332,6 @@ pub fn accept(node: &Arc<P2PNode>) -> Fallible<Token> {
 
     conn.register(&node.poll)?;
     node.add_connection(conn);
-    node.log_event(P2PEvent::ConnectEvent(addr));
 
     Ok(token)
 }
@@ -398,12 +396,11 @@ pub fn connect(
         }
     }
 
-    node.log_event(P2PEvent::InitiatingConnection(addr));
     match TcpStream::connect(&addr) {
         Ok(socket) => {
             node.stats.conn_received_inc();
 
-            let token = Token(node.connection_handler.next_id.fetch_add(1, Ordering::SeqCst));
+            let token = Token(node.connection_handler.next_token.fetch_add(1, Ordering::SeqCst));
 
             let remote_peer = RemotePeer {
                 id: Default::default(),
@@ -417,8 +414,6 @@ pub fn connect(
             conn.register(&node.poll)?;
 
             write_lock_connections.insert(conn.token, conn);
-
-            node.log_event(P2PEvent::ConnectEvent(addr));
 
             if let Some(ref conn) = write_lock_connections.get(&token).map(|conn| Arc::clone(conn))
             {

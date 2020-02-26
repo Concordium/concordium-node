@@ -1,7 +1,7 @@
 use crate::{
     common::{get_current_stamp, P2PPeer, PeerType},
     configuration::COMPATIBLE_CLIENT_VERSIONS,
-    connection::{Connection, P2PEvent},
+    connection::Connection,
     network::{
         Handshake, NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket,
         NetworkPacketType, NetworkRequest, NetworkResponse,
@@ -9,7 +9,7 @@ use crate::{
     p2p::{bans::BanId, connectivity::connect},
     plugins::consensus::*,
 };
-use concordium_common::{read_or_die, write_or_die, QueueMsg::Relay};
+use concordium_common::{read_or_die, write_or_die};
 
 use failure::{Error, Fallible};
 
@@ -148,12 +148,6 @@ impl Connection {
         safe_write!(self.handler().connection_handler.buckets)?
             .update_network_ids(&remote_peer, read_or_die!(self.remote_end_networks).to_owned());
 
-        if let Some(ref log) = self.handler().connection_handler.event_log {
-            if log.send(Relay(P2PEvent::JoinedNetwork(remote_peer, network))).is_err() {
-                error!("A JoinNetwork Event cannot be sent to the P2PEvent log");
-            }
-        }
-
         Ok(())
     }
 
@@ -166,12 +160,6 @@ impl Connection {
         self.remove_remote_end_network(network);
         safe_write!(self.handler().connection_handler.buckets)?
             .update_network_ids(&remote_peer, read_or_die!(self.remote_end_networks).to_owned());
-
-        if let Some(ref log) = self.handler().connection_handler.event_log {
-            if log.send(Relay(P2PEvent::LeftNetwork(remote_peer, network))).is_err() {
-                error!("Left Network Event cannot be sent to the P2PEvent log");
-            }
-        };
 
         Ok(())
     }
