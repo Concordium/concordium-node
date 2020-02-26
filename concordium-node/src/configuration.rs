@@ -117,8 +117,6 @@ pub struct BakerConfig {
     pub profiling_sampling_interval: String,
     #[structopt(long = "haskell-gc-logging", help = "Enable Haskell garbage collection logging")]
     pub gc_logging: Option<String>,
-    #[structopt(long = "persist-global-state", help = "Persist the the global state store")]
-    pub persist_global_state: bool,
     #[structopt(
         long = "maximum-block-size",
         help = "Maximum block size in bytes",
@@ -162,12 +160,6 @@ pub struct ConnectionConfig {
         default_value = "7"
     )]
     pub desired_nodes: u16,
-    #[structopt(
-        long = "max-resend-attempts",
-        help = "Maximum number of times a packet is attempted to be resent",
-        default_value = "5"
-    )]
-    pub max_resend_attempts: u8,
     #[structopt(long = "max-allowed-nodes", help = "Maximum nodes to allow a connection to")]
     pub max_allowed_nodes: Option<u16>,
     #[structopt(
@@ -191,11 +183,6 @@ pub struct ConnectionConfig {
         default_value = "bootstrap.p2p.concordium.com"
     )]
     pub bootstrap_server: String,
-    #[structopt(
-        long = "global-state-catch-up-requests",
-        help = "Should global state produce catch-up requests"
-    )]
-    pub global_state_catch_up_requests: bool,
     #[structopt(
         long = "connect-to",
         short = "c",
@@ -281,8 +268,6 @@ pub struct ConnectionConfig {
 #[derive(StructOpt, Debug)]
 /// Common configuration for the three modes
 pub struct CommonConfig {
-    #[structopt(long = "external-ip", help = "Own external IP")]
-    pub external_ip: Option<String>,
     #[structopt(long = "external-port", help = "Own external port")]
     pub external_port: Option<u16>,
     #[structopt(

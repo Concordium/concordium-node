@@ -57,7 +57,6 @@ pub struct P2PNodeConfig {
     pub bootstrap_nodes: Vec<String>,
     pub max_allowed_nodes: u16,
     pub relay_broadcast_percentage: f64,
-    pub global_state_catch_up_requests: bool,
     pub poll_interval: u64,
     pub housekeeping_interval: u64,
     pub bootstrapping_interval: u64,
@@ -244,7 +243,6 @@ impl P2PNode {
                 ) as u16
             },
             relay_broadcast_percentage: conf.connection.relay_broadcast_percentage,
-            global_state_catch_up_requests: conf.connection.global_state_catch_up_requests,
             poll_interval: conf.cli.poll_interval,
             housekeeping_interval: conf.connection.housekeeping_interval,
             bootstrapping_interval: conf.connection.bootstrapping_interval,
