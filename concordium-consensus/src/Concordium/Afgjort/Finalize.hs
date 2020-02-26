@@ -318,20 +318,24 @@ handleWMVBAOutputEvents evs = do
                     handleEvs True evs'
                 handleEvs True (WMVBAComplete _ : evs') = handleEvs True evs'
                 handleEvs b (WMVBADelay delay action : evs') = do
-                    _ <- onTimeout (DelayFor delay) (triggerWMVBA roundDelta action)
+                    _ <- onTimeout (DelayFor delay) (triggerWMVBA _finsSessionId _finsIndex roundDelta action)
                     handleEvs b evs'
             handleEvs False evs
 
 triggerWMVBA :: (BlockPointerMonad m, FinalizationMonad s m)
-    => BlockHeight
+    => FinalizationSessionId
+    -> FinalizationIndex
+    -> BlockHeight
     -- ^Round delta
     -> DelayedABBAAction
     -> m ()
-triggerWMVBA delta act = do
-    use (finState . finCurrentRound) >>= \case
-        Just finRound
-            | roundDelta finRound == delta -> liftWMVBA (triggerWMVBAAction act)
-        _ -> return ()
+triggerWMVBA sessId finIx delta act = do
+    FinalizationState{..} <- use finState
+    when (_finsSessionId == sessId && _finsIndex == finIx) $
+        use (finState . finCurrentRound) >>= \case
+            Just finRound
+                | roundDelta finRound == delta -> liftWMVBA (triggerWMVBAAction act)
+            _ -> return ()
 
 roundBaid :: FinalizationSessionId -> FinalizationIndex -> BlockHeight -> BS.ByteString
 roundBaid finSessId finIx finDelta = runPut $ do

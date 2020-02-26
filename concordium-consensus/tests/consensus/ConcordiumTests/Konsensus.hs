@@ -17,6 +17,7 @@ import Data.Time.Clock
 import qualified Data.PQueue.Prio.Min as MPQ
 import System.Random
 import Control.Monad.Trans.State
+import Data.Ratio
 
 import Concordium.Crypto.SHA256
 
@@ -59,7 +60,7 @@ import Test.QuickCheck
 import Test.QuickCheck.Monadic
 import Test.Hspec
 
--- import Debug.Trace
+import Debug.Trace
 
 dummyTime :: UTCTime
 dummyTime = posixSecondsToUTCTime 0
@@ -184,9 +185,13 @@ invariantSkovData TS.SkovData{..} = do
 invariantSkovFinalization :: SkovState (Config t) -> Either String ()
 invariantSkovFinalization (SkovState sd@TS.SkovData{..} FinalizationState{..} _) = do
         invariantSkovData sd
-        let (_ Seq.:|> (lfr, lfb)) = _finalizationList
+        let (flHead Seq.:|> (lfr, lfb)) = _finalizationList
         checkBinary (==) _finsIndex (succ $ finalizationIndex lfr) "==" "current finalization index" "successor of last finalized index"
-        checkBinary (==) _finsHeight (bpHeight lfb + max (1 + _finsMinSkip) ((bpHeight lfb - bpHeight (BS._bpLastFinalized lfb)) `div` 2)) "==" "finalization height"  "calculated finalization height"
+        let nextGap = case flHead of
+                Seq.Empty -> max (1 + _finsMinSkip) 5
+                (_ Seq.:|> (_, pfb)) -> let oldGap = bpHeight lfb - bpHeight pfb in
+                    max (1 + _finsMinSkip) $ if (bpHeight lfb - bpHeight (BS._bpLastFinalized lfb)) == oldGap then ceiling ((oldGap * 4) % 5) else 2 * oldGap
+        checkBinary (==) _finsHeight (bpHeight lfb + nextGap) "==" "finalization height"  "calculated finalization height"
         -- This test assumes that this party should be a member of the finalization committee
         when (null _finsCurrentRound) $ Left "No current finalization round"
         forM_ _finsCurrentRound $ \FinalizationRound{..} -> do

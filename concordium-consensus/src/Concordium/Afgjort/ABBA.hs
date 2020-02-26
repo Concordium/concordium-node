@@ -178,7 +178,7 @@ data DelayedABBAAction
     = HandleCoreSet !Phase !CoreSet
     | CSSFinishReporting !Phase
     | CompletePhase !Phase !Bool !Word8
-    deriving (Show)
+    deriving (Eq,Show)
 
 -- |Representation of (output) events associated with the ABBA protocol.
 data ABBAOutputEvent

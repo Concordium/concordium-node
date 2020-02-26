@@ -43,12 +43,14 @@ data ABBAInput
     = JustifyABBAChoice Choice
     | ReceiveABBAMessage Party ABBAMessage
     | BeginABBA Choice
+    | DelayedAction DelayedABBAAction
     deriving (Eq,Show)
 
 makeInput :: ABBAInput -> ABBA () ()
 makeInput (JustifyABBAChoice c) = justifyABBAChoice c
 makeInput (ReceiveABBAMessage p m) = receiveABBAMessage p m ()
 makeInput (BeginABBA c) = beginABBA c
+makeInput (DelayedAction a) = triggerABBAAction a
 
 -- |Pick an element from a sequence, returning the element
 -- and the sequence with that element removed.
@@ -90,6 +92,7 @@ runABBATestRG g0 baid nparties allparties vrfkeys = go g0 iStates iResults
         checkRes g r = r == g
         fromOut src (SendABBAMessage msg) = (Seq.fromList [(i,ReceiveABBAMessage src msg)|i <- parties], mempty)
         fromOut _ (ABBAComplete c) = (mempty, First (Just c))
+        fromOut src (ABBADelay _ a) = (Seq.singleton (src, DelayedAction a), mempty)
         parties = [0..fromIntegral nparties-1]
 
 
@@ -151,6 +154,7 @@ runABBATest2 g0 baid nparties allparties vrfkeys = go g0 iStates iResults
         checkRes g r = r == g
         fromOut src (SendABBAMessage msg) = (Seq.fromList [(i,ReceiveABBAMessage src msg)|i <- parties], mempty)
         fromOut _ (ABBAComplete c) = (mempty, First (Just c))
+        fromOut src (ABBADelay _ a) = (Seq.singleton (src, DelayedAction a), mempty)
         parties = [0..fromIntegral nparties-1]
 
 makeKeys :: Int -> Gen (Vec.Vector VRF.KeyPair)
