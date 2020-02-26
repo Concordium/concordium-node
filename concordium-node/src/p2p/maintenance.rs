@@ -46,7 +46,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub struct P2PNodeConfig {
+pub struct NodeConfig {
     pub no_net: bool,
     pub desired_nodes_count: u16,
     pub no_bootstrap_dns: bool,
@@ -127,7 +127,7 @@ pub struct P2PNode {
     pub dump_switch:        Sender<(std::path::PathBuf, bool)>,
     pub dump_tx:            Sender<crate::dumper::DumpItem>,
     pub stats:              Arc<StatsExportService>,
-    pub config:             P2PNodeConfig,
+    pub config:             NodeConfig,
     pub start_time:         DateTime<Utc>,
     pub is_rpc_online:      AtomicBool,
     pub is_terminated:      AtomicBool,
@@ -214,7 +214,7 @@ impl P2PNode {
             None
         };
 
-        let config = P2PNodeConfig {
+        let config = NodeConfig {
             no_net: conf.cli.no_network,
             desired_nodes_count: conf.connection.desired_nodes,
             no_bootstrap_dns: conf.connection.no_bootstrap_dns,
