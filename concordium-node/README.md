@@ -23,7 +23,6 @@ This repository relies on git submodules for internal component dependencies, so
 * s11n_serde_msgpack - enables serialization using [rmp-serde](https://crates.io/crates/rmp-serde) (only used in benches)
 * s11n_capnp - enables serialization using [Cap'n'Proto](https://crates.io/crates/capnp) (only used in benches)
 * instrumentation - enables stats data exporting to [prometheus](https://crates.io/crates/prometheus)
-* benchmark - enables the TPS testing
 * network_dump - makes the network dumping capabilites available.
 * static - build against static haskell libraries in GIT LFS (Linux only)
 * profiling - build against haskell libraries in GIT LFS with profiling support enabled (Linux only)
