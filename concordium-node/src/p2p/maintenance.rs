@@ -119,21 +119,40 @@ pub struct P2PNodeThreads {
     pub join_handles: Vec<JoinHandle<()>>,
 }
 
+#[cfg(feature = "network_dump")]
+pub struct NetworkDumper {
+    switch: Sender<(std::path::PathBuf, bool)>,
+    sender: Sender<crate::dumper::DumpItem>,
+}
+
+#[cfg(feature = "network_dump")]
+impl NetworkDumper {
+    fn new(ip: IpAddr, id: P2PNodeId, config: &Config) -> Self {
+        let (dump_tx, dump_rx) = crossbeam_channel::bounded(config::DUMP_QUEUE_DEPTH);
+        let (act_tx, act_rx) = crossbeam_channel::bounded(config::DUMP_SWITCH_QUEUE_DEPTH);
+        create_dump_thread(ip, id, dump_rx, act_rx, &config.common.data_dir);
+
+        Self {
+            switch: act_tx,
+            sender: dump_tx,
+        }
+    }
+}
+
 pub struct P2PNode {
-    pub self_peer:          P2PPeer,
-    pub threads:            RwLock<P2PNodeThreads>,
-    pub poll:               Poll,
+    pub self_peer: P2PPeer,
+    pub threads: RwLock<P2PNodeThreads>,
+    pub poll: Poll,
     pub connection_handler: ConnectionHandler,
-    pub dump_switch:        Sender<(std::path::PathBuf, bool)>,
-    pub dump_tx:            Sender<crate::dumper::DumpItem>,
-    pub stats:              Arc<StatsExportService>,
-    pub config:             NodeConfig,
-    pub start_time:         DateTime<Utc>,
-    pub is_rpc_online:      AtomicBool,
-    pub is_terminated:      AtomicBool,
-    pub kvs:                Arc<RwLock<Rkv>>,
-    pub total_received:     AtomicU64,
-    pub total_sent:         AtomicU64,
+    #[cfg(feature = "network_dump")]
+    pub network_dumper: NetworkDumper,
+    pub stats: Arc<StatsExportService>,
+    pub config: NodeConfig,
+    pub start_time: DateTime<Utc>,
+    pub is_terminated: AtomicBool,
+    pub kvs: Arc<RwLock<Rkv>>,
+    pub total_received: AtomicU64,
+    pub total_sent: AtomicU64,
 }
 
 impl P2PNode {
@@ -199,12 +218,6 @@ impl P2PNode {
         };
 
         let self_peer = P2PPeer::from(peer_type, id, SocketAddr::new(ip, own_peer_port));
-
-        let (dump_tx, _dump_rx) = crossbeam_channel::bounded(config::DUMP_QUEUE_DEPTH);
-        let (act_tx, _act_rx) = crossbeam_channel::bounded(config::DUMP_SWITCH_QUEUE_DEPTH);
-
-        #[cfg(feature = "network_dump")]
-        create_dump_thread(ip, id, _dump_rx, _act_rx, &conf.common.data_dir);
 
         let breakage = if let (Some(ty), Some(tgt), Some(lvl)) =
             (&conf.cli.breakage_type, conf.cli.breakage_target, conf.cli.breakage_level)
@@ -286,9 +299,8 @@ impl P2PNode {
             start_time: Utc::now(),
             threads: RwLock::new(P2PNodeThreads::default()),
             config,
-            dump_switch: act_tx,
-            dump_tx,
-            is_rpc_online: AtomicBool::new(false),
+            #[cfg(feature = "network_dump")]
+            network_dumper: NetworkDumper::new(ip, id, conf),
             connection_handler,
             self_peer,
             stats,
@@ -327,8 +339,8 @@ impl P2PNode {
     #[cfg(feature = "network_dump")]
     pub fn activate_dump(&self, path: &str, raw: bool) -> Fallible<()> {
         let path = std::path::PathBuf::from(path);
-        self.dump_switch.send((path, raw))?;
-        self.dump_start(self.dump_tx.clone());
+        self.network_dumper.switch.send((path, raw))?;
+        self.dump_start(self.network_dumper.sender.clone());
         Ok(())
     }
 
@@ -336,7 +348,7 @@ impl P2PNode {
     #[cfg(feature = "network_dump")]
     pub fn stop_dump(&self) -> Fallible<()> {
         let path = std::path::PathBuf::new();
-        self.dump_switch.send((path, false))?;
+        self.network_dumper.switch.send((path, false))?;
         self.dump_stop();
         Ok(())
     }
@@ -433,13 +445,6 @@ impl P2PNode {
     pub fn close_and_join(&self) -> Fallible<()> {
         self.close();
         self.join()
-    }
-
-    pub fn rpc_subscription_start(&self) { self.is_rpc_online.store(true, Ordering::Relaxed); }
-
-    pub fn rpc_subscription_stop(&self) -> bool {
-        self.is_rpc_online.store(false, Ordering::Relaxed);
-        true
     }
 }
 
