@@ -50,7 +50,6 @@ pub mod plugins;
 
 pub mod dumper;
 pub mod rpc;
-pub mod stats_engine;
 pub mod stats_export_service;
 pub mod utils;
 

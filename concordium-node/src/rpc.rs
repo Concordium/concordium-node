@@ -1,7 +1,3 @@
-#[cfg(feature = "benchmark")]
-use crate::p2p::connectivity::send_direct_message;
-#[cfg(feature = "benchmark")]
-use crate::utils;
 use crate::{
     common::{P2PNodeId, PeerType},
     configuration,
@@ -621,53 +617,6 @@ impl P2p for RpcServerImpl {
         Ok(Response::new(BoolResponse {
             value: self.node.close(),
         }))
-    }
-
-    #[cfg(feature = "benchmark")]
-    async fn tps_test(&self, req: Request<TpsRequest>) -> Result<Response<BoolResponse>, Status> {
-        authenticate!(req, self.access_token);
-        let req = req.get_ref();
-        let (network_id, id, dir) =
-            (NetworkId::from(req.network_id as u16), req.id.clone(), req.directory.clone());
-        let node_list = self.node.get_peer_stats(None);
-        if !node_list.into_iter().any(|s| P2PNodeId(s.id).to_string() == id) {
-            Err(Status::new(
-                Code::FailedPrecondition,
-                "I don't have the peers needed to fulfill the TpsTest request!",
-            ))
-        } else {
-            let test_messages = utils::get_tps_test_messages(Some(dir));
-            let result = !(test_messages.into_iter().map(|message| {
-                let out_bytes_len = message.len();
-                let to_send = P2PNodeId::from_str(&id).ok();
-                match send_direct_message(
-                    &self.node,
-                    self.node.self_peer.id,
-                    to_send,
-                    network_id,
-                    Arc::from(message),
-                ) {
-                    Ok(_) => {
-                        info!("Sent TPS test bytes of len {}", out_bytes_len);
-                        Ok(())
-                    }
-                    Err(_) => {
-                        error!("Couldn't send TPS test message!");
-                        Err(())
-                    }
-                }
-            }))
-            .any(|res| res.is_err());
-            Ok(Response::new(BoolResponse {
-                value: result,
-            }))
-        }
-    }
-
-    #[cfg(not(feature = "benchmark"))]
-    async fn tps_test(&self, _req: Request<TpsRequest>) -> Result<Response<BoolResponse>, Status> {
-        warn!("TpsTest RPC request received, but the \"benchmark\" feature is not active");
-        Err(Status::new(Code::Unavailable, "Feature \"benchmark\" is not active"))
     }
 
     #[cfg(not(feature = "network_dump"))]

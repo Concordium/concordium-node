@@ -86,28 +86,6 @@ pub struct PrometheusConfig {
     pub prometheus_push_interval: u64,
 }
 
-#[cfg(feature = "benchmark")]
-#[derive(StructOpt, Debug)]
-/// Flags related to TPS (only used in Cli)
-pub struct TpsConfig {
-    #[structopt(long = "enable-tps-test-recv", help = "Enable TPS test recv")]
-    pub enable_tps_test: bool,
-    #[structopt(long = "tps-test-recv-id", help = "Receiver of TPS test")]
-    pub tps_test_recv_id: Option<String>,
-    #[structopt(
-        long = "tps-stats-save-amount",
-        help = "Amount of stats to save for TPS statistics",
-        default_value = "10000"
-    )]
-    pub tps_stats_save_amount: u64,
-    #[structopt(
-        long = "tps-message-count",
-        help = "Amount of messages to be sent and received",
-        default_value = "1000"
-    )]
-    pub tps_message_count: u64,
-}
-
 #[derive(StructOpt, Debug)]
 /// Flags related to Baking (only used in Cli)
 pub struct BakerConfig {
@@ -372,9 +350,6 @@ pub struct CliConfig {
     pub poll_interval: u64,
     #[structopt(flatten)]
     pub baker: BakerConfig,
-    #[cfg(feature = "benchmark")]
-    #[structopt(flatten)]
-    pub tps: TpsConfig,
     #[structopt(flatten)]
     pub rpc: RpcCliConfig,
     #[cfg(feature = "elastic_logging")]

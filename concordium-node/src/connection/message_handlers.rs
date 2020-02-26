@@ -199,23 +199,6 @@ impl Connection {
             _ => false,
         };
 
-        #[cfg(feature = "benchmark")]
-        {
-            if !is_broadcast && self.handler().config.enable_tps_test {
-                let mut stats_engine = write_or_die!(self.handler().stats_engine);
-                stats_engine.add_stat(pac.message.len() as u64);
-
-                if stats_engine.msg_count == self.handler().config.tps_message_count {
-                    info!(
-                        "TPS over {} messages is {}",
-                        self.handler().config.tps_message_count,
-                        stats_engine.calculate_total_tps_average()
-                    );
-                    stats_engine.clear();
-                }
-            }
-        }
-
         let dont_relay_to =
             if let NetworkPacketType::BroadcastedMessage(ref peers) = pac.packet_type {
                 let mut list = peers.clone();
