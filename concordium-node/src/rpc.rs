@@ -700,9 +700,7 @@ mod tests {
     const TOKEN: &str = "rpcadmin";
 
     // The intended use is for spawning nodes for testing gRPC api.
-    async fn create_node_rpc_call_option(
-        nt: PeerType,
-    ) -> Fallible<(P2pClient<Channel>, Arc<P2PNode>)> {
+    async fn create_test_rpc_node(nt: PeerType) -> Fallible<(P2pClient<Channel>, Arc<P2PNode>)> {
         let node = make_node_and_sync(next_available_port(), vec![100], nt).unwrap();
 
         let rpc_port = next_available_port();
@@ -724,7 +722,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_grpc_noauth() -> Fallible<()> {
-        let (mut client, _) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
+        let (mut client, _) = create_test_rpc_node(PeerType::Node).await.unwrap();
 
         match client.peer_version(req_with_auth!(proto::Empty {}, "derp")).await {
             Err(status) => assert_eq!(status.code(), Code::Unauthenticated),
@@ -736,7 +734,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_peer_version() -> Fallible<()> {
-        let (mut client, _) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
+        let (mut client, _) = create_test_rpc_node(PeerType::Node).await.unwrap();
         assert_eq!(
             client
                 .peer_version(req_with_auth!(proto::Empty {}, TOKEN))
@@ -752,7 +750,7 @@ mod tests {
     #[tokio::test]
     async fn test_peer_uptime() -> Fallible<()> {
         let t0 = Utc::now().timestamp_millis() as u64;
-        let (mut client, _) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
+        let (mut client, _) = create_test_rpc_node(PeerType::Node).await.unwrap();
 
         let req = || req_with_auth!(proto::Empty {}, TOKEN);
 
@@ -769,7 +767,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_peer_total_received() -> Fallible<()> {
-        let (mut client, node) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
+        let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let port = next_available_port();
         let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
         connect(&node2, &node)?;
@@ -786,7 +784,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_peer_total_sent() -> Fallible<()> {
-        let (mut client, node) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
+        let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let port = next_available_port();
         let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
         connect(&node2, &node)?;
@@ -801,13 +799,33 @@ mod tests {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn test_peer_connect() -> Fallible<()> {
+        let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
+        let port = next_available_port();
+        let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
+        let _sent = client
+            .peer_connect(req_with_auth!(
+                proto::PeerConnectRequest {
+                    ip:   Some(node2.internal_addr().ip().to_string()),
+                    port: Some(node2.internal_addr().port() as i32),
+                },
+                TOKEN
+            ))
+            .await
+            .unwrap();
+        await_handshake(&node2)?;
+        await_handshake(&node)?;
+        Ok(())
+    }
+
     // test_send_transaction is not implemented as it is more of an integration test
     // rather that a unit test. The corresponding flow test is in
     // `tests/consensus-tests.rs`
 
     #[tokio::test]
     async fn test_join_network() -> Fallible<()> {
-        let (mut client, node) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
+        let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let port = next_available_port();
         let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
         connect(&node2, &node)?;
@@ -825,7 +843,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_leave_network() -> Fallible<()> {
-        let (mut client, node) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
+        let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let port = next_available_port();
         let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
         connect(&node2, &node)?;
@@ -843,7 +861,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_peer_stats() -> Fallible<()> {
-        let (mut client, node) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
+        let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let port = next_available_port();
         let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
         connect(&node2, &node)?;
@@ -864,7 +882,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_peer_list() -> Fallible<()> {
-        let (mut client, node) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
+        let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let req = || {
             req_with_auth!(
                 proto::PeersRequest {
@@ -895,7 +913,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_grpc_peer_list_bootstrapper() -> Fallible<()> {
-        let (mut client, _) = create_node_rpc_call_option(PeerType::Bootstrapper).await.unwrap();
+        let (mut client, _) = create_test_rpc_node(PeerType::Bootstrapper).await.unwrap();
         let req = req_with_auth!(
             proto::PeersRequest {
                 include_bootstrappers: true,
@@ -910,7 +928,7 @@ mod tests {
     #[tokio::test]
     async fn test_node_info() -> Fallible<()> {
         let instant1 = (Utc::now().timestamp_millis() as u64) / 1000;
-        let (mut client, node) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
+        let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let reply = client.node_info(req_with_auth!(proto::Empty {}, TOKEN)).await.unwrap();
         let reply = reply.get_ref();
         let instant2 = (Utc::now().timestamp_millis() as u64) / 1000;
@@ -938,7 +956,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_shutdown() -> Fallible<()> {
-        let (mut client, _) = create_node_rpc_call_option(PeerType::Node).await.unwrap();
+        let (mut client, _) = create_test_rpc_node(PeerType::Node).await.unwrap();
         assert!(
             client.shutdown(req_with_auth!(proto::Empty {}, TOKEN)).await.unwrap().get_ref().value
         );
