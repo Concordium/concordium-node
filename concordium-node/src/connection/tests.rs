@@ -21,8 +21,17 @@ fn basic_connectivity() {
         nodes.push(make_node_and_sync(next_available_port(), vec![NID], PeerType::Node).unwrap());
     }
 
+    // obtain a list of possible connections
+    let mut possible_connections = (0..NODE_COUNT).permutations(2).collect::<Vec<_>>();
+    for pair in &mut possible_connections {
+        pair.sort();
+    }
+    possible_connections.sort();
+    possible_connections.dedup();
+    assert_eq!(possible_connections.len(), NODE_COUNT * (NODE_COUNT - 1) / 2);
+
     // connect the nodes in a mesh
-    for pair in (0..NODE_COUNT).permutations(2) {
+    for pair in &possible_connections {
         connect(&nodes[pair[0]], &nodes[pair[1]]).unwrap();
     }
 
