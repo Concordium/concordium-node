@@ -74,7 +74,7 @@ relay inp sr monitor outps = loop `catch` (\(e :: SomeException) -> putStrLn $ "
                         _ -> return ()
                     forM_ outps $ \outp -> forkIO $ do
                         --factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
-                        let factor = 1 :: Double
+                        let factor = 0.05 :: Double
                         r <- truncate . (*factor) . fromInteger . (`div` 10) . (^(2::Int)) <$> randomRIO (0, 7800)
                         threadDelay r
                         --putStrLn $ "Delay: " ++ show r
@@ -82,7 +82,7 @@ relay inp sr monitor outps = loop `catch` (\(e :: SomeException) -> putStrLn $ "
                 MsgFinalization bs ->
                     forM_ outps $ \outp -> forkIO $ do
                         -- factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
-                        let factor = 1 :: Double
+                        let factor = 0.05 :: Double
                         r <- truncate . (*factor) . fromInteger . (`div` 10) . (^(2::Int)) <$> randomRIO (0, 7800)
                         threadDelay r
                         --putStrLn $ "Delay: " ++ show r
@@ -93,7 +93,7 @@ relay inp sr monitor outps = loop `catch` (\(e :: SomeException) -> putStrLn $ "
                         _ -> return ()
                     forM_ outps $ \outp -> forkIO $ do
                         -- factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
-                        let factor = 1 :: Double
+                        let factor = 0.05 :: Double
                         r <- truncate . (*factor) . fromInteger . (`div` 10) . (^(2::Int)) <$> randomRIO (0, 7800)
                         threadDelay r
                         --putStrLn $ "Delay: " ++ show r
@@ -156,8 +156,8 @@ type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) Hoo
 main :: IO ()
 main = do
     let n = 5
-    now <- truncate <$> getPOSIXTime
-    let (gen, bis) = makeGenesisData now n 1 0.5 0 dummyCryptographicParameters dummyIdentityProviders [] (Energy maxBound)
+    now <- truncate . (*1000) <$> getPOSIXTime
+    let (gen, bis) = makeGenesisData now n 100 0.5 0 dummyCryptographicParameters dummyIdentityProviders [] (Energy maxBound)
     trans <- transactions <$> newStdGen
     createDirectoryIfMissing True "data"
     chans <- mapM (\(bakerId, (bid, _)) -> do

@@ -26,7 +26,7 @@ maxDelay = 20
 -- Seen messages will be sent at most once per 'delayStep'.
 -- Set at 5 seconds.
 delayStep :: NominalDiffTime
-delayStep = 5
+delayStep = 0.2
 
 class FinalizationBufferLenses s where
     finBuffer :: Lens' s FinalizationBuffer

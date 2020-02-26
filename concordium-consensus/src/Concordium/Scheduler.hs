@@ -49,7 +49,7 @@ existsValidCredential cm acc = do
     -- the same as the expiry date of the credential.
     -- If the credential is still valid at the beginning of this slot then
     -- we consider it valid. Otherwise we fail the transaction.
-    Just (expiry, _) -> expiry >= slotTime cm
+    Just (expiry, _) -> 1000*expiry >= tsMillis (slotTime cm)
 
 
 -- |Check that 
