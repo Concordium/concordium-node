@@ -27,7 +27,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub const SERVER: Token = Token(0);
+/// The poll token of the node.
+pub const SELF_TOKEN: Token = Token(0);
 
 // a convenience macro to send an object to all connections
 macro_rules! send_to_all {

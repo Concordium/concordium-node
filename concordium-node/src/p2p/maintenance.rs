@@ -21,7 +21,7 @@ use crate::{
     network::{Buckets, NetworkId},
     p2p::{
         bans::BanId,
-        connectivity::{accept, connect, connection_housekeeping, SERVER},
+        connectivity::{accept, connect, connection_housekeeping, SELF_TOKEN},
         peers::check_peers,
     },
     stats_export_service::StatsExportService,
@@ -188,7 +188,7 @@ impl P2PNode {
         let server =
             TcpListener::bind(&addr).unwrap_or_else(|_| panic!("Couldn't listen on port!"));
 
-        if poll.register(&server, SERVER, Ready::readable(), PollOpt::level()).is_err() {
+        if poll.register(&server, SELF_TOKEN, Ready::readable(), PollOpt::level()).is_err() {
             panic!("Couldn't register server with poll!")
         };
 
@@ -476,7 +476,7 @@ pub fn spawn(node: &Arc<P2PNode>) {
 
             // perform socket reads and writes in parallel across connections
             // check for new connections
-            let _new_conn = if events.iter().any(|event| event.token() == SERVER) {
+            let _new_conn = if events.iter().any(|event| event.token() == SELF_TOKEN) {
                 debug!("Got a new connection!");
                 accept(&self_clone).map_err(|e| error!("{}", e)).ok()
             } else {
