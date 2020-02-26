@@ -292,7 +292,7 @@ impl P2PNode {
 
 pub fn accept(node: &Arc<P2PNode>) -> Fallible<Token> {
     let self_peer = node.self_peer;
-    let (socket, addr) = node.connection_handler.server.accept()?;
+    let (socket, addr) = node.connection_handler.socket_server.accept()?;
     node.stats.conn_received_inc();
 
     {
@@ -319,7 +319,7 @@ pub fn accept(node: &Arc<P2PNode>) -> Fallible<Token> {
 
     debug!("Accepting new connection from {:?} to {:?}:{}", addr, self_peer.ip(), self_peer.port());
 
-    let token = Token(node.connection_handler.next_id.fetch_add(1, Ordering::SeqCst));
+    let token = Token(node.connection_handler.next_token.fetch_add(1, Ordering::SeqCst));
 
     let remote_peer = RemotePeer {
         id: Default::default(),
@@ -400,7 +400,7 @@ pub fn connect(
         Ok(socket) => {
             node.stats.conn_received_inc();
 
-            let token = Token(node.connection_handler.next_id.fetch_add(1, Ordering::SeqCst));
+            let token = Token(node.connection_handler.next_token.fetch_add(1, Ordering::SeqCst));
 
             let remote_peer = RemotePeer {
                 id: Default::default(),

@@ -85,8 +85,8 @@ pub type Networks = HashSet<NetworkId, BuildNoHashHasher<u16>>;
 pub type Connections = HashMap<Token, Arc<Connection>, BuildNoHashHasher<usize>>;
 
 pub struct ConnectionHandler {
-    pub server:           TcpListener,
-    pub next_id:          AtomicUsize,
+    pub socket_server:    TcpListener,
+    pub next_token:       AtomicUsize,
     pub buckets:          RwLock<Buckets>,
     pub log_dumper:       RwLock<Option<Sender<DumpItem>>>,
     pub connections:      RwLock<Connections>,
@@ -97,12 +97,12 @@ pub struct ConnectionHandler {
 }
 
 impl ConnectionHandler {
-    pub fn new(conf: &Config, server: TcpListener) -> Self {
+    pub fn new(conf: &Config, socket_server: TcpListener) -> Self {
         let networks = conf.common.network_ids.iter().cloned().map(NetworkId::from).collect();
 
         ConnectionHandler {
-            server,
-            next_id: AtomicUsize::new(1),
+            socket_server,
+            next_token: AtomicUsize::new(1),
             buckets: RwLock::new(Buckets::new()),
             log_dumper: Default::default(),
             connections: Default::default(),
