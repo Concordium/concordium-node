@@ -147,7 +147,7 @@ impl P2PNode {
         removed == tokens.len()
     }
 
-    pub fn add_connection(&self, conn: Arc<Connection>) {
+    fn add_connection(&self, conn: Arc<Connection>) {
         write_or_die!(self.connections()).insert(conn.token, conn);
     }
 
@@ -221,6 +221,8 @@ impl P2PNode {
         Ok(sent)
     }
 
+    /// Send queued messages to and then receive any pending messages from all
+    /// the node's connections in parallel.
     #[inline]
     pub fn process_network_events(
         &self,
@@ -265,6 +267,7 @@ impl P2PNode {
     }
 }
 
+/// Accept an incoming network connection.
 pub fn accept(node: &Arc<P2PNode>) -> Fallible<Token> {
     let self_peer = node.self_peer;
     let (socket, addr) = node.connection_handler.socket_server.accept()?;
@@ -311,16 +314,18 @@ pub fn accept(node: &Arc<P2PNode>) -> Fallible<Token> {
     Ok(token)
 }
 
+/// Connect to another node with the specified address and optionally peer id,
+/// registering it as the given peer type.
 pub fn connect(
     node: &Arc<P2PNode>,
     peer_type: PeerType,
-    addr: SocketAddr,
-    peer_id_opt: Option<P2PNodeId>,
+    peer_addr: SocketAddr,
+    peer_id: Option<P2PNodeId>,
 ) -> Fallible<()> {
     debug!(
         "Attempting to connect to {}{}",
-        addr,
-        if let Some(id) = peer_id_opt {
+        peer_addr,
+        if let Some(id) = peer_id {
             format!(" ({})", id)
         } else {
             "".to_owned()
@@ -339,15 +344,15 @@ pub fn connect(
     }
 
     // Don't connect to ourselves
-    if node.self_peer.addr == addr || peer_id_opt == Some(node.id()) {
+    if node.self_peer.addr == peer_addr || peer_id == Some(node.id()) {
         bail!("Attempted to connect to myself");
     }
 
     if read_or_die!(node.connection_handler.soft_bans)
         .iter()
-        .any(|(ip, _)| *ip == BanId::Ip(addr.ip()) || *ip == BanId::Socket(addr))
+        .any(|(ip, _)| *ip == BanId::Ip(peer_addr.ip()) || *ip == BanId::Socket(peer_addr))
     {
-        bail!("Refusing to connect to a soft-banned IP ({:?})", addr.ip());
+        bail!("Refusing to connect to a soft-banned IP ({:?})", peer_addr.ip());
     }
 
     // We purposely take a write lock to ensure that we will block all the way until
@@ -358,20 +363,19 @@ pub fn connect(
 
     // Don't connect to peers with a known P2PNodeId or IP+port
     for conn in write_lock_connections.values() {
-        if conn.remote_addr() == addr || (peer_id_opt.is_some() && conn.remote_id() == peer_id_opt)
-        {
+        if conn.remote_addr() == peer_addr || (peer_id.is_some() && conn.remote_id() == peer_id) {
             bail!(
                 "Already connected to {}",
-                if let Some(id) = peer_id_opt {
+                if let Some(id) = peer_id {
                     id.to_string()
                 } else {
-                    addr.to_string()
+                    peer_addr.to_string()
                 }
             );
         }
     }
 
-    match TcpStream::connect(&addr) {
+    match TcpStream::connect(&peer_addr) {
         Ok(socket) => {
             node.stats.conn_received_inc();
 
@@ -379,8 +383,8 @@ pub fn connect(
 
             let remote_peer = RemotePeer {
                 id: Default::default(),
-                addr,
-                peer_external_port: AtomicU16::new(addr.port()),
+                addr: peer_addr,
+                peer_external_port: AtomicU16::new(peer_addr.port()),
                 peer_type,
             };
 
@@ -404,7 +408,7 @@ pub fn connect(
         Err(e) => {
             if peer_type == PeerType::Node {
                 write_or_die!(node.connection_handler.soft_bans).insert(
-                    BanId::Socket(addr),
+                    BanId::Socket(peer_addr),
                     Instant::now() + Duration::from_secs(config::UNREACHABLE_EXPIRATION_SECS),
                 );
             }
@@ -413,6 +417,7 @@ pub fn connect(
     }
 }
 
+/// Perform a round of connection maintenance, e.g. removing inactive ones.
 pub fn connection_housekeeping(node: &Arc<P2PNode>) -> Fallible<()> {
     debug!("Running connection housekeeping");
 
@@ -451,12 +456,12 @@ pub fn connection_housekeeping(node: &Arc<P2PNode>) -> Fallible<()> {
             && conn.last_seen() + config::MAX_PREHANDSHAKE_KEEP_ALIVE < curr_stamp
     };
 
-    // Kill faulty and inactive connections
+    // remove faulty and inactive connections
     write_or_die!(node.connections()).retain(|_, conn| {
         !(is_conn_faulty(&conn) || is_conn_inactive(&conn) || is_conn_without_handshake(&conn))
     });
 
-    // If the number of peers exceeds the desired value, close a random selection of
+    // if the number of peers exceeds the desired value, close a random selection of
     // post-handshake connections to lower it
     if peer_type == PeerType::Node {
         let max_allowed_nodes = node.config.max_allowed_nodes;
@@ -508,6 +513,7 @@ fn is_valid_broadcast_target(
         && read_or_die!(conn.remote_end_networks()).contains(&network_id)
 }
 
+/// Send a direct packet to the peer with the given id.
 #[inline]
 pub fn send_direct_message(
     node: &P2PNode,
