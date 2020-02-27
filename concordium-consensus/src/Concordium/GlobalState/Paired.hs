@@ -28,6 +28,7 @@ import Data.Proxy
 import Concordium.Types.HashableTo
 import Concordium.Types
 
+import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Block
@@ -392,6 +393,11 @@ instance (HasGlobalStateContext (PairGSContext lc rc) r,
         bs2 <- coerceGSMR $ bpLastFinalized bp2
         return $ PairBlockData (bs1, bs2)
 
+-- NB: Only supports paired state when both left and right do no transaction logging
+-- and as a result the paired instance also does not support logging.
+-- This can be relaxed in the future if there is a need.
+deriving via NoIndexATIMonad m instance Monad m => ATIMonad (GlobalStateM (PairGSContext lc rc) r (PairGState ls rs) s m)
+
 instance (HasGlobalStateContext (PairGSContext lc rc) r,
         MonadReader r m,
         HasGlobalState (PairGState ls rs) s,
@@ -399,7 +405,9 @@ instance (HasGlobalStateContext (PairGSContext lc rc) r,
         MonadIO m,
         BlockStateStorage (GlobalStateM (PairGSContext lc rc) r (PairGState ls rs) s m),
         TreeStateMonad (GSML lc r ls s m),
-        TreeStateMonad (GSMR rc r rs s m))
+        ATIStorage (GSML lc r ls s m) ~ (),
+        TreeStateMonad (GSMR rc r rs s m),
+        ATIStorage (GSMR rc r rs s m) ~ ())
         => TreeStateMonad (GlobalStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
     makePendingBlock sk sl parent bid bp bn lf trs brtime = do
         pb1 <- coerceGSML $ makePendingBlock sk sl parent bid bp bn lf trs brtime
@@ -423,9 +431,9 @@ instance (HasGlobalStateContext (PairGSContext lc rc) r,
                 assert (fr1 == fr2) $ return $ Just $ BlockFinalized (PairBlockData (bp1, bp2)) fr1
             (Just (BlockPending pb1), Just (BlockPending pb2)) -> return $ Just (BlockPending (PairBlockData (pb1, pb2)))
             _ -> error $ "getBlockStatus (Paired): block statuses do not match: " ++ show bs1 ++ ", " ++ show bs2
-    makeLiveBlock (PairBlockData (pb1, pb2)) (PairBlockData (parent1, parent2)) (PairBlockData (lf1, lf2)) (bs1, bs2) t e = do
-        r1 <- coerceGSML $ makeLiveBlock pb1 parent1 lf1 bs1 t e
-        r2 <- coerceGSMR $ makeLiveBlock pb2 parent2 lf2 bs2 t e
+    makeLiveBlock (PairBlockData (pb1, pb2)) (PairBlockData (parent1, parent2)) (PairBlockData (lf1, lf2)) (bs1, bs2) () t e = do
+        r1 <- coerceGSML $ makeLiveBlock pb1 parent1 lf1 bs1 () t e
+        r2 <- coerceGSMR $ makeLiveBlock pb2 parent2 lf2 bs2 () t e
         return (PairBlockData (r1, r2))
     markDead bh = do
         coerceGSML $ markDead bh

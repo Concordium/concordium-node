@@ -23,7 +23,7 @@ import Concordium.GlobalState.Persistent.BlockPointer
 import Concordium.GlobalState.Persistent.LMDB
 import Concordium.GlobalState.Statistics
 import Concordium.GlobalState.BlockPointer
-import Concordium.GlobalState.TransactionLogs
+import Concordium.GlobalState.AccountTransactionIndex
 import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.Types
 import Concordium.Types.HashableTo
@@ -44,17 +44,17 @@ import Database.LMDB.Simple as L
 import Lens.Micro.Platform
 import System.Mem.Weak
 
-data PersistenBlockStatus bs =
-    BlockAlive !(PersistentBlockPointer bs)
+data PersistenBlockStatus ati bs =
+    BlockAlive !(PersistentBlockPointer ati bs)
     | BlockDead
     | BlockFinalized !FinalizationIndex
     | BlockPending !PendingBlock
   deriving(Eq, Show)
 
 -- |Skov data for the persistent tree state version that also holds the database handlers
-data SkovPersistentData bs = SkovPersistentData {
+data SkovPersistentData ati bs = SkovPersistentData {
     -- |Map of all received blocks by hash.
-    _blockTable :: !(HM.HashMap BlockHash (PersistenBlockStatus bs)),
+    _blockTable :: !(HM.HashMap BlockHash (PersistenBlockStatus ati bs)),
     -- |Map of (possibly) pending blocks by hash
     _possiblyPendingTable :: !(HM.HashMap BlockHash [PendingBlock]),
     -- |Priority queue of pairs of (block, parent) hashes where the block is (possibly) pending its parent, by block slot
@@ -62,19 +62,19 @@ data SkovPersistentData bs = SkovPersistentData {
     -- |Priority queue of blocks waiting for their last finalized block to be finalized, ordered by height of the last finalized block
     _blocksAwaitingLastFinalized :: !(MPQ.MinPQueue BlockHeight PendingBlock),
     -- |Pointer to the last finalized block
-    _lastFinalized :: !(PersistentBlockPointer bs),
+    _lastFinalized :: !(PersistentBlockPointer ati bs),
     -- |Pointer to the last finalization record
     _lastFinalizationRecord :: !FinalizationRecord,
     -- |Pending finalization records by finalization index
     _finalizationPool :: !(Map.Map FinalizationIndex [FinalizationRecord]),
     -- |Branches of the tree by height above the last finalized block
-    _branches :: !(Seq.Seq [PersistentBlockPointer bs]),
+    _branches :: !(Seq.Seq [PersistentBlockPointer ati bs]),
     -- |Genesis data
     _genesisData :: !GenesisData,
     -- |Block pointer to genesis block
-    _genesisBlockPointer :: !(PersistentBlockPointer bs),
+    _genesisBlockPointer :: !(PersistentBlockPointer ati bs),
     -- |Current focus block
-    _focusBlock :: !(PersistentBlockPointer bs),
+    _focusBlock :: !(PersistentBlockPointer ati bs),
     -- |Pending transaction table
     _pendingTransactions :: !PendingTransactionTable,
     -- |Transaction table
@@ -89,12 +89,12 @@ data SkovPersistentData bs = SkovPersistentData {
 makeLenses ''SkovPersistentData
 
 -- |Initial skov data with default runtime parameters (block size = 10MB).
-initialSkovPersistentDataDefault ::  FilePath -> GenesisData -> bs -> S.Put -> IO (SkovPersistentData bs)
+initialSkovPersistentDataDefault ::  FilePath -> GenesisData -> bs -> ati -> S.Put -> IO (SkovPersistentData ati bs)
 initialSkovPersistentDataDefault dir = initialSkovPersistentData (defaultRuntimeParameters { rpTreeStateDir = dir })
 
-initialSkovPersistentData :: RuntimeParameters -> GenesisData -> bs -> S.Put -> IO (SkovPersistentData bs)
-initialSkovPersistentData rp gd genState serState = do
-  gb <- makeGenesisBlockPointer gd genState
+initialSkovPersistentData :: RuntimeParameters -> GenesisData -> bs -> ati -> S.Put -> IO (SkovPersistentData ati bs)
+initialSkovPersistentData rp gd genState ati serState = do
+  gb <- makeGenesisBlockPointer gd genState ati
   let gbh = bpHash gb
       gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
   initialDb <- initialDatabaseHandlers gb serState rp
@@ -128,21 +128,22 @@ initialSkovPersistentData rp gd genState serState = do
 --
 -- This newtype establishes types for the @GlobalStateTypes@. The type variable @bs@ stands for the BlockState
 -- type used in the implementation.
-newtype PersistentTreeStateMonad bs m a = PersistentTreeStateMonad { runPersistentTreeStateMonad :: m a }
+newtype PersistentTreeStateMonad ati bs m a = PersistentTreeStateMonad { runPersistentTreeStateMonad :: m a }
   deriving (Functor, Applicative, Monad, MonadIO, GS.BlockStateTypes,
             BS.BlockStateQuery, BS.BlockStateOperations, BS.BlockStateStorage)
-deriving instance (Monad m, MonadState (SkovPersistentData bs) m) => MonadState (SkovPersistentData bs) (PersistentTreeStateMonad bs m)
+  deriving ATIMonad via m
+deriving instance (Monad m, MonadState (SkovPersistentData ati bs) m)
+         => MonadState (SkovPersistentData ati bs) (PersistentTreeStateMonad ati bs m)
 
--- FIXME: Temporary instance to get the integration rolling.
-instance TransactionLogger m => TransactionLogger (PersistentTreeStateMonad bs m) where
-  {-# INLINE tlNotifyAccountEffect #-}
-  tlNotifyAccountEffect x y = PersistentTreeStateMonad (tlNotifyAccountEffect x y)
 
-instance (bs ~ GS.BlockState m) => GS.GlobalStateTypes (PersistentTreeStateMonad bs m) where
-    type PendingBlock (PersistentTreeStateMonad bs m) = PendingBlock
-    type BlockPointer (PersistentTreeStateMonad bs m) = PersistentBlockPointer bs
+instance (bs ~ GS.BlockState m, ati ~ ATIStorage m) => GS.GlobalStateTypes (PersistentTreeStateMonad ati bs m) where
+    type PendingBlock (PersistentTreeStateMonad ati bs m) = PendingBlock
+    type BlockPointer (PersistentTreeStateMonad ati bs m) = PersistentBlockPointer ati bs
 
-constructBlock :: (MonadIO m, BS.BlockStateStorage m) => Maybe ByteString -> m (Maybe (PersistentBlockPointer (TS.BlockState m)))
+-- |Construct a block from a serialized form.
+-- The @ati@ is filled with a default value.
+constructBlock :: (MonadIO m, BS.BlockStateStorage m, ATIMonad m)
+               => Maybe ByteString -> m (Maybe (PersistentBlockPointer (ATIStorage m) (TS.BlockState m)))
 constructBlock Nothing = return Nothing
 constructBlock (Just bytes) = do
   tm <- liftIO getCurrentTime
@@ -150,14 +151,21 @@ constructBlock (Just bytes) = do
     Left err -> fail $ "Could not deserialize block: " ++ err
     Right (newBlock, state', height') -> do
       st <- state'
-      liftIO $! Just <$> (makeBlockPointerFromBlock newBlock st height')
+      ati <- emptyATI
+      liftIO $! Just <$> (makeBlockPointerFromBlock newBlock st ati height')
   where getTriple tm = do
           newBlock <- B.getBlock (utcTimeToTransactionTime tm)
           state' <- BS.getBlockState
           height' <- S.get
           return (newBlock, state', height')
 
-instance (bs ~ GS.BlockState m, MonadIO m, BS.BlockStateStorage m, MonadState (SkovPersistentData bs) m) => LMDBStoreMonad (PersistentTreeStateMonad bs m) where
+instance (bs ~ GS.BlockState m,
+          MonadIO m,
+          BS.BlockStateStorage m,
+          ATIStorage m ~ ati,
+          ATIMonad m,
+          MonadState (SkovPersistentData ati bs) m)
+         => LMDBStoreMonad (PersistentTreeStateMonad ati bs m) where
   writeBlock bp = do
     dbh <- use db
     bs <- BS.putBlockState (_bpState bp)
@@ -177,13 +185,13 @@ instance (bs ~ GS.BlockState m, MonadIO m, BS.BlockStateStorage m, MonadState (S
     dbh' <- putOrResize dbh (Finalization (finalizationIndex fr, fr))
     db .= dbh'
 
-getWeakPointer :: (MonadState (SkovPersistentData s) m,
-                  LMDBStoreMonad m, TS.BlockPointer m ~ PersistentBlockPointer s) =>
-                 PersistentBlockPointer s
-               -> (PersistentBlockPointer s -> Weak (PersistentBlockPointer s))
+getWeakPointer :: (MonadState (SkovPersistentData ati s) m,
+                  LMDBStoreMonad m, TS.BlockPointer m ~ PersistentBlockPointer ati s) =>
+                 PersistentBlockPointer ati s
+               -> (PersistentBlockPointer ati s -> Weak (PersistentBlockPointer ati s))
                -> (BlockFields -> BlockHash)
                -> String
-               -> m (PersistentBlockPointer s)
+               -> m (PersistentBlockPointer ati s)
 getWeakPointer block field pointer name = do
       gb <- use genesisBlockPointer
       if gb == block then
@@ -200,13 +208,22 @@ instance (bs ~ GS.BlockState m,
           BS.BlockStateStorage m,
           Monad m,
           MonadIO m,
-          MonadState (SkovPersistentData bs) m) => BlockPointerMonad (PersistentTreeStateMonad bs m) where
+          ATIStorage m ~ ati,
+          ATIMonad m,
+          MonadState (SkovPersistentData ati bs) m) => BlockPointerMonad (PersistentTreeStateMonad ati bs m) where
     blockState = return . _bpState
     bpParent block = getWeakPointer block _bpParent blockPointer "parent"
     bpLastFinalized block = getWeakPointer block _bpLastFinalized blockLastFinalized "last finalized"
 
-instance (TransactionLogger m, bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovPersistentData bs) m)
-          => TS.TreeStateMonad (PersistentTreeStateMonad bs m) where
+instance (bs ~ GS.BlockState m,
+          BS.BlockStateStorage m,
+          Monad m,
+          MonadIO m,
+          MonadState (SkovPersistentData ati bs) m,
+          ATIStorage m ~ ati,
+          ATIMonad m
+          )
+          => TS.TreeStateMonad (PersistentTreeStateMonad ati bs m) where
     makePendingBlock key slot parent bid pf n lastFin trs time = return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
     importPendingBlock blockBS rectime =
         case runGet (getBlock $ utcTimeToTransactionTime rectime) blockBS of
@@ -238,8 +255,8 @@ instance (TransactionLogger m, bs ~ GS.BlockState m, BS.BlockStateStorage m, Mon
                   (Just _, Nothing) -> error $ "Lost finalization record that was stored" ++ show bh
                   (Nothing, Just _) -> error $ "Lost block that was stored as finalized" ++ show bh
                   _ -> error $ "Lost block and finalization record" ++ show bh
-    makeLiveBlock block parent lastFin st arrTime energy = do
-            blockP <- liftIO $ makeBlockPointerFromPendingBlock block parent lastFin st arrTime energy
+    makeLiveBlock block parent lastFin st ati arrTime energy = do
+            blockP <- liftIO $ makeBlockPointerFromPendingBlock block parent lastFin st ati arrTime energy
             blockTable . at (getHash block) ?= BlockAlive blockP
             return blockP
     markDead bh = blockTable . at bh ?= BlockDead
