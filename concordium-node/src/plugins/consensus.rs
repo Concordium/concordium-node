@@ -337,7 +337,7 @@ fn send_consensus_msg_to_net(
     network_id: NetworkId,
     (payload, msg_desc): (Arc<[u8]>, PacketType),
 ) -> Fallible<()> {
-    let result = if target_id.is_some() {
+    let result = if let Some(target_id) = target_id {
         send_direct_message(node, source_id, target_id, network_id, payload)
     } else {
         send_broadcast_message(

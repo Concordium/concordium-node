@@ -518,11 +518,11 @@ fn is_valid_broadcast_target(
 pub fn send_direct_message(
     node: &P2PNode,
     source_id: P2PNodeId,
-    target_id: Option<P2PNodeId>,
+    target_id: P2PNodeId,
     network_id: NetworkId,
     msg: Arc<[u8]>,
 ) -> Fallible<()> {
-    send_message_over_network(node, source_id, target_id, vec![], network_id, msg, false)
+    send_message_over_network(node, source_id, Some(target_id), vec![], network_id, msg, false)
 }
 
 #[inline]
