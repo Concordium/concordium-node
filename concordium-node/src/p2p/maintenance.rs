@@ -119,11 +119,6 @@ impl ConnectionHandler {
     }
 }
 
-#[derive(Default)]
-pub struct P2PNodeThreads {
-    pub join_handles: Vec<JoinHandle<()>>,
-}
-
 #[cfg(feature = "network_dump")]
 pub struct NetworkDumper {
     switch: Sender<(std::path::PathBuf, bool)>,
@@ -146,7 +141,7 @@ impl NetworkDumper {
 
 pub struct P2PNode {
     pub self_peer: P2PPeer,
-    pub threads: RwLock<P2PNodeThreads>,
+    pub threads: RwLock<Vec<JoinHandle<()>>>,
     pub poll: Poll,
     pub connection_handler: ConnectionHandler,
     #[cfg(feature = "network_dump")]
@@ -302,7 +297,7 @@ impl P2PNode {
         let node = Arc::new(P2PNode {
             poll,
             start_time: Utc::now(),
-            threads: RwLock::new(P2PNodeThreads::default()),
+            threads: Default::default(),
             config,
             #[cfg(feature = "network_dump")]
             network_dumper: NetworkDumper::new(ip, id, conf),
@@ -368,9 +363,7 @@ impl P2PNode {
 
     /// Waits for `P2PNode` termination (`P2PNode::close` shuts it down).
     pub fn join(&self) -> Fallible<()> {
-        for handle in
-            mem::replace(&mut write_or_die!(self.threads).join_handles, Default::default())
-        {
+        for handle in mem::replace(&mut *write_or_die!(self.threads), Default::default()) {
             if let Err(e) = handle.join() {
                 error!("Can't join a node thread: {:?}", e);
             }
@@ -551,7 +544,7 @@ pub fn spawn(node: &Arc<P2PNode>) {
     });
 
     // Register info about thread into P2PNode.
-    write_or_die!(node.threads).join_handles.push(poll_thread);
+    write_or_die!(node.threads).push(poll_thread);
 }
 
 /// Try to bootstrap the node based on the addresses in the config.
