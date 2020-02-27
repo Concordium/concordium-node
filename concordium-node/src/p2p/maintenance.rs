@@ -119,6 +119,7 @@ impl ConnectionHandler {
     }
 }
 
+/// Facilitates the `network_dump` feature.
 #[cfg(feature = "network_dump")]
 pub struct NetworkDumper {
     switch: Sender<(std::path::PathBuf, bool)>,
@@ -139,23 +140,31 @@ impl NetworkDumper {
     }
 }
 
+/// The central object belonging to a node in the network; it handles
+/// connectivity and contains the metadata, statistics etc.
 pub struct P2PNode {
     pub self_peer: P2PPeer,
+    /// Holds the handles to threads spawned by the node.
     pub threads: RwLock<Vec<JoinHandle<()>>>,
+    /// The handle to the poll for the connection event loop.
     pub poll: Poll,
     pub connection_handler: ConnectionHandler,
     #[cfg(feature = "network_dump")]
     pub network_dumper: NetworkDumper,
     pub stats: Arc<StatsExportService>,
     pub config: NodeConfig,
+    /// The time the node was launched.
     pub start_time: DateTime<Utc>,
+    /// The flag indicating whether a node should shut down.
     pub is_terminated: AtomicBool,
+    /// The key-value store holding the node's persistent data.
     pub kvs: Arc<RwLock<Rkv>>,
     pub total_received: AtomicU64,
     pub total_sent: AtomicU64,
 }
 
 impl P2PNode {
+    /// Creates a new node.
     pub fn new(
         supplied_id: Option<String>,
         conf: &Config,
