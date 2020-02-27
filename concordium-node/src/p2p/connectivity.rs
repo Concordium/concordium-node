@@ -34,6 +34,7 @@ pub const SELF_TOKEN: Token = Token(0);
 // a convenience macro to send an object to all connections
 macro_rules! send_to_all {
     ($foo_name:ident, $object_type:ty, $req_type:ident) => {
+        #[doc = "Send a specified network request to all peers"]
         pub fn $foo_name(&self, object: $object_type) {
             let request = NetworkRequest::$req_type(object);
             let message = netmsg!(NetworkRequest, request);
@@ -43,7 +44,7 @@ macro_rules! send_to_all {
                 let mut buf = Vec::with_capacity(256);
                 message.serialize(&mut buf)
                     .map(|_| buf)
-                    .and_then(|buf| self.send_over_all_connections(&buf, &filter))
+                    .map(|buf| self.send_over_all_connections(&buf, &filter))
             } {
                 error!("A network message couldn't be forwarded: {}", e);
             }
@@ -60,17 +61,13 @@ impl P2PNode {
 
     send_to_all!(send_leavenetwork, NetworkId, LeaveNetwork);
 
-    /// It sends `data` message over all filtered connections.
-    ///
-    /// # Arguments
-    /// * `data` - Raw message.
-    /// * `conn_filter` - A closure filtering the connections
-    /// # Returns the number of messages queued to be sent
+    /// It sends a `data` message to all connections adhering to the specified
+    /// filter. Returns the number of sent messages.
     pub fn send_over_all_connections(
         &self,
         data: &[u8],
         conn_filter: &dyn Fn(&Connection) -> bool,
-    ) -> Fallible<usize> {
+    ) -> usize {
         let mut sent_messages = 0usize;
         let data = Arc::from(data);
 
@@ -82,7 +79,7 @@ impl P2PNode {
             sent_messages += 1;
         }
 
-        Ok(sent_messages)
+        sent_messages
     }
 
     pub fn measure_connection_latencies(&self) {
@@ -222,7 +219,7 @@ impl P2PNode {
                 |conn: &Connection| conn.remote_peer.peer().map(|p| p.id) == Some(target_id);
 
             for _ in 0..copies {
-                sent += self.send_over_all_connections(&serialized, &filter)?;
+                sent += self.send_over_all_connections(&serialized, &filter);
             }
         } else {
             // broadcast messages
@@ -231,7 +228,7 @@ impl P2PNode {
             };
 
             for _ in 0..copies {
-                sent += self.send_over_all_connections(&serialized, &filter)?;
+                sent += self.send_over_all_connections(&serialized, &filter);
             }
         }
 
