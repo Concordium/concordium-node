@@ -263,7 +263,7 @@ impl Connection {
         self.update_last_seen();
         self.stats.messages_received.fetch_add(1, Ordering::Relaxed);
         self.stats.bytes_received.fetch_add(message.len() as u64, Ordering::Relaxed);
-        self.handler().total_received.fetch_add(1, Ordering::Relaxed);
+        self.handler().connection_handler.total_received.fetch_add(1, Ordering::Relaxed);
         self.handler().stats.pkt_received_inc();
 
         if cfg!(feature = "network_dump") {

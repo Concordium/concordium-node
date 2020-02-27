@@ -157,7 +157,7 @@ impl P2p for RpcServerImpl {
         req: Request<Empty>,
     ) -> Result<Response<NumberResponse>, Status> {
         authenticate!(req, self.access_token);
-        let value = self.node.total_received.load(Ordering::Relaxed);
+        let value = self.node.connection_handler.total_received.load(Ordering::Relaxed);
         Ok(Response::new(NumberResponse {
             value,
         }))
@@ -168,7 +168,7 @@ impl P2p for RpcServerImpl {
         req: Request<Empty>,
     ) -> Result<Response<NumberResponse>, Status> {
         authenticate!(req, self.access_token);
-        let value = self.node.total_sent.load(Ordering::Relaxed);
+        let value = self.node.connection_handler.total_sent.load(Ordering::Relaxed);
         Ok(Response::new(NumberResponse {
             value,
         }))

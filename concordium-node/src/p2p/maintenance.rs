@@ -99,6 +99,8 @@ pub struct ConnectionHandler {
     pub networks:         RwLock<Networks>,
     pub last_bootstrap:   AtomicU64,
     pub last_peer_update: AtomicU64,
+    pub total_received:   AtomicU64,
+    pub total_sent:       AtomicU64,
 }
 
 impl ConnectionHandler {
@@ -115,6 +117,8 @@ impl ConnectionHandler {
             networks: RwLock::new(networks),
             last_bootstrap: Default::default(),
             last_peer_update: Default::default(),
+            total_received: Default::default(),
+            total_sent: Default::default(),
         }
     }
 }
@@ -159,8 +163,6 @@ pub struct P2PNode {
     pub is_terminated: AtomicBool,
     /// The key-value store holding the node's persistent data.
     pub kvs: Arc<RwLock<Rkv>>,
-    pub total_received: AtomicU64,
-    pub total_sent: AtomicU64,
 }
 
 impl P2PNode {
@@ -315,8 +317,6 @@ impl P2PNode {
             stats,
             is_terminated: Default::default(),
             kvs,
-            total_received: Default::default(),
-            total_sent: Default::default(),
         });
 
         node.clear_bans().unwrap_or_else(|e| error!("Couldn't reset the ban list: {}", e));
