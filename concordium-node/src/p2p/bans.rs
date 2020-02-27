@@ -68,12 +68,12 @@ impl P2PNode {
         match peer {
             BanId::NodeId(id) => {
                 if let Some(conn) = self.find_connection_by_id(id) {
-                    self.remove_connection(conn.token);
+                    self.remove_connections(&[conn.token]);
                 }
             }
             BanId::Ip(addr) => {
                 for conn in self.find_connections_by_ip(addr) {
-                    self.remove_connection(conn.token);
+                    self.remove_connections(&[conn.token]);
                 }
             }
             _ => unimplemented!("Socket address bans don't persist"),

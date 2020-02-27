@@ -432,7 +432,7 @@ pub fn check_peer_states(
                     if let Some(token) =
                         node.find_connection_by_id(P2PNodeId(id)).map(|conn| conn.token)
                     {
-                        node.remove_connection(token);
+                        node.remove_connections(&[token]);
                     }
                 }
             }

@@ -61,7 +61,7 @@ impl P2PNode {
 
     send_to_all!(send_leavenetwork, NetworkId, LeaveNetwork);
 
-    /// It sends a `data` message to all connections adhering to the specified
+    /// Send a `data` message to all connections adhering to the specified
     /// filter. Returns the number of sent messages.
     pub fn send_over_all_connections(
         &self,
@@ -82,13 +82,14 @@ impl P2PNode {
         sent_messages
     }
 
+    /// Send out ping messages in order to update peer latency statistics.
     pub fn measure_connection_latencies(&self) {
         debug!("Measuring connection latencies");
 
         let connections = read_or_die!(self.connections()).clone();
         for conn in connections.values().filter(|conn| conn.is_post_handshake()) {
-            // don't send pings to lagging connections so
-            // that the latency calculation is not invalid
+            // don't send pings to unresponsive connections so
+            // that the latency calculation is not off
             if conn.last_seen() > conn.get_last_ping_sent() {
                 if let Err(e) = conn.send_ping() {
                     error!("Can't send a ping to {}: {}", conn, e);
@@ -97,11 +98,12 @@ impl P2PNode {
         }
     }
 
-    /// It adds this server to `network_id` network.
+    /// Add a network to the list of node's networks.
     pub fn add_network(&self, network_id: NetworkId) {
         write_or_die!(self.connection_handler.networks).insert(network_id);
     }
 
+    /// Search for a connection by the node id.
     pub fn find_connection_by_id(&self, id: P2PNodeId) -> Option<Arc<Connection>> {
         read_or_die!(self.connections())
             .values()
@@ -109,17 +111,12 @@ impl P2PNode {
             .map(|conn| Arc::clone(conn))
     }
 
+    /// Search for a connection by the poll token.
     pub fn find_connection_by_token(&self, token: Token) -> Option<Arc<Connection>> {
         read_or_die!(self.connections()).get(&token).map(|conn| Arc::clone(conn))
     }
 
-    pub fn find_connection_by_ip_addr(&self, addr: SocketAddr) -> Option<Arc<Connection>> {
-        read_or_die!(self.connections())
-            .values()
-            .find(|conn| conn.remote_addr() == addr)
-            .map(|conn| Arc::clone(conn))
-    }
-
+    /// Search for all connections with the specified IP address.
     pub fn find_connections_by_ip(&self, ip: IpAddr) -> Vec<Arc<Connection>> {
         read_or_die!(self.connections())
             .values()
@@ -128,18 +125,7 @@ impl P2PNode {
             .collect()
     }
 
-    pub fn remove_connection(&self, token: Token) -> bool {
-        if let Some(conn) = write_or_die!(self.connections()).remove(&token) {
-            if conn.is_post_handshake() {
-                self.bump_last_peer_update();
-            }
-            write_or_die!(conn.low_level).conn_ref = None; // necessary in order for Drop to kick in
-            true
-        } else {
-            false
-        }
-    }
-
+    /// Shut down connections with the given poll tokens.
     pub fn remove_connections(&self, tokens: &[Token]) -> bool {
         let connections = &mut write_or_die!(self.connections());
 
