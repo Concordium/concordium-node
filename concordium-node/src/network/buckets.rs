@@ -130,7 +130,7 @@ mod tests {
 
     #[test]
     pub fn test_buckets_insert_duplicate_peer_id() {
-        let mut buckets = Buckets::new();
+        let mut buckets = Buckets::default();
 
         let p2p_node_id = P2PNodeId::default();
 
