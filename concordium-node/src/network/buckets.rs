@@ -32,16 +32,14 @@ pub struct Buckets {
 }
 
 impl Default for Buckets {
-    fn default() -> Self { Buckets::new() }
-}
-
-impl Buckets {
-    pub fn new() -> Buckets {
+    fn default() -> Self {
         Buckets {
             buckets: vec![HashSet::new(); BUCKET_COUNT],
         }
     }
+}
 
+impl Buckets {
     pub fn insert_into_bucket(&mut self, peer: &P2PPeer, networks: HashSet<NetworkId>) {
         let bucket = &mut self.buckets[0];
 

@@ -110,7 +110,7 @@ impl ConnectionHandler {
         ConnectionHandler {
             socket_server,
             next_token: AtomicUsize::new(1),
-            buckets: RwLock::new(Buckets::new()),
+            buckets: Default::default(),
             log_dumper: Default::default(),
             connections: Default::default(),
             soft_bans: Default::default(),
