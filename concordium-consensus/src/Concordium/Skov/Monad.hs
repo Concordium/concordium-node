@@ -122,4 +122,4 @@ getFinalizationParameters = genesisFinalizationParameters <$> getGenesisData
 getSlotTime :: (SkovQueryMonad m) => Slot -> m UTCTime
 getSlotTime s = do
         genData <- getGenesisData
-        return $ posixSecondsToUTCTime (fromIntegral (genesisTime genData + fromIntegral (genesisSlotDuration genData) * fromIntegral s))
+        return $ posixSecondsToUTCTime (fromIntegral (genesisTime genData) + 0.001 * fromIntegral (genesisSlotDuration genData) * fromIntegral s)
