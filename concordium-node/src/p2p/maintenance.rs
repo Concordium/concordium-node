@@ -46,6 +46,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// Configuration bits applicable to a node.
 pub struct NodeConfig {
     pub no_net: bool,
     pub desired_nodes_count: u16,
@@ -81,9 +82,13 @@ pub struct NodeConfig {
     pub breakage: Option<(String, u8, usize)>,
 }
 
+/// The collection of netwoks the node belongs to.
 pub type Networks = HashSet<NetworkId, BuildNoHashHasher<u16>>;
+
+/// The collection of connections to peer nodes.
 pub type Connections = HashMap<Token, Arc<Connection>, BuildNoHashHasher<usize>>;
 
+/// The set of objects related to node's connections.
 pub struct ConnectionHandler {
     pub socket_server:    TcpListener,
     pub next_token:       AtomicUsize,
@@ -97,7 +102,7 @@ pub struct ConnectionHandler {
 }
 
 impl ConnectionHandler {
-    pub fn new(conf: &Config, socket_server: TcpListener) -> Self {
+    fn new(conf: &Config, socket_server: TcpListener) -> Self {
         let networks = conf.common.network_ids.iter().cloned().map(NetworkId::from).collect();
 
         ConnectionHandler {
