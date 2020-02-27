@@ -31,7 +31,7 @@ import Concordium.Types.Transactions
 import Concordium.GlobalState.Statistics
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.BlockPointer
-import Concordium.GlobalState.TransactionLogs
+import Concordium.GlobalState.AccountTransactionIndex
 
 data BlockStatus bp pb =
     BlockAlive !bp
@@ -75,7 +75,7 @@ class (Eq (BlockPointer m),
        BlockPendingData (PendingBlock m),
        BlockStateStorage m,
        BlockPointerMonad m,
-       TransactionLogger m,
+       ATIMonad m,
        Monad m)
       => TreeStateMonad m where
 
@@ -111,6 +111,7 @@ class (Eq (BlockPointer m),
         -> BlockPointer m                    -- ^Parent block pointer
         -> BlockPointer m                    -- ^Last finalized block pointer
         -> BlockState m                      -- ^Block state
+        -> ATIStorage m                      -- ^This block's account -> transaction index.
         -> UTCTime                           -- ^Block arrival time
         -> Energy                            -- ^Energy cost of the transactions in the block.
         -> m (BlockPointer m)
@@ -298,7 +299,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     makePendingBlock key slot parent bid pf n lastFin trs time = lift $ makePendingBlock key slot parent bid pf n lastFin trs time
     importPendingBlock bdata rectime = lift $ importPendingBlock bdata rectime
     getBlockStatus = lift . getBlockStatus
-    makeLiveBlock b parent lastFin st time energy = lift $ makeLiveBlock b parent lastFin st time energy
+    makeLiveBlock b parent lastFin st ati time energy = lift $ makeLiveBlock b parent lastFin st ati time energy
     markDead = lift . markDead
     markFinalized bh fr = lift $ markFinalized bh fr
     markPending = lift . markPending

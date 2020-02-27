@@ -20,12 +20,12 @@ import qualified Concordium.GlobalState.Classes as GS
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Block
-import Concordium.GlobalState.TransactionLogs
 import qualified Concordium.GlobalState.TreeState as TS
 import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.Statistics (ConsensusStatistics, initialConsensusStatistics)
 import Concordium.Types.Transactions
 import Concordium.GlobalState.BlockPointer
+import Concordium.GlobalState.AccountTransactionIndex
 
 import Concordium.GlobalState.Basic.Block
 import Concordium.GlobalState.Basic.BlockPointer
@@ -106,23 +106,21 @@ initialSkovData rp gd genState =
 newtype PureTreeStateMonad bs m a = PureTreeStateMonad { runPureTreeStateMonad :: m a }
   deriving (Functor, Applicative, Monad, MonadIO, GS.BlockStateTypes,
             BS.BlockStateQuery, BS.BlockStateOperations, BS.BlockStateStorage)
+  deriving ATIMonad via NoIndexATIMonad m
+
 deriving instance (Monad m, MonadState (SkovData bs) m) => MonadState (SkovData bs) (PureTreeStateMonad bs m)
+  
 
 instance (bs ~ GS.BlockState m) => GS.GlobalStateTypes (PureTreeStateMonad bs m) where
     type PendingBlock (PureTreeStateMonad bs m) = PendingBlock
     type BlockPointer (PureTreeStateMonad bs m) = BasicBlockPointer bs
-
--- FIXME: Temporary instance to get the integration rolling.
-instance TransactionLogger m => TransactionLogger (PureTreeStateMonad bs m) where
-  {-# INLINE tlNotifyAccountEffect #-}
-  tlNotifyAccountEffect x y = PureTreeStateMonad (tlNotifyAccountEffect x y)
 
 instance (bs ~ GS.BlockState m, Monad m, MonadState (SkovData bs) m) => BlockPointerMonad (PureTreeStateMonad bs m) where
     blockState = return . _bpState
     bpParent = return . _bpParent
     bpLastFinalized = return . _bpLastFinalized
 
-instance (TransactionLogger m, bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovData bs) m)
+instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovData bs) m)
           => TS.TreeStateMonad (PureTreeStateMonad bs m) where
     makePendingBlock key slot parent bid pf n lastFin trs time = return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
     importPendingBlock blockBS rectime =
@@ -131,7 +129,7 @@ instance (TransactionLogger m, bs ~ GS.BlockState m, BS.BlockStateStorage m, Mon
             Right (GenesisBlock {}) -> return $ Left $ "Block deserialization failed: unexpected genesis block"
             Right (NormalBlock block0) -> return $ Right $ makePendingBlock block0 rectime
     getBlockStatus bh = use (blockTable . at bh)
-    makeLiveBlock block parent lastFin st arrTime energy = do
+    makeLiveBlock block parent lastFin st () arrTime energy = do
             let blockP = makeBasicBlockPointer block parent lastFin st arrTime energy
             blockTable . at (getHash block) ?= TS.BlockAlive blockP
             return blockP
