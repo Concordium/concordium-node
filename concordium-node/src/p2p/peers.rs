@@ -64,9 +64,9 @@ impl P2PNode {
         if let Ok(nids) = safe_read!(self.networks()) {
             let request = NetworkRequest::GetPeers(nids.iter().copied().collect());
             let message = NetworkMessage {
-                timestamp1: None,
-                timestamp2: None,
-                payload:    NetworkMessagePayload::NetworkRequest(request),
+                created:  get_current_stamp(),
+                received: None,
+                payload:  NetworkMessagePayload::NetworkRequest(request),
             };
             let filter = |_: &Connection| true;
 

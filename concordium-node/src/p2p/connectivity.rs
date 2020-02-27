@@ -36,8 +36,8 @@ macro_rules! send_to_all {
         pub fn $foo_name(&self, object: $object_type) {
             let request = NetworkRequest::$req_type(object);
             let message = NetworkMessage {
-                timestamp1: None,
-                timestamp2: None,
+                created:  get_current_stamp(),
+                received: None,
                 payload: NetworkMessagePayload::NetworkRequest(request)
             };
             let filter = |_: &Connection| true;
@@ -215,9 +215,9 @@ impl P2PNode {
         };
 
         let message = NetworkMessage {
-            timestamp1: Some(get_current_stamp()),
-            timestamp2: None,
-            payload:    NetworkMessagePayload::NetworkPacket(inner_pkt),
+            created:  get_current_stamp(),
+            received: None,
+            payload:  NetworkMessagePayload::NetworkPacket(inner_pkt),
         };
 
         let mut serialized = Vec::with_capacity(256);

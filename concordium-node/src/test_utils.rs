@@ -4,7 +4,7 @@ use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use structopt::StructOpt;
 
 use crate::{
-    common::{P2PNodeId, PeerType},
+    common::{get_current_stamp, P2PNodeId, PeerType},
     configuration::Config,
     network::{NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkPacketType},
     p2p::{connectivity, maintenance::spawn, P2PNode},
@@ -130,9 +130,9 @@ fn generate_fake_block(size: usize) -> Fallible<Vec<u8>> {
 
 pub fn create_random_packet(size: usize) -> NetworkMessage {
     NetworkMessage {
-        timestamp1: Some(thread_rng().gen()),
-        timestamp2: None,
-        payload:    NetworkMessagePayload::NetworkPacket(NetworkPacket {
+        created:  get_current_stamp(),
+        received: None,
+        payload:  NetworkMessagePayload::NetworkPacket(NetworkPacket {
             packet_type: NetworkPacketType::DirectMessage(P2PNodeId::default()),
             network_id:  NetworkId::from(thread_rng().gen::<u16>()),
             message:     generate_fake_block(size).unwrap(),

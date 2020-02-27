@@ -374,17 +374,15 @@ impl Connection {
 
     pub fn produce_handshake_request(&self) -> Fallible<Vec<u8>> {
         let handshake_request = NetworkMessage {
-            timestamp1: Some(get_current_stamp()),
-            timestamp2: None,
-            payload:    NetworkMessagePayload::NetworkRequest(NetworkRequest::Handshake(
-                Handshake {
-                    remote_id:   self.handler().self_peer.id(),
-                    remote_port: self.handler().self_peer.port(),
-                    networks:    read_or_die!(self.handler().networks()).iter().copied().collect(),
-                    version:     Version::parse(env!("CARGO_PKG_VERSION"))?,
-                    proof:       vec![],
-                },
-            )),
+            created:  get_current_stamp(),
+            received: None,
+            payload:  NetworkMessagePayload::NetworkRequest(NetworkRequest::Handshake(Handshake {
+                remote_id:   self.handler().self_peer.id(),
+                remote_port: self.handler().self_peer.port(),
+                networks:    read_or_die!(self.handler().networks()).iter().copied().collect(),
+                version:     Version::parse(env!("CARGO_PKG_VERSION"))?,
+                proof:       vec![],
+            })),
         };
         let mut serialized = Vec::with_capacity(128);
         handshake_request.serialize(&mut serialized)?;
@@ -396,9 +394,9 @@ impl Connection {
         trace!("Sending a ping to {}", self);
 
         let ping = NetworkMessage {
-            timestamp1: Some(get_current_stamp()),
-            timestamp2: None,
-            payload:    NetworkMessagePayload::NetworkRequest(NetworkRequest::Ping),
+            created:  get_current_stamp(),
+            received: None,
+            payload:  NetworkMessagePayload::NetworkRequest(NetworkRequest::Ping),
         };
         let mut serialized = Vec::with_capacity(64);
         ping.serialize(&mut serialized)?;
@@ -413,9 +411,9 @@ impl Connection {
         trace!("Sending a pong to {}", self);
 
         let pong = NetworkMessage {
-            timestamp1: Some(get_current_stamp()),
-            timestamp2: None,
-            payload:    NetworkMessagePayload::NetworkResponse(NetworkResponse::Pong),
+            created:  get_current_stamp(),
+            received: None,
+            payload:  NetworkMessagePayload::NetworkResponse(NetworkResponse::Pong),
         };
         let mut serialized = Vec::with_capacity(64);
         pong.serialize(&mut serialized)?;
@@ -455,9 +453,9 @@ impl Connection {
                         >= usize::from(self.handler().config.bootstrapper_wait_minimum_peers)
                 {
                     Some(NetworkMessage {
-                        timestamp1: Some(get_current_stamp()),
-                        timestamp2: None,
-                        payload:    NetworkMessagePayload::NetworkResponse(
+                        created:  get_current_stamp(),
+                        received: None,
+                        payload:  NetworkMessagePayload::NetworkResponse(
                             NetworkResponse::PeerList(random_nodes),
                         ),
                     })
@@ -478,9 +476,9 @@ impl Connection {
 
                 if !nodes.is_empty() {
                     Some(NetworkMessage {
-                        timestamp1: Some(get_current_stamp()),
-                        timestamp2: None,
-                        payload:    NetworkMessagePayload::NetworkResponse(
+                        created:  get_current_stamp(),
+                        received: None,
+                        payload:  NetworkMessagePayload::NetworkResponse(
                             NetworkResponse::PeerList(nodes),
                         ),
                     })

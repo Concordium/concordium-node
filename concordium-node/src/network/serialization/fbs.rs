@@ -83,7 +83,7 @@ fn _deserialize(buffer: &[u8]) -> Fallible<NetworkMessage> {
 
     let root = network::get_size_prefixed_root_as_network_message(buffer);
 
-    let timestamp1 = Some(root.timestamp());
+    let created = root.timestamp();
 
     let payload = match root.payload_type() {
         network::NetworkMessagePayload::NetworkPacket => deserialize_packet(&root)?,
@@ -93,8 +93,8 @@ fn _deserialize(buffer: &[u8]) -> Fallible<NetworkMessage> {
     };
 
     Ok(NetworkMessage {
-        timestamp1,
-        timestamp2: Some(get_current_stamp()),
+        created,
+        received: Some(get_current_stamp()),
         payload,
     })
 }
