@@ -18,6 +18,7 @@ use twox_hash::XxHash64;
 use crate::{
     common::{get_current_stamp, p2p_peer::P2PPeer, P2PNodeId, PeerStats, PeerType, RemotePeer},
     dumper::DumpItem,
+    netmsg,
     network::{
         Buckets, Handshake, NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket,
         NetworkRequest, NetworkResponse,
@@ -373,17 +374,16 @@ impl Connection {
     }
 
     pub fn produce_handshake_request(&self) -> Fallible<Vec<u8>> {
-        let handshake_request = NetworkMessage {
-            created:  get_current_stamp(),
-            received: None,
-            payload:  NetworkMessagePayload::NetworkRequest(NetworkRequest::Handshake(Handshake {
+        let handshake_request = netmsg!(
+            NetworkRequest,
+            NetworkRequest::Handshake(Handshake {
                 remote_id:   self.handler().self_peer.id(),
                 remote_port: self.handler().self_peer.port(),
                 networks:    read_or_die!(self.handler().networks()).iter().copied().collect(),
                 version:     Version::parse(env!("CARGO_PKG_VERSION"))?,
                 proof:       vec![],
-            })),
-        };
+            })
+        );
         let mut serialized = Vec::with_capacity(128);
         handshake_request.serialize(&mut serialized)?;
 
@@ -393,11 +393,7 @@ impl Connection {
     pub fn send_ping(&self) -> Fallible<()> {
         trace!("Sending a ping to {}", self);
 
-        let ping = NetworkMessage {
-            created:  get_current_stamp(),
-            received: None,
-            payload:  NetworkMessagePayload::NetworkRequest(NetworkRequest::Ping),
-        };
+        let ping = netmsg!(NetworkRequest, NetworkRequest::Ping);
         let mut serialized = Vec::with_capacity(64);
         ping.serialize(&mut serialized)?;
         self.async_send(Arc::from(serialized), MessageSendingPriority::High);
@@ -410,11 +406,7 @@ impl Connection {
     pub fn send_pong(&self) -> Fallible<()> {
         trace!("Sending a pong to {}", self);
 
-        let pong = NetworkMessage {
-            created:  get_current_stamp(),
-            received: None,
-            payload:  NetworkMessagePayload::NetworkResponse(NetworkResponse::Pong),
-        };
+        let pong = netmsg!(NetworkResponse, NetworkResponse::Pong);
         let mut serialized = Vec::with_capacity(64);
         pong.serialize(&mut serialized)?;
         self.async_send(Arc::from(serialized), MessageSendingPriority::High);
@@ -452,13 +444,7 @@ impl Connection {
                     && random_nodes.len()
                         >= usize::from(self.handler().config.bootstrapper_wait_minimum_peers)
                 {
-                    Some(NetworkMessage {
-                        created:  get_current_stamp(),
-                        received: None,
-                        payload:  NetworkMessagePayload::NetworkResponse(
-                            NetworkResponse::PeerList(random_nodes),
-                        ),
-                    })
+                    Some(netmsg!(NetworkResponse, NetworkResponse::PeerList(random_nodes)))
                 } else {
                     None
                 }
@@ -475,13 +461,7 @@ impl Connection {
                     .collect::<Vec<_>>();
 
                 if !nodes.is_empty() {
-                    Some(NetworkMessage {
-                        created:  get_current_stamp(),
-                        received: None,
-                        payload:  NetworkMessagePayload::NetworkResponse(
-                            NetworkResponse::PeerList(nodes),
-                        ),
-                    })
+                    Some(netmsg!(NetworkResponse, NetworkResponse::PeerList(nodes)))
                 } else {
                     None
                 }

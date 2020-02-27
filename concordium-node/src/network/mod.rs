@@ -43,6 +43,17 @@ pub struct NetworkMessage {
     pub payload: NetworkMessagePayload,
 }
 
+#[macro_export]
+macro_rules! netmsg {
+    ($payload_type:ident, $payload:expr) => {{
+        NetworkMessage {
+            created:  get_current_stamp(),
+            received: None,
+            payload:  NetworkMessagePayload::$payload_type($payload),
+        }
+    }};
+}
+
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum NetworkMessagePayload {

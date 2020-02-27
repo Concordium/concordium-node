@@ -1,6 +1,7 @@
 use crate::{
     common::{get_current_stamp, P2PNodeId, PeerStats, PeerType},
     connection::Connection,
+    netmsg,
     network::{NetworkMessage, NetworkMessagePayload, NetworkRequest},
     p2p::{maintenance::attempt_bootstrap, P2PNode},
 };
@@ -63,11 +64,7 @@ impl P2PNode {
     fn send_get_peers(&self) {
         if let Ok(nids) = safe_read!(self.networks()) {
             let request = NetworkRequest::GetPeers(nids.iter().copied().collect());
-            let message = NetworkMessage {
-                created:  get_current_stamp(),
-                received: None,
-                payload:  NetworkMessagePayload::NetworkRequest(request),
-            };
+            let message = netmsg!(NetworkRequest, request);
             let filter = |_: &Connection| true;
 
             if let Err(e) = {

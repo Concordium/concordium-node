@@ -6,6 +6,7 @@ use structopt::StructOpt;
 use crate::{
     common::{get_current_stamp, P2PNodeId, PeerType},
     configuration::Config,
+    netmsg,
     network::{NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkPacketType},
     p2p::{connectivity, maintenance::spawn, P2PNode},
     stats_export_service::{StatsExportService, StatsServiceMode},
@@ -129,13 +130,9 @@ fn generate_fake_block(size: usize) -> Fallible<Vec<u8>> {
 }
 
 pub fn create_random_packet(size: usize) -> NetworkMessage {
-    NetworkMessage {
-        created:  get_current_stamp(),
-        received: None,
-        payload:  NetworkMessagePayload::NetworkPacket(NetworkPacket {
-            packet_type: NetworkPacketType::DirectMessage(P2PNodeId::default()),
-            network_id:  NetworkId::from(thread_rng().gen::<u16>()),
-            message:     generate_fake_block(size).unwrap(),
-        }),
-    }
+    netmsg!(NetworkPacket, NetworkPacket {
+        packet_type: NetworkPacketType::DirectMessage(P2PNodeId::default()),
+        network_id:  NetworkId::from(thread_rng().gen::<u16>()),
+        message:     generate_fake_block(size).unwrap(),
+    })
 }
