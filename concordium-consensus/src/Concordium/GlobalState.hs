@@ -13,7 +13,8 @@
     CPP,
     RankNTypes,
     ScopedTypeVariables,
-    ConstraintKinds
+    ConstraintKinds,
+    PartialTypeSignatures
     #-}
 module Concordium.GlobalState where
 
@@ -67,15 +68,6 @@ deriving via (FocusGlobalStateM c g m)
 deriving via (FocusGlobalStateM c g m)
     instance (HasGlobalState g s, MonadState s m)
         => MonadState g (BlockStateM c r g s m)
-deriving via NoIndexATIMonad m instance Monad m => ATIMonad (BlockStateM c r (SkovData bs) s m)
-
-instance (ATIStorage m ~ ati, ATIMonad m) => ATIMonad (BlockStateM c r (SkovPersistentData ati bs) s m) where
-  type ATIStorage (BlockStateM c r (SkovPersistentData ati bs) s m) = ati
-  {-# INLINE emptyATI #-}
-  emptyATI = BlockStateM emptyATI
-
-  {-# INLINE recordTransactionAffects #-}
-  recordTransactionAffects x y s = BlockStateM (recordTransactionAffects x y s)
 
 deriving via (PureBlockStateMonad m)
     instance (HasGlobalStateContext () r)
@@ -111,21 +103,22 @@ deriving via (PersistentBlockStateMonad PersistentBlockStateContext (FocusGlobal
 -- @MonadState s m@.
 --
 -- * If @s@ is 'SkovData bs', then the in-memory, Haskell tree state is used.
--- * If @s@ is 'SkovPersistentData bs', then the persistent Haskell tree state is used.
+-- * If @s@ is 'SkovPersistentData ati bs', then the persistent Haskell tree state is used.
 newtype TreeStateM s m a = TreeStateM {runTreeStateM :: m a}
     deriving (Functor, Applicative, Monad, MonadState s, MonadIO,
               BlockStateTypes, BlockStateQuery, BlockStateOperations, BlockStateStorage)
 
-deriving via NoIndexATIMonad m instance Monad m => ATIMonad (TreeStateM (SkovData bs) m)
+-- For in-memory skov data we do not do any transaction logging for now.
+instance ATITypes (TreeStateM (SkovData bs) m) where
+  type ATIStorage (TreeStateM (SkovData bs) m) = ()
+instance (Monad m) => PerAccountDBOperations (TreeStateM (SkovData bs) m) where
+  -- default implementation
 
-instance (ATIStorage m ~ ati, ATIMonad m) => ATIMonad (TreeStateM (SkovPersistentData ati bs) m) where
+instance (ATIStorage m ~ ati, ATITypes m) => ATITypes (TreeStateM (SkovPersistentData ati bs) m) where
   type ATIStorage (TreeStateM (SkovPersistentData ati bs) m) = ati
-  {-# INLINE emptyATI #-}
-  emptyATI = TreeStateM emptyATI
 
-  {-# INLINE recordTransactionAffects #-}
-  recordTransactionAffects x y s = TreeStateM (recordTransactionAffects x y s)
-
+deriving via PersistentTreeStateMonad ati bs m
+   instance (PerAccountDBOperations m, ATIStorage m ~ ati) => PerAccountDBOperations (TreeStateM (SkovPersistentData ati bs) m)
 
 -- |Global State types for the memory Tree State implementation
 deriving via (PureTreeStateMonad bs m)
@@ -149,7 +142,7 @@ deriving via (PersistentTreeStateMonad ati bs m)
               BlockStateStorage m,
               MonadIO m,
               MonadState (SkovPersistentData ati bs) m,
-              ATIMonad m,
+              PerAccountDBOperations m,
               ATIStorage m ~ ati,
               Monad m)
               => TreeStateMonad (TreeStateM (SkovPersistentData ati bs) m)
@@ -164,48 +157,63 @@ deriving via (PureTreeStateMonad bs m)
 
 deriving via (PersistentTreeStateMonad ati bs m)
     instance (BPMStateConstraints m (SkovPersistentData ati) bs,
-              ATIStorage m ~ ati,
-              ATIMonad m,
               MonadIO m,
+              ATIStorage m ~ ati,
+              CanExtend ati,
               BlockStateStorage m)
               => BlockPointerMonad (TreeStateM (SkovPersistentData ati bs) m)
 
 -- |A newtype wrapper for providing instances of global state monad classes.
 -- The block state monad instances are derived directly from 'BlockStateM'.
 -- The tree state monad instances are derived directly from 'TreeStateM'.
-newtype GlobalStateM c r g s m a = GlobalStateM {runGlobalStateM :: m a}
+-- The arguments c, r, g, s, m, a are as in BlockStateM, whereas the argument @db@
+-- is an additional context that manages auxiliary databases not needed by consensus.
+-- In particular this means the index of transactions that affect a given account.
+newtype GlobalStateM db c r g s m a = GlobalStateM {runGlobalStateM :: m a}
     deriving (Functor, Applicative, Monad, MonadReader r, MonadState s, MonadIO)
     deriving (BlockStateTypes) via (BlockStateM c r g s m)
 
-deriving via NoIndexATIMonad m instance Monad m => ATIMonad (GlobalStateM c r (SkovData bs) s m)
-
-instance (ATIStorage m ~ ati, ATIMonad m) => ATIMonad (GlobalStateM c r (SkovPersistentData ati bs) s m) where
-  type ATIStorage (GlobalStateM c r (SkovPersistentData ati bs) s m) = ati
-  {-# INLINE emptyATI #-}
-  emptyATI = GlobalStateM emptyATI
-
-  {-# INLINE recordTransactionAffects #-}
-  recordTransactionAffects x y s = GlobalStateM (recordTransactionAffects x y s)
-
-
 deriving via (BlockStateM c r g s m)
     instance (Monad m, BlockStateQuery (BlockStateM c r g s m))
-        => BlockStateQuery (GlobalStateM c r g s m)
+        => BlockStateQuery (GlobalStateM db c r g s m)
 deriving via (BlockStateM c r g s m)
     instance (Monad m, BlockStateOperations (BlockStateM c r g s m))
-        => BlockStateOperations (GlobalStateM c r g s m)
+        => BlockStateOperations (GlobalStateM db c r g s m)
 deriving via (BlockStateM c r g s m)
     instance (Monad m, BlockStateStorage (BlockStateM c r g s m))
-        => BlockStateStorage (GlobalStateM c r g s m)
+        => BlockStateStorage (GlobalStateM db c r g s m)
+
+-- |Additional logs produced by execution
+data NoLogContext
+data PerAccountAffectIndex = PAAIConfig String
 
 -- Deriving the global state types depending on the tree state implementation
 deriving via (TreeStateM (SkovData bs) m)
      instance (bs ~ GS.BlockState (BlockStateM c r (SkovData bs) s m))
-        => GlobalStateTypes (GlobalStateM c r (SkovData bs) s m)
+        => GlobalStateTypes (GlobalStateM NoLogContext c r (SkovData bs) s m)
 -- Deriving the persistent implementation of the tree state monad
 deriving via (TreeStateM (SkovPersistentData ati bs) m)
     instance (bs ~ GS.BlockState (BlockStateM c r (SkovPersistentData ati bs) s m))
-        => GlobalStateTypes (GlobalStateM c r (SkovPersistentData ati bs) s m)
+        => GlobalStateTypes (GlobalStateM db c r (SkovPersistentData ati bs) s m)
+
+-- With in-memory skov data we do not do any transaction logging for now.
+instance ATITypes (GlobalStateM NoLogContext c r bs s m) where
+  type ATIStorage (GlobalStateM NoLogContext c r bs s m) = ()
+instance (Monad m) => PerAccountDBOperations (GlobalStateM NoLogContext c r bs s m) where
+  -- default implementation
+
+-- Instances which do no transaction logging.
+instance ATITypes (BlockStateM c r (SkovData bs) s m) where
+  type ATIStorage (BlockStateM c r (SkovData bs) s m) = ()
+
+instance ATITypes (BlockStateM c r (SkovPersistentData () bs) s m) where
+  type ATIStorage (BlockStateM c r (SkovPersistentData () bs) s m) = ()
+
+instance (Monad m) => PerAccountDBOperations (BlockStateM c r (SkovPersistentData () bs) s m) where
+  -- default implementation
+
+instance (Monad m) => PerAccountDBOperations (BlockStateM c r (SkovData bs) s m) where
+  -- default implementation
 
 -- |Common requirements to implement the tree state monad.
 -- The meaning of the arguments is
@@ -230,79 +238,54 @@ deriving via (TreeStateM (SkovData bs) (BlockStateM () r (SkovData bs) s m))
     instance (TSMStateConstraints () r SkovData bs s m,
               BlockStateStorage (BlockStateM () r (SkovData bs) s m),
               MonadIO m)
-        => TreeStateMonad (GlobalStateM () r (SkovData bs) s m)
+        => TreeStateMonad (GlobalStateM NoLogContext () r (SkovData bs) s m)
 
 -- |Memory Tree & Disk Block instance
 deriving via (TreeStateM (SkovData bs) (BlockStateM PersistentBlockStateContext r (SkovData bs) s m))
     instance (TSMStateConstraints PersistentBlockStateContext r SkovData bs s m,
               BlockStateStorage (BlockStateM PersistentBlockStateContext r (SkovData bs) s m),
               MonadIO m)
-        => TreeStateMonad (GlobalStateM PersistentBlockStateContext r (SkovData bs) s m)
+        => TreeStateMonad (GlobalStateM NoLogContext PersistentBlockStateContext r (SkovData bs) s m)
 
--- |Disk Tree & Disk Block instance
-deriving via (TreeStateM (SkovPersistentData ati bs) (BlockStateM PersistentBlockStateContext r (SkovPersistentData ati bs) s m))
-    instance (TSMStateConstraints PersistentBlockStateContext r (SkovPersistentData ati) bs s m,
-              BlockStateStorage (BlockStateM PersistentBlockStateContext r (SkovPersistentData ati bs) s m),
-              ATIStorage m ~ ati,
-              ATIMonad m,
+-- |Disk Tree & Disk Block instance without any transaction logging.
+deriving via (TreeStateM (SkovPersistentData () bs) (BlockStateM PersistentBlockStateContext r (SkovPersistentData () bs) s m))
+    instance (TSMStateConstraints PersistentBlockStateContext r (SkovPersistentData ()) bs s m,
+              BlockStateStorage (BlockStateM PersistentBlockStateContext r (SkovPersistentData () bs) s m),
+              ATIStorage m ~ (),
               MonadIO m)
-        => TreeStateMonad (GlobalStateM PersistentBlockStateContext r (SkovPersistentData ati bs) s m)
-
--- |Disk Tree & Memory Block instance
-deriving via (TreeStateM (SkovPersistentData ati bs) (BlockStateM () r (SkovPersistentData ati bs) s m))
-    instance (TSMStateConstraints () r (SkovPersistentData ati) bs s m,
-             ATIStorage m ~ ati,
-             ATIStorage (BlockStateM () r (SkovPersistentData ati bs) s m) ~ ati,
-             ATIMonad (BlockStateM () r (SkovPersistentData ati bs) s m),
-             ATIMonad m,
-             MonadIO m)
-        => TreeStateMonad (GlobalStateM () r (SkovPersistentData ati bs) s m)
+        => TreeStateMonad (GlobalStateM NoLogContext PersistentBlockStateContext r (SkovPersistentData () bs) s m)
 
 -- |Memory Tree & Memory Block instance
 deriving via (TreeStateM (SkovData bs) (BlockStateM () r (SkovData bs) s m))
     instance (TSMStateConstraints () r SkovData bs s m)
-        => BlockPointerMonad (GlobalStateM () r (SkovData bs) s m)
+        => BlockPointerMonad (GlobalStateM NoLogContext () r (SkovData bs) s m)
 
 -- |Memory Tree & Disk Block instance
 deriving via (TreeStateM (SkovData bs) (BlockStateM PersistentBlockStateContext r (SkovData bs) s m))
     instance (TSMStateConstraints PersistentBlockStateContext r SkovData bs s m)
-        => BlockPointerMonad (GlobalStateM PersistentBlockStateContext r (SkovData bs) s m)
+        => BlockPointerMonad (GlobalStateM NoLogContext PersistentBlockStateContext r (SkovData bs) s m)
 
--- |Disk Tree & Disk Block instance
+-- |Disk Tree & Disk Block instance without any transaction logging.
 deriving via (TreeStateM (SkovPersistentData ati bs) (BlockStateM PersistentBlockStateContext r (SkovPersistentData ati bs) s m))
     instance (TSMStateConstraints PersistentBlockStateContext r (SkovPersistentData ati) bs s m,
-              ATIMonad m,
+              ati ~ (),
               ATIStorage m ~ ati,
+              CanExtend ati,
               MonadIO m)
-        => BlockPointerMonad (GlobalStateM PersistentBlockStateContext r (SkovPersistentData ati bs) s m)
+        => BlockPointerMonad (GlobalStateM NoLogContext PersistentBlockStateContext r (SkovPersistentData ati bs) s m)
 
--- |Disk Tree & Memory Block instance
-deriving via (TreeStateM (SkovPersistentData ati bs) (BlockStateM () r (SkovPersistentData ati bs) s m))
-    instance (TSMStateConstraints () r (SkovPersistentData ati) bs s m,
-              ATIMonad m,
-              ATIStorage m ~ ati,
-              MonadIO m)
-        => BlockPointerMonad (GlobalStateM () r (SkovPersistentData ati bs) s m)
 
 -- |This class is implemented by types that determine configurations for the global state.
 class GlobalStateConfig c where
     -- TODO: making these data families could give better error messages
     type GSContext c :: *
     type GSState c :: *
+    type GSLogContext c :: *
     -- |Generate context and state from the initial configuration. This may
     -- have 'IO' side effects to set up any necessary storage.
     initialiseGlobalState :: c -> IO (GSContext c, GSState c)
     -- |Shutdown the global state.
     shutdownGlobalState :: Proxy c -> GSContext c -> GSState c -> IO ()
-
--- |Run a (read-only) query against the global state.
-queryGlobalState ::
-    forall c a. (TreeStateMonad (GlobalStateM (GSContext c) (Identity (GSContext c)) (GSState c) (Identity (GSState c)) (RWST (Identity (GSContext c)) () (Identity (GSState c)) IO)))
-    => Proxy c -> GSContext c -> GSState c -> (forall m. (TreeStateMonad m) => m a) -> IO a
-queryGlobalState _ = qgs
-    where
-        qgs :: GSContext c -> GSState c -> GlobalStateM (GSContext c) (Identity (GSContext c)) (GSState c) (Identity (GSState c)) (RWST (Identity (GSContext c)) () (Identity (GSState c)) IO) a -> IO a
-        qgs c s a = fst <$> (evalRWST (runGlobalStateM a) (Identity c) (Identity s))
 
 -- |Configuration that uses in-memory, Haskell implementations for both tree state and block state.
 data MemoryTreeMemoryBlockConfig = MTMBConfig RuntimeParameters GenesisData BS.BlockState
@@ -310,6 +293,7 @@ data MemoryTreeMemoryBlockConfig = MTMBConfig RuntimeParameters GenesisData BS.B
 instance GlobalStateConfig MemoryTreeMemoryBlockConfig where
     type GSContext MemoryTreeMemoryBlockConfig = ()
     type GSState MemoryTreeMemoryBlockConfig = SkovData BS.BlockState
+    type GSLogContext MemoryTreeMemoryBlockConfig = NoLogContext
     initialiseGlobalState (MTMBConfig rtparams gendata bs) = do
       return ((), initialSkovData rtparams gendata bs)
     shutdownGlobalState _ _ _ = return ()
@@ -323,6 +307,7 @@ data MemoryTreeDiskBlockConfig = MTDBConfig RuntimeParameters GenesisData BS.Blo
 instance GlobalStateConfig MemoryTreeDiskBlockConfig where
     type GSContext MemoryTreeDiskBlockConfig = PersistentBlockStateContext
     type GSState MemoryTreeDiskBlockConfig = SkovData PersistentBlockState
+    type GSLogContext MemoryTreeDiskBlockConfig = NoLogContext
     initialiseGlobalState (MTDBConfig rtparams gendata bs) = do
         pbscBlobStore <- createTempBlobStore . (<.> "dat") . rpBlockStateFile $ rtparams
         pbscModuleCache <- newIORef emptyModuleCache
@@ -341,6 +326,7 @@ data DiskTreeDiskBlockConfig = DTDBConfig RuntimeParameters GenesisData BS.Block
 instance GlobalStateConfig DiskTreeDiskBlockConfig where
     type GSContext DiskTreeDiskBlockConfig = PersistentBlockStateContext
     type GSState DiskTreeDiskBlockConfig = SkovPersistentData () PersistentBlockState
+    type GSLogContext DiskTreeDiskBlockConfig = NoLogContext
     initialiseGlobalState (DTDBConfig rtparams gendata bs) = do
         pbscBlobStore <- createTempBlobStore . (<.> "dat") . rpBlockStateFile $ rtparams
         pbscModuleCache <- newIORef emptyModuleCache
@@ -352,3 +338,28 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
     shutdownGlobalState _ (PersistentBlockStateContext{..}) _ = do
         destroyTempBlobStore pbscBlobStore
         writeIORef pbscModuleCache Persistent.emptyModuleCache
+
+
+-- |Configuration that uses the disk implementation for both the tree state
+-- and the block state, as well as a 
+data DiskTreeDiskBlockWithLogConfig = DTDBWLConfig {
+  configRP :: RuntimeParameters,
+  configGD :: GenesisData,
+  configBS :: BS.BlockState
+  }
+
+-- instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
+--     type GSContext DiskTreeDiskBlockWithLogConfig = PersistentBlockStateContext
+--     type GSState DiskTreeDiskBlockWithLogConfig = SkovPersistentData AccountTransactionIndex PersistentBlockState
+--     initialiseGlobalState (DTDBWLConfig rtparams gendata bs) = do
+--         pbscBlobStore <- createTempBlobStore . (<.> "dat") . rpBlockStateFile $ rtparams
+--         pbscModuleCache <- newIORef emptyModuleCache
+--         pbs <- makePersistent bs
+--         let pbsc = PersistentBlockStateContext{..}
+--         serBS <- runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc
+--         let ati = defaultValue
+--         isd <- initialSkovPersistentData rtparams gendata pbs ati serBS
+--         return (pbsc, isd)
+--     shutdownGlobalState _ (PersistentBlockStateContext{..}) _ = do
+--         destroyTempBlobStore pbscBlobStore
+--         writeIORef pbscModuleCache Persistent.emptyModuleCache

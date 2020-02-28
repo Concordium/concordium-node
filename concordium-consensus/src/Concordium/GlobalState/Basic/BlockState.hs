@@ -13,6 +13,7 @@ import Concordium.Types
 import qualified Concordium.GlobalState.Classes as GS
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Bakers
+import Concordium.GlobalState.AccountTransactionIndex
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Modules as Modules
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Account
@@ -57,6 +58,12 @@ newtype PureBlockStateMonad m a = PureBlockStateMonad {runPureBlockStateMonad ::
 instance GS.BlockStateTypes (PureBlockStateMonad m) where
     type BlockState (PureBlockStateMonad m) = BlockState
     type UpdatableBlockState (PureBlockStateMonad m) = BlockState
+
+instance ATITypes (PureBlockStateMonad m) where
+  type ATIStorage (PureBlockStateMonad m) = ()
+
+instance Monad m => PerAccountDBOperations (PureBlockStateMonad m) where
+  -- default implementation
 
 instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
     {-# INLINE getModule #-}

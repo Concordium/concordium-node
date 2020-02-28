@@ -106,7 +106,6 @@ initialSkovData rp gd genState =
 newtype PureTreeStateMonad bs m a = PureTreeStateMonad { runPureTreeStateMonad :: m a }
   deriving (Functor, Applicative, Monad, MonadIO, GS.BlockStateTypes,
             BS.BlockStateQuery, BS.BlockStateOperations, BS.BlockStateStorage)
-  deriving ATIMonad via NoIndexATIMonad m
 
 deriving instance (Monad m, MonadState (SkovData bs) m) => MonadState (SkovData bs) (PureTreeStateMonad bs m)
   
@@ -119,6 +118,12 @@ instance (bs ~ GS.BlockState m, Monad m, MonadState (SkovData bs) m) => BlockPoi
     blockState = return . _bpState
     bpParent = return . _bpParent
     bpLastFinalized = return . _bpLastFinalized
+
+instance ATITypes (PureTreeStateMonad bs m) where
+  type ATIStorage (PureTreeStateMonad bs m) = ()
+
+instance (Monad m) => PerAccountDBOperations (PureTreeStateMonad bs m) where
+  -- default instance because ati = ()
 
 instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovData bs) m)
           => TS.TreeStateMonad (PureTreeStateMonad bs m) where
