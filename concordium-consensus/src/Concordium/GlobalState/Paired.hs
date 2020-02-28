@@ -142,13 +142,13 @@ instance (BlockPointerData l, BlockPointerData r) => BlockPointerData (PairBlock
     bpTransactionsEnergyCost (PairBlockData (l, r)) = assert (bpTransactionsEnergyCost l == bpTransactionsEnergyCost r) $ bpTransactionsEnergyCost l
     bpTransactionsSize (PairBlockData (l, r)) = assert (bpTransactionsSize l == bpTransactionsSize r) $ bpTransactionsSize l
 
-type GSML lc r ls s m = GlobalStateM lc (FocusLeft r) ls (FocusLeft s) (ReviseRSM (FocusLeft r) (FocusLeft s) m)
-type GSMR rc r rs s m = GlobalStateM rc (FocusRight r) rs (FocusRight s) (ReviseRSM (FocusRight r) (FocusRight s) m)
+type GSML lc r ls s m = GlobalStateM NoLogContext lc (FocusLeft r) ls (FocusLeft s) (ReviseRSM (FocusLeft r) (FocusLeft s) m)
+type GSMR rc r rs s m = GlobalStateM NoLogContext rc (FocusRight r) rs (FocusRight s) (ReviseRSM (FocusRight r) (FocusRight s) m)
 
 instance (GlobalStateTypes (GSML lc r ls s m), GlobalStateTypes (GSMR rc r rs s m))
-        => GlobalStateTypes (GlobalStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
-    type PendingBlock (GlobalStateM (PairGSContext lc rc) r (PairGState ls rs) s m) = PairBlockData (PendingBlock (GSML lc r ls s m)) (PendingBlock (GSMR rc r rs s m))
-    type BlockPointer (GlobalStateM (PairGSContext lc rc) r (PairGState ls rs) s m) = PairBlockData (BlockPointer (GSML lc r ls s m)) (BlockPointer (GSMR rc r rs s m))
+        => GlobalStateTypes (GlobalStateM NoLogContext (PairGSContext lc rc) r (PairGState ls rs) s m) where
+    type PendingBlock (GlobalStateM NoLogContext (PairGSContext lc rc) r (PairGState ls rs) s m) = PairBlockData (PendingBlock (GSML lc r ls s m)) (PendingBlock (GSMR rc r rs s m))
+    type BlockPointer (GlobalStateM NoLogContext (PairGSContext lc rc) r (PairGState ls rs) s m) = PairBlockData (BlockPointer (GSML lc r ls s m)) (BlockPointer (GSMR rc r rs s m))
 
 {-# INLINE coerceBSML #-}
 coerceBSML :: BSML lc r ls s m a -> BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m a
@@ -365,11 +365,11 @@ instance (Monad m,
             return (bs1, bs2)
 
 {-# INLINE coerceGSML #-}
-coerceGSML :: GSML lc r ls s m a -> GlobalStateM (PairGSContext lc rc) r (PairGState ls rs) s m a
+coerceGSML :: GSML lc r ls s m a -> GlobalStateM NoLogContext (PairGSContext lc rc) r (PairGState ls rs) s m a
 coerceGSML = coerce
 
 {-# INLINE coerceGSMR #-}
-coerceGSMR :: GSMR rc r rs s m a -> GlobalStateM (PairGSContext lc rc) r (PairGState ls rs) s m a
+coerceGSMR :: GSMR rc r rs s m a -> GlobalStateM NoLogContext (PairGSContext lc rc) r (PairGState ls rs) s m a
 coerceGSMR = coerce
 
 instance (HasGlobalStateContext (PairGSContext lc rc) r,
@@ -379,7 +379,7 @@ instance (HasGlobalStateContext (PairGSContext lc rc) r,
           MonadIO m,
           BlockPointerMonad (GSML lc r ls s m),
           BlockPointerMonad (GSMR rc r rs s m))
-          => BlockPointerMonad (GlobalStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
+          => BlockPointerMonad (GlobalStateM NoLogContext (PairGSContext lc rc) r (PairGState ls rs) s m) where
     blockState (PairBlockData (bp1, bp2)) = do
         bs1 <- coerceGSML $ blockState bp1
         bs2 <- coerceGSMR $ blockState bp2
@@ -393,22 +393,17 @@ instance (HasGlobalStateContext (PairGSContext lc rc) r,
         bs2 <- coerceGSMR $ bpLastFinalized bp2
         return $ PairBlockData (bs1, bs2)
 
--- NB: Only supports paired state when both left and right do no transaction logging
--- and as a result the paired instance also does not support logging.
--- This can be relaxed in the future if there is a need.
-deriving via NoIndexATIMonad m instance Monad m => ATIMonad (GlobalStateM (PairGSContext lc rc) r (PairGState ls rs) s m)
-
 instance (HasGlobalStateContext (PairGSContext lc rc) r,
         MonadReader r m,
         HasGlobalState (PairGState ls rs) s,
         MonadState s m,
         MonadIO m,
-        BlockStateStorage (GlobalStateM (PairGSContext lc rc) r (PairGState ls rs) s m),
+        BlockStateStorage (GlobalStateM NoLogContext (PairGSContext lc rc) r (PairGState ls rs) s m),
         TreeStateMonad (GSML lc r ls s m),
         ATIStorage (GSML lc r ls s m) ~ (),
         TreeStateMonad (GSMR rc r rs s m),
         ATIStorage (GSMR rc r rs s m) ~ ())
-        => TreeStateMonad (GlobalStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
+        => TreeStateMonad (GlobalStateM NoLogContext (PairGSContext lc rc) r (PairGState ls rs) s m) where
     makePendingBlock sk sl parent bid bp bn lf trs brtime = do
         pb1 <- coerceGSML $ makePendingBlock sk sl parent bid bp bn lf trs brtime
         pb2 <- coerceGSMR $ makePendingBlock sk sl parent bid bp bn lf trs brtime
@@ -592,6 +587,8 @@ newtype PairGSConfig c1 c2 = PairGSConfig (c1, c2)
 instance (GlobalStateConfig c1, GlobalStateConfig c2) => GlobalStateConfig (PairGSConfig c1 c2) where
     type GSContext (PairGSConfig c1 c2) = PairGSContext (GSContext c1) (GSContext c2)
     type GSState (PairGSConfig c1 c2) = PairGState (GSState c1) (GSState c2)
+    -- FIXME: The below could also be improved to add pairs.
+    type GSLogContext (PairGSConfig c1 c2) = NoLogContext
     initialiseGlobalState (PairGSConfig (conf1, conf2)) = do
             (ctx1, s1) <- initialiseGlobalState conf1
             (ctx2, s2) <- initialiseGlobalState conf2

@@ -75,7 +75,7 @@ class (Eq (BlockPointer m),
        BlockPendingData (PendingBlock m),
        BlockStateStorage m,
        BlockPointerMonad m,
-       ATIMonad m,
+       PerAccountDBOperations m,
        Monad m)
       => TreeStateMonad m where
 

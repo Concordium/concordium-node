@@ -125,15 +125,18 @@ initialSkovPersistentData rp gd genState ati serState = do
 -- * `BlockStateOperations`
 -- * `BlockStateStorage`
 -- * `MonadState (SkovPersistentData bs)`
+-- * `PerAccountDBOperations`
 --
 -- This newtype establishes types for the @GlobalStateTypes@. The type variable @bs@ stands for the BlockState
 -- type used in the implementation.
 newtype PersistentTreeStateMonad ati bs m a = PersistentTreeStateMonad { runPersistentTreeStateMonad :: m a }
   deriving (Functor, Applicative, Monad, MonadIO, GS.BlockStateTypes,
             BS.BlockStateQuery, BS.BlockStateOperations, BS.BlockStateStorage)
-  deriving ATIMonad via m
+
 deriving instance (Monad m, MonadState (SkovPersistentData ati bs) m)
          => MonadState (SkovPersistentData ati bs) (PersistentTreeStateMonad ati bs m)
+
+deriving instance (PerAccountDBOperations m, ATIStorage m ~ ati) => PerAccountDBOperations (PersistentTreeStateMonad ati bs m)
 
 
 instance (bs ~ GS.BlockState m, ati ~ ATIStorage m) => GS.GlobalStateTypes (PersistentTreeStateMonad ati bs m) where
@@ -142,7 +145,7 @@ instance (bs ~ GS.BlockState m, ati ~ ATIStorage m) => GS.GlobalStateTypes (Pers
 
 -- |Construct a block from a serialized form.
 -- The @ati@ is filled with a default value.
-constructBlock :: (MonadIO m, BS.BlockStateStorage m, ATIMonad m)
+constructBlock :: forall m . (MonadIO m, BS.BlockStateStorage m, CanExtend (ATIStorage m))
                => Maybe ByteString -> m (Maybe (PersistentBlockPointer (ATIStorage m) (TS.BlockState m)))
 constructBlock Nothing = return Nothing
 constructBlock (Just bytes) = do
@@ -151,7 +154,7 @@ constructBlock (Just bytes) = do
     Left err -> fail $ "Could not deserialize block: " ++ err
     Right (newBlock, state', height') -> do
       st <- state'
-      ati <- emptyATI
+      let ati = defaultValue
       liftIO $! Just <$> (makeBlockPointerFromBlock newBlock st ati height')
   where getTriple tm = do
           newBlock <- B.getBlock (utcTimeToTransactionTime tm)
@@ -163,7 +166,7 @@ instance (bs ~ GS.BlockState m,
           MonadIO m,
           BS.BlockStateStorage m,
           ATIStorage m ~ ati,
-          ATIMonad m,
+          CanExtend ati,
           MonadState (SkovPersistentData ati bs) m)
          => LMDBStoreMonad (PersistentTreeStateMonad ati bs m) where
   writeBlock bp = do
@@ -209,19 +212,23 @@ instance (bs ~ GS.BlockState m,
           Monad m,
           MonadIO m,
           ATIStorage m ~ ati,
-          ATIMonad m,
+          CanExtend ati,
           MonadState (SkovPersistentData ati bs) m) => BlockPointerMonad (PersistentTreeStateMonad ati bs m) where
     blockState = return . _bpState
     bpParent block = getWeakPointer block _bpParent blockPointer "parent"
     bpLastFinalized block = getWeakPointer block _bpLastFinalized blockLastFinalized "last finalized"
 
+instance (CanExtend ati, CanRecordFootprint (Footprint ati))
+         => ATITypes (PersistentTreeStateMonad ati bs m) where
+  type ATIStorage (PersistentTreeStateMonad ati bs m) = ati
+  
 instance (bs ~ GS.BlockState m,
           BS.BlockStateStorage m,
           Monad m,
           MonadIO m,
-          MonadState (SkovPersistentData ati bs) m,
           ATIStorage m ~ ati,
-          ATIMonad m
+          PerAccountDBOperations m,
+          MonadState (SkovPersistentData ati bs) m
           )
           => TS.TreeStateMonad (PersistentTreeStateMonad ati bs m) where
     makePendingBlock key slot parent bid pf n lastFin trs time = return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time

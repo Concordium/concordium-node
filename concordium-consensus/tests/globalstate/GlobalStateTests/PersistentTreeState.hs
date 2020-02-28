@@ -37,13 +37,26 @@ import Data.ByteString (ByteString)
 import System.FilePath ((</>))
 import System.Random
 
+newtype RSTI c s m a = RSTI {runRSTI :: RWST (Identity c) () (Identity s) m a}
+  deriving(Functor, Applicative, Monad, MonadIO, MonadReader (Identity c), MonadState (Identity s))
+
 newtype MyTreeStateMonad c g s a = MyTreeStateMonad { runMTSM :: RWST c () s IO a }
   deriving (Functor, Applicative, Monad, MonadIO, MonadState s)
 
-deriving via NoIndexATIMonad (RWST c () s IO) instance ATIMonad (MyTreeStateMonad c g s)
+type GlobalStateIO c g s = GlobalStateM NoLogContext c (Identity c) g (Identity g) (RSTI c s IO)
+type BlockStateIO c g s = BlockStateM c (Identity c) g (Identity g) (RSTI c s IO)
 
-type GlobalStateIO c g s = GlobalStateM c (Identity c) g (Identity g) (RWST (Identity c) () (Identity s) IO)
-type BlockStateIO c g s = BlockStateM c (Identity c) g (Identity g) (RWST (Identity c) () (Identity s) IO)
+instance ATITypes (MyTreeStateMonad c g s) where
+  type ATIStorage (MyTreeStateMonad c g s) = ()
+
+instance PerAccountDBOperations (MyTreeStateMonad c g s) where
+  -- default instance
+
+instance ATITypes (RSTI c s m) where
+  type ATIStorage (RSTI c s m) = ()
+
+instance Monad m => PerAccountDBOperations (RSTI c s m) where
+  -- default instance
 
 deriving via (GlobalStateIO c g s)
   instance BlockStateTypes (MyTreeStateMonad c g s)
