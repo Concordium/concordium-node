@@ -111,7 +111,7 @@ runWithIntermediateStates = do
                                     Types.dummyChainMeta
                                     maxBound
                                     st
-                            in (acc ++ [(getResults ftAdded, ftFailed, st' ^. Types.ssBlockState . blockBirkParameters)], st' ^. Types.blockState))
+                            in (acc ++ [(getResults ftAdded, ftFailed, st' ^. Types.ssBlockState . blockBirkParameters)], st' ^. Types.schedulerBlockState))
                          ([], initialBlockState)
                          txs
   return (res, state)

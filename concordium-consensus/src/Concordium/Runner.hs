@@ -1,6 +1,7 @@
 {-# LANGUAGE
     ScopedTypeVariables,
     UndecidableInstances,
+    TypeFamilies,
     CPP #-}
 module Concordium.Runner where
 
@@ -26,7 +27,6 @@ import Concordium.TimerMonad
 import Concordium.Birk.Bake
 import Concordium.Kontrol
 import Concordium.Skov
--- import Concordium.Skov.Hooks
 import Concordium.Skov.CatchUp (CatchUpStatus)
 import Concordium.Afgjort.Finalize
 import Concordium.Logger
@@ -121,6 +121,7 @@ syncSkovHandlers sr@SyncRunner{..} = handlers
         handlers = SkovHandlers{..}
         shBroadcastFinalizationMessage = liftIO . syncCallback . SOMsgFinalization
         shBroadcastFinalizationRecord = liftIO . syncCallback . SOMsgFinalizationRecord
+        shOnTimeout :: forall a . Timeout -> SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO a -> LogIO ThreadTimer
         shOnTimeout timeout a = liftIO $ makeThreadTimer timeout $ void $ runSkovTransaction sr a
         shCancelTimer = liftIO . cancelThreadTimer
         shPendingLive = liftIO syncHandlePendingLive

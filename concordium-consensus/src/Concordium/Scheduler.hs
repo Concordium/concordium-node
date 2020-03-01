@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -Wall #-}
 module Concordium.Scheduler
   (filterTransactions
@@ -115,8 +116,10 @@ dispatch msg = do
     Left (Just fk) -> return $ Just (TxInvalid fk)
     Left Nothing -> return Nothing
     Right senderAccount -> do
-      -- at this point the transaction is going to be commited to the block. Hence we can increase the
-      -- account nonce of the sender account.
+      -- at this point the transaction is going to be commited to the block.
+      -- It could be that the execution exceeds maximum block energy allowed, but in that case
+      -- the whole block state will be removed, and thus this operation will have no effect anyhow.
+      -- Hence we can increase the account nonce of the sender account.
       increaseAccountNonce senderAccount
 
       -- then we notify the block state that all the identity issuers on the sender's account should be rewarded
@@ -823,13 +826,14 @@ filterTransactions maxSize inputTxs = getMaxBlockEnergy >>= flip run inputTxs
                       tenergy = transactionGasAmount t
                       cenergy = totalEnergyUsed + tenergy
                   if csize <= maxSize && cenergy <= maxEnergy then -- if the next transaction can fit into a block then add it.
-                     dispatch t >>= \case
-                       Just (TxValid summary) -> do
+                    observeTransactionFootprint (dispatch t) >>= \case
+                       (Just (TxValid summary), fp) -> do
                          markEnergyUsed (tsEnergyCost summary)
+                         tlNotifyAccountEffect fp summary
                          go csize ((t, summary):valid) invalid unprocessed (ts : rest)
-                       Just (TxInvalid reason) ->
+                       (Just (TxInvalid reason), _) ->
                          go csize valid (invalidTs t reason ts invalid) unprocessed rest
-                       Nothing -> error "Unreachable. Dispatch honors maximum transaction energy."
+                       (Nothing, _) -> error "Unreachable. Dispatch honors maximum transaction energy."
                   -- if the stated energy of a single transaction exceeds the block energy limit the transaction is invalid
                   else if tenergy > maxEnergy then
                      go size valid (invalidTs t ExceedsMaxBlockEnergy ts invalid) unprocessed rest
@@ -854,12 +858,13 @@ filterTransactions maxSize inputTxs = getMaxBlockEnergy >>= flip run inputTxs
 runTransactions :: (TransactionData msg, SchedulerMonad m)
                    => [msg] -> m (Either (Maybe FailureKind) [(msg, TransactionSummary)])
 runTransactions = go []
-    where go valid (t:ts) = dispatch t >>= \case
-            Just (TxValid summary) -> do
+    where go valid (t:ts) = observeTransactionFootprint (dispatch t) >>= \case
+            (Just (TxValid summary), fp) -> do
               markEnergyUsed (tsEnergyCost summary)
+              tlNotifyAccountEffect fp summary
               go ((t, summary):valid) ts
-            Just (TxInvalid reason) -> return (Left (Just reason))
-            Nothing -> return (Left Nothing)
+            (Just (TxInvalid reason), _) -> return (Left (Just reason))
+            (Nothing, _) -> return (Left Nothing)
           
           go valid [] = return (Right (reverse valid))
 
@@ -868,13 +873,15 @@ runTransactions = go []
 -- used energy), and 'Left' 'FailureKind' at first failed transaction. This is
 -- more efficient than 'runTransactions' since it does not have to build a list
 -- of results.
-execTransactions :: (TransactionData msg, SchedulerMonad m) => [msg] -> m (Either (Maybe FailureKind) ())
+execTransactions :: (TransactionData msg, SchedulerMonad m)
+                 => [msg] -> m (Either (Maybe FailureKind) ())
 execTransactions = go
   where go (t:ts) =
-          dispatch t >>= \case
-            Nothing -> return (Left Nothing)
-            Just (TxValid summary) -> do
+          observeTransactionFootprint (dispatch t) >>= \case
+            (Nothing, _) -> return (Left Nothing)
+            (Just (TxValid summary), fp) -> do
               markEnergyUsed (tsEnergyCost summary)
+              tlNotifyAccountEffect fp summary
               go ts
-            Just (TxInvalid reason) -> return (Left (Just reason))
+            (Just (TxInvalid reason), _) -> return (Left (Just reason))
         go [] = return (Right ())

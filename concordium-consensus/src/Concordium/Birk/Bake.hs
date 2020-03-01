@@ -9,7 +9,7 @@ module Concordium.Birk.Bake(
 import GHC.Generics
 import Control.Monad.Trans.Maybe
 import Control.Monad
-import Control.Monad.IO.Class
+import Control.Monad.Trans
 
 import Data.Serialize
 import Data.Aeson(FromJSON, parseJSON, withObject, (.:))
@@ -34,7 +34,7 @@ import Concordium.Kontrol.UpdateLeaderElectionParameters
 
 import Concordium.Skov.Update (updateFocusBlockTo)
 
-import Concordium.Scheduler.TreeStateEnvironment(constructBlock)
+import Concordium.Scheduler.TreeStateEnvironment(constructBlock, ExecutionResult)
 import Concordium.Scheduler.Types(FilteredTransactions(..))
 
 import Concordium.Logger
@@ -64,14 +64,14 @@ instance FromJSON BakerIdentity where
 
 processTransactions
     :: (TreeStateMonad m,
-        BlockPointerMonad m,
-        SkovMonad m)
+        SkovMonad m
+        )
     => Slot
     -> BirkParameters
     -> BlockPointer m
     -> BlockPointer m
     -> BakerId
-    -> m (FilteredTransactions Transaction, BlockState m, Energy)
+    -> m (FilteredTransactions Transaction, ExecutionResult m)
 processTransactions slot ss bh finalizedP bid = do
   -- update the focus block to the parent block (establish invariant needed by constructBlock)
   updateFocusBlockTo bh
@@ -143,7 +143,10 @@ maintainTransactions bp FilteredTransactions{..} = do
     putPendingTransactions newpt'
 
 
-bakeForSlot :: (BlockPointerMonad m, SkovMonad m, TreeStateMonad m, MonadIO m) => BakerIdentity -> Slot -> m (Maybe (BlockPointer m))
+bakeForSlot :: (BlockPointerMonad m,
+                SkovMonad m,
+                TreeStateMonad m,
+                MonadIO m) => BakerIdentity -> Slot -> m (Maybe (BlockPointer m))
 bakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     bb <- bestBlockBefore slot
     guard (blockSlot bb < slot)
@@ -156,7 +159,7 @@ bakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     lastFinal <- lastFinalizedBlock
     -- possibly add the block nonce in the seed state
     let bps = birkParams{_birkSeedState = updateSeedState slot nonce _birkSeedState}
-    (filteredTxs, newState, energyUsed) <- processTransactions slot bps bb lastFinal bakerId
+    (filteredTxs, result) <- lift (processTransactions slot bps bb lastFinal bakerId)
     logEvent Baker LLInfo $ "Baked block"
     receiveTime <- currentTime
     let transactions = map fst (ftAdded filteredTxs)
@@ -164,8 +167,7 @@ bakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     newbp <- storeBakedBlock pb
                          bb
                          lastFinal
-                         newState
-                         energyUsed
+                         result
     -- reestablish invariants in the transaction table/pending table/anf table.
     maintainTransactions newbp filteredTxs
     -- update the current focus block to the newly created block to maintain invariants.

@@ -1,7 +1,9 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE DefaultSignatures #-}
 {-# OPTIONS_GHC -Wall #-}
 
 module Concordium.Scheduler.Environment where
@@ -19,8 +21,8 @@ import qualified Acorn.Core as Core
 import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Cost as Cost
 import Concordium.GlobalState.BlockState(AccountUpdate(..), auAmount, emptyAccountUpdate, auEncryptionKey)
-import Concordium.GlobalState.TransactionLogs
 import qualified Concordium.Types.Acorn.Interfaces as Interfaces
+import Concordium.GlobalState.AccountTransactionIndex
 
 import Control.Exception(assert)
 
@@ -34,7 +36,13 @@ emptySpecialBetaAccounts = Set.empty
 -- * Scheduler monad
 
 -- |Information needed to execute transactions in the form that is easy to use.
-class (TransactionLogger m, StaticEnvironmentMonad Core.UA m) => SchedulerMonad m where
+class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Core.UA m) => SchedulerMonad m where
+
+  tlNotifyAccountEffect :: Footprint (ATIStorage m) -> TransactionSummary -> m ()
+  -- default tlNotifyAccountEffect :: TLItems m ~ () => TLItems m -> TransactionSummary -> m ()
+  -- tlNotifyAccountEffect () = \_ -> return ()
+  -- {-# INLINE tlNotifyAccountEffect #-}
+
   -- |Get maximum allowed block energy.
   getMaxBlockEnergy :: m Energy
 
@@ -57,6 +65,9 @@ class (TransactionLogger m, StaticEnvironmentMonad Core.UA m) => SchedulerMonad 
   -- recording which accounts were affected by the transaction for reward and
   -- other purposes.
   commitChanges :: ChangeSet -> m ()
+
+  -- |Observe a single transaction footprint.
+  observeTransactionFootprint :: m a -> m (a, Footprint (ATIStorage m))
 
   -- |Commit a module interface and module value to global state. Returns @True@
   -- if this was successful, and @False@ if a module with the given Hash already

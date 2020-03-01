@@ -18,6 +18,8 @@ import Concordium.GlobalState.TreeState (BlockPointer, BlockPointerData, BlockSt
 import Concordium.Logger
 import Concordium.TimeMonad
 
+import Concordium.Scheduler.TreeStateEnvironment(ExecutionResult)
+
 data UpdateResult
     = ResultSuccess
     -- ^Message received, validated and processed
@@ -82,8 +84,7 @@ class (SkovQueryMonad m, TimeMonad m, LoggerMonad m) => SkovMonad m where
         PendingBlock m        -- ^The block to add
         -> BlockPointer m     -- ^Parent pointer
         -> BlockPointer m     -- ^Last finalized pointer
-        -> BlockState m       -- ^State
-        -> Energy             -- ^Energy used by the transactions in this block
+        -> ExecutionResult m  -- ^Result of the execution of the block.
         -> m (BlockPointer m)
     -- |Add a transaction to the transaction table.
     receiveTransaction :: Transaction -> m UpdateResult
@@ -117,7 +118,7 @@ instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (MGSTra
 
 instance (Monad (t m), MonadTrans t, SkovMonad m) => SkovMonad (MGSTrans t m) where
     storeBlock b = lift $ storeBlock b
-    storeBakedBlock pb parent lastFin state energyUsed = lift $ storeBakedBlock pb parent lastFin state energyUsed
+    storeBakedBlock pb parent lastFin result = lift $ storeBakedBlock pb parent lastFin result
     receiveTransaction = lift . receiveTransaction
     finalizeBlock fr = lift $ finalizeBlock fr
 
