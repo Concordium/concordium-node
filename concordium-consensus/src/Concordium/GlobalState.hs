@@ -21,13 +21,13 @@ module Concordium.GlobalState where
 import Control.Monad.IO.Class
 import Control.Monad.Reader.Class
 import Control.Monad.State.Class
-import Control.Monad.Trans.RWS.Strict
 import Control.Monad.Trans.Reader
-import Data.Functor.Identity
 import Data.IORef (newIORef,writeIORef)
 import Data.Proxy
 import Data.Serialize.Put (runPut)
 import System.FilePath
+import System.IO
+import Lens.Micro.Platform
 
 import Concordium.GlobalState.Basic.BlockState as BS
 import Concordium.GlobalState.Basic.TreeState
@@ -114,11 +114,10 @@ instance ATITypes (TreeStateM (SkovData bs) m) where
 instance (Monad m) => PerAccountDBOperations (TreeStateM (SkovData bs) m) where
   -- default implementation
 
-instance (ATIStorage m ~ ati, ATITypes m) => ATITypes (TreeStateM (SkovPersistentData ati bs) m) where
-  type ATIStorage (TreeStateM (SkovPersistentData ati bs) m) = ati
-
-deriving via PersistentTreeStateMonad ati bs m
-   instance (PerAccountDBOperations m, ATIStorage m ~ ati) => PerAccountDBOperations (TreeStateM (SkovPersistentData ati bs) m)
+-- No log instance
+deriving via PersistentTreeStateMonad () bs m
+   instance (PerAccountDBOperations m,
+             ATIStorage m ~ ()) => PerAccountDBOperations (TreeStateM (SkovPersistentData () bs) m)
 
 -- |Global State types for the memory Tree State implementation
 deriving via (PureTreeStateMonad bs m)
@@ -136,16 +135,20 @@ deriving via (PureTreeStateMonad bs m)
 -- |Global State types for the disk Tree State implementation
 deriving via (PersistentTreeStateMonad ati bs m)
     instance GlobalStateTypes (TreeStateM (SkovPersistentData ati bs) m)
+
+instance ATITypes (TreeStateM (SkovPersistentData () bs) m) where
+  type ATIStorage (TreeStateM (SkovPersistentData () bs) m) = ()
+
 -- |TreeStateMonad instance for the disk Tree State implementation
-deriving via (PersistentTreeStateMonad ati bs m)
+deriving via (PersistentTreeStateMonad () bs m)
     instance (bs ~ GS.BlockState m,
               BlockStateStorage m,
               MonadIO m,
-              MonadState (SkovPersistentData ati bs) m,
+              MonadState (SkovPersistentData () bs) m,
+              ATIStorage m ~ (),
               PerAccountDBOperations m,
-              ATIStorage m ~ ati,
               Monad m)
-              => TreeStateMonad (TreeStateM (SkovPersistentData ati bs) m)
+              => TreeStateMonad (TreeStateM (SkovPersistentData () bs) m)
 
 -- |Common constraints needed on the monad m and Skov state with block state 'bs'
 -- to implement the block pointer monad.
@@ -155,13 +158,13 @@ deriving via (PureTreeStateMonad bs m)
     instance (BPMStateConstraints m SkovData bs)
               => BlockPointerMonad (TreeStateM (SkovData bs) m)
 
-deriving via (PersistentTreeStateMonad ati bs m)
-    instance (BPMStateConstraints m (SkovPersistentData ati) bs,
+deriving via (PersistentTreeStateMonad () bs m)
+    instance (BPMStateConstraints m (SkovPersistentData ()) bs,
               MonadIO m,
-              ATIStorage m ~ ati,
-              CanExtend ati,
+              ATIStorage m ~ (),
+              ATITypes m,
               BlockStateStorage m)
-              => BlockPointerMonad (TreeStateM (SkovPersistentData ati bs) m)
+              => BlockPointerMonad (TreeStateM (SkovPersistentData () bs) m)
 
 -- |A newtype wrapper for providing instances of global state monad classes.
 -- The block state monad instances are derived directly from 'BlockStateM'.
@@ -183,10 +186,6 @@ deriving via (BlockStateM c r g s m)
     instance (Monad m, BlockStateStorage (BlockStateM c r g s m))
         => BlockStateStorage (GlobalStateM db c r g s m)
 
--- |Additional logs produced by execution
-data NoLogContext
-data PerAccountAffectIndex = PAAIConfig String
-
 -- Deriving the global state types depending on the tree state implementation
 deriving via (TreeStateM (SkovData bs) m)
      instance (bs ~ GS.BlockState (BlockStateM c r (SkovData bs) s m))
@@ -196,7 +195,7 @@ deriving via (TreeStateM (SkovPersistentData ati bs) m)
     instance (bs ~ GS.BlockState (BlockStateM c r (SkovPersistentData ati bs) s m))
         => GlobalStateTypes (GlobalStateM db c r (SkovPersistentData ati bs) s m)
 
--- With in-memory skov data we do not do any transaction logging for now.
+-- Generic instances which do no logging of transactions.
 instance ATITypes (GlobalStateM NoLogContext c r bs s m) where
   type ATIStorage (GlobalStateM NoLogContext c r bs s m) = ()
 instance (Monad m) => PerAccountDBOperations (GlobalStateM NoLogContext c r bs s m) where
@@ -266,13 +265,11 @@ deriving via (TreeStateM (SkovData bs) (BlockStateM PersistentBlockStateContext 
         => BlockPointerMonad (GlobalStateM NoLogContext PersistentBlockStateContext r (SkovData bs) s m)
 
 -- |Disk Tree & Disk Block instance without any transaction logging.
-deriving via (TreeStateM (SkovPersistentData ati bs) (BlockStateM PersistentBlockStateContext r (SkovPersistentData ati bs) s m))
-    instance (TSMStateConstraints PersistentBlockStateContext r (SkovPersistentData ati) bs s m,
-              ati ~ (),
-              ATIStorage m ~ ati,
-              CanExtend ati,
+deriving via (TreeStateM (SkovPersistentData () bs) (BlockStateM PersistentBlockStateContext r (SkovPersistentData () bs) s m))
+    instance (TSMStateConstraints PersistentBlockStateContext r (SkovPersistentData ()) bs s m,
+              ATIStorage m ~ (),
               MonadIO m)
-        => BlockPointerMonad (GlobalStateM NoLogContext PersistentBlockStateContext r (SkovPersistentData ati bs) s m)
+        => BlockPointerMonad (GlobalStateM NoLogContext PersistentBlockStateContext r (SkovPersistentData () bs) s m)
 
 
 -- |This class is implemented by types that determine configurations for the global state.
@@ -283,9 +280,9 @@ class GlobalStateConfig c where
     type GSLogContext c :: *
     -- |Generate context and state from the initial configuration. This may
     -- have 'IO' side effects to set up any necessary storage.
-    initialiseGlobalState :: c -> IO (GSContext c, GSState c)
+    initialiseGlobalState :: c -> IO (GSContext c, GSState c, GSLogContext c)
     -- |Shutdown the global state.
-    shutdownGlobalState :: Proxy c -> GSContext c -> GSState c -> IO ()
+    shutdownGlobalState :: Proxy c -> GSContext c -> GSState c -> GSLogContext c -> IO ()
 
 -- |Configuration that uses in-memory, Haskell implementations for both tree state and block state.
 data MemoryTreeMemoryBlockConfig = MTMBConfig RuntimeParameters GenesisData BS.BlockState
@@ -295,8 +292,8 @@ instance GlobalStateConfig MemoryTreeMemoryBlockConfig where
     type GSState MemoryTreeMemoryBlockConfig = SkovData BS.BlockState
     type GSLogContext MemoryTreeMemoryBlockConfig = NoLogContext
     initialiseGlobalState (MTMBConfig rtparams gendata bs) = do
-      return ((), initialSkovData rtparams gendata bs)
-    shutdownGlobalState _ _ _ = return ()
+      return ((), initialSkovData rtparams gendata bs, NoLogContext)
+    shutdownGlobalState _ _ _ _ = return ()
 
 -- |Configuration that uses the in-memory, Haskell implementation of tree state and the
 -- persistent Haskell implementation of block state.
@@ -314,8 +311,8 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
         let pbsc = PersistentBlockStateContext{..}
         pbs <- makePersistent bs
         _ <- runPut <$> runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc
-        return (pbsc, initialSkovData rtparams gendata pbs)
-    shutdownGlobalState _ (PersistentBlockStateContext{..}) _ = do
+        return (pbsc, initialSkovData rtparams gendata pbs, NoLogContext)
+    shutdownGlobalState _ (PersistentBlockStateContext{..}) _ _ = do
         destroyTempBlobStore pbscBlobStore
         writeIORef pbscModuleCache Persistent.emptyModuleCache
 
@@ -333,33 +330,112 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
         pbs <- makePersistent bs
         let pbsc = PersistentBlockStateContext{..}
         serBS <- runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc
-        isd <- initialSkovPersistentData rtparams gendata pbs () serBS
-        return (pbsc, isd)
-    shutdownGlobalState _ (PersistentBlockStateContext{..}) _ = do
+        isd <- initialSkovPersistentData rtparams gendata pbs ((), NoLogContext) serBS
+        return (pbsc, isd, NoLogContext)
+    shutdownGlobalState _ (PersistentBlockStateContext{..}) _ _ = do
         destroyTempBlobStore pbscBlobStore
         writeIORef pbscModuleCache Persistent.emptyModuleCache
 
+-- * Instances with logging.
+
+-- |Disk Tree & Disk Block instance with transaction logging.
+
+instance ATITypes (BlockStateM c r (SkovPersistentData DiskDump bs) s m) where
+  type ATIStorage (BlockStateM c r (SkovPersistentData DiskDump bs) s m) = ATIValues DiskDump
+
+instance ATITypes (GlobalStateM PerAccountAffectIndex c r (SkovPersistentData DiskDump bs) s m) where
+  type ATIStorage (GlobalStateM PerAccountAffectIndex c r (SkovPersistentData DiskDump bs) s m) = ATIValues DiskDump
+
+instance ATITypes (TreeStateM (SkovPersistentData DiskDump bs) m) where
+  type ATIStorage (TreeStateM (SkovPersistentData DiskDump bs) m) = ATIValues DiskDump
+
+instance (MonadIO m, MonadState (SkovPersistentData DiskDump bs) m)
+         => PerAccountDBOperations (TreeStateM (SkovPersistentData DiskDump bs) m) where
+  flushBlockSummaries bh ati = do
+    PAAIConfig handle <- use atiCtx
+    liftIO $ do
+      hPrint handle bh
+      hPrint handle ati
+      hPrint handle ati
+
+deriving via (TreeStateM (SkovPersistentData DiskDump bs) (BlockStateM PersistentBlockStateContext r (SkovPersistentData DiskDump bs) s m))
+    instance (TSMStateConstraints PersistentBlockStateContext r (SkovPersistentData DiskDump) bs s m,
+              MonadIO m)
+        => BlockPointerMonad (GlobalStateM PerAccountAffectIndex PersistentBlockStateContext r (SkovPersistentData DiskDump bs) s m)
+
+-- Horrible misuse of undecidable instances
+deriving via (PersistentTreeStateMonad DiskDump bs (TreeStateM (SkovPersistentData DiskDump bs) m))
+    instance (BPMStateConstraints m (SkovPersistentData DiskDump) bs,
+              MonadIO m,
+              BlockStateStorage m)
+              => BlockPointerMonad (TreeStateM (SkovPersistentData DiskDump bs) m)
+
+deriving via (PersistentTreeStateMonad DiskDump bs (TreeStateM (SkovPersistentData DiskDump bs) m))
+    instance (bs ~ GS.BlockState m,
+              BlockStateStorage m,
+              MonadIO m,
+              MonadState (SkovPersistentData DiskDump bs) m,
+              Monad m)
+             => TreeStateMonad (TreeStateM (SkovPersistentData DiskDump bs) m)
+
+deriving via (TreeStateM (SkovPersistentData DiskDump bs) m) instance
+  (MonadIO m, MonadState (SkovPersistentData DiskDump bs) m) => PerAccountDBOperations (GlobalStateM
+                                       PerAccountAffectIndex
+                                       PersistentBlockStateContext
+                                       r
+                                       (SkovPersistentData DiskDump bs)
+                                       s
+                                       (TreeStateM (SkovPersistentData DiskDump bs) m))
+
+instance (MonadIO m, MonadReader r m, HasLogContext (ATIContext DiskDump) r)
+         => PerAccountDBOperations
+            (GlobalStateM
+             PerAccountAffectIndex
+             PersistentBlockStateContext
+             r
+             (SkovPersistentData DiskDump bs)
+             s
+             m) where
+  flushBlockSummaries bh ati = do
+    PAAIConfig handle <- view logContext
+    liftIO $ do
+      hPrint handle bh
+      hPrint handle ati
+      hPrint handle ati
+
+
+deriving via (TreeStateM (SkovPersistentData DiskDump bs) (BlockStateM PersistentBlockStateContext r (SkovPersistentData DiskDump bs) s m))
+    instance (TSMStateConstraints PersistentBlockStateContext r (SkovPersistentData DiskDump) bs s m,
+              BlockStateStorage (BlockStateM PersistentBlockStateContext r (SkovPersistentData DiskDump bs) s m),
+              HasLogContext (ATIContext DiskDump) r,
+              MonadIO m)
+        => TreeStateMonad (GlobalStateM PerAccountAffectIndex PersistentBlockStateContext r (SkovPersistentData DiskDump bs) s m)
 
 -- |Configuration that uses the disk implementation for both the tree state
 -- and the block state, as well as a 
 data DiskTreeDiskBlockWithLogConfig = DTDBWLConfig {
   configRP :: RuntimeParameters,
   configGD :: GenesisData,
-  configBS :: BS.BlockState
+  configBS :: BS.BlockState,
+  configTxLog :: !FilePath
   }
 
--- instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
---     type GSContext DiskTreeDiskBlockWithLogConfig = PersistentBlockStateContext
---     type GSState DiskTreeDiskBlockWithLogConfig = SkovPersistentData AccountTransactionIndex PersistentBlockState
---     initialiseGlobalState (DTDBWLConfig rtparams gendata bs) = do
---         pbscBlobStore <- createTempBlobStore . (<.> "dat") . rpBlockStateFile $ rtparams
---         pbscModuleCache <- newIORef emptyModuleCache
---         pbs <- makePersistent bs
---         let pbsc = PersistentBlockStateContext{..}
---         serBS <- runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc
---         let ati = defaultValue
---         isd <- initialSkovPersistentData rtparams gendata pbs ati serBS
---         return (pbsc, isd)
---     shutdownGlobalState _ (PersistentBlockStateContext{..}) _ = do
---         destroyTempBlobStore pbscBlobStore
---         writeIORef pbscModuleCache Persistent.emptyModuleCache
+instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
+    type GSContext DiskTreeDiskBlockWithLogConfig = PersistentBlockStateContext
+    type GSState DiskTreeDiskBlockWithLogConfig = SkovPersistentData DiskDump PersistentBlockState
+    type GSLogContext DiskTreeDiskBlockWithLogConfig = PerAccountAffectIndex
+
+    initialiseGlobalState (DTDBWLConfig rtparams gendata bs txLog) = do
+        pbscBlobStore <- createTempBlobStore . (<.> "dat") . rpBlockStateFile $ rtparams
+        pbscModuleCache <- newIORef emptyModuleCache
+        pbs <- makePersistent bs
+        let pbsc = PersistentBlockStateContext{..}
+        serBS <- runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc
+        handle <- openFile txLog WriteMode
+        let ati = defaultValue
+        isd <- initialSkovPersistentData rtparams gendata pbs (ati, PAAIConfig handle) serBS
+        return (pbsc, isd, PAAIConfig handle)
+    shutdownGlobalState _ (PersistentBlockStateContext{..}) _ (PAAIConfig logHandle) = do
+        destroyTempBlobStore pbscBlobStore
+        writeIORef pbscModuleCache Persistent.emptyModuleCache
+        hClose logHandle
