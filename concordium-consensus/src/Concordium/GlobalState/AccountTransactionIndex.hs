@@ -7,6 +7,8 @@ import Control.Monad.Trans.Maybe
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Lens.Micro.Platform
+import System.IO
+import Control.Monad.Identity
 
 import Concordium.Types
 import Concordium.Types.Execution
@@ -45,7 +47,7 @@ class CanExtend a where
   defaultValue :: a
   extendRecord :: AccountAddress -> TransactionSummary -> a -> a
 
-instance a ~ () => CanExtend a where
+instance CanExtend () where
   defaultValue = ()
   extendRecord = \_ _ -> id
   {-# INLINE defaultValue #-}
@@ -92,3 +94,27 @@ deriving via (MGSTrans (ExceptT e) m) instance PerAccountDBOperations m => PerAc
 --   type (ATIStorage (RWST c w s m)) = ()
 --   -- default instance
 
+
+-- auxiliary classes to derive instances
+
+class HasLogContext ctx r | r -> ctx where
+  logContext :: Lens' r ctx
+
+instance HasLogContext g (Identity g) where
+    logContext = lens runIdentity (const Identity)
+
+-- |Additional logs produced by execution
+data NoLogContext = NoLogContext
+data PerAccountAffectIndex = PAAIConfig Handle
+
+type family ATIValues ati
+type family ATIContext ati
+
+-- instance used when we want no logging of transactions
+type instance ATIValues () = ()
+type instance ATIContext () = NoLogContext
+
+-- When we want to dump data to disk.
+data DiskDump
+type instance ATIValues DiskDump = AccountTransactionIndex
+type instance ATIContext DiskDump = PerAccountAffectIndex

@@ -1,5 +1,6 @@
 {-# LANGUAGE DerivingVia, StandaloneDeriving, MultiParamTypeClasses, GeneralizedNewtypeDeriving, UndecidableInstances, FlexibleInstances, OverloadedStrings, ScopedTypeVariables, TypeFamilies #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
+{-# OPTIONS_GHC -Wno-name-shadowing #-}
 module GlobalStateTests.PersistentTreeState where
 
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
@@ -12,19 +13,16 @@ import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.Persistent.LMDB
-import Control.Monad.State
+import Control.Monad.State hiding (state)
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState
 import Concordium.GlobalState.DummyData
 import Concordium.ID.DummyData
 import Concordium.Crypto.DummyData
 import Control.Monad.RWS.Strict hiding (state)
-import Control.Monad.IO.Class
 import Data.Time.Clock.POSIX
-import Control.Monad
 import Control.Monad.Identity
 import Data.Proxy
-import Test.QuickCheck
 import Test.Hspec
 import Control.Exception
 import Lens.Micro.Platform
@@ -116,11 +114,12 @@ createGlobalState dbDir = do
     genesis = makeTestingGenesisData now n 1 0.5 1 dummyCryptographicParameters dummyEmptyIdentityProviders [] maxBound
     state = basicGenesisState genesis
     config = DTDBConfig (defaultRuntimeParameters { rpTreeStateDir = dbDir }) genesis state
-  initialiseGlobalState config
+  (x, y, NoLogContext) <- initialiseGlobalState config
+  return (x, y)
 
 destroyGlobalState :: (PBS.PersistentBlockStateContext, SkovPersistentData () PBS.PersistentBlockState) -> IO ()
 destroyGlobalState (c, s) =
-  shutdownGlobalState (Proxy :: Proxy DiskTreeDiskBlockConfig) c s
+  shutdownGlobalState (Proxy :: Proxy DiskTreeDiskBlockConfig) c s NoLogContext
 
 specifyWithGS :: String -> FilePath -> Test -> SpecWith (Arg (IO ()))
 specifyWithGS s dbDir f = specify s $
@@ -141,8 +140,8 @@ testFinalizeABlock = do
   proof2 <- liftIO $ VRF.prove (fst $ randomKeyPair (mkStdGen 1)) "proof2"
   now <- liftIO $ getCurrentTime
   pb <- makePendingBlock (fst $ randomBlockKeyPair (mkStdGen 1)) 1 (bpHash genesisBlock) 0 proof1 proof2 (bpHash genesisBlock) [] now
-  now <- liftIO $ getCurrentTime
-  blockPtr :: BlockPointer TestM <- makeLiveBlock pb genesisBlock genesisBlock state () now 0
+  now' <- liftIO $ getCurrentTime
+  blockPtr :: BlockPointer TestM <- makeLiveBlock pb genesisBlock genesisBlock state () now' 0
   let frec = FinalizationRecord 1 (bpHash blockPtr) (FinalizationProof ([1], sign "Hello" sk)) 0
   -- Add the finalization to the tree state
   markFinalized (bpHash blockPtr) frec
@@ -178,10 +177,10 @@ testFinalizeABlock = do
   liftIO $ lfin `shouldBe` genesisBlock
 
   -- add another block with different lfin and parent
-  now <- liftIO $ getCurrentTime
-  pb2 <- makePendingBlock (fst $ randomBlockKeyPair (mkStdGen 1)) 2 (bpHash blockPtr) 0 proof1 proof2 (bpHash genesisBlock) [] now
-  now <- liftIO $ getCurrentTime
-  blockPtr2 :: BlockPointer TestM <- makeLiveBlock pb2 blockPtr genesisBlock state () now 0
+  now'' <- liftIO $ getCurrentTime
+  pb2 <- makePendingBlock (fst $ randomBlockKeyPair (mkStdGen 1)) 2 (bpHash blockPtr) 0 proof1 proof2 (bpHash genesisBlock) [] now''
+  now''' <- liftIO $ getCurrentTime
+  blockPtr2 :: BlockPointer TestM <- makeLiveBlock pb2 blockPtr genesisBlock state () now''' 0
   let frec2 = FinalizationRecord 2 (bpHash blockPtr2) (FinalizationProof ([1], sign "Hello" sk)) 0
 
   -- Add the finalization to the tree state

@@ -8,6 +8,7 @@ module Concordium.GlobalState.Persistent.TreeState (
   -- For testing purposes
   , PersistenBlockStatus(..)
   , db
+  , atiCtx
   , genesisBlockPointer
   , blockTable
   , constructBlock
@@ -54,7 +55,7 @@ data PersistenBlockStatus ati bs =
 -- |Skov data for the persistent tree state version that also holds the database handlers
 data SkovPersistentData ati bs = SkovPersistentData {
     -- |Map of all received blocks by hash.
-    _blockTable :: !(HM.HashMap BlockHash (PersistenBlockStatus ati bs)),
+    _blockTable :: !(HM.HashMap BlockHash (PersistenBlockStatus (ATIValues ati) bs)),
     -- |Map of (possibly) pending blocks by hash
     _possiblyPendingTable :: !(HM.HashMap BlockHash [PendingBlock]),
     -- |Priority queue of pairs of (block, parent) hashes where the block is (possibly) pending its parent, by block slot
@@ -62,19 +63,19 @@ data SkovPersistentData ati bs = SkovPersistentData {
     -- |Priority queue of blocks waiting for their last finalized block to be finalized, ordered by height of the last finalized block
     _blocksAwaitingLastFinalized :: !(MPQ.MinPQueue BlockHeight PendingBlock),
     -- |Pointer to the last finalized block
-    _lastFinalized :: !(PersistentBlockPointer ati bs),
+    _lastFinalized :: !(PersistentBlockPointer (ATIValues ati) bs),
     -- |Pointer to the last finalization record
     _lastFinalizationRecord :: !FinalizationRecord,
     -- |Pending finalization records by finalization index
     _finalizationPool :: !(Map.Map FinalizationIndex [FinalizationRecord]),
     -- |Branches of the tree by height above the last finalized block
-    _branches :: !(Seq.Seq [PersistentBlockPointer ati bs]),
+    _branches :: !(Seq.Seq [PersistentBlockPointer (ATIValues ati) bs]),
     -- |Genesis data
     _genesisData :: !GenesisData,
     -- |Block pointer to genesis block
-    _genesisBlockPointer :: !(PersistentBlockPointer ati bs),
+    _genesisBlockPointer :: !(PersistentBlockPointer (ATIValues ati) bs),
     -- |Current focus block
-    _focusBlock :: !(PersistentBlockPointer ati bs),
+    _focusBlock :: !(PersistentBlockPointer (ATIValues ati) bs),
     -- |Pending transaction table
     _pendingTransactions :: !PendingTransactionTable,
     -- |Transaction table
@@ -84,17 +85,19 @@ data SkovPersistentData ati bs = SkovPersistentData {
     -- |Runtime parameters
     _runtimeParameters :: !RuntimeParameters,
     -- | Database handlers
-    _db :: DatabaseHandlers bs
+    _db :: !(DatabaseHandlers bs),
+    -- |Context for the transaction log.
+    _atiCtx :: !(ATIContext ati)
 }
 makeLenses ''SkovPersistentData
 
 -- |Initial skov data with default runtime parameters (block size = 10MB).
-initialSkovPersistentDataDefault ::  FilePath -> GenesisData -> bs -> ati -> S.Put -> IO (SkovPersistentData ati bs)
+initialSkovPersistentDataDefault ::  FilePath -> GenesisData -> bs -> (ATIValues ati, ATIContext ati) -> S.Put -> IO (SkovPersistentData ati bs)
 initialSkovPersistentDataDefault dir = initialSkovPersistentData (defaultRuntimeParameters { rpTreeStateDir = dir })
 
-initialSkovPersistentData :: RuntimeParameters -> GenesisData -> bs -> ati -> S.Put -> IO (SkovPersistentData ati bs)
+initialSkovPersistentData :: RuntimeParameters -> GenesisData -> bs -> (ATIValues ati, ATIContext ati) -> S.Put -> IO (SkovPersistentData ati bs)
 initialSkovPersistentData rp gd genState ati serState = do
-  gb <- makeGenesisBlockPointer gd genState ati
+  gb <- makeGenesisBlockPointer gd genState (fst ati)
   let gbh = bpHash gb
       gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
   initialDb <- initialDatabaseHandlers gb serState rp
@@ -114,7 +117,8 @@ initialSkovPersistentData rp gd genState ati serState = do
             _transactionTable = emptyTransactionTable,
             _statistics = initialConsensusStatistics,
             _runtimeParameters = rp,
-            _db = initialDb
+            _db = initialDb,
+            _atiCtx = snd ati
         }
 
 -- |Newtype wrapper that provides an implementation of the TreeStateMonad using a persistent tree state.
@@ -136,12 +140,14 @@ newtype PersistentTreeStateMonad ati bs m a = PersistentTreeStateMonad { runPers
 deriving instance (Monad m, MonadState (SkovPersistentData ati bs) m)
          => MonadState (SkovPersistentData ati bs) (PersistentTreeStateMonad ati bs m)
 
-deriving instance (PerAccountDBOperations m, ATIStorage m ~ ati) => PerAccountDBOperations (PersistentTreeStateMonad ati bs m)
+instance (ATITypes m, ATIStorage m ~ ATIValues ati) => ATITypes (PersistentTreeStateMonad ati bs m) where
+  type ATIStorage (PersistentTreeStateMonad ati bs m) = ATIStorage m
 
+deriving instance (PerAccountDBOperations m, ATIStorage m ~ ATIValues ati) => PerAccountDBOperations (PersistentTreeStateMonad ati bs m)
 
-instance (bs ~ GS.BlockState m, ati ~ ATIStorage m) => GS.GlobalStateTypes (PersistentTreeStateMonad ati bs m) where
+instance (bs ~ GS.BlockState m, ATIValues ati ~ ATIStorage m) => GS.GlobalStateTypes (PersistentTreeStateMonad ati bs m) where
     type PendingBlock (PersistentTreeStateMonad ati bs m) = PendingBlock
-    type BlockPointer (PersistentTreeStateMonad ati bs m) = PersistentBlockPointer ati bs
+    type BlockPointer (PersistentTreeStateMonad ati bs m) = PersistentBlockPointer (ATIValues ati) bs
 
 -- |Construct a block from a serialized form.
 -- The @ati@ is filled with a default value.
@@ -165,8 +171,8 @@ constructBlock (Just bytes) = do
 instance (bs ~ GS.BlockState m,
           MonadIO m,
           BS.BlockStateStorage m,
-          ATIStorage m ~ ati,
-          CanExtend ati,
+          ATIStorage m ~ ATIValues ati,
+          CanExtend (ATIValues ati),
           MonadState (SkovPersistentData ati bs) m)
          => LMDBStoreMonad (PersistentTreeStateMonad ati bs m) where
   writeBlock bp = do
@@ -189,12 +195,12 @@ instance (bs ~ GS.BlockState m,
     db .= dbh'
 
 getWeakPointer :: (MonadState (SkovPersistentData ati s) m,
-                  LMDBStoreMonad m, TS.BlockPointer m ~ PersistentBlockPointer ati s) =>
-                 PersistentBlockPointer ati s
-               -> (PersistentBlockPointer ati s -> Weak (PersistentBlockPointer ati s))
+                  LMDBStoreMonad m, TS.BlockPointer m ~ PersistentBlockPointer (ATIValues ati) s) =>
+                 PersistentBlockPointer (ATIValues ati) s
+               -> (PersistentBlockPointer (ATIValues ati) s -> Weak (PersistentBlockPointer (ATIValues ati) s))
                -> (BlockFields -> BlockHash)
                -> String
-               -> m (PersistentBlockPointer ati s)
+               -> m (PersistentBlockPointer (ATIValues ati) s)
 getWeakPointer block field pointer name = do
       gb <- use genesisBlockPointer
       if gb == block then
@@ -211,22 +217,19 @@ instance (bs ~ GS.BlockState m,
           BS.BlockStateStorage m,
           Monad m,
           MonadIO m,
-          ATIStorage m ~ ati,
-          CanExtend ati,
+          ATIStorage m ~ ATIValues ati,
+          ATITypes m,
           MonadState (SkovPersistentData ati bs) m) => BlockPointerMonad (PersistentTreeStateMonad ati bs m) where
     blockState = return . _bpState
     bpParent block = getWeakPointer block _bpParent blockPointer "parent"
     bpLastFinalized block = getWeakPointer block _bpLastFinalized blockLastFinalized "last finalized"
+    bpTransactionAffectSummaries block = return (_bpATI block)
 
-instance (CanExtend ati, CanRecordFootprint (Footprint ati))
-         => ATITypes (PersistentTreeStateMonad ati bs m) where
-  type ATIStorage (PersistentTreeStateMonad ati bs m) = ati
-  
 instance (bs ~ GS.BlockState m,
           BS.BlockStateStorage m,
           Monad m,
           MonadIO m,
-          ATIStorage m ~ ati,
+          ATIStorage m ~ ATIValues ati,
           PerAccountDBOperations m,
           MonadState (SkovPersistentData ati bs) m
           )

@@ -588,11 +588,11 @@ instance (GlobalStateConfig c1, GlobalStateConfig c2) => GlobalStateConfig (Pair
     type GSContext (PairGSConfig c1 c2) = PairGSContext (GSContext c1) (GSContext c2)
     type GSState (PairGSConfig c1 c2) = PairGState (GSState c1) (GSState c2)
     -- FIXME: The below could also be improved to add pairs.
-    type GSLogContext (PairGSConfig c1 c2) = NoLogContext
+    type GSLogContext (PairGSConfig c1 c2) = (GSLogContext c1, GSLogContext c2)
     initialiseGlobalState (PairGSConfig (conf1, conf2)) = do
-            (ctx1, s1) <- initialiseGlobalState conf1
-            (ctx2, s2) <- initialiseGlobalState conf2
-            return (PairGSContext ctx1 ctx2, PairGState s1 s2)
-    shutdownGlobalState _ (PairGSContext ctx1 ctx2) (PairGState s1 s2) = do
-            shutdownGlobalState (Proxy :: Proxy c1) ctx1 s1
-            shutdownGlobalState (Proxy :: Proxy c2) ctx2 s2
+            (ctx1, s1, c1) <- initialiseGlobalState conf1
+            (ctx2, s2, c2) <- initialiseGlobalState conf2
+            return (PairGSContext ctx1 ctx2, PairGState s1 s2, (c1, c2))
+    shutdownGlobalState _ (PairGSContext ctx1 ctx2) (PairGState s1 s2) (c1, c2) = do
+            shutdownGlobalState (Proxy :: Proxy c1) ctx1 s1 c1
+            shutdownGlobalState (Proxy :: Proxy c2) ctx2 s2 c2
