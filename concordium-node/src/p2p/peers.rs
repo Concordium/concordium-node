@@ -72,7 +72,7 @@ impl P2PNode {
                 message
                     .serialize(&mut buf)
                     .map(|_| buf)
-                    .and_then(|buf| self.send_over_all_connections(&buf, &filter))
+                    .map(|buf| self.send_over_all_connections(&buf, &filter))
             } {
                 error!("A network message couldn't be forwarded: {}", e);
             }

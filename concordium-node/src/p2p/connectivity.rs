@@ -34,6 +34,7 @@ pub const SELF_TOKEN: Token = Token(0);
 // a convenience macro to send an object to all connections
 macro_rules! send_to_all {
     ($foo_name:ident, $object_type:ty, $req_type:ident) => {
+        #[doc = "Send a specified network request to all peers"]
         pub fn $foo_name(&self, object: $object_type) {
             let request = NetworkRequest::$req_type(object);
             let message = netmsg!(NetworkRequest, request);
@@ -43,7 +44,7 @@ macro_rules! send_to_all {
                 let mut buf = Vec::with_capacity(256);
                 message.serialize(&mut buf)
                     .map(|_| buf)
-                    .and_then(|buf| self.send_over_all_connections(&buf, &filter))
+                    .map(|buf| self.send_over_all_connections(&buf, &filter))
             } {
                 error!("A network message couldn't be forwarded: {}", e);
             }
@@ -60,17 +61,13 @@ impl P2PNode {
 
     send_to_all!(send_leavenetwork, NetworkId, LeaveNetwork);
 
-    /// It sends `data` message over all filtered connections.
-    ///
-    /// # Arguments
-    /// * `data` - Raw message.
-    /// * `conn_filter` - A closure filtering the connections
-    /// # Returns the number of messages queued to be sent
+    /// Send a `data` message to all connections adhering to the specified
+    /// filter. Returns the number of sent messages.
     pub fn send_over_all_connections(
         &self,
         data: &[u8],
         conn_filter: &dyn Fn(&Connection) -> bool,
-    ) -> Fallible<usize> {
+    ) -> usize {
         let mut sent_messages = 0usize;
         let data = Arc::from(data);
 
@@ -82,16 +79,17 @@ impl P2PNode {
             sent_messages += 1;
         }
 
-        Ok(sent_messages)
+        sent_messages
     }
 
+    /// Send out ping messages in order to update peer latency statistics.
     pub fn measure_connection_latencies(&self) {
         debug!("Measuring connection latencies");
 
         let connections = read_or_die!(self.connections()).clone();
         for conn in connections.values().filter(|conn| conn.is_post_handshake()) {
-            // don't send pings to lagging connections so
-            // that the latency calculation is not invalid
+            // don't send pings to unresponsive connections so
+            // that the latency calculation is not off
             if conn.last_seen() > conn.get_last_ping_sent() {
                 if let Err(e) = conn.send_ping() {
                     error!("Can't send a ping to {}: {}", conn, e);
@@ -100,11 +98,12 @@ impl P2PNode {
         }
     }
 
-    /// It adds this server to `network_id` network.
+    /// Add a network to the list of node's networks.
     pub fn add_network(&self, network_id: NetworkId) {
         write_or_die!(self.connection_handler.networks).insert(network_id);
     }
 
+    /// Search for a connection by the node id.
     pub fn find_connection_by_id(&self, id: P2PNodeId) -> Option<Arc<Connection>> {
         read_or_die!(self.connections())
             .values()
@@ -112,17 +111,12 @@ impl P2PNode {
             .map(|conn| Arc::clone(conn))
     }
 
+    /// Search for a connection by the poll token.
     pub fn find_connection_by_token(&self, token: Token) -> Option<Arc<Connection>> {
         read_or_die!(self.connections()).get(&token).map(|conn| Arc::clone(conn))
     }
 
-    pub fn find_connection_by_ip_addr(&self, addr: SocketAddr) -> Option<Arc<Connection>> {
-        read_or_die!(self.connections())
-            .values()
-            .find(|conn| conn.remote_addr() == addr)
-            .map(|conn| Arc::clone(conn))
-    }
-
+    /// Search for all connections with the specified IP address.
     pub fn find_connections_by_ip(&self, ip: IpAddr) -> Vec<Arc<Connection>> {
         read_or_die!(self.connections())
             .values()
@@ -131,18 +125,7 @@ impl P2PNode {
             .collect()
     }
 
-    pub fn remove_connection(&self, token: Token) -> bool {
-        if let Some(conn) = write_or_die!(self.connections()).remove(&token) {
-            if conn.is_post_handshake() {
-                self.bump_last_peer_update();
-            }
-            write_or_die!(conn.low_level).conn_ref = None; // necessary in order for Drop to kick in
-            true
-        } else {
-            false
-        }
-    }
-
+    /// Shut down connections with the given poll tokens.
     pub fn remove_connections(&self, tokens: &[Token]) -> bool {
         let connections = &mut write_or_die!(self.connections());
 
@@ -164,15 +147,11 @@ impl P2PNode {
         removed == tokens.len()
     }
 
-    pub fn add_connection(&self, conn: Arc<Connection>) {
+    fn add_connection(&self, conn: Arc<Connection>) {
         write_or_die!(self.connections()).insert(conn.token, conn);
     }
 
-    fn process_network_packet(
-        &self,
-        inner_pkt: NetworkPacket,
-        source_id: P2PNodeId,
-    ) -> Fallible<usize> {
+    fn process_network_packet(&self, inner_pkt: NetworkPacket) -> Fallible<usize> {
         let peers_to_skip = match inner_pkt.packet_type {
             NetworkPacketType::DirectMessage(..) => vec![],
             NetworkPacketType::BroadcastedMessage(ref dont_relay_to) => {
@@ -222,22 +201,23 @@ impl P2PNode {
                 |conn: &Connection| conn.remote_peer.peer().map(|p| p.id) == Some(target_id);
 
             for _ in 0..copies {
-                sent += self.send_over_all_connections(&serialized, &filter)?;
+                sent += self.send_over_all_connections(&serialized, &filter);
             }
         } else {
             // broadcast messages
-            let filter = |conn: &Connection| {
-                is_valid_broadcast_target(conn, source_id, &peers_to_skip, network_id)
-            };
+            let filter =
+                |conn: &Connection| is_valid_broadcast_target(conn, &peers_to_skip, network_id);
 
             for _ in 0..copies {
-                sent += self.send_over_all_connections(&serialized, &filter)?;
+                sent += self.send_over_all_connections(&serialized, &filter);
             }
         }
 
         Ok(sent)
     }
 
+    /// Send queued messages to and then receive any pending messages from all
+    /// the node's connections in parallel.
     #[inline]
     pub fn process_network_events(
         &self,
@@ -282,6 +262,7 @@ impl P2PNode {
     }
 }
 
+/// Accept an incoming network connection.
 pub fn accept(node: &Arc<P2PNode>) -> Fallible<Token> {
     let self_peer = node.self_peer;
     let (socket, addr) = node.connection_handler.socket_server.accept()?;
@@ -328,16 +309,18 @@ pub fn accept(node: &Arc<P2PNode>) -> Fallible<Token> {
     Ok(token)
 }
 
+/// Connect to another node with the specified address and optionally peer id,
+/// registering it as the given peer type.
 pub fn connect(
     node: &Arc<P2PNode>,
     peer_type: PeerType,
-    addr: SocketAddr,
-    peer_id_opt: Option<P2PNodeId>,
+    peer_addr: SocketAddr,
+    peer_id: Option<P2PNodeId>,
 ) -> Fallible<()> {
     debug!(
         "Attempting to connect to {}{}",
-        addr,
-        if let Some(id) = peer_id_opt {
+        peer_addr,
+        if let Some(id) = peer_id {
             format!(" ({})", id)
         } else {
             "".to_owned()
@@ -356,15 +339,15 @@ pub fn connect(
     }
 
     // Don't connect to ourselves
-    if node.self_peer.addr == addr || peer_id_opt == Some(node.id()) {
+    if node.self_peer.addr == peer_addr || peer_id == Some(node.id()) {
         bail!("Attempted to connect to myself");
     }
 
     if read_or_die!(node.connection_handler.soft_bans)
         .iter()
-        .any(|(ip, _)| *ip == BanId::Ip(addr.ip()) || *ip == BanId::Socket(addr))
+        .any(|(ip, _)| *ip == BanId::Ip(peer_addr.ip()) || *ip == BanId::Socket(peer_addr))
     {
-        bail!("Refusing to connect to a soft-banned IP ({:?})", addr.ip());
+        bail!("Refusing to connect to a soft-banned IP ({:?})", peer_addr.ip());
     }
 
     // We purposely take a write lock to ensure that we will block all the way until
@@ -375,20 +358,19 @@ pub fn connect(
 
     // Don't connect to peers with a known P2PNodeId or IP+port
     for conn in write_lock_connections.values() {
-        if conn.remote_addr() == addr || (peer_id_opt.is_some() && conn.remote_id() == peer_id_opt)
-        {
+        if conn.remote_addr() == peer_addr || (peer_id.is_some() && conn.remote_id() == peer_id) {
             bail!(
                 "Already connected to {}",
-                if let Some(id) = peer_id_opt {
+                if let Some(id) = peer_id {
                     id.to_string()
                 } else {
-                    addr.to_string()
+                    peer_addr.to_string()
                 }
             );
         }
     }
 
-    match TcpStream::connect(&addr) {
+    match TcpStream::connect(&peer_addr) {
         Ok(socket) => {
             node.stats.conn_received_inc();
 
@@ -396,8 +378,8 @@ pub fn connect(
 
             let remote_peer = RemotePeer {
                 id: Default::default(),
-                addr,
-                peer_external_port: AtomicU16::new(addr.port()),
+                addr: peer_addr,
+                peer_external_port: AtomicU16::new(peer_addr.port()),
                 peer_type,
             };
 
@@ -421,7 +403,7 @@ pub fn connect(
         Err(e) => {
             if peer_type == PeerType::Node {
                 write_or_die!(node.connection_handler.soft_bans).insert(
-                    BanId::Socket(addr),
+                    BanId::Socket(peer_addr),
                     Instant::now() + Duration::from_secs(config::UNREACHABLE_EXPIRATION_SECS),
                 );
             }
@@ -430,6 +412,7 @@ pub fn connect(
     }
 }
 
+/// Perform a round of connection maintenance, e.g. removing inactive ones.
 pub fn connection_housekeeping(node: &Arc<P2PNode>) -> Fallible<()> {
     debug!("Running connection housekeeping");
 
@@ -468,12 +451,12 @@ pub fn connection_housekeeping(node: &Arc<P2PNode>) -> Fallible<()> {
             && conn.last_seen() + config::MAX_PREHANDSHAKE_KEEP_ALIVE < curr_stamp
     };
 
-    // Kill faulty and inactive connections
+    // remove faulty and inactive connections
     write_or_die!(node.connections()).retain(|_, conn| {
         !(is_conn_faulty(&conn) || is_conn_inactive(&conn) || is_conn_without_handshake(&conn))
     });
 
-    // If the number of peers exceeds the desired value, close a random selection of
+    // if the number of peers exceeds the desired value, close a random selection of
     // post-handshake connections to lower it
     if peer_type == PeerType::Node {
         let max_allowed_nodes = node.config.max_allowed_nodes;
@@ -513,44 +496,40 @@ pub fn connection_housekeeping(node: &Arc<P2PNode>) -> Fallible<()> {
 /// a bootstrap node.
 fn is_valid_broadcast_target(
     conn: &Connection,
-    sender: P2PNodeId,
     peers_to_skip: &[P2PNodeId],
     network_id: NetworkId,
 ) -> bool {
     let peer_id = read_or_die!(conn.remote_peer.id).unwrap(); // safe, post-handshake
 
     conn.remote_peer.peer_type() != PeerType::Bootstrapper
-        && peer_id != sender
         && !peers_to_skip.contains(&peer_id)
         && read_or_die!(conn.remote_end_networks()).contains(&network_id)
 }
 
+/// Send a direct packet to the peer with the given id.
 #[inline]
 pub fn send_direct_message(
     node: &P2PNode,
-    source_id: P2PNodeId,
-    target_id: Option<P2PNodeId>,
+    target_id: P2PNodeId,
     network_id: NetworkId,
     msg: Arc<[u8]>,
 ) -> Fallible<()> {
-    send_message_over_network(node, source_id, target_id, vec![], network_id, msg, false)
+    send_message_over_network(node, Some(target_id), vec![], network_id, msg, false)
 }
 
 #[inline]
 pub fn send_broadcast_message(
     node: &P2PNode,
-    source_id: P2PNodeId,
     dont_relay_to: Vec<P2PNodeId>,
     network_id: NetworkId,
     msg: Arc<[u8]>,
 ) -> Fallible<()> {
-    send_message_over_network(node, source_id, None, dont_relay_to, network_id, msg, true)
+    send_message_over_network(node, None, dont_relay_to, network_id, msg, true)
 }
 
 #[inline]
 fn send_message_over_network(
     node: &P2PNode,
-    source_id: P2PNodeId,
     target_id: Option<P2PNodeId>,
     dont_relay_to: Vec<P2PNodeId>,
     network_id: NetworkId,
@@ -581,7 +560,7 @@ fn send_message_over_network(
         message,
     };
 
-    if let Ok(sent_packets) = node.process_network_packet(packet, source_id) {
+    if let Ok(sent_packets) = node.process_network_packet(packet) {
         if sent_packets > 0 {
             trace!("Sent a packet to {} peers", sent_packets);
         }

@@ -214,7 +214,6 @@ pub fn handle_consensus_outbound_msg(
             let _ = send_consensus_msg_to_net(
                 node,
                 Vec::new(),
-                node.self_peer.id,
                 Some(P2PNodeId(peer)),
                 network_id,
                 (request.payload.clone(), request.variant),
@@ -225,7 +224,6 @@ pub fn handle_consensus_outbound_msg(
         send_consensus_msg_to_net(
             node,
             request.dont_relay_to(),
-            node.self_peer.id,
             request.target_peer().map(P2PNodeId),
             network_id,
             (request.payload, request.variant),
@@ -263,7 +261,6 @@ pub fn handle_consensus_inbound_msg(
             send_consensus_msg_to_net(
                 &node,
                 request.dont_relay_to(),
-                source,
                 None,
                 network_id,
                 (request.payload.clone(), request.variant),
@@ -290,7 +287,6 @@ pub fn handle_consensus_inbound_msg(
             send_consensus_msg_to_net(
                 &node,
                 request.dont_relay_to(),
-                source,
                 None,
                 network_id,
                 (request.payload, request.variant),
@@ -332,17 +328,15 @@ fn send_msg_to_consensus(
 fn send_consensus_msg_to_net(
     node: &P2PNode,
     dont_relay_to: Vec<u64>,
-    source_id: P2PNodeId,
     target_id: Option<P2PNodeId>,
     network_id: NetworkId,
     (payload, msg_desc): (Arc<[u8]>, PacketType),
 ) -> Fallible<()> {
-    let result = if target_id.is_some() {
-        send_direct_message(node, source_id, target_id, network_id, payload)
+    let result = if let Some(target_id) = target_id {
+        send_direct_message(node, target_id, network_id, payload)
     } else {
         send_broadcast_message(
             node,
-            source_id,
             dont_relay_to.into_iter().map(P2PNodeId).collect(),
             network_id,
             payload,
@@ -380,7 +374,6 @@ fn send_catch_up_status(
     send_consensus_msg_to_net(
         node,
         vec![],
-        node.self_peer.id,
         Some(P2PNodeId(target)),
         network_id,
         (consensus.get_catch_up_status(), PacketType::CatchUpStatus),
@@ -432,7 +425,7 @@ pub fn check_peer_states(
                     if let Some(token) =
                         node.find_connection_by_id(P2PNodeId(id)).map(|conn| conn.token)
                     {
-                        node.remove_connection(token);
+                        node.remove_connections(&[token]);
                     }
                 }
             }
@@ -496,7 +489,6 @@ fn update_peer_states(
                     let _ = send_consensus_msg_to_net(
                         node,
                         Vec::new(),
-                        node.self_peer.id,
                         Some(P2PNodeId(non_pending_peer)),
                         network_id,
                         (request.payload.clone(), request.variant),

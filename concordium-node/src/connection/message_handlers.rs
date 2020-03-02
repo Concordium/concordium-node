@@ -55,7 +55,7 @@ impl Connection {
         debug!("Got a Handshake request from peer {}", handshake.remote_id);
 
         if self.handler().is_banned(BanId::NodeId(handshake.remote_id))? {
-            self.handler().remove_connection(self.token);
+            self.handler().remove_connections(&[self.token]);
             bail!("Rejected a handshake request from a banned node");
         }
 

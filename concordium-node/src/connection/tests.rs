@@ -62,7 +62,6 @@ fn basic_connectivity() {
     for node in &nodes {
         send_broadcast_message(
             node,
-            node.self_peer.id,
             vec![],
             NetworkId::from(NID),
             Arc::from(&[PacketType::Block as u8][..]), // an empty Block packet
