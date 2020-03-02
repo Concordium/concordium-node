@@ -29,6 +29,7 @@ import System.FilePath
 import System.IO
 import Lens.Micro.Platform
 
+import Concordium.Types(BlockHash)
 import Concordium.GlobalState.Basic.BlockState as BS
 import Concordium.GlobalState.Basic.TreeState
 import Concordium.GlobalState.BlockState
@@ -340,6 +341,12 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
 
 -- |Disk Tree & Disk Block instance with transaction logging.
 
+data PerAccountAffectIndex = PAAIConfig Handle
+-- When we want to dump data to disk.
+data DiskDump
+type instance ATIValues DiskDump = AccountTransactionIndex
+type instance ATIContext DiskDump = PerAccountAffectIndex
+
 instance ATITypes (BlockStateM c r (SkovPersistentData DiskDump bs) s m) where
   type ATIStorage (BlockStateM c r (SkovPersistentData DiskDump bs) s m) = ATIValues DiskDump
 
@@ -349,14 +356,26 @@ instance ATITypes (GlobalStateM PerAccountAffectIndex c r (SkovPersistentData Di
 instance ATITypes (TreeStateM (SkovPersistentData DiskDump bs) m) where
   type ATIStorage (TreeStateM (SkovPersistentData DiskDump bs) m) = ATIValues DiskDump
 
-instance (MonadIO m, MonadState (SkovPersistentData DiskDump bs) m)
-         => PerAccountDBOperations (TreeStateM (SkovPersistentData DiskDump bs) m) where
-  flushBlockSummaries bh ati = do
-    PAAIConfig handle <- use atiCtx
+-- This really should be derived
+
+-- FIXME: We should derive the two instances which use this instead of using this hack.
+doFlushBlockSummaries :: (MonadState s m,
+                          HasLogContext (ATIContext DiskDump) s,
+                          MonadIO m) =>
+                          BlockHash -> ATIValues DiskDump -> m ()
+doFlushBlockSummaries bh ati = do
+    PAAIConfig handle <- use logContext
     liftIO $ do
       hPrint handle bh
       hPrint handle ati
       hPrint handle ati
+
+instance (MonadIO m, s ~ (SkovPersistentData DiskDump bs), MonadState s m, HasLogContext (ATIContext DiskDump) s)
+         => PerAccountDBOperations (TreeStateM (SkovPersistentData DiskDump bs) m) where
+  flushBlockSummaries = doFlushBlockSummaries
+
+instance HasLogContext PerAccountAffectIndex (SkovPersistentData DiskDump bs) where
+  logContext = atiCtx
 
 deriving via (TreeStateM (SkovPersistentData DiskDump bs) (BlockStateM PersistentBlockStateContext r (SkovPersistentData DiskDump bs) s m))
     instance (TSMStateConstraints PersistentBlockStateContext r (SkovPersistentData DiskDump) bs s m,
@@ -387,7 +406,7 @@ deriving via (TreeStateM (SkovPersistentData DiskDump bs) m) instance
                                        s
                                        (TreeStateM (SkovPersistentData DiskDump bs) m))
 
-instance (MonadIO m, MonadReader r m, HasLogContext (ATIContext DiskDump) r)
+instance (MonadIO m, MonadState s m, HasLogContext (ATIContext DiskDump) s)
          => PerAccountDBOperations
             (GlobalStateM
              PerAccountAffectIndex
@@ -396,18 +415,12 @@ instance (MonadIO m, MonadReader r m, HasLogContext (ATIContext DiskDump) r)
              (SkovPersistentData DiskDump bs)
              s
              m) where
-  flushBlockSummaries bh ati = do
-    PAAIConfig handle <- view logContext
-    liftIO $ do
-      hPrint handle bh
-      hPrint handle ati
-      hPrint handle ati
-
+  flushBlockSummaries = doFlushBlockSummaries
 
 deriving via (TreeStateM (SkovPersistentData DiskDump bs) (BlockStateM PersistentBlockStateContext r (SkovPersistentData DiskDump bs) s m))
     instance (TSMStateConstraints PersistentBlockStateContext r (SkovPersistentData DiskDump) bs s m,
               BlockStateStorage (BlockStateM PersistentBlockStateContext r (SkovPersistentData DiskDump bs) s m),
-              HasLogContext (ATIContext DiskDump) r,
+              HasLogContext (ATIContext DiskDump) s,
               MonadIO m)
         => TreeStateMonad (GlobalStateM PerAccountAffectIndex PersistentBlockStateContext r (SkovPersistentData DiskDump bs) s m)
 

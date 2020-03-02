@@ -2,12 +2,10 @@
 module Concordium.GlobalState.AccountTransactionIndex where
 
 import Control.Monad.Except
--- import Control.Monad.RWS.Strict
 import Control.Monad.Trans.Maybe
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Lens.Micro.Platform
-import System.IO
 import Control.Monad.Identity
 
 import Concordium.Types
@@ -105,7 +103,6 @@ instance HasLogContext g (Identity g) where
 
 -- |Additional logs produced by execution
 data NoLogContext = NoLogContext
-data PerAccountAffectIndex = PAAIConfig Handle
 
 type family ATIValues ati
 type family ATIContext ati
@@ -114,7 +111,3 @@ type family ATIContext ati
 type instance ATIValues () = ()
 type instance ATIContext () = NoLogContext
 
--- When we want to dump data to disk.
-data DiskDump
-type instance ATIValues DiskDump = AccountTransactionIndex
-type instance ATIContext DiskDump = PerAccountAffectIndex
