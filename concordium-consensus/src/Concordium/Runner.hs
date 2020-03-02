@@ -184,14 +184,15 @@ syncReceiveBlock :: (SkovConfigMonad (SkovHandlers ThreadTimer c LogIO) c LogIO)
     -> PendingBlock (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO)
     -> IO UpdateResult
 syncReceiveBlock syncRunner block = do
-  maxBlockSlot <- runSkovTransaction syncRunner (computeMaxBlockSlot)
-  if blockSlot block > maxBlockSlot then return ResultEarlyBlock
+  blockTooEarly <- runSkovTransaction syncRunner (isBlockTooEarly block)
+  if blockTooEarly then return ResultEarlyBlock
   else runSkovTransaction syncRunner (storeBlock block)
     where
-      computeMaxBlockSlot = do
-        fbt <- rpEarlyBlockThreshold <$> TS.getRuntimeParameters
-        currentSlot <- getCurrentSlot
-        return ((fromIntegral fbt) + currentSlot)
+      isBlockTooEarly b = do
+        threshold <- rpEarlyBlockThreshold <$> TS.getRuntimeParameters
+        now <- currentTimestamp
+        blocktime <- getSlotTimestamp (blockSlot b)
+        return $ blocktime < now + (fromIntegral threshold)
 
 syncReceiveTransaction :: (SkovConfigMonad (SkovHandlers ThreadTimer c LogIO) c LogIO)
     => SyncRunner c -> Transaction -> IO UpdateResult
@@ -248,14 +249,15 @@ shutdownSyncPassiveRunner SyncPassiveRunner{..} = takeMVar syncPState >>= shutdo
 
 syncPassiveReceiveBlock :: (SkovConfigMonad (SkovPassiveHandlers LogIO) c LogIO) => SyncPassiveRunner c -> PendingBlock (SkovT (SkovPassiveHandlers LogIO) c LogIO) -> IO UpdateResult
 syncPassiveReceiveBlock spr block = do
-  maxBlockSlot <- runSkovPassive spr (computeMaxBlockSlot)
-  if blockSlot block > maxBlockSlot then return ResultEarlyBlock
+  blockTooEarly <- runSkovPassive spr (isBlockTooEarly block)
+  if blockTooEarly then return ResultEarlyBlock
   else runSkovPassive spr (storeBlock block)
     where
-      computeMaxBlockSlot = do
-        fbt <- rpEarlyBlockThreshold <$> TS.getRuntimeParameters
-        currentSlot <- getCurrentSlot
-        return ((fromIntegral fbt) + currentSlot)
+      isBlockTooEarly b = do
+        threshold <- rpEarlyBlockThreshold <$> TS.getRuntimeParameters
+        now <- currentTimestamp
+        blocktime <- getSlotTimestamp (blockSlot b)
+        return $ blocktime < now + (fromIntegral threshold)
 
 syncPassiveReceiveTransaction :: (SkovConfigMonad (SkovPassiveHandlers LogIO) c LogIO) => SyncPassiveRunner c -> Transaction -> IO UpdateResult
 syncPassiveReceiveTransaction spr trans = runSkovPassive spr (receiveTransaction trans)

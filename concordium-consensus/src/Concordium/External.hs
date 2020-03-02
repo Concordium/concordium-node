@@ -50,7 +50,6 @@ import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.TimerMonad (ThreadTimer)
 import Concordium.Skov.CatchUp (CatchUpStatus,cusIsResponse)
-import qualified Concordium.Kontrol as Kontrol
 
 import qualified Concordium.Getters as Get
 
