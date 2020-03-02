@@ -98,7 +98,6 @@ fn main() -> Fallible<()> {
 fn send_fuzzed_packet(source: &P2PNode, min: usize, max: usize) {
     send_broadcast_message(
         &source,
-        source.self_peer.id,
         vec![],
         NetworkId::from(100),
         Arc::from(generate_random_data(thread_rng().gen_range(min, max))),

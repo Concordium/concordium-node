@@ -151,11 +151,7 @@ impl P2PNode {
         write_or_die!(self.connections()).insert(conn.token, conn);
     }
 
-    fn process_network_packet(
-        &self,
-        inner_pkt: NetworkPacket,
-        source_id: P2PNodeId,
-    ) -> Fallible<usize> {
+    fn process_network_packet(&self, inner_pkt: NetworkPacket) -> Fallible<usize> {
         let peers_to_skip = match inner_pkt.packet_type {
             NetworkPacketType::DirectMessage(..) => vec![],
             NetworkPacketType::BroadcastedMessage(ref dont_relay_to) => {
@@ -209,9 +205,8 @@ impl P2PNode {
             }
         } else {
             // broadcast messages
-            let filter = |conn: &Connection| {
-                is_valid_broadcast_target(conn, source_id, &peers_to_skip, network_id)
-            };
+            let filter =
+                |conn: &Connection| is_valid_broadcast_target(conn, &peers_to_skip, network_id);
 
             for _ in 0..copies {
                 sent += self.send_over_all_connections(&serialized, &filter);
@@ -501,14 +496,12 @@ pub fn connection_housekeeping(node: &Arc<P2PNode>) -> Fallible<()> {
 /// a bootstrap node.
 fn is_valid_broadcast_target(
     conn: &Connection,
-    sender: P2PNodeId,
     peers_to_skip: &[P2PNodeId],
     network_id: NetworkId,
 ) -> bool {
     let peer_id = read_or_die!(conn.remote_peer.id).unwrap(); // safe, post-handshake
 
     conn.remote_peer.peer_type() != PeerType::Bootstrapper
-        && peer_id != sender
         && !peers_to_skip.contains(&peer_id)
         && read_or_die!(conn.remote_end_networks()).contains(&network_id)
 }
@@ -517,29 +510,26 @@ fn is_valid_broadcast_target(
 #[inline]
 pub fn send_direct_message(
     node: &P2PNode,
-    source_id: P2PNodeId,
     target_id: P2PNodeId,
     network_id: NetworkId,
     msg: Arc<[u8]>,
 ) -> Fallible<()> {
-    send_message_over_network(node, source_id, Some(target_id), vec![], network_id, msg, false)
+    send_message_over_network(node, Some(target_id), vec![], network_id, msg, false)
 }
 
 #[inline]
 pub fn send_broadcast_message(
     node: &P2PNode,
-    source_id: P2PNodeId,
     dont_relay_to: Vec<P2PNodeId>,
     network_id: NetworkId,
     msg: Arc<[u8]>,
 ) -> Fallible<()> {
-    send_message_over_network(node, source_id, None, dont_relay_to, network_id, msg, true)
+    send_message_over_network(node, None, dont_relay_to, network_id, msg, true)
 }
 
 #[inline]
 fn send_message_over_network(
     node: &P2PNode,
-    source_id: P2PNodeId,
     target_id: Option<P2PNodeId>,
     dont_relay_to: Vec<P2PNodeId>,
     network_id: NetworkId,
@@ -570,7 +560,7 @@ fn send_message_over_network(
         message,
     };
 
-    if let Ok(sent_packets) = node.process_network_packet(packet, source_id) {
+    if let Ok(sent_packets) = node.process_network_packet(packet) {
         if sent_packets > 0 {
             trace!("Sent a packet to {} peers", sent_packets);
         }
