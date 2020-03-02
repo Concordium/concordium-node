@@ -310,7 +310,7 @@ startConsensus ::
            -> FunPtr LogTransferCallback -- ^Handler for logging transfer events
            -> CString -> Int64 -- ^FilePath for the AppData directory
            -> IO (StablePtr ConsensusRunner)
-startConsensus maxBlock futureBlockThreshold gdataC gdataLenC bidC bidLenC bcbk cucbk maxLogLevel lcbk enableTransferLogging ltcbk appDataC appDataLenC= do
+startConsensus maxBlock earlyBlockThreshold gdataC gdataLenC bidC bidLenC bcbk cucbk maxLogLevel lcbk enableTransferLogging ltcbk appDataC appDataLenC= do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
         appData <- peekCStringLen (appDataC, fromIntegral appDataLenC)
@@ -318,7 +318,7 @@ startConsensus maxBlock futureBlockThreshold gdataC gdataLenC bidC bidLenC bcbk 
             (Right genData, Right bid) -> do
                 let
                     gsconfig = makeGlobalStateConfig
-                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") (fromIntegral futureBlockThreshold))
+                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") (fromIntegral earlyBlockThreshold))
                         genData
                     finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)) genData
                     hconfig = HookLogHandler logT
@@ -350,14 +350,14 @@ startConsensusPassive ::
            -> FunPtr LogCallback -- ^Handler for log events
            -> CString -> Int64 -- ^FilePath for the AppData directory
             -> IO (StablePtr ConsensusRunner)
-startConsensusPassive maxBlock futureBlockThreshold gdataC gdataLenC cucbk maxLogLevel lcbk appDataC appDataLenC = do
+startConsensusPassive maxBlock earlyBlockThreshold gdataC gdataLenC cucbk maxLogLevel lcbk appDataC appDataLenC = do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         appData <- peekCStringLen (appDataC, fromIntegral appDataLenC)
         case decode gdata of
             Right genData -> do
                 let
                     gsconfig = makeGlobalStateConfig
-                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") (fromIntegral futureBlockThreshold))
+                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") (fromIntegral earlyBlockThreshold))
                         genData
                     finconfig = NoFinalization
                     hconfig = HookLogHandler Nothing
@@ -422,7 +422,7 @@ stopBaker cptr = mask_ $
 +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
 |    10 | ResultContinueCatchUp              | The peer should be marked pending catch-up if it is currently up-to-date               | N/A      |
 +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
-|    11 | ResultBlockFromFuture              | The block has a slot number exceeding our current + the future block threshold         | No       |
+|    11 | ResultEarlyBlock                   | The block has a slot number exceeding our current + the early block threshold          | No       |
 +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
 -}
 type ReceiveResult = Int64
@@ -439,7 +439,7 @@ toReceiveResult ResultStale = 7
 toReceiveResult ResultIncorrectFinalizationSession = 8
 toReceiveResult ResultUnverifiable = 9
 toReceiveResult ResultContinueCatchUp = 10
-toReceiveResult ResultBlockFromFuture = 11
+toReceiveResult ResultEarlyBlock = 11
 
 
 -- |Handle receipt of a block.
