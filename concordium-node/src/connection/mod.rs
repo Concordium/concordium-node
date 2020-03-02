@@ -325,7 +325,7 @@ impl Connection {
 
         // process the incoming message if applicable
         if is_msg_processable {
-            self.handle_incoming_message(message);
+            self.handle_incoming_message(message)?;
         } else {
             bail!(
                 "Refusing to process or forward the incoming message ({:?}) before a handshake",

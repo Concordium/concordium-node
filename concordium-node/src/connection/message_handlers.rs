@@ -17,8 +17,8 @@ use std::{collections::HashSet, net::SocketAddr, sync::atomic::Ordering};
 
 impl Connection {
     /// Processes a network message based on its type.
-    pub fn handle_incoming_message(&self, full_msg: NetworkMessage) {
-        if let Err(e) = match full_msg.payload {
+    pub fn handle_incoming_message(&self, full_msg: NetworkMessage) -> Fallible<()> {
+        match full_msg.payload {
             NetworkMessagePayload::NetworkRequest(NetworkRequest::Handshake(handshake), ..) => {
                 self.handle_handshake_req(handshake)
             }
@@ -43,12 +43,6 @@ impl Connection {
                 self.handle_unban(peer_to_unban)
             }
             NetworkMessagePayload::NetworkPacket(pac, ..) => self.handle_incoming_packet(pac),
-        } {
-            if !self.handler.is_terminated.load(Ordering::Relaxed) {
-                // In other case we are closing the node so we won't output the possibly closed
-                // channel's errors
-                error!("Couldn't handle a network message: {}", e);
-            }
         }
     }
 
