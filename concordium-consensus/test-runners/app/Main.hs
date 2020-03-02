@@ -47,7 +47,7 @@ transactions :: StdGen -> [BareTransaction]
 transactions gen = trs (0 :: Nonce) (randoms gen :: [Int])
     where
         contr i = ContractAddress (fromIntegral $ i `mod` nContracts) 0
-        trs n (a : b : rs) = Example.makeTransaction (a `mod` 9 /= 0) (contr b) n : trs (n+1) rs
+        trs n (a : b : rs) = Example.makeTransferTransaction n : trs (n+1) rs
         trs _ _ = error "Ran out of transaction data"
 
 sendTransactions :: Chan (InMessage a) -> [BareTransaction] -> IO ()

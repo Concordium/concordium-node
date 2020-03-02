@@ -134,6 +134,8 @@ dispatch msg = do
       -- if there is any left.
       let psize = payloadSize (transactionPayload msg)
       -- TODO: Charge a small amount based just on transaction size.
+
+      tsIndex <- bumpTransactionIndex
       case decodePayload (transactionPayload msg) of
         Left _ -> do
           -- in case of serialization failure we charge the sender for checking
@@ -148,7 +150,8 @@ dispatch msg = do
             tsSender = senderAccount ^. accountAddress,
             tsResult = TxReject SerializationFailure,
             tsHash = transactionHash msg,
-            tsType = Nothing
+            tsType = Nothing,
+            ..
             }
         Right payload -> do
           usedBlockEnergy <- getUsedEnergy
@@ -158,6 +161,7 @@ dispatch msg = do
                 _wtcTransactionHeader = meta,
                 -- NB: We already account for the cost we used here.
                 _wtcCurrentlyUsedBlockEnergy = usedBlockEnergy + Cost.checkHeader,
+                _wtcTransactionIndex = tsIndex,
                 ..}
           res <- case payload of
                    DeployModule mod ->

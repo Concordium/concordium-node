@@ -47,14 +47,16 @@ class CanExtend (AccountTransactionLog a) => HasSchedulerState a where
   schedulerBlockState :: Lens' a (SS a)
   schedulerEnergyUsed :: Lens' a Energy
   accountTransactionLog :: Lens' a (AccountTransactionLog a)
+  nextIndex :: Lens' a TransactionIndex
 
 data NoLogSchedulerState (m :: * -> *)= NoLogSchedulerState {
   _ssBlockState :: !(UpdatableBlockState m),
-  _ssSchedulerEnergyUsed :: !Energy
+  _ssSchedulerEnergyUsed :: !Energy,
+  _ssNextIndex :: !TransactionIndex
   }
 
 mkInitialSS :: UpdatableBlockState m -> NoLogSchedulerState m
-mkInitialSS _ssBlockState = NoLogSchedulerState{_ssSchedulerEnergyUsed = 0,..}
+mkInitialSS _ssBlockState = NoLogSchedulerState{_ssSchedulerEnergyUsed = 0, _ssNextIndex = 0,..}
 
 makeLenses ''NoLogSchedulerState
 
@@ -63,6 +65,7 @@ instance HasSchedulerState (NoLogSchedulerState m) where
   type AccountTransactionLog (NoLogSchedulerState m) = ()
   schedulerBlockState = ssBlockState
   schedulerEnergyUsed = ssSchedulerEnergyUsed
+  nextIndex = ssNextIndex
   accountTransactionLog f s = (const s) <$> (f ())
 
 newtype BSOMonadWrapper r w state m a = BSOMonadWrapper (m a)
@@ -118,6 +121,9 @@ instance (MonadReader ContextState m,
 
   {-# INLINE getUsedEnergy #-}
   getUsedEnergy = use schedulerEnergyUsed
+
+  {-# INLINE bumpTransactionIndex #-}
+  bumpTransactionIndex = nextIndex <<%= (+1)
 
   {-# INLINE getMaxBlockEnergy #-}
   getMaxBlockEnergy = view maxBlockEnergy
@@ -304,17 +310,17 @@ runSI sc gd cd energy gs =
   let (a, s, !_) =
         runIdentity $
         runPureBlockStateMonad $
-        runRWST (_runScheduler sc) (ContextState gd cd energy) (NoLogSchedulerState gs 0)
+        runRWST (_runScheduler sc) (ContextState gd cd energy) (NoLogSchedulerState gs 0 0)
   in (a, s)
 
 execSI :: SchedulerImplementation a -> SpecialBetaAccounts -> ChainMetadata -> Energy -> BlockState -> PBSSS
 execSI sc gd cd energy gs =
   fst (runIdentity $
        runPureBlockStateMonad $
-       execRWST (_runScheduler sc) (ContextState gd cd energy) (NoLogSchedulerState gs 0))
+       execRWST (_runScheduler sc) (ContextState gd cd energy) (NoLogSchedulerState gs 0 0))
 
 evalSI :: SchedulerImplementation a -> SpecialBetaAccounts -> ChainMetadata -> Energy -> BlockState -> a
 evalSI sc gd cd energy gs =
   fst (runIdentity $
        runPureBlockStateMonad $
-       evalRWST (_runScheduler sc) (ContextState gd cd energy) (NoLogSchedulerState gs 0))
+       evalRWST (_runScheduler sc) (ContextState gd cd energy) (NoLogSchedulerState gs 0 0))

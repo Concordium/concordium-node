@@ -122,6 +122,9 @@ class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Cor
     usedEnergy <- getUsedEnergy
     return $! if usedEnergy <= maxEnergy then maxEnergy - usedEnergy else 0
 
+  -- |Get the next transaction index in the block, and increase the internal counter
+  bumpTransactionIndex :: m TransactionIndex
+
   -- |Notify the global state that the amount was charged for execution. This
   -- can be then reimbursed to the baker, or some other logic can be implemented
   -- on top of it.
@@ -428,8 +431,10 @@ data WithDepositContext = WithDepositContext{
   -- ^Hash of the top-level transaction.
   _wtcTransactionHeader :: !TransactionHeader,
   -- ^Header of the transaction we are running.
-  _wtcCurrentlyUsedBlockEnergy :: !Energy
+  _wtcCurrentlyUsedBlockEnergy :: !Energy,
   -- ^Energy currently used by the block.
+  _wtcTransactionIndex :: !TransactionIndex
+  -- ^Index of the transaction in a block.
   }
 
 makeLenses ''WithDepositContext
@@ -480,6 +485,7 @@ withDeposit wtc comp k = do
         tsEnergyCost = usedEnergy,
         tsResult = TxReject reason,
         tsType = Just (wtc ^. wtcTransactionType),
+        tsIndex = wtc ^. wtcTransactionIndex,
         ..
         }
     Right a -> do
@@ -488,6 +494,7 @@ withDeposit wtc comp k = do
       return $! Just $! TransactionSummary{
         tsSender = thSender txHeader,
         tsType = Just (wtc ^. wtcTransactionType),
+        tsIndex = wtc ^. wtcTransactionIndex,
         ..
         }
 

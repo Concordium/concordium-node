@@ -51,6 +51,7 @@ instance (ATIStorage m ~ w, ATITypes m) => ATITypes (BlockStateMonad w state m) 
 data LogSchedulerState (m :: * -> *) = LogSchedulerState {
   _lssBlockState :: !(UpdatableBlockState m),
   _lssSchedulerEnergyUsed :: !Energy,
+  _lssNextIndex :: !TransactionIndex,
   _lssSchedulerTransactionLog :: !(ATIStorage m)
   }
 
@@ -74,6 +75,7 @@ instance TreeStateMonad m => HasSchedulerState (LogSchedulerState m) where
   type AccountTransactionLog (LogSchedulerState m) = ATIStorage m
   schedulerBlockState = lssBlockState
   schedulerEnergyUsed = lssSchedulerEnergyUsed
+  nextIndex = lssNextIndex
   accountTransactionLog = lssSchedulerTransactionLog
 
 
@@ -81,6 +83,7 @@ mkInitialSS :: CanExtend (ATIStorage m) => UpdatableBlockState m -> LogScheduler
 mkInitialSS _lssBlockState =
   LogSchedulerState{_lssSchedulerEnergyUsed = 0,
                     _lssSchedulerTransactionLog = defaultValue,
+                    _lssNextIndex = 0,
                     ..}
 
 

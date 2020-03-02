@@ -215,7 +215,12 @@ processFinalizationPool checkPending = do
                             pruneTrunk parent brs
                             finalizeTransactions (getHash keeper) (blockSlot keeper) (blockTransactions keeper)
                             ati <- bpTransactionAffectSummaries keeper
-                            flushBlockSummaries (getHash keeper) ati
+                            bcTime <- getSlotTimestamp (blockSlot keeper)
+                            let ctx = BlockContext{
+                                  bcHash = getHash keeper,
+                                  bcHeight = bpHeight keeper,
+                                  ..}
+                            flushBlockSummaries ctx ati =<< getSpecialOutcomes =<< blockState keeper
                             logTransfers keeper
 
                     pruneTrunk newFinBlock (Seq.take pruneHeight oldBranches)
