@@ -398,13 +398,13 @@ instance (GlobalStateConfig gsconf,
     data SkovContext (SkovConfig gsconf finconf hconf) = SkovContext {
             scGSContext :: GSContext gsconf,
             scFinContext :: FCContext (SkovConfig gsconf finconf hconf),
-            scHandlerContext :: HCContext (SkovConfig gsconf finconf hconf),
-            scLogContext :: GSLogContext gsconf
+            scHandlerContext :: HCContext (SkovConfig gsconf finconf hconf)
         }
     data SkovState (SkovConfig gsconf finconf hconf) = SkovState {
             ssGSState :: GSState gsconf,
             ssFinState :: FCState (SkovConfig gsconf finconf hconf),
-            ssHandlerState :: HCState (SkovConfig gsconf finconf hconf)
+            ssHandlerState :: HCState (SkovConfig gsconf finconf hconf),
+            scLogContext :: GSLogContext gsconf
         }
     type SkovGSState (SkovConfig gsconf finconf hconf) = GSState gsconf
     type SkovGSContext (SkovConfig gsconf finconf hconf) = GSContext gsconf
@@ -415,8 +415,8 @@ instance (GlobalStateConfig gsconf,
         (c, s, logCtx) <- initialiseGlobalState gsc
         let (finctx, finst) = initialiseFinalization conf
         let (hctx, hst) = initialiseHandler conf
-        return (SkovContext c finctx hctx logCtx, SkovState s finst hst)
-    shutdownSkov (SkovContext c _ _ logCtx) (SkovState s _ _) = shutdownGlobalState (Proxy :: Proxy gsconf) c s logCtx
+        return (SkovContext c finctx hctx, SkovState s finst hst logCtx)
+    shutdownSkov (SkovContext c _ _) (SkovState s _ _ logCtx) = shutdownGlobalState (Proxy :: Proxy gsconf) c s logCtx
 
 instance (FinalizationStateLenses (FCState (SkovConfig gsconf finconf hconf)) t)
         => FinalizationStateLenses (SkovState (SkovConfig gsconf finconf hconf)) t where
@@ -432,7 +432,7 @@ instance (HasFinalizationInstance (FCContext (SkovConfig gsconf finconf hconf)))
         => HasFinalizationInstance (SkovContext (SkovConfig gsconf finconf hconf)) where
     finalizationInstance = finalizationInstance . scFinContext
 
-instance GSLogContext gsconf ~ a => HasLogContext a (SkovContext (SkovConfig gsconf finconf hconf)) where
+instance GSLogContext gsconf ~ a => HasLogContext a (SkovState (SkovConfig gsconf finconf hconf)) where
   logContext = lens scLogContext (\sc v -> sc{scLogContext = v })
 
 instance (c ~ GSContext gsconf) => HasGlobalStateContext c (SkovContext (SkovConfig gsconf finconf hconf)) where
