@@ -111,3 +111,4 @@ type family ATIContext ati
 type instance ATIValues () = ()
 type instance ATIContext () = NoLogContext
 
+-- * Sqlite log instance.
