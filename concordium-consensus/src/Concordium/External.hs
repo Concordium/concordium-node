@@ -50,6 +50,7 @@ import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.TimerMonad (ThreadTimer)
 import Concordium.Skov.CatchUp (CatchUpStatus,cusIsResponse)
+import qualified Concordium.Kontrol as Kontrol
 
 import qualified Concordium.Getters as Get
 
@@ -298,6 +299,7 @@ genesisState genData = Basic.initialState
 -- a null pointer will be returned.
 startConsensus ::
            Word64 -- ^Maximum block size.
+           -> Word64 -- ^Threshold for how far into the future we accept blocks
            -> CString -> Int64 -- ^Serialized genesis data (c string + len)
            -> CString -> Int64 -- ^Serialized baker identity (c string + len)
            -> FunPtr BroadcastCallback -- ^Handler for generated messages
@@ -308,7 +310,7 @@ startConsensus ::
            -> FunPtr LogTransferCallback -- ^Handler for logging transfer events
            -> CString -> Int64 -- ^FilePath for the AppData directory
            -> IO (StablePtr ConsensusRunner)
-startConsensus maxBlock gdataC gdataLenC bidC bidLenC bcbk cucbk maxLogLevel lcbk enableTransferLogging ltcbk appDataC appDataLenC= do
+startConsensus maxBlock futureBlockThreshold gdataC gdataLenC bidC bidLenC bcbk cucbk maxLogLevel lcbk enableTransferLogging ltcbk appDataC appDataLenC= do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
         appData <- peekCStringLen (appDataC, fromIntegral appDataLenC)
@@ -316,7 +318,7 @@ startConsensus maxBlock gdataC gdataLenC bidC bidLenC bcbk cucbk maxLogLevel lcb
             (Right genData, Right bid) -> do
                 let
                     gsconfig = makeGlobalStateConfig
-                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate"))
+                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") (fromIntegral futureBlockThreshold))
                         genData
                     finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)) genData
                     hconfig = HookLogHandler logT
@@ -341,20 +343,21 @@ startConsensus maxBlock gdataC gdataLenC bidC bidLenC bcbk cucbk maxLogLevel lcb
 -- a null pointer will be returned.
 startConsensusPassive ::
            Word64 -- ^Maximum block size.
+           -> Word64 -- ^Threshold for how far into the future we accept blocks
            -> CString -> Int64 -- ^Serialized genesis data (c string + len)
            -> FunPtr CatchUpStatusCallback -- ^Handler for sending catch-up status to peers
            -> Word8 -- ^Maximum log level (inclusive) (0 to disable logging).
            -> FunPtr LogCallback -- ^Handler for log events
            -> CString -> Int64 -- ^FilePath for the AppData directory
             -> IO (StablePtr ConsensusRunner)
-startConsensusPassive maxBlock gdataC gdataLenC cucbk maxLogLevel lcbk appDataC appDataLenC = do
+startConsensusPassive maxBlock futureBlockThreshold gdataC gdataLenC cucbk maxLogLevel lcbk appDataC appDataLenC = do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         appData <- peekCStringLen (appDataC, fromIntegral appDataLenC)
         case decode gdata of
             Right genData -> do
                 let
                     gsconfig = makeGlobalStateConfig
-                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate"))
+                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") (fromIntegral futureBlockThreshold))
                         genData
                     finconfig = NoFinalization
                     hconfig = HookLogHandler Nothing
@@ -419,6 +422,8 @@ stopBaker cptr = mask_ $
 +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
 |    10 | ResultContinueCatchUp              | The peer should be marked pending catch-up if it is currently up-to-date               | N/A      |
 +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
+|    11 | ResultBlockFromFuture              | The block has a slot number exceeding our current + the future block threshold         | No       |
++-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
 -}
 type ReceiveResult = Int64
 
@@ -434,6 +439,7 @@ toReceiveResult ResultStale = 7
 toReceiveResult ResultIncorrectFinalizationSession = 8
 toReceiveResult ResultUnverifiable = 9
 toReceiveResult ResultContinueCatchUp = 10
+toReceiveResult ResultBlockFromFuture = 11
 
 
 -- |Handle receipt of a block.
@@ -455,8 +461,8 @@ receiveBlock bptr cstr l = do
                 logm External LLDebug err
                 return ResultSerializationFail
             Right block -> case c of
-                            BakerRunner{..} -> syncReceiveBlock bakerSyncRunner block
-                            PassiveRunner{..} -> syncPassiveReceiveBlock passiveSyncRunner block
+                        BakerRunner{..} -> syncReceiveBlock bakerSyncRunner block
+                        PassiveRunner{..} -> syncPassiveReceiveBlock passiveSyncRunner block
 
 
 -- |Handle receipt of a finalization message.
@@ -870,8 +876,8 @@ receiveCatchUpStatus cptr src cstr len limit cbk = do
                                 -- Mark the peer up-to-date
                                 ResultSuccess
 
-foreign export ccall startConsensus :: Word64 -> CString -> Int64 -> CString -> Int64 -> FunPtr BroadcastCallback -> FunPtr CatchUpStatusCallback -> Word8 -> FunPtr LogCallback -> Word8 -> FunPtr LogTransferCallback -> CString -> Int64 -> IO (StablePtr ConsensusRunner)
-foreign export ccall startConsensusPassive :: Word64 -> CString -> Int64 -> FunPtr CatchUpStatusCallback -> Word8 -> FunPtr LogCallback -> CString -> Int64 -> IO (StablePtr ConsensusRunner)
+foreign export ccall startConsensus :: Word64 -> Word64 -> CString -> Int64 -> CString -> Int64 -> FunPtr BroadcastCallback -> FunPtr CatchUpStatusCallback -> Word8 -> FunPtr LogCallback -> Word8 -> FunPtr LogTransferCallback -> CString -> Int64 -> IO (StablePtr ConsensusRunner)
+foreign export ccall startConsensusPassive :: Word64 -> Word64 -> CString -> Int64 -> FunPtr CatchUpStatusCallback -> Word8 -> FunPtr LogCallback -> CString -> Int64 -> IO (StablePtr ConsensusRunner)
 foreign export ccall stopConsensus :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall startBaker :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall stopBaker :: StablePtr ConsensusRunner -> IO ()

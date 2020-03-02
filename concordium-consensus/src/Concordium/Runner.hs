@@ -19,6 +19,7 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.Classes
 import Concordium.Types.Transactions
 import Concordium.GlobalState.Finalization
+import Concordium.GlobalState.Parameters
 import qualified Concordium.GlobalState.TreeState as TS
 
 import Concordium.TimeMonad
@@ -182,7 +183,15 @@ syncReceiveBlock :: (SkovConfigMonad (SkovHandlers ThreadTimer c LogIO) c LogIO)
     => SyncRunner c
     -> PendingBlock (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO)
     -> IO UpdateResult
-syncReceiveBlock syncRunner block = runSkovTransaction syncRunner (storeBlock block)
+syncReceiveBlock syncRunner block = do
+  maxBlockSlot <- runSkovTransaction syncRunner (computeMaxBlockSlot)
+  if blockSlot block > maxBlockSlot then return ResultBlockFromFuture
+  else runSkovTransaction syncRunner (storeBlock block)
+    where
+      computeMaxBlockSlot = do
+        fbt <- rpFutureBlockThreshold <$> TS.getRuntimeParameters
+        currentSlot <- getCurrentSlot
+        return ((fromIntegral fbt) + currentSlot)
 
 syncReceiveTransaction :: (SkovConfigMonad (SkovHandlers ThreadTimer c LogIO) c LogIO)
     => SyncRunner c -> Transaction -> IO UpdateResult
@@ -228,7 +237,7 @@ makeSyncPassiveRunner syncPLogMethod config cusCallback = do
         (syncPContext, st0) <- initialiseSkov config
         syncPState <- newMVar st0
         pendingLiveMVar <- newMVar Nothing
-        let 
+        let
             sphPendingLive = liftIO $ bufferedHandlePendingLive (getCatchUpStatus spr False >>= cusCallback) pendingLiveMVar
             syncPHandlers = SkovPassiveHandlers {..}
             spr = SyncPassiveRunner{..}
@@ -238,7 +247,15 @@ shutdownSyncPassiveRunner :: SkovConfiguration c => SyncPassiveRunner c -> IO ()
 shutdownSyncPassiveRunner SyncPassiveRunner{..} = takeMVar syncPState >>= shutdownSkov syncPContext
 
 syncPassiveReceiveBlock :: (SkovConfigMonad (SkovPassiveHandlers LogIO) c LogIO) => SyncPassiveRunner c -> PendingBlock (SkovT (SkovPassiveHandlers LogIO) c LogIO) -> IO UpdateResult
-syncPassiveReceiveBlock spr block = runSkovPassive spr (storeBlock block)
+syncPassiveReceiveBlock spr block = do
+  maxBlockSlot <- runSkovPassive spr (computeMaxBlockSlot)
+  if blockSlot block > maxBlockSlot then return ResultBlockFromFuture
+  else runSkovPassive spr (storeBlock block)
+    where
+      computeMaxBlockSlot = do
+        fbt <- rpFutureBlockThreshold <$> TS.getRuntimeParameters
+        currentSlot <- getCurrentSlot
+        return ((fromIntegral fbt) + currentSlot)
 
 syncPassiveReceiveTransaction :: (SkovConfigMonad (SkovPassiveHandlers LogIO) c LogIO) => SyncPassiveRunner c -> Transaction -> IO UpdateResult
 syncPassiveReceiveTransaction spr trans = runSkovPassive spr (receiveTransaction trans)
