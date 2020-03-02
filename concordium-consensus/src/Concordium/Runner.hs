@@ -190,9 +190,10 @@ syncReceiveBlock syncRunner block = do
     where
       isBlockTooEarly b = do
         threshold <- rpEarlyBlockThreshold <$> TS.getRuntimeParameters
+        genesisTime <- genesisTime <$> TS.getGenesisData
         now <- currentTimestamp
         blocktime <- getSlotTimestamp (blockSlot b)
-        return $ blocktime < now + (fromIntegral threshold)
+        return $ blocktime < now - genesisTime + (fromIntegral threshold)
 
 syncReceiveTransaction :: (SkovConfigMonad (SkovHandlers ThreadTimer c LogIO) c LogIO)
     => SyncRunner c -> Transaction -> IO UpdateResult
@@ -255,9 +256,10 @@ syncPassiveReceiveBlock spr block = do
     where
       isBlockTooEarly b = do
         threshold <- rpEarlyBlockThreshold <$> TS.getRuntimeParameters
+        genesisTime <- genesisTime <$> TS.getGenesisData
         now <- currentTimestamp
         blocktime <- getSlotTimestamp (blockSlot b)
-        return $ blocktime < now + (fromIntegral threshold)
+        return $ blocktime < now - genesisTime + (fromIntegral threshold)
 
 syncPassiveReceiveTransaction :: (SkovConfigMonad (SkovPassiveHandlers LogIO) c LogIO) => SyncPassiveRunner c -> Transaction -> IO UpdateResult
 syncPassiveReceiveTransaction spr trans = runSkovPassive spr (receiveTransaction trans)
