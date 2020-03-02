@@ -35,9 +35,23 @@ impl fmt::Display for NetworkId {
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub struct NetworkMessage {
-    pub timestamp1: Option<u64>,
-    pub timestamp2: Option<u64>,
-    pub payload:    NetworkMessagePayload,
+    /// The creation timestamp.
+    pub created: u64,
+    /// The receipt timestamp (if received from the network).
+    pub received: Option<u64>,
+    /// The message's payload.
+    pub payload: NetworkMessagePayload,
+}
+
+#[macro_export]
+macro_rules! netmsg {
+    ($payload_type:ident, $payload:expr) => {{
+        NetworkMessage {
+            created:  get_current_stamp(),
+            received: None,
+            payload:  NetworkMessagePayload::$payload_type($payload),
+        }
+    }};
 }
 
 #[derive(Debug, PartialEq)]

@@ -1,7 +1,7 @@
 use semver::Version;
 
 use crate::{
-    common::{p2p_peer::P2PPeer, P2PNodeId, PeerType},
+    common::{get_current_stamp, p2p_peer::P2PPeer, P2PNodeId, PeerType},
     network::{
         Handshake, NetworkId, NetworkMessage, NetworkMessagePayload, NetworkRequest,
         NetworkResponse,
@@ -20,9 +20,9 @@ macro_rules! test_s11n {
         #[test]
         fn $name() {
             let msg = NetworkMessage {
-                timestamp1: None,
-                timestamp2: None,
-                payload:    $payload,
+                created:  get_current_stamp(),
+                received: None,
+                payload:  $payload,
             };
             let mut buffer = Cursor::new(Vec::new());
 

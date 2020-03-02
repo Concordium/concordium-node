@@ -102,9 +102,9 @@ fn _deserialize<T: BufRead>(input: &mut T, packed: bool) -> capnp::Result<Networ
         p2p_capnp::network_message::Which::Packet(packet) => {
             if let Ok(packet) = load_network_packet(&packet?) {
                 Ok(NetworkMessage {
-                    timestamp1: Some(timestamp),
-                    timestamp2: Some(get_current_stamp()),
-                    payload:    NetworkMessagePayload::NetworkPacket(packet),
+                    created:  timestamp,
+                    received: Some(get_current_stamp()),
+                    payload:  NetworkMessagePayload::NetworkPacket(packet),
                 })
             } else {
                 Err(capnp::Error::failed("invalid network packet".to_owned()))
@@ -113,9 +113,9 @@ fn _deserialize<T: BufRead>(input: &mut T, packed: bool) -> capnp::Result<Networ
         p2p_capnp::network_message::Which::Request(request_reader) => {
             if let Ok(request) = load_network_request(&request_reader?) {
                 Ok(NetworkMessage {
-                    timestamp1: Some(timestamp),
-                    timestamp2: Some(get_current_stamp()),
-                    payload:    NetworkMessagePayload::NetworkRequest(request),
+                    created:  timestamp,
+                    received: Some(get_current_stamp()),
+                    payload:  NetworkMessagePayload::NetworkRequest(request),
                 })
             } else {
                 Err(capnp::Error::failed("invalid network request".to_owned()))
@@ -124,9 +124,9 @@ fn _deserialize<T: BufRead>(input: &mut T, packed: bool) -> capnp::Result<Networ
         p2p_capnp::network_message::Which::Response(response_reader) => {
             if let Ok(response) = load_network_response(&response_reader?) {
                 Ok(NetworkMessage {
-                    timestamp1: Some(timestamp),
-                    timestamp2: Some(get_current_stamp()),
-                    payload:    NetworkMessagePayload::NetworkResponse(response),
+                    created:  timestamp,
+                    received: Some(get_current_stamp()),
+                    payload:  NetworkMessagePayload::NetworkResponse(response),
                 })
             } else {
                 Err(capnp::Error::failed("invalid network response".to_owned()))

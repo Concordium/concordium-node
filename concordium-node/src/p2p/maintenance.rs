@@ -46,6 +46,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// Configuration bits applicable to a node.
 pub struct NodeConfig {
     pub no_net: bool,
     pub desired_nodes_count: u16,
@@ -81,9 +82,13 @@ pub struct NodeConfig {
     pub breakage: Option<(String, u8, usize)>,
 }
 
+/// The collection of netwoks the node belongs to.
 pub type Networks = HashSet<NetworkId, BuildNoHashHasher<u16>>;
+
+/// The collection of connections to peer nodes.
 pub type Connections = HashMap<Token, Arc<Connection>, BuildNoHashHasher<usize>>;
 
+/// The set of objects related to node's connections.
 pub struct ConnectionHandler {
     pub socket_server:    TcpListener,
     pub next_token:       AtomicUsize,
@@ -94,31 +99,31 @@ pub struct ConnectionHandler {
     pub networks:         RwLock<Networks>,
     pub last_bootstrap:   AtomicU64,
     pub last_peer_update: AtomicU64,
+    pub total_received:   AtomicU64,
+    pub total_sent:       AtomicU64,
 }
 
 impl ConnectionHandler {
-    pub fn new(conf: &Config, socket_server: TcpListener) -> Self {
+    fn new(conf: &Config, socket_server: TcpListener) -> Self {
         let networks = conf.common.network_ids.iter().cloned().map(NetworkId::from).collect();
 
         ConnectionHandler {
             socket_server,
             next_token: AtomicUsize::new(1),
-            buckets: RwLock::new(Buckets::new()),
+            buckets: Default::default(),
             log_dumper: Default::default(),
             connections: Default::default(),
             soft_bans: Default::default(),
             networks: RwLock::new(networks),
             last_bootstrap: Default::default(),
             last_peer_update: Default::default(),
+            total_received: Default::default(),
+            total_sent: Default::default(),
         }
     }
 }
 
-#[derive(Default)]
-pub struct P2PNodeThreads {
-    pub join_handles: Vec<JoinHandle<()>>,
-}
-
+/// Facilitates the `network_dump` feature.
 #[cfg(feature = "network_dump")]
 pub struct NetworkDumper {
     switch: Sender<(std::path::PathBuf, bool)>,
@@ -139,23 +144,29 @@ impl NetworkDumper {
     }
 }
 
+/// The central object belonging to a node in the network; it handles
+/// connectivity and contains the metadata, statistics etc.
 pub struct P2PNode {
     pub self_peer: P2PPeer,
-    pub threads: RwLock<P2PNodeThreads>,
+    /// Holds the handles to threads spawned by the node.
+    pub threads: RwLock<Vec<JoinHandle<()>>>,
+    /// The handle to the poll for the connection event loop.
     pub poll: Poll,
     pub connection_handler: ConnectionHandler,
     #[cfg(feature = "network_dump")]
     pub network_dumper: NetworkDumper,
     pub stats: Arc<StatsExportService>,
     pub config: NodeConfig,
+    /// The time the node was launched.
     pub start_time: DateTime<Utc>,
+    /// The flag indicating whether a node should shut down.
     pub is_terminated: AtomicBool,
+    /// The key-value store holding the node's persistent data.
     pub kvs: Arc<RwLock<Rkv>>,
-    pub total_received: AtomicU64,
-    pub total_sent: AtomicU64,
 }
 
 impl P2PNode {
+    /// Creates a new node.
     pub fn new(
         supplied_id: Option<String>,
         conf: &Config,
@@ -297,7 +308,7 @@ impl P2PNode {
         let node = Arc::new(P2PNode {
             poll,
             start_time: Utc::now(),
-            threads: RwLock::new(P2PNodeThreads::default()),
+            threads: Default::default(),
             config,
             #[cfg(feature = "network_dump")]
             network_dumper: NetworkDumper::new(ip, id, conf),
@@ -306,8 +317,6 @@ impl P2PNode {
             stats,
             is_terminated: Default::default(),
             kvs,
-            total_received: Default::default(),
-            total_sent: Default::default(),
         });
 
         node.clear_bans().unwrap_or_else(|e| error!("Couldn't reset the ban list: {}", e));
@@ -363,9 +372,7 @@ impl P2PNode {
 
     /// Waits for `P2PNode` termination (`P2PNode::close` shuts it down).
     pub fn join(&self) -> Fallible<()> {
-        for handle in
-            mem::replace(&mut write_or_die!(self.threads).join_handles, Default::default())
-        {
+        for handle in mem::replace(&mut *write_or_die!(self.threads), Default::default()) {
             if let Err(e) = handle.join() {
                 error!("Can't join a node thread: {:?}", e);
             }
@@ -546,7 +553,7 @@ pub fn spawn(node: &Arc<P2PNode>) {
     });
 
     // Register info about thread into P2PNode.
-    write_or_die!(node.threads).join_handles.push(poll_thread);
+    write_or_die!(node.threads).push(poll_thread);
 }
 
 /// Try to bootstrap the node based on the addresses in the config.

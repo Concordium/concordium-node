@@ -10,6 +10,7 @@ use crate::{
     common::{get_current_stamp, P2PNodeId, PeerType, RemotePeer},
     configuration as config,
     connection::{send_pending_messages, Connection, DeduplicationQueues, MessageSendingPriority},
+    netmsg,
     network::{
         NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkPacketType,
         NetworkRequest,
@@ -27,7 +28,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// The poll token of the node.
+/// The poll token of the node's socket server.
 pub const SELF_TOKEN: Token = Token(0);
 
 // a convenience macro to send an object to all connections
@@ -35,11 +36,7 @@ macro_rules! send_to_all {
     ($foo_name:ident, $object_type:ty, $req_type:ident) => {
         pub fn $foo_name(&self, object: $object_type) {
             let request = NetworkRequest::$req_type(object);
-            let message = NetworkMessage {
-                timestamp1: None,
-                timestamp2: None,
-                payload: NetworkMessagePayload::NetworkRequest(request)
-            };
+            let message = netmsg!(NetworkRequest, request);
             let filter = |_: &Connection| true;
 
             if let Err(e) = {
@@ -214,12 +211,7 @@ impl P2PNode {
             1
         };
 
-        let message = NetworkMessage {
-            timestamp1: Some(get_current_stamp()),
-            timestamp2: None,
-            payload:    NetworkMessagePayload::NetworkPacket(inner_pkt),
-        };
-
+        let message = netmsg!(NetworkPacket, inner_pkt);
         let mut serialized = Vec::with_capacity(256);
         message.serialize(&mut serialized)?;
 
