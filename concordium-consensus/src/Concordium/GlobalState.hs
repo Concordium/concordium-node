@@ -29,7 +29,8 @@ import System.FilePath
 import Lens.Micro.Platform
 import qualified Data.Text as Text
 
-import Concordium.Types(BlockHash)
+import Concordium.Types.Transactions
+
 import Concordium.GlobalState.Basic.BlockState as BS
 import Concordium.GlobalState.Basic.TreeState
 import Concordium.GlobalState.BlockState
@@ -364,10 +365,10 @@ instance ATITypes (TreeStateM (SkovPersistentData DiskDump bs) m) where
 doFlushBlockSummaries :: (MonadState s m,
                           HasLogContext (ATIContext DiskDump) s,
                           MonadIO m) =>
-                          BlockHash -> ATIValues DiskDump -> m ()
-doFlushBlockSummaries bh ati = do
+                          BlockContext -> ATIValues DiskDump -> [SpecialTransactionOutcome] -> m ()
+doFlushBlockSummaries bh ati sos = do
     PAAIConfig handle <- use logContext
-    liftIO $ writeEntries handle bh ati
+    liftIO $ writeEntries handle bh ati sos
 
 instance (MonadIO m, s ~ (SkovPersistentData DiskDump bs), MonadState s m, HasLogContext (ATIContext DiskDump) s)
          => PerAccountDBOperations (TreeStateM (SkovPersistentData DiskDump bs) m) where
