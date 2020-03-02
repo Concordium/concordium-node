@@ -20,8 +20,8 @@ use crate::{
     dumper::DumpItem,
     netmsg,
     network::{
-        Buckets, Handshake, NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket,
-        NetworkRequest, NetworkResponse,
+        Handshake, NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkRequest,
+        NetworkResponse,
     },
     p2p::{bans::BanId, Networks, P2PNode},
 };
@@ -188,14 +188,19 @@ impl Connection {
     /// connection.
     pub fn get_last_ping_sent(&self) -> u64 { self.stats.last_ping_sent.load(Ordering::Relaxed) }
 
+    /// Set the timestamp of when the latest ping request was sent to the
+    /// connection.
     fn set_last_ping_sent(&self) {
         self.stats.last_ping_sent.store(get_current_stamp(), Ordering::Relaxed);
     }
 
+    /// Obtain the node id related to the connection, if available.
     pub fn remote_id(&self) -> Option<P2PNodeId> { *read_or_die!(self.remote_peer.id) }
 
+    /// Obtain the type of the peer associated with the connection.
     pub fn remote_peer_type(&self) -> PeerType { self.remote_peer.peer_type() }
 
+    /// Obtain the peer stats of the connection.
     #[inline]
     pub fn remote_peer_stats(&self) -> Fallible<PeerStats> {
         Ok(PeerStats::new(
@@ -209,26 +214,25 @@ impl Connection {
         ))
     }
 
+    /// Obtain the remote address of the connection.
     pub fn remote_addr(&self) -> SocketAddr { self.remote_peer.addr() }
 
+    /// Obtain the external port of the connection.
     pub fn remote_peer_external_port(&self) -> u16 {
         self.remote_peer.peer_external_port.load(Ordering::Relaxed)
     }
 
+    /// Check whether the handshake with the connection has concluded.
     #[inline]
     pub fn is_post_handshake(&self) -> bool { self.is_post_handshake.load(Ordering::Relaxed) }
 
+    /// Obtain the timestamp of when the connection was interacted with last.
     pub fn last_seen(&self) -> u64 { self.stats.last_seen.load(Ordering::Relaxed) }
 
-    pub fn get_messages_received(&self) -> u64 {
-        self.stats.messages_received.load(Ordering::Relaxed)
-    }
-
-    pub fn get_messages_sent(&self) -> u64 { self.stats.messages_sent.load(Ordering::Relaxed) }
-
+    /// Obtain the number of failed packets provided by the connection.
     pub fn failed_pkts(&self) -> u32 { self.stats.failed_pkts.load(Ordering::Relaxed) }
 
-    /// It registers the connection socket, for read and write ops using *edge*
+    /// It registers the connection's socket for read and write ops using *edge*
     /// notifications.
     #[inline]
     pub fn register(&self, poll: &Poll) -> Fallible<()> {
@@ -342,8 +346,6 @@ impl Connection {
 
         Ok(())
     }
-
-    pub fn buckets(&self) -> &RwLock<Buckets> { &self.handler.connection_handler.buckets }
 
     pub fn promote_to_post_handshake(&self, id: P2PNodeId, peer_port: u16) -> Fallible<()> {
         *write_or_die!(self.remote_peer.id) = Some(id);
