@@ -23,7 +23,7 @@ use crate::{
         Handshake, NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkRequest,
         NetworkResponse,
     },
-    p2p::{bans::BanId, Networks, P2PNode},
+    p2p::{bans::BanId, P2PNode},
 };
 use concordium_common::PacketType;
 use crypto_common::Deserial;
@@ -344,14 +344,13 @@ impl Connection {
         self.handler.bump_last_peer_update();
     }
 
-    pub fn local_end_networks(&self) -> &RwLock<Networks> { self.handler.networks() }
-
-    /// It queues a network request
+    /// Queues a message to be sent to the connection.
     #[inline]
     pub fn async_send(&self, message: Arc<[u8]>, priority: MessageSendingPriority) {
         write_or_die!(self.pending_messages).push(message, (priority, Reverse(Instant::now())));
     }
 
+    /// Update the timestamp of when the connection was seen last.
     #[inline]
     pub fn update_last_seen(&self) {
         if self.handler.peer_type() != PeerType::Bootstrapper {
@@ -359,14 +358,17 @@ impl Connection {
         }
     }
 
+    /// Add a single network to the connection's remote end networks.
     pub fn add_remote_end_network(&self, network: NetworkId) {
         write_or_die!(self.remote_end_networks).insert(network);
     }
 
+    /// Add multiple networks to the connection's remote end networks.
     pub fn add_remote_end_networks(&self, networks: &HashSet<NetworkId>) {
         write_or_die!(self.remote_end_networks).extend(networks.iter())
     }
 
+    /// Remove a network from the connection's remote end networks.
     pub fn remove_remote_end_network(&self, network: NetworkId) {
         write_or_die!(self.remote_end_networks).remove(&network);
     }
