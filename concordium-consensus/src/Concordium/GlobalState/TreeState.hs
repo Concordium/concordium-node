@@ -28,6 +28,7 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.Types.Transactions
+import Concordium.Types.Execution(TransactionIndex)
 import Concordium.GlobalState.Statistics
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.BlockPointer

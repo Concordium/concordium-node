@@ -3,13 +3,13 @@ module Concordium.GlobalState.AccountTransactionIndex where
 
 import Control.Monad.Except
 import Control.Monad.Trans.Maybe
-import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Lens.Micro.Platform
 import Control.Monad.Identity
 
 import Concordium.Types
 import Concordium.Types.Execution
+import Concordium.Types.Transactions
 import Concordium.GlobalState.Classes
 
 -- |A typeclass that abstract the ability to record the footprint.
@@ -37,9 +37,8 @@ instance CanRecordFootprint (HS.HashSet AccountAddress) where
   traverseOutcomes = forM_
 
 -- |Mapping from account addresses to a list of transaction affecting this account.
--- The transactions are ordered in reverse (i.e., head is the most recent transaction
--- affecting the account).
-type AccountTransactionIndex = HM.HashMap AccountAddress [TransactionSummary]
+-- The transactions are ordered in reverse (i.e., head is the most recent transaction)
+type AccountTransactionIndex = [(AccountAddress, TransactionSummary)]
 
 class CanExtend a where
   defaultValue :: a
@@ -52,8 +51,8 @@ instance CanExtend () where
   {-# INLINE extendRecord #-}
 
 instance CanExtend AccountTransactionIndex where
-  defaultValue = HM.empty
-  extendRecord addr summary = at addr . non [] %~ (summary:)
+  defaultValue = []
+  extendRecord addr summary = ((addr,summary) :)
   {-# INLINE defaultValue #-}
   {-# INLINE extendRecord #-}
 
@@ -67,11 +66,17 @@ class (CanExtend (ATIStorage m), CanRecordFootprint (Footprint (ATIStorage m))) 
   -- |Type of values stored in the block pointer, e.g., a map Address -> Summary
   type ATIStorage m
 
-class (Monad m, ATITypes m) => PerAccountDBOperations m where
-  flushBlockSummaries :: BlockHash -> ATIStorage m -> m ()
+data BlockContext = BlockContext {
+  bcHash :: BlockHash,
+  bcHeight :: BlockHeight,
+  bcTime :: Timestamp
+  }
 
-  default flushBlockSummaries :: (ATIStorage m ~ ()) => BlockHash -> ATIStorage m -> m ()
-  flushBlockSummaries = \_ () -> return ()
+class (Monad m, ATITypes m) => PerAccountDBOperations m where
+  flushBlockSummaries :: BlockContext -> ATIStorage m -> [SpecialTransactionOutcome] -> m ()
+
+  default flushBlockSummaries :: (ATIStorage m ~ ()) => BlockContext -> ATIStorage m -> [SpecialTransactionOutcome] -> m ()
+  flushBlockSummaries = \_ () _ -> return ()
   {-# INLINE flushBlockSummaries #-}
 
 instance ATITypes m => ATITypes (MGSTrans t m) where
@@ -79,7 +84,7 @@ instance ATITypes m => ATITypes (MGSTrans t m) where
 
 instance (MonadTrans t, Monad (t m), PerAccountDBOperations m) => PerAccountDBOperations (MGSTrans t m) where
   {-# INLINE flushBlockSummaries #-}
-  flushBlockSummaries bh ati = lift (flushBlockSummaries bh ati)
+  flushBlockSummaries bh ati = lift . flushBlockSummaries bh ati
 
 deriving via (MGSTrans MaybeT m) instance ATITypes m => ATITypes (MaybeT m)
 deriving via (MGSTrans (ExceptT e) m) instance ATITypes m => ATITypes (ExceptT e m)
