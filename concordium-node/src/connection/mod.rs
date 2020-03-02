@@ -125,6 +125,7 @@ impl fmt::Display for Connection {
 }
 
 impl Connection {
+    /// Create a new connection object.
     pub fn new(
         handler: &Arc<P2PNode>,
         socket: TcpStream,
@@ -169,16 +170,22 @@ impl Connection {
         conn
     }
 
+    /// Get the connection's latest latency value.
     pub fn get_last_latency(&self) -> u64 { self.stats.last_latency.load(Ordering::Relaxed) }
 
+    /// Set the connection's latest latency value.
     pub fn set_last_latency(&self, value: u64) {
         self.stats.last_latency.store(value, Ordering::Relaxed);
     }
 
+    /// Set the timestamp of when the handshake request was sent to the
+    /// connection.
     pub fn set_sent_handshake(&self) {
         self.stats.sent_handshake.store(get_current_stamp(), Ordering::Relaxed)
     }
 
+    /// Get the timestamp of when the latest ping request was sent to the
+    /// connection.
     pub fn get_last_ping_sent(&self) -> u64 { self.stats.last_ping_sent.load(Ordering::Relaxed) }
 
     fn set_last_ping_sent(&self) {
