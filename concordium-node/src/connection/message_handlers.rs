@@ -63,7 +63,7 @@ impl Connection {
             bail!("Rejecting an incompatible client");
         }
 
-        self.promote_to_post_handshake(handshake.remote_id, handshake.remote_port)?;
+        self.promote_to_post_handshake(handshake.remote_id, handshake.remote_port);
         self.add_remote_end_networks(&handshake.networks);
 
         let remote_peer = P2PPeer::from(

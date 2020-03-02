@@ -347,12 +347,11 @@ impl Connection {
         Ok(())
     }
 
-    pub fn promote_to_post_handshake(&self, id: P2PNodeId, peer_port: u16) -> Fallible<()> {
+    pub fn promote_to_post_handshake(&self, id: P2PNodeId, peer_port: u16) {
         *write_or_die!(self.remote_peer.id) = Some(id);
         self.remote_peer.peer_external_port.store(peer_port, Ordering::SeqCst);
         self.is_post_handshake.store(true, Ordering::SeqCst);
         self.handler.bump_last_peer_update();
-        Ok(())
     }
 
     pub fn remote_end_networks(&self) -> &RwLock<HashSet<NetworkId>> { &self.remote_end_networks }
