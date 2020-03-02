@@ -199,7 +199,7 @@ impl ConnectionLowLevel {
             .try_into()?;
         let payload_out = self.conn().produce_handshake_request()?;
         send_xx_msg!(self, DHLEN + MAC_LENGTH, &payload_out, MAC_LENGTH, "C");
-        self.conn().handler().stats.peers_inc();
+        self.conn().handler.stats.peers_inc();
 
         Ok(payload_in)
     }
@@ -209,7 +209,7 @@ impl ConnectionLowLevel {
         let payload = self.socket_buffer.slice(len)[DHLEN + MAC_LENGTH..]
             [..len - DHLEN - MAC_LENGTH * 2]
             .try_into()?;
-        self.conn().handler().stats.peers_inc();
+        self.conn().handler.stats.peers_inc();
 
         Ok(payload)
     }
@@ -412,10 +412,10 @@ impl ConnectionLowLevel {
     /// Enqueue a message to be written to the socket.
     #[inline]
     pub fn write_to_socket(&mut self, input: Arc<[u8]>) -> Fallible<()> {
-        self.conn().handler().connection_handler.total_sent.fetch_add(1, Ordering::Relaxed);
+        self.conn().handler.connection_handler.total_sent.fetch_add(1, Ordering::Relaxed);
         self.conn().stats.messages_sent.fetch_add(1, Ordering::Relaxed);
         self.conn().stats.bytes_sent.fetch_add(input.len() as u64, Ordering::Relaxed);
-        self.conn().handler().stats.pkt_sent_inc();
+        self.conn().handler.stats.pkt_sent_inc();
 
         if cfg!(feature = "network_dump") {
             self.conn().send_to_dump(input.clone(), false);
@@ -523,5 +523,5 @@ impl ConnectionLowLevel {
 
     /// Get the desired socket write size.
     #[inline]
-    fn write_size(&self) -> usize { self.conn().handler().config.socket_write_size }
+    fn write_size(&self) -> usize { self.conn().handler.config.socket_write_size }
 }

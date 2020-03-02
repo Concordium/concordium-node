@@ -92,7 +92,7 @@ type PendingPriority = (MessageSendingPriority, Reverse<Instant>);
 /// A collection of objects related to the connection to a single peer.
 pub struct Connection {
     /// A reference to the parent node.
-    handler_ref: Arc<P2PNode>,
+    handler: Arc<P2PNode>,
     /// The poll token of the connection's socket.
     pub token: Token,
     /// The connection's representation as a peer object.
@@ -125,8 +125,6 @@ impl fmt::Display for Connection {
 }
 
 impl Connection {
-    pub fn handler(&self) -> &P2PNode { &self.handler_ref }
-
     pub fn new(
         handler: &Arc<P2PNode>,
         socket: TcpStream,
@@ -156,7 +154,7 @@ impl Connection {
         };
 
         let conn = Arc::new(Self {
-            handler_ref: Arc::clone(handler),
+            handler: Arc::clone(handler),
             token,
             remote_peer,
             low_level,
@@ -277,8 +275,8 @@ impl Connection {
         self.update_last_seen();
         self.stats.messages_received.fetch_add(1, Ordering::Relaxed);
         self.stats.bytes_received.fetch_add(message.len() as u64, Ordering::Relaxed);
-        self.handler().connection_handler.total_received.fetch_add(1, Ordering::Relaxed);
-        self.handler().stats.pkt_received_inc();
+        self.handler.connection_handler.total_received.fetch_add(1, Ordering::Relaxed);
+        self.handler.stats.pkt_received_inc();
 
         if cfg!(feature = "network_dump") {
             self.send_to_dump(message.clone(), true);
@@ -294,7 +292,7 @@ impl Connection {
 
         if let NetworkMessagePayload::NetworkPacket(ref mut packet) = message.payload {
             // disregard packets when in bootstrapper mode
-            if self.handler().self_peer.peer_type == PeerType::Bootstrapper {
+            if self.handler.self_peer.peer_type == PeerType::Bootstrapper {
                 return Ok(());
             }
             // deduplicate the incoming packet payload
@@ -311,7 +309,7 @@ impl Connection {
         let is_msg_forwardable = match message.payload {
             NetworkMessagePayload::NetworkRequest(ref request, ..) => match request {
                 NetworkRequest::BanNode(..) | NetworkRequest::UnbanNode(..) => {
-                    !self.handler().config.no_trust_bans
+                    !self.handler.config.no_trust_bans
                 }
                 _ => false,
             },
@@ -340,19 +338,19 @@ impl Connection {
         Ok(())
     }
 
-    pub fn buckets(&self) -> &RwLock<Buckets> { &self.handler().connection_handler.buckets }
+    pub fn buckets(&self) -> &RwLock<Buckets> { &self.handler.connection_handler.buckets }
 
     pub fn promote_to_post_handshake(&self, id: P2PNodeId, peer_port: u16) -> Fallible<()> {
         *write_or_die!(self.remote_peer.id) = Some(id);
         self.remote_peer.peer_external_port.store(peer_port, Ordering::SeqCst);
         self.is_post_handshake.store(true, Ordering::SeqCst);
-        self.handler().bump_last_peer_update();
+        self.handler.bump_last_peer_update();
         Ok(())
     }
 
     pub fn remote_end_networks(&self) -> &RwLock<HashSet<NetworkId>> { &self.remote_end_networks }
 
-    pub fn local_end_networks(&self) -> &RwLock<Networks> { self.handler().networks() }
+    pub fn local_end_networks(&self) -> &RwLock<Networks> { self.handler.networks() }
 
     /// It queues a network request
     #[inline]
@@ -362,7 +360,7 @@ impl Connection {
 
     #[inline]
     pub fn update_last_seen(&self) {
-        if self.handler().peer_type() != PeerType::Bootstrapper {
+        if self.handler.peer_type() != PeerType::Bootstrapper {
             self.stats.last_seen.store(get_current_stamp(), Ordering::Relaxed);
         }
     }
@@ -380,7 +378,7 @@ impl Connection {
     }
 
     fn send_to_dump(&self, buf: Arc<[u8]>, inbound: bool) {
-        if let Some(ref sender) = &*read_or_die!(self.handler().connection_handler.log_dumper) {
+        if let Some(ref sender) = &*read_or_die!(self.handler.connection_handler.log_dumper) {
             let di = DumpItem::new(Utc::now(), inbound, self.remote_peer().addr().ip(), buf);
             let _ = sender.send(di);
         }
@@ -390,9 +388,9 @@ impl Connection {
         let handshake_request = netmsg!(
             NetworkRequest,
             NetworkRequest::Handshake(Handshake {
-                remote_id:   self.handler().self_peer.id(),
-                remote_port: self.handler().self_peer.port(),
-                networks:    read_or_die!(self.handler().networks()).iter().copied().collect(),
+                remote_id:   self.handler.self_peer.id(),
+                remote_port: self.handler.self_peer.port(),
+                networks:    read_or_die!(self.handler.networks()).iter().copied().collect(),
                 version:     Version::parse(env!("CARGO_PKG_VERSION"))?,
                 proof:       vec![],
             })
@@ -431,31 +429,35 @@ impl Connection {
         let requestor =
             self.remote_peer().peer().ok_or_else(|| format_err!("handshake not concluded yet"))?;
 
-        let peer_list_resp = match self.handler().peer_type() {
+        let peer_list_resp = match self.handler.peer_type() {
             PeerType::Bootstrapper => {
                 const BOOTSTRAP_PEER_COUNT: usize = 100;
                 let random_nodes =
-                    match self.handler().config.partition_network_for_time {
+                    match self.handler.config.partition_network_for_time {
                         Some(time) => {
                             if (Utc::now().timestamp_millis()
-                                - self.handler().start_time.timestamp_millis())
+                                - self.handler.start_time.timestamp_millis())
                                 as usize
                                 >= time
                             {
-                                safe_read!(self.handler().connection_handler.buckets)?
+                                safe_read!(self.handler.connection_handler.buckets)?
                                     .get_random_nodes(&requestor, BOOTSTRAP_PEER_COUNT, nets, false)
                             } else {
-                                safe_read!(self.handler().connection_handler.buckets)?
+                                safe_read!(self.handler.connection_handler.buckets)?
                                     .get_random_nodes(&requestor, BOOTSTRAP_PEER_COUNT, nets, true)
                             }
                         }
-                        _ => safe_read!(self.handler().connection_handler.buckets)?
-                            .get_random_nodes(&requestor, BOOTSTRAP_PEER_COUNT, nets, false),
+                        _ => safe_read!(self.handler.connection_handler.buckets)?.get_random_nodes(
+                            &requestor,
+                            BOOTSTRAP_PEER_COUNT,
+                            nets,
+                            false,
+                        ),
                     };
 
                 if !random_nodes.is_empty()
                     && random_nodes.len()
-                        >= usize::from(self.handler().config.bootstrapper_wait_minimum_peers)
+                        >= usize::from(self.handler.config.bootstrapper_wait_minimum_peers)
                 {
                     Some(netmsg!(NetworkResponse, NetworkResponse::PeerList(random_nodes)))
                 } else {
@@ -464,7 +466,7 @@ impl Connection {
             }
             PeerType::Node => {
                 let nodes = self
-                    .handler()
+                    .handler
                     .get_peer_stats(Some(PeerType::Node))
                     .iter()
                     .filter(|stat| P2PNodeId(stat.id) != requestor.id)
@@ -516,7 +518,7 @@ impl Connection {
             _ => unreachable!("Only network requests are ever forwarded"),
         };
 
-        self.handler().send_over_all_connections(&serialized, &conn_filter);
+        self.handler.send_over_all_connections(&serialized, &conn_filter);
         Ok(())
     }
 }
@@ -527,7 +529,7 @@ impl Drop for Connection {
 
         // Report number of peers to stats export engine
         if self.is_post_handshake() {
-            self.handler().stats.peers_dec();
+            self.handler.stats.peers_dec();
         }
     }
 }
