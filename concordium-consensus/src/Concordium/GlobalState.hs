@@ -26,8 +26,8 @@ import Data.IORef (newIORef,writeIORef)
 import Data.Proxy
 import Data.Serialize.Put (runPut)
 import System.FilePath
-import System.IO
 import Lens.Micro.Platform
+import qualified Data.Text as Text
 
 import Concordium.Types(BlockHash)
 import Concordium.GlobalState.Basic.BlockState as BS
@@ -43,6 +43,8 @@ import Concordium.GlobalState.AccountTransactionIndex
 import qualified Concordium.GlobalState.Persistent.BlockState as Persistent
 import Concordium.GlobalState.Persistent.BlobStore (createTempBlobStore,destroyTempBlobStore)
 import Concordium.GlobalState.Persistent.BlockState (PersistentBlockStateContext(..), PersistentBlockStateMonad, PersistentBlockState)
+
+import Concordium.GlobalState.SQLiteATI
 
 -- |A newtype wrapper for providing instances of the block state related monads:
 -- 'BlockStateTypes', 'BlockStateQuery', 'BlockStateOperations' and 'BlockStateStorage'.
@@ -341,7 +343,7 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
 
 -- |Disk Tree & Disk Block instance with transaction logging.
 
-data PerAccountAffectIndex = PAAIConfig Handle
+data PerAccountAffectIndex = PAAIConfig Text.Text
 -- When we want to dump data to disk.
 data DiskDump
 type instance ATIValues DiskDump = AccountTransactionIndex
@@ -365,10 +367,7 @@ doFlushBlockSummaries :: (MonadState s m,
                           BlockHash -> ATIValues DiskDump -> m ()
 doFlushBlockSummaries bh ati = do
     PAAIConfig handle <- use logContext
-    liftIO $ do
-      hPrint handle bh
-      hPrint handle ati
-      hPrint handle ati
+    liftIO $ writeEntries handle bh ati
 
 instance (MonadIO m, s ~ (SkovPersistentData DiskDump bs), MonadState s m, HasLogContext (ATIContext DiskDump) s)
          => PerAccountDBOperations (TreeStateM (SkovPersistentData DiskDump bs) m) where
@@ -444,11 +443,11 @@ instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
         pbs <- makePersistent bs
         let pbsc = PersistentBlockStateContext{..}
         serBS <- runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc
-        handle <- openFile txLog WriteMode
+        let handle = Text.pack txLog
+        createTable handle
         let ati = defaultValue
         isd <- initialSkovPersistentData rtparams gendata pbs (ati, PAAIConfig handle) serBS
         return (pbsc, isd, PAAIConfig handle)
-    shutdownGlobalState _ (PersistentBlockStateContext{..}) _ (PAAIConfig logHandle) = do
+    shutdownGlobalState _ (PersistentBlockStateContext{..}) _ (PAAIConfig _) = do
         destroyTempBlobStore pbscBlobStore
         writeIORef pbscModuleCache Persistent.emptyModuleCache
-        hClose logHandle
