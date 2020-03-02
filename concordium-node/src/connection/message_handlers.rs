@@ -189,7 +189,8 @@ impl Connection {
 
         let dont_relay_to =
             if let NetworkPacketType::BroadcastedMessage(ref peers) = pac.packet_type {
-                let mut list = peers.clone();
+                let mut list = Vec::with_capacity(peers.len() + 1);
+                list.extend_from_slice(peers);
                 list.push(peer_id);
                 list
             } else {
