@@ -251,6 +251,11 @@ fn start_consensus_message_threads(
             thread::sleep(Duration::from_secs(1));
         }
 
+        // if there are no peers at this point, start baking anyway
+        if node_ref.get_node_peer_ids().is_empty() {
+            consensus_ref.start_baker();
+        }
+
         let peer_stats_notifier_control_queue_receiver =
             CALLBACK_QUEUE.receiver_peer_notifier.lock().unwrap();
         let mut last_peer_list_update = 0;
