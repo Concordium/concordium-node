@@ -9,6 +9,8 @@ use crate::{
 use std::sync::{atomic::Ordering, Arc};
 
 impl P2PNode {
+    /// Obtain the list of statistics from all the peers, optionally of a
+    /// specific peer type.
     pub fn get_peer_stats(&self, peer_type: Option<PeerType>) -> Vec<PeerStats> {
         read_or_die!(self.connections())
             .values()
@@ -18,24 +20,19 @@ impl P2PNode {
             .collect()
     }
 
-    /// This function is called periodically to print information about current
-    /// nodes.
+    /// Prints information about all the peers.
     pub fn print_stats(&self, peer_stat_list: &[PeerStats]) {
-        trace!("Printing out stats");
-        debug!("I currently have {}/{} peers", peer_stat_list.len(), self.config.max_allowed_nodes);
-
-        // Print nodes
-        if self.config.print_peers {
-            for (i, peer) in peer_stat_list.iter().enumerate() {
-                trace!("Peer {}: {}/{}/{}", i, P2PNodeId(peer.id), peer.addr, peer.peer_type);
-            }
+        for (i, peer) in peer_stat_list.iter().enumerate() {
+            trace!("Peer {}: {}/{}/{}", i, P2PNodeId(peer.id), peer.addr, peer.peer_type);
         }
     }
 
+    /// Obtain the node ids of all the node peers.
     pub fn get_node_peer_ids(&self) -> Vec<u64> {
         self.get_peer_stats(Some(PeerType::Node)).into_iter().map(|stats| stats.id).collect()
     }
 
+    /// Measures the node's average byte throughput.
     pub fn measure_throughput(&self, peer_stats: &[PeerStats]) -> (u64, u64) {
         let prev_bytes_received = self.stats.get_bytes_received();
         let prev_bytes_sent = self.stats.get_bytes_sent();
@@ -79,17 +76,21 @@ impl P2PNode {
         }
     }
 
+    /// Update the timestamp of the last peer update.
     pub fn bump_last_peer_update(&self) {
         self.connection_handler.last_peer_update.store(get_current_stamp(), Ordering::SeqCst)
     }
 
+    /// Obtain the timestamp of the last peer update.
     pub fn last_peer_update(&self) -> u64 {
         self.connection_handler.last_peer_update.load(Ordering::SeqCst)
     }
 }
 
+/// Checks whether we need any more peers, based on the `desired_nodes_count`
+/// config.
 pub fn check_peers(node: &Arc<P2PNode>, peer_stat_list: &[PeerStats]) {
-    trace!("Checking for needed peers");
+    trace!("Checking if any more peers are needed");
     if node.peer_type() != PeerType::Bootstrapper
         && !node.config.no_net
         && node.config.desired_nodes_count

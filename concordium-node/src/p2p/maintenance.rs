@@ -535,8 +535,15 @@ pub fn spawn(node: &Arc<P2PNode>) {
 
                 let peer_stat_list = self_clone.get_peer_stats(None);
                 check_peers(&self_clone, &peer_stat_list);
-                self_clone.print_stats(&peer_stat_list);
                 self_clone.measure_throughput(&peer_stat_list);
+                debug!(
+                    "I currently have {}/{} peers",
+                    peer_stat_list.len(),
+                    self_clone.config.max_allowed_nodes
+                );
+                if self_clone.config.print_peers {
+                    self_clone.print_stats(&peer_stat_list);
+                }
 
                 log_time = now;
             }

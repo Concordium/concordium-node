@@ -43,13 +43,15 @@ use std::{
 };
 
 // If a message is labelled as having `High` priority it is always pushed to the
-// front of the queue in the sinks when sending, and otherwise to the back
+// front of the queue in the sinks when sending, and otherwise to the back.
 #[derive(PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
 pub enum MessageSendingPriority {
     Normal,
     High,
 }
 
+/// Contains the circular queues of hashes of different consensus objects
+/// for deduplication purposes.
 pub struct DeduplicationQueues {
     pub finalizations: RwLock<CircularQueue<u64>>,
     pub transactions:  RwLock<CircularQueue<u64>>,
@@ -58,6 +60,9 @@ pub struct DeduplicationQueues {
 }
 
 impl DeduplicationQueues {
+    /// Creates the deduplication queues of specified sizes: short for blocks
+    /// and finalization records and long for finalization messages and
+    /// transactions.
     pub fn new(long_size: usize, short_size: usize) -> Arc<Self> {
         Arc::new(Self {
             finalizations: RwLock::new(CircularQueue::with_capacity(long_size)),
@@ -68,6 +73,7 @@ impl DeduplicationQueues {
     }
 }
 
+/// Contains all the statistics of a connection.
 pub struct ConnectionStats {
     pub last_ping_sent:    AtomicU64,
     pub sent_handshake:    AtomicU64,
@@ -83,15 +89,22 @@ pub struct ConnectionStats {
 
 type PendingPriority = (MessageSendingPriority, Reverse<Instant>);
 
+/// A collection of objects related to the connection to a single peer.
 pub struct Connection {
-    handler_ref:             Arc<P2PNode>,
-    pub token:               Token,
-    pub remote_peer:         RemotePeer,
-    pub low_level:           RwLock<ConnectionLowLevel>,
+    /// A reference to the parent node.
+    handler_ref: Arc<P2PNode>,
+    /// The poll token of the connection's socket.
+    pub token: Token,
+    /// The connection's representation as a peer object.
+    pub remote_peer: RemotePeer,
+    pub low_level: RwLock<ConnectionLowLevel>,
+    /// The list of networks the connection belongs to.
     pub remote_end_networks: Arc<RwLock<HashSet<NetworkId>>>,
-    pub is_post_handshake:   AtomicBool,
-    pub stats:               ConnectionStats,
-    pub pending_messages:    RwLock<PriorityQueue<Arc<[u8]>, PendingPriority>>,
+    /// Indicates whether the connection's handshake has concluded.
+    pub is_post_handshake: AtomicBool,
+    pub stats: ConnectionStats,
+    /// The queue of messages to be sent to the connection.
+    pub pending_messages: RwLock<PriorityQueue<Arc<[u8]>, PendingPriority>>,
 }
 
 impl PartialEq for Connection {
