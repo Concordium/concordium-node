@@ -105,10 +105,12 @@ class (SkovQueryMonad m, TimeMonad m, LoggerMonad m) => SkovMonad m where
     -- |Finalize a block where the finalization record is known to be for the
     -- next finalization index and have a valid finalization proof.  This
     -- checks that the block being finalized is live.
-    --  * If the block being finalized is live, it is finalized and 'ResultSuccess' is returned.
+    --  * If the block being finalized is live, it is finalized and the block pointer is returned.
     --  * If the block is already finalized or dead, 'ResultInvalid' is returned
     --  * If the block is unknown or pending, 'ResultUnverifiable' is returned.
-    trustedFinalize :: FinalizationRecord -> m UpdateResult
+    -- Note that this function is indended to be called by the finalization implemention,
+    -- and will not call the finalization implementation itself.
+    trustedFinalize :: FinalizationRecord -> m (Either UpdateResult (BlockPointer m))
     -- TODO: change signature - logging can be used instead of returning a string; could return UpdateResult
     -- receiveCatchUpStatus :: CatchUpStatus -> m (Either String (Maybe ([Either FinalizationRecord (BlockPointer m)], CatchUpStatus), Bool))
     handleCatchUpStatus :: CatchUpStatus -> m (Maybe ([(MessageType, ByteString)], CatchUpStatus), UpdateResult)

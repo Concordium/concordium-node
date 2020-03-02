@@ -262,7 +262,7 @@ makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> TreeConfig
 makeGlobalStateConfig rt genData = MTDBConfig rt genData (genesisState genData)
 
 type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) HookLogHandler
-type PassiveConfig = SkovConfig TreeConfig NoFinalization HookLogHandler
+type PassiveConfig = SkovConfig TreeConfig (NoFinalization ()) HookLogHandler
 
 
 -- |A 'ConsensusRunner' encapsulates an instance of the consensus, and possibly a baker thread.
@@ -348,7 +348,7 @@ startConsensusPassive maxBlock gdataC gdataLenC cucbk maxLogLevel lcbk = do
                     gsconfig = makeGlobalStateConfig
                         (RuntimeParameters (fromIntegral maxBlock))
                         genData
-                    finconfig = NoFinalization
+                    finconfig = NoFinalization genData
                     hconfig = HookLogHandler Nothing
                     config = SkovConfig gsconfig finconfig hconfig
                 passiveSyncRunner <- makeSyncPassiveRunner logM config catchUpCallback
@@ -698,7 +698,7 @@ checkIfWeAreFinalizer cptr = do
         return 0
       BakerRunner s -> do
         logm External LLDebug "Active consensus, querying best block."
-        r <- Get.checkFinalizerExistsBestBlock s
+        r <- Get.checkIsCurrentFinalizer s
         logm External LLTrace $ "Replying with " ++ show r
         if r then return 1 else return 0
 

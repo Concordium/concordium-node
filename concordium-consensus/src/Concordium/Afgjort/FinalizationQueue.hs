@@ -10,6 +10,7 @@ import Data.Foldable
 import Control.Monad.State.Class
 import Control.Monad
 import qualified Data.Vector as Vector
+import Control.Exception(assert)
 
 import qualified Concordium.Crypto.BlsSignature as Bls
 import Concordium.Types
@@ -52,6 +53,22 @@ newFinalizationProven sessId fc FinalizationRecord{..} = FinalizationProven {
         fpUncheckedSignatures = Map.empty,
         fpUncheckedSignatureSet = BitSet.empty,
         fpBadSignatureSet = BitSet.empty,
+        fpCheckedAggregateSet = BitSet.fromList (finalizationProofParties finalizationProof),
+        fpCheckedAggregateSignature = finalizationProofSignature finalizationProof
+    }
+
+newFinalizationProvenWithWitnesses :: FinalizationSessionId -> FinalizationCommittee -> FinalizationRecord -> OutputWitnesses -> FinalizationProven
+newFinalizationProvenWithWitnesses sessId fc FinalizationRecord{..} OutputWitnesses{..} = FinalizationProven {
+        fpSessionId = sessId,
+        fpIndex = finalizationIndex,
+        fpBlock = finalizationBlockPointer,
+        fpDelay = finalizationDelay,
+        fpCommittee = fc,
+        fpCheckedSignatures = knownGoodSigs,
+        fpCheckedSignatureSet = BitSet.fromList (Map.keys knownGoodSigs),
+        fpUncheckedSignatures = unknownSigs,
+        fpUncheckedSignatureSet = BitSet.fromList (Map.keys unknownSigs),
+        fpBadSignatureSet = knownBadSigs,
         fpCheckedAggregateSet = BitSet.fromList (finalizationProofParties finalizationProof),
         fpCheckedAggregateSignature = finalizationProofSignature finalizationProof
     }
@@ -103,6 +120,19 @@ fpAddFinalizationRecord FinalizationRecord{..} fp@FinalizationProven{..}
         = fpAddCheckedAggregate (BitSet.fromList (finalizationProofParties finalizationProof)) (finalizationProofSignature finalizationProof) fp
     | otherwise = fp
 
+-- FIXME: Be sure to check that we are preserving invariants about disjointness of the sets!
+fpAddOutputWitnesses :: OutputWitnesses -> FinalizationProven -> FinalizationProven
+fpAddOutputWitnesses OutputWitnesses{..} fp@FinalizationProven{..} = fp {
+        fpCheckedSignatures = fpCheckedSignatures `Map.union` knownGoodSigs,
+        fpCheckedSignatureSet = foldl' (flip BitSet.insert) fpCheckedSignatureSet (Map.keys knownGoodSigs),
+        fpUncheckedSignatures = unchecked,
+        fpUncheckedSignatureSet = BitSet.fromList (Map.keys unchecked),
+        fpBadSignatureSet = fpBadSignatureSet `BitSet.union` knownBadSigs
+    }
+    where
+        unchecked = (fpUncheckedSignatures `Map.difference` knownGoodSigs) `Map.union` (unknownSigs `Map.difference` fpCheckedSignatures)
+
+
 fpGetProof :: FinalizationProven -> (FinalizationRecord, FinalizationProven)
 fpGetProof fp@FinalizationProven{..}
     | done = (makeFR fpCheckedAggregateSet fpCheckedAggregateSignature, fp)
@@ -140,7 +170,7 @@ fpGetProof fp@FinalizationProven{..}
         (additionalCheckedSigs, acsMap, acsSet, badSet)
             | Map.null candidateUncheckedSigs = (mempty, Map.empty, BitSet.empty, fpBadSignatureSet)
             | Bls.verifyAggregate toSign (key . fst <$> candidateUncheckedSigsList) aggregateCandidateUnchecked =
-                (aggregateCandidateUnchecked, Map.empty, fpUncheckedSignatureSet `BitSet.difference` stillUncheckedSet, fpBadSignatureSet)
+                (aggregateCandidateUnchecked, candidateUncheckedSigs, fpUncheckedSignatureSet `BitSet.difference` stillUncheckedSet, fpBadSignatureSet)
             | otherwise =
                 let culprits = findCulprits candidateUncheckedSigsList toSign key
                     culpritSet = BitSet.fromList culprits
@@ -179,6 +209,14 @@ fpGetProofSimple fp@FinalizationProven{..}
                 finalizationDelay = fpDelay
             }
 
+fpGetProofTrivial :: FinalizationProven -> FinalizationRecord
+fpGetProofTrivial FinalizationProven{..} = FinalizationRecord {
+        finalizationIndex = fpIndex,
+        finalizationBlockPointer = fpBlock,
+        finalizationProof = FinalizationProof (BitSet.toList fpCheckedAggregateSet, fpCheckedAggregateSignature),
+        finalizationDelay = fpDelay
+    }
+
 -- |The finalization queue stores finalization records that are not yet
 -- included in blocks that are themselves finalized.
 data FinalizationQueue = FinalizationQueue {
@@ -207,7 +245,22 @@ addQueuedFinalization sessId fc fr@FinalizationRecord{..} = do
                     %= fpAddFinalizationRecord fr
             EQ -> finQueue . fqProofs %= (Seq.|> newFinalizationProven sessId fc fr)
             GT -> return ()
-        
+
+-- |Add a finalization record to the end of the finalization queue, together
+-- with the output witnesses collected by the finalization state.  This
+-- must only be called with a finalization record for the next finalization
+-- index.
+addNewQueuedFinalization :: (MonadState s m, FinalizationQueueLenses s)
+    => FinalizationSessionId
+    -> FinalizationCommittee
+    -> FinalizationRecord
+    -> OutputWitnesses
+    -> m ()
+addNewQueuedFinalization sessId fc fr@FinalizationRecord{..} ow = do
+        FinalizationQueue{..} <- use finQueue
+        assert (finalizationIndex == _fqFirstIndex + fromIntegral (Seq.length _fqProofs)) $ do
+            finQueue . fqProofs %= (Seq.|> newFinalizationProvenWithWitnesses sessId fc fr ow)
+
 -- |Get a finalization record for a given index, if it is available.
 getQueuedFinalization :: (MonadState s m, FinalizationQueueLenses s)
     => FinalizationIndex
@@ -257,6 +310,7 @@ tryAddQueuedWitness msg@FinalizationMessage{msgHeader=FinalizationMessageHeader{
                 | msgFinalizationIndex >= _fqFirstIndex
                 , let fqIndex = fromIntegral (msgFinalizationIndex - _fqFirstIndex)
                 , Just FinalizationProven{..} <- _fqProofs Seq.!? fqIndex
+                , msgDelta == fpDelay
                 , val == fpBlock ->
                     if msgSenderIndex `BitSet.member` (fpCheckedSignatureSet `BitSet.union` fpUncheckedSignatureSet `BitSet.union` fpBadSignatureSet) then
                         return ResultDuplicate
@@ -268,33 +322,19 @@ tryAddQueuedWitness msg@FinalizationMessage{msgHeader=FinalizationMessageHeader{
                 | otherwise -> return ResultStale
 tryAddQueuedWitness _ = return ResultStale
 
-    ----
-{-
--- |Add a finalization record to the finalization queue. The proof is
--- trusted (i.e. its validity is not checked).
-addFinalization :: FinalizationRecord -> FinalizationQueue -> FinalizationQueue
-addFinalization fr@FinalizationRecord{..} fq@FinalizationQueue{..}
-    | finalizationIndex == fqFirstIndex + fromIntegral (Seq.length fqProofs) =
-            fq{fqProofs = fqProofs Seq.|> fr}
-    | otherwise = fq
-
--- |Get a finalization record for a given index, if it is available.
-getFinalization :: FinalizationIndex -> FinalizationQueue -> Maybe FinalizationRecord
-getFinalization fi FinalizationQueue{..}
-    | fi >= fqFirstIndex = fqProofs Seq.!? fromIntegral (fi - fqFirstIndex)
-    | otherwise = Nothing
-
--- |Get all finalization records in the queue with finalization index greater than
--- the specified value. The records are returned in ascending order of finalization
--- index.
-getFinalizationsBeyond :: FinalizationIndex -> FinalizationQueue -> Seq.Seq FinalizationRecord
-getFinalizationsBeyond fi FinalizationQueue{..} = Seq.drop (fromIntegral fi - fromIntegral fqFirstIndex + 1) fqProofs
-
--- |Update the finalization queue by removing finalization information below the
--- given index. This should be used so that the queue doesn't hold records where
--- a finalized block already finalizes at that index.
-updateFinalizationIndex :: FinalizationIndex -> FinalizationQueue -> FinalizationQueue
-updateFinalizationIndex fi fq@FinalizationQueue{..}
-    | fi <= fqFirstIndex = fq
-    | otherwise = FinalizationQueue{fqFirstIndex = fi, fqProofs = Seq.drop (fromIntegral (fi - fqFirstIndex)) fqProofs}
--}
+-- |If there is a queued finalization for the given index, return the
+-- the finalization proof without attempting to add any further signatures.
+-- This function is used for determining when we have a finalization proof but
+-- do not have the associated block, and subsequently triggering finalization
+-- in that case.
+getQueuedFinalizationTrivial :: (MonadState s m, FinalizationQueueLenses s)
+    => FinalizationIndex
+    -- ^Finalization index to get for
+    -> m (Maybe FinalizationRecord)
+getQueuedFinalizationTrivial fi = do
+    FinalizationQueue{..} <- use finQueue
+    if fi >= _fqFirstIndex then
+        let index = fromIntegral (fi - _fqFirstIndex)
+        in return $ fpGetProofTrivial <$> (_fqProofs Seq.!? index)
+    else
+        return Nothing

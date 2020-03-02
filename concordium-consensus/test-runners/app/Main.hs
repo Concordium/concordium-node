@@ -163,7 +163,7 @@ main = do
         gsconfig <- makeGlobalStateConfig defaultRuntimeParameters gen
         let
             finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)) gen
-            hconfig = HookLogHandler (Just logT)
+            hconfig = HookLogHandler Nothing --(Just logT)
             config = SkovConfig gsconfig finconfig hconfig
         (cin, cout, sr) <- makeAsyncRunner logM bid config
         _ <- forkIO $ sendTransactions cin trans

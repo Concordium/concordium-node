@@ -251,11 +251,10 @@ checkBakerExistsBestBlock key sfsRef = runStateQuery sfsRef $ do
         Just _ -> return 1
         Nothing -> return 0
 
--- |Check whether a keypair is part of the finalization committee by a key pair in the current best block.
--- checkFinalizerExistsBestBlock :: (SkovStateQueryable z m, FinalizationMonad s m) => z -> IO Bool
-checkFinalizerExistsBestBlock :: (SkovStateQueryable z m, MonadState s m, FinalizationStateLenses s t) => z -> IO Bool
-checkFinalizerExistsBestBlock sfsRef = runStateQuery sfsRef $ do
+-- |Check whether the node is currently a member of the finalization committee.
+checkIsCurrentFinalizer :: (SkovStateQueryable z m, MonadState s m, FinalizationStateLenses s t) => z -> IO Bool
+checkIsCurrentFinalizer sfsRef = runStateQuery sfsRef $ do
    fs <- use finState
    case fs ^. finCurrentRound of
-     Nothing -> return False
-     Just _ -> return True
+     Left _ -> return False
+     Right _ -> return True

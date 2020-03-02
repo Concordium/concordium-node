@@ -213,7 +213,7 @@ data SyncPassiveRunner c = SyncPassiveRunner {
     syncPState :: MVar (SkovState c),
     syncPLogMethod :: LogMethod IO,
     syncPContext :: !(SkovContext c),
-    syncPHandlers :: !(SkovPassiveHandlers LogIO)
+    syncPHandlers :: !(SkovPassiveHandlers c LogIO)
 }
 
 instance (SkovQueryMonad (SkovT () c LogIO)) => SkovStateQueryable (SyncPassiveRunner c) (SkovT () c LogIO) where
@@ -222,7 +222,7 @@ instance (SkovQueryMonad (SkovT () c LogIO)) => SkovStateQueryable (SyncPassiveR
         runLoggerT (evalSkovT a () (syncPContext sr) s) (syncPLogMethod sr)
 
 
-runSkovPassive :: SyncPassiveRunner c -> SkovT (SkovPassiveHandlers LogIO) c LogIO a -> IO a
+runSkovPassive :: SyncPassiveRunner c -> SkovT (SkovPassiveHandlers c LogIO) c LogIO a -> IO a
 {-# INLINE runSkovPassive #-}
 runSkovPassive SyncPassiveRunner{..} a = runWithStateLog syncPState syncPLogMethod (runSkovT a syncPHandlers syncPContext)
 
@@ -245,22 +245,22 @@ makeSyncPassiveRunner syncPLogMethod config cusCallback = do
 shutdownSyncPassiveRunner :: SkovConfiguration c => SyncPassiveRunner c -> IO ()
 shutdownSyncPassiveRunner SyncPassiveRunner{..} = takeMVar syncPState >>= shutdownSkov syncPContext
 
-syncPassiveReceiveBlock :: (SkovMonad (SkovT (SkovPassiveHandlers LogIO) c LogIO)) => SyncPassiveRunner c -> ByteString -> IO UpdateResult
+syncPassiveReceiveBlock :: (SkovMonad (SkovT (SkovPassiveHandlers c LogIO) c LogIO)) => SyncPassiveRunner c -> ByteString -> IO UpdateResult
 syncPassiveReceiveBlock spr block = runSkovPassive spr (receiveBlock block)
 
-syncPassiveReceiveTransaction :: (SkovMonad (SkovT (SkovPassiveHandlers LogIO) c LogIO)) => SyncPassiveRunner c -> Transaction -> IO UpdateResult
+syncPassiveReceiveTransaction :: (SkovMonad (SkovT (SkovPassiveHandlers c LogIO) c LogIO)) => SyncPassiveRunner c -> Transaction -> IO UpdateResult
 syncPassiveReceiveTransaction spr trans = runSkovPassive spr (receiveTransaction trans)
 
-syncPassiveReceiveFinalizationRecord :: (FinalizationMonad (SkovT (SkovPassiveHandlers LogIO) c LogIO)) => SyncPassiveRunner c -> FinalizationRecord -> IO UpdateResult
+syncPassiveReceiveFinalizationRecord :: (FinalizationMonad (SkovT (SkovPassiveHandlers c LogIO) c LogIO)) => SyncPassiveRunner c -> FinalizationRecord -> IO UpdateResult
 syncPassiveReceiveFinalizationRecord spr finRec = runSkovPassive spr (finalizationReceiveRecord False finRec)
 
-syncPassiveReceiveCatchUp :: (SkovMonad (SkovT (SkovPassiveHandlers LogIO) c LogIO)) 
+syncPassiveReceiveCatchUp :: (SkovMonad (SkovT (SkovPassiveHandlers c LogIO) c LogIO)) 
     => SyncPassiveRunner c
     -> CatchUpStatus
     -> IO (Maybe ([(MessageType, ByteString)], CatchUpStatus), UpdateResult)
 syncPassiveReceiveCatchUp spr c = runSkovPassive spr (handleCatchUpStatus c)
 
-syncPassiveHookTransaction :: (SkovMonad (SkovT (SkovPassiveHandlers LogIO) c LogIO), TreeStateMonad (SkovT (SkovPassiveHandlers LogIO) c LogIO), TransactionHookLenses (SkovState c)) => SyncPassiveRunner c -> TransactionHash -> IO HookResult
+syncPassiveHookTransaction :: (SkovMonad (SkovT (SkovPassiveHandlers c LogIO) c LogIO), TreeStateMonad (SkovT (SkovPassiveHandlers c LogIO) c LogIO), TransactionHookLenses (SkovState c)) => SyncPassiveRunner c -> TransactionHash -> IO HookResult
 syncPassiveHookTransaction syncRunner th = runSkovPassive syncRunner (hookQueryTransaction th)
 
 

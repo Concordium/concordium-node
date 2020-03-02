@@ -33,9 +33,12 @@ data FinalizationInstance = FinalizationInstance {
 }
 
 class HasFinalizationInstance f where
-    finalizationInstance :: f -> FinalizationInstance
+    finalizationInstance :: f -> Maybe FinalizationInstance
 instance HasFinalizationInstance FinalizationInstance where
-    finalizationInstance = id
+    finalizationInstance = Just
+    {-# INLINE finalizationInstance #-}
+instance HasFinalizationInstance () where
+    finalizationInstance _ = Nothing
     {-# INLINE finalizationInstance #-}
 
 data PartyInfo = PartyInfo {

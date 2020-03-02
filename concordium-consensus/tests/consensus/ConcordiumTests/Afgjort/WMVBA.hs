@@ -61,7 +61,7 @@ makeInput :: WMVBAInput -> WMVBA () ()
 makeInput (ReceiveWMVBAMessage p m) = receiveWMVBAMessage p () m
 makeInput (StartWMVBA v) = startWMVBA v
 
-invariantWMVBAState :: WMVBAInstance () -> WMVBAState () -> [WMVBAOutputEvent ()] -> Either String ()
+invariantWMVBAState :: WMVBAInstance -> WMVBAState () -> [WMVBAOutputEvent ()] -> Either String ()
 invariantWMVBAState (WMVBAInstance baid _totalWeight corruptWeight _partyWeight _maxParty
                                    _publicKeys _me _privateKey publicBlsKeys _privateBlsKey)
                     (WMVBAState _ _ _ justifications badJustifications)

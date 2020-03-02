@@ -123,20 +123,20 @@ purgePending = do
                                 purgeLoop
         purgeLoop
 
-doTrustedFinalize :: (TreeStateMonad m, SkovMonad m, FinalizationMonad m, OnSkov m) => FinalizationRecord -> m UpdateResult
+doTrustedFinalize :: (TreeStateMonad m, SkovMonad m, OnSkov m) => FinalizationRecord -> m (Either UpdateResult (BlockPointer m))
 doTrustedFinalize finRec =
     getBlockStatus (finalizationBlockPointer finRec) >>= \case
-        Just (BlockAlive bp) -> ResultSuccess <$ processFinalization bp finRec
-        Just BlockDead -> return ResultInvalid
-        Just BlockFinalized{} -> return ResultInvalid
-        Just BlockPending{} -> return ResultUnverifiable
-        Nothing -> return ResultInvalid
+        Just (BlockAlive bp) -> Right bp <$ processFinalization bp finRec
+        Just BlockDead -> return $ Left ResultInvalid
+        Just BlockFinalized{} -> return $ Left ResultInvalid
+        Just BlockPending{} -> return $ Left ResultUnverifiable
+        Nothing -> return $ Left ResultInvalid
 
 -- |Process the finalization of a block.  The following are assumed:
 --
 -- * The block is either live or finalized.
 -- * The finalization record is valid and finalizes the given block.
-processFinalization :: forall m. (TreeStateMonad m, SkovMonad m, FinalizationMonad m, OnSkov m) => BlockPointer m -> FinalizationRecord -> m ()
+processFinalization :: forall m. (TreeStateMonad m, SkovMonad m, OnSkov m) => BlockPointer m -> FinalizationRecord -> m ()
 processFinalization newFinBlock finRec@FinalizationRecord{..} = do
     nextFinIx <- getNextFinalizationIndex
     when (nextFinIx == finalizationIndex) $ do
@@ -216,7 +216,6 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
         putBranches newBranches
         -- purge pending blocks with slot numbers predating the last finalized slot
         purgePending
-        finalizationBlockFinal finRec newFinBlock
         onFinalize finRec newFinBlock
 
 -- |Try to add a block to the tree.  There are three possible outcomes:
