@@ -5,7 +5,6 @@ mod tests;
 
 use low_level::ConnectionLowLevel;
 
-use bytesize::ByteSize;
 use chrono::prelude::Utc;
 use circular_queue::CircularQueue;
 use digest::Digest;
@@ -379,6 +378,7 @@ impl Connection {
         }
     }
 
+    /// Send a ping to the connection.
     pub fn send_ping(&self) -> Fallible<()> {
         trace!("Sending a ping to {}", self);
 
@@ -392,6 +392,7 @@ impl Connection {
         Ok(())
     }
 
+    /// Send a pong to the connection.
     pub fn send_pong(&self) -> Fallible<()> {
         trace!("Sending a pong to {}", self);
 
@@ -403,6 +404,7 @@ impl Connection {
         Ok(())
     }
 
+    /// Send a response to a request for peers to the connection.
     pub fn send_peer_list_resp(&self, nets: &HashSet<NetworkId>) -> Fallible<()> {
         let requestor =
             self.remote_peer.peer().ok_or_else(|| format_err!("handshake not concluded yet"))?;
@@ -512,7 +514,7 @@ impl Drop for Connection {
     }
 }
 
-// returns a bool indicating if the message is a duplicate
+/// Returns a bool indicating whether the message is a duplicate.
 #[inline]
 fn dedup_with(message: &[u8], queue: &mut CircularQueue<u64>) -> Fallible<bool> {
     let mut hash = [0u8; 8];
@@ -527,26 +529,4 @@ fn dedup_with(message: &[u8], queue: &mut CircularQueue<u64>) -> Fallible<bool> 
         trace!("Message {:x} is a duplicate", num);
         Ok(true)
     }
-}
-
-#[inline]
-pub fn send_pending_messages(
-    pending_messages: &RwLock<PriorityQueue<Arc<[u8]>, PendingPriority>>,
-    low_level: &mut ConnectionLowLevel,
-) -> Fallible<()> {
-    let mut pending_messages = write_or_die!(pending_messages);
-
-    while let Some((msg, _)) = pending_messages.pop() {
-        trace!(
-            "Attempting to send {} to {}",
-            ByteSize(msg.len() as u64).to_string_as(true),
-            low_level.conn()
-        );
-
-        if let Err(err) = low_level.write_to_socket(msg) {
-            bail!("Can't send a raw network request to {}: {}", low_level.conn(), err);
-        }
-    }
-
-    Ok(())
 }

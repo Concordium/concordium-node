@@ -7,8 +7,9 @@ use noiseexplorer_xx::{
     noisesession::NoiseSession,
     types::Keypair,
 };
+use priority_queue::PriorityQueue;
 
-use super::{Connection, DeduplicationQueues};
+use super::{Connection, DeduplicationQueues, PendingPriority};
 use crate::network::PROTOCOL_MAX_MESSAGE_SIZE;
 
 use std::{
@@ -17,7 +18,7 @@ use std::{
     convert::TryInto,
     io::{Cursor, ErrorKind, Read, Seek, SeekFrom, Write},
     mem,
-    sync::{atomic::Ordering, Arc},
+    sync::{atomic::Ordering, Arc, RwLock},
     time::Duration,
 };
 
@@ -524,4 +525,27 @@ impl ConnectionLowLevel {
     /// Get the desired socket write size.
     #[inline]
     fn write_size(&self) -> usize { self.conn().handler.config.socket_write_size }
+
+    /// Processes a queue with pending messages, writing them to the socket.
+    #[inline]
+    pub fn send_pending_messages(
+        &mut self,
+        pending_messages: &RwLock<PriorityQueue<Arc<[u8]>, PendingPriority>>,
+    ) -> Fallible<()> {
+        let mut pending_messages = write_or_die!(pending_messages);
+
+        while let Some((msg, _)) = pending_messages.pop() {
+            trace!(
+                "Attempting to send {} to {}",
+                ByteSize(msg.len() as u64).to_string_as(true),
+                self.conn()
+            );
+
+            if let Err(err) = self.write_to_socket(msg) {
+                bail!("Can't send a raw network request: {}", err);
+            }
+        }
+
+        Ok(())
+    }
 }
