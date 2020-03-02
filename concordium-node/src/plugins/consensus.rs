@@ -442,7 +442,7 @@ pub fn check_peer_states(
                 send_catch_up_status(node, network_id, consensus, &peers_lock, id)?;
             }
             UpToDate => {
-                consensus.start_baker();
+                // do nothing
             }
         }
     }
