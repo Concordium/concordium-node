@@ -491,9 +491,8 @@ pub fn connection_housekeeping(node: &Arc<P2PNode>) -> Fallible<()> {
     Ok(())
 }
 
-/// Connetion is valid for a broadcast if sender is not target,
-/// network_id is owned by connection, and the remote peer is not
-/// a bootstrap node.
+/// A connetion is applicable for a broadcast if it is not in the exclusion
+/// list, belongs to the same network, and doesn't belong to a bootstrapper.
 fn is_valid_broadcast_target(
     conn: &Connection,
     peers_to_skip: &[P2PNodeId],
@@ -503,10 +502,10 @@ fn is_valid_broadcast_target(
 
     conn.remote_peer.peer_type() != PeerType::Bootstrapper
         && !peers_to_skip.contains(&peer_id)
-        && read_or_die!(conn.remote_end_networks()).contains(&network_id)
+        && read_or_die!(conn.remote_end_networks).contains(&network_id)
 }
 
-/// Send a direct packet to the peer with the given id.
+/// Send a direct packet with `msg` contents to the specified peer.
 #[inline]
 pub fn send_direct_message(
     node: &P2PNode,
@@ -517,6 +516,7 @@ pub fn send_direct_message(
     send_message_over_network(node, Some(target_id), vec![], network_id, msg, false)
 }
 
+/// Send a broadcast packet with `msg` contents to the specified peer.
 #[inline]
 pub fn send_broadcast_message(
     node: &P2PNode,

@@ -16,6 +16,7 @@ use failure::{Error, Fallible};
 use std::{collections::HashSet, net::SocketAddr, sync::atomic::Ordering};
 
 impl Connection {
+    /// Processes a network message based on its type.
     pub fn handle_incoming_message(&self, full_msg: NetworkMessage) {
         if let Err(e) = match full_msg.payload {
             NetworkMessagePayload::NetworkRequest(NetworkRequest::Handshake(handshake), ..) => {
@@ -45,7 +46,7 @@ impl Connection {
         } {
             if !self.handler.is_terminated.load(Ordering::Relaxed) {
                 // In other case we are closing the node so we won't output the possibly closed
-                // channels errors
+                // channel's errors
                 error!("Couldn't handle a network message: {}", e);
             }
         }
