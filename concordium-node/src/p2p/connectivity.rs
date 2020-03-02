@@ -5,6 +5,7 @@ use rand::{
     Rng,
 };
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use semver::Version;
 
 use crate::{
     common::{get_current_stamp, P2PNodeId, PeerType, RemotePeer},
@@ -12,8 +13,8 @@ use crate::{
     connection::{send_pending_messages, Connection, DeduplicationQueues, MessageSendingPriority},
     netmsg,
     network::{
-        NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkPacketType,
-        NetworkRequest,
+        Handshake, NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket,
+        NetworkPacketType, NetworkRequest,
     },
     p2p::{bans::BanId, maintenance::attempt_bootstrap, P2PNode},
 };
@@ -259,6 +260,24 @@ impl P2PNode {
                 }
             })
             .unzip()
+    }
+
+    /// Creates a "high-level" handshake request to be sent to new peers.
+    pub fn produce_handshake_request(&self) -> Fallible<Vec<u8>> {
+        let handshake_request = netmsg!(
+            NetworkRequest,
+            NetworkRequest::Handshake(Handshake {
+                remote_id:   self.self_peer.id(),
+                remote_port: self.self_peer.port(),
+                networks:    read_or_die!(self.networks()).iter().copied().collect(),
+                version:     Version::parse(env!("CARGO_PKG_VERSION"))?,
+                proof:       vec![],
+            })
+        );
+        let mut serialized = Vec::with_capacity(128);
+        handshake_request.serialize(&mut serialized)?;
+
+        Ok(serialized)
     }
 }
 

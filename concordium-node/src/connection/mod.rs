@@ -12,7 +12,6 @@ use digest::Digest;
 use failure::Fallible;
 use mio::{tcp::TcpStream, Poll, PollOpt, Ready, Token};
 use priority_queue::PriorityQueue;
-use semver::Version;
 use twox_hash::XxHash64;
 
 use crate::{
@@ -20,7 +19,7 @@ use crate::{
     dumper::DumpItem,
     netmsg,
     network::{
-        Handshake, NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkRequest,
+        NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkRequest,
         NetworkResponse,
     },
     p2p::{bans::BanId, P2PNode},
@@ -378,23 +377,6 @@ impl Connection {
             let di = DumpItem::new(Utc::now(), inbound, self.remote_peer.addr().ip(), buf);
             let _ = sender.send(di);
         }
-    }
-
-    pub fn produce_handshake_request(&self) -> Fallible<Vec<u8>> {
-        let handshake_request = netmsg!(
-            NetworkRequest,
-            NetworkRequest::Handshake(Handshake {
-                remote_id:   self.handler.self_peer.id(),
-                remote_port: self.handler.self_peer.port(),
-                networks:    read_or_die!(self.handler.networks()).iter().copied().collect(),
-                version:     Version::parse(env!("CARGO_PKG_VERSION"))?,
-                proof:       vec![],
-            })
-        );
-        let mut serialized = Vec::with_capacity(128);
-        handshake_request.serialize(&mut serialized)?;
-
-        Ok(serialized)
     }
 
     pub fn send_ping(&self) -> Fallible<()> {

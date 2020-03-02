@@ -185,7 +185,7 @@ impl ConnectionLowLevel {
         recv_xx_msg!(self, len, "A");
         let pad = 16;
         let payload_in = self.socket_buffer.slice(len)[DHLEN..][..len - DHLEN - pad].try_into()?;
-        let payload_out = self.conn().produce_handshake_request()?;
+        let payload_out = self.conn().handler.produce_handshake_request()?;
         send_xx_msg!(self, DHLEN * 2 + MAC_LENGTH, &payload_out, MAC_LENGTH, "B");
         self.conn().set_sent_handshake();
 
@@ -197,7 +197,7 @@ impl ConnectionLowLevel {
         let payload_in = self.socket_buffer.slice(len)[DHLEN * 2 + MAC_LENGTH..]
             [..len - DHLEN * 2 - MAC_LENGTH * 2]
             .try_into()?;
-        let payload_out = self.conn().produce_handshake_request()?;
+        let payload_out = self.conn().handler.produce_handshake_request()?;
         send_xx_msg!(self, DHLEN + MAC_LENGTH, &payload_out, MAC_LENGTH, "C");
         self.conn().handler.stats.peers_inc();
 
