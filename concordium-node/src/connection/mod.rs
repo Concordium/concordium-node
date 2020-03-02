@@ -36,7 +36,7 @@ use std::{
     io::Cursor,
     net::SocketAddr,
     sync::{
-        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, RwLock,
     },
     time::Instant,
@@ -78,7 +78,6 @@ pub struct ConnectionStats {
     pub last_ping_sent:    AtomicU64,
     pub sent_handshake:    AtomicU64,
     pub last_seen:         AtomicU64,
-    pub failed_pkts:       AtomicU32,
     pub messages_sent:     AtomicU64,
     pub messages_received: AtomicU64,
     pub valid_latency:     AtomicBool,
@@ -147,7 +146,6 @@ impl Connection {
             sent_handshake:    Default::default(),
             valid_latency:     Default::default(),
             last_latency:      Default::default(),
-            failed_pkts:       Default::default(),
             last_ping_sent:    AtomicU64::new(curr_stamp),
             last_seen:         AtomicU64::new(curr_stamp),
             bytes_received:    Default::default(),
@@ -229,9 +227,6 @@ impl Connection {
     /// Obtain the timestamp of when the connection was interacted with last.
     pub fn last_seen(&self) -> u64 { self.stats.last_seen.load(Ordering::Relaxed) }
 
-    /// Obtain the number of failed packets provided by the connection.
-    pub fn failed_pkts(&self) -> u32 { self.stats.failed_pkts.load(Ordering::Relaxed) }
-
     /// It registers the connection's socket for read and write ops using *edge*
     /// notifications.
     #[inline]
@@ -291,13 +286,7 @@ impl Connection {
             self.send_to_dump(message.clone(), true);
         }
 
-        let mut message = match NetworkMessage::deserialize(&message) {
-            Ok(msg) => msg,
-            Err(e) => {
-                self.handle_invalid_network_msg(e);
-                return Ok(());
-            }
-        };
+        let mut message = NetworkMessage::deserialize(&message)?;
 
         if let NetworkMessagePayload::NetworkPacket(ref mut packet) = message.payload {
             // disregard packets when in bootstrapper mode

@@ -30,7 +30,6 @@ pub const DUMP_QUEUE_DEPTH: usize = 100;
 pub const DUMP_SWITCH_QUEUE_DEPTH: usize = 0;
 
 // connection-related consts
-pub const MAX_FAILED_PACKETS_ALLOWED: u32 = 50;
 pub const UNREACHABLE_EXPIRATION_SECS: u64 = 86_400;
 pub const MAX_BOOTSTRAPPER_KEEP_ALIVE: u64 = 300_000;
 pub const MAX_NORMAL_KEEP_ALIVE: u64 = 1_200_000;

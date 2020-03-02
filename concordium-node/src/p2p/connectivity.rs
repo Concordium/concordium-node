@@ -430,12 +430,11 @@ pub fn connection_housekeeping(node: &Arc<P2PNode>) -> Fallible<()> {
     }
 
     let is_conn_faulty = |conn: &Connection| -> bool {
-        conn.failed_pkts() >= config::MAX_FAILED_PACKETS_ALLOWED
-            || if let Some(max_latency) = node.config.max_latency {
-                conn.get_last_latency() >= max_latency
-            } else {
-                false
-            }
+        if let Some(max_latency) = node.config.max_latency {
+            conn.get_last_latency() >= max_latency
+        } else {
+            false
+        }
     };
 
     let is_conn_inactive = |conn: &Connection| -> bool {

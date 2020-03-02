@@ -11,7 +11,7 @@ use crate::{
 };
 use concordium_common::{read_or_die, write_or_die};
 
-use failure::{Error, Fallible};
+use failure::Fallible;
 
 use std::{collections::HashSet, net::SocketAddr, sync::atomic::Ordering};
 
@@ -177,7 +177,7 @@ impl Connection {
         self.handler.unban_node(peer)
     }
 
-    pub fn handle_incoming_packet(&self, pac: NetworkPacket) -> Fallible<()> {
+    fn handle_incoming_packet(&self, pac: NetworkPacket) -> Fallible<()> {
         let peer_id = self.remote_id().ok_or_else(|| format_err!("handshake not concluded yet"))?;
 
         trace!("Received a Packet from peer {}", peer_id);
@@ -198,14 +198,5 @@ impl Connection {
             };
 
         handle_pkt_out(&self.handler, dont_relay_to, peer_id, pac.message, is_broadcast)
-    }
-
-    pub fn handle_invalid_network_msg(&self, err: Error) {
-        if let Some(peer_id) = self.remote_id() {
-            debug!("Invalid network message from peer {}: {}", peer_id, err);
-        }
-
-        self.stats.failed_pkts.fetch_add(1, Ordering::Relaxed);
-        self.handler.stats.invalid_pkts_received_inc();
     }
 }
