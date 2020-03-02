@@ -140,7 +140,7 @@ impl Connection {
 
     fn handle_join_network_req(&self, network: NetworkId) -> Fallible<()> {
         let remote_peer =
-            self.remote_peer().peer().ok_or_else(|| format_err!("handshake not concluded yet"))?;
+            self.remote_peer.peer().ok_or_else(|| format_err!("handshake not concluded yet"))?;
 
         debug!("Received a JoinNetwork request from peer {}", remote_peer.id);
 
@@ -153,7 +153,7 @@ impl Connection {
 
     fn handle_leave_network_req(&self, network: NetworkId) -> Fallible<()> {
         let remote_peer =
-            self.remote_peer().peer().ok_or_else(|| format_err!("handshake not concluded yet"))?;
+            self.remote_peer.peer().ok_or_else(|| format_err!("handshake not concluded yet"))?;
 
         debug!("Received a LeaveNetwork request from peer {}", remote_peer.id);
 

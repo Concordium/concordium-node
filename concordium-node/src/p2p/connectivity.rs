@@ -120,7 +120,7 @@ impl P2PNode {
     pub fn find_connections_by_ip(&self, ip: IpAddr) -> Vec<Arc<Connection>> {
         read_or_die!(self.connections())
             .values()
-            .filter(|conn| conn.remote_peer().addr().ip() == ip)
+            .filter(|conn| conn.remote_peer.addr().ip() == ip)
             .map(|conn| Arc::clone(conn))
             .collect()
     }

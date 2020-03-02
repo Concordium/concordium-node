@@ -192,8 +192,6 @@ impl Connection {
         self.stats.last_ping_sent.store(get_current_stamp(), Ordering::Relaxed);
     }
 
-    pub fn remote_peer(&self) -> &RemotePeer { &self.remote_peer }
-
     pub fn remote_id(&self) -> Option<P2PNodeId> { *read_or_die!(self.remote_peer.id) }
 
     pub fn remote_peer_type(&self) -> PeerType { self.remote_peer.peer_type() }
@@ -386,7 +384,7 @@ impl Connection {
 
     fn send_to_dump(&self, buf: Arc<[u8]>, inbound: bool) {
         if let Some(ref sender) = &*read_or_die!(self.handler.connection_handler.log_dumper) {
-            let di = DumpItem::new(Utc::now(), inbound, self.remote_peer().addr().ip(), buf);
+            let di = DumpItem::new(Utc::now(), inbound, self.remote_peer.addr().ip(), buf);
             let _ = sender.send(di);
         }
     }
@@ -434,7 +432,7 @@ impl Connection {
 
     pub fn send_peer_list_resp(&self, nets: &HashSet<NetworkId>) -> Fallible<()> {
         let requestor =
-            self.remote_peer().peer().ok_or_else(|| format_err!("handshake not concluded yet"))?;
+            self.remote_peer.peer().ok_or_else(|| format_err!("handshake not concluded yet"))?;
 
         let peer_list_resp = match self.handler.peer_type() {
             PeerType::Bootstrapper => {
@@ -514,9 +512,9 @@ impl Connection {
                     conn != self
                         && match peer_to_ban {
                             BanId::NodeId(id) => {
-                                conn.remote_peer().peer().map_or(true, |x| x.id() != *id)
+                                conn.remote_peer.peer().map_or(true, |x| x.id() != *id)
                             }
-                            BanId::Ip(addr) => conn.remote_peer().addr().ip() != *addr,
+                            BanId::Ip(addr) => conn.remote_peer.addr().ip() != *addr,
                             _ => unimplemented!("Socket address bans don't propagate"),
                         }
                 }
