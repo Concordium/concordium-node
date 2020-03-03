@@ -104,11 +104,13 @@ pub fn connect(source: &Arc<P2PNode>, target: &P2PNode) -> Fallible<()> {
     connectivity::connect(source, target.self_peer.peer_type, target.internal_addr(), None)
 }
 
-pub fn await_handshake(node: &P2PNode) -> Fallible<()> {
+pub fn await_handshake(node1: &P2PNode, node2: &P2PNode) -> Fallible<()> {
     loop {
-        if let Some(conn) = read_or_die!(node.connections()).values().next() {
-            if conn.is_post_handshake() {
-                break;
+        if let Some(conn) = read_or_die!(node1.connections()).values().next() {
+            if let Some(id) = conn.remote_id() {
+                if id == node2.id() {
+                    break;
+                }
             }
         }
 
