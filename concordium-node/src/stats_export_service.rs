@@ -100,15 +100,15 @@ impl StatsExportService {
 
         let qs_opts = Opts::new("queue_size", "current queue size");
         let qs = IntGauge::with_opts(qs_opts)?;
-        registry.register(Box::new(qs.clone()))?;
+        registry.register(Box::new(qs))?;
 
         let rqs_opts = Opts::new("resend_queue_size", "current queue size");
         let rqs = IntGauge::with_opts(rqs_opts)?;
-        registry.register(Box::new(rqs.clone()))?;
+        registry.register(Box::new(rqs))?;
 
         let dp_opts = Opts::new("packets_dropped", "dropped packets");
         let dp = IntCounter::with_opts(dp_opts)?;
-        registry.register(Box::new(dp.clone()))?;
+        registry.register(Box::new(dp))?;
 
         let cr_opts = Opts::new("conn_received", "connections received");
         let cr = IntCounter::with_opts(cr_opts)?;
@@ -124,7 +124,7 @@ impl StatsExportService {
 
         let ipr_opts = Opts::new("invalid_packets_received", "invalid packets received");
         let ipr = IntCounter::with_opts(ipr_opts)?;
-        registry.register(Box::new(ipr.clone()))?;
+        registry.register(Box::new(ipr))?;
 
         let upr_opts = Opts::new("unknown_packets_received", "unknown packets received");
         let upr = IntCounter::with_opts(upr_opts)?;
@@ -133,11 +133,11 @@ impl StatsExportService {
         let inpr_opts =
             Opts::new("invalid_network_packets_received", "invalid network packets received");
         let inpr = IntCounter::with_opts(inpr_opts)?;
-        registry.register(Box::new(inpr.clone()))?;
+        registry.register(Box::new(inpr))?;
 
         let rs_opts = Opts::new("packets_resend", "items in queue that needed to be resend");
         let rs = IntCounter::with_opts(rs_opts)?;
-        registry.register(Box::new(rs.clone()))?;
+        registry.register(Box::new(rs))?;
 
         let inbound_high_priority_consensus_drops_opts = Opts::new(
             "inbound_high_priority_consensus_drops",
