@@ -719,16 +719,6 @@ impl P2p for RpcServerImpl {
             value: self.node.stop_dump().is_ok(),
         }))
     }
-
-    async fn hook_transaction(
-        &self,
-        req: Request<TransactionHash>,
-    ) -> Result<Response<JsonResponse>, Status> {
-        authenticate!(req, self.access_token);
-        call_consensus!(self, "HookTransaction", JsonResponse, |cc: &ConsensusContainer| {
-            cc.hook_transaction(&req.get_ref().transaction_hash)
-        })
-    }
 }
 
 #[cfg(test)]
