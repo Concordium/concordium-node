@@ -19,26 +19,7 @@ cfg_if! {
 }
 use crate::configuration;
 use failure::Fallible;
-use std::{fmt, sync::Arc};
-
-#[derive(Debug, PartialEq)]
-pub enum StatsServiceMode {
-    BootstrapperMode,
-    NodeMode,
-}
-
-impl fmt::Display for StatsServiceMode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            StatsServiceMode::BootstrapperMode => write!(f, "bootstrapper"),
-            StatsServiceMode::NodeMode => write!(f, "node"),
-        }
-    }
-}
-
-impl Default for StatsServiceMode {
-    fn default() -> Self { Self::NodeMode }
-}
+use std::sync::Arc;
 
 cfg_if! {
     if #[cfg(feature = "instrumentation")] {
@@ -64,7 +45,6 @@ cfg_if! {
         }
 
         pub struct StatsExportService {
-            pub mode: StatsServiceMode,
             registry: Registry,
             pkts_received_counter: IntCounter,
             pkts_sent_counter: IntCounter,
@@ -95,7 +75,6 @@ cfg_if! {
 #[cfg(not(feature = "instrumentation"))]
 #[derive(Default)]
 pub struct StatsExportService {
-    pub mode: StatsServiceMode,
     pkts_received_counter: AtomicUsize,
     pkts_sent_counter: AtomicUsize,
     pkts_dropped_counter: AtomicUsize,
@@ -122,31 +101,23 @@ pub struct StatsExportService {
 
 impl StatsExportService {
     #[cfg(feature = "instrumentation")]
-    pub fn new(mode: StatsServiceMode) -> Fallible<Self> {
+    pub fn new() -> Fallible<Self> {
         let registry = Registry::new();
         let pg_opts = Opts::new("peer_number", "current peers connected");
         let pg = IntGauge::with_opts(pg_opts)?;
-        if mode == StatsServiceMode::NodeMode || mode == StatsServiceMode::BootstrapperMode {
-            registry.register(Box::new(pg.clone()))?;
-        }
+        registry.register(Box::new(pg.clone()))?;
 
         let qs_opts = Opts::new("queue_size", "current queue size");
         let qs = IntGauge::with_opts(qs_opts)?;
-        if mode == StatsServiceMode::NodeMode || mode == StatsServiceMode::BootstrapperMode {
-            registry.register(Box::new(qs.clone()))?;
-        }
+        registry.register(Box::new(qs.clone()))?;
 
         let rqs_opts = Opts::new("resend_queue_size", "current queue size");
         let rqs = IntGauge::with_opts(rqs_opts)?;
-        if mode == StatsServiceMode::NodeMode || mode == StatsServiceMode::BootstrapperMode {
-            registry.register(Box::new(rqs.clone()))?;
-        }
+        registry.register(Box::new(rqs.clone()))?;
 
         let dp_opts = Opts::new("packets_dropped", "dropped packets");
         let dp = IntCounter::with_opts(dp_opts)?;
-        if mode == StatsServiceMode::NodeMode || mode == StatsServiceMode::BootstrapperMode {
-            registry.register(Box::new(dp.clone()))?;
-        }
+        registry.register(Box::new(dp.clone()))?;
 
         let cr_opts = Opts::new("conn_received", "connections received");
         let cr = IntCounter::with_opts(cr_opts)?;
@@ -162,28 +133,20 @@ impl StatsExportService {
 
         let ipr_opts = Opts::new("invalid_packets_received", "invalid packets received");
         let ipr = IntCounter::with_opts(ipr_opts)?;
-        if mode == StatsServiceMode::NodeMode || mode == StatsServiceMode::BootstrapperMode {
-            registry.register(Box::new(ipr.clone()))?;
-        }
+        registry.register(Box::new(ipr.clone()))?;
 
         let upr_opts = Opts::new("unknown_packets_received", "unknown packets received");
         let upr = IntCounter::with_opts(upr_opts)?;
-        if mode == StatsServiceMode::NodeMode || mode == StatsServiceMode::BootstrapperMode {
-            registry.register(Box::new(upr))?;
-        }
+        registry.register(Box::new(upr))?;
 
         let inpr_opts =
             Opts::new("invalid_network_packets_received", "invalid network packets received");
         let inpr = IntCounter::with_opts(inpr_opts)?;
-        if mode == StatsServiceMode::NodeMode || mode == StatsServiceMode::BootstrapperMode {
-            registry.register(Box::new(inpr.clone()))?;
-        }
+        registry.register(Box::new(inpr.clone()))?;
 
         let rs_opts = Opts::new("packets_resend", "items in queue that needed to be resend");
         let rs = IntCounter::with_opts(rs_opts)?;
-        if mode == StatsServiceMode::NodeMode || mode == StatsServiceMode::BootstrapperMode {
-            registry.register(Box::new(rs.clone()))?;
-        }
+        registry.register(Box::new(rs.clone()))?;
 
         let inbound_high_priority_consensus_drops_opts = Opts::new(
             "inbound_high_priority_consensus_drops",
@@ -266,7 +229,6 @@ impl StatsExportService {
         registry.register(Box::new(avg_bps_out.clone()))?;
 
         Ok(StatsExportService {
-            mode,
             registry,
             pkts_received_counter: prc,
             pkts_sent_counter: psc,
@@ -294,9 +256,8 @@ impl StatsExportService {
     }
 
     #[cfg(not(feature = "instrumentation"))]
-    pub fn new(mode: StatsServiceMode) -> Fallible<Self> {
+    pub fn new() -> Fallible<Self> {
         Ok(Self {
-            mode,
             ..Default::default()
         })
     }
@@ -591,7 +552,6 @@ impl StatsExportService {
         prometheus_push_password: Option<String>,
     ) {
         let metrics_families = self.registry.gather();
-        let _mode = self.mode.to_string();
         let _th = spawn_or_die!("Prometheus push", move || loop {
             debug!("Pushing data to push gateway");
             let username_pass = prometheus_push_username.clone().and_then(|username| {
@@ -605,7 +565,6 @@ impl StatsExportService {
                 &prometheus_job_name,
                 labels! {
                     "instance".to_owned() => prometheus_instance_name.clone(),
-                    "mode".to_owned() => _mode.clone(),
                 },
                 &prometheus_push_gateway,
                 metrics_families.clone(),
@@ -620,17 +579,16 @@ impl StatsExportService {
 #[cfg(feature = "instrumentation")]
 pub fn instantiate_stats_export_engine(
     conf: &configuration::Config,
-    mode: StatsServiceMode,
 ) -> Fallible<Arc<StatsExportService>> {
     let prom = if conf.prometheus.prometheus_server {
         info!("Enabling prometheus server");
-        StatsExportService::new(mode)?
+        StatsExportService::new()?
     } else if let Some(ref push_gateway) = conf.prometheus.prometheus_push_gateway {
         info!("Enabling prometheus push gateway at {}", push_gateway);
-        StatsExportService::new(mode)?
+        StatsExportService::new()?
     } else {
         warn!("Couldn't instantiate prometheus due to lacking config flags");
-        StatsExportService::new(mode)?
+        StatsExportService::new()?
     };
     Ok(Arc::new(prom))
 }
@@ -638,9 +596,8 @@ pub fn instantiate_stats_export_engine(
 #[cfg(not(feature = "instrumentation"))]
 pub fn instantiate_stats_export_engine(
     _: &configuration::Config,
-    mode: StatsServiceMode,
 ) -> Fallible<Arc<StatsExportService>> {
-    Ok(Arc::new(StatsExportService::new(mode)?))
+    Ok(Arc::new(StatsExportService::new()?))
 }
 
 #[cfg(feature = "instrumentation")]
@@ -665,23 +622,4 @@ pub fn start_push_gateway(
         );
         Some(())
     });
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::stats_export_service::*;
-
-    #[test]
-    pub fn test_node_mode() -> Fallible<()> {
-        let prom_inst = StatsExportService::new(StatsServiceMode::NodeMode)?;
-        assert_eq!(StatsServiceMode::NodeMode, prom_inst.mode);
-        Ok(())
-    }
-
-    #[test]
-    pub fn test_bootstrapper_mode() -> Fallible<()> {
-        let prom_inst = StatsExportService::new(StatsServiceMode::BootstrapperMode)?;
-        assert_eq!(StatsServiceMode::BootstrapperMode, prom_inst.mode);
-        Ok(())
-    }
 }
