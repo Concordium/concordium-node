@@ -44,6 +44,7 @@ cfg_if! {
             }
         }
 
+        /// Collects statistics pertaining to the node.
         pub struct StatsExportService {
             registry: Registry,
             pkts_received_counter: IntCounter,
@@ -72,6 +73,7 @@ cfg_if! {
     }
 }
 
+/// Collects statistics pertaining to the node.
 #[cfg(not(feature = "instrumentation"))]
 #[derive(Default)]
 pub struct StatsExportService {
@@ -100,6 +102,7 @@ pub struct StatsExportService {
 }
 
 impl StatsExportService {
+    /// Creates a new instance of the starts export service object.
     #[cfg(feature = "instrumentation")]
     pub fn new() -> Fallible<Self> {
         let registry = Registry::new();
@@ -255,13 +258,11 @@ impl StatsExportService {
         })
     }
 
+    /// Creates a new instance of the starts export service object.
     #[cfg(not(feature = "instrumentation"))]
-    pub fn new() -> Fallible<Self> {
-        Ok(Self {
-            ..Default::default()
-        })
-    }
+    pub fn new() -> Fallible<Self> { Ok(Default::default()) }
 
+    /// Increases the number of peers.
     pub fn peers_inc(&self) {
         #[cfg(feature = "instrumentation")]
         self.peers_gauge.inc();
@@ -269,6 +270,7 @@ impl StatsExportService {
         self.peers_gauge.fetch_add(1, Ordering::Relaxed);
     }
 
+    /// Decreases the number of peers.
     pub fn peers_dec(&self) {
         #[cfg(feature = "instrumentation")]
         self.peers_gauge.dec();
@@ -276,6 +278,7 @@ impl StatsExportService {
         self.peers_gauge.fetch_sub(1, Ordering::Relaxed);
     }
 
+    /// Increases the number of received packets.
     pub fn pkt_received_inc(&self) {
         #[cfg(feature = "instrumentation")]
         self.pkts_received_counter.inc();
@@ -283,6 +286,7 @@ impl StatsExportService {
         self.pkts_received_counter.fetch_add(1, Ordering::Relaxed);
     }
 
+    /// Decreases the number of received packets.
     pub fn pkt_sent_inc(&self) {
         #[cfg(feature = "instrumentation")]
         self.pkts_sent_counter.inc();
