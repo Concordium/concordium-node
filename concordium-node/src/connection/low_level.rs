@@ -347,11 +347,14 @@ impl ConnectionLowLevel {
                     _ => bail!("invalid XX handshake"),
                 }?;
 
-                if !self.noise_session.is_initiator()
-                    && self.noise_session.get_message_count() == 1
-                    && payload != PSK
-                {
-                    bail!("Invalid PSK");
+                if !self.noise_session.is_initiator() {
+                    if self.noise_session.get_message_count() == 1 && payload != PSK {
+                        bail!("Invalid PSK");
+                    } else if self.noise_session.get_message_count() == 2 {
+                        // message C doesn't carry a payload; break the reading loop
+                        self.socket_buffer.reset();
+                        return Ok(ReadResult::Incomplete);
+                    }
                 }
 
                 self.socket_buffer.reset();
