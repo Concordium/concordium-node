@@ -237,7 +237,6 @@ class (Eq (BlockPointer m),
     -- |Get non-finalized transactions for the given account starting at the given nonce (inclusive).
     -- These are returned as an ordered list of pairs of nonce and non-empty set of transactions
     -- with that nonce.
-    -- In addition, return the least arrival time of a non-finalized transaction for this account.
     getAccountNonFinalized :: AccountAddress -> Nonce -> m [(Nonce, Set.Set Transaction)]
     -- |Add a transaction to the transaction table.
     -- Does nothing if the transaction's nonce preceeds the next available nonce
